@@ -1,0 +1,101 @@
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Aryan Ameri
+#
+# =============================================================================
+# jmap-client CI Workflow
+# Runs REUSE compliance, format check, lint, and tests on every push and PR
+# =============================================================================
+
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [main]
+
+jobs:
+  reuse:
+    name: REUSE Compliance
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: REUSE Compliance Check
+        uses: fsfe/reuse-action@676e2d560c9a403aa252096d99fcab3e1132b0f5 # v6.0.0
+
+  ci:
+    name: Format, Lint, Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install mise
+        uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
+
+      - name: Read NIM_VERSION from mise.toml
+        run: |
+          NIM_VERSION=$(grep 'NIM_VERSION' mise.toml | sed 's/.*= *"\(.*\)"/\1/')
+          echo "NIM_VERSION=$NIM_VERSION" >> $GITHUB_ENV
+          echo "Nim version: $NIM_VERSION"
+
+      - name: Cache Nim toolchain
+        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
+        id: nim-cache
+        with:
+          path: |
+            ~/nim-${{ env.NIM_VERSION }}
+            ~/nim
+            ~/.nimble/bin
+            ~/.nimble/pkgs2
+          key: nim-${{ runner.os }}-${{ env.NIM_VERSION }}-${{ hashFiles('*.nimble') }}
+          restore-keys: |
+            nim-${{ runner.os }}-${{ env.NIM_VERSION }}-
+
+      - name: Install Nim from source
+        if: steps.nim-cache.outputs.cache-hit != 'true'
+        run: |
+          cd ~
+          curl -LO "https://nim-lang.org/download/nim-${{ env.NIM_VERSION }}.tar.xz"
+          tar xf "nim-${{ env.NIM_VERSION }}.tar.xz"
+          cd "nim-${{ env.NIM_VERSION }}"
+          sh build.sh
+          ./bin/nim c -d:release koch
+          ./koch boot -d:release
+          ./koch nimble
+          ./bin/nim c -d:release -o:bin/testament testament/testament.nim
+          cd ..
+          ln -sf "nim-${{ env.NIM_VERSION }}" nim
+          rm -f "nim-${{ env.NIM_VERSION }}.tar.xz"
+
+      - name: Add tools to PATH
+        run: |
+          echo "$HOME/nim/bin" >> $GITHUB_PATH
+          echo "$HOME/.nimble/bin" >> $GITHUB_PATH
+          echo "$HOME/.local/share/mise/shims" >> $GITHUB_PATH
+
+      - name: Verify toolchain
+        run: |
+          nim --version
+          nimble --version
+          nph --version
+          just --version
+
+      - name: Install project dependencies
+        run: |
+          rm -rf ~/.nimble/pkgs2/nim-*
+          nimble install -d --accept
+          nimble setup
+          rm -rf ~/.nimble/pkgs2/nim-*
+
+      - name: Check formatting
+        run: just fmt-check
+
+      - name: Lint
+        run: just lint
+
+      - name: Run tests
+        run: just test

@@ -1,0 +1,11 @@
+[tools]
+just = "1.48.0"
+node = "24"
+"npm:cspell" = "9.7.0"
+uv = "0.11.1"
+"pipx:reuse" = "6.2.0"
+"github:arnetheduck/nph" = "0.7.0"
+"github:nim-lang/langserver" = { version = "1.12.0", exe = "nimlangserver" }
+
+[env]
+NIM_VERSION = "2.2.8"

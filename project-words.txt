@@ -1,0 +1,84 @@
+# SPDX-License-Identifier: CC-BY-4.0
+# Nim Language
+nim
+nimble
+nimcache
+nimlangserver
+nimsuggest
+nph
+testament
+
+# Nim Keywords & Patterns
+exportc
+cdecl
+dynlib
+filterIt
+foldl
+func
+isErr
+isNone
+isOk
+isSome
+mapIt
+proc
+ufcs
+UFCS
+valueOr
+
+# JMAP Protocol
+JMAP
+jmap
+accountId
+blobId
+emailId
+threadId
+mailbox
+mailboxes
+sessionUrl
+
+# HTTP / TLS / FFI
+httpclient
+HTTPS
+SSL
+TLS
+ABI
+FFI
+
+# Project-Specific
+jmap-client
+libjmap
+
+# Technical Terms
+musl
+statically
+stderr
+stdout
+
+# British English Variants
+behaviour
+colour
+deserialisation
+deserialise
+normalised
+serialisation
+serialise
+
+# DevOps & Tools
+devcontainer
+devcontainers
+lldb
+LLDB
+mise
+
+# VS Code Extensions (author names)
+Ameri
+arnetheduck
+eamodio
+errorlens
+foxundermoon
+hverlin
+mhutchie
+nefrob
+tamasfe
+usernamehw
+vadimcn
