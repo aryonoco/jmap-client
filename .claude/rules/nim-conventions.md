@@ -37,7 +37,7 @@ Result[T, E]   # Success(T) | Error(E) — stack-allocated discriminated union
 Opt[T]         # Result[T, void] — optional value, no error payload
 
 # Project alias (defined in types.nim):
-JmapResult[T] = Result[T, JmapError]
+JmapResult[T] = Result[T, ClientError]
 ```
 
 ### Constructors
@@ -45,13 +45,14 @@ JmapResult[T] = Result[T, JmapError]
 ```nim
 # Explicit (works anywhere):
 JmapResult[int].ok(42)
-JmapResult[int].err(JmapError(kind: jekParse, message: "bad input"))
+JmapResult[int].err(ClientError(kind: cekTransport,
+  transport: TransportError(kind: tekNetwork, message: "connection refused")))
 Opt[int].ok(42)          # same as Opt.some(42)
 Opt[int].err()           # same as Opt.none(int)
 
 # Shorthand (works only inside funcs where return type is inferred):
 ok(42)                   # deduced from enclosing func's return type
-err(JmapError(...))      # deduced from enclosing func's return type
+err(ClientError(...))    # deduced from enclosing func's return type
 ```
 
 ### The `?` Operator — Early Return
@@ -60,10 +61,10 @@ err(JmapError(...))      # deduced from enclosing func's return type
 from the enclosing function with that error. If ok, unwraps to the value.
 
 ```nim
-func processAccount(raw: string): JmapResult[Account] =
-  let id = ? parseAccountId(raw)       # returns early on error
-  let session = ? loadSession(id)      # returns early on error
-  let account = ? validateAccount(session)
+proc processAccount(client: JmapClient, raw: string): JmapResult[Account] =
+  let session = ? client.discoverSession()  # outer railway: ClientError on failure
+  let id = ? parseAccountId(raw)            # returns early on ClientError
+  let account = ? validateAccount(session, id)
   ok(account)
 ```
 
@@ -123,12 +124,24 @@ func process(id: AccountId): Opt[string] =
 
 ### Wrapping Exception-Raising Code
 
+Pure functions should use local error types, not `ClientError` (a parse failure
+is not a transport/request error). Use `mapErr` to lift into `JmapResult` at the
+boundary where it makes sense:
+
 ```nim
-func safeParseInt(s: string): JmapResult[int] =
+# Local Result — pure wrapper with simple error:
+func safeParseInt(s: string): Result[int, string] =
   try:
     ok(parseInt(s))
   except ValueError as e:
-    err(JmapError(kind: jekParse, message: e.msg))
+    err(e.msg)
+
+# Lift into outer railway at the transport boundary:
+func parsePort(s: string): JmapResult[int] =
+  safeParseInt(s).mapErr(proc(msg: string): ClientError =
+    ClientError(kind: cekTransport,
+      transport: TransportError(kind: tekNetwork,
+        message: "invalid port: " & msg)))
 ```
 
 `try/except` inside `{.raises: [].}` is allowed — the compiler verifies all
@@ -151,8 +164,9 @@ func parseSession(raw: string): JmapResult[Session] =
   ok(Session(apiUrl: ? extractField(json, "apiUrl")))
 
 # Imperative shell (proc, calls pure core):
-proc discoverSession(url: string): JmapResult[Session] =
-  parseSession(httpGet(url))    # I/O at boundary, logic in pure core
+proc discoverSession(client: JmapClient): JmapResult[Session] =
+  let body = ? client.httpGet(client.baseUrl)  # ClientError on transport failure
+  parseSession(body)                            # ClientError on parse failure
 ```
 
 ## Immutability
@@ -190,6 +204,7 @@ Do not nest `It`-templates — inner `it` shadows outer.
 
 - `--styleCheck:error` — must match declaration-site casing.
 - Types: `PascalCase`. Procs/funcs/vars/fields: `camelCase`.
-- Enum values: lowercase prefix from type name (`jek` for `JmapErrorKind`).
+- Enum values: lowercase prefix from type name (`cek` for `ClientErrorKind`,
+  `tek` for `TransportErrorKind`).
 - Comments/docstrings: British English. Identifiers: US English.
 - `--hintAsError:DuplicateModuleImport` — no redundant imports.

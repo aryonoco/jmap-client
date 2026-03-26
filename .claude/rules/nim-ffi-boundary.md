@@ -76,51 +76,161 @@ proc jmapLastError*(): cstring {.exportc: "jmap_last_error", cdecl, dynlib.} =
 Nim enums default to smallest fitting integer. C enums are `int`-sized:
 
 ```nim
-type JmapErrorKind* {.size: sizeof(cint).} = enum
-  jekNone = 0
-  jekParse = 1
-  jekNetwork = 2
-  jekAuth = 3
-  jekProtocol = 4
+type JmapErrorCategory* {.size: sizeof(cint).} = enum
+  ## Coarse error category for C return codes.
+  ## Flattens the Nim ClientError (TransportError | RequestError) into one enum.
+  jecNone = 0
+  jecTransportNetwork = 1
+  jecTransportTls = 2
+  jecTransportTimeout = 3
+  jecTransportHttpStatus = 4
+  jecRequestUnknownCapability = 5
+  jecRequestNotJson = 6
+  jecRequestNotRequest = 7
+  jecRequestLimit = 8
+  jecRequestUnknown = 9
 ```
 
-Always assign explicit ordinal values for ABI stability.
+Always assign explicit ordinal values for ABI stability. Use gaps between
+groups (transport 1-4, request 5-9) for future extension without renumbering.
 
 ## Error Handling Across FFI
 
-C has no Result types. Translate `JmapResult[T]` to return codes:
+C has no Result types. The two-level railway is projected to C as follows:
+
+**Outer railway (transport + request failures):** return codes from operations
+that hit the network. The most recent `ClientError` details are stored in
+thread-local state and accessible via query functions.
+
+**Inner railway (per-invocation method errors):** data within a successful
+response. Accessed through response handle accessors, not return codes.
+
+### Outer Railway: Return Codes and Thread-Local Error State
 
 ```nim
 const
-  JMAP_OK*          = cint(0)
-  JMAP_ERR_NETWORK* = cint(-1)
-  JMAP_ERR_AUTH*    = cint(-2)
-  JMAP_ERR_PARSE*   = cint(-3)
-  JMAP_ERR_PROTOCOL*= cint(-4)
-  JMAP_ERR_BUFSZ*   = cint(-5)
-  JMAP_ERR_NULL*    = cint(-6)
+  JMAP_OK*                         = cint(0)
+  # Transport errors (negative, starting at -1)
+  JMAP_ERR_NETWORK*                = cint(-1)
+  JMAP_ERR_TLS*                    = cint(-2)
+  JMAP_ERR_TIMEOUT*                = cint(-3)
+  JMAP_ERR_HTTP_STATUS*            = cint(-4)
+  # Request-level errors (negative, starting at -10)
+  JMAP_ERR_REQ_UNKNOWN_CAPABILITY* = cint(-10)
+  JMAP_ERR_REQ_NOT_JSON*           = cint(-11)
+  JMAP_ERR_REQ_NOT_REQUEST*        = cint(-12)
+  JMAP_ERR_REQ_LIMIT*              = cint(-13)
+  JMAP_ERR_REQ_UNKNOWN*            = cint(-14)
+  # Caller errors (negative, starting at -90)
+  JMAP_ERR_NULL*                   = cint(-90)
+  JMAP_ERR_BUFSZ*                  = cint(-91)
 
-var lastErrorKind {.threadvar.}: JmapErrorKind
+# Thread-local error state: stores the most recent ClientError details.
+var lastErrorCategory {.threadvar.}: JmapErrorCategory
 var lastErrorMsg {.threadvar.}: string
+var lastErrorHttpStatus {.threadvar.}: cint
+var lastErrorDetail {.threadvar.}: string
 
-proc setLastError(err: JmapError) =
-  lastErrorKind = err.kind
-  lastErrorMsg = err.message
+proc clearLastError() =
+  lastErrorCategory = jecNone
+  lastErrorMsg = ""
+  lastErrorHttpStatus = 0
+  lastErrorDetail = ""
 
-proc jmapSessionDiscover*(handle: pointer, outSession: ptr pointer): cint
-    {.exportc: "jmap_session_discover", cdecl, dynlib.} =
+proc setLastError(err: ClientError): cint =
+  ## Stores error details and returns the corresponding C error code.
+  case err.kind
+  of cekTransport:
+    let te = err.transport
+    lastErrorMsg = te.message
+    lastErrorHttpStatus = if te.httpStatus.isSome: cint(te.httpStatus.get) else: 0
+    lastErrorDetail = ""
+    case te.kind
+    of tekNetwork:
+      lastErrorCategory = jecTransportNetwork
+      return JMAP_ERR_NETWORK
+    of tekTls:
+      lastErrorCategory = jecTransportTls
+      return JMAP_ERR_TLS
+    of tekTimeout:
+      lastErrorCategory = jecTransportTimeout
+      return JMAP_ERR_TIMEOUT
+    of tekHttpStatus:
+      lastErrorCategory = jecTransportHttpStatus
+      return JMAP_ERR_HTTP_STATUS
+  of cekRequest:
+    let re = err.request
+    lastErrorMsg = re.rawType
+    lastErrorHttpStatus = if re.status.isSome: cint(re.status.get) else: 0
+    lastErrorDetail = if re.detail.isSome: re.detail.get else: ""
+    case re.errorType
+    of retUnknownCapability:
+      lastErrorCategory = jecRequestUnknownCapability
+      return JMAP_ERR_REQ_UNKNOWN_CAPABILITY
+    of retNotJson:
+      lastErrorCategory = jecRequestNotJson
+      return JMAP_ERR_REQ_NOT_JSON
+    of retNotRequest:
+      lastErrorCategory = jecRequestNotRequest
+      return JMAP_ERR_REQ_NOT_REQUEST
+    of retLimit:
+      lastErrorCategory = jecRequestLimit
+      return JMAP_ERR_REQ_LIMIT
+    of retUnknown:
+      lastErrorCategory = jecRequestUnknown
+      return JMAP_ERR_REQ_UNKNOWN
+
+proc jmapSend*(handle: pointer, reqHandle: pointer, outResp: ptr pointer): cint
+    {.exportc: "jmap_send", cdecl, dynlib.} =
   let client = cast[ptr JmapClientObj](handle)
   if client.isNil:
     return JMAP_ERR_NULL
-  let res = discoverSession(client[].baseUrl, client[].bearerToken)
+  clearLastError()
+  let res = client[].send(cast[ptr RequestObj](reqHandle)[])
   if res.isErr:
-    setLastError(res.error)
-    return cint(ord(res.error.kind)) * -1
-  outSession[] = allocSession(res.get)
+    return setLastError(res.error)
+  outResp[] = allocResponse(res.get)
   return JMAP_OK
 ```
 
-`{.threadvar.}` gives each C thread its own error state.
+### Inner Railway: Per-Invocation Results via Response Handles
+
+Method errors are **data within a successful response**, not return codes.
+The C consumer iterates invocation results through the response handle:
+
+```nim
+proc jmapResponseInvocationCount*(resp: pointer): cint
+    {.exportc: "jmap_response_invocation_count", cdecl, dynlib.} =
+  let r = cast[ptr JmapResponseObj](resp)
+  if r.isNil: return 0
+  return cint(r[].invocations.len)
+
+proc jmapResponseInvocationIsError*(resp: pointer, index: cint): cint
+    {.exportc: "jmap_response_invocation_is_error", cdecl, dynlib.} =
+  ## Returns 1 if the invocation at `index` is a MethodError, 0 if success.
+  let r = cast[ptr JmapResponseObj](resp)
+  if r.isNil or index < 0 or index >= cint(r[].invocations.len):
+    return -1
+  return if r[].invocations[index].isErr: 1 else: 0
+
+proc jmapResponseMethodErrorType*(resp: pointer, index: cint,
+    buf: cstring, bufLen: cint): cint
+    {.exportc: "jmap_response_method_error_type", cdecl, dynlib.} =
+  ## Copies the method error rawType string into `buf`.
+  let r = cast[ptr JmapResponseObj](resp)
+  if r.isNil: return JMAP_ERR_NULL
+  let inv = r[].invocations[index]
+  if inv.isOk: return 0  # not an error
+  let errType = inv.error.rawType
+  if errType.len >= bufLen:
+    return JMAP_ERR_BUFSZ
+  copyMem(buf, errType.cstring, errType.len + 1)
+  return cint(errType.len)
+```
+
+`{.threadvar.}` gives each C thread its own outer-railway error state.
+Per-invocation errors do not use thread-local state — they are accessed
+directly from the response handle.
 
 ## Memory Ownership (ARC)
 

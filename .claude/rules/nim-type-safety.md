@@ -62,36 +62,18 @@ let id = AccountId("abc")   # OK
 Combine with a validation function for the smart constructor pattern:
 
 ```nim
-func parseAccountId*(raw: string): JmapResult[AccountId] =
+func parseAccountId*(raw: string): Result[AccountId, string] =
   if raw.len == 0:
-    return err(JmapError(kind: jekParse, message: "empty account ID"))
+    return err("empty account ID")
   ok(AccountId(raw))
 ```
 
+Use a local `Result[T, string]` for pure validators — not `JmapResult`, since
+a validation failure is not a `ClientError`. Lift with `mapErr` at the boundary.
+
 ## Object Variants (Sum Types)
 
-Nim's discriminated unions — equivalent to F#/OCaml/Haskell ADTs:
-
-```nim
-type
-  JmapErrorKind* = enum
-    jekParse
-    jekNetwork
-    jekAuth
-    jekProtocol
-
-  JmapError* = object
-    message*: string           # shared field — always accessible
-    case kind*: JmapErrorKind
-    of jekParse:
-      detail*: string
-    of jekNetwork:
-      statusCode*: int
-    of jekAuth:
-      realm*: string
-    of jekProtocol:
-      methodName*: string
-```
+Nim's discriminated unions — equivalent to F#/OCaml/Haskell ADTs.
 
 `--experimental:strictCaseObjects` is enabled:
 - Cannot access variant-specific fields without matching the discriminator.
@@ -99,14 +81,62 @@ type
 - Cannot change the discriminator after construction.
 - Adding a variant forces compile errors at all unhandled `case` sites.
 
+### Two-variant sum (outer railway error):
+
 ```nim
-func errorMessage*(e: JmapError): string =
+type
+  ClientErrorKind* = enum
+    cekTransport
+    cekRequest
+
+  ClientError* = object
+    case kind*: ClientErrorKind
+    of cekTransport:
+      transport*: TransportError
+    of cekRequest:
+      request*: RequestError
+```
+
+```nim
+func summary*(e: ClientError): string =
   case e.kind
-  of jekParse: "Parse error: " & e.detail
-  of jekNetwork: "Network error: " & $e.statusCode
-  of jekAuth: "Auth required: " & e.realm
-  of jekProtocol: "Protocol error in " & e.methodName
-  # Exhaustive — adding a new JmapErrorKind variant forces a compile error here
+  of cekTransport: "Transport failure: " & e.transport.message
+  of cekRequest: "Request error: " & e.request.rawType
+  # Exhaustive — adding a new ClientErrorKind variant forces a compile error here
+```
+
+### Simple variant with shared fields (transport errors):
+
+```nim
+type
+  TransportErrorKind* = enum
+    tekNetwork
+    tekTls
+    tekTimeout
+    tekHttpStatus
+
+  TransportError* = object
+    kind*: TransportErrorKind
+    message*: string
+    httpStatus*: Opt[int]      # only meaningful for tekHttpStatus
+```
+
+### Enum with string backing for lossless round-trip (method errors):
+
+```nim
+type
+  MethodErrorType* = enum
+    metServerFail = "serverFail"
+    metInvalidArguments = "invalidArguments"
+    metForbidden = "forbidden"
+    metAccountNotFound = "accountNotFound"
+    # ... (16 variants total, see architecture-options.md Layer 2)
+    metUnknown
+
+  MethodError* = object
+    errorType*: MethodErrorType
+    rawType*: string           # always populated, even for known types
+    description*: Opt[string]
 ```
 
 ## Enums
@@ -164,5 +194,7 @@ Use when the safety benefit is clear, not on every type.
   overloads, hidden allocations.
 - **`CStringConv` warning is an error** — catches dangerous implicit
   `string` -> `cstring` that creates dangling pointers under ARC.
-- **Concepts** — structural, not nominal. Still experimental in 2.2.
-  Use sparingly for genuinely structural constraints.
+- **Concepts** — structural, not nominal. Simple concepts (flat interface
+  checks) work well under strict mode. Deeply chained or recursive concept
+  constraints interact unpredictably with `strictFuncs` and `raises: []` —
+  avoid those.
