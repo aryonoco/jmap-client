@@ -1,44 +1,24 @@
-# SPDX-License-Identifier: 0BSD
-# SPDX-FileCopyrightText: 2026 Aryan Ameri <info@ameri.me>
+# SPDX-License-Identifier: BSL-1.0
+# SPDX-FileCopyrightText: 2026 Aryan Ameri <github@aryan.ameri.coffee>
 
 version = 1
 
 # =============================================================================
-# Source Code (MPL-2.0) - Code with actual logic
+# Source Code (BSL-1.0)
 # =============================================================================
 
-[[annotations]]
-path = ["src/**", "tests/**"]
-precedence = "closest"
-SPDX-FileCopyrightText = "2026 Aryan Ameri <info@ameri.me>"
-SPDX-License-Identifier = "MPL-2.0"
-
-# Nim project manifest and config
-[[annotations]]
-path = ["*.nimble", "config.nims"]
-precedence = "closest"
-SPDX-FileCopyrightText = "2026 Aryan Ameri <info@ameri.me>"
-SPDX-License-Identifier = "0BSD"
-
-# =============================================================================
-# Plumbing/Config (0BSD) - Configuration without substantial logic
-# =============================================================================
-
-[[annotations]]
-path = [".devcontainer/**", ".github/**"]
-precedence = "closest"
-SPDX-FileCopyrightText = "2026 Aryan Ameri <info@ameri.me>"
-SPDX-License-Identifier = "0BSD"
-
-# Build system and task runner configs
-[[annotations]]
-path = ["justfile", "Makefile", "Dockerfile", "Containerfile"]
-SPDX-FileCopyrightText = "2026 Aryan Ameri <info@ameri.me>"
-SPDX-License-Identifier = "0BSD"
-
-# Data/config files (no logic)
 [[annotations]]
 path = [
+  "src/**",
+  "tests/**",
+  "*.nimble",
+  "config.nims",
+  ".devcontainer/**",
+  ".github/**",
+  "justfile",
+  "Makefile",
+  "Dockerfile",
+  "Containerfile",
   "**/*.toml",
   "**/*.json",
   "**/*.yml",
@@ -48,9 +28,9 @@ path = [
   ".editorconfig",
   "nimble.lock",
 ]
-precedence = "closest"
-SPDX-FileCopyrightText = "2026 Aryan Ameri <info@ameri.me>"
-SPDX-License-Identifier = "0BSD"
+precedence = "override"
+SPDX-FileCopyrightText = "2026 Aryan Ameri <github@aryan.ameri.coffee>"
+SPDX-License-Identifier = "BSL-1.0"
 
 # =============================================================================
 # Documentation (CC-BY-4.0)
@@ -59,5 +39,5 @@ SPDX-License-Identifier = "0BSD"
 [[annotations]]
 path = ["docs/**", "**/*.md", "**/*.txt"]
 precedence = "closest"
-SPDX-FileCopyrightText = "2026 Aryan Ameri <info@ameri.me>"
+SPDX-FileCopyrightText = "2026 Aryan Ameri <github@aryan.ameri.coffee>"
 SPDX-License-Identifier = "CC-BY-4.0"

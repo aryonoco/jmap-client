@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: 0BSD
+# SPDX-License-Identifier: BSL-1.0
 # Copyright (c) 2026 Aryan Ameri
 #
 # =============================================================================

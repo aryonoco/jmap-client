@@ -2,11 +2,15 @@
 
 Cross-platform JMAP (RFC 8620/8621) client library in Nim. Designed for FFI use from C/C++ via `--mm:arc` and `{.exportc, cdecl.}`.
 
+## CRITICAL: NO AI ATTRIBUTION
+
+**DO NOT** mention AI, LLM, Claude, Claude Code, Anthropic, "generated", "assisted", or any similar reference **anywhere** — not in code, comments, commit messages, docstrings, PR descriptions, or any other artifact. No `Co-Authored-By`, no `Generated with`, no `AI-assisted`, nothing.
+
 ## Development Environment
 
 This project uses a devcontainer. Tool versions are managed by mise — `mise.toml` is the single source of truth.
 
-## Commands (via just)
+## Commands
 
 - `just` - Show all available commands
 - `just build` - Build shared library
@@ -43,7 +47,6 @@ This project uses a devcontainer. Tool versions are managed by mise — `mise.to
 
 - Use distinct types for domain identifiers
 - Export C ABI functions with `{.exportc, cdecl.}` pragmas
-- `--mm:arc` for deterministic memory management (FFI safety)
 
 ## Language
 

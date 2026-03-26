@@ -24,12 +24,19 @@ just ci             # Full CI pipeline
 - **Result types** — `JmapResult[T]` for error handling, never raise
 - **ARC memory management** — deterministic, no GC pauses, FFI-safe
 
+## AI/LLM Disclosure
+
+This project was developed with significant LLM involvement. I'm a systems architect by trade, not a programmer. I designed the core logic, made technical decisions and directed development but AI/LLM tools generated most of the code.
+
+All code was reviewed, tested, and iterated on by me. The design choices (Result types over exceptions, functional patterns, compiler safety settings, etc) are mine. The Nim syntax is not.
+
 ## Licence
 
-| Component | Licence |
-|---|---|
-| Source code (`src/`, `tests/`) | [MPL-2.0](LICENSES/MPL-2.0.txt) |
-| Configuration and tooling | [0BSD](LICENSES/0BSD.txt) |
+Copyright 2026 Aryan Ameri.
+
+| Content | Licence |
+|---------|---------|
+| Source code, configuration, and tooling | [BSL-1.0](LICENSES/BSL-1.0.txt) |
 | Documentation | [CC-BY-4.0](LICENSES/CC-BY-4.0.txt) |
 
-This project is [REUSE](https://reuse.software/) compliant.
+This project is [REUSE](https://reuse.software/) compliant. See [REUSE.toml](REUSE.toml) for details.

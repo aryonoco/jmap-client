@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: 0BSD
+# SPDX-License-Identifier: BSL-1.0
 # Copyright (c) 2026 Aryan Ameri
 #
 # Package
@@ -6,7 +6,7 @@
 version = "0.1.0"
 author = "Aryan Ameri"
 description = "Cross-platform JMAP client library"
-license = "MPL 2.0"
+license = "BSL-1.0"
 srcDir = "src"
 
 # =============================================================================

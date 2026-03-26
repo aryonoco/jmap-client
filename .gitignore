@@ -1,7 +1,7 @@
-# SPDX-License-Identifier: 0BSD
-# Copyright (c) 2023-2026 Aryan Ameri
+# SPDX-License-Identifier: BSL-1.0
+# Copyright (c) 2026 Aryan Ameri
 # =============================================================================
-# YABB .gitignore
+# jmap-client .gitignore
 # =============================================================================
 
 # -----------------------------------------------------------------------------
@@ -23,8 +23,8 @@ out/
 *.dylib
 
 # Project binary / library
-jmap_client
-libjmap_client.*
+/jmap_client
+/libjmap_client.*
 
 # Generated documentation
 htmldocs/
@@ -183,11 +183,9 @@ passwords.json
 # AI/LLM Development Tools (following project standards)
 # -----------------------------------------------------------------------------
 # Anthropic/Claude
-.claude/
-.claude*
+# Note: .claude/ is tracked (contains rules and settings)
 *_claude.*
 .anthropic/
-# Note: CLAUDE.md is tracked (project documentation)
 
 # OpenAI
 .openai/
