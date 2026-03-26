@@ -1,5 +1,8 @@
 # jmap-client
 
+> [!WARNING]
+> **This project is a very early stage prototype.** It is not alpha quality software and is not usable in any shape or form. There is no stable API, no complete functionality, and no guarantee that anything works. **Do not use this for anything.**
+
 A cross-platform JMAP ([RFC 8620](https://www.rfc-editor.org/rfc/rfc8620)/[RFC 8621](https://www.rfc-editor.org/rfc/rfc8621)) client library written in Nim.
 
 Designed to be usable from C/C++ via a clean C ABI (`{.exportc, cdecl.}`), with `--mm:arc` for deterministic, FFI-safe memory management.

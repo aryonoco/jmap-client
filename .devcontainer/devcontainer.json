@@ -176,6 +176,23 @@
         "errorLens.enabledDiagnosticLevels": ["error", "warning"],
 
         "cSpell.language": "en-GB",
+        "cSpell.dictionaries": [
+          "softwareTerms",
+          "networking-terms",
+          "computing-acronyms",
+          "coding-compound-terms",
+          "software-tools",
+          "web-services",
+          "bash",
+          "shellscript",
+          "docker",
+          "git",
+          "cpp",
+          "makefile",
+          "filetypes",
+          "public-licenses",
+          "fullstack"
+        ],
         "cSpell.enabledFileTypes": {
           "nim": true,
           "markdown": true,

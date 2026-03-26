@@ -2,7 +2,11 @@
 # Nim Language
 nim
 nimble
+nimblecache
+nimbledeps
 nimcache
+nims
+nimscript
 nimlangserver
 nimsuggest
 nph
@@ -48,8 +52,15 @@ FFI
 jmap-client
 libjmap
 
+docstrings
+megatest
+testresults
+
 # Technical Terms
+entr
+langserver
 musl
+pipx
 statically
 stderr
 stdout
@@ -64,6 +75,7 @@ serialisation
 serialise
 
 # DevOps & Tools
+Containerfile
 devcontainer
 devcontainers
 lldb

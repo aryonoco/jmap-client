@@ -41,3 +41,13 @@ path = ["docs/**", "**/*.md", "**/*.txt"]
 precedence = "closest"
 SPDX-FileCopyrightText = "2026 Aryan Ameri <github@aryan.ameri.coffee>"
 SPDX-License-Identifier = "CC-BY-4.0"
+
+# =============================================================================
+# IETF RFCs (IETF Trust) — must come after docs to take precedence
+# =============================================================================
+
+[[annotations]]
+path = ["docs/rfcs/**"]
+precedence = "override"
+SPDX-FileCopyrightText = "IETF Trust and the persons identified as authors of the code"
+SPDX-License-Identifier = "LicenseRef-IETF-Trust"

@@ -4,8 +4,21 @@
   "language": "en-GB",
   "dictionaries": [
     "en-gb",
-    "bash",
     "softwareTerms",
+    "networking-terms",
+    "computing-acronyms",
+    "coding-compound-terms",
+    "software-tools",
+    "web-services",
+    "bash",
+    "shellscript",
+    "docker",
+    "git",
+    "cpp",
+    "makefile",
+    "filetypes",
+    "public-licenses",
+    "fullstack",
     "project-words"
   ],
   "dictionaryDefinitions": [
@@ -24,7 +37,9 @@
     "htmldocs/**",
     "*.lock",
     ".git/**",
-    ".devcontainer/config/p10k.zsh"
+    ".devcontainer/config/p10k.zsh",
+    "docs/rfcs/**",
+    "LICENSES/**"
   ],
   "ignoreRegExpList": [
     "/[a-f0-9]{32,}/gi",
