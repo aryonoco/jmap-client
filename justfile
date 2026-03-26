@@ -178,3 +178,54 @@ watch:
 watch-test:
     @echo "Watching for changes... (Ctrl+C to stop)"
     @find src/ tests/ -name '*.nim' | entr -c just test
+
+# =============================================================================
+# REFERENCE SOURCES (.nim-reference/, git-ignored, fetched on demand)
+# =============================================================================
+
+ref_dir := ".nim-reference"
+
+# Fetch all reference sources
+fetch-refs: fetch-nim-ref
+
+# Fetch Nim source (stdlib, compiler, docs) for read-only reference
+fetch-nim-ref:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    shopt -s inherit_errexit
+
+    readonly version="${NIM_VERSION:?NIM_VERSION not set — check mise.toml}"
+    readonly dest="{{ref_dir}}"
+    readonly marker="${dest}/.version"
+    readonly repo="https://github.com/nim-lang/Nim.git"
+
+    if [[ -f "${marker}" && "$(<"${marker}")" == "${version}" ]]; then
+        echo "Nim ${version} reference already present at ${dest}/"
+        exit 0
+    fi
+
+    echo "Fetching Nim ${version} source..."
+    rm -rf "${dest}"
+
+    tmpdir="$(mktemp -d)"
+    cleanup() { rm -rf "${tmpdir}"; }
+    trap cleanup EXIT
+
+    git clone --depth=1 --branch "v${version}" -- "${repo}" "${tmpdir}"
+    rm -rf "${tmpdir}/.git"
+    mv -- "${tmpdir}" "${dest}"
+
+    echo "${version}" > "${marker}"
+    echo "Nim reference source ready at ${dest}/"
+
+# Remove all fetched reference sources
+clean-refs:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    readonly dest="{{ref_dir}}"
+    if [[ -d "${dest}" ]]; then
+        rm -rf "${dest}"
+        echo "Reference sources removed"
+    else
+        echo "Nothing to remove"
+    fi

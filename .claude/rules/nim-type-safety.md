@@ -137,6 +137,27 @@ type
     errorType*: MethodErrorType
     rawType*: string           # always populated, even for known types
     description*: Opt[string]
+    extras*: Opt[JsonNode]     # lossless preservation of non-standard fields
+```
+
+### Case object with `else: discard` (per-item set errors):
+
+When most variants share the same shape but a few carry extra fields, use
+`else: discard`. Shared fields (before `case`) are always accessible.
+Variant-specific fields require matching — `strictCaseObjects` enforces this.
+
+```nim
+type
+  SetError* = object
+    rawType*: string
+    description*: Opt[string]
+    extras*: Opt[JsonNode]
+    case errorType*: SetErrorType
+    of setInvalidProperties:
+      properties*: seq[string]     # RFC SHOULD: which properties were invalid
+    of setAlreadyExists:
+      existingId*: Id              # RFC MUST: ID of the existing record
+    else: discard
 ```
 
 ## Enums

@@ -215,12 +215,7 @@ Consumers match on the `kind` enum (exhaustive in Nim).
     `case` statement that does not handle it.
 - **Cons:**
   - Adding a new capability requires recompilation.
-- **Note on mutability:** Under `--experimental:strictCaseObjects`, the
-  discriminator is immutable after construction — the compiler rejects
-  reassignment. Smart constructors
-  (`func coreCapability(c: CoreCapabilities): Capability`) remain useful for
-  enforcing construction-time validation, but are not needed to prevent
-  discriminator mutation.
+
 
 #### Option 1E: Known fields + raw JSON catch-all
 
@@ -243,8 +238,7 @@ parsing for other capabilities when implementing their RFCs.
 #### Decision: 1D
 
 The case object with exhaustive enum is the correct encoding. It forces every
-consumer to handle each capability kind explicitly (enforced as a compile error
-by `strictCaseObjects`). Unknown capabilities are preserved via the `ckUnknown`
+consumer to handle each capability kind explicitly. Unknown capabilities are preserved via the `ckUnknown`
 variant, not silently dropped. Smart constructors enforce construction-time
 validation; discriminator immutability is guaranteed by the compiler.
 
@@ -399,8 +393,7 @@ SetErrors are data within successful SetResponse values (per-item results).
     successes and failures.
   - Clean ROP composition. Outer railway for transport/request failures. Inner
     railway for per-method outcomes.
-  - Method errors and set errors are *response data*, not *railway errors*. This
-    is correct — the server successfully processed the request; some methods
+  - Method errors and set errors are *response data*, not *railway errors*. The server successfully processed the request; some methods
     within it failed.
 - **Cons:**
   - Consumers must check two places — the `Result` wrapper and the per-invocation
@@ -440,7 +433,7 @@ Error type as a string, with constants for known values.
 Enum for known types with a fallback variant. Raw string always preserved
 alongside the parsed enum:
 
-```
+```nim
 MethodErrorType = enum
   metServerUnavailable = "serverUnavailable"
   metServerFail = "serverFail"
@@ -482,7 +475,10 @@ through `MethodError` without losing the original string.
 #### Decision: 2F
 
 Enum with string backing and lossless round-trip. The same pattern applies to
-`SetErrorType` and `RequestErrorType`.
+`SetErrorType` and `RequestErrorType`. The lossless principle extends beyond
+`rawType`: an `extras: Opt[JsonNode]` field on `MethodError` and `SetError`
+preserves any additional server-sent fields not modeled as typed fields. This
+ensures no information is silently dropped during parsing.
 
 ### 2.3 Concrete Error Types
 
@@ -491,7 +487,7 @@ Enum with string backing and lossless round-trip. The same pattern applies to
 Not in the RFC. The library's own error type for failures below the JMAP
 protocol level:
 
-```
+```nim
 TransportErrorKind = enum
   tekNetwork
   tekTls
@@ -506,7 +502,7 @@ TransportError = object
 
 #### RequestError (RFC 7807 Problem Details)
 
-```
+```nim
 RequestErrorType = enum
   retUnknownCapability = "urn:ietf:params:jmap:error:unknownCapability"
   retNotJson = "urn:ietf:params:jmap:error:notJSON"
@@ -525,7 +521,7 @@ RequestError = object
 
 #### ClientError (outer railway error type)
 
-```
+```nim
 ClientErrorKind = enum
   cekTransport, cekRequest
 
@@ -537,16 +533,37 @@ ClientError = object
 
 #### MethodError (inner railway error type)
 
-```
+```nim
 MethodError = object
   errorType: MethodErrorType
   rawType: string
   description: Opt[string]
+  extras: Opt[JsonNode]       # lossless preservation of non-standard fields
 ```
+
+MethodError is intentionally flat — not a case object. RFC 8620 specifies only
+`description` as an optional per-type field on method errors. All method error
+types share the same shape. No variant-specific fields are RFC-mandated.
+
+`extras` preserves any additional fields the server sends that are not modeled
+as typed fields (e.g., some servers send `arguments` on `invalidArguments`).
+This is not a user-facing escape hatch like filters — it is a preservation
+mechanism for debugging and forward-compatibility. The typed fields (`errorType`,
+`rawType`, `description`) remain the primary access path.
 
 #### SetError (per-item error within /set responses)
 
-```
+SetError is a case object because the RFC mandates variant-specific fields on
+two error types:
+- `invalidProperties` SHOULD carry `properties: String[]` (Section 5.3)
+- `alreadyExists` MUST carry `existingId: Id` (Section 5.4, for /copy)
+
+Making these typed and variant-specific means `existingId` cannot be accessed
+without matching `setAlreadyExists`.
+Shared fields (`rawType`, `description`, `extras`) are always accessible
+regardless of variant.
+
+```nim
 SetErrorType = enum
   setForbidden = "forbidden"
   setOverQuota = "overQuota"
@@ -556,14 +573,20 @@ SetErrorType = enum
   setInvalidPatch = "invalidPatch"
   setWillDestroy = "willDestroy"
   setInvalidProperties = "invalidProperties"
+  setAlreadyExists = "alreadyExists"
   setSingleton = "singleton"
   setUnknown
 
 SetError = object
-  errorType: SetErrorType
   rawType: string
   description: Opt[string]
-  properties: Opt[seq[string]]  # only for setInvalidProperties
+  extras: Opt[JsonNode]
+  case errorType: SetErrorType
+  of setInvalidProperties:
+    properties: seq[string]
+  of setAlreadyExists:
+    existingId: Id
+  else: discard
 ```
 
 ---
@@ -678,7 +701,7 @@ Serialisation: if `idsRef.isSome`, emit `"#ids"`; else if `ids.isSome`, emit
 
 #### Option 3G: Variant type (discriminated union)
 
-```
+```nim
 ReferencableKind = enum rkDirect, rkReference
 
 Referencable[T] = object
@@ -689,7 +712,7 @@ Referencable[T] = object
 
 Usage:
 
-```
+```nim
 GetRequest[T] = object
   accountId: AccountId
   ids: Opt[Referencable[seq[Id]]]
@@ -910,7 +933,7 @@ Untyped filters. Typed filter constructors per entity return `JsonNode`.
   `Email/query`. Runtime errors only from the server. Antithetical to the
   "make illegal states unrepresentable" principle.
 
-#### Decision: 5B from the start, not 5C
+#### Decision: 5B
 
 Typed filters from the start. No `JsonNode` escape hatches in the user-facing API.
 
@@ -918,7 +941,7 @@ For RFC 8620 Core specifically: Core defines the generic filter *framework* but
 no concrete filter types. Concrete filters come from RFC 8621 and other
 extensions. So the Core implementation defines:
 
-```
+```nim
 FilterOperator = enum
   foAnd = "AND"
   foOr = "OR"
@@ -1220,7 +1243,7 @@ as a convenience layer on top.
 | 1. Types | Concepts for simple interfaces (1G, fallback 1H for deep chains) | Closest to typeclasses; avoid deeply nested concepts |
 | 2. Errors | Two-level railway: ClientError outer, MethodError inner (2C) | ROP: separate transport failure from protocol results |
 | 2. Errors | Full enum + rawType for lossless round-trip (2F) | Parse, don't validate; preserve original |
-| 2. Errors | SetResponse as unified Result maps (5H) | Per-item railway, illegal dual-presence unrepresentable |
+| 2. Errors | SetResponse as unified Result maps (5H); SetError as case object | Per-item railway; variant-specific fields for invalidProperties/alreadyExists |
 | 3. Serial. | `std/json` manual ser/de, no external deps (3A) | Total parsing, `raises: []` compatible, full control |
 | 3. Serial. | camelCase in Nim source (3D) | Zero conversion, leverages style insensitivity |
 | 3. Serial. | `Referencable[T]` variant type (3G) | Illegal state (both direct + ref) unrepresentable |
