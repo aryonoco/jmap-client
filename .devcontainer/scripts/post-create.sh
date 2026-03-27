@@ -21,6 +21,11 @@ mise install --yes
 export PATH="/home/vscode/.local/share/mise/shims:${PATH}"
 echo "  Done"
 
+echo ""
+echo "Installing Python tools via uv..."
+uv tool install reuse==6.2.0
+echo "  Done"
+
 # Non-interactive shells (SSH, VS Code tasks) skip .zshrc, so mise shims
 # must be injected into PATH via a profile.d script.
 echo ""

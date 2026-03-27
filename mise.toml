@@ -8,8 +8,7 @@ just = "1.48.0"
 "github:terror/just-lsp" = "0.4.0"
 node = "24"
 "npm:cspell" = "9.7.0"
-uv = "0.11.1"
-"pipx:reuse" = "6.2.0"
+uv = "0.11.2"
 
 # -- CLI utilities (not in Debian repos) ----------------------------------
 yq = "4"
