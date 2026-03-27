@@ -1615,6 +1615,25 @@ connection returning `StateChange` events. No Layer 1–3 changes are
 required. `StateChange` is a new Layer 1 type when push is added; the
 EventSource connection is a new Layer 4 proc.
 
+### 4.6 Binary Data (Out of Scope)
+
+RFC 8620 §6 defines binary data handling: uploading (§6.1), downloading
+(§6.2), and Blob/copy (§6.3). Upload and download use the Session URL
+templates (`uploadUrl`, `downloadUrl`) already modelled in Layer 1.
+
+These are out of scope for the initial implementation. When added:
+
+- `UploadResponse` — a new Layer 1 type (`accountId: AccountId`,
+  `blobId: Id`, `type: string`, `size: UnsignedInt`). Pure data using
+  existing Layer 1 primitives.
+- Upload and download — new Layer 4 procs that expand the Session URL
+  templates and make authenticated HTTP requests.
+- `BlobCopyRequest` / `BlobCopyResponse` — Layer 3 method types.
+  Blob/copy is a standalone method (not one of the 6 standard methods).
+  Its `fromAccountNotFound` method error is already in `MethodErrorType`.
+- `BlobId` as a `distinct string` — a candidate for type-safe blob
+  identifiers. Currently blob IDs use generic `Id`.
+
 ---
 
 ## Layer 5: C ABI Wrapper
@@ -1708,6 +1727,7 @@ section where the option is defined (e.g., 1.3B is the second option in §1.3).
 | 4. Transport | Single-threaded: handles not thread-safe (§4.3) | Simplifies design; matches `std/httpclient` constraint |
 | 4. Transport | Bearer token auth on JmapClient; header callback later (§4.4) | RFC 8620 §1.1 requires auth; minimal surface for v1 |
 | 4. Transport | Push/EventSource out of scope for initial release (§4.5) | No Layer 1–3 changes needed; Layer 4 concern when added |
+| 4. Transport | Binary data (upload/download/Blob copy) out of scope for initial release (§4.6) | Session URL templates already modelled; Layer 1 `UploadResponse` + Layer 4 procs when added |
 | 4. Transport | Direct URL + .well-known, no DNS SRV | Matches all reference implementations |
 | 5. C ABI | Lossy projection, opaque handles, per-object free (5.3A) | Standard C pattern |
 | 5. C ABI | No ABI stability pre-1.0; C consumers must recompile (§5.4) | Opaque handles insulate; no raw enum exposure through C ABI |

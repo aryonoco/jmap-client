@@ -13,7 +13,8 @@ Request/Response envelope (§3.2–3.4, §3.7), the generic method framework
 types (§5.3 PatchObject, §5.5 Filter/Comparator, §5.6 AddedItem), and all
 error types (TransportError, RequestError, ClientError, MethodError, SetError,
 and the `JmapResult[T]` railway alias). Serialisation (Layer 2), protocol
-logic (Layer 3), and transport (Layer 4) are out of scope.
+logic (Layer 3), and transport (Layer 4) are out of scope. Binary data (§6)
+and push (§7) are deferred; see architecture.md §4.5–4.6.
 
 **Relationship to architecture-options.md.** That document records broad
 decisions across all 5 layers. This document is the detailed specification for
@@ -2365,3 +2366,5 @@ The deserialiser should accept both forms.
 | `ClientErrorKind` | Not in RFC (library-internal) |
 | `ClientError` | Not in RFC (library-internal) |
 | `JmapResult[T]` | Not in RFC (library-internal) |
+| `UploadResponse` | §6.1 (deferred — see architecture.md §4.6) |
+| `Blob/copy` types | §6.3 (deferred — Layer 3 method types) |
