@@ -1,0 +1,70 @@
+# JMAP Protocol — Section Index
+# Source: .claude/llms/jmap/llms-full.txt (3894 lines)
+# Condensed from RFC 8620 (JMAP Core) and RFC 8621 (JMAP Mail)
+
+## RFC 8620: JMAP Core
+
+### Data Types (§1.2–1.5)
+- Id Data Type: line 7
+- Int and UnsignedInt: line 40
+- Date and UTCDate: line 49
+- JSON Encoding: line 61
+
+### Terminology (§1.6–1.7)
+- User, Accounts, Data Types: line 74
+- JMAP API Model: line 121
+- Vendor Extensions: line 145
+
+### Session Resource (§2)
+- Session object fields: line 167
+- Session example JSON: line 373
+- Service Autodiscovery (.well-known/jmap): line 446
+
+### Structured Data Exchange (§3)
+- Making an API Request: line 472
+- Invocation Data Type (3-element array): line 483
+- Request Object: line 500
+- Request Example: line 555
+- Response Object: line 571
+- Response Example: line 601
+- Omitting Arguments: line 623
+
+### Errors (§3.6)
+- Request-Level Errors: line 659
+- Request Error Example: line 686
+- Method-Level Errors: line 707
+
+### Result References (§3.7)
+- References to Previous Method Results: line 784
+
+### Standard Methods (§5)
+- /get: line 1095
+- /changes: line 1163
+- /set: line 1315
+- /copy: line 1597
+- /query: line 1729
+- /queryChanges: line 1979
+- Examples: line 2130
+
+### Binary Data (§6)
+- Uploading: line 2474
+- Downloading: line 2526
+- Blob/copy: line 2559
+
+### Push (§7)
+- StateChange Object: line 2637
+- PushSubscription: line 2696
+- Event Source: line 3007
+
+### Security (§8)
+- Security Considerations: line 3081
+
+## RFC 8621: JMAP Mail (appended after core)
+
+### Capabilities
+- urn:ietf:params:jmap:mail: starts after core section (~line 3240)
+
+### Mailbox Entity Type
+- Mailbox properties and methods: follows capabilities section
+- Mailbox/get, /changes, /query, /queryChanges, /set
+- Mailbox example: near end of appended section
