@@ -90,7 +90,7 @@ Create, update, and destroy objects in a single call.
 | Field | Type | Description |
 |-------|------|-------------|
 | `accountId` | Id | Echo of request |
-| `oldState` | string | State before changes |
+| `oldState` | string \| null | State before changes (null if server doesn't know) |
 | `newState` | string | State after changes |
 | `created` | Map[CreationId, object] \| null | Created objects (server-assigned fields) |
 | `updated` | Map[Id, object \| null] \| null | Updated objects (server-set fields, or null) |
@@ -101,12 +101,14 @@ Create, update, and destroy objects in a single call.
 
 **PatchObject**: A JSON object where keys are property paths (e.g. `"name"`,
 `"keywords/$seen"`) and values are the new values. A `null` value means
-"remove this property" (for per-item or set-type properties).
+"set to default if one is defined for this property; otherwise remove the
+property from the object. No-op if the key is not present in the parent."
 
 **Back-references in create**: Use `#creationId` as an Id value to reference
 an object being created in the same /set call.
 
-**Method errors:** `stateMismatch` (ifInState does not match)
+**Method errors:** `requestTooLarge` (too many total create/update/destroy),
+`stateMismatch` (ifInState does not match)
 
 **Example:**
 ```json
@@ -209,10 +211,13 @@ Copy objects from one account to another.
 |-------|------|-------------|
 | `fromAccountId` | Id | Echo of request |
 | `accountId` | Id | Echo of request |
-| `oldState` | string | Destination state before |
+| `oldState` | string \| null | Destination state before (null if server doesn't know) |
 | `newState` | string | Destination state after |
 | `created` | Map[CreationId, object] \| null | Successfully copied objects |
 | `notCreated` | Map[CreationId, SetError] \| null | Per-item copy errors |
+
+**Copy-specific set error:** `alreadyExists` — record already exists in target
+account; SetError includes required `existingId` property with the existing record's Id.
 
 **Method errors:** `fromAccountNotFound`, `fromAccountNotSupportedByMethod`,
 `stateMismatch` (for either account)

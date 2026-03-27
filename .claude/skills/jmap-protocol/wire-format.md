@@ -9,8 +9,8 @@ All JSON structures derived from RFC 8620 (JMAP Core).
 | `Id` | string | 1–255 chars, only `[A-Za-z0-9_-]` |
 | `Int` | number | integer in range `[-(2^53-1), 2^53-1]` |
 | `UnsignedInt` | number | integer in range `[0, 2^53-1]` |
-| `Date` | string | UTC date `"2014-10-30T06:12:00Z"` (RFC 3339) |
-| `UTCDate` | string | same as Date but always UTC |
+| `Date` | string | RFC 3339 date-time, e.g. `"2014-10-30T14:12:00+08:00"` |
+| `UTCDate` | string | Date where offset MUST be `Z`, e.g. `"2014-10-30T06:12:00Z"` |
 
 ## Session Object (§2)
 
@@ -149,7 +149,7 @@ Common path constants:
 - `/added/*/id` — from /queryChanges response
 - `/created` — from /set response (map of CreationId → object)
 - `/updated` — from /set response (map of Id → object or null)
-- `/updatedProperties` — from /changes response
+- `/updatedProperties` — from Mailbox/changes response (RFC 8621 extension, not core)
 
 ## Error Hierarchy
 
@@ -182,7 +182,7 @@ The method name is `"error"`:
 ["error", {"type": "unknownMethod", "description": "No method 'Foo/bar'"}, "call-0"]
 ```
 
-Common method error types:
+General method error types (§3.6.2, may be returned for any method):
 - `unknownMethod` — method name not recognised
 - `invalidArguments` — arguments are invalid
 - `invalidResultReference` — result reference could not be resolved
@@ -193,7 +193,11 @@ Common method error types:
 - `serverFail` — internal server error
 - `serverUnavailable` — server temporarily unavailable
 - `serverPartialFail` — some but not all changes applied
-- `cannotCalculateChanges` — server cannot compute changes from given state
+
+Method-specific errors (returned for particular methods only):
+- `cannotCalculateChanges` — /changes and /queryChanges only
+- `stateMismatch` — /set and /copy only (ifInState does not match)
+- `requestTooLarge` — /get and /set only (too many IDs or objects)
 
 ### Set-Level Errors (§5.3)
 
@@ -218,16 +222,19 @@ Per-item errors in `/set` responses. Each item that failed has an entry in
 }
 ```
 
-Common set error types:
-- `invalidProperties` — one or more properties are invalid (has `properties` array)
-- `singleton` — only one object of this type may exist
-- `notFound` — the Id does not exist
-- `forbidden` — no permission
-- `overQuota` — would exceed quota
-- `alreadyExists` — conflicts with existing object (has `existingId`)
-- `tooLarge` — object too large
-- `rateLimit` — too many changes too quickly
-- `stateMismatch` — `ifInState` does not match current state
+Common set error types (§5.3):
+- `forbidden` — no permission (create; update; destroy)
+- `overQuota` — would exceed quota (create; update)
+- `tooLarge` — object too large (create; update)
+- `rateLimit` — too many changes too quickly (create)
+- `notFound` — the Id does not exist (update; destroy)
+- `invalidPatch` — PatchObject is not a valid patch (update)
+- `willDestroy` — object also being destroyed in the same /set call (update)
+- `invalidProperties` — one or more properties are invalid, has `properties` array (create; update)
+- `singleton` — only one object of this type may exist (create; destroy)
+
+Copy-specific set error (§5.4):
+- `alreadyExists` — record already exists in target account, has required `existingId` property
 
 ## Capabilities
 
