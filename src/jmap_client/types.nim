@@ -12,12 +12,14 @@ import ./validation
 import ./primitives
 import ./identifiers
 import ./capabilities
+import ./framework
 import ./errors
 
 export validation
 export primitives
 export identifiers
 export capabilities
+export framework
 export errors
 
 type JmapResult*[T] = Result[T, ClientError]
