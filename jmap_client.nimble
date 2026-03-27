@@ -82,7 +82,7 @@ requires "results == 0.5.1"
 # Tasks
 
 task test, "Run tests":
-  exec "testament all"
+  exec "testament pattern \"tests/t*.nim\""
 
 task clean, "Clean build artifacts":
   exec "rm -rf bin/ nimcache/ htmldocs/"

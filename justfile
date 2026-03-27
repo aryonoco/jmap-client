@@ -80,7 +80,7 @@ test:
 # Run tests with verbose output
 test-verbose:
     @echo "Running tests (verbose)..."
-    testament --verbose all
+    testament --verbose pattern "tests/t*.nim"
     @echo "All tests passed"
 
 # Run specific test file
@@ -91,7 +91,7 @@ test-file file:
 # Run tests and generate HTML report
 test-report:
     @echo "Running tests with report..."
-    testament all
+    testament pattern "tests/t*.nim"
     testament html
     @echo "Test report: testresults.html"
 

@@ -272,6 +272,7 @@ cache/
 # Test output
 test-results/
 test-output/
+testresults/
 *.test
 testresults.html
 
@@ -279,6 +280,10 @@ testresults.html
 outputGotten.txt
 tests/megatest
 tests/megatest.nim
+
+# Compiled test binaries (testament compiles tFoo.nim -> tFoo)
+tests/t[a-z]*
+!tests/t*.nim
 
 # Coverage (if added later)
 coverage/
