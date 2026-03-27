@@ -50,6 +50,7 @@ TLS
 
 # Project-Specific
 docstrings
+referencable
 jmap-client
 libjmap
 megatest
@@ -91,6 +92,7 @@ foxundermoon
 hverlin
 mhutchie
 nefrob
+nimalyzer
 sequtils
 smimeverify
 strutils
