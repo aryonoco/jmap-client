@@ -159,13 +159,16 @@ proc discoverSession(client: JmapClient): JmapResult[Session] =
 
 ## Immutability
 
-- `let` by default. `var` only when unavoidable (I/O buffers, perf-critical
-  sequence building).
+- `let` by default. `var` only when building mutable accumulators in the
+  imperative shell, or as a local variable inside `func` when building a
+  return value from stdlib containers whose APIs require mutation (e.g.,
+  `Table`). `strictFuncs` enforces the mutation does not escape.
 - `strictDefs` enabled — all variables must be initialised before use.
 - Value types (`object`) over `ref` in functional core — `let` is deeply
   immutable. `let` on `ref` does NOT prevent field mutation.
-- `openArray[T]` for read-only parameters. `.filterIt().mapIt()` over `var` +
-  mutation. NEVER define `converter` procs.
+- `openArray[T]` for read-only parameters. `collect` (std/sugar) over
+  `.filterIt().mapIt()` for building new collections. `allIt`/`anyIt` for
+  predicates. NEVER define `converter` procs.
 
 ## Expression-Oriented Style
 

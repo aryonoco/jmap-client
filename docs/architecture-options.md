@@ -43,7 +43,11 @@ The library follows functional programming principles throughout:
 - **Functional Core, Imperative Shell** — all domain logic in `func` (pure, no side
   effects). IO confined to a narrow `proc` boundary at the transport layer.
 - **Immutability by default** — `let` bindings everywhere. `var` only when building
-  mutable accumulators (builders) inside the imperative shell.
+  mutable accumulators (builders) inside the imperative shell, or as a local
+  variable inside `func` when building a return value from stdlib containers
+  whose APIs require mutation (the local-`var`-inside-`func` pattern is
+  referentially transparent — `strictFuncs` enforces the mutation does not
+  escape).
 - **Total functions** — every function has a defined output for every input.
   `{.push raises: [].}` on every module. No exceptions. No partial functions.
 - **Parse, don't validate** — deserialisation produces well-typed values or structured
@@ -81,8 +85,9 @@ principles and where it forces compromises.
 - UFCS — `x.f(y)` and `f(x, y)` are the same. Enables pipeline-style
   `.map().flatMap().filter()` chaining.
 - `collect` macro (`std/sugar`) — comprehension-style collection building.
-  Officially recommended over `mapIt`/`filterIt` chains. No closures, compatible
-  with `{.raises: [].}` and `func`.
+  Preferred over `mapIt`/`filterIt` for building new collections. `allIt`/`anyIt`
+  from `std/sequtils` remain the right choice for boolean predicates over
+  sequences. No closures, compatible with `{.raises: [].}` and `func`.
 
 ### What Nim denies us
 
@@ -232,10 +237,24 @@ src/jmap_client/
   types.nim           — Re-exports all of the above; defines JmapResult[T] alias
 ```
 
-Internal import direction: `validation ← primitives ← identifiers ←
-capabilities ← session ← envelope ← framework`. Errors depend on
-`primitives` (for `Id`, `Opt`, `JsonNode`). No cycles. Each file is
-independently testable.
+Internal import DAG (each module imports only what its types reference):
+
+| Module | Imports from (within Layer 1) |
+|--------|------------------------------|
+| `validation` | *(none)* |
+| `primitives` | `validation` |
+| `identifiers` | `primitives` |
+| `capabilities` | `primitives` |
+| `framework` | `primitives` |
+| `errors` | `primitives` |
+| `session` | `identifiers`, `capabilities` |
+| `envelope` | `identifiers` |
+| `types` | all of the above (re-export hub) |
+
+No cycles. The graph is a DAG, not a linear chain — `identifiers`,
+`capabilities`, `framework`, and `errors` are parallel dependents of
+`primitives`; `session` merges the `identifiers` and `capabilities`
+branches. Each file is independently testable.
 
 ---
 
@@ -318,7 +337,7 @@ Capability = object
   of ckCore: core: CoreCapabilities
   of ckMail: mail: MailCapabilities
   ...
-  of ckUnknown: rawJson: JsonNode
+  of ckUnknown: rawData: JsonNode
 ```
 
 Consumers match on the `kind` enum (exhaustive in Nim).
@@ -359,6 +378,13 @@ consumer to handle each capability kind explicitly. Unknown capabilities are pre
 variant, not silently dropped. Smart constructors enforce construction-time
 validation; discriminator branch changes are rejected by the compiler, and
 `strictCaseObjects` ensures field access is branch-safe at compile time.
+
+**Progressive branching.** For RFC 8620, only `ckCore` has a typed
+representation. All other capability kinds use an `else` branch with
+`rawData: JsonNode`, preserving the original JSON losslessly. As typed
+representations are added (e.g., `MailCapabilities` for RFC 8621), they
+graduate from `else` to explicit branches. The `else` branch always
+remains as the open-world catch-all.
 
 ### 1.3 Result Reference Representation
 

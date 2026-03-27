@@ -26,7 +26,10 @@ architecture document's choices 1A, 1D, 2C, 2F, 3G, 4A–4H, 5B, and 5E.
   early return. Smart constructors return `Result`, never raise.
 - **Functional Core, Imperative Shell** — all Layer 1 code is `func` (pure, no
   side effects). `proc` appears only at the transport boundary (Layer 4).
-- **Immutability by default** — `let` bindings. No `var` in Layer 1.
+- **Immutability by default** — `let` bindings. No mutable state in Layer 1.
+  Local `var` inside `func` is permitted when building return values from
+  stdlib containers whose APIs require mutation (e.g., `Table` in
+  `PatchObject.setProp`). `strictFuncs` enforces the mutation does not escape.
 - **Total functions** — `{.push raises: [].}` on every module. Every function
   has a defined output for every input.
 - **Parse, don't validate** — smart constructors produce well-typed values or
@@ -62,7 +65,7 @@ has a concrete reason tied to the strict compiler constraints.
 | `std/sets` | `HashSet[string]` | For `CoreCapabilities.collationAlgorithms` — proper set semantics (no duplicates, O(1) lookup) |
 | `std/strutils` | `parseEnum[T](s, default)` | `func`, total, no exceptions — replaces manual `CapabilityKind` case statement |
 | `std/json` | `JsonNode`, `JsonNodeKind` | For untyped capability data (`ServerCapability`), `Invocation.arguments` |
-| `std/sequtils` | `allIt`, `mapIt`, `filterIt`, `anyIt` | Templates that expand inline — work inside `func` |
+| `std/sequtils` | `allIt`, `anyIt` | Predicate templates that expand inline — work inside `func`. For collection building, prefer `collect` from `std/sugar` per architecture. |
 | `std/setutils` | `set[CapabilityKind]` | Bitset for efficient capability membership checks |
 | built-in `set[char]` | Charset validation constants | `{'A'..'Z', 'a'..'z', '0'..'9', '-', '_'}` for `Id` validation |
 
@@ -162,7 +165,7 @@ template defineIntDistinctOps*(T: typedesc) =
   func hash*(a: T): Hash {.borrow.}
 ```
 
-**Module:** `src/jmap_client/primitives.nim` (or a shared internal module).
+**Module:** `src/jmap_client/validation.nim`
 
 ---
 
@@ -1847,9 +1850,8 @@ values directly — error types cannot fail construction.
 
 ```
 src/jmap_client/
-  validation.nim      ← ValidationError
+  validation.nim      ← ValidationError, borrow templates, charset constants
   primitives.nim      ← Id, UnsignedInt, JmapInt, Date, UTCDate
-                        borrow templates, charset constants
   identifiers.nim     ← AccountId, JmapState, MethodCallId, CreationId
   capabilities.nim    ← CapabilityKind, CoreCapabilities, ServerCapability
   session.nim         ← Account, AccountCapabilityEntry, UriTemplate, Session
@@ -1871,16 +1873,16 @@ src/jmap_client/
 validation.nim       (no imports)
       ↑
 primitives.nim       (std/hashes, std/sequtils)
-   ↑        \              \
-   |     framework.nim   errors.nim
-   |     (std/json,      (std/json, std/strutils)
-   |      std/tables)
+   ↑    ↑    ↑             ↑
+   |    |  framework.nim   errors.nim
+   |    |  (std/json,      (std/json, std/strutils)
+   |    |   std/tables)
+   |  capabilities.nim   (std/hashes, std/sets, std/strutils, std/json)
+   |         ↑
 identifiers.nim      (std/hashes, std/sequtils)
-      ↑              ↑
-capabilities.nim     (std/hashes, std/sets, std/strutils, std/json)
-      ↑
-session.nim          (std/hashes, std/tables, std/json, std/sequtils)
-      ↑
+   ↑         ↑
+   |     session.nim     (std/hashes, std/tables, std/json, std/sequtils)
+   |
 envelope.nim         (std/json, std/tables)
       ↑
 types.nim            (re-exports all, defines JmapResult[T])
@@ -1888,6 +1890,12 @@ types.nim            (re-exports all, defines JmapResult[T])
 
 All arrows point upward — no cycles. `errors.nim` and `framework.nim` are
 parallel leaves, both depending on `primitives.nim` but not on each other.
+`capabilities.nim` depends on `primitives.nim` (for `UnsignedInt`), not on
+`identifiers.nim`. `envelope.nim` depends on `identifiers.nim` (for
+`MethodCallId`, `CreationId`, `Id`, `JmapState`), not on `session.nim`.
+`session.nim` depends on both `identifiers.nim` (for `AccountId`,
+`JmapState`) and `capabilities.nim` (for `CapabilityKind`,
+`ServerCapability`, `CoreCapabilities`).
 
 `types.nim` re-exports everything and defines the railway alias:
 
