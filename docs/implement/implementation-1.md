@@ -10,6 +10,11 @@ passes `just ci` before committing.
 - `docs/design/architecture.md` — governing decisions
 - `.claude/rules/nim-conventions.md` — module boilerplate, import ordering
 
+**`std/json` import convention:** Layer 1 modules that need JSON types must use
+selective import — `from std/json import JsonNode, JsonNodeKind` — to bring only
+data types into unqualified scope. This enforces the L1/L2 boundary (design doc
+preface, architecture §3.1).
+
 **File header (every `.nim` file):**
 
 ```nim
@@ -29,13 +34,14 @@ passes `just ci` before committing.
 
 ### validation.nim
 
-Design doc §1.
+Design doc §1. Requires `import std/hashes` for the `Hash` type used by borrow
+templates.
 
 - `ValidationError*` object — `typeName`, `message`, `value` (all `string`)
 - `func validationError*(typeName, message, value: string): ValidationError`
 - `template defineStringDistinctOps*(T: typedesc)` — borrows `==`, `$`, `hash`, `len`
 - `template defineIntDistinctOps*(T: typedesc)` — borrows `==`, `<`, `<=`, `$`, `hash`
-- `const Base64UrlChars*`, `const AsciiDigits*`
+- `const Base64UrlChars*`
 
 ### types.nim (stub)
 
@@ -82,6 +88,7 @@ Design doc §2.
 
 - `MaxUnsignedInt*: int64 = 9_007_199_254_740_991'i64`
 - `MinJmapInt*`, `MaxJmapInt*`
+- `const AsciiDigits = {'0'..'9'}` (module-local, not exported; used by `parseDate`)
 
 ### Smart constructors
 
@@ -259,8 +266,10 @@ Constructors:
 - `transportError(tekTimeout, "timed out")` → `kind == tekTimeout`
 - `httpStatusError(502, "Bad Gateway")` → `httpStatus == 502`
 - `requestError("urn:ietf:params:jmap:error:limit", limit = ok("maxCallsInRequest"))` → `errorType == retLimit`, rawType preserved
+- `requestError("urn:ietf:params:jmap:error:limit", limit = ok("maxCallsInRequest"), extras = ok(%*{"requestId": "abc"}))` → extras preserved
 - `requestError("urn:vendor:custom")` → `errorType == retUnknown`, rawType preserved
-- `clientError` both overloads, `message()` accessor
+- `clientError` both overloads
+- `message()` accessor: verify fallback chain — `detail` preferred over `title` preferred over `rawType` for `cekRequest`
 - `methodError("unknownMethod")` → `errorType == metUnknownMethod`
 - `methodError("custom", extras = ...)` → `errorType == metUnknown`, extras preserved
 - `setError("forbidden")` → `errorType == setForbidden`
@@ -411,6 +420,7 @@ Build test helpers to construct valid sub-components.
 | `primaryAccount(session, ckBlob)` | err |
 | `findAccount(session, AccountId("A13824"))` | ok |
 | `findAccount(session, AccountId("nonexistent"))` | err |
+| `coreCapabilities` on Session constructed directly without `ckCore` | raises `AssertionDefect` (invariant violation) |
 
 **Verify:** `just ci`
 
