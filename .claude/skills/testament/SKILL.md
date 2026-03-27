@@ -1,6 +1,6 @@
 ---
 name: testament
-description: "Nim testament test framework reference — magic spec headers (action, output, exitcode, errormsg, nimout), file naming (t-prefix in tests/ directory), assertion idioms (doAssert and assert, NOT check/suite/expect from unittest), compile and reject test modes, and megatest aggregation. Use when writing, reviewing, or running any Nim test file."
+description: "Nim testament test framework reference — magic spec headers (action, output, exitcode, errormsg, nimout, retries), file naming (t-prefix in tests/ directory), assertion idioms (doAssert and assert, NOT check/suite/expect from unittest), compile and reject test modes, inline error annotations, variable interpolation, implicit field behaviours, and megatest aggregation. Use when writing, reviewing, or running any Nim test file."
 user-invocable: false
 ---
 
@@ -36,4 +36,7 @@ read the relevant section from `llms-full.txt` using the section index in
 | How to test compile-time rejection? | See Reject Action in [spec-reference.md](spec-reference.md) |
 | How to run tests? | `just test` (all), `just test-file tests/tfoo.nim` (single) |
 | How to run tests verbosely? | `just test-verbose` |
+| What fields interact implicitly? | See Implicit Behaviours in [spec-reference.md](spec-reference.md) |
+| How to test inline compiler errors? | See Inline Error Annotations in [spec-reference.md](spec-reference.md) |
+| What variables can I use in spec fields? | See Variable Interpolation in [spec-reference.md](spec-reference.md) |
 | Need exact spec parser detail? | Read `.claude/llms/testament/llms-full.txt` using index |

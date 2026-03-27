@@ -1,5 +1,13 @@
 # Test Patterns for jmap-client
 
+This project uses a three-track error railway (see `docs/architecture-options.md`):
+
+- **Track 0 (construction):** `Result[T, ValidationError]` — smart constructor tests below
+- **Track 1 (outer):** `JmapResult[T]` = `Result[T, ClientError]` — transport/request tests (future layers)
+- **Track 2 (inner):** `Result[MethodResponse, MethodError]` — per-invocation tests (future layers)
+
+Current patterns cover Track 0. Tracks 1 and 2 will be added when those layers are built.
+
 ## Module Boilerplate
 
 Every test file in this project follows the same structure as source files:
