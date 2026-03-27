@@ -18,7 +18,7 @@ logic (Layer 3), and transport (Layer 4) are out of scope.
 **Relationship to architecture-options.md.** That document records broad
 decisions across all 5 layers. This document is the detailed specification for
 Layer 1 only. Decisions here are consistent with — and build upon — the
-architecture document's choices 1A, 1D, 2C, 2F, 3G, 4A–4H, 5B, and 5E.
+architecture document's choices 1.1A, 1.2A, 1.6C, 1.7C, 1.3B, 3.2A, 3.3B, 3.4C, 3.7B, and 1.5B.
 
 **Design principles.** Every decision follows:
 
@@ -123,7 +123,7 @@ func validationError*(typeName, message, value: string): ValidationError =
 `ValidationError` is the error type for smart constructor failures (Layer 1
 construction-time validation). `ClientError` (Section 8.6) is a separate
 concern for runtime transport/request failures (Layer 4). These are different
-railways and are not unified into a single sum type (Decision 2C).
+railways and are not unified into a single sum type (Decision 1.6C).
 
 **Module:** `src/jmap_client/validation.nim`
 
@@ -1019,7 +1019,7 @@ errors.
 
 ### 6.5 Referencable[T]
 
-**Architecture reference:** Decision 3G.
+**Architecture reference:** Decision 1.3B.
 
 A variant type encoding the mutual exclusion between a direct value and a result
 reference. Makes the illegal state "both direct value and reference" unrepresentable.
@@ -1218,10 +1218,10 @@ uses move semantics when the caller does not retain the original. The local
 local variables (not parameters or globals) is permitted.
 
 **Decision D8 rationale.** `distinct Table[string, JsonNode]` rather than plain
-`Table[string, JsonNode]` per architecture Decision 5E. The `distinct` type
+`Table[string, JsonNode]` per architecture Decision 1.5B. The `distinct` type
 prevents passing an arbitrary table where a patch is expected, and the smart
 constructors validate that paths are non-empty. Entity-specific typed patch
-builders (architecture Decision 5F) will produce `PatchObject` values in
+builders (architecture Decision 3.8A) will produce `PatchObject` values in
 entity modules.
 
 **Module:** `src/jmap_client/framework.nim`
@@ -1251,7 +1251,7 @@ Construction happens exclusively during JSON deserialisation (Layer 2).
 ## 8. Error Types
 
 Error types implement the two-level railway (architecture-options.md Decision
-2C). The outer railway uses `JmapResult[T] = Result[T, ClientError]` for
+1.6C). The outer railway uses `JmapResult[T] = Result[T, ClientError]` for
 transport/request failures. The inner railway uses `Result[T, MethodError]` per
 invocation. `SetError` is data within successful `SetResponse` values.
 
@@ -1261,7 +1261,7 @@ cannot fail construction. This contrasts with domain type smart constructors
 (Sections 2–7) which return `Result[T, ValidationError]` because domain values
 have invariants that can be violated.
 
-All error types that carry a `type` string follow Decision 2F: a parsed enum
+All error types that carry a `type` string follow Decision 1.7C: a parsed enum
 (`errorType`) alongside a preserved raw string (`rawType`) for lossless
 round-trip. Serialisation always uses `rawType`, never `$errorType`.
 
@@ -1355,7 +1355,7 @@ the pattern of `filterCondition`/`filterOperator` in Section 7.2.
 
 **Purpose:** String-backed enum covering the four RFC-defined request-level
 error types, plus `retUnknown` for server-specific extensions. Follows
-Decision 2F.
+Decision 1.7C.
 
 ```nim
 type RequestErrorType* = enum
@@ -1406,7 +1406,7 @@ type RequestError* = object
    `retLimit`, but making it `Opt` on a flat object is simpler than a case
    object with four branches where only one has an extra field.
 
-2. **`rawType` always populated (Decision 2F).** For known types, `rawType`
+2. **`rawType` always populated (Decision 1.7C).** For known types, `rawType`
    contains the same URI as the enum's string backing. For `retUnknown`,
    `rawType` is the original unrecognised URI. Serialisation always uses
    `rawType`.
@@ -1448,7 +1448,7 @@ Encapsulates the lossless round-trip pattern: always populates both `errorType`
 
 ### 8.5 ClientErrorKind
 
-**RFC reference:** Not in RFC (library-internal). Decision 2C.
+**RFC reference:** Not in RFC (library-internal). Decision 1.6C.
 
 **Purpose:** Discriminator for the outer railway error type.
 
@@ -1464,7 +1464,7 @@ type ClientErrorKind* = enum
 
 ### 8.6 ClientError
 
-**RFC reference:** Not in RFC (library-internal). Decision 2C.
+**RFC reference:** Not in RFC (library-internal). Decision 1.6C.
 
 **Purpose:** The outer railway error type. Wraps either a `TransportError` or a
 `RequestError`. This is the `E` in `JmapResult[T] = Result[T, ClientError]`.
@@ -1490,7 +1490,7 @@ type ClientError* = object
 2. **`ValidationError` not included as a variant.** `ValidationError` is for
    smart constructor failures (Layer 1 construction-time). `ClientError` is for
    runtime communication failures (Layer 4). These are separate concerns per
-   Decision 2C.
+   Decision 1.6C.
 
 **Constructor helpers:**
 
@@ -1532,7 +1532,7 @@ also wraps `cekRequest` after Layer 2 parses the problem details body.
 error types).
 
 **Purpose:** String-backed enum covering all 16 RFC-defined method-level error
-types, plus `metUnknown`. Follows Decision 2F.
+types, plus `metUnknown`. Follows Decision 1.7C.
 
 ```nim
 type MethodErrorType* = enum
@@ -1632,7 +1632,7 @@ has `name == "error"`, Layer 2 extracts the arguments JSON and constructs a
 **RFC reference:** §5.3 (/set errors), §5.4 (/copy errors).
 
 **Purpose:** String-backed enum for 10 RFC-defined per-item error types,
-plus `setUnknown`. Follows Decision 2F.
+plus `setUnknown`. Follows Decision 1.7C.
 
 ```nim
 type SetErrorType* = enum
@@ -1761,7 +1761,7 @@ Layer 2 calls `setErrorInvalidProperties` only when the JSON contains the
 
 ### 8.11 JmapResult[T]
 
-**RFC reference:** Not in RFC (library-internal). Decision 2C.
+**RFC reference:** Not in RFC (library-internal). Decision 1.6C.
 
 **Purpose:** Type alias for the outer railway. The return type of the transport
 layer's `send` proc and the primary result type for all operations that cross

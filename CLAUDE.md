@@ -29,7 +29,7 @@ Sole external dependency: `nim-results` (status-im/nim-results) — provides `Re
 
 ## Compiler Flags
 
-Defined in `jmap_client.nimble` (single source of truth): `--mm:arc`, `strictDefs`, `strictFuncs`, `strictCaseObjects`, `strictNotNil`, `styleCheck:error`. See `.claude/rules/nim-type-safety.md` for implications.
+Defined in `jmap_client.nimble`: `--mm:arc`, `strictDefs`, `strictFuncs`, `strictCaseObjects`, `strictNotNil`, `styleCheck:error`. See `.claude/rules/nim-type-safety.md` for implications.
 
 ## Project Structure
 
@@ -53,7 +53,7 @@ Architecture: 5 layers (see `docs/architecture-options.md`). Layer 1 detailed de
 - Follow "Functional Core, Imperative Shell" patterns consistently
 - Use `func` for pure functions, `proc` only for side effects
 - Use `let` bindings; `var` only when absolutely necessary
-- Three error railways (architecture Decision 2C):
+- Three error railways:
   - Smart constructors: `Result[T, ValidationError]` (construction-time)
   - Outer railway: `JmapResult[T]` = `Result[T, ClientError]` (transport/request)
   - Inner railway: `Result[T, MethodError]` (per-invocation)

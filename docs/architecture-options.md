@@ -89,12 +89,15 @@ principles and where it forces compromises.
   from `std/sequtils` remain the right choice for boolean predicates over
   sequences. No closures, compatible with `{.raises: [].}` and `func`.
 
-### What Nim denies us
+### What strict flags upgrade (historical gaps, now largely closed)
 
-1. **Case objects as sum types (largely solved).** Case objects are discriminated
-   unions. In standard Nim, discriminator reassignment is already restricted: the
-   compiler rejects assignments that would change the active branch. With `let`
-   bindings (used throughout this project), the discriminator is fully immutable.
+These were traditional Nim limitations. With the strict experimental flags
+enabled in this project, they are effectively resolved:
+
+1. **Case objects as sum types.** Case objects are discriminated unions. In
+   standard Nim, discriminator reassignment is already restricted: the compiler
+   rejects assignments that would change the active branch. With `let` bindings
+   (used throughout this project), the discriminator is fully immutable.
    `--experimental:strictCaseObjects` (enabled in this project) adds compile-time
    **field access validation**: the compiler rejects any `obj.field` access where
    it cannot prove the discriminator matches that field's branch — turning a
@@ -107,18 +110,20 @@ principles and where it forces compromises.
    analysis from a warning to an error when field access cannot be proven safe.
    Together, these give case objects strong compile-time guarantees.
 
-3. **No higher-kinded types.** Cannot abstract over `Result[_, E]` vs `Opt[_]` vs
+### What Nim still denies us
+
+1. **No higher-kinded types.** Cannot abstract over `Result[_, E]` vs `Opt[_]` vs
    `seq[_]`. No `Functor`, no `Monad`, no `Applicative`. Each result-returning
    pipeline is concrete.
 
-4. **No typeclass/trait coherence.** Nim's `concept` is structural, not nominal.
+2. **No typeclass/trait coherence.** Nim's `concept` is structural, not nominal.
    No way to enforce that a type implements a set of operations at the definition
    site. Errors appear at instantiation time.
 
-5. **No monadic do-notation.** Chaining with `flatMap` or `?` for early return.
+3. **No monadic do-notation.** Chaining with `flatMap` or `?` for early return.
    The `?` operator is pragmatically close to Rust's and is the primary ROP tool.
 
-6. **Immutability is opt-in, not default.** Object fields are mutable unless the
+4. **Immutability is opt-in, not default.** Object fields are mutable unless the
    object is bound with `let`. No way to declare a field as read-only in the type
    definition. Immutability protected through module boundaries — do not export
    setters or mutable fields. The workaround is to keep fields private (no `*`
@@ -152,19 +157,32 @@ no per-field immutability declarations and no higher-kinded abstractions).
 ## Layer Architecture
 
 ```
-Layer 1: Domain Types + Errors (all pure algebraic data types)
+Layer 1: Domain Types + Errors (pure types and construction algebra)
 Layer 2: Serialisation (JSON parsing boundary — "parse, don't validate")
 Layer 3: Protocol Logic (builders, dispatch, result references, method framework)
 Layer 4: Transport + Session Discovery (imperative shell — HTTP IO)
 Layer 5: C ABI Wrapper (FFI projection)
 ```
 
-**Governing principle: types and errors as a single pure layer.** Layer 1
-contains every pure data type and error type definition — structs, enums,
-variant objects, railway aliases — that can be defined without importing
-anything above Layer 1. No logic, no serialisation, no IO. Layers 2–5
-contain the logic (serialisation, builders, dispatch, transport) that
-operates on those types.
+**Governing principle: types, errors, and their construction algebra as a
+single pure layer.** Layer 1 contains every pure data type — structs, enums,
+variant objects, railway aliases — and the pure functions that enforce their
+construction invariants (smart constructors, validation). In Haskell,
+`Data.Map` exports both the type and `singleton`/`fromList`; in F#, a type
+module includes its creation functions. The type and its construction
+algebra are a unit. Layer 1 can be defined without importing anything above
+it. No serialisation logic, no protocol logic, no IO. Layers 2–5 contain
+the downstream logic (serialisation, builders, dispatch, transport) that
+operates on Layer 1 types.
+
+**`JsonNode` as a Layer 1 data type.** `PatchObject` (§1.5.3), `Invocation`
+arguments, and error `extras` fields use `JsonNode` from `std/json`. This is
+`JsonNode` as a *data structure* (a tree of values), not as a serialisation
+concern. The L1/L2 boundary prohibits serialisation *logic* — `parseJson`,
+`to[T]`, camelCase conversion, `#`-prefix handling — not the tree type
+itself. Analogous to Haskell's `Data.Aeson.Value`, which is a pure ADT that
+happens to represent JSON structure. Importing `std/json` for the `JsonNode`
+type does not create a dependency on JSON parsing behaviour.
 
 Each layer depends only on layers below it. Each is fully testable without the
 layers above.
@@ -265,7 +283,7 @@ branches. Each file is independently testable.
 The RFC defines `Id` (1-255 octets, base64url chars), plus various semantically
 distinct identifiers (account IDs, blob IDs, state strings, etc.).
 
-#### Option 1A: Full distinct types for every identifier kind
+#### Option 1.1A: Full distinct types for every identifier kind
 
 `AccountId`, `BlobId`, `JmapState` as separate `distinct string` types. Every
 operation (`==`, `$`, hash, serialisation) explicitly borrowed or defined per type.
@@ -285,7 +303,7 @@ operation (`==`, `$`, hash, serialisation) explicitly borrowed or defined per ty
   distinct strings is one line each. The serialisation boilerplate is actually a
   feature — it is the validation boundary.
 
-#### Option 1B: Single `Id` distinct type, no further subdivision
+#### Option 1.1B: Single `Id` distinct type, no further subdivision
 
 One `type Id = distinct string` for all JMAP identifiers. `JmapState` as a
 separate distinct type. Dates as distinct strings.
@@ -298,7 +316,7 @@ separate distinct type. Dates as distinct strings.
   - Can pass an account ID where a blob ID is expected.
   - Misses the "make illegal states unrepresentable" goal for a common class of bug.
 
-#### Option 1C: Plain strings
+#### Option 1.1C: Plain strings
 
 `string` everywhere, doc comments indicating intent.
 
@@ -306,7 +324,7 @@ separate distinct type. Dates as distinct strings.
 - **Cons:** Defeats the purpose of strict type safety settings. No compiler help.
   Antithetical to the project's principles.
 
-#### Decision: 1A
+#### Decision: 1.1A
 
 The boilerplate cost is real but small (~3 lines per type). The safety benefit is
 real and catches plausible bugs. For RFC 8620 Core specifically, the distinct
@@ -333,7 +351,7 @@ flow analysis to verify initialisation across branches.
 The Session object's `capabilities` field is a map from URI string to a
 capability-specific JSON object. The shape varies per capability URI.
 
-#### Option 1D: Variant object (case object) with exhaustive enum
+#### Option 1.2A: Variant object (case object) with exhaustive enum
 
 ```
 CapabilityKind = enum
@@ -365,7 +383,7 @@ Consumers match on the `kind` enum (exhaustive in Nim).
   - Adding a new capability requires recompilation.
 
 
-#### Option 1E: Known fields + raw JSON catch-all
+#### Option 1.2B: Known fields + raw JSON catch-all
 
 Typed fields for `urn:ietf:params:jmap:core`. Everything else stored as raw
 `JsonNode` in a `Table[string, JsonNode]`.
@@ -374,16 +392,16 @@ Typed fields for `urn:ietf:params:jmap:core`. Everything else stored as raw
 - **Cons:** Mixed access patterns — typed for core, untyped for everything else.
   `Table[string, JsonNode]` is stringly-typed.
 
-#### Option 1F: Typed core only, ignore rest for now
+#### Option 1.2C: Typed core only, ignore rest for now
 
 Parse `CoreCapabilities` fully. Store everything else as `JsonNode`. Add typed
 parsing for other capabilities when implementing their RFCs.
 
 - **Pros:** Pragmatic. Core is the only capability needed for RFC 8620.
-- **Cons:** Same mixed access pattern as 1E. Consumers must know which access
+- **Cons:** Same mixed access pattern as 1.2B. Consumers must know which access
   pattern to use for which capability.
 
-#### Decision: 1D
+#### Decision: 1.2A
 
 The case object with exhaustive enum is the correct encoding. It forces every
 consumer to handle each capability kind explicitly. Unknown capabilities are preserved via the `ckUnknown`
@@ -409,7 +427,7 @@ wire, the field name gets a `#` prefix when a reference is used:
 
 The same logical field appears under two different JSON keys depending on usage.
 
-#### Option 3F: Separate optional fields
+#### Option 1.3A: Separate optional fields
 
 ```
 GetRequest[T] = object
@@ -424,7 +442,7 @@ Serialisation: if `idsRef.isSome`, emit `"#ids"`; else if `ids.isSome`, emit
 - **Cons:** Mutual exclusion not enforced by types. Both fields could be `Some`
   simultaneously — an illegal state that the type permits.
 
-#### Option 3G: Variant type (discriminated union)
+#### Option 1.3B: Variant type (discriminated union)
 
 ```nim
 ReferencableKind = enum rkDirect, rkReference
@@ -453,10 +471,10 @@ GetRequest[T] = object
   - Custom serialisation needed: `Referencable[seq[Id]]` serialises as either
     `"ids": [...]` or `"#ids": { "resultOf": ..., ... }`.
   - Variant object boilerplate for each referenceable field.
-- **Mitigation:** Custom serialisation is already the approach (Decision 3A).
+- **Mitigation:** Custom serialisation is already the approach (Decision 2.1A).
   There are only ~4 referenceable fields across the standard methods.
 
-#### Option 3H: Builder pattern hides representation
+#### Option 1.3C: Builder pattern hides representation
 
 Builder provides `.ids(seq[Id])` or `.idsRef(ResultReference)` and internally
 tracks which was set.
@@ -465,7 +483,7 @@ tracks which was set.
 - **Cons:** Runtime enforcement only. The underlying type still needs to handle
   both cases. Correctness lives in the builder, not the types.
 
-#### Decision: 3G
+#### Decision: 1.3B
 
 Variant type (`Referencable[T]`). Illegal states are unrepresentable in the type
 system. The builder (Layer 3) provides ergonomic construction on top. The
@@ -518,7 +536,7 @@ A recursive algebraic data type parameterised by condition type `C`.
 Equivalent to Haskell's `data Filter c = Condition c | Operator Op [Filter c]`.
 `seq[Filter[C]]` provides heap-allocated indirection for the recursion without
 `ref`. How to resolve `C` from the entity type is a Layer 3 concern
-(Decision 5B).
+(Decision 3.7B).
 
 #### 1.5.2 Comparator
 
@@ -539,14 +557,14 @@ RFC §5.5 (default applied at parse time in Layer 2).
 The RFC's PatchObject (§5.3) uses JSON Pointer paths as keys. Inherently
 dynamic.
 
-##### Option 5D: `Table[string, JsonNode]`
+##### Option 1.5A: `Table[string, JsonNode]`
 
 Simple key-value map.
 
 - **Pros:** Direct, no abstraction needed.
 - **Cons:** No validation. No distinction from arbitrary tables.
 
-##### Option 5E: Opaque distinct type with smart constructors
+##### Option 1.5B: Opaque distinct type with smart constructors
 
 ```
 PatchObject = distinct Table[string, JsonNode]
@@ -563,11 +581,11 @@ func deleteProp(patch: PatchObject, path: string): Result[PatchObject, Validatio
 - **Cons:** Path is still a string. Cannot statically validate against entity
   properties.
 
-##### Decision: 5E
+##### Decision: 1.5B
 
 Core defines the PatchObject format but has no concrete entity types. Use the
 opaque distinct type with smart constructors. Entity-specific typed patch
-builders (Option 5F) are a Layer 3 concern.
+builders (Option 3.8A) are a Layer 3 concern.
 
 #### 1.5.4 AddedItem
 
@@ -585,8 +603,13 @@ constructors.
 
 ### 1.6 Error Architecture
 
-The RFC defines errors at four levels:
+The library handles errors at five levels. The first is a library concern;
+the remaining four are defined by the RFC:
 
+0. **Construction errors** — invalid values rejected by smart constructors
+   (`ValidationError`). These fire at value-construction time, before any
+   request is built. The construction-time railway:
+   `Result[T, ValidationError]`.
 1. **Transport errors** — network failures, TLS errors, timeouts (not in RFC,
    but reality).
 2. **Request-level errors** — HTTP 4xx/5xx with RFC 7807 problem details
@@ -597,7 +620,7 @@ The RFC defines errors at four levels:
 4. **Set-item errors** — per-object errors within a `/set` response (`SetError`
    with type like `forbidden`, `overQuota`, `invalidProperties`, etc.).
 
-#### Option 2A: Flat error enum
+#### Option 1.6A: Flat error enum
 
 Single `JmapErrorKind` enum covering all error types across all levels.
 
@@ -610,7 +633,7 @@ Single `JmapErrorKind` enum covering all error types across all levels.
   - Mixing transport/protocol/method concerns in one enum violates the principle
     of precise types.
 
-#### Option 2B: Layered error types with a top-level sum
+#### Option 1.6B: Layered error types with a top-level sum
 
 Separate types for each level, unified under a top-level `JmapError` variant:
 
@@ -631,9 +654,13 @@ JmapError = ClientError | MethodError | SetError
     in the same HTTP 200 response. If method errors are on the error rail of the
     outer `Result`, the 2 successes are lost.
 
-#### Option 2C: Two-level railway
+#### Option 1.6C: Three-track railway
 
 ```
+Track 0 (construction): Can this value be constructed at all?
+  Success: Well-typed value (Id, AccountId, PatchObject, etc.)
+  Failure: ValidationError
+
 Track 1 (outer): Did we get a valid JMAP response at all?
   Success: Response envelope with method responses
   Failure: ClientError (TransportError | RequestError)
@@ -643,9 +670,11 @@ Track 2 (inner, per-invocation): Did this method call succeed?
   Failure: MethodError
 ```
 
-`JmapResult[T] = Result[T, ClientError]` for the outer railway.
-`Result[MethodResponse, MethodError]` per invocation in the response.
-SetErrors are data within successful SetResponse values (per-item results).
+`Result[T, ValidationError]` for the construction railway (Layer 1 smart
+constructors). `JmapResult[T] = Result[T, ClientError]` for the outer
+railway. `Result[MethodResponse, MethodError]` per invocation in the
+response. SetErrors are data within successful SetResponse values (per-item
+results).
 
 - **Pros:**
   - Matches JMAP's actual semantics. A single response legitimately contains both
@@ -659,20 +688,23 @@ SetErrors are data within successful SetResponse values (per-item results).
     results inside the response.
   - More complex mental model than a flat error type.
 
-#### Decision: 2C
+#### Decision: 1.6C
 
-The two-level railway is the only option consistent with ROP and JMAP's
-semantics. A flat error type forces handling transport errors and method errors
-in the same `case` statement, but these require fundamentally different recovery
-actions (retry vs. resync vs. report). And conflating method errors with transport
-failures in a single `Result` loses successful results from a partially-failed
-multi-method request.
+The three-track railway is the only option consistent with ROP and JMAP's
+semantics. Each track corresponds to a distinct temporal phase with different
+failure modes: construction (can this value exist?), transport (did the
+HTTP round-trip succeed?), and per-invocation (did this method call
+succeed?). A flat error type forces handling transport errors and method
+errors in the same `case` statement, but these require fundamentally
+different recovery actions (retry vs. resync vs. report). And conflating
+method errors with transport failures in a single `Result` loses successful
+results from a partially-failed multi-method request.
 
 ### 1.7 Error Type Granularity
 
 For each error level, how to represent the specific error type.
 
-#### Option 2D: Full enum per level
+#### Option 1.7A: Full enum per level
 
 Every RFC-specified error type as an enum variant, plus an `unknown` catch-all.
 
@@ -680,14 +712,14 @@ Every RFC-specified error type as an enum variant, plus an `unknown` catch-all.
 - **Cons:** The list grows when adding RFC 8621. Servers may return
   implementation-specific errors.
 
-#### Option 2E: String type + known constants
+#### Option 1.7B: String type + known constants
 
 Error type as a string, with constants for known values.
 
 - **Pros:** Extensible without recompilation. Matches wire format.
 - **Cons:** No exhaustive matching. String comparison is fragile.
 
-#### Option 2F: Enum with string backing + lossless round-trip
+#### Option 1.7C: Enum with string backing + lossless round-trip
 
 Enum for known types with a fallback variant. Raw string always preserved
 alongside the parsed enum:
@@ -731,7 +763,7 @@ through `MethodError` without losing the original string.
 - **Cons:** Slightly redundant storage (the enum and the string represent the
   same information for known types). Negligible cost.
 
-#### Decision: 2F
+#### Decision: 1.7C
 
 Enum with string backing and lossless round-trip. The same pattern applies to
 `SetErrorType` and `RequestErrorType`. The lossless principle extends beyond
@@ -859,7 +891,7 @@ SetError = object
 
 ### 2.1 JSON Library
 
-#### Option 3A: `std/json` with manual serialisation/deserialisation
+#### Option 2.1A: `std/json` with manual serialisation/deserialisation
 
 Use the built-in `JsonNode` tree. Write `toJson`/`fromJson` procs manually for
 each type.
@@ -887,7 +919,7 @@ each type.
   special format (invocations, result references, PatchObject). A helper template
   can handle the first pattern. Manual for the ~4-5 special types.
 
-#### Option 3B: `jsony` or `nim-serialization`
+#### Option 2.1B: `jsony` or `nim-serialization`
 
 Third-party library with hooks for customisation.
 
@@ -900,16 +932,16 @@ Third-party library with hooks for customisation.
     without hooks.
   - Less control over the total-parsing guarantee.
 
-#### Option 3C: `std/json` + code generation macro
+#### Option 2.1C: `std/json` + code generation macro
 
 Macro generates `toJson`/`fromJson` from type definitions, handling camelCase
 automatically. Manual overrides for special types.
 
-- **Pros:** Less boilerplate than 3A, no external dependencies.
+- **Pros:** Less boilerplate than 2.1A, no external dependencies.
 - **Cons:** Macros add compile-time complexity. Debugging macro-generated code is
   harder. Must work with strict settings.
 
-#### Decision: 3A, potentially evolving to 3C
+#### Decision: 2.1A, potentially evolving to 2.1C
 
 Start manual. The types with tricky serialisation (invocations as JSON arrays,
 `#`-prefixed reference fields, PatchObject with JSON Pointer keys, filter
@@ -920,7 +952,7 @@ boilerplate becomes painful, introduce a macro for the simple-object pattern.
 
 ### 2.2 camelCase Handling
 
-#### Option 3D: camelCase in Nim source
+#### Option 2.2A: camelCase in Nim source
 
 Since Nim treats `accountId` and `account_id` as the same identifier, write
 `accountId` in type definitions. The field name in Nim is the field name on the
@@ -932,7 +964,7 @@ wire. Zero conversion.
 - **Cons:** Some Nim style guides prefer snake_case. Needs verification that
   `nph` + `--styleCheck:error` cooperate.
 
-#### Option 3E: snake_case in Nim, convert at serialisation boundary
+#### Option 2.2B: snake_case in Nim, convert at serialisation boundary
 
 Write `account_id` in Nim. Convert to `accountId` during JSON serialisation.
 
@@ -940,13 +972,13 @@ Write `account_id` in Nim. Convert to `accountId` during JSON serialisation.
 - **Cons:** Conversion logic in every ser/de proc. Unnecessary complexity given
   Nim's style insensitivity.
 
-#### Decision: 3D
+#### Decision: 2.2A
 
 camelCase in source. Zero conversion. Leverages Nim's style insensitivity.
 
 ### 2.3 Result Reference Serialisation
 
-`Referencable[T]` (Decision 3G, defined in Layer 1 §1.3) requires custom
+`Referencable[T]` (Decision 1.3B, §1.3) requires custom
 serialisation. The wire format uses the JSON key name as the discriminator:
 
 - `rkDirect`: normal key with the value serialised as `T`.
@@ -983,27 +1015,27 @@ handled by custom serialisation in Layer 2.
 
 ### 3.2 Method Call ID Generation
 
-#### Option 4A: Auto-incrementing counter
+#### Option 3.2A: Auto-incrementing counter
 
 `"c0"`, `"c1"`, `"c2"`. What the Rust implementation does.
 
 - **Pros:** Simple, deterministic, unique within a request.
 - **Cons:** None. IDs are only meaningful within a single request/response pair.
 
-#### Option 4B: Method-name-based descriptive IDs
+#### Option 3.2B: Method-name-based descriptive IDs
 
 `"mailbox-query-0"`, `"email-get-1"`.
 
 - **Pros:** Easier debugging — visible which call produced which response.
 - **Cons:** More complex generation. Needs uniqueness suffix for repeated methods.
 
-#### Decision: 4A
+#### Decision: 3.2A
 
 Internal plumbing. No safety implications. Keep simple.
 
 ### 3.3 Request Builder Design
 
-#### Option 4C: Direct construction
+#### Option 3.3A: Direct construction
 
 User builds `Request` objects by constructing `Invocation` objects manually.
 
@@ -1012,7 +1044,7 @@ User builds `Request` objects by constructing `Invocation` objects manually.
   `ResultReference` objects, manage the `using` capability list. Error-prone.
   Antithetical to the goal of making misuse difficult.
 
-#### Option 4D: Builder with method-specific sub-builders
+#### Option 3.3B: Builder with method-specific sub-builders
 
 Builder accumulates method calls. Each method call returns a sub-builder for that
 method's arguments. Call IDs generated automatically. `using` populated
@@ -1028,26 +1060,33 @@ automatically based on which methods are called.
   - In Nim without a borrow checker, reference semantics of sub-builders must be
     managed carefully.
 
-#### Option 4E: Builder with generic method calls
+#### Option 3.3C: Builder with generic method calls
 
 One generic `call` proc instead of method-specific sub-builders.
 
-- **Pros:** Less infrastructure than 4D.
+- **Pros:** Less infrastructure than 3.3B.
 - **Cons:** Less discoverable. Requires knowing method type names.
 
-#### Decision: 4D
+#### Decision: 3.3B
 
-The builder must produce an **immutable** request value. The builder is mutable
-during construction (imperative shell). Once built, the `Request` is immutable
-(functional core). The boundary is the `.build()` call:
+The builder must produce an **immutable** request value. The builder uses
+owned mutation (`var` parameter under `strictFuncs`) — the Nim equivalent of
+a `State` computation. The compiler enforces that mutation does not escape the
+owned parameter: no IO, no global state, no heap mutation through references.
+This is referentially transparent at the API boundary — same inputs produce
+the same `Request`. `.build()` is the point where accumulation ends and the
+immutable value is produced, not a purity boundary. The builder is functional
+core, not imperative shell; the effect boundary is at Layer 4 (`proc send`).
 
 ```
-# Imperative shell: building the request (var builder)
+# Functional core: builder accumulates via owned var (func, no IO)
 # Functional core: immutable Request value from .build()
+# Imperative shell boundary: Layer 4's proc send()
 ```
 
-This is the builder pattern as used in Rust — mutable accumulation, frozen
-immutable value after `.build()`.
+This is the builder pattern as used in Rust — `&mut self` accumulation, frozen
+immutable value after `.build()`. Both sides are pure; only `send()` is
+effectful.
 
 **Nim limitation:** Cannot enforce "consumed by build" at the type level. In
 Rust, `build(self)` takes ownership. In Nim, the builder remains accessible.
@@ -1055,7 +1094,7 @@ Mitigate by clearing builder state in `build()`.
 
 ### 3.4 Response Processing
 
-#### Option 4F: Fully typed response dispatch
+#### Option 3.4A: Fully typed response dispatch
 
 Each invocation response deserialised into its concrete type based on method name.
 Large enum of all response types.
@@ -1063,7 +1102,7 @@ Large enum of all response types.
 - **Pros:** Type-safe access.
 - **Cons:** Complex deserialisation dispatch. Massive response enum.
 
-#### Option 4G: Typed wrapper over raw JSON
+#### Option 3.4B: Typed wrapper over raw JSON
 
 Deserialise envelope. Keep individual method responses as `JsonNode`. Typed
 extraction on demand.
@@ -1071,7 +1110,7 @@ extraction on demand.
 - **Pros:** Simple deserialisation.
 - **Cons:** Runtime type errors if extracting wrong type at wrong index.
 
-#### Option 4H: Phantom-typed response handles
+#### Option 3.4C: Phantom-typed response handles
 
 The request builder returns typed handles. Each handle carries the expected
 response type as a phantom parameter:
@@ -1099,7 +1138,7 @@ func get[T](resp: Response, handle: ResponseHandle[T]): Result[T, MethodError]
   relationship between request and response provable. In Nim, it is upheld by
   builder implementation.
 
-#### Decision: 4H
+#### Decision: 3.4C
 
 Phantom-typed handles. Compile-time response type safety via the phantom
 parameter. The per-invocation `Result[T, MethodError]` is the inner railway.
@@ -1119,7 +1158,7 @@ The 6 standard methods are generic over entity type. Each entity type must
 define: what properties it has, what filter conditions it supports, what sort
 comparators it supports, and what method-specific arguments it has.
 
-#### Option 1G: Concept + overloaded procs (most typeclass-like)
+#### Option 3.5A: Concept + overloaded procs (most typeclass-like)
 
 Define a concept that entity types must satisfy. Provide overloads as "instances":
 
@@ -1145,7 +1184,7 @@ proc requiresAccountId(T: typedesc[Mailbox]): bool = true
 - **Gap vs. Haskell/Rust:** No orphan instance checking, no associated types,
   errors at instantiation not declaration.
 
-#### Option 1H: Generic procs + overloaded type-specific procs (no concept)
+#### Option 3.5B: Generic procs + overloaded type-specific procs (no concept)
 
 No concept, just generic procs. Type-specific behaviour via overloading:
 
@@ -1159,9 +1198,9 @@ proc methodNamespace(T: typedesc[Email]): string = "Email"
   - Works well with Nim's UFCS and overload resolution.
 - **Cons:**
   - No compile-time enforcement that all required overloads exist.
-  - Errors at instantiation time, not at definition time. Same as 1G in practice.
+  - Errors at instantiation time, not at definition time. Same as 3.5A in practice.
 
-#### Option 1I: Template-generated concrete types
+#### Option 3.5C: Template-generated concrete types
 
 A macro/template stamps out concrete types per entity:
 
@@ -1177,18 +1216,18 @@ defineJmapEntity(Mailbox, "Mailbox", requiresAccountId = true)
   - Code generation means indirection — harder to read, debug, navigate.
   - Changes to the template affect all entity types simultaneously.
 
-#### Decision: 1G — concepts for simple interfaces
+#### Decision: 3.5A — concepts for simple interfaces
 
 Concepts are the primary choice for encoding the "entity types must satisfy an
 interface" constraint. Simple, non-recursive, non-deeply-chained concepts work
 well under the strict compiler settings. The caveat is complexity depth: deeply
 nested concept hierarchies or concepts that chain through multiple layers of
 generic constraints are fragile and should be avoided. For those cases, fall back
-to 1H (plain overloaded procs). Document the required interface explicitly in
+to 3.5B (plain overloaded procs). Document the required interface explicitly in
 either case — this is the moral equivalent of the typeclass definition that Nim
 cannot enforce as strongly as Haskell.
 
-Keep 1I as a reserve option where the number of concrete types per entity may
+Keep 3.5C as a reserve option where the number of concrete types per entity may
 make templates worthwhile.
 
 ### 3.6 The Six Standard Methods
@@ -1210,7 +1249,7 @@ and sort properties. The Rust implementation uses associated types on traits.
 Nim lacks associated types. The question is how to resolve `C` from the entity
 type.
 
-#### Option 5A: Multiple type parameters
+#### Option 3.7A: Multiple type parameters
 
 ```
 QueryRequest[T, F, S] = object  # T = entity, F = filter, S = sort
@@ -1219,7 +1258,7 @@ QueryRequest[T, F, S] = object  # T = entity, F = filter, S = sort
 - **Pros:** Fully type-safe.
 - **Cons:** Three type parameters is unwieldy. Every proc needs all three.
 
-#### Option 5B: Overloaded type-level templates (simulated associated types)
+#### Option 3.7B: Overloaded type-level templates (simulated associated types)
 
 ```
 template filterType(T: typedesc[Mailbox]): typedesc = MailboxFilter
@@ -1236,7 +1275,7 @@ Then `QueryRequest[T]` uses `filterType(T)` to resolve the filter type.
   to work (Nim test suite: `t5540.nim`, `tuninstantiatedgenericcalls.nim`), but
   interactions with deeply nested generics under strict mode remain a risk.
 
-#### Option 5C: `JsonNode` for filters/sorts
+#### Option 3.7C: `JsonNode` for filters/sorts
 
 Untyped filters. Typed filter constructors per entity return `JsonNode`.
 
@@ -1245,7 +1284,7 @@ Untyped filters. Typed filter constructors per entity return `JsonNode`.
   `Email/query`. Runtime errors only from the server. Antithetical to the
   "make illegal states unrepresentable" principle.
 
-#### Decision: 5B, with 5B-fallback as the safe default
+#### Decision: 3.7B, with 3.7B-fallback as the safe default
 
 Typed filters from the start. No `JsonNode` escape hatches in the user-facing
 API. Use type-level `template`s (not `proc`s) for associated type resolution.
@@ -1255,7 +1294,7 @@ explicit two-parameter types with convenience aliases (see below).
 Core defines the generic filter *framework* but no concrete filter types.
 Concrete filters come from RFC 8621 and other extensions.
 
-#### Fallback if 5B fails
+#### Fallback if 3.7B fails
 
 If `filterType(T)` does not work in a type position under strict mode, use
 explicit two-parameter types with convenience aliases:
@@ -1272,18 +1311,18 @@ More verbose but achievable. The alias hides the second parameter.
 
 ### 3.8 Entity-Specific Patch Builders
 
-`PatchObject` (defined in Layer 1 §1.5, Decision 5E) is the opaque distinct
+`PatchObject` (defined in Layer 1 §1.5, Decision 1.5B) is the opaque distinct
 type for update patches. When adding entity types, typed builders produce
 `PatchObject` values with property validation.
 
-#### Option 5F: Typed patch builder per entity
+#### Option 3.8A: Typed patch builder per entity
 
 Entity-specific builder that produces `PatchObject` values.
 
 - **Pros:** Type-safe, discoverable.
 - **Cons:** Requires a builder per entity type.
 
-#### Decision: 5F when adding entity types
+#### Decision: 3.8A when adding entity types
 
 Core has no concrete entity types. When adding RFC 8621, add typed patch
 builders per entity that produce `PatchObject` values. Each builder validates
@@ -1295,7 +1334,7 @@ A `/set` response contains parallel maps: `created`/`notCreated`,
 `updated`/`notUpdated`, `destroyed`/`notDestroyed`. An ID appears in exactly
 one map per operation.
 
-#### Option 5G: Mirror RFC structure (parallel maps)
+#### Option 3.9A: Mirror RFC structure (parallel maps)
 
 ```
 SetResponse[T] = object
@@ -1307,7 +1346,7 @@ SetResponse[T] = object
 - **Pros:** Direct mapping to/from JSON. No transformation.
 - **Cons:** Invariant "each ID in exactly one map" not enforced by types.
 
-#### Option 5H: Unified result map (per-item railway)
+#### Option 3.9B: Unified result map (per-item railway)
 
 ```
 SetResponse[T] = object
@@ -1325,7 +1364,7 @@ SetResponse[T] = object
 - **Cons:** Requires transformation during deserialisation (merge parallel maps).
   Serialisation must split back out.
 
-#### Decision: 5H internally, 5G on the wire
+#### Decision: 3.9B internally, 3.9A on the wire
 
 Deserialise from the RFC format (parallel maps). Immediately merge into `Result`
 maps. The user-facing type is the unified result map. This gives users the clean
@@ -1373,7 +1412,7 @@ builder.addGet(Mailbox, ids = referenceTo(idsRef))
 
 #### Path Validation
 
-##### Option 6A: No validation
+##### Option 3.10A: No validation
 
 String path, library provides constants for common paths. Server returns
 `invalidResultReference` if wrong.
@@ -1381,7 +1420,7 @@ String path, library provides constants for common paths. Server returns
 - **Pros:** Simple.
 - **Cons:** No compile-time feedback for incorrect paths.
 
-##### Option 6B: Validated paths
+##### Option 3.10B: Validated paths
 
 Constants only. No arbitrary string paths:
 
@@ -1394,7 +1433,7 @@ func listIdsPath(): string = "/list/*/id"
 - **Cons:** Cannot reference custom paths. Some server extensions may use
   non-standard paths.
 
-##### Decision: 6A with constants
+##### Decision: 3.10A with constants
 
 Provide constants for all standard paths. Allow arbitrary string paths for
 extensibility. The server validates; the client provides convenience.
@@ -1410,7 +1449,7 @@ a runtime assumption documented by convention.
 
 ### 4.1 HTTP Client
 
-#### Option 7A: `std/httpclient`
+#### Option 4.1A: `std/httpclient`
 
 Built-in, synchronous.
 
@@ -1420,12 +1459,12 @@ Built-in, synchronous.
 - **Cons:** Limited TLS configuration. No connection pooling. May not handle all
   redirect edge cases.
 
-#### Option 7B: libcurl wrapper
+#### Option 4.1B: libcurl wrapper
 
 - **Pros:** Battle-tested TLS, connection pooling, proxy support.
 - **Cons:** C dependency. More complex build.
 
-#### Decision: 7A
+#### Decision: 4.1A
 
 Swap HTTP backends later without affecting other layers. `std/httpclient` is
 sufficient for session discovery and API requests. Upgrade to libcurl if TLS or
@@ -1486,7 +1525,7 @@ Opaque pointers. C consumers never see Nim type internals.
 
 ### 5.3 Memory Ownership
 
-#### Option 8A: Per-object free functions
+#### Option 5.3A: Per-object free functions
 
 Each object type has `_new` and `_free` functions. Accessor functions return
 borrowed pointers.
@@ -1494,7 +1533,7 @@ borrowed pointers.
 - **Pros:** Standard C pattern. Familiar. Each object has clear lifetime.
 - **Cons:** Easy to leak. Easy to use-after-free.
 
-#### Option 8B: Arena/context allocator
+#### Option 5.3B: Arena/context allocator
 
 One context object. All allocations scoped to it. Single `_free` call releases
 everything.
@@ -1503,7 +1542,7 @@ everything.
 - **Cons:** Coarser lifetime management. Objects cannot outlive their context.
   Less familiar pattern.
 
-#### Decision: 8A
+#### Decision: 5.3A
 
 Per-object free functions. Standard C pattern. Arena support can be added later
 as a convenience layer on top.
@@ -1512,28 +1551,31 @@ as a convenience layer on top.
 
 ## Summary of Decisions
 
+Option IDs use section-based numbering: the prefix identifies the document
+section where the option is defined (e.g., 1.3B is the second option in §1.3).
+
 | Layer | Decision | Rationale |
 |-------|----------|-----------|
-| 1. Types+Errors | Full distinct types + `{.requiresInit.}` for all identifiers (1A) | Make illegal states unrepresentable; prevent default construction |
-| 1. Types+Errors | Case object capabilities with exhaustive enum (1D) | Closed world with explicit unknown case |
-| 1. Types+Errors | `Referencable[T]` variant type (3G) | Illegal state (both direct + ref) unrepresentable |
-| 1. Types+Errors | Opaque PatchObject distinct type (5E) | Distinct from arbitrary tables |
-| 1. Types+Errors | Two-level railway: ClientError outer, MethodError inner (2C) | Separate transport failure from protocol results |
-| 1. Types+Errors | Full enum + rawType for lossless round-trip (2F) | Parse, don't validate; preserve original |
+| 1. Types+Errors | Full distinct types + `{.requiresInit.}` for all identifiers (1.1A) | Make illegal states unrepresentable; prevent default construction |
+| 1. Types+Errors | Case object capabilities with exhaustive enum (1.2A) | Closed world with explicit unknown case |
+| 1. Types+Errors | `Referencable[T]` variant type (1.3B) | Illegal state (both direct + ref) unrepresentable |
+| 1. Types+Errors | Opaque PatchObject distinct type (1.5B) | Distinct from arbitrary tables |
+| 1. Types+Errors | Three-track railway: ValidationError, ClientError, MethodError (1.6C) | Construction, transport, and per-invocation error separation |
+| 1. Types+Errors | Full enum + rawType for lossless round-trip (1.7C) | Parse, don't validate; preserve original |
 | 1. Types+Errors | SetError as case object with variant-specific fields | invalidProperties/alreadyExists carry typed data |
-| 2. Serialisation | `std/json` manual ser/de, no external deps (3A) | Total parsing, `raises: []` via boundary catch |
-| 2. Serialisation | camelCase in Nim source (3D) | Zero conversion, leverages style insensitivity |
-| 3. Protocol | Auto-incrementing call IDs (4A) | Simple, no safety implications |
-| 3. Protocol | Builder produces immutable Request (4D) | Functional core / imperative shell boundary |
-| 3. Protocol | Phantom-typed ResponseHandle (4H) | Compile-time response type safety |
-| 3. Protocol | Entity type concept (1G, fallback 1H) | Closest to typeclasses |
-| 3. Protocol | Associated type resolution via templates (5B) | No JsonNode escape hatches in user-facing API |
-| 3. Protocol | Entity-specific typed patch builders (5F) | Type-safe construction per entity |
-| 3. Protocol | SetResponse as unified Result maps (5H) | Per-item railway |
-| 3. Protocol | String paths with constants, no validation (6A) | Server validates; client provides convenience |
-| 4. Transport | `std/httpclient`, synchronous (7A) | No deps, swappable later |
+| 2. Serialisation | `std/json` manual ser/de, no external deps (2.1A) | Total parsing, `raises: []` via boundary catch |
+| 2. Serialisation | camelCase in Nim source (2.2A) | Zero conversion, leverages style insensitivity |
+| 3. Protocol | Auto-incrementing call IDs (3.2A) | Simple, no safety implications |
+| 3. Protocol | Builder produces immutable Request (3.3B) | Owned mutation under strictFuncs; effect boundary at Layer 4 |
+| 3. Protocol | Phantom-typed ResponseHandle (3.4C) | Compile-time response type safety |
+| 3. Protocol | Entity type concept (3.5A, fallback 3.5B) | Closest to typeclasses |
+| 3. Protocol | Associated type resolution via templates (3.7B) | No JsonNode escape hatches in user-facing API |
+| 3. Protocol | Entity-specific typed patch builders (3.8A) | Type-safe construction per entity |
+| 3. Protocol | SetResponse as unified Result maps (3.9B) | Per-item railway |
+| 3. Protocol | String paths with constants, no validation (3.10A) | Server validates; client provides convenience |
+| 4. Transport | `std/httpclient`, synchronous (4.1A) | No deps, swappable later |
 | 4. Transport | Direct URL + .well-known, no DNS SRV | Matches all reference implementations |
-| 5. C ABI | Lossy projection, opaque handles, per-object free (8A) | Standard C pattern |
+| 5. C ABI | Lossy projection, opaque handles, per-object free (5.3A) | Standard C pattern |
 
 ## Testability per Layer
 
@@ -1549,9 +1591,9 @@ Each layer is testable without the layers above it:
   Referencable[T] serialises correctly for both branches.
 - **Layer 3 (Protocol Logic):** Unit test request builder logic: call ID
   generation, phantom-typed handle creation, builder produces correct immutable
-  Request values. Unit test entity type concept satisfaction (1G). Unit test
+  Request values. Unit test entity type concept satisfaction (3.5A). Unit test
   method request/response construction. Verify associated-type template
-  resolution (5B). Verify unified Result maps in SetResponse (5H). Unit test
+  resolution (3.7B). Verify unified Result maps in SetResponse (3.9B). Unit test
   that builder produces correct ResultReference values from phantom-typed
   handles. Verify path constants.
 - **Layer 4 (Transport):** Integration test against a real or mock JMAP server.
