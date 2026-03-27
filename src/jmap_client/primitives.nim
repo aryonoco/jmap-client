@@ -3,6 +3,10 @@
 
 {.push raises: [].}
 
+## RFC 8620 primitive types with smart constructors enforcing wire-format
+## constraints. Bounded to JSON-safe integer ranges (2^53-1) per the JMAP
+## specification.
+
 import std/hashes
 import std/sequtils
 
@@ -11,23 +15,32 @@ import pkg/results
 import ./validation
 
 type Id* {.requiresInit.} = distinct string
+  ## JMAP identifier: 1-255 octets, base64url charset (RFC 8620 §1.2).
+  ## Requires explicit construction via parseId or parseIdFromServer.
 
 defineStringDistinctOps(Id)
 
 type UnsignedInt* {.requiresInit.} = distinct int64
+  ## Non-negative integer bounded to 0..2^53-1 for JSON interoperability
+  ## (RFC 8620 §1.3).
 
 defineIntDistinctOps(UnsignedInt)
 
 type JmapInt* {.requiresInit.} = distinct int64
+  ## Signed integer bounded to -(2^53-1)..2^53-1 for JSON interoperability
+  ## (RFC 8620 §1.3).
 
 defineIntDistinctOps(JmapInt)
 func `-`*(a: JmapInt): JmapInt {.borrow.} ## unary negation
 
 type Date* {.requiresInit.} = distinct string
+  ## RFC 3339 date-time string with structural validation but no calendar
+  ## semantics.
 
 defineStringDistinctOps(Date)
 
 type UTCDate* {.requiresInit.} = distinct string
+  ## RFC 3339 date-time that must use 'Z' (UTC) as its timezone offset.
 
 defineStringDistinctOps(UTCDate)
 
@@ -60,6 +73,8 @@ func parseIdFromServer*(raw: string): Result[Id, ValidationError] =
   ok(Id(raw))
 
 func parseUnsignedInt*(value: int64): Result[UnsignedInt, ValidationError] =
+  ## Must be 0..2^53-1. Prevents negative values and integers outside JSON's
+  ## safe range.
   if value < 0:
     return err(validationError("UnsignedInt", "must be non-negative", $value))
   if value > MaxUnsignedInt:
@@ -67,42 +82,38 @@ func parseUnsignedInt*(value: int64): Result[UnsignedInt, ValidationError] =
   ok(UnsignedInt(value))
 
 func parseJmapInt*(value: int64): Result[JmapInt, ValidationError] =
+  ## Must be -(2^53-1)..2^53-1. Rejects values outside JSON's safe integer
+  ## range.
   if value < MinJmapInt or value > MaxJmapInt:
     return err(validationError("JmapInt", "outside JSON-safe integer range", $value))
   ok(JmapInt(value))
 
-func parseDate*(raw: string): Result[Date, ValidationError] =
-  ## Pattern validates RFC 3339 date-time structural constraints:
-  ## - Minimum length (YYYY-MM-DDTHH:MM:SSZ = 20 chars)
-  ## - 'T' separator present and uppercase
-  ## - No lowercase 't' or 'z'
-  ## - If fractional seconds present, must not be all zeroes
-  ## Does NOT perform full calendar validation (e.g., February 30).
-  ## Does NOT validate the timezone offset format beyond uppercase checks.
-  if raw.len < 20:
-    return err(validationError("Date", "too short for RFC 3339 date-time", raw))
-  # Check date part: YYYY-MM-DD
+func validateDatePortion(raw: string): Result[void, ValidationError] =
+  ## YYYY-MM-DD at positions 0..9.
   if not (
     raw[0 .. 3].allIt(it in AsciiDigits) and raw[4] == '-' and
     raw[5 .. 6].allIt(it in AsciiDigits) and raw[7] == '-' and
     raw[8 .. 9].allIt(it in AsciiDigits)
   ):
     return err(validationError("Date", "invalid date portion", raw))
-  # Check 'T' separator
+  ok()
+
+func validateTimePortion(raw: string): Result[void, ValidationError] =
+  ## HH:MM:SS at positions 11..18, with uppercase 'T' separator at 10.
   if raw[10] != 'T':
     return err(validationError("Date", "'T' separator must be uppercase", raw))
-  # Check time part: HH:MM:SS
   if not (
     raw[11 .. 12].allIt(it in AsciiDigits) and raw[13] == ':' and
     raw[14 .. 15].allIt(it in AsciiDigits) and raw[16] == ':' and
     raw[17 .. 18].allIt(it in AsciiDigits)
   ):
     return err(validationError("Date", "invalid time portion", raw))
-  # Check no lowercase 't' or 'z' (the only letters in RFC 3339 date-time are T and Z)
   if raw.anyIt(it in {'t', 'z'}):
     return err(validationError("Date", "'T' and 'Z' must be uppercase (RFC 3339)", raw))
-  # Check fractional seconds: if present, must have at least one digit
-  # and must not be all zeroes.
+  ok()
+
+func validateFractionalSeconds(raw: string): Result[void, ValidationError] =
+  ## If a '.' follows position 19, digits must follow and not all be zero.
   if raw.len > 19 and raw[19] == '.':
     let dotEnd = block:
       var i = 20
@@ -118,6 +129,17 @@ func parseDate*(raw: string): Result[Date, ValidationError] =
     if raw[20 ..< dotEnd].allIt(it == '0'):
       return
         err(validationError("Date", "zero fractional seconds must be omitted", raw))
+  ok()
+
+func parseDate*(raw: string): Result[Date, ValidationError] =
+  ## Structural validation of an RFC 3339 date-time string.
+  ## Does NOT perform calendar validation (e.g., February 30) or
+  ## validate timezone offset format beyond uppercase checks.
+  if raw.len < 20:
+    return err(validationError("Date", "too short for RFC 3339 date-time", raw))
+  ?validateDatePortion(raw)
+  ?validateTimePortion(raw)
+  ?validateFractionalSeconds(raw)
   ok(Date(raw))
 
 func parseUtcDate*(raw: string): Result[UTCDate, ValidationError] =

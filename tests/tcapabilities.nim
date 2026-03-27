@@ -3,6 +3,8 @@
 
 {.push raises: [].}
 
+## Tests for CapabilityKind parsing, URI round-trip, and CoreCapabilities queries.
+
 import std/sets
 import std/json
 

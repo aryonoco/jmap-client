@@ -3,6 +3,10 @@
 
 {.push raises: [].}
 
+## Semantically distinct identifier types built on Id validation rules. Separate
+## from primitives.nim because these omit `len` — length is meaningless for
+## opaque server tokens.
+
 import std/hashes
 import std/sequtils
 
@@ -11,26 +15,40 @@ import pkg/results
 import ./validation
 
 type AccountId* {.requiresInit.} = distinct string
+  ## Server-assigned account identifier (RFC 8620 §2). Distinct from Id to
+  ## prevent cross-use.
 
 defineStringDistinctOps(AccountId)
 
 type JmapState* {.requiresInit.} = distinct string
+  ## Opaque server state token for change tracking (RFC 8620 §5.3). No len
+  ## borrow — length is meaningless.
 
+{.push ruleOff: "hasDoc".}
 func `==`*(a, b: JmapState): bool {.borrow.}
 func `$`*(a: JmapState): string {.borrow.}
 func hash*(a: JmapState): Hash {.borrow.}
+{.pop.}
 
 type MethodCallId* {.requiresInit.} = distinct string
+  ## Client-assigned tag correlating requests with responses in a batch
+  ## (RFC 8620 §3.2).
 
+{.push ruleOff: "hasDoc".}
 func `==`*(a, b: MethodCallId): bool {.borrow.}
 func `$`*(a: MethodCallId): string {.borrow.}
 func hash*(a: MethodCallId): Hash {.borrow.}
+{.pop.}
 
 type CreationId* {.requiresInit.} = distinct string
+  ## Client-assigned temporary ID for back-references within a /set call
+  ## (RFC 8620 §5.3). Wire format prefixes with '#'.
 
+{.push ruleOff: "hasDoc".}
 func `==`*(a, b: CreationId): bool {.borrow.}
 func `$`*(a: CreationId): string {.borrow.}
 func hash*(a: CreationId): Hash {.borrow.}
+{.pop.}
 
 func parseAccountId*(raw: string): Result[AccountId, ValidationError] =
   ## Lenient: 1-255 octets, no control characters.

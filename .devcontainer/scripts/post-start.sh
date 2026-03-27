@@ -16,6 +16,7 @@ ver_nim=$(get_version nim --version)
 ver_nimble=$(get_version nimble --version)
 ver_nph=$(get_version nph --version)
 ver_nimlangserver=$(get_version nimlangserver --version)
+ver_nimalyzer=$(nimble dump nimalyzer 2>/dev/null | grep '^version:' | sed 's/version: *//;s/"//g' || echo "N/A")
 ver_just=$(get_version just --version)
 ver_cspell=$(get_version cspell --version)
 ver_reuse=$(get_version reuse --version)
@@ -30,6 +31,7 @@ echo "  Nim:           ${ver_nim}"
 echo "  Nimble:        ${ver_nimble}"
 echo "  nph:           ${ver_nph}"
 echo "  nimlangserver: ${ver_nimlangserver}"
+echo "  nimalyzer:     ${ver_nimalyzer}"
 echo "  just:          ${ver_just}"
 echo "  cspell:        ${ver_cspell}"
 echo "  reuse:         ${ver_reuse}"

@@ -3,6 +3,9 @@
 
 {.push raises: [].}
 
+## JMAP capability discovery types. Maps IANA-registered capability URIs to
+## typed enums with lossless round-trip for vendor extensions.
+
 import std/strutils
 import std/sets
 from std/json import JsonNode
@@ -30,6 +33,7 @@ type CapabilityKind* = enum
   ckUnknown
 
 type CoreCapabilities* = object
+  ## Server-advertised limits and supported collation algorithms (RFC 8620 §2).
   maxSizeUpload*: UnsignedInt ## Max file size in octets for single upload
   maxConcurrentUpload*: UnsignedInt ## Max concurrent requests to upload endpoint
   maxSizeRequest*: UnsignedInt ## Max request size in octets for API endpoint
@@ -40,6 +44,8 @@ type CoreCapabilities* = object
   collationAlgorithms*: HashSet[string] ## Collation algorithm identifiers (RFC 4790)
 
 type ServerCapability* = object
+  ## Tagged capability with typed data for ckCore and raw JSON for extensions.
+  ## rawUri preserves the original URI for lossless round-trip.
   rawUri*: string ## always populated — lossless round-trip
   case kind*: CapabilityKind
   of ckCore:
@@ -85,4 +91,5 @@ func capabilityUri*(kind: CapabilityKind): Opt[string] =
     err()
 
 func hasCollation*(caps: CoreCapabilities, algorithm: string): bool =
+  ## Checks whether the server supports a given RFC 4790 collation algorithm.
   algorithm in caps.collationAlgorithms

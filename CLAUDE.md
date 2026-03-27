@@ -18,7 +18,8 @@ This project uses a devcontainer. Tool versions are managed by mise — `mise.to
 - `just fmt` - Format all source files with nph
 - `just fmt-check` - Verify formatting (CI-friendly)
 - `just lint` - Run lint checks
-- `just ci` - Run full CI pipeline (reuse + fmt-check + lint + test)
+- `just analyse` - Run nimalyzer static analysis
+- `just ci` - Run full CI pipeline (reuse + fmt-check + lint + analyse + test)
 - `just clean` - Remove build artifacts
 - `just docs` - Generate HTML documentation
 - `just versions` - Show tool versions

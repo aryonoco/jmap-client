@@ -3,6 +3,8 @@
 
 {.push raises: [].}
 
+## Tests for transport, request, client, method, and set error constructors.
+
 import std/json
 
 import pkg/results

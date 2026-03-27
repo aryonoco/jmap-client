@@ -26,6 +26,11 @@ echo "Installing Python tools via uv..."
 uv tool install reuse==6.2.0
 echo "  Done"
 
+echo ""
+echo "Installing nimalyzer via nimble..."
+nimble install nimalyzer --accept
+echo "  Done"
+
 # Non-interactive shells (SSH, VS Code tasks) skip .zshrc, so mise shims
 # must be injected into PATH via a profile.d script.
 echo ""
@@ -51,7 +56,7 @@ echo "  Done"
 echo ""
 echo "Verifying CLI tool availability..."
 failed=0
-for cmd in nim nimble nph nimlangserver just cspell reuse \
+for cmd in nim nimble nph nimlangserver nimalyzer just cspell reuse \
            rg bat delta shellcheck shfmt sd python3 \
            eza dust hyperfine tokei bwrap socat \
            yq sg watchexec; do

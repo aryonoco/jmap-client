@@ -3,6 +3,8 @@
 
 {.push raises: [].}
 
+## Tests for AccountId, JmapState, MethodCallId, and CreationId smart constructors.
+
 import std/hashes
 import std/strutils
 

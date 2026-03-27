@@ -27,6 +27,7 @@ path = [
   ".gitignore",
   ".editorconfig",
   "nimble.lock",
+  "**/*.cfg",
 ]
 precedence = "override"
 SPDX-FileCopyrightText = "2026 Aryan Ameri <github@aryan.ameri.coffee>"

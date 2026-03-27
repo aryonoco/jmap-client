@@ -24,6 +24,7 @@ versions:
     @echo "  Nimble:        $(nimble --version 2>/dev/null | head -1 | cut -d' ' -f2 || echo 'not installed')"
     @echo "  nph:           $(nph --version 2>/dev/null | head -1 || echo 'not installed')"
     @echo "  nimlangserver: $(nimlangserver --version 2>/dev/null | head -1 || echo 'not installed')"
+    @echo "  nimalyzer:     $(nimble dump nimalyzer 2>/dev/null | grep '^version:' | sed 's/version: *//;s/"//g' || echo 'not installed')"
     @echo "  just:          $(just --version)"
     @echo "  cspell:        $(cspell --version 2>/dev/null || echo 'not installed')"
     @echo "  reuse:         $(reuse --version 2>/dev/null || echo 'not installed')"
@@ -122,8 +123,17 @@ lint:
     nim check src/jmap_client.nim
     @echo "Lint checks passed"
 
+# Static analysis with nimalyzer
+analyse:
+    @echo "Running static analysis..."
+    nimalyzer nimalyzer.cfg
+    @echo "Static analysis passed"
+
+# Alias for analyse (American English spelling)
+analyze: analyse
+
 # Run all code quality checks
-check: fmt-check lint
+check: fmt-check lint analyse
     @echo "All quality checks passed"
 
 # =============================================================================
@@ -137,7 +147,7 @@ reuse:
     @echo "REUSE compliance check passed"
 
 # Run full CI pipeline locally (mirrors .github/workflows/ci.yml)
-ci: reuse fmt-check lint test
+ci: reuse fmt-check lint analyse test
     @echo ""
     @echo "============================================"
     @echo "All CI checks passed!"

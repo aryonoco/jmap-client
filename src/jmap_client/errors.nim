@@ -3,6 +3,10 @@
 
 {.push raises: [].}
 
+## Three-railway error hierarchy mapping JMAP's failure modes: transport
+## (network/TLS/HTTP), request-level (RFC 7807 problem details), and
+## per-invocation method and set errors.
+
 import std/strutils
 from std/json import JsonNode
 
@@ -11,12 +15,14 @@ import pkg/results
 import ./primitives
 
 type TransportErrorKind* = enum
+  ## Failure mode before any JMAP-level processing occurs.
   tekNetwork
   tekTls
   tekTimeout
   tekHttpStatus
 
 type TransportError* = object
+  ## Pre-JMAP failure with an HTTP status code when applicable.
   message*: string
   case kind*: TransportErrorKind
   of tekHttpStatus:
@@ -33,6 +39,7 @@ func httpStatusError*(status: int, message: string): TransportError =
   TransportError(kind: tekHttpStatus, message: message, httpStatus: status)
 
 type RequestErrorType* = enum
+  ## Request-level error types from the JMAP problem details response (RFC 8620 §3.6.1).
   retUnknownCapability = "urn:ietf:params:jmap:error:unknownCapability"
   retNotJson = "urn:ietf:params:jmap:error:notJSON"
   retNotRequest = "urn:ietf:params:jmap:error:notRequest"
@@ -44,6 +51,7 @@ func parseRequestErrorType*(raw: string): RequestErrorType =
   strutils.parseEnum[RequestErrorType](raw, retUnknown)
 
 type RequestError* = object
+  ## RFC 7807 problem details returned when the entire request is rejected.
   errorType*: RequestErrorType ## parsed enum variant
   rawType*: string ## always populated — lossless round-trip
   status*: Opt[int] ## RFC 7807 "status" field
@@ -60,6 +68,7 @@ func requestError*(
     limit: Opt[string] = Opt.none(string),
     extras: Opt[JsonNode] = Opt.none(JsonNode),
 ): RequestError =
+  ## Auto-parses rawType string to the corresponding enum variant via parseRequestErrorType.
   RequestError(
     errorType: parseRequestErrorType(rawType),
     rawType: rawType,
@@ -71,10 +80,12 @@ func requestError*(
   )
 
 type ClientErrorKind* = enum
+  ## Discriminator for the outer railway: transport failure or request rejection.
   cekTransport
   cekRequest
 
 type ClientError* = object
+  ## Outer railway error: either a transport failure or a JMAP request rejection.
   case kind*: ClientErrorKind
   of cekTransport:
     transport*: TransportError
@@ -82,9 +93,11 @@ type ClientError* = object
     request*: RequestError
 
 func clientError*(transport: TransportError): ClientError =
+  ## Lifts a transport failure into the outer railway.
   ClientError(kind: cekTransport, transport: transport)
 
 func clientError*(request: RequestError): ClientError =
+  ## Lifts a request rejection into the outer railway.
   ClientError(kind: cekRequest, request: request)
 
 func message*(err: ClientError): string =
@@ -101,6 +114,7 @@ func message*(err: ClientError): string =
       err.request.rawType
 
 type MethodErrorType* = enum
+  ## Per-invocation error types from the inner railway (RFC 8620 §3.6.2).
   metServerUnavailable = "serverUnavailable"
   metServerFail = "serverFail"
   metServerPartialFail = "serverPartialFail"
@@ -127,6 +141,7 @@ func parseMethodErrorType*(raw: string): MethodErrorType =
   strutils.parseEnum[MethodErrorType](raw, metUnknown)
 
 type MethodError* = object
+  ## Inner railway error for a single method invocation within a batch response.
   errorType*: MethodErrorType ## parsed enum variant
   rawType*: string ## always populated — lossless round-trip
   description*: Opt[string] ## RFC "description" field
@@ -137,6 +152,7 @@ func methodError*(
     description: Opt[string] = Opt.none(string),
     extras: Opt[JsonNode] = Opt.none(JsonNode),
 ): MethodError =
+  ## Auto-parses rawType string to the corresponding enum variant via parseMethodErrorType.
   MethodError(
     errorType: parseMethodErrorType(rawType),
     rawType: rawType,
@@ -145,6 +161,7 @@ func methodError*(
   )
 
 type SetErrorType* = enum
+  ## Per-item error types within a /set response (RFC 8620 §5.3).
   setForbidden = "forbidden"
   setOverQuota = "overQuota"
   setTooLarge = "tooLarge"
@@ -162,6 +179,7 @@ func parseSetErrorType*(raw: string): SetErrorType =
   strutils.parseEnum[SetErrorType](raw, setUnknown)
 
 type SetError* = object
+  ## Per-item error from a /set response. Variant-specific fields for invalidProperties and alreadyExists.
   rawType*: string ## always populated — lossless round-trip
   description*: Opt[string] ## optional human-readable description
   extras*: Opt[JsonNode] ## non-standard fields, lossless preservation
@@ -191,6 +209,7 @@ func setErrorInvalidProperties*(
     description: Opt[string] = Opt.none(string),
     extras: Opt[JsonNode] = Opt.none(JsonNode),
 ): SetError =
+  ## Constructor for the invalidProperties variant, carrying the list of invalid property names.
   SetError(
     errorType: setInvalidProperties,
     rawType: rawType,
@@ -205,6 +224,7 @@ func setErrorAlreadyExists*(
     description: Opt[string] = Opt.none(string),
     extras: Opt[JsonNode] = Opt.none(JsonNode),
 ): SetError =
+  ## Constructor for the alreadyExists variant, carrying the ID of the existing record.
   SetError(
     errorType: setAlreadyExists,
     rawType: rawType,

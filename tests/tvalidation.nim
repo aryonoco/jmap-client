@@ -3,6 +3,8 @@
 
 {.push raises: [].}
 
+## Tests for ValidationError construction and distinct type borrow templates.
+
 import std/hashes
 
 import jmap_client/validation

@@ -3,7 +3,7 @@
 #
 # =============================================================================
 # jmap-client CI Workflow
-# Runs REUSE compliance, format check, lint, and tests on every push and PR
+# Runs REUSE compliance, format check, lint, analyse, and tests on every push and PR
 # =============================================================================
 
 name: CI
@@ -26,7 +26,7 @@ jobs:
         uses: fsfe/reuse-action@676e2d560c9a403aa252096d99fcab3e1132b0f5 # v6.0.0
 
   ci:
-    name: Format, Lint, Test
+    name: Format, Lint, Analyse, Test
     runs-on: ubuntu-latest
 
     steps:
@@ -84,6 +84,12 @@ jobs:
           nph --version
           just --version
 
+      - name: Install PCRE1
+        run: |
+          curl -sLO http://deb.debian.org/debian/pool/main/p/pcre3/libpcre3_8.39-15_amd64.deb
+          sudo dpkg -i libpcre3_8.39-15_amd64.deb
+          rm libpcre3_8.39-15_amd64.deb
+
       - name: Install project dependencies
         run: |
           rm -rf ~/.nimble/pkgs2/nim-*
@@ -91,11 +97,17 @@ jobs:
           nimble setup
           rm -rf ~/.nimble/pkgs2/nim-*
 
+      - name: Install nimalyzer
+        run: nimble install nimalyzer --accept
+
       - name: Check formatting
         run: just fmt-check
 
       - name: Lint
         run: just lint
+
+      - name: Static analysis
+        run: just analyse
 
       - name: Run tests
         run: just test
