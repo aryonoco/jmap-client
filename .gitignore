@@ -34,6 +34,9 @@ out/
 # Generated documentation
 htmldocs/
 
+# Generated lockfiles (regenerate with `mise lock`)
+mise.lock
+
 # -----------------------------------------------------------------------------
 # Operating System Files
 # -----------------------------------------------------------------------------

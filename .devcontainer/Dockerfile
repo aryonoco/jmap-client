@@ -4,11 +4,14 @@ FROM mcr.microsoft.com/devcontainers/base:2-trixie
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
        build-essential gcc fzf fd-find jq curl wget xz-utils tree libssl-dev \
+       ripgrep bat shellcheck shfmt git-delta python3 sd \
+       eza du-dust hyperfine tokei bubblewrap socat \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Debian installs fd as "fdfind"; symlink to the standard name
-RUN ln -sf /usr/bin/fdfind /usr/local/bin/fd
+# Debian installs fd as "fdfind" and bat as "batcat"; symlink to standard names
+RUN ln -sf /usr/bin/fdfind /usr/local/bin/fd \
+    && ln -sf /usr/bin/batcat /usr/local/bin/bat
 
 # Docker named volumes inherit ownership from the mount-point at creation time.
 # Pre-creating these directories ensures the vscode user owns them from the start.

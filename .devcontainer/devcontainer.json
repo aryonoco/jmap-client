@@ -58,6 +58,8 @@
     "MISE_YES": "1",
     "DO_NOT_TRACK": "1",
     "TZ": "UTC",
+    "USE_BUILTIN_RIPGREP": "0",
+    "GIT_PAGER": "delta",
     "EDITOR": "nano",
     "VISUAL": "nano"
   },
@@ -69,6 +71,7 @@
     "--cap-drop=ALL",
     "--cap-add=NET_BIND_SERVICE",
     "--cap-add=DAC_OVERRIDE",
+    "--cap-add=SYS_ADMIN",
     "--security-opt=no-new-privileges:true"
   ],
 

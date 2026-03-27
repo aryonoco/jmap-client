@@ -46,7 +46,10 @@ echo "  Done"
 echo ""
 echo "Verifying CLI tool availability..."
 failed=0
-for cmd in nim nimble nph nimlangserver just cspell reuse; do
+for cmd in nim nimble nph nimlangserver just cspell reuse \
+           rg bat delta shellcheck shfmt sd python3 \
+           eza dust hyperfine tokei bwrap socat \
+           yq sg watchexec; do
     if ! command -v "${cmd}" &>/dev/null; then
         echo "  ERROR: ${cmd} not found after installation" >&2
         failed=1

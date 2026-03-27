@@ -27,6 +27,12 @@ versions:
     @echo "  just:          $(just --version)"
     @echo "  cspell:        $(cspell --version 2>/dev/null || echo 'not installed')"
     @echo "  reuse:         $(reuse --version 2>/dev/null || echo 'not installed')"
+    @echo ""
+    @echo "CLI utilities:"
+    @echo "  ripgrep:       $(rg --version 2>/dev/null | head -1 || echo 'not installed')"
+    @echo "  shellcheck:    $(shellcheck --version 2>/dev/null | sed -n '2p' || echo 'not installed')"
+    @echo "  Python:        $(python3 --version 2>/dev/null || echo 'not installed')"
+    @echo "  delta:         $(delta --version 2>/dev/null || echo 'not installed')"
 
 # =============================================================================
 # SETUP
@@ -169,15 +175,15 @@ clean-all: clean
 # DEVELOPMENT HELPERS
 # =============================================================================
 
-# Watch for changes and rebuild (requires entr)
+# Watch for changes and rebuild
 watch:
     @echo "Watching for changes... (Ctrl+C to stop)"
-    @find src/ -name '*.nim' | entr -c just build
+    @watchexec --exts nim --watch src/ -- just build
 
 # Watch and run tests on change
 watch-test:
     @echo "Watching for changes... (Ctrl+C to stop)"
-    @find src/ tests/ -name '*.nim' | entr -c just test
+    @watchexec --exts nim --watch src/ --watch tests/ -- just test
 
 # =============================================================================
 # REFERENCE SOURCES (.nim-reference/, git-ignored, fetched on demand)
