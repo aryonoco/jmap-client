@@ -11,37 +11,33 @@ This file documents how to work within it.
 
 ## Distinct Types for Domain Identifiers
 
-Prevent mixing identifiers that are all strings at runtime:
+Prevent mixing identifiers that are all strings at runtime. A bare `distinct`
+type has ZERO operations — borrow using templates:
 
 ```nim
 type
   AccountId* = distinct string
   EmailId* = distinct string
   BlobId* = distinct string
-  ThreadId* = distinct string
-  MailboxId* = distinct string
 ```
 
-A bare `distinct` type has ZERO operations. Borrow selectively:
-
 ```nim
-func `==`*(a, b: AccountId): bool {.borrow.}
-func `$`*(a: AccountId): string {.borrow.}
-func len*(a: AccountId): int {.borrow.}
-func hash*(a: AccountId): Hash {.borrow.}
-```
-
-For bulk borrowing across multiple ID types, use a template:
-
-```nim
-template defineIdOps(T: typedesc) =
+template defineStringDistinctOps*(T: typedesc) =
   func `==`*(a, b: T): bool {.borrow.}
   func `$`*(a: T): string {.borrow.}
   func hash*(a: T): Hash {.borrow.}
+  func len*(a: T): int {.borrow.}
 
-defineIdOps(AccountId)
-defineIdOps(EmailId)
-defineIdOps(BlobId)
+template defineIntDistinctOps*(T: typedesc) =
+  func `==`*(a, b: T): bool {.borrow.}
+  func `<`*(a, b: T): bool {.borrow.}
+  func `<=`*(a, b: T): bool {.borrow.}
+  func `$`*(a: T): string {.borrow.}
+  func hash*(a: T): Hash {.borrow.}
+
+defineStringDistinctOps(AccountId)
+defineStringDistinctOps(EmailId)
+defineStringDistinctOps(BlobId)
 ```
 
 Do NOT borrow `&` — concatenating IDs is nonsensical.
@@ -50,36 +46,28 @@ Explicit conversion: `string(id)` to unwrap, `AccountId(s)` to wrap.
 
 ## `{.requiresInit.}` — Smart Constructors
 
-Forces explicit initialisation — cannot rely on zero-default:
+Forces explicit initialisation — `var id: AccountId` is rejected. Combine
+with a validation function for the smart constructor pattern:
 
 ```nim
-type AccountId* {.requiresInit.} = distinct string
-
-# var id: AccountId         # REJECTED: must be explicitly initialised
-let id = AccountId("abc")   # OK
-```
-
-Combine with a validation function for the smart constructor pattern:
-
-```nim
-func parseAccountId*(raw: string): Result[AccountId, string] =
+func parseAccountId*(raw: string): Result[AccountId, ValidationError] =
   if raw.len == 0:
-    return err("empty account ID")
+    return err(validationError("AccountId", "must not be empty", raw))
   ok(AccountId(raw))
 ```
 
-Use a local `Result[T, string]` for pure validators — not `JmapResult`, since
-a validation failure is not a `ClientError`. Lift with `mapErr` at the boundary.
+Smart constructors return `Result[T, ValidationError]` — a structured error
+with `typeName`, `message`, and `value`. Not `ClientError` (that is for
+transport/request failures) and not bare `string` (loses context). Lift with
+`mapErr` at the boundary where needed.
 
 ## Object Variants (Sum Types)
 
 Nim's discriminated unions — equivalent to F#/OCaml/Haskell ADTs.
 
-`--experimental:strictCaseObjects` is enabled:
-- Cannot access variant-specific fields without matching the discriminator.
-  Shared fields (before `case`) are always accessible without checks.
-- Cannot change the discriminator after construction.
-- Adding a variant forces compile errors at all unhandled `case` sites.
+`strictCaseObjects` enabled: variant fields require matching the discriminator.
+Shared fields (before `case`) always accessible. Discriminator immutable after
+construction. Adding a variant forces errors at all unhandled `case` sites.
 
 ### Two-variant sum (outer railway error):
 
@@ -105,7 +93,7 @@ func summary*(e: ClientError): string =
   # Exhaustive — adding a new ClientErrorKind variant forces a compile error here
 ```
 
-### Simple variant with shared fields (transport errors):
+### Case object with shared field and sparse branches (transport errors):
 
 ```nim
 type
@@ -116,48 +104,42 @@ type
     tekHttpStatus
 
   TransportError* = object
-    kind*: TransportErrorKind
-    message*: string
-    httpStatus*: Opt[int]      # only meaningful for tekHttpStatus
+    message*: string                      # shared — always accessible
+    case kind*: TransportErrorKind
+    of tekHttpStatus:
+      httpStatus*: int                    # only accessible after matching kind
+    of tekNetwork, tekTls, tekTimeout:
+      discard
 ```
 
-### Enum with string backing for lossless round-trip (method errors):
+### Enum with string backing + lossless round-trip (method/set errors):
 
 ```nim
 type
   MethodErrorType* = enum
     metServerFail = "serverFail"
     metInvalidArguments = "invalidArguments"
-    metForbidden = "forbidden"
-    metAccountNotFound = "accountNotFound"
-    # ... (16 variants total, see architecture-options.md Layer 2)
-    metUnknown
+    # ... (exhaustive over RFC variants)
+    metUnknown                     # catch-all for server extensions
 
-  MethodError* = object
+  MethodError* = object            # flat — all variants share same shape
     errorType*: MethodErrorType
-    rawType*: string           # always populated, even for known types
+    rawType*: string               # always populated, lossless round-trip
     description*: Opt[string]
-    extras*: Opt[JsonNode]     # lossless preservation of non-standard fields
+    extras*: Opt[JsonNode]         # preserves non-standard server fields
 ```
 
-### Case object with `else: discard` (per-item set errors):
-
-When most variants share the same shape but a few carry extra fields, use
-`else: discard`. Shared fields (before `case`) are always accessible.
-Variant-specific fields require matching — `strictCaseObjects` enforces this.
+When a few variants carry extra fields, use `case` with `else: discard`:
 
 ```nim
-type
-  SetError* = object
-    rawType*: string
-    description*: Opt[string]
-    extras*: Opt[JsonNode]
-    case errorType*: SetErrorType
-    of setInvalidProperties:
-      properties*: seq[string]     # RFC SHOULD: which properties were invalid
-    of setAlreadyExists:
-      existingId*: Id              # RFC MUST: ID of the existing record
-    else: discard
+type SetError* = object
+  rawType*: string
+  description*: Opt[string]
+  extras*: Opt[JsonNode]
+  case errorType*: SetErrorType
+  of setInvalidProperties: properties*: seq[string]
+  of setAlreadyExists: existingId*: Id
+  else: discard
 ```
 
 ## Enums
@@ -176,22 +158,19 @@ type MethodName* = enum
   mnEmailSet = "Email/set"
 ```
 
-For enums exposed across FFI, add `{.size: sizeof(cint).}` and explicit
-ordinal values (see `nim-ffi-boundary.md`).
+**Gotcha:** `$` on a string-backed enum returns the **symbolic name**, not the
+backing string (`$mnMailboxGet` -> `"mnMailboxGet"`). Write a custom serialisation
+`func`. For FFI enums: `{.size: sizeof(cint).}` + explicit ordinals.
 
 ## Phantom Types
 
-Generic marker types for compile-time state transitions:
+Generic markers for compile-time state transitions. Zero runtime cost:
 
 ```nim
 type
-  Validated* = object
-  Unvalidated* = object
-
+  Validated* = object; Unvalidated* = object
   Email*[State] = object
-    id*: EmailId
-    subject*: string
-    body*: string
+    id*: EmailId; subject*: string; body*: string
 
 func parseEmail*(raw: string): JmapResult[Email[Unvalidated]] = ...
 func validateEmail*(e: Email[Unvalidated]): JmapResult[Email[Validated]] = ...
@@ -203,11 +182,10 @@ Use when the safety benefit is clear, not on every type.
 
 ## Nil Safety
 
-- `--experimental:strictNotNil` enabled.
-- `ref T` may be nil. `ref T not nil` guaranteed non-nil.
-- Prefer value types in the functional core — nil is impossible.
-- For optional references, use `Opt[ref T]` (explicit) not nilable refs.
-- `--warningAsError:Uninit` + `ProveInit` — all vars must be provably initialised.
+- `strictNotNil` enabled: `ref T` may be nil, `ref T not nil` cannot.
+- Prefer value types in functional core — nil impossible.
+- For optional refs, use `Opt[ref T]` not nilable refs.
+- `Uninit` + `ProveInit` warnings are errors — all vars provably initialised.
 
 ## Anti-Patterns
 
@@ -215,7 +193,8 @@ Use when the safety benefit is clear, not on every type.
   overloads, hidden allocations.
 - **`CStringConv` warning is an error** — catches dangerous implicit
   `string` -> `cstring` that creates dangling pointers under ARC.
-- **Concepts** — structural, not nominal. Simple concepts (flat interface
-  checks) work well under strict mode. Deeply chained or recursive concept
-  constraints interact unpredictably with `strictFuncs` and `raises: []` —
-  avoid those.
+- **Avoid `range[T]` for domain constraints** — `RangeDefect` is fatal, bypasses
+  `raises: []`. Use smart constructors returning `Result` instead.
+- **Concepts** — structural, not nominal. Simple flat concepts OK under strict
+  mode. Deeply chained or recursive concepts interact unpredictably with
+  `strictFuncs` and `raises: []` — avoid those.

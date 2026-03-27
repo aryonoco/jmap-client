@@ -88,19 +88,10 @@ func getSubject(raw: string): JmapResult[string] =
 ### Safe Access
 
 ```nim
-# NEVER call .get() / .value() without checking .isOk first — raises Defect.
-# Preferred patterns:
+# NEVER bare .get() / .value() — raises Defect. Preferred:
 let name = result.valueOr: "default"       # template, lazily evaluated
 let name = result.get("default")           # func, eagerly evaluated
-
-# valueOr provides error access in the block:
-let name = result.valueOr: logError(error); "fallback"
-
-# Explicit branching:
-if result.isOk:
-  let val = result.get()
-else:
-  let e = result.error()
+let name = result.valueOr: logError(error); "fallback"  # error access in block
 ```
 
 ### `Opt[T]` (Optional Values)
@@ -124,24 +115,19 @@ func process(id: AccountId): Opt[string] =
 
 ### Wrapping Exception-Raising Code
 
-Pure functions should use local error types, not `ClientError` (a parse failure
-is not a transport/request error). Use `mapErr` to lift into `JmapResult` at the
-boundary where it makes sense:
+Domain smart constructors return `Result[T, ValidationError]` — not
+`ClientError`. Stdlib bridges (e.g., wrapping `parseInt`) may use
+`Result[T, string]`. Use `mapErr` to lift into `JmapResult` at the boundary:
 
 ```nim
-# Local Result — pure wrapper with simple error:
+# Stdlib bridge — wraps exception-raising code with simple error:
 func safeParseInt(s: string): Result[int, string] =
-  try:
-    ok(parseInt(s))
-  except ValueError as e:
-    err(e.msg)
+  try: ok(parseInt(s))
+  except ValueError as e: err(e.msg)
 
-# Lift into outer railway at the transport boundary:
+# Lift into outer railway at the boundary via mapErr:
 func parsePort(s: string): JmapResult[int] =
-  safeParseInt(s).mapErr(proc(msg: string): ClientError =
-    ClientError(kind: cekTransport,
-      transport: TransportError(kind: tekNetwork,
-        message: "invalid port: " & msg)))
+  safeParseInt(s).mapErr(toTransportError)
 ```
 
 `try/except` inside `{.raises: [].}` is allowed — the compiler verifies all
@@ -156,6 +142,8 @@ possible exceptions are caught.
 - **Functional core** (func only, no I/O imports): `types.nim`, `errors.nim`,
   parsers, validators.
 - **Imperative shell** (proc): HTTP, transport, FFI (`jmap_client.nim`).
+- **Parse, don't validate** — smart constructors produce well-typed values or
+  structured errors. Invariants enforced at construction time, not checked later.
 
 ```nim
 # Pure core (func only):
@@ -184,17 +172,17 @@ proc discoverSession(client: JmapClient): JmapResult[Session] =
 ```nim
 # if/case/block as expressions:
 let status = if code == 200: "ok" else: "error"
-
 let description = case method.kind
   of jmkEcho: "echo test"
   of jmkMailboxGet: "fetch mailboxes"
 
-let value = block:
-  let raw = fetchData()
-  raw.strip()
-
 # UFCS chaining over nested calls:
 let result = items.filterIt(it.isActive).mapIt(it.name).foldl(a & ", " & b)
+
+# collect (std/sugar) — preferred for building new collections:
+let positives = collect:
+  for x in items:
+    if x > 0: x
 ```
 
 Expression `if` MUST have `else`. Expression `case` must be exhaustive.

@@ -8,15 +8,16 @@ rule for Layer 1 of the jmap-client library. It builds upon the decisions made i
 implementation is mechanical.
 
 **Scope.** Layer 1 covers: primitive data types (RFC 8620 §1.2–1.4), domain
-identifiers, the Session object and everything it contains (§2), and the
-Request/Response envelope (§3.2–3.4, §3.7). Error types (Layer 2), serialisation
-(Layer 3), standard method request/response shapes (Layer 5), and transport
-(Layer 7) are out of scope.
+identifiers, the Session object and everything it contains (§2), the
+Request/Response envelope (§3.2–3.4, §3.7), and the generic method framework
+types (§5.3 PatchObject, §5.5 Filter/Comparator, §5.6 AddedItem). Error
+types (Layer 2), serialisation (Layer 3), standard method request/response
+shapes (Layer 5), and transport (Layer 7) are out of scope.
 
 **Relationship to architecture-options.md.** That document records broad
 decisions across all 8 layers. This document is the detailed specification for
 Layer 1 only. Decisions here are consistent with — and build upon — the
-architecture document's choices 1A, 1D, 1G, 3G, and 4A–4H.
+architecture document's choices 1A, 1D, 3G, 4A–4H, 5B, and 5E.
 
 **Design principles.** Every decision follows:
 
@@ -56,7 +57,7 @@ has a concrete reason tied to the strict compiler constraints.
 | Module | What is used | Rationale |
 |--------|-------------|-----------|
 | `std/hashes` | `Hash` type, `hash` borrowing for distinct types | Confirmed: `hash(distinctVal)` auto-delegates to base type via `{.borrow.}` |
-| `std/tables` | `Table[string, T]` | For `Session.accounts`, `Session.primaryAccounts`, `Request.createdIds` |
+| `std/tables` | `Table[AccountId, T]`, `Table[string, T]` | For `Session.accounts`, `Session.primaryAccounts`, `Request.createdIds`, `PatchObject` base type |
 | `std/sets` | `HashSet[string]` | For `CoreCapabilities.collationAlgorithms` — proper set semantics (no duplicates, O(1) lookup) |
 | `std/strutils` | `parseEnum[T](s, default)` | `func`, total, no exceptions — replaces manual `CapabilityKind` case statement |
 | `std/json` | `JsonNode`, `JsonNodeKind` | For untyped capability data (`ServerCapability`), `Invocation.arguments` |
@@ -71,7 +72,7 @@ has a concrete reason tied to the strict compiler constraints.
 | `std/times` | `times.parse` is `proc` not `func` (line 2245 of times.nim). Calling it from Layer 1 violates functional core purity. A convenience `toDateTime` converter may be provided in a separate utility module outside the pure core. |
 | `std/parseutils` | `skipWhile` is `proc` not `func` (line 325 of parseutils.nim). Cannot call from smart constructors under `strictFuncs`. Pattern replicated using `allIt` template from sequtils. |
 | `std/uri` | `parseUri` raises `UriParseError`. `apiUrl` is passed directly to the HTTP client — no need to decompose. |
-| `std/options` | Project convention: `Opt[T]` from `results` library. `Opt[T]` is `Result[T, void]`, sharing the `?` operator with `Result[T, E]` for uniform ROP composition. stdlib `Option[T]` has `map`/`flatMap` but no `?` integration. |
+| `std/options` | Project convention: `Opt[T]` from `nim-results` package (status-im/nim-results). `Opt[T]` is `Result[T, void]`, sharing the `?` operator with `Result[T, E]` for uniform ROP composition. stdlib `Option[T]` has `map`/`flatMap` but no `?` integration. |
 | `std/enumutils` | `parseEnum` from `strutils` already covers enum parsing needs. |
 | `std/httpcore` | `HttpCode` is relevant to Layer 2/7 (transport errors), not Layer 1. |
 
@@ -79,7 +80,7 @@ has a concrete reason tied to the strict compiler constraints.
 
 | Finding | Impact |
 |---------|--------|
-| `{.requiresInit.}` works on distinct types (verified in system.nim) | Can enforce initialisation on all distinct types |
+| `{.requiresInit.}` works on distinct types (verified in system.nim) | Enforced on all distinct types — prevents default construction |
 | `hash` auto-borrows for distinct types (verified in hashes.nim) | No manual `hash` implementation needed — `{.borrow.}` suffices |
 | `$` for string-backed enums returns the **symbolic name**, not the backing string (system/dollars.nim) | Need custom `func capabilityUri(kind): string` for serialisation |
 | `parseEnum[T](s, default)` is a `func` (strutils.nim line 1326) | Total, no exceptions — can be called from pure code |
@@ -176,7 +177,7 @@ All record IDs are server-assigned and immutable.
 **Type definition:**
 
 ```nim
-type Id* = distinct string
+type Id* {.requiresInit.} = distinct string
 defineStringDistinctOps(Id)
 ```
 
@@ -231,7 +232,7 @@ An `Int` in the range `0 <= value <= 2^53-1`.
 **Type definition:**
 
 ```nim
-type UnsignedInt* = distinct int64
+type UnsignedInt* {.requiresInit.} = distinct int64
 defineIntDistinctOps(UnsignedInt)
 ```
 
@@ -271,7 +272,7 @@ integers stored in a floating-point double.
 **Type definition:**
 
 ```nim
-type JmapInt* = distinct int64
+type JmapInt* {.requiresInit.} = distinct int64
 defineIntDistinctOps(JmapInt)
 func `-`*(a: JmapInt): JmapInt {.borrow.}  ## unary negation
 ```
@@ -313,7 +314,7 @@ Example: `"2014-10-30T14:12:00+08:00"`.
 **Type definition:**
 
 ```nim
-type Date* = distinct string
+type Date* {.requiresInit.} = distinct string
 defineStringDistinctOps(Date)
 ```
 
@@ -378,7 +379,7 @@ Example: `"2014-10-30T06:12:00Z"`.
 **Type definition:**
 
 ```nim
-type UTCDate* = distinct string
+type UTCDate* {.requiresInit.} = distinct string
 defineStringDistinctOps(UTCDate)
 ```
 
@@ -413,7 +414,7 @@ Account identifiers. Server-assigned. Used as keys in `Session.accounts` and as
 the `accountId` argument in most method calls.
 
 ```nim
-type AccountId* = distinct string
+type AccountId* {.requiresInit.} = distinct string
 defineStringDistinctOps(AccountId)
 ```
 
@@ -441,7 +442,7 @@ An opaque state token generated by the server. Changes when the data it
 represents changes. Used for change detection and delta synchronisation.
 
 ```nim
-type JmapState* = distinct string
+type JmapState* {.requiresInit.} = distinct string
 func `==`*(a, b: JmapState): bool {.borrow.}
 func `$`*(a: JmapState): string {.borrow.}
 func hash*(a: JmapState): Hash {.borrow.}
@@ -470,7 +471,7 @@ An arbitrary string from the client, echoed back in the response. Used to
 correlate responses to method calls.
 
 ```nim
-type MethodCallId* = distinct string
+type MethodCallId* {.requiresInit.} = distinct string
 func `==`*(a, b: MethodCallId): bool {.borrow.}
 func `$`*(a: MethodCallId): string {.borrow.}
 func hash*(a: MethodCallId): Hash {.borrow.}
@@ -497,7 +498,7 @@ IDs are prefixed with `#` when used as forward references. The stored value does
 NOT include the `#` prefix — that is a serialisation concern (Layer 3).
 
 ```nim
-type CreationId* = distinct string
+type CreationId* {.requiresInit.} = distinct string
 func `==`*(a, b: CreationId): bool {.borrow.}
 func `$`*(a: CreationId): string {.borrow.}
 func hash*(a: CreationId): Hash {.borrow.}
@@ -573,26 +574,27 @@ names, the dual matching is not a practical concern.
 **Serialisation (reverse direction):**
 
 `$ckCore` returns `"ckCore"` (the symbolic name), NOT the URI string. For
-serialisation to JSON, a custom function is needed:
+serialisation to JSON, a function returning `Opt[string]` is used. `Opt`
+composes with the `?` operator, avoiding sentinel values like `""`:
 
 ```nim
-func capabilityUri*(kind: CapabilityKind): string =
+func capabilityUri*(kind: CapabilityKind): Opt[string] =
   ## Returns the IANA-registered URI for a known capability.
-  ## Panics on ckUnknown — callers must use the rawUri from ServerCapability.
+  ## Returns err() for ckUnknown — callers must use rawUri from ServerCapability.
   case kind
-  of ckCore: "urn:ietf:params:jmap:core"
-  of ckMail: "urn:ietf:params:jmap:mail"
-  of ckSubmission: "urn:ietf:params:jmap:submission"
-  of ckVacationResponse: "urn:ietf:params:jmap:vacationresponse"
-  of ckWebsocket: "urn:ietf:params:jmap:websocket"
-  of ckMdn: "urn:ietf:params:jmap:mdn"
-  of ckSmimeVerify: "urn:ietf:params:jmap:smimeverify"
-  of ckBlob: "urn:ietf:params:jmap:blob"
-  of ckQuota: "urn:ietf:params:jmap:quota"
-  of ckContacts: "urn:ietf:params:jmap:contacts"
-  of ckCalendars: "urn:ietf:params:jmap:calendars"
-  of ckSieve: "urn:ietf:params:jmap:sieve"
-  of ckUnknown: ""  # caller must use rawUri instead
+  of ckCore: ok("urn:ietf:params:jmap:core")
+  of ckMail: ok("urn:ietf:params:jmap:mail")
+  of ckSubmission: ok("urn:ietf:params:jmap:submission")
+  of ckVacationResponse: ok("urn:ietf:params:jmap:vacationresponse")
+  of ckWebsocket: ok("urn:ietf:params:jmap:websocket")
+  of ckMdn: ok("urn:ietf:params:jmap:mdn")
+  of ckSmimeVerify: ok("urn:ietf:params:jmap:smimeverify")
+  of ckBlob: ok("urn:ietf:params:jmap:blob")
+  of ckQuota: ok("urn:ietf:params:jmap:quota")
+  of ckContacts: ok("urn:ietf:params:jmap:contacts")
+  of ckCalendars: ok("urn:ietf:params:jmap:calendars")
+  of ckSieve: ok("urn:ietf:params:jmap:sieve")
+  of ckUnknown: err()
 ```
 
 **Decision D5 rationale.** Comprehensive enum (all IANA-registered URIs) rather
@@ -744,7 +746,7 @@ parsing.
 Templates per RFC 6570 Level 1).
 
 ```nim
-type UriTemplate* = distinct string
+type UriTemplate* {.requiresInit.} = distinct string
 defineStringDistinctOps(UriTemplate)
 ```
 
@@ -790,7 +792,7 @@ import std/tables
 
 type Session* = object
   capabilities*: seq[ServerCapability]         ## server-level capabilities
-  accounts*: Table[string, Account]            ## keyed by raw AccountId string
+  accounts*: Table[AccountId, Account]            ## keyed by AccountId
   primaryAccounts*: Table[string, AccountId]   ## keyed by raw capability URI
   username*: string                            ## or empty string if none
   apiUrl*: string                              ## URL for JMAP API requests
@@ -800,16 +802,18 @@ type Session* = object
   state*: JmapState                            ## session state token
 ```
 
-All fields are required per the RFC. `accounts` and `primaryAccounts` use raw
-string keys (not `CapabilityKind` or `AccountId`) to avoid the `ckUnknown` key
-collision problem.
+All fields are required per the RFC. `accounts` uses `AccountId` keys —
+`AccountId` has borrowed `==`, `$`, and `hash`, making it a valid `Table`
+key with no collision risk. `primaryAccounts` uses raw `string` keys (not
+`CapabilityKind`) to avoid the `ckUnknown` key collision problem (see §4.1
+CRITICAL note).
 
 **Smart constructor:**
 
 ```nim
 func parseSession*(
   capabilities: seq[ServerCapability],
-  accounts: Table[string, Account],
+  accounts: Table[AccountId, Account],
   primaryAccounts: Table[string, AccountId],
   username: string,
   apiUrl: string,
@@ -849,6 +853,24 @@ func parseSession*(
   ))
 ```
 
+**Decision D7 rationale (cross-reference leniency).** `parseSession`
+deliberately does not validate two RFC cross-reference constraints:
+
+1. **`primaryAccounts` values reference valid `accounts` keys.** RFC §2
+   states these SHOULD match (RFC 2119). Rejecting the Session for a
+   mismatch would break compatibility with servers that violate this
+   SHOULD constraint.
+
+2. **Account `accountCapabilities` keys present in `Session.capabilities`.**
+   RFC §2 states these MUST match, but in practice servers may include
+   per-account capabilities not yet in the top-level object (e.g., during
+   rolling deployments or with vendor extensions).
+
+This follows the same principle as Decision D4: accept server data leniently,
+construct own data strictly. If stricter validation is later desired, provide
+an opt-in `func validateSessionRefs*(session: Session): Result[void,
+ValidationError]` rather than baking it into `parseSession`.
+
 **Accessor helpers:**
 
 ```nim
@@ -859,8 +881,8 @@ func coreCapabilities*(session: Session): CoreCapabilities =
     if cap.kind == ckCore:
       return cap.core
   # Unreachable if Session was constructed via parseSession.
-  # Under strictCaseObjects, this branch is required for exhaustiveness.
-  CoreCapabilities()
+  # AssertionDefect is a Defect (not CatchableError) — compatible with {.push raises: [].}.
+  raiseAssert "Session missing ckCore: violated parseSession invariant"
 
 func findCapability*(session: Session, kind: CapabilityKind): Opt[ServerCapability] =
   for cap in session.capabilities:
@@ -869,15 +891,14 @@ func findCapability*(session: Session, kind: CapabilityKind): Opt[ServerCapabili
   err()
 
 func primaryAccount*(session: Session, kind: CapabilityKind): Opt[AccountId] =
-  let uri = capabilityUri(kind)
-  if uri.len > 0 and session.primaryAccounts.hasKey(uri):
+  let uri = ? capabilityUri(kind)
+  if session.primaryAccounts.hasKey(uri):
     return ok(session.primaryAccounts[uri])
   err()
 
 func findAccount*(session: Session, id: AccountId): Opt[Account] =
-  let key = string(id)
-  if session.accounts.hasKey(key):
-    return ok(session.accounts[key])
+  if session.accounts.hasKey(id):
+    return ok(session.accounts[id])
   err()
 ```
 
@@ -1027,7 +1048,196 @@ wire. This is a Layer 3 concern.
 
 ---
 
-## 7. Borrowed Operations Summary
+## 7. Generic Method Framework Types
+
+### 7.1 FilterOperator
+
+**RFC reference:** §5.5.
+
+A string-backed enum covering the three RFC-defined filter composition operators.
+
+**Type definition:**
+
+```nim
+type FilterOperator* = enum
+  foAnd = "AND"
+  foOr = "OR"
+  foNot = "NOT"
+```
+
+No smart constructor — total by construction.
+
+**Module:** `src/jmap_client/framework.nim`
+
+### 7.2 Filter[C]
+
+**RFC reference:** §5.5.
+
+A recursive algebraic data type parameterised by condition type `C`. The Core
+RFC defines the generic framework; entity-specific condition types (e.g.,
+`MailboxFilterCondition` in RFC 8621) plug in as `C`.
+
+**Type definition:**
+
+```nim
+type
+  FilterKind* = enum
+    fkCondition
+    fkOperator
+
+  Filter*[C] = object
+    case kind*: FilterKind
+    of fkCondition:
+      condition*: C
+    of fkOperator:
+      operator*: FilterOperator
+      conditions*: seq[Filter[C]]
+```
+
+`seq[Filter[C]]` provides heap-allocated indirection for the recursion without
+`ref`. Compatible with `--mm:arc` and `strictFuncs`.
+
+**Constructor helpers:**
+
+```nim
+func filterCondition*[C](cond: C): Filter[C] =
+  Filter[C](kind: fkCondition, condition: cond)
+
+func filterOperator*[C](op: FilterOperator, conditions: seq[Filter[C]]): Filter[C] =
+  Filter[C](kind: fkOperator, operator: op, conditions: conditions)
+```
+
+Total constructors. No validation needed — all inputs produce valid filters.
+
+**Module:** `src/jmap_client/framework.nim`
+
+### 7.3 Comparator
+
+**RFC reference:** §5.5. Determines the sort order for a `/query` request.
+
+**Type definition:**
+
+```nim
+type Comparator* = object
+  property*: string         ## property name to sort by
+  isAscending*: bool        ## true = ascending (RFC default)
+  collation*: Opt[string]   ## RFC 4790 collation algorithm identifier
+```
+
+`property` is a bare `string` because property names are entity-specific and
+not constrained by the Core RFC. Entity-specific layers may provide typed
+wrappers.
+
+`isAscending` defaults to `true` per RFC §5.5. The default is applied during
+JSON deserialisation (Layer 3), not in the type definition.
+
+`collation` is `Opt[string]` because the RFC specifies it as optional. When
+absent, the server uses its default collation for the property.
+
+**Smart constructor:**
+
+```nim
+func parseComparator*(
+  property: string,
+  isAscending: bool = true,
+  collation: Opt[string] = Opt.none(string)
+): Result[Comparator, ValidationError] =
+  if property.len == 0:
+    return err(validationError("Comparator", "property must not be empty", ""))
+  ok(Comparator(property: property, isAscending: isAscending, collation: collation))
+```
+
+The only invariant is non-empty `property` — the RFC states the property name
+MUST be present. All other fields are unconstrained at the Core level.
+
+**Module:** `src/jmap_client/framework.nim`
+
+### 7.4 PatchObject
+
+**RFC reference:** §5.3. A `PatchObject` is a map of JSON Pointer paths to
+values, used in `/set` update operations.
+
+**Type definition:**
+
+```nim
+import std/tables
+import std/json
+
+type PatchObject* {.requiresInit.} = distinct Table[string, JsonNode]
+```
+
+**Borrowed operations:**
+
+```nim
+func len*(p: PatchObject): int {.borrow.}
+```
+
+Only `len` is borrowed. `==`, `$`, and `hash` are not borrowed because
+`PatchObject` equality and display are not needed in Layer 1. Direct table
+access (`[]`, `hasKey`) is not exported — all mutation goes through smart
+constructors to validate path format.
+
+**Smart constructors:**
+
+```nim
+func emptyPatch*(): PatchObject =
+  PatchObject(initTable[string, JsonNode]())
+
+func setProp*(patch: PatchObject, path: string, value: JsonNode): Result[PatchObject, ValidationError] =
+  ## Sets a property at the given JSON Pointer path.
+  if path.len == 0:
+    return err(validationError("PatchObject", "path must not be empty", ""))
+  var t = Table[string, JsonNode](patch)
+  t[path] = value
+  ok(PatchObject(t))
+
+func deleteProp*(patch: PatchObject, path: string): Result[PatchObject, ValidationError] =
+  ## Sets a property to null (deletion in JMAP PatchObject semantics).
+  if path.len == 0:
+    return err(validationError("PatchObject", "path must not be empty", ""))
+  var t = Table[string, JsonNode](patch)
+  t[path] = newJNull()
+  ok(PatchObject(t))
+```
+
+`setProp` and `deleteProp` copy the table to a local `var`, mutate it, and
+rewrap. The input `PatchObject` is not modified. Under `--mm:arc`, the copy
+uses move semantics when the caller does not retain the original. The local
+`var` mutation is compatible with `func` under `strictFuncs` — mutation of
+local variables (not parameters or globals) is permitted.
+
+**Decision D8 rationale.** `distinct Table[string, JsonNode]` rather than plain
+`Table[string, JsonNode]` per architecture Decision 5E. The `distinct` type
+prevents passing an arbitrary table where a patch is expected, and the smart
+constructors validate that paths are non-empty. Entity-specific typed patch
+builders (architecture Decision 5F) will produce `PatchObject` values in
+entity modules.
+
+**Module:** `src/jmap_client/framework.nim`
+
+### 7.5 AddedItem
+
+**RFC reference:** §5.6. An element of the `added` array in a `/queryChanges`
+response. Records that an item was added to the query results at a specific
+position.
+
+**Type definition:**
+
+```nim
+type AddedItem* = object
+  id*: Id
+  index*: UnsignedInt
+```
+
+**No smart constructor.** Both fields enforce their own invariants via their
+respective smart constructors (`parseIdFromServer`, `parseUnsignedInt`).
+Construction happens exclusively during JSON deserialisation (Layer 3).
+
+**Module:** `src/jmap_client/framework.nim`
+
+---
+
+## 8. Borrowed Operations Summary
 
 | Type | `==` | `$` | `hash` | `len` | `<` | `<=` | unary `-` |
 |------|:----:|:---:|:------:|:-----:|:---:|:----:|:---------:|
@@ -1041,12 +1251,13 @@ wire. This is a Layer 3 concern.
 | `MethodCallId` | Y | Y | Y | | | | |
 | `CreationId` | Y | Y | Y | | | | |
 | `UriTemplate` | Y | Y | Y | Y | | | |
+| `PatchObject` | | | | Y | | | |
 
 All borrowed operations are `func` and `{.raises: [].}` compatible.
 
 ---
 
-## 8. Smart Constructor Summary
+## 9. Smart Constructor Summary
 
 | Type | Constructor | Validation | Returns |
 |------|------------|-----------|---------|
@@ -1063,13 +1274,17 @@ All borrowed operations are `func` and `{.raises: [].}` compatible.
 | `UriTemplate` | `parseUriTemplate` | Non-empty | `Result[UriTemplate, ValidationError]` |
 | `CapabilityKind` | `parseCapabilityKind` | Total (always succeeds) | `CapabilityKind` |
 | `Session` | `parseSession` | Core cap present, URLs valid, templates have variables | `Result[Session, ValidationError]` |
+| `Comparator` | `parseComparator` | Non-empty property | `Result[Comparator, ValidationError]` |
+| `PatchObject` | `emptyPatch` | None (total) | `PatchObject` |
+| `PatchObject` | `setProp` | Non-empty path | `Result[PatchObject, ValidationError]` |
+| `PatchObject` | `deleteProp` | Non-empty path | `Result[PatchObject, ValidationError]` |
 
 All smart constructors are `func` (pure). None call `proc`s from the standard
 library.
 
 ---
 
-## 9. Module File Layout
+## 10. Module File Layout
 
 ```
 src/jmap_client/
@@ -1081,6 +1296,8 @@ src/jmap_client/
   session.nim         ← Account, AccountCapabilityEntry, UriTemplate, Session
   envelope.nim        ← Invocation, Request, Response,
                         ResultReference, Referencable[T]
+  framework.nim       ← FilterOperator, Filter[C], Comparator,
+                        PatchObject, AddedItem
   types.nim           ← Re-exports all of the above
 ```
 
@@ -1090,7 +1307,9 @@ src/jmap_client/
 validation.nim       (no imports)
       ↑
 primitives.nim       (std/hashes, std/sequtils)
-      ↑
+   ↑        \
+   |     framework.nim   (std/json, std/tables)
+   |
 identifiers.nim      (std/hashes, std/sequtils)
       ↑              ↑
 capabilities.nim     (std/hashes, std/sets, std/strutils, std/json)
@@ -1114,15 +1333,16 @@ import ./identifiers
 import ./capabilities
 import ./session
 import ./envelope
+import ./framework
 
-export validation, primitives, identifiers, capabilities, session, envelope
+export validation, primitives, identifiers, capabilities, session, envelope, framework
 ```
 
 ---
 
-## 10. Test Fixtures
+## 11. Test Fixtures
 
-### 10.1 RFC §2.1 Session Example (Golden Test)
+### 11.1 RFC §2.1 Session Example (Golden Test)
 
 The complete Session JSON from RFC §2.1 (lines 742–816):
 
@@ -1188,7 +1408,7 @@ The complete Session JSON from RFC §2.1 (lines 742–816):
   - `kind: ckMail`, `rawUri: "urn:ietf:params:jmap:mail"`, `rawData: {}`
   - `kind: ckContacts`, `rawUri: "urn:ietf:params:jmap:contacts"`, `rawData: {}`
   - `kind: ckUnknown`, `rawUri: "https://example.com/apis/foobar"`, `rawData: {"maxFoosFinangled": 42}`
-- `session.accounts` has 2 entries keyed by `"A13824"` and `"A97813"`
+- `session.accounts` has 2 entries keyed by `AccountId("A13824")` and `AccountId("A97813")`
 - `session.accounts["A13824"].isPersonal == true`
 - `session.accounts["A13824"].accountCapabilities` has 2 entries (ckMail, ckContacts)
 - `session.primaryAccounts["urn:ietf:params:jmap:mail"] == AccountId("A13824")`
@@ -1200,7 +1420,7 @@ The complete Session JSON from RFC §2.1 (lines 742–816):
 instead of `"maxConcurrentRequests"` (plural, per the field definition in §2).
 The deserialiser should accept both forms.
 
-### 10.2 RFC §3.3.1 Request Example
+### 11.2 RFC §3.3.1 Request Example
 
 ```json
 {
@@ -1219,7 +1439,7 @@ The deserialiser should accept both forms.
 - `request.methodCalls[0].methodCallId == MethodCallId("c1")`
 - `request.createdIds.isNone`
 
-### 10.3 RFC §3.4.1 Response Example
+### 11.3 RFC §3.4.1 Response Example
 
 ```json
 {
@@ -1239,7 +1459,7 @@ The deserialiser should accept both forms.
 - `response.sessionState == JmapState("75128aab4b1b")`
 - `response.createdIds.isNone`
 
-### 10.4 Edge Cases per Type
+### 11.4 Edge Cases per Type
 
 | Type | Input | Expected | Reason |
 |------|-------|----------|--------|
@@ -1273,6 +1493,12 @@ The deserialiser should accept both forms.
 | `Session` | missing core capability | `err` | RFC MUST constraint |
 | `Session` | downloadUrl without `{blobId}` | `err` | RFC MUST constraint |
 | `Session` | valid RFC §2.1 example | `ok` | golden test |
+| `Comparator` | `property: ""` | `err` | empty property name |
+| `Comparator` | `property: "name"` | `ok` | minimal valid |
+| `Comparator` | `property: "name", collation: ok("i;unicode-casemap")` | `ok` | with collation |
+| `PatchObject` | `setProp(emptyPatch(), "", ...)` | `err` | empty path |
+| `PatchObject` | `setProp(emptyPatch(), "name", ...)` | `ok` | simple property set |
+| `PatchObject` | `deleteProp(emptyPatch(), "addresses/0")` | `ok` | nested path deletion |
 
 ---
 
@@ -1299,3 +1525,8 @@ The deserialiser should accept both forms.
 | `JmapState` | §2 (Session.state), §3.4 (Response.sessionState), §5.1 (/get state) |
 | `UriTemplate` | §2 (downloadUrl, uploadUrl, eventSourceUrl per RFC 6570) |
 | `Referencable[T]` | §3.7 (back-reference mechanism) |
+| `FilterOperator` | §5.5 |
+| `Filter[C]` | §5.5 |
+| `Comparator` | §5.5 |
+| `PatchObject` | §5.3 |
+| `AddedItem` | §5.6 |

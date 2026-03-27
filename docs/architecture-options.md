@@ -4,7 +4,7 @@ Cross-platform JMAP (RFC 8620) client library in Nim with C ABI exports.
 
 ## Foundational Decisions
 
-Three architectural decisions that constrain all subsequent choices:
+Four architectural decisions that constrain all subsequent choices:
 
 1. **C ABI strategy: Approach A (rich Nim internals, thin C wrapper).** Build an
    idiomatic Nim library first. Add a separate C ABI layer that exposes opaque handles
@@ -17,6 +17,14 @@ Three architectural decisions that constrain all subsequent choices:
 3. **Definition of done: all 6 standard method patterns work with result references.**
    `/get`, `/set`, `/changes`, `/query`, `/queryChanges`, `/copy` — all functional,
    with result reference support for chaining method calls within a single request.
+
+4. **External dependency: `nim-results`.** The railway (`Result[T, E]`, `Opt[T]`,
+   `?` operator, `map`, `flatMap`, `mapErr`) comes from the `nim-results` package
+   (status-im/nim-results), not the standard library. Nim's stdlib provides only
+   `Option[T]` (from `std/options`), which lacks the `?` operator for early return
+   and `mapErr` for error-rail transforms. `nim-results` is the sole external
+   dependency for the core library. It is compatible with `--mm:arc` and
+   `{.push raises: [].}`.
 
 ## Design Principles
 
@@ -43,8 +51,11 @@ principles and where it forces compromises.
 
 ### What Nim gives us
 
-- `func` — compiler-enforced purity (no side effects, no global mutation, no IO).
-  The functional core is enforceable.
+- `func` — compiler-enforced purity: no access to global/thread-local state, no
+  calling side-effecting procs, no IO. Combined with `--experimental:strictFuncs`
+  (enabled in this project), mutation through `ref`/`ptr` indirection is also
+  forbidden. Without `strictFuncs`, `func` permits mutation reachable through
+  reference parameters — `strictFuncs` closes this gap.
 - `let` — immutable bindings.
 - `{.push raises: [].}` — total functions at the module level. The compiler rejects
   any function that can raise. Combined with `Result[T, E]`, this is the Nim
@@ -52,28 +63,37 @@ principles and where it forces compromises.
 - `distinct` types — newtypes. `type Id = distinct string` creates a new type that
   is not implicitly convertible. Stronger than a type alias; operations must be
   explicitly borrowed.
-- `Result[T, E]` from the `results` library — has `map`, `flatMap`, `mapErr`,
-  `mapConvert`, `valueOr`, and the `?` operator for early return (analogous to
-  Rust's `?`). This is the railway.
+- `Result[T, E]` and `Opt[T]` from the `nim-results` package
+  (status-im/nim-results) — the sole external dependency. Provides `map`,
+  `flatMap`, `mapErr`, `mapConvert`, `valueOr`, and the `?` operator for early
+  return (analogous to Rust's `?`). `Opt[T]` replaces stdlib's `Option[T]`,
+  integrating with the `?` operator and `{.push raises: [].}`. This is the
+  railway.
 - Case objects — the closest thing to algebraic data types. Discriminated unions with
   a tag enum.
 - UFCS — `x.f(y)` and `f(x, y)` are the same. Enables pipeline-style
   `.map().flatMap().filter()` chaining.
+- `collect` macro (`std/sugar`) — comprehension-style collection building.
+  Officially recommended over `mapIt`/`filterIt` chains. No closures, compatible
+  with `{.raises: [].}` and `func`.
 
 ### What Nim denies us
 
 1. **Case objects as sum types (largely solved).** Case objects are discriminated
-   unions. Under `--experimental:strictCaseObjects` (enabled in this project),
-   the discriminator cannot be changed after construction — the compiler rejects
-   any attempt to reassign it. This makes case objects behave like sealed
-   discriminated unions in practice. Smart constructors remain useful for
-   enforcing construction-time invariants, but are not needed to prevent
-   discriminator mutation.
+   unions. In standard Nim, discriminator reassignment is already restricted: the
+   compiler rejects assignments that would change the active branch. With `let`
+   bindings (used throughout this project), the discriminator is fully immutable.
+   `--experimental:strictCaseObjects` (enabled in this project) adds compile-time
+   **field access validation**: the compiler rejects any `obj.field` access where
+   it cannot prove the discriminator matches that field's branch — turning a
+   potential runtime `FieldDefect` into a compile error. Smart constructors
+   remain useful for enforcing construction-time invariants.
 
-2. **Exhaustive pattern matching (with strictCaseObjects).** Under
-   `--experimental:strictCaseObjects`, `case obj.kind` with missing branches
-   is a compile error, not merely a warning. This gives case objects the same
-   exhaustiveness guarantee as matching on bare `enum` values.
+2. **Exhaustive pattern matching.** `case` statements on `enum` values are
+   already exhaustive in standard Nim — missing branches are a compile error.
+   `--experimental:strictCaseObjects` upgrades the compiler's case-object branch
+   analysis from a warning to an error when field access cannot be proven safe.
+   Together, these give case objects strong compile-time guarantees.
 
 3. **No higher-kinded types.** Cannot abstract over `Result[_, E]` vs `Opt[_]` vs
    `seq[_]`. No `Functor`, no `Monad`, no `Applicative`. Each result-returning
@@ -89,32 +109,52 @@ principles and where it forces compromises.
 6. **Immutability is opt-in, not default.** Object fields are mutable unless the
    object is bound with `let`. No way to declare a field as read-only in the type
    definition. Immutability protected through module boundaries — do not export
-   setters or mutable fields. Note: the most dangerous mutation — changing a case
-   object discriminator after construction — is prevented by
-   `--experimental:strictCaseObjects`.
+   setters or mutable fields. The workaround is to keep fields private (no `*`
+   export marker) and expose read-only accessor `func`s. However, this prevents
+   direct `case obj.field` matching, which requires the discriminator field to be
+   visible. In practice, `let` bindings and module boundaries are the enforcement
+   mechanisms — convention-enforced, not compiler-enforced. Note: discriminator
+   reassignment to a different branch is rejected by the compiler in standard
+   Nim. `--experimental:strictCaseObjects` further prevents accessing fields from
+   the wrong branch at compile time.
 
 ### Practical consequence
 
 Nim allows code that *behaves* like F#/Haskell — total functions, result types,
 immutable bindings, pure core — and with the strict experimental flags enabled in
-this project, the compiler enforces more than stock Nim. `{.push raises: [].}`,
-`func`, `let`, `distinct`, `strictCaseObjects`, `strictDefs`, `strictNotNil`, and
-`strictFuncs` are the enforcement tools. Module boundaries and smart constructors
-cover the remaining gaps (principally: no per-field immutability declarations and
-no higher-kinded abstractions).
+this project, the compiler enforces more than stock Nim. The enforcement stack:
+
+- `{.push raises: [].}` — total functions (no `CatchableError` escapes)
+- `func` + `strictFuncs` — purity (no global state, no IO, no heap mutation
+  through references)
+- `let` — immutable bindings
+- `distinct` + `{.requiresInit.}` — newtypes that cannot be default-constructed
+- `strictCaseObjects` — compile-time field access validation for case objects
+- `strictDefs` — all variables must be explicitly initialised
+- `strictNotNil` — nilability tracking via flow analysis
+
+Module boundaries and smart constructors cover the remaining gaps (principally:
+no per-field immutability declarations and no higher-kinded abstractions).
+`nim-results` provides the railway (`Result[T, E]`, `Opt[T]`, `?` operator).
 
 ## Layer Architecture
 
 ```
-Layer 1: Core Types
+Layer 1: Core Types (all pure data definitions)
 Layer 2: Error Types
 Layer 3: Serialisation
-Layer 4: Request/Response Envelope
-Layer 5: Standard Method Framework
-Layer 6: Result References
+Layer 4: Envelope Logic
+Layer 5: Standard Method Framework + Entity Types
+Layer 6: Result Reference Logic
 Layer 7: Transport + Session Discovery
 Layer 8: C ABI Wrapper
 ```
+
+**Governing principle: types separate from logic.** Layer 1 contains every
+pure data type definition — structs, enums, variant objects — that can be
+defined without importing anything above Layer 1. Layers 2-8 contain the
+logic (error modelling, serialisation, builders, dispatch, transport) that
+operates on those types.
 
 Each layer depends only on layers below it. Each is fully testable without the
 layers above.
@@ -122,14 +162,14 @@ layers above.
 Dependency graph:
 
 ```
-L1 (types) ← L2 (errors) ← L3 (serialisation) ← L4 (envelope) ← L5 (methods) ← L6 (references)
-                                                                                        ↓
-                                                                   L7 (transport) ← L8 (C ABI)
+L1 (types) ← L2 (errors) ← L3 (ser/de) ← L4 (envelope logic) ← L5 (methods + entities) ← L6 (ref logic)
+                                                                                                  ↓
+                                                                               L7 (transport) ← L8 (C ABI)
 ```
 
 ---
 
-## Layer 1: Core Types
+## Layer 1: Core Types (all pure data definitions)
 
 ### 1.1 Primitive Identifiers
 
@@ -184,6 +224,13 @@ real and catches plausible bugs. For RFC 8620 Core specifically, the distinct
 types needed are: `AccountId`, `JmapState`, and a generic `Id` (for method call
 IDs and creation IDs that are not entity-specific). When adding RFC 8621 later:
 `MailboxId`, `EmailId`, `ThreadId`, etc.
+
+All distinct identifier types use the `{.requiresInit.}` pragma to prevent
+default construction. Without it, `var x: AccountId` silently creates an empty
+(invalid) identifier. With it, the compiler requires explicit initialisation via
+a smart constructor or direct construction, turning a class of runtime bugs
+into compile errors. This pragma is stable (not experimental) and uses control
+flow analysis to verify initialisation across branches.
 
 ### 1.2 Capability Modelling
 
@@ -240,85 +287,192 @@ parsing for other capabilities when implementing their RFCs.
 The case object with exhaustive enum is the correct encoding. It forces every
 consumer to handle each capability kind explicitly. Unknown capabilities are preserved via the `ckUnknown`
 variant, not silently dropped. Smart constructors enforce construction-time
-validation; discriminator immutability is guaranteed by the compiler.
+validation; discriminator branch changes are rejected by the compiler, and
+`strictCaseObjects` ensures field access is branch-safe at compile time.
 
-### 1.3 Entity Type Framework
+### 1.3 Result Reference Representation
 
-The 6 standard methods are generic over entity type. Each entity type must
-define: what properties it has, what filter conditions it supports, what sort
-comparators it supports, and what method-specific arguments it has.
+In JMAP, a method argument can be either a direct value or a reference to a
+previous method's result. The type must encode this mutual exclusion. On the
+wire, the field name gets a `#` prefix when a reference is used:
 
-#### Option 1G: Concept + overloaded procs (most typeclass-like)
+- Normal: `{ "ids": ["id1", "id2"] }`
+- Reference: `{ "#ids": { "resultOf": "c0", "name": "Foo/query", "path": "/ids" } }`
 
-Define a concept that entity types must satisfy. Provide overloads as "instances":
+The same logical field appears under two different JSON keys depending on usage.
 
-```
-type JmapEntity = concept T
-  methodNamespace(type T) is string
-  requiresAccountId(type T) is bool
-
-proc methodNamespace(T: typedesc[Mailbox]): string = "Mailbox"
-proc requiresAccountId(T: typedesc[Mailbox]): bool = true
-```
-
-- **Pros:**
-  - Closest to a Haskell typeclass or Rust trait.
-  - The concept defines the interface; overloads provide instances.
-  - Generic procs constrained by `JmapEntity` fail at instantiation if overloads
-    are missing.
-- **Cons:**
-  - Checked structurally at use site, not at definition site. Missing overloads
-    produce errors at instantiation, not at declaration.
-  - May interact unpredictably with `strictFuncs` and `raises: []`.
-  - No associated types. Filter and sort types need separate encoding.
-- **Gap vs. Haskell/Rust:** No orphan instance checking, no associated types,
-  errors at instantiation not declaration.
-
-#### Option 1H: Generic procs + overloaded type-specific procs (no concept)
-
-No concept, just generic procs. Type-specific behaviour via overloading:
+#### Option 3F: Separate optional fields
 
 ```
-proc methodNamespace(T: typedesc[Mailbox]): string = "Mailbox"
-proc methodNamespace(T: typedesc[Email]): string = "Email"
+GetRequest[T] = object
+  ids: Opt[seq[Id]]
+  idsRef: Opt[ResultReference]
 ```
 
-- **Pros:**
-  - Simpler than concepts. Each entity type just provides overloads.
-  - Works well with Nim's UFCS and overload resolution.
-- **Cons:**
-  - No compile-time enforcement that all required overloads exist.
-  - Errors at instantiation time, not at definition time. Same as 1G in practice.
+Serialisation: if `idsRef.isSome`, emit `"#ids"`; else if `ids.isSome`, emit
+`"ids"`.
 
-#### Option 1I: Template-generated concrete types
+- **Pros:** Simple types.
+- **Cons:** Mutual exclusion not enforced by types. Both fields could be `Some`
+  simultaneously — an illegal state that the type permits.
 
-A macro/template stamps out concrete types per entity:
+#### Option 3G: Variant type (discriminated union)
 
+```nim
+ReferencableKind = enum rkDirect, rkReference
+
+Referencable[T] = object
+  case kind: ReferencableKind
+  of rkDirect: value: T
+  of rkReference: reference: ResultReference
 ```
-defineJmapEntity(Mailbox, "Mailbox", requiresAccountId = true)
-# Generates: MailboxGetRequest, MailboxGetResponse, MailboxSetRequest, etc.
+
+Usage:
+
+```nim
+GetRequest[T] = object
+  accountId: AccountId
+  ids: Opt[Referencable[seq[Id]]]
+  properties: Opt[Referencable[seq[string]]]
 ```
 
 - **Pros:**
-  - No generics complexity. Each entity gets concrete types.
-  - Clear C ABI story (every type is concrete, no monomorphisation surprises).
+  - Illegal state (both direct and reference) is unrepresentable.
+  - Isomorphic to Haskell's `Either T ResultReference`.
+  - The `Opt` wrapper handles the "not specified" case. Inner variant handles the
+    "direct value vs. reference" case.
 - **Cons:**
-  - Code generation means indirection — harder to read, debug, navigate.
-  - Changes to the template affect all entity types simultaneously.
+  - Custom serialisation needed: `Referencable[seq[Id]]` serialises as either
+    `"ids": [...]` or `"#ids": { "resultOf": ..., ... }`.
+  - Variant object boilerplate for each referenceable field.
+- **Mitigation:** Custom serialisation is already the approach (Decision 3A).
+  There are only ~4 referenceable fields across the standard methods.
 
-#### Decision: 1G — concepts for simple interfaces
+#### Option 3H: Builder pattern hides representation
 
-Concepts are the primary choice for encoding the "entity types must satisfy an
-interface" constraint. Simple, non-recursive, non-deeply-chained concepts work
-well under the strict compiler settings. The caveat is complexity depth: deeply
-nested concept hierarchies or concepts that chain through multiple layers of
-generic constraints are fragile and should be avoided. For those cases, fall back
-to 1H (plain overloaded procs). Document the required interface explicitly in
-either case — this is the moral equivalent of the typeclass definition that Nim
-cannot enforce as strongly as Haskell.
+Builder provides `.ids(seq[Id])` or `.idsRef(ResultReference)` and internally
+tracks which was set.
 
-Keep 1I as a reserve option for Layer 5, where the number of concrete types per
-entity may make templates worthwhile.
+- **Pros:** Best user experience.
+- **Cons:** Runtime enforcement only. The underlying type still needs to handle
+  both cases. Correctness lives in the builder, not the types.
+
+#### Decision: 3G
+
+Variant type (`Referencable[T]`). Illegal states are unrepresentable in the type
+system. The builder (Layer 4) provides ergonomic construction on top. The
+serialisation format (`#`-prefixed keys) is handled in Layer 3. The types are
+correct regardless of how values are constructed.
+
+### 1.4 Envelope Types
+
+The RFC §3.2-3.4 defines three pure data structures for the request/response
+protocol:
+
+- **Invocation** — a tuple of (method name, arguments object, method call ID).
+  On the wire, serialised as a 3-element JSON array, not a JSON object.
+- **Request** — a `using` capability list, a sequence of Invocations, and an
+  optional `createdIds` map.
+- **Response** — a sequence of Invocation responses, an optional `createdIds`
+  map, and a `sessionState` token.
+
+These depend only on Layer 1 primitives (MethodCallId, CreationId, Id,
+JmapState, JsonNode). Request construction logic (builders, call ID generation)
+is a Layer 4 concern. Serialisation format is a Layer 3 concern.
+
+### 1.5 Generic Method Framework Types
+
+The RFC §5 defines several data types that are generic across all entity
+types. These are pure data structures with no upward dependencies.
+
+#### 1.5.1 Filter and FilterOperator
+
+The RFC §5.5 defines a recursive filter structure. The Core RFC defines the
+framework; entity-specific condition types plug in later.
+
+```nim
+FilterOperator = enum
+  foAnd = "AND"
+  foOr = "OR"
+  foNot = "NOT"
+
+FilterKind = enum fkCondition, fkOperator
+
+Filter[C] = object  # C = condition type, defined per entity
+  case kind: FilterKind
+  of fkCondition: condition: C
+  of fkOperator:
+    operator: FilterOperator
+    conditions: seq[Filter[C]]
+```
+
+A recursive algebraic data type parameterised by condition type `C`.
+Equivalent to Haskell's `data Filter c = Condition c | Operator Op [Filter c]`.
+`seq[Filter[C]]` provides heap-allocated indirection for the recursion without
+`ref`. How to resolve `C` from the entity type is a Layer 5 concern
+(Decision 5B).
+
+#### 1.5.2 Comparator
+
+The RFC §5.5 defines the sort order for `/query` requests.
+
+```nim
+Comparator = object
+  property: string         ## property name to sort by
+  isAscending: bool        ## true = ascending (RFC default)
+  collation: Opt[string]   ## RFC 4790 collation algorithm identifier
+```
+
+`property` names are entity-specific. `isAscending` defaults to `true` per
+RFC §5.5 (default applied at parse time in Layer 3).
+
+#### 1.5.3 PatchObject
+
+The RFC's PatchObject (§5.3) uses JSON Pointer paths as keys. Inherently
+dynamic.
+
+##### Option 5D: `Table[string, JsonNode]`
+
+Simple key-value map.
+
+- **Pros:** Direct, no abstraction needed.
+- **Cons:** No validation. No distinction from arbitrary tables.
+
+##### Option 5E: Opaque distinct type with smart constructors
+
+```
+PatchObject = distinct Table[string, JsonNode]
+
+func setProp(patch: PatchObject, path: string, value: JsonNode): PatchObject
+func deleteProp(patch: PatchObject, path: string): PatchObject
+```
+
+- **Pros:**
+  - `distinct` prevents treating as a regular table.
+  - Smart constructors can validate JSON Pointer paths.
+  - Type communicates intent: "this is a JMAP patch, not a bag of key-values."
+- **Cons:** Path is still a string. Cannot statically validate against entity
+  properties.
+
+##### Decision: 5E
+
+Core defines the PatchObject format but has no concrete entity types. Use the
+opaque distinct type with smart constructors. Entity-specific typed patch
+builders (Option 5F) are a Layer 5 concern.
+
+#### 1.5.4 AddedItem
+
+An element of the `added` array in a `/queryChanges` response (RFC §5.6).
+Records that an item was added to the query results at a specific position.
+
+```nim
+AddedItem = object
+  id: Id
+  index: UnsignedInt
+```
+
+Both fields enforce their own invariants via their respective smart
+constructors.
 
 ---
 
@@ -495,9 +649,12 @@ TransportErrorKind = enum
   tekHttpStatus
 
 TransportError = object
-  kind: TransportErrorKind
   message: string
-  httpStatus: Opt[int]      # only for tekHttpStatus
+  case kind: TransportErrorKind
+  of tekHttpStatus:
+    httpStatus: int
+  of tekNetwork, tekTls, tekTimeout:
+    discard
 ```
 
 #### RequestError (RFC 7807 Problem Details)
@@ -589,6 +746,8 @@ SetError = object
   else: discard
 ```
 
+`SetError` is the per-item error type used by `SetResponse` (§5.4).
+
 ---
 
 ## Layer 3: Serialisation
@@ -604,8 +763,13 @@ each type.
   - Zero dependencies.
   - Full control over camelCase naming, `#` reference handling, every
     serialisation quirk.
-  - Easy to make `raises: []` compliant — catch `JsonParsingError` at the
-    boundary.
+  - Compatible with `raises: []` given a boundary catch. `std/json` raises
+    `JsonParsingError` (from `parseJson`), `KeyError` (from `node[key]`), and
+    `JsonKindError` (from `to[T]`) — all `CatchableError` subtypes. The
+    boundary `proc` catches `CatchableError` and converts to `Result`. Within
+    `fromJson` functions, use the raises-free accessors: `node{key}` (returns
+    `nil` on missing key), `getStr`, `getInt`, `getFloat`, `getBool` (return
+    defaults). These never raise.
   - Every `fromJson` is a validating parser that either produces a well-typed
     value or a structured error. This is the "parse, don't validate" principle.
   - No dependency risk. Third-party libraries may not work with `--mm:arc` +
@@ -677,84 +841,30 @@ camelCase in source. Zero conversion. Leverages Nim's style insensitivity.
 
 ### 3.3 Result Reference Serialisation
 
-In JMAP, when a result reference is used, the field name gets a `#` prefix:
+`Referencable[T]` (Decision 3G, defined in Layer 1 §1.3) requires custom
+serialisation. The wire format uses the JSON key name as the discriminator:
 
-- Normal: `{ "ids": ["id1", "id2"] }`
-- Reference: `{ "#ids": { "resultOf": "c0", "name": "Foo/query", "path": "/ids" } }`
+- `rkDirect`: normal key with the value serialised as `T`.
+  `{ "ids": ["id1", "id2"] }`
+- `rkReference`: key prefixed with `#`, value is a `ResultReference` object.
+  `{ "#ids": { "resultOf": "c0", "name": "Foo/query", "path": "/ids" } }`
 
-The same logical field appears under two different JSON keys depending on usage.
-
-#### Option 3F: Separate optional fields
-
-```
-GetRequest[T] = object
-  ids: Opt[seq[Id]]
-  idsRef: Opt[ResultReference]
-```
-
-Serialisation: if `idsRef.isSome`, emit `"#ids"`; else if `ids.isSome`, emit
-`"ids"`.
-
-- **Pros:** Simple types.
-- **Cons:** Mutual exclusion not enforced by types. Both fields could be `Some`
-  simultaneously — an illegal state that the type permits.
-
-#### Option 3G: Variant type (discriminated union)
-
-```nim
-ReferencableKind = enum rkDirect, rkReference
-
-Referencable[T] = object
-  case kind: ReferencableKind
-  of rkDirect: value: T
-  of rkReference: reference: ResultReference
-```
-
-Usage:
-
-```nim
-GetRequest[T] = object
-  accountId: AccountId
-  ids: Opt[Referencable[seq[Id]]]
-  properties: Opt[Referencable[seq[string]]]
-```
-
-- **Pros:**
-  - Illegal state (both direct and reference) is unrepresentable.
-  - Isomorphic to Haskell's `Either T ResultReference`.
-  - The `Opt` wrapper handles the "not specified" case. Inner variant handles the
-    "direct value vs. reference" case.
-- **Cons:**
-  - Custom serialisation needed: `Referencable[seq[Id]]` serialises as either
-    `"ids": [...]` or `"#ids": { "resultOf": ..., ... }`.
-  - Variant object boilerplate for each referenceable field.
-- **Mitigation:** Custom serialisation is already the approach (Decision 3A).
-  There are only ~4 referenceable fields across the standard methods.
-
-#### Option 3H: Builder pattern hides representation
-
-Builder provides `.ids(seq[Id])` or `.idsRef(ResultReference)` and internally
-tracks which was set.
-
-- **Pros:** Best user experience.
-- **Cons:** Runtime enforcement only. The underlying type still needs to handle
-  both cases. Correctness lives in the builder, not the types.
-
-#### Decision: 3G
-
-Variant type (`Referencable[T]`). Illegal states are unrepresentable in the type
-system. The builder (Layer 4-5) provides ergonomic construction on top, but the
-types are correct regardless of how values are constructed.
+The same logical field appears under two different JSON keys. Custom `toJson`
+and `fromJson` procedures handle this dispatch. There are only ~4
+referenceable fields across the standard methods.
 
 ---
 
-## Layer 4: Request/Response Envelope
+## Layer 4: Envelope Logic
+
+Envelope data types (Invocation, Request, Response) are defined in Layer 1
+(§1.4). This layer covers the logic for constructing requests and dispatching
+responses.
 
 ### 4.1 Invocation Format
 
-The wire format is a JSON array: `["methodName", {arguments}, "callId"]`. This is
-modelled as an object with custom serialisation that emits/parses as a 3-element
-array. Mechanical; all implementations do this identically.
+Invocations are serialised as 3-element JSON arrays, not JSON objects. This is
+handled by custom serialisation in Layer 3.
 
 ### 4.2 Method Call ID Generation
 
@@ -883,7 +993,90 @@ relationship as strongly as Haskell.
 
 ---
 
-## Layer 5: Standard Method Framework
+## Layer 5: Standard Method Framework + Entity Types
+
+Generic data types for the method framework (Filter[C], FilterOperator,
+Comparator, PatchObject, AddedItem) are defined in Layer 1 (§1.5). This
+layer covers entity type registration, associated type resolution, and
+method-specific logic.
+
+### 5.0 Entity Type Framework
+
+The 6 standard methods are generic over entity type. Each entity type must
+define: what properties it has, what filter conditions it supports, what sort
+comparators it supports, and what method-specific arguments it has.
+
+#### Option 1G: Concept + overloaded procs (most typeclass-like)
+
+Define a concept that entity types must satisfy. Provide overloads as "instances":
+
+```
+type JmapEntity = concept T
+  methodNamespace(type T) is string
+  requiresAccountId(type T) is bool
+
+proc methodNamespace(T: typedesc[Mailbox]): string = "Mailbox"
+proc requiresAccountId(T: typedesc[Mailbox]): bool = true
+```
+
+- **Pros:**
+  - Closest to a Haskell typeclass or Rust trait.
+  - The concept defines the interface; overloads provide instances.
+  - Generic procs constrained by `JmapEntity` fail at instantiation if overloads
+    are missing.
+- **Cons:**
+  - Checked structurally at use site, not at definition site. Missing overloads
+    produce errors at instantiation, not at declaration.
+  - May interact unpredictably with `strictFuncs` and `raises: []`.
+  - No associated types. Filter and sort types need separate encoding.
+- **Gap vs. Haskell/Rust:** No orphan instance checking, no associated types,
+  errors at instantiation not declaration.
+
+#### Option 1H: Generic procs + overloaded type-specific procs (no concept)
+
+No concept, just generic procs. Type-specific behaviour via overloading:
+
+```
+proc methodNamespace(T: typedesc[Mailbox]): string = "Mailbox"
+proc methodNamespace(T: typedesc[Email]): string = "Email"
+```
+
+- **Pros:**
+  - Simpler than concepts. Each entity type just provides overloads.
+  - Works well with Nim's UFCS and overload resolution.
+- **Cons:**
+  - No compile-time enforcement that all required overloads exist.
+  - Errors at instantiation time, not at definition time. Same as 1G in practice.
+
+#### Option 1I: Template-generated concrete types
+
+A macro/template stamps out concrete types per entity:
+
+```
+defineJmapEntity(Mailbox, "Mailbox", requiresAccountId = true)
+# Generates: MailboxGetRequest, MailboxGetResponse, MailboxSetRequest, etc.
+```
+
+- **Pros:**
+  - No generics complexity. Each entity gets concrete types.
+  - Clear C ABI story (every type is concrete, no monomorphisation surprises).
+- **Cons:**
+  - Code generation means indirection — harder to read, debug, navigate.
+  - Changes to the template affect all entity types simultaneously.
+
+#### Decision: 1G — concepts for simple interfaces
+
+Concepts are the primary choice for encoding the "entity types must satisfy an
+interface" constraint. Simple, non-recursive, non-deeply-chained concepts work
+well under the strict compiler settings. The caveat is complexity depth: deeply
+nested concept hierarchies or concepts that chain through multiple layers of
+generic constraints are fragile and should be avoided. For those cases, fall back
+to 1H (plain overloaded procs). Document the required interface explicitly in
+either case — this is the moral equivalent of the typeclass definition that Nim
+cannot enforce as strongly as Haskell.
+
+Keep 1I as a reserve option where the number of concrete types per entity may
+make templates worthwhile.
 
 ### 5.1 The Six Standard Methods
 
@@ -896,10 +1089,13 @@ relationship as strongly as Haskell.
 | `/queryChanges` | accountId, filter, sort, sinceQueryState, maxChanges         | oldQueryState, newQueryState, removed, added                                |
 | `/copy`         | fromAccountId, accountId, ifFromInState, ifInState, create   | oldState, newState, created, notCreated                                     |
 
-### 5.2 Filter and Sort Typing
+### 5.2 Associated Type Resolution for Filters and Sorts
 
-Each entity type defines its own filter conditions and sort properties. The Rust
-implementation uses associated types on traits. Nim lacks associated types.
+`Filter[C]` (defined in Layer 1 §1.5) is parameterised by condition type `C`,
+which varies per entity. Each entity type defines its own filter conditions
+and sort properties. The Rust implementation uses associated types on traits.
+Nim lacks associated types. The question is how to resolve `C` from the entity
+type.
 
 #### Option 5A: Multiple type parameters
 
@@ -910,19 +1106,22 @@ QueryRequest[T, F, S] = object  # T = entity, F = filter, S = sort
 - **Pros:** Fully type-safe.
 - **Cons:** Three type parameters is unwieldy. Every proc needs all three.
 
-#### Option 5B: Overloaded type-level functions (simulated associated types)
+#### Option 5B: Overloaded type-level templates (simulated associated types)
 
 ```
-proc filterType(T: typedesc[Mailbox]): typedesc = MailboxFilter
-proc filterType(T: typedesc[Email]): typedesc = EmailFilter
+template filterType(T: typedesc[Mailbox]): typedesc = MailboxFilter
+template filterType(T: typedesc[Email]): typedesc = EmailFilter
 ```
 
 Then `QueryRequest[T]` uses `filterType(T)` to resolve the filter type.
 
 - **Pros:** Single type parameter. Type-specific behaviour via overloads.
-  Closest to Haskell's type families or Rust's associated types.
-- **Cons:** Relies on compile-time type function resolution, which may interact
-  unpredictably with strict mode. Needs verification.
+  Closest to Haskell's type families or Rust's associated types. Must be
+  `template` (not `proc`) because `typedesc` return values used in type
+  positions require compile-time evaluation.
+- **Cons:** Relies on compile-time template resolution in type positions. Verified
+  to work (Nim test suite: `t5540.nim`, `tuninstantiatedgenericcalls.nim`), but
+  interactions with deeply nested generics under strict mode remain a risk.
 
 #### Option 5C: `JsonNode` for filters/sorts
 
@@ -933,33 +1132,15 @@ Untyped filters. Typed filter constructors per entity return `JsonNode`.
   `Email/query`. Runtime errors only from the server. Antithetical to the
   "make illegal states unrepresentable" principle.
 
-#### Decision: 5B
+#### Decision: 5B, with 5B-fallback as the safe default
 
-Typed filters from the start. No `JsonNode` escape hatches in the user-facing API.
+Typed filters from the start. No `JsonNode` escape hatches in the user-facing
+API. Use type-level `template`s (not `proc`s) for associated type resolution.
+If template-based resolution proves fragile under strict mode, fall back to
+explicit two-parameter types with convenience aliases (see below).
 
-For RFC 8620 Core specifically: Core defines the generic filter *framework* but
-no concrete filter types. Concrete filters come from RFC 8621 and other
-extensions. So the Core implementation defines:
-
-```nim
-FilterOperator = enum
-  foAnd = "AND"
-  foOr = "OR"
-  foNot = "NOT"
-
-FilterKind = enum fkCondition, fkOperator
-
-Filter[C] = object  # C = condition type, defined per entity
-  case kind: FilterKind
-  of fkCondition: condition: C
-  of fkOperator:
-    operator: FilterOperator
-    conditions: seq[Filter[C]]
-```
-
-This is a recursive algebraic data type parameterised by condition type.
-Equivalent to Haskell's `data Filter c = Condition c | Operator Op [Filter c]`.
-Defined in Core; entity-specific condition types plugged in later.
+Core defines the generic filter *framework* but no concrete filter types.
+Concrete filters come from RFC 8621 and other extensions.
 
 #### Fallback if 5B fails
 
@@ -976,32 +1157,11 @@ type MailboxQueryRequest = QueryRequest[Mailbox, MailboxFilterCondition]
 
 More verbose but achievable. The alias hides the second parameter.
 
-### 5.3 PatchObject for /set Updates
+### 5.3 Entity-Specific Patch Builders
 
-The RFC's PatchObject uses JSON Pointer paths as keys. Inherently dynamic.
-
-#### Option 5D: `Table[string, JsonNode]`
-
-Simple key-value map.
-
-- **Pros:** Direct, no abstraction needed.
-- **Cons:** No validation. No distinction from arbitrary tables.
-
-#### Option 5E: Opaque distinct type with smart constructors
-
-```
-PatchObject = distinct Table[string, JsonNode]
-
-func setProp(patch: var PatchObject, path: string, value: JsonNode): PatchObject
-func deleteProp(patch: var PatchObject, path: string): PatchObject
-```
-
-- **Pros:**
-  - `distinct` prevents treating as a regular table.
-  - Smart constructors can validate JSON Pointer paths.
-  - Type communicates intent: "this is a JMAP patch, not a bag of key-values."
-- **Cons:** Path is still a string. Cannot statically validate against entity
-  properties.
+`PatchObject` (defined in Layer 1 §1.5, Decision 5E) is the opaque distinct
+type for update patches. When adding entity types, typed builders produce
+`PatchObject` values with property validation.
 
 #### Option 5F: Typed patch builder per entity
 
@@ -1010,11 +1170,11 @@ Entity-specific builder that produces `PatchObject` values.
 - **Pros:** Type-safe, discoverable.
 - **Cons:** Requires a builder per entity type.
 
-#### Decision: 5E for Core, 5F when adding entity types
+#### Decision: 5F when adding entity types
 
-Core defines the PatchObject format but has no concrete entity types. Use the
-opaque distinct type with smart constructors. When adding RFC 8621, add typed
-patch builders per entity that produce `PatchObject` values.
+Core has no concrete entity types. When adding RFC 8621, add typed patch
+builders per entity that produce `PatchObject` values. Each builder validates
+property names and types at compile time.
 
 ### 5.4 SetResponse Modelling
 
@@ -1060,20 +1220,18 @@ per-item railway model while respecting the wire format.
 
 ---
 
-## Layer 6: Result References
+## Layer 6: Result Reference Logic
 
-For a client library, this layer is about **constructing** result references, not
-resolving them (the server does that).
+For a client library, this layer is about **constructing** result references,
+not resolving them (the server does that).
 
-### Requirements
+Result reference types (ResultReference, Referencable[T]) are defined in
+Layer 1 (§1.3). Serialisation of the `#`-prefixed key format is handled in
+Layer 3 (§3.3). This layer covers:
 
-1. A `ResultReference` type: `{resultOf: string, name: string, path: string}`.
-2. Builder-produced references: when adding a method call, the returned handle
-   can produce `ResultReference` values pointing to specific paths in that call's
-   response.
-3. Serialisation: `Referencable[T]` (from Layer 3) emits `"#fieldName"` when the
-   reference branch is active.
-4. Path constants for common reference targets.
+1. Builder-produced references: the returned handle can produce
+   `ResultReference` values pointing to specific paths in that call's response.
+2. Path constants for common reference targets.
 
 ### Standard Reference Paths
 
@@ -1162,6 +1320,13 @@ Swap HTTP backends later without affecting other layers. `std/httpclient` is
 sufficient for session discovery and API requests. Upgrade to libcurl if TLS or
 performance becomes an issue.
 
+**`raises` caveat:** `std/httpclient`'s request functions (`get`, `post`,
+`request`, etc.) have no `{.raises.}` annotations. The compiler treats them as
+potentially raising `Exception`. The transport boundary `proc` must catch
+`CatchableError` broadly and convert to `TransportError`. Known exception types
+include `ProtocolError`, `HttpRequestError` (both `IOError` subtypes),
+`ValueError`, and `TimeoutError`.
+
 ### 7.2 Session Discovery
 
 The RFC specifies DNS SRV lookup, then `.well-known/jmap`, then follow redirects.
@@ -1238,46 +1403,50 @@ as a convenience layer on top.
 
 | Layer | Decision | Rationale |
 |-------|----------|-----------|
-| 1. Types | Full distinct types for all identifiers (1A) | Make illegal states unrepresentable |
+| 1. Types | Full distinct types + `{.requiresInit.}` for all identifiers (1A) | Make illegal states unrepresentable; prevent default construction |
 | 1. Types | Case object capabilities with exhaustive enum (1D) | Closed world with explicit unknown case |
-| 1. Types | Concepts for simple interfaces (1G, fallback 1H for deep chains) | Closest to typeclasses; avoid deeply nested concepts |
-| 2. Errors | Two-level railway: ClientError outer, MethodError inner (2C) | ROP: separate transport failure from protocol results |
+| 1. Types | `Referencable[T]` variant type (3G) | Illegal state (both direct + ref) unrepresentable |
+| 1. Types | Opaque PatchObject distinct type (5E) | Distinct from arbitrary tables |
+| 2. Errors | Two-level railway: ClientError outer, MethodError inner (2C) | Separate transport failure from protocol results |
 | 2. Errors | Full enum + rawType for lossless round-trip (2F) | Parse, don't validate; preserve original |
-| 2. Errors | SetResponse as unified Result maps (5H); SetError as case object | Per-item railway; variant-specific fields for invalidProperties/alreadyExists |
-| 3. Serial. | `std/json` manual ser/de, no external deps (3A) | Total parsing, `raises: []` compatible, full control |
-| 3. Serial. | camelCase in Nim source (3D) | Zero conversion, leverages style insensitivity |
-| 3. Serial. | `Referencable[T]` variant type (3G) | Illegal state (both direct + ref) unrepresentable |
-| 4. Envelope | Auto-incrementing call IDs (4A) | Simple, no safety implications |
-| 4. Envelope | Builder produces immutable Request (4D) | Functional core / imperative shell boundary |
-| 4. Envelope | Phantom-typed ResponseHandle (4H) | Compile-time response type safety |
-| 5. Methods | Typed Filter[C] recursive ADT from the start (5B) | No JsonNode escape hatches in user-facing API |
-| 5. Methods | Opaque PatchObject with smart constructors (5E) | Distinct from arbitrary tables, validates paths |
-| 6. Refs | Referencable[T] + builder-produced references (3G + 4H) | Type-safe construction, server resolves |
+| 2. Errors | SetError as case object with variant-specific fields | invalidProperties/alreadyExists carry typed data |
+| 3. Ser/de | `std/json` manual ser/de, no external deps (3A) | Total parsing, `raises: []` via boundary catch |
+| 3. Ser/de | camelCase in Nim source (3D) | Zero conversion, leverages style insensitivity |
+| 4. Logic | Auto-incrementing call IDs (4A) | Simple, no safety implications |
+| 4. Logic | Builder produces immutable Request (4D) | Functional core / imperative shell boundary |
+| 4. Logic | Phantom-typed ResponseHandle (4H) | Compile-time response type safety |
+| 5. Methods | Entity type concept (1G, fallback 1H) | Closest to typeclasses; semantic dependency on methods |
+| 5. Methods | Associated type resolution via templates (5B) | No JsonNode escape hatches in user-facing API |
+| 5. Methods | Entity-specific typed patch builders (5F) | Type-safe construction per entity |
+| 5. Methods | SetResponse as unified Result maps (5H) | Per-item railway |
 | 6. Refs | String paths with constants, no validation (6A) | Server validates; client provides convenience |
 | 7. Transport | `std/httpclient`, synchronous (7A) | No deps, swappable later |
 | 7. Transport | Direct URL + .well-known, no DNS SRV | Matches all reference implementations |
-| 8. C ABI | Lossy projection, opaque handles | C gets correctness; Nim gets type safety |
-| 8. C ABI | Per-object free functions (8A) | Standard C pattern |
+| 8. C ABI | Lossy projection, opaque handles, per-object free (8A) | Standard C pattern |
 
 ## Testability per Layer
 
 Each layer is testable without the layers above it:
 
 - **Layer 1:** Unit test type construction, distinct type operations, smart
-  constructors.
+  constructors. Construct Invocation, Request, Response values. Construct
+  ResultReference and Referencable[T] in both branches. Construct Filter[C]
+  recursive structures, Comparator, PatchObject, AddedItem.
 - **Layer 2:** Unit test error construction, kind discrimination, round-trip
   preservation of rawType.
 - **Layer 3:** Unit test round-trip serialisation against RFC JSON examples.
-  Verify `Referencable[T]` serialises correctly for both branches.
-- **Layer 4:** Unit test request/response envelope ser/de against RFC Section 3
-  examples. Verify phantom-typed handle extraction.
-- **Layer 5:** Unit test method request/response construction and ser/de.
-  Verify `Filter[C]` recursive structure. Verify unified `Result` maps in
-  SetResponse.
-- **Layer 6:** Unit test that result reference fields serialise with `#` prefix.
-  Verify builder produces correct `ResultReference` values.
+  Verify Invocation serialises as 3-element JSON array. Verify Referencable[T]
+  serialises correctly for both branches.
+- **Layer 4:** Unit test request builder logic: call ID generation,
+  phantom-typed handle creation, builder produces correct immutable Request
+  values.
+- **Layer 5:** Unit test entity type concept satisfaction (1G). Unit test
+  method request/response construction. Verify associated-type template
+  resolution (5B). Verify unified Result maps in SetResponse (5H).
+- **Layer 6:** Unit test that builder produces correct ResultReference values
+  from phantom-typed handles. Verify path constants.
 - **Layer 7:** Integration test against a real or mock JMAP server.
 - **Layer 8:** Integration test from C code linking the shared library.
 
 The RFC includes JSON examples for almost every type. These serve as test
-fixtures for Layers 3-6.
+fixtures for Layers 1 and 3.
