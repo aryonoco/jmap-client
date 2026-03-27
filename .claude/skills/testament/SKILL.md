@@ -19,8 +19,11 @@ headers for test configuration.
 
 - [Spec header field reference](spec-reference.md) — all spec fields with types and defaults
 - [Project-specific test patterns](test-patterns.md) — patterns for this project
-- `.nim-reference/doc/testament.md` — upstream testament documentation
-- `.nim-reference/testament/specs.nim` — spec parser source
+- `.claude/llms/testament/llms-full.txt` — upstream docs, spec parser, and test utilities (1101 lines)
+
+When the quick references in `spec-reference.md` and `test-patterns.md` are insufficient,
+read the relevant section from `llms-full.txt` using the section index in
+`.claude/llms/testament/llms.txt`.
 
 ## Decision Tree
 
@@ -33,3 +36,4 @@ headers for test configuration.
 | How to test compile-time rejection? | See Reject Action in [spec-reference.md](spec-reference.md) |
 | How to run tests? | `just test` (all), `just test-file tests/tfoo.nim` (single) |
 | How to run tests verbosely? | `just test-verbose` |
+| Need exact spec parser detail? | Read `.claude/llms/testament/llms-full.txt` using index |

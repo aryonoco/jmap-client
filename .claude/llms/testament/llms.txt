@@ -1,0 +1,64 @@
+# Testament — Section Index
+# Source: .claude/llms/testament/llms-full.txt (1101 lines)
+# Concatenated from Nim 2.2.8 sources in .nim-reference/
+
+## doc/testament.md — Upstream Documentation (lines 7–398)
+
+### Overview and Setup
+- Introduction to Testament: lines 7–16
+- Test file locations and paths: lines 23–34
+- Commands (pattern, all, category, run, html): lines 36–45
+- Options (--print, --verbose, --targets, etc.): lines 48–62
+
+### Running Tests
+- Running a single test: lines 65–78
+- Running all tests from a directory: lines 81–96
+- HTML Reports: lines 98–106
+
+### Writing Tests
+- Spec template with all fields explained: lines 109–218
+- Inline hints, warnings, and errors (#[tt.): lines 230–268
+- Output message variable interpolation ($file, ${/}): lines 270–278
+- Cmd variable interpolation ($target, $options, $file, $filedir): lines 280–296
+- Unit test examples (reject, ccodecheck, exitcode, output, js, compile): lines 299–398
+
+## testament/specs.nim — Spec Parser (lines 404–928)
+
+### Type Definitions
+- TTestAction enum (run, compile, reject): lines 434–437
+- TOutputCheck enum (ignore, equal, substr): lines 439–442
+- TResultEnum enum (all test outcomes): lines 444–462
+- TTarget enum (c, cpp, objc, js): lines 464–469
+- InlineError object: lines 470–474
+- ValgrindSpec enum (disabled, enabled, leaking): lines 475–477
+- TSpec object (all spec fields with types): lines 478–510
+
+### Helpers
+- getCmd (default command template): lines 511–516
+- targetToExt, targetToCmd constants: lines 518–519
+- defaultOptions: lines 521–526
+- parseCfgBool: lines 528–534
+- addLine: lines 536–539
+- extractErrorMsg (inline error parsing): lines 546–660
+- extractSpec (discard triple-quote extraction): lines 662–702
+
+### Parsing
+- parseTargets: lines 704–712
+- initSpec, isCurrentBatch: lines 714–721
+- parseSpec (main parser — every valid key and handler): lines 723–928
+
+## testament/lib/stdtest/testutils.nim — Test Utilities (lines 934–1059)
+
+- flakyAssert template (flaky test handling): lines 941–963
+- greedyOrderedSubsetLines (nimout matching algorithm): lines 968–993
+- enableRemoteNetworking template: lines 995–1000
+- disableSSLTesting template: lines 1002–1005
+- whenRuntimeJs, whenVMorJs templates: lines 1007–1029
+- accept/reject templates (compiles check): lines 1031–1035
+- disableVm template: lines 1037–1039
+- assertAll macro (VM-compatible assertions): lines 1041–1059
+
+## testament/lib/stdtest/unittest_light.nim — Lightweight Assertions (lines 1065–1101)
+
+- mismatch proc (diagnostic diff output): lines 1068–1097
+- assertEquals proc (assert with diagnostics): lines 1099–1101
