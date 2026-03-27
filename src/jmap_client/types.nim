@@ -6,7 +6,9 @@
 import ./validation
 import ./primitives
 import ./identifiers
+import ./capabilities
 
 export validation
 export primitives
 export identifiers
+export capabilities
