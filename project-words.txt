@@ -84,13 +84,18 @@ mise
 # VS Code Extensions (author names)
 Ameri
 arnetheduck
+casemap
 eamodio
 errorlens
 foxundermoon
 hverlin
 mhutchie
 nefrob
+sequtils
+smimeverify
 strutils
 tamasfe
+typedesc
 usernamehw
+vacationresponse
 vadimcn

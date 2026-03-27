@@ -3,12 +3,18 @@
 
 {.push raises: [].}
 
+import pkg/results
+
 import ./validation
 import ./primitives
 import ./identifiers
 import ./capabilities
+import ./errors
 
 export validation
 export primitives
 export identifiers
 export capabilities
+export errors
+
+type JmapResult*[T] = Result[T, ClientError]
