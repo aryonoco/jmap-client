@@ -1,4 +1,4 @@
-# Layer 1: Core Types — Detailed Design (RFC 8620)
+# Layer 1: Domain Types + Errors — Detailed Design (RFC 8620)
 
 ## Preface
 
@@ -9,22 +9,23 @@ implementation is mechanical.
 
 **Scope.** Layer 1 covers: primitive data types (RFC 8620 §1.2–1.4), domain
 identifiers, the Session object and everything it contains (§2), the
-Request/Response envelope (§3.2–3.4, §3.7), and the generic method framework
-types (§5.3 PatchObject, §5.5 Filter/Comparator, §5.6 AddedItem). Error
-types (Layer 2), serialisation (Layer 3), standard method request/response
-shapes (Layer 5), and transport (Layer 7) are out of scope.
+Request/Response envelope (§3.2–3.4, §3.7), the generic method framework
+types (§5.3 PatchObject, §5.5 Filter/Comparator, §5.6 AddedItem), and all
+error types (TransportError, RequestError, ClientError, MethodError, SetError,
+and the `JmapResult[T]` railway alias). Serialisation (Layer 2), protocol
+logic (Layer 3), and transport (Layer 4) are out of scope.
 
 **Relationship to architecture-options.md.** That document records broad
-decisions across all 8 layers. This document is the detailed specification for
+decisions across all 5 layers. This document is the detailed specification for
 Layer 1 only. Decisions here are consistent with — and build upon — the
-architecture document's choices 1A, 1D, 3G, 4A–4H, 5B, and 5E.
+architecture document's choices 1A, 1D, 2C, 2F, 3G, 4A–4H, 5B, and 5E.
 
 **Design principles.** Every decision follows:
 
 - **Railway Oriented Programming** — `Result[T, E]` pipelines with `?` for
   early return. Smart constructors return `Result`, never raise.
 - **Functional Core, Imperative Shell** — all Layer 1 code is `func` (pure, no
-  side effects). `proc` appears only at the transport boundary (Layer 7).
+  side effects). `proc` appears only at the transport boundary (Layer 4).
 - **Immutability by default** — `let` bindings. No `var` in Layer 1.
 - **Total functions** — `{.push raises: [].}` on every module. Every function
   has a defined output for every input.
@@ -74,7 +75,7 @@ has a concrete reason tied to the strict compiler constraints.
 | `std/uri` | `parseUri` raises `UriParseError`. `apiUrl` is passed directly to the HTTP client — no need to decompose. |
 | `std/options` | Project convention: `Opt[T]` from `nim-results` package (status-im/nim-results). `Opt[T]` is `Result[T, void]`, sharing the `?` operator with `Result[T, E]` for uniform ROP composition. stdlib `Option[T]` has `map`/`flatMap` but no `?` integration. |
 | `std/enumutils` | `parseEnum` from `strutils` already covers enum parsing needs. |
-| `std/httpcore` | `HttpCode` is relevant to Layer 2/7 (transport errors), not Layer 1. |
+| `std/httpcore` | `HttpCode` is relevant to Layer 4 (transport errors), not Layer 1. |
 
 ### Critical Nim findings that constrain the design
 
@@ -116,7 +117,10 @@ func validationError*(typeName, message, value: string): ValidationError =
 ```
 
 `ValidationError` has no smart constructor — it is always valid by construction.
-Layer 2's `ClientError` can wrap `ValidationError` for error composition.
+`ValidationError` is the error type for smart constructor failures (Layer 1
+construction-time validation). `ClientError` (Section 8.6) is a separate
+concern for runtime transport/request failures (Layer 4). These are different
+railways and are not unified into a single sum type (Decision 2C).
 
 **Module:** `src/jmap_client/validation.nim`
 
@@ -296,7 +300,7 @@ func parseJmapInt*(value: int64): Result[JmapInt, ValidationError] =
 
 **Note.** `JmapInt` (not `Int`) avoids shadowing Nim's built-in `int`. The type
 is defined in Layer 1 because §1.3 defines it as a primitive RFC data type. Its
-primary use is in Layer 5 (`/query` request `position` and `anchorOffset`
+primary use is in Layer 3 (`/query` request `position` and `anchorOffset`
 arguments).
 
 **Module:** `src/jmap_client/primitives.nim`
@@ -495,7 +499,7 @@ func parseMethodCallId*(raw: string): Result[MethodCallId, ValidationError] =
 
 A client-generated identifier for a record being created. On the wire, creation
 IDs are prefixed with `#` when used as forward references. The stored value does
-NOT include the `#` prefix — that is a serialisation concern (Layer 3).
+NOT include the `#` prefix — that is a serialisation concern (Layer 2).
 
 ```nim
 type CreationId* {.requiresInit.} = distinct string
@@ -636,12 +640,12 @@ type CoreCapabilities* = object
 
 **No smart constructor.** The `UnsignedInt` fields enforce their own invariants
 via their smart constructors. Construction happens exclusively during JSON
-deserialisation (Layer 3), which validates each field individually.
+deserialisation (Layer 2), which validates each field individually.
 
 **Decision D6.** `HashSet[string]` from `std/sets` for `collationAlgorithms`
 instead of `seq[string]`. The RFC defines this as a list of identifiers for
 membership testing ("does the server support this collation?"). `HashSet`
-provides: no duplicates, O(1) lookup via `in`, proper set semantics. Layer 3
+provides: no duplicates, O(1) lookup via `in`, proper set semantics. Layer 2
 deserialises the JSON array into a `HashSet`.
 
 **Helper:**
@@ -754,7 +758,7 @@ defineStringDistinctOps(UriTemplate)
 
 ```nim
 func parseUriTemplate*(raw: string): Result[UriTemplate, ValidationError] =
-  ## Non-empty. No RFC 6570 parsing — template expansion is Layer 7 (IO).
+  ## Non-empty. No RFC 6570 parsing — template expansion is Layer 4 (IO).
   if raw.len == 0:
     return err(validationError("UriTemplate", "must not be empty", raw))
   ok(UriTemplate(raw))
@@ -773,7 +777,7 @@ Used by the Session smart constructor to verify required template variables.
 
 **Decision D11 rationale.** `std/uri.parseUri` raises `UriParseError` — not
 suitable for the functional core. Template expansion (substituting `{accountId}`
-etc.) is an IO concern belonging to Layer 7 (transport). Layer 1 stores the
+etc.) is an IO concern belonging to Layer 4 (transport). Layer 1 stores the
 template as a validated string and provides structural checks.
 
 **Module:** `src/jmap_client/session.nim`
@@ -915,7 +919,7 @@ func findAccount*(session: Session, id: AccountId): Opt[Account] =
 A tuple of three elements: method name, arguments object, method call ID.
 
 **JSON serialisation quirk:** Invocations are serialised as 3-element JSON
-arrays `["name", {args}, "callId"]`, NOT as JSON objects. This is a Layer 3
+arrays `["name", {args}, "callId"]`, NOT as JSON objects. This is a Layer 2
 concern — the type definition here is the Nim representation.
 
 ```nim
@@ -928,10 +932,10 @@ type Invocation* = object
 ```
 
 `arguments` is `JsonNode` at the envelope level. Typed extraction into
-concrete method response types happens in Layer 5.
+concrete method response types happens in Layer 3.
 
-**No smart constructor.** Constructed by the Layer 4 builder (requests) or
-Layer 3 deserialiser (responses).
+**No smart constructor.** Constructed by the Layer 3 builder (requests) or
+Layer 2 deserialiser (responses).
 
 **Module:** `src/jmap_client/envelope.nim`
 
@@ -954,7 +958,7 @@ extension URIs would collide at `ckUnknown`.
 `createdIds` is `Opt` because the RFC specifies it as optional. If present in
 the request, the response will also include it.
 
-**No smart constructor.** Built by the Layer 4 request builder.
+**No smart constructor.** Built by the Layer 3 request builder.
 
 **Module:** `src/jmap_client/envelope.nim`
 
@@ -969,7 +973,7 @@ type Response* = object
   sessionState*: JmapState                     ## current Session.state value
 ```
 
-**No smart constructor.** Parsed from JSON by Layer 3.
+**No smart constructor.** Parsed from JSON by Layer 2.
 
 **Module:** `src/jmap_client/envelope.nim`
 
@@ -1039,10 +1043,10 @@ func referenceTo*[T](ref: ResultReference): Referencable[T] =
   Referencable[T](kind: rkReference, reference: ref)
 ```
 
-**Serialisation note (Layer 3).** `Referencable[seq[Id]]` serialises as either
+**Serialisation note (Layer 2).** `Referencable[seq[Id]]` serialises as either
 `"ids": [...]` (direct) or `"#ids": {"resultOf": ..., "name": ..., "path": ...}`
 (reference). The `#` prefix on the JSON key name is the discriminator on the
-wire. This is a Layer 3 concern.
+wire. This is a Layer 2 concern.
 
 **Module:** `src/jmap_client/envelope.nim`
 
@@ -1129,7 +1133,7 @@ not constrained by the Core RFC. Entity-specific layers may provide typed
 wrappers.
 
 `isAscending` defaults to `true` per RFC §5.5. The default is applied during
-JSON deserialisation (Layer 3), not in the type definition.
+JSON deserialisation (Layer 2), not in the type definition.
 
 `collation` is `Opt[string]` because the RFC specifies it as optional. When
 absent, the server uses its default collation for the property.
@@ -1231,13 +1235,552 @@ type AddedItem* = object
 
 **No smart constructor.** Both fields enforce their own invariants via their
 respective smart constructors (`parseIdFromServer`, `parseUnsignedInt`).
-Construction happens exclusively during JSON deserialisation (Layer 3).
+Construction happens exclusively during JSON deserialisation (Layer 2).
 
 **Module:** `src/jmap_client/framework.nim`
 
 ---
 
-## 8. Borrowed Operations Summary
+## 8. Error Types
+
+Error types implement the two-level railway (architecture-options.md Decision
+2C). The outer railway uses `JmapResult[T] = Result[T, ClientError]` for
+transport/request failures. The inner railway uses `Result[T, MethodError]` per
+invocation. `SetError` is data within successful `SetResponse` values.
+
+All error constructors are `func` (pure) and return values directly — not
+`Result`. Error types represent received data or classified exceptions; they
+cannot fail construction. This contrasts with domain type smart constructors
+(Sections 2–7) which return `Result[T, ValidationError]` because domain values
+have invariants that can be violated.
+
+All error types that carry a `type` string follow Decision 2F: a parsed enum
+(`errorType`) alongside a preserved raw string (`rawType`) for lossless
+round-trip. Serialisation always uses `rawType`, never `$errorType`.
+
+### 8.1 TransportErrorKind
+
+**RFC reference:** Not in RFC (library-internal type).
+
+**Purpose:** Discriminator enum for `TransportError`. Four variants covering
+transport failure modes below the JMAP protocol level.
+
+```nim
+type TransportErrorKind* = enum
+  tekNetwork
+  tekTls
+  tekTimeout
+  tekHttpStatus
+```
+
+No string backing values — these are library-internal classifications, not
+RFC-defined wire strings.
+
+**No smart constructor.** Plain enum, valid by construction. Constructed by
+Layer 4 transport code when catching `CatchableError` from `std/httpclient`.
+
+**Module:** `src/jmap_client/errors.nim`
+
+### 8.2 TransportError
+
+**RFC reference:** Not in RFC (library-internal type).
+
+**Purpose:** Case object carrying a human-readable message and variant-specific
+data for transport failures. The `tekHttpStatus` branch carries the HTTP status
+code; other branches carry no additional data beyond the message.
+
+```nim
+type TransportError* = object
+  message*: string
+  case kind*: TransportErrorKind
+  of tekHttpStatus:
+    httpStatus*: int
+  of tekNetwork, tekTls, tekTimeout:
+    discard
+```
+
+**Design decisions:**
+
+1. **`message` is a shared field** (outside the `case`), always accessible
+   regardless of variant. It carries the underlying exception message from
+   `std/httpclient` (e.g., `"Connection refused"`, `"certificate verify
+   failed"`).
+
+2. **`httpStatus` is `int`, not `UnsignedInt`.** HTTP status codes are standard
+   integers (100–599). Using `UnsignedInt` (which requires a smart constructor
+   returning `Result`) would add unnecessary ceremony for a field with no
+   JMAP-specific semantics. The value comes directly from `std/httpclient`'s
+   `HttpCode`.
+
+3. **`tekHttpStatus` scope.** For HTTP responses that fail at the HTTP level and
+   do not carry a valid RFC 7807 problem details body. If the response has a
+   valid problem details JSON body, it becomes a `RequestError` instead (parsed
+   by Layer 2). If the response is HTTP 200 with valid JMAP JSON, it is a
+   success.
+
+**Constructor helpers:**
+
+```nim
+func transportError*(kind: TransportErrorKind, message: string): TransportError =
+  ## For non-HTTP-status transport errors.
+  TransportError(kind: kind, message: message)
+
+func httpStatusError*(status: int, message: string): TransportError =
+  ## For HTTP-level failures without a JMAP problem details body.
+  TransportError(kind: tekHttpStatus, message: message, httpStatus: status)
+```
+
+Plain `func` constructors, not `parseFoo`-style smart constructors returning
+`Result`. There are no invariants that could fail at construction time. Follows
+the pattern of `filterCondition`/`filterOperator` in Section 7.2.
+
+**Construction layer:** Layer 4 (transport). The transport `proc` catches
+`CatchableError` from `std/httpclient`, classifies the exception (e.g.,
+`TimeoutError` → `tekTimeout`, `ProtocolError` → `tekNetwork`, SSL errors →
+`tekTls`, non-200 HTTP status → `tekHttpStatus`), and constructs a
+`TransportError`.
+
+**Module:** `src/jmap_client/errors.nim`
+
+### 8.3 RequestErrorType
+
+**RFC reference:** §3.6.1 (request-level errors). RFC 7807 Problem Details.
+
+**Purpose:** String-backed enum covering the four RFC-defined request-level
+error types, plus `retUnknown` for server-specific extensions. Follows
+Decision 2F.
+
+```nim
+type RequestErrorType* = enum
+  retUnknownCapability = "urn:ietf:params:jmap:error:unknownCapability"
+  retNotJson = "urn:ietf:params:jmap:error:notJSON"
+  retNotRequest = "urn:ietf:params:jmap:error:notRequest"
+  retLimit = "urn:ietf:params:jmap:error:limit"
+  retUnknown
+```
+
+`retUnknown` has no string backing — it is the catch-all for unrecognised URIs.
+
+**Parsing function:**
+
+```nim
+func parseRequestErrorType*(raw: string): RequestErrorType =
+  ## Total function: always succeeds. Unknown URIs map to retUnknown.
+  strutils.parseEnum[RequestErrorType](raw, retUnknown)
+```
+
+Same pattern as `parseCapabilityKind` (Section 4.1): total, uses
+`strutils.parseEnum` with a default. The raw string is preserved separately
+in `RequestError.rawType` (Section 8.4).
+
+**Module:** `src/jmap_client/errors.nim`
+
+### 8.4 RequestError
+
+**RFC reference:** §3.6.1, RFC 7807.
+
+**Purpose:** Represents a request-level error — an HTTP response with
+`Content-Type: application/problem+json`. The server returns these when the
+entire request is rejected before any method calls are processed.
+
+```nim
+type RequestError* = object
+  errorType*: RequestErrorType   ## parsed enum variant
+  rawType*: string               ## always populated — lossless round-trip
+  status*: Opt[int]              ## RFC 7807 "status" field
+  title*: Opt[string]            ## RFC 7807 "title" field
+  detail*: Opt[string]           ## RFC 7807 "detail" field
+  limit*: Opt[string]            ## which limit was exceeded (retLimit only)
+```
+
+**Design decisions:**
+
+1. **Flat object, not a case object.** The `limit` field is relevant only for
+   `retLimit`, but making it `Opt` on a flat object is simpler than a case
+   object with four branches where only one has an extra field.
+
+2. **`rawType` always populated (Decision 2F).** For known types, `rawType`
+   contains the same URI as the enum's string backing. For `retUnknown`,
+   `rawType` is the original unrecognised URI. Serialisation always uses
+   `rawType`.
+
+3. **`status` is `Opt[int]`, not `Opt[UnsignedInt]`.** Same rationale as
+   `TransportError.httpStatus`.
+
+4. **No `extras` field.** RFC 7807 defines a fixed set of standard fields.
+   Unlike `MethodError`, there is no need for lossless preservation of
+   non-standard fields.
+
+**Constructor helper:**
+
+```nim
+func requestError*(
+  rawType: string,
+  status: Opt[int] = Opt.none(int),
+  title: Opt[string] = Opt.none(string),
+  detail: Opt[string] = Opt.none(string),
+  limit: Opt[string] = Opt.none(string),
+): RequestError =
+  RequestError(
+    errorType: parseRequestErrorType(rawType),
+    rawType: rawType,
+    status: status,
+    title: title,
+    detail: detail,
+    limit: limit,
+  )
+```
+
+Encapsulates the lossless round-trip pattern: always populates both `errorType`
+(parsed) and `rawType` (preserved) from the same input.
+
+**Construction layer:** Layer 2 (serialisation). The `fromJson` for
+`RequestError` extracts the `type` field from the RFC 7807 JSON body.
+
+**Module:** `src/jmap_client/errors.nim`
+
+### 8.5 ClientErrorKind
+
+**RFC reference:** Not in RFC (library-internal). Decision 2C.
+
+**Purpose:** Discriminator for the outer railway error type.
+
+```nim
+type ClientErrorKind* = enum
+  cekTransport
+  cekRequest
+```
+
+**No smart constructor.** Plain two-variant enum.
+
+**Module:** `src/jmap_client/errors.nim`
+
+### 8.6 ClientError
+
+**RFC reference:** Not in RFC (library-internal). Decision 2C.
+
+**Purpose:** The outer railway error type. Wraps either a `TransportError` or a
+`RequestError`. This is the `E` in `JmapResult[T] = Result[T, ClientError]`.
+
+When `ClientError` is on the error rail, no method responses exist — the entire
+request failed at the transport or protocol level.
+
+```nim
+type ClientError* = object
+  case kind*: ClientErrorKind
+  of cekTransport:
+    transport*: TransportError
+  of cekRequest:
+    request*: RequestError
+```
+
+**Design decisions:**
+
+1. **No shared fields.** `TransportError` and `RequestError` have different
+   structures. A shared `message` field would be redundant with
+   `TransportError.message`.
+
+2. **`ValidationError` not included as a variant.** `ValidationError` is for
+   smart constructor failures (Layer 1 construction-time). `ClientError` is for
+   runtime communication failures (Layer 4). These are separate concerns per
+   Decision 2C.
+
+**Constructor helpers:**
+
+```nim
+func clientError*(transport: TransportError): ClientError =
+  ClientError(kind: cekTransport, transport: transport)
+
+func clientError*(request: RequestError): ClientError =
+  ClientError(kind: cekRequest, request: request)
+```
+
+Two overloads — Nim dispatches on argument type.
+
+**Accessor helper:**
+
+```nim
+func message*(err: ClientError): string =
+  ## Human-readable message for any ClientError variant.
+  case err.kind
+  of cekTransport: err.transport.message
+  of cekRequest:
+    if err.request.detail.isSome: err.request.detail.unsafeGet
+    elif err.request.title.isSome: err.request.title.unsafeGet
+    else: err.request.rawType
+```
+
+Extracts a displayable message without requiring callers to match on `kind`.
+For `cekRequest`, prefers `detail` over `title` over `rawType` (following
+RFC 7807 guidance).
+
+**Construction layer:** Layer 4 constructs `cekTransport` variants; Layer 4
+also wraps `cekRequest` after Layer 2 parses the problem details body.
+
+**Module:** `src/jmap_client/errors.nim`
+
+### 8.7 MethodErrorType
+
+**RFC reference:** §3.6.2 (method-level errors), plus §5.1–5.6 (method-specific
+error types).
+
+**Purpose:** String-backed enum covering all 16 RFC-defined method-level error
+types, plus `metUnknown`. Follows Decision 2F.
+
+```nim
+type MethodErrorType* = enum
+  metServerUnavailable = "serverUnavailable"
+  metServerFail = "serverFail"
+  metServerPartialFail = "serverPartialFail"
+  metUnknownMethod = "unknownMethod"
+  metInvalidArguments = "invalidArguments"
+  metInvalidResultReference = "invalidResultReference"
+  metForbidden = "forbidden"
+  metAccountNotFound = "accountNotFound"
+  metAccountNotSupportedByMethod = "accountNotSupportedByMethod"
+  metAccountReadOnly = "accountReadOnly"
+  metAnchorNotFound = "anchorNotFound"
+  metUnsupportedSort = "unsupportedSort"
+  metUnsupportedFilter = "unsupportedFilter"
+  metCannotCalculateChanges = "cannotCalculateChanges"
+  metRequestTooLarge = "requestTooLarge"
+  metStateMismatch = "stateMismatch"
+  metUnknown
+```
+
+**Design decisions:**
+
+1. **All 16 types from RFC 8620.** Universal errors from §3.6.2 plus
+   method-specific errors from §5.1–5.6. RFC 8621 error types map to
+   `metUnknown` with raw string preserved.
+
+2. **`met` prefix.** Follows convention: `ck` for `CapabilityKind`, `set` for
+   `SetErrorType`, `ret` for `RequestErrorType`.
+
+**Parsing function:**
+
+```nim
+func parseMethodErrorType*(raw: string): MethodErrorType =
+  ## Total function: always succeeds. Unknown types map to metUnknown.
+  strutils.parseEnum[MethodErrorType](raw, metUnknown)
+```
+
+**Module:** `src/jmap_client/errors.nim`
+
+### 8.8 MethodError
+
+**RFC reference:** §3.6.2.
+
+**Purpose:** Per-invocation error within a JMAP response. When the server
+returns `["error", {...}, "c1"]`, the arguments object is parsed into a
+`MethodError`. This is the inner railway error — the `E` in
+`Result[T, MethodError]`.
+
+```nim
+type MethodError* = object
+  errorType*: MethodErrorType    ## parsed enum variant
+  rawType*: string               ## always populated — lossless round-trip
+  description*: Opt[string]      ## RFC "description" field
+  extras*: Opt[JsonNode]         ## non-standard fields, lossless preservation
+```
+
+**Design decisions:**
+
+1. **Flat object, not a case object.** Architecture-options.md §1.8 states:
+   "MethodError is intentionally flat. RFC 8620 specifies only `description`
+   as an optional per-type field. All method error types share the same shape."
+
+2. **`extras: Opt[JsonNode]`.** Preserves additional server-sent fields not
+   modelled as typed fields (e.g., some servers send `arguments` on
+   `invalidArguments`). `Opt` rather than bare `JsonNode` because most
+   errors have no extras.
+
+3. **`description` as `Opt[string]`.** RFC says SHOULD have `description` —
+   may be absent.
+
+**Constructor helper:**
+
+```nim
+func methodError*(
+  rawType: string,
+  description: Opt[string] = Opt.none(string),
+  extras: Opt[JsonNode] = Opt.none(JsonNode),
+): MethodError =
+  MethodError(
+    errorType: parseMethodErrorType(rawType),
+    rawType: rawType,
+    description: description,
+    extras: extras,
+  )
+```
+
+**Construction layer:** Layer 2 (serialisation). When a response invocation
+has `name == "error"`, Layer 2 extracts the arguments JSON and constructs a
+`MethodError`.
+
+**Module:** `src/jmap_client/errors.nim`
+
+### 8.9 SetErrorType
+
+**RFC reference:** §5.3 (/set errors), §5.4 (/copy errors).
+
+**Purpose:** String-backed enum for 10 RFC-defined per-item error types,
+plus `setUnknown`. Follows Decision 2F.
+
+```nim
+type SetErrorType* = enum
+  setForbidden = "forbidden"
+  setOverQuota = "overQuota"
+  setTooLarge = "tooLarge"
+  setRateLimit = "rateLimit"
+  setNotFound = "notFound"
+  setInvalidPatch = "invalidPatch"
+  setWillDestroy = "willDestroy"
+  setInvalidProperties = "invalidProperties"
+  setAlreadyExists = "alreadyExists"
+  setSingleton = "singleton"
+  setUnknown
+```
+
+**Design decision:** `set` prefix distinguishes from `MethodErrorType` variants.
+Several error type strings overlap (e.g., `"forbidden"` appears in both).
+
+**Parsing function:**
+
+```nim
+func parseSetErrorType*(raw: string): SetErrorType =
+  ## Total function: always succeeds. Unknown types map to setUnknown.
+  strutils.parseEnum[SetErrorType](raw, setUnknown)
+```
+
+**Module:** `src/jmap_client/errors.nim`
+
+### 8.10 SetError
+
+**RFC reference:** §5.3, §5.4.
+
+**Purpose:** Per-item error within `/set` and `/copy` responses. A case object
+because the RFC mandates variant-specific fields on two error types.
+
+```nim
+type SetError* = object
+  rawType*: string               ## always populated — lossless round-trip
+  description*: Opt[string]      ## optional human-readable description
+  extras*: Opt[JsonNode]         ## non-standard fields, lossless preservation
+  case errorType*: SetErrorType
+  of setInvalidProperties:
+    properties*: seq[string]     ## invalid property names (§5.3)
+  of setAlreadyExists:
+    existingId*: Id              ## the existing record's ID (§5.4)
+  else:
+    discard
+```
+
+**Design decisions:**
+
+1. **Case object with variant-specific fields.** `invalidProperties` SHOULD
+   carry `properties: String[]` (§5.3). `alreadyExists` MUST carry
+   `existingId: Id` (§5.4). Making these typed means `existingId` cannot be
+   accessed without matching `setAlreadyExists` — enforced by
+   `strictCaseObjects`.
+
+2. **Shared fields outside `case`.** `rawType`, `description`, `extras` always
+   accessible regardless of variant.
+
+3. **`properties: seq[string]`, not `Opt[seq[string]]`.** When absent, an
+   empty `seq` is equivalent (no properties listed). More ergonomic for
+   consumers: `for prop in err.properties`.
+
+4. **`existingId: Id`.** Uses `Id` from Section 2.1 with the lenient parsing
+   path (`parseIdFromServer`) since the ID is server-assigned.
+
+5. **`else: discard`** for the 8 remaining error types that share the same
+   shape (just `rawType`, `description`, `extras`).
+
+**Constructor helpers (three constructors for three construction paths):**
+
+```nim
+func setError*(
+  rawType: string,
+  description: Opt[string] = Opt.none(string),
+  extras: Opt[JsonNode] = Opt.none(JsonNode),
+): SetError =
+  ## For non-variant-specific set errors.
+  let errorType = parseSetErrorType(rawType)
+  let safeType =
+    if errorType in {setInvalidProperties, setAlreadyExists}: setUnknown
+    else: errorType
+  SetError(
+    errorType: safeType, rawType: rawType,
+    description: description, extras: extras,
+  )
+
+func setErrorInvalidProperties*(
+  rawType: string,
+  properties: seq[string],
+  description: Opt[string] = Opt.none(string),
+  extras: Opt[JsonNode] = Opt.none(JsonNode),
+): SetError =
+  SetError(
+    errorType: setInvalidProperties, rawType: rawType,
+    description: description, extras: extras,
+    properties: properties,
+  )
+
+func setErrorAlreadyExists*(
+  rawType: string,
+  existingId: Id,
+  description: Opt[string] = Opt.none(string),
+  extras: Opt[JsonNode] = Opt.none(JsonNode),
+): SetError =
+  SetError(
+    errorType: setAlreadyExists, rawType: rawType,
+    description: description, extras: extras,
+    existingId: existingId,
+  )
+```
+
+**Design decision for `setError` defensive fallback:** If the server sends
+`{"type": "invalidProperties"}` without the `properties` array, the generic
+constructor falls back to `setUnknown` (preserving `rawType`) rather than
+constructing a `setInvalidProperties` variant with an empty `properties` list.
+Layer 2 calls `setErrorInvalidProperties` only when the JSON contains the
+`properties` array; otherwise it calls `setError`.
+
+**Construction layer:** Layer 2 (serialisation). The `fromJson` examines the
+`"type"` field, then dispatches to the appropriate constructor.
+
+**Module:** `src/jmap_client/errors.nim`
+
+### 8.11 JmapResult[T]
+
+**RFC reference:** Not in RFC (library-internal). Decision 2C.
+
+**Purpose:** Type alias for the outer railway. The return type of the transport
+layer's `send` proc and the primary result type for all operations that cross
+the network boundary.
+
+```nim
+type JmapResult*[T] = Result[T, ClientError]
+```
+
+**Design decisions:**
+
+1. **Type alias, not distinct type.** All `Result` operations (`?`, `map`,
+   `flatMap`, `mapErr`, `valueOr`) work directly. The alias exists for
+   readability: `proc send(...): JmapResult[Response]` is clearer than
+   `proc send(...): Result[Response, ClientError]`.
+
+2. **No smart constructor.** Constructed using `ok(value)` and
+   `err(clientError)` from `nim-results`.
+
+**Module:** `src/jmap_client/types.nim` (not `errors.nim`). `JmapResult[T]`
+needs both `T` (any Layer 1 type) and `ClientError` (from `errors.nim`)
+visible, so it lives in the re-export module.
+
+---
+
+## 9. Borrowed Operations Summary
 
 | Type | `==` | `$` | `hash` | `len` | `<` | `<=` | unary `-` |
 |------|:----:|:---:|:------:|:-----:|:---:|:----:|:---------:|
@@ -1255,9 +1798,13 @@ Construction happens exclusively during JSON deserialisation (Layer 3).
 
 All borrowed operations are `func` and `{.raises: [].}` compatible.
 
+No error types (Section 8) require borrowed operations. All error types are case
+objects, plain objects, plain enums, or type aliases — standard operations are
+built-in.
+
 ---
 
-## 9. Smart Constructor Summary
+## 10. Smart Constructor Summary
 
 | Type | Constructor | Validation | Returns |
 |------|------------|-----------|---------|
@@ -1278,13 +1825,25 @@ All borrowed operations are `func` and `{.raises: [].}` compatible.
 | `PatchObject` | `emptyPatch` | None (total) | `PatchObject` |
 | `PatchObject` | `setProp` | Non-empty path | `Result[PatchObject, ValidationError]` |
 | `PatchObject` | `deleteProp` | Non-empty path | `Result[PatchObject, ValidationError]` |
+| `RequestErrorType` | `parseRequestErrorType` | Total (always succeeds) | `RequestErrorType` |
+| `MethodErrorType` | `parseMethodErrorType` | Total (always succeeds) | `MethodErrorType` |
+| `SetErrorType` | `parseSetErrorType` | Total (always succeeds) | `SetErrorType` |
+| `TransportError` | `transportError` | None (total) | `TransportError` |
+| `TransportError` | `httpStatusError` | None (total) | `TransportError` |
+| `RequestError` | `requestError` | None (lossless round-trip) | `RequestError` |
+| `ClientError` | `clientError` (2 overloads) | None (total) | `ClientError` |
+| `MethodError` | `methodError` | None (lossless round-trip) | `MethodError` |
+| `SetError` | `setError` | None (lossless + defensive fallback) | `SetError` |
+| `SetError` | `setErrorInvalidProperties` | None (total) | `SetError` |
+| `SetError` | `setErrorAlreadyExists` | None (total) | `SetError` |
 
-All smart constructors are `func` (pure). None call `proc`s from the standard
-library.
+All domain type constructors are `func` (pure) and return `Result[T,
+ValidationError]`. All error type constructors are `func` (pure) and return
+values directly — error types cannot fail construction.
 
 ---
 
-## 10. Module File Layout
+## 11. Module File Layout
 
 ```
 src/jmap_client/
@@ -1298,7 +1857,12 @@ src/jmap_client/
                         ResultReference, Referencable[T]
   framework.nim       ← FilterOperator, Filter[C], Comparator,
                         PatchObject, AddedItem
-  types.nim           ← Re-exports all of the above
+  errors.nim          ← TransportErrorKind, TransportError,
+                        RequestErrorType, RequestError,
+                        ClientErrorKind, ClientError,
+                        MethodErrorType, MethodError,
+                        SetErrorType, SetError
+  types.nim           ← Re-exports all of the above; defines JmapResult[T]
 ```
 
 ### Import Graph
@@ -1307,9 +1871,10 @@ src/jmap_client/
 validation.nim       (no imports)
       ↑
 primitives.nim       (std/hashes, std/sequtils)
-   ↑        \
-   |     framework.nim   (std/json, std/tables)
-   |
+   ↑        \              \
+   |     framework.nim   errors.nim
+   |     (std/json,      (std/json, std/strutils)
+   |      std/tables)
 identifiers.nim      (std/hashes, std/sequtils)
       ↑              ↑
 capabilities.nim     (std/hashes, std/sets, std/strutils, std/json)
@@ -1318,13 +1883,13 @@ session.nim          (std/hashes, std/tables, std/json, std/sequtils)
       ↑
 envelope.nim         (std/json, std/tables)
       ↑
-types.nim            (re-exports all)
+types.nim            (re-exports all, defines JmapResult[T])
 ```
 
-All arrows point upward — no cycles. Each module depends only on modules above
-it in the diagram plus standard library imports.
+All arrows point upward — no cycles. `errors.nim` and `framework.nim` are
+parallel leaves, both depending on `primitives.nim` but not on each other.
 
-`types.nim` re-exports everything for convenient single-import usage:
+`types.nim` re-exports everything and defines the railway alias:
 
 ```nim
 import ./validation
@@ -1334,15 +1899,19 @@ import ./capabilities
 import ./session
 import ./envelope
 import ./framework
+import ./errors
 
-export validation, primitives, identifiers, capabilities, session, envelope, framework
+export validation, primitives, identifiers, capabilities,
+       session, envelope, framework, errors
+
+type JmapResult*[T] = Result[T, ClientError]
 ```
 
 ---
 
-## 11. Test Fixtures
+## 12. Test Fixtures
 
-### 11.1 RFC §2.1 Session Example (Golden Test)
+### 12.1 RFC §2.1 Session Example (Golden Test)
 
 The complete Session JSON from RFC §2.1 (lines 742–816):
 
@@ -1420,7 +1989,7 @@ The complete Session JSON from RFC §2.1 (lines 742–816):
 instead of `"maxConcurrentRequests"` (plural, per the field definition in §2).
 The deserialiser should accept both forms.
 
-### 11.2 RFC §3.3.1 Request Example
+### 12.2 RFC §3.3.1 Request Example
 
 ```json
 {
@@ -1439,7 +2008,7 @@ The deserialiser should accept both forms.
 - `request.methodCalls[0].methodCallId == MethodCallId("c1")`
 - `request.createdIds.isNone`
 
-### 11.3 RFC §3.4.1 Response Example
+### 12.3 RFC §3.4.1 Response Example
 
 ```json
 {
@@ -1459,7 +2028,7 @@ The deserialiser should accept both forms.
 - `response.sessionState == JmapState("75128aab4b1b")`
 - `response.createdIds.isNone`
 
-### 11.4 Edge Cases per Type
+### 12.4 Edge Cases per Type
 
 | Type | Input | Expected | Reason |
 |------|-------|----------|--------|
@@ -1499,6 +2068,30 @@ The deserialiser should accept both forms.
 | `PatchObject` | `setProp(emptyPatch(), "", ...)` | `err` | empty path |
 | `PatchObject` | `setProp(emptyPatch(), "name", ...)` | `ok` | simple property set |
 | `PatchObject` | `deleteProp(emptyPatch(), "addresses/0")` | `ok` | nested path deletion |
+| `RequestErrorType` | `"urn:ietf:params:jmap:error:unknownCapability"` | `retUnknownCapability` | known URI |
+| `RequestErrorType` | `"urn:ietf:params:jmap:error:notJSON"` | `retNotJson` | known URI |
+| `RequestErrorType` | `"urn:vendor:custom:error"` | `retUnknown` | unknown URI |
+| `RequestErrorType` | `""` | `retUnknown` | empty string |
+| `MethodErrorType` | `"serverFail"` | `metServerFail` | known type |
+| `MethodErrorType` | `"invalidArguments"` | `metInvalidArguments` | known type |
+| `MethodErrorType` | `"customError"` | `metUnknown` | unknown type |
+| `SetErrorType` | `"invalidProperties"` | `setInvalidProperties` | known type |
+| `SetErrorType` | `"alreadyExists"` | `setAlreadyExists` | known type |
+| `SetErrorType` | `"vendorSpecific"` | `setUnknown` | unknown type |
+| `TransportError` | `transportError(tekTimeout, "timed out")` | valid, `kind == tekTimeout` | convenience constructor |
+| `TransportError` | `httpStatusError(502, "Bad Gateway")` | valid, `httpStatus == 502` | HTTP status variant |
+| `RequestError` | `requestError("urn:ietf:params:jmap:error:limit", limit = ok("maxCallsInRequest"))` | `errorType == retLimit`, rawType preserved | lossless round-trip |
+| `RequestError` | `requestError("urn:vendor:custom")` | `errorType == retUnknown`, rawType preserved | unknown type preserved |
+| `ClientError` | `clientError(transportError(tekNetwork, "refused"))` | `kind == cekTransport` | wrapping transport |
+| `ClientError` | `clientError(requestError("...notJSON"))` | `kind == cekRequest` | wrapping request |
+| `MethodError` | `methodError("unknownMethod")` | `errorType == metUnknownMethod` | lossless round-trip |
+| `MethodError` | `methodError("custom", extras = ok(%*{"hint": "retry"}))` | `errorType == metUnknown`, extras preserved | unknown with extras |
+| `SetError` | `setError("forbidden")` | `errorType == setForbidden` | non-variant-specific |
+| `SetError` | `setErrorInvalidProperties("invalidProperties", @["name"])` | `errorType == setInvalidProperties` | variant-specific |
+| `SetError` | `setErrorAlreadyExists("alreadyExists", someId)` | `errorType == setAlreadyExists` | variant-specific |
+| `SetError` | `setError("invalidProperties")` (no properties) | `errorType == setUnknown`, rawType preserved | defensive fallback |
+| `JmapResult` | `Result[Response, ClientError].ok(resp)` | `isOk` | success rail |
+| `JmapResult` | `Result[Response, ClientError].err(clientErr)` | `isErr` | error rail |
 
 ---
 
@@ -1530,3 +2123,14 @@ The deserialiser should accept both forms.
 | `Comparator` | §5.5 |
 | `PatchObject` | §5.3 |
 | `AddedItem` | §5.6 |
+| `RequestErrorType` | §3.6.1 |
+| `RequestError` | §3.6.1, RFC 7807 |
+| `MethodErrorType` | §3.6.2, §5.1–5.6 |
+| `MethodError` | §3.6.2 |
+| `SetErrorType` | §5.3, §5.4 |
+| `SetError` | §5.3, §5.4 |
+| `TransportErrorKind` | Not in RFC (library-internal) |
+| `TransportError` | Not in RFC (library-internal) |
+| `ClientErrorKind` | Not in RFC (library-internal) |
+| `ClientError` | Not in RFC (library-internal) |
+| `JmapResult[T]` | Not in RFC (library-internal) |

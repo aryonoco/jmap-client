@@ -4,7 +4,7 @@ Cross-platform JMAP (RFC 8620) client library in Nim with C ABI exports.
 
 ## Foundational Decisions
 
-Four architectural decisions that constrain all subsequent choices:
+Five architectural decisions that constrain all subsequent choices:
 
 1. **C ABI strategy: Approach A (rich Nim internals, thin C wrapper).** Build an
    idiomatic Nim library first. Add a separate C ABI layer that exposes opaque handles
@@ -25,6 +25,13 @@ Four architectural decisions that constrain all subsequent choices:
    and `mapErr` for error-rail transforms. `nim-results` is the sole external
    dependency for the core library. It is compatible with `--mm:arc` and
    `{.push raises: [].}`.
+
+5. **Five-layer FP-first decomposition.** Each layer boundary corresponds to a
+   genuine change in the nature of the code: pure algebraic data types (Layer 1),
+   JSON parsing (Layer 2), pure protocol logic (Layer 3), IO (Layer 4), FFI
+   (Layer 5). This maps directly to how the same library would be structured in
+   Haskell or F# — the boundaries are language-independent consequences of the
+   functional programming model. See "Why 5 Layers" below.
 
 ## Design Principles
 
@@ -140,20 +147,18 @@ no per-field immutability declarations and no higher-kinded abstractions).
 ## Layer Architecture
 
 ```
-Layer 1: Core Types (all pure data definitions)
-Layer 2: Error Types
-Layer 3: Serialisation
-Layer 4: Envelope Logic
-Layer 5: Standard Method Framework + Entity Types
-Layer 6: Result Reference Logic
-Layer 7: Transport + Session Discovery
-Layer 8: C ABI Wrapper
+Layer 1: Domain Types + Errors (all pure algebraic data types)
+Layer 2: Serialisation (JSON parsing boundary — "parse, don't validate")
+Layer 3: Protocol Logic (builders, dispatch, result references, method framework)
+Layer 4: Transport + Session Discovery (imperative shell — HTTP IO)
+Layer 5: C ABI Wrapper (FFI projection)
 ```
 
-**Governing principle: types separate from logic.** Layer 1 contains every
-pure data type definition — structs, enums, variant objects — that can be
-defined without importing anything above Layer 1. Layers 2-8 contain the
-logic (error modelling, serialisation, builders, dispatch, transport) that
+**Governing principle: types and errors as a single pure layer.** Layer 1
+contains every pure data type and error type definition — structs, enums,
+variant objects, railway aliases — that can be defined without importing
+anything above Layer 1. No logic, no serialisation, no IO. Layers 2–5
+contain the logic (serialisation, builders, dispatch, transport) that
 operates on those types.
 
 Each layer depends only on layers below it. Each is fully testable without the
@@ -162,14 +167,79 @@ layers above.
 Dependency graph:
 
 ```
-L1 (types) ← L2 (errors) ← L3 (ser/de) ← L4 (envelope logic) ← L5 (methods + entities) ← L6 (ref logic)
-                                                                                                  ↓
-                                                                               L7 (transport) ← L8 (C ABI)
+L1 (types+errors) ← L2 (serialisation) ← L3 (protocol logic) ← L4 (transport) ← L5 (C ABI)
 ```
+
+A strict linear chain. No branching, no cycles.
+
+### Why 5 Layers
+
+The current architecture consolidates the original 8-layer design into 5 layers.
+Three merges were made, each justified by FP principles:
+
+**Merge 1: Old Layer 1 (Core Types) + Old Layer 2 (Error Types) → Layer 1.**
+Error types are pure data definitions — case objects, enums, type aliases. No
+FP principle separates "value ADTs" from "error ADTs"; both are algebraic data
+types in the functional core. In Haskell, `data MethodError = ...` lives in
+the same module as `data GetResponse = ...`. In F#, error discriminated unions
+live alongside domain types. More critically, `JmapResult[T] = Result[T,
+ClientError]` — the outer railway alias — needs both `T` and `ClientError`
+visible. Splitting them across layers forces every downstream module to import
+both, creating an artificial bridge that every consumer must cross.
+
+**Merge 2: Old Layer 4 (Envelope Logic) + Old Layer 5 (Methods) + Old Layer 6
+(Result References) → Layer 3.** The request builder must know method shapes
+to provide typed `addGet`, `addSet`, `addQuery` methods. Result reference
+construction (`handle.reference("/ids")`) is a feature of the builder, not a
+separate concern. These three old layers share the same dependencies
+(Layer 1 types, Layer 2 serialisation), the same dependents (Layer 4
+transport), and cannot be independently tested in a meaningful way.
+
+**What would go wrong if adjacent layers were merged:**
+
+| Boundary | What breaks if merged |
+|----------|----------------------|
+| L1 / L2 | Type definitions would depend on `std/json` parsing functions. Testing smart constructors would require JSON fixtures. Wire format knowledge (camelCase, `#` prefix, array invocations) would leak into type definitions. |
+| L2 / L3 | Serialisation is stateless, reusable infrastructure. Protocol logic has mutable builders and stateful ID generation. Mixing them conflates different levels of abstraction and prevents swapping JSON libraries without touching builder logic. |
+| L3 / L4 | Protocol logic is pure (`func`); transport is impure (`proc` with IO). Merging them makes the entire protocol layer untestable without network access or mocks. This is the functional core / imperative shell boundary — the most important boundary in the project. |
+| L4 / L5 | Transport returns rich Nim types (`JmapResult[Response]`); the C ABI projects them into opaque handles and error codes. Different audiences, different constraints, different type systems. |
+
+**Haskell module analogy:**
+
+| Layer | Haskell equivalent | F# equivalent |
+|-------|--------------------|---------------|
+| 1. Domain Types + Errors | `JMAP.Types` (all ADTs, newtypes, smart constructors, error types) | `Domain.Types` |
+| 2. Serialisation | `JMAP.JSON` (`FromJSON`/`ToJSON` instances) | `Domain.Serialisation` |
+| 3. Protocol Logic | `JMAP.Protocol` (request builder, response dispatch, method framework) | `Protocol.fs` |
+| 4. Transport | `JMAP.Client` (`IO` monad: HTTP transport, session discovery) | `Client.fs` |
+| 5. C ABI | `JMAP.FFI` (`Foreign.C` exports) | N/A (not typical in F#) |
+
+### Layer 1 Internal File Organisation
+
+Layer 1 is the largest layer. It decomposes into files with no circular
+dependencies:
+
+```
+src/jmap_client/
+  validation.nim      — ValidationError, borrow templates, charset constants
+  primitives.nim      — Id, UnsignedInt, JmapInt, Date, UTCDate
+  identifiers.nim     — AccountId, JmapState, MethodCallId, CreationId
+  capabilities.nim    — CapabilityKind, CoreCapabilities, ServerCapability
+  session.nim         — Account, AccountCapabilityEntry, UriTemplate, Session
+  envelope.nim        — Invocation, Request, Response, ResultReference, Referencable[T]
+  framework.nim       — FilterOperator, Filter[C], Comparator, PatchObject, AddedItem
+  errors.nim          — TransportError, RequestError, ClientError, MethodError, SetError
+  types.nim           — Re-exports all of the above; defines JmapResult[T] alias
+```
+
+Internal import direction: `validation ← primitives ← identifiers ←
+capabilities ← session ← envelope ← framework`. Errors depend on
+`primitives` (for `Id`, `Opt`, `JsonNode`). No cycles. Each file is
+independently testable.
 
 ---
 
-## Layer 1: Core Types (all pure data definitions)
+## Layer 1: Domain Types + Errors
 
 ### 1.1 Primitive Identifiers
 
@@ -360,8 +430,8 @@ tracks which was set.
 #### Decision: 3G
 
 Variant type (`Referencable[T]`). Illegal states are unrepresentable in the type
-system. The builder (Layer 4) provides ergonomic construction on top. The
-serialisation format (`#`-prefixed keys) is handled in Layer 3. The types are
+system. The builder (Layer 3) provides ergonomic construction on top. The
+serialisation format (`#`-prefixed keys) is handled in Layer 2. The types are
 correct regardless of how values are constructed.
 
 ### 1.4 Envelope Types
@@ -378,7 +448,7 @@ protocol:
 
 These depend only on Layer 1 primitives (MethodCallId, CreationId, Id,
 JmapState, JsonNode). Request construction logic (builders, call ID generation)
-is a Layer 4 concern. Serialisation format is a Layer 3 concern.
+is a Layer 3 concern. Serialisation format is a Layer 2 concern.
 
 ### 1.5 Generic Method Framework Types
 
@@ -409,7 +479,7 @@ Filter[C] = object  # C = condition type, defined per entity
 A recursive algebraic data type parameterised by condition type `C`.
 Equivalent to Haskell's `data Filter c = Condition c | Operator Op [Filter c]`.
 `seq[Filter[C]]` provides heap-allocated indirection for the recursion without
-`ref`. How to resolve `C` from the entity type is a Layer 5 concern
+`ref`. How to resolve `C` from the entity type is a Layer 3 concern
 (Decision 5B).
 
 #### 1.5.2 Comparator
@@ -424,7 +494,7 @@ Comparator = object
 ```
 
 `property` names are entity-specific. `isAscending` defaults to `true` per
-RFC §5.5 (default applied at parse time in Layer 3).
+RFC §5.5 (default applied at parse time in Layer 2).
 
 #### 1.5.3 PatchObject
 
@@ -458,7 +528,7 @@ func deleteProp(patch: PatchObject, path: string): PatchObject
 
 Core defines the PatchObject format but has no concrete entity types. Use the
 opaque distinct type with smart constructors. Entity-specific typed patch
-builders (Option 5F) are a Layer 5 concern.
+builders (Option 5F) are a Layer 3 concern.
 
 #### 1.5.4 AddedItem
 
@@ -474,11 +544,7 @@ AddedItem = object
 Both fields enforce their own invariants via their respective smart
 constructors.
 
----
-
-## Layer 2: Error Types
-
-### 2.1 Error Architecture
+### 1.6 Error Architecture
 
 The RFC defines errors at four levels:
 
@@ -563,7 +629,7 @@ actions (retry vs. resync vs. report). And conflating method errors with transpo
 failures in a single `Result` loses successful results from a partially-failed
 multi-method request.
 
-### 2.2 Error Type Granularity
+### 1.7 Error Type Granularity
 
 For each error level, how to represent the specific error type.
 
@@ -634,7 +700,7 @@ Enum with string backing and lossless round-trip. The same pattern applies to
 preserves any additional server-sent fields not modeled as typed fields. This
 ensures no information is silently dropped during parsing.
 
-### 2.3 Concrete Error Types
+### 1.8 Concrete Error Types
 
 #### TransportError
 
@@ -750,9 +816,9 @@ SetError = object
 
 ---
 
-## Layer 3: Serialisation
+## Layer 2: Serialisation
 
-### 3.1 JSON Library
+### 2.1 JSON Library
 
 #### Option 3A: `std/json` with manual serialisation/deserialisation
 
@@ -813,7 +879,7 @@ remaining types are straightforward. Starting manual means understanding every
 detail of the wire format, which matters when debugging against a real server. If
 boilerplate becomes painful, introduce a macro for the simple-object pattern.
 
-### 3.2 camelCase Handling
+### 2.2 camelCase Handling
 
 #### Option 3D: camelCase in Nim source
 
@@ -839,7 +905,7 @@ Write `account_id` in Nim. Convert to `accountId` during JSON serialisation.
 
 camelCase in source. Zero conversion. Leverages Nim's style insensitivity.
 
-### 3.3 Result Reference Serialisation
+### 2.3 Result Reference Serialisation
 
 `Referencable[T]` (Decision 3G, defined in Layer 1 §1.3) requires custom
 serialisation. The wire format uses the JSON key name as the discriminator:
@@ -855,18 +921,28 @@ referenceable fields across the standard methods.
 
 ---
 
-## Layer 4: Envelope Logic
+## Layer 3: Protocol Logic
+
+This layer covers three logical groups that share the same dependencies
+(Layer 1 types + errors, Layer 2 serialisation) and the same dependents
+(Layer 4 transport):
+
+1. **Envelope logic** — request building, call ID generation, response dispatch.
+2. **Method framework** — entity type registration, associated type resolution,
+   method-specific logic.
+3. **Result reference construction** — builder-produced references, path constants.
 
 Envelope data types (Invocation, Request, Response) are defined in Layer 1
-(§1.4). This layer covers the logic for constructing requests and dispatching
-responses.
+(§1.4). Generic method framework types (Filter[C], Comparator, PatchObject,
+AddedItem) are defined in Layer 1 (§1.5). This layer covers the logic that
+operates on those types.
 
-### 4.1 Invocation Format
+### 3.1 Invocation Format
 
 Invocations are serialised as 3-element JSON arrays, not JSON objects. This is
-handled by custom serialisation in Layer 3.
+handled by custom serialisation in Layer 2.
 
-### 4.2 Method Call ID Generation
+### 3.2 Method Call ID Generation
 
 #### Option 4A: Auto-incrementing counter
 
@@ -886,7 +962,7 @@ handled by custom serialisation in Layer 3.
 
 Internal plumbing. No safety implications. Keep simple.
 
-### 4.3 Request Builder Design
+### 3.3 Request Builder Design
 
 #### Option 4C: Direct construction
 
@@ -938,7 +1014,7 @@ immutable value after `.build()`.
 Rust, `build(self)` takes ownership. In Nim, the builder remains accessible.
 Mitigate by clearing builder state in `build()`.
 
-### 4.4 Response Processing
+### 3.4 Response Processing
 
 #### Option 4F: Fully typed response dispatch
 
@@ -991,16 +1067,7 @@ parameter. The per-invocation `Result[T, MethodError]` is the inner railway.
 Strictly better than untyped extraction, even though Nim cannot prove the
 relationship as strongly as Haskell.
 
----
-
-## Layer 5: Standard Method Framework + Entity Types
-
-Generic data types for the method framework (Filter[C], FilterOperator,
-Comparator, PatchObject, AddedItem) are defined in Layer 1 (§1.5). This
-layer covers entity type registration, associated type resolution, and
-method-specific logic.
-
-### 5.0 Entity Type Framework
+### 3.5 Entity Type Framework
 
 The 6 standard methods are generic over entity type. Each entity type must
 define: what properties it has, what filter conditions it supports, what sort
@@ -1078,7 +1145,7 @@ cannot enforce as strongly as Haskell.
 Keep 1I as a reserve option where the number of concrete types per entity may
 make templates worthwhile.
 
-### 5.1 The Six Standard Methods
+### 3.6 The Six Standard Methods
 
 | Method          | Takes                                                        | Returns                                                                     |
 |-----------------|--------------------------------------------------------------|-----------------------------------------------------------------------------|
@@ -1089,7 +1156,7 @@ make templates worthwhile.
 | `/queryChanges` | accountId, filter, sort, sinceQueryState, maxChanges         | oldQueryState, newQueryState, removed, added                                |
 | `/copy`         | fromAccountId, accountId, ifFromInState, ifInState, create   | oldState, newState, created, notCreated                                     |
 
-### 5.2 Associated Type Resolution for Filters and Sorts
+### 3.7 Associated Type Resolution for Filters and Sorts
 
 `Filter[C]` (defined in Layer 1 §1.5) is parameterised by condition type `C`,
 which varies per entity. Each entity type defines its own filter conditions
@@ -1157,7 +1224,7 @@ type MailboxQueryRequest = QueryRequest[Mailbox, MailboxFilterCondition]
 
 More verbose but achievable. The alias hides the second parameter.
 
-### 5.3 Entity-Specific Patch Builders
+### 3.8 Entity-Specific Patch Builders
 
 `PatchObject` (defined in Layer 1 §1.5, Decision 5E) is the opaque distinct
 type for update patches. When adding entity types, typed builders produce
@@ -1176,7 +1243,7 @@ Core has no concrete entity types. When adding RFC 8621, add typed patch
 builders per entity that produce `PatchObject` values. Each builder validates
 property names and types at compile time.
 
-### 5.4 SetResponse Modelling
+### 3.9 SetResponse Modelling
 
 A `/set` response contains parallel maps: `created`/`notCreated`,
 `updated`/`notUpdated`, `destroyed`/`notDestroyed`. An ID appears in exactly
@@ -1218,22 +1285,20 @@ Deserialise from the RFC format (parallel maps). Immediately merge into `Result`
 maps. The user-facing type is the unified result map. This gives users the clean
 per-item railway model while respecting the wire format.
 
----
+### 3.10 Result Reference Construction
 
-## Layer 6: Result Reference Logic
-
-For a client library, this layer is about **constructing** result references,
-not resolving them (the server does that).
+For a client library, result reference construction is about **building**
+references, not resolving them (the server does that).
 
 Result reference types (ResultReference, Referencable[T]) are defined in
 Layer 1 (§1.3). Serialisation of the `#`-prefixed key format is handled in
-Layer 3 (§3.3). This layer covers:
+Layer 2 (§2.3). This section covers:
 
 1. Builder-produced references: the returned handle can produce
    `ResultReference` values pointing to specific paths in that call's response.
 2. Path constants for common reference targets.
 
-### Standard Reference Paths
+#### Standard Reference Paths
 
 From the RFC and reference implementations:
 
@@ -1246,9 +1311,9 @@ From the RFC and reference implementations:
 /updatedProperties   — changed properties from /changes result
 ```
 
-### Builder Integration
+#### Builder Integration
 
-The phantom-typed handle from Layer 4 produces references:
+The phantom-typed handle from §3.4 produces references:
 
 ```
 let queryHandle = builder.addQuery(Mailbox, filter = ...)
@@ -1260,9 +1325,9 @@ builder.addGet(Mailbox, ids = referencable(idsRef))
 # ids : Referencable[seq[Id]] = rkReference branch
 ```
 
-### Path Validation
+#### Path Validation
 
-#### Option 6A: No validation
+##### Option 6A: No validation
 
 String path, library provides constants for common paths. Server returns
 `invalidResultReference` if wrong.
@@ -1270,7 +1335,7 @@ String path, library provides constants for common paths. Server returns
 - **Pros:** Simple.
 - **Cons:** No compile-time feedback for incorrect paths.
 
-#### Option 6B: Validated paths
+##### Option 6B: Validated paths
 
 Constants only. No arbitrary string paths:
 
@@ -1283,7 +1348,7 @@ func listIdsPath(): string = "/list/*/id"
 - **Cons:** Cannot reference custom paths. Some server extensions may use
   non-standard paths.
 
-#### Decision: 6A with constants
+##### Decision: 6A with constants
 
 Provide constants for all standard paths. Allow arbitrary string paths for
 extensibility. The server validates; the client provides convenience.
@@ -1295,9 +1360,9 @@ a runtime assumption documented by convention.
 
 ---
 
-## Layer 7: Transport + Session Discovery
+## Layer 4: Transport + Session Discovery
 
-### 7.1 HTTP Client
+### 4.1 HTTP Client
 
 #### Option 7A: `std/httpclient`
 
@@ -1327,7 +1392,7 @@ potentially raising `Exception`. The transport boundary `proc` must catch
 include `ProtocolError`, `HttpRequestError` (both `IOError` subtypes),
 `ValueError`, and `TimeoutError`.
 
-### 7.2 Session Discovery
+### 4.2 Session Discovery
 
 The RFC specifies DNS SRV lookup, then `.well-known/jmap`, then follow redirects.
 In practice, every client library takes a direct URL or does `.well-known` only.
@@ -1335,7 +1400,7 @@ None implement DNS SRV.
 
 Implement: direct URL and `.well-known/jmap`. Skip DNS SRV.
 
-### 7.3 Transport Layer Boundary
+### 4.3 Transport Layer Boundary
 
 The transport layer is the imperative shell. Every function is `proc` (side
 effects: IO). Everything below is `func` (pure). The boundary is explicit and
@@ -1350,9 +1415,9 @@ All errors become `ClientError` on the error track. Success produces an immutabl
 
 ---
 
-## Layer 8: C ABI Wrapper
+## Layer 5: C ABI Wrapper
 
-### 8.1 Principle
+### 5.1 Principle
 
 The C ABI is a lossy projection of the Nim API. The Nim API has phantom types,
 result types, distinct identifiers, variant objects. The C API has opaque pointers
@@ -1362,7 +1427,7 @@ translation. All FP correctness lives in the Nim layer.
 The mental model: the Nim API is the "real" API. The C ABI is an FFI binding, as
 Haskell's FFI exports C-callable wrappers around Haskell functions.
 
-### 8.2 Handle Types
+### 5.2 Handle Types
 
 ```c
 typedef struct JmapClient_s* JmapClient;
@@ -1373,7 +1438,7 @@ typedef struct JmapResponse_s* JmapResponse;
 
 Opaque pointers. C consumers never see Nim type internals.
 
-### 8.3 Memory Ownership
+### 5.3 Memory Ownership
 
 #### Option 8A: Per-object free functions
 
@@ -1403,50 +1468,48 @@ as a convenience layer on top.
 
 | Layer | Decision | Rationale |
 |-------|----------|-----------|
-| 1. Types | Full distinct types + `{.requiresInit.}` for all identifiers (1A) | Make illegal states unrepresentable; prevent default construction |
-| 1. Types | Case object capabilities with exhaustive enum (1D) | Closed world with explicit unknown case |
-| 1. Types | `Referencable[T]` variant type (3G) | Illegal state (both direct + ref) unrepresentable |
-| 1. Types | Opaque PatchObject distinct type (5E) | Distinct from arbitrary tables |
-| 2. Errors | Two-level railway: ClientError outer, MethodError inner (2C) | Separate transport failure from protocol results |
-| 2. Errors | Full enum + rawType for lossless round-trip (2F) | Parse, don't validate; preserve original |
-| 2. Errors | SetError as case object with variant-specific fields | invalidProperties/alreadyExists carry typed data |
-| 3. Ser/de | `std/json` manual ser/de, no external deps (3A) | Total parsing, `raises: []` via boundary catch |
-| 3. Ser/de | camelCase in Nim source (3D) | Zero conversion, leverages style insensitivity |
-| 4. Logic | Auto-incrementing call IDs (4A) | Simple, no safety implications |
-| 4. Logic | Builder produces immutable Request (4D) | Functional core / imperative shell boundary |
-| 4. Logic | Phantom-typed ResponseHandle (4H) | Compile-time response type safety |
-| 5. Methods | Entity type concept (1G, fallback 1H) | Closest to typeclasses; semantic dependency on methods |
-| 5. Methods | Associated type resolution via templates (5B) | No JsonNode escape hatches in user-facing API |
-| 5. Methods | Entity-specific typed patch builders (5F) | Type-safe construction per entity |
-| 5. Methods | SetResponse as unified Result maps (5H) | Per-item railway |
-| 6. Refs | String paths with constants, no validation (6A) | Server validates; client provides convenience |
-| 7. Transport | `std/httpclient`, synchronous (7A) | No deps, swappable later |
-| 7. Transport | Direct URL + .well-known, no DNS SRV | Matches all reference implementations |
-| 8. C ABI | Lossy projection, opaque handles, per-object free (8A) | Standard C pattern |
+| 1. Types+Errors | Full distinct types + `{.requiresInit.}` for all identifiers (1A) | Make illegal states unrepresentable; prevent default construction |
+| 1. Types+Errors | Case object capabilities with exhaustive enum (1D) | Closed world with explicit unknown case |
+| 1. Types+Errors | `Referencable[T]` variant type (3G) | Illegal state (both direct + ref) unrepresentable |
+| 1. Types+Errors | Opaque PatchObject distinct type (5E) | Distinct from arbitrary tables |
+| 1. Types+Errors | Two-level railway: ClientError outer, MethodError inner (2C) | Separate transport failure from protocol results |
+| 1. Types+Errors | Full enum + rawType for lossless round-trip (2F) | Parse, don't validate; preserve original |
+| 1. Types+Errors | SetError as case object with variant-specific fields | invalidProperties/alreadyExists carry typed data |
+| 2. Serialisation | `std/json` manual ser/de, no external deps (3A) | Total parsing, `raises: []` via boundary catch |
+| 2. Serialisation | camelCase in Nim source (3D) | Zero conversion, leverages style insensitivity |
+| 3. Protocol | Auto-incrementing call IDs (4A) | Simple, no safety implications |
+| 3. Protocol | Builder produces immutable Request (4D) | Functional core / imperative shell boundary |
+| 3. Protocol | Phantom-typed ResponseHandle (4H) | Compile-time response type safety |
+| 3. Protocol | Entity type concept (1G, fallback 1H) | Closest to typeclasses |
+| 3. Protocol | Associated type resolution via templates (5B) | No JsonNode escape hatches in user-facing API |
+| 3. Protocol | Entity-specific typed patch builders (5F) | Type-safe construction per entity |
+| 3. Protocol | SetResponse as unified Result maps (5H) | Per-item railway |
+| 3. Protocol | String paths with constants, no validation (6A) | Server validates; client provides convenience |
+| 4. Transport | `std/httpclient`, synchronous (7A) | No deps, swappable later |
+| 4. Transport | Direct URL + .well-known, no DNS SRV | Matches all reference implementations |
+| 5. C ABI | Lossy projection, opaque handles, per-object free (8A) | Standard C pattern |
 
 ## Testability per Layer
 
 Each layer is testable without the layers above it:
 
-- **Layer 1:** Unit test type construction, distinct type operations, smart
-  constructors. Construct Invocation, Request, Response values. Construct
-  ResultReference and Referencable[T] in both branches. Construct Filter[C]
-  recursive structures, Comparator, PatchObject, AddedItem.
-- **Layer 2:** Unit test error construction, kind discrimination, round-trip
-  preservation of rawType.
-- **Layer 3:** Unit test round-trip serialisation against RFC JSON examples.
-  Verify Invocation serialises as 3-element JSON array. Verify Referencable[T]
-  serialises correctly for both branches.
-- **Layer 4:** Unit test request builder logic: call ID generation,
-  phantom-typed handle creation, builder produces correct immutable Request
-  values.
-- **Layer 5:** Unit test entity type concept satisfaction (1G). Unit test
+- **Layer 1 (Types + Errors):** Unit test type construction, distinct type
+  operations, smart constructors. Construct Invocation, Request, Response values.
+  Construct ResultReference and Referencable[T] in both branches. Construct
+  Filter[C] recursive structures, Comparator, PatchObject, AddedItem. Unit test
+  error construction, kind discrimination, round-trip preservation of rawType.
+- **Layer 2 (Serialisation):** Unit test round-trip serialisation against RFC
+  JSON examples. Verify Invocation serialises as 3-element JSON array. Verify
+  Referencable[T] serialises correctly for both branches.
+- **Layer 3 (Protocol Logic):** Unit test request builder logic: call ID
+  generation, phantom-typed handle creation, builder produces correct immutable
+  Request values. Unit test entity type concept satisfaction (1G). Unit test
   method request/response construction. Verify associated-type template
-  resolution (5B). Verify unified Result maps in SetResponse (5H).
-- **Layer 6:** Unit test that builder produces correct ResultReference values
-  from phantom-typed handles. Verify path constants.
-- **Layer 7:** Integration test against a real or mock JMAP server.
-- **Layer 8:** Integration test from C code linking the shared library.
+  resolution (5B). Verify unified Result maps in SetResponse (5H). Unit test
+  that builder produces correct ResultReference values from phantom-typed
+  handles. Verify path constants.
+- **Layer 4 (Transport):** Integration test against a real or mock JMAP server.
+- **Layer 5 (C ABI):** Integration test from C code linking the shared library.
 
 The RFC includes JSON examples for almost every type. These serve as test
-fixtures for Layers 1 and 3.
+fixtures for Layers 1 and 2.

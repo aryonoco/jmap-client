@@ -25,11 +25,13 @@ This project uses a devcontainer. Tool versions are managed by mise — `mise.to
 
 ## Project Structure
 
-- `src/jmap_client.nim` - Library entry point (C ABI exports)
-- `src/jmap_client/types.nim` - Domain types, Result aliases
-- `src/jmap_client/errors.nim` - Error types and constructors
-- `src/jmap_client/session.nim` - JMAP session discovery
-- `src/jmap_client/client.nim` - HTTP client wrapper
+Architecture: 5 layers (see `docs/architecture-options.md`).
+
+- `src/jmap_client.nim` - Library entry point (C ABI exports, Layer 5)
+- `src/jmap_client/types.nim` - Domain types, errors, Result aliases (Layer 1)
+- `src/jmap_client/errors.nim` - Error types and constructors (Layer 1)
+- `src/jmap_client/session.nim` - JMAP session types (Layer 1)
+- `src/jmap_client/client.nim` - HTTP client wrapper (Layer 4)
 - `tests/` - Test modules (test_types)
 
 ## Functional Programming Conventions
