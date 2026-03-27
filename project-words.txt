@@ -50,10 +50,10 @@ TLS
 
 # Project-Specific
 docstrings
-referencable
 jmap-client
 libjmap
 megatest
+referencable
 testresults
 
 # Technical Terms
@@ -86,8 +86,11 @@ mise
 Ameri
 arnetheduck
 casemap
+closeafter
+deserialiser
 eamodio
 errorlens
+Finangled
 foxundermoon
 hverlin
 mhutchie
