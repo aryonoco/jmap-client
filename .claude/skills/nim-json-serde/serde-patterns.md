@@ -103,43 +103,42 @@ func fromJson*(_: typedesc[TransportError], node: JsonNode): JmapResult[Transpor
     err(parseError("TransportError", "unknown kind: " & kindStr))
 ```
 
-## Enum Serialisation Gotcha
+## Enum Serialisation
 
-**`$` on a string-backed enum returns the symbolic name, NOT the backing string.**
+For string-backed enums, Nim's `$` operator returns the **backing string**,
+not the symbolic name. This means `%` (which calls `$`) already produces
+the correct wire value:
 
 ```nim
 type MethodErrorType = enum
   metServerFail = "serverFail"
   metInvalidArguments = "invalidArguments"
 
-# WRONG: $metServerFail == "metServerFail" (symbolic name!)
-# RIGHT: need a custom function
+# $metServerFail == "serverFail"  (the backing string)
+# %metServerFail == JString("serverFail") — correct for wire format
 ```
 
-Write explicit serialisation functions for string-backed enums:
+Serialisation works automatically via `$` and `%`:
 
 ```nim
-func toWireString*(met: MethodErrorType): string =
-  ## Returns the RFC wire-format string, not the Nim symbolic name.
-  case met
-  of metServerFail: "serverFail"
-  of metInvalidArguments: "invalidArguments"
-  # ... exhaustive
-
 func toJson*(met: MethodErrorType): JsonNode =
-  %met.toWireString()
+  %met  # produces the backing string via $
 ```
 
-For deserialisation, match against the wire strings:
+For deserialisation, match against the backing strings:
 
 ```nim
-func parseMethodErrorType*(raw: string): MethodErrorType =
+func parseMethodErrorType*(raw: string): Opt[MethodErrorType] =
   case raw
-  of "serverFail": metServerFail
-  of "invalidArguments": metInvalidArguments
-  # ...
-  else: metUnknown
+  of "serverFail": Opt.some(metServerFail)
+  of "invalidArguments": Opt.some(metInvalidArguments)
+  # ... exhaustive
+  else: Opt.none(MethodErrorType)
 ```
+
+**`symbolName` vs `$`**: `symbolName()` (from `std/enumutils`) returns the
+Nim identifier (`"metServerFail"`). `$` returns the backing string
+(`"serverFail"`). Do not confuse them.
 
 ## Invocation as 3-Element JSON Array
 

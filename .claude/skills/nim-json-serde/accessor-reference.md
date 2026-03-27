@@ -35,7 +35,7 @@ level is missing. This is the primary navigation pattern in this project.
 |----------|---------|-------|
 | `node.kind` | `JsonNodeKind` | `JNull`, `JBool`, `JInt`, `JFloat`, `JString`, `JObject`, `JArray` |
 | `node.isNil` | `bool` | True if the JsonNode ref is nil |
-| `node.len` | `int` | Element count for JArray/JObject, 0 for others |
+| `node.len` | `int` | Element count for JArray/JObject, 0 for others. **Not nil-safe** — crashes on nil. |
 
 ### Membership Testing
 
@@ -49,7 +49,7 @@ level is missing. This is the primary navigation pattern in this project.
 
 | Constructor | Creates | Notes |
 |-------------|---------|-------|
-| `%val` | `JsonNode` | Auto-converts string, int, float, bool, seq, Table, Option |
+| `%val` | `JsonNode` | Auto-converts string, int, float, bool, seq, Table, `Option[T]` (stdlib only — no overload for `Opt[T]`) |
 | `%*{...}` | `JsonNode` | Compile-time JSON literal macro |
 | `newJString(s)` | `JsonNode` | JString |
 | `newJInt(n)` | `JsonNode` | JInt |
@@ -87,33 +87,54 @@ level is missing. This is the primary navigation pattern in this project.
 
 | Proc | Notes |
 |------|-------|
-| `==` | Deep equality. Explicitly `{.raises: [].}`. |
-| `hash` | Deep hash. `{.noSideEffect.}`. |
+| `==` | Deep equality. Explicitly `{.raises: [].}`. Nil-safe. |
+| `hash` | Deep hash. `{.noSideEffect.}`. **Not nil-safe** — crashes on nil (unlike `==`). |
 
 ---
 
-## Raises-Prone (NEVER use in this project)
+## Unsafe Accessors (NEVER use in this project)
 
-These accessors raise `CatchableError` subtypes. Using them inside `func` or
-`{.push raises: [].}` is a compile error. Avoid them entirely.
+### CatchableError — compile error under `{.raises: [].}`
+
+These raise `CatchableError` subtypes. The compiler rejects them inside
+`{.push raises: [].}`.
 
 | Accessor | Raises | Alternative |
 |----------|--------|-------------|
 | `node["key"]` | `KeyError` if key missing | `node{"key"}` |
-| `node[index]` (int) | `IndexDefect` if OOB | `node{index}` or bounds check first |
-| `node.str` | `JsonKindError` if not JString | `node.getStr("")` |
-| `node.num` | `JsonKindError` if not JInt | `node.getInt(0)` |
-| `node.fnum` | `JsonKindError` if not JFloat | `node.getFloat(0.0)` |
-| `node.bval` | `JsonKindError` if not JBool | `node.getBool(false)` |
 | `to[T](node)` | `KeyError`, `JsonKindError` | Manual extraction with raises-free accessors |
 | `parseJson(s)` | `JsonParsingError`, `IOError` | Boundary proc with try/except (see serde-patterns.md) |
 | `parseFile(path)` | `IOError`, `JsonParsingError` | Not used in this library (no file I/O) |
 | `delete(obj, key)` | `KeyError` if key missing | Check `hasKey` first, or skip |
 
+### Defect — compiles under `{.raises: [].}` but crashes at runtime
+
+These raise `Defect` subtypes, which are NOT tracked by `{.raises: [].}`.
+Code using them will compile but crash the process at runtime on wrong input.
+Equally dangerous — avoid them.
+
+| Accessor | Raises | Alternative |
+|----------|--------|-------------|
+| `node[index]` (int) | `AssertionDefect` / `IndexDefect` | `node{index}` or bounds check first |
+| `node.str` | `FieldDefect` if not JString | `node.getStr("")` |
+| `node.num` | `FieldDefect` if not JInt | `node.getInt(0)` |
+| `node.fnum` | `FieldDefect` if not JFloat | `node.getFloat(0.0)` |
+| `node.bval` | `FieldDefect` if not JBool | `node.getBool(false)` |
+
+Note: `str`, `num`, `fnum`, `bval` are case object **fields**, not procs.
+Accessing the wrong branch's field raises `FieldDefect`. Do not confuse these
+with the `parsejson` re-exports (`str`, `getInt`, `getFloat`) which operate on
+`JsonParser`, not `JsonNode`.
+
 ### The `assert` Caveat
 
-Several raises-free procs (`hasKey`, `contains`, `items`, `pairs`, `keys`) use
-`assert` to check the node kind. Under `--assertions:on` (debug builds, which
-this project uses), a failed assertion raises `AssertionDefect` — a `Defect`,
-not a `CatchableError`. Defects are NOT tracked by `{.raises: [].}` and will
-crash the process. Always verify `node.kind` before calling these.
+Many raises-free procs use `assert` to check the node kind before operating.
+Under `--assertions:on` (debug builds, which this project uses), a failed
+assertion raises `AssertionDefect` — a `Defect`, not a `CatchableError`.
+Defects are NOT tracked by `{.raises: [].}` and will crash the process.
+Always verify `node.kind` before calling these:
+
+- **Membership**: `hasKey`, `contains`
+- **Iteration**: `items`, `pairs`, `keys`
+- **Mutation**: `add(father, child)`, `add(obj, key, val)`, `obj[key] = val`
+- **Deletion**: `delete` (also raises `KeyError` — see above)
