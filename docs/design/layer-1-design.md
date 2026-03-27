@@ -31,11 +31,34 @@ architecture document's choices 1.1A, 1.2A, 1.6C, 1.7C, 1.3B, 3.2A, 3.3B, 3.4C, 
   stdlib containers whose APIs require mutation (e.g., `Table` in
   `PatchObject.setProp`). `strictFuncs` enforces the mutation does not escape.
 - **Total functions** — `{.push raises: [].}` on every module. Every function
-  has a defined output for every input.
+  has a defined output for every input. Functions that rely on
+  constructor-guaranteed invariants (e.g., `coreCapabilities` depends on
+  `parseSession` having validated `ckCore` presence) are total over the image
+  of their smart constructor. If the invariant is violated by direct
+  construction bypassing the smart constructor, `AssertionDefect` (a `Defect`,
+  not `CatchableError`) terminates the process — this is deliberate: it
+  signals a programming error, not a recoverable runtime condition. `Defect`s
+  are outside the `Result`/`Opt` railway; they are Nim's equivalent of
+  Haskell's `error` — a bottom value that should never be reachable in correct
+  code.
 - **Parse, don't validate** — smart constructors produce well-typed values or
   structured errors. Invariants enforced at construction time.
 - **Make illegal states unrepresentable** — distinct types, case objects, and
-  smart constructors encode domain invariants in the type system.
+  smart constructors encode domain invariants in the type system where the
+  type system permits. Some invariants (e.g., `Invocation.arguments` must be
+  a JSON object, not an array) are enforced at construction time by Layer 2
+  parsing and Layer 3 builders rather than by the Layer 1 type definition,
+  because `JsonNode` is an opaque stdlib type that cannot be further
+  constrained without a wrapper. The principle guides type design; it does not
+  guarantee that every conceivable illegal state is statically prevented.
+- **Dual validation strictness** — accept server-generated data leniently
+  (tolerating minor RFC deviations such as non-base64url ID characters),
+  construct client-generated data strictly. Both paths return `Result` —
+  neither silently accepts garbage. Strict constructors are used when the
+  client creates values; lenient constructors are used during JSON
+  deserialisation of server responses. This principle appears concretely in
+  `Id` (§2.1: `parseId` vs `parseIdFromServer`), `AccountId` (§3.1), and
+  `Session` cross-reference validation (§5.3).
 
 **Compiler flags.** These constrain every type definition (from `jmap_client.nimble`):
 
@@ -66,7 +89,6 @@ has a concrete reason tied to the strict compiler constraints.
 | `std/strutils` | `parseEnum[T](s, default)` | `func`, total, no exceptions — replaces manual `CapabilityKind` case statement |
 | `std/json` | `JsonNode`, `JsonNodeKind` | For untyped capability data (`ServerCapability`), `Invocation.arguments` |
 | `std/sequtils` | `allIt`, `anyIt` | Predicate templates that expand inline — work inside `func`. Architecture convention: prefer `collect` from `std/sugar` over `mapIt`/`filterIt` for collection building in Layers 2+. Layer 1 has no collection-building operations. |
-| `std/setutils` | `set[CapabilityKind]` | Bitset for efficient capability membership checks |
 | built-in `set[char]` | Charset validation constants | `{'A'..'Z', 'a'..'z', '0'..'9', '-', '_'}` for `Id` validation |
 
 ### Modules evaluated and rejected
@@ -77,7 +99,7 @@ has a concrete reason tied to the strict compiler constraints.
 | `std/parseutils` | `skipWhile` is `proc` not `func` (line 325 of parseutils.nim). Cannot call from smart constructors under `strictFuncs`. Pattern replicated using `allIt` template from sequtils. |
 | `std/uri` | `parseUri` raises `UriParseError`. `apiUrl` is passed directly to the HTTP client — no need to decompose. |
 | `std/options` | Project convention: `Opt[T]` from `nim-results` package (status-im/nim-results). `Opt[T]` is `Result[T, void]`, sharing the `?` operator with `Result[T, E]` for uniform ROP composition. stdlib `Option[T]` has `map`/`flatMap` but no `?` integration. |
-| `std/enumutils` | `parseEnum` from `strutils` already covers enum parsing needs. |
+| `std/enumutils` | `parseEnum` from `strutils` covers parsing. `symbolName` returns the symbolic name (vs `$` which returns the backing string), but symbolic names are not needed in Layer 1. |
 | `std/httpcore` | `HttpCode` is relevant to Layer 4 (transport errors), not Layer 1. |
 
 ### Critical Nim findings that constrain the design
@@ -86,11 +108,12 @@ has a concrete reason tied to the strict compiler constraints.
 |---------|--------|
 | `{.requiresInit.}` works on distinct types (verified in system.nim) | Enforced on all distinct types — prevents default construction |
 | `hash` auto-borrows for distinct types (verified in hashes.nim) | No manual `hash` implementation needed — `{.borrow.}` suffices |
-| `$` for string-backed enums returns the **symbolic name**, not the backing string (system/dollars.nim) | Need custom `func capabilityUri(kind): string` for serialisation |
+| `$` for string-backed enums returns the **backing string**, not the symbolic name; `symbolName` from `std/enumutils` returns the symbolic name | `$ckCore` returns `"urn:ietf:params:jmap:core"`. However `$ckUnknown` returns `"ckUnknown"` (no backing string), requiring custom `func capabilityUri(kind): Opt[string]` to force callers to handle `ckUnknown` |
 | `parseEnum[T](s, default)` is a `func` (strutils.nim line 1326) | Total, no exceptions — can be called from pure code |
 | `parseEnum` matches against **both** symbolic names and string backing values | Negligible risk: JMAP servers send URIs, not Nim identifiers |
 | `RangeDefect` bypasses `{.push raises: [].}` (Defect, not CatchableError) | Range types are technically `raises: []` compatible but crash instead of returning `Result` |
 | `allIt` is a template (sequtils.nim line 811) | Expands inline — works inside `func` for charset validation |
+| `allIt` on empty seq returns `true` (vacuous truth) | Callers must guard `allIt` predicate checks with a non-empty check when an empty input requires a different error. Date parser guards `allIt(it == '0')` with `dotEnd == 20` check |
 | Defects (RangeDefect, FieldDefect, AssertionDefect) are fatal | They bypass raises tracking — not suitable for expected runtime failures |
 
 ---
@@ -138,10 +161,19 @@ func parseFoo*(raw: InputType): Result[Foo, ValidationError]
 
 - Always a `func` (pure, no side effects).
 - Always returns `Result` (total, never raises).
-- The raw constructor (`Foo(raw)`) is not exported — only the smart constructor
-  is public.
-- For types with no invariants beyond the base type, the raw constructor may be
-  exported directly.
+- For distinct types (e.g., `Id`, `UnsignedInt`, `Date`), the raw constructor
+  is the base type conversion (`string(x)` or `int64(x)`), which is not
+  accessible outside the defining module without explicit borrowing. Only the
+  smart constructor is public.
+- For non-distinct object types (e.g., `Session`, `Comparator`), Nim cannot
+  prevent direct construction via `Session(field1: val1, ...)` when fields are
+  public — `{.requiresInit.}` prevents implicit default construction but not
+  explicit construction. The smart constructor enforces invariants that direct
+  construction does not. Functions that depend on these invariants (e.g.,
+  `coreCapabilities`) use `raiseAssert` for the unreachable branch (see the
+  "Total functions" scoping clause in Design principles).
+- For types with no invariants beyond their constituent types, the raw
+  constructor may be exported directly.
 
 ### 1.3 Borrow Templates
 
@@ -196,7 +228,8 @@ const Base64UrlChars* = {'A'..'Z', 'a'..'z', '0'..'9', '-', '_'}
 
 **Smart constructors:**
 
-Two constructors following the dual validation strictness principle (§2.1):
+Two constructors following the dual validation strictness principle (see
+Design principles):
 
 ```nim
 func parseId*(raw: string): Result[Id, ValidationError] =
@@ -337,6 +370,7 @@ func parseDate*(raw: string): Result[Date, ValidationError] =
   ## - No lowercase 't' or 'z'
   ## - If fractional seconds present, must not be all zeroes
   ## Does NOT perform full calendar validation (e.g., February 30).
+  ## Does NOT validate the timezone offset format beyond uppercase checks.
   if raw.len < 20:
     return err(validationError("Date", "too short for RFC 3339 date-time", raw))
   # Check date part: YYYY-MM-DD
@@ -352,15 +386,18 @@ func parseDate*(raw: string): Result[Date, ValidationError] =
           raw[14..15].allIt(it in AsciiDigits) and raw[16] == ':' and
           raw[17..18].allIt(it in AsciiDigits)):
     return err(validationError("Date", "invalid time portion", raw))
-  # Check no lowercase letters (RFC requires uppercase T, Z)
+  # Check no lowercase 't' or 'z' (the only letters in RFC 3339 date-time are T and Z)
   if raw.anyIt(it in {'t', 'z'}):
-    return err(validationError("Date", "letters must be uppercase", raw))
-  # Check fractional seconds: if present, must not be ".0", ".00", ".000" etc.
+    return err(validationError("Date", "'T' and 'Z' must be uppercase (RFC 3339)", raw))
+  # Check fractional seconds: if present, must have at least one digit
+  # and must not be all zeroes.
   if raw.len > 19 and raw[19] == '.':
     let dotEnd = block:
       var i = 20
       while i < raw.len and raw[i] in AsciiDigits: inc i
       i
+    if dotEnd == 20:
+      return err(validationError("Date", "fractional seconds must contain at least one digit", raw))
     if raw[20 ..< dotEnd].allIt(it == '0'):
       return err(validationError("Date", "zero fractional seconds must be omitted", raw))
   ok(Date(raw))
@@ -488,6 +525,9 @@ func `$`*(a: MethodCallId): string {.borrow.}
 func hash*(a: MethodCallId): Hash {.borrow.}
 ```
 
+`len` is not borrowed — method call IDs are opaque correlation tokens whose
+length is not meaningful to consumers (same rationale as `JmapState`, §3.2).
+
 **Smart constructor:**
 
 ```nim
@@ -514,6 +554,9 @@ func `==`*(a, b: CreationId): bool {.borrow.}
 func `$`*(a: CreationId): string {.borrow.}
 func hash*(a: CreationId): Hash {.borrow.}
 ```
+
+`len` is not borrowed — creation IDs are opaque client-generated identifiers
+whose length is not meaningful to consumers.
 
 **Smart constructor:**
 
@@ -584,9 +627,12 @@ names, the dual matching is not a practical concern.
 
 **Serialisation (reverse direction):**
 
-`$ckCore` returns `"ckCore"` (the symbolic name), NOT the URI string. For
-serialisation to JSON, a function returning `Opt[string]` is used. `Opt`
-composes with the `?` operator, avoiding sentinel values like `""`:
+`$ckCore` returns `"urn:ietf:params:jmap:core"` (the backing string).
+However, `$ckUnknown` returns `"ckUnknown"` (no backing string assigned),
+which is not a valid capability URI. A function returning `Opt[string]`
+forces callers to handle `ckUnknown` explicitly rather than silently
+using an invalid lookup key. `Opt` composes with the `?` operator,
+avoiding sentinel values like `""`:
 
 ```nim
 func capabilityUri*(kind: CapabilityKind): Opt[string] =
@@ -719,6 +765,17 @@ A flat object (not a case object) because all account capabilities store raw
 JSON in the Core-only implementation. When specific RFCs are added, this may
 evolve to a case object with typed branches.
 
+**Asymmetry with `ServerCapability`.** `ServerCapability` (§4.3) is a case
+object with a typed `ckCore` branch because RFC 8620 §2 defines 8 specific
+fields for server-level core capabilities. `AccountCapabilityEntry` is a flat
+object storing all account-level capability data as raw `JsonNode` because
+RFC 8620 defines no typed fields for account-level capabilities — the
+structure is entirely capability-specific. This asymmetry is intentional and
+RFC-driven. When typed account-level capabilities are added (e.g., RFC 8621
+mail capabilities include `maxMailboxDepth`, `maxMailboxesPerEmail`, etc.),
+`AccountCapabilityEntry` may evolve to a case object with typed branches,
+mirroring `ServerCapability`'s progressive branching pattern.
+
 **Account:**
 
 ```nim
@@ -742,9 +799,22 @@ func findCapability*(account: Account, kind: CapabilityKind): Opt[AccountCapabil
       return ok(entry)
   err()
 
+func findCapabilityByUri*(account: Account, uri: string): Opt[AccountCapabilityEntry] =
+  ## Looks up an account capability by its raw URI string. Use this instead of
+  ## findCapability when looking up vendor extensions (which all map to
+  ## ckUnknown and would be ambiguous via findCapability).
+  for entry in account.accountCapabilities:
+    if entry.rawUri == uri:
+      return ok(entry)
+  err()
+
 func hasCapability*(account: Account, kind: CapabilityKind): bool =
   account.accountCapabilities.anyIt(it.kind == kind)
 ```
+
+**`findCapability` note.** `findCapability(account, ckUnknown)` returns the
+first entry with `kind == ckUnknown`. When multiple vendor extensions are
+present, use `findCapabilityByUri` instead.
 
 **No standalone smart constructor.** Accounts are validated as part of Session
 parsing.
@@ -819,6 +889,24 @@ key with no collision risk. `primaryAccounts` uses raw `string` keys (not
 `CapabilityKind`) to avoid the `ckUnknown` key collision problem (see §4.1
 CRITICAL note).
 
+**Design note: `seq` vs `Table` for capability collections.**
+`capabilities` and `accountCapabilities` use `seq` rather than `Table` for
+two reasons: (1) `CapabilityKind` cannot be a table key because multiple
+vendor extensions map to `ckUnknown`, causing collisions; (2) `Table[string,
+ServerCapability]` or `Table[string, AccountCapabilityEntry]` would duplicate
+the URI string (once as the table key, once inside the entry's `rawUri`
+field). With `seq`, the URI lives in one place per entry. The trade-off is
+that `findCapability` performs a linear scan, but capability lists are small
+(typically fewer than 10 entries). `primaryAccounts` uses `Table[string,
+AccountId]` because its values (`AccountId`) do not contain the URI — no
+duplication — and its primary access pattern is O(1) key lookup ("which
+account is primary for this capability URI?").
+
+`apiUrl` is plain `string` rather than a distinct type because it is a
+concrete URL with no RFC 6570 template variables — `UriTemplate` does not
+apply, and the only Layer 1 invariant (non-empty) is enforced by
+`parseSession`.
+
 **Smart constructor:**
 
 ```nim
@@ -868,16 +956,18 @@ func parseSession*(
 deliberately does not validate two RFC cross-reference constraints:
 
 1. **`primaryAccounts` values reference valid `accounts` keys.** RFC §2
-   states these SHOULD match (RFC 2119). Rejecting the Session for a
-   mismatch would break compatibility with servers that violate this
-   SHOULD constraint.
+   defines `primaryAccounts` as a map of capability URIs to account IDs
+   (there MAY be no entry for a particular URI). The RFC does not
+   explicitly constrain values to reference valid `accounts` keys.
+   Rejecting the Session for a mismatch would break compatibility with
+   servers that send inconsistent data.
 
 2. **Account `accountCapabilities` keys present in `Session.capabilities`.**
    RFC §2 states these MUST match, but in practice servers may include
    per-account capabilities not yet in the top-level object (e.g., during
    rolling deployments or with vendor extensions).
 
-This follows the same dual validation strictness principle (§2.1): accept server data leniently,
+This follows the dual validation strictness principle (see Design principles): accept server data leniently,
 construct own data strictly. If stricter validation is later desired, provide
 an opt-in `func validateSessionRefs*(session: Session): Result[void,
 ValidationError]` rather than baking it into `parseSession`.
@@ -894,10 +984,33 @@ func coreCapabilities*(session: Session): CoreCapabilities =
   # Unreachable if Session was constructed via parseSession.
   # AssertionDefect is a Defect (not CatchableError) — compatible with {.push raises: [].}.
   raiseAssert "Session missing ckCore: violated parseSession invariant"
+```
 
+**Invariant note.** `coreCapabilities` is total over Sessions constructed
+via `parseSession`, which guarantees `ckCore` is present. Nim cannot prevent
+direct construction of `Session` with public fields (see the "Total
+functions" scoping clause in Design principles above). If `Session` is
+constructed directly without `ckCore`, `coreCapabilities` raises
+`AssertionDefect` — a `Defect` (fatal, not `CatchableError`), compatible
+with `{.push raises: [].}`. This follows the same contract as Haskell's
+`fromJust` or OCaml's `Option.get`: total over the smart constructor's
+image, bottom otherwise. The re-export policy (§11) and module boundaries
+are the practical enforcement mechanism — downstream code constructs
+Sessions via Layer 2 deserialisation, which always calls `parseSession`.
+
+```nim
 func findCapability*(session: Session, kind: CapabilityKind): Opt[ServerCapability] =
   for cap in session.capabilities:
     if cap.kind == kind:
+      return ok(cap)
+  err()
+
+func findCapabilityByUri*(session: Session, uri: string): Opt[ServerCapability] =
+  ## Looks up a capability by its raw URI string. Use this instead of
+  ## findCapability when looking up vendor extensions (which all map to
+  ## ckUnknown and would be ambiguous via findCapability).
+  for cap in session.capabilities:
+    if cap.rawUri == uri:
       return ok(cap)
   err()
 
@@ -912,6 +1025,18 @@ func findAccount*(session: Session, id: AccountId): Opt[Account] =
     return ok(session.accounts[id])
   err()
 ```
+
+**`findCapability` note.** `findCapability(session, ckUnknown)` returns the
+first entry with `kind == ckUnknown`. When multiple vendor extensions are
+present, use `findCapabilityByUri` instead.
+
+**`primaryAccount` failure modes.** Returns `err()` in two cases: (1) `kind
+== ckUnknown` (no canonical URI to look up — use `session.primaryAccounts`
+directly with the raw URI string), or (2) no primary account is designated
+for this capability (the URI is not a key in `primaryAccounts`). Callers who
+need to distinguish these cases should check `capabilityUri(kind)` first.
+For vendor extensions, access `session.primaryAccounts` directly with the
+raw URI string.
 
 **Module:** `src/jmap_client/session.nim`
 
@@ -940,6 +1065,10 @@ type Invocation* = object
 
 `arguments` is `JsonNode` at the envelope level. Typed extraction into
 concrete method response types happens in Layer 3.
+
+**Type precision note.** `arguments` is typed as `JsonNode` rather than a
+wrapper enforcing `JObject` because the invariant is enforced by Layer 2
+parsing and Layer 3 construction, not by Layer 1 types.
 
 **No smart constructor.** Constructed by the Layer 3 builder (requests) or
 Layer 2 deserialiser (responses).
@@ -1106,7 +1235,8 @@ type
 ```
 
 `seq[Filter[C]]` provides heap-allocated indirection for the recursion without
-`ref`. Compatible with `--mm:arc` and `strictFuncs`.
+`ref`. Verified: compiles under `--mm:arc` + `strictFuncs` + `strictCaseObjects`
++ `strictDefs`.
 
 **Constructor helpers:**
 
@@ -1122,6 +1252,34 @@ Total constructors. No validation needed — all inputs produce valid filters.
 
 **Module:** `src/jmap_client/framework.nim`
 
+### 7.2a PropertyName
+
+**RFC reference:** §5.5 (property names in Comparator, referenced throughout).
+
+A property name is a non-empty string identifying a field on an entity type.
+Used in `Comparator.property` and potentially in future property-list
+parameters.
+
+**Type definition:**
+
+```nim
+type PropertyName* {.requiresInit.} = distinct string
+defineStringDistinctOps(PropertyName)
+```
+
+Borrowed operations: `==`, `$`, `hash`, `len` (via `defineStringDistinctOps`).
+
+**Smart constructor:**
+
+```nim
+func parsePropertyName*(raw: string): Result[PropertyName, ValidationError] =
+  if raw.len == 0:
+    return err(validationError("PropertyName", "must not be empty", raw))
+  ok(PropertyName(raw))
+```
+
+**Module:** `src/jmap_client/framework.nim`
+
 ### 7.3 Comparator
 
 **RFC reference:** §5.5. Determines the sort order for a `/query` request.
@@ -1130,17 +1288,19 @@ Total constructors. No validation needed — all inputs produce valid filters.
 
 ```nim
 type Comparator* = object
-  property*: string         ## property name to sort by
-  isAscending*: bool        ## true = ascending (RFC default)
-  collation*: Opt[string]   ## RFC 4790 collation algorithm identifier
+  property*: PropertyName    ## property name to sort by
+  isAscending*: bool         ## true = ascending (RFC default)
+  collation*: Opt[string]    ## RFC 4790 collation algorithm identifier
 ```
 
-`property` is a bare `string` because property names are entity-specific and
-not constrained by the Core RFC. Entity-specific layers may provide typed
-wrappers.
+`property` is a `PropertyName` (distinct string, non-empty) because every
+Comparator must name a property. Entity-specific validity (which property
+names are legal for a given entity type) is enforced by Layer 3 typed sort
+builders, not at the Layer 1 type level.
 
-`isAscending` defaults to `true` per RFC §5.5. The default is applied during
-JSON deserialisation (Layer 2), not in the type definition.
+`isAscending` defaults to `true` per RFC §5.5. The smart constructor mirrors
+this default for convenience. Layer 2 deserialisation also applies this default
+when the field is absent from JSON.
 
 `collation` is `Opt[string]` because the RFC specifies it as optional. When
 absent, the server uses its default collation for the property.
@@ -1149,17 +1309,16 @@ absent, the server uses its default collation for the property.
 
 ```nim
 func parseComparator*(
-  property: string,
+  property: PropertyName,
   isAscending: bool = true,
   collation: Opt[string] = Opt.none(string)
 ): Result[Comparator, ValidationError] =
-  if property.len == 0:
-    return err(validationError("Comparator", "property must not be empty", ""))
   ok(Comparator(property: property, isAscending: isAscending, collation: collation))
 ```
 
-The only invariant is non-empty `property` — the RFC states the property name
-MUST be present. All other fields are unconstrained at the Core level.
+The non-empty property invariant is enforced by `PropertyName`'s smart
+constructor (`parsePropertyName`). `parseComparator` is infallible given a
+valid `PropertyName`. All other fields are unconstrained at the Core level.
 
 **Module:** `src/jmap_client/framework.nim`
 
@@ -1184,9 +1343,12 @@ func len*(p: PatchObject): int {.borrow.}
 ```
 
 Only `len` is borrowed. `==`, `$`, and `hash` are not borrowed because
-`PatchObject` equality and display are not needed in Layer 1. Direct table
-access (`[]`, `hasKey`) is not exported — all mutation goes through smart
-constructors to validate path format.
+`PatchObject` equality and display are not needed in Layer 1. `[]=`, `del`,
+`clear`, and all other mutating `Table` operations are deliberately excluded
+— smart constructors (`setProp`, `deleteProp`) are the only write path,
+ensuring path validation cannot be bypassed. Read-only table access (`[]`,
+`hasKey`) is also not exported; all interaction goes through smart
+constructors and `len`.
 
 **Smart constructors:**
 
@@ -1250,7 +1412,7 @@ Construction happens exclusively during JSON deserialisation (Layer 2).
 
 ## 8. Error Types
 
-Error types implement the two-level railway (architecture-options.md Decision
+Error types implement the three-track railway (architecture-options.md Decision
 1.6C). The outer railway uses `JmapResult[T] = Result[T, ClientError]` for
 transport/request failures. The inner railway uses `Result[T, MethodError]` per
 invocation. `SetError` is data within successful `SetResponse` values.
@@ -1398,6 +1560,7 @@ type RequestError* = object
   title*: Opt[string]            ## RFC 7807 "title" field
   detail*: Opt[string]           ## RFC 7807 "detail" field
   limit*: Opt[string]            ## which limit was exceeded (retLimit only)
+  extras*: Opt[JsonNode]         ## non-standard fields, lossless preservation
 ```
 
 **Design decisions:**
@@ -1414,9 +1577,12 @@ type RequestError* = object
 3. **`status` is `Opt[int]`, not `Opt[UnsignedInt]`.** Same rationale as
    `TransportError.httpStatus`.
 
-4. **No `extras` field.** RFC 7807 defines a fixed set of standard fields.
-   Unlike `MethodError`, there is no need for lossless preservation of
-   non-standard fields.
+4. **`extras: Opt[JsonNode]`.** RFC 7807 §3.1 allows extension members beyond
+   the standard fields (`type`, `status`, `title`, `detail`, `instance`).
+   Servers may include vendor-specific debugging fields (e.g., `requestId`,
+   `timestamp`). The `extras` field preserves these for lossless round-trip,
+   consistent with `MethodError` and `SetError` (Decision 1.7C). `Opt` rather
+   than bare `JsonNode` because most errors have no extras.
 
 **Constructor helper:**
 
@@ -1427,6 +1593,7 @@ func requestError*(
   title: Opt[string] = Opt.none(string),
   detail: Opt[string] = Opt.none(string),
   limit: Opt[string] = Opt.none(string),
+  extras: Opt[JsonNode] = Opt.none(JsonNode),
 ): RequestError =
   RequestError(
     errorType: parseRequestErrorType(rawType),
@@ -1435,6 +1602,7 @@ func requestError*(
     title: title,
     detail: detail,
     limit: limit,
+    extras: extras,
   )
 ```
 
@@ -1531,7 +1699,7 @@ also wraps `cekRequest` after Layer 2 parses the problem details body.
 **RFC reference:** §3.6.2 (method-level errors), plus §5.1–5.6 (method-specific
 error types).
 
-**Purpose:** String-backed enum covering all 16 RFC-defined method-level error
+**Purpose:** String-backed enum covering all 19 RFC-defined method-level error
 types, plus `metUnknown`. Follows Decision 1.7C.
 
 ```nim
@@ -1550,16 +1718,21 @@ type MethodErrorType* = enum
   metUnsupportedSort = "unsupportedSort"
   metUnsupportedFilter = "unsupportedFilter"
   metCannotCalculateChanges = "cannotCalculateChanges"
+  metTooManyChanges = "tooManyChanges"
   metRequestTooLarge = "requestTooLarge"
   metStateMismatch = "stateMismatch"
+  metFromAccountNotFound = "fromAccountNotFound"
+  metFromAccountNotSupportedByMethod = "fromAccountNotSupportedByMethod"
   metUnknown
 ```
 
 **Design decisions:**
 
-1. **All 16 types from RFC 8620.** Universal errors from §3.6.2 plus
-   method-specific errors from §5.1–5.6. RFC 8621 error types map to
-   `metUnknown` with raw string preserved.
+1. **All 19 types from RFC 8620.** Universal errors from §3.6.2 (10 types)
+   plus method-specific errors from §5.1–5.6 (9 additional types, including
+   `tooManyChanges` from §5.6 /queryChanges, and `fromAccountNotFound` and
+   `fromAccountNotSupportedByMethod` from §5.4 /copy). RFC 8621 error types
+   map to `metUnknown` with raw string preserved.
 
 2. **`met` prefix.** Follows convention: `ck` for `CapabilityKind`, `set` for
    `SetErrorType`, `ret` for `RequestErrorType`.
@@ -1748,11 +1921,16 @@ func setErrorAlreadyExists*(
 ```
 
 **Design decision for `setError` defensive fallback:** If the server sends
-`{"type": "invalidProperties"}` without the `properties` array, the generic
+`{"type": "invalidProperties"}` without the `properties` array, or
+`{"type": "alreadyExists"}` without the `existingId` field, the generic
 constructor falls back to `setUnknown` (preserving `rawType`) rather than
-constructing a `setInvalidProperties` variant with an empty `properties` list.
-Layer 2 calls `setErrorInvalidProperties` only when the JSON contains the
-`properties` array; otherwise it calls `setError`.
+constructing the variant-specific branch with default/empty values. Layer 2
+calls `setErrorInvalidProperties` only when the JSON contains the
+`properties` array, and `setErrorAlreadyExists` only when the JSON contains
+`existingId`; otherwise it calls `setError`, which maps these to `setUnknown`.
+This ensures that pattern-matching consumers do not encounter a
+`setInvalidProperties` variant with an empty `properties` list or a
+`setAlreadyExists` variant with a bogus `existingId`.
 
 **Construction layer:** Layer 2 (serialisation). The `fromJson` examines the
 `"type"` field, then dispatches to the appropriate constructor.
@@ -1801,6 +1979,7 @@ visible, so it lives in the re-export module.
 | `MethodCallId` | Y | Y | Y | | | | |
 | `CreationId` | Y | Y | Y | | | | |
 | `UriTemplate` | Y | Y | Y | Y | | | |
+| `PropertyName` | Y | Y | Y | Y | | | |
 | `PatchObject` | | | | Y | | | |
 
 All borrowed operations are `func` and `{.raises: [].}` compatible.
@@ -1828,7 +2007,10 @@ built-in.
 | `UriTemplate` | `parseUriTemplate` | Non-empty | `Result[UriTemplate, ValidationError]` |
 | `CapabilityKind` | `parseCapabilityKind` | Total (always succeeds) | `CapabilityKind` |
 | `Session` | `parseSession` | Core cap present, URLs valid, templates have variables | `Result[Session, ValidationError]` |
-| `Comparator` | `parseComparator` | Non-empty property | `Result[Comparator, ValidationError]` |
+| `Account` | `findCapabilityByUri` | URI-based lookup (avoids ckUnknown ambiguity) | `Opt[AccountCapabilityEntry]` |
+| `Session` | `findCapabilityByUri` | URI-based lookup (avoids ckUnknown ambiguity) | `Opt[ServerCapability]` |
+| `PropertyName` | `parsePropertyName` | Non-empty | `Result[PropertyName, ValidationError]` |
+| `Comparator` | `parseComparator` | Infallible (PropertyName enforces non-empty) | `Result[Comparator, ValidationError]` |
 | `PatchObject` | `emptyPatch` | None (total) | `PatchObject` |
 | `PatchObject` | `setProp` | Non-empty path | `Result[PatchObject, ValidationError]` |
 | `PatchObject` | `deleteProp` | Non-empty path | `Result[PatchObject, ValidationError]` |
@@ -1861,8 +2043,8 @@ src/jmap_client/
   session.nim         ← Account, AccountCapabilityEntry, UriTemplate, Session
   envelope.nim        ← Invocation, Request, Response,
                         ResultReference, Referencable[T]
-  framework.nim       ← FilterOperator, Filter[C], Comparator,
-                        PatchObject, AddedItem
+  framework.nim       ← PropertyName, FilterOperator, Filter[C],
+                        Comparator, PatchObject, AddedItem
   errors.nim          ← TransportErrorKind, TransportError,
                         RequestErrorType, RequestError,
                         ClientErrorKind, ClientError,
@@ -1874,25 +2056,28 @@ src/jmap_client/
 ### Import Graph
 
 ```
-validation.nim       (no imports)
-      ↑
-primitives.nim       (std/hashes, std/sequtils)
-   ↑    ↑    ↑             ↑
-   |    |  framework.nim   errors.nim
-   |    |  (std/json,      (std/json, std/strutils)
-   |    |   std/tables)
-   |  capabilities.nim   (std/hashes, std/sets, std/strutils, std/json)
-   |         ↑
-identifiers.nim      (std/hashes, std/sequtils)
-   ↑         ↑
-   |     session.nim     (std/hashes, std/tables, std/json, std/sequtils)
-   |         |
-envelope.nim --------+  (std/json, std/tables)
-      ↑
-types.nim            (re-exports all, defines JmapResult[T])
+            validation.nim       (std/hashes)
+             ↑         ↑
+  primitives.nim    identifiers.nim   (std/hashes, std/sequtils each)
+   ↑   ↑   ↑   ↑       ↑        ↑
+   |   |   |  errors.nim |       |    (std/json, std/strutils)
+   |   |   |             |       |
+   |   | framework.nim   |       |    (std/json, std/tables)
+   |   |                 |       |
+   | capabilities.nim    |       |    (std/hashes, std/sets, std/strutils, std/json)
+   |        ↑            |       |
+   |    session.nim -----+       |    (std/hashes, std/tables, std/json, std/sequtils)
+   |        |                    |
+  envelope.nim ------------------+    (std/json, std/tables)
+        ↑
+  types.nim                           (re-exports all, defines JmapResult[T])
 ```
 
-All arrows point upward — no cycles. `errors.nim` and `framework.nim` are
+All arrows point upward — no cycles. `validation.nim` is the root dependency.
+`primitives.nim` and `identifiers.nim` both depend on `validation.nim` directly.
+`identifiers.nim` depends on `validation.nim` (for `defineStringDistinctOps`,
+`ValidationError`, `validationError`), not on `primitives.nim` — no identifier
+type references any primitive type. `errors.nim` and `framework.nim` are
 parallel leaves, both depending on `primitives.nim` but not on each other.
 `capabilities.nim` depends on `primitives.nim` (for `UnsignedInt`), not on
 `identifiers.nim`. `envelope.nim` depends on `identifiers.nim` (for
@@ -2069,6 +2254,10 @@ The deserialiser should accept both forms.
 | `Date` | `"2014-10-30T14:12:00.123Z"` | `ok` | non-zero fractional seconds |
 | `Date` | `"2014-10-30t14:12:00Z"` | `err` | lowercase 't' |
 | `Date` | `"2014-10-30T14:12:00.000Z"` | `err` | zero frac must be omitted |
+| `Date` | `"2014-10-30T14:12:00.Z"` | `err` | empty fractional part (no digits after dot) |
+| `Date` | `"2014-10-30T14:12:00.0Z"` | `err` | zero fractional seconds must be omitted |
+| `Date` | `"2014-10-30T14:12:00.100Z"` | `ok` | non-zero fractional (trailing zero is fine) |
+| `Date` | `"2014-10-30T14:12:00z"` | `err` | lowercase 'z' |
 | `Date` | `"2014-10-30"` | `err` | too short, missing time |
 | `UTCDate` | `"2014-10-30T06:12:00Z"` | `ok` | RFC example |
 | `UTCDate` | `"2014-10-30T06:12:00+00:00"` | `err` | must be Z, not +00:00 |
@@ -2089,9 +2278,18 @@ The deserialiser should accept both forms.
 | `Session` | missing core capability | `err` | RFC MUST constraint |
 | `Session` | downloadUrl without `{blobId}` | `err` | RFC MUST constraint |
 | `Session` | valid RFC §2.1 example | `ok` | golden test |
-| `Comparator` | `property: ""` | `err` | empty property name |
-| `Comparator` | `property: "name"` | `ok` | minimal valid |
-| `Comparator` | `property: "name", collation: ok("i;unicode-casemap")` | `ok` | with collation |
+| `Session` | constructed directly without `ckCore` | `coreCapabilities` raises `AssertionDefect` | invariant violation |
+| `findCapabilityByUri` (Session) | `findCapabilityByUri(session, "https://example.com/apis/foobar")` | `ok(...)` with `kind == ckUnknown` | vendor extension lookup |
+| `findCapabilityByUri` (Session) | `findCapabilityByUri(session, "urn:nonexistent")` | `err()` | unknown URI |
+| `findCapabilityByUri` (Account) | `findCapabilityByUri(account, "urn:ietf:params:jmap:mail")` | `ok(...)` with `kind == ckMail` | known capability lookup |
+| `primaryAccount` | `primaryAccount(session, ckMail)` | `ok(AccountId("A13824"))` | known capability with primary account |
+| `primaryAccount` | `primaryAccount(session, ckUnknown)` | `err()` | ckUnknown has no canonical URI |
+| `primaryAccount` | `primaryAccount(session, ckBlob)` | `err()` | known capability without primary account |
+| `PropertyName` | `""` | `err` | empty property name |
+| `PropertyName` | `"name"` | `ok` | valid property name |
+| `Comparator` | `property: parsePropertyName("")` | `err` | empty property (PropertyName rejects) |
+| `Comparator` | `property: parsePropertyName("name")` | `ok` | minimal valid |
+| `Comparator` | `property: parsePropertyName("name"), collation: ok("i;unicode-casemap")` | `ok` | with collation |
 | `PatchObject` | `setProp(emptyPatch(), "", ...)` | `err` | empty path |
 | `PatchObject` | `setProp(emptyPatch(), "name", ...)` | `ok` | simple property set |
 | `PatchObject` | `deleteProp(emptyPatch(), "addresses/0")` | `ok` | nested path deletion |
@@ -2102,6 +2300,9 @@ The deserialiser should accept both forms.
 | `MethodErrorType` | `"serverFail"` | `metServerFail` | known type |
 | `MethodErrorType` | `"invalidArguments"` | `metInvalidArguments` | known type |
 | `MethodErrorType` | `"customError"` | `metUnknown` | unknown type |
+| `MethodErrorType` | `"fromAccountNotFound"` | `metFromAccountNotFound` | /copy method error |
+| `MethodErrorType` | `"fromAccountNotSupportedByMethod"` | `metFromAccountNotSupportedByMethod` | /copy method error |
+| `MethodErrorType` | `"tooManyChanges"` | `metTooManyChanges` | /queryChanges method error |
 | `SetErrorType` | `"invalidProperties"` | `setInvalidProperties` | known type |
 | `SetErrorType` | `"alreadyExists"` | `setAlreadyExists` | known type |
 | `SetErrorType` | `"vendorSpecific"` | `setUnknown` | unknown type |
@@ -2109,6 +2310,7 @@ The deserialiser should accept both forms.
 | `TransportError` | `httpStatusError(502, "Bad Gateway")` | valid, `httpStatus == 502` | HTTP status variant |
 | `RequestError` | `requestError("urn:ietf:params:jmap:error:limit", limit = ok("maxCallsInRequest"))` | `errorType == retLimit`, rawType preserved | lossless round-trip |
 | `RequestError` | `requestError("urn:vendor:custom")` | `errorType == retUnknown`, rawType preserved | unknown type preserved |
+| `RequestError` | `requestError("urn:ietf:params:jmap:error:limit", limit = ok("maxCallsInRequest"), extras = ok(%*{"requestId": "abc"}))` | extras preserved | lossless round-trip for extension members |
 | `ClientError` | `clientError(transportError(tekNetwork, "refused"))` | `kind == cekTransport` | wrapping transport |
 | `ClientError` | `clientError(requestError("...notJSON"))` | `kind == cekRequest` | wrapping request |
 | `MethodError` | `methodError("unknownMethod")` | `errorType == metUnknownMethod` | lossless round-trip |
@@ -2117,6 +2319,7 @@ The deserialiser should accept both forms.
 | `SetError` | `setErrorInvalidProperties("invalidProperties", @["name"])` | `errorType == setInvalidProperties` | variant-specific |
 | `SetError` | `setErrorAlreadyExists("alreadyExists", someId)` | `errorType == setAlreadyExists` | variant-specific |
 | `SetError` | `setError("invalidProperties")` (no properties) | `errorType == setUnknown`, rawType preserved | defensive fallback |
+| `SetError` | `setError("alreadyExists")` (no existingId) | `errorType == setUnknown`, rawType preserved | defensive fallback for alreadyExists |
 | `JmapResult` | `Result[Response, ClientError].ok(resp)` | `isOk` | success rail |
 | `JmapResult` | `Result[Response, ClientError].err(clientErr)` | `isErr` | error rail |
 
@@ -2147,6 +2350,7 @@ The deserialiser should accept both forms.
 | `Referencable[T]` | §3.7 (back-reference mechanism) |
 | `FilterOperator` | §5.5 |
 | `Filter[C]` | §5.5 |
+| `PropertyName` | §5.5 (property name in Comparator) |
 | `Comparator` | §5.5 |
 | `PatchObject` | §5.3 |
 | `AddedItem` | §5.6 |

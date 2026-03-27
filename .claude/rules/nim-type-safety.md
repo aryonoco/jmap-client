@@ -44,6 +44,12 @@ Do NOT borrow `&` — concatenating IDs is nonsensical.
 
 Explicit conversion: `string(id)` to unwrap, `AccountId(s)` to wrap.
 
+**When NOT to use `defineStringDistinctOps`.** Opaque token types where `len`
+is semantically meaningless (e.g., `JmapState`, `MethodCallId`, `CreationId`)
+should manually borrow only `==`, `$`, `hash` — omitting `len`. The template
+includes `len` because it targets identifier types where length IS meaningful
+(e.g., `Id` has a 1-255 octet constraint). See `layer-1-design.md` §3.2-3.4.
+
 ## `{.requiresInit.}` — Smart Constructors
 
 Forces explicit initialisation — `var id: AccountId` is rejected. Combine
@@ -51,8 +57,12 @@ with a validation function for the smart constructor pattern:
 
 ```nim
 func parseAccountId*(raw: string): Result[AccountId, ValidationError] =
-  if raw.len == 0:
-    return err(validationError("AccountId", "must not be empty", raw))
+  ## Lenient: 1-255 octets, no control characters.
+  ## AccountIds are server-assigned Id[Account] values (§1.6.2, §2).
+  if raw.len < 1 or raw.len > 255:
+    return err(validationError("AccountId", "length must be 1-255 octets", raw))
+  if raw.anyIt(it < ' '):
+    return err(validationError("AccountId", "contains control characters", raw))
   ok(AccountId(raw))
 ```
 
@@ -86,10 +96,14 @@ type
 ```
 
 ```nim
-func summary*(e: ClientError): string =
-  case e.kind
-  of cekTransport: "Transport failure: " & e.transport.message
-  of cekRequest: "Request error: " & e.request.rawType
+func message*(err: ClientError): string =
+  ## Human-readable message for any ClientError variant.
+  case err.kind
+  of cekTransport: err.transport.message
+  of cekRequest:
+    if err.request.detail.isSome: err.request.detail.unsafeGet
+    elif err.request.title.isSome: err.request.title.unsafeGet
+    else: err.request.rawType
   # Exhaustive — adding a new ClientErrorKind variant forces a compile error here
 ```
 
@@ -158,9 +172,12 @@ type MethodName* = enum
   mnEmailSet = "Email/set"
 ```
 
-**Gotcha:** `$` on a string-backed enum returns the **symbolic name**, not the
-backing string (`$mnMailboxGet` -> `"mnMailboxGet"`). Write a custom serialisation
-`func`. For FFI enums: `{.size: sizeof(cint).}` + explicit ordinals.
+**Gotcha:** `$` on a string-backed enum returns the **backing string**, not the
+symbolic name (`$mnMailboxGet` -> `"Mailbox/get"`). `symbolName` from
+`std/enumutils` returns the symbolic name (`symbolName(mnMailboxGet)` ->
+`"mnMailboxGet"`). For variants without a backing string (e.g., a catch-all
+`metUnknown`), `$` falls back to the symbolic name. For FFI enums:
+`{.size: sizeof(cint).}` + explicit ordinals.
 
 ## Phantom Types
 

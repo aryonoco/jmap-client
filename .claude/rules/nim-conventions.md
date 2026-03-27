@@ -36,6 +36,12 @@ This project uses `results` 0.5.1 (nim-results by arnetheduck).
 Result[T, E]   # Success(T) | Error(E) — stack-allocated discriminated union
 Opt[T]         # Result[T, void] — optional value, no error payload
 
+# Three lifecycle railways (architecture-options.md §1.6C):
+# Track 0 (construction): Result[T, ValidationError]   — smart constructors
+# Track 1 (outer):        JmapResult[T]                — transport/request
+# Track 2 (inner):        Result[T, MethodError]       — per-invocation
+# Data-level:             Result[T, SetError]           — per-item in /set
+
 # Project alias (defined in types.nim):
 JmapResult[T] = Result[T, ClientError]
 ```
@@ -159,10 +165,13 @@ proc discoverSession(client: JmapClient): JmapResult[Session] =
 
 ## Immutability
 
-- `let` by default. `var` only when building mutable accumulators in the
-  imperative shell, or as a local variable inside `func` when building a
+- `let` by default. `var` only in three patterns: (a) mutable accumulators
+  in the imperative shell; (b) local variable inside `func` when building a
   return value from stdlib containers whose APIs require mutation (e.g.,
-  `Table`). `strictFuncs` enforces the mutation does not escape.
+  `Table`); (c) owned `var` parameter in `func` for builder accumulation
+  (Decision 3.3B) — `strictFuncs` permits mutation of owned `var` parameters;
+  only mutation through immutable parameters' `ref`/`ptr` chains is forbidden.
+  `strictFuncs` enforces that mutation does not escape in patterns (b) and (c).
 - `strictDefs` enabled — all variables must be initialised before use.
 - Value types (`object`) over `ref` in functional core — `let` is deeply
   immutable. `let` on `ref` does NOT prevent field mutation.

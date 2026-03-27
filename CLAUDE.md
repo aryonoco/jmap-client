@@ -43,7 +43,7 @@ Architecture: 5 layers (see `docs/architecture-options.md`). Layer 1 detailed de
 - `src/jmap_client/capabilities.nim` — `CapabilityKind`, `CoreCapabilities`, `ServerCapability`
 - `src/jmap_client/session.nim` — `Account`, `UriTemplate`, `Session`
 - `src/jmap_client/envelope.nim` — `Invocation`, `Request`, `Response`, `ResultReference`, `Referencable[T]`
-- `src/jmap_client/framework.nim` — `FilterOperator`, `Filter[C]`, `Comparator`, `PatchObject`, `AddedItem`
+- `src/jmap_client/framework.nim` — `PropertyName`, `FilterOperator`, `Filter[C]`, `Comparator`, `PatchObject`, `AddedItem`
 - `src/jmap_client/errors.nim` — `TransportError`, `RequestError`, `ClientError`, `MethodError`, `SetError`
 - `src/jmap_client/client.nim` — HTTP client wrapper (Layer 4)
 - `tests/` — Test modules
