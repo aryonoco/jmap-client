@@ -116,14 +116,15 @@ declarations, seq operations), the type must be explicit.
 
 ---
 
-## 6. Using `flatMap` with `proc` Instead of `func`
+## 6. Using `proc` Callbacks in the Functional Core
 
-**Detection**: Passing a `proc` to `flatMap` or `map`.
+**Detection**: Passing a `proc` (not `func`) callback to `map`, `flatMap`, or
+`mapErr` inside `func` context.
 
 **Wrong**:
 ```nim
 result.flatMap(proc(x: int): Result[string, Error] = ok($x))
-# May fail under strictFuncs — proc is not guaranteed pure
+# Inside a func, proc propagates side effects — compiler rejects
 ```
 
 **Right**:
@@ -132,9 +133,10 @@ result.flatMap(func(x: int): Result[string, Error] = ok($x))
 # func is compiler-enforced pure
 ```
 
-**Why**: `map` and `flatMap` are `func` (pure). Under `strictFuncs`, they
-require their callback argument to also be provably pure. Use `func` for
-the callback to satisfy the compiler.
+**Why**: The library accepts `proc` callbacks (effects propagate via
+`{.effectsOf: f.}`), but this project's functional core uses `func` exclusively.
+Inside a `func` (noSideEffect), passing a `proc` callback would propagate side
+effects, which the compiler rejects. Use `func` for callbacks in all domain logic.
 
 ---
 

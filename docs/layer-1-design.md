@@ -65,7 +65,7 @@ has a concrete reason tied to the strict compiler constraints.
 | `std/sets` | `HashSet[string]` | For `CoreCapabilities.collationAlgorithms` — proper set semantics (no duplicates, O(1) lookup) |
 | `std/strutils` | `parseEnum[T](s, default)` | `func`, total, no exceptions — replaces manual `CapabilityKind` case statement |
 | `std/json` | `JsonNode`, `JsonNodeKind` | For untyped capability data (`ServerCapability`), `Invocation.arguments` |
-| `std/sequtils` | `allIt`, `anyIt` | Predicate templates that expand inline — work inside `func`. For collection building, prefer `collect` from `std/sugar` per architecture. |
+| `std/sequtils` | `allIt`, `anyIt` | Predicate templates that expand inline — work inside `func`. Architecture convention: prefer `collect` from `std/sugar` over `mapIt`/`filterIt` for collection building in Layers 2+. Layer 1 has no collection-building operations. |
 | `std/setutils` | `set[CapabilityKind]` | Bitset for efficient capability membership checks |
 | built-in `set[char]` | Charset validation constants | `{'A'..'Z', 'a'..'z', '0'..'9', '-', '_'}` for `Id` validation |
 
@@ -196,7 +196,7 @@ const Base64UrlChars* = {'A'..'Z', 'a'..'z', '0'..'9', '-', '_'}
 
 **Smart constructors:**
 
-Two constructors following Decision D4 (dual validation strictness):
+Two constructors following the dual validation strictness principle (§2.1):
 
 ```nim
 func parseId*(raw: string): Result[Id, ValidationError] =
@@ -429,10 +429,11 @@ defineStringDistinctOps(AccountId)
 
 ```nim
 func parseAccountId*(raw: string): Result[AccountId, ValidationError] =
-  ## Lenient: non-empty, no control characters.
-  ## AccountIds are server-assigned — same lenient rules as parseIdFromServer.
-  if raw.len == 0:
-    return err(validationError("AccountId", "must not be empty", raw))
+  ## Lenient: 1-255 octets, no control characters.
+  ## AccountIds are server-assigned Id[Account] values (§1.6.2, §2) —
+  ## same lenient rules as parseIdFromServer.
+  if raw.len < 1 or raw.len > 255:
+    return err(validationError("AccountId", "length must be 1-255 octets", raw))
   if raw.anyIt(it < ' '):
     return err(validationError("AccountId", "contains control characters", raw))
   ok(AccountId(raw))
@@ -462,9 +463,12 @@ consumers.
 
 ```nim
 func parseJmapState*(raw: string): Result[JmapState, ValidationError] =
-  ## Non-empty. The RFC does not further constrain state tokens.
+  ## Non-empty, no control characters. Server-assigned — same defensive
+  ## checks as other server-assigned identifiers.
   if raw.len == 0:
     return err(validationError("JmapState", "must not be empty", raw))
+  if raw.anyIt(it < ' '):
+    return err(validationError("JmapState", "contains control characters", raw))
   ok(JmapState(raw))
 ```
 
@@ -873,7 +877,7 @@ deliberately does not validate two RFC cross-reference constraints:
    per-account capabilities not yet in the top-level object (e.g., during
    rolling deployments or with vendor extensions).
 
-This follows the same principle as Decision D4: accept server data leniently,
+This follows the same dual validation strictness principle (§2.1): accept server data leniently,
 construct own data strictly. If stricter validation is later desired, provide
 an opt-in `func validateSessionRefs*(session: Session): Result[void,
 ValidationError]` rather than baking it into `parseSession`.
@@ -1042,8 +1046,8 @@ type
 func direct*[T](value: T): Referencable[T] =
   Referencable[T](kind: rkDirect, value: value)
 
-func referenceTo*[T](ref: ResultReference): Referencable[T] =
-  Referencable[T](kind: rkReference, reference: ref)
+func referenceTo*[T](reference: ResultReference): Referencable[T] =
+  Referencable[T](kind: rkReference, reference: reference)
 ```
 
 **Serialisation note (Layer 2).** `Referencable[seq[Id]]` serialises as either
@@ -1817,8 +1821,8 @@ built-in.
 | `JmapInt` | `parseJmapInt` | `-2^53+1 <= value <= 2^53-1` | `Result[JmapInt, ValidationError]` |
 | `Date` | `parseDate` | Pattern: T separator, uppercase, no zero frac | `Result[Date, ValidationError]` |
 | `UTCDate` | `parseUtcDate` | Date rules + ends with Z | `Result[UTCDate, ValidationError]` |
-| `AccountId` | `parseAccountId` | Lenient: non-empty, no control chars | `Result[AccountId, ValidationError]` |
-| `JmapState` | `parseJmapState` | Non-empty | `Result[JmapState, ValidationError]` |
+| `AccountId` | `parseAccountId` | Lenient: 1-255 octets, no control chars | `Result[AccountId, ValidationError]` |
+| `JmapState` | `parseJmapState` | Non-empty, no control chars | `Result[JmapState, ValidationError]` |
 | `MethodCallId` | `parseMethodCallId` | Non-empty | `Result[MethodCallId, ValidationError]` |
 | `CreationId` | `parseCreationId` | Non-empty, no `#` prefix | `Result[CreationId, ValidationError]` |
 | `UriTemplate` | `parseUriTemplate` | Non-empty | `Result[UriTemplate, ValidationError]` |
@@ -1882,8 +1886,8 @@ primitives.nim       (std/hashes, std/sequtils)
 identifiers.nim      (std/hashes, std/sequtils)
    ↑         ↑
    |     session.nim     (std/hashes, std/tables, std/json, std/sequtils)
-   |
-envelope.nim         (std/json, std/tables)
+   |         |
+envelope.nim --------+  (std/json, std/tables)
       ↑
 types.nim            (re-exports all, defines JmapResult[T])
 ```
@@ -1892,10 +1896,17 @@ All arrows point upward — no cycles. `errors.nim` and `framework.nim` are
 parallel leaves, both depending on `primitives.nim` but not on each other.
 `capabilities.nim` depends on `primitives.nim` (for `UnsignedInt`), not on
 `identifiers.nim`. `envelope.nim` depends on `identifiers.nim` (for
-`MethodCallId`, `CreationId`, `Id`, `JmapState`), not on `session.nim`.
+`MethodCallId`, `CreationId`, `JmapState`) and `primitives.nim` (for `Id`),
+not on `session.nim`.
 `session.nim` depends on both `identifiers.nim` (for `AccountId`,
 `JmapState`) and `capabilities.nim` (for `CapabilityKind`,
 `ServerCapability`, `CoreCapabilities`).
+
+**Re-export policy.** Individual modules do not re-export their Layer 1
+dependencies. Each module imports only what it directly needs. Downstream
+code (Layer 2+, tests) should import `types` for the full public API. When
+a module's public types reference types from another module (e.g., `envelope`
+uses `Id` from `primitives`), it imports that module directly.
 
 `types.nim` re-exports everything and defines the railway alias:
 
@@ -2067,6 +2078,14 @@ The deserialiser should accept both forms.
 | `CapabilityKind` | `""` | `ckUnknown` | empty string |
 | `CreationId` | `"#abc"` | `err` | must not include # prefix |
 | `CreationId` | `"abc"` | `ok` | valid creation ID |
+| `AccountId` | `""` | `err` | empty |
+| `AccountId` | `"A13824"` | `ok` | valid (RFC §2.1 example) |
+| `AccountId` | `"a" * 256` | `err` | exceeds 255 octets |
+| `AccountId` | `"a" * 255` | `ok` | maximum valid length |
+| `AccountId` | `"abc\x00def"` | `err` | control characters rejected |
+| `JmapState` | `""` | `err` | empty |
+| `JmapState` | `"75128aab4b1b"` | `ok` | valid (RFC §2.1 example) |
+| `JmapState` | `"abc\x00def"` | `err` | control characters rejected |
 | `Session` | missing core capability | `err` | RFC MUST constraint |
 | `Session` | downloadUrl without `{blobId}` | `err` | RFC MUST constraint |
 | `Session` | valid RFC §2.1 example | `ok` | golden test |

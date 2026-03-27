@@ -248,7 +248,7 @@ Internal import DAG (each module imports only what its types reference):
 | `framework` | `primitives` |
 | `errors` | `primitives` |
 | `session` | `identifiers`, `capabilities` |
-| `envelope` | `identifiers` |
+| `envelope` | `identifiers`, `primitives` |
 | `types` | all of the above (re-export hub) |
 
 No cycles. The graph is a DAG, not a linear chain — `identifiers`,
@@ -310,9 +310,16 @@ separate distinct type. Dates as distinct strings.
 
 The boilerplate cost is real but small (~3 lines per type). The safety benefit is
 real and catches plausible bugs. For RFC 8620 Core specifically, the distinct
-types needed are: `AccountId`, `JmapState`, and a generic `Id` (for method call
-IDs and creation IDs that are not entity-specific). When adding RFC 8621 later:
-`MailboxId`, `EmailId`, `ThreadId`, etc.
+types needed are: `Id` (entity identifiers per §1.2, with base64url/1-255
+constraints), `AccountId` (§2, `Id[Account]` — server-assigned, uses lenient
+§1.2 validation: 1-255 octets, no control characters), `JmapState`,
+`MethodCallId` (§3.2, arbitrary client string — not constrained by §1.2),
+and `CreationId` (§3.3, client-generated, no `#` prefix — also not
+constrained by §1.2). `MethodCallId` and `CreationId` are separate from `Id`
+because the RFC imposes different constraints: §1.2's base64url charset and
+1-255 octet length rules apply to entity identifiers, not to protocol-level
+identifiers. When adding RFC 8621 later: `MailboxId`,
+`EmailId`, `ThreadId`, etc.
 
 All distinct identifier types use the `{.requiresInit.}` pragma to prevent
 default construction. Without it, `var x: AccountId` silently creates an empty
@@ -332,12 +339,17 @@ capability-specific JSON object. The shape varies per capability URI.
 CapabilityKind = enum
   ckCore, ckMail, ckSubmission, ..., ckUnknown
 
-Capability = object
+# Initial (RFC 8620 only — ckCore is the only typed branch):
+ServerCapability = object
+  rawUri: string  ## always populated — lossless round-trip
   case kind: CapabilityKind
   of ckCore: core: CoreCapabilities
-  of ckMail: mail: MailCapabilities
-  ...
-  of ckUnknown: rawData: JsonNode
+  else: rawData: JsonNode
+
+# When adding RFC 8621, ckMail graduates from `else` to an explicit branch:
+#   of ckCore: core: CoreCapabilities
+#   of ckMail: mail: MailCapabilities
+#   else: rawData: JsonNode
 ```
 
 Consumers match on the `kind` enum (exhaustive in Nim).
@@ -539,13 +551,14 @@ Simple key-value map.
 ```
 PatchObject = distinct Table[string, JsonNode]
 
-func setProp(patch: PatchObject, path: string, value: JsonNode): PatchObject
-func deleteProp(patch: PatchObject, path: string): PatchObject
+func setProp(patch: PatchObject, path: string, value: JsonNode): Result[PatchObject, ValidationError]
+func deleteProp(patch: PatchObject, path: string): Result[PatchObject, ValidationError]
 ```
 
 - **Pros:**
   - `distinct` prevents treating as a regular table.
-  - Smart constructors can validate JSON Pointer paths.
+  - Smart constructors validate JSON Pointer paths (non-empty) at construction
+    time, returning `Result` per the ROP principle.
   - Type communicates intent: "this is a JMAP patch, not a bag of key-values."
 - **Cons:** Path is still a string. Cannot statically validate against entity
   properties.
@@ -1070,7 +1083,7 @@ ResponseHandle[T] = distinct string  # wraps the call ID; T is phantom
 let queryHandle: ResponseHandle[QueryResponse[Mailbox]] = builder.addQuery(...)
 
 # Response extraction is type-safe:
-func get[T](resp: JmapResponse, handle: ResponseHandle[T]): Result[T, MethodError]
+func get[T](resp: Response, handle: ResponseHandle[T]): Result[T, MethodError]
 ```
 
 - **Pros:**
@@ -1092,6 +1105,13 @@ Phantom-typed handles. Compile-time response type safety via the phantom
 parameter. The per-invocation `Result[T, MethodError]` is the inner railway.
 Strictly better than untyped extraction, even though Nim cannot prove the
 relationship as strongly as Haskell.
+
+`get[T]` is a Layer 3 function that operates on the Layer 1 `Response` type
+directly — no separate wrapper type is needed. JSON-to-type deserialisation
+(Layer 2's `fromJson` functions) is a pure tree transform (`JsonNode` → `T`,
+no IO), compatible with `func`. `get[T]` locates the `Invocation` by matching
+the `ResponseHandle`'s call ID, then delegates to the appropriate Layer 2
+`fromJson` to produce the typed result.
 
 ### 3.5 Entity Type Framework
 
@@ -1347,7 +1367,7 @@ let queryHandle = builder.addQuery(Mailbox, filter = ...)
 
 let idsRef: ResultReference = queryHandle.reference("/ids")
 
-builder.addGet(Mailbox, ids = referencable(idsRef))
+builder.addGet(Mailbox, ids = referenceTo(idsRef))
 # ids : Referencable[seq[Id]] = rkReference branch
 ```
 
@@ -1433,11 +1453,11 @@ effects: IO). Everything below is `func` (pure). The boundary is explicit and
 narrow:
 
 ```
-proc send(client: JmapClient, request: Request): JmapResult[JmapResponse]
+proc send(client: JmapClient, request: Request): JmapResult[Response]
 ```
 
 All errors become `ClientError` on the error track. Success produces an immutable
-`JmapResponse` value.
+`Response` value.
 
 ---
 

@@ -63,8 +63,8 @@ Opt.none(int)         # alias for err()
 ## Predicates
 
 ```nim
-func isOk*(self: Result): bool    # true if value is set
-func isErr*(self: Result): bool   # true if error is set
+template isOk*(self: Result): bool    # true if value is set
+template isErr*(self: Result): bool   # true if error is set
 template isSome*(self: Opt): bool # alias for isOk
 template isNone*(self: Opt): bool # alias for isErr
 ```
@@ -98,23 +98,23 @@ For `Opt[T]`, `?` works the same — returns `Opt.none` on error.
 ### Value transformation
 
 ```nim
-func map*[T0, E, T1](self: Result[T0, E], f: func(T0): T1): Result[T1, E]
+func map*[T0: not void, E; T1: not void](self: Result[T0, E], f: proc(x: T0): T1): Result[T1, E]
   ## Transform success value. Error passes through unchanged.
-  ## Works with void T0 and/or T1.
+  ## 4 overloads exist for void T0/T1 combinations — see llms-full.txt lines 522-588.
 
-func flatMap*[T0, E, T1](self: Result[T0, E], f: func(T0): Result[T1, E]): Result[T1, E]
+func flatMap*[T0: not void, E, T1](self: Result[T0, E], f: proc(x: T0): Result[T1, E]): Result[T1, E]
   ## Chain fallible operations (monadic bind).
-  ## f must return the same error type E.
+  ## f must return the same error type E. Void-T0 overload also exists.
 ```
 
 ### Error transformation
 
 ```nim
-func mapErr*[T, E0, E1](self: Result[T, E0], f: func(E0): E1): Result[T, E1]
+func mapErr*[T; E0: not void, E1: not void](self: Result[T, E0], f: proc(x: E0): E1): Result[T, E1]
   ## Transform error value. Success passes through unchanged.
-  ## Works with void E0 and/or E1.
+  ## 4 overloads exist for void E0/E1 combinations — see llms-full.txt lines 614-666.
 
-func mapConvert*[T0, E](self: Result[T0, E], T1: type): Result[T1, E]
+func mapConvert*[T0: not void, E](self: Result[T0, E], T1: type): Result[T1, E]
   ## Convert value type using implicit conversion (T0 must convert to T1)
 
 func mapConvertErr*[T, E0](self: Result[T, E0], E1: type): Result[T, E1]
@@ -124,13 +124,20 @@ func mapConvertErr*[T, E0](self: Result[T, E0], E1: type): Result[T, E1]
 ### Filtering
 
 ```nim
-func filter*[T, E](self: Result[T, E], pred: func(T): bool, err: E): Result[T, E]
-  ## If ok and pred(value) is false, convert to err(err).
+func filter*[T, E](self: Result[T, E], callback: proc(x: T): Result[void, E]): Result[T, E]
+  ## If ok and callback(value) returns err, return that error. Else return self.
   ## If already err, pass through unchanged.
 
-func filter*[T](self: Opt[T], pred: func(T): bool): Opt[T]
-  ## If some and pred(value) is false, convert to none.
+func filter*[E](self: Result[void, E], callback: proc(): Result[void, E]): Result[void, E]
+  ## Void-value variant. If ok and callback() returns err, return that error.
+
+func filter*[T](self: Opt[T], callback: proc(x: T): bool): Opt[T]
+  ## If some and callback(value) is false, convert to none.
 ```
+
+**Project convention**: The library accepts `proc` callbacks (effects propagate via
+`{.effectsOf: f.}`). This project uses `func` callbacks exclusively in domain logic —
+all Layers 1-3 are pure. See CLAUDE.md.
 
 ### Flattening
 
@@ -160,7 +167,7 @@ template orErr*[T, E0, E1](self: Result[T, E0], error: E1): Result[T, E1]
 ### `valueOr` — preferred (lazy, error access)
 
 ```nim
-template valueOr*[T, E](self: Result[T, E], def: untyped): T
+template valueOr*[T: not void, E](self: Result[T, E], def: untyped): T
   ## Return value if ok, else evaluate def.
   ## def is lazily evaluated. Inside def, `error` refers to the error value.
 
@@ -183,7 +190,7 @@ let name = result.get("default")
 ### `errorOr` — for error access with fallback
 
 ```nim
-template errorOr*[T, E](self: Result[T, E], def: untyped): E
+template errorOr*[T; E: not void](self: Result[T, E], def: untyped): E
   ## Return error if err, else evaluate def.
   ## Inside def, `value` refers to the success value.
 ```
@@ -210,7 +217,9 @@ template tryGet*[T, E](self: Result[T, E]): T # alias for tryValue
 
 If `E` is an `Exception` type or has a `toException` converter, raises that
 exception. Otherwise raises `ResultError[E]`. Unlike `value`/`get`, this raises
-`CatchableError` (not `Defect`), so it IS caught by `{.raises: [].}`.
+`CatchableError` (not `Defect`), so the compiler WILL reject calls to `tryValue`
+inside `{.raises: [].}` functions — unlike `value`/`get`, which raise `Defect` and
+silently bypass the raises tracker.
 
 ## Conditional Execution
 
@@ -242,13 +251,36 @@ func `$`*(self: Result): string                    # string representation
 func `==`*(lhs, rhs: Result): bool                 # deep equality
 ```
 
+## Collection Iterators
+
+For batch processing of `seq[Result]` or `seq[Opt]` — e.g. parsing an array of
+JMAP method responses where each can independently fail. For single-Result ROP
+pipelines, prefer `?`, `valueOr`, or `map`.
+
+```nim
+iterator values*[T, E](self: Result[T, E]): T
+  ## Yield the value if ok, nothing if err. Result as a 0-or-1 collection.
+
+iterator errors*[T, E](self: Result[T, E]): E
+  ## Yield the error if err, nothing if ok.
+
+iterator items*[T](self: Opt[T]): T
+  ## Yield the value if some, nothing if none. Opt as a 0-or-1 collection.
+```
+
+```nim
+# Collect all successful parses from a batch, discarding errors
+let accounts: seq[Account] =
+  responses.mapIt(parseAccount(it)).mapIt(it.values.toSeq).concat
+```
+
 ## Exception Wrapping
 
 ```nim
 template catch*(body: typed): Result[type(body), ref CatchableError]
   ## Execute body, catching any CatchableError into Result.
 
-template capture*[E](T: type, ex: ref E): Result[T, ref E]
+template capture*[E: Exception](T: type, ex: ref E): Result[T, ref E]
   ## Wrap an existing exception ref into a Result.
 ```
 

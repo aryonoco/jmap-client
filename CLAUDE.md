@@ -23,26 +23,46 @@ This project uses a devcontainer. Tool versions are managed by mise — `mise.to
 - `just docs` - Generate HTML documentation
 - `just versions` - Show tool versions
 
+## Dependencies
+
+Sole external dependency: `nim-results` (status-im/nim-results) — provides `Result[T, E]`, `Opt[T]`, `?` operator. See `.claude/rules/nim-conventions.md` for usage.
+
+## Compiler Flags
+
+Defined in `jmap_client.nimble` (single source of truth): `--mm:arc`, `strictDefs`, `strictFuncs`, `strictCaseObjects`, `strictNotNil`, `styleCheck:error`. See `.claude/rules/nim-type-safety.md` for implications.
+
 ## Project Structure
 
-Architecture: 5 layers (see `docs/architecture-options.md`).
+Architecture: 5 layers (see `docs/architecture-options.md`). Layer 1 detailed design in `docs/layer-1-design.md`.
 
-- `src/jmap_client.nim` - Library entry point (C ABI exports, Layer 5)
-- `src/jmap_client/types.nim` - Domain types, errors, Result aliases (Layer 1)
-- `src/jmap_client/errors.nim` - Error types and constructors (Layer 1)
-- `src/jmap_client/session.nim` - JMAP session types (Layer 1)
-- `src/jmap_client/client.nim` - HTTP client wrapper (Layer 4)
-- `tests/` - Test modules (test_types)
+- `src/jmap_client.nim` — Library entry point (C ABI exports, Layer 5)
+- `src/jmap_client/types.nim` — Re-exports all Layer 1 modules; `JmapResult[T]` alias
+- `src/jmap_client/validation.nim` — `ValidationError`, borrow templates, charset constants
+- `src/jmap_client/primitives.nim` — `Id`, `UnsignedInt`, `JmapInt`, `Date`, `UTCDate`
+- `src/jmap_client/identifiers.nim` — `AccountId`, `JmapState`, `MethodCallId`, `CreationId`
+- `src/jmap_client/capabilities.nim` — `CapabilityKind`, `CoreCapabilities`, `ServerCapability`
+- `src/jmap_client/session.nim` — `Account`, `UriTemplate`, `Session`
+- `src/jmap_client/envelope.nim` — `Invocation`, `Request`, `Response`, `ResultReference`, `Referencable[T]`
+- `src/jmap_client/framework.nim` — `FilterOperator`, `Filter[C]`, `Comparator`, `PatchObject`, `AddedItem`
+- `src/jmap_client/errors.nim` — `TransportError`, `RequestError`, `ClientError`, `MethodError`, `SetError`
+- `src/jmap_client/client.nim` — HTTP client wrapper (Layer 4)
+- `tests/` — Test modules
 
 ## Functional Programming Conventions
 
 - Follow "Functional Core, Imperative Shell" patterns consistently
 - Use `func` for pure functions, `proc` only for side effects
 - Use `let` bindings; `var` only when absolutely necessary
-- Return `JmapResult[T]` for fallible operations, never raise exceptions
+- Three error railways (architecture Decision 2C):
+  - Smart constructors: `Result[T, ValidationError]` (construction-time)
+  - Outer railway: `JmapResult[T]` = `Result[T, ClientError]` (transport/request)
+  - Inner railway: `Result[T, MethodError]` (per-invocation)
+- Never raise exceptions
 - Use `Opt[T]` for optional values with `.isSome`/`.isNone`
+- Parse, don't validate — smart constructors produce well-typed values or structured errors
+- Make illegal states unrepresentable — distinct types, case objects, smart constructors
 - Prefer expression-oriented style: if/case/block as expressions
-- Chain operations with UFCS: `.filterIt().mapIt().foldl()`
+- Prefer `collect` (std/sugar) for building new collections; `allIt`/`anyIt` for predicates
 - `{.push raises: [].}` on every module
 
 ## Type Safety
@@ -54,6 +74,13 @@ Architecture: 5 layers (see `docs/architecture-options.md`).
 
 - Comments and docstrings: British English spelling
 - Variable names and code identifiers: US English spelling
+
+## Nim Coding Rules
+
+Detailed Nim patterns are in `.claude/rules/`:
+- `nim-conventions.md` — ROP, purity, immutability, expression style, naming
+- `nim-type-safety.md` — distinct types, `{.requiresInit.}`, case objects, enums, nil safety
+- `nim-ffi-boundary.md` — C ABI exports, type mapping, memory ownership, error projection
 
 ## Workflow
 
