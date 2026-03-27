@@ -163,6 +163,7 @@ clean:
     rm -rf bin/ nimcache/ htmldocs/
     rm -f testresults.html outputGotten.txt
     rm -f tests/megatest tests/megatest.nim
+    find tests/ -maxdepth 1 -type f -executable -delete
     @echo "Clean complete"
 
 # Deep clean (includes nimble cache)
