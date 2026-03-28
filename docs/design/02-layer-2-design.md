@@ -36,7 +36,9 @@ PatchObject — smart constructors only), 1.6C (three railways), 1.7C
   smart constructors in a single pipeline. Layer 4 lifts the result to
   `JmapResult[T]` (transport railway) at the IO boundary.
 - **Functional Core, Imperative Shell** — **Layer 2 is entirely `func`.**
-  No `proc`, no exception handling, no `try/except`. Every function in
+  No `proc` **definitions**, no exception handling, no `try/except`.
+  Callback parameters use `proc {.noSideEffect.}` for Nim's type system
+  (functionally equivalent to `func`; see §1.2). Every function in
   Layer 2 is a pure transform: `JsonNode → Result[T, ValidationError]`
   (deserialisation) or `T → JsonNode` (serialisation). Layer 2 receives
   pre-parsed `JsonNode` trees — the `string → JsonNode` step requires
@@ -305,9 +307,14 @@ func fromJson*(_: typedesc[Invocation], node: JsonNode
   checkJsonKind(node, JArray, "Invocation")
   if node.len != 3:
     return err(parseError("Invocation", "expected exactly 3 elements"))
-  let name = node.getElems(@[])[0].getStr("")
-  let arguments = node.getElems(@[])[1]
-  let callIdRaw = node.getElems(@[])[2].getStr("")
+  let elems = node.getElems(@[])
+  checkJsonKind(elems[0], JString, "Invocation",
+    "method name must be string")
+  let name = elems[0].getStr("")
+  let arguments = elems[1]
+  checkJsonKind(elems[2], JString, "Invocation",
+    "method call ID must be string")
+  let callIdRaw = elems[2].getStr("")
   if name.len == 0:
     return err(parseError("Invocation", "empty method name"))
   checkJsonKind(arguments, JObject, "Invocation",
@@ -338,14 +345,12 @@ let isAscending =
 ```
 
 ```nim
-# Opt[string] field — absent or null → Opt.none
+# Opt[string] field — absent, null, or wrong kind → Opt.none (§1.4b)
 let description: Opt[string] =
-  if node{"description"}.isNil or node{"description"}.kind == JNull:
+  if node{"description"}.isNil or node{"description"}.kind != JString:
     Opt.none(string)
-  elif node{"description"}.kind == JString:
-    Opt.some(node{"description"}.getStr(""))
   else:
-    return err(parseError("MethodError", "description must be string"))
+    Opt.some(node{"description"}.getStr(""))
 ```
 
 ```nim
@@ -439,6 +444,50 @@ This is an **intentional trade-off**:
 
 This matches Layer 1's design: `ValidationError` carries `typeName` +
 `message` + `value`, not a full call trace.
+
+### 1.4b Opt Field Leniency Policy
+
+All `Opt[T]` fields use a **lenient two-branch pattern** for wrong JSON
+kinds: absent, null, or wrong kind all map to `Opt.none(T)`. Wrong kind
+does NOT return `err`.
+
+**Rationale:**
+
+- This is a CLIENT library parsing server-originated data. Postel's law
+  applies: "be liberal in what you accept."
+- `Opt` fields are optional by definition — callers already handle the
+  absent case via `isNone`/`isSome`.
+- For error types specifically, strictness is actively harmful: if
+  `MethodError.description` has wrong kind, a strict approach fails the
+  entire `MethodError` parse, and the caller loses the critical `type`
+  field entirely.
+- "Absent" and "malformed" are equivalent for optional fields: both mean
+  "not usable."
+
+**Canonical patterns:**
+
+```nim
+# Opt[string] — lenient (wrong kind → none):
+let field: Opt[string] =
+  if node{"field"}.isNil or node{"field"}.kind != JString:
+    Opt.none(string)
+  else:
+    Opt.some(node{"field"}.getStr(""))
+
+# Opt[int] — lenient (wrong kind → none):
+let field: Opt[int] =
+  if node{"field"}.isNil or node{"field"}.kind != JInt:
+    Opt.none(int)
+  else:
+    Opt.some(int(node{"field"}.getBiggestInt(0)))
+```
+
+**Scope:** This policy applies to simple scalar `Opt` fields (Sections
+4–8). Complex container `Opt` types like `Opt[Table[CreationId, Id]]`
+(Request/Response `createdIds`) retain strict three-branch handling
+because a wrong container kind (e.g., `"createdIds": "string"`)
+indicates a clear protocol violation, not a supplementary field issue.
+Required (non-`Opt`) fields always use strict `checkJsonKind`.
 
 ### 1.5 Enum Deserialisation Totality
 
@@ -580,13 +629,11 @@ func fromJson*(_: typedesc[Comparator], node: JsonNode
       node{"isAscending"}.getBool(true)
     else:
       return err(parseError("Comparator", "isAscending must be boolean"))
-  let collation: Opt[string] =
-    if node{"collation"}.isNil or node{"collation"}.kind == JNull:
+  let collation: Opt[string] =  # §1.4b: lenient
+    if node{"collation"}.isNil or node{"collation"}.kind != JString:
       Opt.none(string)
-    elif node{"collation"}.kind == JString:
-      Opt.some(node{"collation"}.getStr(""))
     else:
-      return err(parseError("Comparator", "collation must be string"))
+      Opt.some(node{"collation"}.getStr(""))
   ? parseComparator(property, isAscending, collation)
 ```
 
@@ -820,8 +867,12 @@ func fromJson*(_: typedesc[FilterOperator], node: JsonNode
       "unknown operator: " & node.getStr("")))
 ```
 
-**Module:** `src/jmap_client/serde.nim` (CapabilityKind, error type enums),
-`src/jmap_client/serde_framework.nim` (FilterOperator)
+**Module:** `src/jmap_client/serde_framework.nim` (FilterOperator only).
+`CapabilityKind` and error type enums (`RequestErrorType`,
+`MethodErrorType`, `SetErrorType`) have no standalone `toJson`/`fromJson`
+— they are parsed inline via Layer 1's total parse functions
+(`parseCapabilityKind`, `parseRequestErrorType`, etc.) within their
+containing type's `fromJson`. See §10 inventory for details.
 
 ---
 
@@ -1013,6 +1064,8 @@ func fromJson*(_: typedesc[Account], node: JsonNode
     ): Result[Account, ValidationError] =
   ## Deserialise JSON to Account (RFC 8620 §2).
   checkJsonKind(node, JObject, "Account")
+  checkJsonKind(node{"name"}, JString, "Account",
+    "missing or invalid name")
   let name = node{"name"}.getStr("")
   checkJsonKind(node{"isPersonal"}, JBool, "Account",
     "missing or invalid isPersonal")
@@ -1115,14 +1168,16 @@ func fromJson*(_: typedesc[Session], node: JsonNode
     let account = ? Account.fromJson(acctData)
     accounts[accountId] = account
 
-  # 3. Parse primaryAccounts
+  # 3. Parse primaryAccounts (required per RFC §2)
   let primaryNode = node{"primaryAccounts"}
+  checkJsonKind(primaryNode, JObject, "Session",
+    "missing or invalid primaryAccounts")
   var primaryAccounts = initTable[string, AccountId]()
-  if not primaryNode.isNil and primaryNode.kind == JObject:
-    for uri, idNode in primaryNode.pairs:  # kind verified above
-      if not idNode.isNil and idNode.kind == JString:
-        let accountId = ? parseAccountId(idNode.getStr(""))
-        primaryAccounts[uri] = accountId
+  for uri, idNode in primaryNode.pairs:  # kind verified above
+    checkJsonKind(idNode, JString, "Session",
+      "primaryAccounts value must be string")
+    let accountId = ? parseAccountId(idNode.getStr(""))
+    primaryAccounts[uri] = accountId
 
   # 4. Parse scalar fields
   checkJsonKind(node{"username"}, JString, "Session",
@@ -1275,6 +1330,8 @@ func fromJson*(_: typedesc[Request], node: JsonNode
       var tbl = initTable[CreationId, Id]()
       for k, v in node{"createdIds"}.pairs:  # kind verified above
         let cid = ? parseCreationId(k)
+        checkJsonKind(v, JString, "Request",
+          "createdIds value must be string")
         let id = ? parseIdFromServer(v.getStr(""))
         tbl[cid] = id
       Opt.some(tbl)
@@ -1341,6 +1398,8 @@ func fromJson*(_: typedesc[Response], node: JsonNode
     let inv = ? Invocation.fromJson(respNode)
     methodResponses.add(inv)
 
+  checkJsonKind(node{"sessionState"}, JString, "Response",
+    "missing or invalid sessionState")
   let sessionState = ? parseJmapState(
     node{"sessionState"}.getStr(""))
 
@@ -1351,6 +1410,8 @@ func fromJson*(_: typedesc[Response], node: JsonNode
       var tbl = initTable[CreationId, Id]()
       for k, v in node{"createdIds"}.pairs:  # kind verified above
         let cid = ? parseCreationId(k)
+        checkJsonKind(v, JString, "Response",
+          "createdIds value must be string")
         let id = ? parseIdFromServer(v.getStr(""))
         tbl[cid] = id
       Opt.some(tbl)
@@ -1395,8 +1456,14 @@ func fromJson*(_: typedesc[ResultReference], node: JsonNode
     ): Result[ResultReference, ValidationError] =
   ## Deserialise JSON to ResultReference (RFC 8620 §3.7).
   checkJsonKind(node, JObject, "ResultReference")
+  checkJsonKind(node{"resultOf"}, JString, "ResultReference",
+    "missing or invalid resultOf")
   let resultOf = ? parseMethodCallId(node{"resultOf"}.getStr(""))
+  checkJsonKind(node{"name"}, JString, "ResultReference",
+    "missing or invalid name")
   let name = node{"name"}.getStr("")
+  checkJsonKind(node{"path"}, JString, "ResultReference",
+    "missing or invalid path")
   let path = node{"path"}.getStr("")
   if name.len == 0:
     return err(parseError("ResultReference", "missing name"))
@@ -1804,13 +1871,11 @@ func fromJson*(_: typedesc[MethodError], node: JsonNode
   let rawType = node{"type"}.getStr("")
   if rawType.len == 0:
     return err(parseError("MethodError", "missing type field"))
-  let description: Opt[string] =
-    if node{"description"}.isNil or node{"description"}.kind == JNull:
+  let description: Opt[string] =  # §1.4b: lenient
+    if node{"description"}.isNil or node{"description"}.kind != JString:
       Opt.none(string)
-    elif node{"description"}.kind == JString:
-      Opt.some(node{"description"}.getStr(""))
     else:
-      return err(parseError("MethodError", "description must be string"))
+      Opt.some(node{"description"}.getStr(""))
   let extras = collectExtras(node, MethodErrorKnownKeys)
   ok(methodError(rawType = rawType, description = description, extras = extras))
 ```
@@ -1871,13 +1936,11 @@ func fromJson*(_: typedesc[SetError], node: JsonNode
   let rawType = node{"type"}.getStr("")
   if rawType.len == 0:
     return err(parseError("SetError", "missing type field"))
-  let description: Opt[string] =
-    if node{"description"}.isNil or node{"description"}.kind == JNull:
+  let description: Opt[string] =  # §1.4b: lenient
+    if node{"description"}.isNil or node{"description"}.kind != JString:
       Opt.none(string)
-    elif node{"description"}.kind == JString:
-      Opt.some(node{"description"}.getStr(""))
     else:
-      return err(parseError("SetError", "description must be string"))
+      Opt.some(node{"description"}.getStr(""))
   let extras = collectExtras(node, SetErrorKnownKeys)
   let errorType = parseSetErrorType(rawType)
 
@@ -1941,33 +2004,35 @@ Explicit list of Layer 1 types with NO `toJson`/`fromJson`:
 ## 9. Opt[T] Field Handling Convention
 
 Cross-cutting concern documented here once, referenced throughout
-Sections 3–8.
+Sections 3–8. See §1.4b for the leniency policy rationale.
 
 **`toJson` convention.** `isNone` → omit key entirely (NOT emit `null`).
 `isSome` → emit value. This is consistent with JMAP's "absent means
 default" semantics.
 
-**`fromJson` convention.** `node{"field"}.isNil` or
-`node{"field"}.kind == JNull` → `Opt.none(T)`. Otherwise, validate
-`JsonNodeKind` and parse value.
+**`fromJson` convention.** For simple scalar `Opt` fields:
+`node{"field"}.isNil` or wrong `JsonNodeKind` → `Opt.none(T)`.
+Correct kind → extract value. Wrong kind maps to `Opt.none`, not `err`
+— this is the lenient policy (§1.4b). For complex container `Opt` types
+(`Opt[Table[...]]`), wrong container kind returns `err`.
 
 **Per-type Opt[T] field table** (every Opt field in Layer 1 with its null
-semantics):
+semantics and wrong-kind handling):
 
-| Type | Field | Opt Semantics | Notes |
-|------|-------|---------------|-------|
-| `Request` | `createdIds` | Absent = not provided | Presence triggers proxy splitting |
-| `Response` | `createdIds` | Absent = not in request | Only present if request included it |
-| `Comparator` | `collation` | Absent = server default | |
-| `RequestError` | `status` | Absent = not provided | |
-| `RequestError` | `title` | Absent = not provided | |
-| `RequestError` | `detail` | Absent = not provided | |
-| `RequestError` | `limit` | Absent = not provided | Only meaningful for `retLimit` |
-| `RequestError` | `extras` | Absent = no non-standard fields | |
-| `MethodError` | `description` | Absent = not provided | |
-| `MethodError` | `extras` | Absent = no non-standard fields | |
-| `SetError` | `description` | Absent = not provided | |
-| `SetError` | `extras` | Absent = no non-standard fields | |
+| Type | Field | Opt Semantics | Wrong Kind | Notes |
+|------|-------|---------------|------------|-------|
+| `Request` | `createdIds` | Absent = not provided | `err` (container) | Presence triggers proxy splitting |
+| `Response` | `createdIds` | Absent = not in request | `err` (container) | Only present if request included it |
+| `Comparator` | `collation` | Absent = server default | `Opt.none` | |
+| `RequestError` | `status` | Absent = not provided | `Opt.none` | |
+| `RequestError` | `title` | Absent = not provided | `Opt.none` | |
+| `RequestError` | `detail` | Absent = not provided | `Opt.none` | |
+| `RequestError` | `limit` | Absent = not provided | `Opt.none` | Only meaningful for `retLimit` |
+| `RequestError` | `extras` | Absent = no non-standard fields | N/A | `collectExtras` helper |
+| `MethodError` | `description` | Absent = not provided | `Opt.none` | |
+| `MethodError` | `extras` | Absent = no non-standard fields | N/A | `collectExtras` helper |
+| `SetError` | `description` | Absent = not provided | `Opt.none` | |
+| `SetError` | `extras` | Absent = no non-standard fields | N/A | `collectExtras` helper |
 
 ---
 
@@ -2060,7 +2125,8 @@ SPDX header on line 1. No blank line before. Matches existing Layer 1
 pattern.
 
 **Docstring requirement** (required for nimalyzer `hasDoc` rule): every
-exported `func` must have a `##` docstring (Layer 2 has no `proc`s).
+exported `func` must have a `##` docstring (Layer 2 defines no `proc`
+— callback parameter types use `proc {.noSideEffect.}`).
 Comments and docstrings use British English spelling (CLAUDE.md §Language).
 
 **Source modules:**
@@ -2288,9 +2354,9 @@ tolerance ensures this parses correctly.
 | `Invocation` (deser) | `%*{"name": "x", "args": {}, "id": "c1"}` | `err` | JSON object instead of array |
 | `Invocation` (deser) | `%*["Mailbox/get", {}]` | `err` | Only 2 elements |
 | `Invocation` (deser) | `%*["Mailbox/get", {}, "c1", "extra"]` | `err` | 4 elements |
-| `Invocation` (deser) | `%*[42, {}, "c1"]` | `err` | `getStr` returns `""` on JInt → "empty method name" |
+| `Invocation` (deser) | `%*[42, {}, "c1"]` | `err` | `checkJsonKind` rejects JInt → "method name must be string" |
 | `Invocation` (deser) | `%*["Mailbox/get", "notobject", "c1"]` | `err` | `checkJsonKind` rejects JString → "arguments must be JSON object" |
-| `Invocation` (deser) | `%*["Mailbox/get", {}, 42]` | `err` | `getStr` returns `""` on JInt → "empty method call ID" |
+| `Invocation` (deser) | `%*["Mailbox/get", {}, 42]` | `err` | `checkJsonKind` rejects JInt → "method call ID must be string" |
 | `Invocation` (deser) | `%*["", {}, "c1"]` | `err` | Empty method name |
 | `Invocation` (round-trip) | Valid Invocation | `toJson` produces JArray len 3 | Format verification |
 | `Invocation` (round-trip) | Valid Invocation | `fromJson(toJson(x)).get() == x` | Identity |
@@ -2301,6 +2367,8 @@ tolerance ensures this parses correctly.
 | `Session` (deser) | Unknown capability URIs | `ok` with `ckUnknown` | Preserved |
 | `Session` (deser) | `maxConcurrentRequest` (singular) | `ok` | D2.6 typo tolerance |
 | `Session` (deser) | Extra unknown top-level fields | `ok` | Ignored per RFC |
+| `Session` (deser) | Missing `primaryAccounts` key | `err` | Required field |
+| `Session` (deser) | `primaryAccounts` value is integer | `err` | `checkJsonKind` rejects |
 | `Session` (deser) | Empty accounts object | `ok` | |
 | `CoreCapabilities` (deser) | Valid with all 8 fields | `ok` | |
 | `CoreCapabilities` (deser) | Missing required field | `err` | |
@@ -2339,6 +2407,8 @@ tolerance ensures this parses correctly.
 | `MethodError` (deser) | Unknown type | `ok` with `metUnknown` | rawType preserved |
 | `MethodError` (deser) | With `description` | `description.isSome` | |
 | `MethodError` (deser) | With extra server fields | extras collected | |
+| `MethodError` (deser) | `"description": 42` (wrong kind) | `ok` with `description.isNone` | §1.4b lenient |
+| `SetError` (deser) | `"description": 42` (wrong kind) | `ok` with `description.isNone` | §1.4b lenient |
 | `Request` (deser) | With `createdIds` | `Opt.some` | |
 | `Request` (deser) | Without `createdIds` | `Opt.none` | |
 | `Response` (deser) | With `createdIds` | `Opt.some` | |
@@ -2354,7 +2424,7 @@ tolerance ensures this parses correctly.
 | `FilterOperator` (deser) | `"AND"` | `ok(foAnd)` | |
 | `FilterOperator` (deser) | `"CUSTOM"` | `err` | Not total — exhaustive per RFC |
 
-**Total: ~100 enumerated edge case rows.**
+**Total: ~104 enumerated edge case rows.**
 
 ---
 
@@ -2376,6 +2446,7 @@ tolerance ensures this parses correctly.
 | D2.12 | `extras` collection: `collectExtras` helper func | Inline per-type | Shared pattern across `RequestError`, `MethodError`, `SetError` |
 | D2.13 | `toJson` output: compact (default `$`) | Pretty-printed | Wire format; human readability via `pretty()` at call site if needed |
 | D2.14 | String encoding: UTF-8, automatic escaping | Manual escaping | `std/json` handles UTF-8 and escaping per I-JSON (RFC 7493) |
+| D2.15 | `Opt[T]` wrong kind: lenient (`Opt.none`) | Strict (`err`) | Client library parsing server data — Postel's law. Strictness on error-type supplementary fields loses the critical `type` field (§1.4b) |
 
 ---
 
