@@ -4,7 +4,7 @@
 
 This document specifies every type definition, smart constructor, and validation
 rule for Layer 1 of the jmap-client library. It builds upon the decisions made in
-`architecture-options.md` and resolves all deferred concrete choices so that
+`00-architecture.md` and resolves all deferred concrete choices so that
 implementation is mechanical.
 
 **Scope.** Layer 1 covers: primitive data types (RFC 8620 §1.2–1.4), domain

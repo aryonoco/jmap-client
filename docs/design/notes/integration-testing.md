@@ -2,8 +2,24 @@
 
 Unit tests (Layer 1 `t*.nim` files) verify type construction, smart constructors,
 and error round-trips in isolation. Integration tests verify the library works
-end-to-end against real JMAP servers — that serialisation produces what servers
-accept and deserialisation handles what servers return.
+end-to-end — first against RFC JSON examples, then against real JMAP servers.
+
+Testing is incremental. Each layer unlocks a new level of integration testing
+before the next layer is built:
+
+- **After Layer 2 (serialisation):** Round-trip tests against the RFC's own JSON
+  examples. The RFC includes example JSON for Session objects, Invocations,
+  method responses, and error responses. Parse them, verify typed output,
+  serialise back, verify JSON matches. No server needed.
+- **After Layer 4 (transport), core RFC only:** Session discovery and `Core/echo`
+  against a real server. Confirms HTTP, authentication, and JSON serialisation
+  work end-to-end, but does not exercise meaningful protocol behaviour — no
+  filters, result references, set responses, or per-item errors.
+- **After adding mail RFC:** Testing against real servers (Stalwart, Fastmail,
+  etc.) becomes meaningful. The 6 standard methods against Mailbox and Email
+  entities exercise the full protocol: builders, phantom handles, result
+  references, set with per-item outcomes, error paths. This is the earliest
+  point at which real server integration testing has substantial value.
 
 ## Test Harness
 
