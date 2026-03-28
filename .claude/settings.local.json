@@ -126,7 +126,31 @@
       "Bash(ls -la /workspaces/jmap-client/*.cfg /workspaces/jmap-client/*.nims)",
       "Bash(find /home/vscode/.vscode-server -path */nimlang* -name settings.json -o -path */nimlang* -name package.json)",
       "Bash(find /workspaces/jmap-client -type d -name *results*)",
-      "Bash(find /workspaces/jmap-client/.nim-reference -path */lib/* -name *.nim -exec grep -l HashSet {})"
+      "Bash(find /workspaces/jmap-client/.nim-reference -path */lib/* -name *.nim -exec grep -l HashSet {})",
+      "Bash(find /workspaces/jmap-client/tests -name *.nim -type f)",
+      "Bash(find /workspaces/jmap-client/docs -type f -name *.md)",
+      "Bash(find /workspaces/jmap-client/.claude/rules -type f -name *.md)",
+      "Bash(find /workspaces/jmap-client/.nim-reference -path */testament/* -name *.nim)",
+      "Bash(find /workspaces/jmap-client/tests -type f -name *.nim)",
+      "Bash(/tmp/test_compile3.nim:*)",
+      "Bash(/tmp/test_compile4.nim:*)",
+      "Bash(/tmp/test_compile5.nim:*)",
+      "Bash(/tmp/test_compile6.nim:*)",
+      "Bash(/tmp/test_imports.nim:*)",
+      "Bash(/tmp/lencheck.nim:*)",
+      "Bash(/tmp/lencheck2.nim:*)",
+      "Bash(/tmp/lencheck3.nim:*)",
+      "Bash(nim e:*)",
+      "Bash(echo 'import std/strutils; echo \"\"\"\" in \"\"hello\"\"')",
+      "Bash(grep -n \"cast\\(noSideEffect\\)\" src/**/*.nim tests/**/*.nim)",
+      "Bash(find /workspaces/jmap-client -maxdepth 2 -name *.md -type f ! -path ./.nim-reference/*)",
+      "Bash(for f:*)",
+      "Bash(do grep:*)",
+      "Bash(awk:*)",
+      "Bash(sort -t: -k2 -n)",
+      "Bash(find /home -name json.nim -path */stdlib/*)",
+      "Bash(/tmp/test_collect_in_percent)",
+      "Bash(ls:*)"
     ]
   }
 }
