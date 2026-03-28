@@ -123,7 +123,8 @@
       "Bash(nim doc:*)",
       "Bash(/dev/null:*)",
       "Bash(nimalyzer nimalyzer.cfg)",
-      "Bash(ls -la /workspaces/jmap-client/*.cfg /workspaces/jmap-client/*.nims)"
+      "Bash(ls -la /workspaces/jmap-client/*.cfg /workspaces/jmap-client/*.nims)",
+      "Bash(find /home/vscode/.vscode-server -path */nimlang* -name settings.json -o -path */nimlang* -name package.json)"
     ]
   }
 }

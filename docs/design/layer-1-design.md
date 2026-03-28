@@ -1092,7 +1092,7 @@ Layer 2 deserialiser (responses).
 import std/tables
 
 type Request* = object
-  using*: seq[string]              ## capability URIs the client wishes to use
+  `using`*: seq[string]            ## capability URIs the client wishes to use
   methodCalls*: seq[Invocation]    ## processed sequentially by server
   createdIds*: Opt[Table[CreationId, Id]]  ## optional; enables proxy splitting
 ```
@@ -1144,9 +1144,9 @@ const
   RefPathIds*                = "/ids"               ## IDs from /query result
   RefPathListIds*            = "/list/*/id"          ## IDs from /get result
   RefPathAddedIds*           = "/added/*/id"         ## IDs from /queryChanges result
-  RefPathCreated*            = "/created"             ## created IDs from /set result
+  RefPathCreated*            = "/created"             ## created map from /changes or /set result
   RefPathUpdated*            = "/updated"             ## updated IDs from /changes result
-  RefPathUpdatedProperties*  = "/updatedProperties"   ## changed properties from /changes result
+  RefPathUpdatedProperties*  = "/updatedProperties"   ## updatedProperties from Mailbox/changes (RFC 8621 section 2.2)
 ```
 
 **No smart constructor.** The server validates result references during
@@ -1895,14 +1895,19 @@ func setError*(
   extras: Opt[JsonNode] = Opt.none(JsonNode),
 ): SetError =
   ## For non-variant-specific set errors.
+  ## Defensively maps invalidProperties/alreadyExists to setUnknown when
+  ## variant-specific data is absent.
   let errorType = parseSetErrorType(rawType)
   let safeType =
-    if errorType in {setInvalidProperties, setAlreadyExists}: setUnknown
-    else: errorType
-  SetError(
-    errorType: safeType, rawType: rawType,
-    description: description, extras: extras,
+    if errorType in {setInvalidProperties, setAlreadyExists}: setUnknown else: errorType
+  # Construct with setUnknown (compile-time literal), then set the actual
+  # discriminator via uncheckedAssign. Safe because safeType is always in
+  # the else-discard branch — same memory layout as setUnknown.
+  result = SetError(
+    errorType: setUnknown, rawType: rawType, description: description, extras: extras
   )
+  {.cast(uncheckedAssign).}:
+    result.errorType = safeType
 
 func setErrorInvalidProperties*(
   rawType: string,
@@ -1940,6 +1945,15 @@ calls `setErrorInvalidProperties` only when the JSON contains the
 This ensures that pattern-matching consumers do not encounter a
 `setInvalidProperties` variant with an empty `properties` list or a
 `setAlreadyExists` variant with a bogus `existingId`.
+
+**Design decision for `uncheckedAssign` pattern:** `strictCaseObjects` requires
+a compile-time literal for the discriminator when constructing a case object.
+`safeType` is a runtime value (even though it is guaranteed to be in the
+`else: discard` branch), so `SetError(errorType: safeType, ...)` does not
+compile. The workaround constructs with the `setUnknown` literal first, then
+reassigns the discriminator via `{.cast(uncheckedAssign).}`. This is safe
+because all variants in the `else` branch share the same memory layout (no
+variant-specific fields — just `discard`).
 
 **Construction layer:** Layer 2 (serialisation). The `fromJson` examines the
 `"type"` field, then dispatches to the appropriate constructor.
