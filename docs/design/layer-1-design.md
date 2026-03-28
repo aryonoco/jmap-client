@@ -589,8 +589,8 @@ A string-backed enum covering all IANA-registered JMAP capability URIs, with a
 
 ```nim
 type CapabilityKind* = enum
-  ckCore = "urn:ietf:params:jmap:core"
   ckMail = "urn:ietf:params:jmap:mail"
+  ckCore = "urn:ietf:params:jmap:core"
   ckSubmission = "urn:ietf:params:jmap:submission"
   ckVacationResponse = "urn:ietf:params:jmap:vacationresponse"
   ckWebsocket = "urn:ietf:params:jmap:websocket"
@@ -606,6 +606,14 @@ type CapabilityKind* = enum
 
 `ckUnknown` has no string backing — it is the catch-all for vendor-specific
 extension URIs.
+
+**Decision D5a: `ckMail` before `ckCore`.** Nim's first enum value is the
+default. `ServerCapability` is a case object discriminated by `CapabilityKind`;
+its `ckCore` branch contains `CoreCapabilities`, whose `UnsignedInt` fields
+carry `{.requiresInit.}` and cannot be default-constructed. `seq` operations
+(`setLen`, `reset`) must default-construct elements, so the default
+`CapabilityKind` must select the `else` branch — whose `rawData: JsonNode` is
+nil-safe. Placing `ckMail` first satisfies this constraint.
 
 **Parsing (stdlib `parseEnum`):**
 

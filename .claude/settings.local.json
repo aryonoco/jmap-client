@@ -117,7 +117,13 @@
       "Bash(nim c:*)",
       "Bash(nimalyzer --help)",
       "Bash(nimalyzer)",
-      "Bash(LD_PRELOAD= nimalyzer --help)"
+      "Bash(LD_PRELOAD= nimalyzer --help)",
+      "Bash(ls /workspaces/jmap-client/*.cfg /workspaces/jmap-client/testament.cfg)",
+      "Bash(find /workspaces/jmap-client/.claude/architecture-decisions -type f -name *.md)",
+      "Bash(nim doc:*)",
+      "Bash(/dev/null:*)",
+      "Bash(nimalyzer nimalyzer.cfg)",
+      "Bash(ls -la /workspaces/jmap-client/*.cfg /workspaces/jmap-client/*.nims)"
     ]
   }
 }

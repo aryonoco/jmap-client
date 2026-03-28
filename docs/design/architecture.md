@@ -373,7 +373,7 @@ capability-specific JSON object. The shape varies per capability URI.
 
 ```
 CapabilityKind = enum
-  ckCore, ckMail, ckSubmission, ..., ckUnknown
+  ckMail, ckCore, ckSubmission, ..., ckUnknown
 
 # Initial (RFC 8620 only — ckCore is the only typed branch):
 ServerCapability = object
