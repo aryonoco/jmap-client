@@ -150,7 +150,19 @@
       "Bash(sort -t: -k2 -n)",
       "Bash(find /home -name json.nim -path */stdlib/*)",
       "Bash(/tmp/test_collect_in_percent)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "Bash(sort -t: -k2 -rn)",
+      "Bash(/tmp/test_percent_star_cast)",
+      "Bash(/tmp/test_full_cast)",
+      "Bash(/tmp/test_collect_cast)",
+      "Bash(/tmp/test_percent_scalar)",
+      "Bash(/tmp/test_collect_full_cast)",
+      "Bash(nimble c:*)",
+      "Bash(nimble --verbose c tests/tenvelope.nim)",
+      "Bash(/tmp/test_toJson_patterns)",
+      "Bash(/tmp/test_mutation_nimble)",
+      "Bash(sort -t: -k2 -n -r)",
+      "Bash(nimble --verbose build)"
     ]
   }
 }

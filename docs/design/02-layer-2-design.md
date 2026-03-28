@@ -103,7 +103,6 @@ rejection has a concrete reason tied to the strict compiler constraints.
 | `std/json` | `%`, `%*`, `newJObject`, `newJArray`, `{key}` accessor, `getStr`, `getBiggestInt`, `getBool`, `getFloat`, `getElems`, `getFields`, `JsonNodeKind` | Layer 1 selectively imports `JsonNode`/`JsonNodeKind` as data types only; Layer 2 needs the raises-free accessors and construction API. `parseJson` is NOT used — the `string → JsonNode` boundary is a Layer 4 concern |
 | `std/tables` | `Table` iteration via `pairs`, construction via `[]=`, `initTable` | Session accounts, primaryAccounts, createdIds ser/de |
 | `std/sets` | `toHashSet` | `CoreCapabilities.collationAlgorithms`: JSON array → `HashSet[string]` |
-| `std/sequtils` | `mapIt` | Collection transforms in `toJson` |
 | `std/sugar` | `collect` | Building seqs from iterators — architecture convention for Layer 2+ (L1 has no collection-building operations) |
 | `std/strutils` | `startsWith` | `#`-prefix detection for `Referencable[T]` field dispatch |
 
@@ -505,9 +504,23 @@ not define a mechanism for server-extended operators.
 
 ### 1.6 `strictFuncs` and `JsonNode` Mutation
 
-`JsonNode` is `ref JsonNodeObj` (std/json line 194). Under `strictFuncs`,
-stores to the heap via `ref` indirection are forbidden. This means
-`obj["key"] = val` (which calls `proc []=*(obj: JsonNode, ...)`) and
+**`strictFuncs` scoping caveat.** The `--experimental: strictFuncs`
+switch in `jmap_client.nimble` is applied via project-level config, not as
+a CLI flag. Nim 2.2.8 enforces nimble-scoped `strictFuncs` more leniently
+than CLI-scoped: it rejects global state access from `func` but does NOT
+reject mutation through `ref` parameters or calls to `proc`s lacking
+`{.noSideEffect.}`. Under nimble-scoped enforcement, `%*{...}`, `[]=`, and
+`.add()` all compile in `func` without casts.
+
+The `{.cast(noSideEffect).}:` pattern documented below is correct for full
+`strictFuncs` enforcement (CLI flag) and harmless under nimble-scoped
+enforcement. All `toJson` functions use the cast as defensive
+future-proofing against stricter enforcement in future Nim versions or
+if the project switches to CLI-based compilation.
+
+`JsonNode` is `ref JsonNodeObj` (std/json line 194). Under full (CLI-scoped)
+`strictFuncs`, stores to the heap via `ref` indirection are forbidden. This
+means `obj["key"] = val` (which calls `proc []=*(obj: JsonNode, ...)`) and
 `arr.add(child)` (which calls `proc add*(father, child: JsonNode)`)
 **cannot be called from `func`** — both mutate through a `ref` parameter.
 
@@ -516,12 +529,19 @@ stores to the heap via `ref` indirection are forbidden. This means
 - `%*{...}` — the macro expands to calls to `%` overloads, which are
   `proc`s that only mutate their own locally-owned `result` variable.
   The caller receives a fully-constructed `JsonNode`; no mutation at the
-  call site.
+  call site. (Under nimble-scoped `strictFuncs` this works without cast;
+  under CLI-scoped it requires `{.cast(noSideEffect).}:`.)
+- `newJObject()`, `newJArray()`, `newJNull()` — declared as `proc` in
+  `std/json` but accepted in `func` under both nimble-scoped and
+  CLI-scoped `strictFuncs` in Nim 2.2.8. These allocate fresh `ref`
+  objects without accessing global state. Confirmed by existing Layer 1
+  code (`framework.nim:98`, `mfixtures.nim:136`).
 - All read-only accessors (`getStr`, `getBiggestInt`, `{}`, `getElems`,
   `getFields`, `pairs`, `isNil`, `.kind`) — inferred as side-effect-free.
   All `fromJson` functions are unaffected.
-- Simple `toJson` returning `%string(x)`, `%int64(x)`, or a single
-  `%*{...}` expression with no post-hoc mutation.
+- Simple `toJson` returning `%string(x)`, `%int64(x)` — scalar `%`
+  overloads are accepted in `func` under both nimble-scoped and
+  CLI-scoped `strictFuncs`.
 
 **What does NOT work in `func`:**
 
@@ -531,15 +551,17 @@ builds sub-objects/arrays via loops with `[]=` or `.add()`. This includes:
 `MethodError`, `SetError`, `Filter[C]`, `PatchObject`, and the
 `collectExtras` helper.
 
-**Decision: `{.cast(noSideEffect).}:` blocks (primary), with
-seq-of-tuples as documented alternative.**
+**Decision: `{.cast(noSideEffect).}:` wrapping the entire function body
+("full cast").**
 
-The primary pattern wraps JsonNode mutations in a scoped cast:
+The single recommended pattern wraps the entire `toJson` body in one cast
+block:
 
 ```nim
 func toJson*(re: RequestError): JsonNode =
-  result = %*{"type": re.rawType}
-  {.cast(noSideEffect).}:
+  {.cast(noSideEffect).}:  # §1.6: local ref mutation
+    result = newJObject()
+    result["type"] = %re.rawType
     if re.status.isSome:
       result["status"] = %re.status.get()
     if re.detail.isSome:
@@ -552,6 +574,15 @@ objects; (b) no pre-existing shared state is read or written; (c) the
 function is referentially transparent. This is the Nim equivalent of a
 scoped `unsafePerformIO` in Haskell — appropriate when the mutation is
 genuinely local and referentially transparent.
+
+**Why "full cast" and not "base + conditional cast".** An earlier design
+considered placing `result = %*{...}` outside the cast, with only
+conditional mutations inside. Both patterns compile under nimble-scoped
+`strictFuncs`, but the "base + conditional" pattern fails under
+CLI-scoped `strictFuncs` (where `%*` is rejected outside a cast). The
+full cast works under both enforcement levels and avoids reasoning about
+which operations need the cast. It is the single pattern used throughout
+Sections 4–8.
 
 **Alternative: seq-of-tuples construction (pure, no cast).**
 
@@ -576,18 +607,19 @@ internally.
 
 **Trade-offs:**
 
-| | `{.cast(noSideEffect).}:` | seq-of-tuples |
-|--|---------------------------|---------------|
+| | `{.cast(noSideEffect).}:` full cast | seq-of-tuples |
+|--|--------------------------------------|---------------|
 | Purity at call site | Pragmatic — cast suppresses check | Genuine — no `ref` mutation |
 | Readability | `%*{...}` base + conditional fields | Flat seq of tuples |
 | Performance | Direct field insertion | Intermediate seq allocation |
 | `%` footgun | None | Empty seq produces `JArray` not `JObject` (safe: all types have ≥1 field) |
+| CLI `strictFuncs` | Works (cast covers all operations) | Works (no ref mutation) |
 
 The cast is the better default: more readable, no intermediate allocation,
 and the mutation is genuinely referentially transparent. The seq-of-tuples
 pattern is available for cases where avoiding the cast is preferred.
 
-All `toJson` functions in Sections 4–8 use the cast pattern. The cast
+All `toJson` functions in Sections 4–8 use the full cast pattern. The cast
 block is documented once here and referenced throughout.
 
 ---
@@ -607,11 +639,11 @@ extraction with kind checks for `fromJson`.
 ```nim
 func toJson*(c: Comparator): JsonNode =
   ## Serialise Comparator to JSON (RFC 8620 §5.5).
-  result = %*{
-    "property": string(c.property),
-    "isAscending": c.isAscending,
-  }
-  {.cast(noSideEffect).}:  # §1.6: local ref mutation
+  {.cast(noSideEffect).}:  # §1.6: full cast
+    result = %*{
+      "property": string(c.property),
+      "isAscending": c.isAscending,
+    }
     if c.collation.isSome:
       result["collation"] = %c.collation.get()
 
@@ -619,10 +651,9 @@ func fromJson*(_: typedesc[Comparator], node: JsonNode
     ): Result[Comparator, ValidationError] =
   ## Deserialise JSON to Comparator (RFC 8620 §5.5).
   checkJsonKind(node, JObject, "Comparator")
-  let propRaw = node{"property"}.getStr("")
-  if propRaw.len == 0:
-    return err(parseError("Comparator", "missing or empty property"))
-  let property = ? parsePropertyName(propRaw)
+  checkJsonKind(node{"property"}, JString, "Comparator",
+    "missing or invalid property")
+  let property = ? parsePropertyName(node{"property"}.getStr(""))
   let isAscending =
     if node{"isAscending"}.isNil: true  # RFC default
     elif node{"isAscending"}.kind == JBool:
@@ -910,19 +941,26 @@ plus `collationAlgorithms` as a JSON array → `HashSet[string]`.
 ```nim
 func toJson*(caps: CoreCapabilities): JsonNode =
   ## Serialise CoreCapabilities to JSON (RFC 8620 §2).
-  %*{
-    "maxSizeUpload": int64(caps.maxSizeUpload),
-    "maxConcurrentUpload": int64(caps.maxConcurrentUpload),
-    "maxSizeRequest": int64(caps.maxSizeRequest),
-    "maxConcurrentRequests": int64(caps.maxConcurrentRequests),
-    "maxCallsInRequest": int64(caps.maxCallsInRequest),
-    "maxObjectsInGet": int64(caps.maxObjectsInGet),
-    "maxObjectsInSet": int64(caps.maxObjectsInSet),
-    "collationAlgorithms": collect(
-      for alg in caps.collationAlgorithms: %alg
-    ),
-  }
+  {.cast(noSideEffect).}:  # §1.6: full cast
+    result = %*{
+      "maxSizeUpload": int64(caps.maxSizeUpload),
+      "maxConcurrentUpload": int64(caps.maxConcurrentUpload),
+      "maxSizeRequest": int64(caps.maxSizeRequest),
+      "maxConcurrentRequests": int64(caps.maxConcurrentRequests),
+      "maxCallsInRequest": int64(caps.maxCallsInRequest),
+      "maxObjectsInGet": int64(caps.maxObjectsInGet),
+      "maxObjectsInSet": int64(caps.maxObjectsInSet),
+      "collationAlgorithms": collect(
+        for alg in caps.collationAlgorithms: %alg
+      ),
+    }
 ```
+
+**Macro nesting verification.** `collect(for alg in ...: %alg)` inside
+`%*{...}` nests two macros. Verified to compile and produce correct output
+(Nim 2.2.8): `collect` expands first (inner-to-outer), producing
+`seq[JsonNode]`; the `%*` macro then wraps the result via `%` for
+`openArray[JsonNode]` (`std/json` line 366), producing a `JArray`.
 
 **`fromJson`:** Full code shown in §1.2a (the canonical object example).
 Calls `parseUnsignedInt` for each numeric field via `?`. Uses `toHashSet`
@@ -1045,12 +1083,12 @@ flags, and per-account capability information.
 ```nim
 func toJson*(acct: Account): JsonNode =
   ## Serialise Account to JSON (RFC 8620 §2).
-  result = %*{
-    "name": acct.name,
-    "isPersonal": acct.isPersonal,
-    "isReadOnly": acct.isReadOnly,
-  }
-  {.cast(noSideEffect).}:  # §1.6: local ref mutation
+  {.cast(noSideEffect).}:  # §1.6: full cast
+    result = %*{
+      "name": acct.name,
+      "isPersonal": acct.isPersonal,
+      "isReadOnly": acct.isReadOnly,
+    }
     var acctCaps = newJObject()
     for entry in acct.accountCapabilities:
       acctCaps[entry.rawUri] = entry.toJson()
@@ -1106,15 +1144,15 @@ for the complete JSON.
 ```nim
 func toJson*(s: Session): JsonNode =
   ## Serialise Session to JSON (RFC 8620 §2).
-  result = %*{
-    "username": s.username,
-    "apiUrl": s.apiUrl,
-    "downloadUrl": string(s.downloadUrl),
-    "uploadUrl": string(s.uploadUrl),
-    "eventSourceUrl": string(s.eventSourceUrl),
-    "state": string(s.state),
-  }
-  {.cast(noSideEffect).}:  # §1.6: local ref mutation
+  {.cast(noSideEffect).}:  # §1.6: full cast
+    result = %*{
+      "username": s.username,
+      "apiUrl": s.apiUrl,
+      "downloadUrl": string(s.downloadUrl),
+      "uploadUrl": string(s.uploadUrl),
+      "eventSourceUrl": string(s.eventSourceUrl),
+      "state": string(s.state),
+    }
     # capabilities: URI → capability data
     var caps = newJObject()
     for cap in s.capabilities:
@@ -1248,7 +1286,8 @@ Serialised as a **3-element JSON array**, NOT a JSON object.
 ```nim
 func toJson*(inv: Invocation): JsonNode =
   ## Serialise Invocation as 3-element JSON array (RFC 8620 §3.2).
-  %*[inv.name, inv.arguments, string(inv.methodCallId)]
+  {.cast(noSideEffect).}:  # §1.6: full cast
+    result = %*[inv.name, inv.arguments, string(inv.methodCallId)]
 ```
 
 **`fromJson`:** Full code shown in §1.2a (the canonical array example).
@@ -1442,11 +1481,12 @@ func fromJson*(_: typedesc[Response], node: JsonNode
 ```nim
 func toJson*(r: ResultReference): JsonNode =
   ## Serialise ResultReference to JSON (RFC 8620 §3.7).
-  %*{
-    "resultOf": string(r.resultOf),
-    "name": r.name,
-    "path": r.path,
-  }
+  {.cast(noSideEffect).}:  # §1.6: full cast
+    result = %*{
+      "resultOf": string(r.resultOf),
+      "name": r.name,
+      "path": r.path,
+    }
 ```
 
 **`fromJson`:**
@@ -1714,7 +1754,8 @@ func fromJson*(_: typedesc[PatchObject], node: JsonNode
 ```nim
 func toJson*(item: AddedItem): JsonNode =
   ## Serialise AddedItem to JSON (RFC 8620 §5.6).
-  %*{"id": string(item.id), "index": int64(item.index)}
+  {.cast(noSideEffect).}:  # §1.6: full cast
+    result = %*{"id": string(item.id), "index": int64(item.index)}
 ```
 
 **`fromJson`:**
@@ -2133,8 +2174,10 @@ Comments and docstrings use British English spelling (CLAUDE.md §Language).
 
 ```
 src/jmap_client/
+  serialisation.nim      ← Re-export hub (Layer 2 equivalent of types.nim);
+                           imports and re-exports serde + all domain modules
   serde.nim              ← parseError, checkJsonKind, collectExtras,
-                           primitive/identifier/enum ser/de, re-exports
+                           primitive/identifier/enum ser/de
   serde_session.nim      ← CoreCapabilities, ServerCapability,
                            AccountCapabilityEntry, Account, Session
   serde_envelope.nim     ← Invocation, Request, Response,
@@ -2174,28 +2217,34 @@ serde.nim  serde_session  serde_envelope  serde_framework  serde_errors
   ^          |          |          |          |
   +----------+----------+----------+----------+
   (all domain serde modules import serde.nim for shared helpers)
+
+serialisation.nim ← re-exports serde + all domain modules
+  (Layer 3 imports serialisation.nim)
 ```
+
+`serialisation.nim` is the re-export hub (Layer 2 equivalent of
+`types.nim`), re-exporting `serde.nim` and all domain serde modules.
+`serde.nim` defines shared helpers (`parseError`, `checkJsonKind`,
+`collectExtras`) and primitive/identifier ser/de functions. Domain serde
+modules import `serde.nim` for helpers — they do NOT import each other.
+No circular dependencies.
 
 All domain serde modules (`serde_session`, `serde_envelope`,
 `serde_framework`, `serde_errors`) import `serde.nim` for shared helpers
-(`parseError`, `collectExtras`, primitive ser/de functions) and `types.nim`
-for Layer 1 types. No domain serde module imports another domain serde
-module — `serde_session.nim` does not need envelope types, and vice versa.
-This mirrors Layer 1's flat-dependency pattern within each group.
+and `types.nim` for Layer 1 types. No domain serde module imports another
+domain serde module — `serde_session.nim` does not need envelope types,
+and vice versa. This mirrors Layer 1's flat-dependency pattern within
+each group.
 
-`serde.nim` is the re-export hub (Layer 2 equivalent of `types.nim`),
-re-exporting all domain serde modules. **Helper definition order:**
-`serde.nim` defines shared helpers at the top of the file, THEN imports and
-re-exports domain modules. This avoids circular dependencies.
+**Downstream:** Layer 3 imports `serialisation.nim` (which re-exports
+everything). Tests import individual serde modules for focused testing.
 
-**Downstream:** Layer 3 imports `serde.nim` (which re-exports everything).
-Tests import individual serde modules for focused testing.
-
-**Why 5 files, not 1.** With ~15-20 ser/de pairs producing ~600-900 lines, a
-single file is feasible. However, 5 files provide: (a) independently testable
+**Why 6 files, not 1.** With ~15-20 ser/de pairs producing ~600-900 lines, a
+single file is feasible. However, 6 files provide: (a) independently testable
 modules (each test file mirrors one serde file), (b) parallel structure with
-Layer 1's module grouping, (c) bounded file size (~120-180 lines each). The
-flat import graph means no cost to the split.
+Layer 1's module grouping, (c) bounded file size (~120-180 lines each),
+(d) acyclic import graph (`serialisation.nim` re-exports without creating
+import cycles). The flat import graph means no cost to the split.
 
 ---
 
@@ -2418,6 +2467,7 @@ tolerance ensures this parses correctly.
 | `Comparator` (deser) | All fields present | `ok` | |
 | `Comparator` (deser) | Missing `isAscending` | `ok` with default `true` | RFC default |
 | `Comparator` (deser) | Missing `property` | `err` | Required |
+| `Comparator` (deser) | `{"property": 42, "isAscending": true}` | `err` | Wrong kind for property (JInt, not JString) |
 | `AddedItem` (deser) | Valid `{"id": "x", "index": 5}` | `ok` | |
 | `AddedItem` (deser) | Invalid `id` | `err` | Propagated from Id.fromJson |
 | `ResultReference` (deser) | Valid | `ok` | |
