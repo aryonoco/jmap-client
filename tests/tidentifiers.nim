@@ -184,3 +184,43 @@ block parseMethodCallIdControlAccepted:
 
 block parseCreationIdLongString:
   doAssert parseCreationId('a'.repeat(1000)).isOk
+
+# --- Phase 4: Identifier mutation resistance ---
+
+block accountIdControlBoundaryReject:
+  ## 0x1F (unit separator) is < 0x20, must be rejected.
+  assertErr parseAccountId("\x1F")
+
+block accountIdControlBoundaryAccept:
+  ## 0x20 (space) is at boundary — must be accepted.
+  assertOk parseAccountId(" ")
+
+block accountIdDelRejected:
+  ## DEL (0x7F) explicitly rejected by lenient validators.
+  assertErr parseAccountId("\x7F")
+
+block accountIdHighBytesAccepted:
+  ## Bytes >= 0x80 are accepted by lenient validators.
+  assertOk parseAccountId("\x80")
+  assertOk parseAccountId("\xFF")
+
+block jmapStateSingleChar:
+  ## Single character is minimum valid length.
+  assertOk parseJmapState("a")
+
+block jmapStateControlBoundary:
+  ## 0x1F rejected, space accepted.
+  assertErr parseJmapState("\x1F")
+  assertOk parseJmapState(" ")
+
+block creationIdHashInMiddle:
+  ## Hash at position != 0 is accepted.
+  assertOk parseCreationId("a#b")
+  assertOk parseCreationId("abc#def#ghi")
+
+block methodCallIdAllBytesAccepted:
+  ## MethodCallId has no charset restriction; all 256 byte values accepted.
+  var s = newString(256)
+  for i in 0 ..< 256:
+    s[i] = char(i)
+  assertOk parseMethodCallId(s)

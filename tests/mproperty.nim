@@ -36,6 +36,9 @@ const DefaultTrials* = 500 ## Standard property trial count.
 
 const ThoroughTrials* = 2000 ## For properties with large input spaces (Date, Session).
 
+const CriticalTrials* = 5000
+  ## For high-assurance properties requiring extensive coverage.
+
 # ---------------------------------------------------------------------------
 # Property check templates
 # ---------------------------------------------------------------------------
@@ -612,8 +615,9 @@ proc genAddedItem*(rng: var Rand): AddedItem =
   let idx = parseUnsignedInt(rng.rand(0'i64 .. 10000'i64)).get()
   AddedItem(id: id, index: idx)
 
-proc genPatchObject*(rng: var Rand, count: int): PatchObject =
-  ## Random PatchObject with `count` entries.
+proc genPatchObject*(rng: var Rand, maxKeys: int): PatchObject =
+  ## Random PatchObject with 0..maxKeys entries.
+  let count = rng.rand(0 .. maxKeys)
   var p = emptyPatch()
   for i in 0 ..< count:
     let path = rng.genPatchPath()
@@ -672,6 +676,75 @@ proc genInvalidIdStrict*(rng: var Rand, trial: int = -1): string =
   let badPos = rng.rand(0 .. result.high)
   const badChars = ['+', '/', '=', ' ', '@', '\x00', '\x7F', '!']
   result[badPos] = rng.oneOf(badChars)
+
+# ---------------------------------------------------------------------------
+# Boundary-length ID generators
+# ---------------------------------------------------------------------------
+
+proc genBoundaryIdStrict*(rng: var Rand, trial: int): string =
+  ## Edge-biased generator for IDs at exact boundary lengths (254-255 octets).
+  ## First trials use deterministic patterns; subsequent use random fill.
+  case trial
+  of 0:
+    result = 'A'.repeat(254)
+  of 1:
+    result = 'A'.repeat(255)
+  of 2:
+    result = '_'.repeat(254)
+  of 3:
+    result = newString(255)
+    for i in 0 ..< 255:
+      result[i] = rng.genBase64UrlChar()
+  else:
+    let length = rng.rand(250 .. 255)
+    result = newString(length)
+    for i in 0 ..< length:
+      result[i] = rng.genBase64UrlChar()
+
+# ---------------------------------------------------------------------------
+# Calendar-invalid date generators
+# ---------------------------------------------------------------------------
+
+proc genCalendarInvalidDate*(rng: var Rand): string =
+  ## Generates structurally valid RFC 3339 dates with calendar-invalid values
+  ## (e.g. month 13, day 32, 30 Feb). Useful for testing calendar validation
+  ## beyond structural parsing.
+  let
+    hour = rng.rand(0 .. 23)
+    minute = rng.rand(0 .. 59)
+    second = rng.rand(0 .. 59)
+  # Pick a random invalid combination
+  let variant = rng.rand(0 .. 3)
+  let (year, month, day) =
+    case variant
+    of 0:
+      (rng.rand(0 .. 9999), 13, rng.rand(1 .. 28))
+    of 1:
+      (rng.rand(0 .. 9999), rng.rand(1 .. 12), 32)
+    of 2:
+      (rng.rand(0 .. 9999), 2, 30)
+    else:
+      (rng.rand(0 .. 9999), 0, rng.rand(1 .. 28))
+  zeroPad(year, 4) & "-" & zeroPad(month, 2) & "-" & zeroPad(day, 2) & "T" &
+    zeroPad(hour, 2) & ":" & zeroPad(minute, 2) & ":" & zeroPad(second, 2) & "Z"
+
+# ---------------------------------------------------------------------------
+# Additional structured type generators
+# ---------------------------------------------------------------------------
+
+proc genValidComparator*(rng: var Rand): Comparator =
+  ## Generates a Comparator with random PropertyName, random isAscending,
+  ## and optionally a collation string.
+  let prop = parsePropertyName(rng.genValidPropertyName()).get()
+  let asc = rng.rand(0 .. 1) == 0
+  let coll =
+    if rng.rand(0 .. 2) == 0:
+      const collations =
+        ["i;ascii-casemap", "i;ascii-numeric", "i;unicode-casemap", "i;octet"]
+      Opt.some(rng.oneOf(collations))
+    else:
+      Opt.none(string)
+  parseComparator(prop, asc, coll).get()
 
 {.pop.} # params
 {.pop.} # hasDoc

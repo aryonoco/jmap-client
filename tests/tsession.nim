@@ -646,3 +646,41 @@ block hasVariableSuffixOfLongerName:
   ## Template "{fullAccountId}" does NOT contain "{accountId}" as substring.
   let tmpl = parseUriTemplate("https://e.com/{fullAccountId}").get()
   doAssert not hasVariable(tmpl, "accountId")
+
+# --- Phase 4: Session template variable mutation resistance ---
+
+block parseSessionExtraDownloadVariables:
+  ## RFC 6570 allows extra variables beyond the required set.
+  let args = makeSessionArgs()
+  let extraUrl = parseUriTemplate(
+      "https://example.com/{accountId}/{blobId}/{name}?accept={type}&extra={foo}"
+    )
+    .get()
+  let res = parseSession(
+    args.capabilities, args.accounts, args.primaryAccounts, args.username, args.apiUrl,
+    extraUrl, args.uploadUrl, args.eventSourceUrl, args.state,
+  )
+  assertOk res
+
+block parseSessionUploadUrlNoVariables:
+  ## uploadUrl with no variables at all is rejected — missing {accountId}.
+  let args = makeSessionArgs()
+  let badUpload = parseUriTemplate("https://example.com/upload/").get()
+  let res = parseSession(
+    args.capabilities, args.accounts, args.primaryAccounts, args.username, args.apiUrl,
+    args.downloadUrl, badUpload, args.eventSourceUrl, args.state,
+  )
+  assertErr res
+
+block parseSessionDuplicateCkCoreAccepted:
+  ## Multiple ckCore capabilities are accepted — first is used.
+  var args = makeSessionArgs()
+  args.capabilities.add makeCoreServerCap()
+  let res = parseSessionFromArgs(args)
+  assertOk res
+
+block parseSessionEmptyAccountsValid:
+  ## Empty accounts and primaryAccounts tables are valid.
+  let args = makeMinimalSession()
+  let res = parseSessionFromArgs(args)
+  assertOk res

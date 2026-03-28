@@ -6,6 +6,7 @@
 ## Tests for transport, request, client, method, and set error constructors.
 
 import std/json
+import std/strutils
 
 import pkg/results
 
@@ -522,3 +523,43 @@ block setErrorDefensiveFallbackAlreadyExists:
   let se = setError("alreadyExists")
   doAssert se.errorType == setUnknown
   doAssert se.rawType == "alreadyExists"
+
+# --- Phase 4: Error constructor mutation resistance ---
+
+block transportErrorEmptyMessage:
+  ## Empty message string is valid — no restriction on message content.
+  let te = transportError(tekNetwork, "")
+  assertEq te.message, ""
+
+block setErrorInvalidPropertiesEmptyListVariant:
+  ## Empty properties list is valid (semantically odd but structurally correct).
+  let se = setErrorInvalidProperties("invalidProperties", @[])
+  assertEq se.errorType, setInvalidProperties
+  assertLen se.properties, 0
+
+block setErrorAlreadyExistsMaxLengthId:
+  ## alreadyExists with maximum-length Id (255 bytes).
+  let id = parseId("A".repeat(255)).get()
+  let se = setErrorAlreadyExists("alreadyExists", id)
+  assertEq se.errorType, setAlreadyExists
+  assertEq se.existingId, id
+
+block requestErrorLimitFieldNonLimitType:
+  ## Limit field populated for a non-retLimit error type.
+  let re =
+    requestError("urn:ietf:params:jmap:error:notJSON", limit = Opt.some("maxSize"))
+  assertEq re.errorType, retNotJson
+  assertSome re.limit
+
+block clientErrorMessageAllNone:
+  ## When all optional fields are None, message falls back to rawType.
+  let re = requestError("urn:ietf:params:jmap:error:notJSON")
+  let ce = clientError(re)
+  assertEq message(ce), "urn:ietf:params:jmap:error:notJSON"
+
+block httpStatusErrorLargeStatus:
+  ## Very large or unusual HTTP status codes.
+  let te = httpStatusError(999, "unusual")
+  assertEq te.httpStatus, 999
+  let te0 = httpStatusError(0, "zero status")
+  assertEq te0.httpStatus, 0

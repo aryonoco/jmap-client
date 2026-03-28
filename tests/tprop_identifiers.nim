@@ -280,3 +280,43 @@ block propCreationIdHashPrefixAlwaysRejected:
     let s = "#" & tail
     if s.len > 0:
       doAssert parseCreationId(s).isErr
+
+# --- Equivalence substitution ---
+
+block propAccountIdSubstitution:
+  checkProperty "propAccountIdSubstitution":
+    let s = genValidLenientString(rng, minLen = 1, maxLen = 255)
+    let r = parseAccountId(s)
+    if r.isOk:
+      let a = r.get()
+      let b = parseAccountId(s).get()
+      doAssert $(a) == $(b)
+      doAssert hash(a) == hash(b)
+
+block propJmapStateSubstitution:
+  checkProperty "propJmapStateSubstitution":
+    let s = genValidLenientString(rng, minLen = 1, maxLen = 10000)
+    let r = parseJmapState(s)
+    if r.isOk:
+      let a = r.get()
+      let b = parseJmapState(s).get()
+      doAssert $(a) == $(b)
+      doAssert hash(a) == hash(b)
+
+block propParseAccountIdIdempotence:
+  checkProperty "propParseAccountIdIdempotence":
+    let s = genValidLenientString(rng, minLen = 1, maxLen = 255)
+    let first = parseAccountId(s)
+    let second = parseAccountId(s)
+    doAssert first.isOk == second.isOk
+    if first.isOk:
+      doAssert first.get() == second.get()
+
+block propParseCreationIdIdempotence:
+  checkProperty "propParseCreationIdIdempotence":
+    let s = genValidCreationId(rng)
+    let first = parseCreationId(s)
+    let second = parseCreationId(s)
+    doAssert first.isOk == second.isOk
+    if first.isOk:
+      doAssert first.get() == second.get()

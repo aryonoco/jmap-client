@@ -95,6 +95,25 @@ template assertGe*(actual, expected: untyped) =
   let e = expected
   doAssert a >= e, "expected " & $a & " >= " & $e
 
+template assertLt*(actual, expected: untyped) =
+  ## Verifies actual < expected with diagnostics.
+  let a = actual
+  let e = expected
+  doAssert a < e, "expected " & $a & " < " & $e
+
+template assertLe*(actual, expected: untyped) =
+  ## Verifies actual <= expected with diagnostics.
+  let a = actual
+  let e = expected
+  doAssert a <= e, "expected " & $a & " <= " & $e
+
+template assertInRange*(val, lo, hi: untyped) =
+  ## Verifies lo <= val <= hi with diagnostics.
+  let v = val
+  let l = lo
+  let h = hi
+  doAssert v >= l and v <= h, "expected " & $v & " in [" & $l & ", " & $h & "]"
+
 template assertTrue*(expr: untyped, msg: string) =
   ## Annotated boolean assertion with context message.
   doAssert expr, msg

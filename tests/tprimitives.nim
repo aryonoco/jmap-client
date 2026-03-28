@@ -500,3 +500,154 @@ block parseJmapIntMinPlusOne:
 
 block parseJmapIntMaxMinusOne:
   assertOk parseJmapInt(MaxJmapInt - 1)
+
+# --- Phase 4: Date parsing mutation resistance ---
+
+block dateWrongSeparatorSlash:
+  ## Catches slash-for-dash mutation in date portion.
+  assertErr parseDate("2024/01/01T12:00:00Z")
+
+block dateWrongSeparatorInTime:
+  ## Catches dash-for-colon mutation in time portion.
+  assertErr parseDate("2024-01-01T12-00:00Z")
+
+block dateExactMinimumLength:
+  ## Exactly 20 chars is minimum valid — catches < vs <= mutation.
+  const input = "2024-01-01T12:00:00Z"
+  doAssert input.len == 20
+  assertOk parseDate(input)
+
+block dateFractionalZeroInMiddle:
+  ## ".102" contains zero but is not all zeros — catches allIt vs anyIt mutation.
+  assertOk parseDate("2024-01-01T12:00:00.102Z")
+
+block dateOffsetWithoutColon:
+  ## "+0500" is malformed offset — must be "+HH:MM".
+  assertErr parseDate("2024-01-01T12:00:00+0500")
+
+block dateNegativeOffset:
+  ## "-05:00" is valid — catches accept-only-plus mutation.
+  assertOk parseDate("2024-01-01T12:00:00-05:00")
+
+block dateMonth13:
+  ## Month 13 is structurally valid (Layer 1 does not validate calendar).
+  assertOk parseDate("2024-13-01T12:00:00Z")
+
+block dateNanosecondFractional:
+  ## 9-digit fractional seconds (nanosecond precision) is valid.
+  assertOk parseDate("2024-01-01T12:00:00.123456789Z")
+
+block dateDay32:
+  ## Day 32 is structurally valid in Layer 1.
+  assertOk parseDate("2024-01-32T12:00:00Z")
+
+block dateMaxYear:
+  ## Year 9999 is structurally valid.
+  assertOk parseDate("9999-12-28T23:59:59Z")
+
+block dateMidnightBoundary:
+  ## Midnight boundary (00:00:00) is valid.
+  assertOk parseDate("2024-01-01T00:00:00Z")
+
+block dateEndOfDayBoundary:
+  ## End-of-day boundary (23:59:59) is valid.
+  assertOk parseDate("2024-01-01T23:59:59Z")
+
+# --- Phase 4: Id parsing mutation resistance ---
+
+block idInvalidCharAtPosition254:
+  ## Invalid char at near-end position in max-length string.
+  var s = "A".repeat(255)
+  s[254] = '+'
+  assertErr parseId(s)
+
+block idFromServerControlCharAtEnd:
+  ## Control char at last position of lenient Id.
+  assertErr parseIdFromServer("A".repeat(254) & "\x1F")
+
+block idAllUnderscoresMaxLength:
+  ## 255 underscores — all valid base64url.
+  assertOk parseId("_".repeat(255))
+
+block idFromServerSpaceSingle:
+  ## Space (0x20) is the boundary between control and printable — accepted.
+  assertOk parseIdFromServer(" ")
+
+block idStrictRejectsSpace:
+  ## Space is NOT in base64url charset — rejected by strict parser.
+  assertErr parseId(" ")
+
+block idFromServerDelAtStart:
+  ## DEL (0x7F) at position 0.
+  assertErr parseIdFromServer("\x7Fabc")
+
+block idFromServerDelAtMiddle:
+  ## DEL at middle position.
+  assertErr parseIdFromServer("ab\x7Fcd")
+
+block idFromServerDelAtEnd:
+  ## DEL at last position.
+  assertErr parseIdFromServer("abc\x7F")
+
+# --- Phase 4: Integer boundary off-by-one ---
+
+block unsignedIntExactly2Pow53:
+  ## 2^53 = 9007199254740992 exceeds MaxUnsignedInt — must reject.
+  assertErr parseUnsignedInt(9_007_199_254_740_992'i64)
+
+block unsignedInt2Pow53Minus2:
+  ## 2^53 - 2 = 9007199254740990 — must accept.
+  assertOk parseUnsignedInt(9_007_199_254_740_990'i64)
+
+block jmapIntExactlyNeg2Pow53:
+  ## -(2^53) = -9007199254740992 — below MinJmapInt, must reject.
+  assertErr parseJmapInt(-9_007_199_254_740_992'i64)
+
+block jmapIntExactlyMinJmapInt:
+  ## -(2^53 - 1) = -9007199254740991 — exactly MinJmapInt, must accept.
+  assertOk parseJmapInt(-9_007_199_254_740_991'i64)
+
+# --- Phase 7: Table-driven date validation ---
+
+block dateTableDrivenValid:
+  ## Comprehensive table of valid date formats — easy to extend.
+  const validCases = [
+    ("2024-01-01T12:00:00Z", "basic UTC"),
+    ("2024-01-01T12:00:00+05:30", "positive offset with half-hour"),
+    ("2024-01-01T12:00:00-12:00", "maximum negative offset"),
+    ("2024-01-01T12:00:00+14:00", "maximum positive offset"),
+    ("2024-01-01T12:00:00.1Z", "1-digit fractional"),
+    ("2024-01-01T12:00:00.12Z", "2-digit fractional"),
+    ("2024-01-01T12:00:00.123Z", "3-digit fractional"),
+    ("2024-01-01T12:00:00.123456Z", "6-digit fractional"),
+    ("2024-01-01T12:00:00.123456789Z", "9-digit fractional"),
+    ("0000-01-01T00:00:00Z", "year zero"),
+    ("9999-12-28T23:59:59Z", "near-max year"),
+    ("2024-01-01T00:00:00Z", "midnight"),
+    ("2024-01-01T23:59:59Z", "end of day"),
+    ("2024-02-30T12:00:00Z", "calendar-invalid Feb 30 (structural only)"),
+    ("2024-13-01T12:00:00Z", "calendar-invalid month 13 (structural only)"),
+  ]
+  for (input, reason) in validCases:
+    doAssert parseDate(input).isOk, "expected Ok for: " & reason & " (" & input & ")"
+
+block dateTableDrivenInvalid:
+  ## Comprehensive table of invalid date formats — easy to extend.
+  const invalidCases = [
+    ("", "empty string"),
+    ("2024-01-01", "date only, no time"),
+    ("2024-01-01t12:00:00Z", "lowercase t separator"),
+    ("2024-01-01T12:00:00z", "lowercase z timezone"),
+    ("2024-01-01T12:00:00", "missing timezone"),
+    ("2024-01-01T12:00:00.000Z", "all-zero 3-digit fractional"),
+    ("2024-01-01T12:00:00.0Z", "all-zero 1-digit fractional"),
+    ("2024-01-01T12:00:00.Z", "dot with no fractional digits"),
+    ("2024/01/01T12:00:00Z", "slash separators in date"),
+    ("2024-01-01T12-00:00Z", "dash separator in time"),
+    ("2024-01-01T12:00:00+0500", "offset missing colon"),
+    ("2024-01-01T12:00:00+05:00X", "trailing chars after offset"),
+    ("2024-01-01T12:00:00Zextra", "trailing chars after Z"),
+    ("short", "too short for RFC 3339"),
+  ]
+  for (input, reason) in invalidCases:
+    doAssert parseDate(input).isErr, "expected Err for: " & reason & " (" & input & ")"

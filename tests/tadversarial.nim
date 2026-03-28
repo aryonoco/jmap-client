@@ -910,6 +910,148 @@ block accountNameBom:
   doAssert acct.name[0 .. 2] == "\xEF\xBB\xBF"
 
 # =============================================================================
+# 6a) Full control character range
+# =============================================================================
+
+block controlCharRangeInLenientValidators:
+  ## Every byte in 0x00..0x1F and 0x7F must be rejected by lenient validators.
+  for i in 0x00 .. 0x1F:
+    let ch = char(i)
+    let s = "abc" & $ch & "def"
+    doAssert parseIdFromServer(s).isErr, "expected rejection for byte 0x" & toHex(i, 2)
+    doAssert parseAccountId(s).isErr, "expected rejection for byte 0x" & toHex(i, 2)
+    doAssert parseJmapState(s).isErr, "expected rejection for byte 0x" & toHex(i, 2)
+  ## DEL (0x7F)
+  const delStr = "abc\x7Fdef"
+  doAssert parseIdFromServer(delStr).isErr, "expected rejection for DEL"
+  doAssert parseAccountId(delStr).isErr, "expected rejection for DEL"
+  doAssert parseJmapState(delStr).isErr, "expected rejection for DEL"
+
+block controlCharBoundarySpaceAccepted:
+  ## 0x20 (space) is the boundary — must be accepted by lenient validators.
+  doAssert parseIdFromServer(" ").isOk, "space should be accepted"
+  doAssert parseAccountId(" ").isOk, "space should be accepted"
+  doAssert parseJmapState(" ").isOk, "space should be accepted"
+
+# =============================================================================
+# 6b) Multi-position control char injection
+# =============================================================================
+
+block nulAtMultiplePositionsInStrictId:
+  ## NUL at start, middle, and end of max-length strict Id.
+  for pos in [0, 127, 254]:
+    var s = "A".repeat(255)
+    s[pos] = '\x00'
+    doAssert parseId(s).isErr, "NUL at position " & $pos & " should be rejected"
+
+block delAtMultiplePositionsInLenientId:
+  ## DEL at start, middle, and end of lenient Id.
+  for pos in [0, 127, 254]:
+    var s = "A".repeat(255)
+    s[pos] = '\x7F'
+    doAssert parseIdFromServer(s).isErr,
+      "DEL at position " & $pos & " should be rejected"
+
+block controlCharAtPosition254InAccountId:
+  ## Control char at position 254 in max-length AccountId.
+  var s = "A".repeat(255)
+  s[254] = '\x01'
+  doAssert parseAccountId(s).isErr, "control char at position 254 should be rejected"
+
+# =============================================================================
+# 6c) PatchObject advanced semantics
+# =============================================================================
+
+block patchJsonPointerTilde1Encoding:
+  ## "a~1b" and "a/b" are different keys at Layer 1 (no RFC 6901 parsing).
+  let p = emptyPatch().setProp("a~1b", %1).get()
+  doAssert p.getKey("a~1b").isSome
+  doAssert p.getKey("a/b").isNone
+
+block patchJsonPointerTilde0Encoding:
+  ## "a~0b" and "a~b" are different keys at Layer 1.
+  let p = emptyPatch().setProp("a~0b", %1).get()
+  doAssert p.getKey("a~0b").isSome
+  doAssert p.getKey("a~b").isNone
+
+block patchNullValueVsDeletion:
+  ## setProp with newJNull() and deleteProp both result in JNull at the key.
+  let pSet = emptyPatch().setProp("key", newJNull()).get()
+  let pDel = emptyPatch().deleteProp("key").get()
+  doAssert pSet.len == 1
+  doAssert pDel.len == 1
+  doAssert pSet.getKey("key").get().kind == JNull
+  doAssert pDel.getKey("key").get().kind == JNull
+
+block patchJsonNodeAliasingUnderArc:
+  ## Mutating a JsonNode after setProp — verify ref sharing under ARC.
+  let node = newJObject()
+  node["original"] = newJString("value")
+  let p = emptyPatch().setProp("key", node).get()
+  ## Mutate the original node.
+  node["injected"] = newJString("new")
+  ## Under ARC with ref sharing, mutation is visible through the patch.
+  let retrieved = p.getKey("key")
+  doAssert retrieved.isSome
+  doAssert retrieved.get().hasKey("injected"),
+    "ref sharing: mutation should be visible under ARC"
+
+# =============================================================================
+# 6d) Filter tree edge cases
+# =============================================================================
+
+block filterNotWithMultipleChildren:
+  ## NOT with multiple children — semantically wrong per RFC, but Layer 1 allows.
+  let a = filterCondition(1)
+  let b = filterCondition(2)
+  let f = filterOperator[int](foNot, @[a, b])
+  doAssert f.kind == fkOperator
+  doAssert f.operator == foNot
+  doAssert f.conditions.len == 2
+
+block filterEmptyConditionsList:
+  ## Operator with empty conditions list — Layer 1 does not restrict this.
+  let f = filterOperator[int](foAnd, @[])
+  doAssert f.kind == fkOperator
+  doAssert f.conditions.len == 0
+
+block filterMixedOperatorNesting:
+  ## (a AND b) OR (NOT c) — complex nesting is valid.
+  let a = filterCondition(1)
+  let b = filterCondition(2)
+  let c = filterCondition(3)
+  let andNode = filterOperator[int](foAnd, @[a, b])
+  let notNode = filterOperator[int](foNot, @[c])
+  let orNode = filterOperator[int](foOr, @[andNode, notNode])
+  doAssert orNode.operator == foOr
+  doAssert orNode.conditions.len == 2
+  doAssert orNode.conditions[0].operator == foAnd
+  doAssert orNode.conditions[1].operator == foNot
+
+# =============================================================================
+# 6e) Error type edge cases
+# =============================================================================
+
+block httpStatusErrorLargeAndNegative:
+  ## Unusual HTTP status codes are not validated at Layer 1.
+  let te999 = httpStatusError(999, "unusual")
+  doAssert te999.httpStatus == 999
+  let teNeg = httpStatusError(-1, "negative")
+  doAssert teNeg.httpStatus == -1
+
+block setErrorDefensiveFallbackInvalidProperties:
+  ## Generic setError with rawType="invalidProperties" falls to setUnknown.
+  let se = setError("invalidProperties")
+  doAssert se.errorType == setUnknown
+  doAssert se.rawType == "invalidProperties"
+
+block setErrorDefensiveFallbackAlreadyExists:
+  ## Generic setError with rawType="alreadyExists" falls to setUnknown.
+  let se = setError("alreadyExists")
+  doAssert se.errorType == setUnknown
+  doAssert se.rawType == "alreadyExists"
+
+# =============================================================================
 # SetError variant field confusion
 # =============================================================================
 

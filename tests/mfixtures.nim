@@ -7,6 +7,7 @@
 ## mutation risk. Imported by t-prefixed test files.
 
 import std/sets
+import std/strutils
 import std/tables
 from std/json import newJObject, JsonNode
 
@@ -284,5 +285,98 @@ func makeComparator*(
 ): Comparator =
   parseComparator(property, isAscending).get()
 
+func makeComparatorWithCollation*(
+    property: PropertyName = makePropertyName("subject"),
+    isAscending = true,
+    collation = "i;unicode-casemap",
+): Comparator =
+  parseComparator(property, isAscending, Opt.some(collation)).get()
+
 func makeAddedItem*(id: Id = makeId("item1"), index: int64 = 0): AddedItem =
   AddedItem(id: id, index: parseUnsignedInt(index).get())
+
+# ---------------------------------------------------------------------------
+# Filter factories
+# ---------------------------------------------------------------------------
+
+func makeFilterCondition*(condition = 42): Filter[int] =
+  filterCondition(condition)
+
+func makeFilterAnd*(children: seq[Filter[int]]): Filter[int] =
+  filterOperator[int](foAnd, children)
+
+func makeFilterOr*(children: seq[Filter[int]]): Filter[int] =
+  filterOperator[int](foOr, children)
+
+func makeFilterNot*(child: Filter[int]): Filter[int] =
+  filterOperator[int](foNot, @[child])
+
+# ---------------------------------------------------------------------------
+# PatchObject factory
+# ---------------------------------------------------------------------------
+
+func makePatch*(entries: seq[(string, JsonNode)]): PatchObject =
+  ## Builds a PatchObject from a sequence of key-value pairs.
+  var p = emptyPatch()
+  for (k, v) in entries:
+    p = p.setProp(k, v).get()
+  p
+
+# ---------------------------------------------------------------------------
+# Boundary constants
+# ---------------------------------------------------------------------------
+
+const MaxLenString* = 'a'.repeat(255)
+  ## Maximum-length string for types with 1-255 octet constraint.
+
+const OverLenString* = 'a'.repeat(256)
+  ## One-byte-over-limit string for types with 1-255 octet constraint.
+
+# ---------------------------------------------------------------------------
+# Additional error factory
+# ---------------------------------------------------------------------------
+
+func makeRequestErrorWithFields*(
+    rawType = "urn:ietf:params:jmap:error:unknownCapability",
+    status: Opt[int] = Opt.none(int),
+    title: Opt[string] = Opt.none(string),
+    detail: Opt[string] = Opt.none(string),
+): RequestError =
+  requestError(rawType, status, title, detail)
+
+# ---------------------------------------------------------------------------
+# Additional session fixture
+# ---------------------------------------------------------------------------
+
+func makeCyrusSession*(): SessionArgs =
+  ## Cyrus IMAP style session with lenient account IDs.
+  var accounts = initTable[AccountId, Account]()
+  let acctId = makeAccountId("uid=12345")
+  accounts[acctId] = Account(
+    name: "admin@cyrus.example.com",
+    isPersonal: true,
+    isReadOnly: false,
+    accountCapabilities: @[
+      AccountCapabilityEntry(
+        kind: ckMail, rawUri: "urn:ietf:params:jmap:mail", data: newJObject()
+      )
+    ],
+  )
+  var primaryAccounts = initTable[string, AccountId]()
+  primaryAccounts["urn:ietf:params:jmap:mail"] = acctId
+  result = (
+    capabilities: @[
+      makeCoreServerCap(realisticCoreCaps()),
+      ServerCapability(
+        rawUri: "urn:ietf:params:jmap:mail", kind: ckMail, rawData: newJObject()
+      ),
+    ],
+    accounts: accounts,
+    primaryAccounts: primaryAccounts,
+    username: "admin@cyrus.example.com",
+    apiUrl: "https://cyrus.example.com/.well-known/jmap",
+    downloadUrl: makeGoldenDownloadUrl(),
+    uploadUrl: makeGoldenUploadUrl(),
+    eventSourceUrl: makeGoldenEventSourceUrl(),
+    state: makeState("cyrus-abcdef"),
+  )

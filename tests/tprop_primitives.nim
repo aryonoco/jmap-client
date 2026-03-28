@@ -541,3 +541,92 @@ block propInvalidUtcDateAlwaysRejected:
   checkPropertyN "genInvalidUtcDate always rejected by parseUtcDate", QuickTrials:
     let s = genInvalidUtcDate(rng, trial)
     doAssert parseUtcDate(s).isErr
+
+# --- Equivalence substitution and ordering ---
+
+block propIdSubstitution:
+  ## Leibniz's law: x == y implies $(x) == $(y).
+  checkProperty "propIdSubstitution":
+    let s = genValidIdStrict(rng, trial)
+    let a = parseId(s).get()
+    let b = parseId(s).get()
+    doAssert $(a) == $(b)
+    doAssert hash(a) == hash(b)
+
+block propUnsignedIntSubstitution:
+  ## Leibniz's law: x == y implies $(x) == $(y) and hash(x) == hash(y).
+  checkProperty "propUnsignedIntSubstitution":
+    let n = genValidUnsignedInt(rng, trial)
+    let a = parseUnsignedInt(n).get()
+    let b = parseUnsignedInt(n).get()
+    doAssert $(a) == $(b)
+    doAssert hash(a) == hash(b)
+
+block propJmapIntSubstitution:
+  checkProperty "propJmapIntSubstitution":
+    let n = genValidJmapInt(rng, trial)
+    let a = parseJmapInt(n).get()
+    let b = parseJmapInt(n).get()
+    doAssert $(a) == $(b)
+    doAssert hash(a) == hash(b)
+
+block propUnsignedIntIrreflexivity:
+  ## Strict ordering: not (x < x).
+  checkProperty "propUnsignedIntIrreflexivity":
+    let n = genValidUnsignedInt(rng, trial)
+    let a = parseUnsignedInt(n).get()
+    doAssert not (a < a)
+
+block propJmapIntIrreflexivity:
+  checkProperty "propJmapIntIrreflexivity":
+    let n = genValidJmapInt(rng, trial)
+    let a = parseJmapInt(n).get()
+    doAssert not (a < a)
+
+block propUnsignedIntAsymmetry:
+  ## x < y implies not (y < x).
+  checkProperty "propUnsignedIntAsymmetry":
+    let na = genValidUnsignedInt(rng, trial)
+    let nb = genValidUnsignedInt(rng, trial)
+    let a = parseUnsignedInt(na).get()
+    let b = parseUnsignedInt(nb).get()
+    if a < b:
+      doAssert not (b < a)
+
+block propJmapIntAsymmetry:
+  checkProperty "propJmapIntAsymmetry":
+    let na = genValidJmapInt(rng, trial)
+    let nb = genValidJmapInt(rng, trial)
+    let a = parseJmapInt(na).get()
+    let b = parseJmapInt(nb).get()
+    if a < b:
+      doAssert not (b < a)
+
+block propUnsignedIntLtImpliesLeq:
+  ## x < y implies x <= y.
+  checkProperty "propUnsignedIntLtImpliesLeq":
+    let na = genValidUnsignedInt(rng, trial)
+    let nb = genValidUnsignedInt(rng, trial)
+    let a = parseUnsignedInt(na).get()
+    let b = parseUnsignedInt(nb).get()
+    if a < b:
+      doAssert a <= b
+
+block propParseIdIdempotence:
+  ## Parsing the same string twice yields identical results.
+  checkProperty "propParseIdIdempotence":
+    let s = genValidIdStrict(rng, trial)
+    let first = parseId(s)
+    let second = parseId(s)
+    doAssert first.isOk == second.isOk
+    if first.isOk:
+      doAssert first.get() == second.get()
+
+block propParseDateIdempotence:
+  checkProperty "propParseDateIdempotence":
+    let s = genValidDate(rng)
+    let first = parseDate(s)
+    let second = parseDate(s)
+    doAssert first.isOk == second.isOk
+    if first.isOk:
+      doAssert first.get() == second.get()

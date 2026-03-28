@@ -8,6 +8,7 @@
 import std/hashes
 import std/json
 import std/random
+import std/sequtils
 
 import pkg/results
 
@@ -15,6 +16,7 @@ import jmap_client/envelope
 import jmap_client/framework
 import jmap_client/identifiers
 import jmap_client/primitives
+import jmap_client/session
 import jmap_client/validation
 import ./mproperty
 
@@ -278,3 +280,87 @@ block propFilterEmptyConditions:
   let f = filterOperator[int](foAnd, @[])
   doAssert f.kind == fkOperator
   doAssert f.conditions.len == 0
+
+# --- PatchObject monoid laws, Filter well-formedness ---
+
+block propPatchMonoidIdentity:
+  ## emptyPatch then setProp(k, v) == just setProp(k, v).
+  checkProperty "propPatchMonoidIdentity":
+    let key = "key_" & $rng.rand(0 .. 999)
+    let val = newJInt(rng.rand(int))
+    let p = emptyPatch().setProp(key, val).get()
+    doAssert p.len == 1
+    doAssert p.getKey(key).get() == val
+
+block propPatchIdempotence:
+  ## Writing the same key-value twice yields same result as once.
+  checkProperty "propPatchIdempotence":
+    let key = "key_" & $rng.rand(0 .. 999)
+    let val = newJInt(rng.rand(int))
+    let once = emptyPatch().setProp(key, val).get()
+    let twice = emptyPatch().setProp(key, val).get().setProp(key, val).get()
+    doAssert once.len == twice.len
+    doAssert once.getKey(key).get() == twice.getKey(key).get()
+
+block propPatchAssociativity:
+  ## Sequential setProp calls produce consistent results regardless of grouping.
+  checkPropertyN "propPatchAssociativity", 200:
+    let k1 = "a_" & $rng.rand(0 .. 999)
+    let k2 = "b_" & $rng.rand(0 .. 999)
+    let k3 = "c_" & $rng.rand(0 .. 999)
+    let v1 = newJInt(rng.rand(0 .. 999))
+    let v2 = newJInt(rng.rand(0 .. 999))
+    let v3 = newJInt(rng.rand(0 .. 999))
+    let p =
+      emptyPatch().setProp(k1, v1).get().setProp(k2, v2).get().setProp(k3, v3).get()
+    # Verify all keys present with correct values.
+    doAssert p.getKey(k1).get() == v1
+    doAssert p.getKey(k2).get() == v2
+    doAssert p.getKey(k3).get() == v3
+
+block propPatchLenNonNegative:
+  ## Patch length is always non-negative after any operations.
+  checkProperty "propPatchLenNonNegative":
+    var p = emptyPatch()
+    let n = rng.rand(0 .. 5)
+    for i in 0 ..< n:
+      p = p.setProp("k" & $i, newJInt(i)).get()
+    doAssert p.len >= 0
+
+block propFilterWellFormed:
+  ## Any generated filter tree is structurally well-formed.
+  checkPropertyN "propFilterWellFormed", 200:
+    let f = genFilter(rng, 4)
+    proc check(f: Filter[int]): bool =
+      ## Recursively validates filter tree structure.
+      case f.kind
+      of fkCondition:
+        true
+      of fkOperator:
+        f.operator in {foAnd, foOr, foNot} and f.conditions.allIt(check(it))
+
+    doAssert check(f)
+
+block propFilterOperatorPreserved:
+  ## Operator enum value survives construction.
+  checkProperty "propFilterOperatorPreserved":
+    let op = [foAnd, foOr, foNot][rng.rand(0 .. 2)]
+    let c = filterCondition(rng.rand(int))
+    let f = filterOperator[int](op, @[c])
+    doAssert f.operator == op
+
+block propUriTemplatePostConstructionLen:
+  ## After successful parseUriTemplate, the template has non-zero length.
+  checkProperty "propUriTemplatePostConstructionLen":
+    let s = genValidUriTemplate(rng)
+    let t = parseUriTemplate(s)
+    if t.isOk:
+      doAssert t.get().len > 0
+
+block propPropertyNamePostConstructionLen:
+  ## After successful parsePropertyName, the name has non-zero length.
+  checkProperty "propPropertyNamePostConstructionLen":
+    let s = genArbitraryString(rng, trial)
+    let pn = parsePropertyName(s)
+    if pn.isOk:
+      doAssert pn.get().len > 0

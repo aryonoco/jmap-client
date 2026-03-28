@@ -468,3 +468,74 @@ block scenarioFindAccountEmptyTable:
   let args = makeMinimalSession()
   let session = parseSessionFromArgs(args).get()
   doAssert session.findAccount(makeAccountId("nonexistent")).isNone
+
+# =============================================================================
+# Phase 8: Cross-module integration tests
+# =============================================================================
+
+block filterWithPropertyNameType:
+  ## Filter parameterised with a validated domain type (PropertyName) as string.
+  ## Note: PropertyName has {.requiresInit.}, so Filter[PropertyName] cannot be
+  ## used directly (seq requires a default value). We verify the name round-trips.
+  let pn = parsePropertyName("subject").get()
+  let pnStr = $pn
+  let f = filterCondition(pnStr)
+  doAssert f.kind == fkCondition
+  doAssert f.condition == pnStr
+
+block filterWithAccountIdType:
+  ## Filter parameterised with string — using AccountId string representations
+  ## to verify Filter composition across module boundaries. Direct use of
+  ## requiresInit distinct types as Filter[C] triggers seq default-value issues.
+  let acctStr1 = $parseAccountId("acct1").get()
+  let acctStr2 = $parseAccountId("acct2").get()
+  let f = filterCondition(acctStr1)
+  let f2 = filterCondition(acctStr2)
+  let combined = filterOperator[string](foAnd, @[f, f2])
+  doAssert combined.kind == fkOperator
+  doAssert combined.conditions.len == 2
+
+block errorCascadeAllNoneFields:
+  ## Transport error -> ClientError -> message extraction with no optional fields.
+  let te = transportError(tekNetwork, "connection refused")
+  let ce = clientError(te)
+  doAssert message(ce) == "connection refused"
+
+block errorCascadeDetailPriority:
+  ## Request error with detail, title, and rawType — detail takes priority.
+  let re = requestError(
+    "urn:ietf:params:jmap:error:limit",
+    title = Opt.some("Rate Limited"),
+    detail = Opt.some("Too many requests per second"),
+  )
+  let ce = clientError(re)
+  doAssert message(ce) == "Too many requests per second"
+
+block sessionToRequestIntegration:
+  ## Construct Session -> extract capabilities -> build Request with those URIs.
+  let args = makeFastmailSession()
+  let session = parseSessionFromArgs(args).get()
+  var capUris: seq[string] = @[]
+  for cap in session.capabilities:
+    capUris.add cap.rawUri
+  let req = Request(
+    `using`: capUris,
+    methodCalls: @[
+      Invocation(
+        name: "Mailbox/get",
+        arguments: newJObject(),
+        methodCallId: parseMethodCallId("c0").get(),
+      )
+    ],
+    createdIds: Opt.none(Table[CreationId, Id]),
+  )
+  doAssert req.`using`.len == capUris.len
+
+block resultReferenceWithPriorInvocation:
+  ## Build a ResultReference that references a prior Invocation's MethodCallId.
+  let mcid1 = parseMethodCallId("c1").get()
+  let inv1 =
+    Invocation(name: "Email/query", arguments: newJObject(), methodCallId: mcid1)
+  let ref1 = ResultReference(resultOf: mcid1, name: "Email/query", path: RefPathIds)
+  doAssert ref1.resultOf == inv1.methodCallId
+  doAssert ref1.path == "/ids"
