@@ -12,6 +12,8 @@ import pkg/results
 
 import jmap_client/primitives
 
+import ./massertions
+
 # --- parseId (strict) ---
 
 block parseIdEmpty:
@@ -183,3 +185,152 @@ block jmapIntUnaryNeg:
 
   doAssert -pos == neg
   doAssert -neg == pos
+
+# --- Error content assertions ---
+
+block parseIdErrorContentEmpty:
+  assertErrFields parseId(""), "Id", "length must be 1-255 octets", ""
+
+block parseIdErrorContentTooLong:
+  assertErrFields parseId('a'.repeat(256)),
+    "Id", "length must be 1-255 octets", 'a'.repeat(256)
+
+block parseIdErrorContentBadChar:
+  assertErrFields parseId("abc=def"),
+    "Id", "contains characters outside base64url alphabet", "abc=def"
+
+block parseIdErrorContentSpace:
+  assertErrFields parseId("abc def"),
+    "Id", "contains characters outside base64url alphabet", "abc def"
+
+block parseIdFromServerErrorContentControl:
+  assertErrFields parseIdFromServer("\x00abc"),
+    "Id", "contains control characters", "\x00abc"
+
+block parseUnsignedIntErrorContentNegative:
+  assertErrFields parseUnsignedInt(-1), "UnsignedInt", "must be non-negative", "-1"
+
+block parseUnsignedIntErrorContentOverflow:
+  assertErrFields parseUnsignedInt(MaxUnsignedInt + 1),
+    "UnsignedInt", "exceeds 2^53-1", $(MaxUnsignedInt + 1)
+
+block parseJmapIntErrorContentUnder:
+  assertErrFields parseJmapInt(MinJmapInt - 1),
+    "JmapInt", "outside JSON-safe integer range", $(MinJmapInt - 1)
+
+block parseJmapIntErrorContentOver:
+  assertErrFields parseJmapInt(MaxJmapInt + 1),
+    "JmapInt", "outside JSON-safe integer range", $(MaxJmapInt + 1)
+
+block parseDateErrorContentTooShort:
+  assertErrFields parseDate("2024-01-01"),
+    "Date", "too short for RFC 3339 date-time", "2024-01-01"
+
+block parseDateErrorContentBadDate:
+  assertErrFields parseDate("20X4-01-01T12:00:00Z"),
+    "Date", "invalid date portion", "20X4-01-01T12:00:00Z"
+
+block parseDateErrorContentTSep:
+  assertErrFields parseDate("2024-01-01t12:00:00Z"),
+    "Date", "'T' separator must be uppercase", "2024-01-01t12:00:00Z"
+
+block parseDateErrorContentBadTime:
+  assertErrFields parseDate("2024-01-01T1X:00:00Z"),
+    "Date", "invalid time portion", "2024-01-01T1X:00:00Z"
+
+block parseDateErrorContentZeroFrac:
+  assertErrFields parseDate("2024-01-01T12:00:00.000Z"),
+    "Date", "zero fractional seconds must be omitted", "2024-01-01T12:00:00.000Z"
+
+block parseDateErrorContentEmptyFrac:
+  assertErrFields parseDate("2024-01-01T12:00:00.Z"),
+    "Date",
+    "fractional seconds must contain at least one digit",
+    "2024-01-01T12:00:00.Z"
+
+block parseUtcDateErrorContentNotZ:
+  assertErrFields parseUtcDate("2024-01-01T12:00:00+05:00"),
+    "UTCDate", "time-offset must be 'Z'", "2024-01-01T12:00:00+05:00"
+
+# --- Adversarial edge cases ---
+
+block parseIdNullByte:
+  doAssert parseId("abc\x00def").isErr
+
+block parseIdFromServerNullByte:
+  doAssert parseIdFromServer("abc\x00def").isErr
+
+block parseIdMultibyteUtf8:
+  let result = parseIdFromServer("\xC3\xA9\xC3\xA9")
+  doAssert result.isOk
+  doAssert result.get().len == 4
+
+block parseDateInvalidCalendarAccepted:
+  doAssert parseDate("2024-02-30T12:00:00Z").isOk
+
+block parseDateInvalidTimeAccepted:
+  doAssert parseDate("2024-01-01T25:99:99Z").isOk
+
+block parseDateVeryLongFractional:
+  doAssert parseDate("2024-01-01T12:00:00.123456789012345Z").isOk
+
+block parseUtcDateFractionalThenZ:
+  doAssert parseUtcDate("2024-01-01T12:00:00.123Z").isOk
+
+block parseDateNullByteInOffset:
+  doAssert parseDate("2024-01-01T12:00:00\x00").isErr
+
+block parseDateDoubleZ:
+  doAssert parseDate("2024-01-01T12:00:00ZZ").isErr
+
+block parseUtcDateOffsetNotZ:
+  doAssert parseUtcDate("2024-01-01T12:00:00+00:00").isErr
+
+# --- Missing paths and boundary values ---
+
+block parseIdFromServerEmpty:
+  doAssert parseIdFromServer("").isErr
+
+block parseIdFromServerTooLong:
+  doAssert parseIdFromServer('a'.repeat(256)).isErr
+
+block parseIdFromServerMaxLength:
+  doAssert parseIdFromServer('a'.repeat(255)).isOk
+
+block parseIdFromServerMinLength:
+  doAssert parseIdFromServer("x").isOk
+
+block parseIdFromServerSpaceAccepted:
+  doAssert parseIdFromServer("abc def").isOk
+
+block parseIdFromServerEqualsAccepted:
+  doAssert parseIdFromServer("abc=def").isOk
+
+block parseIdFromServerDelRejected:
+  doAssert parseIdFromServer("abc\x7Fdef").isErr
+
+block parseIdPlusRejectedStrict:
+  doAssert parseId("abc+def").isErr
+
+block parseJmapIntZero:
+  doAssert parseJmapInt(0).isOk
+
+block parseJmapIntUnderflow:
+  doAssert parseJmapInt(MinJmapInt - 1).isErr
+
+block parseJmapIntOverflow:
+  doAssert parseJmapInt(MaxJmapInt + 1).isErr
+
+block parseUnsignedIntInt64Max:
+  doAssert parseUnsignedInt(int64.high).isErr
+
+block parseJmapIntInt64Min:
+  doAssert parseJmapInt(int64.low).isErr
+
+block parseJmapIntInt64Max:
+  doAssert parseJmapInt(int64.high).isErr
+
+block maxUnsignedIntIsCorrect:
+  doAssert MaxUnsignedInt == (1'i64 shl 53) - 1
+  doAssert MinJmapInt == -((1'i64 shl 53) - 1)
+  doAssert MaxJmapInt == (1'i64 shl 53) - 1

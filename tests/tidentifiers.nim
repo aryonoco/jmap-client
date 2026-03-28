@@ -11,6 +11,9 @@ import std/strutils
 import pkg/results
 
 import jmap_client/identifiers
+import jmap_client/primitives
+
+import ./massertions
 
 # --- parseAccountId ---
 
@@ -115,3 +118,63 @@ block creationIdBorrowedOps:
   doAssert $a == "abc"
   doAssert hash(a) == hash(b)
   doAssert not compiles(a.len)
+
+# --- Error content assertions ---
+
+block parseAccountIdErrorContentEmpty:
+  assertErrFields parseAccountId(""), "AccountId", "length must be 1-255 octets", ""
+
+block parseAccountIdErrorContentTooLong:
+  assertErrFields parseAccountId('a'.repeat(256)),
+    "AccountId", "length must be 1-255 octets", 'a'.repeat(256)
+
+block parseAccountIdErrorContentControl:
+  assertErrFields parseAccountId("abc\x00def"),
+    "AccountId", "contains control characters", "abc\x00def"
+
+block parseJmapStateErrorContentEmpty:
+  assertErrFields parseJmapState(""), "JmapState", "must not be empty", ""
+
+block parseJmapStateErrorContentControl:
+  assertErrFields parseJmapState("abc\x00def"),
+    "JmapState", "contains control characters", "abc\x00def"
+
+block parseMethodCallIdErrorContentEmpty:
+  assertErrFields parseMethodCallId(""), "MethodCallId", "must not be empty", ""
+
+block parseCreationIdErrorContentEmpty:
+  assertErrFields parseCreationId(""), "CreationId", "must not be empty", ""
+
+block parseCreationIdErrorContentHash:
+  assertErrFields parseCreationId("#abc"),
+    "CreationId", "must not include '#' prefix", "#abc"
+
+# --- Adversarial edge cases ---
+
+block parseAccountIdBom:
+  doAssert parseAccountId("\xEF\xBB\xBFabc").isOk
+
+block parseIdFromServerHighUnicode:
+  let result = parseIdFromServer("\xF0\x9F\x98\x80")
+  doAssert result.isOk
+  doAssert result.get().len == 4
+
+# --- Missing boundaries ---
+
+block parseAccountIdDelChar:
+  doAssert parseAccountId("abc\x7Fdef").isErr
+
+block parseAccountIdSpaceAccepted:
+  doAssert parseAccountId("abc def").isOk
+
+block parseJmapStateDelChar:
+  doAssert parseJmapState("abc\x7Fdef").isErr
+
+block parseCreationIdHashMiddle:
+  doAssert parseCreationId("ab#cd").isOk
+
+block parseMethodCallIdControlAccepted:
+  doAssert parseMethodCallId("\x01abc").isOk
+
+block parseCreationIdLongString:
+  doAssert parseCreationId('a'.repeat(1000)).isOk

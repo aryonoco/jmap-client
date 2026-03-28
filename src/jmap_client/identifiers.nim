@@ -56,7 +56,7 @@ func parseAccountId*(raw: string): Result[AccountId, ValidationError] =
   ## same lenient rules as parseIdFromServer.
   if raw.len < 1 or raw.len > 255:
     return err(validationError("AccountId", "length must be 1-255 octets", raw))
-  if raw.anyIt(it < ' '):
+  if raw.anyIt(it < ' ' or it == '\x7F'):
     return err(validationError("AccountId", "contains control characters", raw))
   ok(AccountId(raw))
 
@@ -65,7 +65,7 @@ func parseJmapState*(raw: string): Result[JmapState, ValidationError] =
   ## checks as other server-assigned identifiers.
   if raw.len == 0:
     return err(validationError("JmapState", "must not be empty", raw))
-  if raw.anyIt(it < ' '):
+  if raw.anyIt(it < ' ' or it == '\x7F'):
     return err(validationError("JmapState", "contains control characters", raw))
   ok(JmapState(raw))
 

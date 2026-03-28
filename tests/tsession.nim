@@ -17,6 +17,9 @@ import jmap_client/identifiers
 import jmap_client/capabilities
 import jmap_client/session
 
+import ./massertions
+import ./mfixtures
+
 # Shared fixture values used across multiple test blocks.
 
 let zero = parseUnsignedInt(0).get()
@@ -82,13 +85,17 @@ let goldenAccount2 = Account(
   ],
 )
 
-var goldenAccounts = initTable[AccountId, Account]()
-goldenAccounts[acctId1] = goldenAccount1
-goldenAccounts[acctId2] = goldenAccount2
+let goldenAccounts = block:
+  var t = initTable[AccountId, Account]()
+  t[acctId1] = goldenAccount1
+  t[acctId2] = goldenAccount2
+  t
 
-var goldenPrimaryAccounts = initTable[string, AccountId]()
-goldenPrimaryAccounts["urn:ietf:params:jmap:mail"] = acctId1
-goldenPrimaryAccounts["urn:ietf:params:jmap:contacts"] = acctId1
+let goldenPrimaryAccounts = block:
+  var t = initTable[string, AccountId]()
+  t["urn:ietf:params:jmap:mail"] = acctId1
+  t["urn:ietf:params:jmap:contacts"] = acctId1
+  t
 
 let goldenDownloadUrl = parseUriTemplate(
     "https://jmap.example.com/download/{accountId}/{blobId}/{name}?accept={type}"
@@ -396,3 +403,201 @@ block coreCapabilitiesInvariantViolation:
       state: parseJmapState("s1").get(),
     )
     discard coreCapabilities(badSession)
+
+# --- Error content assertions ---
+
+block parseSessionErrorContentMissingCkCore:
+  let result = parseSession(
+    capabilities = @[
+      ServerCapability(
+        rawUri: "urn:ietf:params:jmap:mail", kind: ckMail, rawData: newJNull()
+      )
+    ],
+    accounts = goldenAccounts,
+    primaryAccounts = goldenPrimaryAccounts,
+    username = "",
+    apiUrl = "https://jmap.example.com/api/",
+    downloadUrl = goldenDownloadUrl,
+    uploadUrl = goldenUploadUrl,
+    eventSourceUrl = goldenEventSourceUrl,
+    state = goldenState,
+  )
+  assertErrFields result,
+    "Session", "capabilities must include urn:ietf:params:jmap:core", ""
+
+block parseSessionErrorContentEmptyApiUrl:
+  let result = parseSession(
+    capabilities = goldenCaps,
+    accounts = goldenAccounts,
+    primaryAccounts = goldenPrimaryAccounts,
+    username = "",
+    apiUrl = "",
+    downloadUrl = goldenDownloadUrl,
+    uploadUrl = goldenUploadUrl,
+    eventSourceUrl = goldenEventSourceUrl,
+    state = goldenState,
+  )
+  assertErrFields result, "Session", "apiUrl must not be empty", ""
+
+block parseSessionErrorContentDownloadMissing:
+  let badDl =
+    parseUriTemplate("https://example.com/{accountId}/{name}?accept={type}").get()
+  let result = parseSession(
+    capabilities = goldenCaps,
+    accounts = goldenAccounts,
+    primaryAccounts = goldenPrimaryAccounts,
+    username = "",
+    apiUrl = "https://jmap.example.com/api/",
+    downloadUrl = badDl,
+    uploadUrl = goldenUploadUrl,
+    eventSourceUrl = goldenEventSourceUrl,
+    state = goldenState,
+  )
+  assertErrMsg result, "downloadUrl missing {blobId}"
+
+block parseSessionErrorContentUploadMissing:
+  let badUp = parseUriTemplate("https://example.com/upload/").get()
+  let result = parseSession(
+    capabilities = goldenCaps,
+    accounts = goldenAccounts,
+    primaryAccounts = goldenPrimaryAccounts,
+    username = "",
+    apiUrl = "https://jmap.example.com/api/",
+    downloadUrl = goldenDownloadUrl,
+    uploadUrl = badUp,
+    eventSourceUrl = goldenEventSourceUrl,
+    state = goldenState,
+  )
+  assertErrMsg result, "uploadUrl missing {accountId}"
+
+block parseSessionErrorContentEventSourceMissing:
+  let badEs = parseUriTemplate(
+      "https://example.com/events?closeafter={closeafter}&ping={ping}"
+    )
+    .get()
+  let result = parseSession(
+    capabilities = goldenCaps,
+    accounts = goldenAccounts,
+    primaryAccounts = goldenPrimaryAccounts,
+    username = "",
+    apiUrl = "https://jmap.example.com/api/",
+    downloadUrl = goldenDownloadUrl,
+    uploadUrl = goldenUploadUrl,
+    eventSourceUrl = badEs,
+    state = goldenState,
+  )
+  assertErrMsg result, "eventSourceUrl missing {types}"
+
+# --- Adversarial edge cases ---
+
+block parseSessionDuplicateCkCore:
+  let caps = @[makeCoreServerCap(), makeCoreServerCap()]
+  let args = makeSessionArgs()
+  let result = parseSession(
+    capabilities = caps,
+    accounts = args.accounts,
+    primaryAccounts = args.primaryAccounts,
+    username = args.username,
+    apiUrl = args.apiUrl,
+    downloadUrl = args.downloadUrl,
+    uploadUrl = args.uploadUrl,
+    eventSourceUrl = args.eventSourceUrl,
+    state = args.state,
+  )
+  doAssert result.isOk
+
+block parseSessionNestedBraces:
+  let dl = parseUriTemplate("https://e.com/{{accountId}}/{blobId}/{type}/{name}").get()
+  let args = makeSessionArgs()
+  let result = parseSession(
+    capabilities = args.capabilities,
+    accounts = args.accounts,
+    primaryAccounts = args.primaryAccounts,
+    username = args.username,
+    apiUrl = args.apiUrl,
+    downloadUrl = dl,
+    uploadUrl = args.uploadUrl,
+    eventSourceUrl = args.eventSourceUrl,
+    state = args.state,
+  )
+  doAssert result.isOk
+
+# --- Missing session validations ---
+
+block parseSessionDownloadUrlMissingType:
+  let badDl = parseUriTemplate("https://e.com/{accountId}/{blobId}/{name}").get()
+  let args = makeSessionArgs()
+  let result = parseSession(
+    capabilities = args.capabilities,
+    accounts = args.accounts,
+    primaryAccounts = args.primaryAccounts,
+    username = args.username,
+    apiUrl = args.apiUrl,
+    downloadUrl = badDl,
+    uploadUrl = args.uploadUrl,
+    eventSourceUrl = args.eventSourceUrl,
+    state = args.state,
+  )
+  doAssert result.isErr
+
+block parseSessionDownloadUrlMissingName:
+  let badDl = parseUriTemplate("https://e.com/{accountId}/{blobId}?accept={type}").get()
+  let args = makeSessionArgs()
+  let result = parseSession(
+    capabilities = args.capabilities,
+    accounts = args.accounts,
+    primaryAccounts = args.primaryAccounts,
+    username = args.username,
+    apiUrl = args.apiUrl,
+    downloadUrl = badDl,
+    uploadUrl = args.uploadUrl,
+    eventSourceUrl = args.eventSourceUrl,
+    state = args.state,
+  )
+  doAssert result.isErr
+
+block parseSessionEventSourceMissingCloseafter:
+  let badEs = parseUriTemplate("https://e.com/events?types={types}&ping={ping}").get()
+  let args = makeSessionArgs()
+  let result = parseSession(
+    capabilities = args.capabilities,
+    accounts = args.accounts,
+    primaryAccounts = args.primaryAccounts,
+    username = args.username,
+    apiUrl = args.apiUrl,
+    downloadUrl = args.downloadUrl,
+    uploadUrl = args.uploadUrl,
+    eventSourceUrl = badEs,
+    state = args.state,
+  )
+  doAssert result.isErr
+
+block parseSessionEmptyAccounts:
+  let args = makeSessionArgs()
+  let result = parseSession(
+    capabilities = args.capabilities,
+    accounts = initTable[AccountId, Account](),
+    primaryAccounts = args.primaryAccounts,
+    username = args.username,
+    apiUrl = args.apiUrl,
+    downloadUrl = args.downloadUrl,
+    uploadUrl = args.uploadUrl,
+    eventSourceUrl = args.eventSourceUrl,
+    state = args.state,
+  )
+  doAssert result.isOk
+
+block parseSessionEmptyPrimaryAccounts:
+  let args = makeSessionArgs()
+  let result = parseSession(
+    capabilities = args.capabilities,
+    accounts = args.accounts,
+    primaryAccounts = initTable[string, AccountId](),
+    username = args.username,
+    apiUrl = args.apiUrl,
+    downloadUrl = args.downloadUrl,
+    uploadUrl = args.uploadUrl,
+    eventSourceUrl = args.eventSourceUrl,
+    state = args.state,
+  )
+  doAssert result.isOk

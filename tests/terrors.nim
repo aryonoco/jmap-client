@@ -246,3 +246,137 @@ block setErrorDefensiveFallbackAlreadyExists:
   let e = setError("alreadyExists")
   doAssert e.errorType == setUnknown
   doAssert e.rawType == "alreadyExists"
+
+# --- RFC conformance: string backing ---
+
+block requestErrorTypeStringBacking:
+  doAssert $retUnknownCapability == "urn:ietf:params:jmap:error:unknownCapability"
+  doAssert $retNotJson == "urn:ietf:params:jmap:error:notJSON"
+  doAssert $retNotRequest == "urn:ietf:params:jmap:error:notRequest"
+  doAssert $retLimit == "urn:ietf:params:jmap:error:limit"
+
+block methodErrorTypeStringBacking:
+  doAssert $metServerUnavailable == "serverUnavailable"
+  doAssert $metServerFail == "serverFail"
+  doAssert $metServerPartialFail == "serverPartialFail"
+  doAssert $metUnknownMethod == "unknownMethod"
+  doAssert $metInvalidArguments == "invalidArguments"
+  doAssert $metInvalidResultReference == "invalidResultReference"
+  doAssert $metForbidden == "forbidden"
+  doAssert $metAccountNotFound == "accountNotFound"
+  doAssert $metAccountNotSupportedByMethod == "accountNotSupportedByMethod"
+  doAssert $metAccountReadOnly == "accountReadOnly"
+  doAssert $metAnchorNotFound == "anchorNotFound"
+  doAssert $metUnsupportedSort == "unsupportedSort"
+  doAssert $metUnsupportedFilter == "unsupportedFilter"
+  doAssert $metCannotCalculateChanges == "cannotCalculateChanges"
+  doAssert $metTooManyChanges == "tooManyChanges"
+  doAssert $metRequestTooLarge == "requestTooLarge"
+  doAssert $metStateMismatch == "stateMismatch"
+  doAssert $metFromAccountNotFound == "fromAccountNotFound"
+  doAssert $metFromAccountNotSupportedByMethod == "fromAccountNotSupportedByMethod"
+
+block setErrorTypeStringBacking:
+  doAssert $setForbidden == "forbidden"
+  doAssert $setOverQuota == "overQuota"
+  doAssert $setTooLarge == "tooLarge"
+  doAssert $setRateLimit == "rateLimit"
+  doAssert $setNotFound == "notFound"
+  doAssert $setInvalidPatch == "invalidPatch"
+  doAssert $setWillDestroy == "willDestroy"
+  doAssert $setInvalidProperties == "invalidProperties"
+  doAssert $setAlreadyExists == "alreadyExists"
+  doAssert $setSingleton == "singleton"
+
+block enumParserCaseSensitivity:
+  doAssert parseMethodErrorType("ServerFail") == metUnknown
+  doAssert parseSetErrorType("Forbidden") == setUnknown
+  ## parseEnum uses nimIdentNormalize: first-char case-sensitive, rest insensitive.
+  ## "urn:..." and "urn:..." share the same first char, so "notJson" matches "notJSON".
+  doAssert parseRequestErrorType("urn:ietf:params:jmap:error:notJson") == retNotJson
+
+block parseRequestErrorTypeIdempotent:
+  doAssert parseRequestErrorType($retUnknownCapability) == retUnknownCapability
+  doAssert parseRequestErrorType($retNotJson) == retNotJson
+  doAssert parseRequestErrorType($retNotRequest) == retNotRequest
+  doAssert parseRequestErrorType($retLimit) == retLimit
+
+block parseMethodErrorTypeIdempotent:
+  doAssert parseMethodErrorType($metServerFail) == metServerFail
+  doAssert parseMethodErrorType($metInvalidArguments) == metInvalidArguments
+  doAssert parseMethodErrorType($metForbidden) == metForbidden
+  doAssert parseMethodErrorType($metStateMismatch) == metStateMismatch
+
+block parseSetErrorTypeIdempotent:
+  doAssert parseSetErrorType($setForbidden) == setForbidden
+  doAssert parseSetErrorType($setInvalidProperties) == setInvalidProperties
+  doAssert parseSetErrorType($setSingleton) == setSingleton
+
+block requestErrorRawTypeAllVariants:
+  for uri in [
+    "urn:ietf:params:jmap:error:unknownCapability",
+    "urn:ietf:params:jmap:error:notJSON", "urn:ietf:params:jmap:error:notRequest",
+    "urn:ietf:params:jmap:error:limit", "urn:vendor:custom",
+  ]:
+    doAssert requestError(uri).rawType == uri
+
+block methodErrorRawTypeAllVariants:
+  for s in ["serverFail", "unknownMethod", "forbidden", "customVendorError"]:
+    doAssert methodError(s).rawType == s
+
+block setErrorRawTypeAllVariants:
+  for s in [
+    "forbidden", "overQuota", "tooLarge", "rateLimit", "notFound", "invalidPatch",
+    "willDestroy", "singleton", "vendorCustom",
+  ]:
+    doAssert setError(s).rawType == s
+
+block methodErrorRfc8621FallThrough:
+  doAssert parseMethodErrorType("mailboxHasChild") == metUnknown
+  doAssert parseMethodErrorType("mailboxHasEmail") == metUnknown
+  doAssert parseMethodErrorType("tooManyKeywords") == metUnknown
+
+# --- Missing error paths ---
+
+block httpStatusError404:
+  let e = httpStatusError(404, "Not Found")
+  doAssert e.kind == tekHttpStatus
+  doAssert e.httpStatus == 404
+
+block httpStatusError500:
+  let e = httpStatusError(500, "Internal Server Error")
+  doAssert e.kind == tekHttpStatus
+  doAssert e.httpStatus == 500
+
+block httpStatusErrorZero:
+  let e = httpStatusError(0, "zero")
+  doAssert e.kind == tekHttpStatus
+  doAssert e.httpStatus == 0
+
+block setErrorAllElseBranch:
+  doAssert setError("tooLarge").errorType == setTooLarge
+  doAssert setError("rateLimit").errorType == setRateLimit
+  doAssert setError("notFound").errorType == setNotFound
+  doAssert setError("invalidPatch").errorType == setInvalidPatch
+  doAssert setError("willDestroy").errorType == setWillDestroy
+  doAssert setError("singleton").errorType == setSingleton
+
+block requestErrorAllFieldsPopulated:
+  let e = requestError(
+    "urn:ietf:params:jmap:error:limit",
+    status = Opt.some(400),
+    title = Opt.some("Request Limit"),
+    detail = Opt.some("Too many calls"),
+    limit = Opt.some("maxCallsInRequest"),
+    extras = Opt.some(%*{"requestId": "abc"}),
+  )
+  doAssert e.status.isSome
+  doAssert e.status.unsafeGet == 400
+  doAssert e.title.isSome
+  doAssert e.detail.isSome
+  doAssert e.limit.isSome
+  doAssert e.extras.isSome
+
+block methodErrorRawTypePreserved:
+  doAssert methodError("vendorSpecific").rawType == "vendorSpecific"
+  doAssert methodError("vendorSpecific").errorType == metUnknown

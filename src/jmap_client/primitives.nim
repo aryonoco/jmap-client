@@ -68,7 +68,7 @@ func parseIdFromServer*(raw: string): Result[Id, ValidationError] =
   ## from the strict base64url charset (e.g., Cyrus IMAP).
   if raw.len < 1 or raw.len > 255:
     return err(validationError("Id", "length must be 1-255 octets", raw))
-  if raw.anyIt(it < ' '):
+  if raw.anyIt(it < ' ' or it == '\x7F'):
     return err(validationError("Id", "contains control characters", raw))
   ok(Id(raw))
 
@@ -131,6 +131,35 @@ func validateFractionalSeconds(raw: string): Result[void, ValidationError] =
         err(validationError("Date", "zero fractional seconds must be omitted", raw))
   ok()
 
+func offsetStart(raw: string): int =
+  ## Returns the position where the timezone offset begins (after fractional
+  ## seconds, if any).
+  result = 19
+  if result < raw.len and raw[result] == '.':
+    inc result
+    while result < raw.len and raw[result] in AsciiDigits:
+      inc result
+
+func isValidNumericOffset(raw: string, pos: int): bool =
+  ## Checks that raw[pos..pos+5] matches +HH:MM or -HH:MM structurally.
+  pos + 6 == raw.len and raw[pos + 1] in AsciiDigits and raw[pos + 2] in AsciiDigits and
+    raw[pos + 3] == ':' and raw[pos + 4] in AsciiDigits and raw[pos + 5] in AsciiDigits
+
+func validateTimezoneOffset(raw: string): Result[void, ValidationError] =
+  ## Validates timezone offset after seconds and optional fractional seconds.
+  ## Must be 'Z' or '+HH:MM' or '-HH:MM'.
+  let pos = offsetStart(raw)
+  if pos >= raw.len:
+    return err(validationError("Date", "missing timezone offset", raw))
+  if raw[pos] == 'Z':
+    if pos + 1 != raw.len:
+      return err(validationError("Date", "trailing characters after 'Z'", raw))
+    return ok()
+  if raw[pos] notin {'+', '-'} or not isValidNumericOffset(raw, pos):
+    return
+      err(validationError("Date", "timezone offset must be 'Z' or '+/-HH:MM'", raw))
+  ok()
+
 func parseDate*(raw: string): Result[Date, ValidationError] =
   ## Structural validation of an RFC 3339 date-time string.
   ## Does NOT perform calendar validation (e.g., February 30) or
@@ -140,6 +169,7 @@ func parseDate*(raw: string): Result[Date, ValidationError] =
   ?validateDatePortion(raw)
   ?validateTimePortion(raw)
   ?validateFractionalSeconds(raw)
+  ?validateTimezoneOffset(raw)
   ok(Date(raw))
 
 func parseUtcDate*(raw: string): Result[UTCDate, ValidationError] =

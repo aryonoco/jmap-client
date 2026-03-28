@@ -14,6 +14,8 @@ import pkg/results
 import jmap_client/primitives
 import jmap_client/framework
 
+import ./massertions
+
 # --- PropertyName ---
 
 block parsePropertyNameEmpty:
@@ -129,3 +131,37 @@ block addedItemConstruction:
   let item = AddedItem(id: id, index: idx)
   doAssert item.id == id
   doAssert item.index == idx
+
+# --- Error content assertions ---
+
+block parsePropertyNameErrorContent:
+  assertErrFields parsePropertyName(""), "PropertyName", "must not be empty", ""
+
+block setPropErrorContent:
+  assertErrFields setProp(emptyPatch(), "", newJNull()),
+    "PatchObject", "path must not be empty", ""
+
+block deletePropErrorContent:
+  assertErrFields deleteProp(emptyPatch(), ""),
+    "PatchObject", "path must not be empty", ""
+
+# --- Adversarial edge cases ---
+
+block setPropSlashOnlyPath:
+  doAssert setProp(emptyPatch(), "/", %"val").isOk
+
+block setPropOverwriteSameKey:
+  let p1 = setProp(emptyPatch(), "name", %"Alice").get()
+  let p2 = setProp(p1, "name", %"Bob").get()
+  doAssert p2.len == 1
+
+block setPropThenDeleteSameKey:
+  let p1 = setProp(emptyPatch(), "name", %"Alice").get()
+  let p2 = deleteProp(p1, "name").get()
+  doAssert p2.len == 1
+
+block patchObjectManyEntries:
+  var p = emptyPatch()
+  for i in 0 ..< 100:
+    p = setProp(p, "path" & $i, %i).get()
+  doAssert p.len == 100
