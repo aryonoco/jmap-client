@@ -334,3 +334,60 @@ block maxUnsignedIntIsCorrect:
   doAssert MaxUnsignedInt == (1'i64 shl 53) - 1
   doAssert MinJmapInt == -((1'i64 shl 53) - 1)
   doAssert MaxJmapInt == (1'i64 shl 53) - 1
+
+# --- Date/UTCDate structural edge cases ---
+
+block parseDateLeapSecond:
+  # Leap second: structural validation only, accepted
+  assertOk parseDate("2016-12-31T23:59:60Z")
+
+block parseDateMonthZero:
+  # Month 00: structural validation only, accepted (no calendar check)
+  assertOk parseDate("2024-00-15T12:00:00Z")
+
+block parseDateDayZero:
+  assertOk parseDate("2024-01-00T12:00:00Z")
+
+block parseDateYearZero:
+  assertOk parseDate("0000-01-01T12:00:00Z")
+
+block parseDateNegativeYear:
+  # Negative year: non-digit at position 0
+  assertErr parseDate("-001-01-01T12:00:00Z")
+
+block parseUtcDateNegativeZeroOffset:
+  # -00:00 must be rejected for UTCDate (must end with Z)
+  assertErr parseUtcDate("2024-01-01T12:00:00-00:00")
+
+block parseDateTrailingAfterNumericOffset:
+  assertErr parseDate("2024-01-01T12:00:00+05:00X")
+
+block parseDateInvalidOffsetValues:
+  # Invalid offset values accepted (structural only, no range check)
+  assertOk parseDate("2024-01-01T12:00:00+24:00")
+  assertOk parseDate("2024-01-01T12:00:00-99:99")
+  assertOk parseDate("2024-01-01T12:00:00+00:60")
+
+block parseDateVeryLongFractionalSeconds:
+  # Long fractional seconds: accepted, no crash
+  let frac = "1".repeat(1000)
+  assertOk parseDate("2024-01-01T12:00:00." & frac & "Z")
+
+block parseDateTwoZeroFractional:
+  assertErr parseDate("2024-01-01T12:00:00.00Z")
+
+# --- Integer boundary completions ---
+
+block unsignedIntDollarAtMax:
+  assertEq $(parseUnsignedInt(MaxUnsignedInt).get()), "9007199254740991"
+
+block jmapIntDollarAtMin:
+  assertEq $(parseJmapInt(MinJmapInt).get()), "-9007199254740991"
+
+block jmapIntDollarAtMax:
+  assertEq $(parseJmapInt(MaxJmapInt).get()), "9007199254740991"
+
+block jmapIntNegationAtMinEqualsMax:
+  let minVal = parseJmapInt(MinJmapInt).get()
+  let maxVal = parseJmapInt(MaxJmapInt).get()
+  assertEq -minVal, maxVal

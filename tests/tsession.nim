@@ -601,3 +601,33 @@ block parseSessionEmptyPrimaryAccounts:
     state = args.state,
   )
   doAssert result.isOk
+
+# --- Additional edge cases ---
+
+block parseSessionWhitespaceOnlyApiUrl:
+  ## Whitespace-only apiUrl passes the non-empty check. Documented as accepted
+  ## because URL validation is a Layer 4 concern.
+  let args = makeSessionArgs()
+  let result = parseSession(
+    capabilities = args.capabilities,
+    accounts = args.accounts,
+    primaryAccounts = args.primaryAccounts,
+    username = args.username,
+    apiUrl = "   ",
+    downloadUrl = args.downloadUrl,
+    uploadUrl = args.uploadUrl,
+    eventSourceUrl = args.eventSourceUrl,
+    state = args.state,
+  )
+  doAssert result.isOk
+
+block hasVariablePrefixOfLongerName:
+  ## Template "{accountIdFull}" does NOT match variable "accountId" because
+  ## hasVariable checks for the exact "{accountId}" substring.
+  let tmpl = parseUriTemplate("https://e.com/{accountIdFull}").get()
+  doAssert not hasVariable(tmpl, "accountId")
+
+block hasVariableSuffixOfLongerName:
+  ## Template "{fullAccountId}" does NOT contain "{accountId}" as substring.
+  let tmpl = parseUriTemplate("https://e.com/{fullAccountId}").get()
+  doAssert not hasVariable(tmpl, "accountId")

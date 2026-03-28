@@ -165,3 +165,54 @@ block patchObjectManyEntries:
   for i in 0 ..< 100:
     p = setProp(p, "path" & $i, %i).get()
   doAssert p.len == 100
+
+# --- Filter arity tests ---
+
+block filterOperatorNotEmpty:
+  # NOT with zero children: structurally valid
+  let f = filterOperator[int](foNot, newSeq[Filter[int]]())
+  doAssert f.kind == fkOperator
+  doAssert f.operator == foNot
+  doAssert f.conditions.len == 0
+
+block filterOperatorNotMultiple:
+  # NOT with multiple children: RFC semantics = NOR (none must match)
+  let a = filterCondition[int](1)
+  let b = filterCondition[int](2)
+  let c = filterCondition[int](3)
+  let f = filterOperator[int](foNot, @[a, b, c])
+  doAssert f.conditions.len == 3
+
+block filterOperatorAndSingle:
+  let f = filterOperator[int](foAnd, @[filterCondition[int](42)])
+  doAssert f.conditions.len == 1
+
+# --- PatchObject edge cases ---
+
+block patchObjectTildeEscapePath:
+  # RFC 6901 tilde escaping: stored as-is (no path parsing at Layer 1)
+  let r = emptyPatch().setProp("a~0b", %"val")
+  assertOk r
+  assertEq r.get().len, 1
+
+block patchObjectDoubleslashPath:
+  let r = emptyPatch().setProp("//", %"val")
+  assertOk r
+
+block patchObjectNulInPath:
+  let r = emptyPatch().setProp("a\x00b", %"val")
+  assertOk r
+
+# --- Comparator and AddedItem edge cases ---
+
+block comparatorEmptyCollation:
+  let pn = parsePropertyName("subject").get()
+  let r = parseComparator(pn, collation = Opt.some(""))
+  assertOk r
+  doAssert r.get().collation.isSome
+
+block addedItemMaxIndex:
+  let maxIdx = parseUnsignedInt(MaxUnsignedInt).get()
+  let id = parseId("test").get()
+  let ai = AddedItem(id: id, index: maxIdx)
+  doAssert ai.index == maxIdx

@@ -130,19 +130,20 @@ func parseSession*(
           "Session", "eventSourceUrl missing {" & variable & "}", string(eventSourceUrl)
         )
       )
-  ok(
-    Session(
-      capabilities: capabilities,
-      accounts: accounts,
-      primaryAccounts: primaryAccounts,
-      username: username,
-      apiUrl: apiUrl,
-      downloadUrl: downloadUrl,
-      uploadUrl: uploadUrl,
-      eventSourceUrl: eventSourceUrl,
-      state: state,
-    )
+  let session = Session(
+    capabilities: capabilities,
+    accounts: accounts,
+    primaryAccounts: primaryAccounts,
+    username: username,
+    apiUrl: apiUrl,
+    downloadUrl: downloadUrl,
+    uploadUrl: uploadUrl,
+    eventSourceUrl: eventSourceUrl,
+    state: state,
   )
+  doAssert session.capabilities.anyIt(it.kind == ckCore)
+  doAssert session.apiUrl.len > 0
+  ok(session)
 
 func coreCapabilities*(session: Session): CoreCapabilities =
   ## Returns the core capabilities. Total function (no Result) because

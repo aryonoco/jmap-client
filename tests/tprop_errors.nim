@@ -94,3 +94,46 @@ block propSetErrorDefensiveFallback:
 
 block propCapabilityUriUnknownIsErr:
   doAssert capabilityUri(ckUnknown).isErr
+
+# --- Error type partition properties ---
+
+block propMethodErrorTypeBackingStringInjective:
+  ## Distinct known variants have distinct $ values.
+  for v1 in MethodErrorType:
+    for v2 in MethodErrorType:
+      if v1 != v2 and v1 != metUnknown and v2 != metUnknown:
+        doAssert $v1 != $v2
+
+block propSetErrorTypeBackingStringInjective:
+  ## Distinct known variants have distinct $ values.
+  for v1 in SetErrorType:
+    for v2 in SetErrorType:
+      if v1 != v2 and v1 != setUnknown and v2 != setUnknown:
+        doAssert $v1 != $v2
+
+block propMethodErrorTypeParseDeterministic:
+  checkProperty "propMethodErrorTypeParseDeterministic":
+    ## Same input always produces same output.
+    let s = genArbitraryString(rng, trial)
+    doAssert parseMethodErrorType(s) == parseMethodErrorType(s)
+
+block propSetErrorTypeParseDeterministic:
+  checkProperty "propSetErrorTypeParseDeterministic":
+    let s = genArbitraryString(rng, trial)
+    doAssert parseSetErrorType(s) == parseSetErrorType(s)
+
+block propExhaustiveMethodErrorRoundTrip:
+  ## Every non-Unknown variant round-trips through parse.
+  for v in MethodErrorType:
+    if v != metUnknown:
+      doAssert parseMethodErrorType($v) == v
+
+block propExhaustiveSetErrorRoundTrip:
+  for v in SetErrorType:
+    if v != setUnknown:
+      doAssert parseSetErrorType($v) == v
+
+block propExhaustiveRequestErrorRoundTrip:
+  for v in RequestErrorType:
+    if v != retUnknown:
+      doAssert parseRequestErrorType($v) == v

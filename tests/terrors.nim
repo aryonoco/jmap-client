@@ -12,6 +12,8 @@ import pkg/results
 import jmap_client/primitives
 import jmap_client/errors
 
+import ./massertions
+
 # --- parseRequestErrorType ---
 
 block parseRequestErrorTypeUnknownCapability:
@@ -380,3 +382,88 @@ block requestErrorAllFieldsPopulated:
 block methodErrorRawTypePreserved:
   doAssert methodError("vendorSpecific").rawType == "vendorSpecific"
   doAssert methodError("vendorSpecific").errorType == metUnknown
+
+# --- nimIdentNormalize documentation tests ---
+
+block parseMethodErrorTypeAllLowercase:
+  # nimIdentNormalize: case-insensitive after first char
+  # "serverfail" has same first char 's' as "serverFail" -> matches
+  doAssert parseMethodErrorType("serverfail") == metServerFail
+
+block parseMethodErrorTypeUnderscore:
+  # nimIdentNormalize strips underscores -> "server_Fail" matches "serverFail"
+  doAssert parseMethodErrorType("server_Fail") == metServerFail
+
+block parseSetErrorTypeUnderscore:
+  doAssert parseSetErrorType("over_Quota") == setOverQuota
+
+block parseRequestErrorTypeUnderscore:
+  # nimIdentNormalize strips underscores in URI-style error types too.
+  # "urn:ietf:params:jmap:error:not_JSON" normalises the same as
+  # "urn:ietf:params:jmap:error:notJSON" (underscore removed, case-folded).
+  doAssert parseRequestErrorType("urn:ietf:params:jmap:error:not_JSON") == retNotJson
+
+# --- SetError multi-element properties ---
+
+block setErrorInvalidPropertiesMultiple:
+  let se = setErrorInvalidProperties(
+    "invalidProperties",
+    @["from", "to", "subject"],
+    Opt.none(string),
+    Opt.none(JsonNode),
+  )
+  doAssert se.errorType == setInvalidProperties
+  doAssert se.properties.len == 3
+  doAssert se.properties[0] == "from"
+  doAssert se.properties[2] == "subject"
+
+# --- SetError exhaustive variant iteration ---
+
+block setErrorAllVariantsThroughGenericConstructor:
+  # Every SetErrorType variant through setError() must not crash
+  # and must preserve rawType
+  for variant in SetErrorType:
+    let rawType = $variant
+    let se = setError(rawType, Opt.none(string), Opt.none(JsonNode))
+    doAssert se.rawType == rawType
+
+# --- ClientError message cascade ---
+
+block clientErrorMessageCascadeDetail:
+  # When detail is present, message returns detail
+  let re = requestError(
+    "urn:ietf:params:jmap:error:limit",
+    Opt.some(429),
+    Opt.some("Rate Limited"),
+    Opt.some("Too many requests"),
+    Opt.some("maxCallsInRequest"),
+    Opt.none(JsonNode),
+  )
+  let ce = clientError(re)
+  assertEq ce.message, "Too many requests"
+
+block clientErrorMessageCascadeTitle:
+  # When detail is absent, message returns title
+  let re = requestError(
+    "urn:ietf:params:jmap:error:limit",
+    Opt.some(429),
+    Opt.some("Rate Limited"),
+    Opt.none(string),
+    Opt.none(string),
+    Opt.none(JsonNode),
+  )
+  let ce = clientError(re)
+  assertEq ce.message, "Rate Limited"
+
+block clientErrorMessageCascadeRawType:
+  # When both detail and title absent, message returns rawType
+  let re = requestError(
+    "urn:ietf:params:jmap:error:limit",
+    Opt.none(int),
+    Opt.none(string),
+    Opt.none(string),
+    Opt.none(string),
+    Opt.none(JsonNode),
+  )
+  let ce = clientError(re)
+  assertEq ce.message, "urn:ietf:params:jmap:error:limit"

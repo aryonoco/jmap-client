@@ -98,6 +98,15 @@ func deleteProp*(
   t[path] = newJNull()
   ok(PatchObject(t))
 
+func getKey*(patch: PatchObject, key: string): Opt[JsonNode] =
+  ## Returns the value at key, or none if absent.
+  let t = Table[string, JsonNode](patch)
+  let node = t.getOrDefault(key)
+  if t.hasKey(key):
+    Opt.some(node)
+  else:
+    Opt.none(JsonNode)
+
 type AddedItem* = object
   ## An item added to query results at a specific position (RFC 8620 §5.6).
   id*: Id

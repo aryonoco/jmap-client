@@ -124,3 +124,301 @@ block propErrorPreservesValue:
     let r = parseId(s)
     if r.isErr:
       doAssert r.error.value == s
+
+# --- Date/UTCDate properties ---
+
+block propDateRoundTrip:
+  checkProperty "$(parseDate(s).get()) == s":
+    let s = genValidDate(rng)
+    doAssert $(parseDate(s).get()) == s
+
+block propUtcDateRoundTrip:
+  checkProperty "$(parseUtcDate(s).get()) == s":
+    let s = genValidUtcDate(rng)
+    doAssert $(parseUtcDate(s).get()) == s
+
+block propDateMinLength:
+  checkProperty "valid Date has len >= 20":
+    let s = genValidDate(rng)
+    let d = parseDate(s).get()
+    doAssert d.len >= 20
+
+block propDateTSeparator:
+  checkProperty "valid Date has 'T' at position 10":
+    let s = genValidDate(rng)
+    doAssert s[10] == 'T'
+
+block propUtcDateEndsWithZ:
+  checkProperty "valid UTCDate ends with 'Z'":
+    let s = genValidUtcDate(rng)
+    doAssert s[^1] == 'Z'
+
+block propUtcDateImpliesDate:
+  checkProperty "parseUtcDate(s).isOk implies parseDate(s).isOk":
+    let s = genValidUtcDate(rng)
+    doAssert parseUtcDate(s).isOk
+    doAssert parseDate(s).isOk
+
+# --- Cross-type subset properties ---
+
+block propUnsignedIntSubsetOfJmapInt:
+  checkProperty "valid n >= 0: parseUnsignedInt(n).isOk implies parseJmapInt(n).isOk":
+    let n = genValidUnsignedInt(rng)
+    doAssert parseUnsignedInt(n).isOk
+    doAssert parseJmapInt(n).isOk
+
+block propJmapIntNegationPreservesValidity:
+  checkProperty "parseJmapInt(-n).isOk when parseJmapInt(n).isOk":
+    let n = genValidJmapInt(rng)
+    doAssert parseJmapInt(n).isOk
+    doAssert parseJmapInt(-n).isOk
+
+# --- Idempotence ---
+
+block propIdDoubleParseIdempotent:
+  checkProperty "parseId($(parseId(s).get())).isOk for valid strict s":
+    let s = genValidIdStrict(rng)
+    let first = parseId(s).get()
+    doAssert parseId($first).isOk
+
+# --- Missing round-trips ---
+
+block propUnsignedIntInt64RoundTrip:
+  checkProperty "int64(parseUnsignedInt(n).get()) == n":
+    let n = genValidUnsignedInt(rng)
+    doAssert int64(parseUnsignedInt(n).get()) == n
+
+block propJmapIntInt64RoundTrip:
+  checkProperty "int64(parseJmapInt(n).get()) == n":
+    let n = genValidJmapInt(rng)
+    doAssert int64(parseJmapInt(n).get()) == n
+
+# --- Lenient Id properties ---
+
+block propIdLenientRoundTrip:
+  checkProperty "$(parseIdFromServer(s).get()) == s for lenient string":
+    let s = genValidLenientString(rng, 1, 255)
+    doAssert $(parseIdFromServer(s).get()) == s
+
+block propIdLenientLengthInvariant:
+  checkProperty "valid lenient Id has len 1..255":
+    let s = genValidLenientString(rng, 1, 255)
+    let id = parseIdFromServer(s).get()
+    doAssert id.len >= 1 and id.len <= 255
+
+# --- Equivalence relation properties ---
+
+block propIdReflexivity:
+  checkProperty "propIdReflexivity":
+    let s = genValidIdStrict(rng, trial)
+    let a = parseId(s).get()
+    doAssert a == a
+
+block propIdSymmetry:
+  checkProperty "propIdSymmetry":
+    let s = genValidIdStrict(rng, trial)
+    let a = parseId(s).get()
+    let b = parseId(s).get()
+    if a == b:
+      doAssert b == a
+
+block propUnsignedIntReflexivity:
+  checkProperty "propUnsignedIntReflexivity":
+    let n = genValidUnsignedInt(rng, trial)
+    let a = parseUnsignedInt(n).get()
+    doAssert a == a
+
+block propJmapIntReflexivity:
+  checkProperty "propJmapIntReflexivity":
+    let n = genValidJmapInt(rng, trial)
+    let a = parseJmapInt(n).get()
+    doAssert a == a
+
+block propDateReflexivity:
+  checkProperty "propDateReflexivity":
+    let s = genValidDate(rng)
+    let a = parseDate(s).get()
+    doAssert a == a
+
+block propUtcDateReflexivity:
+  checkProperty "propUtcDateReflexivity":
+    let s = genValidUtcDate(rng)
+    let a = parseUtcDate(s).get()
+    doAssert a == a
+
+# --- Total order properties ---
+
+block propUnsignedIntTrichotomy:
+  checkProperty "propUnsignedIntTrichotomy":
+    let a = parseUnsignedInt(genValidUnsignedInt(rng, trial)).get()
+    let b = parseUnsignedInt(genValidUnsignedInt(rng)).get()
+    let count = ord(a < b) + ord(a == b) + ord(b < a)
+    doAssert count == 1
+
+block propJmapIntTrichotomy:
+  checkProperty "propJmapIntTrichotomy":
+    let a = parseJmapInt(genValidJmapInt(rng, trial)).get()
+    let b = parseJmapInt(genValidJmapInt(rng)).get()
+    let count = ord(a < b) + ord(a == b) + ord(b < a)
+    doAssert count == 1
+
+block propUnsignedIntTransitivityLt:
+  checkProperty "propUnsignedIntTransitivityLt":
+    let va = genValidUnsignedInt(rng, trial)
+    let vb = genValidUnsignedInt(rng)
+    let vc = genValidUnsignedInt(rng)
+    let a = parseUnsignedInt(va).get()
+    let b = parseUnsignedInt(vb).get()
+    let c = parseUnsignedInt(vc).get()
+    if a < b and b < c:
+      doAssert a < c
+
+block propJmapIntTransitivityLt:
+  checkProperty "propJmapIntTransitivityLt":
+    let va = genValidJmapInt(rng, trial)
+    let vb = genValidJmapInt(rng)
+    let vc = genValidJmapInt(rng)
+    let a = parseJmapInt(va).get()
+    let b = parseJmapInt(vb).get()
+    let c = parseJmapInt(vc).get()
+    if a < b and b < c:
+      doAssert a < c
+
+block propUnsignedIntAntisymmetryLeq:
+  checkProperty "propUnsignedIntAntisymmetryLeq":
+    let a = parseUnsignedInt(genValidUnsignedInt(rng, trial)).get()
+    let b = parseUnsignedInt(genValidUnsignedInt(rng)).get()
+    if a <= b and b <= a:
+      doAssert a == b
+
+block propJmapIntConnex:
+  checkProperty "propJmapIntConnex":
+    let a = parseJmapInt(genValidJmapInt(rng, trial)).get()
+    let b = parseJmapInt(genValidJmapInt(rng)).get()
+    doAssert a <= b or b <= a
+
+block propUnsignedIntLtLeqConsistency:
+  checkProperty "propUnsignedIntLtLeqConsistency":
+    let a = parseUnsignedInt(genValidUnsignedInt(rng, trial)).get()
+    let b = parseUnsignedInt(genValidUnsignedInt(rng)).get()
+    doAssert (a < b) == (a <= b and not (a == b))
+
+# --- Hash consistency for additional types ---
+
+block propUnsignedIntEqImpliesHashEq:
+  checkProperty "propUnsignedIntEqImpliesHashEq":
+    let n = genValidUnsignedInt(rng, trial)
+    let a = parseUnsignedInt(n).get()
+    let b = parseUnsignedInt(n).get()
+    doAssert a == b
+    doAssert hash(a) == hash(b)
+
+block propJmapIntEqImpliesHashEq:
+  checkProperty "propJmapIntEqImpliesHashEq":
+    let n = genValidJmapInt(rng, trial)
+    let a = parseJmapInt(n).get()
+    let b = parseJmapInt(n).get()
+    doAssert a == b
+    doAssert hash(a) == hash(b)
+
+block propDateEqImpliesHashEq:
+  checkProperty "propDateEqImpliesHashEq":
+    let s = genValidDate(rng)
+    let a = parseDate(s).get()
+    let b = parseDate(s).get()
+    doAssert a == b
+    doAssert hash(a) == hash(b)
+
+block propUtcDateEqImpliesHashEq:
+  checkProperty "propUtcDateEqImpliesHashEq":
+    let s = genValidUtcDate(rng)
+    let a = parseUtcDate(s).get()
+    let b = parseUtcDate(s).get()
+    doAssert a == b
+    doAssert hash(a) == hash(b)
+
+# --- Double round-trip equality ---
+
+block propIdDoubleRoundTripEquality:
+  checkProperty "propIdDoubleRoundTripEquality":
+    let s = genValidIdStrict(rng, trial)
+    let first = parseId(s).get()
+    let second = parseId($first).get()
+    doAssert first == second
+
+block propUnsignedIntDoubleRoundTrip:
+  checkProperty "propUnsignedIntDoubleRoundTrip":
+    let n = genValidUnsignedInt(rng, trial)
+    let first = parseUnsignedInt(n).get()
+    let reparsed = parseUnsignedInt(int64(first)).get()
+    doAssert first == reparsed
+
+block propJmapIntDoubleRoundTrip:
+  checkProperty "propJmapIntDoubleRoundTrip":
+    let n = genValidJmapInt(rng, trial)
+    let first = parseJmapInt(n).get()
+    let reparsed = parseJmapInt(int64(first)).get()
+    doAssert first == reparsed
+
+block propDateDoubleRoundTripEquality:
+  checkProperty "propDateDoubleRoundTripEquality":
+    let s = genValidDate(rng)
+    let first = parseDate(s).get()
+    let second = parseDate($first).get()
+    doAssert first == second
+
+block propUtcDateDoubleRoundTripEquality:
+  checkProperty "propUtcDateDoubleRoundTripEquality":
+    let s = genValidUtcDate(rng)
+    let first = parseUtcDate(s).get()
+    let second = parseUtcDate($first).get()
+    doAssert first == second
+
+# --- Injectivity ---
+
+block propUnsignedIntInjectivity:
+  checkProperty "propUnsignedIntInjectivity":
+    let a = genValidUnsignedInt(rng, trial)
+    let b = genValidUnsignedInt(rng)
+    let ua = parseUnsignedInt(a).get()
+    let ub = parseUnsignedInt(b).get()
+    if ua == ub:
+      doAssert a == b
+
+block propJmapIntInjectivity:
+  checkProperty "propJmapIntInjectivity":
+    let a = genValidJmapInt(rng, trial)
+    let b = genValidJmapInt(rng)
+    let ja = parseJmapInt(a).get()
+    let jb = parseJmapInt(b).get()
+    if ja == jb:
+      doAssert a == b
+
+# --- Strict subset proofs ---
+
+block propIdFromServerStrictSuperset:
+  checkPropertyN "propIdFromServerStrictSuperset", QuickTrials:
+    ## There exist strings accepted by parseIdFromServer but rejected by parseId.
+    let s = genValidLenientString(rng, 1, 255)
+    let lenient = parseIdFromServer(s)
+    let strict = parseId(s)
+    if lenient.isOk and strict.isErr:
+      doAssert true # Found a witness
+
+block propDateStrictSupersetOfUtcDate:
+  checkPropertyN "propDateStrictSupersetOfUtcDate", QuickTrials:
+    ## There exist dates accepted by parseDate but rejected by parseUtcDate.
+    let s = genValidDate(rng)
+    let date = parseDate(s)
+    let utcDate = parseUtcDate(s)
+    if date.isOk and utcDate.isErr:
+      doAssert true # Found a witness: date with non-Z timezone
+
+block propJmapIntStrictSupersetOfUnsignedInt:
+  checkPropertyN "propJmapIntStrictSupersetOfUnsignedInt", QuickTrials:
+    ## There exist values accepted by parseJmapInt but rejected by parseUnsignedInt.
+    let n = genValidJmapInt(rng, trial)
+    let jmap = parseJmapInt(n)
+    let unsigned = parseUnsignedInt(n)
+    if jmap.isOk and unsigned.isErr:
+      doAssert true # Found a witness: negative value

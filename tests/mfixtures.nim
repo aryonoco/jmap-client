@@ -8,6 +8,7 @@
 
 import std/sets
 import std/tables
+from std/json import newJObject, JsonNode
 
 import pkg/results
 
@@ -19,6 +20,8 @@ import jmap_client/identifiers
 import jmap_client/capabilities
 import jmap_client/session
 import jmap_client/framework
+import jmap_client/envelope
+import jmap_client/errors
 
 func zeroUint*(): UnsignedInt =
   parseUnsignedInt(0).get()
@@ -116,4 +119,136 @@ func makeSessionArgs*(): SessionArgs =
     uploadUrl: makeGoldenUploadUrl(),
     eventSourceUrl: makeGoldenEventSourceUrl(),
     state: makeState("s1"),
+  )
+
+# ---------------------------------------------------------------------------
+# Envelope factories
+# ---------------------------------------------------------------------------
+
+func makeInvocation*(name = "Mailbox/get", mcid = makeMcid("c0")): Invocation =
+  Invocation(name: name, arguments: newJObject(), methodCallId: mcid)
+
+func makeRequest*(
+    `using`: seq[string] = @["urn:ietf:params:jmap:core"],
+    methodCalls: seq[Invocation] = @[makeInvocation()],
+    createdIds = Opt.none(Table[CreationId, Id]),
+): Request =
+  Request(`using`: `using`, methodCalls: methodCalls, createdIds: createdIds)
+
+func makeResponse*(
+    methodResponses: seq[Invocation] = @[makeInvocation()],
+    state = makeState("rs1"),
+    createdIds = Opt.none(Table[CreationId, Id]),
+): Response =
+  Response(
+    methodResponses: methodResponses, createdIds: createdIds, sessionState: state
+  )
+
+func makeResultReference*(
+    mcid = makeMcid("c0"), name = "Mailbox/get", path = RefPathIds
+): ResultReference =
+  ResultReference(resultOf: mcid, name: name, path: path)
+
+# ---------------------------------------------------------------------------
+# Error factories
+# ---------------------------------------------------------------------------
+
+func makeTransportError*(
+    kind = tekNetwork, message = "connection refused"
+): TransportError =
+  case kind
+  of tekHttpStatus:
+    httpStatusError(500, message)
+  of tekNetwork, tekTls, tekTimeout:
+    transportError(kind, message)
+
+func makeRequestError*(
+    rawType = "urn:ietf:params:jmap:error:unknownCapability"
+): RequestError =
+  requestError(rawType)
+
+func makeMethodError*(rawType = "serverFail"): MethodError =
+  methodError(rawType)
+
+# ---------------------------------------------------------------------------
+# Server fixture factories
+# ---------------------------------------------------------------------------
+
+func makeFastmailSession*(): SessionArgs =
+  ## Realistic Fastmail-style session with vendor extensions.
+  var accounts = initTable[AccountId, Account]()
+  let acctId = makeAccountId("u1f5a6e2c")
+  accounts[acctId] = Account(
+    name: "user@fastmail.com",
+    isPersonal: true,
+    isReadOnly: false,
+    accountCapabilities: @[
+      AccountCapabilityEntry(
+        kind: ckMail, rawUri: "urn:ietf:params:jmap:mail", data: newJObject()
+      ),
+      AccountCapabilityEntry(
+        kind: ckSubmission,
+        rawUri: "urn:ietf:params:jmap:submission",
+        data: newJObject(),
+      ),
+      AccountCapabilityEntry(
+        kind: ckUnknown,
+        rawUri: "https://www.fastmail.com/dev/contacts",
+        data: newJObject(),
+      ),
+    ],
+  )
+  var primaryAccounts = initTable[string, AccountId]()
+  primaryAccounts["urn:ietf:params:jmap:mail"] = acctId
+  primaryAccounts["urn:ietf:params:jmap:submission"] = acctId
+  primaryAccounts["https://www.fastmail.com/dev/contacts"] = acctId
+  result = (
+    capabilities: @[
+      makeCoreServerCap(realisticCoreCaps()),
+      ServerCapability(
+        rawUri: "urn:ietf:params:jmap:mail", kind: ckMail, rawData: newJObject()
+      ),
+      ServerCapability(
+        rawUri: "urn:ietf:params:jmap:submission",
+        kind: ckSubmission,
+        rawData: newJObject(),
+      ),
+      ServerCapability(
+        rawUri: "urn:ietf:params:jmap:vacationresponse",
+        kind: ckVacationResponse,
+        rawData: newJObject(),
+      ),
+      ServerCapability(
+        rawUri: "https://www.fastmail.com/dev/contacts",
+        kind: ckUnknown,
+        rawData: newJObject(),
+      ),
+      ServerCapability(
+        rawUri: "https://www.fastmail.com/dev/blob",
+        kind: ckUnknown,
+        rawData: newJObject(),
+      ),
+    ],
+    accounts: accounts,
+    primaryAccounts: primaryAccounts,
+    username: "user@fastmail.com",
+    apiUrl: "https://api.fastmail.com/jmap/",
+    downloadUrl: makeGoldenDownloadUrl(),
+    uploadUrl: makeGoldenUploadUrl(),
+    eventSourceUrl: makeGoldenEventSourceUrl(),
+    state: makeState("cyrus-12345"),
+  )
+
+func makeMinimalSession*(): SessionArgs =
+  ## Bare minimum valid session: ckCore only, empty accounts.
+  result = (
+    capabilities: @[makeCoreServerCap()],
+    accounts: initTable[AccountId, Account](),
+    primaryAccounts: initTable[string, AccountId](),
+    username: "",
+    apiUrl: "https://jmap.example.com/api/",
+    downloadUrl: makeGoldenDownloadUrl(),
+    uploadUrl: makeGoldenUploadUrl(),
+    eventSourceUrl: makeGoldenEventSourceUrl(),
+    state: makeState("s0"),
   )

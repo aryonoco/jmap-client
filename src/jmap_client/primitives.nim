@@ -60,7 +60,9 @@ func parseId*(raw: string): Result[Id, ValidationError] =
   if not raw.allIt(it in Base64UrlChars):
     return
       err(validationError("Id", "contains characters outside base64url alphabet", raw))
-  ok(Id(raw))
+  let id = Id(raw)
+  doAssert id.len >= 1 and id.len <= 255
+  ok(id)
 
 func parseIdFromServer*(raw: string): Result[Id, ValidationError] =
   ## Lenient: 1-255 octets, no control characters.
@@ -70,7 +72,9 @@ func parseIdFromServer*(raw: string): Result[Id, ValidationError] =
     return err(validationError("Id", "length must be 1-255 octets", raw))
   if raw.anyIt(it < ' ' or it == '\x7F'):
     return err(validationError("Id", "contains control characters", raw))
-  ok(Id(raw))
+  let id = Id(raw)
+  doAssert id.len >= 1 and id.len <= 255
+  ok(id)
 
 func parseUnsignedInt*(value: int64): Result[UnsignedInt, ValidationError] =
   ## Must be 0..2^53-1. Prevents negative values and integers outside JSON's
@@ -79,6 +83,7 @@ func parseUnsignedInt*(value: int64): Result[UnsignedInt, ValidationError] =
     return err(validationError("UnsignedInt", "must be non-negative", $value))
   if value > MaxUnsignedInt:
     return err(validationError("UnsignedInt", "exceeds 2^53-1", $value))
+  doAssert value >= 0 and value <= MaxUnsignedInt
   ok(UnsignedInt(value))
 
 func parseJmapInt*(value: int64): Result[JmapInt, ValidationError] =
@@ -86,6 +91,7 @@ func parseJmapInt*(value: int64): Result[JmapInt, ValidationError] =
   ## range.
   if value < MinJmapInt or value > MaxJmapInt:
     return err(validationError("JmapInt", "outside JSON-safe integer range", $value))
+  doAssert value >= MinJmapInt and value <= MaxJmapInt
   ok(JmapInt(value))
 
 func validateDatePortion(raw: string): Result[void, ValidationError] =
@@ -170,6 +176,7 @@ func parseDate*(raw: string): Result[Date, ValidationError] =
   ?validateTimePortion(raw)
   ?validateFractionalSeconds(raw)
   ?validateTimezoneOffset(raw)
+  doAssert raw.len >= 20 and raw[10] == 'T'
   ok(Date(raw))
 
 func parseUtcDate*(raw: string): Result[UTCDate, ValidationError] =
@@ -179,4 +186,5 @@ func parseUtcDate*(raw: string): Result[UTCDate, ValidationError] =
     return err(dateResult.error)
   if raw[^1] != 'Z':
     return err(validationError("UTCDate", "time-offset must be 'Z'", raw))
+  doAssert raw[^1] == 'Z'
   ok(UTCDate(raw))

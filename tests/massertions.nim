@@ -39,3 +39,40 @@ template assertSome*(o: untyped) =
 
 template assertNone*(o: untyped) =
   doAssert o.isNone, "expected None, got Some"
+
+template assertEq*(actual, expected: untyped) =
+  ## Value-displaying equality assertion. Shows both sides on failure.
+  let a = actual
+  let e = expected
+  doAssert a == e, "expected " & $e & ", got " & $a
+
+template assertErrContains*(r: untyped, substring: string) =
+  ## Verifies the message field contains a substring (useful for long messages).
+  doAssert r.isErr, "expected Err, got Ok"
+  let msg = r.error.message
+  doAssert substring in msg,
+    "expected message containing '" & substring & "', got '" & msg & "'"
+
+template assertOkEq*(r: untyped, expected: untyped) =
+  ## Verifies Result is Ok and its value equals expected.
+  doAssert r.isOk, "expected Ok, got Err"
+  let v = r.get()
+  let e = expected
+  doAssert v == e, "expected " & $e & ", got " & $v
+
+template assertNotCompiles*(expr: untyped) =
+  ## Verifies that the given expression does not compile.
+  doAssert not compiles(expr), "expected expression to not compile"
+
+template assertLen*(collection: untyped, expected: int) =
+  ## Verifies collection length equals expected.
+  let actual = collection.len
+  let exp = expected
+  doAssert actual == exp, "expected len " & $exp & ", got " & $actual
+
+template assertSomeEq*(o: untyped, expected: untyped) =
+  ## Verifies Opt is Some and its value equals expected.
+  doAssert o.isSome, "expected Some, got None"
+  let v = o.get()
+  let e = expected
+  doAssert v == e, "expected " & $e & ", got " & $v

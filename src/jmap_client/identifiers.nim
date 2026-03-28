@@ -58,6 +58,7 @@ func parseAccountId*(raw: string): Result[AccountId, ValidationError] =
     return err(validationError("AccountId", "length must be 1-255 octets", raw))
   if raw.anyIt(it < ' ' or it == '\x7F'):
     return err(validationError("AccountId", "contains control characters", raw))
+  doAssert raw.len >= 1 and raw.len <= 255
   ok(AccountId(raw))
 
 func parseJmapState*(raw: string): Result[JmapState, ValidationError] =
@@ -67,12 +68,14 @@ func parseJmapState*(raw: string): Result[JmapState, ValidationError] =
     return err(validationError("JmapState", "must not be empty", raw))
   if raw.anyIt(it < ' ' or it == '\x7F'):
     return err(validationError("JmapState", "contains control characters", raw))
+  doAssert raw.len > 0
   ok(JmapState(raw))
 
 func parseMethodCallId*(raw: string): Result[MethodCallId, ValidationError] =
   ## Non-empty. Client-generated.
   if raw.len == 0:
     return err(validationError("MethodCallId", "must not be empty", raw))
+  doAssert raw.len > 0
   ok(MethodCallId(raw))
 
 func parseCreationId*(raw: string): Result[CreationId, ValidationError] =
@@ -81,4 +84,5 @@ func parseCreationId*(raw: string): Result[CreationId, ValidationError] =
     return err(validationError("CreationId", "must not be empty", raw))
   if raw[0] == '#':
     return err(validationError("CreationId", "must not include '#' prefix", raw))
+  doAssert raw.len > 0 and raw[0] != '#'
   ok(CreationId(raw))

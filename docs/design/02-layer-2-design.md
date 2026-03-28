@@ -34,16 +34,16 @@ PatchObject — smart constructors only), 1.6C (three railways), 1.7C
   `Result[T, ValidationError]` — the same error type as Layer 1 smart
   constructors — so `?` composes `fromJson` field extraction with Layer 1
   smart constructors in a single pipeline. Layer 4 lifts the result to
-  `JmapResult[T]` (transport railway) at the IO boundary. The single
-  `mapErr` occurs at the parse boundary where `safeParseJson` converts
-  `Result[JsonNode, string]` to `Result[JsonNode, ValidationError]`.
-- **Functional Core, Imperative Shell** — all `fromJson`/`toJson` functions
-  are `func` (pure, no side effects). Only `safeParseJson` is `proc`.
-  `safeParseJson` is `proc` **solely to isolate `try/except` for exception
-  safety**, not because it performs IO. JSON string parsing is pure
-  computation; the `proc` is a code-organisation boundary required by
-  `std/json.parseJson` raising `JsonParsingError`. Network IO is confined to
-  Layer 4.
+  `JmapResult[T]` (transport railway) at the IO boundary.
+- **Functional Core, Imperative Shell** — **Layer 2 is entirely `func`.**
+  No `proc`, no exception handling, no `try/except`. Every function in
+  Layer 2 is a pure transform: `JsonNode → Result[T, ValidationError]`
+  (deserialisation) or `T → JsonNode` (serialisation). Layer 2 receives
+  pre-parsed `JsonNode` trees — the `string → JsonNode` step requires
+  exception handling (`std/json.parseJson` raises `JsonParsingError`) and
+  is therefore a Layer 4 concern. This cleanly preserves the functional
+  core / imperative shell boundary: Layers 1–3 are pure; Layer 4 is the
+  sole `proc` boundary.
 - **Immutability by default** — `let` bindings. Local `var` only for building
   `JsonNode` trees (pattern (a) from architecture: local variable inside
   `func` building a return value from stdlib containers whose APIs require
@@ -58,9 +58,10 @@ PatchObject — smart constructors only), 1.6C (three railways), 1.7C
   check `JObject`/`JArray` before iterating.
 - **Parse, don't validate** — `fromJson` produces well-typed values by
   calling Layer 1 smart constructors, or structured `ValidationError`. Every
-  `fromJson` that produces a Layer 1 type with invariants MUST call the
-  corresponding smart constructor (never direct object construction bypassing
-  validation).
+  `fromJson` that produces a Layer 1 type with a smart constructor MUST call
+  it (never direct object construction bypassing validation). Types without
+  smart constructors (`Account`, `CoreCapabilities`) are constructed directly
+  after validating each field individually.
 - **Make illegal states unrepresentable** — deserialisation constructs
   Layer 1 types via their smart constructors, never bypassing invariants.
   Distinct types require explicit unwrap (`string(id)`) for `toJson` and
@@ -97,7 +98,7 @@ rejection has a concrete reason tied to the strict compiler constraints.
 
 | Module | What is used | Rationale |
 |--------|-------------|-----------|
-| `std/json` | Full import: `parseJson`, `%`, `%*`, `newJObject`, `newJArray`, `{key}` accessor, `getStr`, `getBiggestInt`, `getBool`, `getFloat`, `getElems`, `getFields`, `JsonNodeKind` | Layer 1 selectively imports `JsonNode`/`JsonNodeKind` as data types only; Layer 2 needs the full parsing and construction API |
+| `std/json` | `%`, `%*`, `newJObject`, `newJArray`, `{key}` accessor, `getStr`, `getBiggestInt`, `getBool`, `getFloat`, `getElems`, `getFields`, `JsonNodeKind` | Layer 1 selectively imports `JsonNode`/`JsonNodeKind` as data types only; Layer 2 needs the raises-free accessors and construction API. `parseJson` is NOT used — the `string → JsonNode` boundary is a Layer 4 concern |
 | `std/tables` | `Table` iteration via `pairs`, construction via `[]=`, `initTable` | Session accounts, primaryAccounts, createdIds ser/de |
 | `std/sets` | `toHashSet` | `CoreCapabilities.collationAlgorithms`: JSON array → `HashSet[string]` |
 | `std/sequtils` | `mapIt` | Collection transforms in `toJson` |
@@ -124,9 +125,11 @@ rejection has a concrete reason tied to the strict compiler constraints.
 | `node.len` is NOT nil-safe — crashes on nil with `FieldDefect` | Always check `isNil` before `.len`, or use `getElems(@[]).len` as safe alternative. Split nil/kind checks from len checks for clarity. |
 | `items`/`pairs`/`keys` iterators assert node kind | Assert `JArray` for `items`, `JObject` for `pairs`/`keys`. The assert produces `AssertionDefect` (a `Defect`, not tracked by `raises: []`). Always check `node.kind` before iterating. |
 | `getElems(@[])` and `getFields()` are raises-free | Return empty defaults on nil or wrong kind. Safe to call without kind check when a default is acceptable. |
-| `parseJson` raises `JsonParsingError` and `IOError` | Confined to `safeParseJson` boundary proc, which catches `CatchableError`. This is the single `try/except` in Layer 2. |
+| `parseJson(string)` raises `JsonParsingError` (a `ValueError` descendant); `parseFile` additionally raises `IOError` | NOT used in Layer 2. The `string → JsonNode` boundary requires exception handling and is a Layer 4 concern. Layer 2 receives only pre-parsed `JsonNode` trees. |
 | `%*{...}` macro produces `JObject` at compile time | Safe for `toJson`; field names are string literals, no runtime key collision risk. |
-| `newJObject()` + `obj[key] = val` mutation is compatible with `func` under `strictFuncs` | Local `var` mutation of freshly-created `JsonNode` does not escape — same pattern as Layer 1's `PatchObject.setProp`. |
+| `newJObject()` + `obj[key] = val` mutation is **NOT** compatible with `func` under `strictFuncs` | `JsonNode` is `ref JsonNodeObj`. `[]=` and `add` mutate through a `ref` parameter — forbidden by `strictFuncs`. See §1.6 for the workaround. Not analogous to `PatchObject.setProp` (which mutates a value-type `Table`). |
+| `getFields()` returns `OrderedTable` by value (copy); `pairs` iterates in-place | Where `JObject` kind is already verified, prefer `node.pairs` over `node.getFields()` to avoid the copy. `pairs` asserts kind — safe after prior check. |
+| `%` for `openArray[tuple[key: string, val: JsonNode]]` returns `newJArray()` when `keyVals.len == 0` | Footgun: an empty seq of key-value tuples produces a JSON array, not an object. All types in this layer have at least one mandatory field, so this does not arise in practice. |
 
 ---
 
@@ -236,8 +239,7 @@ because it produces incorrect values rather than errors.
 func fromJson*(_: typedesc[Id], node: JsonNode
     ): Result[Id, ValidationError] =
   ## Deserialise a JSON string to Id (lenient: server-assigned).
-  if node.isNil or node.kind != JString:
-    return err(parseError("Id", "expected JSON string"))
+  checkJsonKind(node, JString, "Id")
   ? parseIdFromServer(node.getStr(""))
 ```
 
@@ -246,8 +248,7 @@ func fromJson*(_: typedesc[Id], node: JsonNode
 func fromJson*(_: typedesc[UnsignedInt], node: JsonNode
     ): Result[UnsignedInt, ValidationError] =
   ## Deserialise a JSON integer to UnsignedInt.
-  if node.isNil or node.kind != JInt:
-    return err(parseError("UnsignedInt", "expected JSON integer"))
+  checkJsonKind(node, JInt, "UnsignedInt")
   ? parseUnsignedInt(node.getBiggestInt(0))
 ```
 
@@ -256,8 +257,7 @@ func fromJson*(_: typedesc[UnsignedInt], node: JsonNode
 func fromJson*(_: typedesc[CoreCapabilities], node: JsonNode
     ): Result[CoreCapabilities, ValidationError] =
   ## Deserialise urn:ietf:params:jmap:core capability data.
-  if node.isNil or node.kind != JObject:
-    return err(parseError("CoreCapabilities", "expected JSON object"))
+  checkJsonKind(node, JObject, "CoreCapabilities")
   let maxSizeUpload = ? UnsignedInt.fromJson(node{"maxSizeUpload"})
   let maxConcurrentUpload = ? UnsignedInt.fromJson(node{"maxConcurrentUpload"})
   let maxSizeRequest = ? UnsignedInt.fromJson(node{"maxSizeRequest"})
@@ -277,10 +277,14 @@ func fromJson*(_: typedesc[CoreCapabilities], node: JsonNode
   let maxObjectsInSet = ? UnsignedInt.fromJson(node{"maxObjectsInSet"})
   let collationAlgorithms = block:
     let arr = node{"collationAlgorithms"}
-    if arr.isNil or arr.kind != JArray:
-      return err(parseError("CoreCapabilities",
-        "missing or invalid collationAlgorithms"))
-    toHashSet(arr.getElems(@[]).mapIt(it.getStr("")))
+    checkJsonKind(arr, JArray, "CoreCapabilities",
+      "missing or invalid collationAlgorithms")
+    var algs: seq[string]
+    for elem in arr.getElems(@[]):
+      checkJsonKind(elem, JString, "CoreCapabilities",
+        "collationAlgorithms element must be string")
+      algs.add(elem.getStr(""))
+    toHashSet(algs)
   ok(CoreCapabilities(
     maxSizeUpload: maxSizeUpload,
     maxConcurrentUpload: maxConcurrentUpload,
@@ -298,8 +302,7 @@ func fromJson*(_: typedesc[CoreCapabilities], node: JsonNode
 func fromJson*(_: typedesc[Invocation], node: JsonNode
     ): Result[Invocation, ValidationError] =
   ## Deserialise a 3-element JSON array to Invocation (RFC 8620 §3.2).
-  if node.isNil or node.kind != JArray:
-    return err(parseError("Invocation", "expected JSON array"))
+  checkJsonKind(node, JArray, "Invocation")
   if node.len != 3:
     return err(parseError("Invocation", "expected exactly 3 elements"))
   let name = node.getElems(@[])[0].getStr("")
@@ -307,8 +310,8 @@ func fromJson*(_: typedesc[Invocation], node: JsonNode
   let callIdRaw = node.getElems(@[])[2].getStr("")
   if name.len == 0:
     return err(parseError("Invocation", "empty method name"))
-  if arguments.isNil or arguments.kind != JObject:
-    return err(parseError("Invocation", "arguments must be JSON object"))
+  checkJsonKind(arguments, JObject, "Invocation",
+    "arguments must be JSON object")
   if callIdRaw.len == 0:
     return err(parseError("Invocation", "empty method call ID"))
   let mcid = ? parseMethodCallId(callIdRaw)
@@ -359,51 +362,14 @@ let properties: seq[string] =
 These patterns are **non-negotiable for totality**. Documented here once,
 referenced throughout Sections 3–8.
 
-### 1.3 Parse Boundary
+### 1.3 Layer Boundary
 
-`safeParseJson` is the single `proc` in Layer 2. It wraps the
-exception-raising `std/json.parseJson` in a `try/except`, returning
-`Result[JsonNode, string]`:
-
-```nim
-proc safeParseJson*(raw: string): Result[JsonNode, string] =
-  ## Parse a raw JSON string. Returns err on malformed input.
-  ## The only try/except in Layer 2.
-  try:
-    ok(parseJson(raw))
-  except CatchableError as e:
-    err("JSON parse error: " & e.msg)
-```
-
-Entry points compose `safeParseJson` with `fromJson`:
-
-```nim
-proc parseSessionJson*(raw: string): Result[Session, ValidationError] =
-  ## Parse a raw JSON string into a Session.
-  let node = ? safeParseJson(raw).mapErr(
-    proc(msg: string): ValidationError = parseError("JSON", msg))
-  Session.fromJson(node)
-
-proc parseResponseJson*(raw: string): Result[Response, ValidationError] =
-  ## Parse a raw JSON string into a Response.
-  let node = ? safeParseJson(raw).mapErr(
-    proc(msg: string): ValidationError = parseError("JSON", msg))
-  Response.fromJson(node)
-
-proc parseRequestErrorJson*(raw: string
-    ): Result[RequestError, ValidationError] =
-  ## Parse an RFC 7807 problem details JSON body into a RequestError.
-  let node = ? safeParseJson(raw).mapErr(
-    proc(msg: string): ValidationError = parseError("JSON", msg))
-  RequestError.fromJson(node)
-```
-
-**Cross-layer note.** Layer 4 maps `Result[T, ValidationError]` →
-`JmapResult[T]` at the transport boundary. The mapping function is a
-Layer 4 concern, deferred to the Layer 4 design. The recommended pattern:
-`session.mapErr(proc(ve: ValidationError): ClientError = clientError(...))`.
-
-**Module:** `src/jmap_client/serde.nim`
+Layer 2 operates exclusively on pre-parsed `JsonNode` trees — pure `func`
+transforms from `JsonNode` to typed values (or `ValidationError`). The
+`string → JsonNode` step requires exception handling
+(`std/json.parseJson` raises `JsonParsingError`) and is out of scope.
+Layer 4 owns that boundary and composes it with Layer 2's `fromJson`
+functions.
 
 ### 1.4 Shared Helpers
 
@@ -414,6 +380,16 @@ func parseError*(typeName, message: string): ValidationError =
 ```
 
 ```nim
+template checkJsonKind*(node: JsonNode, expected: JsonNodeKind,
+    typeName: string, message: string = "") =
+  ## Validates JsonNodeKind before extraction. Returns err on mismatch.
+  ## The `return` exits the calling function (template inlines at call site).
+  if node.isNil or node.kind != expected:
+    return err(parseError(typeName,
+      if message.len > 0: message else: "expected JSON " & $expected))
+```
+
+```nim
 func collectExtras*(node: JsonNode, knownKeys: openArray[string]
     ): Opt[JsonNode] =
   ## Collect non-standard fields from a JSON object into Opt[JsonNode].
@@ -421,16 +397,18 @@ func collectExtras*(node: JsonNode, knownKeys: openArray[string]
   ## Precondition: caller has verified node.kind == JObject.
   var extras = newJObject()
   var found = false
-  for key, val in node.getFields():
-    if key notin knownKeys:
-      extras[key] = val
-      found = true
+  {.cast(noSideEffect).}:  # §1.6: local ref mutation
+    for key, val in node.pairs:  # kind already verified by caller
+      if key notin knownKeys:
+        extras[key] = val
+        found = true
   if found: Opt.some(extras) else: Opt.none(JsonNode)
 ```
 
 `collectExtras` is a **`func`** (no side effects). It requires
-`node.kind == JObject` pre-check by the caller. Iterates
-`node.getFields()` (raises-free — returns empty on wrong kind). Used by
+`node.kind == JObject` pre-check by the caller. Iterates via
+`node.pairs` (kind pre-verified; avoids `getFields()` OrderedTable copy).
+Uses `{.cast(noSideEffect).}:` for `JsonNode` mutation (§1.6). Used by
 `RequestError`, `MethodError`, and `SetError` to preserve non-standard
 server fields for lossless round-trip (Decision 1.7C).
 
@@ -473,6 +451,93 @@ not define a mechanism for server-extended operators.
 
 **Module:** `src/jmap_client/serde_framework.nim` (for `FilterOperator`)
 
+### 1.6 `strictFuncs` and `JsonNode` Mutation
+
+`JsonNode` is `ref JsonNodeObj` (std/json line 194). Under `strictFuncs`,
+stores to the heap via `ref` indirection are forbidden. This means
+`obj["key"] = val` (which calls `proc []=*(obj: JsonNode, ...)`) and
+`arr.add(child)` (which calls `proc add*(father, child: JsonNode)`)
+**cannot be called from `func`** — both mutate through a `ref` parameter.
+
+**What works in `func`:**
+
+- `%*{...}` — the macro expands to calls to `%` overloads, which are
+  `proc`s that only mutate their own locally-owned `result` variable.
+  The caller receives a fully-constructed `JsonNode`; no mutation at the
+  call site.
+- All read-only accessors (`getStr`, `getBiggestInt`, `{}`, `getElems`,
+  `getFields`, `pairs`, `isNil`, `.kind`) — inferred as side-effect-free.
+  All `fromJson` functions are unaffected.
+- Simple `toJson` returning `%string(x)`, `%int64(x)`, or a single
+  `%*{...}` expression with no post-hoc mutation.
+
+**What does NOT work in `func`:**
+
+Any `toJson` that conditionally adds fields after initial construction, or
+builds sub-objects/arrays via loops with `[]=` or `.add()`. This includes:
+`Comparator`, `Account`, `Session`, `Request`, `Response`, `RequestError`,
+`MethodError`, `SetError`, `Filter[C]`, `PatchObject`, and the
+`collectExtras` helper.
+
+**Decision: `{.cast(noSideEffect).}:` blocks (primary), with
+seq-of-tuples as documented alternative.**
+
+The primary pattern wraps JsonNode mutations in a scoped cast:
+
+```nim
+func toJson*(re: RequestError): JsonNode =
+  result = %*{"type": re.rawType}
+  {.cast(noSideEffect).}:
+    if re.status.isSome:
+      result["status"] = %re.status.get()
+    if re.detail.isSome:
+      result["detail"] = %re.detail.get()
+```
+
+The cast is justified because: (a) mutations target only the
+locally-created `result` or locally-created intermediate `JsonNode`
+objects; (b) no pre-existing shared state is read or written; (c) the
+function is referentially transparent. This is the Nim equivalent of a
+scoped `unsafePerformIO` in Haskell — appropriate when the mutation is
+genuinely local and referentially transparent.
+
+**Alternative: seq-of-tuples construction (pure, no cast).**
+
+A mutation-free approach builds a `seq[(string, JsonNode)]` conditionally,
+then passes it to `%` (which handles the `ref` mutation internally as a
+`proc`):
+
+```nim
+func toJson*(re: RequestError): JsonNode =
+  var fields: seq[(string, JsonNode)] = @[("type", %re.rawType)]
+  if re.status.isSome:
+    fields.add(("status", %re.status.get()))
+  if re.detail.isSome:
+    fields.add(("detail", %re.detail.get()))
+  %fields
+```
+
+This works because `seq` is a value type — `fields.add()` is local
+mutation, not `ref` mutation. The `%` overload for
+`openArray[tuple[key: string, val: JsonNode]]` handles `ref` allocation
+internally.
+
+**Trade-offs:**
+
+| | `{.cast(noSideEffect).}:` | seq-of-tuples |
+|--|---------------------------|---------------|
+| Purity at call site | Pragmatic — cast suppresses check | Genuine — no `ref` mutation |
+| Readability | `%*{...}` base + conditional fields | Flat seq of tuples |
+| Performance | Direct field insertion | Intermediate seq allocation |
+| `%` footgun | None | Empty seq produces `JArray` not `JObject` (safe: all types have ≥1 field) |
+
+The cast is the better default: more readable, no intermediate allocation,
+and the mutation is genuinely referentially transparent. The seq-of-tuples
+pattern is available for cases where avoiding the cast is preferred.
+
+All `toJson` functions in Sections 4–8 use the cast pattern. The cast
+block is documented once here and referenced throughout.
+
 ---
 
 ## 2. Serialisation Pattern Catalogue
@@ -494,14 +559,14 @@ func toJson*(c: Comparator): JsonNode =
     "property": string(c.property),
     "isAscending": c.isAscending,
   }
-  if c.collation.isSome:
-    result["collation"] = %c.collation.get()
+  {.cast(noSideEffect).}:  # §1.6: local ref mutation
+    if c.collation.isSome:
+      result["collation"] = %c.collation.get()
 
 func fromJson*(_: typedesc[Comparator], node: JsonNode
     ): Result[Comparator, ValidationError] =
   ## Deserialise JSON to Comparator (RFC 8620 §5.5).
-  if node.isNil or node.kind != JObject:
-    return err(parseError("Comparator", "expected JSON object"))
+  checkJsonKind(node, JObject, "Comparator")
   let propRaw = node{"property"}.getStr("")
   if propRaw.len == 0:
     return err(parseError("Comparator", "missing or empty property"))
@@ -545,7 +610,8 @@ func toJson*(cap: ServerCapability): JsonNode =
 func fromJson*(_: typedesc[ServerCapability], uri: string, data: JsonNode
     ): Result[ServerCapability, ValidationError] =
   ## Deserialise a capability from its URI and JSON data.
-  case parseCapabilityKind(uri)
+  let parsedKind = parseCapabilityKind(uri)
+  case parsedKind
   of ckCore:
     let core = ? CoreCapabilities.fromJson(data)
     ok(ServerCapability(kind: ckCore, rawUri: uri, core: core))
@@ -553,7 +619,6 @@ func fromJson*(_: typedesc[ServerCapability], uri: string, data: JsonNode
     # All non-core known kinds (ckMail, ckContacts, etc.) and ckUnknown
     # store raw data. Use uncheckedAssign for runtime discriminator.
     var cap = ServerCapability(kind: ckUnknown, rawUri: uri, rawData: data)
-    let parsedKind = parseCapabilityKind(uri)
     if parsedKind != ckUnknown:
       {.cast(uncheckedAssign).}:
         cap.kind = parsedKind
@@ -655,8 +720,7 @@ All `fromJson` share the same structure (Id shown in §1.2a). Each validates
 func fromJson*(_: typedesc[AccountId], node: JsonNode
     ): Result[AccountId, ValidationError] =
   ## Deserialise a JSON string to AccountId (lenient: server-assigned).
-  if node.isNil or node.kind != JString:
-    return err(parseError("AccountId", "expected JSON string"))
+  checkJsonKind(node, JString, "AccountId")
   ? parseAccountId(node.getStr(""))
 ```
 
@@ -685,15 +749,13 @@ func toJson*(x: JmapInt): JsonNode =
 func fromJson*(_: typedesc[UnsignedInt], node: JsonNode
     ): Result[UnsignedInt, ValidationError] =
   ## Deserialise a JSON integer to UnsignedInt.
-  if node.isNil or node.kind != JInt:
-    return err(parseError("UnsignedInt", "expected JSON integer"))
+  checkJsonKind(node, JInt, "UnsignedInt")
   ? parseUnsignedInt(node.getBiggestInt(0))
 
 func fromJson*(_: typedesc[JmapInt], node: JsonNode
     ): Result[JmapInt, ValidationError] =
   ## Deserialise a JSON integer to JmapInt.
-  if node.isNil or node.kind != JInt:
-    return err(parseError("JmapInt", "expected JSON integer"))
+  checkJsonKind(node, JInt, "JmapInt")
   ? parseJmapInt(node.getBiggestInt(0))
 ```
 
@@ -745,8 +807,7 @@ func fromJson*(_: typedesc[FilterOperator], node: JsonNode
     ): Result[FilterOperator, ValidationError] =
   ## Deserialise a JSON string to FilterOperator. Not total — unknown
   ## operators return err because the RFC defines exactly three.
-  if node.isNil or node.kind != JString:
-    return err(parseError("FilterOperator", "expected JSON string"))
+  checkJsonKind(node, JString, "FilterOperator")
   case node.getStr("")
   of "AND": ok(foAnd)
   of "OR": ok(foOr)
@@ -935,10 +996,11 @@ func toJson*(acct: Account): JsonNode =
     "isPersonal": acct.isPersonal,
     "isReadOnly": acct.isReadOnly,
   }
-  var acctCaps = newJObject()
-  for entry in acct.accountCapabilities:
-    acctCaps[entry.rawUri] = entry.toJson()
-  result["accountCapabilities"] = acctCaps
+  {.cast(noSideEffect).}:  # §1.6: local ref mutation
+    var acctCaps = newJObject()
+    for entry in acct.accountCapabilities:
+      acctCaps[entry.rawUri] = entry.toJson()
+    result["accountCapabilities"] = acctCaps
 ```
 
 **`fromJson`:**
@@ -947,23 +1009,18 @@ func toJson*(acct: Account): JsonNode =
 func fromJson*(_: typedesc[Account], node: JsonNode
     ): Result[Account, ValidationError] =
   ## Deserialise JSON to Account (RFC 8620 §2).
-  if node.isNil or node.kind != JObject:
-    return err(parseError("Account", "expected JSON object"))
+  checkJsonKind(node, JObject, "Account")
   let name = node{"name"}.getStr("")
-  let isPersonal =
-    if node{"isPersonal"}.isNil or node{"isPersonal"}.kind != JBool:
-      return err(parseError("Account", "missing or invalid isPersonal"))
-    else:
-      node{"isPersonal"}.getBool(false)
-  let isReadOnly =
-    if node{"isReadOnly"}.isNil or node{"isReadOnly"}.kind != JBool:
-      return err(parseError("Account", "missing or invalid isReadOnly"))
-    else:
-      node{"isReadOnly"}.getBool(false)
+  checkJsonKind(node{"isPersonal"}, JBool, "Account",
+    "missing or invalid isPersonal")
+  let isPersonal = node{"isPersonal"}.getBool(false)
+  checkJsonKind(node{"isReadOnly"}, JBool, "Account",
+    "missing or invalid isReadOnly")
+  let isReadOnly = node{"isReadOnly"}.getBool(false)
   let acctCapsNode = node{"accountCapabilities"}
   var accountCapabilities: seq[AccountCapabilityEntry]
   if not acctCapsNode.isNil and acctCapsNode.kind == JObject:
-    for uri, data in acctCapsNode.getFields():
+    for uri, data in acctCapsNode.pairs:  # kind verified above
       let entry = ? AccountCapabilityEntry.fromJson(uri, data)
       accountCapabilities.add(entry)
   ok(Account(
@@ -1000,21 +1057,22 @@ func toJson*(s: Session): JsonNode =
     "eventSourceUrl": string(s.eventSourceUrl),
     "state": string(s.state),
   }
-  # capabilities: URI → capability data
-  var caps = newJObject()
-  for cap in s.capabilities:
-    caps[cap.rawUri] = cap.toJson()
-  result["capabilities"] = caps
-  # accounts: AccountId → Account
-  var accts = newJObject()
-  for id, acct in s.accounts:
-    accts[string(id)] = acct.toJson()
-  result["accounts"] = accts
-  # primaryAccounts: capability URI → AccountId
-  var primary = newJObject()
-  for uri, id in s.primaryAccounts:
-    primary[uri] = %string(id)
-  result["primaryAccounts"] = primary
+  {.cast(noSideEffect).}:  # §1.6: local ref mutation
+    # capabilities: URI → capability data
+    var caps = newJObject()
+    for cap in s.capabilities:
+      caps[cap.rawUri] = cap.toJson()
+    result["capabilities"] = caps
+    # accounts: AccountId → Account
+    var accts = newJObject()
+    for id, acct in s.accounts:
+      accts[string(id)] = acct.toJson()
+    result["accounts"] = accts
+    # primaryAccounts: capability URI → AccountId
+    var primary = newJObject()
+    for uri, id in s.primaryAccounts:
+      primary[uri] = %string(id)
+    result["primaryAccounts"] = primary
 ```
 
 **`fromJson`:**
@@ -1024,24 +1082,23 @@ func fromJson*(_: typedesc[Session], node: JsonNode
     ): Result[Session, ValidationError] =
   ## Deserialise JSON to Session (RFC 8620 §2). Calls parseSession for
   ## structural invariant validation.
-  if node.isNil or node.kind != JObject:
-    return err(parseError("Session", "expected JSON object"))
+  checkJsonKind(node, JObject, "Session")
 
   # 1. Parse capabilities
   let capsNode = node{"capabilities"}
-  if capsNode.isNil or capsNode.kind != JObject:
-    return err(parseError("Session", "missing or invalid capabilities"))
+  checkJsonKind(capsNode, JObject, "Session",
+    "missing or invalid capabilities")
   var capabilities: seq[ServerCapability]
-  for uri, data in capsNode.getFields():
+  for uri, data in capsNode.pairs:  # kind verified above
     let cap = ? ServerCapability.fromJson(uri, data)
     capabilities.add(cap)
 
   # 2. Parse accounts
   let acctsNode = node{"accounts"}
-  if acctsNode.isNil or acctsNode.kind != JObject:
-    return err(parseError("Session", "missing or invalid accounts"))
+  checkJsonKind(acctsNode, JObject, "Session",
+    "missing or invalid accounts")
   var accounts = initTable[AccountId, Account]()
-  for idStr, acctData in acctsNode.getFields():
+  for idStr, acctData in acctsNode.pairs:  # kind verified above
     let accountId = ? parseAccountId(idStr)
     let account = ? Account.fromJson(acctData)
     accounts[accountId] = account
@@ -1050,13 +1107,17 @@ func fromJson*(_: typedesc[Session], node: JsonNode
   let primaryNode = node{"primaryAccounts"}
   var primaryAccounts = initTable[string, AccountId]()
   if not primaryNode.isNil and primaryNode.kind == JObject:
-    for uri, idNode in primaryNode.getFields():
+    for uri, idNode in primaryNode.pairs:  # kind verified above
       if not idNode.isNil and idNode.kind == JString:
         let accountId = ? parseAccountId(idNode.getStr(""))
         primaryAccounts[uri] = accountId
 
   # 4. Parse scalar fields
+  checkJsonKind(node{"username"}, JString, "Session",
+    "missing or invalid username")
   let username = node{"username"}.getStr("")
+  checkJsonKind(node{"apiUrl"}, JString, "Session",
+    "missing or invalid apiUrl")
   let apiUrl = node{"apiUrl"}.getStr("")
 
   # 5. Parse URI templates
@@ -1148,17 +1209,18 @@ Invocations are NOT objects on the wire — they are ordered tuples. The
 ```nim
 func toJson*(r: Request): JsonNode =
   ## Serialise Request to JSON (RFC 8620 §3.3).
-  result = newJObject()
-  result["using"] = %r.`using`
-  var calls = newJArray()
-  for inv in r.methodCalls:
-    calls.add(inv.toJson())
-  result["methodCalls"] = calls
-  if r.createdIds.isSome:
-    var ids = newJObject()
-    for k, v in r.createdIds.get():
-      ids[string(k)] = %string(v)
-    result["createdIds"] = ids
+  {.cast(noSideEffect).}:  # §1.6: local ref mutation
+    result = newJObject()
+    result["using"] = %r.`using`
+    var calls = newJArray()
+    for inv in r.methodCalls:
+      calls.add(inv.toJson())
+    result["methodCalls"] = calls
+    if r.createdIds.isSome:
+      var ids = newJObject()
+      for k, v in r.createdIds.get():
+        ids[string(k)] = %string(v)
+      result["createdIds"] = ids
 ```
 
 **`fromJson`:**
@@ -1167,17 +1229,18 @@ func toJson*(r: Request): JsonNode =
 func fromJson*(_: typedesc[Request], node: JsonNode
     ): Result[Request, ValidationError] =
   ## Deserialise JSON to Request (RFC 8620 §3.3).
-  if node.isNil or node.kind != JObject:
-    return err(parseError("Request", "expected JSON object"))
+  checkJsonKind(node, JObject, "Request")
 
   let usingNode = node{"using"}
-  var usingSeq: seq[string]
-  if not usingNode.isNil and usingNode.kind == JArray:
-    usingSeq = usingNode.getElems(@[]).mapIt(it.getStr(""))
+  checkJsonKind(usingNode, JArray, "Request",
+    "missing or invalid using")
+  let usingSeq = collect:
+    for elem in usingNode.getElems(@[]):
+      elem.getStr("")
 
   let callsNode = node{"methodCalls"}
-  if callsNode.isNil or callsNode.kind != JArray:
-    return err(parseError("Request", "missing or invalid methodCalls"))
+  checkJsonKind(callsNode, JArray, "Request",
+    "missing or invalid methodCalls")
   var methodCalls: seq[Invocation]
   for callNode in callsNode.getElems(@[]):
     let inv = ? Invocation.fromJson(callNode)
@@ -1188,7 +1251,7 @@ func fromJson*(_: typedesc[Request], node: JsonNode
       Opt.none(Table[CreationId, Id])
     elif node{"createdIds"}.kind == JObject:
       var tbl = initTable[CreationId, Id]()
-      for k, v in node{"createdIds"}.getFields():
+      for k, v in node{"createdIds"}.pairs:  # kind verified above
         let cid = ? parseCreationId(k)
         let id = ? parseIdFromServer(v.getStr(""))
         tbl[cid] = id
@@ -1226,17 +1289,18 @@ func fromJson*(_: typedesc[Request], node: JsonNode
 ```nim
 func toJson*(r: Response): JsonNode =
   ## Serialise Response to JSON (RFC 8620 §3.4).
-  result = newJObject()
-  var responses = newJArray()
-  for inv in r.methodResponses:
-    responses.add(inv.toJson())
-  result["methodResponses"] = responses
-  result["sessionState"] = %string(r.sessionState)
-  if r.createdIds.isSome:
-    var ids = newJObject()
-    for k, v in r.createdIds.get():
-      ids[string(k)] = %string(v)
-    result["createdIds"] = ids
+  {.cast(noSideEffect).}:  # §1.6: local ref mutation
+    result = newJObject()
+    var responses = newJArray()
+    for inv in r.methodResponses:
+      responses.add(inv.toJson())
+    result["methodResponses"] = responses
+    result["sessionState"] = %string(r.sessionState)
+    if r.createdIds.isSome:
+      var ids = newJObject()
+      for k, v in r.createdIds.get():
+        ids[string(k)] = %string(v)
+      result["createdIds"] = ids
 ```
 
 **`fromJson`:**
@@ -1245,12 +1309,11 @@ func toJson*(r: Response): JsonNode =
 func fromJson*(_: typedesc[Response], node: JsonNode
     ): Result[Response, ValidationError] =
   ## Deserialise JSON to Response (RFC 8620 §3.4).
-  if node.isNil or node.kind != JObject:
-    return err(parseError("Response", "expected JSON object"))
+  checkJsonKind(node, JObject, "Response")
 
   let responsesNode = node{"methodResponses"}
-  if responsesNode.isNil or responsesNode.kind != JArray:
-    return err(parseError("Response", "missing or invalid methodResponses"))
+  checkJsonKind(responsesNode, JArray, "Response",
+    "missing or invalid methodResponses")
   var methodResponses: seq[Invocation]
   for respNode in responsesNode.getElems(@[]):
     let inv = ? Invocation.fromJson(respNode)
@@ -1264,7 +1327,7 @@ func fromJson*(_: typedesc[Response], node: JsonNode
       Opt.none(Table[CreationId, Id])
     elif node{"createdIds"}.kind == JObject:
       var tbl = initTable[CreationId, Id]()
-      for k, v in node{"createdIds"}.getFields():
+      for k, v in node{"createdIds"}.pairs:  # kind verified above
         let cid = ? parseCreationId(k)
         let id = ? parseIdFromServer(v.getStr(""))
         tbl[cid] = id
@@ -1309,8 +1372,7 @@ func toJson*(r: ResultReference): JsonNode =
 func fromJson*(_: typedesc[ResultReference], node: JsonNode
     ): Result[ResultReference, ValidationError] =
   ## Deserialise JSON to ResultReference (RFC 8620 §3.7).
-  if node.isNil or node.kind != JObject:
-    return err(parseError("ResultReference", "expected JSON object"))
+  checkJsonKind(node, JObject, "ResultReference")
   let resultOf = ? parseMethodCallId(node{"resultOf"}.getStr(""))
   let name = node{"name"}.getStr("")
   let path = node{"path"}.getStr("")
@@ -1345,14 +1407,15 @@ func toJsonField*(fieldName: string, r: Referencable[seq[Id]],
   ## Emit a Referencable field into a target JSON object.
   ## For rkDirect: emits "fieldName" → serialised T.
   ## For rkReference: emits "#fieldName" → ResultReference JSON.
-  case r.kind
-  of rkDirect:
-    var arr = newJArray()
-    for id in r.value:
-      arr.add(%string(id))
-    target[fieldName] = arr
-  of rkReference:
-    target["#" & fieldName] = r.reference.toJson()
+  {.cast(noSideEffect).}:  # §1.6: local ref mutation (target is caller-owned)
+    case r.kind
+    of rkDirect:
+      var arr = newJArray()
+      for id in r.value:
+        arr.add(%string(id))
+      target[fieldName] = arr
+    of rkReference:
+      target["#" & fieldName] = r.reference.toJson()
 
 func fromJsonField*[T](
     fieldName: string,
@@ -1378,6 +1441,14 @@ func fromJsonField*[T](
 it impossible to serialise as a standalone `toJson`/`fromJson` pair — the
 containing object's serialiser must handle the key dispatch. The helper
 functions provide the dispatch logic; Layer 3 method builders use them.
+
+**`toJsonField` coverage.** The `toJsonField` overload shown above is
+specialised for `Referencable[seq[Id]]` — the most common referenceable
+type. `fromJsonField` is generic over `[T]`. Additional `toJsonField`
+overloads (or a generic version with a `condToJson` callback, mirroring
+`fromJsonField`'s `fromDirect` parameter) will be needed when Layer 3
+introduces referenceable fields of other types (e.g., `seq[PropertyName]`,
+`seq[string]`).
 
 **Module:** `src/jmap_client/serde_envelope.nim`
 
@@ -1433,10 +1504,11 @@ func toJson*[C](f: Filter[C],
   of fkCondition:
     condToJson(f.condition)
   of fkOperator:
-    var conditions = newJArray()
-    for child in f.conditions:
-      conditions.add(child.toJson(condToJson))
-    %*{"operator": $f.operator, "conditions": conditions}
+    {.cast(noSideEffect).}:  # §1.6: local ref mutation
+      var conditions = newJArray()
+      for child in f.conditions:
+        conditions.add(child.toJson(condToJson))
+      %*{"operator": $f.operator, "conditions": conditions}
 ```
 
 **`fromJson`:**
@@ -1447,8 +1519,7 @@ func fromJson*[C](_: typedesc[Filter[C]], node: JsonNode,
     {.noSideEffect.}): Result[Filter[C], ValidationError] =
   ## Deserialise JSON to Filter[C]. Caller provides condition deserialiser.
   ## Dispatches on presence of "operator" key.
-  if node.isNil or node.kind != JObject:
-    return err(parseError("Filter", "expected JSON object"))
+  checkJsonKind(node, JObject, "Filter")
   let opNode = node{"operator"}
   if opNode.isNil:
     # No "operator" key → leaf condition
@@ -1458,8 +1529,8 @@ func fromJson*[C](_: typedesc[Filter[C]], node: JsonNode,
     # Has "operator" key → composed filter
     let op = ? FilterOperator.fromJson(opNode)
     let conditionsNode = node{"conditions"}
-    if conditionsNode.isNil or conditionsNode.kind != JArray:
-      return err(parseError("Filter", "missing or invalid conditions array"))
+    checkJsonKind(conditionsNode, JArray, "Filter",
+      "missing or invalid conditions array")
     var children: seq[Filter[C]]
     for childNode in conditionsNode.getElems(@[]):
       let child = ? Filter[C].fromJson(childNode, fromCondition)
@@ -1498,9 +1569,10 @@ func toJson*(patch: PatchObject): JsonNode =
   ## Serialise PatchObject to JSON. Keys are JSON Pointer paths,
   ## null values represent property deletion.
   let tbl = Table[string, JsonNode](patch)
-  result = newJObject()
-  for path, value in tbl:
-    result[path] = value
+  {.cast(noSideEffect).}:  # §1.6: local ref mutation
+    result = newJObject()
+    for path, value in tbl:
+      result[path] = value
 ```
 
 **`fromJson`:**
@@ -1510,10 +1582,9 @@ func fromJson*(_: typedesc[PatchObject], node: JsonNode
     ): Result[PatchObject, ValidationError] =
   ## Deserialise JSON to PatchObject using smart constructors.
   ## null values → deleteProp, other values → setProp.
-  if node.isNil or node.kind != JObject:
-    return err(parseError("PatchObject", "expected JSON object"))
+  checkJsonKind(node, JObject, "PatchObject")
   var patch = emptyPatch()
-  for path, value in node.getFields():
+  for path, value in node.pairs:  # kind verified above
     if value.isNil or value.kind == JNull:
       patch = ? deleteProp(patch, path)
     else:
@@ -1552,8 +1623,7 @@ func toJson*(item: AddedItem): JsonNode =
 func fromJson*(_: typedesc[AddedItem], node: JsonNode
     ): Result[AddedItem, ValidationError] =
   ## Deserialise JSON to AddedItem.
-  if node.isNil or node.kind != JObject:
-    return err(parseError("AddedItem", "expected JSON object"))
+  checkJsonKind(node, JObject, "AddedItem")
   let id = ? Id.fromJson(node{"id"})
   let index = ? UnsignedInt.fromJson(node{"index"})
   ok(AddedItem(id: id, index: index))
@@ -1595,19 +1665,20 @@ entire request is rejected before any method calls are processed.
 ```nim
 func toJson*(re: RequestError): JsonNode =
   ## Serialise RequestError to RFC 7807 problem details JSON.
-  result = newJObject()
-  result["type"] = %re.rawType  # Decision 1.7C: always use rawType
-  if re.status.isSome:
-    result["status"] = %re.status.get()
-  if re.title.isSome:
-    result["title"] = %re.title.get()
-  if re.detail.isSome:
-    result["detail"] = %re.detail.get()
-  if re.limit.isSome:
-    result["limit"] = %re.limit.get()
-  if re.extras.isSome:
-    for key, val in re.extras.get().getFields():
-      result[key] = val
+  {.cast(noSideEffect).}:  # §1.6: local ref mutation
+    result = newJObject()
+    result["type"] = %re.rawType  # Decision 1.7C: always use rawType
+    if re.status.isSome:
+      result["status"] = %re.status.get()
+    if re.title.isSome:
+      result["title"] = %re.title.get()
+    if re.detail.isSome:
+      result["detail"] = %re.detail.get()
+    if re.limit.isSome:
+      result["limit"] = %re.limit.get()
+    if re.extras.isSome:
+      for key, val in re.extras.get().pairs:
+        result[key] = val
 ```
 
 **`fromJson`:**
@@ -1619,8 +1690,7 @@ const RequestErrorKnownKeys = [
 func fromJson*(_: typedesc[RequestError], node: JsonNode
     ): Result[RequestError, ValidationError] =
   ## Deserialise RFC 7807 problem details JSON to RequestError.
-  if node.isNil or node.kind != JObject:
-    return err(parseError("RequestError", "expected JSON object"))
+  checkJsonKind(node, JObject, "RequestError")
   let rawType = node{"type"}.getStr("")
   if rawType.len == 0:
     return err(parseError("RequestError", "missing type field"))
@@ -1628,7 +1698,7 @@ func fromJson*(_: typedesc[RequestError], node: JsonNode
     if node{"status"}.isNil or node{"status"}.kind != JInt:
       Opt.none(int)
     else:
-      Opt.some(node{"status"}.getInt(0))
+      Opt.some(int(node{"status"}.getBiggestInt(0)))
   let title: Opt[string] =
     if node{"title"}.isNil or node{"title"}.kind != JString:
       Opt.none(string)
@@ -1679,13 +1749,14 @@ Per-invocation error within a JMAP response. When the server returns
 ```nim
 func toJson*(me: MethodError): JsonNode =
   ## Serialise MethodError to JSON (RFC 8620 §3.6.2).
-  result = newJObject()
-  result["type"] = %me.rawType  # Decision 1.7C: always use rawType
-  if me.description.isSome:
-    result["description"] = %me.description.get()
-  if me.extras.isSome:
-    for key, val in me.extras.get().getFields():
-      result[key] = val
+  {.cast(noSideEffect).}:  # §1.6: local ref mutation
+    result = newJObject()
+    result["type"] = %me.rawType  # Decision 1.7C: always use rawType
+    if me.description.isSome:
+      result["description"] = %me.description.get()
+    if me.extras.isSome:
+      for key, val in me.extras.get().pairs:
+        result[key] = val
 ```
 
 **`fromJson`:**
@@ -1696,8 +1767,7 @@ const MethodErrorKnownKeys = ["type", "description"]
 func fromJson*(_: typedesc[MethodError], node: JsonNode
     ): Result[MethodError, ValidationError] =
   ## Deserialise error invocation arguments to MethodError.
-  if node.isNil or node.kind != JObject:
-    return err(parseError("MethodError", "expected JSON object"))
+  checkJsonKind(node, JObject, "MethodError")
   let rawType = node{"type"}.getStr("")
   if rawType.len == 0:
     return err(parseError("MethodError", "missing type field"))
@@ -1737,21 +1807,22 @@ variant-specific fields: `invalidProperties` carries `properties: seq[string]`,
 ```nim
 func toJson*(se: SetError): JsonNode =
   ## Serialise SetError to JSON (RFC 8620 §5.3, §5.4).
-  result = newJObject()
-  result["type"] = %se.rawType  # Decision 1.7C: always use rawType
-  if se.description.isSome:
-    result["description"] = %se.description.get()
-  case se.errorType
-  of setInvalidProperties:
-    if se.properties.len > 0:
-      result["properties"] = %se.properties
-  of setAlreadyExists:
-    result["existingId"] = %string(se.existingId)
-  else:
-    discard
-  if se.extras.isSome:
-    for key, val in se.extras.get().getFields():
-      result[key] = val
+  {.cast(noSideEffect).}:  # §1.6: local ref mutation
+    result = newJObject()
+    result["type"] = %se.rawType  # Decision 1.7C: always use rawType
+    if se.description.isSome:
+      result["description"] = %se.description.get()
+    case se.errorType
+    of setInvalidProperties:
+      if se.properties.len > 0:
+        result["properties"] = %se.properties
+    of setAlreadyExists:
+      result["existingId"] = %string(se.existingId)
+    else:
+      discard
+    if se.extras.isSome:
+      for key, val in se.extras.get().pairs:
+        result[key] = val
 ```
 
 **`fromJson`:**
@@ -1763,8 +1834,7 @@ const SetErrorKnownKeys = [
 func fromJson*(_: typedesc[SetError], node: JsonNode
     ): Result[SetError, ValidationError] =
   ## Deserialise JSON to SetError with defensive fallback (L1 §8.10).
-  if node.isNil or node.kind != JObject:
-    return err(parseError("SetError", "expected JSON object"))
+  checkJsonKind(node, JObject, "SetError")
   let rawType = node{"type"}.getStr("")
   if rawType.len == 0:
     return err(parseError("SetError", "missing type field"))
@@ -1952,14 +2022,14 @@ SPDX header on line 1. No blank line before. Matches existing Layer 1
 pattern.
 
 **Docstring requirement** (required for nimalyzer `hasDoc` rule): every
-exported `func`/`proc` must have a `##` docstring. Comments and docstrings
-use British English spelling (CLAUDE.md §Language).
+exported `func` must have a `##` docstring (Layer 2 has no `proc`s).
+Comments and docstrings use British English spelling (CLAUDE.md §Language).
 
 **Source modules:**
 
 ```
 src/jmap_client/
-  serde.nim              ← safeParseJson, parseError, collectExtras,
+  serde.nim              ← parseError, checkJsonKind, collectExtras,
                            primitive/identifier/enum ser/de, re-exports
   serde_session.nim      ← CoreCapabilities, ServerCapability,
                            AccountCapabilityEntry, Account, Session
@@ -2180,9 +2250,9 @@ tolerance ensures this parses correctly.
 | `Invocation` (deser) | `%*{"name": "x", "args": {}, "id": "c1"}` | `err` | JSON object instead of array |
 | `Invocation` (deser) | `%*["Mailbox/get", {}]` | `err` | Only 2 elements |
 | `Invocation` (deser) | `%*["Mailbox/get", {}, "c1", "extra"]` | `err` | 4 elements |
-| `Invocation` (deser) | `%*[42, {}, "c1"]` | `err` | First element not string |
-| `Invocation` (deser) | `%*["Mailbox/get", "notobject", "c1"]` | `err` | Second element not object |
-| `Invocation` (deser) | `%*["Mailbox/get", {}, 42]` | `err` | Third element not string |
+| `Invocation` (deser) | `%*[42, {}, "c1"]` | `err` | `getStr` returns `""` on JInt → "empty method name" |
+| `Invocation` (deser) | `%*["Mailbox/get", "notobject", "c1"]` | `err` | `checkJsonKind` rejects JString → "arguments must be JSON object" |
+| `Invocation` (deser) | `%*["Mailbox/get", {}, 42]` | `err` | `getStr` returns `""` on JInt → "empty method call ID" |
 | `Invocation` (deser) | `%*["", {}, "c1"]` | `err` | Empty method name |
 | `Invocation` (round-trip) | Valid Invocation | `toJson` produces JArray len 3 | Format verification |
 | `Invocation` (round-trip) | Valid Invocation | `fromJson(toJson(x)).get() == x` | Identity |
@@ -2206,7 +2276,7 @@ tolerance ensures this parses correctly.
 | `Referencable` (deser) | `"ids": [...]` | `rkDirect` | Direct value |
 | `Referencable` (deser) | `"#ids": {"resultOf":..}` | `rkReference` | Reference |
 | `Referencable` (deser) | Reference missing `resultOf` | `err` | Invalid reference |
-| `Referencable` (deser) | Both `"ids"` and `"#ids"` present | Note: behaviour to be documented | Edge case |
+| `Referencable` (deser) | Both `"ids"` and `"#ids"` present | `rkReference` | `#`-prefixed key takes precedence; direct key ignored. Consistent with RFC intent: if a reference is present, the server resolves it |
 | `Filter` (deser) | Condition (no `operator` key) | `fkCondition` | Leaf node |
 | `Filter` (deser) | Operator with conditions | `fkOperator` | Composed node |
 | `Filter` (deser) | Nested operators (depth 2) | `ok` | Recursive |
@@ -2256,7 +2326,7 @@ tolerance ensures this parses correctly.
 |----|----------|-------------|-----------|
 | D2.1 | Error type: reuse `ValidationError` (1.1B) | New `DeserialiseError` (1.1A) | Composes with L1 smart constructors via `?` without `mapErr` |
 | D2.2 | Module layout: 5 files | Single `serde.nim` | Independently testable; mirrors L1 grouping; bounded file size |
-| D2.3 | Parse boundary: `Result[JsonNode, string]` | `Result[JsonNode, ValidationError]` | Minimal error at boundary; `mapErr` at entry points only |
+| D2.3 | Parse boundary: Layer 4 concern | `safeParseJson` in Layer 2 | Layer 2 is pure `func` — receives `JsonNode`, not raw strings. `string → JsonNode` requires exception handling, which belongs in the imperative shell (Layer 4) |
 | D2.4 | Generic `Filter[C]`: callback parameter | Typeclass/concept | L2 Core cannot know entity condition types; verify at compile time |
 | D2.5 | `Referencable[T]`: field-level scope | Standalone `toJson`/`fromJson` | `#`-prefix is on JSON key, not value — containing object must dispatch |
 | D2.6 | RFC typo: accept both singular/plural | Strict plural only | RFC §2.1 example has `maxConcurrentRequest` (singular); servers may follow |

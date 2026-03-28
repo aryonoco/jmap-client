@@ -14,6 +14,8 @@ import jmap_client/identifiers
 import jmap_client/primitives
 import jmap_client/envelope
 
+import ./massertions
+
 # --- Invocation ---
 
 block invocationConstruction:
@@ -179,3 +181,30 @@ block referencableConcreteTypes:
   doAssert optRef.kind == rkDirect
   doAssert optRef.value.isSome
   doAssert optRef.value.get() == "x"
+
+# --- Referencable compile-time safety ---
+
+block referencableVariantDiscrimination:
+  # Direct and reference variants are distinguished by kind discriminator
+  let id = parseId("test").get()
+  let mcid = parseMethodCallId("c0").get()
+  let d = direct[Id](id)
+  let rr = ResultReference(resultOf: mcid, name: "Email/get", path: "/ids")
+  let r = referenceTo[Id](rr)
+  doAssert d.kind == rkDirect
+  doAssert r.kind == rkReference
+  doAssert d.value == id
+  doAssert r.reference.resultOf == mcid
+  doAssert r.reference.name == "Email/get"
+  doAssert r.reference.path == "/ids"
+
+# --- ResultReference path constants ---
+
+block resultReferencePathConstants:
+  # Verify path constants match RFC 8620 S3.7
+  assertEq RefPathIds, "/ids"
+  assertEq RefPathListIds, "/list/*/id"
+  assertEq RefPathAddedIds, "/added/*/id"
+  assertEq RefPathCreated, "/created"
+  assertEq RefPathUpdated, "/updated"
+  assertEq RefPathUpdatedProperties, "/updatedProperties"

@@ -70,3 +70,93 @@ block propQuestionMarkPropagatesErr:
 
   doAssert pipeline().isErr
   doAssert pipeline().error == "fail"
+
+# --- Result monad associativity ---
+
+block propResultMonadAssociativity:
+  checkProperty "m.flatMap(f).flatMap(g) == m.flatMap(x => f(x).flatMap(g))":
+    let a = rng.rand(int.low div 4 .. int.high div 4)
+    let m = Result[int, string].ok(a)
+    func f(x: int): Result[int, string] =
+      ## Doubles the input.
+      ok(x * 2)
+
+    func g(x: int): Result[int, string] =
+      ## Adds one to the input.
+      ok(x + 1)
+
+    let lhs = m.flatMap(f).flatMap(g)
+    let rhs = m.flatMap(
+      proc(x: int): Result[int, string] =
+        f(x).flatMap(g)
+    )
+    doAssert lhs == rhs
+
+# --- Result functor laws ---
+
+block propResultFunctorIdentity:
+  checkProperty "m.map(identity) == m":
+    let a = rng.rand(int)
+    let m = Result[int, string].ok(a)
+    let mapped = m.map(
+      proc(x: int): int =
+        x
+    )
+    doAssert mapped == m
+
+block propResultFunctorComposition:
+  checkProperty "m.map(f).map(g) == m.map(g . f)":
+    let a = rng.rand(int.low div 4 .. int.high div 4)
+    let m = Result[int, string].ok(a)
+    func f(x: int): int =
+      ## Doubles the input.
+      x * 2
+
+    func g(x: int): int =
+      ## Adds three to the input.
+      x + 3
+
+    let lhs = m.map(f).map(g)
+    let rhs = m.map(
+      proc(x: int): int =
+        g(f(x))
+    )
+    doAssert lhs == rhs
+
+# --- mapErr laws ---
+
+block propMapErrComposition:
+  checkProperty "m.mapErr(f).mapErr(g) == m.mapErr(g . f)":
+    let a = rng.rand(int)
+    let m = Result[int, string].err("oops")
+    func f(e: string): string =
+      ## Appends exclamation mark.
+      e & "!"
+
+    func g(e: string): string =
+      ## Appends question mark.
+      e & "?"
+
+    let lhs = m.mapErr(f).mapErr(g)
+    let rhs = m.mapErr(
+      proc(e: string): string =
+        g(f(e))
+    )
+    doAssert lhs == rhs
+
+block propMapErrOnOkIsNoop:
+  checkProperty "ok(a).mapErr(f) == ok(a)":
+    let a = rng.rand(int)
+    let m = Result[int, string].ok(a)
+    let mapped = m.mapErr(
+      proc(e: string): string =
+        e & "!!!"
+    )
+    doAssert mapped == m
+
+# --- Opt ---
+
+block propOptSomeIsSome:
+  checkProperty "Opt.some(x).isSome == true":
+    let x = rng.rand(int)
+    doAssert Opt[int].ok(x).isSome == true

@@ -124,7 +124,9 @@
       "Bash(/dev/null:*)",
       "Bash(nimalyzer nimalyzer.cfg)",
       "Bash(ls -la /workspaces/jmap-client/*.cfg /workspaces/jmap-client/*.nims)",
-      "Bash(find /home/vscode/.vscode-server -path */nimlang* -name settings.json -o -path */nimlang* -name package.json)"
+      "Bash(find /home/vscode/.vscode-server -path */nimlang* -name settings.json -o -path */nimlang* -name package.json)",
+      "Bash(find /workspaces/jmap-client -type d -name *results*)",
+      "Bash(find /workspaces/jmap-client/.nim-reference -path */lib/* -name *.nim -exec grep -l HashSet {})"
     ]
   }
 }

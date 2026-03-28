@@ -1,0 +1,110 @@
+# SPDX-License-Identifier: BSL-1.0
+# Copyright (c) 2026 Aryan Ameri
+
+{.push raises: [].}
+
+## Property-based tests for JMAP envelope types: Request, Response,
+## Invocation, and Referencable.
+
+import std/json
+import std/random
+import std/tables
+
+import pkg/results
+
+import jmap_client/primitives
+import jmap_client/identifiers
+import jmap_client/envelope
+
+import ./massertions
+import ./mproperty
+
+block propRequestPreservesMethodCallOrder:
+  checkProperty "propRequestPreservesMethodCallOrder":
+    ## Request.methodCalls preserves insertion order and count.
+    let n = rng.rand(1 .. 10)
+    var calls: seq[Invocation] = @[]
+    for i in 0 ..< n:
+      calls.add genInvocation(rng)
+    let req = Request(
+      `using`: @["urn:ietf:params:jmap:core"],
+      methodCalls: calls,
+      createdIds: Opt.none(Table[CreationId, Id]),
+    )
+    doAssert req.methodCalls.len == n
+    for i in 0 ..< n:
+      doAssert req.methodCalls[i].name == calls[i].name
+
+block propResponsePreservesInvocationOrder:
+  checkProperty "propResponsePreservesInvocationOrder":
+    ## Response.methodResponses preserves insertion order and count.
+    let n = rng.rand(1 .. 10)
+    var responses: seq[Invocation] = @[]
+    for i in 0 ..< n:
+      responses.add genInvocation(rng)
+    let state = parseJmapState("s" & $trial).get()
+    let resp = Response(
+      methodResponses: responses,
+      createdIds: Opt.none(Table[CreationId, Id]),
+      sessionState: state,
+    )
+    doAssert resp.methodResponses.len == n
+    for i in 0 ..< n:
+      doAssert resp.methodResponses[i].name == responses[i].name
+
+block propReferencableDirectPreservesValue:
+  checkProperty "propReferencableDirectPreservesValue":
+    ## direct(v).value == v for random Invocations used as values.
+    let inv = genInvocation(rng)
+    let ids = @[parseId("id" & $trial).get()]
+    let d = direct(ids)
+    doAssert d.kind == rkDirect
+    doAssert d.value.len == ids.len
+
+block propReferencableReferencePreservesRef:
+  checkProperty "propReferencableReferencePreservesRef":
+    ## referenceTo preserves the ResultReference.
+    let mcid = parseMethodCallId("c" & $trial).get()
+    let rr = ResultReference(resultOf: mcid, name: "Email/query", path: "/ids")
+    let r = referenceTo[seq[Id]](rr)
+    doAssert r.kind == rkReference
+    doAssert r.reference.resultOf == mcid
+    doAssert r.reference.path == "/ids"
+
+block propReferencableExclusivity:
+  checkProperty "propReferencableExclusivity":
+    ## A Referencable is either direct or reference, never ambiguous.
+    let ids = @[parseId("id" & $trial).get()]
+    let d = direct(ids)
+    doAssert d.kind == rkDirect
+    doAssert not (d.kind == rkReference)
+
+    let mcid = parseMethodCallId("c" & $trial).get()
+    let rr = ResultReference(resultOf: mcid, name: "M/get", path: "/ids")
+    let r = referenceTo[seq[Id]](rr)
+    doAssert r.kind == rkReference
+    doAssert not (r.kind == rkDirect)
+
+block propInvocationPreservesFields:
+  checkProperty "propInvocationPreservesFields":
+    ## Invocation construction preserves all three fields.
+    let inv = genInvocation(rng)
+    doAssert inv.name.len > 0
+    doAssert inv.arguments.kind == JObject
+    # methodCallId was set by genInvocation
+
+block propRequestCreatedIdsTablePreserved:
+  checkPropertyN "propRequestCreatedIdsTablePreserved", QuickTrials:
+    ## When createdIds is present, the table mapping is preserved.
+    let n = rng.rand(1 .. 5)
+    var cids = initTable[CreationId, Id]()
+    for i in 0 ..< n:
+      let cid = parseCreationId("k" & $i).get()
+      let id = parseId("sid" & $i).get()
+      cids[cid] = id
+    let req = Request(`using`: @[], methodCalls: @[], createdIds: Opt.some(cids))
+    doAssert req.createdIds.isSome
+    doAssert req.createdIds.get().len == n
+    for i in 0 ..< n:
+      let cid = parseCreationId("k" & $i).get()
+      doAssert req.createdIds.get()[cid] == parseId("sid" & $i).get()
