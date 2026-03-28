@@ -183,10 +183,11 @@ type SetError* = object
   rawType*: string ## always populated — lossless round-trip
   description*: Opt[string] ## optional human-readable description
   extras*: Opt[JsonNode] ## non-standard fields, lossless preservation
-  existingId*: Opt[Id] ## the existing record's ID (§5.4); set for setAlreadyExists
   case errorType*: SetErrorType
   of setInvalidProperties:
     properties*: seq[string] ## invalid property names (§5.3)
+  of setAlreadyExists:
+    existingId*: Id ## the existing record's ID (§5.4)
   else:
     discard
 
@@ -196,12 +197,19 @@ func setError*(
     extras: Opt[JsonNode] = Opt.none(JsonNode),
 ): SetError =
   ## For non-variant-specific set errors.
+  ## Defensively maps invalidProperties/alreadyExists to setUnknown when
+  ## variant-specific data is absent.
   let errorType = parseSetErrorType(rawType)
   let safeType =
     if errorType in {setInvalidProperties, setAlreadyExists}: setUnknown else: errorType
-  SetError(
-    errorType: safeType, rawType: rawType, description: description, extras: extras
+  # Construct with setUnknown (compile-time literal), then set the actual
+  # discriminator via uncheckedAssign. Safe because safeType is always in
+  # the else-discard branch — same memory layout as setUnknown.
+  result = SetError(
+    errorType: setUnknown, rawType: rawType, description: description, extras: extras
   )
+  {.cast(uncheckedAssign).}:
+    result.errorType = safeType
 
 func setErrorInvalidProperties*(
     rawType: string,
@@ -230,5 +238,5 @@ func setErrorAlreadyExists*(
     rawType: rawType,
     description: description,
     extras: extras,
-    existingId: Opt.some(existingId),
+    existingId: existingId,
   )

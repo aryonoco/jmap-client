@@ -233,8 +233,7 @@ block setErrorAlreadyExistsVariant:
   let someId = parseIdFromServer("existing-123").get()
   let e = setErrorAlreadyExists("alreadyExists", someId)
   doAssert e.errorType == setAlreadyExists
-  doAssert e.existingId.isSome
-  doAssert e.existingId.unsafeGet == someId
+  doAssert e.existingId == someId
   doAssert e.rawType == "alreadyExists"
   doAssert e.description.isNone
 
