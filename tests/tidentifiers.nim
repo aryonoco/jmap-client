@@ -18,14 +18,15 @@ import ./massertions
 # --- parseAccountId ---
 
 block parseAccountIdEmpty:
-  doAssert parseAccountId("").isErr
+  assertErrFields parseAccountId(""), "AccountId", "length must be 1-255 octets", ""
 
 block parseAccountIdValid:
   let result = parseAccountId("A13824")
   doAssert result.isOk
 
 block parseAccountIdTooLong:
-  doAssert parseAccountId('a'.repeat(256)).isErr
+  assertErrFields parseAccountId('a'.repeat(256)),
+    "AccountId", "length must be 1-255 octets", 'a'.repeat(256)
 
 block parseAccountIdMaxLength:
   let result = parseAccountId('a'.repeat(255))
@@ -36,24 +37,26 @@ block parseAccountIdMinLength:
   doAssert result.isOk
 
 block parseAccountIdControlChar:
-  doAssert parseAccountId("abc\x00def").isErr
+  assertErrFields parseAccountId("abc\x00def"),
+    "AccountId", "contains control characters", "abc\x00def"
 
 # --- parseJmapState ---
 
 block parseJmapStateEmpty:
-  doAssert parseJmapState("").isErr
+  assertErrFields parseJmapState(""), "JmapState", "must not be empty", ""
 
 block parseJmapStateValid:
   let result = parseJmapState("75128aab4b1b")
   doAssert result.isOk
 
 block parseJmapStateControlChar:
-  doAssert parseJmapState("abc\x00def").isErr
+  assertErrFields parseJmapState("abc\x00def"),
+    "JmapState", "contains control characters", "abc\x00def"
 
 # --- parseMethodCallId ---
 
 block parseMethodCallIdEmpty:
-  doAssert parseMethodCallId("").isErr
+  assertErrFields parseMethodCallId(""), "MethodCallId", "must not be empty", ""
 
 block parseMethodCallIdValid:
   let result = parseMethodCallId("c1")
@@ -62,10 +65,11 @@ block parseMethodCallIdValid:
 # --- parseCreationId ---
 
 block parseCreationIdEmpty:
-  doAssert parseCreationId("").isErr
+  assertErrFields parseCreationId(""), "CreationId", "must not be empty", ""
 
 block parseCreationIdHashPrefix:
-  doAssert parseCreationId("#abc").isErr
+  assertErrFields parseCreationId("#abc"),
+    "CreationId", "must not include '#' prefix", "#abc"
 
 block parseCreationIdValid:
   let result = parseCreationId("abc")
@@ -162,13 +166,15 @@ block parseIdFromServerHighUnicode:
 # --- Missing boundaries ---
 
 block parseAccountIdDelChar:
-  doAssert parseAccountId("abc\x7Fdef").isErr
+  assertErrFields parseAccountId("abc\x7Fdef"),
+    "AccountId", "contains control characters", "abc\x7Fdef"
 
 block parseAccountIdSpaceAccepted:
   doAssert parseAccountId("abc def").isOk
 
 block parseJmapStateDelChar:
-  doAssert parseJmapState("abc\x7Fdef").isErr
+  assertErrFields parseJmapState("abc\x7Fdef"),
+    "JmapState", "contains control characters", "abc\x7Fdef"
 
 block parseCreationIdHashMiddle:
   doAssert parseCreationId("ab#cd").isOk

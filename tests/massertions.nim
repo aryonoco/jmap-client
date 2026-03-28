@@ -82,3 +82,23 @@ template assertErrKind*(r: untyped, expectedKind: untyped) =
   doAssert r.isErr, "expected Err, got Ok"
   let k = r.error.kind
   doAssert k == expectedKind, "expected kind " & $expectedKind & ", got " & $k
+
+template assertGt*(actual, expected: untyped) =
+  ## Verifies actual > expected with diagnostics.
+  let a = actual
+  let e = expected
+  doAssert a > e, "expected " & $a & " > " & $e
+
+template assertGe*(actual, expected: untyped) =
+  ## Verifies actual >= expected with diagnostics.
+  let a = actual
+  let e = expected
+  doAssert a >= e, "expected " & $a & " >= " & $e
+
+template assertTrue*(expr: untyped, msg: string) =
+  ## Annotated boolean assertion with context message.
+  doAssert expr, msg
+
+template assertFalse*(expr: untyped, msg: string) =
+  ## Annotated boolean negation assertion with context message.
+  doAssert not expr, msg

@@ -164,6 +164,48 @@ block rfc8620_S1_4_dateEmptyFractionalRejected:
   ## A dot with no following digits is rejected.
   assertErr parseDate("2024-01-01T12:00:00.Z")
 
+block rfc8620_S1_4_dateHour24Accepted:
+  ## Layer 1 validates structural format (correct digit positions, separators,
+  ## uppercase T/Z) but defers value-range and calendar validation. Hour 24 is
+  ## structurally valid (two digits in the hour position).
+  assertOk parseDate("2024-01-01T24:00:00Z")
+
+block rfc8620_S1_4_dateMinute60Accepted:
+  ## Layer 1 validates structural format (correct digit positions, separators,
+  ## uppercase T/Z) but defers value-range and calendar validation. Minute 60
+  ## is structurally valid (two digits in the minute position).
+  assertOk parseDate("2024-01-01T12:60:00Z")
+
+block rfc8620_S1_4_dateSecond60Accepted:
+  ## Layer 1 validates structural format (correct digit positions, separators,
+  ## uppercase T/Z) but defers value-range and calendar validation. Second 60
+  ## is structurally valid and also meaningful as an RFC 3339 leap second.
+  assertOk parseDate("2024-01-01T12:00:60Z")
+
+block rfc8620_S1_4_dateMonthZeroAccepted:
+  ## Layer 1 validates structural format (correct digit positions, separators,
+  ## uppercase T/Z) but defers value-range and calendar validation. Month 00
+  ## is structurally valid (two digits in the month position).
+  assertOk parseDate("2024-00-01T12:00:00Z")
+
+block rfc8620_S1_4_dateDayZeroAccepted:
+  ## Layer 1 validates structural format (correct digit positions, separators,
+  ## uppercase T/Z) but defers value-range and calendar validation. Day 00 is
+  ## structurally valid (two digits in the day position).
+  assertOk parseDate("2024-01-00T12:00:00Z")
+
+block rfc8620_S1_4_dateYearZeroAccepted:
+  ## Layer 1 validates structural format (correct digit positions, separators,
+  ## uppercase T/Z) but defers value-range and calendar validation. Year 0000
+  ## is structurally valid (four digits in the year position).
+  assertOk parseDate("0000-01-01T12:00:00Z")
+
+block rfc8620_S1_4_dateTwoDigitFrac:
+  ## Layer 1 validates structural format (correct digit positions, separators,
+  ## uppercase T/Z) but defers value-range and calendar validation. Two-digit
+  ## fractional seconds are structurally valid.
+  assertOk parseDate("2024-01-01T12:00:00.12Z")
+
 # =============================================================================
 # S1.6.2 / S1.8 — AccountId and Vendor Extensions
 # =============================================================================
@@ -404,6 +446,53 @@ block rfc8620_S3_4_responseCreatedIdsOnlyIfRequested:
   let resp = makeResponse()
   doAssert resp.createdIds.isNone
 
+block rfc8620_S3_3_requestEmptyUsing:
+  ## RFC 8620 S3.3: Layer 1 does not validate the using list contents.
+  ## An empty using list is structurally valid at Layer 1; the server
+  ## will reject it with unknownCapability if needed.
+  let req = Request(
+    `using`: @[],
+    methodCalls: @[makeInvocation()],
+    createdIds: Opt.none(Table[CreationId, Id]),
+  )
+  doAssert req.`using`.len == 0
+
+block rfc8620_S3_3_requestEmptyMethodCalls:
+  ## RFC 8620 S3.3: Layer 1 does not validate the method calls list.
+  ## An empty methodCalls list is structurally valid at Layer 1; the
+  ## server may return an empty response.
+  let req = Request(
+    `using`: @["urn:ietf:params:jmap:core"],
+    methodCalls: @[],
+    createdIds: Opt.none(Table[CreationId, Id]),
+  )
+  doAssert req.methodCalls.len == 0
+
+block rfc8620_S3_3_requestDuplicateMethodCallIds:
+  ## RFC 8620 S3.3: Layer 1 does not enforce method call ID uniqueness
+  ## within a request. The RFC does not require unique IDs; the server
+  ## correlates each response to its request position.
+  let mcid = makeMcid("c0")
+  let inv1 = makeInvocation("A/get", mcid)
+  let inv2 = makeInvocation("B/get", mcid)
+  let req = Request(
+    `using`: @["urn:ietf:params:jmap:core"],
+    methodCalls: @[inv1, inv2],
+    createdIds: Opt.none(Table[CreationId, Id]),
+  )
+  doAssert req.methodCalls.len == 2
+  doAssert req.methodCalls[0].methodCallId == req.methodCalls[1].methodCallId
+
+block rfc8620_S3_4_responseErrorInvocation:
+  ## RFC 8620 S3.4: A response may contain an Invocation with name="error"
+  ## to signal a per-method failure. Layer 1 accepts any invocation name.
+  let errInv = Invocation(
+    name: "error", arguments: %*{"type": "serverFail"}, methodCallId: makeMcid("c0")
+  )
+  let resp = makeResponse(methodResponses = @[errInv])
+  doAssert resp.methodResponses.len == 1
+  doAssert resp.methodResponses[0].name == "error"
+
 # =============================================================================
 # S3.6.1 — Request-Level Errors (RFC 8620 section 3.6.1)
 # =============================================================================
@@ -505,6 +594,64 @@ block rfc8620_S3_6_2_errorResponseNameConvention:
   )
   doAssert errInv.name == "error"
 
+block rfc8620_S3_6_1_requestErrorCaseSensitiveFirstChar:
+  ## RFC 8620 S3.6.1: parseRequestErrorType uses strutils.parseEnum which
+  ## applies nimIdentNormalize. The first character is case-sensitive, so
+  ## capitalising the 'u' in 'urn' causes the parse to fall through to
+  ## retUnknown.
+  doAssert parseRequestErrorType("Urn:ietf:params:jmap:error:limit") == retUnknown
+
+block rfc8620_S3_6_2_methodErrorCaseSensitiveFirstChar:
+  ## RFC 8620 S3.6.2: parseMethodErrorType uses strutils.parseEnum which
+  ## applies nimIdentNormalize. The first character is case-sensitive, so
+  ## capitalising the 's' in 'serverFail' causes the parse to fall through
+  ## to metUnknown.
+  doAssert parseMethodErrorType("ServerFail") == metUnknown
+
+block rfc8620_S3_6_2_methodErrorCaseInsensitiveAfterFirst:
+  ## RFC 8620 S3.6.2: nimIdentNormalize is case-insensitive after the first
+  ## character and strips underscores. "serverFAIL" matches "serverFail"
+  ## because the first character 's' matches and subsequent characters are
+  ## normalised.
+  doAssert parseMethodErrorType("serverFAIL") == metServerFail
+
+block rfc8620_S3_6_2_setErrorCaseSensitiveFirstChar:
+  ## RFC 8620 S3.6.2: parseSetErrorType uses strutils.parseEnum which
+  ## applies nimIdentNormalize. The first character is case-sensitive, so
+  ## capitalising the 'f' in 'forbidden' causes the parse to fall through
+  ## to setUnknown.
+  doAssert parseSetErrorType("Forbidden") == setUnknown
+
+block rfc8620_S3_6_1_requestErrorMinimalFields:
+  ## RFC 8620 S3.6.1: a RequestError can be constructed with only rawType;
+  ## all optional fields default to Opt.none.
+  let re = requestError("urn:ietf:params:jmap:error:limit")
+  doAssert re.errorType == retLimit
+  doAssert re.rawType == "urn:ietf:params:jmap:error:limit"
+  doAssert re.status.isNone
+  doAssert re.title.isNone
+  doAssert re.detail.isNone
+  doAssert re.limit.isNone
+  doAssert re.extras.isNone
+
+block rfc8620_S3_6_2_methodErrorMinimalFields:
+  ## RFC 8620 S3.6.2: a MethodError can be constructed with only rawType;
+  ## all optional fields default to Opt.none.
+  let me = methodError("serverFail")
+  doAssert me.errorType == metServerFail
+  doAssert me.rawType == "serverFail"
+  doAssert me.description.isNone
+  doAssert me.extras.isNone
+
+block rfc8620_S3_6_2_setErrorMinimalFields:
+  ## RFC 8620 S3.6.2: a SetError can be constructed with only rawType;
+  ## all optional fields default to Opt.none.
+  let se = setError("forbidden")
+  doAssert se.errorType == setForbidden
+  doAssert se.rawType == "forbidden"
+  doAssert se.description.isNone
+  doAssert se.extras.isNone
+
 # =============================================================================
 # S3.7 — ResultReference (RFC 8620 section 3.7)
 # =============================================================================
@@ -548,6 +695,26 @@ block rfc8620_S3_7_resultReferenceTriple:
   doAssert rr.resultOf == makeMcid("c0")
   doAssert rr.name == "Email/query"
   doAssert rr.path == "/ids"
+
+block rfc8620_S3_7_resultReferenceEmptyPath:
+  ## RFC 8620 S3.7: Layer 1 stores the path string as-is without validating
+  ## its contents. An empty path is accepted; path validation is deferred
+  ## to Layer 3 (protocol logic).
+  let rr = ResultReference(resultOf: makeMcid("c0"), name: "Mailbox/get", path: "")
+  doAssert rr.path == ""
+
+block rfc8620_S3_7_resultReferenceRootPath:
+  ## RFC 8620 S3.7: Layer 1 stores the path string as-is. A root JSON
+  ## Pointer "/" is accepted at Layer 1; semantic validation is deferred.
+  let rr = ResultReference(resultOf: makeMcid("c0"), name: "Mailbox/get", path: "/")
+  doAssert rr.path == "/"
+
+block rfc8620_S3_7_resultReferenceDoubleSeparator:
+  ## RFC 8620 S3.7: Layer 1 stores the path string as-is. A double
+  ## separator "//" is accepted at Layer 1; path syntax validation is a
+  ## Layer 3 concern.
+  let rr = ResultReference(resultOf: makeMcid("c0"), name: "Mailbox/get", path: "//")
+  doAssert rr.path == "//"
 
 # =============================================================================
 # S5.3 — PatchObject and SetError (RFC 8620 section 5.3)
@@ -689,6 +856,49 @@ block rfc8620_S5_5_filterDeepNesting:
   doAssert top.kind == fkOperator
   doAssert top.conditions[0].kind == fkOperator
   doAssert top.conditions[0].conditions[0].kind == fkCondition
+
+block rfc8620_S5_5_filterNotMultipleChildren:
+  ## RFC 8620 S5.5: the NOT operator semantically applies to exactly one
+  ## child, but Layer 1 does not enforce this constraint. Multiple children
+  ## under NOT are accepted at Layer 1; semantic validation is a Layer 3
+  ## concern.
+  let cond1 = filterCondition(1)
+  let cond2 = filterCondition(2)
+  let notFilter = filterOperator(foNot, @[cond1, cond2])
+  doAssert notFilter.kind == fkOperator
+  doAssert notFilter.operator == foNot
+  doAssert notFilter.conditions.len == 2
+
+block rfc8620_S5_5_filterEmptyConditions:
+  ## RFC 8620 S5.5: Layer 1 does not validate the conditions list length.
+  ## An empty conditions list under AND is accepted at Layer 1; semantic
+  ## validation is deferred to Layer 3.
+  let f = filterOperator[int](foAnd, @[])
+  doAssert f.kind == fkOperator
+  doAssert f.operator == foAnd
+  doAssert f.conditions.len == 0
+
+block rfc8620_S5_5_comparatorDefaultAscendingTrue:
+  ## RFC 8620 S5.5: "If true or not present, sort is ascending."
+  ## The parseComparator factory defaults isAscending to true, matching
+  ## the RFC's specified default behaviour.
+  let prop = makePropertyName("date")
+  let cmp = parseComparator(prop).get()
+  doAssert cmp.isAscending == true
+  doAssert cmp.collation.isNone
+
+block rfc8620_S5_5_comparatorWithCollation:
+  ## RFC 8620 S5.5: a Comparator may include a collation identifier
+  ## (RFC 4790 format). "i;ascii-casemap" is a standard collation.
+  let prop = makePropertyName("subject")
+  let cmp = parseComparator(
+      prop, isAscending = true, collation = Opt.some("i;ascii-casemap")
+    )
+    .get()
+  doAssert cmp.property == prop
+  doAssert cmp.isAscending == true
+  doAssert cmp.collation.isSome
+  doAssert cmp.collation.get() == "i;ascii-casemap"
 
 # =============================================================================
 # S5.6 — /queryChanges (RFC 8620 section 5.6)

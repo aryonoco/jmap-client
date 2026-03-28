@@ -409,3 +409,62 @@ block scenarioMethodErrorExtrasPreservation:
   let me = methodError("serverFail", extras = Opt.some(extras))
   doAssert me.extras.isSome
   doAssert me.extras.get()["serverMessage"].getStr() == "database overloaded"
+
+# =============================================================================
+# Cross-module interaction tests
+# =============================================================================
+
+block scenarioPrimaryAccountCkUnknownReturnsNone:
+  ## primaryAccount(session, ckUnknown) returns Opt.none because capabilityUri
+  ## returns err for ckUnknown — the early return via ? propagates.
+  let args = makeSessionArgs()
+  let session = parseSessionFromArgs(args).get()
+  doAssert primaryAccount(session, ckUnknown).isNone,
+    "primaryAccount for ckUnknown should return None"
+
+block scenarioEmptyUsingAndMethodCalls:
+  ## Request with empty using and empty methodCalls is valid at Layer 1.
+  ## Layer 3 protocol logic may reject this, but Layer 1 holds the data.
+  let req =
+    Request(`using`: @[], methodCalls: @[], createdIds: Opt.none(Table[CreationId, Id]))
+  doAssert req.`using`.len == 0
+  doAssert req.methodCalls.len == 0
+
+block scenarioDuplicateMethodCallIdsInRequest:
+  ## Request with duplicate MethodCallIds is valid at Layer 1. The protocol
+  ## uses MethodCallId for correlation; uniqueness is a Layer 3 concern.
+  let mcid = makeMcid("shared")
+  let inv1 = Invocation(name: "Email/get", arguments: newJObject(), methodCallId: mcid)
+  let inv2 =
+    Invocation(name: "Email/query", arguments: newJObject(), methodCallId: mcid)
+  let req = Request(
+    `using`: @["urn:ietf:params:jmap:core"],
+    methodCalls: @[inv1, inv2],
+    createdIds: Opt.none(Table[CreationId, Id]),
+  )
+  doAssert req.methodCalls.len == 2
+  doAssert req.methodCalls[0].methodCallId == req.methodCalls[1].methodCallId
+
+block scenarioResponseWithErrorInvocation:
+  ## Response containing an Invocation with name="error" is valid.
+  let errInv = Invocation(
+    name: "error", arguments: %*{"type": "serverFail"}, methodCallId: makeMcid("c0")
+  )
+  let resp = Response(
+    methodResponses: @[errInv],
+    createdIds: Opt.none(Table[CreationId, Id]),
+    sessionState: makeState("s1"),
+  )
+  doAssert resp.methodResponses[0].name == "error"
+
+block scenarioHasVariableEmptyString:
+  ## hasVariable with empty name searches for "{}" — not present in typical
+  ## templates, so returns false. Documents the wrapping semantics.
+  let tmpl = parseUriTemplate("https://example.com/{accountId}").get()
+  doAssert not tmpl.hasVariable(""), "empty variable name searches for '{}'"
+
+block scenarioFindAccountEmptyTable:
+  ## findAccount returns None when accounts table is empty.
+  let args = makeMinimalSession()
+  let session = parseSessionFromArgs(args).get()
+  doAssert session.findAccount(makeAccountId("nonexistent")).isNone

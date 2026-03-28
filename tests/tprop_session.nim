@@ -11,6 +11,7 @@ import std/random
 import pkg/results
 
 import jmap_client/capabilities
+import jmap_client/framework
 import jmap_client/session
 import ./mfixtures
 import ./mproperty
@@ -124,3 +125,47 @@ block propSessionPostConstructionInvariants:
   doAssert session.eventSourceUrl.hasVariable("types")
   doAssert session.eventSourceUrl.hasVariable("closeafter")
   doAssert session.eventSourceUrl.hasVariable("ping")
+
+# --- Totality tests for Session/Account methods ---
+
+block propAccountFindCapabilityTotality:
+  checkPropertyN "Account.findCapability never crashes", QuickTrials:
+    let account = genValidAccount(rng)
+    let kind =
+      rng.oneOf([ckCore, ckMail, ckSubmission, ckContacts, ckCalendars, ckUnknown])
+    discard account.findCapability(kind)
+
+block propAccountFindCapabilityByUriTotality:
+  checkPropertyN "Account.findCapabilityByUri never crashes", QuickTrials:
+    let account = genValidAccount(rng)
+    let uri = genArbitraryString(rng)
+    discard account.findCapabilityByUri(uri)
+
+block propAccountHasCapabilityTotality:
+  checkPropertyN "Account.hasCapability never crashes", QuickTrials:
+    let account = genValidAccount(rng)
+    let kind =
+      rng.oneOf([ckCore, ckMail, ckSubmission, ckContacts, ckCalendars, ckUnknown])
+    discard account.hasCapability(kind)
+
+block propUriTemplateHasVariableTotality:
+  checkPropertyN "UriTemplate.hasVariable never crashes", QuickTrials:
+    let tmpl = parseUriTemplate(genValidUriTemplate(rng)).get()
+    let varName = genArbitraryString(rng)
+    discard tmpl.hasVariable(varName)
+
+block propPatchObjectGetKeyTotality:
+  checkPropertyN "PatchObject.getKey never crashes", QuickTrials:
+    let p = genPatchObject(rng, rng.rand(0 .. 5))
+    let key = genArbitraryString(rng)
+    discard p.getKey(key)
+
+# --- Symmetry for UriTemplate ---
+
+block propUriTemplateSymmetry:
+  checkPropertyN "propUriTemplateSymmetry", QuickTrials:
+    let s = genValidUriTemplate(rng)
+    let a = parseUriTemplate(s).get()
+    let b = parseUriTemplate(s).get()
+    doAssert a == b
+    doAssert b == a

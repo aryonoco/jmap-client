@@ -19,7 +19,7 @@ import ./massertions
 # --- PropertyName ---
 
 block parsePropertyNameEmpty:
-  doAssert parsePropertyName("").isErr
+  assertErrFields parsePropertyName(""), "PropertyName", "must not be empty", ""
 
 block parsePropertyNameValid:
   doAssert parsePropertyName("name").isOk
@@ -92,7 +92,8 @@ block emptyPatchLen:
   doAssert emptyPatch().len == 0
 
 block setPropEmptyPath:
-  doAssert setProp(emptyPatch(), "", newJNull()).isErr
+  assertErrFields setProp(emptyPatch(), "", newJNull()),
+    "PatchObject", "path must not be empty", ""
 
 block setPropValid:
   let result = setProp(emptyPatch(), "name", %"Alice")
@@ -105,7 +106,8 @@ block deletePropValid:
   doAssert result.get().len == 1
 
 block deletePropEmptyPath:
-  doAssert deleteProp(emptyPatch(), "").isErr
+  assertErrFields deleteProp(emptyPatch(), ""),
+    "PatchObject", "path must not be empty", ""
 
 block chainedSetProp:
   let p1 = setProp(emptyPatch(), "name", %"Alice").get()

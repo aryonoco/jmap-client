@@ -449,3 +449,95 @@ block propStrictSubsetMetamorphic:
     let strictResult = parseId(s)
     if strictResult.isOk:
       doAssert parseIdFromServer(s).isOk
+
+# --- Equality symmetry ---
+
+block propIdSymmetryExplicit:
+  checkProperty "propIdSymmetryExplicit":
+    let s = genValidIdStrict(rng, trial)
+    let a = parseId(s).get()
+    let b = parseId(s).get()
+    doAssert a == b
+    doAssert b == a
+
+block propDateSymmetry:
+  checkProperty "propDateSymmetry":
+    let s = genValidDate(rng)
+    let a = parseDate(s).get()
+    let b = parseDate(s).get()
+    doAssert a == b
+    doAssert b == a
+
+block propUtcDateSymmetry:
+  checkProperty "propUtcDateSymmetry":
+    let s = genValidUtcDate(rng)
+    let a = parseUtcDate(s).get()
+    let b = parseUtcDate(s).get()
+    doAssert a == b
+    doAssert b == a
+
+block propUnsignedIntSymmetry:
+  checkProperty "propUnsignedIntSymmetry":
+    let n = genValidUnsignedInt(rng, trial)
+    let a = parseUnsignedInt(n).get()
+    let b = parseUnsignedInt(n).get()
+    doAssert a == b
+    doAssert b == a
+
+block propJmapIntSymmetry:
+  checkProperty "propJmapIntSymmetry":
+    let n = genValidJmapInt(rng, trial)
+    let a = parseJmapInt(n).get()
+    let b = parseJmapInt(n).get()
+    doAssert a == b
+    doAssert b == a
+
+# --- Equality transitivity ---
+
+block propIdTransitivity:
+  checkProperty "propIdTransitivity":
+    let s = genValidIdStrict(rng, trial)
+    let a = parseId(s).get()
+    let b = parseId(s).get()
+    let c = parseId(s).get()
+    doAssert a == b and b == c
+    doAssert a == c
+
+block propUnsignedIntTransitivity:
+  checkProperty "propUnsignedIntTransitivity":
+    let n = genValidUnsignedInt(rng, trial)
+    let a = parseUnsignedInt(n).get()
+    let b = parseUnsignedInt(n).get()
+    let c = parseUnsignedInt(n).get()
+    doAssert a == b and b == c
+    doAssert a == c
+
+block propJmapIntTransitivity:
+  checkProperty "propJmapIntTransitivity":
+    let n = genValidJmapInt(rng, trial)
+    let a = parseJmapInt(n).get()
+    let b = parseJmapInt(n).get()
+    let c = parseJmapInt(n).get()
+    doAssert a == b and b == c
+    doAssert a == c
+
+block propDateTransitivity:
+  checkProperty "propDateTransitivity":
+    let s = genValidDate(rng)
+    let a = parseDate(s).get()
+    let b = parseDate(s).get()
+    let c = parseDate(s).get()
+    doAssert a == b and b == c
+    doAssert a == c
+
+# --- Invalid input rejection properties ---
+
+block propInvalidDateAlwaysRejected:
+  checkPropertyN "genInvalidDate always rejected by parseDate", QuickTrials:
+    let s = genInvalidDate(rng, trial)
+    doAssert parseDate(s).isErr
+
+block propInvalidUtcDateAlwaysRejected:
+  checkPropertyN "genInvalidUtcDate always rejected by parseUtcDate", QuickTrials:
+    let s = genInvalidUtcDate(rng, trial)
+    doAssert parseUtcDate(s).isErr

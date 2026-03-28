@@ -16,19 +16,16 @@ import ./massertions
 
 # --- parseRequestErrorType ---
 
-block parseRequestErrorTypeUnknownCapability:
-  doAssert parseRequestErrorType("urn:ietf:params:jmap:error:unknownCapability") ==
-    retUnknownCapability
-
-block parseRequestErrorTypeNotJson:
-  doAssert parseRequestErrorType("urn:ietf:params:jmap:error:notJSON") == retNotJson
-
-block parseRequestErrorTypeNotRequest:
-  doAssert parseRequestErrorType("urn:ietf:params:jmap:error:notRequest") ==
-    retNotRequest
-
-block parseRequestErrorTypeLimit:
-  doAssert parseRequestErrorType("urn:ietf:params:jmap:error:limit") == retLimit
+block parseRequestErrorTypeAllKnown:
+  ## Table-driven: every known request error URI maps to its expected variant.
+  const cases = [
+    ("urn:ietf:params:jmap:error:unknownCapability", retUnknownCapability),
+    ("urn:ietf:params:jmap:error:notJSON", retNotJson),
+    ("urn:ietf:params:jmap:error:notRequest", retNotRequest),
+    ("urn:ietf:params:jmap:error:limit", retLimit),
+  ]
+  for (uri, expected) in cases:
+    assertEq parseRequestErrorType(uri), expected
 
 block parseRequestErrorTypeVendorUri:
   doAssert parseRequestErrorType("urn:vendor:custom:error") == retUnknown
@@ -39,27 +36,30 @@ block parseRequestErrorTypeEmpty:
 # --- parseMethodErrorType ---
 
 block parseMethodErrorTypeAllKnown:
-  doAssert parseMethodErrorType("serverUnavailable") == metServerUnavailable
-  doAssert parseMethodErrorType("serverFail") == metServerFail
-  doAssert parseMethodErrorType("serverPartialFail") == metServerPartialFail
-  doAssert parseMethodErrorType("unknownMethod") == metUnknownMethod
-  doAssert parseMethodErrorType("invalidArguments") == metInvalidArguments
-  doAssert parseMethodErrorType("invalidResultReference") == metInvalidResultReference
-  doAssert parseMethodErrorType("forbidden") == metForbidden
-  doAssert parseMethodErrorType("accountNotFound") == metAccountNotFound
-  doAssert parseMethodErrorType("accountNotSupportedByMethod") ==
-    metAccountNotSupportedByMethod
-  doAssert parseMethodErrorType("accountReadOnly") == metAccountReadOnly
-  doAssert parseMethodErrorType("anchorNotFound") == metAnchorNotFound
-  doAssert parseMethodErrorType("unsupportedSort") == metUnsupportedSort
-  doAssert parseMethodErrorType("unsupportedFilter") == metUnsupportedFilter
-  doAssert parseMethodErrorType("cannotCalculateChanges") == metCannotCalculateChanges
-  doAssert parseMethodErrorType("tooManyChanges") == metTooManyChanges
-  doAssert parseMethodErrorType("requestTooLarge") == metRequestTooLarge
-  doAssert parseMethodErrorType("stateMismatch") == metStateMismatch
-  doAssert parseMethodErrorType("fromAccountNotFound") == metFromAccountNotFound
-  doAssert parseMethodErrorType("fromAccountNotSupportedByMethod") ==
-    metFromAccountNotSupportedByMethod
+  ## Table-driven: every known method error string maps to its expected variant.
+  const cases = [
+    ("serverUnavailable", metServerUnavailable),
+    ("serverFail", metServerFail),
+    ("serverPartialFail", metServerPartialFail),
+    ("unknownMethod", metUnknownMethod),
+    ("invalidArguments", metInvalidArguments),
+    ("invalidResultReference", metInvalidResultReference),
+    ("forbidden", metForbidden),
+    ("accountNotFound", metAccountNotFound),
+    ("accountNotSupportedByMethod", metAccountNotSupportedByMethod),
+    ("accountReadOnly", metAccountReadOnly),
+    ("anchorNotFound", metAnchorNotFound),
+    ("unsupportedSort", metUnsupportedSort),
+    ("unsupportedFilter", metUnsupportedFilter),
+    ("cannotCalculateChanges", metCannotCalculateChanges),
+    ("tooManyChanges", metTooManyChanges),
+    ("requestTooLarge", metRequestTooLarge),
+    ("stateMismatch", metStateMismatch),
+    ("fromAccountNotFound", metFromAccountNotFound),
+    ("fromAccountNotSupportedByMethod", metFromAccountNotSupportedByMethod),
+  ]
+  for (rawType, expected) in cases:
+    assertEq parseMethodErrorType(rawType), expected
 
 block parseMethodErrorTypeUnknown:
   doAssert parseMethodErrorType("customError") == metUnknown
@@ -70,16 +70,21 @@ block parseMethodErrorTypeEmpty:
 # --- parseSetErrorType ---
 
 block parseSetErrorTypeAllKnown:
-  doAssert parseSetErrorType("forbidden") == setForbidden
-  doAssert parseSetErrorType("overQuota") == setOverQuota
-  doAssert parseSetErrorType("tooLarge") == setTooLarge
-  doAssert parseSetErrorType("rateLimit") == setRateLimit
-  doAssert parseSetErrorType("notFound") == setNotFound
-  doAssert parseSetErrorType("invalidPatch") == setInvalidPatch
-  doAssert parseSetErrorType("willDestroy") == setWillDestroy
-  doAssert parseSetErrorType("invalidProperties") == setInvalidProperties
-  doAssert parseSetErrorType("alreadyExists") == setAlreadyExists
-  doAssert parseSetErrorType("singleton") == setSingleton
+  ## Table-driven: every known set error string maps to its expected variant.
+  const cases = [
+    ("forbidden", setForbidden),
+    ("overQuota", setOverQuota),
+    ("tooLarge", setTooLarge),
+    ("rateLimit", setRateLimit),
+    ("notFound", setNotFound),
+    ("invalidPatch", setInvalidPatch),
+    ("willDestroy", setWillDestroy),
+    ("invalidProperties", setInvalidProperties),
+    ("alreadyExists", setAlreadyExists),
+    ("singleton", setSingleton),
+  ]
+  for (rawType, expected) in cases:
+    assertEq parseSetErrorType(rawType), expected
 
 block parseSetErrorTypeVendorSpecific:
   doAssert parseSetErrorType("vendorSpecific") == setUnknown

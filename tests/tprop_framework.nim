@@ -214,3 +214,67 @@ block propAddedItemFieldPreservation:
     let item = AddedItem(id: id, index: idx)
     doAssert item.id == id
     doAssert item.index == idx
+
+# --- Equality symmetry ---
+
+block propPropertyNameSymmetry:
+  checkProperty "propPropertyNameSymmetry":
+    let s = genValidPropertyName(rng, trial)
+    let a = parsePropertyName(s).get()
+    let b = parsePropertyName(s).get()
+    doAssert a == b
+    doAssert b == a
+
+# --- Equality transitivity ---
+
+block propPropertyNameTransitivity:
+  checkProperty "propPropertyNameTransitivity":
+    let s = genValidPropertyName(rng, trial)
+    let a = parsePropertyName(s).get()
+    let b = parsePropertyName(s).get()
+    let c = parsePropertyName(s).get()
+    doAssert a == b and b == c
+    doAssert a == c
+
+# --- Filter totality ---
+
+block propFilterConstructionTotality:
+  checkPropertyN "genFilter never produces crashing trees", QuickTrials:
+    let f = genFilter(rng, rng.rand(0 .. 6))
+    ## Walk the tree to verify all nodes are accessible.
+    proc walk(f: Filter[int]) =
+      ## Recursively visits all nodes in the filter tree.
+      case f.kind
+      of fkCondition:
+        discard f.condition
+      of fkOperator:
+        discard f.operator
+        for c in f.conditions:
+          walk(c)
+
+    walk(f)
+
+# --- Comparator infallibility ---
+
+block propComparatorAlwaysOk:
+  checkProperty "parseComparator always returns Ok for valid PropertyName":
+    let s = genValidPropertyName(rng, trial)
+    let pn = parsePropertyName(s).get()
+    let asc = rng.rand(0 .. 1) == 0
+    doAssert parseComparator(pn, asc).isOk
+
+# --- Filter operator arity ---
+
+block propFilterNotWithMultipleChildren:
+  ## Layer 1 does not validate NOT arity; accepts any child count.
+  let c1 = filterCondition(1)
+  let c2 = filterCondition(2)
+  let f = filterOperator[int](foNot, @[c1, c2])
+  doAssert f.kind == fkOperator
+  doAssert f.conditions.len == 2
+
+block propFilterEmptyConditions:
+  ## Layer 1 accepts empty conditions for any operator.
+  let f = filterOperator[int](foAnd, @[])
+  doAssert f.kind == fkOperator
+  doAssert f.conditions.len == 0

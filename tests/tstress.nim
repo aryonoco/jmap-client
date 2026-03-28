@@ -177,3 +177,28 @@ block stressCombinatorialSession:
   doAssert session.accounts.len == 50
   doAssert session.capabilities.len == 4
   doAssert session.coreCapabilities().maxSizeUpload == realisticCoreCaps().maxSizeUpload
+
+block stressFilterWide50000:
+  ## Filter tree with 50000 children. Tests wide allocation under ARC.
+  var children: seq[Filter[int]] = @[]
+  for i in 0 ..< 50000:
+    children.add filterCondition(i)
+  let f = filterOperator(foAnd, children)
+  doAssert f.conditions.len == 50000
+
+block stressFilterExponentialSharing:
+  ## Filter tree where the same subtree is referenced from multiple parents.
+  ## ARC reference counting must handle shared ownership correctly.
+  let shared = filterCondition(42)
+  var f = filterOperator[int](foAnd, @[shared, shared])
+  for _ in 0 ..< 10:
+    f = filterOperator[int](foOr, @[f, f])
+  doAssert f.kind == fkOperator
+
+block stressPatchObjectGetKeyMiss:
+  ## 10000 getKey misses on a populated PatchObject. Verifies O(1) Table lookup.
+  var p = emptyPatch()
+  for i in 0 ..< 100:
+    p = p.setProp("existing" & $i, %i).get()
+  for i in 0 ..< 10000:
+    doAssert p.getKey("miss" & $i).isNone

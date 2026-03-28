@@ -191,3 +191,92 @@ block propCreationIdDoubleRoundTrip:
     let first = parseCreationId(s).get()
     let second = parseCreationId($first).get()
     doAssert first == second
+
+# --- Equality symmetry ---
+
+block propAccountIdSymmetry:
+  checkProperty "propAccountIdSymmetry":
+    let s = genValidAccountId(rng, trial)
+    let a = parseAccountId(s).get()
+    let b = parseAccountId(s).get()
+    doAssert a == b
+    doAssert b == a
+
+block propJmapStateSymmetry:
+  checkProperty "propJmapStateSymmetry":
+    let s = genValidJmapState(rng, trial)
+    let a = parseJmapState(s).get()
+    let b = parseJmapState(s).get()
+    doAssert a == b
+    doAssert b == a
+
+block propMethodCallIdSymmetry:
+  checkProperty "propMethodCallIdSymmetry":
+    let s = genValidMethodCallId(rng, trial)
+    let a = parseMethodCallId(s).get()
+    let b = parseMethodCallId(s).get()
+    doAssert a == b
+    doAssert b == a
+
+block propCreationIdSymmetry:
+  checkProperty "propCreationIdSymmetry":
+    let s = genValidCreationId(rng, trial)
+    let a = parseCreationId(s).get()
+    let b = parseCreationId(s).get()
+    doAssert a == b
+    doAssert b == a
+
+# --- Equality transitivity ---
+
+block propAccountIdTransitivity:
+  checkProperty "propAccountIdTransitivity":
+    let s = genValidAccountId(rng, trial)
+    let a = parseAccountId(s).get()
+    let b = parseAccountId(s).get()
+    let c = parseAccountId(s).get()
+    doAssert a == b and b == c
+    doAssert a == c
+
+block propJmapStateTransitivity:
+  checkProperty "propJmapStateTransitivity":
+    let s = genValidJmapState(rng, trial)
+    let a = parseJmapState(s).get()
+    let b = parseJmapState(s).get()
+    let c = parseJmapState(s).get()
+    doAssert a == b and b == c
+    doAssert a == c
+
+block propMethodCallIdTransitivity:
+  checkProperty "propMethodCallIdTransitivity":
+    let s = genValidMethodCallId(rng, trial)
+    let a = parseMethodCallId(s).get()
+    let b = parseMethodCallId(s).get()
+    let c = parseMethodCallId(s).get()
+    doAssert a == b and b == c
+    doAssert a == c
+
+block propCreationIdTransitivity:
+  checkProperty "propCreationIdTransitivity":
+    let s = genValidCreationId(rng, trial)
+    let a = parseCreationId(s).get()
+    let b = parseCreationId(s).get()
+    let c = parseCreationId(s).get()
+    doAssert a == b and b == c
+    doAssert a == c
+
+# --- Error preservation ---
+
+block propAccountIdErrorPreservesValue:
+  checkProperty "propAccountIdErrorPreservesValue":
+    let s = genArbitraryString(rng)
+    let r = parseAccountId(s)
+    if r.isErr:
+      doAssert r.error.value == s
+
+block propCreationIdHashPrefixAlwaysRejected:
+  checkPropertyN "propCreationIdHashPrefixAlwaysRejected", QuickTrials:
+    ## Any non-empty string starting with '#' must be rejected.
+    let tail = genArbitraryString(rng)
+    let s = "#" & tail
+    if s.len > 0:
+      doAssert parseCreationId(s).isErr

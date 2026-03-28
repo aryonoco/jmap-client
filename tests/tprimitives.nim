@@ -17,10 +17,11 @@ import ./massertions
 # --- parseId (strict) ---
 
 block parseIdEmpty:
-  doAssert parseId("").isErr
+  assertErrFields parseId(""), "Id", "length must be 1-255 octets", ""
 
 block parseIdTooLong:
-  doAssert parseId('a'.repeat(256)).isErr
+  assertErrFields parseId('a'.repeat(256)),
+    "Id", "length must be 1-255 octets", 'a'.repeat(256)
 
 block parseIdMaxLength:
   let result = parseId('a'.repeat(255))
@@ -35,10 +36,12 @@ block parseIdValidBase64url:
   doAssert result.isOk
 
 block parseIdPadChar:
-  doAssert parseId("abc=def").isErr
+  assertErrFields parseId("abc=def"),
+    "Id", "contains characters outside base64url alphabet", "abc=def"
 
 block parseIdSpace:
-  doAssert parseId("abc def").isErr
+  assertErrFields parseId("abc def"),
+    "Id", "contains characters outside base64url alphabet", "abc def"
 
 # --- parseIdFromServer (lenient) ---
 
@@ -47,7 +50,8 @@ block parseIdFromServerPlus:
   doAssert result.isOk
 
 block parseIdFromServerControlChar:
-  doAssert parseIdFromServer("abc\x00def").isErr
+  assertErrFields parseIdFromServer("abc\x00def"),
+    "Id", "contains control characters", "abc\x00def"
 
 # --- parseUnsignedInt ---
 
@@ -60,10 +64,11 @@ block parseUnsignedIntMax:
   doAssert result.isOk
 
 block parseUnsignedIntNegative:
-  doAssert parseUnsignedInt(-1'i64).isErr
+  assertErrFields parseUnsignedInt(-1'i64), "UnsignedInt", "must be non-negative", "-1"
 
 block parseUnsignedIntOverflow:
-  doAssert parseUnsignedInt(MaxUnsignedInt + 1).isErr
+  assertErrFields parseUnsignedInt(MaxUnsignedInt + 1),
+    "UnsignedInt", "exceeds 2^53-1", $(MaxUnsignedInt + 1)
 
 # --- parseJmapInt ---
 
@@ -86,26 +91,34 @@ block parseDateValidFrac:
   doAssert result.isOk
 
 block parseDateLowercaseT:
-  doAssert parseDate("2014-10-30t14:12:00Z").isErr
+  assertErrFields parseDate("2014-10-30t14:12:00Z"),
+    "Date", "'T' separator must be uppercase", "2014-10-30t14:12:00Z"
 
 block parseDateZeroFrac:
-  doAssert parseDate("2014-10-30T14:12:00.000Z").isErr
+  assertErrFields parseDate("2014-10-30T14:12:00.000Z"),
+    "Date", "zero fractional seconds must be omitted", "2014-10-30T14:12:00.000Z"
 
 block parseDateEmptyFrac:
-  doAssert parseDate("2014-10-30T14:12:00.Z").isErr
+  assertErrFields parseDate("2014-10-30T14:12:00.Z"),
+    "Date",
+    "fractional seconds must contain at least one digit",
+    "2014-10-30T14:12:00.Z"
 
 block parseDateSingleZeroFrac:
-  doAssert parseDate("2014-10-30T14:12:00.0Z").isErr
+  assertErrFields parseDate("2014-10-30T14:12:00.0Z"),
+    "Date", "zero fractional seconds must be omitted", "2014-10-30T14:12:00.0Z"
 
 block parseDateTrailingZeroNonZeroFrac:
   let result = parseDate("2014-10-30T14:12:00.100Z")
   doAssert result.isOk
 
 block parseDateLowercaseZ:
-  doAssert parseDate("2014-10-30T14:12:00z").isErr
+  assertErrFields parseDate("2014-10-30T14:12:00z"),
+    "Date", "'T' and 'Z' must be uppercase (RFC 3339)", "2014-10-30T14:12:00z"
 
 block parseDateTooShort:
-  doAssert parseDate("2014-10-30").isErr
+  assertErrFields parseDate("2014-10-30"),
+    "Date", "too short for RFC 3339 date-time", "2014-10-30"
 
 # --- parseUtcDate ---
 
@@ -114,7 +127,8 @@ block parseUtcDateValid:
   doAssert result.isOk
 
 block parseUtcDateNotZ:
-  doAssert parseUtcDate("2014-10-30T06:12:00+00:00").isErr
+  assertErrFields parseUtcDate("2014-10-30T06:12:00+00:00"),
+    "UTCDate", "time-offset must be 'Z'", "2014-10-30T06:12:00+00:00"
 
 # --- Borrowed ops: string types (Id, Date, UTCDate) ---
 
@@ -255,10 +269,12 @@ block parseUtcDateErrorContentNotZ:
 # --- Adversarial edge cases ---
 
 block parseIdNullByte:
-  doAssert parseId("abc\x00def").isErr
+  assertErrFields parseId("abc\x00def"),
+    "Id", "contains characters outside base64url alphabet", "abc\x00def"
 
 block parseIdFromServerNullByte:
-  doAssert parseIdFromServer("abc\x00def").isErr
+  assertErrFields parseIdFromServer("abc\x00def"),
+    "Id", "contains control characters", "abc\x00def"
 
 block parseIdMultibyteUtf8:
   let result = parseIdFromServer("\xC3\xA9\xC3\xA9")
@@ -278,21 +294,25 @@ block parseUtcDateFractionalThenZ:
   doAssert parseUtcDate("2024-01-01T12:00:00.123Z").isOk
 
 block parseDateNullByteInOffset:
-  doAssert parseDate("2024-01-01T12:00:00\x00").isErr
+  assertErrFields parseDate("2024-01-01T12:00:00\x00"),
+    "Date", "timezone offset must be 'Z' or '+/-HH:MM'", "2024-01-01T12:00:00\x00"
 
 block parseDateDoubleZ:
-  doAssert parseDate("2024-01-01T12:00:00ZZ").isErr
+  assertErrFields parseDate("2024-01-01T12:00:00ZZ"),
+    "Date", "trailing characters after 'Z'", "2024-01-01T12:00:00ZZ"
 
 block parseUtcDateOffsetNotZ:
-  doAssert parseUtcDate("2024-01-01T12:00:00+00:00").isErr
+  assertErrFields parseUtcDate("2024-01-01T12:00:00+00:00"),
+    "UTCDate", "time-offset must be 'Z'", "2024-01-01T12:00:00+00:00"
 
 # --- Missing paths and boundary values ---
 
 block parseIdFromServerEmpty:
-  doAssert parseIdFromServer("").isErr
+  assertErrFields parseIdFromServer(""), "Id", "length must be 1-255 octets", ""
 
 block parseIdFromServerTooLong:
-  doAssert parseIdFromServer('a'.repeat(256)).isErr
+  assertErrFields parseIdFromServer('a'.repeat(256)),
+    "Id", "length must be 1-255 octets", 'a'.repeat(256)
 
 block parseIdFromServerMaxLength:
   doAssert parseIdFromServer('a'.repeat(255)).isOk
@@ -307,28 +327,35 @@ block parseIdFromServerEqualsAccepted:
   doAssert parseIdFromServer("abc=def").isOk
 
 block parseIdFromServerDelRejected:
-  doAssert parseIdFromServer("abc\x7Fdef").isErr
+  assertErrFields parseIdFromServer("abc\x7Fdef"),
+    "Id", "contains control characters", "abc\x7Fdef"
 
 block parseIdPlusRejectedStrict:
-  doAssert parseId("abc+def").isErr
+  assertErrFields parseId("abc+def"),
+    "Id", "contains characters outside base64url alphabet", "abc+def"
 
 block parseJmapIntZero:
   doAssert parseJmapInt(0).isOk
 
 block parseJmapIntUnderflow:
-  doAssert parseJmapInt(MinJmapInt - 1).isErr
+  assertErrFields parseJmapInt(MinJmapInt - 1),
+    "JmapInt", "outside JSON-safe integer range", $(MinJmapInt - 1)
 
 block parseJmapIntOverflow:
-  doAssert parseJmapInt(MaxJmapInt + 1).isErr
+  assertErrFields parseJmapInt(MaxJmapInt + 1),
+    "JmapInt", "outside JSON-safe integer range", $(MaxJmapInt + 1)
 
 block parseUnsignedIntInt64Max:
-  doAssert parseUnsignedInt(int64.high).isErr
+  assertErrFields parseUnsignedInt(int64.high),
+    "UnsignedInt", "exceeds 2^53-1", $(int64.high)
 
 block parseJmapIntInt64Min:
-  doAssert parseJmapInt(int64.low).isErr
+  assertErrFields parseJmapInt(int64.low),
+    "JmapInt", "outside JSON-safe integer range", $(int64.low)
 
 block parseJmapIntInt64Max:
-  doAssert parseJmapInt(int64.high).isErr
+  assertErrFields parseJmapInt(int64.high),
+    "JmapInt", "outside JSON-safe integer range", $(int64.high)
 
 block maxUnsignedIntIsCorrect:
   doAssert MaxUnsignedInt == (1'i64 shl 53) - 1
@@ -353,14 +380,17 @@ block parseDateYearZero:
 
 block parseDateNegativeYear:
   # Negative year: non-digit at position 0
-  assertErr parseDate("-001-01-01T12:00:00Z")
+  assertErrFields parseDate("-001-01-01T12:00:00Z"),
+    "Date", "invalid date portion", "-001-01-01T12:00:00Z"
 
 block parseUtcDateNegativeZeroOffset:
   # -00:00 must be rejected for UTCDate (must end with Z)
-  assertErr parseUtcDate("2024-01-01T12:00:00-00:00")
+  assertErrFields parseUtcDate("2024-01-01T12:00:00-00:00"),
+    "UTCDate", "time-offset must be 'Z'", "2024-01-01T12:00:00-00:00"
 
 block parseDateTrailingAfterNumericOffset:
-  assertErr parseDate("2024-01-01T12:00:00+05:00X")
+  assertErrFields parseDate("2024-01-01T12:00:00+05:00X"),
+    "Date", "timezone offset must be 'Z' or '+/-HH:MM'", "2024-01-01T12:00:00+05:00X"
 
 block parseDateInvalidOffsetValues:
   # Invalid offset values accepted (structural only, no range check)
@@ -374,7 +404,8 @@ block parseDateVeryLongFractionalSeconds:
   assertOk parseDate("2024-01-01T12:00:00." & frac & "Z")
 
 block parseDateTwoZeroFractional:
-  assertErr parseDate("2024-01-01T12:00:00.00Z")
+  assertErrFields parseDate("2024-01-01T12:00:00.00Z"),
+    "Date", "zero fractional seconds must be omitted", "2024-01-01T12:00:00.00Z"
 
 # --- Integer boundary completions ---
 
@@ -396,59 +427,63 @@ block jmapIntNegationAtMinEqualsMax:
 
 block parseDateBadTimezoneChar:
   # Non-Z/+/- at timezone position
-  assertErr parseDate("2024-01-01T12:00:00X08:00")
-  assertErrContains parseDate("2024-01-01T12:00:00X08:00"), "timezone offset"
+  assertErrFields parseDate("2024-01-01T12:00:00X08:00"),
+    "Date", "timezone offset must be 'Z' or '+/-HH:MM'", "2024-01-01T12:00:00X08:00"
 
 block parseDateTruncatedNumericOffset:
   # Truncated numeric offset: only +HH
-  assertErr parseDate("2024-01-01T12:00:00+08")
-  assertErrContains parseDate("2024-01-01T12:00:00+08"), "timezone offset"
+  assertErrFields parseDate("2024-01-01T12:00:00+08"),
+    "Date", "timezone offset must be 'Z' or '+/-HH:MM'", "2024-01-01T12:00:00+08"
 
 block parseDateShortNumericOffset:
   # Short numeric offset: +HH:M
-  assertErr parseDate("2024-01-01T12:00:00+08:0")
-  assertErrContains parseDate("2024-01-01T12:00:00+08:0"), "timezone offset"
+  assertErrFields parseDate("2024-01-01T12:00:00+08:0"),
+    "Date", "timezone offset must be 'Z' or '+/-HH:MM'", "2024-01-01T12:00:00+08:0"
 
 block parseDateNonDigitInOffset:
   # Non-digit in offset hours
-  assertErr parseDate("2024-01-01T12:00:00+0X:00")
-  assertErrContains parseDate("2024-01-01T12:00:00+0X:00"), "timezone offset"
+  assertErrFields parseDate("2024-01-01T12:00:00+0X:00"),
+    "Date", "timezone offset must be 'Z' or '+/-HH:MM'", "2024-01-01T12:00:00+0X:00"
 
 block parseDateMissingColonInOffset:
   # Missing colon in offset: +HHMMSS
-  assertErr parseDate("2024-01-01T12:00:00+080000")
-  assertErrContains parseDate("2024-01-01T12:00:00+080000"), "timezone offset"
+  assertErrFields parseDate("2024-01-01T12:00:00+080000"),
+    "Date", "timezone offset must be 'Z' or '+/-HH:MM'", "2024-01-01T12:00:00+080000"
 
 block parseDateNonDigitAfterFracDot:
   # Non-digit immediately after fractional dot
-  assertErr parseDate("2024-01-01T12:00:00.1X")
-  assertErrContains parseDate("2024-01-01T12:00:00.1X"), "timezone offset"
+  assertErrFields parseDate("2024-01-01T12:00:00.1X"),
+    "Date", "timezone offset must be 'Z' or '+/-HH:MM'", "2024-01-01T12:00:00.1X"
 
 block parseDateWrongSeparators:
   # Wrong separators in date/time portion
-  assertErr parseDate("2024:01:01T12-00-00Z")
-  assertErrMsg parseDate("2024:01:01T12-00-00Z"), "invalid date portion"
+  assertErrFields parseDate("2024:01:01T12-00-00Z"),
+    "Date", "invalid date portion", "2024:01:01T12-00-00Z"
 
 block parseDateNoSeparators:
   # Compact format without separators
-  assertErr parseDate("20240101T120000Z")
-  assertErrMsg parseDate("20240101T120000Z"), "too short for RFC 3339 date-time"
+  assertErrFields parseDate("20240101T120000Z"),
+    "Date", "too short for RFC 3339 date-time", "20240101T120000Z"
 
 # --- Integer boundary completeness ---
 
 block parseUnsignedIntInt64High:
   # int64.high is well above 2^53-1
-  assertErr parseUnsignedInt(int64.high)
+  assertErrFields parseUnsignedInt(int64.high),
+    "UnsignedInt", "exceeds 2^53-1", $(int64.high)
 
 block parseUnsignedIntInt64Low:
   # int64.low is massively negative
-  assertErr parseUnsignedInt(int64.low)
+  assertErrFields parseUnsignedInt(int64.low),
+    "UnsignedInt", "must be non-negative", $(int64.low)
 
 block parseJmapIntInt64High:
-  assertErr parseJmapInt(int64.high)
+  assertErrFields parseJmapInt(int64.high),
+    "JmapInt", "outside JSON-safe integer range", $(int64.high)
 
 block parseJmapIntInt64Low:
-  assertErr parseJmapInt(int64.low)
+  assertErrFields parseJmapInt(int64.low),
+    "JmapInt", "outside JSON-safe integer range", $(int64.low)
 
 block parseUnsignedIntOne:
   assertOk parseUnsignedInt(1)

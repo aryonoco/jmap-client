@@ -13,6 +13,7 @@ import pkg/results
 import jmap_client/primitives
 import jmap_client/capabilities
 
+import ./massertions
 import ./mfixtures
 
 # --- parseCapabilityKind ---
@@ -47,7 +48,7 @@ block capabilityUriCalendars:
   doAssert result.get() == "urn:ietf:params:jmap:calendars"
 
 block capabilityUriUnknown:
-  doAssert capabilityUri(ckUnknown).isErr
+  assertNone capabilityUri(ckUnknown)
 
 # --- CoreCapabilities + hasCollation ---
 
@@ -116,30 +117,42 @@ block serverCapabilityUnknown:
 # --- Missing variant coverage ---
 
 block parseCapabilityKindAllKnown:
-  doAssert parseCapabilityKind("urn:ietf:params:jmap:submission") == ckSubmission
-  doAssert parseCapabilityKind("urn:ietf:params:jmap:vacationresponse") ==
-    ckVacationResponse
-  doAssert parseCapabilityKind("urn:ietf:params:jmap:websocket") == ckWebsocket
-  doAssert parseCapabilityKind("urn:ietf:params:jmap:mdn") == ckMdn
-  doAssert parseCapabilityKind("urn:ietf:params:jmap:smimeverify") == ckSmimeVerify
-  doAssert parseCapabilityKind("urn:ietf:params:jmap:blob") == ckBlob
-  doAssert parseCapabilityKind("urn:ietf:params:jmap:quota") == ckQuota
-  doAssert parseCapabilityKind("urn:ietf:params:jmap:contacts") == ckContacts
-  doAssert parseCapabilityKind("urn:ietf:params:jmap:calendars") == ckCalendars
-  doAssert parseCapabilityKind("urn:ietf:params:jmap:sieve") == ckSieve
+  ## Table-driven: every known capability URI maps to its expected kind.
+  const cases = [
+    ("urn:ietf:params:jmap:core", ckCore),
+    ("urn:ietf:params:jmap:mail", ckMail),
+    ("urn:ietf:params:jmap:submission", ckSubmission),
+    ("urn:ietf:params:jmap:vacationresponse", ckVacationResponse),
+    ("urn:ietf:params:jmap:websocket", ckWebsocket),
+    ("urn:ietf:params:jmap:mdn", ckMdn),
+    ("urn:ietf:params:jmap:smimeverify", ckSmimeVerify),
+    ("urn:ietf:params:jmap:blob", ckBlob),
+    ("urn:ietf:params:jmap:quota", ckQuota),
+    ("urn:ietf:params:jmap:contacts", ckContacts),
+    ("urn:ietf:params:jmap:calendars", ckCalendars),
+    ("urn:ietf:params:jmap:sieve", ckSieve),
+  ]
+  for (uri, expected) in cases:
+    assertEq parseCapabilityKind(uri), expected
 
 block capabilityUriAllKnown:
-  doAssert capabilityUri(ckSubmission).get() == "urn:ietf:params:jmap:submission"
-  doAssert capabilityUri(ckVacationResponse).get() ==
-    "urn:ietf:params:jmap:vacationresponse"
-  doAssert capabilityUri(ckWebsocket).get() == "urn:ietf:params:jmap:websocket"
-  doAssert capabilityUri(ckMdn).get() == "urn:ietf:params:jmap:mdn"
-  doAssert capabilityUri(ckSmimeVerify).get() == "urn:ietf:params:jmap:smimeverify"
-  doAssert capabilityUri(ckBlob).get() == "urn:ietf:params:jmap:blob"
-  doAssert capabilityUri(ckQuota).get() == "urn:ietf:params:jmap:quota"
-  doAssert capabilityUri(ckContacts).get() == "urn:ietf:params:jmap:contacts"
-  doAssert capabilityUri(ckCalendars).get() == "urn:ietf:params:jmap:calendars"
-  doAssert capabilityUri(ckSieve).get() == "urn:ietf:params:jmap:sieve"
+  ## Table-driven: every known kind maps back to its canonical URI.
+  const cases = [
+    (ckCore, "urn:ietf:params:jmap:core"),
+    (ckMail, "urn:ietf:params:jmap:mail"),
+    (ckSubmission, "urn:ietf:params:jmap:submission"),
+    (ckVacationResponse, "urn:ietf:params:jmap:vacationresponse"),
+    (ckWebsocket, "urn:ietf:params:jmap:websocket"),
+    (ckMdn, "urn:ietf:params:jmap:mdn"),
+    (ckSmimeVerify, "urn:ietf:params:jmap:smimeverify"),
+    (ckBlob, "urn:ietf:params:jmap:blob"),
+    (ckQuota, "urn:ietf:params:jmap:quota"),
+    (ckContacts, "urn:ietf:params:jmap:contacts"),
+    (ckCalendars, "urn:ietf:params:jmap:calendars"),
+    (ckSieve, "urn:ietf:params:jmap:sieve"),
+  ]
+  for (kind, expectedUri) in cases:
+    assertOkEq capabilityUri(kind), expectedUri
 
 block capabilityUriRoundTrip:
   for kind in [
@@ -170,18 +183,23 @@ block parseCapabilityKindCaseNormalisation:
   doAssert parseCapabilityKind("URN:IETF:PARAMS:JMAP:CORE") == ckUnknown
 
 block capabilityKindStringBacking:
-  doAssert $ckCore == "urn:ietf:params:jmap:core"
-  doAssert $ckMail == "urn:ietf:params:jmap:mail"
-  doAssert $ckSubmission == "urn:ietf:params:jmap:submission"
-  doAssert $ckVacationResponse == "urn:ietf:params:jmap:vacationresponse"
-  doAssert $ckWebsocket == "urn:ietf:params:jmap:websocket"
-  doAssert $ckMdn == "urn:ietf:params:jmap:mdn"
-  doAssert $ckSmimeVerify == "urn:ietf:params:jmap:smimeverify"
-  doAssert $ckBlob == "urn:ietf:params:jmap:blob"
-  doAssert $ckQuota == "urn:ietf:params:jmap:quota"
-  doAssert $ckContacts == "urn:ietf:params:jmap:contacts"
-  doAssert $ckCalendars == "urn:ietf:params:jmap:calendars"
-  doAssert $ckSieve == "urn:ietf:params:jmap:sieve"
+  ## Table-driven: $ on string-backed enums returns the backing value.
+  const cases = [
+    (ckCore, "urn:ietf:params:jmap:core"),
+    (ckMail, "urn:ietf:params:jmap:mail"),
+    (ckSubmission, "urn:ietf:params:jmap:submission"),
+    (ckVacationResponse, "urn:ietf:params:jmap:vacationresponse"),
+    (ckWebsocket, "urn:ietf:params:jmap:websocket"),
+    (ckMdn, "urn:ietf:params:jmap:mdn"),
+    (ckSmimeVerify, "urn:ietf:params:jmap:smimeverify"),
+    (ckBlob, "urn:ietf:params:jmap:blob"),
+    (ckQuota, "urn:ietf:params:jmap:quota"),
+    (ckContacts, "urn:ietf:params:jmap:contacts"),
+    (ckCalendars, "urn:ietf:params:jmap:calendars"),
+    (ckSieve, "urn:ietf:params:jmap:sieve"),
+  ]
+  for (kind, expectedStr) in cases:
+    assertEq $kind, expectedStr
 
 block serverCapabilityVendorExtension:
   let data = %*{"maxFoo": 42, "version": "1.0"}

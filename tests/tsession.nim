@@ -148,7 +148,7 @@ let goldenSession = parseSession(
 # --- UriTemplate ---
 
 block parseUriTemplateEmpty:
-  doAssert parseUriTemplate("").isErr
+  assertErrFields parseUriTemplate(""), "UriTemplate", "must not be empty", ""
 
 block parseUriTemplateValid:
   let result = parseUriTemplate("https://example.com/{accountId}")
@@ -222,7 +222,8 @@ block parseSessionMissingCkCore:
     eventSourceUrl = goldenEventSourceUrl,
     state = goldenState,
   )
-  doAssert noCoreResult.isErr
+  assertErrFields noCoreResult,
+    "Session", "capabilities must include urn:ietf:params:jmap:core", ""
 
 block parseSessionEmptyApiUrl:
   let result = parseSession(
@@ -236,7 +237,7 @@ block parseSessionEmptyApiUrl:
     eventSourceUrl = goldenEventSourceUrl,
     state = goldenState,
   )
-  doAssert result.isErr
+  assertErrFields result, "Session", "apiUrl must not be empty", ""
 
 block parseSessionDownloadUrlMissingBlobId:
   let badDownload =
@@ -252,7 +253,9 @@ block parseSessionDownloadUrlMissingBlobId:
     eventSourceUrl = goldenEventSourceUrl,
     state = goldenState,
   )
-  doAssert result.isErr
+  assertErrFields result,
+    "Session", "downloadUrl missing {blobId}",
+    "https://example.com/{accountId}/{name}?accept={type}"
 
 block parseSessionDownloadUrlMissingAccountId:
   let badDownload =
@@ -268,7 +271,9 @@ block parseSessionDownloadUrlMissingAccountId:
     eventSourceUrl = goldenEventSourceUrl,
     state = goldenState,
   )
-  doAssert result.isErr
+  assertErrFields result,
+    "Session", "downloadUrl missing {accountId}",
+    "https://example.com/{blobId}/{name}?accept={type}"
 
 block parseSessionUploadUrlMissingAccountId:
   let badUpload = parseUriTemplate("https://example.com/upload/").get()
@@ -283,7 +288,8 @@ block parseSessionUploadUrlMissingAccountId:
     eventSourceUrl = goldenEventSourceUrl,
     state = goldenState,
   )
-  doAssert result.isErr
+  assertErrFields result,
+    "Session", "uploadUrl missing {accountId}", "https://example.com/upload/"
 
 block parseSessionEventSourceUrlMissingTypes:
   let badEvent = parseUriTemplate(
@@ -301,7 +307,9 @@ block parseSessionEventSourceUrlMissingTypes:
     eventSourceUrl = badEvent,
     state = goldenState,
   )
-  doAssert result.isErr
+  assertErrFields result,
+    "Session", "eventSourceUrl missing {types}",
+    "https://example.com/events?closeafter={closeafter}&ping={ping}"
 
 block parseSessionEventSourceUrlMissingPing:
   let badEvent = parseUriTemplate(
@@ -319,7 +327,9 @@ block parseSessionEventSourceUrlMissingPing:
     eventSourceUrl = badEvent,
     state = goldenState,
   )
-  doAssert result.isErr
+  assertErrFields result,
+    "Session", "eventSourceUrl missing {ping}",
+    "https://example.com/events?types={types}&closeafter={closeafter}"
 
 block parseSessionValid:
   let result = parseSession(
@@ -538,7 +548,8 @@ block parseSessionDownloadUrlMissingType:
     eventSourceUrl = args.eventSourceUrl,
     state = args.state,
   )
-  doAssert result.isErr
+  assertErrFields result,
+    "Session", "downloadUrl missing {type}", "https://e.com/{accountId}/{blobId}/{name}"
 
 block parseSessionDownloadUrlMissingName:
   let badDl = parseUriTemplate("https://e.com/{accountId}/{blobId}?accept={type}").get()
@@ -554,7 +565,9 @@ block parseSessionDownloadUrlMissingName:
     eventSourceUrl = args.eventSourceUrl,
     state = args.state,
   )
-  doAssert result.isErr
+  assertErrFields result,
+    "Session", "downloadUrl missing {name}",
+    "https://e.com/{accountId}/{blobId}?accept={type}"
 
 block parseSessionEventSourceMissingCloseafter:
   let badEs = parseUriTemplate("https://e.com/events?types={types}&ping={ping}").get()
@@ -570,7 +583,9 @@ block parseSessionEventSourceMissingCloseafter:
     eventSourceUrl = badEs,
     state = args.state,
   )
-  doAssert result.isErr
+  assertErrFields result,
+    "Session", "eventSourceUrl missing {closeafter}",
+    "https://e.com/events?types={types}&ping={ping}"
 
 block parseSessionEmptyAccounts:
   let args = makeSessionArgs()

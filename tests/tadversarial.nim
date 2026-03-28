@@ -750,3 +750,228 @@ block utf8MixedValidInvalid:
   ## The lenient parser accepts them (byte-level validation, not Unicode).
   let r = parseIdFromServer("abc\xFF\xFEdef")
   assertOk r
+
+# =============================================================================
+# CRLF injection in error messages
+# =============================================================================
+# Documents that Layer 1 preserves CRLF bytes in error strings. Layer 2/4
+# must sanitise before logging or including in HTTP responses.
+
+block crlfInjectionInMethodError:
+  ## methodError with CRLF in rawType: Layer 1 preserves the bytes verbatim.
+  let me = methodError("serverFail\r\nX-Injected: header")
+  doAssert "\r\n" in me.rawType
+  doAssert me.rawType == "serverFail\r\nX-Injected: header"
+  doAssert me.errorType == metUnknown
+
+block crlfInjectionInTransportError:
+  ## transportError with CRLF in message: Layer 1 preserves the bytes verbatim.
+  let te = transportError(tekNetwork, "error\r\nX-Injected: header")
+  doAssert "\r\n" in te.message
+  doAssert te.message == "error\r\nX-Injected: header"
+
+block crlfInjectionInSetError:
+  ## setError with CRLF in rawType: Layer 1 preserves the bytes verbatim.
+  let se = setError("forbidden\r\nX-Injected: header")
+  doAssert "\r\n" in se.rawType
+  doAssert se.rawType == "forbidden\r\nX-Injected: header"
+  doAssert se.errorType == setUnknown
+
+block crlfInjectionInRequestError:
+  ## requestError with CRLF in rawType: Layer 1 preserves the bytes verbatim.
+  let re = requestError("urn:ietf:params:jmap:error:limit\r\nX-Injected: header")
+  doAssert "\r\n" in re.rawType
+  doAssert re.rawType == "urn:ietf:params:jmap:error:limit\r\nX-Injected: header"
+  doAssert re.errorType == retUnknown
+
+# =============================================================================
+# Real-world server ID formats (interop)
+# =============================================================================
+# Validates that parseIdFromServer accepts ID formats known to be used by
+# real JMAP server implementations.
+
+block realWorldIdFastmail:
+  ## Fastmail uses base64url without padding for IDs.
+  assertOk parseIdFromServer("SGVsbG8gV29ybGQ")
+  assertOk parseIdFromServer("u1f5a6e2c")
+
+block realWorldIdCyrusImap:
+  ## Cyrus IMAP uses decimal modseq values as IDs.
+  assertOk parseIdFromServer("18446744073709551615")
+  assertOk parseIdFromServer("12345678")
+
+block realWorldIdApacheJames:
+  ## Apache James uses UUID format for IDs.
+  assertOk parseIdFromServer("550e8400-e29b-41d4-a716-446655440000")
+
+block realWorldIdStalwart:
+  ## Stalwart uses path-like IDs with colons and hash characters.
+  assertOk parseIdFromServer("user/mailbox/msg:12345")
+  assertOk parseIdFromServer("INBOX.Draft#123")
+
+block realWorldIdGenericSpecialChars:
+  ## Various servers use IDs containing @, +, and dot characters.
+  assertOk parseIdFromServer("user@host")
+  assertOk parseIdFromServer("msg+tag")
+  assertOk parseIdFromServer("folder.subfolder")
+
+# =============================================================================
+# Capability URI edge cases
+# =============================================================================
+
+block capabilityUriTypo:
+  ## A typo in the capability URI ("cor" instead of "core") maps to ckUnknown.
+  doAssert parseCapabilityKind("urn:ietf:params:jmap:cor") == ckUnknown
+
+block capabilityUriVendorFragment:
+  ## A vendor URI with a fragment identifier maps to ckUnknown.
+  doAssert parseCapabilityKind("https://vendor.example.com/ext#v2") == ckUnknown
+
+block capabilityUriCaseVariation:
+  ## Full-uppercase URI: first character 'U' differs from 'u' in the backing
+  ## string "urn:ietf:params:jmap:core", so nimIdentNormalize does not match.
+  doAssert parseCapabilityKind("URN:IETF:PARAMS:JMAP:CORE") == ckUnknown
+
+# =============================================================================
+# Error type cross-context enum mapping
+# =============================================================================
+# Documents that identical rawType strings map to different enum variants
+# depending on which error context they appear in.
+
+block methodErrorVsSetErrorEnumMapping:
+  ## "serverFail" is a valid MethodErrorType but not a SetErrorType.
+  let me = methodError("serverFail")
+  doAssert me.errorType == metServerFail
+  let se = setError("serverFail")
+  doAssert se.errorType == setUnknown
+
+block requestErrorVsMethodErrorEnumMapping:
+  ## Full URIs are valid RequestErrorType values but not MethodErrorType values.
+  let re = requestError("urn:ietf:params:jmap:error:limit")
+  doAssert re.errorType == retLimit
+  let me = methodError("urn:ietf:params:jmap:error:limit")
+  doAssert me.errorType == metUnknown
+
+# =============================================================================
+# Type confusion: Id / AccountId validation overlap
+# =============================================================================
+# Documents that some strings pass both strict Id and lenient AccountId
+# validation, which is by design (different type safety at the Nim level).
+
+block idAccountIdValidationOverlap:
+  ## The full base64url alphabet passes both strict Id and lenient AccountId.
+  const overlap = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+  assertOk parseId(overlap)
+  assertOk parseAccountId(overlap)
+
+block methodCallIdCreationIdOverlap:
+  ## A simple alphanumeric string passes both MethodCallId and CreationId.
+  const overlap = "ref42"
+  assertOk parseMethodCallId(overlap)
+  assertOk parseCreationId(overlap)
+
+# =============================================================================
+# Account name Unicode control sequences
+# =============================================================================
+# Documents that Layer 1 preserves Unicode control sequences in Account.name.
+# UI layers must handle rendering safely.
+
+block accountNameZeroWidthSpace:
+  ## Zero-width space U+200B (\xE2\x80\x8B) embedded in Account.name is preserved.
+  let acct = Account(
+    name: "admin\xE2\x80\x8Bbackup@co.com",
+    isPersonal: true,
+    isReadOnly: false,
+    accountCapabilities: @[],
+  )
+  doAssert acct.name.len == 21
+  doAssert "\xE2\x80\x8B" in acct.name
+
+block accountNameRightToLeftOverride:
+  ## Right-to-left override U+202E (\xE2\x80\xAE) in Account.name is preserved.
+  let acct = Account(
+    name: "admin\xE2\x80\xAErof@co.com",
+    isPersonal: true,
+    isReadOnly: false,
+    accountCapabilities: @[],
+  )
+  doAssert acct.name.len == 18
+  doAssert "\xE2\x80\xAE" in acct.name
+
+block accountNameBom:
+  ## BOM U+FEFF (\xEF\xBB\xBF) at start of Account.name is preserved.
+  let acct = Account(
+    name: "\xEF\xBB\xBFadmin@co.com",
+    isPersonal: true,
+    isReadOnly: false,
+    accountCapabilities: @[],
+  )
+  doAssert acct.name.len == 15
+  doAssert acct.name[0 .. 2] == "\xEF\xBB\xBF"
+
+# =============================================================================
+# SetError variant field confusion
+# =============================================================================
+
+block setErrorAlreadyExistsWithExtrasContainingProperties:
+  ## Construct alreadyExists with extras containing a "properties" key.
+  ## The extras field holds arbitrary JSON; it does not interfere with the
+  ## variant-specific existingId field.
+  let extras = newJObject()
+  extras["properties"] = %*["from", "subject"]
+  let se =
+    setErrorAlreadyExists("alreadyExists", makeId("exist1"), extras = Opt.some(extras))
+  doAssert se.errorType == setAlreadyExists
+  doAssert $se.existingId == "exist1"
+  doAssert se.extras.isSome
+  doAssert se.extras.get()["properties"].len == 2
+
+block setErrorInvalidPropertiesWithExtrasContainingExistingId:
+  ## Construct invalidProperties with extras containing an "existingId" key.
+  ## The extras field holds arbitrary JSON; it does not interfere with the
+  ## variant-specific properties field.
+  let extras = newJObject()
+  extras["existingId"] = %"fake-id"
+  let se = setErrorInvalidProperties(
+    "invalidProperties", @["badProp"], extras = Opt.some(extras)
+  )
+  doAssert se.errorType == setInvalidProperties
+  doAssert se.properties == @["badProp"]
+  doAssert se.extras.isSome
+  doAssert se.extras.get()["existingId"].getStr() == "fake-id"
+
+# =============================================================================
+# PatchObject path edge cases
+# =============================================================================
+
+block patchObjectRfc6901TildeZero:
+  ## setProp preserves literal ~0 in the path (no RFC 6901 decoding at Layer 1).
+  let patch = emptyPatch().setProp("foo~0bar", %"val")
+  assertOk patch
+  let key = patch.get().getKey("foo~0bar")
+  assertSome key
+  assertEq key.get().getStr(), "val"
+
+block patchObjectRfc6901TildeOne:
+  ## setProp preserves literal ~1 in the path (no RFC 6901 decoding at Layer 1).
+  let patch = emptyPatch().setProp("foo~1bar", %"val")
+  assertOk patch
+  let key = patch.get().getKey("foo~1bar")
+  assertSome key
+  assertEq key.get().getStr(), "val"
+
+block patchObjectLeadingSlash:
+  ## setProp stores the key with a leading slash verbatim.
+  let patch = emptyPatch().setProp("/subject", %"val")
+  assertOk patch
+  let key = patch.get().getKey("/subject")
+  assertSome key
+  assertEq key.get().getStr(), "val"
+
+block patchObjectBareSlash:
+  ## A bare "/" is a valid non-empty path and is accepted by setProp.
+  let patch = emptyPatch().setProp("/", %"val")
+  assertOk patch
+  let key = patch.get().getKey("/")
+  assertSome key
+  assertEq key.get().getStr(), "val"

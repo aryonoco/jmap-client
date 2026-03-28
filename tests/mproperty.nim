@@ -124,10 +124,11 @@ proc genValidIdStrict*(
     rng: var Rand, trial: int = -1, minLen = 1, maxLen = 255
 ): string =
   ## Base64url string of 1-255 octets. When trial >= 0, the first few trials
-  ## use boundary lengths (1, 2, 254, 255).
+  ## use boundary lengths clamped to [minLen, maxLen].
   let length =
     if trial >= 0 and trial < 4:
-      [1, 2, 254, 255][trial]
+      let raw = [minLen, min(minLen + 1, maxLen), max(maxLen - 1, minLen), maxLen]
+      raw[trial]
     else:
       rng.rand(minLen .. maxLen)
   result = newString(length)
@@ -175,33 +176,50 @@ proc genValidJmapInt*(rng: var Rand, trial: int = -1): int64 =
 # Identifier generators (lenient charset)
 # ---------------------------------------------------------------------------
 
-proc genValidLenientString*(rng: var Rand, minLen = 1, maxLen = 255): string =
+proc genValidLenientString*(
+    rng: var Rand, trial: int = -1, minLen = 1, maxLen = 255
+): string =
   ## Printable bytes (0x20-0x7E), no control chars. For lenient types like
-  ## AccountId, JmapState, and parseIdFromServer.
-  let length = rng.rand(minLen .. maxLen)
+  ## AccountId, JmapState, and parseIdFromServer. Edge-biased at boundary
+  ## lengths when trial >= 0.
+  let length =
+    if trial >= 0 and trial < 4:
+      let raw = [minLen, min(minLen + 1, maxLen), max(maxLen - 1, minLen), maxLen]
+      raw[trial]
+    else:
+      rng.rand(minLen .. maxLen)
   result = newString(length)
   for i in 0 ..< length:
     result[i] = rng.genAsciiPrintable()
 
-proc genValidAccountId*(rng: var Rand): string =
-  ## 1-255 printable ASCII octets (lenient charset).
-  rng.genValidLenientString(1, 255)
+proc genValidAccountId*(rng: var Rand, trial: int = -1): string =
+  ## 1-255 printable ASCII octets (lenient charset). Edge-biased.
+  rng.genValidLenientString(trial, 1, 255)
 
-proc genValidJmapState*(rng: var Rand): string =
-  ## Non-empty, no control chars, variable length.
-  rng.genValidLenientString(1, 100)
+proc genValidJmapState*(rng: var Rand, trial: int = -1): string =
+  ## Non-empty, no control chars, variable length. Edge-biased.
+  rng.genValidLenientString(trial, 1, 100)
 
-proc genValidMethodCallId*(rng: var Rand): string =
+proc genValidMethodCallId*(rng: var Rand, trial: int = -1): string =
   ## Non-empty. MethodCallId has no control-char restriction, so include
-  ## arbitrary bytes.
-  let length = rng.rand(1 .. 50)
+  ## arbitrary bytes. Edge-biased at boundary lengths.
+  let length =
+    if trial >= 0 and trial < 4:
+      [1, 2, 49, 50][trial]
+    else:
+      rng.rand(1 .. 50)
   result = newString(length)
   for i in 0 ..< length:
     result[i] = rng.genArbitraryByte()
 
-proc genValidCreationId*(rng: var Rand): string =
-  ## Non-empty, must NOT start with '#'. Rest can be arbitrary.
-  let length = rng.rand(1 .. 50)
+proc genValidCreationId*(rng: var Rand, trial: int = -1): string =
+  ## Non-empty, must NOT start with '#'. Rest can be arbitrary. Edge-biased
+  ## at boundary lengths.
+  let length =
+    if trial >= 0 and trial < 4:
+      [1, 2, 49, 50][trial]
+    else:
+      rng.rand(1 .. 50)
   result = newString(length)
   # First char: any byte except '#'
   result[0] = block:
@@ -212,9 +230,9 @@ proc genValidCreationId*(rng: var Rand): string =
   for i in 1 ..< length:
     result[i] = rng.genArbitraryByte()
 
-proc genValidPropertyName*(rng: var Rand): string =
-  ## Non-empty string, typically short identifier-like.
-  rng.genValidLenientString(1, 30)
+proc genValidPropertyName*(rng: var Rand, trial: int = -1): string =
+  ## Non-empty string, typically short identifier-like. Edge-biased.
+  rng.genValidLenientString(trial, 1, 30)
 
 # ---------------------------------------------------------------------------
 # Date / UTCDate generators
@@ -312,6 +330,45 @@ proc genValidUriTemplate*(rng: var Rand): string =
     "https://example.com/resource",
   ]
   rng.oneOf(bases)
+
+# ---------------------------------------------------------------------------
+# Invalid-input generators (for negative property tests)
+# ---------------------------------------------------------------------------
+
+proc genInvalidDate*(rng: var Rand, trial: int = -1): string =
+  ## Structurally malformed dates for rejection testing. Edge-biased payloads
+  ## cover common failure modes; random trials append arbitrary garbage.
+  const payloads = [
+    "", # empty
+    "2024", # too short
+    "2024-01-01t12:00:00Z", # lowercase 't'
+    "2024-01-01T12:00:00z", # lowercase 'z'
+    "2024-01-01T12:00:00.000Z", # all-zero fractional seconds
+    "2024-01-01T12:00:00.Z", # empty fractional seconds
+    "2024-01-01T12:00:00", # missing timezone
+    "2024/01/01T12:00:00Z", # wrong date separator
+    "2024-01-01 12:00:00Z", # space instead of T
+    "2024-01-01T12:00:00+", # truncated offset
+  ]
+  if trial >= 0 and trial < payloads.len:
+    return payloads[trial]
+  # Random garbage string
+  let length = rng.rand(0 .. 40)
+  result = newString(length)
+  for i in 0 ..< length:
+    result[i] = rng.genArbitraryByte()
+
+proc genInvalidUtcDate*(rng: var Rand, trial: int = -1): string =
+  ## Valid Date but non-Z offset (rejected by parseUtcDate).
+  const payloads = [
+    "2024-01-01T12:00:00+05:30", # positive offset
+    "2024-01-01T12:00:00-08:00", # negative offset
+    "2024-01-01T12:00:00.123+00:00", # +00:00 instead of Z
+    "2024-01-01T12:00:00-00:00", # -00:00 instead of Z
+  ]
+  if trial >= 0 and trial < payloads.len:
+    return payloads[trial]
+  rng.genInvalidDate(trial)
 
 # ---------------------------------------------------------------------------
 # Adversarial string generators
