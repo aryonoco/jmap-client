@@ -108,3 +108,27 @@ block propRequestCreatedIdsTablePreserved:
     for i in 0 ..< n:
       let cid = parseCreationId("k" & $i).get()
       doAssert req.createdIds.get()[cid] == parseId("sid" & $i).get()
+
+# --- Referencable properties ---
+
+block propReferencableDirectInjectivity:
+  checkProperty "propReferencableDirectInjectivity":
+    ## direct(v1) == direct(v2) implies v1 == v2 for comparable types.
+    let v1 = rng.rand(int)
+    let v2 = rng.rand(int)
+    let d1 = direct(v1)
+    let d2 = direct(v2)
+    ## Compare via kind + value since Referencable is a case object
+    ## without a custom == operator.
+    if d1.kind == d2.kind and d1.value == d2.value:
+      doAssert v1 == v2
+
+block propReferencableKindDisjointness:
+  checkProperty "propReferencableKindDisjointness":
+    ## direct(v).kind != referenceTo(r).kind for any v and r.
+    let v = rng.rand(int)
+    let mcid = parseMethodCallId("c" & $trial).get()
+    let rr = ResultReference(resultOf: mcid, name: "M/get", path: "/ids")
+    let d = direct(v)
+    let r = referenceTo[int](rr)
+    doAssert d.kind != r.kind

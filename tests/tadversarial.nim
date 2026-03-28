@@ -604,3 +604,149 @@ block idFromServerZeroWidthJoiner:
 block idFromServerBomInMiddle:
   ## BOM \xEF\xBB\xBF in the middle of a string (not just at the start).
   assertOk parseIdFromServer("abc\xEF\xBB\xBFdef")
+
+# =============================================================================
+# r) Overlong DEL encoding bypass
+# =============================================================================
+# Layer 1 validates bytes, not Unicode codepoints. The 2-byte overlong encoding
+# of DEL (0xC1 0xBF) bypasses the explicit it == '\x7F' check because byte 0xC1
+# is 193 (>= 0x20) and byte 0xBF is 191 (>= 0x20, != 0x7F). This is a known
+# Layer 1 limitation; overlong encoding validation is a Layer 2 concern.
+
+block overlongDelBypassIdFromServer:
+  ## Overlong DEL \xC1\xBF accepted by lenient parser: both bytes pass checks.
+  let r = parseIdFromServer("\xC1\xBF")
+  assertOk r
+
+block overlongDelBypassAccountId:
+  ## Overlong DEL \xC1\xBF accepted by parseAccountId: both bytes pass checks.
+  let r = parseAccountId("\xC1\xBF")
+  assertOk r
+
+block overlongDelBypassJmapState:
+  ## Overlong DEL \xC1\xBF accepted by parseJmapState: both bytes pass checks.
+  let r = parseJmapState("\xC1\xBF")
+  assertOk r
+
+# =============================================================================
+# s) nimIdentNormalize wider attack surface
+# =============================================================================
+# Nim's parseEnum uses nimIdentNormalize which is case-insensitive after the
+# first character and strips all underscores. RFC 8620 expects exact string
+# matching. This conformance risk is addressed at Layer 2 with custom parsing.
+
+block nimIdentNormalizeAllCapsCapability:
+  ## All-caps after first char: "urn:IETF:PARAMS:JMAP:CORE" matches ckCore.
+  doAssert parseCapabilityKind("urn:IETF:PARAMS:JMAP:CORE") == ckCore
+
+block nimIdentNormalizeUnderscoreCapability:
+  ## Underscores scattered through URI are stripped: matches ckCore.
+  doAssert parseCapabilityKind("u___r___n:ietf:params:jmap:core") == ckCore
+
+block nimIdentNormalizeMethodError:
+  ## "serverFAIL" matches metServerFail (case-insensitive after first char).
+  doAssert parseMethodErrorType("serverFAIL") == metServerFail
+
+block nimIdentNormalizeMethodErrorUnderscore:
+  ## "server___Fail" with triple underscores matches metServerFail.
+  doAssert parseMethodErrorType("server___Fail") == metServerFail
+
+block nimIdentNormalizeSetError:
+  ## "invalidPROPERTIES" matches setInvalidProperties.
+  doAssert parseSetErrorType("invalidPROPERTIES") == setInvalidProperties
+
+# =============================================================================
+# t) int64 extremes
+# =============================================================================
+
+block int64ExtremeUnsignedIntHigh:
+  ## int64.high = 9223372036854775807 far exceeds 2^53-1; rejected.
+  assertErr parseUnsignedInt(int64.high)
+
+block int64ExtremeUnsignedIntLow:
+  ## int64.low = -9223372036854775808 is negative; rejected.
+  assertErr parseUnsignedInt(int64.low)
+
+block int64ExtremeJmapIntHigh:
+  ## int64.high exceeds 2^53-1; rejected.
+  assertErr parseJmapInt(int64.high)
+
+block int64ExtremeJmapIntLow:
+  ## int64.low is below -(2^53-1); rejected.
+  assertErr parseJmapInt(int64.low)
+
+# =============================================================================
+# u) NUL as last byte: highest-risk FFI truncation pattern
+# =============================================================================
+# When C processes these strings via strlen(), the trailing NUL is invisible,
+# yielding a valid-looking shorter string. Layer 5 must strip or reject
+# trailing NULs at the FFI boundary.
+
+block nulLastByteInvocationName:
+  ## Invocation name with trailing NUL: Nim preserves it, C strlen() would not.
+  let inv = Invocation(
+    name: "Email/get\x00", arguments: newJObject(), methodCallId: makeMcid("c0")
+  )
+  doAssert inv.name.len > 9
+  doAssert inv.name.len == 10
+
+block nulLastByteResultReferencePath:
+  ## ResultReference path with trailing NUL: Nim preserves it.
+  let rr =
+    ResultReference(resultOf: makeMcid("c0"), name: "Email/get", path: "/ids\x00")
+  doAssert rr.path.len > 4
+  doAssert rr.path.len == 5
+
+block nulLastByteRequestUsing:
+  ## Request.using element with trailing NUL: Nim preserves it.
+  let req = Request(
+    `using`: @["urn:ietf:params:jmap:core\x00"],
+    methodCalls: @[],
+    createdIds: Opt.none(Table[CreationId, Id]),
+  )
+  doAssert req.`using`[0].len > 25
+  doAssert req.`using`[0].len == 26
+
+# =============================================================================
+# v) Shared JsonNode aliasing
+# =============================================================================
+
+block jsonNodeAliasingInInvocation:
+  ## JsonNode is a ref type; aliasing means mutations to the original are
+  ## visible through the Invocation's arguments field (ref sharing under ARC).
+  let args = newJObject()
+  args["key1"] = newJString("value1")
+  let inv =
+    Invocation(name: "Test/method", arguments: args, methodCallId: makeMcid("c0"))
+  # Mutate the original JsonNode after construction.
+  args["key2"] = newJString("injected")
+  # Under ARC, ref sharing means the Invocation sees the mutation.
+  doAssert inv.arguments.hasKey("key2")
+  doAssert inv.arguments["key2"].getStr() == "injected"
+
+# =============================================================================
+# w) Additional UTF-8 edge cases
+# =============================================================================
+
+block utf8BomMiddleOfString:
+  ## BOM \xEF\xBB\xBF in the middle: 9 bytes total, all bytes >= 0x20, accepted.
+  let r = parseIdFromServer("abc\xEF\xBB\xBFdef")
+  assertOk r
+  doAssert r.get().len == 9
+
+block utf8FourByteEmojiAtBoundary:
+  ## 4-byte emoji at byte position 252 pushing total to 256 bytes.
+  ## Strict parser rejects: non-base64url bytes.
+  ## Lenient parser rejects: 256 bytes exceeds the 255 limit.
+  let prefix = "a".repeat(252)
+  const emoji = "\xF0\x9F\x98\x80" # 4 bytes
+  let input = prefix & emoji
+  doAssert input.len == 256
+  assertErr parseId(input)
+  assertErr parseIdFromServer(input)
+
+block utf8MixedValidInvalid:
+  ## \xFF and \xFE are invalid UTF-8 lead bytes but both are >= 0x20, not 0x7F.
+  ## The lenient parser accepts them (byte-level validation, not Unicode).
+  let r = parseIdFromServer("abc\xFF\xFEdef")
+  assertOk r

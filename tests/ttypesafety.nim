@@ -164,3 +164,20 @@ block methodCallIdNoLen:
 
 block creationIdNoLen:
   doAssert not compiles(parseCreationId("abc").get().len)
+
+# =============================================================================
+# Case object construction completeness
+# =============================================================================
+
+block transportErrorMissingHttpStatus:
+  ## SetError(setInvalidProperties) must not accept existingId (wrong variant).
+  let testId = parseId("abc").get()
+  doAssert not compiles(
+    SetError(
+      errorType: setInvalidProperties,
+      rawType: "invalidProperties",
+      description: Opt.none(string),
+      extras: Opt.none(JsonNode),
+      existingId: testId,
+    )
+  )

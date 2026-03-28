@@ -14,6 +14,7 @@ import std/tables
 
 import pkg/results
 
+import jmap_client/validation
 import jmap_client/primitives
 import jmap_client/identifiers
 import jmap_client/capabilities
@@ -771,3 +772,193 @@ block rfc8621_submissionErrorsFallThrough:
   doAssert parseSetErrorType("forbiddenFrom") == setUnknown
   doAssert parseSetErrorType("forbiddenToSend") == setUnknown
   doAssert parseSetErrorType("noRecipients") == setUnknown
+
+# =============================================================================
+# Phase 5 — Priority 1: MUST requirements
+# =============================================================================
+
+block rfc8620_S1_2_idRejectsStandardBase64Chars:
+  ## RFC 4648 S5: base64url excludes '+' and '/' from standard base64.
+  assertErr parseId("abc+def")
+  assertErr parseId("abc/def")
+
+block rfc8620_S1_2_lenientRejectsNulDelTab:
+  ## Lenient Id parsing still rejects control characters individually.
+  assertErr parseIdFromServer("\x00")
+  assertErr parseIdFromServer("\x7F")
+  assertErr parseIdFromServer("\x09")
+
+block rfc8620_S3_2_responseDuplicateMethodCallId:
+  ## RFC 8620 S3.2: a method may return one or more responses, all sharing
+  ## the same methodCallId.
+  let mcid = makeMcid("c0")
+  let inv1 =
+    Invocation(name: "Mailbox/get", arguments: newJObject(), methodCallId: mcid)
+  let inv2 =
+    Invocation(name: "Mailbox/get", arguments: newJObject(), methodCallId: mcid)
+  let resp = makeResponse(methodResponses = @[inv1, inv2])
+  doAssert resp.methodResponses.len == 2
+  doAssert resp.methodResponses[0].methodCallId == resp.methodResponses[1].methodCallId
+
+block rfc8620_S3_4_responseCreatedIdsMerged:
+  ## RFC 8620 S3.4: response createdIds includes both request-passed and
+  ## server-added entries.
+  let cid1 = makeCreationId("k1")
+  let cid2 = makeCreationId("k2")
+  let id1 = makeId("server1")
+  let id2 = makeId("server2")
+  var merged = initTable[CreationId, Id]()
+  merged[cid1] = id1
+  merged[cid2] = id2
+  let resp = makeResponse(createdIds = Opt.some(merged))
+  doAssert resp.createdIds.isSome
+  let ids = resp.createdIds.get()
+  doAssert ids.len == 2
+  doAssert ids[cid1] == id1
+  doAssert ids[cid2] == id2
+
+block rfc8620_S3_6_1_requestErrorAllRfc7807Fields:
+  ## RFC 7807 problem details: all optional fields populated.
+  let re = requestError(
+    "urn:ietf:params:jmap:error:limit",
+    status = Opt.some(400),
+    title = Opt.some("Rate Limit"),
+    detail = Opt.some("Too many requests"),
+    limit = Opt.some("maxCallsInRequest"),
+    extras = Opt.some(newJObject()),
+  )
+  doAssert re.errorType == retLimit
+  doAssert re.status.get() == 400
+  doAssert re.title.get() == "Rate Limit"
+  doAssert re.detail.get() == "Too many requests"
+  doAssert re.limit.get() == "maxCallsInRequest"
+  doAssert re.extras.isSome
+
+block rfc8620_S3_6_2_methodErrorRawTypeNonEmpty:
+  ## rawType is always non-empty for all known MethodErrorType variants.
+  const knownTypes = [
+    "serverUnavailable", "serverFail", "serverPartialFail", "unknownMethod",
+    "invalidArguments", "invalidResultReference", "forbidden", "accountNotFound",
+    "accountNotSupportedByMethod", "accountReadOnly", "anchorNotFound",
+    "unsupportedSort", "unsupportedFilter", "cannotCalculateChanges", "tooManyChanges",
+    "requestTooLarge", "stateMismatch", "fromAccountNotFound",
+    "fromAccountNotSupportedByMethod",
+  ]
+  for rt in knownTypes:
+    let me = methodError(rt)
+    doAssert me.rawType.len > 0
+    doAssert me.rawType == rt
+
+block rfc8620_S5_3_patchObjectEmptyPathRejected:
+  ## PatchObject paths MUST be non-empty (RFC 6901 JSON Pointer).
+  let p = emptyPatch()
+  assertErr p.setProp("", newJObject())
+  assertErr p.deleteProp("")
+
+block rfc8620_S5_3_setErrorDefensiveFallback:
+  ## Generic setError() defensively maps variant-specific types to setUnknown
+  ## when the caller does not provide variant-specific data.
+  let seIp = setError("invalidProperties")
+  doAssert seIp.errorType == setUnknown
+  doAssert seIp.rawType == "invalidProperties"
+  let seAe = setError("alreadyExists")
+  doAssert seAe.errorType == setUnknown
+  doAssert seAe.rawType == "alreadyExists"
+
+# =============================================================================
+# Phase 5 — Priority 2: SHOULD requirements and boundary coverage
+# =============================================================================
+
+block rfc8620_S2_sessionEmptyUsername:
+  ## RFC 8620 S2: username MAY be empty.
+  var args = makeSessionArgs()
+  args.username = ""
+  assertOk parseSessionFromArgs(args)
+
+block rfc8620_S2_sessionEmptyAccounts:
+  ## Empty accounts table is valid (server may have no accessible accounts).
+  var args = makeSessionArgs()
+  args.accounts = initTable[AccountId, Account]()
+  args.primaryAccounts = initTable[string, AccountId]()
+  assertOk parseSessionFromArgs(args)
+
+block rfc8620_S1_3_jmapIntZero:
+  ## Zero is a valid JmapInt.
+  assertOkEq parseJmapInt(0), JmapInt(0)
+
+block rfc8620_S1_4_utcDateWithFractionalSeconds:
+  ## UTCDate with fractional seconds and Z suffix.
+  assertOk parseUtcDate("2024-01-15T10:30:00.123Z")
+
+block rfc8620_S1_4_dateWithPlusZeroOffset:
+  ## Date with +00:00 offset is valid.
+  assertOk parseDate("2024-01-15T10:30:00+00:00")
+
+block rfc8620_S5_5_comparatorCollationDefault:
+  ## Comparator collation defaults to Opt.none when not specified.
+  let pn = parsePropertyName("subject").get()
+  let c = parseComparator(pn).get()
+  doAssert c.collation.isNone
+
+block rfc8620_S5_5_filterOperatorEmptyConditions:
+  ## Filter operator with empty conditions list.
+  let f = filterOperator[int](foAnd, @[])
+  doAssert f.kind == fkOperator
+  doAssert f.conditions.len == 0
+
+block rfc8620_S3_6_1_requestErrorLimitName:
+  ## The "limit" field for retLimit specifies which limit was exceeded.
+  let re = requestError(
+    "urn:ietf:params:jmap:error:limit", limit = Opt.some("maxCallsInRequest")
+  )
+  doAssert re.errorType == retLimit
+  doAssert re.limit.get() == "maxCallsInRequest"
+
+# =============================================================================
+# Phase 5 — Priority 3: Cross-RFC references
+# =============================================================================
+
+block rfc8620_crossRef_rfc4648_base64urlAlphabetSize:
+  ## RFC 4648 S5: base64url alphabet has exactly 64 characters.
+  var count = 0
+  for c in char.low .. char.high:
+    if c in Base64UrlChars:
+      inc count
+  doAssert count == 64
+
+block rfc8620_crossRef_rfc3339_leapSecond:
+  ## RFC 3339 allows leap seconds (second=60). Layer 1 performs structural
+  ## validation only (no calendar semantics), so this is accepted.
+  assertOk parseDate("2016-12-31T23:59:60Z")
+
+block rfc8620_crossRef_rfc7807_aboutBlank:
+  ## RFC 7807: "about:blank" as error type maps to unknown variants.
+  doAssert parseRequestErrorType("about:blank") == retUnknown
+  doAssert parseMethodErrorType("about:blank") == metUnknown
+  doAssert parseSetErrorType("about:blank") == setUnknown
+
+# =============================================================================
+# Phase 5 — Documentation-only blocks for out-of-scope requirements
+# =============================================================================
+
+block rfc8620_S3_1_iJsonCompliance:
+  ## RFC 8620 S3.1: "All data is exchanged as I-JSON (RFC 7493)."
+  ## I-JSON compliance is a Layer 2 (serialisation) concern, not Layer 1.
+  discard
+
+block rfc8620_S3_1_httpContentType:
+  ## RFC 8620 S3.1: "application/json" Content-Type header.
+  ## HTTP headers are a Layer 4 (transport) concern, not Layer 1.
+  discard
+
+block rfc8620_S3_5_resultReferenceResolution:
+  ## RFC 8620 S3.5: result reference path resolution and back-reference
+  ## evaluation. This is a Layer 3 (protocol logic) concern, not Layer 1.
+  ## Layer 1 only defines the ResultReference type and path constants.
+  discard
+
+block rfc8620_S3_7_hashPrefixHandling:
+  ## RFC 8620 S3.7: the '#' prefix in property names triggers back-reference
+  ## processing. This prefix handling is a Layer 2/3 concern. Layer 1 only
+  ## defines CreationId without the '#' prefix.
+  discard

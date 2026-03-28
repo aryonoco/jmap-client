@@ -391,3 +391,77 @@ block jmapIntNegationAtMinEqualsMax:
   let minVal = parseJmapInt(MinJmapInt).get()
   let maxVal = parseJmapInt(MaxJmapInt).get()
   assertEq -minVal, maxVal
+
+# --- Date parser: untested code paths ---
+
+block parseDateBadTimezoneChar:
+  # Non-Z/+/- at timezone position
+  assertErr parseDate("2024-01-01T12:00:00X08:00")
+  assertErrContains parseDate("2024-01-01T12:00:00X08:00"), "timezone offset"
+
+block parseDateTruncatedNumericOffset:
+  # Truncated numeric offset: only +HH
+  assertErr parseDate("2024-01-01T12:00:00+08")
+  assertErrContains parseDate("2024-01-01T12:00:00+08"), "timezone offset"
+
+block parseDateShortNumericOffset:
+  # Short numeric offset: +HH:M
+  assertErr parseDate("2024-01-01T12:00:00+08:0")
+  assertErrContains parseDate("2024-01-01T12:00:00+08:0"), "timezone offset"
+
+block parseDateNonDigitInOffset:
+  # Non-digit in offset hours
+  assertErr parseDate("2024-01-01T12:00:00+0X:00")
+  assertErrContains parseDate("2024-01-01T12:00:00+0X:00"), "timezone offset"
+
+block parseDateMissingColonInOffset:
+  # Missing colon in offset: +HHMMSS
+  assertErr parseDate("2024-01-01T12:00:00+080000")
+  assertErrContains parseDate("2024-01-01T12:00:00+080000"), "timezone offset"
+
+block parseDateNonDigitAfterFracDot:
+  # Non-digit immediately after fractional dot
+  assertErr parseDate("2024-01-01T12:00:00.1X")
+  assertErrContains parseDate("2024-01-01T12:00:00.1X"), "timezone offset"
+
+block parseDateWrongSeparators:
+  # Wrong separators in date/time portion
+  assertErr parseDate("2024:01:01T12-00-00Z")
+  assertErrMsg parseDate("2024:01:01T12-00-00Z"), "invalid date portion"
+
+block parseDateNoSeparators:
+  # Compact format without separators
+  assertErr parseDate("20240101T120000Z")
+  assertErrMsg parseDate("20240101T120000Z"), "too short for RFC 3339 date-time"
+
+# --- Integer boundary completeness ---
+
+block parseUnsignedIntInt64High:
+  # int64.high is well above 2^53-1
+  assertErr parseUnsignedInt(int64.high)
+
+block parseUnsignedIntInt64Low:
+  # int64.low is massively negative
+  assertErr parseUnsignedInt(int64.low)
+
+block parseJmapIntInt64High:
+  assertErr parseJmapInt(int64.high)
+
+block parseJmapIntInt64Low:
+  assertErr parseJmapInt(int64.low)
+
+block parseUnsignedIntOne:
+  assertOk parseUnsignedInt(1)
+
+block parseIdLength254:
+  # 254-char base64url string should be accepted
+  assertOk parseId('a'.repeat(254))
+
+block parseUnsignedIntMaxMinusOne:
+  assertOk parseUnsignedInt(MaxUnsignedInt - 1)
+
+block parseJmapIntMinPlusOne:
+  assertOk parseJmapInt(MinJmapInt + 1)
+
+block parseJmapIntMaxMinusOne:
+  assertOk parseJmapInt(MaxJmapInt - 1)

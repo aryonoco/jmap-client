@@ -103,3 +103,77 @@ block stressVeryLongCreationId:
 block stressVeryLongPropertyName:
   ## 1MB PropertyName.
   assertOk parsePropertyName("x".repeat(1_000_000))
+
+block stressFilterTree1000Deep:
+  ## Filter tree 1000 levels deep, built iteratively to avoid stack overflow
+  ## during construction. Verifies ARC destructor chain handles deep nesting.
+  var f = filterCondition(0)
+  for i in 1 .. 1000:
+    f = filterOperator[int](foAnd, @[f])
+  doAssert f.kind == fkOperator
+
+block stressFilterTree5000Deep:
+  ## Filter tree 5000 levels deep. ARC uses deterministic destruction,
+  ## which may handle deeper nesting than tracing GC approaches.
+  var f = filterCondition(0)
+  for i in 1 .. 5000:
+    f = filterOperator[int](foAnd, @[f])
+  doAssert f.kind == fkOperator
+
+block stressLargeJmapState:
+  ## 10MB JmapState: parseJmapState has no upper length bound; succeeds.
+  let large = "x".repeat(10_000_000)
+  assertOk parseJmapState(large)
+
+block stressLargeCapabilityUri:
+  ## 1MB URI through parseCapabilityKind: no match, returns ckUnknown.
+  let large = "x".repeat(1_000_000)
+  doAssert parseCapabilityKind(large) == ckUnknown
+
+block stressCombinatorialSession:
+  ## Combinatorial: session with many accounts, long IDs, and vendor extensions
+  ## exercising multiple constraints simultaneously.
+  var accounts = initTable[AccountId, Account]()
+  var primaryAccounts = initTable[string, AccountId]()
+  for i in 0 ..< 50:
+    let idStr = 'A'.repeat(200) & $i # Near-boundary AccountId (200+ chars)
+    let aid = parseAccountId(idStr).get()
+    accounts[aid] = Account(
+      name: "account-" & $i,
+      isPersonal: i == 0,
+      isReadOnly: false,
+      accountCapabilities: @[
+        AccountCapabilityEntry(
+          kind: ckMail, rawUri: "urn:ietf:params:jmap:mail", data: newJObject()
+        )
+      ],
+    )
+    if i == 0:
+      primaryAccounts["urn:ietf:params:jmap:mail"] = aid
+  let caps = @[
+    makeCoreServerCap(realisticCoreCaps()),
+    ServerCapability(
+      rawUri: "urn:ietf:params:jmap:mail", kind: ckMail, rawData: newJObject()
+    ),
+    ServerCapability(
+      rawUri: "https://vendor.example.com/ext1", kind: ckUnknown, rawData: newJObject()
+    ),
+    ServerCapability(
+      rawUri: "https://vendor.example.com/ext2", kind: ckUnknown, rawData: newJObject()
+    ),
+  ]
+  let session = parseSession(
+      caps,
+      accounts,
+      primaryAccounts,
+      "user@example.com",
+      "https://jmap.example.com/api/",
+      makeGoldenDownloadUrl(),
+      makeGoldenUploadUrl(),
+      makeGoldenEventSourceUrl(),
+      makeState("combo-stress"),
+    )
+    .get()
+  doAssert session.accounts.len == 50
+  doAssert session.capabilities.len == 4
+  doAssert session.coreCapabilities().maxSizeUpload == realisticCoreCaps().maxSizeUpload

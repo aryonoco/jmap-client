@@ -103,6 +103,13 @@ type SessionArgs* =
     state: JmapState,
   ]
 
+func parseSessionFromArgs*(args: SessionArgs): Result[Session, ValidationError] =
+  ## Convenience wrapper around the 9-argument parseSession.
+  parseSession(
+    args.capabilities, args.accounts, args.primaryAccounts, args.username, args.apiUrl,
+    args.downloadUrl, args.uploadUrl, args.eventSourceUrl, args.state,
+  )
+
 func makeSessionArgs*(): SessionArgs =
   var accounts = initTable[AccountId, Account]()
   accounts[makeAccountId("A1")] =
@@ -252,3 +259,30 @@ func makeMinimalSession*(): SessionArgs =
     eventSourceUrl: makeGoldenEventSourceUrl(),
     state: makeState("s0"),
   )
+
+# ---------------------------------------------------------------------------
+# SetError variant factories
+# ---------------------------------------------------------------------------
+
+func makeSetErrorInvalidProperties*(
+    properties: seq[string] = @["from", "subject"],
+    description: Opt[string] = Opt.none(string),
+): SetError =
+  setErrorInvalidProperties("invalidProperties", properties, description)
+
+func makeSetErrorAlreadyExists*(
+    existingId: Id = makeId("existing1"), description: Opt[string] = Opt.none(string)
+): SetError =
+  setErrorAlreadyExists("alreadyExists", existingId, description)
+
+# ---------------------------------------------------------------------------
+# Framework factories
+# ---------------------------------------------------------------------------
+
+func makeComparator*(
+    property: PropertyName = makePropertyName("subject"), isAscending = true
+): Comparator =
+  parseComparator(property, isAscending).get()
+
+func makeAddedItem*(id: Id = makeId("item1"), index: int64 = 0): AddedItem =
+  AddedItem(id: id, index: parseUnsignedInt(index).get())

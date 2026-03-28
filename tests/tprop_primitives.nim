@@ -397,28 +397,55 @@ block propJmapIntInjectivity:
 # --- Strict subset proofs ---
 
 block propIdFromServerStrictSuperset:
+  var witnessCount = 0
   checkPropertyN "propIdFromServerStrictSuperset", QuickTrials:
     ## There exist strings accepted by parseIdFromServer but rejected by parseId.
     let s = genValidLenientString(rng, 1, 255)
     let lenient = parseIdFromServer(s)
     let strict = parseId(s)
     if lenient.isOk and strict.isErr:
-      doAssert true # Found a witness
+      witnessCount += 1
+  doAssert witnessCount > 0, "no witness found for IdFromServer strict superset"
 
 block propDateStrictSupersetOfUtcDate:
+  var witnessCount = 0
   checkPropertyN "propDateStrictSupersetOfUtcDate", QuickTrials:
     ## There exist dates accepted by parseDate but rejected by parseUtcDate.
     let s = genValidDate(rng)
     let date = parseDate(s)
     let utcDate = parseUtcDate(s)
     if date.isOk and utcDate.isErr:
-      doAssert true # Found a witness: date with non-Z timezone
+      witnessCount += 1
+  doAssert witnessCount > 0, "no witness found for Date strict superset of UtcDate"
 
 block propJmapIntStrictSupersetOfUnsignedInt:
+  var witnessCount = 0
   checkPropertyN "propJmapIntStrictSupersetOfUnsignedInt", QuickTrials:
     ## There exist values accepted by parseJmapInt but rejected by parseUnsignedInt.
     let n = genValidJmapInt(rng, trial)
     let jmap = parseJmapInt(n)
     let unsigned = parseUnsignedInt(n)
     if jmap.isOk and unsigned.isErr:
-      doAssert true # Found a witness: negative value
+      witnessCount += 1
+  doAssert witnessCount > 0,
+    "no witness found for JmapInt strict superset of UnsignedInt"
+
+block propDateMetamorphicCaseSensitivity:
+  ## Metamorphic: if parseDate succeeds, replacing T with t at position 10
+  ## must cause rejection.
+  checkProperty "date metamorphic T->t":
+    let s = rng.genValidDate()
+    let result = parseDate(s)
+    if result.isOk:
+      var mutated = s
+      mutated[10] = 't'
+      doAssert parseDate(mutated).isErr
+
+block propStrictSubsetMetamorphic:
+  ## Metamorphic: if parseId(s) succeeds, parseIdFromServer(s) must also succeed.
+  ## Strict is a subset of lenient.
+  checkProperty "strict Id subset of lenient":
+    let s = rng.genValidIdStrict(trial)
+    let strictResult = parseId(s)
+    if strictResult.isOk:
+      doAssert parseIdFromServer(s).isOk

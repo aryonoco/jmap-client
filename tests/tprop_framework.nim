@@ -106,6 +106,8 @@ block propPatchCommutativityDisjointKeys:
       let path1 = setProp(setProp(emptyPatch(), k1, v1).get(), k2, v2).get()
       let path2 = setProp(setProp(emptyPatch(), k2, v2).get(), k1, v1).get()
       doAssert path1.len == path2.len
+      doAssert path1.getKey(k1).get() == path2.getKey(k1).get()
+      doAssert path1.getKey(k2).get() == path2.getKey(k2).get()
 
 block propPatchImmutability:
   checkProperty "setProp returns new object, original unchanged":
@@ -200,3 +202,15 @@ block propFilterStructuralRecursion:
           verify(c)
 
     verify(f)
+
+# --- AddedItem property tests ---
+
+block propAddedItemFieldPreservation:
+  checkProperty "AddedItem preserves id and index through construction":
+    let ai = genAddedItem(rng)
+    let idStr = genValidIdStrict(rng, minLen = 1, maxLen = 20)
+    let id = parseId(idStr).get()
+    let idx = parseUnsignedInt(rng.rand(0'i64 .. 10000'i64)).get()
+    let item = AddedItem(id: id, index: idx)
+    doAssert item.id == id
+    doAssert item.index == idx

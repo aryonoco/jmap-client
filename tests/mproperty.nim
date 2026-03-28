@@ -8,14 +8,17 @@
 
 import std/json
 import std/random
+import std/sets
 import std/strutils
 
 import pkg/results
 
 import jmap_client/capabilities
 import jmap_client/envelope
+import jmap_client/errors
 import jmap_client/framework
 import jmap_client/identifiers
+import jmap_client/primitives
 import jmap_client/session
 import jmap_client/validation
 
@@ -37,21 +40,40 @@ const ThoroughTrials* = 2000 ## For properties with large input spaces (Date, Se
 # Property check templates
 # ---------------------------------------------------------------------------
 
+{.push ruleOff: "trystatements".}
+
 template checkProperty*(name: string, body: untyped) =
   ## Runs body DefaultTrials times with an injected `rng` and `trial` variable.
-  ## Fixed seed (42) ensures deterministic reproduction.
+  ## Fixed seed (42) ensures deterministic reproduction. On failure, re-raises
+  ## with trial number for diagnostics.
   block:
     var rng {.inject.} = initRand(42)
+    var lastInput {.inject.}: string = ""
     for trial {.inject.} in 0 ..< DefaultTrials:
-      body
+      try:
+        body
+      except AssertionDefect as e:
+        let ctx =
+          name & " failed at trial " & $trial &
+          (if lastInput.len > 0: " (input: " & lastInput & ")" else: "") & ": " & e.msg
+        raiseAssert ctx
 
 template checkPropertyN*(name: string, trials: int, body: untyped) =
   ## Runs body `trials` times. Use QuickTrials or ThoroughTrials for non-default
-  ## counts.
+  ## counts. On failure, re-raises with trial number for diagnostics.
   block:
     var rng {.inject.} = initRand(42)
+    var lastInput {.inject.}: string = ""
     for trial {.inject.} in 0 ..< trials:
-      body
+      try:
+        body
+      except AssertionDefect as e:
+        let ctx =
+          name & " failed at trial " & $trial &
+          (if lastInput.len > 0: " (input: " & lastInput & ")" else: "") & ": " & e.msg
+        raiseAssert ctx
+
+{.pop.} # trystatements
 
 # ---------------------------------------------------------------------------
 # Composition helpers
@@ -389,6 +411,210 @@ proc genValidAccount*(rng: var Rand): Account =
     isReadOnly: isReadOnly,
     accountCapabilities: caps,
   )
+
+# ---------------------------------------------------------------------------
+# Error type generators
+# ---------------------------------------------------------------------------
+
+proc genTransportError*(rng: var Rand): TransportError =
+  ## Random TransportError across all 4 kind variants.
+  let kinds = [tekNetwork, tekTls, tekTimeout, tekHttpStatus]
+  let kind = rng.oneOf(kinds)
+  let msg = "error-" & $rng.rand(0 .. 999)
+  case kind
+  of tekHttpStatus:
+    httpStatusError(rng.oneOf([400, 401, 403, 404, 500, 502, 503]), msg)
+  of tekNetwork, tekTls, tekTimeout:
+    transportError(kind, msg)
+
+proc genRequestError*(rng: var Rand): RequestError =
+  ## Random RequestError with randomised optional fields.
+  const rawTypes = [
+    "urn:ietf:params:jmap:error:unknownCapability",
+    "urn:ietf:params:jmap:error:notJSON", "urn:ietf:params:jmap:error:notRequest",
+    "urn:ietf:params:jmap:error:limit", "urn:example:custom:error",
+  ]
+  let raw = rng.oneOf(rawTypes)
+  let status =
+    if rng.rand(0 .. 1) == 0:
+      Opt.some(rng.oneOf([400, 403, 500]))
+    else:
+      Opt.none(int)
+  let title =
+    if rng.rand(0 .. 1) == 0:
+      Opt.some("Error Title")
+    else:
+      Opt.none(string)
+  let detail =
+    if rng.rand(0 .. 1) == 0:
+      Opt.some("Detailed description")
+    else:
+      Opt.none(string)
+  requestError(raw, status, title, detail)
+
+proc genMethodError*(rng: var Rand): MethodError =
+  ## Random MethodError with randomised optional fields.
+  const rawTypes = [
+    "serverFail", "invalidArguments", "unknownMethod", "forbidden", "accountNotFound",
+    "customVendorError",
+  ]
+  let raw = rng.oneOf(rawTypes)
+  let desc =
+    if rng.rand(0 .. 1) == 0:
+      Opt.some("description-" & $rng.rand(0 .. 99))
+    else:
+      Opt.none(string)
+  methodError(raw, desc)
+
+proc genSetError*(rng: var Rand): SetError =
+  ## Random SetError across all 3 variant branches.
+  let branch = rng.rand(0 .. 2)
+  let desc =
+    if rng.rand(0 .. 1) == 0:
+      Opt.some("desc-" & $rng.rand(0 .. 99))
+    else:
+      Opt.none(string)
+  case branch
+  of 0:
+    # invalidProperties variant
+    let propCount = rng.rand(0 .. 5)
+    var props: seq[string] = @[]
+    for i in 0 ..< propCount:
+      props.add "prop" & $i
+    setErrorInvalidProperties("invalidProperties", props, desc)
+  of 1:
+    # alreadyExists variant
+    let id = parseId(rng.genValidIdStrict(minLen = 1, maxLen = 20)).get()
+    setErrorAlreadyExists("alreadyExists", id, desc)
+  else:
+    # Generic variant
+    const rawTypes = ["forbidden", "overQuota", "tooLarge", "notFound", "vendorError"]
+    setError(rng.oneOf(rawTypes), desc)
+
+proc genClientError*(rng: var Rand): ClientError =
+  ## Random ClientError wrapping either transport or request error.
+  if rng.rand(0 .. 1) == 0:
+    clientError(rng.genTransportError())
+  else:
+    clientError(rng.genRequestError())
+
+# ---------------------------------------------------------------------------
+# Structured type generators (additional)
+# ---------------------------------------------------------------------------
+
+proc genUnsignedInt*(rng: var Rand): UnsignedInt =
+  ## Random UnsignedInt in a reasonable range for capability fields.
+  parseUnsignedInt(rng.rand(1'i64 .. 100_000_000'i64)).get()
+
+proc genCoreCapabilities*(rng: var Rand): CoreCapabilities =
+  ## Random CoreCapabilities with varied UnsignedInt values.
+  var collations = initHashSet[string]()
+  let collCount = rng.rand(0 .. 3)
+  const allColl = ["i;ascii-casemap", "i;ascii-numeric", "i;unicode-casemap", "i;octet"]
+  for i in 0 ..< collCount:
+    collations.incl rng.oneOf(allColl)
+  CoreCapabilities(
+    maxSizeUpload: rng.genUnsignedInt(),
+    maxConcurrentUpload: rng.genUnsignedInt(),
+    maxSizeRequest: rng.genUnsignedInt(),
+    maxConcurrentRequests: rng.genUnsignedInt(),
+    maxCallsInRequest: rng.genUnsignedInt(),
+    maxObjectsInGet: rng.genUnsignedInt(),
+    maxObjectsInSet: rng.genUnsignedInt(),
+    collationAlgorithms: collations,
+  )
+
+proc genServerCapability*(rng: var Rand): ServerCapability =
+  ## Random ServerCapability (ckCore or non-ckCore variant).
+  if rng.rand(0 .. 2) == 0:
+    ServerCapability(
+      rawUri: "urn:ietf:params:jmap:core", kind: ckCore, core: rng.genCoreCapabilities()
+    )
+  else:
+    const uris = [
+      "urn:ietf:params:jmap:mail", "urn:ietf:params:jmap:submission",
+      "https://vendor.example.com/ext",
+    ]
+    let uri = rng.oneOf(uris)
+    ServerCapability(rawUri: uri, kind: parseCapabilityKind(uri), rawData: newJObject())
+
+proc genComparator*(rng: var Rand): Comparator =
+  ## Random Comparator with randomised property, ascending, and collation.
+  let prop = parsePropertyName(rng.genValidPropertyName()).get()
+  let asc = rng.rand(0 .. 1) == 0
+  let coll =
+    if rng.rand(0 .. 2) == 0:
+      Opt.some("i;ascii-casemap")
+    else:
+      Opt.none(string)
+  parseComparator(prop, asc, coll).get()
+
+proc genAddedItem*(rng: var Rand): AddedItem =
+  ## Random AddedItem with valid Id and UnsignedInt index.
+  let id = parseId(rng.genValidIdStrict(minLen = 1, maxLen = 20)).get()
+  let idx = parseUnsignedInt(rng.rand(0'i64 .. 10000'i64)).get()
+  AddedItem(id: id, index: idx)
+
+proc genPatchObject*(rng: var Rand, count: int): PatchObject =
+  ## Random PatchObject with `count` entries.
+  var p = emptyPatch()
+  for i in 0 ..< count:
+    let path = rng.genPatchPath()
+    let val = newJObject()
+    p = p.setProp(path, val).get()
+  p
+
+proc genValidUriTemplateParametric*(rng: var Rand): string =
+  ## Parametric URI template generator that assembles random segments and
+  ## {variable} placeholders, more varied than the fixed-string generator.
+  const segments = ["api", "jmap", "download", "upload", "events", "resource"]
+  const variables =
+    ["accountId", "blobId", "name", "type", "types", "closeafter", "ping"]
+  result = "https://example.com"
+  let segCount = rng.rand(1 .. 3)
+  for i in 0 ..< segCount:
+    result.add "/"
+    if rng.rand(0 .. 1) == 0:
+      result.add rng.oneOf(segments)
+    else:
+      result.add "{"
+      result.add rng.oneOf(variables)
+      result.add "}"
+  # Optionally add query string with variables
+  if rng.rand(0 .. 1) == 0:
+    result.add "?"
+    let paramCount = rng.rand(1 .. 3)
+    for i in 0 ..< paramCount:
+      if i > 0:
+        result.add "&"
+      let v = rng.oneOf(variables)
+      result.add v
+      result.add "={"
+      result.add v
+      result.add "}"
+
+proc genInvalidIdStrict*(rng: var Rand, trial: int = -1): string =
+  ## Strings deliberately designed to be rejected by parseId (strict).
+  ## Introduces control chars, non-base64url chars, or invalid lengths.
+  if trial >= 0 and trial < 6:
+    let payloads = [
+      "", # empty
+      'A'.repeat(256), # too long
+      "abc+def", # standard base64 (not url-safe)
+      "abc/def", # standard base64 (not url-safe)
+      "abc=def", # pad char
+      "\x00abc", # control char
+    ]
+    return payloads[trial]
+  # Random invalid: introduce at least one bad character
+  let length = rng.rand(1 .. 255)
+  result = newString(length)
+  for i in 0 ..< length:
+    result[i] = rng.genBase64UrlChar()
+  # Inject one bad character
+  let badPos = rng.rand(0 .. result.high)
+  const badChars = ['+', '/', '=', ' ', '@', '\x00', '\x7F', '!']
+  result[badPos] = rng.oneOf(badChars)
 
 {.pop.} # params
 {.pop.} # hasDoc

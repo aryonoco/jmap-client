@@ -467,3 +467,53 @@ block clientErrorMessageCascadeRawType:
   )
   let ce = clientError(re)
   assertEq ce.message, "urn:ietf:params:jmap:error:limit"
+
+# --- SetError variant constructor edge cases ---
+
+block setErrorInvalidPropertiesEmptyList:
+  # Empty property list is structurally valid
+  let se = setErrorInvalidProperties("invalidProperties", @[])
+  doAssert se.errorType == setInvalidProperties
+  doAssert se.properties.len == 0
+  doAssert se.rawType == "invalidProperties"
+
+block setErrorInvalidPropertiesAllFields:
+  # All optional fields populated
+  let se = setErrorInvalidProperties(
+    "invalidProperties",
+    @["from", "to"],
+    description = Opt.some("bad properties"),
+    extras = Opt.some(%*{"hint": "check format"}),
+  )
+  doAssert se.errorType == setInvalidProperties
+  doAssert se.properties == @["from", "to"]
+  doAssert se.description.isSome
+  doAssert se.description.unsafeGet == "bad properties"
+  doAssert se.extras.isSome
+
+block setErrorAlreadyExistsAllFields:
+  # All optional fields populated
+  let existId = parseIdFromServer("existing-456").get()
+  let se = setErrorAlreadyExists(
+    "alreadyExists",
+    existId,
+    description = Opt.some("duplicate detected"),
+    extras = Opt.some(%*{"server": "info"}),
+  )
+  doAssert se.errorType == setAlreadyExists
+  doAssert se.existingId == existId
+  doAssert se.description.isSome
+  doAssert se.description.unsafeGet == "duplicate detected"
+  doAssert se.extras.isSome
+
+block setErrorDefensiveFallbackInvalidProperties:
+  # Generic constructor maps invalidProperties to setUnknown defensively
+  let se = setError("invalidProperties")
+  doAssert se.errorType == setUnknown
+  doAssert se.rawType == "invalidProperties"
+
+block setErrorDefensiveFallbackAlreadyExists:
+  # Generic constructor maps alreadyExists to setUnknown defensively
+  let se = setError("alreadyExists")
+  doAssert se.errorType == setUnknown
+  doAssert se.rawType == "alreadyExists"

@@ -76,3 +76,9 @@ template assertSomeEq*(o: untyped, expected: untyped) =
   let v = o.get()
   let e = expected
   doAssert v == e, "expected " & $e & ", got " & $v
+
+template assertErrKind*(r: untyped, expectedKind: untyped) =
+  ## Verifies that a Result is Err and its error has a .kind field matching expectedKind.
+  doAssert r.isErr, "expected Err, got Ok"
+  let k = r.error.kind
+  doAssert k == expectedKind, "expected kind " & $expectedKind & ", got " & $k

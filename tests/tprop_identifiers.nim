@@ -49,7 +49,7 @@ block propAccountIdNoControlChars:
 
 block propCreationIdNoLeadingHash:
   checkProperty "valid CreationId does not start with #":
-    let s = genValidIdStrict(rng)
+    let s = genValidCreationId(rng)
     let c = parseCreationId(s).get()
     doAssert string(c)[0] != '#'
 

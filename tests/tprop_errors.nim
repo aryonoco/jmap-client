@@ -137,3 +137,76 @@ block propExhaustiveRequestErrorRoundTrip:
   for v in RequestErrorType:
     if v != retUnknown:
       doAssert parseRequestErrorType($v) == v
+
+# --- Error constructor auto-parse coherence ---
+
+block propRequestErrorAutoParseCoherence:
+  checkProperty "requestError(s).errorType == parseRequestErrorType(s)":
+    let s = genArbitraryString(rng, trial)
+    doAssert requestError(s).errorType == parseRequestErrorType(s)
+
+block propMethodErrorAutoParseCoherence:
+  checkProperty "methodError(s).errorType == parseMethodErrorType(s)":
+    let s = genArbitraryString(rng, trial)
+    doAssert methodError(s).errorType == parseMethodErrorType(s)
+
+block propSetErrorRawTypePreservation:
+  checkProperty "setError(s).rawType == s for non-variant strings":
+    let s = genArbitraryString(rng, trial)
+    if s != "invalidProperties" and s != "alreadyExists":
+      doAssert setError(s).rawType == s
+
+# --- ClientError lift preservation ---
+
+block propClientErrorLiftTransport:
+  checkProperty "clientError(te).kind == cekTransport and transport preserved":
+    let te = genTransportError(rng)
+    let ce = clientError(te)
+    doAssert ce.kind == cekTransport
+    doAssert ce.transport.kind == te.kind
+    doAssert ce.transport.message == te.message
+    if te.kind == tekHttpStatus:
+      doAssert ce.transport.httpStatus == te.httpStatus
+
+block propClientErrorLiftRequest:
+  checkProperty "clientError(re).kind == cekRequest and request preserved":
+    let re = genRequestError(rng)
+    let ce = clientError(re)
+    doAssert ce.kind == cekRequest
+    doAssert ce.request.errorType == re.errorType
+    doAssert ce.request.rawType == re.rawType
+    doAssert ce.request.status == re.status
+    doAssert ce.request.title == re.title
+    doAssert ce.request.detail == re.detail
+
+# --- SetError variant field preservation ---
+
+block propSetErrorInvalidPropertiesFieldPreservation:
+  checkProperty "invalidProperties variant preserves properties field":
+    let propCount = rng.rand(0 .. 5)
+    var props: seq[string] = @[]
+    for i in 0 ..< propCount:
+      props.add "prop" & $i
+    let desc =
+      if rng.rand(0 .. 1) == 0:
+        Opt.some("desc-" & $rng.rand(0 .. 99))
+      else:
+        Opt.none(string)
+    let se = setErrorInvalidProperties("invalidProperties", props, desc)
+    doAssert se.errorType == setInvalidProperties
+    doAssert se.properties == props
+    doAssert se.description == desc
+
+block propSetErrorAlreadyExistsFieldPreservation:
+  checkProperty "alreadyExists variant preserves existingId field":
+    let idStr = genValidIdStrict(rng, minLen = 1, maxLen = 20)
+    let id = parseId(idStr).get()
+    let desc =
+      if rng.rand(0 .. 1) == 0:
+        Opt.some("desc-" & $rng.rand(0 .. 99))
+      else:
+        Opt.none(string)
+    let se = setErrorAlreadyExists("alreadyExists", id, desc)
+    doAssert se.errorType == setAlreadyExists
+    doAssert se.existingId == id
+    doAssert se.description == desc

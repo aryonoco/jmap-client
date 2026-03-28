@@ -160,3 +160,25 @@ block propOptSomeIsSome:
   checkProperty "Opt.some(x).isSome == true":
     let x = rng.rand(int)
     doAssert Opt[int].ok(x).isSome == true
+
+# --- Left zero / error-path laws ---
+
+block propLeftZeroLaw:
+  checkProperty "err(e).flatMap(f) == err(e)":
+    let e = "error-" & $rng.rand(0 .. 9999)
+    func f(x: int): Result[int, string] =
+      ## Arbitrary pure mapping that should never be reached.
+      ok(x * 3 + 7)
+
+    let errVal = Result[int, string].err(e)
+    doAssert errVal.flatMap(f) == Result[int, string].err(e)
+
+block propFunctorOnError:
+  checkProperty "err(e).map(f) == err(e)":
+    let e = "error-" & $rng.rand(0 .. 9999)
+    func f(x: int): int =
+      ## Arbitrary pure mapping that should never be reached.
+      x * 7 + 13
+
+    let errVal = Result[int, string].err(e)
+    doAssert errVal.map(f) == Result[int, string].err(e)

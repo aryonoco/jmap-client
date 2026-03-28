@@ -108,3 +108,19 @@ block propUriTemplateDoubleRoundTrip:
     let first = parseUriTemplate(s).get()
     let second = parseUriTemplate($first).get()
     doAssert first == second
+
+# --- Session post-construction invariants ---
+
+block propSessionPostConstructionInvariants:
+  ## Verifies all five structural invariants guaranteed by parseSession.
+  let session = parseSessionFromArgs(makeSessionArgs()).get()
+  doAssert findCapability(session, ckCore).isSome
+  doAssert session.apiUrl.len > 0
+  doAssert session.downloadUrl.hasVariable("accountId")
+  doAssert session.downloadUrl.hasVariable("blobId")
+  doAssert session.downloadUrl.hasVariable("type")
+  doAssert session.downloadUrl.hasVariable("name")
+  doAssert session.uploadUrl.hasVariable("accountId")
+  doAssert session.eventSourceUrl.hasVariable("types")
+  doAssert session.eventSourceUrl.hasVariable("closeafter")
+  doAssert session.eventSourceUrl.hasVariable("ping")

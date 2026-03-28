@@ -216,3 +216,26 @@ block addedItemMaxIndex:
   let id = parseId("test").get()
   let ai = AddedItem(id: id, index: maxIdx)
   doAssert ai.index == maxIdx
+
+# --- PatchObject.getKey round-trip ---
+
+block patchObjectGetKeyAbsent:
+  # getKey on an empty patch for any key returns isNone
+  let p = emptyPatch()
+  assertNone p.getKey("anything")
+  assertNone p.getKey("name")
+  assertNone p.getKey("")
+
+block patchObjectSetPropThenGetKey:
+  # setProp then getKey verifying actual JSON value content
+  let p = setProp(emptyPatch(), "name", %"Alice").get()
+  let got = p.getKey("name")
+  assertSome got
+  doAssert got.get().getStr() == "Alice"
+
+block patchObjectDeletePropThenGetKey:
+  # deleteProp then getKey returns JSON null
+  let p = deleteProp(emptyPatch(), "addr/0").get()
+  let got = p.getKey("addr/0")
+  assertSome got
+  doAssert got.get().kind == JNull
