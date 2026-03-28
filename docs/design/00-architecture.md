@@ -268,7 +268,7 @@ src/jmap_client/
   capabilities.nim    — CapabilityKind, CoreCapabilities, ServerCapability
   session.nim         — Account, AccountCapabilityEntry, UriTemplate, Session
   envelope.nim        — Invocation, Request, Response, ResultReference, Referencable[T]
-  framework.nim       — FilterOperator, Filter[C], Comparator, PatchObject, AddedItem
+  framework.nim       — PropertyName, FilterOperator, Filter[C], Comparator, PatchObject, AddedItem
   errors.nim          — TransportError, RequestError, ClientError, MethodError, SetError
   types.nim           — Re-exports all of the above; defines JmapResult[T] alias
 ```
@@ -281,15 +281,16 @@ Internal import DAG (each module imports only what its types reference):
 | `primitives` | `validation` |
 | `identifiers` | `validation` |
 | `capabilities` | `primitives` |
-| `framework` | `primitives` |
+| `framework` | `validation`, `primitives` |
 | `errors` | `primitives` |
-| `session` | `identifiers`, `capabilities` |
+| `session` | `validation`, `identifiers`, `capabilities` |
 | `envelope` | `identifiers`, `primitives` |
 | `types` | all of the above (re-export hub) |
 
 No cycles. The graph is a DAG, not a linear chain — `identifiers`,
-`capabilities`, `framework`, and `errors` are parallel dependents of
-`primitives`; `session` merges the `identifiers` and `capabilities`
+`capabilities` and `errors` are parallel dependents of
+`primitives`; `framework` depends on both `validation` and `primitives`;
+`session` merges the `validation`, `identifiers` and `capabilities`
 branches. Each file is independently testable.
 
 ---

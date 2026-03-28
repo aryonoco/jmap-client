@@ -361,46 +361,65 @@ defineStringDistinctOps(Date)
 
 **Smart constructor:**
 
+Validation is decomposed into three private helpers returning
+`Result[void, ValidationError]`, composed in `parseDate` via the `?` operator
+for early-return on first failure.
+
 ```nim
 const AsciiDigits = {'0'..'9'}
 
-func parseDate*(raw: string): Result[Date, ValidationError] =
-  ## Pattern validates RFC 3339 date-time structural constraints:
-  ## - Minimum length (YYYY-MM-DDTHH:MM:SSZ = 20 chars)
-  ## - 'T' separator present and uppercase
-  ## - No lowercase 't' or 'z'
-  ## - If fractional seconds present, must not be all zeroes
-  ## Does NOT perform full calendar validation (e.g., February 30).
-  ## Does NOT validate the timezone offset format beyond uppercase checks.
-  if raw.len < 20:
-    return err(validationError("Date", "too short for RFC 3339 date-time", raw))
-  # Check date part: YYYY-MM-DD
-  if not (raw[0..3].allIt(it in AsciiDigits) and raw[4] == '-' and
-          raw[5..6].allIt(it in AsciiDigits) and raw[7] == '-' and
-          raw[8..9].allIt(it in AsciiDigits)):
+func validateDatePortion(raw: string): Result[void, ValidationError] =
+  ## YYYY-MM-DD at positions 0..9.
+  if not (
+    raw[0 .. 3].allIt(it in AsciiDigits) and raw[4] == '-' and
+    raw[5 .. 6].allIt(it in AsciiDigits) and raw[7] == '-' and
+    raw[8 .. 9].allIt(it in AsciiDigits)
+  ):
     return err(validationError("Date", "invalid date portion", raw))
-  # Check 'T' separator
+  ok()
+
+func validateTimePortion(raw: string): Result[void, ValidationError] =
+  ## HH:MM:SS at positions 11..18, with uppercase 'T' separator at 10.
   if raw[10] != 'T':
     return err(validationError("Date", "'T' separator must be uppercase", raw))
-  # Check time part: HH:MM:SS
-  if not (raw[11..12].allIt(it in AsciiDigits) and raw[13] == ':' and
-          raw[14..15].allIt(it in AsciiDigits) and raw[16] == ':' and
-          raw[17..18].allIt(it in AsciiDigits)):
+  if not (
+    raw[11 .. 12].allIt(it in AsciiDigits) and raw[13] == ':' and
+    raw[14 .. 15].allIt(it in AsciiDigits) and raw[16] == ':' and
+    raw[17 .. 18].allIt(it in AsciiDigits)
+  ):
     return err(validationError("Date", "invalid time portion", raw))
-  # Check no lowercase 't' or 'z' (the only letters in RFC 3339 date-time are T and Z)
   if raw.anyIt(it in {'t', 'z'}):
     return err(validationError("Date", "'T' and 'Z' must be uppercase (RFC 3339)", raw))
-  # Check fractional seconds: if present, must have at least one digit
-  # and must not be all zeroes.
+  ok()
+
+func validateFractionalSeconds(raw: string): Result[void, ValidationError] =
+  ## If a '.' follows position 19, digits must follow and not all be zero.
   if raw.len > 19 and raw[19] == '.':
     let dotEnd = block:
       var i = 20
-      while i < raw.len and raw[i] in AsciiDigits: inc i
+      while i < raw.len and raw[i] in AsciiDigits:
+        inc i
       i
     if dotEnd == 20:
-      return err(validationError("Date", "fractional seconds must contain at least one digit", raw))
+      return err(
+        validationError(
+          "Date", "fractional seconds must contain at least one digit", raw
+        )
+      )
     if raw[20 ..< dotEnd].allIt(it == '0'):
-      return err(validationError("Date", "zero fractional seconds must be omitted", raw))
+      return
+        err(validationError("Date", "zero fractional seconds must be omitted", raw))
+  ok()
+
+func parseDate*(raw: string): Result[Date, ValidationError] =
+  ## Structural validation of an RFC 3339 date-time string.
+  ## Does NOT perform calendar validation (e.g., February 30) or
+  ## validate timezone offset format beyond uppercase checks.
+  if raw.len < 20:
+    return err(validationError("Date", "too short for RFC 3339 date-time", raw))
+  ?validateDatePortion(raw)
+  ?validateTimePortion(raw)
+  ?validateFractionalSeconds(raw)
   ok(Date(raw))
 ```
 
@@ -1025,13 +1044,15 @@ func findCapabilityByUri*(session: Session, uri: string): Opt[ServerCapability] 
 
 func primaryAccount*(session: Session, kind: CapabilityKind): Opt[AccountId] =
   let uri = ? capabilityUri(kind)
-  if session.primaryAccounts.hasKey(uri):
-    return ok(session.primaryAccounts[uri])
+  for key, val in session.primaryAccounts:
+    if key == uri:
+      return ok(val)
   err()
 
 func findAccount*(session: Session, id: AccountId): Opt[Account] =
-  if session.accounts.hasKey(id):
-    return ok(session.accounts[id])
+  for key, val in session.accounts:
+    if key == id:
+      return ok(val)
   err()
 ```
 
@@ -2085,11 +2106,11 @@ src/jmap_client/
    ↑   ↑   ↑   ↑       ↑        ↑
    |   |   |  errors.nim |       |    (std/json, std/strutils)
    |   |   |             |       |
-   |   | framework.nim   |       |    (std/json, std/tables)
+   |   | framework.nim   |       |    (std/hashes, std/json, std/tables)
    |   |                 |       |
    | capabilities.nim    |       |    (std/hashes, std/sets, std/strutils, std/json)
    |        ↑            |       |
-   |    session.nim -----+       |    (std/hashes, std/tables, std/json, std/sequtils)
+   |    session.nim -----+       |    (std/hashes, std/sequtils, std/strutils, std/tables, std/json)
    |        |                    |
   envelope.nim ------------------+    (std/json, std/tables)
         ↑
@@ -2100,14 +2121,16 @@ All arrows point upward — no cycles. `validation.nim` is the root dependency.
 `primitives.nim` and `identifiers.nim` both depend on `validation.nim` directly.
 `identifiers.nim` depends on `validation.nim` (for `defineStringDistinctOps`,
 `ValidationError`, `validationError`), not on `primitives.nim` — no identifier
-type references any primitive type. `errors.nim` and `framework.nim` are
-parallel leaves, both depending on `primitives.nim` but not on each other.
+type references any primitive type. `errors.nim` depends on `primitives.nim`. `framework.nim` depends on both
+`validation.nim` (for `defineStringDistinctOps`, `ValidationError`,
+`validationError`) and `primitives.nim`. They do not depend on each other.
 `capabilities.nim` depends on `primitives.nim` (for `UnsignedInt`), not on
 `identifiers.nim`. `envelope.nim` depends on `identifiers.nim` (for
 `MethodCallId`, `CreationId`, `JmapState`) and `primitives.nim` (for `Id`),
 not on `session.nim`.
-`session.nim` depends on both `identifiers.nim` (for `AccountId`,
-`JmapState`) and `capabilities.nim` (for `CapabilityKind`,
+`session.nim` depends on `validation.nim` (for `ValidationError`,
+`validationError`, `defineStringDistinctOps`), `identifiers.nim` (for
+`AccountId`, `JmapState`) and `capabilities.nim` (for `CapabilityKind`,
 `ServerCapability`, `CoreCapabilities`).
 
 **Re-export policy.** Individual modules do not re-export their Layer 1
