@@ -354,9 +354,12 @@ let properties: seq[string] =
   if node{"properties"}.isNil or node{"properties"}.kind != JArray:
     @[]
   else:
-    collect:
-      for item in node{"properties"}.getElems(@[]):
-        item.getStr("")
+    var items: seq[string]
+    for item in node{"properties"}.getElems(@[]):
+      checkJsonKind(item, JString, "MethodResponse",
+        "properties element must be string")
+      items.add(item.getStr(""))
+    items
 ```
 
 These patterns are **non-negotiable for totality**. Documented here once,
@@ -1018,11 +1021,12 @@ func fromJson*(_: typedesc[Account], node: JsonNode
     "missing or invalid isReadOnly")
   let isReadOnly = node{"isReadOnly"}.getBool(false)
   let acctCapsNode = node{"accountCapabilities"}
+  checkJsonKind(acctCapsNode, JObject, "Account",
+    "missing or invalid accountCapabilities")
   var accountCapabilities: seq[AccountCapabilityEntry]
-  if not acctCapsNode.isNil and acctCapsNode.kind == JObject:
-    for uri, data in acctCapsNode.pairs:  # kind verified above
-      let entry = ? AccountCapabilityEntry.fromJson(uri, data)
-      accountCapabilities.add(entry)
+  for uri, data in acctCapsNode.pairs:  # kind verified above
+    let entry = ? AccountCapabilityEntry.fromJson(uri, data)
+    accountCapabilities.add(entry)
   ok(Account(
     name: name,
     isPersonal: isPersonal,
@@ -1075,6 +1079,14 @@ func toJson*(s: Session): JsonNode =
     result["primaryAccounts"] = primary
 ```
 
+**Assumption:** `capabilities` contains no duplicate `rawUri` values. This
+is guaranteed by `fromJson` (JSON object keys are unique via
+`OrderedTable`). Programmatic construction must ensure uniqueness;
+duplicates cause silent overwrite in `toJson`. Enforcing uniqueness in
+the type system (e.g., `Table[string, ServerCapability]`) is a Layer 1
+concern — see architecture §1.2A rationale for `seq` (ordered iteration,
+pattern-matchable by kind).
+
 **`fromJson`:**
 
 ```nim
@@ -1121,11 +1133,19 @@ func fromJson*(_: typedesc[Session], node: JsonNode
   let apiUrl = node{"apiUrl"}.getStr("")
 
   # 5. Parse URI templates
+  checkJsonKind(node{"downloadUrl"}, JString, "Session",
+    "missing or invalid downloadUrl")
   let downloadUrl = ? parseUriTemplate(node{"downloadUrl"}.getStr(""))
+  checkJsonKind(node{"uploadUrl"}, JString, "Session",
+    "missing or invalid uploadUrl")
   let uploadUrl = ? parseUriTemplate(node{"uploadUrl"}.getStr(""))
+  checkJsonKind(node{"eventSourceUrl"}, JString, "Session",
+    "missing or invalid eventSourceUrl")
   let eventSourceUrl = ? parseUriTemplate(node{"eventSourceUrl"}.getStr(""))
 
   # 6. Parse state
+  checkJsonKind(node{"state"}, JString, "Session",
+    "missing or invalid state")
   let state = ? parseJmapState(node{"state"}.getStr(""))
 
   # 7. Call parseSession for structural invariant validation
@@ -1234,9 +1254,11 @@ func fromJson*(_: typedesc[Request], node: JsonNode
   let usingNode = node{"using"}
   checkJsonKind(usingNode, JArray, "Request",
     "missing or invalid using")
-  let usingSeq = collect:
-    for elem in usingNode.getElems(@[]):
-      elem.getStr("")
+  var usingSeq: seq[string]
+  for elem in usingNode.getElems(@[]):
+    checkJsonKind(elem, JString, "Request",
+      "using element must be string")
+    usingSeq.add(elem.getStr(""))
 
   let callsNode = node{"methodCalls"}
   checkJsonKind(callsNode, JArray, "Request",
@@ -1402,20 +1424,12 @@ There are only ~4 referenceable fields across the standard methods.
 **Helper functions:**
 
 ```nim
-func toJsonField*(fieldName: string, r: Referencable[seq[Id]],
-    target: JsonNode) =
-  ## Emit a Referencable field into a target JSON object.
-  ## For rkDirect: emits "fieldName" → serialised T.
-  ## For rkReference: emits "#fieldName" → ResultReference JSON.
-  {.cast(noSideEffect).}:  # §1.6: local ref mutation (target is caller-owned)
-    case r.kind
-    of rkDirect:
-      var arr = newJArray()
-      for id in r.value:
-        arr.add(%string(id))
-      target[fieldName] = arr
-    of rkReference:
-      target["#" & fieldName] = r.reference.toJson()
+func referencableKey*[T](fieldName: string, r: Referencable[T]): string =
+  ## Returns the wire key: "fieldName" for direct, "#fieldName" for reference.
+  ## Pure string transform — no JsonNode, no cast, no mutation.
+  case r.kind
+  of rkDirect: fieldName
+  of rkReference: "#" & fieldName
 
 func fromJsonField*[T](
     fieldName: string,
@@ -1437,18 +1451,37 @@ func fromJsonField*[T](
   ok(Referencable[T](kind: rkDirect, value: value))
 ```
 
+**Serialisation-side design.** The `#`-prefix dispatch is a data transform
+on the field name, not a mutation operation. `referencableKey` is a total
+pure function — `(string, Referencable[T]) → string` — that computes
+the wire key. The value serialisation uses existing `toJson` overloads for
+the inner types. These are orthogonal concerns: the caller composes key
+transform + value serialisation within its own `{.cast(noSideEffect).}`
+block (where the `result` is locally owned):
+
+```nim
+{.cast(noSideEffect).}:  # §1.6: local ref mutation
+  if req.ids.isSome:
+    let r = req.ids.get()
+    result[referencableKey("ids", r)] = case r.kind
+      of rkDirect: toJson(r.value)    # existing seq[Id] toJson
+      of rkReference: r.reference.toJson()
+```
+
+With ~4 referenceable fields across the standard methods, the call-site
+verbosity is negligible and each site is self-documenting.
+
+**Deserialisation-side design.** `fromJsonField` remains a combined helper
+because key dispatch and value parsing are genuinely coupled on the
+deserialisation side — the key determines whether to parse `T` or
+`ResultReference`. The asymmetry between `referencableKey` (pure key
+transform) and `fromJsonField` (combined dispatch + parse) reflects
+the genuine asymmetry in the problem: serialisation knows the variant
+(dispatch is trivial), deserialisation must discover it from the key.
+
 **Rationale.** The `#`-prefix is on the JSON key, not the value. This makes
 it impossible to serialise as a standalone `toJson`/`fromJson` pair — the
-containing object's serialiser must handle the key dispatch. The helper
-functions provide the dispatch logic; Layer 3 method builders use them.
-
-**`toJsonField` coverage.** The `toJsonField` overload shown above is
-specialised for `Referencable[seq[Id]]` — the most common referenceable
-type. `fromJsonField` is generic over `[T]`. Additional `toJsonField`
-overloads (or a generic version with a `condToJson` callback, mirroring
-`fromJsonField`'s `fromDirect` parameter) will be needed when Layer 3
-introduces referenceable fields of other types (e.g., `seq[PropertyName]`,
-`seq[string]`).
+containing object's serialiser must handle the key dispatch.
 
 **Module:** `src/jmap_client/serde_envelope.nim`
 
@@ -1685,7 +1718,7 @@ func toJson*(re: RequestError): JsonNode =
 
 ```nim
 const RequestErrorKnownKeys = [
-  "type", "status", "title", "detail", "limit", "instance"]
+  "type", "status", "title", "detail", "limit"]
 
 func fromJson*(_: typedesc[RequestError], node: JsonNode
     ): Result[RequestError, ValidationError] =
@@ -1855,9 +1888,11 @@ func fromJson*(_: typedesc[SetError], node: JsonNode
   of setInvalidProperties:
     let propsNode = node{"properties"}
     if not propsNode.isNil and propsNode.kind == JArray:
-      let properties = collect:
-        for item in propsNode.getElems(@[]):
-          item.getStr("")
+      var properties: seq[string]
+      for item in propsNode.getElems(@[]):
+        checkJsonKind(item, JString, "SetError",
+          "properties element must be string")
+        properties.add(item.getStr(""))
       return ok(setErrorInvalidProperties(
         rawType, properties, description, extras))
     # properties absent — defensive fallback to setUnknown via setError
@@ -2004,6 +2039,9 @@ Properties that must hold for every serialised type:
 - **Referencable dispatch:** `rkDirect` values serialise without `#` prefix;
   `rkReference` values serialise with `#` prefix. Round-trip preserves the
   variant.
+- **Capability URI uniqueness:** `Session.toJson` assumes no duplicate
+  `rawUri` in `capabilities`. Round-trip identity holds when this
+  precondition is met (always true for `fromJson`-constructed Sessions).
 
 ---
 
