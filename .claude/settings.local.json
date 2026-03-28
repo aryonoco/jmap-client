@@ -162,7 +162,10 @@
       "Bash(/tmp/test_toJson_patterns)",
       "Bash(/tmp/test_mutation_nimble)",
       "Bash(sort -t: -k2 -n -r)",
-      "Bash(nimble --verbose build)"
+      "Bash(nimble --verbose build)",
+      "Bash(nimble --verbose test)",
+      "Bash(find /workspaces/jmap-client -type f -name *.cfg -o -name *.nims -o -name justfile -o -name testament.cfg)",
+      "Bash(find /workspaces/jmap-client -maxdepth 2 -name *.nims -o -name testament.cfg -o -name config.nims)"
     ]
   }
 }

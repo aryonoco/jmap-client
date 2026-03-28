@@ -26,6 +26,7 @@ out/
 *.dll
 *.so
 *.dylib
+*.out
 
 # Project binary / library
 /jmap_client
