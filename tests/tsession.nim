@@ -1,0 +1,398 @@
+# SPDX-License-Identifier: BSL-1.0
+# Copyright (c) 2026 Aryan Ameri
+
+{.push raises: [].}
+
+## Tests for JMAP Session resource types.
+
+import std/hashes
+import std/json
+import std/sets
+import std/tables
+
+import pkg/results
+
+import jmap_client/primitives
+import jmap_client/identifiers
+import jmap_client/capabilities
+import jmap_client/session
+
+# Shared fixture values used across multiple test blocks.
+
+let zero = parseUnsignedInt(0).get()
+
+let testCoreCaps = CoreCapabilities(
+  maxSizeUpload: zero,
+  maxConcurrentUpload: zero,
+  maxSizeRequest: zero,
+  maxConcurrentRequests: zero,
+  maxCallsInRequest: zero,
+  maxObjectsInGet: zero,
+  maxObjectsInSet: zero,
+  collationAlgorithms: initHashSet[string](),
+)
+
+let testAccount = Account(
+  name: "Test",
+  isPersonal: true,
+  isReadOnly: false,
+  accountCapabilities: @[
+    AccountCapabilityEntry(
+      kind: ckMail, rawUri: "urn:ietf:params:jmap:mail", data: newJNull()
+    ),
+    AccountCapabilityEntry(
+      kind: ckUnknown, rawUri: "https://vendor1.example/ext", data: %*{"v": 1}
+    ),
+    AccountCapabilityEntry(
+      kind: ckUnknown, rawUri: "https://vendor2.example/ext", data: %*{"v": 2}
+    ),
+  ],
+)
+
+# Golden test session built at module level so accessor tests can reference it.
+
+let acctId1 = parseAccountId("A13824").get()
+let acctId2 = parseAccountId("A97813").get()
+
+let goldenAccount1 = Account(
+  name: "john@example.com",
+  isPersonal: true,
+  isReadOnly: false,
+  accountCapabilities: @[
+    AccountCapabilityEntry(
+      kind: ckMail, rawUri: "urn:ietf:params:jmap:mail", data: %*{}
+    ),
+    AccountCapabilityEntry(
+      kind: ckContacts, rawUri: "urn:ietf:params:jmap:contacts", data: %*{}
+    ),
+    AccountCapabilityEntry(
+      kind: ckUnknown, rawUri: "https://example.com/apis/foobar", data: %*{"maxFoo": 42}
+    ),
+  ],
+)
+
+let goldenAccount2 = Account(
+  name: "jane@example.com",
+  isPersonal: false,
+  isReadOnly: true,
+  accountCapabilities: @[
+    AccountCapabilityEntry(
+      kind: ckMail, rawUri: "urn:ietf:params:jmap:mail", data: %*{}
+    )
+  ],
+)
+
+var goldenAccounts = initTable[AccountId, Account]()
+goldenAccounts[acctId1] = goldenAccount1
+goldenAccounts[acctId2] = goldenAccount2
+
+var goldenPrimaryAccounts = initTable[string, AccountId]()
+goldenPrimaryAccounts["urn:ietf:params:jmap:mail"] = acctId1
+goldenPrimaryAccounts["urn:ietf:params:jmap:contacts"] = acctId1
+
+let goldenDownloadUrl = parseUriTemplate(
+    "https://jmap.example.com/download/{accountId}/{blobId}/{name}?accept={type}"
+  )
+  .get()
+
+let goldenUploadUrl =
+  parseUriTemplate("https://jmap.example.com/upload/{accountId}/").get()
+
+let goldenEventSourceUrl = parseUriTemplate(
+    "https://jmap.example.com/eventsource/?types={types}&closeafter={closeafter}&ping={ping}"
+  )
+  .get()
+
+let goldenState = parseJmapState("75128aab4b1b").get()
+
+let goldenCaps = @[
+  ServerCapability(
+    rawUri: "urn:ietf:params:jmap:core", kind: ckCore, core: testCoreCaps
+  ),
+  ServerCapability(
+    rawUri: "urn:ietf:params:jmap:mail", kind: ckMail, rawData: newJNull()
+  ),
+  ServerCapability(
+    rawUri: "urn:ietf:params:jmap:contacts", kind: ckContacts, rawData: newJNull()
+  ),
+  ServerCapability(
+    rawUri: "https://example.com/apis/foobar",
+    kind: ckUnknown,
+    rawData: %*{"maxFoo": 42},
+  ),
+  ServerCapability(
+    rawUri: "https://vendor2.example/ext", kind: ckUnknown, rawData: %*{"v": 2}
+  ),
+]
+
+let goldenSession = parseSession(
+    capabilities = goldenCaps,
+    accounts = goldenAccounts,
+    primaryAccounts = goldenPrimaryAccounts,
+    username = "john@example.com",
+    apiUrl = "https://jmap.example.com/api/",
+    downloadUrl = goldenDownloadUrl,
+    uploadUrl = goldenUploadUrl,
+    eventSourceUrl = goldenEventSourceUrl,
+    state = goldenState,
+  )
+  .get()
+
+# --- UriTemplate ---
+
+block parseUriTemplateEmpty:
+  doAssert parseUriTemplate("").isErr
+
+block parseUriTemplateValid:
+  let result = parseUriTemplate("https://example.com/{accountId}")
+  doAssert result.isOk
+  doAssert $result.get() == "https://example.com/{accountId}"
+
+block uriTemplateBorrowedOps:
+  let a = parseUriTemplate("https://example.com/{id}").get()
+  let b = parseUriTemplate("https://example.com/{id}").get()
+  let c = parseUriTemplate("https://other.com/").get()
+  doAssert a == b
+  doAssert not (a == c)
+  doAssert $a == "https://example.com/{id}"
+  doAssert hash(a) == hash(b)
+  doAssert a.len == 24
+
+block hasVariablePresent:
+  let tmpl = parseUriTemplate("https://example.com/{accountId}").get()
+  doAssert tmpl.hasVariable("accountId")
+
+block hasVariableAbsent:
+  let tmpl = parseUriTemplate("https://example.com/{accountId}").get()
+  doAssert not tmpl.hasVariable("nonexistent")
+
+block hasVariablePartialMatch:
+  let tmpl = parseUriTemplate("https://example.com/{accountId}").get()
+  doAssert not tmpl.hasVariable("account")
+
+# --- Account helpers ---
+
+block accountFindCapabilityByKind:
+  let result = findCapability(testAccount, ckMail)
+  doAssert result.isOk
+  doAssert result.get().rawUri == "urn:ietf:params:jmap:mail"
+
+block accountFindCapabilityNotFound:
+  doAssert findCapability(testAccount, ckBlob).isErr
+
+block accountFindCapabilityFirstCkUnknown:
+  let result = findCapability(testAccount, ckUnknown)
+  doAssert result.isOk
+  doAssert result.get().rawUri == "https://vendor1.example/ext"
+
+block accountFindCapabilityByUri:
+  let result = findCapabilityByUri(testAccount, "urn:ietf:params:jmap:mail")
+  doAssert result.isOk
+  doAssert result.get().kind == ckMail
+
+block accountFindCapabilityByUriNotFound:
+  doAssert findCapabilityByUri(testAccount, "urn:nonexistent").isErr
+
+block accountHasCapability:
+  doAssert hasCapability(testAccount, ckMail)
+  doAssert not hasCapability(testAccount, ckBlob)
+
+# --- parseSession validation ---
+
+block parseSessionMissingCkCore:
+  let noCoreResult = parseSession(
+    capabilities = @[
+      ServerCapability(
+        rawUri: "urn:ietf:params:jmap:mail", kind: ckMail, rawData: newJNull()
+      )
+    ],
+    accounts = goldenAccounts,
+    primaryAccounts = goldenPrimaryAccounts,
+    username = "john@example.com",
+    apiUrl = "https://jmap.example.com/api/",
+    downloadUrl = goldenDownloadUrl,
+    uploadUrl = goldenUploadUrl,
+    eventSourceUrl = goldenEventSourceUrl,
+    state = goldenState,
+  )
+  doAssert noCoreResult.isErr
+
+block parseSessionEmptyApiUrl:
+  let result = parseSession(
+    capabilities = goldenCaps,
+    accounts = goldenAccounts,
+    primaryAccounts = goldenPrimaryAccounts,
+    username = "john@example.com",
+    apiUrl = "",
+    downloadUrl = goldenDownloadUrl,
+    uploadUrl = goldenUploadUrl,
+    eventSourceUrl = goldenEventSourceUrl,
+    state = goldenState,
+  )
+  doAssert result.isErr
+
+block parseSessionDownloadUrlMissingBlobId:
+  let badDownload =
+    parseUriTemplate("https://example.com/{accountId}/{name}?accept={type}").get()
+  let result = parseSession(
+    capabilities = goldenCaps,
+    accounts = goldenAccounts,
+    primaryAccounts = goldenPrimaryAccounts,
+    username = "",
+    apiUrl = "https://jmap.example.com/api/",
+    downloadUrl = badDownload,
+    uploadUrl = goldenUploadUrl,
+    eventSourceUrl = goldenEventSourceUrl,
+    state = goldenState,
+  )
+  doAssert result.isErr
+
+block parseSessionDownloadUrlMissingAccountId:
+  let badDownload =
+    parseUriTemplate("https://example.com/{blobId}/{name}?accept={type}").get()
+  let result = parseSession(
+    capabilities = goldenCaps,
+    accounts = goldenAccounts,
+    primaryAccounts = goldenPrimaryAccounts,
+    username = "",
+    apiUrl = "https://jmap.example.com/api/",
+    downloadUrl = badDownload,
+    uploadUrl = goldenUploadUrl,
+    eventSourceUrl = goldenEventSourceUrl,
+    state = goldenState,
+  )
+  doAssert result.isErr
+
+block parseSessionUploadUrlMissingAccountId:
+  let badUpload = parseUriTemplate("https://example.com/upload/").get()
+  let result = parseSession(
+    capabilities = goldenCaps,
+    accounts = goldenAccounts,
+    primaryAccounts = goldenPrimaryAccounts,
+    username = "",
+    apiUrl = "https://jmap.example.com/api/",
+    downloadUrl = goldenDownloadUrl,
+    uploadUrl = badUpload,
+    eventSourceUrl = goldenEventSourceUrl,
+    state = goldenState,
+  )
+  doAssert result.isErr
+
+block parseSessionEventSourceUrlMissingTypes:
+  let badEvent = parseUriTemplate(
+      "https://example.com/events?closeafter={closeafter}&ping={ping}"
+    )
+    .get()
+  let result = parseSession(
+    capabilities = goldenCaps,
+    accounts = goldenAccounts,
+    primaryAccounts = goldenPrimaryAccounts,
+    username = "",
+    apiUrl = "https://jmap.example.com/api/",
+    downloadUrl = goldenDownloadUrl,
+    uploadUrl = goldenUploadUrl,
+    eventSourceUrl = badEvent,
+    state = goldenState,
+  )
+  doAssert result.isErr
+
+block parseSessionEventSourceUrlMissingPing:
+  let badEvent = parseUriTemplate(
+      "https://example.com/events?types={types}&closeafter={closeafter}"
+    )
+    .get()
+  let result = parseSession(
+    capabilities = goldenCaps,
+    accounts = goldenAccounts,
+    primaryAccounts = goldenPrimaryAccounts,
+    username = "",
+    apiUrl = "https://jmap.example.com/api/",
+    downloadUrl = goldenDownloadUrl,
+    uploadUrl = goldenUploadUrl,
+    eventSourceUrl = badEvent,
+    state = goldenState,
+  )
+  doAssert result.isErr
+
+block parseSessionValid:
+  let result = parseSession(
+    capabilities = goldenCaps,
+    accounts = goldenAccounts,
+    primaryAccounts = goldenPrimaryAccounts,
+    username = "john@example.com",
+    apiUrl = "https://jmap.example.com/api/",
+    downloadUrl = goldenDownloadUrl,
+    uploadUrl = goldenUploadUrl,
+    eventSourceUrl = goldenEventSourceUrl,
+    state = goldenState,
+  )
+  doAssert result.isOk
+  let s = result.get()
+  doAssert s.username == "john@example.com"
+  doAssert s.apiUrl == "https://jmap.example.com/api/"
+  doAssert s.state == goldenState
+  doAssert s.capabilities.len == 5
+  doAssert s.accounts.len == 2
+
+# --- Session accessor helpers ---
+
+block coreCapabilitiesAccess:
+  let core = coreCapabilities(goldenSession)
+  doAssert core.maxSizeUpload == zero
+
+block sessionFindCapabilityByKind:
+  let result = findCapability(goldenSession, ckMail)
+  doAssert result.isOk
+  doAssert result.get().rawUri == "urn:ietf:params:jmap:mail"
+
+block sessionFindCapabilityByKindNotFound:
+  doAssert findCapability(goldenSession, ckBlob).isErr
+
+block sessionFindCapabilityFirstCkUnknown:
+  let result = findCapability(goldenSession, ckUnknown)
+  doAssert result.isOk
+  doAssert result.get().rawUri == "https://example.com/apis/foobar"
+
+block sessionFindCapabilityByUriVendor:
+  let result = findCapabilityByUri(goldenSession, "https://example.com/apis/foobar")
+  doAssert result.isOk
+  doAssert result.get().kind == ckUnknown
+
+block sessionFindCapabilityByUriNotFound:
+  doAssert findCapabilityByUri(goldenSession, "urn:nonexistent").isErr
+
+block primaryAccountMail:
+  let result = primaryAccount(goldenSession, ckMail)
+  doAssert result.isOk
+  doAssert result.get() == AccountId("A13824")
+
+block primaryAccountUnknown:
+  doAssert primaryAccount(goldenSession, ckUnknown).isErr
+
+block primaryAccountBlob:
+  doAssert primaryAccount(goldenSession, ckBlob).isErr
+
+block findAccountKnown:
+  let result = findAccount(goldenSession, AccountId("A13824"))
+  doAssert result.isOk
+  doAssert result.get().name == "john@example.com"
+
+block findAccountUnknown:
+  doAssert findAccount(goldenSession, AccountId("nonexistent")).isErr
+
+# --- Invariant violation ---
+
+block coreCapabilitiesInvariantViolation:
+  doAssertRaises(AssertionDefect):
+    let badSession = Session(
+      capabilities: @[],
+      accounts: initTable[AccountId, Account](),
+      primaryAccounts: initTable[string, AccountId](),
+      username: "",
+      apiUrl: "https://example.com/api/",
+      downloadUrl: parseUriTemplate("https://example.com/d").get(),
+      uploadUrl: parseUriTemplate("https://example.com/u").get(),
+      eventSourceUrl: parseUriTemplate("https://example.com/e").get(),
+      state: parseJmapState("s1").get(),
+    )
+    discard coreCapabilities(badSession)

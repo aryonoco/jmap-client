@@ -139,6 +139,11 @@ func parsePort(s: string): JmapResult[int] =
 `try/except` inside `{.raises: [].}` is allowed — the compiler verifies all
 possible exceptions are caught.
 
+**No try/except in the functional core.** Layer 1-3 source modules must never
+use try/except. The safeParseInt bridge pattern is for Layer 4 (imperative
+shell) only, where stdlib procs that raise must be wrapped at the IO boundary.
+In the functional core, avoid exception-raising stdlib calls entirely.
+
 ## Purity and Side Effects
 
 - **`func`** = pure. Compiler-enforced `{.noSideEffect.}`. Cannot access global

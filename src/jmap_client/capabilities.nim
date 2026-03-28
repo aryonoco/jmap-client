@@ -18,8 +18,12 @@ type CapabilityKind* = enum
   ## JMAP capability identifiers from the IANA registry.
   ## CRITICAL: must NOT be used as a Table key — multiple vendor extensions
   ## map to ckUnknown, causing collisions. Use raw URI strings for keying.
-  ckCore = "urn:ietf:params:jmap:core"
+  ## NOTE: ckMail is first (not ckCore) so that the default CapabilityKind picks
+  ## the else branch of ServerCapability, whose rawData: JsonNode can be nil.
+  ## ckCore's branch has CoreCapabilities with {.requiresInit.} fields that
+  ## prevent default construction — needed by seq operations (setLen/reset).
   ckMail = "urn:ietf:params:jmap:mail"
+  ckCore = "urn:ietf:params:jmap:core"
   ckSubmission = "urn:ietf:params:jmap:submission"
   ckVacationResponse = "urn:ietf:params:jmap:vacationresponse"
   ckWebsocket = "urn:ietf:params:jmap:websocket"
