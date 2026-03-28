@@ -108,7 +108,7 @@
         "nim.buildCommand": "c",
         "nim.project": ["src/jmap_client.nim"],
         "nim.test-project": "tests/test_all.nim",
-        "nim.lsp.path": "/home/vscode/nim/bin/nimlangserver",
+        "nim.lsp.path": "/home/vscode/.local/share/mise/shims/nimlangserver",
         "nim.nimsuggestPath": "/home/vscode/nim/bin/nimsuggest",
         "nim.useNimCheck": true,
         "nim.maxNimsuggestProcesses": 1,
