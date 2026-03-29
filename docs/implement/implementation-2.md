@@ -8,8 +8,9 @@ passes `just ci` before committing.
 
 Cross-cutting sections apply to all steps: §9 (Opt[T] field handling —
 omit-when-none for `toJson`, lenient wrong-kind handling per the per-field
-table), §11 (round-trip invariants — 6 properties every ser/de pair must
-satisfy), §13.4 (~108 edge-case rows — test coverage targets per type).
+table), §11 (round-trip invariants — identity law plus type-specific
+format and losslessness properties), §13.4 (~108 edge-case rows — test
+coverage targets per type).
 
 ---
 
@@ -55,7 +56,7 @@ Serialise `Invocation` (3-element JSON array), `ResultReference`,
 
 **Create:** `src/jmap_client/serde_framework.nim`, `tests/tserde_framework.nim`
 
-**Design doc:** §§3.3, §7.
+**Design doc:** §§3.3, §§7.1–7.4.
 
 Serialise `FilterOperator` (non-total enum), `Comparator` (with RFC default
 for `isAscending`), `Filter[C]` (generic recursive with callbacks),
