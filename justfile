@@ -39,8 +39,13 @@ versions:
 # SETUP
 # =============================================================================
 
+# Install git hooks (safe to run repeatedly)
+install-hooks:
+    @git config core.hooksPath .githooks
+    @echo "Git hooks installed (core.hooksPath → .githooks/)"
+
 # Install project dependencies
-setup:
+setup: install-hooks
     @echo "Installing project dependencies..."
     nimble refresh
     nimble install -d --accept

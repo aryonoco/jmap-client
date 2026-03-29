@@ -197,7 +197,20 @@
       "Bash(head -50 tests/tenv*)",
       "Bash(tests/tserde_session)",
       "Bash(docker exec:*)",
-      "Bash(while read:*)"
+      "Bash(while read:*)",
+      "Bash(echo \"exit: $?\")",
+      "Bash(dpkg -l)",
+      "Bash(apt list:*)",
+      "Bash(/usr/bin/file --version)",
+      "Bash(dpkg -s file)",
+      "Bash(dpkg -L file)",
+      "Bash(xxd /workspaces/jmap-client/tests/tserde)",
+      "Bash(apt-cache policy:*)",
+      "Bash(chmod:*)",
+      "Bash(shellcheck:*)",
+      "Bash(shfmt:*)",
+      "Bash(printf '\\\\x7fELF')",
+      "Bash(echo \"exit code: $?\")"
     ]
   }
 }

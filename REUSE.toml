@@ -16,6 +16,7 @@ path = [
   "nimble.paths",
   ".devcontainer/**",
   ".github/**",
+  ".githooks/**",
   "justfile",
   "Makefile",
   "Dockerfile",

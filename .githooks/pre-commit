@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: BSD-2-Clause
+# SPDX-FileCopyrightText: 2026 Aryan Ameri <github@aryan.ameri.coffee>
+#
+# Pre-commit hook: reject staged ELF/Mach-O executables.
+# Nim compiles test files into extensionless binaries that should never
+# be committed.
+set -euo pipefail
+
+readonly ELF_MAGIC="7f454c46"
+readonly MACHO_32="feedface"
+readonly MACHO_64="feedfacf"
+readonly MACHO_32R="cefaedfe"
+readonly MACHO_64R="cffaedfe"
+
+blocked=()
+
+while IFS= read -r -d '' staged_file; do
+  [[ -f "${staged_file}" ]] || continue
+
+  magic=$(head -c 4 "${staged_file}" 2>/dev/null | od -A n -t x1 | tr -d ' \n')
+
+  case "${magic}" in
+  "${ELF_MAGIC}" | "${MACHO_32}" | "${MACHO_64}" | "${MACHO_32R}" | "${MACHO_64R}")
+    blocked+=("${staged_file}")
+    ;;
+  esac
+done < <(git diff --cached --name-only --diff-filter=ACM -z)
+
+if [[ ${#blocked[@]} -gt 0 ]]; then
+  echo "ERROR: Compiled binary executables detected in staged files:" >&2
+  for f in "${blocked[@]}"; do
+    echo "  ${f}" >&2
+  done
+  echo "" >&2
+  echo "These look like Nim-compiled binaries. Remove them with:" >&2
+  echo "  git reset HEAD -- <file>" >&2
+  echo "  just clean" >&2
+  echo "" >&2
+  echo "To bypass this check (not recommended):" >&2
+  echo "  git commit --no-verify" >&2
+  exit 1
+fi
