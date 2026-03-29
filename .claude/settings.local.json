@@ -210,7 +210,11 @@
       "Bash(shellcheck:*)",
       "Bash(shfmt:*)",
       "Bash(printf '\\\\x7fELF')",
-      "Bash(echo \"exit code: $?\")"
+      "Bash(echo \"exit code: $?\")",
+      "Bash(find /workspaces/jmap-client -type f -name *testament*)",
+      "Bash(find /workspaces/jmap-client -type f -name *.yml -o -name *.yaml)",
+      "Bash(xargs --version)",
+      "Bash(xargs -I{} basename {} .nim)"
     ]
   }
 }
