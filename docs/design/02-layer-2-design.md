@@ -204,7 +204,7 @@ For types that require additional context beyond the `JsonNode` (e.g.,
 name), the signature adds parameters:
 
 ```nim
-func fromJson*(_: typedesc[ServerCapability], uri: string, data: JsonNode
+func fromJson*(T: typedesc[ServerCapability], uri: string, data: JsonNode
     ): Result[ServerCapability, ValidationError] =
   ## Dispatches on parsed CapabilityKind from uri.
 ```
@@ -215,7 +215,7 @@ so the parameter type `proc(...) {.noSideEffect.}` should be
 effect-compatible with `strictFuncs`. However, this must be verified at
 compile time. Two options:
 
-- **Primary:** `func fromJson*[C](_: typedesc[Filter[C]], node: JsonNode,
+- **Primary:** `func fromJson*[C](T: typedesc[Filter[C]], node: JsonNode,
   fromCondition: proc(n: JsonNode): Result[C, ValidationError]
   {.noSideEffect.}): Result[Filter[C], ValidationError]` — if the compiler
   accepts `proc {.noSideEffect.}` parameter inside `func`.
@@ -259,10 +259,10 @@ func fromJson*(T: typedesc[UnsignedInt], node: JsonNode
 
 ```nim
 # Object type — validate JObject, then extract fields with kind checks
-func fromJson*(_: typedesc[CoreCapabilities], node: JsonNode
+func fromJson*(T: typedesc[CoreCapabilities], node: JsonNode
     ): Result[CoreCapabilities, ValidationError] =
   ## Deserialise urn:ietf:params:jmap:core capability data.
-  checkJsonKind(node, JObject, "CoreCapabilities")
+  checkJsonKind(node, JObject, $T)
   let maxSizeUpload = ? UnsignedInt.fromJson(node{"maxSizeUpload"})
   let maxConcurrentUpload = ? UnsignedInt.fromJson(node{"maxConcurrentUpload"})
   let maxSizeRequest = ? UnsignedInt.fromJson(node{"maxSizeRequest"})
@@ -275,18 +275,18 @@ func fromJson*(_: typedesc[CoreCapabilities], node: JsonNode
     elif not singular.isNil:
       ? UnsignedInt.fromJson(singular)
     else:
-      return err(parseError("CoreCapabilities",
+      return err(parseError($T,
         "missing maxConcurrentRequests"))
   let maxCallsInRequest = ? UnsignedInt.fromJson(node{"maxCallsInRequest"})
   let maxObjectsInGet = ? UnsignedInt.fromJson(node{"maxObjectsInGet"})
   let maxObjectsInSet = ? UnsignedInt.fromJson(node{"maxObjectsInSet"})
   let collationAlgorithms = block:
     let arr = node{"collationAlgorithms"}
-    checkJsonKind(arr, JArray, "CoreCapabilities",
+    checkJsonKind(arr, JArray, $T,
       "missing or invalid collationAlgorithms")
     var algs: seq[string]
     for elem in arr.getElems(@[]):
-      checkJsonKind(elem, JString, "CoreCapabilities",
+      checkJsonKind(elem, JString, $T,
         "collationAlgorithms element must be string")
       algs.add(elem.getStr(""))
     toHashSet(algs)
@@ -304,26 +304,26 @@ func fromJson*(_: typedesc[CoreCapabilities], node: JsonNode
 
 ```nim
 # Array type — validate JArray first, THEN check len (split for clarity)
-func fromJson*(_: typedesc[Invocation], node: JsonNode
+func fromJson*(T: typedesc[Invocation], node: JsonNode
     ): Result[Invocation, ValidationError] =
   ## Deserialise a 3-element JSON array to Invocation (RFC 8620 §3.2).
-  checkJsonKind(node, JArray, "Invocation")
+  checkJsonKind(node, JArray, $T)
   if node.len != 3:
-    return err(parseError("Invocation", "expected exactly 3 elements"))
+    return err(parseError($T, "expected exactly 3 elements"))
   let elems = node.getElems(@[])
-  checkJsonKind(elems[0], JString, "Invocation",
+  checkJsonKind(elems[0], JString, $T,
     "method name must be string")
   let name = elems[0].getStr("")
   let arguments = elems[1]
-  checkJsonKind(elems[2], JString, "Invocation",
+  checkJsonKind(elems[2], JString, $T,
     "method call ID must be string")
   let callIdRaw = elems[2].getStr("")
   if name.len == 0:
-    return err(parseError("Invocation", "empty method name"))
-  checkJsonKind(arguments, JObject, "Invocation",
+    return err(parseError($T, "empty method name"))
+  checkJsonKind(arguments, JObject, $T,
     "arguments must be JSON object")
   if callIdRaw.len == 0:
-    return err(parseError("Invocation", "empty method call ID"))
+    return err(parseError($T, "empty method call ID"))
   let mcid = ? parseMethodCallId(callIdRaw)
   ok(Invocation(name: name, arguments: arguments, methodCallId: mcid))
 ```
@@ -344,7 +344,7 @@ let isAscending =
   elif node{"isAscending"}.kind == JBool:
     node{"isAscending"}.getBool(true)
   else:
-    return err(parseError("Comparator", "isAscending must be boolean"))
+    return err(parseError($T, "isAscending must be boolean"))
 ```
 
 ```nim
@@ -591,11 +591,11 @@ func toJson*(c: Comparator): JsonNode =
     if c.collation.isSome:
       result["collation"] = %c.collation.get()
 
-func fromJson*(_: typedesc[Comparator], node: JsonNode
+func fromJson*(T: typedesc[Comparator], node: JsonNode
     ): Result[Comparator, ValidationError] =
   ## Deserialise JSON to Comparator (RFC 8620 §5.5).
-  checkJsonKind(node, JObject, "Comparator")
-  checkJsonKind(node{"property"}, JString, "Comparator",
+  checkJsonKind(node, JObject, $T)
+  checkJsonKind(node{"property"}, JString, $T,
     "missing or invalid property")
   let property = ? parsePropertyName(node{"property"}.getStr(""))
   let isAscending =
@@ -603,7 +603,7 @@ func fromJson*(_: typedesc[Comparator], node: JsonNode
     elif node{"isAscending"}.kind == JBool:
       node{"isAscending"}.getBool(true)
     else:
-      return err(parseError("Comparator", "isAscending must be boolean"))
+      return err(parseError($T, "isAscending must be boolean"))
   let collation: Opt[string] =  # §1.4b: lenient
     if node{"collation"}.isNil or node{"collation"}.kind != JString:
       Opt.none(string)
@@ -632,7 +632,7 @@ func toJson*(cap: ServerCapability): JsonNode =
   else:
     if cap.rawData.isNil: newJObject() else: cap.rawData
 
-func fromJson*(_: typedesc[ServerCapability], uri: string, data: JsonNode
+func fromJson*(T: typedesc[ServerCapability], uri: string, data: JsonNode
     ): Result[ServerCapability, ValidationError] =
   ## Deserialise a capability from its URI and JSON data.
   let parsedKind = parseCapabilityKind(uri)
@@ -831,17 +831,17 @@ func toJson*(op: FilterOperator): JsonNode =
   ## Serialise FilterOperator to its RFC string.
   {.cast(noSideEffect).}: %($op)  # $ returns backing string: "AND", "OR", "NOT"
 
-func fromJson*(_: typedesc[FilterOperator], node: JsonNode
+func fromJson*(T: typedesc[FilterOperator], node: JsonNode
     ): Result[FilterOperator, ValidationError] =
   ## Deserialise a JSON string to FilterOperator. Not total — unknown
   ## operators return err because the RFC defines exactly three.
-  checkJsonKind(node, JString, "FilterOperator")
+  checkJsonKind(node, JString, $T)
   case node.getStr("")
   of "AND": ok(foAnd)
   of "OR": ok(foOr)
   of "NOT": ok(foNot)
   else:
-    err(parseError("FilterOperator",
+    err(parseError($T,
       "unknown operator: " & node.getStr("")))
 ```
 
@@ -984,7 +984,7 @@ func toJson*(entry: AccountCapabilityEntry): JsonNode =
 **`fromJson`:**
 
 ```nim
-func fromJson*(_: typedesc[AccountCapabilityEntry], uri: string,
+func fromJson*(T: typedesc[AccountCapabilityEntry], uri: string,
     data: JsonNode): Result[AccountCapabilityEntry, ValidationError] =
   ## Deserialise an account capability entry from URI and JSON data.
   ok(AccountCapabilityEntry(
@@ -1045,21 +1045,21 @@ func toJson*(acct: Account): JsonNode =
 **`fromJson`:**
 
 ```nim
-func fromJson*(_: typedesc[Account], node: JsonNode
+func fromJson*(T: typedesc[Account], node: JsonNode
     ): Result[Account, ValidationError] =
   ## Deserialise JSON to Account (RFC 8620 §2).
-  checkJsonKind(node, JObject, "Account")
-  checkJsonKind(node{"name"}, JString, "Account",
+  checkJsonKind(node, JObject, $T)
+  checkJsonKind(node{"name"}, JString, $T,
     "missing or invalid name")
   let name = node{"name"}.getStr("")
-  checkJsonKind(node{"isPersonal"}, JBool, "Account",
+  checkJsonKind(node{"isPersonal"}, JBool, $T,
     "missing or invalid isPersonal")
   let isPersonal = node{"isPersonal"}.getBool(false)
-  checkJsonKind(node{"isReadOnly"}, JBool, "Account",
+  checkJsonKind(node{"isReadOnly"}, JBool, $T,
     "missing or invalid isReadOnly")
   let isReadOnly = node{"isReadOnly"}.getBool(false)
   let acctCapsNode = node{"accountCapabilities"}
-  checkJsonKind(acctCapsNode, JObject, "Account",
+  checkJsonKind(acctCapsNode, JObject, $T,
     "missing or invalid accountCapabilities")
   var accountCapabilities: seq[AccountCapabilityEntry]
   for uri, data in acctCapsNode.pairs:  # kind verified above
@@ -1128,15 +1128,15 @@ pattern-matchable by kind).
 **`fromJson`:**
 
 ```nim
-func fromJson*(_: typedesc[Session], node: JsonNode
+func fromJson*(T: typedesc[Session], node: JsonNode
     ): Result[Session, ValidationError] =
   ## Deserialise JSON to Session (RFC 8620 §2). Calls parseSession for
   ## structural invariant validation.
-  checkJsonKind(node, JObject, "Session")
+  checkJsonKind(node, JObject, $T)
 
   # 1. Parse capabilities
   let capsNode = node{"capabilities"}
-  checkJsonKind(capsNode, JObject, "Session",
+  checkJsonKind(capsNode, JObject, $T,
     "missing or invalid capabilities")
   var capabilities: seq[ServerCapability]
   for uri, data in capsNode.pairs:  # kind verified above
@@ -1145,7 +1145,7 @@ func fromJson*(_: typedesc[Session], node: JsonNode
 
   # 2. Parse accounts
   let acctsNode = node{"accounts"}
-  checkJsonKind(acctsNode, JObject, "Session",
+  checkJsonKind(acctsNode, JObject, $T,
     "missing or invalid accounts")
   var accounts = initTable[AccountId, Account]()
   for idStr, acctData in acctsNode.pairs:  # kind verified above
@@ -1155,36 +1155,36 @@ func fromJson*(_: typedesc[Session], node: JsonNode
 
   # 3. Parse primaryAccounts (required per RFC §2)
   let primaryNode = node{"primaryAccounts"}
-  checkJsonKind(primaryNode, JObject, "Session",
+  checkJsonKind(primaryNode, JObject, $T,
     "missing or invalid primaryAccounts")
   var primaryAccounts = initTable[string, AccountId]()
   for uri, idNode in primaryNode.pairs:  # kind verified above
-    checkJsonKind(idNode, JString, "Session",
+    checkJsonKind(idNode, JString, $T,
       "primaryAccounts value must be string")
     let accountId = ? parseAccountId(idNode.getStr(""))
     primaryAccounts[uri] = accountId
 
   # 4. Parse scalar fields
-  checkJsonKind(node{"username"}, JString, "Session",
+  checkJsonKind(node{"username"}, JString, $T,
     "missing or invalid username")
   let username = node{"username"}.getStr("")
-  checkJsonKind(node{"apiUrl"}, JString, "Session",
+  checkJsonKind(node{"apiUrl"}, JString, $T,
     "missing or invalid apiUrl")
   let apiUrl = node{"apiUrl"}.getStr("")
 
   # 5. Parse URI templates
-  checkJsonKind(node{"downloadUrl"}, JString, "Session",
+  checkJsonKind(node{"downloadUrl"}, JString, $T,
     "missing or invalid downloadUrl")
   let downloadUrl = ? parseUriTemplate(node{"downloadUrl"}.getStr(""))
-  checkJsonKind(node{"uploadUrl"}, JString, "Session",
+  checkJsonKind(node{"uploadUrl"}, JString, $T,
     "missing or invalid uploadUrl")
   let uploadUrl = ? parseUriTemplate(node{"uploadUrl"}.getStr(""))
-  checkJsonKind(node{"eventSourceUrl"}, JString, "Session",
+  checkJsonKind(node{"eventSourceUrl"}, JString, $T,
     "missing or invalid eventSourceUrl")
   let eventSourceUrl = ? parseUriTemplate(node{"eventSourceUrl"}.getStr(""))
 
   # 6. Parse state
-  checkJsonKind(node{"state"}, JString, "Session",
+  checkJsonKind(node{"state"}, JString, $T,
     "missing or invalid state")
   let state = ? parseJmapState(node{"state"}.getStr(""))
 
@@ -1287,22 +1287,22 @@ func toJson*(r: Request): JsonNode =
 **`fromJson`:**
 
 ```nim
-func fromJson*(_: typedesc[Request], node: JsonNode
+func fromJson*(T: typedesc[Request], node: JsonNode
     ): Result[Request, ValidationError] =
   ## Deserialise JSON to Request (RFC 8620 §3.3).
-  checkJsonKind(node, JObject, "Request")
+  checkJsonKind(node, JObject, $T)
 
   let usingNode = node{"using"}
-  checkJsonKind(usingNode, JArray, "Request",
+  checkJsonKind(usingNode, JArray, $T,
     "missing or invalid using")
   var usingSeq: seq[string]
   for elem in usingNode.getElems(@[]):
-    checkJsonKind(elem, JString, "Request",
+    checkJsonKind(elem, JString, $T,
       "using element must be string")
     usingSeq.add(elem.getStr(""))
 
   let callsNode = node{"methodCalls"}
-  checkJsonKind(callsNode, JArray, "Request",
+  checkJsonKind(callsNode, JArray, $T,
     "missing or invalid methodCalls")
   var methodCalls: seq[Invocation]
   for callNode in callsNode.getElems(@[]):
@@ -1316,13 +1316,13 @@ func fromJson*(_: typedesc[Request], node: JsonNode
       var tbl = initTable[CreationId, Id]()
       for k, v in node{"createdIds"}.pairs:  # kind verified above
         let cid = ? parseCreationId(k)
-        checkJsonKind(v, JString, "Request",
+        checkJsonKind(v, JString, $T,
           "createdIds value must be string")
         let id = ? parseIdFromServer(v.getStr(""))
         tbl[cid] = id
       Opt.some(tbl)
     else:
-      return err(parseError("Request", "createdIds must be object or null"))
+      return err(parseError($T, "createdIds must be object or null"))
 
   ok(Request(
     `using`: usingSeq,
@@ -1371,20 +1371,20 @@ func toJson*(r: Response): JsonNode =
 **`fromJson`:**
 
 ```nim
-func fromJson*(_: typedesc[Response], node: JsonNode
+func fromJson*(T: typedesc[Response], node: JsonNode
     ): Result[Response, ValidationError] =
   ## Deserialise JSON to Response (RFC 8620 §3.4).
-  checkJsonKind(node, JObject, "Response")
+  checkJsonKind(node, JObject, $T)
 
   let responsesNode = node{"methodResponses"}
-  checkJsonKind(responsesNode, JArray, "Response",
+  checkJsonKind(responsesNode, JArray, $T,
     "missing or invalid methodResponses")
   var methodResponses: seq[Invocation]
   for respNode in responsesNode.getElems(@[]):
     let inv = ? Invocation.fromJson(respNode)
     methodResponses.add(inv)
 
-  checkJsonKind(node{"sessionState"}, JString, "Response",
+  checkJsonKind(node{"sessionState"}, JString, $T,
     "missing or invalid sessionState")
   let sessionState = ? parseJmapState(
     node{"sessionState"}.getStr(""))
@@ -1396,13 +1396,13 @@ func fromJson*(_: typedesc[Response], node: JsonNode
       var tbl = initTable[CreationId, Id]()
       for k, v in node{"createdIds"}.pairs:  # kind verified above
         let cid = ? parseCreationId(k)
-        checkJsonKind(v, JString, "Response",
+        checkJsonKind(v, JString, $T,
           "createdIds value must be string")
         let id = ? parseIdFromServer(v.getStr(""))
         tbl[cid] = id
       Opt.some(tbl)
     else:
-      return err(parseError("Response", "createdIds must be object or null"))
+      return err(parseError($T, "createdIds must be object or null"))
 
   ok(Response(
     methodResponses: methodResponses,
@@ -1439,23 +1439,23 @@ func toJson*(r: ResultReference): JsonNode =
 **`fromJson`:**
 
 ```nim
-func fromJson*(_: typedesc[ResultReference], node: JsonNode
+func fromJson*(T: typedesc[ResultReference], node: JsonNode
     ): Result[ResultReference, ValidationError] =
   ## Deserialise JSON to ResultReference (RFC 8620 §3.7).
-  checkJsonKind(node, JObject, "ResultReference")
-  checkJsonKind(node{"resultOf"}, JString, "ResultReference",
+  checkJsonKind(node, JObject, $T)
+  checkJsonKind(node{"resultOf"}, JString, $T,
     "missing or invalid resultOf")
   let resultOf = ? parseMethodCallId(node{"resultOf"}.getStr(""))
-  checkJsonKind(node{"name"}, JString, "ResultReference",
+  checkJsonKind(node{"name"}, JString, $T,
     "missing or invalid name")
   let name = node{"name"}.getStr("")
-  checkJsonKind(node{"path"}, JString, "ResultReference",
+  checkJsonKind(node{"path"}, JString, $T,
     "missing or invalid path")
   let path = node{"path"}.getStr("")
   if name.len == 0:
-    return err(parseError("ResultReference", "missing name"))
+    return err(parseError($T, "missing name"))
   if path.len == 0:
-    return err(parseError("ResultReference", "missing path"))
+    return err(parseError($T, "missing path"))
   ok(ResultReference(resultOf: resultOf, name: name, path: path))
 ```
 
@@ -1607,12 +1607,12 @@ func toJson*[C](f: Filter[C],
 **`fromJson`:**
 
 ```nim
-func fromJson*[C](_: typedesc[Filter[C]], node: JsonNode,
+func fromJson*[C](T: typedesc[Filter[C]], node: JsonNode,
     fromCondition: proc(n: JsonNode): Result[C, ValidationError]
     {.noSideEffect.}): Result[Filter[C], ValidationError] =
   ## Deserialise JSON to Filter[C]. Caller provides condition deserialiser.
   ## Dispatches on presence of "operator" key.
-  checkJsonKind(node, JObject, "Filter")
+  checkJsonKind(node, JObject, $T)
   let opNode = node{"operator"}
   if opNode.isNil:
     # No "operator" key → leaf condition
@@ -1622,7 +1622,7 @@ func fromJson*[C](_: typedesc[Filter[C]], node: JsonNode,
     # Has "operator" key → composed filter
     let op = ? FilterOperator.fromJson(opNode)
     let conditionsNode = node{"conditions"}
-    checkJsonKind(conditionsNode, JArray, "Filter",
+    checkJsonKind(conditionsNode, JArray, $T,
       "missing or invalid conditions array")
     var children: seq[Filter[C]]
     for childNode in conditionsNode.getElems(@[]):
@@ -1671,11 +1671,11 @@ func toJson*(patch: PatchObject): JsonNode =
 **`fromJson`:**
 
 ```nim
-func fromJson*(_: typedesc[PatchObject], node: JsonNode
+func fromJson*(T: typedesc[PatchObject], node: JsonNode
     ): Result[PatchObject, ValidationError] =
   ## Deserialise JSON to PatchObject using smart constructors.
   ## null values → deleteProp, other values → setProp.
-  checkJsonKind(node, JObject, "PatchObject")
+  checkJsonKind(node, JObject, $T)
   var patch = emptyPatch()
   for path, value in node.pairs:  # kind verified above
     if value.isNil or value.kind == JNull:
@@ -1714,10 +1714,10 @@ func toJson*(item: AddedItem): JsonNode =
 **`fromJson`:**
 
 ```nim
-func fromJson*(_: typedesc[AddedItem], node: JsonNode
+func fromJson*(T: typedesc[AddedItem], node: JsonNode
     ): Result[AddedItem, ValidationError] =
   ## Deserialise JSON to AddedItem.
-  checkJsonKind(node, JObject, "AddedItem")
+  checkJsonKind(node, JObject, $T)
   let id = ? Id.fromJson(node{"id"})
   let index = ? UnsignedInt.fromJson(node{"index"})
   ok(AddedItem(id: id, index: index))
@@ -1781,15 +1781,15 @@ func toJson*(re: RequestError): JsonNode =
 const RequestErrorKnownKeys = [
   "type", "status", "title", "detail", "limit"]
 
-func fromJson*(_: typedesc[RequestError], node: JsonNode
+func fromJson*(T: typedesc[RequestError], node: JsonNode
     ): Result[RequestError, ValidationError] =
   ## Deserialise RFC 7807 problem details JSON to RequestError.
-  checkJsonKind(node, JObject, "RequestError")
-  checkJsonKind(node{"type"}, JString, "RequestError",
+  checkJsonKind(node, JObject, $T)
+  checkJsonKind(node{"type"}, JString, $T,
     "missing or invalid type")
   let rawType = node{"type"}.getStr("")
   if rawType.len == 0:
-    return err(parseError("RequestError", "empty type field"))
+    return err(parseError($T, "empty type field"))
   let status: Opt[int] =
     if node{"status"}.isNil or node{"status"}.kind != JInt:
       Opt.none(int)
@@ -1860,15 +1860,15 @@ func toJson*(me: MethodError): JsonNode =
 ```nim
 const MethodErrorKnownKeys = ["type", "description"]
 
-func fromJson*(_: typedesc[MethodError], node: JsonNode
+func fromJson*(T: typedesc[MethodError], node: JsonNode
     ): Result[MethodError, ValidationError] =
   ## Deserialise error invocation arguments to MethodError.
-  checkJsonKind(node, JObject, "MethodError")
-  checkJsonKind(node{"type"}, JString, "MethodError",
+  checkJsonKind(node, JObject, $T)
+  checkJsonKind(node{"type"}, JString, $T,
     "missing or invalid type")
   let rawType = node{"type"}.getStr("")
   if rawType.len == 0:
-    return err(parseError("MethodError", "empty type field"))
+    return err(parseError($T, "empty type field"))
   let description: Opt[string] =  # §1.4b: lenient
     if node{"description"}.isNil or node{"description"}.kind != JString:
       Opt.none(string)
@@ -1924,15 +1924,15 @@ func toJson*(se: SetError): JsonNode =
 **`fromJson`:**
 
 ```nim
-func fromJson*(_: typedesc[SetError], node: JsonNode
+func fromJson*(T: typedesc[SetError], node: JsonNode
     ): Result[SetError, ValidationError] =
   ## Deserialise JSON to SetError with defensive fallback (L1 §8.10).
-  checkJsonKind(node, JObject, "SetError")
-  checkJsonKind(node{"type"}, JString, "SetError",
+  checkJsonKind(node, JObject, $T)
+  checkJsonKind(node{"type"}, JString, $T,
     "missing or invalid type")
   let rawType = node{"type"}.getStr("")
   if rawType.len == 0:
-    return err(parseError("SetError", "empty type field"))
+    return err(parseError($T, "empty type field"))
   let description: Opt[string] =  # §1.4b: lenient
     if node{"description"}.isNil or node{"description"}.kind != JString:
       Opt.none(string)
@@ -1957,7 +1957,7 @@ func fromJson*(_: typedesc[SetError], node: JsonNode
     if not propsNode.isNil and propsNode.kind == JArray:
       var properties: seq[string]
       for item in propsNode.getElems(@[]):
-        checkJsonKind(item, JString, "SetError",
+        checkJsonKind(item, JString, $T,
           "properties element must be string")
         properties.add(item.getStr(""))
       return ok(setErrorInvalidProperties(
