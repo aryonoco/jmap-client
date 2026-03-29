@@ -165,7 +165,18 @@
       "Bash(nimble --verbose build)",
       "Bash(nimble --verbose test)",
       "Bash(find /workspaces/jmap-client -type f -name *.cfg -o -name *.nims -o -name justfile -o -name testament.cfg)",
-      "Bash(find /workspaces/jmap-client -maxdepth 2 -name *.nims -o -name testament.cfg -o -name config.nims)"
+      "Bash(find /workspaces/jmap-client -maxdepth 2 -name *.nims -o -name testament.cfg -o -name config.nims)",
+      "Read(//workspaces/jmap-client/**)",
+      "Bash(bash /tmp/analyze_tests.sh)",
+      "Bash(for d:*)",
+      "Bash(find /workspaces/jmap-client/src /workspaces/jmap-client/tests -name *.nim)",
+      "Bash(find /workspaces/jmap-client/docs -name *.md -type f)",
+      "Bash(head -5 /workspaces/jmap-client/tests/tprop_*.nim)",
+      "Bash(rm -f /tmp/test_strictfuncs*.nim /tmp/test_sf*.nim /tmp/test_no_strict.nim /tmp/test_nimble*.nim /tmp/test_all_flags.nim /tmp/test_in_project.nim /tmp/test_project_scope.nim /tmp/test_nimble_scope)",
+      "Bash(rm -rf /tmp/nimcache* /tmp/test_sf3 /tmp/test_all_flags /tmp/test_in_project /tmp/test_no_strict /tmp/test_strictfuncs* /tmp/test_nimble)",
+      "Bash(nim r:*)",
+      "Bash(do sed:*)",
+      "Bash(reuse download:*)"
     ]
   }
 }

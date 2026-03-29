@@ -110,6 +110,7 @@ mhutchie
 mproperty
 nefrob
 nimalyzer
+nlvm
 notjson
 overquota
 rref

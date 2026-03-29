@@ -26,7 +26,7 @@ This project uses a devcontainer. Tool versions are managed by mise — `mise.to
 
 ## Dependencies
 
-Sole dependency: `nim-results` 0.5.1 (status-im/nim-results), vendored at `vendor/nim-results/` with patches for `strictCaseObjects` compliance. Provides `Result[T, E]`, `Opt[T]`, `?` operator. Import as `import results` (not `pkg/results`). See `.claude/rules/nim-conventions.md` for usage.
+Sole dependency: `nim-results` 0.5.1 (status-im/nim-results), vendored at `vendor/nim-results/` with patches for `strictCaseObjects` compliance. Provides `Result[T, E]`, `Opt[T]`, `?` operator. Import as `import results`. See `.claude/rules/nim-conventions.md` for usage.
 
 ## Compiler Flags
 
@@ -65,6 +65,7 @@ Architecture: 5 layers (see `docs/architecture-options.md`). Layer 1 detailed de
 - Prefer expression-oriented style: if/case/block as expressions
 - Prefer `collect` (std/sugar) for building new collections; `allIt`/`anyIt` for predicates
 - `{.push raises: [].}` on every module
+- `{.experimental: "strictCaseObjects".}` on every `src/` module
 
 ## Type Safety
 
