@@ -85,7 +85,7 @@ groups (transport 1-4, request 5-9) for future extension without renumbering.
 
 ## Error Handling Across FFI
 
-C has no Result types. The two-level railway projects to C as:
+C has no Result types. The railway projects to C as:
 - **Outer railway** (transport + request): return codes + thread-local error state.
 - **Inner railway** (per-invocation method errors): data in the response handle.
 

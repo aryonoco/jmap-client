@@ -167,6 +167,24 @@ enabled in this project, they are effectively resolved:
    smart-constructor invariants use `raiseAssert` (a `Defect`) for the
    unreachable branch — this is outside the `Result`/`Opt` railway.
 
+6. **`{.requiresInit.}` breaks `Result[T, E]` construction.** When `T`
+   contains a `{.requiresInit.}` field (e.g., `Comparator` has
+   `PropertyName {.requiresInit.}`), `nim-results`' `err()` and `?`
+   operator fail to compile because they default-construct the inactive
+   union branch. The workaround is `initResultErr[T, E](x)` — a helper
+   that constructs the Result in error state via manual case-branch
+   assignment, bypassing default construction. See `serde_envelope.nim`
+   (`Response`) and `serde_framework.nim` (`Comparator`) for the pattern.
+
+7. **`{.push raises: [].}` does not propagate to callable parameters.**
+   Proc-type parameters (callbacks) require explicit `{.raises: [].}`
+   annotation even inside modules with `{.push raises: [].}`. The push
+   applies to function definitions in the module, not to proc-type
+   parameters within those definitions. Both `{.noSideEffect.}` and
+   `{.raises: [].}` must be declared on callback parameter types.
+   See `Filter[C].fromJson` and `Referencable[T].fromJsonField` for
+   examples.
+
 ### Practical consequence
 
 Nim allows code that *behaves* like F#/Haskell — total functions, result types,

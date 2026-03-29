@@ -581,18 +581,18 @@ extraction with kind checks for `fromJson`.
 func toJson*(c: Comparator): JsonNode =
   ## Serialise Comparator to JSON (RFC 8620 §5.5).
   {.cast(noSideEffect).}:  # §1.6: full cast
-    result = %*{
-      "property": string(c.property),
-      "isAscending": c.isAscending,
-    }
+    result = %*{"property": string(c.property), "isAscending": c.isAscending}
     if c.collation.isSome:
       result["collation"] = %c.collation.get()
 
-func fromJson*(T: typedesc[Comparator], node: JsonNode
-    ): Result[Comparator, ValidationError] =
-  ## Deserialise JSON to Comparator (RFC 8620 §5.5).
-  checkJsonKind(node, JObject, $T)
-  checkJsonKind(node{"property"}, JString, $T,
+func parseComparatorCore(
+    node: JsonNode, typeName: string
+): Result[(PropertyName, bool, Opt[string]), ValidationError] =
+  ## Parse Comparator fields from JSON. Separated to avoid the requiresInit
+  ## interaction: Comparator contains PropertyName {.requiresInit.}, so
+  ## err()/? on Result[Comparator, ValidationError] fails to compile.
+  checkJsonKind(node, JObject, typeName)
+  checkJsonKind(node{"property"}, JString, typeName,
     "missing or invalid property")
   let property = ? parsePropertyName(node{"property"}.getStr(""))
   let isAscending =
@@ -600,13 +600,27 @@ func fromJson*(T: typedesc[Comparator], node: JsonNode
     elif node{"isAscending"}.kind == JBool:
       node{"isAscending"}.getBool(true)
     else:
-      return err(parseError($T, "isAscending must be boolean"))
+      return err(parseError(typeName, "isAscending must be boolean"))
   let collation: Opt[string] =  # §1.4b: lenient
     if node{"collation"}.isNil or node{"collation"}.kind != JString:
       Opt.none(string)
     else:
       Opt.some(node{"collation"}.getStr(""))
-  ? parseComparator(property, isAscending, collation)
+  ok((property, isAscending, collation))
+
+func fromJson*(T: typedesc[Comparator], node: JsonNode
+    ): Result[Comparator, ValidationError] =
+  ## Deserialise JSON to Comparator (RFC 8620 §5.5).
+  ## Uses initResultErr and helper func because Comparator has PropertyName
+  ## {.requiresInit.}, triggering the nim-results requiresInit limitation.
+  let coreResult = parseComparatorCore(node, $T)
+  if coreResult.isErr:
+    return initResultErr[Comparator, ValidationError](coreResult.error)
+  let core = coreResult.get()
+  let comparator = parseComparator(core[0], core[1], core[2])
+  if comparator.isErr:
+    return initResultErr[Comparator, ValidationError](comparator.error)
+  ok(comparator.get())
 ```
 
 Types using Pattern A: `CoreCapabilities`, `Account`,
@@ -1616,9 +1630,13 @@ containing object's serialiser must handle the key dispatch.
 
 Full `toJson`/`fromJson` code shown in §2 (Pattern A canonical example).
 `isAscending` defaults to `true` when absent from JSON (per RFC §5.5).
-`collation` is `Opt[string]` — omit when `isNone`. `fromJson` calls
-`parsePropertyName` for the `property` field and `parseComparator` for
-construction.
+`collation` is `Opt[string]` — omit when `isNone`. `fromJson` uses the
+`initResultErr` + helper function pattern (see §2 Pattern A) because
+`Comparator` contains `PropertyName {.requiresInit.}`, triggering the
+nim-results `requiresInit` limitation. The helper `parseComparatorCore`
+extracts fields into a tuple, avoiding `err()`/`?` on
+`Result[Comparator, ValidationError]`. `parseComparator` is called for
+final construction.
 
 **Module:** `src/jmap_client/serde_framework.nim`
 
@@ -1652,7 +1670,8 @@ and a `"conditions"` array. A condition node lacks the `"operator"` field.
 
 ```nim
 func toJson*[C](f: Filter[C],
-    condToJson: proc(c: C): JsonNode {.noSideEffect.}): JsonNode =
+    condToJson: proc(c: C): JsonNode
+    {.noSideEffect, raises: [].}): JsonNode =
   ## Serialise Filter[C] to JSON. Caller provides condition serialiser.
   case f.kind
   of fkCondition:
@@ -1670,7 +1689,7 @@ func toJson*[C](f: Filter[C],
 ```nim
 func fromJson*[C](T: typedesc[Filter[C]], node: JsonNode,
     fromCondition: proc(n: JsonNode): Result[C, ValidationError]
-    {.noSideEffect.}): Result[Filter[C], ValidationError] =
+    {.noSideEffect, raises: [].}): Result[Filter[C], ValidationError] =
   ## Deserialise JSON to Filter[C]. Caller provides condition deserialiser.
   ## Dispatches on presence of "operator" key.
   checkJsonKind(node, JObject, $T)
@@ -1692,10 +1711,13 @@ func fromJson*[C](T: typedesc[Filter[C]], node: JsonNode,
     ok(filterOperator(op, children))
 ```
 
-**Generic callback note.** The `fromCondition` callback has type
-`proc(...) {.noSideEffect.}`. Under `strictFuncs`, this should be
-effect-compatible since `func` is `proc {.noSideEffect.}`. If the compiler
-rejects this parameter type, use a template wrapper as fallback (see §1.2).
+**Generic callback note.** Both callbacks (`condToJson` and
+`fromCondition`) have type `proc(...) {.noSideEffect, raises: [].}`.
+The `raises: []` pragma is required because the module-level
+`{.push raises: [].}` requires callable parameters to prove they cannot
+raise. Under `strictFuncs`, `func` is `proc {.noSideEffect.}` and is
+effect-compatible. If the compiler rejects this parameter type, use a
+template wrapper as fallback (see §1.2).
 
 **Module:** `src/jmap_client/serde_framework.nim`
 
@@ -1948,6 +1970,11 @@ func fromJson*(T: typedesc[MethodError], node: JsonNode
 Per-item error within `/set` and `/copy` responses. A case object with
 variant-specific fields: `invalidProperties` carries `properties: seq[string]`,
 `alreadyExists` carries `existingId: Id`.
+
+**`requiresInit` note:** `SetError` contains `existingId: Id` where `Id` is
+`{.requiresInit.}`. If `err()`/`?` on `Result[SetError, ValidationError]`
+triggers a compilation failure, use the `initResultErr` workaround (see
+`serde_framework.nim` and `serde_envelope.nim` for the pattern).
 
 **Wire format:**
 
