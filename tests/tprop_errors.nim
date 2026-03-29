@@ -7,7 +7,7 @@
 
 import std/random
 
-import pkg/results
+import results
 
 import jmap_client/primitives
 import jmap_client/capabilities
@@ -16,19 +16,27 @@ import ./mproperty
 
 block propParseCapabilityKindTotality:
   checkProperty "parseCapabilityKind never crashes":
-    discard parseCapabilityKind(genArbitraryString(rng))
+    let s = genArbitraryString(rng)
+    lastInput = s
+    discard parseCapabilityKind(s)
 
 block propParseRequestErrorTypeTotality:
   checkProperty "parseRequestErrorType never crashes":
-    discard parseRequestErrorType(genArbitraryString(rng))
+    let s = genArbitraryString(rng)
+    lastInput = s
+    discard parseRequestErrorType(s)
 
 block propParseMethodErrorTypeTotality:
   checkProperty "parseMethodErrorType never crashes":
-    discard parseMethodErrorType(genArbitraryString(rng))
+    let s = genArbitraryString(rng)
+    lastInput = s
+    discard parseMethodErrorType(s)
 
 block propParseSetErrorTypeTotality:
   checkProperty "parseSetErrorType never crashes":
-    discard parseSetErrorType(genArbitraryString(rng))
+    let s = genArbitraryString(rng)
+    lastInput = s
+    discard parseSetErrorType(s)
 
 block propCapabilityKindKnownRoundTrip:
   for kind in [
@@ -63,6 +71,7 @@ block propSetErrorTypeKnownRoundTrip:
 block propUnknownStringsMaptoCatchAll:
   checkProperty "arbitrary strings map to catch-all":
     let s = genArbitraryString(rng)
+    lastInput = s
     let ck = parseCapabilityKind(s)
     if ck != ckUnknown:
       doAssert capabilityUri(ck).get() == s
@@ -70,16 +79,19 @@ block propUnknownStringsMaptoCatchAll:
 block propRequestErrorRawTypePreserved:
   checkProperty "requestError preserves rawType":
     let s = genArbitraryString(rng)
+    lastInput = s
     doAssert requestError(s).rawType == s
 
 block propMethodErrorRawTypePreserved:
   checkProperty "methodError preserves rawType":
     let s = genArbitraryString(rng)
+    lastInput = s
     doAssert methodError(s).rawType == s
 
 block propSetErrorRawTypePreserved:
   checkProperty "setError preserves rawType":
     let s = genArbitraryString(rng)
+    lastInput = s
     doAssert setError(s).rawType == s
 
 block propClientErrorMessageNonEmpty:
@@ -115,11 +127,13 @@ block propMethodErrorTypeParseDeterministic:
   checkProperty "propMethodErrorTypeParseDeterministic":
     ## Same input always produces same output.
     let s = genArbitraryString(rng, trial)
+    lastInput = s
     doAssert parseMethodErrorType(s) == parseMethodErrorType(s)
 
 block propSetErrorTypeParseDeterministic:
   checkProperty "propSetErrorTypeParseDeterministic":
     let s = genArbitraryString(rng, trial)
+    lastInput = s
     doAssert parseSetErrorType(s) == parseSetErrorType(s)
 
 block propExhaustiveMethodErrorRoundTrip:
@@ -143,16 +157,19 @@ block propExhaustiveRequestErrorRoundTrip:
 block propRequestErrorAutoParseCoherence:
   checkProperty "requestError(s).errorType == parseRequestErrorType(s)":
     let s = genArbitraryString(rng, trial)
+    lastInput = s
     doAssert requestError(s).errorType == parseRequestErrorType(s)
 
 block propMethodErrorAutoParseCoherence:
   checkProperty "methodError(s).errorType == parseMethodErrorType(s)":
     let s = genArbitraryString(rng, trial)
+    lastInput = s
     doAssert methodError(s).errorType == parseMethodErrorType(s)
 
 block propSetErrorRawTypePreservation:
   checkProperty "setError(s).rawType == s for non-variant strings":
     let s = genArbitraryString(rng, trial)
+    lastInput = s
     if s != "invalidProperties" and s != "alreadyExists":
       doAssert setError(s).rawType == s
 
@@ -210,3 +227,47 @@ block propSetErrorAlreadyExistsFieldPreservation:
     doAssert se.errorType == setAlreadyExists
     doAssert se.existingId == id
     doAssert se.description == desc
+
+# --- Generated error totality and field preservation ---
+
+block propGenMethodErrorTotality:
+  checkProperty "genMethodError never crashes":
+    let me = genMethodError(rng)
+    lastInput = me.rawType
+    discard me
+
+block propGenMethodErrorFieldPreservation:
+  checkProperty "genMethodError preserves rawType and auto-parse coherence":
+    let me = genMethodError(rng)
+    lastInput = me.rawType
+    doAssert me.rawType.len > 0
+    doAssert me.errorType == parseMethodErrorType(me.rawType)
+
+block propGenSetErrorTotality:
+  checkProperty "genSetError never crashes":
+    let se = genSetError(rng)
+    lastInput = se.rawType
+    discard se
+
+block propGenSetErrorFieldPreservation:
+  checkProperty "genSetError preserves rawType and variant fields":
+    let se = genSetError(rng)
+    lastInput = se.rawType
+    doAssert se.rawType.len > 0
+    case se.errorType
+    of setInvalidProperties: discard se.properties
+    of setAlreadyExists: discard se.existingId
+    else: discard
+
+block propGenClientErrorTotality:
+  checkProperty "genClientError never crashes":
+    let ce = genClientError(rng)
+    lastInput = ce.message
+    discard ce
+
+block propGenClientErrorFieldPreservation:
+  checkProperty "genClientError message always non-empty and kind disjoint":
+    let ce = genClientError(rng)
+    lastInput = ce.message
+    doAssert ce.message.len > 0
+    doAssert (ce.kind == cekTransport) != (ce.kind == cekRequest)

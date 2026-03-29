@@ -8,7 +8,7 @@
 import std/json
 import std/tables
 
-import pkg/results
+import results
 
 import jmap_client/types
 

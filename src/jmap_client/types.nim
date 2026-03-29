@@ -2,11 +2,12 @@
 # Copyright (c) 2026 Aryan Ameri
 
 {.push raises: [].}
+{.experimental: "strictCaseObjects".}
 
 ## Re-export hub for all Layer 1 modules. Import this single module to access
 ## the complete domain type vocabulary.
 
-import pkg/results
+import results
 
 import ./validation
 import ./primitives

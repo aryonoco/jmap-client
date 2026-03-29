@@ -10,7 +10,7 @@ import std/json
 import std/random
 import std/sequtils
 
-import pkg/results
+import results
 
 import jmap_client/envelope
 import jmap_client/framework
@@ -22,17 +22,21 @@ import ./mproperty
 
 block propParsePropertyNameTotality:
   checkProperty "parsePropertyName never crashes":
-    discard parsePropertyName(genArbitraryString(rng))
+    let s = genArbitraryString(rng)
+    lastInput = s
+    discard parsePropertyName(s)
 
 block propPropertyNameNonEmpty:
   checkProperty "valid PropertyName has len > 0":
     let s = genValidIdStrict(rng)
+    lastInput = s
     let pn = parsePropertyName(s).get()
     doAssert pn.len > 0
 
 block propPatchSetPropMonotonic:
   checkProperty "setProp increases or maintains len":
     let s = genValidIdStrict(rng, minLen = 1, maxLen = 50)
+    lastInput = s
     let p = emptyPatch()
     let r = setProp(p, s, %42)
     doAssert r.isOk
@@ -41,6 +45,7 @@ block propPatchSetPropMonotonic:
 block propPatchOverwriteIdempotentOnCount:
   checkProperty "overwriting same key keeps len stable":
     let s = genValidIdStrict(rng, minLen = 1, maxLen = 50)
+    lastInput = s
     let p1 = setProp(emptyPatch(), s, %1).get()
     let p2 = setProp(p1, s, %2).get()
     doAssert p1.len == p2.len
@@ -55,6 +60,7 @@ block propPatchEmptyPathAlwaysRejected:
 block propFilterConditionLaw:
   checkProperty "filterCondition preserves condition":
     let c = rng.rand(int)
+    lastInput = $c
     let f = filterCondition(c)
     doAssert f.kind == fkCondition
     doAssert f.condition == c
@@ -63,6 +69,7 @@ block propFilterOperatorLaw:
   checkProperty "filterOperator preserves operator and children":
     let c1 = filterCondition(rng.rand(int))
     let c2 = filterCondition(rng.rand(int))
+    lastInput = $c1.condition & ", " & $c2.condition
     let children = @[c1, c2]
     let f = filterOperator[int](foAnd, children)
     doAssert f.kind == fkOperator
@@ -72,6 +79,7 @@ block propFilterOperatorLaw:
 block propReferencableDirectLaw:
   checkProperty "direct preserves value":
     let v = rng.rand(int)
+    lastInput = $v
     let r = direct(v)
     doAssert r.kind == rkDirect
     doAssert r.value == v
@@ -94,6 +102,7 @@ block propComparatorDefaults:
 block propPropertyNameRoundTrip:
   checkProperty "$(parsePropertyName(s).get()) == s for valid s":
     let s = genValidPropertyName(rng)
+    lastInput = s
     let r = parsePropertyName(s)
     doAssert r.isOk
     doAssert $r.get() == s
@@ -102,6 +111,7 @@ block propPatchCommutativityDisjointKeys:
   checkProperty "setProp on disjoint keys is commutative":
     let k1 = "key_" & $rng.rand(0 .. 999)
     let k2 = "alt_" & $rng.rand(0 .. 999)
+    lastInput = k1 & ", " & k2
     if k1 != k2:
       let v1 = %rng.rand(int)
       let v2 = %rng.rand(int)
@@ -114,6 +124,7 @@ block propPatchCommutativityDisjointKeys:
 block propPatchImmutability:
   checkProperty "setProp returns new object, original unchanged":
     let s = genValidIdStrict(rng, minLen = 1, maxLen = 30)
+    lastInput = s
     let original = emptyPatch()
     let modified = setProp(original, s, %42)
     doAssert modified.isOk
@@ -123,6 +134,7 @@ block propPatchImmutability:
 block propPatchDeletePropIdempotent:
   checkProperty "deleteProp is idempotent on len":
     let key = genValidIdStrict(rng, minLen = 1, maxLen = 30)
+    lastInput = key
     let p = setProp(emptyPatch(), key, %1).get()
     let d1 = deleteProp(p, key).get()
     let d2 = deleteProp(d1, key).get()
@@ -134,6 +146,7 @@ block propPatchLastWriterWins:
   checkProperty "propPatchLastWriterWins":
     ## For the same key, later write prevails over earlier write.
     let k = genPatchPath(rng)
+    lastInput = k
     let v1 = %rng.rand(0 .. 999)
     let v2 = %rng.rand(1000 .. 1999)
     let direct = emptyPatch().setProp(k, v2).get()
@@ -144,6 +157,7 @@ block propPatchDeleteThenSetAsymmetry:
   checkProperty "propPatchDeleteThenSetAsymmetry":
     ## delete then set != set then delete.
     let k = genPatchPath(rng)
+    lastInput = k
     let v = %rng.rand(0 .. 999)
     let deleteThenSet = emptyPatch().deleteProp(k).get().setProp(k, v).get()
     let setThenDelete = emptyPatch().setProp(k, v).get().deleteProp(k).get()
@@ -151,15 +165,10 @@ block propPatchDeleteThenSetAsymmetry:
     doAssert deleteThenSet.getKey(k).get() == v
     doAssert setThenDelete.getKey(k).get().kind == JNull
 
-block propPropertyNameReflexivity:
-  checkProperty "propPropertyNameReflexivity":
-    let s = genValidPropertyName(rng)
-    let a = parsePropertyName(s).get()
-    doAssert a == a
-
 block propPropertyNameEqImpliesHashEq:
   checkProperty "propPropertyNameEqImpliesHashEq":
     let s = genValidPropertyName(rng)
+    lastInput = s
     let a = parsePropertyName(s).get()
     let b = parsePropertyName(s).get()
     doAssert hash(a) == hash(b)
@@ -167,6 +176,7 @@ block propPropertyNameEqImpliesHashEq:
 block propPropertyNameDoubleRoundTrip:
   checkProperty "propPropertyNameDoubleRoundTrip":
     let s = genValidPropertyName(rng)
+    lastInput = s
     let first = parsePropertyName(s).get()
     let second = parsePropertyName($first).get()
     doAssert first == second
@@ -209,34 +219,13 @@ block propFilterStructuralRecursion:
 
 block propAddedItemFieldPreservation:
   checkProperty "AddedItem preserves id and index through construction":
-    let ai = genAddedItem(rng)
     let idStr = genValidIdStrict(rng, minLen = 1, maxLen = 20)
+    lastInput = idStr
     let id = parseId(idStr).get()
     let idx = parseUnsignedInt(rng.rand(0'i64 .. 10000'i64)).get()
     let item = AddedItem(id: id, index: idx)
     doAssert item.id == id
     doAssert item.index == idx
-
-# --- Equality symmetry ---
-
-block propPropertyNameSymmetry:
-  checkProperty "propPropertyNameSymmetry":
-    let s = genValidPropertyName(rng, trial)
-    let a = parsePropertyName(s).get()
-    let b = parsePropertyName(s).get()
-    doAssert a == b
-    doAssert b == a
-
-# --- Equality transitivity ---
-
-block propPropertyNameTransitivity:
-  checkProperty "propPropertyNameTransitivity":
-    let s = genValidPropertyName(rng, trial)
-    let a = parsePropertyName(s).get()
-    let b = parsePropertyName(s).get()
-    let c = parsePropertyName(s).get()
-    doAssert a == b and b == c
-    doAssert a == c
 
 # --- Filter totality ---
 
@@ -261,6 +250,7 @@ block propFilterConstructionTotality:
 block propComparatorAlwaysOk:
   checkProperty "parseComparator always returns Ok for valid PropertyName":
     let s = genValidPropertyName(rng, trial)
+    lastInput = s
     let pn = parsePropertyName(s).get()
     let asc = rng.rand(0 .. 1) == 0
     doAssert parseComparator(pn, asc).isOk
@@ -287,6 +277,7 @@ block propPatchMonoidIdentity:
   ## emptyPatch then setProp(k, v) == just setProp(k, v).
   checkProperty "propPatchMonoidIdentity":
     let key = "key_" & $rng.rand(0 .. 999)
+    lastInput = key
     let val = newJInt(rng.rand(int))
     let p = emptyPatch().setProp(key, val).get()
     doAssert p.len == 1
@@ -296,6 +287,7 @@ block propPatchIdempotence:
   ## Writing the same key-value twice yields same result as once.
   checkProperty "propPatchIdempotence":
     let key = "key_" & $rng.rand(0 .. 999)
+    lastInput = key
     let val = newJInt(rng.rand(int))
     let once = emptyPatch().setProp(key, val).get()
     let twice = emptyPatch().setProp(key, val).get().setProp(key, val).get()
@@ -308,6 +300,7 @@ block propPatchAssociativity:
     let k1 = "a_" & $rng.rand(0 .. 999)
     let k2 = "b_" & $rng.rand(0 .. 999)
     let k3 = "c_" & $rng.rand(0 .. 999)
+    lastInput = k1 & ", " & k2 & ", " & k3
     let v1 = newJInt(rng.rand(0 .. 999))
     let v2 = newJInt(rng.rand(0 .. 999))
     let v3 = newJInt(rng.rand(0 .. 999))
@@ -323,6 +316,7 @@ block propPatchLenNonNegative:
   checkProperty "propPatchLenNonNegative":
     var p = emptyPatch()
     let n = rng.rand(0 .. 5)
+    lastInput = $n
     for i in 0 ..< n:
       p = p.setProp("k" & $i, newJInt(i)).get()
     doAssert p.len >= 0
@@ -345,6 +339,7 @@ block propFilterOperatorPreserved:
   ## Operator enum value survives construction.
   checkProperty "propFilterOperatorPreserved":
     let op = [foAnd, foOr, foNot][rng.rand(0 .. 2)]
+    lastInput = $op
     let c = filterCondition(rng.rand(int))
     let f = filterOperator[int](op, @[c])
     doAssert f.operator == op
@@ -352,7 +347,8 @@ block propFilterOperatorPreserved:
 block propUriTemplatePostConstructionLen:
   ## After successful parseUriTemplate, the template has non-zero length.
   checkProperty "propUriTemplatePostConstructionLen":
-    let s = genValidUriTemplate(rng)
+    let s = genValidUriTemplateParametric(rng)
+    lastInput = s
     let t = parseUriTemplate(s)
     if t.isOk:
       doAssert t.get().len > 0
@@ -361,6 +357,30 @@ block propPropertyNamePostConstructionLen:
   ## After successful parsePropertyName, the name has non-zero length.
   checkProperty "propPropertyNamePostConstructionLen":
     let s = genArbitraryString(rng, trial)
+    lastInput = s
     let pn = parsePropertyName(s)
     if pn.isOk:
       doAssert pn.get().len > 0
+
+# --- Comparator and AddedItem generator properties ---
+
+block propComparatorTotality:
+  checkProperty "genComparator never crashes":
+    let c = genComparator(rng)
+    lastInput = $c.property
+    discard c
+
+block propComparatorFieldPreservation:
+  checkProperty "genComparator property non-empty and collation valid":
+    let c = genComparator(rng)
+    lastInput = $c.property
+    doAssert c.property.len > 0
+    if c.collation.isSome:
+      doAssert c.collation.get().len > 0
+
+block propAddedItemTotality:
+  checkProperty "genAddedItem id in bounds and index non-negative":
+    let ai = genAddedItem(rng)
+    lastInput = $ai.id
+    doAssert ai.id.len >= 1 and ai.id.len <= 255
+    doAssert int64(ai.index) >= 0

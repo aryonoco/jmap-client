@@ -2,6 +2,7 @@
 # Copyright (c) 2026 Aryan Ameri
 
 {.push raises: [].}
+{.experimental: "strictCaseObjects".}
 
 ## JMAP capability discovery types. Maps IANA-registered capability URIs to
 ## typed enums with lossless round-trip for vendor extensions.
@@ -10,7 +11,7 @@ import std/strutils
 import std/sets
 from std/json import JsonNode
 
-import pkg/results
+import results
 
 import ./primitives
 

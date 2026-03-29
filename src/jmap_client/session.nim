@@ -2,6 +2,7 @@
 # Copyright (c) 2026 Aryan Ameri
 
 {.push raises: [].}
+{.experimental: "strictCaseObjects".}
 
 ## JMAP Session resource types (RFC 8620 section 2). Account capability entries,
 ## accounts, URI templates, and the Session aggregate with structural validation.
@@ -12,7 +13,7 @@ import std/strutils
 import std/tables
 from std/json import JsonNode
 
-import pkg/results
+import results
 
 import ./validation
 import ./identifiers
@@ -150,8 +151,11 @@ func coreCapabilities*(session: Session): CoreCapabilities =
   ## parseSession guarantees ckCore is present. Raises AssertionDefect if
   ## the invariant is violated by direct construction.
   for cap in session.capabilities:
-    if cap.kind == ckCore:
+    case cap.kind
+    of ckCore:
       return cap.core
+    else:
+      discard
   raiseAssert "Session missing ckCore: violated parseSession invariant"
 
 func findCapability*(session: Session, kind: CapabilityKind): Opt[ServerCapability] =

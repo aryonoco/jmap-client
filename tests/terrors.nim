@@ -8,7 +8,7 @@
 import std/json
 import std/strutils
 
-import pkg/results
+import results
 
 import jmap_client/primitives
 import jmap_client/errors
@@ -563,3 +563,89 @@ block httpStatusErrorLargeStatus:
   assertEq te.httpStatus, 999
   let te0 = httpStatusError(0, "zero status")
   assertEq te0.httpStatus, 0
+
+# --- Phase 2: Error constructor zero-coverage gaps ---
+
+block clientErrorFromTransport:
+  ## clientError(transport) lifts a transport error into ClientError.
+  let te = transportError(tekNetwork, "connection refused")
+  let ce = clientError(te)
+  doAssert ce.kind == cekTransport
+  doAssert ce.transport.kind == tekNetwork
+  doAssert ce.transport.message == "connection refused"
+
+block clientErrorFromRequest:
+  ## clientError(request) lifts a request error into ClientError.
+  let re = requestError("urn:ietf:params:jmap:error:notJSON")
+  let ce = clientError(re)
+  doAssert ce.kind == cekRequest
+  doAssert ce.request.errorType == retNotJson
+
+block transportErrorAllKindsNetwork:
+  ## transportError with tekNetwork variant.
+  let e = transportError(tekNetwork, "host unreachable")
+  doAssert e.kind == tekNetwork
+  doAssert e.message == "host unreachable"
+
+block transportErrorAllKindsTls:
+  ## transportError with tekTls variant.
+  let e = transportError(tekTls, "handshake failed")
+  doAssert e.kind == tekTls
+  doAssert e.message == "handshake failed"
+
+block transportErrorAllKindsTimeout:
+  ## transportError with tekTimeout variant.
+  let e = transportError(tekTimeout, "request timed out after 30s")
+  doAssert e.kind == tekTimeout
+  doAssert e.message == "request timed out after 30s"
+
+block transportErrorAllKindsHttpStatus:
+  ## httpStatusError constructs a tekHttpStatus variant.
+  let e = httpStatusError(503, "Service Unavailable")
+  doAssert e.kind == tekHttpStatus
+  doAssert e.httpStatus == 503
+  doAssert e.message == "Service Unavailable"
+
+block httpStatusErrorFieldAccess:
+  ## httpStatusError provides access to both httpStatus and message.
+  let e = httpStatusError(429, "Too Many Requests")
+  assertEq e.kind, tekHttpStatus
+  assertEq e.httpStatus, 429
+  assertEq e.message, "Too Many Requests"
+
+block messageClientErrorTransportPath:
+  ## message(ClientError) for cekTransport returns transport.message.
+  let ce = clientError(transportError(tekTls, "expired certificate"))
+  assertEq message(ce), "expired certificate"
+
+block messageClientErrorRequestWithDetail:
+  ## message(ClientError) for cekRequest prefers detail over title.
+  let re = requestError(
+    "urn:ietf:params:jmap:error:limit",
+    title = Opt.some("Limit"),
+    detail = Opt.some("Too many objects in request"),
+  )
+  let ce = clientError(re)
+  assertEq message(ce), "Too many objects in request"
+
+block messageClientErrorRequestWithTitleOnly:
+  ## message(ClientError) for cekRequest uses title when detail is absent.
+  let re = requestError(
+    "urn:ietf:params:jmap:error:notRequest", title = Opt.some("Not a JMAP Request")
+  )
+  let ce = clientError(re)
+  assertEq message(ce), "Not a JMAP Request"
+
+block messageClientErrorRequestRawTypeFallback:
+  ## message(ClientError) for cekRequest falls back to rawType.
+  let re = requestError("urn:ietf:params:jmap:error:unknownCapability")
+  let ce = clientError(re)
+  assertEq message(ce), "urn:ietf:params:jmap:error:unknownCapability"
+
+# --- Phase 3: SetError empty rawType ---
+
+block setErrorEmptyRawType:
+  ## setError with empty rawType — still constructs, rawType preserved.
+  let se = setError("")
+  doAssert se.rawType == ""
+  doAssert se.errorType == setUnknown

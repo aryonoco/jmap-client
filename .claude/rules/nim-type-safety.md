@@ -75,9 +75,12 @@ transport/request failures) and not bare `string` (loses context). Lift with
 
 Nim's discriminated unions — equivalent to F#/OCaml/Haskell ADTs.
 
-`strictCaseObjects` enabled: variant fields require matching the discriminator.
+`strictCaseObjects` enforced per-module in `src/` via `{.experimental:
+"strictCaseObjects".}`. Global enablement breaks `std/json`. Variant fields
+require matching the discriminator in a `case` statement (`if` is insufficient).
 Shared fields (before `case`) always accessible. Discriminator immutable after
 construction. Adding a variant forces errors at all unhandled `case` sites.
+Do not use `unsafeGet`/`unsafeValue` in `src/` modules — use `valueOr` instead.
 
 ### Two-variant sum (outer railway error):
 

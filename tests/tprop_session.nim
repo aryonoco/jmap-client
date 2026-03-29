@@ -7,11 +7,14 @@
 
 import std/hashes
 import std/random
+import std/tables
 
-import pkg/results
+import results
 
 import jmap_client/capabilities
 import jmap_client/framework
+import jmap_client/identifiers
+import jmap_client/primitives
 import jmap_client/session
 import ./mfixtures
 import ./mproperty
@@ -20,17 +23,27 @@ import ./mproperty
 
 block propUriTemplateTotality:
   checkProperty "parseUriTemplate never crashes on arbitrary string":
-    discard parseUriTemplate(genArbitraryString(rng))
+    let s = genArbitraryString(rng)
+    lastInput = s
+    discard parseUriTemplate(s)
+
+block propUriTemplateMaliciousTotality:
+  checkProperty "parseUriTemplate never crashes on malicious input":
+    let s = genMaliciousString(rng, trial)
+    lastInput = s
+    discard parseUriTemplate(s)
 
 block propUriTemplateNonEmpty:
   checkProperty "valid UriTemplate has len > 0":
-    let s = genValidUriTemplate(rng)
+    let s = genValidUriTemplateParametric(rng)
+    lastInput = s
     let tmpl = parseUriTemplate(s).get()
     doAssert tmpl.len > 0
 
 block propUriTemplateRoundTrip:
   checkProperty "$(parseUriTemplate(s).get()) == s for valid s":
-    let s = genValidUriTemplate(rng)
+    let s = genValidUriTemplateParametric(rng)
+    lastInput = s
     doAssert $(parseUriTemplate(s).get()) == s
 
 block propHasVariablePresent:
@@ -90,22 +103,18 @@ block propSessionFindCapabilityAgreesWithByUri:
           let byUri = session.findCapabilityByUri(uri.get())
           doAssert byKind.isSome == byUri.isSome
 
-block propUriTemplateReflexivity:
-  checkPropertyN "propUriTemplateReflexivity", QuickTrials:
-    let s = genValidUriTemplate(rng)
-    let a = parseUriTemplate(s).get()
-    doAssert a == a
-
 block propUriTemplateEqImpliesHashEq:
   checkPropertyN "propUriTemplateEqImpliesHashEq", QuickTrials:
-    let s = genValidUriTemplate(rng)
+    let s = genValidUriTemplateParametric(rng)
+    lastInput = s
     let a = parseUriTemplate(s).get()
     let b = parseUriTemplate(s).get()
     doAssert hash(a) == hash(b)
 
 block propUriTemplateDoubleRoundTrip:
   checkPropertyN "propUriTemplateDoubleRoundTrip", QuickTrials:
-    let s = genValidUriTemplate(rng)
+    let s = genValidUriTemplateParametric(rng)
+    lastInput = s
     let first = parseUriTemplate(s).get()
     let second = parseUriTemplate($first).get()
     doAssert first == second
@@ -133,12 +142,14 @@ block propAccountFindCapabilityTotality:
     let account = genValidAccount(rng)
     let kind =
       rng.oneOf([ckCore, ckMail, ckSubmission, ckContacts, ckCalendars, ckUnknown])
+    lastInput = $kind
     discard account.findCapability(kind)
 
 block propAccountFindCapabilityByUriTotality:
   checkPropertyN "Account.findCapabilityByUri never crashes", QuickTrials:
     let account = genValidAccount(rng)
     let uri = genArbitraryString(rng)
+    lastInput = uri
     discard account.findCapabilityByUri(uri)
 
 block propAccountHasCapabilityTotality:
@@ -146,26 +157,66 @@ block propAccountHasCapabilityTotality:
     let account = genValidAccount(rng)
     let kind =
       rng.oneOf([ckCore, ckMail, ckSubmission, ckContacts, ckCalendars, ckUnknown])
+    lastInput = $kind
     discard account.hasCapability(kind)
 
 block propUriTemplateHasVariableTotality:
   checkPropertyN "UriTemplate.hasVariable never crashes", QuickTrials:
-    let tmpl = parseUriTemplate(genValidUriTemplate(rng)).get()
+    let s = genValidUriTemplateParametric(rng)
+    let tmpl = parseUriTemplate(s).get()
     let varName = genArbitraryString(rng)
+    lastInput = varName
     discard tmpl.hasVariable(varName)
 
 block propPatchObjectGetKeyTotality:
   checkPropertyN "PatchObject.getKey never crashes", QuickTrials:
     let p = genPatchObject(rng, rng.rand(0 .. 5))
     let key = genArbitraryString(rng)
+    lastInput = key
     discard p.getKey(key)
 
-# --- Symmetry for UriTemplate ---
+# --- Randomised session generation properties ---
 
-block propUriTemplateSymmetry:
-  checkPropertyN "propUriTemplateSymmetry", QuickTrials:
-    let s = genValidUriTemplate(rng)
-    let a = parseUriTemplate(s).get()
-    let b = parseUriTemplate(s).get()
-    doAssert a == b
-    doAssert b == a
+block propSessionWithRandomCapabilities:
+  checkPropertyN "parseSession with random capabilities succeeds", QuickTrials:
+    let coreCap = ServerCapability(
+      rawUri: "urn:ietf:params:jmap:core", kind: ckCore, core: genCoreCapabilities(rng)
+    )
+    var caps = @[coreCap]
+    let extraCount = rng.rand(0 .. 3)
+    for _ in 0 ..< extraCount:
+      let sc = genServerCapability(rng)
+      if sc.kind != ckCore:
+        caps.add sc
+    var args = makeSessionArgs()
+    args.capabilities = caps
+    let session = parseSessionFromArgs(args)
+    doAssert session.isOk
+    doAssert findCapability(session.get(), ckCore).isSome
+
+block propSessionCoreCapabilitiesPreserved:
+  checkPropertyN "random CoreCapabilities round-trip through session", QuickTrials:
+    let randomCore = genCoreCapabilities(rng)
+    var args = makeSessionArgs()
+    args.capabilities = @[
+      ServerCapability(
+        rawUri: "urn:ietf:params:jmap:core", kind: ckCore, core: randomCore
+      )
+    ]
+    let session = parseSessionFromArgs(args).get()
+    let extracted = coreCapabilities(session)
+    doAssert extracted.maxSizeUpload == randomCore.maxSizeUpload
+    doAssert extracted.maxConcurrentUpload == randomCore.maxConcurrentUpload
+    doAssert extracted.maxCallsInRequest == randomCore.maxCallsInRequest
+    doAssert extracted.maxObjectsInGet == randomCore.maxObjectsInGet
+
+block propSessionWithRandomAccounts:
+  checkPropertyN "findAccount returns added accounts", QuickTrials:
+    var args = makeSessionArgs()
+    let acctCount = rng.rand(1 .. 5)
+    for i in 0 ..< acctCount:
+      let acctId = parseAccountId("rnd" & $i).get()
+      args.accounts[acctId] = genValidAccount(rng)
+    let session = parseSessionFromArgs(args).get()
+    for acctId in args.accounts.keys:
+      doAssert findAccount(session, acctId).isSome

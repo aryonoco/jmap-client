@@ -2,6 +2,7 @@
 # Copyright (c) 2026 Aryan Ameri
 
 {.push raises: [].}
+{.experimental: "strictCaseObjects".}
 
 ## RFC 8620 primitive types with smart constructors enforcing wire-format
 ## constraints. Bounded to JSON-safe integer ranges (2^53-1) per the JMAP
@@ -10,7 +11,7 @@
 import std/hashes
 import std/sequtils
 
-import pkg/results
+import results
 
 import ./validation
 

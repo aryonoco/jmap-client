@@ -2,6 +2,7 @@
 # Copyright (c) 2026 Aryan Ameri
 
 {.push raises: [].}
+{.experimental: "strictCaseObjects".}
 
 ## Generic method framework types for JMAP standard methods (RFC 8620 §5).
 ## Covers filters, comparators, patch objects, and query change tracking.
@@ -10,7 +11,7 @@ import std/hashes
 import std/tables
 from std/json import JsonNode, newJNull
 
-import pkg/results
+import results
 
 import ./validation
 import ./primitives

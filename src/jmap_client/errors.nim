@@ -2,6 +2,7 @@
 # Copyright (c) 2026 Aryan Ameri
 
 {.push raises: [].}
+{.experimental: "strictCaseObjects".}
 
 ## Three-railway error hierarchy mapping JMAP's failure modes: transport
 ## (network/TLS/HTTP), request-level (RFC 7807 problem details), and
@@ -10,7 +11,7 @@
 import std/strutils
 from std/json import JsonNode
 
-import pkg/results
+import results
 
 import ./primitives
 
@@ -107,12 +108,9 @@ func message*(err: ClientError): string =
   of cekTransport:
     err.transport.message
   of cekRequest:
-    if err.request.detail.isSome:
-      err.request.detail.unsafeGet
-    elif err.request.title.isSome:
-      err.request.title.unsafeGet
-    else:
-      err.request.rawType
+    err.request.detail.valueOr:
+      err.request.title.valueOr:
+        err.request.rawType
 
 type MethodErrorType* = enum
   ## Per-invocation error types from the inner railway (RFC 8620 §3.6.2).

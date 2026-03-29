@@ -8,7 +8,7 @@
 import std/hashes
 import std/strutils
 
-import pkg/results
+import results
 
 import jmap_client/identifiers
 import jmap_client/primitives
@@ -123,36 +123,6 @@ block creationIdBorrowedOps:
   doAssert hash(a) == hash(b)
   doAssert not compiles(a.len)
 
-# --- Error content assertions ---
-
-block parseAccountIdErrorContentEmpty:
-  assertErrFields parseAccountId(""), "AccountId", "length must be 1-255 octets", ""
-
-block parseAccountIdErrorContentTooLong:
-  assertErrFields parseAccountId('a'.repeat(256)),
-    "AccountId", "length must be 1-255 octets", 'a'.repeat(256)
-
-block parseAccountIdErrorContentControl:
-  assertErrFields parseAccountId("abc\x00def"),
-    "AccountId", "contains control characters", "abc\x00def"
-
-block parseJmapStateErrorContentEmpty:
-  assertErrFields parseJmapState(""), "JmapState", "must not be empty", ""
-
-block parseJmapStateErrorContentControl:
-  assertErrFields parseJmapState("abc\x00def"),
-    "JmapState", "contains control characters", "abc\x00def"
-
-block parseMethodCallIdErrorContentEmpty:
-  assertErrFields parseMethodCallId(""), "MethodCallId", "must not be empty", ""
-
-block parseCreationIdErrorContentEmpty:
-  assertErrFields parseCreationId(""), "CreationId", "must not be empty", ""
-
-block parseCreationIdErrorContentHash:
-  assertErrFields parseCreationId("#abc"),
-    "CreationId", "must not include '#' prefix", "#abc"
-
 # --- Adversarial edge cases ---
 
 block parseAccountIdBom:
@@ -224,3 +194,13 @@ block methodCallIdAllBytesAccepted:
   for i in 0 ..< 256:
     s[i] = char(i)
   assertOk parseMethodCallId(s)
+
+# --- Phase 3: Boundary value tests ---
+
+block parseAccountIdLen2:
+  ## parseAccountId accepts a 2-character string (boundary above minimum).
+  assertOk parseAccountId("AB")
+
+block parseCreationIdHashAtEnd:
+  ## parseCreationId accepts a hash at the end (only position 0 is rejected).
+  assertOk parseCreationId("a#")

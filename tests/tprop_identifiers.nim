@@ -9,7 +9,7 @@ import std/hashes
 import std/random
 import std/sequtils
 
-import pkg/results
+import results
 
 import jmap_client/identifiers
 import jmap_client/validation
@@ -17,63 +17,115 @@ import ./mproperty
 
 block propParseAccountIdTotality:
   checkProperty "parseAccountId never crashes":
-    discard parseAccountId(genArbitraryString(rng))
+    let s = genArbitraryString(rng)
+    lastInput = s
+    discard parseAccountId(s)
 
 block propParseJmapStateTotality:
   checkProperty "parseJmapState never crashes":
-    discard parseJmapState(genArbitraryString(rng))
+    let s = genArbitraryString(rng)
+    lastInput = s
+    discard parseJmapState(s)
 
 block propParseMethodCallIdTotality:
   checkProperty "parseMethodCallId never crashes":
-    discard parseMethodCallId(genArbitraryString(rng))
+    let s = genArbitraryString(rng)
+    lastInput = s
+    discard parseMethodCallId(s)
 
 block propParseCreationIdTotality:
   checkProperty "parseCreationId never crashes":
-    discard parseCreationId(genArbitraryString(rng))
+    let s = genArbitraryString(rng)
+    lastInput = s
+    discard parseCreationId(s)
+
+block propParseAccountIdMaliciousTotality:
+  checkProperty "parseAccountId never crashes on malicious input":
+    let s = genMaliciousString(rng, trial)
+    lastInput = s
+    discard parseAccountId(s)
+
+block propParseJmapStateMaliciousTotality:
+  checkProperty "parseJmapState never crashes on malicious input":
+    let s = genMaliciousString(rng, trial)
+    lastInput = s
+    discard parseJmapState(s)
+
+block propParseMethodCallIdMaliciousTotality:
+  checkProperty "parseMethodCallId never crashes on malicious input":
+    let s = genMaliciousString(rng, trial)
+    lastInput = s
+    discard parseMethodCallId(s)
+
+block propParseCreationIdMaliciousTotality:
+  checkProperty "parseCreationId never crashes on malicious input":
+    let s = genMaliciousString(rng, trial)
+    lastInput = s
+    discard parseCreationId(s)
+
+block propParseJmapStateLongArbitraryTotality:
+  checkProperty "parseJmapState never crashes on long arbitrary input":
+    let s = genLongArbitraryString(rng, trial)
+    lastInput = s
+    discard parseJmapState(s)
+
+block propParseMethodCallIdLongArbitraryTotality:
+  checkProperty "parseMethodCallId never crashes on long arbitrary input":
+    let s = genLongArbitraryString(rng, trial)
+    lastInput = s
+    discard parseMethodCallId(s)
 
 block propAccountIdDollarRoundTrip:
   checkProperty "$(parseAccountId(s).get()) == s":
     let s = genValidIdStrict(rng)
+    lastInput = s
     doAssert $(parseAccountId(s).get()) == s
 
 block propAccountIdLengthBounds:
   checkProperty "valid AccountId has len in 1..255":
     let s = genValidIdStrict(rng)
+    lastInput = s
     let a = parseAccountId(s).get()
     doAssert a.len >= 1 and a.len <= 255
 
 block propAccountIdNoControlChars:
   checkProperty "valid AccountId chars >= space and != DEL":
     let s = genValidIdStrict(rng)
+    lastInput = s
     doAssert s.allIt(it >= ' ' and it != '\x7F')
 
 block propCreationIdNoLeadingHash:
   checkProperty "valid CreationId does not start with #":
     let s = genValidCreationId(rng)
+    lastInput = s
     let c = parseCreationId(s).get()
     doAssert string(c)[0] != '#'
 
 block propJmapStateNonEmpty:
   checkProperty "valid JmapState is non-empty":
     let s = genValidIdStrict(rng)
+    lastInput = s
     let st = parseJmapState(s).get()
     doAssert $st != ""
 
 block propMethodCallIdNonEmpty:
   checkProperty "valid MethodCallId is non-empty":
     let s = genValidIdStrict(rng)
+    lastInput = s
     let m = parseMethodCallId(s).get()
     doAssert $m != ""
 
 block propCreationIdNonEmpty:
   checkProperty "valid CreationId is non-empty":
     let s = genValidIdStrict(rng)
+    lastInput = s
     let c = parseCreationId(s).get()
     doAssert $c != ""
 
 block propAccountIdEqImpliesHashEq:
   checkProperty "a == b implies hash(a) == hash(b)":
     let s = genValidIdStrict(rng)
+    lastInput = s
     let a = parseAccountId(s).get()
     let b = parseAccountId(s).get()
     doAssert a == b
@@ -84,16 +136,19 @@ block propAccountIdEqImpliesHashEq:
 block propJmapStateRoundTrip:
   checkProperty "$(parseJmapState(s).get()) == s":
     let s = genValidJmapState(rng)
+    lastInput = s
     doAssert $(parseJmapState(s).get()) == s
 
 block propMethodCallIdRoundTrip:
   checkProperty "$(parseMethodCallId(s).get()) == s":
     let s = genValidMethodCallId(rng)
+    lastInput = s
     doAssert $(parseMethodCallId(s).get()) == s
 
 block propCreationIdRoundTrip:
   checkProperty "$(parseCreationId(s).get()) == s":
     let s = genValidCreationId(rng)
+    lastInput = s
     doAssert $(parseCreationId(s).get()) == s
 
 # --- JmapState invariant ---
@@ -101,6 +156,7 @@ block propCreationIdRoundTrip:
 block propJmapStateNoControlChars:
   checkProperty "valid JmapState contains no control chars":
     let s = genValidJmapState(rng)
+    lastInput = s
     let st = parseJmapState(s).get()
     let str = $st
     for c in str:
@@ -113,37 +169,15 @@ block propMethodCallIdAcceptsControlChars:
     var s = newString(5)
     for i in 0 ..< 5:
       s[i] = rng.genControlChar()
+    lastInput = s
     doAssert parseMethodCallId(s).isOk
 
-# --- Equivalence relation and hash consistency ---
-
-block propAccountIdReflexivity:
-  checkProperty "propAccountIdReflexivity":
-    let s = genValidAccountId(rng)
-    let a = parseAccountId(s).get()
-    doAssert a == a
-
-block propJmapStateReflexivity:
-  checkProperty "propJmapStateReflexivity":
-    let s = genValidJmapState(rng)
-    let a = parseJmapState(s).get()
-    doAssert a == a
-
-block propMethodCallIdReflexivity:
-  checkProperty "propMethodCallIdReflexivity":
-    let s = genValidMethodCallId(rng)
-    let a = parseMethodCallId(s).get()
-    doAssert a == a
-
-block propCreationIdReflexivity:
-  checkProperty "propCreationIdReflexivity":
-    let s = genValidCreationId(rng)
-    let a = parseCreationId(s).get()
-    doAssert a == a
+# --- Hash consistency ---
 
 block propJmapStateEqImpliesHashEq:
   checkProperty "propJmapStateEqImpliesHashEq":
     let s = genValidJmapState(rng)
+    lastInput = s
     let a = parseJmapState(s).get()
     let b = parseJmapState(s).get()
     doAssert hash(a) == hash(b)
@@ -151,6 +185,7 @@ block propJmapStateEqImpliesHashEq:
 block propMethodCallIdEqImpliesHashEq:
   checkProperty "propMethodCallIdEqImpliesHashEq":
     let s = genValidMethodCallId(rng)
+    lastInput = s
     let a = parseMethodCallId(s).get()
     let b = parseMethodCallId(s).get()
     doAssert hash(a) == hash(b)
@@ -158,6 +193,7 @@ block propMethodCallIdEqImpliesHashEq:
 block propCreationIdEqImpliesHashEq:
   checkProperty "propCreationIdEqImpliesHashEq":
     let s = genValidCreationId(rng)
+    lastInput = s
     let a = parseCreationId(s).get()
     let b = parseCreationId(s).get()
     doAssert hash(a) == hash(b)
@@ -167,6 +203,7 @@ block propCreationIdEqImpliesHashEq:
 block propAccountIdDoubleRoundTrip:
   checkProperty "propAccountIdDoubleRoundTrip":
     let s = genValidAccountId(rng)
+    lastInput = s
     let first = parseAccountId(s).get()
     let second = parseAccountId($first).get()
     doAssert first == second
@@ -174,6 +211,7 @@ block propAccountIdDoubleRoundTrip:
 block propJmapStateDoubleRoundTrip:
   checkProperty "propJmapStateDoubleRoundTrip":
     let s = genValidJmapState(rng)
+    lastInput = s
     let first = parseJmapState(s).get()
     let second = parseJmapState($first).get()
     doAssert first == second
@@ -181,6 +219,7 @@ block propJmapStateDoubleRoundTrip:
 block propMethodCallIdDoubleRoundTrip:
   checkProperty "propMethodCallIdDoubleRoundTrip":
     let s = genValidMethodCallId(rng)
+    lastInput = s
     let first = parseMethodCallId(s).get()
     let second = parseMethodCallId($first).get()
     doAssert first == second
@@ -188,87 +227,17 @@ block propMethodCallIdDoubleRoundTrip:
 block propCreationIdDoubleRoundTrip:
   checkProperty "propCreationIdDoubleRoundTrip":
     let s = genValidCreationId(rng)
+    lastInput = s
     let first = parseCreationId(s).get()
     let second = parseCreationId($first).get()
     doAssert first == second
-
-# --- Equality symmetry ---
-
-block propAccountIdSymmetry:
-  checkProperty "propAccountIdSymmetry":
-    let s = genValidAccountId(rng, trial)
-    let a = parseAccountId(s).get()
-    let b = parseAccountId(s).get()
-    doAssert a == b
-    doAssert b == a
-
-block propJmapStateSymmetry:
-  checkProperty "propJmapStateSymmetry":
-    let s = genValidJmapState(rng, trial)
-    let a = parseJmapState(s).get()
-    let b = parseJmapState(s).get()
-    doAssert a == b
-    doAssert b == a
-
-block propMethodCallIdSymmetry:
-  checkProperty "propMethodCallIdSymmetry":
-    let s = genValidMethodCallId(rng, trial)
-    let a = parseMethodCallId(s).get()
-    let b = parseMethodCallId(s).get()
-    doAssert a == b
-    doAssert b == a
-
-block propCreationIdSymmetry:
-  checkProperty "propCreationIdSymmetry":
-    let s = genValidCreationId(rng, trial)
-    let a = parseCreationId(s).get()
-    let b = parseCreationId(s).get()
-    doAssert a == b
-    doAssert b == a
-
-# --- Equality transitivity ---
-
-block propAccountIdTransitivity:
-  checkProperty "propAccountIdTransitivity":
-    let s = genValidAccountId(rng, trial)
-    let a = parseAccountId(s).get()
-    let b = parseAccountId(s).get()
-    let c = parseAccountId(s).get()
-    doAssert a == b and b == c
-    doAssert a == c
-
-block propJmapStateTransitivity:
-  checkProperty "propJmapStateTransitivity":
-    let s = genValidJmapState(rng, trial)
-    let a = parseJmapState(s).get()
-    let b = parseJmapState(s).get()
-    let c = parseJmapState(s).get()
-    doAssert a == b and b == c
-    doAssert a == c
-
-block propMethodCallIdTransitivity:
-  checkProperty "propMethodCallIdTransitivity":
-    let s = genValidMethodCallId(rng, trial)
-    let a = parseMethodCallId(s).get()
-    let b = parseMethodCallId(s).get()
-    let c = parseMethodCallId(s).get()
-    doAssert a == b and b == c
-    doAssert a == c
-
-block propCreationIdTransitivity:
-  checkProperty "propCreationIdTransitivity":
-    let s = genValidCreationId(rng, trial)
-    let a = parseCreationId(s).get()
-    let b = parseCreationId(s).get()
-    let c = parseCreationId(s).get()
-    doAssert a == b and b == c
-    doAssert a == c
 
 # --- Error preservation ---
 
 block propAccountIdErrorPreservesValue:
   checkProperty "propAccountIdErrorPreservesValue":
     let s = genArbitraryString(rng)
+    lastInput = s
     let r = parseAccountId(s)
     if r.isErr:
       doAssert r.error.value == s
@@ -278,6 +247,7 @@ block propCreationIdHashPrefixAlwaysRejected:
     ## Any non-empty string starting with '#' must be rejected.
     let tail = genArbitraryString(rng)
     let s = "#" & tail
+    lastInput = s
     if s.len > 0:
       doAssert parseCreationId(s).isErr
 
@@ -286,6 +256,7 @@ block propCreationIdHashPrefixAlwaysRejected:
 block propAccountIdSubstitution:
   checkProperty "propAccountIdSubstitution":
     let s = genValidLenientString(rng, minLen = 1, maxLen = 255)
+    lastInput = s
     let r = parseAccountId(s)
     if r.isOk:
       let a = r.get()
@@ -296,6 +267,7 @@ block propAccountIdSubstitution:
 block propJmapStateSubstitution:
   checkProperty "propJmapStateSubstitution":
     let s = genValidLenientString(rng, minLen = 1, maxLen = 10000)
+    lastInput = s
     let r = parseJmapState(s)
     if r.isOk:
       let a = r.get()
@@ -306,6 +278,7 @@ block propJmapStateSubstitution:
 block propParseAccountIdIdempotence:
   checkProperty "propParseAccountIdIdempotence":
     let s = genValidLenientString(rng, minLen = 1, maxLen = 255)
+    lastInput = s
     let first = parseAccountId(s)
     let second = parseAccountId(s)
     doAssert first.isOk == second.isOk
@@ -315,6 +288,7 @@ block propParseAccountIdIdempotence:
 block propParseCreationIdIdempotence:
   checkProperty "propParseCreationIdIdempotence":
     let s = genValidCreationId(rng)
+    lastInput = s
     let first = parseCreationId(s)
     let second = parseCreationId(s)
     doAssert first.isOk == second.isOk

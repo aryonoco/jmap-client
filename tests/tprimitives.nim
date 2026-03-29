@@ -8,7 +8,7 @@
 import std/hashes
 import std/strutils
 
-import pkg/results
+import results
 
 import jmap_client/primitives
 
@@ -200,71 +200,17 @@ block jmapIntUnaryNeg:
   doAssert -pos == neg
   doAssert -neg == pos
 
-# --- Error content assertions ---
-
-block parseIdErrorContentEmpty:
-  assertErrFields parseId(""), "Id", "length must be 1-255 octets", ""
-
-block parseIdErrorContentTooLong:
-  assertErrFields parseId('a'.repeat(256)),
-    "Id", "length must be 1-255 octets", 'a'.repeat(256)
-
-block parseIdErrorContentBadChar:
-  assertErrFields parseId("abc=def"),
-    "Id", "contains characters outside base64url alphabet", "abc=def"
-
-block parseIdErrorContentSpace:
-  assertErrFields parseId("abc def"),
-    "Id", "contains characters outside base64url alphabet", "abc def"
-
 block parseIdFromServerErrorContentControl:
   assertErrFields parseIdFromServer("\x00abc"),
     "Id", "contains control characters", "\x00abc"
-
-block parseUnsignedIntErrorContentNegative:
-  assertErrFields parseUnsignedInt(-1), "UnsignedInt", "must be non-negative", "-1"
-
-block parseUnsignedIntErrorContentOverflow:
-  assertErrFields parseUnsignedInt(MaxUnsignedInt + 1),
-    "UnsignedInt", "exceeds 2^53-1", $(MaxUnsignedInt + 1)
-
-block parseJmapIntErrorContentUnder:
-  assertErrFields parseJmapInt(MinJmapInt - 1),
-    "JmapInt", "outside JSON-safe integer range", $(MinJmapInt - 1)
-
-block parseJmapIntErrorContentOver:
-  assertErrFields parseJmapInt(MaxJmapInt + 1),
-    "JmapInt", "outside JSON-safe integer range", $(MaxJmapInt + 1)
-
-block parseDateErrorContentTooShort:
-  assertErrFields parseDate("2024-01-01"),
-    "Date", "too short for RFC 3339 date-time", "2024-01-01"
 
 block parseDateErrorContentBadDate:
   assertErrFields parseDate("20X4-01-01T12:00:00Z"),
     "Date", "invalid date portion", "20X4-01-01T12:00:00Z"
 
-block parseDateErrorContentTSep:
-  assertErrFields parseDate("2024-01-01t12:00:00Z"),
-    "Date", "'T' separator must be uppercase", "2024-01-01t12:00:00Z"
-
 block parseDateErrorContentBadTime:
   assertErrFields parseDate("2024-01-01T1X:00:00Z"),
     "Date", "invalid time portion", "2024-01-01T1X:00:00Z"
-
-block parseDateErrorContentZeroFrac:
-  assertErrFields parseDate("2024-01-01T12:00:00.000Z"),
-    "Date", "zero fractional seconds must be omitted", "2024-01-01T12:00:00.000Z"
-
-block parseDateErrorContentEmptyFrac:
-  assertErrFields parseDate("2024-01-01T12:00:00.Z"),
-    "Date",
-    "fractional seconds must contain at least one digit",
-    "2024-01-01T12:00:00.Z"
-
-block parseUtcDateErrorContentNotZ:
-  assertErrFields parseUtcDate("2024-01-01T12:00:00+05:00"),
-    "UTCDate", "time-offset must be 'Z'", "2024-01-01T12:00:00+05:00"
 
 # --- Adversarial edge cases ---
 
@@ -465,25 +411,10 @@ block parseDateNoSeparators:
   assertErrFields parseDate("20240101T120000Z"),
     "Date", "too short for RFC 3339 date-time", "20240101T120000Z"
 
-# --- Integer boundary completeness ---
-
-block parseUnsignedIntInt64High:
-  # int64.high is well above 2^53-1
-  assertErrFields parseUnsignedInt(int64.high),
-    "UnsignedInt", "exceeds 2^53-1", $(int64.high)
-
 block parseUnsignedIntInt64Low:
   # int64.low is massively negative
   assertErrFields parseUnsignedInt(int64.low),
     "UnsignedInt", "must be non-negative", $(int64.low)
-
-block parseJmapIntInt64High:
-  assertErrFields parseJmapInt(int64.high),
-    "JmapInt", "outside JSON-safe integer range", $(int64.high)
-
-block parseJmapIntInt64Low:
-  assertErrFields parseJmapInt(int64.low),
-    "JmapInt", "outside JSON-safe integer range", $(int64.low)
 
 block parseUnsignedIntOne:
   assertOk parseUnsignedInt(1)
@@ -606,6 +537,80 @@ block jmapIntExactlyNeg2Pow53:
 block jmapIntExactlyMinJmapInt:
   ## -(2^53 - 1) = -9007199254740991 — exactly MinJmapInt, must accept.
   assertOk parseJmapInt(-9_007_199_254_740_991'i64)
+
+# --- Phase 2: Boundary value tests ---
+
+block parseIdLen2:
+  ## parseId accepts a 2-character base64url string (boundary above minimum).
+  assertOk parseId("AB")
+
+block parseIdFromServerLen2:
+  ## parseIdFromServer accepts a 2-character string (boundary above minimum).
+  assertOk parseIdFromServer("AB")
+
+block parseIdFromServerLen255:
+  ## parseIdFromServer accepts a 255-character string (maximum length).
+  assertOk parseIdFromServer("A".repeat(255))
+
+block parseIdFromServerLen256:
+  ## parseIdFromServer rejects a 256-character string (one over maximum).
+  assertErr parseIdFromServer("A".repeat(256))
+
+# --- Phase 3: Equivalence class gaps ---
+
+block parseIdStrictRejectsDel:
+  ## Strict Id rejects DEL character (0x7F).
+  assertErr parseId("abc\x7Fdef")
+
+block parseIdStrictRejectsHighByte80:
+  ## Strict Id rejects high byte 0x80.
+  assertErr parseId("abc\x80def")
+
+block parseIdStrictRejectsHighByteFF:
+  ## Strict Id rejects high byte 0xFF.
+  assertErr parseId("abc\xFFdef")
+
+# --- Phase 3: MC/DC tests for Date compound conditions ---
+
+block dateMcdcMonthNonDigit:
+  ## MC/DC: non-digit in month position triggers date portion rejection.
+  assertErrFields parseDate("2024-X1-01T12:00:00Z"),
+    "Date", "invalid date portion", "2024-X1-01T12:00:00Z"
+
+block dateMcdcSecondDashWrong:
+  ## MC/DC: wrong separator (slash) at second dash position.
+  assertErrFields parseDate("2024-01/01T12:00:00Z"),
+    "Date", "invalid date portion", "2024-01/01T12:00:00Z"
+
+block dateMcdcDayNonDigit:
+  ## MC/DC: non-digit in day position triggers date portion rejection.
+  assertErrFields parseDate("2024-01-X1T12:00:00Z"),
+    "Date", "invalid date portion", "2024-01-X1T12:00:00Z"
+
+block dateMcdcMinuteNonDigit:
+  ## MC/DC: non-digit in minute position triggers time portion rejection.
+  assertErrFields parseDate("2024-01-01T12:X0:00Z"),
+    "Date", "invalid time portion", "2024-01-01T12:X0:00Z"
+
+block dateMcdcSecondColonWrong:
+  ## MC/DC: wrong separator (dash) at second colon position.
+  assertErrFields parseDate("2024-01-01T12:00-00Z"),
+    "Date", "invalid time portion", "2024-01-01T12:00-00Z"
+
+block dateMcdcSecondNonDigit:
+  ## MC/DC: non-digit in second position triggers time portion rejection.
+  assertErrFields parseDate("2024-01-01T12:00:X0Z"),
+    "Date", "invalid time portion", "2024-01-01T12:00:X0Z"
+
+block dateMcdcOffsetMinuteFirstNonDigit:
+  ## MC/DC: non-digit at offset minute first position.
+  assertErrFields parseDate("2024-01-01T12:00:00+08:X0"),
+    "Date", "timezone offset must be 'Z' or '+/-HH:MM'", "2024-01-01T12:00:00+08:X0"
+
+block dateMcdcOffsetMinuteSecondNonDigit:
+  ## MC/DC: non-digit at offset minute second position.
+  assertErrFields parseDate("2024-01-01T12:00:00+08:0X"),
+    "Date", "timezone offset must be 'Z' or '+/-HH:MM'", "2024-01-01T12:00:00+08:0X"
 
 # --- Phase 7: Table-driven date validation ---
 

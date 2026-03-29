@@ -8,7 +8,7 @@
 import std/sets
 import std/json
 
-import pkg/results
+import results
 
 import jmap_client/primitives
 import jmap_client/capabilities

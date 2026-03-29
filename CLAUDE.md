@@ -26,11 +26,11 @@ This project uses a devcontainer. Tool versions are managed by mise — `mise.to
 
 ## Dependencies
 
-Sole external dependency: `nim-results` (status-im/nim-results) — provides `Result[T, E]`, `Opt[T]`, `?` operator. See `.claude/rules/nim-conventions.md` for usage.
+Sole dependency: `nim-results` 0.5.1 (status-im/nim-results), vendored at `vendor/nim-results/` with patches for `strictCaseObjects` compliance. Provides `Result[T, E]`, `Opt[T]`, `?` operator. Import as `import results` (not `pkg/results`). See `.claude/rules/nim-conventions.md` for usage.
 
 ## Compiler Flags
 
-Defined in `jmap_client.nimble`: `--mm:arc`, `strictDefs`, `strictFuncs`, `strictCaseObjects`, `strictNotNil`, `styleCheck:error`. See `.claude/rules/nim-type-safety.md` for implications.
+Defined in `jmap_client.nimble`: `--mm:arc`, `strictDefs`, `strictFuncs`, `strictCaseObjects`, `strictNotNil`, `styleCheck:error`. `strictCaseObjects` is enforced per-module in `src/` via `{.experimental: "strictCaseObjects".}` (global enablement breaks `std/json`). See `.claude/rules/nim-type-safety.md` for implications.
 
 ## Project Structure
 

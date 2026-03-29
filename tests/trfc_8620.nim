@@ -12,7 +12,7 @@ import std/sets
 import std/strutils
 import std/tables
 
-import pkg/results
+import results
 
 import jmap_client/validation
 import jmap_client/primitives
@@ -1172,3 +1172,79 @@ block rfc8620_S3_7_hashPrefixHandling:
   ## processing. This prefix handling is a Layer 2/3 concern. Layer 1 only
   ## defines CreationId without the '#' prefix.
   discard
+
+# =============================================================================
+# Phase 3: downloadUrl individual missing variable tests (RFC 8620 S2)
+# =============================================================================
+
+block rfc8620_S2_downloadUrlMissingAccountId:
+  ## downloadUrl with {blobId},{type},{name} but NOT {accountId}.
+  var args = makeSessionArgs()
+  args.downloadUrl =
+    parseUriTemplate("https://e.com/{blobId}/{name}?accept={type}").get()
+  let res = parseSessionFromArgs(args)
+  assertErrFields res,
+    "Session", "downloadUrl missing {accountId}",
+    "https://e.com/{blobId}/{name}?accept={type}"
+
+block rfc8620_S2_downloadUrlMissingBlobId:
+  ## downloadUrl with {accountId},{type},{name} but NOT {blobId}.
+  var args = makeSessionArgs()
+  args.downloadUrl =
+    parseUriTemplate("https://e.com/{accountId}/{name}?accept={type}").get()
+  let res = parseSessionFromArgs(args)
+  assertErrFields res,
+    "Session", "downloadUrl missing {blobId}",
+    "https://e.com/{accountId}/{name}?accept={type}"
+
+block rfc8620_S2_downloadUrlMissingType:
+  ## downloadUrl with {accountId},{blobId},{name} but NOT {type}.
+  var args = makeSessionArgs()
+  args.downloadUrl = parseUriTemplate("https://e.com/{accountId}/{blobId}/{name}").get()
+  let res = parseSessionFromArgs(args)
+  assertErrFields res,
+    "Session", "downloadUrl missing {type}", "https://e.com/{accountId}/{blobId}/{name}"
+
+block rfc8620_S2_downloadUrlMissingName:
+  ## downloadUrl with {accountId},{blobId},{type} but NOT {name}.
+  var args = makeSessionArgs()
+  args.downloadUrl =
+    parseUriTemplate("https://e.com/{accountId}/{blobId}?accept={type}").get()
+  let res = parseSessionFromArgs(args)
+  assertErrFields res,
+    "Session", "downloadUrl missing {name}",
+    "https://e.com/{accountId}/{blobId}?accept={type}"
+
+# =============================================================================
+# Phase 3: eventSourceUrl individual missing variable tests (RFC 8620 S2)
+# =============================================================================
+
+block rfc8620_S2_eventSourceUrlMissingTypes:
+  ## eventSourceUrl with {closeafter},{ping} but NOT {types}.
+  var args = makeSessionArgs()
+  args.eventSourceUrl =
+    parseUriTemplate("https://e.com/events?closeafter={closeafter}&ping={ping}").get()
+  let res = parseSessionFromArgs(args)
+  assertErrFields res,
+    "Session", "eventSourceUrl missing {types}",
+    "https://e.com/events?closeafter={closeafter}&ping={ping}"
+
+block rfc8620_S2_eventSourceUrlMissingCloseafter:
+  ## eventSourceUrl with {types},{ping} but NOT {closeafter}.
+  var args = makeSessionArgs()
+  args.eventSourceUrl =
+    parseUriTemplate("https://e.com/events?types={types}&ping={ping}").get()
+  let res = parseSessionFromArgs(args)
+  assertErrFields res,
+    "Session", "eventSourceUrl missing {closeafter}",
+    "https://e.com/events?types={types}&ping={ping}"
+
+block rfc8620_S2_eventSourceUrlMissingPing:
+  ## eventSourceUrl with {types},{closeafter} but NOT {ping}.
+  var args = makeSessionArgs()
+  args.eventSourceUrl =
+    parseUriTemplate("https://e.com/events?types={types}&closeafter={closeafter}").get()
+  let res = parseSessionFromArgs(args)
+  assertErrFields res,
+    "Session", "eventSourceUrl missing {ping}",
+    "https://e.com/events?types={types}&closeafter={closeafter}"

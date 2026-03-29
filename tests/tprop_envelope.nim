@@ -10,7 +10,7 @@ import std/json
 import std/random
 import std/tables
 
-import pkg/results
+import results
 
 import jmap_client/primitives
 import jmap_client/identifiers
@@ -23,6 +23,7 @@ block propRequestPreservesMethodCallOrder:
   checkProperty "propRequestPreservesMethodCallOrder":
     ## Request.methodCalls preserves insertion order and count.
     let n = rng.rand(1 .. 10)
+    lastInput = $n
     var calls: seq[Invocation] = @[]
     for i in 0 ..< n:
       calls.add genInvocation(rng)
@@ -39,6 +40,7 @@ block propResponsePreservesInvocationOrder:
   checkProperty "propResponsePreservesInvocationOrder":
     ## Response.methodResponses preserves insertion order and count.
     let n = rng.rand(1 .. 10)
+    lastInput = $n
     var responses: seq[Invocation] = @[]
     for i in 0 ..< n:
       responses.add genInvocation(rng)
@@ -57,6 +59,7 @@ block propReferencableDirectPreservesValue:
     ## direct(v).value == v for random Invocations used as values.
     let inv = genInvocation(rng)
     let ids = @[parseId("id" & $trial).get()]
+    lastInput = $trial
     let d = direct(ids)
     doAssert d.kind == rkDirect
     doAssert d.value.len == ids.len
@@ -65,6 +68,7 @@ block propReferencableReferencePreservesRef:
   checkProperty "propReferencableReferencePreservesRef":
     ## referenceTo preserves the ResultReference.
     let mcid = parseMethodCallId("c" & $trial).get()
+    lastInput = $trial
     let rr = ResultReference(resultOf: mcid, name: "Email/query", path: "/ids")
     let r = referenceTo[seq[Id]](rr)
     doAssert r.kind == rkReference
@@ -75,6 +79,7 @@ block propReferencableExclusivity:
   checkProperty "propReferencableExclusivity":
     ## A Referencable is either direct or reference, never ambiguous.
     let ids = @[parseId("id" & $trial).get()]
+    lastInput = $trial
     let d = direct(ids)
     doAssert d.kind == rkDirect
     doAssert not (d.kind == rkReference)
@@ -89,6 +94,7 @@ block propInvocationPreservesFields:
   checkProperty "propInvocationPreservesFields":
     ## Invocation construction preserves all three fields.
     let inv = genInvocation(rng)
+    lastInput = inv.name
     doAssert inv.name.len > 0
     doAssert inv.arguments.kind == JObject
     # methodCallId was set by genInvocation
@@ -97,6 +103,7 @@ block propRequestCreatedIdsTablePreserved:
   checkPropertyN "propRequestCreatedIdsTablePreserved", QuickTrials:
     ## When createdIds is present, the table mapping is preserved.
     let n = rng.rand(1 .. 5)
+    lastInput = $n
     var cids = initTable[CreationId, Id]()
     for i in 0 ..< n:
       let cid = parseCreationId("k" & $i).get()
@@ -116,6 +123,7 @@ block propReferencableDirectInjectivity:
     ## direct(v1) == direct(v2) implies v1 == v2 for comparable types.
     let v1 = rng.rand(int)
     let v2 = rng.rand(int)
+    lastInput = $v1 & ", " & $v2
     let d1 = direct(v1)
     let d2 = direct(v2)
     ## Compare via kind + value since Referencable is a case object
@@ -127,6 +135,7 @@ block propReferencableKindDisjointness:
   checkProperty "propReferencableKindDisjointness":
     ## direct(v).kind != referenceTo(r).kind for any v and r.
     let v = rng.rand(int)
+    lastInput = $v
     let mcid = parseMethodCallId("c" & $trial).get()
     let rr = ResultReference(resultOf: mcid, name: "M/get", path: "/ids")
     let d = direct(v)

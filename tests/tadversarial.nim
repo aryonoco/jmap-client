@@ -9,10 +9,11 @@
 ## conditions with multi-byte characters.
 
 import std/json
+import std/sets
 import std/strutils
 import std/tables
 
-import pkg/results
+import results
 
 import jmap_client/primitives
 import jmap_client/identifiers
@@ -1117,3 +1118,259 @@ block patchObjectBareSlash:
   let key = patch.get().getKey("/")
   assertSome key
   assertEq key.get().getStr(), "val"
+
+# =============================================================================
+# 5.1) JsonNode ref-sharing documentation tests
+# =============================================================================
+# Under ARC, JsonNode is a ref type. Storing a ref in a type and then mutating
+# the original means the mutation is visible through the type. These tests
+# document this behaviour for three ref-holding types.
+
+block jsonNodeAliasingInAccountCapability:
+  ## AccountCapabilityEntry.data is a JsonNode ref — mutations after
+  ## construction are visible. Documented ARC behaviour.
+  let data = newJObject()
+  data["original"] = newJString("value")
+  let entry = AccountCapabilityEntry(
+    kind: ckMail, rawUri: "urn:ietf:params:jmap:mail", data: data
+  )
+  data["injected"] = newJString("evil")
+  doAssert entry.data.hasKey("injected")
+
+block jsonNodeAliasingInServerCapability:
+  ## ServerCapability.rawData (non-ckCore variant) is a JsonNode ref —
+  ## mutations after construction are visible. Documented ARC behaviour.
+  let rawData = newJObject()
+  rawData["original"] = newJString("value")
+  let cap = ServerCapability(
+    rawUri: "urn:ietf:params:jmap:mail", kind: ckMail, rawData: rawData
+  )
+  rawData["injected"] = newJString("evil")
+  doAssert cap.rawData.hasKey("injected")
+
+block jsonNodeAliasingInMethodErrorExtras:
+  ## MethodError.extras (when Opt.some(jsonNode)) is a JsonNode ref —
+  ## mutations after construction are visible. Documented ARC behaviour.
+  let extras = newJObject()
+  extras["original"] = newJString("value")
+  let me = methodError("serverFail", extras = Opt.some(extras))
+  extras["injected"] = newJString("evil")
+  doAssert me.extras.isSome
+  doAssert me.extras.get().hasKey("injected")
+
+# =============================================================================
+# 5.2) Session adversarial scenarios
+# =============================================================================
+
+block sessionDuplicateCkCore:
+  ## Duplicate ckCore: parseSession accepts two ckCore ServerCapabilities
+  ## with different CoreCapabilities. coreCapabilities() returns the FIRST one.
+  let coreCaps1 = CoreCapabilities(
+    maxSizeUpload: parseUnsignedInt(100).get(),
+    maxConcurrentUpload: parseUnsignedInt(1).get(),
+    maxSizeRequest: parseUnsignedInt(100).get(),
+    maxConcurrentRequests: parseUnsignedInt(1).get(),
+    maxCallsInRequest: parseUnsignedInt(1).get(),
+    maxObjectsInGet: parseUnsignedInt(1).get(),
+    maxObjectsInSet: parseUnsignedInt(1).get(),
+    collationAlgorithms: initHashSet[string](),
+  )
+  let coreCaps2 = CoreCapabilities(
+    maxSizeUpload: parseUnsignedInt(999).get(),
+    maxConcurrentUpload: parseUnsignedInt(99).get(),
+    maxSizeRequest: parseUnsignedInt(999).get(),
+    maxConcurrentRequests: parseUnsignedInt(99).get(),
+    maxCallsInRequest: parseUnsignedInt(99).get(),
+    maxObjectsInGet: parseUnsignedInt(99).get(),
+    maxObjectsInSet: parseUnsignedInt(99).get(),
+    collationAlgorithms: initHashSet[string](),
+  )
+  let cap1 =
+    ServerCapability(rawUri: "urn:ietf:params:jmap:core", kind: ckCore, core: coreCaps1)
+  let cap2 =
+    ServerCapability(rawUri: "urn:ietf:params:jmap:core", kind: ckCore, core: coreCaps2)
+  let args = makeSessionArgs()
+  let res = parseSession(
+    @[cap1, cap2],
+    args.accounts,
+    args.primaryAccounts,
+    args.username,
+    args.apiUrl,
+    args.downloadUrl,
+    args.uploadUrl,
+    args.eventSourceUrl,
+    args.state,
+  )
+  assertOk res
+  let session = res.get()
+  ## coreCapabilities() iterates and returns the first ckCore match.
+  let cc = session.coreCapabilities()
+  doAssert cc.maxSizeUpload == parseUnsignedInt(100).get()
+  doAssert cc.maxConcurrentUpload == parseUnsignedInt(1).get()
+
+block sessionFindCapabilityCkUnknown:
+  ## findCapability(session, ckUnknown) returns the first ckUnknown entry.
+  ## findCapabilityByUri returns the correct specific one.
+  let vendor1 = ServerCapability(
+    rawUri: "https://vendor.example.com/ext1", kind: ckUnknown, rawData: newJObject()
+  )
+  let vendor2 = ServerCapability(
+    rawUri: "https://vendor.example.com/ext2", kind: ckUnknown, rawData: newJObject()
+  )
+  let vendor3 = ServerCapability(
+    rawUri: "https://vendor.example.com/ext3", kind: ckUnknown, rawData: newJObject()
+  )
+  let args = makeSessionArgs()
+  let res = parseSession(
+    @[makeCoreServerCap(), vendor1, vendor2, vendor3],
+    args.accounts,
+    args.primaryAccounts,
+    args.username,
+    args.apiUrl,
+    args.downloadUrl,
+    args.uploadUrl,
+    args.eventSourceUrl,
+    args.state,
+  )
+  assertOk res
+  let session = res.get()
+  ## findCapability returns the first ckUnknown.
+  let first = session.findCapability(ckUnknown)
+  assertSome first
+  doAssert first.get().rawUri == "https://vendor.example.com/ext1"
+  ## findCapabilityByUri returns the exact match.
+  let specific = session.findCapabilityByUri("https://vendor.example.com/ext2")
+  assertSome specific
+  doAssert specific.get().rawUri == "https://vendor.example.com/ext2"
+
+block uriTemplateHasVariableNestedBraces:
+  ## parseUriTemplate("https://e.com/{{accountId}}") passes validation.
+  ## hasVariable returns true for "accountId" because "{accountId}" is a
+  ## substring of "{{accountId}}". Documented edge case.
+  let tmpl = parseUriTemplate("https://e.com/{{accountId}}").get()
+  doAssert tmpl.hasVariable("accountId")
+
+block uriTemplateNulInFullTemplate:
+  ## A template with NUL passes both parseUriTemplate and parseSession because
+  ## Nim sees the full string. Documents the FFI boundary implication: C
+  ## strlen() would truncate at the NUL.
+  const tmplStr = "https://e.com/\x00/{accountId}/{blobId}/{name}?accept={type}"
+  let tmpl = parseUriTemplate(tmplStr)
+  assertOk tmpl
+  ## The template passes session-level variable validation.
+  doAssert tmpl.get().hasVariable("accountId")
+  doAssert tmpl.get().hasVariable("blobId")
+  doAssert tmpl.get().hasVariable("name")
+  doAssert tmpl.get().hasVariable("type")
+  ## Verify it works in parseSession too.
+  let args = makeSessionArgs()
+  let res = parseSession(
+    args.capabilities,
+    args.accounts,
+    args.primaryAccounts,
+    args.username,
+    args.apiUrl,
+    tmpl.get(),
+    args.uploadUrl,
+    args.eventSourceUrl,
+    args.state,
+  )
+  assertOk res
+
+# =============================================================================
+# 5.3) Unicode adversarial expansion
+# =============================================================================
+
+block unicodeNfcVsNfdAccountId:
+  ## NFC vs NFD: Latin "e with grave" (\xC3\xA8, 2 bytes NFC) vs "e" +
+  ## combining grave accent (\x65\xCC\x80, 3 bytes NFD) produce different
+  ## AccountIds. Layer 1 operates at byte level, no Unicode normalisation.
+  let nfc = parseAccountId("\xC3\xA8").get()
+  let nfd = parseAccountId("\x65\xCC\x80").get()
+  doAssert nfc != nfd
+
+block unicodeHomoglyphTablePoisoning:
+  ## Latin "admin" vs Cyrillic-a "admin" (\xD0\xB0dmin) are distinct Table
+  ## keys. Building an accounts table with both produces len == 2.
+  let latinId = parseAccountId("admin").get()
+  let cyrillicId = parseAccountId("\xD0\xB0dmin").get()
+  doAssert latinId != cyrillicId
+  var accounts = initTable[AccountId, Account]()
+  accounts[latinId] = Account(
+    name: "latin", isPersonal: true, isReadOnly: false, accountCapabilities: @[]
+  )
+  accounts[cyrillicId] = Account(
+    name: "cyrillic", isPersonal: true, isReadOnly: false, accountCapabilities: @[]
+  )
+  doAssert accounts.len == 2
+
+block unicodeZeroWidthSpaceAtStart:
+  ## parseAccountId("\xE2\x80\x8Badmin") (ZWSP + "admin") is different from
+  ## parseAccountId("admin"). Byte-level comparison, no normalisation.
+  let withZwsp = parseAccountId("\xE2\x80\x8Badmin").get()
+  let plain = parseAccountId("admin").get()
+  doAssert withZwsp != plain
+
+block unicodeLroCharacterInId:
+  ## parseIdFromServer("admin\xE2\x80\xADtest") — LRO U+202D (\xE2\x80\xAD),
+  ## all bytes >= 0x80, accepted by lenient parser.
+  let r = parseIdFromServer("admin\xE2\x80\xADtest")
+  assertOk r
+
+block unicodeBidiIsolateInId:
+  ## parseIdFromServer("a\xE2\x81\xA6b") — LRI U+2066 (\xE2\x81\xA6),
+  ## all bytes >= 0x80, accepted by lenient parser.
+  let r = parseIdFromServer("a\xE2\x81\xA6b")
+  assertOk r
+
+# =============================================================================
+# 5.4) Calendar-invalid but structurally valid dates
+# =============================================================================
+# Layer 1 validates structural RFC 3339 format only — not calendar semantics.
+# These are documented as intentional design decisions.
+
+block dateImpossibleMonth99:
+  ## Month 99 passes structural validation: Layer 1 does not validate
+  ## calendar semantics.
+  assertOk parseDate("2024-99-01T12:00:00Z")
+
+block dateImpossibleDay99:
+  ## Day 99 passes structural validation: Layer 1 does not validate
+  ## calendar semantics.
+  assertOk parseDate("2024-01-99T12:00:00Z")
+
+block dateImpossibleHour99:
+  ## Hour 99 passes structural validation: Layer 1 does not validate
+  ## calendar semantics.
+  assertOk parseDate("2024-01-01T99:00:00Z")
+
+block dateAllZeros:
+  ## All zeros "0000-00-00T00:00:00Z" passes structural validation: Layer 1
+  ## does not validate calendar semantics.
+  assertOk parseDate("0000-00-00T00:00:00Z")
+
+block dateFeb30:
+  ## February 30 passes structural validation: Layer 1 does not validate
+  ## calendar semantics.
+  assertOk parseDate("2024-02-30T12:00:00Z")
+
+block dateImpossibleTimezone9999:
+  ## Timezone "+99:99" passes structural validation: Layer 1 does not validate
+  ## timezone offset range semantics.
+  assertOk parseDate("2024-01-01T12:00:00+99:99")
+
+# =============================================================================
+# 5.5) Error information leakage
+# =============================================================================
+
+block validationErrorPreservesFullInput:
+  ## ValidationError.value echoes the complete raw input. Layer 5 FFI must
+  ## sanitise before exposing to C callers if input may contain credentials.
+  let r = parseId("Bearer eyJhbGciOiJIUzI1NiJ9")
+  assertErr r
+  doAssert "Bearer" in r.error.value
+
+block crlfInMethodErrorDescription:
+  ## CRLF in description is preserved — no sanitisation at Layer 1.
+  let me = methodError("serverFail", description = Opt.some("desc\r\nInjected: yes"))
+  doAssert "\r\n" in me.description.get()

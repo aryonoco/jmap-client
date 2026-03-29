@@ -9,7 +9,7 @@
 import std/hashes
 import std/json
 
-import pkg/results
+import results
 
 import jmap_client/primitives
 import jmap_client/framework
@@ -241,3 +241,42 @@ block patchObjectDeletePropThenGetKey:
   let got = p.getKey("addr/0")
   assertSome got
   doAssert got.get().kind == JNull
+
+# --- Phase 2: PropertyName zero-coverage gaps ---
+
+block parsePropertyNameEmptyRejected:
+  ## parsePropertyName rejects an empty string.
+  assertErrFields parsePropertyName(""), "PropertyName", "must not be empty", ""
+
+block parsePropertyNameSingleChar:
+  ## parsePropertyName accepts a single-character string.
+  let result = parsePropertyName("x")
+  assertOk result
+  doAssert $result.get() == "x"
+
+block parsePropertyNameStandard:
+  ## parsePropertyName accepts a standard property name.
+  let result = parsePropertyName("subject")
+  assertOk result
+  doAssert $result.get() == "subject"
+
+# --- Generic type instantiation: Filter[string] ---
+
+block filterConditionString:
+  ## filterCondition[string] constructs a leaf node with a string condition.
+  let f = filterCondition[string]("hello")
+  doAssert f.kind == fkCondition
+  doAssert f.condition == "hello"
+
+block filterOperatorString:
+  ## filterOperator[string] composes string-typed child filters under foAnd.
+  let childA = filterCondition[string]("a")
+  let childB = filterCondition[string]("b")
+  let f = filterOperator[string](foAnd, @[childA, childB])
+  doAssert f.kind == fkOperator
+  doAssert f.operator == foAnd
+  assertLen f.conditions, 2
+  doAssert f.conditions[0].kind == fkCondition
+  doAssert f.conditions[0].condition == "a"
+  doAssert f.conditions[1].kind == fkCondition
+  doAssert f.conditions[1].condition == "b"

@@ -11,7 +11,7 @@ import std/strutils
 import std/tables
 from std/json import newJObject, JsonNode
 
-import pkg/results
+import results
 
 {.push ruleOff: "hasDoc".}
 

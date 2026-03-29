@@ -2,6 +2,7 @@
 # Copyright (c) 2026 Aryan Ameri
 
 {.push raises: [].}
+{.experimental: "strictCaseObjects".}
 
 ## JMAP Request/Response envelope types (RFC 8620 sections 3.2-3.4, 3.7).
 ## Covers Invocation, Request, Response, ResultReference, and the
@@ -10,7 +11,7 @@
 import std/tables
 from std/json import JsonNode
 
-import pkg/results
+import results
 
 import ./identifiers
 import ./primitives

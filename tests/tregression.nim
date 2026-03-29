@@ -5,11 +5,16 @@
 
 ## Regression tests for specific bugs found during the test suite uplift. Each
 ## block records a concrete deficiency and its resolution.
+##
+## POLICY: This file is append-only. Never remove or modify existing blocks.
+## New regressions are added at the end with a dated block name following
+## `regression_YYYY_MM_description`. Each block must document the bug, root
+## cause, and fix in a comment.
 
 import std/json
 import std/strutils
 
-import pkg/results
+import results
 
 import jmap_client/primitives
 import jmap_client/identifiers

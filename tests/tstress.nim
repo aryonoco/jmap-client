@@ -10,7 +10,7 @@ import std/json
 import std/strutils
 import std/tables
 
-import pkg/results
+import results
 
 import jmap_client/primitives
 import jmap_client/identifiers

@@ -11,7 +11,7 @@ import std/random
 import std/sets
 import std/strutils
 
-import pkg/results
+import results
 
 import jmap_client/capabilities
 import jmap_client/envelope
@@ -200,17 +200,19 @@ proc genValidAccountId*(rng: var Rand, trial: int = -1): string =
   rng.genValidLenientString(trial, 1, 255)
 
 proc genValidJmapState*(rng: var Rand, trial: int = -1): string =
-  ## Non-empty, no control chars, variable length. Edge-biased.
-  rng.genValidLenientString(trial, 1, 100)
+  ## Non-empty, no control chars, variable length. Edge-biased. No upper bound
+  ## in source — use a generous max to exercise longer tokens.
+  rng.genValidLenientString(trial, 1, 500)
 
 proc genValidMethodCallId*(rng: var Rand, trial: int = -1): string =
   ## Non-empty. MethodCallId has no control-char restriction, so include
-  ## arbitrary bytes. Edge-biased at boundary lengths.
+  ## arbitrary bytes. Edge-biased at boundary lengths. No upper bound in
+  ## source — use a generous max to exercise longer identifiers.
   let length =
     if trial >= 0 and trial < 4:
-      [1, 2, 49, 50][trial]
+      [1, 2, 249, 500][trial]
     else:
-      rng.rand(1 .. 50)
+      rng.rand(1 .. 500)
   result = newString(length)
   for i in 0 ..< length:
     result[i] = rng.genArbitraryByte()
@@ -267,7 +269,7 @@ proc genValidDate*(rng: var Rand): string =
   let
     year = rng.rand(0 .. 9999)
     month = rng.rand(1 .. 12)
-    day = rng.rand(1 .. 28)
+    day = rng.rand(1 .. 31)
     hour = rng.rand(0 .. 23)
     minute = rng.rand(0 .. 59)
     second = rng.rand(0 .. 59)
@@ -283,27 +285,33 @@ proc genValidDate*(rng: var Rand): string =
     result.add rng.genNonZeroFracDigits()
 
   # Timezone: Z or +HH:MM or -HH:MM
-  let tzChoice = rng.rand(0 .. 2)
+  let tzChoice = rng.rand(0 .. 5)
   case tzChoice
   of 0:
     result.add 'Z'
   of 1:
+    result.add "+00:00"
+  of 2:
+    result.add "-00:00"
+  of 3:
     result.add '+'
     result.add zeroPad(rng.rand(0 .. 23), 2)
     result.add ':'
     result.add zeroPad(rng.rand(0 .. 59), 2)
-  else:
+  of 4:
     result.add '-'
     result.add zeroPad(rng.rand(0 .. 23), 2)
     result.add ':'
     result.add zeroPad(rng.rand(0 .. 59), 2)
+  else:
+    result.add "+23:59"
 
 proc genValidUtcDate*(rng: var Rand): string =
   ## Structurally valid RFC 3339 date-time ending with 'Z'.
   let
     year = rng.rand(0 .. 9999)
     month = rng.rand(1 .. 12)
-    day = rng.rand(1 .. 28)
+    day = rng.rand(1 .. 31)
     hour = rng.rand(0 .. 23)
     minute = rng.rand(0 .. 59)
     second = rng.rand(0 .. 59)
@@ -318,21 +326,6 @@ proc genValidUtcDate*(rng: var Rand): string =
     result.add rng.genNonZeroFracDigits()
 
   result.add 'Z'
-
-# ---------------------------------------------------------------------------
-# URI template generators
-# ---------------------------------------------------------------------------
-
-proc genValidUriTemplate*(rng: var Rand): string =
-  ## Non-empty string resembling a URI template. Includes {variable} patterns.
-  const bases = [
-    "https://example.com/{accountId}",
-    "https://jmap.example.com/api/{accountId}/{blobId}/{name}?type={type}",
-    "https://example.com/upload/{accountId}/",
-    "https://example.com/events?types={types}&closeafter={closeafter}&ping={ping}",
-    "https://example.com/resource",
-  ]
-  rng.oneOf(bases)
 
 # ---------------------------------------------------------------------------
 # Invalid-input generators (for negative property tests)
@@ -510,7 +503,14 @@ proc genRequestError*(rng: var Rand): RequestError =
       Opt.some("Detailed description")
     else:
       Opt.none(string)
-  requestError(raw, status, title, detail)
+  let extras =
+    if rng.rand(0 .. 2) == 0:
+      let node = newJObject()
+      node["vendor"] = newJString("ext-" & $rng.rand(0 .. 99))
+      Opt.some(node)
+    else:
+      Opt.none(JsonNode)
+  requestError(raw, status, title, detail, extras = extras)
 
 proc genMethodError*(rng: var Rand): MethodError =
   ## Random MethodError with randomised optional fields.
@@ -524,7 +524,14 @@ proc genMethodError*(rng: var Rand): MethodError =
       Opt.some("description-" & $rng.rand(0 .. 99))
     else:
       Opt.none(string)
-  methodError(raw, desc)
+  let extras =
+    if rng.rand(0 .. 2) == 0:
+      let node = newJObject()
+      node["extra"] = newJString("value-" & $rng.rand(0 .. 99))
+      Opt.some(node)
+    else:
+      Opt.none(JsonNode)
+  methodError(raw, desc, extras)
 
 proc genSetError*(rng: var Rand): SetError =
   ## Random SetError across all 3 variant branches.
@@ -562,9 +569,14 @@ proc genClientError*(rng: var Rand): ClientError =
 # Structured type generators (additional)
 # ---------------------------------------------------------------------------
 
-proc genUnsignedInt*(rng: var Rand): UnsignedInt =
-  ## Random UnsignedInt in a reasonable range for capability fields.
-  parseUnsignedInt(rng.rand(1'i64 .. 100_000_000'i64)).get()
+proc genUnsignedInt*(rng: var Rand, trial: int = -1): UnsignedInt =
+  ## Random UnsignedInt for capability fields. Edge-biased at boundaries.
+  let val =
+    if trial >= 0 and trial < 4:
+      [0'i64, 1'i64, MaxUnsignedIntVal - 1, MaxUnsignedIntVal][trial]
+    else:
+      rng.rand(0'i64 .. 100_000_000'i64)
+  parseUnsignedInt(val).get()
 
 proc genCoreCapabilities*(rng: var Rand): CoreCapabilities =
   ## Random CoreCapabilities with varied UnsignedInt values.
@@ -585,15 +597,20 @@ proc genCoreCapabilities*(rng: var Rand): CoreCapabilities =
   )
 
 proc genServerCapability*(rng: var Rand): ServerCapability =
-  ## Random ServerCapability (ckCore or non-ckCore variant).
-  if rng.rand(0 .. 2) == 0:
+  ## Random ServerCapability (ckCore or non-ckCore variant). Covers all 12
+  ## IANA-registered capability kinds plus vendor extensions.
+  if rng.rand(0 .. 3) == 0:
     ServerCapability(
       rawUri: "urn:ietf:params:jmap:core", kind: ckCore, core: rng.genCoreCapabilities()
     )
   else:
     const uris = [
       "urn:ietf:params:jmap:mail", "urn:ietf:params:jmap:submission",
-      "https://vendor.example.com/ext",
+      "urn:ietf:params:jmap:vacationresponse", "urn:ietf:params:jmap:websocket",
+      "urn:ietf:params:jmap:mdn", "urn:ietf:params:jmap:smimeverify",
+      "urn:ietf:params:jmap:blob", "urn:ietf:params:jmap:quota",
+      "urn:ietf:params:jmap:contacts", "urn:ietf:params:jmap:calendars",
+      "urn:ietf:params:jmap:sieve", "https://vendor.example.com/ext",
     ]
     let uri = rng.oneOf(uris)
     ServerCapability(rawUri: uri, kind: parseCapabilityKind(uri), rawData: newJObject())
@@ -731,20 +748,6 @@ proc genCalendarInvalidDate*(rng: var Rand): string =
 # ---------------------------------------------------------------------------
 # Additional structured type generators
 # ---------------------------------------------------------------------------
-
-proc genValidComparator*(rng: var Rand): Comparator =
-  ## Generates a Comparator with random PropertyName, random isAscending,
-  ## and optionally a collation string.
-  let prop = parsePropertyName(rng.genValidPropertyName()).get()
-  let asc = rng.rand(0 .. 1) == 0
-  let coll =
-    if rng.rand(0 .. 2) == 0:
-      const collations =
-        ["i;ascii-casemap", "i;ascii-numeric", "i;unicode-casemap", "i;octet"]
-      Opt.some(rng.oneOf(collations))
-    else:
-      Opt.none(string)
-  parseComparator(prop, asc, coll).get()
 
 {.pop.} # params
 {.pop.} # hasDoc

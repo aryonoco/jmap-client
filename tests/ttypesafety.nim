@@ -5,9 +5,14 @@
 
 ## Compile-time type safety verification via doAssert not compiles(...).
 
-import pkg/results
+from std/json import JsonNode
+import std/sets
+
+import results
 
 import jmap_client/types
+
+import ./massertions
 
 # --- Distinct type isolation ---
 
@@ -181,3 +186,171 @@ block transportErrorMissingHttpStatus:
       existingId: testId,
     )
   )
+
+# =============================================================================
+# {.requiresInit.} compile-time rejection
+# =============================================================================
+
+block requiresInitId:
+  ## Default construction of Id is rejected by {.requiresInit.}.
+  assertNotCompiles(
+    block:
+      var x: Id
+      discard x
+  )
+
+block requiresInitUnsignedInt:
+  ## Default construction of UnsignedInt is rejected by {.requiresInit.}.
+  assertNotCompiles(
+    block:
+      var x: UnsignedInt
+      discard x
+  )
+
+block requiresInitJmapInt:
+  ## Default construction of JmapInt is rejected by {.requiresInit.}.
+  assertNotCompiles(
+    block:
+      var x: JmapInt
+      discard x
+  )
+
+block requiresInitDate:
+  ## Default construction of Date is rejected by {.requiresInit.}.
+  assertNotCompiles(
+    block:
+      var x: Date
+      discard x
+  )
+
+block requiresInitUtcDate:
+  ## Default construction of UTCDate is rejected by {.requiresInit.}.
+  assertNotCompiles(
+    block:
+      var x: UTCDate
+      discard x
+  )
+
+block requiresInitAccountId:
+  ## Default construction of AccountId is rejected by {.requiresInit.}.
+  assertNotCompiles(
+    block:
+      var x: AccountId
+      discard x
+  )
+
+block requiresInitJmapState:
+  ## Default construction of JmapState is rejected by {.requiresInit.}.
+  assertNotCompiles(
+    block:
+      var x: JmapState
+      discard x
+  )
+
+block requiresInitMethodCallId:
+  ## Default construction of MethodCallId is rejected by {.requiresInit.}.
+  assertNotCompiles(
+    block:
+      var x: MethodCallId
+      discard x
+  )
+
+block requiresInitCreationId:
+  ## Default construction of CreationId is rejected by {.requiresInit.}.
+  assertNotCompiles(
+    block:
+      var x: CreationId
+      discard x
+  )
+
+block requiresInitUriTemplate:
+  ## Default construction of UriTemplate is rejected by {.requiresInit.}.
+  assertNotCompiles(
+    block:
+      var x: UriTemplate
+      discard x
+  )
+
+block requiresInitPropertyName:
+  ## Default construction of PropertyName is rejected by {.requiresInit.}.
+  assertNotCompiles(
+    block:
+      var x: PropertyName
+      discard x
+  )
+
+block requiresInitPatchObject:
+  ## Default construction of PatchObject is rejected by {.requiresInit.}.
+  assertNotCompiles(
+    block:
+      var x: PatchObject
+      discard x
+  )
+
+# =============================================================================
+# Case object wrong-variant construction rejection
+# =============================================================================
+
+block serverCapabilityWrongVariantCoreOnMail:
+  ## Constructing a ckMail ServerCapability with the ckCore-branch core field
+  ## is rejected by {.strictCaseObjects.}.
+  doAssert not compiles(
+    ServerCapability(
+      kind: ckMail,
+      rawUri: "urn:ietf:params:jmap:mail",
+      core: CoreCapabilities(
+        maxSizeUpload: parseUnsignedInt(1).get(),
+        maxConcurrentUpload: parseUnsignedInt(1).get(),
+        maxSizeRequest: parseUnsignedInt(1).get(),
+        maxConcurrentRequests: parseUnsignedInt(1).get(),
+        maxCallsInRequest: parseUnsignedInt(1).get(),
+        maxObjectsInGet: parseUnsignedInt(1).get(),
+        maxObjectsInSet: parseUnsignedInt(1).get(),
+        collationAlgorithms: initHashSet[string](),
+      ),
+    )
+  )
+
+block setErrorPropertiesOnNonInvalidProperties:
+  ## Constructing a setForbidden SetError with the setInvalidProperties-branch
+  ## properties field is rejected by {.strictCaseObjects.}.
+  doAssert not compiles(
+    SetError(
+      errorType: setForbidden,
+      rawType: "forbidden",
+      description: Opt.none(string),
+      extras: Opt.none(JsonNode),
+      properties: @["name"],
+    )
+  )
+
+block setErrorExistingIdOnNonAlreadyExists:
+  ## Constructing a setForbidden SetError with the setAlreadyExists-branch
+  ## existingId field is rejected by {.strictCaseObjects.}.
+  let testId = parseId("abc").get()
+  doAssert not compiles(
+    SetError(
+      errorType: setForbidden,
+      rawType: "forbidden",
+      description: Opt.none(string),
+      extras: Opt.none(JsonNode),
+      existingId: testId,
+    )
+  )
+
+block referencableReferenceOnDirect:
+  ## Constructing an rkDirect Referencable with the rkReference-branch
+  ## reference field is rejected by {.strictCaseObjects.}.
+  doAssert not compiles(
+    Referencable[int](
+      kind: rkDirect,
+      reference: ResultReference(
+        resultOf: parseMethodCallId("c1").get(), name: "Foo/get", path: "/ids"
+      ),
+    )
+  )
+
+block referencableValueOnReference:
+  ## Constructing an rkReference Referencable with the rkDirect-branch
+  ## value field is rejected by {.strictCaseObjects.}.
+  doAssert not compiles(Referencable[int](kind: rkReference, value: 42))

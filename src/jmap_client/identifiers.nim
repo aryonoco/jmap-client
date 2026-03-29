@@ -2,6 +2,7 @@
 # Copyright (c) 2026 Aryan Ameri
 
 {.push raises: [].}
+{.experimental: "strictCaseObjects".}
 
 ## Semantically distinct identifier types built on Id validation rules. Separate
 ## from primitives.nim because these omit `len` — length is meaningless for
@@ -10,7 +11,7 @@
 import std/hashes
 import std/sequtils
 
-import pkg/results
+import results
 
 import ./validation
 

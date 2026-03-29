@@ -77,7 +77,8 @@ when not defined(release):
 # Dependencies
 
 requires "nim >= 2.2.0"
-requires "results == 0.5.1"
+# Vendored at vendor/nim-results/ (patched for strictCaseObjects)
+# requires "results == 0.5.1"
 
 # Tasks
 

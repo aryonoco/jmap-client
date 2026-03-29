@@ -10,7 +10,7 @@ import std/json
 import std/sets
 import std/tables
 
-import pkg/results
+import results
 
 import jmap_client/primitives
 import jmap_client/identifiers
@@ -684,3 +684,142 @@ block parseSessionEmptyAccountsValid:
   let args = makeMinimalSession()
   let res = parseSessionFromArgs(args)
   assertOk res
+
+# --- Phase 2: Session accessor zero-coverage gaps ---
+
+block coreCapabilitiesReturnsCoreCaps:
+  ## coreCapabilities returns the CoreCapabilities from a valid session.
+  let core = coreCapabilities(goldenSession)
+  doAssert core.maxSizeUpload == zero
+  doAssert core.maxConcurrentUpload == zero
+  doAssert core.maxSizeRequest == zero
+  doAssert core.maxConcurrentRequests == zero
+  doAssert core.maxCallsInRequest == zero
+  doAssert core.maxObjectsInGet == zero
+  doAssert core.maxObjectsInSet == zero
+
+block findCapabilitySessionFoundCore:
+  ## findCapability(session, ckCore) returns the core capability.
+  let result = findCapability(goldenSession, ckCore)
+  assertSome result
+  doAssert result.get().kind == ckCore
+  doAssert result.get().rawUri == "urn:ietf:params:jmap:core"
+
+block findCapabilitySessionFoundContacts:
+  ## findCapability(session, ckContacts) returns when present.
+  let result = findCapability(goldenSession, ckContacts)
+  assertSome result
+  doAssert result.get().rawUri == "urn:ietf:params:jmap:contacts"
+
+block findCapabilitySessionNotFoundCalendars:
+  ## findCapability(session, ckCalendars) returns err when absent.
+  assertNone findCapability(goldenSession, ckCalendars)
+
+block findCapabilityByUriSessionFoundCore:
+  ## findCapabilityByUri(session) returns the matching capability.
+  let result = findCapabilityByUri(goldenSession, "urn:ietf:params:jmap:core")
+  assertSome result
+  doAssert result.get().kind == ckCore
+
+block findCapabilityByUriSessionFoundVendor:
+  ## findCapabilityByUri(session) disambiguates vendor extensions by URI.
+  let result = findCapabilityByUri(goldenSession, "https://vendor2.example/ext")
+  assertSome result
+  doAssert result.get().kind == ckUnknown
+
+block findCapabilityByUriSessionNotFound:
+  ## findCapabilityByUri(session) returns err for absent URI.
+  assertNone findCapabilityByUri(goldenSession, "urn:nonexistent:capability")
+
+block primaryAccountContacts:
+  ## primaryAccount returns the designated primary for ckContacts.
+  let result = primaryAccount(goldenSession, ckContacts)
+  assertSome result
+  doAssert result.get() == AccountId("A13824")
+
+block primaryAccountNotDesignated:
+  ## primaryAccount returns err when no primary is designated for the kind.
+  assertNone primaryAccount(goldenSession, ckCalendars)
+
+block primaryAccountCkUnknownReturnsErr:
+  ## primaryAccount returns err for ckUnknown (no canonical URI).
+  assertNone primaryAccount(goldenSession, ckUnknown)
+
+block findAccountFoundSecond:
+  ## findAccount returns the correct account for the second AccountId.
+  let result = findAccount(goldenSession, AccountId("A97813"))
+  assertSome result
+  doAssert result.get().name == "jane@example.com"
+  doAssert result.get().isReadOnly == true
+
+block findAccountNotFound:
+  ## findAccount returns err for an unknown AccountId.
+  assertNone findAccount(goldenSession, AccountId("ZZZZZZ"))
+
+# --- Phase 2: Account accessor zero-coverage gaps ---
+
+block accountFindCapabilityByKindFoundMail:
+  ## findCapability(account, ckMail) returns the mail capability.
+  let result = findCapability(testAccount, ckMail)
+  assertSome result
+  doAssert result.get().kind == ckMail
+
+block accountFindCapabilityByKindNotFoundCalendars:
+  ## findCapability(account, ckCalendars) returns err when absent.
+  assertNone findCapability(testAccount, ckCalendars)
+
+block accountFindCapabilityByUriFoundVendor:
+  ## findCapabilityByUri(account) finds vendor extension by exact URI.
+  let result = findCapabilityByUri(testAccount, "https://vendor2.example/ext")
+  assertSome result
+  doAssert result.get().kind == ckUnknown
+  doAssert result.get().data == %*{"v": 2}
+
+block accountFindCapabilityByUriNotFound:
+  ## findCapabilityByUri(account) returns err for absent URI.
+  assertNone findCapabilityByUri(testAccount, "urn:nonexistent:nothing")
+
+block accountFindCapabilityByUriVendorExtension:
+  ## findCapabilityByUri(account) disambiguates between multiple ckUnknown entries.
+  let result1 = findCapabilityByUri(testAccount, "https://vendor1.example/ext")
+  assertSome result1
+  doAssert result1.get().data == %*{"v": 1}
+  let result2 = findCapabilityByUri(testAccount, "https://vendor2.example/ext")
+  assertSome result2
+  doAssert result2.get().data == %*{"v": 2}
+
+block accountHasCapabilityTrue:
+  ## hasCapability returns true when the account has the capability.
+  doAssert hasCapability(testAccount, ckMail)
+
+block accountHasCapabilityFalse:
+  ## hasCapability returns false when the account lacks the capability.
+  doAssert not hasCapability(testAccount, ckCalendars)
+
+block accountHasCapabilityCkUnknown:
+  ## hasCapability returns true for ckUnknown when vendor extensions exist.
+  doAssert hasCapability(testAccount, ckUnknown)
+
+# --- Phase 2: UriTemplate and hasVariable zero-coverage gaps ---
+
+block parseUriTemplateEmptyRejected:
+  ## parseUriTemplate rejects empty strings.
+  assertErrFields parseUriTemplate(""), "UriTemplate", "must not be empty", ""
+
+block parseUriTemplateSingleChar:
+  ## parseUriTemplate accepts a single-character string.
+  let result = parseUriTemplate("x")
+  assertOk result
+  doAssert $result.get() == "x"
+
+block hasVariableDirectFound:
+  ## hasVariable returns true when the variable is present.
+  let tmpl = parseUriTemplate("https://e.com/{accountId}/{blobId}").get()
+  doAssert hasVariable(tmpl, "accountId")
+  doAssert hasVariable(tmpl, "blobId")
+
+block hasVariableDirectNotFound:
+  ## hasVariable returns false when the variable is absent.
+  let tmpl = parseUriTemplate("https://e.com/{accountId}").get()
+  doAssert not hasVariable(tmpl, "blobId")
+  doAssert not hasVariable(tmpl, "type")

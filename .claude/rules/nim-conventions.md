@@ -17,7 +17,7 @@ Every `.nim` file must start with this structure:
 {.push raises: [].}
 
 import std/[strutils]       # std/ imports first
-import pkg/results          # pkg/ imports second
+import results              # vendored at vendor/nim-results/
 import ./types, ./errors    # local imports last
 ```
 

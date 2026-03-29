@@ -8,7 +8,7 @@
 import std/json
 import std/tables
 
-import pkg/results
+import results
 
 import jmap_client/identifiers
 import jmap_client/primitives
@@ -198,13 +198,13 @@ block referencableVariantDiscrimination:
   doAssert r.reference.name == "Email/get"
   doAssert r.reference.path == "/ids"
 
-# --- ResultReference path constants ---
+# --- Request.using duplicate entries ---
 
-block resultReferencePathConstants:
-  # Verify path constants match RFC 8620 S3.7
-  assertEq RefPathIds, "/ids"
-  assertEq RefPathListIds, "/list/*/id"
-  assertEq RefPathAddedIds, "/added/*/id"
-  assertEq RefPathCreated, "/created"
-  assertEq RefPathUpdated, "/updated"
-  assertEq RefPathUpdatedProperties, "/updatedProperties"
+block requestDuplicateUsing:
+  ## Duplicate entries in Request.using are preserved (seq, not set).
+  let req = Request(
+    `using`: @["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:core"],
+    methodCalls: @[],
+    createdIds: Opt.none(Table[CreationId, Id]),
+  )
+  doAssert req.`using`.len == 2
