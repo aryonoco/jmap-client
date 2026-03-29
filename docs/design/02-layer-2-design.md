@@ -2155,7 +2155,7 @@ Properties that must hold for every serialised type:
 **File header template** (required for `reuse lint` — every `.nim` file):
 
 ```nim
-# SPDX-License-Identifier: BSL-1.0
+# SPDX-License-Identifier: BSD-2-Clause
 # Copyright (c) 2026 Aryan Ameri
 
 {.push raises: [].}

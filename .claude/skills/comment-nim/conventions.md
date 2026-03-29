@@ -81,7 +81,7 @@ func parseCapabilityKind*(uri: string): CapabilityKind =
 These are project idioms. Every developer knows them. Never add comments:
 
 <!-- REUSE-IgnoreStart -->
-- `# SPDX-License-Identifier: BSL-1.0` — structural header, not a comment to review
+- `# SPDX-License-Identifier: BSD-2-Clause` — structural header, not a comment to review
 <!-- REUSE-IgnoreEnd -->
 - `{.push raises: [].}` — project-wide convention, never explain it
 - `import std/[...]` / `import pkg/results` / `import ./...` — import grouping

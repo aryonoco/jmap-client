@@ -39,7 +39,7 @@ Copyright 2026 Aryan Ameri.
 
 | Content | Licence |
 |---------|---------|
-| Source code, configuration, and tooling | [BSL-1.0](LICENSES/BSL-1.0.txt) |
+| Source code, configuration, and tooling | [BSD-2-Clause](LICENSES/BSD-2-Clause.txt) |
 | Documentation | [CC-BY-4.0](LICENSES/CC-BY-4.0.txt) |
 
 This project is [REUSE](https://reuse.software/) compliant. See [REUSE.toml](REUSE.toml) for details.

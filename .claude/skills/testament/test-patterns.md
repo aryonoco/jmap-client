@@ -13,7 +13,7 @@ Current patterns cover Track 0. Tracks 1 and 2 will be added when those layers a
 Every test file in this project follows the same structure as source files:
 
 ```nim
-# SPDX-License-Identifier: BSL-1.0
+# SPDX-License-Identifier: BSD-2-Clause
 # Copyright (c) 2026 Aryan Ameri
 
 {.push raises: [].}

@@ -1,10 +1,10 @@
-# SPDX-License-Identifier: BSL-1.0
+# SPDX-License-Identifier: BSD-2-Clause
 # SPDX-FileCopyrightText: 2026 Aryan Ameri <github@aryan.ameri.coffee>
 
 version = 1
 
 # =============================================================================
-# Source Code (BSL-1.0)
+# Source Code (BSD-2-Clause)
 # =============================================================================
 
 [[annotations]]
@@ -32,7 +32,7 @@ path = [
 ]
 precedence = "closest"
 SPDX-FileCopyrightText = "2026 Aryan Ameri <github@aryan.ameri.coffee>"
-SPDX-License-Identifier = "BSL-1.0"
+SPDX-License-Identifier = "BSD-2-Clause"
 
 # =============================================================================
 # Documentation (CC-BY-4.0)

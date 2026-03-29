@@ -1,8 +1,8 @@
-# SPDX-License-Identifier: BSL-1.0
+# SPDX-License-Identifier: BSD-2-Clause
 # Copyright (c) 2026 Aryan Ameri
 #
 # begin Nimble config (version 2)
-when system.withDir(system.thisDir(), system.fileExists("nimble.paths")):
+when withDir(thisDir(), system.fileExists("nimble.paths")):
   include "nimble.paths"
 # end Nimble config
 
@@ -22,4 +22,8 @@ system.switch("path", system.thisDir() & "/vendor/nim-results")
 # on raiseResultOk/raiseResultError).
 system.switch("experimental", "strictDefs")
 system.switch("experimental", "strictFuncs")
-system.switch("experimental", "strictNotNil")
+
+# strictNotNil crashes nimsuggest (IndexDefect on startup — Nim 2.2.x bug).
+# Guard it so the flag still applies during normal compilation and CI.
+when not defined(nimsuggest):
+  system.switch("experimental", "strictNotNil")

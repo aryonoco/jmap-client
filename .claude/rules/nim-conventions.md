@@ -11,7 +11,7 @@ paths:
 Every `.nim` file must start with this structure:
 
 ```nim
-# SPDX-License-Identifier: BSL-1.0
+# SPDX-License-Identifier: BSD-2-Clause
 # Copyright (c) 2026 Aryan Ameri
 
 {.push raises: [].}

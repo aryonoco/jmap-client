@@ -193,7 +193,11 @@
       "Bash(find /home/vscode/nim-2.2.8 -name nimsuggest* -type f)",
       "Bash(find /home/vscode/.cache -name nimscriptapi*)",
       "Bash(find /home/vscode/.cache -name *.nim)",
-      "Bash(npx cspell:*)"
+      "Bash(npx cspell:*)",
+      "Bash(head -50 tests/tenv*)",
+      "Bash(tests/tserde_session)",
+      "Bash(docker exec:*)",
+      "Bash(while read:*)"
     ]
   }
 }
