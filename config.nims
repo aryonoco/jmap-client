@@ -2,12 +2,12 @@
 # Copyright (c) 2026 Aryan Ameri
 #
 # begin Nimble config (version 2)
-when withDir(thisDir(), system.fileExists("nimble.paths")):
+when system.withDir(system.thisDir(), system.fileExists("nimble.paths")):
   include "nimble.paths"
 # end Nimble config
 
-switch("path", thisDir() & "/src")
-switch("path", thisDir() & "/vendor/nim-results")
+system.switch("path", system.thisDir() & "/src")
+system.switch("path", system.thisDir() & "/vendor/nim-results")
 
 # Compiler switches — duplicated from jmap_client.nimble because the Nim
 # compiler reads config.nims but NOT .nimble files. Without these lines,
@@ -20,6 +20,6 @@ switch("path", thisDir() & "/vendor/nim-results")
 # behind `if` guards). nim-results is vendored at vendor/nim-results/ and
 # patched for compliance (if→case in mapConvertErr/mapCastErr, cast pragmas
 # on raiseResultOk/raiseResultError).
-switch("experimental", "strictDefs")
-switch("experimental", "strictFuncs")
-switch("experimental", "strictNotNil")
+system.switch("experimental", "strictDefs")
+system.switch("experimental", "strictFuncs")
+system.switch("experimental", "strictNotNil")

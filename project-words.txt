@@ -13,18 +13,31 @@ nph
 testament
 
 # Nim Keywords & Patterns
+booldefine
 cdecl
+cint
+cstrings
 dynlib
+enumutils
 exportc
 filterIt
 foldl
 func
+gensym
+httpcore
 isErr
 isNone
+isnot
 isOk
 isSome
+jsonutils
 mapIt
+mitems
+parseutils
 proc
+seqs
+sequtils
+strutils
 ufcs
 UFCS
 valueOr
@@ -37,6 +50,7 @@ jmap
 JMAP
 mailbox
 mailboxes
+modseq
 sessionUrl
 threadId
 
@@ -45,6 +59,7 @@ ABI
 FFI
 httpclient
 HTTPS
+serde
 SSL
 TLS
 
@@ -53,26 +68,37 @@ docstrings
 jmap-client
 libjmap
 megatest
+newtypes
+publicfields
 referencable
+standardtypes
+stringly
 testresults
 
 # Technical Terms
+chronos
 entr
 langserver
 musl
 pipx
+secfrac
 statically
 stderr
 stdout
+watchexec
 
 # British English Variants
 behaviour
 colour
 deserialisation
 deserialise
+deserialised
+deserialises
 normalised
+parameterising
 serialisation
 serialise
+serialiser
 
 # DevOps & Tools
 Containerfile
@@ -81,6 +107,62 @@ devcontainers
 lldb
 LLDB
 mise
+nimalyzer
+
+# Nim Ecosystem & Libraries
+jsony
+nimfp
+Refc
+Sieka
+
+# CS / Type Theory
+effectful
+GADT
+Irreflexivity
+kinded
+monomorphisation
+nilability
+typeclass
+Typeclass
+typeclasses
+
+# Test Modules
+tadversarial
+tintegration
+tprop
+trfc
+tserde
+tstress
+tuninstantiatedgenericcalls
+
+# Names & Proper Nouns
+Aeson
+Agda
+Idris
+Jacek
+
+# Misc Terms
+accts
+algs
+Badmin
+Bidi
+deser
+Deser
+Fabc
+Footgun
+funcess
+losslessness
+Losslessness
+Mcdc
+merrors
+modeled
+mvalues
+negligeable
+Postel's
+Uplevel
+Zextra
+Zwsp
+ZWSP
 
 # VS Code Extensions (author names)
 Adef
@@ -102,6 +184,7 @@ hverlin
 Idblob
 Injectivity
 invalidarguments
+justfile
 Mapto
 massertions
 mcid
@@ -109,14 +192,11 @@ mfixtures
 mhutchie
 mproperty
 nefrob
-nimalyzer
 nlvm
 notjson
 overquota
 rref
-sequtils
 smimeverify
-strutils
 tamasfe
 tcapabilities
 tenvelope

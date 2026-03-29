@@ -176,7 +176,24 @@
       "Bash(rm -rf /tmp/nimcache* /tmp/test_sf3 /tmp/test_all_flags /tmp/test_in_project /tmp/test_no_strict /tmp/test_strictfuncs* /tmp/test_nimble)",
       "Bash(nim r:*)",
       "Bash(do sed:*)",
-      "Bash(reuse download:*)"
+      "Bash(reuse download:*)",
+      "Bash(1 src/jmap_client.nim)",
+      "Bash(1 /workspaces/jmap-client/config.nims)",
+      "Bash(gh search:*)",
+      "Bash(gh issue:*)",
+      "Bash(gh pr:*)",
+      "Bash(python3 -c \"import sys,json; data=json.load\\(sys.stdin\\); [print\\(f''''{i[\"\"number\"\"]} {i[\"\"state\"\"]} {i[\"\"title\"\"]}''''\\) for i in data.get\\(''''items'''',[]\\)]\")",
+      "Bash(/tmp/test_proj/test.nim:*)",
+      "Bash(mkdir -p /tmp/test_proj)",
+      "Bash(/tmp/test_proj/config.nims:*)",
+      "Bash(mkdir:*)",
+      "WebFetch(domain:reuse.software)",
+      "Bash(python3 -c \"import sys,json; data=json.load\\(sys.stdin\\); [print\\(f''''{i[\"\"number\"\"]} {i[\"\"state\"\"]} {i[\"\"created_at\"\"][:10]} {i[\"\"title\"\"]}''''\\) for i in data.get\\(''''items'''',[]\\)]\")",
+      "Bash(find /workspaces/jmap-client/src/jmap_client -type f -name *.nim)",
+      "Bash(find /home/vscode/nim-2.2.8 -name nimsuggest* -type f)",
+      "Bash(find /home/vscode/.cache -name nimscriptapi*)",
+      "Bash(find /home/vscode/.cache -name *.nim)",
+      "Bash(npx cspell:*)"
     ]
   }
 }
