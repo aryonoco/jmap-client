@@ -212,16 +212,15 @@ func fromJson*(T: typedesc[ServerCapability], uri: string, data: JsonNode
 For generic types (`Filter[C]`), the callback parameter requires a
 `{.noSideEffect.}` callable. In Nim, `func` is `proc {.noSideEffect.}`,
 so the parameter type `proc(...) {.noSideEffect.}` should be
-effect-compatible with `strictFuncs`. However, this must be verified at
-compile time. Two options:
+effect-compatible with `strictFuncs`. The callback must also declare
+`raises: []` because the module-level `{.push raises: [].}` requires
+callable parameters to prove they cannot raise:
 
-- **Primary:** `func fromJson*[C](T: typedesc[Filter[C]], node: JsonNode,
+```nim
+func fromJson*[C](T: typedesc[Filter[C]], node: JsonNode,
   fromCondition: proc(n: JsonNode): Result[C, ValidationError]
-  {.noSideEffect.}): Result[Filter[C], ValidationError]` — if the compiler
-  accepts `proc {.noSideEffect.}` parameter inside `func`.
-- **Fallback:** If `strictFuncs` rejects the `proc` parameter type, use a
-  template wrapper or pass the condition parser as a generic type parameter.
-  This is a compile-time verification step, not a design choice.
+  {.noSideEffect, raises: [].}): Result[Filter[C], ValidationError]
+```
 
 **camelCase convention (Decision 2.2A).** All field names in Nim match wire
 names exactly. No conversion logic. `accountId` in Nim → `"accountId"` in
@@ -316,12 +315,12 @@ func fromJson*(T: typedesc[Invocation], node: JsonNode
   checkJsonKind(elems[2], JString, $T,
     "method call ID must be string")
   let callIdRaw = elems[2].getStr("")
-  if name.len == 0:
-    return err(parseError($T, "empty method name"))
   checkJsonKind(arguments, JObject, $T,
     "arguments must be JSON object")
+  if name.len == 0:
+    return err(parseError($T, "method name must not be empty"))
   if callIdRaw.len == 0:
-    return err(parseError($T, "empty method call ID"))
+    return err(parseError($T, "method call ID must not be empty"))
   let mcid = ? parseMethodCallId(callIdRaw)
   ok(Invocation(name: name, arguments: arguments, methodCallId: mcid))
 ```
@@ -1336,26 +1335,36 @@ func fromJson*(T: typedesc[Request], node: JsonNode
     let inv = ? Invocation.fromJson(callNode)
     methodCalls.add(inv)
 
-  let createdIds: Opt[Table[CreationId, Id]] =
-    if node{"createdIds"}.isNil or node{"createdIds"}.kind == JNull:
-      Opt.none(Table[CreationId, Id])
-    elif node{"createdIds"}.kind == JObject:
-      var tbl = initTable[CreationId, Id]()
-      for k, v in node{"createdIds"}.pairs:  # kind verified above
-        let cid = ? parseCreationId(k)
-        checkJsonKind(v, JString, $T,
-          "createdIds value must be string")
-        let id = ? parseIdFromServer(v.getStr(""))
-        tbl[cid] = id
-      Opt.some(tbl)
-    else:
-      return err(parseError($T, "createdIds must be object or null"))
+  let createdIds = ? parseCreatedIds(node, $T)
 
   ok(Request(
     `using`: usingSeq,
     methodCalls: methodCalls,
     createdIds: createdIds,
   ))
+```
+
+**Shared helper — `parseCreatedIds`:** Extracted for DRY (identical logic
+in Request and Response). Container-strict per §9: wrong container kind
+returns `err`, not lenient `Opt.none`.
+
+```nim
+func parseCreatedIds(node: JsonNode, typeName: string
+    ): Result[Opt[Table[CreationId, Id]], ValidationError] =
+  ## Parse optional createdIds from a Request or Response JSON object.
+  let cnode = node{"createdIds"}
+  if cnode.isNil or cnode.kind == JNull:
+    return ok(Opt.none(Table[CreationId, Id]))
+  if cnode.kind != JObject:
+    return err(parseError(typeName, "createdIds must be object or null"))
+  var tbl = initTable[CreationId, Id]()
+  for k, v in cnode.pairs:  # kind == JObject verified above
+    let cid = ? parseCreationId(k)
+    checkJsonKind(v, JString, typeName,
+      "createdIds value must be string")
+    let id = ? parseIdFromServer(v.getStr(""))
+    tbl[cid] = id
+  ok(Opt.some(tbl))
 ```
 
 **Module:** `src/jmap_client/serde_envelope.nim`
@@ -1395,46 +1404,70 @@ func toJson*(r: Response): JsonNode =
       result["createdIds"] = ids
 ```
 
-**`fromJson`:**
+**`fromJson`:** Response.fromJson is structurally different from Request.fromJson
+due to a nim-results limitation: `Result[Response, ValidationError]` cannot
+use `err()` or the `?` operator because `Response` has both
+`Opt[Table[CreationId, Id]]` (nested `Result` with `requiresInit` generics)
+and `sessionState: JmapState` (bare `requiresInit` field). The combination
+prevents the compiler from default-constructing `Response` for the inactive
+case-object branch in nim-results' `err()` template (which uses literal
+case-object construction).
+
+The workaround uses three helpers:
+
+- `initResultErr[T, E]` — constructs `Result[T, E]` in the error state via
+  default-init + case-branch-verified field access (bypasses literal construction).
+- `parseResponseCore` — parses `methodResponses` and `sessionState` into a
+  `Result[(seq[Invocation], JmapState), ValidationError]` (this type does NOT
+  trigger the limitation, so `?` and `checkJsonKind` work normally).
+- `parseCreatedIds` — shared helper (also used by Request) returning
+  `Result[Opt[Table[CreationId, Id]], ValidationError]`.
+
+The outer `fromJson` only calls `ok()` and `initResultErr` — never `err()` or
+`?` on `Result[Response, ValidationError]`.
 
 ```nim
-func fromJson*(T: typedesc[Response], node: JsonNode
-    ): Result[Response, ValidationError] =
-  ## Deserialise JSON to Response (RFC 8620 §3.4).
-  checkJsonKind(node, JObject, $T)
+func initResultErr[T, E](x: E): Result[T, E] =
+  ## Construct Result[T, E] in error state without literal case-object
+  ## construction. Default-init sets oResultPrivate=false (err branch),
+  ## then case-verified access assigns the error value.
+  var rv: Result[T, E]
+  case rv.oResultPrivate
+  of false: rv.eResultPrivate = x
+  of true: discard
+  rv
 
+func parseResponseCore(node: JsonNode
+    ): Result[(seq[Invocation], JmapState), ValidationError] =
+  checkJsonKind(node, JObject, "Response")
   let responsesNode = node{"methodResponses"}
-  checkJsonKind(responsesNode, JArray, $T,
+  checkJsonKind(responsesNode, JArray, "Response",
     "missing or invalid methodResponses")
   var methodResponses: seq[Invocation]
   for respNode in responsesNode.getElems(@[]):
     let inv = ? Invocation.fromJson(respNode)
     methodResponses.add(inv)
-
-  checkJsonKind(node{"sessionState"}, JString, $T,
+  checkJsonKind(node{"sessionState"}, JString, "Response",
     "missing or invalid sessionState")
   let sessionState = ? parseJmapState(
     node{"sessionState"}.getStr(""))
+  ok((methodResponses, sessionState))
 
-  let createdIds: Opt[Table[CreationId, Id]] =
-    if node{"createdIds"}.isNil or node{"createdIds"}.kind == JNull:
-      Opt.none(Table[CreationId, Id])
-    elif node{"createdIds"}.kind == JObject:
-      var tbl = initTable[CreationId, Id]()
-      for k, v in node{"createdIds"}.pairs:  # kind verified above
-        let cid = ? parseCreationId(k)
-        checkJsonKind(v, JString, $T,
-          "createdIds value must be string")
-        let id = ? parseIdFromServer(v.getStr(""))
-        tbl[cid] = id
-      Opt.some(tbl)
-    else:
-      return err(parseError($T, "createdIds must be object or null"))
-
+func fromJson*(T: typedesc[Response], node: JsonNode
+    ): Result[Response, ValidationError] =
+  ## Deserialise JSON to Response (RFC 8620 §3.4).
+  let coreResult = parseResponseCore(node)
+  if coreResult.isErr:
+    return initResultErr[Response, ValidationError](coreResult.error)
+  let core = coreResult.get()
+  let createdIdsResult = parseCreatedIds(node, $T)
+  if createdIdsResult.isErr:
+    return initResultErr[Response, ValidationError](createdIdsResult.error)
+  let createdIds = createdIdsResult.get()
   ok(Response(
-    methodResponses: methodResponses,
+    methodResponses: core[0],
     createdIds: createdIds,
-    sessionState: sessionState,
+    sessionState: core[1],
   ))
 ```
 
@@ -1480,9 +1513,9 @@ func fromJson*(T: typedesc[ResultReference], node: JsonNode
     "missing or invalid path")
   let path = node{"path"}.getStr("")
   if name.len == 0:
-    return err(parseError($T, "missing name"))
+    return err(parseError($T, "name must not be empty"))
   if path.len == 0:
-    return err(parseError($T, "missing path"))
+    return err(parseError($T, "path must not be empty"))
   ok(ResultReference(resultOf: resultOf, name: name, path: path))
 ```
 
@@ -1515,7 +1548,8 @@ func referencableKey*[T](fieldName: string, r: Referencable[T]): string =
 func fromJsonField*[T](
     fieldName: string,
     node: JsonNode,
-    fromDirect: proc(n: JsonNode): Result[T, ValidationError] {.noSideEffect.},
+    fromDirect: proc(n: JsonNode): Result[T, ValidationError]
+        {.noSideEffect, raises: [].},
 ): Result[Referencable[T], ValidationError] =
   ## Parse a Referencable field from a JSON object.
   ## Checks for "#fieldName" (reference) first, then "fieldName" (direct).
