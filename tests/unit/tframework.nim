@@ -14,7 +14,7 @@ import results
 import jmap_client/primitives
 import jmap_client/framework
 
-import ./massertions
+import ../massertions
 
 # --- PropertyName ---
 

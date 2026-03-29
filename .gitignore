@@ -281,14 +281,16 @@ testresults.html
 outputGotten.txt
 tests/megatest
 tests/megatest.nim
+tests/*/megatest
+tests/*/megatest.nim
 
 # Compiled binaries (nim c produces extensionless executables next to .nim files)
 src/jmap_client/[a-z]*
 !src/jmap_client/*.nim
 
 # Compiled test binaries (testament compiles tFoo.nim -> tFoo)
-tests/t[a-z]*
-!tests/t*.nim
+tests/*/t[a-z]*
+!tests/*/t*.nim
 
 # Coverage (if added later)
 coverage/

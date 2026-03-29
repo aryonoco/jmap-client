@@ -13,7 +13,7 @@ import results
 
 import jmap_client/identifiers
 import jmap_client/validation
-import ./mproperty
+import ../mproperty
 
 block propParseAccountIdTotality:
   checkProperty "parseAccountId never crashes":

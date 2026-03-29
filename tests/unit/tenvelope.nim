@@ -14,7 +14,7 @@ import jmap_client/identifiers
 import jmap_client/primitives
 import jmap_client/envelope
 
-import ./massertions
+import ../massertions
 
 # --- Invocation ---
 

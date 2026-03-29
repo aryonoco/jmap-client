@@ -9,7 +9,7 @@ import std/random
 
 import results
 
-import ./mproperty
+import ../mproperty
 
 block propResultLeftIdentity:
   checkProperty "ok(a).flatMap(f) == f(a)":

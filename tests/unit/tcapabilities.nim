@@ -13,8 +13,8 @@ import results
 import jmap_client/primitives
 import jmap_client/capabilities
 
-import ./massertions
-import ./mfixtures
+import ../massertions
+import ../mfixtures
 
 # --- parseCapabilityKind ---
 

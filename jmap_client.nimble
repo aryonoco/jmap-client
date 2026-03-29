@@ -83,7 +83,7 @@ requires "nim >= 2.2.0"
 # Tasks
 
 task test, "Run tests":
-  exec "testament pattern \"tests/t*.nim\""
+  exec "testament --backendLogging:off all"
 
 task clean, "Clean build artifacts":
   exec "rm -rf bin/ nimcache/ htmldocs/"

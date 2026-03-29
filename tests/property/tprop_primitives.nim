@@ -13,7 +13,7 @@ import results
 
 import jmap_client/primitives
 import jmap_client/validation
-import ./mproperty
+import ../mproperty
 
 # --- Totality: never crashes ---
 

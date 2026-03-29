@@ -21,8 +21,8 @@ import jmap_client/framework
 import jmap_client/errors
 import jmap_client/types
 
-import ./massertions
-import ./mfixtures
+import ../massertions
+import ../mfixtures
 
 # =============================================================================
 # Happy path workflows

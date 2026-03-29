@@ -20,9 +20,9 @@ import jmap_client/identifiers
 import jmap_client/envelope
 import jmap_client/validation
 
-import ./massertions
-import ./mfixtures
-import ./mproperty
+import ../massertions
+import ../mfixtures
+import ../mproperty
 
 # ---------------------------------------------------------------------------
 # Helper definitions

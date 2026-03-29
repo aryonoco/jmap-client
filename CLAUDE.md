@@ -47,7 +47,7 @@ Architecture: 5 layers (see `docs/architecture-options.md`). Layer 1 detailed de
 - `src/jmap_client/framework.nim` — `PropertyName`, `FilterOperator`, `Filter[C]`, `Comparator`, `PatchObject`, `AddedItem`
 - `src/jmap_client/errors.nim` — `TransportError`, `RequestError`, `ClientError`, `MethodError`, `SetError`
 - `src/jmap_client/client.nim` — HTTP client wrapper (Layer 4)
-- `tests/` — Test modules
+- `tests/` — Test modules (categories: `unit/`, `serde/`, `property/`, `compliance/`, `stress/`)
 
 ## Functional Programming Conventions
 

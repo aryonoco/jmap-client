@@ -23,8 +23,8 @@ import jmap_client/errors
 import jmap_client/session
 import jmap_client/envelope
 
-import ./massertions
-import ./mfixtures
+import ../massertions
+import ../mfixtures
 
 # =============================================================================
 # a) Multi-byte UTF-8 at 255-byte boundary

@@ -16,8 +16,8 @@ import jmap_client/framework
 import jmap_client/identifiers
 import jmap_client/primitives
 import jmap_client/session
-import ./mfixtures
-import ./mproperty
+import ../mfixtures
+import ../mproperty
 
 # --- UriTemplate properties ---
 

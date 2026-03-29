@@ -18,7 +18,7 @@ import jmap_client/identifiers
 import jmap_client/primitives
 import jmap_client/session
 import jmap_client/validation
-import ./mproperty
+import ../mproperty
 
 block propParsePropertyNameTotality:
   checkProperty "parsePropertyName never crashes":

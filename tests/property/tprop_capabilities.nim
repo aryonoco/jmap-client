@@ -13,7 +13,7 @@ import results
 
 import jmap_client/capabilities
 import jmap_client/primitives
-import ./mproperty
+import ../mproperty
 
 block propCapabilityKindTotality:
   checkProperty "parseCapabilityKind never crashes on arbitrary string":

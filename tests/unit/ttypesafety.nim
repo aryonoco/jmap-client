@@ -12,7 +12,7 @@ import results
 
 import jmap_client/types
 
-import ./massertions
+import ../massertions
 
 # --- Distinct type isolation ---
 

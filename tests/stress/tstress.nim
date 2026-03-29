@@ -20,8 +20,8 @@ import jmap_client/envelope
 import jmap_client/framework
 import jmap_client/errors
 
-import ./massertions
-import ./mfixtures
+import ../massertions
+import ../mfixtures
 
 block stressManyParseIdCalls:
   ## 10000 parseId calls: no crash, no leak under ARC.

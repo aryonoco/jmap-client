@@ -12,7 +12,7 @@ import results
 
 import jmap_client/primitives
 
-import ./massertions
+import ../massertions
 
 # --- parseId (strict) ---
 

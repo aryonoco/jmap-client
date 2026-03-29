@@ -18,9 +18,9 @@ import jmap_client/session
 import jmap_client/framework
 import jmap_client/validation
 
-import ./massertions
-import ./mfixtures
-import ./mproperty
+import ../massertions
+import ../mfixtures
+import ../mproperty
 
 # =============================================================================
 # A. Shared helpers

@@ -34,7 +34,7 @@ read the relevant section from `llms-full.txt` using the section index in
 | How to test that a Result is ok/err? | See [test-patterns.md](test-patterns.md) |
 | How to test stdout output? | See Output Matching in [spec-reference.md](spec-reference.md) |
 | How to test compile-time rejection? | See Reject Action in [spec-reference.md](spec-reference.md) |
-| How to run tests? | `just test` (all), `just test-file tests/tfoo.nim` (single) |
+| How to run tests? | `just test` (all), `just test-file tests/unit/tfoo.nim` (single) |
 | How to run tests verbosely? | `just test-verbose` |
 | What fields interact implicitly? | See Implicit Behaviours in [spec-reference.md](spec-reference.md) |
 | How to test inline compiler errors? | See Inline Error Annotations in [spec-reference.md](spec-reference.md) |

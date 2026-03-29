@@ -17,8 +17,8 @@ import jmap_client/identifiers
 import jmap_client/capabilities
 import jmap_client/session
 
-import ./massertions
-import ./mfixtures
+import ../massertions
+import ../mfixtures
 
 # Shared fixture values used across multiple test blocks.
 

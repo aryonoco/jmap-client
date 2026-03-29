@@ -77,16 +77,21 @@ build:
 # TESTING
 # =============================================================================
 
-# Run all tests
+# Run all tests (parallel via testament categories + megatest)
 test:
-    @echo "Running tests..."
-    nimble test
-    @echo "All tests passed"
+    #!/usr/bin/env bash
+    set -euo pipefail
+    shopt -s inherit_errexit
+    cleanup() { find tests/ -name 'megatest' -type f -delete; find tests/ -name 'megatest.nim' -type f -delete; }
+    trap cleanup EXIT
+    echo "Running tests..."
+    testament --backendLogging:off all
+    echo "All tests passed"
 
 # Run tests with verbose output
 test-verbose:
     @echo "Running tests (verbose)..."
-    testament --verbose pattern "tests/t*.nim"
+    testament --verbose all
     @echo "All tests passed"
 
 # Run specific test file
@@ -94,30 +99,35 @@ test-file file:
     @echo "Running test: {{file}}"
     testament {{file}}
 
+# Run unit tests only
+test-unit:
+    @echo "Running unit tests..."
+    testament cat unit
+
+# Run serialisation tests only
+test-serde:
+    @echo "Running serde tests..."
+    testament cat serde
+
 # Run property-based tests only
 test-prop:
     @echo "Running property tests..."
-    testament pattern "tests/tprop_*.nim"
+    testament cat property
 
-# Run RFC compliance tests only
+# Run RFC/scenario compliance tests only
 test-rfc:
-    @echo "Running RFC compliance tests..."
-    testament pattern "tests/trfc_*.nim"
+    @echo "Running compliance tests..."
+    testament cat compliance
 
-# Run stress tests only
+# Run stress and adversarial tests only
 test-stress:
     @echo "Running stress tests..."
-    testament pattern "tests/tstress.nim"
-
-# Run adversarial tests only
-test-adv:
-    @echo "Running adversarial tests..."
-    testament pattern "tests/tadversarial.nim"
+    testament cat stress
 
 # Run tests and generate HTML report
 test-report:
     @echo "Running tests with report..."
-    testament pattern "tests/t*.nim"
+    testament all
     testament html
     @echo "Test report: testresults.html"
 
@@ -199,7 +209,9 @@ clean:
     rm -f core.*
     rm -f testresults.html outputGotten.txt
     rm -f tests/megatest tests/megatest.nim
-    find tests/ -maxdepth 1 -type f -executable -delete
+    find tests/ -name 'megatest' -type f -delete
+    find tests/ -name 'megatest.nim' -type f -delete
+    find tests/ -type f -executable -delete
     find src/ tests/ -name '*.out' -delete
     @echo "Clean complete"
 

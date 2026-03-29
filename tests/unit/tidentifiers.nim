@@ -13,7 +13,7 @@ import results
 import jmap_client/identifiers
 import jmap_client/primitives
 
-import ./massertions
+import ../massertions
 
 # --- parseAccountId ---
 

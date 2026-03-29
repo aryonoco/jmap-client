@@ -22,9 +22,9 @@ import jmap_client/capabilities
 import jmap_client/session
 import jmap_client/validation
 
-import ./massertions
-import ./mfixtures
-import ./mproperty
+import ../massertions
+import ../mfixtures
+import ../mproperty
 
 # ServerCapability is a case object — Nim cannot auto-generate == for case
 # objects. Define value equality for round-trip testing.

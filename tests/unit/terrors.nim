@@ -13,7 +13,7 @@ import results
 import jmap_client/primitives
 import jmap_client/errors
 
-import ./massertions
+import ../massertions
 
 # --- parseRequestErrorType ---
 

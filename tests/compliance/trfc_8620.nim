@@ -23,8 +23,8 @@ import jmap_client/envelope
 import jmap_client/framework
 import jmap_client/errors
 
-import ./massertions
-import ./mfixtures
+import ../massertions
+import ../mfixtures
 
 # =============================================================================
 # S1.2 — Id (RFC 8620 section 1.2)

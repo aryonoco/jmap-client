@@ -162,5 +162,5 @@ block:
 |---------|-------------|
 | `just test` | Run all tests via testament |
 | `just test-verbose` | Run all tests with verbose output |
-| `just test-file tests/tprimitives.nim` | Run a single test file |
+| `just test-file tests/unit/tprimitives.nim` | Run a single test file |
 | `just test-report` | Generate HTML test report |
