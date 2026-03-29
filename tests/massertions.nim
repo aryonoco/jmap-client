@@ -7,6 +7,7 @@
 ## line numbers point to the calling test block on failure.
 
 import jmap_client/validation
+import jmap_client/errors
 
 {.push ruleOff: "hasDoc".}
 
@@ -121,3 +122,31 @@ template assertTrue*(expr: untyped, msg: string) =
 template assertFalse*(expr: untyped, msg: string) =
   ## Annotated boolean negation assertion with context message.
   doAssert not expr, msg
+
+template assertNe*(actual, expected: untyped) =
+  ## Value-displaying inequality assertion. Shows both sides on failure.
+  let a = actual
+  let e = expected
+  doAssert a != e, "expected " & $a & " != " & $e
+
+template assertTransportErr*(ce: untyped, expectedKind: TransportErrorKind) =
+  ## Verifies a ClientError is a transport error with the given kind.
+  doAssert ce.kind == cekTransport, "expected cekTransport, got " & $ce.kind
+  doAssert ce.transport.kind == expectedKind,
+    "expected " & $expectedKind & ", got " & $ce.transport.kind
+
+template assertRequestErr*(ce: untyped, expectedType: RequestErrorType) =
+  ## Verifies a ClientError is a request error with the given type.
+  doAssert ce.kind == cekRequest, "expected cekRequest, got " & $ce.kind
+  doAssert ce.request.errorType == expectedType,
+    "expected " & $expectedType & ", got " & $ce.request.errorType
+
+template assertMethodErrType*(me: untyped, expectedType: MethodErrorType) =
+  ## Verifies a MethodError has the given type.
+  doAssert me.errorType == expectedType,
+    "expected " & $expectedType & ", got " & $me.errorType
+
+template assertSetErrType*(se: untyped, expectedType: SetErrorType) =
+  ## Verifies a SetError has the given type.
+  doAssert se.errorType == expectedType,
+    "expected " & $expectedType & ", got " & $se.errorType

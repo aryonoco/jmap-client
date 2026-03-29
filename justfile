@@ -89,6 +89,26 @@ test-file file:
     @echo "Running test: {{file}}"
     testament {{file}}
 
+# Run property-based tests only
+test-prop:
+    @echo "Running property tests..."
+    testament pattern "tests/tprop_*.nim"
+
+# Run RFC compliance tests only
+test-rfc:
+    @echo "Running RFC compliance tests..."
+    testament pattern "tests/trfc_*.nim"
+
+# Run stress tests only
+test-stress:
+    @echo "Running stress tests..."
+    testament pattern "tests/tstress.nim"
+
+# Run adversarial tests only
+test-adv:
+    @echo "Running adversarial tests..."
+    testament pattern "tests/tadversarial.nim"
+
 # Run tests and generate HTML report
 test-report:
     @echo "Running tests with report..."
