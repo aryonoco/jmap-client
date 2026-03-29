@@ -172,7 +172,9 @@ func parseError*(typeName, message: string): ValidationError =
 ```
 
 Rationale: `fromJson` calls Layer 1 smart constructors
-(`? parseIdFromServer(raw)`) — same error type means zero `mapErr` overhead.
+(e.g., `? parseIdFromServer(raw)` in composite types, or returning the
+constructor `Result` directly in simple types) — same error type means
+zero `mapErr` overhead.
 The `value` field carries empty string for deserialisation errors. This
 aligns with Layer 1's `ValidationError` carrying `typeName` + `message` +
 `value`, not a full call trace.
@@ -187,13 +189,15 @@ Two canonical signatures:
 func toJson*(x: T): JsonNode =
   ## Pure, infallible. Returns a JsonNode tree.
 
-func fromJson*(_: typedesc[T], node: JsonNode): Result[T, ValidationError] =
+func fromJson*(T: typedesc[T], node: JsonNode): Result[T, ValidationError] =
   ## Pure, total, validating parser. Returns a well-typed value or
   ## a structured error.
 ```
 
-The `typedesc[T]` first parameter enables `T.fromJson(node)` call syntax
-via UFCS.
+The named `T` parameter enables `T.fromJson(node)` call syntax
+via UFCS, and `$T` provides the type name string for error messages
+(satisfying nimalyzer's `check params used all` rule without
+`ruleOff` suppression).
 
 For types that require additional context beyond the `JsonNode` (e.g.,
 `ServerCapability` needs the URI string, `Referencable[T]` needs the field
@@ -237,20 +241,20 @@ because it produces incorrect values rather than errors.
 
 ```nim
 # Distinct string type — validate JString before extraction
-func fromJson*(_: typedesc[Id], node: JsonNode
+func fromJson*(T: typedesc[Id], node: JsonNode
     ): Result[Id, ValidationError] =
   ## Deserialise a JSON string to Id (lenient: server-assigned).
-  checkJsonKind(node, JString, "Id")
-  ? parseIdFromServer(node.getStr(""))
+  checkJsonKind(node, JString, $T)
+  parseIdFromServer(node.getStr(""))
 ```
 
 ```nim
 # Distinct int type — validate JInt before extraction
-func fromJson*(_: typedesc[UnsignedInt], node: JsonNode
+func fromJson*(T: typedesc[UnsignedInt], node: JsonNode
     ): Result[UnsignedInt, ValidationError] =
   ## Deserialise a JSON integer to UnsignedInt.
-  checkJsonKind(node, JInt, "UnsignedInt")
-  ? parseUnsignedInt(node.getBiggestInt(0))
+  checkJsonKind(node, JInt, $T)
+  parseUnsignedInt(node.getBiggestInt(0))
 ```
 
 ```nim
@@ -735,14 +739,17 @@ func toJson*(x: UTCDate): JsonNode = {.cast(noSideEffect).}: %string(x)
 | UTCDate | `parseUtcDate` | Server-provided (RFC 3339, Z suffix) |
 
 All `fromJson` share the same structure (Id shown in §1.2a). Each validates
-`JString` kind, then delegates to the appropriate Layer 1 smart constructor.
+`JString` kind via `$T` (the type name derived from the `typedesc`
+parameter), then delegates to the appropriate Layer 1 smart constructor.
+The smart constructor returns `Result[T, ValidationError]` which is
+returned directly — no `?` operator needed since the return types match.
 
 ```nim
-func fromJson*(_: typedesc[AccountId], node: JsonNode
+func fromJson*(T: typedesc[AccountId], node: JsonNode
     ): Result[AccountId, ValidationError] =
   ## Deserialise a JSON string to AccountId (lenient: server-assigned).
-  checkJsonKind(node, JString, "AccountId")
-  ? parseAccountId(node.getStr(""))
+  checkJsonKind(node, JString, $T)
+  parseAccountId(node.getStr(""))
 ```
 
 Each remaining distinct string type follows this exact pattern with the
@@ -767,17 +774,17 @@ func toJson*(x: JmapInt): JsonNode =
 ```
 
 ```nim
-func fromJson*(_: typedesc[UnsignedInt], node: JsonNode
+func fromJson*(T: typedesc[UnsignedInt], node: JsonNode
     ): Result[UnsignedInt, ValidationError] =
   ## Deserialise a JSON integer to UnsignedInt.
-  checkJsonKind(node, JInt, "UnsignedInt")
-  ? parseUnsignedInt(node.getBiggestInt(0))
+  checkJsonKind(node, JInt, $T)
+  parseUnsignedInt(node.getBiggestInt(0))
 
-func fromJson*(_: typedesc[JmapInt], node: JsonNode
+func fromJson*(T: typedesc[JmapInt], node: JsonNode
     ): Result[JmapInt, ValidationError] =
   ## Deserialise a JSON integer to JmapInt.
-  checkJsonKind(node, JInt, "JmapInt")
-  ? parseJmapInt(node.getBiggestInt(0))
+  checkJsonKind(node, JInt, $T)
+  parseJmapInt(node.getBiggestInt(0))
 ```
 
 `getBiggestInt` returns `BiggestInt` (`int64`) — correct for `distinct int64`
