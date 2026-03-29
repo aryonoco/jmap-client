@@ -93,6 +93,11 @@ principles and where it forces compromises.
   Preferred over `mapIt`/`filterIt` for building new collections. `allIt`/`anyIt`
   from `std/sequtils` remain the right choice for boolean predicates over
   sequences. No closures, compatible with `{.raises: [].}` and `func`.
+  **Caveat:** nesting `collect` inside the `%*` macro (e.g., to build a JSON
+  array within a JSON object literal) can trigger SIGSEGV under `--mm:arc`
+  due to interaction between macro expansion and ARC reference tracking
+  inside `{.cast(noSideEffect).}:` blocks. Use a manual `newJArray()` loop
+  in those cases instead.
 
 ### What strict flags upgrade (historical gaps, now largely closed)
 
@@ -108,6 +113,19 @@ enabled in this project, they are effectively resolved:
    it cannot prove the discriminator matches that field's branch — turning a
    potential runtime `FieldDefect` into a compile error. Smart constructors
    remain useful for enforcing construction-time invariants.
+
+   **ARC hazard: `{.cast(uncheckedAssign).}:` on case object discriminators.**
+   When a case object's `else` branch contains `ref` fields (e.g.,
+   `rawData: JsonNode`), using `{.cast(uncheckedAssign).}:` to reassign the
+   discriminator at runtime corrupts ARC's branch tracking. ARC erroneously
+   runs the branch destructor on discriminator change even when both the old
+   and new values are in the same `else` branch, causing double-free on
+   subsequent object destruction (SIGSEGV in `nimRawDispose`). Confirmed with
+   Nim 2.2.8 under `--mm:arc`. The workaround is to use exhaustive `case`
+   with compile-time literal discriminators for each variant. Note:
+   `uncheckedAssign` IS safe when the `else` branch has **no `ref` fields**
+   (e.g., `else: discard`) — ARC has nothing to mistrack. See Layer 2
+   design doc §2 Pattern B for details.
 
 2. **Exhaustive pattern matching.** `case` statements on `enum` values are
    already exhaustive in standard Nim — missing branches are a compile error.

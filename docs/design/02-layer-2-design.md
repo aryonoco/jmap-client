@@ -270,13 +270,11 @@ func fromJson*(T: typedesc[CoreCapabilities], node: JsonNode
   let maxConcurrentRequests = block:
     let plural = node{"maxConcurrentRequests"}
     let singular = node{"maxConcurrentRequest"}
-    if not plural.isNil:
-      ? UnsignedInt.fromJson(plural)
-    elif not singular.isNil:
-      ? UnsignedInt.fromJson(singular)
-    else:
+    if plural.isNil and singular.isNil:
       return err(parseError($T,
         "missing maxConcurrentRequests"))
+    let chosen = if plural.isNil: singular else: plural
+    ? UnsignedInt.fromJson(chosen)
   let maxCallsInRequest = ? UnsignedInt.fromJson(node{"maxCallsInRequest"})
   let maxObjectsInGet = ? UnsignedInt.fromJson(node{"maxObjectsInGet"})
   let maxObjectsInSet = ? UnsignedInt.fromJson(node{"maxObjectsInSet"})
@@ -635,28 +633,39 @@ func toJson*(cap: ServerCapability): JsonNode =
 func fromJson*(T: typedesc[ServerCapability], uri: string, data: JsonNode
     ): Result[ServerCapability, ValidationError] =
   ## Deserialise a capability from its URI and JSON data.
+  ## Non-core capabilities use compile-time literal discriminators (exhaustive
+  ## case) instead of uncheckedAssign — see ARC safety note below.
   let parsedKind = parseCapabilityKind(uri)
   case parsedKind
   of ckCore:
+    checkJsonKind(data, JObject, $T,
+      "core capability data must be JSON object")
     let core = ? CoreCapabilities.fromJson(data)
     ok(ServerCapability(kind: ckCore, rawUri: uri, core: core))
-  else:
-    # All non-core known kinds (ckMail, ckContacts, etc.) and ckUnknown
-    # store raw data. Use uncheckedAssign for runtime discriminator.
-    var cap = ServerCapability(kind: ckUnknown, rawUri: uri, rawData: data)
-    if parsedKind != ckUnknown:
-      {.cast(uncheckedAssign).}:
-        cap.kind = parsedKind
-    ok(cap)
+  of ckMail:
+    ok(ServerCapability(kind: ckMail, rawUri: uri, rawData: data))
+  of ckSubmission:
+    ok(ServerCapability(kind: ckSubmission, rawUri: uri, rawData: data))
+  # ... (one branch per CapabilityKind variant)
+  of ckUnknown:
+    ok(ServerCapability(kind: ckUnknown, rawUri: uri, rawData: data))
 ```
 
-**`strictCaseObjects` note.** The `of ckCore:` branch uses the compile-time
-literal `ckCore` for the discriminator. The `else:` branch first constructs
-with the literal `ckUnknown`, then reassigns the discriminator via
-`{.cast(uncheckedAssign).}` if the actual kind is a known non-core variant
-(e.g., `ckMail`). This is safe because all `else`-branch variants share the
-same memory layout (`rawData: JsonNode`). This pattern mirrors Layer 1's
-`SetError` constructor (see 01-layer-1-design.md §8.10).
+**`strictCaseObjects` + ARC safety note.** Each non-core branch uses a
+compile-time literal discriminator (`ckMail`, `ckSubmission`, etc.). This
+is verbose but necessary: `{.cast(uncheckedAssign).}:` to reassign the
+discriminator at runtime **corrupts ARC's branch tracking** on case objects
+whose `else` branch contains `ref` fields (like `rawData: JsonNode`). ARC
+erroneously runs the branch destructor on discriminator change even when
+both the old and new values are in the same `else` branch, causing
+double-free on subsequent object destruction. This was confirmed with Nim
+2.2.8 under `--mm:arc`. The exhaustive case avoids this by never mutating
+the discriminator after construction.
+
+**Note:** Layer 1's `SetError` constructor (01-layer-1-design.md §8.10)
+uses `{.cast(uncheckedAssign).}:` safely because its `else: discard` branch
+has **no `ref` fields** — ARC has nothing to mistrack. The pattern is only
+unsafe when the `else` branch contains `ref` types.
 
 Types using Pattern B: `ServerCapability`, `SetError`.
 
@@ -897,17 +906,20 @@ func toJson*(caps: CoreCapabilities): JsonNode =
       "maxCallsInRequest": int64(caps.maxCallsInRequest),
       "maxObjectsInGet": int64(caps.maxObjectsInGet),
       "maxObjectsInSet": int64(caps.maxObjectsInSet),
-      "collationAlgorithms": collect(
-        for alg in caps.collationAlgorithms: %alg
-      ),
     }
+    var algArr = newJArray()
+    for alg in caps.collationAlgorithms:
+      algArr.add(%alg)
+    result["collationAlgorithms"] = algArr
 ```
 
-**Macro nesting verification.** `collect(for alg in ...: %alg)` inside
-`%*{...}` nests two macros. Verified to compile and produce correct output
-(Nim 2.2.8): `collect` expands first (inner-to-outer), producing
-`seq[JsonNode]`; the `%*` macro then wraps the result via `%` for
-`openArray[JsonNode]` (`std/json` line 366), producing a `JArray`.
+`collationAlgorithms` is built via a manual `newJArray()` loop rather than
+`collect` nested inside `%*`. While the nested `collect` compiles (Nim
+2.2.8), at runtime it triggers a SIGSEGV under `--mm:arc` due to
+interaction between the `collect` macro expansion, the `%*` macro, and
+ARC's reference tracking inside `{.cast(noSideEffect).}:` blocks. The
+manual loop is consistent with the iteration pattern used in
+`Account.toJson` and `Session.toJson`. `std/sugar` is not imported.
 
 **`fromJson`:** Full code shown in §1.2a (the canonical object example).
 Calls `parseUnsignedInt` for each numeric field via `?`. Uses `toHashSet`
@@ -947,12 +959,14 @@ dispatches based on the URI.
 
 **`toJson`/`fromJson`:** Full code shown in §2 (Pattern B canonical
 example). Dispatches on `parseCapabilityKind(uri)` → `ckCore` calls
-`CoreCapabilities.fromJson(data)`, `else` stores `rawData: data`.
+`CoreCapabilities.fromJson(data)` with a preceding `checkJsonKind` for
+improved error context; all other kinds use exhaustive `case` branches
+with compile-time literal discriminators.
 
-**`strictCaseObjects` compliance.** The `of ckCore:` branch uses compile-time
-literal `ckCore`. The `else:` branch constructs with literal `ckUnknown`
-then uses `{.cast(uncheckedAssign).}` for the actual kind — safe because
-all `else` variants share memory layout.
+**`strictCaseObjects` + ARC compliance.** Each `case` branch uses a
+compile-time literal discriminator. `{.cast(uncheckedAssign).}:` is NOT
+used — it corrupts ARC branch tracking when `else` branches contain `ref`
+fields like `rawData: JsonNode` (see §2 Pattern B ARC safety note).
 
 **Module:** `src/jmap_client/serde_session.nim`
 
@@ -987,16 +1001,26 @@ func toJson*(entry: AccountCapabilityEntry): JsonNode =
 func fromJson*(T: typedesc[AccountCapabilityEntry], uri: string,
     data: JsonNode): Result[AccountCapabilityEntry, ValidationError] =
   ## Deserialise an account capability entry from URI and JSON data.
+  if uri.len == 0:
+    return err(parseError($T, "capability URI must not be empty"))
+  let ownedData = block:
+    {.cast(noSideEffect).}:
+      if data.isNil: newJObject() else: data.copy()
   ok(AccountCapabilityEntry(
     kind: parseCapabilityKind(uri),
     rawUri: uri,
-    data: if data.isNil: newJObject() else: data,
+    data: ownedData,
   ))
 ```
 
-No validation beyond kind parsing — all account capability data is stored
-as raw JSON in the Core-only implementation. When specific RFCs are added,
-this may evolve to a case object with typed branches.
+Validates URI is non-empty. Deep-copies `data` via `data.copy()` to
+avoid ARC double-free when the input `JsonNode` tree and the parsed
+`AccountCapabilityEntry` are destroyed independently (see §2 Pattern B
+ARC safety note for the same category of issue). The `copy()` call
+requires `{.cast(noSideEffect).}:` because `JsonNode.copy` is a `proc`.
+All account capability data is stored as raw JSON in the Core-only
+implementation. When specific RFCs are added, this may evolve to a case
+object with typed branches.
 
 **Module:** `src/jmap_client/serde_session.nim`
 
@@ -1189,7 +1213,7 @@ func fromJson*(T: typedesc[Session], node: JsonNode
   let state = ? parseJmapState(node{"state"}.getStr(""))
 
   # 7. Call parseSession for structural invariant validation
-  ? parseSession(
+  parseSession(
     capabilities = capabilities,
     accounts = accounts,
     primaryAccounts = primaryAccounts,
@@ -1205,9 +1229,12 @@ func fromJson*(T: typedesc[Session], node: JsonNode
 **Rationale.** Session deserialisation is a 7-step sub-parse chain. Each
 step returns `Result[T, ValidationError]` and is composed via `?`. The
 final call to `parseSession(...)` validates structural invariants (ckCore
-present, apiUrl non-empty, URI template variables). This ensures that all
-Sessions produced by `fromJson` satisfy the same invariants as those
-produced by the Layer 1 smart constructor.
+present, apiUrl non-empty, URI template variables) and its `Result` is
+returned directly (not via `?`) because `parseSession` already returns
+`Result[Session, ValidationError]` — the same type as `fromJson`. Using
+`?` here would unwrap to a bare `Session` which does not match the return
+type. This ensures that all Sessions produced by `fromJson` satisfy the
+same invariants as those produced by the Layer 1 smart constructor.
 
 **Module:** `src/jmap_client/serde_session.nim`
 
