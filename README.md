@@ -29,9 +29,9 @@ just ci             # Full CI pipeline
 
 ## AI/LLM Disclosure
 
-This project was developed with significant LLM involvement. I'm a systems architect by trade, not a programmer. I designed the core logic, made technical decisions and directed development but AI/LLM tools generated most of the code.
+This project was developed with significant LLM involvement. I designed the core logic, made technical decisions and directed development but AI/LLM tools generated most of the code.
 
-All code was reviewed, tested, and iterated on by me. The design choices (Result types over exceptions, functional patterns, compiler safety settings, etc) are mine. The Nim syntax is not.
+All code was reviewed, tested, and iterated on by me. The design choices (Result types, functional patterns, compiler settings, etc) are mine. Most of the Nim code is not.
 
 ## Licence
 
