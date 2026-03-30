@@ -2255,7 +2255,7 @@ src/jmap_client/
 **Test modules** (testament auto-discovers `tests/t*.nim`):
 
 ```
-tests/
+tests/serde/
   tserde.nim             ← Shared helpers, primitive/identifier/enum
                            round-trips
   tserde_session.nim     ← CoreCapabilities, ServerCapability, Account,
@@ -2265,6 +2265,8 @@ tests/
   tserde_framework.nim   ← Comparator, Filter[C], PatchObject, AddedItem,
                            FilterOperator
   tserde_errors.nim      ← RequestError, MethodError, SetError
+  tserialisation.nim     ← Integration smoke test; verifies all
+                           toJson/fromJson pairs accessible via hub
 ```
 
 Tests use `doAssert` (testament), block-scoped tests with labelled blocks,
@@ -2304,10 +2306,10 @@ each group.
 **Downstream:** Layer 3 imports `serialisation.nim` (which re-exports
 everything). Tests import individual serde modules for focused testing.
 
-**Why 6 files, not 1.** With ~15-20 ser/de pairs producing ~600-900 lines, a
+**Why 6 files, not 1.** With ~25 ser/de pairs producing ~1100 lines, a
 single file is feasible. However, 6 files provide: (a) independently testable
 modules (each test file mirrors one serde file), (b) parallel structure with
-Layer 1's module grouping, (c) bounded file size (~120-180 lines each),
+Layer 1's module grouping, (c) bounded file size (~180-295 lines each),
 (d) acyclic import graph (`serialisation.nim` re-exports without creating
 import cycles). The flat import graph means no cost to the split.
 

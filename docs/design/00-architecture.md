@@ -329,6 +329,41 @@ No cycles. The graph is a DAG, not a linear chain — `identifiers`,
 `session` merges the `validation`, `identifiers` and `capabilities`
 branches. Each file is independently testable.
 
+### Layer 2 Internal File Organisation
+
+Layer 2 decomposes into separate modules by domain concern with no circular
+dependencies:
+
+```
+src/jmap_client/
+  serde.nim              — Shared helpers (parseError, checkJsonKind,
+                           collectExtras), primitive/identifier ser/de
+  serde_session.nim      — CoreCapabilities, ServerCapability,
+                           AccountCapabilityEntry, Account, Session
+  serde_envelope.nim     — Invocation, Request, Response,
+                           ResultReference, Referencable[T] helpers
+  serde_framework.nim    — FilterOperator, Filter[C], Comparator,
+                           PatchObject, AddedItem
+  serde_errors.nim       — RequestError, MethodError, SetError
+  serialisation.nim      — Re-exports all of the above (Layer 2 hub)
+```
+
+Internal import DAG (each module imports only what it needs):
+
+| Module | Imports from (within Layer 2) |
+|--------|------------------------------|
+| `serde` | *(none — imports Layer 1 `types` only)* |
+| `serde_session` | `serde` |
+| `serde_envelope` | `serde` |
+| `serde_framework` | `serde` |
+| `serde_errors` | `serde` |
+| `serialisation` | all of the above (re-export hub) |
+
+No cycles. The graph is flat — all domain serde modules depend on `serde`
+for shared helpers and on Layer 1 `types` for domain types. No domain serde
+module imports another domain serde module. Each file is independently
+testable.
+
 ---
 
 ## Layer 1: Domain Types + Errors
@@ -1012,7 +1047,7 @@ each type.
     `strictFuncs` + `strictNotNil` + `raises: []`.
 - **Cons:**
   - Verbose. Every type needs a `toJson` and `fromJson`.
-  - ~15-20 pairs across all layers.
+  - ~28 pairs across all Layer 2 modules.
 - **Mitigation:** Most follow one of three patterns: simple object (field-by-field
   with camelCase keys, template-able); case object (dispatch on discriminator);
   special format (invocations, result references, PatchObject). A helper template
