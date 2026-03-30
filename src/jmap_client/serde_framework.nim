@@ -62,13 +62,13 @@ func parseComparatorCore(
   checkJsonKind(propNode, JString, typeName, "missing or invalid property")
   let property = ?parsePropertyName(propNode.getStr(""))
   let ascNode = node{"isAscending"}
-  var isAscending = true # RFC default when absent
   if not ascNode.isNil:
     if ascNode.kind != JBool:
       return err(parseError(typeName, "isAscending must be boolean"))
-    isAscending = ascNode.getBool(true)
+  let isAscending = ascNode.getBool(true)
+    # nil-safe; returns true (RFC default) when absent
   let collNode = node{"collation"}
-  var collation: Opt[string] = Opt.none(string)
+  var collation = Opt.none(string)
   if not collNode.isNil:
     if collNode.kind == JString:
       collation = Opt.some(collNode.getStr(""))
