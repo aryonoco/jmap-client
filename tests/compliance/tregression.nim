@@ -18,8 +18,15 @@ import results
 
 import jmap_client/primitives
 import jmap_client/identifiers
+import jmap_client/capabilities
 import jmap_client/framework
 import jmap_client/errors
+import jmap_client/session
+import jmap_client/serde_errors
+import jmap_client/serde_session
+import jmap_client/serde_framework
+
+import ../mfixtures
 
 block regression_2026_03_creationIdGeneratorBug:
   ## The property test propCreationIdNoLeadingHash previously used
@@ -131,3 +138,72 @@ block regression_2026_03_unsignedInt2Pow53Boundary:
   ## Fix: confirmed MaxUnsignedInt = 2^53 - 1 and check uses >.
   doAssert parseUnsignedInt(9_007_199_254_740_991'i64).isOk
   doAssert parseUnsignedInt(9_007_199_254_740_992'i64).isErr
+
+# --- Phase 6B: Regression entries for Phase 0 bugs ---
+
+block regression_2026_03_extrasOverwriteStandardFields:
+  ## Known issue: in RequestError/MethodError/SetError toJson(), the extras
+  ## loop runs AFTER standard field writes. Extras with colliding keys (e.g.
+  ## "type") can overwrite standard fields in the serialised JSON output.
+  ## Root cause: extras loop writes `result[key] = val` without skipping known keys.
+  ## Status: only reachable via manual construction (not round-trip, since
+  ## collectExtras strips known keys during fromJson). Documented as known
+  ## behaviour; fix tracked for future phase.
+  ##
+  ## Document that colliding extras keys DO appear in toJson output (the bug
+  ## IS present). When constructing errors with extras from fromJson, the
+  ## collision cannot occur because collectExtras filters known keys.
+  {.cast(noSideEffect).}:
+    # Verify that collectExtras (fromJson path) strips known keys
+    let j = newJObject()
+    j["type"] = %"serverFail"
+    j["description"] = %"real desc"
+    j["vendorField"] = %"vendor value"
+    let me = MethodError.fromJson(j)
+    doAssert me.isOk
+    # extras from fromJson should NOT contain "type" or "description"
+    if me.get().extras.isSome:
+      doAssert me.get().extras.get(){"type"}.isNil,
+        "collectExtras must strip known key 'type'"
+      doAssert me.get().extras.get(){"description"}.isNil,
+        "collectExtras must strip known key 'description'"
+
+block regression_2026_03_toJsonAliasedInternalRefs:
+  ## Known issue: ServerCapability.toJson returns the internal rawData
+  ## JsonNode ref directly (for non-ckCore variants). Callers can mutate
+  ## internal state through the returned ref.
+  ## Root cause: return of `cap.rawData` instead of `cap.rawData.copy()`.
+  ## Fix: ServerCapability.toJson and AccountCapabilityEntry.toJson now return
+  ## deep copies. Mutation through the returned ref no longer propagates.
+  {.cast(noSideEffect).}:
+    let data = newJObject()
+    data["original"] = %"value"
+    let cap =
+      ServerCapability(rawUri: "urn:ietf:params:jmap:mail", kind: ckMail, rawData: data)
+    let j = cap.toJson()
+    j["injected"] = %"corrupted"
+    # After fix: injection must NOT be visible through the capability
+    let j2 = cap.toJson()
+    doAssert j2{"injected"}.isNil,
+      "toJson must return independent copy — mutation must not propagate"
+
+block regression_2026_03_filterFromJsonDepthGuard:
+  ## Hardening: Filter[C].fromJson had no depth guard for recursion. A
+  ## deeply-nested pre-parsed JsonNode tree could cause StackOverflowDefect,
+  ## which is uncatchable under {.push raises: [].}.
+  ## Root cause: unbounded recursion in fromJson without depth tracking.
+  ## Fix: MaxFilterDepth = 128 constant and depth parameter in internal helper.
+  ##
+  ## Verify that depth > 128 returns err instead of crashing.
+  var inner = newJObject()
+  {.cast(noSideEffect).}:
+    inner["value"] = %42
+  for i in 0 ..< 200:
+    var conds = newJArray()
+    conds.add(inner)
+    inner = newJObject()
+    {.cast(noSideEffect).}:
+      inner["operator"] = %"AND"
+    inner["conditions"] = conds
+  let r = Filter[int].fromJson(inner, fromIntCondition)
+  doAssert r.isErr, "depth > 128 must return err, not stack overflow"

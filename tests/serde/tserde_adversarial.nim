@@ -1072,3 +1072,166 @@ block wrongCasedFieldSessionUsername:
     "state": "s1",
   }
   assertErrContains Session.fromJson(j2), "missing or invalid username"
+
+# =============================================================================
+# Phase 5C: Path injection tests (PatchObject and ResultReference)
+# =============================================================================
+
+block patchObjectPathTraversal:
+  ## Directory traversal path -> accepted (Layer 1 does not interpret paths).
+  var j = newJObject()
+  {.cast(noSideEffect).}:
+    j["../../etc/passwd"] = %"malicious"
+  let r = PatchObject.fromJson(j)
+  assertOk r
+  doAssert r.get().getKey("../../etc/passwd").isSome
+
+block patchObjectPathTildeZeroEscape:
+  ## RFC 6901 tilde escape ~0 -> accepted and preserved as-is.
+  var j = newJObject()
+  {.cast(noSideEffect).}:
+    j["/a~0b"] = %"val"
+  let r = PatchObject.fromJson(j)
+  assertOk r
+  doAssert r.get().getKey("/a~0b").isSome
+
+block patchObjectPathTildeOneEscape:
+  ## RFC 6901 tilde escape ~1 -> accepted and preserved as-is.
+  var j = newJObject()
+  {.cast(noSideEffect).}:
+    j["/a~1b"] = %"val"
+  let r = PatchObject.fromJson(j)
+  assertOk r
+  doAssert r.get().getKey("/a~1b").isSome
+
+block patchObjectPathNulByte:
+  ## NUL byte in PatchObject path -> accepted. Documents FFI truncation risk.
+  var j = newJObject()
+  {.cast(noSideEffect).}:
+    j["/a\x00b"] = %"val"
+  let r = PatchObject.fromJson(j)
+  assertOk r
+
+block patchObjectPathVeryLong:
+  ## 10,000-character path -> accepted (no length restriction on paths).
+  var j = newJObject()
+  let longPath = 'a'.repeat(10000)
+  {.cast(noSideEffect).}:
+    j[longPath] = %42
+  let r = PatchObject.fromJson(j)
+  assertOk r
+  assertEq r.get().len, 1
+
+block patchObjectTraversalRoundTrip:
+  ## Directory traversal path survives toJson -> fromJson round-trip.
+  var j = newJObject()
+  {.cast(noSideEffect).}:
+    j["../../etc/passwd"] = %"malicious"
+  let r = PatchObject.fromJson(j)
+  assertOk r
+  let j2 = r.get().toJson()
+  let r2 = PatchObject.fromJson(j2)
+  assertOk r2
+  doAssert r2.get().getKey("../../etc/passwd").isSome
+
+block resultReferencePathWildcard:
+  ## ResultReference with wildcard in path -> accepted.
+  {.cast(noSideEffect).}:
+    let j = %*{"resultOf": "c0", "name": "Email/get", "path": "/list/*/id"}
+  let r = ResultReference.fromJson(j)
+  assertOk r
+  assertEq r.get().path, "/list/*/id"
+
+block resultReferencePathDeeplyNested:
+  ## Deeply nested JSON Pointer path -> accepted.
+  {.cast(noSideEffect).}:
+    let j = %*{"resultOf": "c0", "name": "Email/get", "path": "/a/b/c/d/e/f/g"}
+  let r = ResultReference.fromJson(j)
+  assertOk r
+  assertEq r.get().path, "/a/b/c/d/e/f/g"
+
+block resultReferencePathControlChars:
+  ## Control characters in ResultReference path -> accepted.
+  {.cast(noSideEffect).}:
+    let j = %*{"resultOf": "c0", "name": "Email/get", "path": "/ids\x01\x02"}
+  let r = ResultReference.fromJson(j)
+  assertOk r
+
+block resultReferencePathEmpty:
+  ## Empty path in ResultReference -> returns err (path must be non-empty).
+  {.cast(noSideEffect).}:
+    let j = %*{"resultOf": "c0", "name": "Email/get", "path": ""}
+  let r = ResultReference.fromJson(j)
+  assertErr r
+
+# =============================================================================
+# Phase 5D: JSON numbers outside int64 range
+# =============================================================================
+
+{.push ruleOff: "trystatements".}
+
+block jsonNumberAboveInt64Max:
+  ## JSON number 2^63 exceeds int64.high. Documents std/json behaviour.
+  var parsed = false
+  var raised = false
+  {.cast(noSideEffect).}:
+    try:
+      let j = parseJson("9223372036854775808")
+      parsed = true
+      if j.kind == JInt:
+        let r = UnsignedInt.fromJson(j)
+        doAssert r.isOk or r.isErr
+      elif j.kind == JFloat:
+        let r = UnsignedInt.fromJson(j)
+        assertErr r
+    except JsonParsingError:
+      raised = true
+    except ValueError:
+      raised = true
+  doAssert parsed xor raised, "std/json must either parse or raise, never crash"
+
+block jsonNumberBelowInt64Min:
+  ## JSON number below int64.low. Documents std/json behaviour.
+  var parsed = false
+  var raised = false
+  {.cast(noSideEffect).}:
+    try:
+      let j = parseJson("-9223372036854775809")
+      parsed = true
+      if j.kind == JInt:
+        let r = JmapInt.fromJson(j)
+        doAssert r.isOk or r.isErr
+      elif j.kind == JFloat:
+        let r = JmapInt.fromJson(j)
+        assertErr r
+    except JsonParsingError:
+      raised = true
+    except ValueError:
+      raised = true
+  doAssert parsed xor raised, "std/json must either parse or raise, never crash"
+
+{.pop.} # ruleOff: "trystatements"
+
+# =============================================================================
+# Phase 5E: Encoding edge cases
+# =============================================================================
+
+{.push ruleOff: "trystatements".}
+
+block encodingBomPrefixInJson:
+  ## BOM prefix before JSON. Documents std/json behaviour.
+  var parsed = false
+  var raised = false
+  {.cast(noSideEffect).}:
+    try:
+      let j = parseJson("\xEF\xBB\xBF" & """{"type": "serverFail"}""")
+      parsed = true
+      let r = MethodError.fromJson(j)
+      doAssert r.isOk or r.isErr
+    except JsonParsingError:
+      raised = true
+    except ValueError:
+      raised = true
+  doAssert parsed xor raised, "std/json must either parse or raise, never crash"
+
+{.pop.} # ruleOff: "trystatements"

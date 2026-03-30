@@ -22,6 +22,8 @@ import jmap_client/framework
 import jmap_client/errors
 import jmap_client/session
 import jmap_client/envelope
+import jmap_client/serde_envelope
+import jmap_client/serde_session
 
 import ../massertions
 import ../mfixtures
@@ -1374,3 +1376,96 @@ block crlfInMethodErrorDescription:
   ## CRLF in description is preserved — no sanitisation at Layer 1.
   let me = methodError("serverFail", description = Opt.some("desc\r\nInjected: yes"))
   doAssert "\r\n" in me.description.get()
+
+# =============================================================================
+# Phase 5B: Unbounded collection size stress tests
+# =============================================================================
+# These tests verify the library can parse JSON with very large collections
+# without crashing. 100,000 entries exercise memory allocation and iteration
+# paths. The library must return Ok (no artificial limits).
+
+block stressResponseMethodResponses100k:
+  ## Response with 100,000 methodResponses entries -> must succeed.
+  ## Documents memory usage implications for large batch responses.
+  var methodResponses = newJArray()
+  for i in 0 ..< 100_000:
+    {.cast(noSideEffect).}:
+      methodResponses.add(%*["Method/" & $i, {}, "c" & $i])
+  var j = newJObject()
+  {.cast(noSideEffect).}:
+    j["methodResponses"] = methodResponses
+    j["sessionState"] = %"s1"
+  let r = Response.fromJson(j)
+  assertOk r
+  assertEq r.get().methodResponses.len, 100_000
+
+block stressSessionAccounts100k:
+  ## Session with 100,000 accounts -> must succeed. Each account has minimal
+  ## fields. Documents that the library imposes no artificial account limit.
+  var j = validSessionJson()
+  var accts = newJObject()
+  for i in 0 ..< 100_000:
+    var acctCaps = newJObject()
+    var acct = newJObject()
+    {.cast(noSideEffect).}:
+      acct["name"] = %("user" & $i)
+      acct["isPersonal"] = %true
+      acct["isReadOnly"] = %false
+    acct["accountCapabilities"] = acctCaps
+    {.cast(noSideEffect).}:
+      accts["acct" & $i] = acct
+  j["accounts"] = accts
+  let r = Session.fromJson(j)
+  assertOk r
+  assertEq r.get().accounts.len, 100_000
+
+block stressRequestCreatedIds100k:
+  ## Request with 100,000 createdIds entries -> must succeed.
+  var j = validRequestJson()
+  var ids = newJObject()
+  for i in 0 ..< 100_000:
+    {.cast(noSideEffect).}:
+      ids["k" & $i] = newJString("id" & $i)
+  j["createdIds"] = ids
+  let r = Request.fromJson(j)
+  assertOk r
+  doAssert r.get().createdIds.isSome
+  assertEq r.get().createdIds.get().len, 100_000
+
+block stressSessionCapabilities100k:
+  ## Session with 100,000 vendor capabilities -> must succeed. Documents
+  ## that the library imposes no artificial capability count limit.
+  var j = validSessionJson()
+  let caps = newJObject()
+  {.cast(noSideEffect).}:
+    caps["urn:ietf:params:jmap:core"] = j["capabilities"]["urn:ietf:params:jmap:core"]
+  for i in 0 ..< 100_000:
+    {.cast(noSideEffect).}:
+      caps["https://vendor.example/ext/" & $i] = newJObject()
+  j["capabilities"] = caps
+  let r = Session.fromJson(j)
+  assertOk r
+  assertGe r.get().capabilities.len, 100_001
+
+block stressSessionAccountCapabilities100k:
+  ## Single account with 100,000 accountCapabilities -> must succeed.
+  var j = validSessionJson()
+  var acctCaps = newJObject()
+  for i in 0 ..< 100_000:
+    {.cast(noSideEffect).}:
+      acctCaps["https://vendor.example/acap/" & $i] = newJObject()
+  var accts = newJObject()
+  var acct = newJObject()
+  {.cast(noSideEffect).}:
+    acct["name"] = %"user"
+    acct["isPersonal"] = %true
+    acct["isReadOnly"] = %false
+  acct["accountCapabilities"] = acctCaps
+  {.cast(noSideEffect).}:
+    accts["a1"] = acct
+  j["accounts"] = accts
+  let r = Session.fromJson(j)
+  assertOk r
+  let parsedAccounts = r.get().accounts
+  for acctId, account in parsedAccounts:
+    assertGe account.accountCapabilities.len, 100_000

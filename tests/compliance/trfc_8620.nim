@@ -1436,3 +1436,443 @@ block rfc8620_S1_4_leapSecondWithFractional:
   ## (leap second) with fractional seconds is accepted.
   let r = parseDate("2024-06-30T23:59:60.123Z")
   assertOk r
+
+# =============================================================================
+# Phase 6A — Request error URI serde compliance (RFC 8620 S3.6.1)
+# =============================================================================
+# Section-traceable tests for all 4 request error URIs with full JSON
+# structure (toJson -> fromJson round-trip).
+
+block rfc8620_S3_6_1_requestErrorUnknownCapability:
+  ## RFC 8620 S3.6.1: "urn:ietf:params:jmap:error:unknownCapability"
+  ## Full round-trip with RFC 7807 structure.
+  {.cast(noSideEffect).}:
+    let re = requestError(
+      "urn:ietf:params:jmap:error:unknownCapability",
+      status = Opt.some(400),
+      title = Opt.some("Unknown Capability"),
+      detail = Opt.some("The requested capability is not supported"),
+    )
+    doAssert re.errorType == retUnknownCapability
+    let j = re.toJson()
+    assertEq j{"type"}.getStr(""), "urn:ietf:params:jmap:error:unknownCapability"
+    assertEq j{"status"}.getBiggestInt(0), 400'i64
+    let rt = RequestError.fromJson(j)
+    assertOk rt
+    doAssert rt.get().errorType == retUnknownCapability
+    assertEq rt.get().rawType, "urn:ietf:params:jmap:error:unknownCapability"
+    assertSomeEq rt.get().status, 400
+    assertSomeEq rt.get().title, "Unknown Capability"
+
+block rfc8620_S3_6_1_requestErrorNotJSON:
+  ## RFC 8620 S3.6.1: "urn:ietf:params:jmap:error:notJSON"
+  {.cast(noSideEffect).}:
+    let re = requestError(
+      "urn:ietf:params:jmap:error:notJSON",
+      status = Opt.some(400),
+      title = Opt.some("Not JSON"),
+      detail = Opt.some("The content type was not application/json"),
+    )
+    doAssert re.errorType == retNotJson
+    let j = re.toJson()
+    assertEq j{"type"}.getStr(""), "urn:ietf:params:jmap:error:notJSON"
+    let rt = RequestError.fromJson(j)
+    assertOk rt
+    doAssert rt.get().errorType == retNotJson
+    assertEq rt.get().rawType, "urn:ietf:params:jmap:error:notJSON"
+
+block rfc8620_S3_6_1_requestErrorNotRequest:
+  ## RFC 8620 S3.6.1: "urn:ietf:params:jmap:error:notRequest"
+  {.cast(noSideEffect).}:
+    let re = requestError(
+      "urn:ietf:params:jmap:error:notRequest",
+      status = Opt.some(400),
+      title = Opt.some("Not Request"),
+      detail = Opt.some("The JSON was not a valid JMAP request"),
+    )
+    doAssert re.errorType == retNotRequest
+    let j = re.toJson()
+    assertEq j{"type"}.getStr(""), "urn:ietf:params:jmap:error:notRequest"
+    let rt = RequestError.fromJson(j)
+    assertOk rt
+    doAssert rt.get().errorType == retNotRequest
+    assertEq rt.get().rawType, "urn:ietf:params:jmap:error:notRequest"
+
+block rfc8620_S3_6_1_requestErrorLimit:
+  ## RFC 8620 S3.6.1: "urn:ietf:params:jmap:error:limit"
+  {.cast(noSideEffect).}:
+    let re = requestError(
+      "urn:ietf:params:jmap:error:limit",
+      status = Opt.some(400),
+      title = Opt.some("Limit"),
+      detail = Opt.some("Too many method calls"),
+      limit = Opt.some("maxCallsInRequest"),
+    )
+    doAssert re.errorType == retLimit
+    let j = re.toJson()
+    assertEq j{"type"}.getStr(""), "urn:ietf:params:jmap:error:limit"
+    assertEq j{"limit"}.getStr(""), "maxCallsInRequest"
+    let rt = RequestError.fromJson(j)
+    assertOk rt
+    doAssert rt.get().errorType == retLimit
+    assertSomeEq rt.get().limit, "maxCallsInRequest"
+
+# =============================================================================
+# Phase 6A — Method error type serde compliance (RFC 8620 S3.6.2)
+# =============================================================================
+# Section-traceable round-trip tests for all 19 method error types.
+
+block rfc8620_S3_6_2_serdeServerUnavailable:
+  ## serverUnavailable round-trip.
+  {.cast(noSideEffect).}:
+    let me = methodError("serverUnavailable", description = Opt.some("maintenance"))
+    let j = me.toJson()
+    assertEq j{"type"}.getStr(""), "serverUnavailable"
+    let rt = MethodError.fromJson(j)
+    assertOk rt
+    doAssert rt.get().errorType == metServerUnavailable
+
+block rfc8620_S3_6_2_serdeServerFail:
+  ## serverFail round-trip.
+  {.cast(noSideEffect).}:
+    let me = methodError("serverFail")
+    let j = me.toJson()
+    assertEq j{"type"}.getStr(""), "serverFail"
+    let rt = MethodError.fromJson(j)
+    assertOk rt
+    doAssert rt.get().errorType == metServerFail
+
+block rfc8620_S3_6_2_serdeServerPartialFail:
+  ## serverPartialFail round-trip.
+  {.cast(noSideEffect).}:
+    let me = methodError("serverPartialFail")
+    let j = me.toJson()
+    let rt = MethodError.fromJson(j)
+    assertOk rt
+    doAssert rt.get().errorType == metServerPartialFail
+
+block rfc8620_S3_6_2_serdeUnknownMethod:
+  ## unknownMethod round-trip.
+  {.cast(noSideEffect).}:
+    let me = methodError("unknownMethod")
+    let j = me.toJson()
+    let rt = MethodError.fromJson(j)
+    assertOk rt
+    doAssert rt.get().errorType == metUnknownMethod
+
+block rfc8620_S3_6_2_serdeInvalidArguments:
+  ## invalidArguments round-trip.
+  {.cast(noSideEffect).}:
+    let me = methodError("invalidArguments")
+    let j = me.toJson()
+    let rt = MethodError.fromJson(j)
+    assertOk rt
+    doAssert rt.get().errorType == metInvalidArguments
+
+block rfc8620_S3_6_2_serdeInvalidResultReference:
+  ## invalidResultReference round-trip.
+  {.cast(noSideEffect).}:
+    let me = methodError("invalidResultReference")
+    let j = me.toJson()
+    let rt = MethodError.fromJson(j)
+    assertOk rt
+    doAssert rt.get().errorType == metInvalidResultReference
+
+block rfc8620_S3_6_2_serdeForbidden:
+  ## forbidden round-trip.
+  {.cast(noSideEffect).}:
+    let me = methodError("forbidden")
+    let j = me.toJson()
+    let rt = MethodError.fromJson(j)
+    assertOk rt
+    doAssert rt.get().errorType == metForbidden
+
+block rfc8620_S3_6_2_serdeAccountNotFound:
+  ## accountNotFound round-trip.
+  {.cast(noSideEffect).}:
+    let me = methodError("accountNotFound")
+    let j = me.toJson()
+    let rt = MethodError.fromJson(j)
+    assertOk rt
+    doAssert rt.get().errorType == metAccountNotFound
+
+block rfc8620_S3_6_2_serdeAccountNotSupportedByMethod:
+  ## accountNotSupportedByMethod round-trip.
+  {.cast(noSideEffect).}:
+    let me = methodError("accountNotSupportedByMethod")
+    let j = me.toJson()
+    let rt = MethodError.fromJson(j)
+    assertOk rt
+    doAssert rt.get().errorType == metAccountNotSupportedByMethod
+
+block rfc8620_S3_6_2_serdeAccountReadOnly:
+  ## accountReadOnly round-trip.
+  {.cast(noSideEffect).}:
+    let me = methodError("accountReadOnly")
+    let j = me.toJson()
+    let rt = MethodError.fromJson(j)
+    assertOk rt
+    doAssert rt.get().errorType == metAccountReadOnly
+
+block rfc8620_S3_6_2_serdeAnchorNotFound:
+  ## anchorNotFound round-trip.
+  {.cast(noSideEffect).}:
+    let me = methodError("anchorNotFound")
+    let j = me.toJson()
+    let rt = MethodError.fromJson(j)
+    assertOk rt
+    doAssert rt.get().errorType == metAnchorNotFound
+
+block rfc8620_S3_6_2_serdeUnsupportedSort:
+  ## unsupportedSort round-trip.
+  {.cast(noSideEffect).}:
+    let me = methodError("unsupportedSort")
+    let j = me.toJson()
+    let rt = MethodError.fromJson(j)
+    assertOk rt
+    doAssert rt.get().errorType == metUnsupportedSort
+
+block rfc8620_S3_6_2_serdeUnsupportedFilter:
+  ## unsupportedFilter round-trip.
+  {.cast(noSideEffect).}:
+    let me = methodError("unsupportedFilter")
+    let j = me.toJson()
+    let rt = MethodError.fromJson(j)
+    assertOk rt
+    doAssert rt.get().errorType == metUnsupportedFilter
+
+block rfc8620_S3_6_2_serdeCannotCalculateChanges:
+  ## cannotCalculateChanges round-trip.
+  {.cast(noSideEffect).}:
+    let me = methodError("cannotCalculateChanges")
+    let j = me.toJson()
+    let rt = MethodError.fromJson(j)
+    assertOk rt
+    doAssert rt.get().errorType == metCannotCalculateChanges
+
+block rfc8620_S3_6_2_serdeTooManyChanges:
+  ## tooManyChanges round-trip.
+  {.cast(noSideEffect).}:
+    let me = methodError("tooManyChanges")
+    let j = me.toJson()
+    let rt = MethodError.fromJson(j)
+    assertOk rt
+    doAssert rt.get().errorType == metTooManyChanges
+
+block rfc8620_S3_6_2_serdeRequestTooLarge:
+  ## requestTooLarge round-trip.
+  {.cast(noSideEffect).}:
+    let me = methodError("requestTooLarge")
+    let j = me.toJson()
+    let rt = MethodError.fromJson(j)
+    assertOk rt
+    doAssert rt.get().errorType == metRequestTooLarge
+
+block rfc8620_S3_6_2_serdeStateMismatch:
+  ## stateMismatch round-trip.
+  {.cast(noSideEffect).}:
+    let me = methodError("stateMismatch")
+    let j = me.toJson()
+    let rt = MethodError.fromJson(j)
+    assertOk rt
+    doAssert rt.get().errorType == metStateMismatch
+
+block rfc8620_S3_6_2_serdeFromAccountNotFound:
+  ## fromAccountNotFound round-trip.
+  {.cast(noSideEffect).}:
+    let me = methodError("fromAccountNotFound")
+    let j = me.toJson()
+    let rt = MethodError.fromJson(j)
+    assertOk rt
+    doAssert rt.get().errorType == metFromAccountNotFound
+
+block rfc8620_S3_6_2_serdeFromAccountNotSupportedByMethod:
+  ## fromAccountNotSupportedByMethod round-trip.
+  {.cast(noSideEffect).}:
+    let me = methodError("fromAccountNotSupportedByMethod")
+    let j = me.toJson()
+    let rt = MethodError.fromJson(j)
+    assertOk rt
+    doAssert rt.get().errorType == metFromAccountNotSupportedByMethod
+
+# =============================================================================
+# Phase 6A — Set error type serde compliance (RFC 8620 S5.3)
+# =============================================================================
+# Section-traceable round-trip tests for all 10 set error types.
+
+block rfc8620_S5_3_serdeForbidden:
+  ## SetError forbidden round-trip.
+  {.cast(noSideEffect).}:
+    let se = setError("forbidden", description = Opt.some("not allowed"))
+    let j = se.toJson()
+    assertEq j{"type"}.getStr(""), "forbidden"
+    let rt = SetError.fromJson(j)
+    assertOk rt
+    doAssert rt.get().errorType == setForbidden
+
+block rfc8620_S5_3_serdeOverQuota:
+  ## SetError overQuota round-trip.
+  {.cast(noSideEffect).}:
+    let se = setError("overQuota")
+    let j = se.toJson()
+    let rt = SetError.fromJson(j)
+    assertOk rt
+    doAssert rt.get().errorType == setOverQuota
+
+block rfc8620_S5_3_serdeTooLarge:
+  ## SetError tooLarge round-trip.
+  {.cast(noSideEffect).}:
+    let se = setError("tooLarge")
+    let j = se.toJson()
+    let rt = SetError.fromJson(j)
+    assertOk rt
+    doAssert rt.get().errorType == setTooLarge
+
+block rfc8620_S5_3_serdeRateLimit:
+  ## SetError rateLimit round-trip.
+  {.cast(noSideEffect).}:
+    let se = setError("rateLimit")
+    let j = se.toJson()
+    let rt = SetError.fromJson(j)
+    assertOk rt
+    doAssert rt.get().errorType == setRateLimit
+
+block rfc8620_S5_3_serdeNotFound:
+  ## SetError notFound round-trip.
+  {.cast(noSideEffect).}:
+    let se = setError("notFound")
+    let j = se.toJson()
+    let rt = SetError.fromJson(j)
+    assertOk rt
+    doAssert rt.get().errorType == setNotFound
+
+block rfc8620_S5_3_serdeInvalidPatch:
+  ## SetError invalidPatch round-trip.
+  {.cast(noSideEffect).}:
+    let se = setError("invalidPatch")
+    let j = se.toJson()
+    let rt = SetError.fromJson(j)
+    assertOk rt
+    doAssert rt.get().errorType == setInvalidPatch
+
+block rfc8620_S5_3_serdeWillDestroy:
+  ## SetError willDestroy round-trip.
+  {.cast(noSideEffect).}:
+    let se = setError("willDestroy")
+    let j = se.toJson()
+    let rt = SetError.fromJson(j)
+    assertOk rt
+    doAssert rt.get().errorType == setWillDestroy
+
+block rfc8620_S5_3_serdeInvalidProperties:
+  ## SetError invalidProperties round-trip with properties array.
+  {.cast(noSideEffect).}:
+    let se = setErrorInvalidProperties(
+      "invalidProperties", @["subject", "from", "to"], Opt.some("bad fields")
+    )
+    doAssert se.errorType == setInvalidProperties
+    let j = se.toJson()
+    assertEq j{"type"}.getStr(""), "invalidProperties"
+    doAssert j{"properties"} != nil
+    doAssert j{"properties"}.kind == JArray
+    let rt = SetError.fromJson(j)
+    assertOk rt
+    doAssert rt.get().errorType == setInvalidProperties
+    assertEq rt.get().properties.len, 3
+    doAssert "subject" in rt.get().properties
+    doAssert "from" in rt.get().properties
+    doAssert "to" in rt.get().properties
+
+block rfc8620_S5_3_serdeAlreadyExists:
+  ## SetError alreadyExists round-trip with existingId.
+  {.cast(noSideEffect).}:
+    let existId = makeId("existingRecord42")
+    let se = setErrorAlreadyExists(
+      "alreadyExists", existId, Opt.some("record already present")
+    )
+    doAssert se.errorType == setAlreadyExists
+    let j = se.toJson()
+    assertEq j{"type"}.getStr(""), "alreadyExists"
+    assertEq j{"existingId"}.getStr(""), "existingRecord42"
+    let rt = SetError.fromJson(j)
+    assertOk rt
+    doAssert rt.get().errorType == setAlreadyExists
+    assertEq $rt.get().existingId, "existingRecord42"
+
+block rfc8620_S5_3_serdeSingleton:
+  ## SetError singleton round-trip.
+  {.cast(noSideEffect).}:
+    let se = setError("singleton")
+    let j = se.toJson()
+    let rt = SetError.fromJson(j)
+    assertOk rt
+    doAssert rt.get().errorType == setSingleton
+
+# =============================================================================
+# Phase 6C — parseEnum case sensitivity documentation (nimIdentNormalize)
+# =============================================================================
+# Nim's parseEnum uses nimIdentNormalize which strips underscores (except
+# leading) and lowercases everything except the first character. This means
+# error type parsing is case-insensitive after the first character and strips
+# underscores — deviating from strict RFC case matching but consistent with
+# Postel's Law for a client library receiving server responses.
+
+block rfc8620_conformance_methodErrorExactMatch:
+  ## Exact RFC string matches the corresponding enum variant.
+  doAssert parseMethodErrorType("serverFail") == metServerFail
+  doAssert parseMethodErrorType("invalidArguments") == metInvalidArguments
+  doAssert parseMethodErrorType("forbidden") == metForbidden
+
+block rfc8620_conformance_methodErrorNimIdentNormalize:
+  ## nimIdentNormalize: case-insensitive after first character.
+  ## "serverfail" normalises same as "serverFail" -> metServerFail.
+  doAssert parseMethodErrorType("serverfail") == metServerFail
+  doAssert parseMethodErrorType("serverFAIL") == metServerFail
+  doAssert parseMethodErrorType("invalidarguments") == metInvalidArguments
+
+block rfc8620_conformance_methodErrorFirstCharCaseSensitive:
+  ## First character IS case-sensitive under nimIdentNormalize.
+  ## "SERVERFAIL" starts with 'S' vs 's' in "serverFail" -> metUnknown.
+  doAssert parseMethodErrorType("SERVERFAIL") == metUnknown
+  doAssert parseMethodErrorType("ServerFail") == metUnknown
+  doAssert parseMethodErrorType("Forbidden") == metUnknown
+
+block rfc8620_conformance_methodErrorUnderscoreStripping:
+  ## nimIdentNormalize strips underscores (except leading).
+  ## "server_Fail" becomes "serverfail" -> matches metServerFail.
+  doAssert parseMethodErrorType("server_Fail") == metServerFail
+  doAssert parseMethodErrorType("invalid_Arguments") == metInvalidArguments
+
+block rfc8620_conformance_methodErrorLeadingUnderscorePreserved:
+  ## Leading underscores are preserved by nimIdentNormalize -> no match.
+  doAssert parseMethodErrorType("_serverFail") == metUnknown
+
+block rfc8620_conformance_setErrorExactMatch:
+  ## Exact RFC string matches the corresponding SetErrorType variant.
+  doAssert parseSetErrorType("forbidden") == setForbidden
+  doAssert parseSetErrorType("overQuota") == setOverQuota
+  doAssert parseSetErrorType("tooLarge") == setTooLarge
+
+block rfc8620_conformance_setErrorNimIdentNormalize:
+  ## nimIdentNormalize: case-insensitive after first character.
+  doAssert parseSetErrorType("overquota") == setOverQuota
+  doAssert parseSetErrorType("toolarge") == setTooLarge
+
+block rfc8620_conformance_setErrorFirstCharCaseSensitive:
+  ## First character IS case-sensitive.
+  doAssert parseSetErrorType("Forbidden") == setUnknown
+  doAssert parseSetErrorType("OverQuota") == setUnknown
+
+block rfc8620_conformance_requestErrorExactMatch:
+  ## Exact RFC URIs match the corresponding RequestErrorType variant.
+  doAssert parseRequestErrorType("urn:ietf:params:jmap:error:unknownCapability") ==
+    retUnknownCapability
+  doAssert parseRequestErrorType("urn:ietf:params:jmap:error:notJSON") == retNotJson
+  doAssert parseRequestErrorType("urn:ietf:params:jmap:error:notRequest") ==
+    retNotRequest
+  doAssert parseRequestErrorType("urn:ietf:params:jmap:error:limit") == retLimit
+
+block rfc8620_conformance_requestErrorFirstCharCaseSensitive:
+  ## First character IS case-sensitive for URIs too.
+  ## 'U' vs 'u' in "urn:" -> retUnknown.
+  doAssert parseRequestErrorType("Urn:ietf:params:jmap:error:limit") == retUnknown
