@@ -16,7 +16,6 @@
 ## 7. Add gen<T>() generator to tests/mproperty.nim
 
 import std/sets
-import std/strutils
 import std/tables
 import std/json
 
@@ -171,15 +170,6 @@ func makeResultReference*(
 # Error factories
 # ---------------------------------------------------------------------------
 
-func makeTransportError*(
-    kind = tekNetwork, message = "connection refused"
-): TransportError =
-  case kind
-  of tekHttpStatus:
-    httpStatusError(500, message)
-  of tekNetwork, tekTls, tekTimeout:
-    transportError(kind, message)
-
 func makeRequestError*(
     rawType = "urn:ietf:params:jmap:error:unknownCapability"
 ): RequestError =
@@ -318,42 +308,6 @@ func makeFilterAnd*(children: seq[Filter[int]]): Filter[int] =
 func makeFilterOr*(children: seq[Filter[int]]): Filter[int] =
   filterOperator[int](foOr, children)
 
-func makeFilterNot*(child: Filter[int]): Filter[int] =
-  filterOperator[int](foNot, @[child])
-
-# ---------------------------------------------------------------------------
-# PatchObject factory
-# ---------------------------------------------------------------------------
-
-func makePatch*(entries: seq[(string, JsonNode)]): PatchObject =
-  ## Builds a PatchObject from a sequence of key-value pairs.
-  var p = emptyPatch()
-  for (k, v) in entries:
-    p = p.setProp(k, v).get()
-  p
-
-# ---------------------------------------------------------------------------
-# Boundary constants
-# ---------------------------------------------------------------------------
-
-const MaxLenString* = 'a'.repeat(255)
-  ## Maximum-length string for types with 1-255 octet constraint.
-
-const OverLenString* = 'a'.repeat(256)
-  ## One-byte-over-limit string for types with 1-255 octet constraint.
-
-# ---------------------------------------------------------------------------
-# Additional error factory
-# ---------------------------------------------------------------------------
-
-func makeRequestErrorWithFields*(
-    rawType = "urn:ietf:params:jmap:error:unknownCapability",
-    status: Opt[int] = Opt.none(int),
-    title: Opt[string] = Opt.none(string),
-    detail: Opt[string] = Opt.none(string),
-): RequestError =
-  requestError(rawType, status, title, detail)
-
 # ---------------------------------------------------------------------------
 # Additional session fixture
 # ---------------------------------------------------------------------------
@@ -406,28 +360,6 @@ proc validCoreCapsJson*(): JsonNode =
     "maxObjectsInGet": 1,
     "maxObjectsInSet": 1,
     "collationAlgorithms": [],
-  }
-
-proc realisticCoreCapsJson*(): JsonNode =
-  ## RFC 8620 section 2.1 realistic CoreCapabilities JSON.
-  %*{
-    "maxSizeUpload": 50000000,
-    "maxConcurrentUpload": 8,
-    "maxSizeRequest": 10000000,
-    "maxConcurrentRequests": 8,
-    "maxCallsInRequest": 32,
-    "maxObjectsInGet": 256,
-    "maxObjectsInSet": 128,
-    "collationAlgorithms": ["i;ascii-numeric"],
-  }
-
-proc validAccountJson*(): JsonNode =
-  ## Minimal valid Account JSON.
-  %*{
-    "name": "test@example.com",
-    "isPersonal": true,
-    "isReadOnly": false,
-    "accountCapabilities": {},
   }
 
 proc goldenRequestJson*(): JsonNode =
@@ -533,41 +465,6 @@ proc validSessionJson*(): JsonNode =
       "https://jmap.example.com/eventsource/?types={types}&closeafter={closeafter}&ping={ping}",
     "state": "s1",
   }
-
-proc validFilterConditionJson*(value = 42): JsonNode =
-  ## Minimal valid filter condition JSON for Filter[int] tests.
-  %*{"value": value}
-
-proc validFilterOperatorJson*(op = "AND", conditions: seq[JsonNode] = @[]): JsonNode =
-  ## Filter operator JSON node.
-  var condArr = newJArray()
-  for c in conditions:
-    condArr.add(c)
-  result = newJObject()
-  {.cast(noSideEffect).}:
-    result["operator"] = %op
-  result["conditions"] = condArr
-
-proc validComparatorJson*(property = "subject", isAscending = true): JsonNode =
-  ## Minimal valid Comparator JSON per RFC 8620 section 5.5.
-  %*{"property": property, "isAscending": isAscending}
-
-proc validAddedItemJson*(id = "ai1", index = 0): JsonNode =
-  ## Minimal valid AddedItem JSON per RFC 8620 section 5.6.
-  %*{"id": id, "index": index}
-
-proc validPatchObjectJson*(): JsonNode =
-  ## PatchObject JSON with one set and one delete operation.
-  result = newJObject()
-  {.cast(noSideEffect).}:
-    result["subject"] = %"new subject"
-    result["keywords/flagged"] = newJNull()
-
-proc validResultReferenceJson*(
-    resultOf = "c0", name = "Mailbox/get", path = "/ids"
-): JsonNode =
-  ## Minimal valid ResultReference JSON per RFC 8620 section 3.7.
-  %*{"resultOf": resultOf, "name": name, "path": path}
 
 # ---------------------------------------------------------------------------
 # Case object equality helpers
@@ -691,13 +588,3 @@ proc fromIntCondition*(
   let vNode = n{"value"}
   checkJsonKind(vNode, JInt, "int", "missing or invalid value")
   ok(vNode.getInt(0))
-
-proc jsonCondToJson*(condition: JsonNode): JsonNode {.noSideEffect, raises: [].} =
-  ## Identity serialiser for Filter[JsonNode] tests.
-  result = condition
-
-proc fromJsonCondition*(
-    n: JsonNode
-): Result[JsonNode, ValidationError] {.noSideEffect, raises: [].} =
-  ## Identity deserialiser for Filter[JsonNode] tests.
-  ok(n)

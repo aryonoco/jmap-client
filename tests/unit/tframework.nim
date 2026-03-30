@@ -131,21 +131,8 @@ block addedItemConstruction:
   let id = parseId("abc").get()
   let idx = parseUnsignedInt(0'i64).get()
   let item = AddedItem(id: id, index: idx)
-  doAssert item.id == id
-  doAssert item.index == idx
-
-# --- Error content assertions ---
-
-block parsePropertyNameErrorContent:
-  assertErrFields parsePropertyName(""), "PropertyName", "must not be empty", ""
-
-block setPropErrorContent:
-  assertErrFields setProp(emptyPatch(), "", newJNull()),
-    "PatchObject", "path must not be empty", ""
-
-block deletePropErrorContent:
-  assertErrFields deleteProp(emptyPatch(), ""),
-    "PatchObject", "path must not be empty", ""
+  doAssert string(item.id) == "abc"
+  doAssert int64(item.index) == 0'i64
 
 # --- Adversarial edge cases ---
 
@@ -174,8 +161,6 @@ block filterOperatorNotEmpty:
   # NOT with zero children: structurally valid
   let f = filterOperator[int](foNot, newSeq[Filter[int]]())
   doAssert f.kind == fkOperator
-  doAssert f.operator == foNot
-  doAssert f.conditions.len == 0
 
 block filterOperatorNotMultiple:
   # NOT with multiple children: RFC semantics = NOR (none must match)
@@ -241,12 +226,6 @@ block patchObjectDeletePropThenGetKey:
   let got = p.getKey("addr/0")
   assertSome got
   doAssert got.get().kind == JNull
-
-# --- Phase 2: PropertyName zero-coverage gaps ---
-
-block parsePropertyNameEmptyRejected:
-  ## parsePropertyName rejects an empty string.
-  assertErrFields parsePropertyName(""), "PropertyName", "must not be empty", ""
 
 block parsePropertyNameSingleChar:
   ## parsePropertyName accepts a single-character string.

@@ -43,9 +43,6 @@ const DefaultTrials* = 500 ## Standard property trial count.
 
 const ThoroughTrials* = 2000 ## For properties with large input spaces (Date, Session).
 
-const CriticalTrials* = 5000
-  ## For high-assurance properties requiring extensive coverage.
-
 # ---------------------------------------------------------------------------
 # Property check templates
 # ---------------------------------------------------------------------------
@@ -77,55 +74,6 @@ template checkPropertyN*(name: string, trials: int, body: untyped) =
     for trial {.inject.} in 0 ..< trials:
       try:
         body
-      except AssertionDefect as e:
-        let ctx =
-          name & " failed at trial " & $trial &
-          (if lastInput.len > 0: " (input: " & lastInput & ")" else: "") & ": " & e.msg
-        raiseAssert ctx
-
-{.pop.} # trystatements
-
-# ---------------------------------------------------------------------------
-# Parameterised property templates (Phase 4E)
-# ---------------------------------------------------------------------------
-
-{.push ruleOff: "trystatements".}
-
-template checkJsonRoundTrip*(
-    name: string, trials: int, gen: untyped, eq: untyped, toJ: untyped, fromJ: untyped
-) =
-  ## Generic JSON round-trip property: fromJson(toJson(x)) == x.
-  ## `gen` generates a value, `eq` compares two values, `toJ` serialises,
-  ## `fromJ` deserialises. All four are called with the generated value or
-  ## its serialised form.
-  block:
-    var rng {.inject.} = initRand(42)
-    var lastInput {.inject.}: string = ""
-    for trial {.inject.} in 0 ..< trials:
-      try:
-        let x = gen
-        let j = toJ(x)
-        let rt = fromJ(j)
-        doAssert rt.isOk, name & ": round-trip parse failed"
-        doAssert eq(rt.get(), x), name & ": round-trip identity violated"
-      except AssertionDefect as e:
-        let ctx =
-          name & " failed at trial " & $trial &
-          (if lastInput.len > 0: " (input: " & lastInput & ")" else: "") & ": " & e.msg
-        raiseAssert ctx
-
-template checkStability*(name: string, trials: int, gen: untyped, toJ: untyped) =
-  ## Generic stability property: toJson(x) == toJson(x).
-  ## Verifies that serialisation is deterministic (no hash-order jitter).
-  block:
-    var rng {.inject.} = initRand(42)
-    var lastInput {.inject.}: string = ""
-    for trial {.inject.} in 0 ..< trials:
-      try:
-        let x = gen
-        let j1 = toJ(x)
-        let j2 = toJ(x)
-        doAssert j1 == j2, name & ": toJson is not stable"
       except AssertionDefect as e:
         let ctx =
           name & " failed at trial " & $trial &
@@ -1151,21 +1099,6 @@ proc genResultReference*(rng: var Rand): ResultReference =
     name: names[rng.rand(0 .. int(names.high))],
     path: paths[rng.rand(0 .. int(paths.high))],
   )
-
-proc genFilterWithJsonConditions*(rng: var Rand, maxDepth: int): Filter[JsonNode] =
-  ## Generates random Filter[JsonNode] trees with arbitrary JSON object leaf
-  ## conditions. Operators use AND/OR/NOT with 0-3 children. 33% chance of leaf
-  ## at any depth. Used for testing serde round-trip on generic Filter type.
-  ## Does NOT generate: deeply nested trees beyond maxDepth, non-object conditions.
-  if maxDepth <= 0 or rng.rand(0 .. 2) == 0:
-    let cond = rng.genArbitraryJsonObject(1)
-    return filterCondition(cond)
-  let op = [foAnd, foOr, foNot][rng.rand(0 .. 2)]
-  let childCount = rng.rand(0 .. 3)
-  var children: seq[Filter[JsonNode]] = @[]
-  for _ in 0 ..< childCount:
-    children.add rng.genFilterWithJsonConditions(maxDepth - 1)
-  filterOperator(op, children)
 
 proc genMalformedSessionJson*(rng: var Rand): JsonNode =
   ## Generates plausible but subtly broken Session JSON for totality testing.

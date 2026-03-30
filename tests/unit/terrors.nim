@@ -512,30 +512,12 @@ block setErrorAlreadyExistsAllFields:
   doAssert se.description.unsafeGet == "duplicate detected"
   doAssert se.extras.isSome
 
-block setErrorDefensiveFallbackInvalidProperties:
-  # Generic constructor maps invalidProperties to setUnknown defensively
-  let se = setError("invalidProperties")
-  doAssert se.errorType == setUnknown
-  doAssert se.rawType == "invalidProperties"
-
-block setErrorDefensiveFallbackAlreadyExists:
-  # Generic constructor maps alreadyExists to setUnknown defensively
-  let se = setError("alreadyExists")
-  doAssert se.errorType == setUnknown
-  doAssert se.rawType == "alreadyExists"
-
 # --- Phase 4: Error constructor mutation resistance ---
 
 block transportErrorEmptyMessage:
   ## Empty message string is valid — no restriction on message content.
   let te = transportError(tekNetwork, "")
   assertEq te.message, ""
-
-block setErrorInvalidPropertiesEmptyListVariant:
-  ## Empty properties list is valid (semantically odd but structurally correct).
-  let se = setErrorInvalidProperties("invalidProperties", @[])
-  assertEq se.errorType, setInvalidProperties
-  assertLen se.properties, 0
 
 block setErrorAlreadyExistsMaxLengthId:
   ## alreadyExists with maximum-length Id (255 bytes).

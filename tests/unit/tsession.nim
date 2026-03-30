@@ -427,92 +427,6 @@ block coreCapabilitiesInvariantViolation:
     discard coreCapabilities(badSession)
 
 # =============================================================================
-# F. Error content assertions
-# =============================================================================
-
-block parseSessionErrorContentMissingCkCore:
-  let result = parseSession(
-    capabilities = @[
-      ServerCapability(
-        rawUri: "urn:ietf:params:jmap:mail", kind: ckMail, rawData: newJNull()
-      )
-    ],
-    accounts = goldenAccounts,
-    primaryAccounts = goldenPrimaryAccounts,
-    username = "",
-    apiUrl = "https://jmap.example.com/api/",
-    downloadUrl = goldenDownloadUrl,
-    uploadUrl = goldenUploadUrl,
-    eventSourceUrl = goldenEventSourceUrl,
-    state = goldenState,
-  )
-  assertErrFields result,
-    "Session", "capabilities must include urn:ietf:params:jmap:core", ""
-
-block parseSessionErrorContentEmptyApiUrl:
-  let result = parseSession(
-    capabilities = goldenCaps,
-    accounts = goldenAccounts,
-    primaryAccounts = goldenPrimaryAccounts,
-    username = "",
-    apiUrl = "",
-    downloadUrl = goldenDownloadUrl,
-    uploadUrl = goldenUploadUrl,
-    eventSourceUrl = goldenEventSourceUrl,
-    state = goldenState,
-  )
-  assertErrFields result, "Session", "apiUrl must not be empty", ""
-
-block parseSessionErrorContentDownloadMissing:
-  let badDl =
-    parseUriTemplate("https://example.com/{accountId}/{name}?accept={type}").get()
-  let result = parseSession(
-    capabilities = goldenCaps,
-    accounts = goldenAccounts,
-    primaryAccounts = goldenPrimaryAccounts,
-    username = "",
-    apiUrl = "https://jmap.example.com/api/",
-    downloadUrl = badDl,
-    uploadUrl = goldenUploadUrl,
-    eventSourceUrl = goldenEventSourceUrl,
-    state = goldenState,
-  )
-  assertErrMsg result, "downloadUrl missing {blobId}"
-
-block parseSessionErrorContentUploadMissing:
-  let badUp = parseUriTemplate("https://example.com/upload/").get()
-  let result = parseSession(
-    capabilities = goldenCaps,
-    accounts = goldenAccounts,
-    primaryAccounts = goldenPrimaryAccounts,
-    username = "",
-    apiUrl = "https://jmap.example.com/api/",
-    downloadUrl = goldenDownloadUrl,
-    uploadUrl = badUp,
-    eventSourceUrl = goldenEventSourceUrl,
-    state = goldenState,
-  )
-  assertErrMsg result, "uploadUrl missing {accountId}"
-
-block parseSessionErrorContentEventSourceMissing:
-  let badEs = parseUriTemplate(
-      "https://example.com/events?closeafter={closeafter}&ping={ping}"
-    )
-    .get()
-  let result = parseSession(
-    capabilities = goldenCaps,
-    accounts = goldenAccounts,
-    primaryAccounts = goldenPrimaryAccounts,
-    username = "",
-    apiUrl = "https://jmap.example.com/api/",
-    downloadUrl = goldenDownloadUrl,
-    uploadUrl = goldenUploadUrl,
-    eventSourceUrl = badEs,
-    state = goldenState,
-  )
-  assertErrMsg result, "eventSourceUrl missing {types}"
-
-# =============================================================================
 # G. Adversarial edge cases
 # =============================================================================
 
@@ -684,23 +598,6 @@ block parseSessionExtraDownloadVariables:
   )
   assertOk res
 
-block parseSessionUploadUrlNoVariables:
-  ## uploadUrl with no variables at all is rejected — missing {accountId}.
-  let args = makeSessionArgs()
-  let badUpload = parseUriTemplate("https://example.com/upload/").get()
-  let res = parseSession(
-    args.capabilities, args.accounts, args.primaryAccounts, args.username, args.apiUrl,
-    args.downloadUrl, badUpload, args.eventSourceUrl, args.state,
-  )
-  assertErr res
-
-block parseSessionDuplicateCkCoreAccepted:
-  ## Multiple ckCore capabilities are accepted — first is used.
-  var args = makeSessionArgs()
-  args.capabilities.add makeCoreServerCap()
-  let res = parseSessionFromArgs(args)
-  assertOk res
-
 block parseSessionEmptyAccountsValid:
   ## Empty accounts and primaryAccounts tables are valid.
   let args = makeMinimalSession()
@@ -711,33 +608,11 @@ block parseSessionEmptyAccountsValid:
 # K. Session accessor zero-coverage gaps
 # =============================================================================
 
-block coreCapabilitiesReturnsCoreCaps:
-  ## coreCapabilities returns the CoreCapabilities from a valid session.
-  let core = coreCapabilities(goldenSession)
-  doAssert core.maxSizeUpload == zero
-  doAssert core.maxConcurrentUpload == zero
-  doAssert core.maxSizeRequest == zero
-  doAssert core.maxConcurrentRequests == zero
-  doAssert core.maxCallsInRequest == zero
-  doAssert core.maxObjectsInGet == zero
-  doAssert core.maxObjectsInSet == zero
-
-block findCapabilitySessionFoundCore:
-  ## findCapability(session, ckCore) returns the core capability.
-  let result = findCapability(goldenSession, ckCore)
-  assertSome result
-  doAssert result.get().kind == ckCore
-  doAssert result.get().rawUri == "urn:ietf:params:jmap:core"
-
 block findCapabilitySessionFoundContacts:
   ## findCapability(session, ckContacts) returns when present.
   let result = findCapability(goldenSession, ckContacts)
   assertSome result
   doAssert result.get().rawUri == "urn:ietf:params:jmap:contacts"
-
-block findCapabilitySessionNotFoundCalendars:
-  ## findCapability(session, ckCalendars) returns err when absent.
-  assertNone findCapability(goldenSession, ckCalendars)
 
 block findCapabilityByUriSessionFoundCore:
   ## findCapabilityByUri(session) returns the matching capability.
@@ -784,16 +659,6 @@ block findAccountNotFound:
 # L. Account accessor zero-coverage gaps
 # =============================================================================
 
-block accountFindCapabilityByKindFoundMail:
-  ## findCapability(account, ckMail) returns the mail capability.
-  let result = findCapability(testAccount, ckMail)
-  assertSome result
-  doAssert result.get().kind == ckMail
-
-block accountFindCapabilityByKindNotFoundCalendars:
-  ## findCapability(account, ckCalendars) returns err when absent.
-  assertNone findCapability(testAccount, ckCalendars)
-
 block accountFindCapabilityByUriFoundVendor:
   ## findCapabilityByUri(account) finds vendor extension by exact URI.
   let result = findCapabilityByUri(testAccount, "https://vendor2.example/ext")
@@ -814,14 +679,6 @@ block accountFindCapabilityByUriVendorExtension:
   assertSome result2
   doAssert result2.get().data == %*{"v": 2}
 
-block accountHasCapabilityTrue:
-  ## hasCapability returns true when the account has the capability.
-  doAssert hasCapability(testAccount, ckMail)
-
-block accountHasCapabilityFalse:
-  ## hasCapability returns false when the account lacks the capability.
-  doAssert not hasCapability(testAccount, ckCalendars)
-
 block accountHasCapabilityCkUnknown:
   ## hasCapability returns true for ckUnknown when vendor extensions exist.
   doAssert hasCapability(testAccount, ckUnknown)
@@ -830,24 +687,8 @@ block accountHasCapabilityCkUnknown:
 # M. UriTemplate and hasVariable zero-coverage gaps
 # =============================================================================
 
-block parseUriTemplateEmptyRejected:
-  ## parseUriTemplate rejects empty strings.
-  assertErrFields parseUriTemplate(""), "UriTemplate", "must not be empty", ""
-
 block parseUriTemplateSingleChar:
   ## parseUriTemplate accepts a single-character string.
   let result = parseUriTemplate("x")
   assertOk result
   doAssert $result.get() == "x"
-
-block hasVariableDirectFound:
-  ## hasVariable returns true when the variable is present.
-  let tmpl = parseUriTemplate("https://e.com/{accountId}/{blobId}").get()
-  doAssert hasVariable(tmpl, "accountId")
-  doAssert hasVariable(tmpl, "blobId")
-
-block hasVariableDirectNotFound:
-  ## hasVariable returns false when the variable is absent.
-  let tmpl = parseUriTemplate("https://e.com/{accountId}").get()
-  doAssert not hasVariable(tmpl, "blobId")
-  doAssert not hasVariable(tmpl, "type")

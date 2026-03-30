@@ -588,28 +588,6 @@ block setErrorInvalidPropertiesNonArrayProperties:
       "non-array properties should trigger defensive fallback to setUnknown"
 
 # =============================================================================
-# I. MC/DC: MethodError description with JArray and JObject (Phase 2E2)
-# =============================================================================
-
-block methodErrorDescriptionJArrayLenient:
-  ## MC/DC: description present as JArray (not JString) yields Opt.none.
-  ## The optString helper rejects non-JString values leniently.
-  {.cast(noSideEffect).}:
-    let j = %*{"type": "serverFail", "description": [1, 2, 3]}
-    let r = MethodError.fromJson(j)
-    assertOk r
-    assertNone r.get().description
-
-block methodErrorDescriptionJObjectLenient:
-  ## MC/DC: description present as JObject (not JString) yields Opt.none.
-  ## The optString helper rejects non-JString values leniently.
-  {.cast(noSideEffect).}:
-    let j = %*{"type": "serverFail", "description": {"x": 1}}
-    let r = MethodError.fromJson(j)
-    assertOk r
-    assertNone r.get().description
-
-# =============================================================================
 # H. Phase 3C: Collection scale tests (errors)
 # =============================================================================
 

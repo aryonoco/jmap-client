@@ -56,8 +56,7 @@ block propResponsePreservesInvocationOrder:
 
 block propReferencableDirectPreservesValue:
   checkProperty "propReferencableDirectPreservesValue":
-    ## direct(v).value == v for random Invocations used as values.
-    let inv = genInvocation(rng)
+    ## direct(v).value == v for random Id sequences.
     let ids = @[parseId("id" & $trial).get()]
     lastInput = $trial
     let d = direct(ids)

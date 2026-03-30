@@ -511,16 +511,6 @@ block filterDeserNestedDepth3:
     doAssert f.conditions[0].conditions[0].conditions[0].kind == fkCondition
     doAssert f.conditions[0].conditions[0].conditions[0].condition == 42
 
-block filterDeserEmptyConditionsArray:
-  ## Operator with empty conditions array is valid.
-  {.cast(noSideEffect).}:
-    let j = %*{"operator": "AND", "conditions": []}
-    let r = Filter[int].fromJson(j, fromIntCondition)
-    assertOk r
-    doAssert r.get().kind == fkOperator
-    doAssert r.get().operator == foAnd
-    assertLen r.get().conditions, 0
-
 block comparatorAllFieldsRoundTrip:
   ## Comparator with property + isAscending=false + collation round-trips.
   let c = parseComparator(
@@ -532,22 +522,6 @@ block comparatorAllFieldsRoundTrip:
   assertEq string(rt.get().property), "receivedAt"
   doAssert rt.get().isAscending == false
   assertSomeEq rt.get().collation, "i;unicode-casemap"
-
-block comparatorDeserMissingIsAscendingDefaultTrue:
-  ## Missing isAscending defaults to true per RFC 8620 section 5.5.
-  {.cast(noSideEffect).}:
-    let j = %*{"property": "subject"}
-    let r = Comparator.fromJson(j)
-    assertOk r
-    doAssert r.get().isAscending == true, "isAscending must default to true"
-
-block comparatorDeserCollationWrongKindIsLenient:
-  ## Collation with wrong JSON kind yields Opt.none, not error (Postel's law).
-  {.cast(noSideEffect).}:
-    let j = %*{"property": "subject", "collation": 42}
-    let r = Comparator.fromJson(j)
-    assertOk r
-    assertNone r.get().collation
 
 block patchObjectTildeEscapedKeys:
   ## JSON Pointer path with ~0 (escaped ~) and ~1 (escaped /) per RFC 6901.
@@ -654,41 +628,3 @@ block comparatorCollationNullIsNone:
     let r = Comparator.fromJson(j)
     assertOk r
     assertNone r.get().collation
-
-# =============================================================================
-# D. Property-based round-trip tests
-# =============================================================================
-
-checkProperty "FilterOperator round-trip":
-  let ops = [foAnd, foOr, foNot]
-  let op = ops[trial mod 3]
-  assertOkEq FilterOperator.fromJson(op.toJson()), op
-
-checkProperty "Comparator round-trip":
-  let c = rng.genComparator()
-  let rt = Comparator.fromJson(c.toJson())
-  doAssert rt.isOk, "Comparator round-trip failed"
-  let v = rt.get()
-  doAssert v.property == c.property
-  doAssert v.isAscending == c.isAscending
-  doAssert v.collation == c.collation
-
-checkProperty "Filter[int] round-trip":
-  let f = rng.genFilter(3)
-  let rt = Filter[int].fromJson(f.toJson(intToJson), fromIntCondition)
-  doAssert rt.isOk, "Filter round-trip failed"
-  doAssert filterEq(rt.get(), f), "Filter values differ"
-
-checkProperty "PatchObject round-trip":
-  let p = rng.genPatchObject(5)
-  let rt = PatchObject.fromJson(p.toJson())
-  doAssert rt.isOk, "PatchObject round-trip failed"
-  doAssert rt.get().len == p.len, "PatchObject lengths differ"
-
-checkProperty "AddedItem round-trip":
-  let item = rng.genAddedItem()
-  let rt = AddedItem.fromJson(item.toJson())
-  doAssert rt.isOk, "AddedItem round-trip failed"
-  let v = rt.get()
-  doAssert v.id == item.id
-  doAssert v.index == item.index

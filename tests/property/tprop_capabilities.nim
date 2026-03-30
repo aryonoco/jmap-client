@@ -39,11 +39,6 @@ block propCapabilityKindAllKnownHaveUri:
 
 # --- CoreCapabilities and ServerCapability generator properties ---
 
-block propCoreCapabilitiesTotality:
-  checkProperty "genCoreCapabilities never crashes":
-    let caps = genCoreCapabilities(rng)
-    discard caps
-
 block propCoreCapabilitiesFieldsNonNegative:
   checkProperty "genCoreCapabilities fields are non-negative":
     let caps = genCoreCapabilities(rng)
@@ -54,12 +49,6 @@ block propCoreCapabilitiesFieldsNonNegative:
     doAssert int64(caps.maxCallsInRequest) >= 0
     doAssert int64(caps.maxObjectsInGet) >= 0
     doAssert int64(caps.maxObjectsInSet) >= 0
-
-block propServerCapabilityTotality:
-  checkProperty "genServerCapability never crashes":
-    let sc = genServerCapability(rng)
-    lastInput = sc.rawUri
-    discard sc
 
 block propServerCapabilityRawUriNonEmpty:
   checkProperty "genServerCapability rawUri always non-empty":

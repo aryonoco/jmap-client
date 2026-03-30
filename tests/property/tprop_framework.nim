@@ -184,22 +184,6 @@ block propPropertyNameDoubleRoundTrip:
 
 # --- Filter tree properties ---
 
-block propFilterLeafCountNonNegative:
-  checkPropertyN "propFilterLeafCountNonNegative", QuickTrials:
-    let f = genFilter(rng, 4)
-    proc countLeaves(f: Filter[int]): int =
-      ## Counts leaf nodes in a filter tree.
-      case f.kind
-      of fkCondition:
-        1
-      of fkOperator:
-        var total = 0
-        for c in f.conditions:
-          total += countLeaves(c)
-        total
-
-    doAssert countLeaves(f) >= 0
-
 block propFilterStructuralRecursion:
   checkPropertyN "propFilterStructuralRecursion", QuickTrials:
     ## Every node is either a leaf or an operator.
@@ -223,10 +207,11 @@ block propAddedItemFieldPreservation:
     let idStr = genValidIdStrict(rng, minLen = 1, maxLen = 20)
     lastInput = idStr
     let id = parseId(idStr).get()
-    let idx = parseUnsignedInt(rng.rand(0'i64 .. 10000'i64)).get()
+    let idxVal = rng.rand(0'i64 .. 10000'i64)
+    let idx = parseUnsignedInt(idxVal).get()
     let item = AddedItem(id: id, index: idx)
-    doAssert item.id == id
-    doAssert item.index == idx
+    doAssert string(item.id) == idStr
+    doAssert int64(item.index) == idxVal
 
 # --- Filter totality ---
 
@@ -312,15 +297,15 @@ block propPatchAssociativity:
     doAssert p.getKey(k2).get() == v2
     doAssert p.getKey(k3).get() == v3
 
-block propPatchLenNonNegative:
-  ## Patch length is always non-negative after any operations.
-  checkProperty "propPatchLenNonNegative":
+block propPatchLenMatchesInsertions:
+  ## Patch length equals the number of distinct keys inserted.
+  checkProperty "propPatchLenMatchesInsertions":
     var p = emptyPatch()
     let n = rng.rand(0 .. 5)
     lastInput = $n
     for i in 0 ..< n:
       p = p.setProp("k" & $i, newJInt(i)).get()
-    doAssert p.len >= 0
+    doAssert p.len == n
 
 block propFilterWellFormed:
   ## Any generated filter tree is structurally well-formed.

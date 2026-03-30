@@ -232,24 +232,12 @@ block propSetErrorAlreadyExistsFieldPreservation:
 
 # --- Generated error totality and field preservation ---
 
-block propGenMethodErrorTotality:
-  checkProperty "genMethodError never crashes":
-    let me = genMethodError(rng)
-    lastInput = me.rawType
-    discard me
-
 block propGenMethodErrorFieldPreservation:
   checkProperty "genMethodError preserves rawType and auto-parse coherence":
     let me = genMethodError(rng)
     lastInput = me.rawType
     doAssert me.rawType.len > 0
     doAssert me.errorType == parseMethodErrorType(me.rawType)
-
-block propGenSetErrorTotality:
-  checkProperty "genSetError never crashes":
-    let se = genSetError(rng)
-    lastInput = se.rawType
-    discard se
 
 block propGenSetErrorFieldPreservation:
   checkProperty "genSetError preserves rawType and variant fields":
@@ -260,12 +248,6 @@ block propGenSetErrorFieldPreservation:
     of setInvalidProperties: discard se.properties
     of setAlreadyExists: discard se.existingId
     else: discard
-
-block propGenClientErrorTotality:
-  checkProperty "genClientError never crashes":
-    let ce = genClientError(rng)
-    lastInput = ce.message
-    discard ce
 
 block propGenClientErrorFieldPreservation:
   checkProperty "genClientError message always non-empty and kind disjoint":

@@ -111,7 +111,6 @@ block questionMarkPropagation:
     let resp = ?r
     ok($resp.sessionState)
 
-  let mcid = parseMethodCallId("c1").get()
   let state = parseJmapState("s1").get()
   let resp = Response(methodResponses: @[], sessionState: state)
 
