@@ -2849,6 +2849,7 @@ arguments echoed back identically.
 | R8 | `getImplicitSet[T]` for implicit `/set` responses from `/copy` | Deferred to RFC 8621 entity implementation | RFC 8620 §3.2 allows multiple responses per call ID (e.g., `/copy` with `onSuccessDestroyOriginal` emits an implicit `Foo/set` response). Current `findInvocation` returns the first match only. Fix: add `getImplicitSet*[T](resp: Response, handle: ResponseHandle[CopyResponse[T]], fromArgs): Opt[Result[SetResponse[T], MethodError]]` to `dispatch.nim`. Uses `findInvocationByName` scanning by both call ID and method name. The higher-impact variant (`EmailSubmission/set` implicit `Email/set`) is RFC 8621 scope. Additive — no existing API changes. ~50 lines. |
 | R9 | Layer 4 HTTP response body size cap | Deferred to Layer 4 implementation | Layer 3 `fromJson` functions iterate server arrays/maps without size caps. The correct mitigation is at Layer 4: enforce a configurable `maxResponseBodyBytes` on the HTTP response before `std/json` `parseJson` allocates the `JsonNode` tree. Layer 3 is the pure functional core — it walks already-allocated trees and cannot prevent OOM. A single config parameter on the `JmapClient` object suffices. No Layer 3 changes needed. |
 | R12 | `toJson` borrowing for layered distinct types | Implementation detail | Borrowing works correctly for `MaxChanges = distinct UnsignedInt`, but only 1 type benefits (3 lines saved). Let the implementer decide. |
+| R13 | Session limit pre-flight validation (`validateLimits`) | Deferred to Layer 4 implementation | Pure `func` that checks a built `Request` against server-advertised `CoreCapabilities` limits before transport. Catches requests the server would reject, saving a network round-trip. Signature, scope, and rationale specified in §16 below. |
 
 ### MaxChanges Type (Layer 1 Addition)
 
@@ -2916,6 +2917,146 @@ constructed.
 
 ---
 
+## 16. Session Limit Pre-Flight Validation (Deferred Decision R13)
+
+**Status:** Deferred to Layer 4 implementation.
+
+**RFC reference:** §2 (CoreCapabilities: `maxCallsInRequest`,
+`maxObjectsInGet`, `maxObjectsInSet`, `maxSizeRequest`), §3.6.1
+(request-level `limit` error), §5.1 (lines 1660–1665:
+`requestTooLarge` for /get), §5.3 (lines 2169–2171:
+`requestTooLarge` for /set).
+
+**Motivation.** Without client-side pre-flight validation, a request
+that violates server-advertised limits travels the full HTTP round-trip
+before the server rejects it with `urn:ietf:params:jmap:error:limit`
+(request-level) or `requestTooLarge` (method-level). Pre-flight
+validation catches these at `build()` time, saving the round-trip and
+producing richer error messages (e.g., "request has 15 method calls but
+server advertises maxCallsInRequest = 10").
+
+**Analysis context.** This recommendation was evaluated by five
+independent reviewers (RFC protocol purist, production debuggability
+advocate, API design minimalist, C FFI consumer, security engineer) and
+received unanimous endorsement. Key arguments:
+
+- **RFC compliance:** purely client-side; does not alter wire behaviour.
+  The server already validates these limits — pre-flight validation
+  prevents sending requests the server would reject.
+- **Security:** prevents wasted round-trips; limits a malicious server's
+  ability to induce pathological retry storms via deliberately small
+  advertised limits. Client-side detection makes absurd limits visible
+  and controllable.
+- **FFI value:** projects cleanly to a single C-exported function
+  (`jmap_request_validate(req_handle, session_handle) -> int`), saving
+  C/C++ consumers from expensive network round-trips to discover limit
+  violations.
+- **Purity preserved:** a `func` taking immutable data, returning
+  `Result`. Layer 3 stays pure; the function is *called* from Layer 4.
+
+### 16.1 Function Signature
+
+```nim
+func validateLimits*(req: Request, limits: CoreCapabilities
+): Result[void, ValidationError] =
+  ## Pre-flight validation of a built Request against server-advertised
+  ## CoreCapabilities limits. Returns ok(void) if all checks pass, or
+  ## err(ValidationError) describing the first violation.
+  ##
+  ## This function is pure (func, no I/O, no session state). It is
+  ## called by Layer 4 after build() and before sending the request.
+  ##
+  ## RFC reference: §2 (CoreCapabilities), §3.6.1 (limit error)
+  ...
+```
+
+**Return type rationale.** `Result[void, ValidationError]` rather than
+`Result[Request, ValidationError]` — the function validates, it does
+not transform. Returning the `Request` unchanged adds nothing; the
+caller already has the request.
+
+### 16.2 Validation Rules
+
+| Check | Data source | Feasible in Layer 3? | Notes |
+|-------|-------------|:--------------------:|-------|
+| `len(req.methodCalls) <= maxCallsInRequest` | `Request`, `CoreCapabilities` | Yes | Simple count comparison |
+| Per-`/get` call: direct `ids` count <= `maxObjectsInGet` | `Invocation.arguments` JSON | Partially | Only for `rkDirect` IDs; **skip for `rkReference`** — actual ID count unknown until server resolves the back-reference |
+| Per-`/set` call: create + update + destroy count <= `maxObjectsInSet` | `Invocation.arguments` JSON | Partially | Same caveat: skip `rkReference` destroy. Count create + update map sizes + direct destroy array length |
+| Read-only account prevention | `Account.isReadOnly` from `Session` | **No** | Requires session context — Layer 4 concern |
+| `maxSizeRequest` (body byte length) | Serialised JSON bytes | **No** | Requires full serialisation — Layer 4 concern |
+
+**Result reference caveat.** When `ids` or `destroy` is a
+`Referencable` with `rkReference`, the actual count is unknown until
+the server resolves the back-reference. `validateLimits` skips
+`maxObjectsInGet`/`maxObjectsInSet` checks for referenced arguments and
+documents this limitation.
+
+**Per-invocation inspection.** Checking `maxObjectsInGet` and
+`maxObjectsInSet` requires inspecting the `arguments: JsonNode` field
+of each `Invocation`. The function identifies `/get` calls by method
+name suffix (`"/get"`) and `/set` calls by suffix (`"/set"`). For
+`/get`, it counts the `ids` array length (if present and not a
+reference). For `/set`, it sums the `create` object size, `update`
+object size, and `destroy` array length (if present and not a
+reference).
+
+### 16.3 Scope Exclusions
+
+The following checks are **not** in scope for `validateLimits`:
+
+- **Read-only account prevention.** Requires `Session.accounts` context,
+  which is a Layer 4 concern. Layer 4 should provide a separate check
+  or incorporate it into its own pre-send validation.
+- **`maxSizeRequest`.** Requires the serialised JSON byte length, which
+  is only available after `Request.toJson()` is converted to bytes.
+  This is a Layer 4 concern (post-serialisation validation).
+- **`maxConcurrentRequests` and `maxConcurrentUpload`.** These are
+  transport-level concurrency limits, not per-request structural limits.
+  They are enforced by Layer 4's connection management, not by
+  per-request validation.
+
+### 16.4 Layer 4 Integration
+
+Layer 4 calls `validateLimits` after `build()` and before sending:
+
+```nim
+let req = builder.build()
+let limits = session.coreCapabilities
+let validation = validateLimits(req, limits)
+if validation.isErr:
+  return err(ClientError(kind: cekValidation, validation: validation.error()))
+# proceed to send
+```
+
+The `ClientError` variant for validation failures is a Layer 4 design
+decision (out of scope for this document). The key constraint is that
+`validateLimits` itself remains a pure `func` in Layer 3 with no
+knowledge of sessions, transport, or error lifting.
+
+### 16.5 C ABI Projection (Layer 5)
+
+```c
+int jmap_request_validate(jmap_request_t req, jmap_session_t session);
+/* Returns JMAP_OK (0) or a negative error code.
+ * Error details available via jmap_last_error_message(). */
+```
+
+One new C-exported symbol. Takes two opaque handles that already exist
+in the C ABI surface. Returns an `int` error code. No new opaque types,
+no new memory ownership concerns.
+
+### 16.6 Implementation Timing
+
+Implement alongside Layer 4 transport. The function signature and
+validation rules are stable now (they depend only on `Request` and
+`CoreCapabilities`, both Layer 1 types). The implementation is a
+handful of comparisons — estimated ~40–60 lines including doc comments.
+
+**Module:** `builder.nim` (alongside `build()`) or `dispatch.nim`
+(alongside response validation). Placement deferred to implementation.
+
+---
+
 ## Appendix: RFC Section Cross-Reference
 
 **Note on RFC line ranges.** Section headers (§6.x, §7.x) cite the
@@ -2945,3 +3086,4 @@ behavioural semantics from the same RFC subsection.
 | Call ID generation | §3.2 (lines 865–881) | `"c0"`, `"c1"`, ... |
 | Result reference paths | §3.7 (lines 1220–1493) | JSON Pointer strings |
 | SetResponse merging | §5.3 (lines 2009–2082) | Wire: parallel maps; Internal: Result maps |
+| `validateLimits` | §2 (CoreCapabilities), §3.6.1 (limit error) | N/A (client-side pre-flight) |
