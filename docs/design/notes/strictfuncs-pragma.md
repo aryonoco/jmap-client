@@ -1,5 +1,7 @@
 # strictFuncs Pragmatism Note
 
+A note on if you run into issues in future with this combination of compiler settings:
+
 `{.push raises: [].}` is the high-value constraint. It guarantees total functions,
 forces Result types, and prevents exceptions from leaking across the C ABI.
 Keep it everywhere, unconditionally.
