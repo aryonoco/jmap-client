@@ -242,7 +242,7 @@ watch-test:
 ref_dir := ".nim-reference"
 
 # Fetch all reference sources
-fetch-refs: fetch-nim-ref
+fetch-refs: fetch-nim-ref fetch-jmap-refs
 
 # Fetch Nim source (stdlib, compiler, docs) for read-only reference
 fetch-nim-ref:
@@ -275,13 +275,64 @@ fetch-nim-ref:
     echo "Nim reference source ready at ${dest}/"
 
 # Remove all fetched reference sources
-clean-refs:
+clean-refs: clean-jmap-refs
     #!/usr/bin/env bash
     set -euo pipefail
     readonly dest="{{ref_dir}}"
     if [[ -d "${dest}" ]]; then
         rm -rf "${dest}"
         echo "Reference sources removed"
+    else
+        echo "Nothing to remove"
+    fi
+
+# Fetch or update JMAP client reference implementations for study
+fetch-jmap-refs:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    shopt -s inherit_errexit
+
+    readonly dest="${HOME}/jmap-clients"
+    mkdir -p "${dest}"
+
+    declare -A repos=(
+        [stalwartlabs-jmap-client]="https://github.com/stalwartlabs/jmap-client.git"
+        [rockorager-go-jmap]="https://github.com/rockorager/go-jmap.git"
+        [lachlanhunt-jmap-kit]="https://github.com/lachlanhunt/jmap-kit.git"
+        [iNPUTmice-jmap]="https://codeberg.org/iNPUTmice/jmap.git"
+        [linagora-jmap-dart-client]="https://github.com/linagora/jmap-dart-client.git"
+        [htunnicliff-jmap-jam]="https://github.com/htunnicliff/jmap-jam.git"
+        [meli-meli]="https://github.com/meli/meli.git"
+        [bulwarkmail-webmail]="https://github.com/bulwarkmail/webmail.git"
+        [smkent-jmapc]="https://github.com/smkent/jmapc.git"
+        [fastmail-JMAP-Tester]="https://github.com/fastmail/JMAP-Tester.git"
+    )
+
+    for dirname in "${!repos[@]}"; do
+        if [[ -d "${dest}/${dirname}/.git" ]]; then
+            echo "  Updating ${dirname}..."
+            if ! git -C "${dest}/${dirname}" pull --ff-only 2>/dev/null; then
+                echo "    (pull failed — re-cloning)"
+                rm -rf "${dest}/${dirname}"
+                git clone --depth=1 -- "${repos[${dirname}]}" "${dest}/${dirname}"
+            fi
+        else
+            echo "  Cloning ${dirname}..."
+            rm -rf "${dest}/${dirname}"
+            git clone --depth=1 -- "${repos[${dirname}]}" "${dest}/${dirname}"
+        fi
+    done
+
+    echo "JMAP client references ready at ${dest}/"
+
+# Remove fetched JMAP client references
+clean-jmap-refs:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    readonly dest="${HOME}/jmap-clients"
+    if [[ -d "${dest}" ]]; then
+        rm -rf "${dest}"
+        echo "JMAP client references removed"
     else
         echo "Nothing to remove"
     fi
