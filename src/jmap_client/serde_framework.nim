@@ -58,20 +58,20 @@ func parseComparatorCore(
   ## interaction: Comparator contains PropertyName {.requiresInit.}, so
   ## err()/? on Result[Comparator, ValidationError] fails to compile.
   checkJsonKind(node, JObject, typeName)
-  checkJsonKind(node{"property"}, JString, typeName, "missing or invalid property")
-  let property = ?parsePropertyName(node{"property"}.getStr(""))
-  let isAscending =
-    if node{"isAscending"}.isNil:
-      true # RFC default
-    elif node{"isAscending"}.kind == JBool:
-      node{"isAscending"}.getBool(true)
-    else:
+  let propNode = node{"property"}
+  checkJsonKind(propNode, JString, typeName, "missing or invalid property")
+  let property = ?parsePropertyName(propNode.getStr(""))
+  let ascNode = node{"isAscending"}
+  var isAscending = true # RFC default when absent
+  if not ascNode.isNil:
+    if ascNode.kind != JBool:
       return err(parseError(typeName, "isAscending must be boolean"))
-  let collation: Opt[string] =
-    if node{"collation"}.isNil or node{"collation"}.kind != JString:
-      Opt.none(string)
-    else:
-      Opt.some(node{"collation"}.getStr(""))
+    isAscending = ascNode.getBool(true)
+  let collNode = node{"collation"}
+  var collation: Opt[string] = Opt.none(string)
+  if not collNode.isNil:
+    if collNode.kind == JString:
+      collation = Opt.some(collNode.getStr(""))
   ok((property, isAscending, collation))
 
 func fromJson*(

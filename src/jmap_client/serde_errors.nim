@@ -22,7 +22,9 @@ import ./types
 func optString(node: JsonNode, key: string): Opt[string] =
   ## Extract an optional string field leniently: absent or wrong kind -> none.
   let child = node{key}
-  if child.isNil or child.kind != JString:
+  if child.isNil:
+    Opt.none(string)
+  elif child.kind != JString:
     Opt.none(string)
   else:
     Opt.some(child.getStr(""))
@@ -30,7 +32,9 @@ func optString(node: JsonNode, key: string): Opt[string] =
 func optInt(node: JsonNode, key: string): Opt[int] =
   ## Extract an optional integer field leniently: absent or wrong kind -> none.
   let child = node{key}
-  if child.isNil or child.kind != JInt:
+  if child.isNil:
+    Opt.none(int)
+  elif child.kind != JInt:
     Opt.none(int)
   else:
     Opt.some(int(child.getBiggestInt(0)))

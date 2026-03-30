@@ -23,16 +23,19 @@ template checkJsonKind*(
 ) =
   ## Validates JsonNodeKind before extraction. Returns err on mismatch.
   ## The ``return`` exits the calling function (template inlines at call site).
-  if node.isNil or node.kind != expected:
-    return err(
-      parseError(
-        typeName,
-        if message.len > 0:
-          message
-        else:
-          "expected JSON " & $expected,
-      )
-    )
+  ## Uses ``if``/``elif`` (not ``or``) so strictNotNil narrows node to non-nil
+  ## in the ``elif`` and after the template — ``or`` prevents narrowing.
+  ## The error message is pre-computed to avoid duplicating the conditional
+  ## across branches. The ``let`` is auto-gensym'd by template hygiene.
+  let checkMsg =
+    if message.len > 0:
+      message
+    else:
+      "expected JSON " & $expected
+  if node.isNil:
+    return err(parseError(typeName, checkMsg))
+  elif node.kind != expected:
+    return err(parseError(typeName, checkMsg))
 
 func initResultErr*[T, E](x: E): Result[T, E] =
   ## Construct Result[T, E] in error state without literal case-object

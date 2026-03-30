@@ -32,11 +32,13 @@ func fromJson*(
   if node.len != 3:
     return err(parseError($T, "expected exactly 3 elements"))
   let elems = node.getElems(@[])
-  checkJsonKind(elems[0], JString, $T, "method name must be string")
-  let name = elems[0].getStr("")
+  let nameNode = elems[0]
+  checkJsonKind(nameNode, JString, $T, "method name must be string")
+  let name = nameNode.getStr("")
   let arguments = elems[1]
-  checkJsonKind(elems[2], JString, $T, "method call ID must be string")
-  let callIdRaw = elems[2].getStr("")
+  let callIdNode = elems[2]
+  checkJsonKind(callIdNode, JString, $T, "method call ID must be string")
+  let callIdRaw = callIdNode.getStr("")
   checkJsonKind(arguments, JObject, $T, "arguments must be JSON object")
   if name.len == 0:
     return err(parseError($T, "method name must not be empty"))
@@ -55,8 +57,10 @@ func parseCreatedIds(
   ## Parse optional createdIds from a Request or Response JSON object.
   ## Container-strict: wrong container kind returns err (design doc section 9).
   let cnode = node{"createdIds"}
-  if cnode.isNil or cnode.kind == JNull:
-    return ok(Opt.none(Table[CreationId, Id]))
+  if cnode.isNil:
+    return ok(default(Opt[Table[CreationId, Id]]))
+  if cnode.kind == JNull:
+    return ok(default(Opt[Table[CreationId, Id]]))
   if cnode.kind != JObject:
     return err(parseError(typeName, "createdIds must be object or null"))
   var tbl = initTable[CreationId, Id]()
@@ -77,7 +81,7 @@ func toJson*(r: Request): JsonNode =
     result = newJObject()
     result["using"] = %r.`using`
     var calls = newJArray()
-    for inv in r.methodCalls:
+    for _, inv in r.methodCalls:
       calls.add(inv.toJson())
     result["methodCalls"] = calls
     if r.createdIds.isSome:
@@ -92,13 +96,13 @@ func fromJson*(T: typedesc[Request], node: JsonNode): Result[Request, Validation
   let usingNode = node{"using"}
   checkJsonKind(usingNode, JArray, $T, "missing or invalid using")
   var usingSeq: seq[string]
-  for elem in usingNode.getElems(@[]):
+  for _, elem in usingNode.getElems(@[]):
     checkJsonKind(elem, JString, $T, "using element must be string")
     usingSeq.add(elem.getStr(""))
   let callsNode = node{"methodCalls"}
   checkJsonKind(callsNode, JArray, $T, "missing or invalid methodCalls")
   var methodCalls: seq[Invocation]
-  for callNode in callsNode.getElems(@[]):
+  for _, callNode in callsNode.getElems(@[]):
     let inv = ?Invocation.fromJson(callNode)
     methodCalls.add(inv)
   let createdIds = ?parseCreatedIds(node, $T)
@@ -113,7 +117,7 @@ func toJson*(r: Response): JsonNode =
   {.cast(noSideEffect).}:
     result = newJObject()
     var responses = newJArray()
-    for inv in r.methodResponses:
+    for _, inv in r.methodResponses:
       responses.add(inv.toJson())
     result["methodResponses"] = responses
     result["sessionState"] = %string(r.sessionState)
@@ -132,14 +136,15 @@ func parseResponseCore(
   checkJsonKind(node, JObject, "Response")
   let responsesNode = node{"methodResponses"}
   checkJsonKind(responsesNode, JArray, "Response", "missing or invalid methodResponses")
-  var methodResponses: seq[Invocation]
-  for respNode in responsesNode.getElems(@[]):
+  var methodResponses: seq[Invocation] = @[]
+  for _, respNode in responsesNode.getElems(@[]):
     let inv = ?Invocation.fromJson(respNode)
     methodResponses.add(inv)
+  let sessionStateNode = node{"sessionState"}
   checkJsonKind(
-    node{"sessionState"}, JString, "Response", "missing or invalid sessionState"
+    sessionStateNode, JString, "Response", "missing or invalid sessionState"
   )
-  let sessionState = ?parseJmapState(node{"sessionState"}.getStr(""))
+  let sessionState = ?parseJmapState(sessionStateNode.getStr(""))
   ok((methodResponses, sessionState))
 
 func fromJson*(
@@ -174,12 +179,15 @@ func fromJson*(
 ): Result[ResultReference, ValidationError] =
   ## Deserialise JSON to ResultReference (RFC 8620 section 3.7).
   checkJsonKind(node, JObject, $T)
-  checkJsonKind(node{"resultOf"}, JString, $T, "missing or invalid resultOf")
-  let resultOfRaw = node{"resultOf"}.getStr("")
-  checkJsonKind(node{"name"}, JString, $T, "missing or invalid name")
-  let name = node{"name"}.getStr("")
-  checkJsonKind(node{"path"}, JString, $T, "missing or invalid path")
-  let path = node{"path"}.getStr("")
+  let resultOfNode = node{"resultOf"}
+  checkJsonKind(resultOfNode, JString, $T, "missing or invalid resultOf")
+  let resultOfRaw = resultOfNode.getStr("")
+  let nameNode = node{"name"}
+  checkJsonKind(nameNode, JString, $T, "missing or invalid name")
+  let name = nameNode.getStr("")
+  let pathNode = node{"path"}
+  checkJsonKind(pathNode, JString, $T, "missing or invalid path")
+  let path = pathNode.getStr("")
   if name.len == 0:
     return err(parseError($T, "name must not be empty"))
   if path.len == 0:

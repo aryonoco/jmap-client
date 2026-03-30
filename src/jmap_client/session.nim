@@ -8,7 +8,6 @@
 ## accounts, URI templates, and the Session aggregate with structural validation.
 
 import std/hashes
-import std/sequtils
 import std/strutils
 import std/tables
 from std/json import JsonNode
@@ -58,7 +57,7 @@ func findCapability*(
     account: Account, kind: CapabilityKind
 ): Opt[AccountCapabilityEntry] =
   ## Finds the first account capability matching the given kind.
-  for entry in account.accountCapabilities:
+  for _, entry in account.accountCapabilities:
     if entry.kind == kind:
       return ok(entry)
   err()
@@ -67,14 +66,22 @@ func findCapabilityByUri*(account: Account, uri: string): Opt[AccountCapabilityE
   ## Looks up an account capability by its raw URI string. Use this instead of
   ## findCapability when looking up vendor extensions (which all map to ckUnknown
   ## and would be ambiguous via findCapability).
-  for entry in account.accountCapabilities:
+  for _, entry in account.accountCapabilities:
     if entry.rawUri == uri:
       return ok(entry)
   err()
 
 func hasCapability*(account: Account, kind: CapabilityKind): bool =
   ## Checks whether the account has a capability of the given kind.
-  account.accountCapabilities.anyIt(it.kind == kind)
+  account.findCapability(kind).isSome
+
+func hasKind(caps: openArray[ServerCapability], kind: CapabilityKind): bool =
+  ## Checks whether any capability matches the given kind. Used by parseSession
+  ## before a Session object exists (so Session.findCapability is unavailable).
+  for _, cap in caps:
+    if cap.kind == kind:
+      return true
+  false
 
 func parseUriTemplate*(raw: string): Result[UriTemplate, ValidationError] =
   ## Non-empty validation. No RFC 6570 parsing -- template expansion is Layer 4.
@@ -105,7 +112,7 @@ func parseSession*(
   ## 4. uploadUrl contains {accountId} (RFC section 2)
   ## 5. eventSourceUrl contains {types}, {closeafter}, {ping} (RFC section 2)
   ## Deliberately omits cross-reference validation (Decision D7).
-  if not capabilities.anyIt(it.kind == ckCore):
+  if not capabilities.hasKind(ckCore):
     return err(
       validationError(
         "Session", "capabilities must include urn:ietf:params:jmap:core", ""
@@ -142,7 +149,7 @@ func parseSession*(
     eventSourceUrl: eventSourceUrl,
     state: state,
   )
-  doAssert session.capabilities.anyIt(it.kind == ckCore)
+  doAssert session.capabilities.hasKind(ckCore)
   doAssert session.apiUrl.len > 0
   ok(session)
 
@@ -150,7 +157,7 @@ func coreCapabilities*(session: Session): CoreCapabilities =
   ## Returns the core capabilities. Total function (no Result) because
   ## parseSession guarantees ckCore is present. Raises AssertionDefect if
   ## the invariant is violated by direct construction.
-  for cap in session.capabilities:
+  for _, cap in session.capabilities:
     case cap.kind
     of ckCore:
       return cap.core
@@ -160,7 +167,7 @@ func coreCapabilities*(session: Session): CoreCapabilities =
 
 func findCapability*(session: Session, kind: CapabilityKind): Opt[ServerCapability] =
   ## Finds the first server capability matching the given kind.
-  for cap in session.capabilities:
+  for _, cap in session.capabilities:
     if cap.kind == kind:
       return ok(cap)
   err()
@@ -169,7 +176,7 @@ func findCapabilityByUri*(session: Session, uri: string): Opt[ServerCapability] 
   ## Looks up a server capability by its raw URI string. Use this instead of
   ## findCapability when looking up vendor extensions (which all map to ckUnknown
   ## and would be ambiguous via findCapability).
-  for cap in session.capabilities:
+  for _, cap in session.capabilities:
     if cap.rawUri == uri:
       return ok(cap)
   err()
