@@ -5,6 +5,7 @@
 
 ## Property-based tests for error type parsers and constructors.
 
+import std/json
 import std/random
 
 import results
@@ -12,6 +13,7 @@ import results
 import jmap_client/primitives
 import jmap_client/capabilities
 import jmap_client/errors
+import jmap_client/serde_errors
 import ../mproperty
 
 block propParseCapabilityKindTotality:
@@ -271,3 +273,52 @@ block propGenClientErrorFieldPreservation:
     lastInput = ce.message
     doAssert ce.message.len > 0
     doAssert (ce.kind == cekTransport) != (ce.kind == cekRequest)
+
+# =============================================================================
+# Phase 4B: Extras preservation through round-trip
+# =============================================================================
+
+block propRequestErrorExtrasPreservation:
+  ## Extras survive fromJson(toJson(err)) round-trip for RequestError.
+  checkPropertyN "RequestError extras preserved through round-trip", ThoroughTrials:
+    let re = genRequestError(rng)
+    lastInput = re.rawType
+    let j = re.toJson()
+    let rt = RequestError.fromJson(j)
+    doAssert rt.isOk, "RequestError round-trip failed"
+    # If original had extras, verify they survived.
+    if re.extras.isSome:
+      doAssert rt.get().extras.isSome, "extras lost in round-trip"
+      for key, val in re.extras.get().pairs:
+        doAssert rt.get().extras.get().hasKey(key),
+          "extras key '" & key & "' lost in round-trip"
+    # If limit was set, verify it survived.
+    doAssert rt.get().limit == re.limit, "limit field not preserved"
+
+block propMethodErrorExtrasPreservation:
+  ## Extras survive fromJson(toJson(err)) round-trip for MethodError.
+  checkPropertyN "MethodError extras preserved through round-trip", ThoroughTrials:
+    let me = genMethodError(rng)
+    lastInput = me.rawType
+    let j = me.toJson()
+    let rt = MethodError.fromJson(j)
+    doAssert rt.isOk, "MethodError round-trip failed"
+    if me.extras.isSome:
+      doAssert rt.get().extras.isSome, "extras lost in round-trip"
+      for key, val in me.extras.get().pairs:
+        doAssert rt.get().extras.get().hasKey(key),
+          "extras key '" & key & "' lost in round-trip"
+
+block propSetErrorExtrasPreservation:
+  ## Extras survive fromJson(toJson(err)) round-trip for SetError.
+  checkPropertyN "SetError extras preserved through round-trip", ThoroughTrials:
+    let se = genSetError(rng)
+    lastInput = se.rawType
+    let j = se.toJson()
+    let rt = SetError.fromJson(j)
+    doAssert rt.isOk, "SetError round-trip failed"
+    if se.extras.isSome:
+      doAssert rt.get().extras.isSome, "extras lost in round-trip"
+      for key, val in se.extras.get().pairs:
+        doAssert rt.get().extras.get().hasKey(key),
+          "extras key '" & key & "' lost in round-trip"

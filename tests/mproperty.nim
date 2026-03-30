@@ -86,6 +86,55 @@ template checkPropertyN*(name: string, trials: int, body: untyped) =
 {.pop.} # trystatements
 
 # ---------------------------------------------------------------------------
+# Parameterised property templates (Phase 4E)
+# ---------------------------------------------------------------------------
+
+{.push ruleOff: "trystatements".}
+
+template checkJsonRoundTrip*(
+    name: string, trials: int, gen: untyped, eq: untyped, toJ: untyped, fromJ: untyped
+) =
+  ## Generic JSON round-trip property: fromJson(toJson(x)) == x.
+  ## `gen` generates a value, `eq` compares two values, `toJ` serialises,
+  ## `fromJ` deserialises. All four are called with the generated value or
+  ## its serialised form.
+  block:
+    var rng {.inject.} = initRand(42)
+    var lastInput {.inject.}: string = ""
+    for trial {.inject.} in 0 ..< trials:
+      try:
+        let x = gen
+        let j = toJ(x)
+        let rt = fromJ(j)
+        doAssert rt.isOk, name & ": round-trip parse failed"
+        doAssert eq(rt.get(), x), name & ": round-trip identity violated"
+      except AssertionDefect as e:
+        let ctx =
+          name & " failed at trial " & $trial &
+          (if lastInput.len > 0: " (input: " & lastInput & ")" else: "") & ": " & e.msg
+        raiseAssert ctx
+
+template checkStability*(name: string, trials: int, gen: untyped, toJ: untyped) =
+  ## Generic stability property: toJson(x) == toJson(x).
+  ## Verifies that serialisation is deterministic (no hash-order jitter).
+  block:
+    var rng {.inject.} = initRand(42)
+    var lastInput {.inject.}: string = ""
+    for trial {.inject.} in 0 ..< trials:
+      try:
+        let x = gen
+        let j1 = toJ(x)
+        let j2 = toJ(x)
+        doAssert j1 == j2, name & ": toJson is not stable"
+      except AssertionDefect as e:
+        let ctx =
+          name & " failed at trial " & $trial &
+          (if lastInput.len > 0: " (input: " & lastInput & ")" else: "") & ": " & e.msg
+        raiseAssert ctx
+
+{.pop.} # trystatements
+
+# ---------------------------------------------------------------------------
 # Composition helpers
 # ---------------------------------------------------------------------------
 
@@ -558,7 +607,8 @@ proc genTransportError*(rng: var Rand): TransportError =
 proc genRequestError*(rng: var Rand): RequestError =
   ## Generates a random RequestError with randomised optional fields.
   ## rawType from RFC-standard URIs plus a custom vendor error. Optional status
-  ## (400/403/500), title, detail, and extras fields each have ~50% chance of being present.
+  ## (400/403/500), title, detail, limit, and extras fields each have ~50%
+  ## chance of being present. Title and detail strings are diversified.
   ## Does NOT generate: non-standard status codes, deeply nested extras.
   const rawTypes = [
     "urn:ietf:params:jmap:error:unknownCapability",
@@ -568,17 +618,33 @@ proc genRequestError*(rng: var Rand): RequestError =
   let raw = rng.oneOf(rawTypes)
   let status =
     if rng.rand(0 .. 1) == 0:
-      Opt.some(rng.oneOf([400, 403, 500]))
+      Opt.some(rng.oneOf([400, 403, 404, 500, 503]))
     else:
       Opt.none(int)
+  const titles =
+    ["Error Title", "Bad Request", "Forbidden", "Rate Limited", "Capability Missing"]
   let title =
     if rng.rand(0 .. 1) == 0:
-      Opt.some("Error Title")
+      Opt.some(rng.oneOf(titles) & "-" & $rng.rand(0 .. 99))
     else:
       Opt.none(string)
+  const details = [
+    "Detailed description", "The request body is not valid JSON",
+    "Unknown capability requested", "Too many concurrent requests",
+    "Malformed method call arguments",
+  ]
   let detail =
     if rng.rand(0 .. 1) == 0:
-      Opt.some("Detailed description")
+      Opt.some(rng.oneOf(details) & " #" & $rng.rand(0 .. 99))
+    else:
+      Opt.none(string)
+  const limits = [
+    "maxSizeUpload", "maxConcurrentUpload", "maxSizeRequest", "maxConcurrentRequests",
+    "maxCallsInRequest",
+  ]
+  let limit =
+    if rng.rand(0 .. 1) == 0:
+      Opt.some(rng.oneOf(limits))
     else:
       Opt.none(string)
   let extras =
@@ -588,7 +654,7 @@ proc genRequestError*(rng: var Rand): RequestError =
       Opt.some(node)
     else:
       Opt.none(JsonNode)
-  requestError(raw, status, title, detail, extras = extras)
+  requestError(raw, status, title, detail, limit, extras)
 
 proc genMethodError*(rng: var Rand): MethodError =
   ## Generates a random MethodError with randomised optional description and extras.
@@ -695,12 +761,33 @@ proc genCoreCapabilities*(rng: var Rand): CoreCapabilities =
     collationAlgorithms: collations,
   )
 
+proc genVendorCapabilityJson*(rng: var Rand): JsonNode =
+  ## Generates a realistic vendor capability JSON object with 2-5 fields.
+  ## Field types: integers, booleans, and strings drawn from plausible names.
+  ## Does NOT generate: deeply nested objects, arrays.
+  result = newJObject()
+  let fieldCount = rng.rand(2 .. 5)
+  const fieldNames = [
+    "maxFoosFinangled", "enabled", "version", "supportedFeatures", "maxBatchSize",
+    "defaultTimeout", "allowHtml", "debugMode",
+  ]
+  for i in 0 ..< fieldCount:
+    let name = fieldNames[min(i, fieldNames.high)]
+    let kind = rng.rand(0 .. 2)
+    case kind
+    of 0:
+      result[name] = newJInt(rng.rand(1'i64 .. 10000'i64))
+    of 1:
+      result[name] = newJBool(rng.rand(0 .. 1) == 0)
+    else:
+      result[name] = newJString("val-" & $rng.rand(0 .. 99))
+
 proc genServerCapability*(rng: var Rand): ServerCapability =
   ## Generates a random ServerCapability: 25% chance of ckCore (with random
   ## CoreCapabilities), 75% chance of a non-core variant from all 12
   ## IANA-registered capability kinds plus a vendor extension.
-  ## Non-core variants get an empty JObject as rawData.
-  ## Does NOT generate: non-core variants with populated rawData.
+  ## Non-core variants get realistic vendor capability JSON (2-5 fields).
+  ## Does NOT generate: nil rawData for non-core variants.
   if rng.rand(0 .. 3) == 0:
     ServerCapability(
       rawUri: "urn:ietf:params:jmap:core", kind: ckCore, core: rng.genCoreCapabilities()
@@ -715,7 +802,8 @@ proc genServerCapability*(rng: var Rand): ServerCapability =
       "urn:ietf:params:jmap:sieve", "https://vendor.example.com/ext",
     ]
     let uri = rng.oneOf(uris)
-    ServerCapability(rawUri: uri, kind: parseCapabilityKind(uri), rawData: newJObject())
+    let data = rng.genVendorCapabilityJson()
+    ServerCapability(rawUri: uri, kind: parseCapabilityKind(uri), rawData: data)
 
 proc genComparator*(rng: var Rand): Comparator =
   ## Generates a random Comparator with a random printable PropertyName,
@@ -740,14 +828,18 @@ proc genAddedItem*(rng: var Rand): AddedItem =
 
 proc genPatchObject*(rng: var Rand, maxKeys: int): PatchObject =
   ## Generates a random PatchObject with 0..maxKeys entries using realistic
-  ## path strings. All values are empty JObjects (set operations, not deletes).
-  ## Does NOT generate: delete operations (null values), very long path strings.
+  ## path strings. ~30% of entries are deleteProp (null values); the rest
+  ## are setProp with empty JObject values.
+  ## Does NOT generate: very long path strings, deeply nested JSON values.
   let count = rng.rand(0 .. maxKeys)
   var p = emptyPatch()
   for i in 0 ..< count:
     let path = rng.genPatchPath()
-    let val = newJObject()
-    p = p.setProp(path, val).get()
+    if rng.rand(0 .. 9) < 3: # ~30% probability of delete
+      p = p.deleteProp(path).get()
+    else:
+      let val = newJObject()
+      p = p.setProp(path, val).get()
   p
 
 proc genValidUriTemplateParametric*(rng: var Rand): string =
