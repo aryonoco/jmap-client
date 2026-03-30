@@ -220,3 +220,32 @@ block propSessionWithRandomAccounts:
     let session = parseSessionFromArgs(args).get()
     for acctId in args.accounts.keys:
       doAssert findAccount(session, acctId).isSome
+
+# --- Session structural invariants (property-based) ---
+
+block propSessionUrlVariablesPresent:
+  checkPropertyN "generated Session URLs contain required variables", ThoroughTrials:
+    let session = genSession(rng)
+    ## downloadUrl must contain {accountId}, {blobId}, {name}, {type}.
+    doAssert session.downloadUrl.hasVariable("accountId"),
+      "downloadUrl missing {accountId}"
+    doAssert session.downloadUrl.hasVariable("blobId"), "downloadUrl missing {blobId}"
+    doAssert session.downloadUrl.hasVariable("name"), "downloadUrl missing {name}"
+    doAssert session.downloadUrl.hasVariable("type"), "downloadUrl missing {type}"
+    ## uploadUrl must contain {accountId}.
+    doAssert session.uploadUrl.hasVariable("accountId"), "uploadUrl missing {accountId}"
+    ## eventSourceUrl must contain {types}, {closeafter}, {ping}.
+    doAssert session.eventSourceUrl.hasVariable("types"),
+      "eventSourceUrl missing {types}"
+    doAssert session.eventSourceUrl.hasVariable("closeafter"),
+      "eventSourceUrl missing {closeafter}"
+    doAssert session.eventSourceUrl.hasVariable("ping"), "eventSourceUrl missing {ping}"
+
+block propSessionPrimaryAccountsConsistency:
+  checkPropertyN "primaryAccounts reference valid AccountIds in accounts",
+    ThoroughTrials:
+    let session = genSession(rng)
+    ## Every value in primaryAccounts must be a key in accounts.
+    for uri, acctId in session.primaryAccounts:
+      doAssert session.accounts.hasKey(acctId),
+        "primaryAccounts references unknown AccountId: " & string(acctId)

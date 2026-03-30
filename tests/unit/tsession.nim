@@ -20,7 +20,9 @@ import jmap_client/session
 import ../massertions
 import ../mfixtures
 
-# Shared fixture values used across multiple test blocks.
+# =============================================================================
+# Shared fixture values
+# =============================================================================
 
 let zero = parseUnsignedInt(0).get()
 
@@ -145,7 +147,9 @@ let goldenSession = parseSession(
   )
   .get()
 
-# --- UriTemplate ---
+# =============================================================================
+# A. UriTemplate tests
+# =============================================================================
 
 block parseUriTemplateEmpty:
   assertErrFields parseUriTemplate(""), "UriTemplate", "must not be empty", ""
@@ -177,7 +181,9 @@ block hasVariablePartialMatch:
   let tmpl = parseUriTemplate("https://example.com/{accountId}").get()
   doAssert not tmpl.hasVariable("account")
 
-# --- Account helpers ---
+# =============================================================================
+# B. Account helper tests
+# =============================================================================
 
 block accountFindCapabilityByKind:
   let result = findCapability(testAccount, ckMail)
@@ -204,7 +210,9 @@ block accountHasCapability:
   doAssert hasCapability(testAccount, ckMail)
   doAssert not hasCapability(testAccount, ckBlob)
 
-# --- parseSession validation ---
+# =============================================================================
+# C. parseSession validation
+# =============================================================================
 
 block parseSessionMissingCkCore:
   let noCoreResult = parseSession(
@@ -351,7 +359,9 @@ block parseSessionValid:
   doAssert s.capabilities.len == 5
   doAssert s.accounts.len == 2
 
-# --- Session accessor helpers ---
+# =============================================================================
+# D. Session accessor helpers
+# =============================================================================
 
 block coreCapabilitiesAccess:
   let core = coreCapabilities(goldenSession)
@@ -397,7 +407,9 @@ block findAccountKnown:
 block findAccountUnknown:
   doAssert findAccount(goldenSession, AccountId("nonexistent")).isErr
 
-# --- Invariant violation ---
+# =============================================================================
+# E. Invariant violation
+# =============================================================================
 
 block coreCapabilitiesInvariantViolation:
   doAssertRaises(AssertionDefect):
@@ -414,7 +426,9 @@ block coreCapabilitiesInvariantViolation:
     )
     discard coreCapabilities(badSession)
 
-# --- Error content assertions ---
+# =============================================================================
+# F. Error content assertions
+# =============================================================================
 
 block parseSessionErrorContentMissingCkCore:
   let result = parseSession(
@@ -498,7 +512,9 @@ block parseSessionErrorContentEventSourceMissing:
   )
   assertErrMsg result, "eventSourceUrl missing {types}"
 
-# --- Adversarial edge cases ---
+# =============================================================================
+# G. Adversarial edge cases
+# =============================================================================
 
 block parseSessionDuplicateCkCore:
   let caps = @[makeCoreServerCap(), makeCoreServerCap()]
@@ -532,7 +548,9 @@ block parseSessionNestedBraces:
   )
   doAssert result.isOk
 
-# --- Missing session validations ---
+# =============================================================================
+# H. Missing session URL variable validations
+# =============================================================================
 
 block parseSessionDownloadUrlMissingType:
   let badDl = parseUriTemplate("https://e.com/{accountId}/{blobId}/{name}").get()
@@ -617,7 +635,9 @@ block parseSessionEmptyPrimaryAccounts:
   )
   doAssert result.isOk
 
-# --- Additional edge cases ---
+# =============================================================================
+# I. Additional edge cases
+# =============================================================================
 
 block parseSessionWhitespaceOnlyApiUrl:
   ## Whitespace-only apiUrl passes the non-empty check. Documented as accepted
@@ -647,7 +667,9 @@ block hasVariableSuffixOfLongerName:
   let tmpl = parseUriTemplate("https://e.com/{fullAccountId}").get()
   doAssert not hasVariable(tmpl, "accountId")
 
-# --- Phase 4: Session template variable mutation resistance ---
+# =============================================================================
+# J. Session template variable mutation resistance
+# =============================================================================
 
 block parseSessionExtraDownloadVariables:
   ## RFC 6570 allows extra variables beyond the required set.
@@ -685,7 +707,9 @@ block parseSessionEmptyAccountsValid:
   let res = parseSessionFromArgs(args)
   assertOk res
 
-# --- Phase 2: Session accessor zero-coverage gaps ---
+# =============================================================================
+# K. Session accessor zero-coverage gaps
+# =============================================================================
 
 block coreCapabilitiesReturnsCoreCaps:
   ## coreCapabilities returns the CoreCapabilities from a valid session.
@@ -756,7 +780,9 @@ block findAccountNotFound:
   ## findAccount returns err for an unknown AccountId.
   assertNone findAccount(goldenSession, AccountId("ZZZZZZ"))
 
-# --- Phase 2: Account accessor zero-coverage gaps ---
+# =============================================================================
+# L. Account accessor zero-coverage gaps
+# =============================================================================
 
 block accountFindCapabilityByKindFoundMail:
   ## findCapability(account, ckMail) returns the mail capability.
@@ -800,7 +826,9 @@ block accountHasCapabilityCkUnknown:
   ## hasCapability returns true for ckUnknown when vendor extensions exist.
   doAssert hasCapability(testAccount, ckUnknown)
 
-# --- Phase 2: UriTemplate and hasVariable zero-coverage gaps ---
+# =============================================================================
+# M. UriTemplate and hasVariable zero-coverage gaps
+# =============================================================================
 
 block parseUriTemplateEmptyRejected:
   ## parseUriTemplate rejects empty strings.

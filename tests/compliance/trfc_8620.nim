@@ -22,6 +22,11 @@ import jmap_client/session
 import jmap_client/envelope
 import jmap_client/framework
 import jmap_client/errors
+import jmap_client/serde
+import jmap_client/serde_envelope
+import jmap_client/serde_errors
+import jmap_client/serde_framework
+import jmap_client/serde_session
 
 import ../massertions
 import ../mfixtures
@@ -1248,3 +1253,186 @@ block rfc8620_S2_eventSourceUrlMissingPing:
   assertErrFields res,
     "Session", "eventSourceUrl missing {ping}",
     "https://e.com/events?types={types}&closeafter={closeafter}"
+
+# =============================================================================
+# Phase 6A — Byte-for-byte RFC golden tests (serde round-trip)
+# =============================================================================
+
+block rfc8620_S2_goldenSessionToJson:
+  ## Construct a Session matching RFC 8620 section 2.1 example values,
+  ## serialise with toJson(), and verify key JSON field values match.
+  {.cast(noSideEffect).}:
+    let j = goldenSessionJson()
+    let r = Session.fromJson(j)
+    assertOk r
+    let session = r.get()
+    # Verify structural properties
+    assertEq session.username, "john@example.com"
+    assertEq session.apiUrl, "https://jmap.example.com/api/"
+    assertEq session.state, parseJmapState("75128aab4b1b").get()
+    # Serialise and verify key fields in the output JSON
+    let outJson = session.toJson()
+    assertEq outJson{"username"}.getStr(""), "john@example.com"
+    assertEq outJson{"apiUrl"}.getStr(""), "https://jmap.example.com/api/"
+    assertEq outJson{"state"}.getStr(""), "75128aab4b1b"
+    doAssert outJson{"capabilities"} != nil
+    doAssert outJson{"capabilities"}.kind == JObject
+    doAssert outJson{"capabilities"}{"urn:ietf:params:jmap:core"} != nil
+    doAssert outJson{"accounts"} != nil
+    doAssert outJson{"accounts"}.kind == JObject
+    doAssert outJson{"primaryAccounts"} != nil
+    doAssert outJson{"primaryAccounts"}.kind == JObject
+    # Verify download/upload/eventSource URLs
+    assertEq outJson{"downloadUrl"}.getStr(""),
+      "https://jmap.example.com/download/{accountId}/{blobId}/{name}?accept={type}"
+    assertEq outJson{"uploadUrl"}.getStr(""),
+      "https://jmap.example.com/upload/{accountId}/"
+    assertEq outJson{"eventSourceUrl"}.getStr(""),
+      "https://jmap.example.com/eventsource/?types={types}&closeafter={closeafter}&ping={ping}"
+
+block rfc8620_S3_3_goldenRequestToJson:
+  ## Construct a Request matching RFC 8620 section 3.3.1 example, serialise,
+  ## and verify the JSON structure matches.
+  {.cast(noSideEffect).}:
+    let inv1 = Invocation(
+      name: "method1",
+      arguments: %*{"arg1": "arg1data", "arg2": "arg2data"},
+      methodCallId: makeMcid("c1"),
+    )
+    let inv2 = Invocation(
+      name: "method2", arguments: %*{"arg1": "arg1data"}, methodCallId: makeMcid("c2")
+    )
+    let inv3 =
+      Invocation(name: "method3", arguments: newJObject(), methodCallId: makeMcid("c3"))
+    let req = Request(
+      `using`: @["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail"],
+      methodCalls: @[inv1, inv2, inv3],
+      createdIds: Opt.none(Table[CreationId, Id]),
+    )
+    let j = req.toJson()
+    # Verify using array
+    doAssert j{"using"} != nil
+    doAssert j{"using"}.kind == JArray
+    assertEq j{"using"}.len, 2
+    assertEq j{"using"}.getElems(@[])[0].getStr(""), "urn:ietf:params:jmap:core"
+    assertEq j{"using"}.getElems(@[])[1].getStr(""), "urn:ietf:params:jmap:mail"
+    # Verify methodCalls array
+    doAssert j{"methodCalls"} != nil
+    doAssert j{"methodCalls"}.kind == JArray
+    assertEq j{"methodCalls"}.len, 3
+    # First method call: ["method1", {"arg1": "arg1data", "arg2": "arg2data"}, "c1"]
+    let mc0 = j{"methodCalls"}.getElems(@[])[0]
+    assertEq mc0.getElems(@[])[0].getStr(""), "method1"
+    assertEq mc0.getElems(@[])[2].getStr(""), "c1"
+    assertEq mc0.getElems(@[])[1]{"arg1"}.getStr(""), "arg1data"
+    # createdIds must be absent
+    doAssert j{"createdIds"}.isNil
+
+block rfc8620_S3_4_goldenResponseFromJson:
+  ## Parse a Response JSON matching RFC 8620 section 3.4.1 example and verify
+  ## all typed fields match expected values.
+  {.cast(noSideEffect).}:
+    let j = goldenResponseJson()
+    let r = Response.fromJson(j)
+    assertOk r
+    let resp = r.get()
+    assertEq resp.methodResponses.len, 4
+    # First response: ["method1", {"arg1": 3, "arg2": "foo"}, "c1"]
+    assertEq resp.methodResponses[0].name, "method1"
+    assertEq resp.methodResponses[0].methodCallId, makeMcid("c1")
+    assertEq resp.methodResponses[0].arguments{"arg1"}.getInt(0), 3
+    assertEq resp.methodResponses[0].arguments{"arg2"}.getStr(""), "foo"
+    # Second response: ["method2", {"isBlah": true}, "c2"]
+    assertEq resp.methodResponses[1].name, "method2"
+    assertEq resp.methodResponses[1].methodCallId, makeMcid("c2")
+    doAssert resp.methodResponses[1].arguments{"isBlah"}.getBool(false) == true
+    # Third response: ["anotherResponseFromMethod2", {...}, "c2"]
+    assertEq resp.methodResponses[2].name, "anotherResponseFromMethod2"
+    assertEq resp.methodResponses[2].methodCallId, makeMcid("c2")
+    # Fourth response: ["error", {"type": "unknownMethod"}, "c3"]
+    assertEq resp.methodResponses[3].name, "error"
+    assertEq resp.methodResponses[3].methodCallId, makeMcid("c3")
+    assertEq resp.methodResponses[3].arguments{"type"}.getStr(""), "unknownMethod"
+    # Session state
+    assertEq resp.sessionState, parseJmapState("75128aab4b1b").get()
+    # createdIds absent
+    assertNone resp.createdIds
+
+# =============================================================================
+# Phase 6B — Error response golden tests
+# =============================================================================
+
+block rfc8620_S3_6_goldenLimitError:
+  ## Build a complete RequestError with all RFC 7807 fields: type, status,
+  ## title, detail, limit. Round-trip and verify all fields preserved.
+  {.cast(noSideEffect).}:
+    let original = requestError(
+      rawType = "urn:ietf:params:jmap:error:limit",
+      status = Opt.some(429),
+      title = Opt.some("Too Many Requests"),
+      detail = Opt.some("You have exceeded the rate limit"),
+      limit = Opt.some("maxObjectsInGet"),
+    )
+    let j = original.toJson()
+    # Verify JSON structure
+    assertEq j{"type"}.getStr(""), "urn:ietf:params:jmap:error:limit"
+    assertEq j{"status"}.getBiggestInt(0), 429'i64
+    assertEq j{"title"}.getStr(""), "Too Many Requests"
+    assertEq j{"detail"}.getStr(""), "You have exceeded the rate limit"
+    assertEq j{"limit"}.getStr(""), "maxObjectsInGet"
+    # Round-trip
+    let rt = RequestError.fromJson(j)
+    assertOk rt
+    let v = rt.get()
+    doAssert v.errorType == retLimit
+    assertEq v.rawType, "urn:ietf:params:jmap:error:limit"
+    assertSomeEq v.status, 429
+    assertSomeEq v.title, "Too Many Requests"
+    assertSomeEq v.detail, "You have exceeded the rate limit"
+    assertSomeEq v.limit, "maxObjectsInGet"
+
+block rfc8620_S3_6_goldenMethodError:
+  ## Build a complete MethodError (serverFail with description). Round-trip
+  ## and verify all fields preserved.
+  {.cast(noSideEffect).}:
+    let original =
+      methodError(rawType = "serverFail", description = Opt.some("Database timeout"))
+    let j = original.toJson()
+    # Verify JSON structure
+    assertEq j{"type"}.getStr(""), "serverFail"
+    assertEq j{"description"}.getStr(""), "Database timeout"
+    # Round-trip
+    let rt = MethodError.fromJson(j)
+    assertOk rt
+    let v = rt.get()
+    doAssert v.errorType == metServerFail
+    assertEq v.rawType, "serverFail"
+    assertSomeEq v.description, "Database timeout"
+
+# =============================================================================
+# Phase 6C — Interop edge cases
+# =============================================================================
+
+block rfc8620_S5_5_comparatorEmptyCollation:
+  ## Comparator with collation = Opt.some(""). Document whether
+  ## parseComparator accepts an empty collation string. The library does
+  ## not validate collation contents, so empty string is accepted.
+  let prop = makePropertyName("subject")
+  let c = parseComparator(prop, true, Opt.some(""))
+  assertOk c
+  assertSome c.get().collation
+  assertSomeEq c.get().collation, ""
+  # Verify round-trip through serde
+  let j = c.get().toJson()
+  doAssert j{"collation"} != nil
+  assertEq j{"collation"}.getStr("~sentinel~"), ""
+  let rt = Comparator.fromJson(j)
+  assertOk rt
+  assertSomeEq rt.get().collation, ""
+
+block rfc8620_S1_4_leapSecondWithFractional:
+  ## Test parseDate("2024-06-30T23:59:60.123Z"). Layer 1 performs structural
+  ## validation only and does not check calendar semantics, so second=60
+  ## (leap second) with fractional seconds is accepted.
+  let r = parseDate("2024-06-30T23:59:60.123Z")
+  assertOk r

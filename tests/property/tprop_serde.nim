@@ -32,123 +32,13 @@ import ../massertions
 import ../mfixtures
 import ../mproperty
 
-# ---------------------------------------------------------------------------
-# Equality helpers for case objects
-# ---------------------------------------------------------------------------
-
-func coreCapEq(a, b: CoreCapabilities): bool =
-  ## Field-by-field equality for CoreCapabilities (HashSet == is fragile).
-  a.maxSizeUpload == b.maxSizeUpload and a.maxConcurrentUpload == b.maxConcurrentUpload and
-    a.maxSizeRequest == b.maxSizeRequest and
-    a.maxConcurrentRequests == b.maxConcurrentRequests and
-    a.maxCallsInRequest == b.maxCallsInRequest and a.maxObjectsInGet == b.maxObjectsInGet and
-    a.maxObjectsInSet == b.maxObjectsInSet and
-    a.collationAlgorithms.len == b.collationAlgorithms.len and
-    a.collationAlgorithms <= b.collationAlgorithms
-
-func capEq(a, b: ServerCapability): bool =
-  ## Deep value equality for ServerCapability case object.
-  if a.kind != b.kind or a.rawUri != b.rawUri:
-    return false
-  case a.kind
-  of ckCore:
-    coreCapEq(a.core, b.core)
-  else:
-    a.rawData == b.rawData
-
-func invEq(a, b: Invocation): bool =
-  ## Structural equality for Invocation including arguments.
-  a.name == b.name and a.methodCallId == b.methodCallId and a.arguments == b.arguments
-
-func reqEq(a, b: Request): bool =
-  ## Structural equality for Request including methodCalls order.
-  if a.using != b.using:
-    return false
-  if a.methodCalls.len != b.methodCalls.len:
-    return false
-  for i in 0 ..< a.methodCalls.len:
-    if not invEq(a.methodCalls[i], b.methodCalls[i]):
-      return false
-  if a.createdIds.isSome != b.createdIds.isSome:
-    return false
-  if a.createdIds.isSome:
-    if a.createdIds.get().len != b.createdIds.get().len:
-      return false
-  true
-
-func respEq(a, b: Response): bool =
-  ## Structural equality for Response including methodResponses order.
-  if a.sessionState != b.sessionState:
-    return false
-  if a.methodResponses.len != b.methodResponses.len:
-    return false
-  for i in 0 ..< a.methodResponses.len:
-    if not invEq(a.methodResponses[i], b.methodResponses[i]):
-      return false
-  if a.createdIds.isSome != b.createdIds.isSome:
-    return false
-  true
-
-proc jsonCondToJson(condition: JsonNode): JsonNode {.noSideEffect, raises: [].} =
-  ## Identity serialiser for Filter[JsonNode] tests.
-  result = condition
-
-proc fromJsonCondition(
-    n: JsonNode
-): Result[JsonNode, ValidationError] {.noSideEffect, raises: [].} =
-  ## Identity deserialiser for Filter[JsonNode] tests.
-  ok(n)
-
-proc intToJson(c: int): JsonNode {.noSideEffect, raises: [].} =
-  ## Serialise int condition to {"value": N}.
-  {.cast(noSideEffect).}:
-    %*{"value": c}
-
-proc fromIntCondition(
-    n: JsonNode
-): Result[int, ValidationError] {.noSideEffect, raises: [].} =
-  ## Deserialise int condition from {"value": N}.
-  checkJsonKind(n, JObject, "int")
-  let vNode = n{"value"}
-  checkJsonKind(vNode, JInt, "int", "missing or invalid value")
-  ok(vNode.getInt(0))
-
-func filterEq(a, b: Filter[int]): bool =
-  ## Recursive structural equality for Filter[int] trees.
-  if a.kind != b.kind:
-    return false
-  case a.kind
-  of fkCondition:
-    a.condition == b.condition
-  of fkOperator:
-    if a.operator != b.operator:
-      return false
-    if a.conditions.len != b.conditions.len:
-      return false
-    for i in 0 ..< a.conditions.len:
-      if not filterEq(a.conditions[i], b.conditions[i]):
-        return false
-    true
-
-func setErrorEq(a, b: SetError): bool =
-  ## Deep value equality for SetError case object.
-  if a.rawType != b.rawType or a.errorType != b.errorType or
-      a.description != b.description:
-    return false
-  case a.errorType
-  of setInvalidProperties:
-    a.properties == b.properties
-  of setAlreadyExists:
-    a.existingId == b.existingId
-  else:
-    true
-
 # =============================================================================
 # A. Round-trip identity properties (Tier 1 -- Critical)
 # =============================================================================
 
 block propRoundTripRequest:
-  checkProperty "Request round-trip: fromJson(toJson(req)) preserves structure":
+  checkPropertyN "Request round-trip: fromJson(toJson(req)) preserves structure",
+    ThoroughTrials:
     let req = rng.genRequest()
     lastInput = $req.using.len & " using, " & $req.methodCalls.len & " calls"
     let j = req.toJson()
@@ -157,7 +47,8 @@ block propRoundTripRequest:
     doAssert reqEq(rt.get(), req), "Request round-trip identity violated"
 
 block propRoundTripResponse:
-  checkProperty "Response round-trip: fromJson(toJson(resp)) preserves structure":
+  checkPropertyN "Response round-trip: fromJson(toJson(resp)) preserves structure",
+    ThoroughTrials:
     let resp = rng.genResponse()
     lastInput = $resp.methodResponses.len & " responses"
     let j = resp.toJson()
@@ -166,7 +57,7 @@ block propRoundTripResponse:
     doAssert respEq(rt.get(), resp), "Response round-trip identity violated"
 
 block propRoundTripServerCapabilityRawData:
-  checkProperty "ServerCapability rawData preserved through round-trip":
+  checkPropertyN "ServerCapability rawData preserved through round-trip", ThoroughTrials:
     let cap = rng.genServerCapability()
     lastInput = cap.rawUri
     if cap.kind != ckCore:
@@ -176,7 +67,7 @@ block propRoundTripServerCapabilityRawData:
       doAssert capEq(rt.get(), cap), "rawData lost for " & cap.rawUri
 
 block propRoundTripComparator:
-  checkProperty "Comparator round-trip preserves all fields":
+  checkPropertyN "Comparator round-trip preserves all fields", ThoroughTrials:
     let c = rng.genComparator()
     lastInput = string(c.property)
     let j = c.toJson()
@@ -188,7 +79,7 @@ block propRoundTripComparator:
     doAssert v.collation == c.collation
 
 block propRoundTripAddedItem:
-  checkProperty "AddedItem round-trip preserves id and index":
+  checkPropertyN "AddedItem round-trip preserves id and index", ThoroughTrials:
     let item = rng.genAddedItem()
     lastInput = string(item.id) & " @ " & $int64(item.index)
     let j = item.toJson()
@@ -198,7 +89,7 @@ block propRoundTripAddedItem:
     doAssert rt.get().index == item.index
 
 block propRoundTripResultReference:
-  checkProperty "ResultReference round-trip preserves all fields":
+  checkPropertyN "ResultReference round-trip preserves all fields", ThoroughTrials:
     let rref = rng.genResultReference()
     lastInput = rref.name
     let j = rref.toJson()
@@ -213,7 +104,8 @@ block propRoundTripResultReference:
 # =============================================================================
 
 block propRoundTripRequestError:
-  checkProperty "RequestError round-trip preserves rawType and optional fields":
+  checkPropertyN "RequestError round-trip preserves rawType and optional fields",
+    ThoroughTrials:
     let re = rng.genRequestError()
     lastInput = re.rawType
     let j = re.toJson()
@@ -226,7 +118,8 @@ block propRoundTripRequestError:
     doAssert rt.get().detail == re.detail
 
 block propRoundTripMethodError:
-  checkProperty "MethodError round-trip preserves rawType and description":
+  checkPropertyN "MethodError round-trip preserves rawType and description",
+    ThoroughTrials:
     let me = rng.genMethodError()
     lastInput = me.rawType
     let j = me.toJson()
@@ -237,7 +130,8 @@ block propRoundTripMethodError:
     doAssert rt.get().description == me.description
 
 block propRoundTripSetErrorVariants:
-  checkProperty "SetError variant round-trip preserves errorType and rawType":
+  checkPropertyN "SetError variant round-trip preserves errorType and rawType",
+    ThoroughTrials:
     let se = rng.genSetError()
     lastInput = se.rawType & " (" & $se.errorType & ")"
     let j = se.toJson()
@@ -260,7 +154,7 @@ block propRoundTripSetErrorVariants:
 # =============================================================================
 
 block propRoundTripFilterInt:
-  checkProperty "Filter[int] round-trip preserves tree structure":
+  checkPropertyN "Filter[int] round-trip preserves tree structure", ThoroughTrials:
     let f = rng.genFilter(3)
     lastInput = $f.kind
     let j = f.toJson(intToJson)
@@ -337,7 +231,7 @@ block propTotalityAddedItemArbitraryJson:
 # =============================================================================
 
 block propIdempotenceInvocation:
-  checkProperty "Invocation serialisation is idempotent":
+  checkPropertyN "Invocation serialisation is idempotent", ThoroughTrials:
     let inv = rng.genInvocationWithArgs()
     lastInput = inv.name
     let j1 = inv.toJson()
@@ -347,7 +241,7 @@ block propIdempotenceInvocation:
     doAssert j1 == j2, "Invocation toJson is not idempotent"
 
 block propIdempotenceResultReference:
-  checkProperty "ResultReference serialisation is idempotent":
+  checkPropertyN "ResultReference serialisation is idempotent", ThoroughTrials:
     let rref = rng.genResultReference()
     lastInput = rref.name
     let j1 = rref.toJson()
@@ -357,7 +251,7 @@ block propIdempotenceResultReference:
     doAssert j1 == j2, "ResultReference toJson is not idempotent"
 
 block propIdempotenceRequestError:
-  checkProperty "RequestError serialisation is idempotent":
+  checkPropertyN "RequestError serialisation is idempotent", ThoroughTrials:
     let re = rng.genRequestError()
     lastInput = re.rawType
     let j1 = re.toJson()
@@ -365,3 +259,108 @@ block propIdempotenceRequestError:
     doAssert parsed.isOk
     let j2 = parsed.get().toJson()
     doAssert j1 == j2, "RequestError toJson is not idempotent"
+
+# =============================================================================
+# F. SetError variant field preservation (Tier 2)
+# =============================================================================
+
+block propSetErrorInvalidPropertiesRoundTrip:
+  checkPropertyN "invalidProperties SetError preserves properties list", ThoroughTrials:
+    let propCount = rng.rand(1 .. 8)
+    var props: seq[string] = @[]
+    for i in 0 ..< propCount:
+      props.add "field" & $rng.rand(0 .. 999)
+    lastInput = $props.len & " properties"
+    let se = setErrorInvalidProperties("invalidProperties", props)
+    let j = se.toJson()
+    let rt = SetError.fromJson(j)
+    doAssert rt.isOk, "invalidProperties SetError round-trip failed"
+    doAssert rt.get().errorType == setInvalidProperties
+    doAssert rt.get().properties == props,
+      "properties list not preserved through round-trip"
+
+block propSetErrorAlreadyExistsRoundTrip:
+  checkPropertyN "alreadyExists SetError preserves existingId", ThoroughTrials:
+    let idStr = rng.genValidIdStrict(minLen = 1, maxLen = 50)
+    lastInput = idStr
+    let id = parseId(idStr).get()
+    let se = setErrorAlreadyExists("alreadyExists", id)
+    let j = se.toJson()
+    let rt = SetError.fromJson(j)
+    doAssert rt.isOk, "alreadyExists SetError round-trip failed"
+    doAssert rt.get().errorType == setAlreadyExists
+    doAssert rt.get().existingId == id, "existingId not preserved through round-trip"
+
+# =============================================================================
+# G. Composition properties (Tier 2)
+# =============================================================================
+
+block propRequestInvocationCountRoundTrip:
+  checkPropertyN "Request methodCalls.len preserved through round-trip", ThoroughTrials:
+    let req = rng.genRequest()
+    lastInput = $req.methodCalls.len & " calls"
+    let j = req.toJson()
+    let rt = Request.fromJson(j)
+    doAssert rt.isOk, "Request round-trip failed"
+    doAssert rt.get().methodCalls.len == req.methodCalls.len,
+      "methodCalls count changed through round-trip"
+
+block propInvocationArgumentsRoundTrip:
+  checkPropertyN "Invocation arguments preserved through round-trip", ThoroughTrials:
+    let inv = rng.genInvocationWithArgs()
+    lastInput = inv.name
+    let j = inv.toJson()
+    let rt = Invocation.fromJson(j)
+    doAssert rt.isOk, "Invocation round-trip failed"
+    doAssert rt.get().arguments == inv.arguments,
+      "Invocation arguments changed through round-trip"
+
+# =============================================================================
+# H. Deep JSON totality (Tier 3)
+# =============================================================================
+
+block propSessionDeepJsonTotality:
+  checkPropertyN "Session.fromJson never crashes on deep arbitrary JSON", QuickTrials:
+    let j = rng.genArbitraryJsonObject(5)
+    lastInput = $j.kind
+    discard Session.fromJson(j)
+
+block propRequestDeepJsonTotality:
+  checkPropertyN "Request.fromJson never crashes on deep arbitrary JSON", QuickTrials:
+    let j = rng.genArbitraryJsonObject(5)
+    lastInput = $j.kind
+    discard Request.fromJson(j)
+
+# =============================================================================
+# I. Idempotency and double-parse (Tier 2)
+# =============================================================================
+
+block propSessionDeserIdempotent:
+  checkPropertyN "parsing Session JSON twice yields identical results", ThoroughTrials:
+    let session = rng.genSession()
+    let j = session.toJson()
+    let first = Session.fromJson(j)
+    let second = Session.fromJson(j)
+    doAssert first.isOk, "first parse failed"
+    doAssert second.isOk, "second parse failed"
+    doAssert sessionEq(first.get(), second.get()),
+      "two parses of same Session JSON differ"
+
+block propDoubleParsePrimitives:
+  checkPropertyN "parse -> $ -> parse round-trip stable for primitives", ThoroughTrials:
+    ## Id: parse, stringify, re-parse.
+    let idStr = rng.genValidIdStrict(minLen = 1, maxLen = 50)
+    lastInput = idStr
+    let id1 = parseId(idStr).get()
+    let id2 = parseId($id1).get()
+    doAssert id1 == id2, "Id double-parse not stable"
+    ## AccountId: parse, stringify, re-parse.
+    let acctStr = rng.genValidAccountId()
+    let acct1 = parseAccountId(acctStr).get()
+    let acct2 = parseAccountId($acct1).get()
+    doAssert acct1 == acct2, "AccountId double-parse not stable"
+    ## JmapState: parse, stringify, re-parse.
+    let stateStr = rng.genValidJmapState()
+    let state1 = parseJmapState(stateStr).get()
+    let state2 = parseJmapState($state1).get()
+    doAssert state1 == state2, "JmapState double-parse not stable"

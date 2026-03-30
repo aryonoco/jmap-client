@@ -31,24 +31,6 @@ import jmap_client/validation
 import ../massertions
 import ../mfixtures
 
-# ---------------------------------------------------------------------------
-# Helper definitions
-# ---------------------------------------------------------------------------
-
-proc fromIntCondition(
-    n: JsonNode
-): Result[int, ValidationError] {.noSideEffect, raises: [].} =
-  ## Deserialise int condition for Filter[int] tests.
-  checkJsonKind(n, JObject, "int")
-  let vNode = n{"value"}
-  checkJsonKind(vNode, JInt, "int", "missing or invalid value")
-  ok(vNode.getInt(0))
-
-proc intToJson(c: int): JsonNode {.noSideEffect, raises: [].} =
-  ## Serialise an int condition to a JSON object for Filter[int] tests.
-  {.cast(noSideEffect).}:
-    %*{"value": c}
-
 # Minimal valid Session JSON builder, returns a fresh tree each call.
 proc validSessionJson(): JsonNode =
   ## Builds a fresh minimal valid Session JSON for adversarial modifications.
@@ -679,3 +661,294 @@ block arcSharedRefMultipleCapabilities:
       doAssert j{"limit"} != nil
       assertEq j{"limit"}.getBiggestInt(0), 1000
     # Dropping caps should not cause ARC issues — if we reach here, we are safe
+
+# =============================================================================
+# M. Duplicate JSON keys (Phase 4A)
+# =============================================================================
+
+block duplicateCreatedIdsKey:
+  ## Build Request JSON with duplicate key in createdIds object:
+  ## {"createdIds": {"abc":"id1","abc":"id2"}}. std/json uses last-wins
+  ## semantics for duplicate object keys — the second value overwrites the
+  ## first. Verify Request.fromJson succeeds under this behaviour.
+  {.cast(noSideEffect).}:
+    const raw =
+      """{"using":["urn:ietf:params:jmap:core"],"methodCalls":[["Mailbox/get",{},"c0"]],"createdIds":{"abc":"id1","abc":"id2"}}"""
+    let j = parseJson(raw)
+    let r = Request.fromJson(j)
+    # std/json last-wins: "abc" -> "id2"
+    assertOk r
+    doAssert r.get().createdIds.isSome
+
+block duplicateCapabilityUri:
+  ## Build Session JSON with duplicate capability URI key. std/json last-wins
+  ## semantics apply — the second value replaces the first. Verify Session
+  ## deserialisation handles this gracefully.
+  {.cast(noSideEffect).}:
+    var j = validSessionJson()
+    # Manually build capabilities with a duplicate vendor URI
+    let caps = newJObject()
+    caps["urn:ietf:params:jmap:core"] = j["capabilities"]["urn:ietf:params:jmap:core"]
+    caps["urn:ietf:params:jmap:mail"] = %*{"first": true}
+    caps["urn:ietf:params:jmap:mail"] = %*{"second": true}
+    j["capabilities"] = caps
+    let r = Session.fromJson(j)
+    # Last-wins: only one "urn:ietf:params:jmap:mail" entry with {"second": true}
+    assertOk r
+
+# =============================================================================
+# N. Numeric precision at JSON boundary (Phase 4B)
+# =============================================================================
+
+block jmapIntExponentNotation:
+  ## parseJson("1e2") produces a JFloat node (kind == JFloat), not JInt.
+  ## JmapInt.fromJson checks for JInt kind, so this must return err (wrong
+  ## kind). Documents the std/json behaviour at the serde boundary.
+  {.cast(noSideEffect).}:
+    let j = parseJson("1e2")
+    # std/json parses 1e2 as JFloat, not JInt
+    doAssert j.kind == JFloat, "expected JFloat for 1e2, got " & $j.kind
+    let r = JmapInt.fromJson(j)
+    assertErr r
+
+block unsignedIntJsonPrecisionBoundary:
+  ## 2^53 = 9007199254740992 exceeds the UnsignedInt maximum (2^53-1).
+  ## Verify the smart constructor rejects this value.
+  const boundary: int64 = 9_007_199_254_740_992'i64 # 2^53
+  let r = parseUnsignedInt(boundary)
+  assertErr r
+
+# =============================================================================
+# O. BOM propagation across identifier types (Phase 4C)
+# =============================================================================
+
+block bomInAccountIdValue:
+  ## BOM bytes (0xEF, 0xBB, 0xBF) at the start of an AccountId string via
+  ## fromJson. All BOM bytes are >= 0x20 so the lenient parser (no control
+  ## characters below 0x20) should accept them.
+  {.cast(noSideEffect).}:
+    const bomStr = "\xEF\xBB\xBFaccount1"
+    let j = %bomStr
+    let r = AccountId.fromJson(j)
+    # BOM bytes are 0xEF=239, 0xBB=187, 0xBF=191, all >= 0x20 -> accepted
+    assertOk r
+
+block bomInJmapStateValue:
+  ## BOM bytes at the start of a JmapState value. BOM bytes are >= 0x20
+  ## so the lenient parser should accept them.
+  {.cast(noSideEffect).}:
+    const bomStr = "\xEF\xBB\xBFstate1"
+    let j = %bomStr
+    let r = JmapState.fromJson(j)
+    assertOk r
+
+block bomInJsonObjectKey:
+  ## BOM bytes in a MethodError extras field key. Verify the BOM is preserved
+  ## in the extras object verbatim.
+  {.cast(noSideEffect).}:
+    const bomKey = "\xEF\xBB\xBFvendor"
+    let j = newJObject()
+    j["type"] = %"serverFail"
+    j[bomKey] = %"data"
+    let r = MethodError.fromJson(j)
+    assertOk r
+    doAssert r.get().extras.isSome
+    doAssert r.get().extras.get(){bomKey} != nil
+    assertEq r.get().extras.get(){bomKey}.getStr(""), "data"
+
+# =============================================================================
+# P. Unicode normalisation documentation (Phase 4D)
+# =============================================================================
+
+block unicodeNormalizationPropertyName:
+  ## Create PropertyName with NFC ("caf\u00E9") and NFD ("cafe\u0301").
+  ## Both should parse Ok because PropertyName only checks non-empty, but they
+  ## are byte-distinct (different UTF-8 sequences). This documents that the
+  ## library uses byte comparison, not Unicode-normalised comparison.
+  const nfc = "caf\xC3\xA9" # U+00E9 (LATIN SMALL LETTER E WITH ACUTE)
+  const nfd = "cafe\xCC\x81" # U+0065 + U+0301 (e + COMBINING ACUTE ACCENT)
+  let rNfc = parsePropertyName(nfc)
+  let rNfd = parsePropertyName(nfd)
+  assertOk rNfc
+  assertOk rNfd
+  # They represent the same character visually but are byte-distinct
+  doAssert string(rNfc.get()) != string(rNfd.get()),
+    "NFC and NFD forms must be byte-distinct (no normalisation)"
+
+# =============================================================================
+# Q. Hash collision resilience (Phase 4E)
+# =============================================================================
+
+block capabilitiesLargeVendorSet:
+  ## Build Session JSON with 10,000 vendor capability URIs. Verify parses
+  ## without crash or hash table degeneration issues.
+  var j = validSessionJson()
+  let caps = newJObject()
+  {.cast(noSideEffect).}:
+    caps["urn:ietf:params:jmap:core"] = j["capabilities"]["urn:ietf:params:jmap:core"]
+  for i in 0 ..< 10_000:
+    {.cast(noSideEffect).}:
+      caps["https://vendor.example/ext/" & $i] = newJObject()
+  j["capabilities"] = caps
+  let r = Session.fromJson(j)
+  assertOk r
+  # Core + 10,000 vendor capabilities
+  assertGe r.get().capabilities.len, 10_001
+
+# =============================================================================
+# R. Control character explicit boundary tests (Phase 4G)
+# =============================================================================
+
+block controlCharsInIdViaSerde:
+  ## Id.fromJson with JSON strings containing control characters.
+  ## The strict parser (parseIdFromServer) rejects characters < 0x20
+  ## and 0x7F.
+  {.cast(noSideEffect).}:
+    # Null byte
+    assertErr Id.fromJson(%("test\x00id"))
+    # Newline
+    assertErr Id.fromJson(%("test\nid"))
+    # Tab
+    assertErr Id.fromJson(%("test\tid"))
+    # SOH (0x01)
+    assertErr Id.fromJson(%("test\x01id"))
+
+block controlCharsInAccountIdViaSerde:
+  ## AccountId.fromJson with control characters. The lenient parser also
+  ## rejects characters < 0x20 and 0x7F.
+  {.cast(noSideEffect).}:
+    assertErr AccountId.fromJson(%("acct\x00id"))
+    assertErr AccountId.fromJson(%("acct\nid"))
+    assertErr AccountId.fromJson(%("acct\tid"))
+    assertErr AccountId.fromJson(%("acct\x01id"))
+
+# =============================================================================
+# S. JSON parser boundary documentation tests (Phase 4H)
+# =============================================================================
+
+{.push ruleOff: "trystatements".}
+
+block jsonTrailingGarbage:
+  ## Document std/json behaviour with trailing garbage: parseJson("42 extra")
+  ## raises JsonParsingError because the parser expects end of input after
+  ## the first value.
+  var raised = false
+  {.cast(noSideEffect).}:
+    try:
+      discard parseJson("42 extra")
+    except JsonParsingError:
+      raised = true
+  doAssert raised, "std/json should raise JsonParsingError for trailing garbage"
+
+block jsonUtf16Surrogates:
+  ## Document std/json behaviour with lone UTF-16 surrogates.
+  ## parseJson("""{"x": "\uD800"}""") — std/json may accept or reject this.
+  ## We document whichever behaviour occurs.
+  var parsed = false
+  var raised = false
+  {.cast(noSideEffect).}:
+    try:
+      discard parseJson("""{"x": "\uD800"}""")
+      parsed = true
+    except JsonParsingError:
+      raised = true
+    except ValueError:
+      raised = true
+  # Document: exactly one of these must be true (no crash)
+  doAssert parsed xor raised,
+    "std/json must either parse or raise for lone surrogate, never crash"
+
+block jsonLeadingZeroNumber:
+  ## Document std/json behaviour with leading zeros in numbers.
+  ## JSON RFC 7159 forbids leading zeros (e.g. 0123), but std/json may or
+  ## may not enforce this.
+  var parsed = false
+  var raised = false
+  {.cast(noSideEffect).}:
+    try:
+      discard parseJson("""{"x": 0123}""")
+      parsed = true
+    except JsonParsingError:
+      raised = true
+    except ValueError:
+      raised = true
+  # Document: exactly one of these must be true (no crash)
+  doAssert parsed xor raised,
+    "std/json must either parse or raise for leading zero, never crash"
+
+block jsonExtremeNestingDepth5000:
+  ## Build a 5000-level nested JSON string and attempt to parse.
+  ## Document whether std/json crashes, raises, or succeeds. The parser
+  ## may hit a stack overflow for extreme nesting.
+  var jsonStr = ""
+  for i in 0 ..< 5000:
+    jsonStr.add("""{"x":""")
+  jsonStr.add("0")
+  for i in 0 ..< 5000:
+    jsonStr.add("}")
+  var parsed = false
+  var raised = false
+  {.cast(noSideEffect).}:
+    try:
+      discard parseJson(jsonStr)
+      parsed = true
+    except JsonParsingError:
+      raised = true
+    except ValueError:
+      raised = true
+    except CatchableError:
+      raised = true
+  # Either succeeds or raises — never a silent corruption
+  doAssert parsed xor raised,
+    "std/json must either parse or raise for 5000-level nesting, never crash silently"
+
+{.pop.} # ruleOff: "trystatements"
+
+# =============================================================================
+# T. Empty identifier serde tests (Phase 4I)
+# =============================================================================
+
+block emptyMethodCallIdViaSerde:
+  ## MethodCallId.fromJson(%"") must return err — empty method call IDs
+  ## are rejected by parseMethodCallId.
+  {.cast(noSideEffect).}:
+    assertErr MethodCallId.fromJson(%"")
+
+block emptyCreationIdViaSerde:
+  ## CreationId.fromJson(%"") must return err — empty creation IDs
+  ## are rejected by parseCreationId.
+  {.cast(noSideEffect).}:
+    assertErr CreationId.fromJson(%"")
+
+block emptyJmapStateViaSerde:
+  ## JmapState.fromJson(%"") must return err — empty state tokens
+  ## are rejected by parseJmapState.
+  {.cast(noSideEffect).}:
+    assertErr JmapState.fromJson(%"")
+
+block emptyAccountIdViaSerde:
+  ## AccountId.fromJson(%"") must return err — empty account IDs
+  ## are rejected by parseAccountId.
+  {.cast(noSideEffect).}:
+    assertErr AccountId.fromJson(%"")
+
+# =============================================================================
+# U. Unicode in CreationId (Phase 4J)
+# =============================================================================
+
+block creationIdWithEmoji:
+  ## Parse CreationId with emoji characters. CreationId.parseCreationId
+  ## only rejects empty strings and '#' prefix — emoji characters are
+  ## accepted because no charset restriction is imposed beyond those rules.
+  {.cast(noSideEffect).}:
+    let r = CreationId.fromJson(%"\xF0\x9F\x98\x80key") # U+1F600 GRINNING FACE
+    # Emoji bytes are all >= 0x80, well above the '#' (0x23) check
+    assertOk r
+
+block creationIdWithCjk:
+  ## Parse CreationId with CJK characters. Like emoji, CJK characters are
+  ## accepted because parseCreationId has no charset restriction beyond
+  ## non-empty and no '#' prefix.
+  {.cast(noSideEffect).}:
+    let r = CreationId.fromJson(%"\xE6\x97\xA5\xE6\x9C\xAC") # U+65E5 U+672C (Japanese)
+    assertOk r

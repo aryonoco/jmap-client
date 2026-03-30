@@ -497,6 +497,16 @@ block createdIdsKeyStartsWithHash:
     j["createdIds"] = %*{"#k1": "id1"}
   assertErr Request.fromJson(j)
 
+block createdIdsCreationIdHashPrefixInRequest:
+  ## CreationId keys starting with '#' must be rejected by parseCreationId.
+  ## Verifies the ? operator propagates the error through parseCreatedIds
+  ## up to Request.fromJson.
+  var j = validRequestJson()
+  {.cast(noSideEffect).}:
+    j["createdIds"] = %*{"#invalid": "id1"}
+  let r = Request.fromJson(j)
+  assertErr r
+
 block createdIdsKeyEmpty:
   var j = validRequestJson()
   {.cast(noSideEffect).}:
@@ -694,6 +704,40 @@ block fromJsonFieldRefInvalidResultOf:
     let r = fromJsonField[int]("ids", node, fromDirectInt)
     assertErr r
 
+block referencableFromJsonFieldMalformedReference:
+  ## When a '#'-prefixed key contains a malformed ResultReference (non-string
+  ## resultOf), the error must propagate through fromJsonField.
+  {.cast(noSideEffect).}:
+    let node = %*{"#ids": {"resultOf": 42, "name": "Mailbox/get", "path": "/ids"}}
+    let r = fromJsonField[int]("ids", node, fromDirectInt)
+    assertErr r
+    assertErrContains r, "missing or invalid resultOf"
+
+block fromJsonFieldBothPresentRefTakesPrecedence:
+  ## When both "ids" and "#ids" are present, reference takes precedence.
+  {.cast(noSideEffect).}:
+    let node =
+      %*{"ids": 42, "#ids": {"resultOf": "c0", "name": "Mailbox/get", "path": "/ids"}}
+    let r = fromJsonField[int]("ids", node, fromDirectInt)
+    assertOk r
+    doAssert r.get().kind == rkReference
+
+block requestEmptyMethodCalls:
+  ## Empty methodCalls array round-trips correctly.
+  {.cast(noSideEffect).}:
+    let j = %*{"using": ["urn:ietf:params:jmap:core"], "methodCalls": []}
+    let r = Request.fromJson(j)
+    assertOk r
+    assertLen r.get().methodCalls, 0
+    assertLen r.get().`using`, 1
+
+block requestEmptyUsingArray:
+  ## Empty using array is valid per JSON schema.
+  {.cast(noSideEffect).}:
+    let j = %*{"using": [], "methodCalls": []}
+    let r = Request.fromJson(j)
+    assertOk r
+    assertLen r.get().`using`, 0
 block fromJsonFieldBothPresentRefTakesPrecedence:
   ## When both "ids" and "#ids" are present, reference takes precedence.
   {.cast(noSideEffect).}:

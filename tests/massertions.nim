@@ -8,9 +8,14 @@
 
 import std/strutils
 import std/json
+import std/tables
 
 import jmap_client/validation
 import jmap_client/errors
+import jmap_client/capabilities
+import jmap_client/session
+
+import ./mfixtures
 
 {.push ruleOff: "hasDoc".}
 
@@ -220,3 +225,60 @@ template assertRoundTrip*[T](fromJsonProc: untyped, value: T) =
   let rt = fromJsonProc(j)
   doAssert rt.isOk, "round-trip failed: fromJson returned Err"
   doAssert rt.get() == value, "round-trip identity violated"
+
+# ---------------------------------------------------------------------------
+# Domain-specific assertion templates
+# ---------------------------------------------------------------------------
+
+template assertOkWithDiag*(r: untyped) =
+  ## Verifies Result is Ok, printing the error message on failure.
+  if r.isErr:
+    doAssert false, "expected Ok, got Err: " & r.error.message
+
+template assertTableContains*[K, V](t: Table[K, V], key: K) =
+  ## Verifies a Table contains the given key.
+  doAssert t.hasKey(key), "expected table to contain key"
+
+template assertSeqContains*[T](s: seq[T], item: T) =
+  ## Verifies a seq contains the given item.
+  doAssert item in s, "expected seq to contain item"
+
+template assertCapOkEq*(r: untyped, expected: ServerCapability) =
+  ## Verifies Result is Ok and its ServerCapability value equals expected.
+  doAssert r.isOk, "expected Ok, got Err"
+  let v = r.get()
+  doAssert capEq(v, expected), "ServerCapability values differ"
+
+template assertSessionOkEq*(r: untyped, expected: Session) =
+  ## Verifies Result is Ok and its Session value equals expected.
+  doAssert r.isOk, "expected Ok, got Err"
+  let v = r.get()
+  doAssert sessionEq(v, expected), "Session values differ"
+
+template assertSetOkEq*(r: untyped, expected: SetError) =
+  ## Verifies Result is Ok and its SetError value equals expected.
+  doAssert r.isOk, "expected Ok, got Err"
+  let v = r.get()
+  doAssert setErrorEq(v, expected), "SetError values differ"
+
+# ---------------------------------------------------------------------------
+# Table-driven deserialisation error helpers
+# ---------------------------------------------------------------------------
+
+template assertDeserMissingField*(
+    baseJson: JsonNode, field: string, fromJsonProc: untyped
+) =
+  ## Verifies that removing a field from JSON causes deserialisation to fail.
+  let j = baseJson.copy()
+  j.delete(field)
+  let r = fromJsonProc(j)
+  doAssert r.isErr, "expected Err when '" & field & "' missing, got Ok"
+
+template assertDeserWrongKind*(
+    baseJson: JsonNode, field: string, wrongValue: JsonNode, fromJsonProc: untyped
+) =
+  ## Verifies that setting a field to wrong JSON kind causes deserialisation to fail.
+  let j = baseJson.copy()
+  j[field] = wrongValue
+  let r = fromJsonProc(j)
+  doAssert r.isErr, "expected Err when '" & field & "' has wrong kind, got Ok"

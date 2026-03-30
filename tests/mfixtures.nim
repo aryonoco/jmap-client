@@ -5,6 +5,15 @@
 
 ## Shared test fixture factories. Returns fresh instances to avoid module-level
 ## mutation risk. Imported by t-prefixed test files.
+##
+## When adding a new type <T>:
+## 1. Add parse<T>() smart constructor in Layer 1 source module
+## 2. Add make<T>() factory function below
+## 3. Add toJson/fromJson in Layer 2 serde module
+## 4. Add unit tests in tests/unit/t<module>.nim
+## 5. Add serde round-trip tests in tests/serde/tserde_<module>.nim
+## 6. Add property tests + generator in tests/property/tprop_<module>.nim
+## 7. Add gen<T>() generator to tests/mproperty.nim
 
 import std/sets
 import std/strutils
@@ -23,6 +32,7 @@ import jmap_client/session
 import jmap_client/framework
 import jmap_client/envelope
 import jmap_client/errors
+import jmap_client/serde
 
 func zeroUint*(): UnsignedInt =
   parseUnsignedInt(0).get()
@@ -558,3 +568,136 @@ proc validResultReferenceJson*(
 ): JsonNode =
   ## Minimal valid ResultReference JSON per RFC 8620 section 3.7.
   %*{"resultOf": resultOf, "name": name, "path": path}
+
+# ---------------------------------------------------------------------------
+# Case object equality helpers
+# ---------------------------------------------------------------------------
+
+func coreCapEq*(a, b: CoreCapabilities): bool =
+  ## Field-by-field equality for CoreCapabilities, using subset check for
+  ## HashSet collationAlgorithms (avoids megatest == resolution issues).
+  a.maxSizeUpload == b.maxSizeUpload and a.maxConcurrentUpload == b.maxConcurrentUpload and
+    a.maxSizeRequest == b.maxSizeRequest and
+    a.maxConcurrentRequests == b.maxConcurrentRequests and
+    a.maxCallsInRequest == b.maxCallsInRequest and a.maxObjectsInGet == b.maxObjectsInGet and
+    a.maxObjectsInSet == b.maxObjectsInSet and
+    a.collationAlgorithms.len == b.collationAlgorithms.len and
+    a.collationAlgorithms <= b.collationAlgorithms
+
+func capEq*(a, b: ServerCapability): bool =
+  ## Deep value equality for ServerCapability (case object).
+  if a.kind != b.kind or a.rawUri != b.rawUri:
+    return false
+  case a.kind
+  of ckCore:
+    coreCapEq(a.core, b.core)
+  else:
+    a.rawData == b.rawData
+
+func capsEq*(a, b: seq[ServerCapability]): bool =
+  ## Compares two sequences of ServerCapability by value.
+  if a.len != b.len:
+    return false
+  for i in 0 ..< a.len:
+    if not capEq(a[i], b[i]):
+      return false
+  true
+
+func sessionEq*(a, b: Session): bool =
+  ## Deep value equality for Session (contains seq[ServerCapability]).
+  capsEq(a.capabilities, b.capabilities) and a.accounts == b.accounts and
+    a.primaryAccounts == b.primaryAccounts and a.username == b.username and
+    a.apiUrl == b.apiUrl and a.downloadUrl == b.downloadUrl and
+    a.uploadUrl == b.uploadUrl and a.eventSourceUrl == b.eventSourceUrl and
+    a.state == b.state
+
+func invEq*(a, b: Invocation): bool =
+  ## Structural equality for Invocation including arguments.
+  a.name == b.name and a.methodCallId == b.methodCallId and a.arguments == b.arguments
+
+func reqEq*(a, b: Request): bool =
+  ## Structural equality for Request including methodCalls order.
+  if a.using != b.using:
+    return false
+  if a.methodCalls.len != b.methodCalls.len:
+    return false
+  for i in 0 ..< a.methodCalls.len:
+    if not invEq(a.methodCalls[i], b.methodCalls[i]):
+      return false
+  if a.createdIds.isSome != b.createdIds.isSome:
+    return false
+  if a.createdIds.isSome:
+    if a.createdIds.get().len != b.createdIds.get().len:
+      return false
+  true
+
+func respEq*(a, b: Response): bool =
+  ## Structural equality for Response including methodResponses order.
+  if a.sessionState != b.sessionState:
+    return false
+  if a.methodResponses.len != b.methodResponses.len:
+    return false
+  for i in 0 ..< a.methodResponses.len:
+    if not invEq(a.methodResponses[i], b.methodResponses[i]):
+      return false
+  if a.createdIds.isSome != b.createdIds.isSome:
+    return false
+  true
+
+func filterEq*(a, b: Filter[int]): bool =
+  ## Recursive structural equality for Filter[int] trees.
+  if a.kind != b.kind:
+    return false
+  case a.kind
+  of fkCondition:
+    a.condition == b.condition
+  of fkOperator:
+    if a.operator != b.operator:
+      return false
+    if a.conditions.len != b.conditions.len:
+      return false
+    for i in 0 ..< a.conditions.len:
+      if not filterEq(a.conditions[i], b.conditions[i]):
+        return false
+    true
+
+func setErrorEq*(a, b: SetError): bool =
+  ## Deep value equality for SetError (case object), including extras.
+  if a.rawType != b.rawType or a.errorType != b.errorType or
+      a.description != b.description or a.extras != b.extras:
+    return false
+  case a.errorType
+  of setInvalidProperties:
+    a.properties == b.properties
+  of setAlreadyExists:
+    a.existingId == b.existingId
+  else:
+    true
+
+# ---------------------------------------------------------------------------
+# Filter callback helpers
+# ---------------------------------------------------------------------------
+
+proc intToJson*(c: int): JsonNode {.noSideEffect, raises: [].} =
+  ## Serialise an int condition to a JSON object for Filter[int] tests.
+  {.cast(noSideEffect).}:
+    %*{"value": c}
+
+proc fromIntCondition*(
+    n: JsonNode
+): Result[int, ValidationError] {.noSideEffect, raises: [].} =
+  ## Deserialise a JSON object to int for Filter[int] tests.
+  checkJsonKind(n, JObject, "int")
+  let vNode = n{"value"}
+  checkJsonKind(vNode, JInt, "int", "missing or invalid value")
+  ok(vNode.getInt(0))
+
+proc jsonCondToJson*(condition: JsonNode): JsonNode {.noSideEffect, raises: [].} =
+  ## Identity serialiser for Filter[JsonNode] tests.
+  result = condition
+
+proc fromJsonCondition*(
+    n: JsonNode
+): Result[JsonNode, ValidationError] {.noSideEffect, raises: [].} =
+  ## Identity deserialiser for Filter[JsonNode] tests.
+  ok(n)

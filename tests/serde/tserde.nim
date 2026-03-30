@@ -147,6 +147,61 @@ block roundTripIdMaxLen:
   let original = parseIdFromServer('a'.repeat(255)).get()
   assertOkEq Id.fromJson(original.toJson()), original
 
+# --- Phase 3A: Numeric boundary off-by-one tests ---
+
+block unsignedIntDeserMaxMinus1:
+  ## Off-by-one below the maximum: 2^53-2 must be accepted.
+  {.cast(noSideEffect).}:
+    assertOk UnsignedInt.fromJson(%9007199254740990'i64)
+
+block unsignedIntDeserMaxPlus1:
+  ## Off-by-one above the maximum: 2^53 must be rejected.
+  {.cast(noSideEffect).}:
+    assertErr UnsignedInt.fromJson(%9007199254740992'i64)
+
+block jmapIntDeserMinPlus1:
+  ## Off-by-one above the minimum: -(2^53-2) must be accepted.
+  {.cast(noSideEffect).}:
+    assertOk JmapInt.fromJson(%(-9007199254740990'i64))
+
+block jmapIntDeserMaxMinus1:
+  ## Off-by-one below the maximum: 2^53-2 must be accepted.
+  {.cast(noSideEffect).}:
+    assertOk JmapInt.fromJson(%9007199254740990'i64)
+
+block jmapIntDeserMaxPlus1:
+  ## Off-by-one above the maximum: 2^53 must be rejected.
+  {.cast(noSideEffect).}:
+    assertErr JmapInt.fromJson(%9007199254740992'i64)
+
+block jmapIntDeserMinMinus1:
+  ## Off-by-one below the minimum: -(2^53) must be rejected.
+  {.cast(noSideEffect).}:
+    assertErr JmapInt.fromJson(%(-9007199254740992'i64))
+
+# --- Phase 3B: String length boundary tests ---
+
+block propertyNameDeser255:
+  ## PropertyName has no upper length limit; 255 chars is valid.
+  {.cast(noSideEffect).}:
+    assertOk PropertyName.fromJson(%("x".repeat(255)))
+
+block jmapStateDeser255:
+  ## JmapState has no upper length limit (non-empty, no control chars);
+  ## 255 chars is valid.
+  {.cast(noSideEffect).}:
+    assertOk JmapState.fromJson(%("s".repeat(255)))
+
+block methodCallIdDeser255:
+  ## MethodCallId has no upper length limit (non-empty); 255 chars is valid.
+  {.cast(noSideEffect).}:
+    assertOk MethodCallId.fromJson(%("m".repeat(255)))
+
+block idDeser254:
+  ## Off-by-one below Id's maximum of 255: 254 chars must be accepted.
+  {.cast(noSideEffect).}:
+    assertOk Id.fromJson(%("a".repeat(254)))
+
 # =============================================================================
 # C. Edge-case deserialization
 # =============================================================================

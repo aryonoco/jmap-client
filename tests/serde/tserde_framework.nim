@@ -24,43 +24,6 @@ import ../massertions
 import ../mfixtures
 import ../mproperty
 
-# ---------------------------------------------------------------------------
-# Helper definitions
-# ---------------------------------------------------------------------------
-
-proc intToJson(c: int): JsonNode {.noSideEffect, raises: [].} =
-  ## Serialise an int condition to a JSON object for Filter[int] tests.
-  ## Wraps in {"value": N} because Filter.fromJson expects JObject conditions.
-  {.cast(noSideEffect).}:
-    %*{"value": c}
-
-proc fromIntCondition(
-    n: JsonNode
-): Result[int, ValidationError] {.noSideEffect, raises: [].} =
-  ## Deserialise a JSON object to int for Filter[int] tests.
-  ## Expects {"value": N} wrapper matching intToJson.
-  checkJsonKind(n, JObject, "int")
-  let vNode = n{"value"}
-  checkJsonKind(vNode, JInt, "int", "missing or invalid value")
-  ok(vNode.getInt(0))
-
-func filterEq(a, b: Filter[int]): bool =
-  ## Recursively compare two Filter[int] trees for structural equality.
-  if a.kind != b.kind:
-    return false
-  case a.kind
-  of fkCondition:
-    a.condition == b.condition
-  of fkOperator:
-    if a.operator != b.operator:
-      return false
-    if a.conditions.len != b.conditions.len:
-      return false
-    for i in 0 ..< a.conditions.len:
-      if not filterEq(a.conditions[i], b.conditions[i]):
-        return false
-    true
-
 # =============================================================================
 # A. Round-trip tests
 # =============================================================================
@@ -279,6 +242,14 @@ block filterOperatorDeserWrongKind:
   {.cast(noSideEffect).}:
     assertErr FilterOperator.fromJson(%42)
 
+block filterOperatorDeserEmptyString:
+  ## Empty string falls into the else branch of the case statement,
+  ## returning err with "unknown operator".
+  {.cast(noSideEffect).}:
+    let r = FilterOperator.fromJson(%"")
+    assertErr r
+    assertErrContains r, "unknown operator"
+
 # --- Comparator ---
 
 block comparatorDeserAllFieldsPresent:
@@ -388,6 +359,14 @@ block filterDeserEmptyConditions:
     assertEq r.get().conditions.len, 0
 
 block filterDeserMissingConditions:
+  {.cast(noSideEffect).}:
+    let j = %*{"operator": "AND"}
+    let r = Filter[int].fromJson(j, fromIntCondition)
+    assertErr r
+
+block filterOperatorMissingConditionsArray:
+  ## JSON with "operator" present but no "conditions" key must return err.
+  ## Exercises the checkJsonKind guard on the conditions array.
   {.cast(noSideEffect).}:
     let j = %*{"operator": "AND"}
     let r = Filter[int].fromJson(j, fromIntCondition)
@@ -616,6 +595,65 @@ block filterDeserDepth3RoundTrip:
   let r = Filter[int].fromJson(j, fromIntCondition)
   assertOk r
   doAssert filterEq(r.get(), root), "depth-3 filter round-trip identity violated"
+
+# =============================================================================
+# D. Property-based round-trip tests
+# =============================================================================
+
+checkProperty "FilterOperator round-trip":
+  let ops = [foAnd, foOr, foNot]
+  let op = ops[trial mod 3]
+  assertOkEq FilterOperator.fromJson(op.toJson()), op
+
+checkProperty "Comparator round-trip":
+  let c = rng.genComparator()
+  let rt = Comparator.fromJson(c.toJson())
+  doAssert rt.isOk, "Comparator round-trip failed"
+  let v = rt.get()
+  doAssert v.property == c.property
+  doAssert v.isAscending == c.isAscending
+  doAssert v.collation == c.collation
+
+checkProperty "Filter[int] round-trip":
+  let f = rng.genFilter(3)
+  let rt = Filter[int].fromJson(f.toJson(intToJson), fromIntCondition)
+  doAssert rt.isOk, "Filter round-trip failed"
+  doAssert filterEq(rt.get(), f), "Filter values differ"
+
+checkProperty "PatchObject round-trip":
+  let p = rng.genPatchObject(5)
+  let rt = PatchObject.fromJson(p.toJson())
+  doAssert rt.isOk, "PatchObject round-trip failed"
+  doAssert rt.get().len == p.len, "PatchObject lengths differ"
+
+checkProperty "AddedItem round-trip":
+  let item = rng.genAddedItem()
+  let rt = AddedItem.fromJson(item.toJson())
+  doAssert rt.isOk, "AddedItem round-trip failed"
+  let v = rt.get()
+  doAssert v.id == item.id
+  doAssert v.index == item.index
+
+# =============================================================================
+# Phase 3D: Comparator edge cases
+# =============================================================================
+
+block comparatorCollationAbsentIsNone:
+  ## Comparator JSON without collation field: collation must be Opt.none.
+  {.cast(noSideEffect).}:
+    let j = %*{"property": "subject", "isAscending": true}
+    let r = Comparator.fromJson(j)
+    assertOk r
+    assertNone r.get().collation
+
+block comparatorCollationNullIsNone:
+  ## Comparator JSON with "collation": null: collation must be Opt.none.
+  {.cast(noSideEffect).}:
+    var j = %*{"property": "subject", "isAscending": true}
+    j["collation"] = newJNull()
+    let r = Comparator.fromJson(j)
+    assertOk r
+    assertNone r.get().collation
 
 # =============================================================================
 # D. Property-based round-trip tests

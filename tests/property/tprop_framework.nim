@@ -16,6 +16,7 @@ import jmap_client/envelope
 import jmap_client/framework
 import jmap_client/identifiers
 import jmap_client/primitives
+import jmap_client/serde_framework
 import jmap_client/session
 import jmap_client/validation
 import ../mproperty
@@ -384,3 +385,73 @@ block propAddedItemTotality:
     lastInput = $ai.id
     doAssert ai.id.len >= 1 and ai.id.len <= 255
     doAssert int64(ai.index) >= 0
+
+# --- PatchObject fundamental laws ---
+
+block propPatchObjectGetKeyInverse:
+  checkProperty "setProp then getKey returns the same value":
+    let path = genPatchPath(rng)
+    lastInput = path
+    let value = newJInt(rng.rand(0 .. 9999))
+    let p = emptyPatch().setProp(path, value).get()
+    let retrieved = p.getKey(path)
+    doAssert retrieved.isSome, "getKey returned none after setProp"
+    doAssert retrieved.get() == value, "getKey value differs from setProp value"
+
+block propPatchObjectDeleteSetsNull:
+  checkProperty "setProp then deleteProp sets key to JNull":
+    let path = genPatchPath(rng)
+    lastInput = path
+    let value = newJInt(rng.rand(0 .. 9999))
+    let p = emptyPatch().setProp(path, value).get().deleteProp(path).get()
+    let retrieved = p.getKey(path)
+    doAssert retrieved.isSome, "getKey returned none after deleteProp"
+    doAssert retrieved.get().kind == JNull, "deleteProp did not set key to JNull"
+
+block propPatchObjectCommutativityExact:
+  checkProperty "setProp on distinct keys yields identical JSON":
+    let k1 = "left_" & $rng.rand(0 .. 999)
+    let k2 = "right_" & $rng.rand(0 .. 999)
+    lastInput = k1 & ", " & k2
+    if k1 != k2:
+      let v1 = newJInt(rng.rand(0 .. 9999))
+      let v2 = newJInt(rng.rand(10000 .. 19999))
+      let order1 = emptyPatch().setProp(k1, v1).get().setProp(k2, v2).get()
+      let order2 = emptyPatch().setProp(k2, v2).get().setProp(k1, v1).get()
+      doAssert order1.toJson() == order2.toJson(),
+        "commutativity violated for disjoint keys"
+
+# --- Filter algebraic laws ---
+
+block propFilterNotInvolution:
+  checkPropertyN "NOT(NOT(f)) is structurally a double-NOT wrapping f", QuickTrials:
+    let f = genFilter(rng, 3)
+    let doubleNot = filterOperator[int](foNot, @[filterOperator[int](foNot, @[f])])
+    ## Verify outer structure: operator, foNot, one child.
+    doAssert doubleNot.kind == fkOperator
+    doAssert doubleNot.operator == foNot
+    doAssert doubleNot.conditions.len == 1
+    ## Verify inner structure: operator, foNot, one child wrapping original.
+    let inner = doubleNot.conditions[0]
+    doAssert inner.kind == fkOperator
+    doAssert inner.operator == foNot
+    doAssert inner.conditions.len == 1
+    ## Verify the wrapped filter matches the original.
+    proc structEq(a, b: Filter[int]): bool =
+      ## Recursive structural equality for Filter[int] trees.
+      if a.kind != b.kind:
+        return false
+      case a.kind
+      of fkCondition:
+        a.condition == b.condition
+      of fkOperator:
+        if a.operator != b.operator:
+          return false
+        if a.conditions.len != b.conditions.len:
+          return false
+        for i in 0 ..< a.conditions.len:
+          if not structEq(a.conditions[i], b.conditions[i]):
+            return false
+        true
+
+    doAssert structEq(inner.conditions[0], f), "double-NOT inner does not wrap original"

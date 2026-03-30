@@ -23,30 +23,6 @@ import ../massertions
 import ../mfixtures
 import ../mproperty
 
-# ---------------------------------------------------------------------------
-# Helper definitions
-# ---------------------------------------------------------------------------
-
-func setErrorEq(a, b: SetError): bool =
-  ## Deep value equality for SetError (case object). Required because
-  ## auto-generated == may not handle Opt[JsonNode] refs correctly.
-  if a.rawType != b.rawType or a.errorType != b.errorType or
-      a.description != b.description or a.extras != b.extras:
-    return false
-  case a.errorType
-  of setInvalidProperties:
-    a.properties == b.properties
-  of setAlreadyExists:
-    a.existingId == b.existingId
-  else:
-    true
-
-template assertSetOkEq(r: untyped, expected: SetError) =
-  ## Verifies Result is Ok and its SetError value equals expected.
-  doAssert r.isOk, "expected Ok, got Err"
-  let v = r.get()
-  doAssert setErrorEq(v, expected), "SetError values differ"
-
 # =============================================================================
 # A. Round-trip tests
 # =============================================================================
@@ -476,6 +452,15 @@ block requestErrorStatusPresentMcdc:
     assertSome r.get().status
     assertSomeEq r.get().status, 429
 
+block requestErrorStatusJFloatLenient:
+  ## MC/DC: JFloat status (e.g., 429.5) is not JInt, so optInt yields Opt.none.
+  ## Verifies lenient handling: parse succeeds but status is absent.
+  {.cast(noSideEffect).}:
+    let j = %*{"type": "urn:ietf:params:jmap:error:limit", "status": 429.5}
+    let r = RequestError.fromJson(j)
+    assertOk r
+    assertNone r.get().status
+
 # --- MC/DC: MethodError description ---
 
 block methodErrorDescriptionWrongKindMcdc:
@@ -493,6 +478,22 @@ block methodErrorDescriptionPresentMcdc:
     let r = MethodError.fromJson(j)
     assertOk r
     assertSomeEq r.get().description, "Internal error"
+
+block methodErrorDescriptionJArrayLenient:
+  ## MC/DC: description as JArray (not JString) yields Opt.none (lenient).
+  {.cast(noSideEffect).}:
+    let j = %*{"type": "serverFail", "description": [1, 2, 3]}
+    let r = MethodError.fromJson(j)
+    assertOk r
+    assertNone r.get().description
+
+block methodErrorDescriptionJObjectLenient:
+  ## MC/DC: description as JObject (not JString) yields Opt.none (lenient).
+  {.cast(noSideEffect).}:
+    let j = %*{"type": "serverFail", "description": {"x": 1}}
+    let r = MethodError.fromJson(j)
+    assertOk r
+    assertNone r.get().description
 
 # =============================================================================
 # F. Additional edge-case and isolation tests
@@ -555,3 +556,70 @@ block methodErrorAllOptionalFieldsRoundTrip:
     assertSomeEq rt.get().description, "Something went wrong"
     assertSome rt.get().extras
     assertEq rt.get().extras.get(){"serverInfo"}.getStr(""), "debug-data"
+
+# =============================================================================
+# H. SetError adversarial edge cases (Phase 4F)
+# =============================================================================
+
+block setErrorAlreadyExistsEmptyId:
+  ## Build SetError JSON with "type": "alreadyExists", "existingId": "".
+  ## The empty string is rejected by parseIdFromServer (Id requires 1-255
+  ## octets), so the overall SetError.fromJson must return err.
+  {.cast(noSideEffect).}:
+    let j = %*{"type": "alreadyExists", "existingId": ""}
+    assertErr SetError.fromJson(j)
+
+block setErrorInvalidPropertiesNonArrayProperties:
+  ## Build SetError JSON with "type": "invalidProperties", "properties": "notAnArray".
+  ## When "properties" is present but not a JArray, the defensive fallback
+  ## treats it as if the variant data is missing and falls back to setUnknown.
+  {.cast(noSideEffect).}:
+    let j = %*{"type": "invalidProperties", "properties": "notAnArray"}
+    let r = SetError.fromJson(j)
+    assertOk r
+    doAssert r.get().errorType == setUnknown,
+      "non-array properties should trigger defensive fallback to setUnknown"
+
+# =============================================================================
+# I. MC/DC: MethodError description with JArray and JObject (Phase 2E2)
+# =============================================================================
+
+block methodErrorDescriptionJArrayLenient:
+  ## MC/DC: description present as JArray (not JString) yields Opt.none.
+  ## The optString helper rejects non-JString values leniently.
+  {.cast(noSideEffect).}:
+    let j = %*{"type": "serverFail", "description": [1, 2, 3]}
+    let r = MethodError.fromJson(j)
+    assertOk r
+    assertNone r.get().description
+
+block methodErrorDescriptionJObjectLenient:
+  ## MC/DC: description present as JObject (not JString) yields Opt.none.
+  ## The optString helper rejects non-JString values leniently.
+  {.cast(noSideEffect).}:
+    let j = %*{"type": "serverFail", "description": {"x": 1}}
+    let r = MethodError.fromJson(j)
+    assertOk r
+    assertNone r.get().description
+
+# =============================================================================
+# H. Phase 3C: Collection scale tests (errors)
+# =============================================================================
+
+block collectExtrasLarge100Keys:
+  ## MethodError JSON with 100+ non-standard fields. Verify extras preserves
+  ## them all through round-trip.
+  {.cast(noSideEffect).}:
+    var j = newJObject()
+    j["type"] = %"serverFail"
+    for i in 0 ..< 100:
+      j["extra" & $i] = %i
+    let r = MethodError.fromJson(j)
+    assertOk r
+    assertSome r.get().extras
+    # Verify all 100 extra keys are preserved
+    let extras = r.get().extras.get()
+    var count = 0
+    for key, val in extras.pairs:
+      inc count
+    assertEq count, 100

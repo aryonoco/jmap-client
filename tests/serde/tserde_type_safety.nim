@@ -28,19 +28,6 @@ import jmap_client/validation
 import ../massertions
 import ../mfixtures
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-proc fromIntCondition(
-    n: JsonNode
-): Result[int, ValidationError] {.noSideEffect, raises: [].} =
-  ## Deserialise a JSON object to int for Filter[int] tests.
-  checkJsonKind(n, JObject, "int")
-  let vNode = n{"value"}
-  checkJsonKind(vNode, JInt, "int", "missing or invalid value")
-  ok(vNode.getInt(0))
-
 const nilNode: JsonNode = nil
 
 # =============================================================================
