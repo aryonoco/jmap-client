@@ -35,7 +35,11 @@ type Response* = object
   ## responses, optional creation ID map, and the current session state.
   methodResponses*: seq[Invocation] ## same format as methodCalls
   createdIds*: Opt[Table[CreationId, Id]] ## only present if given in request
-  sessionState*: JmapState ## current Session.state value
+  sessionState*: JmapState
+    ## Current Session.state value. After every response, compare with
+    ## ``Session.state``; if they differ, the session is stale and should
+    ## be re-fetched (RFC 8620 §3.4). The RFC uses permissive language
+    ## ("may") for this check — it is not a MUST-level requirement.
 
 type ResultReference* = object
   ## Back-reference to a previous method call's result (RFC 8620 section 3.7).

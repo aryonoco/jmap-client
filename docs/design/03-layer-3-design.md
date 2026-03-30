@@ -94,6 +94,18 @@ because the mutation is local (building a return value), not escaping
 through `ref` indirection. Same pattern as Layer 2 §2 Pattern A — used
 ~20 times in existing serde code.
 
+**Decision D3.12: Layer 2 `noSideEffect` cast wrappers.** Layer 2's
+`serde.nim` provides centralised wrapper funcs — `jStr`, `jInt`, `jBool`,
+`jObj`, `jArr` — that encapsulate the `{.cast(noSideEffect).}` for
+primitive JSON construction (`%string(x)`, `%int64(x)`, `%bool(x)`,
+`newJObject()`, `newJArray()`). These eliminate the cast from all 11
+primitive `toJson` functions (Category A: distinct string types like `Id`,
+`AccountId`, `JmapState`, and distinct int types like `UnsignedInt`,
+`JmapInt`). Object-builder `toJson` functions that use `%*` or multi-line
+construction (Category B, 14 sites) and `pairs`-iteration blocks
+(Category C, 1 site) retain their own casts — the wrappers do not address
+those patterns. The wrappers live in `serde.nim`, not a new module.
+
 **Decision D3.1: Layer 3 owns serialisation of Layer 3–defined types.**
 `toJson`/`fromJson` for standard method request/response types live in
 Layer 3 modules, not Layer 2. Rationale: the types are generic over entity
@@ -587,11 +599,13 @@ func get*[T](resp: Response, handle: ResponseHandle[T],
 railway / `ClientError`, is a Layer 4 concern — see `00-architecture.md`
 §1.6C.) The `fromArgs` callback returns `Result[T, ValidationError]`
 (construction railway, Track 0). `get[T]` returns `Result[T, MethodError]`
-(inner railway, Track 2). The
-conversion wraps `ValidationError.message` into `MethodError.description`
-— this is the `mapErr` semantic at the railway boundary. If
-`MethodError.fromJson` itself fails on a malformed error response (step
-3), the same `serverFail` fallback applies.
+(inner railway, Track 2). The conversion is lossless — the full
+`ValidationError` structure (including `typeName` and `value`) is
+preserved as structured JSON in `MethodError.extras`, not flattened to a
+description string. A `validationToMethodError` helper centralises this
+conversion; `get[T]` calls `mapErr(validationToMethodError)` at the
+railway boundary. If `MethodError.fromJson` itself fails on a malformed
+error response (step 3), the same `serverFail` fallback applies.
 
 **Full algorithm:**
 
@@ -603,6 +617,15 @@ func findInvocation(resp: Response, targetId: MethodCallId): Opt[Invocation] =
     if inv.methodCallId == targetId:
       return Opt.some(inv)
   Opt.none(Invocation)
+
+func validationToMethodError*(ve: ValidationError): MethodError =
+  ## Lossless conversion: construction railway (Track 0) to inner railway
+  ## (Track 2). Preserves full ValidationError structure in MethodError.extras.
+  {.cast(noSideEffect).}:
+    let extras = %*{"typeName": ve.typeName, "value": ve.value}
+  methodError("serverFail",
+    description = Opt.some(ve.message),
+    extras = Opt.some(extras))
 
 func get*[T](resp: Response, handle: ResponseHandle[T],
     fromArgs: proc(node: JsonNode): Result[T, ValidationError]
@@ -623,12 +646,7 @@ func get*[T](resp: Response, handle: ResponseHandle[T],
       return err(methodError("serverFail",
         description = Opt.some("malformed error response")))
   # Parse the response arguments via the caller-supplied callback
-  let parseResult = fromArgs(matchedInv.arguments)
-  if parseResult.isOk:
-    ok(parseResult.get())
-  else:
-    err(methodError("serverFail",
-      description = Opt.some(parseResult.error.message)))
+  fromArgs(matchedInv.arguments).mapErr(validationToMethodError)
 ```
 
 **Decision D3.3:** Returns `Result[T, MethodError]` (inner railway), not
@@ -2656,6 +2674,8 @@ arguments echoed back identically.
 | GetResponse | `accountId` empty string | `err` | `parseAccountId` rejects |
 | **ChangesResponse** | Valid JSON | `ok` | Happy path |
 | ChangesResponse | `hasMoreChanges` = true | `.hasMoreChanges == true` | Partial sync |
+| ChangesResponse | `hasMoreChanges` is JString | `err` | `checkJsonKind` rejects — required `JBool` |
+| ChangesResponse | `hasMoreChanges` absent | `err` | `checkJsonKind` rejects — required field |
 | ChangesResponse | Missing `newState` | `err` | Required field |
 | ChangesResponse | Empty `created`/`updated`/`destroyed` | `ok` with empty seqs | No changes |
 | **SetResponse** | Both `created` and `notCreated` null | Empty `createResults` | Both absent |
@@ -2677,6 +2697,7 @@ arguments echoed back identically.
 | QueryResponse | `ids` empty array | `@[]` | `position >= total` |
 | QueryResponse | `position` is JString | `err` | `checkJsonKind` rejects |
 | QueryResponse | `canCalculateChanges` missing | `err` | Required field |
+| QueryResponse | `canCalculateChanges` is JInt | `err` | `checkJsonKind` rejects — required `JBool` |
 | **QueryChangesResponse** | Valid with removed + added | `ok` | Happy path |
 | QueryChangesResponse | Empty removed, non-empty added | `ok` | Additions only |
 | QueryChangesResponse | `total` absent | `total.isNone` | `calculateTotal` false |
@@ -2694,7 +2715,7 @@ arguments echoed back identically.
 | Request toJson | `CopyRequest` with `onSuccessDestroyOriginal = true` | `"onSuccessDestroyOriginal": true` | Boolean always emitted |
 | Request toJson | `ChangesRequest` minimal | `accountId` + `sinceState` only | Simplest request |
 
-**Total: 63 enumerated edge case rows.**
+**Total: 66 enumerated edge case rows.**
 
 ---
 
@@ -2713,6 +2734,16 @@ arguments echoed back identically.
 | D3.9 | `nextId` uses `MethodCallId(s)` directly (bypassing validation) | `parseMethodCallId(s).get()` | The builder controls the format entirely (`"c0"`, `"c1"`, ...). These are provably valid MethodCallIds (non-empty, ASCII digits only). Using `.get()` would add an unnecessary `Defect` path for an impossible error. |
 | D3.10 | `reference()` takes explicit `responseName` parameter | Auto-derive from `T` and method suffix | Different methods produce different response names (`"Mailbox/query"` vs `"Mailbox/get"`). Auto-deriving requires the `reference` function to know which method the handle came from, which the phantom type `T` (response type, not method type) does not encode. Explicit is unambiguous. |
 | D3.11 | `MaxChanges` distinct type (Layer 1) for `maxChanges` fields | `Opt[UnsignedInt]` with runtime/server rejection | RFC §5.2 requires > 0. Distinct type with smart constructor makes illegal state (0) unrepresentable at construction time, consistent with other identifier types. ~8 lines. |
+| D3.12 | Layer 2 `serde.nim` provides `jStr`/`jInt`/`jBool`/`jObj`/`jArr` func wrappers centralising `{.cast(noSideEffect).}` for primitive JSON construction | Inline cast in every primitive `toJson` | Eliminates 11 Category A casts (`%string(x)`, `%int64(x)` in primitive `toJson`). Category B casts (multi-line `%*` object builders, 14 sites) and Category C (`pairs` iteration, 1 site) remain. |
+
+### Deferred Decisions
+
+| ID | Topic | Disposition | Rationale |
+|----|-------|-------------|-----------|
+| R2 | Extract `mergeCreateResults` shared helper | Deferred to implementation | Revisit when `CopyResponse.fromJson` is written. Duplication verified as byte-for-byte identical, but Rule of Three applies — only 2 call sites. Layer 2 precedent (`parseCreatedIds`) suggests extraction will be warranted. |
+| R4 | `GetRequest.properties` as `Referencable` | Deferred to RFC 8621 | The `#properties` / `updatedProperties` pattern is real and canonical for Mailbox sync, but Mailbox-specific. Address via a `addMailboxSyncGet` convenience in the entity module, not by modifying the generic `GetRequest[T]` type. |
+| R7 | Convenience overloads for `addGet`/`addSet` | Deferred to post-implementation | Technically sound (no overload ambiguity, `null` vs `[]` correctly disambiguated), but zero users exist. Conveniences are additive — add when real usage patterns emerge. |
+| R12 | `toJson` borrowing for layered distinct types | Implementation detail | Borrowing works correctly for `MaxChanges = distinct UnsignedInt`, but only 1 type benefits (3 lines saved). Let the implementer decide. |
 
 ### MaxChanges Type (Layer 1 Addition)
 
