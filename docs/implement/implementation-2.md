@@ -16,7 +16,7 @@ coverage targets per type).
 
 ## Step 1: serde.nim — Shared helpers + primitive/identifier ser/de
 
-**Create:** `src/jmap_client/serde.nim`, `tests/tserde.nim`
+**Create:** `src/jmap_client/serde.nim`, `tests/serde/tserde.nim`
 
 **Design doc:** §§1–3, §12.
 
@@ -29,7 +29,7 @@ types (`Id`, `AccountId`, `JmapState`, `MethodCallId`, `CreationId`,
 
 ## Step 2: serde_session.nim — Capabilities + Account + Session
 
-**Create:** `src/jmap_client/serde_session.nim`, `tests/tserde_session.nim`
+**Create:** `src/jmap_client/serde_session.nim`, `tests/serde/tserde_session.nim`
 
 **Design doc:** §§4–5.
 
@@ -41,7 +41,7 @@ composite). Tests include the RFC §2.1 golden example (design doc §13.1).
 
 ## Step 3: serde_envelope.nim — Invocation, Request, Response
 
-**Create:** `src/jmap_client/serde_envelope.nim`, `tests/tserde_envelope.nim`
+**Create:** `src/jmap_client/serde_envelope.nim`, `tests/serde/tserde_envelope.nim`
 
 **Design doc:** §6.
 
@@ -54,7 +54,7 @@ Serialise `Invocation` (3-element JSON array), `ResultReference`,
 
 ## Step 4: serde_framework.nim — Filter, Comparator, PatchObject
 
-**Create:** `src/jmap_client/serde_framework.nim`, `tests/tserde_framework.nim`
+**Create:** `src/jmap_client/serde_framework.nim`, `tests/serde/tserde_framework.nim`
 
 **Design doc:** §§3.3, §§7.1–7.4.
 
@@ -66,7 +66,7 @@ for `isAscending`), `Filter[C]` (generic recursive with callbacks),
 
 ## Step 5: serde_errors.nim — RequestError, MethodError, SetError
 
-**Create:** `src/jmap_client/serde_errors.nim`, `tests/tserde_errors.nim`
+**Create:** `src/jmap_client/serde_errors.nim`, `tests/serde/tserde_errors.nim`
 
 **Design doc:** §8.
 
@@ -78,7 +78,7 @@ maps to `setUnknown`). All use `rawType` for lossless round-trip.
 
 ## Step 6: serialisation.nim — Re-export hub + entry point
 
-**Create:** `src/jmap_client/serialisation.nim`, `tests/tserialisation.nim`
+**Create:** `src/jmap_client/serialisation.nim`, `tests/serde/tserialisation.nim`
 **Update:** `src/jmap_client.nim`
 
 **Design doc:** §12.

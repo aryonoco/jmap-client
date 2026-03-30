@@ -534,29 +534,36 @@ proc genMethodError*(rng: var Rand): MethodError =
   methodError(raw, desc, extras)
 
 proc genSetError*(rng: var Rand): SetError =
-  ## Random SetError across all 3 variant branches.
+  ## Random SetError across all 3 variant branches with optional extras.
   let branch = rng.rand(0 .. 2)
   let desc =
     if rng.rand(0 .. 1) == 0:
       Opt.some("desc-" & $rng.rand(0 .. 99))
     else:
       Opt.none(string)
+  let extras =
+    if rng.rand(0 .. 2) == 0:
+      let node = newJObject()
+      node["vendorField"] = newJString("value-" & $rng.rand(0 .. 99))
+      Opt.some(node)
+    else:
+      Opt.none(JsonNode)
   case branch
   of 0:
     # invalidProperties variant
-    let propCount = rng.rand(0 .. 5)
+    let propCount = rng.rand(1 .. 5)
     var props: seq[string] = @[]
     for i in 0 ..< propCount:
       props.add "prop" & $i
-    setErrorInvalidProperties("invalidProperties", props, desc)
+    setErrorInvalidProperties("invalidProperties", props, desc, extras)
   of 1:
     # alreadyExists variant
     let id = parseId(rng.genValidIdStrict(minLen = 1, maxLen = 20)).get()
-    setErrorAlreadyExists("alreadyExists", id, desc)
+    setErrorAlreadyExists("alreadyExists", id, desc, extras)
   else:
     # Generic variant
     const rawTypes = ["forbidden", "overQuota", "tooLarge", "notFound", "vendorError"]
-    setError(rng.oneOf(rawTypes), desc)
+    setError(rng.oneOf(rawTypes), desc, extras)
 
 proc genClientError*(rng: var Rand): ClientError =
   ## Random ClientError wrapping either transport or request error.

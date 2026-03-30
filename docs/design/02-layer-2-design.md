@@ -422,6 +422,30 @@ server fields for lossless round-trip (Decision 1.7C).
 
 **Module:** `src/jmap_client/serde.nim`
 
+Two additional lenient Opt field helpers live in `serde_errors.nim` (private,
+used only by the error `fromJson` functions). They reduce cyclomatic
+complexity by encapsulating the §1.4b absent/wrong-kind → `Opt.none` pattern:
+
+```nim
+func optString(node: JsonNode, key: string): Opt[string] =
+  ## Extract an optional string field leniently: absent or wrong kind -> none.
+  let child = node{key}
+  if child.isNil or child.kind != JString:
+    Opt.none(string)
+  else:
+    Opt.some(child.getStr(""))
+
+func optInt(node: JsonNode, key: string): Opt[int] =
+  ## Extract an optional integer field leniently: absent or wrong kind -> none.
+  let child = node{key}
+  if child.isNil or child.kind != JInt:
+    Opt.none(int)
+  else:
+    Opt.some(int(child.getBiggestInt(0)))
+```
+
+**Module:** `src/jmap_client/serde_errors.nim`
+
 ### 1.4a Error Context Scope (Explicit Trade-Off)
 
 When `fromJson` fails deep inside a nested call chain (e.g.,
@@ -1873,26 +1897,10 @@ func fromJson*(T: typedesc[RequestError], node: JsonNode
   let rawType = node{"type"}.getStr("")
   if rawType.len == 0:
     return err(parseError($T, "empty type field"))
-  let status: Opt[int] =
-    if node{"status"}.isNil or node{"status"}.kind != JInt:
-      Opt.none(int)
-    else:
-      Opt.some(int(node{"status"}.getBiggestInt(0)))
-  let title: Opt[string] =
-    if node{"title"}.isNil or node{"title"}.kind != JString:
-      Opt.none(string)
-    else:
-      Opt.some(node{"title"}.getStr(""))
-  let detail: Opt[string] =
-    if node{"detail"}.isNil or node{"detail"}.kind != JString:
-      Opt.none(string)
-    else:
-      Opt.some(node{"detail"}.getStr(""))
-  let limit: Opt[string] =
-    if node{"limit"}.isNil or node{"limit"}.kind != JString:
-      Opt.none(string)
-    else:
-      Opt.some(node{"limit"}.getStr(""))
+  let status = optInt(node, "status")     # §1.4b: lenient
+  let title = optString(node, "title")    # §1.4b: lenient
+  let detail = optString(node, "detail")  # §1.4b: lenient
+  let limit = optString(node, "limit")    # §1.4b: lenient
   let extras = collectExtras(node, RequestErrorKnownKeys)
   ok(requestError(
     rawType = rawType,
@@ -1952,11 +1960,7 @@ func fromJson*(T: typedesc[MethodError], node: JsonNode
   let rawType = node{"type"}.getStr("")
   if rawType.len == 0:
     return err(parseError($T, "empty type field"))
-  let description: Opt[string] =  # §1.4b: lenient
-    if node{"description"}.isNil or node{"description"}.kind != JString:
-      Opt.none(string)
-    else:
-      Opt.some(node{"description"}.getStr(""))
+  let description = optString(node, "description")  # §1.4b: lenient
   let extras = collectExtras(node, MethodErrorKnownKeys)
   ok(methodError(rawType = rawType, description = description, extras = extras))
 ```
@@ -1998,8 +2002,7 @@ func toJson*(se: SetError): JsonNode =
       result["description"] = %se.description.get()
     case se.errorType
     of setInvalidProperties:
-      if se.properties.len > 0:
-        result["properties"] = %se.properties
+      result["properties"] = %se.properties
     of setAlreadyExists:
       result["existingId"] = %string(se.existingId)
     else:
@@ -2008,6 +2011,11 @@ func toJson*(se: SetError): JsonNode =
       for key, val in se.extras.get().pairs:
         result[key] = val
 ```
+
+The `properties` array is always emitted, even when empty. Omitting the key
+for empty arrays would break the §11 identity law: a `setInvalidProperties`
+with `properties=@[]` would serialise without the key, then `fromJson` would
+apply the defensive fallback and produce `setUnknown` instead.
 
 **`fromJson`:**
 
@@ -2021,11 +2029,7 @@ func fromJson*(T: typedesc[SetError], node: JsonNode
   let rawType = node{"type"}.getStr("")
   if rawType.len == 0:
     return err(parseError($T, "empty type field"))
-  let description: Opt[string] =  # §1.4b: lenient
-    if node{"description"}.isNil or node{"description"}.kind != JString:
-      Opt.none(string)
-    else:
-      Opt.some(node{"description"}.getStr(""))
+  let description = optString(node, "description")  # §1.4b: lenient
   let errorType = parseSetErrorType(rawType)
   # Per-variant known keys: variant-specific fields are "known" only for
   # their own variant. Misplaced RFC fields on other variants are preserved
@@ -2065,12 +2069,13 @@ func fromJson*(T: typedesc[SetError], node: JsonNode
 ```
 
 **Rationale.** The defensive fallback matches Layer 1 §8.10: when a server
-sends `"type": "invalidProperties"` without the `properties` array, or
-`"type": "alreadyExists"` without `existingId`, `fromJson` calls the generic
-`setError` constructor which maps these to `setUnknown` (preserving
-`rawType`). This ensures pattern-matching consumers never encounter a
-`setInvalidProperties` variant with empty properties or a `setAlreadyExists`
-variant with a bogus `existingId`.
+sends `"type": "invalidProperties"` without the `properties` array (or with a
+non-array value), or `"type": "alreadyExists"` without `existingId` (or with
+a non-string value), `fromJson` calls the generic `setError` constructor which
+maps these to `setUnknown` (preserving `rawType`). This ensures
+pattern-matching consumers never encounter a `setInvalidProperties` variant
+with missing properties or a `setAlreadyExists` variant with a bogus
+`existingId`.
 
 **Module:** `src/jmap_client/serde_errors.nim`
 
