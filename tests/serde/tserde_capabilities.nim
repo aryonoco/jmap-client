@@ -16,6 +16,7 @@ import jmap_client/serde
 import jmap_client/serde_session
 import jmap_client/primitives
 import jmap_client/capabilities
+import jmap_client/session
 
 import ../massertions
 import ../mfixtures
@@ -431,3 +432,38 @@ block equalityHelperCapEqDifferentKind:
     rawUri: "urn:ietf:params:jmap:mail", kind: ckMail, rawData: newJObject()
   )
   doAssert not capEq(coreCap, mailCap), "capEq must return false for different kinds"
+
+# =============================================================================
+# toJson ownership: returned JsonNode must be independent of internal state
+# =============================================================================
+
+block serverCapabilityToJsonReturnsIndependentCopy:
+  ## Mutating the JsonNode returned by toJson must not corrupt the capability.
+  {.cast(noSideEffect).}:
+    let vendorData = newJObject()
+    vendorData["original"] = %"value"
+    let cap = ServerCapability(
+      rawUri: "urn:vendor:example", kind: ckUnknown, rawData: vendorData.copy()
+    )
+    let j = cap.toJson()
+    j["injected"] = %"corrupted"
+    # The internal rawData must be unaffected
+    doAssert cap.rawData{"injected"}.isNil,
+      "toJson must return an independent copy — mutation must not propagate"
+    doAssert cap.rawData{"original"}.getStr("") == "value",
+      "original data must be intact"
+
+block accountCapabilityEntryToJsonReturnsIndependentCopy:
+  ## Mutating the JsonNode returned by toJson must not corrupt the entry.
+  {.cast(noSideEffect).}:
+    let entryData = newJObject()
+    entryData["original"] = %"value"
+    let entry = AccountCapabilityEntry(
+      kind: ckMail, rawUri: "urn:ietf:params:jmap:mail", data: entryData.copy()
+    )
+    let j = entry.toJson()
+    j["injected"] = %"corrupted"
+    doAssert entry.data{"injected"}.isNil,
+      "toJson must return an independent copy — mutation must not propagate"
+    doAssert entry.data{"original"}.getStr("") == "value",
+      "original data must be intact"

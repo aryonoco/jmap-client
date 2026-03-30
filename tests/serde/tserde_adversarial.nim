@@ -274,6 +274,40 @@ block filterDeepNesting50Levels:
   let r = Filter[int].fromJson(inner, fromIntCondition)
   assertOk r
 
+block filterDepthGuardRejectsExcessiveNesting:
+  ## Nesting beyond MaxFilterDepth must return err, not stack overflow.
+  ## This is a defence-in-depth guard: std/json's parseJson has its own
+  ## DepthLimit of 1000, but fromJson accepts pre-parsed JsonNode, so that
+  ## limit does not apply at this layer.
+  var inner = newJObject()
+  {.cast(noSideEffect).}:
+    inner["value"] = %42
+  for i in 0 ..< 200:
+    var conds = newJArray()
+    conds.add(inner)
+    inner = newJObject()
+    {.cast(noSideEffect).}:
+      inner["operator"] = %"AND"
+    inner["conditions"] = conds
+  let r = Filter[int].fromJson(inner, fromIntCondition)
+  assertErr r
+
+block filterDepthGuardAllowsMaxDepth:
+  ## Nesting at exactly MaxFilterDepth must succeed.
+  var inner = newJObject()
+  {.cast(noSideEffect).}:
+    inner["value"] = %42
+  for i in 0 ..< (MaxFilterDepth - 1):
+    # Each level adds 1 to depth; leaf at depth MaxFilterDepth is ok
+    var conds = newJArray()
+    conds.add(inner)
+    inner = newJObject()
+    {.cast(noSideEffect).}:
+      inner["operator"] = %"AND"
+    inner["conditions"] = conds
+  let r = Filter[int].fromJson(inner, fromIntCondition)
+  assertOk r
+
 block filterWideOperator1000Children:
   ## AND operator with 1000 leaf conditions -> should succeed.
   var conds = newJArray()

@@ -43,8 +43,12 @@ func optInt(node: JsonNode, key: string): Opt[int] =
 # RequestError
 # =============================================================================
 
+const RequestErrorKnownKeys = ["type", "status", "title", "detail", "limit"]
+
 func toJson*(re: RequestError): JsonNode =
   ## Serialise RequestError to RFC 7807 problem details JSON.
+  ## Extras with keys colliding with standard fields are silently skipped
+  ## to prevent manual construction from corrupting the wire format.
   {.cast(noSideEffect).}:
     result = newJObject()
     result["type"] = %re.rawType
@@ -58,9 +62,8 @@ func toJson*(re: RequestError): JsonNode =
       result["limit"] = %re.limit.get()
     if re.extras.isSome:
       for key, val in re.extras.get().pairs:
-        result[key] = val
-
-const RequestErrorKnownKeys = ["type", "status", "title", "detail", "limit"]
+        if key notin RequestErrorKnownKeys:
+          result[key] = val
 
 func fromJson*(
     T: typedesc[RequestError], node: JsonNode
@@ -91,8 +94,11 @@ func fromJson*(
 # MethodError
 # =============================================================================
 
+const MethodErrorKnownKeys = ["type", "description"]
+
 func toJson*(me: MethodError): JsonNode =
   ## Serialise MethodError to JSON (RFC 8620 §3.6.2).
+  ## Extras with keys colliding with standard fields are silently skipped.
   {.cast(noSideEffect).}:
     result = newJObject()
     result["type"] = %me.rawType
@@ -100,9 +106,8 @@ func toJson*(me: MethodError): JsonNode =
       result["description"] = %me.description.get()
     if me.extras.isSome:
       for key, val in me.extras.get().pairs:
-        result[key] = val
-
-const MethodErrorKnownKeys = ["type", "description"]
+        if key notin MethodErrorKnownKeys:
+          result[key] = val
 
 func fromJson*(
     T: typedesc[MethodError], node: JsonNode
@@ -123,6 +128,8 @@ func fromJson*(
 
 func toJson*(se: SetError): JsonNode =
   ## Serialise SetError to JSON (RFC 8620 §5.3, §5.4).
+  ## Extras with keys colliding with standard or variant-specific fields are
+  ## silently skipped.
   {.cast(noSideEffect).}:
     result = newJObject()
     result["type"] = %se.rawType
@@ -136,8 +143,17 @@ func toJson*(se: SetError): JsonNode =
     else:
       discard
     if se.extras.isSome:
+      let knownKeys =
+        case se.errorType
+        of setInvalidProperties:
+          @["type", "description", "properties"]
+        of setAlreadyExists:
+          @["type", "description", "existingId"]
+        else:
+          @["type", "description"]
       for key, val in se.extras.get().pairs:
-        result[key] = val
+        if key notin knownKeys:
+          result[key] = val
 
 func fromJson*(
     T: typedesc[SetError], node: JsonNode

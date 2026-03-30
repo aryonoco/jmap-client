@@ -107,15 +107,26 @@ func toJson*[C](
         conditions.add(child.toJson(condToJson))
       %*{"operator": $f.operator, "conditions": conditions}
 
-func fromJson*[C](
-    T: typedesc[Filter[C]],
+const MaxFilterDepth* = 128
+  ## Maximum nesting depth for Filter[C].fromJson deserialisation.
+  ## Defence-in-depth guard against stack overflow (StackOverflowDefect is
+  ## uncatchable under {.push raises: [].}). 128 is generous for any realistic
+  ## JMAP query while preventing pathological nesting.
+  ## Note: std/json's parseJson has its own DepthLimit of 1000, but this
+  ## library's fromJson accepts pre-parsed JsonNode, so that limit does not
+  ## apply at this layer.
+
+func fromJsonImpl[C](
     node: JsonNode,
     fromCondition:
       proc(n: JsonNode): Result[C, ValidationError] {.noSideEffect, raises: [].},
+    depth: int,
 ): Result[Filter[C], ValidationError] =
-  ## Deserialise JSON to Filter[C]. Caller provides condition deserialiser.
-  ## Dispatches on presence of "operator" key.
-  checkJsonKind(node, JObject, $T)
+  ## Internal recursive helper with depth tracking.
+  const typeName = "Filter"
+  checkJsonKind(node, JObject, typeName)
+  if depth <= 0:
+    return err(parseError(typeName, "maximum nesting depth exceeded"))
   let opNode = node{"operator"}
   if opNode.isNil:
     let cond = ?fromCondition(node)
@@ -123,12 +134,26 @@ func fromJson*[C](
   else:
     let op = ?FilterOperator.fromJson(opNode)
     let conditionsNode = node{"conditions"}
-    checkJsonKind(conditionsNode, JArray, $T, "missing or invalid conditions array")
+    checkJsonKind(
+      conditionsNode, JArray, typeName, "missing or invalid conditions array"
+    )
     var children: seq[Filter[C]]
     for childNode in conditionsNode.getElems(@[]):
-      let child = ?Filter[C].fromJson(childNode, fromCondition)
+      let child = ?fromJsonImpl[C](childNode, fromCondition, depth - 1)
       children.add(child)
     ok(filterOperator(op, children))
+
+func fromJson*[C](
+    T: typedesc[Filter[C]],
+    node: JsonNode,
+    fromCondition:
+      proc(n: JsonNode): Result[C, ValidationError] {.noSideEffect, raises: [].},
+): Result[Filter[C], ValidationError] =
+  ## Deserialise JSON to Filter[C]. Caller provides condition deserialiser.
+  ## Dispatches on presence of "operator" key. Nesting depth is capped at
+  ## MaxFilterDepth to prevent stack overflow on pathological input.
+  discard $T # consumed for nimalyzer params rule
+  fromJsonImpl[C](node, fromCondition, MaxFilterDepth)
 
 # =============================================================================
 # PatchObject

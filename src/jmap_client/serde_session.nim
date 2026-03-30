@@ -84,14 +84,17 @@ func fromJson*(
 
 func toJson*(cap: ServerCapability): JsonNode =
   ## Serialise capability data (not the URI key — handled by Session.toJson).
+  ## Non-core capabilities deep-copy to prevent callers from mutating internal
+  ## state through the returned ref (mirrors fromJson's ownData pattern).
   case cap.kind
   of ckCore:
     cap.core.toJson()
   else:
-    if cap.rawData.isNil:
-      newJObject()
-    else:
-      cap.rawData
+    {.cast(noSideEffect).}:
+      if cap.rawData.isNil:
+        newJObject()
+      else:
+        cap.rawData.copy()
 
 func ownData(data: JsonNode): JsonNode =
   ## Deep-copy a JsonNode to avoid ARC double-free on shared refs.
@@ -147,10 +150,13 @@ func fromJson*(
 
 func toJson*(entry: AccountCapabilityEntry): JsonNode =
   ## Serialise the capability data (URI key handled by Account.toJson).
-  if entry.data.isNil:
-    newJObject()
-  else:
-    entry.data
+  ## Deep-copies to prevent callers from mutating internal state through
+  ## the returned ref (mirrors fromJson's deep-copy pattern).
+  {.cast(noSideEffect).}:
+    if entry.data.isNil:
+      newJObject()
+    else:
+      entry.data.copy()
 
 func fromJson*(
     T: typedesc[AccountCapabilityEntry], uri: string, data: JsonNode

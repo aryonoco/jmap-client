@@ -623,3 +623,99 @@ block collectExtrasLarge100Keys:
     for key, val in extras.pairs:
       inc count
     assertEq count, 100
+
+# =============================================================================
+# Extras collision: standard field names in extras must not overwrite
+# =============================================================================
+
+block requestErrorExtrasCollisionTypeField:
+  ## Extras containing "type" must not overwrite the standard type field.
+  {.cast(noSideEffect).}:
+    let extras = newJObject()
+    extras["type"] = %"evil"
+    extras["vendor"] = %"safe"
+    let re = requestError(
+      rawType = "urn:ietf:params:jmap:error:limit", extras = Opt.some(extras)
+    )
+    let j = re.toJson()
+    # Standard "type" field must win
+    assertJsonFieldEq j, "type", %"urn:ietf:params:jmap:error:limit"
+    # Colliding "type" must be dropped; non-colliding "vendor" preserved
+    assertJsonFieldEq j, "vendor", %"safe"
+
+block requestErrorExtrasCollisionAllStandardFields:
+  ## Extras containing all 5 standard field names must not overwrite any.
+  {.cast(noSideEffect).}:
+    let extras = newJObject()
+    extras["type"] = %"evil"
+    extras["status"] = %999
+    extras["title"] = %"evil-title"
+    extras["detail"] = %"evil-detail"
+    extras["limit"] = %"evil-limit"
+    extras["vendor"] = %"safe"
+    let re = requestError(
+      rawType = "urn:ietf:params:jmap:error:limit",
+      status = Opt.some(429),
+      title = Opt.some("Rate Limit"),
+      detail = Opt.some("Too many requests"),
+      limit = Opt.some("maxCallsInRequest"),
+      extras = Opt.some(extras),
+    )
+    let j = re.toJson()
+    assertJsonFieldEq j, "type", %"urn:ietf:params:jmap:error:limit"
+    assertJsonFieldEq j, "status", %429
+    assertJsonFieldEq j, "title", %"Rate Limit"
+    assertJsonFieldEq j, "detail", %"Too many requests"
+    assertJsonFieldEq j, "limit", %"maxCallsInRequest"
+    assertJsonFieldEq j, "vendor", %"safe"
+
+block methodErrorExtrasCollisionTypeField:
+  ## Extras containing "type" and "description" must not overwrite standard fields.
+  {.cast(noSideEffect).}:
+    let extras = newJObject()
+    extras["type"] = %"evil"
+    extras["description"] = %"evil-desc"
+    extras["vendor"] = %"safe"
+    let me = methodError(
+      rawType = "invalidArguments",
+      description = Opt.some("real description"),
+      extras = Opt.some(extras),
+    )
+    let j = me.toJson()
+    assertJsonFieldEq j, "type", %"invalidArguments"
+    assertJsonFieldEq j, "description", %"real description"
+    assertJsonFieldEq j, "vendor", %"safe"
+
+block setErrorExtrasCollisionTypeField:
+  ## Extras containing "type" must not overwrite standard field.
+  {.cast(noSideEffect).}:
+    let extras = newJObject()
+    extras["type"] = %"evil"
+    extras["vendor"] = %"safe"
+    let se = setError(
+      rawType = "forbidden",
+      description = Opt.some("real desc"),
+      extras = Opt.some(extras),
+    )
+    let j = se.toJson()
+    assertJsonFieldEq j, "type", %"forbidden"
+    assertJsonFieldEq j, "vendor", %"safe"
+
+block setErrorInvalidPropertiesExtrasCollisionProperties:
+  ## Extras containing "properties" must not overwrite the variant field.
+  {.cast(noSideEffect).}:
+    let extras = newJObject()
+    extras["properties"] = %*["evil"]
+    extras["vendor"] = %"safe"
+    let se = setErrorInvalidProperties(
+      rawType = "invalidProperties",
+      properties = @["subject", "body"],
+      extras = Opt.some(extras),
+    )
+    let j = se.toJson()
+    assertJsonFieldEq j, "type", %"invalidProperties"
+    # "properties" must be the real array, not the extras one
+    let propsNode = j{"properties"}
+    assertFalse propsNode.isNil, "properties field must be present"
+    assertEq propsNode.getElems(@[]).len, 2
+    assertJsonFieldEq j, "vendor", %"safe"
