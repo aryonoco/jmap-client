@@ -33,11 +33,36 @@ func fromDirectInt(n: JsonNode): Result[int, ValidationError] =
   checkJsonKind(n, JInt, "int")
   ok(n.getInt(0))
 
-# Golden and valid Request/Response JSON fixtures are in mfixtures.nim:
-# goldenRequestJson() — RFC 8620 section 3.3.1 golden example
-# goldenResponseJson() — RFC 8620 section 3.4.1 golden example
-# validRequestJson() — minimal valid Request
-# validResponseJson() — minimal valid Response
+proc goldenRequestJson(): JsonNode =
+  ## Builds a fresh copy of the RFC section 3.3.1 golden Request JSON.
+  %*{
+    "using": ["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail"],
+    "methodCalls": [
+      ["method1", {"arg1": "arg1data", "arg2": "arg2data"}, "c1"],
+      ["method2", {"arg1": "arg1data"}, "c2"],
+      ["method3", {}, "c3"],
+    ],
+  }
+
+proc goldenResponseJson(): JsonNode =
+  ## Builds a fresh copy of the RFC section 3.4.1 golden Response JSON.
+  %*{
+    "methodResponses": [
+      ["method1", {"arg1": 3, "arg2": "foo"}, "c1"],
+      ["method2", {"isBlah": true}, "c2"],
+      ["anotherResponseFromMethod2", {"data": 10, "yetmoredata": "Hello"}, "c2"],
+      ["error", {"type": "unknownMethod"}, "c3"],
+    ],
+    "sessionState": "75128aab4b1b",
+  }
+
+proc validRequestJson(): JsonNode =
+  ## Builds a fresh minimal valid Request JSON.
+  %*{"using": ["urn:ietf:params:jmap:core"], "methodCalls": [["Mailbox/get", {}, "c0"]]}
+
+proc validResponseJson(): JsonNode =
+  ## Builds a fresh minimal valid Response JSON.
+  %*{"methodResponses": [["Mailbox/get", {}, "c0"]], "sessionState": "s1"}
 
 # =============================================================================
 # A. Round-trip tests
@@ -217,6 +242,8 @@ block responseDeserGoldenRfc:
   assertEq resp.methodResponses[2].methodCallId, parseMethodCallId("c2").get()
   assertEq resp.methodResponses[3].name, "error"
   assertEq resp.methodResponses[3].methodCallId, parseMethodCallId("c3").get()
+  ## Phase 2B: verify error invocation arguments contain the error type.
+  assertEq resp.methodResponses[3].arguments{"type"}.getStr(""), "unknownMethod"
   assertEq resp.sessionState, parseJmapState("75128aab4b1b").get()
   doAssert resp.createdIds.isNone
 
@@ -713,3 +740,83 @@ block requestEmptyUsingArray:
     let r = Request.fromJson(j)
     assertOk r
     assertLen r.get().`using`, 0
+
+# =============================================================================
+# H. Wire format golden tests — serialise then compare literal JSON (Phase 2C)
+# =============================================================================
+
+block requestGoldenWireFormat:
+  ## Construct a Request matching the RFC 8620 section 3.3.1 example, serialise
+  ## it, and verify the output fields match the expected JSON structure.
+  {.cast(noSideEffect).}:
+    let args1 = %*{"arg1": "arg1data", "arg2": "arg2data"}
+    let args2 = %*{"arg1": "arg1data"}
+    let args3 = newJObject()
+    let inv1 =
+      Invocation(name: "method1", arguments: args1, methodCallId: makeMcid("c1"))
+    let inv2 =
+      Invocation(name: "method2", arguments: args2, methodCallId: makeMcid("c2"))
+    let inv3 =
+      Invocation(name: "method3", arguments: args3, methodCallId: makeMcid("c3"))
+    let req = Request(
+      `using`: @["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail"],
+      methodCalls: @[inv1, inv2, inv3],
+      createdIds: Opt.none(Table[CreationId, Id]),
+    )
+    let j = req.toJson()
+    ## Verify top-level field names and kinds.
+    doAssert j{"using"} != nil
+    doAssert j{"using"}.kind == JArray
+    assertEq j{"using"}.getElems(@[]).len, 2
+    assertEq j{"using"}.getElems(@[])[0].getStr(""), "urn:ietf:params:jmap:core"
+    assertEq j{"using"}.getElems(@[])[1].getStr(""), "urn:ietf:params:jmap:mail"
+    doAssert j{"methodCalls"} != nil
+    doAssert j{"methodCalls"}.kind == JArray
+    assertEq j{"methodCalls"}.getElems(@[]).len, 3
+    ## Verify each invocation is a 3-element array [name, args, mcid].
+    let call0 = j{"methodCalls"}.getElems(@[])[0]
+    doAssert call0.kind == JArray
+    assertEq call0.getElems(@[]).len, 3
+    assertEq call0.getElems(@[])[0].getStr(""), "method1"
+    assertEq call0.getElems(@[])[1]{"arg1"}.getStr(""), "arg1data"
+    assertEq call0.getElems(@[])[2].getStr(""), "c1"
+    let call2 = j{"methodCalls"}.getElems(@[])[2]
+    assertEq call2.getElems(@[])[0].getStr(""), "method3"
+    assertEq call2.getElems(@[])[2].getStr(""), "c3"
+    ## createdIds must be absent (Opt.none).
+    doAssert j{"createdIds"}.isNil
+
+block responseGoldenWireFormat:
+  ## Construct a Response matching the RFC 8620 section 3.4.1 example, serialise
+  ## it, and verify the output fields match the expected JSON structure.
+  {.cast(noSideEffect).}:
+    let args1 = %*{"arg1": 3, "arg2": "foo"}
+    let args2 = %*{"isBlah": true}
+    let args3 = %*{"data": 10, "yetmoredata": "Hello"}
+    let args4 = %*{"type": "unknownMethod"}
+    let inv1 =
+      Invocation(name: "method1", arguments: args1, methodCallId: makeMcid("c1"))
+    let inv2 =
+      Invocation(name: "method2", arguments: args2, methodCallId: makeMcid("c2"))
+    let inv3 = Invocation(
+      name: "anotherResponseFromMethod2", arguments: args3, methodCallId: makeMcid("c2")
+    )
+    let inv4 = Invocation(name: "error", arguments: args4, methodCallId: makeMcid("c3"))
+    let resp = Response(
+      methodResponses: @[inv1, inv2, inv3, inv4],
+      sessionState: parseJmapState("75128aab4b1b").get(),
+      createdIds: Opt.none(Table[CreationId, Id]),
+    )
+    let j = resp.toJson()
+    ## Verify top-level structure.
+    doAssert j{"methodResponses"} != nil
+    doAssert j{"methodResponses"}.kind == JArray
+    assertEq j{"methodResponses"}.getElems(@[]).len, 4
+    assertEq j{"sessionState"}.getStr(""), "75128aab4b1b"
+    doAssert j{"createdIds"}.isNil
+    ## Verify the error invocation wire format.
+    let errInv = j{"methodResponses"}.getElems(@[])[3]
+    doAssert errInv.kind == JArray
+    assertEq errInv.getElems(@[])[0].getStr(""), "error"
+    assertEq errInv.getElems(@[])[1]{"type"}.getStr(""), "unknownMethod"
+    assertEq errInv.getElems(@[])[2].getStr(""), "c3"

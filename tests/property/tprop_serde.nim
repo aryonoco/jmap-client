@@ -364,3 +364,158 @@ block propDoubleParsePrimitives:
     let state1 = parseJmapState(stateStr).get()
     let state2 = parseJmapState($state1).get()
     doAssert state1 == state2, "JmapState double-parse not stable"
+
+# =============================================================================
+# J. Session JSON round-trip identity (Phase 2A)
+# =============================================================================
+
+block propSessionJsonRoundTrip:
+  ## Session round-trip identity via JSON: serialise, deserialise, re-serialise,
+  ## then compare the deserialised value against a second deserialisation.
+  ## This approach handles the known genValidAccount duplicate-URI deduplication:
+  ## Account.toJson uses rawUri as key, so duplicate entries collapse. The first
+  ## toJson -> fromJson normalises this, and the second round-trip must be stable.
+  checkPropertyN "Session round-trip: fromJson(toJson(session)) is idempotent",
+    ThoroughTrials:
+    let session = rng.genSession()
+    lastInput = session.username & " (" & $session.capabilities.len & " caps)"
+    let j1 = session.toJson()
+    let rt1 = Session.fromJson(j1)
+    doAssert rt1.isOk, "Session first parse failed"
+    let j2 = rt1.get().toJson()
+    let rt2 = Session.fromJson(j2)
+    doAssert rt2.isOk, "Session second parse failed"
+    doAssert sessionEq(rt1.get(), rt2.get()),
+      "Session round-trip not idempotent: fromJson(toJson(fromJson(toJson(s)))) differs"
+
+# =============================================================================
+# K. Primitive JSON serde round-trips (Phase 2D)
+# =============================================================================
+
+block propJsonRoundTripId:
+  ## Id: generate valid strict Id, serialise to JSON, deserialise back, compare.
+  ## Uses parseId (strict) for construction and Id.fromJson (lenient) for deser.
+  checkPropertyN "Id JSON round-trip: fromJson(toJson(id)) == id", ThoroughTrials:
+    let idStr = rng.genValidIdStrict(trial, minLen = 1, maxLen = 255)
+    lastInput = idStr
+    let id = parseId(idStr).get()
+    let j = id.toJson()
+    let rt = Id.fromJson(j)
+    doAssert rt.isOk, "Id JSON round-trip failed"
+    doAssert rt.get() == id, "Id JSON round-trip identity violated"
+
+block propJsonRoundTripAccountId:
+  ## AccountId: generate valid lenient string, serialise, deserialise, compare.
+  checkPropertyN "AccountId JSON round-trip: fromJson(toJson(aid)) == aid",
+    ThoroughTrials:
+    let aidStr = rng.genValidAccountId(trial)
+    lastInput = aidStr
+    let aid = parseAccountId(aidStr).get()
+    let j = aid.toJson()
+    let rt = AccountId.fromJson(j)
+    doAssert rt.isOk, "AccountId JSON round-trip failed"
+    doAssert rt.get() == aid, "AccountId JSON round-trip identity violated"
+
+block propJsonRoundTripJmapState:
+  ## JmapState: generate valid state string, serialise, deserialise, compare.
+  checkPropertyN "JmapState JSON round-trip: fromJson(toJson(st)) == st", ThoroughTrials:
+    let stStr = rng.genValidJmapState(trial)
+    lastInput = stStr
+    let st = parseJmapState(stStr).get()
+    let j = st.toJson()
+    let rt = JmapState.fromJson(j)
+    doAssert rt.isOk, "JmapState JSON round-trip failed"
+    doAssert rt.get() == st, "JmapState JSON round-trip identity violated"
+
+block propJsonRoundTripMethodCallId:
+  ## MethodCallId: generate valid mcid, serialise, deserialise, compare.
+  ## MethodCallId has no charset restriction but must be non-empty.
+  checkPropertyN "MethodCallId JSON round-trip: fromJson(toJson(mcid)) == mcid",
+    ThoroughTrials:
+    let mcidStr = rng.genValidMethodCallId(trial)
+    lastInput = $mcidStr.len & " bytes"
+    let mcid = parseMethodCallId(mcidStr).get()
+    let j = mcid.toJson()
+    let rt = MethodCallId.fromJson(j)
+    doAssert rt.isOk, "MethodCallId JSON round-trip failed"
+    doAssert rt.get() == mcid, "MethodCallId JSON round-trip identity violated"
+
+block propJsonRoundTripCreationId:
+  ## CreationId: generate valid creation id (non-empty, no '#' prefix), round-trip.
+  checkPropertyN "CreationId JSON round-trip: fromJson(toJson(cid)) == cid",
+    ThoroughTrials:
+    let cidStr = rng.genValidCreationId(trial)
+    lastInput = $cidStr.len & " bytes"
+    let cid = parseCreationId(cidStr).get()
+    let j = cid.toJson()
+    let rt = CreationId.fromJson(j)
+    doAssert rt.isOk, "CreationId JSON round-trip failed"
+    doAssert rt.get() == cid, "CreationId JSON round-trip identity violated"
+
+block propJsonRoundTripUnsignedInt:
+  ## UnsignedInt: generate valid value in 0..2^53-1, serialise, deserialise.
+  checkPropertyN "UnsignedInt JSON round-trip: fromJson(toJson(u)) == u", ThoroughTrials:
+    let val = rng.genValidUnsignedInt(trial)
+    lastInput = $val
+    let u = parseUnsignedInt(val).get()
+    let j = u.toJson()
+    let rt = UnsignedInt.fromJson(j)
+    doAssert rt.isOk, "UnsignedInt JSON round-trip failed"
+    doAssert rt.get() == u, "UnsignedInt JSON round-trip identity violated"
+
+block propJsonRoundTripJmapInt:
+  ## JmapInt: generate valid value in -(2^53-1)..2^53-1, serialise, deserialise.
+  checkPropertyN "JmapInt JSON round-trip: fromJson(toJson(ji)) == ji", ThoroughTrials:
+    let val = rng.genValidJmapInt(trial)
+    lastInput = $val
+    let ji = parseJmapInt(val).get()
+    let j = ji.toJson()
+    let rt = JmapInt.fromJson(j)
+    doAssert rt.isOk, "JmapInt JSON round-trip failed"
+    doAssert rt.get() == ji, "JmapInt JSON round-trip identity violated"
+
+block propJsonRoundTripDate:
+  ## Date: generate structurally valid RFC 3339 date, serialise, deserialise.
+  checkPropertyN "Date JSON round-trip: fromJson(toJson(d)) == d", ThoroughTrials:
+    let dStr = rng.genValidDate()
+    lastInput = dStr
+    let d = parseDate(dStr).get()
+    let j = d.toJson()
+    let rt = Date.fromJson(j)
+    doAssert rt.isOk, "Date JSON round-trip failed"
+    doAssert rt.get() == d, "Date JSON round-trip identity violated"
+
+block propJsonRoundTripUtcDate:
+  ## UTCDate: generate valid UTC date (Z suffix), serialise, deserialise.
+  checkPropertyN "UTCDate JSON round-trip: fromJson(toJson(ud)) == ud", ThoroughTrials:
+    let udStr = rng.genValidUtcDate()
+    lastInput = udStr
+    let ud = parseUtcDate(udStr).get()
+    let j = ud.toJson()
+    let rt = UTCDate.fromJson(j)
+    doAssert rt.isOk, "UTCDate JSON round-trip failed"
+    doAssert rt.get() == ud, "UTCDate JSON round-trip identity violated"
+
+block propJsonRoundTripUriTemplate:
+  ## UriTemplate: generate valid parametric URI template, serialise, deserialise.
+  checkPropertyN "UriTemplate JSON round-trip: fromJson(toJson(ut)) == ut",
+    ThoroughTrials:
+    let utStr = rng.genValidUriTemplateParametric()
+    lastInput = utStr
+    let ut = parseUriTemplate(utStr).get()
+    let j = ut.toJson()
+    let rt = UriTemplate.fromJson(j)
+    doAssert rt.isOk, "UriTemplate JSON round-trip failed"
+    doAssert rt.get() == ut, "UriTemplate JSON round-trip identity violated"
+
+block propJsonRoundTripPropertyName:
+  ## PropertyName: generate valid property name, serialise, deserialise.
+  checkPropertyN "PropertyName JSON round-trip: fromJson(toJson(pn)) == pn",
+    ThoroughTrials:
+    let pnStr = rng.genValidPropertyName(trial)
+    lastInput = pnStr
+    let pn = parsePropertyName(pnStr).get()
+    let j = pn.toJson()
+    let rt = PropertyName.fromJson(j)
+    doAssert rt.isOk, "PropertyName JSON round-trip failed"
+    doAssert rt.get() == pn, "PropertyName JSON round-trip identity violated"
