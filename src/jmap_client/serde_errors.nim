@@ -194,8 +194,11 @@ func fromJson*(
   of setAlreadyExists:
     let idNode = node{"existingId"}
     if not idNode.isNil and idNode.kind == JString:
-      let existingId = ?parseIdFromServer(idNode.getStr(""))
-      return ok(setErrorAlreadyExists(rawType, existingId, description, extras))
+      let existingIdResult = parseIdFromServer(idNode.getStr(""))
+      if existingIdResult.isOk:
+        return ok(
+          setErrorAlreadyExists(rawType, existingIdResult.get(), description, extras)
+        )
     ok(setError(rawType, description, extras))
   else:
     ok(setError(rawType, description, extras))

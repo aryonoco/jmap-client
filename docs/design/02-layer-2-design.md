@@ -1706,17 +1706,17 @@ and a `"conditions"` array. A condition node lacks the `"operator"` field.
 
 ```nim
 func toJson*[C](f: Filter[C],
-    condToJson: proc(c: C): JsonNode
+    filterConditionToJson: proc(c: C): JsonNode
     {.noSideEffect, raises: [].}): JsonNode =
   ## Serialise Filter[C] to JSON. Caller provides condition serialiser.
   case f.kind
   of fkCondition:
-    condToJson(f.condition)
+    filterConditionToJson(f.condition)
   of fkOperator:
     {.cast(noSideEffect).}:  # §1.6: local ref mutation
       var conditions = newJArray()
       for child in f.conditions:
-        conditions.add(child.toJson(condToJson))
+        conditions.add(child.toJson(filterConditionToJson))
       %*{"operator": $f.operator, "conditions": conditions}
 ```
 
@@ -1747,7 +1747,7 @@ func fromJson*[C](T: typedesc[Filter[C]], node: JsonNode,
     ok(filterOperator(op, children))
 ```
 
-**Generic callback note.** Both callbacks (`condToJson` and
+**Generic callback note.** Both callbacks (`filterConditionToJson` and
 `fromCondition`) have type `proc(...) {.noSideEffect, raises: [].}`.
 The `raises: []` pragma is required because the module-level
 `{.push raises: [].}` requires callable parameters to prove they cannot

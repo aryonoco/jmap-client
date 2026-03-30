@@ -94,6 +94,16 @@ because the mutation is local (building a return value), not escaping
 through `ref` indirection. Same pattern as Layer 2 §2 Pattern A — used
 ~20 times in existing serde code.
 
+**Cast centralisation in the builder.** The `{.cast(noSideEffect).}:`
+for builder invocation accumulation is placed inside `addInvocation`
+(§2.5), not in each `add*` function. `addInvocation` is the single site
+that stores a `ref`-containing `Invocation` (with `arguments: JsonNode`)
+into `b.invocations` — `strictFuncs` treats this as a side effect. The
+`toJson()` functions are declared `func` with their own internal casts
+and do not need a caller-side cast. This centralisation also ensures
+`addEcho` (which passes pre-built `JsonNode` arguments directly and does
+not call `toJson`) compiles correctly under `strictFuncs`.
+
 **Decision D3.12: Layer 2 `noSideEffect` cast wrappers.** Layer 2's
 `serde.nim` provides centralised wrapper funcs — `jStr`, `jInt`, `jBool`,
 `jObj`, `jArr` — that encapsulate the `{.cast(noSideEffect).}` for
@@ -255,19 +265,23 @@ func initRequestBuilder*(): RequestBuilder =
 
 ```nim
 func build*(b: RequestBuilder): Request =
-  ## Pure projection from builder state to Request. Does not mutate the
-  ## builder — safely reusable after build(). The builder's capabilities
-  ## become the Request's ``using`` array. The builder's invocations
-  ## become the Request's ``methodCalls``. createdIds is Opt.none —
-  ## proxy splitting is a Layer 4 concern.
+  ## Pure snapshot of the current builder state as a Request. Does not
+  ## mutate the builder — the builder may continue to accumulate
+  ## invocations via ``add*`` after a call to ``build()``, and a
+  ## subsequent ``build()`` will capture the updated state. The builder's
+  ## capabilities become the Request's ``using`` array. The builder's
+  ## invocations become the Request's ``methodCalls``. createdIds is
+  ## Opt.none — proxy splitting is a Layer 4 concern.
   ##
   ## RFC reference: §3.3 (lines 882–945)
   Request(using: b.capabilities, methodCalls: b.invocations,
           createdIds: Opt.none(Table[CreationId, Id]))
 ```
 
-Non-`var` parameter — pure projection. The builder is not consumed;
-calling `build()` twice on the same builder yields the same `Request`.
+Non-`var` parameter — pure snapshot. The builder is not consumed;
+calling `build()` twice on an unmodified builder yields the same
+`Request`, but intervening `add*` calls will produce a different
+(larger) `Request` on the next `build()`.
 
 ### 2.4 Capability Deduplication
 
@@ -289,9 +303,13 @@ func addInvocation(b: var RequestBuilder, name: string,
   ## Constructs an Invocation from the given method name and arguments,
   ## adds it to the builder, registers the capability, and returns the
   ## generated call ID.
+  ## The cast is needed because Invocation contains arguments: JsonNode
+  ## (a ref type), and strictFuncs treats storing a ref-containing object
+  ## into a var seq as a side effect.
   let callId = b.nextId()
   let inv = Invocation(name: name, arguments: args, methodCallId: callId)
-  b.invocations.add(inv)
+  {.cast(noSideEffect).}:
+    b.invocations.add(inv)
   b.addCapability(capability)
   callId
 ```
@@ -361,9 +379,8 @@ func addGet*[T](b: var RequestBuilder,
   let name = methodNamespace(T) & "/get"
   let cap = capabilityUri(T)
   let req = GetRequest[T](accountId: accountId, ids: ids, properties: properties)
-  {.cast(noSideEffect).}:
-    let args = req.toJson()
-    let callId = b.addInvocation(name, args, cap)
+  let args = req.toJson()
+  let callId = b.addInvocation(name, args, cap)
   ResponseHandle[GetResponse[T]](callId)
 ```
 
@@ -386,9 +403,8 @@ func addChanges*[T](b: var RequestBuilder,
   let cap = capabilityUri(T)
   let req = ChangesRequest[T](
     accountId: accountId, sinceState: sinceState, maxChanges: maxChanges)
-  {.cast(noSideEffect).}:
-    let args = req.toJson()
-    let callId = b.addInvocation(name, args, cap)
+  let args = req.toJson()
+  let callId = b.addInvocation(name, args, cap)
   ResponseHandle[ChangesResponse[T]](callId)
 ```
 
@@ -415,9 +431,8 @@ func addSet*[T](b: var RequestBuilder,
   let req = SetRequest[T](
     accountId: accountId, ifInState: ifInState,
     create: create, update: update, destroy: destroy)
-  {.cast(noSideEffect).}:
-    let args = req.toJson()
-    let callId = b.addInvocation(name, args, cap)
+  let args = req.toJson()
+  let callId = b.addInvocation(name, args, cap)
   ResponseHandle[SetResponse[T]](callId)
 ```
 
@@ -449,9 +464,8 @@ func addCopy*[T](b: var RequestBuilder,
     create: create, ifFromInState: ifFromInState, ifInState: ifInState,
     onSuccessDestroyOriginal: onSuccessDestroyOriginal,
     destroyFromIfInState: destroyFromIfInState)
-  {.cast(noSideEffect).}:
-    let args = req.toJson()
-    let callId = b.addInvocation(name, args, cap)
+  let args = req.toJson()
+  let callId = b.addInvocation(name, args, cap)
   ResponseHandle[CopyResponse[T]](callId)
 ```
 
@@ -460,7 +474,7 @@ func addCopy*[T](b: var RequestBuilder,
 ```nim
 func addQuery*[T](b: var RequestBuilder,
     accountId: AccountId,
-    condToJson: proc(c: filterType(T)): JsonNode
+    filterConditionToJson: proc(c: filterType(T)): JsonNode
         {.noSideEffect, raises: [].},
     filter: Opt[Filter[filterType(T)]] = Opt.none(Filter[filterType(T)]),
     sort: Opt[seq[Comparator]] = Opt.none(seq[Comparator]),
@@ -471,8 +485,8 @@ func addQuery*[T](b: var RequestBuilder,
     calculateTotal: bool = false
 ): ResponseHandle[QueryResponse[T]] =
   ## Adds a Foo/query invocation (RFC 8620 §5.5, lines 2339–2638).
-  ## ``condToJson``: callback for serialising filter conditions of type
-  ## ``filterType(T)``. Forwarded to ``Filter[C].toJson(condToJson)``
+  ## ``filterConditionToJson``: callback for serialising filter conditions of type
+  ## ``filterType(T)``. Forwarded to ``Filter[C].toJson(filterConditionToJson)``
   ## (Layer 2 §7.2). Entity modules provide this callback.
   ## ``filter``: generic over filterType(T) — entity-specific condition.
   ## ``anchor``: if supplied, ``position`` is ignored by the server.
@@ -487,9 +501,8 @@ func addQuery*[T](b: var RequestBuilder,
     accountId: accountId, filter: filter, sort: sort,
     position: position, anchor: anchor, anchorOffset: anchorOffset,
     limit: limit, calculateTotal: calculateTotal)
-  {.cast(noSideEffect).}:
-    let args = req.toJson(condToJson)
-    let callId = b.addInvocation(name, args, cap)
+  let args = req.toJson(filterConditionToJson)
+  let callId = b.addInvocation(name, args, cap)
   ResponseHandle[QueryResponse[T]](callId)
 ```
 
@@ -499,7 +512,7 @@ func addQuery*[T](b: var RequestBuilder,
 func addQueryChanges*[T](b: var RequestBuilder,
     accountId: AccountId,
     sinceQueryState: JmapState,
-    condToJson: proc(c: filterType(T)): JsonNode
+    filterConditionToJson: proc(c: filterType(T)): JsonNode
         {.noSideEffect, raises: [].},
     filter: Opt[Filter[filterType(T)]] = Opt.none(Filter[filterType(T)]),
     sort: Opt[seq[Comparator]] = Opt.none(seq[Comparator]),
@@ -508,8 +521,8 @@ func addQueryChanges*[T](b: var RequestBuilder,
     calculateTotal: bool = false
 ): ResponseHandle[QueryChangesResponse[T]] =
   ## Adds a Foo/queryChanges invocation (RFC 8620 §5.6, lines 2639–2819).
-  ## ``condToJson``: callback for serialising filter conditions of type
-  ## ``filterType(T)``. Forwarded to ``Filter[C].toJson(condToJson)``
+  ## ``filterConditionToJson``: callback for serialising filter conditions of type
+  ## ``filterType(T)``. Forwarded to ``Filter[C].toJson(filterConditionToJson)``
   ## (Layer 2 §7.2). Entity modules provide this callback.
   ## ``sinceQueryState``: the queryState string from a previous Foo/query.
   ## ``upToId``: optimisation when sort/filter are on immutable properties.
@@ -522,9 +535,8 @@ func addQueryChanges*[T](b: var RequestBuilder,
     accountId: accountId, sinceQueryState: sinceQueryState,
     filter: filter, sort: sort, maxChanges: maxChanges,
     upToId: upToId, calculateTotal: calculateTotal)
-  {.cast(noSideEffect).}:
-    let args = req.toJson(condToJson)
-    let callId = b.addInvocation(name, args, cap)
+  let args = req.toJson(filterConditionToJson)
+  let callId = b.addInvocation(name, args, cap)
   ResponseHandle[QueryChangesResponse[T]](callId)
 ```
 
@@ -689,6 +701,16 @@ without encoding the request identity in the type system (which would add
 complexity disproportionate to the risk). Convention: use handles
 immediately within the scope where the request was built. This gap is
 documented in the `ResponseHandle` doc comment.
+
+**Known limitation: implicit responses.** RFC 8620 §3.2 (line 878)
+states that a method "may return 1 or more responses" with the same
+call ID. The canonical case is `/copy` with
+`onSuccessDestroyOriginal = true`, which emits both a `Foo/copy`
+response and an implicit `Foo/set` response. The current
+`findInvocation` returns only the first match — the implicit `/set`
+response is not extractable. A `getImplicitSet[T]` function
+(deferred decision R8) will address this when RFC 8621 entity modules
+are implemented. See the Deferred Decisions table (§15).
 
 **Module:** `dispatch.nim`
 
@@ -898,10 +920,10 @@ appears in the `addQuery` parameter types, not just the body).
 3. `func capabilityUri*(T: typedesc[Entity]): string`.
 4. `template filterType*(T: typedesc[Entity]): typedesc` (if the entity
    supports `/query`).
-5. A `condToJson` callback `proc(c: filterType(Entity)): JsonNode
+5. A `filterConditionToJson` callback `proc(c: filterType(Entity)): JsonNode
    {.noSideEffect, raises: [].}` for serialising filter conditions (if
    the entity supports `/query`). Passed to `addQuery`/`addQueryChanges`
-   and forwarded to `Filter[C].toJson(condToJson)` (Layer 2 §7.2).
+   and forwarded to `Filter[C].toJson(filterConditionToJson)` (Layer 2 §7.2).
 6. `registerJmapEntity(Entity)` at module scope.
 7. `registerQueryableEntity(Entity)` at module scope (if the entity
    supports `/query`).
@@ -928,7 +950,7 @@ serialisation involves entity-specific resolution that only Layer 3 has.
 
 Build a `JsonNode` object inside `{.cast(noSideEffect).}:`. Omit keys
 for `Opt.none` fields. Use `referencableKey` for `Referencable[T]`
-fields. Use `Filter[C].toJson(condToJson)` for filter fields (callback
+fields. Use `Filter[C].toJson(filterConditionToJson)` for filter fields (callback
 forwarded from the caller — see `addQuery`/`addQueryChanges` §2.6.6–2.6.7).
 
 Canonical example — `GetRequest[T].toJson`:
@@ -1136,9 +1158,9 @@ implementation body.
 | `SetResponse[T]` | `fromJson` only | Yes (`Result` maps with `JsonNode`) | Merging algorithm Pattern L3-C |
 | `CopyRequest[T]` | `toJson` only | Yes | Required `create` map (not `Opt`) |
 | `CopyResponse[T]` | `fromJson` only | Yes (`Result` maps with `JsonNode`) | Same merging as `SetResponse` (create branch only) |
-| `QueryRequest[T]` | `toJson` only | Yes | Generic `Filter[C]` uses `condToJson` callback |
+| `QueryRequest[T]` | `toJson` only | Yes | Generic `Filter[C]` uses `filterConditionToJson` callback |
 | `QueryResponse[T]` | `fromJson` only | No (ids are value types) | `total`/`limit` lenient |
-| `QueryChangesRequest[T]` | `toJson` only | Yes | `Filter[C]` `condToJson` callback same as `QueryRequest` |
+| `QueryChangesRequest[T]` | `toJson` only | Yes | `Filter[C]` `filterConditionToJson` callback same as `QueryRequest` |
 | `QueryChangesResponse[T]` | `fromJson` only | No (`AddedItem` has value-type fields) | `total` lenient |
 | `echoFromJson` | `fromJson` callback | No (returns input node) | Validates `JObject` kind only; §9 |
 
@@ -1260,6 +1282,15 @@ The `rawType` field is always populated for lossless round-trip (Decision
   `invalidProperties` variant.
 - `setErrorAlreadyExists(rawType, existingId, ...)` — for the
   `alreadyExists` variant.
+
+**Graceful degradation for variant-specific fields.** If
+`parseIdFromServer` fails for the `existingId` field (e.g., empty
+string, >255 octets, control characters), the error degrades to
+`setUnknown` via the existing `setError(rawType, ...)` fallback path
+rather than aborting the entire `SetResponse` parse via `?` early return.
+This is consistent with the `invalidProperties` variant, where a missing
+or wrong-kind `properties` array also degrades to `setUnknown`. The
+`rawType` field preserves `"alreadyExists"` for diagnostic inspection.
 
 **Extension mechanism (§5.3 lines 2162–2164).** Other possible SetError
 types MAY be given in specific method descriptions. The `setUnknown`
@@ -1630,13 +1661,13 @@ type QueryRequest*[T] = object
 
 ```nim
 func toJson*[T](req: QueryRequest[T],
-    condToJson: proc(c: filterType(T)): JsonNode
+    filterConditionToJson: proc(c: filterType(T)): JsonNode
     {.noSideEffect, raises: [].}): JsonNode =
   ## Serialises QueryRequest to JSON arguments object (RFC 8620 §5.5).
   ## Omits ``filter``, ``sort``, ``anchor``, ``limit`` when Opt.none.
   ## ``position``, ``anchorOffset``, ``calculateTotal`` always emitted.
-  ## Filter serialised via ``condToJson`` callback, forwarded to
-  ## ``Filter[C].toJson(condToJson)`` (Layer 2 §7.2).
+  ## Filter serialised via ``filterConditionToJson`` callback, forwarded to
+  ## ``Filter[C].toJson(filterConditionToJson)`` (Layer 2 §7.2).
   ## Pattern L3-A (§5a.1).
   ...
 ```
@@ -1691,13 +1722,13 @@ type QueryChangesRequest*[T] = object
 
 ```nim
 func toJson*[T](req: QueryChangesRequest[T],
-    condToJson: proc(c: filterType(T)): JsonNode
+    filterConditionToJson: proc(c: filterType(T)): JsonNode
     {.noSideEffect, raises: [].}): JsonNode =
   ## Serialises QueryChangesRequest to JSON arguments object
   ## (RFC 8620 §5.6). Omits ``filter``, ``sort``, ``maxChanges``,
   ## ``upToId`` when Opt.none. ``calculateTotal`` always emitted.
-  ## Filter serialised via ``condToJson`` callback, forwarded to
-  ## ``Filter[C].toJson(condToJson)`` (Layer 2 §7.2).
+  ## Filter serialised via ``filterConditionToJson`` callback, forwarded to
+  ## ``Filter[C].toJson(filterConditionToJson)`` (Layer 2 §7.2).
   ## Pattern L3-A (§5a.1).
   ...
 ```
@@ -2327,6 +2358,77 @@ let req = b.build()
 ## req.methodCalls[1].arguments{"#ids"} contains the ResultReference
 ```
 
+### 10.5 End-to-End Example
+
+Self-contained walkthrough using a minimal `Widget` entity. Covers entity
+registration, request building, `build()`, response dispatch, and error
+handling across the inner railway.
+
+```nim
+## --- Entity definition (widget.nim) ---
+type Widget* = object
+  ## Minimal entity for illustration. Real entities live in RFC 8621 modules.
+
+func methodNamespace*(T: typedesc[Widget]): string = "Widget"
+func capabilityUri*(T: typedesc[Widget]): string = "urn:example:widgets"
+registerJmapEntity(Widget)  # compile error if overloads are missing
+
+## Entity-specific fromJson callback for response dispatch.
+## Signature matches the ``fromArgs`` parameter of ``get[T]`` (§3.2).
+func widgetGetFromJson(node: JsonNode): Result[GetResponse[Widget], ValidationError] =
+  GetResponse[Widget].fromJson(node)
+
+## --- Request building ---
+let accountId = parseAccountId("acc1").get()
+
+var b = initRequestBuilder()
+let gh = b.addGet[Widget](accountId)                        # Widget/get
+let sh = b.addSet[Widget](accountId,                        # Widget/set
+    destroy = Opt.some(direct(@[parseId("id7").get()])))
+let req = b.build()
+## req.using == @["urn:example:widgets"]
+## req.methodCalls.len == 2
+## req.methodCalls[0].name == "Widget/get"
+## req.methodCalls[1].name == "Widget/set"
+
+## --- Response dispatch (after Layer 4 transport, out of scope) ---
+## Assume ``resp`` is a parsed Response from the server.
+
+let getResult = resp.get(gh, widgetGetFromJson)
+if getResult.isOk:
+  let gr = getResult.get()
+  ## gr.state, gr.list, gr.notFound are available.
+  ## Individual Widget objects in gr.list are raw JsonNode —
+  ## entity-specific parsing is the caller's responsibility (D3.6).
+else:
+  let me = getResult.error()
+  ## me.errorType: MethodErrorType (e.g., metUnknownMethod, metServerFail)
+  ## me.description: Opt[string]
+
+let setResult = resp.get(sh, proc(n: JsonNode): Result[SetResponse[Widget],
+    ValidationError] {.noSideEffect, raises: [].} = SetResponse[Widget].fromJson(n))
+if setResult.isOk:
+  let sr = setResult.get()
+  ## sr.destroyResults: Table[Id, Result[void, SetError]]
+  for id, outcome in sr.destroyResults:
+    if outcome.isErr:
+      discard outcome.error()  # SetError with errorType, description
+```
+
+**Key points illustrated:**
+
+- **Entity registration** (§4): two `func` overloads + `registerJmapEntity`.
+- **Builder** (§2): `initRequestBuilder`, `addGet`, `addSet`, `build`.
+- **Response dispatch** (§3): `get[T]` with a `fromArgs` callback returning
+  `Result[T, ValidationError]`, producing `Result[T, MethodError]` on the
+  inner railway.
+- **Error handling**: `isOk`/`isErr` branching — no exceptions.
+- **Entity data as `JsonNode`** (Decision D3.6): `GetResponse.list` contains
+  raw JSON; entity-specific parsing is a separate step.
+- The `fromArgs` callback can be a named `func` (as with `widgetGetFromJson`)
+  or an inline `proc` literal (as with the `SetResponse` extraction). Both
+  forms are valid; named functions are preferred for readability.
+
 **Module:** `dispatch.nim`
 
 ---
@@ -2653,7 +2755,7 @@ arguments echoed back identically.
 | Builder | Same entity twice | Capability added once | Dedup via `notin` check |
 | Builder | Two different entities | Both capabilities in `using` | Multi-capability |
 | Builder | 100 calls | `"c99"` for last | Unbounded counter |
-| Builder | `build()` called twice | Same `Request` both times | Pure projection, no mutation |
+| Builder | `build()` called twice (no intervening `add*`) | Same `Request` both times | Pure snapshot of current state |
 | Builder | `addGet` with all defaults | Only `accountId` in JSON | Opt omission |
 | Builder | `addGet` with `ids = Opt.some(direct(@[id1, id2]))` | `"ids": ["id1", "id2"]` | Direct Referencable |
 | Builder | `addGet` with `ids = Opt.some(referenceTo(ref))` | `"#ids": {"resultOf":..}` | Reference Referencable |
@@ -2690,6 +2792,7 @@ arguments echoed back identically.
 | SetResponse | `notCreated` value unknown type | err with `setUnknown` | `rawType` preserved |
 | SetResponse | Same id in `created` and `notCreated` | Last writer wins (err) | Defensive — server bug |
 | **CopyResponse** | All `notCreated` with `alreadyExists` | All err with `existingId` | Copy error |
+| CopyResponse | `notCreated` `alreadyExists` with malformed `existingId` | err with `setUnknown`, `rawType` = `"alreadyExists"` | Graceful degradation |
 | CopyResponse | `created` null, `notCreated` has entries | All err | All copies failed |
 | CopyResponse | Valid `created` with server-set `id` | ok with entity JSON | Normal case |
 | **QueryResponse** | `total` absent | `total.isNone` | `calculateTotal` false |
@@ -2743,6 +2846,8 @@ arguments echoed back identically.
 | R2 | Extract `mergeCreateResults` shared helper | Deferred to implementation | Revisit when `CopyResponse.fromJson` is written. Duplication verified as byte-for-byte identical, but Rule of Three applies — only 2 call sites. Layer 2 precedent (`parseCreatedIds`) suggests extraction will be warranted. |
 | R4 | `GetRequest.properties` as `Referencable` | Deferred to RFC 8621 | The `#properties` / `updatedProperties` pattern is real and canonical for Mailbox sync, but Mailbox-specific. Address via a `addMailboxSyncGet` convenience in the entity module, not by modifying the generic `GetRequest[T]` type. |
 | R7 | Convenience overloads for `addGet`/`addSet` | Deferred to post-implementation | Technically sound (no overload ambiguity, `null` vs `[]` correctly disambiguated), but zero users exist. Conveniences are additive — add when real usage patterns emerge. |
+| R8 | `getImplicitSet[T]` for implicit `/set` responses from `/copy` | Deferred to RFC 8621 entity implementation | RFC 8620 §3.2 allows multiple responses per call ID (e.g., `/copy` with `onSuccessDestroyOriginal` emits an implicit `Foo/set` response). Current `findInvocation` returns the first match only. Fix: add `getImplicitSet*[T](resp: Response, handle: ResponseHandle[CopyResponse[T]], fromArgs): Opt[Result[SetResponse[T], MethodError]]` to `dispatch.nim`. Uses `findInvocationByName` scanning by both call ID and method name. The higher-impact variant (`EmailSubmission/set` implicit `Email/set`) is RFC 8621 scope. Additive — no existing API changes. ~50 lines. |
+| R9 | Layer 4 HTTP response body size cap | Deferred to Layer 4 implementation | Layer 3 `fromJson` functions iterate server arrays/maps without size caps. The correct mitigation is at Layer 4: enforce a configurable `maxResponseBodyBytes` on the HTTP response before `std/json` `parseJson` allocates the `JsonNode` tree. Layer 3 is the pure functional core — it walks already-allocated trees and cannot prevent OOM. A single config parameter on the `JmapClient` object suffices. No Layer 3 changes needed. |
 | R12 | `toJson` borrowing for layered distinct types | Implementation detail | Borrowing works correctly for `MaxChanges = distinct UnsignedInt`, but only 1 type benefits (3 lines saved). Let the implementer decide. |
 
 ### MaxChanges Type (Layer 1 Addition)

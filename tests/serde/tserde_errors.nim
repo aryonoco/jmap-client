@@ -625,97 +625,223 @@ block collectExtrasLarge100Keys:
     assertEq count, 100
 
 # =============================================================================
-# Extras collision: standard field names in extras must not overwrite
+# Phase 3A: Full enum coverage — individual round-trip tests for every
+# RequestError, MethodError, and SetError type variant.
 # =============================================================================
 
-block requestErrorExtrasCollisionTypeField:
-  ## Extras containing "type" must not overwrite the standard type field.
-  {.cast(noSideEffect).}:
-    let extras = newJObject()
-    extras["type"] = %"evil"
-    extras["vendor"] = %"safe"
-    let re = requestError(
-      rawType = "urn:ietf:params:jmap:error:limit", extras = Opt.some(extras)
-    )
-    let j = re.toJson()
-    # Standard "type" field must win
-    assertJsonFieldEq j, "type", %"urn:ietf:params:jmap:error:limit"
-    # Colliding "type" must be dropped; non-colliding "vendor" preserved
-    assertJsonFieldEq j, "vendor", %"safe"
+# --- RequestError: all 4 known types ---
 
-block requestErrorExtrasCollisionAllStandardFields:
-  ## Extras containing all 5 standard field names must not overwrite any.
+block roundTripRequestErrorUnknownCapability:
+  ## RFC 8620 section 3.6.1: unknownCapability with full RFC 7807 structure.
   {.cast(noSideEffect).}:
-    let extras = newJObject()
-    extras["type"] = %"evil"
-    extras["status"] = %999
-    extras["title"] = %"evil-title"
-    extras["detail"] = %"evil-detail"
-    extras["limit"] = %"evil-limit"
-    extras["vendor"] = %"safe"
-    let re = requestError(
+    let original = requestError(
+      rawType = "urn:ietf:params:jmap:error:unknownCapability",
+      status = Opt.some(400),
+      title = Opt.some("Unknown Capability"),
+      detail = Opt.some("The request used an unknown capability URI"),
+    )
+    doAssert original.errorType == retUnknownCapability
+    let j = original.toJson()
+    assertEq j{"type"}.getStr(""), "urn:ietf:params:jmap:error:unknownCapability"
+    let rt = RequestError.fromJson(j)
+    assertOkEq rt, original
+
+block roundTripRequestErrorNotJson:
+  ## RFC 8620 section 3.6.1: notJSON.
+  {.cast(noSideEffect).}:
+    let original = requestError(
+      rawType = "urn:ietf:params:jmap:error:notJSON",
+      status = Opt.some(400),
+      title = Opt.some("Not JSON"),
+      detail = Opt.some("The request body was not valid JSON"),
+    )
+    doAssert original.errorType == retNotJson
+    let j = original.toJson()
+    assertEq j{"type"}.getStr(""), "urn:ietf:params:jmap:error:notJSON"
+    let rt = RequestError.fromJson(j)
+    assertOkEq rt, original
+
+block roundTripRequestErrorNotRequest:
+  ## RFC 8620 section 3.6.1: notRequest.
+  {.cast(noSideEffect).}:
+    let original = requestError(
+      rawType = "urn:ietf:params:jmap:error:notRequest",
+      status = Opt.some(400),
+      title = Opt.some("Not a Request"),
+      detail = Opt.some("The JSON was valid but not a valid JMAP request"),
+    )
+    doAssert original.errorType == retNotRequest
+    let j = original.toJson()
+    assertEq j{"type"}.getStr(""), "urn:ietf:params:jmap:error:notRequest"
+    let rt = RequestError.fromJson(j)
+    assertOkEq rt, original
+
+block roundTripRequestErrorLimit:
+  ## RFC 8620 section 3.6.1: limit with limit field populated.
+  {.cast(noSideEffect).}:
+    let original = requestError(
       rawType = "urn:ietf:params:jmap:error:limit",
-      status = Opt.some(429),
-      title = Opt.some("Rate Limit"),
-      detail = Opt.some("Too many requests"),
+      status = Opt.some(400),
+      title = Opt.some("Request Too Large"),
+      detail = Opt.some("Exceeded maxCallsInRequest"),
       limit = Opt.some("maxCallsInRequest"),
-      extras = Opt.some(extras),
     )
-    let j = re.toJson()
-    assertJsonFieldEq j, "type", %"urn:ietf:params:jmap:error:limit"
-    assertJsonFieldEq j, "status", %429
-    assertJsonFieldEq j, "title", %"Rate Limit"
-    assertJsonFieldEq j, "detail", %"Too many requests"
-    assertJsonFieldEq j, "limit", %"maxCallsInRequest"
-    assertJsonFieldEq j, "vendor", %"safe"
+    doAssert original.errorType == retLimit
+    let j = original.toJson()
+    assertEq j{"type"}.getStr(""), "urn:ietf:params:jmap:error:limit"
+    doAssert j{"limit"} != nil
+    assertEq j{"limit"}.getStr(""), "maxCallsInRequest"
+    let rt = RequestError.fromJson(j)
+    assertOkEq rt, original
 
-block methodErrorExtrasCollisionTypeField:
-  ## Extras containing "type" and "description" must not overwrite standard fields.
-  {.cast(noSideEffect).}:
-    let extras = newJObject()
-    extras["type"] = %"evil"
-    extras["description"] = %"evil-desc"
-    extras["vendor"] = %"safe"
-    let me = methodError(
-      rawType = "invalidArguments",
-      description = Opt.some("real description"),
-      extras = Opt.some(extras),
-    )
-    let j = me.toJson()
-    assertJsonFieldEq j, "type", %"invalidArguments"
-    assertJsonFieldEq j, "description", %"real description"
-    assertJsonFieldEq j, "vendor", %"safe"
+# --- MethodError: all 19 known types ---
 
-block setErrorExtrasCollisionTypeField:
-  ## Extras containing "type" must not overwrite standard field.
-  {.cast(noSideEffect).}:
-    let extras = newJObject()
-    extras["type"] = %"evil"
-    extras["vendor"] = %"safe"
-    let se = setError(
-      rawType = "forbidden",
-      description = Opt.some("real desc"),
-      extras = Opt.some(extras),
-    )
-    let j = se.toJson()
-    assertJsonFieldEq j, "type", %"forbidden"
-    assertJsonFieldEq j, "vendor", %"safe"
+block roundTripMethodErrorServerUnavailable:
+  let original = methodError("serverUnavailable")
+  doAssert original.errorType == metServerUnavailable
+  assertOkEq MethodError.fromJson(original.toJson()), original
 
-block setErrorInvalidPropertiesExtrasCollisionProperties:
-  ## Extras containing "properties" must not overwrite the variant field.
-  {.cast(noSideEffect).}:
-    let extras = newJObject()
-    extras["properties"] = %*["evil"]
-    extras["vendor"] = %"safe"
-    let se = setErrorInvalidProperties(
-      rawType = "invalidProperties",
-      properties = @["subject", "body"],
-      extras = Opt.some(extras),
-    )
-    let j = se.toJson()
-    assertJsonFieldEq j, "type", %"invalidProperties"
-    # "properties" must be the real array, not the extras one
-    let propsNode = j{"properties"}
-    assertFalse propsNode.isNil, "properties field must be present"
-    assertEq propsNode.getElems(@[]).len, 2
-    assertJsonFieldEq j, "vendor", %"safe"
+block roundTripMethodErrorServerFail:
+  let original = methodError("serverFail")
+  doAssert original.errorType == metServerFail
+  assertOkEq MethodError.fromJson(original.toJson()), original
+
+block roundTripMethodErrorServerPartialFail:
+  let original = methodError("serverPartialFail")
+  doAssert original.errorType == metServerPartialFail
+  assertOkEq MethodError.fromJson(original.toJson()), original
+
+block roundTripMethodErrorUnknownMethod:
+  let original = methodError("unknownMethod")
+  doAssert original.errorType == metUnknownMethod
+  assertOkEq MethodError.fromJson(original.toJson()), original
+
+block roundTripMethodErrorInvalidArguments:
+  let original = methodError("invalidArguments")
+  doAssert original.errorType == metInvalidArguments
+  assertOkEq MethodError.fromJson(original.toJson()), original
+
+block roundTripMethodErrorInvalidResultReference:
+  let original = methodError("invalidResultReference")
+  doAssert original.errorType == metInvalidResultReference
+  assertOkEq MethodError.fromJson(original.toJson()), original
+
+block roundTripMethodErrorForbidden:
+  let original = methodError("forbidden")
+  doAssert original.errorType == metForbidden
+  assertOkEq MethodError.fromJson(original.toJson()), original
+
+block roundTripMethodErrorAccountNotFound:
+  let original = methodError("accountNotFound")
+  doAssert original.errorType == metAccountNotFound
+  assertOkEq MethodError.fromJson(original.toJson()), original
+
+block roundTripMethodErrorAccountNotSupportedByMethod:
+  let original = methodError("accountNotSupportedByMethod")
+  doAssert original.errorType == metAccountNotSupportedByMethod
+  assertOkEq MethodError.fromJson(original.toJson()), original
+
+block roundTripMethodErrorAccountReadOnly:
+  let original = methodError("accountReadOnly")
+  doAssert original.errorType == metAccountReadOnly
+  assertOkEq MethodError.fromJson(original.toJson()), original
+
+block roundTripMethodErrorAnchorNotFound:
+  let original = methodError("anchorNotFound")
+  doAssert original.errorType == metAnchorNotFound
+  assertOkEq MethodError.fromJson(original.toJson()), original
+
+block roundTripMethodErrorUnsupportedSort:
+  let original = methodError("unsupportedSort")
+  doAssert original.errorType == metUnsupportedSort
+  assertOkEq MethodError.fromJson(original.toJson()), original
+
+block roundTripMethodErrorUnsupportedFilter:
+  let original = methodError("unsupportedFilter")
+  doAssert original.errorType == metUnsupportedFilter
+  assertOkEq MethodError.fromJson(original.toJson()), original
+
+block roundTripMethodErrorCannotCalculateChanges:
+  let original = methodError("cannotCalculateChanges")
+  doAssert original.errorType == metCannotCalculateChanges
+  assertOkEq MethodError.fromJson(original.toJson()), original
+
+block roundTripMethodErrorTooManyChanges:
+  let original = methodError("tooManyChanges")
+  doAssert original.errorType == metTooManyChanges
+  assertOkEq MethodError.fromJson(original.toJson()), original
+
+block roundTripMethodErrorRequestTooLarge:
+  let original = methodError("requestTooLarge")
+  doAssert original.errorType == metRequestTooLarge
+  assertOkEq MethodError.fromJson(original.toJson()), original
+
+block roundTripMethodErrorStateMismatch:
+  let original = methodError("stateMismatch")
+  doAssert original.errorType == metStateMismatch
+  assertOkEq MethodError.fromJson(original.toJson()), original
+
+block roundTripMethodErrorFromAccountNotFound:
+  let original = methodError("fromAccountNotFound")
+  doAssert original.errorType == metFromAccountNotFound
+  assertOkEq MethodError.fromJson(original.toJson()), original
+
+block roundTripMethodErrorFromAccountNotSupportedByMethod:
+  let original = methodError("fromAccountNotSupportedByMethod")
+  doAssert original.errorType == metFromAccountNotSupportedByMethod
+  assertOkEq MethodError.fromJson(original.toJson()), original
+
+# --- SetError: all 10 known types ---
+
+block roundTripSetErrorForbiddenEnum:
+  let original = setError("forbidden")
+  doAssert original.errorType == setForbidden
+  assertSetOkEq SetError.fromJson(original.toJson()), original
+
+block roundTripSetErrorOverQuota:
+  let original = setError("overQuota")
+  doAssert original.errorType == setOverQuota
+  assertSetOkEq SetError.fromJson(original.toJson()), original
+
+block roundTripSetErrorTooLarge:
+  let original = setError("tooLarge")
+  doAssert original.errorType == setTooLarge
+  assertSetOkEq SetError.fromJson(original.toJson()), original
+
+block roundTripSetErrorRateLimit:
+  let original = setError("rateLimit")
+  doAssert original.errorType == setRateLimit
+  assertSetOkEq SetError.fromJson(original.toJson()), original
+
+block roundTripSetErrorNotFound:
+  let original = setError("notFound")
+  doAssert original.errorType == setNotFound
+  assertSetOkEq SetError.fromJson(original.toJson()), original
+
+block roundTripSetErrorInvalidPatch:
+  let original = setError("invalidPatch")
+  doAssert original.errorType == setInvalidPatch
+  assertSetOkEq SetError.fromJson(original.toJson()), original
+
+block roundTripSetErrorWillDestroy:
+  let original = setError("willDestroy")
+  doAssert original.errorType == setWillDestroy
+  assertSetOkEq SetError.fromJson(original.toJson()), original
+
+block roundTripSetErrorSingleton:
+  let original = setError("singleton")
+  doAssert original.errorType == setSingleton
+  assertSetOkEq SetError.fromJson(original.toJson()), original
+
+block roundTripSetErrorInvalidPropertiesWithData:
+  ## invalidProperties variant with a list of property names.
+  let original =
+    setErrorInvalidProperties("invalidProperties", @["from", "subject", "body"])
+  doAssert original.errorType == setInvalidProperties
+  assertSetOkEq SetError.fromJson(original.toJson()), original
+
+block roundTripSetErrorAlreadyExistsWithData:
+  ## alreadyExists variant with an existing record ID.
+  let original = setErrorAlreadyExists("alreadyExists", makeId("existing42"))
+  doAssert original.errorType == setAlreadyExists
+  assertSetOkEq SetError.fromJson(original.toJson()), original

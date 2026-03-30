@@ -94,17 +94,18 @@ func fromJson*(
 # =============================================================================
 
 func toJson*[C](
-    f: Filter[C], condToJson: proc(c: C): JsonNode {.noSideEffect, raises: [].}
+    f: Filter[C],
+    filterConditionToJson: proc(c: C): JsonNode {.noSideEffect, raises: [].},
 ): JsonNode =
   ## Serialise Filter[C] to JSON. Caller provides condition serialiser.
   case f.kind
   of fkCondition:
-    condToJson(f.condition)
+    filterConditionToJson(f.condition)
   of fkOperator:
     {.cast(noSideEffect).}:
       var conditions = newJArray()
       for child in f.conditions:
-        conditions.add(child.toJson(condToJson))
+        conditions.add(child.toJson(filterConditionToJson))
       %*{"operator": $f.operator, "conditions": conditions}
 
 const MaxFilterDepth* = 128
