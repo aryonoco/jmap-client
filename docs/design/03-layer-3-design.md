@@ -24,8 +24,7 @@ decisions across all 5 layers. This document is the detailed specification
 for Layer 3 only. Decisions here resolve — and are consistent with — the
 architecture document's choices 3.2A (auto-incrementing call IDs), 3.3B
 (builder with method-specific sub-builders), 3.4C (phantom-typed response
-handles), 3.5B (plain overloaded procs, no concepts — deviates from
-architecture's 3.5A; see §4), 3.7B (overloaded
+handles), 3.5B (plain overloaded procs, no concepts), 3.7B (overloaded
 type-level templates for associated types), 3.9B (unified Result maps
 internally, parallel maps on the wire),
 and 3.10A (string paths with constants, no validation). Decision 3.8A
@@ -76,8 +75,9 @@ Layer 3 types.
   `MethodError` at the railway boundary.
 - **Make illegal states unrepresentable** — `ResponseHandle[T]` is a
   phantom distinct type that ensures type-safe extraction. Entity
-  registration via `registerJmapEntity` catches missing overloads at
-  definition time. `Referencable[T]` encodes the direct/reference
+  registration via `registerJmapEntity`/`registerQueryableEntity`
+  catches missing overloads at definition time with domain-specific
+  error messages. `Referencable[T]` encodes the direct/reference
   distinction in the type system.
 
 **L3-specific constraint: builder accumulation via owned `var` mutation
@@ -148,7 +148,7 @@ rejection has a concrete reason tied to the strict compiler constraints.
 | `$` on `int` is `proc {.raises: [].}`, not `func` | Call ID generation (`"c" & $n`) requires `{.cast(noSideEffect).}:` inside `func` | `dollars.nim:18` |
 | Local `var Table` mutation in `func`: works for non-ref values | `SetResponse` merging with `Result[void, SetError]` needs no cast; with `Result[JsonNode, SetError]` needs cast | `serde_session.nim:248` (no cast), `serde.nim:43` (cast for `JsonNode`) |
 | `template` returning `typedesc` works in generic object field types | `Filter[filterType(T)]` works — template expands to concrete type, then generic instantiation proceeds | `t5540.nim:17` |
-| Concepts avoided (see `docs/design/notes/nim-concepts.md`) | Use plain overloaded `typedesc` procs + `registerJmapEntity` template + `mixin` instead | Known bugs (byref #16897, block scope issues), experimental status, no `.noSideEffect` enforcement in concept body, generic type checking unimplemented |
+| Concepts avoided (see `docs/design/notes/nim-concepts.md`) | Use plain overloaded `typedesc` procs + `registerJmapEntity` template (with `when not compiles` + `{.error.}` for domain-specific messages) + `mixin` instead | Known bugs (byref #16897, block scope issues), experimental status, no `.noSideEffect` enforcement in concept body, generic type checking unimplemented. Alternatives evaluated (dictionary passing, macro generation, type unions, phantom proof tokens) all fall short on extensibility, associated type support, or ergonomics under the strict compiler constraints. |
 | `{.noSideEffect, raises: [].}` on `proc` type params enforced | Callback in `get[T]` correctly constrains callers | `manual.md:5356–5415` |
 | `requiresInit` types in `Result` error branch | Use `initResultErr` workaround — centralised and exported from `serde.nim` (no longer duplicated per-module) | `serde.nim:37` |
 
@@ -681,17 +681,14 @@ documented in the `ResponseHandle` doc comment.
 (overloaded type-level templates for associated types)
 
 **Decision D3.4:** No concepts; plain overloaded `typedesc` procs with a
-`registerJmapEntity` compile-time check template instead.
-
-> **Deviation from architecture:** Decision 3.5A specified Nim concepts
-> for the entity type interface. Per `docs/design/notes/nim-concepts.md`
-> and explicit direction, concepts are avoided due to: experimental
-> status, known compiler bugs (byref #16897, block scope issues, implicit
-> generic breakage), `func` in concept body not enforcing
-> `.noSideEffect`, generic type checking unimplemented, and minimal
-> stdlib adoption (2 files). Fallback 3.5B (plain overloaded procs) is
-> used instead, providing equivalent compile-time safety via a
-> registration template that verifies all required overloads exist.
+`registerJmapEntity` compile-time check template instead. Consistent with
+architecture Decision 3.5B. Concepts are avoided due to: experimental
+status, known compiler bugs (byref #16897, block scope issues, implicit
+generic breakage), `func` in concept body not enforcing
+`.noSideEffect`, generic type checking unimplemented, and minimal
+stdlib adoption (2 files). See `docs/design/notes/nim-concepts.md`.
+Plain overloaded procs provide equivalent compile-time safety via a
+registration template that verifies all required overloads exist.
 
 ### 4.1 Entity Interface — Required Overloads
 
@@ -715,20 +712,35 @@ func capabilityUri*(T: typedesc[Mailbox]): string = "urn:ietf:params:jmap:mail"
 
 The `registerJmapEntity` template verifies all required overloads exist at
 the registration site (not at distant generic instantiation time). Missing
-overloads produce compile errors at the entity definition, not at `add*`
-call sites.
+overloads produce domain-specific compile errors at the entity definition,
+not cryptic "undeclared identifier" errors at `add*` call sites. The
+template uses `when not compiles()` + `{.error:}` to name the entity type
+and the exact missing overload signature in the error message.
 
 ```nim
 template registerJmapEntity*(T: typedesc) =
   ## Compile-time check: verifies T provides the required framework
   ## overloads (``methodNamespace`` and ``capabilityUri``). Call this
   ## once per entity type at module scope. Missing framework overloads
-  ## produce compile errors HERE, not at distant add* call sites.
-  ## Does not check conditional overloads (``filterType``) — those are
-  ## caught at ``addQuery``/``addQueryChanges`` call sites via ``mixin``.
+  ## produce domain-specific compile errors HERE, not cryptic
+  ## "undeclared identifier" errors at distant add* call sites.
+  ## Does not check conditional overloads (``filterType``) — use
+  ## ``registerQueryableEntity`` for entity types that support /query
+  ## (§4.6). Without it, missing ``filterType`` is caught at
+  ## ``addQuery``/``addQueryChanges`` call sites via ``mixin``.
+  ##
+  ## Uses ``when not compiles()`` + ``{.error.}`` rather than bare
+  ## ``discard`` calls to produce actionable error messages that name
+  ## the entity type and the missing overload signature.
   static:
-    discard methodNamespace(T)
-    discard capabilityUri(T)
+    when not compiles(methodNamespace(T)):
+      {.error: "registerJmapEntity: " & $T &
+        " is missing `func methodNamespace*(T: typedesc[" & $T &
+        "]): string`".}
+    when not compiles(capabilityUri(T)):
+      {.error: "registerJmapEntity: " & $T &
+        " is missing `func capabilityUri*(T: typedesc[" & $T &
+        "]): string`".}
 ```
 
 Usage:
@@ -751,7 +763,8 @@ func addGet*[T](b: var RequestBuilder, ...): ResponseHandle[GetResponse[T]]
 No `: JmapEntity` constraint on `T`. If `T` lacks `methodNamespace` or
 `capabilityUri`, the error appears when the `add*` body calls
 `methodNamespace(T)`. The `registerJmapEntity` template catches this
-earlier — at entity definition time rather than at call site.
+earlier — at entity definition time rather than at call site — and
+produces a domain-specific error message naming the missing overload.
 
 **Why no concept constraint.** Concepts in Nim are experimental and have
 known issues documented in `docs/design/notes/nim-concepts.md`:
@@ -821,6 +834,44 @@ generic object field types. When the compiler encounters
 `Filter` with the resulting type. This is a compile-time expansion, not
 a runtime operation.
 
+### 4.6 Queryable Entity Registration
+
+`registerJmapEntity` does not check `filterType` because it is a
+conditional overload — not all entity types support `/query`. For
+queryable entities, a companion template provides the same
+`when not compiles` + `{.error.}` pattern for `filterType`:
+
+```nim
+template registerQueryableEntity*(T: typedesc) =
+  ## Compile-time check: verifies T provides ``filterType`` in addition
+  ## to the base framework overloads. Call after ``registerJmapEntity``
+  ## for entity types that support /query and /queryChanges.
+  ## Produces a domain-specific error if the filterType template is
+  ## missing or does not return a typedesc.
+  static:
+    when not compiles(filterType(T)):
+      {.error: "registerQueryableEntity: " & $T &
+        " is missing `template filterType*(T: typedesc[" & $T &
+        "]): typedesc`".}
+```
+
+Usage:
+
+```nim
+type MailboxFilterCondition* = object
+  ## Entity-specific filter condition for Mailbox/query.
+
+template filterType*(T: typedesc[Mailbox]): typedesc = MailboxFilterCondition
+
+registerJmapEntity(Mailbox)
+registerQueryableEntity(Mailbox)  # compile error if filterType missing
+```
+
+This catches a missing `filterType` at the entity definition site rather
+than at a distant `addQuery[Mailbox](...)` call site where the error
+would be an opaque signature resolution failure (since `filterType(T)`
+appears in the `addQuery` parameter types, not just the body).
+
 **Entity module checklist.** Every entity module must provide:
 
 1. The entity type definition (e.g., `type Mailbox* = object`).
@@ -833,10 +884,12 @@ a runtime operation.
    the entity supports `/query`). Passed to `addQuery`/`addQueryChanges`
    and forwarded to `Filter[C].toJson(condToJson)` (Layer 2 §7.2).
 6. `registerJmapEntity(Entity)` at module scope.
-7. `toJson`/`fromJson` for the entity type itself (for create maps and
+7. `registerQueryableEntity(Entity)` at module scope (if the entity
+   supports `/query`).
+8. `toJson`/`fromJson` for the entity type itself (for create maps and
    response lists).
 
-Items 1–6 are Layer 3 concerns. Item 7 is entity-specific and lives in
+Items 1–7 are Layer 3 concerns. Item 8 is entity-specific and lives in
 the entity module alongside the type definition.
 
 **Module:** `entity.nim`
@@ -2314,7 +2367,9 @@ mirroring the Layer 1/Layer 2 module pattern.
 
 ```
 src/jmap_client/
-  entity.nim      — Entity type framework: registerJmapEntity template,
+  entity.nim      — Entity type framework: registerJmapEntity and
+                    registerQueryableEntity templates (with
+                    when-not-compiles domain-specific error messages),
                     methodNamespace/capabilityUri/filterType overload
                     patterns, mixin documentation
   methods.nim     — 12 request/response type definitions, toJson (6 request
@@ -2366,8 +2421,10 @@ No cycles. Each module independently testable.
 ```
 tests/protocol/
   tentity.nim      — Mock entity type satisfies framework requirements;
-                     registerJmapEntity compile-time check; missing
-                     overload detection
+                     registerJmapEntity compile-time check;
+                     registerQueryableEntity compile-time check;
+                     missing overload detection; domain-specific error
+                     messages via when-not-compiles guards
   tmethods.nim     — Request toJson for all 6 types; response fromJson
                      for all 6 types; SetResponse merging; CopyResponse
                      merging; edge cases
@@ -2642,7 +2699,7 @@ arguments echoed back identically.
 | D3.1 | Layer 3 owns serialisation of Layer 3–defined types | Add new Layer 2 modules for Layer 3 types | Layer 3 types are generic over entity `T`; their serde depends on entity-specific resolution (`methodNamespace`, `filterType` templates) that only Layer 3 has. Layer 2 would need Layer 3–aware callbacks, creating a circular concern. |
 | D3.2 | `add*` params match RFC request fields; required positional, optional defaulted | Single generic `addMethod(name, argsJson)` | Type-safe: compiler enforces correct parameters per method. Discoverable: IDE autocomplete shows available fields. Generic approach loses compile-time safety. |
 | D3.3 | `get[T]` returns `Result[T, MethodError]` (inner railway) | `Result[T, ClientError]` (outer railway) | Method errors are data within a successful HTTP 200 response. They are per-invocation, not per-request. The outer railway (`ClientError`) is for transport/request failures at the Layer 4 boundary. Mixing them conflates different failure modes. |
-| D3.4 | No concepts; plain overloaded `typedesc` procs + `registerJmapEntity` compile-time check | Concepts (3.5A) | Per `docs/design/notes/nim-concepts.md`: concepts experimental, known bugs (byref #16897, block scope), `func` not enforced in concept body, generic type checking unimplemented. Plain overloads + static registration template gives earlier error detection than concepts (registration site vs instantiation site) with zero compiler risk. |
+| D3.4 | No concepts; plain overloaded `typedesc` procs + `registerJmapEntity`/`registerQueryableEntity` compile-time checks with `when not compiles` + `{.error.}` for domain-specific messages (architecture 3.5B) | Concepts (3.5A, rejected at architecture level). Also evaluated: dictionary passing (breaks generic syntax, cannot encode `filterType`), macro generation (loses source transparency), type unions (prevents extension), phantom proof tokens (clutters call sites). | Plain overloads + static registration templates give earlier error detection than concepts (registration site vs instantiation site) with zero compiler risk. `when not compiles` guards produce actionable error messages naming the entity type and missing overload. |
 | D3.5 | Only `GetRequest.ids` and `SetRequest.destroy` get `Referencable[T]` | All fields `Referencable` | Wrapping all fields is extremely verbose and rarely used. The two wrapped fields cover the canonical JMAP patterns (query to get, query to set destroy). Users needing uncommon references can construct `Request` manually via Layer 1 types. |
 | D3.6 | Entity data as `JsonNode` in requests/responses | `seq[T]` with entity-specific callback | Layer 3 Core cannot know `T`'s deserialisation. Raw `JsonNode` preserves flexibility; entity-specific convenience functions are deferred to entity modules (RFC 8621). |
 | D3.7 | Unidirectional serde: request `toJson`, response `fromJson` | Full round-trip for all types | Client builds requests and parses responses — never the reverse. Halves the serialisation surface. Round-trip testing uses the builder-build-parse chain, not per-type `fromJson(toJson(x))`. |
@@ -2676,6 +2733,7 @@ behavioural semantics from the same RFC subsection.
 | `RequestBuilder` | §3.3 (lines 882–974) | N/A (internal) |
 | `ResponseHandle[T]` | §3.4 (lines 975–1035) | N/A (internal) |
 | `registerJmapEntity` | §5 (lines 1575–1586) | N/A (compile-time) |
+| `registerQueryableEntity` | §5.5 (lines 2339–2638) | N/A (compile-time) |
 | `GetRequest[T]` | §5.1 (lines 1587–1612) | JSON Object |
 | `GetResponse[T]` | §5.1 (lines 1613–1665) | JSON Object |
 | `ChangesRequest[T]` | §5.2 (lines 1667–1703) | JSON Object |

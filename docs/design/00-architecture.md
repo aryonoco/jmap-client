@@ -553,8 +553,17 @@ Usage:
 GetRequest[T] = object
   accountId: AccountId
   ids: Opt[Referencable[seq[Id]]]
-  properties: Opt[Referencable[seq[string]]]
+  properties: Opt[seq[string]]
 ```
+
+Note: RFC 8620 §3.7's result reference mechanism is generic — any argument can
+use a `#`-prefixed key. However, only the canonical reference targets
+(`GetRequest.ids` and `SetRequest.destroy`) receive `Referencable[T]` wrapping
+in the builder API. This is a pragmatic ergonomics trade-off (Decision D3.5 in
+the Layer 3 design): wrapping all fields is extremely verbose and rarely used.
+Users needing uncommon references (e.g., referencing `/updatedProperties` from
+RFC 8621's `Mailbox/changes` into `properties`) can construct `Request` manually
+via Layer 1 types.
 
 - **Pros:**
   - Illegal state (both direct and reference) is unrepresentable.
@@ -1259,7 +1268,7 @@ The request builder returns typed handles. Each handle carries the expected
 response type as a phantom parameter:
 
 ```
-ResponseHandle[T] = distinct string  # wraps the call ID; T is phantom
+ResponseHandle[T] = distinct MethodCallId  # wraps the call ID; T is phantom
 
 # Builder returns:
 let queryHandle: ResponseHandle[QueryResponse[Mailbox]] = builder.addQuery(...)
@@ -1370,16 +1379,35 @@ defineJmapEntity(Mailbox, "Mailbox", requiresAccountId = true)
   - Code generation means indirection — harder to read, debug, navigate.
   - Changes to the template affect all entity types simultaneously.
 
-#### Decision: 3.5A — concepts for simple interfaces
+#### Decision: 3.5B — plain overloaded procs + compile-time registration
 
-Concepts are the primary choice for encoding the "entity types must satisfy an
-interface" constraint. Simple, non-recursive, non-deeply-chained concepts work
-well under the strict compiler settings. The caveat is complexity depth: deeply
-nested concept hierarchies or concepts that chain through multiple layers of
-generic constraints are fragile and should be avoided. For those cases, fall back
-to 3.5B (plain overloaded procs). Document the required interface explicitly in
-either case — this is the moral equivalent of the typeclass definition that Nim
-cannot enforce as strongly as Haskell.
+Concepts (3.5A) were the initial preference but are rejected due to known
+issues documented in `docs/design/notes/nim-concepts.md`: experimental status,
+compiler bugs (byref #16897, block scope issues, implicit generic breakage),
+`func` in concept body not enforcing `.noSideEffect`, generic type checking
+unimplemented, and minimal stdlib adoption (2 files). These risks outweigh the
+typeclass-like ergonomics.
+
+Instead, each entity type provides plain overloaded `typedesc` procs
+(`methodNamespace`, `capabilityUri`, and optionally `filterType`). Two
+registration templates verify at the entity definition site that all
+required overloads exist — catching missing overloads earlier than concepts
+would (definition site vs. instantiation site):
+
+- `registerJmapEntity(T)` — checks `methodNamespace` and `capabilityUri`
+  (required for all entity types).
+- `registerQueryableEntity(T)` — checks `filterType` (required only for
+  entity types that support `/query` and `/queryChanges`).
+
+Both templates use `when not compiles()` + `{.error:}` to produce
+domain-specific error messages naming the entity type and the exact missing
+overload signature, rather than bare `discard` calls that would produce
+opaque "undeclared identifier" errors. See Layer 3 design §4.2 and §4.6
+for the full template definitions.
+
+Generic `add*` functions use `mixin` to resolve entity-specific overloads
+at the caller's scope, so entity modules can be added independently without
+modifying builder code.
 
 Keep 3.5C as a reserve option where the number of concrete types per entity may
 make templates worthwhile.
@@ -1792,7 +1820,7 @@ section where the option is defined (e.g., 1.3B is the second option in §1.3).
 | 3. Protocol | Auto-incrementing call IDs (3.2A) | Simple, no safety implications |
 | 3. Protocol | Builder produces immutable Request (3.3B) | Owned mutation under strictFuncs; effect boundary at Layer 4 |
 | 3. Protocol | Phantom-typed ResponseHandle (3.4C) | Compile-time response type safety |
-| 3. Protocol | Entity type concept (3.5A, fallback 3.5B) | Closest to typeclasses |
+| 3. Protocol | Plain overloaded procs + `registerJmapEntity`/`registerQueryableEntity` templates with `when not compiles` error messages (3.5B) | Concepts rejected (experimental, known bugs); registration templates catch missing overloads at definition site with domain-specific errors |
 | 3. Protocol | Associated type resolution via templates (3.7B) | No JsonNode escape hatches in user-facing API |
 | 3. Protocol | Entity-specific typed patch builders (3.8A) | Type-safe construction per entity |
 | 3. Protocol | SetResponse as unified Result maps (3.9B) | Per-item Result pattern within successful method response |

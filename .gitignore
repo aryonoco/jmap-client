@@ -194,6 +194,7 @@ passwords.json
 # Anthropic/Claude
 # Note: .claude/ is tracked (contains rules and settings)
 .claude/settings.local.json
+.claude/worktrees/
 *_claude.*
 .anthropic/
 
