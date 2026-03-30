@@ -7,6 +7,7 @@
 ## through the single jmap_client/serialisation import.
 
 import std/json
+import std/sets
 
 import results
 
@@ -128,3 +129,37 @@ block errorTypes:
 
   let se = setError("forbidden")
   assertOk SetError.fromJson(se.toJson())
+
+# =============================================================================
+# G. Consolidated initResultErr accessible (from serde)
+# =============================================================================
+
+block initResultErrAccessible:
+  ## Verify initResultErr is importable through serialisation hub.
+  let r = initResultErr[int, ValidationError](validationError("Test", "test error", ""))
+  assertErr r
+  assertEq r.error.typeName, "Test"
+
+# =============================================================================
+# H. All type pairs accessible — comprehensive verification
+# =============================================================================
+
+block allTypePairsAccessible:
+  ## Every toJson/fromJson pair callable through the serialisation re-export.
+  # ServerCapability (requires uri parameter)
+  {.cast(noSideEffect).}:
+    let capData = newJObject()
+    let cap = ServerCapability.fromJson("urn:ietf:params:jmap:mail", capData)
+    assertOk cap
+    discard cap.get().toJson()
+  # AccountCapabilityEntry (requires uri parameter)
+  {.cast(noSideEffect).}:
+    let entry =
+      AccountCapabilityEntry.fromJson("urn:ietf:params:jmap:mail", newJObject())
+    assertOk entry
+    discard entry.get().toJson()
+  # Session (full round-trip via golden JSON)
+  let sj = goldenSessionJson()
+  let session = Session.fromJson(sj)
+  assertOk session
+  discard session.get().toJson()

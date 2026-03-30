@@ -924,5 +924,169 @@ proc genSession*(rng: var Rand): Session =
   )
     .get()
 
+proc genResultReference*(rng: var Rand): ResultReference =
+  ## Random valid ResultReference for property tests.
+  let mcid = parseMethodCallId("c" & $rng.rand(0 .. 999)).get()
+  const names = ["Mailbox/get", "Email/get", "Thread/get", "Identity/get"]
+  const paths = ["/ids", "/list/*/id", "/notFound", "/state"]
+  ResultReference(
+    resultOf: mcid,
+    name: names[rng.rand(0 .. int(names.high))],
+    path: paths[rng.rand(0 .. int(paths.high))],
+  )
+
+proc genFilterWithJsonConditions*(rng: var Rand, maxDepth: int): Filter[JsonNode] =
+  ## Random Filter[JsonNode] with arbitrary JSON leaf conditions.
+  ## Useful for testing serde round-trip on generic Filter type.
+  if maxDepth <= 0 or rng.rand(0 .. 2) == 0:
+    let cond = rng.genArbitraryJsonObject(1)
+    return filterCondition(cond)
+  let op = [foAnd, foOr, foNot][rng.rand(0 .. 2)]
+  let childCount = rng.rand(0 .. 3)
+  var children: seq[Filter[JsonNode]] = @[]
+  for _ in 0 ..< childCount:
+    children.add rng.genFilterWithJsonConditions(maxDepth - 1)
+  filterOperator(op, children)
+
+proc genMalformedSessionJson*(rng: var Rand): JsonNode =
+  ## Plausible but subtly broken Session JSON for totality testing.
+  ## Each variant has a different structural defect.
+  let variant = rng.rand(0 .. 9)
+  {.cast(noSideEffect).}:
+    case variant
+    of 0: # Missing capabilities entirely
+      %*{
+        "accounts": {},
+        "primaryAccounts": {},
+        "username": "test",
+        "apiUrl": "https://example.com/api/",
+        "downloadUrl": "https://example.com/d",
+        "uploadUrl": "https://example.com/u",
+        "eventSourceUrl": "https://example.com/e",
+        "state": "s1",
+      }
+    of 1: # Capabilities is array, not object
+      %*{
+        "capabilities": [1, 2, 3],
+        "accounts": {},
+        "primaryAccounts": {},
+        "username": "test",
+        "apiUrl": "https://example.com/api/",
+        "downloadUrl": "https://example.com/d",
+        "uploadUrl": "https://example.com/u",
+        "eventSourceUrl": "https://example.com/e",
+        "state": "s1",
+      }
+    of 2: # Missing core capability
+      %*{
+        "capabilities": {"urn:ietf:params:jmap:mail": {}},
+        "accounts": {},
+        "primaryAccounts": {},
+        "username": "test",
+        "apiUrl": "https://example.com/api/",
+        "downloadUrl": "https://example.com/d",
+        "uploadUrl": "https://example.com/u",
+        "eventSourceUrl": "https://example.com/e",
+        "state": "s1",
+      }
+    of 3: # Core capability with negative UnsignedInt
+      %*{
+        "capabilities": {
+          "urn:ietf:params:jmap:core": {
+            "maxSizeUpload": -1,
+            "maxConcurrentUpload": 1,
+            "maxSizeRequest": 1,
+            "maxConcurrentRequests": 1,
+            "maxCallsInRequest": 1,
+            "maxObjectsInGet": 1,
+            "maxObjectsInSet": 1,
+            "collationAlgorithms": [],
+          }
+        },
+        "accounts": {},
+        "primaryAccounts": {},
+        "username": "test",
+        "apiUrl": "https://example.com/api/",
+        "downloadUrl": "https://example.com/d",
+        "uploadUrl": "https://example.com/u",
+        "eventSourceUrl": "https://example.com/e",
+        "state": "s1",
+      }
+    of 4: # Empty apiUrl
+      %*{
+        "capabilities": {
+          "urn:ietf:params:jmap:core": {
+            "maxSizeUpload": 1,
+            "maxConcurrentUpload": 1,
+            "maxSizeRequest": 1,
+            "maxConcurrentRequests": 1,
+            "maxCallsInRequest": 1,
+            "maxObjectsInGet": 1,
+            "maxObjectsInSet": 1,
+            "collationAlgorithms": [],
+          }
+        },
+        "accounts": {},
+        "primaryAccounts": {},
+        "username": "test",
+        "apiUrl": "",
+        "downloadUrl": "https://example.com/d",
+        "uploadUrl": "https://example.com/u",
+        "eventSourceUrl": "https://example.com/e",
+        "state": "s1",
+      }
+    of 5: # primaryAccounts value is int, not string
+      %*{
+        "capabilities": {
+          "urn:ietf:params:jmap:core": {
+            "maxSizeUpload": 1,
+            "maxConcurrentUpload": 1,
+            "maxSizeRequest": 1,
+            "maxConcurrentRequests": 1,
+            "maxCallsInRequest": 1,
+            "maxObjectsInGet": 1,
+            "maxObjectsInSet": 1,
+            "collationAlgorithms": [],
+          }
+        },
+        "accounts": {},
+        "primaryAccounts": {"urn:ietf:params:jmap:mail": 42},
+        "username": "test",
+        "apiUrl": "https://example.com/api/",
+        "downloadUrl": "https://example.com/d",
+        "uploadUrl": "https://example.com/u",
+        "eventSourceUrl": "https://example.com/e",
+        "state": "s1",
+      }
+    of 6: # Account missing required field
+      %*{
+        "capabilities": {
+          "urn:ietf:params:jmap:core": {
+            "maxSizeUpload": 1,
+            "maxConcurrentUpload": 1,
+            "maxSizeRequest": 1,
+            "maxConcurrentRequests": 1,
+            "maxCallsInRequest": 1,
+            "maxObjectsInGet": 1,
+            "maxObjectsInSet": 1,
+            "collationAlgorithms": [],
+          }
+        },
+        "accounts": {"A1": {"name": "test"}},
+        "primaryAccounts": {},
+        "username": "test",
+        "apiUrl": "https://example.com/api/",
+        "downloadUrl": "https://example.com/d",
+        "uploadUrl": "https://example.com/u",
+        "eventSourceUrl": "https://example.com/e",
+        "state": "s1",
+      }
+    of 7: # Completely empty object
+      newJObject()
+    of 8: # Not even an object
+      %42
+    else: # Null
+      newJNull()
+
 {.pop.} # params
 {.pop.} # hasDoc

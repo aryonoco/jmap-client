@@ -202,3 +202,74 @@ block stressPatchObjectGetKeyMiss:
     p = p.setProp("existing" & $i, %i).get()
   for i in 0 ..< 10000:
     doAssert p.getKey("miss" & $i).isNone
+
+# =============================================================================
+# Layer 2 serde stress tests
+# =============================================================================
+
+import jmap_client/serde
+import jmap_client/serde_session
+import jmap_client/serde_envelope
+import jmap_client/serde_framework
+import jmap_client/validation
+
+block stressArcSharedRefSessionParse:
+  ## Parse 100 sessions where capabilities share a JsonNode ref.
+  ## Validates Phase 1A ARC safety fix under repeated destruction.
+  {.cast(noSideEffect).}:
+    let sharedData = %*{"limit": 42}
+    for i in 0 ..< 100:
+      let cap1 = ServerCapability.fromJson("urn:ietf:params:jmap:mail", sharedData)
+      let cap2 = ServerCapability.fromJson("urn:ietf:params:jmap:contacts", sharedData)
+      doAssert cap1.isOk
+      doAssert cap2.isOk
+      # Both destroyed at end of iteration — ARC must not double-free
+
+block stressRequestWith1000MethodCalls:
+  ## Request with 1000 method calls. Tests allocation and iteration.
+  {.cast(noSideEffect).}:
+    var calls = newJArray()
+    for i in 0 ..< 1000:
+      let inv = newJArray()
+      inv.add(%("Method/" & $i))
+      inv.add(newJObject())
+      inv.add(%("c" & $i))
+      calls.add(inv)
+    let j = %*{"using": ["urn:ietf:params:jmap:core"], "methodCalls": calls}
+    let r = Request.fromJson(j)
+    doAssert r.isOk
+    assertEq r.get().methodCalls.len, 1000
+
+block stressPatchObject1000Entries:
+  ## PatchObject with 1000 entries via serde round-trip.
+  {.cast(noSideEffect).}:
+    var j = newJObject()
+    for i in 0 ..< 1000:
+      j["path/" & $i] = %i
+    let r = PatchObject.fromJson(j)
+    doAssert r.isOk
+    let rt = r.get().toJson()
+    doAssert rt.getFields().len == 1000
+
+block stressFilterDeep100Serde:
+  ## Filter tree 100 levels deep through serde round-trip.
+  proc fromIntCond(
+      n: JsonNode
+  ): Result[int, ValidationError] {.noSideEffect, raises: [].} =
+    ## Deserialise int condition from {"value": N}.
+    checkJsonKind(n, JObject, "int")
+    let vNode = n{"value"}
+    checkJsonKind(vNode, JInt, "int", "missing value")
+    ok(vNode.getInt(0))
+
+  proc intToJsonCond(c: int): JsonNode {.noSideEffect, raises: [].} =
+    ## Serialise int condition to {"value": N}.
+    {.cast(noSideEffect).}:
+      %*{"value": c}
+
+  var f = filterCondition(0)
+  for i in 1 .. 100:
+    f = filterOperator(foAnd, @[f])
+  let j = f.toJson(intToJsonCond)
+  let r = Filter[int].fromJson(j, fromIntCond)
+  doAssert r.isOk

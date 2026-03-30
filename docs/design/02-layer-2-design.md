@@ -667,10 +667,17 @@ func toJson*(cap: ServerCapability): JsonNode =
   else:
     if cap.rawData.isNil: newJObject() else: cap.rawData
 
+func ownData(data: JsonNode): JsonNode =
+  ## Deep-copy a JsonNode to avoid ARC double-free on shared refs.
+  ## Mirrors the pattern used by AccountCapabilityEntry.fromJson.
+  {.cast(noSideEffect).}:
+    if data.isNil: newJObject() else: data.copy()
+
 func fromJson*(T: typedesc[ServerCapability], uri: string, data: JsonNode
     ): Result[ServerCapability, ValidationError] =
   ## Deserialise a capability from its URI and JSON data.
-  ## Non-core capabilities use compile-time literal discriminators (exhaustive
+  ## Non-core capabilities deep-copy data to avoid ARC double-free on shared
+  ## JsonNode refs, and use compile-time literal discriminators (exhaustive
   ## case) instead of uncheckedAssign — see ARC safety note below.
   let parsedKind = parseCapabilityKind(uri)
   case parsedKind
@@ -680,24 +687,28 @@ func fromJson*(T: typedesc[ServerCapability], uri: string, data: JsonNode
     let core = ? CoreCapabilities.fromJson(data)
     ok(ServerCapability(kind: ckCore, rawUri: uri, core: core))
   of ckMail:
-    ok(ServerCapability(kind: ckMail, rawUri: uri, rawData: data))
+    ok(ServerCapability(kind: ckMail, rawUri: uri, rawData: ownData(data)))
   of ckSubmission:
-    ok(ServerCapability(kind: ckSubmission, rawUri: uri, rawData: data))
+    ok(ServerCapability(kind: ckSubmission, rawUri: uri, rawData: ownData(data)))
   # ... (one branch per CapabilityKind variant)
   of ckUnknown:
-    ok(ServerCapability(kind: ckUnknown, rawUri: uri, rawData: data))
+    ok(ServerCapability(kind: ckUnknown, rawUri: uri, rawData: ownData(data)))
 ```
 
-**`strictCaseObjects` + ARC safety note.** Each non-core branch uses a
-compile-time literal discriminator (`ckMail`, `ckSubmission`, etc.). This
-is verbose but necessary: `{.cast(uncheckedAssign).}:` to reassign the
-discriminator at runtime **corrupts ARC's branch tracking** on case objects
-whose `else` branch contains `ref` fields (like `rawData: JsonNode`). ARC
-erroneously runs the branch destructor on discriminator change even when
-both the old and new values are in the same `else` branch, causing
-double-free on subsequent object destruction. This was confirmed with Nim
-2.2.8 under `--mm:arc`. The exhaustive case avoids this by never mutating
-the discriminator after construction.
+**ARC safety: deep copy + exhaustive case.** Non-core branches deep-copy
+`data` via `ownData()` to avoid ARC double-free when the input `JsonNode`
+tree is shared between multiple capabilities (e.g., when the JSON parser
+reuses nodes). This mirrors the pattern used by
+`AccountCapabilityEntry.fromJson`. Each branch also uses a compile-time
+literal discriminator (`ckMail`, `ckSubmission`, etc.) rather than
+`{.cast(uncheckedAssign).}:` — runtime discriminator reassignment
+**corrupts ARC's branch tracking** on case objects whose `else` branch
+contains `ref` fields (like `rawData: JsonNode`). ARC erroneously runs
+the branch destructor on discriminator change even when both the old and
+new values are in the same `else` branch, causing double-free on
+subsequent object destruction. This was confirmed with Nim 2.2.8 under
+`--mm:arc`. The exhaustive case avoids this by never mutating the
+discriminator after construction.
 
 **Note:** Layer 1's `SetError` constructor (01-layer-1-design.md §8.10)
 uses `{.cast(uncheckedAssign).}:` safely because its `else: discard` branch
@@ -1453,7 +1464,8 @@ case-object construction).
 
 The workaround uses three helpers:
 
-- `initResultErr[T, E]` — constructs `Result[T, E]` in the error state via
+- `initResultErr[T, E]` (defined in `serde.nim`, shared across all domain
+  serde modules) — constructs `Result[T, E]` in the error state via
   default-init + case-branch-verified field access (bypasses literal construction).
 - `parseResponseCore` — parses `methodResponses` and `sessionState` into a
   `Result[(seq[Invocation], JmapState), ValidationError]` (this type does NOT
@@ -1977,8 +1989,9 @@ variant-specific fields: `invalidProperties` carries `properties: seq[string]`,
 
 **`requiresInit` note:** `SetError` contains `existingId: Id` where `Id` is
 `{.requiresInit.}`. If `err()`/`?` on `Result[SetError, ValidationError]`
-triggers a compilation failure, use the `initResultErr` workaround (see
-`serde_framework.nim` and `serde_envelope.nim` for the pattern).
+triggers a compilation failure, use the `initResultErr` workaround (defined
+in `serde.nim`, used by `serde_framework.nim`, `serde_envelope.nim`, and
+`serde_errors.nim`).
 
 **Wire format:**
 
@@ -2292,7 +2305,10 @@ serialisation.nim ← re-exports serde + all domain modules
 `serialisation.nim` is the re-export hub (Layer 2 equivalent of
 `types.nim`), re-exporting `serde.nim` and all domain serde modules.
 `serde.nim` defines shared helpers (`parseError`, `checkJsonKind`,
-`collectExtras`) and primitive/identifier ser/de functions. Domain serde
+`collectExtras`, `initResultErr`) and primitive/identifier ser/de functions.
+`initResultErr` is the consolidated workaround for nim-results'
+`requiresInit` limitation — used by `serde_envelope`, `serde_framework`,
+and `serde_errors` for types containing `{.requiresInit.}` fields. Domain serde
 modules import `serde.nim` for helpers — they do NOT import each other.
 No circular dependencies.
 

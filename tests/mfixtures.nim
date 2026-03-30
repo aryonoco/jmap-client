@@ -541,3 +541,20 @@ proc validFilterOperatorJson*(op = "AND", conditions: seq[JsonNode] = @[]): Json
 proc validComparatorJson*(property = "subject", isAscending = true): JsonNode =
   ## Minimal valid Comparator JSON per RFC 8620 section 5.5.
   %*{"property": property, "isAscending": isAscending}
+
+proc validAddedItemJson*(id = "ai1", index = 0): JsonNode =
+  ## Minimal valid AddedItem JSON per RFC 8620 section 5.6.
+  %*{"id": id, "index": index}
+
+proc validPatchObjectJson*(): JsonNode =
+  ## PatchObject JSON with one set and one delete operation.
+  result = newJObject()
+  {.cast(noSideEffect).}:
+    result["subject"] = %"new subject"
+    result["keywords/flagged"] = newJNull()
+
+proc validResultReferenceJson*(
+    resultOf = "c0", name = "Mailbox/get", path = "/ids"
+): JsonNode =
+  ## Minimal valid ResultReference JSON per RFC 8620 section 3.7.
+  %*{"resultOf": resultOf, "name": name, "path": path}

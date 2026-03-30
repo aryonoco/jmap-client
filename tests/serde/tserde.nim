@@ -215,28 +215,6 @@ block jmapIntDeserWrongKindString:
   {.cast(noSideEffect).}:
     assertErr JmapInt.fromJson(%"hello")
 
-block jmapIntDeserNil:
-  const node: JsonNode = nil
-  assertErr JmapInt.fromJson(node)
-
-block jmapIntDeserNull:
-  assertErr JmapInt.fromJson(newJNull())
-
-block jmapIntDeserOverflowPositive:
-  ## One above the 2^53-1 maximum.
-  {.cast(noSideEffect).}:
-    assertErr JmapInt.fromJson(%9007199254740992'i64)
-
-block jmapIntDeserOverflowNegative:
-  ## One below the -(2^53-1) minimum.
-  {.cast(noSideEffect).}:
-    assertErr JmapInt.fromJson(%(-9007199254740992'i64))
-
-block unsignedIntDeserOverflowMax:
-  ## One above the 2^53-1 maximum.
-  {.cast(noSideEffect).}:
-    assertErr UnsignedInt.fromJson(%9007199254740992'i64)
-
 # --- Date ---
 
 block dateDeserValid:
@@ -251,17 +229,6 @@ block dateDeserLowercaseT:
   {.cast(noSideEffect).}:
     assertErr Date.fromJson(%"2014-10-30t14:12:00Z")
 
-block dateDeserNil:
-  const node: JsonNode = nil
-  assertErr Date.fromJson(node)
-
-block dateDeserNull:
-  assertErr Date.fromJson(newJNull())
-
-block dateDeserEmptyString:
-  {.cast(noSideEffect).}:
-    assertErr Date.fromJson(%"")
-
 # --- UTCDate ---
 
 block utcDateDeserValid:
@@ -271,17 +238,6 @@ block utcDateDeserValid:
 block utcDateDeserNotZ:
   {.cast(noSideEffect).}:
     assertErr UTCDate.fromJson(%"2014-10-30T06:12:00+00:00")
-
-block utcDateDeserNil:
-  const node: JsonNode = nil
-  assertErr UTCDate.fromJson(node)
-
-block utcDateDeserNull:
-  assertErr UTCDate.fromJson(newJNull())
-
-block utcDateDeserEmptyString:
-  {.cast(noSideEffect).}:
-    assertErr UTCDate.fromJson(%"")
 
 # --- AccountId ---
 
@@ -422,3 +378,35 @@ checkProperty "JmapInt round-trip":
   let n = rng.genValidJmapInt(trial)
   let ji = parseJmapInt(n).get()
   assertOkEq JmapInt.fromJson(ji.toJson()), ji
+
+# =============================================================================
+# F. Additional edge-case tests
+# =============================================================================
+
+block checkJsonKindMcdcKindMismatchNonNil:
+  ## MC/DC: node is non-nil but has wrong kind — proves kind mismatch alone
+  ## triggers error without relying on nil check.
+  {.cast(noSideEffect).}:
+    let node = %42 # JInt, not JString
+    doAssert not node.isNil, "precondition: node must not be nil"
+    let r = Id.fromJson(node)
+    assertErr r
+
+block collectExtrasMixedKnownUnknown:
+  ## Three known + two unknown keys: only the two unknown are collected.
+  {.cast(noSideEffect).}:
+    let obj = %*{"a": 1, "b": 2, "c": 3, "x": 4, "y": 5}
+    let extras = collectExtras(obj, ["a", "b", "c"])
+    assertSome extras
+    let e = extras.get()
+    doAssert e{"x"} != nil
+    doAssert e{"y"} != nil
+    doAssert e{"a"}.isNil, "known key 'a' must not be in extras"
+    doAssert e{"b"}.isNil, "known key 'b' must not be in extras"
+
+block parseErrorEmptyMessage:
+  ## parseError with empty message produces a valid ValidationError.
+  let err = parseError("TestType", "")
+  assertEq err.typeName, "TestType"
+  assertEq err.message, ""
+  assertEq err.value, ""

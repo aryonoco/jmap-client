@@ -625,3 +625,97 @@ checkProperty "Response round-trip":
   doAssert v.methodResponses.len == resp.methodResponses.len
   doAssert v.sessionState == resp.sessionState
   doAssert v.createdIds.isNone == resp.createdIds.isNone
+
+# =============================================================================
+# G. Additional edge-case and round-trip tests
+# =============================================================================
+
+block invocationComplexNestedArgsRoundTrip:
+  ## Deep nesting (3+ levels), arrays of objects, null values in arguments.
+  {.cast(noSideEffect).}:
+    let args = %*{
+      "filter": {
+        "operator": "AND",
+        "conditions":
+          [{"subject": "test"}, {"nested": {"deep": {"value": [1, 2, nil]}}}],
+      },
+      "nullField": nil,
+      "emptyArray": [],
+    }
+    let inv =
+      Invocation(name: "Email/query", arguments: args, methodCallId: makeMcid("c1"))
+    let rt = Invocation.fromJson(inv.toJson())
+    assertOk rt
+    assertEq rt.get().name, "Email/query"
+    assertEq rt.get().methodCallId, makeMcid("c1")
+    # Verify complex arguments survived
+    doAssert rt.get().arguments{"filter"} != nil
+    doAssert rt.get().arguments{"filter"}{"conditions"} != nil
+    doAssert rt.get().arguments{"nullField"} != nil
+    doAssert rt.get().arguments{"nullField"}.kind == JNull
+
+block requestRoundTripWithCreatedIds:
+  ## Verify CreationId keys and Id values survive toJson/fromJson cycle.
+  {.cast(noSideEffect).}:
+    var tbl = initTable[CreationId, Id]()
+    tbl[makeCreationId("k1")] = makeId("id1")
+    tbl[makeCreationId("k2")] = makeId("id2")
+    let req = Request(
+      `using`: @["urn:ietf:params:jmap:core"],
+      methodCalls: @[makeInvocation()],
+      createdIds: Opt.some(tbl),
+    )
+    let rt = Request.fromJson(req.toJson())
+    assertOk rt
+    assertSome rt.get().createdIds
+    let rtTbl = rt.get().createdIds.get()
+    assertEq rtTbl.len, 2
+
+block responseRoundTripAllFields:
+  ## methodResponses + sessionState + createdIds all present.
+  {.cast(noSideEffect).}:
+    var tbl = initTable[CreationId, Id]()
+    tbl[makeCreationId("new0")] = makeId("created0")
+    let resp = Response(
+      methodResponses: @[makeInvocation(), makeInvocation("Email/set", makeMcid("c2"))],
+      sessionState: makeState("s42"),
+      createdIds: Opt.some(tbl),
+    )
+    let rt = Response.fromJson(resp.toJson())
+    assertOk rt
+    assertLen rt.get().methodResponses, 2
+    assertEq rt.get().sessionState, makeState("s42")
+    assertSome rt.get().createdIds
+
+block fromJsonFieldRefInvalidResultOf:
+  ## #ids key present but resultOf is empty — error must propagate.
+  {.cast(noSideEffect).}:
+    let node = %*{"#ids": {"resultOf": "", "name": "Mailbox/get", "path": "/ids"}}
+    let r = fromJsonField[int]("ids", node, fromDirectInt)
+    assertErr r
+
+block fromJsonFieldBothPresentRefTakesPrecedence:
+  ## When both "ids" and "#ids" are present, reference takes precedence.
+  {.cast(noSideEffect).}:
+    let node =
+      %*{"ids": 42, "#ids": {"resultOf": "c0", "name": "Mailbox/get", "path": "/ids"}}
+    let r = fromJsonField[int]("ids", node, fromDirectInt)
+    assertOk r
+    doAssert r.get().kind == rkReference
+
+block requestEmptyMethodCalls:
+  ## Empty methodCalls array round-trips correctly.
+  {.cast(noSideEffect).}:
+    let j = %*{"using": ["urn:ietf:params:jmap:core"], "methodCalls": []}
+    let r = Request.fromJson(j)
+    assertOk r
+    assertLen r.get().methodCalls, 0
+    assertLen r.get().`using`, 1
+
+block requestEmptyUsingArray:
+  ## Empty using array is valid per JSON schema.
+  {.cast(noSideEffect).}:
+    let j = %*{"using": [], "methodCalls": []}
+    let r = Request.fromJson(j)
+    assertOk r
+    assertLen r.get().`using`, 0

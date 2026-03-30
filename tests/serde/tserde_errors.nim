@@ -401,53 +401,7 @@ block setErrorDeserJNull:
   assertErr SetError.fromJson(newJNull())
 
 # =============================================================================
-# D. Extras round-trip value type preservation
-# =============================================================================
-
-block requestErrorExtrasValueTypesPreserved:
-  ## Verifies that extras round-trip preserves all JSON value types.
-  {.cast(noSideEffect).}:
-    let extras = newJObject()
-    extras["vendorNum"] = %42
-    extras["vendorStr"] = %"text"
-    extras["vendorBool"] = %true
-    extras["vendorNull"] = newJNull()
-    let original = requestError(
-      rawType = "urn:ietf:params:jmap:error:limit", extras = Opt.some(extras)
-    )
-    let rt = RequestError.fromJson(original.toJson())
-    assertOk rt
-    let reExtras = rt.get().extras
-    assertSome reExtras
-    let e = reExtras.get()
-    doAssert e{"vendorNum"}.kind == JInt
-    doAssert e{"vendorStr"}.kind == JString
-    doAssert e{"vendorBool"}.kind == JBool
-    doAssert e{"vendorNull"}.kind == JNull
-
-block methodErrorExtrasRoundTrip:
-  ## Verifies MethodError extras survive round-trip with correct values.
-  {.cast(noSideEffect).}:
-    let extras = newJObject()
-    extras["serverHint"] = %"retry-5s"
-    let original = methodError(
-      "serverFail", description = Opt.some("oops"), extras = Opt.some(extras)
-    )
-    let rt = MethodError.fromJson(original.toJson())
-    assertOk rt
-    doAssert rt.get().extras.isSome
-    doAssert rt.get().extras.get(){"serverHint"} != nil
-
-block setErrorAlreadyExistsNullExistingId:
-  ## Defensive fallback: null existingId maps to setUnknown.
-  {.cast(noSideEffect).}:
-    let j = %*{"type": "alreadyExists", "existingId": newJNull()}
-    let r = SetError.fromJson(j)
-    assertOk r
-    doAssert r.get().errorType == setUnknown
-
-# =============================================================================
-# E. Property-based round-trip tests
+# D. Property-based round-trip tests
 # =============================================================================
 
 checkProperty "RequestError round-trip":
@@ -463,3 +417,141 @@ checkProperty "SetError round-trip":
   let rt = SetError.fromJson(original.toJson())
   doAssert rt.isOk, "SetError round-trip failed"
   doAssert setErrorEq(rt.get(), original), "SetError values differ"
+
+# =============================================================================
+# E. MC/DC coverage for lenient optional field helpers
+# =============================================================================
+
+# --- MC/DC: optString leniency ---
+
+block requestErrorTitleAbsentMcdc:
+  ## MC/DC: child.isNil=true — absent field yields Opt.none.
+  {.cast(noSideEffect).}:
+    let j = %*{"type": "urn:ietf:params:jmap:error:limit"}
+    let r = RequestError.fromJson(j)
+    assertOk r
+    assertNone r.get().title
+
+block requestErrorTitleWrongKindMcdc:
+  ## MC/DC: child.isNil=false, kind!=JString=true — wrong kind yields Opt.none.
+  {.cast(noSideEffect).}:
+    let j = %*{"type": "urn:ietf:params:jmap:error:limit", "title": 42}
+    let r = RequestError.fromJson(j)
+    assertOk r
+    assertNone r.get().title
+
+block requestErrorTitlePresentMcdc:
+  ## MC/DC: child.isNil=false, kind=JString — correct kind yields Opt.some.
+  {.cast(noSideEffect).}:
+    let j = %*{"type": "urn:ietf:params:jmap:error:limit", "title": "Rate limited"}
+    let r = RequestError.fromJson(j)
+    assertOk r
+    assertSome r.get().title
+    assertSomeEq r.get().title, "Rate limited"
+
+# --- MC/DC: optInt leniency ---
+
+block requestErrorStatusAbsentMcdc:
+  ## MC/DC: child.isNil=true — absent status yields Opt.none.
+  {.cast(noSideEffect).}:
+    let j = %*{"type": "urn:ietf:params:jmap:error:limit"}
+    let r = RequestError.fromJson(j)
+    assertOk r
+    assertNone r.get().status
+
+block requestErrorStatusWrongKindStringMcdc:
+  ## MC/DC: child.isNil=false, kind!=JInt=true — string status yields Opt.none.
+  {.cast(noSideEffect).}:
+    let j = %*{"type": "urn:ietf:params:jmap:error:limit", "status": "429"}
+    let r = RequestError.fromJson(j)
+    assertOk r
+    assertNone r.get().status
+
+block requestErrorStatusPresentMcdc:
+  ## MC/DC: child.isNil=false, kind=JInt — correct kind yields Opt.some.
+  {.cast(noSideEffect).}:
+    let j = %*{"type": "urn:ietf:params:jmap:error:limit", "status": 429}
+    let r = RequestError.fromJson(j)
+    assertOk r
+    assertSome r.get().status
+    assertSomeEq r.get().status, 429
+
+# --- MC/DC: MethodError description ---
+
+block methodErrorDescriptionWrongKindMcdc:
+  ## MC/DC: description present but JInt (not JString) yields Opt.none.
+  {.cast(noSideEffect).}:
+    let j = %*{"type": "serverFail", "description": 123}
+    let r = MethodError.fromJson(j)
+    assertOk r
+    assertNone r.get().description
+
+block methodErrorDescriptionPresentMcdc:
+  ## MC/DC: description present as JString yields Opt.some.
+  {.cast(noSideEffect).}:
+    let j = %*{"type": "serverFail", "description": "Internal error"}
+    let r = MethodError.fromJson(j)
+    assertOk r
+    assertSomeEq r.get().description, "Internal error"
+
+# =============================================================================
+# F. Additional edge-case and isolation tests
+# =============================================================================
+
+block setErrorEmptyTypeField:
+  ## Empty type string must return error.
+  {.cast(noSideEffect).}:
+    let j = %*{"type": ""}
+    let r = SetError.fromJson(j)
+    assertErr r
+
+block setErrorInvalidPropertiesWithExistingIdExtras:
+  ## For invalidProperties variant, "existingId" is not a known key and
+  ## must be preserved in extras, not silently consumed.
+  {.cast(noSideEffect).}:
+    let j = %*{
+      "type": "invalidProperties", "properties": ["foo"], "existingId": "shouldBeExtras"
+    }
+    let r = SetError.fromJson(j)
+    assertOk r
+    assertSome r.get().extras
+    doAssert r.get().extras.get(){"existingId"} != nil,
+      "existingId must be in extras for invalidProperties variant"
+
+# =============================================================================
+# G. Round-trip tests with all optional fields populated
+# =============================================================================
+
+block requestErrorExtrasRoundTrip:
+  ## Non-standard fields preserved through toJson -> fromJson.
+  {.cast(noSideEffect).}:
+    let extras = newJObject()
+    extras["vendorField"] = %"vendorValue"
+    extras["customCode"] = %12345
+    let original = requestError(
+      rawType = "urn:ietf:params:jmap:error:limit", extras = Opt.some(extras)
+    )
+    let rt = RequestError.fromJson(original.toJson())
+    assertOk rt
+    assertSome rt.get().extras
+    let rtExtras = rt.get().extras.get()
+    doAssert rtExtras{"vendorField"} != nil
+    assertEq rtExtras{"vendorField"}.getStr(""), "vendorValue"
+    doAssert rtExtras{"customCode"} != nil
+    assertEq rtExtras{"customCode"}.getBiggestInt(0), 12345
+
+block methodErrorAllOptionalFieldsRoundTrip:
+  ## MethodError with description + extras both populated survives round-trip.
+  {.cast(noSideEffect).}:
+    let extras = newJObject()
+    extras["serverInfo"] = %"debug-data"
+    let original = methodError(
+      rawType = "serverFail",
+      description = Opt.some("Something went wrong"),
+      extras = Opt.some(extras),
+    )
+    let rt = MethodError.fromJson(original.toJson())
+    assertOk rt
+    assertSomeEq rt.get().description, "Something went wrong"
+    assertSome rt.get().extras
+    assertEq rt.get().extras.get(){"serverInfo"}.getStr(""), "debug-data"

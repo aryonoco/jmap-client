@@ -199,3 +199,24 @@ template assertJsonFieldCount*(obj: JsonNode, expected: int) =
   let actual = obj.getFields().len
   let exp = expected
   doAssert actual == exp, "expected " & $exp & " fields, got " & $actual
+
+template assertJsonArrayLen*(arr: JsonNode, expected: int) =
+  ## Verifies a JSON node is an array with exactly the expected number of elements.
+  doAssert arr.kind == JArray, "expected JSON JArray, got " & $arr.kind
+  let actual = arr.getElems(@[]).len
+  let exp = expected
+  doAssert actual == exp, "expected array len " & $exp & ", got " & $actual
+
+template assertJsonFieldIsNull*(obj: JsonNode, key: string) =
+  ## Verifies a JSON object field is present and is JNull.
+  let field = obj{key}
+  doAssert field != nil, "expected field '" & key & "' to be present"
+  doAssert field.kind == JNull,
+    "field '" & key & "': expected JNull, got " & $field.kind
+
+template assertRoundTrip*[T](fromJsonProc: untyped, value: T) =
+  ## Verifies toJson -> fromJson round-trip identity for a type.
+  let j = value.toJson()
+  let rt = fromJsonProc(j)
+  doAssert rt.isOk, "round-trip failed: fromJson returned Err"
+  doAssert rt.get() == value, "round-trip identity violated"

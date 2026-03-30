@@ -171,10 +171,12 @@ enabled in this project, they are effectively resolved:
    contains a `{.requiresInit.}` field (e.g., `Comparator` has
    `PropertyName {.requiresInit.}`), `nim-results`' `err()` and `?`
    operator fail to compile because they default-construct the inactive
-   union branch. The workaround is `initResultErr[T, E](x)` — a helper
-   that constructs the Result in error state via manual case-branch
-   assignment, bypassing default construction. See `serde_envelope.nim`
-   (`Response`) and `serde_framework.nim` (`Comparator`) for the pattern.
+   union branch. The workaround is `initResultErr[T, E](x)` — a shared
+   helper (defined in `serde.nim`) that constructs the Result in error
+   state via manual case-branch assignment, bypassing default
+   construction. Used by `serde_envelope.nim` (`Response`),
+   `serde_framework.nim` (`Comparator`), and `serde_errors.nim`
+   (`SetError`).
 
 7. **`{.push raises: [].}` does not propagate to callable parameters.**
    Proc-type parameters (callbacks) require explicit `{.raises: [].}`

@@ -34,6 +34,20 @@ template checkJsonKind*(
       )
     )
 
+func initResultErr*[T, E](x: E): Result[T, E] =
+  ## Construct Result[T, E] in error state without literal case-object
+  ## construction. Workaround for nim-results + requiresInit: err() tries to
+  ## default-construct the inactive branch (T), which fails when T contains
+  ## {.requiresInit.} fields. Default-init sets oResultPrivate=false (err
+  ## branch), then case-verified access assigns the error value.
+  var rv: Result[T, E]
+  case rv.oResultPrivate
+  of false:
+    rv.eResultPrivate = x
+  of true:
+    discard
+  rv
+
 func collectExtras*(node: JsonNode, knownKeys: openArray[string]): Opt[JsonNode] =
   ## Collect non-standard fields from a JSON object into Opt[JsonNode].
   ## Returns Opt.none if no extra fields exist.

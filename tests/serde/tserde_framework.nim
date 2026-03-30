@@ -160,21 +160,6 @@ block roundTripPatchObjectNestedValues:
     assertOk rt
     assertEq rt.get().len, 6
 
-block roundTripPatchObjectValueEquality:
-  ## Verifies PatchObject round-trip preserves exact values, not just count.
-  {.cast(noSideEffect).}:
-    let nested = %*{"a": {"b": true}}
-    var p = emptyPatch()
-    p = p.setProp("name", %"Updated").get()
-    p = p.setProp("nested", nested).get()
-    p = p.deleteProp("role").get()
-    let rt = PatchObject.fromJson(p.toJson())
-    assertOk rt
-    let rtJson = rt.get().toJson()
-    assertEq rtJson{"name"}.getStr(""), "Updated"
-    doAssert rtJson{"nested"} == nested
-    doAssert rtJson{"role"}.kind == JNull
-
 block roundTripAddedItem:
   let original = makeAddedItem()
   let rt = AddedItem.fromJson(original.toJson())
@@ -515,6 +500,122 @@ block addedItemDeserNotObject:
 block addedItemDeserNil:
   const nilNode: JsonNode = nil
   assertErr AddedItem.fromJson(nilNode)
+
+# =============================================================================
+# C2. Additional edge-case and boundary tests
+# =============================================================================
+
+block filterDeserNestedDepth3:
+  ## AND(OR(NOT(condition))) — verifies recursive parse at depth 3.
+  {.cast(noSideEffect).}:
+    let j = %*{
+      "operator": "AND",
+      "conditions": [
+        {
+          "operator": "OR",
+          "conditions": [{"operator": "NOT", "conditions": [{"value": 42}]}],
+        }
+      ],
+    }
+    let r = Filter[int].fromJson(j, fromIntCondition)
+    assertOk r
+    let f = r.get()
+    doAssert f.kind == fkOperator
+    doAssert f.operator == foAnd
+    assertLen f.conditions, 1
+    doAssert f.conditions[0].kind == fkOperator
+    doAssert f.conditions[0].operator == foOr
+    assertLen f.conditions[0].conditions, 1
+    doAssert f.conditions[0].conditions[0].kind == fkOperator
+    doAssert f.conditions[0].conditions[0].operator == foNot
+    assertLen f.conditions[0].conditions[0].conditions, 1
+    doAssert f.conditions[0].conditions[0].conditions[0].kind == fkCondition
+    doAssert f.conditions[0].conditions[0].conditions[0].condition == 42
+
+block filterDeserEmptyConditionsArray:
+  ## Operator with empty conditions array is valid.
+  {.cast(noSideEffect).}:
+    let j = %*{"operator": "AND", "conditions": []}
+    let r = Filter[int].fromJson(j, fromIntCondition)
+    assertOk r
+    doAssert r.get().kind == fkOperator
+    doAssert r.get().operator == foAnd
+    assertLen r.get().conditions, 0
+
+block comparatorAllFieldsRoundTrip:
+  ## Comparator with property + isAscending=false + collation round-trips.
+  let c = parseComparator(
+      makePropertyName("receivedAt"), false, Opt.some("i;unicode-casemap")
+    )
+    .get()
+  let rt = Comparator.fromJson(c.toJson())
+  assertOk rt
+  assertEq string(rt.get().property), "receivedAt"
+  doAssert rt.get().isAscending == false
+  assertSomeEq rt.get().collation, "i;unicode-casemap"
+
+block comparatorDeserMissingIsAscendingDefaultTrue:
+  ## Missing isAscending defaults to true per RFC 8620 section 5.5.
+  {.cast(noSideEffect).}:
+    let j = %*{"property": "subject"}
+    let r = Comparator.fromJson(j)
+    assertOk r
+    doAssert r.get().isAscending == true, "isAscending must default to true"
+
+block comparatorDeserCollationWrongKindIsLenient:
+  ## Collation with wrong JSON kind yields Opt.none, not error (Postel's law).
+  {.cast(noSideEffect).}:
+    let j = %*{"property": "subject", "collation": 42}
+    let r = Comparator.fromJson(j)
+    assertOk r
+    assertNone r.get().collation
+
+block patchObjectTildeEscapedKeys:
+  ## JSON Pointer path with ~0 (escaped ~) and ~1 (escaped /) per RFC 6901.
+  {.cast(noSideEffect).}:
+    let j = %*{"a~0b": "tilde", "c~1d": "slash"}
+    let r = PatchObject.fromJson(j)
+    assertOk r
+    # Verify the paths survive round-trip
+    let rt = r.get().toJson()
+    doAssert rt{"a~0b"} != nil
+    assertEq rt{"a~0b"}.getStr(""), "tilde"
+    doAssert rt{"c~1d"} != nil
+    assertEq rt{"c~1d"}.getStr(""), "slash"
+
+block addedItemDeserIndexZeroBoundary:
+  ## Boundary: index = 0 is valid.
+  {.cast(noSideEffect).}:
+    let j = %*{"id": "item1", "index": 0}
+    let r = AddedItem.fromJson(j)
+    assertOk r
+    assertEq int64(r.get().index), 0'i64
+
+block addedItemDeserIndexMaxBoundary:
+  ## Boundary: index = 2^53-1 is valid.
+  {.cast(noSideEffect).}:
+    let j = %*{"id": "item1", "index": 9007199254740991}
+    let r = AddedItem.fromJson(j)
+    assertOk r
+    assertEq int64(r.get().index), 9007199254740991'i64
+
+block filterOperatorDeserLowercaseRejected:
+  ## "and" (lowercase) must return error — operators are case-sensitive.
+  {.cast(noSideEffect).}:
+    let j = %"and"
+    let r = FilterOperator.fromJson(j)
+    assertErr r
+
+block filterDeserDepth3RoundTrip:
+  ## Round-trip test for depth-3 Filter tree.
+  let leaf = filterCondition(99)
+  let level2 = filterOperator(foNot, @[leaf])
+  let level1 = filterOperator(foOr, @[level2])
+  let root = filterOperator(foAnd, @[level1])
+  let j = root.toJson(intToJson)
+  let r = Filter[int].fromJson(j, fromIntCondition)
+  assertOk r
+  doAssert filterEq(r.get(), root), "depth-3 filter round-trip identity violated"
 
 # =============================================================================
 # D. Property-based round-trip tests

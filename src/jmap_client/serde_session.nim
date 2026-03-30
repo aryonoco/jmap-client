@@ -93,11 +93,21 @@ func toJson*(cap: ServerCapability): JsonNode =
     else:
       cap.rawData
 
+func ownData(data: JsonNode): JsonNode =
+  ## Deep-copy a JsonNode to avoid ARC double-free on shared refs.
+  ## Mirrors the pattern used by AccountCapabilityEntry.fromJson.
+  {.cast(noSideEffect).}:
+    if data.isNil:
+      newJObject()
+    else:
+      data.copy()
+
 func fromJson*(
     T: typedesc[ServerCapability], uri: string, data: JsonNode
 ): Result[ServerCapability, ValidationError] =
   ## Deserialise a capability from its URI and JSON data.
-  ## Non-core capabilities use compile-time literal discriminators (exhaustive
+  ## Non-core capabilities deep-copy data to avoid ARC double-free on shared
+  ## JsonNode refs, and use compile-time literal discriminators (exhaustive
   ## case) instead of uncheckedAssign, which corrupts ARC branch tracking
   ## on case objects with ref fields.
   let parsedKind = parseCapabilityKind(uri)
@@ -107,29 +117,29 @@ func fromJson*(
     let core = ?CoreCapabilities.fromJson(data)
     ok(ServerCapability(kind: ckCore, rawUri: uri, core: core))
   of ckMail:
-    ok(ServerCapability(kind: ckMail, rawUri: uri, rawData: data))
+    ok(ServerCapability(kind: ckMail, rawUri: uri, rawData: ownData(data)))
   of ckSubmission:
-    ok(ServerCapability(kind: ckSubmission, rawUri: uri, rawData: data))
+    ok(ServerCapability(kind: ckSubmission, rawUri: uri, rawData: ownData(data)))
   of ckVacationResponse:
-    ok(ServerCapability(kind: ckVacationResponse, rawUri: uri, rawData: data))
+    ok(ServerCapability(kind: ckVacationResponse, rawUri: uri, rawData: ownData(data)))
   of ckWebsocket:
-    ok(ServerCapability(kind: ckWebsocket, rawUri: uri, rawData: data))
+    ok(ServerCapability(kind: ckWebsocket, rawUri: uri, rawData: ownData(data)))
   of ckMdn:
-    ok(ServerCapability(kind: ckMdn, rawUri: uri, rawData: data))
+    ok(ServerCapability(kind: ckMdn, rawUri: uri, rawData: ownData(data)))
   of ckSmimeVerify:
-    ok(ServerCapability(kind: ckSmimeVerify, rawUri: uri, rawData: data))
+    ok(ServerCapability(kind: ckSmimeVerify, rawUri: uri, rawData: ownData(data)))
   of ckBlob:
-    ok(ServerCapability(kind: ckBlob, rawUri: uri, rawData: data))
+    ok(ServerCapability(kind: ckBlob, rawUri: uri, rawData: ownData(data)))
   of ckQuota:
-    ok(ServerCapability(kind: ckQuota, rawUri: uri, rawData: data))
+    ok(ServerCapability(kind: ckQuota, rawUri: uri, rawData: ownData(data)))
   of ckContacts:
-    ok(ServerCapability(kind: ckContacts, rawUri: uri, rawData: data))
+    ok(ServerCapability(kind: ckContacts, rawUri: uri, rawData: ownData(data)))
   of ckCalendars:
-    ok(ServerCapability(kind: ckCalendars, rawUri: uri, rawData: data))
+    ok(ServerCapability(kind: ckCalendars, rawUri: uri, rawData: ownData(data)))
   of ckSieve:
-    ok(ServerCapability(kind: ckSieve, rawUri: uri, rawData: data))
+    ok(ServerCapability(kind: ckSieve, rawUri: uri, rawData: ownData(data)))
   of ckUnknown:
-    ok(ServerCapability(kind: ckUnknown, rawUri: uri, rawData: data))
+    ok(ServerCapability(kind: ckUnknown, rawUri: uri, rawData: ownData(data)))
 
 # =============================================================================
 # AccountCapabilityEntry

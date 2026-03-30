@@ -588,3 +588,94 @@ block filterBranchingFactor:
   assertOk r
   doAssert r.get().kind == fkOperator
   assertEq r.get().conditions.len, 10
+
+# =============================================================================
+# I. Null bytes and large strings
+# =============================================================================
+
+block nullBytesInStringField:
+  ## Null byte (\x00) in account name — must parse or reject, never crash.
+  {.cast(noSideEffect).}:
+    var j = validSessionJson()
+    j["username"] = %("test\x00evil")
+    let r = Session.fromJson(j)
+    # Accept or reject, but never crash
+    doAssert r.isOk or r.isErr
+
+block largeMethodName:
+  ## 1MB method name — must not crash.
+  {.cast(noSideEffect).}:
+    let longName = 'A'.repeat(1_000_000)
+    let j = newJArray()
+    j.add(%longName)
+    j.add(newJObject())
+    j.add(%"c1")
+    let r = Invocation.fromJson(j)
+    # Accept (method name is unvalidated string) or reject, never crash
+    doAssert r.isOk or r.isErr
+
+# =============================================================================
+# J. Duplicate JSON object keys
+# =============================================================================
+
+block duplicateJsonObjectKeys:
+  ## JSON with duplicate keys — std/json last-wins behaviour. The serde layer
+  ## must handle this gracefully regardless of which value wins.
+  {.cast(noSideEffect).}:
+    # std/json's %*{} does not allow duplicates, so build manually
+    let j = parseJson("""{"type": "serverFail", "type": "invalidArguments"}""")
+    let r = MethodError.fromJson(j)
+    assertOk r
+    # Last wins — the rawType should be one of the two values
+    doAssert r.get().rawType == "serverFail" or r.get().rawType == "invalidArguments"
+
+# =============================================================================
+# K. Empty JSON object for each type
+# =============================================================================
+
+block emptyObjectForAllTypes:
+  ## %*{} passed to every fromJson — must return error, not crash.
+  {.cast(noSideEffect).}:
+    let empty = newJObject()
+    assertErr CoreCapabilities.fromJson(empty)
+    assertErr Account.fromJson(empty)
+    assertErr Session.fromJson(empty)
+    assertErr Request.fromJson(empty)
+    assertErr Invocation.fromJson(empty)
+    assertErr ResultReference.fromJson(empty)
+    assertErr Comparator.fromJson(empty)
+    assertErr AddedItem.fromJson(empty)
+    assertErr RequestError.fromJson(empty)
+    assertErr MethodError.fromJson(empty)
+
+block emptyObjectPatchObjectValid:
+  ## PatchObject with empty JSON object is valid (empty patch).
+  {.cast(noSideEffect).}:
+    let r = PatchObject.fromJson(newJObject())
+    assertOk r
+
+# =============================================================================
+# L. ARC shared-ref stress (validates Phase 1A fix)
+# =============================================================================
+
+block arcSharedRefMultipleCapabilities:
+  ## Multiple capabilities referencing the same JsonNode — must not double-free.
+  {.cast(noSideEffect).}:
+    let shared = %*{"limit": 1000, "nested": {"a": [1, 2, 3]}}
+    # Parse 10 capabilities all from the same shared ref
+    var caps: seq[ServerCapability] = @[]
+    const uris = [
+      "urn:ietf:params:jmap:mail", "urn:ietf:params:jmap:submission",
+      "urn:ietf:params:jmap:contacts", "urn:ietf:params:jmap:calendars",
+      "urn:ietf:params:jmap:sieve",
+    ]
+    for uri in uris:
+      let r = ServerCapability.fromJson(uri, shared)
+      assertOk r
+      caps.add(r.get())
+    # All should be independent copies
+    for cap in caps:
+      let j = cap.toJson()
+      doAssert j{"limit"} != nil
+      assertEq j{"limit"}.getBiggestInt(0), 1000
+    # Dropping caps should not cause ARC issues — if we reach here, we are safe

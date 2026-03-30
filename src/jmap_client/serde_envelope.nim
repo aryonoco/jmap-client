@@ -46,27 +46,6 @@ func fromJson*(
   ok(Invocation(name: name, arguments: arguments, methodCallId: mcid))
 
 # =============================================================================
-# requiresInit workaround
-# =============================================================================
-
-func initResultErr[T, E](x: E): Result[T, E] =
-  ## Construct Result[T, E] in error state without literal case-object
-  ## construction. Workaround for nim-results + requiresInit: err() uses
-  ## R(oResultPrivate: false, eResultPrivate: x) which requires the inactive
-  ## branch (vResultPrivate: T) to be default-constructible. When T contains
-  ## both Opt[Table[requiresInit, requiresInit]] and a bare requiresInit field
-  ## (e.g. Response), the compiler rejects this. Default-init sets
-  ## oResultPrivate=false (err branch), then case-verified access assigns
-  ## the error value.
-  var rv: Result[T, E]
-  case rv.oResultPrivate
-  of false:
-    rv.eResultPrivate = x
-  of true:
-    discard
-  rv
-
-# =============================================================================
 # createdIds helper
 # =============================================================================
 

@@ -16,23 +16,6 @@ import ./serde
 import ./types
 
 # =============================================================================
-# requiresInit workaround
-# =============================================================================
-
-func initResultErr[T, E](x: E): Result[T, E] =
-  ## Construct Result[T, E] in error state without literal case-object
-  ## construction. Workaround for nim-results + requiresInit: err() tries to
-  ## default-construct the inactive branch (T), which fails when T contains
-  ## {.requiresInit.} fields (e.g. Comparator has PropertyName).
-  var rv: Result[T, E]
-  case rv.oResultPrivate
-  of false:
-    rv.eResultPrivate = x
-  of true:
-    discard
-  rv
-
-# =============================================================================
 # FilterOperator
 # =============================================================================
 

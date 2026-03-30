@@ -854,3 +854,33 @@ block coreCapsFieldCollationAlgorithmsWrongKind:
     assertErr CoreCapabilities.fromJson(
       coreCapsWithField("collationAlgorithms", %"bad")
     )
+
+# =============================================================================
+# F. Cross-type confusion tests
+# =============================================================================
+
+block crossTypeIdAndAccountIdSameJson:
+  ## Id.toJson and AccountId.toJson produce identical JSON for the same string,
+  ## but both fromJson validate correctly through their respective constructors.
+  let idVal = makeId("testval")
+  let aidVal = makeAccountId("testval")
+  let idJson = idVal.toJson()
+  let aidJson = aidVal.toJson()
+  # Same JSON output
+  assertEq idJson.getStr(""), aidJson.getStr("")
+  # Both round-trip correctly through their own type
+  assertOk Id.fromJson(idJson)
+  assertOk AccountId.fromJson(aidJson)
+
+block distinctTypeRoundTripIsolation:
+  ## Distinct types serialise identically but remain type-safe in Nim.
+  ## This test verifies the serde layer preserves type semantics.
+  let mcid = makeMcid("c0")
+  let cid = makeCreationId("c0")
+  let mcidJson = mcid.toJson()
+  let cidJson = cid.toJson()
+  # Same JSON string representation
+  assertEq mcidJson.getStr(""), cidJson.getStr("")
+  # Both round-trip through their own parsers
+  assertOk MethodCallId.fromJson(mcidJson)
+  assertOk CreationId.fromJson(cidJson)

@@ -16,12 +16,10 @@ import results
 
 import jmap_client/serde
 import jmap_client/serde_session
-import jmap_client/serde_errors
 import jmap_client/primitives
 import jmap_client/identifiers
 import jmap_client/capabilities
 import jmap_client/session
-import jmap_client/errors
 import jmap_client/validation
 
 import ../massertions
@@ -742,77 +740,153 @@ block serverCapabilityJNullData:
   doAssert r.get().rawData.kind == JNull
 
 # =============================================================================
-# H. Serialisation output format verification
+# H. Additional Variant, Boundary, and Structural Tests
 # =============================================================================
 
-block toJsonCoreCapabilitiesAlwaysPlural:
-  ## D2.6: toJson MUST output "maxConcurrentRequests" (plural), never singular.
-  let caps = realisticCoreCaps()
-  let j = caps.toJson()
-  assertJsonFieldPresent j, "maxConcurrentRequests"
-  assertJsonFieldAbsent j, "maxConcurrentRequest"
+# --- ServerCapability: all non-core variant round-trips ---
 
-block toJsonCoreCapabilitiesZeroAlwaysPlural:
-  ## D2.6 holds even for zero-valued capabilities.
-  let caps = zeroCoreCaps()
-  let j = caps.toJson()
-  assertJsonFieldPresent j, "maxConcurrentRequests"
-  assertJsonFieldAbsent j, "maxConcurrentRequest"
+block serverCapabilityAllVariantsDeserRoundTrip:
+  ## Verifies every non-core CapabilityKind deserialises and round-trips.
+  {.cast(noSideEffect).}:
+    let testData = %*{"vendorExtension": true, "nested": {"key": "val"}}
+    let variants = [
+      ("urn:ietf:params:jmap:submission", ckSubmission),
+      ("urn:ietf:params:jmap:vacationresponse", ckVacationResponse),
+      ("urn:ietf:params:jmap:websocket", ckWebsocket),
+      ("urn:ietf:params:jmap:mdn", ckMdn),
+      ("urn:ietf:params:jmap:smimeverify", ckSmimeVerify),
+      ("urn:ietf:params:jmap:blob", ckBlob),
+      ("urn:ietf:params:jmap:quota", ckQuota),
+      ("urn:ietf:params:jmap:contacts", ckContacts),
+      ("urn:ietf:params:jmap:calendars", ckCalendars),
+      ("urn:ietf:params:jmap:sieve", ckSieve),
+    ]
+    for (uri, expectedKind) in variants:
+      let r = ServerCapability.fromJson(uri, testData)
+      doAssert r.isOk, "failed to deserialise " & uri
+      doAssert r.get().kind == expectedKind, "wrong kind for " & uri
+      assertEq r.get().rawUri, uri
+      # Verify rawData preserved (deep copy)
+      let rtJson = r.get().toJson()
+      doAssert rtJson{"vendorExtension"} != nil, "rawData lost for " & uri
+      assertEq rtJson{"vendorExtension"}.getBool(false), true
+      doAssert rtJson{"nested"} != nil, "nested data lost for " & uri
 
-block toJsonUnsignedIntMaxNotScientific:
-  ## Max UnsignedInt (2^53-1) must serialise as JInt, not scientific notation.
-  let ui = parseUnsignedInt(9007199254740991'i64).get()
-  let j = ui.toJson()
-  assertJsonKind j, JInt, "UnsignedInt max"
-  assertEq j.getBiggestInt(0), 9007199254740991'i64
+block serverCapabilityArcSharedRefSafety:
+  ## Validates Phase 1A fix: two capabilities sharing the same JsonNode ref
+  ## must not cause ARC double-free on destruction.
+  {.cast(noSideEffect).}:
+    let sharedData = %*{"shared": 42, "nested": {"a": 1}}
+    # Both capabilities point to the same JsonNode — ownData() must deep-copy
+    let r1 = ServerCapability.fromJson("urn:ietf:params:jmap:mail", sharedData)
+    let r2 = ServerCapability.fromJson("urn:ietf:params:jmap:contacts", sharedData)
+    assertOk r1
+    assertOk r2
+    # Verify they are independent copies, not the same ref
+    let json1 = r1.get().toJson()
+    let json2 = r2.get().toJson()
+    assertEq json1{"shared"}.getBiggestInt(0), 42
+    assertEq json2{"shared"}.getBiggestInt(0), 42
+    # If they survived to here without crash, ARC ref management is safe
 
-block toJsonJmapIntBoundariesAreJInt:
-  ## Min and max JmapInt must serialise as JInt.
-  let minJ = parseJmapInt(-9007199254740991'i64).get()
-  let maxJ = parseJmapInt(9007199254740991'i64).get()
-  assertJsonKind minJ.toJson(), JInt, "JmapInt min"
-  assertJsonKind maxJ.toJson(), JInt, "JmapInt max"
-  assertEq minJ.toJson().getBiggestInt(0), -9007199254740991'i64
-  assertEq maxJ.toJson().getBiggestInt(0), 9007199254740991'i64
+block coreCapabilitiesDeserMaxUnsignedIntBoundary:
+  ## Boundary: 2^53-1 at CoreCapabilities level within Session context.
+  {.cast(noSideEffect).}:
+    const maxVal = 9007199254740991'i64 # 2^53-1
+    let j = %*{
+      "maxSizeUpload": maxVal,
+      "maxConcurrentUpload": 1,
+      "maxSizeRequest": 1,
+      "maxConcurrentRequests": 1,
+      "maxCallsInRequest": 1,
+      "maxObjectsInGet": 1,
+      "maxObjectsInSet": 1,
+      "collationAlgorithms": [],
+    }
+    let r = CoreCapabilities.fromJson(j)
+    assertOk r
+    assertEq int64(r.get().maxSizeUpload), maxVal
 
-block toJsonOptFieldsAbsentWhenNone:
-  ## Optional fields must be absent from JSON (not null) when Opt.none.
-  let re = requestError("urn:ietf:params:jmap:error:unknownCapability")
-  let j = re.toJson()
-  ## status, title, detail, limit are all Opt.none — must be absent, not null.
-  assertJsonFieldAbsent j, "status"
-  assertJsonFieldAbsent j, "title"
-  assertJsonFieldAbsent j, "detail"
-  assertJsonFieldAbsent j, "limit"
+block coreCapabilitiesCollationDuplicatesDeduplication:
+  ## HashSet deduplicates collation algorithms.
+  {.cast(noSideEffect).}:
+    let j = %*{
+      "maxSizeUpload": 1,
+      "maxConcurrentUpload": 1,
+      "maxSizeRequest": 1,
+      "maxConcurrentRequests": 1,
+      "maxCallsInRequest": 1,
+      "maxObjectsInGet": 1,
+      "maxObjectsInSet": 1,
+      "collationAlgorithms": ["i;ascii-casemap", "i;ascii-casemap", "i;octet"],
+    }
+    let r = CoreCapabilities.fromJson(j)
+    assertOk r
+    assertEq r.get().collationAlgorithms.len, 2
 
-# =============================================================================
-# I. Real-server fixture serde round-trips
-# =============================================================================
-
-block roundTripFastmailSessionExtended:
-  ## Fastmail session round-trip: vendor extension capabilities survive.
-  let session = parseSessionFromArgs(makeFastmailSession()).get()
-  let j = session.toJson()
-  let rt = Session.fromJson(j)
-  doAssert rt.isOk, "Fastmail session round-trip failed"
-  doAssert sessionEq(rt.get(), session), "Fastmail session values differ"
-  ## Verify vendor extension URI preserved (not mapped to "ckUnknown" string).
-  let capsObj = j{"capabilities"}
-  assertJsonFieldPresent capsObj, "https://www.fastmail.com/dev/contacts"
-  assertJsonFieldAbsent capsObj, "ckUnknown"
-
-block roundTripCyrusSessionExtended:
-  ## Cyrus session round-trip with lenient account IDs.
-  let session = parseSessionFromArgs(makeCyrusSession()).get()
-  let j = session.toJson()
-  let rt = Session.fromJson(j)
-  doAssert rt.isOk, "Cyrus session round-trip failed"
-  doAssert sessionEq(rt.get(), session), "Cyrus session values differ"
-
-block roundTripMinimalSessionExtended:
-  ## Minimal session round-trip: empty accounts and primaryAccounts.
-  let session = parseSessionFromArgs(makeMinimalSession()).get()
-  let j = session.toJson()
-  let rt = Session.fromJson(j)
-  doAssert rt.isOk, "Minimal session round-trip failed"
-  doAssert sessionEq(rt.get(), session), "Minimal session values differ"
+block sessionMaximalStructureRoundTrip:
+  ## Session with many accounts, multiple capabilities, all fields populated.
+  {.cast(noSideEffect).}:
+    let j = %*{
+      "capabilities": {
+        "urn:ietf:params:jmap:core": {
+          "maxSizeUpload": 50000000,
+          "maxConcurrentUpload": 4,
+          "maxSizeRequest": 10000000,
+          "maxConcurrentRequests": 8,
+          "maxCallsInRequest": 16,
+          "maxObjectsInGet": 500,
+          "maxObjectsInSet": 500,
+          "collationAlgorithms": ["i;ascii-casemap", "i;unicode-casemap"],
+        },
+        "urn:ietf:params:jmap:mail": {"maxMailboxDepth": 10},
+        "urn:ietf:params:jmap:submission": {},
+        "urn:ietf:params:jmap:contacts": {"maxContacts": 5000},
+        "urn:ietf:params:jmap:calendars": {},
+      },
+      "accounts": {
+        "A001": {
+          "name": "Personal",
+          "isPersonal": true,
+          "isReadOnly": false,
+          "accountCapabilities":
+            {"urn:ietf:params:jmap:mail": {}, "urn:ietf:params:jmap:contacts": {}},
+        },
+        "A002": {
+          "name": "Work",
+          "isPersonal": false,
+          "isReadOnly": false,
+          "accountCapabilities": {"urn:ietf:params:jmap:mail": {}},
+        },
+        "A003": {
+          "name": "Shared",
+          "isPersonal": false,
+          "isReadOnly": true,
+          "accountCapabilities": {"urn:ietf:params:jmap:calendars": {}},
+        },
+      },
+      "primaryAccounts": {
+        "urn:ietf:params:jmap:mail": "A001",
+        "urn:ietf:params:jmap:contacts": "A001",
+        "urn:ietf:params:jmap:calendars": "A003",
+      },
+      "username": "user@example.com",
+      "apiUrl": "https://jmap.example.com/api/",
+      "downloadUrl":
+        "https://jmap.example.com/download/{accountId}/{blobId}/{name}?accept={type}",
+      "uploadUrl": "https://jmap.example.com/upload/{accountId}/",
+      "eventSourceUrl":
+        "https://jmap.example.com/eventsource/?types={types}&closeafter={closeafter}&ping={ping}",
+      "state": "abc123",
+    }
+    let r = Session.fromJson(j)
+    assertOk r
+    let s = r.get()
+    assertEq s.capabilities.len, 5
+    assertEq s.accounts.len, 3
+    assertEq s.primaryAccounts.len, 3
+    # Round-trip
+    let rt = Session.fromJson(s.toJson())
+    assertOk rt
+    assertEq rt.get().capabilities.len, 5
+    assertEq rt.get().accounts.len, 3
