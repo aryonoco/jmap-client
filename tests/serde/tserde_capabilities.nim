@@ -434,6 +434,77 @@ block equalityHelperCapEqDifferentKind:
   doAssert not capEq(coreCap, mailCap), "capEq must return false for different kinds"
 
 # =============================================================================
+# H. Phase 3D: CoreCapabilities per-field missing tests
+# Each test removes one required field and asserts err.
+# =============================================================================
+
+block coreCapsMissingMaxSizeUpload:
+  var j = validCoreCapsJson()
+  j.delete("maxSizeUpload")
+  assertErr CoreCapabilities.fromJson(j)
+
+block coreCapsMissingMaxConcurrentUpload:
+  var j = validCoreCapsJson()
+  j.delete("maxConcurrentUpload")
+  assertErr CoreCapabilities.fromJson(j)
+
+block coreCapsMissingMaxSizeRequest:
+  var j = validCoreCapsJson()
+  j.delete("maxSizeRequest")
+  assertErr CoreCapabilities.fromJson(j)
+
+block coreCapsMissingMaxConcurrentRequests:
+  ## Removing both plural and singular forms must cause err.
+  var j = validCoreCapsJson()
+  j.delete("maxConcurrentRequests")
+  # validCoreCapsJson uses plural form; verify it is now absent
+  doAssert j{"maxConcurrentRequests"}.isNil
+  doAssert j{"maxConcurrentRequest"}.isNil
+  assertErrContains CoreCapabilities.fromJson(j), "missing maxConcurrentRequests"
+
+block coreCapsMissingMaxCallsInRequest:
+  var j = validCoreCapsJson()
+  j.delete("maxCallsInRequest")
+  assertErr CoreCapabilities.fromJson(j)
+
+block coreCapsMissingMaxObjectsInGet:
+  var j = validCoreCapsJson()
+  j.delete("maxObjectsInGet")
+  assertErr CoreCapabilities.fromJson(j)
+
+block coreCapsMissingMaxObjectsInSet:
+  var j = validCoreCapsJson()
+  j.delete("maxObjectsInSet")
+  assertErr CoreCapabilities.fromJson(j)
+
+block coreCapsMissingCollationAlgorithms:
+  var j = validCoreCapsJson()
+  j.delete("collationAlgorithms")
+  assertErrContains CoreCapabilities.fromJson(j),
+    "missing or invalid collationAlgorithms"
+
+# =============================================================================
+# I. Phase 3I: AccountCapabilityEntry boundary tests
+# =============================================================================
+
+block accountCapabilityEntryEmptyUriRejectsMutation:
+  ## Empty URI string must be rejected by AccountCapabilityEntry.fromJson.
+  ## This test kills the mutation that removes the len==0 guard.
+  let r = AccountCapabilityEntry.fromJson("", newJObject())
+  assertErr r
+  assertErrContains r, "empty"
+
+block accountCapabilityEntryNilDataToJson:
+  ## Constructing an AccountCapabilityEntry with data: nil and calling toJson
+  ## must produce a valid JObject (not crash). This kills the mutation that
+  ## removes the nil-to-empty-object guard in toJson.
+  let entry =
+    AccountCapabilityEntry(kind: ckMail, rawUri: "urn:ietf:params:jmap:mail", data: nil)
+  let j = entry.toJson()
+  doAssert j != nil, "toJson on nil-data entry must not return nil"
+  doAssert j.kind == JObject, "toJson on nil-data entry must return JObject"
+
+# =============================================================================
 # toJson ownership: returned JsonNode must be independent of internal state
 # =============================================================================
 
@@ -447,7 +518,6 @@ block serverCapabilityToJsonReturnsIndependentCopy:
     )
     let j = cap.toJson()
     j["injected"] = %"corrupted"
-    # The internal rawData must be unaffected
     doAssert cap.rawData{"injected"}.isNil,
       "toJson must return an independent copy — mutation must not propagate"
     doAssert cap.rawData{"original"}.getStr("") == "value",

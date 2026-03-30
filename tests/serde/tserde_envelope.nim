@@ -15,9 +15,11 @@ import results
 
 import jmap_client/serde
 import jmap_client/serde_envelope
+import jmap_client/serde_errors
 import jmap_client/primitives
 import jmap_client/identifiers
 import jmap_client/envelope
+import jmap_client/errors
 import jmap_client/validation
 
 import ../massertions
@@ -33,36 +35,8 @@ func fromDirectInt(n: JsonNode): Result[int, ValidationError] =
   checkJsonKind(n, JInt, "int")
   ok(n.getInt(0))
 
-proc goldenRequestJson(): JsonNode =
-  ## Builds a fresh copy of the RFC section 3.3.1 golden Request JSON.
-  %*{
-    "using": ["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail"],
-    "methodCalls": [
-      ["method1", {"arg1": "arg1data", "arg2": "arg2data"}, "c1"],
-      ["method2", {"arg1": "arg1data"}, "c2"],
-      ["method3", {}, "c3"],
-    ],
-  }
-
-proc goldenResponseJson(): JsonNode =
-  ## Builds a fresh copy of the RFC section 3.4.1 golden Response JSON.
-  %*{
-    "methodResponses": [
-      ["method1", {"arg1": 3, "arg2": "foo"}, "c1"],
-      ["method2", {"isBlah": true}, "c2"],
-      ["anotherResponseFromMethod2", {"data": 10, "yetmoredata": "Hello"}, "c2"],
-      ["error", {"type": "unknownMethod"}, "c3"],
-    ],
-    "sessionState": "75128aab4b1b",
-  }
-
-proc validRequestJson(): JsonNode =
-  ## Builds a fresh minimal valid Request JSON.
-  %*{"using": ["urn:ietf:params:jmap:core"], "methodCalls": [["Mailbox/get", {}, "c0"]]}
-
-proc validResponseJson(): JsonNode =
-  ## Builds a fresh minimal valid Response JSON.
-  %*{"methodResponses": [["Mailbox/get", {}, "c0"]], "sessionState": "s1"}
+# Golden and valid Request/Response JSON fixtures are in mfixtures.nim:
+# goldenRequestJson(), goldenResponseJson(), validRequestJson(), validResponseJson()
 
 # =============================================================================
 # A. Round-trip tests
@@ -242,7 +216,7 @@ block responseDeserGoldenRfc:
   assertEq resp.methodResponses[2].methodCallId, parseMethodCallId("c2").get()
   assertEq resp.methodResponses[3].name, "error"
   assertEq resp.methodResponses[3].methodCallId, parseMethodCallId("c3").get()
-  ## Phase 2B: verify error invocation arguments contain the error type.
+  # Phase 2B: verify error invocation arguments (RFC 3.4.1)
   assertEq resp.methodResponses[3].arguments{"type"}.getStr(""), "unknownMethod"
   assertEq resp.sessionState, parseJmapState("75128aab4b1b").get()
   doAssert resp.createdIds.isNone
@@ -742,7 +716,99 @@ block requestEmptyUsingArray:
     assertLen r.get().`using`, 0
 
 # =============================================================================
-# H. Wire format golden tests — serialise then compare literal JSON (Phase 2C)
+# H. Phase 3E: Error invocation wire format
+# =============================================================================
+
+block errorInvocationWireFormat:
+  ## Construct an Invocation with name="error" and MethodError arguments,
+  ## serialise it, and verify the ["error", {"type": ...}, "c0"] wire format.
+  {.cast(noSideEffect).}:
+    let me = methodError("unknownMethod", Opt.some("No such method"))
+    let inv =
+      Invocation(name: "error", arguments: me.toJson(), methodCallId: makeMcid("c0"))
+    let j = inv.toJson()
+    # Wire format: 3-element JSON array
+    doAssert j.kind == JArray
+    assertEq j.len, 3
+    let elems = j.getElems(@[])
+    assertEq elems[0].getStr(""), "error"
+    doAssert elems[1].kind == JObject
+    assertEq elems[1]{"type"}.getStr(""), "unknownMethod"
+    assertEq elems[1]{"description"}.getStr(""), "No such method"
+    assertEq elems[2].getStr(""), "c0"
+    # Round-trip: deserialise back to Invocation, then parse arguments as MethodError
+    let rt = Invocation.fromJson(j)
+    assertOk rt
+    let rtInv = rt.get()
+    assertEq rtInv.name, "error"
+    assertEq rtInv.methodCallId, makeMcid("c0")
+    let meRt = MethodError.fromJson(rtInv.arguments)
+    assertOk meRt
+    doAssert meRt.get().errorType == metUnknownMethod
+    assertSomeEq meRt.get().description, "No such method"
+
+block errorInvocationServerFailWireFormat:
+  ## Error invocation with serverFail type and extras.
+  {.cast(noSideEffect).}:
+    let extras = newJObject()
+    extras["retryAfter"] = %30
+    let me = methodError("serverFail", Opt.some("Try again"), Opt.some(extras))
+    let inv =
+      Invocation(name: "error", arguments: me.toJson(), methodCallId: makeMcid("c5"))
+    let j = inv.toJson()
+    let elems = j.getElems(@[])
+    assertEq elems[0].getStr(""), "error"
+    assertEq elems[1]{"type"}.getStr(""), "serverFail"
+    assertEq elems[1]{"retryAfter"}.getBiggestInt(0), 30
+    assertEq elems[2].getStr(""), "c5"
+
+# =============================================================================
+# I. Phase 3F: Back-reference #-prefix integration test
+# =============================================================================
+
+block backReferenceHashPrefixRoundTrip:
+  ## Construct a Request-like JSON with #-prefixed argument keys (Referencable
+  ## fields), verify the # prefix appears in serialised JSON, and deserialise
+  ## back to verify rkReference variant.
+  {.cast(noSideEffect).}:
+    # Build a method call with a #-prefixed argument containing a ResultReference
+    let refObj = %*{"resultOf": "c0", "name": "Mailbox/query", "path": "/ids"}
+    var args = newJObject()
+    args["#ids"] = refObj
+    let inv =
+      Invocation(name: "Email/get", arguments: args, methodCallId: makeMcid("c1"))
+    let req = Request(
+      `using`: @["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail"],
+      methodCalls: @[inv],
+      createdIds: default(Opt[Table[CreationId, Id]]),
+    )
+    # Serialise the Request
+    let j = req.toJson()
+    let callsArr = j{"methodCalls"}
+    doAssert callsArr != nil
+    doAssert callsArr.kind == JArray
+    let firstCall = callsArr.getElems(@[])[0]
+    let callArgs = firstCall.getElems(@[])[1]
+    # Verify the #-prefixed key is present in the serialised arguments
+    doAssert callArgs{"#ids"} != nil, "#ids key must be present in serialised JSON"
+    assertEq callArgs{"#ids"}{"resultOf"}.getStr(""), "c0"
+    assertEq callArgs{"#ids"}{"name"}.getStr(""), "Mailbox/query"
+    assertEq callArgs{"#ids"}{"path"}.getStr(""), "/ids"
+    # Deserialise back — arguments are preserved as-is in Invocation
+    let rtReq = Request.fromJson(j)
+    assertOk rtReq
+    let rtArgs = rtReq.get().methodCalls[0].arguments
+    doAssert rtArgs{"#ids"} != nil
+    # Parse the #-prefixed field as a Referencable
+    let refResult = fromJsonField[int]("ids", rtArgs, fromDirectInt)
+    assertOk refResult
+    doAssert refResult.get().kind == rkReference
+    assertEq refResult.get().reference.name, "Mailbox/query"
+    assertEq refResult.get().reference.path, "/ids"
+    assertEq refResult.get().reference.resultOf, makeMcid("c0")
+
+# =============================================================================
+# Phase 2C: Wire format golden tests (serialise then compare literal JSON)
 # =============================================================================
 
 block requestGoldenWireFormat:
@@ -764,7 +830,6 @@ block requestGoldenWireFormat:
       createdIds: Opt.none(Table[CreationId, Id]),
     )
     let j = req.toJson()
-    ## Verify top-level field names and kinds.
     doAssert j{"using"} != nil
     doAssert j{"using"}.kind == JArray
     assertEq j{"using"}.getElems(@[]).len, 2
@@ -773,7 +838,6 @@ block requestGoldenWireFormat:
     doAssert j{"methodCalls"} != nil
     doAssert j{"methodCalls"}.kind == JArray
     assertEq j{"methodCalls"}.getElems(@[]).len, 3
-    ## Verify each invocation is a 3-element array [name, args, mcid].
     let call0 = j{"methodCalls"}.getElems(@[])[0]
     doAssert call0.kind == JArray
     assertEq call0.getElems(@[]).len, 3
@@ -783,7 +847,6 @@ block requestGoldenWireFormat:
     let call2 = j{"methodCalls"}.getElems(@[])[2]
     assertEq call2.getElems(@[])[0].getStr(""), "method3"
     assertEq call2.getElems(@[])[2].getStr(""), "c3"
-    ## createdIds must be absent (Opt.none).
     doAssert j{"createdIds"}.isNil
 
 block responseGoldenWireFormat:
@@ -808,13 +871,11 @@ block responseGoldenWireFormat:
       createdIds: Opt.none(Table[CreationId, Id]),
     )
     let j = resp.toJson()
-    ## Verify top-level structure.
     doAssert j{"methodResponses"} != nil
     doAssert j{"methodResponses"}.kind == JArray
     assertEq j{"methodResponses"}.getElems(@[]).len, 4
     assertEq j{"sessionState"}.getStr(""), "75128aab4b1b"
     doAssert j{"createdIds"}.isNil
-    ## Verify the error invocation wire format.
     let errInv = j{"methodResponses"}.getElems(@[])[3]
     doAssert errInv.kind == JArray
     assertEq errInv.getElems(@[])[0].getStr(""), "error"

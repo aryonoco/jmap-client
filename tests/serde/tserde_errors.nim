@@ -336,9 +336,13 @@ block setErrorDeserAlreadyExistsWrongKind:
     doAssert r.get().errorType == setUnknown, "wrong kind triggers defensive fallback"
 
 block setErrorDeserAlreadyExistsEmptyId:
+  ## Empty existingId triggers defensive fallback to setUnknown (not err).
   {.cast(noSideEffect).}:
     let j = %*{"type": "alreadyExists", "existingId": ""}
-    assertErr SetError.fromJson(j)
+    let r = SetError.fromJson(j)
+    assertOk r
+    doAssert r.get().errorType == setUnknown,
+      "empty existingId triggers defensive fallback"
 
 block setErrorDeserVendorSpecific:
   {.cast(noSideEffect).}:
@@ -564,10 +568,13 @@ block methodErrorAllOptionalFieldsRoundTrip:
 block setErrorAlreadyExistsEmptyId:
   ## Build SetError JSON with "type": "alreadyExists", "existingId": "".
   ## The empty string is rejected by parseIdFromServer (Id requires 1-255
-  ## octets), so the overall SetError.fromJson must return err.
+  ## octets). Defensive fallback maps to setUnknown, not err.
   {.cast(noSideEffect).}:
     let j = %*{"type": "alreadyExists", "existingId": ""}
-    assertErr SetError.fromJson(j)
+    let r = SetError.fromJson(j)
+    assertOk r
+    doAssert r.get().errorType == setUnknown,
+      "empty existingId triggers defensive fallback"
 
 block setErrorInvalidPropertiesNonArrayProperties:
   ## Build SetError JSON with "type": "invalidProperties", "properties": "notAnArray".
@@ -845,3 +852,93 @@ block roundTripSetErrorAlreadyExistsWithData:
   let original = setErrorAlreadyExists("alreadyExists", makeId("existing42"))
   doAssert original.errorType == setAlreadyExists
   assertSetOkEq SetError.fromJson(original.toJson()), original
+
+# =============================================================================
+# Extras collision: standard field names in extras must not overwrite
+# =============================================================================
+
+block requestErrorExtrasCollisionTypeField:
+  ## Extras containing "type" must not overwrite the standard type field.
+  {.cast(noSideEffect).}:
+    let extras = newJObject()
+    extras["type"] = %"evil"
+    extras["vendor"] = %"safe"
+    let re = requestError(
+      rawType = "urn:ietf:params:jmap:error:limit", extras = Opt.some(extras)
+    )
+    let j = re.toJson()
+    assertJsonFieldEq j, "type", %"urn:ietf:params:jmap:error:limit"
+    assertJsonFieldEq j, "vendor", %"safe"
+
+block requestErrorExtrasCollisionAllStandardFields:
+  ## Extras containing all 5 standard field names must not overwrite any.
+  {.cast(noSideEffect).}:
+    let extras = newJObject()
+    extras["type"] = %"evil"
+    extras["status"] = %999
+    extras["title"] = %"evil-title"
+    extras["detail"] = %"evil-detail"
+    extras["limit"] = %"evil-limit"
+    extras["vendor"] = %"safe"
+    let re = requestError(
+      rawType = "urn:ietf:params:jmap:error:limit",
+      status = Opt.some(429),
+      title = Opt.some("Rate Limit"),
+      detail = Opt.some("Too many requests"),
+      limit = Opt.some("maxCallsInRequest"),
+      extras = Opt.some(extras),
+    )
+    let j = re.toJson()
+    assertJsonFieldEq j, "type", %"urn:ietf:params:jmap:error:limit"
+    assertJsonFieldEq j, "status", %429
+    assertJsonFieldEq j, "title", %"Rate Limit"
+    assertJsonFieldEq j, "detail", %"Too many requests"
+    assertJsonFieldEq j, "limit", %"maxCallsInRequest"
+    assertJsonFieldEq j, "vendor", %"safe"
+
+block methodErrorExtrasCollisionTypeField:
+  {.cast(noSideEffect).}:
+    let extras = newJObject()
+    extras["type"] = %"evil"
+    extras["description"] = %"evil-desc"
+    extras["vendor"] = %"safe"
+    let me = methodError(
+      rawType = "invalidArguments",
+      description = Opt.some("real description"),
+      extras = Opt.some(extras),
+    )
+    let j = me.toJson()
+    assertJsonFieldEq j, "type", %"invalidArguments"
+    assertJsonFieldEq j, "description", %"real description"
+    assertJsonFieldEq j, "vendor", %"safe"
+
+block setErrorExtrasCollisionTypeField:
+  {.cast(noSideEffect).}:
+    let extras = newJObject()
+    extras["type"] = %"evil"
+    extras["vendor"] = %"safe"
+    let se = setError(
+      rawType = "forbidden",
+      description = Opt.some("real desc"),
+      extras = Opt.some(extras),
+    )
+    let j = se.toJson()
+    assertJsonFieldEq j, "type", %"forbidden"
+    assertJsonFieldEq j, "vendor", %"safe"
+
+block setErrorInvalidPropertiesExtrasCollisionProperties:
+  {.cast(noSideEffect).}:
+    let extras = newJObject()
+    extras["properties"] = %*["evil"]
+    extras["vendor"] = %"safe"
+    let se = setErrorInvalidProperties(
+      rawType = "invalidProperties",
+      properties = @["subject", "body"],
+      extras = Opt.some(extras),
+    )
+    let j = se.toJson()
+    assertJsonFieldEq j, "type", %"invalidProperties"
+    let propsNode = j{"properties"}
+    assertFalse propsNode.isNil, "properties field must be present"
+    assertEq propsNode.getElems(@[]).len, 2
+    assertJsonFieldEq j, "vendor", %"safe"

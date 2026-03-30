@@ -342,3 +342,170 @@ block equalityHelperSetErrorEqDifferentType:
   let se2 = setError("notFound")
   doAssert not setErrorEq(se1, se2),
     "setErrorEq must return false for different errorType"
+
+# =============================================================================
+# F. Phase 3C: Session URL template field serde tests
+# =============================================================================
+
+block sessionDeserMissingDownloadUrl:
+  ## Session JSON missing downloadUrl must return err.
+  var j = validSessionJson()
+  let j2 = %*{
+    "capabilities": j["capabilities"],
+    "accounts": j["accounts"],
+    "primaryAccounts": j["primaryAccounts"],
+    "username": j["username"],
+    "apiUrl": j["apiUrl"],
+    "uploadUrl": j["uploadUrl"],
+    "eventSourceUrl": j["eventSourceUrl"],
+    "state": j["state"],
+  }
+  assertErrContains Session.fromJson(j2), "missing or invalid downloadUrl"
+
+block sessionDeserMissingUploadUrl:
+  ## Session JSON missing uploadUrl must return err.
+  var j = validSessionJson()
+  let j2 = %*{
+    "capabilities": j["capabilities"],
+    "accounts": j["accounts"],
+    "primaryAccounts": j["primaryAccounts"],
+    "username": j["username"],
+    "apiUrl": j["apiUrl"],
+    "downloadUrl": j["downloadUrl"],
+    "eventSourceUrl": j["eventSourceUrl"],
+    "state": j["state"],
+  }
+  assertErrContains Session.fromJson(j2), "missing or invalid uploadUrl"
+
+block sessionDeserMissingEventSourceUrl:
+  ## Session JSON missing eventSourceUrl must return err.
+  var j = validSessionJson()
+  let j2 = %*{
+    "capabilities": j["capabilities"],
+    "accounts": j["accounts"],
+    "primaryAccounts": j["primaryAccounts"],
+    "username": j["username"],
+    "apiUrl": j["apiUrl"],
+    "downloadUrl": j["downloadUrl"],
+    "uploadUrl": j["uploadUrl"],
+    "state": j["state"],
+  }
+  assertErrContains Session.fromJson(j2), "missing or invalid eventSourceUrl"
+
+block sessionDeserDownloadUrlMissingBlobId:
+  ## downloadUrl lacking {blobId} must be rejected by parseSession validation.
+  var j = validSessionJson()
+  j["downloadUrl"] = %"https://example.com/download/{accountId}/{name}?accept={type}"
+  assertErrContains Session.fromJson(j), "downloadUrl missing {blobId}"
+
+block sessionDeserDownloadUrlMissingAccountId:
+  ## downloadUrl lacking {accountId} must be rejected by parseSession validation.
+  var j = validSessionJson()
+  j["downloadUrl"] = %"https://example.com/download/{blobId}/{name}?accept={type}"
+  assertErrContains Session.fromJson(j), "downloadUrl missing {accountId}"
+
+block sessionDeserUploadUrlMissingAccountId:
+  ## uploadUrl lacking {accountId} must be rejected by parseSession validation.
+  var j = validSessionJson()
+  j["uploadUrl"] = %"https://example.com/upload/"
+  assertErrContains Session.fromJson(j), "uploadUrl missing {accountId}"
+
+block sessionDeserEventSourceUrlMissingTypes:
+  ## eventSourceUrl lacking {types} must be rejected by parseSession validation.
+  var j = validSessionJson()
+  j["eventSourceUrl"] = %"https://example.com/es/?closeafter={closeafter}&ping={ping}"
+  assertErrContains Session.fromJson(j), "eventSourceUrl missing {types}"
+
+block sessionDeserEventSourceUrlMissingCloseafter:
+  ## eventSourceUrl lacking {closeafter} must be rejected.
+  var j = validSessionJson()
+  j["eventSourceUrl"] = %"https://example.com/es/?types={types}&ping={ping}"
+  assertErrContains Session.fromJson(j), "eventSourceUrl missing {closeafter}"
+
+block sessionDeserEventSourceUrlMissingPing:
+  ## eventSourceUrl lacking {ping} must be rejected.
+  var j = validSessionJson()
+  j["eventSourceUrl"] = %"https://example.com/es/?types={types}&closeafter={closeafter}"
+  assertErrContains Session.fromJson(j), "eventSourceUrl missing {ping}"
+
+# =============================================================================
+# G. Phase 3J: Capability URI key preservation for all 12 standard URIs
+# =============================================================================
+
+block sessionToJsonPreservesAll12StandardCapabilityUris:
+  ## Construct a Session with all 12 known CapabilityKind variants as
+  ## server capabilities. Serialise and verify each URI string appears
+  ## as a key in the "capabilities" JSON object.
+  let coreCaps = zeroCoreCaps()
+  let capabilities = @[
+    ServerCapability(kind: ckCore, rawUri: "urn:ietf:params:jmap:core", core: coreCaps),
+    ServerCapability(
+      kind: ckMail, rawUri: "urn:ietf:params:jmap:mail", rawData: newJObject()
+    ),
+    ServerCapability(
+      kind: ckSubmission,
+      rawUri: "urn:ietf:params:jmap:submission",
+      rawData: newJObject(),
+    ),
+    ServerCapability(
+      kind: ckVacationResponse,
+      rawUri: "urn:ietf:params:jmap:vacationresponse",
+      rawData: newJObject(),
+    ),
+    ServerCapability(
+      kind: ckWebsocket, rawUri: "urn:ietf:params:jmap:websocket", rawData: newJObject()
+    ),
+    ServerCapability(
+      kind: ckMdn, rawUri: "urn:ietf:params:jmap:mdn", rawData: newJObject()
+    ),
+    ServerCapability(
+      kind: ckSmimeVerify,
+      rawUri: "urn:ietf:params:jmap:smimeverify",
+      rawData: newJObject(),
+    ),
+    ServerCapability(
+      kind: ckBlob, rawUri: "urn:ietf:params:jmap:blob", rawData: newJObject()
+    ),
+    ServerCapability(
+      kind: ckQuota, rawUri: "urn:ietf:params:jmap:quota", rawData: newJObject()
+    ),
+    ServerCapability(
+      kind: ckContacts, rawUri: "urn:ietf:params:jmap:contacts", rawData: newJObject()
+    ),
+    ServerCapability(
+      kind: ckCalendars, rawUri: "urn:ietf:params:jmap:calendars", rawData: newJObject()
+    ),
+    ServerCapability(
+      kind: ckSieve, rawUri: "urn:ietf:params:jmap:sieve", rawData: newJObject()
+    ),
+  ]
+  let session = parseSession(
+      capabilities = capabilities,
+      accounts = initTable[AccountId, Account](),
+      primaryAccounts = initTable[string, AccountId](),
+      username = "",
+      apiUrl = "https://jmap.example.com/api/",
+      downloadUrl = makeGoldenDownloadUrl(),
+      uploadUrl = makeGoldenUploadUrl(),
+      eventSourceUrl = makeGoldenEventSourceUrl(),
+      state = makeState("s1"),
+    )
+    .get()
+  let j = session.toJson()
+  let capsObj = j{"capabilities"}
+  doAssert capsObj != nil
+  doAssert capsObj.kind == JObject
+  # Verify all 12 standard URIs appear as keys
+  const expectedUris = [
+    "urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail",
+    "urn:ietf:params:jmap:submission", "urn:ietf:params:jmap:vacationresponse",
+    "urn:ietf:params:jmap:websocket", "urn:ietf:params:jmap:mdn",
+    "urn:ietf:params:jmap:smimeverify", "urn:ietf:params:jmap:blob",
+    "urn:ietf:params:jmap:quota", "urn:ietf:params:jmap:contacts",
+    "urn:ietf:params:jmap:calendars", "urn:ietf:params:jmap:sieve",
+  ]
+  for uri in expectedUris:
+    doAssert capsObj{uri} != nil, "missing capability URI key: " & uri
+  # Verify no enum symbolic names appear (e.g. "ckMail" should not be a key)
+  doAssert capsObj{"ckCore"}.isNil, "symbolic name ckCore must not be a JSON key"
+  doAssert capsObj{"ckMail"}.isNil, "symbolic name ckMail must not be a JSON key"

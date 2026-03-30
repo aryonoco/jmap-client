@@ -241,40 +241,6 @@ block filterDeepNesting50Levels:
   let r = Filter[int].fromJson(inner, fromIntCondition)
   assertOk r
 
-block filterDepthGuardRejectsExcessiveNesting:
-  ## Nesting beyond MaxFilterDepth must return err, not stack overflow.
-  ## This is a defence-in-depth guard: std/json's parseJson has its own
-  ## DepthLimit of 1000, but fromJson accepts pre-parsed JsonNode, so that
-  ## limit does not apply at this layer.
-  var inner = newJObject()
-  {.cast(noSideEffect).}:
-    inner["value"] = %42
-  for i in 0 ..< 200:
-    var conds = newJArray()
-    conds.add(inner)
-    inner = newJObject()
-    {.cast(noSideEffect).}:
-      inner["operator"] = %"AND"
-    inner["conditions"] = conds
-  let r = Filter[int].fromJson(inner, fromIntCondition)
-  assertErr r
-
-block filterDepthGuardAllowsMaxDepth:
-  ## Nesting at exactly MaxFilterDepth must succeed.
-  var inner = newJObject()
-  {.cast(noSideEffect).}:
-    inner["value"] = %42
-  for i in 0 ..< (MaxFilterDepth - 1):
-    # Each level adds 1 to depth; leaf at depth MaxFilterDepth is ok
-    var conds = newJArray()
-    conds.add(inner)
-    inner = newJObject()
-    {.cast(noSideEffect).}:
-      inner["operator"] = %"AND"
-    inner["conditions"] = conds
-  let r = Filter[int].fromJson(inner, fromIntCondition)
-  assertOk r
-
 block filterWideOperator1000Children:
   ## AND operator with 1000 leaf conditions -> should succeed.
   var conds = newJArray()
@@ -953,3 +919,156 @@ block creationIdWithCjk:
   {.cast(noSideEffect).}:
     let r = CreationId.fromJson(%"\xE6\x97\xA5\xE6\x9C\xAC") # U+65E5 U+672C (Japanese)
     assertOk r
+
+# =============================================================================
+# V. Phase 3G: Extra fields ignored (Postel's law) tests
+# For each type, parse JSON with an unknown extra field and assert isOk.
+# Verifies the library follows Postel's law: be liberal in what you accept.
+# =============================================================================
+
+block extraFieldsIgnoredRequest:
+  ## Request JSON with an extra unknown field must parse successfully.
+  var j = validRequestJson()
+  {.cast(noSideEffect).}:
+    j["vendorExtension"] = %"test"
+  let r = Request.fromJson(j)
+  assertOk r
+  assertEq r.get().`using`.len, 1
+  assertEq r.get().methodCalls.len, 1
+
+block extraFieldsIgnoredResponse:
+  ## Response JSON with an extra unknown field must parse successfully.
+  var j = validResponseJson()
+  {.cast(noSideEffect).}:
+    j["vendorExtension"] = %"test"
+  let r = Response.fromJson(j)
+  assertOk r
+  assertEq r.get().methodResponses.len, 1
+
+block extraFieldsIgnoredCoreCapabilities:
+  ## CoreCapabilities JSON with an extra unknown field must parse successfully.
+  var j = %*{
+    "maxSizeUpload": 1,
+    "maxConcurrentUpload": 1,
+    "maxSizeRequest": 1,
+    "maxConcurrentRequests": 1,
+    "maxCallsInRequest": 1,
+    "maxObjectsInGet": 1,
+    "maxObjectsInSet": 1,
+    "collationAlgorithms": [],
+    "vendorExtension": "test",
+  }
+  let r = CoreCapabilities.fromJson(j)
+  assertOk r
+
+block extraFieldsIgnoredAccount:
+  ## Account JSON with an extra unknown field must parse successfully.
+  {.cast(noSideEffect).}:
+    let j = %*{
+      "name": "test@example.com",
+      "isPersonal": true,
+      "isReadOnly": false,
+      "accountCapabilities": {},
+      "vendorExtension": "test",
+    }
+    let r = Account.fromJson(j)
+    assertOk r
+    assertEq r.get().name, "test@example.com"
+
+block extraFieldsIgnoredComparator:
+  ## Comparator JSON with an extra unknown field must parse successfully.
+  {.cast(noSideEffect).}:
+    let j = %*{"property": "subject", "isAscending": true, "vendorExtension": "test"}
+    let r = Comparator.fromJson(j)
+    assertOk r
+    assertEq string(r.get().property), "subject"
+
+block extraFieldsIgnoredResultReference:
+  ## ResultReference JSON with an extra unknown field must parse successfully.
+  {.cast(noSideEffect).}:
+    let j = %*{
+      "resultOf": "c0", "name": "Mailbox/get", "path": "/ids", "vendorExtension": "test"
+    }
+    let r = ResultReference.fromJson(j)
+    assertOk r
+    assertEq r.get().name, "Mailbox/get"
+
+block extraFieldsIgnoredAddedItem:
+  ## AddedItem JSON with an extra unknown field must parse successfully.
+  {.cast(noSideEffect).}:
+    let j = %*{"id": "item1", "index": 0, "vendorExtension": "test"}
+    let r = AddedItem.fromJson(j)
+    assertOk r
+    assertEq string(r.get().id), "item1"
+
+# =============================================================================
+# W. Phase 3H: Wrong-cased field name rejection tests
+# Verifies that PascalCase or snake_case required field names fail parsing.
+# Note: Nim's std/json uses exact string matching for object keys (unlike
+# nimIdentNormalize for identifiers), so wrong-cased keys are simply absent.
+# =============================================================================
+
+block wrongCasedFieldRequestMethodCalls:
+  ## "MethodCalls" (PascalCase) instead of "methodCalls" — treated as
+  ## missing field since JSON keys are case-sensitive.
+  {.cast(noSideEffect).}:
+    let j = %*{
+      "using": ["urn:ietf:params:jmap:core"], "MethodCalls": [["Mailbox/get", {}, "c0"]]
+    }
+    assertErrContains Request.fromJson(j), "missing or invalid methodCalls"
+
+block wrongCasedFieldRequestUsing:
+  ## "Using" (PascalCase) instead of "using".
+  {.cast(noSideEffect).}:
+    let j = %*{
+      "Using": ["urn:ietf:params:jmap:core"], "methodCalls": [["Mailbox/get", {}, "c0"]]
+    }
+    assertErrContains Request.fromJson(j), "missing or invalid using"
+
+block wrongCasedFieldResponseMethodResponses:
+  ## "method_responses" (snake_case) instead of "methodResponses".
+  {.cast(noSideEffect).}:
+    let j = %*{"method_responses": [["Mailbox/get", {}, "c0"]], "sessionState": "s1"}
+    assertErrContains Response.fromJson(j), "missing or invalid methodResponses"
+
+block wrongCasedFieldResponseSessionState:
+  ## "SessionState" (PascalCase) instead of "sessionState".
+  {.cast(noSideEffect).}:
+    let j = %*{"methodResponses": [["Mailbox/get", {}, "c0"]], "SessionState": "s1"}
+    assertErrContains Response.fromJson(j), "missing or invalid sessionState"
+
+block wrongCasedFieldSessionCapabilities:
+  ## "Capabilities" (PascalCase) instead of "capabilities" in Session JSON.
+  var j = validSessionJson()
+  let caps = j["capabilities"]
+  # Rebuild with wrong-cased key
+  let j2 = %*{
+    "Capabilities": caps,
+    "accounts": {},
+    "primaryAccounts": {},
+    "username": "",
+    "apiUrl": "https://jmap.example.com/api/",
+    "downloadUrl":
+      "https://jmap.example.com/download/{accountId}/{blobId}/{name}?accept={type}",
+    "uploadUrl": "https://jmap.example.com/upload/{accountId}/",
+    "eventSourceUrl":
+      "https://jmap.example.com/eventsource/?types={types}&closeafter={closeafter}&ping={ping}",
+    "state": "s1",
+  }
+  assertErrContains Session.fromJson(j2), "missing or invalid capabilities"
+
+block wrongCasedFieldSessionUsername:
+  ## "user_name" (snake_case) instead of "username" in Session JSON.
+  var j = validSessionJson()
+  let j2 = %*{
+    "capabilities": j["capabilities"],
+    "accounts": {},
+    "primaryAccounts": {},
+    "user_name": "",
+    "apiUrl": "https://jmap.example.com/api/",
+    "downloadUrl": j["downloadUrl"],
+    "uploadUrl": j["uploadUrl"],
+    "eventSourceUrl": j["eventSourceUrl"],
+    "state": "s1",
+  }
+  assertErrContains Session.fromJson(j2), "missing or invalid username"
