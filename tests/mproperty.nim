@@ -753,8 +753,176 @@ proc genCalendarInvalidDate*(rng: var Rand): string =
     zeroPad(hour, 2) & ":" & zeroPad(minute, 2) & ":" & zeroPad(second, 2) & "Z"
 
 # ---------------------------------------------------------------------------
-# Additional structured type generators
+# JSON node generators (for serde totality testing)
 # ---------------------------------------------------------------------------
+
+import std/tables
+
+proc genArbitraryJsonNode*(rng: var Rand, maxDepth: int = 3): JsonNode =
+  ## Random JsonNode of any kind with controlled nesting depth.
+  ## Used for totality testing: feed to fromJson, verify never crashes.
+  let kind = rng.rand(0 .. 6)
+  case kind
+  of 0:
+    newJNull()
+  of 1:
+    newJBool(rng.rand(0 .. 1) == 0)
+  of 2:
+    newJInt(rng.rand(-9_999_999'i64 .. 9_999_999'i64))
+  of 3:
+    newJFloat(rng.rand(-1000.0 .. 1000.0))
+  of 4:
+    let s = rng.genStringFrom({'a' .. 'z', '0' .. '9', '-', '_', ' '}, 0, 30)
+    newJString(s)
+  of 5:
+    if maxDepth <= 0:
+      return newJString("leaf")
+    var arr = newJArray()
+    let count = rng.rand(0 .. 3)
+    for _ in 0 ..< count:
+      arr.add(rng.genArbitraryJsonNode(maxDepth - 1))
+    arr
+  else:
+    if maxDepth <= 0:
+      return newJString("leaf")
+    var obj = newJObject()
+    let count = rng.rand(0 .. 4)
+    for i in 0 ..< count:
+      let key = "k" & $i
+      obj[key] = rng.genArbitraryJsonNode(maxDepth - 1)
+    obj
+
+proc genArbitraryJsonObject*(rng: var Rand, maxDepth: int = 2): JsonNode =
+  ## Random JObject with random fields. Used for totality testing of
+  ## fromJson functions that expect JObject input.
+  var obj = newJObject()
+  let count = rng.rand(0 .. 6)
+  const keys = [
+    "type", "name", "id", "status", "properties", "operator", "conditions", "property",
+    "isAscending", "collation", "description", "resultOf", "path", "index", "value",
+    "maxSizeUpload", "using", "methodCalls", "methodResponses", "sessionState",
+    "capabilities", "accounts", "primaryAccounts", "username", "apiUrl", "state",
+    "accountCapabilities", "isPersonal", "isReadOnly", "existingId", "vendorExtra",
+  ]
+  for i in 0 ..< count:
+    let key = rng.oneOf(keys)
+    obj[key] = rng.genArbitraryJsonNode(maxDepth)
+  obj
+
+# ---------------------------------------------------------------------------
+# Composite serde generators (Request, Response, Session)
+# ---------------------------------------------------------------------------
+
+proc genInvocationWithArgs*(rng: var Rand): Invocation =
+  ## Random Invocation with non-trivial arguments (not just empty object).
+  const methods = [
+    "Mailbox/get", "Email/get", "Email/query", "Email/set", "Thread/get",
+    "Identity/get", "SearchSnippet/get",
+  ]
+  let name = rng.oneOf(methods)
+  let mcidStr = "c" & $rng.rand(0 .. 999)
+  let mcid = parseMethodCallId(mcidStr).get()
+  var args = newJObject()
+  args["accountId"] = newJString("A" & $rng.rand(1 .. 99))
+  if rng.rand(0 .. 1) == 0:
+    var ids = newJArray()
+    for j in 0 ..< rng.rand(0 .. 3):
+      ids.add(newJString("id" & $j))
+    args["ids"] = ids
+  if rng.rand(0 .. 2) == 0:
+    args["properties"] = block:
+      var p = newJArray()
+      for prop in ["subject", "from", "to", "receivedAt"]:
+        if rng.rand(0 .. 1) == 0:
+          p.add(newJString(prop))
+      p
+  Invocation(name: name, arguments: args, methodCallId: mcid)
+
+proc genRequest*(rng: var Rand): Request =
+  ## Random Request with 1-10 invocations and optional createdIds.
+  let n = rng.rand(1 .. 5)
+  var calls: seq[Invocation] = @[]
+  for _ in 0 ..< n:
+    calls.add rng.genInvocationWithArgs()
+  let usingCount = rng.rand(1 .. 3)
+  const uris = [
+    "urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail",
+    "urn:ietf:params:jmap:submission",
+  ]
+  var usingUris: seq[string] = @[]
+  for i in 0 ..< usingCount:
+    usingUris.add uris[min(i, uris.high)]
+  let createdIds =
+    if rng.rand(0 .. 2) == 0:
+      var tbl = initTable[CreationId, Id]()
+      for i in 0 ..< rng.rand(1 .. 3):
+        let cid = parseCreationId("new" & $i).get()
+        let id = parseIdFromServer("id" & $i).get()
+        tbl[cid] = id
+      Opt.some(tbl)
+    else:
+      Opt.none(Table[CreationId, Id])
+  Request(`using`: usingUris, methodCalls: calls, createdIds: createdIds)
+
+proc genResponse*(rng: var Rand): Response =
+  ## Random Response with 1-10 methodResponses and optional createdIds.
+  let n = rng.rand(1 .. 5)
+  var resps: seq[Invocation] = @[]
+  for _ in 0 ..< n:
+    resps.add rng.genInvocationWithArgs()
+  let stateStr = "state" & $rng.rand(0 .. 9999)
+  let state = parseJmapState(stateStr).get()
+  let createdIds =
+    if rng.rand(0 .. 2) == 0:
+      var tbl = initTable[CreationId, Id]()
+      for i in 0 ..< rng.rand(1 .. 3):
+        let cid = parseCreationId("new" & $i).get()
+        let id = parseIdFromServer("id" & $i).get()
+        tbl[cid] = id
+      Opt.some(tbl)
+    else:
+      Opt.none(Table[CreationId, Id])
+  Response(methodResponses: resps, createdIds: createdIds, sessionState: state)
+
+proc genSession*(rng: var Rand): Session =
+  ## Random valid Session with 1-5 capabilities (always includes ckCore),
+  ## 0-3 accounts, valid URL templates.
+  let core = rng.genCoreCapabilities()
+  var caps: seq[ServerCapability] =
+    @[ServerCapability(rawUri: "urn:ietf:params:jmap:core", kind: ckCore, core: core)]
+  let extraCaps = rng.rand(0 .. 3)
+  const extraUris = [
+    "urn:ietf:params:jmap:mail", "urn:ietf:params:jmap:submission",
+    "urn:ietf:params:jmap:contacts", "urn:ietf:params:jmap:calendars",
+  ]
+  for i in 0 ..< extraCaps:
+    let uri = extraUris[min(i, extraUris.high)]
+    caps.add ServerCapability(
+      rawUri: uri, kind: parseCapabilityKind(uri), rawData: newJObject()
+    )
+  let acctCount = rng.rand(0 .. 3)
+  var accounts = initTable[AccountId, Account]()
+  var primaryAccounts = initTable[string, AccountId]()
+  for i in 0 ..< acctCount:
+    let aid = parseAccountId("A" & $rng.rand(1000 .. 9999)).get()
+    accounts[aid] = rng.genValidAccount()
+    if i == 0 and caps.len > 1:
+      primaryAccounts[caps[1].rawUri] = aid
+  let state = parseJmapState("s" & $rng.rand(0 .. 9999)).get()
+  let downloadUrl = parseUriTemplate(
+      "https://jmap.example.com/download/{accountId}/{blobId}/{name}?accept={type}"
+    )
+    .get()
+  let uploadUrl = parseUriTemplate("https://jmap.example.com/upload/{accountId}/").get()
+  let eventSourceUrl = parseUriTemplate(
+      "https://jmap.example.com/eventsource/?types={types}&closeafter={closeafter}&ping={ping}"
+    )
+    .get()
+  parseSession(
+    caps, accounts, primaryAccounts, "user@example.com",
+    "https://jmap.example.com/api/", downloadUrl, uploadUrl, eventSourceUrl, state,
+  )
+    .get()
 
 {.pop.} # params
 {.pop.} # hasDoc

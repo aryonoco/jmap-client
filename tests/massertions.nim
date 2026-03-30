@@ -3,8 +3,11 @@
 
 {.push raises: [].}
 
-## Template-based assertion helpers for Result and Opt types. Templates ensure
-## line numbers point to the calling test block on failure.
+## Template-based assertion helpers for Result, Opt, and JSON types. Templates
+## ensure line numbers point to the calling test block on failure.
+
+import std/strutils
+import std/json
 
 import jmap_client/validation
 import jmap_client/errors
@@ -51,7 +54,7 @@ template assertErrContains*(r: untyped, substring: string) =
   ## Verifies the message field contains a substring (useful for long messages).
   doAssert r.isErr, "expected Err, got Ok"
   let msg = r.error.message
-  doAssert substring in msg,
+  doAssert strutils.contains(msg, substring),
     "expected message containing '" & substring & "', got '" & msg & "'"
 
 template assertOkEq*(r: untyped, expected: untyped) =
@@ -150,3 +153,49 @@ template assertSetErrType*(se: untyped, expectedType: SetErrorType) =
   ## Verifies a SetError has the given type.
   doAssert se.errorType == expectedType,
     "expected " & $expectedType & ", got " & $se.errorType
+
+# ---------------------------------------------------------------------------
+# JSON assertion templates (Layer 2 serde tests)
+# ---------------------------------------------------------------------------
+
+template assertJsonFieldPresent*(obj: JsonNode, key: string) =
+  ## Verifies a JSON object has a non-nil field.
+  doAssert obj{key} != nil, "expected field '" & key & "' to be present"
+
+template assertJsonFieldAbsent*(obj: JsonNode, key: string) =
+  ## Verifies a JSON object does not have a field (nil).
+  doAssert obj{key}.isNil, "expected field '" & key & "' to be absent"
+
+template assertJsonKind*(
+    node: JsonNode, expectedKind: JsonNodeKind, context: string = ""
+) =
+  ## Verifies JSON node has the expected kind.
+  let desc =
+    if context.len > 0:
+      " for " & context
+    else:
+      ""
+  doAssert node.kind == expectedKind,
+    "expected JSON " & $expectedKind & desc & ", got " & $node.kind
+
+template assertJsonFieldKind*(obj: JsonNode, key: string, expectedKind: JsonNodeKind) =
+  ## Verifies a JSON object field is present and has the expected kind.
+  let field = obj{key}
+  doAssert field != nil, "expected field '" & key & "' to be present"
+  doAssert field.kind == expectedKind,
+    "field '" & key & "': expected " & $expectedKind & ", got " & $field.kind
+
+template assertJsonFieldEq*(obj: JsonNode, key: string, expected: untyped) =
+  ## Verifies a JSON object field is present and its value equals expected.
+  let field = obj{key}
+  doAssert field != nil, "expected field '" & key & "' to be present"
+  let actual = field
+  let exp = expected
+  doAssert actual == exp, "field '" & key & "': expected " & $exp & ", got " & $actual
+
+template assertJsonFieldCount*(obj: JsonNode, expected: int) =
+  ## Verifies a JSON object has the expected number of fields.
+  doAssert obj.kind == JObject, "expected JSON JObject, got " & $obj.kind
+  let actual = obj.getFields().len
+  let exp = expected
+  doAssert actual == exp, "expected " & $exp & " fields, got " & $actual

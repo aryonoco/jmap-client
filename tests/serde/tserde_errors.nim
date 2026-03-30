@@ -401,7 +401,53 @@ block setErrorDeserJNull:
   assertErr SetError.fromJson(newJNull())
 
 # =============================================================================
-# D. Property-based round-trip tests
+# D. Extras round-trip value type preservation
+# =============================================================================
+
+block requestErrorExtrasValueTypesPreserved:
+  ## Verifies that extras round-trip preserves all JSON value types.
+  {.cast(noSideEffect).}:
+    let extras = newJObject()
+    extras["vendorNum"] = %42
+    extras["vendorStr"] = %"text"
+    extras["vendorBool"] = %true
+    extras["vendorNull"] = newJNull()
+    let original = requestError(
+      rawType = "urn:ietf:params:jmap:error:limit", extras = Opt.some(extras)
+    )
+    let rt = RequestError.fromJson(original.toJson())
+    assertOk rt
+    let reExtras = rt.get().extras
+    assertSome reExtras
+    let e = reExtras.get()
+    doAssert e{"vendorNum"}.kind == JInt
+    doAssert e{"vendorStr"}.kind == JString
+    doAssert e{"vendorBool"}.kind == JBool
+    doAssert e{"vendorNull"}.kind == JNull
+
+block methodErrorExtrasRoundTrip:
+  ## Verifies MethodError extras survive round-trip with correct values.
+  {.cast(noSideEffect).}:
+    let extras = newJObject()
+    extras["serverHint"] = %"retry-5s"
+    let original = methodError(
+      "serverFail", description = Opt.some("oops"), extras = Opt.some(extras)
+    )
+    let rt = MethodError.fromJson(original.toJson())
+    assertOk rt
+    doAssert rt.get().extras.isSome
+    doAssert rt.get().extras.get(){"serverHint"} != nil
+
+block setErrorAlreadyExistsNullExistingId:
+  ## Defensive fallback: null existingId maps to setUnknown.
+  {.cast(noSideEffect).}:
+    let j = %*{"type": "alreadyExists", "existingId": newJNull()}
+    let r = SetError.fromJson(j)
+    assertOk r
+    doAssert r.get().errorType == setUnknown
+
+# =============================================================================
+# E. Property-based round-trip tests
 # =============================================================================
 
 checkProperty "RequestError round-trip":

@@ -215,6 +215,28 @@ block jmapIntDeserWrongKindString:
   {.cast(noSideEffect).}:
     assertErr JmapInt.fromJson(%"hello")
 
+block jmapIntDeserNil:
+  const node: JsonNode = nil
+  assertErr JmapInt.fromJson(node)
+
+block jmapIntDeserNull:
+  assertErr JmapInt.fromJson(newJNull())
+
+block jmapIntDeserOverflowPositive:
+  ## One above the 2^53-1 maximum.
+  {.cast(noSideEffect).}:
+    assertErr JmapInt.fromJson(%9007199254740992'i64)
+
+block jmapIntDeserOverflowNegative:
+  ## One below the -(2^53-1) minimum.
+  {.cast(noSideEffect).}:
+    assertErr JmapInt.fromJson(%(-9007199254740992'i64))
+
+block unsignedIntDeserOverflowMax:
+  ## One above the 2^53-1 maximum.
+  {.cast(noSideEffect).}:
+    assertErr UnsignedInt.fromJson(%9007199254740992'i64)
+
 # --- Date ---
 
 block dateDeserValid:
@@ -229,6 +251,17 @@ block dateDeserLowercaseT:
   {.cast(noSideEffect).}:
     assertErr Date.fromJson(%"2014-10-30t14:12:00Z")
 
+block dateDeserNil:
+  const node: JsonNode = nil
+  assertErr Date.fromJson(node)
+
+block dateDeserNull:
+  assertErr Date.fromJson(newJNull())
+
+block dateDeserEmptyString:
+  {.cast(noSideEffect).}:
+    assertErr Date.fromJson(%"")
+
 # --- UTCDate ---
 
 block utcDateDeserValid:
@@ -238,6 +271,17 @@ block utcDateDeserValid:
 block utcDateDeserNotZ:
   {.cast(noSideEffect).}:
     assertErr UTCDate.fromJson(%"2014-10-30T06:12:00+00:00")
+
+block utcDateDeserNil:
+  const node: JsonNode = nil
+  assertErr UTCDate.fromJson(node)
+
+block utcDateDeserNull:
+  assertErr UTCDate.fromJson(newJNull())
+
+block utcDateDeserEmptyString:
+  {.cast(noSideEffect).}:
+    assertErr UTCDate.fromJson(%"")
 
 # --- AccountId ---
 

@@ -160,6 +160,21 @@ block roundTripPatchObjectNestedValues:
     assertOk rt
     assertEq rt.get().len, 6
 
+block roundTripPatchObjectValueEquality:
+  ## Verifies PatchObject round-trip preserves exact values, not just count.
+  {.cast(noSideEffect).}:
+    let nested = %*{"a": {"b": true}}
+    var p = emptyPatch()
+    p = p.setProp("name", %"Updated").get()
+    p = p.setProp("nested", nested).get()
+    p = p.deleteProp("role").get()
+    let rt = PatchObject.fromJson(p.toJson())
+    assertOk rt
+    let rtJson = rt.get().toJson()
+    assertEq rtJson{"name"}.getStr(""), "Updated"
+    doAssert rtJson{"nested"} == nested
+    doAssert rtJson{"role"}.kind == JNull
+
 block roundTripAddedItem:
   let original = makeAddedItem()
   let rt = AddedItem.fromJson(original.toJson())

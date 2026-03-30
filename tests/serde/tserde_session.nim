@@ -16,10 +16,12 @@ import results
 
 import jmap_client/serde
 import jmap_client/serde_session
+import jmap_client/serde_errors
 import jmap_client/primitives
 import jmap_client/identifiers
 import jmap_client/capabilities
 import jmap_client/session
+import jmap_client/errors
 import jmap_client/validation
 
 import ../massertions
@@ -738,3 +740,79 @@ block serverCapabilityJNullData:
   let r = ServerCapability.fromJson("urn:ietf:params:jmap:mail", newJNull())
   assertOk r
   doAssert r.get().rawData.kind == JNull
+
+# =============================================================================
+# H. Serialisation output format verification
+# =============================================================================
+
+block toJsonCoreCapabilitiesAlwaysPlural:
+  ## D2.6: toJson MUST output "maxConcurrentRequests" (plural), never singular.
+  let caps = realisticCoreCaps()
+  let j = caps.toJson()
+  assertJsonFieldPresent j, "maxConcurrentRequests"
+  assertJsonFieldAbsent j, "maxConcurrentRequest"
+
+block toJsonCoreCapabilitiesZeroAlwaysPlural:
+  ## D2.6 holds even for zero-valued capabilities.
+  let caps = zeroCoreCaps()
+  let j = caps.toJson()
+  assertJsonFieldPresent j, "maxConcurrentRequests"
+  assertJsonFieldAbsent j, "maxConcurrentRequest"
+
+block toJsonUnsignedIntMaxNotScientific:
+  ## Max UnsignedInt (2^53-1) must serialise as JInt, not scientific notation.
+  let ui = parseUnsignedInt(9007199254740991'i64).get()
+  let j = ui.toJson()
+  assertJsonKind j, JInt, "UnsignedInt max"
+  assertEq j.getBiggestInt(0), 9007199254740991'i64
+
+block toJsonJmapIntBoundariesAreJInt:
+  ## Min and max JmapInt must serialise as JInt.
+  let minJ = parseJmapInt(-9007199254740991'i64).get()
+  let maxJ = parseJmapInt(9007199254740991'i64).get()
+  assertJsonKind minJ.toJson(), JInt, "JmapInt min"
+  assertJsonKind maxJ.toJson(), JInt, "JmapInt max"
+  assertEq minJ.toJson().getBiggestInt(0), -9007199254740991'i64
+  assertEq maxJ.toJson().getBiggestInt(0), 9007199254740991'i64
+
+block toJsonOptFieldsAbsentWhenNone:
+  ## Optional fields must be absent from JSON (not null) when Opt.none.
+  let re = requestError("urn:ietf:params:jmap:error:unknownCapability")
+  let j = re.toJson()
+  ## status, title, detail, limit are all Opt.none — must be absent, not null.
+  assertJsonFieldAbsent j, "status"
+  assertJsonFieldAbsent j, "title"
+  assertJsonFieldAbsent j, "detail"
+  assertJsonFieldAbsent j, "limit"
+
+# =============================================================================
+# I. Real-server fixture serde round-trips
+# =============================================================================
+
+block roundTripFastmailSessionExtended:
+  ## Fastmail session round-trip: vendor extension capabilities survive.
+  let session = parseSessionFromArgs(makeFastmailSession()).get()
+  let j = session.toJson()
+  let rt = Session.fromJson(j)
+  doAssert rt.isOk, "Fastmail session round-trip failed"
+  doAssert sessionEq(rt.get(), session), "Fastmail session values differ"
+  ## Verify vendor extension URI preserved (not mapped to "ckUnknown" string).
+  let capsObj = j{"capabilities"}
+  assertJsonFieldPresent capsObj, "https://www.fastmail.com/dev/contacts"
+  assertJsonFieldAbsent capsObj, "ckUnknown"
+
+block roundTripCyrusSessionExtended:
+  ## Cyrus session round-trip with lenient account IDs.
+  let session = parseSessionFromArgs(makeCyrusSession()).get()
+  let j = session.toJson()
+  let rt = Session.fromJson(j)
+  doAssert rt.isOk, "Cyrus session round-trip failed"
+  doAssert sessionEq(rt.get(), session), "Cyrus session values differ"
+
+block roundTripMinimalSessionExtended:
+  ## Minimal session round-trip: empty accounts and primaryAccounts.
+  let session = parseSessionFromArgs(makeMinimalSession()).get()
+  let j = session.toJson()
+  let rt = Session.fromJson(j)
+  doAssert rt.isOk, "Minimal session round-trip failed"
+  doAssert sessionEq(rt.get(), session), "Minimal session values differ"

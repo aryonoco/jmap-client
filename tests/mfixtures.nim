@@ -9,7 +9,7 @@
 import std/sets
 import std/strutils
 import std/tables
-from std/json import newJObject, JsonNode
+import std/json
 
 import results
 
@@ -380,3 +380,164 @@ func makeCyrusSession*(): SessionArgs =
     eventSourceUrl: makeGoldenEventSourceUrl(),
     state: makeState("cyrus-abcdef"),
   )
+
+# ---------------------------------------------------------------------------
+# Layer 2 JSON fixtures (for serde tests)
+# ---------------------------------------------------------------------------
+
+proc validCoreCapsJson*(): JsonNode =
+  ## Minimal valid CoreCapabilities JSON (all fields = 1, empty collation).
+  %*{
+    "maxSizeUpload": 1,
+    "maxConcurrentUpload": 1,
+    "maxSizeRequest": 1,
+    "maxConcurrentRequests": 1,
+    "maxCallsInRequest": 1,
+    "maxObjectsInGet": 1,
+    "maxObjectsInSet": 1,
+    "collationAlgorithms": [],
+  }
+
+proc realisticCoreCapsJson*(): JsonNode =
+  ## RFC 8620 section 2.1 realistic CoreCapabilities JSON.
+  %*{
+    "maxSizeUpload": 50000000,
+    "maxConcurrentUpload": 8,
+    "maxSizeRequest": 10000000,
+    "maxConcurrentRequests": 8,
+    "maxCallsInRequest": 32,
+    "maxObjectsInGet": 256,
+    "maxObjectsInSet": 128,
+    "collationAlgorithms": ["i;ascii-numeric"],
+  }
+
+proc validAccountJson*(): JsonNode =
+  ## Minimal valid Account JSON.
+  %*{
+    "name": "test@example.com",
+    "isPersonal": true,
+    "isReadOnly": false,
+    "accountCapabilities": {},
+  }
+
+proc goldenRequestJson*(): JsonNode =
+  ## RFC 8620 section 3.3.1 golden Request JSON.
+  %*{
+    "using": ["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail"],
+    "methodCalls": [
+      ["method1", {"arg1": "arg1data", "arg2": "arg2data"}, "c1"],
+      ["method2", {"arg1": "arg1data"}, "c2"],
+      ["method3", {}, "c3"],
+    ],
+  }
+
+proc goldenResponseJson*(): JsonNode =
+  ## RFC 8620 section 3.4.1 golden Response JSON.
+  %*{
+    "methodResponses": [
+      ["method1", {"arg1": 3, "arg2": "foo"}, "c1"],
+      ["method2", {"isBlah": true}, "c2"],
+      ["anotherResponseFromMethod2", {"data": 10, "yetmoredata": "Hello"}, "c2"],
+      ["error", {"type": "unknownMethod"}, "c3"],
+    ],
+    "sessionState": "75128aab4b1b",
+  }
+
+proc validRequestJson*(): JsonNode =
+  ## Minimal valid Request JSON.
+  %*{"using": ["urn:ietf:params:jmap:core"], "methodCalls": [["Mailbox/get", {}, "c0"]]}
+
+proc validResponseJson*(): JsonNode =
+  ## Minimal valid Response JSON.
+  %*{"methodResponses": [["Mailbox/get", {}, "c0"]], "sessionState": "s1"}
+
+proc goldenSessionJson*(): JsonNode =
+  ## RFC 8620 section 2.1 golden Session JSON.
+  %*{
+    "capabilities": {
+      "urn:ietf:params:jmap:core": {
+        "maxSizeUpload": 50000000,
+        "maxConcurrentUpload": 8,
+        "maxSizeRequest": 10000000,
+        "maxConcurrentRequest": 8,
+        "maxCallsInRequest": 32,
+        "maxObjectsInGet": 256,
+        "maxObjectsInSet": 128,
+        "collationAlgorithms":
+          ["i;ascii-numeric", "i;ascii-casemap", "i;unicode-casemap"],
+      },
+      "urn:ietf:params:jmap:mail": {},
+      "urn:ietf:params:jmap:contacts": {},
+      "https://example.com/apis/foobar": {"maxFoosFinangled": 42},
+    },
+    "accounts": {
+      "A13824": {
+        "name": "john@example.com",
+        "isPersonal": true,
+        "isReadOnly": false,
+        "accountCapabilities":
+          {"urn:ietf:params:jmap:mail": {}, "urn:ietf:params:jmap:contacts": {}},
+      },
+      "A97813": {
+        "name": "jane@example.com",
+        "isPersonal": false,
+        "isReadOnly": true,
+        "accountCapabilities": {"urn:ietf:params:jmap:mail": {}},
+      },
+    },
+    "primaryAccounts":
+      {"urn:ietf:params:jmap:mail": "A13824", "urn:ietf:params:jmap:contacts": "A13824"},
+    "username": "john@example.com",
+    "apiUrl": "https://jmap.example.com/api/",
+    "downloadUrl":
+      "https://jmap.example.com/download/{accountId}/{blobId}/{name}?accept={type}",
+    "uploadUrl": "https://jmap.example.com/upload/{accountId}/",
+    "eventSourceUrl":
+      "https://jmap.example.com/eventsource/?types={types}&closeafter={closeafter}&ping={ping}",
+    "state": "75128aab4b1b",
+  }
+
+proc validSessionJson*(): JsonNode =
+  ## Minimal valid Session JSON for edge-case modifications.
+  %*{
+    "capabilities": {
+      "urn:ietf:params:jmap:core": {
+        "maxSizeUpload": 1,
+        "maxConcurrentUpload": 1,
+        "maxSizeRequest": 1,
+        "maxConcurrentRequests": 1,
+        "maxCallsInRequest": 1,
+        "maxObjectsInGet": 1,
+        "maxObjectsInSet": 1,
+        "collationAlgorithms": [],
+      }
+    },
+    "accounts": {},
+    "primaryAccounts": {},
+    "username": "",
+    "apiUrl": "https://jmap.example.com/api/",
+    "downloadUrl":
+      "https://jmap.example.com/download/{accountId}/{blobId}/{name}?accept={type}",
+    "uploadUrl": "https://jmap.example.com/upload/{accountId}/",
+    "eventSourceUrl":
+      "https://jmap.example.com/eventsource/?types={types}&closeafter={closeafter}&ping={ping}",
+    "state": "s1",
+  }
+
+proc validFilterConditionJson*(value = 42): JsonNode =
+  ## Minimal valid filter condition JSON for Filter[int] tests.
+  %*{"value": value}
+
+proc validFilterOperatorJson*(op = "AND", conditions: seq[JsonNode] = @[]): JsonNode =
+  ## Filter operator JSON node.
+  var condArr = newJArray()
+  for c in conditions:
+    condArr.add(c)
+  result = newJObject()
+  {.cast(noSideEffect).}:
+    result["operator"] = %op
+  result["conditions"] = condArr
+
+proc validComparatorJson*(property = "subject", isAscending = true): JsonNode =
+  ## Minimal valid Comparator JSON per RFC 8620 section 5.5.
+  %*{"property": property, "isAscending": isAscending}
