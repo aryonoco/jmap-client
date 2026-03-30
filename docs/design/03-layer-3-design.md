@@ -35,12 +35,12 @@ implemented when adding RFC 8621.
 Layer 3 operates on Layer 1 types: `Invocation`, `Request`, `Response`,
 `ResultReference`, `Referencable[T]`, `Filter[C]`, `Comparator`,
 `PatchObject`, `AddedItem`, all identifier types (`Id`, `AccountId`,
-`JmapState`, `MethodCallId`, `CreationId`), and all error types
-(`MethodError`, `SetError`, `ValidationError`, `ClientError`). It imports
-Layer 2's serialisation infrastructure: `parseError`, `checkJsonKind`,
-`collectExtras`, `initResultErr` (centralised in `serde.nim` and
-exported), `referencableKey`, and all primitive/identifier
-`toJson`/`fromJson` pairs.
+`JmapState`, `MethodCallId`, `CreationId`), `MaxChanges`, and all error
+types (`MethodError`, `SetError`, `ValidationError`, `ClientError`). It
+imports Layer 2's serialisation infrastructure: `parseError`,
+`checkJsonKind`, `collectExtras`, `initResultErr` (centralised in
+`serde.nim` and exported), `referencableKey`, `fromJsonField`, and all
+primitive/identifier `toJson`/`fromJson` pairs.
 
 **ARC note.** Layer 2's `serde_session.nim` deep-copies `JsonNode` via
 `ownData`/`data.copy()` for case objects with `ref` fields in `else`
@@ -361,11 +361,12 @@ func addGet*[T](b: var RequestBuilder,
 func addChanges*[T](b: var RequestBuilder,
     accountId: AccountId,
     sinceState: JmapState,
-    maxChanges: Opt[UnsignedInt] = Opt.none(UnsignedInt)
+    maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges)
 ): ResponseHandle[ChangesResponse[T]] =
   ## Adds a Foo/changes invocation (RFC 8620 §5.2, lines 1667–1838).
   ## ``sinceState``: the state string from a previous Foo/get response.
   ## ``maxChanges``: server may return fewer but must not return more.
+  ## Must be > 0 per RFC (enforced by ``MaxChanges`` smart constructor).
   ##
   ## RFC reference: §5.2 (lines 1667–1838)
   mixin methodNamespace, capabilityUri
@@ -490,7 +491,7 @@ func addQueryChanges*[T](b: var RequestBuilder,
         {.noSideEffect, raises: [].},
     filter: Opt[Filter[filterType(T)]] = Opt.none(Filter[filterType(T)]),
     sort: Opt[seq[Comparator]] = Opt.none(seq[Comparator]),
-    maxChanges: Opt[UnsignedInt] = Opt.none(UnsignedInt),
+    maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges),
     upToId: Opt[Id] = Opt.none(Id),
     calculateTotal: bool = false
 ): ResponseHandle[QueryChangesResponse[T]] =
@@ -949,7 +950,9 @@ func toJson*[T](req: GetRequest[T]): JsonNode =
 - `Opt.none` fields are omitted (key absent from the JSON object).
 - `Referencable[T]` fields emit `"fieldName"` for `rkDirect` and
   `"#fieldName"` for `rkReference`, using `referencableKey` from
-  Layer 2's `serde_envelope.nim`.
+  Layer 2's `serde_envelope.nim`. On the parse side, `fromJsonField`
+  rejects requests containing both direct and referenced forms of the
+  same field (RFC §3.7 conflict detection — see §15).
 - Boolean fields with RFC defaults (`false`) are always emitted — the
   server treats absence as the default, but explicit emission is clearer
   and avoids ambiguity.
@@ -1135,6 +1138,7 @@ Layer 3 modules import the following from Layer 2's `serde.nim` and
 | `toJson` (all primitive/id types) | `serde.nim:67–197` | Serialising `AccountId`, `Id`, `JmapState`, etc. in request `toJson` |
 | `fromJson` (all primitive/id types) | `serde.nim:128–197` | Deserialising server-assigned identifiers in response `fromJson` |
 | `referencableKey` | `serde_envelope.nim:194` | Determining JSON key for `Referencable[T]` fields (`"foo"` vs `"#foo"`) |
+| `fromJsonField` | `serde_envelope.nim:210` | Parsing `Referencable[T]` fields from JSON with `#`-prefix dispatch and RFC §3.7 conflict detection |
 | `toJson` (envelope types) | `serde_envelope.nim:22–26` | `Invocation.toJson`, `ResultReference.toJson` |
 | `fromJson` (envelope types) | `serde_envelope.nim:28–46` | `MethodError.fromJson` for error detection in dispatch |
 
@@ -1416,12 +1420,13 @@ type ChangesRequest*[T] = object
     ## Foo/get response. The server returns changes since this state.
     ## RFC §5.2 (lines 1687–1693): "sinceState: String"
 
-  maxChanges*: Opt[UnsignedInt]
+  maxChanges*: Opt[MaxChanges]
     ## The maximum number of identifiers to return. The server MAY
     ## return fewer but MUST NOT return more. If not given, the server
-    ## chooses. The RFC requires this value to be greater than 0
-    ## (lines 1694–1702); ``UnsignedInt`` permits 0 but servers reject
-    ## 0 with ``invalidArguments`` (known representability gap — see §15).
+    ## chooses. The RFC requires this value to be "a positive integer
+    ## greater than 0" (lines 1694–1702); the ``MaxChanges`` distinct
+    ## type enforces this via its smart constructor ``parseMaxChanges``,
+    ## which rejects 0 at construction time.
     ## RFC §5.2 (lines 1694–1702): "maxChanges: UnsignedInt|null"
 ```
 
@@ -1645,11 +1650,11 @@ type QueryChangesRequest*[T] = object
     ## previous Foo/query response with the same sort/filter.
     ## RFC §5.6 (lines 2657–2662): "sinceQueryState: String"
 
-  maxChanges*: Opt[UnsignedInt]
+  maxChanges*: Opt[MaxChanges]
     ## The maximum number of changes to return. Each item in the
     ## removed or added arrays counts as one change (lines 2810–2812).
-    ## Same representability gap as ChangesRequest.maxChanges: RFC
-    ## requires > 0 but ``UnsignedInt`` permits 0 (see §15).
+    ## The ``MaxChanges`` distinct type enforces the RFC requirement
+    ## that the value be > 0 (same type as ChangesRequest.maxChanges).
     ## RFC §5.6 (lines 2664–2667): "maxChanges: UnsignedInt|null"
 
   upToId*: Opt[Id]
@@ -2337,7 +2342,8 @@ not apply per-type. Instead, the following invariants hold:
 
 6. **Referencable dispatch.** `rkDirect` serialises without `#` prefix;
    `rkReference` serialises with `#` prefix. Round-trips preserve the
-   variant.
+   variant. `fromJsonField` rejects input where both `"foo"` and `"#foo"`
+   are present (RFC §3.7 conflict detection).
 
 7. **Method error preservation.** `MethodError.fromJson(errorJson)`
    preserves `rawType` (lossless, same as Layer 1/Layer 2 error types).
@@ -2706,18 +2712,71 @@ arguments echoed back identically.
 | D3.8 | 5 source files (4 content + 1 re-export hub) | Single `protocol.nim` or 2 files | Mirrors Layer 1/Layer 2 module pattern. Each file is independently testable with bounded size (~150–300 lines). Acyclic import graph. Single file would exceed 600 lines; 2 files would conflate builder logic with type definitions. |
 | D3.9 | `nextId` uses `MethodCallId(s)` directly (bypassing validation) | `parseMethodCallId(s).get()` | The builder controls the format entirely (`"c0"`, `"c1"`, ...). These are provably valid MethodCallIds (non-empty, ASCII digits only). Using `.get()` would add an unnecessary `Defect` path for an impossible error. |
 | D3.10 | `reference()` takes explicit `responseName` parameter | Auto-derive from `T` and method suffix | Different methods produce different response names (`"Mailbox/query"` vs `"Mailbox/get"`). Auto-deriving requires the `reference` function to know which method the handle came from, which the phantom type `T` (response type, not method type) does not encode. Explicit is unambiguous. |
+| D3.11 | `MaxChanges` distinct type (Layer 1) for `maxChanges` fields | `Opt[UnsignedInt]` with runtime/server rejection | RFC §5.2 requires > 0. Distinct type with smart constructor makes illegal state (0) unrepresentable at construction time, consistent with other identifier types. ~8 lines. |
 
-### Known Representability Gap
+### MaxChanges Type (Layer 1 Addition)
 
-**`maxChanges` permits 0.** The `maxChanges` fields in `ChangesRequest[T]`
-(§6.2) and `QueryChangesRequest[T]` (§6.6) are typed as
-`Opt[UnsignedInt]`. The RFC requires the value to be "a positive integer
-greater than 0" (§5.2 lines 1694–1702), but `UnsignedInt` permits 0.
-Servers reject 0 with `invalidArguments`. A future `PositiveInt` distinct
-type with a smart constructor enforcing `> 0` could close this gap,
-fully honouring the "make illegal states unrepresentable" principle. For
-now, the gap is accepted: it is a single edge-case value that the server
-rejects clearly, and introducing a new type has downstream cost.
+The `maxChanges` fields in `ChangesRequest[T]` (§6.2) and
+`QueryChangesRequest[T]` (§6.6) must be "a positive integer greater than
+0" per RFC §5.2 (lines 1694–1702). A `MaxChanges` distinct type with a
+smart constructor closes this gap, fully honouring the "make illegal
+states unrepresentable" principle. Defined in Layer 1 `primitives.nim`
+alongside `UnsignedInt`:
+
+```nim
+type MaxChanges* {.requiresInit.} = distinct UnsignedInt
+  ## A positive count used for maxChanges fields in Foo/changes and
+  ## Foo/queryChanges requests. RFC 8620 §5.2 (lines 1694–1702)
+  ## requires the value to be greater than 0.
+
+defineIntDistinctOps(MaxChanges)
+
+func parseMaxChanges*(raw: UnsignedInt): Result[MaxChanges, ValidationError] =
+  ## Smart constructor: rejects 0, which the RFC forbids.
+  if uint64(raw) == 0:
+    return err(validationError("MaxChanges", "must be greater than 0", $uint64(raw)))
+  ok(MaxChanges(raw))
+```
+
+Layer 2 provides `toJson`/`fromJson` for `MaxChanges` (delegates to
+`UnsignedInt` serde, then validates via `parseMaxChanges`).
+
+### Referencable Field Conflict Detection (Layer 2 Requirement)
+
+RFC §3.7 (lines 1241–1243): "If an arguments object contains the same
+argument name in normal and referenced form (e.g., 'foo' and '#foo'),
+the method MUST return an 'invalidArguments' error."
+
+Layer 2's `fromJsonField` (`serde_envelope.nim`) must detect this
+conflict. Currently it checks `#fieldName` first and falls back to
+`fieldName`; it must also reject when BOTH are present:
+
+```nim
+func fromJsonField*[T](fieldName: string, node: JsonNode,
+    fromDirect: proc(n: JsonNode): Result[T, ValidationError]
+        {.noSideEffect, raises: [].}
+): Result[Referencable[T], ValidationError] =
+  let refKey = "#" & fieldName
+  let refNode = node{refKey}
+  let directNode = node{fieldName}
+  # RFC §3.7: reject when both direct and referenced forms are present
+  if not refNode.isNil and not directNode.isNil:
+    return err(parseError("Referencable",
+      "cannot specify both " & fieldName & " and " & refKey &
+      " (RFC 8620 §3.7)"))
+  if not refNode.isNil:
+    ...  # existing reference path
+  if directNode.isNil:
+    return err(parseError("Referencable",
+      "missing field: " & fieldName & " or " & refKey))
+  ...  # existing direct path
+```
+
+The builder API cannot produce this conflict (each `add*` function emits
+exactly one of direct or reference per `Referencable` field), but manual
+`Request` construction via Layer 1 types could. This validation ensures
+RFC compliance at the parse boundary regardless of how the request was
+constructed.
 
 ---
 
