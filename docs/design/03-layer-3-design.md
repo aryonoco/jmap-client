@@ -17,7 +17,7 @@ six standard method request/response types (RFC 8620 §5.1–5.6), the
 serialisation (`toJson`/`fromJson`) for all Layer 3–defined types.
 Transport (Layer 4), the C ABI (Layer 5), binary data (§6), and push (§7)
 are out of scope. Layer 3 is the uppermost layer of the pure functional
-core — no `proc`, no I/O, no exception handling.
+core — no `proc` definitions, no I/O, no exception handling.
 
 **Relationship to prior documents.** `00-architecture.md` records broad
 decisions across all 5 layers. This document is the detailed specification
@@ -40,7 +40,7 @@ Layer 3 operates on Layer 1 types: `Invocation`, `Request`, `Response`,
 (`MethodError`, `SetError`, `ValidationError`, `ClientError`). It imports
 Layer 2's serialisation infrastructure: `parseError`, `checkJsonKind`,
 `collectExtras`, `initResultErr` (centralised in `serde.nim` and
-exported), `referencableKey`, `fromJsonField`, and all primitive/identifier
+exported), `referencableKey`, and all primitive/identifier
 `toJson`/`fromJson` pairs.
 
 **ARC note.** Layer 2's `serde_session.nim` deep-copies `JsonNode` via
@@ -328,8 +328,7 @@ func addEcho*(b: var RequestBuilder, args: JsonNode): ResponseHandle[JsonNode] =
   ## Capability: "urn:ietf:params:jmap:core".
   ##
   ## RFC reference: §4 (lines 1540–1561)
-  {.cast(noSideEffect).}:
-    let callId = b.addInvocation("Core/echo", args, "urn:ietf:params:jmap:core")
+  let callId = b.addInvocation("Core/echo", args, "urn:ietf:params:jmap:core")
   ResponseHandle[JsonNode](callId)
 ```
 
@@ -448,6 +447,8 @@ func addCopy*[T](b: var RequestBuilder,
 ```nim
 func addQuery*[T](b: var RequestBuilder,
     accountId: AccountId,
+    condToJson: proc(c: filterType(T)): JsonNode
+        {.noSideEffect, raises: [].},
     filter: Opt[Filter[filterType(T)]] = Opt.none(Filter[filterType(T)]),
     sort: Opt[seq[Comparator]] = Opt.none(seq[Comparator]),
     position: JmapInt = JmapInt(0),
@@ -457,6 +458,9 @@ func addQuery*[T](b: var RequestBuilder,
     calculateTotal: bool = false
 ): ResponseHandle[QueryResponse[T]] =
   ## Adds a Foo/query invocation (RFC 8620 §5.5, lines 2339–2638).
+  ## ``condToJson``: callback for serialising filter conditions of type
+  ## ``filterType(T)``. Forwarded to ``Filter[C].toJson(condToJson)``
+  ## (Layer 2 §7.2). Entity modules provide this callback.
   ## ``filter``: generic over filterType(T) — entity-specific condition.
   ## ``anchor``: if supplied, ``position`` is ignored by the server.
   ## ``anchorOffset``: relative offset from the anchor's index.
@@ -471,7 +475,7 @@ func addQuery*[T](b: var RequestBuilder,
     position: position, anchor: anchor, anchorOffset: anchorOffset,
     limit: limit, calculateTotal: calculateTotal)
   {.cast(noSideEffect).}:
-    let args = req.toJson()
+    let args = req.toJson(condToJson)
     let callId = b.addInvocation(name, args, cap)
   ResponseHandle[QueryResponse[T]](callId)
 ```
@@ -482,6 +486,8 @@ func addQuery*[T](b: var RequestBuilder,
 func addQueryChanges*[T](b: var RequestBuilder,
     accountId: AccountId,
     sinceQueryState: JmapState,
+    condToJson: proc(c: filterType(T)): JsonNode
+        {.noSideEffect, raises: [].},
     filter: Opt[Filter[filterType(T)]] = Opt.none(Filter[filterType(T)]),
     sort: Opt[seq[Comparator]] = Opt.none(seq[Comparator]),
     maxChanges: Opt[UnsignedInt] = Opt.none(UnsignedInt),
@@ -489,6 +495,9 @@ func addQueryChanges*[T](b: var RequestBuilder,
     calculateTotal: bool = false
 ): ResponseHandle[QueryChangesResponse[T]] =
   ## Adds a Foo/queryChanges invocation (RFC 8620 §5.6, lines 2639–2819).
+  ## ``condToJson``: callback for serialising filter conditions of type
+  ## ``filterType(T)``. Forwarded to ``Filter[C].toJson(condToJson)``
+  ## (Layer 2 §7.2). Entity modules provide this callback.
   ## ``sinceQueryState``: the queryState string from a previous Foo/query.
   ## ``upToId``: optimisation when sort/filter are on immutable properties.
   ##
@@ -501,21 +510,16 @@ func addQueryChanges*[T](b: var RequestBuilder,
     filter: filter, sort: sort, maxChanges: maxChanges,
     upToId: upToId, calculateTotal: calculateTotal)
   {.cast(noSideEffect).}:
-    let args = req.toJson()
+    let args = req.toJson(condToJson)
     let callId = b.addInvocation(name, args, cap)
   ResponseHandle[QueryChangesResponse[T]](callId)
 ```
 
-**Decision D3.5:** Only `GetRequest.ids` and `SetRequest.destroy` receive
-`Referencable[T]` wrapping — these are the canonical result reference
-targets (`/ids` from query, `/list/*/id` from get, `/updated` from
-changes). All other fields are direct values.
+**Decision D3.5:** See §6.7 for the full statement and rationale
+(Referencable field selection).
 
-**Decision D3.6:** Entity data is represented as `JsonNode` in create maps
-and response lists. Layer 3 Core cannot know `T`'s serialisation format;
-entity-specific modules (e.g., RFC 8621 mail types) will provide concrete
-`fromJson` implementations to convert raw `JsonNode` instances into typed
-entity values.
+**Decision D3.6:** See §6.7 for the full statement and rationale
+(JsonNode entity data).
 
 **Module:** `builder.nim`
 
@@ -578,9 +582,11 @@ func get*[T](resp: Response, handle: ResponseHandle[T],
   ...
 ```
 
-**Railway conversion (Track 0 to Track 2).** The `fromArgs` callback
-returns `Result[T, ValidationError]` (construction railway, Track 0).
-`get[T]` returns `Result[T, MethodError]` (inner railway, Track 2). The
+**Railway conversion (Track 0 to Track 2).** (Track 1, the outer
+railway / `ClientError`, is a Layer 4 concern — see `00-architecture.md`
+§1.6C.) The `fromArgs` callback returns `Result[T, ValidationError]`
+(construction railway, Track 0). `get[T]` returns `Result[T, MethodError]`
+(inner railway, Track 2). The
 conversion wraps `ValidationError.message` into `MethodError.description`
 — this is the `mapErr` semantic at the railway boundary. If
 `MethodError.fromJson` itself fails on a malformed error response (step
@@ -589,21 +595,24 @@ conversion wraps `ValidationError.message` into `MethodError.description`
 **Full algorithm:**
 
 ```nim
+func findInvocation(resp: Response, targetId: MethodCallId): Opt[Invocation] =
+  ## Scans methodResponses for the invocation matching targetId.
+  ## Returns Opt.none if no match is found.
+  for inv in resp.methodResponses:
+    if inv.methodCallId == targetId:
+      return Opt.some(inv)
+  Opt.none(Invocation)
+
 func get*[T](resp: Response, handle: ResponseHandle[T],
     fromArgs: proc(node: JsonNode): Result[T, ValidationError]
         {.noSideEffect, raises: [].}
 ): Result[T, MethodError] =
   let targetId = MethodCallId(handle)
-  var found = false
-  var matchedInv: Invocation
-  for inv in resp.methodResponses:
-    if inv.methodCallId == targetId:
-      found = true
-      matchedInv = inv
-      break
-  if not found:
+  let matchOpt = findInvocation(resp, targetId)
+  if matchOpt.isNone:
     return err(methodError("serverFail",
       description = Opt.some("no response for call ID " & $handle)))
+  let matchedInv = matchOpt.get()
   # Detect method-level error response (RFC §3.6.2)
   if matchedInv.name == "error":
     let meResult = MethodError.fromJson(matchedInv.arguments)
@@ -646,11 +655,13 @@ module-level `{.push raises: [].}` requires callable parameters to prove
 they cannot raise. Callers pass entity-specific `fromJson` functions as
 callbacks.
 
-**`strictDefs` interaction.** The `var matchedInv: Invocation` declaration
-requires initialisation under `strictDefs`. Since `Invocation` is a plain
-object (no `{.requiresInit.}` fields), the default zero-initialisation is
-sufficient — `matchedInv` is assigned before use inside the loop. The
-`found` flag guards all subsequent access.
+**`strictDefs` interaction.** `Invocation` contains
+`methodCallId: MethodCallId`, and `MethodCallId` has `{.requiresInit.}`.
+A bare `var matchedInv: Invocation` declaration would fail to compile
+under `strictDefs`. The algorithm avoids this by using a
+`findInvocation` helper that returns `Opt[Invocation]` — no
+uninitialised variable is ever declared. The `let matchedInv =
+matchOpt.get()` binding is fully initialised from the `Opt` value.
 
 **Cross-request safety gap.** Call IDs repeat across requests (`"c0"` in
 every request). A handle from Request A used with Response B silently
@@ -817,11 +828,15 @@ a runtime operation.
 3. `func capabilityUri*(T: typedesc[Entity]): string`.
 4. `template filterType*(T: typedesc[Entity]): typedesc` (if the entity
    supports `/query`).
-5. `registerJmapEntity(Entity)` at module scope.
-6. `toJson`/`fromJson` for the entity type itself (for create maps and
+5. A `condToJson` callback `proc(c: filterType(Entity)): JsonNode
+   {.noSideEffect, raises: [].}` for serialising filter conditions (if
+   the entity supports `/query`). Passed to `addQuery`/`addQueryChanges`
+   and forwarded to `Filter[C].toJson(condToJson)` (Layer 2 §7.2).
+6. `registerJmapEntity(Entity)` at module scope.
+7. `toJson`/`fromJson` for the entity type itself (for create maps and
    response lists).
 
-Items 1–5 are Layer 3 concerns. Item 6 is entity-specific and lives in
+Items 1–6 are Layer 3 concerns. Item 7 is entity-specific and lives in
 the entity module alongside the type definition.
 
 **Module:** `entity.nim`
@@ -834,17 +849,15 @@ Layer 3 reuses Layer 2's serialisation infrastructure but must document
 its own patterns. Layer 3 types are generic over entity type `T`; their
 serialisation involves entity-specific resolution that only Layer 3 has.
 
-**Decision D3.7:** Unidirectional serialisation — request types get
-`toJson` only, response types get `fromJson` only. The client builds
-requests (serialises to JSON) and parses responses (deserialises from
-JSON). This halves the serialisation surface and avoids the need for
-response `toJson` or request `fromJson` in production code.
+**Decision D3.7:** See §7.7 for the full statement and rationale
+(unidirectional serialisation — request `toJson`, response `fromJson`).
 
 ### 5a.1 Pattern L3-A: Request `toJson` (Object Construction)
 
 Build a `JsonNode` object inside `{.cast(noSideEffect).}:`. Omit keys
 for `Opt.none` fields. Use `referencableKey` for `Referencable[T]`
-fields. Use `Filter[C].toJson(condCallback)` for filter fields.
+fields. Use `Filter[C].toJson(condToJson)` for filter fields (callback
+forwarded from the caller — see `addQuery`/`addQueryChanges` §2.6.6–2.6.7).
 
 Canonical example — `GetRequest[T].toJson`:
 
@@ -1049,9 +1062,9 @@ implementation body.
 | `SetResponse[T]` | `fromJson` only | Yes (`Result` maps with `JsonNode`) | Merging algorithm Pattern L3-C |
 | `CopyRequest[T]` | `toJson` only | Yes | Required `create` map (not `Opt`) |
 | `CopyResponse[T]` | `fromJson` only | Yes (`Result` maps with `JsonNode`) | Same merging as `SetResponse` (create branch only) |
-| `QueryRequest[T]` | `toJson` only | Yes | Generic `Filter[C]` uses callback |
+| `QueryRequest[T]` | `toJson` only | Yes | Generic `Filter[C]` uses `condToJson` callback |
 | `QueryResponse[T]` | `fromJson` only | No (ids are value types) | `total`/`limit` lenient |
-| `QueryChangesRequest[T]` | `toJson` only | Yes | `Filter[C]` callback same as `QueryRequest` |
+| `QueryChangesRequest[T]` | `toJson` only | Yes | `Filter[C]` `condToJson` callback same as `QueryRequest` |
 | `QueryChangesResponse[T]` | `fromJson` only | No (`AddedItem` has value-type fields) | `total` lenient |
 | `echoFromJson` | `fromJson` callback | No (returns input node) | Validates `JObject` kind only; §9 |
 
@@ -1065,7 +1078,7 @@ Layer 3 modules import the following from Layer 2's `serde.nim` and
 | `parseError` | `serde.nim:16` | Constructing `ValidationError` in `fromJson` |
 | `checkJsonKind` | `serde.nim:21` | Kind validation template (returns `err` on mismatch) |
 | `initResultErr` | `serde.nim:37` | Workaround for `requiresInit` + `Result` limitation |
-| `collectExtras` | `serde.nim:51` | Gathering non-standard fields into `Opt[JsonNode]` |
+| `collectExtras` (transitive — not directly imported by Layer 3) | `serde.nim:51` | Called internally by `SetError.fromJson` and `MethodError.fromJson` (Layer 2 error parsers) during SetResponse merging and dispatch error detection. Layer 3 depends on it only through those Layer 2 parsers. |
 | `toJson` (all primitive/id types) | `serde.nim:67–197` | Serialising `AccountId`, `Id`, `JmapState`, etc. in request `toJson` |
 | `fromJson` (all primitive/id types) | `serde.nim:128–197` | Deserialising server-assigned identifiers in response `fromJson` |
 | `referencableKey` | `serde_envelope.nim:194` | Determining JSON key for `Referencable[T]` fields (`"foo"` vs `"#foo"`) |
@@ -1189,7 +1202,7 @@ the same as if the default value had been specified. `null` is the default
 for any argument where allowed by the type signature, unless otherwise
 specified.
 
-**§3.10 Concurrency (lines 903–906).** Method calls within a single
+**§3.3 Concurrency (lines 903–906).** Method calls within a single
 request are processed sequentially, in order. Concurrent requests may
 interleave. The builder's sequential `add*` order maps directly to server
 execution order. This is critical for result references: a reference to
@@ -1540,11 +1553,14 @@ type QueryRequest*[T] = object
 **`toJson` signature:**
 
 ```nim
-func toJson*[T](req: QueryRequest[T]): JsonNode =
+func toJson*[T](req: QueryRequest[T],
+    condToJson: proc(c: filterType(T)): JsonNode
+    {.noSideEffect, raises: [].}): JsonNode =
   ## Serialises QueryRequest to JSON arguments object (RFC 8620 §5.5).
   ## Omits ``filter``, ``sort``, ``anchor``, ``limit`` when Opt.none.
   ## ``position``, ``anchorOffset``, ``calculateTotal`` always emitted.
-  ## Filter serialised via callback for generic Filter[C].
+  ## Filter serialised via ``condToJson`` callback, forwarded to
+  ## ``Filter[C].toJson(condToJson)`` (Layer 2 §7.2).
   ## Pattern L3-A (§5a.1).
   ...
 ```
@@ -1598,11 +1614,14 @@ type QueryChangesRequest*[T] = object
 **`toJson` signature:**
 
 ```nim
-func toJson*[T](req: QueryChangesRequest[T]): JsonNode =
+func toJson*[T](req: QueryChangesRequest[T],
+    condToJson: proc(c: filterType(T)): JsonNode
+    {.noSideEffect, raises: [].}): JsonNode =
   ## Serialises QueryChangesRequest to JSON arguments object
   ## (RFC 8620 §5.6). Omits ``filter``, ``sort``, ``maxChanges``,
   ## ``upToId`` when Opt.none. ``calculateTotal`` always emitted.
-  ## Filter serialised via callback for generic Filter[C].
+  ## Filter serialised via ``condToJson`` callback, forwarded to
+  ## ``Filter[C].toJson(condToJson)`` (Layer 2 §7.2).
   ## Pattern L3-A (§5a.1).
   ...
 ```
@@ -2274,45 +2293,15 @@ not apply per-type. Instead, the following invariants hold:
 
 ## 12. Opt[T] Field Handling Convention
 
-### 12.1 Leniency Policy
+All `Opt[T]` fields in Layer 3 types follow the policy defined in §5a.5.
+Request types (`toJson`): omit key when `Opt.none`. Response types
+(`fromJson`): absent, null, or wrong kind produces `Opt.none` (lenient).
+See §5a.4 for the expected JSON kinds table and §5a.5 for the full
+leniency policy including the structurally critical vs supplementary
+field distinction.
 
-Same policy as §5a.5 — see there for the full statement including the
-structurally critical vs supplementary field distinction, the
-container-field exception, and the rationale.
-
-**Convention:** Same as Layer 2 §9. `toJson`: omit key when `isNone`.
-`fromJson`: absent/wrong-kind produces `Opt.none` (lenient).
-
-### 12.2 Per-Field Table
-
-Every `Opt` field across all twelve Layer 3 types, with its serialisation
-handling:
-
-| Type | Field | Direction | Handling |
-|------|-------|-----------|----------|
-| `GetRequest[T]` | `ids` | `toJson` | Omit key if none |
-| `GetRequest[T]` | `properties` | `toJson` | Omit key if none |
-| `ChangesRequest[T]` | `maxChanges` | `toJson` | Omit key if none |
-| `SetRequest[T]` | `ifInState` | `toJson` | Omit key if none |
-| `SetRequest[T]` | `create` | `toJson` | Omit key if none |
-| `SetRequest[T]` | `update` | `toJson` | Omit key if none |
-| `SetRequest[T]` | `destroy` | `toJson` | Omit key if none |
-| `CopyRequest[T]` | `ifFromInState` | `toJson` | Omit key if none |
-| `CopyRequest[T]` | `ifInState` | `toJson` | Omit key if none |
-| `CopyRequest[T]` | `destroyFromIfInState` | `toJson` | Omit key if none |
-| `QueryRequest[T]` | `filter` | `toJson` | Omit key if none |
-| `QueryRequest[T]` | `sort` | `toJson` | Omit key if none |
-| `QueryRequest[T]` | `anchor` | `toJson` | Omit key if none |
-| `QueryRequest[T]` | `limit` | `toJson` | Omit key if none |
-| `QueryChangesRequest[T]` | `filter` | `toJson` | Omit key if none |
-| `QueryChangesRequest[T]` | `sort` | `toJson` | Omit key if none |
-| `QueryChangesRequest[T]` | `maxChanges` | `toJson` | Omit key if none |
-| `QueryChangesRequest[T]` | `upToId` | `toJson` | Omit key if none |
-| `SetResponse[T]` | `oldState` | `fromJson` | Absent/wrong kind produces `Opt.none` |
-| `CopyResponse[T]` | `oldState` | `fromJson` | Absent/wrong kind produces `Opt.none` |
-| `QueryResponse[T]` | `total` | `fromJson` | Absent/wrong kind produces `Opt.none` |
-| `QueryResponse[T]` | `limit` | `fromJson` | Absent/wrong kind produces `Opt.none` |
-| `QueryChangesResponse[T]` | `total` | `fromJson` | Absent/wrong kind produces `Opt.none` |
+The complete list of `Opt` fields and their handling is derivable from
+the type definitions in §6 (request types) and §7 (response types).
 
 ---
 
@@ -2596,7 +2585,7 @@ arguments echoed back identically.
 | Dispatch | Malformed error response | `err(serverFail)` | `MethodError.fromJson` failed |
 | **GetResponse** | Valid JSON with all fields | `ok(GetResponse)` | Happy path |
 | GetResponse | Missing `state` field | `err` | Required field |
-| GetResponse | `state` is JInt not JString | `err` | `checkJsonKind` rejects |
+| GetResponse | `state` is JInt not JString | `err` | `parseJmapState` rejects empty string from `.getStr("")` |
 | GetResponse | `list` is JString not JArray | `err` | `checkJsonKind` rejects |
 | GetResponse | `notFound` absent | `ok` with empty `notFound` | Supplementary required field — absent treated as empty |
 | GetResponse | `list` empty | `ok` with empty `list` | No results (valid) |
@@ -2676,6 +2665,11 @@ rejects clearly, and introducing a new type has downstream cost.
 ---
 
 ## Appendix: RFC Section Cross-Reference
+
+**Note on RFC line ranges.** Section headers (§6.x, §7.x) cite the
+narrowest range covering only the type definition. This cross-reference
+table uses broader ranges that include associated error definitions and
+behavioural semantics from the same RFC subsection.
 
 | Type/Function | RFC 8620 Section | Wire Format |
 |---------------|-----------------|-------------|
