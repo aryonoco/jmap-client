@@ -33,36 +33,11 @@ func fromDirectInt(n: JsonNode): Result[int, ValidationError] =
   checkJsonKind(n, JInt, "int")
   ok(n.getInt(0))
 
-proc goldenRequestJson(): JsonNode =
-  ## Builds a fresh copy of the RFC section 3.3.1 golden Request JSON.
-  %*{
-    "using": ["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail"],
-    "methodCalls": [
-      ["method1", {"arg1": "arg1data", "arg2": "arg2data"}, "c1"],
-      ["method2", {"arg1": "arg1data"}, "c2"],
-      ["method3", {}, "c3"],
-    ],
-  }
-
-proc goldenResponseJson(): JsonNode =
-  ## Builds a fresh copy of the RFC section 3.4.1 golden Response JSON.
-  %*{
-    "methodResponses": [
-      ["method1", {"arg1": 3, "arg2": "foo"}, "c1"],
-      ["method2", {"isBlah": true}, "c2"],
-      ["anotherResponseFromMethod2", {"data": 10, "yetmoredata": "Hello"}, "c2"],
-      ["error", {"type": "unknownMethod"}, "c3"],
-    ],
-    "sessionState": "75128aab4b1b",
-  }
-
-proc validRequestJson(): JsonNode =
-  ## Builds a fresh minimal valid Request JSON.
-  %*{"using": ["urn:ietf:params:jmap:core"], "methodCalls": [["Mailbox/get", {}, "c0"]]}
-
-proc validResponseJson(): JsonNode =
-  ## Builds a fresh minimal valid Response JSON.
-  %*{"methodResponses": [["Mailbox/get", {}, "c0"]], "sessionState": "s1"}
+# Golden and valid Request/Response JSON fixtures are in mfixtures.nim:
+# goldenRequestJson() — RFC 8620 section 3.3.1 golden example
+# goldenResponseJson() — RFC 8620 section 3.4.1 golden example
+# validRequestJson() — minimal valid Request
+# validResponseJson() — minimal valid Response
 
 # =============================================================================
 # A. Round-trip tests
@@ -713,31 +688,6 @@ block referencableFromJsonFieldMalformedReference:
     assertErr r
     assertErrContains r, "missing or invalid resultOf"
 
-block fromJsonFieldBothPresentRefTakesPrecedence:
-  ## When both "ids" and "#ids" are present, reference takes precedence.
-  {.cast(noSideEffect).}:
-    let node =
-      %*{"ids": 42, "#ids": {"resultOf": "c0", "name": "Mailbox/get", "path": "/ids"}}
-    let r = fromJsonField[int]("ids", node, fromDirectInt)
-    assertOk r
-    doAssert r.get().kind == rkReference
-
-block requestEmptyMethodCalls:
-  ## Empty methodCalls array round-trips correctly.
-  {.cast(noSideEffect).}:
-    let j = %*{"using": ["urn:ietf:params:jmap:core"], "methodCalls": []}
-    let r = Request.fromJson(j)
-    assertOk r
-    assertLen r.get().methodCalls, 0
-    assertLen r.get().`using`, 1
-
-block requestEmptyUsingArray:
-  ## Empty using array is valid per JSON schema.
-  {.cast(noSideEffect).}:
-    let j = %*{"using": [], "methodCalls": []}
-    let r = Request.fromJson(j)
-    assertOk r
-    assertLen r.get().`using`, 0
 block fromJsonFieldBothPresentRefTakesPrecedence:
   ## When both "ids" and "#ids" are present, reference takes precedence.
   {.cast(noSideEffect).}:

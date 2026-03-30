@@ -31,41 +31,8 @@ import jmap_client/validation
 import ../massertions
 import ../mfixtures
 
-# Minimal valid Session JSON builder, returns a fresh tree each call.
-proc validSessionJson(): JsonNode =
-  ## Builds a fresh minimal valid Session JSON for adversarial modifications.
-  %*{
-    "capabilities": {
-      "urn:ietf:params:jmap:core": {
-        "maxSizeUpload": 1,
-        "maxConcurrentUpload": 1,
-        "maxSizeRequest": 1,
-        "maxConcurrentRequests": 1,
-        "maxCallsInRequest": 1,
-        "maxObjectsInGet": 1,
-        "maxObjectsInSet": 1,
-        "collationAlgorithms": [],
-      }
-    },
-    "accounts": {},
-    "primaryAccounts": {},
-    "username": "",
-    "apiUrl": "https://jmap.example.com/api/",
-    "downloadUrl":
-      "https://jmap.example.com/download/{accountId}/{blobId}/{name}?accept={type}",
-    "uploadUrl": "https://jmap.example.com/upload/{accountId}/",
-    "eventSourceUrl":
-      "https://jmap.example.com/eventsource/?types={types}&closeafter={closeafter}&ping={ping}",
-    "state": "s1",
-  }
-
-proc validRequestJson(): JsonNode =
-  ## Builds a fresh minimal valid Request JSON.
-  %*{"using": ["urn:ietf:params:jmap:core"], "methodCalls": [["Mailbox/get", {}, "c0"]]}
-
-proc validResponseJson(): JsonNode =
-  ## Builds a fresh minimal valid Response JSON.
-  %*{"methodResponses": [["Mailbox/get", {}, "c0"]], "sessionState": "s1"}
+# Valid JSON fixtures are in mfixtures.nim:
+# validSessionJson(), validRequestJson(), validResponseJson()
 
 # =============================================================================
 # A. Session adversarial

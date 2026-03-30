@@ -31,82 +31,9 @@ import ../mfixtures
 # A. Session — Golden Test & Round-Trip
 # =============================================================================
 
-# RFC section 2.1 golden Session JSON (design doc section 13.1).
-# Built as proc (not func) to avoid {.cast(noSideEffect).} ARC interference.
-# Each call returns a fresh tree so ARC tracking is correct.
-proc goldenSessionJson(): JsonNode =
-  ## Builds a fresh copy of the RFC section 2.1 golden Session JSON.
-  %*{
-    "capabilities": {
-      "urn:ietf:params:jmap:core": {
-        "maxSizeUpload": 50000000,
-        "maxConcurrentUpload": 8,
-        "maxSizeRequest": 10000000,
-        "maxConcurrentRequest": 8,
-        "maxCallsInRequest": 32,
-        "maxObjectsInGet": 256,
-        "maxObjectsInSet": 128,
-        "collationAlgorithms":
-          ["i;ascii-numeric", "i;ascii-casemap", "i;unicode-casemap"],
-      },
-      "urn:ietf:params:jmap:mail": {},
-      "urn:ietf:params:jmap:contacts": {},
-      "https://example.com/apis/foobar": {"maxFoosFinangled": 42},
-    },
-    "accounts": {
-      "A13824": {
-        "name": "john@example.com",
-        "isPersonal": true,
-        "isReadOnly": false,
-        "accountCapabilities":
-          {"urn:ietf:params:jmap:mail": {}, "urn:ietf:params:jmap:contacts": {}},
-      },
-      "A97813": {
-        "name": "jane@example.com",
-        "isPersonal": false,
-        "isReadOnly": true,
-        "accountCapabilities": {"urn:ietf:params:jmap:mail": {}},
-      },
-    },
-    "primaryAccounts":
-      {"urn:ietf:params:jmap:mail": "A13824", "urn:ietf:params:jmap:contacts": "A13824"},
-    "username": "john@example.com",
-    "apiUrl": "https://jmap.example.com/api/",
-    "downloadUrl":
-      "https://jmap.example.com/download/{accountId}/{blobId}/{name}?accept={type}",
-    "uploadUrl": "https://jmap.example.com/upload/{accountId}/",
-    "eventSourceUrl":
-      "https://jmap.example.com/eventsource/?types={types}&closeafter={closeafter}&ping={ping}",
-    "state": "75128aab4b1b",
-  }
-
-# Minimal valid Session JSON for edge-case modifications.
-proc validSessionJson(): JsonNode =
-  ## Builds a fresh minimal valid Session JSON.
-  %*{
-    "capabilities": {
-      "urn:ietf:params:jmap:core": {
-        "maxSizeUpload": 1,
-        "maxConcurrentUpload": 1,
-        "maxSizeRequest": 1,
-        "maxConcurrentRequests": 1,
-        "maxCallsInRequest": 1,
-        "maxObjectsInGet": 1,
-        "maxObjectsInSet": 1,
-        "collationAlgorithms": [],
-      }
-    },
-    "accounts": {},
-    "primaryAccounts": {},
-    "username": "",
-    "apiUrl": "https://jmap.example.com/api/",
-    "downloadUrl":
-      "https://jmap.example.com/download/{accountId}/{blobId}/{name}?accept={type}",
-    "uploadUrl": "https://jmap.example.com/upload/{accountId}/",
-    "eventSourceUrl":
-      "https://jmap.example.com/eventsource/?types={types}&closeafter={closeafter}&ping={ping}",
-    "state": "s1",
-  }
+# Golden and valid Session JSON fixtures are in mfixtures.nim:
+# goldenSessionJson() — RFC 8620 section 2.1 golden example
+# validSessionJson() — minimal valid Session for edge-case modifications
 
 block sessionDeserGoldenRfcAndRoundTrip:
   let j = goldenSessionJson()
