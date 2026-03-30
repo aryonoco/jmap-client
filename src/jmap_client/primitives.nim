@@ -45,6 +45,13 @@ type UTCDate* {.requiresInit.} = distinct string
 
 defineStringDistinctOps(UTCDate)
 
+type MaxChanges* {.requiresInit.} = distinct UnsignedInt
+  ## A positive count for maxChanges fields in Foo/changes and
+  ## Foo/queryChanges requests. RFC 8620 §5.2 (lines 1694–1702)
+  ## requires the value to be greater than 0.
+
+defineIntDistinctOps(MaxChanges)
+
 const MaxUnsignedInt*: int64 = 9_007_199_254_740_991'i64 ## 2^53 - 1
 
 const
@@ -94,6 +101,12 @@ func parseJmapInt*(value: int64): Result[JmapInt, ValidationError] =
     return err(validationError("JmapInt", "outside JSON-safe integer range", $value))
   doAssert value >= MinJmapInt and value <= MaxJmapInt
   ok(JmapInt(value))
+
+func parseMaxChanges*(raw: UnsignedInt): Result[MaxChanges, ValidationError] =
+  ## Smart constructor: rejects 0, which the RFC forbids.
+  if int64(raw) == 0:
+    return err(validationError("MaxChanges", "must be greater than 0", $int64(raw)))
+  ok(MaxChanges(raw))
 
 func validateDatePortion(raw: string): Result[void, ValidationError] =
   ## YYYY-MM-DD at positions 0..9.

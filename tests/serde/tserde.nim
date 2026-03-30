@@ -465,3 +465,54 @@ block parseErrorEmptyMessage:
   assertEq err.typeName, "TestType"
   assertEq err.message, ""
   assertEq err.value, ""
+
+# --- jStr/jInt/jBool/jObj/jArr wrappers ---
+
+block jStrProducesJString:
+  let n = jStr("hello")
+  doAssert n.kind == JString
+  assertEq n.getStr(""), "hello"
+
+block jIntProducesJInt:
+  let n = jInt(42)
+  doAssert n.kind == JInt
+  assertEq n.getBiggestInt(0), 42
+
+block jBoolProducesJBool:
+  doAssert jBool(true).getBool(false) == true
+  doAssert jBool(false).getBool(true) == false
+
+block jObjProducesJObject:
+  doAssert jObj().kind == JObject
+
+block jArrProducesJArray:
+  doAssert jArr().kind == JArray
+
+# --- MaxChanges serde ---
+
+block maxChangesRoundTrip:
+  let mc = makeMaxChanges(42)
+  assertOkEq MaxChanges.fromJson(mc.toJson()), mc
+
+block maxChangesSerValue:
+  let mc = makeMaxChanges(100)
+  assertEq mc.toJson().getBiggestInt(0), 100
+
+block maxChangesDeserRejectsZero:
+  {.cast(noSideEffect).}:
+    assertErr MaxChanges.fromJson(%0)
+
+block maxChangesDeserRejectsNegative:
+  {.cast(noSideEffect).}:
+    assertErr MaxChanges.fromJson(%(-1))
+
+block maxChangesDeserRejectsWrongKind:
+  {.cast(noSideEffect).}:
+    assertErr MaxChanges.fromJson(%"42")
+
+block maxChangesDeserNil:
+  const nilNode: JsonNode = nil
+  assertErr MaxChanges.fromJson(nilNode)
+
+block maxChangesDeserNull:
+  assertErr MaxChanges.fromJson(newJNull())

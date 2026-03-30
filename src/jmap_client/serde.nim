@@ -67,64 +67,80 @@ func collectExtras*(node: JsonNode, knownKeys: openArray[string]): Opt[JsonNode]
   else:
     Opt.none(JsonNode)
 
+# --- JSON construction wrappers (D3.12) ---
+
+func jStr*(s: string): JsonNode =
+  ## Wraps ``%s`` with ``{.cast(noSideEffect).}``.
+  {.cast(noSideEffect).}:
+    %s
+
+func jInt*(i: int64): JsonNode =
+  ## Wraps ``%i`` with ``{.cast(noSideEffect).}``.
+  {.cast(noSideEffect).}:
+    %i
+
+func jBool*(b: bool): JsonNode =
+  ## Wraps ``%b`` with ``{.cast(noSideEffect).}``.
+  {.cast(noSideEffect).}:
+    %b
+
+func jObj*(): JsonNode =
+  ## Wraps ``newJObject()`` with ``{.cast(noSideEffect).}``.
+  {.cast(noSideEffect).}:
+    newJObject()
+
+func jArr*(): JsonNode =
+  ## Wraps ``newJArray()`` with ``{.cast(noSideEffect).}``.
+  {.cast(noSideEffect).}:
+    newJArray()
+
 # --- toJson: distinct string types ---
 
 func toJson*(x: Id): JsonNode =
   ## Serialise Id to JSON string.
-  {.cast(noSideEffect).}:
-    %string(x)
+  jStr(string(x))
 
 func toJson*(x: AccountId): JsonNode =
   ## Serialise AccountId to JSON string.
-  {.cast(noSideEffect).}:
-    %string(x)
+  jStr(string(x))
 
 func toJson*(x: JmapState): JsonNode =
   ## Serialise JmapState to JSON string.
-  {.cast(noSideEffect).}:
-    %string(x)
+  jStr(string(x))
 
 func toJson*(x: MethodCallId): JsonNode =
   ## Serialise MethodCallId to JSON string.
-  {.cast(noSideEffect).}:
-    %string(x)
+  jStr(string(x))
 
 func toJson*(x: CreationId): JsonNode =
   ## Serialise CreationId to JSON string.
-  {.cast(noSideEffect).}:
-    %string(x)
+  jStr(string(x))
 
 func toJson*(x: UriTemplate): JsonNode =
   ## Serialise UriTemplate to JSON string.
-  {.cast(noSideEffect).}:
-    %string(x)
+  jStr(string(x))
 
 func toJson*(x: PropertyName): JsonNode =
   ## Serialise PropertyName to JSON string.
-  {.cast(noSideEffect).}:
-    %string(x)
+  jStr(string(x))
 
 func toJson*(x: Date): JsonNode =
   ## Serialise Date to JSON string.
-  {.cast(noSideEffect).}:
-    %string(x)
+  jStr(string(x))
 
 func toJson*(x: UTCDate): JsonNode =
   ## Serialise UTCDate to JSON string.
-  {.cast(noSideEffect).}:
-    %string(x)
+  jStr(string(x))
 
 # --- toJson: distinct int types ---
 
 func toJson*(x: UnsignedInt): JsonNode =
   ## Serialise UnsignedInt to JSON integer.
-  {.cast(noSideEffect).}:
-    %int64(x)
+  jInt(int64(x))
 
 func toJson*(x: JmapInt): JsonNode =
   ## Serialise JmapInt to JSON integer.
-  {.cast(noSideEffect).}:
-    %int64(x)
+  jInt(int64(x))
 
 # --- fromJson: distinct string types ---
 
@@ -198,3 +214,17 @@ func fromJson*(T: typedesc[JmapInt], node: JsonNode): Result[JmapInt, Validation
   ## Deserialise a JSON integer to JmapInt (-(2^53-1)..2^53-1).
   checkJsonKind(node, JInt, $T)
   parseJmapInt(node.getBiggestInt(0))
+
+# --- toJson/fromJson: MaxChanges ---
+
+func toJson*(x: MaxChanges): JsonNode =
+  ## Serialise MaxChanges to JSON integer.
+  jInt(int64(UnsignedInt(x)))
+
+func fromJson*(
+    T: typedesc[MaxChanges], node: JsonNode
+): Result[MaxChanges, ValidationError] =
+  ## Deserialise a JSON integer to MaxChanges (must be > 0).
+  checkJsonKind(node, JInt, $T)
+  let ui = ?parseUnsignedInt(node.getBiggestInt(0))
+  parseMaxChanges(ui)

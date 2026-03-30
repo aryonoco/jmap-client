@@ -215,8 +215,18 @@ func fromJsonField*[T](
 ): Result[Referencable[T], ValidationError] =
   ## Parse a Referencable field from a JSON object.
   ## Checks "#fieldName" (reference) first, then "fieldName" (direct).
+  ## Rejects when both forms are present (RFC 8620 §3.7).
   let refKey = "#" & fieldName
   let refNode = node{refKey}
+  let directNode = node{fieldName}
+  # RFC 8620 §3.7: reject when both direct and referenced forms are present
+  if not refNode.isNil and not directNode.isNil:
+    return err(
+      parseError(
+        "Referencable",
+        "cannot specify both " & fieldName & " and " & refKey & " (RFC 8620 §3.7)",
+      )
+    )
   if not refNode.isNil:
     if refNode.kind != JObject:
       return err(
@@ -224,7 +234,6 @@ func fromJsonField*[T](
       )
     let resultRef = ?ResultReference.fromJson(refNode)
     return ok(referenceTo[T](resultRef))
-  let directNode = node{fieldName}
   if directNode.isNil:
     return
       err(parseError("Referencable", "missing field: " & fieldName & " or " & refKey))

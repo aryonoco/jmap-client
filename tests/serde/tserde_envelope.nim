@@ -528,13 +528,14 @@ block referencableReferenceValue:
     assertEq v.reference.path, "/ids"
     assertEq v.reference.resultOf, parseMethodCallId("c0").get()
 
-block referencableBothPresentHashTakesPrecedence:
+block referencableBothPresentConflictRejected:
+  ## RFC 8620 §3.7: both direct and referenced forms present must be rejected.
   {.cast(noSideEffect).}:
     let node =
       %*{"ids": 42, "#ids": {"resultOf": "c0", "name": "Mailbox/query", "path": "/ids"}}
     let r = fromJsonField[int]("ids", node, fromDirectInt)
-    assertOk r
-    doAssert r.get().kind == rkReference
+    assertErr r
+    assertErrContains r, "cannot specify both"
 
 block referencableMissingBothKeys:
   {.cast(noSideEffect).}:
@@ -688,15 +689,6 @@ block referencableFromJsonFieldMalformedReference:
     let r = fromJsonField[int]("ids", node, fromDirectInt)
     assertErr r
     assertErrContains r, "missing or invalid resultOf"
-
-block fromJsonFieldBothPresentRefTakesPrecedence:
-  ## When both "ids" and "#ids" are present, reference takes precedence.
-  {.cast(noSideEffect).}:
-    let node =
-      %*{"ids": 42, "#ids": {"resultOf": "c0", "name": "Mailbox/get", "path": "/ids"}}
-    let r = fromJsonField[int]("ids", node, fromDirectInt)
-    assertOk r
-    doAssert r.get().kind == rkReference
 
 block requestEmptyMethodCalls:
   ## Empty methodCalls array round-trips correctly.

@@ -656,3 +656,23 @@ block dateTableDrivenInvalid:
   ]
   for (input, reason) in invalidCases:
     doAssert parseDate(input).isErr, "expected Err for: " & reason & " (" & input & ")"
+
+# --- parseMaxChanges ---
+
+block parseMaxChangesRejectsZero:
+  let ui = parseUnsignedInt(0).get()
+  assertErrFields parseMaxChanges(ui), "MaxChanges", "must be greater than 0", "0"
+
+block parseMaxChangesAcceptsOne:
+  let ui = parseUnsignedInt(1).get()
+  assertOk parseMaxChanges(ui)
+
+block parseMaxChangesAcceptsMax:
+  let ui = parseUnsignedInt(MaxUnsignedInt).get()
+  assertOk parseMaxChanges(ui)
+
+block parseMaxChangesBorrowedOps:
+  let a = parseMaxChanges(parseUnsignedInt(10).get()).get()
+  let b = parseMaxChanges(parseUnsignedInt(10).get()).get()
+  doAssert a == b
+  doAssert $a == "10"

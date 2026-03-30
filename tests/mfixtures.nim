@@ -36,6 +36,9 @@ import jmap_client/serde
 func zeroUint*(): UnsignedInt =
   parseUnsignedInt(0).get()
 
+func makeMaxChanges*(n: int64 = 100): MaxChanges =
+  parseMaxChanges(parseUnsignedInt(n).get()).get()
+
 func makeId*(s = "testId"): Id =
   parseId(s).get()
 
