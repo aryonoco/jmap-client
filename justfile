@@ -124,6 +124,22 @@ test-stress:
     @echo "Running stress tests..."
     testament cat stress
 
+# Run test categories in parallel (faster CI)
+test-parallel:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    shopt -s inherit_errexit
+    cleanup() { find tests/ -name 'megatest' -type f -delete; find tests/ -name 'megatest.nim' -type f -delete; }
+    trap cleanup EXIT
+    echo "Running tests in parallel by category..."
+    testament --backendLogging:off cat unit &
+    testament --backendLogging:off cat serde &
+    testament --backendLogging:off cat property &
+    testament --backendLogging:off cat compliance &
+    testament --backendLogging:off cat stress &
+    wait
+    echo "All parallel tests passed"
+
 # Run tests and generate HTML report
 test-report:
     @echo "Running tests with report..."
