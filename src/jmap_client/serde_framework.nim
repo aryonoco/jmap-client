@@ -51,20 +51,18 @@ func toJson*(c: Comparator): JsonNode =
     if c.collation.isSome:
       result["collation"] = %c.collation.get()
 
-func parseComparatorCore(
-    node: JsonNode, typeName: string
-): Result[(PropertyName, bool, Opt[string]), ValidationError] =
-  ## Parse Comparator fields from JSON. Separated to avoid the requiresInit
-  ## interaction: Comparator contains PropertyName {.requiresInit.}, so
-  ## err()/? on Result[Comparator, ValidationError] fails to compile.
-  checkJsonKind(node, JObject, typeName)
+func fromJson*(
+    T: typedesc[Comparator], node: JsonNode
+): Result[Comparator, ValidationError] =
+  ## Deserialise JSON to Comparator (RFC 8620 section 5.5).
+  checkJsonKind(node, JObject, $T)
   let propNode = node{"property"}
-  checkJsonKind(propNode, JString, typeName, "missing or invalid property")
+  checkJsonKind(propNode, JString, $T, "missing or invalid property")
   let property = ?parsePropertyName(propNode.getStr(""))
   let ascNode = node{"isAscending"}
   if not ascNode.isNil:
     if ascNode.kind != JBool:
-      return err(parseError(typeName, "isAscending must be boolean"))
+      return err(parseError($T, "isAscending must be boolean"))
   let isAscending = ascNode.getBool(true)
     # nil-safe; returns true (RFC default) when absent
   let collNode = node{"collation"}
@@ -72,22 +70,7 @@ func parseComparatorCore(
   if not collNode.isNil:
     if collNode.kind == JString:
       collation = Opt.some(collNode.getStr(""))
-  ok((property, isAscending, collation))
-
-func fromJson*(
-    T: typedesc[Comparator], node: JsonNode
-): Result[Comparator, ValidationError] =
-  ## Deserialise JSON to Comparator (RFC 8620 section 5.5).
-  ## Uses initResultErr and helper func because Comparator has PropertyName
-  ## {.requiresInit.}, triggering the nim-results requiresInit limitation.
-  let coreResult = parseComparatorCore(node, $T)
-  if coreResult.isErr:
-    return initResultErr[Comparator, ValidationError](coreResult.error)
-  let core = coreResult.get()
-  let comparator = parseComparator(core[0], core[1], core[2])
-  if comparator.isErr:
-    return initResultErr[Comparator, ValidationError](comparator.error)
-  ok(comparator.get())
+  ok(?parseComparator(property, isAscending, collation))
 
 # =============================================================================
 # Filter[C]

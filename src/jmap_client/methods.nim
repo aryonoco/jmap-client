@@ -26,7 +26,7 @@ import ./serialisation
 # Lenient Opt helpers (internal, not exported)
 # =============================================================================
 
-func optState(node: JsonNode, key: string): Opt[JmapState] =
+func optState*(node: JsonNode, key: string): Opt[JmapState] =
   ## Lenient optional JmapState extraction (section 5a.5 leniency).
   ## Absent, null, wrong kind, or invalid content all produce Opt.none.
   let child = node{key}
@@ -39,7 +39,7 @@ func optState(node: JsonNode, key: string): Opt[JmapState] =
     return Opt.none(JmapState)
   Opt.some(r.get())
 
-func optUnsignedInt(node: JsonNode, key: string): Opt[UnsignedInt] =
+func optUnsignedInt*(node: JsonNode, key: string): Opt[UnsignedInt] =
   ## Lenient optional UnsignedInt extraction (section 5a.5 leniency).
   ## Absent, null, wrong kind, or invalid content all produce Opt.none.
   let child = node{key}

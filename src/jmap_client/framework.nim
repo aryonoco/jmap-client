@@ -58,9 +58,20 @@ func filterOperator*[C](op: FilterOperator, conditions: seq[Filter[C]]): Filter[
 type Comparator* = object
   ## Sort criterion for /query requests (RFC 8620 §5.5). Determines the sort order
   ## for results returned by a /query method call.
-  property*: PropertyName ## property name to sort by
+  ##
+  ## Property stored as ``string`` internally to allow ``seq[Comparator]`` in
+  ## ``Opt`` / ``Result`` containers. ``PropertyName {.requiresInit.}`` prevents
+  ## ``default(Comparator)`` which Nim's ``seqs_v2.shrink`` requires for
+  ## lifecycle-hook generation, breaking ``--warningAsError:UnsafeSetLen``.
+  ## The ``property`` accessor returns a validated ``PropertyName`` view.
+  ## The field is module-private: external code must use ``parseComparator``.
+  rawProperty: string ## validated property name (module-private)
   isAscending*: bool ## true = ascending (RFC default)
   collation*: Opt[string] ## RFC 4790 collation algorithm identifier
+
+func property*(c: Comparator): PropertyName =
+  ## Type-safe accessor for the sort property name.
+  PropertyName(c.rawProperty)
 
 func parseComparator*(
     property: PropertyName,
@@ -68,7 +79,11 @@ func parseComparator*(
     collation: Opt[string] = Opt.none(string),
 ): Result[Comparator, ValidationError] =
   ## Constructs a Comparator. Infallible given a valid PropertyName.
-  ok(Comparator(property: property, isAscending: isAscending, collation: collation))
+  ok(
+    Comparator(
+      rawProperty: string(property), isAscending: isAscending, collation: collation
+    )
+  )
 
 type PatchObject* {.requiresInit.} = distinct Table[string, JsonNode]
   ## Map of JSON Pointer paths to values for /set update operations (RFC 8620 §5.3).
