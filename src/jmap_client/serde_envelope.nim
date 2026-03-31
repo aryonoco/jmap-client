@@ -45,7 +45,7 @@ func fromJson*(
   if callIdRaw.len == 0:
     return err(parseError($T, "method call ID must not be empty"))
   let mcid = ?parseMethodCallId(callIdRaw)
-  ok(Invocation(name: name, arguments: arguments, methodCallId: mcid))
+  ok(initInvocation(name, arguments, mcid))
 
 # =============================================================================
 # createdIds helper
@@ -95,13 +95,13 @@ func fromJson*(T: typedesc[Request], node: JsonNode): Result[Request, Validation
   checkJsonKind(node, JObject, $T)
   let usingNode = node{"using"}
   checkJsonKind(usingNode, JArray, $T, "missing or invalid using")
-  var usingSeq: seq[string]
+  var usingSeq: seq[string] = @[]
   for _, elem in usingNode.getElems(@[]):
     checkJsonKind(elem, JString, $T, "using element must be string")
     usingSeq.add(elem.getStr(""))
   let callsNode = node{"methodCalls"}
   checkJsonKind(callsNode, JArray, $T, "missing or invalid methodCalls")
-  var methodCalls: seq[Invocation]
+  var methodCalls: seq[Invocation] = @[]
   for _, callNode in callsNode.getElems(@[]):
     let inv = ?Invocation.fromJson(callNode)
     methodCalls.add(inv)

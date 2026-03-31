@@ -51,8 +51,7 @@ block roundTripInvocationComplexArguments:
     let args = %*{
       "accountId": "A1", "list": [1, 2, 3], "filter": {"nested": {"deep": newJNull()}}
     }
-    let original =
-      Invocation(name: "Email/get", arguments: args, methodCallId: makeMcid("c1"))
+    let original = initInvocation("Email/get", args, makeMcid("c1"))
     let rt = Invocation.fromJson(original.toJson())
     doAssert rt.isOk, "complex arguments round-trip failed"
     let v = rt.get()
@@ -629,8 +628,7 @@ block invocationComplexNestedArgsRoundTrip:
       "nullField": nil,
       "emptyArray": [],
     }
-    let inv =
-      Invocation(name: "Email/query", arguments: args, methodCallId: makeMcid("c1"))
+    let inv = initInvocation("Email/query", args, makeMcid("c1"))
     let rt = Invocation.fromJson(inv.toJson())
     assertOk rt
     assertEq rt.get().name, "Email/query"
@@ -716,8 +714,7 @@ block errorInvocationWireFormat:
   ## serialise it, and verify the ["error", {"type": ...}, "c0"] wire format.
   {.cast(noSideEffect).}:
     let me = methodError("unknownMethod", Opt.some("No such method"))
-    let inv =
-      Invocation(name: "error", arguments: me.toJson(), methodCallId: makeMcid("c0"))
+    let inv = initInvocation("error", me.toJson(), makeMcid("c0"))
     let j = inv.toJson()
     # Wire format: 3-element JSON array
     doAssert j.kind == JArray
@@ -745,8 +742,7 @@ block errorInvocationServerFailWireFormat:
     let extras = newJObject()
     extras["retryAfter"] = %30
     let me = methodError("serverFail", Opt.some("Try again"), Opt.some(extras))
-    let inv =
-      Invocation(name: "error", arguments: me.toJson(), methodCallId: makeMcid("c5"))
+    let inv = initInvocation("error", me.toJson(), makeMcid("c5"))
     let j = inv.toJson()
     let elems = j.getElems(@[])
     assertEq elems[0].getStr(""), "error"
@@ -767,8 +763,7 @@ block backReferenceHashPrefixRoundTrip:
     let refObj = %*{"resultOf": "c0", "name": "Mailbox/query", "path": "/ids"}
     var args = newJObject()
     args["#ids"] = refObj
-    let inv =
-      Invocation(name: "Email/get", arguments: args, methodCallId: makeMcid("c1"))
+    let inv = initInvocation("Email/get", args, makeMcid("c1"))
     let req = Request(
       `using`: @["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail"],
       methodCalls: @[inv],
@@ -810,12 +805,9 @@ block requestGoldenWireFormat:
     let args1 = %*{"arg1": "arg1data", "arg2": "arg2data"}
     let args2 = %*{"arg1": "arg1data"}
     let args3 = newJObject()
-    let inv1 =
-      Invocation(name: "method1", arguments: args1, methodCallId: makeMcid("c1"))
-    let inv2 =
-      Invocation(name: "method2", arguments: args2, methodCallId: makeMcid("c2"))
-    let inv3 =
-      Invocation(name: "method3", arguments: args3, methodCallId: makeMcid("c3"))
+    let inv1 = initInvocation("method1", args1, makeMcid("c1"))
+    let inv2 = initInvocation("method2", args2, makeMcid("c2"))
+    let inv3 = initInvocation("method3", args3, makeMcid("c3"))
     let req = Request(
       `using`: @["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail"],
       methodCalls: @[inv1, inv2, inv3],
@@ -849,14 +841,10 @@ block responseGoldenWireFormat:
     let args2 = %*{"isBlah": true}
     let args3 = %*{"data": 10, "yetmoredata": "Hello"}
     let args4 = %*{"type": "unknownMethod"}
-    let inv1 =
-      Invocation(name: "method1", arguments: args1, methodCallId: makeMcid("c1"))
-    let inv2 =
-      Invocation(name: "method2", arguments: args2, methodCallId: makeMcid("c2"))
-    let inv3 = Invocation(
-      name: "anotherResponseFromMethod2", arguments: args3, methodCallId: makeMcid("c2")
-    )
-    let inv4 = Invocation(name: "error", arguments: args4, methodCallId: makeMcid("c3"))
+    let inv1 = initInvocation("method1", args1, makeMcid("c1"))
+    let inv2 = initInvocation("method2", args2, makeMcid("c2"))
+    let inv3 = initInvocation("anotherResponseFromMethod2", args3, makeMcid("c2"))
+    let inv4 = initInvocation("error", args4, makeMcid("c3"))
     let resp = Response(
       methodResponses: @[inv1, inv2, inv3, inv4],
       sessionState: parseJmapState("75128aab4b1b").get(),

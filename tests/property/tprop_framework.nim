@@ -5,7 +5,6 @@
 
 ## Property-based tests for PropertyName, PatchObject, Filter, Comparator.
 
-import std/hashes
 import std/json
 import std/random
 import std/sequtils
@@ -18,7 +17,6 @@ import jmap_client/identifiers
 import jmap_client/primitives
 import jmap_client/serde_framework
 import jmap_client/session
-import jmap_client/validation
 import ../mproperty
 
 block propParsePropertyNameTotality:
@@ -209,7 +207,7 @@ block propAddedItemFieldPreservation:
     let id = parseId(idStr).get()
     let idxVal = rng.rand(0'i64 .. 10000'i64)
     let idx = parseUnsignedInt(idxVal).get()
-    let item = AddedItem(id: id, index: idx)
+    let item = initAddedItem(id, idx)
     doAssert string(item.id) == idStr
     doAssert int64(item.index) == idxVal
 

@@ -5,7 +5,6 @@
 
 ## Property-based tests for AccountId, JmapState, MethodCallId, CreationId.
 
-import std/hashes
 import std/random
 import std/sequtils
 

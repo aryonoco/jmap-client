@@ -487,10 +487,10 @@ func parseGetResponseCore(
   let state = ?parseJmapState(node{"state"}.getStr(""))
   let listNode = node{"list"}
   checkJsonKind(listNode, JArray, "GetResponse", "list must be array")
-  var list: seq[JsonNode]
+  var list: seq[JsonNode] = @[]
   {.cast(noSideEffect).}:
     list = listNode.getElems(@[])
-  var notFound: seq[Id]
+  var notFound: seq[Id] = @[]
   let nfNode = node{"notFound"}
   if not nfNode.isNil and nfNode.kind == JArray:
     for _, elem in nfNode.getElems(@[]):
@@ -513,19 +513,19 @@ func parseChangesResponseCore(
   let hasMoreChanges = hmcNode.getBool(false)
   let createdNode = node{"created"}
   checkJsonKind(createdNode, JArray, "ChangesResponse", "created must be array")
-  var created: seq[Id]
+  var created: seq[Id] = @[]
   for _, elem in createdNode.getElems(@[]):
     let id = ?parseIdFromServer(elem.getStr(""))
     created.add(id)
   let updatedNode = node{"updated"}
   checkJsonKind(updatedNode, JArray, "ChangesResponse", "updated must be array")
-  var updated: seq[Id]
+  var updated: seq[Id] = @[]
   for _, elem in updatedNode.getElems(@[]):
     let id = ?parseIdFromServer(elem.getStr(""))
     updated.add(id)
   let destroyedNode = node{"destroyed"}
   checkJsonKind(destroyedNode, JArray, "ChangesResponse", "destroyed must be array")
-  var destroyed: seq[Id]
+  var destroyed: seq[Id] = @[]
   for _, elem in destroyedNode.getElems(@[]):
     let id = ?parseIdFromServer(elem.getStr(""))
     destroyed.add(id)
@@ -578,7 +578,7 @@ func parseQueryResponseCore(
   let position = ?parseUnsignedInt(posNode.getBiggestInt(0))
   let idsNode = node{"ids"}
   checkJsonKind(idsNode, JArray, "QueryResponse", "ids must be array")
-  var ids: seq[Id]
+  var ids: seq[Id] = @[]
   for _, elem in idsNode.getElems(@[]):
     let id = ?parseIdFromServer(elem.getStr(""))
     ids.add(id)
@@ -600,13 +600,13 @@ func parseQueryChangesResponseCore(
   let total = optUnsignedInt(node, "total")
   let removedNode = node{"removed"}
   checkJsonKind(removedNode, JArray, "QueryChangesResponse", "removed must be array")
-  var removed: seq[Id]
+  var removed: seq[Id] = @[]
   for _, elem in removedNode.getElems(@[]):
     let id = ?parseIdFromServer(elem.getStr(""))
     removed.add(id)
   let addedNode = node{"added"}
   checkJsonKind(addedNode, JArray, "QueryChangesResponse", "added must be array")
-  var added: seq[AddedItem]
+  var added: seq[AddedItem] = @[]
   for _, elem in addedNode.getElems(@[]):
     let item = ?AddedItem.fromJson(elem)
     added.add(item)

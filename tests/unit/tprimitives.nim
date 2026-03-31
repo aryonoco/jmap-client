@@ -5,7 +5,6 @@
 
 ## Tests for Id, UnsignedInt, JmapInt, Date, and UTCDate smart constructors.
 
-import std/hashes
 import std/strutils
 
 import results

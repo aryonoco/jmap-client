@@ -9,14 +9,11 @@
 import std/json
 import std/random
 import std/strutils
-import std/tables
 
 import results
 
-import jmap_client/serde
 import jmap_client/serde_framework
 import jmap_client/primitives
-import jmap_client/identifiers
 import jmap_client/framework
 import jmap_client/validation
 

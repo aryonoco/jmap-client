@@ -59,7 +59,7 @@ block reExportAccessibility:
   doAssert comp.isAscending
 
   # envelope
-  let inv = Invocation(name: "Foo/get", arguments: %*{}, methodCallId: mcid)
+  let inv = initInvocation("Foo/get", %*{}, mcid)
   doAssert inv.name == "Foo/get"
   let rref = ResultReference(resultOf: mcid, name: "Foo/get", path: "/ids")
   doAssert rref.path == "/ids"
@@ -82,8 +82,7 @@ block jmapResultOkComposition:
   let mcid = parseMethodCallId("c1").get()
   let state = parseJmapState("75128aab4b1b").get()
   let resp = Response(
-    methodResponses:
-      @[Invocation(name: "Mailbox/get", arguments: %*{"list": []}, methodCallId: mcid)],
+    methodResponses: @[initInvocation("Mailbox/get", %*{"list": []}, mcid)],
     sessionState: state,
   )
   let r = JmapResult[Response].ok(resp)

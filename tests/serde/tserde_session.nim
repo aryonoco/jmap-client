@@ -15,9 +15,7 @@ import std/tables
 
 import results
 
-import jmap_client/serde
 import jmap_client/serde_session
-import jmap_client/primitives
 import jmap_client/identifiers
 import jmap_client/capabilities
 import jmap_client/session

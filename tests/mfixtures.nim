@@ -146,7 +146,7 @@ func makeSessionArgs*(): SessionArgs =
 # ---------------------------------------------------------------------------
 
 func makeInvocation*(name = "Mailbox/get", mcid = makeMcid("c0")): Invocation =
-  Invocation(name: name, arguments: newJObject(), methodCallId: mcid)
+  initInvocation(name, newJObject(), mcid)
 
 func makeRequest*(
     `using`: seq[string] = @["urn:ietf:params:jmap:core"],
@@ -296,7 +296,7 @@ func makeComparatorWithCollation*(
   parseComparator(property, isAscending, Opt.some(collation)).get()
 
 func makeAddedItem*(id: Id = makeId("item1"), index: int64 = 0): AddedItem =
-  AddedItem(id: id, index: parseUnsignedInt(index).get())
+  initAddedItem(id, parseUnsignedInt(index).get())
 
 # ---------------------------------------------------------------------------
 # Filter factories

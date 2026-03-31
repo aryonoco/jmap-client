@@ -22,7 +22,6 @@ import jmap_client/errors
 import jmap_client/serde
 import jmap_client/serde_envelope
 import jmap_client/serde_framework
-import jmap_client/serde_errors
 import jmap_client/entity
 import jmap_client/methods
 

@@ -5,7 +5,6 @@
 
 ## Property-based tests for Id, UnsignedInt, JmapInt, Date, and UTCDate.
 
-import std/hashes
 import std/random
 import std/sequtils
 

@@ -364,7 +364,7 @@ block rfc8620_S2_collationAlgorithmStandardIdentifiers:
 block rfc8620_S3_2_invocationStructure:
   ## An Invocation has three elements: name, arguments, methodCallId.
   let mcid = makeMcid("call0")
-  let inv = Invocation(name: "Foo/get", arguments: newJObject(), methodCallId: mcid)
+  let inv = initInvocation("Foo/get", newJObject(), mcid)
   doAssert inv.name == "Foo/get"
   doAssert inv.arguments.kind == JObject
   doAssert inv.methodCallId == mcid
@@ -374,8 +374,8 @@ block rfc8620_S3_2_methodCallIdCorrelation:
   let mcid1 = makeMcid("c1")
   let mcid2 = makeMcid("c2")
   doAssert mcid1 != mcid2
-  let inv1 = Invocation(name: "A/get", arguments: newJObject(), methodCallId: mcid1)
-  let inv2 = Invocation(name: "B/get", arguments: newJObject(), methodCallId: mcid2)
+  let inv1 = initInvocation("A/get", newJObject(), mcid1)
+  let inv2 = initInvocation("B/get", newJObject(), mcid2)
   doAssert inv1.methodCallId != inv2.methodCallId
 
 # =============================================================================
@@ -491,9 +491,7 @@ block rfc8620_S3_3_requestDuplicateMethodCallIds:
 block rfc8620_S3_4_responseErrorInvocation:
   ## RFC 8620 S3.4: A response may contain an Invocation with name="error"
   ## to signal a per-method failure. Layer 1 accepts any invocation name.
-  let errInv = Invocation(
-    name: "error", arguments: %*{"type": "serverFail"}, methodCallId: makeMcid("c0")
-  )
+  let errInv = initInvocation("error", %*{"type": "serverFail"}, makeMcid("c0"))
   let resp = makeResponse(methodResponses = @[errInv])
   doAssert resp.methodResponses.len == 1
   doAssert resp.methodResponses[0].name == "error"
@@ -592,11 +590,7 @@ block rfc8620_S3_6_2_methodErrorMayHaveDescription:
 block rfc8620_S3_6_2_errorResponseNameConvention:
   ## RFC S3.6.2: Method-level error responses use "error" as the invocation name.
   ## This is a convention verified at the type level by constructing an Invocation.
-  let errInv = Invocation(
-    name: "error",
-    arguments: %*{"type": "invalidArguments"},
-    methodCallId: makeMcid("c0"),
-  )
+  let errInv = initInvocation("error", %*{"type": "invalidArguments"}, makeMcid("c0"))
   doAssert errInv.name == "error"
 
 block rfc8620_S3_6_1_requestErrorCaseSensitiveFirstChar:
@@ -911,7 +905,7 @@ block rfc8620_S5_5_comparatorWithCollation:
 
 block rfc8620_S5_6_addedItemStructure:
   ## AddedItem has id (Id) and index (UnsignedInt).
-  let item = AddedItem(id: makeId("id1"), index: parseUnsignedInt(42).get())
+  let item = initAddedItem(makeId("id1"), parseUnsignedInt(42).get())
   doAssert item.id == makeId("id1")
   doAssert item.index == parseUnsignedInt(42).get()
 
@@ -1007,10 +1001,8 @@ block rfc8620_S3_2_responseDuplicateMethodCallId:
   ## RFC 8620 S3.2: a method may return one or more responses, all sharing
   ## the same methodCallId.
   let mcid = makeMcid("c0")
-  let inv1 =
-    Invocation(name: "Mailbox/get", arguments: newJObject(), methodCallId: mcid)
-  let inv2 =
-    Invocation(name: "Mailbox/get", arguments: newJObject(), methodCallId: mcid)
+  let inv1 = initInvocation("Mailbox/get", newJObject(), mcid)
+  let inv2 = initInvocation("Mailbox/get", newJObject(), mcid)
   let resp = makeResponse(methodResponses = @[inv1, inv2])
   doAssert resp.methodResponses.len == 2
   doAssert resp.methodResponses[0].methodCallId == resp.methodResponses[1].methodCallId
@@ -1294,16 +1286,11 @@ block rfc8620_S3_3_goldenRequestToJson:
   ## Construct a Request matching RFC 8620 section 3.3.1 example, serialise,
   ## and verify the JSON structure matches.
   {.cast(noSideEffect).}:
-    let inv1 = Invocation(
-      name: "method1",
-      arguments: %*{"arg1": "arg1data", "arg2": "arg2data"},
-      methodCallId: makeMcid("c1"),
+    let inv1 = initInvocation(
+      "method1", %*{"arg1": "arg1data", "arg2": "arg2data"}, makeMcid("c1")
     )
-    let inv2 = Invocation(
-      name: "method2", arguments: %*{"arg1": "arg1data"}, methodCallId: makeMcid("c2")
-    )
-    let inv3 =
-      Invocation(name: "method3", arguments: newJObject(), methodCallId: makeMcid("c3"))
+    let inv2 = initInvocation("method2", %*{"arg1": "arg1data"}, makeMcid("c2"))
+    let inv3 = initInvocation("method3", newJObject(), makeMcid("c3"))
     let req = Request(
       `using`: @["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail"],
       methodCalls: @[inv1, inv2, inv3],

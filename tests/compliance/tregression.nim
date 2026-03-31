@@ -21,7 +21,6 @@ import jmap_client/identifiers
 import jmap_client/capabilities
 import jmap_client/framework
 import jmap_client/errors
-import jmap_client/session
 import jmap_client/serde_errors
 import jmap_client/serde_session
 import jmap_client/serde_framework

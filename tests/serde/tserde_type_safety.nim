@@ -23,7 +23,6 @@ import jmap_client/session
 import jmap_client/envelope
 import jmap_client/framework
 import jmap_client/errors
-import jmap_client/validation
 
 import ../massertions
 import ../mfixtures

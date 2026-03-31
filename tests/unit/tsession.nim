@@ -5,7 +5,6 @@
 
 ## Tests for JMAP Session resource types.
 
-import std/hashes
 import std/json
 import std/sets
 import std/tables

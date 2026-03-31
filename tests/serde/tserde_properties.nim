@@ -10,7 +10,6 @@
 
 import std/json
 import std/random
-import std/sets
 import std/tables
 
 import results

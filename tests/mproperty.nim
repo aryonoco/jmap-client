@@ -496,7 +496,7 @@ proc genInvocation*(rng: var Rand): Invocation =
   let name = rng.oneOf(methods)
   let mcidStr = "c" & $rng.rand(0 .. 99)
   let mcid = parseMethodCallId(mcidStr).get()
-  Invocation(name: name, arguments: newJObject(), methodCallId: mcid)
+  initInvocation(name, newJObject(), mcid)
 
 proc genValidAccount*(rng: var Rand): Account =
   ## Generates a random Account with realistic structure: random name from a
@@ -772,7 +772,7 @@ proc genAddedItem*(rng: var Rand): AddedItem =
   ## Does NOT generate: very long Ids, very large indices.
   let id = parseId(rng.genValidIdStrict(minLen = 1, maxLen = 20)).get()
   let idx = parseUnsignedInt(rng.rand(0'i64 .. 10000'i64)).get()
-  AddedItem(id: id, index: idx)
+  initAddedItem(id, idx)
 
 proc genPatchObject*(rng: var Rand, maxKeys: int): PatchObject =
   ## Generates a random PatchObject with 0..maxKeys entries using realistic
@@ -993,7 +993,7 @@ proc genInvocationWithArgs*(rng: var Rand): Invocation =
         if rng.rand(0 .. 1) == 0:
           p.add(newJString(prop))
       p
-  Invocation(name: name, arguments: args, methodCallId: mcid)
+  initInvocation(name, args, mcid)
 
 proc genRequest*(rng: var Rand): Request =
   ## Generates a random Request with 1-5 invocations (with non-trivial arguments),

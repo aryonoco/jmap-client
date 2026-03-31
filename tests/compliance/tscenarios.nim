@@ -7,7 +7,6 @@
 ## interaction workflows that span multiple Layer 1 modules.
 
 import std/json
-import std/sets
 import std/tables
 
 import results
@@ -54,9 +53,7 @@ block scenarioSessionToRequest:
 
   # Construct a Request
   let mcid = makeMcid("c0")
-  let inv = Invocation(
-    name: "Mailbox/get", arguments: %*{"accountId": $acctId}, methodCallId: mcid
-  )
+  let inv = initInvocation("Mailbox/get", %*{"accountId": $acctId}, mcid)
   let req = Request(
     `using`: @["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail"],
     methodCalls: @[inv],
@@ -71,10 +68,8 @@ block scenarioMultiMethodWithReferences:
   let mcid1 = makeMcid("c1")
   let mcid2 = makeMcid("c2")
 
-  let queryInv = Invocation(
-    name: "Email/query",
-    arguments: %*{"accountId": "acct1", "filter": {"inMailbox": "inbox"}},
-    methodCallId: mcid0,
+  let queryInv = initInvocation(
+    "Email/query", %*{"accountId": "acct1", "filter": {"inMailbox": "inbox"}}, mcid0
   )
 
   # get with ResultReference pointing to query's /ids
@@ -83,13 +78,9 @@ block scenarioMultiMethodWithReferences:
   doAssert getRef.kind == rkReference
   doAssert getRef.reference.resultOf == mcid0
 
-  let getInv = Invocation(
-    name: "Email/get", arguments: %*{"accountId": "acct1"}, methodCallId: mcid1
-  )
+  let getInv = initInvocation("Email/get", %*{"accountId": "acct1"}, mcid1)
 
-  let setInv = Invocation(
-    name: "Email/set", arguments: %*{"accountId": "acct1"}, methodCallId: mcid2
-  )
+  let setInv = initInvocation("Email/set", %*{"accountId": "acct1"}, mcid2)
 
   let req = Request(
     `using`: @["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail"],
@@ -195,10 +186,10 @@ block scenarioMessageCascadePriority:
 
 block scenarioMethodErrorInResponse:
   ## Track 2: Method error within a successful response.
-  let errInv = Invocation(
-    name: "error",
-    arguments: %*{"type": "invalidArguments", "description": "missing accountId"},
-    methodCallId: makeMcid("c0"),
+  let errInv = initInvocation(
+    "error",
+    %*{"type": "invalidArguments", "description": "missing accountId"},
+    makeMcid("c0"),
   )
   doAssert errInv.name == "error"
   let me = methodError("invalidArguments", description = Opt.some("missing accountId"))
@@ -434,9 +425,8 @@ block scenarioDuplicateMethodCallIdsInRequest:
   ## Request with duplicate MethodCallIds is valid at Layer 1. The protocol
   ## uses MethodCallId for correlation; uniqueness is a Layer 3 concern.
   let mcid = makeMcid("shared")
-  let inv1 = Invocation(name: "Email/get", arguments: newJObject(), methodCallId: mcid)
-  let inv2 =
-    Invocation(name: "Email/query", arguments: newJObject(), methodCallId: mcid)
+  let inv1 = initInvocation("Email/get", newJObject(), mcid)
+  let inv2 = initInvocation("Email/query", newJObject(), mcid)
   let req = Request(
     `using`: @["urn:ietf:params:jmap:core"],
     methodCalls: @[inv1, inv2],
@@ -447,9 +437,7 @@ block scenarioDuplicateMethodCallIdsInRequest:
 
 block scenarioResponseWithErrorInvocation:
   ## Response containing an Invocation with name="error" is valid.
-  let errInv = Invocation(
-    name: "error", arguments: %*{"type": "serverFail"}, methodCallId: makeMcid("c0")
-  )
+  let errInv = initInvocation("error", %*{"type": "serverFail"}, makeMcid("c0"))
   let resp = Response(
     methodResponses: @[errInv],
     createdIds: Opt.none(Table[CreationId, Id]),
@@ -520,13 +508,8 @@ block sessionToRequestIntegration:
     capUris.add cap.rawUri
   let req = Request(
     `using`: capUris,
-    methodCalls: @[
-      Invocation(
-        name: "Mailbox/get",
-        arguments: newJObject(),
-        methodCallId: parseMethodCallId("c0").get(),
-      )
-    ],
+    methodCalls:
+      @[initInvocation("Mailbox/get", newJObject(), parseMethodCallId("c0").get())],
     createdIds: Opt.none(Table[CreationId, Id]),
   )
   doAssert req.`using`.len == capUris.len
@@ -534,8 +517,7 @@ block sessionToRequestIntegration:
 block resultReferenceWithPriorInvocation:
   ## Build a ResultReference that references a prior Invocation's MethodCallId.
   let mcid1 = parseMethodCallId("c1").get()
-  let inv1 =
-    Invocation(name: "Email/query", arguments: newJObject(), methodCallId: mcid1)
+  let inv1 = initInvocation("Email/query", newJObject(), mcid1)
   let ref1 = ResultReference(resultOf: mcid1, name: "Email/query", path: RefPathIds)
   doAssert ref1.resultOf == inv1.methodCallId
   doAssert ref1.path == "/ids"

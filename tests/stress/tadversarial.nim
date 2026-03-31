@@ -288,9 +288,7 @@ block uriTemplateNulAtStart:
 
 block invocationNameAcceptsNul:
   ## Invocation.name is a bare string with no validation.
-  let inv = Invocation(
-    name: "Email/get\x00Evil/set", arguments: newJObject(), methodCallId: makeMcid("c0")
-  )
+  let inv = initInvocation("Email/get\x00Evil/set", newJObject(), makeMcid("c0"))
   doAssert inv.name.len == 18
 
 block resultReferencePathAcceptsNul:
@@ -687,9 +685,7 @@ block int64ExtremeJmapIntLow:
 
 block nulLastByteInvocationName:
   ## Invocation name with trailing NUL: Nim preserves it, C strlen() would not.
-  let inv = Invocation(
-    name: "Email/get\x00", arguments: newJObject(), methodCallId: makeMcid("c0")
-  )
+  let inv = initInvocation("Email/get\x00", newJObject(), makeMcid("c0"))
   doAssert inv.name.len > 9
   doAssert inv.name.len == 10
 
@@ -719,8 +715,7 @@ block jsonNodeAliasingInInvocation:
   ## visible through the Invocation's arguments field (ref sharing under ARC).
   let args = newJObject()
   args["key1"] = newJString("value1")
-  let inv =
-    Invocation(name: "Test/method", arguments: args, methodCallId: makeMcid("c0"))
+  let inv = initInvocation("Test/method", args, makeMcid("c0"))
   # Mutate the original JsonNode after construction.
   args["key2"] = newJString("injected")
   # Under ARC, ref sharing means the Invocation sees the mutation.

@@ -5,7 +5,6 @@
 
 ## Property-based tests for Session and UriTemplate.
 
-import std/hashes
 import std/random
 import std/tables
 

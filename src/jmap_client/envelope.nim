@@ -19,9 +19,28 @@ import ./primitives
 type Invocation* = object
   ## A method call or response tuple (RFC 8620 section 3.2). Serialised as a
   ## 3-element JSON array by Layer 2.
+  ##
+  ## ``methodCallId`` stored as ``string`` internally to allow
+  ## ``seq[Invocation]`` in ``Opt`` / ``Result`` containers.
+  ## ``MethodCallId {.requiresInit.}`` prevents ``default(Invocation)`` which
+  ## Nim's ``seqs_v2.shrink`` requires for lifecycle-hook generation, breaking
+  ## ``--warningAsError:UnsafeSetLen``. The ``methodCallId`` accessor returns a
+  ## validated ``MethodCallId`` view. The field is module-private: external code
+  ## must use ``initInvocation``.
   name*: string ## method name (request) or response name
   arguments*: JsonNode ## named arguments — always a JObject at the wire level
-  methodCallId*: MethodCallId ## correlates responses to requests
+  rawMethodCallId: string ## validated method call ID (module-private)
+
+func methodCallId*(inv: Invocation): MethodCallId =
+  ## Type-safe accessor for the method call identifier.
+  MethodCallId(inv.rawMethodCallId)
+
+func initInvocation*(
+    name: string, arguments: JsonNode, methodCallId: MethodCallId
+): Invocation =
+  ## Construct an Invocation. Module-private rawMethodCallId prevents direct
+  ## object construction from outside envelope.nim.
+  Invocation(name: name, arguments: arguments, rawMethodCallId: string(methodCallId))
 
 type Request* = object
   ## Top-level JMAP request envelope (RFC 8620 section 3.3). Contains the

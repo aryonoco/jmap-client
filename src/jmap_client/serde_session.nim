@@ -60,7 +60,7 @@ func fromJson*(
   let collationAlgorithms = block:
     let arr = node{"collationAlgorithms"}
     checkJsonKind(arr, JArray, $T, "missing or invalid collationAlgorithms")
-    var algs: seq[string]
+    var algs: seq[string] = @[]
     for elem in arr.getElems(@[]):
       checkJsonKind(elem, JString, $T, "collationAlgorithms element must be string")
       algs.add(elem.getStr(""))
@@ -201,7 +201,7 @@ func fromJson*(T: typedesc[Account], node: JsonNode): Result[Account, Validation
   let isReadOnly = node{"isReadOnly"}.getBool(false)
   let acctCapsNode = node{"accountCapabilities"}
   checkJsonKind(acctCapsNode, JObject, $T, "missing or invalid accountCapabilities")
-  var accountCapabilities: seq[AccountCapabilityEntry]
+  var accountCapabilities: seq[AccountCapabilityEntry] = @[]
   for uri, data in acctCapsNode.pairs:
     let entry = ?AccountCapabilityEntry.fromJson(uri, data)
     accountCapabilities.add(entry)
@@ -253,7 +253,7 @@ func fromJson*(T: typedesc[Session], node: JsonNode): Result[Session, Validation
   # 1. Parse capabilities
   let capsNode = node{"capabilities"}
   checkJsonKind(capsNode, JObject, $T, "missing or invalid capabilities")
-  var capabilities: seq[ServerCapability]
+  var capabilities: seq[ServerCapability] = @[]
   for uri, data in capsNode.pairs:
     let cap = ?ServerCapability.fromJson(uri, data)
     capabilities.add(cap)

@@ -185,7 +185,7 @@ func fromJson*(
   of setInvalidProperties:
     let propsNode = node{"properties"}
     if not propsNode.isNil and propsNode.kind == JArray:
-      var properties: seq[string]
+      var properties: seq[string] = @[]
       for item in propsNode.getElems(@[]):
         checkJsonKind(item, JString, $T, "properties element must be string")
         properties.add(item.getStr(""))

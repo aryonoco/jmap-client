@@ -12,10 +12,7 @@ import std/strutils
 
 import results
 
-import jmap_client/serde
 import jmap_client/serde_errors
-import jmap_client/primitives
-import jmap_client/identifiers
 import jmap_client/errors
 import jmap_client/validation
 

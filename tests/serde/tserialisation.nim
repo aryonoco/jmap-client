@@ -7,7 +7,6 @@
 ## through the single jmap_client/serialisation import.
 
 import std/json
-import std/sets
 
 import results
 

@@ -121,7 +121,7 @@ func fromJsonImpl[C](
     checkJsonKind(
       conditionsNode, JArray, typeName, "missing or invalid conditions array"
     )
-    var children: seq[Filter[C]]
+    var children: seq[Filter[C]] = @[]
     for childNode in conditionsNode.getElems(@[]):
       let child = ?fromJsonImpl[C](childNode, fromCondition, depth - 1)
       children.add(child)
@@ -182,4 +182,4 @@ func fromJson*(
   checkJsonKind(node, JObject, $T)
   let id = ?Id.fromJson(node{"id"})
   let index = ?UnsignedInt.fromJson(node{"index"})
-  ok(AddedItem(id: id, index: index))
+  ok(initAddedItem(id, index))

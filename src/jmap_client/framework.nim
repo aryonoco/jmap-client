@@ -125,5 +125,25 @@ func getKey*(patch: PatchObject, key: string): Opt[JsonNode] =
 
 type AddedItem* = object
   ## An item added to query results at a specific position (RFC 8620 §5.6).
-  id*: Id
-  index*: UnsignedInt
+  ##
+  ## ``id`` stored as ``string`` internally to allow ``seq[AddedItem]`` in
+  ## ``Opt`` / ``Result`` containers. ``Id {.requiresInit.}`` prevents
+  ## ``default(AddedItem)`` which Nim's ``seqs_v2.shrink`` requires for
+  ## lifecycle-hook generation, breaking ``--warningAsError:UnsafeSetLen``.
+  ## The ``id`` accessor returns a validated ``Id`` view. The field is
+  ## module-private: external code must use ``initAddedItem``.
+  rawId: string ## validated Id (module-private)
+  rawIndex*: int64 ## validated UnsignedInt; prefer ``index()`` accessor
+
+func id*(item: AddedItem): Id =
+  ## Type-safe accessor for the item identifier.
+  Id(item.rawId)
+
+func index*(item: AddedItem): UnsignedInt =
+  ## Type-safe accessor for the item position index.
+  UnsignedInt(item.rawIndex)
+
+func initAddedItem*(id: Id, index: UnsignedInt): AddedItem =
+  ## Construct an AddedItem. Module-private fields prevent direct object
+  ## construction from outside framework.nim.
+  AddedItem(rawId: string(id), rawIndex: int64(index))

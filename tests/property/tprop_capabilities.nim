@@ -12,7 +12,6 @@ import std/sets
 import results
 
 import jmap_client/capabilities
-import jmap_client/primitives
 import ../mproperty
 
 block propCapabilityKindTotality:

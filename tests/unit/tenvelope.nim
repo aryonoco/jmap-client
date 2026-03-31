@@ -14,15 +14,11 @@ import jmap_client/identifiers
 import jmap_client/primitives
 import jmap_client/envelope
 
-import ../massertions
-
 # --- Invocation ---
 
 block invocationConstruction:
   let mcid = parseMethodCallId("c1").get()
-  let inv = Invocation(
-    name: "Mailbox/get", arguments: %*{"accountId": "A1"}, methodCallId: mcid
-  )
+  let inv = initInvocation("Mailbox/get", %*{"accountId": "A1"}, mcid)
   doAssert inv.name == "Mailbox/get"
   doAssert inv.arguments == %*{"accountId": "A1"}
   doAssert inv.methodCallId == mcid
@@ -36,13 +32,9 @@ block requestRfcExample:
   let req = Request(
     `using`: @["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail"],
     methodCalls: @[
-      Invocation(
-        name: "method1",
-        arguments: %*{"arg1": "arg1data", "arg2": "arg2data"},
-        methodCallId: c1,
-      ),
-      Invocation(name: "method2", arguments: %*{"arg1": "arg1data"}, methodCallId: c2),
-      Invocation(name: "method3", arguments: %*{}, methodCallId: c3),
+      initInvocation("method1", %*{"arg1": "arg1data", "arg2": "arg2data"}, c1),
+      initInvocation("method2", %*{"arg1": "arg1data"}, c2),
+      initInvocation("method3", %*{}, c3),
     ],
   )
   doAssert req.`using`.len == 2
@@ -79,8 +71,7 @@ block responseConstruction:
   let mcid = parseMethodCallId("c1").get()
   let state = parseJmapState("state1").get()
   let resp = Response(
-    methodResponses:
-      @[Invocation(name: "Mailbox/get", arguments: %*{"list": []}, methodCallId: mcid)],
+    methodResponses: @[initInvocation("Mailbox/get", %*{"list": []}, mcid)],
     sessionState: state,
   )
   doAssert resp.methodResponses.len == 1
@@ -96,18 +87,12 @@ block responseRfcExample:
   let state = parseJmapState("75128aab4b1b").get()
   let resp = Response(
     methodResponses: @[
-      Invocation(
-        name: "method1", arguments: %*{"arg1": 3, "arg2": "foo"}, methodCallId: c1
+      initInvocation("method1", %*{"arg1": 3, "arg2": "foo"}, c1),
+      initInvocation("method2", %*{"isBlah": true}, c2),
+      initInvocation(
+        "anotherResponseFromMethod2", %*{"data": 10, "yetmoredata": "Hello"}, c2
       ),
-      Invocation(name: "method2", arguments: %*{"isBlah": true}, methodCallId: c2),
-      Invocation(
-        name: "anotherResponseFromMethod2",
-        arguments: %*{"data": 10, "yetmoredata": "Hello"},
-        methodCallId: c2,
-      ),
-      Invocation(
-        name: "error", arguments: %*{"type": "unknownMethod"}, methodCallId: c3
-      ),
+      initInvocation("error", %*{"type": "unknownMethod"}, c3),
     ],
     sessionState: state,
   )

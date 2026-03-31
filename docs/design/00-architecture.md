@@ -158,27 +158,59 @@ enabled in this project, they are effectively resolved:
    Nim. `--experimental:strictCaseObjects` further prevents accessing fields from
    the wrong branch at compile time.
 
-5. **No sealed constructors for object types.** `Foo(field: val)` always
-   compiles if fields are public. `{.requiresInit.}` prevents implicit default
-   construction (`var x: Foo`) but not explicit construction. For distinct
-   types, the base constructor is hidden. For non-distinct objects (e.g.,
-   `Session`, `Account`), module boundaries and smart constructors are
-   convention-enforced, not compiler-enforced. Functions that depend on
+5. **No sealed constructors for object types — mitigated by private fields.**
+   `Foo(field: val)` always compiles if fields are public.
+   `{.requiresInit.}` prevents implicit default construction (`var x: Foo`)
+   but not explicit construction. For distinct types, the base constructor is
+   hidden. For non-distinct objects, module boundaries and smart constructors
+   provide the seal. **When an object has at least one module-private field,
+   direct construction from outside the defining module is impossible.** This
+   "private field" pattern (used by `Comparator`, `Invocation`, `AddedItem`)
+   is strictly stronger than the convention-only approach — it is
+   compiler-enforced. Objects without private fields (e.g., `Session`,
+   `Account`) remain convention-enforced. Functions that depend on
    smart-constructor invariants use `raiseAssert` (a `Defect`) for the
    unreachable branch — this is outside the `Result`/`Opt` railway.
 
-6. **`{.requiresInit.}` breaks `Result[T, E]` construction.** When `T`
-   contains a `{.requiresInit.}` field (e.g., `Comparator` has
-   `PropertyName {.requiresInit.}`), `nim-results`' `err()` and `?`
-   operator fail to compile because they default-construct the inactive
-   union branch. The workaround is `initResultErr[T, E](x)` — a shared
-   helper (defined in `serde.nim`) that constructs the Result in error
-   state via manual case-branch assignment, bypassing default
-   construction. Used by `serde_envelope.nim` (`Response`),
-   `serde_framework.nim` (`Comparator`), and `serde_errors.nim`
-   (`SetError`).
+6. **`{.requiresInit.}` interacts with containers and `Result[T, E]`.**
+   Two related problems arise from `{.requiresInit.}` types in containers:
 
-7. **`{.push raises: [].}` does not propagate to callable parameters.**
+   **6a. `seq[T]` and `UnsafeSetLen`.** When `T` (or a field of `T`) is
+   `{.requiresInit.}`, Nim's `seqs_v2.shrink` calls `default(T)` in
+   lifecycle hooks — a hard error under `--warningAsError:UnsafeSetLen`.
+   **Workaround for objects (Pattern A):** store the `{.requiresInit.}`
+   field as a module-private base-type field (e.g., `rawProperty: string`
+   instead of `property: PropertyName`) with a public typed accessor. The
+   object becomes default-constructible for compiler lifecycle hooks while
+   the private field blocks direct construction. Used by `Comparator`
+   (`rawProperty`), `Invocation` (`rawMethodCallId`), `AddedItem`
+   (`rawId`). **For distinct types in `seq` (e.g., `seq[Id]`):** Pattern A
+   cannot apply. The warning is a conservative compiler concern — the
+   runtime behaviour is correct. `UnsafeSetLen` is intentionally omitted
+   from `config.nims` because the warning fires at every generic
+   instantiation site (every importing module), not at the definition site,
+   making per-module suppression ineffective.
+
+   **6b. `Result[T, E]` construction.** When `T` contains a
+   `{.requiresInit.}` field, `nim-results`' `err()` and `?` operator fail
+   to compile because they default-construct the inactive union branch.
+   **Workaround (Pattern C):** `initResultErr[T, E](x)` — a shared helper
+   (defined in `serde.nim`) that constructs the Result in error state via
+   manual case-branch assignment, bypassing default construction. Used by
+   `serde_envelope.nim` (`Response`) and `serde_errors.nim` (`SetError`).
+   Note: `Comparator.fromJson` no longer needs `initResultErr` because
+   Pattern A eliminated the `{.requiresInit.}` field from the object.
+
+7. **`config.nims` vs `.nimble` flag enforcement.** The Nim compiler reads
+   `config.nims` but NOT `.nimble` files. `just build`/`just test`/`just lint`
+   use `nim c`/`testament`/`nim check` directly, so only flags in `config.nims`
+   are enforced during the standard `just ci` workflow. Flags that fire at
+   generic instantiation sites (e.g., `UnsafeSetLen`, `Uninit`) cannot be
+   enforced via `config.nims` because `{.push warning[...]: off.}` only affects
+   the defining module, not importing modules. Such flags remain declared in
+   `.nimble` for documentation but are intentionally omitted from `config.nims`.
+
+8. **`{.push raises: [].}` does not propagate to callable parameters.**
    Proc-type parameters (callbacks) require explicit `{.raises: [].}`
    annotation even inside modules with `{.push raises: [].}`. The push
    applies to function definitions in the module, not to proc-type
@@ -650,14 +682,22 @@ The RFC §5.5 defines the sort order for `/query` requests.
 PropertyName = distinct string  ## Non-empty; validated at construction time
 
 Comparator = object
-  property: PropertyName     ## property name to sort by
+  rawProperty: string        ## module-private; validated PropertyName
   isAscending: bool          ## true = ascending (RFC default)
   collation: Opt[string]     ## RFC 4790 collation algorithm identifier
+
+func property(c: Comparator): PropertyName  ## typed accessor
+func parseComparator(...): Result[Comparator, ValidationError]  ## only construction path
 ```
 
-`property` uses `PropertyName`, a `distinct string` with non-empty validation
-via a smart constructor (`parsePropertyName`). Property names are
-entity-specific. `isAscending` defaults to `true` per RFC §5.5 (default
+`property` is stored internally as `string` to allow `seq[Comparator]` in
+`Opt`/`Result` containers without triggering `UnsafeSetLen` (see Limitation
+6a). The module-private field blocks direct object construction from outside
+`framework.nim`, making `parseComparator` the only construction path — this
+is strictly stronger than the previous public-field design. The `property*()`
+accessor returns a validated `PropertyName` view.
+
+`isAscending` defaults to `true` per RFC §5.5 (default
 applied at parse time in Layer 2). **Design trade-off:** `PropertyName`
 enforces non-emptiness but not entity-specific validity. The valid property
 set varies per entity type, and the RFC permits additional Comparator
@@ -1811,7 +1851,7 @@ section where the option is defined (e.g., 1.3B is the second option in §1.3).
 | 1. Types+Errors | Case object capabilities with known-variant enum and open-world fallback (1.2A) | Known variants exhaustively matched; unknown variants preserved via `else` |
 | 1. Types+Errors | `Referencable[T]` variant type (1.3B) | Illegal state (both direct + ref) unrepresentable |
 | 1. Types+Errors | Opaque PatchObject distinct type (1.5B) | Distinct from arbitrary tables; only `len` borrowed; mutating ops excluded |
-| 1. Types+Errors | `PropertyName = distinct string` for Comparator.property (§1.5.2) | Non-empty validation via smart constructor; consistent with 1.1A |
+| 1. Types+Errors | `PropertyName = distinct string` for Comparator.property (§1.5.2) | Non-empty validation via smart constructor; stored as private `rawProperty: string` with typed accessor (Limitation 6a Pattern A) |
 | 1. Types+Errors | Three lifecycle railways + data-level Result pattern: ValidationError, ClientError, MethodError; per-item Result[T, SetError] (1.6C) | Construction, transport, per-invocation separation; per-item outcomes as data within successful SetResponse |
 | 1. Types+Errors | Full enum + rawType for lossless round-trip (1.7C) | Parse, don't validate; preserve original |
 | 1. Types+Errors | SetError as case object with variant-specific fields (1.8.1) | invalidProperties/alreadyExists carry typed data |
