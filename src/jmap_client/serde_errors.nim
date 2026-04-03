@@ -172,6 +172,8 @@ proc fromJson*(T: typedesc[SetError], node: JsonNode): SetError =
     if not propsNode.isNil and propsNode.kind == JArray:
       var properties: seq[string] = @[]
       for item in propsNode.getElems(@[]):
+        if item.isNil:
+          raise parseError($T, "properties element is nil")
         checkJsonKind(item, JString, $T, "properties element must be string")
         properties.add(item.getStr(""))
       return setErrorInvalidProperties(rawType, properties, description, extras)

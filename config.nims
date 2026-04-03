@@ -135,3 +135,19 @@ system.switch("floatChecks", "on")
 
 # Integer overflow safety
 system.switch("overflowChecks", "on")
+
+# =============================================================================
+# Explicit runtime safety checks — default-on, made explicit to survive -d:danger
+# =============================================================================
+system.switch("boundChecks", "on")
+system.switch("objChecks", "on")
+system.switch("rangeChecks", "on")
+system.switch("fieldChecks", "on")
+system.switch("assertions", "on")
+
+# staticBoundChecks intentionally omitted: fires inside stdlib
+# (system/indices.nim, collections/tables.nim); unfixable
+
+# strictNotNil intentionally omitted: generic/template instantiation from
+# stdlib (Option[T], seq, Table) fires inside user modules even with
+# per-module {.experimental: "strictNotNil".} pragmas; unfixable in Nim 2.2

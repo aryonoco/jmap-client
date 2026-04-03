@@ -199,6 +199,24 @@ srcDir = "src"
 --overflowChecks:
   on
 
+# Explicit runtime safety checks — default-on, made explicit to survive -d:danger
+--boundChecks:
+  on
+--objChecks:
+  on
+--rangeChecks:
+  on
+--fieldChecks:
+  on
+--assertions:
+  on
+
+# staticBoundChecks intentionally omitted: fires inside stdlib
+# (system/indices.nim, collections/tables.nim); unfixable
+
+# strictNotNil intentionally omitted: fires inside stdlib
+# (system/seqs_v2.nim, pure/collections/tables.nim); unfixable
+
 # Debug build (default `nimble build`)
 when not defined(release):
   --debugger:

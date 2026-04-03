@@ -23,7 +23,9 @@ proc checkJsonKind*(
       message
     else:
       "expected JSON " & $expected
-  if node.isNil or node.kind != expected:
+  if node.isNil:
+    raise newValidationError(typeName, checkMsg, "")
+  if node.kind != expected:
     raise newValidationError(typeName, checkMsg, "")
 
 proc collectExtras*(node: JsonNode, knownKeys: openArray[string]): Option[JsonNode] =
