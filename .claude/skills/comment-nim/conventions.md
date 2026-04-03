@@ -14,13 +14,12 @@ Prefer single-line `##` over multi-line blocks for consistency.
 
 ## Module-Level Doc Comments
 
-Every module should have a doc comment immediately after `{.push raises: [].}`:
+Every module should have a doc comment at the top (after the copyright header):
 
 ```nim
-{.push raises: [].}
-
 ## Distinct identifier types and smart constructors for the JMAP domain model.
-## Enforces non-empty constraints at construction time via Result[T, ValidationError].
+## Enforces non-empty constraints at construction time; raises ValidationError
+## on invalid input.
 ```
 
 **Good**: Explains the module's architectural role and key invariant.
@@ -36,14 +35,14 @@ Every module should have a doc comment immediately after `{.push raises: [].}`:
 Add `##` only when the function has non-obvious behaviour:
 
 ```nim
-func parseAccountId*(raw: string): Result[AccountId, ValidationError] =
+proc parseAccountId*(raw: string): AccountId =
   ## Rejects empty strings. Does not validate format beyond non-emptiness —
   ## JMAP servers define valid ID formats per implementation.
 ```
 
 **Do NOT add doc comments to**:
 
-- Trivially obvious `func` (single-expression, self-documenting name)
+- Trivially obvious `proc` (single-expression, self-documenting name)
 - Borrowed operations on distinct types (`==`, `$`, `hash`)
 - Simple field accessors
 - Type definitions where the field names are self-documenting
@@ -53,7 +52,7 @@ func parseAccountId*(raw: string): Result[AccountId, ValidationError] =
 Document the **validation rules**, not the return type:
 
 ```nim
-func parseUnsignedInt*(raw: int): Result[UnsignedInt, ValidationError] =
+proc parseUnsignedInt*(raw: int): UnsignedInt =
   ## Must be >= 0. Prevents negative integers that JavaScript's
   ## Number type can produce from JSON parsing.
 ```
@@ -65,7 +64,7 @@ NOT: `## Parses an integer into an UnsignedInt, returning a Result.`
 Explain WHY, never WHAT:
 
 ```nim
-func parseCapabilityKind*(uri: string): CapabilityKind =
+proc parseCapabilityKind*(uri: string): CapabilityKind =
   # Exhaustive match against IANA-registered URIs.
   # Falls back to ckUnknown for vendor extensions — these are
   # preserved via rawUri on the parent ServerCapability.
@@ -83,9 +82,8 @@ These are project idioms. Every developer knows them. Never add comments:
 <!-- REUSE-IgnoreStart -->
 - `# SPDX-License-Identifier: BSD-2-Clause` — structural header, not a comment to review
 <!-- REUSE-IgnoreEnd -->
-- `{.push raises: [].}` — project-wide convention, never explain it
-- `import std/[...]` / `import pkg/results` / `import ./...` — import grouping
-  convention, never add "import section" headers
+- `import std/[...]` / `import ./...` — import grouping convention, never add
+  "import section" headers
 - `template defineStringDistinctOps*` — borrow template, self-documenting
 
 ## Pragma Comments
@@ -93,9 +91,9 @@ These are project idioms. Every developer knows them. Never add comments:
 Comment a pragma only when the reason is non-obvious:
 
 ```nim
-# Network errors from std/httpclient can raise CatchableError;
-# this proc is the boundary where we catch and wrap them.
-proc discoverSession*(client: JmapClient): JmapResult[Session] =
+# Layer 5 boundary: catches all exceptions from the Nim core and
+# converts them to C error codes for the FFI consumer.
+proc jmapDiscoverSession*(...): cint {.exportc, cdecl, dynlib.} =
 ```
 
 Do NOT comment `{.exportc, cdecl, dynlib.}` — the FFI boundary rule explains these.

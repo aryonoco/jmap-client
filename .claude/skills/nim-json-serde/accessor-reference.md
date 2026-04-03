@@ -1,9 +1,35 @@
 # std/json Accessor Reference
 
-## Raises-Free (safe inside `func` / `{.raises: [].}`)
+## Idiomatic Accessors (preferred for required fields)
+
+These accessors raise on missing or wrong-type data. Exceptions propagate
+naturally through Layers 1–4 and are caught at the Layer 5 C ABI boundary.
+
+| Accessor | Raises | Use case |
+|----------|--------|----------|
+| `node["key"]` | `KeyError` if key missing | Required object fields |
+| `to[T](node)` | `KeyError`, `JsonKindError` | Simple object deserialisation |
+| `parseJson(s)` | `JsonParsingError`, `IOError` | Parsing raw JSON strings |
+
+```nim
+# Required field extraction:
+let name = node["name"].getStr()
+let count = node["count"].getInt()
+
+# Simple object deserialisation:
+let response = node.to(ChangesResponse)
+```
+
+Types with custom wire formats (e.g., `Invocation` as a 3-element JSON array,
+`Referencable[T]` with `#`-prefixed keys) still require manual serialisation.
+
+---
+
+## Nil-Safe Accessors (for optional fields and defensive access)
 
 These accessors never raise `CatchableError`. They return defaults or `nil`
-when data is missing or the wrong kind. Use ONLY these in serialisation code.
+when data is missing or the wrong kind. Use these for optional fields where
+absent data is a valid state, not an error.
 
 ### Navigation (nil-safe)
 
@@ -15,7 +41,7 @@ when data is missing or the wrong kind. Use ONLY these in serialisation code.
 | `node.getOrDefault(key)` | `JsonNode` | `nil` if node is nil, not JObject, or key missing |
 
 **Nil-safe chaining**: `node{"a"}{"b"}{"c"}.getStr("")` — returns `""` if any
-level is missing. This is the primary navigation pattern in this project.
+level is missing. This is the primary navigation pattern for optional fields.
 
 ### Value Extraction (nil-safe, with defaults)
 
@@ -49,7 +75,7 @@ level is missing. This is the primary navigation pattern in this project.
 
 | Constructor | Creates | Notes |
 |-------------|---------|-------|
-| `%val` | `JsonNode` | Auto-converts string, int, float, bool, seq, Table, `Option[T]` (stdlib only — no overload for `Opt[T]`) |
+| `%val` | `JsonNode` | Auto-converts string, int, float, bool, seq, Table, `Option[T]` |
 | `%*{...}` | `JsonNode` | Compile-time JSON literal macro |
 | `newJString(s)` | `JsonNode` | JString |
 | `newJInt(n)` | `JsonNode` | JInt |
@@ -92,26 +118,9 @@ level is missing. This is the primary navigation pattern in this project.
 
 ---
 
-## Unsafe Accessors (NEVER use in this project)
+## Defect-Raising Accessors (avoid)
 
-### CatchableError — compile error under `{.raises: [].}`
-
-These raise `CatchableError` subtypes. The compiler rejects them inside
-`{.push raises: [].}`.
-
-| Accessor | Raises | Alternative |
-|----------|--------|-------------|
-| `node["key"]` | `KeyError` if key missing | `node{"key"}` |
-| `to[T](node)` | `KeyError`, `JsonKindError` | Manual extraction with raises-free accessors |
-| `parseJson(s)` | `JsonParsingError`, `IOError` | Boundary proc with try/except (see serde-patterns.md) |
-| `parseFile(path)` | `IOError`, `JsonParsingError` | Not used in this library (no file I/O) |
-| `delete(obj, key)` | `KeyError` if key missing | Check `hasKey` first, or skip |
-
-### Defect — compiles under `{.raises: [].}` but crashes at runtime
-
-These raise `Defect` subtypes, which are NOT tracked by `{.raises: [].}`.
-Code using them will compile but crash the process at runtime on wrong input.
-Equally dangerous — avoid them.
+These raise `Defect` subtypes which crash the process and cannot be caught.
 
 | Accessor | Raises | Alternative |
 |----------|--------|-------------|
@@ -128,13 +137,12 @@ with the `parsejson` re-exports (`str`, `getInt`, `getFloat`) which operate on
 
 ### The `assert` Caveat
 
-Many raises-free procs use `assert` to check the node kind before operating.
+Many nil-safe procs use `assert` to check the node kind before operating.
 Under `--assertions:on` (debug builds, which this project uses), a failed
 assertion raises `AssertionDefect` — a `Defect`, not a `CatchableError`.
-Defects are NOT tracked by `{.raises: [].}` and will crash the process.
-Always verify `node.kind` before calling these:
+Defects crash the process. Always verify `node.kind` before calling these:
 
 - **Membership**: `hasKey`, `contains`
 - **Iteration**: `items`, `pairs`, `keys`
 - **Mutation**: `add(father, child)`, `add(obj, key, val)`, `obj[key] = val`
-- **Deletion**: `delete` (also raises `KeyError` — see above)
+- **Deletion**: `delete` (also raises `KeyError`)

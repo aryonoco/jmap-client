@@ -1,52 +1,62 @@
 # Test Patterns for jmap-client
 
-This project uses a three-track error railway (see `docs/architecture-options.md`):
+This project uses exceptions for error handling:
 
-- **Track 0 (construction):** `Result[T, ValidationError]` — smart constructor tests below
-- **Track 1 (outer):** `JmapResult[T]` = `Result[T, ClientError]` — transport/request tests (future layers)
-- **Track 2 (inner):** `Result[MethodResponse, MethodError]` — per-invocation tests (future layers)
+- **Construction errors:** Smart constructors raise `ValidationError` on invalid input
+- **Transport/request errors:** `ClientError` (wrapping `TransportError`/`RequestError`) — tested in Layer 4/5
+- **Response-level errors:** `MethodError` and `SetError` are data in successful responses, not exceptions
 
-Current patterns cover Track 0. Tracks 1 and 2 will be added when those layers are built.
+Current patterns cover construction errors. Transport/request patterns will be added when those layers are built.
 
 ## Module Boilerplate
 
-Every test file in this project follows the same structure as source files:
+Every test file follows this structure:
 
 ```nim
 # SPDX-License-Identifier: BSD-2-Clause
 # Copyright (c) 2026 Aryan Ameri
 
-{.push raises: [].}
-
-import pkg/results
 import jmap_client/primitives  # module under test
 ```
 
 ## Testing Smart Constructors
 
-Smart constructors return `Result[T, ValidationError]`. Test both success
-and failure paths:
+Smart constructors return the validated type directly on success and raise
+`ValidationError` on failure. Test both paths:
 
 ```nim
 # Success case
 block:
-  let r = parseId("valid-id")
-  doAssert r.isOk
-  doAssert $r.get() == "valid-id"
+  let id = parseId("valid-id")
+  doAssert $id == "valid-id"
 
 # Failure case — empty string rejected
 block:
-  let r = parseId("")
-  doAssert r.isErr
-  doAssert r.error().typeName == "Id"
-  doAssert "empty" in r.error().message or "must not" in r.error().message
+  doAssertRaises(ValidationError):
+    discard parseId("")
+```
+
+To inspect the exception fields on failure:
+
+```nim
+block:
+  var caught = false
+  try:
+    discard parseId("")
+  except ValidationError as e:
+    caught = true
+    doAssert e.typeName == "Id"
+    doAssert "empty" in e.msg or "must not" in e.msg
+  doAssert caught
 ```
 
 Use `block:` to isolate each test case and prevent variable name collisions.
 
-## Testing Opt[T]
+## Testing Option[T]
 
 ```nim
+import std/options
+
 block:
   let found = findAccount(accounts, knownId)
   doAssert found.isSome
@@ -105,8 +115,12 @@ const testCases = [
 ]
 
 for (input, expectOk) in testCases:
-  let r = parseId(input)
-  doAssert r.isOk == expectOk, "Failed for input: '" & input & "'"
+  if expectOk:
+    let id = parseId(input)
+    doAssert $id == input
+  else:
+    doAssertRaises(ValidationError):
+      discard parseId(input)
 ```
 
 ## Round-Trip Serialisation Tests
@@ -127,9 +141,7 @@ block:
     maxObjectsInSet: UnsignedInt(500),
   )
   let j = original.toJson()
-  let roundTripped = CoreCapabilities.fromJson(j)
-  doAssert roundTripped.isOk
-  let rt = roundTripped.get()
+  let rt = CoreCapabilities.fromJson(j)
   doAssert rt.maxSizeUpload == original.maxSizeUpload
   doAssert rt.maxCallsInRequest == original.maxCallsInRequest
 ```

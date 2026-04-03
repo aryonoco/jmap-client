@@ -6,9 +6,6 @@ paths:
 
 # Type Safety
 
-The compiler flags in `jmap_client.nimble` create a strict type environment.
-This file documents how to work within it.
-
 ## Distinct Types for Domain Identifiers
 
 Prevent mixing identifiers that are all strings at runtime. A bare `distinct`
@@ -23,17 +20,17 @@ type
 
 ```nim
 template defineStringDistinctOps*(T: typedesc) =
-  func `==`*(a, b: T): bool {.borrow.}
-  func `$`*(a: T): string {.borrow.}
-  func hash*(a: T): Hash {.borrow.}
-  func len*(a: T): int {.borrow.}
+  proc `==`*(a, b: T): bool {.borrow.}
+  proc `$`*(a: T): string {.borrow.}
+  proc hash*(a: T): Hash {.borrow.}
+  proc len*(a: T): int {.borrow.}
 
 template defineIntDistinctOps*(T: typedesc) =
-  func `==`*(a, b: T): bool {.borrow.}
-  func `<`*(a, b: T): bool {.borrow.}
-  func `<=`*(a, b: T): bool {.borrow.}
-  func `$`*(a: T): string {.borrow.}
-  func hash*(a: T): Hash {.borrow.}
+  proc `==`*(a, b: T): bool {.borrow.}
+  proc `<`*(a, b: T): bool {.borrow.}
+  proc `<=`*(a, b: T): bool {.borrow.}
+  proc `$`*(a: T): string {.borrow.}
+  proc hash*(a: T): Hash {.borrow.}
 
 defineStringDistinctOps(AccountId)
 defineStringDistinctOps(EmailId)
@@ -48,41 +45,40 @@ Explicit conversion: `string(id)` to unwrap, `AccountId(s)` to wrap.
 is semantically meaningless (e.g., `JmapState`, `MethodCallId`, `CreationId`)
 should manually borrow only `==`, `$`, `hash` — omitting `len`. The template
 includes `len` because it targets identifier types where length IS meaningful
-(e.g., `Id` has a 1-255 octet constraint). See `layer-1-design.md` §3.2-3.4.
+(e.g., `Id` has a 1–255 octet constraint). See `layer-1-design.md` §3.2–3.4.
 
-## `{.requiresInit.}` — Smart Constructors
+## Smart Constructors
 
-Forces explicit initialisation — `var id: AccountId` is rejected. Combine
-with a validation function for the smart constructor pattern:
+Validation functions enforce domain constraints at construction time. They
+raise `ValidationError` on invalid input and return the validated type
+directly on success:
 
 ```nim
-func parseAccountId*(raw: string): Result[AccountId, ValidationError] =
-  ## Lenient: 1-255 octets, no control characters.
+proc parseAccountId*(raw: string): AccountId =
+  ## Lenient: 1–255 octets, no control characters.
   ## AccountIds are server-assigned Id[Account] values (§1.6.2, §2).
   if raw.len < 1 or raw.len > 255:
-    return err(validationError("AccountId", "length must be 1-255 octets", raw))
+    raise newException(ValidationError, "length must be 1-255 octets")
   if raw.anyIt(it < ' '):
-    return err(validationError("AccountId", "contains control characters", raw))
-  ok(AccountId(raw))
+    raise newException(ValidationError, "contains control characters")
+  AccountId(raw)
 ```
 
-Smart constructors return `Result[T, ValidationError]` — a structured error
-with `typeName`, `message`, and `value`. Not `ClientError` (that is for
-transport/request failures) and not bare `string` (loses context). Lift with
-`mapErr` at the boundary where needed.
+`ValidationError` is a `CatchableError` with `typeName`, `value` fields
+and the inherited `msg` field. Not `ClientError` (that is for transport/request
+failures) and not bare `string` (loses context).
 
 ## Object Variants (Sum Types)
 
 Nim's discriminated unions — equivalent to F#/OCaml/Haskell ADTs.
 
-`strictCaseObjects` enforced per-module in `src/` via `{.experimental:
-"strictCaseObjects".}`. Global enablement breaks `std/json`. Variant fields
-require matching the discriminator in a `case` statement (`if` is insufficient).
-Shared fields (before `case`) always accessible. Discriminator immutable after
-construction. Adding a variant forces errors at all unhandled `case` sites.
-Do not use `unsafeGet`/`unsafeValue` in `src/` modules — use `valueOr` instead.
+Standard Nim protects case objects: discriminator reassignment to a different
+branch is a compile error, and accessing the wrong branch raises `FieldDefect`
+at runtime. Shared fields (before `case`) always accessible. Discriminator
+immutable after construction. Adding a variant forces errors at all unhandled
+`case` sites.
 
-### Two-variant sum (outer railway error):
+### Two-variant sum (error type):
 
 ```nim
 type
@@ -90,7 +86,7 @@ type
     cekTransport
     cekRequest
 
-  ClientError* = object
+  ClientError* = object of CatchableError
     case kind*: ClientErrorKind
     of cekTransport:
       transport*: TransportError
@@ -99,13 +95,13 @@ type
 ```
 
 ```nim
-func message*(err: ClientError): string =
+proc message*(err: ClientError): string =
   ## Human-readable message for any ClientError variant.
   case err.kind
-  of cekTransport: err.transport.message
+  of cekTransport: err.transport.msg
   of cekRequest:
-    if err.request.detail.isSome: err.request.detail.unsafeGet
-    elif err.request.title.isSome: err.request.title.unsafeGet
+    if err.request.detail.isSome: err.request.detail.get()
+    elif err.request.title.isSome: err.request.title.get()
     else: err.request.rawType
   # Exhaustive — adding a new ClientErrorKind variant forces a compile error here
 ```
@@ -120,8 +116,7 @@ type
     tekTimeout
     tekHttpStatus
 
-  TransportError* = object
-    message*: string                      # shared — always accessible
+  TransportError* = object of CatchableError
     case kind*: TransportErrorKind
     of tekHttpStatus:
       httpStatus*: int                    # only accessible after matching kind
@@ -142,8 +137,8 @@ type
   MethodError* = object            # flat — all variants share same shape
     errorType*: MethodErrorType
     rawType*: string               # always populated, lossless round-trip
-    description*: Opt[string]
-    extras*: Opt[JsonNode]         # preserves non-standard server fields
+    description*: Option[string]
+    extras*: Option[JsonNode]      # preserves non-standard server fields
 ```
 
 When a few variants carry extra fields, use `case` with `else: discard`:
@@ -151,8 +146,8 @@ When a few variants carry extra fields, use `case` with `else: discard`:
 ```nim
 type SetError* = object
   rawType*: string
-  description*: Opt[string]
-  extras*: Opt[JsonNode]
+  description*: Option[string]
+  extras*: Option[JsonNode]
   case errorType*: SetErrorType
   of setInvalidProperties: properties*: seq[string]
   of setAlreadyExists: existingId*: Id
@@ -192,19 +187,18 @@ type
   Email*[State] = object
     id*: EmailId; subject*: string; body*: string
 
-func parseEmail*(raw: string): JmapResult[Email[Unvalidated]] = ...
-func validateEmail*(e: Email[Unvalidated]): JmapResult[Email[Validated]] = ...
-proc sendEmail*(e: Email[Validated]): JmapResult[void] = ...
+proc parseEmail*(raw: string): Email[Unvalidated] = ...
+proc validateEmail*(e: Email[Unvalidated]): Email[Validated] = ...
+proc sendEmail*(e: Email[Validated]) = ...
 # sendEmail(unvalidatedEmail)  # REJECTED: type mismatch
 ```
 
 Use when the safety benefit is clear, not on every type.
 
-## Nil Safety
+## Nil Avoidance
 
-- `strictNotNil` enabled: `ref T` may be nil, `ref T not nil` cannot.
-- Prefer value types in functional core — nil impossible.
-- For optional refs, use `Opt[ref T]` not nilable refs.
+- Prefer value types in domain core — nil impossible.
+- For optional values, use `Option[T]` from `std/options`, not nilable refs.
 - `Uninit` + `ProveInit` warnings are errors — all vars provably initialised.
 
 ## Anti-Patterns
@@ -213,8 +207,9 @@ Use when the safety benefit is clear, not on every type.
   overloads, hidden allocations.
 - **`CStringConv` warning is an error** — catches dangerous implicit
   `string` -> `cstring` that creates dangling pointers under ARC.
-- **Avoid `range[T]` for domain constraints** — `RangeDefect` is fatal, bypasses
-  `raises: []`. Use smart constructors returning `Result` instead.
-- **Concepts** — structural, not nominal. Simple flat concepts OK under strict
-  mode. Deeply chained or recursive concepts interact unpredictably with
-  `strictFuncs` and `raises: []` — avoid those.
+- **Avoid `range[T]` for domain constraints** — `RangeDefect` is fatal and
+  crashes the process. Use smart constructors that raise `ValidationError`
+  instead.
+- **Concepts** — structural, not nominal. Simple flat concepts are acceptable.
+  Deeply chained or recursive concepts can cause cryptic compiler errors —
+  avoid those.

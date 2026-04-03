@@ -29,8 +29,8 @@ or return type that are already expressed in the function signature or type syst
 **Before** (delete or rewrite):
 ```nim
 ## Parses the account ID from the given raw string.
-## Returns a Result containing the AccountId or an error.
-func parseAccountId*(raw: string): Result[AccountId, ValidationError] =
+## Returns the AccountId or raises an error.
+proc parseAccountId*(raw: string): AccountId =
 ```
 
 **Action**: Delete the docstring if the function name is self-explanatory.
@@ -96,7 +96,7 @@ type AccountId* = distinct string
 ## Parameters:
 ##   session - The session to validate
 ##   strict - Whether to use strict validation
-func validateSession*(session: Session, strict: bool): JmapResult[Session] =
+proc validateSession*(session: Session, strict: bool): Session =
 ```
 
 **Action**: Delete parameter documentation that adds nothing beyond the signature.

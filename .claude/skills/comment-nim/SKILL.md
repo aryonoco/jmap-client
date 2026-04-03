@@ -45,5 +45,5 @@ For each discovered file:
 - `##` doc comments only on exported symbols with non-obvious behaviour
 - Module-level doc comments explain architectural role, not "This module provides..."
 - Smart constructor doc comments document validation rules, not return types
-- SPDX header and `{.push raises: [].}` are structural — never comment them
+- SPDX header is structural — never comment it
 - All comments in British English spelling; never rename identifiers

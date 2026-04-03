@@ -7,15 +7,15 @@ paths:
 # FFI Boundary (C ABI)
 
 This library exposes a C API via `--mm:arc` and `{.exportc, cdecl.}`.
-The FFI layer IS the "imperative shell" — it bridges pure Nim types to
-C-compatible types and translates `JmapResult[T]` -> C error codes.
+The FFI layer IS the "imperative shell" — it bridges Nim types to
+C-compatible types and catches exceptions, translating them to C error codes.
 
 ## Architecture
 
 - `src/jmap_client.nim` is the ONLY module with `{.exportc.}` procs.
-- Internal modules use pure Nim (`func`, `Result`, distinct types).
-- FFI procs are thin adapters: convert C types -> Nim types, call pure
-  core, translate Result -> error code.
+- Internal modules use idiomatic Nim (`proc`, exceptions, distinct types).
+- FFI procs are thin adapters: convert C types -> Nim types, call internal
+  Nim code, catch exceptions and translate to C error codes.
 
 ## Export Pragmas
 
@@ -85,9 +85,9 @@ groups (transport 1-4, request 5-9) for future extension without renumbering.
 
 ## Error Handling Across FFI
 
-C has no Result types. The railway projects to C as:
-- **Outer railway** (transport + request): return codes + thread-local error state.
-- **Inner railway** (per-invocation method errors): data in the response handle.
+C has no exceptions. Error handling projects to C as:
+- **Exceptions** (transport + request): return codes + thread-local error state.
+- **Per-invocation method errors**: data in the response handle.
 
 ```nim
 const
@@ -107,30 +107,45 @@ var lastErrorCategory {.threadvar.}: JmapErrorCategory
 var lastErrorMsg {.threadvar.}: string
 var lastErrorHttpStatus {.threadvar.}: cint
 
-proc setLastError(err: ClientError): cint =
+proc setLastError(err: ref TransportError): cint =
   ## Stores details in thread-local state, returns C error code.
+  lastErrorMsg = err.msg
   case err.kind
-  of cekTransport:
-    let te = err.transport
-    lastErrorMsg = te.message
-    case te.kind
-    of tekHttpStatus:
-      lastErrorHttpStatus = cint(te.httpStatus)  # branch-guarded
-      return JMAP_ERR_HTTP
-    of tekNetwork: return JMAP_ERR_NETWORK
-    # ... (exhaustive over all TransportErrorKind variants)
-  of cekRequest:
-    let re = err.request
-    lastErrorMsg = re.rawType
-    case re.errorType
-    of retUnknownCapability: return JMAP_ERR_REQ_UNKNOWN_CAP
-    # ... (exhaustive over all RequestErrorType variants)
+  of tekHttpStatus:
+    lastErrorHttpStatus = cint(err.httpStatus)
+    return JMAP_ERR_HTTP
+  of tekNetwork: return JMAP_ERR_NETWORK
+  of tekTls: return JMAP_ERR_TLS
+  of tekTimeout: return JMAP_ERR_TIMEOUT
+
+proc setLastError(err: ref RequestError): cint =
+  lastErrorMsg = err.rawType
+  case err.errorType
+  of retUnknownCapability: return JMAP_ERR_REQ_UNKNOWN_CAP
+  # ... (exhaustive over all RequestErrorType variants)
 ```
 
 Pattern: `clearLastError()` before each operation, `setLastError` on failure.
 `{.threadvar.}` gives each C thread its own error state.
 
-### Inner Railway: Per-Invocation Results via Response Handles
+Usage in exported procs:
+
+```nim
+proc jmapDoSomething*(...): cint {.exportc, cdecl, dynlib, raises: [].} =
+  clearLastError()
+  try:
+    let result = internalOperation(...)
+    return JMAP_OK
+  except TransportError as e:
+    return setLastError(e)
+  except RequestError as e:
+    return setLastError(e)
+  except CatchableError as e:
+    lastErrorMsg = e.msg
+    return JMAP_ERR_INTERNAL
+```
+
+### Per-Invocation Results via Response Handles
 
 Method errors are **data within a successful response**, not return codes.
 C consumers access them through response handle accessors:
@@ -193,6 +208,6 @@ proc jmapInit*(): cint {.exportc: "jmap_init", cdecl, dynlib.} =
 - `--threads:on` is enabled.
 - Thread-local error state via `{.threadvar.}`.
 - Opaque handles are NOT thread-safe — document per-function.
-- Functional core (pure funcs, immutable data) is inherently thread-safe.
+- Domain core (Layers 1–3) avoids shared mutable state by convention.
 - `seq`/`string` are managed types — NEVER cross FFI directly. Use
   array+length or callback patterns instead.
