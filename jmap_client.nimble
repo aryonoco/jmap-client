@@ -20,12 +20,6 @@ srcDir = "src"
 # Type safety
 --experimental:
   strictDefs
---experimental:
-  strictNotNil
---experimental:
-  strictFuncs
---experimental:
-  strictCaseObjects
 --threads:
   on
 
@@ -77,8 +71,6 @@ when not defined(release):
 # Dependencies
 
 requires "nim >= 2.2.0"
-# Vendored at vendor/nim-results/ (patched for strictCaseObjects)
-# requires "results == 0.5.1"
 
 # Tasks
 

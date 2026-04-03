@@ -21,14 +21,17 @@ Changes applied to **every** src file (not repeated per file):
 - Remove `system.switch("experimental", "strictFuncs")` (line 31)
 - Remove `system.switch("experimental", "strictNotNil")` and its
   `nimsuggest` guard (lines 33–36)
-- Remove comments referencing nim-results patches, `strictCaseObjects`,
-  `Uninit`/`UnsafeSetLen` workarounds (lines 17–21, 52–58)
+- Remove comments referencing nim-results patches, `strictCaseObjects`
+  (lines 17–21); update `Uninit`/`UnsafeSetLen` comment (lines 52–58) to
+  remove references to `initResultErr` and `{.requiresInit.}` workarounds
+- Retain `Uninit` and `UnsafeSetLen` warningAsError — add them to
+  `config.nims` (currently only in `.nimble`)
 
 ### `jmap_client.nimble`
 
 - Remove `strictFuncs`, `strictNotNil`, `strictCaseObjects` experimental
   flags
-- Remove `Uninit` and `UnsafeSetLen` from warningAsError
+- Retain `Uninit` and `UnsafeSetLen` warningAsError
 - Remove `requires "results == 0.5.1"`
 
 ### `vendor/nim-results/`

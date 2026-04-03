@@ -23,15 +23,14 @@ Background: `docs/background/architecture-revision-conversation.md`
 - `system.switch("experimental", "strictNotNil")` (lines 35–36 and the
   `nimsuggest` guard)
 - `system.switch("path", ... & "/vendor/nim-results")` (line 10)
-- Comments referencing `strictCaseObjects`, vendored nim-results patches,
-  `Uninit`/`UnsafeSetLen` workarounds (lines 17–21, 52–58)
+- Comments referencing `strictCaseObjects`, vendored nim-results patches
+  (lines 17–21); update `Uninit`/`UnsafeSetLen` comment (lines 52–58) to
+  remove references to `initResultErr` and `{.requiresInit.}` workarounds
 
 ### Remove from `jmap_client.nimble`
 
 - `strictFuncs`, `strictNotNil`, `strictCaseObjects` experimental flags
   (lines 24–28)
-- `Uninit` and `UnsafeSetLen` warningAsError (lines 48–52) — these only
-  fire because of `{.requiresInit.}` interactions
 
 ### Keep
 
@@ -43,6 +42,7 @@ Background: `docs/background/architecture-revision-conversation.md`
 | `floatChecks:on` | Float overflow/underflow detection |
 | `styleCheck:error` | Naming consistency |
 | `warningAsError: UnusedImport, Deprecated, CStringConv, EnumConv, HoleEnumConv, ProveInit` | Standard quality warnings |
+| `warningAsError: Uninit, UnsafeSetLen` | Catches unsafe zero-initialisation and unsafe `setLen` on managed types |
 | `hintAsError: DuplicateModuleImport` | Import hygiene |
 
 ---
