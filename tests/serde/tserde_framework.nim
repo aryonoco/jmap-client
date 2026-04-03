@@ -425,9 +425,8 @@ block filterDeserNestedDepth3:
 
 block comparatorAllFieldsRoundTrip:
   ## Comparator with property + isAscending=false + collation round-trips.
-  let c = parseComparator(
-    makePropertyName("receivedAt"), false, some("i;unicode-casemap")
-  )
+  let c =
+    parseComparator(makePropertyName("receivedAt"), false, some("i;unicode-casemap"))
   let v = Comparator.fromJson(c.toJson())
   assertEq string(v.property), "receivedAt"
   doAssert v.isAscending == false

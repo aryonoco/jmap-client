@@ -482,8 +482,7 @@ block serverCapabilityToJsonReturnsIndependentCopy:
   j["injected"] = %"corrupted"
   doAssert cap.rawData{"injected"}.isNil,
     "toJson must return an independent copy — mutation must not propagate"
-  doAssert cap.rawData{"original"}.getStr("") == "value",
-    "original data must be intact"
+  doAssert cap.rawData{"original"}.getStr("") == "value", "original data must be intact"
 
 block accountCapabilityEntryToJsonReturnsIndependentCopy:
   ## Mutating the JsonNode returned by toJson must not corrupt the entry.
@@ -496,5 +495,4 @@ block accountCapabilityEntryToJsonReturnsIndependentCopy:
   j["injected"] = %"corrupted"
   doAssert entry.data{"injected"}.isNil,
     "toJson must return an independent copy — mutation must not propagate"
-  doAssert entry.data{"original"}.getStr("") == "value",
-    "original data must be intact"
+  doAssert entry.data{"original"}.getStr("") == "value", "original data must be intact"

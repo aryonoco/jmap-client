@@ -45,9 +45,11 @@ block propOptMapComposition:
     lastInput = $x
     let m = some(x)
     proc f(v: int): int =
+      ## Doubles the input.
       v * 2
 
     proc g(v: int): int =
+      ## Adds three to the input.
       v + 3
 
     let lhs = m.map(f).map(g)
@@ -62,6 +64,7 @@ block propOptFlatMapLeftIdentity:
     let a = rng.rand(int.low div 2 .. int.high div 2)
     lastInput = $a
     proc f(x: int): Option[int] =
+      ## Doubles the input, wrapped in Some.
       some(x * 2)
 
     doAssert some(a).flatMap(f) == f(a)
@@ -82,9 +85,11 @@ block propOptFlatMapAssociativity:
     lastInput = $a
     let m = some(a)
     proc f(x: int): Option[int] =
+      ## Doubles the input, wrapped in Some.
       some(x * 2)
 
     proc g(x: int): Option[int] =
+      ## Increments the input, wrapped in Some.
       some(x + 1)
 
     let lhs = m.flatMap(f).flatMap(g)
@@ -98,6 +103,7 @@ block propOptNoneFlatMapIsNone:
   checkProperty "none.flatMap(f) == none":
     lastInput = "(none)"
     proc f(x: int): Option[int] =
+      ## Affine transform, wrapped in Some.
       some(x * 3 + 7)
 
     doAssert none(int).flatMap(f) == none(int)
@@ -106,6 +112,7 @@ block propOptNoneMapIsNone:
   checkProperty "none.map(f) == none":
     lastInput = "(none)"
     proc f(x: int): int =
+      ## Affine transform.
       x * 7 + 13
 
     doAssert none(int).map(f) == none(int)

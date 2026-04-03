@@ -691,9 +691,7 @@ block coreCapsFieldMaxSizeUploadWrongKind:
   assertErr CoreCapabilities.fromJson(coreCapsWithField("maxSizeUpload", %"bad"))
 
 block coreCapsFieldMaxConcurrentUploadWrongKind:
-  assertErr CoreCapabilities.fromJson(
-    coreCapsWithField("maxConcurrentUpload", %"bad")
-  )
+  assertErr CoreCapabilities.fromJson(coreCapsWithField("maxConcurrentUpload", %"bad"))
 
 block coreCapsFieldMaxSizeRequestWrongKind:
   assertErr CoreCapabilities.fromJson(coreCapsWithField("maxSizeRequest", %"bad"))
@@ -713,9 +711,7 @@ block coreCapsFieldMaxObjectsInSetWrongKind:
   assertErr CoreCapabilities.fromJson(coreCapsWithField("maxObjectsInSet", %"bad"))
 
 block coreCapsFieldCollationAlgorithmsWrongKind:
-  assertErr CoreCapabilities.fromJson(
-    coreCapsWithField("collationAlgorithms", %"bad")
-  )
+  assertErr CoreCapabilities.fromJson(coreCapsWithField("collationAlgorithms", %"bad"))
 
 # =============================================================================
 # F. Cross-type confusion tests

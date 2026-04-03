@@ -1,20 +1,18 @@
 # SPDX-License-Identifier: BSD-2-Clause
 # Copyright (c) 2026 Aryan Ameri
 
-{.push raises: [].}
-
 ## Adversarial and edge-case tests probing byte-level validation semantics,
 ## UTF-8 boundary behaviour, NUL-byte acceptance in permissive types,
 ## nimIdentNormalize false matches in enum parsing, and 255-byte boundary
 ## conditions with multi-byte characters.
 
 import std/json
+import std/options
 import std/sets
 import std/strutils
 import std/tables
 
-import results
-
+import jmap_client/validation
 import jmap_client/primitives
 import jmap_client/identifiers
 import jmap_client/capabilities
@@ -38,29 +36,25 @@ block idFromServerTwoByteCharsAt255Bytes:
   ## 127 x \xC3\xA9 (2 bytes each) + 1 ASCII char = 255 bytes: ACCEPTED.
   let input = "\xC3\xA9".repeat(127) & "a"
   doAssert input.len == 255
-  let r = parseIdFromServer(input)
-  assertOk r
+  discard parseIdFromServer(input)
 
 block accountIdTwoByteCharsAt255Bytes:
   ## Same 255-byte string accepted by parseAccountId.
   let input = "\xC3\xA9".repeat(127) & "a"
   doAssert input.len == 255
-  let r = parseAccountId(input)
-  assertOk r
+  discard parseAccountId(input)
 
 block idFromServerTwoByteCharsAt256Bytes:
   ## 128 x \xC3\xA9 = 256 bytes: REJECTED (byte-not-character semantics).
   let input = "\xC3\xA9".repeat(128)
   doAssert input.len == 256
-  let r = parseIdFromServer(input)
-  assertErr r
+  assertErr parseIdFromServer(input)
 
 block accountIdTwoByteCharsAt256Bytes:
   ## 128 x \xC3\xA9 = 256 bytes: REJECTED.
   let input = "\xC3\xA9".repeat(128)
   doAssert input.len == 256
-  let r = parseAccountId(input)
-  assertErr r
+  assertErr parseAccountId(input)
 
 # =============================================================================
 # b) Invalid UTF-8 acceptance (Layer 1 validates bytes, not Unicode)
@@ -72,33 +66,28 @@ block idFromServerOverlongNul:
   ## Overlong NUL encoding \xC0\x80: ACCEPTED by lenient parser.
   ## Both bytes are >= 0x20 so they pass the control-character check.
   const input = "abc\xC0\x80def"
-  let r = parseIdFromServer(input)
-  assertOk r
+  discard parseIdFromServer(input)
 
 block accountIdOverlongNul:
   ## Overlong NUL encoding \xC0\x80: ACCEPTED by parseAccountId.
   const input = "abc\xC0\x80def"
-  let r = parseAccountId(input)
-  assertOk r
+  discard parseAccountId(input)
 
 block idFromServerUtf16Surrogate:
   ## UTF-16 surrogate \xED\xA0\x80: ACCEPTED (all bytes >= 0x20, none == 0x7F).
   const input = "abc\xED\xA0\x80def"
-  let r = parseIdFromServer(input)
-  assertOk r
+  discard parseIdFromServer(input)
 
 block idFromServerTruncatedMultibyte:
   ## Truncated multi-byte sequence "abc\xC3": ACCEPTED by lenient parser.
   ## 0xC3 is >= 0x20 and not 0x7F.
   const input = "abc\xC3"
-  let r = parseIdFromServer(input)
-  assertOk r
+  discard parseIdFromServer(input)
 
 block accountIdTruncatedMultibyte:
   ## Truncated multi-byte sequence: ACCEPTED by parseAccountId.
   const input = "abc\xC3"
-  let r = parseAccountId(input)
-  assertOk r
+  discard parseAccountId(input)
 
 # =============================================================================
 # c) C1 control codes (0x80-0x9F)
@@ -110,27 +99,23 @@ block idFromServerC1NextLine:
   ## NEL (U+0085) encoded as \xC2\x85: ACCEPTED.
   ## Both 0xC2 and 0x85 are >= 0x20 and not 0x7F.
   const input = "abc\xC2\x85def"
-  let r = parseIdFromServer(input)
-  assertOk r
+  discard parseIdFromServer(input)
 
 block accountIdC1Byte9F:
   ## Raw byte 0x9F: ACCEPTED (>= 0x20, not 0x7F).
   ## This is the APC control character in Unicode, but the check is byte-level.
   const input = "abc\x9Fdef"
-  let r = parseAccountId(input)
-  assertOk r
+  discard parseAccountId(input)
 
 block idFromServerC1Byte80:
   ## Raw byte 0x80: ACCEPTED (>= 0x20, not 0x7F).
   const input = "abc\x80def"
-  let r = parseIdFromServer(input)
-  assertOk r
+  discard parseIdFromServer(input)
 
 block jmapStateC1Byte85:
   ## Raw byte 0x85 in JmapState: ACCEPTED.
   const input = "abc\x85def"
-  let r = parseJmapState(input)
-  assertOk r
+  discard parseJmapState(input)
 
 # =============================================================================
 # d) Unicode special characters
@@ -139,28 +124,24 @@ block jmapStateC1Byte85:
 block idStrictRejectsBom:
   ## BOM \xEF\xBB\xBF contains bytes outside Base64UrlChars: REJECTED by strict.
   const input = "\xEF\xBB\xBFabc"
-  let r = parseId(input)
-  assertErr r
+  assertErr parseId(input)
 
 block idFromServerAcceptsBom:
   ## BOM bytes are all >= 0x20: ACCEPTED by lenient parser.
   const input = "\xEF\xBB\xBFabc"
-  let r = parseIdFromServer(input)
-  assertOk r
+  discard parseIdFromServer(input)
 
 block idFromServerZeroWidthSpace:
   ## Zero-width space U+200B encoded as \xE2\x80\x8B: ACCEPTED.
   ## All 3 bytes are >= 0x20 and not 0x7F.
   const input = "\xE2\x80\x8B"
   doAssert input.len == 3
-  let r = parseIdFromServer(input)
-  assertOk r
+  discard parseIdFromServer(input)
 
 block accountIdAcceptsBom:
   ## BOM accepted by parseAccountId (bytes >= 0x20, not 0x7F).
   const input = "\xEF\xBB\xBFabc"
-  let r = parseAccountId(input)
-  assertOk r
+  discard parseAccountId(input)
 
 # =============================================================================
 # e) NUL bytes in permissive types (FFI concern)
@@ -170,33 +151,27 @@ block accountIdAcceptsBom:
 
 block methodCallIdNulByte:
   ## parseMethodCallId("\x00"): ACCEPTED (only checks non-empty).
-  let r = parseMethodCallId("\x00")
-  assertOk r
+  discard parseMethodCallId("\x00")
 
 block creationIdNulFirstChar:
   ## parseCreationId("\x00abc"): ACCEPTED (first char is \x00, not '#').
-  let r = parseCreationId("\x00abc")
-  assertOk r
+  discard parseCreationId("\x00abc")
 
 block propertyNameNulByte:
   ## parsePropertyName("\x00"): ACCEPTED (only checks non-empty).
-  let r = parsePropertyName("\x00")
-  assertOk r
+  discard parsePropertyName("\x00")
 
 block methodCallIdEmbeddedNul:
   ## "c1\x00hidden": ACCEPTED (no control-character check in MethodCallId).
-  let r = parseMethodCallId("c1\x00hidden")
-  assertOk r
+  discard parseMethodCallId("c1\x00hidden")
 
 block creationIdEmbeddedNul:
   ## "abc\x00def": ACCEPTED (only first char is checked against '#').
-  let r = parseCreationId("abc\x00def")
-  assertOk r
+  discard parseCreationId("abc\x00def")
 
 block propertyNameEmbeddedNul:
   ## "foo\x00bar": ACCEPTED (only non-empty check).
-  let r = parsePropertyName("foo\x00bar")
-  assertOk r
+  discard parsePropertyName("foo\x00bar")
 
 # =============================================================================
 # f) nimIdentNormalize false matches in enum parsing
@@ -262,14 +237,11 @@ block capabilityKindFirstCharMismatch:
 
 block creationIdBareHash:
   ## Bare "#" is rejected: starts with '#'.
-  let r = parseCreationId("#")
-  assertErr r
-  assertErrFields r, "CreationId", "must not include '#' prefix", "#"
+  assertErrFields parseCreationId("#"), "CreationId", "must not include '#' prefix", "#"
 
 block creationIdHashOnly:
   ## Multiple hashes: first char is '#', so rejected.
-  let r = parseCreationId("###")
-  assertErr r
+  assertErr parseCreationId("###")
 
 # =============================================================================
 # h) NUL byte injection in additional types (FFI surface)
@@ -308,14 +280,14 @@ block requestUsingAcceptsNul:
   let req = Request(
     `using`: @["urn:ietf:params:jmap:core\x00evil"],
     methodCalls: @[],
-    createdIds: Opt.none(Table[CreationId, Id]),
+    createdIds: none(Table[CreationId, Id]),
   )
   doAssert req.`using`[0].len == 30
 
 block transportErrorMessageAcceptsNul:
   ## TransportError.message is a bare string; NUL bytes are preserved.
   let te = transportError(tekNetwork, "connection\x00refused")
-  doAssert te.message.len == 18
+  doAssert te.msg.len == 18
 
 block accountNameAcceptsNul:
   ## Account.name is a bare string; NUL bytes are preserved.
@@ -405,14 +377,14 @@ block unsignedIntExactly2Pow53:
 
 block jmapIntNegationOfMinEqualsMax:
   ## -MinJmapInt == MaxJmapInt. Since MinJmapInt = -(2^53-1), this is safe.
-  let minVal = parseJmapInt(MinJmapInt).get()
+  let minVal = parseJmapInt(MinJmapInt)
   let negated = -minVal
-  let maxVal = parseJmapInt(MaxJmapInt).get()
+  let maxVal = parseJmapInt(MaxJmapInt)
   doAssert negated == maxVal
 
 block unsignedIntNoNegation:
   ## UnsignedInt does not borrow unary negation.
-  doAssert not compiles(-parseUnsignedInt(0).get())
+  doAssert not compiles(-parseUnsignedInt(0))
 
 block httpStatusErrorNegative:
   ## httpStatusError accepts any int, including negative values.
@@ -530,14 +502,13 @@ block capabilityUriUnderscoreFalseMatch:
 
 block uriTemplateVariableSubstringFalseNegative:
   ## "{accountIdblobId}" does NOT contain "{accountId}" as a variable.
-  let tmpl =
-    parseUriTemplate("https://e.com/{accountIdblobId}/{name}?accept={type}").get()
+  let tmpl = parseUriTemplate("https://e.com/{accountIdblobId}/{name}?accept={type}")
   doAssert not tmpl.hasVariable("accountId")
   doAssert tmpl.hasVariable("accountIdblobId")
 
 block uriTemplateEmptyVariableName:
   ## hasVariable("") checks for "{}" as a substring.
-  let tmpl = parseUriTemplate("https://e.com/{}/{name}").get()
+  let tmpl = parseUriTemplate("https://e.com/{}/{name}")
   doAssert tmpl.hasVariable("")
 
 block sessionCoreCapabilityMismatchedRawUri:
@@ -575,7 +546,7 @@ block uriTemplateVsPropertyNameIsolation:
 block dateVsUtcDateIsolation:
   ## Date and UTCDate are distinct types.
   doAssert not compiles(
-    parseDate("2024-01-01T12:00:00Z").get() == parseUtcDate("2024-01-01T12:00:00Z").get()
+    parseDate("2024-01-01T12:00:00Z") == parseUtcDate("2024-01-01T12:00:00Z")
   )
 
 block directConstructionBypassesSmartConstructor:
@@ -616,18 +587,15 @@ block idFromServerBomInMiddle:
 
 block overlongDelBypassIdFromServer:
   ## Overlong DEL \xC1\xBF accepted by lenient parser: both bytes pass checks.
-  let r = parseIdFromServer("\xC1\xBF")
-  assertOk r
+  discard parseIdFromServer("\xC1\xBF")
 
 block overlongDelBypassAccountId:
   ## Overlong DEL \xC1\xBF accepted by parseAccountId: both bytes pass checks.
-  let r = parseAccountId("\xC1\xBF")
-  assertOk r
+  discard parseAccountId("\xC1\xBF")
 
 block overlongDelBypassJmapState:
   ## Overlong DEL \xC1\xBF accepted by parseJmapState: both bytes pass checks.
-  let r = parseJmapState("\xC1\xBF")
-  assertOk r
+  discard parseJmapState("\xC1\xBF")
 
 # =============================================================================
 # s) nimIdentNormalize wider attack surface
@@ -701,7 +669,7 @@ block nulLastByteRequestUsing:
   let req = Request(
     `using`: @["urn:ietf:params:jmap:core\x00"],
     methodCalls: @[],
-    createdIds: Opt.none(Table[CreationId, Id]),
+    createdIds: none(Table[CreationId, Id]),
   )
   doAssert req.`using`[0].len > 25
   doAssert req.`using`[0].len == 26
@@ -729,8 +697,7 @@ block jsonNodeAliasingInInvocation:
 block utf8BomMiddleOfString:
   ## BOM \xEF\xBB\xBF in the middle: 9 bytes total, all bytes >= 0x20, accepted.
   let r = parseIdFromServer("abc\xEF\xBB\xBFdef")
-  assertOk r
-  doAssert r.get().len == 9
+  doAssert r.len == 9
 
 block utf8FourByteEmojiAtBoundary:
   ## 4-byte emoji at byte position 252 pushing total to 256 bytes.
@@ -746,8 +713,7 @@ block utf8FourByteEmojiAtBoundary:
 block utf8MixedValidInvalid:
   ## \xFF and \xFE are invalid UTF-8 lead bytes but both are >= 0x20, not 0x7F.
   ## The lenient parser accepts them (byte-level validation, not Unicode).
-  let r = parseIdFromServer("abc\xFF\xFEdef")
-  assertOk r
+  discard parseIdFromServer("abc\xFF\xFEdef")
 
 # =============================================================================
 # CRLF injection in error messages
@@ -765,8 +731,8 @@ block crlfInjectionInMethodError:
 block crlfInjectionInTransportError:
   ## transportError with CRLF in message: Layer 1 preserves the bytes verbatim.
   let te = transportError(tekNetwork, "error\r\nX-Injected: header")
-  doAssert "\r\n" in te.message
-  doAssert te.message == "error\r\nX-Injected: header"
+  doAssert "\r\n" in te.msg
+  doAssert te.msg == "error\r\nX-Injected: header"
 
 block crlfInjectionInSetError:
   ## setError with CRLF in rawType: Layer 1 preserves the bytes verbatim.
@@ -916,20 +882,26 @@ block controlCharRangeInLenientValidators:
   for i in 0x00 .. 0x1F:
     let ch = char(i)
     let s = "abc" & $ch & "def"
-    doAssert parseIdFromServer(s).isErr, "expected rejection for byte 0x" & toHex(i, 2)
-    doAssert parseAccountId(s).isErr, "expected rejection for byte 0x" & toHex(i, 2)
-    doAssert parseJmapState(s).isErr, "expected rejection for byte 0x" & toHex(i, 2)
+    doAssertRaises(ref ValidationError):
+      discard parseIdFromServer(s)
+    doAssertRaises(ref ValidationError):
+      discard parseAccountId(s)
+    doAssertRaises(ref ValidationError):
+      discard parseJmapState(s)
   ## DEL (0x7F)
   const delStr = "abc\x7Fdef"
-  doAssert parseIdFromServer(delStr).isErr, "expected rejection for DEL"
-  doAssert parseAccountId(delStr).isErr, "expected rejection for DEL"
-  doAssert parseJmapState(delStr).isErr, "expected rejection for DEL"
+  doAssertRaises(ref ValidationError):
+    discard parseIdFromServer(delStr)
+  doAssertRaises(ref ValidationError):
+    discard parseAccountId(delStr)
+  doAssertRaises(ref ValidationError):
+    discard parseJmapState(delStr)
 
 block controlCharBoundarySpaceAccepted:
   ## 0x20 (space) is the boundary — must be accepted by lenient validators.
-  doAssert parseIdFromServer(" ").isOk, "space should be accepted"
-  doAssert parseAccountId(" ").isOk, "space should be accepted"
-  doAssert parseJmapState(" ").isOk, "space should be accepted"
+  discard parseIdFromServer(" ")
+  discard parseAccountId(" ")
+  discard parseJmapState(" ")
 
 # =============================================================================
 # 6b) Multi-position control char injection
@@ -940,21 +912,23 @@ block nulAtMultiplePositionsInStrictId:
   for pos in [0, 127, 254]:
     var s = "A".repeat(255)
     s[pos] = '\x00'
-    doAssert parseId(s).isErr, "NUL at position " & $pos & " should be rejected"
+    doAssertRaises(ref ValidationError):
+      discard parseId(s)
 
 block delAtMultiplePositionsInLenientId:
   ## DEL at start, middle, and end of lenient Id.
   for pos in [0, 127, 254]:
     var s = "A".repeat(255)
     s[pos] = '\x7F'
-    doAssert parseIdFromServer(s).isErr,
-      "DEL at position " & $pos & " should be rejected"
+    doAssertRaises(ref ValidationError):
+      discard parseIdFromServer(s)
 
 block controlCharAtPosition254InAccountId:
   ## Control char at position 254 in max-length AccountId.
   var s = "A".repeat(255)
   s[254] = '\x01'
-  doAssert parseAccountId(s).isErr, "control char at position 254 should be rejected"
+  doAssertRaises(ref ValidationError):
+    discard parseAccountId(s)
 
 # =============================================================================
 # 6c) PatchObject advanced semantics
@@ -962,20 +936,20 @@ block controlCharAtPosition254InAccountId:
 
 block patchJsonPointerTilde1Encoding:
   ## "a~1b" and "a/b" are different keys at Layer 1 (no RFC 6901 parsing).
-  let p = emptyPatch().setProp("a~1b", %1).get()
+  let p = emptyPatch().setProp("a~1b", %1)
   doAssert p.getKey("a~1b").isSome
   doAssert p.getKey("a/b").isNone
 
 block patchJsonPointerTilde0Encoding:
   ## "a~0b" and "a~b" are different keys at Layer 1.
-  let p = emptyPatch().setProp("a~0b", %1).get()
+  let p = emptyPatch().setProp("a~0b", %1)
   doAssert p.getKey("a~0b").isSome
   doAssert p.getKey("a~b").isNone
 
 block patchNullValueVsDeletion:
   ## setProp with newJNull() and deleteProp both result in JNull at the key.
-  let pSet = emptyPatch().setProp("key", newJNull()).get()
-  let pDel = emptyPatch().deleteProp("key").get()
+  let pSet = emptyPatch().setProp("key", newJNull())
+  let pDel = emptyPatch().deleteProp("key")
   doAssert pSet.len == 1
   doAssert pDel.len == 1
   doAssert pSet.getKey("key").get().kind == JNull
@@ -985,7 +959,7 @@ block patchJsonNodeAliasingUnderArc:
   ## Mutating a JsonNode after setProp — verify ref sharing under ARC.
   let node = newJObject()
   node["original"] = newJString("value")
-  let p = emptyPatch().setProp("key", node).get()
+  let p = emptyPatch().setProp("key", node)
   ## Mutate the original node.
   node["injected"] = newJString("new")
   ## Under ARC with ref sharing, mutation is visible through the patch.
@@ -1060,7 +1034,7 @@ block setErrorAlreadyExistsWithExtrasContainingProperties:
   let extras = newJObject()
   extras["properties"] = %*["from", "subject"]
   let se =
-    setErrorAlreadyExists("alreadyExists", makeId("exist1"), extras = Opt.some(extras))
+    setErrorAlreadyExists("alreadyExists", makeId("exist1"), extras = some(extras))
   doAssert se.errorType == setAlreadyExists
   doAssert $se.existingId == "exist1"
   doAssert se.extras.isSome
@@ -1072,9 +1046,8 @@ block setErrorInvalidPropertiesWithExtrasContainingExistingId:
   ## variant-specific properties field.
   let extras = newJObject()
   extras["existingId"] = %"fake-id"
-  let se = setErrorInvalidProperties(
-    "invalidProperties", @["badProp"], extras = Opt.some(extras)
-  )
+  let se =
+    setErrorInvalidProperties("invalidProperties", @["badProp"], extras = some(extras))
   doAssert se.errorType == setInvalidProperties
   doAssert se.properties == @["badProp"]
   doAssert se.extras.isSome
@@ -1087,32 +1060,28 @@ block setErrorInvalidPropertiesWithExtrasContainingExistingId:
 block patchObjectRfc6901TildeZero:
   ## setProp preserves literal ~0 in the path (no RFC 6901 decoding at Layer 1).
   let patch = emptyPatch().setProp("foo~0bar", %"val")
-  assertOk patch
-  let key = patch.get().getKey("foo~0bar")
+  let key = patch.getKey("foo~0bar")
   assertSome key
   assertEq key.get().getStr(), "val"
 
 block patchObjectRfc6901TildeOne:
   ## setProp preserves literal ~1 in the path (no RFC 6901 decoding at Layer 1).
   let patch = emptyPatch().setProp("foo~1bar", %"val")
-  assertOk patch
-  let key = patch.get().getKey("foo~1bar")
+  let key = patch.getKey("foo~1bar")
   assertSome key
   assertEq key.get().getStr(), "val"
 
 block patchObjectLeadingSlash:
   ## setProp stores the key with a leading slash verbatim.
   let patch = emptyPatch().setProp("/subject", %"val")
-  assertOk patch
-  let key = patch.get().getKey("/subject")
+  let key = patch.getKey("/subject")
   assertSome key
   assertEq key.get().getStr(), "val"
 
 block patchObjectBareSlash:
   ## A bare "/" is a valid non-empty path and is accepted by setProp.
   let patch = emptyPatch().setProp("/", %"val")
-  assertOk patch
-  let key = patch.get().getKey("/")
+  let key = patch.getKey("/")
   assertSome key
   assertEq key.get().getStr(), "val"
 
@@ -1146,11 +1115,11 @@ block jsonNodeAliasingInServerCapability:
   doAssert cap.rawData.hasKey("injected")
 
 block jsonNodeAliasingInMethodErrorExtras:
-  ## MethodError.extras (when Opt.some(jsonNode)) is a JsonNode ref —
+  ## MethodError.extras (when some(jsonNode)) is a JsonNode ref —
   ## mutations after construction are visible. Documented ARC behaviour.
   let extras = newJObject()
   extras["original"] = newJString("value")
-  let me = methodError("serverFail", extras = Opt.some(extras))
+  let me = methodError("serverFail", extras = some(extras))
   extras["injected"] = newJString("evil")
   doAssert me.extras.isSome
   doAssert me.extras.get().hasKey("injected")
@@ -1163,23 +1132,23 @@ block sessionDuplicateCkCore:
   ## Duplicate ckCore: parseSession accepts two ckCore ServerCapabilities
   ## with different CoreCapabilities. coreCapabilities() returns the FIRST one.
   let coreCaps1 = CoreCapabilities(
-    maxSizeUpload: parseUnsignedInt(100).get(),
-    maxConcurrentUpload: parseUnsignedInt(1).get(),
-    maxSizeRequest: parseUnsignedInt(100).get(),
-    maxConcurrentRequests: parseUnsignedInt(1).get(),
-    maxCallsInRequest: parseUnsignedInt(1).get(),
-    maxObjectsInGet: parseUnsignedInt(1).get(),
-    maxObjectsInSet: parseUnsignedInt(1).get(),
+    maxSizeUpload: parseUnsignedInt(100),
+    maxConcurrentUpload: parseUnsignedInt(1),
+    maxSizeRequest: parseUnsignedInt(100),
+    maxConcurrentRequests: parseUnsignedInt(1),
+    maxCallsInRequest: parseUnsignedInt(1),
+    maxObjectsInGet: parseUnsignedInt(1),
+    maxObjectsInSet: parseUnsignedInt(1),
     collationAlgorithms: initHashSet[string](),
   )
   let coreCaps2 = CoreCapabilities(
-    maxSizeUpload: parseUnsignedInt(999).get(),
-    maxConcurrentUpload: parseUnsignedInt(99).get(),
-    maxSizeRequest: parseUnsignedInt(999).get(),
-    maxConcurrentRequests: parseUnsignedInt(99).get(),
-    maxCallsInRequest: parseUnsignedInt(99).get(),
-    maxObjectsInGet: parseUnsignedInt(99).get(),
-    maxObjectsInSet: parseUnsignedInt(99).get(),
+    maxSizeUpload: parseUnsignedInt(999),
+    maxConcurrentUpload: parseUnsignedInt(99),
+    maxSizeRequest: parseUnsignedInt(999),
+    maxConcurrentRequests: parseUnsignedInt(99),
+    maxCallsInRequest: parseUnsignedInt(99),
+    maxObjectsInGet: parseUnsignedInt(99),
+    maxObjectsInSet: parseUnsignedInt(99),
     collationAlgorithms: initHashSet[string](),
   )
   let cap1 =
@@ -1198,12 +1167,11 @@ block sessionDuplicateCkCore:
     args.eventSourceUrl,
     args.state,
   )
-  assertOk res
-  let session = res.get()
+  let session = res
   ## coreCapabilities() iterates and returns the first ckCore match.
   let cc = session.coreCapabilities()
-  doAssert cc.maxSizeUpload == parseUnsignedInt(100).get()
-  doAssert cc.maxConcurrentUpload == parseUnsignedInt(1).get()
+  doAssert cc.maxSizeUpload == parseUnsignedInt(100)
+  doAssert cc.maxConcurrentUpload == parseUnsignedInt(1)
 
 block sessionFindCapabilityCkUnknown:
   ## findCapability(session, ckUnknown) returns the first ckUnknown entry.
@@ -1229,8 +1197,7 @@ block sessionFindCapabilityCkUnknown:
     args.eventSourceUrl,
     args.state,
   )
-  assertOk res
-  let session = res.get()
+  let session = res
   ## findCapability returns the first ckUnknown.
   let first = session.findCapability(ckUnknown)
   assertSome first
@@ -1244,7 +1211,7 @@ block uriTemplateHasVariableNestedBraces:
   ## parseUriTemplate("https://e.com/{{accountId}}") passes validation.
   ## hasVariable returns true for "accountId" because "{accountId}" is a
   ## substring of "{{accountId}}". Documented edge case.
-  let tmpl = parseUriTemplate("https://e.com/{{accountId}}").get()
+  let tmpl = parseUriTemplate("https://e.com/{{accountId}}")
   doAssert tmpl.hasVariable("accountId")
 
 block uriTemplateNulInFullTemplate:
@@ -1255,22 +1222,15 @@ block uriTemplateNulInFullTemplate:
   let tmpl = parseUriTemplate(tmplStr)
   assertOk tmpl
   ## The template passes session-level variable validation.
-  doAssert tmpl.get().hasVariable("accountId")
-  doAssert tmpl.get().hasVariable("blobId")
-  doAssert tmpl.get().hasVariable("name")
-  doAssert tmpl.get().hasVariable("type")
+  doAssert tmpl.hasVariable("accountId")
+  doAssert tmpl.hasVariable("blobId")
+  doAssert tmpl.hasVariable("name")
+  doAssert tmpl.hasVariable("type")
   ## Verify it works in parseSession too.
   let args = makeSessionArgs()
   let res = parseSession(
-    args.capabilities,
-    args.accounts,
-    args.primaryAccounts,
-    args.username,
-    args.apiUrl,
-    tmpl.get(),
-    args.uploadUrl,
-    args.eventSourceUrl,
-    args.state,
+    args.capabilities, args.accounts, args.primaryAccounts, args.username, args.apiUrl,
+    tmpl, args.uploadUrl, args.eventSourceUrl, args.state,
   )
   assertOk res
 
@@ -1282,15 +1242,15 @@ block unicodeNfcVsNfdAccountId:
   ## NFC vs NFD: Latin "e with grave" (\xC3\xA8, 2 bytes NFC) vs "e" +
   ## combining grave accent (\x65\xCC\x80, 3 bytes NFD) produce different
   ## AccountIds. Layer 1 operates at byte level, no Unicode normalisation.
-  let nfc = parseAccountId("\xC3\xA8").get()
-  let nfd = parseAccountId("\x65\xCC\x80").get()
+  let nfc = parseAccountId("\xC3\xA8")
+  let nfd = parseAccountId("\x65\xCC\x80")
   doAssert nfc != nfd
 
 block unicodeHomoglyphTablePoisoning:
   ## Latin "admin" vs Cyrillic-a "admin" (\xD0\xB0dmin) are distinct Table
   ## keys. Building an accounts table with both produces len == 2.
-  let latinId = parseAccountId("admin").get()
-  let cyrillicId = parseAccountId("\xD0\xB0dmin").get()
+  let latinId = parseAccountId("admin")
+  let cyrillicId = parseAccountId("\xD0\xB0dmin")
   doAssert latinId != cyrillicId
   var accounts = initTable[AccountId, Account]()
   accounts[latinId] = Account(
@@ -1304,21 +1264,19 @@ block unicodeHomoglyphTablePoisoning:
 block unicodeZeroWidthSpaceAtStart:
   ## parseAccountId("\xE2\x80\x8Badmin") (ZWSP + "admin") is different from
   ## parseAccountId("admin"). Byte-level comparison, no normalisation.
-  let withZwsp = parseAccountId("\xE2\x80\x8Badmin").get()
-  let plain = parseAccountId("admin").get()
+  let withZwsp = parseAccountId("\xE2\x80\x8Badmin")
+  let plain = parseAccountId("admin")
   doAssert withZwsp != plain
 
 block unicodeLroCharacterInId:
   ## parseIdFromServer("admin\xE2\x80\xADtest") — LRO U+202D (\xE2\x80\xAD),
   ## all bytes >= 0x80, accepted by lenient parser.
-  let r = parseIdFromServer("admin\xE2\x80\xADtest")
-  assertOk r
+  discard parseIdFromServer("admin\xE2\x80\xADtest")
 
 block unicodeBidiIsolateInId:
   ## parseIdFromServer("a\xE2\x81\xA6b") — LRI U+2066 (\xE2\x81\xA6),
   ## all bytes >= 0x80, accepted by lenient parser.
-  let r = parseIdFromServer("a\xE2\x81\xA6b")
-  assertOk r
+  discard parseIdFromServer("a\xE2\x81\xA6b")
 
 # =============================================================================
 # 5.4) Calendar-invalid but structurally valid dates
@@ -1363,13 +1321,17 @@ block dateImpossibleTimezone9999:
 block validationErrorPreservesFullInput:
   ## ValidationError.value echoes the complete raw input. Layer 5 FFI must
   ## sanitise before exposing to C callers if input may contain credentials.
-  let r = parseId("Bearer eyJhbGciOiJIUzI1NiJ9")
-  assertErr r
-  doAssert "Bearer" in r.error.value
+  var caught = false
+  try:
+    discard parseId("Bearer eyJhbGciOiJIUzI1NiJ9")
+  except ValidationError as e:
+    caught = true
+    doAssert "Bearer" in e.value
+  doAssert caught, "expected ValidationError"
 
 block crlfInMethodErrorDescription:
   ## CRLF in description is preserved — no sanitisation at Layer 1.
-  let me = methodError("serverFail", description = Opt.some("desc\r\nInjected: yes"))
+  let me = methodError("serverFail", description = some("desc\r\nInjected: yes"))
   doAssert "\r\n" in me.description.get()
 
 # =============================================================================
@@ -1384,15 +1346,12 @@ block stressResponseMethodResponses100k:
   ## Documents memory usage implications for large batch responses.
   var methodResponses = newJArray()
   for i in 0 ..< 100_000:
-    {.cast(noSideEffect).}:
-      methodResponses.add(%*["Method/" & $i, {}, "c" & $i])
+    methodResponses.add(%*["Method/" & $i, {}, "c" & $i])
   var j = newJObject()
-  {.cast(noSideEffect).}:
-    j["methodResponses"] = methodResponses
-    j["sessionState"] = %"s1"
+  j["methodResponses"] = methodResponses
+  j["sessionState"] = %"s1"
   let r = Response.fromJson(j)
-  assertOk r
-  assertEq r.get().methodResponses.len, 100_000
+  assertEq r.methodResponses.len, 100_000
 
 block stressSessionAccounts100k:
   ## Session with 100,000 accounts -> must succeed. Each account has minimal
@@ -1402,65 +1361,53 @@ block stressSessionAccounts100k:
   for i in 0 ..< 100_000:
     var acctCaps = newJObject()
     var acct = newJObject()
-    {.cast(noSideEffect).}:
-      acct["name"] = %("user" & $i)
-      acct["isPersonal"] = %true
-      acct["isReadOnly"] = %false
+    acct["name"] = %("user" & $i)
+    acct["isPersonal"] = %true
+    acct["isReadOnly"] = %false
     acct["accountCapabilities"] = acctCaps
-    {.cast(noSideEffect).}:
-      accts["acct" & $i] = acct
+    accts["acct" & $i] = acct
   j["accounts"] = accts
   let r = Session.fromJson(j)
-  assertOk r
-  assertEq r.get().accounts.len, 100_000
+  assertEq r.accounts.len, 100_000
 
 block stressRequestCreatedIds100k:
   ## Request with 100,000 createdIds entries -> must succeed.
   var j = validRequestJson()
   var ids = newJObject()
   for i in 0 ..< 100_000:
-    {.cast(noSideEffect).}:
-      ids["k" & $i] = newJString("id" & $i)
+    ids["k" & $i] = newJString("id" & $i)
   j["createdIds"] = ids
   let r = Request.fromJson(j)
-  assertOk r
-  doAssert r.get().createdIds.isSome
-  assertEq r.get().createdIds.get().len, 100_000
+  doAssert r.createdIds.isSome
+  assertEq r.createdIds.get().len, 100_000
 
 block stressSessionCapabilities100k:
   ## Session with 100,000 vendor capabilities -> must succeed. Documents
   ## that the library imposes no artificial capability count limit.
   var j = validSessionJson()
   let caps = newJObject()
-  {.cast(noSideEffect).}:
-    caps["urn:ietf:params:jmap:core"] = j["capabilities"]["urn:ietf:params:jmap:core"]
+  caps["urn:ietf:params:jmap:core"] = j["capabilities"]["urn:ietf:params:jmap:core"]
   for i in 0 ..< 100_000:
-    {.cast(noSideEffect).}:
-      caps["https://vendor.example/ext/" & $i] = newJObject()
+    caps["https://vendor.example/ext/" & $i] = newJObject()
   j["capabilities"] = caps
   let r = Session.fromJson(j)
-  assertOk r
-  assertGe r.get().capabilities.len, 100_001
+  assertGe r.capabilities.len, 100_001
 
 block stressSessionAccountCapabilities100k:
   ## Single account with 100,000 accountCapabilities -> must succeed.
   var j = validSessionJson()
   var acctCaps = newJObject()
   for i in 0 ..< 100_000:
-    {.cast(noSideEffect).}:
-      acctCaps["https://vendor.example/acap/" & $i] = newJObject()
+    acctCaps["https://vendor.example/acap/" & $i] = newJObject()
   var accts = newJObject()
   var acct = newJObject()
-  {.cast(noSideEffect).}:
-    acct["name"] = %"user"
-    acct["isPersonal"] = %true
-    acct["isReadOnly"] = %false
+  acct["name"] = %"user"
+  acct["isPersonal"] = %true
+  acct["isReadOnly"] = %false
   acct["accountCapabilities"] = acctCaps
-  {.cast(noSideEffect).}:
-    accts["a1"] = acct
+  accts["a1"] = acct
   j["accounts"] = accts
   let r = Session.fromJson(j)
-  assertOk r
-  let parsedAccounts = r.get().accounts
+  let parsedAccounts = r.accounts
   for acctId, account in parsedAccounts:
     assertGe account.accountCapabilities.len, 100_000

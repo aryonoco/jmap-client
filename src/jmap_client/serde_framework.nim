@@ -19,9 +19,7 @@ proc toJson*(op: FilterOperator): JsonNode =
   ## Serialise FilterOperator to its RFC string.
   %($op)
 
-proc fromJson*(
-    T: typedesc[FilterOperator], node: JsonNode
-): FilterOperator =
+proc fromJson*(T: typedesc[FilterOperator], node: JsonNode): FilterOperator =
   ## Deserialise a JSON string to FilterOperator. Not total — unknown
   ## operators return err because the RFC defines exactly three.
   checkJsonKind(node, JString, $T)
@@ -45,9 +43,7 @@ proc toJson*(c: Comparator): JsonNode =
   if c.collation.isSome:
     result["collation"] = %c.collation.get()
 
-proc fromJson*(
-    T: typedesc[Comparator], node: JsonNode
-): Comparator =
+proc fromJson*(T: typedesc[Comparator], node: JsonNode): Comparator =
   ## Deserialise JSON to Comparator (RFC 8620 section 5.5).
   checkJsonKind(node, JObject, $T)
   let propNode = node{"property"}
@@ -70,10 +66,7 @@ proc fromJson*(
 # Filter[C]
 # =============================================================================
 
-proc toJson*[C](
-    f: Filter[C],
-    filterConditionToJson: proc(c: C): JsonNode,
-): JsonNode =
+proc toJson*[C](f: Filter[C], filterConditionToJson: proc(c: C): JsonNode): JsonNode =
   ## Serialise Filter[C] to JSON. Caller provides condition serialiser.
   case f.kind
   of fkCondition:
@@ -94,9 +87,7 @@ const MaxFilterDepth* = 128
   ## apply at this layer.
 
 proc fromJsonImpl[C](
-    node: JsonNode,
-    fromCondition: proc(n: JsonNode): C,
-    depth: int,
+    node: JsonNode, fromCondition: proc(n: JsonNode): C, depth: int
 ): Filter[C] =
   ## Internal recursive helper with depth tracking.
   const typeName = "Filter"
@@ -120,9 +111,7 @@ proc fromJsonImpl[C](
     filterOperator(op, children)
 
 proc fromJson*[C](
-    T: typedesc[Filter[C]],
-    node: JsonNode,
-    fromCondition: proc(n: JsonNode): C,
+    T: typedesc[Filter[C]], node: JsonNode, fromCondition: proc(n: JsonNode): C
 ): Filter[C] =
   ## Deserialise JSON to Filter[C]. Caller provides condition deserialiser.
   ## Dispatches on presence of "operator" key. Nesting depth is capped at
@@ -142,9 +131,7 @@ proc toJson*(patch: PatchObject): JsonNode =
   for path, value in tbl:
     result[path] = value
 
-proc fromJson*(
-    T: typedesc[PatchObject], node: JsonNode
-): PatchObject =
+proc fromJson*(T: typedesc[PatchObject], node: JsonNode): PatchObject =
   ## Deserialise JSON to PatchObject using smart constructors.
   ## null values -> deleteProp, other values -> setProp.
   checkJsonKind(node, JObject, $T)
@@ -164,9 +151,7 @@ proc toJson*(item: AddedItem): JsonNode =
   ## Serialise AddedItem to JSON (RFC 8620 section 5.6).
   result = %*{"id": string(item.id), "index": int64(item.index)}
 
-proc fromJson*(
-    T: typedesc[AddedItem], node: JsonNode
-): AddedItem =
+proc fromJson*(T: typedesc[AddedItem], node: JsonNode): AddedItem =
   ## Deserialise JSON to AddedItem.
   checkJsonKind(node, JObject, $T)
   let id = Id.fromJson(node{"id"})

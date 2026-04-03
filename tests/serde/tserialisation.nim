@@ -136,8 +136,7 @@ block allTypePairsAccessible:
   let cap = ServerCapability.fromJson("urn:ietf:params:jmap:mail", capData)
   discard cap.toJson()
   # AccountCapabilityEntry (requires uri parameter)
-  let entry =
-    AccountCapabilityEntry.fromJson("urn:ietf:params:jmap:mail", newJObject())
+  let entry = AccountCapabilityEntry.fromJson("urn:ietf:params:jmap:mail", newJObject())
   discard entry.toJson()
   # Session (full round-trip via golden JSON)
   let sj = goldenSessionJson()

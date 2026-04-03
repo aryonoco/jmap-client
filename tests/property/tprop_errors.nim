@@ -1,14 +1,11 @@
 # SPDX-License-Identifier: BSD-2-Clause
 # Copyright (c) 2026 Aryan Ameri
 
-{.push raises: [].}
-
 ## Property-based tests for error type parsers and constructors.
 
 import std/json
+import std/options
 import std/random
-
-import results
 
 import jmap_client/primitives
 import jmap_client/capabilities
@@ -107,7 +104,7 @@ block propSetErrorDefensiveFallback:
   doAssert setError("alreadyExists").errorType == setUnknown
 
 block propCapabilityUriUnknownIsErr:
-  doAssert capabilityUri(ckUnknown).isErr
+  doAssert capabilityUri(ckUnknown).isNone
 
 # --- Error type partition properties ---
 
@@ -183,7 +180,7 @@ block propClientErrorLiftTransport:
     let ce = clientError(te)
     doAssert ce.kind == cekTransport
     doAssert ce.transport.kind == te.kind
-    doAssert ce.transport.message == te.message
+    doAssert ce.transport.msg == te.msg
     if te.kind == tekHttpStatus:
       doAssert ce.transport.httpStatus == te.httpStatus
 
@@ -208,9 +205,9 @@ block propSetErrorInvalidPropertiesFieldPreservation:
       props.add "prop" & $i
     let desc =
       if rng.rand(0 .. 1) == 0:
-        Opt.some("desc-" & $rng.rand(0 .. 99))
+        some("desc-" & $rng.rand(0 .. 99))
       else:
-        Opt.none(string)
+        none(string)
     let se = setErrorInvalidProperties("invalidProperties", props, desc)
     doAssert se.errorType == setInvalidProperties
     doAssert se.properties == props
@@ -219,12 +216,12 @@ block propSetErrorInvalidPropertiesFieldPreservation:
 block propSetErrorAlreadyExistsFieldPreservation:
   checkProperty "alreadyExists variant preserves existingId field":
     let idStr = genValidIdStrict(rng, minLen = 1, maxLen = 20)
-    let id = parseId(idStr).get()
+    let id = parseId(idStr)
     let desc =
       if rng.rand(0 .. 1) == 0:
-        Opt.some("desc-" & $rng.rand(0 .. 99))
+        some("desc-" & $rng.rand(0 .. 99))
       else:
-        Opt.none(string)
+        none(string)
     let se = setErrorAlreadyExists("alreadyExists", id, desc)
     doAssert se.errorType == setAlreadyExists
     doAssert se.existingId == id
@@ -267,15 +264,14 @@ block propRequestErrorExtrasPreservation:
     lastInput = re.rawType
     let j = re.toJson()
     let rt = RequestError.fromJson(j)
-    doAssert rt.isOk, "RequestError round-trip failed"
     # If original had extras, verify they survived.
     if re.extras.isSome:
-      doAssert rt.get().extras.isSome, "extras lost in round-trip"
+      doAssert rt.extras.isSome, "extras lost in round-trip"
       for key, val in re.extras.get().pairs:
-        doAssert rt.get().extras.get().hasKey(key),
+        doAssert rt.extras.get().hasKey(key),
           "extras key '" & key & "' lost in round-trip"
     # If limit was set, verify it survived.
-    doAssert rt.get().limit == re.limit, "limit field not preserved"
+    doAssert rt.limit == re.limit, "limit field not preserved"
 
 block propMethodErrorExtrasPreservation:
   ## Extras survive fromJson(toJson(err)) round-trip for MethodError.
@@ -284,11 +280,10 @@ block propMethodErrorExtrasPreservation:
     lastInput = me.rawType
     let j = me.toJson()
     let rt = MethodError.fromJson(j)
-    doAssert rt.isOk, "MethodError round-trip failed"
     if me.extras.isSome:
-      doAssert rt.get().extras.isSome, "extras lost in round-trip"
+      doAssert rt.extras.isSome, "extras lost in round-trip"
       for key, val in me.extras.get().pairs:
-        doAssert rt.get().extras.get().hasKey(key),
+        doAssert rt.extras.get().hasKey(key),
           "extras key '" & key & "' lost in round-trip"
 
 block propSetErrorExtrasPreservation:
@@ -298,9 +293,8 @@ block propSetErrorExtrasPreservation:
     lastInput = se.rawType
     let j = se.toJson()
     let rt = SetError.fromJson(j)
-    doAssert rt.isOk, "SetError round-trip failed"
     if se.extras.isSome:
-      doAssert rt.get().extras.isSome, "extras lost in round-trip"
+      doAssert rt.extras.isSome, "extras lost in round-trip"
       for key, val in se.extras.get().pairs:
-        doAssert rt.get().extras.get().hasKey(key),
+        doAssert rt.extras.get().hasKey(key),
           "extras key '" & key & "' lost in round-trip"

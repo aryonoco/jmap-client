@@ -44,9 +44,8 @@ block roundTripInvocation:
   assertOkEq Invocation.fromJson(original.toJson()), original
 
 block roundTripInvocationComplexArguments:
-  let args = %*{
-    "accountId": "A1", "list": [1, 2, 3], "filter": {"nested": {"deep": newJNull()}}
-  }
+  let args =
+    %*{"accountId": "A1", "list": [1, 2, 3], "filter": {"nested": {"deep": newJNull()}}}
   let original = initInvocation("Email/get", args, makeMcid("c1"))
   let v = Invocation.fromJson(original.toJson())
   doAssert v.name == original.name
@@ -238,8 +237,7 @@ block invocationDeserEmptyMethodName:
   assertErrContains Invocation.fromJson(%*["", {}, "c1"]), "must not be empty"
 
 block invocationDeserEmptyCallId:
-  assertErrContains Invocation.fromJson(%*["Mailbox/get", {}, ""]),
-    "must not be empty"
+  assertErrContains Invocation.fromJson(%*["Mailbox/get", {}, ""]), "must not be empty"
 
 block invocationDeserNil:
   const nilNode: JsonNode = nil
@@ -259,9 +257,8 @@ block requestDeserMissingMethodCalls:
   assertErrContains Request.fromJson(j), "missing or invalid methodCalls"
 
 block requestDeserUsingNotArray:
-  let j = %*{
-    "using": "urn:ietf:params:jmap:core", "methodCalls": [["Mailbox/get", {}, "c0"]]
-  }
+  let j =
+    %*{"using": "urn:ietf:params:jmap:core", "methodCalls": [["Mailbox/get", {}, "c0"]]}
   assertErr Request.fromJson(j)
 
 block requestDeserMethodCallsNotArray:
@@ -449,7 +446,8 @@ block referencableBothPresentConflictRejected:
   ## RFC 8620 section 3.7: both direct and referenced forms present must be rejected.
   let node =
     %*{"ids": 42, "#ids": {"resultOf": "c0", "name": "Mailbox/query", "path": "/ids"}}
-  assertErrContains fromJsonField[int]("ids", node, fromDirectInt), "cannot specify both"
+  assertErrContains fromJsonField[int]("ids", node, fromDirectInt),
+    "cannot specify both"
 
 block referencableMissingBothKeys:
   let node = %*{"other": 99}
@@ -525,8 +523,7 @@ block invocationComplexNestedArgsRoundTrip:
   let args = %*{
     "filter": {
       "operator": "AND",
-      "conditions":
-        [{"subject": "test"}, {"nested": {"deep": {"value": [1, 2, nil]}}}],
+      "conditions": [{"subject": "test"}, {"nested": {"deep": {"value": [1, 2, nil]}}}],
     },
     "nullField": nil,
     "emptyArray": [],

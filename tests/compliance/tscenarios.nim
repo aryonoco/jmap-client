@@ -1,15 +1,12 @@
 # SPDX-License-Identifier: BSD-2-Clause
 # Copyright (c) 2026 Aryan Ameri
 
-{.push raises: [].}
-
 ## Cross-module integration and scenario tests. Exercises realistic JMAP
 ## interaction workflows that span multiple Layer 1 modules.
 
 import std/json
+import std/options
 import std/tables
-
-import results
 
 import jmap_client/primitives
 import jmap_client/identifiers
@@ -32,10 +29,9 @@ block scenarioSessionToRequest:
   ## then construct a Mailbox/get Request with the correct AccountId.
   let args = makeFastmailSession()
   let session = parseSession(
-      args.capabilities, args.accounts, args.primaryAccounts, args.username,
-      args.apiUrl, args.downloadUrl, args.uploadUrl, args.eventSourceUrl, args.state,
-    )
-    .get()
+    args.capabilities, args.accounts, args.primaryAccounts, args.username, args.apiUrl,
+    args.downloadUrl, args.uploadUrl, args.eventSourceUrl, args.state,
+  )
 
   # Extract primary account for mail
   let mailAcctId = session.primaryAccount(ckMail)
@@ -49,7 +45,7 @@ block scenarioSessionToRequest:
 
   # Verify core limits
   let core = session.coreCapabilities()
-  doAssert core.maxCallsInRequest == parseUnsignedInt(32).get()
+  doAssert core.maxCallsInRequest == parseUnsignedInt(32)
 
   # Construct a Request
   let mcid = makeMcid("c0")
@@ -57,7 +53,7 @@ block scenarioSessionToRequest:
   let req = Request(
     `using`: @["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail"],
     methodCalls: @[inv],
-    createdIds: Opt.none(Table[CreationId, Id]),
+    createdIds: none(Table[CreationId, Id]),
   )
   doAssert req.methodCalls.len == 1
   doAssert req.methodCalls[0].methodCallId == mcid
@@ -85,7 +81,7 @@ block scenarioMultiMethodWithReferences:
   let req = Request(
     `using`: @["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail"],
     methodCalls: @[queryInv, getInv, setInv],
-    createdIds: Opt.none(Table[CreationId, Id]),
+    createdIds: none(Table[CreationId, Id]),
   )
   doAssert req.methodCalls.len == 3
   doAssert req.methodCalls[0].methodCallId == mcid0
@@ -101,7 +97,7 @@ block scenarioCreatedIdsRoundTrip:
   let req = Request(
     `using`: @["urn:ietf:params:jmap:core"],
     methodCalls: @[makeInvocation()],
-    createdIds: Opt.some(cids),
+    createdIds: some(cids),
   )
   doAssert req.createdIds.isSome
   doAssert req.createdIds.get().len == 2
@@ -109,7 +105,7 @@ block scenarioCreatedIdsRoundTrip:
   # Response echoes the same createdIds
   let resp = Response(
     methodResponses: @[makeInvocation()],
-    createdIds: Opt.some(cids),
+    createdIds: some(cids),
     sessionState: makeState("s2"),
   )
   doAssert resp.createdIds.isSome
@@ -124,13 +120,13 @@ block scenarioResponseCorrelation:
     `using`: @["urn:ietf:params:jmap:core"],
     methodCalls:
       @[makeInvocation("Mailbox/get", mcid0), makeInvocation("Email/get", mcid1)],
-    createdIds: Opt.none(Table[CreationId, Id]),
+    createdIds: none(Table[CreationId, Id]),
   )
 
   let resp = Response(
     methodResponses:
       @[makeInvocation("Mailbox/get", mcid0), makeInvocation("Email/get", mcid1)],
-    createdIds: Opt.none(Table[CreationId, Id]),
+    createdIds: none(Table[CreationId, Id]),
     sessionState: makeState("s1"),
   )
 
@@ -143,23 +139,21 @@ block scenarioResponseCorrelation:
 # =============================================================================
 
 block scenarioTransportFailureCascade:
-  ## Track 1: Transport failure -> ClientError -> JmapResult.err -> message().
+  ## Track 1: Transport failure -> ClientError -> message().
   let te = transportError(tekNetwork, "connection refused")
   let ce = clientError(te)
   doAssert ce.kind == cekTransport
   doAssert ce.message == "connection refused"
 
-  # Wrap in JmapResult
-  let result = JmapResult[string].err(ce)
-  doAssert result.isErr
-  doAssert result.error.message == "connection refused"
+  # ClientError message accessible directly
+  doAssert message(ce) == "connection refused"
 
 block scenarioRequestRejectionCascade:
   ## Track 1: Request rejection with limit error -> message prefers detail.
   let re = requestError(
     "urn:ietf:params:jmap:error:limit",
-    detail = Opt.some("Too many method calls"),
-    limit = Opt.some("maxCallsInRequest"),
+    detail = some("Too many method calls"),
+    limit = some("maxCallsInRequest"),
   )
   let ce = clientError(re)
   doAssert ce.kind == cekRequest
@@ -170,14 +164,13 @@ block scenarioMessageCascadePriority:
   # detail present
   let re1 = requestError(
     "urn:ietf:params:jmap:error:notJSON",
-    title = Opt.some("Not JSON"),
-    detail = Opt.some("Body is not valid JSON"),
+    title = some("Not JSON"),
+    detail = some("Body is not valid JSON"),
   )
   doAssert clientError(re1).message == "Body is not valid JSON"
 
   # detail absent, title present
-  let re2 =
-    requestError("urn:ietf:params:jmap:error:notJSON", title = Opt.some("Not JSON"))
+  let re2 = requestError("urn:ietf:params:jmap:error:notJSON", title = some("Not JSON"))
   doAssert clientError(re2).message == "Not JSON"
 
   # both absent, falls back to rawType
@@ -192,7 +185,7 @@ block scenarioMethodErrorInResponse:
     makeMcid("c0"),
   )
   doAssert errInv.name == "error"
-  let me = methodError("invalidArguments", description = Opt.some("missing accountId"))
+  let me = methodError("invalidArguments", description = some("missing accountId"))
   doAssert me.errorType == metInvalidArguments
   doAssert me.description.get() == "missing accountId"
 
@@ -217,10 +210,8 @@ block scenarioTlsError:
   ## Transport TLS failure path.
   let te = transportError(tekTls, "certificate verification failed")
   let ce = clientError(te)
-  let result = JmapResult[int].err(ce)
-  doAssert result.isErr
-  doAssert result.error.kind == cekTransport
-  doAssert result.error.transport.kind == tekTls
+  doAssert ce.kind == cekTransport
+  doAssert ce.transport.kind == tekTls
 
 block scenarioTimeoutError:
   ## Transport timeout failure path.
@@ -244,10 +235,9 @@ block scenarioFastmailSession:
   ## Fastmail-style session: multiple capabilities including vendor extensions.
   let args = makeFastmailSession()
   let session = parseSession(
-      args.capabilities, args.accounts, args.primaryAccounts, args.username,
-      args.apiUrl, args.downloadUrl, args.uploadUrl, args.eventSourceUrl, args.state,
-    )
-    .get()
+    args.capabilities, args.accounts, args.primaryAccounts, args.username, args.apiUrl,
+    args.downloadUrl, args.uploadUrl, args.eventSourceUrl, args.state,
+  )
 
   # Verify vendor extension accessible by URI
   let vendorCap = session.findCapabilityByUri("https://www.fastmail.com/dev/contacts")
@@ -273,15 +263,14 @@ block scenarioMinimalSession:
   ## Bare minimum session: ckCore only, no accounts, no primary accounts.
   let args = makeMinimalSession()
   let session = parseSession(
-      args.capabilities, args.accounts, args.primaryAccounts, args.username,
-      args.apiUrl, args.downloadUrl, args.uploadUrl, args.eventSourceUrl, args.state,
-    )
-    .get()
+    args.capabilities, args.accounts, args.primaryAccounts, args.username, args.apiUrl,
+    args.downloadUrl, args.uploadUrl, args.eventSourceUrl, args.state,
+  )
   doAssert session.accounts.len == 0
   doAssert session.primaryAccounts.len == 0
   doAssert session.username == ""
   let core = session.coreCapabilities()
-  doAssert core.maxSizeUpload == parseUnsignedInt(0).get()
+  doAssert core.maxSizeUpload == parseUnsignedInt(0)
 
 block scenarioMultiTenantAccounts:
   ## Session with multiple accounts, different capability subsets.
@@ -299,10 +288,9 @@ block scenarioMultiTenantAccounts:
   primaryAccounts["urn:ietf:params:jmap:mail"] = makeAccountId("acct1")
 
   let session = parseSession(
-      args.capabilities, accounts, primaryAccounts, args.username, args.apiUrl,
-      args.downloadUrl, args.uploadUrl, args.eventSourceUrl, args.state,
-    )
-    .get()
+    args.capabilities, accounts, primaryAccounts, args.username, args.apiUrl,
+    args.downloadUrl, args.uploadUrl, args.eventSourceUrl, args.state,
+  )
 
   doAssert session.accounts.len == 5
   let acct3 = session.findAccount(makeAccountId("acct3"))
@@ -322,10 +310,9 @@ block scenarioSessionAccountCapabilityChain:
   ## Accessor chain: Session -> Account -> findCapability -> AccountCapabilityEntry.
   let args = makeFastmailSession()
   let session = parseSession(
-      args.capabilities, args.accounts, args.primaryAccounts, args.username,
-      args.apiUrl, args.downloadUrl, args.uploadUrl, args.eventSourceUrl, args.state,
-    )
-    .get()
+    args.capabilities, args.accounts, args.primaryAccounts, args.username, args.apiUrl,
+    args.downloadUrl, args.uploadUrl, args.eventSourceUrl, args.state,
+  )
   let acctId = session.primaryAccount(ckMail).get()
   let account = session.findAccount(acctId).get()
   let mailCap = account.findCapability(ckMail)
@@ -389,7 +376,7 @@ block scenarioServerCapabilityRawDataPreservation:
 block scenarioRequestErrorExtrasPreservation:
   ## Non-standard fields in RequestError are preserved in extras.
   let extras = %*{"requestId": "req-123", "retryAfter": 30}
-  let re = requestError("urn:ietf:params:jmap:error:limit", extras = Opt.some(extras))
+  let re = requestError("urn:ietf:params:jmap:error:limit", extras = some(extras))
   doAssert re.extras.isSome
   doAssert re.extras.get()["requestId"].getStr() == "req-123"
   doAssert re.extras.get()["retryAfter"].getInt() == 30
@@ -397,7 +384,7 @@ block scenarioRequestErrorExtrasPreservation:
 block scenarioMethodErrorExtrasPreservation:
   ## Non-standard fields in MethodError are preserved in extras.
   let extras = %*{"serverMessage": "database overloaded"}
-  let me = methodError("serverFail", extras = Opt.some(extras))
+  let me = methodError("serverFail", extras = some(extras))
   doAssert me.extras.isSome
   doAssert me.extras.get()["serverMessage"].getStr() == "database overloaded"
 
@@ -406,10 +393,10 @@ block scenarioMethodErrorExtrasPreservation:
 # =============================================================================
 
 block scenarioPrimaryAccountCkUnknownReturnsNone:
-  ## primaryAccount(session, ckUnknown) returns Opt.none because capabilityUri
+  ## primaryAccount(session, ckUnknown) returns none because capabilityUri
   ## returns err for ckUnknown — the early return via ? propagates.
   let args = makeSessionArgs()
-  let session = parseSessionFromArgs(args).get()
+  let session = parseSessionFromArgs(args)
   doAssert primaryAccount(session, ckUnknown).isNone,
     "primaryAccount for ckUnknown should return None"
 
@@ -417,7 +404,7 @@ block scenarioEmptyUsingAndMethodCalls:
   ## Request with empty using and empty methodCalls is valid at Layer 1.
   ## Layer 3 protocol logic may reject this, but Layer 1 holds the data.
   let req =
-    Request(`using`: @[], methodCalls: @[], createdIds: Opt.none(Table[CreationId, Id]))
+    Request(`using`: @[], methodCalls: @[], createdIds: none(Table[CreationId, Id]))
   doAssert req.`using`.len == 0
   doAssert req.methodCalls.len == 0
 
@@ -430,7 +417,7 @@ block scenarioDuplicateMethodCallIdsInRequest:
   let req = Request(
     `using`: @["urn:ietf:params:jmap:core"],
     methodCalls: @[inv1, inv2],
-    createdIds: Opt.none(Table[CreationId, Id]),
+    createdIds: none(Table[CreationId, Id]),
   )
   doAssert req.methodCalls.len == 2
   doAssert req.methodCalls[0].methodCallId == req.methodCalls[1].methodCallId
@@ -440,7 +427,7 @@ block scenarioResponseWithErrorInvocation:
   let errInv = initInvocation("error", %*{"type": "serverFail"}, makeMcid("c0"))
   let resp = Response(
     methodResponses: @[errInv],
-    createdIds: Opt.none(Table[CreationId, Id]),
+    createdIds: none(Table[CreationId, Id]),
     sessionState: makeState("s1"),
   )
   doAssert resp.methodResponses[0].name == "error"
@@ -448,13 +435,13 @@ block scenarioResponseWithErrorInvocation:
 block scenarioHasVariableEmptyString:
   ## hasVariable with empty name searches for "{}" — not present in typical
   ## templates, so returns false. Documents the wrapping semantics.
-  let tmpl = parseUriTemplate("https://example.com/{accountId}").get()
+  let tmpl = parseUriTemplate("https://example.com/{accountId}")
   doAssert not tmpl.hasVariable(""), "empty variable name searches for '{}'"
 
 block scenarioFindAccountEmptyTable:
   ## findAccount returns None when accounts table is empty.
   let args = makeMinimalSession()
-  let session = parseSessionFromArgs(args).get()
+  let session = parseSessionFromArgs(args)
   doAssert session.findAccount(makeAccountId("nonexistent")).isNone
 
 # =============================================================================
@@ -465,7 +452,7 @@ block filterWithPropertyNameType:
   ## Filter parameterised with a validated domain type (PropertyName) as string.
   ## Note: PropertyName has {.requiresInit.}, so Filter[PropertyName] cannot be
   ## used directly (seq requires a default value). We verify the name round-trips.
-  let pn = parsePropertyName("subject").get()
+  let pn = parsePropertyName("subject")
   let pnStr = $pn
   let f = filterCondition(pnStr)
   doAssert f.kind == fkCondition
@@ -475,8 +462,8 @@ block filterWithAccountIdType:
   ## Filter parameterised with string — using AccountId string representations
   ## to verify Filter composition across module boundaries. Direct use of
   ## requiresInit distinct types as Filter[C] triggers seq default-value issues.
-  let acctStr1 = $parseAccountId("acct1").get()
-  let acctStr2 = $parseAccountId("acct2").get()
+  let acctStr1 = $parseAccountId("acct1")
+  let acctStr2 = $parseAccountId("acct2")
   let f = filterCondition(acctStr1)
   let f2 = filterCondition(acctStr2)
   let combined = filterOperator[string](foAnd, @[f, f2])
@@ -493,8 +480,8 @@ block errorCascadeDetailPriority:
   ## Request error with detail, title, and rawType — detail takes priority.
   let re = requestError(
     "urn:ietf:params:jmap:error:limit",
-    title = Opt.some("Rate Limited"),
-    detail = Opt.some("Too many requests per second"),
+    title = some("Rate Limited"),
+    detail = some("Too many requests per second"),
   )
   let ce = clientError(re)
   doAssert message(ce) == "Too many requests per second"
@@ -502,21 +489,20 @@ block errorCascadeDetailPriority:
 block sessionToRequestIntegration:
   ## Construct Session -> extract capabilities -> build Request with those URIs.
   let args = makeFastmailSession()
-  let session = parseSessionFromArgs(args).get()
+  let session = parseSessionFromArgs(args)
   var capUris: seq[string] = @[]
   for cap in session.capabilities:
     capUris.add cap.rawUri
   let req = Request(
     `using`: capUris,
-    methodCalls:
-      @[initInvocation("Mailbox/get", newJObject(), parseMethodCallId("c0").get())],
-    createdIds: Opt.none(Table[CreationId, Id]),
+    methodCalls: @[initInvocation("Mailbox/get", newJObject(), parseMethodCallId("c0"))],
+    createdIds: none(Table[CreationId, Id]),
   )
   doAssert req.`using`.len == capUris.len
 
 block resultReferenceWithPriorInvocation:
   ## Build a ResultReference that references a prior Invocation's MethodCallId.
-  let mcid1 = parseMethodCallId("c1").get()
+  let mcid1 = parseMethodCallId("c1")
   let inv1 = initInvocation("Email/query", newJObject(), mcid1)
   let ref1 = ResultReference(resultOf: mcid1, name: "Email/query", path: RefPathIds)
   doAssert ref1.resultOf == inv1.methodCallId

@@ -19,9 +19,7 @@ proc toJson*(inv: Invocation): JsonNode =
   ## Serialise Invocation as 3-element JSON array (RFC 8620 section 3.2).
   result = %*[inv.name, inv.arguments, string(inv.methodCallId)]
 
-proc fromJson*(
-    T: typedesc[Invocation], node: JsonNode
-): Invocation =
+proc fromJson*(T: typedesc[Invocation], node: JsonNode): Invocation =
   ## Deserialise a 3-element JSON array to Invocation (RFC 8620 section 3.2).
   checkJsonKind(node, JArray, $T)
   if node.len != 3:
@@ -46,9 +44,7 @@ proc fromJson*(
 # createdIds helper
 # =============================================================================
 
-proc parseCreatedIds(
-    node: JsonNode, typeName: string
-): Option[Table[CreationId, Id]] =
+proc parseCreatedIds(node: JsonNode, typeName: string): Option[Table[CreationId, Id]] =
   ## Parse optional createdIds from a Request or Response JSON object.
   ## Container-strict: wrong container kind raises (design doc section 9).
   let cnode = node{"createdIds"}
@@ -120,9 +116,7 @@ proc toJson*(r: Response): JsonNode =
       ids[string(k)] = %string(v)
     result["createdIds"] = ids
 
-proc fromJson*(
-    T: typedesc[Response], node: JsonNode
-): Response =
+proc fromJson*(T: typedesc[Response], node: JsonNode): Response =
   ## Deserialise JSON to Response (RFC 8620 section 3.4).
   checkJsonKind(node, JObject, "Response")
   let responsesNode = node{"methodResponses"}
@@ -149,9 +143,7 @@ proc toJson*(r: ResultReference): JsonNode =
   ## Serialise ResultReference to JSON (RFC 8620 section 3.7).
   result = %*{"resultOf": string(r.resultOf), "name": r.name, "path": r.path}
 
-proc fromJson*(
-    T: typedesc[ResultReference], node: JsonNode
-): ResultReference =
+proc fromJson*(T: typedesc[ResultReference], node: JsonNode): ResultReference =
   ## Deserialise JSON to ResultReference (RFC 8620 section 3.7).
   checkJsonKind(node, JObject, $T)
   let resultOfNode = node{"resultOf"}
@@ -183,9 +175,7 @@ proc referencableKey*[T](fieldName: string, r: Referencable[T]): string =
     "#" & fieldName
 
 proc fromJsonField*[T](
-    fieldName: string,
-    node: JsonNode,
-    fromDirect: proc(n: JsonNode): T,
+    fieldName: string, node: JsonNode, fromDirect: proc(n: JsonNode): T
 ): Referencable[T] =
   ## Parse a Referencable field from a JSON object.
   ## Checks "#fieldName" (reference) first, then "fieldName" (direct).
@@ -201,14 +191,11 @@ proc fromJsonField*[T](
     )
   if not refNode.isNil:
     if refNode.kind != JObject:
-      raise parseError(
-        "Referencable", refKey & " must be a JSON object (ResultReference)"
-      )
+      raise
+        parseError("Referencable", refKey & " must be a JSON object (ResultReference)")
     let resultRef = ResultReference.fromJson(refNode)
     return referenceTo[T](resultRef)
   if directNode.isNil:
-    raise parseError(
-      "Referencable", "missing field: " & fieldName & " or " & refKey
-    )
+    raise parseError("Referencable", "missing field: " & fieldName & " or " & refKey)
   let value = fromDirect(directNode)
   direct[T](value)

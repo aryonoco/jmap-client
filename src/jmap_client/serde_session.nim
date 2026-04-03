@@ -33,9 +33,7 @@ proc toJson*(caps: CoreCapabilities): JsonNode =
     algArr.add(%alg)
   result["collationAlgorithms"] = algArr
 
-proc fromJson*(
-    T: typedesc[CoreCapabilities], node: JsonNode
-): CoreCapabilities =
+proc fromJson*(T: typedesc[CoreCapabilities], node: JsonNode): CoreCapabilities =
   ## Deserialise urn:ietf:params:jmap:core capability data.
   checkJsonKind(node, JObject, $T)
   let maxSizeUpload = UnsignedInt.fromJson(node{"maxSizeUpload"})
@@ -168,9 +166,8 @@ proc fromJson*(
 
 proc toJson*(acct: Account): JsonNode =
   ## Serialise Account to JSON (RFC 8620 §2).
-  result = %*{
-    "name": acct.name, "isPersonal": acct.isPersonal, "isReadOnly": acct.isReadOnly
-  }
+  result =
+    %*{"name": acct.name, "isPersonal": acct.isPersonal, "isReadOnly": acct.isReadOnly}
   var acctCaps = newJObject()
   for _, entry in acct.accountCapabilities:
     acctCaps[entry.rawUri] = entry.toJson()
