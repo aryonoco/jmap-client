@@ -388,23 +388,8 @@ block findAccountUnknown:
   doAssert findAccount(goldenSession, AccountId("nonexistent")).isNone
 
 # =============================================================================
-# E. Invariant violation
+# E. Invariant violation — tested in tsession_invariant.nim (panics:on)
 # =============================================================================
-
-block coreCapabilitiesInvariantViolation:
-  doAssertRaises(AssertionDefect):
-    let badSession = Session(
-      capabilities: @[],
-      accounts: initTable[AccountId, Account](),
-      primaryAccounts: initTable[string, AccountId](),
-      username: "",
-      apiUrl: "https://example.com/api/",
-      downloadUrl: parseUriTemplate("https://example.com/d"),
-      uploadUrl: parseUriTemplate("https://example.com/u"),
-      eventSourceUrl: parseUriTemplate("https://example.com/e"),
-      state: parseJmapState("s1"),
-    )
-    discard coreCapabilities(badSession)
 
 # =============================================================================
 # G. Adversarial edge cases

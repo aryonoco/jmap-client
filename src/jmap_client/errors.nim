@@ -201,13 +201,9 @@ proc setError*(
   let errorType = parseSetErrorType(rawType)
   let safeType =
     if errorType in {setInvalidProperties, setAlreadyExists}: setUnknown else: errorType
-  # Construct with setUnknown (compile-time literal), then set the actual
-  # discriminator. Safe because safeType is always in the else-discard branch —
-  # same memory layout as setUnknown.
-  result = SetError(
-    errorType: setUnknown, rawType: rawType, description: description, extras: extras
+  SetError(
+    errorType: safeType, rawType: rawType, description: description, extras: extras
   )
-  result.errorType = safeType
 
 proc setErrorInvalidProperties*(
     rawType: string,

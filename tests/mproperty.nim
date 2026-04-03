@@ -44,40 +44,24 @@ const ThoroughTrials* = 2000 ## For properties with large input spaces (Date, Se
 # Property check templates
 # ---------------------------------------------------------------------------
 
-{.push ruleOff: "trystatements".}
-
 template checkProperty*(name: string, body: untyped) =
   ## Runs body DefaultTrials times with an injected `rng` and `trial` variable.
-  ## Fixed seed (42) ensures deterministic reproduction. On failure, re-raises
-  ## with trial number for diagnostics.
+  ## Fixed seed (42) ensures deterministic reproduction. With --panics:on,
+  ## assertion failures abort immediately with a full stack trace.
   block:
     var rng {.inject.} = initRand(42)
     var lastInput {.inject.}: string = ""
     for trial {.inject.} in 0 ..< DefaultTrials:
-      try:
-        body
-      except AssertionDefect as e:
-        let ctx =
-          name & " failed at trial " & $trial &
-          (if lastInput.len > 0: " (input: " & lastInput & ")" else: "") & ": " & e.msg
-        raiseAssert ctx
+      body
 
 template checkPropertyN*(name: string, trials: int, body: untyped) =
   ## Runs body `trials` times. Use QuickTrials or ThoroughTrials for non-default
-  ## counts. On failure, re-raises with trial number for diagnostics.
+  ## counts. With --panics:on, assertion failures abort immediately.
   block:
     var rng {.inject.} = initRand(42)
     var lastInput {.inject.}: string = ""
     for trial {.inject.} in 0 ..< trials:
-      try:
-        body
-      except AssertionDefect as e:
-        let ctx =
-          name & " failed at trial " & $trial &
-          (if lastInput.len > 0: " (input: " & lastInput & ")" else: "") & ": " & e.msg
-        raiseAssert ctx
-
-{.pop.} # trystatements
+      body
 
 # ---------------------------------------------------------------------------
 # Composition helpers
