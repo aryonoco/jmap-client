@@ -24,7 +24,7 @@ allow exceptions to propagate naturally.
 
 ## Error Handling
 
-This project uses Nim's native exception mechanism. Errors are communicated
+Errors are communicated
 via exceptions that propagate naturally through Layers 1–4, and are caught
 at the Layer 5 C ABI boundary.
 

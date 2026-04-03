@@ -1,16 +1,13 @@
 # SPDX-License-Identifier: BSD-2-Clause
 # Copyright (c) 2026 Aryan Ameri
 
-{.push raises: [].}
-
 ## Tests for Layer 2 error serialisation: RequestError, MethodError, and
 ## SetError round-trip, structural, edge-case, and property-based tests.
 
 import std/json
+import std/options
 import std/random
 import std/strutils
-
-import results
 
 import jmap_client/serde_errors
 import jmap_client/errors
@@ -29,49 +26,45 @@ block roundTripRequestErrorMinimal:
   assertOkEq RequestError.fromJson(original.toJson()), original
 
 block roundTripRequestErrorFull:
-  {.cast(noSideEffect).}:
-    let extras = newJObject()
-    extras["vendor"] = %"ext-info"
-    let original = requestError(
-      rawType = "urn:ietf:params:jmap:error:limit",
-      status = Opt.some(429),
-      title = Opt.some("Rate limit exceeded"),
-      detail = Opt.some("Too many requests in the last minute"),
-      limit = Opt.some("maxCallsInRequest"),
-      extras = Opt.some(extras),
-    )
-    assertOkEq RequestError.fromJson(original.toJson()), original
+  let extras = newJObject()
+  extras["vendor"] = %"ext-info"
+  let original = requestError(
+    rawType = "urn:ietf:params:jmap:error:limit",
+    status = some(429),
+    title = some("Rate limit exceeded"),
+    detail = some("Too many requests in the last minute"),
+    limit = some("maxCallsInRequest"),
+    extras = some(extras),
+  )
+  assertOkEq RequestError.fromJson(original.toJson()), original
 
 block roundTripRequestErrorUnknownType:
   let original = requestError(rawType = "urn:example:custom:error")
   doAssert original.errorType == retUnknown
   let rt = RequestError.fromJson(original.toJson())
-  assertOk rt
-  assertEq rt.get().rawType, "urn:example:custom:error"
-  doAssert rt.get().errorType == retUnknown
+  assertEq rt.rawType, "urn:example:custom:error"
+  doAssert rt.errorType == retUnknown
 
 block roundTripMethodErrorMinimal:
   let original = makeMethodError()
   assertOkEq MethodError.fromJson(original.toJson()), original
 
 block roundTripMethodErrorFull:
-  {.cast(noSideEffect).}:
-    let extras = newJObject()
-    extras["serverHint"] = %"retry after 5s"
-    let original = methodError(
-      rawType = "serverFail",
-      description = Opt.some("Internal server error"),
-      extras = Opt.some(extras),
-    )
-    assertOkEq MethodError.fromJson(original.toJson()), original
+  let extras = newJObject()
+  extras["serverHint"] = %"retry after 5s"
+  let original = methodError(
+    rawType = "serverFail",
+    description = some("Internal server error"),
+    extras = some(extras),
+  )
+  assertOkEq MethodError.fromJson(original.toJson()), original
 
 block roundTripMethodErrorUnknownType:
   let original = methodError(rawType = "customVendorError")
   doAssert original.errorType == metUnknown
   let rt = MethodError.fromJson(original.toJson())
-  assertOk rt
-  assertEq rt.get().rawType, "customVendorError"
-  doAssert rt.get().errorType == metUnknown
+  assertEq rt.rawType, "customVendorError"
+  doAssert rt.errorType == metUnknown
 
 block roundTripSetErrorForbidden:
   let original = setError("forbidden")
@@ -93,9 +86,7 @@ block roundTripSetErrorAlreadyExists:
 block roundTripSetErrorUnknownType:
   let original = setError("vendorSpecific")
   doAssert original.errorType == setUnknown
-  let rt = SetError.fromJson(original.toJson())
-  assertOk rt
-  let v = rt.get()
+  let v = SetError.fromJson(original.toJson())
   assertEq v.rawType, "vendorSpecific"
   doAssert v.errorType == setUnknown
 
@@ -116,18 +107,16 @@ block requestErrorToJsonFieldNames:
   doAssert j{"limit"}.isNil
 
 block requestErrorToJsonExtrasFlattened:
-  {.cast(noSideEffect).}:
-    let extras = newJObject()
-    extras["vendorExt"] = %"data"
-    let re = requestError(
-      rawType = "urn:ietf:params:jmap:error:notJSON", extras = Opt.some(extras)
-    )
-    let j = re.toJson()
-    doAssert j{"vendorExt"} != nil
-    assertEq j{"vendorExt"}.getStr(""), "data"
+  let extras = newJObject()
+  extras["vendorExt"] = %"data"
+  let re =
+    requestError(rawType = "urn:ietf:params:jmap:error:notJSON", extras = some(extras))
+  let j = re.toJson()
+  doAssert j{"vendorExt"} != nil
+  assertEq j{"vendorExt"}.getStr(""), "data"
 
 block methodErrorToJsonFieldNames:
-  let me = methodError(rawType = "invalidArguments", description = Opt.some("bad args"))
+  let me = methodError(rawType = "invalidArguments", description = some("bad args"))
   let j = me.toJson()
   doAssert j.kind == JObject
   doAssert j{"type"} != nil
@@ -174,41 +163,32 @@ block setErrorToJsonGenericNoVariantFields:
 # --- RequestError ---
 
 block requestErrorDeserMissingType:
-  {.cast(noSideEffect).}:
-    let j = %*{"status": 400}
-    assertErr RequestError.fromJson(j)
+  let j = %*{"status": 400}
+  assertErr RequestError.fromJson(j)
 
 block requestErrorDeserTypeWrongKind:
-  {.cast(noSideEffect).}:
-    let j = %*{"type": 42}
-    assertErr RequestError.fromJson(j)
+  let j = %*{"type": 42}
+  assertErr RequestError.fromJson(j)
 
 block requestErrorDeserEmptyType:
-  {.cast(noSideEffect).}:
-    let j = %*{"type": ""}
-    assertErrContains RequestError.fromJson(j), "empty type field"
+  let j = %*{"type": ""}
+  assertErrContains RequestError.fromJson(j), "empty type field"
 
 block requestErrorDeserUnknownType:
-  {.cast(noSideEffect).}:
-    let j = %*{"type": "urn:example:custom"}
-    let r = RequestError.fromJson(j)
-    assertOk r
-    doAssert r.get().errorType == retUnknown
-    assertEq r.get().rawType, "urn:example:custom"
+  let j = %*{"type": "urn:example:custom"}
+  let r = RequestError.fromJson(j)
+  doAssert r.errorType == retUnknown
+  assertEq r.rawType, "urn:example:custom"
 
 block requestErrorDeserExtrasCollected:
-  {.cast(noSideEffect).}:
-    let j = %*{"type": "urn:ietf:params:jmap:error:notJSON", "vendorField": "data"}
-    let r = RequestError.fromJson(j)
-    assertOk r
-    doAssert r.get().extras.isSome
+  let j = %*{"type": "urn:ietf:params:jmap:error:notJSON", "vendorField": "data"}
+  let r = RequestError.fromJson(j)
+  doAssert r.extras.isSome
 
 block requestErrorDeserStatusWrongKindLenient:
-  {.cast(noSideEffect).}:
-    let j = %*{"type": "urn:ietf:params:jmap:error:limit", "status": "bad"}
-    let r = RequestError.fromJson(j)
-    assertOk r
-    doAssert r.get().status.isNone, "wrong kind status should be treated as none"
+  let j = %*{"type": "urn:ietf:params:jmap:error:limit", "status": "bad"}
+  let r = RequestError.fromJson(j)
+  doAssert r.status.isNone, "wrong kind status should be treated as none"
 
 block requestErrorDeserNil:
   const nilNode: JsonNode = nil
@@ -220,41 +200,31 @@ block requestErrorDeserJNull:
 # --- MethodError ---
 
 block methodErrorDeserMissingType:
-  {.cast(noSideEffect).}:
-    let j = %*{"description": "foo"}
-    assertErr MethodError.fromJson(j)
+  let j = %*{"description": "foo"}
+  assertErr MethodError.fromJson(j)
 
 block methodErrorDeserTypeWrongKind:
-  {.cast(noSideEffect).}:
-    let j = %*{"type": 42}
-    assertErr MethodError.fromJson(j)
+  let j = %*{"type": 42}
+  assertErr MethodError.fromJson(j)
 
 block methodErrorDeserEmptyType:
-  {.cast(noSideEffect).}:
-    let j = %*{"type": ""}
-    assertErrContains MethodError.fromJson(j), "empty type field"
+  let j = %*{"type": ""}
+  assertErrContains MethodError.fromJson(j), "empty type field"
 
 block methodErrorDeserUnknownType:
-  {.cast(noSideEffect).}:
-    let j = %*{"type": "customVendorError"}
-    let r = MethodError.fromJson(j)
-    assertOk r
-    doAssert r.get().errorType == metUnknown
+  let j = %*{"type": "customVendorError"}
+  let r = MethodError.fromJson(j)
+  doAssert r.errorType == metUnknown
 
 block methodErrorDeserDescriptionWrongKindLenient:
-  {.cast(noSideEffect).}:
-    let j = %*{"type": "serverFail", "description": 42}
-    let r = MethodError.fromJson(j)
-    assertOk r
-    doAssert r.get().description.isNone,
-      "wrong kind description should be treated as none"
+  let j = %*{"type": "serverFail", "description": 42}
+  let r = MethodError.fromJson(j)
+  doAssert r.description.isNone, "wrong kind description should be treated as none"
 
 block methodErrorDeserExtrasCollected:
-  {.cast(noSideEffect).}:
-    let j = %*{"type": "serverFail", "extra": "vendor"}
-    let r = MethodError.fromJson(j)
-    assertOk r
-    doAssert r.get().extras.isSome
+  let j = %*{"type": "serverFail", "extra": "vendor"}
+  let r = MethodError.fromJson(j)
+  doAssert r.extras.isSome
 
 block methodErrorDeserNil:
   const nilNode: JsonNode = nil
@@ -266,109 +236,78 @@ block methodErrorDeserJNull:
 # --- SetError ---
 
 block setErrorDeserForbidden:
-  {.cast(noSideEffect).}:
-    let j = %*{"type": "forbidden"}
-    let r = SetError.fromJson(j)
-    assertOk r
-    doAssert r.get().errorType == setForbidden
+  let j = %*{"type": "forbidden"}
+  let r = SetError.fromJson(j)
+  doAssert r.errorType == setForbidden
 
 block setErrorDeserInvalidPropertiesWithProps:
-  {.cast(noSideEffect).}:
-    let j = %*{"type": "invalidProperties", "properties": ["name", "role"]}
-    let r = SetError.fromJson(j)
-    assertOk r
-    let v = r.get()
-    doAssert v.errorType == setInvalidProperties
-    assertEq v.properties.len, 2
+  let j = %*{"type": "invalidProperties", "properties": ["name", "role"]}
+  let r = SetError.fromJson(j)
+  doAssert r.errorType == setInvalidProperties
+  assertEq r.properties.len, 2
 
 block setErrorDeserInvalidPropertiesEmptyArray:
-  {.cast(noSideEffect).}:
-    let j = %*{"type": "invalidProperties", "properties": []}
-    let r = SetError.fromJson(j)
-    assertOk r
-    let v = r.get()
-    doAssert v.errorType == setInvalidProperties
-    assertEq v.properties.len, 0
+  let j = %*{"type": "invalidProperties", "properties": []}
+  let r = SetError.fromJson(j)
+  doAssert r.errorType == setInvalidProperties
+  assertEq r.properties.len, 0
 
 block setErrorDeserInvalidPropertiesMissing:
-  {.cast(noSideEffect).}:
-    let j = %*{"type": "invalidProperties"}
-    let r = SetError.fromJson(j)
-    assertOk r
-    doAssert r.get().errorType == setUnknown, "defensive fallback to setUnknown"
+  let j = %*{"type": "invalidProperties"}
+  let r = SetError.fromJson(j)
+  doAssert r.errorType == setUnknown, "defensive fallback to setUnknown"
 
 block setErrorDeserInvalidPropertiesWrongKind:
-  {.cast(noSideEffect).}:
-    let j = %*{"type": "invalidProperties", "properties": 42}
-    let r = SetError.fromJson(j)
-    assertOk r
-    doAssert r.get().errorType == setUnknown, "wrong kind triggers defensive fallback"
+  let j = %*{"type": "invalidProperties", "properties": 42}
+  let r = SetError.fromJson(j)
+  doAssert r.errorType == setUnknown, "wrong kind triggers defensive fallback"
 
 block setErrorDeserInvalidPropertiesNonStringElement:
-  {.cast(noSideEffect).}:
-    let j = %*{"type": "invalidProperties", "properties": [42]}
-    assertErrContains SetError.fromJson(j), "properties element must be string"
+  let j = %*{"type": "invalidProperties", "properties": [42]}
+  assertErrContains SetError.fromJson(j), "properties element must be string"
 
 block setErrorDeserAlreadyExistsWithId:
-  {.cast(noSideEffect).}:
-    let j = %*{"type": "alreadyExists", "existingId": "msg42"}
-    let r = SetError.fromJson(j)
-    assertOk r
-    let v = r.get()
-    doAssert v.errorType == setAlreadyExists
-    assertEq string(v.existingId), "msg42"
+  let j = %*{"type": "alreadyExists", "existingId": "msg42"}
+  let v = SetError.fromJson(j)
+  doAssert v.errorType == setAlreadyExists
+  assertEq string(v.existingId), "msg42"
 
 block setErrorDeserAlreadyExistsMissing:
-  {.cast(noSideEffect).}:
-    let j = %*{"type": "alreadyExists"}
-    let r = SetError.fromJson(j)
-    assertOk r
-    doAssert r.get().errorType == setUnknown, "defensive fallback to setUnknown"
+  let j = %*{"type": "alreadyExists"}
+  let r = SetError.fromJson(j)
+  doAssert r.errorType == setUnknown, "defensive fallback to setUnknown"
 
 block setErrorDeserAlreadyExistsWrongKind:
-  {.cast(noSideEffect).}:
-    let j = %*{"type": "alreadyExists", "existingId": 42}
-    let r = SetError.fromJson(j)
-    assertOk r
-    doAssert r.get().errorType == setUnknown, "wrong kind triggers defensive fallback"
+  let j = %*{"type": "alreadyExists", "existingId": 42}
+  let r = SetError.fromJson(j)
+  doAssert r.errorType == setUnknown, "wrong kind triggers defensive fallback"
 
 block setErrorDeserAlreadyExistsEmptyId:
   ## Empty existingId triggers defensive fallback to setUnknown (not err).
-  {.cast(noSideEffect).}:
-    let j = %*{"type": "alreadyExists", "existingId": ""}
-    let r = SetError.fromJson(j)
-    assertOk r
-    doAssert r.get().errorType == setUnknown,
-      "empty existingId triggers defensive fallback"
+  let j = %*{"type": "alreadyExists", "existingId": ""}
+  let r = SetError.fromJson(j)
+  doAssert r.errorType == setUnknown, "empty existingId triggers defensive fallback"
 
 block setErrorDeserVendorSpecific:
-  {.cast(noSideEffect).}:
-    let j = %*{"type": "vendorSpecific"}
-    let r = SetError.fromJson(j)
-    assertOk r
-    assertEq r.get().rawType, "vendorSpecific"
-    doAssert r.get().errorType == setUnknown
+  let j = %*{"type": "vendorSpecific"}
+  let r = SetError.fromJson(j)
+  assertEq r.rawType, "vendorSpecific"
+  doAssert r.errorType == setUnknown
 
 block setErrorDeserPerVariantKnownKeys:
-  {.cast(noSideEffect).}:
-    let j = %*{"type": "forbidden", "properties": ["name"]}
-    let r = SetError.fromJson(j)
-    assertOk r
-    let v = r.get()
-    doAssert v.errorType == setForbidden
-    doAssert v.extras.isSome, "misplaced properties should be in extras"
+  let j = %*{"type": "forbidden", "properties": ["name"]}
+  let v = SetError.fromJson(j)
+  doAssert v.errorType == setForbidden
+  doAssert v.extras.isSome, "misplaced properties should be in extras"
 
 block setErrorDeserDescriptionWrongKindLenient:
-  {.cast(noSideEffect).}:
-    let j = %*{"type": "forbidden", "description": 42}
-    let r = SetError.fromJson(j)
-    assertOk r
-    doAssert r.get().description.isNone
+  let j = %*{"type": "forbidden", "description": 42}
+  let r = SetError.fromJson(j)
+  doAssert r.description.isNone
 
 block setErrorDeserMissingType:
-  {.cast(noSideEffect).}:
-    let j = %*{"description": "foo"}
-    assertErr SetError.fromJson(j)
+  let j = %*{"description": "foo"}
+  assertErr SetError.fromJson(j)
 
 block setErrorDeserNil:
   const nilNode: JsonNode = nil
@@ -392,8 +331,7 @@ checkProperty "MethodError round-trip":
 checkProperty "SetError round-trip":
   let original = rng.genSetError()
   let rt = SetError.fromJson(original.toJson())
-  doAssert rt.isOk, "SetError round-trip failed"
-  doAssert setErrorEq(rt.get(), original), "SetError values differ"
+  doAssert setErrorEq(rt, original), "SetError values differ"
 
 # =============================================================================
 # E. MC/DC coverage for lenient optional field helpers
@@ -402,99 +340,77 @@ checkProperty "SetError round-trip":
 # --- MC/DC: optString leniency ---
 
 block requestErrorTitleAbsentMcdc:
-  ## MC/DC: child.isNil=true — absent field yields Opt.none.
-  {.cast(noSideEffect).}:
-    let j = %*{"type": "urn:ietf:params:jmap:error:limit"}
-    let r = RequestError.fromJson(j)
-    assertOk r
-    assertNone r.get().title
+  ## MC/DC: child.isNil=true — absent field yields none.
+  let j = %*{"type": "urn:ietf:params:jmap:error:limit"}
+  let r = RequestError.fromJson(j)
+  assertNone r.title
 
 block requestErrorTitleWrongKindMcdc:
-  ## MC/DC: child.isNil=false, kind!=JString=true — wrong kind yields Opt.none.
-  {.cast(noSideEffect).}:
-    let j = %*{"type": "urn:ietf:params:jmap:error:limit", "title": 42}
-    let r = RequestError.fromJson(j)
-    assertOk r
-    assertNone r.get().title
+  ## MC/DC: child.isNil=false, kind!=JString=true — wrong kind yields none.
+  let j = %*{"type": "urn:ietf:params:jmap:error:limit", "title": 42}
+  let r = RequestError.fromJson(j)
+  assertNone r.title
 
 block requestErrorTitlePresentMcdc:
-  ## MC/DC: child.isNil=false, kind=JString — correct kind yields Opt.some.
-  {.cast(noSideEffect).}:
-    let j = %*{"type": "urn:ietf:params:jmap:error:limit", "title": "Rate limited"}
-    let r = RequestError.fromJson(j)
-    assertOk r
-    assertSome r.get().title
-    assertSomeEq r.get().title, "Rate limited"
+  ## MC/DC: child.isNil=false, kind=JString — correct kind yields some.
+  let j = %*{"type": "urn:ietf:params:jmap:error:limit", "title": "Rate limited"}
+  let r = RequestError.fromJson(j)
+  assertSome r.title
+  assertSomeEq r.title, "Rate limited"
 
 # --- MC/DC: optInt leniency ---
 
 block requestErrorStatusAbsentMcdc:
-  ## MC/DC: child.isNil=true — absent status yields Opt.none.
-  {.cast(noSideEffect).}:
-    let j = %*{"type": "urn:ietf:params:jmap:error:limit"}
-    let r = RequestError.fromJson(j)
-    assertOk r
-    assertNone r.get().status
+  ## MC/DC: child.isNil=true — absent status yields none.
+  let j = %*{"type": "urn:ietf:params:jmap:error:limit"}
+  let r = RequestError.fromJson(j)
+  assertNone r.status
 
 block requestErrorStatusWrongKindStringMcdc:
-  ## MC/DC: child.isNil=false, kind!=JInt=true — string status yields Opt.none.
-  {.cast(noSideEffect).}:
-    let j = %*{"type": "urn:ietf:params:jmap:error:limit", "status": "429"}
-    let r = RequestError.fromJson(j)
-    assertOk r
-    assertNone r.get().status
+  ## MC/DC: child.isNil=false, kind!=JInt=true — string status yields none.
+  let j = %*{"type": "urn:ietf:params:jmap:error:limit", "status": "429"}
+  let r = RequestError.fromJson(j)
+  assertNone r.status
 
 block requestErrorStatusPresentMcdc:
-  ## MC/DC: child.isNil=false, kind=JInt — correct kind yields Opt.some.
-  {.cast(noSideEffect).}:
-    let j = %*{"type": "urn:ietf:params:jmap:error:limit", "status": 429}
-    let r = RequestError.fromJson(j)
-    assertOk r
-    assertSome r.get().status
-    assertSomeEq r.get().status, 429
+  ## MC/DC: child.isNil=false, kind=JInt — correct kind yields some.
+  let j = %*{"type": "urn:ietf:params:jmap:error:limit", "status": 429}
+  let r = RequestError.fromJson(j)
+  assertSome r.status
+  assertSomeEq r.status, 429
 
 block requestErrorStatusJFloatLenient:
-  ## MC/DC: JFloat status (e.g., 429.5) is not JInt, so optInt yields Opt.none.
+  ## MC/DC: JFloat status (e.g., 429.5) is not JInt, so optInt yields none.
   ## Verifies lenient handling: parse succeeds but status is absent.
-  {.cast(noSideEffect).}:
-    let j = %*{"type": "urn:ietf:params:jmap:error:limit", "status": 429.5}
-    let r = RequestError.fromJson(j)
-    assertOk r
-    assertNone r.get().status
+  let j = %*{"type": "urn:ietf:params:jmap:error:limit", "status": 429.5}
+  let r = RequestError.fromJson(j)
+  assertNone r.status
 
 # --- MC/DC: MethodError description ---
 
 block methodErrorDescriptionWrongKindMcdc:
-  ## MC/DC: description present but JInt (not JString) yields Opt.none.
-  {.cast(noSideEffect).}:
-    let j = %*{"type": "serverFail", "description": 123}
-    let r = MethodError.fromJson(j)
-    assertOk r
-    assertNone r.get().description
+  ## MC/DC: description present but JInt (not JString) yields none.
+  let j = %*{"type": "serverFail", "description": 123}
+  let r = MethodError.fromJson(j)
+  assertNone r.description
 
 block methodErrorDescriptionPresentMcdc:
-  ## MC/DC: description present as JString yields Opt.some.
-  {.cast(noSideEffect).}:
-    let j = %*{"type": "serverFail", "description": "Internal error"}
-    let r = MethodError.fromJson(j)
-    assertOk r
-    assertSomeEq r.get().description, "Internal error"
+  ## MC/DC: description present as JString yields some.
+  let j = %*{"type": "serverFail", "description": "Internal error"}
+  let r = MethodError.fromJson(j)
+  assertSomeEq r.description, "Internal error"
 
 block methodErrorDescriptionJArrayLenient:
-  ## MC/DC: description as JArray (not JString) yields Opt.none (lenient).
-  {.cast(noSideEffect).}:
-    let j = %*{"type": "serverFail", "description": [1, 2, 3]}
-    let r = MethodError.fromJson(j)
-    assertOk r
-    assertNone r.get().description
+  ## MC/DC: description as JArray (not JString) yields none (lenient).
+  let j = %*{"type": "serverFail", "description": [1, 2, 3]}
+  let r = MethodError.fromJson(j)
+  assertNone r.description
 
 block methodErrorDescriptionJObjectLenient:
-  ## MC/DC: description as JObject (not JString) yields Opt.none (lenient).
-  {.cast(noSideEffect).}:
-    let j = %*{"type": "serverFail", "description": {"x": 1}}
-    let r = MethodError.fromJson(j)
-    assertOk r
-    assertNone r.get().description
+  ## MC/DC: description as JObject (not JString) yields none (lenient).
+  let j = %*{"type": "serverFail", "description": {"x": 1}}
+  let r = MethodError.fromJson(j)
+  assertNone r.description
 
 # =============================================================================
 # F. Additional edge-case and isolation tests
@@ -502,23 +418,19 @@ block methodErrorDescriptionJObjectLenient:
 
 block setErrorEmptyTypeField:
   ## Empty type string must return error.
-  {.cast(noSideEffect).}:
-    let j = %*{"type": ""}
-    let r = SetError.fromJson(j)
-    assertErr r
+  let j = %*{"type": ""}
+  assertErr SetError.fromJson(j)
 
 block setErrorInvalidPropertiesWithExistingIdExtras:
   ## For invalidProperties variant, "existingId" is not a known key and
   ## must be preserved in extras, not silently consumed.
-  {.cast(noSideEffect).}:
-    let j = %*{
-      "type": "invalidProperties", "properties": ["foo"], "existingId": "shouldBeExtras"
-    }
-    let r = SetError.fromJson(j)
-    assertOk r
-    assertSome r.get().extras
-    doAssert r.get().extras.get(){"existingId"} != nil,
-      "existingId must be in extras for invalidProperties variant"
+  let j = %*{
+    "type": "invalidProperties", "properties": ["foo"], "existingId": "shouldBeExtras"
+  }
+  let r = SetError.fromJson(j)
+  assertSome r.extras
+  doAssert r.extras.get(){"existingId"} != nil,
+    "existingId must be in extras for invalidProperties variant"
 
 # =============================================================================
 # G. Round-trip tests with all optional fields populated
@@ -526,37 +438,32 @@ block setErrorInvalidPropertiesWithExistingIdExtras:
 
 block requestErrorExtrasRoundTrip:
   ## Non-standard fields preserved through toJson -> fromJson.
-  {.cast(noSideEffect).}:
-    let extras = newJObject()
-    extras["vendorField"] = %"vendorValue"
-    extras["customCode"] = %12345
-    let original = requestError(
-      rawType = "urn:ietf:params:jmap:error:limit", extras = Opt.some(extras)
-    )
-    let rt = RequestError.fromJson(original.toJson())
-    assertOk rt
-    assertSome rt.get().extras
-    let rtExtras = rt.get().extras.get()
-    doAssert rtExtras{"vendorField"} != nil
-    assertEq rtExtras{"vendorField"}.getStr(""), "vendorValue"
-    doAssert rtExtras{"customCode"} != nil
-    assertEq rtExtras{"customCode"}.getBiggestInt(0), 12345
+  let extras = newJObject()
+  extras["vendorField"] = %"vendorValue"
+  extras["customCode"] = %12345
+  let original =
+    requestError(rawType = "urn:ietf:params:jmap:error:limit", extras = some(extras))
+  let rt = RequestError.fromJson(original.toJson())
+  assertSome rt.extras
+  let rtExtras = rt.extras.get()
+  doAssert rtExtras{"vendorField"} != nil
+  assertEq rtExtras{"vendorField"}.getStr(""), "vendorValue"
+  doAssert rtExtras{"customCode"} != nil
+  assertEq rtExtras{"customCode"}.getBiggestInt(0), 12345
 
 block methodErrorAllOptionalFieldsRoundTrip:
   ## MethodError with description + extras both populated survives round-trip.
-  {.cast(noSideEffect).}:
-    let extras = newJObject()
-    extras["serverInfo"] = %"debug-data"
-    let original = methodError(
-      rawType = "serverFail",
-      description = Opt.some("Something went wrong"),
-      extras = Opt.some(extras),
-    )
-    let rt = MethodError.fromJson(original.toJson())
-    assertOk rt
-    assertSomeEq rt.get().description, "Something went wrong"
-    assertSome rt.get().extras
-    assertEq rt.get().extras.get(){"serverInfo"}.getStr(""), "debug-data"
+  let extras = newJObject()
+  extras["serverInfo"] = %"debug-data"
+  let original = methodError(
+    rawType = "serverFail",
+    description = some("Something went wrong"),
+    extras = some(extras),
+  )
+  let rt = MethodError.fromJson(original.toJson())
+  assertSomeEq rt.description, "Something went wrong"
+  assertSome rt.extras
+  assertEq rt.extras.get(){"serverInfo"}.getStr(""), "debug-data"
 
 # =============================================================================
 # H. SetError adversarial edge cases (Phase 4F)
@@ -566,23 +473,18 @@ block setErrorAlreadyExistsEmptyId:
   ## Build SetError JSON with "type": "alreadyExists", "existingId": "".
   ## The empty string is rejected by parseIdFromServer (Id requires 1-255
   ## octets). Defensive fallback maps to setUnknown, not err.
-  {.cast(noSideEffect).}:
-    let j = %*{"type": "alreadyExists", "existingId": ""}
-    let r = SetError.fromJson(j)
-    assertOk r
-    doAssert r.get().errorType == setUnknown,
-      "empty existingId triggers defensive fallback"
+  let j = %*{"type": "alreadyExists", "existingId": ""}
+  let r = SetError.fromJson(j)
+  doAssert r.errorType == setUnknown, "empty existingId triggers defensive fallback"
 
 block setErrorInvalidPropertiesNonArrayProperties:
   ## Build SetError JSON with "type": "invalidProperties", "properties": "notAnArray".
   ## When "properties" is present but not a JArray, the defensive fallback
   ## treats it as if the variant data is missing and falls back to setUnknown.
-  {.cast(noSideEffect).}:
-    let j = %*{"type": "invalidProperties", "properties": "notAnArray"}
-    let r = SetError.fromJson(j)
-    assertOk r
-    doAssert r.get().errorType == setUnknown,
-      "non-array properties should trigger defensive fallback to setUnknown"
+  let j = %*{"type": "invalidProperties", "properties": "notAnArray"}
+  let r = SetError.fromJson(j)
+  doAssert r.errorType == setUnknown,
+    "non-array properties should trigger defensive fallback to setUnknown"
 
 # =============================================================================
 # H. Phase 3C: Collection scale tests (errors)
@@ -591,20 +493,18 @@ block setErrorInvalidPropertiesNonArrayProperties:
 block collectExtrasLarge100Keys:
   ## MethodError JSON with 100+ non-standard fields. Verify extras preserves
   ## them all through round-trip.
-  {.cast(noSideEffect).}:
-    var j = newJObject()
-    j["type"] = %"serverFail"
-    for i in 0 ..< 100:
-      j["extra" & $i] = %i
-    let r = MethodError.fromJson(j)
-    assertOk r
-    assertSome r.get().extras
-    # Verify all 100 extra keys are preserved
-    let extras = r.get().extras.get()
-    var count = 0
-    for key, val in extras.pairs:
-      inc count
-    assertEq count, 100
+  var j = newJObject()
+  j["type"] = %"serverFail"
+  for i in 0 ..< 100:
+    j["extra" & $i] = %i
+  let r = MethodError.fromJson(j)
+  assertSome r.extras
+  # Verify all 100 extra keys are preserved
+  let extras = r.extras.get()
+  var count = 0
+  for key, val in extras.pairs:
+    inc count
+  assertEq count, 100
 
 # =============================================================================
 # Phase 3A: Full enum coverage — individual round-trip tests for every
@@ -615,66 +515,62 @@ block collectExtrasLarge100Keys:
 
 block roundTripRequestErrorUnknownCapability:
   ## RFC 8620 section 3.6.1: unknownCapability with full RFC 7807 structure.
-  {.cast(noSideEffect).}:
-    let original = requestError(
-      rawType = "urn:ietf:params:jmap:error:unknownCapability",
-      status = Opt.some(400),
-      title = Opt.some("Unknown Capability"),
-      detail = Opt.some("The request used an unknown capability URI"),
-    )
-    doAssert original.errorType == retUnknownCapability
-    let j = original.toJson()
-    assertEq j{"type"}.getStr(""), "urn:ietf:params:jmap:error:unknownCapability"
-    let rt = RequestError.fromJson(j)
-    assertOkEq rt, original
+  let original = requestError(
+    rawType = "urn:ietf:params:jmap:error:unknownCapability",
+    status = some(400),
+    title = some("Unknown Capability"),
+    detail = some("The request used an unknown capability URI"),
+  )
+  doAssert original.errorType == retUnknownCapability
+  let j = original.toJson()
+  assertEq j{"type"}.getStr(""), "urn:ietf:params:jmap:error:unknownCapability"
+  let rt = RequestError.fromJson(j)
+  assertOkEq rt, original
 
 block roundTripRequestErrorNotJson:
   ## RFC 8620 section 3.6.1: notJSON.
-  {.cast(noSideEffect).}:
-    let original = requestError(
-      rawType = "urn:ietf:params:jmap:error:notJSON",
-      status = Opt.some(400),
-      title = Opt.some("Not JSON"),
-      detail = Opt.some("The request body was not valid JSON"),
-    )
-    doAssert original.errorType == retNotJson
-    let j = original.toJson()
-    assertEq j{"type"}.getStr(""), "urn:ietf:params:jmap:error:notJSON"
-    let rt = RequestError.fromJson(j)
-    assertOkEq rt, original
+  let original = requestError(
+    rawType = "urn:ietf:params:jmap:error:notJSON",
+    status = some(400),
+    title = some("Not JSON"),
+    detail = some("The request body was not valid JSON"),
+  )
+  doAssert original.errorType == retNotJson
+  let j = original.toJson()
+  assertEq j{"type"}.getStr(""), "urn:ietf:params:jmap:error:notJSON"
+  let rt = RequestError.fromJson(j)
+  assertOkEq rt, original
 
 block roundTripRequestErrorNotRequest:
   ## RFC 8620 section 3.6.1: notRequest.
-  {.cast(noSideEffect).}:
-    let original = requestError(
-      rawType = "urn:ietf:params:jmap:error:notRequest",
-      status = Opt.some(400),
-      title = Opt.some("Not a Request"),
-      detail = Opt.some("The JSON was valid but not a valid JMAP request"),
-    )
-    doAssert original.errorType == retNotRequest
-    let j = original.toJson()
-    assertEq j{"type"}.getStr(""), "urn:ietf:params:jmap:error:notRequest"
-    let rt = RequestError.fromJson(j)
-    assertOkEq rt, original
+  let original = requestError(
+    rawType = "urn:ietf:params:jmap:error:notRequest",
+    status = some(400),
+    title = some("Not a Request"),
+    detail = some("The JSON was valid but not a valid JMAP request"),
+  )
+  doAssert original.errorType == retNotRequest
+  let j = original.toJson()
+  assertEq j{"type"}.getStr(""), "urn:ietf:params:jmap:error:notRequest"
+  let rt = RequestError.fromJson(j)
+  assertOkEq rt, original
 
 block roundTripRequestErrorLimit:
   ## RFC 8620 section 3.6.1: limit with limit field populated.
-  {.cast(noSideEffect).}:
-    let original = requestError(
-      rawType = "urn:ietf:params:jmap:error:limit",
-      status = Opt.some(400),
-      title = Opt.some("Request Too Large"),
-      detail = Opt.some("Exceeded maxCallsInRequest"),
-      limit = Opt.some("maxCallsInRequest"),
-    )
-    doAssert original.errorType == retLimit
-    let j = original.toJson()
-    assertEq j{"type"}.getStr(""), "urn:ietf:params:jmap:error:limit"
-    doAssert j{"limit"} != nil
-    assertEq j{"limit"}.getStr(""), "maxCallsInRequest"
-    let rt = RequestError.fromJson(j)
-    assertOkEq rt, original
+  let original = requestError(
+    rawType = "urn:ietf:params:jmap:error:limit",
+    status = some(400),
+    title = some("Request Too Large"),
+    detail = some("Exceeded maxCallsInRequest"),
+    limit = some("maxCallsInRequest"),
+  )
+  doAssert original.errorType == retLimit
+  let j = original.toJson()
+  assertEq j{"type"}.getStr(""), "urn:ietf:params:jmap:error:limit"
+  doAssert j{"limit"} != nil
+  assertEq j{"limit"}.getStr(""), "maxCallsInRequest"
+  let rt = RequestError.fromJson(j)
+  assertOkEq rt, original
 
 # --- MethodError: all 19 known types ---
 
@@ -834,86 +730,78 @@ block roundTripSetErrorAlreadyExistsWithData:
 
 block requestErrorExtrasCollisionTypeField:
   ## Extras containing "type" must not overwrite the standard type field.
-  {.cast(noSideEffect).}:
-    let extras = newJObject()
-    extras["type"] = %"evil"
-    extras["vendor"] = %"safe"
-    let re = requestError(
-      rawType = "urn:ietf:params:jmap:error:limit", extras = Opt.some(extras)
-    )
-    let j = re.toJson()
-    assertJsonFieldEq j, "type", %"urn:ietf:params:jmap:error:limit"
-    assertJsonFieldEq j, "vendor", %"safe"
+  let extras = newJObject()
+  extras["type"] = %"evil"
+  extras["vendor"] = %"safe"
+  let re =
+    requestError(rawType = "urn:ietf:params:jmap:error:limit", extras = some(extras))
+  let j = re.toJson()
+  assertJsonFieldEq j, "type", %"urn:ietf:params:jmap:error:limit"
+  assertJsonFieldEq j, "vendor", %"safe"
 
 block requestErrorExtrasCollisionAllStandardFields:
   ## Extras containing all 5 standard field names must not overwrite any.
-  {.cast(noSideEffect).}:
-    let extras = newJObject()
-    extras["type"] = %"evil"
-    extras["status"] = %999
-    extras["title"] = %"evil-title"
-    extras["detail"] = %"evil-detail"
-    extras["limit"] = %"evil-limit"
-    extras["vendor"] = %"safe"
-    let re = requestError(
-      rawType = "urn:ietf:params:jmap:error:limit",
-      status = Opt.some(429),
-      title = Opt.some("Rate Limit"),
-      detail = Opt.some("Too many requests"),
-      limit = Opt.some("maxCallsInRequest"),
-      extras = Opt.some(extras),
-    )
-    let j = re.toJson()
-    assertJsonFieldEq j, "type", %"urn:ietf:params:jmap:error:limit"
-    assertJsonFieldEq j, "status", %429
-    assertJsonFieldEq j, "title", %"Rate Limit"
-    assertJsonFieldEq j, "detail", %"Too many requests"
-    assertJsonFieldEq j, "limit", %"maxCallsInRequest"
-    assertJsonFieldEq j, "vendor", %"safe"
+  let extras = newJObject()
+  extras["type"] = %"evil"
+  extras["status"] = %999
+  extras["title"] = %"evil-title"
+  extras["detail"] = %"evil-detail"
+  extras["limit"] = %"evil-limit"
+  extras["vendor"] = %"safe"
+  let re = requestError(
+    rawType = "urn:ietf:params:jmap:error:limit",
+    status = some(429),
+    title = some("Rate Limit"),
+    detail = some("Too many requests"),
+    limit = some("maxCallsInRequest"),
+    extras = some(extras),
+  )
+  let j = re.toJson()
+  assertJsonFieldEq j, "type", %"urn:ietf:params:jmap:error:limit"
+  assertJsonFieldEq j, "status", %429
+  assertJsonFieldEq j, "title", %"Rate Limit"
+  assertJsonFieldEq j, "detail", %"Too many requests"
+  assertJsonFieldEq j, "limit", %"maxCallsInRequest"
+  assertJsonFieldEq j, "vendor", %"safe"
 
 block methodErrorExtrasCollisionTypeField:
-  {.cast(noSideEffect).}:
-    let extras = newJObject()
-    extras["type"] = %"evil"
-    extras["description"] = %"evil-desc"
-    extras["vendor"] = %"safe"
-    let me = methodError(
-      rawType = "invalidArguments",
-      description = Opt.some("real description"),
-      extras = Opt.some(extras),
-    )
-    let j = me.toJson()
-    assertJsonFieldEq j, "type", %"invalidArguments"
-    assertJsonFieldEq j, "description", %"real description"
-    assertJsonFieldEq j, "vendor", %"safe"
+  let extras = newJObject()
+  extras["type"] = %"evil"
+  extras["description"] = %"evil-desc"
+  extras["vendor"] = %"safe"
+  let me = methodError(
+    rawType = "invalidArguments",
+    description = some("real description"),
+    extras = some(extras),
+  )
+  let j = me.toJson()
+  assertJsonFieldEq j, "type", %"invalidArguments"
+  assertJsonFieldEq j, "description", %"real description"
+  assertJsonFieldEq j, "vendor", %"safe"
 
 block setErrorExtrasCollisionTypeField:
-  {.cast(noSideEffect).}:
-    let extras = newJObject()
-    extras["type"] = %"evil"
-    extras["vendor"] = %"safe"
-    let se = setError(
-      rawType = "forbidden",
-      description = Opt.some("real desc"),
-      extras = Opt.some(extras),
-    )
-    let j = se.toJson()
-    assertJsonFieldEq j, "type", %"forbidden"
-    assertJsonFieldEq j, "vendor", %"safe"
+  let extras = newJObject()
+  extras["type"] = %"evil"
+  extras["vendor"] = %"safe"
+  let se = setError(
+    rawType = "forbidden", description = some("real desc"), extras = some(extras)
+  )
+  let j = se.toJson()
+  assertJsonFieldEq j, "type", %"forbidden"
+  assertJsonFieldEq j, "vendor", %"safe"
 
 block setErrorInvalidPropertiesExtrasCollisionProperties:
-  {.cast(noSideEffect).}:
-    let extras = newJObject()
-    extras["properties"] = %*["evil"]
-    extras["vendor"] = %"safe"
-    let se = setErrorInvalidProperties(
-      rawType = "invalidProperties",
-      properties = @["subject", "body"],
-      extras = Opt.some(extras),
-    )
-    let j = se.toJson()
-    assertJsonFieldEq j, "type", %"invalidProperties"
-    let propsNode = j{"properties"}
-    assertFalse propsNode.isNil, "properties field must be present"
-    assertEq propsNode.getElems(@[]).len, 2
-    assertJsonFieldEq j, "vendor", %"safe"
+  let extras = newJObject()
+  extras["properties"] = %*["evil"]
+  extras["vendor"] = %"safe"
+  let se = setErrorInvalidProperties(
+    rawType = "invalidProperties",
+    properties = @["subject", "body"],
+    extras = some(extras),
+  )
+  let j = se.toJson()
+  assertJsonFieldEq j, "type", %"invalidProperties"
+  let propsNode = j{"properties"}
+  assertFalse propsNode.isNil, "properties field must be present"
+  assertEq propsNode.getElems(@[]).len, 2
+  assertJsonFieldEq j, "vendor", %"safe"

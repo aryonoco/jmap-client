@@ -1,9 +1,6 @@
 # SPDX-License-Identifier: BSD-2-Clause
 # Copyright (c) 2026 Aryan Ameri
 
-{.push raises: [].}
-{.experimental: "strictCaseObjects".}
-
 ## Re-export hub for all Layer 2 serialisation modules. Import this single
 ## module to access every toJson/fromJson pair and the shared helpers.
 

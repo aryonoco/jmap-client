@@ -1,15 +1,12 @@
 # SPDX-License-Identifier: BSD-2-Clause
 # Copyright (c) 2026 Aryan Ameri
 
-{.push raises: [].}
-
 ## Tests for Layer 2 serialisation: shared helpers and primitive/identifier
 ## round-trip serialisation.
 
 import std/json
+import std/options
 import std/strutils
-
-import results
 
 import jmap_client/serde
 import jmap_client/primitives
@@ -29,63 +26,59 @@ import ../mproperty
 block parseErrorFields:
   let e = parseError("Id", "expected JSON JString")
   assertEq e.typeName, "Id"
-  assertEq e.message, "expected JSON JString"
+  assertEq e.msg, "expected JSON JString"
   assertEq e.value, ""
 
-func tryCheckString(node: JsonNode): Result[string, ValidationError] =
-  ## Wrapper to test checkJsonKind with JString expectation.
-  checkJsonKind(node, JString, "Test")
-  ok(node.getStr(""))
-
-func tryCheckStringCustomMsg(node: JsonNode): Result[string, ValidationError] =
-  ## Wrapper to test checkJsonKind with a custom error message.
-  checkJsonKind(node, JString, "Test", "custom error message")
-  ok(node.getStr(""))
-
 block checkJsonKindAcceptsCorrect:
-  {.cast(noSideEffect).}:
-    assertOk tryCheckString(%"hello")
+  checkJsonKind(%"hello", JString, "Test")
 
 block checkJsonKindRejectsNil:
   const nilNode: JsonNode = nil
-  assertErr tryCheckString(nilNode)
+  doAssertRaises(ref ValidationError):
+    checkJsonKind(nilNode, JString, "Test")
 
 block checkJsonKindRejectsJNull:
-  assertErr tryCheckString(newJNull())
+  doAssertRaises(ref ValidationError):
+    checkJsonKind(newJNull(), JString, "Test")
 
 block checkJsonKindRejectsWrongKind:
-  {.cast(noSideEffect).}:
-    assertErr tryCheckString(%42)
+  doAssertRaises(ref ValidationError):
+    checkJsonKind(%42, JString, "Test")
 
 block checkJsonKindCustomMessage:
-  {.cast(noSideEffect).}:
-    let r = tryCheckStringCustomMsg(%42)
-    assertErrMsg r, "custom error message"
+  var caught = false
+  try:
+    checkJsonKind(%42, JString, "Test", "custom error message")
+  except ValidationError as e:
+    caught = true
+    doAssert e.msg == "custom error message"
+  doAssert caught, "expected ValidationError, but no exception was raised"
 
 block checkJsonKindDefaultMessage:
-  {.cast(noSideEffect).}:
-    let r = tryCheckString(%42)
-    assertErrContains r, "expected JSON"
+  var caught = false
+  try:
+    checkJsonKind(%42, JString, "Test")
+  except ValidationError as e:
+    caught = true
+    doAssert e.msg.contains("expected JSON")
+  doAssert caught, "expected ValidationError, but no exception was raised"
 
 block collectExtrasNone:
-  {.cast(noSideEffect).}:
-    let node = %*{"a": 1, "b": 2}
-    let extras = collectExtras(node, ["a", "b"])
-    assertNone extras
+  let node = %*{"a": 1, "b": 2}
+  let extras = collectExtras(node, ["a", "b"])
+  assertNone extras
 
 block collectExtrasSome:
-  {.cast(noSideEffect).}:
-    let node = %*{"a": 1, "b": 2, "c": 3}
-    let extras = collectExtras(node, ["a"])
-    assertSome extras
-    doAssert extras.get(){"b"} != nil
-    doAssert extras.get(){"c"} != nil
+  let node = %*{"a": 1, "b": 2, "c": 3}
+  let extras = collectExtras(node, ["a"])
+  assertSome extras
+  doAssert extras.get(){"b"} != nil
+  doAssert extras.get(){"c"} != nil
 
 block collectExtrasEmptyObject:
-  {.cast(noSideEffect).}:
-    let node = newJObject()
-    let extras = collectExtras(node, ["a", "b"])
-    assertNone extras
+  let node = newJObject()
+  let extras = collectExtras(node, ["a", "b"])
+  assertNone extras
 
 # =============================================================================
 # B. Round-trip tests
@@ -120,11 +113,11 @@ block roundTripPropertyName:
   assertOkEq PropertyName.fromJson(original.toJson()), original
 
 block roundTripDate:
-  let original = parseDate("2014-10-30T14:12:00+08:00").get()
+  let original = parseDate("2014-10-30T14:12:00+08:00")
   assertOkEq Date.fromJson(original.toJson()), original
 
 block roundTripUtcDate:
-  let original = parseUtcDate("2014-10-30T06:12:00Z").get()
+  let original = parseUtcDate("2014-10-30T06:12:00Z")
   assertOkEq UTCDate.fromJson(original.toJson()), original
 
 block roundTripUnsignedInt:
@@ -132,75 +125,65 @@ block roundTripUnsignedInt:
   assertOkEq UnsignedInt.fromJson(original.toJson()), original
 
 block roundTripJmapInt:
-  let original = parseJmapInt(42).get()
+  let original = parseJmapInt(42)
   assertOkEq JmapInt.fromJson(original.toJson()), original
 
 block roundTripUnsignedIntMax:
-  let original = parseUnsignedInt(9007199254740991'i64).get()
+  let original = parseUnsignedInt(9007199254740991'i64)
   assertOkEq UnsignedInt.fromJson(original.toJson()), original
 
 block roundTripJmapIntMin:
-  let original = parseJmapInt(-9007199254740991'i64).get()
+  let original = parseJmapInt(-9007199254740991'i64)
   assertOkEq JmapInt.fromJson(original.toJson()), original
 
 block roundTripIdMaxLen:
-  let original = parseIdFromServer('a'.repeat(255)).get()
+  let original = parseIdFromServer('a'.repeat(255))
   assertOkEq Id.fromJson(original.toJson()), original
 
 # --- Phase 3A: Numeric boundary off-by-one tests ---
 
 block unsignedIntDeserMaxMinus1:
   ## Off-by-one below the maximum: 2^53-2 must be accepted.
-  {.cast(noSideEffect).}:
-    assertOk UnsignedInt.fromJson(%9007199254740990'i64)
+  assertOk UnsignedInt.fromJson(%9007199254740990'i64)
 
 block unsignedIntDeserMaxPlus1:
   ## Off-by-one above the maximum: 2^53 must be rejected.
-  {.cast(noSideEffect).}:
-    assertErr UnsignedInt.fromJson(%9007199254740992'i64)
+  assertErr UnsignedInt.fromJson(%9007199254740992'i64)
 
 block jmapIntDeserMinPlus1:
   ## Off-by-one above the minimum: -(2^53-2) must be accepted.
-  {.cast(noSideEffect).}:
-    assertOk JmapInt.fromJson(%(-9007199254740990'i64))
+  assertOk JmapInt.fromJson(%(-9007199254740990'i64))
 
 block jmapIntDeserMaxMinus1:
   ## Off-by-one below the maximum: 2^53-2 must be accepted.
-  {.cast(noSideEffect).}:
-    assertOk JmapInt.fromJson(%9007199254740990'i64)
+  assertOk JmapInt.fromJson(%9007199254740990'i64)
 
 block jmapIntDeserMaxPlus1:
   ## Off-by-one above the maximum: 2^53 must be rejected.
-  {.cast(noSideEffect).}:
-    assertErr JmapInt.fromJson(%9007199254740992'i64)
+  assertErr JmapInt.fromJson(%9007199254740992'i64)
 
 block jmapIntDeserMinMinus1:
   ## Off-by-one below the minimum: -(2^53) must be rejected.
-  {.cast(noSideEffect).}:
-    assertErr JmapInt.fromJson(%(-9007199254740992'i64))
+  assertErr JmapInt.fromJson(%(-9007199254740992'i64))
 
 # --- Phase 3B: String length boundary tests ---
 
 block propertyNameDeser255:
   ## PropertyName has no upper length limit; 255 chars is valid.
-  {.cast(noSideEffect).}:
-    assertOk PropertyName.fromJson(%("x".repeat(255)))
+  assertOk PropertyName.fromJson(%("x".repeat(255)))
 
 block jmapStateDeser255:
   ## JmapState has no upper length limit (non-empty, no control chars);
   ## 255 chars is valid.
-  {.cast(noSideEffect).}:
-    assertOk JmapState.fromJson(%("s".repeat(255)))
+  assertOk JmapState.fromJson(%("s".repeat(255)))
 
 block methodCallIdDeser255:
   ## MethodCallId has no upper length limit (non-empty); 255 chars is valid.
-  {.cast(noSideEffect).}:
-    assertOk MethodCallId.fromJson(%("m".repeat(255)))
+  assertOk MethodCallId.fromJson(%("m".repeat(255)))
 
 block idDeser254:
   ## Off-by-one below Id's maximum of 255: 254 chars must be accepted.
-  {.cast(noSideEffect).}:
-    assertOk Id.fromJson(%("a".repeat(254)))
+  assertOk Id.fromJson(%("a".repeat(254)))
 
 # =============================================================================
 # C. Edge-case deserialization
@@ -209,12 +192,10 @@ block idDeser254:
 # --- Id ---
 
 block idDeserValidBase64url:
-  {.cast(noSideEffect).}:
-    assertOk Id.fromJson(%"abc123-_XYZ")
+  assertOk Id.fromJson(%"abc123-_XYZ")
 
 block idDeserWrongKindInt:
-  {.cast(noSideEffect).}:
-    assertErr Id.fromJson(%42)
+  assertErr Id.fromJson(%42)
 
 block idDeserNil:
   const node: JsonNode = nil
@@ -224,30 +205,24 @@ block idDeserNull:
   assertErr Id.fromJson(newJNull())
 
 block idDeserArray:
-  {.cast(noSideEffect).}:
-    assertErr Id.fromJson(%*[1, 2, 3])
+  assertErr Id.fromJson(%*[1, 2, 3])
 
 block idDeserEmpty:
-  {.cast(noSideEffect).}:
-    assertErr Id.fromJson(%"")
+  assertErr Id.fromJson(%"")
 
 # --- UnsignedInt ---
 
 block unsignedIntDeserZero:
-  {.cast(noSideEffect).}:
-    assertOk UnsignedInt.fromJson(%0)
+  assertOk UnsignedInt.fromJson(%0)
 
 block unsignedIntDeserMax:
-  {.cast(noSideEffect).}:
-    assertOk UnsignedInt.fromJson(%9007199254740991)
+  assertOk UnsignedInt.fromJson(%9007199254740991)
 
 block unsignedIntDeserNegative:
-  {.cast(noSideEffect).}:
-    assertErr UnsignedInt.fromJson(%(-1))
+  assertErr UnsignedInt.fromJson(%(-1))
 
 block unsignedIntDeserWrongKindString:
-  {.cast(noSideEffect).}:
-    assertErr UnsignedInt.fromJson(%"42")
+  assertErr UnsignedInt.fromJson(%"42")
 
 block unsignedIntDeserNil:
   const node: JsonNode = nil
@@ -259,94 +234,75 @@ block unsignedIntDeserNull:
 # --- JmapInt ---
 
 block jmapIntDeserMin:
-  {.cast(noSideEffect).}:
-    assertOk JmapInt.fromJson(%(-9007199254740991))
+  assertOk JmapInt.fromJson(%(-9007199254740991))
 
 block jmapIntDeserMax:
-  {.cast(noSideEffect).}:
-    assertOk JmapInt.fromJson(%9007199254740991)
+  assertOk JmapInt.fromJson(%9007199254740991)
 
 block jmapIntDeserWrongKindString:
-  {.cast(noSideEffect).}:
-    assertErr JmapInt.fromJson(%"hello")
+  assertErr JmapInt.fromJson(%"hello")
 
 # --- Date ---
 
 block dateDeserValid:
-  {.cast(noSideEffect).}:
-    assertOk Date.fromJson(%"2014-10-30T14:12:00+08:00")
+  assertOk Date.fromJson(%"2014-10-30T14:12:00+08:00")
 
 block dateDeserWrongKindInt:
-  {.cast(noSideEffect).}:
-    assertErr Date.fromJson(%42)
+  assertErr Date.fromJson(%42)
 
 block dateDeserLowercaseT:
-  {.cast(noSideEffect).}:
-    assertErr Date.fromJson(%"2014-10-30t14:12:00Z")
+  assertErr Date.fromJson(%"2014-10-30t14:12:00Z")
 
 # --- UTCDate ---
 
 block utcDateDeserValid:
-  {.cast(noSideEffect).}:
-    assertOk UTCDate.fromJson(%"2014-10-30T06:12:00Z")
+  assertOk UTCDate.fromJson(%"2014-10-30T06:12:00Z")
 
 block utcDateDeserNotZ:
-  {.cast(noSideEffect).}:
-    assertErr UTCDate.fromJson(%"2014-10-30T06:12:00+00:00")
+  assertErr UTCDate.fromJson(%"2014-10-30T06:12:00+00:00")
 
 # --- AccountId ---
 
 block accountIdDeserValid:
-  {.cast(noSideEffect).}:
-    assertOk AccountId.fromJson(%"A13824")
+  assertOk AccountId.fromJson(%"A13824")
 
 block accountIdDeserEmpty:
-  {.cast(noSideEffect).}:
-    assertErr AccountId.fromJson(%"")
+  assertErr AccountId.fromJson(%"")
 
 block accountIdDeserWrongKindInt:
-  {.cast(noSideEffect).}:
-    assertErr AccountId.fromJson(%42)
+  assertErr AccountId.fromJson(%42)
 
 # --- JmapState ---
 
 block jmapStateDeserValid:
-  {.cast(noSideEffect).}:
-    assertOk JmapState.fromJson(%"75128aab4b1b")
+  assertOk JmapState.fromJson(%"75128aab4b1b")
 
 block jmapStateDeserEmpty:
-  {.cast(noSideEffect).}:
-    assertErr JmapState.fromJson(%"")
+  assertErr JmapState.fromJson(%"")
 
 # --- MethodCallId ---
 
 block methodCallIdDeserValid:
-  {.cast(noSideEffect).}:
-    assertOk MethodCallId.fromJson(%"c1")
+  assertOk MethodCallId.fromJson(%"c1")
 
 block methodCallIdDeserEmpty:
-  {.cast(noSideEffect).}:
-    assertErr MethodCallId.fromJson(%"")
+  assertErr MethodCallId.fromJson(%"")
 
 # --- CreationId ---
 
 block creationIdDeserValid:
-  {.cast(noSideEffect).}:
-    assertOk CreationId.fromJson(%"abc")
+  assertOk CreationId.fromJson(%"abc")
 
 block creationIdDeserHashPrefix:
-  {.cast(noSideEffect).}:
-    assertErr CreationId.fromJson(%"#abc")
+  assertErr CreationId.fromJson(%"#abc")
 
 # --- PropertyName ---
 
 block propertyNameDeserValid:
-  {.cast(noSideEffect).}:
-    assertOk PropertyName.fromJson(%"name")
+  assertOk PropertyName.fromJson(%"name")
 
 block propertyNameDeserEmpty:
-  {.cast(noSideEffect).}:
-    assertErr PropertyName.fromJson(%"")
+  assertErr PropertyName.fromJson(%"")
 
 # =============================================================================
 # D. toJson value correctness
@@ -357,7 +313,7 @@ block toJsonIdValue:
   assertEq id.toJson().getStr(""), "test123"
 
 block toJsonUnsignedIntValue:
-  let ui = parseUnsignedInt(42).get()
+  let ui = parseUnsignedInt(42)
   assertEq ui.toJson().getBiggestInt(0), 42'i64
 
 block toJsonStringKinds:
@@ -368,12 +324,12 @@ block toJsonStringKinds:
   doAssert makeCreationId().toJson().kind == JString
   doAssert makeUriTemplate().toJson().kind == JString
   doAssert makePropertyName().toJson().kind == JString
-  doAssert parseDate("2014-10-30T14:12:00+08:00").get().toJson().kind == JString
-  doAssert parseUtcDate("2014-10-30T06:12:00Z").get().toJson().kind == JString
+  doAssert parseDate("2014-10-30T14:12:00+08:00").toJson().kind == JString
+  doAssert parseUtcDate("2014-10-30T06:12:00Z").toJson().kind == JString
 
 block toJsonIntKinds:
   doAssert zeroUint().toJson().kind == JInt
-  doAssert parseJmapInt(0).get().toJson().kind == JInt
+  doAssert parseJmapInt(0).toJson().kind == JInt
 
 # =============================================================================
 # E. Property-based round-trip tests
@@ -381,57 +337,57 @@ block toJsonIntKinds:
 
 checkProperty "Id round-trip":
   let s = rng.genValidLenientString(trial, 1, 255)
-  let id = parseIdFromServer(s).get()
+  let id = parseIdFromServer(s)
   assertOkEq Id.fromJson(id.toJson()), id
 
 checkProperty "AccountId round-trip":
   let s = rng.genValidAccountId(trial)
-  let aid = parseAccountId(s).get()
+  let aid = parseAccountId(s)
   assertOkEq AccountId.fromJson(aid.toJson()), aid
 
 checkProperty "JmapState round-trip":
   let s = rng.genValidJmapState(trial)
-  let state = parseJmapState(s).get()
+  let state = parseJmapState(s)
   assertOkEq JmapState.fromJson(state.toJson()), state
 
 checkProperty "MethodCallId round-trip":
   let s = rng.genValidMethodCallId(trial)
-  let mcid = parseMethodCallId(s).get()
+  let mcid = parseMethodCallId(s)
   assertOkEq MethodCallId.fromJson(mcid.toJson()), mcid
 
 checkProperty "CreationId round-trip":
   let s = rng.genValidCreationId(trial)
-  let cid = parseCreationId(s).get()
+  let cid = parseCreationId(s)
   assertOkEq CreationId.fromJson(cid.toJson()), cid
 
 checkProperty "UriTemplate round-trip":
   let s = rng.genValidUriTemplateParametric()
-  let tmpl = parseUriTemplate(s).get()
+  let tmpl = parseUriTemplate(s)
   assertOkEq UriTemplate.fromJson(tmpl.toJson()), tmpl
 
 checkProperty "PropertyName round-trip":
   let s = rng.genValidPropertyName(trial)
-  let pn = parsePropertyName(s).get()
+  let pn = parsePropertyName(s)
   assertOkEq PropertyName.fromJson(pn.toJson()), pn
 
 checkProperty "Date round-trip":
   let s = rng.genValidDate()
-  let d = parseDate(s).get()
+  let d = parseDate(s)
   assertOkEq Date.fromJson(d.toJson()), d
 
 checkProperty "UTCDate round-trip":
   let s = rng.genValidUtcDate()
-  let d = parseUtcDate(s).get()
+  let d = parseUtcDate(s)
   assertOkEq UTCDate.fromJson(d.toJson()), d
 
 checkProperty "UnsignedInt round-trip":
   let n = rng.genValidUnsignedInt(trial)
-  let ui = parseUnsignedInt(n).get()
+  let ui = parseUnsignedInt(n)
   assertOkEq UnsignedInt.fromJson(ui.toJson()), ui
 
 checkProperty "JmapInt round-trip":
   let n = rng.genValidJmapInt(trial)
-  let ji = parseJmapInt(n).get()
+  let ji = parseJmapInt(n)
   assertOkEq JmapInt.fromJson(ji.toJson()), ji
 
 # =============================================================================
@@ -441,52 +397,27 @@ checkProperty "JmapInt round-trip":
 block checkJsonKindMcdcKindMismatchNonNil:
   ## MC/DC: node is non-nil but has wrong kind — proves kind mismatch alone
   ## triggers error without relying on nil check.
-  {.cast(noSideEffect).}:
-    let node = %42 # JInt, not JString
-    doAssert not node.isNil, "precondition: node must not be nil"
-    let r = Id.fromJson(node)
-    assertErr r
+  let node = %42 # JInt, not JString
+  doAssert not node.isNil, "precondition: node must not be nil"
+  assertErr Id.fromJson(node)
 
 block collectExtrasMixedKnownUnknown:
   ## Three known + two unknown keys: only the two unknown are collected.
-  {.cast(noSideEffect).}:
-    let obj = %*{"a": 1, "b": 2, "c": 3, "x": 4, "y": 5}
-    let extras = collectExtras(obj, ["a", "b", "c"])
-    assertSome extras
-    let e = extras.get()
-    doAssert e{"x"} != nil
-    doAssert e{"y"} != nil
-    doAssert e{"a"}.isNil, "known key 'a' must not be in extras"
-    doAssert e{"b"}.isNil, "known key 'b' must not be in extras"
+  let obj = %*{"a": 1, "b": 2, "c": 3, "x": 4, "y": 5}
+  let extras = collectExtras(obj, ["a", "b", "c"])
+  assertSome extras
+  let e = extras.get()
+  doAssert e{"x"} != nil
+  doAssert e{"y"} != nil
+  doAssert e{"a"}.isNil, "known key 'a' must not be in extras"
+  doAssert e{"b"}.isNil, "known key 'b' must not be in extras"
 
 block parseErrorEmptyMessage:
   ## parseError with empty message produces a valid ValidationError.
   let err = parseError("TestType", "")
   assertEq err.typeName, "TestType"
-  assertEq err.message, ""
+  assertEq err.msg, ""
   assertEq err.value, ""
-
-# --- jStr/jInt/jBool/jObj/jArr wrappers ---
-
-block jStrProducesJString:
-  let n = jStr("hello")
-  doAssert n.kind == JString
-  assertEq n.getStr(""), "hello"
-
-block jIntProducesJInt:
-  let n = jInt(42)
-  doAssert n.kind == JInt
-  assertEq n.getBiggestInt(0), 42
-
-block jBoolProducesJBool:
-  doAssert jBool(true).getBool(false) == true
-  doAssert jBool(false).getBool(true) == false
-
-block jObjProducesJObject:
-  doAssert jObj().kind == JObject
-
-block jArrProducesJArray:
-  doAssert jArr().kind == JArray
 
 # --- MaxChanges serde ---
 
@@ -499,16 +430,13 @@ block maxChangesSerValue:
   assertEq mc.toJson().getBiggestInt(0), 100
 
 block maxChangesDeserRejectsZero:
-  {.cast(noSideEffect).}:
-    assertErr MaxChanges.fromJson(%0)
+  assertErr MaxChanges.fromJson(%0)
 
 block maxChangesDeserRejectsNegative:
-  {.cast(noSideEffect).}:
-    assertErr MaxChanges.fromJson(%(-1))
+  assertErr MaxChanges.fromJson(%(-1))
 
 block maxChangesDeserRejectsWrongKind:
-  {.cast(noSideEffect).}:
-    assertErr MaxChanges.fromJson(%"42")
+  assertErr MaxChanges.fromJson(%"42")
 
 block maxChangesDeserNil:
   const nilNode: JsonNode = nil

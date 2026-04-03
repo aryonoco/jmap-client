@@ -1,15 +1,11 @@
 # SPDX-License-Identifier: BSD-2-Clause
 # Copyright (c) 2026 Aryan Ameri
 
-{.push raises: [].}
-
 ## Systematic type mismatch tests: every fromJson function tested against
 ## every wrong JsonNodeKind. Verifies that Layer 2 deserialisers gracefully
 ## reject all incorrect JSON kinds.
 
 import std/json
-
-import results
 
 import jmap_client/serde
 import jmap_client/serde_envelope
@@ -26,6 +22,7 @@ import jmap_client/errors
 
 import ../massertions
 import ../mfixtures
+import ../mserde_fixtures
 
 const nilNode: JsonNode = nil
 
@@ -42,23 +39,19 @@ block idWrongKindJNull:
   assertErr Id.fromJson(newJNull())
 
 block idWrongKindJBool:
-  {.cast(noSideEffect).}:
-    assertErr Id.fromJson(newJBool(true))
+  assertErr Id.fromJson(newJBool(true))
 
 block idWrongKindJInt:
-  {.cast(noSideEffect).}:
-    assertErr Id.fromJson(%42)
+  assertErr Id.fromJson(%42)
 
 block idWrongKindJFloat:
   assertErr Id.fromJson(newJFloat(3.14))
 
 block idWrongKindJArray:
-  {.cast(noSideEffect).}:
-    assertErr Id.fromJson(%*[1, 2])
+  assertErr Id.fromJson(%*[1, 2])
 
 block idWrongKindJObject:
-  {.cast(noSideEffect).}:
-    assertErr Id.fromJson(%*{"x": 1})
+  assertErr Id.fromJson(%*{"x": 1})
 
 # --- AccountId ---
 
@@ -69,23 +62,19 @@ block accountIdWrongKindJNull:
   assertErr AccountId.fromJson(newJNull())
 
 block accountIdWrongKindJBool:
-  {.cast(noSideEffect).}:
-    assertErr AccountId.fromJson(newJBool(true))
+  assertErr AccountId.fromJson(newJBool(true))
 
 block accountIdWrongKindJInt:
-  {.cast(noSideEffect).}:
-    assertErr AccountId.fromJson(%42)
+  assertErr AccountId.fromJson(%42)
 
 block accountIdWrongKindJFloat:
   assertErr AccountId.fromJson(newJFloat(3.14))
 
 block accountIdWrongKindJArray:
-  {.cast(noSideEffect).}:
-    assertErr AccountId.fromJson(%*[1, 2])
+  assertErr AccountId.fromJson(%*[1, 2])
 
 block accountIdWrongKindJObject:
-  {.cast(noSideEffect).}:
-    assertErr AccountId.fromJson(%*{"x": 1})
+  assertErr AccountId.fromJson(%*{"x": 1})
 
 # --- JmapState ---
 
@@ -96,23 +85,19 @@ block jmapStateWrongKindJNull:
   assertErr JmapState.fromJson(newJNull())
 
 block jmapStateWrongKindJBool:
-  {.cast(noSideEffect).}:
-    assertErr JmapState.fromJson(newJBool(true))
+  assertErr JmapState.fromJson(newJBool(true))
 
 block jmapStateWrongKindJInt:
-  {.cast(noSideEffect).}:
-    assertErr JmapState.fromJson(%42)
+  assertErr JmapState.fromJson(%42)
 
 block jmapStateWrongKindJFloat:
   assertErr JmapState.fromJson(newJFloat(3.14))
 
 block jmapStateWrongKindJArray:
-  {.cast(noSideEffect).}:
-    assertErr JmapState.fromJson(%*[1, 2])
+  assertErr JmapState.fromJson(%*[1, 2])
 
 block jmapStateWrongKindJObject:
-  {.cast(noSideEffect).}:
-    assertErr JmapState.fromJson(%*{"x": 1})
+  assertErr JmapState.fromJson(%*{"x": 1})
 
 # --- MethodCallId ---
 
@@ -123,23 +108,19 @@ block methodCallIdWrongKindJNull:
   assertErr MethodCallId.fromJson(newJNull())
 
 block methodCallIdWrongKindJBool:
-  {.cast(noSideEffect).}:
-    assertErr MethodCallId.fromJson(newJBool(true))
+  assertErr MethodCallId.fromJson(newJBool(true))
 
 block methodCallIdWrongKindJInt:
-  {.cast(noSideEffect).}:
-    assertErr MethodCallId.fromJson(%42)
+  assertErr MethodCallId.fromJson(%42)
 
 block methodCallIdWrongKindJFloat:
   assertErr MethodCallId.fromJson(newJFloat(3.14))
 
 block methodCallIdWrongKindJArray:
-  {.cast(noSideEffect).}:
-    assertErr MethodCallId.fromJson(%*[1, 2])
+  assertErr MethodCallId.fromJson(%*[1, 2])
 
 block methodCallIdWrongKindJObject:
-  {.cast(noSideEffect).}:
-    assertErr MethodCallId.fromJson(%*{"x": 1})
+  assertErr MethodCallId.fromJson(%*{"x": 1})
 
 # --- CreationId ---
 
@@ -150,23 +131,19 @@ block creationIdWrongKindJNull:
   assertErr CreationId.fromJson(newJNull())
 
 block creationIdWrongKindJBool:
-  {.cast(noSideEffect).}:
-    assertErr CreationId.fromJson(newJBool(true))
+  assertErr CreationId.fromJson(newJBool(true))
 
 block creationIdWrongKindJInt:
-  {.cast(noSideEffect).}:
-    assertErr CreationId.fromJson(%42)
+  assertErr CreationId.fromJson(%42)
 
 block creationIdWrongKindJFloat:
   assertErr CreationId.fromJson(newJFloat(3.14))
 
 block creationIdWrongKindJArray:
-  {.cast(noSideEffect).}:
-    assertErr CreationId.fromJson(%*[1, 2])
+  assertErr CreationId.fromJson(%*[1, 2])
 
 block creationIdWrongKindJObject:
-  {.cast(noSideEffect).}:
-    assertErr CreationId.fromJson(%*{"x": 1})
+  assertErr CreationId.fromJson(%*{"x": 1})
 
 # --- UriTemplate ---
 
@@ -177,23 +154,19 @@ block uriTemplateWrongKindJNull:
   assertErr UriTemplate.fromJson(newJNull())
 
 block uriTemplateWrongKindJBool:
-  {.cast(noSideEffect).}:
-    assertErr UriTemplate.fromJson(newJBool(true))
+  assertErr UriTemplate.fromJson(newJBool(true))
 
 block uriTemplateWrongKindJInt:
-  {.cast(noSideEffect).}:
-    assertErr UriTemplate.fromJson(%42)
+  assertErr UriTemplate.fromJson(%42)
 
 block uriTemplateWrongKindJFloat:
   assertErr UriTemplate.fromJson(newJFloat(3.14))
 
 block uriTemplateWrongKindJArray:
-  {.cast(noSideEffect).}:
-    assertErr UriTemplate.fromJson(%*[1, 2])
+  assertErr UriTemplate.fromJson(%*[1, 2])
 
 block uriTemplateWrongKindJObject:
-  {.cast(noSideEffect).}:
-    assertErr UriTemplate.fromJson(%*{"x": 1})
+  assertErr UriTemplate.fromJson(%*{"x": 1})
 
 # --- PropertyName ---
 
@@ -204,23 +177,19 @@ block propertyNameWrongKindJNull:
   assertErr PropertyName.fromJson(newJNull())
 
 block propertyNameWrongKindJBool:
-  {.cast(noSideEffect).}:
-    assertErr PropertyName.fromJson(newJBool(true))
+  assertErr PropertyName.fromJson(newJBool(true))
 
 block propertyNameWrongKindJInt:
-  {.cast(noSideEffect).}:
-    assertErr PropertyName.fromJson(%42)
+  assertErr PropertyName.fromJson(%42)
 
 block propertyNameWrongKindJFloat:
   assertErr PropertyName.fromJson(newJFloat(3.14))
 
 block propertyNameWrongKindJArray:
-  {.cast(noSideEffect).}:
-    assertErr PropertyName.fromJson(%*[1, 2])
+  assertErr PropertyName.fromJson(%*[1, 2])
 
 block propertyNameWrongKindJObject:
-  {.cast(noSideEffect).}:
-    assertErr PropertyName.fromJson(%*{"x": 1})
+  assertErr PropertyName.fromJson(%*{"x": 1})
 
 # --- Date ---
 
@@ -231,23 +200,19 @@ block dateWrongKindJNull:
   assertErr Date.fromJson(newJNull())
 
 block dateWrongKindJBool:
-  {.cast(noSideEffect).}:
-    assertErr Date.fromJson(newJBool(true))
+  assertErr Date.fromJson(newJBool(true))
 
 block dateWrongKindJInt:
-  {.cast(noSideEffect).}:
-    assertErr Date.fromJson(%42)
+  assertErr Date.fromJson(%42)
 
 block dateWrongKindJFloat:
   assertErr Date.fromJson(newJFloat(3.14))
 
 block dateWrongKindJArray:
-  {.cast(noSideEffect).}:
-    assertErr Date.fromJson(%*[1, 2])
+  assertErr Date.fromJson(%*[1, 2])
 
 block dateWrongKindJObject:
-  {.cast(noSideEffect).}:
-    assertErr Date.fromJson(%*{"x": 1})
+  assertErr Date.fromJson(%*{"x": 1})
 
 # --- UTCDate ---
 
@@ -258,23 +223,19 @@ block utcDateWrongKindJNull:
   assertErr UTCDate.fromJson(newJNull())
 
 block utcDateWrongKindJBool:
-  {.cast(noSideEffect).}:
-    assertErr UTCDate.fromJson(newJBool(true))
+  assertErr UTCDate.fromJson(newJBool(true))
 
 block utcDateWrongKindJInt:
-  {.cast(noSideEffect).}:
-    assertErr UTCDate.fromJson(%42)
+  assertErr UTCDate.fromJson(%42)
 
 block utcDateWrongKindJFloat:
   assertErr UTCDate.fromJson(newJFloat(3.14))
 
 block utcDateWrongKindJArray:
-  {.cast(noSideEffect).}:
-    assertErr UTCDate.fromJson(%*[1, 2])
+  assertErr UTCDate.fromJson(%*[1, 2])
 
 block utcDateWrongKindJObject:
-  {.cast(noSideEffect).}:
-    assertErr UTCDate.fromJson(%*{"x": 1})
+  assertErr UTCDate.fromJson(%*{"x": 1})
 
 # =============================================================================
 # B. Integer-backed type mismatch (expect JInt)
@@ -289,23 +250,19 @@ block unsignedIntWrongKindJNull:
   assertErr UnsignedInt.fromJson(newJNull())
 
 block unsignedIntWrongKindJBool:
-  {.cast(noSideEffect).}:
-    assertErr UnsignedInt.fromJson(newJBool(true))
+  assertErr UnsignedInt.fromJson(newJBool(true))
 
 block unsignedIntWrongKindJString:
-  {.cast(noSideEffect).}:
-    assertErr UnsignedInt.fromJson(%"42")
+  assertErr UnsignedInt.fromJson(%"42")
 
 block unsignedIntWrongKindJFloat:
   assertErr UnsignedInt.fromJson(newJFloat(3.14))
 
 block unsignedIntWrongKindJArray:
-  {.cast(noSideEffect).}:
-    assertErr UnsignedInt.fromJson(%*[1, 2])
+  assertErr UnsignedInt.fromJson(%*[1, 2])
 
 block unsignedIntWrongKindJObject:
-  {.cast(noSideEffect).}:
-    assertErr UnsignedInt.fromJson(%*{"x": 1})
+  assertErr UnsignedInt.fromJson(%*{"x": 1})
 
 # --- JmapInt ---
 
@@ -316,23 +273,19 @@ block jmapIntWrongKindJNull:
   assertErr JmapInt.fromJson(newJNull())
 
 block jmapIntWrongKindJBool:
-  {.cast(noSideEffect).}:
-    assertErr JmapInt.fromJson(newJBool(true))
+  assertErr JmapInt.fromJson(newJBool(true))
 
 block jmapIntWrongKindJString:
-  {.cast(noSideEffect).}:
-    assertErr JmapInt.fromJson(%"42")
+  assertErr JmapInt.fromJson(%"42")
 
 block jmapIntWrongKindJFloat:
   assertErr JmapInt.fromJson(newJFloat(3.14))
 
 block jmapIntWrongKindJArray:
-  {.cast(noSideEffect).}:
-    assertErr JmapInt.fromJson(%*[1, 2])
+  assertErr JmapInt.fromJson(%*[1, 2])
 
 block jmapIntWrongKindJObject:
-  {.cast(noSideEffect).}:
-    assertErr JmapInt.fromJson(%*{"x": 1})
+  assertErr JmapInt.fromJson(%*{"x": 1})
 
 # =============================================================================
 # C. Object-backed type mismatch (expect JObject)
@@ -347,23 +300,19 @@ block coreCapsWrongKindJNull:
   assertErr CoreCapabilities.fromJson(newJNull())
 
 block coreCapsWrongKindJBool:
-  {.cast(noSideEffect).}:
-    assertErr CoreCapabilities.fromJson(newJBool(true))
+  assertErr CoreCapabilities.fromJson(newJBool(true))
 
 block coreCapsWrongKindJInt:
-  {.cast(noSideEffect).}:
-    assertErr CoreCapabilities.fromJson(%42)
+  assertErr CoreCapabilities.fromJson(%42)
 
 block coreCapsWrongKindJFloat:
   assertErr CoreCapabilities.fromJson(newJFloat(3.14))
 
 block coreCapsWrongKindJString:
-  {.cast(noSideEffect).}:
-    assertErr CoreCapabilities.fromJson(%"hello")
+  assertErr CoreCapabilities.fromJson(%"hello")
 
 block coreCapsWrongKindJArray:
-  {.cast(noSideEffect).}:
-    assertErr CoreCapabilities.fromJson(%*[1, 2])
+  assertErr CoreCapabilities.fromJson(%*[1, 2])
 
 # --- Account ---
 
@@ -374,23 +323,19 @@ block accountWrongKindJNull:
   assertErr Account.fromJson(newJNull())
 
 block accountWrongKindJBool:
-  {.cast(noSideEffect).}:
-    assertErr Account.fromJson(newJBool(true))
+  assertErr Account.fromJson(newJBool(true))
 
 block accountWrongKindJInt:
-  {.cast(noSideEffect).}:
-    assertErr Account.fromJson(%42)
+  assertErr Account.fromJson(%42)
 
 block accountWrongKindJFloat:
   assertErr Account.fromJson(newJFloat(3.14))
 
 block accountWrongKindJString:
-  {.cast(noSideEffect).}:
-    assertErr Account.fromJson(%"hello")
+  assertErr Account.fromJson(%"hello")
 
 block accountWrongKindJArray:
-  {.cast(noSideEffect).}:
-    assertErr Account.fromJson(%*[1, 2])
+  assertErr Account.fromJson(%*[1, 2])
 
 # --- Request ---
 
@@ -401,23 +346,19 @@ block requestWrongKindJNull:
   assertErr Request.fromJson(newJNull())
 
 block requestWrongKindJBool:
-  {.cast(noSideEffect).}:
-    assertErr Request.fromJson(newJBool(true))
+  assertErr Request.fromJson(newJBool(true))
 
 block requestWrongKindJInt:
-  {.cast(noSideEffect).}:
-    assertErr Request.fromJson(%42)
+  assertErr Request.fromJson(%42)
 
 block requestWrongKindJFloat:
   assertErr Request.fromJson(newJFloat(3.14))
 
 block requestWrongKindJString:
-  {.cast(noSideEffect).}:
-    assertErr Request.fromJson(%"hello")
+  assertErr Request.fromJson(%"hello")
 
 block requestWrongKindJArray:
-  {.cast(noSideEffect).}:
-    assertErr Request.fromJson(%*[1, 2])
+  assertErr Request.fromJson(%*[1, 2])
 
 # --- Response ---
 
@@ -428,23 +369,19 @@ block responseWrongKindJNull:
   assertErr Response.fromJson(newJNull())
 
 block responseWrongKindJBool:
-  {.cast(noSideEffect).}:
-    assertErr Response.fromJson(newJBool(true))
+  assertErr Response.fromJson(newJBool(true))
 
 block responseWrongKindJInt:
-  {.cast(noSideEffect).}:
-    assertErr Response.fromJson(%42)
+  assertErr Response.fromJson(%42)
 
 block responseWrongKindJFloat:
   assertErr Response.fromJson(newJFloat(3.14))
 
 block responseWrongKindJString:
-  {.cast(noSideEffect).}:
-    assertErr Response.fromJson(%"hello")
+  assertErr Response.fromJson(%"hello")
 
 block responseWrongKindJArray:
-  {.cast(noSideEffect).}:
-    assertErr Response.fromJson(%*[1, 2])
+  assertErr Response.fromJson(%*[1, 2])
 
 # --- ResultReference ---
 
@@ -455,23 +392,19 @@ block resultRefWrongKindJNull:
   assertErr ResultReference.fromJson(newJNull())
 
 block resultRefWrongKindJBool:
-  {.cast(noSideEffect).}:
-    assertErr ResultReference.fromJson(newJBool(true))
+  assertErr ResultReference.fromJson(newJBool(true))
 
 block resultRefWrongKindJInt:
-  {.cast(noSideEffect).}:
-    assertErr ResultReference.fromJson(%42)
+  assertErr ResultReference.fromJson(%42)
 
 block resultRefWrongKindJFloat:
   assertErr ResultReference.fromJson(newJFloat(3.14))
 
 block resultRefWrongKindJString:
-  {.cast(noSideEffect).}:
-    assertErr ResultReference.fromJson(%"hello")
+  assertErr ResultReference.fromJson(%"hello")
 
 block resultRefWrongKindJArray:
-  {.cast(noSideEffect).}:
-    assertErr ResultReference.fromJson(%*[1, 2])
+  assertErr ResultReference.fromJson(%*[1, 2])
 
 # --- Comparator ---
 
@@ -482,23 +415,19 @@ block comparatorWrongKindJNull:
   assertErr Comparator.fromJson(newJNull())
 
 block comparatorWrongKindJBool:
-  {.cast(noSideEffect).}:
-    assertErr Comparator.fromJson(newJBool(true))
+  assertErr Comparator.fromJson(newJBool(true))
 
 block comparatorWrongKindJInt:
-  {.cast(noSideEffect).}:
-    assertErr Comparator.fromJson(%42)
+  assertErr Comparator.fromJson(%42)
 
 block comparatorWrongKindJFloat:
   assertErr Comparator.fromJson(newJFloat(3.14))
 
 block comparatorWrongKindJString:
-  {.cast(noSideEffect).}:
-    assertErr Comparator.fromJson(%"hello")
+  assertErr Comparator.fromJson(%"hello")
 
 block comparatorWrongKindJArray:
-  {.cast(noSideEffect).}:
-    assertErr Comparator.fromJson(%*[1, 2])
+  assertErr Comparator.fromJson(%*[1, 2])
 
 # --- PatchObject ---
 
@@ -509,23 +438,19 @@ block patchObjectWrongKindJNull:
   assertErr PatchObject.fromJson(newJNull())
 
 block patchObjectWrongKindJBool:
-  {.cast(noSideEffect).}:
-    assertErr PatchObject.fromJson(newJBool(true))
+  assertErr PatchObject.fromJson(newJBool(true))
 
 block patchObjectWrongKindJInt:
-  {.cast(noSideEffect).}:
-    assertErr PatchObject.fromJson(%42)
+  assertErr PatchObject.fromJson(%42)
 
 block patchObjectWrongKindJFloat:
   assertErr PatchObject.fromJson(newJFloat(3.14))
 
 block patchObjectWrongKindJString:
-  {.cast(noSideEffect).}:
-    assertErr PatchObject.fromJson(%"hello")
+  assertErr PatchObject.fromJson(%"hello")
 
 block patchObjectWrongKindJArray:
-  {.cast(noSideEffect).}:
-    assertErr PatchObject.fromJson(%*[1, 2])
+  assertErr PatchObject.fromJson(%*[1, 2])
 
 # --- AddedItem ---
 
@@ -536,23 +461,19 @@ block addedItemWrongKindJNull:
   assertErr AddedItem.fromJson(newJNull())
 
 block addedItemWrongKindJBool:
-  {.cast(noSideEffect).}:
-    assertErr AddedItem.fromJson(newJBool(true))
+  assertErr AddedItem.fromJson(newJBool(true))
 
 block addedItemWrongKindJInt:
-  {.cast(noSideEffect).}:
-    assertErr AddedItem.fromJson(%42)
+  assertErr AddedItem.fromJson(%42)
 
 block addedItemWrongKindJFloat:
   assertErr AddedItem.fromJson(newJFloat(3.14))
 
 block addedItemWrongKindJString:
-  {.cast(noSideEffect).}:
-    assertErr AddedItem.fromJson(%"hello")
+  assertErr AddedItem.fromJson(%"hello")
 
 block addedItemWrongKindJArray:
-  {.cast(noSideEffect).}:
-    assertErr AddedItem.fromJson(%*[1, 2])
+  assertErr AddedItem.fromJson(%*[1, 2])
 
 # --- RequestError ---
 
@@ -563,23 +484,19 @@ block requestErrorWrongKindJNull:
   assertErr RequestError.fromJson(newJNull())
 
 block requestErrorWrongKindJBool:
-  {.cast(noSideEffect).}:
-    assertErr RequestError.fromJson(newJBool(true))
+  assertErr RequestError.fromJson(newJBool(true))
 
 block requestErrorWrongKindJInt:
-  {.cast(noSideEffect).}:
-    assertErr RequestError.fromJson(%42)
+  assertErr RequestError.fromJson(%42)
 
 block requestErrorWrongKindJFloat:
   assertErr RequestError.fromJson(newJFloat(3.14))
 
 block requestErrorWrongKindJString:
-  {.cast(noSideEffect).}:
-    assertErr RequestError.fromJson(%"hello")
+  assertErr RequestError.fromJson(%"hello")
 
 block requestErrorWrongKindJArray:
-  {.cast(noSideEffect).}:
-    assertErr RequestError.fromJson(%*[1, 2])
+  assertErr RequestError.fromJson(%*[1, 2])
 
 # --- MethodError ---
 
@@ -590,23 +507,19 @@ block methodErrorWrongKindJNull:
   assertErr MethodError.fromJson(newJNull())
 
 block methodErrorWrongKindJBool:
-  {.cast(noSideEffect).}:
-    assertErr MethodError.fromJson(newJBool(true))
+  assertErr MethodError.fromJson(newJBool(true))
 
 block methodErrorWrongKindJInt:
-  {.cast(noSideEffect).}:
-    assertErr MethodError.fromJson(%42)
+  assertErr MethodError.fromJson(%42)
 
 block methodErrorWrongKindJFloat:
   assertErr MethodError.fromJson(newJFloat(3.14))
 
 block methodErrorWrongKindJString:
-  {.cast(noSideEffect).}:
-    assertErr MethodError.fromJson(%"hello")
+  assertErr MethodError.fromJson(%"hello")
 
 block methodErrorWrongKindJArray:
-  {.cast(noSideEffect).}:
-    assertErr MethodError.fromJson(%*[1, 2])
+  assertErr MethodError.fromJson(%*[1, 2])
 
 # --- SetError ---
 
@@ -617,23 +530,19 @@ block setErrorWrongKindJNull:
   assertErr SetError.fromJson(newJNull())
 
 block setErrorWrongKindJBool:
-  {.cast(noSideEffect).}:
-    assertErr SetError.fromJson(newJBool(true))
+  assertErr SetError.fromJson(newJBool(true))
 
 block setErrorWrongKindJInt:
-  {.cast(noSideEffect).}:
-    assertErr SetError.fromJson(%42)
+  assertErr SetError.fromJson(%42)
 
 block setErrorWrongKindJFloat:
   assertErr SetError.fromJson(newJFloat(3.14))
 
 block setErrorWrongKindJString:
-  {.cast(noSideEffect).}:
-    assertErr SetError.fromJson(%"hello")
+  assertErr SetError.fromJson(%"hello")
 
 block setErrorWrongKindJArray:
-  {.cast(noSideEffect).}:
-    assertErr SetError.fromJson(%*[1, 2])
+  assertErr SetError.fromJson(%*[1, 2])
 
 # --- Filter[int] ---
 
@@ -644,23 +553,19 @@ block filterWrongKindJNull:
   assertErr Filter[int].fromJson(newJNull(), fromIntCondition)
 
 block filterWrongKindJBool:
-  {.cast(noSideEffect).}:
-    assertErr Filter[int].fromJson(newJBool(true), fromIntCondition)
+  assertErr Filter[int].fromJson(newJBool(true), fromIntCondition)
 
 block filterWrongKindJInt:
-  {.cast(noSideEffect).}:
-    assertErr Filter[int].fromJson(%42, fromIntCondition)
+  assertErr Filter[int].fromJson(%42, fromIntCondition)
 
 block filterWrongKindJFloat:
   assertErr Filter[int].fromJson(newJFloat(3.14), fromIntCondition)
 
 block filterWrongKindJString:
-  {.cast(noSideEffect).}:
-    assertErr Filter[int].fromJson(%"hello", fromIntCondition)
+  assertErr Filter[int].fromJson(%"hello", fromIntCondition)
 
 block filterWrongKindJArray:
-  {.cast(noSideEffect).}:
-    assertErr Filter[int].fromJson(%*[1, 2], fromIntCondition)
+  assertErr Filter[int].fromJson(%*[1, 2], fromIntCondition)
 
 # =============================================================================
 # D. Array-backed type mismatch (Invocation expects JArray)
@@ -673,23 +578,19 @@ block invocationWrongKindJNull:
   assertErr Invocation.fromJson(newJNull())
 
 block invocationWrongKindJBool:
-  {.cast(noSideEffect).}:
-    assertErr Invocation.fromJson(newJBool(true))
+  assertErr Invocation.fromJson(newJBool(true))
 
 block invocationWrongKindJInt:
-  {.cast(noSideEffect).}:
-    assertErr Invocation.fromJson(%42)
+  assertErr Invocation.fromJson(%42)
 
 block invocationWrongKindJFloat:
   assertErr Invocation.fromJson(newJFloat(3.14))
 
 block invocationWrongKindJString:
-  {.cast(noSideEffect).}:
-    assertErr Invocation.fromJson(%"hello")
+  assertErr Invocation.fromJson(%"hello")
 
 block invocationWrongKindJObject:
-  {.cast(noSideEffect).}:
-    assertErr Invocation.fromJson(%*{"x": 1})
+  assertErr Invocation.fromJson(%*{"x": 1})
 
 # =============================================================================
 # E. Enum type mismatch (FilterOperator expects JString)
@@ -702,23 +603,19 @@ block filterOperatorWrongKindJNull:
   assertErr FilterOperator.fromJson(newJNull())
 
 block filterOperatorWrongKindJBool:
-  {.cast(noSideEffect).}:
-    assertErr FilterOperator.fromJson(newJBool(true))
+  assertErr FilterOperator.fromJson(newJBool(true))
 
 block filterOperatorWrongKindJInt:
-  {.cast(noSideEffect).}:
-    assertErr FilterOperator.fromJson(%42)
+  assertErr FilterOperator.fromJson(%42)
 
 block filterOperatorWrongKindJFloat:
   assertErr FilterOperator.fromJson(newJFloat(3.14))
 
 block filterOperatorWrongKindJArray:
-  {.cast(noSideEffect).}:
-    assertErr FilterOperator.fromJson(%*[1, 2])
+  assertErr FilterOperator.fromJson(%*[1, 2])
 
 block filterOperatorWrongKindJObject:
-  {.cast(noSideEffect).}:
-    assertErr FilterOperator.fromJson(%*{"x": 1})
+  assertErr FilterOperator.fromJson(%*{"x": 1})
 
 # =============================================================================
 # F. ServerCapability type mismatch (core URI expects JObject for data)
@@ -731,23 +628,19 @@ block serverCapCoreWrongKindJNull:
   assertErr ServerCapability.fromJson("urn:ietf:params:jmap:core", newJNull())
 
 block serverCapCoreWrongKindJBool:
-  {.cast(noSideEffect).}:
-    assertErr ServerCapability.fromJson("urn:ietf:params:jmap:core", newJBool(true))
+  assertErr ServerCapability.fromJson("urn:ietf:params:jmap:core", newJBool(true))
 
 block serverCapCoreWrongKindJInt:
-  {.cast(noSideEffect).}:
-    assertErr ServerCapability.fromJson("urn:ietf:params:jmap:core", %42)
+  assertErr ServerCapability.fromJson("urn:ietf:params:jmap:core", %42)
 
 block serverCapCoreWrongKindJFloat:
   assertErr ServerCapability.fromJson("urn:ietf:params:jmap:core", newJFloat(3.14))
 
 block serverCapCoreWrongKindJString:
-  {.cast(noSideEffect).}:
-    assertErr ServerCapability.fromJson("urn:ietf:params:jmap:core", %"hello")
+  assertErr ServerCapability.fromJson("urn:ietf:params:jmap:core", %"hello")
 
 block serverCapCoreWrongKindJArray:
-  {.cast(noSideEffect).}:
-    assertErr ServerCapability.fromJson("urn:ietf:params:jmap:core", %*[1, 2])
+  assertErr ServerCapability.fromJson("urn:ietf:params:jmap:core", %*[1, 2])
 
 # Non-core capability URIs accept any kind for rawData (pass-through).
 
@@ -758,88 +651,71 @@ block serverCapMailAcceptsJNull:
   assertOk ServerCapability.fromJson("urn:ietf:params:jmap:mail", newJNull())
 
 block serverCapMailAcceptsJBool:
-  {.cast(noSideEffect).}:
-    assertOk ServerCapability.fromJson("urn:ietf:params:jmap:mail", newJBool(true))
+  assertOk ServerCapability.fromJson("urn:ietf:params:jmap:mail", newJBool(true))
 
 block serverCapMailAcceptsJInt:
-  {.cast(noSideEffect).}:
-    assertOk ServerCapability.fromJson("urn:ietf:params:jmap:mail", %42)
+  assertOk ServerCapability.fromJson("urn:ietf:params:jmap:mail", %42)
 
 block serverCapMailAcceptsJString:
-  {.cast(noSideEffect).}:
-    assertOk ServerCapability.fromJson("urn:ietf:params:jmap:mail", %"hello")
+  assertOk ServerCapability.fromJson("urn:ietf:params:jmap:mail", %"hello")
 
 block serverCapMailAcceptsJArray:
-  {.cast(noSideEffect).}:
-    assertOk ServerCapability.fromJson("urn:ietf:params:jmap:mail", %*[1, 2])
+  assertOk ServerCapability.fromJson("urn:ietf:params:jmap:mail", %*[1, 2])
 
 block serverCapMailAcceptsJObject:
-  {.cast(noSideEffect).}:
-    assertOk ServerCapability.fromJson("urn:ietf:params:jmap:mail", %*{"x": 1})
+  assertOk ServerCapability.fromJson("urn:ietf:params:jmap:mail", %*{"x": 1})
 
 # =============================================================================
 # G. Nested field wrong kinds (CoreCapabilities per-field replacement)
 # =============================================================================
 
-proc validCoreCapsJson(): JsonNode {.noSideEffect, raises: [].} =
+proc validCoreCapsJson(): JsonNode =
   ## Construct a valid CoreCapabilities JSON object for per-field testing.
-  {.cast(noSideEffect).}:
-    %*{
-      "maxSizeUpload": 50000000,
-      "maxConcurrentUpload": 8,
-      "maxSizeRequest": 10000000,
-      "maxConcurrentRequests": 8,
-      "maxCallsInRequest": 32,
-      "maxObjectsInGet": 256,
-      "maxObjectsInSet": 128,
-      "collationAlgorithms": ["i;ascii-numeric"],
-    }
+  %*{
+    "maxSizeUpload": 50000000,
+    "maxConcurrentUpload": 8,
+    "maxSizeRequest": 10000000,
+    "maxConcurrentRequests": 8,
+    "maxCallsInRequest": 32,
+    "maxObjectsInGet": 256,
+    "maxObjectsInSet": 128,
+    "collationAlgorithms": ["i;ascii-numeric"],
+  }
 
-proc coreCapsWithField(
-    field: string, value: JsonNode
-): JsonNode {.noSideEffect, raises: [].} =
+proc coreCapsWithField(field: string, value: JsonNode): JsonNode =
   ## Return a valid CoreCapabilities JSON with one field replaced.
-  {.cast(noSideEffect).}:
-    result = validCoreCapsJson()
-    result[field] = value
+  result = validCoreCapsJson()
+  result[field] = value
 
 block coreCapsFieldMaxSizeUploadWrongKind:
-  {.cast(noSideEffect).}:
-    assertErr CoreCapabilities.fromJson(coreCapsWithField("maxSizeUpload", %"bad"))
+  assertErr CoreCapabilities.fromJson(coreCapsWithField("maxSizeUpload", %"bad"))
 
 block coreCapsFieldMaxConcurrentUploadWrongKind:
-  {.cast(noSideEffect).}:
-    assertErr CoreCapabilities.fromJson(
-      coreCapsWithField("maxConcurrentUpload", %"bad")
-    )
+  assertErr CoreCapabilities.fromJson(
+    coreCapsWithField("maxConcurrentUpload", %"bad")
+  )
 
 block coreCapsFieldMaxSizeRequestWrongKind:
-  {.cast(noSideEffect).}:
-    assertErr CoreCapabilities.fromJson(coreCapsWithField("maxSizeRequest", %"bad"))
+  assertErr CoreCapabilities.fromJson(coreCapsWithField("maxSizeRequest", %"bad"))
 
 block coreCapsFieldMaxConcurrentRequestsWrongKind:
-  {.cast(noSideEffect).}:
-    assertErr CoreCapabilities.fromJson(
-      coreCapsWithField("maxConcurrentRequests", %"bad")
-    )
+  assertErr CoreCapabilities.fromJson(
+    coreCapsWithField("maxConcurrentRequests", %"bad")
+  )
 
 block coreCapsFieldMaxCallsInRequestWrongKind:
-  {.cast(noSideEffect).}:
-    assertErr CoreCapabilities.fromJson(coreCapsWithField("maxCallsInRequest", %"bad"))
+  assertErr CoreCapabilities.fromJson(coreCapsWithField("maxCallsInRequest", %"bad"))
 
 block coreCapsFieldMaxObjectsInGetWrongKind:
-  {.cast(noSideEffect).}:
-    assertErr CoreCapabilities.fromJson(coreCapsWithField("maxObjectsInGet", %"bad"))
+  assertErr CoreCapabilities.fromJson(coreCapsWithField("maxObjectsInGet", %"bad"))
 
 block coreCapsFieldMaxObjectsInSetWrongKind:
-  {.cast(noSideEffect).}:
-    assertErr CoreCapabilities.fromJson(coreCapsWithField("maxObjectsInSet", %"bad"))
+  assertErr CoreCapabilities.fromJson(coreCapsWithField("maxObjectsInSet", %"bad"))
 
 block coreCapsFieldCollationAlgorithmsWrongKind:
-  {.cast(noSideEffect).}:
-    assertErr CoreCapabilities.fromJson(
-      coreCapsWithField("collationAlgorithms", %"bad")
-    )
+  assertErr CoreCapabilities.fromJson(
+    coreCapsWithField("collationAlgorithms", %"bad")
+  )
 
 # =============================================================================
 # F. Cross-type confusion tests

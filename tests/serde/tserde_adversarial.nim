@@ -1,18 +1,15 @@
 # SPDX-License-Identifier: BSD-2-Clause
 # Copyright (c) 2026 Aryan Ameri
 
-{.push raises: [].}
-
 ## Adversarial input tests for Layer 2 serialisation. Tests malformed JSON,
 ## boundary inputs, deep nesting, large collections, type confusion, and
 ## resource pressure scenarios. Every test verifies graceful handling
-## (Ok or Err result, never crash).
+## (success or ValidationError, never crash).
 
 import std/json
+import std/options
 import std/strutils
 import std/tables
-
-import results
 
 import jmap_client/serde
 import jmap_client/serde_envelope
@@ -30,6 +27,7 @@ import jmap_client/validation
 
 import ../massertions
 import ../mfixtures
+import ../mserde_fixtures
 
 # Valid JSON fixtures are in mfixtures.nim:
 # validSessionJson(), validRequestJson(), validResponseJson()
@@ -41,56 +39,48 @@ import ../mfixtures
 block sessionCapabilitiesAsArray:
   ## capabilities as JArray instead of JObject -> assertErr
   var j = validSessionJson()
-  {.cast(noSideEffect).}:
-    j["capabilities"] = %*[1, 2, 3]
+  j["capabilities"] = %*[1, 2, 3]
   assertErr Session.fromJson(j)
 
 block sessionLargeCapabilities:
   ## 1000 vendor extension keys, each with empty JObject data -> should succeed.
   var j = validSessionJson()
   let caps = newJObject()
-  {.cast(noSideEffect).}:
-    caps["urn:ietf:params:jmap:core"] = j["capabilities"]["urn:ietf:params:jmap:core"]
+  caps["urn:ietf:params:jmap:core"] = j["capabilities"]["urn:ietf:params:jmap:core"]
   for i in 0 ..< 1000:
-    {.cast(noSideEffect).}:
-      caps["https://vendor.example/ext/" & $i] = newJObject()
+    caps["https://vendor.example/ext/" & $i] = newJObject()
   j["capabilities"] = caps
   let r = Session.fromJson(j)
-  assertOk r
-  assertGe r.get().capabilities.len, 1001
+  assertGe r.capabilities.len, 1001
 
 block sessionLongCapabilityUri:
   ## Capability URI of 10,000 chars -> should succeed (URIs stored as-is).
   var j = validSessionJson()
   let longUri = "https://vendor.example/" & 'a'.repeat(10000)
   let caps = newJObject()
-  {.cast(noSideEffect).}:
-    caps["urn:ietf:params:jmap:core"] = j["capabilities"]["urn:ietf:params:jmap:core"]
-    caps[longUri] = newJObject()
+  caps["urn:ietf:params:jmap:core"] = j["capabilities"]["urn:ietf:params:jmap:core"]
+  caps[longUri] = newJObject()
   j["capabilities"] = caps
-  let r = Session.fromJson(j)
-  assertOk r
+  assertOk Session.fromJson(j)
 
 block sessionUnicodeAccountName:
   ## Account with Unicode name (Japanese, emoji) -> should succeed.
   var j = validSessionJson()
-  {.cast(noSideEffect).}:
-    j["accounts"] = %*{
-      "A1": {
-        "name": "\u65E5\u672C\u8A9E\u30E6\u30FC\u30B6\u30FC \U0001F600",
-        "isPersonal": true,
-        "isReadOnly": false,
-        "accountCapabilities": {},
-      }
+  j["accounts"] = %*{
+    "A1": {
+      "name": "\u65E5\u672C\u8A9E\u30E6\u30FC\u30B6\u30FC \U0001F600",
+      "isPersonal": true,
+      "isReadOnly": false,
+      "accountCapabilities": {},
     }
+  }
   assertOk Session.fromJson(j)
 
-block sessionPrimaryAccountsMissedId:
+block sessionPrimaryAccountsMissedID:
   ## primaryAccounts pointing to non-existent accountId -> should succeed
   ## (referential integrity not validated at Layer 2).
   var j = validSessionJson()
-  {.cast(noSideEffect).}:
-    j["primaryAccounts"] = %*{"urn:ietf:params:jmap:mail": "nonExistentId"}
+  j["primaryAccounts"] = %*{"urn:ietf:params:jmap:mail": "nonExistentId"}
   assertOk Session.fromJson(j)
 
 block sessionDuplicateCapabilityUris:
@@ -98,32 +88,28 @@ block sessionDuplicateCapabilityUris:
   ## JSON last-wins semantics apply; should succeed.
   var j = validSessionJson()
   let caps = newJObject()
-  {.cast(noSideEffect).}:
-    caps["urn:ietf:params:jmap:core"] = j["capabilities"]["urn:ietf:params:jmap:core"]
-    caps["urn:ietf:params:jmap:mail"] = %*{"first": true}
-    caps["urn:ietf:params:jmap:mail"] = %*{"second": true}
+  caps["urn:ietf:params:jmap:core"] = j["capabilities"]["urn:ietf:params:jmap:core"]
+  caps["urn:ietf:params:jmap:mail"] = %*{"first": true}
+  caps["urn:ietf:params:jmap:mail"] = %*{"second": true}
   j["capabilities"] = caps
   assertOk Session.fromJson(j)
 
 block sessionCoreCapabilityAsFloat:
   ## maxSizeUpload as JFloat (3.14) instead of JInt -> assertErr.
   var j = validSessionJson()
-  {.cast(noSideEffect).}:
-    j["capabilities"]["urn:ietf:params:jmap:core"]["maxSizeUpload"] = newJFloat(3.14)
+  j["capabilities"]["urn:ietf:params:jmap:core"]["maxSizeUpload"] = newJFloat(3.14)
   assertErr Session.fromJson(j)
 
 block sessionMissingCoreCapability:
   ## capabilities without ckCore -> assertErr.
   var j = validSessionJson()
-  {.cast(noSideEffect).}:
-    j["capabilities"] = %*{"urn:ietf:params:jmap:mail": {}}
+  j["capabilities"] = %*{"urn:ietf:params:jmap:mail": {}}
   assertErr Session.fromJson(j)
 
 block sessionEmptyApiUrl:
   ## apiUrl is empty string -> assertErr.
   var j = validSessionJson()
-  {.cast(noSideEffect).}:
-    j["apiUrl"] = %""
+  j["apiUrl"] = %""
   assertErr Session.fromJson(j)
 
 # =============================================================================
@@ -133,10 +119,9 @@ block sessionEmptyApiUrl:
 block invocationNullElements:
   ## ["method", null, "c0"] -> assertErr (null is not JObject for arguments).
   var arr = newJArray()
-  {.cast(noSideEffect).}:
-    arr.add(newJString("method"))
-    arr.add(newJNull())
-    arr.add(newJString("c0"))
+  arr.add(newJString("method"))
+  arr.add(newJNull())
+  arr.add(newJString("c0"))
   assertErr Invocation.fromJson(arr)
 
 block invocationEmptyArray:
@@ -147,11 +132,9 @@ block requestLargeMethodCalls:
   ## Request with 1000 method calls -> should succeed.
   var methodCalls = newJArray()
   for i in 0 ..< 1000:
-    {.cast(noSideEffect).}:
-      methodCalls.add(%*["Method/" & $i, {}, "c" & $i])
+    methodCalls.add(%*["Method/" & $i, {}, "c" & $i])
   var j = newJObject()
-  {.cast(noSideEffect).}:
-    j["using"] = %*["urn:ietf:params:jmap:core"]
+  j["using"] = %*["urn:ietf:params:jmap:core"]
   j["methodCalls"] = methodCalls
   assertOk Request.fromJson(j)
 
@@ -160,50 +143,42 @@ block requestLargeCreatedIds:
   var j = validRequestJson()
   var ids = newJObject()
   for i in 0 ..< 1000:
-    {.cast(noSideEffect).}:
-      ids["k" & $i] = newJString("id" & $i)
+    ids["k" & $i] = newJString("id" & $i)
   j["createdIds"] = ids
   let r = Request.fromJson(j)
-  assertOk r
-  doAssert r.get().createdIds.isSome
-  assertEq r.get().createdIds.get().len, 1000
+  doAssert r.createdIds.isSome
+  assertEq r.createdIds.get().len, 1000
 
 block responseDeeplyNestedArguments:
   ## Response invocation with 50-level nested arguments object -> should succeed.
   var inner = newJObject()
   for i in 0 ..< 50:
     let outer = newJObject()
-    {.cast(noSideEffect).}:
-      outer["level" & $i] = inner
+    outer["level" & $i] = inner
     inner = outer
   var inv = newJArray()
-  {.cast(noSideEffect).}:
-    inv.add(newJString("Method/deeply"))
-    inv.add(inner)
-    inv.add(newJString("c0"))
+  inv.add(newJString("Method/deeply"))
+  inv.add(inner)
+  inv.add(newJString("c0"))
   var j = newJObject()
-  {.cast(noSideEffect).}:
-    j["methodResponses"] = %*[inv]
-    j["sessionState"] = %"s1"
+  j["methodResponses"] = %*[inv]
+  j["sessionState"] = %"s1"
   assertOk Response.fromJson(j)
 
 block createdIdsDuplicateKeys:
   ## createdIds with duplicate key (JSON last-wins) -> should succeed.
   var j = validRequestJson()
   var ids = newJObject()
-  {.cast(noSideEffect).}:
-    ids["k1"] = newJString("first")
-    ids["k1"] = newJString("second")
+  ids["k1"] = newJString("first")
+  ids["k1"] = newJString("second")
   j["createdIds"] = ids
-  let r = Request.fromJson(j)
-  assertOk r
+  assertOk Request.fromJson(j)
 
 block createdIdsEmptyKey:
   ## createdIds with "" key -> assertErr (empty CreationId).
   var j = validRequestJson()
   var ids = newJObject()
-  {.cast(noSideEffect).}:
-    ids[""] = newJString("id1")
+  ids[""] = newJString("id1")
   j["createdIds"] = ids
   assertErr Request.fromJson(j)
 
@@ -211,15 +186,13 @@ block createdIdsEmptyValue:
   ## createdIds with value "" -> assertErr (empty Id).
   var j = validRequestJson()
   var ids = newJObject()
-  {.cast(noSideEffect).}:
-    ids["k1"] = newJString("")
+  ids["k1"] = newJString("")
   j["createdIds"] = ids
   assertErr Request.fromJson(j)
 
 block responseEmptySessionState:
   ## sessionState as "" -> assertErr (JmapState requires non-empty).
-  {.cast(noSideEffect).}:
-    let j = %*{"methodResponses": [["Mailbox/get", {}, "c0"]], "sessionState": ""}
+  let j = %*{"methodResponses": [["Mailbox/get", {}, "c0"]], "sessionState": ""}
   assertErr Response.fromJson(j)
 
 # =============================================================================
@@ -229,67 +202,57 @@ block responseEmptySessionState:
 block filterDeepNesting50Levels:
   ## 50-level deep filter via fromJson -> should succeed.
   var inner = newJObject()
-  {.cast(noSideEffect).}:
-    inner["value"] = %42
+  inner["value"] = %42
   for i in 0 ..< 50:
     var conds = newJArray()
     conds.add(inner)
     inner = newJObject()
-    {.cast(noSideEffect).}:
-      inner["operator"] = %"AND"
+    inner["operator"] = %"AND"
     inner["conditions"] = conds
   let r = Filter[int].fromJson(inner, fromIntCondition)
-  assertOk r
+  discard r
 
 block filterWideOperator1000Children:
   ## AND operator with 1000 leaf conditions -> should succeed.
   var conds = newJArray()
   for i in 0 ..< 1000:
     var leaf = newJObject()
-    {.cast(noSideEffect).}:
-      leaf["value"] = %i
+    leaf["value"] = %i
     conds.add(leaf)
   var j = newJObject()
-  {.cast(noSideEffect).}:
-    j["operator"] = %"AND"
+  j["operator"] = %"AND"
   j["conditions"] = conds
   let r = Filter[int].fromJson(j, fromIntCondition)
-  assertOk r
-  doAssert r.get().kind == fkOperator
-  assertEq r.get().conditions.len, 1000
+  doAssert r.kind == fkOperator
+  assertEq r.conditions.len, 1000
 
 block filterNullInConditions:
   ## {"operator":"AND","conditions":[null]} -> assertErr.
   var conds = newJArray()
   conds.add(newJNull())
   var j = newJObject()
-  {.cast(noSideEffect).}:
-    j["operator"] = %"AND"
+  j["operator"] = %"AND"
   j["conditions"] = conds
   assertErr Filter[int].fromJson(j, fromIntCondition)
 
 block filterStringInConditions:
   ## {"operator":"AND","conditions":["not-object"]} -> assertErr.
   var conds = newJArray()
-  {.cast(noSideEffect).}:
-    conds.add(%"not-object")
+  conds.add(%"not-object")
   var j = newJObject()
-  {.cast(noSideEffect).}:
-    j["operator"] = %"AND"
+  j["operator"] = %"AND"
   j["conditions"] = conds
   assertErr Filter[int].fromJson(j, fromIntCondition)
 
 block filterOperatorWhitespacePadded:
   ## "  AND  " -> assertErr (not trimmed).
-  {.cast(noSideEffect).}:
-    let j = %*{"operator": "  AND  ", "conditions": []}
-    assertErr Filter[int].fromJson(j, fromIntCondition)
+  let j = %*{"operator": "  AND  ", "conditions": []}
+  assertErr Filter[int].fromJson(j, fromIntCondition)
 
 block filterOperatorMixedCase:
   ## "AnD" -> assertErr.
-  {.cast(noSideEffect).}:
-    let j = %*{"operator": "AnD", "conditions": []}
-    assertErr Filter[int].fromJson(j, fromIntCondition)
+  let j = %*{"operator": "AnD", "conditions": []}
+  assertErr Filter[int].fromJson(j, fromIntCondition)
 
 block comparatorNullProperty:
   ## {"property":null} -> assertErr.
@@ -299,32 +262,26 @@ block comparatorNullProperty:
 
 block comparatorEmptyCollation:
   ## {"property":"x","collation":""} -> assertOk (empty collation is just a string).
-  {.cast(noSideEffect).}:
-    let j = %*{"property": "x", "collation": ""}
+  let j = %*{"property": "x", "collation": ""}
   let r = Comparator.fromJson(j)
-  assertOk r
-  doAssert r.get().collation.isSome
-  assertEq r.get().collation.get(), ""
+  doAssert r.collation.isSome
+  assertEq r.collation.get(), ""
 
 block patchObjectLargePathCount:
   ## PatchObject with 1000 paths -> should succeed.
   var j = newJObject()
   for i in 0 ..< 1000:
-    {.cast(noSideEffect).}:
-      j["path/" & $i] = %i
+    j["path/" & $i] = %i
   let r = PatchObject.fromJson(j)
-  assertOk r
-  assertEq r.get().len, 1000
+  assertEq r.len, 1000
 
 block patchObjectLongPathString:
   ## Path with 10,000 char key -> should succeed.
   var j = newJObject()
   let longKey = 'a'.repeat(10000)
-  {.cast(noSideEffect).}:
-    j[longKey] = %42
+  j[longKey] = %42
   let r = PatchObject.fromJson(j)
-  assertOk r
-  assertEq r.get().len, 1
+  assertEq r.len, 1
 
 # =============================================================================
 # D. Error adversarial
@@ -333,99 +290,80 @@ block patchObjectLongPathString:
 block requestErrorExtrasKeyCollision:
   ## Extras with key "type" (same as required field) -> verify "type" in
   ## serialised output is the error type, not the extras value.
-  {.cast(noSideEffect).}:
-    let j =
-      %*{"type": "urn:ietf:params:jmap:error:limit", "custom": "data", "type": "evil"}
+  let j =
+    %*{"type": "urn:ietf:params:jmap:error:limit", "custom": "data", "type": "evil"}
   # JSON last-wins: "type" will be "evil", which is a valid type string.
   # The parser reads whatever "type" resolves to.
-  let r = RequestError.fromJson(j)
-  # May succeed with rawType "evil" or may have "urn:..." depending on parser.
-  # Either way: no crash. If it succeeds, serialised output "type" field
-  # comes from rawType, not extras.
-  if r.isOk:
-    let j2 = r.get().toJson()
+  try:
+    let r = RequestError.fromJson(j)
+    let j2 = r.toJson()
     doAssert j2{"type"} != nil
-    assertEq j2{"type"}.getStr(""), r.get().rawType
+    assertEq j2{"type"}.getStr(""), r.rawType
+  except ValidationError:
+    discard
 
 block methodErrorExtrasKeyCollision:
   ## Extras with key "description" -> extras should NOT override the real
   ## description. In the parsed result the description field is extracted
   ## separately from extras.
-  {.cast(noSideEffect).}:
-    let j =
-      %*{"type": "serverFail", "description": "real desc", "vendorField": "vendor"}
+  let j = %*{"type": "serverFail", "description": "real desc", "vendorField": "vendor"}
   let r = MethodError.fromJson(j)
-  assertOk r
-  doAssert r.get().description.isSome
-  assertEq r.get().description.get(), "real desc"
+  doAssert r.description.isSome
+  assertEq r.description.get(), "real desc"
 
 block setErrorLargeProperties:
   ## invalidProperties with 1000 property strings -> should succeed.
   var propsArr = newJArray()
   for i in 0 ..< 1000:
-    {.cast(noSideEffect).}:
-      propsArr.add(%("prop" & $i))
+    propsArr.add(%("prop" & $i))
   var j = newJObject()
-  {.cast(noSideEffect).}:
-    j["type"] = %"invalidProperties"
+  j["type"] = %"invalidProperties"
   j["properties"] = propsArr
   let r = SetError.fromJson(j)
-  assertOk r
-  doAssert r.get().errorType == setInvalidProperties
-  assertEq r.get().properties.len, 1000
+  doAssert r.errorType == setInvalidProperties
+  assertEq r.properties.len, 1000
 
 block setErrorDeeplyNestedExtras:
   ## Extras with 50-level nested JSON -> should succeed (extras stored as-is).
   var inner = newJObject()
   for i in 0 ..< 50:
     let outer = newJObject()
-    {.cast(noSideEffect).}:
-      outer["level" & $i] = inner
+    outer["level" & $i] = inner
     inner = outer
   var j = newJObject()
-  {.cast(noSideEffect).}:
-    j["type"] = %"forbidden"
-    j["deepField"] = inner
+  j["type"] = %"forbidden"
+  j["deepField"] = inner
   let r = SetError.fromJson(j)
-  assertOk r
-  doAssert r.get().extras.isSome
+  doAssert r.extras.isSome
 
 block setErrorAlreadyExistsNullId:
   ## {"type":"alreadyExists","existingId":null} -> defensive fallback to setUnknown.
   var j = newJObject()
-  {.cast(noSideEffect).}:
-    j["type"] = %"alreadyExists"
+  j["type"] = %"alreadyExists"
   j["existingId"] = newJNull()
   let r = SetError.fromJson(j)
-  assertOk r
-  doAssert r.get().errorType == setUnknown
+  doAssert r.errorType == setUnknown
 
 block requestErrorFloatStatus:
   ## status as 429.5 (JFloat not JInt) -> lenient: status becomes None.
   var j = newJObject()
-  {.cast(noSideEffect).}:
-    j["type"] = %"urn:ietf:params:jmap:error:limit"
-    j["status"] = newJFloat(429.5)
+  j["type"] = %"urn:ietf:params:jmap:error:limit"
+  j["status"] = newJFloat(429.5)
   let r = RequestError.fromJson(j)
-  assertOk r
-  doAssert r.get().status.isNone
+  doAssert r.status.isNone
 
 block requestErrorEmptyExtras:
   ## No unknown fields -> extras is None.
-  {.cast(noSideEffect).}:
-    let j = %*{"type": "urn:ietf:params:jmap:error:notJSON"}
+  let j = %*{"type": "urn:ietf:params:jmap:error:notJSON"}
   let r = RequestError.fromJson(j)
-  assertOk r
-  doAssert r.get().extras.isNone
+  doAssert r.extras.isNone
 
 block setErrorInvalidPropertiesEmptyElement:
   ## Properties array with "" -> assertOk (empty strings allowed in array).
-  {.cast(noSideEffect).}:
-    let j = %*{"type": "invalidProperties", "properties": [""]}
+  let j = %*{"type": "invalidProperties", "properties": [""]}
   let r = SetError.fromJson(j)
-  assertOk r
-  doAssert r.get().errorType == setInvalidProperties
-  assertEq r.get().properties[0], ""
+  doAssert r.errorType == setInvalidProperties
+  assertEq r.properties[0], ""
 
 # =============================================================================
 # E. Scale / resource tests
@@ -437,49 +375,40 @@ block sessionManyAccounts:
   var accts = newJObject()
   for i in 0 ..< 100:
     var acctCaps = newJObject()
-    {.cast(noSideEffect).}:
-      acctCaps["urn:ietf:params:jmap:mail"] = newJObject()
-      acctCaps["urn:ietf:params:jmap:contacts"] = newJObject()
-      acctCaps["https://vendor.example/ext"] = newJObject()
+    acctCaps["urn:ietf:params:jmap:mail"] = newJObject()
+    acctCaps["urn:ietf:params:jmap:contacts"] = newJObject()
+    acctCaps["https://vendor.example/ext"] = newJObject()
     var acct = newJObject()
-    {.cast(noSideEffect).}:
-      acct["name"] = %("user" & $i & "@example.com")
-      acct["isPersonal"] = %true
-      acct["isReadOnly"] = %false
+    acct["name"] = %("user" & $i & "@example.com")
+    acct["isPersonal"] = %true
+    acct["isReadOnly"] = %false
     acct["accountCapabilities"] = acctCaps
-    {.cast(noSideEffect).}:
-      accts["acct" & $i] = acct
+    accts["acct" & $i] = acct
   j["accounts"] = accts
   let r = Session.fromJson(j)
-  assertOk r
-  assertEq r.get().accounts.len, 100
+  assertEq r.accounts.len, 100
 
 block requestManyInvocations:
   ## Request with 500 invocations -> should succeed.
   var methodCalls = newJArray()
   for i in 0 ..< 500:
-    {.cast(noSideEffect).}:
-      methodCalls.add(%*["Email/get", {}, "c" & $i])
+    methodCalls.add(%*["Email/get", {}, "c" & $i])
   var j = newJObject()
-  {.cast(noSideEffect).}:
-    j["using"] = %*["urn:ietf:params:jmap:core"]
+  j["using"] = %*["urn:ietf:params:jmap:core"]
   j["methodCalls"] = methodCalls
   let r = Request.fromJson(j)
-  assertOk r
-  assertEq r.get().methodCalls.len, 500
+  assertEq r.methodCalls.len, 500
 
 block responseManyCreatedIds:
   ## Response with 500 createdIds -> should succeed.
   var j = validResponseJson()
   var ids = newJObject()
   for i in 0 ..< 500:
-    {.cast(noSideEffect).}:
-      ids["k" & $i] = newJString("id" & $i)
+    ids["k" & $i] = newJString("id" & $i)
   j["createdIds"] = ids
   let r = Response.fromJson(j)
-  assertOk r
-  doAssert r.get().createdIds.isSome
-  assertEq r.get().createdIds.get().len, 500
+  doAssert r.createdIds.isSome
+  assertEq r.createdIds.get().len, 500
 
 block filterBranchingFactor:
   ## Filter tree with branching factor 10, depth 3 (1000 leaves) -> should succeed.
@@ -487,8 +416,7 @@ block filterBranchingFactor:
   var leaves = newJArray()
   for i in 0 ..< 10:
     var leaf = newJObject()
-    {.cast(noSideEffect).}:
-      leaf["value"] = %i
+    leaf["value"] = %i
     leaves.add(leaf)
 
   # Build depth-1: 10 AND operators, each with 10 leaves
@@ -497,12 +425,10 @@ block filterBranchingFactor:
     var innerLeaves = newJArray()
     for k in 0 ..< 10:
       var leaf = newJObject()
-      {.cast(noSideEffect).}:
-        leaf["value"] = %(i * 10 + k)
+      leaf["value"] = %(i * 10 + k)
       innerLeaves.add(leaf)
     var node = newJObject()
-    {.cast(noSideEffect).}:
-      node["operator"] = %"AND"
+    node["operator"] = %"AND"
     node["conditions"] = innerLeaves
     mid.add(node)
 
@@ -514,29 +440,24 @@ block filterBranchingFactor:
       var innerLeaves = newJArray()
       for m in 0 ..< 10:
         var leaf = newJObject()
-        {.cast(noSideEffect).}:
-          leaf["value"] = %(i * 100 + k * 10 + m)
+        leaf["value"] = %(i * 100 + k * 10 + m)
         innerLeaves.add(leaf)
       var andNode = newJObject()
-      {.cast(noSideEffect).}:
-        andNode["operator"] = %"AND"
+      andNode["operator"] = %"AND"
       andNode["conditions"] = innerLeaves
       midChildren.add(andNode)
     var orNode = newJObject()
-    {.cast(noSideEffect).}:
-      orNode["operator"] = %"OR"
+    orNode["operator"] = %"OR"
     orNode["conditions"] = midChildren
     top.add(orNode)
 
   # Build root: AND with 10 OR children
   var root = newJObject()
-  {.cast(noSideEffect).}:
-    root["operator"] = %"AND"
+  root["operator"] = %"AND"
   root["conditions"] = top
   let r = Filter[int].fromJson(root, fromIntCondition)
-  assertOk r
-  doAssert r.get().kind == fkOperator
-  assertEq r.get().conditions.len, 10
+  doAssert r.kind == fkOperator
+  assertEq r.conditions.len, 10
 
 # =============================================================================
 # I. Null bytes and large strings
@@ -544,24 +465,25 @@ block filterBranchingFactor:
 
 block nullBytesInStringField:
   ## Null byte (\x00) in account name — must parse or reject, never crash.
-  {.cast(noSideEffect).}:
-    var j = validSessionJson()
-    j["username"] = %("test\x00evil")
-    let r = Session.fromJson(j)
-    # Accept or reject, but never crash
-    doAssert r.isOk or r.isErr
+  var j = validSessionJson()
+  j["username"] = %("test\x00evil")
+  try:
+    discard Session.fromJson(j)
+  except ValidationError:
+    discard
 
 block largeMethodName:
   ## 1MB method name — must not crash.
-  {.cast(noSideEffect).}:
-    let longName = 'A'.repeat(1_000_000)
-    let j = newJArray()
-    j.add(%longName)
-    j.add(newJObject())
-    j.add(%"c1")
-    let r = Invocation.fromJson(j)
-    # Accept (method name is unvalidated string) or reject, never crash
-    doAssert r.isOk or r.isErr
+  let longName = 'A'.repeat(1_000_000)
+  let j = newJArray()
+  j.add(%longName)
+  j.add(newJObject())
+  j.add(%"c1")
+  # Accept (method name is unvalidated string) or reject, never crash
+  try:
+    discard Invocation.fromJson(j)
+  except ValidationError:
+    discard
 
 # =============================================================================
 # J. Duplicate JSON object keys
@@ -570,13 +492,11 @@ block largeMethodName:
 block duplicateJsonObjectKeys:
   ## JSON with duplicate keys — std/json last-wins behaviour. The serde layer
   ## must handle this gracefully regardless of which value wins.
-  {.cast(noSideEffect).}:
-    # std/json's %*{} does not allow duplicates, so build manually
-    let j = parseJson("""{"type": "serverFail", "type": "invalidArguments"}""")
-    let r = MethodError.fromJson(j)
-    assertOk r
-    # Last wins — the rawType should be one of the two values
-    doAssert r.get().rawType == "serverFail" or r.get().rawType == "invalidArguments"
+  # std/json's %*{} does not allow duplicates, so build manually
+  let j = parseJson("""{"type": "serverFail", "type": "invalidArguments"}""")
+  let r = MethodError.fromJson(j)
+  # Last wins — the rawType should be one of the two values
+  doAssert r.rawType == "serverFail" or r.rawType == "invalidArguments"
 
 # =============================================================================
 # K. Empty JSON object for each type
@@ -584,24 +504,21 @@ block duplicateJsonObjectKeys:
 
 block emptyObjectForAllTypes:
   ## %*{} passed to every fromJson — must return error, not crash.
-  {.cast(noSideEffect).}:
-    let empty = newJObject()
-    assertErr CoreCapabilities.fromJson(empty)
-    assertErr Account.fromJson(empty)
-    assertErr Session.fromJson(empty)
-    assertErr Request.fromJson(empty)
-    assertErr Invocation.fromJson(empty)
-    assertErr ResultReference.fromJson(empty)
-    assertErr Comparator.fromJson(empty)
-    assertErr AddedItem.fromJson(empty)
-    assertErr RequestError.fromJson(empty)
-    assertErr MethodError.fromJson(empty)
+  let empty = newJObject()
+  assertErr CoreCapabilities.fromJson(empty)
+  assertErr Account.fromJson(empty)
+  assertErr Session.fromJson(empty)
+  assertErr Request.fromJson(empty)
+  assertErr Invocation.fromJson(empty)
+  assertErr ResultReference.fromJson(empty)
+  assertErr Comparator.fromJson(empty)
+  assertErr AddedItem.fromJson(empty)
+  assertErr RequestError.fromJson(empty)
+  assertErr MethodError.fromJson(empty)
 
 block emptyObjectPatchObjectValid:
   ## PatchObject with empty JSON object is valid (empty patch).
-  {.cast(noSideEffect).}:
-    let r = PatchObject.fromJson(newJObject())
-    assertOk r
+  assertOk PatchObject.fromJson(newJObject())
 
 # =============================================================================
 # L. ARC shared-ref stress (validates Phase 1A fix)
@@ -609,25 +526,23 @@ block emptyObjectPatchObjectValid:
 
 block arcSharedRefMultipleCapabilities:
   ## Multiple capabilities referencing the same JsonNode — must not double-free.
-  {.cast(noSideEffect).}:
-    let shared = %*{"limit": 1000, "nested": {"a": [1, 2, 3]}}
-    # Parse 10 capabilities all from the same shared ref
-    var caps: seq[ServerCapability] = @[]
-    const uris = [
-      "urn:ietf:params:jmap:mail", "urn:ietf:params:jmap:submission",
-      "urn:ietf:params:jmap:contacts", "urn:ietf:params:jmap:calendars",
-      "urn:ietf:params:jmap:sieve",
-    ]
-    for uri in uris:
-      let r = ServerCapability.fromJson(uri, shared)
-      assertOk r
-      caps.add(r.get())
-    # All should be independent copies
-    for cap in caps:
-      let j = cap.toJson()
-      doAssert j{"limit"} != nil
-      assertEq j{"limit"}.getBiggestInt(0), 1000
-    # Dropping caps should not cause ARC issues — if we reach here, we are safe
+  let shared = %*{"limit": 1000, "nested": {"a": [1, 2, 3]}}
+  # Parse 10 capabilities all from the same shared ref
+  var caps: seq[ServerCapability] = @[]
+  const uris = [
+    "urn:ietf:params:jmap:mail", "urn:ietf:params:jmap:submission",
+    "urn:ietf:params:jmap:contacts", "urn:ietf:params:jmap:calendars",
+    "urn:ietf:params:jmap:sieve",
+  ]
+  for uri in uris:
+    let r = ServerCapability.fromJson(uri, shared)
+    caps.add(r)
+  # All should be independent copies
+  for cap in caps:
+    let j = cap.toJson()
+    doAssert j{"limit"} != nil
+    assertEq j{"limit"}.getBiggestInt(0), 1000
+  # Dropping caps should not cause ARC issues — if we reach here, we are safe
 
 # =============================================================================
 # M. Duplicate JSON keys (Phase 4A)
@@ -638,30 +553,26 @@ block duplicateCreatedIdsKey:
   ## {"createdIds": {"abc":"id1","abc":"id2"}}. std/json uses last-wins
   ## semantics for duplicate object keys — the second value overwrites the
   ## first. Verify Request.fromJson succeeds under this behaviour.
-  {.cast(noSideEffect).}:
-    const raw =
-      """{"using":["urn:ietf:params:jmap:core"],"methodCalls":[["Mailbox/get",{},"c0"]],"createdIds":{"abc":"id1","abc":"id2"}}"""
-    let j = parseJson(raw)
-    let r = Request.fromJson(j)
-    # std/json last-wins: "abc" -> "id2"
-    assertOk r
-    doAssert r.get().createdIds.isSome
+  const raw =
+    """{"using":["urn:ietf:params:jmap:core"],"methodCalls":[["Mailbox/get",{},"c0"]],"createdIds":{"abc":"id1","abc":"id2"}}"""
+  let j = parseJson(raw)
+  let r = Request.fromJson(j)
+  # std/json last-wins: "abc" -> "id2"
+  doAssert r.createdIds.isSome
 
 block duplicateCapabilityUri:
   ## Build Session JSON with duplicate capability URI key. std/json last-wins
   ## semantics apply — the second value replaces the first. Verify Session
   ## deserialisation handles this gracefully.
-  {.cast(noSideEffect).}:
-    var j = validSessionJson()
-    # Manually build capabilities with a duplicate vendor URI
-    let caps = newJObject()
-    caps["urn:ietf:params:jmap:core"] = j["capabilities"]["urn:ietf:params:jmap:core"]
-    caps["urn:ietf:params:jmap:mail"] = %*{"first": true}
-    caps["urn:ietf:params:jmap:mail"] = %*{"second": true}
-    j["capabilities"] = caps
-    let r = Session.fromJson(j)
-    # Last-wins: only one "urn:ietf:params:jmap:mail" entry with {"second": true}
-    assertOk r
+  var j = validSessionJson()
+  # Manually build capabilities with a duplicate vendor URI
+  let caps = newJObject()
+  caps["urn:ietf:params:jmap:core"] = j["capabilities"]["urn:ietf:params:jmap:core"]
+  caps["urn:ietf:params:jmap:mail"] = %*{"first": true}
+  caps["urn:ietf:params:jmap:mail"] = %*{"second": true}
+  j["capabilities"] = caps
+  # Last-wins: only one "urn:ietf:params:jmap:mail" entry with {"second": true}
+  assertOk Session.fromJson(j)
 
 # =============================================================================
 # N. Numeric precision at JSON boundary (Phase 4B)
@@ -671,19 +582,16 @@ block jmapIntExponentNotation:
   ## parseJson("1e2") produces a JFloat node (kind == JFloat), not JInt.
   ## JmapInt.fromJson checks for JInt kind, so this must return err (wrong
   ## kind). Documents the std/json behaviour at the serde boundary.
-  {.cast(noSideEffect).}:
-    let j = parseJson("1e2")
-    # std/json parses 1e2 as JFloat, not JInt
-    doAssert j.kind == JFloat, "expected JFloat for 1e2, got " & $j.kind
-    let r = JmapInt.fromJson(j)
-    assertErr r
+  let j = parseJson("1e2")
+  # std/json parses 1e2 as JFloat, not JInt
+  doAssert j.kind == JFloat, "expected JFloat for 1e2, got " & $j.kind
+  assertErr JmapInt.fromJson(j)
 
 block unsignedIntJsonPrecisionBoundary:
   ## 2^53 = 9007199254740992 exceeds the UnsignedInt maximum (2^53-1).
   ## Verify the smart constructor rejects this value.
   const boundary: int64 = 9_007_199_254_740_992'i64 # 2^53
-  let r = parseUnsignedInt(boundary)
-  assertErr r
+  assertErr parseUnsignedInt(boundary)
 
 # =============================================================================
 # O. BOM propagation across identifier types (Phase 4C)
@@ -693,35 +601,29 @@ block bomInAccountIdValue:
   ## BOM bytes (0xEF, 0xBB, 0xBF) at the start of an AccountId string via
   ## fromJson. All BOM bytes are >= 0x20 so the lenient parser (no control
   ## characters below 0x20) should accept them.
-  {.cast(noSideEffect).}:
-    const bomStr = "\xEF\xBB\xBFaccount1"
-    let j = %bomStr
-    let r = AccountId.fromJson(j)
-    # BOM bytes are 0xEF=239, 0xBB=187, 0xBF=191, all >= 0x20 -> accepted
-    assertOk r
+  const bomStr = "\xEF\xBB\xBFaccount1"
+  let j = %bomStr
+  assertOk AccountId.fromJson(j)
+  # BOM bytes are 0xEF=239, 0xBB=187, 0xBF=191, all >= 0x20 -> accepted
 
 block bomInJmapStateValue:
   ## BOM bytes at the start of a JmapState value. BOM bytes are >= 0x20
   ## so the lenient parser should accept them.
-  {.cast(noSideEffect).}:
-    const bomStr = "\xEF\xBB\xBFstate1"
-    let j = %bomStr
-    let r = JmapState.fromJson(j)
-    assertOk r
+  const bomStr = "\xEF\xBB\xBFstate1"
+  let j = %bomStr
+  assertOk JmapState.fromJson(j)
 
 block bomInJsonObjectKey:
   ## BOM bytes in a MethodError extras field key. Verify the BOM is preserved
   ## in the extras object verbatim.
-  {.cast(noSideEffect).}:
-    const bomKey = "\xEF\xBB\xBFvendor"
-    let j = newJObject()
-    j["type"] = %"serverFail"
-    j[bomKey] = %"data"
-    let r = MethodError.fromJson(j)
-    assertOk r
-    doAssert r.get().extras.isSome
-    doAssert r.get().extras.get(){bomKey} != nil
-    assertEq r.get().extras.get(){bomKey}.getStr(""), "data"
+  const bomKey = "\xEF\xBB\xBFvendor"
+  let j = newJObject()
+  j["type"] = %"serverFail"
+  j[bomKey] = %"data"
+  let r = MethodError.fromJson(j)
+  doAssert r.extras.isSome
+  doAssert r.extras.get(){bomKey} != nil
+  assertEq r.extras.get(){bomKey}.getStr(""), "data"
 
 # =============================================================================
 # P. Unicode normalisation documentation (Phase 4D)
@@ -736,10 +638,8 @@ block unicodeNormalizationPropertyName:
   const nfd = "cafe\xCC\x81" # U+0065 + U+0301 (e + COMBINING ACUTE ACCENT)
   let rNfc = parsePropertyName(nfc)
   let rNfd = parsePropertyName(nfd)
-  assertOk rNfc
-  assertOk rNfd
   # They represent the same character visually but are byte-distinct
-  doAssert string(rNfc.get()) != string(rNfd.get()),
+  doAssert string(rNfc) != string(rNfd),
     "NFC and NFD forms must be byte-distinct (no normalisation)"
 
 # =============================================================================
@@ -751,16 +651,13 @@ block capabilitiesLargeVendorSet:
   ## without crash or hash table degeneration issues.
   var j = validSessionJson()
   let caps = newJObject()
-  {.cast(noSideEffect).}:
-    caps["urn:ietf:params:jmap:core"] = j["capabilities"]["urn:ietf:params:jmap:core"]
+  caps["urn:ietf:params:jmap:core"] = j["capabilities"]["urn:ietf:params:jmap:core"]
   for i in 0 ..< 10_000:
-    {.cast(noSideEffect).}:
-      caps["https://vendor.example/ext/" & $i] = newJObject()
+    caps["https://vendor.example/ext/" & $i] = newJObject()
   j["capabilities"] = caps
   let r = Session.fromJson(j)
-  assertOk r
   # Core + 10,000 vendor capabilities
-  assertGe r.get().capabilities.len, 10_001
+  assertGe r.capabilities.len, 10_001
 
 # =============================================================================
 # R. Control character explicit boundary tests (Phase 4G)
@@ -770,24 +667,22 @@ block controlCharsInIdViaSerde:
   ## Id.fromJson with JSON strings containing control characters.
   ## The strict parser (parseIdFromServer) rejects characters < 0x20
   ## and 0x7F.
-  {.cast(noSideEffect).}:
-    # Null byte
-    assertErr Id.fromJson(%("test\x00id"))
-    # Newline
-    assertErr Id.fromJson(%("test\nid"))
-    # Tab
-    assertErr Id.fromJson(%("test\tid"))
-    # SOH (0x01)
-    assertErr Id.fromJson(%("test\x01id"))
+  # Null byte
+  assertErr Id.fromJson(%("test\x00id"))
+  # Newline
+  assertErr Id.fromJson(%("test\nid"))
+  # Tab
+  assertErr Id.fromJson(%("test\tid"))
+  # SOH (0x01)
+  assertErr Id.fromJson(%("test\x01id"))
 
 block controlCharsInAccountIdViaSerde:
   ## AccountId.fromJson with control characters. The lenient parser also
   ## rejects characters < 0x20 and 0x7F.
-  {.cast(noSideEffect).}:
-    assertErr AccountId.fromJson(%("acct\x00id"))
-    assertErr AccountId.fromJson(%("acct\nid"))
-    assertErr AccountId.fromJson(%("acct\tid"))
-    assertErr AccountId.fromJson(%("acct\x01id"))
+  assertErr AccountId.fromJson(%("acct\x00id"))
+  assertErr AccountId.fromJson(%("acct\nid"))
+  assertErr AccountId.fromJson(%("acct\tid"))
+  assertErr AccountId.fromJson(%("acct\x01id"))
 
 # =============================================================================
 # S. JSON parser boundary documentation tests (Phase 4H)
@@ -800,11 +695,10 @@ block jsonTrailingGarbage:
   ## raises JsonParsingError because the parser expects end of input after
   ## the first value.
   var raised = false
-  {.cast(noSideEffect).}:
-    try:
-      discard parseJson("42 extra")
-    except JsonParsingError:
-      raised = true
+  try:
+    discard parseJson("42 extra")
+  except JsonParsingError:
+    raised = true
   doAssert raised, "std/json should raise JsonParsingError for trailing garbage"
 
 block jsonUtf16Surrogates:
@@ -813,14 +707,13 @@ block jsonUtf16Surrogates:
   ## We document whichever behaviour occurs.
   var parsed = false
   var raised = false
-  {.cast(noSideEffect).}:
-    try:
-      discard parseJson("""{"x": "\uD800"}""")
-      parsed = true
-    except JsonParsingError:
-      raised = true
-    except ValueError:
-      raised = true
+  try:
+    discard parseJson("""{"x": "\uD800"}""")
+    parsed = true
+  except JsonParsingError:
+    raised = true
+  except ValueError:
+    raised = true
   # Document: exactly one of these must be true (no crash)
   doAssert parsed xor raised,
     "std/json must either parse or raise for lone surrogate, never crash"
@@ -831,14 +724,13 @@ block jsonLeadingZeroNumber:
   ## may not enforce this.
   var parsed = false
   var raised = false
-  {.cast(noSideEffect).}:
-    try:
-      discard parseJson("""{"x": 0123}""")
-      parsed = true
-    except JsonParsingError:
-      raised = true
-    except ValueError:
-      raised = true
+  try:
+    discard parseJson("""{"x": 0123}""")
+    parsed = true
+  except JsonParsingError:
+    raised = true
+  except ValueError:
+    raised = true
   # Document: exactly one of these must be true (no crash)
   doAssert parsed xor raised,
     "std/json must either parse or raise for leading zero, never crash"
@@ -855,16 +747,15 @@ block jsonExtremeNestingDepth5000:
     jsonStr.add("}")
   var parsed = false
   var raised = false
-  {.cast(noSideEffect).}:
-    try:
-      discard parseJson(jsonStr)
-      parsed = true
-    except JsonParsingError:
-      raised = true
-    except ValueError:
-      raised = true
-    except CatchableError:
-      raised = true
+  try:
+    discard parseJson(jsonStr)
+    parsed = true
+  except JsonParsingError:
+    raised = true
+  except ValueError:
+    raised = true
+  except CatchableError:
+    raised = true
   # Either succeeds or raises — never a silent corruption
   doAssert parsed xor raised,
     "std/json must either parse or raise for 5000-level nesting, never crash silently"
@@ -878,26 +769,22 @@ block jsonExtremeNestingDepth5000:
 block emptyMethodCallIdViaSerde:
   ## MethodCallId.fromJson(%"") must return err — empty method call IDs
   ## are rejected by parseMethodCallId.
-  {.cast(noSideEffect).}:
-    assertErr MethodCallId.fromJson(%"")
+  assertErr MethodCallId.fromJson(%"")
 
 block emptyCreationIdViaSerde:
   ## CreationId.fromJson(%"") must return err — empty creation IDs
   ## are rejected by parseCreationId.
-  {.cast(noSideEffect).}:
-    assertErr CreationId.fromJson(%"")
+  assertErr CreationId.fromJson(%"")
 
 block emptyJmapStateViaSerde:
   ## JmapState.fromJson(%"") must return err — empty state tokens
   ## are rejected by parseJmapState.
-  {.cast(noSideEffect).}:
-    assertErr JmapState.fromJson(%"")
+  assertErr JmapState.fromJson(%"")
 
 block emptyAccountIdViaSerde:
   ## AccountId.fromJson(%"") must return err — empty account IDs
   ## are rejected by parseAccountId.
-  {.cast(noSideEffect).}:
-    assertErr AccountId.fromJson(%"")
+  assertErr AccountId.fromJson(%"")
 
 # =============================================================================
 # U. Unicode in CreationId (Phase 4J)
@@ -907,18 +794,16 @@ block creationIdWithEmoji:
   ## Parse CreationId with emoji characters. CreationId.parseCreationId
   ## only rejects empty strings and '#' prefix — emoji characters are
   ## accepted because no charset restriction is imposed beyond those rules.
-  {.cast(noSideEffect).}:
-    let r = CreationId.fromJson(%"\xF0\x9F\x98\x80key") # U+1F600 GRINNING FACE
-    # Emoji bytes are all >= 0x80, well above the '#' (0x23) check
-    assertOk r
+  let r = CreationId.fromJson(%"\xF0\x9F\x98\x80key") # U+1F600 GRINNING FACE
+  # Emoji bytes are all >= 0x80, well above the '#' (0x23) check
+  discard r
 
 block creationIdWithCjk:
   ## Parse CreationId with CJK characters. Like emoji, CJK characters are
   ## accepted because parseCreationId has no charset restriction beyond
   ## non-empty and no '#' prefix.
-  {.cast(noSideEffect).}:
-    let r = CreationId.fromJson(%"\xE6\x97\xA5\xE6\x9C\xAC") # U+65E5 U+672C (Japanese)
-    assertOk r
+  let r = CreationId.fromJson(%"\xE6\x97\xA5\xE6\x9C\xAC") # U+65E5 U+672C (Japanese)
+  discard r
 
 # =============================================================================
 # V. Phase 3G: Extra fields ignored (Postel's law) tests
@@ -929,21 +814,17 @@ block creationIdWithCjk:
 block extraFieldsIgnoredRequest:
   ## Request JSON with an extra unknown field must parse successfully.
   var j = validRequestJson()
-  {.cast(noSideEffect).}:
-    j["vendorExtension"] = %"test"
+  j["vendorExtension"] = %"test"
   let r = Request.fromJson(j)
-  assertOk r
-  assertEq r.get().`using`.len, 1
-  assertEq r.get().methodCalls.len, 1
+  assertEq r.`using`.len, 1
+  assertEq r.methodCalls.len, 1
 
 block extraFieldsIgnoredResponse:
   ## Response JSON with an extra unknown field must parse successfully.
   var j = validResponseJson()
-  {.cast(noSideEffect).}:
-    j["vendorExtension"] = %"test"
+  j["vendorExtension"] = %"test"
   let r = Response.fromJson(j)
-  assertOk r
-  assertEq r.get().methodResponses.len, 1
+  assertEq r.methodResponses.len, 1
 
 block extraFieldsIgnoredCoreCapabilities:
   ## CoreCapabilities JSON with an extra unknown field must parse successfully.
@@ -958,48 +839,39 @@ block extraFieldsIgnoredCoreCapabilities:
     "collationAlgorithms": [],
     "vendorExtension": "test",
   }
-  let r = CoreCapabilities.fromJson(j)
-  assertOk r
+  assertOk CoreCapabilities.fromJson(j)
 
 block extraFieldsIgnoredAccount:
   ## Account JSON with an extra unknown field must parse successfully.
-  {.cast(noSideEffect).}:
-    let j = %*{
-      "name": "test@example.com",
-      "isPersonal": true,
-      "isReadOnly": false,
-      "accountCapabilities": {},
-      "vendorExtension": "test",
-    }
-    let r = Account.fromJson(j)
-    assertOk r
-    assertEq r.get().name, "test@example.com"
+  let j = %*{
+    "name": "test@example.com",
+    "isPersonal": true,
+    "isReadOnly": false,
+    "accountCapabilities": {},
+    "vendorExtension": "test",
+  }
+  let r = Account.fromJson(j)
+  assertEq r.name, "test@example.com"
 
 block extraFieldsIgnoredComparator:
   ## Comparator JSON with an extra unknown field must parse successfully.
-  {.cast(noSideEffect).}:
-    let j = %*{"property": "subject", "isAscending": true, "vendorExtension": "test"}
-    let r = Comparator.fromJson(j)
-    assertOk r
-    assertEq string(r.get().property), "subject"
+  let j = %*{"property": "subject", "isAscending": true, "vendorExtension": "test"}
+  let r = Comparator.fromJson(j)
+  assertEq string(r.property), "subject"
 
 block extraFieldsIgnoredResultReference:
   ## ResultReference JSON with an extra unknown field must parse successfully.
-  {.cast(noSideEffect).}:
-    let j = %*{
-      "resultOf": "c0", "name": "Mailbox/get", "path": "/ids", "vendorExtension": "test"
-    }
-    let r = ResultReference.fromJson(j)
-    assertOk r
-    assertEq r.get().name, "Mailbox/get"
+  let j = %*{
+    "resultOf": "c0", "name": "Mailbox/get", "path": "/ids", "vendorExtension": "test"
+  }
+  let r = ResultReference.fromJson(j)
+  assertEq r.name, "Mailbox/get"
 
 block extraFieldsIgnoredAddedItem:
   ## AddedItem JSON with an extra unknown field must parse successfully.
-  {.cast(noSideEffect).}:
-    let j = %*{"id": "item1", "index": 0, "vendorExtension": "test"}
-    let r = AddedItem.fromJson(j)
-    assertOk r
-    assertEq string(r.get().id), "item1"
+  let j = %*{"id": "item1", "index": 0, "vendorExtension": "test"}
+  let r = AddedItem.fromJson(j)
+  assertEq string(r.id), "item1"
 
 # =============================================================================
 # W. Phase 3H: Wrong-cased field name rejection tests
@@ -1011,31 +883,27 @@ block extraFieldsIgnoredAddedItem:
 block wrongCasedFieldRequestMethodCalls:
   ## "MethodCalls" (PascalCase) instead of "methodCalls" — treated as
   ## missing field since JSON keys are case-sensitive.
-  {.cast(noSideEffect).}:
-    let j = %*{
-      "using": ["urn:ietf:params:jmap:core"], "MethodCalls": [["Mailbox/get", {}, "c0"]]
-    }
-    assertErrContains Request.fromJson(j), "missing or invalid methodCalls"
+  let j = %*{
+    "using": ["urn:ietf:params:jmap:core"], "MethodCalls": [["Mailbox/get", {}, "c0"]]
+  }
+  assertErrContains Request.fromJson(j), "missing or invalid methodCalls"
 
 block wrongCasedFieldRequestUsing:
   ## "Using" (PascalCase) instead of "using".
-  {.cast(noSideEffect).}:
-    let j = %*{
-      "Using": ["urn:ietf:params:jmap:core"], "methodCalls": [["Mailbox/get", {}, "c0"]]
-    }
-    assertErrContains Request.fromJson(j), "missing or invalid using"
+  let j = %*{
+    "Using": ["urn:ietf:params:jmap:core"], "methodCalls": [["Mailbox/get", {}, "c0"]]
+  }
+  assertErrContains Request.fromJson(j), "missing or invalid using"
 
 block wrongCasedFieldResponseMethodResponses:
   ## "method_responses" (snake_case) instead of "methodResponses".
-  {.cast(noSideEffect).}:
-    let j = %*{"method_responses": [["Mailbox/get", {}, "c0"]], "sessionState": "s1"}
-    assertErrContains Response.fromJson(j), "missing or invalid methodResponses"
+  let j = %*{"method_responses": [["Mailbox/get", {}, "c0"]], "sessionState": "s1"}
+  assertErrContains Response.fromJson(j), "missing or invalid methodResponses"
 
 block wrongCasedFieldResponseSessionState:
   ## "SessionState" (PascalCase) instead of "sessionState".
-  {.cast(noSideEffect).}:
-    let j = %*{"methodResponses": [["Mailbox/get", {}, "c0"]], "SessionState": "s1"}
-    assertErrContains Response.fromJson(j), "missing or invalid sessionState"
+  let j = %*{"methodResponses": [["Mailbox/get", {}, "c0"]], "SessionState": "s1"}
+  assertErrContains Response.fromJson(j), "missing or invalid sessionState"
 
 block wrongCasedFieldSessionCapabilities:
   ## "Capabilities" (PascalCase) instead of "capabilities" in Session JSON.
@@ -1080,89 +948,68 @@ block wrongCasedFieldSessionUsername:
 block patchObjectPathTraversal:
   ## Directory traversal path -> accepted (Layer 1 does not interpret paths).
   var j = newJObject()
-  {.cast(noSideEffect).}:
-    j["../../etc/passwd"] = %"malicious"
+  j["../../etc/passwd"] = %"malicious"
   let r = PatchObject.fromJson(j)
-  assertOk r
-  doAssert r.get().getKey("../../etc/passwd").isSome
+  doAssert r.getKey("../../etc/passwd").isSome
 
 block patchObjectPathTildeZeroEscape:
   ## RFC 6901 tilde escape ~0 -> accepted and preserved as-is.
   var j = newJObject()
-  {.cast(noSideEffect).}:
-    j["/a~0b"] = %"val"
+  j["/a~0b"] = %"val"
   let r = PatchObject.fromJson(j)
-  assertOk r
-  doAssert r.get().getKey("/a~0b").isSome
+  doAssert r.getKey("/a~0b").isSome
 
 block patchObjectPathTildeOneEscape:
   ## RFC 6901 tilde escape ~1 -> accepted and preserved as-is.
   var j = newJObject()
-  {.cast(noSideEffect).}:
-    j["/a~1b"] = %"val"
+  j["/a~1b"] = %"val"
   let r = PatchObject.fromJson(j)
-  assertOk r
-  doAssert r.get().getKey("/a~1b").isSome
+  doAssert r.getKey("/a~1b").isSome
 
 block patchObjectPathNulByte:
   ## NUL byte in PatchObject path -> accepted. Documents FFI truncation risk.
   var j = newJObject()
-  {.cast(noSideEffect).}:
-    j["/a\x00b"] = %"val"
-  let r = PatchObject.fromJson(j)
-  assertOk r
+  j["/a\x00b"] = %"val"
+  assertOk PatchObject.fromJson(j)
 
 block patchObjectPathVeryLong:
   ## 10,000-character path -> accepted (no length restriction on paths).
   var j = newJObject()
   let longPath = 'a'.repeat(10000)
-  {.cast(noSideEffect).}:
-    j[longPath] = %42
+  j[longPath] = %42
   let r = PatchObject.fromJson(j)
-  assertOk r
-  assertEq r.get().len, 1
+  assertEq r.len, 1
 
 block patchObjectTraversalRoundTrip:
   ## Directory traversal path survives toJson -> fromJson round-trip.
   var j = newJObject()
-  {.cast(noSideEffect).}:
-    j["../../etc/passwd"] = %"malicious"
+  j["../../etc/passwd"] = %"malicious"
   let r = PatchObject.fromJson(j)
-  assertOk r
-  let j2 = r.get().toJson()
+  let j2 = r.toJson()
   let r2 = PatchObject.fromJson(j2)
-  assertOk r2
-  doAssert r2.get().getKey("../../etc/passwd").isSome
+  doAssert r2.getKey("../../etc/passwd").isSome
 
 block resultReferencePathWildcard:
   ## ResultReference with wildcard in path -> accepted.
-  {.cast(noSideEffect).}:
-    let j = %*{"resultOf": "c0", "name": "Email/get", "path": "/list/*/id"}
+  let j = %*{"resultOf": "c0", "name": "Email/get", "path": "/list/*/id"}
   let r = ResultReference.fromJson(j)
-  assertOk r
-  assertEq r.get().path, "/list/*/id"
+  assertEq r.path, "/list/*/id"
 
 block resultReferencePathDeeplyNested:
   ## Deeply nested JSON Pointer path -> accepted.
-  {.cast(noSideEffect).}:
-    let j = %*{"resultOf": "c0", "name": "Email/get", "path": "/a/b/c/d/e/f/g"}
+  let j = %*{"resultOf": "c0", "name": "Email/get", "path": "/a/b/c/d/e/f/g"}
   let r = ResultReference.fromJson(j)
-  assertOk r
-  assertEq r.get().path, "/a/b/c/d/e/f/g"
+  assertEq r.path, "/a/b/c/d/e/f/g"
 
 block resultReferencePathControlChars:
   ## Control characters in ResultReference path -> accepted.
-  {.cast(noSideEffect).}:
-    let j = %*{"resultOf": "c0", "name": "Email/get", "path": "/ids\x01\x02"}
-  let r = ResultReference.fromJson(j)
-  assertOk r
+  let j = %*{"resultOf": "c0", "name": "Email/get", "path": "/ids\x01\x02"}
+  assertOk ResultReference.fromJson(j)
 
 block resultReferencePathEmpty:
   ## Empty path in ResultReference -> returns err (path must be non-empty).
-  {.cast(noSideEffect).}:
-    let j = %*{"resultOf": "c0", "name": "Email/get", "path": ""}
-  let r = ResultReference.fromJson(j)
-  assertErr r
+  let j = %*{"resultOf": "c0", "name": "Email/get", "path": ""}
+  assertErr ResultReference.fromJson(j)
 
 # =============================================================================
 # Phase 5D: JSON numbers outside int64 range
@@ -1174,40 +1021,40 @@ block jsonNumberAboveInt64Max:
   ## JSON number 2^63 exceeds int64.high. Documents std/json behaviour.
   var parsed = false
   var raised = false
-  {.cast(noSideEffect).}:
-    try:
-      let j = parseJson("9223372036854775808")
-      parsed = true
-      if j.kind == JInt:
-        let r = UnsignedInt.fromJson(j)
-        doAssert r.isOk or r.isErr
-      elif j.kind == JFloat:
-        let r = UnsignedInt.fromJson(j)
-        assertErr r
-    except JsonParsingError:
-      raised = true
-    except ValueError:
-      raised = true
+  try:
+    let j = parseJson("9223372036854775808")
+    parsed = true
+    if j.kind == JInt:
+      try:
+        discard UnsignedInt.fromJson(j)
+      except ValidationError:
+        discard
+    elif j.kind == JFloat:
+      assertErr UnsignedInt.fromJson(j)
+  except JsonParsingError:
+    raised = true
+  except ValueError:
+    raised = true
   doAssert parsed xor raised, "std/json must either parse or raise, never crash"
 
 block jsonNumberBelowInt64Min:
   ## JSON number below int64.low. Documents std/json behaviour.
   var parsed = false
   var raised = false
-  {.cast(noSideEffect).}:
-    try:
-      let j = parseJson("-9223372036854775809")
-      parsed = true
-      if j.kind == JInt:
-        let r = JmapInt.fromJson(j)
-        doAssert r.isOk or r.isErr
-      elif j.kind == JFloat:
-        let r = JmapInt.fromJson(j)
-        assertErr r
-    except JsonParsingError:
-      raised = true
-    except ValueError:
-      raised = true
+  try:
+    let j = parseJson("-9223372036854775809")
+    parsed = true
+    if j.kind == JInt:
+      try:
+        discard JmapInt.fromJson(j)
+      except ValidationError:
+        discard
+    elif j.kind == JFloat:
+      assertErr JmapInt.fromJson(j)
+  except JsonParsingError:
+    raised = true
+  except ValueError:
+    raised = true
   doAssert parsed xor raised, "std/json must either parse or raise, never crash"
 
 {.pop.} # ruleOff: "trystatements"
@@ -1222,16 +1069,17 @@ block encodingBomPrefixInJson:
   ## BOM prefix before JSON. Documents std/json behaviour.
   var parsed = false
   var raised = false
-  {.cast(noSideEffect).}:
+  try:
+    let j = parseJson("\xEF\xBB\xBF" & """{"type": "serverFail"}""")
+    parsed = true
     try:
-      let j = parseJson("\xEF\xBB\xBF" & """{"type": "serverFail"}""")
-      parsed = true
-      let r = MethodError.fromJson(j)
-      doAssert r.isOk or r.isErr
-    except JsonParsingError:
-      raised = true
-    except ValueError:
-      raised = true
+      discard MethodError.fromJson(j)
+    except ValidationError:
+      discard
+  except JsonParsingError:
+    raised = true
+  except ValueError:
+    raised = true
   doAssert parsed xor raised, "std/json must either parse or raise, never crash"
 
 {.pop.} # ruleOff: "trystatements"

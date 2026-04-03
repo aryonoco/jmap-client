@@ -34,7 +34,7 @@ Defined in `jmap_client.nimble` and `config.nims`: `--mm:arc`, `strictDefs`, `th
 
 ## Project Structure
 
-Architecture: 5 layers (see `docs/architecture-options.md`). Layer 1 detailed design in `docs/layer-1-design.md`.
+Architecture: 5 layers (see `docs/00architecture-options.md`). Layer 1 detailed design in `docs/layer-1-design.md`.
 
 - `src/jmap_client.nim` — Library entry point (C ABI exports, Layer 5)
 - `src/jmap_client/types.nim` — Re-exports all Layer 1 modules
@@ -51,7 +51,7 @@ Architecture: 5 layers (see `docs/architecture-options.md`). Layer 1 detailed de
 
 ## Coding Conventions
 
-- Use `let` bindings; `var` only when absolutely necessary
+- Use `const` and `let` bindings; `var` only when absolutely necessary
 - Error handling:
   - Smart constructors raise `ValidationError` on invalid input, return `T` directly on success
   - Transport/request failures raise `ClientError` (with `TransportError`/`RequestError` subtypes)
@@ -73,7 +73,6 @@ Architecture: 5 layers (see `docs/architecture-options.md`). Layer 1 detailed de
 ## Language
 
 - Comments and docstrings: British English spelling
-- Variable names and code identifiers: US English spelling
 
 ## Nim Coding Rules
 
