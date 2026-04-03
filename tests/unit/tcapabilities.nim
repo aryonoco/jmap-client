@@ -1,14 +1,11 @@
 # SPDX-License-Identifier: BSD-2-Clause
 # Copyright (c) 2026 Aryan Ameri
 
-{.push raises: [].}
-
 ## Tests for CapabilityKind parsing, URI round-trip, and CoreCapabilities queries.
 
+import std/options
 import std/sets
 import std/json
-
-import results
 
 import jmap_client/primitives
 import jmap_client/capabilities
@@ -34,17 +31,17 @@ block parseCapabilityKindEmpty:
 
 block capabilityUriCore:
   let result = capabilityUri(ckCore)
-  doAssert result.isOk
+  doAssert result.isSome
   doAssert result.get() == "urn:ietf:params:jmap:core"
 
 block capabilityUriMail:
   let result = capabilityUri(ckMail)
-  doAssert result.isOk
+  doAssert result.isSome
   doAssert result.get() == "urn:ietf:params:jmap:mail"
 
 block capabilityUriCalendars:
   let result = capabilityUri(ckCalendars)
-  doAssert result.isOk
+  doAssert result.isSome
   doAssert result.get() == "urn:ietf:params:jmap:calendars"
 
 block capabilityUriUnknown:
@@ -53,7 +50,7 @@ block capabilityUriUnknown:
 # --- CoreCapabilities + hasCollation ---
 
 block coreCapabilitiesHasCollation:
-  let zero = parseUnsignedInt(0).get()
+  let zero = parseUnsignedInt(0)
   let caps = CoreCapabilities(
     maxSizeUpload: zero,
     maxConcurrentUpload: zero,
@@ -68,7 +65,7 @@ block coreCapabilitiesHasCollation:
   doAssert not caps.hasCollation("i;nonexistent")
 
 block hasCollationEmptySet:
-  let zero = parseUnsignedInt(0).get()
+  let zero = parseUnsignedInt(0)
   let caps = CoreCapabilities(
     maxSizeUpload: zero,
     maxConcurrentUpload: zero,
@@ -84,7 +81,7 @@ block hasCollationEmptySet:
 # --- ServerCapability construction ---
 
 block serverCapabilityCore:
-  let zero = parseUnsignedInt(0).get()
+  let zero = parseUnsignedInt(0)
   let caps = CoreCapabilities(
     maxSizeUpload: zero,
     maxConcurrentUpload: zero,
@@ -152,7 +149,7 @@ block capabilityUriAllKnown:
     (ckSieve, "urn:ietf:params:jmap:sieve"),
   ]
   for (kind, expectedUri) in cases:
-    assertOkEq capabilityUri(kind), expectedUri
+    assertSomeEq capabilityUri(kind), expectedUri
 
 block capabilityUriRoundTrip:
   for kind in [
@@ -164,8 +161,8 @@ block capabilityUriRoundTrip:
 
 block coreCapabilitiesRealisticValues:
   let caps = realisticCoreCaps()
-  doAssert caps.maxSizeUpload == parseUnsignedInt(50_000_000).get()
-  doAssert caps.maxCallsInRequest == parseUnsignedInt(32).get()
+  doAssert caps.maxSizeUpload == parseUnsignedInt(50_000_000)
+  doAssert caps.maxCallsInRequest == parseUnsignedInt(32)
   doAssert caps.hasCollation("i;ascii-casemap")
   doAssert caps.hasCollation("i;unicode-casemap")
 

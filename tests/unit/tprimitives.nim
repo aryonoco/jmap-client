@@ -1,15 +1,12 @@
 # SPDX-License-Identifier: BSD-2-Clause
 # Copyright (c) 2026 Aryan Ameri
 
-{.push raises: [].}
-
 ## Tests for Id, UnsignedInt, JmapInt, Date, and UTCDate smart constructors.
 
 import std/strutils
 
-import results
-
 import jmap_client/primitives
+import jmap_client/validation
 
 import ../massertions
 
@@ -23,16 +20,13 @@ block parseIdTooLong:
     "Id", "length must be 1-255 octets", 'a'.repeat(256)
 
 block parseIdMaxLength:
-  let result = parseId('a'.repeat(255))
-  doAssert result.isOk
+  assertOk parseId('a'.repeat(255))
 
 block parseIdMinLength:
-  let result = parseId("x")
-  doAssert result.isOk
+  assertOk parseId("x")
 
 block parseIdValidBase64url:
-  let result = parseId("abc123-_XYZ")
-  doAssert result.isOk
+  assertOk parseId("abc123-_XYZ")
 
 block parseIdPadChar:
   assertErrFields parseId("abc=def"),
@@ -45,8 +39,7 @@ block parseIdSpace:
 # --- parseIdFromServer (lenient) ---
 
 block parseIdFromServerPlus:
-  let result = parseIdFromServer("abc+def")
-  doAssert result.isOk
+  assertOk parseIdFromServer("abc+def")
 
 block parseIdFromServerControlChar:
   assertErrFields parseIdFromServer("abc\x00def"),
@@ -55,12 +48,10 @@ block parseIdFromServerControlChar:
 # --- parseUnsignedInt ---
 
 block parseUnsignedIntZero:
-  let result = parseUnsignedInt(0'i64)
-  doAssert result.isOk
+  assertOk parseUnsignedInt(0'i64)
 
 block parseUnsignedIntMax:
-  let result = parseUnsignedInt(MaxUnsignedInt)
-  doAssert result.isOk
+  assertOk parseUnsignedInt(MaxUnsignedInt)
 
 block parseUnsignedIntNegative:
   assertErrFields parseUnsignedInt(-1'i64), "UnsignedInt", "must be non-negative", "-1"
@@ -72,22 +63,18 @@ block parseUnsignedIntOverflow:
 # --- parseJmapInt ---
 
 block parseJmapIntMin:
-  let result = parseJmapInt(MinJmapInt)
-  doAssert result.isOk
+  assertOk parseJmapInt(MinJmapInt)
 
 block parseJmapIntMax:
-  let result = parseJmapInt(MaxJmapInt)
-  doAssert result.isOk
+  assertOk parseJmapInt(MaxJmapInt)
 
 # --- parseDate ---
 
 block parseDateValidOffset:
-  let result = parseDate("2014-10-30T14:12:00+08:00")
-  doAssert result.isOk
+  assertOk parseDate("2014-10-30T14:12:00+08:00")
 
 block parseDateValidFrac:
-  let result = parseDate("2014-10-30T14:12:00.123Z")
-  doAssert result.isOk
+  assertOk parseDate("2014-10-30T14:12:00.123Z")
 
 block parseDateLowercaseT:
   assertErrFields parseDate("2014-10-30t14:12:00Z"),
@@ -108,8 +95,7 @@ block parseDateSingleZeroFrac:
     "Date", "zero fractional seconds must be omitted", "2014-10-30T14:12:00.0Z"
 
 block parseDateTrailingZeroNonZeroFrac:
-  let result = parseDate("2014-10-30T14:12:00.100Z")
-  doAssert result.isOk
+  assertOk parseDate("2014-10-30T14:12:00.100Z")
 
 block parseDateLowercaseZ:
   assertErrFields parseDate("2014-10-30T14:12:00z"),
@@ -122,8 +108,7 @@ block parseDateTooShort:
 # --- parseUtcDate ---
 
 block parseUtcDateValid:
-  let result = parseUtcDate("2014-10-30T06:12:00Z")
-  doAssert result.isOk
+  assertOk parseUtcDate("2014-10-30T06:12:00Z")
 
 block parseUtcDateNotZ:
   assertErrFields parseUtcDate("2014-10-30T06:12:00+00:00"),
@@ -132,9 +117,9 @@ block parseUtcDateNotZ:
 # --- Borrowed ops: string types (Id, Date, UTCDate) ---
 
 block idBorrowedOps:
-  let a = parseId("abc").get()
-  let b = parseId("abc").get()
-  let c = parseId("xyz").get()
+  let a = parseId("abc")
+  let b = parseId("abc")
+  let c = parseId("xyz")
 
   doAssert a == b
   doAssert not (a == c)
@@ -143,8 +128,8 @@ block idBorrowedOps:
   doAssert a.len == 3
 
 block dateBorrowedOps:
-  let a = parseDate("2014-10-30T14:12:00+08:00").get()
-  let b = parseDate("2014-10-30T14:12:00+08:00").get()
+  let a = parseDate("2014-10-30T14:12:00+08:00")
+  let b = parseDate("2014-10-30T14:12:00+08:00")
 
   doAssert a == b
   doAssert $a == "2014-10-30T14:12:00+08:00"
@@ -152,8 +137,8 @@ block dateBorrowedOps:
   doAssert a.len == 25
 
 block utcDateBorrowedOps:
-  let a = parseUtcDate("2014-10-30T06:12:00Z").get()
-  let b = parseUtcDate("2014-10-30T06:12:00Z").get()
+  let a = parseUtcDate("2014-10-30T06:12:00Z")
+  let b = parseUtcDate("2014-10-30T06:12:00Z")
 
   doAssert a == b
   doAssert $a == "2014-10-30T06:12:00Z"
@@ -163,9 +148,9 @@ block utcDateBorrowedOps:
 # --- Borrowed ops: int types (UnsignedInt, JmapInt) ---
 
 block unsignedIntBorrowedOps:
-  let x = parseUnsignedInt(10'i64).get()
-  let y = parseUnsignedInt(10'i64).get()
-  let z = parseUnsignedInt(20'i64).get()
+  let x = parseUnsignedInt(10'i64)
+  let y = parseUnsignedInt(10'i64)
+  let z = parseUnsignedInt(20'i64)
 
   doAssert x == y
   doAssert not (x == z)
@@ -177,9 +162,9 @@ block unsignedIntBorrowedOps:
   doAssert hash(x) == hash(y)
 
 block jmapIntBorrowedOps:
-  let x = parseJmapInt(10'i64).get()
-  let y = parseJmapInt(10'i64).get()
-  let z = parseJmapInt(20'i64).get()
+  let x = parseJmapInt(10'i64)
+  let y = parseJmapInt(10'i64)
+  let z = parseJmapInt(20'i64)
 
   doAssert x == y
   doAssert not (x == z)
@@ -193,8 +178,8 @@ block jmapIntBorrowedOps:
 # --- Unary negation on JmapInt ---
 
 block jmapIntUnaryNeg:
-  let pos = parseJmapInt(100'i64).get()
-  let neg = parseJmapInt(-100'i64).get()
+  let pos = parseJmapInt(100'i64)
+  let neg = parseJmapInt(-100'i64)
 
   doAssert -pos == neg
   doAssert -neg == pos
@@ -223,20 +208,19 @@ block parseIdFromServerNullByte:
 
 block parseIdMultibyteUtf8:
   let result = parseIdFromServer("\xC3\xA9\xC3\xA9")
-  doAssert result.isOk
-  doAssert result.get().len == 4
+  doAssert result.len == 4
 
 block parseDateInvalidCalendarAccepted:
-  doAssert parseDate("2024-02-30T12:00:00Z").isOk
+  assertOk parseDate("2024-02-30T12:00:00Z")
 
 block parseDateInvalidTimeAccepted:
-  doAssert parseDate("2024-01-01T25:99:99Z").isOk
+  assertOk parseDate("2024-01-01T25:99:99Z")
 
 block parseDateVeryLongFractional:
-  doAssert parseDate("2024-01-01T12:00:00.123456789012345Z").isOk
+  assertOk parseDate("2024-01-01T12:00:00.123456789012345Z")
 
 block parseUtcDateFractionalThenZ:
-  doAssert parseUtcDate("2024-01-01T12:00:00.123Z").isOk
+  assertOk parseUtcDate("2024-01-01T12:00:00.123Z")
 
 block parseDateNullByteInOffset:
   assertErrFields parseDate("2024-01-01T12:00:00\x00"),
@@ -260,16 +244,16 @@ block parseIdFromServerTooLong:
     "Id", "length must be 1-255 octets", 'a'.repeat(256)
 
 block parseIdFromServerMaxLength:
-  doAssert parseIdFromServer('a'.repeat(255)).isOk
+  assertOk parseIdFromServer('a'.repeat(255))
 
 block parseIdFromServerMinLength:
-  doAssert parseIdFromServer("x").isOk
+  assertOk parseIdFromServer("x")
 
 block parseIdFromServerSpaceAccepted:
-  doAssert parseIdFromServer("abc def").isOk
+  assertOk parseIdFromServer("abc def")
 
 block parseIdFromServerEqualsAccepted:
-  doAssert parseIdFromServer("abc=def").isOk
+  assertOk parseIdFromServer("abc=def")
 
 block parseIdFromServerDelRejected:
   assertErrFields parseIdFromServer("abc\x7Fdef"),
@@ -280,7 +264,7 @@ block parseIdPlusRejectedStrict:
     "Id", "contains characters outside base64url alphabet", "abc+def"
 
 block parseJmapIntZero:
-  doAssert parseJmapInt(0).isOk
+  assertOk parseJmapInt(0)
 
 block parseJmapIntUnderflow:
   assertErrFields parseJmapInt(MinJmapInt - 1),
@@ -321,7 +305,7 @@ block parseDateDayZero:
   assertOk parseDate("2024-01-00T12:00:00Z")
 
 block parseDateYearZero:
-  assertOk parseDate("0000-01-01T12:00:00Z")
+  assertOk parseDate("0000-01-01T00:00:00Z")
 
 block parseDateNegativeYear:
   # Negative year: non-digit at position 0
@@ -355,17 +339,17 @@ block parseDateTwoZeroFractional:
 # --- Integer boundary completions ---
 
 block unsignedIntDollarAtMax:
-  assertEq $(parseUnsignedInt(MaxUnsignedInt).get()), "9007199254740991"
+  assertEq $(parseUnsignedInt(MaxUnsignedInt)), "9007199254740991"
 
 block jmapIntDollarAtMin:
-  assertEq $(parseJmapInt(MinJmapInt).get()), "-9007199254740991"
+  assertEq $(parseJmapInt(MinJmapInt)), "-9007199254740991"
 
 block jmapIntDollarAtMax:
-  assertEq $(parseJmapInt(MaxJmapInt).get()), "9007199254740991"
+  assertEq $(parseJmapInt(MaxJmapInt)), "9007199254740991"
 
 block jmapIntNegationAtMinEqualsMax:
-  let minVal = parseJmapInt(MinJmapInt).get()
-  let maxVal = parseJmapInt(MaxJmapInt).get()
+  let minVal = parseJmapInt(MinJmapInt)
+  let maxVal = parseJmapInt(MaxJmapInt)
   assertEq -minVal, maxVal
 
 # --- Date parser: untested code paths ---
@@ -633,7 +617,10 @@ block dateTableDrivenValid:
     ("2024-13-01T12:00:00Z", "calendar-invalid month 13 (structural only)"),
   ]
   for (input, reason) in validCases:
-    doAssert parseDate(input).isOk, "expected Ok for: " & reason & " (" & input & ")"
+    try:
+      discard parseDate(input)
+    except ValidationError:
+      doAssert false, "expected Ok for: " & reason & " (" & input & ")"
 
 block dateTableDrivenInvalid:
   ## Comprehensive table of invalid date formats — easy to extend.
@@ -654,24 +641,29 @@ block dateTableDrivenInvalid:
     ("short", "too short for RFC 3339"),
   ]
   for (input, reason) in invalidCases:
-    doAssert parseDate(input).isErr, "expected Err for: " & reason & " (" & input & ")"
+    var wasErr = false
+    try:
+      discard parseDate(input)
+    except ValidationError:
+      wasErr = true
+    doAssert wasErr, "expected Err for: " & reason & " (" & input & ")"
 
 # --- parseMaxChanges ---
 
 block parseMaxChangesRejectsZero:
-  let ui = parseUnsignedInt(0).get()
+  let ui = parseUnsignedInt(0)
   assertErrFields parseMaxChanges(ui), "MaxChanges", "must be greater than 0", "0"
 
 block parseMaxChangesAcceptsOne:
-  let ui = parseUnsignedInt(1).get()
+  let ui = parseUnsignedInt(1)
   assertOk parseMaxChanges(ui)
 
 block parseMaxChangesAcceptsMax:
-  let ui = parseUnsignedInt(MaxUnsignedInt).get()
+  let ui = parseUnsignedInt(MaxUnsignedInt)
   assertOk parseMaxChanges(ui)
 
 block parseMaxChangesBorrowedOps:
-  let a = parseMaxChanges(parseUnsignedInt(10).get()).get()
-  let b = parseMaxChanges(parseUnsignedInt(10).get()).get()
+  let a = parseMaxChanges(parseUnsignedInt(10))
+  let b = parseMaxChanges(parseUnsignedInt(10))
   doAssert a == b
   doAssert $a == "10"

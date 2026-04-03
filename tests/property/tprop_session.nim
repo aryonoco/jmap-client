@@ -1,20 +1,18 @@
 # SPDX-License-Identifier: BSD-2-Clause
 # Copyright (c) 2026 Aryan Ameri
 
-{.push raises: [].}
-
 ## Property-based tests for Session and UriTemplate.
 
+import std/options
 import std/random
 import std/tables
-
-import results
 
 import jmap_client/capabilities
 import jmap_client/framework
 import jmap_client/identifiers
 import jmap_client/primitives
 import jmap_client/session
+import jmap_client/validation
 import ../mfixtures
 import ../mproperty
 
@@ -24,33 +22,39 @@ block propUriTemplateTotality:
   checkProperty "parseUriTemplate never crashes on arbitrary string":
     let s = genArbitraryString(rng)
     lastInput = s
-    discard parseUriTemplate(s)
+    try:
+      discard parseUriTemplate(s)
+    except ValidationError:
+      discard
 
 block propUriTemplateMaliciousTotality:
   checkProperty "parseUriTemplate never crashes on malicious input":
     let s = genMaliciousString(rng, trial)
     lastInput = s
-    discard parseUriTemplate(s)
+    try:
+      discard parseUriTemplate(s)
+    except ValidationError:
+      discard
 
 block propUriTemplateNonEmpty:
   checkProperty "valid UriTemplate has len > 0":
     let s = genValidUriTemplateParametric(rng)
     lastInput = s
-    let tmpl = parseUriTemplate(s).get()
+    let tmpl = parseUriTemplate(s)
     doAssert tmpl.len > 0
 
 block propUriTemplateRoundTrip:
-  checkProperty "$(parseUriTemplate(s).get()) == s for valid s":
+  checkProperty "$(parseUriTemplate(s)) == s for valid s":
     let s = genValidUriTemplateParametric(rng)
     lastInput = s
-    doAssert $(parseUriTemplate(s).get()) == s
+    doAssert $(parseUriTemplate(s)) == s
 
 block propHasVariablePresent:
-  let tmpl = parseUriTemplate("https://example.com/{foo}/bar").get()
+  let tmpl = parseUriTemplate("https://example.com/{foo}/bar")
   doAssert hasVariable(tmpl, "foo") == true
 
 block propHasVariableAbsent:
-  let tmpl = parseUriTemplate("https://example.com/{bar}/baz").get()
+  let tmpl = parseUriTemplate("https://example.com/{bar}/baz")
   doAssert hasVariable(tmpl, "foo") == false
 
 # --- Session properties ---
@@ -59,28 +63,25 @@ block propSessionCoreCapabilitiesTotal:
   checkPropertyN "coreCapabilities(validSession) never crashes", QuickTrials:
     let args = makeSessionArgs()
     let session = parseSession(
-        args.capabilities, args.accounts, args.primaryAccounts, args.username,
-        args.apiUrl, args.downloadUrl, args.uploadUrl, args.eventSourceUrl, args.state,
-      )
-      .get()
+      args.capabilities, args.accounts, args.primaryAccounts, args.username,
+      args.apiUrl, args.downloadUrl, args.uploadUrl, args.eventSourceUrl, args.state,
+    )
     discard coreCapabilities(session)
 
 block propSessionFindCoreCapability:
   let args = makeSessionArgs()
   let session = parseSession(
-      args.capabilities, args.accounts, args.primaryAccounts, args.username,
-      args.apiUrl, args.downloadUrl, args.uploadUrl, args.eventSourceUrl, args.state,
-    )
-    .get()
+    args.capabilities, args.accounts, args.primaryAccounts, args.username, args.apiUrl,
+    args.downloadUrl, args.uploadUrl, args.eventSourceUrl, args.state,
+  )
   doAssert findCapability(session, ckCore).isSome
 
 block propSessionPrimaryAccountUnknown:
   let args = makeSessionArgs()
   let session = parseSession(
-      args.capabilities, args.accounts, args.primaryAccounts, args.username,
-      args.apiUrl, args.downloadUrl, args.uploadUrl, args.eventSourceUrl, args.state,
-    )
-    .get()
+    args.capabilities, args.accounts, args.primaryAccounts, args.username, args.apiUrl,
+    args.downloadUrl, args.uploadUrl, args.eventSourceUrl, args.state,
+  )
   doAssert primaryAccount(session, ckUnknown).isNone
 
 # --- Session cross-consistency properties ---
@@ -90,10 +91,9 @@ block propSessionFindCapabilityAgreesWithByUri:
     ## For known kinds, findCapability and findCapabilityByUri agree.
     let args = makeSessionArgs()
     let session = parseSession(
-        args.capabilities, args.accounts, args.primaryAccounts, args.username,
-        args.apiUrl, args.downloadUrl, args.uploadUrl, args.eventSourceUrl, args.state,
-      )
-      .get()
+      args.capabilities, args.accounts, args.primaryAccounts, args.username,
+      args.apiUrl, args.downloadUrl, args.uploadUrl, args.eventSourceUrl, args.state,
+    )
     for kind in CapabilityKind:
       if kind != ckUnknown:
         let byKind = session.findCapability(kind)
@@ -106,23 +106,23 @@ block propUriTemplateEqImpliesHashEq:
   checkPropertyN "propUriTemplateEqImpliesHashEq", QuickTrials:
     let s = genValidUriTemplateParametric(rng)
     lastInput = s
-    let a = parseUriTemplate(s).get()
-    let b = parseUriTemplate(s).get()
+    let a = parseUriTemplate(s)
+    let b = parseUriTemplate(s)
     doAssert hash(a) == hash(b)
 
 block propUriTemplateDoubleRoundTrip:
   checkPropertyN "propUriTemplateDoubleRoundTrip", QuickTrials:
     let s = genValidUriTemplateParametric(rng)
     lastInput = s
-    let first = parseUriTemplate(s).get()
-    let second = parseUriTemplate($first).get()
+    let first = parseUriTemplate(s)
+    let second = parseUriTemplate($first)
     doAssert first == second
 
 # --- Session post-construction invariants ---
 
 block propSessionPostConstructionInvariants:
   ## Verifies all five structural invariants guaranteed by parseSession.
-  let session = parseSessionFromArgs(makeSessionArgs()).get()
+  let session = parseSessionFromArgs(makeSessionArgs())
   doAssert findCapability(session, ckCore).isSome
   doAssert session.apiUrl.len > 0
   doAssert session.downloadUrl.hasVariable("accountId")
@@ -162,7 +162,7 @@ block propAccountHasCapabilityTotality:
 block propUriTemplateHasVariableTotality:
   checkPropertyN "UriTemplate.hasVariable never crashes", QuickTrials:
     let s = genValidUriTemplateParametric(rng)
-    let tmpl = parseUriTemplate(s).get()
+    let tmpl = parseUriTemplate(s)
     let varName = genArbitraryString(rng)
     lastInput = varName
     discard tmpl.hasVariable(varName)
@@ -190,8 +190,7 @@ block propSessionWithRandomCapabilities:
     var args = makeSessionArgs()
     args.capabilities = caps
     let session = parseSessionFromArgs(args)
-    doAssert session.isOk
-    doAssert findCapability(session.get(), ckCore).isSome
+    doAssert findCapability(session, ckCore).isSome
 
 block propSessionCoreCapabilitiesPreserved:
   checkPropertyN "random CoreCapabilities round-trip through session", QuickTrials:
@@ -202,7 +201,7 @@ block propSessionCoreCapabilitiesPreserved:
         rawUri: "urn:ietf:params:jmap:core", kind: ckCore, core: randomCore
       )
     ]
-    let session = parseSessionFromArgs(args).get()
+    let session = parseSessionFromArgs(args)
     let extracted = coreCapabilities(session)
     doAssert extracted.maxSizeUpload == randomCore.maxSizeUpload
     doAssert extracted.maxConcurrentUpload == randomCore.maxConcurrentUpload
@@ -214,9 +213,9 @@ block propSessionWithRandomAccounts:
     var args = makeSessionArgs()
     let acctCount = rng.rand(1 .. 5)
     for i in 0 ..< acctCount:
-      let acctId = parseAccountId("rnd" & $i).get()
+      let acctId = parseAccountId("rnd" & $i)
       args.accounts[acctId] = genValidAccount(rng)
-    let session = parseSessionFromArgs(args).get()
+    let session = parseSessionFromArgs(args)
     for acctId in args.accounts.keys:
       doAssert findAccount(session, acctId).isSome
 

@@ -1,8 +1,6 @@
 # SPDX-License-Identifier: BSD-2-Clause
 # Copyright (c) 2026 Aryan Ameri
 
-{.push raises: [].}
-
 ## Tests for ValidationError construction and distinct type borrow templates.
 
 import std/hashes
@@ -10,26 +8,26 @@ import std/hashes
 import jmap_client/validation
 
 # Test distinct types — must be at top level for export markers in borrow templates
-type TestStr {.requiresInit.} = distinct string
+type TestStr = distinct string
 
 defineStringDistinctOps(TestStr)
 
-type TestInt {.requiresInit.} = distinct int64
+type TestInt = distinct int64
 
 defineIntDistinctOps(TestInt)
 
-# --- validationError constructor ---
+# --- newValidationError constructor ---
 
 block validationErrorConstructor:
-  let ve = validationError("Id", "length must be 1-255", "")
+  let ve = newValidationError("Id", "length must be 1-255", "")
   doAssert ve.typeName == "Id"
-  doAssert ve.message == "length must be 1-255"
+  doAssert ve.msg == "length must be 1-255"
   doAssert ve.value == ""
 
 block validationErrorAllFields:
-  let ve = validationError("UnsignedInt", "must be non-negative", "-1")
+  let ve = newValidationError("UnsignedInt", "must be non-negative", "-1")
   doAssert ve.typeName == "UnsignedInt"
-  doAssert ve.message == "must be non-negative"
+  doAssert ve.msg == "must be non-negative"
   doAssert ve.value == "-1"
 
 # --- defineStringDistinctOps ---

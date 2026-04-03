@@ -1,14 +1,11 @@
 # SPDX-License-Identifier: BSD-2-Clause
 # Copyright (c) 2026 Aryan Ameri
 
-{.push raises: [].}
-
 ## Tests for generic method framework types: PropertyName, Filter, Comparator,
 ## PatchObject, and AddedItem.
 
+import std/options
 import std/json
-
-import results
 
 import jmap_client/primitives
 import jmap_client/framework
@@ -21,12 +18,12 @@ block parsePropertyNameEmpty:
   assertErrFields parsePropertyName(""), "PropertyName", "must not be empty", ""
 
 block parsePropertyNameValid:
-  doAssert parsePropertyName("name").isOk
+  assertOk parsePropertyName("name")
 
 block propertyNameBorrowedOps:
-  let a = parsePropertyName("name").get()
-  let b = parsePropertyName("name").get()
-  let c = parsePropertyName("other").get()
+  let a = parsePropertyName("name")
+  let b = parsePropertyName("name")
+  let c = parsePropertyName("other")
   doAssert a == b
   doAssert not (a == c)
   doAssert $a == "name"
@@ -64,26 +61,21 @@ block filterRecursiveNesting:
 # --- Comparator ---
 
 block parseComparatorValid:
-  let pn = parsePropertyName("name").get()
-  let result = parseComparator(pn)
-  doAssert result.isOk
-  let c = result.get()
+  let pn = parsePropertyName("name")
+  let c = parseComparator(pn)
   doAssert c.isAscending == true
   doAssert c.collation.isNone
 
 block parseComparatorWithCollation:
-  let pn = parsePropertyName("name").get()
-  let result = parseComparator(pn, collation = Opt.some("i;unicode-casemap"))
-  doAssert result.isOk
-  let c = result.get()
+  let pn = parsePropertyName("name")
+  let c = parseComparator(pn, collation = some("i;unicode-casemap"))
   doAssert c.collation.isSome
   doAssert c.collation.get() == "i;unicode-casemap"
 
 block parseComparatorNotAscending:
-  let pn = parsePropertyName("subject").get()
-  let result = parseComparator(pn, isAscending = false)
-  doAssert result.isOk
-  doAssert result.get().isAscending == false
+  let pn = parsePropertyName("subject")
+  let c = parseComparator(pn, isAscending = false)
+  doAssert c.isAscending == false
 
 # --- PatchObject ---
 
@@ -95,27 +87,25 @@ block setPropEmptyPath:
     "PatchObject", "path must not be empty", ""
 
 block setPropValid:
-  let result = setProp(emptyPatch(), "name", %"Alice")
-  doAssert result.isOk
-  doAssert result.get().len == 1
+  let p = setProp(emptyPatch(), "name", %"Alice")
+  doAssert p.len == 1
 
 block deletePropValid:
-  let result = deleteProp(emptyPatch(), "addresses/0")
-  doAssert result.isOk
-  doAssert result.get().len == 1
+  let p = deleteProp(emptyPatch(), "addresses/0")
+  doAssert p.len == 1
 
 block deletePropEmptyPath:
   assertErrFields deleteProp(emptyPatch(), ""),
     "PatchObject", "path must not be empty", ""
 
 block chainedSetProp:
-  let p1 = setProp(emptyPatch(), "name", %"Alice").get()
-  let p2 = setProp(p1, "age", %30).get()
+  let p1 = setProp(emptyPatch(), "name", %"Alice")
+  let p2 = setProp(p1, "age", %30)
   doAssert p2.len == 2
 
 block patchObjectImmutability:
   let original = emptyPatch()
-  let modified = setProp(original, "name", %"Alice").get()
+  let modified = setProp(original, "name", %"Alice")
   doAssert original.len == 0
   doAssert modified.len == 1
 
@@ -127,31 +117,31 @@ block patchObjectNoBorrowedOps:
 # --- AddedItem ---
 
 block addedItemConstruction:
-  let id = parseId("abc").get()
-  let idx = parseUnsignedInt(0'i64).get()
-  let item = initAddedItem(id, idx)
+  let id = parseId("abc")
+  let idx = parseUnsignedInt(0'i64)
+  let item = AddedItem(id: id, index: idx)
   doAssert string(item.id) == "abc"
   doAssert int64(item.index) == 0'i64
 
 # --- Adversarial edge cases ---
 
 block setPropSlashOnlyPath:
-  doAssert setProp(emptyPatch(), "/", %"val").isOk
+  assertOk setProp(emptyPatch(), "/", %"val")
 
 block setPropOverwriteSameKey:
-  let p1 = setProp(emptyPatch(), "name", %"Alice").get()
-  let p2 = setProp(p1, "name", %"Bob").get()
+  let p1 = setProp(emptyPatch(), "name", %"Alice")
+  let p2 = setProp(p1, "name", %"Bob")
   doAssert p2.len == 1
 
 block setPropThenDeleteSameKey:
-  let p1 = setProp(emptyPatch(), "name", %"Alice").get()
-  let p2 = deleteProp(p1, "name").get()
+  let p1 = setProp(emptyPatch(), "name", %"Alice")
+  let p2 = deleteProp(p1, "name")
   doAssert p2.len == 1
 
 block patchObjectManyEntries:
   var p = emptyPatch()
   for i in 0 ..< 100:
-    p = setProp(p, "path" & $i, %i).get()
+    p = setProp(p, "path" & $i, %i)
   doAssert p.len == 100
 
 # --- Filter arity tests ---
@@ -179,7 +169,7 @@ block patchObjectTildeEscapePath:
   # RFC 6901 tilde escaping: stored as-is (no path parsing at Layer 1)
   let r = emptyPatch().setProp("a~0b", %"val")
   assertOk r
-  assertEq r.get().len, 1
+  assertEq r.len, 1
 
 block patchObjectDoubleslashPath:
   let r = emptyPatch().setProp("//", %"val")
@@ -192,15 +182,15 @@ block patchObjectNulInPath:
 # --- Comparator and AddedItem edge cases ---
 
 block comparatorEmptyCollation:
-  let pn = parsePropertyName("subject").get()
-  let r = parseComparator(pn, collation = Opt.some(""))
-  assertOk r
-  doAssert r.get().collation.isSome
+  let pn = parsePropertyName("subject")
+  let c = parseComparator(pn, collation = some(""))
+  assertOk c
+  doAssert c.collation.isSome
 
 block addedItemMaxIndex:
-  let maxIdx = parseUnsignedInt(MaxUnsignedInt).get()
-  let id = parseId("test").get()
-  let ai = initAddedItem(id, maxIdx)
+  let maxIdx = parseUnsignedInt(MaxUnsignedInt)
+  let id = parseId("test")
+  let ai = AddedItem(id: id, index: maxIdx)
   doAssert ai.index == maxIdx
 
 # --- PatchObject.getKey round-trip ---
@@ -214,29 +204,29 @@ block patchObjectGetKeyAbsent:
 
 block patchObjectSetPropThenGetKey:
   # setProp then getKey verifying actual JSON value content
-  let p = setProp(emptyPatch(), "name", %"Alice").get()
+  let p = setProp(emptyPatch(), "name", %"Alice")
   let got = p.getKey("name")
   assertSome got
   doAssert got.get().getStr() == "Alice"
 
 block patchObjectDeletePropThenGetKey:
   # deleteProp then getKey returns JSON null
-  let p = deleteProp(emptyPatch(), "addr/0").get()
+  let p = deleteProp(emptyPatch(), "addr/0")
   let got = p.getKey("addr/0")
   assertSome got
   doAssert got.get().kind == JNull
 
 block parsePropertyNameSingleChar:
   ## parsePropertyName accepts a single-character string.
-  let result = parsePropertyName("x")
-  assertOk result
-  doAssert $result.get() == "x"
+  let pn = parsePropertyName("x")
+  assertOk pn
+  doAssert $pn == "x"
 
 block parsePropertyNameStandard:
   ## parsePropertyName accepts a standard property name.
-  let result = parsePropertyName("subject")
-  assertOk result
-  doAssert $result.get() == "subject"
+  let pn = parsePropertyName("subject")
+  assertOk pn
+  doAssert $pn == "subject"
 
 # --- Generic type instantiation: Filter[string] ---
 

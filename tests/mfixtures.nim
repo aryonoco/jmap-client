@@ -1,8 +1,6 @@
 # SPDX-License-Identifier: BSD-2-Clause
 # Copyright (c) 2026 Aryan Ameri
 
-{.push raises: [].}
-
 ## Shared test fixture factories. Returns fresh instances to avoid module-level
 ## mutation risk. Imported by t-prefixed test files.
 ##
@@ -15,11 +13,10 @@
 ## 6. Add property tests + generator in tests/property/tprop_<module>.nim
 ## 7. Add gen<T>() generator to tests/mproperty.nim
 
+import std/options
 import std/sets
 import std/tables
 import std/json
-
-import results
 
 {.push ruleOff: "hasDoc".}
 
@@ -31,36 +28,35 @@ import jmap_client/session
 import jmap_client/framework
 import jmap_client/envelope
 import jmap_client/errors
-import jmap_client/serde
 
-func zeroUint*(): UnsignedInt =
-  parseUnsignedInt(0).get()
+proc zeroUint*(): UnsignedInt =
+  parseUnsignedInt(0)
 
-func makeMaxChanges*(n: int64 = 100): MaxChanges =
-  parseMaxChanges(parseUnsignedInt(n).get()).get()
+proc makeMaxChanges*(n: int64 = 100): MaxChanges =
+  parseMaxChanges(parseUnsignedInt(n))
 
-func makeId*(s = "testId"): Id =
-  parseId(s).get()
+proc makeId*(s = "testId"): Id =
+  parseId(s)
 
-func makeMcid*(s = "c0"): MethodCallId =
-  parseMethodCallId(s).get()
+proc makeMcid*(s = "c0"): MethodCallId =
+  parseMethodCallId(s)
 
-func makeCreationId*(s = "k0"): CreationId =
-  parseCreationId(s).get()
+proc makeCreationId*(s = "k0"): CreationId =
+  parseCreationId(s)
 
-func makeState*(s = "state0"): JmapState =
-  parseJmapState(s).get()
+proc makeState*(s = "state0"): JmapState =
+  parseJmapState(s)
 
-func makeAccountId*(s = "acct1"): AccountId =
-  parseAccountId(s).get()
+proc makeAccountId*(s = "acct1"): AccountId =
+  parseAccountId(s)
 
-func makePropertyName*(s = "subject"): PropertyName =
-  parsePropertyName(s).get()
+proc makePropertyName*(s = "subject"): PropertyName =
+  parsePropertyName(s)
 
-func makeUriTemplate*(s = "https://example.com/{accountId}"): UriTemplate =
-  parseUriTemplate(s).get()
+proc makeUriTemplate*(s = "https://example.com/{accountId}"): UriTemplate =
+  parseUriTemplate(s)
 
-func zeroCoreCaps*(): CoreCapabilities =
+proc zeroCoreCaps*(): CoreCapabilities =
   let z = zeroUint()
   CoreCapabilities(
     maxSizeUpload: z,
@@ -73,35 +69,33 @@ func zeroCoreCaps*(): CoreCapabilities =
     collationAlgorithms: initHashSet[string](),
   )
 
-func realisticCoreCaps*(): CoreCapabilities =
+proc realisticCoreCaps*(): CoreCapabilities =
   CoreCapabilities(
-    maxSizeUpload: parseUnsignedInt(50_000_000).get(),
-    maxConcurrentUpload: parseUnsignedInt(4).get(),
-    maxSizeRequest: parseUnsignedInt(10_000_000).get(),
-    maxConcurrentRequests: parseUnsignedInt(8).get(),
-    maxCallsInRequest: parseUnsignedInt(32).get(),
-    maxObjectsInGet: parseUnsignedInt(1000).get(),
-    maxObjectsInSet: parseUnsignedInt(500).get(),
+    maxSizeUpload: parseUnsignedInt(50_000_000),
+    maxConcurrentUpload: parseUnsignedInt(4),
+    maxSizeRequest: parseUnsignedInt(10_000_000),
+    maxConcurrentRequests: parseUnsignedInt(8),
+    maxCallsInRequest: parseUnsignedInt(32),
+    maxObjectsInGet: parseUnsignedInt(1000),
+    maxObjectsInSet: parseUnsignedInt(500),
     collationAlgorithms: toHashSet(["i;ascii-casemap", "i;unicode-casemap"]),
   )
 
-func makeCoreServerCap*(caps = zeroCoreCaps()): ServerCapability =
+proc makeCoreServerCap*(caps = zeroCoreCaps()): ServerCapability =
   ServerCapability(rawUri: "urn:ietf:params:jmap:core", kind: ckCore, core: caps)
 
-func makeGoldenDownloadUrl*(): UriTemplate =
+proc makeGoldenDownloadUrl*(): UriTemplate =
   parseUriTemplate(
     "https://jmap.example.com/download/{accountId}/{blobId}/{name}?accept={type}"
   )
-    .get()
 
-func makeGoldenUploadUrl*(): UriTemplate =
-  parseUriTemplate("https://jmap.example.com/upload/{accountId}/").get()
+proc makeGoldenUploadUrl*(): UriTemplate =
+  parseUriTemplate("https://jmap.example.com/upload/{accountId}/")
 
-func makeGoldenEventSourceUrl*(): UriTemplate =
+proc makeGoldenEventSourceUrl*(): UriTemplate =
   parseUriTemplate(
     "https://jmap.example.com/eventsource/?types={types}&closeafter={closeafter}&ping={ping}"
   )
-    .get()
 
 type SessionArgs* =
   tuple[
@@ -116,14 +110,14 @@ type SessionArgs* =
     state: JmapState,
   ]
 
-func parseSessionFromArgs*(args: SessionArgs): Result[Session, ValidationError] =
+proc parseSessionFromArgs*(args: SessionArgs): Session =
   ## Convenience wrapper around the 9-argument parseSession.
   parseSession(
     args.capabilities, args.accounts, args.primaryAccounts, args.username, args.apiUrl,
     args.downloadUrl, args.uploadUrl, args.eventSourceUrl, args.state,
   )
 
-func makeSessionArgs*(): SessionArgs =
+proc makeSessionArgs*(): SessionArgs =
   var accounts = initTable[AccountId, Account]()
   accounts[makeAccountId("A1")] =
     Account(name: "test", isPersonal: true, isReadOnly: false, accountCapabilities: @[])
@@ -145,26 +139,26 @@ func makeSessionArgs*(): SessionArgs =
 # Envelope factories
 # ---------------------------------------------------------------------------
 
-func makeInvocation*(name = "Mailbox/get", mcid = makeMcid("c0")): Invocation =
+proc makeInvocation*(name = "Mailbox/get", mcid = makeMcid("c0")): Invocation =
   initInvocation(name, newJObject(), mcid)
 
-func makeRequest*(
+proc makeRequest*(
     `using`: seq[string] = @["urn:ietf:params:jmap:core"],
     methodCalls: seq[Invocation] = @[makeInvocation()],
-    createdIds = Opt.none(Table[CreationId, Id]),
+    createdIds = none(Table[CreationId, Id]),
 ): Request =
   Request(`using`: `using`, methodCalls: methodCalls, createdIds: createdIds)
 
-func makeResponse*(
+proc makeResponse*(
     methodResponses: seq[Invocation] = @[makeInvocation()],
     state = makeState("rs1"),
-    createdIds = Opt.none(Table[CreationId, Id]),
+    createdIds = none(Table[CreationId, Id]),
 ): Response =
   Response(
     methodResponses: methodResponses, createdIds: createdIds, sessionState: state
   )
 
-func makeResultReference*(
+proc makeResultReference*(
     mcid = makeMcid("c0"), name = "Mailbox/get", path = RefPathIds
 ): ResultReference =
   ResultReference(resultOf: mcid, name: name, path: path)
@@ -173,19 +167,19 @@ func makeResultReference*(
 # Error factories
 # ---------------------------------------------------------------------------
 
-func makeRequestError*(
+proc makeRequestError*(
     rawType = "urn:ietf:params:jmap:error:unknownCapability"
 ): RequestError =
   requestError(rawType)
 
-func makeMethodError*(rawType = "serverFail"): MethodError =
+proc makeMethodError*(rawType = "serverFail"): MethodError =
   methodError(rawType)
 
 # ---------------------------------------------------------------------------
 # Server fixture factories
 # ---------------------------------------------------------------------------
 
-func makeFastmailSession*(): SessionArgs =
+proc makeFastmailSession*(): SessionArgs =
   ## Realistic Fastmail-style session with vendor extensions.
   var accounts = initTable[AccountId, Account]()
   let acctId = makeAccountId("u1f5a6e2c")
@@ -250,7 +244,7 @@ func makeFastmailSession*(): SessionArgs =
     state: makeState("cyrus-12345"),
   )
 
-func makeMinimalSession*(): SessionArgs =
+proc makeMinimalSession*(): SessionArgs =
   ## Bare minimum valid session: ckCore only, empty accounts.
   result = (
     capabilities: @[makeCoreServerCap()],
@@ -268,14 +262,14 @@ func makeMinimalSession*(): SessionArgs =
 # SetError variant factories
 # ---------------------------------------------------------------------------
 
-func makeSetErrorInvalidProperties*(
+proc makeSetErrorInvalidProperties*(
     properties: seq[string] = @["from", "subject"],
-    description: Opt[string] = Opt.none(string),
+    description: Option[string] = none(string),
 ): SetError =
   setErrorInvalidProperties("invalidProperties", properties, description)
 
-func makeSetErrorAlreadyExists*(
-    existingId: Id = makeId("existing1"), description: Opt[string] = Opt.none(string)
+proc makeSetErrorAlreadyExists*(
+    existingId: Id = makeId("existing1"), description: Option[string] = none(string)
 ): SetError =
   setErrorAlreadyExists("alreadyExists", existingId, description)
 
@@ -283,39 +277,39 @@ func makeSetErrorAlreadyExists*(
 # Framework factories
 # ---------------------------------------------------------------------------
 
-func makeComparator*(
+proc makeComparator*(
     property: PropertyName = makePropertyName("subject"), isAscending = true
 ): Comparator =
-  parseComparator(property, isAscending).get()
+  parseComparator(property, isAscending)
 
-func makeComparatorWithCollation*(
+proc makeComparatorWithCollation*(
     property: PropertyName = makePropertyName("subject"),
     isAscending = true,
     collation = "i;unicode-casemap",
 ): Comparator =
-  parseComparator(property, isAscending, Opt.some(collation)).get()
+  parseComparator(property, isAscending, some(collation))
 
-func makeAddedItem*(id: Id = makeId("item1"), index: int64 = 0): AddedItem =
-  initAddedItem(id, parseUnsignedInt(index).get())
+proc makeAddedItem*(id: Id = makeId("item1"), index: int64 = 0): AddedItem =
+  AddedItem(id: id, index: parseUnsignedInt(index))
 
 # ---------------------------------------------------------------------------
 # Filter factories
 # ---------------------------------------------------------------------------
 
-func makeFilterCondition*(condition = 42): Filter[int] =
+proc makeFilterCondition*(condition = 42): Filter[int] =
   filterCondition(condition)
 
-func makeFilterAnd*(children: seq[Filter[int]]): Filter[int] =
+proc makeFilterAnd*(children: seq[Filter[int]]): Filter[int] =
   filterOperator[int](foAnd, children)
 
-func makeFilterOr*(children: seq[Filter[int]]): Filter[int] =
+proc makeFilterOr*(children: seq[Filter[int]]): Filter[int] =
   filterOperator[int](foOr, children)
 
 # ---------------------------------------------------------------------------
 # Additional session fixture
 # ---------------------------------------------------------------------------
 
-func makeCyrusSession*(): SessionArgs =
+proc makeCyrusSession*(): SessionArgs =
   ## Cyrus IMAP style session with lenient account IDs.
   var accounts = initTable[AccountId, Account]()
   let acctId = makeAccountId("uid=12345")
@@ -473,7 +467,7 @@ proc validSessionJson*(): JsonNode =
 # Case object equality helpers
 # ---------------------------------------------------------------------------
 
-func coreCapEq*(a, b: CoreCapabilities): bool =
+proc coreCapEq*(a, b: CoreCapabilities): bool =
   ## Field-by-field equality for CoreCapabilities, using subset check for
   ## HashSet collationAlgorithms (avoids megatest == resolution issues).
   a.maxSizeUpload == b.maxSizeUpload and a.maxConcurrentUpload == b.maxConcurrentUpload and
@@ -484,7 +478,7 @@ func coreCapEq*(a, b: CoreCapabilities): bool =
     a.collationAlgorithms.len == b.collationAlgorithms.len and
     a.collationAlgorithms <= b.collationAlgorithms
 
-func capEq*(a, b: ServerCapability): bool =
+proc capEq*(a, b: ServerCapability): bool =
   ## Deep value equality for ServerCapability (case object).
   if a.kind != b.kind or a.rawUri != b.rawUri:
     return false
@@ -494,7 +488,7 @@ func capEq*(a, b: ServerCapability): bool =
   else:
     a.rawData == b.rawData
 
-func capsEq*(a, b: seq[ServerCapability]): bool =
+proc capsEq*(a, b: seq[ServerCapability]): bool =
   ## Compares two sequences of ServerCapability by value.
   if a.len != b.len:
     return false
@@ -503,7 +497,7 @@ func capsEq*(a, b: seq[ServerCapability]): bool =
       return false
   true
 
-func sessionEq*(a, b: Session): bool =
+proc sessionEq*(a, b: Session): bool =
   ## Deep value equality for Session (contains seq[ServerCapability]).
   capsEq(a.capabilities, b.capabilities) and a.accounts == b.accounts and
     a.primaryAccounts == b.primaryAccounts and a.username == b.username and
@@ -511,11 +505,11 @@ func sessionEq*(a, b: Session): bool =
     a.uploadUrl == b.uploadUrl and a.eventSourceUrl == b.eventSourceUrl and
     a.state == b.state
 
-func invEq*(a, b: Invocation): bool =
+proc invEq*(a, b: Invocation): bool =
   ## Structural equality for Invocation including arguments.
   a.name == b.name and a.methodCallId == b.methodCallId and a.arguments == b.arguments
 
-func reqEq*(a, b: Request): bool =
+proc reqEq*(a, b: Request): bool =
   ## Structural equality for Request including methodCalls order.
   if a.using != b.using:
     return false
@@ -531,7 +525,7 @@ func reqEq*(a, b: Request): bool =
       return false
   true
 
-func respEq*(a, b: Response): bool =
+proc respEq*(a, b: Response): bool =
   ## Structural equality for Response including methodResponses order.
   if a.sessionState != b.sessionState:
     return false
@@ -544,7 +538,7 @@ func respEq*(a, b: Response): bool =
     return false
   true
 
-func filterEq*(a, b: Filter[int]): bool =
+proc filterEq*(a, b: Filter[int]): bool =
   ## Recursive structural equality for Filter[int] trees.
   if a.kind != b.kind:
     return false
@@ -561,7 +555,7 @@ func filterEq*(a, b: Filter[int]): bool =
         return false
     true
 
-func setErrorEq*(a, b: SetError): bool =
+proc setErrorEq*(a, b: SetError): bool =
   ## Deep value equality for SetError (case object), including extras.
   if a.rawType != b.rawType or a.errorType != b.errorType or
       a.description != b.description or a.extras != b.extras:
@@ -573,21 +567,3 @@ func setErrorEq*(a, b: SetError): bool =
     a.existingId == b.existingId
   else:
     true
-
-# ---------------------------------------------------------------------------
-# Filter callback helpers
-# ---------------------------------------------------------------------------
-
-proc intToJson*(c: int): JsonNode {.noSideEffect, raises: [].} =
-  ## Serialise an int condition to a JSON object for Filter[int] tests.
-  {.cast(noSideEffect).}:
-    %*{"value": c}
-
-proc fromIntCondition*(
-    n: JsonNode
-): Result[int, ValidationError] {.noSideEffect, raises: [].} =
-  ## Deserialise a JSON object to int for Filter[int] tests.
-  checkJsonKind(n, JObject, "int")
-  let vNode = n{"value"}
-  checkJsonKind(vNode, JInt, "int", "missing or invalid value")
-  ok(vNode.getInt(0))

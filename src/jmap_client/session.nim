@@ -1,18 +1,14 @@
 # SPDX-License-Identifier: BSD-2-Clause
 # Copyright (c) 2026 Aryan Ameri
 
-{.push raises: [].}
-{.experimental: "strictCaseObjects".}
-
 ## JMAP Session resource types (RFC 8620 section 2). Account capability entries,
 ## accounts, URI templates, and the Session aggregate with structural validation.
 
 import std/hashes
+import std/options
 import std/strutils
 import std/tables
 from std/json import JsonNode
-
-import results
 
 import ./validation
 import ./identifiers
@@ -33,7 +29,7 @@ type Account* = object
   isReadOnly*: bool ## true if entire account is read-only
   accountCapabilities*: seq[AccountCapabilityEntry] ## per-account capability data
 
-type UriTemplate* {.requiresInit.} = distinct string
+type UriTemplate* = distinct string
   ## RFC 6570 Level 1 URI template stored as validated string. Template expansion
   ## is Layer 4 (IO); Layer 1 stores the template and provides structural checks.
 
@@ -53,29 +49,31 @@ type Session* = object
   eventSourceUrl*: UriTemplate ## RFC 6570 Level 1 template
   state*: JmapState ## session state token
 
-func findCapability*(
+proc findCapability*(
     account: Account, kind: CapabilityKind
-): Opt[AccountCapabilityEntry] =
+): Option[AccountCapabilityEntry] =
   ## Finds the first account capability matching the given kind.
   for _, entry in account.accountCapabilities:
     if entry.kind == kind:
-      return ok(entry)
-  err()
+      return some(entry)
+  none(AccountCapabilityEntry)
 
-func findCapabilityByUri*(account: Account, uri: string): Opt[AccountCapabilityEntry] =
+proc findCapabilityByUri*(
+    account: Account, uri: string
+): Option[AccountCapabilityEntry] =
   ## Looks up an account capability by its raw URI string. Use this instead of
   ## findCapability when looking up vendor extensions (which all map to ckUnknown
   ## and would be ambiguous via findCapability).
   for _, entry in account.accountCapabilities:
     if entry.rawUri == uri:
-      return ok(entry)
-  err()
+      return some(entry)
+  none(AccountCapabilityEntry)
 
-func hasCapability*(account: Account, kind: CapabilityKind): bool =
+proc hasCapability*(account: Account, kind: CapabilityKind): bool =
   ## Checks whether the account has a capability of the given kind.
   account.findCapability(kind).isSome
 
-func hasKind(caps: openArray[ServerCapability], kind: CapabilityKind): bool =
+proc hasKind(caps: openArray[ServerCapability], kind: CapabilityKind): bool =
   ## Checks whether any capability matches the given kind. Used by parseSession
   ## before a Session object exists (so Session.findCapability is unavailable).
   for _, cap in caps:
@@ -83,18 +81,18 @@ func hasKind(caps: openArray[ServerCapability], kind: CapabilityKind): bool =
       return true
   false
 
-func parseUriTemplate*(raw: string): Result[UriTemplate, ValidationError] =
+proc parseUriTemplate*(raw: string): UriTemplate =
   ## Non-empty validation. No RFC 6570 parsing -- template expansion is Layer 4.
   if raw.len == 0:
-    return err(validationError("UriTemplate", "must not be empty", raw))
-  ok(UriTemplate(raw))
+    raise newValidationError("UriTemplate", "must not be empty", raw)
+  UriTemplate(raw)
 
-func hasVariable*(tmpl: UriTemplate, name: string): bool =
+proc hasVariable*(tmpl: UriTemplate, name: string): bool =
   ## Checks whether the template contains {name}. Simple substring search.
   let target = "{" & name & "}"
   target in string(tmpl)
 
-func parseSession*(
+proc parseSession*(
     capabilities: seq[ServerCapability],
     accounts: Table[AccountId, Account],
     primaryAccounts: Table[string, AccountId],
@@ -104,7 +102,7 @@ func parseSession*(
     uploadUrl: UriTemplate,
     eventSourceUrl: UriTemplate,
     state: JmapState,
-): Result[Session, ValidationError] =
+): Session =
   ## Validates structural invariants:
   ## 1. capabilities includes ckCore (RFC section 2: MUST)
   ## 2. apiUrl is non-empty
@@ -113,30 +111,23 @@ func parseSession*(
   ## 5. eventSourceUrl contains {types}, {closeafter}, {ping} (RFC section 2)
   ## Deliberately omits cross-reference validation (Decision D7).
   if not capabilities.hasKind(ckCore):
-    return err(
-      validationError(
-        "Session", "capabilities must include urn:ietf:params:jmap:core", ""
-      )
+    raise newValidationError(
+      "Session", "capabilities must include urn:ietf:params:jmap:core", ""
     )
   if apiUrl.len == 0:
-    return err(validationError("Session", "apiUrl must not be empty", ""))
+    raise newValidationError("Session", "apiUrl must not be empty", "")
   for variable in ["accountId", "blobId", "type", "name"]:
     if not downloadUrl.hasVariable(variable):
-      return err(
-        validationError(
-          "Session", "downloadUrl missing {" & variable & "}", string(downloadUrl)
-        )
+      raise newValidationError(
+        "Session", "downloadUrl missing {" & variable & "}", string(downloadUrl)
       )
   if not uploadUrl.hasVariable("accountId"):
-    return err(
-      validationError("Session", "uploadUrl missing {accountId}", string(uploadUrl))
-    )
+    raise
+      newValidationError("Session", "uploadUrl missing {accountId}", string(uploadUrl))
   for variable in ["types", "closeafter", "ping"]:
     if not eventSourceUrl.hasVariable(variable):
-      return err(
-        validationError(
-          "Session", "eventSourceUrl missing {" & variable & "}", string(eventSourceUrl)
-        )
+      raise newValidationError(
+        "Session", "eventSourceUrl missing {" & variable & "}", string(eventSourceUrl)
       )
   let session = Session(
     capabilities: capabilities,
@@ -151,9 +142,9 @@ func parseSession*(
   )
   doAssert session.capabilities.hasKind(ckCore)
   doAssert session.apiUrl.len > 0
-  ok(session)
+  session
 
-func coreCapabilities*(session: Session): CoreCapabilities =
+proc coreCapabilities*(session: Session): CoreCapabilities =
   ## Returns the core capabilities. Total function (no Result) because
   ## parseSession guarantees ckCore is present. Raises AssertionDefect if
   ## the invariant is violated by direct construction.
@@ -165,34 +156,37 @@ func coreCapabilities*(session: Session): CoreCapabilities =
       discard
   raiseAssert "Session missing ckCore: violated parseSession invariant"
 
-func findCapability*(session: Session, kind: CapabilityKind): Opt[ServerCapability] =
+proc findCapability*(session: Session, kind: CapabilityKind): Option[ServerCapability] =
   ## Finds the first server capability matching the given kind.
   for _, cap in session.capabilities:
     if cap.kind == kind:
-      return ok(cap)
-  err()
+      return some(cap)
+  none(ServerCapability)
 
-func findCapabilityByUri*(session: Session, uri: string): Opt[ServerCapability] =
+proc findCapabilityByUri*(session: Session, uri: string): Option[ServerCapability] =
   ## Looks up a server capability by its raw URI string. Use this instead of
   ## findCapability when looking up vendor extensions (which all map to ckUnknown
   ## and would be ambiguous via findCapability).
   for _, cap in session.capabilities:
     if cap.rawUri == uri:
-      return ok(cap)
-  err()
+      return some(cap)
+  none(ServerCapability)
 
-func primaryAccount*(session: Session, kind: CapabilityKind): Opt[AccountId] =
+proc primaryAccount*(session: Session, kind: CapabilityKind): Option[AccountId] =
   ## Returns the primary account for a known capability kind.
-  ## Returns err() if kind == ckUnknown (no canonical URI) or no primary designated.
-  let uri = ?capabilityUri(kind)
+  ## Returns none if kind == ckUnknown (no canonical URI) or no primary designated.
+  let uriOpt = capabilityUri(kind)
+  if uriOpt.isNone:
+    return none(AccountId)
+  let uri = uriOpt.get()
   for key, val in session.primaryAccounts:
     if key == uri:
-      return ok(val)
-  err()
+      return some(val)
+  none(AccountId)
 
-func findAccount*(session: Session, id: AccountId): Opt[Account] =
+proc findAccount*(session: Session, id: AccountId): Option[Account] =
   ## Looks up an account by its AccountId.
   for key, val in session.accounts:
     if key == id:
-      return ok(val)
-  err()
+      return some(val)
+  none(Account)

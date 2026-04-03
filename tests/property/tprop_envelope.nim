@@ -1,16 +1,13 @@
 # SPDX-License-Identifier: BSD-2-Clause
 # Copyright (c) 2026 Aryan Ameri
 
-{.push raises: [].}
-
 ## Property-based tests for JMAP envelope types: Request, Response,
 ## Invocation, and Referencable.
 
 import std/json
+import std/options
 import std/random
 import std/tables
-
-import results
 
 import jmap_client/primitives
 import jmap_client/identifiers
@@ -29,7 +26,7 @@ block propRequestPreservesMethodCallOrder:
     let req = Request(
       `using`: @["urn:ietf:params:jmap:core"],
       methodCalls: calls,
-      createdIds: Opt.none(Table[CreationId, Id]),
+      createdIds: none(Table[CreationId, Id]),
     )
     doAssert req.methodCalls.len == n
     for i in 0 ..< n:
@@ -43,10 +40,10 @@ block propResponsePreservesInvocationOrder:
     var responses: seq[Invocation] = @[]
     for i in 0 ..< n:
       responses.add genInvocation(rng)
-    let state = parseJmapState("s" & $trial).get()
+    let state = parseJmapState("s" & $trial)
     let resp = Response(
       methodResponses: responses,
-      createdIds: Opt.none(Table[CreationId, Id]),
+      createdIds: none(Table[CreationId, Id]),
       sessionState: state,
     )
     doAssert resp.methodResponses.len == n
@@ -56,7 +53,7 @@ block propResponsePreservesInvocationOrder:
 block propReferencableDirectPreservesValue:
   checkProperty "propReferencableDirectPreservesValue":
     ## direct(v).value == v for random Id sequences.
-    let ids = @[parseId("id" & $trial).get()]
+    let ids = @[parseId("id" & $trial)]
     lastInput = $trial
     let d = direct(ids)
     doAssert d.kind == rkDirect
@@ -65,7 +62,7 @@ block propReferencableDirectPreservesValue:
 block propReferencableReferencePreservesRef:
   checkProperty "propReferencableReferencePreservesRef":
     ## referenceTo preserves the ResultReference.
-    let mcid = parseMethodCallId("c" & $trial).get()
+    let mcid = parseMethodCallId("c" & $trial)
     lastInput = $trial
     let rr = ResultReference(resultOf: mcid, name: "Email/query", path: "/ids")
     let r = referenceTo[seq[Id]](rr)
@@ -76,13 +73,13 @@ block propReferencableReferencePreservesRef:
 block propReferencableExclusivity:
   checkProperty "propReferencableExclusivity":
     ## A Referencable is either direct or reference, never ambiguous.
-    let ids = @[parseId("id" & $trial).get()]
+    let ids = @[parseId("id" & $trial)]
     lastInput = $trial
     let d = direct(ids)
     doAssert d.kind == rkDirect
     doAssert not (d.kind == rkReference)
 
-    let mcid = parseMethodCallId("c" & $trial).get()
+    let mcid = parseMethodCallId("c" & $trial)
     let rr = ResultReference(resultOf: mcid, name: "M/get", path: "/ids")
     let r = referenceTo[seq[Id]](rr)
     doAssert r.kind == rkReference
@@ -104,15 +101,15 @@ block propRequestCreatedIdsTablePreserved:
     lastInput = $n
     var cids = initTable[CreationId, Id]()
     for i in 0 ..< n:
-      let cid = parseCreationId("k" & $i).get()
-      let id = parseId("sid" & $i).get()
+      let cid = parseCreationId("k" & $i)
+      let id = parseId("sid" & $i)
       cids[cid] = id
-    let req = Request(`using`: @[], methodCalls: @[], createdIds: Opt.some(cids))
+    let req = Request(`using`: @[], methodCalls: @[], createdIds: some(cids))
     doAssert req.createdIds.isSome
     doAssert req.createdIds.get().len == n
     for i in 0 ..< n:
-      let cid = parseCreationId("k" & $i).get()
-      doAssert req.createdIds.get()[cid] == parseId("sid" & $i).get()
+      let cid = parseCreationId("k" & $i)
+      doAssert req.createdIds.get()[cid] == parseId("sid" & $i)
 
 # --- Referencable properties ---
 
@@ -134,7 +131,7 @@ block propReferencableKindDisjointness:
     ## direct(v).kind != referenceTo(r).kind for any v and r.
     let v = rng.rand(int)
     lastInput = $v
-    let mcid = parseMethodCallId("c" & $trial).get()
+    let mcid = parseMethodCallId("c" & $trial)
     let rr = ResultReference(resultOf: mcid, name: "M/get", path: "/ids")
     let d = direct(v)
     let r = referenceTo[int](rr)

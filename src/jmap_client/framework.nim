@@ -1,31 +1,27 @@
 # SPDX-License-Identifier: BSD-2-Clause
 # Copyright (c) 2026 Aryan Ameri
 
-{.push raises: [].}
-{.experimental: "strictCaseObjects".}
-
 ## Generic method framework types for JMAP standard methods (RFC 8620 §5).
 ## Covers filters, comparators, patch objects, and query change tracking.
 
 import std/hashes
+import std/options
 import std/tables
 from std/json import JsonNode, newJNull
-
-import results
 
 import ./validation
 import ./primitives
 
-type PropertyName* {.requiresInit.} = distinct string
+type PropertyName* = distinct string
   ## A non-empty property name identifying a field on an entity type (RFC 8620 §5.5).
 
 defineStringDistinctOps(PropertyName)
 
-func parsePropertyName*(raw: string): Result[PropertyName, ValidationError] =
+proc parsePropertyName*(raw: string): PropertyName =
   ## Validates and constructs a PropertyName. Rejects empty strings.
   if raw.len == 0:
-    return err(validationError("PropertyName", "must not be empty", raw))
-  ok(PropertyName(raw))
+    raise newValidationError("PropertyName", "must not be empty", raw)
+  PropertyName(raw)
 
 type FilterOperator* = enum
   ## RFC 8620 §5.5 filter composition operators.
@@ -47,103 +43,63 @@ type Filter*[C] = object
     operator*: FilterOperator
     conditions*: seq[Filter[C]]
 
-func filterCondition*[C](cond: C): Filter[C] =
+proc filterCondition*[C](cond: C): Filter[C] =
   ## Wraps a condition value as a leaf filter node.
   Filter[C](kind: fkCondition, condition: cond)
 
-func filterOperator*[C](op: FilterOperator, conditions: seq[Filter[C]]): Filter[C] =
+proc filterOperator*[C](op: FilterOperator, conditions: seq[Filter[C]]): Filter[C] =
   ## Composes child filters under a boolean operator (AND, OR, NOT).
   Filter[C](kind: fkOperator, operator: op, conditions: conditions)
 
 type Comparator* = object
   ## Sort criterion for /query requests (RFC 8620 §5.5). Determines the sort order
   ## for results returned by a /query method call.
-  ##
-  ## Property stored as ``string`` internally to allow ``seq[Comparator]`` in
-  ## ``Opt`` / ``Result`` containers. ``PropertyName {.requiresInit.}`` prevents
-  ## ``default(Comparator)`` which Nim's ``seqs_v2.shrink`` requires for
-  ## lifecycle-hook generation, breaking ``--warningAsError:UnsafeSetLen``.
-  ## The ``property`` accessor returns a validated ``PropertyName`` view.
-  ## The field is module-private: external code must use ``parseComparator``.
-  rawProperty: string ## validated property name (module-private)
+  property*: PropertyName ## the property to sort by
   isAscending*: bool ## true = ascending (RFC default)
-  collation*: Opt[string] ## RFC 4790 collation algorithm identifier
+  collation*: Option[string] ## RFC 4790 collation algorithm identifier
 
-func property*(c: Comparator): PropertyName =
-  ## Type-safe accessor for the sort property name.
-  PropertyName(c.rawProperty)
-
-func parseComparator*(
+proc parseComparator*(
     property: PropertyName,
     isAscending: bool = true,
-    collation: Opt[string] = Opt.none(string),
-): Result[Comparator, ValidationError] =
+    collation: Option[string] = none(string),
+): Comparator =
   ## Constructs a Comparator. Infallible given a valid PropertyName.
-  ok(
-    Comparator(
-      rawProperty: string(property), isAscending: isAscending, collation: collation
-    )
-  )
+  Comparator(property: property, isAscending: isAscending, collation: collation)
 
-type PatchObject* {.requiresInit.} = distinct Table[string, JsonNode]
+type PatchObject* = distinct Table[string, JsonNode]
   ## Map of JSON Pointer paths to values for /set update operations (RFC 8620 §5.3).
 
-func len*(p: PatchObject): int {.borrow.} ## Returns the number of entries in the patch.
+proc len*(p: PatchObject): int {.borrow.} ## Returns the number of entries in the patch.
 
-func emptyPatch*(): PatchObject =
+proc emptyPatch*(): PatchObject =
   ## Creates an empty PatchObject with no entries.
   PatchObject(initTable[string, JsonNode]())
 
-func setProp*(
-    patch: PatchObject, path: string, value: JsonNode
-): Result[PatchObject, ValidationError] =
+proc setProp*(patch: PatchObject, path: string, value: JsonNode): PatchObject =
   ## Sets a property at the given JSON Pointer path.
   if path.len == 0:
-    return err(validationError("PatchObject", "path must not be empty", ""))
+    raise newValidationError("PatchObject", "path must not be empty", "")
   var t = Table[string, JsonNode](patch)
   t[path] = value
-  ok(PatchObject(t))
+  PatchObject(t)
 
-func deleteProp*(
-    patch: PatchObject, path: string
-): Result[PatchObject, ValidationError] =
+proc deleteProp*(patch: PatchObject, path: string): PatchObject =
   ## Sets a property to null (deletion in JMAP PatchObject semantics).
   if path.len == 0:
-    return err(validationError("PatchObject", "path must not be empty", ""))
+    raise newValidationError("PatchObject", "path must not be empty", "")
   var t = Table[string, JsonNode](patch)
   t[path] = newJNull()
-  ok(PatchObject(t))
+  PatchObject(t)
 
-func getKey*(patch: PatchObject, key: string): Opt[JsonNode] =
+proc getKey*(patch: PatchObject, key: string): Option[JsonNode] =
   ## Returns the value at key, or none if absent.
   let t = Table[string, JsonNode](patch)
-  let node = t.getOrDefault(key)
   if t.hasKey(key):
-    Opt.some(node)
+    some(t[key])
   else:
-    Opt.none(JsonNode)
+    none(JsonNode)
 
 type AddedItem* = object
   ## An item added to query results at a specific position (RFC 8620 §5.6).
-  ##
-  ## ``id`` stored as ``string`` internally to allow ``seq[AddedItem]`` in
-  ## ``Opt`` / ``Result`` containers. ``Id {.requiresInit.}`` prevents
-  ## ``default(AddedItem)`` which Nim's ``seqs_v2.shrink`` requires for
-  ## lifecycle-hook generation, breaking ``--warningAsError:UnsafeSetLen``.
-  ## The ``id`` accessor returns a validated ``Id`` view. The field is
-  ## module-private: external code must use ``initAddedItem``.
-  rawId: string ## validated Id (module-private)
-  rawIndex*: int64 ## validated UnsignedInt; prefer ``index()`` accessor
-
-func id*(item: AddedItem): Id =
-  ## Type-safe accessor for the item identifier.
-  Id(item.rawId)
-
-func index*(item: AddedItem): UnsignedInt =
-  ## Type-safe accessor for the item position index.
-  UnsignedInt(item.rawIndex)
-
-func initAddedItem*(id: Id, index: UnsignedInt): AddedItem =
-  ## Construct an AddedItem. Module-private fields prevent direct object
-  ## construction from outside framework.nim.
-  AddedItem(rawId: string(id), rawIndex: int64(index))
+  id*: Id ## the item identifier
+  index*: UnsignedInt ## the position index

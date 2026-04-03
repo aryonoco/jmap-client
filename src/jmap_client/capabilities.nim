@@ -1,17 +1,13 @@
 # SPDX-License-Identifier: BSD-2-Clause
 # Copyright (c) 2026 Aryan Ameri
 
-{.push raises: [].}
-{.experimental: "strictCaseObjects".}
-
 ## JMAP capability discovery types. Maps IANA-registered capability URIs to
 ## typed enums with lossless round-trip for vendor extensions.
 
+import std/options
 import std/strutils
 import std/sets
 from std/json import JsonNode
-
-import results
 
 import ./primitives
 
@@ -21,8 +17,6 @@ type CapabilityKind* = enum
   ## map to ckUnknown, causing collisions. Use raw URI strings for keying.
   ## NOTE: ckMail is first (not ckCore) so that the default CapabilityKind picks
   ## the else branch of ServerCapability, whose rawData: JsonNode can be nil.
-  ## ckCore's branch has CoreCapabilities with {.requiresInit.} fields that
-  ## prevent default construction — needed by seq operations (setLen/reset).
   ckMail = "urn:ietf:params:jmap:mail"
   ckCore = "urn:ietf:params:jmap:core"
   ckSubmission = "urn:ietf:params:jmap:submission"
@@ -58,43 +52,43 @@ type ServerCapability* = object
   else:
     rawData*: JsonNode
 
-func parseCapabilityKind*(uri: string): CapabilityKind =
+proc parseCapabilityKind*(uri: string): CapabilityKind =
   ## Maps a capability URI string to an enum value.
   ## Total function: always succeeds. Unknown URIs map to ckUnknown.
   ## Uses strutils.parseEnum which matches against the string backing values.
   strutils.parseEnum[CapabilityKind](uri, ckUnknown)
 
-func capabilityUri*(kind: CapabilityKind): Opt[string] =
+proc capabilityUri*(kind: CapabilityKind): Option[string] =
   ## Returns the IANA-registered URI for a known capability.
-  ## Returns err() for ckUnknown — callers must use rawUri from ServerCapability.
+  ## Returns none for ckUnknown — callers must use rawUri from ServerCapability.
   case kind
   of ckCore:
-    ok("urn:ietf:params:jmap:core")
+    some("urn:ietf:params:jmap:core")
   of ckMail:
-    ok("urn:ietf:params:jmap:mail")
+    some("urn:ietf:params:jmap:mail")
   of ckSubmission:
-    ok("urn:ietf:params:jmap:submission")
+    some("urn:ietf:params:jmap:submission")
   of ckVacationResponse:
-    ok("urn:ietf:params:jmap:vacationresponse")
+    some("urn:ietf:params:jmap:vacationresponse")
   of ckWebsocket:
-    ok("urn:ietf:params:jmap:websocket")
+    some("urn:ietf:params:jmap:websocket")
   of ckMdn:
-    ok("urn:ietf:params:jmap:mdn")
+    some("urn:ietf:params:jmap:mdn")
   of ckSmimeVerify:
-    ok("urn:ietf:params:jmap:smimeverify")
+    some("urn:ietf:params:jmap:smimeverify")
   of ckBlob:
-    ok("urn:ietf:params:jmap:blob")
+    some("urn:ietf:params:jmap:blob")
   of ckQuota:
-    ok("urn:ietf:params:jmap:quota")
+    some("urn:ietf:params:jmap:quota")
   of ckContacts:
-    ok("urn:ietf:params:jmap:contacts")
+    some("urn:ietf:params:jmap:contacts")
   of ckCalendars:
-    ok("urn:ietf:params:jmap:calendars")
+    some("urn:ietf:params:jmap:calendars")
   of ckSieve:
-    ok("urn:ietf:params:jmap:sieve")
+    some("urn:ietf:params:jmap:sieve")
   of ckUnknown:
-    err()
+    none(string)
 
-func hasCollation*(caps: CoreCapabilities, algorithm: string): bool =
+proc hasCollation*(caps: CoreCapabilities, algorithm: string): bool =
   ## Checks whether the server supports a given RFC 4790 collation algorithm.
   algorithm in caps.collationAlgorithms

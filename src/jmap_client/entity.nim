@@ -1,9 +1,6 @@
 # SPDX-License-Identifier: BSD-2-Clause
 # Copyright (c) 2026 Aryan Ameri
 
-{.push raises: [].}
-{.experimental: "strictCaseObjects".}
-
 ## Compile-time registration framework for JMAP entity types (RFC 8620 §5).
 ##
 ## JMAP uses a "Foo/get", "Foo/set" naming convention where each entity type
@@ -15,18 +12,17 @@
 ##
 ## **Required overloads** (§4.1). Every entity type must provide:
 ##
-## - ``func methodNamespace*(T: typedesc[Entity]): string`` — returns the
+## - ``proc methodNamespace*(T: typedesc[Entity]): string`` — returns the
 ##   entity name for method construction ("Mailbox" → "Mailbox/get").
-## - ``func capabilityUri*(T: typedesc[Entity]): string`` — returns the
+## - ``proc capabilityUri*(T: typedesc[Entity]): string`` — returns the
 ##   capability URI for the ``using`` array (e.g. "urn:ietf:params:jmap:mail").
 ##
 ## **No concept constraint** (Decision D3.4). Generic ``add*`` functions leave
 ## ``T`` unconstrained. Concepts are rejected due to experimental status,
 ## known compiler bugs (byref #16897, block scope, implicit generic breakage),
-## ``func`` in concept body not enforcing ``.noSideEffect``, and generic type
-## checking being unimplemented. Plain overloads with registration templates
-## provide earlier error detection (definition time vs instantiation time)
-## and domain-specific messages.
+## and generic type checking being unimplemented. Plain overloads with
+## registration templates provide earlier error detection (definition time vs
+## instantiation time) and domain-specific messages.
 ##
 ## **``mixin`` resolution** (§4.4). Generic ``add*`` functions in
 ## ``builder.nim`` declare ``mixin methodNamespace, capabilityUri`` to force
@@ -44,12 +40,12 @@
 ## **Entity module checklist.** Every entity module must provide:
 ##
 ## 1. Entity type definition (e.g. ``type Mailbox* = object``).
-## 2. ``func methodNamespace*(T: typedesc[Entity]): string``.
-## 3. ``func capabilityUri*(T: typedesc[Entity]): string``.
+## 2. ``proc methodNamespace*(T: typedesc[Entity]): string``.
+## 3. ``proc capabilityUri*(T: typedesc[Entity]): string``.
 ## 4. ``template filterType*(T: typedesc[Entity]): typedesc`` (if supports
 ##    ``/query``).
 ## 5. ``filterConditionToJson`` callback ``proc(c: filterType(Entity)):
-##    JsonNode {.noSideEffect, raises: [].}`` (if supports ``/query``).
+##    JsonNode`` (if supports ``/query``).
 ## 6. ``registerJmapEntity(Entity)`` at module scope.
 ## 7. ``registerQueryableEntity(Entity)`` at module scope (if supports
 ##    ``/query``).
@@ -76,13 +72,13 @@ template registerJmapEntity*(T: typedesc) =
     when not compiles(methodNamespace(T)):
       {.
         error:
-          "registerJmapEntity: " & $T & " is missing `func methodNamespace*(T: typedesc[" &
+          "registerJmapEntity: " & $T & " is missing `proc methodNamespace*(T: typedesc[" &
           $T & "]): string`"
       .}
     when not compiles(capabilityUri(T)):
       {.
         error:
-          "registerJmapEntity: " & $T & " is missing `func capabilityUri*(T: typedesc[" &
+          "registerJmapEntity: " & $T & " is missing `proc capabilityUri*(T: typedesc[" &
           $T & "]): string`"
       .}
 

@@ -1,15 +1,12 @@
 # SPDX-License-Identifier: BSD-2-Clause
 # Copyright (c) 2026 Aryan Ameri
 
-{.push raises: [].}
-
 ## Property-based tests for CapabilityKind parsing and URI round-trips.
 
 import std/json
+import std/options
 import std/random
 import std/sets
-
-import results
 
 import jmap_client/capabilities
 import ../mproperty

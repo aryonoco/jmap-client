@@ -1,17 +1,13 @@
 # SPDX-License-Identifier: BSD-2-Clause
 # Copyright (c) 2026 Aryan Ameri
 
-{.push raises: [].}
-{.experimental: "strictCaseObjects".}
-
 ## JMAP Request/Response envelope types (RFC 8620 sections 3.2-3.4, 3.7).
 ## Covers Invocation, Request, Response, ResultReference, and the
 ## Referencable[T] variant for back-reference support.
 
+import std/options
 import std/tables
 from std/json import JsonNode
-
-import results
 
 import ./identifiers
 import ./primitives
@@ -19,41 +15,28 @@ import ./primitives
 type Invocation* = object
   ## A method call or response tuple (RFC 8620 section 3.2). Serialised as a
   ## 3-element JSON array by Layer 2.
-  ##
-  ## ``methodCallId`` stored as ``string`` internally to allow
-  ## ``seq[Invocation]`` in ``Opt`` / ``Result`` containers.
-  ## ``MethodCallId {.requiresInit.}`` prevents ``default(Invocation)`` which
-  ## Nim's ``seqs_v2.shrink`` requires for lifecycle-hook generation, breaking
-  ## ``--warningAsError:UnsafeSetLen``. The ``methodCallId`` accessor returns a
-  ## validated ``MethodCallId`` view. The field is module-private: external code
-  ## must use ``initInvocation``.
   name*: string ## method name (request) or response name
   arguments*: JsonNode ## named arguments — always a JObject at the wire level
-  rawMethodCallId: string ## validated method call ID (module-private)
+  methodCallId*: MethodCallId ## validated method call ID
 
-func methodCallId*(inv: Invocation): MethodCallId =
-  ## Type-safe accessor for the method call identifier.
-  MethodCallId(inv.rawMethodCallId)
-
-func initInvocation*(
+proc initInvocation*(
     name: string, arguments: JsonNode, methodCallId: MethodCallId
 ): Invocation =
-  ## Construct an Invocation. Module-private rawMethodCallId prevents direct
-  ## object construction from outside envelope.nim.
-  Invocation(name: name, arguments: arguments, rawMethodCallId: string(methodCallId))
+  ## Construct an Invocation.
+  Invocation(name: name, arguments: arguments, methodCallId: methodCallId)
 
 type Request* = object
   ## Top-level JMAP request envelope (RFC 8620 section 3.3). Contains the
   ## capability URIs, method calls, and optional creation ID map.
   `using`*: seq[string] ## capability URIs the client wishes to use
   methodCalls*: seq[Invocation] ## processed sequentially by server
-  createdIds*: Opt[Table[CreationId, Id]] ## optional; enables proxy splitting
+  createdIds*: Option[Table[CreationId, Id]] ## optional; enables proxy splitting
 
 type Response* = object
   ## Top-level JMAP response envelope (RFC 8620 section 3.4). Contains method
   ## responses, optional creation ID map, and the current session state.
   methodResponses*: seq[Invocation] ## same format as methodCalls
-  createdIds*: Opt[Table[CreationId, Id]] ## only present if given in request
+  createdIds*: Option[Table[CreationId, Id]] ## only present if given in request
   sessionState*: JmapState
     ## Current Session.state value. After every response, compare with
     ## ``Session.state``; if they differ, the session is stale and should
@@ -91,10 +74,10 @@ type
     of rkReference:
       reference*: ResultReference
 
-func direct*[T](value: T): Referencable[T] =
+proc direct*[T](value: T): Referencable[T] =
   ## Wraps a direct value into a Referencable.
   Referencable[T](kind: rkDirect, value: value)
 
-func referenceTo*[T](reference: ResultReference): Referencable[T] =
+proc referenceTo*[T](reference: ResultReference): Referencable[T] =
   ## Wraps a result reference into a Referencable.
   Referencable[T](kind: rkReference, reference: reference)

@@ -1,44 +1,39 @@
 # SPDX-License-Identifier: BSD-2-Clause
 # Copyright (c) 2026 Aryan Ameri
 
-{.push raises: [].}
-
 ## Compile-time type safety verification via doAssert not compiles(...).
 
 from std/json import JsonNode
+import std/options
 import std/sets
 
-import results
-
 import jmap_client/types
-
-import ../massertions
 
 # --- Distinct type isolation ---
 
 block distinctTypeIsolation:
-  let id = parseId("abc").get()
-  let aid = parseAccountId("abc").get()
-  let state = parseJmapState("abc").get()
+  let id = parseId("abc")
+  let aid = parseAccountId("abc")
+  let state = parseJmapState("abc")
   doAssert not compiles(id == aid)
   doAssert not compiles(id == state)
   doAssert not compiles(aid == state)
 
 block distinctTypeNoConcatenation:
-  let a = parseId("abc").get()
-  let b = parseId("def").get()
+  let a = parseId("abc")
+  let b = parseId("def")
   doAssert not compiles(a & b)
 
 block unsignedIntNoArithmetic:
-  let a = parseUnsignedInt(1).get()
-  let b = parseUnsignedInt(2).get()
+  let a = parseUnsignedInt(1)
+  let b = parseUnsignedInt(2)
   doAssert not compiles(a + b)
   doAssert not compiles(a - b)
   doAssert not compiles(a * b)
 
 block jmapIntNoArithmetic:
-  let a = parseJmapInt(1).get()
-  let b = parseJmapInt(2).get()
+  let a = parseJmapInt(1)
+  let b = parseJmapInt(2)
   doAssert not compiles(a + b)
   doAssert not compiles(a - b)
   doAssert not compiles(a * b)
@@ -47,9 +42,7 @@ block jmapIntNoArithmetic:
 # --- Case object construction type safety ---
 
 block transportErrorWrongVariantConstruction:
-  doAssert not compiles(
-    TransportError(kind: tekNetwork, httpStatus: 404, message: "fail")
-  )
+  doAssert not compiles(TransportError(kind: tekNetwork, httpStatus: 404, msg: "fail"))
 
 block clientErrorWrongVariantConstruction:
   doAssert not compiles(
@@ -58,11 +51,11 @@ block clientErrorWrongVariantConstruction:
       request: RequestError(
         errorType: retUnknown,
         rawType: "x",
-        status: Opt.none(int),
-        title: Opt.none(string),
-        detail: Opt.none(string),
-        limit: Opt.none(string),
-        extras: Opt.none(JsonNode),
+        status: none(int),
+        title: none(string),
+        detail: none(string),
+        limit: none(string),
+        extras: none(JsonNode),
       ),
     )
   )
@@ -72,7 +65,7 @@ block referencableWrongVariantConstruction:
     Referencable[int](
       kind: rkDirect,
       reference: ResultReference(
-        resultOf: parseMethodCallId("c1").get(), name: "Foo/get", path: "/ids"
+        resultOf: parseMethodCallId("c1"), name: "Foo/get", path: "/ids"
       ),
     )
   )
@@ -82,68 +75,53 @@ block filterWrongVariantConstruction:
     Filter[int](kind: fkCondition, operator: foAnd, conditions: @[])
   )
 
-# --- Railway type independence ---
-
-block railwayTypesNotInterchangeable:
-  let ve = Result[int, ValidationError].ok(1)
-  let me = Result[int, MethodError].ok(1)
-  doAssert not compiles(
-    block:
-      let x: JmapResult[int] = ve
-  )
-  doAssert not compiles(
-    block:
-      let y: JmapResult[int] = me
-  )
-
 # --- Hash divergence (non-degenerate hash smoke test) ---
 
 block hashDivergenceId:
-  doAssert hash(parseId("abc").get()) != hash(parseId("xyz").get())
+  doAssert hash(parseId("abc")) != hash(parseId("xyz"))
 
 block hashDivergenceAccountId:
-  doAssert hash(parseAccountId("abc").get()) != hash(parseAccountId("xyz").get())
+  doAssert hash(parseAccountId("abc")) != hash(parseAccountId("xyz"))
 
 block hashDivergenceJmapState:
-  doAssert hash(parseJmapState("abc").get()) != hash(parseJmapState("xyz").get())
+  doAssert hash(parseJmapState("abc")) != hash(parseJmapState("xyz"))
 
 block hashDivergenceUriTemplate:
-  doAssert hash(parseUriTemplate("https://a.com").get()) !=
-    hash(parseUriTemplate("https://b.com").get())
+  doAssert hash(parseUriTemplate("https://a.com")) !=
+    hash(parseUriTemplate("https://b.com"))
 
 block hashDivergencePropertyName:
-  doAssert hash(parsePropertyName("name").get()) !=
-    hash(parsePropertyName("other").get())
+  doAssert hash(parsePropertyName("name")) != hash(parsePropertyName("other"))
 
 # =============================================================================
 # Additional distinct type isolation
 # =============================================================================
 
 block methodCallIdVsCreationIdIsolation:
-  doAssert not compiles(parseMethodCallId("a").get() == parseCreationId("a").get())
+  doAssert not compiles(parseMethodCallId("a") == parseCreationId("a"))
 
 block jmapStateVsMethodCallIdIsolation:
-  doAssert not compiles(parseJmapState("a").get() == parseMethodCallId("a").get())
+  doAssert not compiles(parseJmapState("a") == parseMethodCallId("a"))
 
 block jmapStateVsPropertyNameIsolation:
-  doAssert not compiles(parseJmapState("a").get() == parsePropertyName("a").get())
+  doAssert not compiles(parseJmapState("a") == parsePropertyName("a"))
 
 block uriTemplateVsPropertyNameIsolation:
-  doAssert not compiles(parseUriTemplate("a").get() == parsePropertyName("a").get())
+  doAssert not compiles(parseUriTemplate("a") == parsePropertyName("a"))
 
 block creationIdVsJmapStateIsolation:
-  doAssert not compiles(parseCreationId("a").get() == parseJmapState("a").get())
+  doAssert not compiles(parseCreationId("a") == parseJmapState("a"))
 
 block dateVsUtcDateIsolation:
   doAssert not compiles(
-    parseDate("2024-01-01T12:00:00Z").get() == parseUtcDate("2024-01-01T12:00:00Z").get()
+    parseDate("2024-01-01T12:00:00Z") == parseUtcDate("2024-01-01T12:00:00Z")
   )
 
 block uriTemplateVsAccountIdIsolation:
-  doAssert not compiles(parseUriTemplate("a").get() == parseAccountId("a").get())
+  doAssert not compiles(parseUriTemplate("a") == parseAccountId("a"))
 
 block creationIdVsPropertyNameIsolation:
-  doAssert not compiles(parseCreationId("a").get() == parsePropertyName("a").get())
+  doAssert not compiles(parseCreationId("a") == parsePropertyName("a"))
 
 # =============================================================================
 # Operator restriction verification
@@ -151,24 +129,24 @@ block creationIdVsPropertyNameIsolation:
 
 block unsignedIntNoNegation:
   ## UnsignedInt does not borrow unary negation (only JmapInt does).
-  doAssert not compiles(-parseUnsignedInt(0).get())
+  doAssert not compiles(-parseUnsignedInt(0))
 
 block idNoConcatenation:
   ## No string concatenation on Id.
-  doAssert not compiles(parseId("a").get() & parseId("b").get())
+  doAssert not compiles(parseId("a") & parseId("b"))
 
 block accountIdNoConcatenation:
-  doAssert not compiles(parseAccountId("a").get() & parseAccountId("b").get())
+  doAssert not compiles(parseAccountId("a") & parseAccountId("b"))
 
 block jmapStateNoLen:
   ## JmapState deliberately does not borrow len (semantically meaningless).
-  doAssert not compiles(parseJmapState("abc").get().len)
+  doAssert not compiles(parseJmapState("abc").len)
 
 block methodCallIdNoLen:
-  doAssert not compiles(parseMethodCallId("abc").get().len)
+  doAssert not compiles(parseMethodCallId("abc").len)
 
 block creationIdNoLen:
-  doAssert not compiles(parseCreationId("abc").get().len)
+  doAssert not compiles(parseCreationId("abc").len)
 
 # =============================================================================
 # Case object construction completeness
@@ -176,115 +154,15 @@ block creationIdNoLen:
 
 block transportErrorMissingHttpStatus:
   ## SetError(setInvalidProperties) must not accept existingId (wrong variant).
-  let testId = parseId("abc").get()
+  let testId = parseId("abc")
   doAssert not compiles(
     SetError(
       errorType: setInvalidProperties,
       rawType: "invalidProperties",
-      description: Opt.none(string),
-      extras: Opt.none(JsonNode),
+      description: none(string),
+      extras: none(JsonNode),
       existingId: testId,
     )
-  )
-
-# =============================================================================
-# {.requiresInit.} compile-time rejection
-# =============================================================================
-
-block requiresInitId:
-  ## Default construction of Id is rejected by {.requiresInit.}.
-  assertNotCompiles(
-    block:
-      var x: Id
-      discard x
-  )
-
-block requiresInitUnsignedInt:
-  ## Default construction of UnsignedInt is rejected by {.requiresInit.}.
-  assertNotCompiles(
-    block:
-      var x: UnsignedInt
-      discard x
-  )
-
-block requiresInitJmapInt:
-  ## Default construction of JmapInt is rejected by {.requiresInit.}.
-  assertNotCompiles(
-    block:
-      var x: JmapInt
-      discard x
-  )
-
-block requiresInitDate:
-  ## Default construction of Date is rejected by {.requiresInit.}.
-  assertNotCompiles(
-    block:
-      var x: Date
-      discard x
-  )
-
-block requiresInitUtcDate:
-  ## Default construction of UTCDate is rejected by {.requiresInit.}.
-  assertNotCompiles(
-    block:
-      var x: UTCDate
-      discard x
-  )
-
-block requiresInitAccountId:
-  ## Default construction of AccountId is rejected by {.requiresInit.}.
-  assertNotCompiles(
-    block:
-      var x: AccountId
-      discard x
-  )
-
-block requiresInitJmapState:
-  ## Default construction of JmapState is rejected by {.requiresInit.}.
-  assertNotCompiles(
-    block:
-      var x: JmapState
-      discard x
-  )
-
-block requiresInitMethodCallId:
-  ## Default construction of MethodCallId is rejected by {.requiresInit.}.
-  assertNotCompiles(
-    block:
-      var x: MethodCallId
-      discard x
-  )
-
-block requiresInitCreationId:
-  ## Default construction of CreationId is rejected by {.requiresInit.}.
-  assertNotCompiles(
-    block:
-      var x: CreationId
-      discard x
-  )
-
-block requiresInitUriTemplate:
-  ## Default construction of UriTemplate is rejected by {.requiresInit.}.
-  assertNotCompiles(
-    block:
-      var x: UriTemplate
-      discard x
-  )
-
-block requiresInitPropertyName:
-  ## Default construction of PropertyName is rejected by {.requiresInit.}.
-  assertNotCompiles(
-    block:
-      var x: PropertyName
-      discard x
-  )
-
-block requiresInitPatchObject:
-  ## Default construction of PatchObject is rejected by {.requiresInit.}.
-  assertNotCompiles(
-    block:
-      var x: PatchObject
-      discard x
   )
 
 # =============================================================================
@@ -299,13 +177,13 @@ block serverCapabilityWrongVariantCoreOnMail:
       kind: ckMail,
       rawUri: "urn:ietf:params:jmap:mail",
       core: CoreCapabilities(
-        maxSizeUpload: parseUnsignedInt(1).get(),
-        maxConcurrentUpload: parseUnsignedInt(1).get(),
-        maxSizeRequest: parseUnsignedInt(1).get(),
-        maxConcurrentRequests: parseUnsignedInt(1).get(),
-        maxCallsInRequest: parseUnsignedInt(1).get(),
-        maxObjectsInGet: parseUnsignedInt(1).get(),
-        maxObjectsInSet: parseUnsignedInt(1).get(),
+        maxSizeUpload: parseUnsignedInt(1),
+        maxConcurrentUpload: parseUnsignedInt(1),
+        maxSizeRequest: parseUnsignedInt(1),
+        maxConcurrentRequests: parseUnsignedInt(1),
+        maxCallsInRequest: parseUnsignedInt(1),
+        maxObjectsInGet: parseUnsignedInt(1),
+        maxObjectsInSet: parseUnsignedInt(1),
         collationAlgorithms: initHashSet[string](),
       ),
     )
@@ -318,8 +196,8 @@ block setErrorPropertiesOnNonInvalidProperties:
     SetError(
       errorType: setForbidden,
       rawType: "forbidden",
-      description: Opt.none(string),
-      extras: Opt.none(JsonNode),
+      description: none(string),
+      extras: none(JsonNode),
       properties: @["name"],
     )
   )
@@ -327,13 +205,13 @@ block setErrorPropertiesOnNonInvalidProperties:
 block setErrorExistingIdOnNonAlreadyExists:
   ## Constructing a setForbidden SetError with the setAlreadyExists-branch
   ## existingId field is rejected by {.strictCaseObjects.}.
-  let testId = parseId("abc").get()
+  let testId = parseId("abc")
   doAssert not compiles(
     SetError(
       errorType: setForbidden,
       rawType: "forbidden",
-      description: Opt.none(string),
-      extras: Opt.none(JsonNode),
+      description: none(string),
+      extras: none(JsonNode),
       existingId: testId,
     )
   )
@@ -345,7 +223,7 @@ block referencableReferenceOnDirect:
     Referencable[int](
       kind: rkDirect,
       reference: ResultReference(
-        resultOf: parseMethodCallId("c1").get(), name: "Foo/get", path: "/ids"
+        resultOf: parseMethodCallId("c1"), name: "Foo/get", path: "/ids"
       ),
     )
   )

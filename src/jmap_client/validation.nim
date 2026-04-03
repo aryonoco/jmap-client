@@ -1,8 +1,6 @@
 # SPDX-License-Identifier: BSD-2-Clause
 # Copyright (c) 2026 Aryan Ameri
 
-{.push raises: [].}
-
 ## Shared validation infrastructure — error type, borrow templates, and charset
 ## constants used by all smart constructors.
 
@@ -14,30 +12,31 @@ template ruleOff*(name: string) {.pragma.}
 template ruleOn*(name: string) {.pragma.}
   ## Re-enables a nimalyzer rule previously suppressed by ruleOff.
 
-type ValidationError* = object
+type ValidationError* = object of CatchableError
   ## Structured error carrying the type name, failure reason, and raw input.
-  ## Used as the error rail for all smart constructors.
+  ## Raised by all smart constructors on invalid input.
+  ## The ``msg`` field (inherited from CatchableError) carries the failure reason.
   typeName*: string ## Which type failed ("Id", "UnsignedInt", etc.)
-  message*: string ## What went wrong ("length must be 1-255")
   value*: string ## The raw input that failed validation
 
 {.push ruleOff: "hasDoc".}
 
-func validationError*(typeName, message, value: string): ValidationError =
-  ValidationError(typeName: typeName, message: message, value: value)
+proc newValidationError*(typeName, message, value: string): ref ValidationError =
+  ## Constructs a ref ValidationError suitable for raising.
+  result = (ref ValidationError)(msg: message, typeName: typeName, value: value)
 
 template defineStringDistinctOps*(T: typedesc) =
-  func `==`*(a, b: T): bool {.borrow.}
-  func `$`*(a: T): string {.borrow.}
-  func hash*(a: T): Hash {.borrow.}
-  func len*(a: T): int {.borrow.}
+  proc `==`*(a, b: T): bool {.borrow.}
+  proc `$`*(a: T): string {.borrow.}
+  proc hash*(a: T): Hash {.borrow.}
+  proc len*(a: T): int {.borrow.}
 
 template defineIntDistinctOps*(T: typedesc) =
-  func `==`*(a, b: T): bool {.borrow.}
-  func `<`*(a, b: T): bool {.borrow.}
-  func `<=`*(a, b: T): bool {.borrow.}
-  func `$`*(a: T): string {.borrow.}
-  func hash*(a: T): Hash {.borrow.}
+  proc `==`*(a, b: T): bool {.borrow.}
+  proc `<`*(a, b: T): bool {.borrow.}
+  proc `<=`*(a, b: T): bool {.borrow.}
+  proc `$`*(a: T): string {.borrow.}
+  proc hash*(a: T): Hash {.borrow.}
 
 const Base64UrlChars* = {'A' .. 'Z', 'a' .. 'z', '0' .. '9', '-', '_'}
 

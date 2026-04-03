@@ -1,14 +1,11 @@
 # SPDX-License-Identifier: BSD-2-Clause
 # Copyright (c) 2026 Aryan Ameri
 
-{.push raises: [].}
-
 ## Tests for transport, request, client, method, and set error constructors.
 
+import std/options
 import std/json
 import std/strutils
-
-import results
 
 import jmap_client/primitives
 import jmap_client/errors
@@ -98,34 +95,33 @@ block parseSetErrorTypeEmpty:
 block transportErrorTimeout:
   let e = transportError(tekTimeout, "timed out")
   doAssert e.kind == tekTimeout
-  doAssert e.message == "timed out"
+  doAssert e.msg == "timed out"
 
 block transportErrorNetwork:
   let e = transportError(tekNetwork, "refused")
   doAssert e.kind == tekNetwork
-  doAssert e.message == "refused"
+  doAssert e.msg == "refused"
 
 block transportErrorTls:
   let e = transportError(tekTls, "certificate verify failed")
   doAssert e.kind == tekTls
-  doAssert e.message == "certificate verify failed"
+  doAssert e.msg == "certificate verify failed"
 
 block httpStatusError502:
   let e = httpStatusError(502, "Bad Gateway")
   doAssert e.kind == tekHttpStatus
   doAssert e.httpStatus == 502
-  doAssert e.message == "Bad Gateway"
+  doAssert e.msg == "Bad Gateway"
 
 # --- RequestError constructor ---
 
 block requestErrorLimit:
-  let e = requestError(
-    "urn:ietf:params:jmap:error:limit", limit = Opt.some("maxCallsInRequest")
-  )
+  let e =
+    requestError("urn:ietf:params:jmap:error:limit", limit = some("maxCallsInRequest"))
   doAssert e.errorType == retLimit
   doAssert e.rawType == "urn:ietf:params:jmap:error:limit"
   doAssert e.limit.isSome
-  doAssert e.limit.unsafeGet == "maxCallsInRequest"
+  doAssert e.limit.get() == "maxCallsInRequest"
   doAssert e.status.isNone
   doAssert e.title.isNone
   doAssert e.detail.isNone
@@ -134,8 +130,8 @@ block requestErrorLimit:
 block requestErrorLimitWithExtras:
   let e = requestError(
     "urn:ietf:params:jmap:error:limit",
-    limit = Opt.some("maxCallsInRequest"),
-    extras = Opt.some(%*{"requestId": "abc"}),
+    limit = some("maxCallsInRequest"),
+    extras = some(%*{"requestId": "abc"}),
   )
   doAssert e.extras.isSome
 
@@ -165,9 +161,7 @@ block messageTransport:
 
 block messageRequestWithDetail:
   let ce = clientError(
-    requestError(
-      "urn:ietf:params:jmap:error:limit", detail = Opt.some("Too many calls")
-    )
+    requestError("urn:ietf:params:jmap:error:limit", detail = some("Too many calls"))
   )
   doAssert ce.message == "Too many calls"
 
@@ -175,15 +169,15 @@ block messageRequestDetailPreferredOverTitle:
   let ce = clientError(
     requestError(
       "urn:ietf:params:jmap:error:limit",
-      title = Opt.some("Limit Exceeded"),
-      detail = Opt.some("Too many calls"),
+      title = some("Limit Exceeded"),
+      detail = some("Too many calls"),
     )
   )
   doAssert ce.message == "Too many calls"
 
 block messageRequestWithTitleOnly:
   let ce = clientError(
-    requestError("urn:ietf:params:jmap:error:limit", title = Opt.some("Limit Exceeded"))
+    requestError("urn:ietf:params:jmap:error:limit", title = some("Limit Exceeded"))
   )
   doAssert ce.message == "Limit Exceeded"
 
@@ -201,16 +195,16 @@ block methodErrorKnown:
   doAssert e.extras.isNone
 
 block methodErrorUnknownWithExtras:
-  let e = methodError("custom", extras = Opt.some(%*{"hint": "retry"}))
+  let e = methodError("custom", extras = some(%*{"hint": "retry"}))
   doAssert e.errorType == metUnknown
   doAssert e.rawType == "custom"
   doAssert e.extras.isSome
 
 block methodErrorWithDescription:
-  let e = methodError("serverFail", description = Opt.some("internal error"))
+  let e = methodError("serverFail", description = some("internal error"))
   doAssert e.errorType == metServerFail
   doAssert e.description.isSome
-  doAssert e.description.unsafeGet == "internal error"
+  doAssert e.description.get() == "internal error"
 
 # --- SetError constructors ---
 
@@ -221,13 +215,11 @@ block setErrorForbidden:
 
 block setErrorWithDescriptionAndExtras:
   let e = setError(
-    "overQuota",
-    description = Opt.some("quota exceeded"),
-    extras = Opt.some(%*{"limit": 100}),
+    "overQuota", description = some("quota exceeded"), extras = some(%*{"limit": 100})
   )
   doAssert e.errorType == setOverQuota
   doAssert e.description.isSome
-  doAssert e.description.unsafeGet == "quota exceeded"
+  doAssert e.description.get() == "quota exceeded"
   doAssert e.extras.isSome
 
 block setErrorInvalidPropertiesVariant:
@@ -238,7 +230,7 @@ block setErrorInvalidPropertiesVariant:
   doAssert e.description.isNone
 
 block setErrorAlreadyExistsVariant:
-  let someId = parseIdFromServer("existing-123").get()
+  let someId = parseIdFromServer("existing-123")
   let e = setErrorAlreadyExists("alreadyExists", someId)
   doAssert e.errorType == setAlreadyExists
   doAssert e.existingId == someId
@@ -300,7 +292,7 @@ block enumParserCaseSensitivity:
   doAssert parseMethodErrorType("ServerFail") == metUnknown
   doAssert parseSetErrorType("Forbidden") == setUnknown
   ## parseEnum uses nimIdentNormalize: first-char case-sensitive, rest insensitive.
-  ## "urn:..." and "urn:..." share the same first char, so "notJson" matches "notJSON".
+  ## Same first char ('u') with different case in the rest still resolves.
   doAssert parseRequestErrorType("urn:ietf:params:jmap:error:notJson") == retNotJson
 
 block parseRequestErrorTypeIdempotent:
@@ -372,14 +364,14 @@ block setErrorAllElseBranch:
 block requestErrorAllFieldsPopulated:
   let e = requestError(
     "urn:ietf:params:jmap:error:limit",
-    status = Opt.some(400),
-    title = Opt.some("Request Limit"),
-    detail = Opt.some("Too many calls"),
-    limit = Opt.some("maxCallsInRequest"),
-    extras = Opt.some(%*{"requestId": "abc"}),
+    status = some(400),
+    title = some("Request Limit"),
+    detail = some("Too many calls"),
+    limit = some("maxCallsInRequest"),
+    extras = some(%*{"requestId": "abc"}),
   )
   doAssert e.status.isSome
-  doAssert e.status.unsafeGet == 400
+  doAssert e.status.get() == 400
   doAssert e.title.isSome
   doAssert e.detail.isSome
   doAssert e.limit.isSome
@@ -413,10 +405,7 @@ block parseRequestErrorTypeUnderscore:
 
 block setErrorInvalidPropertiesMultiple:
   let se = setErrorInvalidProperties(
-    "invalidProperties",
-    @["from", "to", "subject"],
-    Opt.none(string),
-    Opt.none(JsonNode),
+    "invalidProperties", @["from", "to", "subject"], none(string), none(JsonNode)
   )
   doAssert se.errorType == setInvalidProperties
   doAssert se.properties.len == 3
@@ -430,7 +419,7 @@ block setErrorAllVariantsThroughGenericConstructor:
   # and must preserve rawType
   for variant in SetErrorType:
     let rawType = $variant
-    let se = setError(rawType, Opt.none(string), Opt.none(JsonNode))
+    let se = setError(rawType, none(string), none(JsonNode))
     doAssert se.rawType == rawType
 
 # --- ClientError message cascade ---
@@ -439,11 +428,11 @@ block clientErrorMessageCascadeDetail:
   # When detail is present, message returns detail
   let re = requestError(
     "urn:ietf:params:jmap:error:limit",
-    Opt.some(429),
-    Opt.some("Rate Limited"),
-    Opt.some("Too many requests"),
-    Opt.some("maxCallsInRequest"),
-    Opt.none(JsonNode),
+    some(429),
+    some("Rate Limited"),
+    some("Too many requests"),
+    some("maxCallsInRequest"),
+    none(JsonNode),
   )
   let ce = clientError(re)
   assertEq ce.message, "Too many requests"
@@ -452,11 +441,11 @@ block clientErrorMessageCascadeTitle:
   # When detail is absent, message returns title
   let re = requestError(
     "urn:ietf:params:jmap:error:limit",
-    Opt.some(429),
-    Opt.some("Rate Limited"),
-    Opt.none(string),
-    Opt.none(string),
-    Opt.none(JsonNode),
+    some(429),
+    some("Rate Limited"),
+    none(string),
+    none(string),
+    none(JsonNode),
   )
   let ce = clientError(re)
   assertEq ce.message, "Rate Limited"
@@ -465,11 +454,11 @@ block clientErrorMessageCascadeRawType:
   # When both detail and title absent, message returns rawType
   let re = requestError(
     "urn:ietf:params:jmap:error:limit",
-    Opt.none(int),
-    Opt.none(string),
-    Opt.none(string),
-    Opt.none(string),
-    Opt.none(JsonNode),
+    none(int),
+    none(string),
+    none(string),
+    none(string),
+    none(JsonNode),
   )
   let ce = clientError(re)
   assertEq ce.message, "urn:ietf:params:jmap:error:limit"
@@ -488,28 +477,28 @@ block setErrorInvalidPropertiesAllFields:
   let se = setErrorInvalidProperties(
     "invalidProperties",
     @["from", "to"],
-    description = Opt.some("bad properties"),
-    extras = Opt.some(%*{"hint": "check format"}),
+    description = some("bad properties"),
+    extras = some(%*{"hint": "check format"}),
   )
   doAssert se.errorType == setInvalidProperties
   doAssert se.properties == @["from", "to"]
   doAssert se.description.isSome
-  doAssert se.description.unsafeGet == "bad properties"
+  doAssert se.description.get() == "bad properties"
   doAssert se.extras.isSome
 
 block setErrorAlreadyExistsAllFields:
   # All optional fields populated
-  let existId = parseIdFromServer("existing-456").get()
+  let existId = parseIdFromServer("existing-456")
   let se = setErrorAlreadyExists(
     "alreadyExists",
     existId,
-    description = Opt.some("duplicate detected"),
-    extras = Opt.some(%*{"server": "info"}),
+    description = some("duplicate detected"),
+    extras = some(%*{"server": "info"}),
   )
   doAssert se.errorType == setAlreadyExists
   doAssert se.existingId == existId
   doAssert se.description.isSome
-  doAssert se.description.unsafeGet == "duplicate detected"
+  doAssert se.description.get() == "duplicate detected"
   doAssert se.extras.isSome
 
 # --- Phase 4: Error constructor mutation resistance ---
@@ -517,19 +506,18 @@ block setErrorAlreadyExistsAllFields:
 block transportErrorEmptyMessage:
   ## Empty message string is valid — no restriction on message content.
   let te = transportError(tekNetwork, "")
-  assertEq te.message, ""
+  assertEq te.msg, ""
 
 block setErrorAlreadyExistsMaxLengthId:
   ## alreadyExists with maximum-length Id (255 bytes).
-  let id = parseId("A".repeat(255)).get()
+  let id = parseId("A".repeat(255))
   let se = setErrorAlreadyExists("alreadyExists", id)
   assertEq se.errorType, setAlreadyExists
   assertEq se.existingId, id
 
 block requestErrorLimitFieldNonLimitType:
   ## Limit field populated for a non-retLimit error type.
-  let re =
-    requestError("urn:ietf:params:jmap:error:notJSON", limit = Opt.some("maxSize"))
+  let re = requestError("urn:ietf:params:jmap:error:notJSON", limit = some("maxSize"))
   assertEq re.errorType, retNotJson
   assertSome re.limit
 
@@ -554,7 +542,7 @@ block clientErrorFromTransport:
   let ce = clientError(te)
   doAssert ce.kind == cekTransport
   doAssert ce.transport.kind == tekNetwork
-  doAssert ce.transport.message == "connection refused"
+  doAssert ce.transport.msg == "connection refused"
 
 block clientErrorFromRequest:
   ## clientError(request) lifts a request error into ClientError.
@@ -567,36 +555,36 @@ block transportErrorAllKindsNetwork:
   ## transportError with tekNetwork variant.
   let e = transportError(tekNetwork, "host unreachable")
   doAssert e.kind == tekNetwork
-  doAssert e.message == "host unreachable"
+  doAssert e.msg == "host unreachable"
 
 block transportErrorAllKindsTls:
   ## transportError with tekTls variant.
   let e = transportError(tekTls, "handshake failed")
   doAssert e.kind == tekTls
-  doAssert e.message == "handshake failed"
+  doAssert e.msg == "handshake failed"
 
 block transportErrorAllKindsTimeout:
   ## transportError with tekTimeout variant.
   let e = transportError(tekTimeout, "request timed out after 30s")
   doAssert e.kind == tekTimeout
-  doAssert e.message == "request timed out after 30s"
+  doAssert e.msg == "request timed out after 30s"
 
 block transportErrorAllKindsHttpStatus:
   ## httpStatusError constructs a tekHttpStatus variant.
   let e = httpStatusError(503, "Service Unavailable")
   doAssert e.kind == tekHttpStatus
   doAssert e.httpStatus == 503
-  doAssert e.message == "Service Unavailable"
+  doAssert e.msg == "Service Unavailable"
 
 block httpStatusErrorFieldAccess:
   ## httpStatusError provides access to both httpStatus and message.
   let e = httpStatusError(429, "Too Many Requests")
   assertEq e.kind, tekHttpStatus
   assertEq e.httpStatus, 429
-  assertEq e.message, "Too Many Requests"
+  assertEq e.msg, "Too Many Requests"
 
 block messageClientErrorTransportPath:
-  ## message(ClientError) for cekTransport returns transport.message.
+  ## message(ClientError) for cekTransport returns transport.msg.
   let ce = clientError(transportError(tekTls, "expired certificate"))
   assertEq message(ce), "expired certificate"
 
@@ -604,8 +592,8 @@ block messageClientErrorRequestWithDetail:
   ## message(ClientError) for cekRequest prefers detail over title.
   let re = requestError(
     "urn:ietf:params:jmap:error:limit",
-    title = Opt.some("Limit"),
-    detail = Opt.some("Too many objects in request"),
+    title = some("Limit"),
+    detail = some("Too many objects in request"),
   )
   let ce = clientError(re)
   assertEq message(ce), "Too many objects in request"
@@ -613,7 +601,7 @@ block messageClientErrorRequestWithDetail:
 block messageClientErrorRequestWithTitleOnly:
   ## message(ClientError) for cekRequest uses title when detail is absent.
   let re = requestError(
-    "urn:ietf:params:jmap:error:notRequest", title = Opt.some("Not a JMAP Request")
+    "urn:ietf:params:jmap:error:notRequest", title = some("Not a JMAP Request")
   )
   let ce = clientError(re)
   assertEq message(ce), "Not a JMAP Request"

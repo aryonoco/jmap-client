@@ -1,9 +1,6 @@
 # SPDX-License-Identifier: BSD-2-Clause
 # Copyright (c) 2026 Aryan Ameri
 
-{.push raises: [].}
-{.experimental: "strictCaseObjects".}
-
 ## RFC 8620 primitive types with smart constructors enforcing wire-format
 ## constraints. Bounded to JSON-safe integer ranges (2^53-1) per the JMAP
 ## specification.
@@ -11,41 +8,39 @@
 import std/hashes
 import std/sequtils
 
-import results
-
 import ./validation
 
-type Id* {.requiresInit.} = distinct string
+type Id* = distinct string
   ## JMAP identifier: 1-255 octets, base64url charset (RFC 8620 §1.2).
   ## Requires explicit construction via parseId or parseIdFromServer.
 
 defineStringDistinctOps(Id)
 
-type UnsignedInt* {.requiresInit.} = distinct int64
+type UnsignedInt* = distinct int64
   ## Non-negative integer bounded to 0..2^53-1 for JSON interoperability
   ## (RFC 8620 §1.3).
 
 defineIntDistinctOps(UnsignedInt)
 
-type JmapInt* {.requiresInit.} = distinct int64
+type JmapInt* = distinct int64
   ## Signed integer bounded to -(2^53-1)..2^53-1 for JSON interoperability
   ## (RFC 8620 §1.3).
 
 defineIntDistinctOps(JmapInt)
-func `-`*(a: JmapInt): JmapInt {.borrow.} ## unary negation
+proc `-`*(a: JmapInt): JmapInt {.borrow.} ## unary negation
 
-type Date* {.requiresInit.} = distinct string
+type Date* = distinct string
   ## RFC 3339 date-time string with structural validation but no calendar
   ## semantics.
 
 defineStringDistinctOps(Date)
 
-type UTCDate* {.requiresInit.} = distinct string
+type UTCDate* = distinct string
   ## RFC 3339 date-time that must use 'Z' (UTC) as its timezone offset.
 
 defineStringDistinctOps(UTCDate)
 
-type MaxChanges* {.requiresInit.} = distinct UnsignedInt
+type MaxChanges* = distinct UnsignedInt
   ## A positive count for maxChanges fields in Foo/changes and
   ## Foo/queryChanges requests. RFC 8620 §5.2 (lines 1694–1702)
   ## requires the value to be greater than 0.
@@ -60,79 +55,77 @@ const
 
 const AsciiDigits = {'0' .. '9'}
 
-func parseId*(raw: string): Result[Id, ValidationError] =
+proc parseId*(raw: string): Id =
   ## Strict: 1-255 octets, base64url charset only.
   ## For client-constructed IDs (e.g., method call IDs used as creation IDs).
   if raw.len < 1 or raw.len > 255:
-    return err(validationError("Id", "length must be 1-255 octets", raw))
+    raise newValidationError("Id", "length must be 1-255 octets", raw)
   if not raw.allIt(it in Base64UrlChars):
-    return
-      err(validationError("Id", "contains characters outside base64url alphabet", raw))
+    raise
+      newValidationError("Id", "contains characters outside base64url alphabet", raw)
   let id = Id(raw)
   doAssert id.len >= 1 and id.len <= 255
-  ok(id)
+  id
 
-func parseIdFromServer*(raw: string): Result[Id, ValidationError] =
+proc parseIdFromServer*(raw: string): Id =
   ## Lenient: 1-255 octets, no control characters.
   ## For server-assigned IDs in responses. Tolerates servers that deviate
   ## from the strict base64url charset (e.g., Cyrus IMAP).
   if raw.len < 1 or raw.len > 255:
-    return err(validationError("Id", "length must be 1-255 octets", raw))
+    raise newValidationError("Id", "length must be 1-255 octets", raw)
   if raw.anyIt(it < ' ' or it == '\x7F'):
-    return err(validationError("Id", "contains control characters", raw))
+    raise newValidationError("Id", "contains control characters", raw)
   let id = Id(raw)
   doAssert id.len >= 1 and id.len <= 255
-  ok(id)
+  id
 
-func parseUnsignedInt*(value: int64): Result[UnsignedInt, ValidationError] =
+proc parseUnsignedInt*(value: int64): UnsignedInt =
   ## Must be 0..2^53-1. Prevents negative values and integers outside JSON's
   ## safe range.
   if value < 0:
-    return err(validationError("UnsignedInt", "must be non-negative", $value))
+    raise newValidationError("UnsignedInt", "must be non-negative", $value)
   if value > MaxUnsignedInt:
-    return err(validationError("UnsignedInt", "exceeds 2^53-1", $value))
+    raise newValidationError("UnsignedInt", "exceeds 2^53-1", $value)
   doAssert value >= 0 and value <= MaxUnsignedInt
-  ok(UnsignedInt(value))
+  UnsignedInt(value)
 
-func parseJmapInt*(value: int64): Result[JmapInt, ValidationError] =
+proc parseJmapInt*(value: int64): JmapInt =
   ## Must be -(2^53-1)..2^53-1. Rejects values outside JSON's safe integer
   ## range.
   if value < MinJmapInt or value > MaxJmapInt:
-    return err(validationError("JmapInt", "outside JSON-safe integer range", $value))
+    raise newValidationError("JmapInt", "outside JSON-safe integer range", $value)
   doAssert value >= MinJmapInt and value <= MaxJmapInt
-  ok(JmapInt(value))
+  JmapInt(value)
 
-func parseMaxChanges*(raw: UnsignedInt): Result[MaxChanges, ValidationError] =
+proc parseMaxChanges*(raw: UnsignedInt): MaxChanges =
   ## Smart constructor: rejects 0, which the RFC forbids.
   if int64(raw) == 0:
-    return err(validationError("MaxChanges", "must be greater than 0", $int64(raw)))
-  ok(MaxChanges(raw))
+    raise newValidationError("MaxChanges", "must be greater than 0", $int64(raw))
+  MaxChanges(raw)
 
-func validateDatePortion(raw: string): Result[void, ValidationError] =
+proc validateDatePortion(raw: string) =
   ## YYYY-MM-DD at positions 0..9.
   if not (
     raw[0 .. 3].allIt(it in AsciiDigits) and raw[4] == '-' and
     raw[5 .. 6].allIt(it in AsciiDigits) and raw[7] == '-' and
     raw[8 .. 9].allIt(it in AsciiDigits)
   ):
-    return err(validationError("Date", "invalid date portion", raw))
-  ok()
+    raise newValidationError("Date", "invalid date portion", raw)
 
-func validateTimePortion(raw: string): Result[void, ValidationError] =
+proc validateTimePortion(raw: string) =
   ## HH:MM:SS at positions 11..18, with uppercase 'T' separator at 10.
   if raw[10] != 'T':
-    return err(validationError("Date", "'T' separator must be uppercase", raw))
+    raise newValidationError("Date", "'T' separator must be uppercase", raw)
   if not (
     raw[11 .. 12].allIt(it in AsciiDigits) and raw[13] == ':' and
     raw[14 .. 15].allIt(it in AsciiDigits) and raw[16] == ':' and
     raw[17 .. 18].allIt(it in AsciiDigits)
   ):
-    return err(validationError("Date", "invalid time portion", raw))
+    raise newValidationError("Date", "invalid time portion", raw)
   if raw.anyIt(it in {'t', 'z'}):
-    return err(validationError("Date", "'T' and 'Z' must be uppercase (RFC 3339)", raw))
-  ok()
+    raise newValidationError("Date", "'T' and 'Z' must be uppercase (RFC 3339)", raw)
 
-func validateFractionalSeconds(raw: string): Result[void, ValidationError] =
+proc validateFractionalSeconds(raw: string) =
   ## If a '.' follows position 19, digits must follow and not all be zero.
   if raw.len > 19 and raw[19] == '.':
     let dotEnd = block:
@@ -141,17 +134,13 @@ func validateFractionalSeconds(raw: string): Result[void, ValidationError] =
         inc i
       i
     if dotEnd == 20:
-      return err(
-        validationError(
-          "Date", "fractional seconds must contain at least one digit", raw
-        )
+      raise newValidationError(
+        "Date", "fractional seconds must contain at least one digit", raw
       )
     if raw[20 ..< dotEnd].allIt(it == '0'):
-      return
-        err(validationError("Date", "zero fractional seconds must be omitted", raw))
-  ok()
+      raise newValidationError("Date", "zero fractional seconds must be omitted", raw)
 
-func offsetStart(raw: string): int =
+proc offsetStart(raw: string): int =
   ## Returns the position where the timezone offset begins (after fractional
   ## seconds, if any).
   result = 19
@@ -160,45 +149,41 @@ func offsetStart(raw: string): int =
     while result < raw.len and raw[result] in AsciiDigits:
       inc result
 
-func isValidNumericOffset(raw: string, pos: int): bool =
+proc isValidNumericOffset(raw: string, pos: int): bool =
   ## Checks that raw[pos..pos+5] matches +HH:MM or -HH:MM structurally.
   pos + 6 == raw.len and raw[pos + 1] in AsciiDigits and raw[pos + 2] in AsciiDigits and
     raw[pos + 3] == ':' and raw[pos + 4] in AsciiDigits and raw[pos + 5] in AsciiDigits
 
-func validateTimezoneOffset(raw: string): Result[void, ValidationError] =
+proc validateTimezoneOffset(raw: string) =
   ## Validates timezone offset after seconds and optional fractional seconds.
   ## Must be 'Z' or '+HH:MM' or '-HH:MM'.
   let pos = offsetStart(raw)
   if pos >= raw.len:
-    return err(validationError("Date", "missing timezone offset", raw))
+    raise newValidationError("Date", "missing timezone offset", raw)
   if raw[pos] == 'Z':
     if pos + 1 != raw.len:
-      return err(validationError("Date", "trailing characters after 'Z'", raw))
-    return ok()
-  if raw[pos] notin {'+', '-'} or not isValidNumericOffset(raw, pos):
+      raise newValidationError("Date", "trailing characters after 'Z'", raw)
     return
-      err(validationError("Date", "timezone offset must be 'Z' or '+/-HH:MM'", raw))
-  ok()
+  if raw[pos] notin {'+', '-'} or not isValidNumericOffset(raw, pos):
+    raise newValidationError("Date", "timezone offset must be 'Z' or '+/-HH:MM'", raw)
 
-func parseDate*(raw: string): Result[Date, ValidationError] =
+proc parseDate*(raw: string): Date =
   ## Structural validation of an RFC 3339 date-time string.
   ## Does NOT perform calendar validation (e.g., February 30) or
   ## validate timezone offset format beyond uppercase checks.
   if raw.len < 20:
-    return err(validationError("Date", "too short for RFC 3339 date-time", raw))
-  ?validateDatePortion(raw)
-  ?validateTimePortion(raw)
-  ?validateFractionalSeconds(raw)
-  ?validateTimezoneOffset(raw)
+    raise newValidationError("Date", "too short for RFC 3339 date-time", raw)
+  validateDatePortion(raw)
+  validateTimePortion(raw)
+  validateFractionalSeconds(raw)
+  validateTimezoneOffset(raw)
   doAssert raw.len >= 20 and raw[10] == 'T'
-  ok(Date(raw))
+  Date(raw)
 
-func parseUtcDate*(raw: string): Result[UTCDate, ValidationError] =
+proc parseUtcDate*(raw: string): UTCDate =
   ## All Date validation rules, plus: must end with 'Z'.
-  let dateResult = parseDate(raw)
-  if dateResult.isErr:
-    return err(dateResult.error)
+  discard parseDate(raw)
   if raw[^1] != 'Z':
-    return err(validationError("UTCDate", "time-offset must be 'Z'", raw))
+    raise newValidationError("UTCDate", "time-offset must be 'Z'", raw)
   doAssert raw[^1] == 'Z'
-  ok(UTCDate(raw))
+  UTCDate(raw)

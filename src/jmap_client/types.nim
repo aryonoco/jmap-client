@@ -1,13 +1,10 @@
 # SPDX-License-Identifier: BSD-2-Clause
 # Copyright (c) 2026 Aryan Ameri
 
-{.push raises: [].}
-{.experimental: "strictCaseObjects".}
-
 ## Re-export hub for all Layer 1 modules. Import this single module to access
 ## the complete domain type vocabulary.
 
-import results
+import std/options
 
 import ./validation
 import ./primitives
@@ -18,6 +15,7 @@ import ./envelope
 import ./framework
 import ./errors
 
+export options
 export validation
 export primitives
 export identifiers
@@ -26,6 +24,3 @@ export session
 export envelope
 export framework
 export errors
-
-type JmapResult*[T] = Result[T, ClientError]
-  ## Outer railway alias: success or transport/request-level failure.

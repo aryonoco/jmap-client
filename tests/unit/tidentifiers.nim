@@ -1,13 +1,9 @@
 # SPDX-License-Identifier: BSD-2-Clause
 # Copyright (c) 2026 Aryan Ameri
 
-{.push raises: [].}
-
 ## Tests for AccountId, JmapState, MethodCallId, and CreationId smart constructors.
 
 import std/strutils
-
-import results
 
 import jmap_client/identifiers
 import jmap_client/primitives
@@ -20,20 +16,17 @@ block parseAccountIdEmpty:
   assertErrFields parseAccountId(""), "AccountId", "length must be 1-255 octets", ""
 
 block parseAccountIdValid:
-  let result = parseAccountId("A13824")
-  doAssert result.isOk
+  assertOk parseAccountId("A13824")
 
 block parseAccountIdTooLong:
   assertErrFields parseAccountId('a'.repeat(256)),
     "AccountId", "length must be 1-255 octets", 'a'.repeat(256)
 
 block parseAccountIdMaxLength:
-  let result = parseAccountId('a'.repeat(255))
-  doAssert result.isOk
+  assertOk parseAccountId('a'.repeat(255))
 
 block parseAccountIdMinLength:
-  let result = parseAccountId("x")
-  doAssert result.isOk
+  assertOk parseAccountId("x")
 
 block parseAccountIdControlChar:
   assertErrFields parseAccountId("abc\x00def"),
@@ -45,8 +38,7 @@ block parseJmapStateEmpty:
   assertErrFields parseJmapState(""), "JmapState", "must not be empty", ""
 
 block parseJmapStateValid:
-  let result = parseJmapState("75128aab4b1b")
-  doAssert result.isOk
+  assertOk parseJmapState("75128aab4b1b")
 
 block parseJmapStateControlChar:
   assertErrFields parseJmapState("abc\x00def"),
@@ -58,8 +50,7 @@ block parseMethodCallIdEmpty:
   assertErrFields parseMethodCallId(""), "MethodCallId", "must not be empty", ""
 
 block parseMethodCallIdValid:
-  let result = parseMethodCallId("c1")
-  doAssert result.isOk
+  assertOk parseMethodCallId("c1")
 
 # --- parseCreationId ---
 
@@ -71,15 +62,14 @@ block parseCreationIdHashPrefix:
     "CreationId", "must not include '#' prefix", "#abc"
 
 block parseCreationIdValid:
-  let result = parseCreationId("abc")
-  doAssert result.isOk
+  assertOk parseCreationId("abc")
 
 # --- Borrowed ops: AccountId ---
 
 block accountIdBorrowedOps:
-  let a = parseAccountId("A13824").get()
-  let b = parseAccountId("A13824").get()
-  let c = parseAccountId("B99921").get()
+  let a = parseAccountId("A13824")
+  let b = parseAccountId("A13824")
+  let c = parseAccountId("B99921")
 
   doAssert a == b
   doAssert not (a == c)
@@ -90,9 +80,9 @@ block accountIdBorrowedOps:
 # --- Borrowed ops: JmapState, MethodCallId, CreationId ---
 
 block jmapStateBorrowedOps:
-  let a = parseJmapState("75128aab4b1b").get()
-  let b = parseJmapState("75128aab4b1b").get()
-  let c = parseJmapState("different").get()
+  let a = parseJmapState("75128aab4b1b")
+  let b = parseJmapState("75128aab4b1b")
+  let c = parseJmapState("different")
 
   doAssert a == b
   doAssert not (a == c)
@@ -101,9 +91,9 @@ block jmapStateBorrowedOps:
   doAssert not compiles(a.len)
 
 block methodCallIdBorrowedOps:
-  let a = parseMethodCallId("c1").get()
-  let b = parseMethodCallId("c1").get()
-  let c = parseMethodCallId("c2").get()
+  let a = parseMethodCallId("c1")
+  let b = parseMethodCallId("c1")
+  let c = parseMethodCallId("c2")
 
   doAssert a == b
   doAssert not (a == c)
@@ -112,9 +102,9 @@ block methodCallIdBorrowedOps:
   doAssert not compiles(a.len)
 
 block creationIdBorrowedOps:
-  let a = parseCreationId("abc").get()
-  let b = parseCreationId("abc").get()
-  let c = parseCreationId("xyz").get()
+  let a = parseCreationId("abc")
+  let b = parseCreationId("abc")
+  let c = parseCreationId("xyz")
 
   doAssert a == b
   doAssert not (a == c)
@@ -125,12 +115,11 @@ block creationIdBorrowedOps:
 # --- Adversarial edge cases ---
 
 block parseAccountIdBom:
-  doAssert parseAccountId("\xEF\xBB\xBFabc").isOk
+  assertOk parseAccountId("\xEF\xBB\xBFabc")
 
 block parseIdFromServerHighUnicode:
   let result = parseIdFromServer("\xF0\x9F\x98\x80")
-  doAssert result.isOk
-  doAssert result.get().len == 4
+  doAssert result.len == 4
 
 # --- Missing boundaries ---
 
@@ -139,20 +128,20 @@ block parseAccountIdDelChar:
     "AccountId", "contains control characters", "abc\x7Fdef"
 
 block parseAccountIdSpaceAccepted:
-  doAssert parseAccountId("abc def").isOk
+  assertOk parseAccountId("abc def")
 
 block parseJmapStateDelChar:
   assertErrFields parseJmapState("abc\x7Fdef"),
     "JmapState", "contains control characters", "abc\x7Fdef"
 
 block parseCreationIdHashMiddle:
-  doAssert parseCreationId("ab#cd").isOk
+  assertOk parseCreationId("ab#cd")
 
 block parseMethodCallIdControlAccepted:
-  doAssert parseMethodCallId("\x01abc").isOk
+  assertOk parseMethodCallId("\x01abc")
 
 block parseCreationIdLongString:
-  doAssert parseCreationId('a'.repeat(1000)).isOk
+  assertOk parseCreationId('a'.repeat(1000))
 
 # --- Phase 4: Identifier mutation resistance ---
 

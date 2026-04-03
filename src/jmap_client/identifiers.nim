@@ -1,9 +1,6 @@
 # SPDX-License-Identifier: BSD-2-Clause
 # Copyright (c) 2026 Aryan Ameri
 
-{.push raises: [].}
-{.experimental: "strictCaseObjects".}
-
 ## Semantically distinct identifier types built on Id validation rules. Separate
 ## from primitives.nim because these omit `len` — length is meaningless for
 ## opaque server tokens.
@@ -11,79 +8,77 @@
 import std/hashes
 import std/sequtils
 
-import results
-
 import ./validation
 
-type AccountId* {.requiresInit.} = distinct string
+type AccountId* = distinct string
   ## Server-assigned account identifier (RFC 8620 §2). Distinct from Id to
   ## prevent cross-use.
 
 defineStringDistinctOps(AccountId)
 
-type JmapState* {.requiresInit.} = distinct string
+type JmapState* = distinct string
   ## Opaque server state token for change tracking (RFC 8620 §5.3). No len
   ## borrow — length is meaningless.
 
 {.push ruleOff: "hasDoc".}
-func `==`*(a, b: JmapState): bool {.borrow.}
-func `$`*(a: JmapState): string {.borrow.}
-func hash*(a: JmapState): Hash {.borrow.}
+proc `==`*(a, b: JmapState): bool {.borrow.}
+proc `$`*(a: JmapState): string {.borrow.}
+proc hash*(a: JmapState): Hash {.borrow.}
 {.pop.}
 
-type MethodCallId* {.requiresInit.} = distinct string
+type MethodCallId* = distinct string
   ## Client-assigned tag correlating requests with responses in a batch
   ## (RFC 8620 §3.2).
 
 {.push ruleOff: "hasDoc".}
-func `==`*(a, b: MethodCallId): bool {.borrow.}
-func `$`*(a: MethodCallId): string {.borrow.}
-func hash*(a: MethodCallId): Hash {.borrow.}
+proc `==`*(a, b: MethodCallId): bool {.borrow.}
+proc `$`*(a: MethodCallId): string {.borrow.}
+proc hash*(a: MethodCallId): Hash {.borrow.}
 {.pop.}
 
-type CreationId* {.requiresInit.} = distinct string
+type CreationId* = distinct string
   ## Client-assigned temporary ID for back-references within a /set call
   ## (RFC 8620 §5.3). Wire format prefixes with '#'.
 
 {.push ruleOff: "hasDoc".}
-func `==`*(a, b: CreationId): bool {.borrow.}
-func `$`*(a: CreationId): string {.borrow.}
-func hash*(a: CreationId): Hash {.borrow.}
+proc `==`*(a, b: CreationId): bool {.borrow.}
+proc `$`*(a: CreationId): string {.borrow.}
+proc hash*(a: CreationId): Hash {.borrow.}
 {.pop.}
 
-func parseAccountId*(raw: string): Result[AccountId, ValidationError] =
+proc parseAccountId*(raw: string): AccountId =
   ## Lenient: 1-255 octets, no control characters.
   ## AccountIds are server-assigned Id[Account] values (§1.6.2, §2) —
   ## same lenient rules as parseIdFromServer.
   if raw.len < 1 or raw.len > 255:
-    return err(validationError("AccountId", "length must be 1-255 octets", raw))
+    raise newValidationError("AccountId", "length must be 1-255 octets", raw)
   if raw.anyIt(it < ' ' or it == '\x7F'):
-    return err(validationError("AccountId", "contains control characters", raw))
+    raise newValidationError("AccountId", "contains control characters", raw)
   doAssert raw.len >= 1 and raw.len <= 255
-  ok(AccountId(raw))
+  AccountId(raw)
 
-func parseJmapState*(raw: string): Result[JmapState, ValidationError] =
+proc parseJmapState*(raw: string): JmapState =
   ## Non-empty, no control characters. Server-assigned — same defensive
   ## checks as other server-assigned identifiers.
   if raw.len == 0:
-    return err(validationError("JmapState", "must not be empty", raw))
+    raise newValidationError("JmapState", "must not be empty", raw)
   if raw.anyIt(it < ' ' or it == '\x7F'):
-    return err(validationError("JmapState", "contains control characters", raw))
+    raise newValidationError("JmapState", "contains control characters", raw)
   doAssert raw.len > 0
-  ok(JmapState(raw))
+  JmapState(raw)
 
-func parseMethodCallId*(raw: string): Result[MethodCallId, ValidationError] =
+proc parseMethodCallId*(raw: string): MethodCallId =
   ## Non-empty. Client-generated.
   if raw.len == 0:
-    return err(validationError("MethodCallId", "must not be empty", raw))
+    raise newValidationError("MethodCallId", "must not be empty", raw)
   doAssert raw.len > 0
-  ok(MethodCallId(raw))
+  MethodCallId(raw)
 
-func parseCreationId*(raw: string): Result[CreationId, ValidationError] =
+proc parseCreationId*(raw: string): CreationId =
   ## Non-empty. Must not start with '#' (the prefix is a wire-format concern).
   if raw.len == 0:
-    return err(validationError("CreationId", "must not be empty", raw))
+    raise newValidationError("CreationId", "must not be empty", raw)
   if raw[0] == '#':
-    return err(validationError("CreationId", "must not include '#' prefix", raw))
+    raise newValidationError("CreationId", "must not include '#' prefix", raw)
   doAssert raw.len > 0 and raw[0] != '#'
-  ok(CreationId(raw))
+  CreationId(raw)

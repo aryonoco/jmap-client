@@ -1,10 +1,8 @@
 # SPDX-License-Identifier: BSD-2-Clause
 # Copyright (c) 2026 Aryan Ameri
 
-{.push raises: [].}
-
-## Template-based assertion helpers for Result, Opt, and JSON types. Templates
-## ensure line numbers point to the calling test block on failure.
+## Template-based assertion helpers for exceptions, Option, and JSON types.
+## Templates ensure line numbers point to the calling test block on failure.
 
 import std/strutils
 import std/json
@@ -17,29 +15,46 @@ import ./mfixtures
 
 {.push ruleOff: "hasDoc".}
 
-template assertOk*(r: untyped) =
-  doAssert r.isOk, "expected Ok, got Err"
+template assertOk*(expr: untyped) =
+  ## Evaluates expr, discarding the result. Success = no exception raised.
+  discard expr
 
-template assertErr*(r: untyped) =
-  doAssert r.isErr, "expected Err, got Ok"
+template assertErr*(expr: untyped) =
+  ## Verifies that expr raises a ValidationError.
+  doAssertRaises(ref ValidationError):
+    discard expr
 
-template assertErrFields*(r: untyped, tn, msg, val: string) =
-  ## Verifies all three ValidationError fields exactly.
-  doAssert r.isErr, "expected Err, got Ok"
-  let e = r.error
-  doAssert e.typeName == tn, "typeName: expected " & tn & ", got " & e.typeName
-  doAssert e.message == msg, "message: expected " & msg & ", got " & e.message
-  doAssert e.value == val, "value: expected " & val & ", got " & e.value
+template assertErrFields*(expr: untyped, tn, expectedMsg, val: string) =
+  ## Verifies expr raises ValidationError with specific fields.
+  var caught = false
+  try:
+    discard expr
+  except ValidationError as e:
+    caught = true
+    doAssert e.typeName == tn, "typeName: expected " & tn & ", got " & e.typeName
+    doAssert e.msg == expectedMsg, "message: expected " & expectedMsg & ", got " & e.msg
+    doAssert e.value == val, "value: expected " & val & ", got " & e.value
+  doAssert caught, "expected ValidationError, but no exception was raised"
 
-template assertErrType*(r: untyped, tn: string) =
-  ## Verifies the typeName field of a ValidationError.
-  doAssert r.isErr, "expected Err, got Ok"
-  doAssert r.error.typeName == tn
+template assertErrType*(expr: untyped, tn: string) =
+  ## Verifies the typeName field of a raised ValidationError.
+  var caught = false
+  try:
+    discard expr
+  except ValidationError as e:
+    caught = true
+    doAssert e.typeName == tn
+  doAssert caught, "expected ValidationError, but no exception was raised"
 
-template assertErrMsg*(r: untyped, msg: string) =
-  ## Verifies the message field of a ValidationError exactly.
-  doAssert r.isErr, "expected Err, got Ok"
-  doAssert r.error.message == msg
+template assertErrMsg*(expr: untyped, expectedMsg: string) =
+  ## Verifies the message field of a raised ValidationError exactly.
+  var caught = false
+  try:
+    discard expr
+  except ValidationError as e:
+    caught = true
+    doAssert e.msg == expectedMsg
+  doAssert caught, "expected ValidationError, but no exception was raised"
 
 template assertSome*(o: untyped) =
   doAssert o.isSome, "expected Some, got None"
@@ -53,17 +68,21 @@ template assertEq*(actual, expected: untyped) =
   let e = expected
   doAssert a == e, "expected " & $e & ", got " & $a
 
-template assertErrContains*(r: untyped, substring: string) =
-  ## Verifies the message field contains a substring (useful for long messages).
-  doAssert r.isErr, "expected Err, got Ok"
-  let msg = r.error.message
-  doAssert strutils.contains(msg, substring),
-    "expected message containing '" & substring & "', got '" & msg & "'"
+template assertErrContains*(expr: untyped, substring: string) =
+  ## Verifies the message field of a raised ValidationError contains a substring.
+  var caught = false
+  try:
+    discard expr
+  except ValidationError as e:
+    caught = true
+    let m = e.msg
+    doAssert strutils.contains(m, substring),
+      "expected message containing '" & substring & "', got '" & m & "'"
+  doAssert caught, "expected ValidationError, but no exception was raised"
 
-template assertOkEq*(r: untyped, expected: untyped) =
-  ## Verifies Result is Ok and its value equals expected.
-  doAssert r.isOk, "expected Ok, got Err"
-  let v = r.get()
+template assertOkEq*(expr: untyped, expected: untyped) =
+  ## Evaluates expr and verifies its value equals expected.
+  let v = expr
   let e = expected
   doAssert v == e, "expected " & $e & ", got " & $v
 
@@ -78,7 +97,7 @@ template assertLen*(collection: untyped, expected: int) =
   doAssert actual == exp, "expected len " & $exp & ", got " & $actual
 
 template assertSomeEq*(o: untyped, expected: untyped) =
-  ## Verifies Opt is Some and its value equals expected.
+  ## Verifies Option is Some and its value equals expected.
   doAssert o.isSome, "expected Some, got None"
   let v = o.get()
   let e = expected
@@ -108,14 +127,12 @@ template assertJsonFieldEq*(obj: JsonNode, key: string, expected: untyped) =
   let exp = expected
   doAssert actual == exp, "field '" & key & "': expected " & $exp & ", got " & $actual
 
-template assertCapOkEq*(r: untyped, expected: ServerCapability) =
-  ## Verifies Result is Ok and its ServerCapability value equals expected.
-  doAssert r.isOk, "expected Ok, got Err"
-  let v = r.get()
+template assertCapOkEq*(expr: untyped, expected: ServerCapability) =
+  ## Evaluates expr and verifies its ServerCapability value equals expected.
+  let v = expr
   doAssert capEq(v, expected), "ServerCapability values differ"
 
-template assertSetOkEq*(r: untyped, expected: SetError) =
-  ## Verifies Result is Ok and its SetError value equals expected.
-  doAssert r.isOk, "expected Ok, got Err"
-  let v = r.get()
+template assertSetOkEq*(expr: untyped, expected: SetError) =
+  ## Evaluates expr and verifies its SetError value equals expected.
+  let v = expr
   doAssert setErrorEq(v, expected), "SetError values differ"
