@@ -247,6 +247,64 @@ proc parseJsonBody(body: string, context: string): JsonNode =
       transportError(tekNetwork, "invalid JSON in " & context & " response: " & e.msg)
     raise newClientError(te)
 
+proc checkGetLimit(inv: Invocation, maxGet: int64) =
+  ## Checks a /get invocation's direct ids count against maxObjectsInGet.
+  ## Reference ids (JObject) and absent/null ids are silently skipped.
+  if inv.arguments.isNil:
+    return
+  let idsNode = inv.arguments{"ids"}
+  if not idsNode.isNil and idsNode.kind == JArray:
+    if int64(idsNode.len) > maxGet:
+      raise newValidationError(
+        "Request",
+        inv.name & ": ids count " & $idsNode.len & " exceeds maxObjectsInGet " & $maxGet,
+        "",
+      )
+
+proc checkSetLimit(inv: Invocation, maxSet: int64) =
+  ## Checks a /set invocation's combined create + update + destroy count
+  ## against maxObjectsInSet. Reference destroy (JObject) is silently skipped.
+  if inv.arguments.isNil:
+    return
+  var count: int64 = 0
+  let createNode = inv.arguments{"create"}
+  if not createNode.isNil and createNode.kind == JObject:
+    count += int64(createNode.len)
+  let updateNode = inv.arguments{"update"}
+  if not updateNode.isNil and updateNode.kind == JObject:
+    count += int64(updateNode.len)
+  let destroyNode = inv.arguments{"destroy"}
+  if not destroyNode.isNil and destroyNode.kind == JArray:
+    count += int64(destroyNode.len)
+  if count > maxSet:
+    raise newValidationError(
+      "Request",
+      inv.name & ": object count " & $count & " exceeds maxObjectsInSet " & $maxSet,
+      "",
+    )
+
+proc validateLimits*(request: Request, caps: CoreCapabilities) =
+  ## Pre-flight validation of a built Request against server-advertised
+  ## CoreCapabilities limits. Pure — no IO, no mutation.
+  ## Raises ``ValidationError`` describing the first violation.
+  let maxCalls = int64(caps.maxCallsInRequest)
+  if int64(request.methodCalls.len) > maxCalls:
+    raise newValidationError(
+      "Request",
+      "method call count " & $request.methodCalls.len & " exceeds maxCallsInRequest " &
+        $maxCalls,
+      "",
+    )
+
+  let maxGet = int64(caps.maxObjectsInGet)
+  let maxSet = int64(caps.maxObjectsInSet)
+
+  for inv in request.methodCalls:
+    if inv.name.endsWith("/get"):
+      checkGetLimit(inv, maxGet)
+    elif inv.name.endsWith("/set"):
+      checkSetLimit(inv, maxSet)
+
 proc classifyHttpResponse(
     maxResponseBytes: int, httpResp: httpclient.Response, context: string
 ): string =

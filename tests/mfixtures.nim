@@ -81,6 +81,23 @@ proc realisticCoreCaps*(): CoreCapabilities =
     collationAlgorithms: toHashSet(["i;ascii-casemap", "i;unicode-casemap"]),
   )
 
+proc makeCoreCapsWithLimits*(
+    maxCallsInRequest: int64 = 32,
+    maxObjectsInGet: int64 = 1000,
+    maxObjectsInSet: int64 = 500,
+): CoreCapabilities =
+  ## CoreCapabilities with caller-specified limit fields; zeroes elsewhere.
+  CoreCapabilities(
+    maxSizeUpload: zeroUint(),
+    maxConcurrentUpload: zeroUint(),
+    maxSizeRequest: zeroUint(),
+    maxConcurrentRequests: zeroUint(),
+    maxCallsInRequest: parseUnsignedInt(maxCallsInRequest),
+    maxObjectsInGet: parseUnsignedInt(maxObjectsInGet),
+    maxObjectsInSet: parseUnsignedInt(maxObjectsInSet),
+    collationAlgorithms: initHashSet[string](),
+  )
+
 proc makeCoreServerCap*(caps = zeroCoreCaps()): ServerCapability =
   ServerCapability(rawUri: "urn:ietf:params:jmap:core", kind: ckCore, core: caps)
 

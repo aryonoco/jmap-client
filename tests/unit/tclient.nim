@@ -1,9 +1,11 @@
 # SPDX-License-Identifier: BSD-2-Clause
 # Copyright (c) 2026 Aryan Ameri
 
-## Tests for JmapClient type, constructors, accessors, and mutators
-## (Layer 4 Step 1). Design doc scenarios 1–15 plus additional edge cases.
+## Tests for JmapClient type, constructors, accessors, mutators, pure helpers,
+## and pre-flight validation (Layer 4 Steps 1–3).
+## Design doc scenarios 1–15, 16–20, 21–33, 37–50.
 
+import std/json
 import std/options
 import std/strutils
 
@@ -12,6 +14,7 @@ when defined(ssl):
   from std/net import SslError
 
 import jmap_client/client
+import jmap_client/envelope
 import jmap_client/errors
 import jmap_client/validation
 
@@ -336,3 +339,262 @@ block enforceBodySizeLimitAtLimit:
 block enforceBodySizeLimitDisabled:
   ## Scenario 47: limit = 0 (disabled) — no error even for large body.
   enforceBodySizeLimit(0, "any size body is fine", "test")
+
+# ---------------------------------------------------------------------------
+# validateLimits — design doc scenarios 21–33
+# ---------------------------------------------------------------------------
+
+block validateLimitsZeroCalls:
+  ## Scenario 21: 0 calls with maxCallsInRequest = 1 — within limits.
+  let caps = makeCoreCapsWithLimits(maxCallsInRequest = 1)
+  let req = makeRequest(methodCalls = @[])
+  validateLimits(req, caps)
+
+block validateLimitsAtCallLimit:
+  ## Scenario 22: 1 call with maxCallsInRequest = 1 — exactly at limit.
+  let caps = makeCoreCapsWithLimits(maxCallsInRequest = 1)
+  let req = makeRequest(methodCalls = @[makeInvocation()])
+  validateLimits(req, caps)
+
+block validateLimitsExceedsCallLimit:
+  ## Scenario 23: 2 calls with maxCallsInRequest = 1 — exceeds limit.
+  let caps = makeCoreCapsWithLimits(maxCallsInRequest = 1)
+  let req = makeRequest(
+    methodCalls = @[
+      makeInvocation("Mailbox/get", makeMcid("c0")),
+      makeInvocation("Email/get", makeMcid("c1")),
+    ]
+  )
+  var caught = false
+  try:
+    validateLimits(req, caps)
+  except ValidationError as e:
+    caught = true
+    doAssert e.typeName == "Request"
+    doAssert "maxCallsInRequest" in e.msg
+  doAssert caught, "expected ValidationError for exceeding maxCallsInRequest"
+
+block validateLimitsGetWithinLimit:
+  ## Scenario 24: /get with 5 direct ids, maxObjectsInGet = 10 — within limit.
+  let caps = makeCoreCapsWithLimits(maxObjectsInGet = 10)
+  var args = newJObject()
+  var ids = newJArray()
+  for i in 0 ..< 5:
+    ids.add(%("id" & $i))
+  args["ids"] = ids
+  let inv = initInvocation("Email/get", args, makeMcid("c0"))
+  let req = makeRequest(methodCalls = @[inv])
+  validateLimits(req, caps)
+
+block validateLimitsGetExceedsLimit:
+  ## Scenario 25: /get with 11 direct ids, maxObjectsInGet = 10 — exceeds limit.
+  let caps = makeCoreCapsWithLimits(maxObjectsInGet = 10)
+  var args = newJObject()
+  var ids = newJArray()
+  for i in 0 ..< 11:
+    ids.add(%("id" & $i))
+  args["ids"] = ids
+  let inv = initInvocation("Email/get", args, makeMcid("c0"))
+  let req = makeRequest(methodCalls = @[inv])
+  var caught = false
+  try:
+    validateLimits(req, caps)
+  except ValidationError as e:
+    caught = true
+    doAssert e.typeName == "Request"
+    doAssert "maxObjectsInGet" in e.msg
+  doAssert caught, "expected ValidationError for exceeding maxObjectsInGet"
+
+block validateLimitsGetReferenceIds:
+  ## Scenario 26: /get with reference ids (JObject, not JArray) — skipped.
+  let caps = makeCoreCapsWithLimits(maxObjectsInGet = 1)
+  var args = newJObject()
+  args["ids"] = newJObject() # JObject = result reference, not direct array
+  let inv = initInvocation("Email/get", args, makeMcid("c0"))
+  let req = makeRequest(methodCalls = @[inv])
+  validateLimits(req, caps)
+
+block validateLimitsGetNullIds:
+  ## Scenario 27: /get with null ids — server decides; no limit check.
+  let caps = makeCoreCapsWithLimits(maxObjectsInGet = 1)
+  var args = newJObject()
+  args["ids"] = newJNull()
+  let inv = initInvocation("Email/get", args, makeMcid("c0"))
+  let req = makeRequest(methodCalls = @[inv])
+  validateLimits(req, caps)
+
+block validateLimitsSetWithinLimit:
+  ## Scenario 28: /set with 3 create + 3 update + 3 destroy = 9, limit 10.
+  let caps = makeCoreCapsWithLimits(maxObjectsInSet = 10)
+  var args = newJObject()
+  var create = newJObject()
+  for i in 0 ..< 3:
+    create["k" & $i] = newJObject()
+  args["create"] = create
+  var update = newJObject()
+  for i in 0 ..< 3:
+    update["id" & $i] = newJObject()
+  args["update"] = update
+  var destroy = newJArray()
+  for i in 0 ..< 3:
+    destroy.add(%("id" & $i))
+  args["destroy"] = destroy
+  let inv = initInvocation("Mailbox/set", args, makeMcid("c0"))
+  let req = makeRequest(methodCalls = @[inv])
+  validateLimits(req, caps)
+
+block validateLimitsSetExceedsLimit:
+  ## Scenario 29: /set with 4 create + 4 update + 3 destroy = 11, limit 10.
+  let caps = makeCoreCapsWithLimits(maxObjectsInSet = 10)
+  var args = newJObject()
+  var create = newJObject()
+  for i in 0 ..< 4:
+    create["k" & $i] = newJObject()
+  args["create"] = create
+  var update = newJObject()
+  for i in 0 ..< 4:
+    update["id" & $i] = newJObject()
+  args["update"] = update
+  var destroy = newJArray()
+  for i in 0 ..< 3:
+    destroy.add(%("id" & $i))
+  args["destroy"] = destroy
+  let inv = initInvocation("Mailbox/set", args, makeMcid("c0"))
+  let req = makeRequest(methodCalls = @[inv])
+  var caught = false
+  try:
+    validateLimits(req, caps)
+  except ValidationError as e:
+    caught = true
+    doAssert e.typeName == "Request"
+    doAssert "maxObjectsInSet" in e.msg
+  doAssert caught, "expected ValidationError for exceeding maxObjectsInSet"
+
+block validateLimitsSetReferenceDestroy:
+  ## Scenario 30: /set with reference destroy (JObject) — count excludes refs.
+  let caps = makeCoreCapsWithLimits(maxObjectsInSet = 1)
+  var args = newJObject()
+  args["destroy"] = newJObject() # JObject = result reference, not direct array
+  let inv = initInvocation("Mailbox/set", args, makeMcid("c0"))
+  let req = makeRequest(methodCalls = @[inv])
+  validateLimits(req, caps)
+
+block validateLimitsEmptyRequest:
+  ## Scenario 31: empty Request with no method calls — trivially valid.
+  let caps = realisticCoreCaps()
+  let req = makeRequest(methodCalls = @[])
+  validateLimits(req, caps)
+
+block validateLimitsMixedWithinLimits:
+  ## Scenario 32: mixed /get and /set invocations, all within limits.
+  let caps = makeCoreCapsWithLimits(
+    maxCallsInRequest = 3, maxObjectsInGet = 10, maxObjectsInSet = 10
+  )
+  var getArgs = newJObject()
+  var ids = newJArray()
+  for i in 0 ..< 5:
+    ids.add(%("id" & $i))
+  getArgs["ids"] = ids
+  var setArgs = newJObject()
+  var create = newJObject()
+  for i in 0 ..< 3:
+    create["k" & $i] = newJObject()
+  setArgs["create"] = create
+  let req = makeRequest(
+    methodCalls = @[
+      initInvocation("Mailbox/get", getArgs, makeMcid("c0")),
+      initInvocation("Email/set", setArgs, makeMcid("c1")),
+    ]
+  )
+  validateLimits(req, caps)
+
+block validateLimitsNonStandardMethod:
+  ## Scenario 33: non-standard method name — no per-invocation check applied.
+  let caps = makeCoreCapsWithLimits(
+    maxCallsInRequest = 10, maxObjectsInGet = 1, maxObjectsInSet = 1
+  )
+  var args = newJObject()
+  var ids = newJArray()
+  for i in 0 ..< 100:
+    ids.add(%("id" & $i))
+  args["ids"] = ids
+  let inv = initInvocation("Vendor/customMethod", args, makeMcid("c0"))
+  let req = makeRequest(methodCalls = @[inv])
+  validateLimits(req, caps)
+
+# ---------------------------------------------------------------------------
+# validateLimits — additional boundary and edge-case tests
+# ---------------------------------------------------------------------------
+
+block validateLimitsGetAtLimit:
+  ## Boundary: /get with exactly 10 direct ids, maxObjectsInGet = 10 — at limit.
+  let caps = makeCoreCapsWithLimits(maxObjectsInGet = 10)
+  var args = newJObject()
+  var ids = newJArray()
+  for i in 0 ..< 10:
+    ids.add(%("id" & $i))
+  args["ids"] = ids
+  let inv = initInvocation("Email/get", args, makeMcid("c0"))
+  let req = makeRequest(methodCalls = @[inv])
+  validateLimits(req, caps)
+
+block validateLimitsSetAtLimit:
+  ## Boundary: /set with 4 create + 3 update + 3 destroy = 10, limit 10 — at limit.
+  let caps = makeCoreCapsWithLimits(maxObjectsInSet = 10)
+  var args = newJObject()
+  var create = newJObject()
+  for i in 0 ..< 4:
+    create["k" & $i] = newJObject()
+  args["create"] = create
+  var update = newJObject()
+  for i in 0 ..< 3:
+    update["id" & $i] = newJObject()
+  args["update"] = update
+  var destroy = newJArray()
+  for i in 0 ..< 3:
+    destroy.add(%("id" & $i))
+  args["destroy"] = destroy
+  let inv = initInvocation("Mailbox/set", args, makeMcid("c0"))
+  let req = makeRequest(methodCalls = @[inv])
+  validateLimits(req, caps)
+
+block validateLimitsGetEmptyIds:
+  ## Edge case: /get with empty ids array (0 ids) — within any limit.
+  let caps = makeCoreCapsWithLimits(maxObjectsInGet = 1)
+  var args = newJObject()
+  args["ids"] = newJArray()
+  let inv = initInvocation("Email/get", args, makeMcid("c0"))
+  let req = makeRequest(methodCalls = @[inv])
+  validateLimits(req, caps)
+
+block validateLimitsSetEmptyArguments:
+  ## Edge case: /set with empty arguments — count = 0, within any limit.
+  let caps = makeCoreCapsWithLimits(maxObjectsInSet = 1)
+  let inv = initInvocation("Mailbox/set", newJObject(), makeMcid("c0"))
+  let req = makeRequest(methodCalls = @[inv])
+  validateLimits(req, caps)
+
+block validateLimitsSetOnlyDestroy:
+  ## Edge case: /set with only a destroy array (no create/update) — count = 3.
+  let caps = makeCoreCapsWithLimits(maxObjectsInSet = 5)
+  var args = newJObject()
+  var destroy = newJArray()
+  for i in 0 ..< 3:
+    destroy.add(%("id" & $i))
+  args["destroy"] = destroy
+  let inv = initInvocation("Mailbox/set", args, makeMcid("c0"))
+  let req = makeRequest(methodCalls = @[inv])
+  validateLimits(req, caps)
+
+block validateLimitsMethodPartialMatch:
+  ## Edge case: method name contains "/get" but does not end with it.
+  ## endsWith("/get") must not match "Email/getter".
+  let caps = makeCoreCapsWithLimits(maxObjectsInGet = 1, maxObjectsInSet = 1)
+  var args = newJObject()
+  var ids = newJArray()
+  for i in 0 ..< 100:
+    ids.add(%("id" & $i))
+  args["ids"] = ids
+  let inv = initInvocation("Email/getter", args, makeMcid("c0"))
+  let req = makeRequest(methodCalls = @[inv])
+  validateLimits(req, caps)
