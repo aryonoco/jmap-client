@@ -116,6 +116,10 @@ proc parseSession*(
     )
   if apiUrl.len == 0:
     raise newValidationError("Session", "apiUrl must not be empty", "")
+  if apiUrl.contains({'\c', '\L'}):
+    raise newValidationError(
+      "Session", "apiUrl must not contain newline characters", apiUrl
+    )
   for variable in ["accountId", "blobId", "type", "name"]:
     if not downloadUrl.hasVariable(variable):
       raise newValidationError(

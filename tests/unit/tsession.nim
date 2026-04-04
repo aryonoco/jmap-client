@@ -235,6 +235,24 @@ block parseSessionEmptyApiUrl:
     state = goldenState,
   ), "Session", "apiUrl must not be empty", ""
 
+block parseSessionApiUrlNewline:
+  ## apiUrl with newline characters rejected (prevents doAssert crash in
+  ## std/httpclient when used by Layer 4 IO procs).
+  assertErrFields parseSession(
+    capabilities = goldenCaps,
+    accounts = goldenAccounts,
+    primaryAccounts = goldenPrimaryAccounts,
+    username = "john@example.com",
+    apiUrl = "https://jmap.example.com/api/\r\nEvil: header",
+    downloadUrl = goldenDownloadUrl,
+    uploadUrl = goldenUploadUrl,
+    eventSourceUrl = goldenEventSourceUrl,
+    state = goldenState,
+  ),
+    "Session",
+    "apiUrl must not contain newline characters",
+    "https://jmap.example.com/api/\r\nEvil: header"
+
 block parseSessionDownloadUrlMissingBlobId:
   let badDownload =
     parseUriTemplate("https://example.com/{accountId}/{name}?accept={type}")

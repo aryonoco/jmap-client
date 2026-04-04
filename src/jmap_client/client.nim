@@ -73,6 +73,10 @@ proc initJmapClient*(
     raise newValidationError(
       "JmapClient", "sessionUrl must start with https:// or http://", sessionUrl
     )
+  if sessionUrl.contains({'\c', '\L'}):
+    raise newValidationError(
+      "JmapClient", "sessionUrl must not contain newline characters", sessionUrl
+    )
   if bearerToken.len == 0:
     raise newValidationError("JmapClient", "bearerToken must not be empty", "")
   if timeout < -1:
@@ -363,3 +367,109 @@ proc classifyHttpResponse(
     raise newClientError(te)
 
   body
+
+proc setSessionForTest*(client: var JmapClient, session: Session) =
+  ## Injects a cached session for testing purposes. Enables pure tests
+  ## of ``isSessionStale`` without requiring network IO.
+  client.session = some(session)
+
+# ---------------------------------------------------------------------------
+# IO procs (§3, §4, §6)
+# ---------------------------------------------------------------------------
+
+proc fetchSession*(client: var JmapClient): Session =
+  ## Fetches the JMAP Session resource from the server and caches it.
+  ## Re-fetching replaces the cached session.
+  ##
+  ## Raises ``ClientError(cekTransport)`` for network, TLS, timeout,
+  ## HTTP errors. Raises ``ClientError(cekRequest)`` for RFC 7807
+  ## problem details. Raises ``ValidationError`` if the session JSON
+  ## is structurally invalid (D4.6).
+  # {.warning[Uninit]: off.} suppresses a false positive from
+  # std/httpclient's `request` proc (uninitialized `redirectMethod`
+  # variable inside the stdlib, triggered by strictDefs + warningAsError).
+  let httpResp =
+    try:
+      {.warning[Uninit]: off.}
+      client.httpClient.request(client.sessionUrl, httpMethod = HttpGet)
+    except CatchableError as e:
+      raise classifyException(e)
+  let body = classifyHttpResponse(client.maxResponseBytes, httpResp, "session")
+  let jsonNode = parseJsonBody(body, "session")
+  let session = Session.fromJson(jsonNode)
+  client.session = some(session)
+  session
+
+proc send*(client: var JmapClient, request: Request): envelope.Response =
+  ## Serialises a JMAP Request, POSTs to the server's apiUrl, and
+  ## deserialises the Response.
+  ##
+  ## Lazily fetches the session on first call if not yet cached.
+  ## Does NOT automatically refresh a stale session (D4.10).
+  ##
+  ## Raises ``ClientError`` for transport/request failures,
+  ## ``ValidationError`` for limit violations or invalid response JSON.
+
+  # Step 1: Ensure session available (may trigger IO)
+  if client.session.isNone:
+    discard client.fetchSession()
+  let session = client.session.get()
+  let coreCaps = session.coreCapabilities()
+
+  # Step 2: Pre-flight validation
+  validateLimits(request, coreCaps)
+
+  # Step 3: Serialise
+  let jsonNode = request.toJson()
+  let body = $jsonNode
+
+  # Step 4: Check serialised size against maxSizeRequest
+  let maxSize = int64(coreCaps.maxSizeRequest)
+  if body.len > int(maxSize):
+    raise newValidationError(
+      "Request",
+      "serialised request size " & $body.len & " octets exceeds server maxSizeRequest " &
+        $maxSize,
+      "",
+    )
+
+  # Step 5: IO boundary — HTTP POST
+  let httpResp =
+    try:
+      {.warning[Uninit]: off.}
+      client.httpClient.request(session.apiUrl, httpMethod = HttpPost, body = body)
+    except CatchableError as e:
+      raise classifyException(e)
+
+  # Step 6: Classify HTTP response
+  let respBody = classifyHttpResponse(client.maxResponseBytes, httpResp, "api")
+
+  # Step 7: Parse JSON
+  let respJson = parseJsonBody(respBody, "api")
+
+  # Step 8: Problem details on HTTP 200
+  if respJson.kind == JObject and respJson.hasKey("type") and
+      not respJson.hasKey("methodResponses"):
+    let reqErr = RequestError.fromJson(respJson)
+    raise newClientError(reqErr)
+
+  # Step 9: Deserialise Response
+  envelope.Response.fromJson(respJson)
+
+proc isSessionStale*(client: JmapClient, response: envelope.Response): bool =
+  ## Compares ``response.sessionState`` with the cached ``Session.state``.
+  ## Returns ``true`` if they differ (session should be re-fetched).
+  ## Returns ``false`` if no session is cached (cannot determine staleness).
+  ## Pure — no IO, no mutation.
+  if client.session.isNone:
+    return false
+  client.session.get().state != response.sessionState
+
+proc refreshSessionIfStale*(client: var JmapClient, response: envelope.Response): bool =
+  ## If the response indicates a stale session, re-fetches it.
+  ## Returns ``true`` if refreshed, ``false`` otherwise.
+  ## Raises ``ClientError`` on fetch failure (same as ``fetchSession``).
+  if client.isSessionStale(response):
+    discard client.fetchSession()
+    return true
+  false

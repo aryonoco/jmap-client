@@ -2,8 +2,8 @@
 # Copyright (c) 2026 Aryan Ameri
 
 ## Tests for JmapClient type, constructors, accessors, mutators, pure helpers,
-## and pre-flight validation (Layer 4 Steps 1–3).
-## Design doc scenarios 1–15, 16–20, 21–33, 37–50.
+## pre-flight validation, and session staleness (Layer 4 Steps 1–4).
+## Design doc scenarios 1–36, 37–50.
 
 import std/json
 import std/options
@@ -151,6 +151,33 @@ block initJmapClientMaxResponseBytesNegative:
     bearerToken = "test-token",
     maxResponseBytes = -1,
   ), "JmapClient", "maxResponseBytes must be >= 0", "-1"
+
+block initJmapClientNewlineInUrl:
+  ## URL with newline characters rejected (prevents doAssert crash in std/httpclient).
+  assertErrFields initJmapClient(
+    sessionUrl = "https://example.com/jmap\r\nEvil: header", bearerToken = "test-token"
+  ),
+    "JmapClient",
+    "sessionUrl must not contain newline characters",
+    "https://example.com/jmap\r\nEvil: header"
+
+block initJmapClientCarriageReturnInUrl:
+  ## URL with lone carriage return rejected.
+  assertErrFields initJmapClient(
+    sessionUrl = "https://example.com/jmap\rpath", bearerToken = "test-token"
+  ),
+    "JmapClient",
+    "sessionUrl must not contain newline characters",
+    "https://example.com/jmap\rpath"
+
+block initJmapClientLineFeedInUrl:
+  ## URL with lone line feed rejected.
+  assertErrFields initJmapClient(
+    sessionUrl = "https://example.com/jmap\npath", bearerToken = "test-token"
+  ),
+    "JmapClient",
+    "sessionUrl must not contain newline characters",
+    "https://example.com/jmap\npath"
 
 block closeIdempotent:
   ## Close can be called multiple times without error.
@@ -598,3 +625,45 @@ block validateLimitsMethodPartialMatch:
   let inv = initInvocation("Email/getter", args, makeMcid("c0"))
   let req = makeRequest(methodCalls = @[inv])
   validateLimits(req, caps)
+
+# --- setSessionForTest ---
+
+block setSessionForTestVerify:
+  ## setSessionForTest injects a session accessible via session() accessor.
+  let args = makeSessionArgs()
+  let session = parseSessionFromArgs(args)
+  var c =
+    initJmapClient(sessionUrl = "https://example.com/jmap", bearerToken = "test-token")
+  assertNone c.session()
+  c.setSessionForTest(session)
+  doAssert c.session().isSome
+  doAssert string(c.session().get().state) == string(args.state)
+
+# --- isSessionStale ---
+
+block isSessionStaleSameState:
+  ## Scenario 34: same state -> false.
+  let args = makeSessionArgs()
+  let session = parseSessionFromArgs(args)
+  var c =
+    initJmapClient(sessionUrl = "https://example.com/jmap", bearerToken = "test-token")
+  c.setSessionForTest(session)
+  let resp = makeResponse(state = args.state)
+  assertEq c.isSessionStale(resp), false
+
+block isSessionStaleDifferentState:
+  ## Scenario 35: different state -> true.
+  let args = makeSessionArgs()
+  let session = parseSessionFromArgs(args)
+  var c =
+    initJmapClient(sessionUrl = "https://example.com/jmap", bearerToken = "test-token")
+  c.setSessionForTest(session)
+  let resp = makeResponse(state = makeState("different-state"))
+  assertEq c.isSessionStale(resp), true
+
+block isSessionStaleNoSession:
+  ## Scenario 36: no cached session -> false.
+  let c =
+    initJmapClient(sessionUrl = "https://example.com/jmap", bearerToken = "test-token")
+  let resp = makeResponse(state = makeState("any-state"))
+  assertEq c.isSessionStale(resp), false
