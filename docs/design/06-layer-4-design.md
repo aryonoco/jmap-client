@@ -51,17 +51,21 @@ boundary where IO occurs. The six governing principles apply as follows:
 - **Functional Core, Imperative Shell** — Layer 4 IS the imperative
   shell. Within Layer 4, the design maximises the pure surface: pure
   procs (`validateLimits`, `expandUriTemplate`, `isSessionStale`,
-  `classifyException`, response classification logic) are separated from
-  the IO procs (`fetchSession`, `send`, `close`). The IO procs are thin
+  `classifyException`, `enforceBodySizeLimit`, `parseJsonBody`) are
+  separated from the IO procs (`fetchSession`, `send`,
+  `refreshSessionIfStale`, `close`). `classifyHttpResponse` composes
+  pure classification rules around a single impure step (`httpResp.body`
+  lazy stream read) — it is impure but thin. The IO procs are thin
   wrappers that compose pure transforms around a single impure step
   (the HTTP request). Layers 1–3 below are pure by convention — no IO,
   no global state mutation.
 - **Immutability by default** — `let` bindings throughout. `var` is used
-  only for: (a) the `JmapClient` parameter in mutating IO procs
-  (`fetchSession`, `send`, `setBearerToken`, `close`); (b) local
-  accumulators inside pure procs (e.g., `var count = 0` in
-  `validateLimits`). No module-level mutable state in Layer 4 — all
-  mutable state lives inside `JmapClient` objects owned by the caller.
+  only for: (a) the `JmapClient` parameter in IO procs (`fetchSession`,
+  `send`, `refreshSessionIfStale`, `close`) and pure mutators
+  (`setBearerToken`); (b) local accumulators inside pure procs (e.g.,
+  `var count = 0` in `validateLimits`). No module-level mutable state in
+  Layer 4 — all mutable state lives inside `JmapClient` objects owned by
+  the caller.
 - **DRY** — HTTP response classification logic (status codes, Content-Type
   checks, problem details detection, body size enforcement) is written
   once in shared helpers (`classifyHttpResponse`, `classifyException`)
@@ -135,7 +139,7 @@ compiler constraints and architectural decisions.
 |--------|-------------|-----------|
 | `std/httpclient` | `HttpClient`, `newHttpClient`, `request`, `close`, `HttpMethod`, `newHttpHeaders` | Decision 4.1A. Synchronous HTTP. The sole network IO dependency. |
 | `std/json` | `parseJson`, `$` (serialise `JsonNode` to string), `JsonNode`, `JObject`, `JArray`, `hasKey`, `{}` (nil-safe key access), `JsonParsingError` | JSON string parsing (`string → JsonNode`) is the Layer 4 boundary that Layers 1–3 delegate upward. `$` serialises `Request.toJson()` to the HTTP body. `parseJson` is the reverse for responses. `JArray` used in `validateLimits` for ids/destroy array detection. `{}` used in `validateLimits` for nil-safe access to optional method arguments. |
-| `std/options` | `Option[T]`, `some`, `none`, `isSome`, `isNone`, `get` | Cached session field on `JmapClient`. |
+| `std/options` | `Option[T]`, `some`, `none`, `isSome`, `isNone`, `get`. Also available: `map`, `flatMap`, `filter` (not used in v1 but could simplify optional session/capability access patterns). | Cached session field on `JmapClient`. |
 | `std/strutils` | `toLowerAscii`, `startsWith`, `endsWith`, `replace`, `contains` | Content-Type case-insensitive matching, method name suffix detection in `validateLimits`, URI template expansion. |
 
 ### Modules evaluated and rejected
@@ -144,10 +148,10 @@ compiler constraints and architectural decisions.
 |--------|---------------------------|
 | `std/asynchttpclient` | Architecture decision 4.1A: synchronous only. `AsyncHttpClient` creates closure environments that leak under `--mm:arc` (ARC cannot trace closure-captured ref cycles). |
 | `std/asyncdispatch` | No async in this design. The synchronous model is appropriate for a C ABI library (architecture §4.1A). |
-| `std/uri` | `parseUri` raises `UriParseError`. Session URLs are passed directly to `std/httpclient` which handles URL parsing internally. `.well-known` URL construction uses simple string concatenation. |
+| `std/uri` | `parseUri` is permissive (never raises) and does not validate URLs, so it adds no safety guarantees beyond a raw string. Session URLs are stored as plain strings and passed directly to `std/httpclient`. `.well-known` URL construction is simple concatenation. Note: `std/uri.encodeUrl(value, usePlus=false)` is available for RFC 3986 percent-encoding — relevant for URI template variable values (see D4.11). |
 | `std/re` / `std/pcre` | Content-Type checking uses `startsWith` after `toLowerAscii`. URI template expansion uses `strutils.replace`. No regex needed. |
-| `std/streams` | `std/httpclient`'s `Response.body` returns the full body as `string`; no stream handling needed. |
-| `std/net` | `std/httpclient` handles TLS configuration internally via `newHttpClient`. No direct `SslContext` or `newContext` call needed. The `-d:ssl` compile-time warning (§9.1) does not require `std/net`. |
+| `std/streams` | `Response.body` lazily reads from `Response.bodyStream` (a `Stream`) on first access. Stream handling is internal to `std/httpclient`; direct `std/streams` use is not needed. |
+| `std/net` | `std/httpclient` handles TLS configuration internally via `newHttpClient(sslContext = ...)`. `std/net.newContext` could configure TLS (cert, CA, ciphers, TLS version) — see deferred decision R16. Not used in v1. The `-d:ssl` compile-time warning (§9.1) does not require `std/net`. |
 | `std/httpcore` | Re-exported by `std/httpclient`. No direct import needed. |
 
 ### Critical Nim findings that constrain the design
@@ -159,10 +163,14 @@ compiler constraints and architectural decisions.
 | `HttpClient` is a `ref object` — ARC-managed | `close()` should be called explicitly for deterministic socket release; destructor runs on scope exit under ARC | `httpclient.nim:617` |
 | `HttpClient.headers` field persists across requests | Bearer token set once on construction, sent on every subsequent request without per-request header setup | `httpclient.nim:621` |
 | Authorisation header stripped on cross-domain redirects | Correct security behaviour for `.well-known` discovery — the token is not leaked if the server redirects to a different domain | `httpclient.nim:1299–1306` |
-| `Response.body` returns the full body as `string` | Simple usage: complete response body available after call. Body size enforcement happens after the full read (before `parseJson`). | `httpclient.nim:332–338` |
-| `Response.code` is `HttpCode` (a `distinct range[0..599]`) | Safe to convert to `int` via `int(code)` for `TransportError.httpStatus` | `httpcore.nim:14` |
-| `Response.contentType` returns the Content-Type header value | Used for Content-Type validation on responses | `httpclient.nim:306–310` |
+| `Response.body` is a lazy proc (not a field) | First call reads `bodyStream.readAll()` and caches the result. Body IO occurs inside `classifyHttpResponse`, not at the `request()` call boundary. Body size enforcement happens after this read (before `parseJson`). | `httpclient.nim:332–338` |
+| `Response.code` is a proc with `{.raises: [ValueError, OverflowDefect].}` | Parses `response.status[0..2].parseInt.HttpCode`. Malformed status strings raise `ValueError`. `OverflowDefect` is fatal under `--panics:on` (extremely unlikely for valid HTTP). Must be called inside `try/except ValueError`. Safe to convert result to `int` via `int(code)` for `TransportError.httpStatus`. | `httpclient.nim:298–304`, `httpcore.nim:14` |
+| `Response.contentType` returns the Content-Type header value | Returns `headers.getOrDefault("content-type")` — header key lookup is case-insensitive. Returns empty string if header absent, which correctly fails the `startsWith("application/json")` check. | `httpclient.nim:306–310` |
 | `newHttpClient` takes `timeout` parameter (milliseconds, `int`) | Per-socket-operation timeout, not per-request. `-1` means no timeout (matches `std/httpclient` convention). Passed through from `JmapClient` constructor. | `httpclient.nim:647–649` |
+| `newHttpClient` has a built-in `userAgent` parameter | Default is `"Nim-httpclient/" & NimVersion`. Pass `userAgent` directly instead of adding to headers (see §1.2). | `httpclient.nim:647` |
+| `newHttpClient.maxRedirects` assigns to a `Natural` field | Negative values trigger `RangeDefect` (fatal under `--panics:on`). Validation rule 5 in §1.2 prevents this. | `httpclient.nim:622` |
+| `HttpClient` reuses TCP connections for same hostname/scheme/port | Multiple `send` calls to `apiUrl` reuse the connection. `close()` releases the socket. Partially addresses deferred decision R15. | `httpclient.nim` |
+| `Response.contentLength` returns Content-Length header value (or -1) | Calls `parseInt` internally — can raise `ValueError` for malformed headers. Enables early body size rejection before `response.body` is read (see §2.2). | `httpclient.nim:312–320` |
 | `parseJson` raises `JsonParsingError` (a `ValueError` descendant) | Must be caught and classified in the IO boundary | `json.nim:890` |
 | `$` on `JsonNode` serialises to compact JSON string | Used to convert `Request.toJson()` to HTTP body. Minimises body size. | `json.nim:344` |
 
@@ -248,7 +256,11 @@ proc initJmapClient*(
 2. `sessionUrl` must start with `"https://"` or `"http://"`.
 3. `bearerToken` must be non-empty.
 4. `timeout` must be >= -1.
-5. `maxRedirects` must be >= 0.
+5. `maxRedirects` must be >= 0. (Safety-critical: `HttpClientBase.maxRedirects`
+   is typed `Natural` (`range[0..high(int)]`). Assigning a negative value
+   triggers `RangeDefect`, which under `--panics:on` aborts the process
+   immediately. This validation converts a fatal Defect into a recoverable
+   `ValidationError`.)
 6. `maxResponseBytes` must be >= 0.
 
 On violation, raises `ValidationError` with `typeName = "JmapClient"`.
@@ -261,9 +273,9 @@ let headers = newHttpHeaders({
   "Authorization": "Bearer " & bearerToken,
   "Content-Type": "application/json",
   "Accept": "application/json",
-  "User-Agent": userAgent,
 })
 let httpClient = newHttpClient(
+  userAgent = userAgent,
   timeout = timeout,
   maxRedirects = maxRedirects,
   headers = headers,
@@ -346,6 +358,9 @@ proc close*(client: var JmapClient) =
   ## immediately. Idempotent — safe to call multiple times.
   ## Under ARC, the HttpClient ref is also released when the
   ## JmapClient goes out of scope, but ``close()`` is explicit.
+  ##
+  ## Recommended pattern: ``defer: client.close()`` ensures socket
+  ## release even if an exception occurs.
 ```
 
 ---
@@ -399,13 +414,37 @@ distinct TLS exception type. TLS failures from OpenSSL surface as
 False positives are harmless — the error is still classified as a
 transport failure, and `te.msg` carries the actual underlying error.
 
-### 2.2 Body Size Enforcement (Pure)
+### 2.2 Body Size Enforcement
+
+Two-phase check: Phase 1 rejects before reading the body (using the
+Content-Length header); Phase 2 rejects after reading (using the actual
+body length). Together they prevent both OOM on oversized responses and
+bypass via missing/inaccurate Content-Length.
 
 ```nim
+proc enforceContentLengthLimit(
+    maxResponseBytes: int, httpResp: httpclient.Response, context: string
+) =
+  ## Phase 1: early rejection via Content-Length header, before the body
+  ## is read into memory. No IO — reads only from already-received
+  ## response headers. No-op when maxResponseBytes == 0 (no limit)
+  ## or Content-Length is absent/unparseable.
+  if maxResponseBytes > 0:
+    let cl = try:
+      httpResp.contentLength
+    except ValueError:
+      -1  # malformed Content-Length — fall through to Phase 2
+    if cl > maxResponseBytes:
+      let te = transportError(tekNetwork,
+        context & " Content-Length exceeds limit: " &
+        $cl & " bytes > " & $maxResponseBytes & " byte limit")
+      raise newClientError(te)
+
 proc enforceBodySizeLimit(
     maxResponseBytes: int, body: string, context: string
 ) =
-  ## Raises ClientError(cekTransport) if body exceeds limit.
+  ## Phase 2: post-read rejection via actual body length. Catches cases
+  ## where Content-Length was absent, inaccurate, or not checked.
   ## No-op when maxResponseBytes == 0 (no limit). Pure — no IO.
   if maxResponseBytes > 0 and body.len > maxResponseBytes:
     let te = transportError(tekNetwork,
@@ -414,18 +453,23 @@ proc enforceBodySizeLimit(
     raise newClientError(te)
 ```
 
-**Decision D4.4: Body size check timing.** The check occurs after
-`resp.body` is fully read (because `std/httpclient` reads the entire
-body into memory before returning) but before `parseJson`. This
-prevents the expensive JSON tree allocation. A streaming check would
-require replacing `std/httpclient` — deferred to the libcurl upgrade
-path (architecture §4.1A fallback).
+**Decision D4.4: Body size check timing.** Phase 1 checks
+`contentLength` from the response headers before `response.body` is
+called, preventing a multi-GB response from being read into memory.
+`contentLength` (`httpclient.nim:312–320`) calls `parseInt` internally
+and can raise `ValueError` for malformed headers — caught and treated as
+"unknown length" (fall through to Phase 2). Phase 2 checks `body.len`
+after the full read but before `parseJson`, preventing the expensive
+JSON tree allocation. A streaming size limit during the read itself
+would require replacing `std/httpclient` — deferred to the libcurl
+upgrade path (architecture §4.1A fallback).
 
-### 2.3 HTTP Response Classification (Pure Core)
+### 2.3 HTTP Response Classification
 
-The classification logic is the pure core of the HTTP response handling.
-The IO procs (`fetchSession`, `send`) call `std/httpclient.request` and
-pass the result to this proc.
+The classification logic for HTTP responses. The IO procs
+(`fetchSession`, `send`) call `std/httpclient.request` and pass the
+result to this proc. Note: this proc is NOT pure — `httpResp.body`
+lazily reads from `bodyStream` on first access.
 
 ```nim
 proc classifyHttpResponse(
@@ -445,11 +489,23 @@ proc classifyHttpResponse(
   ##   4xx/5xx + no problem details → raise tekHttpStatus
   ##   Other non-2xx (1xx/3xx)      → raise tekHttpStatus
   ##
-  ## This is a pure transform — the HTTP response has already been received.
-  let code = httpResp.code
-  let body = httpResp.body
+  ## Note: despite operating on an already-received ``httpclient.Response``,
+  ## this proc is NOT pure. ``httpResp.body`` lazily reads from
+  ## ``bodyStream.readAll()`` on first access (IO), and ``httpResp.code``
+  ## parses the status string and can raise ``ValueError``.
+  let code = try:
+    httpResp.code
+  except ValueError:
+    let te = transportError(tekNetwork,
+      "malformed HTTP status from " & context & ": " & httpResp.status)
+    raise newClientError(te)
 
-  # Body size enforcement (R9)
+  # Phase 1 body size enforcement (R9) — reject before reading body
+  enforceContentLengthLimit(maxResponseBytes, httpResp, context)
+
+  let body = httpResp.body  # lazy: reads bodyStream on first access
+
+  # Phase 2 body size enforcement (R9) — reject after reading body
   enforceBodySizeLimit(maxResponseBytes, body, context)
 
   if code.is4xx or code.is5xx:
@@ -562,7 +618,8 @@ proc fetchSession*(client: var JmapClient): Session =
   except CatchableError as e:
     raise classifyException(e)
 
-  # Step 2: Pure classification — status, content-type, body size
+  # Step 2: Classification — status, content-type, body size
+  # (reads body stream on first access; see §2.3 note)
   let body = classifyHttpResponse(
     client.maxResponseBytes, httpResp, "session")
 
@@ -591,14 +648,15 @@ proc send*(client: var JmapClient, request: Request): Response =
   ## The primary API call. Serialises a JMAP Request, POSTs to the
   ## server's apiUrl, and deserialises the Response.
   ##
-  ## Composes pure transforms around a single IO step:
-  ## 1. Pure: ensure session available (may trigger IO via fetchSession).
+  ## Composes transforms around IO steps:
+  ## 1. Ensure session available (may trigger IO via fetchSession).
   ## 2. Pure: validateLimits — pre-flight check against CoreCapabilities.
   ## 3. Pure: toJson + $ — serialise Request to JSON string.
   ## 4. Pure: check serialised size against maxSizeRequest.
-  ## 5. IO:   HTTP POST (the only impure line in steady state).
-  ## 6. Pure: classifyHttpResponse — status, content-type, body size.
-  ## 7. Pure: parseJson — string → JsonNode.
+  ## 5. IO:   HTTP POST.
+  ## 6. IO:   classifyHttpResponse — status, content-type, body size
+  ##    (reads body stream on first access; see §2.3 note).
+  ## 7. Pure: parseJsonBody — string → JsonNode.
   ## 8. Pure: problem details detection on HTTP 200.
   ## 9. Pure: Response.fromJson — JsonNode → Response (Layer 2).
   ##
@@ -609,7 +667,8 @@ proc send*(client: var JmapClient, request: Request): Response =
   ## Raises:
   ## - ClientError(cekTransport) for network/TLS/timeout/HTTP errors.
   ## - ClientError(cekRequest) for RFC 7807 problem details responses.
-  ## - ValidationError for limit violations or malformed response JSON.
+  ## - ValidationError for limit violations or structurally invalid
+  ##   response JSON (valid JSON that fails Response schema validation).
 ```
 
 ### 4.2 Detailed Algorithm
@@ -863,8 +922,9 @@ proc expandUriTemplate*(
   ## Expands an RFC 6570 Level 1 URI template by replacing {name} with
   ## the corresponding value. Pure — no IO, no mutation.
   ##
-  ## Level 1 only: simple string substitution. The caller is responsible
-  ## for percent-encoding values where needed.
+  ## Level 1 only: simple string substitution. For values requiring
+  ## percent-encoding (e.g., filenames in download URL ``name``),
+  ## use ``std/uri.encodeUrl(value, usePlus=false)``.
   ##
   ## Variables not found in ``variables`` are left unexpanded.
   ##
@@ -878,8 +938,10 @@ proc expandUriTemplate*(
 ```
 
 **Decision D4.11: Percent-encoding responsibility.** Caller encodes.
-Common identifiers (`AccountId`, `Id`) are base64url-safe — no encoding
-needed. Full RFC 6570 parser is disproportionate for Level 1.
+`std/uri.encodeUrl(value, usePlus=false)` provides RFC 3986
+percent-encoding for values that need it. Common identifiers
+(`AccountId`, `Id`) are base64url-safe — no encoding needed. Full
+RFC 6570 parser is disproportionate for Level 1.
 
 ---
 
@@ -894,13 +956,24 @@ Set once on `HttpClient.headers` during `initJmapClient`:
 | `Authorization` | `Bearer {token}` | §1.7 (lines 429–430) |
 | `Content-Type` | `application/json` | §3.1 (lines 860–861) |
 | `Accept` | `application/json` | §3.1 (line 862) |
-| `User-Agent` | configurable | Not RFC-specified |
+| `User-Agent` | configurable (via `newHttpClient` `userAgent` param) | Not RFC-specified |
 
 **No per-request header manipulation.** JMAP does not use
 request-specific headers. Bearer token and Content-Type are constant
-across requests (until `setBearerToken` is called).
+across requests (until `setBearerToken` is called). Note:
+`std/httpclient.request()` accepts a `headers` parameter that overrides
+client headers using right-biased union (per-request headers take
+priority). This capability is available for future extension (e.g.,
+different Accept header for binary download/upload endpoints) without
+modifying the design.
 
 ### 8.2 Content-Type Validation on Responses
+
+Header key lookup (`content-type`) is already case-insensitive —
+`HttpHeaders` uses `toCaseInsensitive` internally. The `toLowerAscii`
+call in §2.3 normalises the header VALUE for MIME type prefix matching,
+because MIME types are case-insensitive per RFC 2045 but servers may
+return mixed-case values (e.g., `Application/JSON`).
 
 1. **2xx success:** verify `application/json` prefix (case-insensitive).
 2. **4xx/5xx:** accept `application/problem+json` or `application/json`
@@ -930,9 +1003,14 @@ Warning (not error): allows testing with mock HTTP over plain HTTP.
 
 ### 9.2 TLS Configuration
 
-OpenSSL defaults via `newHttpClient`. Custom TLS settings (CA path,
-minimum TLS version, client certificates) deferred to the libcurl
-upgrade path (Deferred Decision R16).
+OpenSSL defaults via `newHttpClient`. `newHttpClient` accepts an
+`sslContext` parameter, and `std/net.newContext` provides TLS
+configuration including `protVersion`, `verifyMode`, `certFile`,
+`keyFile`, `cipherList`, `caDir`, `caFile`, and `ciphersuites`. This
+means `initJmapClient` could accept an optional `SslContext` parameter
+and pass it through. Deferred for v1: exposing this parameter adds API
+surface, and OpenSSL defaults are sufficient for the initial release.
+See Deferred Decision R16.
 
 ---
 
@@ -942,13 +1020,14 @@ upgrade path (Deferred Decision R16).
 
 ```
 src/jmap_client/
-  errors.nim          — (updated) adds newClientError ref-returning
-                         constructors following newValidationError pattern
+  errors.nim          — provides newClientError ref-returning constructors
+                         (already implemented, following newValidationError pattern)
   client.nim          — JmapClient type, constructors, fetchSession, send,
                          validateLimits, classifyException,
-                         classifyHttpResponse, enforceBodySizeLimit,
-                         parseJsonBody, expandUriTemplate, session
-                         staleness, close
+                         classifyHttpResponse, enforceContentLengthLimit,
+                         enforceBodySizeLimit, parseJsonBody,
+                         expandUriTemplate, isSessionStale,
+                         refreshSessionIfStale, close
 ```
 
 **Decision D4.13: Single file.** All procs operate on `JmapClient`.
@@ -997,14 +1076,14 @@ export client
 | D4.1 | `JmapClient` as value `object` (not `ref object`) | `ref object` | Value type with `var` parameter passing. Layer 5 allocates on heap via `create()` for C ABI. |
 | D4.2 | Constructor does not fetch session (lazy) | Eager fetch | Construction should not perform IO. |
 | D4.3 | No DNS SRV — `.well-known/jmap` only | Full RFC 8620 §2.2 | No reference implementation uses DNS SRV. |
-| D4.4 | Body size check after full read, before `parseJson` | Streaming check | `std/httpclient` reads entire body. Check prevents expensive JSON allocation. |
+| D4.4 | Two-phase body size check: Phase 1 via `contentLength` before body read, Phase 2 via `body.len` after read | Streaming check | Phase 1 prevents OOM on oversized responses. Phase 2 catches absent/inaccurate Content-Length. Streaming check requires replacing `std/httpclient`. |
 | D4.5 | TLS detection via substring heuristic | Distinct exception type | `std/httpclient` has no distinct TLS exception. False positives harmless. |
 | D4.6 | `ValidationError` from session JSON propagates as-is | Wrap in `ClientError` | Richer context. `ClientError` is for transport/request failures. Layer 5 catches all `CatchableError`. |
 | D4.7 | `JsonParsingError` classified as `tekNetwork` | `tekHttpStatus` with 200 | HTTP succeeded, body is invalid JSON. Protocol violation, not an HTTP status error. |
 | D4.8 | Problem details on HTTP 200 via `"type"` + missing `"methodResponses"` heuristic | Content-Type check only | Servers often use `application/json` for problem details. `Response` always has `methodResponses`. |
 | D4.9 | `validateLimits` in `client.nim` | Separate module or L3 | Called exclusively by `send`. No circular dependency. |
 | D4.10 | Manual session staleness (not auto-refresh in `send`) | Auto-refresh | Hidden network request, unpredictable latency. RFC uses SHOULD. Composable tools provided. |
-| D4.11 | URI template: caller percent-encodes values | Library encodes | Common identifiers are base64url-safe. Full RFC 6570 disproportionate. |
+| D4.11 | URI template: caller percent-encodes values (`std/uri.encodeUrl` available) | Library encodes | Common identifiers are base64url-safe. Full RFC 6570 disproportionate. |
 | D4.12 | Compile-time warning for missing `-d:ssl` | Compile error | Allows testing with mock HTTP. Runtime error is clear. |
 | D4.13 | Single file `client.nim` | Multiple files | All procs on single type. 300–500 lines. No natural decomposition. |
 
@@ -1013,8 +1092,8 @@ export client
 | ID | Topic | Disposition | Rationale |
 |----|-------|-------------|-----------|
 | R14 | Automatic session refresh in `send` | Deferred | Add `sendAndRefresh` when usage patterns emerge. Manual tools suffice. |
-| R15 | Connection pooling / keep-alive | Deferred to libcurl | `std/httpclient` maintains one connection per client. Sufficient for v1. |
-| R16 | Configurable TLS settings | Deferred to libcurl | OpenSSL defaults sufficient for v1. |
+| R15 | Connection pooling / keep-alive | Deferred to libcurl | `std/httpclient` already reuses TCP connections for the same hostname/scheme/port within a single client (automatic keep-alive). Multi-client pooling deferred. |
+| R16 | Configurable TLS settings | Partially resolvable now; deferred for v1 | `newHttpClient` accepts `sslContext`, and `std/net.newContext` provides full TLS config (cert, CA, ciphers, TLS version). Could expose an optional `SslContext` parameter on `initJmapClient`. Deferred for v1: adds API surface. OpenSSL defaults sufficient for initial release. |
 | R17 | Upload/download procs (binary data) | Deferred to §6 | `expandUriTemplate` is ready. Add procs when needed. |
 | R18 | Read-only account pre-send validation | Deferred | Requires `Session.accounts` context. Add when entity write methods are used. |
 
@@ -1101,52 +1180,57 @@ export client
 | # | Input | Expected | Notes |
 |---|-------|----------|-------|
 | 45 | Body within limit | No error | Within |
-| 46 | Body exceeds limit | `ClientError` raised | Over |
+| 46 | Body exceeds limit | `ClientError` raised | Over (Phase 2) |
 | 47 | Limit = 0 (disabled) | No error | No enforcement |
+| 48 | Content-Length exceeds limit | `ClientError` raised | Over (Phase 1, before body read) |
+| 49 | Content-Length absent, body exceeds | `ClientError` raised | Phase 1 skipped, Phase 2 catches |
+| 50 | Content-Length malformed (non-numeric) | No error from Phase 1 | Falls through to Phase 2 |
 
 ### 12.8 Integration Test Scenarios (Require Network or Mock)
 
 | # | Scenario | Expected |
 |---|----------|----------|
-| 48 | Valid session fetch (GET 200, valid JSON) | `Session` returned and cached |
-| 49 | Session URL returns HTTP 404 | `ClientError(cekTransport, tekHttpStatus, 404)` |
-| 50 | Session URL returns 301 redirect | Redirect followed, session fetched |
-| 51 | Session URL exceeds `maxRedirects` | `ClientError(cekTransport, tekNetwork)` |
-| 52 | Session URL returns invalid JSON | `ClientError(cekTransport, tekNetwork)` |
-| 53 | Session JSON missing ckCore | `ValidationError` from `parseSession` |
-| 54 | Session JSON with empty apiUrl | `ValidationError` from `parseSession` |
-| 55 | Session JSON missing downloadUrl variable | `ValidationError` from `parseSession` |
-| 56 | API POST returns 200 with valid Response | `Response` returned |
-| 57 | API POST returns 200 with problem details | `ClientError(cekRequest)` |
-| 58 | API POST returns 400 + `application/problem+json` | `ClientError(cekRequest)` |
-| 59 | API POST returns 400 without problem details | `ClientError(cekTransport, tekHttpStatus, 400)` |
-| 60 | API POST returns 500 | `ClientError(cekTransport, tekHttpStatus, 500)` |
-| 61 | API POST returns 200 with wrong Content-Type | `ClientError(cekTransport)` |
-| 62 | Request body exceeds maxSizeRequest | `ValidationError` |
-| 63 | Method calls exceed maxCallsInRequest | `ValidationError` |
-| 64 | Connection refused | `ClientError(cekTransport, tekNetwork)` |
-| 65 | DNS resolution failure | `ClientError(cekTransport, tekNetwork)` |
-| 66 | TLS handshake failure | `ClientError(cekTransport, tekTls)` |
-| 67 | Socket timeout | `ClientError(cekTransport, tekTimeout)` |
-| 68 | Response body exceeds maxResponseBytes | `ClientError(cekTransport)` |
-| 69 | Session state changes between requests | `isSessionStale` returns `true` |
-| 70 | Bearer token update, then send | New token used |
-| 71 | Lazy session fetch on first send | Session fetched, then request sent |
-| 72 | Send with cached session | No re-fetch, request sent directly |
-| 73 | `refreshSessionIfStale` when stale | Session re-fetched, `true` |
-| 74 | `refreshSessionIfStale` when not stale | No fetch, `false` |
-| 75 | `urn:ietf:params:jmap:error:unknownCapability` | `ClientError(cekRequest)` with `retUnknownCapability` |
-| 76 | `urn:ietf:params:jmap:error:limit` with limit field | `ClientError(cekRequest)` with `retLimit`, `limit` populated |
+| 51 | Valid session fetch (GET 200, valid JSON) | `Session` returned and cached |
+| 52 | Session URL returns HTTP 404 | `ClientError(cekTransport, tekHttpStatus, 404)` |
+| 53 | Session URL returns 301 redirect | Redirect followed, session fetched |
+| 54 | Session URL exceeds `maxRedirects` | `ClientError(cekTransport, tekNetwork)` |
+| 55 | Session URL returns invalid JSON | `ClientError(cekTransport, tekNetwork)` |
+| 56 | Session JSON missing ckCore | `ValidationError` from `parseSession` |
+| 57 | Session JSON with empty apiUrl | `ValidationError` from `parseSession` |
+| 58 | Session JSON missing downloadUrl variable | `ValidationError` from `parseSession` |
+| 59 | API POST returns 200 with valid Response | `Response` returned |
+| 60 | API POST returns 200 with problem details | `ClientError(cekRequest)` |
+| 61 | API POST returns 400 + `application/problem+json` | `ClientError(cekRequest)` |
+| 62 | API POST returns 400 without problem details | `ClientError(cekTransport, tekHttpStatus, 400)` |
+| 63 | API POST returns 500 | `ClientError(cekTransport, tekHttpStatus, 500)` |
+| 64 | API POST returns 200 with wrong Content-Type | `ClientError(cekTransport)` |
+| 65 | Request body exceeds maxSizeRequest | `ValidationError` |
+| 66 | Method calls exceed maxCallsInRequest | `ValidationError` |
+| 67 | Connection refused | `ClientError(cekTransport, tekNetwork)` |
+| 68 | DNS resolution failure | `ClientError(cekTransport, tekNetwork)` |
+| 69 | TLS handshake failure | `ClientError(cekTransport, tekTls)` |
+| 70 | Socket timeout | `ClientError(cekTransport, tekTimeout)` |
+| 71 | Response Content-Length exceeds maxResponseBytes | `ClientError(cekTransport)` (Phase 1, before body read) |
+| 72 | Response body exceeds maxResponseBytes (no Content-Length) | `ClientError(cekTransport)` (Phase 2, after body read) |
+| 73 | Malformed HTTP status line | `ClientError(cekTransport, tekNetwork)` |
+| 74 | Session state changes between requests | `isSessionStale` returns `true` |
+| 75 | Bearer token update, then send | New token used |
+| 76 | Lazy session fetch on first send | Session fetched, then request sent |
+| 77 | Send with cached session | No re-fetch, request sent directly |
+| 78 | `refreshSessionIfStale` when stale | Session re-fetched, `true` |
+| 79 | `refreshSessionIfStale` when not stale | No fetch, `false` |
+| 80 | `urn:ietf:params:jmap:error:unknownCapability` | `ClientError(cekRequest)` with `retUnknownCapability` |
+| 81 | `urn:ietf:params:jmap:error:limit` with limit field | `ClientError(cekRequest)` with `retLimit`, `limit` populated |
 
-**Total: 76 enumerated test scenarios.**
+**Total: 81 enumerated test scenarios.**
 
 ---
 
 ## 13. Implementation Sequence
 
-0. Add `newClientError` ref-returning constructors to
-   `src/jmap_client/errors.nim` (prerequisite — follows
-   `newValidationError` pattern from `validation.nim`).
+0. Verify `newClientError` ref-returning constructors exist in
+   `src/jmap_client/errors.nim` (prerequisite — already implemented,
+   following `newValidationError` pattern from `validation.nim`).
 1. Create `src/jmap_client/client.nim` — copyright header, imports,
    `-d:ssl` warning.
 2. Define `JmapClient` type with private fields.
@@ -1155,15 +1239,16 @@ export client
 4. Implement `discoverJmapClient` — domain validation, URL construction,
    delegation to `initJmapClient`.
 5. Implement read-only accessors and mutators (`setBearerToken`, `close`).
-6. Implement pure helpers: `expandUriTemplate`, `enforceBodySizeLimit`,
-   `classifyException`, `classifyHttpResponse`, `parseJsonBody`.
+6. Implement helpers: `expandUriTemplate`, `enforceContentLengthLimit`,
+   `enforceBodySizeLimit`, `classifyException`, `classifyHttpResponse`,
+   `parseJsonBody`.
 7. Implement `fetchSession` — composes IO + pure classification + Layer 2
    deserialisation.
 8. Implement `validateLimits` — pure pre-flight checks.
 9. Implement `send` — composes all of the above.
 10. Implement `isSessionStale` and `refreshSessionIfStale`.
 11. Update `src/jmap_client.nim` to import and re-export `client`.
-12. Write unit tests — `tests/unit/tclient.nim` covering scenarios 1–47.
+12. Write unit tests — `tests/unit/tclient.nim` covering scenarios 1–50.
 13. Run `just ci`.
 
 ---
@@ -1181,7 +1266,8 @@ export client
 | `validateLimits` | §2 (CoreCapabilities), §3.6.1, §5.1, §5.3 | Pre-flight validation |
 | `isSessionStale` | §3.4 (lines 995–999) | Session state comparison |
 | `expandUriTemplate` | §2 (lines 679–700), RFC 6570 | URI template expansion |
-| `enforceBodySizeLimit` | §2 (lines 528–530: maxSizeRequest) | Body size cap (R9) |
+| `enforceContentLengthLimit` | Client-side (R9); not RFC-specified | Phase 1 response body size cap — pre-read via Content-Length header |
+| `enforceBodySizeLimit` | Client-side (R9); not RFC-specified | Phase 2 response body size cap — post-read via actual body length |
 | Bearer token auth | §1.7 (line 429), §8.2 | `Authorization: Bearer {token}` |
 | Content-Type: `application/json` | §3.1 (lines 860–862) | Required on request; expected on response |
 | HTTPS requirement | §1.7 (line 429) | `-d:ssl` compile flag |
