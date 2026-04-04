@@ -989,17 +989,22 @@ return mixed-case values (e.g., `Application/JSON`).
 exclusively HTTPS (RFC 8620 §1.7: "All HTTP requests MUST use the
 'https://' scheme").
 
-**Decision D4.12: Compile-time warning.** `client.nim` emits a warning
+**Decision D4.12: Compile-time hint.** `client.nim` emits a hint
 when `-d:ssl` is not defined:
 
 ```nim
 when not defined(ssl):
-  {.warning: "jmap-client: -d:ssl is not defined. " &
+  {.hint: "jmap-client: -d:ssl is not defined. " &
     "HTTPS connections will fail at runtime. " &
     "Add -d:ssl to your compile flags.".}
 ```
 
-Warning (not error): allows testing with mock HTTP over plain HTTP.
+Hint (not warning or error): `config.nims` sets `warningAsError: User`,
+which promotes `{.warning:}` pragmas to compile errors. `{.hint:}` emits
+a `[User]` hint that is visible during compilation but does not block it,
+since only `hintAsError: DuplicateModuleImport` is configured. This
+achieves the design intent — informational, non-blocking — within the
+project's strict compiler configuration.
 
 ### 9.2 TLS Configuration
 
@@ -1034,6 +1039,12 @@ src/jmap_client/
 Estimated 300–500 lines. No natural decomposition boundary. Internal
 helpers are module-private.
 
+**Nimalyzer `objects` rule suppression.** The `JmapClient` type has all
+private fields by design (§1.1: make illegal states unrepresentable).
+The nimalyzer `objects publicfields` rule flags exported types without
+public fields. The type definition is wrapped in
+`{.push ruleOff: "objects".}` / `{.pop.}` to suppress this diagnostic.
+
 ### 10.2 Import DAG
 
 ```
@@ -1042,12 +1053,20 @@ client.nim imports:
                          HttpMethod, newHttpHeaders
   std/json             — parseJson, $, JsonNode, JObject, JArray, hasKey,
                          {} (nil-safe access), JsonParsingError
-  std/options          — Option[T], some, none, isSome, isNone, get
   std/strutils         — toLowerAscii, startsWith, endsWith, replace,
-                         contains (via `in` operator)
-  ./types              — Layer 1 re-export hub
+                         contains (via `in` operator), Whitespace
+  ./types              — Layer 1 re-export hub (also re-exports std/options)
   ./serialisation      — Layer 2 re-export hub
 ```
+
+**Import ordering note.** `std/json` and `./serialisation` are not
+imported until they are first used (IO helpers and `send`). `config.nims`
+sets `warningAsError: UnusedImport`, so importing them before any proc
+references them causes a compile error. Similarly, `std/options` is NOT
+imported directly — it is re-exported by `./types`, and a direct import
+would trigger `hintAsError: DuplicateModuleImport`. The initial file
+(constructors + accessors + mutators) imports only `std/httpclient`,
+`std/strutils`, and `./types`.
 
 **Name collision: `Response`.** Both `std/httpclient` and the JMAP
 envelope types (via `./types`) export a `Response` type. In proc
@@ -1084,7 +1103,7 @@ export client
 | D4.9 | `validateLimits` in `client.nim` | Separate module or L3 | Called exclusively by `send`. No circular dependency. |
 | D4.10 | Manual session staleness (not auto-refresh in `send`) | Auto-refresh | Hidden network request, unpredictable latency. RFC uses SHOULD. Composable tools provided. |
 | D4.11 | URI template: caller percent-encodes values (`std/uri.encodeUrl` available) | Library encodes | Common identifiers are base64url-safe. Full RFC 6570 disproportionate. |
-| D4.12 | Compile-time warning for missing `-d:ssl` | Compile error | Allows testing with mock HTTP. Runtime error is clear. |
+| D4.12 | Compile-time hint (`{.hint:}`) for missing `-d:ssl` | `{.warning:}` (blocked by `warningAsError: User`); compile error | `{.hint:}` is informational and non-blocking. `{.warning:}` was the original design but `config.nims` promotes User warnings to errors. |
 | D4.13 | Single file `client.nim` | Multiple files | All procs on single type. 300–500 lines. No natural decomposition. |
 
 ### Deferred Decisions
