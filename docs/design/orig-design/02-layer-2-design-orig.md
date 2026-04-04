@@ -7,14 +7,6 @@ and the module layout for Layer 2 of the jmap-client library. It builds upon
 the decisions made in `00-architecture.md` and the types defined in
 `01-layer-1-design.md` so that implementation is mechanical.
 
-**Revision history.** The original version of this document (commit
-8aa689e) specified a strict FP-enforced design using nim-results
-`Result[T, E]`, `Opt[T]`, `func`, `{.push raises: [].}`,
-`{.requiresInit.}`, `strictFuncs`, and `strictCaseObjects`. The
-architecture revision (`04-architecture-revision.md`) migrated to idiomatic
-Nim: exceptions, `std/options`, `proc`, and natural error propagation. This
-document now reflects the code as implemented.
-
 **Scope.** Layer 2 covers: JSON serialisation and deserialisation for all
 Layer 1 types — primitive data types (RFC 8620 §1.2–1.4), the Session object
 and everything it contains (§2), the Request/Response envelope (§3.2–3.4,
@@ -24,37 +16,54 @@ and per-item set errors. Protocol logic (Layer 3), transport (Layer 4), and
 the C ABI (Layer 5) are out of scope. Binary data (§6) and push (§7) are
 deferred; see architecture.md §4.5–4.6.
 
+**Relationship to architecture-options.md.** That document records broad
+decisions across all 5 layers. This document is the detailed specification for
+Layer 2 only. Decisions here are consistent with — and build upon — the
+architecture document's choices 2.1A (std/json manual ser/de), 2.2A
+(camelCase zero conversion), and 2.3 (Referencable `#`-prefix dispatch).
+Layer 1 decisions that constrain Layer 2: 1.1A (distinct types require
+unwrap/wrap in `toJson`/`fromJson`), 1.2A (case object capabilities with
+enum + fallback), 1.3B (Referencable[T] variant type), 1.5B (opaque
+PatchObject — smart constructors only), 1.6C (three railways), 1.7C
+(lossless round-trip via rawType/rawUri).
+
 **Design principles.** Every decision follows:
 
-- **Exception-based error handling** — `fromJson` raises `ValidationError`
-  on malformed input and returns the parsed type directly on success.
-  Layer 1 smart constructors also raise `ValidationError`, so exceptions
-  compose naturally through the call chain — no `?` operator, no `mapErr`,
-  no `Result` types. Layer 4 catches exceptions at the IO boundary.
-- **Purity by convention** — **Layer 2 uses `proc` throughout.** Purity
-  (no I/O, no global state mutation) is maintained by convention and code
-  review, not by compiler enforcement. The `strictFuncs` pragma was
-  removed in the architecture revision because `std/json` operations
-  (allocation, `JsonNode` mutation) triggered side-effect violations
-  requiring pervasive `{.cast(noSideEffect).}:` blocks.
+- **Railway Oriented Programming** — `fromJson` is a **parsing entry point
+  into the construction railway** (not a new lifecycle phase). It returns
+  `Result[T, ValidationError]` — the same error type as Layer 1 smart
+  constructors — so `?` composes `fromJson` field extraction with Layer 1
+  smart constructors in a single pipeline. Layer 4 lifts the result to
+  `JmapResult[T]` (transport railway) at the IO boundary.
+- **Functional Core, Imperative Shell** — **Layer 2 is entirely `func`.**
+  No `proc` **definitions**, no exception handling, no `try/except`.
+  Callback parameters use `proc {.noSideEffect.}` for Nim's type system
+  (functionally equivalent to `func`; see §1.2). Every function in
+  Layer 2 is a pure transform: `JsonNode → Result[T, ValidationError]`
+  (deserialisation) or `T → JsonNode` (serialisation). Layer 2 receives
+  pre-parsed `JsonNode` trees — the `string → JsonNode` step requires
+  exception handling (`std/json.parseJson` raises `JsonParsingError`) and
+  is therefore a Layer 4 concern. This cleanly preserves the functional
+  core / imperative shell boundary: Layers 1–3 are pure; Layer 4 is the
+  sole `proc` boundary.
 - **Immutability by default** — `let` bindings. Local `var` only for building
-  `JsonNode` trees or accumulating sequences (pattern (b) from CLAUDE.md:
-  local variable inside a `proc` building a return value from stdlib
-  containers whose APIs require mutation, e.g., `var obj = newJObject();
-  obj["key"] = val`).
-- **Total functions** — Every `fromJson` validates `JsonNodeKind` before
-  extraction via the `checkJsonKind` helper (which raises `ValidationError`
-  on mismatch). `getStr`, `getBiggestInt`, `getBool`, `getFloat` silently
-  return defaults on wrong kinds, which would produce incorrect values
-  rather than errors. The canonical pattern is: check `node.kind`, raise
-  on mismatch, then extract. For container types: check `JObject`/`JArray`
-  before iterating.
+  `JsonNode` trees (pattern (a) from architecture: local variable inside
+  `func` building a return value from stdlib containers whose APIs require
+  mutation, e.g., `var obj = newJObject(); obj["key"] = val`). `strictFuncs`
+  enforces the mutation does not escape.
+- **Total functions** — `{.push raises: [].}` on every module. **Every
+  `fromJson` must validate `JsonNodeKind` before extraction** — `getStr`,
+  `getBiggestInt`, `getBool`, `getFloat` silently return defaults on wrong
+  kinds, which would produce incorrect values rather than errors. The
+  canonical pattern is: check `node.kind`, return
+  `err(parseError(...))` on mismatch, then extract. For container types:
+  check `JObject`/`JArray` before iterating.
 - **Parse, don't validate** — `fromJson` produces well-typed values by
-  calling Layer 1 smart constructors, or raises structured `ValidationError`.
-  Every `fromJson` that produces a Layer 1 type with a smart constructor
-  MUST call it (never direct object construction bypassing validation).
-  Types without smart constructors (`Account`, `CoreCapabilities`) are
-  constructed directly after validating each field individually.
+  calling Layer 1 smart constructors, or structured `ValidationError`. Every
+  `fromJson` that produces a Layer 1 type with a smart constructor MUST call
+  it (never direct object construction bypassing validation). Types without
+  smart constructors (`Account`, `CoreCapabilities`) are constructed directly
+  after validating each field individually.
 - **Make illegal states unrepresentable** — deserialisation constructs
   Layer 1 types via their smart constructors, never bypassing invariants.
   Distinct types require explicit unwrap (`string(id)`) for `toJson` and
@@ -68,58 +77,60 @@ deferred; see architecture.md §4.5–4.6.
   `%*{}`).
 
 **Compiler flags.** These constrain every function definition (from
-`config.nims`):
+`jmap_client.nimble`):
 
 ```
 --mm:arc
 --experimental:strictDefs
---panics:on
+--experimental:strictNotNil
+--experimental:strictFuncs
+--experimental:strictCaseObjects
+--styleCheck:error
+{.push raises: [].}  (per-module)
 ```
-
-Note: `{.push raises: [].}` is NOT used in Layer 2 modules — it is
-reserved for the Layer 5 C ABI boundary only. Exceptions propagate naturally
-through Layers 1–4.
 
 ---
 
 ## Standard Library Utilisation
 
 Layer 2 maximises use of the Nim standard library. Every adoption and
-rejection has a concrete reason.
+rejection has a concrete reason tied to the strict compiler constraints.
 
 ### Modules used in Layer 2
 
 | Module | What is used | Rationale |
 |--------|-------------|-----------|
-| `std/json` | `%`, `%*`, `newJObject`, `newJArray`, `{key}` accessor, `getStr`, `getBiggestInt`, `getBool`, `getFloat`, `getElems`, `getFields`, `pairs`, `JsonNodeKind` | Layer 1 selectively imports `JsonNode`/`JsonNodeKind` as data types only; Layer 2 needs the accessors and construction API. `parseJson` is NOT used — the `string → JsonNode` boundary is a Layer 4 concern |
-| `std/options` | `Option[T]`, `some`, `none`, `isSome`, `isNone`, `get` | All optional fields throughout Layer 2 |
+| `std/json` | `%`, `%*`, `newJObject`, `newJArray`, `{key}` accessor, `getStr`, `getBiggestInt`, `getBool`, `getFloat`, `getElems`, `getFields`, `JsonNodeKind` | Layer 1 selectively imports `JsonNode`/`JsonNodeKind` as data types only; Layer 2 needs the raises-free accessors and construction API. `parseJson` is NOT used — the `string → JsonNode` boundary is a Layer 4 concern |
 | `std/tables` | `Table` iteration via `pairs`, construction via `[]=`, `initTable` | Session accounts, primaryAccounts, createdIds ser/de |
 | `std/sets` | `toHashSet` | `CoreCapabilities.collationAlgorithms`: JSON array → `HashSet[string]` |
+| `std/sugar` | `collect` | Building seqs from iterators — architecture convention for Layer 2+ (L1 has no collection-building operations) |
+| `std/strutils` | `startsWith` | `#`-prefix detection for `Referencable[T]` field dispatch |
 
 ### Modules evaluated and rejected
 
 | Module | Reason not used in Layer 2 |
 |--------|---------------------------|
-| `std/jsonutils` | `jsonTo` and the stdlib `fromJson` raise exceptions (`KeyError`, `JsonKindError`) that do not carry structured context (`typeName`, `value`). Layer 2 needs `ValidationError` with its structured fields for diagnostic quality. |
+| `std/jsonutils` | `jsonTo` and the stdlib `fromJson` raise exceptions (`KeyError`, `JsonKindError`); incompatible with `{.push raises: [].}` and manual field-level validation. |
 | `std/marshal` | Deprecated; uses `streams`; incompatible with `--mm:arc`. |
-| `jsony` (third-party) | Third-party dependency; project has zero-dependency policy. |
-| `std/sugar` | `collect` not needed — Layer 2 builds sequences via `var` + `add` loop, which is clearer for the kind-check-then-extract pattern. |
-| `std/strutils` | `startsWith` not needed — `#`-prefix detection uses `node{refKey}` nil check. |
+| `jsony` (third-party) | Uses exceptions internally; incompatible with `raises: []`. Implicit parsing prevents field-level validation injection without hooks. Compatibility with `--mm:arc` + `strictFuncs` + `strictNotNil` unverified. |
 
 ### Critical Nim findings that constrain the design
 
 | Finding | Impact |
 |---------|--------|
 | `node{key}` returns `nil` on missing key (raises-free) | Primary navigation accessor throughout Layer 2. Always nil-safe. Chaining `node{"a"}{"b"}.getStr("")` is safe — returns `""` if any level is missing. |
-| `node["key"]` raises `KeyError` | NOT used — Layer 2 uses `node{"key"}` + `checkJsonKind` for structured error context. `node["key"]` provides `KeyError` which lacks `typeName` and `value` fields. |
+| `node["key"]` raises `KeyError` | NEVER used — incompatible with `{.push raises: [].}`. |
 | `getInt` returns `int` (pointer-sized); `getBiggestInt` returns `BiggestInt` (`int64`) | `UnsignedInt` and `JmapInt` are `distinct int64` — must use `getBiggestInt` to avoid truncation on 32-bit platforms. |
-| `%` on distinct types does not auto-unwrap | Must explicitly unwrap: `%string(id)`, `%int64(val)`. The `%` operator has overloads for `string`, `int64`, `float`, `bool`, `seq[T]`, `Table[K,V]`, and `Option[T]`. |
+| `%` on distinct types does not auto-unwrap | Must explicitly unwrap: `%string(id)`, `%int64(val)`. The `%` operator has overloads for `string`, `int64`, `float`, `bool`, `seq[T]`, `Table[K,V]`, and `Option[T]` (stdlib only — no overload for `Opt[T]` from nim-results). |
 | `$` on string-backed enum returns the backing string; catch-all variants without backing return the symbolic name | `$ckCore` → `"urn:ietf:params:jmap:core"` but `$ckUnknown` → `"ckUnknown"` (not a URI). Serialisation must use `rawUri`/`rawType` from the containing object for lossless round-trip (Decision 1.7C), never `$enumVal`. |
 | `node.len` is NOT nil-safe — crashes on nil with `FieldDefect` | Always check `isNil` before `.len`, or use `getElems(@[]).len` as safe alternative. Split nil/kind checks from len checks for clarity. |
-| `items`/`pairs`/`keys` iterators assert node kind | Assert `JArray` for `items`, `JObject` for `pairs`/`keys`. The assert produces `AssertionDefect` (a `Defect`, not tracked by `raises`). Always check `node.kind` before iterating. |
+| `items`/`pairs`/`keys` iterators assert node kind | Assert `JArray` for `items`, `JObject` for `pairs`/`keys`. The assert produces `AssertionDefect` (a `Defect`, not tracked by `raises: []`). Always check `node.kind` before iterating. |
 | `getElems(@[])` and `getFields()` are raises-free | Return empty defaults on nil or wrong kind. Safe to call without kind check when a default is acceptable. |
 | `parseJson(string)` raises `JsonParsingError` (a `ValueError` descendant); `parseFile` additionally raises `IOError` | NOT used in Layer 2. The `string → JsonNode` boundary requires exception handling and is a Layer 4 concern. Layer 2 receives only pre-parsed `JsonNode` trees. |
+| `%*{...}` macro produces `JObject` at compile time | Safe for `toJson`; field names are string literals, no runtime key collision risk. Requires `{.cast(noSideEffect).}:` in `func` — the macro expands to `%` overloads which are side-effectful `proc`s (§1.6). |
+| `newJObject()` + `obj[key] = val` mutation is **NOT** compatible with `func` under `strictFuncs` | `JsonNode` is `ref JsonNodeObj`. `[]=` and `add` mutate through a `ref` parameter — forbidden by `strictFuncs`. See §1.6 for the workaround. Not analogous to `PatchObject.setProp` (which mutates a value-type `Table`). |
 | `getFields()` returns `OrderedTable` by value (copy); `pairs` iterates in-place | Where `JObject` kind is already verified, prefer `node.pairs` over `node.getFields()` to avoid the copy. `pairs` asserts kind — safe after prior check. |
+| `%` for `openArray[tuple[key: string, val: JsonNode]]` returns `newJArray()` when `keyVals.len == 0` | Footgun: an empty seq of key-value tuples produces a JSON array, not an object. All types in this layer have at least one mandatory field, so this does not arise in practice. |
 
 ---
 
@@ -128,24 +139,42 @@ rejection has a concrete reason.
 ### 1.1 Error Type Decision
 
 Layer 2's `fromJson` functions compose with Layer 1 smart constructors via
-natural exception propagation. Both raise `ValidationError`.
+the `?` operator. This requires a compatible error type.
 
-**Decision: 1.1B (revised).** Reuse `ValidationError` as an exception.
-Layer 1 smart constructors raise `ValidationError` on invalid input.
-Layer 2 `fromJson` functions raise the same exception type for
-deserialisation errors. The `parseError` helper constructs a
-`ref ValidationError` for deserialisation-specific errors:
+**Option 1.1A: New `DeserialiseError` type.** A dedicated type carrying
+`typeName`, `field` (JSON path), and `message`. Richer context for
+debugging.
+
+- **Pros:** More specific error context (JSON field path).
+- **Cons:** Breaks `?` composition with Layer 1 smart constructors. Every
+  call to `parseIdFromServer`, `parseUnsignedInt`, etc., would need
+  `mapErr` to convert `ValidationError` to `DeserialiseError`. ~30+
+  `mapErr` calls across the codebase.
+
+**Option 1.1B: Reuse `ValidationError` with `parseError` helper.** Layer 2
+populates the existing `ValidationError` fields with deserialisation-specific
+context. The `value` field carries empty string (the JSON context is
+captured in `message`).
+
+- **Pros:** Composes directly with Layer 1 smart constructors via `?` —
+  zero `mapErr` overhead. Single error type for the entire construction
+  railway.
+- **Cons:** `value` field semantics stretched (empty for deser errors vs.
+  raw input for smart constructor errors). No JSON path threading.
+
+**Decision: 1.1B.** Reuse `ValidationError`. The `parseError` helper:
 
 ```nim
-proc parseError*(typeName, message: string): ref ValidationError =
+func parseError*(typeName, message: string): ValidationError =
   ## Convenience constructor for deserialisation errors.
   ## Sets value to empty — JSON context is captured in message.
-  newValidationError(typeName, message, "")
+  validationError(typeName, message, "")
 ```
 
 Rationale: `fromJson` calls Layer 1 smart constructors
-(e.g., `parseIdFromServer(raw)` in composite types) — same exception type
-means natural propagation. No `?` operator, no `mapErr`, no `Result` types.
+(e.g., `? parseIdFromServer(raw)` in composite types, or returning the
+constructor `Result` directly in simple types) — same error type means
+zero `mapErr` overhead.
 The `value` field carries empty string for deserialisation errors. This
 aligns with Layer 1's `ValidationError` carrying `typeName` + `message` +
 `value`, not a full call trace.
@@ -157,17 +186,13 @@ aligns with Layer 1's `ValidationError` carrying `typeName` + `message` +
 Two canonical signatures:
 
 ```nim
-proc toJson*(x: T): JsonNode =
+func toJson*(x: T): JsonNode =
   ## Pure, infallible. Returns a JsonNode tree.
 
-proc fromJson*(T: typedesc[T], node: JsonNode): T =
-  ## Validating parser. Returns a well-typed value or raises ValidationError.
+func fromJson*(T: typedesc[T], node: JsonNode): Result[T, ValidationError] =
+  ## Pure, total, validating parser. Returns a well-typed value or
+  ## a structured error.
 ```
-
-All routines use `proc`. Purity is maintained by convention — Layers 1–3
-do not perform I/O or mutate global state. The `func` keyword was removed
-in the architecture revision because `std/json` operations trigger
-side-effect violations under `strictFuncs`.
 
 The named `T` parameter enables `T.fromJson(node)` call syntax
 via UFCS, and `$T` provides the type name string for error messages
@@ -179,18 +204,22 @@ For types that require additional context beyond the `JsonNode` (e.g.,
 name), the signature adds parameters:
 
 ```nim
-proc fromJson*(T: typedesc[ServerCapability], uri: string, data: JsonNode
-    ): ServerCapability =
+func fromJson*(T: typedesc[ServerCapability], uri: string, data: JsonNode
+    ): Result[ServerCapability, ValidationError] =
   ## Dispatches on parsed CapabilityKind from uri.
 ```
 
-For generic types (`Filter[C]`), the callback parameter uses a `proc` type.
-Unlike the original design, no `{.noSideEffect.}` or `{.raises: [].}`
-annotations are needed on callback parameters:
+For generic types (`Filter[C]`), the callback parameter requires a
+`{.noSideEffect.}` callable. In Nim, `func` is `proc {.noSideEffect.}`,
+so the parameter type `proc(...) {.noSideEffect.}` should be
+effect-compatible with `strictFuncs`. The callback must also declare
+`raises: []` because the module-level `{.push raises: [].}` requires
+callable parameters to prove they cannot raise:
 
 ```nim
-proc fromJson*[C](T: typedesc[Filter[C]], node: JsonNode,
-    fromCondition: proc(n: JsonNode): C): Filter[C]
+func fromJson*[C](T: typedesc[Filter[C]], node: JsonNode,
+  fromCondition: proc(n: JsonNode): Result[C, ValidationError]
+  {.noSideEffect, raises: [].}): Result[Filter[C], ValidationError]
 ```
 
 **camelCase convention (Decision 2.2A).** All field names in Nim match wire
@@ -211,7 +240,8 @@ because it produces incorrect values rather than errors.
 
 ```nim
 # Distinct string type — validate JString before extraction
-proc fromJson*(T: typedesc[Id], node: JsonNode): Id =
+func fromJson*(T: typedesc[Id], node: JsonNode
+    ): Result[Id, ValidationError] =
   ## Deserialise a JSON string to Id (lenient: server-assigned).
   checkJsonKind(node, JString, $T)
   parseIdFromServer(node.getStr(""))
@@ -219,7 +249,8 @@ proc fromJson*(T: typedesc[Id], node: JsonNode): Id =
 
 ```nim
 # Distinct int type — validate JInt before extraction
-proc fromJson*(T: typedesc[UnsignedInt], node: JsonNode): UnsignedInt =
+func fromJson*(T: typedesc[UnsignedInt], node: JsonNode
+    ): Result[UnsignedInt, ValidationError] =
   ## Deserialise a JSON integer to UnsignedInt.
   checkJsonKind(node, JInt, $T)
   parseUnsignedInt(node.getBiggestInt(0))
@@ -227,35 +258,36 @@ proc fromJson*(T: typedesc[UnsignedInt], node: JsonNode): UnsignedInt =
 
 ```nim
 # Object type — validate JObject, then extract fields with kind checks
-proc fromJson*(T: typedesc[CoreCapabilities], node: JsonNode
-    ): CoreCapabilities =
+func fromJson*(T: typedesc[CoreCapabilities], node: JsonNode
+    ): Result[CoreCapabilities, ValidationError] =
   ## Deserialise urn:ietf:params:jmap:core capability data.
   checkJsonKind(node, JObject, $T)
-  let maxSizeUpload = UnsignedInt.fromJson(node{"maxSizeUpload"})
-  let maxConcurrentUpload = UnsignedInt.fromJson(node{"maxConcurrentUpload"})
-  let maxSizeRequest = UnsignedInt.fromJson(node{"maxSizeRequest"})
+  let maxSizeUpload = ? UnsignedInt.fromJson(node{"maxSizeUpload"})
+  let maxConcurrentUpload = ? UnsignedInt.fromJson(node{"maxConcurrentUpload"})
+  let maxSizeRequest = ? UnsignedInt.fromJson(node{"maxSizeRequest"})
   # Decision D2.6: accept both singular and plural forms (RFC §2.1 typo)
   let maxConcurrentRequests = block:
     let plural = node{"maxConcurrentRequests"}
     let singular = node{"maxConcurrentRequest"}
     if plural.isNil and singular.isNil:
-      raise parseError($T, "missing maxConcurrentRequests")
+      return err(parseError($T,
+        "missing maxConcurrentRequests"))
     let chosen = if plural.isNil: singular else: plural
-    UnsignedInt.fromJson(chosen)
-  let maxCallsInRequest = UnsignedInt.fromJson(node{"maxCallsInRequest"})
-  let maxObjectsInGet = UnsignedInt.fromJson(node{"maxObjectsInGet"})
-  let maxObjectsInSet = UnsignedInt.fromJson(node{"maxObjectsInSet"})
+    ? UnsignedInt.fromJson(chosen)
+  let maxCallsInRequest = ? UnsignedInt.fromJson(node{"maxCallsInRequest"})
+  let maxObjectsInGet = ? UnsignedInt.fromJson(node{"maxObjectsInGet"})
+  let maxObjectsInSet = ? UnsignedInt.fromJson(node{"maxObjectsInSet"})
   let collationAlgorithms = block:
     let arr = node{"collationAlgorithms"}
     checkJsonKind(arr, JArray, $T,
       "missing or invalid collationAlgorithms")
-    var algs: seq[string] = @[]
+    var algs: seq[string]
     for elem in arr.getElems(@[]):
       checkJsonKind(elem, JString, $T,
         "collationAlgorithms element must be string")
       algs.add(elem.getStr(""))
     toHashSet(algs)
-  CoreCapabilities(
+  ok(CoreCapabilities(
     maxSizeUpload: maxSizeUpload,
     maxConcurrentUpload: maxConcurrentUpload,
     maxSizeRequest: maxSizeRequest,
@@ -264,53 +296,75 @@ proc fromJson*(T: typedesc[CoreCapabilities], node: JsonNode
     maxObjectsInGet: maxObjectsInGet,
     maxObjectsInSet: maxObjectsInSet,
     collationAlgorithms: collationAlgorithms,
-  )
+  ))
 ```
 
 ```nim
 # Array type — validate JArray first, THEN check len (split for clarity)
-proc fromJson*(T: typedesc[Invocation], node: JsonNode): Invocation =
+func fromJson*(T: typedesc[Invocation], node: JsonNode
+    ): Result[Invocation, ValidationError] =
   ## Deserialise a 3-element JSON array to Invocation (RFC 8620 §3.2).
   checkJsonKind(node, JArray, $T)
   if node.len != 3:
-    raise parseError($T, "expected exactly 3 elements")
+    return err(parseError($T, "expected exactly 3 elements"))
   let elems = node.getElems(@[])
-  let nameNode = elems[0]
-  checkJsonKind(nameNode, JString, $T, "method name must be string")
-  let name = nameNode.getStr("")
+  checkJsonKind(elems[0], JString, $T,
+    "method name must be string")
+  let name = elems[0].getStr("")
   let arguments = elems[1]
-  let callIdNode = elems[2]
-  checkJsonKind(callIdNode, JString, $T, "method call ID must be string")
-  let callIdRaw = callIdNode.getStr("")
-  checkJsonKind(arguments, JObject, $T, "arguments must be JSON object")
+  checkJsonKind(elems[2], JString, $T,
+    "method call ID must be string")
+  let callIdRaw = elems[2].getStr("")
+  checkJsonKind(arguments, JObject, $T,
+    "arguments must be JSON object")
   if name.len == 0:
-    raise parseError($T, "method name must not be empty")
+    return err(parseError($T, "method name must not be empty"))
   if callIdRaw.len == 0:
-    raise parseError($T, "method call ID must not be empty")
-  let mcid = parseMethodCallId(callIdRaw)
-  initInvocation(name, arguments, mcid)
+    return err(parseError($T, "method call ID must not be empty"))
+  let mcid = ? parseMethodCallId(callIdRaw)
+  ok(Invocation(name: name, arguments: arguments, methodCallId: mcid))
 ```
 
-**Option[T] field extraction patterns** (for fields like `collation:
-Option[string]`, `isAscending: bool` with default):
+Note: Nim's `or` short-circuits, so
+`node.isNil or node.kind != JArray or node.len != 3` is technically safe
+(`.len` only evaluated when node is non-nil JArray). However, splitting the
+check is clearer and avoids any doubt about nil-safety of `.len`.
+
+**Opt[T] field extraction patterns** (for fields like `description:
+Opt[string]`, `isAscending: bool` with default):
 
 ```nim
-# Bool field with RFC default — getBool is nil-safe, returns default
-let ascNode = node{"isAscending"}
-if not ascNode.isNil:
-  if ascNode.kind != JBool:
-    raise parseError($T, "isAscending must be boolean")
-let isAscending = ascNode.getBool(true)
-  # nil-safe; returns true (RFC default) when absent
+# Required bool field with RFC default — use getBool AFTER kind check
+let isAscending =
+  if node{"isAscending"}.isNil:
+    true  # RFC §5.5 default when absent
+  elif node{"isAscending"}.kind == JBool:
+    node{"isAscending"}.getBool(true)
+  else:
+    return err(parseError($T, "isAscending must be boolean"))
 ```
 
 ```nim
-# Option[string] field — absent or wrong kind -> none (§1.4b)
-let collNode = node{"collation"}
-var collation = none(string)
-if not collNode.isNil:
-  if collNode.kind == JString:
-    collation = some(collNode.getStr(""))
+# Opt[string] field — absent, null, or wrong kind → Opt.none (§1.4b)
+let description: Opt[string] =
+  if node{"description"}.isNil or node{"description"}.kind != JString:
+    Opt.none(string)
+  else:
+    Opt.some(node{"description"}.getStr(""))
+```
+
+```nim
+# Opt[seq[string]] field — absent → empty seq (defensive, per L1 §8.10)
+let properties: seq[string] =
+  if node{"properties"}.isNil or node{"properties"}.kind != JArray:
+    @[]
+  else:
+    var items: seq[string]
+    for item in node{"properties"}.getElems(@[]):
+      checkJsonKind(item, JString, "MethodResponse",
+        "properties element must be string")
+      items.add(item.getStr(""))
+    items
 ```
 
 These patterns are **non-negotiable for totality**. Documented here once,
@@ -318,7 +372,7 @@ referenced throughout Sections 3–8.
 
 ### 1.3 Layer Boundary
 
-Layer 2 operates exclusively on pre-parsed `JsonNode` trees — `proc`
+Layer 2 operates exclusively on pre-parsed `JsonNode` trees — pure `func`
 transforms from `JsonNode` to typed values (or `ValidationError`). The
 `string → JsonNode` step requires exception handling
 (`std/json.parseJson` raises `JsonParsingError`) and is out of scope.
@@ -328,67 +382,66 @@ functions.
 ### 1.4 Shared Helpers
 
 ```nim
-proc parseError*(typeName, message: string): ref ValidationError =
+func parseError*(typeName, message: string): ValidationError =
   ## Convenience constructor for deserialisation errors.
-  ## Sets value to empty — JSON context is captured in message.
-  newValidationError(typeName, message, "")
+  validationError(typeName, message, "")
 ```
 
 ```nim
-proc checkJsonKind*(node: JsonNode, expected: JsonNodeKind,
+template checkJsonKind*(node: JsonNode, expected: JsonNodeKind,
     typeName: string, message: string = "") =
-  ## Validates JsonNodeKind before extraction. Raises ValidationError on mismatch.
-  let checkMsg =
-    if message.len > 0: message
-    else: "expected JSON " & $expected
-  if node.isNil:
-    raise newValidationError(typeName, checkMsg, "")
-  if node.kind != expected:
-    raise newValidationError(typeName, checkMsg, "")
+  ## Validates JsonNodeKind before extraction. Returns err on mismatch.
+  ## The `return` exits the calling function (template inlines at call site).
+  if node.isNil or node.kind != expected:
+    return err(parseError(typeName,
+      if message.len > 0: message else: "expected JSON " & $expected))
 ```
 
 ```nim
-proc collectExtras*(node: JsonNode, knownKeys: openArray[string]
-    ): Option[JsonNode] =
-  ## Collect non-standard fields from a JSON object into Option[JsonNode].
-  ## Returns none if no extra fields exist.
+func collectExtras*(node: JsonNode, knownKeys: openArray[string]
+    ): Opt[JsonNode] =
+  ## Collect non-standard fields from a JSON object into Opt[JsonNode].
+  ## Returns Opt.none if no extra fields exist.
   ## Precondition: caller has verified node.kind == JObject.
   var extras = newJObject()
   var found = false
-  for key, val in node.pairs:  # kind already verified by caller
-    if key notin knownKeys:
-      extras[key] = val
-      found = true
-  if found: some(extras) else: none(JsonNode)
+  {.cast(noSideEffect).}:  # §1.6: local ref mutation
+    for key, val in node.pairs:  # kind already verified by caller
+      if key notin knownKeys:
+        extras[key] = val
+        found = true
+  if found: Opt.some(extras) else: Opt.none(JsonNode)
 ```
 
-`collectExtras` is a `proc`. It requires `node.kind == JObject` pre-check
-by the caller. Iterates via `node.pairs` (kind pre-verified; avoids
-`getFields()` OrderedTable copy). Used by `RequestError`, `MethodError`,
-and `SetError` to preserve non-standard server fields for lossless
-round-trip (Decision 1.7C).
+`collectExtras` is a **`func`** (no side effects). It requires
+`node.kind == JObject` pre-check by the caller. Iterates via
+`node.pairs` (kind pre-verified; avoids `getFields()` OrderedTable copy).
+Uses `{.cast(noSideEffect).}:` for `JsonNode` mutation (§1.6). Used by
+`RequestError`, `MethodError`, and `SetError` to preserve non-standard
+server fields for lossless round-trip (Decision 1.7C).
 
 **Module:** `src/jmap_client/serde.nim`
 
-Two additional lenient Option field helpers live in `serde_errors.nim`
-(private, used only by the error `fromJson` functions). They reduce
-cyclomatic complexity by encapsulating the §1.4b absent/wrong-kind →
-`none` pattern:
+Two additional lenient Opt field helpers live in `serde_errors.nim` (private,
+used only by the error `fromJson` functions). They reduce cyclomatic
+complexity by encapsulating the §1.4b absent/wrong-kind → `Opt.none` pattern:
 
 ```nim
-proc optString(node: JsonNode, key: string): Option[string] =
+func optString(node: JsonNode, key: string): Opt[string] =
   ## Extract an optional string field leniently: absent or wrong kind -> none.
   let child = node{key}
-  if child.isNil: none(string)
-  elif child.kind != JString: none(string)
-  else: some(child.getStr(""))
+  if child.isNil or child.kind != JString:
+    Opt.none(string)
+  else:
+    Opt.some(child.getStr(""))
 
-proc optInt(node: JsonNode, key: string): Option[int] =
+func optInt(node: JsonNode, key: string): Opt[int] =
   ## Extract an optional integer field leniently: absent or wrong kind -> none.
   let child = node{key}
-  if child.isNil: none(int)
-  elif child.kind != JInt: none(int)
-  else: some(int(child.getBiggestInt(0)))
+  if child.isNil or child.kind != JInt:
+    Opt.none(int)
+  else:
+    Opt.some(int(child.getBiggestInt(0)))
 ```
 
 **Module:** `src/jmap_client/serde_errors.nim`
@@ -403,9 +456,9 @@ When `fromJson` fails deep inside a nested call chain (e.g.,
 
 This is an **intentional trade-off**:
 
-- **Pro:** `ValidationError` is the same exception type as Layer 1 smart
-  constructors, enabling natural exception propagation through the call
-  chain.
+- **Pro:** `ValidationError` is the same type as Layer 1 smart constructors,
+  enabling zero-`mapErr` composition via `?`. Adding a `context` field
+  would break this alignment or require modifying the Layer 1 type.
 - **Pro:** The `typeName` field narrows the search space (e.g.,
   "UnsignedInt" means one of ~7 fields in `CoreCapabilities`).
 - **Con:** Debugging requires reading the `fromJson` implementation to
@@ -416,17 +469,17 @@ This is an **intentional trade-off**:
 This matches Layer 1's design: `ValidationError` carries `typeName` +
 `message` + `value`, not a full call trace.
 
-### 1.4b Option Field Leniency Policy
+### 1.4b Opt Field Leniency Policy
 
-All `Option[T]` fields use a **lenient two-branch pattern** for wrong JSON
-kinds: absent, null, or wrong kind all map to `none(T)`. Wrong kind
-does NOT raise.
+All `Opt[T]` fields use a **lenient two-branch pattern** for wrong JSON
+kinds: absent, null, or wrong kind all map to `Opt.none(T)`. Wrong kind
+does NOT return `err`.
 
 **Rationale:**
 
 - This is a CLIENT library parsing server-originated data. Postel's law
   applies: "be liberal in what you accept."
-- `Option` fields are optional by definition — callers already handle the
+- `Opt` fields are optional by definition — callers already handle the
   absent case via `isNone`/`isSome`.
 - For error types specifically, strictness is actively harmful: if
   `MethodError.description` has wrong kind, a strict approach fails the
@@ -438,26 +491,27 @@ does NOT raise.
 **Canonical patterns:**
 
 ```nim
-# Option[string] — lenient (wrong kind -> none):
-let collNode = node{"collation"}
-var collation = none(string)
-if not collNode.isNil:
-  if collNode.kind == JString:
-    collation = some(collNode.getStr(""))
+# Opt[string] — lenient (wrong kind → none):
+let field: Opt[string] =
+  if node{"field"}.isNil or node{"field"}.kind != JString:
+    Opt.none(string)
+  else:
+    Opt.some(node{"field"}.getStr(""))
 
-# Option[int] — lenient (wrong kind -> none):
-let child = node{key}
-if child.isNil: none(int)
-elif child.kind != JInt: none(int)
-else: some(int(child.getBiggestInt(0)))
+# Opt[int] — lenient (wrong kind → none):
+let field: Opt[int] =
+  if node{"field"}.isNil or node{"field"}.kind != JInt:
+    Opt.none(int)
+  else:
+    Opt.some(int(node{"field"}.getBiggestInt(0)))
 ```
 
-**Scope:** This policy applies to simple scalar `Option` fields (Sections
-4–8). Complex container `Option` types like `Option[Table[CreationId, Id]]`
-(Request/Response `createdIds`) retain strict handling because a wrong
-container kind (e.g., `"createdIds": "string"`) indicates a clear protocol
-violation, not a supplementary field issue. Required (non-`Option`) fields
-always use strict `checkJsonKind`.
+**Scope:** This policy applies to simple scalar `Opt` fields (Sections
+4–8). Complex container `Opt` types like `Opt[Table[CreationId, Id]]`
+(Request/Response `createdIds`) retain strict three-branch handling
+because a wrong container kind (e.g., `"createdIds": "string"`)
+indicates a clear protocol violation, not a supplementary field issue.
+Required (non-`Opt`) fields always use strict `checkJsonKind`.
 
 ### 1.5 Enum Deserialisation Totality
 
@@ -467,78 +521,131 @@ Layer 1's total `parseEnum` functions (`parseCapabilityKind`,
 `parseMethodErrorType`, etc.).
 
 **Exception:** `FilterOperator`. The three operators (`AND`, `OR`, `NOT`)
-are exhaustive per RFC §5.5. Unknown operators raise `ValidationError`
-because there is no catch-all variant — the RFC does not define a mechanism
-for server-extended operators.
+are exhaustive per RFC §5.5. Unknown operators return
+`err(ValidationError)` because there is no catch-all variant — the RFC does
+not define a mechanism for server-extended operators.
 
 **Module:** `src/jmap_client/serde_framework.nim` (for `FilterOperator`)
 
-### 1.6 `proc` and `std/json` — No Cast Blocks Required
+### 1.6 `strictFuncs` and `JsonNode` Mutation
 
-All Layer 2 routines use `proc`. The `strictFuncs` pragma was removed in
-the architecture revision. `std/json`'s `%`, `%*`, `[]=`, `.add()`,
-`newJObject()`, and `newJArray()` work directly in `proc` without any
-`{.cast(noSideEffect).}:` blocks.
+`config.nims` applies `strictFuncs` globally via
+`switch("experimental", "strictFuncs")`. `JsonNode` is `ref JsonNodeObj`
+(std/json line 194). Under `strictFuncs`, `std/json`'s `[]=`, `.add()`,
+`%`, and `%*` are all rejected inside `func` — they mutate through `ref`
+indirection or are declared as `proc` without `{.noSideEffect.}`.
 
-This eliminates the 36+ cast blocks that were present in the original design.
-Every `toJson` function directly uses `std/json` construction APIs:
+Every `toJson` function that constructs or mutates `JsonNode` MUST wrap the
+body in `{.cast(noSideEffect).}:`. This is mandatory under the project's
+compiler configuration.
+
+**What works in `func` without cast:**
+
+- All read-only accessors (`getStr`, `getBiggestInt`, `{}`, `getElems`,
+  `getFields`, `pairs`, `isNil`, `.kind`) — inferred as side-effect-free.
+  All `fromJson` functions are unaffected.
+- `newJNull()` — accepted in `func` under `strictFuncs` in Nim 2.2.8.
+  Confirmed by existing Layer 1 code (`framework.nim:98`).
+
+**What does NOT work in `func` without cast:**
+
+- `%*{...}` — the macro expands to `%` overloads which are side-effectful
+  `proc`s. Rejected by `strictFuncs`.
+- `result["key"] = val` — calls `proc []=*(obj: JsonNode, ...)` which
+  mutates through a `ref` parameter. Rejected by `strictFuncs`.
+- `arr.add(child)` — calls `proc add*(father, child: JsonNode)`. Rejected.
+- Scalar `%string(x)`, `%int64(x)` — the `%` overloads are `proc`s.
+  Rejected by `strictFuncs`.
+
+This means ALL `toJson` functions need the cast, including simple ones
+returning `%string(x)`. The only exceptions are `fromJson` functions (which
+use only read-only accessors) and `referencableKey` (which returns a
+`string`, not `JsonNode`).
+
+**Decision: `{.cast(noSideEffect).}:` wrapping the entire function body
+("full cast").**
+
+The single pattern wraps the entire `toJson` body in one cast block:
 
 ```nim
-proc toJson*(re: RequestError): JsonNode =
-  ## Serialise RequestError to RFC 7807 problem details JSON.
-  result = newJObject()
-  result["type"] = %re.rawType
-  if re.status.isSome:
-    result["status"] = %re.status.get()
-  if re.detail.isSome:
-    result["detail"] = %re.detail.get()
+func toJson*(re: RequestError): JsonNode =
+  {.cast(noSideEffect).}:  # §1.6: local ref mutation
+    result = newJObject()
+    result["type"] = %re.rawType
+    if re.status.isSome:
+      result["status"] = %re.status.get()
+    if re.detail.isSome:
+      result["detail"] = %re.detail.get()
 ```
+
+The cast is safe because: (a) mutations target only the locally-created
+`result` or locally-created intermediate `JsonNode` objects; (b) no
+pre-existing shared state is read or written; (c) the function is
+referentially transparent. This is the Nim equivalent of a scoped
+`unsafePerformIO` in Haskell.
+
+All `toJson` functions in Sections 3–8 use the full cast pattern. The cast
+block is documented once here and referenced throughout.
 
 ---
 
 ## 2. Serialisation Pattern Catalogue
 
-Most types follow one of three patterns; ~4-5 special types require custom
-handling.
+Decision 2.1A specifies manual `toJson`/`fromJson` for each type. Most types
+follow one of three patterns; ~4-5 special types require custom handling.
 
 ### Pattern A: Simple Object
 
-Field-by-field `%*{...}` construction for `toJson`; `node{"field"}`
+Field-by-field `%*{...}` construction for `toJson`; `node{"field"}.getType(default)`
 extraction with kind checks for `fromJson`.
 
 **Canonical example: `Comparator`**
 
 ```nim
-proc toJson*(c: Comparator): JsonNode =
+func toJson*(c: Comparator): JsonNode =
   ## Serialise Comparator to JSON (RFC 8620 §5.5).
-  result = %*{"property": string(c.property), "isAscending": c.isAscending}
-  if c.collation.isSome:
-    result["collation"] = %c.collation.get()
+  {.cast(noSideEffect).}:  # §1.6: full cast
+    result = %*{"property": string(c.property), "isAscending": c.isAscending}
+    if c.collation.isSome:
+      result["collation"] = %c.collation.get()
 
-proc fromJson*(T: typedesc[Comparator], node: JsonNode): Comparator =
+func parseComparatorCore(
+    node: JsonNode, typeName: string
+): Result[(PropertyName, bool, Opt[string]), ValidationError] =
+  ## Parse Comparator fields from JSON. Separated to avoid the requiresInit
+  ## interaction: Comparator contains PropertyName {.requiresInit.}, so
+  ## err()/? on Result[Comparator, ValidationError] fails to compile.
+  checkJsonKind(node, JObject, typeName)
+  checkJsonKind(node{"property"}, JString, typeName,
+    "missing or invalid property")
+  let property = ? parsePropertyName(node{"property"}.getStr(""))
+  let isAscending =
+    if node{"isAscending"}.isNil: true  # RFC default
+    elif node{"isAscending"}.kind == JBool:
+      node{"isAscending"}.getBool(true)
+    else:
+      return err(parseError(typeName, "isAscending must be boolean"))
+  let collation: Opt[string] =  # §1.4b: lenient
+    if node{"collation"}.isNil or node{"collation"}.kind != JString:
+      Opt.none(string)
+    else:
+      Opt.some(node{"collation"}.getStr(""))
+  ok((property, isAscending, collation))
+
+func fromJson*(T: typedesc[Comparator], node: JsonNode
+    ): Result[Comparator, ValidationError] =
   ## Deserialise JSON to Comparator (RFC 8620 §5.5).
-  checkJsonKind(node, JObject, $T)
-  let propNode = node{"property"}
-  checkJsonKind(propNode, JString, $T, "missing or invalid property")
-  let property = parsePropertyName(propNode.getStr(""))
-  let ascNode = node{"isAscending"}
-  if not ascNode.isNil:
-    if ascNode.kind != JBool:
-      raise parseError($T, "isAscending must be boolean")
-  let isAscending = ascNode.getBool(true)
-    # nil-safe; returns true (RFC default) when absent
-  let collNode = node{"collation"}
-  var collation = none(string)
-  if not collNode.isNil:
-    if collNode.kind == JString:
-      collation = some(collNode.getStr(""))
-  parseComparator(property, isAscending, collation)
+  ## Uses initResultErr and helper func because Comparator has PropertyName
+  ## {.requiresInit.}, triggering the nim-results requiresInit limitation.
+  let coreResult = parseComparatorCore(node, $T)
+  if coreResult.isErr:
+    return initResultErr[Comparator, ValidationError](coreResult.error)
+  let core = coreResult.get()
+  let comparator = parseComparator(core[0], core[1], core[2])
+  if comparator.isErr:
+    return initResultErr[Comparator, ValidationError](comparator.error)
+  ok(comparator.get())
 ```
-
-Note: unlike the original design, no `parseComparatorCore` helper or
-`initResultErr` workaround is needed. The architecture revision removed
-`{.requiresInit.}` from distinct types, eliminating the nim-results
-`requiresInit` limitation that required tuple-packing workarounds.
 
 Types using Pattern A: `CoreCapabilities`, `Account`,
 `AccountCapabilityEntry`, `Session` (composite), `Comparator`, `AddedItem`,
@@ -547,48 +654,66 @@ Types using Pattern A: `CoreCapabilities`, `Account`,
 ### Pattern B: Case Object
 
 Discriminator dispatch in `fromJson`, branch-specific construction in
-`toJson`. Each branch uses a compile-time literal discriminator.
+`toJson`. Discriminator must be a compile-time literal at construction site
+(`strictCaseObjects`).
 
 **Canonical example: `ServerCapability`**
 
 ```nim
-proc toJson*(cap: ServerCapability): JsonNode =
+func toJson*(cap: ServerCapability): JsonNode =
   ## Serialise capability data (not the URI key — handled by Session.toJson).
   case cap.kind
   of ckCore: cap.core.toJson()
   else:
-    if cap.rawData.isNil: newJObject() else: cap.rawData.copy()
+    if cap.rawData.isNil: newJObject() else: cap.rawData
 
-proc ownData(data: JsonNode): JsonNode =
+func ownData(data: JsonNode): JsonNode =
   ## Deep-copy a JsonNode to avoid ARC double-free on shared refs.
-  if data.isNil: newJObject() else: data.copy()
+  ## Mirrors the pattern used by AccountCapabilityEntry.fromJson.
+  {.cast(noSideEffect).}:
+    if data.isNil: newJObject() else: data.copy()
 
-proc fromJson*(T: typedesc[ServerCapability], uri: string, data: JsonNode
-    ): ServerCapability =
+func fromJson*(T: typedesc[ServerCapability], uri: string, data: JsonNode
+    ): Result[ServerCapability, ValidationError] =
   ## Deserialise a capability from its URI and JSON data.
+  ## Non-core capabilities deep-copy data to avoid ARC double-free on shared
+  ## JsonNode refs, and use compile-time literal discriminators (exhaustive
+  ## case) instead of uncheckedAssign — see ARC safety note below.
   let parsedKind = parseCapabilityKind(uri)
   case parsedKind
   of ckCore:
-    checkJsonKind(data, JObject, $T, "core capability data must be JSON object")
-    let core = CoreCapabilities.fromJson(data)
-    ServerCapability(kind: ckCore, rawUri: uri, core: core)
+    checkJsonKind(data, JObject, $T,
+      "core capability data must be JSON object")
+    let core = ? CoreCapabilities.fromJson(data)
+    ok(ServerCapability(kind: ckCore, rawUri: uri, core: core))
   of ckMail:
-    ServerCapability(kind: ckMail, rawUri: uri, rawData: ownData(data))
+    ok(ServerCapability(kind: ckMail, rawUri: uri, rawData: ownData(data)))
   of ckSubmission:
-    ServerCapability(kind: ckSubmission, rawUri: uri, rawData: ownData(data))
+    ok(ServerCapability(kind: ckSubmission, rawUri: uri, rawData: ownData(data)))
   # ... (one branch per CapabilityKind variant)
   of ckUnknown:
-    ServerCapability(kind: ckUnknown, rawUri: uri, rawData: ownData(data))
+    ok(ServerCapability(kind: ckUnknown, rawUri: uri, rawData: ownData(data)))
 ```
 
 **ARC safety: deep copy + exhaustive case.** Non-core branches deep-copy
 `data` via `ownData()` to avoid ARC double-free when the input `JsonNode`
-tree is shared between multiple capabilities. Each branch uses a
-compile-time literal discriminator (`ckMail`, `ckSubmission`, etc.) rather
-than `{.cast(uncheckedAssign).}:` — runtime discriminator reassignment
+tree is shared between multiple capabilities (e.g., when the JSON parser
+reuses nodes). This mirrors the pattern used by
+`AccountCapabilityEntry.fromJson`. Each branch also uses a compile-time
+literal discriminator (`ckMail`, `ckSubmission`, etc.) rather than
+`{.cast(uncheckedAssign).}:` — runtime discriminator reassignment
 **corrupts ARC's branch tracking** on case objects whose `else` branch
-contains `ref` fields (like `rawData: JsonNode`). The exhaustive case
-avoids this by never mutating the discriminator after construction.
+contains `ref` fields (like `rawData: JsonNode`). ARC erroneously runs
+the branch destructor on discriminator change even when both the old and
+new values are in the same `else` branch, causing double-free on
+subsequent object destruction. This was confirmed with Nim 2.2.8 under
+`--mm:arc`. The exhaustive case avoids this by never mutating the
+discriminator after construction.
+
+**Note:** Layer 1's `SetError` constructor (01-layer-1-design.md §8.10)
+uses `{.cast(uncheckedAssign).}:` safely because its `else: discard` branch
+has **no `ref` fields** — ARC has nothing to mistrack. The pattern is only
+unsafe when the `else` branch contains `ref` types.
 
 Types using Pattern B: `ServerCapability`, `SetError`.
 
@@ -609,7 +734,7 @@ Types using Pattern C: `Invocation`, `Referencable[T]`, `PatchObject`,
 | Type | Pattern | Notes |
 |------|---------|-------|
 | Id, AccountId, JmapState, MethodCallId, CreationId, UriTemplate, PropertyName, Date, UTCDate | Identity (unwrap/wrap) | Subset of A |
-| UnsignedInt, JmapInt, MaxChanges | Identity (unwrap/wrap) | Subset of A |
+| UnsignedInt, JmapInt | Identity (unwrap/wrap) | Subset of A |
 | CapabilityKind, FilterOperator, RequestErrorType, MethodErrorType, SetErrorType | Enum string | Subset of A |
 | CoreCapabilities | A: Simple Object | 8 fields |
 | Account | A: Simple Object | with nested accountCapabilities |
@@ -618,8 +743,8 @@ Types using Pattern C: `Invocation`, `Referencable[T]`, `PatchObject`,
 | Comparator | A: Simple Object | with defaults |
 | AddedItem | A: Simple Object | |
 | ResultReference | A: Simple Object | |
-| Request | A: Simple Object | with Option field |
-| Response | A: Simple Object | with Option field |
+| Request | A: Simple Object | with Opt field |
+| Response | A: Simple Object | with Opt field |
 | RequestError | A: Simple Object | with extras collection |
 | MethodError | A: Simple Object | with extras collection |
 | ServerCapability | B: Case Object | URI dispatch |
@@ -645,15 +770,15 @@ constructor for `fromJson`.
 **`toJson` (shared pattern):**
 
 ```nim
-proc toJson*(x: Id): JsonNode = %(string(x))
-proc toJson*(x: AccountId): JsonNode = %(string(x))
-proc toJson*(x: JmapState): JsonNode = %(string(x))
-proc toJson*(x: MethodCallId): JsonNode = %(string(x))
-proc toJson*(x: CreationId): JsonNode = %(string(x))
-proc toJson*(x: UriTemplate): JsonNode = %(string(x))
-proc toJson*(x: PropertyName): JsonNode = %(string(x))
-proc toJson*(x: Date): JsonNode = %(string(x))
-proc toJson*(x: UTCDate): JsonNode = %(string(x))
+func toJson*(x: Id): JsonNode = {.cast(noSideEffect).}: %string(x)
+func toJson*(x: AccountId): JsonNode = {.cast(noSideEffect).}: %string(x)
+func toJson*(x: JmapState): JsonNode = {.cast(noSideEffect).}: %string(x)
+func toJson*(x: MethodCallId): JsonNode = {.cast(noSideEffect).}: %string(x)
+func toJson*(x: CreationId): JsonNode = {.cast(noSideEffect).}: %string(x)
+func toJson*(x: UriTemplate): JsonNode = {.cast(noSideEffect).}: %string(x)
+func toJson*(x: PropertyName): JsonNode = {.cast(noSideEffect).}: %string(x)
+func toJson*(x: Date): JsonNode = {.cast(noSideEffect).}: %string(x)
+func toJson*(x: UTCDate): JsonNode = {.cast(noSideEffect).}: %string(x)
 ```
 
 **`fromJson` (per-type, documenting which smart constructor is called):**
@@ -673,11 +798,12 @@ proc toJson*(x: UTCDate): JsonNode = %(string(x))
 All `fromJson` share the same structure (Id shown in §1.2a). Each validates
 `JString` kind via `$T` (the type name derived from the `typedesc`
 parameter), then delegates to the appropriate Layer 1 smart constructor.
-The smart constructor raises `ValidationError` on invalid input and returns
-the type directly on success.
+The smart constructor returns `Result[T, ValidationError]` which is
+returned directly — no `?` operator needed since the return types match.
 
 ```nim
-proc fromJson*(T: typedesc[AccountId], node: JsonNode): AccountId =
+func fromJson*(T: typedesc[AccountId], node: JsonNode
+    ): Result[AccountId, ValidationError] =
   ## Deserialise a JSON string to AccountId (lenient: server-assigned).
   checkJsonKind(node, JString, $T)
   parseAccountId(node.getStr(""))
@@ -692,31 +818,30 @@ appropriate smart constructor.
 
 **RFC reference:** §1.3 (lines 320–342).
 
-Three types: `UnsignedInt` (0 to 2^53-1), `JmapInt` (-2^53+1 to 2^53-1),
-and `MaxChanges` (UnsignedInt > 0).
+Two types: `UnsignedInt` (0 to 2^53-1) and `JmapInt` (-2^53+1 to 2^53-1).
 
 ```nim
-proc toJson*(x: UnsignedInt): JsonNode = %(int64(x))
-proc toJson*(x: JmapInt): JsonNode = %(int64(x))
-proc toJson*(x: MaxChanges): JsonNode = %(int64(UnsignedInt(x)))
+func toJson*(x: UnsignedInt): JsonNode =
+  ## Serialise UnsignedInt to JSON integer.
+  {.cast(noSideEffect).}: %int64(x)
+
+func toJson*(x: JmapInt): JsonNode =
+  ## Serialise JmapInt to JSON integer.
+  {.cast(noSideEffect).}: %int64(x)
 ```
 
 ```nim
-proc fromJson*(T: typedesc[UnsignedInt], node: JsonNode): UnsignedInt =
+func fromJson*(T: typedesc[UnsignedInt], node: JsonNode
+    ): Result[UnsignedInt, ValidationError] =
   ## Deserialise a JSON integer to UnsignedInt.
   checkJsonKind(node, JInt, $T)
   parseUnsignedInt(node.getBiggestInt(0))
 
-proc fromJson*(T: typedesc[JmapInt], node: JsonNode): JmapInt =
+func fromJson*(T: typedesc[JmapInt], node: JsonNode
+    ): Result[JmapInt, ValidationError] =
   ## Deserialise a JSON integer to JmapInt.
   checkJsonKind(node, JInt, $T)
   parseJmapInt(node.getBiggestInt(0))
-
-proc fromJson*(T: typedesc[MaxChanges], node: JsonNode): MaxChanges =
-  ## Deserialise a JSON integer to MaxChanges (must be > 0).
-  checkJsonKind(node, JInt, $T)
-  let ui = parseUnsignedInt(node.getBiggestInt(0))
-  parseMaxChanges(ui)
 ```
 
 `getBiggestInt` returns `BiggestInt` (`int64`) — correct for `distinct int64`
@@ -756,24 +881,25 @@ let errorType = parseSetErrorType(raw)     # total, returns SetErrorType
 
 **FilterOperator exception.** The three operators are exhaustive per
 RFC §5.5 — no catch-all variant exists. Deserialisation of unknown
-operators raises `ValidationError`:
+operators returns `Result.err`:
 
 ```nim
-proc toJson*(op: FilterOperator): JsonNode =
+func toJson*(op: FilterOperator): JsonNode =
   ## Serialise FilterOperator to its RFC string.
-  %($op)  # $ returns backing string: "AND", "OR", "NOT"
+  {.cast(noSideEffect).}: %($op)  # $ returns backing string: "AND", "OR", "NOT"
 
-proc fromJson*(T: typedesc[FilterOperator], node: JsonNode
-    ): FilterOperator =
+func fromJson*(T: typedesc[FilterOperator], node: JsonNode
+    ): Result[FilterOperator, ValidationError] =
   ## Deserialise a JSON string to FilterOperator. Not total — unknown
-  ## operators raise because the RFC defines exactly three.
+  ## operators return err because the RFC defines exactly three.
   checkJsonKind(node, JString, $T)
   case node.getStr("")
-  of "AND": foAnd
-  of "OR": foOr
-  of "NOT": foNot
+  of "AND": ok(foAnd)
+  of "OR": ok(foOr)
+  of "NOT": ok(foNot)
   else:
-    raise parseError($T, "unknown operator: " & node.getStr(""))
+    err(parseError($T,
+      "unknown operator: " & node.getStr("")))
 ```
 
 **Module:** `src/jmap_client/serde_framework.nim` (FilterOperator only).
@@ -817,31 +943,35 @@ plus `collationAlgorithms` as a JSON array → `HashSet[string]`.
 **`toJson`:**
 
 ```nim
-proc toJson*(caps: CoreCapabilities): JsonNode =
+func toJson*(caps: CoreCapabilities): JsonNode =
   ## Serialise CoreCapabilities to JSON (RFC 8620 §2).
-  result = %*{
-    "maxSizeUpload": int64(caps.maxSizeUpload),
-    "maxConcurrentUpload": int64(caps.maxConcurrentUpload),
-    "maxSizeRequest": int64(caps.maxSizeRequest),
-    "maxConcurrentRequests": int64(caps.maxConcurrentRequests),
-    "maxCallsInRequest": int64(caps.maxCallsInRequest),
-    "maxObjectsInGet": int64(caps.maxObjectsInGet),
-    "maxObjectsInSet": int64(caps.maxObjectsInSet),
-  }
-  var algArr = newJArray()
-  for alg in caps.collationAlgorithms:
-    algArr.add(%alg)
-  result["collationAlgorithms"] = algArr
+  {.cast(noSideEffect).}:  # §1.6: full cast
+    result = %*{
+      "maxSizeUpload": int64(caps.maxSizeUpload),
+      "maxConcurrentUpload": int64(caps.maxConcurrentUpload),
+      "maxSizeRequest": int64(caps.maxSizeRequest),
+      "maxConcurrentRequests": int64(caps.maxConcurrentRequests),
+      "maxCallsInRequest": int64(caps.maxCallsInRequest),
+      "maxObjectsInGet": int64(caps.maxObjectsInGet),
+      "maxObjectsInSet": int64(caps.maxObjectsInSet),
+    }
+    var algArr = newJArray()
+    for alg in caps.collationAlgorithms:
+      algArr.add(%alg)
+    result["collationAlgorithms"] = algArr
 ```
 
 `collationAlgorithms` is built via a manual `newJArray()` loop rather than
-a `collect` nested inside `%*`. The manual loop is consistent with the
-iteration pattern used throughout Layer 2.
+`collect` nested inside `%*`. While the nested `collect` compiles (Nim
+2.2.8), at runtime it triggers a SIGSEGV under `--mm:arc` due to
+interaction between the `collect` macro expansion, the `%*` macro, and
+ARC's reference tracking inside `{.cast(noSideEffect).}:` blocks. The
+manual loop is consistent with the iteration pattern used in
+`Account.toJson` and `Session.toJson`. `std/sugar` is not imported.
 
 **`fromJson`:** Full code shown in §1.2a (the canonical object example).
-Calls `parseUnsignedInt` for each numeric field (via `UnsignedInt.fromJson`
-which delegates). Uses `toHashSet` from `std/sets` for
-`collationAlgorithms`.
+Calls `parseUnsignedInt` for each numeric field via `?`. Uses `toHashSet`
+from `std/sets` for `collationAlgorithms`.
 
 **Decision D2.6: RFC typo tolerance.** The RFC §2.1 example (line 753)
 uses `"maxConcurrentRequest"` (singular) instead of
@@ -881,9 +1011,10 @@ example). Dispatches on `parseCapabilityKind(uri)` → `ckCore` calls
 improved error context; all other kinds use exhaustive `case` branches
 with compile-time literal discriminators.
 
-**`toJson` deep-copy.** `ServerCapability.toJson` deep-copies `rawData`
-for non-core capabilities (via `.copy()`) to prevent callers from mutating
-internal state through the returned `ref`.
+**`strictCaseObjects` + ARC compliance.** Each `case` branch uses a
+compile-time literal discriminator. `{.cast(uncheckedAssign).}:` is NOT
+used — it corrupts ARC branch tracking when `else` branches contain `ref`
+fields like `rawData: JsonNode` (see §2 Pattern B ARC safety note).
 
 **Module:** `src/jmap_client/serde_session.nim`
 
@@ -907,28 +1038,37 @@ capability data.
 **`toJson`:**
 
 ```nim
-proc toJson*(entry: AccountCapabilityEntry): JsonNode =
+func toJson*(entry: AccountCapabilityEntry): JsonNode =
   ## Serialise the capability data (URI key handled by Account.toJson).
-  if entry.data.isNil: newJObject() else: entry.data.copy()
+  if entry.data.isNil: newJObject() else: entry.data
 ```
 
 **`fromJson`:**
 
 ```nim
-proc fromJson*(T: typedesc[AccountCapabilityEntry], uri: string,
-    data: JsonNode): AccountCapabilityEntry =
+func fromJson*(T: typedesc[AccountCapabilityEntry], uri: string,
+    data: JsonNode): Result[AccountCapabilityEntry, ValidationError] =
   ## Deserialise an account capability entry from URI and JSON data.
   if uri.len == 0:
-    raise parseError($T, "capability URI must not be empty")
-  let ownedData =
-    if data.isNil: newJObject() else: data.copy()
-  AccountCapabilityEntry(
-    kind: parseCapabilityKind(uri), rawUri: uri, data: ownedData)
+    return err(parseError($T, "capability URI must not be empty"))
+  let ownedData = block:
+    {.cast(noSideEffect).}:
+      if data.isNil: newJObject() else: data.copy()
+  ok(AccountCapabilityEntry(
+    kind: parseCapabilityKind(uri),
+    rawUri: uri,
+    data: ownedData,
+  ))
 ```
 
 Validates URI is non-empty. Deep-copies `data` via `data.copy()` to
 avoid ARC double-free when the input `JsonNode` tree and the parsed
-`AccountCapabilityEntry` are destroyed independently.
+`AccountCapabilityEntry` are destroyed independently (see §2 Pattern B
+ARC safety note for the same category of issue). The `copy()` call
+requires `{.cast(noSideEffect).}:` because `JsonNode.copy` is a `proc`.
+All account capability data is stored as raw JSON in the Core-only
+implementation. When specific RFCs are added, this may evolve to a case
+object with typed branches.
 
 **Module:** `src/jmap_client/serde_session.nim`
 
@@ -960,24 +1100,29 @@ flags, and per-account capability information.
 **`toJson`:**
 
 ```nim
-proc toJson*(acct: Account): JsonNode =
+func toJson*(acct: Account): JsonNode =
   ## Serialise Account to JSON (RFC 8620 §2).
-  result =
-    %*{"name": acct.name, "isPersonal": acct.isPersonal,
-       "isReadOnly": acct.isReadOnly}
-  var acctCaps = newJObject()
-  for _, entry in acct.accountCapabilities:
-    acctCaps[entry.rawUri] = entry.toJson()
-  result["accountCapabilities"] = acctCaps
+  {.cast(noSideEffect).}:  # §1.6: full cast
+    result = %*{
+      "name": acct.name,
+      "isPersonal": acct.isPersonal,
+      "isReadOnly": acct.isReadOnly,
+    }
+    var acctCaps = newJObject()
+    for entry in acct.accountCapabilities:
+      acctCaps[entry.rawUri] = entry.toJson()
+    result["accountCapabilities"] = acctCaps
 ```
 
 **`fromJson`:**
 
 ```nim
-proc fromJson*(T: typedesc[Account], node: JsonNode): Account =
+func fromJson*(T: typedesc[Account], node: JsonNode
+    ): Result[Account, ValidationError] =
   ## Deserialise JSON to Account (RFC 8620 §2).
   checkJsonKind(node, JObject, $T)
-  checkJsonKind(node{"name"}, JString, $T, "missing or invalid name")
+  checkJsonKind(node{"name"}, JString, $T,
+    "missing or invalid name")
   let name = node{"name"}.getStr("")
   checkJsonKind(node{"isPersonal"}, JBool, $T,
     "missing or invalid isPersonal")
@@ -988,16 +1133,16 @@ proc fromJson*(T: typedesc[Account], node: JsonNode): Account =
   let acctCapsNode = node{"accountCapabilities"}
   checkJsonKind(acctCapsNode, JObject, $T,
     "missing or invalid accountCapabilities")
-  var accountCapabilities: seq[AccountCapabilityEntry] = @[]
+  var accountCapabilities: seq[AccountCapabilityEntry]
   for uri, data in acctCapsNode.pairs:  # kind verified above
-    let entry = AccountCapabilityEntry.fromJson(uri, data)
+    let entry = ? AccountCapabilityEntry.fromJson(uri, data)
     accountCapabilities.add(entry)
-  Account(
+  ok(Account(
     name: name,
     isPersonal: isPersonal,
     isReadOnly: isReadOnly,
     accountCapabilities: accountCapabilities,
-  )
+  ))
 ```
 
 **No standalone smart constructor.** Accounts are validated as part of
@@ -1016,61 +1161,68 @@ for the complete JSON.
 **`toJson`:**
 
 ```nim
-proc toJson*(s: Session): JsonNode =
+func toJson*(s: Session): JsonNode =
   ## Serialise Session to JSON (RFC 8620 §2).
-  result = %*{
-    "username": s.username,
-    "apiUrl": s.apiUrl,
-    "downloadUrl": string(s.downloadUrl),
-    "uploadUrl": string(s.uploadUrl),
-    "eventSourceUrl": string(s.eventSourceUrl),
-    "state": string(s.state),
-  }
-  # capabilities: URI -> capability data
-  var caps = newJObject()
-  for _, cap in s.capabilities:
-    caps[cap.rawUri] = cap.toJson()
-  result["capabilities"] = caps
-  # accounts: AccountId -> Account
-  var accts = newJObject()
-  for id, acct in s.accounts:
-    accts[string(id)] = acct.toJson()
-  result["accounts"] = accts
-  # primaryAccounts: capability URI -> AccountId
-  var primary = newJObject()
-  for uri, id in s.primaryAccounts:
-    primary[uri] = %string(id)
-  result["primaryAccounts"] = primary
+  {.cast(noSideEffect).}:  # §1.6: full cast
+    result = %*{
+      "username": s.username,
+      "apiUrl": s.apiUrl,
+      "downloadUrl": string(s.downloadUrl),
+      "uploadUrl": string(s.uploadUrl),
+      "eventSourceUrl": string(s.eventSourceUrl),
+      "state": string(s.state),
+    }
+    # capabilities: URI → capability data
+    var caps = newJObject()
+    for cap in s.capabilities:
+      caps[cap.rawUri] = cap.toJson()
+    result["capabilities"] = caps
+    # accounts: AccountId → Account
+    var accts = newJObject()
+    for id, acct in s.accounts:
+      accts[string(id)] = acct.toJson()
+    result["accounts"] = accts
+    # primaryAccounts: capability URI → AccountId
+    var primary = newJObject()
+    for uri, id in s.primaryAccounts:
+      primary[uri] = %string(id)
+    result["primaryAccounts"] = primary
 ```
 
 **Assumption:** `capabilities` contains no duplicate `rawUri` values. This
 is guaranteed by `fromJson` (JSON object keys are unique via
 `OrderedTable`). Programmatic construction must ensure uniqueness;
-duplicates cause silent overwrite in `toJson`.
+duplicates cause silent overwrite in `toJson`. Enforcing uniqueness in
+the type system (e.g., `Table[string, ServerCapability]`) is a Layer 1
+concern — see architecture §1.2A rationale for `seq` (ordered iteration,
+pattern-matchable by kind).
 
 **`fromJson`:**
 
 ```nim
-proc fromJson*(T: typedesc[Session], node: JsonNode): Session =
+func fromJson*(T: typedesc[Session], node: JsonNode
+    ): Result[Session, ValidationError] =
   ## Deserialise JSON to Session (RFC 8620 §2). Calls parseSession for
   ## structural invariant validation.
   checkJsonKind(node, JObject, $T)
 
   # 1. Parse capabilities
   let capsNode = node{"capabilities"}
-  checkJsonKind(capsNode, JObject, $T, "missing or invalid capabilities")
-  var capabilities: seq[ServerCapability] = @[]
-  for uri, data in capsNode.pairs:
-    let cap = ServerCapability.fromJson(uri, data)
+  checkJsonKind(capsNode, JObject, $T,
+    "missing or invalid capabilities")
+  var capabilities: seq[ServerCapability]
+  for uri, data in capsNode.pairs:  # kind verified above
+    let cap = ? ServerCapability.fromJson(uri, data)
     capabilities.add(cap)
 
   # 2. Parse accounts
   let acctsNode = node{"accounts"}
-  checkJsonKind(acctsNode, JObject, $T, "missing or invalid accounts")
+  checkJsonKind(acctsNode, JObject, $T,
+    "missing or invalid accounts")
   var accounts = initTable[AccountId, Account]()
-  for idStr, acctData in acctsNode.pairs:
-    let accountId = parseAccountId(idStr)
-    let account = Account.fromJson(acctData)
+  for idStr, acctData in acctsNode.pairs:  # kind verified above
+    let accountId = ? parseAccountId(idStr)
+    let account = ? Account.fromJson(acctData)
     accounts[accountId] = account
 
   # 3. Parse primaryAccounts (required per RFC §2)
@@ -1078,10 +1230,10 @@ proc fromJson*(T: typedesc[Session], node: JsonNode): Session =
   checkJsonKind(primaryNode, JObject, $T,
     "missing or invalid primaryAccounts")
   var primaryAccounts = initTable[string, AccountId]()
-  for uri, idNode in primaryNode.pairs:
+  for uri, idNode in primaryNode.pairs:  # kind verified above
     checkJsonKind(idNode, JString, $T,
       "primaryAccounts value must be string")
-    let accountId = parseAccountId(idNode.getStr(""))
+    let accountId = ? parseAccountId(idNode.getStr(""))
     primaryAccounts[uri] = accountId
 
   # 4. Parse scalar fields
@@ -1095,18 +1247,18 @@ proc fromJson*(T: typedesc[Session], node: JsonNode): Session =
   # 5. Parse URI templates
   checkJsonKind(node{"downloadUrl"}, JString, $T,
     "missing or invalid downloadUrl")
-  let downloadUrl = parseUriTemplate(node{"downloadUrl"}.getStr(""))
+  let downloadUrl = ? parseUriTemplate(node{"downloadUrl"}.getStr(""))
   checkJsonKind(node{"uploadUrl"}, JString, $T,
     "missing or invalid uploadUrl")
-  let uploadUrl = parseUriTemplate(node{"uploadUrl"}.getStr(""))
+  let uploadUrl = ? parseUriTemplate(node{"uploadUrl"}.getStr(""))
   checkJsonKind(node{"eventSourceUrl"}, JString, $T,
     "missing or invalid eventSourceUrl")
-  let eventSourceUrl = parseUriTemplate(node{"eventSourceUrl"}.getStr(""))
+  let eventSourceUrl = ? parseUriTemplate(node{"eventSourceUrl"}.getStr(""))
 
   # 6. Parse state
   checkJsonKind(node{"state"}, JString, $T,
     "missing or invalid state")
-  let state = parseJmapState(node{"state"}.getStr(""))
+  let state = ? parseJmapState(node{"state"}.getStr(""))
 
   # 7. Call parseSession for structural invariant validation
   parseSession(
@@ -1123,11 +1275,14 @@ proc fromJson*(T: typedesc[Session], node: JsonNode): Session =
 ```
 
 **Rationale.** Session deserialisation is a 7-step sub-parse chain. Each
-step either succeeds or raises `ValidationError`. The final call to
-`parseSession(...)` validates structural invariants (ckCore present, apiUrl
-non-empty, URI template variables). This ensures that all Sessions
-produced by `fromJson` satisfy the same invariants as those produced by
-the Layer 1 smart constructor.
+step returns `Result[T, ValidationError]` and is composed via `?`. The
+final call to `parseSession(...)` validates structural invariants (ckCore
+present, apiUrl non-empty, URI template variables) and its `Result` is
+returned directly (not via `?`) because `parseSession` already returns
+`Result[Session, ValidationError]` — the same type as `fromJson`. Using
+`?` here would unwrap to a bare `Session` which does not match the return
+type. This ensures that all Sessions produced by `fromJson` satisfy the
+same invariants as those produced by the Layer 1 smart constructor.
 
 **Module:** `src/jmap_client/serde_session.nim`
 
@@ -1151,16 +1306,16 @@ Serialised as a **3-element JSON array**, NOT a JSON object.
 **`toJson`:**
 
 ```nim
-proc toJson*(inv: Invocation): JsonNode =
+func toJson*(inv: Invocation): JsonNode =
   ## Serialise Invocation as 3-element JSON array (RFC 8620 §3.2).
-  result = %*[inv.name, inv.arguments, string(inv.methodCallId)]
+  {.cast(noSideEffect).}:  # §1.6: full cast
+    result = %*[inv.name, inv.arguments, string(inv.methodCallId)]
 ```
 
 **`fromJson`:** Full code shown in §1.2a (the canonical array example).
 Validates `JArray`, `len == 3`, extracts by index, calls
 `parseMethodCallId`. Also validates that `arguments` is `JObject` and
-`name` is non-empty. Uses `initInvocation` smart constructor for final
-construction.
+`name` is non-empty.
 
 **Rationale.** This is the most distinctive JMAP serialisation quirk.
 Invocations are NOT objects on the wire — they are ordered tuples. The
@@ -1188,66 +1343,77 @@ Invocations are NOT objects on the wire — they are ordered tuples. The
 **`toJson`:**
 
 ```nim
-proc toJson*(r: Request): JsonNode =
+func toJson*(r: Request): JsonNode =
   ## Serialise Request to JSON (RFC 8620 §3.3).
-  result = newJObject()
-  result["using"] = %r.`using`
-  var calls = newJArray()
-  for _, inv in r.methodCalls:
-    calls.add(inv.toJson())
-  result["methodCalls"] = calls
-  if r.createdIds.isSome:
-    var ids = newJObject()
-    for k, v in r.createdIds.get():
-      ids[string(k)] = %string(v)
-    result["createdIds"] = ids
+  {.cast(noSideEffect).}:  # §1.6: local ref mutation
+    result = newJObject()
+    result["using"] = %r.`using`
+    var calls = newJArray()
+    for inv in r.methodCalls:
+      calls.add(inv.toJson())
+    result["methodCalls"] = calls
+    if r.createdIds.isSome:
+      var ids = newJObject()
+      for k, v in r.createdIds.get():
+        ids[string(k)] = %string(v)
+      result["createdIds"] = ids
 ```
 
 **`fromJson`:**
 
 ```nim
-proc fromJson*(T: typedesc[Request], node: JsonNode): Request =
+func fromJson*(T: typedesc[Request], node: JsonNode
+    ): Result[Request, ValidationError] =
   ## Deserialise JSON to Request (RFC 8620 §3.3).
   checkJsonKind(node, JObject, $T)
+
   let usingNode = node{"using"}
-  checkJsonKind(usingNode, JArray, $T, "missing or invalid using")
-  var usingSeq: seq[string] = @[]
-  for _, elem in usingNode.getElems(@[]):
-    checkJsonKind(elem, JString, $T, "using element must be string")
+  checkJsonKind(usingNode, JArray, $T,
+    "missing or invalid using")
+  var usingSeq: seq[string]
+  for elem in usingNode.getElems(@[]):
+    checkJsonKind(elem, JString, $T,
+      "using element must be string")
     usingSeq.add(elem.getStr(""))
+
   let callsNode = node{"methodCalls"}
-  checkJsonKind(callsNode, JArray, $T, "missing or invalid methodCalls")
-  var methodCalls: seq[Invocation] = @[]
-  for _, callNode in callsNode.getElems(@[]):
-    let inv = Invocation.fromJson(callNode)
+  checkJsonKind(callsNode, JArray, $T,
+    "missing or invalid methodCalls")
+  var methodCalls: seq[Invocation]
+  for callNode in callsNode.getElems(@[]):
+    let inv = ? Invocation.fromJson(callNode)
     methodCalls.add(inv)
-  let createdIds = parseCreatedIds(node, $T)
-  Request(`using`: usingSeq, methodCalls: methodCalls,
-    createdIds: createdIds)
+
+  let createdIds = ? parseCreatedIds(node, $T)
+
+  ok(Request(
+    `using`: usingSeq,
+    methodCalls: methodCalls,
+    createdIds: createdIds,
+  ))
 ```
 
 **Shared helper — `parseCreatedIds`:** Extracted for DRY (identical logic
 in Request and Response). Container-strict per §9: wrong container kind
-raises, not lenient `none`.
+returns `err`, not lenient `Opt.none`.
 
 ```nim
-proc parseCreatedIds(node: JsonNode, typeName: string
-    ): Option[Table[CreationId, Id]] =
+func parseCreatedIds(node: JsonNode, typeName: string
+    ): Result[Opt[Table[CreationId, Id]], ValidationError] =
   ## Parse optional createdIds from a Request or Response JSON object.
   let cnode = node{"createdIds"}
-  if cnode.isNil:
-    return none(Table[CreationId, Id])
-  if cnode.kind == JNull:
-    return none(Table[CreationId, Id])
+  if cnode.isNil or cnode.kind == JNull:
+    return ok(Opt.none(Table[CreationId, Id]))
   if cnode.kind != JObject:
-    raise parseError(typeName, "createdIds must be object or null")
+    return err(parseError(typeName, "createdIds must be object or null"))
   var tbl = initTable[CreationId, Id]()
   for k, v in cnode.pairs:  # kind == JObject verified above
-    let cid = parseCreationId(k)
-    checkJsonKind(v, JString, typeName, "createdIds value must be string")
-    let id = parseIdFromServer(v.getStr(""))
+    let cid = ? parseCreationId(k)
+    checkJsonKind(v, JString, typeName,
+      "createdIds value must be string")
+    let id = ? parseIdFromServer(v.getStr(""))
     tbl[cid] = id
-  some(tbl)
+  ok(Opt.some(tbl))
 ```
 
 **Module:** `src/jmap_client/serde_envelope.nim`
@@ -1271,48 +1437,88 @@ proc parseCreatedIds(node: JsonNode, typeName: string
 **`toJson`:**
 
 ```nim
-proc toJson*(r: Response): JsonNode =
+func toJson*(r: Response): JsonNode =
   ## Serialise Response to JSON (RFC 8620 §3.4).
-  result = newJObject()
-  var responses = newJArray()
-  for _, inv in r.methodResponses:
-    responses.add(inv.toJson())
-  result["methodResponses"] = responses
-  result["sessionState"] = %string(r.sessionState)
-  if r.createdIds.isSome:
-    var ids = newJObject()
-    for k, v in r.createdIds.get():
-      ids[string(k)] = %string(v)
-    result["createdIds"] = ids
+  {.cast(noSideEffect).}:  # §1.6: local ref mutation
+    result = newJObject()
+    var responses = newJArray()
+    for inv in r.methodResponses:
+      responses.add(inv.toJson())
+    result["methodResponses"] = responses
+    result["sessionState"] = %string(r.sessionState)
+    if r.createdIds.isSome:
+      var ids = newJObject()
+      for k, v in r.createdIds.get():
+        ids[string(k)] = %string(v)
+      result["createdIds"] = ids
 ```
 
-**`fromJson`:** Unlike the original design, no `parseResponseCore` helper
-or `initResultErr` workaround is needed. The architecture revision removed
-`{.requiresInit.}` from distinct types and switched from `Result[T, E]`
-to exceptions, eliminating the nim-results compilation failures that
-required the workaround.
+**`fromJson`:** Response.fromJson is structurally different from Request.fromJson
+due to a nim-results limitation: `Result[Response, ValidationError]` cannot
+use `err()` or the `?` operator because `Response` has both
+`Opt[Table[CreationId, Id]]` (nested `Result` with `requiresInit` generics)
+and `sessionState: JmapState` (bare `requiresInit` field). The combination
+prevents the compiler from default-constructing `Response` for the inactive
+case-object branch in nim-results' `err()` template (which uses literal
+case-object construction).
+
+The workaround uses three helpers:
+
+- `initResultErr[T, E]` (defined in `serde.nim`, shared across all domain
+  serde modules) — constructs `Result[T, E]` in the error state via
+  default-init + case-branch-verified field access (bypasses literal construction).
+- `parseResponseCore` — parses `methodResponses` and `sessionState` into a
+  `Result[(seq[Invocation], JmapState), ValidationError]` (this type does NOT
+  trigger the limitation, so `?` and `checkJsonKind` work normally).
+- `parseCreatedIds` — shared helper (also used by Request) returning
+  `Result[Opt[Table[CreationId, Id]], ValidationError]`.
+
+The outer `fromJson` only calls `ok()` and `initResultErr` — never `err()` or
+`?` on `Result[Response, ValidationError]`.
 
 ```nim
-proc fromJson*(T: typedesc[Response], node: JsonNode): Response =
-  ## Deserialise JSON to Response (RFC 8620 §3.4).
+func initResultErr[T, E](x: E): Result[T, E] =
+  ## Construct Result[T, E] in error state without literal case-object
+  ## construction. Default-init sets oResultPrivate=false (err branch),
+  ## then case-verified access assigns the error value.
+  var rv: Result[T, E]
+  case rv.oResultPrivate
+  of false: rv.eResultPrivate = x
+  of true: discard
+  rv
+
+func parseResponseCore(node: JsonNode
+    ): Result[(seq[Invocation], JmapState), ValidationError] =
   checkJsonKind(node, JObject, "Response")
   let responsesNode = node{"methodResponses"}
   checkJsonKind(responsesNode, JArray, "Response",
     "missing or invalid methodResponses")
-  var methodResponses: seq[Invocation] = @[]
-  for _, respNode in responsesNode.getElems(@[]):
-    let inv = Invocation.fromJson(respNode)
+  var methodResponses: seq[Invocation]
+  for respNode in responsesNode.getElems(@[]):
+    let inv = ? Invocation.fromJson(respNode)
     methodResponses.add(inv)
-  let sessionStateNode = node{"sessionState"}
-  checkJsonKind(sessionStateNode, JString, "Response",
+  checkJsonKind(node{"sessionState"}, JString, "Response",
     "missing or invalid sessionState")
-  let sessionState = parseJmapState(sessionStateNode.getStr(""))
-  let createdIds = parseCreatedIds(node, $T)
-  Response(
-    methodResponses: methodResponses,
+  let sessionState = ? parseJmapState(
+    node{"sessionState"}.getStr(""))
+  ok((methodResponses, sessionState))
+
+func fromJson*(T: typedesc[Response], node: JsonNode
+    ): Result[Response, ValidationError] =
+  ## Deserialise JSON to Response (RFC 8620 §3.4).
+  let coreResult = parseResponseCore(node)
+  if coreResult.isErr:
+    return initResultErr[Response, ValidationError](coreResult.error)
+  let core = coreResult.get()
+  let createdIdsResult = parseCreatedIds(node, $T)
+  if createdIdsResult.isErr:
+    return initResultErr[Response, ValidationError](createdIdsResult.error)
+  let createdIds = createdIdsResult.get()
+  ok(Response(
+    methodResponses: core[0],
     createdIds: createdIds,
-    sessionState: sessionState,
-  )
+    sessionState: core[1],
+  ))
 ```
 
 **Module:** `src/jmap_client/serde_envelope.nim`
@@ -1330,37 +1536,37 @@ proc fromJson*(T: typedesc[Response], node: JsonNode): Response =
 **`toJson`:**
 
 ```nim
-proc toJson*(r: ResultReference): JsonNode =
+func toJson*(r: ResultReference): JsonNode =
   ## Serialise ResultReference to JSON (RFC 8620 §3.7).
-  result = %*{
-    "resultOf": string(r.resultOf),
-    "name": r.name,
-    "path": r.path,
-  }
+  {.cast(noSideEffect).}:  # §1.6: full cast
+    result = %*{
+      "resultOf": string(r.resultOf),
+      "name": r.name,
+      "path": r.path,
+    }
 ```
 
 **`fromJson`:**
 
 ```nim
-proc fromJson*(T: typedesc[ResultReference], node: JsonNode
-    ): ResultReference =
+func fromJson*(T: typedesc[ResultReference], node: JsonNode
+    ): Result[ResultReference, ValidationError] =
   ## Deserialise JSON to ResultReference (RFC 8620 §3.7).
   checkJsonKind(node, JObject, $T)
-  let resultOfNode = node{"resultOf"}
-  checkJsonKind(resultOfNode, JString, $T, "missing or invalid resultOf")
-  let resultOfRaw = resultOfNode.getStr("")
-  let nameNode = node{"name"}
-  checkJsonKind(nameNode, JString, $T, "missing or invalid name")
-  let name = nameNode.getStr("")
-  let pathNode = node{"path"}
-  checkJsonKind(pathNode, JString, $T, "missing or invalid path")
-  let path = pathNode.getStr("")
+  checkJsonKind(node{"resultOf"}, JString, $T,
+    "missing or invalid resultOf")
+  let resultOf = ? parseMethodCallId(node{"resultOf"}.getStr(""))
+  checkJsonKind(node{"name"}, JString, $T,
+    "missing or invalid name")
+  let name = node{"name"}.getStr("")
+  checkJsonKind(node{"path"}, JString, $T,
+    "missing or invalid path")
+  let path = node{"path"}.getStr("")
   if name.len == 0:
-    raise parseError($T, "name must not be empty")
+    return err(parseError($T, "name must not be empty"))
   if path.len == 0:
-    raise parseError($T, "path must not be empty")
-  let resultOf = parseMethodCallId(resultOfRaw)
-  ResultReference(resultOf: resultOf, name: name, path: path)
+    return err(parseError($T, "path must not be empty"))
+  ok(ResultReference(resultOf: resultOf, name: name, path: path))
 ```
 
 **Module:** `src/jmap_client/serde_envelope.nim`
@@ -1382,53 +1588,61 @@ There are only ~4 referenceable fields across the standard methods.
 **Helper functions:**
 
 ```nim
-proc referencableKey*[T](fieldName: string, r: Referencable[T]): string =
+func referencableKey*[T](fieldName: string, r: Referencable[T]): string =
   ## Returns the wire key: "fieldName" for direct, "#fieldName" for reference.
+  ## Pure string transform — no JsonNode, no cast, no mutation.
   case r.kind
   of rkDirect: fieldName
   of rkReference: "#" & fieldName
 
-proc fromJsonField*[T](
+func fromJsonField*[T](
     fieldName: string,
     node: JsonNode,
-    fromDirect: proc(n: JsonNode): T,
-): Referencable[T] =
+    fromDirect: proc(n: JsonNode): Result[T, ValidationError]
+        {.noSideEffect, raises: [].},
+): Result[Referencable[T], ValidationError] =
   ## Parse a Referencable field from a JSON object.
-  ## Checks "#fieldName" (reference) first, then "fieldName" (direct).
-  ## Rejects when both forms are present (RFC 8620 §3.7).
+  ## Checks for "#fieldName" (reference) first, then "fieldName" (direct).
+  ## Returns err if "#fieldName" exists but is not JObject — the # prefix
+  ## is a semantic commitment to a reference, so malformed references are
+  ## errors, not absent references.
   let refKey = "#" & fieldName
   let refNode = node{refKey}
-  let directNode = node{fieldName}
-  # RFC 8620 §3.7: reject when both direct and referenced forms are present
-  if not refNode.isNil and not directNode.isNil:
-    raise parseError("Referencable",
-      "cannot specify both " & fieldName & " and " & refKey &
-      " (RFC 8620 §3.7)")
   if not refNode.isNil:
     if refNode.kind != JObject:
-      raise parseError("Referencable",
-        refKey & " must be a JSON object (ResultReference)")
-    let resultRef = ResultReference.fromJson(refNode)
-    return referenceTo[T](resultRef)
+      return err(parseError("Referencable",
+        refKey & " must be a JSON object (ResultReference)"))
+    let resultRef = ? ResultReference.fromJson(refNode)
+    return ok(referenceTo[T](resultRef))
+  let directNode = node{fieldName}
   if directNode.isNil:
-    raise parseError("Referencable",
-      "missing field: " & fieldName & " or " & refKey)
-  let value = fromDirect(directNode)
-  direct[T](value)
+    return err(parseError("Referencable",
+      "missing field: " & fieldName & " or " & refKey))
+  let value = ? fromDirect(directNode)
+  ok(direct[T](value))
 ```
-
-**Mutual exclusion enforcement.** Unlike the original design which allowed
-`#`-prefixed key to take precedence when both forms were present,
-`fromJsonField` now rejects the ambiguous case outright per RFC 8620 §3.7:
-if both `"ids"` and `"#ids"` are present, it raises `ValidationError`.
 
 **Serialisation-side design.** The `#`-prefix dispatch is a data transform
 on the field name, not a mutation operation. `referencableKey` is a total
 pure function — `(string, Referencable[T]) → string` — that computes
 the wire key. The value serialisation uses existing `toJson` overloads for
-the inner types.
+the inner types. These are orthogonal concerns: the caller composes key
+transform + value serialisation within its own `{.cast(noSideEffect).}`
+block (where the `result` is locally owned):
 
-**Deserialisation-side design.** `fromJsonField` is a combined helper
+```nim
+{.cast(noSideEffect).}:  # §1.6: local ref mutation
+  if req.ids.isSome:
+    let r = req.ids.get()
+    result[referencableKey("ids", r)] = case r.kind
+      of rkDirect: toJson(r.value)    # existing seq[Id] toJson
+      of rkReference: r.reference.toJson()
+```
+
+With ~4 referenceable fields across the standard methods, the call-site
+verbosity is negligible and each site is self-documenting.
+
+**Deserialisation-side design.** `fromJsonField` remains a combined helper
 because key dispatch and value parsing are genuinely coupled on the
 deserialisation side — the key determines whether to parse `T` or
 `ResultReference`. The asymmetry between `referencableKey` (pure key
@@ -1452,8 +1666,13 @@ containing object's serialiser must handle the key dispatch.
 
 Full `toJson`/`fromJson` code shown in §2 (Pattern A canonical example).
 `isAscending` defaults to `true` when absent from JSON (per RFC §5.5).
-`collation` is `Option[string]` — omit when `isNone`. `fromJson` calls
-`parseComparator` smart constructor for final construction.
+`collation` is `Opt[string]` — omit when `isNone`. `fromJson` uses the
+`initResultErr` + helper function pattern (see §2 Pattern A) because
+`Comparator` contains `PropertyName {.requiresInit.}`, triggering the
+nim-results `requiresInit` limitation. The helper `parseComparatorCore`
+extracts fields into a tuple, avoiding `err()`/`?` on
+`Result[Comparator, ValidationError]`. `parseComparator` is called for
+final construction.
 
 **Module:** `src/jmap_client/serde_framework.nim`
 
@@ -1486,65 +1705,55 @@ and a `"conditions"` array. A condition node lacks the `"operator"` field.
 **`toJson`:**
 
 ```nim
-proc toJson*[C](f: Filter[C],
-    filterConditionToJson: proc(c: C): JsonNode): JsonNode =
+func toJson*[C](f: Filter[C],
+    filterConditionToJson: proc(c: C): JsonNode
+    {.noSideEffect, raises: [].}): JsonNode =
   ## Serialise Filter[C] to JSON. Caller provides condition serialiser.
   case f.kind
   of fkCondition:
     filterConditionToJson(f.condition)
   of fkOperator:
-    var conditions = newJArray()
-    for child in f.conditions:
-      conditions.add(child.toJson(filterConditionToJson))
-    %*{"operator": $f.operator, "conditions": conditions}
+    {.cast(noSideEffect).}:  # §1.6: local ref mutation
+      var conditions = newJArray()
+      for child in f.conditions:
+        conditions.add(child.toJson(filterConditionToJson))
+      %*{"operator": $f.operator, "conditions": conditions}
 ```
 
 **`fromJson`:**
 
 ```nim
-const MaxFilterDepth* = 128
-  ## Maximum nesting depth for Filter[C].fromJson deserialisation.
-  ## Defence-in-depth guard against stack overflow (StackOverflowDefect
-  ## is uncatchable under --panics:on). 128 is generous for any realistic
-  ## JMAP query while preventing pathological nesting.
-
-proc fromJsonImpl[C](
-    node: JsonNode, fromCondition: proc(n: JsonNode): C, depth: int
-): Filter[C] =
-  ## Internal recursive helper with depth tracking.
-  const typeName = "Filter"
-  checkJsonKind(node, JObject, typeName)
-  if depth <= 0:
-    raise parseError(typeName, "maximum nesting depth exceeded")
+func fromJson*[C](T: typedesc[Filter[C]], node: JsonNode,
+    fromCondition: proc(n: JsonNode): Result[C, ValidationError]
+    {.noSideEffect, raises: [].}): Result[Filter[C], ValidationError] =
+  ## Deserialise JSON to Filter[C]. Caller provides condition deserialiser.
+  ## Dispatches on presence of "operator" key.
+  checkJsonKind(node, JObject, $T)
   let opNode = node{"operator"}
   if opNode.isNil:
-    let cond = fromCondition(node)
-    filterCondition(cond)
+    # No "operator" key → leaf condition
+    let cond = ? fromCondition(node)
+    ok(filterCondition(cond))
   else:
-    let op = FilterOperator.fromJson(opNode)
+    # Has "operator" key → composed filter
+    let op = ? FilterOperator.fromJson(opNode)
     let conditionsNode = node{"conditions"}
-    checkJsonKind(conditionsNode, JArray, typeName,
+    checkJsonKind(conditionsNode, JArray, $T,
       "missing or invalid conditions array")
-    var children: seq[Filter[C]] = @[]
+    var children: seq[Filter[C]]
     for childNode in conditionsNode.getElems(@[]):
-      let child = fromJsonImpl[C](childNode, fromCondition, depth - 1)
+      let child = ? Filter[C].fromJson(childNode, fromCondition)
       children.add(child)
-    filterOperator(op, children)
-
-proc fromJson*[C](T: typedesc[Filter[C]], node: JsonNode,
-    fromCondition: proc(n: JsonNode): C): Filter[C] =
-  ## Deserialise JSON to Filter[C]. Caller provides condition deserialiser.
-  ## Nesting depth is capped at MaxFilterDepth to prevent stack overflow.
-  discard $T  # consumed for nimalyzer params rule
-  fromJsonImpl[C](node, fromCondition, MaxFilterDepth)
+    ok(filterOperator(op, children))
 ```
 
-**Depth-limiting defence.** `fromJsonImpl` tracks recursion depth and raises
-`ValidationError` when `MaxFilterDepth` (128) is exceeded. This is a
-defence-in-depth guard against `StackOverflowDefect`, which is uncatchable
-under `--panics:on`. Note that `std/json`'s `parseJson` has its own
-`DepthLimit` of 1000, but Layer 2's `fromJson` accepts pre-parsed
-`JsonNode`, so that limit does not apply at this layer.
+**Generic callback note.** Both callbacks (`filterConditionToJson` and
+`fromCondition`) have type `proc(...) {.noSideEffect, raises: [].}`.
+The `raises: []` pragma is required because the module-level
+`{.push raises: [].}` requires callable parameters to prove they cannot
+raise. Under `strictFuncs`, `func` is `proc {.noSideEffect.}` and is
+effect-compatible. If the compiler rejects this parameter type, use a
+template wrapper as fallback (see §1.2).
 
 **Module:** `src/jmap_client/serde_framework.nim`
 
@@ -1568,29 +1777,31 @@ leading `/`). `null` value means "delete property".
 **`toJson`:**
 
 ```nim
-proc toJson*(patch: PatchObject): JsonNode =
+func toJson*(patch: PatchObject): JsonNode =
   ## Serialise PatchObject to JSON. Keys are JSON Pointer paths,
   ## null values represent property deletion.
   let tbl = Table[string, JsonNode](patch)
-  result = newJObject()
-  for path, value in tbl:
-    result[path] = value
+  {.cast(noSideEffect).}:  # §1.6: local ref mutation
+    result = newJObject()
+    for path, value in tbl:
+      result[path] = value
 ```
 
 **`fromJson`:**
 
 ```nim
-proc fromJson*(T: typedesc[PatchObject], node: JsonNode): PatchObject =
+func fromJson*(T: typedesc[PatchObject], node: JsonNode
+    ): Result[PatchObject, ValidationError] =
   ## Deserialise JSON to PatchObject using smart constructors.
-  ## null values -> deleteProp, other values -> setProp.
+  ## null values → deleteProp, other values → setProp.
   checkJsonKind(node, JObject, $T)
   var patch = emptyPatch()
   for path, value in node.pairs:  # kind verified above
     if value.isNil or value.kind == JNull:
-      patch = deleteProp(patch, path)
+      patch = ? deleteProp(patch, path)
     else:
-      patch = setProp(patch, path, value)
-  patch
+      patch = ? setProp(patch, path, value)
+  ok(patch)
 ```
 
 **Rationale.** `fromJson` uses only the smart constructors (`emptyPatch`,
@@ -1613,20 +1824,22 @@ proc fromJson*(T: typedesc[PatchObject], node: JsonNode): PatchObject =
 **`toJson`:**
 
 ```nim
-proc toJson*(item: AddedItem): JsonNode =
+func toJson*(item: AddedItem): JsonNode =
   ## Serialise AddedItem to JSON (RFC 8620 §5.6).
-  result = %*{"id": string(item.id), "index": int64(item.index)}
+  {.cast(noSideEffect).}:  # §1.6: full cast
+    result = %*{"id": string(item.id), "index": int64(item.index)}
 ```
 
 **`fromJson`:**
 
 ```nim
-proc fromJson*(T: typedesc[AddedItem], node: JsonNode): AddedItem =
+func fromJson*(T: typedesc[AddedItem], node: JsonNode
+    ): Result[AddedItem, ValidationError] =
   ## Deserialise JSON to AddedItem.
   checkJsonKind(node, JObject, $T)
-  let id = Id.fromJson(node{"id"})
-  let index = UnsignedInt.fromJson(node{"index"})
-  AddedItem(id: id, index: index)
+  let id = ? Id.fromJson(node{"id"})
+  let index = ? UnsignedInt.fromJson(node{"index"})
+  ok(AddedItem(id: id, index: index))
 ```
 
 **Module:** `src/jmap_client/serde_framework.nim`
@@ -1663,30 +1876,23 @@ entire request is rejected before any method calls are processed.
 **`toJson`:**
 
 ```nim
-proc toJson*(re: RequestError): JsonNode =
+func toJson*(re: RequestError): JsonNode =
   ## Serialise RequestError to RFC 7807 problem details JSON.
-  ## Extras with keys colliding with standard fields are silently skipped
-  ## to prevent manual construction from corrupting the wire format.
-  result = newJObject()
-  result["type"] = %re.rawType  # Decision 1.7C: always use rawType
-  if re.status.isSome:
-    result["status"] = %re.status.get()
-  if re.title.isSome:
-    result["title"] = %re.title.get()
-  if re.detail.isSome:
-    result["detail"] = %re.detail.get()
-  if re.limit.isSome:
-    result["limit"] = %re.limit.get()
-  if re.extras.isSome:
-    for key, val in re.extras.get().pairs:
-      if key notin RequestErrorKnownKeys:
+  {.cast(noSideEffect).}:  # §1.6: local ref mutation
+    result = newJObject()
+    result["type"] = %re.rawType  # Decision 1.7C: always use rawType
+    if re.status.isSome:
+      result["status"] = %re.status.get()
+    if re.title.isSome:
+      result["title"] = %re.title.get()
+    if re.detail.isSome:
+      result["detail"] = %re.detail.get()
+    if re.limit.isSome:
+      result["limit"] = %re.limit.get()
+    if re.extras.isSome:
+      for key, val in re.extras.get().pairs:
         result[key] = val
 ```
-
-**Collision guard.** `toJson` skips extras whose keys collide with standard
-fields (`type`, `status`, `title`, `detail`, `limit`). This prevents
-manually constructed `RequestError` objects with extras containing e.g.
-`"type"` from corrupting the wire format.
 
 **`fromJson`:**
 
@@ -1694,27 +1900,28 @@ manually constructed `RequestError` objects with extras containing e.g.
 const RequestErrorKnownKeys = [
   "type", "status", "title", "detail", "limit"]
 
-proc fromJson*(T: typedesc[RequestError], node: JsonNode
-    ): RequestError =
+func fromJson*(T: typedesc[RequestError], node: JsonNode
+    ): Result[RequestError, ValidationError] =
   ## Deserialise RFC 7807 problem details JSON to RequestError.
   checkJsonKind(node, JObject, $T)
-  checkJsonKind(node{"type"}, JString, $T, "missing or invalid type")
+  checkJsonKind(node{"type"}, JString, $T,
+    "missing or invalid type")
   let rawType = node{"type"}.getStr("")
   if rawType.len == 0:
-    raise parseError($T, "empty type field")
+    return err(parseError($T, "empty type field"))
   let status = optInt(node, "status")     # §1.4b: lenient
   let title = optString(node, "title")    # §1.4b: lenient
   let detail = optString(node, "detail")  # §1.4b: lenient
   let limit = optString(node, "limit")    # §1.4b: lenient
   let extras = collectExtras(node, RequestErrorKnownKeys)
-  requestError(
+  ok(requestError(
     rawType = rawType,
     status = status,
     title = title,
     detail = detail,
     limit = limit,
     extras = extras,
-  )
+  ))
 ```
 
 Note: `fromJson` calls `requestError(rawType, ...)` which auto-parses the
@@ -1739,16 +1946,15 @@ Per-invocation error within a JMAP response. When the server returns
 **`toJson`:**
 
 ```nim
-proc toJson*(me: MethodError): JsonNode =
+func toJson*(me: MethodError): JsonNode =
   ## Serialise MethodError to JSON (RFC 8620 §3.6.2).
-  ## Extras with keys colliding with standard fields are silently skipped.
-  result = newJObject()
-  result["type"] = %me.rawType  # Decision 1.7C: always use rawType
-  if me.description.isSome:
-    result["description"] = %me.description.get()
-  if me.extras.isSome:
-    for key, val in me.extras.get().pairs:
-      if key notin MethodErrorKnownKeys:
+  {.cast(noSideEffect).}:  # §1.6: local ref mutation
+    result = newJObject()
+    result["type"] = %me.rawType  # Decision 1.7C: always use rawType
+    if me.description.isSome:
+      result["description"] = %me.description.get()
+    if me.extras.isSome:
+      for key, val in me.extras.get().pairs:
         result[key] = val
 ```
 
@@ -1757,17 +1963,18 @@ proc toJson*(me: MethodError): JsonNode =
 ```nim
 const MethodErrorKnownKeys = ["type", "description"]
 
-proc fromJson*(T: typedesc[MethodError], node: JsonNode
-    ): MethodError =
+func fromJson*(T: typedesc[MethodError], node: JsonNode
+    ): Result[MethodError, ValidationError] =
   ## Deserialise error invocation arguments to MethodError.
   checkJsonKind(node, JObject, $T)
-  checkJsonKind(node{"type"}, JString, $T, "missing or invalid type")
+  checkJsonKind(node{"type"}, JString, $T,
+    "missing or invalid type")
   let rawType = node{"type"}.getStr("")
   if rawType.len == 0:
-    raise parseError($T, "empty type field")
+    return err(parseError($T, "empty type field"))
   let description = optString(node, "description")  # §1.4b: lenient
   let extras = collectExtras(node, MethodErrorKnownKeys)
-  methodError(rawType = rawType, description = description, extras = extras)
+  ok(methodError(rawType = rawType, description = description, extras = extras))
 ```
 
 **Module:** `src/jmap_client/serde_errors.nim`
@@ -1779,6 +1986,12 @@ proc fromJson*(T: typedesc[MethodError], node: JsonNode
 Per-item error within `/set` and `/copy` responses. A case object with
 variant-specific fields: `invalidProperties` carries `properties: seq[string]`,
 `alreadyExists` carries `existingId: Id`.
+
+**`requiresInit` note:** `SetError` contains `existingId: Id` where `Id` is
+`{.requiresInit.}`. If `err()`/`?` on `Result[SetError, ValidationError]`
+triggers a compilation failure, use the `initResultErr` workaround (defined
+in `serde.nim`, used by `serde_framework.nim`, `serde_envelope.nim`, and
+`serde_errors.nim`).
 
 **Wire format:**
 
@@ -1793,29 +2006,22 @@ variant-specific fields: `invalidProperties` carries `properties: seq[string]`,
 **`toJson`:**
 
 ```nim
-proc toJson*(se: SetError): JsonNode =
+func toJson*(se: SetError): JsonNode =
   ## Serialise SetError to JSON (RFC 8620 §5.3, §5.4).
-  ## Extras with keys colliding with standard or variant-specific fields
-  ## are silently skipped.
-  result = newJObject()
-  result["type"] = %se.rawType  # Decision 1.7C: always use rawType
-  if se.description.isSome:
-    result["description"] = %se.description.get()
-  case se.errorType
-  of setInvalidProperties:
-    result["properties"] = %se.properties
-  of setAlreadyExists:
-    result["existingId"] = %string(se.existingId)
-  else:
-    discard
-  if se.extras.isSome:
-    let knownKeys =
-      case se.errorType
-      of setInvalidProperties: @["type", "description", "properties"]
-      of setAlreadyExists: @["type", "description", "existingId"]
-      else: @["type", "description"]
-    for key, val in se.extras.get().pairs:
-      if key notin knownKeys:
+  {.cast(noSideEffect).}:  # §1.6: local ref mutation
+    result = newJObject()
+    result["type"] = %se.rawType  # Decision 1.7C: always use rawType
+    if se.description.isSome:
+      result["description"] = %se.description.get()
+    case se.errorType
+    of setInvalidProperties:
+      result["properties"] = %se.properties
+    of setAlreadyExists:
+      result["existingId"] = %string(se.existingId)
+    else:
+      discard
+    if se.extras.isSome:
+      for key, val in se.extras.get().pairs:
         result[key] = val
 ```
 
@@ -1827,24 +2033,26 @@ apply the defensive fallback and produce `setUnknown` instead.
 **`fromJson`:**
 
 ```nim
-proc fromJson*(T: typedesc[SetError], node: JsonNode): SetError =
+func fromJson*(T: typedesc[SetError], node: JsonNode
+    ): Result[SetError, ValidationError] =
   ## Deserialise JSON to SetError with defensive fallback (L1 §8.10).
   checkJsonKind(node, JObject, $T)
-  checkJsonKind(node{"type"}, JString, $T, "missing or invalid type")
+  checkJsonKind(node{"type"}, JString, $T,
+    "missing or invalid type")
   let rawType = node{"type"}.getStr("")
   if rawType.len == 0:
-    raise parseError($T, "empty type field")
+    return err(parseError($T, "empty type field"))
   let description = optString(node, "description")  # §1.4b: lenient
   let errorType = parseSetErrorType(rawType)
   # Per-variant known keys: variant-specific fields are "known" only for
   # their own variant. Misplaced RFC fields on other variants are preserved
   # in extras rather than silently dropped (Decision 1.7C: lossless).
-  let knownKeys =
-    case errorType
+  let knownKeys = case errorType
     of setInvalidProperties: @["type", "description", "properties"]
     of setAlreadyExists: @["type", "description", "existingId"]
     else: @["type", "description"]
   let extras = collectExtras(node, knownKeys)
+
   # Defensive fallback: dispatch to variant-specific constructors only
   # when variant data is present. Otherwise fall back to generic setError
   # which maps invalidProperties/alreadyExists to setUnknown.
@@ -1852,28 +2060,25 @@ proc fromJson*(T: typedesc[SetError], node: JsonNode): SetError =
   of setInvalidProperties:
     let propsNode = node{"properties"}
     if not propsNode.isNil and propsNode.kind == JArray:
-      var properties: seq[string] = @[]
+      var properties: seq[string]
       for item in propsNode.getElems(@[]):
-        if item.isNil:
-          raise parseError($T, "properties element is nil")
         checkJsonKind(item, JString, $T,
           "properties element must be string")
         properties.add(item.getStr(""))
-      return setErrorInvalidProperties(
-        rawType, properties, description, extras)
-    setError(rawType, description, extras)
+      return ok(setErrorInvalidProperties(
+        rawType, properties, description, extras))
+    # properties absent — defensive fallback to setUnknown via setError
+    ok(setError(rawType, description, extras))
   of setAlreadyExists:
     let idNode = node{"existingId"}
     if not idNode.isNil and idNode.kind == JString:
-      try:
-        let existingId = parseIdFromServer(idNode.getStr(""))
-        return setErrorAlreadyExists(
-          rawType, existingId, description, extras)
-      except ValidationError:
-        discard  # fall through to generic setError
-    setError(rawType, description, extras)
+      let existingId = ? parseIdFromServer(idNode.getStr(""))
+      return ok(setErrorAlreadyExists(
+        rawType, existingId, description, extras))
+    # existingId absent — defensive fallback to setUnknown via setError
+    ok(setError(rawType, description, extras))
   else:
-    setError(rawType, description, extras)
+    ok(setError(rawType, description, extras))
 ```
 
 **Rationale.** The defensive fallback matches Layer 1 §8.10: when a server
@@ -1885,11 +2090,6 @@ pattern-matching consumers never encounter a `setInvalidProperties` variant
 with missing properties or a `setAlreadyExists` variant with a bogus
 `existingId`.
 
-The `setAlreadyExists` fallback catches `ValidationError` from
-`parseIdFromServer` — if the existingId value is present but invalid, it
-falls through to the generic `setError` rather than propagating the
-exception. This is the only `try/except` in Layer 2.
-
 **Module:** `src/jmap_client/serde_errors.nim`
 
 ### 8.4 Types NOT Serialised
@@ -1899,9 +2099,11 @@ Explicit list of Layer 1 types with NO `toJson`/`fromJson`:
 - `TransportError` — library-internal, constructed by Layer 4 from
   `std/httpclient` exceptions. No wire format.
 - `TransportErrorKind` — discriminator enum for `TransportError`.
-- `ClientError` — exception wrapper, constructed by Layer 4.
+- `ClientError` — outer railway wrapper, constructed by Layer 4.
 - `ClientErrorKind` — discriminator enum for `ClientError`.
-- `ValidationError` — raised by `fromJson`, not itself serialised to JSON.
+- `ValidationError` — returned by `fromJson`, not itself serialised to JSON.
+- `JmapResult[T]` — type alias for `Result[T, ClientError]`; serialisation
+  handled by the contained `T`.
 - `ReferencableKind` — discriminator enum; `Referencable[T]` serialisation
   uses `#`-prefix key dispatch instead.
 - `FilterKind` — discriminator enum; `Filter[C]` serialisation uses
@@ -1909,7 +2111,7 @@ Explicit list of Layer 1 types with NO `toJson`/`fromJson`:
 
 ---
 
-## 9. Option[T] Field Handling Convention
+## 9. Opt[T] Field Handling Convention
 
 Cross-cutting concern documented here once, referenced throughout
 Sections 3–8. See §1.4b for the leniency policy rationale.
@@ -1918,28 +2120,28 @@ Sections 3–8. See §1.4b for the leniency policy rationale.
 `isSome` → emit value. This is consistent with JMAP's "absent means
 default" semantics.
 
-**`fromJson` convention.** For simple scalar `Option` fields:
-`node{"field"}.isNil` or wrong `JsonNodeKind` → `none(T)`.
-Correct kind → extract value. Wrong kind maps to `none`, not an exception
-— this is the lenient policy (§1.4b). For complex container `Option` types
-(`Option[Table[...]]`), wrong container kind raises.
+**`fromJson` convention.** For simple scalar `Opt` fields:
+`node{"field"}.isNil` or wrong `JsonNodeKind` → `Opt.none(T)`.
+Correct kind → extract value. Wrong kind maps to `Opt.none`, not `err`
+— this is the lenient policy (§1.4b). For complex container `Opt` types
+(`Opt[Table[...]]`), wrong container kind returns `err`.
 
-**Per-type Option[T] field table** (every Option field in Layer 1 with its
-null semantics and wrong-kind handling):
+**Per-type Opt[T] field table** (every Opt field in Layer 1 with its null
+semantics and wrong-kind handling):
 
-| Type | Field | Option Semantics | Wrong Kind | Notes |
-|------|-------|------------------|------------|-------|
-| `Request` | `createdIds` | Absent = not provided | raises (container) | Presence triggers proxy splitting |
-| `Response` | `createdIds` | Absent = not in request | raises (container) | Only present if request included it |
-| `Comparator` | `collation` | Absent = server default | `none` | |
-| `RequestError` | `status` | Absent = not provided | `none` | |
-| `RequestError` | `title` | Absent = not provided | `none` | |
-| `RequestError` | `detail` | Absent = not provided | `none` | |
-| `RequestError` | `limit` | Absent = not provided | `none` | Only meaningful for `retLimit` |
+| Type | Field | Opt Semantics | Wrong Kind | Notes |
+|------|-------|---------------|------------|-------|
+| `Request` | `createdIds` | Absent = not provided | `err` (container) | Presence triggers proxy splitting |
+| `Response` | `createdIds` | Absent = not in request | `err` (container) | Only present if request included it |
+| `Comparator` | `collation` | Absent = server default | `Opt.none` | |
+| `RequestError` | `status` | Absent = not provided | `Opt.none` | |
+| `RequestError` | `title` | Absent = not provided | `Opt.none` | |
+| `RequestError` | `detail` | Absent = not provided | `Opt.none` | |
+| `RequestError` | `limit` | Absent = not provided | `Opt.none` | Only meaningful for `retLimit` |
 | `RequestError` | `extras` | Absent = no non-standard fields | N/A | `collectExtras` helper |
-| `MethodError` | `description` | Absent = not provided | `none` | |
+| `MethodError` | `description` | Absent = not provided | `Opt.none` | |
 | `MethodError` | `extras` | Absent = no non-standard fields | N/A | `collectExtras` helper |
-| `SetError` | `description` | Absent = not provided | `none` | |
+| `SetError` | `description` | Absent = not provided | `Opt.none` | |
 | `SetError` | `extras` | Absent = no non-standard fields | N/A | `collectExtras` helper |
 
 ---
@@ -1953,7 +2155,6 @@ Complete verification table — every Layer 1 type with its ser/de status:
 | `Id` | serde | Identity | Both | `parseIdFromServer` | Lenient (server-assigned) |
 | `UnsignedInt` | serde | Identity | Both | `parseUnsignedInt` | `getBiggestInt` accessor |
 | `JmapInt` | serde | Identity | Both | `parseJmapInt` | `getBiggestInt` accessor |
-| `MaxChanges` | serde | Identity | Both | `parseUnsignedInt`, `parseMaxChanges` | Must be > 0 |
 | `Date` | serde | Identity | Both | `parseDate` | String round-trip |
 | `UTCDate` | serde | Identity | Both | `parseUtcDate` | String round-trip |
 | `AccountId` | serde | Identity | Both | `parseAccountId` | Lenient (server-assigned) |
@@ -1963,7 +2164,7 @@ Complete verification table — every Layer 1 type with its ser/de status:
 | `UriTemplate` | serde | Identity | Both | `parseUriTemplate` | |
 | `PropertyName` | serde | Identity | Both | `parsePropertyName` | |
 | `CapabilityKind` | — | Enum | — | `parseCapabilityKind` | Not standalone; via `rawUri` |
-| `FilterOperator` | serde_framework | Enum | Both | Manual case dispatch | NOT total — raises on unknown |
+| `FilterOperator` | serde_framework | Enum | Both | Manual case dispatch | NOT total — err on unknown |
 | `RequestErrorType` | — | — | — | `parseRequestErrorType` | Embedded in `requestError()` |
 | `MethodErrorType` | — | — | — | `parseMethodErrorType` | Embedded in `methodError()` |
 | `SetErrorType` | — | — | — | `parseSetErrorType` | Embedded in `setError()` |
@@ -1972,13 +2173,13 @@ Complete verification table — every Layer 1 type with its ser/de status:
 | `AccountCapabilityEntry` | serde_session | A: Object | Both | `parseCapabilityKind` | |
 | `Account` | serde_session | A: Object | Both | — | Fields use sub-parsers |
 | `Session` | serde_session | A: Composite | Both | `parseSession` + all sub-parsers | Most complex |
-| `Invocation` | serde_envelope | C: Array | Both | `parseMethodCallId`, `initInvocation` | 3-element JSON array |
-| `Request` | serde_envelope | A: Object | Both | `parseCreationId`, `parseIdFromServer` | Option createdIds |
+| `Invocation` | serde_envelope | C: Array | Both | `parseMethodCallId` | 3-element JSON array |
+| `Request` | serde_envelope | A: Object | Both | `parseCreationId`, `parseIdFromServer` | Opt createdIds |
 | `Response` | serde_envelope | A: Object | Both | `parseJmapState`, `parseCreationId`, `parseIdFromServer` | |
 | `ResultReference` | serde_envelope | A: Object | Both | `parseMethodCallId` | |
 | `Referencable[T]` | serde_envelope | C: Field | Both | Sub-parser + `ResultReference.fromJson` | `#`-prefix dispatch |
 | `Comparator` | serde_framework | A: Object | Both | `parsePropertyName`, `parseComparator` | `isAscending` default |
-| `Filter[C]` | serde_framework | C: Recursive | Both | Callback for `C` | Generic, depth-limited |
+| `Filter[C]` | serde_framework | C: Recursive | Both | Callback for `C` | Generic |
 | `PatchObject` | serde_framework | C: Pointer | Both | `emptyPatch`, `setProp`, `deleteProp` | `JNull` → delete |
 | `AddedItem` | serde_framework | A: Object | Both | `parseIdFromServer`, `parseUnsignedInt` | |
 | `RequestError` | serde_errors | A: Object | Both | `requestError` | `collectExtras` |
@@ -1986,9 +2187,10 @@ Complete verification table — every Layer 1 type with its ser/de status:
 | `SetError` | serde_errors | B: Case | Both | `setError`, `setErrorInvalidProperties`, `setErrorAlreadyExists` | Defensive fallback |
 | `TransportError` | — | — | Not serialised | — | Library-internal |
 | `TransportErrorKind` | — | — | Not serialised | — | Discriminator enum |
-| `ClientError` | — | — | Not serialised | — | Exception wrapper |
+| `ClientError` | — | — | Not serialised | — | Outer railway wrapper |
 | `ClientErrorKind` | — | — | Not serialised | — | Discriminator enum |
-| `ValidationError` | — | — | Not serialised | — | Exception type |
+| `ValidationError` | — | — | Not serialised | — | Error return type |
+| `JmapResult[T]` | — | — | Not serialised | — | Type alias |
 | `ReferencableKind` | — | — | Not serialised | — | Discriminator enum |
 | `FilterKind` | — | — | Not serialised | — | Discriminator enum |
 
@@ -1998,17 +2200,18 @@ Complete verification table — every Layer 1 type with its ser/de status:
 
 Properties that must hold for every serialised type:
 
-- **Identity:** `T.fromJson(x.toJson()) == x` for all `x` **produced by
-  `fromJson` or by Layer 3 builders**. Values constructed by direct Layer 1
-  object construction may violate wire-format invariants not expressible in
-  the type system (e.g., empty `Invocation.name`). Round-trip tests compare
+- **Identity:** `T.fromJson(x.toJson()).isOk` and
+  `T.fromJson(x.toJson()).get() == x` for all `x` **produced by `fromJson`
+  or by Layer 3 builders**. Values constructed by direct Layer 1 object
+  construction may violate wire-format invariants not expressible in the
+  type system (e.g., empty `Invocation.name`). Round-trip tests compare
   **parsed values** (structural equality), not JSON strings (Table
   iteration order is non-deterministic).
 - **Lossless rawType/rawUri:** For error types and capabilities with
   catch-all variants, the raw string is preserved through round-trip.
   `$enumVal` is never used for serialisation.
-- **Option[T] omission:** `isNone` values produce no JSON key; parsing
-  absent keys produces `none`.
+- **Opt[T] omission:** `isNone` values produce no JSON key; parsing absent
+  keys produces `Opt.none`.
 - **Invocation format:** `Invocation.toJson` always produces a 3-element
   `JArray`, never `JObject`.
 - **Referencable dispatch:** `rkDirect` values serialise without `#` prefix;
@@ -2020,7 +2223,7 @@ Properties that must hold for every serialised type:
 - **Losslessness scope:** Round-trip losslessness applies to fields stored
   in the Layer 1 type. Error types (`RequestError`, `MethodError`,
   `SetError`) preserve non-standard server fields via `extras:
-  Option[JsonNode]`. `Session`, `Account`, and `CoreCapabilities` do not
+  Opt[JsonNode]`. `Session`, `Account`, and `CoreCapabilities` do not
   carry an `extras` field — unknown fields are dropped during
   deserialisation. This is a Layer 1 scope decision, not a Layer 2 gap.
 
@@ -2033,52 +2236,56 @@ Properties that must hold for every serialised type:
 ```nim
 # SPDX-License-Identifier: BSD-2-Clause
 # Copyright (c) 2026 Aryan Ameri
+
+{.push raises: [].}
 ```
 
-SPDX header on line 1. No blank line before. No `{.push raises: [].}` —
-exceptions propagate naturally through Layer 2. Only the Layer 5 C ABI
-module has `{.push raises: [].}`.
+SPDX header on line 1. No blank line before. Matches existing Layer 1
+pattern.
 
 **Docstring requirement** (required for nimalyzer `hasDoc` rule): every
-exported `proc` must have a `##` docstring. Comments and docstrings use
-British English spelling (CLAUDE.md §Language).
+exported `func` must have a `##` docstring (Layer 2 defines no `proc`
+— callback parameter types use `proc {.noSideEffect.}`).
+Comments and docstrings use British English spelling (CLAUDE.md §Language).
 
 **Source modules:**
 
 ```
 src/jmap_client/
-  serialisation.nim      <- Re-export hub (Layer 2 equivalent of types.nim);
+  serialisation.nim      ← Re-export hub (Layer 2 equivalent of types.nim);
                            imports and re-exports serde + all domain modules
-  serde.nim              <- parseError, checkJsonKind, collectExtras,
+  serde.nim              ← parseError, checkJsonKind, collectExtras,
                            primitive/identifier/enum ser/de
-  serde_session.nim      <- CoreCapabilities, ServerCapability,
+  serde_session.nim      ← CoreCapabilities, ServerCapability,
                            AccountCapabilityEntry, Account, Session
-  serde_envelope.nim     <- Invocation, Request, Response,
+  serde_envelope.nim     ← Invocation, Request, Response,
                            ResultReference, Referencable[T] helpers
-  serde_framework.nim    <- Comparator, Filter[C], PatchObject, AddedItem,
+  serde_framework.nim    ← Comparator, Filter[C], PatchObject, AddedItem,
                            PropertyName, FilterOperator
-  serde_errors.nim       <- RequestError, MethodError, SetError
+  serde_errors.nim       ← RequestError, MethodError, SetError
 ```
 
 **Test modules** (testament auto-discovers `tests/t*.nim`):
 
 ```
 tests/serde/
-  tserde.nim             <- Shared helpers, primitive/identifier/enum
+  tserde.nim             ← Shared helpers, primitive/identifier/enum
                            round-trips
-  tserde_session.nim     <- CoreCapabilities, ServerCapability, Account,
+  tserde_session.nim     ← CoreCapabilities, ServerCapability, Account,
                            Session (§13.1 golden test)
-  tserde_envelope.nim    <- Invocation, Request, Response,
-                           ResultReference, Referencable[T] (§13.2-3)
-  tserde_framework.nim   <- Comparator, Filter[C], PatchObject, AddedItem,
+  tserde_envelope.nim    ← Invocation, Request, Response,
+                           ResultReference, Referencable[T] (§13.2–3)
+  tserde_framework.nim   ← Comparator, Filter[C], PatchObject, AddedItem,
                            FilterOperator
-  tserde_errors.nim      <- RequestError, MethodError, SetError
-  tserialisation.nim     <- Integration smoke test; verifies all
+  tserde_errors.nim      ← RequestError, MethodError, SetError
+  tserialisation.nim     ← Integration smoke test; verifies all
                            toJson/fromJson pairs accessible via hub
 ```
 
 Tests use `doAssert` (testament), block-scoped tests with labelled blocks,
-and existing `massertions.nim` helpers. No `unittest` module.
+and existing `massertions.nim` helpers (`assertOk`, `assertErr`,
+`assertErrFields`, `assertErrType`). No `unittest` module. No nimble
+registration needed — auto-discovery via glob pattern.
 
 **Import graph** (flat — no internal Layer 2 dependencies):
 
@@ -2091,24 +2298,34 @@ serde.nim  serde_session  serde_envelope  serde_framework  serde_errors
   +----------+----------+----------+----------+
   (all domain serde modules import serde.nim for shared helpers)
 
-serialisation.nim <- re-exports serde + all domain modules
+serialisation.nim ← re-exports serde + all domain modules
   (Layer 3 imports serialisation.nim)
 ```
 
 `serialisation.nim` is the re-export hub (Layer 2 equivalent of
 `types.nim`), re-exporting `serde.nim` and all domain serde modules.
 `serde.nim` defines shared helpers (`parseError`, `checkJsonKind`,
-`collectExtras`) and primitive/identifier ser/de functions. Domain serde
+`collectExtras`, `initResultErr`) and primitive/identifier ser/de functions.
+`initResultErr` is the consolidated workaround for nim-results'
+`requiresInit` limitation — used by `serde_envelope`, `serde_framework`,
+and `serde_errors` for types containing `{.requiresInit.}` fields. Domain serde
 modules import `serde.nim` for helpers — they do NOT import each other.
 No circular dependencies.
+
+All domain serde modules (`serde_session`, `serde_envelope`,
+`serde_framework`, `serde_errors`) import `serde.nim` for shared helpers
+and `types.nim` for Layer 1 types. No domain serde module imports another
+domain serde module — `serde_session.nim` does not need envelope types,
+and vice versa. This mirrors Layer 1's flat-dependency pattern within
+each group.
 
 **Downstream:** Layer 3 imports `serialisation.nim` (which re-exports
 everything). Tests import individual serde modules for focused testing.
 
-**Why 6 files, not 1.** With ~25 ser/de pairs producing ~700 lines, a
+**Why 6 files, not 1.** With ~25 ser/de pairs producing ~1100 lines, a
 single file is feasible. However, 6 files provide: (a) independently testable
 modules (each test file mirrors one serde file), (b) parallel structure with
-Layer 1's module grouping, (c) bounded file size (~60-290 lines each),
+Layer 1's module grouping, (c) bounded file size (~180-295 lines each),
 (d) acyclic import graph (`serialisation.nim` re-exports without creating
 import cycles). The flat import graph means no cost to the split.
 
@@ -2187,7 +2404,7 @@ The complete Session JSON from RFC §2.1 (lines 735–817):
 - `session.state == JmapState("75128aab4b1b")`
 
 **Round-trip test:**
-`Session.fromJson(session.toJson()) == session`
+`Session.fromJson(Session.toJson(parsed)).get() == parsed`
 
 Note: RFC example uses `"maxConcurrentRequest"` (singular) — D2.6 typo
 tolerance ensures this parses correctly.
@@ -2236,114 +2453,115 @@ tolerance ensures this parses correctly.
 | Type | Input JSON | Expected | Reason |
 |------|-----------|----------|--------|
 | `Id` (deser) | `%"abc123-_XYZ"` | `ok` | Valid base64url (lenient) |
-| `Id` (deser) | `%42` | raises | Wrong JSON kind (JInt, not JString) |
-| `Id` (deser) | `nil` (missing field) | raises | Nil JsonNode |
-| `Id` (deser) | `newJNull()` | raises | JNull, not JString |
-| `Id` (deser) | `%*[1,2,3]` | raises | JArray, not JString |
-| `Id` (deser) | `%""` | raises | Empty string (parseIdFromServer rejects) |
+| `Id` (deser) | `%42` | `err` | Wrong JSON kind (JInt, not JString) |
+| `Id` (deser) | `nil` (missing field) | `err` | Nil JsonNode |
+| `Id` (deser) | `newJNull()` | `err` | JNull, not JString |
+| `Id` (deser) | `%*[1,2,3]` | `err` | JArray, not JString |
+| `Id` (deser) | `%""` | `err` | Empty string (parseIdFromServer rejects) |
 | `UnsignedInt` (deser) | `%0` | `ok` | Minimum valid |
 | `UnsignedInt` (deser) | `%9007199254740991` | `ok` | 2^53-1, maximum valid |
-| `UnsignedInt` (deser) | `%(-1)` | raises | Negative (parseUnsignedInt rejects) |
-| `UnsignedInt` (deser) | `%"42"` | raises | Wrong JSON kind (JString, not JInt) |
-| `UnsignedInt` (deser) | `nil` | raises | Nil JsonNode |
-| `UnsignedInt` (deser) | `newJNull()` | raises | JNull, not JInt |
+| `UnsignedInt` (deser) | `%(-1)` | `err` | Negative (parseUnsignedInt rejects) |
+| `UnsignedInt` (deser) | `%"42"` | `err` | Wrong JSON kind (JString, not JInt) |
+| `UnsignedInt` (deser) | `nil` | `err` | Nil JsonNode |
+| `UnsignedInt` (deser) | `newJNull()` | `err` | JNull, not JInt |
 | `JmapInt` (deser) | `%(-9007199254740991)` | `ok` | -(2^53-1), minimum valid |
-| `JmapInt` (deser) | `%"hello"` | raises | Wrong JSON kind |
+| `JmapInt` (deser) | `%"hello"` | `err` | Wrong JSON kind |
 | `Date` (deser) | `%"2014-10-30T14:12:00+08:00"` | `ok` | RFC example |
-| `Date` (deser) | `%42` | raises | Wrong JSON kind |
-| `Date` (deser) | `%"2014-10-30t14:12:00Z"` | raises | Lowercase 't' (parseDate rejects) |
+| `Date` (deser) | `%42` | `err` | Wrong JSON kind |
+| `Date` (deser) | `%"2014-10-30t14:12:00Z"` | `err` | Lowercase 't' (parseDate rejects) |
 | `UTCDate` (deser) | `%"2014-10-30T06:12:00Z"` | `ok` | RFC example |
-| `UTCDate` (deser) | `%"2014-10-30T06:12:00+00:00"` | raises | Must be Z, not +00:00 |
+| `UTCDate` (deser) | `%"2014-10-30T06:12:00+00:00"` | `err` | Must be Z, not +00:00 |
 | `AccountId` (deser) | `%"A13824"` | `ok` | RFC §2.1 example |
-| `AccountId` (deser) | `%""` | raises | Empty string |
-| `AccountId` (deser) | `%42` | raises | Wrong JSON kind |
+| `AccountId` (deser) | `%""` | `err` | Empty string |
+| `AccountId` (deser) | `%42` | `err` | Wrong JSON kind |
 | `JmapState` (deser) | `%"75128aab4b1b"` | `ok` | RFC §2.1 example |
-| `JmapState` (deser) | `%""` | raises | Empty string |
+| `JmapState` (deser) | `%""` | `err` | Empty string |
 | `MethodCallId` (deser) | `%"c1"` | `ok` | RFC example |
-| `MethodCallId` (deser) | `%""` | raises | Empty string |
+| `MethodCallId` (deser) | `%""` | `err` | Empty string |
 | `CreationId` (deser) | `%"abc"` | `ok` | Valid creation ID |
-| `CreationId` (deser) | `%"#abc"` | raises | Must not include `#` prefix |
+| `CreationId` (deser) | `%"#abc"` | `err` | Must not include `#` prefix |
 | `PropertyName` (deser) | `%"name"` | `ok` | Valid property name |
-| `PropertyName` (deser) | `%""` | raises | Empty property name |
+| `PropertyName` (deser) | `%""` | `err` | Empty property name |
 | `Invocation` (deser) | `%*["Mailbox/get", {}, "c1"]` | `ok` | Valid 3-element array |
-| `Invocation` (deser) | `%*{"name": "x", "args": {}, "id": "c1"}` | raises | JSON object instead of array |
-| `Invocation` (deser) | `%*["Mailbox/get", {}]` | raises | Only 2 elements |
-| `Invocation` (deser) | `%*["Mailbox/get", {}, "c1", "extra"]` | raises | 4 elements |
-| `Invocation` (deser) | `%*[42, {}, "c1"]` | raises | `checkJsonKind` rejects JInt |
-| `Invocation` (deser) | `%*["Mailbox/get", "notobject", "c1"]` | raises | `checkJsonKind` rejects JString |
-| `Invocation` (deser) | `%*["Mailbox/get", {}, 42]` | raises | `checkJsonKind` rejects JInt |
-| `Invocation` (deser) | `%*["", {}, "c1"]` | raises | Empty method name |
+| `Invocation` (deser) | `%*{"name": "x", "args": {}, "id": "c1"}` | `err` | JSON object instead of array |
+| `Invocation` (deser) | `%*["Mailbox/get", {}]` | `err` | Only 2 elements |
+| `Invocation` (deser) | `%*["Mailbox/get", {}, "c1", "extra"]` | `err` | 4 elements |
+| `Invocation` (deser) | `%*[42, {}, "c1"]` | `err` | `checkJsonKind` rejects JInt → "method name must be string" |
+| `Invocation` (deser) | `%*["Mailbox/get", "notobject", "c1"]` | `err` | `checkJsonKind` rejects JString → "arguments must be JSON object" |
+| `Invocation` (deser) | `%*["Mailbox/get", {}, 42]` | `err` | `checkJsonKind` rejects JInt → "method call ID must be string" |
+| `Invocation` (deser) | `%*["", {}, "c1"]` | `err` | Empty method name |
 | `Invocation` (round-trip) | Valid Invocation | `toJson` produces JArray len 3 | Format verification |
-| `Invocation` (round-trip) | Valid Invocation | `Invocation.fromJson(x.toJson()) == x` | Identity |
+| `Invocation` (round-trip) | Valid Invocation | `fromJson(toJson(x)).get() == x` | Identity |
 | `Session` (deser) | RFC §2.1 JSON | `ok` | Golden test |
-| `Session` (deser) | Missing `capabilities` key | raises | Required field |
-| `Session` (deser) | `capabilities` not an object | raises | Wrong kind |
-| `Session` (deser) | Missing core capability | raises | `parseSession` rejects |
+| `Session` (deser) | Missing `capabilities` key | `err` | Required field |
+| `Session` (deser) | `capabilities` not an object | `err` | Wrong kind |
+| `Session` (deser) | Missing core capability | `err` | `parseSession` rejects |
 | `Session` (deser) | Unknown capability URIs | `ok` with `ckUnknown` | Preserved |
 | `Session` (deser) | `maxConcurrentRequest` (singular) | `ok` | D2.6 typo tolerance |
 | `Session` (deser) | Extra unknown top-level fields | `ok` | Ignored per RFC |
-| `Session` (deser) | Missing `primaryAccounts` key | raises | Required field |
-| `Session` (deser) | `primaryAccounts` value is integer | raises | `checkJsonKind` rejects |
+| `Session` (deser) | Missing `primaryAccounts` key | `err` | Required field |
+| `Session` (deser) | `primaryAccounts` value is integer | `err` | `checkJsonKind` rejects |
 | `Session` (deser) | Empty accounts object | `ok` | |
 | `CoreCapabilities` (deser) | Valid with all 8 fields | `ok` | |
-| `CoreCapabilities` (deser) | Missing required field | raises | |
-| `CoreCapabilities` (deser) | `"maxSizeUpload": "string"` | raises | Wrong kind for UnsignedInt |
-| `CoreCapabilities` (deser) | `"maxSizeUpload": -1` | raises | `parseUnsignedInt` rejects |
+| `CoreCapabilities` (deser) | Missing required field | `err` | |
+| `CoreCapabilities` (deser) | `"maxSizeUpload": "string"` | `err` | Wrong kind for UnsignedInt |
+| `CoreCapabilities` (deser) | `"maxSizeUpload": -1` | `err` | `parseUnsignedInt` rejects |
 | `CoreCapabilities` (deser) | Empty `collationAlgorithms` | `ok` | Empty HashSet |
 | `ServerCapability` (deser) | `ckCore` with valid data | `ok` | |
-| `ServerCapability` (deser) | `ckCore` missing required field | raises | Propagated from CoreCapabilities |
+| `ServerCapability` (deser) | `ckCore` missing required field | `err` | Propagated from CoreCapabilities |
 | `ServerCapability` (deser) | Unknown URI + arbitrary JSON | `ok` with `ckUnknown` | |
 | `ServerCapability` (deser) | Known non-core URI (ckMail) | `ok` with `rawData` | |
 | `Referencable` (deser) | `"ids": [...]` | `rkDirect` | Direct value |
 | `Referencable` (deser) | `"#ids": {"resultOf":..}` | `rkReference` | Reference |
-| `Referencable` (deser) | Reference missing `resultOf` | raises | Invalid reference |
-| `Referencable` (deser) | Both `"ids"` and `"#ids"` present | raises | RFC 8620 §3.7: mutual exclusion |
-| `Referencable` (deser) | `"#ids": 42` (wrong kind) | raises | `#` prefix is a semantic commitment — malformed reference is an error |
-| `Referencable` (deser) | `"#ids": "string"` (wrong kind) | raises | Reference value must be JObject |
+| `Referencable` (deser) | Reference missing `resultOf` | `err` | Invalid reference |
+| `Referencable` (deser) | Both `"ids"` and `"#ids"` present | `rkReference` | `#`-prefixed key takes precedence; direct key ignored. Consistent with RFC intent: if a reference is present, the server resolves it |
+| `Referencable` (deser) | `"#ids": 42` (wrong kind) | `err` | `#` prefix is a semantic commitment — malformed reference is an error, not an absent reference |
+| `Referencable` (deser) | `"#ids": "string"` (wrong kind) | `err` | Reference value must be JObject |
 | `Filter` (deser) | Condition (no `operator` key) | `fkCondition` | Leaf node |
 | `Filter` (deser) | Operator with conditions | `fkOperator` | Composed node |
 | `Filter` (deser) | Nested operators (depth 2) | `ok` | Recursive |
 | `Filter` (deser) | Operator with empty conditions | `ok` | Valid per RFC |
-| `Filter` (deser) | Operator missing `conditions` | raises | Required field |
-| `Filter` (deser) | Nesting exceeds MaxFilterDepth | raises | Stack overflow defence |
+| `Filter` (deser) | Operator missing `conditions` | `err` | Required field |
 | `PatchObject` (deser) | `{"name": "New Name"}` | `ok` | Single property set |
 | `PatchObject` (deser) | `{"role": null}` | `ok` with `deleteProp` | Null = delete |
 | `PatchObject` (deser) | `{"a": 1, "b": 2}` | `ok` | Multiple properties |
 | `PatchObject` (deser) | `{}` | `ok` | Empty patch |
-| `PatchObject` (deser) | `"notobject"` | raises | Non-object JSON |
+| `PatchObject` (deser) | `"notobject"` | `err` | Non-object JSON |
 | `SetError` (deser) | `{"type": "forbidden"}` | `setForbidden` | Non-variant |
 | `SetError` (deser) | `{"type": "invalidProperties", "properties": ["name"]}` | `setInvalidProperties` | With variant data |
 | `SetError` (deser) | `{"type": "invalidProperties"}` | `setUnknown` | Defensive fallback — missing properties |
 | `SetError` (deser) | `{"type": "alreadyExists", "existingId": "msg42"}` | `setAlreadyExists` | With variant data |
 | `SetError` (deser) | `{"type": "alreadyExists"}` | `setUnknown` | Defensive fallback — missing existingId |
 | `SetError` (deser) | `{"type": "vendorSpecific"}` | `setUnknown` | rawType preserved |
-| `SetError` (deser) | `{"type": "forbidden", "properties": ["name"]}` | `setForbidden` with `extras` containing `properties` | Per-variant known keys |
+| `SetError` (deser) | `{"type": "forbidden", "properties": ["name"]}` | `setForbidden` with `extras` containing `properties` | Per-variant known keys: `properties` is unknown for `setForbidden`, preserved in extras |
 | `RequestError` (deser) | Valid RFC 7807 with known type URI | `ok` | Parsed errorType |
 | `RequestError` (deser) | Unknown type URI | `ok` with `retUnknown` | rawType preserved |
-| `RequestError` (deser) | With extra fields | extras collected in `Option[JsonNode]` | Lossless |
-| `RequestError` (deser) | Missing `type` field | raises | `checkJsonKind` rejects |
-| `RequestError` (deser) | `"type": 42` (wrong kind) | raises | `checkJsonKind` rejects JInt |
+| `RequestError` (deser) | With extra fields | extras collected in `Opt[JsonNode]` | Lossless |
+| `RequestError` (deser) | Missing `type` field | `err` | `checkJsonKind` rejects |
+| `RequestError` (deser) | `"type": 42` (wrong kind) | `err` | `checkJsonKind` rejects JInt — "missing or invalid type" |
 | `MethodError` (deser) | Valid with known type | `ok` | |
 | `MethodError` (deser) | Unknown type | `ok` with `metUnknown` | rawType preserved |
 | `MethodError` (deser) | With `description` | `description.isSome` | |
 | `MethodError` (deser) | With extra server fields | extras collected | |
 | `MethodError` (deser) | `"description": 42` (wrong kind) | `ok` with `description.isNone` | §1.4b lenient |
 | `SetError` (deser) | `"description": 42` (wrong kind) | `ok` with `description.isNone` | §1.4b lenient |
-| `Request` (deser) | With `createdIds` | `some` | |
-| `Request` (deser) | Without `createdIds` | `none` | |
-| `Response` (deser) | With `createdIds` | `some` | |
+| `Request` (deser) | With `createdIds` | `Opt.some` | |
+| `Request` (deser) | Without `createdIds` | `Opt.none` | |
+| `Response` (deser) | With `createdIds` | `Opt.some` | |
 | `Response` (deser) | `sessionState` via `parseJmapState` | validated | |
 | `Response` (deser) | Empty `methodResponses` | `ok` | |
-| `Response` (deser) | Missing `sessionState` | raises | Required |
+| `Response` (deser) | Missing `sessionState` | `err` | Required |
 | `Comparator` (deser) | All fields present | `ok` | |
 | `Comparator` (deser) | Missing `isAscending` | `ok` with default `true` | RFC default |
-| `Comparator` (deser) | Missing `property` | raises | Required |
-| `Comparator` (deser) | `{"property": 42, "isAscending": true}` | raises | Wrong kind for property |
+| `Comparator` (deser) | Missing `property` | `err` | Required |
+| `Comparator` (deser) | `{"property": 42, "isAscending": true}` | `err` | Wrong kind for property (JInt, not JString) |
 | `AddedItem` (deser) | Valid `{"id": "x", "index": 5}` | `ok` | |
-| `AddedItem` (deser) | Invalid `id` | raises | Propagated from Id.fromJson |
+| `AddedItem` (deser) | Invalid `id` | `err` | Propagated from Id.fromJson |
 | `ResultReference` (deser) | Valid | `ok` | |
-| `FilterOperator` (deser) | `"AND"` | `foAnd` | |
-| `FilterOperator` (deser) | `"CUSTOM"` | raises | Not total — exhaustive per RFC |
+| `FilterOperator` (deser) | `"AND"` | `ok(foAnd)` | |
+| `FilterOperator` (deser) | `"CUSTOM"` | `err` | Not total — exhaustive per RFC |
+
+**Total: ~108 enumerated edge case rows.**
 
 ---
 
@@ -2351,25 +2569,21 @@ tolerance ensures this parses correctly.
 
 | ID | Decision | Alternatives | Rationale |
 |----|----------|-------------|-----------|
-| D2.1 | Error type: reuse `ValidationError` exception | New `DeserialiseError` type; `Result[T, ValidationError]` | Natural exception propagation through the call chain; same type as L1 smart constructors |
+| D2.1 | Error type: reuse `ValidationError` (1.1B) | New `DeserialiseError` (1.1A) | Composes with L1 smart constructors via `?` without `mapErr` |
 | D2.2 | Module layout: 6 files (5 content + 1 re-export hub) | Single `serde.nim` | Independently testable; mirrors L1 grouping; bounded file size |
-| D2.3 | Parse boundary: Layer 4 concern | `safeParseJson` in Layer 2 | Layer 2 receives `JsonNode`, not raw strings. `string -> JsonNode` requires exception handling, which belongs in Layer 4 |
+| D2.3 | Parse boundary: Layer 4 concern | `safeParseJson` in Layer 2 | Layer 2 is pure `func` — receives `JsonNode`, not raw strings. `string → JsonNode` requires exception handling, which belongs in the imperative shell (Layer 4) |
 | D2.4 | Generic `Filter[C]`: callback parameter | Typeclass/concept | L2 Core cannot know entity condition types; verify at compile time |
 | D2.5 | `Referencable[T]`: field-level scope | Standalone `toJson`/`fromJson` | `#`-prefix is on JSON key, not value — containing object must dispatch |
 | D2.6 | RFC typo: accept both singular/plural | Strict plural only | RFC §2.1 example has `maxConcurrentRequest` (singular); servers may follow |
-| D2.7 | `Option[T]`: omit key when `isNone` | Emit `null` | JMAP "absent means default" semantics |
-| D2.8 | `fromJson` raises `ValidationError` | Returns `Result[T, ValidationError]` | Architecture revision: exceptions compose naturally; no `?` operator or `mapErr` needed |
+| D2.7 | `Opt[T]`: omit key when `isNone` | Emit `null` | JMAP "absent means default" semantics |
+| D2.8 | `fromJson` returns `Result[T, ValidationError]` | `JmapResult[T]` | `parseError` produces `ValidationError`; lift to `JmapResult` is Layer 4 |
 | D2.9 | Int accessor: `getBiggestInt` | `getInt` | `UnsignedInt`/`JmapInt` are `distinct int64`; `getInt` may truncate on 32-bit |
 | D2.10 | Provide `toJson` for all types | Deser-only for server types | Round-trip testing and debugging require both directions |
-| D2.11 | Enum deser: total (except `FilterOperator`) | All raise on unknown | Matches L1 total parse functions; `FilterOperator` exhaustive per RFC |
-| D2.12 | `extras` collection: `collectExtras` helper proc | Inline per-type | Shared pattern across `RequestError`, `MethodError`, `SetError` |
+| D2.11 | Enum deser: total (except `FilterOperator`) | All return `Result` | Matches L1 total parse functions; `FilterOperator` exhaustive per RFC |
+| D2.12 | `extras` collection: `collectExtras` helper func | Inline per-type | Shared pattern across `RequestError`, `MethodError`, `SetError` |
 | D2.13 | `toJson` output: compact (default `$`) | Pretty-printed | Wire format; human readability via `pretty()` at call site if needed |
 | D2.14 | String encoding: UTF-8, automatic escaping | Manual escaping | `std/json` handles UTF-8 and escaping per I-JSON (RFC 7493) |
-| D2.15 | `Option[T]` wrong kind: lenient (`none`) | Strict (raise) | Client library parsing server data — Postel's law. Strictness on error-type supplementary fields loses the critical `type` field (§1.4b) |
-| D2.16 | All routines use `proc` | `func` with `strictFuncs` | Architecture revision: `std/json` operations trigger side-effect violations requiring pervasive cast blocks; purity by convention instead |
-| D2.17 | `Referencable` mutual exclusion | `#`-prefixed key takes precedence | RFC 8620 §3.7 specifies both forms cannot coexist; reject ambiguity |
-| D2.18 | `Filter[C]` depth limiting | No depth limit | Defence-in-depth against `StackOverflowDefect` (uncatchable under `--panics:on`); MaxFilterDepth = 128 |
-| D2.19 | `toJson` extras collision guard | Include all extras | Prevents manual construction from corrupting wire format by skipping extras with known-key names |
+| D2.15 | `Opt[T]` wrong kind: lenient (`Opt.none`) | Strict (`err`) | Client library parsing server data — Postel's law. Strictness on error-type supplementary fields loses the critical `type` field (§1.4b) |
 
 ---
 

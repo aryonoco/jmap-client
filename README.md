@@ -3,29 +3,27 @@
 > [!WARNING]
 > **This project is a very early stage prototype.** It is not alpha quality software and is not usable in any shape or form. There is no stable API, no complete functionality, and no guarantee that anything works. **Do not use this for anything.**
 
-A cross-platform JMAP ([RFC 8620](https://www.rfc-editor.org/rfc/rfc8620)/[RFC 8621](https://www.rfc-editor.org/rfc/rfc8621)) client library written in Nim.
-
-Designed to be usable from C/C++ via a clean C ABI (`{.exportc, dynlib, cdecl, raises: [].}`), with `--mm:arc` for deterministic, FFI-safe memory management.
+A cross-platform JMAP ([RFC 8620](https://www.rfc-editor.org/rfc/rfc8620)/[RFC 8621](https://www.rfc-editor.org/rfc/rfc8621)) client library implemented in Nim, providing a stable C API as a shared library. Callable from C, C++, and any language with foreign function interface support.
 
 ## Status
 
-Early development — project skeleton only.
+Early development.
 
 ## Building
 
 Requires Nim >= 2.2.0. Development environment provided via devcontainer.
 
 ```bash
-just build          # Build shared library
+just build          # Build shared library (.so/.dylib/.dll)
 just test           # Run tests
 just ci             # Full CI pipeline
 ```
 
 ## Architecture
 
-- **Functional Core, Imperative Shell** — pure domain logic, I/O at boundaries
-- **Result types** — `JmapResult[T]` for error handling, never raise
+- **Functional core, imperative shell** — pure domain logic in Layers 1–3, I/O at the boundary
 - **ARC memory management** — deterministic, no GC pauses, FFI-safe
+- **C API boundary** — Layer 5 exports `{.exportc, dynlib, cdecl, raises: [].}` functions, catching all exceptions and projecting them as C error codes
 
 ## AI/LLM Disclosure
 

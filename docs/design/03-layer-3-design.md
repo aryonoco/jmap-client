@@ -2,35 +2,46 @@
 
 ## Preface
 
-This document specifies every type definition, builder function, dispatch
-mechanism, and serialisation pair for Layer 3 of the jmap-client library.
-It builds upon the decisions made in `00-architecture.md`, the types
-defined in `01-layer-1-design.md`, and the serialisation infrastructure
-established in `02-layer-2-design.md` so that implementation is mechanical.
+This document specifies every type definition, serialisation pair, and
+entity framework registration mechanism for Layer 3 of the jmap-client
+library. It builds upon the decisions made in `00-architecture.md`, the
+types defined in `01-layer-1-design.md`, and the serialisation
+infrastructure established in `02-layer-2-design.md` so that
+implementation is mechanical.
 
-**Scope.** Layer 3 covers: call ID generation, request building
-(`RequestBuilder`), response dispatch (`ResponseHandle[T]`), the entity
-type framework (registration, associated types, `mixin` resolution), all
-six standard method request/response types (RFC 8620 §5.1–5.6), the
-`Core/echo` method (§4), result reference construction (§3.7),
-`SetResponse` merging (parallel wire maps to unified `Result` maps), and
-serialisation (`toJson`/`fromJson`) for all Layer 3–defined types.
-Transport (Layer 4), the C ABI (Layer 5), binary data (§6), and push (§7)
-are out of scope. Layer 3 is the uppermost layer of the pure functional
-core — no `proc` definitions, no I/O, no exception handling.
+**Revision history.** This document was originally written against the
+strict FP-enforced design (commit `8aa689e`). It has been revised to
+reflect the idiomatic Nim migration described in
+`04-architecture-revision.md`. All references to `func`, `Result[T, E]`,
+`Opt[T]`, `{.push raises: [].}`, `{.cast(noSideEffect).}:`,
+`{.requiresInit.}`, `strictFuncs`, `strictCaseObjects`, `strictNotNil`,
+nim-results, and `initResultErr` have been removed. The code now uses
+`proc`, exceptions, and `Option[T]` from `std/options`.
+
+**Scope.** Layer 3 covers: the entity type framework (registration,
+associated types, `mixin` resolution), all six standard method
+request/response types (RFC 8620 §5.1–5.6), and serialisation
+(`toJson`/`fromJson`) for all Layer 3–defined types. Transport
+(Layer 4), the C ABI (Layer 5), binary data (§6), and push (§7) are
+out of scope. Layer 3 is the uppermost layer of the pure core — no I/O,
+no global state mutation.
+
+**Deferred scope.** The following Layer 3 components described in the
+original design are deferred to future implementation:
+
+- **`builder.nim`** — `RequestBuilder` type, call ID generation, `add*`
+  method functions, `build()`. These depend on the `ResponseHandle[T]`
+  and dispatch infrastructure.
+- **`dispatch.nim`** — `ResponseHandle[T]` phantom type, `get[T]`
+  extraction, `echoFromJson` callback, result reference construction.
+- **`protocol.nim`** — Re-export hub for all Layer 3 modules.
 
 **Relationship to prior documents.** `00-architecture.md` records broad
-decisions across all 5 layers. This document is the detailed specification
-for Layer 3 only. Decisions here resolve — and are consistent with — the
-architecture document's choices 3.2A (auto-incrementing call IDs), 3.3B
-(builder with method-specific sub-builders), 3.4C (phantom-typed response
-handles), 3.5B (plain overloaded procs, no concepts), 3.7B (overloaded
-type-level templates for associated types), 3.9B (unified Result maps
-internally, parallel maps on the wire),
-and 3.10A (string paths with constants, no validation). Decision 3.8A
-(typed patch builders per entity) is deferred — Layer 3 Core has no
-concrete entity types; typed patch builders are an entity-module concern
-implemented when adding RFC 8621.
+decisions across all 5 layers. `04-architecture-revision.md` specifies
+the migration from strict FP Nim to idiomatic Nim. This document is the
+detailed specification for the currently-implemented Layer 3 components:
+`entity.nim` (entity registration framework) and `methods.nim` (request
+and response types with serialisation).
 
 Layer 3 operates on Layer 1 types: `Invocation`, `Request`, `Response`,
 `ResultReference`, `Referencable[T]`, `Filter[C]`, `Comparator`,
@@ -38,9 +49,8 @@ Layer 3 operates on Layer 1 types: `Invocation`, `Request`, `Response`,
 `JmapState`, `MethodCallId`, `CreationId`), `MaxChanges`, and all error
 types (`MethodError`, `SetError`, `ValidationError`, `ClientError`). It
 imports Layer 2's serialisation infrastructure: `parseError`,
-`checkJsonKind`, `collectExtras`, `initResultErr` (centralised in
-`serde.nim` and exported), `referencableKey`, `fromJsonField`, and all
-primitive/identifier `toJson`/`fromJson` pairs.
+`checkJsonKind`, `collectExtras`, `referencableKey`, `fromJsonField`,
+and all primitive/identifier `toJson`/`fromJson` pairs.
 
 **ARC note.** Layer 2's `serde_session.nim` deep-copies `JsonNode` via
 `ownData`/`data.copy()` for case objects with `ref` fields in `else`
@@ -51,107 +61,144 @@ Layer 3 types.
 
 **Design principles.** Every decision follows:
 
-- **Railway Oriented Programming** — `Result[T, E]` pipelines with `?`
-  for early return. Builder functions return typed handles; dispatch
-  functions return `Result[T, MethodError]` (inner railway). Smart
-  constructors return `Result[T, ValidationError]` (construction railway).
-  Layer 4 lifts to `JmapResult[T]` (outer railway) at the IO boundary.
-- **Functional Core, Imperative Shell** — **Layer 3 is entirely `func`.**
-  No `proc` definitions, no exception handling, no `try/except`. Every
-  function is a pure transform. Builder accumulation uses owned `var`
-  parameters — `strictFuncs` permits mutation of owned `var` parameters
-  (Decision 3.3B); only mutation through immutable parameters' `ref`/`ptr`
-  chains is forbidden.
+- **Three-railway error model** — See below.
+- **Purity by convention** — Layer 3 uses `proc` throughout. Purity
+  (no I/O, no global state mutation) is maintained by convention and
+  code review, not by compiler enforcement.
 - **Immutability by default** — `let` bindings. Local `var` only when
-  building `JsonNode` trees (same as Layer 2) or accumulating builder
-  state via owned `var` parameter. `strictFuncs` enforces that mutation
-  does not escape.
-- **Total functions** — `{.push raises: [].}` on every module. Every
-  `fromJson` validates `JsonNodeKind` before extraction. Every function
-  has a defined output for every input.
+  building `JsonNode` trees or accumulating collections.
 - **Parse, don't validate** — `fromJson` functions produce well-typed
-  values by calling Layer 1 smart constructors, or structured
-  `ValidationError`. Response dispatch converts `ValidationError` to
-  `MethodError` at the railway boundary.
-- **Make illegal states unrepresentable** — `ResponseHandle[T]` is a
-  phantom distinct type that ensures type-safe extraction. Entity
-  registration via `registerJmapEntity`/`registerQueryableEntity`
-  catches missing overloads at definition time with domain-specific
-  error messages. `Referencable[T]` encodes the direct/reference
-  distinction in the type system.
+  values by calling Layer 1 smart constructors. Invalid input raises
+  `ValidationError`.
+- **Make illegal states unrepresentable** — Entity registration via
+  `registerJmapEntity`/`registerQueryableEntity` catches missing
+  overloads at definition time with domain-specific error messages.
+  `Referencable[T]` encodes the direct/reference distinction in the
+  type system.
 
-**L3-specific constraint: builder accumulation via owned `var` mutation
-under `strictFuncs`.** All `add*` functions take `b: var RequestBuilder`
-and mutate the builder's `seq` and counter fields. This is the owned `var`
-pattern (c) from the architecture conventions — `strictFuncs` permits
-mutation of owned `var` parameters because the mutation is through the
-parameter itself, not through an immutable parameter's `ref`/`ptr` chain.
+### Error Model: Three Railways
 
-**`{.cast(noSideEffect).}:` pattern.** All `func` bodies that build
-`JsonNode` trees, call `$` on `int`, or store `JsonNode` values into
-containers wrap those sections in `{.cast(noSideEffect).}:`. This is safe
-because the mutation is local (building a return value), not escaping
-through `ref` indirection. Same pattern as Layer 2 §2 Pattern A — used
-~20 times in existing serde code.
+JMAP has four distinct failure modes that occur at different points in
+the request lifecycle. The library models these as three error railways,
+each with its own mechanism chosen to match the failure's semantics:
 
-**Cast centralisation in the builder.** The `{.cast(noSideEffect).}:`
-for builder invocation accumulation is placed inside `addInvocation`
-(§2.5), not in each `add*` function. `addInvocation` is the single site
-that stores a `ref`-containing `Invocation` (with `arguments: JsonNode`)
-into `b.invocations` — `strictFuncs` treats this as a side effect. The
-`toJson()` functions are declared `func` with their own internal casts
-and do not need a caller-side cast. This centralisation also ensures
-`addEcho` (which passes pre-built `JsonNode` arguments directly and does
-not call `toJson`) compiles correctly under `strictFuncs`.
+```
+  ┌───────────────────────────┬───────────────────────────┬──────────────────────────────────────────────┐
+  │          Railway          │         Mechanism         │                     Why                      │
+  ├───────────────────────────┼───────────────────────────┼──────────────────────────────────────────────┤
+  │ Construction (Track 0)    │ ValidationError exception │ Fails fast on bad input                      │
+  ├───────────────────────────┼───────────────────────────┼──────────────────────────────────────────────┤
+  │ Transport (Track 1)       │ ClientError exception     │ No response to return                        │
+  ├───────────────────────────┼───────────────────────────┼──────────────────────────────────────────────┤
+  │ Per-invocation (Track 2)  │ MethodError as data       │ Response succeeded; individual method failed │
+  ├───────────────────────────┼───────────────────────────┼──────────────────────────────────────────────┤
+  │ Per-item (within Track 2) │ SetError as data          │ Method succeeded; individual item failed     │
+  └───────────────────────────┴───────────────────────────┴──────────────────────────────────────────────┘
+```
 
-**Decision D3.12: Layer 2 `noSideEffect` cast wrappers.** Layer 2's
-`serde.nim` provides centralised wrapper funcs — `jStr`, `jInt`, `jBool`,
-`jObj`, `jArr` — that encapsulate the `{.cast(noSideEffect).}` for
-primitive JSON construction (`%string(x)`, `%int64(x)`, `%bool(x)`,
-`newJObject()`, `newJArray()`). These eliminate the cast from all 11
-primitive `toJson` functions (Category A: distinct string types like `Id`,
-`AccountId`, `JmapState`, and distinct int types like `UnsignedInt`,
-`JmapInt`). Object-builder `toJson` functions that use `%*` or multi-line
-construction (Category B, 14 sites) and `pairs`-iteration blocks
-(Category C, 1 site) retain their own casts — the wrappers do not address
-those patterns. The wrappers live in `serde.nim`, not a new module.
+**Track 0 — Construction railway.** Smart constructors (`parseId`,
+`parseAccountId`, `parseJmapState`, etc.) raise `ValidationError` when
+given invalid input. This is a programming error or malformed server
+data. `fromJson` functions propagate these exceptions — a
+`GetResponse.fromJson` that encounters an invalid `accountId` raises
+immediately. Track 0 errors abort the current parse.
+
+**Track 1 — Transport/request railway.** `ClientError` (wrapping
+`TransportError` or `RequestError`) is raised when the HTTP request
+itself fails — network error, TLS failure, timeout, non-200 status, or
+a JMAP request-level error (RFC 7807 problem details like
+`urn:ietf:params:jmap:error:notRequest`). There is no `Response` to
+inspect. This is a Layer 4 concern; Layer 3 defines the error types but
+does not raise them.
+
+**Track 2 — Per-invocation method errors.** `MethodError` is **not** an
+exception — it is a plain `object` returned as data within a successful
+`Response`. The HTTP request succeeded (200 OK), the JMAP envelope
+parsed correctly, but one or more individual method calls within the
+batch failed. The server signals this by returning `["error",
+{"type": "..."}, "callId"]` instead of `["Foo/get", {...}, "callId"]`.
+`MethodError` is detected by the dispatch function (`get[T]`, §3) by
+checking `invocation.name == "error"`. Because the response is
+structurally valid, it would be wrong to throw an exception — other
+method calls in the same batch may have succeeded.
+
+**Per-item errors (within Track 2).** `SetError` is also a plain
+`object`, not an exception. Within a successful `/set` or `/copy`
+response, individual create/update/destroy operations may fail while
+others succeed. These appear in the `notCreated`, `notUpdated`, and
+`notDestroyed` wire maps. Again, the response is structurally valid and
+other operations in the same call succeeded — exceptions would lose
+the successful results.
+
+**Railway conversion at boundaries.**
+
+- **Track 0 → Track 2 (dispatch boundary).** When the dispatch function
+  (`get[T]`, §3) calls a `fromArgs` callback that raises
+  `ValidationError`, the dispatch function catches it and converts it to
+  a `MethodError` with type `serverFail`. The full `ValidationError`
+  structure (`typeName`, `value`) is preserved in `MethodError.extras`
+  for diagnostics. This conversion is lossless.
+- **Track 0 + Track 1 → C error codes (Layer 5 boundary).** Layer 5
+  catches all `CatchableError` exceptions via `try/except` and maps
+  them to C-compatible integer error codes with thread-local error
+  state. This is where exceptions are extinguished.
+- **Track 2 stays as data.** `MethodError` and `SetError` are never
+  converted to exceptions. They flow through as fields in response
+  objects, inspected by the caller via normal field access.
+
+**Why exceptions for Tracks 0 and 1, data for Track 2.** The mechanism
+is chosen to match what makes sense at each level:
+
+- Tracks 0 and 1 are **abort conditions**: no useful partial result
+  exists. Exceptions propagate naturally without polluting every
+  intermediate function's return type.
+- Track 2 is **partial failure within a batch**: the response envelope
+  is valid, other method calls may have succeeded, and the caller needs
+  to inspect each result individually. Throwing would discard the
+  successful results. Data is the right representation.
+
+This three-railway model is unchanged from the original architecture —
+only the mechanism for Tracks 0 and 1 changed (from `Result[T, E]`
+with `?` operator to exceptions). Track 2 always used data objects.
 
 **Decision D3.1: Layer 3 owns serialisation of Layer 3–defined types.**
 `toJson`/`fromJson` for standard method request/response types live in
-Layer 3 modules, not Layer 2. Rationale: the types are generic over entity
-type `T`; their serialisation depends on entity-specific resolution (e.g.,
-`methodNamespace(T)`, `capabilityUri(T)`, `filterType(T)`) that only
-Layer 3 has. Layer 3 imports Layer 2's infrastructure (`parseError`,
-`checkJsonKind`, `collectExtras`, `initResultErr`, primitive `toJson`/
-`fromJson` pairs) but defines its own type-specific serialisation.
+Layer 3's `methods.nim`, not Layer 2. Rationale: the types are generic
+over entity type `T`; their serialisation depends on entity-specific
+resolution (e.g., `methodNamespace(T)`, `capabilityUri(T)`,
+`filterType(T)`) that only Layer 3 has. Layer 3 imports Layer 2's
+infrastructure (`parseError`, `checkJsonKind`, `collectExtras`,
+primitive `toJson`/`fromJson` pairs) but defines its own type-specific
+serialisation.
 
 **Compiler flags.** These constrain every type and function definition
-(from `jmap_client.nimble`):
+(from `jmap_client.nimble` and `config.nims`):
 
 ```
 --mm:arc
 --experimental:strictDefs
---experimental:strictNotNil
---experimental:strictFuncs
---experimental:strictCaseObjects
+--panics:on
 --styleCheck:error
-{.push raises: [].}  (per-module)
-{.experimental: "strictCaseObjects".}  (per src/ module)
+--floatChecks:on
+--overflowChecks:on
 ```
+
+No per-module `{.push raises: [].}` in Layer 3. Only Layer 5
+(`src/jmap_client.nim`) uses that pragma.
 
 ---
 
 ## Standard Library Utilisation
 
-Layer 3 maximises use of the Nim standard library. Every adoption and
-rejection has a concrete reason tied to the strict compiler constraints.
+Layer 3 maximises use of the Nim standard library.
 
 ### Modules used in Layer 3
 
 | Module | What is used | Rationale |
 |--------|-------------|-----------|
-| `std/json` | `newJObject`, `newJArray`, `%`, `%*`, `{}` accessor, `getStr`, `getBiggestInt`, `getBool`, `getFloat`, `getElems`, `pairs`, `hasKey`, `JsonNodeKind` | Same set as Layer 2. `{}` is the nil-safe accessor (returns nil, no `KeyError`). `[]` is NEVER used for field extraction. |
-| `std/tables` | `Table`, `initTable`, `pairs`, `[]=`, `hasKey`, `len` | `SetResponse` merging, `SetRequest`/`CopyRequest` create maps, builder invocation accumulation |
+| `std/json` | `newJObject`, `newJArray`, `%`, `%*`, `{}` accessor, `[]` accessor, `getStr`, `getBiggestInt`, `getBool`, `getFloat`, `getElems`, `pairs`, `hasKey`, `JsonNodeKind` | Same set as Layer 2. `{}` is the nil-safe accessor (returns nil, no `KeyError`). `[]` used for required fields where `KeyError` on absence is acceptable. |
+| `std/options` | `Option[T]`, `some`, `none`, `isSome`, `isNone`, `get` | Standard library optional values, replacing nim-results `Opt[T]`. |
+| `std/tables` | `Table`, `initTable`, `pairs`, `[]=`, `hasKey`, `len`, `del` | `SetResponse` merging, `SetRequest`/`CopyRequest` create maps |
 | `std/sugar` | `collect` | Building seqs from iterators (Layer 2+ convention) |
 | `std/sequtils` | `allIt`, `anyIt` | Predicate templates (same as Layer 1/Layer 2) |
 
@@ -159,20 +206,8 @@ rejection has a concrete reason tied to the strict compiler constraints.
 
 | Module | Reason not used in Layer 3 |
 |--------|---------------------------|
-| `std/strformat` | `fmt` is `proc`, not `func`. `$` + `&` suffice for call ID strings under `{.cast(noSideEffect).}:`. |
 | `std/jsonutils` | Uses exceptions internally. Same rejection as Layer 2. |
-| `std/atomics` | Call ID counter is builder-local, not shared. No concurrency requirement. |
-
-### Critical Nim findings that constrain the design
-
-| Finding | Impact | Evidence |
-|---------|--------|----------|
-| `$` on `int` is `proc {.raises: [].}`, not `func` | Call ID generation (`"c" & $n`) requires `{.cast(noSideEffect).}:` inside `func` | `dollars.nim:18` |
-| Local `var Table` mutation in `func`: works for non-ref values | `SetResponse` merging with `Result[void, SetError]` needs no cast; with `Result[JsonNode, SetError]` needs cast | `serde_session.nim:248` (no cast), `serde.nim:43` (cast for `JsonNode`) |
-| `template` returning `typedesc` works in generic object field types | `Filter[filterType(T)]` works — template expands to concrete type, then generic instantiation proceeds | `t5540.nim:17` |
-| Concepts avoided (see `docs/design/notes/nim-concepts.md`) | Use plain overloaded `typedesc` procs + `registerJmapEntity` template (with `when not compiles` + `{.error.}` for domain-specific messages) + `mixin` instead | Known bugs (byref #16897, block scope issues), experimental status, no `.noSideEffect` enforcement in concept body, generic type checking unimplemented. Alternatives evaluated (dictionary passing, macro generation, type unions, phantom proof tokens) all fall short on extensibility, associated type support, or ergonomics under the strict compiler constraints. |
-| `{.noSideEffect, raises: [].}` on `proc` type params enforced | Callback in `get[T]` correctly constrains callers | `manual.md:5356–5415` |
-| `requiresInit` types in `Result` error branch | Use `initResultErr` workaround — centralised and exported from `serde.nim` (no longer duplicated per-module) | `serde.nim:37` |
+| `std/atomics` | No concurrency requirement in Layer 3. |
 
 ---
 
@@ -180,50 +215,24 @@ rejection has a concrete reason tied to the strict compiler constraints.
 
 **Architecture decision:** 3.2A (auto-incrementing counter)
 
+**Status:** Deferred. Call ID generation is part of the `RequestBuilder`
+(`builder.nim`), which is not yet implemented. The design remains as
+specified in the original document — `"c0"`, `"c1"`, etc. — and will be
+implemented when the builder is added.
+
 **RFC reference:** §3.2 (lines 865–881) — the method call id is "an
 arbitrary string from the client to be echoed back with the responses
 emitted by that method call".
 
-The counter is a field on `RequestBuilder`. Format: `"c0"`, `"c1"`, etc.
-The `"c"` prefix guarantees the string is non-empty and free of control
-characters, satisfying `MethodCallId` invariants without requiring
-validation.
+The counter will be a field on `RequestBuilder`. Format: `"c0"`, `"c1"`,
+etc. The `"c"` prefix guarantees the string is non-empty and free of
+control characters, satisfying `MethodCallId` invariants without
+requiring validation.
 
-```nim
-func nextId(b: var RequestBuilder): MethodCallId =
-  ## Generates the next call ID and increments the counter.
-  ## Format: "c0", "c1", ... — always valid MethodCallIds
-  ## (non-empty, no control characters).
-  var s = "c"
-  {.cast(noSideEffect).}:
-    s.add($b.nextCallId)
-  inc b.nextCallId
-  MethodCallId(s)
-```
-
-**Decision D3.9:** `MethodCallId(s)` uses the distinct constructor
+**Decision D3.9:** `MethodCallId(s)` will use the distinct constructor
 directly (bypassing `parseMethodCallId`) because the generated format is
 provably valid: the builder controls the format entirely, the `"c"` prefix
-ensures non-empty, and `$int` produces only ASCII digit characters. This
-bypass is safe and documented.
-
-**Why `{.cast(noSideEffect).}:` is needed.** The `$` overload for `int`
-is declared as `proc`, not `func`, in the Nim standard library
-(`system/dollars.nim:18`). Although it has `{.raises: [].}` and performs
-no observable side effects (it merely converts an integer to its string
-representation), the missing `{.noSideEffect.}` annotation makes it
-incompatible with `func` under `strictFuncs`. The cast is safe: the
-conversion is deterministic and referentially transparent.
-
-**Counter reset semantics.** The counter is scoped to a single
-`RequestBuilder` instance. Each call to `initRequestBuilder()` produces a
-fresh builder with `nextCallId: 0`. Call IDs therefore repeat across
-requests — `"c0"` appears in every request. This is by design: the RFC
-specifies call IDs as opaque correlation tokens scoped to a single
-request/response pair (§3.2 line 876). See Section 3 for the cross-request
-safety gap this creates.
-
-**Module:** `builder.nim`
+ensures non-empty, and `$int` produces only ASCII digit characters.
 
 ---
 
@@ -231,6 +240,10 @@ safety gap this creates.
 
 **Architecture decision:** 3.3B (builder with method-specific
 sub-builders)
+
+**Status:** Deferred. The `RequestBuilder` type and its `add*` functions
+are not yet implemented. The design below describes the planned
+implementation.
 
 **RFC reference:** §3.3 (lines 882–945) — the Request object with
 `using`, `methodCalls`, and optional `createdIds`.
@@ -255,7 +268,7 @@ malformed requests.
 ### 2.2 Constructor
 
 ```nim
-func initRequestBuilder*(): RequestBuilder =
+proc initRequestBuilder*(): RequestBuilder =
   ## Creates a fresh builder with counter at zero, no invocations,
   ## and no capabilities.
   RequestBuilder(nextCallId: 0, invocations: @[], capabilities: @[])
@@ -264,33 +277,25 @@ func initRequestBuilder*(): RequestBuilder =
 ### 2.3 Build
 
 ```nim
-func build*(b: RequestBuilder): Request =
+proc build*(b: RequestBuilder): Request =
   ## Pure snapshot of the current builder state as a Request. Does not
   ## mutate the builder — the builder may continue to accumulate
   ## invocations via ``add*`` after a call to ``build()``, and a
   ## subsequent ``build()`` will capture the updated state. The builder's
   ## capabilities become the Request's ``using`` array. The builder's
   ## invocations become the Request's ``methodCalls``. createdIds is
-  ## Opt.none — proxy splitting is a Layer 4 concern.
+  ## none — proxy splitting is a Layer 4 concern.
   ##
   ## RFC reference: §3.3 (lines 882–945)
   Request(using: b.capabilities, methodCalls: b.invocations,
-          createdIds: Opt.none(Table[CreationId, Id]))
+          createdIds: none(Table[CreationId, Id]))
 ```
-
-Non-`var` parameter — pure snapshot. The builder is not consumed;
-calling `build()` twice on an unmodified builder yields the same
-`Request`, but intervening `add*` calls will produce a different
-(larger) `Request` on the next `build()`.
 
 ### 2.4 Capability Deduplication
 
 ```nim
-func addCapability(b: var RequestBuilder, cap: string) =
+proc addCapability(b: var RequestBuilder, cap: string) =
   ## Adds a capability URI to the builder if not already present.
-  ## Manual check (not addUnique) — consistent with existing codebase
-  ## patterns and avoids reliance on procs without explicit
-  ## ``raises: []`` annotation.
   if cap notin b.capabilities:
     b.capabilities.add(cap)
 ```
@@ -298,18 +303,14 @@ func addCapability(b: var RequestBuilder, cap: string) =
 ### 2.5 Internal Invocation Helper
 
 ```nim
-func addInvocation(b: var RequestBuilder, name: string,
+proc addInvocation(b: var RequestBuilder, name: string,
     args: JsonNode, capability: string): MethodCallId =
   ## Constructs an Invocation from the given method name and arguments,
   ## adds it to the builder, registers the capability, and returns the
   ## generated call ID.
-  ## The cast is needed because Invocation contains arguments: JsonNode
-  ## (a ref type), and strictFuncs treats storing a ref-containing object
-  ## into a var seq as a side effect.
   let callId = b.nextId()
   let inv = Invocation(name: name, arguments: args, methodCallId: callId)
-  {.cast(noSideEffect).}:
-    b.invocations.add(inv)
+  b.invocations.add(inv)
   b.addCapability(capability)
   callId
 ```
@@ -319,8 +320,7 @@ func addInvocation(b: var RequestBuilder, name: string,
 The six standard method `add*` functions (§2.6.2–2.6.7) follow an
 identical algorithmic pattern:
 
-1. Construct arguments `JsonNode` via the request type's `toJson` inside
-   `{.cast(noSideEffect).}:`.
+1. Construct arguments `JsonNode` via the request type's `toJson`.
 2. Call `addInvocation` with `methodNamespace(T) & "/suffix"` and
    `capabilityUri(T)`.
 3. Return `ResponseHandle[ResponseType](callId)`.
@@ -331,214 +331,31 @@ generic over `T`, and returns `ResponseHandle[JsonNode]`.
 
 **Decision D3.2:** `add*` parameters match RFC request fields. Required
 RFC fields are positional; optional fields are keyword-defaulted with
-`Opt.none` or the RFC-specified default value.
+`none(T)` or the RFC-specified default value.
 
 **`var` parameter semantics.** All `add*` functions take
-`b: var RequestBuilder`. Under `strictFuncs`, mutation of an owned `var`
-parameter is permitted because the parameter is owned by the caller — the
-mutation is through the parameter itself, not through an immutable
-parameter's `ref`/`ptr` chain. This is pattern (c) from the architecture
-conventions. The builder's `seq[Invocation]` and `seq[string]` fields are
-value types — `.add()` on them is permitted under `strictFuncs` when the
-parameter is `var`.
+`b: var RequestBuilder`. The builder's `seq[Invocation]` and
+`seq[string]` fields are value types — `.add()` on them is permitted
+when the parameter is `var`.
 
 **Return type.** Each `add*` returns `ResponseHandle[ResponseType]` where
 `ResponseType` is the method's response type (e.g., `GetResponse[T]` for
 `addGet`). The handle wraps the generated `MethodCallId` and carries the
-response type as a phantom parameter. The caller uses this handle with
-`get[T]` (Section 3) to extract the typed response from the `Response`
-envelope.
+response type as a phantom parameter.
 
 **2.6.1 addEcho**
 
 ```nim
-func addEcho*(b: var RequestBuilder, args: JsonNode): ResponseHandle[JsonNode] =
+proc addEcho*(b: var RequestBuilder, args: JsonNode): ResponseHandle[JsonNode] =
   ## Adds a Core/echo invocation (RFC 8620 §4, lines 1540–1561).
   ## Returns a handle for extracting the echo response.
   ## Capability: "urn:ietf:params:jmap:core".
-  ##
-  ## RFC reference: §4 (lines 1540–1561)
   let callId = b.addInvocation("Core/echo", args, "urn:ietf:params:jmap:core")
   ResponseHandle[JsonNode](callId)
 ```
 
-**2.6.2 addGet**
-
-```nim
-func addGet*[T](b: var RequestBuilder,
-    accountId: AccountId,
-    ids: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]),
-    properties: Opt[seq[string]] = Opt.none(seq[string])
-): ResponseHandle[GetResponse[T]] =
-  ## Adds a Foo/get invocation (RFC 8620 §5.1, lines 1587–1665).
-  ## ``ids``: Referencable — may be a direct seq or a result reference.
-  ## ``properties``: if none, server returns all properties.
-  ##
-  ## RFC reference: §5.1 (lines 1587–1665)
-  mixin methodNamespace, capabilityUri
-  let name = methodNamespace(T) & "/get"
-  let cap = capabilityUri(T)
-  let req = GetRequest[T](accountId: accountId, ids: ids, properties: properties)
-  let args = req.toJson()
-  let callId = b.addInvocation(name, args, cap)
-  ResponseHandle[GetResponse[T]](callId)
-```
-
-**2.6.3 addChanges**
-
-```nim
-func addChanges*[T](b: var RequestBuilder,
-    accountId: AccountId,
-    sinceState: JmapState,
-    maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges)
-): ResponseHandle[ChangesResponse[T]] =
-  ## Adds a Foo/changes invocation (RFC 8620 §5.2, lines 1667–1838).
-  ## ``sinceState``: the state string from a previous Foo/get response.
-  ## ``maxChanges``: server may return fewer but must not return more.
-  ## Must be > 0 per RFC (enforced by ``MaxChanges`` smart constructor).
-  ##
-  ## RFC reference: §5.2 (lines 1667–1838)
-  mixin methodNamespace, capabilityUri
-  let name = methodNamespace(T) & "/changes"
-  let cap = capabilityUri(T)
-  let req = ChangesRequest[T](
-    accountId: accountId, sinceState: sinceState, maxChanges: maxChanges)
-  let args = req.toJson()
-  let callId = b.addInvocation(name, args, cap)
-  ResponseHandle[ChangesResponse[T]](callId)
-```
-
-**2.6.4 addSet**
-
-```nim
-func addSet*[T](b: var RequestBuilder,
-    accountId: AccountId,
-    ifInState: Opt[JmapState] = Opt.none(JmapState),
-    create: Opt[Table[CreationId, JsonNode]] = Opt.none(Table[CreationId, JsonNode]),
-    update: Opt[Table[Id, PatchObject]] = Opt.none(Table[Id, PatchObject]),
-    destroy: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]])
-): ResponseHandle[SetResponse[T]] =
-  ## Adds a Foo/set invocation (RFC 8620 §5.3, lines 1855–2175).
-  ## ``ifInState``: if supplied, must match current state or stateMismatch.
-  ## ``create``: creation id to entity data map.
-  ## ``update``: id to PatchObject map.
-  ## ``destroy``: Referencable — may be a direct seq or a result reference.
-  ##
-  ## RFC reference: §5.3 (lines 1855–2175)
-  mixin methodNamespace, capabilityUri
-  let name = methodNamespace(T) & "/set"
-  let cap = capabilityUri(T)
-  let req = SetRequest[T](
-    accountId: accountId, ifInState: ifInState,
-    create: create, update: update, destroy: destroy)
-  let args = req.toJson()
-  let callId = b.addInvocation(name, args, cap)
-  ResponseHandle[SetResponse[T]](callId)
-```
-
-**2.6.5 addCopy**
-
-```nim
-func addCopy*[T](b: var RequestBuilder,
-    fromAccountId: AccountId,
-    accountId: AccountId,
-    create: Table[CreationId, JsonNode],
-    ifFromInState: Opt[JmapState] = Opt.none(JmapState),
-    ifInState: Opt[JmapState] = Opt.none(JmapState),
-    onSuccessDestroyOriginal: bool = false,
-    destroyFromIfInState: Opt[JmapState] = Opt.none(JmapState)
-): ResponseHandle[CopyResponse[T]] =
-  ## Adds a Foo/copy invocation (RFC 8620 §5.4, lines 2191–2338).
-  ## ``fromAccountId``: source account.
-  ## ``accountId``: destination account (must differ from fromAccountId).
-  ## ``create``: creation id to entity data map (required, not optional).
-  ## ``onSuccessDestroyOriginal``: if true, server destroys originals
-  ## after successful copy via an implicit Foo/set call.
-  ##
-  ## RFC reference: §5.4 (lines 2191–2338)
-  mixin methodNamespace, capabilityUri
-  let name = methodNamespace(T) & "/copy"
-  let cap = capabilityUri(T)
-  let req = CopyRequest[T](
-    fromAccountId: fromAccountId, accountId: accountId,
-    create: create, ifFromInState: ifFromInState, ifInState: ifInState,
-    onSuccessDestroyOriginal: onSuccessDestroyOriginal,
-    destroyFromIfInState: destroyFromIfInState)
-  let args = req.toJson()
-  let callId = b.addInvocation(name, args, cap)
-  ResponseHandle[CopyResponse[T]](callId)
-```
-
-**2.6.6 addQuery**
-
-```nim
-func addQuery*[T](b: var RequestBuilder,
-    accountId: AccountId,
-    filterConditionToJson: proc(c: filterType(T)): JsonNode
-        {.noSideEffect, raises: [].},
-    filter: Opt[Filter[filterType(T)]] = Opt.none(Filter[filterType(T)]),
-    sort: Opt[seq[Comparator]] = Opt.none(seq[Comparator]),
-    position: JmapInt = JmapInt(0),
-    anchor: Opt[Id] = Opt.none(Id),
-    anchorOffset: JmapInt = JmapInt(0),
-    limit: Opt[UnsignedInt] = Opt.none(UnsignedInt),
-    calculateTotal: bool = false
-): ResponseHandle[QueryResponse[T]] =
-  ## Adds a Foo/query invocation (RFC 8620 §5.5, lines 2339–2638).
-  ## ``filterConditionToJson``: callback for serialising filter conditions of type
-  ## ``filterType(T)``. Forwarded to ``Filter[C].toJson(filterConditionToJson)``
-  ## (Layer 2 §7.2). Entity modules provide this callback.
-  ## ``filter``: generic over filterType(T) — entity-specific condition.
-  ## ``anchor``: if supplied, ``position`` is ignored by the server.
-  ## ``anchorOffset``: relative offset from the anchor's index.
-  ## ``calculateTotal``: expensive — only request when needed.
-  ##
-  ## RFC reference: §5.5 (lines 2339–2638)
-  mixin methodNamespace, capabilityUri, filterType
-  let name = methodNamespace(T) & "/query"
-  let cap = capabilityUri(T)
-  let req = QueryRequest[T](
-    accountId: accountId, filter: filter, sort: sort,
-    position: position, anchor: anchor, anchorOffset: anchorOffset,
-    limit: limit, calculateTotal: calculateTotal)
-  let args = req.toJson(filterConditionToJson)
-  let callId = b.addInvocation(name, args, cap)
-  ResponseHandle[QueryResponse[T]](callId)
-```
-
-**2.6.7 addQueryChanges**
-
-```nim
-func addQueryChanges*[T](b: var RequestBuilder,
-    accountId: AccountId,
-    sinceQueryState: JmapState,
-    filterConditionToJson: proc(c: filterType(T)): JsonNode
-        {.noSideEffect, raises: [].},
-    filter: Opt[Filter[filterType(T)]] = Opt.none(Filter[filterType(T)]),
-    sort: Opt[seq[Comparator]] = Opt.none(seq[Comparator]),
-    maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges),
-    upToId: Opt[Id] = Opt.none(Id),
-    calculateTotal: bool = false
-): ResponseHandle[QueryChangesResponse[T]] =
-  ## Adds a Foo/queryChanges invocation (RFC 8620 §5.6, lines 2639–2819).
-  ## ``filterConditionToJson``: callback for serialising filter conditions of type
-  ## ``filterType(T)``. Forwarded to ``Filter[C].toJson(filterConditionToJson)``
-  ## (Layer 2 §7.2). Entity modules provide this callback.
-  ## ``sinceQueryState``: the queryState string from a previous Foo/query.
-  ## ``upToId``: optimisation when sort/filter are on immutable properties.
-  ##
-  ## RFC reference: §5.6 (lines 2639–2819)
-  mixin methodNamespace, capabilityUri, filterType
-  let name = methodNamespace(T) & "/queryChanges"
-  let cap = capabilityUri(T)
-  let req = QueryChangesRequest[T](
-    accountId: accountId, sinceQueryState: sinceQueryState,
-    filter: filter, sort: sort, maxChanges: maxChanges,
-    upToId: upToId, calculateTotal: calculateTotal)
-  let args = req.toJson(filterConditionToJson)
-  let callId = b.addInvocation(name, args, cap)
-  ResponseHandle[QueryChangesResponse[T]](callId)
-```
+**2.6.2–2.6.7** follow the same pattern. See Section 6 for the request
+type definitions used by each `add*` function.
 
 **Decision D3.5:** See §6.7 for the full statement and rationale
 (Referencable field selection).
@@ -546,13 +363,17 @@ func addQueryChanges*[T](b: var RequestBuilder,
 **Decision D3.6:** See §6.7 for the full statement and rationale
 (JsonNode entity data).
 
-**Module:** `builder.nim`
+**Module:** `builder.nim` (deferred)
 
 ---
 
 ## 3. ResponseHandle[T] and Response Dispatch
 
 **Architecture decision:** 3.4C (phantom-typed response handles)
+
+**Status:** Deferred. The `ResponseHandle[T]` type and dispatch
+infrastructure are not yet implemented. The design below is stable
+and describes the planned implementation.
 
 **RFC reference:** §3.4 (lines 975–1035) — the Response object with
 `methodResponses`, `createdIds`, and `sessionState`.
@@ -571,103 +392,100 @@ type ResponseHandle*[T] = distinct MethodCallId
 
 `T` is phantom. The handle carries no runtime representation of the
 response type — it is a `MethodCallId` at runtime and a typed token at
-compile time. This is proven to compile by
-`.nim-reference/tests/distinct/tdistinct_issues.nim:14–27`.
+compile time.
 
 Borrowed operations:
 
 ```nim
-func `==`*(a, b: ResponseHandle): bool {.borrow.}
-func `$`*(a: ResponseHandle): string {.borrow.}
-func hash*(a: ResponseHandle): Hash {.borrow.}
+proc `==`*(a, b: ResponseHandle): bool {.borrow.}
+proc `$`*(a: ResponseHandle): string {.borrow.}
+proc hash*(a: ResponseHandle): Hash {.borrow.}
 ```
 
 ### 3.2 Extraction Function
 
-```nim
-func get*[T](resp: Response, handle: ResponseHandle[T],
-    fromArgs: proc(node: JsonNode): Result[T, ValidationError]
-        {.noSideEffect, raises: [].}
-): Result[T, MethodError] =
-  ## Extracts a typed response from the Response envelope using the
-  ## handle's call ID. Detects method-level errors and converts
-  ## ValidationError to MethodError at the railway boundary.
-  ##
-  ## Algorithm:
-  ## 1. Scan resp.methodResponses for invocation where
-  ##    methodCallId == MethodCallId(handle).
-  ## 2. If not found: err(methodError("serverFail", ...)).
-  ## 3. If invocation name is "error": parse as MethodError via
-  ##    MethodError.fromJson(invocation.arguments), return err.
-  ## 4. Otherwise: call fromArgs(invocation.arguments).
-  ##    On ok(v): return ok(v).
-  ##    On err(validErr): return err(methodError("serverFail", ...)).
-  ##
-  ## RFC reference: §3.4 (lines 975–1035), §3.6.2 (lines 1137–1219)
-  ...
-```
-
-**Railway conversion (Track 0 to Track 2).** (Track 1, the outer
-railway / `ClientError`, is a Layer 4 concern — see `00-architecture.md`
-§1.6C.) The `fromArgs` callback returns `Result[T, ValidationError]`
-(construction railway, Track 0). `get[T]` returns `Result[T, MethodError]`
-(inner railway, Track 2). The conversion is lossless — the full
-`ValidationError` structure (including `typeName` and `value`) is
-preserved as structured JSON in `MethodError.extras`, not flattened to a
-description string. A `validationToMethodError` helper centralises this
-conversion; `get[T]` calls `mapErr(validationToMethodError)` at the
-railway boundary. If `MethodError.fromJson` itself fails on a malformed
-error response (step 3), the same `serverFail` fallback applies.
+The `get[T]` function extracts a typed response from the `Response`
+envelope. This is the **Track 0 → Track 2 railway conversion boundary**
+(see Preface, Error Model). The `fromArgs` callback may raise
+`ValidationError` (Track 0); `get[T]` catches it and converts to
+`MethodError` (Track 2).
 
 **Full algorithm:**
 
 ```nim
-func findInvocation(resp: Response, targetId: MethodCallId): Opt[Invocation] =
+proc findInvocation(resp: Response, targetId: MethodCallId): Option[Invocation] =
   ## Scans methodResponses for the invocation matching targetId.
-  ## Returns Opt.none if no match is found.
+  ## Returns none if no match is found.
   for inv in resp.methodResponses:
     if inv.methodCallId == targetId:
-      return Opt.some(inv)
-  Opt.none(Invocation)
+      return some(inv)
+  none(Invocation)
 
-func validationToMethodError*(ve: ValidationError): MethodError =
+proc validationToMethodError*(ve: ref ValidationError): MethodError =
   ## Lossless conversion: construction railway (Track 0) to inner railway
   ## (Track 2). Preserves full ValidationError structure in MethodError.extras.
-  {.cast(noSideEffect).}:
-    let extras = %*{"typeName": ve.typeName, "value": ve.value}
+  let extras = %*{"typeName": ve.typeName, "value": ve.value}
   methodError("serverFail",
-    description = Opt.some(ve.message),
-    extras = Opt.some(extras))
+    description = some(ve.msg),
+    extras = some(extras))
 
-func get*[T](resp: Response, handle: ResponseHandle[T],
-    fromArgs: proc(node: JsonNode): Result[T, ValidationError]
-        {.noSideEffect, raises: [].}
-): Result[T, MethodError] =
+proc get*[T](resp: Response, handle: ResponseHandle[T],
+    fromArgs: proc(node: JsonNode): T
+): (bool, T, MethodError) =
+  ## Extracts a typed response from the Response envelope using the
+  ## handle's call ID.
+  ##
+  ## Algorithm:
+  ## 1. Scan resp.methodResponses for invocation where
+  ##    methodCallId == MethodCallId(handle).
+  ## 2. If not found: return MethodError("serverFail", ...).
+  ## 3. If invocation name is "error": parse as MethodError via
+  ##    MethodError.fromJson(invocation.arguments), return error.
+  ## 4. Otherwise: call fromArgs(invocation.arguments).
+  ##    On success: return the parsed value.
+  ##    On ValidationError: catch, convert to MethodError via
+  ##    validationToMethodError, return error.
   let targetId = MethodCallId(handle)
   let matchOpt = findInvocation(resp, targetId)
   if matchOpt.isNone:
-    return err(methodError("serverFail",
-      description = Opt.some("no response for call ID " & $handle)))
+    return (false, default(T), methodError("serverFail",
+      description = some("no response for call ID " & $handle)))
   let matchedInv = matchOpt.get()
   # Detect method-level error response (RFC §3.6.2)
   if matchedInv.name == "error":
-    let meResult = MethodError.fromJson(matchedInv.arguments)
-    if meResult.isOk:
-      return err(meResult.get())
-    else:
-      return err(methodError("serverFail",
-        description = Opt.some("malformed error response")))
+    try:
+      let me = MethodError.fromJson(matchedInv.arguments)
+      return (false, default(T), me)
+    except CatchableError:
+      return (false, default(T), methodError("serverFail",
+        description = some("malformed error response")))
   # Parse the response arguments via the caller-supplied callback
-  fromArgs(matchedInv.arguments).mapErr(validationToMethodError)
+  try:
+    let value = fromArgs(matchedInv.arguments)
+    return (true, value, default(MethodError))
+  except ValidationError as e:
+    return (false, default(T), validationToMethodError(e))
 ```
 
-**Decision D3.3:** Returns `Result[T, MethodError]` (inner railway), not
-`Result[T, ClientError]`. Method errors are data within a successful HTTP
-response. The outer railway (`ClientError`) is reserved for transport and
-request-level failures at the Layer 4 boundary.
+**Note on return type.** The exact return type is a design decision to
+be finalised during implementation. Options include a tuple as shown
+above, a dedicated `DispatchResult[T]` object variant, or raising
+`MethodError` as an exception. The tuple approach is shown here because
+`MethodError` is conceptually **data** (Track 2), not an abort condition
+— see the Error Model discussion in the Preface. The final choice will
+be made when `dispatch.nim` is implemented.
 
-**Error detection heuristic (step 3).** The RFC specifies that method-level
-errors use the response name `"error"` (§3.6.2 lines 1148–1154):
+**Decision D3.3:** The extraction function returns `MethodError` as data,
+not as an exception. Method errors are data within a successful HTTP
+response — per-invocation, not per-request. The outer railway
+(`ClientError`) is reserved for transport and request-level failures
+at the Layer 4 boundary. Raising `MethodError` as an exception would
+conflate Track 2 (partial batch failure) with Track 1 (transport
+failure), losing the ability to inspect successful results from other
+method calls in the same batch.
+
+**Error detection heuristic (step 3).** The RFC specifies that method-
+level errors use the response name `"error"` (§3.6.2 lines 1148–1154):
 `["error", {"type": "unknownMethod"}, "call-id"]`. The dispatch function
 checks `matchedInv.name == "error"` rather than inspecting the arguments
 for a `"type"` key. Rationale: the RFC mandates the `"error"` name for
@@ -676,29 +494,18 @@ reliable than heuristic argument inspection. A response named `"error"`
 that does not parse as `MethodError` is treated as `serverFail` — this
 handles malformed error responses without losing the error signal.
 
-**`fromArgs` callback design.** The callback type
-`proc(node: JsonNode): Result[T, ValidationError] {.noSideEffect,
-raises: [].}` is deliberately a `proc` parameter with explicit effect
-annotations rather than a `func` parameter. In Nim, `func` is syntactic
-sugar for `proc {.noSideEffect.}`; in type positions, the long form is
-required. The `{.raises: [].}` annotation is mandatory because the
-module-level `{.push raises: [].}` requires callable parameters to prove
-they cannot raise. Callers pass entity-specific `fromJson` functions as
-callbacks.
-
-**`strictDefs` interaction.** `Invocation` contains
-`methodCallId: MethodCallId`, and `MethodCallId` has `{.requiresInit.}`.
-A bare `var matchedInv: Invocation` declaration would fail to compile
-under `strictDefs`. The algorithm avoids this by using a
-`findInvocation` helper that returns `Opt[Invocation]` — no
-uninitialised variable is ever declared. The `let matchedInv =
-matchOpt.get()` binding is fully initialised from the `Opt` value.
+**Railway conversion (Track 0 → Track 2).** The `fromArgs` callback
+raises `ValidationError` on malformed response data. `get[T]` catches
+this and converts it to `MethodError` via `validationToMethodError`.
+The conversion is lossless — the full `ValidationError` structure
+(including `typeName` and `value`) is preserved as structured JSON in
+`MethodError.extras`, not flattened to a description string.
 
 **Cross-request safety gap.** Call IDs repeat across requests (`"c0"` in
 every request). A handle from Request A used with Response B silently
-extracts the wrong invocation. No type-level mitigation is possible in Nim
-without encoding the request identity in the type system (which would add
-complexity disproportionate to the risk). Convention: use handles
+extracts the wrong invocation. No type-level mitigation is possible in
+Nim without encoding the request identity in the type system (which would
+add complexity disproportionate to the risk). Convention: use handles
 immediately within the scope where the request was built. This gap is
 documented in the `ResponseHandle` doc comment.
 
@@ -710,9 +517,84 @@ response and an implicit `Foo/set` response. The current
 `findInvocation` returns only the first match — the implicit `/set`
 response is not extractable. A `getImplicitSet[T]` function
 (deferred decision R8) will address this when RFC 8621 entity modules
-are implemented. See the Deferred Decisions table (§15).
+are implemented.
 
-**Module:** `dispatch.nim`
+### 3.3 End-to-End Example
+
+Self-contained walkthrough using a minimal `Widget` entity. Covers entity
+registration, request building, `build()`, response dispatch, and error
+handling across the railways.
+
+```nim
+## --- Entity definition (widget.nim) ---
+type Widget* = object
+  ## Minimal entity for illustration. Real entities live in RFC 8621 modules.
+
+proc methodNamespace*(T: typedesc[Widget]): string = "Widget"
+proc capabilityUri*(T: typedesc[Widget]): string = "urn:example:widgets"
+registerJmapEntity(Widget)  # compile error if overloads are missing
+
+## --- Request building ---
+let accountId = parseAccountId("acc1")  # raises ValidationError if invalid
+
+var b = initRequestBuilder()
+let gh = b.addGet[Widget](accountId)                        # Widget/get
+let sh = b.addSet[Widget](accountId,                        # Widget/set
+    destroy = some(direct(@[parseId("id7")])))
+let req = b.build()
+## req.using == @["urn:example:widgets"]
+## req.methodCalls.len == 2
+## req.methodCalls[0].name == "Widget/get"
+## req.methodCalls[1].name == "Widget/set"
+
+## --- Response dispatch (after Layer 4 transport, out of scope) ---
+## Assume ``resp`` is a parsed Response from the server.
+
+let (getOk, getVal, getErr) = resp.get(gh, proc(n: JsonNode): GetResponse[Widget] =
+    GetResponse[Widget].fromJson(n))
+if getOk:
+  ## getVal.state, getVal.list, getVal.notFound are available.
+  ## Individual Widget objects in getVal.list are raw JsonNode —
+  ## entity-specific parsing is the caller's responsibility (D3.6).
+  discard
+else:
+  ## getErr.errorType: MethodErrorType (e.g., metUnknownMethod, metServerFail)
+  ## getErr.description: Option[string]
+  discard
+
+let (setOk, setVal, setErr) = resp.get(sh, proc(n: JsonNode): SetResponse[Widget] =
+    SetResponse[Widget].fromJson(n))
+if setOk:
+  ## setVal.destroyed: seq[Id] (successfully destroyed)
+  ## setVal.notDestroyed: Table[Id, SetError] (per-item failures)
+  for id, err in setVal.notDestroyed:
+    discard err  # SetError with errorType, description
+else:
+  ## setErr: MethodError — the entire /set call failed
+  discard
+```
+
+**Key points illustrated:**
+
+- **Entity registration** (§4): two `proc` overloads + `registerJmapEntity`.
+- **Builder** (§2): `initRequestBuilder`, `addGet`, `addSet`, `build`.
+- **Response dispatch** (§3): `get[T]` with a `fromArgs` callback, returning
+  a success/failure result on Track 2.
+- **Three railways in action**:
+  - `parseAccountId` and `parseId` raise `ValidationError` (Track 0)
+    if the input is invalid — caller never reaches the builder.
+  - Layer 4 transport (not shown) raises `ClientError` (Track 1) if
+    the HTTP request fails — no `Response` to inspect.
+  - `get[T]` returns `MethodError` as data (Track 2) if the server
+    reported a per-invocation error — other calls in the batch are
+    unaffected.
+  - `SetResponse.notDestroyed` contains `SetError` as data (within
+    Track 2) — the `/set` call succeeded overall, but individual
+    items failed.
+- **Entity data as `JsonNode`** (Decision D3.6): `GetResponse.list`
+  contains raw JSON; entity-specific parsing is a separate step.
+
+**Module:** `dispatch.nim` (deferred)
 
 ---
 
@@ -721,12 +603,13 @@ are implemented. See the Deferred Decisions table (§15).
 **Architecture decisions:** 3.5B (plain overloads, no concepts), 3.7B
 (overloaded type-level templates for associated types)
 
+**Status:** Implemented in `entity.nim`.
+
 **Decision D3.4:** No concepts; plain overloaded `typedesc` procs with a
 `registerJmapEntity` compile-time check template instead. Consistent with
 architecture Decision 3.5B. Concepts are avoided due to: experimental
 status, known compiler bugs (byref #16897, block scope issues, implicit
-generic breakage), `func` in concept body not enforcing
-`.noSideEffect`, generic type checking unimplemented, and minimal
+generic breakage), generic type checking unimplemented, and minimal
 stdlib adoption (2 files). See `docs/design/notes/nim-concepts.md`.
 Plain overloaded procs provide equivalent compile-time safety via a
 registration template that verifies all required overloads exist.
@@ -738,15 +621,12 @@ Each entity type must provide these `typedesc` overloads:
 ```nim
 ## Required overloads for any JMAP entity type:
 
-func methodNamespace*(T: typedesc[Mailbox]): string = "Mailbox"
+proc methodNamespace*(T: typedesc[Mailbox]): string = "Mailbox"
   ## Returns the entity name for method name construction.
   ## "Mailbox" produces "Mailbox/get", "Mailbox/set", etc.
-  ## RFC 8620 §5 (lines 1575–1586): "Foo/get", "Foo/set" naming convention.
 
-func capabilityUri*(T: typedesc[Mailbox]): string = "urn:ietf:params:jmap:mail"
+proc capabilityUri*(T: typedesc[Mailbox]): string = "urn:ietf:params:jmap:mail"
   ## Returns the capability URI for the ``using`` array.
-  ## RFC 8620 §3.3 (lines 886–894): "The set of capabilities the client
-  ## wishes to use."
 ```
 
 ### 4.2 Compile-Time Registration Template
@@ -762,25 +642,15 @@ and the exact missing overload signature in the error message.
 template registerJmapEntity*(T: typedesc) =
   ## Compile-time check: verifies T provides the required framework
   ## overloads (``methodNamespace`` and ``capabilityUri``). Call this
-  ## once per entity type at module scope. Missing framework overloads
-  ## produce domain-specific compile errors HERE, not cryptic
-  ## "undeclared identifier" errors at distant add* call sites.
-  ## Does not check conditional overloads (``filterType``) — use
-  ## ``registerQueryableEntity`` for entity types that support /query
-  ## (§4.6). Without it, missing ``filterType`` is caught at
-  ## ``addQuery``/``addQueryChanges`` call sites via ``mixin``.
-  ##
-  ## Uses ``when not compiles()`` + ``{.error.}`` rather than bare
-  ## ``discard`` calls to produce actionable error messages that name
-  ## the entity type and the missing overload signature.
+  ## once per entity type at module scope.
   static:
     when not compiles(methodNamespace(T)):
       {.error: "registerJmapEntity: " & $T &
-        " is missing `func methodNamespace*(T: typedesc[" & $T &
+        " is missing `proc methodNamespace*(T: typedesc[" & $T &
         "]): string`".}
     when not compiles(capabilityUri(T)):
       {.error: "registerJmapEntity: " & $T &
-        " is missing `func capabilityUri*(T: typedesc[" & $T &
+        " is missing `proc capabilityUri*(T: typedesc[" & $T &
         "]): string`".}
 ```
 
@@ -790,15 +660,15 @@ Usage:
 type Mailbox* = object
   ## RFC 8621 Mailbox entity type.
 
-func methodNamespace*(T: typedesc[Mailbox]): string = "Mailbox"
-func capabilityUri*(T: typedesc[Mailbox]): string = "urn:ietf:params:jmap:mail"
+proc methodNamespace*(T: typedesc[Mailbox]): string = "Mailbox"
+proc capabilityUri*(T: typedesc[Mailbox]): string = "urn:ietf:params:jmap:mail"
 registerJmapEntity(Mailbox)  # compile error if any overload is missing
 ```
 
 ### 4.3 Generic `add*` Functions — Unconstrained `T`
 
 ```nim
-func addGet*[T](b: var RequestBuilder, ...): ResponseHandle[GetResponse[T]]
+proc addGet*[T](b: var RequestBuilder, ...): ResponseHandle[GetResponse[T]]
 ```
 
 No `: JmapEntity` constraint on `T`. If `T` lacks `methodNamespace` or
@@ -807,25 +677,10 @@ No `: JmapEntity` constraint on `T`. If `T` lacks `methodNamespace` or
 earlier — at entity definition time rather than at call site — and
 produces a domain-specific error message naming the missing overload.
 
-**Why no concept constraint.** Concepts in Nim are experimental and have
-known issues documented in `docs/design/notes/nim-concepts.md`:
-
-1. `func` in a concept body does NOT enforce `.noSideEffect` — the
-   concept match succeeds even if the matched proc is side-effectful.
-2. Generic type checking for concepts is unimplemented — the compiler
-   does not verify concept satisfaction at generic definition time.
-3. Known compiler bugs: byref semantics (#16897), block scope issues,
-   implicit generic breakage.
-4. Minimal stdlib adoption (only 2 files use concepts).
-
-The unconstrained `T` approach provides equivalent safety in practice:
-`registerJmapEntity(T)` catches errors at entity definition time, and
-`mixin` + overload resolution catches them at generic instantiation time.
-
 ### 4.4 `mixin` for Overload Resolution in Generic Bodies
 
 ```nim
-func addGet*[T](b: var RequestBuilder, accountId: AccountId,
+proc addGet*[T](b: var RequestBuilder, accountId: AccountId,
     ...): ResponseHandle[GetResponse[T]] =
   mixin methodNamespace, capabilityUri
   let name = methodNamespace(T) & "/get"
@@ -840,40 +695,19 @@ overloads imported into `builder.nim`, which would require `builder.nim`
 to import every entity module — breaking the import DAG and preventing
 entity modules from being added independently.
 
-**How `mixin` works.** In Nim's generic resolution, symbols are resolved
-in two phases: (1) at definition time (the module where `addGet` is
-defined), and (2) at instantiation time (the call site where `T` is
-bound). By default, overloaded proc names found at definition time are
-bound early. `mixin` forces the named symbols to be resolved at
-instantiation time instead, searching the caller's scope. This is
-critical for the entity type framework: `methodNamespace(Mailbox)` is
-defined in the mailbox entity module, not in `builder.nim`.
-
 ### 4.5 Associated Type Templates
-
-Proven by `.nim-reference/tests/misc/t5540.nim:17`: a `template`
-returning `typedesc` can be used in generic object field type positions.
 
 ```nim
 template filterType*(T: typedesc[Mailbox]): typedesc = MailboxFilterCondition
   ## Maps entity type to its filter condition type.
-  ## Used in ``QueryRequest[T]`` and ``QueryChangesRequest[T]`` where
-  ## the filter field type is ``Filter[filterType(T)]``.
+  ## Used in ``QueryRequest[T, C]`` and ``QueryChangesRequest[T, C]``
+  ## where the filter field type is ``Filter[C]``.
 ```
 
 Each entity module provides its own `filterType` overload. Core RFC 8620
 defines no concrete entity types — only the framework. The `mixin
 filterType` declaration in `addQuery` and `addQueryChanges` ensures the
 caller's overload is found.
-
-**Why `template` returning `typedesc` works.** The mechanism is proven by
-`.nim-reference/tests/misc/t5540.nim:17`: a `template` that returns a
-`typedesc` can be used in positions where a type is expected, including
-generic object field types. When the compiler encounters
-`Filter[filterType(T)]`, it first expands `filterType(T)` (which is a
-`template` call producing a concrete `typedesc`), then instantiates
-`Filter` with the resulting type. This is a compile-time expansion, not
-a runtime operation.
 
 ### 4.6 Queryable Entity Registration
 
@@ -887,8 +721,6 @@ template registerQueryableEntity*(T: typedesc) =
   ## Compile-time check: verifies T provides ``filterType`` in addition
   ## to the base framework overloads. Call after ``registerJmapEntity``
   ## for entity types that support /query and /queryChanges.
-  ## Produces a domain-specific error if the filterType template is
-  ## missing or does not return a typedesc.
   static:
     when not compiles(filterType(T)):
       {.error: "registerQueryableEntity: " & $T &
@@ -896,34 +728,17 @@ template registerQueryableEntity*(T: typedesc) =
         "]): typedesc`".}
 ```
 
-Usage:
-
-```nim
-type MailboxFilterCondition* = object
-  ## Entity-specific filter condition for Mailbox/query.
-
-template filterType*(T: typedesc[Mailbox]): typedesc = MailboxFilterCondition
-
-registerJmapEntity(Mailbox)
-registerQueryableEntity(Mailbox)  # compile error if filterType missing
-```
-
-This catches a missing `filterType` at the entity definition site rather
-than at a distant `addQuery[Mailbox](...)` call site where the error
-would be an opaque signature resolution failure (since `filterType(T)`
-appears in the `addQuery` parameter types, not just the body).
-
 **Entity module checklist.** Every entity module must provide:
 
 1. The entity type definition (e.g., `type Mailbox* = object`).
-2. `func methodNamespace*(T: typedesc[Entity]): string`.
-3. `func capabilityUri*(T: typedesc[Entity]): string`.
+2. `proc methodNamespace*(T: typedesc[Entity]): string`.
+3. `proc capabilityUri*(T: typedesc[Entity]): string`.
 4. `template filterType*(T: typedesc[Entity]): typedesc` (if the entity
    supports `/query`).
-5. A `filterConditionToJson` callback `proc(c: filterType(Entity)): JsonNode
-   {.noSideEffect, raises: [].}` for serialising filter conditions (if
-   the entity supports `/query`). Passed to `addQuery`/`addQueryChanges`
-   and forwarded to `Filter[C].toJson(filterConditionToJson)` (Layer 2 §7.2).
+5. A `filterConditionToJson` callback `proc(c: filterType(Entity)):
+   JsonNode` for serialising filter conditions (if the entity supports
+   `/query`). Passed to `addQuery`/`addQueryChanges` and forwarded to
+   `Filter[C].toJson(filterConditionToJson)` (Layer 2 §7.2).
 6. `registerJmapEntity(Entity)` at module scope.
 7. `registerQueryableEntity(Entity)` at module scope (if the entity
    supports `/query`).
@@ -948,51 +763,48 @@ serialisation involves entity-specific resolution that only Layer 3 has.
 
 ### 5a.1 Pattern L3-A: Request `toJson` (Object Construction)
 
-Build a `JsonNode` object inside `{.cast(noSideEffect).}:`. Omit keys
-for `Opt.none` fields. Use `referencableKey` for `Referencable[T]`
-fields. Use `Filter[C].toJson(filterConditionToJson)` for filter fields (callback
-forwarded from the caller — see `addQuery`/`addQueryChanges` §2.6.6–2.6.7).
+Build a `JsonNode` object. Omit keys for `none` fields. Use
+`referencableKey` for `Referencable[T]` fields. Use
+`Filter[C].toJson(filterConditionToJson)` for filter fields (callback
+forwarded from the caller — see `addQuery`/`addQueryChanges` §2.6.6–
+2.6.7).
 
 Canonical example — `GetRequest[T].toJson`:
 
 ```nim
-func toJson*[T](req: GetRequest[T]): JsonNode =
+proc toJson*[T](req: GetRequest[T]): JsonNode =
   ## Serialise GetRequest to JSON arguments object (RFC 8620 §5.1).
-  ## Omits ``ids`` and ``properties`` when Opt.none.
+  ## Omits ``ids`` and ``properties`` when none.
   ## Dispatches Referencable ids via referencableKey.
-  ##
-  ## RFC reference: §5.1 (lines 1587–1612)
-  {.cast(noSideEffect).}:
-    result = newJObject()
-    result["accountId"] = req.accountId.toJson()
-    if req.ids.isSome:
-      let idsVal = req.ids.get()
-      let idsKey = referencableKey("ids", idsVal)
-      case idsVal.kind
-      of rkDirect:
-        var arr = newJArray()
-        for id in idsVal.value:
-          arr.add(id.toJson())
-        result[idsKey] = arr
-      of rkReference:
-        result[idsKey] = idsVal.reference.toJson()
-    if req.properties.isSome:
+  result = newJObject()
+  result["accountId"] = req.accountId.toJson()
+  if req.ids.isSome:
+    let idsVal = req.ids.get()
+    let idsKey = referencableKey("ids", idsVal)
+    case idsVal.kind
+    of rkDirect:
       var arr = newJArray()
-      for p in req.properties.get():
-        arr.add(%p)
-      result["properties"] = arr
+      for id in idsVal.value:
+        arr.add(id.toJson())
+      result[idsKey] = arr
+    of rkReference:
+      result[idsKey] = idsVal.reference.toJson()
+  if req.properties.isSome:
+    var arr = newJArray()
+    for p in req.properties.get():
+      arr.add(%p)
+    result["properties"] = arr
 ```
 
 **Pattern L3-A invariants:**
 
-- Every `toJson` wraps the entire body in `{.cast(noSideEffect).}:`.
 - Required fields are always emitted.
-- `Opt.none` fields are omitted (key absent from the JSON object).
+- `none` fields are omitted (key absent from the JSON object).
 - `Referencable[T]` fields emit `"fieldName"` for `rkDirect` and
   `"#fieldName"` for `rkReference`, using `referencableKey` from
   Layer 2's `serde_envelope.nim`. On the parse side, `fromJsonField`
   rejects requests containing both direct and referenced forms of the
-  same field (RFC §3.7 conflict detection — see §15).
+  same field (RFC §3.7 conflict detection).
 - Boolean fields with RFC defaults (`false`) are always emitted — the
   server treats absence as the default, but explicit emission is clearer
   and avoids ambiguity.
@@ -1001,186 +813,193 @@ func toJson*[T](req: GetRequest[T]): JsonNode =
 
 Check `node.kind == JObject` via `checkJsonKind`. Extract each field via
 `{}` accessor (nil-safe). Call Layer 1 smart constructors for identifier
-fields. Use `?` for early return on error. Use `initResultErr` when the
-return type contains `{.requiresInit.}` fields.
+fields — these raise `ValidationError` on invalid input. Use
+`checkJsonKind` for structural validation of required fields (raises
+`ValidationError` on kind mismatch).
 
 Canonical example — `GetResponse[T].fromJson`:
 
 ```nim
-func fromJson*[T](
-    R: typedesc[GetResponse[T]], node: JsonNode
-): Result[GetResponse[T], ValidationError] =
+proc fromJson*[T](R: typedesc[GetResponse[T]], node: JsonNode): GetResponse[T] =
   ## Deserialise JSON arguments to GetResponse (RFC 8620 §5.1).
   ## Uses lenient constructors for server-assigned identifiers.
   ## list contains raw JsonNode entities — entity-specific parsing
   ## is the caller's responsibility.
-  ##
-  ## RFC reference: §5.1 (lines 1613–1665)
+  discard $R
   checkJsonKind(node, JObject, "GetResponse")
-  let accountId = ?parseAccountId(node{"accountId"}.getStr(""))
-  let state = ?parseJmapState(node{"state"}.getStr(""))
+  let accountId = parseAccountId(node{"accountId"}.getStr(""))
+  let state = parseJmapState(node{"state"}.getStr(""))
   let listNode = node{"list"}
   checkJsonKind(listNode, JArray, "GetResponse", "list must be array")
-  var list: seq[JsonNode]
-  {.cast(noSideEffect).}:
-    list = listNode.getElems()
-  var notFound: seq[Id]
+  let list = listNode.getElems(@[])
+  var notFound: seq[Id] = @[]
   let nfNode = node{"notFound"}
   if not nfNode.isNil and nfNode.kind == JArray:
-    for elem in nfNode.getElems():
-      let id = ?parseIdFromServer(elem.getStr(""))
+    for _, elem in nfNode.getElems(@[]):
+      let id = parseIdFromServer(elem.getStr(""))
       notFound.add(id)
-  ok(GetResponse[T](accountId: accountId, state: state,
-                     list: list, notFound: notFound))
+  GetResponse[T](accountId: accountId, state: state, list: list,
+                  notFound: notFound)
 ```
 
 **Pattern L3-B invariants:**
 
 - Root check: `checkJsonKind(node, JObject, typeName)`.
-- Required fields: extract via `{}`, validate kind, call smart constructor
-  with `?` for early return.
+- Required fields: extract via `{}`, validate kind, call smart
+  constructor (raises on invalid input).
 - Server-assigned identifiers: use lenient constructors
   (`parseIdFromServer`, `parseAccountId`).
-- `seq` fields: check `JArray` kind, iterate `getElems()`, validate and
-  accumulate each element.
-- Optional fields (`Opt[T]`): absent, null, or wrong kind produces
-  `Opt.none(T)` (lenient, per §5a.4).
-- `initResultErr` workaround: used when `Result[T, ValidationError]`
-  contains `T` with `{.requiresInit.}` fields (e.g., `JmapState`).
+- `seq` fields: check `JArray` kind, iterate `getElems()`, validate
+  and accumulate each element.
+- Optional fields (`Option[T]`): absent, null, or wrong kind produces
+  `none(T)` (lenient, per §5a.4).
+- Return type: `T` directly (not `Result[T, ValidationError]`). Raises
+  `ValidationError` on invalid input via smart constructors and
+  `checkJsonKind`.
+- `discard $R` at the start forces generic instantiation (ensures the
+  type parameter `T` is bound).
 
-### 5a.3 Pattern L3-C: SetResponse Merging (Parallel Maps to Result Maps)
+### 5a.3 Pattern L3-C: SetResponse Merging (Parallel Maps to Separate Tables)
 
 The wire format (RFC 8620 §5.3, lines 2009–2082) uses parallel maps
 (`created`/`notCreated`, `updated`/`notUpdated`, `destroyed`/
-`notDestroyed`). The internal representation merges these into unified
-`Result` maps per Decision 3.9B. Full algorithm specified in Section 8
-(below).
+`notDestroyed`). The internal representation preserves this structure
+as separate success and failure tables, directly mirroring the wire
+format.
 
 The merging pattern is used by both `SetResponse[T].fromJson` and
-`CopyResponse[T].fromJson`. The create-merging algorithm is shared; only
-the response field names differ.
+`CopyResponse[T].fromJson`. The create-merging algorithm is shared via
+`mergeCreateResults`.
 
 **Merging type signatures:**
 
 ```nim
 ## Create: wire created (Id[Foo]|null) + notCreated (Id[SetError]|null)
-##   → Table[CreationId, Result[JsonNode, SetError]]
+##   → (Table[CreationId, JsonNode], Table[CreationId, SetError])
 ## Update: wire updated (Id[Foo|null]|null) + notUpdated (Id[SetError]|null)
-##   → Table[Id, Result[Opt[JsonNode], SetError]]
+##   → (Table[Id, Option[JsonNode]], Table[Id, SetError])
 ## Destroy: wire destroyed (Id[]|null) + notDestroyed (Id[SetError]|null)
-##   → Table[Id, Result[void, SetError]]
+##   → (seq[Id], Table[Id, SetError])
 ```
-
-**Cast requirement.** The create and update merging tables contain
-`Result[JsonNode, SetError]` and `Result[Opt[JsonNode], SetError]`
-respectively — both contain `JsonNode` (a `ref` type). Under
-`strictFuncs`, mutation of a `var Table` containing `ref` values inside
-a `func` requires `{.cast(noSideEffect).}:`. The destroy merging table
-contains `Result[void, SetError]` (no `ref` values) and does NOT require
-a cast.
 
 ### 5a.4 Expected JSON Kinds per Response Type
 
-The table below lists the expected JSON kind for each field. Three
+The table below lists the expected JSON kind for each field. Two
 distinct validation mechanisms are used (see §5a.5 for details):
 
-- **Strict `checkJsonKind`:** explicit kind gate — wrong kind returns
-  `err(parseError(...))`. Used for structurally critical fields (e.g.,
+- **Strict `checkJsonKind`:** explicit kind gate — wrong kind raises
+  `ValidationError`. Used for structurally critical fields (e.g.,
   `list: JArray`).
 - **Smart constructor delegation:** `.getStr("")` feeds a smart
-  constructor (e.g., `parseAccountId`) which rejects empty/invalid input
-  with a `ValidationError`. Used for required identifier fields (e.g.,
+  constructor (e.g., `parseAccountId`) which raises `ValidationError`
+  on empty/invalid input. Used for required identifier fields (e.g.,
   `accountId`, `state`).
-- **Lenient:** absent, null, or wrong kind produces `Opt.none` or an
+- **Lenient:** absent, null, or wrong kind produces `none` or an
   empty default. Used for optional and supplementary fields.
 
 | Response Type | Root check | Field-level expected kinds |
 |---------------|------------|--------------------------|
 | `GetResponse[T]` | `JObject` | `accountId`: `JString`; `state`: `JString`; `list`: `JArray`; `notFound`: `JArray` (lenient — absent treated as empty) |
 | `ChangesResponse[T]` | `JObject` | `accountId`: `JString`; `oldState`/`newState`: `JString`; `hasMoreChanges`: `JBool`; `created`/`updated`/`destroyed`: `JArray` |
-| `SetResponse[T]` | `JObject` | `accountId`: `JString`; `newState`: `JString`; `oldState`: lenient (absent/wrong kind produces `Opt.none`); parallel maps: `JObject` (lenient — null treated as empty) |
+| `SetResponse[T]` | `JObject` | `accountId`: `JString`; `newState`: `JString`; `oldState`: lenient (absent/wrong kind produces `none`); parallel maps: `JObject` (lenient — null treated as empty) |
 | `CopyResponse[T]` | `JObject` | Same structure as `SetResponse` for `created`/`notCreated` fields |
-| `QueryResponse[T]` | `JObject` | `accountId`: `JString`; `queryState`: `JString`; `canCalculateChanges`: `JBool`; `position`: `JInt`; `ids`: `JArray`; `total`/`limit`: lenient (absent produces `Opt.none`) |
+| `QueryResponse[T]` | `JObject` | `accountId`: `JString`; `queryState`: `JString`; `canCalculateChanges`: `JBool`; `position`: `JInt`; `ids`: `JArray`; `total`/`limit`: lenient (absent produces `none`) |
 | `QueryChangesResponse[T]` | `JObject` | `accountId`: `JString`; `oldQueryState`/`newQueryState`: `JString`; `removed`: `JArray`; `added`: `JArray` |
 
-### 5a.5 Opt[T] Leniency Policy
+### 5a.5 Option[T] Leniency Policy
 
 Based on Layer 2 §1.4b. Layer 2 scopes the lenient policy to simple
-scalar `Opt` fields, with complex container `Opt` types (e.g.,
-`Opt[Table[CreationId, Id]]`) retaining strict handling. Layer 3
-generalises the lenient policy to all `Opt[T]` fields because Layer 3
-response types contain only simple scalar or identifier `Opt` fields —
-no complex container `Opt` types.
+scalar `Option` fields, with complex container `Option` types (e.g.,
+`Option[Table[CreationId, Id]]`) retaining strict handling. Layer 3
+generalises the lenient policy to all `Option[T]` fields because Layer 3
+response types contain only simple scalar or identifier `Option` fields —
+no complex container `Option` types.
 
 Client library parses server data — Postel's law applies. For optional
-fields (`Opt[T]`), absent key, null value, or wrong JSON kind all produce
-`Opt.none(T)`. For required fields, wrong kind produces
-`err(parseError(...))`.
+fields (`Option[T]`), absent key, null value, or wrong JSON kind all
+produce `none(T)`. For required fields, wrong kind raises
+`ValidationError`.
 
 Rationale:
 
-1. `Opt` fields are already optional — callers handle absence via
+1. `Option` fields are already optional — callers handle absence via
    `.isSome`/`.isNone`.
-2. Strictness on supplementary fields (like `description` on errors) risks
-   losing the critical primary field.
-3. "Absent" and "malformed" are equivalent for optional data from a server.
+2. Strictness on supplementary fields (like `description` on errors)
+   risks losing the critical primary field.
+3. "Absent" and "malformed" are equivalent for optional data from a
+   server.
+
+**Lenient optional helpers.** Layer 3 provides internal helpers for
+lenient extraction of optional fields:
+
+```nim
+proc optState*(node: JsonNode, key: string): Option[JmapState] =
+  ## Lenient optional JmapState extraction.
+  ## Absent, null, wrong kind, or invalid content all produce none.
+  let child = node{key}
+  if child.isNil: return none(JmapState)
+  if child.kind != JString: return none(JmapState)
+  try: some(parseJmapState(child.getStr("")))
+  except CatchableError: none(JmapState)
+
+proc optUnsignedInt*(node: JsonNode, key: string): Option[UnsignedInt] =
+  ## Lenient optional UnsignedInt extraction.
+  ## Absent, null, wrong kind, or invalid content all produce none.
+  let child = node{key}
+  if child.isNil: return none(UnsignedInt)
+  if child.kind != JInt: return none(UnsignedInt)
+  try: some(parseUnsignedInt(child.getBiggestInt(0)))
+  except CatchableError: none(UnsignedInt)
+```
+
+These helpers use `try/except` to catch `ValidationError` from smart
+constructors and convert to `none`, implementing the lenient policy
+without propagating exceptions for optional fields.
 
 **Exception — structurally critical required fields:** Required fields
 that are structurally critical to the response (e.g., `list: seq[JsonNode]`
-in `GetResponse`) use strict `checkJsonKind` — wrong kind returns
-`err(parseError(...))`. A response without a `list` array is not a valid
+in `GetResponse`) use strict `checkJsonKind` — wrong kind raises
+`ValidationError`. A response without a `list` array is not a valid
 `/get` response. Supplementary required fields (e.g.,
 `notFound: seq[Id]` in `GetResponse`) are treated leniently — absent or
-wrong kind produces an empty default (e.g., empty `seq`) rather than an
-error. The distinction: structurally critical fields define the response's
-primary payload; supplementary fields provide additional context that
-callers can safely default.
-
-**Required identifier fields** (e.g., `accountId`, `state`) delegate kind
-validation to their smart constructors via `.getStr("")` — wrong kind
-produces an empty string which the constructor rejects with a
-`ValidationError`. This is functionally equivalent to `checkJsonKind` but
-produces a domain-level error rather than a kind-mismatch error.
+wrong kind produces an empty default (e.g., empty `seq`) rather than
+raising.
 
 ### 5a.6 Serialisation Pair Inventory
 
-Every Layer 3 type and its serialisation direction. The `{.cast.}` column
-indicates whether `{.cast(noSideEffect).}:` is needed in the
-implementation body.
+Every Layer 3 type and its serialisation direction.
 
-| Type | Direction | `{.cast.}` needed | Notes |
-|------|-----------|-------------------|-------|
-| `GetRequest[T]` | `toJson` only | Yes (builds `JsonNode`) | `Referencable` ids uses `referencableKey` |
-| `GetResponse[T]` | `fromJson` only | Yes (list contains `JsonNode`) | `initResultErr` for `JmapState` |
-| `ChangesRequest[T]` | `toJson` only | Yes | Simplest request — only 3 fields |
-| `ChangesResponse[T]` | `fromJson` only | No (no ref values in result) | `initResultErr` for `JmapState` |
-| `SetRequest[T]` | `toJson` only | Yes | `Referencable` destroy uses `referencableKey` |
-| `SetResponse[T]` | `fromJson` only | Yes (`Result` maps with `JsonNode`) | Merging algorithm Pattern L3-C |
-| `CopyRequest[T]` | `toJson` only | Yes | Required `create` map (not `Opt`) |
-| `CopyResponse[T]` | `fromJson` only | Yes (`Result` maps with `JsonNode`) | Same merging as `SetResponse` (create branch only) |
-| `QueryRequest[T]` | `toJson` only | Yes | Generic `Filter[C]` uses `filterConditionToJson` callback |
-| `QueryResponse[T]` | `fromJson` only | No (ids are value types) | `total`/`limit` lenient |
-| `QueryChangesRequest[T]` | `toJson` only | Yes | `Filter[C]` `filterConditionToJson` callback same as `QueryRequest` |
-| `QueryChangesResponse[T]` | `fromJson` only | No (`AddedItem` has value-type fields) | `total` lenient |
-| `echoFromJson` | `fromJson` callback | No (returns input node) | Validates `JObject` kind only; §9 |
+| Type | Direction | Notes |
+|------|-----------|-------|
+| `GetRequest[T]` | `toJson` only | `Referencable` ids uses `referencableKey` |
+| `GetResponse[T]` | `fromJson` only | Returns `GetResponse[T]` directly, raises on error |
+| `ChangesRequest[T]` | `toJson` only | Simplest request — only 3 fields |
+| `ChangesResponse[T]` | `fromJson` only | Returns `ChangesResponse[T]` directly |
+| `SetRequest[T]` | `toJson` only | `Referencable` destroy uses `referencableKey` |
+| `SetResponse[T]` | `fromJson` only | Merging algorithm Pattern L3-C |
+| `CopyRequest[T]` | `toJson` only | Required `create` map (not `Option`) |
+| `CopyResponse[T]` | `fromJson` only | Same merging as `SetResponse` (create branch only) |
+| `QueryRequest[T, C]` | `toJson` only | Generic `Filter[C]` uses `filterConditionToJson` callback |
+| `QueryResponse[T]` | `fromJson` only | `total`/`limit` lenient |
+| `QueryChangesRequest[T, C]` | `toJson` only | `Filter[C]` `filterConditionToJson` callback same as `QueryRequest` |
+| `QueryChangesResponse[T]` | `fromJson` only | `total` lenient |
 
 ### 5a.7 Layer 2 Infrastructure Imports
 
-Layer 3 modules import the following from Layer 2's `serde.nim` and
-`serde_envelope.nim`:
+Layer 3's `methods.nim` imports the following from Layer 2 via the
+`serialisation` re-export hub:
 
 | Import | Source | Used for |
 |--------|--------|----------|
-| `parseError` | `serde.nim:16` | Constructing `ValidationError` in `fromJson` |
-| `checkJsonKind` | `serde.nim:21` | Kind validation template (returns `err` on mismatch) |
-| `initResultErr` | `serde.nim:37` | Workaround for `requiresInit` + `Result` limitation |
-| `collectExtras` (transitive — not directly imported by Layer 3) | `serde.nim:51` | Called internally by `SetError.fromJson` and `MethodError.fromJson` (Layer 2 error parsers) during SetResponse merging and dispatch error detection. Layer 3 depends on it only through those Layer 2 parsers. |
-| `toJson` (all primitive/id types) | `serde.nim:67–197` | Serialising `AccountId`, `Id`, `JmapState`, etc. in request `toJson` |
-| `fromJson` (all primitive/id types) | `serde.nim:128–197` | Deserialising server-assigned identifiers in response `fromJson` |
-| `referencableKey` | `serde_envelope.nim:194` | Determining JSON key for `Referencable[T]` fields (`"foo"` vs `"#foo"`) |
-| `fromJsonField` | `serde_envelope.nim:210` | Parsing `Referencable[T]` fields from JSON with `#`-prefix dispatch and RFC §3.7 conflict detection |
-| `toJson` (envelope types) | `serde_envelope.nim:22–26` | `Invocation.toJson`, `ResultReference.toJson` |
-| `fromJson` (envelope types) | `serde_envelope.nim:28–46` | `MethodError.fromJson` for error detection in dispatch |
+| `parseError` | `serde.nim` | Constructing `ValidationError` in `fromJson` |
+| `checkJsonKind` | `serde.nim` | Kind validation — raises `ValidationError` on mismatch |
+| `collectExtras` (transitive) | `serde.nim` | Called internally by `SetError.fromJson` and `MethodError.fromJson` (Layer 2 error parsers) during SetResponse merging and dispatch error detection |
+| `toJson` (all primitive/id types) | `serde.nim` | Serialising `AccountId`, `Id`, `JmapState`, etc. in request `toJson` |
+| `fromJson` (all primitive/id types) | `serde.nim` | Deserialising server-assigned identifiers in response `fromJson` |
+| `referencableKey` | `serde_envelope.nim` | Determining JSON key for `Referencable[T]` fields (`"foo"` vs `"#foo"`) |
+| `fromJsonField` | `serde_envelope.nim` | Parsing `Referencable[T]` fields from JSON with `#`-prefix dispatch and RFC §3.7 conflict detection |
+| `toJson` (envelope types) | `serde_envelope.nim` | `Invocation.toJson`, `ResultReference.toJson` |
+| `fromJson` (envelope types) | `serde_envelope.nim` | `MethodError.fromJson` for error detection in dispatch |
 
 **Module:** `methods.nim`
 
@@ -1188,20 +1007,17 @@ Layer 3 modules import the following from Layer 2's `serde.nim` and
 
 ## 5b. Per-Method Errors and Behavioural Semantics
 
-Each standard method can return method-level errors (via the inner railway
-`Result[T, MethodError]`). These are already defined as
-`MethodErrorType` variants in Layer 1 `errors.nim`
-(`src/jmap_client/errors.nim`). This section documents WHICH errors apply
-to WHICH methods. The `get[T]` dispatch function (Section 3) detects
-error responses and returns them as `MethodError`.
+Each standard method can return method-level errors. These are already
+defined as `MethodErrorType` variants in Layer 1 `errors.nim`
+(`src/jmap_client/errors.nim`). `MethodError` is a plain object (not an
+exception) — it is data within a successful JMAP response.
 
 ### 5b.1 General Method-Level Errors
 
 **RFC reference:** §3.6.2 (lines 1137–1219)
 
-The following general errors may be returned for **any** method call. They
-are defined as `MethodErrorType` variants in Layer 1 `errors.nim` and
-detected by the `get[T]` dispatch function (Section 3.2).
+The following general errors may be returned for **any** method call.
+They are defined as `MethodErrorType` variants in Layer 1 `errors.nim`.
 
 | Error | `MethodErrorType` variant | Description | RFC reference |
 |-------|--------------------------|-------------|---------------|
@@ -1283,19 +1099,6 @@ The `rawType` field is always populated for lossless round-trip (Decision
 - `setErrorAlreadyExists(rawType, existingId, ...)` — for the
   `alreadyExists` variant.
 
-**Graceful degradation for variant-specific fields.** If
-`parseIdFromServer` fails for the `existingId` field (e.g., empty
-string, >255 octets, control characters), the error degrades to
-`setUnknown` via the existing `setError(rawType, ...)` fallback path
-rather than aborting the entire `SetResponse` parse via `?` early return.
-This is consistent with the `invalidProperties` variant, where a missing
-or wrong-kind `properties` array also degrades to `setUnknown`. The
-`rawType` field preserves `"alreadyExists"` for diagnostic inspection.
-
-**Extension mechanism (§5.3 lines 2162–2164).** Other possible SetError
-types MAY be given in specific method descriptions. The `setUnknown`
-variant and `rawType` preservation handle server extensions gracefully.
-
 ### 5b.4 Behavioural Semantics
 
 The following behavioural rules are documented as `##` doc comments on
@@ -1311,8 +1114,7 @@ specified.
 **§3.3 Concurrency (lines 903–906).** Method calls within a single
 request are processed sequentially, in order. Concurrent requests may
 interleave. The builder's sequential `add*` order maps directly to server
-execution order. This is critical for result references: a reference to
-call `"c0"` from call `"c1"` is valid because `"c0"` is processed first.
+execution order.
 
 **§5.1 /get (lines 1587–1665).**
 
@@ -1407,7 +1209,7 @@ call `"c0"` from call `"c1"` is valid because `"c0"` is processed first.
 
 All six standard method request types are generic over entity type `T`.
 Each type definition carries `##` doc comments on every field citing the
-RFC section and line numbers. Each type receives a `toJson` function
+RFC section and line numbers. Each type receives a `toJson` proc
 following Pattern L3-A (Section 5a.1). No `fromJson` is provided —
 request types are serialised by the client, never parsed (Decision D3.7).
 
@@ -1417,37 +1219,23 @@ request types are serialised by the client, never parsed (Decision D3.7).
 
 ```nim
 type GetRequest*[T] = object
-  ## Request arguments for Foo/get (RFC 8620 §5.1, lines 1587–1612).
+  ## Request arguments for Foo/get (RFC 8620 §5.1).
   ## Fetches objects of type T by their identifiers, optionally returning
   ## only a subset of properties.
 
   accountId*: AccountId
     ## The identifier of the account to use.
-    ## RFC §5.1 (line 1593): "accountId: Id"
 
-  ids*: Opt[Referencable[seq[Id]]]
+  ids*: Option[Referencable[seq[Id]]]
     ## The identifiers of the Foo objects to return. If none, all records
     ## of the data type are returned (subject to maxObjectsInGet).
     ## Referencable: may be a direct seq or a result reference to a
     ## previous call's output (e.g., /query ids).
-    ## RFC §5.1 (lines 1597–1602): "ids: Id[]|null"
 
-  properties*: Opt[seq[string]]
+  properties*: Option[seq[string]]
     ## If supplied, only the listed properties are returned for each
     ## object. If none, all properties are returned. The "id" property
     ## is always returned even if not explicitly requested (line 1608).
-    ## RFC §5.1 (lines 1604–1611): "properties: String[]|null"
-```
-
-**`toJson` signature:**
-
-```nim
-func toJson*[T](req: GetRequest[T]): JsonNode =
-  ## Serialises GetRequest to JSON arguments object (RFC 8620 §5.1).
-  ## Omits ``ids`` and ``properties`` when Opt.none.
-  ## Dispatches Referencable ids via referencableKey.
-  ## Pattern L3-A (§5a.1).
-  ...
 ```
 
 ### 6.2 ChangesRequest[T]
@@ -1456,37 +1244,20 @@ func toJson*[T](req: GetRequest[T]): JsonNode =
 
 ```nim
 type ChangesRequest*[T] = object
-  ## Request arguments for Foo/changes (RFC 8620 §5.2, lines 1667–1703).
+  ## Request arguments for Foo/changes (RFC 8620 §5.2).
   ## Retrieves the list of identifiers for records that have changed
   ## (created, updated, or destroyed) since a given state.
 
   accountId*: AccountId
     ## The identifier of the account to use.
-    ## RFC §5.2 (line 1676): "accountId: Id"
 
   sinceState*: JmapState
     ## The current state of the client, as returned in a previous
-    ## Foo/get response. The server returns changes since this state.
-    ## RFC §5.2 (lines 1687–1693): "sinceState: String"
+    ## Foo/get response.
 
-  maxChanges*: Opt[MaxChanges]
-    ## The maximum number of identifiers to return. The server MAY
-    ## return fewer but MUST NOT return more. If not given, the server
-    ## chooses. The RFC requires this value to be "a positive integer
-    ## greater than 0" (lines 1694–1702); the ``MaxChanges`` distinct
-    ## type enforces this via its smart constructor ``parseMaxChanges``,
-    ## which rejects 0 at construction time.
-    ## RFC §5.2 (lines 1694–1702): "maxChanges: UnsignedInt|null"
-```
-
-**`toJson` signature:**
-
-```nim
-func toJson*[T](req: ChangesRequest[T]): JsonNode =
-  ## Serialises ChangesRequest to JSON arguments object (RFC 8620 §5.2).
-  ## Omits ``maxChanges`` when Opt.none.
-  ## Pattern L3-A (§5a.1).
-  ...
+  maxChanges*: Option[MaxChanges]
+    ## The maximum number of identifiers to return. Must be > 0 per RFC
+    ## (enforced by the MaxChanges smart constructor).
 ```
 
 ### 6.3 SetRequest[T]
@@ -1495,49 +1266,30 @@ func toJson*[T](req: ChangesRequest[T]): JsonNode =
 
 ```nim
 type SetRequest*[T] = object
-  ## Request arguments for Foo/set (RFC 8620 §5.3, lines 1855–1945).
+  ## Request arguments for Foo/set (RFC 8620 §5.3).
   ## Creates, updates, and/or destroys records of type T in a single
-  ## method call. Each operation is an atomic unit; the method as a
-  ## whole is NOT atomic (lines 1947–1952).
+  ## method call. Each operation is atomic; the method as a whole is
+  ## NOT atomic (lines 1947–1952).
 
   accountId*: AccountId
     ## The identifier of the account to use.
-    ## RFC §5.3 (line 1866): "accountId: Id"
 
-  ifInState*: Opt[JmapState]
+  ifInState*: Option[JmapState]
     ## If supplied, must match the current state; otherwise the method
-    ## is aborted with a "stateMismatch" error (lines 2173–2174).
-    ## If none, changes apply to the current state.
-    ## RFC §5.3 (lines 1870–1877): "ifInState: String|null"
+    ## is aborted with a "stateMismatch" error.
 
-  create*: Opt[Table[CreationId, JsonNode]]
-    ## A map of creation identifiers (temporary client-assigned) to
-    ## entity data objects, or none if no objects are to be created.
-    ## Entity data is JsonNode because Layer 3 Core cannot know T's
-    ## serialisation format (Decision D3.6).
-    ## RFC §5.3 (lines 1879–1888): "create: Id[Foo]|null"
+  create*: Option[Table[CreationId, JsonNode]]
+    ## A map of creation identifiers to entity data objects. Entity data
+    ## is JsonNode because Layer 3 Core cannot know T's serialisation
+    ## format (Decision D3.6).
 
-  update*: Opt[Table[Id, PatchObject]]
+  update*: Option[Table[Id, PatchObject]]
     ## A map of record identifiers to PatchObject values representing
-    ## the changes to apply, or none if no objects are to be updated.
-    ## RFC §5.3 (lines 1890–1940): "update: Id[PatchObject]|null"
+    ## the changes to apply.
 
-  destroy*: Opt[Referencable[seq[Id]]]
-    ## A list of identifiers for records to permanently delete, or none
-    ## if no objects are to be destroyed. Referencable: may be a direct
-    ## seq or a result reference (e.g., ids from a previous /query).
-    ## RFC §5.3 (lines 1942–1945): "destroy: Id[]|null"
-```
-
-**`toJson` signature:**
-
-```nim
-func toJson*[T](req: SetRequest[T]): JsonNode =
-  ## Serialises SetRequest to JSON arguments object (RFC 8620 §5.3).
-  ## Omits ``ifInState``, ``create``, ``update``, ``destroy`` when
-  ## Opt.none. Dispatches Referencable destroy via referencableKey.
-  ## Pattern L3-A (§5a.1).
-  ...
+  destroy*: Option[Referencable[seq[Id]]]
+    ## A list of identifiers for records to permanently delete.
+    ## Referencable: may be a direct seq or a result reference.
 ```
 
 ### 6.4 CopyRequest[T]
@@ -1546,191 +1298,116 @@ func toJson*[T](req: SetRequest[T]): JsonNode =
 
 ```nim
 type CopyRequest*[T] = object
-  ## Request arguments for Foo/copy (RFC 8620 §5.4, lines 2191–2268).
-  ## Copies records from one account to another. The only way to move
-  ## records between accounts (lines 2191–2194).
+  ## Request arguments for Foo/copy (RFC 8620 §5.4).
+  ## Copies records from one account to another.
 
   fromAccountId*: AccountId
     ## The identifier of the account to copy records from.
-    ## RFC §5.4 (lines 2213–2214): "fromAccountId: Id"
 
-  ifFromInState*: Opt[JmapState]
-    ## If supplied, must match the current state of the from-account
-    ## when reading data; otherwise "stateMismatch" (lines 2217–2224).
-    ## RFC §5.4 (lines 2217–2224): "ifFromInState: String|null"
+  ifFromInState*: Option[JmapState]
+    ## If supplied, must match the current state of the from-account.
 
   accountId*: AccountId
     ## The identifier of the account to copy records to. Must differ
-    ## from fromAccountId (line 2229).
-    ## RFC §5.4 (lines 2226–2229): "accountId: Id"
+    ## from fromAccountId.
 
-  ifInState*: Opt[JmapState]
+  ifInState*: Option[JmapState]
     ## If supplied, must match the current state of the destination
-    ## account; otherwise "stateMismatch" (lines 2231–2237).
-    ## RFC §5.4 (lines 2231–2237): "ifInState: String|null"
+    ## account.
 
   create*: Table[CreationId, JsonNode]
     ## A map of creation identifiers to entity data objects. Required
     ## (not optional). Each Foo object MUST contain an "id" property
-    ## referencing the record in the from-account (lines 2247–2253).
-    ## RFC §5.4 (lines 2247–2253): "create: Id[Foo]"
+    ## referencing the record in the from-account.
 
   onSuccessDestroyOriginal*: bool
     ## If true, the server attempts to destroy the originals after
-    ## successful copies via an implicit Foo/set call (lines 2255–2262).
-    ## The copy and destroy are NOT atomic (lines 2196–2199).
-    ## RFC §5.4 (lines 2255–2262): "onSuccessDestroyOriginal: Boolean"
+    ## successful copies via an implicit Foo/set call. The copy and
+    ## destroy are NOT atomic.
 
-  destroyFromIfInState*: Opt[JmapState]
+  destroyFromIfInState*: Option[JmapState]
     ## Passed as "ifInState" to the implicit Foo/set call when
-    ## onSuccessDestroyOriginal is true (lines 2264–2268).
-    ## RFC §5.4 (lines 2264–2268): "destroyFromIfInState: String|null"
+    ## onSuccessDestroyOriginal is true.
 ```
 
-**`toJson` signature:**
-
-```nim
-func toJson*[T](req: CopyRequest[T]): JsonNode =
-  ## Serialises CopyRequest to JSON arguments object (RFC 8620 §5.4).
-  ## ``create`` is required (always emitted). Omits optional fields
-  ## when Opt.none. ``onSuccessDestroyOriginal`` always emitted.
-  ## Pattern L3-A (§5a.1).
-  ...
-```
-
-### 6.5 QueryRequest[T]
+### 6.5 QueryRequest[T, C]
 
 **RFC reference:** §5.5 (lines 2339–2516)
 
 ```nim
-type QueryRequest*[T] = object
-  ## Request arguments for Foo/query (RFC 8620 §5.5, lines 2339–2516).
+type QueryRequest*[T, C] = object
+  ## Request arguments for Foo/query (RFC 8620 §5.5).
   ## Searches, sorts, and windows the data type on the server, returning
-  ## a list of identifiers matching the criteria.
+  ## a list of identifiers matching the criteria. ``C`` is the filter
+  ## condition type, resolved from ``filterType(T)`` by the builder.
 
   accountId*: AccountId
     ## The identifier of the account to use.
-    ## RFC §5.5 (lines 2363–2364): "accountId: Id"
 
-  filter*: Opt[Filter[filterType(T)]]
-    ## Determines the set of Foos returned. If none, all objects of
-    ## this type in the account are included. Generic over
-    ## filterType(T) — the associated filter condition type for entity T.
-    ## RFC §5.5 (lines 2368–2394): "filter: FilterOperator|FilterCondition|null"
+  filter*: Option[Filter[C]]
+    ## Determines the set of Foos returned. Generic over the filter
+    ## condition type C (resolved from filterType(T) at the call site).
 
-  sort*: Opt[seq[Comparator]]
+  sort*: Option[seq[Comparator]]
     ## Sort criteria. If none or empty, sort order is server-dependent
-    ## but must be stable between calls (lines 2402–2404).
-    ## RFC §5.5 (lines 2396–2462): "sort: Comparator[]|null"
+    ## but must be stable between calls.
 
   position*: JmapInt
-    ## The zero-based index of the first identifier in the full results
-    ## to return. Default: 0. Negative values are offset from the end,
-    ## clamped to 0 (lines 2476–2480). Ignored if anchor is supplied
-    ## (lines 2534–2536).
-    ## RFC §5.5 (lines 2471–2484): "position: Int"
+    ## The zero-based index of the first identifier to return. Default: 0.
+    ## Negative values offset from the end. Ignored if anchor supplied.
 
-  anchor*: Opt[Id]
-    ## A Foo identifier. If supplied, position is ignored (lines 2534–2536).
-    ## The index of this identifier in the results, combined with
-    ## anchorOffset, determines the first result to return.
-    ## RFC §5.5 (lines 2486–2491): "anchor: Id|null"
+  anchor*: Option[Id]
+    ## A Foo identifier. If supplied, position is ignored.
 
   anchorOffset*: JmapInt
     ## The index of the first result relative to the anchor's index.
-    ## May be negative. Default: 0. Ignored if no anchor is supplied
-    ## (lines 2535–2536).
-    ## RFC §5.5 (lines 2493–2499): "anchorOffset: Int"
+    ## May be negative. Default: 0.
 
-  limit*: Opt[UnsignedInt]
-    ## The maximum number of results to return. If none, no limit
-    ## presumed. The server may enforce its own maximum (lines 2504–2506).
-    ## Note: the RFC specifies ``invalidArguments`` for negative values
-    ## (lines 2507–2509), but this library's ``UnsignedInt`` type
-    ## prevents negative construction.
-    ## RFC §5.5 (lines 2501–2509): "limit: UnsignedInt|null"
+  limit*: Option[UnsignedInt]
+    ## The maximum number of results to return.
 
   calculateTotal*: bool
     ## Whether the client wishes to know the total number of results.
-    ## May be slow and expensive for servers (lines 2513–2516).
-    ## Default: false.
-    ## RFC §5.5 (lines 2511–2516): "calculateTotal: Boolean"
 ```
 
-**`toJson` signature:**
+**Note on two generic parameters.** `QueryRequest[T, C]` takes two
+type parameters: `T` (the entity type) and `C` (the filter condition
+type). The original design used `Filter[filterType(T)]` with a single
+parameter, but the implementation uses an explicit second parameter for
+clarity and simpler generic instantiation. The builder (when implemented)
+resolves `C` from `filterType(T)`.
 
-```nim
-func toJson*[T](req: QueryRequest[T],
-    filterConditionToJson: proc(c: filterType(T)): JsonNode
-    {.noSideEffect, raises: [].}): JsonNode =
-  ## Serialises QueryRequest to JSON arguments object (RFC 8620 §5.5).
-  ## Omits ``filter``, ``sort``, ``anchor``, ``limit`` when Opt.none.
-  ## ``position``, ``anchorOffset``, ``calculateTotal`` always emitted.
-  ## Filter serialised via ``filterConditionToJson`` callback, forwarded to
-  ## ``Filter[C].toJson(filterConditionToJson)`` (Layer 2 §7.2).
-  ## Pattern L3-A (§5a.1).
-  ...
-```
-
-### 6.6 QueryChangesRequest[T]
+### 6.6 QueryChangesRequest[T, C]
 
 **RFC reference:** §5.6 (lines 2639–2685)
 
 ```nim
-type QueryChangesRequest*[T] = object
-  ## Request arguments for Foo/queryChanges (RFC 8620 §5.6, lines 2639–2685).
+type QueryChangesRequest*[T, C] = object
+  ## Request arguments for Foo/queryChanges (RFC 8620 §5.6).
   ## Efficiently updates a cached query to match the new server state.
+  ## ``C`` is the filter condition type, resolved from ``filterType(T)``
+  ## by the builder.
 
   accountId*: AccountId
     ## The identifier of the account to use.
-    ## RFC §5.6 (lines 2645–2646): "accountId: Id"
 
-  filter*: Opt[Filter[filterType(T)]]
+  filter*: Option[Filter[C]]
     ## The filter argument that was used with the original Foo/query.
-    ## Generic over filterType(T).
-    ## RFC §5.6 (lines 2649–2651): "filter: FilterOperator|FilterCondition|null"
 
-  sort*: Opt[seq[Comparator]]
+  sort*: Option[seq[Comparator]]
     ## The sort argument that was used with the original Foo/query.
-    ## RFC §5.6 (lines 2653–2655): "sort: Comparator[]|null"
 
   sinceQueryState*: JmapState
-    ## The current state of the query in the client, as returned by a
-    ## previous Foo/query response with the same sort/filter.
-    ## RFC §5.6 (lines 2657–2662): "sinceQueryState: String"
+    ## The current state of the query in the client.
 
-  maxChanges*: Opt[MaxChanges]
-    ## The maximum number of changes to return. Each item in the
-    ## removed or added arrays counts as one change (lines 2810–2812).
-    ## The ``MaxChanges`` distinct type enforces the RFC requirement
-    ## that the value be > 0 (same type as ChangesRequest.maxChanges).
-    ## RFC §5.6 (lines 2664–2667): "maxChanges: UnsignedInt|null"
+  maxChanges*: Option[MaxChanges]
+    ## The maximum number of changes to return.
 
-  upToId*: Opt[Id]
+  upToId*: Option[Id]
     ## The last (highest-index) identifier the client has cached.
-    ## Optimisation: only applies when sort and filter are both on
-    ## immutable properties (lines 2674–2678).
-    ## RFC §5.6 (lines 2669–2678): "upToId: Id|null"
 
   calculateTotal*: bool
     ## Whether the client wishes to know the total number of results.
-    ## Default: false.
-    ## RFC §5.6 (lines 2680–2685): "calculateTotal: Boolean"
-```
-
-**`toJson` signature:**
-
-```nim
-func toJson*[T](req: QueryChangesRequest[T],
-    filterConditionToJson: proc(c: filterType(T)): JsonNode
-    {.noSideEffect, raises: [].}): JsonNode =
-  ## Serialises QueryChangesRequest to JSON arguments object
-  ## (RFC 8620 §5.6). Omits ``filter``, ``sort``, ``maxChanges``,
-  ## ``upToId`` when Opt.none. ``calculateTotal`` always emitted.
-  ## Filter serialised via ``filterConditionToJson`` callback, forwarded to
-  ## ``Filter[C].toJson(filterConditionToJson)`` (Layer 2 §7.2).
-  ## Pattern L3-A (§5a.1).
-  ...
 ```
 
 ### 6.7 Decisions
@@ -1745,7 +1422,7 @@ uncommon references can construct `Request` manually via Layer 1 types.
 
 **Decision D3.6: JsonNode entity data.** Entity data is represented as
 `JsonNode` in create maps (`SetRequest.create`, `CopyRequest.create`) and
-in response lists (`GetResponse.list`, `SetResponse.createResults`).
+in response lists (`GetResponse.list`, `SetResponse.created`).
 Layer 3 Core cannot know `T`'s serialisation format; entity-specific
 modules (e.g., RFC 8621 mail types) provide concrete `fromJson`
 implementations to convert raw `JsonNode` instances into typed entity
@@ -1761,9 +1438,11 @@ values, completing the parse-don't-validate pipeline.
 
 All six standard method response types are generic over entity type `T`.
 Each type definition carries `##` doc comments on every field citing the
-RFC section and line numbers. Each type receives a `fromJson` function
-following Pattern L3-B (Section 5a.2). No `toJson` is provided —
-response types are parsed by the client, never serialised (Decision D3.7).
+RFC section and line numbers. Each type receives a `fromJson` proc
+following Pattern L3-B (Section 5a.2). `fromJson` returns the type
+directly and raises `ValidationError` on invalid input. No `toJson` is
+provided — response types are parsed by the client, never serialised
+(Decision D3.7).
 
 ### 7.1 GetResponse[T]
 
@@ -1771,45 +1450,22 @@ response types are parsed by the client, never serialised (Decision D3.7).
 
 ```nim
 type GetResponse*[T] = object
-  ## Response arguments for Foo/get (RFC 8620 §5.1, lines 1613–1658).
+  ## Response arguments for Foo/get (RFC 8620 §5.1).
   ## Contains the requested objects and any identifiers not found.
 
   accountId*: AccountId
     ## The identifier of the account used for the call.
-    ## RFC §5.1 (lines 1615–1617): "accountId: Id"
 
   state*: JmapState
     ## A string representing the state on the server for ALL data of
-    ## this type in the account (not just the returned objects). If
-    ## the data changes, this string MUST change (lines 1632–1637).
-    ## RFC §5.1 (lines 1631–1641): "state: String"
+    ## this type in the account.
 
   list*: seq[JsonNode]
     ## The Foo objects requested. Raw JsonNode entities — entity-specific
-    ## parsing is the caller's responsibility (Decision D3.6). Empty
-    ## array if no objects were found or if ids was empty (line 1646).
-    ## Results MAY be in a different order to the ids in the request
-    ## (lines 1647–1648).
-    ## RFC §5.1 (lines 1643–1651): "list: Foo[]"
+    ## parsing is the caller's responsibility (Decision D3.6).
 
   notFound*: seq[Id]
     ## Identifiers passed to the method for records that do not exist.
-    ## Empty if all requested identifiers were found or if ids was null
-    ## or empty (lines 1656–1658).
-    ## RFC §5.1 (lines 1653–1658): "notFound: Id[]"
-```
-
-**`fromJson` signature:**
-
-```nim
-func fromJson*[T](
-    R: typedesc[GetResponse[T]], node: JsonNode
-): Result[GetResponse[T], ValidationError] =
-  ## Deserialises JSON arguments to GetResponse (RFC 8620 §5.1).
-  ## Uses lenient constructors for server-assigned identifiers.
-  ## ``list`` contains raw JsonNode entities.
-  ## Pattern L3-B (§5a.2).
-  ...
 ```
 
 ### 7.2 ChangesResponse[T]
@@ -1818,113 +1474,91 @@ func fromJson*[T](
 
 ```nim
 type ChangesResponse*[T] = object
-  ## Response arguments for Foo/changes (RFC 8620 §5.2, lines 1704–1764).
+  ## Response arguments for Foo/changes (RFC 8620 §5.2).
   ## Lists identifiers for records that have been created, updated, or
   ## destroyed since the given state.
 
   accountId*: AccountId
     ## The identifier of the account used for the call.
-    ## RFC §5.2 (lines 1706–1707): "accountId: Id"
 
   oldState*: JmapState
-    ## The "sinceState" argument echoed back — the state from which the
-    ## server is returning changes.
-    ## RFC §5.2 (lines 1710–1713): "oldState: String"
+    ## The "sinceState" argument echoed back.
 
   newState*: JmapState
     ## The state the client will be in after applying the changes.
-    ## RFC §5.2 (lines 1715–1718): "newState: String"
 
   hasMoreChanges*: bool
     ## If true, the client may call Foo/changes again with newState
-    ## to get further updates. If false, newState is current.
-    ## RFC §5.2 (lines 1720–1724): "hasMoreChanges: Boolean"
+    ## to get further updates.
 
   created*: seq[Id]
     ## Identifiers for records created since the old state.
-    ## RFC §5.2 (lines 1726–1729): "created: Id[]"
 
   updated*: seq[Id]
     ## Identifiers for records updated since the old state.
-    ## RFC §5.2 (lines 1731–1734): "updated: Id[]"
 
   destroyed*: seq[Id]
     ## Identifiers for records destroyed since the old state.
-    ## RFC §5.2 (lines 1743–1746): "destroyed: Id[]"
-```
-
-**`fromJson` signature:**
-
-```nim
-func fromJson*[T](
-    R: typedesc[ChangesResponse[T]], node: JsonNode
-): Result[ChangesResponse[T], ValidationError] =
-  ## Deserialises JSON arguments to ChangesResponse (RFC 8620 §5.2).
-  ## ``initResultErr`` for JmapState ``{.requiresInit.}`` fields.
-  ## Pattern L3-B (§5a.2).
-  ...
 ```
 
 ### 7.3 SetResponse[T]
 
-**RFC reference:** §5.3 (lines 2009–2082), Decision 3.9B
+**RFC reference:** §5.3 (lines 2009–2082)
 
 ```nim
 type SetResponse*[T] = object
-  ## Response arguments for Foo/set (RFC 8620 §5.3, lines 2009–2082).
+  ## Response arguments for Foo/set (RFC 8620 §5.3).
   ## Wire format uses parallel maps (created/notCreated, etc.); the
-  ## internal representation merges these into unified Result maps
-  ## (Decision 3.9B). Merging algorithm specified in Section 8.
+  ## internal representation preserves this structure as separate
+  ## success/failure tables mirroring the wire format.
 
   accountId*: AccountId
     ## The identifier of the account used for the call.
-    ## RFC §5.3 (lines 2011–2013): "accountId: Id"
 
-  oldState*: Opt[JmapState]
+  oldState*: Option[JmapState]
     ## The state before making the requested changes, or none if the
-    ## server does not know the previous state (lines 2025–2027).
-    ## RFC §5.3 (lines 2023–2027): "oldState: String|null"
+    ## server does not know the previous state.
 
   newState*: JmapState
     ## The state that will now be returned by Foo/get.
-    ## RFC §5.3 (lines 2029–2031): "newState: String"
 
-  createResults*: Table[CreationId, Result[JsonNode, SetError]]
-    ## Merged map of create outcomes. Wire ``created`` entries become
-    ## ``Result.ok(entityJson)``; wire ``notCreated`` entries become
-    ## ``Result.err(setError)``. Entity data is raw JsonNode
-    ## (Decision D3.6). Server-set properties (e.g., "id") are in the
-    ## ok value (lines 2035–2039).
-    ## RFC §5.3 (lines 2033–2041, 2060–2063): "created" + "notCreated"
+  created*: Table[CreationId, JsonNode]
+    ## Successfully created entities. Wire ``created`` entries keyed by
+    ## creation identifier, values are the server-assigned entity data.
 
-  updateResults*: Table[Id, Result[Opt[JsonNode], SetError]]
-    ## Merged map of update outcomes. Wire ``updated`` entries with
-    ## null value become ``Result.ok(Opt.none(JsonNode))``; non-null
-    ## values become ``Result.ok(Opt.some(entityJson))`` containing
-    ## server-changed properties. Wire ``notUpdated`` entries become
-    ## ``Result.err(setError)`` (lines 2043–2053).
-    ## RFC §5.3 (lines 2043–2053, 2065–2068): "updated" + "notUpdated"
+  notCreated*: Table[CreationId, SetError]
+    ## Failed create operations. Wire ``notCreated`` entries keyed by
+    ## creation identifier, values are SetError details.
 
-  destroyResults*: Table[Id, Result[void, SetError]]
-    ## Merged map of destroy outcomes. Wire ``destroyed`` entries become
-    ## ``Result.ok()``; wire ``notDestroyed`` entries become
-    ## ``Result.err(setError)`` (lines 2055–2058).
-    ## RFC §5.3 (lines 2055–2058, 2079–2082): "destroyed" + "notDestroyed"
+  updated*: Table[Id, Option[JsonNode]]
+    ## Successfully updated entities. None means no server-set properties
+    ## changed; Some contains changed property data.
+
+  notUpdated*: Table[Id, SetError]
+    ## Failed update operations. Wire ``notUpdated`` entries keyed by
+    ## record identifier.
+
+  destroyed*: seq[Id]
+    ## Successfully destroyed record identifiers. Wire ``destroyed`` array.
+
+  notDestroyed*: Table[Id, SetError]
+    ## Failed destroy operations. Wire ``notDestroyed`` entries keyed by
+    ## record identifier.
 ```
 
-**`fromJson` signature:**
-
-```nim
-func fromJson*[T](
-    R: typedesc[SetResponse[T]], node: JsonNode
-): Result[SetResponse[T], ValidationError] =
-  ## Deserialises JSON arguments to SetResponse (RFC 8620 §5.3).
-  ## Merges parallel wire maps into unified Result maps (§8).
-  ## ``{.cast(noSideEffect).}:`` required for create and update
-  ## merging (Result maps contain JsonNode, a ref type).
-  ## Pattern L3-B (§5a.2) + Pattern L3-C (§5a.3).
-  ...
-```
+**Design change from original (Decision D3.8).** The original design
+merged parallel wire maps into unified `Table[K, Result[V, SetError]]`
+maps (Decision 3.9B). The implementation instead preserves separate
+success/failure tables that directly mirror the wire format. This is
+consistent with the error model's principle that **per-item errors are
+data** (SetError within Track 2): a `/set` response contains both
+successful and failed operations, and the caller inspects them
+separately. Merging into a `Result` type would couple the representation
+to a specific error-handling library (nim-results), whereas separate
+tables are self-describing and match the wire format directly. The
+merging helpers (`mergeCreateResults`, `mergeUpdateResults`,
+`mergeDestroyResults`) handle the wire parsing, returning tuple pairs
+of separate tables.
 
 ### 7.4 CopyResponse[T]
 
@@ -1932,52 +1566,27 @@ func fromJson*[T](
 
 ```nim
 type CopyResponse*[T] = object
-  ## Response arguments for Foo/copy (RFC 8620 §5.4, lines 2273–2323).
-  ## Structurally similar to SetResponse but only has create results
-  ## (copies are creates in the destination account).
+  ## Response arguments for Foo/copy (RFC 8620 §5.4).
+  ## Structurally similar to SetResponse but only has create results.
 
   fromAccountId*: AccountId
     ## The identifier of the account records were copied from.
-    ## RFC §5.4 (lines 2275–2277): "fromAccountId: Id"
 
   accountId*: AccountId
     ## The identifier of the account records were copied to.
-    ## RFC §5.4 (lines 2279–2281): "accountId: Id"
 
-  oldState*: Opt[JmapState]
-    ## The state of the destination account before the copy, or none
-    ## if the server does not know the previous state.
-    ## RFC §5.4 (lines 2283–2288): "oldState: String|null"
+  oldState*: Option[JmapState]
+    ## The state of the destination account before the copy.
 
   newState*: JmapState
     ## The state that will now be returned by Foo/get on the
     ## destination account.
-    ## RFC §5.4 (lines 2290–2293): "newState: String"
 
-  createResults*: Table[CreationId, Result[JsonNode, SetError]]
-    ## Merged map of copy outcomes. Wire ``created`` entries become
-    ## ``Result.ok(entityJson)``; wire ``notCreated`` entries become
-    ## ``Result.err(setError)``. Uses the same merging algorithm as
-    ## SetResponse (create branch only, Section 8).
-    ## RFC §5.4 (lines 2303–2310, 2312–2315): "created" + "notCreated"
-```
+  created*: Table[CreationId, JsonNode]
+    ## Successfully copied entities, keyed by creation identifier.
 
-**Cross-reference.** `CopyResponse.createResults` merging follows the
-identical algorithm as `SetResponse` Section 8 (create branch only). The
-`alreadyExists` SetError type with `existingId` field (§5.4 lines
-2320–2323) is handled by Layer 1's `setErrorAlreadyExists` constructor.
-
-**`fromJson` signature:**
-
-```nim
-func fromJson*[T](
-    R: typedesc[CopyResponse[T]], node: JsonNode
-): Result[CopyResponse[T], ValidationError] =
-  ## Deserialises JSON arguments to CopyResponse (RFC 8620 §5.4).
-  ## Merges created/notCreated wire maps into unified Result map (§8).
-  ## ``{.cast(noSideEffect).}:`` required (Result map contains JsonNode).
-  ## Pattern L3-B (§5a.2) + Pattern L3-C (§5a.3).
-  ...
+  notCreated*: Table[CreationId, SetError]
+    ## Failed copy operations, keyed by creation identifier.
 ```
 
 ### 7.5 QueryResponse[T]
@@ -1986,59 +1595,33 @@ func fromJson*[T](
 
 ```nim
 type QueryResponse*[T] = object
-  ## Response arguments for Foo/query (RFC 8620 §5.5, lines 2541–2614).
+  ## Response arguments for Foo/query (RFC 8620 §5.5).
   ## Returns a windowed list of identifiers matching the query criteria.
 
   accountId*: AccountId
     ## The identifier of the account used for the call.
-    ## RFC §5.5 (lines 2543–2545): "accountId: Id"
 
   queryState*: JmapState
     ## A string encoding the current state of the query on the server.
-    ## MUST change if the results (matching identifiers and sort order)
-    ## have changed (lines 2549–2550). Only meaningful when compared to
-    ## future responses with the same type/sort/filter (lines 2556–2563).
-    ## RFC §5.5 (lines 2547–2563): "queryState: String"
 
   canCalculateChanges*: bool
     ## True if the server supports calling Foo/queryChanges with these
-    ## filter/sort parameters. Does not guarantee the call will succeed
-    ## (lines 2586–2589).
-    ## RFC §5.5 (lines 2583–2589): "canCalculateChanges: Boolean"
+    ## filter/sort parameters.
 
   position*: UnsignedInt
     ## The zero-based index of the first result in the ids array within
     ## the complete list of query results.
-    ## RFC §5.5 (lines 2591–2594): "position: UnsignedInt"
 
   ids*: seq[Id]
-    ## The list of identifiers for each Foo in the query results,
-    ## starting at position and continuing until the end of results or
-    ## the limit is reached. Empty if position >= total (line 2601).
-    ## RFC §5.5 (lines 2596–2602): "ids: Id[]"
+    ## The list of identifiers for each Foo in the query results.
 
-  total*: Opt[UnsignedInt]
+  total*: Option[UnsignedInt]
     ## The total number of Foos matching the filter. Only present if
-    ## calculateTotal was true in the request (lines 2607–2608).
-    ## RFC §5.5 (lines 2604–2608): "total: UnsignedInt"
+    ## calculateTotal was true in the request.
 
-  limit*: Opt[UnsignedInt]
+  limit*: Option[UnsignedInt]
     ## The limit enforced by the server. Only returned if the server
-    ## set a limit or used a different limit than requested
-    ## (lines 2612–2614).
-    ## RFC §5.5 (lines 2610–2614): "limit: UnsignedInt"
-```
-
-**`fromJson` signature:**
-
-```nim
-func fromJson*[T](
-    R: typedesc[QueryResponse[T]], node: JsonNode
-): Result[QueryResponse[T], ValidationError] =
-  ## Deserialises JSON arguments to QueryResponse (RFC 8620 §5.5).
-  ## ``total`` and ``limit`` use lenient Opt handling (absent → none).
-  ## Pattern L3-B (§5a.2).
-  ...
+    ## set a limit or used a different limit than requested.
 ```
 
 ### 7.6 QueryChangesResponse[T]
@@ -2047,53 +1630,31 @@ func fromJson*[T](
 
 ```nim
 type QueryChangesResponse*[T] = object
-  ## Response arguments for Foo/queryChanges (RFC 8620 §5.6,
-  ## lines 2695–2796). Allows a client to update a cached query to
-  ## match the new server state via a splice algorithm (lines 2773–2796).
+  ## Response arguments for Foo/queryChanges (RFC 8620 §5.6).
+  ## Allows a client to update a cached query to match the new server
+  ## state via a splice algorithm.
 
   accountId*: AccountId
     ## The identifier of the account used for the call.
-    ## RFC §5.6 (lines 2697–2699): "accountId: Id"
 
   oldQueryState*: JmapState
-    ## The "sinceQueryState" argument echoed back — the state from
-    ## which the server is returning changes.
-    ## RFC §5.6 (lines 2701–2704): "oldQueryState: String"
+    ## The "sinceQueryState" argument echoed back.
 
   newQueryState*: JmapState
     ## The state the query will be in after applying the changes.
-    ## RFC §5.6 (lines 2706–2709): "newQueryState: String"
 
-  total*: Opt[UnsignedInt]
+  total*: Option[UnsignedInt]
     ## The total number of Foos matching the filter. Only present if
-    ## calculateTotal was true in the request (lines 2714–2715).
-    ## RFC §5.6 (lines 2711–2715): "total: UnsignedInt"
+    ## calculateTotal was true in the request.
 
   removed*: seq[Id]
     ## Identifiers for every Foo that was in the query results in the
-    ## old state but is not in the new state. The server MAY include
-    ## extra identifiers that may have been in old results (lines 2722–2724).
-    ## RFC §5.6 (lines 2717–2735): "removed: Id[]"
+    ## old state but is not in the new state.
 
   added*: seq[AddedItem]
     ## The identifier and index in the new query results for every Foo
     ## that has been added since the old state AND every Foo in the
-    ## current results that was included in removed (due to mutable
-    ## property changes). Sorted by index, lowest first (line 2764).
-    ## RFC §5.6 (lines 2751–2771): "added: AddedItem[]"
-```
-
-**`fromJson` signature:**
-
-```nim
-func fromJson*[T](
-    R: typedesc[QueryChangesResponse[T]], node: JsonNode
-): Result[QueryChangesResponse[T], ValidationError] =
-  ## Deserialises JSON arguments to QueryChangesResponse (RFC 8620 §5.6).
-  ## ``total`` uses lenient Opt handling (absent → none).
-  ## ``added`` elements parsed via AddedItem.fromJson (Layer 2).
-  ## Pattern L3-B (§5a.2).
-  ...
+    ## current results that was included in removed.
 ```
 
 ### 7.7 Decision
@@ -2112,55 +1673,74 @@ not per-type `fromJson(toJson(x))`.
 
 ## 8. SetResponse Merging Algorithm
 
-**Architecture decision:** 3.9B (unified Result maps internally, parallel
-maps on the wire)
-
 **RFC reference:** §5.3 (lines 2009–2082) — the wire format uses six
 parallel maps: `created`/`notCreated`, `updated`/`notUpdated`,
-`destroyed`/`notDestroyed`. The internal representation merges each pair
-into a single `Table[K, Result[V, SetError]]`.
+`destroyed`/`notDestroyed`. The internal representation preserves these
+as separate success/failure tables.
 
 ### 8.1 Create Merging
 
 Wire: `created: Id[Foo]|null` + `notCreated: Id[SetError]|null`
-Internal: `Table[CreationId, Result[JsonNode, SetError]]`
+Internal: `(Table[CreationId, JsonNode], Table[CreationId, SetError])`
 
 ```nim
-## Algorithm (inside {.cast(noSideEffect).}:):
-## 1. Parse ``created`` via node{"created"}:
-##    - nil or JNull → empty
-##    - JObject → iterate pairs: for each (cid, entity):
-##      parse CreationId from key; add tbl[cid] = Result.ok(entity)
-## 2. Parse ``notCreated`` via node{"notCreated"}:
-##    - nil or JNull → empty
-##    - JObject → iterate pairs: for each (cid, errNode):
-##      parse CreationId from key; parse SetError from errNode;
-##      add tbl[cid] = Result.err(setError)
-## 3. Return the merged table.
+proc mergeCreateResults(
+    node: JsonNode
+): (Table[CreationId, JsonNode], Table[CreationId, SetError]) =
+  ## Merge wire ``created``/``notCreated`` maps into separate
+  ## success/failure tables. Used by both SetResponse and CopyResponse.
+  ## Last-writer-wins: if a key appears in both maps, the notCreated
+  ## entry wins (failure map processed second, deletes from success map).
+  var created = initTable[CreationId, JsonNode]()
+  var notCreated = initTable[CreationId, SetError]()
+  let createdNode = node{"created"}
+  if not createdNode.isNil and createdNode.kind == JObject:
+    for k, v in createdNode.pairs:
+      let cid = parseCreationId(k)
+      created[cid] = v
+  let notCreatedNode = node{"notCreated"}
+  if not notCreatedNode.isNil and notCreatedNode.kind == JObject:
+    for k, v in notCreatedNode.pairs:
+      let cid = parseCreationId(k)
+      let se = SetError.fromJson(v)
+      created.del(cid)
+      notCreated[cid] = se
+  (created, notCreated)
 ```
 
 ### 8.2 Update Merging
 
 Wire: `updated: Id[Foo|null]|null` + `notUpdated: Id[SetError]|null`
-Internal: `Table[Id, Result[Opt[JsonNode], SetError]]`
+Internal: `(Table[Id, Option[JsonNode]], Table[Id, SetError])`
 
 ```nim
-## Algorithm (inside {.cast(noSideEffect).}:):
-## 1. Parse ``updated`` via node{"updated"}:
-##    - nil or JNull → empty
-##    - JObject → iterate pairs: for each (id, val):
-##      parse Id from key;
-##      if val is JNull → tbl[id] = Result.ok(Opt.none(JsonNode))
-##      else → tbl[id] = Result.ok(Opt.some(val))
-## 2. Parse ``notUpdated`` via node{"notUpdated"}:
-##    - nil or JNull → empty
-##    - JObject → iterate pairs: for each (id, errNode):
-##      parse Id from key; parse SetError from errNode;
-##      add tbl[id] = Result.err(setError)
-## 3. Return the merged table.
+proc mergeUpdateResults(
+    node: JsonNode
+): (Table[Id, Option[JsonNode]], Table[Id, SetError]) =
+  ## Merge wire ``updated``/``notUpdated`` maps into separate
+  ## success/failure tables. Null value in ``updated`` means no
+  ## server-set properties changed; non-null contains changed properties.
+  var updated = initTable[Id, Option[JsonNode]]()
+  var notUpdated = initTable[Id, SetError]()
+  let updatedNode = node{"updated"}
+  if not updatedNode.isNil and updatedNode.kind == JObject:
+    for k, v in updatedNode.pairs:
+      let id = parseIdFromServer(k)
+      if v.isNil or v.kind == JNull:
+        updated[id] = none(JsonNode)
+      else:
+        updated[id] = some(v)
+  let notUpdatedNode = node{"notUpdated"}
+  if not notUpdatedNode.isNil and notUpdatedNode.kind == JObject:
+    for k, v in notUpdatedNode.pairs:
+      let id = parseIdFromServer(k)
+      let se = SetError.fromJson(v)
+      updated.del(id)
+      notUpdated[id] = se
+  (updated, notUpdated)
 ```
 
-The `Opt[JsonNode]` in the success branch encodes the RFC semantics:
+The `Option[JsonNode]` in the success branch encodes the RFC semantics:
 `null` in the `updated` map means "no server-set properties changed"
 (line 2050), while a non-null value contains the properties that changed
 in a way not explicitly requested (lines 2048–2051).
@@ -2168,50 +1748,45 @@ in a way not explicitly requested (lines 2048–2051).
 ### 8.3 Destroy Merging
 
 Wire: `destroyed: Id[]|null` + `notDestroyed: Id[SetError]|null`
-Internal: `Table[Id, Result[void, SetError]]`
+Internal: `(seq[Id], Table[Id, SetError])`
 
 ```nim
-## Algorithm (NO cast needed — Result[void, SetError] has no ref values):
-## 1. Parse ``destroyed`` via node{"destroyed"}:
-##    - nil or JNull → empty
-##    - JArray → iterate elements: for each elem:
-##      parse Id from elem; add tbl[id] = Result[void, SetError].ok()
-## 2. Parse ``notDestroyed`` via node{"notDestroyed"}:
-##    - nil or JNull → empty
-##    - JObject → iterate pairs: for each (id, errNode):
-##      parse Id from key; parse SetError from errNode;
-##      add tbl[id] = Result[void, SetError].err(setError)
-## 3. Return the merged table.
+proc mergeDestroyResults(node: JsonNode): (seq[Id], Table[Id, SetError]) =
+  ## Merge wire ``destroyed``/``notDestroyed`` into separate
+  ## success/failure collections. ``destroyed`` is a flat array on
+  ## the wire, represented as seq[Id].
+  var destroyed: seq[Id] = @[]
+  var notDestroyed = initTable[Id, SetError]()
+  let destroyedNode = node{"destroyed"}
+  if not destroyedNode.isNil and destroyedNode.kind == JArray:
+    for _, elem in destroyedNode.getElems(@[]):
+      let id = parseIdFromServer(elem.getStr(""))
+      destroyed.add(id)
+  let notDestroyedNode = node{"notDestroyed"}
+  if not notDestroyedNode.isNil and notDestroyedNode.kind == JObject:
+    for k, v in notDestroyedNode.pairs:
+      let id = parseIdFromServer(k)
+      let se = SetError.fromJson(v)
+      notDestroyed[id] = se
+  (destroyed, notDestroyed)
 ```
 
-### 8.4 Cast Boundaries
-
-| Merging branch | `{.cast(noSideEffect).}:` needed | Reason |
-|---------------|----------------------------------|--------|
-| Create | Yes | `Result[JsonNode, SetError]` contains `JsonNode` (ref type) |
-| Update | Yes | `Result[Opt[JsonNode], SetError]` contains `JsonNode` (ref type) |
-| Destroy | No | `Result[void, SetError]` contains no ref values |
-
-The cast boundary is placed around the `var Table` construction loop.
-The mutation is local (building a return value) and does not escape
-through `ref` indirection — same safety justification as Layer 2's
-Pattern A.
-
-### 8.5 Invariants
+### 8.4 Invariants
 
 - **Completeness:** Every identifier from both success and failure wire
-  maps is present in the merged table. No entries are dropped.
+  maps is present in the output tables. No entries are dropped.
 - **Last-writer-wins:** If an identifier appears in both the success and
-  failure map (a server bug), the last-processed map's entry overwrites
-  the first. Failure maps are processed second, so errors take precedence.
-  This is defensive — the RFC does not permit duplicates across the
-  parallel maps, but robustness demands a defined behaviour.
+  failure map (a server bug), the failure map's entry takes precedence.
+  Failure maps are processed second; `created.del(cid)` removes the
+  success entry before adding the failure entry. This is defensive — the
+  RFC does not permit duplicates across the parallel maps, but robustness
+  demands a defined behaviour.
 - **SetError fidelity:** `SetError.fromJson` preserves `rawType` and
   `extras` for lossless round-trip (Decision 1.7C). Unknown error types
   map to `setUnknown` with `rawType` preservation.
 - **CopyResponse reuse:** `CopyResponse.fromJson` uses the identical
-  create-merging algorithm. Only the create branch is needed; update and
-  destroy branches do not apply to /copy responses.
+  `mergeCreateResults` helper. Only the create branch is needed; update
+  and destroy branches do not apply to /copy responses.
 
 **Module:** `methods.nim` (inside `SetResponse.fromJson` and
 `CopyResponse.fromJson`)
@@ -2222,28 +1797,13 @@ Pattern A.
 
 **RFC reference:** §4 (lines 1540–1561)
 
+**Status:** Partially deferred. The echo `fromJson` callback and
+dispatch integration depend on `dispatch.nim` (not yet implemented).
+The builder `addEcho` function depends on `builder.nim` (not yet
+implemented).
+
 The `Core/echo` method returns exactly the same arguments as given. It is
 used for testing connectivity to the JMAP API endpoint.
-
-**Builder function:** `addEcho` (Section 2.6.1) adds a `Core/echo`
-invocation with capability `"urn:ietf:params:jmap:core"`.
-
-**Response extraction:** `get(resp, handle, echoFromJson)` where
-`echoFromJson` validates `node.kind == JObject` and returns `ok(node)`.
-
-```nim
-func echoFromJson*(node: JsonNode): Result[JsonNode, ValidationError] =
-  ## Callback for Core/echo response extraction (RFC 8620 §4).
-  ## Validates that the response is a JSON object, returns it as-is.
-  ## Parse-don't-validate exception: echo returns raw JsonNode because
-  ## its structure is client-determined.
-  checkJsonKind(node, JObject, "Core/echo")
-  ok(node)
-```
-
-**Parse-don't-validate exception.** Echo returns raw `JsonNode` because
-its structure is client-determined. Layer 3 Core cannot define a schema.
-Callers must validate the shape themselves using their own parsing logic.
 
 **Wire format example (RFC §4.1):**
 
@@ -2252,9 +1812,6 @@ Request:  [["Core/echo", {"hello": true, "high": 5}, "b3ff"]]
 Response: [["Core/echo", {"hello": true, "high": 5}, "b3ff"]]
 ```
 
-**Module:** `addEcho` lives in `builder.nim`; `echoFromJson` lives in
-`dispatch.nim` (response-side callback, used with `get[T]`).
-
 ---
 
 ## 10. Result Reference Construction
@@ -2262,10 +1819,12 @@ Response: [["Core/echo", {"hello": true, "high": 5}, "b3ff"]]
 **Architecture decision:** 3.10A (string paths with constants, no
 validation)
 
+**Status:** Deferred. Result reference convenience functions depend on
+`dispatch.nim` and `ResponseHandle[T]` (not yet implemented).
+
 **RFC reference:** §3.7 (lines 1220–1493) — result references allow a
 method call to refer to the output of a previous call's response within
-the same request. The server resolves the JSON Pointer path against the
-referenced response before executing the referencing call.
+the same request.
 
 ### 10.1 Path Constants
 
@@ -2280,156 +1839,10 @@ Already defined in Layer 1 `envelope.nim`:
 | `RefPathUpdated` | `"/updated"` | Updated IDs (array) from /changes or updated map (object) from /set |
 | `RefPathUpdatedProperties` | `"/updatedProperties"` | From Mailbox/changes (RFC 8621 §2.2) |
 
-### 10.2 Generic Reference Construction
-
-```nim
-func reference*[T](handle: ResponseHandle[T], path: string,
-    responseName: string): ResultReference =
-  ## Constructs a ResultReference from a response handle, a JSON Pointer
-  ## path, and the expected response name. No path validation is
-  ## performed (Decision 3.10A) — the server validates the path at
-  ## resolution time.
-  ##
-  ## RFC reference: §3.7 (lines 1220–1260)
-  ResultReference(resultOf: MethodCallId(handle),
-                  name: responseName, path: path)
-```
-
-The `responseName` parameter is explicit rather than auto-derived from
-`T` because different methods produce different response names (e.g.,
-`"Mailbox/query"` vs `"Mailbox/get"`), and the phantom type `T` encodes
-the response type, not the method name (Decision D3.10).
-
-### 10.3 Type-Safe Convenience Functions
-
-```nim
-func referenceIds*[T](
-    handle: ResponseHandle[QueryResponse[T]]
-): ResultReference =
-  ## Constructs a reference to /ids from a Foo/query response.
-  ## Canonical use: pass query result identifiers to a subsequent Foo/get.
-  ##
-  ## RFC reference: §3.7, path "/ids"
-  mixin methodNamespace
-  handle.reference(RefPathIds, methodNamespace(T) & "/query")
-
-func referenceListIds*[T](
-    handle: ResponseHandle[GetResponse[T]]
-): ResultReference =
-  ## Constructs a reference to /list/*/id from a Foo/get response.
-  ## Extracts the identifiers of all returned objects.
-  ##
-  ## RFC reference: §3.7, path "/list/*/id"
-  mixin methodNamespace
-  handle.reference(RefPathListIds, methodNamespace(T) & "/get")
-
-func referenceAddedIds*[T](
-    handle: ResponseHandle[QueryChangesResponse[T]]
-): ResultReference =
-  ## Constructs a reference to /added/*/id from a Foo/queryChanges response.
-  ## Extracts the identifiers of all added items.
-  ##
-  ## RFC reference: §3.7, path "/added/*/id"
-  mixin methodNamespace
-  handle.reference(RefPathAddedIds, methodNamespace(T) & "/queryChanges")
-```
-
-**Convenience function coverage.** Convenience functions are provided for
-the three paths that feed the canonical query-to-get and query-to-set
-workflows (Decision D3.5): `referenceIds` (query → get),
-`referenceListIds` (get → set), `referenceAddedIds` (queryChanges → get).
-The remaining three constants (`RefPathCreated`, `RefPathUpdated`,
-`RefPathUpdatedProperties`) are available for use with the generic
-`reference()` function (§10.2) when constructing less common reference
-patterns via Layer 1 types.
-
-### 10.4 Integration Example
-
-```nim
-## Query → Get chain: fetch all Mailbox ids, then retrieve the objects.
-var b = initRequestBuilder()
-let qh = b.addQuery[Mailbox](accountId)
-let idsRef = qh.referenceIds()
-let gh = b.addGet[Mailbox](accountId,
-    ids = Opt.some(referenceTo[seq[Id]](idsRef)))
-let req = b.build()
-## req.using == @["urn:ietf:params:jmap:mail"]
-## req.methodCalls[0].name == "Mailbox/query"
-## req.methodCalls[1].arguments{"#ids"} contains the ResultReference
-```
-
-### 10.5 End-to-End Example
-
-Self-contained walkthrough using a minimal `Widget` entity. Covers entity
-registration, request building, `build()`, response dispatch, and error
-handling across the inner railway.
-
-```nim
-## --- Entity definition (widget.nim) ---
-type Widget* = object
-  ## Minimal entity for illustration. Real entities live in RFC 8621 modules.
-
-func methodNamespace*(T: typedesc[Widget]): string = "Widget"
-func capabilityUri*(T: typedesc[Widget]): string = "urn:example:widgets"
-registerJmapEntity(Widget)  # compile error if overloads are missing
-
-## Entity-specific fromJson callback for response dispatch.
-## Signature matches the ``fromArgs`` parameter of ``get[T]`` (§3.2).
-func widgetGetFromJson(node: JsonNode): Result[GetResponse[Widget], ValidationError] =
-  GetResponse[Widget].fromJson(node)
-
-## --- Request building ---
-let accountId = parseAccountId("acc1").get()
-
-var b = initRequestBuilder()
-let gh = b.addGet[Widget](accountId)                        # Widget/get
-let sh = b.addSet[Widget](accountId,                        # Widget/set
-    destroy = Opt.some(direct(@[parseId("id7").get()])))
-let req = b.build()
-## req.using == @["urn:example:widgets"]
-## req.methodCalls.len == 2
-## req.methodCalls[0].name == "Widget/get"
-## req.methodCalls[1].name == "Widget/set"
-
-## --- Response dispatch (after Layer 4 transport, out of scope) ---
-## Assume ``resp`` is a parsed Response from the server.
-
-let getResult = resp.get(gh, widgetGetFromJson)
-if getResult.isOk:
-  let gr = getResult.get()
-  ## gr.state, gr.list, gr.notFound are available.
-  ## Individual Widget objects in gr.list are raw JsonNode —
-  ## entity-specific parsing is the caller's responsibility (D3.6).
-else:
-  let me = getResult.error()
-  ## me.errorType: MethodErrorType (e.g., metUnknownMethod, metServerFail)
-  ## me.description: Opt[string]
-
-let setResult = resp.get(sh, proc(n: JsonNode): Result[SetResponse[Widget],
-    ValidationError] {.noSideEffect, raises: [].} = SetResponse[Widget].fromJson(n))
-if setResult.isOk:
-  let sr = setResult.get()
-  ## sr.destroyResults: Table[Id, Result[void, SetError]]
-  for id, outcome in sr.destroyResults:
-    if outcome.isErr:
-      discard outcome.error()  # SetError with errorType, description
-```
-
-**Key points illustrated:**
-
-- **Entity registration** (§4): two `func` overloads + `registerJmapEntity`.
-- **Builder** (§2): `initRequestBuilder`, `addGet`, `addSet`, `build`.
-- **Response dispatch** (§3): `get[T]` with a `fromArgs` callback returning
-  `Result[T, ValidationError]`, producing `Result[T, MethodError]` on the
-  inner railway.
-- **Error handling**: `isOk`/`isErr` branching — no exceptions.
-- **Entity data as `JsonNode`** (Decision D3.6): `GetResponse.list` contains
-  raw JSON; entity-specific parsing is a separate step.
-- The `fromArgs` callback can be a named `func` (as with `widgetGetFromJson`)
-  or an inline `proc` literal (as with the `SetResponse` extraction). Both
-  forms are valid; named functions are preferred for readability.
-
-**Module:** `dispatch.nim`
+The generic `reference()` function and type-safe convenience functions
+(`referenceIds`, `referenceListIds`, `referenceAddedIds`) will be
+implemented in `dispatch.nim` when the builder/dispatch infrastructure
+is added.
 
 ---
 
@@ -2440,7 +1853,7 @@ Layer 3 has unidirectional serialisation (request `toJson`, response
 not apply per-type. Instead, the following invariants hold:
 
 1. **Request identity.** For any `GetRequest[T]` value `r`, if a
-   `fromJson` were added for testing, `GetRequest[T].fromJson(r.toJson()).get() == r`
+   `fromJson` were added for testing, `GetRequest[T].fromJson(r.toJson()) == r`
    must hold. The same applies to all six request types.
 
 2. **Builder identity.** `builder.build().toJson()` produces valid JMAP
@@ -2449,16 +1862,17 @@ not apply per-type. Instead, the following invariants hold:
    creation IDs all round-trip.
 
 3. **Response identity.** For any valid server response JSON `j`,
-   `GetResponse[T].fromJson(j)` produces an `ok` value whose fields
-   match the JSON content. The same applies to all six response types.
+   `GetResponse[T].fromJson(j)` produces a value whose fields match
+   the JSON content. Invalid JSON raises `ValidationError`. The same
+   applies to all six response types.
 
 4. **SetResponse losslessness.** Merging preserves ALL success AND
-   failure entries. No entries are lost. `Result.ok` maps back to
-   `created`/`updated`/`destroyed`; `Result.err` maps back to
+   failure entries. No entries are lost. Success tables map back to
+   `created`/`updated`/`destroyed`; failure tables map back to
    `notCreated`/`notUpdated`/`notDestroyed`.
 
-5. **Opt omission symmetry.** `Opt.none` produces no key in `toJson`;
-   absent key produces `Opt.none` in `fromJson`.
+5. **Option omission symmetry.** `none` produces no key in `toJson`;
+   absent key produces `none` in `fromJson`.
 
 6. **Referencable dispatch.** `rkDirect` serialises without `#` prefix;
    `rkReference` serialises with `#` prefix. Round-trips preserve the
@@ -2470,26 +1884,23 @@ not apply per-type. Instead, the following invariants hold:
 
 ---
 
-## 12. Opt[T] Field Handling Convention
+## 12. Option[T] Field Handling Convention
 
-All `Opt[T]` fields in Layer 3 types follow the policy defined in §5a.5.
-Request types (`toJson`): omit key when `Opt.none`. Response types
-(`fromJson`): absent, null, or wrong kind produces `Opt.none` (lenient).
+All `Option[T]` fields in Layer 3 types follow the policy defined in
+§5a.5. Request types (`toJson`): omit key when `none`. Response types
+(`fromJson`): absent, null, or wrong kind produces `none` (lenient).
 See §5a.4 for the expected JSON kinds table and §5a.5 for the full
 leniency policy including the structurally critical vs supplementary
 field distinction.
 
-The complete list of `Opt` fields and their handling is derivable from
+The complete list of `Option` fields and their handling is derivable from
 the type definitions in §6 (request types) and §7 (response types).
 
 ---
 
 ## 13. Module File Layout
 
-**Decision D3.8:** Five source files (4 content + 1 re-export hub),
-mirroring the Layer 1/Layer 2 module pattern.
-
-### 13.1 Source Files
+### 13.1 Source Files (Implemented)
 
 ```
 src/jmap_client/
@@ -2500,7 +1911,14 @@ src/jmap_client/
                     patterns, mixin documentation
   methods.nim     — 12 request/response type definitions, toJson (6 request
                     types), fromJson (6 response types), SetResponse
-                    merging algorithm, CopyResponse merging
+                    merging algorithm, CopyResponse merging, lenient
+                    Option helpers (optState, optUnsignedInt)
+```
+
+### 13.2 Source Files (Deferred)
+
+```
+src/jmap_client/
   builder.nim     — RequestBuilder type, initRequestBuilder, build, nextId,
                     addCapability, addInvocation, addEcho, addGet,
                     addChanges, addSet, addCopy, addQuery, addQueryChanges
@@ -2512,37 +1930,30 @@ src/jmap_client/
                     builder, dispatch
 ```
 
-### 13.2 Import DAG
+### 13.3 Import DAG (Current)
+
+```
+types.nim (L1 hub) ←── serialisation.nim (L2 hub)
+                            ^       ^
+                            |       |
+                         entity  methods
+```
+
+- `entity.nim` imports: nothing (pure templates, no type imports needed)
+- `methods.nim` imports: `types`, `serialisation`
+
+When `builder.nim` and `dispatch.nim` are added:
 
 ```
 types.nim (L1 hub) ←── serialisation.nim (L2 hub)
                             ^       ^        ^        ^
                             |       |        |        |
                          entity  methods  builder  dispatch
-                            ^       ^     /  |     /  |
-                            +───>───+   /    |   /    |
-                            +──>──────/─>────+/──>────+
-                                    +──>─────+──>─────+
-
-protocol.nim re-exports all four
 ```
-
-- `entity.nim` imports: `types`, `serialisation`
-- `methods.nim` imports: `types`, `serialisation`, `entity`
-- `builder.nim` imports: `types`, `serialisation`, `entity`, `methods`
-- `dispatch.nim` imports: `types`, `serialisation`, `entity`, `methods`.
-  Note: `dispatch.nim` uses response types (e.g., `GetResponse[T]`) only
-  as phantom type parameters in `ResponseHandle[T]`, and
-  `methodNamespace(T)` via `mixin` (resolved at caller scope). The
-  `entity` and `methods` imports are included for forward declarations;
-  an implementation may find them unnecessary if transitive imports
-  suffice.
-- `protocol.nim` imports + re-exports: `entity`, `methods`, `builder`,
-  `dispatch`
 
 No cycles. Each module independently testable.
 
-### 13.3 Test Files
+### 13.4 Test Files
 
 ```
 tests/protocol/
@@ -2554,29 +1965,24 @@ tests/protocol/
   tmethods.nim     — Request toJson for all 6 types; response fromJson
                      for all 6 types; SetResponse merging; CopyResponse
                      merging; edge cases
-  tbuilder.nim     — Builder accumulation; call ID generation; capability
-                     deduplication; build() pure projection; all 7 add*
-                     functions; multi-entity requests
-  tdispatch.nim    — Handle extraction; method error detection; railway
-                     conversion; echoFromJson callback; reference
-                     construction; type-safe convenience functions
 ```
 
-### 13.4 Module Boilerplate
+### 13.5 Module Boilerplate
 
 Every Layer 3 source module:
 
 ```nim
 # SPDX-License-Identifier: BSD-2-Clause
 # Copyright (c) 2026 Aryan Ameri
-
-{.push raises: [].}
-{.experimental: "strictCaseObjects".}
 ```
 
-Every Layer 3 `func` must have a `##` docstring (nimalyzer `hasDoc`
-rule). Comments and docstrings use British English spelling. Variable
-names and code identifiers use US English spelling.
+No `{.push raises: [].}` — only Layer 5 has that pragma.
+No `{.experimental: "strictCaseObjects".}` — removed per architecture
+revision.
+
+Every `proc` must have a `##` docstring (nimalyzer `hasDoc` rule).
+Comments and docstrings use British English spelling. Variable names and
+code identifiers use US English spelling.
 
 ---
 
@@ -2651,38 +2057,7 @@ Builder constructs `Foo/set` with all three operations.
 - `arguments{"update"}` is JObject with key `"id1"`
 - `arguments{"destroy"}` is JArray with 2 elements
 
-### 14.3 Golden Test 3: Response Dispatch
-
-Parse a response JSON with two invocations and one error. Extract typed
-responses using handles.
-
-```json
-{
-  "methodResponses": [
-    ["Mailbox/get", {
-      "accountId": "A13824",
-      "state": "state1",
-      "list": [{"id": "mb1", "name": "Inbox"}],
-      "notFound": []
-    }, "c0"],
-    ["error", {
-      "type": "unknownMethod"
-    }, "c1"]
-  ],
-  "sessionState": "75128aab4b1b"
-}
-```
-
-**Expected behaviour:**
-
-- `get(resp, handle0, callback).isOk` — successful extraction of
-  `GetResponse[Mailbox]`
-- `get(resp, handle1, callback).isErr` — method error detected via
-  `name == "error"`
-- Error result has `errorType == metUnknownMethod`
-- Missing handle (e.g., `"c2"`) returns `err(serverFail)`
-
-### 14.4 Golden Test 4: SetResponse Merging
+### 14.3 Golden Test 3: SetResponse Merging
 
 Wire-format JSON with mixed success and failure entries:
 
@@ -2713,112 +2088,65 @@ Wire-format JSON with mixed success and failure entries:
 
 **Expected parsed values:**
 
-- `createResults` has 2 entries: `k1` is `ok(JsonNode)`, `k2` is
-  `err(SetError)` with `setForbidden`
-- `updateResults` has 3 entries: `id1` is `ok(Opt.none(JsonNode))`,
-  `id2` is `ok(Opt.some(JsonNode))`, `id3` is `err(SetError)` with
-  `setNotFound`
-- `destroyResults` has 2 entries: `id4` is `ok()`, `id5` is
-  `err(SetError)` with `setForbidden`
+- `created` table has 1 entry: `k1` is `JsonNode`
+- `notCreated` table has 1 entry: `k2` is `SetError` with `setForbidden`
+- `updated` table has 2 entries: `id1` is `none(JsonNode)`,
+  `id2` is `some(JsonNode)`
+- `notUpdated` table has 1 entry: `id3` is `SetError` with `setNotFound`
+- `destroyed` has 1 entry: `id4`
+- `notDestroyed` table has 1 entry: `id5` is `SetError` with
+  `setForbidden`
 - `oldState.isSome` and `oldState.get == JmapState("state1")`
 - `newState == JmapState("state2")`
 
-### 14.5 Golden Test 5: Core/echo
-
-Build echo request with arbitrary arguments. Parse echo response. Verify
-arguments echoed back identically.
-
-```json
-{
-  "methodResponses": [
-    ["Core/echo", {
-      "hello": true,
-      "high": 5
-    }, "c0"]
-  ],
-  "sessionState": "75128aab4b1b"
-}
-```
-
-**Expected behaviour:**
-
-- `get(resp, echoHandle, echoFromJson).isOk`
-- Extracted `JsonNode` has `{"hello"}.getBool == true`
-- Extracted `JsonNode` has `{"high"}.getBiggestInt == 5`
-
-### 14.6 Edge Cases
+### 14.4 Edge Cases
 
 | Component | Input | Expected | Reason |
 |-----------|-------|----------|--------|
-| **Builder** | `build()` with no calls | Empty `methodCalls`, empty `using` | Valid empty request |
-| Builder | Two `addGet` calls | IDs `"c0"`, `"c1"` | Auto-increment |
-| Builder | Same entity twice | Capability added once | Dedup via `notin` check |
-| Builder | Two different entities | Both capabilities in `using` | Multi-capability |
-| Builder | 100 calls | `"c99"` for last | Unbounded counter |
-| Builder | `build()` called twice (no intervening `add*`) | Same `Request` both times | Pure snapshot of current state |
-| Builder | `addGet` with all defaults | Only `accountId` in JSON | Opt omission |
-| Builder | `addGet` with `ids = Opt.some(direct(@[id1, id2]))` | `"ids": ["id1", "id2"]` | Direct Referencable |
-| Builder | `addGet` with `ids = Opt.some(referenceTo(ref))` | `"#ids": {"resultOf":..}` | Reference Referencable |
-| Builder | `addSet` with create + destroy | Both fields in JSON | Multiple Opt.some |
-| **Dispatch** | Response with error invocation | `err(MethodError)` | Error detection via `name == "error"` |
-| Dispatch | Missing call ID in response | `err(MethodError)` serverFail | Not found |
-| Dispatch | Correct response | `ok(T)` | Happy path |
-| Dispatch | Handle from different request | May match wrong invocation | Documented gap |
-| Dispatch | `fromArgs` callback returns err | `err(MethodError)` with description from `ValidationError` | Railway conversion |
-| Dispatch | Malformed error response | `err(serverFail)` | `MethodError.fromJson` failed |
-| **GetResponse** | Valid JSON with all fields | `ok(GetResponse)` | Happy path |
-| GetResponse | Missing `state` field | `err` | Required field |
-| GetResponse | `state` is JInt not JString | `err` | `parseJmapState` rejects empty string from `.getStr("")` |
-| GetResponse | `list` is JString not JArray | `err` | `checkJsonKind` rejects |
-| GetResponse | `notFound` absent | `ok` with empty `notFound` | Supplementary required field — absent treated as empty |
-| GetResponse | `list` empty | `ok` with empty `list` | No results (valid) |
-| GetResponse | Extra unknown fields | `ok` (ignored) | Postel's law |
-| GetResponse | `accountId` empty string | `err` | `parseAccountId` rejects |
-| **ChangesResponse** | Valid JSON | `ok` | Happy path |
+| **GetResponse** | Valid JSON with all fields | `GetResponse` returned | Happy path |
+| GetResponse | Missing `state` field | raises `ValidationError` | Required field |
+| GetResponse | `state` is JInt not JString | raises `ValidationError` | `parseJmapState` rejects empty string from `.getStr("")` |
+| GetResponse | `list` is JString not JArray | raises `ValidationError` | `checkJsonKind` rejects |
+| GetResponse | `notFound` absent | returned with empty `notFound` | Supplementary required field — absent treated as empty |
+| GetResponse | `list` empty | returned with empty `list` | No results (valid) |
+| GetResponse | Extra unknown fields | returned (ignored) | Postel's law |
+| GetResponse | `accountId` empty string | raises `ValidationError` | `parseAccountId` rejects |
+| **ChangesResponse** | Valid JSON | returned | Happy path |
 | ChangesResponse | `hasMoreChanges` = true | `.hasMoreChanges == true` | Partial sync |
-| ChangesResponse | `hasMoreChanges` is JString | `err` | `checkJsonKind` rejects — required `JBool` |
-| ChangesResponse | `hasMoreChanges` absent | `err` | `checkJsonKind` rejects — required field |
-| ChangesResponse | Missing `newState` | `err` | Required field |
-| ChangesResponse | Empty `created`/`updated`/`destroyed` | `ok` with empty seqs | No changes |
-| **SetResponse** | Both `created` and `notCreated` null | Empty `createResults` | Both absent |
-| SetResponse | `created` has entries, `notCreated` null | All ok | Success only |
-| SetResponse | `created` null, `notCreated` has entries | All err | Failure only |
-| SetResponse | Both have entries | Mixed ok/err | Normal case |
-| SetResponse | `updated` entry with null value | `ok(Opt.none(JsonNode))` | Server-set only changes |
-| SetResponse | `updated` entry with object value | `ok(Opt.some(obj))` | Server property changes |
-| SetResponse | `destroyed` empty array | Empty `destroyResults` | No destroys |
+| ChangesResponse | `hasMoreChanges` is JString | raises `ValidationError` | `checkJsonKind` rejects — required `JBool` |
+| ChangesResponse | `hasMoreChanges` absent | raises `ValidationError` | `checkJsonKind` rejects — required field |
+| ChangesResponse | Missing `newState` | raises `ValidationError` | Required field |
+| ChangesResponse | Empty `created`/`updated`/`destroyed` | returned with empty seqs | No changes |
+| **SetResponse** | Both `created` and `notCreated` null | Empty tables | Both absent |
+| SetResponse | `created` has entries, `notCreated` null | `created` table populated, `notCreated` empty | Success only |
+| SetResponse | `created` null, `notCreated` has entries | `created` empty, `notCreated` populated | Failure only |
+| SetResponse | Both have entries | Both tables populated | Normal case |
+| SetResponse | `updated` entry with null value | `updated[id] == none(JsonNode)` | Server-set only changes |
+| SetResponse | `updated` entry with object value | `updated[id] == some(obj)` | Server property changes |
+| SetResponse | `destroyed` empty array | Empty `destroyed` | No destroys |
 | SetResponse | `oldState` absent | `oldState.isNone` | Server does not know |
-| SetResponse | `notCreated` value missing `type` | `err` | `SetError` requires type |
-| SetResponse | `notCreated` value unknown type | err with `setUnknown` | `rawType` preserved |
-| SetResponse | Same id in `created` and `notCreated` | Last writer wins (err) | Defensive — server bug |
-| **CopyResponse** | All `notCreated` with `alreadyExists` | All err with `existingId` | Copy error |
-| CopyResponse | `notCreated` `alreadyExists` with malformed `existingId` | err with `setUnknown`, `rawType` = `"alreadyExists"` | Graceful degradation |
-| CopyResponse | `created` null, `notCreated` has entries | All err | All copies failed |
-| CopyResponse | Valid `created` with server-set `id` | ok with entity JSON | Normal case |
+| SetResponse | `notCreated` value missing `type` | raises `ValidationError` | `SetError` requires type |
+| SetResponse | `notCreated` value unknown type | `notCreated` entry with `setUnknown` | `rawType` preserved |
+| SetResponse | Same id in `created` and `notCreated` | Last writer wins (failure) | Defensive — server bug |
+| **CopyResponse** | All `notCreated` with `alreadyExists` | All in `notCreated` with `existingId` | Copy error |
+| CopyResponse | `notCreated` `alreadyExists` with malformed `existingId` | `notCreated` with `setUnknown`, `rawType` = `"alreadyExists"` | Graceful degradation |
+| CopyResponse | `created` null, `notCreated` has entries | `created` empty, `notCreated` populated | All copies failed |
+| CopyResponse | Valid `created` with server-set `id` | `created` with entity JSON | Normal case |
 | **QueryResponse** | `total` absent | `total.isNone` | `calculateTotal` false |
 | QueryResponse | `limit` absent | `limit.isNone` | Server did not cap |
 | QueryResponse | `ids` empty array | `@[]` | `position >= total` |
-| QueryResponse | `position` is JString | `err` | `checkJsonKind` rejects |
-| QueryResponse | `canCalculateChanges` missing | `err` | Required field |
-| QueryResponse | `canCalculateChanges` is JInt | `err` | `checkJsonKind` rejects — required `JBool` |
-| **QueryChangesResponse** | Valid with removed + added | `ok` | Happy path |
-| QueryChangesResponse | Empty removed, non-empty added | `ok` | Additions only |
+| QueryResponse | `position` is JString | raises `ValidationError` | `checkJsonKind` rejects |
+| QueryResponse | `canCalculateChanges` missing | raises `ValidationError` | Required field |
+| QueryResponse | `canCalculateChanges` is JInt | raises `ValidationError` | `checkJsonKind` rejects — required `JBool` |
+| **QueryChangesResponse** | Valid with removed + added | returned | Happy path |
+| QueryChangesResponse | Empty removed, non-empty added | returned | Additions only |
 | QueryChangesResponse | `total` absent | `total.isNone` | `calculateTotal` false |
-| QueryChangesResponse | `added` with invalid `index` | `err` | Propagated from `AddedItem.fromJson` |
-| **Echo** | Any JSON object | Same object back | Identity |
-| Echo | Nested JSON | Same nested structure back | Deep identity |
-| Echo | Non-object JSON | `err` | `checkJsonKind` rejects (must be JObject) |
-| **Reference** | `referenceIds` on query handle | `path == "/ids"`, `name == "T/query"` | Correct construction |
-| Reference | `referenceListIds` on get handle | `path == "/list/*/id"`, `name == "T/get"` | Correct construction |
-| Reference | `referenceAddedIds` on queryChanges handle | `path == "/added/*/id"`, `name == "T/queryChanges"` | Correct construction |
-| Reference | Custom path via `reference()` | Arbitrary path preserved | No validation (3.10A) |
-| **Request toJson** | `GetRequest` with all none | `{"accountId": "..."}` only | Opt omission |
+| QueryChangesResponse | `added` with invalid `index` | raises `ValidationError` | Propagated from `AddedItem.fromJson` |
+| **Request toJson** | `GetRequest` with all none | `{"accountId": "..."}` only | Option omission |
 | Request toJson | `SetRequest` with all operations | All 3 fields present | Full SetRequest |
 | Request toJson | `QueryRequest` with filter | Filter serialised via callback | Generic Filter[C] |
 | Request toJson | `CopyRequest` with `onSuccessDestroyOriginal = true` | `"onSuccessDestroyOriginal": true` | Boolean always emitted |
 | Request toJson | `ChangesRequest` minimal | `accountId` + `sinceState` only | Simplest request |
-
-**Total: 66 enumerated edge case rows.**
 
 ---
 
@@ -2826,53 +2154,47 @@ arguments echoed back identically.
 
 | ID | Decision | Alternative considered | Rationale |
 |----|----------|----------------------|-----------|
-| D3.1 | Layer 3 owns serialisation of Layer 3–defined types | Add new Layer 2 modules for Layer 3 types | Layer 3 types are generic over entity `T`; their serde depends on entity-specific resolution (`methodNamespace`, `filterType` templates) that only Layer 3 has. Layer 2 would need Layer 3–aware callbacks, creating a circular concern. |
-| D3.2 | `add*` params match RFC request fields; required positional, optional defaulted | Single generic `addMethod(name, argsJson)` | Type-safe: compiler enforces correct parameters per method. Discoverable: IDE autocomplete shows available fields. Generic approach loses compile-time safety. |
-| D3.3 | `get[T]` returns `Result[T, MethodError]` (inner railway) | `Result[T, ClientError]` (outer railway) | Method errors are data within a successful HTTP 200 response. They are per-invocation, not per-request. The outer railway (`ClientError`) is for transport/request failures at the Layer 4 boundary. Mixing them conflates different failure modes. |
-| D3.4 | No concepts; plain overloaded `typedesc` procs + `registerJmapEntity`/`registerQueryableEntity` compile-time checks with `when not compiles` + `{.error.}` for domain-specific messages (architecture 3.5B) | Concepts (3.5A, rejected at architecture level). Also evaluated: dictionary passing (breaks generic syntax, cannot encode `filterType`), macro generation (loses source transparency), type unions (prevents extension), phantom proof tokens (clutters call sites). | Plain overloads + static registration templates give earlier error detection than concepts (registration site vs instantiation site) with zero compiler risk. `when not compiles` guards produce actionable error messages naming the entity type and missing overload. |
-| D3.5 | Only `GetRequest.ids` and `SetRequest.destroy` get `Referencable[T]` | All fields `Referencable` | Wrapping all fields is extremely verbose and rarely used. The two wrapped fields cover the canonical JMAP patterns (query to get, query to set destroy). Users needing uncommon references can construct `Request` manually via Layer 1 types. |
-| D3.6 | Entity data as `JsonNode` in requests/responses | `seq[T]` with entity-specific callback | Layer 3 Core cannot know `T`'s deserialisation. Raw `JsonNode` preserves flexibility; entity-specific convenience functions are deferred to entity modules (RFC 8621). |
-| D3.7 | Unidirectional serde: request `toJson`, response `fromJson` | Full round-trip for all types | Client builds requests and parses responses — never the reverse. Halves the serialisation surface. Round-trip testing uses the builder-build-parse chain, not per-type `fromJson(toJson(x))`. |
-| D3.8 | 5 source files (4 content + 1 re-export hub) | Single `protocol.nim` or 2 files | Mirrors Layer 1/Layer 2 module pattern. Each file is independently testable with bounded size (~150–300 lines). Acyclic import graph. Single file would exceed 600 lines; 2 files would conflate builder logic with type definitions. |
-| D3.9 | `nextId` uses `MethodCallId(s)` directly (bypassing validation) | `parseMethodCallId(s).get()` | The builder controls the format entirely (`"c0"`, `"c1"`, ...). These are provably valid MethodCallIds (non-empty, ASCII digits only). Using `.get()` would add an unnecessary `Defect` path for an impossible error. |
-| D3.10 | `reference()` takes explicit `responseName` parameter | Auto-derive from `T` and method suffix | Different methods produce different response names (`"Mailbox/query"` vs `"Mailbox/get"`). Auto-deriving requires the `reference` function to know which method the handle came from, which the phantom type `T` (response type, not method type) does not encode. Explicit is unambiguous. |
-| D3.11 | `MaxChanges` distinct type (Layer 1) for `maxChanges` fields | `Opt[UnsignedInt]` with runtime/server rejection | RFC §5.2 requires > 0. Distinct type with smart constructor makes illegal state (0) unrepresentable at construction time, consistent with other identifier types. ~8 lines. |
-| D3.12 | Layer 2 `serde.nim` provides `jStr`/`jInt`/`jBool`/`jObj`/`jArr` func wrappers centralising `{.cast(noSideEffect).}` for primitive JSON construction | Inline cast in every primitive `toJson` | Eliminates 11 Category A casts (`%string(x)`, `%int64(x)` in primitive `toJson`). Category B casts (multi-line `%*` object builders, 14 sites) and Category C (`pairs` iteration, 1 site) remain. |
+| D3.1 | Layer 3 owns serialisation of Layer 3–defined types | Add new Layer 2 modules for Layer 3 types | Layer 3 types are generic over entity `T`; their serde depends on entity-specific resolution (`methodNamespace`, `filterType` templates) that only Layer 3 has. |
+| D3.2 | `add*` params match RFC request fields; required positional, optional defaulted | Single generic `addMethod(name, argsJson)` | Type-safe: compiler enforces correct parameters per method. Discoverable: IDE autocomplete shows available fields. |
+| D3.3 | Response dispatch detects method errors and raises/returns `MethodError` | Unified `ClientError` for all failures | Method errors are data within a successful HTTP 200 response. They are per-invocation, not per-request. The outer railway (`ClientError`) is for transport/request failures at the Layer 4 boundary. |
+| D3.4 | No concepts; plain overloaded `typedesc` procs + `registerJmapEntity`/`registerQueryableEntity` compile-time checks | Concepts (3.5A, rejected at architecture level) | Plain overloads + static registration templates give earlier error detection than concepts with zero compiler risk. |
+| D3.5 | Only `GetRequest.ids` and `SetRequest.destroy` get `Referencable[T]` | All fields `Referencable` | Wrapping all fields is extremely verbose and rarely used. The two wrapped fields cover the canonical JMAP patterns. |
+| D3.6 | Entity data as `JsonNode` in requests/responses | `seq[T]` with entity-specific callback | Layer 3 Core cannot know `T`'s deserialisation. Raw `JsonNode` preserves flexibility. |
+| D3.7 | Unidirectional serde: request `toJson`, response `fromJson` | Full round-trip for all types | Client builds requests and parses responses — never the reverse. Halves the serialisation surface. |
+| D3.8 | Separate success/failure tables for SetResponse | Merged `Result[T, E]` maps (original Decision 3.9B) | Eliminates dependency on nim-results' `Result[T, E]`. Provides a clearer mapping to the wire format. Callers inspect success and failure tables separately, which is how JMAP servers structure the data. |
+| D3.9 | `nextId` uses `MethodCallId(s)` directly (bypassing validation) | `parseMethodCallId(s)` | The builder controls the format entirely. Generated IDs are provably valid. |
+| D3.10 | `reference()` takes explicit `responseName` parameter | Auto-derive from `T` and method suffix | Different methods produce different response names. Explicit is unambiguous. |
+| D3.11 | `MaxChanges` distinct type (Layer 1) for `maxChanges` fields | `Option[UnsignedInt]` with runtime/server rejection | RFC §5.2 requires > 0. Distinct type makes illegal state unrepresentable. |
+| D3.12 | `QueryRequest[T, C]` with two generic parameters | Single `T` with `filterType(T)` in field types | Explicit second parameter is clearer. The builder resolves `C` from `filterType(T)` at the call site. |
 
 ### Deferred Decisions
 
 | ID | Topic | Disposition | Rationale |
 |----|-------|-------------|-----------|
-| R2 | Extract `mergeCreateResults` shared helper | Deferred to implementation | Revisit when `CopyResponse.fromJson` is written. Duplication verified as byte-for-byte identical, but Rule of Three applies — only 2 call sites. Layer 2 precedent (`parseCreatedIds`) suggests extraction will be warranted. |
-| R4 | `GetRequest.properties` as `Referencable` | Deferred to RFC 8621 | The `#properties` / `updatedProperties` pattern is real and canonical for Mailbox sync, but Mailbox-specific. Address via a `addMailboxSyncGet` convenience in the entity module, not by modifying the generic `GetRequest[T]` type. |
-| R7 | Convenience overloads for `addGet`/`addSet` | Deferred to post-implementation | Technically sound (no overload ambiguity, `null` vs `[]` correctly disambiguated), but zero users exist. Conveniences are additive — add when real usage patterns emerge. |
-| R8 | `getImplicitSet[T]` for implicit `/set` responses from `/copy` | Deferred to RFC 8621 entity implementation | RFC 8620 §3.2 allows multiple responses per call ID (e.g., `/copy` with `onSuccessDestroyOriginal` emits an implicit `Foo/set` response). Current `findInvocation` returns the first match only. Fix: add `getImplicitSet*[T](resp: Response, handle: ResponseHandle[CopyResponse[T]], fromArgs): Opt[Result[SetResponse[T], MethodError]]` to `dispatch.nim`. Uses `findInvocationByName` scanning by both call ID and method name. The higher-impact variant (`EmailSubmission/set` implicit `Email/set`) is RFC 8621 scope. Additive — no existing API changes. ~50 lines. |
-| R9 | Layer 4 HTTP response body size cap | Deferred to Layer 4 implementation | Layer 3 `fromJson` functions iterate server arrays/maps without size caps. The correct mitigation is at Layer 4: enforce a configurable `maxResponseBodyBytes` on the HTTP response before `std/json` `parseJson` allocates the `JsonNode` tree. Layer 3 is the pure functional core — it walks already-allocated trees and cannot prevent OOM. A single config parameter on the `JmapClient` object suffices. No Layer 3 changes needed. |
-| R12 | `toJson` borrowing for layered distinct types | Implementation detail | Borrowing works correctly for `MaxChanges = distinct UnsignedInt`, but only 1 type benefits (3 lines saved). Let the implementer decide. |
-| R13 | Session limit pre-flight validation (`validateLimits`) | Deferred to Layer 4 implementation | Pure `func` that checks a built `Request` against server-advertised `CoreCapabilities` limits before transport. Catches requests the server would reject, saving a network round-trip. Signature, scope, and rationale specified in §16 below. |
+| R4 | `GetRequest.properties` as `Referencable` | Deferred to RFC 8621 | The `#properties` / `updatedProperties` pattern is real and canonical for Mailbox sync, but Mailbox-specific. |
+| R7 | Convenience overloads for `addGet`/`addSet` | Deferred to post-implementation | Technically sound but zero users exist. Conveniences are additive. |
+| R8 | `getImplicitSet[T]` for implicit `/set` responses from `/copy` | Deferred to RFC 8621 entity implementation | RFC 8620 §3.2 allows multiple responses per call ID. Current `findInvocation` will return the first match only. |
 
 ### MaxChanges Type (Layer 1 Addition)
 
 The `maxChanges` fields in `ChangesRequest[T]` (§6.2) and
-`QueryChangesRequest[T]` (§6.6) must be "a positive integer greater than
-0" per RFC §5.2 (lines 1694–1702). A `MaxChanges` distinct type with a
-smart constructor closes this gap, fully honouring the "make illegal
-states unrepresentable" principle. Defined in Layer 1 `primitives.nim`
-alongside `UnsignedInt`:
+`QueryChangesRequest[T, C]` (§6.6) must be "a positive integer greater
+than 0" per RFC §5.2 (lines 1694–1702). A `MaxChanges` distinct type with
+a smart constructor closes this gap:
 
 ```nim
-type MaxChanges* {.requiresInit.} = distinct UnsignedInt
+type MaxChanges* = distinct UnsignedInt
   ## A positive count used for maxChanges fields in Foo/changes and
   ## Foo/queryChanges requests. RFC 8620 §5.2 (lines 1694–1702)
   ## requires the value to be greater than 0.
 
 defineIntDistinctOps(MaxChanges)
 
-func parseMaxChanges*(raw: UnsignedInt): Result[MaxChanges, ValidationError] =
-  ## Smart constructor: rejects 0, which the RFC forbids.
+proc parseMaxChanges*(raw: UnsignedInt): MaxChanges =
+  ## Smart constructor: raises ValidationError if 0.
   if uint64(raw) == 0:
-    return err(validationError("MaxChanges", "must be greater than 0", $uint64(raw)))
-  ok(MaxChanges(raw))
+    raise newValidationError("MaxChanges", "must be greater than 0", $uint64(raw))
+  MaxChanges(raw)
 ```
 
 Layer 2 provides `toJson`/`fromJson` for `MaxChanges` (delegates to
@@ -2884,42 +2206,30 @@ RFC §3.7 (lines 1241–1243): "If an arguments object contains the same
 argument name in normal and referenced form (e.g., 'foo' and '#foo'),
 the method MUST return an 'invalidArguments' error."
 
-Layer 2's `fromJsonField` (`serde_envelope.nim`) must detect this
-conflict. Currently it checks `#fieldName` first and falls back to
-`fieldName`; it must also reject when BOTH are present:
+Layer 2's `fromJsonField` (`serde_envelope.nim`) detects this conflict.
+It checks both `#fieldName` and `fieldName`, and raises `ValidationError`
+when BOTH are present:
 
 ```nim
-func fromJsonField*[T](fieldName: string, node: JsonNode,
-    fromDirect: proc(n: JsonNode): Result[T, ValidationError]
-        {.noSideEffect, raises: [].}
-): Result[Referencable[T], ValidationError] =
+proc fromJsonField*[T](
+    fieldName: string, node: JsonNode, fromDirect: proc(n: JsonNode): T
+): Referencable[T] =
   let refKey = "#" & fieldName
   let refNode = node{refKey}
   let directNode = node{fieldName}
   # RFC §3.7: reject when both direct and referenced forms are present
   if not refNode.isNil and not directNode.isNil:
-    return err(parseError("Referencable",
+    raise parseError("Referencable",
       "cannot specify both " & fieldName & " and " & refKey &
-      " (RFC 8620 §3.7)"))
-  if not refNode.isNil:
-    ...  # existing reference path
-  if directNode.isNil:
-    return err(parseError("Referencable",
-      "missing field: " & fieldName & " or " & refKey))
-  ...  # existing direct path
+      " (RFC 8620 §3.7)")
+  ...
 ```
-
-The builder API cannot produce this conflict (each `add*` function emits
-exactly one of direct or reference per `Referencable` field), but manual
-`Request` construction via Layer 1 types could. This validation ensures
-RFC compliance at the parse boundary regardless of how the request was
-constructed.
 
 ---
 
-## 16. Session Limit Pre-Flight Validation (Deferred Decision R13)
+## 16. Session Limit Pre-Flight Validation
 
-**Status:** Deferred to Layer 4 implementation.
+**Status:** Implemented in Layer 4 (`src/jmap_client/client.nim`).
 
 **RFC reference:** §2 (CoreCapabilities: `maxCallsInRequest`,
 `maxObjectsInGet`, `maxObjectsInSet`, `maxSizeRequest`), §3.6.1
@@ -2927,147 +2237,20 @@ constructed.
 `requestTooLarge` for /get), §5.3 (lines 2169–2171:
 `requestTooLarge` for /set).
 
-**Motivation.** Without client-side pre-flight validation, a request
-that violates server-advertised limits travels the full HTTP round-trip
-before the server rejects it with `urn:ietf:params:jmap:error:limit`
-(request-level) or `requestTooLarge` (method-level). Pre-flight
-validation catches these at `build()` time, saving the round-trip and
-producing richer error messages (e.g., "request has 15 method calls but
-server advertises maxCallsInRequest = 10").
-
-**Analysis context.** This recommendation was evaluated by five
-independent reviewers (RFC protocol purist, production debuggability
-advocate, API design minimalist, C FFI consumer, security engineer) and
-received unanimous endorsement. Key arguments:
-
-- **RFC compliance:** purely client-side; does not alter wire behaviour.
-  The server already validates these limits — pre-flight validation
-  prevents sending requests the server would reject.
-- **Security:** prevents wasted round-trips; limits a malicious server's
-  ability to induce pathological retry storms via deliberately small
-  advertised limits. Client-side detection makes absurd limits visible
-  and controllable.
-- **FFI value:** projects cleanly to a single C-exported function
-  (`jmap_request_validate(req_handle, session_handle) -> int`), saving
-  C/C++ consumers from expensive network round-trips to discover limit
-  violations.
-- **Purity preserved:** a `func` taking immutable data, returning
-  `Result`. Layer 3 stays pure; the function is *called* from Layer 4.
-
-### 16.1 Function Signature
-
-```nim
-func validateLimits*(req: Request, limits: CoreCapabilities
-): Result[void, ValidationError] =
-  ## Pre-flight validation of a built Request against server-advertised
-  ## CoreCapabilities limits. Returns ok(void) if all checks pass, or
-  ## err(ValidationError) describing the first violation.
-  ##
-  ## This function is pure (func, no I/O, no session state). It is
-  ## called by Layer 4 after build() and before sending the request.
-  ##
-  ## RFC reference: §2 (CoreCapabilities), §3.6.1 (limit error)
-  ...
-```
-
-**Return type rationale.** `Result[void, ValidationError]` rather than
-`Result[Request, ValidationError]` — the function validates, it does
-not transform. Returning the `Request` unchanged adds nothing; the
-caller already has the request.
-
-### 16.2 Validation Rules
-
-| Check | Data source | Feasible in Layer 3? | Notes |
-|-------|-------------|:--------------------:|-------|
-| `len(req.methodCalls) <= maxCallsInRequest` | `Request`, `CoreCapabilities` | Yes | Simple count comparison |
-| Per-`/get` call: direct `ids` count <= `maxObjectsInGet` | `Invocation.arguments` JSON | Partially | Only for `rkDirect` IDs; **skip for `rkReference`** — actual ID count unknown until server resolves the back-reference |
-| Per-`/set` call: create + update + destroy count <= `maxObjectsInSet` | `Invocation.arguments` JSON | Partially | Same caveat: skip `rkReference` destroy. Count create + update map sizes + direct destroy array length |
-| Read-only account prevention | `Account.isReadOnly` from `Session` | **No** | Requires session context — Layer 4 concern |
-| `maxSizeRequest` (body byte length) | Serialised JSON bytes | **No** | Requires full serialisation — Layer 4 concern |
-
-**Result reference caveat.** When `ids` or `destroy` is a
-`Referencable` with `rkReference`, the actual count is unknown until
-the server resolves the back-reference. `validateLimits` skips
-`maxObjectsInGet`/`maxObjectsInSet` checks for referenced arguments and
-documents this limitation.
-
-**Per-invocation inspection.** Checking `maxObjectsInGet` and
-`maxObjectsInSet` requires inspecting the `arguments: JsonNode` field
-of each `Invocation`. The function identifies `/get` calls by method
-name suffix (`"/get"`) and `/set` calls by suffix (`"/set"`). For
-`/get`, it counts the `ids` array length (if present and not a
-reference). For `/set`, it sums the `create` object size, `update`
-object size, and `destroy` array length (if present and not a
-reference).
-
-### 16.3 Scope Exclusions
-
-The following checks are **not** in scope for `validateLimits`:
-
-- **Read-only account prevention.** Requires `Session.accounts` context,
-  which is a Layer 4 concern. Layer 4 should provide a separate check
-  or incorporate it into its own pre-send validation.
-- **`maxSizeRequest`.** Requires the serialised JSON byte length, which
-  is only available after `Request.toJson()` is converted to bytes.
-  This is a Layer 4 concern (post-serialisation validation).
-- **`maxConcurrentRequests` and `maxConcurrentUpload`.** These are
-  transport-level concurrency limits, not per-request structural limits.
-  They are enforced by Layer 4's connection management, not by
-  per-request validation.
-
-### 16.4 Layer 4 Integration
-
-Layer 4 calls `validateLimits` after `build()` and before sending:
-
-```nim
-let req = builder.build()
-let limits = session.coreCapabilities
-let validation = validateLimits(req, limits)
-if validation.isErr:
-  return err(ClientError(kind: cekValidation, validation: validation.error()))
-# proceed to send
-```
-
-The `ClientError` variant for validation failures is a Layer 4 design
-decision (out of scope for this document). The key constraint is that
-`validateLimits` itself remains a pure `func` in Layer 3 with no
-knowledge of sessions, transport, or error lifting.
-
-### 16.5 C ABI Projection (Layer 5)
-
-```c
-int jmap_request_validate(jmap_request_t req, jmap_session_t session);
-/* Returns JMAP_OK (0) or a negative error code.
- * Error details available via jmap_last_error_message(). */
-```
-
-One new C-exported symbol. Takes two opaque handles that already exist
-in the C ABI surface. Returns an `int` error code. No new opaque types,
-no new memory ownership concerns.
-
-### 16.6 Implementation Timing
-
-Implement alongside Layer 4 transport. The function signature and
-validation rules are stable now (they depend only on `Request` and
-`CoreCapabilities`, both Layer 1 types). The implementation is a
-handful of comparisons — estimated ~40–60 lines including doc comments.
-
-**Module:** `builder.nim` (alongside `build()`) or `dispatch.nim`
-(alongside response validation). Placement deferred to implementation.
+The `validateLimits` function checks a built `Request` against
+server-advertised `CoreCapabilities` limits before transport. It raises
+`ValidationError` on the first violation. This was originally specified
+as a deferred decision (R13) in the Layer 3 design but has been
+implemented as part of the Layer 4 transport module.
 
 ---
 
 ## Appendix: RFC Section Cross-Reference
 
-**Note on RFC line ranges.** Section headers (§6.x, §7.x) cite the
-narrowest range covering only the type definition. This cross-reference
-table uses broader ranges that include associated error definitions and
-behavioural semantics from the same RFC subsection.
-
 | Type/Function | RFC 8620 Section | Wire Format |
 |---------------|-----------------|-------------|
-| `RequestBuilder` | §3.3 (lines 882–974) | N/A (internal) |
-| `ResponseHandle[T]` | §3.4 (lines 975–1035) | N/A (internal) |
+| `RequestBuilder` | §3.3 (lines 882–974) | N/A (internal, deferred) |
+| `ResponseHandle[T]` | §3.4 (lines 975–1035) | N/A (internal, deferred) |
 | `registerJmapEntity` | §5 (lines 1575–1586) | N/A (compile-time) |
 | `registerQueryableEntity` | §5.5 (lines 2339–2638) | N/A (compile-time) |
 | `GetRequest[T]` | §5.1 (lines 1587–1612) | JSON Object |
@@ -3075,15 +2258,15 @@ behavioural semantics from the same RFC subsection.
 | `ChangesRequest[T]` | §5.2 (lines 1667–1703) | JSON Object |
 | `ChangesResponse[T]` | §5.2 (lines 1704–1838) | JSON Object |
 | `SetRequest[T]` | §5.3 (lines 1855–1945) | JSON Object |
-| `SetResponse[T]` | §5.3 (lines 2009–2082) | JSON Object (parallel maps merged) |
+| `SetResponse[T]` | §5.3 (lines 2009–2082) | JSON Object (parallel maps to separate tables) |
 | `CopyRequest[T]` | §5.4 (lines 2191–2268) | JSON Object |
-| `CopyResponse[T]` | §5.4 (lines 2273–2338) | JSON Object (parallel maps merged) |
-| `QueryRequest[T]` | §5.5 (lines 2339–2516) | JSON Object |
+| `CopyResponse[T]` | §5.4 (lines 2273–2338) | JSON Object (parallel maps to separate tables) |
+| `QueryRequest[T, C]` | §5.5 (lines 2339–2516) | JSON Object |
 | `QueryResponse[T]` | §5.5 (lines 2541–2638) | JSON Object |
-| `QueryChangesRequest[T]` | §5.6 (lines 2639–2685) | JSON Object |
+| `QueryChangesRequest[T, C]` | §5.6 (lines 2639–2685) | JSON Object |
 | `QueryChangesResponse[T]` | §5.6 (lines 2695–2819) | JSON Object |
 | Core/echo | §4 (lines 1540–1561) | JSON Object (arbitrary) |
-| Call ID generation | §3.2 (lines 865–881) | `"c0"`, `"c1"`, ... |
+| Call ID generation | §3.2 (lines 865–881) | `"c0"`, `"c1"`, ... (deferred) |
 | Result reference paths | §3.7 (lines 1220–1493) | JSON Pointer strings |
-| SetResponse merging | §5.3 (lines 2009–2082) | Wire: parallel maps; Internal: Result maps |
-| `validateLimits` | §2 (CoreCapabilities), §3.6.1 (limit error) | N/A (client-side pre-flight) |
+| SetResponse merging | §5.3 (lines 2009–2082) | Wire: parallel maps; Internal: separate tables |
+| `validateLimits` | §2 (CoreCapabilities), §3.6.1 (limit error) | N/A (client-side pre-flight, Layer 4) |
