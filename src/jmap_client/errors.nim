@@ -92,11 +92,21 @@ type ClientError* = object of CatchableError
 
 proc clientError*(transport: TransportError): ClientError =
   ## Lifts a transport failure into the outer railway.
-  ClientError(kind: cekTransport, transport: transport)
+  ClientError(kind: cekTransport, transport: transport, msg: transport.msg)
 
 proc clientError*(request: RequestError): ClientError =
   ## Lifts a request rejection into the outer railway.
-  ClientError(kind: cekRequest, request: request)
+  ClientError(kind: cekRequest, request: request, msg: request.rawType)
+
+proc newClientError*(transport: TransportError): ref ClientError =
+  ## Ref-returning constructor for raising transport failures as exceptions.
+  ## Follows the ``newValidationError`` pattern from ``validation.nim``.
+  (ref ClientError)(kind: cekTransport, transport: transport, msg: transport.msg)
+
+proc newClientError*(request: RequestError): ref ClientError =
+  ## Ref-returning constructor for raising request rejections as exceptions.
+  ## Follows the ``newValidationError`` pattern from ``validation.nim``.
+  (ref ClientError)(kind: cekRequest, request: request, msg: request.rawType)
 
 proc message*(err: ClientError): string =
   ## Human-readable message for any ClientError variant.
