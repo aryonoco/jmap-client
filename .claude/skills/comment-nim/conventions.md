@@ -93,10 +93,11 @@ Comment a pragma only when the reason is non-obvious:
 ```nim
 # Layer 5 boundary: catches all exceptions from the Nim core and
 # converts them to C error codes for the FFI consumer.
-proc jmapDiscoverSession*(...): cint {.exportc, cdecl, dynlib.} =
+proc jmapDiscoverSession*(...): cint
+    {.exportc: "jmap_discover_session", dynlib, cdecl, raises: [].} =
 ```
 
-Do NOT comment `{.exportc, cdecl, dynlib.}` — the FFI boundary rule explains these.
+Do NOT comment `{.exportc, dynlib, cdecl, raises: [].}` — the FFI boundary rule explains these.
 
 ## British English in Comments
 

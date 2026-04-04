@@ -70,7 +70,8 @@ Layer 5 (`src/jmap_client.nim`) has `{.push raises: [].}` and wraps every
 exported proc in `try/except`, converting exceptions to C error codes:
 
 ```nim
-proc jmapDoSomething*(...): cint {.exportc, cdecl, dynlib, raises: [].} =
+proc jmapDoSomething*(...): cint
+    {.exportc: "jmap_do_something", dynlib, cdecl, raises: [].} =
   try:
     let result = internalOperation(...)
     return JMAP_OK
@@ -82,9 +83,11 @@ proc jmapDoSomething*(...): cint {.exportc, cdecl, dynlib, raises: [].} =
     return setLastError(e)
 ```
 
-The compiler enforces that no exception escapes from `{.raises: [].}` procs.
-`Defect` (programmer errors like index out of bounds) is NOT tracked by
-`raises` — it always propagates and crashes. This is intentional.
+The compiler enforces that no `CatchableError` escapes from `{.raises: [].}`
+procs. `Defect` (programmer errors like index out of bounds) is NOT tracked
+by `raises`. With `--panics:on` (enabled in this project), Defects abort
+the process via `rawQuit(1)`. Validate all inputs defensively before
+operations that could trigger Defects.
 
 ### Optional Values
 

@@ -5,7 +5,7 @@
 
 A cross-platform JMAP ([RFC 8620](https://www.rfc-editor.org/rfc/rfc8620)/[RFC 8621](https://www.rfc-editor.org/rfc/rfc8621)) client library written in Nim.
 
-Designed to be usable from C/C++ via a clean C ABI (`{.exportc, cdecl.}`), with `--mm:arc` for deterministic, FFI-safe memory management.
+Designed to be usable from C/C++ via a clean C ABI (`{.exportc, dynlib, cdecl, raises: [].}`), with `--mm:arc` for deterministic, FFI-safe memory management.
 
 ## Status
 

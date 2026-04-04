@@ -8,8 +8,9 @@ bring the existing Layers 1–3 from strict FP-enforced Nim to idiomatic Nim.
 The core principle of the revision: push strictness **outward** to Layer 5
 (the C ABI boundary) rather than **inward** through every module. Layers 1–4
 use normal Nim exceptions and standard library idioms. Layer 5 catches all
-exceptions with `try/except` and converts them to C-compatible error codes,
-enforced by `{.raises: [].}`.
+`CatchableError` exceptions with `try/except` and converts them to
+C-compatible error codes, enforced by `{.raises: [].}`. `Defect` subclasses
+are not tracked by `raises` — with `--panics:on` they abort the process.
 
 Background: `docs/background/architecture-revision-conversation.md`
 
@@ -80,9 +81,13 @@ Remove the `{.push raises: [].}` pragma (currently at line 4) from all 17
 src modules **except** `src/jmap_client.nim` (the Layer 5 entry point).
 Remove from all test files.
 
-Layer 5 retains `{.push raises: [].}` — every `{.exportc, cdecl.}` proc
-catches exceptions via `try/except` and converts them to C error codes.
-The compiler enforces that no exception escapes.
+Layer 5 retains `{.push raises: [].}` — every
+`{.exportc: "jmap_name", dynlib, cdecl, raises: [].}` proc catches
+`CatchableError` exceptions via `try/except` and converts them to C error
+codes. The compiler enforces that no `CatchableError` escapes. `Defect`
+subclasses are not tracked by `raises` — with `--panics:on` they abort
+the process. Exported procs must validate inputs defensively to avoid
+triggering Defects.
 
 ---
 
@@ -220,8 +225,10 @@ must be updated to reflect the new approach:
   not ROP), and purity (`proc` not `func`) sections.
 - `.claude/rules/nim-type-safety.md` — Remove `{.requiresInit.}`,
   `strictCaseObjects`, and `strictNotNil` references.
-- `.claude/rules/nim-ffi-boundary.md` — Update L5 pattern to show
-  `try/except` catching exceptions and converting to C error codes.
+- `.claude/rules/nim-ffi-boundary.md` — Update L5 pattern to show four
+  pragmas (`exportc: "jmap_name"`, `dynlib`, `cdecl`, `raises: []`),
+  `try/except` catching `CatchableError` and converting to C error codes,
+  and defensive Defect avoidance under `--panics:on`.
 
 The existing design documents (`00-architecture.md` through
 `03-layer-3-design.md`) are **not** modified — they remain as historical

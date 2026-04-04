@@ -1,6 +1,6 @@
 # jmap-client
 
-Cross-platform JMAP (RFC 8620/8621) client library in Nim. Designed for FFI use from C/C++ via `--mm:arc` and `{.exportc, cdecl.}`.
+Cross-platform JMAP (RFC 8620/8621) client library in Nim. Designed for FFI use from C/C++ via `--mm:arc` and `{.exportc, dynlib, cdecl, raises: [].}`.
 
 ## CRITICAL: NO AI ATTRIBUTION
 
@@ -68,7 +68,7 @@ Architecture: 5 layers (see `docs/00architecture-options.md`). Layer 1 detailed 
 ## Type Safety
 
 - Use distinct types for domain identifiers
-- Export C ABI functions with `{.exportc, cdecl.}` pragmas
+- Export C ABI functions with `{.exportc: "jmap_name", dynlib, cdecl, raises: [].}` pragmas
 
 ## Language
 
