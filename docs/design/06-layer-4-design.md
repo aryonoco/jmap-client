@@ -141,6 +141,7 @@ compiler constraints and architectural decisions.
 | `std/json` | `parseJson`, `$` (serialise `JsonNode` to string), `JsonNode`, `JObject`, `JArray`, `hasKey`, `{}` (nil-safe key access), `JsonParsingError` | JSON string parsing (`string → JsonNode`) is the Layer 4 boundary that Layers 1–3 delegate upward. `$` serialises `Request.toJson()` to the HTTP body. `parseJson` is the reverse for responses. `JArray` used in `validateLimits` for ids/destroy array detection. `{}` used in `validateLimits` for nil-safe access to optional method arguments. |
 | `std/options` | `Option[T]`, `some`, `none`, `isSome`, `isNone`, `get`. Also available: `map`, `flatMap`, `filter` (not used in v1 but could simplify optional session/capability access patterns). | Cached session field on `JmapClient`. |
 | `std/strutils` | `toLowerAscii`, `startsWith`, `endsWith`, `replace`, `contains` | Content-Type case-insensitive matching, method name suffix detection in `validateLimits`, URI template expansion. |
+| `std/net` | `TimeoutError`, `SslError` (selective imports) | `TimeoutError` for timeout classification in `classifyException`. `SslError` (guarded by `when defined(ssl)`) for direct TLS error classification — `SslError` inherits `CatchableError` directly, not `OSError`, so it requires its own branch. |
 
 ### Modules evaluated and rejected
 
@@ -151,7 +152,7 @@ compiler constraints and architectural decisions.
 | `std/uri` | `parseUri` is permissive (never raises) and does not validate URLs, so it adds no safety guarantees beyond a raw string. Session URLs are stored as plain strings and passed directly to `std/httpclient`. `.well-known` URL construction is simple concatenation. Note: `std/uri.encodeUrl(value, usePlus=false)` is available for RFC 3986 percent-encoding — relevant for URI template variable values (see D4.11). |
 | `std/re` / `std/pcre` | Content-Type checking uses `startsWith` after `toLowerAscii`. URI template expansion uses `strutils.replace`. No regex needed. |
 | `std/streams` | `Response.body` lazily reads from `Response.bodyStream` (a `Stream`) on first access. Stream handling is internal to `std/httpclient`; direct `std/streams` use is not needed. |
-| `std/net` | `std/httpclient` handles TLS configuration internally via `newHttpClient(sslContext = ...)`. `std/net.newContext` could configure TLS (cert, CA, ciphers, TLS version) — see deferred decision R16. Not used in v1. The `-d:ssl` compile-time warning (§9.1) does not require `std/net`. |
+| `std/net` | `std/httpclient` handles TLS configuration internally via `newHttpClient(sslContext = ...)`. `std/net.newContext` could configure TLS (cert, CA, ciphers, TLS version) — see deferred decision R16. Not used for TLS configuration in v1. Exception types `TimeoutError` and `SslError` are imported selectively — see "Modules used in Layer 4". |
 | `std/httpcore` | Re-exported by `std/httpclient`. No direct import needed. |
 
 ### Critical Nim findings that constrain the design
@@ -159,7 +160,7 @@ compiler constraints and architectural decisions.
 | Finding | Impact | Evidence |
 |---------|--------|----------|
 | `std/httpclient` procs have no `{.raises.}` annotations | Must catch `CatchableError` broadly at the IO boundary; the compiler treats them as potentially raising `Exception` | Architecture §4.1A `raises` caveat |
-| `std/httpclient` raises: `ProtocolError` (`IOError`), `HttpRequestError` (`IOError`), `ValueError`, `TimeoutError` | Exception classification must map all four to `TransportError` variants | `httpclient.nim` source |
+| `std/httpclient` raises: `ProtocolError` (`IOError`), `HttpRequestError` (`IOError`), `ValueError`, `TimeoutError` (from `std/net`), `SslError` (from `std/net`, when `-d:ssl`) | Exception classification must map all five to `TransportError` variants. `SslError` inherits `CatchableError` directly (not `OSError`), requiring its own classification branch. | `httpclient.nim` source, `net.nim:121` |
 | `HttpClient` is a `ref object` — ARC-managed | `close()` should be called explicitly for deterministic socket release; destructor runs on scope exit under ARC | `httpclient.nim:617` |
 | `HttpClient.headers` field persists across requests | Bearer token set once on construction, sent on every subsequent request without per-request header setup | `httpclient.nim:621` |
 | Authorisation header stripped on cross-domain redirects | Correct security behaviour for `.well-known` discovery — the token is not leaked if the server redirects to a different domain | `httpclient.nim:1299–1306` |
@@ -377,12 +378,21 @@ Maps `std/httpclient` exceptions to `ClientError(cekTransport)`. This
 is a pure transform — no IO, no mutation.
 
 ```nim
-proc classifyException(e: ref CatchableError): ref ClientError =
+proc isTlsRelatedMsg(msg: string): bool =
+  ## Heuristic: checks whether an OSError message indicates a TLS failure.
+  ## OpenSSL surfaces TLS errors as OSError with keywords in the message
+  ## (D4.5). False positives are harmless — the error is still a transport
+  ## failure and ``msg`` carries the actual underlying error.
+  let lower = msg.toLowerAscii
+  "ssl" in lower or "tls" in lower or "certificate" in lower
+
+proc classifyException*(e: ref CatchableError): ref ClientError =
   ## Maps std/httpclient exceptions to ClientError(cekTransport).
   ## Pure: no IO, no side effects. Exhaustive over known exception types.
   ##
   ## Classification rules (total — every CatchableError is handled):
   ## - TimeoutError           → tekTimeout
+  ## - SslError               → tekTls  (when defined(ssl); direct type match)
   ## - OSError with TLS msg   → tekTls  (heuristic, see D4.5)
   ## - OSError (other)        → tekNetwork
   ## - IOError                → tekNetwork (includes ProtocolError,
@@ -392,12 +402,12 @@ proc classifyException(e: ref CatchableError): ref ClientError =
   var te: TransportError
   if e of ref TimeoutError:
     te = transportError(tekTimeout, e.msg)
+  elif (when defined(ssl): e of ref SslError else: false):
+    te = transportError(tekTls, e.msg)
   elif e of ref OSError:
-    let msg = e.msg.toLowerAscii
-    if "ssl" in msg or "tls" in msg or "certificate" in msg:
-      te = transportError(tekTls, e.msg)
-    else:
-      te = transportError(tekNetwork, e.msg)
+    te =
+      if isTlsRelatedMsg(e.msg): transportError(tekTls, e.msg)
+      else: transportError(tekNetwork, e.msg)
   elif e of ref IOError:
     te = transportError(tekNetwork, e.msg)
   elif e of ref ValueError:
@@ -407,12 +417,24 @@ proc classifyException(e: ref CatchableError): ref ClientError =
   newClientError(te)
 ```
 
-**Decision D4.5: TLS detection heuristic.** `std/httpclient` has no
-distinct TLS exception type. TLS failures from OpenSSL surface as
-`OSError` with messages containing "ssl", "tls", or "certificate"
-(case-insensitive). A substring check is the best available heuristic.
-False positives are harmless — the error is still classified as a
-transport failure, and `te.msg` carries the actual underlying error.
+`classifyException` is exported (`*`) for testability and consumer use
+(e.g., consumers wrapping additional IO around the client).
+
+`isTlsRelatedMsg` is a module-private helper extracted to keep
+`classifyException` within the nimalyzer complexity limit.
+
+**Decision D4.5: TLS detection — two-tier approach.** `std/net` defines
+`SslError` (inheriting `CatchableError` directly, NOT `OSError`) which
+is raised during TLS handshake failures, certificate errors, and context
+creation failures. `std/httpclient` does not catch or wrap `SslError` —
+it propagates directly to callers. The first tier matches `SslError` by
+type (guarded by `when defined(ssl)` since `SslError` is only defined
+when `-d:ssl` is active). The second tier is a heuristic for `OSError`
+with messages containing "ssl", "tls", or "certificate"
+(case-insensitive) — covering cases where OpenSSL errors surface as
+`OSError` rather than `SslError`. False positives are harmless — the
+error is still classified as a transport failure, and `te.msg` carries
+the actual underlying error.
 
 ### 2.2 Body Size Enforcement
 
@@ -440,12 +462,13 @@ proc enforceContentLengthLimit(
         $cl & " bytes > " & $maxResponseBytes & " byte limit")
       raise newClientError(te)
 
-proc enforceBodySizeLimit(
+proc enforceBodySizeLimit*(
     maxResponseBytes: int, body: string, context: string
 ) =
   ## Phase 2: post-read rejection via actual body length. Catches cases
   ## where Content-Length was absent, inaccurate, or not checked.
   ## No-op when maxResponseBytes == 0 (no limit). Pure — no IO.
+  ## Exported for testability.
   if maxResponseBytes > 0 and body.len > maxResponseBytes:
     let te = transportError(tekNetwork,
       context & " response body exceeds limit: " &
@@ -521,7 +544,9 @@ proc classifyHttpResponse(
       except ClientError:
         raise  # re-raise the ClientError we just created
       except CatchableError:
-        discard  # fall through to generic HTTP status error
+        # Malformed JSON, or valid JSON that fails RequestError schema
+        # validation — fall through to generic HTTP status error
+        discard
     # Generic HTTP status error (no problem details, or parsing failed)
     let te = httpStatusError(int(code),
       "HTTP " & $int(code) & " from " & context)
@@ -1055,6 +1080,9 @@ client.nim imports:
                          {} (nil-safe access), JsonParsingError
   std/strutils         — toLowerAscii, startsWith, endsWith, replace,
                          contains (via `in` operator), Whitespace
+  std/net              — TimeoutError (selective import via `from`);
+                         SslError (selective import, guarded by
+                         `when defined(ssl)`)
   ./types              — Layer 1 re-export hub (also re-exports std/options)
   ./serialisation      — Layer 2 re-export hub
 ```
@@ -1064,9 +1092,11 @@ imported until they are first used (IO helpers and `send`). `config.nims`
 sets `warningAsError: UnusedImport`, so importing them before any proc
 references them causes a compile error. Similarly, `std/options` is NOT
 imported directly — it is re-exported by `./types`, and a direct import
-would trigger `hintAsError: DuplicateModuleImport`. The initial file
-(constructors + accessors + mutators) imports only `std/httpclient`,
-`std/strutils`, and `./types`.
+would trigger `hintAsError: DuplicateModuleImport`. `std/net` is
+imported selectively via `from std/net import TimeoutError` (and
+`SslError` under `when defined(ssl)`) to avoid pulling in the full
+`std/net` module. The initial file (constructors + accessors + mutators)
+imports only `std/httpclient`, `std/strutils`, and `./types`.
 
 **Name collision: `Response`.** Both `std/httpclient` and the JMAP
 envelope types (via `./types`) export a `Response` type. In proc
@@ -1096,7 +1126,7 @@ export client
 | D4.2 | Constructor does not fetch session (lazy) | Eager fetch | Construction should not perform IO. |
 | D4.3 | No DNS SRV — `.well-known/jmap` only | Full RFC 8620 §2.2 | No reference implementation uses DNS SRV. |
 | D4.4 | Two-phase body size check: Phase 1 via `contentLength` before body read, Phase 2 via `body.len` after read | Streaming check | Phase 1 prevents OOM on oversized responses. Phase 2 catches absent/inaccurate Content-Length. Streaming check requires replacing `std/httpclient`. |
-| D4.5 | TLS detection via substring heuristic | Distinct exception type | `std/httpclient` has no distinct TLS exception. False positives harmless. |
+| D4.5 | TLS detection — two-tier: `SslError` type match + `OSError` substring heuristic | Single heuristic only | `SslError` (from `std/net`) inherits `CatchableError` directly, not `OSError`, requiring its own branch. `OSError` heuristic retained as fallback for OpenSSL errors that surface as `OSError`. |
 | D4.6 | `ValidationError` from session JSON propagates as-is | Wrap in `ClientError` | Richer context. `ClientError` is for transport/request failures. Layer 5 catches all `CatchableError`. |
 | D4.7 | `JsonParsingError` classified as `tekNetwork` | `tekHttpStatus` with 200 | HTTP succeeded, body is invalid JSON. Protocol violation, not an HTTP status error. |
 | D4.8 | Problem details on HTTP 200 via `"type"` + missing `"methodResponses"` heuristic | Content-Type check only | Servers often use `application/json` for problem details. `Response` always has `methodResponses`. |
@@ -1193,6 +1223,7 @@ export client
 | 42 | `ref IOError` | `tekNetwork` | Protocol error |
 | 43 | `ref ValueError` | `tekNetwork` | URL parse error |
 | 44 | `ref CatchableError` (other) | `tekNetwork` | Catch-all |
+| 44a | `ref SslError` | `tekTls` | Direct type match (`when defined(ssl)`) |
 
 ### 12.7 Body Size Enforcement (Pure, No Network)
 
@@ -1241,7 +1272,7 @@ export client
 | 80 | `urn:ietf:params:jmap:error:unknownCapability` | `ClientError(cekRequest)` with `retUnknownCapability` |
 | 81 | `urn:ietf:params:jmap:error:limit` with limit field | `ClientError(cekRequest)` with `retLimit`, `limit` populated |
 
-**Total: 81 enumerated test scenarios.**
+**Total: 82 enumerated test scenarios (44a added for SslError).**
 
 ---
 

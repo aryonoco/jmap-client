@@ -7,10 +7,16 @@
 import std/options
 import std/strutils
 
+from std/net import TimeoutError
+when defined(ssl):
+  from std/net import SslError
+
 import jmap_client/client
+import jmap_client/errors
 import jmap_client/validation
 
 import ../massertions
+import ../mfixtures
 
 # --- initJmapClient ---
 
@@ -199,3 +205,134 @@ block closeThenAccessors:
   assertEq c.sessionUrl(), "https://example.com/jmap"
   assertEq c.bearerToken(), "test-token"
   assertNone c.session()
+
+# --- expandUriTemplate (scenarios 16–20) ---
+
+block expandUriTemplateAllVars:
+  ## Scenario 16: all variables present — all {name} replaced.
+  let tmpl = makeGoldenDownloadUrl()
+  let result = expandUriTemplate(
+    tmpl,
+    {
+      "accountId": "A123",
+      "blobId": "B456",
+      "name": "report.pdf",
+      "type": "application/pdf",
+    },
+  )
+  assertEq result,
+    "https://jmap.example.com/download/A123/B456/report.pdf?accept=application/pdf"
+
+block expandUriTemplateMissingVar:
+  ## Scenario 17: missing variable left unexpanded.
+  let tmpl = makeUriTemplate("https://example.com/{accountId}/{blobId}")
+  let result = expandUriTemplate(tmpl, {"accountId": "A123"})
+  assertEq result, "https://example.com/A123/{blobId}"
+
+block expandUriTemplateEmptyValue:
+  ## Scenario 18: empty value replaces {name} with "".
+  let tmpl = makeUriTemplate("https://example.com/{name}")
+  let result = expandUriTemplate(tmpl, {"name": ""})
+  assertEq result, "https://example.com/"
+
+block expandUriTemplateSpecialChars:
+  ## Scenario 19: special characters in value preserved (no encoding — D4.11).
+  let tmpl = makeUriTemplate("https://example.com/{name}")
+  let result = expandUriTemplate(tmpl, {"name": "hello world&foo=bar"})
+  assertEq result, "https://example.com/hello world&foo=bar"
+
+block expandUriTemplateMultipleOccurrences:
+  ## Scenario 20: multiple occurrences of same variable all replaced.
+  let tmpl = makeUriTemplate("{x}/{x}")
+  let result = expandUriTemplate(tmpl, {"x": "abc"})
+  assertEq result, "abc/abc"
+
+# --- classifyException (scenarios 37–44) ---
+
+block classifyExceptionTimeout:
+  ## Scenario 37: TimeoutError maps to tekTimeout.
+  let e = newException(TimeoutError, "Call to 'recv' timed out.")
+  let ce = classifyException(e)
+  doAssert ce.kind == cekTransport
+  doAssert ce.transport.kind == tekTimeout
+  doAssert ce.transport.msg == "Call to 'recv' timed out."
+
+block classifyExceptionOsErrorSsl:
+  ## Scenario 38: OSError with "ssl" in message maps to tekTls.
+  let e = newException(OSError, "ssl handshake failed")
+  let ce = classifyException(e)
+  doAssert ce.kind == cekTransport
+  doAssert ce.transport.kind == tekTls
+
+block classifyExceptionOsErrorTls:
+  ## Scenario 39: OSError with "TLS" (case-insensitive) maps to tekTls.
+  let e = newException(OSError, "TLS protocol error")
+  let ce = classifyException(e)
+  doAssert ce.transport.kind == tekTls
+
+block classifyExceptionOsErrorCertificate:
+  ## Scenario 40: OSError with "certificate" maps to tekTls.
+  let e = newException(OSError, "certificate verification failed")
+  let ce = classifyException(e)
+  doAssert ce.transport.kind == tekTls
+
+block classifyExceptionOsErrorNetwork:
+  ## Scenario 41: OSError without TLS keywords maps to tekNetwork.
+  let e = newException(OSError, "connection refused")
+  let ce = classifyException(e)
+  doAssert ce.transport.kind == tekNetwork
+
+block classifyExceptionIoError:
+  ## Scenario 42: IOError maps to tekNetwork.
+  let e = newException(IOError, "connection reset by peer")
+  let ce = classifyException(e)
+  doAssert ce.kind == cekTransport
+  doAssert ce.transport.kind == tekNetwork
+
+block classifyExceptionValueError:
+  ## Scenario 43: ValueError maps to tekNetwork with "protocol error:" prefix.
+  let e = newException(ValueError, "unparseable URL")
+  let ce = classifyException(e)
+  doAssert ce.transport.kind == tekNetwork
+  doAssert "protocol error:" in ce.transport.msg
+
+block classifyExceptionCatchAll:
+  ## Scenario 44: other CatchableError maps to tekNetwork with "unexpected error:" prefix.
+  let ce = classifyException((ref CatchableError)(msg: "something unknown"))
+  doAssert ce.transport.kind == tekNetwork
+  doAssert "unexpected error:" in ce.transport.msg
+
+when defined(ssl):
+  block classifyExceptionSslError:
+    ## SslError (from std/net, inherits CatchableError directly) maps to tekTls.
+    let e = newException(SslError, "error:1416F086:SSL routines")
+    let ce = classifyException(e)
+    doAssert ce.kind == cekTransport
+    doAssert ce.transport.kind == tekTls
+    doAssert ce.transport.msg == "error:1416F086:SSL routines"
+
+# --- enforceBodySizeLimit (scenarios 45–47) ---
+
+block enforceBodySizeLimitWithin:
+  ## Scenario 45: body within limit — no error.
+  enforceBodySizeLimit(100, "short body", "test")
+
+block enforceBodySizeLimitExceeds:
+  ## Scenario 46: body exceeds limit — ClientError raised.
+  var caught = false
+  try:
+    enforceBodySizeLimit(10, "this body exceeds ten bytes", "test")
+  except ClientError as e:
+    caught = true
+    doAssert e.kind == cekTransport
+    doAssert e.transport.kind == tekNetwork
+    doAssert "exceeds limit" in e.transport.msg
+  doAssert caught, "expected ClientError"
+
+block enforceBodySizeLimitAtLimit:
+  ## Boundary: body length exactly at limit — no error (uses strict >).
+  enforceBodySizeLimit(10, "0123456789", "test")
+
+block enforceBodySizeLimitDisabled:
+  ## Scenario 47: limit = 0 (disabled) — no error even for large body.
+  enforceBodySizeLimit(0, "any size body is fine", "test")
