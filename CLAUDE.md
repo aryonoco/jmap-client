@@ -36,6 +36,9 @@ Defined in `jmap_client.nimble` and `config.nims`: `--mm:arc`, `strictDefs`, `th
 
 Architecture: 5 layers (see `docs/00architecture-options.md`). Layer 1 detailed design in `docs/layer-1-design.md`.
 
+- `docs/design/` — Architecture and per-layer design specifications (00-architecture, 01–06 layer designs, 04-architecture-revision)
+- `docs/implement/` — Per-layer implementation plans (`implementation-1.md` through `implementation-4.md`)
+
 - `src/jmap_client.nim` — Library entry point (C ABI exports, Layer 5)
 - `src/jmap_client/types.nim` — Re-exports all Layer 1 modules
 - `src/jmap_client/validation.nim` — `ValidationError` (exception), borrow templates, charset constants
