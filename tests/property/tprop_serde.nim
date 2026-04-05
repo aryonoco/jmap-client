@@ -37,7 +37,7 @@ block propRoundTripRequest:
     let req = rng.genRequest()
     lastInput = $req.using.len & " using, " & $req.methodCalls.len & " calls"
     let j = req.toJson()
-    let rt = Request.fromJson(j)
+    let rt = Request.fromJson(j).get()
     doAssert reqEq(rt, req), "Request round-trip identity violated"
 
 block propRoundTripResponse:
@@ -46,7 +46,7 @@ block propRoundTripResponse:
     let resp = rng.genResponse()
     lastInput = $resp.methodResponses.len & " responses"
     let j = resp.toJson()
-    let rt = Response.fromJson(j)
+    let rt = Response.fromJson(j).get()
     doAssert respEq(rt, resp), "Response round-trip identity violated"
 
 block propRoundTripServerCapabilityRawData:
@@ -55,7 +55,7 @@ block propRoundTripServerCapabilityRawData:
     lastInput = cap.rawUri
     if cap.kind != ckCore:
       let j = cap.toJson()
-      let rt = ServerCapability.fromJson(cap.rawUri, j)
+      let rt = ServerCapability.fromJson(cap.rawUri, j).get()
       doAssert capEq(rt, cap), "rawData lost for " & cap.rawUri
 
 block propRoundTripComparator:
@@ -63,7 +63,7 @@ block propRoundTripComparator:
     let c = rng.genComparator()
     lastInput = string(c.property)
     let j = c.toJson()
-    let rt = Comparator.fromJson(j)
+    let rt = Comparator.fromJson(j).get()
     let v = rt
     doAssert string(v.property) == string(c.property)
     doAssert v.isAscending == c.isAscending
@@ -74,7 +74,7 @@ block propRoundTripAddedItem:
     let item = rng.genAddedItem()
     lastInput = string(item.id) & " @ " & $int64(item.index)
     let j = item.toJson()
-    let rt = AddedItem.fromJson(j)
+    let rt = AddedItem.fromJson(j).get()
     doAssert rt.id == item.id
     doAssert rt.index == item.index
 
@@ -83,7 +83,7 @@ block propRoundTripResultReference:
     let rref = rng.genResultReference()
     lastInput = rref.name
     let j = rref.toJson()
-    let rt = ResultReference.fromJson(j)
+    let rt = ResultReference.fromJson(j).get()
     doAssert rt.resultOf == rref.resultOf
     doAssert rt.name == rref.name
     doAssert rt.path == rref.path
@@ -98,7 +98,7 @@ block propRoundTripRequestError:
     let re = rng.genRequestError()
     lastInput = re.rawType
     let j = re.toJson()
-    let rt = RequestError.fromJson(j)
+    let rt = RequestError.fromJson(j).get()
     doAssert rt.rawType == re.rawType
     doAssert rt.errorType == re.errorType
     doAssert rt.status == re.status
@@ -111,7 +111,7 @@ block propRoundTripMethodError:
     let me = rng.genMethodError()
     lastInput = me.rawType
     let j = me.toJson()
-    let rt = MethodError.fromJson(j)
+    let rt = MethodError.fromJson(j).get()
     doAssert rt.rawType == me.rawType
     doAssert rt.errorType == me.errorType
     doAssert rt.description == me.description
@@ -122,7 +122,7 @@ block propRoundTripSetErrorVariants:
     let se = rng.genSetError()
     lastInput = se.rawType & " (" & $se.errorType & ")"
     let j = se.toJson()
-    let rt = SetError.fromJson(j)
+    let rt = SetError.fromJson(j).get()
     doAssert rt.rawType == se.rawType
     # Variant-specific fields (defensive fallback may remap)
     case se.errorType
@@ -144,7 +144,7 @@ block propRoundTripFilterInt:
     let f = rng.genFilter(3)
     lastInput = $f.kind
     let j = f.toJson(intToJson)
-    let rt = Filter[int].fromJson(j, fromIntCondition)
+    let rt = Filter[int].fromJson(j, fromIntCondition).get()
     doAssert filterEq(rt, f), "Filter[int] round-trip identity violated"
 
 # =============================================================================
@@ -155,92 +155,52 @@ block propTotalitySessionMalformed:
   checkPropertyN "Session.fromJson never crashes on malformed input", ThoroughTrials:
     let j = rng.genMalformedSessionJson()
     lastInput = $j.kind
-    try:
-      discard Session.fromJson(j)
-    except ValidationError:
-      discard
-
+    discard Session.fromJson(j)
 block propTotalityRequestArbitraryJson:
   checkPropertyN "Request.fromJson never crashes on arbitrary JSON", ThoroughTrials:
     let j = rng.genArbitraryJsonNode(2)
     lastInput = $j.kind
-    try:
-      discard Request.fromJson(j)
-    except ValidationError:
-      discard
-
+    discard Request.fromJson(j)
 block propTotalityResponseArbitraryJson:
   checkPropertyN "Response.fromJson never crashes on arbitrary JSON", ThoroughTrials:
     let j = rng.genArbitraryJsonNode(2)
     lastInput = $j.kind
-    try:
-      discard Response.fromJson(j)
-    except ValidationError:
-      discard
-
+    discard Response.fromJson(j)
 block propTotalityInvocationArbitraryJson:
   checkPropertyN "Invocation.fromJson never crashes on arbitrary JSON", ThoroughTrials:
     let j = rng.genArbitraryJsonNode(2)
     lastInput = $j.kind
-    try:
-      discard Invocation.fromJson(j)
-    except ValidationError:
-      discard
-
+    discard Invocation.fromJson(j)
 block propTotalityComparatorArbitraryJson:
   checkProperty "Comparator.fromJson never crashes on arbitrary JSON":
     let j = rng.genArbitraryJsonNode(2)
     lastInput = $j.kind
-    try:
-      discard Comparator.fromJson(j)
-    except ValidationError:
-      discard
-
+    discard Comparator.fromJson(j)
 block propTotalitySetErrorArbitraryJson:
   checkProperty "SetError.fromJson never crashes on arbitrary JSON":
     let j = rng.genArbitraryJsonNode(2)
     lastInput = $j.kind
-    try:
-      discard SetError.fromJson(j)
-    except ValidationError:
-      discard
-
+    discard SetError.fromJson(j)
 block propTotalityRequestErrorArbitraryJson:
   checkProperty "RequestError.fromJson never crashes on arbitrary JSON":
     let j = rng.genArbitraryJsonNode(2)
     lastInput = $j.kind
-    try:
-      discard RequestError.fromJson(j)
-    except ValidationError:
-      discard
-
+    discard RequestError.fromJson(j)
 block propTotalityMethodErrorArbitraryJson:
   checkProperty "MethodError.fromJson never crashes on arbitrary JSON":
     let j = rng.genArbitraryJsonNode(2)
     lastInput = $j.kind
-    try:
-      discard MethodError.fromJson(j)
-    except ValidationError:
-      discard
-
+    discard MethodError.fromJson(j)
 block propTotalityPatchObjectArbitraryJson:
   checkProperty "PatchObject.fromJson never crashes on arbitrary JSON":
     let j = rng.genArbitraryJsonNode(2)
     lastInput = $j.kind
-    try:
-      discard PatchObject.fromJson(j)
-    except ValidationError:
-      discard
-
+    discard PatchObject.fromJson(j)
 block propTotalityAddedItemArbitraryJson:
   checkProperty "AddedItem.fromJson never crashes on arbitrary JSON":
     let j = rng.genArbitraryJsonNode(2)
     lastInput = $j.kind
-    try:
-      discard AddedItem.fromJson(j)
-    except ValidationError:
-      discard
-
+    discard AddedItem.fromJson(j)
 # =============================================================================
 # E. Idempotence: toJson(fromJson(toJson(x))) == toJson(x) (Tier 3)
 # =============================================================================
@@ -250,7 +210,7 @@ block propIdempotenceInvocation:
     let inv = rng.genInvocationWithArgs()
     lastInput = inv.name
     let j1 = inv.toJson()
-    let parsed = Invocation.fromJson(j1)
+    let parsed = Invocation.fromJson(j1).get()
     let j2 = parsed.toJson()
     doAssert j1 == j2, "Invocation toJson is not idempotent"
 
@@ -259,7 +219,7 @@ block propIdempotenceResultReference:
     let rref = rng.genResultReference()
     lastInput = rref.name
     let j1 = rref.toJson()
-    let parsed = ResultReference.fromJson(j1)
+    let parsed = ResultReference.fromJson(j1).get()
     let j2 = parsed.toJson()
     doAssert j1 == j2, "ResultReference toJson is not idempotent"
 
@@ -268,7 +228,7 @@ block propIdempotenceRequestError:
     let re = rng.genRequestError()
     lastInput = re.rawType
     let j1 = re.toJson()
-    let parsed = RequestError.fromJson(j1)
+    let parsed = RequestError.fromJson(j1).get()
     let j2 = parsed.toJson()
     doAssert j1 == j2, "RequestError toJson is not idempotent"
 
@@ -285,7 +245,7 @@ block propSetErrorInvalidPropertiesRoundTrip:
     lastInput = $props.len & " properties"
     let se = setErrorInvalidProperties("invalidProperties", props)
     let j = se.toJson()
-    let rt = SetError.fromJson(j)
+    let rt = SetError.fromJson(j).get()
     doAssert rt.errorType == setInvalidProperties
     doAssert rt.properties == props, "properties list not preserved through round-trip"
 
@@ -293,10 +253,10 @@ block propSetErrorAlreadyExistsRoundTrip:
   checkPropertyN "alreadyExists SetError preserves existingId", ThoroughTrials:
     let idStr = rng.genValidIdStrict(minLen = 1, maxLen = 50)
     lastInput = idStr
-    let id = parseId(idStr)
+    let id = parseId(idStr).get()
     let se = setErrorAlreadyExists("alreadyExists", id)
     let j = se.toJson()
-    let rt = SetError.fromJson(j)
+    let rt = SetError.fromJson(j).get()
     doAssert rt.errorType == setAlreadyExists
     doAssert rt.existingId == id, "existingId not preserved through round-trip"
 
@@ -309,7 +269,7 @@ block propRequestInvocationCountRoundTrip:
     let req = rng.genRequest()
     lastInput = $req.methodCalls.len & " calls"
     let j = req.toJson()
-    let rt = Request.fromJson(j)
+    let rt = Request.fromJson(j).get()
     doAssert rt.methodCalls.len == req.methodCalls.len,
       "methodCalls count changed through round-trip"
 
@@ -318,7 +278,7 @@ block propInvocationArgumentsRoundTrip:
     let inv = rng.genInvocationWithArgs()
     lastInput = inv.name
     let j = inv.toJson()
-    let rt = Invocation.fromJson(j)
+    let rt = Invocation.fromJson(j).get()
     doAssert rt.arguments == inv.arguments,
       "Invocation arguments changed through round-trip"
 
@@ -330,20 +290,12 @@ block propSessionDeepJsonTotality:
   checkPropertyN "Session.fromJson never crashes on deep arbitrary JSON", QuickTrials:
     let j = rng.genArbitraryJsonObject(5)
     lastInput = $j.kind
-    try:
-      discard Session.fromJson(j)
-    except ValidationError:
-      discard
-
+    discard Session.fromJson(j)
 block propRequestDeepJsonTotality:
   checkPropertyN "Request.fromJson never crashes on deep arbitrary JSON", QuickTrials:
     let j = rng.genArbitraryJsonObject(5)
     lastInput = $j.kind
-    try:
-      discard Request.fromJson(j)
-    except ValidationError:
-      discard
-
+    discard Request.fromJson(j)
 # =============================================================================
 # I. Idempotency and double-parse (Tier 2)
 # =============================================================================
@@ -352,8 +304,8 @@ block propSessionDeserIdempotent:
   checkPropertyN "parsing Session JSON twice yields identical results", ThoroughTrials:
     let session = rng.genSession()
     let j = session.toJson()
-    let first = Session.fromJson(j)
-    let second = Session.fromJson(j)
+    let first = Session.fromJson(j).get()
+    let second = Session.fromJson(j).get()
     doAssert sessionEq(first, second), "two parses of same Session JSON differ"
 
 block propDoubleParsePrimitives:
@@ -361,18 +313,18 @@ block propDoubleParsePrimitives:
     ## Id: parse, stringify, re-parse.
     let idStr = rng.genValidIdStrict(minLen = 1, maxLen = 50)
     lastInput = idStr
-    let id1 = parseId(idStr)
-    let id2 = parseId($id1)
+    let id1 = parseId(idStr).get()
+    let id2 = parseId($id1).get()
     doAssert id1 == id2, "Id double-parse not stable"
     ## AccountId: parse, stringify, re-parse.
     let acctStr = rng.genValidAccountId()
-    let acct1 = parseAccountId(acctStr)
-    let acct2 = parseAccountId($acct1)
+    let acct1 = parseAccountId(acctStr).get()
+    let acct2 = parseAccountId($acct1).get()
     doAssert acct1 == acct2, "AccountId double-parse not stable"
     ## JmapState: parse, stringify, re-parse.
     let stateStr = rng.genValidJmapState()
-    let state1 = parseJmapState(stateStr)
-    let state2 = parseJmapState($state1)
+    let state1 = parseJmapState(stateStr).get()
+    let state2 = parseJmapState($state1).get()
     doAssert state1 == state2, "JmapState double-parse not stable"
 
 # =============================================================================
@@ -385,7 +337,7 @@ block propRoundTripCoreCapabilities:
     let caps = rng.genCoreCapabilities()
     lastInput = $int64(caps.maxSizeUpload) & " upload"
     let j = caps.toJson()
-    let rt = CoreCapabilities.fromJson(j)
+    let rt = CoreCapabilities.fromJson(j).get()
     doAssert coreCapEq(rt, caps), "CoreCapabilities round-trip identity violated"
 
 block propRoundTripAccount:
@@ -396,7 +348,7 @@ block propRoundTripAccount:
     let acct = rng.genValidAccount()
     lastInput = acct.name
     let j = acct.toJson()
-    let v = Account.fromJson(j)
+    let v = Account.fromJson(j).get()
     doAssert v.name == acct.name, "Account name changed"
     doAssert v.isPersonal == acct.isPersonal, "Account isPersonal changed"
     doAssert v.isReadOnly == acct.isReadOnly, "Account isReadOnly changed"
@@ -408,27 +360,19 @@ block propRoundTripDate:
   checkPropertyN "Date.fromJson(date.toJson()) == date", ThoroughTrials:
     let dateStr = rng.genValidDate()
     lastInput = dateStr
-    try:
-      let d = parseDate(dateStr)
-      let j = d.toJson()
-      let rt = Date.fromJson(j)
-      doAssert rt == d, "Date round-trip identity violated"
-    except ValidationError:
-      discard
-
+    let d = parseDate(dateStr).get()
+    let j = d.toJson()
+    let rt = Date.fromJson(j).get()
+    doAssert rt == d, "Date round-trip identity violated"
 block propRoundTripUtcDate:
   ## UTCDate JSON round-trip: fromJson(toJson(utcDate)) == utcDate.
   checkPropertyN "UTCDate.fromJson(utcDate.toJson()) == utcDate", ThoroughTrials:
     let dateStr = rng.genValidUtcDate()
     lastInput = dateStr
-    try:
-      let d = parseUtcDate(dateStr)
-      let j = d.toJson()
-      let rt = UTCDate.fromJson(j)
-      doAssert rt == d, "UTCDate round-trip identity violated"
-    except ValidationError:
-      discard
-
+    let d = parseUtcDate(dateStr).get()
+    let j = d.toJson()
+    let rt = UTCDate.fromJson(j).get()
+    doAssert rt == d, "UTCDate round-trip identity violated"
 block propRoundTripSession:
   ## Session JSON round-trip identity (Phase 4B). Uses sessionEq from mfixtures
   ## which handles HashSet comparison for collation algorithms. To handle the
@@ -439,10 +383,10 @@ block propRoundTripSession:
     let session = rng.genSession()
     lastInput = session.username & " (" & $session.capabilities.len & " caps)"
     let j = session.toJson()
-    let rt = Session.fromJson(j)
+    let rt = Session.fromJson(j).get()
     # Re-parse the original JSON to get the normalised form (duplicate URIs
     # in account capabilities get deduplicated by the JSON object).
-    let normalised = Session.fromJson(j)
+    let normalised = Session.fromJson(j).get()
     doAssert sessionEq(rt, normalised), "Session round-trip identity violated"
 
 block propRoundTripPatchObject:
@@ -451,7 +395,7 @@ block propRoundTripPatchObject:
     let patch = rng.genPatchObject(5)
     lastInput = $patch.len & " entries"
     let j = patch.toJson()
-    let rt = PatchObject.fromJson(j)
+    let rt = PatchObject.fromJson(j).get()
     doAssert rt.toJson() == j, "PatchObject round-trip identity violated"
 
 # =============================================================================
@@ -474,7 +418,7 @@ block propCoreCapsSingularParsesAsPlural:
     var singular = j.copy()
     singular["maxConcurrentRequest"] = singular["maxConcurrentRequests"]
     singular.delete("maxConcurrentRequests")
-    let rt = CoreCapabilities.fromJson(singular)
+    let rt = CoreCapabilities.fromJson(singular).get()
     doAssert coreCapEq(rt, caps), "singular form should yield same capabilities"
 
 # =============================================================================
@@ -545,10 +489,10 @@ block propIdempotenceSession:
     let session = rng.genSession()
     lastInput = session.username
     let j1 = session.toJson()
-    let parsed1 = Session.fromJson(j1)
+    let parsed1 = Session.fromJson(j1).get()
     # Second round-trip from the already-normalised form.
     let j2 = parsed1.toJson()
-    let parsed2 = Session.fromJson(j2)
+    let parsed2 = Session.fromJson(j2).get()
     let j3 = parsed2.toJson()
     doAssert j2 == j3, "Session toJson is not idempotent (j2 != j3)"
 
@@ -558,7 +502,7 @@ block propIdempotenceRequest:
     let req = rng.genRequest()
     lastInput = $req.methodCalls.len & " calls"
     let j1 = req.toJson()
-    let parsed = Request.fromJson(j1)
+    let parsed = Request.fromJson(j1).get()
     let j2 = parsed.toJson()
     doAssert j1 == j2, "Request toJson is not idempotent"
 
@@ -568,7 +512,7 @@ block propIdempotenceResponse:
     let resp = rng.genResponse()
     lastInput = $resp.methodResponses.len & " responses"
     let j1 = resp.toJson()
-    let parsed = Response.fromJson(j1)
+    let parsed = Response.fromJson(j1).get()
     let j2 = parsed.toJson()
     doAssert j1 == j2, "Response toJson is not idempotent"
 

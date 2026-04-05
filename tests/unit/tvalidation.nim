@@ -16,18 +16,18 @@ type TestInt = distinct int64
 
 defineIntDistinctOps(TestInt)
 
-# --- newValidationError constructor ---
+# --- validationError constructor ---
 
 block validationErrorConstructor:
-  let ve = newValidationError("Id", "length must be 1-255", "")
+  let ve = validationError("Id", "length must be 1-255", "")
   doAssert ve.typeName == "Id"
-  doAssert ve.msg == "length must be 1-255"
+  doAssert ve.message == "length must be 1-255"
   doAssert ve.value == ""
 
 block validationErrorAllFields:
-  let ve = newValidationError("UnsignedInt", "must be non-negative", "-1")
+  let ve = validationError("UnsignedInt", "must be non-negative", "-1")
   doAssert ve.typeName == "UnsignedInt"
-  doAssert ve.msg == "must be non-negative"
+  doAssert ve.message == "must be non-negative"
   doAssert ve.value == "-1"
 
 # --- defineStringDistinctOps ---

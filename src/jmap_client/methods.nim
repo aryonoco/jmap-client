@@ -11,6 +11,8 @@
 ## Entity data is raw ``JsonNode`` (Decision D3.6) -- entity-specific parsing
 ## is the caller's responsibility.
 
+{.push raises: [].}
+
 import std/json
 import std/options
 import std/tables
@@ -26,26 +28,24 @@ proc optState*(node: JsonNode, key: string): Option[JmapState] =
   ## Lenient optional JmapState extraction (section 5a.5 leniency).
   ## Absent, null, wrong kind, or invalid content all produce none.
   let child = node{key}
-  if child.isNil:
+  if child.isNil or child.kind != JString:
     return none(JmapState)
-  if child.kind != JString:
-    return none(JmapState)
-  try:
-    some(parseJmapState(child.getStr("")))
-  except CatchableError:
+  let r = parseJmapState(child.getStr(""))
+  if r.isOk:
+    some(r.get())
+  else:
     none(JmapState)
 
 proc optUnsignedInt*(node: JsonNode, key: string): Option[UnsignedInt] =
   ## Lenient optional UnsignedInt extraction (section 5a.5 leniency).
   ## Absent, null, wrong kind, or invalid content all produce none.
   let child = node{key}
-  if child.isNil:
+  if child.isNil or child.kind != JInt:
     return none(UnsignedInt)
-  if child.kind != JInt:
-    return none(UnsignedInt)
-  try:
-    some(parseUnsignedInt(child.getBiggestInt(0)))
-  except CatchableError:
+  let r = parseUnsignedInt(child.getBiggestInt(0))
+  if r.isOk:
+    some(r.get())
+  else:
     none(UnsignedInt)
 
 # =============================================================================
@@ -403,7 +403,7 @@ proc toJson*[T, C](
 
 proc mergeCreateResults(
     node: JsonNode
-): (Table[CreationId, JsonNode], Table[CreationId, SetError]) =
+): Result[(Table[CreationId, JsonNode], Table[CreationId, SetError]), ValidationError] =
   ## Merge wire ``created``/``notCreated`` maps into separate success/failure
   ## tables (RFC 8620 section 5.3). Used by both SetResponse and CopyResponse.
   ## Last-writer-wins for duplicate keys (section 8.5).
@@ -412,20 +412,20 @@ proc mergeCreateResults(
   let createdNode = node{"created"}
   if not createdNode.isNil and createdNode.kind == JObject:
     for k, v in createdNode.pairs:
-      let cid = parseCreationId(k)
+      let cid = ?parseCreationId(k)
       created[cid] = v
   let notCreatedNode = node{"notCreated"}
   if not notCreatedNode.isNil and notCreatedNode.kind == JObject:
     for k, v in notCreatedNode.pairs:
-      let cid = parseCreationId(k)
-      let se = SetError.fromJson(v)
+      let cid = ?parseCreationId(k)
+      let se = ?SetError.fromJson(v)
       created.del(cid)
       notCreated[cid] = se
-  (created, notCreated)
+  ok((created, notCreated))
 
 proc mergeUpdateResults(
     node: JsonNode
-): (Table[Id, Option[JsonNode]], Table[Id, SetError]) =
+): Result[(Table[Id, Option[JsonNode]], Table[Id, SetError]), ValidationError] =
   ## Merge wire ``updated``/``notUpdated`` maps into separate success/failure
   ## tables (RFC 8620 section 5.3). Null value in ``updated`` means no
   ## server-set properties changed; non-null contains changed properties.
@@ -435,7 +435,7 @@ proc mergeUpdateResults(
   let updatedNode = node{"updated"}
   if not updatedNode.isNil and updatedNode.kind == JObject:
     for k, v in updatedNode.pairs:
-      let id = parseIdFromServer(k)
+      let id = ?parseIdFromServer(k)
       if v.isNil or v.kind == JNull:
         updated[id] = none(JsonNode)
       else:
@@ -443,13 +443,15 @@ proc mergeUpdateResults(
   let notUpdatedNode = node{"notUpdated"}
   if not notUpdatedNode.isNil and notUpdatedNode.kind == JObject:
     for k, v in notUpdatedNode.pairs:
-      let id = parseIdFromServer(k)
-      let se = SetError.fromJson(v)
+      let id = ?parseIdFromServer(k)
+      let se = ?SetError.fromJson(v)
       updated.del(id)
       notUpdated[id] = se
-  (updated, notUpdated)
+  ok((updated, notUpdated))
 
-proc mergeDestroyResults(node: JsonNode): (seq[Id], Table[Id, SetError]) =
+proc mergeDestroyResults(
+    node: JsonNode
+): Result[(seq[Id], Table[Id, SetError]), ValidationError] =
   ## Merge wire ``destroyed``/``notDestroyed`` into separate success/failure
   ## collections (RFC 8620 section 5.3). ``destroyed`` is a flat array on
   ## the wire, represented as seq[Id].
@@ -458,181 +460,201 @@ proc mergeDestroyResults(node: JsonNode): (seq[Id], Table[Id, SetError]) =
   let destroyedNode = node{"destroyed"}
   if not destroyedNode.isNil and destroyedNode.kind == JArray:
     for _, elem in destroyedNode.getElems(@[]):
-      let id = parseIdFromServer(elem.getStr(""))
+      let id = ?parseIdFromServer(elem.getStr(""))
       destroyed.add(id)
   let notDestroyedNode = node{"notDestroyed"}
   if not notDestroyedNode.isNil and notDestroyedNode.kind == JObject:
     for k, v in notDestroyedNode.pairs:
-      let id = parseIdFromServer(k)
-      let se = SetError.fromJson(v)
+      let id = ?parseIdFromServer(k)
+      let se = ?SetError.fromJson(v)
       notDestroyed[id] = se
-  (destroyed, notDestroyed)
+  ok((destroyed, notDestroyed))
 
 # =============================================================================
 # Response fromJson (Pattern L3-B)
 # =============================================================================
 
-proc fromJson*[T](R: typedesc[GetResponse[T]], node: JsonNode): GetResponse[T] =
+proc fromJson*[T](
+    R: typedesc[GetResponse[T]], node: JsonNode
+): Result[GetResponse[T], ValidationError] =
   ## Deserialise JSON arguments to GetResponse (RFC 8620 section 5.1).
   ## Uses lenient constructors for server-assigned identifiers. ``list``
   ## contains raw JsonNode entities -- entity-specific parsing is the
   ## caller's responsibility.
   discard $R
-  checkJsonKind(node, JObject, "GetResponse")
-  let accountId = parseAccountId(node{"accountId"}.getStr(""))
-  let state = parseJmapState(node{"state"}.getStr(""))
+  ?checkJsonKind(node, JObject, "GetResponse")
+  let accountId = ?parseAccountId(node{"accountId"}.getStr(""))
+  let state = ?parseJmapState(node{"state"}.getStr(""))
   let listNode = node{"list"}
-  checkJsonKind(listNode, JArray, "GetResponse", "list must be array")
+  ?checkJsonKind(listNode, JArray, "GetResponse", "list must be array")
   let list = listNode.getElems(@[])
   var notFound: seq[Id] = @[]
   let nfNode = node{"notFound"}
   if not nfNode.isNil and nfNode.kind == JArray:
     for _, elem in nfNode.getElems(@[]):
-      let id = parseIdFromServer(elem.getStr(""))
+      let id = ?parseIdFromServer(elem.getStr(""))
       notFound.add(id)
-  GetResponse[T](accountId: accountId, state: state, list: list, notFound: notFound)
+  ok(GetResponse[T](accountId: accountId, state: state, list: list, notFound: notFound))
 
-proc fromJson*[T](R: typedesc[ChangesResponse[T]], node: JsonNode): ChangesResponse[T] =
+proc fromJson*[T](
+    R: typedesc[ChangesResponse[T]], node: JsonNode
+): Result[ChangesResponse[T], ValidationError] =
   ## Deserialise JSON arguments to ChangesResponse (RFC 8620 section 5.2).
   discard $R
-  checkJsonKind(node, JObject, "ChangesResponse")
-  let accountId = parseAccountId(node{"accountId"}.getStr(""))
-  let oldState = parseJmapState(node{"oldState"}.getStr(""))
-  let newState = parseJmapState(node{"newState"}.getStr(""))
+  ?checkJsonKind(node, JObject, "ChangesResponse")
+  let accountId = ?parseAccountId(node{"accountId"}.getStr(""))
+  let oldState = ?parseJmapState(node{"oldState"}.getStr(""))
+  let newState = ?parseJmapState(node{"newState"}.getStr(""))
   let hmcNode = node{"hasMoreChanges"}
-  checkJsonKind(hmcNode, JBool, "ChangesResponse", "hasMoreChanges must be boolean")
+  ?checkJsonKind(hmcNode, JBool, "ChangesResponse", "hasMoreChanges must be boolean")
   let hasMoreChanges = hmcNode.getBool(false)
   let createdNode = node{"created"}
-  checkJsonKind(createdNode, JArray, "ChangesResponse", "created must be array")
+  ?checkJsonKind(createdNode, JArray, "ChangesResponse", "created must be array")
   var created: seq[Id] = @[]
   for _, elem in createdNode.getElems(@[]):
-    let id = parseIdFromServer(elem.getStr(""))
+    let id = ?parseIdFromServer(elem.getStr(""))
     created.add(id)
   let updatedNode = node{"updated"}
-  checkJsonKind(updatedNode, JArray, "ChangesResponse", "updated must be array")
+  ?checkJsonKind(updatedNode, JArray, "ChangesResponse", "updated must be array")
   var updated: seq[Id] = @[]
   for _, elem in updatedNode.getElems(@[]):
-    let id = parseIdFromServer(elem.getStr(""))
+    let id = ?parseIdFromServer(elem.getStr(""))
     updated.add(id)
   let destroyedNode = node{"destroyed"}
-  checkJsonKind(destroyedNode, JArray, "ChangesResponse", "destroyed must be array")
+  ?checkJsonKind(destroyedNode, JArray, "ChangesResponse", "destroyed must be array")
   var destroyed: seq[Id] = @[]
   for _, elem in destroyedNode.getElems(@[]):
-    let id = parseIdFromServer(elem.getStr(""))
+    let id = ?parseIdFromServer(elem.getStr(""))
     destroyed.add(id)
-  ChangesResponse[T](
-    accountId: accountId,
-    oldState: oldState,
-    newState: newState,
-    hasMoreChanges: hasMoreChanges,
-    created: created,
-    updated: updated,
-    destroyed: destroyed,
+  ok(
+    ChangesResponse[T](
+      accountId: accountId,
+      oldState: oldState,
+      newState: newState,
+      hasMoreChanges: hasMoreChanges,
+      created: created,
+      updated: updated,
+      destroyed: destroyed,
+    )
   )
 
-proc fromJson*[T](R: typedesc[SetResponse[T]], node: JsonNode): SetResponse[T] =
+proc fromJson*[T](
+    R: typedesc[SetResponse[T]], node: JsonNode
+): Result[SetResponse[T], ValidationError] =
   ## Deserialise JSON arguments to SetResponse (RFC 8620 section 5.3).
   ## Merges parallel wire maps into separate success/failure tables (section 8).
   discard $R
-  checkJsonKind(node, JObject, "SetResponse")
-  let accountId = parseAccountId(node{"accountId"}.getStr(""))
-  let newState = parseJmapState(node{"newState"}.getStr(""))
+  ?checkJsonKind(node, JObject, "SetResponse")
+  let accountId = ?parseAccountId(node{"accountId"}.getStr(""))
+  let newState = ?parseJmapState(node{"newState"}.getStr(""))
   let oldState = optState(node, "oldState")
-  let (created, notCreated) = mergeCreateResults(node)
-  let (updated, notUpdated) = mergeUpdateResults(node)
-  let (destroyed, notDestroyed) = mergeDestroyResults(node)
-  SetResponse[T](
-    accountId: accountId,
-    newState: newState,
-    oldState: oldState,
-    created: created,
-    notCreated: notCreated,
-    updated: updated,
-    notUpdated: notUpdated,
-    destroyed: destroyed,
-    notDestroyed: notDestroyed,
+  let (created, notCreated) = ?mergeCreateResults(node)
+  let (updated, notUpdated) = ?mergeUpdateResults(node)
+  let (destroyed, notDestroyed) = ?mergeDestroyResults(node)
+  ok(
+    SetResponse[T](
+      accountId: accountId,
+      newState: newState,
+      oldState: oldState,
+      created: created,
+      notCreated: notCreated,
+      updated: updated,
+      notUpdated: notUpdated,
+      destroyed: destroyed,
+      notDestroyed: notDestroyed,
+    )
   )
 
-proc fromJson*[T](R: typedesc[CopyResponse[T]], node: JsonNode): CopyResponse[T] =
+proc fromJson*[T](
+    R: typedesc[CopyResponse[T]], node: JsonNode
+): Result[CopyResponse[T], ValidationError] =
   ## Deserialise JSON arguments to CopyResponse (RFC 8620 section 5.4).
   ## Merges created/notCreated wire maps into separate success/failure
   ## tables (section 8).
   discard $R
-  checkJsonKind(node, JObject, "CopyResponse")
-  let fromAccountId = parseAccountId(node{"fromAccountId"}.getStr(""))
-  let accountId = parseAccountId(node{"accountId"}.getStr(""))
-  let newState = parseJmapState(node{"newState"}.getStr(""))
+  ?checkJsonKind(node, JObject, "CopyResponse")
+  let fromAccountId = ?parseAccountId(node{"fromAccountId"}.getStr(""))
+  let accountId = ?parseAccountId(node{"accountId"}.getStr(""))
+  let newState = ?parseJmapState(node{"newState"}.getStr(""))
   let oldState = optState(node, "oldState")
-  let (created, notCreated) = mergeCreateResults(node)
-  CopyResponse[T](
-    fromAccountId: fromAccountId,
-    accountId: accountId,
-    newState: newState,
-    oldState: oldState,
-    created: created,
-    notCreated: notCreated,
+  let (created, notCreated) = ?mergeCreateResults(node)
+  ok(
+    CopyResponse[T](
+      fromAccountId: fromAccountId,
+      accountId: accountId,
+      newState: newState,
+      oldState: oldState,
+      created: created,
+      notCreated: notCreated,
+    )
   )
 
-proc fromJson*[T](R: typedesc[QueryResponse[T]], node: JsonNode): QueryResponse[T] =
+proc fromJson*[T](
+    R: typedesc[QueryResponse[T]], node: JsonNode
+): Result[QueryResponse[T], ValidationError] =
   ## Deserialise JSON arguments to QueryResponse (RFC 8620 section 5.5).
   ## ``total`` and ``limit`` use lenient Option handling (absent -> none).
   discard $R
-  checkJsonKind(node, JObject, "QueryResponse")
-  let accountId = parseAccountId(node{"accountId"}.getStr(""))
-  let queryState = parseJmapState(node{"queryState"}.getStr(""))
+  ?checkJsonKind(node, JObject, "QueryResponse")
+  let accountId = ?parseAccountId(node{"accountId"}.getStr(""))
+  let queryState = ?parseJmapState(node{"queryState"}.getStr(""))
   let cccNode = node{"canCalculateChanges"}
-  checkJsonKind(cccNode, JBool, "QueryResponse", "canCalculateChanges must be boolean")
+  ?checkJsonKind(cccNode, JBool, "QueryResponse", "canCalculateChanges must be boolean")
   let canCalculateChanges = cccNode.getBool(false)
   let posNode = node{"position"}
-  checkJsonKind(posNode, JInt, "QueryResponse", "position must be integer")
-  let position = parseUnsignedInt(posNode.getBiggestInt(0))
+  ?checkJsonKind(posNode, JInt, "QueryResponse", "position must be integer")
+  let position = ?parseUnsignedInt(posNode.getBiggestInt(0))
   let idsNode = node{"ids"}
-  checkJsonKind(idsNode, JArray, "QueryResponse", "ids must be array")
+  ?checkJsonKind(idsNode, JArray, "QueryResponse", "ids must be array")
   var ids: seq[Id] = @[]
   for _, elem in idsNode.getElems(@[]):
-    let id = parseIdFromServer(elem.getStr(""))
+    let id = ?parseIdFromServer(elem.getStr(""))
     ids.add(id)
   let total = optUnsignedInt(node, "total")
   let limit = optUnsignedInt(node, "limit")
-  QueryResponse[T](
-    accountId: accountId,
-    queryState: queryState,
-    canCalculateChanges: canCalculateChanges,
-    position: position,
-    ids: ids,
-    total: total,
-    limit: limit,
+  ok(
+    QueryResponse[T](
+      accountId: accountId,
+      queryState: queryState,
+      canCalculateChanges: canCalculateChanges,
+      position: position,
+      ids: ids,
+      total: total,
+      limit: limit,
+    )
   )
 
 proc fromJson*[T](
     R: typedesc[QueryChangesResponse[T]], node: JsonNode
-): QueryChangesResponse[T] =
+): Result[QueryChangesResponse[T], ValidationError] =
   ## Deserialise JSON arguments to QueryChangesResponse (RFC 8620 section 5.6).
   ## ``total`` uses lenient Option handling (absent -> none). ``added`` elements
   ## parsed via AddedItem.fromJson (Layer 2).
   discard $R
-  checkJsonKind(node, JObject, "QueryChangesResponse")
-  let accountId = parseAccountId(node{"accountId"}.getStr(""))
-  let oldQueryState = parseJmapState(node{"oldQueryState"}.getStr(""))
-  let newQueryState = parseJmapState(node{"newQueryState"}.getStr(""))
+  ?checkJsonKind(node, JObject, "QueryChangesResponse")
+  let accountId = ?parseAccountId(node{"accountId"}.getStr(""))
+  let oldQueryState = ?parseJmapState(node{"oldQueryState"}.getStr(""))
+  let newQueryState = ?parseJmapState(node{"newQueryState"}.getStr(""))
   let total = optUnsignedInt(node, "total")
   let removedNode = node{"removed"}
-  checkJsonKind(removedNode, JArray, "QueryChangesResponse", "removed must be array")
+  ?checkJsonKind(removedNode, JArray, "QueryChangesResponse", "removed must be array")
   var removed: seq[Id] = @[]
   for _, elem in removedNode.getElems(@[]):
-    let id = parseIdFromServer(elem.getStr(""))
+    let id = ?parseIdFromServer(elem.getStr(""))
     removed.add(id)
   let addedNode = node{"added"}
-  checkJsonKind(addedNode, JArray, "QueryChangesResponse", "added must be array")
+  ?checkJsonKind(addedNode, JArray, "QueryChangesResponse", "added must be array")
   var added: seq[AddedItem] = @[]
   for _, elem in addedNode.getElems(@[]):
-    let item = AddedItem.fromJson(elem)
+    let item = ?AddedItem.fromJson(elem)
     added.add(item)
-  QueryChangesResponse[T](
-    accountId: accountId,
-    oldQueryState: oldQueryState,
-    newQueryState: newQueryState,
-    total: total,
-    removed: removed,
-    added: added,
+  ok(
+    QueryChangesResponse[T](
+      accountId: accountId,
+      oldQueryState: oldQueryState,
+      newQueryState: newQueryState,
+      total: total,
+      removed: removed,
+      added: added,
+    )
   )

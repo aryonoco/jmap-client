@@ -77,12 +77,14 @@ srcDir = "src"
   InheritFromException
 # Off-by-default, explicitly enabled: stricter than EnumConv
 --warning:
-  AnyEnumConv:on
+  AnyEnumConv:
+    on
 --warningAsError:
   AnyEnumConv
 # Off-by-default, explicitly enabled: bare except catches Defects
 --warning:
-  BareExcept:on
+  BareExcept:
+    on
 --warningAsError:
   BareExcept
 
@@ -161,7 +163,8 @@ srcDir = "src"
   StrictNotNil
 # Off-by-default, explicitly enabled: flag ambiguous std/ imports
 --warning:
-  StdPrefix:on
+  StdPrefix:
+    on
 --warningAsError:
   StdPrefix
 
@@ -238,7 +241,8 @@ when not defined(release):
 
 # Dependencies
 
-requires "nim >= 2.2.0"
+requires "nim >= 2.2.8"
+requires "results >= 0.5.1"
 
 # Tasks
 

@@ -12,6 +12,8 @@ from std/json import JsonNode
 import ./identifiers
 import ./primitives
 
+{.push raises: [].}
+
 type Invocation* = object
   ## A method call or response tuple (RFC 8620 section 3.2). Serialised as a
   ## 3-element JSON array by Layer 2.
@@ -19,7 +21,7 @@ type Invocation* = object
   arguments*: JsonNode ## named arguments — always a JObject at the wire level
   methodCallId*: MethodCallId ## validated method call ID
 
-proc initInvocation*(
+func initInvocation*(
     name: string, arguments: JsonNode, methodCallId: MethodCallId
 ): Invocation =
   ## Construct an Invocation.
@@ -74,10 +76,10 @@ type
     of rkReference:
       reference*: ResultReference
 
-proc direct*[T](value: T): Referencable[T] =
+func direct*[T](value: T): Referencable[T] =
   ## Wraps a direct value into a Referencable.
   Referencable[T](kind: rkDirect, value: value)
 
-proc referenceTo*[T](reference: ResultReference): Referencable[T] =
+func referenceTo*[T](reference: ResultReference): Referencable[T] =
   ## Wraps a result reference into a Referencable.
   Referencable[T](kind: rkReference, reference: reference)

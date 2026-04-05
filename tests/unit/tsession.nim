@@ -12,6 +12,7 @@ import jmap_client/primitives
 import jmap_client/identifiers
 import jmap_client/capabilities
 import jmap_client/session
+import jmap_client/validation
 
 import ../massertions
 import ../mfixtures
@@ -20,7 +21,7 @@ import ../mfixtures
 # Shared fixture values
 # =============================================================================
 
-let zero = parseUnsignedInt(0)
+let zero = parseUnsignedInt(0).get()
 
 let testCoreCaps = CoreCapabilities(
   maxSizeUpload: zero,
@@ -52,8 +53,8 @@ let testAccount = Account(
 
 # Golden test session built at module level so accessor tests can reference it.
 
-let acctId1 = parseAccountId("A13824")
-let acctId2 = parseAccountId("A97813")
+let acctId1 = parseAccountId("A13824").get()
+let acctId2 = parseAccountId("A97813").get()
 
 let goldenAccount1 = Account(
   name: "john@example.com",
@@ -96,16 +97,19 @@ let goldenPrimaryAccounts = block:
   t
 
 let goldenDownloadUrl = parseUriTemplate(
-  "https://jmap.example.com/download/{accountId}/{blobId}/{name}?accept={type}"
-)
+    "https://jmap.example.com/download/{accountId}/{blobId}/{name}?accept={type}"
+  )
+  .get()
 
-let goldenUploadUrl = parseUriTemplate("https://jmap.example.com/upload/{accountId}/")
+let goldenUploadUrl =
+  parseUriTemplate("https://jmap.example.com/upload/{accountId}/").get()
 
 let goldenEventSourceUrl = parseUriTemplate(
-  "https://jmap.example.com/eventsource/?types={types}&closeafter={closeafter}&ping={ping}"
-)
+    "https://jmap.example.com/eventsource/?types={types}&closeafter={closeafter}&ping={ping}"
+  )
+  .get()
 
-let goldenState = parseJmapState("75128aab4b1b")
+let goldenState = parseJmapState("75128aab4b1b").get()
 
 let goldenCaps = @[
   ServerCapability(
@@ -128,16 +132,17 @@ let goldenCaps = @[
 ]
 
 let goldenSession = parseSession(
-  capabilities = goldenCaps,
-  accounts = goldenAccounts,
-  primaryAccounts = goldenPrimaryAccounts,
-  username = "john@example.com",
-  apiUrl = "https://jmap.example.com/api/",
-  downloadUrl = goldenDownloadUrl,
-  uploadUrl = goldenUploadUrl,
-  eventSourceUrl = goldenEventSourceUrl,
-  state = goldenState,
-)
+    capabilities = goldenCaps,
+    accounts = goldenAccounts,
+    primaryAccounts = goldenPrimaryAccounts,
+    username = "john@example.com",
+    apiUrl = "https://jmap.example.com/api/",
+    downloadUrl = goldenDownloadUrl,
+    uploadUrl = goldenUploadUrl,
+    eventSourceUrl = goldenEventSourceUrl,
+    state = goldenState,
+  )
+  .get()
 
 # =============================================================================
 # A. UriTemplate tests
@@ -147,13 +152,13 @@ block parseUriTemplateEmpty:
   assertErrFields parseUriTemplate(""), "UriTemplate", "must not be empty", ""
 
 block parseUriTemplateValid:
-  let tmpl = parseUriTemplate("https://example.com/{accountId}")
+  let tmpl = parseUriTemplate("https://example.com/{accountId}").get()
   doAssert $tmpl == "https://example.com/{accountId}"
 
 block uriTemplateBorrowedOps:
-  let a = parseUriTemplate("https://example.com/{id}")
-  let b = parseUriTemplate("https://example.com/{id}")
-  let c = parseUriTemplate("https://other.com/")
+  let a = parseUriTemplate("https://example.com/{id}").get()
+  let b = parseUriTemplate("https://example.com/{id}").get()
+  let c = parseUriTemplate("https://other.com/").get()
   doAssert a == b
   doAssert not (a == c)
   doAssert $a == "https://example.com/{id}"
@@ -161,15 +166,15 @@ block uriTemplateBorrowedOps:
   doAssert a.len == 24
 
 block hasVariablePresent:
-  let tmpl = parseUriTemplate("https://example.com/{accountId}")
+  let tmpl = parseUriTemplate("https://example.com/{accountId}").get()
   doAssert tmpl.hasVariable("accountId")
 
 block hasVariableAbsent:
-  let tmpl = parseUriTemplate("https://example.com/{accountId}")
+  let tmpl = parseUriTemplate("https://example.com/{accountId}").get()
   doAssert not tmpl.hasVariable("nonexistent")
 
 block hasVariablePartialMatch:
-  let tmpl = parseUriTemplate("https://example.com/{accountId}")
+  let tmpl = parseUriTemplate("https://example.com/{accountId}").get()
   doAssert not tmpl.hasVariable("account")
 
 # =============================================================================
@@ -255,7 +260,7 @@ block parseSessionApiUrlNewline:
 
 block parseSessionDownloadUrlMissingBlobId:
   let badDownload =
-    parseUriTemplate("https://example.com/{accountId}/{name}?accept={type}")
+    parseUriTemplate("https://example.com/{accountId}/{name}?accept={type}").get()
   assertErrFields parseSession(
     capabilities = goldenCaps,
     accounts = goldenAccounts,
@@ -273,7 +278,7 @@ block parseSessionDownloadUrlMissingBlobId:
 
 block parseSessionDownloadUrlMissingAccountId:
   let badDownload =
-    parseUriTemplate("https://example.com/{blobId}/{name}?accept={type}")
+    parseUriTemplate("https://example.com/{blobId}/{name}?accept={type}").get()
   assertErrFields parseSession(
     capabilities = goldenCaps,
     accounts = goldenAccounts,
@@ -290,7 +295,7 @@ block parseSessionDownloadUrlMissingAccountId:
     "https://example.com/{blobId}/{name}?accept={type}"
 
 block parseSessionUploadUrlMissingAccountId:
-  let badUpload = parseUriTemplate("https://example.com/upload/")
+  let badUpload = parseUriTemplate("https://example.com/upload/").get()
   assertErrFields parseSession(
     capabilities = goldenCaps,
     accounts = goldenAccounts,
@@ -304,8 +309,10 @@ block parseSessionUploadUrlMissingAccountId:
   ), "Session", "uploadUrl missing {accountId}", "https://example.com/upload/"
 
 block parseSessionEventSourceUrlMissingTypes:
-  let badEvent =
-    parseUriTemplate("https://example.com/events?closeafter={closeafter}&ping={ping}")
+  let badEvent = parseUriTemplate(
+      "https://example.com/events?closeafter={closeafter}&ping={ping}"
+    )
+    .get()
   assertErrFields parseSession(
     capabilities = goldenCaps,
     accounts = goldenAccounts,
@@ -322,8 +329,10 @@ block parseSessionEventSourceUrlMissingTypes:
     "https://example.com/events?closeafter={closeafter}&ping={ping}"
 
 block parseSessionEventSourceUrlMissingPing:
-  let badEvent =
-    parseUriTemplate("https://example.com/events?types={types}&closeafter={closeafter}")
+  let badEvent = parseUriTemplate(
+      "https://example.com/events?types={types}&closeafter={closeafter}"
+    )
+    .get()
   assertErrFields parseSession(
     capabilities = goldenCaps,
     accounts = goldenAccounts,
@@ -341,16 +350,17 @@ block parseSessionEventSourceUrlMissingPing:
 
 block parseSessionValid:
   let s = parseSession(
-    capabilities = goldenCaps,
-    accounts = goldenAccounts,
-    primaryAccounts = goldenPrimaryAccounts,
-    username = "john@example.com",
-    apiUrl = "https://jmap.example.com/api/",
-    downloadUrl = goldenDownloadUrl,
-    uploadUrl = goldenUploadUrl,
-    eventSourceUrl = goldenEventSourceUrl,
-    state = goldenState,
-  )
+      capabilities = goldenCaps,
+      accounts = goldenAccounts,
+      primaryAccounts = goldenPrimaryAccounts,
+      username = "john@example.com",
+      apiUrl = "https://jmap.example.com/api/",
+      downloadUrl = goldenDownloadUrl,
+      uploadUrl = goldenUploadUrl,
+      eventSourceUrl = goldenEventSourceUrl,
+      state = goldenState,
+    )
+    .get()
   doAssert s.username == "john@example.com"
   doAssert s.apiUrl == "https://jmap.example.com/api/"
   doAssert s.state == goldenState
@@ -429,7 +439,7 @@ block parseSessionDuplicateCkCore:
   )
 
 block parseSessionNestedBraces:
-  let dl = parseUriTemplate("https://e.com/{{accountId}}/{blobId}/{type}/{name}")
+  let dl = parseUriTemplate("https://e.com/{{accountId}}/{blobId}/{type}/{name}").get()
   let args = makeSessionArgs()
   assertOk parseSession(
     capabilities = args.capabilities,
@@ -448,7 +458,7 @@ block parseSessionNestedBraces:
 # =============================================================================
 
 block parseSessionDownloadUrlMissingType:
-  let badDl = parseUriTemplate("https://e.com/{accountId}/{blobId}/{name}")
+  let badDl = parseUriTemplate("https://e.com/{accountId}/{blobId}/{name}").get()
   let args = makeSessionArgs()
   assertErrFields parseSession(
     capabilities = args.capabilities,
@@ -464,7 +474,7 @@ block parseSessionDownloadUrlMissingType:
     "Session", "downloadUrl missing {type}", "https://e.com/{accountId}/{blobId}/{name}"
 
 block parseSessionDownloadUrlMissingName:
-  let badDl = parseUriTemplate("https://e.com/{accountId}/{blobId}?accept={type}")
+  let badDl = parseUriTemplate("https://e.com/{accountId}/{blobId}?accept={type}").get()
   let args = makeSessionArgs()
   assertErrFields parseSession(
     capabilities = args.capabilities,
@@ -482,7 +492,7 @@ block parseSessionDownloadUrlMissingName:
     "https://e.com/{accountId}/{blobId}?accept={type}"
 
 block parseSessionEventSourceMissingCloseafter:
-  let badEs = parseUriTemplate("https://e.com/events?types={types}&ping={ping}")
+  let badEs = parseUriTemplate("https://e.com/events?types={types}&ping={ping}").get()
   let args = makeSessionArgs()
   assertErrFields parseSession(
     capabilities = args.capabilities,
@@ -550,12 +560,12 @@ block parseSessionWhitespaceOnlyApiUrl:
 block hasVariablePrefixOfLongerName:
   ## Template "{accountIdFull}" does NOT match variable "accountId" because
   ## hasVariable checks for the exact "{accountId}" substring.
-  let tmpl = parseUriTemplate("https://e.com/{accountIdFull}")
+  let tmpl = parseUriTemplate("https://e.com/{accountIdFull}").get()
   doAssert not hasVariable(tmpl, "accountId")
 
 block hasVariableSuffixOfLongerName:
   ## Template "{fullAccountId}" does NOT contain "{accountId}" as substring.
-  let tmpl = parseUriTemplate("https://e.com/{fullAccountId}")
+  let tmpl = parseUriTemplate("https://e.com/{fullAccountId}").get()
   doAssert not hasVariable(tmpl, "accountId")
 
 # =============================================================================
@@ -566,8 +576,9 @@ block parseSessionExtraDownloadVariables:
   ## RFC 6570 allows extra variables beyond the required set.
   let args = makeSessionArgs()
   let extraUrl = parseUriTemplate(
-    "https://example.com/{accountId}/{blobId}/{name}?accept={type}&extra={foo}"
-  )
+      "https://example.com/{accountId}/{blobId}/{name}?accept={type}&extra={foo}"
+    )
+    .get()
   let res = parseSession(
     args.capabilities, args.accounts, args.primaryAccounts, args.username, args.apiUrl,
     extraUrl, args.uploadUrl, args.eventSourceUrl, args.state,
@@ -665,6 +676,6 @@ block accountHasCapabilityCkUnknown:
 
 block parseUriTemplateSingleChar:
   ## parseUriTemplate accepts a single-character string.
-  let tmpl = parseUriTemplate("x")
+  let tmpl = parseUriTemplate("x").get()
   assertOk tmpl
   doAssert $tmpl == "x"

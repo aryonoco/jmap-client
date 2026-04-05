@@ -11,6 +11,7 @@ import jmap_client/primitives
 import jmap_client/capabilities
 import jmap_client/errors
 import jmap_client/serde_errors
+import jmap_client/validation
 import ../mproperty
 
 block propParseCapabilityKindTotality:
@@ -180,7 +181,7 @@ block propClientErrorLiftTransport:
     let ce = clientError(te)
     doAssert ce.kind == cekTransport
     doAssert ce.transport.kind == te.kind
-    doAssert ce.transport.msg == te.msg
+    doAssert ce.transport.message == te.message
     if te.kind == tekHttpStatus:
       doAssert ce.transport.httpStatus == te.httpStatus
 
@@ -216,7 +217,7 @@ block propSetErrorInvalidPropertiesFieldPreservation:
 block propSetErrorAlreadyExistsFieldPreservation:
   checkProperty "alreadyExists variant preserves existingId field":
     let idStr = genValidIdStrict(rng, minLen = 1, maxLen = 20)
-    let id = parseId(idStr)
+    let id = parseId(idStr).get()
     let desc =
       if rng.rand(0 .. 1) == 0:
         some("desc-" & $rng.rand(0 .. 99))
@@ -263,7 +264,7 @@ block propRequestErrorExtrasPreservation:
     let re = genRequestError(rng)
     lastInput = re.rawType
     let j = re.toJson()
-    let rt = RequestError.fromJson(j)
+    let rt = RequestError.fromJson(j).get()
     # If original had extras, verify they survived.
     if re.extras.isSome:
       doAssert rt.extras.isSome, "extras lost in round-trip"
@@ -279,7 +280,7 @@ block propMethodErrorExtrasPreservation:
     let me = genMethodError(rng)
     lastInput = me.rawType
     let j = me.toJson()
-    let rt = MethodError.fromJson(j)
+    let rt = MethodError.fromJson(j).get()
     if me.extras.isSome:
       doAssert rt.extras.isSome, "extras lost in round-trip"
       for key, val in me.extras.get().pairs:
@@ -292,7 +293,7 @@ block propSetErrorExtrasPreservation:
     let se = genSetError(rng)
     lastInput = se.rawType
     let j = se.toJson()
-    let rt = SetError.fromJson(j)
+    let rt = SetError.fromJson(j).get()
     if se.extras.isSome:
       doAssert rt.extras.isSome, "extras lost in round-trip"
       for key, val in se.extras.get().pairs:

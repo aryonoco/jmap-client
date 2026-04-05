@@ -50,16 +50,16 @@ block primitiveRoundTrips:
   let pn = makePropertyName()
   assertOkEq PropertyName.fromJson(pn.toJson()), pn
 
-  let d = parseDate("2014-10-30T14:12:00+08:00")
+  let d = parseDate("2014-10-30T14:12:00+08:00").get()
   assertOkEq Date.fromJson(d.toJson()), d
 
-  let ud = parseUtcDate("2014-10-30T06:12:00Z")
+  let ud = parseUtcDate("2014-10-30T06:12:00Z").get()
   assertOkEq UTCDate.fromJson(ud.toJson()), ud
 
   let ui = zeroUint()
   assertOkEq UnsignedInt.fromJson(ui.toJson()), ui
 
-  let ji = parseJmapInt(42)
+  let ji = parseJmapInt(42).get()
   assertOkEq JmapInt.fromJson(ji.toJson()), ji
 
 # =============================================================================
@@ -68,7 +68,7 @@ block primitiveRoundTrips:
 
 block sessionTypes:
   let caps = zeroCoreCaps()
-  let rtCaps = CoreCapabilities.fromJson(caps.toJson())
+  let rtCaps = CoreCapabilities.fromJson(caps.toJson()).get()
   doAssert coreCapEq(rtCaps, caps), "CoreCapabilities round-trip values differ"
 
   let acct =
@@ -133,12 +133,13 @@ block allTypePairsAccessible:
   ## Every toJson/fromJson pair callable through the serialisation re-export.
   # ServerCapability (requires uri parameter)
   let capData = newJObject()
-  let cap = ServerCapability.fromJson("urn:ietf:params:jmap:mail", capData)
+  let cap = ServerCapability.fromJson("urn:ietf:params:jmap:mail", capData).get()
   discard cap.toJson()
   # AccountCapabilityEntry (requires uri parameter)
-  let entry = AccountCapabilityEntry.fromJson("urn:ietf:params:jmap:mail", newJObject())
+  let entry =
+    AccountCapabilityEntry.fromJson("urn:ietf:params:jmap:mail", newJObject()).get()
   discard entry.toJson()
   # Session (full round-trip via golden JSON)
   let sj = goldenSessionJson()
-  let session = Session.fromJson(sj)
+  let session = Session.fromJson(sj).get()
   discard session.toJson()

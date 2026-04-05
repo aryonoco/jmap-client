@@ -29,9 +29,10 @@ block scenarioSessionToRequest:
   ## then construct a Mailbox/get Request with the correct AccountId.
   let args = makeFastmailSession()
   let session = parseSession(
-    args.capabilities, args.accounts, args.primaryAccounts, args.username, args.apiUrl,
-    args.downloadUrl, args.uploadUrl, args.eventSourceUrl, args.state,
-  )
+      args.capabilities, args.accounts, args.primaryAccounts, args.username,
+      args.apiUrl, args.downloadUrl, args.uploadUrl, args.eventSourceUrl, args.state,
+    )
+    .get()
 
   # Extract primary account for mail
   let mailAcctId = session.primaryAccount(ckMail)
@@ -45,7 +46,7 @@ block scenarioSessionToRequest:
 
   # Verify core limits
   let core = session.coreCapabilities()
-  doAssert core.maxCallsInRequest == parseUnsignedInt(32)
+  doAssert core.maxCallsInRequest == parseUnsignedInt(32).get()
 
   # Construct a Request
   let mcid = makeMcid("c0")
@@ -157,7 +158,7 @@ block scenarioRequestRejectionCascade:
   )
   let ce = clientError(re)
   doAssert ce.kind == cekRequest
-  doAssert ce.message == "Too many method calls"
+  doAssert ce.request.detail.get() == "Too many method calls"
 
 block scenarioMessageCascadePriority:
   ## ClientError.message cascade: detail > title > rawType.
@@ -167,15 +168,15 @@ block scenarioMessageCascadePriority:
     title = some("Not JSON"),
     detail = some("Body is not valid JSON"),
   )
-  doAssert clientError(re1).message == "Body is not valid JSON"
+  doAssert errors.message(clientError(re1)) == "Body is not valid JSON"
 
   # detail absent, title present
   let re2 = requestError("urn:ietf:params:jmap:error:notJSON", title = some("Not JSON"))
-  doAssert clientError(re2).message == "Not JSON"
+  doAssert errors.message(clientError(re2)) == "Not JSON"
 
   # both absent, falls back to rawType
   let re3 = requestError("urn:ietf:params:jmap:error:notJSON")
-  doAssert clientError(re3).message == "urn:ietf:params:jmap:error:notJSON"
+  doAssert errors.message(clientError(re3)) == "urn:ietf:params:jmap:error:notJSON"
 
 block scenarioMethodErrorInResponse:
   ## Track 2: Method error within a successful response.
@@ -235,9 +236,10 @@ block scenarioFastmailSession:
   ## Fastmail-style session: multiple capabilities including vendor extensions.
   let args = makeFastmailSession()
   let session = parseSession(
-    args.capabilities, args.accounts, args.primaryAccounts, args.username, args.apiUrl,
-    args.downloadUrl, args.uploadUrl, args.eventSourceUrl, args.state,
-  )
+      args.capabilities, args.accounts, args.primaryAccounts, args.username,
+      args.apiUrl, args.downloadUrl, args.uploadUrl, args.eventSourceUrl, args.state,
+    )
+    .get()
 
   # Verify vendor extension accessible by URI
   let vendorCap = session.findCapabilityByUri("https://www.fastmail.com/dev/contacts")
@@ -263,14 +265,15 @@ block scenarioMinimalSession:
   ## Bare minimum session: ckCore only, no accounts, no primary accounts.
   let args = makeMinimalSession()
   let session = parseSession(
-    args.capabilities, args.accounts, args.primaryAccounts, args.username, args.apiUrl,
-    args.downloadUrl, args.uploadUrl, args.eventSourceUrl, args.state,
-  )
+      args.capabilities, args.accounts, args.primaryAccounts, args.username,
+      args.apiUrl, args.downloadUrl, args.uploadUrl, args.eventSourceUrl, args.state,
+    )
+    .get()
   doAssert session.accounts.len == 0
   doAssert session.primaryAccounts.len == 0
   doAssert session.username == ""
   let core = session.coreCapabilities()
-  doAssert core.maxSizeUpload == parseUnsignedInt(0)
+  doAssert core.maxSizeUpload == parseUnsignedInt(0).get()
 
 block scenarioMultiTenantAccounts:
   ## Session with multiple accounts, different capability subsets.
@@ -288,9 +291,10 @@ block scenarioMultiTenantAccounts:
   primaryAccounts["urn:ietf:params:jmap:mail"] = makeAccountId("acct1")
 
   let session = parseSession(
-    args.capabilities, accounts, primaryAccounts, args.username, args.apiUrl,
-    args.downloadUrl, args.uploadUrl, args.eventSourceUrl, args.state,
-  )
+      args.capabilities, accounts, primaryAccounts, args.username, args.apiUrl,
+      args.downloadUrl, args.uploadUrl, args.eventSourceUrl, args.state,
+    )
+    .get()
 
   doAssert session.accounts.len == 5
   let acct3 = session.findAccount(makeAccountId("acct3"))
@@ -310,9 +314,10 @@ block scenarioSessionAccountCapabilityChain:
   ## Accessor chain: Session -> Account -> findCapability -> AccountCapabilityEntry.
   let args = makeFastmailSession()
   let session = parseSession(
-    args.capabilities, args.accounts, args.primaryAccounts, args.username, args.apiUrl,
-    args.downloadUrl, args.uploadUrl, args.eventSourceUrl, args.state,
-  )
+      args.capabilities, args.accounts, args.primaryAccounts, args.username,
+      args.apiUrl, args.downloadUrl, args.uploadUrl, args.eventSourceUrl, args.state,
+    )
+    .get()
   let acctId = session.primaryAccount(ckMail).get()
   let account = session.findAccount(acctId).get()
   let mailCap = account.findCapability(ckMail)
@@ -435,7 +440,7 @@ block scenarioResponseWithErrorInvocation:
 block scenarioHasVariableEmptyString:
   ## hasVariable with empty name searches for "{}" — not present in typical
   ## templates, so returns false. Documents the wrapping semantics.
-  let tmpl = parseUriTemplate("https://example.com/{accountId}")
+  let tmpl = parseUriTemplate("https://example.com/{accountId}").get()
   doAssert not tmpl.hasVariable(""), "empty variable name searches for '{}'"
 
 block scenarioFindAccountEmptyTable:
@@ -452,7 +457,7 @@ block filterWithPropertyNameType:
   ## Filter parameterised with a validated domain type (PropertyName) as string.
   ## Note: PropertyName has {.requiresInit.}, so Filter[PropertyName] cannot be
   ## used directly (seq requires a default value). We verify the name round-trips.
-  let pn = parsePropertyName("subject")
+  let pn = parsePropertyName("subject").get()
   let pnStr = $pn
   let f = filterCondition(pnStr)
   doAssert f.kind == fkCondition
@@ -462,8 +467,8 @@ block filterWithAccountIdType:
   ## Filter parameterised with string — using AccountId string representations
   ## to verify Filter composition across module boundaries. Direct use of
   ## requiresInit distinct types as Filter[C] triggers seq default-value issues.
-  let acctStr1 = $parseAccountId("acct1")
-  let acctStr2 = $parseAccountId("acct2")
+  let acctStr1 = $parseAccountId("acct1").get()
+  let acctStr2 = $parseAccountId("acct2").get()
   let f = filterCondition(acctStr1)
   let f2 = filterCondition(acctStr2)
   let combined = filterOperator[string](foAnd, @[f, f2])
@@ -495,14 +500,15 @@ block sessionToRequestIntegration:
     capUris.add cap.rawUri
   let req = Request(
     `using`: capUris,
-    methodCalls: @[initInvocation("Mailbox/get", newJObject(), parseMethodCallId("c0"))],
+    methodCalls:
+      @[initInvocation("Mailbox/get", newJObject(), parseMethodCallId("c0").get())],
     createdIds: none(Table[CreationId, Id]),
   )
   doAssert req.`using`.len == capUris.len
 
 block resultReferenceWithPriorInvocation:
   ## Build a ResultReference that references a prior Invocation's MethodCallId.
-  let mcid1 = parseMethodCallId("c1")
+  let mcid1 = parseMethodCallId("c1").get()
   let inv1 = initInvocation("Email/query", newJObject(), mcid1)
   let ref1 = ResultReference(resultOf: mcid1, name: "Email/query", path: RefPathIds)
   doAssert ref1.resultOf == inv1.methodCallId

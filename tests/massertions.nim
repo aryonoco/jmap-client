@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: BSD-2-Clause
 # Copyright (c) 2026 Aryan Ameri
 
-## Template-based assertion helpers for exceptions, Option, and JSON types.
+## Template-based assertion helpers for Result, Option, and JSON types.
 ## Templates ensure line numbers point to the calling test block on failure.
 
 import std/strutils
@@ -16,45 +16,39 @@ import ./mfixtures
 {.push ruleOff: "hasDoc".}
 
 template assertOk*(expr: untyped) =
-  ## Evaluates expr, discarding the result. Success = no exception raised.
-  discard expr
+  ## Verifies a Result is ok, or that an expression evaluates without panic.
+  when compiles(expr.isOk):
+    let res = expr
+    doAssert res.isOk, "expected Ok result, got Err"
+  else:
+    discard expr
 
 template assertErr*(expr: untyped) =
-  ## Verifies that expr raises a ValidationError.
-  doAssertRaises(ref ValidationError):
-    discard expr
+  ## Verifies a Result is err.
+  let res = expr
+  doAssert res.isErr, "expected Err result, got Ok"
 
 template assertErrFields*(expr: untyped, tn, expectedMsg, val: string) =
-  ## Verifies expr raises ValidationError with specific fields.
-  var caught = false
-  try:
-    discard expr
-  except ValidationError as e:
-    caught = true
-    doAssert e.typeName == tn, "typeName: expected " & tn & ", got " & e.typeName
-    doAssert e.msg == expectedMsg, "message: expected " & expectedMsg & ", got " & e.msg
-    doAssert e.value == val, "value: expected " & val & ", got " & e.value
-  doAssert caught, "expected ValidationError, but no exception was raised"
+  ## Verifies error fields on a Result.
+  let res = expr
+  doAssert res.isErr, "expected Err result, got Ok"
+  let e = res.error
+  doAssert e.typeName == tn, "typeName: expected " & tn & ", got " & e.typeName
+  doAssert e.message == expectedMsg,
+    "message: expected " & expectedMsg & ", got " & e.message
+  doAssert e.value == val, "value: expected " & val & ", got " & e.value
 
 template assertErrType*(expr: untyped, tn: string) =
-  ## Verifies the typeName field of a raised ValidationError.
-  var caught = false
-  try:
-    discard expr
-  except ValidationError as e:
-    caught = true
-    doAssert e.typeName == tn
-  doAssert caught, "expected ValidationError, but no exception was raised"
+  ## Verifies the typeName field of a Result error.
+  let res = expr
+  doAssert res.isErr, "expected Err result, got Ok"
+  doAssert res.error.typeName == tn
 
 template assertErrMsg*(expr: untyped, expectedMsg: string) =
-  ## Verifies the message field of a raised ValidationError exactly.
-  var caught = false
-  try:
-    discard expr
-  except ValidationError as e:
-    caught = true
-    doAssert e.msg == expectedMsg
-  doAssert caught, "expected ValidationError, but no exception was raised"
+  ## Verifies the message field of a Result error.
+  let res = expr
+  doAssert res.isErr, "expected Err result, got Ok"
+  doAssert res.error.message == expectedMsg
 
 template assertSome*(o: untyped) =
   doAssert o.isSome, "expected Some, got None"
@@ -69,20 +63,18 @@ template assertEq*(actual, expected: untyped) =
   doAssert a == e, "expected " & $e & ", got " & $a
 
 template assertErrContains*(expr: untyped, substring: string) =
-  ## Verifies the message field of a raised ValidationError contains a substring.
-  var caught = false
-  try:
-    discard expr
-  except ValidationError as e:
-    caught = true
-    let m = e.msg
-    doAssert strutils.contains(m, substring),
-      "expected message containing '" & substring & "', got '" & m & "'"
-  doAssert caught, "expected ValidationError, but no exception was raised"
+  ## Verifies the message field of a Result error contains a substring.
+  let res = expr
+  doAssert res.isErr, "expected Err result, got Ok"
+  let m = res.error.message
+  doAssert strutils.contains(m, substring),
+    "expected message containing '" & substring & "', got '" & m & "'"
 
 template assertOkEq*(expr: untyped, expected: untyped) =
-  ## Evaluates expr and verifies its value equals expected.
-  let v = expr
+  ## Evaluates expr (Result) and verifies its Ok value equals expected.
+  let res = expr
+  doAssert res.isOk, "expected Ok result, got Err"
+  let v = res.get()
   let e = expected
   doAssert v == e, "expected " & $e & ", got " & $v
 

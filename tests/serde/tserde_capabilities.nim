@@ -11,6 +11,7 @@ import std/tables
 import jmap_client/serde_session
 import jmap_client/primitives
 import jmap_client/capabilities
+import jmap_client/validation
 import jmap_client/session
 
 import ../massertions
@@ -57,7 +58,7 @@ block coreCapabilitiesDeserValid:
     "maxObjectsInSet": 128,
     "collationAlgorithms": ["i;ascii-numeric"],
   }
-  let caps = CoreCapabilities.fromJson(j)
+  let caps = CoreCapabilities.fromJson(j).get()
   assertEq int64(caps.maxSizeUpload), 50000000'i64
   assertEq int64(caps.maxCallsInRequest), 32'i64
   doAssert caps.collationAlgorithms.contains("i;ascii-numeric")
@@ -111,7 +112,7 @@ block coreCapabilitiesDeserEmptyCollation:
     "maxObjectsInSet": 1,
     "collationAlgorithms": [],
   }
-  let r = CoreCapabilities.fromJson(j)
+  let r = CoreCapabilities.fromJson(j).get()
   assertEq r.collationAlgorithms.len, 0
 
 block coreCapabilitiesDeserCollationNonString:
@@ -158,7 +159,7 @@ block coreCapabilitiesDeserSingularOnly:
     "maxObjectsInSet": 1,
     "collationAlgorithms": [],
   }
-  let r = CoreCapabilities.fromJson(j)
+  let r = CoreCapabilities.fromJson(j).get()
   assertEq int64(r.maxConcurrentRequests), 5'i64
 
 block coreCapabilitiesDeserBothDifferentValues:
@@ -173,7 +174,7 @@ block coreCapabilitiesDeserBothDifferentValues:
     "maxObjectsInSet": 1,
     "collationAlgorithms": [],
   }
-  let r = CoreCapabilities.fromJson(j)
+  let r = CoreCapabilities.fromJson(j).get()
   # Plural form takes precedence
   assertEq int64(r.maxConcurrentRequests), 10'i64
 
@@ -195,7 +196,8 @@ block coreCapabilitiesDeserNeitherPresent:
 
 block roundTripServerCapabilityCkCore:
   let original = makeCoreServerCap(realisticCoreCaps())
-  assertCapOkEq ServerCapability.fromJson(original.rawUri, original.toJson()), original
+  assertCapOkEq ServerCapability.fromJson(original.rawUri, original.toJson()).get(),
+    original
 
 block serverCapabilityDeserCkCoreValid:
   let j = %*{
@@ -208,7 +210,7 @@ block serverCapabilityDeserCkCoreValid:
     "maxObjectsInSet": 1,
     "collationAlgorithms": [],
   }
-  let r = ServerCapability.fromJson("urn:ietf:params:jmap:core", j)
+  let r = ServerCapability.fromJson("urn:ietf:params:jmap:core", j).get()
   doAssert r.kind == ckCore
   assertEq r.rawUri, "urn:ietf:params:jmap:core"
 
@@ -218,13 +220,13 @@ block serverCapabilityDeserCkCoreMissingField:
 
 block serverCapabilityDeserUnknownUri:
   let data = %*{"maxFoosFinangled": 42}
-  let cap = ServerCapability.fromJson("https://vendor.example/ext", data)
+  let cap = ServerCapability.fromJson("https://vendor.example/ext", data).get()
   doAssert cap.kind == ckUnknown
   assertEq cap.rawUri, "https://vendor.example/ext"
   doAssert cap.rawData{"maxFoosFinangled"} != nil
 
 block serverCapabilityDeserKnownNonCoreUri:
-  let r = ServerCapability.fromJson("urn:ietf:params:jmap:mail", newJObject())
+  let r = ServerCapability.fromJson("urn:ietf:params:jmap:mail", newJObject()).get()
   doAssert r.kind == ckMail
 
 block serverCapabilityToJsonCkCoreStructure:
@@ -270,7 +272,7 @@ block serverCapabilityAllVariantsDeserRoundTrip:
     ("urn:ietf:params:jmap:sieve", ckSieve),
   ]
   for (uri, expectedKind) in variants:
-    let r = ServerCapability.fromJson(uri, testData)
+    let r = ServerCapability.fromJson(uri, testData).get()
     doAssert r.kind == expectedKind, "wrong kind for " & uri
     assertEq r.rawUri, uri
     # Verify rawData preserved (deep copy)
@@ -284,8 +286,8 @@ block serverCapabilityArcSharedRefSafety:
   ## must not cause ARC double-free on destruction.
   let sharedData = %*{"shared": 42, "nested": {"a": 1}}
   # Both capabilities point to the same JsonNode — ownData() must deep-copy
-  let r1 = ServerCapability.fromJson("urn:ietf:params:jmap:mail", sharedData)
-  let r2 = ServerCapability.fromJson("urn:ietf:params:jmap:contacts", sharedData)
+  let r1 = ServerCapability.fromJson("urn:ietf:params:jmap:mail", sharedData).get()
+  let r2 = ServerCapability.fromJson("urn:ietf:params:jmap:contacts", sharedData).get()
   # Verify they are independent copies, not the same ref
   let json1 = r1.toJson()
   let json2 = r2.toJson()
@@ -306,7 +308,7 @@ block coreCapabilitiesDeserMaxUnsignedIntBoundary:
     "maxObjectsInSet": 1,
     "collationAlgorithms": [],
   }
-  let r = CoreCapabilities.fromJson(j)
+  let r = CoreCapabilities.fromJson(j).get()
   assertEq int64(r.maxSizeUpload), maxVal
 
 block coreCapabilitiesCollationDuplicatesDeduplication:
@@ -321,19 +323,19 @@ block coreCapabilitiesCollationDuplicatesDeduplication:
     "maxObjectsInSet": 1,
     "collationAlgorithms": ["i;ascii-casemap", "i;ascii-casemap", "i;octet"],
   }
-  let r = CoreCapabilities.fromJson(j)
+  let r = CoreCapabilities.fromJson(j).get()
   assertEq r.collationAlgorithms.len, 2
 
 block serverCapabilityNestedRawDataRoundTrip:
   let data = %*{"foo": {"bar": [1, 2, {"baz": true}]}}
-  let cap = ServerCapability.fromJson("https://vendor.example/ext", data)
-  let rt = ServerCapability.fromJson(cap.rawUri, cap.toJson())
+  let cap = ServerCapability.fromJson("https://vendor.example/ext", data).get()
+  let rt = ServerCapability.fromJson(cap.rawUri, cap.toJson()).get()
   doAssert rt.rawData == data
 
 block serverCapabilityJNullData:
   ## Documents behaviour when server sends null for capability data.
   ## JNull is non-nil, stored as-is in rawData.
-  let r = ServerCapability.fromJson("urn:ietf:params:jmap:mail", newJNull())
+  let r = ServerCapability.fromJson("urn:ietf:params:jmap:mail", newJNull()).get()
   doAssert r.rawData.kind == JNull
 
 # =============================================================================
@@ -345,7 +347,7 @@ block serverCapabilityOwnDataMutationIsolation:
   ## then mutate the original JsonNode and verify the capability's rawData
   ## field is unaffected (proving ownData deep-copies).
   let sharedData = %*{"key": "original", "nested": {"inner": 42}}
-  let cap = ServerCapability.fromJson("urn:ietf:params:jmap:mail", sharedData)
+  let cap = ServerCapability.fromJson("urn:ietf:params:jmap:mail", sharedData).get()
   # Mutate the original shared JsonNode
   sharedData["key"] = %"mutated"
   sharedData["nested"]["inner"] = %999
@@ -368,10 +370,10 @@ block collationAlgorithmsLarge1000:
   for i in 0 ..< 1000:
     algArr.add(%("alg" & $i))
   j["collationAlgorithms"] = algArr
-  let r = CoreCapabilities.fromJson(j)
+  let r = CoreCapabilities.fromJson(j).get()
   assertEq r.collationAlgorithms.len, 1000
   # Round-trip
-  let rt = CoreCapabilities.fromJson(r.toJson())
+  let rt = CoreCapabilities.fromJson(r.toJson()).get()
   assertEq rt.collationAlgorithms.len, 1000
 
 # =============================================================================
@@ -384,7 +386,7 @@ checkProperty "CoreCapabilities round-trip":
 
 checkProperty "ServerCapability round-trip":
   let cap = rng.genServerCapability()
-  assertCapOkEq ServerCapability.fromJson(cap.rawUri, cap.toJson()), cap
+  assertCapOkEq ServerCapability.fromJson(cap.rawUri, cap.toJson()).get(), cap
 
 # =============================================================================
 # G. Equality helper verification

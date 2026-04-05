@@ -5,6 +5,8 @@
 ## ServerCapability, AccountCapabilityEntry, Account, and Session
 ## (RFC 8620 section 2).
 
+{.push raises: [].}
+
 import std/json
 import std/options
 import std/sets
@@ -33,40 +35,44 @@ proc toJson*(caps: CoreCapabilities): JsonNode =
     algArr.add(%alg)
   result["collationAlgorithms"] = algArr
 
-proc fromJson*(T: typedesc[CoreCapabilities], node: JsonNode): CoreCapabilities =
+proc fromJson*(
+    T: typedesc[CoreCapabilities], node: JsonNode
+): Result[CoreCapabilities, ValidationError] =
   ## Deserialise urn:ietf:params:jmap:core capability data.
-  checkJsonKind(node, JObject, $T)
-  let maxSizeUpload = UnsignedInt.fromJson(node{"maxSizeUpload"})
-  let maxConcurrentUpload = UnsignedInt.fromJson(node{"maxConcurrentUpload"})
-  let maxSizeRequest = UnsignedInt.fromJson(node{"maxSizeRequest"})
+  ?checkJsonKind(node, JObject, $T)
+  let maxSizeUpload = ?UnsignedInt.fromJson(node{"maxSizeUpload"})
+  let maxConcurrentUpload = ?UnsignedInt.fromJson(node{"maxConcurrentUpload"})
+  let maxSizeRequest = ?UnsignedInt.fromJson(node{"maxSizeRequest"})
   # Decision D2.6: accept both singular and plural forms (RFC §2.1 typo)
   let maxConcurrentRequests = block:
     let plural = node{"maxConcurrentRequests"}
     let singular = node{"maxConcurrentRequest"}
     if plural.isNil and singular.isNil:
-      raise parseError($T, "missing maxConcurrentRequests")
+      return err(parseError($T, "missing maxConcurrentRequests"))
     let chosen = if plural.isNil: singular else: plural
-    UnsignedInt.fromJson(chosen)
-  let maxCallsInRequest = UnsignedInt.fromJson(node{"maxCallsInRequest"})
-  let maxObjectsInGet = UnsignedInt.fromJson(node{"maxObjectsInGet"})
-  let maxObjectsInSet = UnsignedInt.fromJson(node{"maxObjectsInSet"})
+    ?UnsignedInt.fromJson(chosen)
+  let maxCallsInRequest = ?UnsignedInt.fromJson(node{"maxCallsInRequest"})
+  let maxObjectsInGet = ?UnsignedInt.fromJson(node{"maxObjectsInGet"})
+  let maxObjectsInSet = ?UnsignedInt.fromJson(node{"maxObjectsInSet"})
   let collationAlgorithms = block:
     let arr = node{"collationAlgorithms"}
-    checkJsonKind(arr, JArray, $T, "missing or invalid collationAlgorithms")
+    ?checkJsonKind(arr, JArray, $T, "missing or invalid collationAlgorithms")
     var algs: seq[string] = @[]
     for elem in arr.getElems(@[]):
-      checkJsonKind(elem, JString, $T, "collationAlgorithms element must be string")
+      ?checkJsonKind(elem, JString, $T, "collationAlgorithms element must be string")
       algs.add(elem.getStr(""))
     toHashSet(algs)
-  CoreCapabilities(
-    maxSizeUpload: maxSizeUpload,
-    maxConcurrentUpload: maxConcurrentUpload,
-    maxSizeRequest: maxSizeRequest,
-    maxConcurrentRequests: maxConcurrentRequests,
-    maxCallsInRequest: maxCallsInRequest,
-    maxObjectsInGet: maxObjectsInGet,
-    maxObjectsInSet: maxObjectsInSet,
-    collationAlgorithms: collationAlgorithms,
+  ok(
+    CoreCapabilities(
+      maxSizeUpload: maxSizeUpload,
+      maxConcurrentUpload: maxConcurrentUpload,
+      maxSizeRequest: maxSizeRequest,
+      maxConcurrentRequests: maxConcurrentRequests,
+      maxCallsInRequest: maxCallsInRequest,
+      maxObjectsInGet: maxObjectsInGet,
+      maxObjectsInSet: maxObjectsInSet,
+      collationAlgorithms: collationAlgorithms,
+    )
   )
 
 # =============================================================================
@@ -96,7 +102,7 @@ proc ownData(data: JsonNode): JsonNode =
 
 proc fromJson*(
     T: typedesc[ServerCapability], uri: string, data: JsonNode
-): ServerCapability =
+): Result[ServerCapability, ValidationError] =
   ## Deserialise a capability from its URI and JSON data.
   ## Non-core capabilities deep-copy data to avoid ARC double-free on shared
   ## JsonNode refs, and use compile-time literal discriminators (exhaustive
@@ -105,33 +111,33 @@ proc fromJson*(
   let parsedKind = parseCapabilityKind(uri)
   case parsedKind
   of ckCore:
-    checkJsonKind(data, JObject, $T, "core capability data must be JSON object")
-    let core = CoreCapabilities.fromJson(data)
-    ServerCapability(kind: ckCore, rawUri: uri, core: core)
+    ?checkJsonKind(data, JObject, $T, "core capability data must be JSON object")
+    let core = ?CoreCapabilities.fromJson(data)
+    ok(ServerCapability(kind: ckCore, rawUri: uri, core: core))
   of ckMail:
-    ServerCapability(kind: ckMail, rawUri: uri, rawData: ownData(data))
+    ok(ServerCapability(kind: ckMail, rawUri: uri, rawData: ownData(data)))
   of ckSubmission:
-    ServerCapability(kind: ckSubmission, rawUri: uri, rawData: ownData(data))
+    ok(ServerCapability(kind: ckSubmission, rawUri: uri, rawData: ownData(data)))
   of ckVacationResponse:
-    ServerCapability(kind: ckVacationResponse, rawUri: uri, rawData: ownData(data))
+    ok(ServerCapability(kind: ckVacationResponse, rawUri: uri, rawData: ownData(data)))
   of ckWebsocket:
-    ServerCapability(kind: ckWebsocket, rawUri: uri, rawData: ownData(data))
+    ok(ServerCapability(kind: ckWebsocket, rawUri: uri, rawData: ownData(data)))
   of ckMdn:
-    ServerCapability(kind: ckMdn, rawUri: uri, rawData: ownData(data))
+    ok(ServerCapability(kind: ckMdn, rawUri: uri, rawData: ownData(data)))
   of ckSmimeVerify:
-    ServerCapability(kind: ckSmimeVerify, rawUri: uri, rawData: ownData(data))
+    ok(ServerCapability(kind: ckSmimeVerify, rawUri: uri, rawData: ownData(data)))
   of ckBlob:
-    ServerCapability(kind: ckBlob, rawUri: uri, rawData: ownData(data))
+    ok(ServerCapability(kind: ckBlob, rawUri: uri, rawData: ownData(data)))
   of ckQuota:
-    ServerCapability(kind: ckQuota, rawUri: uri, rawData: ownData(data))
+    ok(ServerCapability(kind: ckQuota, rawUri: uri, rawData: ownData(data)))
   of ckContacts:
-    ServerCapability(kind: ckContacts, rawUri: uri, rawData: ownData(data))
+    ok(ServerCapability(kind: ckContacts, rawUri: uri, rawData: ownData(data)))
   of ckCalendars:
-    ServerCapability(kind: ckCalendars, rawUri: uri, rawData: ownData(data))
+    ok(ServerCapability(kind: ckCalendars, rawUri: uri, rawData: ownData(data)))
   of ckSieve:
-    ServerCapability(kind: ckSieve, rawUri: uri, rawData: ownData(data))
+    ok(ServerCapability(kind: ckSieve, rawUri: uri, rawData: ownData(data)))
   of ckUnknown:
-    ServerCapability(kind: ckUnknown, rawUri: uri, rawData: ownData(data))
+    ok(ServerCapability(kind: ckUnknown, rawUri: uri, rawData: ownData(data)))
 
 # =============================================================================
 # AccountCapabilityEntry
@@ -148,17 +154,19 @@ proc toJson*(entry: AccountCapabilityEntry): JsonNode =
 
 proc fromJson*(
     T: typedesc[AccountCapabilityEntry], uri: string, data: JsonNode
-): AccountCapabilityEntry =
+): Result[AccountCapabilityEntry, ValidationError] =
   ## Deserialise an account capability entry from URI and JSON data.
   if uri.len == 0:
-    raise parseError($T, "capability URI must not be empty")
+    return err(parseError($T, "capability URI must not be empty"))
   # Deep-copy to avoid ARC double-free on shared JsonNode refs.
   let ownedData =
     if data.isNil:
       newJObject()
     else:
       data.copy()
-  AccountCapabilityEntry(kind: parseCapabilityKind(uri), rawUri: uri, data: ownedData)
+  ok(
+    AccountCapabilityEntry(kind: parseCapabilityKind(uri), rawUri: uri, data: ownedData)
+  )
 
 # =============================================================================
 # Account
@@ -173,26 +181,28 @@ proc toJson*(acct: Account): JsonNode =
     acctCaps[entry.rawUri] = entry.toJson()
   result["accountCapabilities"] = acctCaps
 
-proc fromJson*(T: typedesc[Account], node: JsonNode): Account =
+proc fromJson*(T: typedesc[Account], node: JsonNode): Result[Account, ValidationError] =
   ## Deserialise JSON to Account (RFC 8620 §2).
-  checkJsonKind(node, JObject, $T)
-  checkJsonKind(node{"name"}, JString, $T, "missing or invalid name")
+  ?checkJsonKind(node, JObject, $T)
+  ?checkJsonKind(node{"name"}, JString, $T, "missing or invalid name")
   let name = node{"name"}.getStr("")
-  checkJsonKind(node{"isPersonal"}, JBool, $T, "missing or invalid isPersonal")
+  ?checkJsonKind(node{"isPersonal"}, JBool, $T, "missing or invalid isPersonal")
   let isPersonal = node{"isPersonal"}.getBool(false)
-  checkJsonKind(node{"isReadOnly"}, JBool, $T, "missing or invalid isReadOnly")
+  ?checkJsonKind(node{"isReadOnly"}, JBool, $T, "missing or invalid isReadOnly")
   let isReadOnly = node{"isReadOnly"}.getBool(false)
   let acctCapsNode = node{"accountCapabilities"}
-  checkJsonKind(acctCapsNode, JObject, $T, "missing or invalid accountCapabilities")
+  ?checkJsonKind(acctCapsNode, JObject, $T, "missing or invalid accountCapabilities")
   var accountCapabilities: seq[AccountCapabilityEntry] = @[]
   for uri, data in acctCapsNode.pairs:
-    let entry = AccountCapabilityEntry.fromJson(uri, data)
+    let entry = ?AccountCapabilityEntry.fromJson(uri, data)
     accountCapabilities.add(entry)
-  Account(
-    name: name,
-    isPersonal: isPersonal,
-    isReadOnly: isReadOnly,
-    accountCapabilities: accountCapabilities,
+  ok(
+    Account(
+      name: name,
+      isPersonal: isPersonal,
+      isReadOnly: isReadOnly,
+      accountCapabilities: accountCapabilities,
+    )
   )
 
 # =============================================================================
@@ -225,56 +235,56 @@ proc toJson*(s: Session): JsonNode =
     primary[uri] = %string(id)
   result["primaryAccounts"] = primary
 
-proc fromJson*(T: typedesc[Session], node: JsonNode): Session =
+proc fromJson*(T: typedesc[Session], node: JsonNode): Result[Session, ValidationError] =
   ## Deserialise JSON to Session (RFC 8620 §2). Calls parseSession for
   ## structural invariant validation.
-  checkJsonKind(node, JObject, $T)
+  ?checkJsonKind(node, JObject, $T)
 
   # 1. Parse capabilities
   let capsNode = node{"capabilities"}
-  checkJsonKind(capsNode, JObject, $T, "missing or invalid capabilities")
+  ?checkJsonKind(capsNode, JObject, $T, "missing or invalid capabilities")
   var capabilities: seq[ServerCapability] = @[]
   for uri, data in capsNode.pairs:
-    let cap = ServerCapability.fromJson(uri, data)
+    let cap = ?ServerCapability.fromJson(uri, data)
     capabilities.add(cap)
 
   # 2. Parse accounts
   let acctsNode = node{"accounts"}
-  checkJsonKind(acctsNode, JObject, $T, "missing or invalid accounts")
+  ?checkJsonKind(acctsNode, JObject, $T, "missing or invalid accounts")
   var accounts = initTable[AccountId, Account]()
   for idStr, acctData in acctsNode.pairs:
-    let accountId = parseAccountId(idStr)
-    let account = Account.fromJson(acctData)
+    let accountId = ?parseAccountId(idStr)
+    let account = ?Account.fromJson(acctData)
     accounts[accountId] = account
 
   # 3. Parse primaryAccounts (required per RFC §2)
   let primaryNode = node{"primaryAccounts"}
-  checkJsonKind(primaryNode, JObject, $T, "missing or invalid primaryAccounts")
+  ?checkJsonKind(primaryNode, JObject, $T, "missing or invalid primaryAccounts")
   var primaryAccounts = initTable[string, AccountId]()
   for uri, idNode in primaryNode.pairs:
-    checkJsonKind(idNode, JString, $T, "primaryAccounts value must be string")
-    let accountId = parseAccountId(idNode.getStr(""))
+    ?checkJsonKind(idNode, JString, $T, "primaryAccounts value must be string")
+    let accountId = ?parseAccountId(idNode.getStr(""))
     primaryAccounts[uri] = accountId
 
   # 4. Parse scalar fields
-  checkJsonKind(node{"username"}, JString, $T, "missing or invalid username")
+  ?checkJsonKind(node{"username"}, JString, $T, "missing or invalid username")
   let username = node{"username"}.getStr("")
-  checkJsonKind(node{"apiUrl"}, JString, $T, "missing or invalid apiUrl")
+  ?checkJsonKind(node{"apiUrl"}, JString, $T, "missing or invalid apiUrl")
   let apiUrl = node{"apiUrl"}.getStr("")
 
   # 5. Parse URI templates
-  checkJsonKind(node{"downloadUrl"}, JString, $T, "missing or invalid downloadUrl")
-  let downloadUrl = parseUriTemplate(node{"downloadUrl"}.getStr(""))
-  checkJsonKind(node{"uploadUrl"}, JString, $T, "missing or invalid uploadUrl")
-  let uploadUrl = parseUriTemplate(node{"uploadUrl"}.getStr(""))
-  checkJsonKind(
+  ?checkJsonKind(node{"downloadUrl"}, JString, $T, "missing or invalid downloadUrl")
+  let downloadUrl = ?parseUriTemplate(node{"downloadUrl"}.getStr(""))
+  ?checkJsonKind(node{"uploadUrl"}, JString, $T, "missing or invalid uploadUrl")
+  let uploadUrl = ?parseUriTemplate(node{"uploadUrl"}.getStr(""))
+  ?checkJsonKind(
     node{"eventSourceUrl"}, JString, $T, "missing or invalid eventSourceUrl"
   )
-  let eventSourceUrl = parseUriTemplate(node{"eventSourceUrl"}.getStr(""))
+  let eventSourceUrl = ?parseUriTemplate(node{"eventSourceUrl"}.getStr(""))
 
   # 6. Parse state
-  checkJsonKind(node{"state"}, JString, $T, "missing or invalid state")
-  let state = parseJmapState(node{"state"}.getStr(""))
+  ?checkJsonKind(node{"state"}, JString, $T, "missing or invalid state")
+  let state = ?parseJmapState(node{"state"}.getStr(""))
 
   # 7. Call parseSession for structural invariant validation
   parseSession(

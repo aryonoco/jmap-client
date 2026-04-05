@@ -13,6 +13,7 @@ import std/json
 import std/options
 import std/strutils
 
+import jmap_client/validation
 import jmap_client/primitives
 import jmap_client/identifiers
 import jmap_client/capabilities
@@ -37,8 +38,8 @@ block regression_2026_03_patchObjectCommutativityValueCheck:
   ## The property test propPatchCommutativityDisjointKeys only checked .len
   ## equality between two orderings, not the actual values. Fixed by adding
   ## getKey assertions for both keys.
-  let p1 = emptyPatch().setProp("a", newJInt(1)).setProp("b", newJInt(2))
-  let p2 = emptyPatch().setProp("b", newJInt(2)).setProp("a", newJInt(1))
+  let p1 = emptyPatch().setProp("a", newJInt(1)).get().setProp("b", newJInt(2)).get()
+  let p2 = emptyPatch().setProp("b", newJInt(2)).get().setProp("a", newJInt(1)).get()
   doAssert p1.len == p2.len
   doAssert p1.getKey("a").get() == p2.getKey("a").get()
   doAssert p1.getKey("b").get() == p2.getKey("b").get()
@@ -123,7 +124,7 @@ block regression_2026_03_patchObjectJsonNodeRefSharing:
   ## Fix: documented as known behaviour; Layer 2 must deep-copy if needed.
   let node = newJObject()
   node["a"] = newJString("original")
-  let p = emptyPatch().setProp("key", node)
+  let p = emptyPatch().setProp("key", node).get()
   node["b"] = newJString("injected")
   doAssert p.getKey("key").get().hasKey("b")
 
@@ -153,7 +154,7 @@ block regression_2026_03_extrasOverwriteStandardFields:
   j["type"] = %"serverFail"
   j["description"] = %"real desc"
   j["vendorField"] = %"vendor value"
-  let me = MethodError.fromJson(j)
+  let me = MethodError.fromJson(j).get()
   # extras from fromJson should NOT contain "type" or "description"
   if me.extras.isSome:
     doAssert me.extras.get(){"type"}.isNil, "collectExtras must strip known key 'type'"

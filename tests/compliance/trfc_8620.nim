@@ -255,7 +255,7 @@ block rfc8620_S2_sessionDownloadUrlVariables:
   ## downloadUrl MUST contain {accountId}, {blobId}, {type}, {name}.
   let args = makeSessionArgs()
   # A URL missing required template variables must be rejected.
-  let badDl = parseUriTemplate("https://example.com/download/")
+  let badDl = parseUriTemplate("https://example.com/download/").get()
   assertErrContains parseSession(
     args.capabilities, args.accounts, args.primaryAccounts, args.username, args.apiUrl,
     badDl, args.uploadUrl, args.eventSourceUrl, args.state,
@@ -264,7 +264,7 @@ block rfc8620_S2_sessionDownloadUrlVariables:
 block rfc8620_S2_sessionUploadUrlVariable:
   ## uploadUrl MUST contain {accountId}.
   let args = makeSessionArgs()
-  let badUp = parseUriTemplate("https://example.com/upload/")
+  let badUp = parseUriTemplate("https://example.com/upload/").get()
   assertErrContains parseSession(
     args.capabilities, args.accounts, args.primaryAccounts, args.username, args.apiUrl,
     args.downloadUrl, badUp, args.eventSourceUrl, args.state,
@@ -273,7 +273,7 @@ block rfc8620_S2_sessionUploadUrlVariable:
 block rfc8620_S2_sessionEventSourceUrlVariables:
   ## eventSourceUrl MUST contain {types}, {closeafter}, {ping}.
   let args = makeSessionArgs()
-  let badEs = parseUriTemplate("https://example.com/events/")
+  let badEs = parseUriTemplate("https://example.com/events/").get()
   assertErrContains parseSession(
     args.capabilities, args.accounts, args.primaryAccounts, args.username, args.apiUrl,
     args.downloadUrl, args.uploadUrl, badEs, args.state,
@@ -283,9 +283,10 @@ block rfc8620_S2_sessionValidConstructionSucceeds:
   ## A Session with all required fields and core capability succeeds.
   let args = makeSessionArgs()
   discard parseSession(
-    args.capabilities, args.accounts, args.primaryAccounts, args.username, args.apiUrl,
-    args.downloadUrl, args.uploadUrl, args.eventSourceUrl, args.state,
-  )
+      args.capabilities, args.accounts, args.primaryAccounts, args.username,
+      args.apiUrl, args.downloadUrl, args.uploadUrl, args.eventSourceUrl, args.state,
+    )
+    .get()
 
 block rfc8620_S2_coreCapabilityUri:
   ## The core capability URI is urn:ietf:params:jmap:core.
@@ -296,9 +297,10 @@ block rfc8620_S2_sessionStatePreserved:
   ## The constructed Session's state field equals the input state.
   let args = makeSessionArgs()
   let session = parseSession(
-    args.capabilities, args.accounts, args.primaryAccounts, args.username, args.apiUrl,
-    args.downloadUrl, args.uploadUrl, args.eventSourceUrl, args.state,
-  )
+      args.capabilities, args.accounts, args.primaryAccounts, args.username,
+      args.apiUrl, args.downloadUrl, args.uploadUrl, args.eventSourceUrl, args.state,
+    )
+    .get()
   doAssert session.state == args.state
 
 block rfc8620_S2_primaryAccountsCoreAccepted:
@@ -308,20 +310,21 @@ block rfc8620_S2_primaryAccountsCoreAccepted:
   var pa = args.primaryAccounts
   pa["urn:ietf:params:jmap:core"] = makeAccountId("A1")
   discard parseSession(
-    args.capabilities, args.accounts, pa, args.username, args.apiUrl, args.downloadUrl,
-    args.uploadUrl, args.eventSourceUrl, args.state,
-  )
+      args.capabilities, args.accounts, pa, args.username, args.apiUrl,
+      args.downloadUrl, args.uploadUrl, args.eventSourceUrl, args.state,
+    )
+    .get()
 
 block rfc8620_S2_coreCapabilitiesAllEightFields:
   ## RFC S2 defines exactly 8 MUST properties on the core capability object.
   let caps = realisticCoreCaps()
-  doAssert caps.maxSizeUpload == parseUnsignedInt(50_000_000)
-  doAssert caps.maxConcurrentUpload == parseUnsignedInt(4)
-  doAssert caps.maxSizeRequest == parseUnsignedInt(10_000_000)
-  doAssert caps.maxConcurrentRequests == parseUnsignedInt(8)
-  doAssert caps.maxCallsInRequest == parseUnsignedInt(32)
-  doAssert caps.maxObjectsInGet == parseUnsignedInt(1000)
-  doAssert caps.maxObjectsInSet == parseUnsignedInt(500)
+  doAssert caps.maxSizeUpload == parseUnsignedInt(50_000_000).get()
+  doAssert caps.maxConcurrentUpload == parseUnsignedInt(4).get()
+  doAssert caps.maxSizeRequest == parseUnsignedInt(10_000_000).get()
+  doAssert caps.maxConcurrentRequests == parseUnsignedInt(8).get()
+  doAssert caps.maxCallsInRequest == parseUnsignedInt(32).get()
+  doAssert caps.maxObjectsInGet == parseUnsignedInt(1000).get()
+  doAssert caps.maxObjectsInSet == parseUnsignedInt(500).get()
   doAssert caps.collationAlgorithms.len == 2
 
 block rfc8620_S2_accountObjectStructure:
@@ -733,25 +736,25 @@ block rfc8620_S5_3_patchObjectSetAndDelete:
   ## PatchObject supports setting values and deleting (setting to null).
   let p0 = emptyPatch()
   doAssert p0.len == 0
-  let p1 = p0.setProp("subject", %"hello")
+  let p1 = p0.setProp("subject", %"hello").get()
   doAssert p1.len == 1
-  let p2 = p1.deleteProp("keywords/$seen")
+  let p2 = p1.deleteProp("keywords/$seen").get()
   doAssert p2.len == 2
 
 block rfc8620_S5_3_patchObjectPathImplicitLeadingSlash:
   ## RFC S5.3: Paths have an implicit leading '/'. "subject" means "/subject".
-  let p = emptyPatch().setProp("subject", %"hello")
+  let p = emptyPatch().setProp("subject", %"hello").get()
   doAssert p.len == 1
   doAssert p.getKey("subject").isSome
 
 block rfc8620_S5_3_patchObjectNestedPath:
   ## Nested paths like "mailboxIds/mb1" are accepted (implicit "/mailboxIds/mb1").
-  let p = emptyPatch().setProp("mailboxIds/mb1", %true)
+  let p = emptyPatch().setProp("mailboxIds/mb1", %true).get()
   doAssert p.getKey("mailboxIds/mb1").isSome
 
 block rfc8620_S5_3_patchObjectNullMeansDelete:
   ## RFC S5.3: Setting to null means delete/reset. deleteProp produces a null value.
-  let p = emptyPatch().deleteProp("keywords/$seen")
+  let p = emptyPatch().deleteProp("keywords/$seen").get()
   doAssert p.getKey("keywords/$seen").isSome
   doAssert p.getKey("keywords/$seen").get().kind == JNull
 
@@ -886,7 +889,7 @@ block rfc8620_S5_6_addedItemStructure:
   ## AddedItem has id (Id) and index (UnsignedInt).
   let item = makeAddedItem(makeId("id1"), 42'i64)
   doAssert item.id == makeId("id1")
-  doAssert item.index == parseUnsignedInt(42)
+  doAssert item.index == parseUnsignedInt(42).get()
 
 block rfc8620_S5_6_tooManyChangesError:
   ## /queryChanges-specific error type.
@@ -1070,7 +1073,7 @@ block rfc8620_S2_sessionEmptyAccounts:
 
 block rfc8620_S1_3_jmapIntZero:
   ## Zero is a valid JmapInt.
-  assertOkEq parseJmapInt(0), JmapInt(0)
+  assertEq parseJmapInt(0).get(), JmapInt(0)
 
 block rfc8620_S1_4_utcDateWithFractionalSeconds:
   ## UTCDate with fractional seconds and Z suffix.
@@ -1082,7 +1085,7 @@ block rfc8620_S1_4_dateWithPlusZeroOffset:
 
 block rfc8620_S5_5_comparatorCollationDefault:
   ## Comparator collation defaults to none when not specified.
-  let pn = parsePropertyName("subject")
+  let pn = parsePropertyName("subject").get()
   let c = parseComparator(pn)
   doAssert c.collation.isNone
 
@@ -1155,8 +1158,9 @@ block rfc8620_S3_7_hashPrefixHandling:
 block rfc8620_S2_downloadUrlMissingAccountId:
   ## downloadUrl with {blobId},{type},{name} but NOT {accountId}.
   var args = makeSessionArgs()
-  args.downloadUrl = parseUriTemplate("https://e.com/{blobId}/{name}?accept={type}")
-  assertErrFields parseSessionFromArgs(args),
+  args.downloadUrl =
+    parseUriTemplate("https://e.com/{blobId}/{name}?accept={type}").get()
+  assertErrFields tryParseSessionFromArgs(args),
     "Session",
     "downloadUrl missing {accountId}",
     "https://e.com/{blobId}/{name}?accept={type}"
@@ -1164,8 +1168,9 @@ block rfc8620_S2_downloadUrlMissingAccountId:
 block rfc8620_S2_downloadUrlMissingBlobId:
   ## downloadUrl with {accountId},{type},{name} but NOT {blobId}.
   var args = makeSessionArgs()
-  args.downloadUrl = parseUriTemplate("https://e.com/{accountId}/{name}?accept={type}")
-  assertErrFields parseSessionFromArgs(args),
+  args.downloadUrl =
+    parseUriTemplate("https://e.com/{accountId}/{name}?accept={type}").get()
+  assertErrFields tryParseSessionFromArgs(args),
     "Session",
     "downloadUrl missing {blobId}",
     "https://e.com/{accountId}/{name}?accept={type}"
@@ -1173,16 +1178,16 @@ block rfc8620_S2_downloadUrlMissingBlobId:
 block rfc8620_S2_downloadUrlMissingType:
   ## downloadUrl with {accountId},{blobId},{name} but NOT {type}.
   var args = makeSessionArgs()
-  args.downloadUrl = parseUriTemplate("https://e.com/{accountId}/{blobId}/{name}")
-  assertErrFields parseSessionFromArgs(args),
+  args.downloadUrl = parseUriTemplate("https://e.com/{accountId}/{blobId}/{name}").get()
+  assertErrFields tryParseSessionFromArgs(args),
     "Session", "downloadUrl missing {type}", "https://e.com/{accountId}/{blobId}/{name}"
 
 block rfc8620_S2_downloadUrlMissingName:
   ## downloadUrl with {accountId},{blobId},{type} but NOT {name}.
   var args = makeSessionArgs()
   args.downloadUrl =
-    parseUriTemplate("https://e.com/{accountId}/{blobId}?accept={type}")
-  assertErrFields parseSessionFromArgs(args),
+    parseUriTemplate("https://e.com/{accountId}/{blobId}?accept={type}").get()
+  assertErrFields tryParseSessionFromArgs(args),
     "Session",
     "downloadUrl missing {name}",
     "https://e.com/{accountId}/{blobId}?accept={type}"
@@ -1195,8 +1200,8 @@ block rfc8620_S2_eventSourceUrlMissingTypes:
   ## eventSourceUrl with {closeafter},{ping} but NOT {types}.
   var args = makeSessionArgs()
   args.eventSourceUrl =
-    parseUriTemplate("https://e.com/events?closeafter={closeafter}&ping={ping}")
-  assertErrFields parseSessionFromArgs(args),
+    parseUriTemplate("https://e.com/events?closeafter={closeafter}&ping={ping}").get()
+  assertErrFields tryParseSessionFromArgs(args),
     "Session",
     "eventSourceUrl missing {types}",
     "https://e.com/events?closeafter={closeafter}&ping={ping}"
@@ -1205,8 +1210,8 @@ block rfc8620_S2_eventSourceUrlMissingCloseafter:
   ## eventSourceUrl with {types},{ping} but NOT {closeafter}.
   var args = makeSessionArgs()
   args.eventSourceUrl =
-    parseUriTemplate("https://e.com/events?types={types}&ping={ping}")
-  assertErrFields parseSessionFromArgs(args),
+    parseUriTemplate("https://e.com/events?types={types}&ping={ping}").get()
+  assertErrFields tryParseSessionFromArgs(args),
     "Session",
     "eventSourceUrl missing {closeafter}",
     "https://e.com/events?types={types}&ping={ping}"
@@ -1215,8 +1220,8 @@ block rfc8620_S2_eventSourceUrlMissingPing:
   ## eventSourceUrl with {types},{closeafter} but NOT {ping}.
   var args = makeSessionArgs()
   args.eventSourceUrl =
-    parseUriTemplate("https://e.com/events?types={types}&closeafter={closeafter}")
-  assertErrFields parseSessionFromArgs(args),
+    parseUriTemplate("https://e.com/events?types={types}&closeafter={closeafter}").get()
+  assertErrFields tryParseSessionFromArgs(args),
     "Session",
     "eventSourceUrl missing {ping}",
     "https://e.com/events?types={types}&closeafter={closeafter}"
@@ -1229,12 +1234,12 @@ block rfc8620_S2_goldenSessionToJson:
   ## Construct a Session matching RFC 8620 section 2.1 example values,
   ## serialise with toJson(), and verify key JSON field values match.
   let j = goldenSessionJson()
-  let r = Session.fromJson(j)
+  let r = Session.fromJson(j).get()
   let session = r
   # Verify structural properties
   assertEq session.username, "john@example.com"
   assertEq session.apiUrl, "https://jmap.example.com/api/"
-  assertEq session.state, parseJmapState("75128aab4b1b")
+  assertEq session.state, parseJmapState("75128aab4b1b").get()
   # Serialise and verify key fields in the output JSON
   let outJson = session.toJson()
   assertEq outJson{"username"}.getStr(""), "john@example.com"
@@ -1291,7 +1296,7 @@ block rfc8620_S3_4_goldenResponseFromJson:
   ## Parse a Response JSON matching RFC 8620 section 3.4.1 example and verify
   ## all typed fields match expected values.
   let j = goldenResponseJson()
-  let r = Response.fromJson(j)
+  let r = Response.fromJson(j).get()
   let resp = r
   assertEq resp.methodResponses.len, 4
   # First response: ["method1", {"arg1": 3, "arg2": "foo"}, "c1"]
@@ -1311,7 +1316,7 @@ block rfc8620_S3_4_goldenResponseFromJson:
   assertEq resp.methodResponses[3].methodCallId, makeMcid("c3")
   assertEq resp.methodResponses[3].arguments{"type"}.getStr(""), "unknownMethod"
   # Session state
-  assertEq resp.sessionState, parseJmapState("75128aab4b1b")
+  assertEq resp.sessionState, parseJmapState("75128aab4b1b").get()
   # createdIds absent
   assertNone resp.createdIds
 
@@ -1337,7 +1342,7 @@ block rfc8620_S3_6_goldenLimitError:
   assertEq j{"detail"}.getStr(""), "You have exceeded the rate limit"
   assertEq j{"limit"}.getStr(""), "maxObjectsInGet"
   # Round-trip
-  let rt = RequestError.fromJson(j)
+  let rt = RequestError.fromJson(j).get()
   let v = rt
   doAssert v.errorType == retLimit
   assertEq v.rawType, "urn:ietf:params:jmap:error:limit"
@@ -1356,7 +1361,7 @@ block rfc8620_S3_6_goldenMethodError:
   assertEq j{"type"}.getStr(""), "serverFail"
   assertEq j{"description"}.getStr(""), "Database timeout"
   # Round-trip
-  let rt = MethodError.fromJson(j)
+  let rt = MethodError.fromJson(j).get()
   let v = rt
   doAssert v.errorType == metServerFail
   assertEq v.rawType, "serverFail"
@@ -1378,14 +1383,14 @@ block rfc8620_S5_5_comparatorEmptyCollation:
   let j = c.toJson()
   doAssert j{"collation"} != nil
   assertEq j{"collation"}.getStr("~sentinel~"), ""
-  let rt = Comparator.fromJson(j)
+  let rt = Comparator.fromJson(j).get()
   assertSomeEq rt.collation, ""
 
 block rfc8620_S1_4_leapSecondWithFractional:
-  ## Test parseDate("2024-06-30T23:59:60.123Z"). Layer 1 performs structural
+  ## Test parseDate("2024-06-30T23:59:60.123Z").get(). Layer 1 performs structural
   ## validation only and does not check calendar semantics, so second=60
   ## (leap second) with fractional seconds is accepted.
-  let r = parseDate("2024-06-30T23:59:60.123Z")
+  let r = parseDate("2024-06-30T23:59:60.123Z").get()
   assertOk r
 
 # =============================================================================
@@ -1407,7 +1412,7 @@ block rfc8620_S3_6_1_requestErrorUnknownCapability:
   let j = re.toJson()
   assertEq j{"type"}.getStr(""), "urn:ietf:params:jmap:error:unknownCapability"
   assertEq j{"status"}.getBiggestInt(0), 400'i64
-  let rt = RequestError.fromJson(j)
+  let rt = RequestError.fromJson(j).get()
   doAssert rt.errorType == retUnknownCapability
   assertEq rt.rawType, "urn:ietf:params:jmap:error:unknownCapability"
   assertSomeEq rt.status, 400
@@ -1424,7 +1429,7 @@ block rfc8620_S3_6_1_requestErrorNotJSON:
   doAssert re.errorType == retNotJson
   let j = re.toJson()
   assertEq j{"type"}.getStr(""), "urn:ietf:params:jmap:error:notJSON"
-  let rt = RequestError.fromJson(j)
+  let rt = RequestError.fromJson(j).get()
   doAssert rt.errorType == retNotJson
   assertEq rt.rawType, "urn:ietf:params:jmap:error:notJSON"
 
@@ -1439,7 +1444,7 @@ block rfc8620_S3_6_1_requestErrorNotRequest:
   doAssert re.errorType == retNotRequest
   let j = re.toJson()
   assertEq j{"type"}.getStr(""), "urn:ietf:params:jmap:error:notRequest"
-  let rt = RequestError.fromJson(j)
+  let rt = RequestError.fromJson(j).get()
   doAssert rt.errorType == retNotRequest
   assertEq rt.rawType, "urn:ietf:params:jmap:error:notRequest"
 
@@ -1456,7 +1461,7 @@ block rfc8620_S3_6_1_requestErrorLimit:
   let j = re.toJson()
   assertEq j{"type"}.getStr(""), "urn:ietf:params:jmap:error:limit"
   assertEq j{"limit"}.getStr(""), "maxCallsInRequest"
-  let rt = RequestError.fromJson(j)
+  let rt = RequestError.fromJson(j).get()
   doAssert rt.errorType == retLimit
   assertSomeEq rt.limit, "maxCallsInRequest"
 
@@ -1470,7 +1475,7 @@ block rfc8620_S3_6_2_serdeServerUnavailable:
   let me = methodError("serverUnavailable", description = some("maintenance"))
   let j = me.toJson()
   assertEq j{"type"}.getStr(""), "serverUnavailable"
-  let rt = MethodError.fromJson(j)
+  let rt = MethodError.fromJson(j).get()
   doAssert rt.errorType == metServerUnavailable
 
 block rfc8620_S3_6_2_serdeServerFail:
@@ -1478,126 +1483,126 @@ block rfc8620_S3_6_2_serdeServerFail:
   let me = methodError("serverFail")
   let j = me.toJson()
   assertEq j{"type"}.getStr(""), "serverFail"
-  let rt = MethodError.fromJson(j)
+  let rt = MethodError.fromJson(j).get()
   doAssert rt.errorType == metServerFail
 
 block rfc8620_S3_6_2_serdeServerPartialFail:
   ## serverPartialFail round-trip.
   let me = methodError("serverPartialFail")
   let j = me.toJson()
-  let rt = MethodError.fromJson(j)
+  let rt = MethodError.fromJson(j).get()
   doAssert rt.errorType == metServerPartialFail
 
 block rfc8620_S3_6_2_serdeUnknownMethod:
   ## unknownMethod round-trip.
   let me = methodError("unknownMethod")
   let j = me.toJson()
-  let rt = MethodError.fromJson(j)
+  let rt = MethodError.fromJson(j).get()
   doAssert rt.errorType == metUnknownMethod
 
 block rfc8620_S3_6_2_serdeInvalidArguments:
   ## invalidArguments round-trip.
   let me = methodError("invalidArguments")
   let j = me.toJson()
-  let rt = MethodError.fromJson(j)
+  let rt = MethodError.fromJson(j).get()
   doAssert rt.errorType == metInvalidArguments
 
 block rfc8620_S3_6_2_serdeInvalidResultReference:
   ## invalidResultReference round-trip.
   let me = methodError("invalidResultReference")
   let j = me.toJson()
-  let rt = MethodError.fromJson(j)
+  let rt = MethodError.fromJson(j).get()
   doAssert rt.errorType == metInvalidResultReference
 
 block rfc8620_S3_6_2_serdeForbidden:
   ## forbidden round-trip.
   let me = methodError("forbidden")
   let j = me.toJson()
-  let rt = MethodError.fromJson(j)
+  let rt = MethodError.fromJson(j).get()
   doAssert rt.errorType == metForbidden
 
 block rfc8620_S3_6_2_serdeAccountNotFound:
   ## accountNotFound round-trip.
   let me = methodError("accountNotFound")
   let j = me.toJson()
-  let rt = MethodError.fromJson(j)
+  let rt = MethodError.fromJson(j).get()
   doAssert rt.errorType == metAccountNotFound
 
 block rfc8620_S3_6_2_serdeAccountNotSupportedByMethod:
   ## accountNotSupportedByMethod round-trip.
   let me = methodError("accountNotSupportedByMethod")
   let j = me.toJson()
-  let rt = MethodError.fromJson(j)
+  let rt = MethodError.fromJson(j).get()
   doAssert rt.errorType == metAccountNotSupportedByMethod
 
 block rfc8620_S3_6_2_serdeAccountReadOnly:
   ## accountReadOnly round-trip.
   let me = methodError("accountReadOnly")
   let j = me.toJson()
-  let rt = MethodError.fromJson(j)
+  let rt = MethodError.fromJson(j).get()
   doAssert rt.errorType == metAccountReadOnly
 
 block rfc8620_S3_6_2_serdeAnchorNotFound:
   ## anchorNotFound round-trip.
   let me = methodError("anchorNotFound")
   let j = me.toJson()
-  let rt = MethodError.fromJson(j)
+  let rt = MethodError.fromJson(j).get()
   doAssert rt.errorType == metAnchorNotFound
 
 block rfc8620_S3_6_2_serdeUnsupportedSort:
   ## unsupportedSort round-trip.
   let me = methodError("unsupportedSort")
   let j = me.toJson()
-  let rt = MethodError.fromJson(j)
+  let rt = MethodError.fromJson(j).get()
   doAssert rt.errorType == metUnsupportedSort
 
 block rfc8620_S3_6_2_serdeUnsupportedFilter:
   ## unsupportedFilter round-trip.
   let me = methodError("unsupportedFilter")
   let j = me.toJson()
-  let rt = MethodError.fromJson(j)
+  let rt = MethodError.fromJson(j).get()
   doAssert rt.errorType == metUnsupportedFilter
 
 block rfc8620_S3_6_2_serdeCannotCalculateChanges:
   ## cannotCalculateChanges round-trip.
   let me = methodError("cannotCalculateChanges")
   let j = me.toJson()
-  let rt = MethodError.fromJson(j)
+  let rt = MethodError.fromJson(j).get()
   doAssert rt.errorType == metCannotCalculateChanges
 
 block rfc8620_S3_6_2_serdeTooManyChanges:
   ## tooManyChanges round-trip.
   let me = methodError("tooManyChanges")
   let j = me.toJson()
-  let rt = MethodError.fromJson(j)
+  let rt = MethodError.fromJson(j).get()
   doAssert rt.errorType == metTooManyChanges
 
 block rfc8620_S3_6_2_serdeRequestTooLarge:
   ## requestTooLarge round-trip.
   let me = methodError("requestTooLarge")
   let j = me.toJson()
-  let rt = MethodError.fromJson(j)
+  let rt = MethodError.fromJson(j).get()
   doAssert rt.errorType == metRequestTooLarge
 
 block rfc8620_S3_6_2_serdeStateMismatch:
   ## stateMismatch round-trip.
   let me = methodError("stateMismatch")
   let j = me.toJson()
-  let rt = MethodError.fromJson(j)
+  let rt = MethodError.fromJson(j).get()
   doAssert rt.errorType == metStateMismatch
 
 block rfc8620_S3_6_2_serdeFromAccountNotFound:
   ## fromAccountNotFound round-trip.
   let me = methodError("fromAccountNotFound")
   let j = me.toJson()
-  let rt = MethodError.fromJson(j)
+  let rt = MethodError.fromJson(j).get()
   doAssert rt.errorType == metFromAccountNotFound
 
 block rfc8620_S3_6_2_serdeFromAccountNotSupportedByMethod:
   ## fromAccountNotSupportedByMethod round-trip.
   let me = methodError("fromAccountNotSupportedByMethod")
   let j = me.toJson()
-  let rt = MethodError.fromJson(j)
+  let rt = MethodError.fromJson(j).get()
   doAssert rt.errorType == metFromAccountNotSupportedByMethod
 
 # =============================================================================
@@ -1610,49 +1615,49 @@ block rfc8620_S5_3_serdeForbidden:
   let se = setError("forbidden", description = some("not allowed"))
   let j = se.toJson()
   assertEq j{"type"}.getStr(""), "forbidden"
-  let rt = SetError.fromJson(j)
+  let rt = SetError.fromJson(j).get()
   doAssert rt.errorType == setForbidden
 
 block rfc8620_S5_3_serdeOverQuota:
   ## SetError overQuota round-trip.
   let se = setError("overQuota")
   let j = se.toJson()
-  let rt = SetError.fromJson(j)
+  let rt = SetError.fromJson(j).get()
   doAssert rt.errorType == setOverQuota
 
 block rfc8620_S5_3_serdeTooLarge:
   ## SetError tooLarge round-trip.
   let se = setError("tooLarge")
   let j = se.toJson()
-  let rt = SetError.fromJson(j)
+  let rt = SetError.fromJson(j).get()
   doAssert rt.errorType == setTooLarge
 
 block rfc8620_S5_3_serdeRateLimit:
   ## SetError rateLimit round-trip.
   let se = setError("rateLimit")
   let j = se.toJson()
-  let rt = SetError.fromJson(j)
+  let rt = SetError.fromJson(j).get()
   doAssert rt.errorType == setRateLimit
 
 block rfc8620_S5_3_serdeNotFound:
   ## SetError notFound round-trip.
   let se = setError("notFound")
   let j = se.toJson()
-  let rt = SetError.fromJson(j)
+  let rt = SetError.fromJson(j).get()
   doAssert rt.errorType == setNotFound
 
 block rfc8620_S5_3_serdeInvalidPatch:
   ## SetError invalidPatch round-trip.
   let se = setError("invalidPatch")
   let j = se.toJson()
-  let rt = SetError.fromJson(j)
+  let rt = SetError.fromJson(j).get()
   doAssert rt.errorType == setInvalidPatch
 
 block rfc8620_S5_3_serdeWillDestroy:
   ## SetError willDestroy round-trip.
   let se = setError("willDestroy")
   let j = se.toJson()
-  let rt = SetError.fromJson(j)
+  let rt = SetError.fromJson(j).get()
   doAssert rt.errorType == setWillDestroy
 
 block rfc8620_S5_3_serdeInvalidProperties:
@@ -1665,7 +1670,7 @@ block rfc8620_S5_3_serdeInvalidProperties:
   assertEq j{"type"}.getStr(""), "invalidProperties"
   doAssert j{"properties"} != nil
   doAssert j{"properties"}.kind == JArray
-  let rt = SetError.fromJson(j)
+  let rt = SetError.fromJson(j).get()
   doAssert rt.errorType == setInvalidProperties
   assertEq rt.properties.len, 3
   doAssert "subject" in rt.properties
@@ -1681,7 +1686,7 @@ block rfc8620_S5_3_serdeAlreadyExists:
   let j = se.toJson()
   assertEq j{"type"}.getStr(""), "alreadyExists"
   assertEq j{"existingId"}.getStr(""), "existingRecord42"
-  let rt = SetError.fromJson(j)
+  let rt = SetError.fromJson(j).get()
   doAssert rt.errorType == setAlreadyExists
   assertEq $rt.existingId, "existingRecord42"
 
@@ -1689,7 +1694,7 @@ block rfc8620_S5_3_serdeSingleton:
   ## SetError singleton round-trip.
   let se = setError("singleton")
   let j = se.toJson()
-  let rt = SetError.fromJson(j)
+  let rt = SetError.fromJson(j).get()
   doAssert rt.errorType == setSingleton
 
 # =============================================================================

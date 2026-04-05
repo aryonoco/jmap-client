@@ -9,6 +9,7 @@ import std/strutils
 
 import jmap_client/primitives
 import jmap_client/errors
+import jmap_client/validation
 
 import ../massertions
 
@@ -95,23 +96,23 @@ block parseSetErrorTypeEmpty:
 block transportErrorTimeout:
   let e = transportError(tekTimeout, "timed out")
   doAssert e.kind == tekTimeout
-  doAssert e.msg == "timed out"
+  doAssert e.message == "timed out"
 
 block transportErrorNetwork:
   let e = transportError(tekNetwork, "refused")
   doAssert e.kind == tekNetwork
-  doAssert e.msg == "refused"
+  doAssert e.message == "refused"
 
 block transportErrorTls:
   let e = transportError(tekTls, "certificate verify failed")
   doAssert e.kind == tekTls
-  doAssert e.msg == "certificate verify failed"
+  doAssert e.message == "certificate verify failed"
 
 block httpStatusError502:
   let e = httpStatusError(502, "Bad Gateway")
   doAssert e.kind == tekHttpStatus
   doAssert e.httpStatus == 502
-  doAssert e.msg == "Bad Gateway"
+  doAssert e.message == "Bad Gateway"
 
 # --- RequestError constructor ---
 
@@ -157,13 +158,13 @@ block clientErrorRequest:
 
 block messageTransport:
   let ce = clientError(transportError(tekTimeout, "timed out"))
-  doAssert ce.message == "timed out"
+  doAssert errors.message(ce) == "timed out"
 
 block messageRequestWithDetail:
   let ce = clientError(
     requestError("urn:ietf:params:jmap:error:limit", detail = some("Too many calls"))
   )
-  doAssert ce.message == "Too many calls"
+  doAssert errors.message(ce) == "Too many calls"
 
 block messageRequestDetailPreferredOverTitle:
   let ce = clientError(
@@ -173,17 +174,17 @@ block messageRequestDetailPreferredOverTitle:
       detail = some("Too many calls"),
     )
   )
-  doAssert ce.message == "Too many calls"
+  doAssert errors.message(ce) == "Too many calls"
 
 block messageRequestWithTitleOnly:
   let ce = clientError(
     requestError("urn:ietf:params:jmap:error:limit", title = some("Limit Exceeded"))
   )
-  doAssert ce.message == "Limit Exceeded"
+  doAssert errors.message(ce) == "Limit Exceeded"
 
 block messageRequestFallbackToRawType:
   let ce = clientError(requestError("urn:ietf:params:jmap:error:limit"))
-  doAssert ce.message == "urn:ietf:params:jmap:error:limit"
+  doAssert errors.message(ce) == "urn:ietf:params:jmap:error:limit"
 
 # --- MethodError constructor ---
 
@@ -230,7 +231,7 @@ block setErrorInvalidPropertiesVariant:
   doAssert e.description.isNone
 
 block setErrorAlreadyExistsVariant:
-  let someId = parseIdFromServer("existing-123")
+  let someId = parseIdFromServer("existing-123").get()
   let e = setErrorAlreadyExists("alreadyExists", someId)
   doAssert e.errorType == setAlreadyExists
   doAssert e.existingId == someId
@@ -435,7 +436,7 @@ block clientErrorMessageCascadeDetail:
     none(JsonNode),
   )
   let ce = clientError(re)
-  assertEq ce.message, "Too many requests"
+  assertEq errors.message(ce), "Too many requests"
 
 block clientErrorMessageCascadeTitle:
   # When detail is absent, message returns title
@@ -448,7 +449,7 @@ block clientErrorMessageCascadeTitle:
     none(JsonNode),
   )
   let ce = clientError(re)
-  assertEq ce.message, "Rate Limited"
+  assertEq errors.message(ce), "Rate Limited"
 
 block clientErrorMessageCascadeRawType:
   # When both detail and title absent, message returns rawType
@@ -461,7 +462,7 @@ block clientErrorMessageCascadeRawType:
     none(JsonNode),
   )
   let ce = clientError(re)
-  assertEq ce.message, "urn:ietf:params:jmap:error:limit"
+  assertEq errors.message(ce), "urn:ietf:params:jmap:error:limit"
 
 # --- SetError variant constructor edge cases ---
 
@@ -488,7 +489,7 @@ block setErrorInvalidPropertiesAllFields:
 
 block setErrorAlreadyExistsAllFields:
   # All optional fields populated
-  let existId = parseIdFromServer("existing-456")
+  let existId = parseIdFromServer("existing-456").get()
   let se = setErrorAlreadyExists(
     "alreadyExists",
     existId,
@@ -506,11 +507,11 @@ block setErrorAlreadyExistsAllFields:
 block transportErrorEmptyMessage:
   ## Empty message string is valid — no restriction on message content.
   let te = transportError(tekNetwork, "")
-  assertEq te.msg, ""
+  assertEq te.message, ""
 
 block setErrorAlreadyExistsMaxLengthId:
   ## alreadyExists with maximum-length Id (255 bytes).
-  let id = parseId("A".repeat(255))
+  let id = parseId("A".repeat(255)).get()
   let se = setErrorAlreadyExists("alreadyExists", id)
   assertEq se.errorType, setAlreadyExists
   assertEq se.existingId, id
@@ -542,7 +543,7 @@ block clientErrorFromTransport:
   let ce = clientError(te)
   doAssert ce.kind == cekTransport
   doAssert ce.transport.kind == tekNetwork
-  doAssert ce.transport.msg == "connection refused"
+  doAssert ce.transport.message == "connection refused"
 
 block clientErrorFromRequest:
   ## clientError(request) lifts a request error into ClientError.
@@ -555,33 +556,33 @@ block transportErrorAllKindsNetwork:
   ## transportError with tekNetwork variant.
   let e = transportError(tekNetwork, "host unreachable")
   doAssert e.kind == tekNetwork
-  doAssert e.msg == "host unreachable"
+  doAssert e.message == "host unreachable"
 
 block transportErrorAllKindsTls:
   ## transportError with tekTls variant.
   let e = transportError(tekTls, "handshake failed")
   doAssert e.kind == tekTls
-  doAssert e.msg == "handshake failed"
+  doAssert e.message == "handshake failed"
 
 block transportErrorAllKindsTimeout:
   ## transportError with tekTimeout variant.
   let e = transportError(tekTimeout, "request timed out after 30s")
   doAssert e.kind == tekTimeout
-  doAssert e.msg == "request timed out after 30s"
+  doAssert e.message == "request timed out after 30s"
 
 block transportErrorAllKindsHttpStatus:
   ## httpStatusError constructs a tekHttpStatus variant.
   let e = httpStatusError(503, "Service Unavailable")
   doAssert e.kind == tekHttpStatus
   doAssert e.httpStatus == 503
-  doAssert e.msg == "Service Unavailable"
+  doAssert e.message == "Service Unavailable"
 
 block httpStatusErrorFieldAccess:
   ## httpStatusError provides access to both httpStatus and message.
   let e = httpStatusError(429, "Too Many Requests")
   assertEq e.kind, tekHttpStatus
   assertEq e.httpStatus, 429
-  assertEq e.msg, "Too Many Requests"
+  assertEq e.message, "Too Many Requests"
 
 block messageClientErrorTransportPath:
   ## message(ClientError) for cekTransport returns transport.msg.

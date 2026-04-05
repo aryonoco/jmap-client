@@ -34,14 +34,14 @@ block roundTripFilterOperatorNot:
 
 block roundTripComparatorBasic:
   let original = makeComparator()
-  let v = Comparator.fromJson(original.toJson())
+  let v = Comparator.fromJson(original.toJson()).get()
   doAssert v.property == original.property
   doAssert v.isAscending == original.isAscending
   doAssert v.collation.isNone == original.collation.isNone
 
 block roundTripComparatorWithCollation:
   let original = makeComparatorWithCollation()
-  let v = Comparator.fromJson(original.toJson())
+  let v = Comparator.fromJson(original.toJson()).get()
   doAssert v.property == original.property
   doAssert v.isAscending == original.isAscending
   doAssert v.collation.isSome
@@ -49,62 +49,62 @@ block roundTripComparatorWithCollation:
 
 block roundTripComparatorDescending:
   let original = makeComparator(isAscending = false)
-  let v = Comparator.fromJson(original.toJson())
+  let v = Comparator.fromJson(original.toJson()).get()
   doAssert not v.isAscending
 
 block roundTripFilterCondition:
   let original = makeFilterCondition(42)
-  let v = Filter[int].fromJson(original.toJson(intToJson), fromIntCondition)
+  let v = Filter[int].fromJson(original.toJson(intToJson), fromIntCondition).get()
   doAssert filterEq(v, original)
 
 block roundTripFilterOperatorSingle:
   let original = makeFilterAnd(@[makeFilterCondition(1), makeFilterCondition(2)])
-  let v = Filter[int].fromJson(original.toJson(intToJson), fromIntCondition)
+  let v = Filter[int].fromJson(original.toJson(intToJson), fromIntCondition).get()
   doAssert filterEq(v, original)
 
 block roundTripFilterNestedDepth2:
   let inner = makeFilterOr(@[makeFilterCondition(10), makeFilterCondition(20)])
   let original = makeFilterAnd(@[makeFilterCondition(1), inner, makeFilterCondition(3)])
-  let v = Filter[int].fromJson(original.toJson(intToJson), fromIntCondition)
+  let v = Filter[int].fromJson(original.toJson(intToJson), fromIntCondition).get()
   doAssert filterEq(v, original)
 
 block roundTripPatchObjectEmpty:
   let original = emptyPatch()
-  let v = PatchObject.fromJson(original.toJson())
+  let v = PatchObject.fromJson(original.toJson()).get()
   assertEq v.len, 0
 
 block roundTripPatchObjectSingleSet:
-  let original = emptyPatch().setProp("name", %"New Name")
-  let v = PatchObject.fromJson(original.toJson())
+  let original = emptyPatch().setProp("name", %"New Name").get()
+  let v = PatchObject.fromJson(original.toJson()).get()
   assertEq v.len, 1
 
 block roundTripPatchObjectSingleDelete:
-  let original = emptyPatch().deleteProp("role")
-  let v = PatchObject.fromJson(original.toJson())
+  let original = emptyPatch().deleteProp("role").get()
+  let v = PatchObject.fromJson(original.toJson()).get()
   assertEq v.len, 1
 
 block roundTripPatchObjectMixed:
   var p = emptyPatch()
-  p = p.setProp("name", %"Updated")
-  p = p.deleteProp("role")
-  p = p.setProp("sortOrder", %42)
-  let v = PatchObject.fromJson(p.toJson())
+  p = p.setProp("name", %"Updated").get()
+  p = p.deleteProp("role").get()
+  p = p.setProp("sortOrder", %42).get()
+  let v = PatchObject.fromJson(p.toJson()).get()
   assertEq v.len, 3
 
 block roundTripPatchObjectNestedValues:
   var p = emptyPatch()
-  p = p.setProp("simple", %"text")
-  p = p.setProp("number", %42)
-  p = p.setProp("flag", %true)
-  p = p.setProp("nested", %*{"a": {"b": true}})
-  p = p.setProp("array", %*[1, 2, 3])
-  p = p.setProp("mixed", %*{"x": 1, "y": [2, 3], "z": {"d": true}})
-  let v = PatchObject.fromJson(p.toJson())
+  p = p.setProp("simple", %"text").get()
+  p = p.setProp("number", %42).get()
+  p = p.setProp("flag", %true).get()
+  p = p.setProp("nested", %*{"a": {"b": true}}).get()
+  p = p.setProp("array", %*[1, 2, 3]).get()
+  p = p.setProp("mixed", %*{"x": 1, "y": [2, 3], "z": {"d": true}}).get()
+  let v = PatchObject.fromJson(p.toJson()).get()
   assertEq v.len, 6
 
 block roundTripAddedItem:
   let original = makeAddedItem()
-  let v = AddedItem.fromJson(original.toJson())
+  let v = AddedItem.fromJson(original.toJson()).get()
   doAssert v.id == original.id
   doAssert v.index == original.index
 
@@ -167,8 +167,8 @@ block filterToJsonOperator:
 
 block patchObjectToJsonFieldNames:
   var p = emptyPatch()
-  p = p.setProp("name", %"val")
-  p = p.deleteProp("role")
+  p = p.setProp("name", %"val").get()
+  p = p.deleteProp("role").get()
   let j = p.toJson()
   doAssert j.kind == JObject
   doAssert j{"name"} != nil
@@ -223,7 +223,7 @@ block filterOperatorDeserEmptyString:
 block comparatorDeserAllFieldsPresent:
   let j =
     %*{"property": "subject", "isAscending": false, "collation": "i;unicode-casemap"}
-  let v = Comparator.fromJson(j)
+  let v = Comparator.fromJson(j).get()
   assertEq string(v.property), "subject"
   doAssert not v.isAscending
   doAssert v.collation.isSome
@@ -231,7 +231,7 @@ block comparatorDeserAllFieldsPresent:
 
 block comparatorDeserMissingIsAscending:
   let j = %*{"property": "subject"}
-  let v = Comparator.fromJson(j)
+  let v = Comparator.fromJson(j).get()
   doAssert v.isAscending, "isAscending must default to true"
 
 block comparatorDeserMissingProperty:
@@ -255,12 +255,12 @@ block comparatorDeserNil:
 
 block comparatorDeserCollationWrongKindLenient:
   let j = %*{"property": "subject", "collation": 42}
-  let v = Comparator.fromJson(j)
+  let v = Comparator.fromJson(j).get()
   doAssert v.collation.isNone, "wrong kind collation should be treated as none"
 
 block comparatorRoundTripNoCollation:
   let j = %*{"property": "subject", "isAscending": true}
-  let c1 = Comparator.fromJson(j)
+  let c1 = Comparator.fromJson(j).get()
   doAssert c1.collation.isNone
   let j2 = c1.toJson()
   doAssert j2{"collation"}.isNil, "round-trip must preserve key omission"
@@ -270,7 +270,7 @@ block comparatorRoundTripNoCollation:
 block filterDeserCondition:
   # A JObject without "operator" key is a condition leaf
   let j = %*{"value": 42}
-  let v = Filter[int].fromJson(j, fromIntCondition)
+  let v = Filter[int].fromJson(j, fromIntCondition).get()
   doAssert v.kind == fkCondition
 
 block filterDeserConditionNotObject:
@@ -279,7 +279,7 @@ block filterDeserConditionNotObject:
 
 block filterDeserOperatorWithConditions:
   let j = %*{"operator": "AND", "conditions": [{"value": 42}, {"value": 99}]}
-  let v = Filter[int].fromJson(j, fromIntCondition)
+  let v = Filter[int].fromJson(j, fromIntCondition).get()
   doAssert v.kind == fkOperator
   doAssert v.operator == foAnd
   assertEq v.conditions.len, 2
@@ -292,14 +292,14 @@ block filterDeserNestedDepth2:
       {"operator": "NOT", "conditions": [{"value": 3}]},
     ],
   }
-  let v = Filter[int].fromJson(j, fromIntCondition)
+  let v = Filter[int].fromJson(j, fromIntCondition).get()
   doAssert v.kind == fkOperator
   doAssert v.operator == foOr
   assertEq v.conditions.len, 2
 
 block filterDeserEmptyConditions:
   let j = %*{"operator": "AND", "conditions": []}
-  let v = Filter[int].fromJson(j, fromIntCondition)
+  let v = Filter[int].fromJson(j, fromIntCondition).get()
   assertEq v.conditions.len, 0
 
 block filterDeserMissingConditions:
@@ -328,27 +328,27 @@ block filterDeserNil:
 
 block patchObjectDeserSingleSet:
   let j = %*{"name": "New Name"}
-  let v = PatchObject.fromJson(j)
+  let v = PatchObject.fromJson(j).get()
   assertEq v.len, 1
 
 block patchObjectDeserSingleDelete:
   let j = %*{"role": newJNull()}
-  let v = PatchObject.fromJson(j)
+  let v = PatchObject.fromJson(j).get()
   assertEq v.len, 1
 
 block patchObjectDeserNestedMixed:
   let j = %*{"a": 1, "b": [2, 3], "c": {"d": true}}
-  let v = PatchObject.fromJson(j)
+  let v = PatchObject.fromJson(j).get()
   assertEq v.len, 3
 
 block patchObjectDeserMultiple:
   let j = %*{"a": 1, "b": 2}
-  let v = PatchObject.fromJson(j)
+  let v = PatchObject.fromJson(j).get()
   assertEq v.len, 2
 
 block patchObjectDeserEmpty:
   let j = newJObject()
-  let v = PatchObject.fromJson(j)
+  let v = PatchObject.fromJson(j).get()
   assertEq v.len, 0
 
 block patchObjectDeserNotObject:
@@ -361,7 +361,7 @@ block patchObjectDeserNil:
 # --- AddedItem ---
 
 block addedItemDeserValid:
-  let v = AddedItem.fromJson(%*{"id": "x", "index": 5})
+  let v = AddedItem.fromJson(%*{"id": "x", "index": 5}).get()
   assertEq string(v.id), "x"
 
 block addedItemDeserIndexZero:
@@ -410,7 +410,7 @@ block filterDeserNestedDepth3:
       }
     ],
   }
-  let f = Filter[int].fromJson(j, fromIntCondition)
+  let f = Filter[int].fromJson(j, fromIntCondition).get()
   doAssert f.kind == fkOperator
   doAssert f.operator == foAnd
   assertLen f.conditions, 1
@@ -427,7 +427,7 @@ block comparatorAllFieldsRoundTrip:
   ## Comparator with property + isAscending=false + collation round-trips.
   let c =
     parseComparator(makePropertyName("receivedAt"), false, some("i;unicode-casemap"))
-  let v = Comparator.fromJson(c.toJson())
+  let v = Comparator.fromJson(c.toJson()).get()
   assertEq string(v.property), "receivedAt"
   doAssert v.isAscending == false
   assertSomeEq v.collation, "i;unicode-casemap"
@@ -435,7 +435,7 @@ block comparatorAllFieldsRoundTrip:
 block patchObjectTildeEscapedKeys:
   ## JSON Pointer path with ~0 (escaped ~) and ~1 (escaped /) per RFC 6901.
   let j = %*{"a~0b": "tilde", "c~1d": "slash"}
-  let r = PatchObject.fromJson(j)
+  let r = PatchObject.fromJson(j).get()
   # Verify the paths survive round-trip
   let rt = r.toJson()
   doAssert rt{"a~0b"} != nil
@@ -446,13 +446,13 @@ block patchObjectTildeEscapedKeys:
 block addedItemDeserIndexZeroBoundary:
   ## Boundary: index = 0 is valid.
   let j = %*{"id": "item1", "index": 0}
-  let v = AddedItem.fromJson(j)
+  let v = AddedItem.fromJson(j).get()
   assertEq int64(v.index), 0'i64
 
 block addedItemDeserIndexMaxBoundary:
   ## Boundary: index = 2^53-1 is valid.
   let j = %*{"id": "item1", "index": 9007199254740991}
-  let v = AddedItem.fromJson(j)
+  let v = AddedItem.fromJson(j).get()
   assertEq int64(v.index), 9007199254740991'i64
 
 block filterOperatorDeserLowercaseRejected:
@@ -467,7 +467,7 @@ block filterDeserDepth3RoundTrip:
   let level1 = filterOperator(foOr, @[level2])
   let root = filterOperator(foAnd, @[level1])
   let j = root.toJson(intToJson)
-  let v = Filter[int].fromJson(j, fromIntCondition)
+  let v = Filter[int].fromJson(j, fromIntCondition).get()
   doAssert filterEq(v, root), "depth-3 filter round-trip identity violated"
 
 # =============================================================================
@@ -481,24 +481,24 @@ checkProperty "FilterOperator round-trip":
 
 checkProperty "Comparator round-trip":
   let c = rng.genComparator()
-  let v = Comparator.fromJson(c.toJson())
+  let v = Comparator.fromJson(c.toJson()).get()
   doAssert v.property == c.property
   doAssert v.isAscending == c.isAscending
   doAssert v.collation == c.collation
 
 checkProperty "Filter[int] round-trip":
   let f = rng.genFilter(3)
-  let v = Filter[int].fromJson(f.toJson(intToJson), fromIntCondition)
+  let v = Filter[int].fromJson(f.toJson(intToJson), fromIntCondition).get()
   doAssert filterEq(v, f), "Filter values differ"
 
 checkProperty "PatchObject round-trip":
   let p = rng.genPatchObject(5)
-  let v = PatchObject.fromJson(p.toJson())
+  let v = PatchObject.fromJson(p.toJson()).get()
   doAssert v.len == p.len, "PatchObject lengths differ"
 
 checkProperty "AddedItem round-trip":
   let item = rng.genAddedItem()
-  let v = AddedItem.fromJson(item.toJson())
+  let v = AddedItem.fromJson(item.toJson()).get()
   doAssert v.id == item.id
   doAssert v.index == item.index
 
@@ -509,12 +509,12 @@ checkProperty "AddedItem round-trip":
 block comparatorCollationAbsentIsNone:
   ## Comparator JSON without collation field: collation must be none.
   let j = %*{"property": "subject", "isAscending": true}
-  let v = Comparator.fromJson(j)
+  let v = Comparator.fromJson(j).get()
   assertNone v.collation
 
 block comparatorCollationNullIsNone:
   ## Comparator JSON with "collation": null: collation must be none.
   var j = %*{"property": "subject", "isAscending": true}
   j["collation"] = newJNull()
-  let v = Comparator.fromJson(j)
+  let v = Comparator.fromJson(j).get()
   assertNone v.collation

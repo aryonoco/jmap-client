@@ -6,6 +6,8 @@
 
 import std/options
 
+import results
+
 import ./validation
 import ./primitives
 import ./identifiers
@@ -16,6 +18,7 @@ import ./framework
 import ./errors
 
 export options
+export results
 export validation
 export primitives
 export identifiers
@@ -24,3 +27,6 @@ export session
 export envelope
 export framework
 export errors
+
+type JmapResult*[T] = Result[T, ClientError]
+  ## Outer railway: transport/request failure or typed success.

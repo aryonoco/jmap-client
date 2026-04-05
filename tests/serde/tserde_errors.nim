@@ -41,7 +41,7 @@ block roundTripRequestErrorFull:
 block roundTripRequestErrorUnknownType:
   let original = requestError(rawType = "urn:example:custom:error")
   doAssert original.errorType == retUnknown
-  let rt = RequestError.fromJson(original.toJson())
+  let rt = RequestError.fromJson(original.toJson()).get()
   assertEq rt.rawType, "urn:example:custom:error"
   doAssert rt.errorType == retUnknown
 
@@ -62,31 +62,31 @@ block roundTripMethodErrorFull:
 block roundTripMethodErrorUnknownType:
   let original = methodError(rawType = "customVendorError")
   doAssert original.errorType == metUnknown
-  let rt = MethodError.fromJson(original.toJson())
+  let rt = MethodError.fromJson(original.toJson()).get()
   assertEq rt.rawType, "customVendorError"
   doAssert rt.errorType == metUnknown
 
 block roundTripSetErrorForbidden:
   let original = setError("forbidden")
   doAssert original.errorType == setForbidden
-  assertSetOkEq SetError.fromJson(original.toJson()), original
+  assertSetOkEq SetError.fromJson(original.toJson()).get(), original
 
 block roundTripSetErrorInvalidProperties:
   let original = makeSetErrorInvalidProperties()
-  assertSetOkEq SetError.fromJson(original.toJson()), original
+  assertSetOkEq SetError.fromJson(original.toJson()).get(), original
 
 block roundTripSetErrorInvalidPropertiesEmpty:
   let original = setErrorInvalidProperties("invalidProperties", @[])
-  assertSetOkEq SetError.fromJson(original.toJson()), original
+  assertSetOkEq SetError.fromJson(original.toJson()).get(), original
 
 block roundTripSetErrorAlreadyExists:
   let original = makeSetErrorAlreadyExists()
-  assertSetOkEq SetError.fromJson(original.toJson()), original
+  assertSetOkEq SetError.fromJson(original.toJson()).get(), original
 
 block roundTripSetErrorUnknownType:
   let original = setError("vendorSpecific")
   doAssert original.errorType == setUnknown
-  let v = SetError.fromJson(original.toJson())
+  let v = SetError.fromJson(original.toJson()).get()
   assertEq v.rawType, "vendorSpecific"
   doAssert v.errorType == setUnknown
 
@@ -176,18 +176,18 @@ block requestErrorDeserEmptyType:
 
 block requestErrorDeserUnknownType:
   let j = %*{"type": "urn:example:custom"}
-  let r = RequestError.fromJson(j)
+  let r = RequestError.fromJson(j).get()
   doAssert r.errorType == retUnknown
   assertEq r.rawType, "urn:example:custom"
 
 block requestErrorDeserExtrasCollected:
   let j = %*{"type": "urn:ietf:params:jmap:error:notJSON", "vendorField": "data"}
-  let r = RequestError.fromJson(j)
+  let r = RequestError.fromJson(j).get()
   doAssert r.extras.isSome
 
 block requestErrorDeserStatusWrongKindLenient:
   let j = %*{"type": "urn:ietf:params:jmap:error:limit", "status": "bad"}
-  let r = RequestError.fromJson(j)
+  let r = RequestError.fromJson(j).get()
   doAssert r.status.isNone, "wrong kind status should be treated as none"
 
 block requestErrorDeserNil:
@@ -213,17 +213,17 @@ block methodErrorDeserEmptyType:
 
 block methodErrorDeserUnknownType:
   let j = %*{"type": "customVendorError"}
-  let r = MethodError.fromJson(j)
+  let r = MethodError.fromJson(j).get()
   doAssert r.errorType == metUnknown
 
 block methodErrorDeserDescriptionWrongKindLenient:
   let j = %*{"type": "serverFail", "description": 42}
-  let r = MethodError.fromJson(j)
+  let r = MethodError.fromJson(j).get()
   doAssert r.description.isNone, "wrong kind description should be treated as none"
 
 block methodErrorDeserExtrasCollected:
   let j = %*{"type": "serverFail", "extra": "vendor"}
-  let r = MethodError.fromJson(j)
+  let r = MethodError.fromJson(j).get()
   doAssert r.extras.isSome
 
 block methodErrorDeserNil:
@@ -237,29 +237,29 @@ block methodErrorDeserJNull:
 
 block setErrorDeserForbidden:
   let j = %*{"type": "forbidden"}
-  let r = SetError.fromJson(j)
+  let r = SetError.fromJson(j).get()
   doAssert r.errorType == setForbidden
 
 block setErrorDeserInvalidPropertiesWithProps:
   let j = %*{"type": "invalidProperties", "properties": ["name", "role"]}
-  let r = SetError.fromJson(j)
+  let r = SetError.fromJson(j).get()
   doAssert r.errorType == setInvalidProperties
   assertEq r.properties.len, 2
 
 block setErrorDeserInvalidPropertiesEmptyArray:
   let j = %*{"type": "invalidProperties", "properties": []}
-  let r = SetError.fromJson(j)
+  let r = SetError.fromJson(j).get()
   doAssert r.errorType == setInvalidProperties
   assertEq r.properties.len, 0
 
 block setErrorDeserInvalidPropertiesMissing:
   let j = %*{"type": "invalidProperties"}
-  let r = SetError.fromJson(j)
+  let r = SetError.fromJson(j).get()
   doAssert r.errorType == setUnknown, "defensive fallback to setUnknown"
 
 block setErrorDeserInvalidPropertiesWrongKind:
   let j = %*{"type": "invalidProperties", "properties": 42}
-  let r = SetError.fromJson(j)
+  let r = SetError.fromJson(j).get()
   doAssert r.errorType == setUnknown, "wrong kind triggers defensive fallback"
 
 block setErrorDeserInvalidPropertiesNonStringElement:
@@ -268,41 +268,41 @@ block setErrorDeserInvalidPropertiesNonStringElement:
 
 block setErrorDeserAlreadyExistsWithId:
   let j = %*{"type": "alreadyExists", "existingId": "msg42"}
-  let v = SetError.fromJson(j)
+  let v = SetError.fromJson(j).get()
   doAssert v.errorType == setAlreadyExists
   assertEq string(v.existingId), "msg42"
 
 block setErrorDeserAlreadyExistsMissing:
   let j = %*{"type": "alreadyExists"}
-  let r = SetError.fromJson(j)
+  let r = SetError.fromJson(j).get()
   doAssert r.errorType == setUnknown, "defensive fallback to setUnknown"
 
 block setErrorDeserAlreadyExistsWrongKind:
   let j = %*{"type": "alreadyExists", "existingId": 42}
-  let r = SetError.fromJson(j)
+  let r = SetError.fromJson(j).get()
   doAssert r.errorType == setUnknown, "wrong kind triggers defensive fallback"
 
 block setErrorDeserAlreadyExistsEmptyId:
   ## Empty existingId triggers defensive fallback to setUnknown (not err).
   let j = %*{"type": "alreadyExists", "existingId": ""}
-  let r = SetError.fromJson(j)
+  let r = SetError.fromJson(j).get()
   doAssert r.errorType == setUnknown, "empty existingId triggers defensive fallback"
 
 block setErrorDeserVendorSpecific:
   let j = %*{"type": "vendorSpecific"}
-  let r = SetError.fromJson(j)
+  let r = SetError.fromJson(j).get()
   assertEq r.rawType, "vendorSpecific"
   doAssert r.errorType == setUnknown
 
 block setErrorDeserPerVariantKnownKeys:
   let j = %*{"type": "forbidden", "properties": ["name"]}
-  let v = SetError.fromJson(j)
+  let v = SetError.fromJson(j).get()
   doAssert v.errorType == setForbidden
   doAssert v.extras.isSome, "misplaced properties should be in extras"
 
 block setErrorDeserDescriptionWrongKindLenient:
   let j = %*{"type": "forbidden", "description": 42}
-  let r = SetError.fromJson(j)
+  let r = SetError.fromJson(j).get()
   doAssert r.description.isNone
 
 block setErrorDeserMissingType:
@@ -330,7 +330,7 @@ checkProperty "MethodError round-trip":
 
 checkProperty "SetError round-trip":
   let original = rng.genSetError()
-  let rt = SetError.fromJson(original.toJson())
+  let rt = SetError.fromJson(original.toJson()).get()
   doAssert setErrorEq(rt, original), "SetError values differ"
 
 # =============================================================================
@@ -342,19 +342,19 @@ checkProperty "SetError round-trip":
 block requestErrorTitleAbsentMcdc:
   ## MC/DC: child.isNil=true — absent field yields none.
   let j = %*{"type": "urn:ietf:params:jmap:error:limit"}
-  let r = RequestError.fromJson(j)
+  let r = RequestError.fromJson(j).get()
   assertNone r.title
 
 block requestErrorTitleWrongKindMcdc:
   ## MC/DC: child.isNil=false, kind!=JString=true — wrong kind yields none.
   let j = %*{"type": "urn:ietf:params:jmap:error:limit", "title": 42}
-  let r = RequestError.fromJson(j)
+  let r = RequestError.fromJson(j).get()
   assertNone r.title
 
 block requestErrorTitlePresentMcdc:
   ## MC/DC: child.isNil=false, kind=JString — correct kind yields some.
   let j = %*{"type": "urn:ietf:params:jmap:error:limit", "title": "Rate limited"}
-  let r = RequestError.fromJson(j)
+  let r = RequestError.fromJson(j).get()
   assertSome r.title
   assertSomeEq r.title, "Rate limited"
 
@@ -363,19 +363,19 @@ block requestErrorTitlePresentMcdc:
 block requestErrorStatusAbsentMcdc:
   ## MC/DC: child.isNil=true — absent status yields none.
   let j = %*{"type": "urn:ietf:params:jmap:error:limit"}
-  let r = RequestError.fromJson(j)
+  let r = RequestError.fromJson(j).get()
   assertNone r.status
 
 block requestErrorStatusWrongKindStringMcdc:
   ## MC/DC: child.isNil=false, kind!=JInt=true — string status yields none.
   let j = %*{"type": "urn:ietf:params:jmap:error:limit", "status": "429"}
-  let r = RequestError.fromJson(j)
+  let r = RequestError.fromJson(j).get()
   assertNone r.status
 
 block requestErrorStatusPresentMcdc:
   ## MC/DC: child.isNil=false, kind=JInt — correct kind yields some.
   let j = %*{"type": "urn:ietf:params:jmap:error:limit", "status": 429}
-  let r = RequestError.fromJson(j)
+  let r = RequestError.fromJson(j).get()
   assertSome r.status
   assertSomeEq r.status, 429
 
@@ -383,7 +383,7 @@ block requestErrorStatusJFloatLenient:
   ## MC/DC: JFloat status (e.g., 429.5) is not JInt, so optInt yields none.
   ## Verifies lenient handling: parse succeeds but status is absent.
   let j = %*{"type": "urn:ietf:params:jmap:error:limit", "status": 429.5}
-  let r = RequestError.fromJson(j)
+  let r = RequestError.fromJson(j).get()
   assertNone r.status
 
 # --- MC/DC: MethodError description ---
@@ -391,25 +391,25 @@ block requestErrorStatusJFloatLenient:
 block methodErrorDescriptionWrongKindMcdc:
   ## MC/DC: description present but JInt (not JString) yields none.
   let j = %*{"type": "serverFail", "description": 123}
-  let r = MethodError.fromJson(j)
+  let r = MethodError.fromJson(j).get()
   assertNone r.description
 
 block methodErrorDescriptionPresentMcdc:
   ## MC/DC: description present as JString yields some.
   let j = %*{"type": "serverFail", "description": "Internal error"}
-  let r = MethodError.fromJson(j)
+  let r = MethodError.fromJson(j).get()
   assertSomeEq r.description, "Internal error"
 
 block methodErrorDescriptionJArrayLenient:
   ## MC/DC: description as JArray (not JString) yields none (lenient).
   let j = %*{"type": "serverFail", "description": [1, 2, 3]}
-  let r = MethodError.fromJson(j)
+  let r = MethodError.fromJson(j).get()
   assertNone r.description
 
 block methodErrorDescriptionJObjectLenient:
   ## MC/DC: description as JObject (not JString) yields none (lenient).
   let j = %*{"type": "serverFail", "description": {"x": 1}}
-  let r = MethodError.fromJson(j)
+  let r = MethodError.fromJson(j).get()
   assertNone r.description
 
 # =============================================================================
@@ -427,7 +427,7 @@ block setErrorInvalidPropertiesWithExistingIdExtras:
   let j = %*{
     "type": "invalidProperties", "properties": ["foo"], "existingId": "shouldBeExtras"
   }
-  let r = SetError.fromJson(j)
+  let r = SetError.fromJson(j).get()
   assertSome r.extras
   doAssert r.extras.get(){"existingId"} != nil,
     "existingId must be in extras for invalidProperties variant"
@@ -443,7 +443,7 @@ block requestErrorExtrasRoundTrip:
   extras["customCode"] = %12345
   let original =
     requestError(rawType = "urn:ietf:params:jmap:error:limit", extras = some(extras))
-  let rt = RequestError.fromJson(original.toJson())
+  let rt = RequestError.fromJson(original.toJson()).get()
   assertSome rt.extras
   let rtExtras = rt.extras.get()
   doAssert rtExtras{"vendorField"} != nil
@@ -460,7 +460,7 @@ block methodErrorAllOptionalFieldsRoundTrip:
     description = some("Something went wrong"),
     extras = some(extras),
   )
-  let rt = MethodError.fromJson(original.toJson())
+  let rt = MethodError.fromJson(original.toJson()).get()
   assertSomeEq rt.description, "Something went wrong"
   assertSome rt.extras
   assertEq rt.extras.get(){"serverInfo"}.getStr(""), "debug-data"
@@ -474,7 +474,7 @@ block setErrorAlreadyExistsEmptyId:
   ## The empty string is rejected by parseIdFromServer (Id requires 1-255
   ## octets). Defensive fallback maps to setUnknown, not err.
   let j = %*{"type": "alreadyExists", "existingId": ""}
-  let r = SetError.fromJson(j)
+  let r = SetError.fromJson(j).get()
   doAssert r.errorType == setUnknown, "empty existingId triggers defensive fallback"
 
 block setErrorInvalidPropertiesNonArrayProperties:
@@ -482,7 +482,7 @@ block setErrorInvalidPropertiesNonArrayProperties:
   ## When "properties" is present but not a JArray, the defensive fallback
   ## treats it as if the variant data is missing and falls back to setUnknown.
   let j = %*{"type": "invalidProperties", "properties": "notAnArray"}
-  let r = SetError.fromJson(j)
+  let r = SetError.fromJson(j).get()
   doAssert r.errorType == setUnknown,
     "non-array properties should trigger defensive fallback to setUnknown"
 
@@ -497,7 +497,7 @@ block collectExtrasLarge100Keys:
   j["type"] = %"serverFail"
   for i in 0 ..< 100:
     j["extra" & $i] = %i
-  let r = MethodError.fromJson(j)
+  let r = MethodError.fromJson(j).get()
   assertSome r.extras
   # Verify all 100 extra keys are preserved
   let extras = r.extras.get()
@@ -524,8 +524,8 @@ block roundTripRequestErrorUnknownCapability:
   doAssert original.errorType == retUnknownCapability
   let j = original.toJson()
   assertEq j{"type"}.getStr(""), "urn:ietf:params:jmap:error:unknownCapability"
-  let rt = RequestError.fromJson(j)
-  assertOkEq rt, original
+  let rt = RequestError.fromJson(j).get()
+  assertEq rt, original
 
 block roundTripRequestErrorNotJson:
   ## RFC 8620 section 3.6.1: notJSON.
@@ -538,8 +538,8 @@ block roundTripRequestErrorNotJson:
   doAssert original.errorType == retNotJson
   let j = original.toJson()
   assertEq j{"type"}.getStr(""), "urn:ietf:params:jmap:error:notJSON"
-  let rt = RequestError.fromJson(j)
-  assertOkEq rt, original
+  let rt = RequestError.fromJson(j).get()
+  assertEq rt, original
 
 block roundTripRequestErrorNotRequest:
   ## RFC 8620 section 3.6.1: notRequest.
@@ -552,8 +552,8 @@ block roundTripRequestErrorNotRequest:
   doAssert original.errorType == retNotRequest
   let j = original.toJson()
   assertEq j{"type"}.getStr(""), "urn:ietf:params:jmap:error:notRequest"
-  let rt = RequestError.fromJson(j)
-  assertOkEq rt, original
+  let rt = RequestError.fromJson(j).get()
+  assertEq rt, original
 
 block roundTripRequestErrorLimit:
   ## RFC 8620 section 3.6.1: limit with limit field populated.
@@ -569,8 +569,8 @@ block roundTripRequestErrorLimit:
   assertEq j{"type"}.getStr(""), "urn:ietf:params:jmap:error:limit"
   doAssert j{"limit"} != nil
   assertEq j{"limit"}.getStr(""), "maxCallsInRequest"
-  let rt = RequestError.fromJson(j)
-  assertOkEq rt, original
+  let rt = RequestError.fromJson(j).get()
+  assertEq rt, original
 
 # --- MethodError: all 19 known types ---
 
@@ -674,55 +674,55 @@ block roundTripMethodErrorFromAccountNotSupportedByMethod:
 block roundTripSetErrorForbiddenEnum:
   let original = setError("forbidden")
   doAssert original.errorType == setForbidden
-  assertSetOkEq SetError.fromJson(original.toJson()), original
+  assertSetOkEq SetError.fromJson(original.toJson()).get(), original
 
 block roundTripSetErrorOverQuota:
   let original = setError("overQuota")
   doAssert original.errorType == setOverQuota
-  assertSetOkEq SetError.fromJson(original.toJson()), original
+  assertSetOkEq SetError.fromJson(original.toJson()).get(), original
 
 block roundTripSetErrorTooLarge:
   let original = setError("tooLarge")
   doAssert original.errorType == setTooLarge
-  assertSetOkEq SetError.fromJson(original.toJson()), original
+  assertSetOkEq SetError.fromJson(original.toJson()).get(), original
 
 block roundTripSetErrorRateLimit:
   let original = setError("rateLimit")
   doAssert original.errorType == setRateLimit
-  assertSetOkEq SetError.fromJson(original.toJson()), original
+  assertSetOkEq SetError.fromJson(original.toJson()).get(), original
 
 block roundTripSetErrorNotFound:
   let original = setError("notFound")
   doAssert original.errorType == setNotFound
-  assertSetOkEq SetError.fromJson(original.toJson()), original
+  assertSetOkEq SetError.fromJson(original.toJson()).get(), original
 
 block roundTripSetErrorInvalidPatch:
   let original = setError("invalidPatch")
   doAssert original.errorType == setInvalidPatch
-  assertSetOkEq SetError.fromJson(original.toJson()), original
+  assertSetOkEq SetError.fromJson(original.toJson()).get(), original
 
 block roundTripSetErrorWillDestroy:
   let original = setError("willDestroy")
   doAssert original.errorType == setWillDestroy
-  assertSetOkEq SetError.fromJson(original.toJson()), original
+  assertSetOkEq SetError.fromJson(original.toJson()).get(), original
 
 block roundTripSetErrorSingleton:
   let original = setError("singleton")
   doAssert original.errorType == setSingleton
-  assertSetOkEq SetError.fromJson(original.toJson()), original
+  assertSetOkEq SetError.fromJson(original.toJson()).get(), original
 
 block roundTripSetErrorInvalidPropertiesWithData:
   ## invalidProperties variant with a list of property names.
   let original =
     setErrorInvalidProperties("invalidProperties", @["from", "subject", "body"])
   doAssert original.errorType == setInvalidProperties
-  assertSetOkEq SetError.fromJson(original.toJson()), original
+  assertSetOkEq SetError.fromJson(original.toJson()).get(), original
 
 block roundTripSetErrorAlreadyExistsWithData:
   ## alreadyExists variant with an existing record ID.
   let original = setErrorAlreadyExists("alreadyExists", makeId("existing42"))
   doAssert original.errorType == setAlreadyExists
-  assertSetOkEq SetError.fromJson(original.toJson()), original
+  assertSetOkEq SetError.fromJson(original.toJson()).get(), original
 
 # =============================================================================
 # Extras collision: standard field names in extras must not overwrite

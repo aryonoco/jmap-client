@@ -7,6 +7,7 @@ import std/strutils
 
 import jmap_client/identifiers
 import jmap_client/primitives
+import jmap_client/validation
 
 import ../massertions
 
@@ -67,9 +68,9 @@ block parseCreationIdValid:
 # --- Borrowed ops: AccountId ---
 
 block accountIdBorrowedOps:
-  let a = parseAccountId("A13824")
-  let b = parseAccountId("A13824")
-  let c = parseAccountId("B99921")
+  let a = parseAccountId("A13824").get()
+  let b = parseAccountId("A13824").get()
+  let c = parseAccountId("B99921").get()
 
   doAssert a == b
   doAssert not (a == c)
@@ -80,9 +81,9 @@ block accountIdBorrowedOps:
 # --- Borrowed ops: JmapState, MethodCallId, CreationId ---
 
 block jmapStateBorrowedOps:
-  let a = parseJmapState("75128aab4b1b")
-  let b = parseJmapState("75128aab4b1b")
-  let c = parseJmapState("different")
+  let a = parseJmapState("75128aab4b1b").get()
+  let b = parseJmapState("75128aab4b1b").get()
+  let c = parseJmapState("different").get()
 
   doAssert a == b
   doAssert not (a == c)
@@ -91,9 +92,9 @@ block jmapStateBorrowedOps:
   doAssert not compiles(a.len)
 
 block methodCallIdBorrowedOps:
-  let a = parseMethodCallId("c1")
-  let b = parseMethodCallId("c1")
-  let c = parseMethodCallId("c2")
+  let a = parseMethodCallId("c1").get()
+  let b = parseMethodCallId("c1").get()
+  let c = parseMethodCallId("c2").get()
 
   doAssert a == b
   doAssert not (a == c)
@@ -102,9 +103,9 @@ block methodCallIdBorrowedOps:
   doAssert not compiles(a.len)
 
 block creationIdBorrowedOps:
-  let a = parseCreationId("abc")
-  let b = parseCreationId("abc")
-  let c = parseCreationId("xyz")
+  let a = parseCreationId("abc").get()
+  let b = parseCreationId("abc").get()
+  let c = parseCreationId("xyz").get()
 
   doAssert a == b
   doAssert not (a == c)
@@ -118,7 +119,7 @@ block parseAccountIdBom:
   assertOk parseAccountId("\xEF\xBB\xBFabc")
 
 block parseIdFromServerHighUnicode:
-  let result = parseIdFromServer("\xF0\x9F\x98\x80")
+  let result = parseIdFromServer("\xF0\x9F\x98\x80").get()
   doAssert result.len == 4
 
 # --- Missing boundaries ---

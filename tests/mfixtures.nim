@@ -30,31 +30,31 @@ import jmap_client/envelope
 import jmap_client/errors
 
 proc zeroUint*(): UnsignedInt =
-  parseUnsignedInt(0)
+  parseUnsignedInt(0).get()
 
 proc makeMaxChanges*(n: int64 = 100): MaxChanges =
-  parseMaxChanges(parseUnsignedInt(n))
+  parseMaxChanges(parseUnsignedInt(n).get()).get()
 
 proc makeId*(s = "testId"): Id =
-  parseId(s)
+  parseId(s).get()
 
 proc makeMcid*(s = "c0"): MethodCallId =
-  parseMethodCallId(s)
+  parseMethodCallId(s).get()
 
 proc makeCreationId*(s = "k0"): CreationId =
-  parseCreationId(s)
+  parseCreationId(s).get()
 
 proc makeState*(s = "state0"): JmapState =
-  parseJmapState(s)
+  parseJmapState(s).get()
 
 proc makeAccountId*(s = "acct1"): AccountId =
-  parseAccountId(s)
+  parseAccountId(s).get()
 
 proc makePropertyName*(s = "subject"): PropertyName =
-  parsePropertyName(s)
+  parsePropertyName(s).get()
 
 proc makeUriTemplate*(s = "https://example.com/{accountId}"): UriTemplate =
-  parseUriTemplate(s)
+  parseUriTemplate(s).get()
 
 proc zeroCoreCaps*(): CoreCapabilities =
   let z = zeroUint()
@@ -71,13 +71,13 @@ proc zeroCoreCaps*(): CoreCapabilities =
 
 proc realisticCoreCaps*(): CoreCapabilities =
   CoreCapabilities(
-    maxSizeUpload: parseUnsignedInt(50_000_000),
-    maxConcurrentUpload: parseUnsignedInt(4),
-    maxSizeRequest: parseUnsignedInt(10_000_000),
-    maxConcurrentRequests: parseUnsignedInt(8),
-    maxCallsInRequest: parseUnsignedInt(32),
-    maxObjectsInGet: parseUnsignedInt(1000),
-    maxObjectsInSet: parseUnsignedInt(500),
+    maxSizeUpload: parseUnsignedInt(50_000_000).get(),
+    maxConcurrentUpload: parseUnsignedInt(4).get(),
+    maxSizeRequest: parseUnsignedInt(10_000_000).get(),
+    maxConcurrentRequests: parseUnsignedInt(8).get(),
+    maxCallsInRequest: parseUnsignedInt(32).get(),
+    maxObjectsInGet: parseUnsignedInt(1000).get(),
+    maxObjectsInSet: parseUnsignedInt(500).get(),
     collationAlgorithms: toHashSet(["i;ascii-casemap", "i;unicode-casemap"]),
   )
 
@@ -92,9 +92,9 @@ proc makeCoreCapsWithLimits*(
     maxConcurrentUpload: zeroUint(),
     maxSizeRequest: zeroUint(),
     maxConcurrentRequests: zeroUint(),
-    maxCallsInRequest: parseUnsignedInt(maxCallsInRequest),
-    maxObjectsInGet: parseUnsignedInt(maxObjectsInGet),
-    maxObjectsInSet: parseUnsignedInt(maxObjectsInSet),
+    maxCallsInRequest: parseUnsignedInt(maxCallsInRequest).get(),
+    maxObjectsInGet: parseUnsignedInt(maxObjectsInGet).get(),
+    maxObjectsInSet: parseUnsignedInt(maxObjectsInSet).get(),
     collationAlgorithms: initHashSet[string](),
   )
 
@@ -105,14 +105,16 @@ proc makeGoldenDownloadUrl*(): UriTemplate =
   parseUriTemplate(
     "https://jmap.example.com/download/{accountId}/{blobId}/{name}?accept={type}"
   )
+    .get()
 
 proc makeGoldenUploadUrl*(): UriTemplate =
-  parseUriTemplate("https://jmap.example.com/upload/{accountId}/")
+  parseUriTemplate("https://jmap.example.com/upload/{accountId}/").get()
 
 proc makeGoldenEventSourceUrl*(): UriTemplate =
   parseUriTemplate(
     "https://jmap.example.com/eventsource/?types={types}&closeafter={closeafter}&ping={ping}"
   )
+    .get()
 
 type SessionArgs* =
   tuple[
@@ -127,12 +129,16 @@ type SessionArgs* =
     state: JmapState,
   ]
 
-proc parseSessionFromArgs*(args: SessionArgs): Session =
-  ## Convenience wrapper around the 9-argument parseSession.
+proc tryParseSessionFromArgs*(args: SessionArgs): Result[Session, ValidationError] =
+  ## Convenience wrapper returning Result for error tests.
   parseSession(
     args.capabilities, args.accounts, args.primaryAccounts, args.username, args.apiUrl,
     args.downloadUrl, args.uploadUrl, args.eventSourceUrl, args.state,
   )
+
+proc parseSessionFromArgs*(args: SessionArgs): Session =
+  ## Convenience wrapper around the 9-argument parseSession.
+  tryParseSessionFromArgs(args).get()
 
 proc makeSessionArgs*(): SessionArgs =
   var accounts = initTable[AccountId, Account]()
@@ -307,7 +313,7 @@ proc makeComparatorWithCollation*(
   parseComparator(property, isAscending, some(collation))
 
 proc makeAddedItem*(id: Id = makeId("item1"), index: int64 = 0): AddedItem =
-  AddedItem(id: id, index: parseUnsignedInt(index))
+  AddedItem(id: id, index: parseUnsignedInt(index).get())
 
 # ---------------------------------------------------------------------------
 # Filter factories

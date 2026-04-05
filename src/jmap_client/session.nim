@@ -4,6 +4,8 @@
 ## JMAP Session resource types (RFC 8620 section 2). Account capability entries,
 ## accounts, URI templates, and the Session aggregate with structural validation.
 
+{.push raises: [].}
+
 import std/hashes
 import std/options
 import std/strutils
@@ -49,7 +51,7 @@ type Session* = object
   eventSourceUrl*: UriTemplate ## RFC 6570 Level 1 template
   state*: JmapState ## session state token
 
-proc findCapability*(
+func findCapability*(
     account: Account, kind: CapabilityKind
 ): Option[AccountCapabilityEntry] =
   ## Finds the first account capability matching the given kind.
@@ -58,7 +60,7 @@ proc findCapability*(
       return some(entry)
   none(AccountCapabilityEntry)
 
-proc findCapabilityByUri*(
+func findCapabilityByUri*(
     account: Account, uri: string
 ): Option[AccountCapabilityEntry] =
   ## Looks up an account capability by its raw URI string. Use this instead of
@@ -69,11 +71,11 @@ proc findCapabilityByUri*(
       return some(entry)
   none(AccountCapabilityEntry)
 
-proc hasCapability*(account: Account, kind: CapabilityKind): bool =
+func hasCapability*(account: Account, kind: CapabilityKind): bool =
   ## Checks whether the account has a capability of the given kind.
   account.findCapability(kind).isSome
 
-proc hasKind(caps: openArray[ServerCapability], kind: CapabilityKind): bool =
+func hasKind(caps: openArray[ServerCapability], kind: CapabilityKind): bool =
   ## Checks whether any capability matches the given kind. Used by parseSession
   ## before a Session object exists (so Session.findCapability is unavailable).
   for _, cap in caps:
@@ -81,18 +83,18 @@ proc hasKind(caps: openArray[ServerCapability], kind: CapabilityKind): bool =
       return true
   false
 
-proc parseUriTemplate*(raw: string): UriTemplate =
-  ## Non-empty validation. No RFC 6570 parsing -- template expansion is Layer 4.
+func parseUriTemplate*(raw: string): Result[UriTemplate, ValidationError] =
+  ## Non-empty validation. No RFC 6570 parsing — template expansion is Layer 4.
   if raw.len == 0:
-    raise newValidationError("UriTemplate", "must not be empty", raw)
-  UriTemplate(raw)
+    return err(validationError("UriTemplate", "must not be empty", raw))
+  ok(UriTemplate(raw))
 
-proc hasVariable*(tmpl: UriTemplate, name: string): bool =
+func hasVariable*(tmpl: UriTemplate, name: string): bool =
   ## Checks whether the template contains {name}. Simple substring search.
   let target = "{" & name & "}"
   target in string(tmpl)
 
-proc parseSession*(
+func parseSession*(
     capabilities: seq[ServerCapability],
     accounts: Table[AccountId, Account],
     primaryAccounts: Table[string, AccountId],
@@ -102,7 +104,7 @@ proc parseSession*(
     uploadUrl: UriTemplate,
     eventSourceUrl: UriTemplate,
     state: JmapState,
-): Session =
+): Result[Session, ValidationError] =
   ## Validates structural invariants:
   ## 1. capabilities includes ckCore (RFC section 2: MUST)
   ## 2. apiUrl is non-empty
@@ -111,27 +113,34 @@ proc parseSession*(
   ## 5. eventSourceUrl contains {types}, {closeafter}, {ping} (RFC section 2)
   ## Deliberately omits cross-reference validation (Decision D7).
   if not capabilities.hasKind(ckCore):
-    raise newValidationError(
-      "Session", "capabilities must include urn:ietf:params:jmap:core", ""
+    return err(
+      validationError(
+        "Session", "capabilities must include urn:ietf:params:jmap:core", ""
+      )
     )
   if apiUrl.len == 0:
-    raise newValidationError("Session", "apiUrl must not be empty", "")
+    return err(validationError("Session", "apiUrl must not be empty", ""))
   if apiUrl.contains({'\c', '\L'}):
-    raise newValidationError(
-      "Session", "apiUrl must not contain newline characters", apiUrl
+    return err(
+      validationError("Session", "apiUrl must not contain newline characters", apiUrl)
     )
   for variable in ["accountId", "blobId", "type", "name"]:
     if not downloadUrl.hasVariable(variable):
-      raise newValidationError(
-        "Session", "downloadUrl missing {" & variable & "}", string(downloadUrl)
+      return err(
+        validationError(
+          "Session", "downloadUrl missing {" & variable & "}", string(downloadUrl)
+        )
       )
   if not uploadUrl.hasVariable("accountId"):
-    raise
-      newValidationError("Session", "uploadUrl missing {accountId}", string(uploadUrl))
+    return err(
+      validationError("Session", "uploadUrl missing {accountId}", string(uploadUrl))
+    )
   for variable in ["types", "closeafter", "ping"]:
     if not eventSourceUrl.hasVariable(variable):
-      raise newValidationError(
-        "Session", "eventSourceUrl missing {" & variable & "}", string(eventSourceUrl)
+      return err(
+        validationError(
+          "Session", "eventSourceUrl missing {" & variable & "}", string(eventSourceUrl)
+        )
       )
   let session = Session(
     capabilities: capabilities,
@@ -146,9 +155,9 @@ proc parseSession*(
   )
   doAssert session.capabilities.hasKind(ckCore)
   doAssert session.apiUrl.len > 0
-  session
+  ok(session)
 
-proc coreCapabilities*(session: Session): CoreCapabilities =
+func coreCapabilities*(session: Session): CoreCapabilities =
   ## Returns the core capabilities. Total function (no Result) because
   ## parseSession guarantees ckCore is present. Raises AssertionDefect if
   ## the invariant is violated by direct construction.
@@ -160,14 +169,14 @@ proc coreCapabilities*(session: Session): CoreCapabilities =
       discard
   raiseAssert "Session missing ckCore: violated parseSession invariant"
 
-proc findCapability*(session: Session, kind: CapabilityKind): Option[ServerCapability] =
+func findCapability*(session: Session, kind: CapabilityKind): Option[ServerCapability] =
   ## Finds the first server capability matching the given kind.
   for _, cap in session.capabilities:
     if cap.kind == kind:
       return some(cap)
   none(ServerCapability)
 
-proc findCapabilityByUri*(session: Session, uri: string): Option[ServerCapability] =
+func findCapabilityByUri*(session: Session, uri: string): Option[ServerCapability] =
   ## Looks up a server capability by its raw URI string. Use this instead of
   ## findCapability when looking up vendor extensions (which all map to ckUnknown
   ## and would be ambiguous via findCapability).
@@ -176,7 +185,7 @@ proc findCapabilityByUri*(session: Session, uri: string): Option[ServerCapabilit
       return some(cap)
   none(ServerCapability)
 
-proc primaryAccount*(session: Session, kind: CapabilityKind): Option[AccountId] =
+func primaryAccount*(session: Session, kind: CapabilityKind): Option[AccountId] =
   ## Returns the primary account for a known capability kind.
   ## Returns none if kind == ckUnknown (no canonical URI) or no primary designated.
   let uriOpt = capabilityUri(kind)
@@ -188,7 +197,7 @@ proc primaryAccount*(session: Session, kind: CapabilityKind): Option[AccountId] 
       return some(val)
   none(AccountId)
 
-proc findAccount*(session: Session, id: AccountId): Option[Account] =
+func findAccount*(session: Session, id: AccountId): Option[Account] =
   ## Looks up an account by its AccountId.
   for key, val in session.accounts:
     if key == id:

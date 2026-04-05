@@ -31,7 +31,7 @@ import ../mfixtures
 
 block sessionDeserGoldenRfcAndRoundTrip:
   let j = goldenSessionJson()
-  let s = Session.fromJson(j)
+  let s = Session.fromJson(j).get()
   # Verify all 8 expected parsed values per section 13.1
   assertEq s.capabilities.len, 4
   assertEq int64(s.coreCapabilities().maxSizeUpload), 50000000'i64
@@ -39,18 +39,19 @@ block sessionDeserGoldenRfcAndRoundTrip:
   assertEq int64(s.coreCapabilities().maxConcurrentRequests), 8'i64
   assertEq s.coreCapabilities().collationAlgorithms.len, 3
   assertEq s.accounts.len, 2
-  doAssert s.accounts[parseAccountId("A13824")].isPersonal
-  assertEq s.primaryAccounts["urn:ietf:params:jmap:mail"], parseAccountId("A13824")
+  doAssert s.accounts[parseAccountId("A13824").get()].isPersonal
+  assertEq s.primaryAccounts["urn:ietf:params:jmap:mail"],
+    parseAccountId("A13824").get()
   assertEq s.username, "john@example.com"
-  assertEq s.state, parseJmapState("75128aab4b1b")
+  assertEq s.state, parseJmapState("75128aab4b1b").get()
   # Round-trip: parse -> toJson -> parse -> compare
   let j2 = s.toJson()
-  let rt = Session.fromJson(j2)
+  let rt = Session.fromJson(j2).get()
   doAssert sessionEq(rt, s), "golden round-trip values differ"
 
 block sessionToJsonCapabilityKeys:
   let j = goldenSessionJson()
-  let s = Session.fromJson(j)
+  let s = Session.fromJson(j).get()
   let sj = s.toJson()
   let capsObj = sj{"capabilities"}
   doAssert capsObj != nil
@@ -60,7 +61,7 @@ block sessionToJsonCapabilityKeys:
 
 block sessionToJsonAccountKeys:
   let j = goldenSessionJson()
-  let s = Session.fromJson(j)
+  let s = Session.fromJson(j).get()
   let sj = s.toJson()
   let acctsObj = sj{"accounts"}
   doAssert acctsObj != nil
@@ -78,10 +79,10 @@ block sessionToJsonUnicodePreserved:
       "accountCapabilities": {},
     }
   }
-  let s = Session.fromJson(j)
+  let s = Session.fromJson(j).get()
   assertEq s.username, "noño@example.com"
   # Round-trip preserves Unicode
-  let rt = Session.fromJson(s.toJson())
+  let rt = Session.fromJson(s.toJson()).get()
   assertEq rt.username, "noño@example.com"
 
 # =============================================================================
@@ -213,25 +214,25 @@ block sessionDeserDeepInvalidValue:
 block roundTripSessionDefault:
   let session = parseSessionFromArgs(makeSessionArgs())
   let j = session.toJson()
-  let rt = Session.fromJson(j)
+  let rt = Session.fromJson(j).get()
   doAssert sessionEq(rt, session), "default round-trip values differ"
 
 block roundTripSessionMinimal:
   let session = parseSessionFromArgs(makeMinimalSession())
   let j = session.toJson()
-  let rt = Session.fromJson(j)
+  let rt = Session.fromJson(j).get()
   doAssert sessionEq(rt, session), "minimal round-trip values differ"
 
 block roundTripSessionFastmail:
   let session = parseSessionFromArgs(makeFastmailSession())
   let j = session.toJson()
-  let rt = Session.fromJson(j)
+  let rt = Session.fromJson(j).get()
   doAssert sessionEq(rt, session), "fastmail round-trip values differ"
 
 block roundTripSessionCyrus:
   let session = parseSessionFromArgs(makeCyrusSession())
   let j = session.toJson()
-  let rt = Session.fromJson(j)
+  let rt = Session.fromJson(j).get()
   doAssert sessionEq(rt, session), "cyrus round-trip values differ"
 
 # =============================================================================
@@ -292,12 +293,12 @@ block sessionMaximalStructureRoundTrip:
       "https://jmap.example.com/eventsource/?types={types}&closeafter={closeafter}&ping={ping}",
     "state": "abc123",
   }
-  let s = Session.fromJson(j)
+  let s = Session.fromJson(j).get()
   assertEq s.capabilities.len, 5
   assertEq s.accounts.len, 3
   assertEq s.primaryAccounts.len, 3
   # Round-trip
-  let rt = Session.fromJson(s.toJson())
+  let rt = Session.fromJson(s.toJson()).get()
   assertEq rt.capabilities.len, 5
   assertEq rt.accounts.len, 3
 
@@ -457,16 +458,17 @@ block sessionToJsonPreservesAll12StandardCapabilityUris:
     ),
   ]
   let session = parseSession(
-    capabilities = capabilities,
-    accounts = initTable[AccountId, Account](),
-    primaryAccounts = initTable[string, AccountId](),
-    username = "",
-    apiUrl = "https://jmap.example.com/api/",
-    downloadUrl = makeGoldenDownloadUrl(),
-    uploadUrl = makeGoldenUploadUrl(),
-    eventSourceUrl = makeGoldenEventSourceUrl(),
-    state = makeState("s1"),
-  )
+      capabilities = capabilities,
+      accounts = initTable[AccountId, Account](),
+      primaryAccounts = initTable[string, AccountId](),
+      username = "",
+      apiUrl = "https://jmap.example.com/api/",
+      downloadUrl = makeGoldenDownloadUrl(),
+      uploadUrl = makeGoldenUploadUrl(),
+      eventSourceUrl = makeGoldenEventSourceUrl(),
+      state = makeState("s1"),
+    )
+    .get()
   let j = session.toJson()
   let capsObj = j{"capabilities"}
   doAssert capsObj != nil

@@ -1,10 +1,15 @@
 # SPDX-License-Identifier: BSD-2-Clause
 # Copyright (c) 2026 Aryan Ameri
 
-## Shared validation infrastructure — error type, borrow templates, and charset
-## constants used by all smart constructors.
+## Shared validation infrastructure — error type, borrow templates, charset
+## constants, and Result helpers used by all smart constructors.
+
+{.push raises: [].}
 
 import std/hashes
+
+import results
+export results
 
 template ruleOff*(name: string) {.pragma.}
   ## Suppresses a nimalyzer rule for subsequent declarations until ruleOn.
@@ -12,18 +17,18 @@ template ruleOff*(name: string) {.pragma.}
 template ruleOn*(name: string) {.pragma.}
   ## Re-enables a nimalyzer rule previously suppressed by ruleOff.
 
-type ValidationError* = object of CatchableError
+type ValidationError* = object
   ## Structured error carrying the type name, failure reason, and raw input.
-  ## Raised by all smart constructors on invalid input.
-  ## The ``msg`` field (inherited from CatchableError) carries the failure reason.
+  ## Returned on the error rail by all smart constructors on invalid input.
   typeName*: string ## Which type failed ("Id", "UnsignedInt", etc.)
+  message*: string ## The failure reason
   value*: string ## The raw input that failed validation
 
-{.push ruleOff: "hasDoc".}
+func validationError*(typeName, message, value: string): ValidationError =
+  ## Constructs a ValidationError value for use on the error rail.
+  ValidationError(typeName: typeName, message: message, value: value)
 
-proc newValidationError*(typeName, message, value: string): ref ValidationError =
-  ## Constructs a ref ValidationError suitable for raising.
-  result = (ref ValidationError)(msg: message, typeName: typeName, value: value)
+{.push ruleOff: "hasDoc".}
 
 template defineStringDistinctOps*(T: typedesc) =
   proc `==`*(a, b: T): bool {.borrow.}

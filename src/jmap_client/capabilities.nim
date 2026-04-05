@@ -11,6 +11,8 @@ from std/json import JsonNode
 
 import ./primitives
 
+{.push raises: [].}
+
 type CapabilityKind* = enum
   ## JMAP capability identifiers from the IANA registry.
   ## CRITICAL: must NOT be used as a Table key — multiple vendor extensions
@@ -52,13 +54,13 @@ type ServerCapability* = object
   else:
     rawData*: JsonNode
 
-proc parseCapabilityKind*(uri: string): CapabilityKind =
+func parseCapabilityKind*(uri: string): CapabilityKind =
   ## Maps a capability URI string to an enum value.
   ## Total function: always succeeds. Unknown URIs map to ckUnknown.
   ## Uses strutils.parseEnum which matches against the string backing values.
   strutils.parseEnum[CapabilityKind](uri, ckUnknown)
 
-proc capabilityUri*(kind: CapabilityKind): Option[string] =
+func capabilityUri*(kind: CapabilityKind): Option[string] =
   ## Returns the IANA-registered URI for a known capability.
   ## Returns none for ckUnknown — callers must use rawUri from ServerCapability.
   case kind
@@ -89,6 +91,6 @@ proc capabilityUri*(kind: CapabilityKind): Option[string] =
   of ckUnknown:
     none(string)
 
-proc hasCollation*(caps: CoreCapabilities, algorithm: string): bool =
+func hasCollation*(caps: CoreCapabilities, algorithm: string): bool =
   ## Checks whether the server supports a given RFC 4790 collation algorithm.
   algorithm in caps.collationAlgorithms

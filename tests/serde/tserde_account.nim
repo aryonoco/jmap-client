@@ -9,6 +9,7 @@ import std/json
 import jmap_client/serde_session
 import jmap_client/capabilities
 import jmap_client/session
+import jmap_client/validation
 
 import ../massertions
 import ../mproperty
@@ -19,19 +20,20 @@ import ../mproperty
 
 block roundTripAccountCapabilityEntry:
   let data = %*{"limit": 100}
-  let entry = AccountCapabilityEntry.fromJson("urn:ietf:params:jmap:mail", data)
+  let entry = AccountCapabilityEntry.fromJson("urn:ietf:params:jmap:mail", data).get()
   doAssert entry.kind == ckMail
   assertEq entry.rawUri, "urn:ietf:params:jmap:mail"
   doAssert entry.toJson() == data
 
 block accountCapabilityEntryDeserUnknownUri:
-  let r = AccountCapabilityEntry.fromJson("https://vendor.example/ext", newJObject())
+  let r =
+    AccountCapabilityEntry.fromJson("https://vendor.example/ext", newJObject()).get()
   doAssert r.kind == ckUnknown
   assertEq r.rawUri, "https://vendor.example/ext"
 
 block accountCapabilityEntryNilData:
   const nilData: JsonNode = nil
-  let r = AccountCapabilityEntry.fromJson("urn:ietf:params:jmap:mail", nilData)
+  let r = AccountCapabilityEntry.fromJson("urn:ietf:params:jmap:mail", nilData).get()
   doAssert r.data != nil
   doAssert r.data.kind == JObject
   let entry =
@@ -44,7 +46,7 @@ block accountCapabilityEntryDeserEmptyUri:
 
 block accountCapabilityEntryNestedDataRoundTrip:
   let data = %*{"nested": {"deep": [1, "two", newJNull(), {"four": false}]}}
-  let entry = AccountCapabilityEntry.fromJson("urn:ietf:params:jmap:mail", data)
+  let entry = AccountCapabilityEntry.fromJson("urn:ietf:params:jmap:mail", data).get()
   doAssert entry.toJson() == data
 
 # =============================================================================
@@ -125,7 +127,7 @@ block accountDeserEmptyAccountCapabilities:
   let j = %*{
     "name": "test", "isPersonal": true, "isReadOnly": false, "accountCapabilities": {}
   }
-  let r = Account.fromJson(j)
+  let r = Account.fromJson(j).get()
   assertEq r.accountCapabilities.len, 0
 
 # =============================================================================

@@ -13,20 +13,20 @@ import jmap_client/types
 
 block reExportAccessibility:
   # validation
-  let ve = newValidationError("Test", "msg", "raw")
+  let ve = validationError("Test", "msg", "raw")
   doAssert ve.typeName == "Test"
   doAssert 'A' in Base64UrlChars
 
   # primitives
-  let id = parseId("abc123")
+  let id = parseId("abc123").get()
   doAssert $id == "abc123"
 
   # identifiers
-  let aid = parseAccountId("A13824")
+  let aid = parseAccountId("A13824").get()
   doAssert $aid == "A13824"
-  let mcid = parseMethodCallId("c1")
+  let mcid = parseMethodCallId("c1").get()
   doAssert $mcid == "c1"
-  let cid = parseCreationId("k1")
+  let cid = parseCreationId("k1").get()
   doAssert $cid == "k1"
 
   # capabilities
@@ -49,7 +49,7 @@ block reExportAccessibility:
   doAssert se.rawType == "forbidden"
 
   # framework
-  let pn = parsePropertyName("name")
+  let pn = parsePropertyName("name").get()
   doAssert $pn == "name"
   doAssert emptyPatch().len == 0
   let comp = parseComparator(pn)
@@ -64,7 +64,7 @@ block reExportAccessibility:
   doAssert d.kind == rkDirect
 
   # session
-  let tmpl = parseUriTemplate("https://example.com/{accountId}")
+  let tmpl = parseUriTemplate("https://example.com/{accountId}").get()
   doAssert hasVariable(tmpl, "accountId")
 
   # std/tables consumption: Request with createdIds

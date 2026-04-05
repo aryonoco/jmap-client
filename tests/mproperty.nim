@@ -476,7 +476,7 @@ proc genInvocation*(rng: var Rand): Invocation =
   const methods = ["Mailbox/get", "Email/get", "Email/query", "Email/set", "Thread/get"]
   let name = rng.oneOf(methods)
   let mcidStr = "c" & $rng.rand(0 .. 99)
-  let mcid = parseMethodCallId(mcidStr)
+  let mcid = parseMethodCallId(mcidStr).get()
   initInvocation(name, newJObject(), mcid)
 
 proc genValidAccount*(rng: var Rand): Account =
@@ -638,7 +638,7 @@ proc genSetError*(rng: var Rand): SetError =
     setErrorInvalidProperties("invalidProperties", props, desc, extras)
   of 1:
     # alreadyExists variant
-    let id = parseId(rng.genValidIdStrict(minLen = 1, maxLen = 20))
+    let id = parseId(rng.genValidIdStrict(minLen = 1, maxLen = 20)).get()
     setErrorAlreadyExists("alreadyExists", id, desc, extras)
   else:
     # Generic variant
@@ -668,7 +668,7 @@ proc genUnsignedInt*(rng: var Rand, trial: int = -1): UnsignedInt =
       [0'i64, 1'i64, MaxUnsignedIntVal - 1, MaxUnsignedIntVal][trial]
     else:
       rng.rand(0'i64 .. 100_000_000'i64)
-  parseUnsignedInt(val)
+  parseUnsignedInt(val).get()
 
 proc genCoreCapabilities*(rng: var Rand): CoreCapabilities =
   ## Generates a random CoreCapabilities with varied UnsignedInt values for each
@@ -738,7 +738,7 @@ proc genComparator*(rng: var Rand): Comparator =
   ## Generates a random Comparator with a random printable PropertyName,
   ## random isAscending flag, and optional collation (33% chance of "i;ascii-casemap").
   ## Does NOT generate: empty collation strings, non-standard collation algorithms.
-  let prop = parsePropertyName(rng.genValidPropertyName())
+  let prop = parsePropertyName(rng.genValidPropertyName()).get()
   let asc = rng.rand(0 .. 1) == 0
   let coll =
     if rng.rand(0 .. 2) == 0:
@@ -751,8 +751,8 @@ proc genAddedItem*(rng: var Rand): AddedItem =
   ## Generates a random AddedItem with a valid strict Id (1-20 chars base64url)
   ## and a random UnsignedInt index (0-10000).
   ## Does NOT generate: very long Ids, very large indices.
-  let id = parseId(rng.genValidIdStrict(minLen = 1, maxLen = 20))
-  let idx = parseUnsignedInt(rng.rand(0'i64 .. 10000'i64))
+  let id = parseId(rng.genValidIdStrict(minLen = 1, maxLen = 20)).get()
+  let idx = parseUnsignedInt(rng.rand(0'i64 .. 10000'i64)).get()
   AddedItem(id: id, index: idx)
 
 proc genPatchObject*(rng: var Rand, maxKeys: int): PatchObject =
@@ -765,10 +765,10 @@ proc genPatchObject*(rng: var Rand, maxKeys: int): PatchObject =
   for i in 0 ..< count:
     let path = rng.genPatchPath()
     if rng.rand(0 .. 9) < 3: # ~30% probability of delete
-      p = p.deleteProp(path)
+      p = p.deleteProp(path).get()
     else:
       let val = newJObject()
-      p = p.setProp(path, val)
+      p = p.setProp(path, val).get()
   p
 
 proc genValidUriTemplateParametric*(rng: var Rand): string =
@@ -959,7 +959,7 @@ proc genInvocationWithArgs*(rng: var Rand): Invocation =
   ]
   let name = rng.oneOf(methods)
   let mcidStr = "c" & $rng.rand(0 .. 999)
-  let mcid = parseMethodCallId(mcidStr)
+  let mcid = parseMethodCallId(mcidStr).get()
   var args = newJObject()
   args["accountId"] = newJString("A" & $rng.rand(1 .. 99))
   if rng.rand(0 .. 1) == 0:
@@ -996,8 +996,8 @@ proc genRequest*(rng: var Rand): Request =
     if rng.rand(0 .. 2) == 0:
       var tbl = initTable[CreationId, Id]()
       for i in 0 ..< rng.rand(1 .. 3):
-        let cid = parseCreationId("new" & $i)
-        let id = parseIdFromServer("id" & $i)
+        let cid = parseCreationId("new" & $i).get()
+        let id = parseIdFromServer("id" & $i).get()
         tbl[cid] = id
       some(tbl)
     else:
@@ -1013,13 +1013,13 @@ proc genResponse*(rng: var Rand): Response =
   for _ in 0 ..< n:
     resps.add rng.genInvocationWithArgs()
   let stateStr = "state" & $rng.rand(0 .. 9999)
-  let state = parseJmapState(stateStr)
+  let state = parseJmapState(stateStr).get()
   let createdIds =
     if rng.rand(0 .. 2) == 0:
       var tbl = initTable[CreationId, Id]()
       for i in 0 ..< rng.rand(1 .. 3):
-        let cid = parseCreationId("new" & $i)
-        let id = parseIdFromServer("id" & $i)
+        let cid = parseCreationId("new" & $i).get()
+        let id = parseIdFromServer("id" & $i).get()
         tbl[cid] = id
       some(tbl)
     else:
@@ -1048,28 +1048,31 @@ proc genSession*(rng: var Rand): Session =
   var accounts = initTable[AccountId, Account]()
   var primaryAccounts = initTable[string, AccountId]()
   for i in 0 ..< acctCount:
-    let aid = parseAccountId("A" & $rng.rand(1000 .. 9999))
+    let aid = parseAccountId("A" & $rng.rand(1000 .. 9999)).get()
     accounts[aid] = rng.genValidAccount()
     if i == 0 and caps.len > 1:
       primaryAccounts[caps[1].rawUri] = aid
-  let state = parseJmapState("s" & $rng.rand(0 .. 9999))
+  let state = parseJmapState("s" & $rng.rand(0 .. 9999)).get()
   let downloadUrl = parseUriTemplate(
-    "https://jmap.example.com/download/{accountId}/{blobId}/{name}?accept={type}"
-  )
-  let uploadUrl = parseUriTemplate("https://jmap.example.com/upload/{accountId}/")
+      "https://jmap.example.com/download/{accountId}/{blobId}/{name}?accept={type}"
+    )
+    .get()
+  let uploadUrl = parseUriTemplate("https://jmap.example.com/upload/{accountId}/").get()
   let eventSourceUrl = parseUriTemplate(
-    "https://jmap.example.com/eventsource/?types={types}&closeafter={closeafter}&ping={ping}"
-  )
+      "https://jmap.example.com/eventsource/?types={types}&closeafter={closeafter}&ping={ping}"
+    )
+    .get()
   parseSession(
     caps, accounts, primaryAccounts, "user@example.com",
     "https://jmap.example.com/api/", downloadUrl, uploadUrl, eventSourceUrl, state,
   )
+    .get()
 
 proc genResultReference*(rng: var Rand): ResultReference =
   ## Generates a random valid ResultReference with MethodCallId (c0-c999),
   ## method name from 4 standard JMAP methods, and path from 4 common paths.
   ## Does NOT generate: vendor method names, deeply nested paths, invalid refs.
-  let mcid = parseMethodCallId("c" & $rng.rand(0 .. 999))
+  let mcid = parseMethodCallId("c" & $rng.rand(0 .. 999)).get()
   const names = ["Mailbox/get", "Email/get", "Thread/get", "Identity/get"]
   const paths = ["/ids", "/list/*/id", "/notFound", "/state"]
   ResultReference(

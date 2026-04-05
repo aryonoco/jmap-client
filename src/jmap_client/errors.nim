@@ -3,13 +3,17 @@
 
 ## Three-railway error hierarchy mapping JMAP's failure modes: transport
 ## (network/TLS/HTTP), request-level (RFC 7807 problem details), and
-## per-invocation method and set errors.
+## per-invocation method and set errors. All error types are plain objects
+## (not exceptions) for use with Railway-Oriented Programming via
+## nim-results.
 
 import std/options
 import std/strutils
 from std/json import JsonNode
 
 import ./primitives
+
+{.push raises: [].}
 
 type TransportErrorKind* = enum
   ## Failure mode before any JMAP-level processing occurs.
@@ -18,22 +22,22 @@ type TransportErrorKind* = enum
   tekTimeout
   tekHttpStatus
 
-type TransportError* = object of CatchableError
+type TransportError* = object
   ## Pre-JMAP failure with an HTTP status code when applicable.
-  ## The inherited ``msg`` field carries the human-readable message.
+  message*: string ## human-readable error description
   case kind*: TransportErrorKind
   of tekHttpStatus:
     httpStatus*: int
   of tekNetwork, tekTls, tekTimeout:
     discard
 
-proc transportError*(kind: TransportErrorKind, message: string): TransportError =
+func transportError*(kind: TransportErrorKind, message: string): TransportError =
   ## For non-HTTP-status transport errors.
-  TransportError(kind: kind, msg: message)
+  TransportError(kind: kind, message: message)
 
-proc httpStatusError*(status: int, message: string): TransportError =
+func httpStatusError*(status: int, message: string): TransportError =
   ## For HTTP-level failures without a JMAP problem details body.
-  TransportError(kind: tekHttpStatus, msg: message, httpStatus: status)
+  TransportError(kind: tekHttpStatus, message: message, httpStatus: status)
 
 type RequestErrorType* = enum
   ## Request-level error types from the JMAP problem details response (RFC 8620 §3.6.1).
@@ -43,12 +47,13 @@ type RequestErrorType* = enum
   retLimit = "urn:ietf:params:jmap:error:limit"
   retUnknown
 
-proc parseRequestErrorType*(raw: string): RequestErrorType =
+func parseRequestErrorType*(raw: string): RequestErrorType =
   ## Total function: always succeeds. Unknown URIs map to retUnknown.
   strutils.parseEnum[RequestErrorType](raw, retUnknown)
 
-type RequestError* = object of CatchableError
+type RequestError* = object
   ## RFC 7807 problem details returned when the entire request is rejected.
+  message*: string ## human-readable error description
   errorType*: RequestErrorType ## parsed enum variant
   rawType*: string ## always populated — lossless round-trip
   status*: Option[int] ## RFC 7807 "status" field
@@ -57,7 +62,7 @@ type RequestError* = object of CatchableError
   limit*: Option[string] ## which limit was exceeded (retLimit only)
   extras*: Option[JsonNode] ## non-standard fields, lossless preservation
 
-proc requestError*(
+func requestError*(
     rawType: string,
     status: Option[int] = none(int),
     title: Option[string] = none(string),
@@ -66,53 +71,46 @@ proc requestError*(
     extras: Option[JsonNode] = none(JsonNode),
 ): RequestError =
   ## Auto-parses rawType string to the corresponding enum variant via parseRequestErrorType.
-  result = RequestError(
+  let re = RequestError(
     errorType: parseRequestErrorType(rawType),
     rawType: rawType,
+    message: rawType,
     status: status,
     title: title,
     detail: detail,
     limit: limit,
     extras: extras,
   )
-  doAssert result.rawType == rawType
+  doAssert re.rawType == rawType
+  return re
 
 type ClientErrorKind* = enum
   ## Discriminator for the outer railway: transport failure or request rejection.
   cekTransport
   cekRequest
 
-type ClientError* = object of CatchableError
+type ClientError* = object
   ## Outer railway error: either a transport failure or a JMAP request rejection.
+  message*: string ## human-readable error description
   case kind*: ClientErrorKind
   of cekTransport:
     transport*: TransportError
   of cekRequest:
     request*: RequestError
 
-proc clientError*(transport: TransportError): ClientError =
+func clientError*(transport: TransportError): ClientError =
   ## Lifts a transport failure into the outer railway.
-  ClientError(kind: cekTransport, transport: transport, msg: transport.msg)
+  ClientError(kind: cekTransport, transport: transport, message: transport.message)
 
-proc clientError*(request: RequestError): ClientError =
+func clientError*(request: RequestError): ClientError =
   ## Lifts a request rejection into the outer railway.
-  ClientError(kind: cekRequest, request: request, msg: request.rawType)
+  ClientError(kind: cekRequest, request: request, message: request.rawType)
 
-proc newClientError*(transport: TransportError): ref ClientError =
-  ## Ref-returning constructor for raising transport failures as exceptions.
-  ## Follows the ``newValidationError`` pattern from ``validation.nim``.
-  (ref ClientError)(kind: cekTransport, transport: transport, msg: transport.msg)
-
-proc newClientError*(request: RequestError): ref ClientError =
-  ## Ref-returning constructor for raising request rejections as exceptions.
-  ## Follows the ``newValidationError`` pattern from ``validation.nim``.
-  (ref ClientError)(kind: cekRequest, request: request, msg: request.rawType)
-
-proc message*(err: ClientError): string =
+func message*(err: ClientError): string =
   ## Human-readable message for any ClientError variant.
   case err.kind
   of cekTransport:
-    err.transport.msg
+    err.transport.message
   of cekRequest:
     if err.request.detail.isSome:
       err.request.detail.get()
@@ -144,7 +142,7 @@ type MethodErrorType* = enum
   metFromAccountNotSupportedByMethod = "fromAccountNotSupportedByMethod"
   metUnknown
 
-proc parseMethodErrorType*(raw: string): MethodErrorType =
+func parseMethodErrorType*(raw: string): MethodErrorType =
   ## Total function: always succeeds. Unknown types map to metUnknown.
   strutils.parseEnum[MethodErrorType](raw, metUnknown)
 
@@ -155,19 +153,20 @@ type MethodError* = object
   description*: Option[string] ## RFC "description" field
   extras*: Option[JsonNode] ## non-standard fields, lossless preservation
 
-proc methodError*(
+func methodError*(
     rawType: string,
     description: Option[string] = none(string),
     extras: Option[JsonNode] = none(JsonNode),
 ): MethodError =
   ## Auto-parses rawType string to the corresponding enum variant via parseMethodErrorType.
-  result = MethodError(
+  let me = MethodError(
     errorType: parseMethodErrorType(rawType),
     rawType: rawType,
     description: description,
     extras: extras,
   )
-  doAssert result.rawType == rawType
+  doAssert me.rawType == rawType
+  return me
 
 type SetErrorType* = enum
   ## Per-item error types within a /set response (RFC 8620 §5.3).
@@ -183,7 +182,7 @@ type SetErrorType* = enum
   setSingleton = "singleton"
   setUnknown
 
-proc parseSetErrorType*(raw: string): SetErrorType =
+func parseSetErrorType*(raw: string): SetErrorType =
   ## Total function: always succeeds. Unknown types map to setUnknown.
   strutils.parseEnum[SetErrorType](raw, setUnknown)
 
@@ -200,7 +199,7 @@ type SetError* = object
   else:
     discard
 
-proc setError*(
+func setError*(
     rawType: string,
     description: Option[string] = none(string),
     extras: Option[JsonNode] = none(JsonNode),
@@ -215,7 +214,7 @@ proc setError*(
     errorType: safeType, rawType: rawType, description: description, extras: extras
   )
 
-proc setErrorInvalidProperties*(
+func setErrorInvalidProperties*(
     rawType: string,
     properties: seq[string],
     description: Option[string] = none(string),
@@ -230,7 +229,7 @@ proc setErrorInvalidProperties*(
     properties: properties,
   )
 
-proc setErrorAlreadyExists*(
+func setErrorAlreadyExists*(
     rawType: string,
     existingId: Id,
     description: Option[string] = none(string),

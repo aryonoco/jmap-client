@@ -7,6 +7,7 @@
 import std/options
 import std/json
 
+import jmap_client/validation
 import jmap_client/primitives
 import jmap_client/framework
 
@@ -21,9 +22,9 @@ block parsePropertyNameValid:
   assertOk parsePropertyName("name")
 
 block propertyNameBorrowedOps:
-  let a = parsePropertyName("name")
-  let b = parsePropertyName("name")
-  let c = parsePropertyName("other")
+  let a = parsePropertyName("name").get()
+  let b = parsePropertyName("name").get()
+  let c = parsePropertyName("other").get()
   doAssert a == b
   doAssert not (a == c)
   doAssert $a == "name"
@@ -61,19 +62,19 @@ block filterRecursiveNesting:
 # --- Comparator ---
 
 block parseComparatorValid:
-  let pn = parsePropertyName("name")
+  let pn = parsePropertyName("name").get()
   let c = parseComparator(pn)
   doAssert c.isAscending == true
   doAssert c.collation.isNone
 
 block parseComparatorWithCollation:
-  let pn = parsePropertyName("name")
+  let pn = parsePropertyName("name").get()
   let c = parseComparator(pn, collation = some("i;unicode-casemap"))
   doAssert c.collation.isSome
   doAssert c.collation.get() == "i;unicode-casemap"
 
 block parseComparatorNotAscending:
-  let pn = parsePropertyName("subject")
+  let pn = parsePropertyName("subject").get()
   let c = parseComparator(pn, isAscending = false)
   doAssert c.isAscending == false
 
@@ -87,11 +88,11 @@ block setPropEmptyPath:
     "PatchObject", "path must not be empty", ""
 
 block setPropValid:
-  let p = setProp(emptyPatch(), "name", %"Alice")
+  let p = setProp(emptyPatch(), "name", %"Alice").get()
   doAssert p.len == 1
 
 block deletePropValid:
-  let p = deleteProp(emptyPatch(), "addresses/0")
+  let p = deleteProp(emptyPatch(), "addresses/0").get()
   doAssert p.len == 1
 
 block deletePropEmptyPath:
@@ -99,13 +100,13 @@ block deletePropEmptyPath:
     "PatchObject", "path must not be empty", ""
 
 block chainedSetProp:
-  let p1 = setProp(emptyPatch(), "name", %"Alice")
-  let p2 = setProp(p1, "age", %30)
+  let p1 = setProp(emptyPatch(), "name", %"Alice").get()
+  let p2 = setProp(p1, "age", %30).get()
   doAssert p2.len == 2
 
 block patchObjectImmutability:
   let original = emptyPatch()
-  let modified = setProp(original, "name", %"Alice")
+  let modified = setProp(original, "name", %"Alice").get()
   doAssert original.len == 0
   doAssert modified.len == 1
 
@@ -117,8 +118,8 @@ block patchObjectNoBorrowedOps:
 # --- AddedItem ---
 
 block addedItemConstruction:
-  let id = parseId("abc")
-  let idx = parseUnsignedInt(0'i64)
+  let id = parseId("abc").get()
+  let idx = parseUnsignedInt(0'i64).get()
   let item = AddedItem(id: id, index: idx)
   doAssert string(item.id) == "abc"
   doAssert int64(item.index) == 0'i64
@@ -129,19 +130,19 @@ block setPropSlashOnlyPath:
   assertOk setProp(emptyPatch(), "/", %"val")
 
 block setPropOverwriteSameKey:
-  let p1 = setProp(emptyPatch(), "name", %"Alice")
-  let p2 = setProp(p1, "name", %"Bob")
+  let p1 = setProp(emptyPatch(), "name", %"Alice").get()
+  let p2 = setProp(p1, "name", %"Bob").get()
   doAssert p2.len == 1
 
 block setPropThenDeleteSameKey:
-  let p1 = setProp(emptyPatch(), "name", %"Alice")
-  let p2 = deleteProp(p1, "name")
+  let p1 = setProp(emptyPatch(), "name", %"Alice").get()
+  let p2 = deleteProp(p1, "name").get()
   doAssert p2.len == 1
 
 block patchObjectManyEntries:
   var p = emptyPatch()
   for i in 0 ..< 100:
-    p = setProp(p, "path" & $i, %i)
+    p = setProp(p, "path" & $i, %i).get()
   doAssert p.len == 100
 
 # --- Filter arity tests ---
@@ -167,29 +168,26 @@ block filterOperatorAndSingle:
 
 block patchObjectTildeEscapePath:
   # RFC 6901 tilde escaping: stored as-is (no path parsing at Layer 1)
-  let r = emptyPatch().setProp("a~0b", %"val")
-  assertOk r
+  let r = emptyPatch().setProp("a~0b", %"val").get()
   assertEq r.len, 1
 
 block patchObjectDoubleslashPath:
-  let r = emptyPatch().setProp("//", %"val")
-  assertOk r
+  assertOk emptyPatch().setProp("//", %"val")
 
 block patchObjectNulInPath:
-  let r = emptyPatch().setProp("a\x00b", %"val")
-  assertOk r
+  assertOk emptyPatch().setProp("a\x00b", %"val")
 
 # --- Comparator and AddedItem edge cases ---
 
 block comparatorEmptyCollation:
-  let pn = parsePropertyName("subject")
+  let pn = parsePropertyName("subject").get()
   let c = parseComparator(pn, collation = some(""))
   assertOk c
   doAssert c.collation.isSome
 
 block addedItemMaxIndex:
-  let maxIdx = parseUnsignedInt(MaxUnsignedInt)
-  let id = parseId("test")
+  let maxIdx = parseUnsignedInt(MaxUnsignedInt).get()
+  let id = parseId("test").get()
   let ai = AddedItem(id: id, index: maxIdx)
   doAssert ai.index == maxIdx
 
@@ -204,27 +202,27 @@ block patchObjectGetKeyAbsent:
 
 block patchObjectSetPropThenGetKey:
   # setProp then getKey verifying actual JSON value content
-  let p = setProp(emptyPatch(), "name", %"Alice")
+  let p = setProp(emptyPatch(), "name", %"Alice").get()
   let got = p.getKey("name")
   assertSome got
   doAssert got.get().getStr() == "Alice"
 
 block patchObjectDeletePropThenGetKey:
   # deleteProp then getKey returns JSON null
-  let p = deleteProp(emptyPatch(), "addr/0")
+  let p = deleteProp(emptyPatch(), "addr/0").get()
   let got = p.getKey("addr/0")
   assertSome got
   doAssert got.get().kind == JNull
 
 block parsePropertyNameSingleChar:
   ## parsePropertyName accepts a single-character string.
-  let pn = parsePropertyName("x")
+  let pn = parsePropertyName("x").get()
   assertOk pn
   doAssert $pn == "x"
 
 block parsePropertyNameStandard:
   ## parsePropertyName accepts a standard property name.
-  let pn = parsePropertyName("subject")
+  let pn = parsePropertyName("subject").get()
   assertOk pn
   doAssert $pn == "subject"
 

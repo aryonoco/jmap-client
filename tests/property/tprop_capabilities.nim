@@ -9,6 +9,7 @@ import std/random
 import std/sets
 
 import jmap_client/capabilities
+import jmap_client/validation
 import ../mproperty
 
 block propCapabilityKindTotality:

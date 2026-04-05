@@ -79,7 +79,7 @@ block goldenSetRequestToJson:
   let did1 = makeId("id2")
   let did2 = makeId("id3")
   let createData = %*{"name": "New Item"}
-  let updateData = setProp(emptyPatch(), "name", %*"Updated")
+  let updateData = setProp(emptyPatch(), "name", %*"Updated").get()
   var createTbl = initTable[CreationId, JsonNode]()
   createTbl[cid] = createData
   var updateTbl = initTable[Id, PatchObject]()
@@ -114,7 +114,7 @@ block goldenSetResponseMerging:
     "destroyed": ["id4"],
     "notDestroyed": {"id5": {"type": "forbidden"}},
   }
-  let sr = SetResponse[MockFoo].fromJson(j)
+  let sr = SetResponse[MockFoo].fromJson(j).get()
   doAssert sr.accountId == makeAccountId("A13824")
   doAssert sr.oldState.isSome
   doAssert sr.oldState.get() == makeState("state1")
@@ -369,7 +369,7 @@ block getResponseHappyPath:
   ## Valid GetResponse JSON with all fields.
   let j =
     %*{"accountId": "a1", "state": "s1", "list": [{"id": "x1"}], "notFound": ["x2"]}
-  let gr = GetResponse[MockFoo].fromJson(j)
+  let gr = GetResponse[MockFoo].fromJson(j).get()
   doAssert gr.accountId == makeAccountId("a1")
   doAssert gr.state == makeState("s1")
   assertLen gr.list, 1
@@ -394,7 +394,7 @@ block getResponseListWrongKind:
 block getResponseNotFoundAbsent:
   ## NotFound absent produces ok with empty notFound.
   let j = %*{"accountId": "a1", "state": "s1", "list": []}
-  let gr = GetResponse[MockFoo].fromJson(j)
+  let gr = GetResponse[MockFoo].fromJson(j).get()
   assertLen gr.notFound, 0
 
 block getResponseListEmpty:
@@ -427,7 +427,7 @@ block changesResponseHappyPath:
     "updated": ["u1"],
     "destroyed": ["d1"],
   }
-  let cr = ChangesResponse[MockFoo].fromJson(j)
+  let cr = ChangesResponse[MockFoo].fromJson(j).get()
   assertLen cr.created, 1
   assertLen cr.updated, 1
   assertLen cr.destroyed, 1
@@ -444,7 +444,7 @@ block changesResponseHasMoreTrue:
     "updated": [],
     "destroyed": [],
   }
-  let cr = ChangesResponse[MockFoo].fromJson(j)
+  let cr = ChangesResponse[MockFoo].fromJson(j).get()
   doAssert cr.hasMoreChanges
 
 block changesResponseHasMoreWrongKind:
@@ -495,7 +495,7 @@ block changesResponseEmptyArrays:
     "updated": [],
     "destroyed": [],
   }
-  let cr = ChangesResponse[MockFoo].fromJson(j)
+  let cr = ChangesResponse[MockFoo].fromJson(j).get()
   assertLen cr.created, 0
 
 # ===========================================================================
@@ -505,7 +505,7 @@ block changesResponseEmptyArrays:
 block setResponseBothNull:
   ## Both created and notCreated null produces empty tables.
   let j = %*{"accountId": "a1", "newState": "s1"}
-  let sr = SetResponse[MockFoo].fromJson(j)
+  let sr = SetResponse[MockFoo].fromJson(j).get()
   assertLen sr.created, 0
   assertLen sr.notCreated, 0
   assertLen sr.updated, 0
@@ -516,7 +516,7 @@ block setResponseBothNull:
 block setResponseCreatedOnly:
   ## Created entries only -- all ok.
   let j = %*{"accountId": "a1", "newState": "s1", "created": {"k1": {"id": "id1"}}}
-  let sr = SetResponse[MockFoo].fromJson(j)
+  let sr = SetResponse[MockFoo].fromJson(j).get()
   assertLen sr.created, 1
   doAssert makeCreationId("k1") in sr.created
 
@@ -524,7 +524,7 @@ block setResponseNotCreatedOnly:
   ## NotCreated entries only -- all err.
   let j =
     %*{"accountId": "a1", "newState": "s1", "notCreated": {"k1": {"type": "forbidden"}}}
-  let sr = SetResponse[MockFoo].fromJson(j)
+  let sr = SetResponse[MockFoo].fromJson(j).get()
   assertLen sr.notCreated, 1
   doAssert makeCreationId("k1") in sr.notCreated
 
@@ -536,32 +536,32 @@ block setResponseMixedCreateResults:
     "created": {"k1": {"id": "id1"}},
     "notCreated": {"k2": {"type": "forbidden"}},
   }
-  let sr = SetResponse[MockFoo].fromJson(j)
+  let sr = SetResponse[MockFoo].fromJson(j).get()
   assertLen sr.created, 1
   assertLen sr.notCreated, 1
 
 block setResponseUpdatedNull:
   ## Updated entry with null value produces none.
   let j = %*{"accountId": "a1", "newState": "s1", "updated": {"id1": nil}}
-  let sr = SetResponse[MockFoo].fromJson(j)
+  let sr = SetResponse[MockFoo].fromJson(j).get()
   doAssert sr.updated[makeId("id1")].isNone
 
 block setResponseUpdatedObject:
   ## Updated entry with object value produces some.
   let j = %*{"accountId": "a1", "newState": "s1", "updated": {"id1": {"prop": "val"}}}
-  let sr = SetResponse[MockFoo].fromJson(j)
+  let sr = SetResponse[MockFoo].fromJson(j).get()
   doAssert sr.updated[makeId("id1")].isSome
 
 block setResponseDestroyedEmpty:
   ## Destroyed empty array produces empty destroyed.
   let j = %*{"accountId": "a1", "newState": "s1", "destroyed": []}
-  let sr = SetResponse[MockFoo].fromJson(j)
+  let sr = SetResponse[MockFoo].fromJson(j).get()
   assertLen sr.destroyed, 0
 
 block setResponseOldStateAbsent:
   ## OldState absent produces none.
   let j = %*{"accountId": "a1", "newState": "s1"}
-  let sr = SetResponse[MockFoo].fromJson(j)
+  let sr = SetResponse[MockFoo].fromJson(j).get()
   doAssert sr.oldState.isNone
 
 block setResponseNotCreatedMissingType:
@@ -576,7 +576,7 @@ block setResponseNotCreatedUnknownType:
   let j = %*{
     "accountId": "a1", "newState": "s1", "notCreated": {"k1": {"type": "futureError"}}
   }
-  let sr = SetResponse[MockFoo].fromJson(j)
+  let sr = SetResponse[MockFoo].fromJson(j).get()
   let se = sr.notCreated[makeCreationId("k1")]
   doAssert se.errorType == setUnknown
   doAssert se.rawType == "futureError"
@@ -589,7 +589,7 @@ block setResponseDuplicateIdLastWriterWins:
     "created": {"k1": {"id": "id1"}},
     "notCreated": {"k1": {"type": "forbidden"}},
   }
-  let sr = SetResponse[MockFoo].fromJson(j)
+  let sr = SetResponse[MockFoo].fromJson(j).get()
   assertLen sr.created, 0
   assertLen sr.notCreated, 1
   doAssert makeCreationId("k1") in sr.notCreated
@@ -612,7 +612,7 @@ block copyResponseAlreadyExists:
     "newState": "s1",
     "notCreated": {"k1": {"type": "alreadyExists", "existingId": "existing1"}},
   }
-  let cr = CopyResponse[MockFoo].fromJson(j)
+  let cr = CopyResponse[MockFoo].fromJson(j).get()
   let se = cr.notCreated[makeCreationId("k1")]
   doAssert se.errorType == setAlreadyExists
 
@@ -624,7 +624,7 @@ block copyResponseMalformedExistingId:
     "newState": "s1",
     "notCreated": {"k1": {"type": "alreadyExists", "existingId": ""}},
   }
-  let cr = CopyResponse[MockFoo].fromJson(j)
+  let cr = CopyResponse[MockFoo].fromJson(j).get()
   let se = cr.notCreated[makeCreationId("k1")]
   doAssert se.rawType == "alreadyExists"
 
@@ -636,7 +636,7 @@ block copyResponseAllFailed:
     "newState": "s1",
     "notCreated": {"k1": {"type": "forbidden"}},
   }
-  let cr = CopyResponse[MockFoo].fromJson(j)
+  let cr = CopyResponse[MockFoo].fromJson(j).get()
   assertLen cr.notCreated, 1
   doAssert makeCreationId("k1") in cr.notCreated
 
@@ -648,7 +648,7 @@ block copyResponseValidCreated:
     "newState": "s1",
     "created": {"k1": {"id": "newid1"}},
   }
-  let cr = CopyResponse[MockFoo].fromJson(j)
+  let cr = CopyResponse[MockFoo].fromJson(j).get()
   doAssert makeCreationId("k1") in cr.created
 
 block copyResponseCreatedNullNotCreatedPresent:
@@ -659,7 +659,7 @@ block copyResponseCreatedNullNotCreatedPresent:
     "newState": "s1",
     "notCreated": {"k1": {"type": "forbidden"}, "k2": {"type": "overQuota"}},
   }
-  let cr = CopyResponse[MockFoo].fromJson(j)
+  let cr = CopyResponse[MockFoo].fromJson(j).get()
   assertLen cr.notCreated, 2
 
 # ===========================================================================
@@ -677,7 +677,7 @@ block queryResponseHappyPath:
     "total": 100,
     "limit": 50,
   }
-  let qr = QueryResponse[MockFoo].fromJson(j)
+  let qr = QueryResponse[MockFoo].fromJson(j).get()
   assertLen qr.ids, 2
   doAssert qr.canCalculateChanges
   doAssert qr.total.isSome
@@ -692,7 +692,7 @@ block queryResponseTotalAbsent:
     "position": 0,
     "ids": [],
   }
-  let qr = QueryResponse[MockFoo].fromJson(j)
+  let qr = QueryResponse[MockFoo].fromJson(j).get()
   doAssert qr.total.isNone
 
 block queryResponseLimitAbsent:
@@ -704,7 +704,7 @@ block queryResponseLimitAbsent:
     "position": 0,
     "ids": [],
   }
-  let qr = QueryResponse[MockFoo].fromJson(j)
+  let qr = QueryResponse[MockFoo].fromJson(j).get()
   doAssert qr.limit.isNone
 
 block queryResponseIdsEmpty:
@@ -758,7 +758,7 @@ block queryChangesResponseHappyPath:
     "removed": ["r1"],
     "added": [{"id": "a1", "index": 0}],
   }
-  let qcr = QueryChangesResponse[MockFoo].fromJson(j)
+  let qcr = QueryChangesResponse[MockFoo].fromJson(j).get()
   assertLen qcr.removed, 1
   assertLen qcr.added, 1
 
@@ -771,7 +771,7 @@ block queryChangesResponseEmptyRemovedNonEmptyAdded:
     "removed": [],
     "added": [{"id": "a1", "index": 0}],
   }
-  let qcr = QueryChangesResponse[MockFoo].fromJson(j)
+  let qcr = QueryChangesResponse[MockFoo].fromJson(j).get()
   assertLen qcr.removed, 0
   assertLen qcr.added, 1
 
@@ -784,7 +784,7 @@ block queryChangesResponseTotalAbsent:
     "removed": [],
     "added": [],
   }
-  let qcr = QueryChangesResponse[MockFoo].fromJson(j)
+  let qcr = QueryChangesResponse[MockFoo].fromJson(j).get()
   doAssert qcr.total.isNone
 
 block queryChangesResponseTotalPresent:
@@ -797,7 +797,7 @@ block queryChangesResponseTotalPresent:
     "removed": [],
     "added": [],
   }
-  let qcr = QueryChangesResponse[MockFoo].fromJson(j)
+  let qcr = QueryChangesResponse[MockFoo].fromJson(j).get()
   doAssert qcr.total.isSome
 
 block queryChangesResponseAddedInvalidIndex:

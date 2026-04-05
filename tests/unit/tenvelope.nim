@@ -10,11 +10,12 @@ import std/tables
 import jmap_client/identifiers
 import jmap_client/primitives
 import jmap_client/envelope
+import jmap_client/validation
 
 # --- Invocation ---
 
 block invocationConstruction:
-  let mcid = parseMethodCallId("c1")
+  let mcid = parseMethodCallId("c1").get()
   let inv = initInvocation("Mailbox/get", %*{"accountId": "A1"}, mcid)
   doAssert inv.name == "Mailbox/get"
   doAssert inv.arguments == %*{"accountId": "A1"}
@@ -23,9 +24,9 @@ block invocationConstruction:
 # --- Request ---
 
 block requestRfcExample:
-  let c1 = parseMethodCallId("c1")
-  let c2 = parseMethodCallId("c2")
-  let c3 = parseMethodCallId("c3")
+  let c1 = parseMethodCallId("c1").get()
+  let c2 = parseMethodCallId("c2").get()
+  let c3 = parseMethodCallId("c3").get()
   let req = Request(
     `using`: @["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail"],
     methodCalls: @[
@@ -46,8 +47,8 @@ block requestRfcExample:
   doAssert req.createdIds.isNone
 
 block requestWithCreatedIds:
-  let cid = parseCreationId("k1")
-  let id = parseId("abc")
+  let cid = parseCreationId("k1").get()
+  let id = parseId("abc").get()
   var tbl = initTable[CreationId, Id]()
   tbl[cid] = id
   let req = Request(`using`: @[], methodCalls: @[], createdIds: some(tbl))
@@ -65,8 +66,8 @@ block requestEmptyMethodCalls:
 # --- Response ---
 
 block responseConstruction:
-  let mcid = parseMethodCallId("c1")
-  let state = parseJmapState("state1")
+  let mcid = parseMethodCallId("c1").get()
+  let state = parseJmapState("state1").get()
   let resp = Response(
     methodResponses: @[initInvocation("Mailbox/get", %*{"list": []}, mcid)],
     sessionState: state,
@@ -78,10 +79,10 @@ block responseConstruction:
   doAssert resp.createdIds.isNone
 
 block responseRfcExample:
-  let c1 = parseMethodCallId("c1")
-  let c2 = parseMethodCallId("c2")
-  let c3 = parseMethodCallId("c3")
-  let state = parseJmapState("75128aab4b1b")
+  let c1 = parseMethodCallId("c1").get()
+  let c2 = parseMethodCallId("c2").get()
+  let c3 = parseMethodCallId("c3").get()
+  let state = parseJmapState("75128aab4b1b").get()
   let resp = Response(
     methodResponses: @[
       initInvocation("method1", %*{"arg1": 3, "arg2": "foo"}, c1),
@@ -103,9 +104,9 @@ block responseRfcExample:
   doAssert resp.createdIds.isNone
 
 block responseWithCreatedIds:
-  let cid = parseCreationId("k1")
-  let id = parseId("abc")
-  let state = parseJmapState("state2")
+  let cid = parseCreationId("k1").get()
+  let id = parseId("abc").get()
+  let state = parseJmapState("state2").get()
   var tbl = initTable[CreationId, Id]()
   tbl[cid] = id
   let resp = Response(methodResponses: @[], createdIds: some(tbl), sessionState: state)
@@ -117,7 +118,7 @@ block responseWithCreatedIds:
 # --- ResultReference ---
 
 block resultReferenceConstruction:
-  let mcid = parseMethodCallId("c1")
+  let mcid = parseMethodCallId("c1").get()
   let rref = ResultReference(resultOf: mcid, name: "Mailbox/query", path: "/ids")
   doAssert rref.resultOf == mcid
   doAssert rref.name == "Mailbox/query"
@@ -141,7 +142,7 @@ block directReferencableInt:
   doAssert r.value == 42
 
 block referenceReferencableSeqId:
-  let mcid = parseMethodCallId("c1")
+  let mcid = parseMethodCallId("c1").get()
   let rref = ResultReference(resultOf: mcid, name: "Mailbox/query", path: "/ids")
   let r = referenceTo[seq[Id]](rref)
   doAssert r.kind == rkReference
@@ -154,7 +155,7 @@ block referencableConcreteTypes:
   doAssert strRef.kind == rkDirect
   doAssert strRef.value == "hello"
 
-  let idSeq = direct(@[parseId("abc")])
+  let idSeq = direct(@[parseId("abc").get()])
   doAssert idSeq.kind == rkDirect
   doAssert idSeq.value.len == 1
 
@@ -167,8 +168,8 @@ block referencableConcreteTypes:
 
 block referencableVariantDiscrimination:
   # Direct and reference variants are distinguished by kind discriminator
-  let id = parseId("test")
-  let mcid = parseMethodCallId("c0")
+  let id = parseId("test").get()
+  let mcid = parseMethodCallId("c0").get()
   let d = direct[Id](id)
   let rr = ResultReference(resultOf: mcid, name: "Email/get", path: "/ids")
   let r = referenceTo[Id](rr)

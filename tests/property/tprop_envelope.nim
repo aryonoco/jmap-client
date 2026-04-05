@@ -12,6 +12,7 @@ import std/tables
 import jmap_client/primitives
 import jmap_client/identifiers
 import jmap_client/envelope
+import jmap_client/validation
 
 import ../mproperty
 
@@ -40,7 +41,7 @@ block propResponsePreservesInvocationOrder:
     var responses: seq[Invocation] = @[]
     for i in 0 ..< n:
       responses.add genInvocation(rng)
-    let state = parseJmapState("s" & $trial)
+    let state = parseJmapState("s" & $trial).get()
     let resp = Response(
       methodResponses: responses,
       createdIds: none(Table[CreationId, Id]),
@@ -53,7 +54,7 @@ block propResponsePreservesInvocationOrder:
 block propReferencableDirectPreservesValue:
   checkProperty "propReferencableDirectPreservesValue":
     ## direct(v).value == v for random Id sequences.
-    let ids = @[parseId("id" & $trial)]
+    let ids = @[parseId("id" & $trial).get()]
     lastInput = $trial
     let d = direct(ids)
     doAssert d.kind == rkDirect
@@ -62,7 +63,7 @@ block propReferencableDirectPreservesValue:
 block propReferencableReferencePreservesRef:
   checkProperty "propReferencableReferencePreservesRef":
     ## referenceTo preserves the ResultReference.
-    let mcid = parseMethodCallId("c" & $trial)
+    let mcid = parseMethodCallId("c" & $trial).get()
     lastInput = $trial
     let rr = ResultReference(resultOf: mcid, name: "Email/query", path: "/ids")
     let r = referenceTo[seq[Id]](rr)
@@ -73,13 +74,13 @@ block propReferencableReferencePreservesRef:
 block propReferencableExclusivity:
   checkProperty "propReferencableExclusivity":
     ## A Referencable is either direct or reference, never ambiguous.
-    let ids = @[parseId("id" & $trial)]
+    let ids = @[parseId("id" & $trial).get()]
     lastInput = $trial
     let d = direct(ids)
     doAssert d.kind == rkDirect
     doAssert not (d.kind == rkReference)
 
-    let mcid = parseMethodCallId("c" & $trial)
+    let mcid = parseMethodCallId("c" & $trial).get()
     let rr = ResultReference(resultOf: mcid, name: "M/get", path: "/ids")
     let r = referenceTo[seq[Id]](rr)
     doAssert r.kind == rkReference
@@ -101,15 +102,15 @@ block propRequestCreatedIdsTablePreserved:
     lastInput = $n
     var cids = initTable[CreationId, Id]()
     for i in 0 ..< n:
-      let cid = parseCreationId("k" & $i)
-      let id = parseId("sid" & $i)
+      let cid = parseCreationId("k" & $i).get()
+      let id = parseId("sid" & $i).get()
       cids[cid] = id
     let req = Request(`using`: @[], methodCalls: @[], createdIds: some(cids))
     doAssert req.createdIds.isSome
     doAssert req.createdIds.get().len == n
     for i in 0 ..< n:
-      let cid = parseCreationId("k" & $i)
-      doAssert req.createdIds.get()[cid] == parseId("sid" & $i)
+      let cid = parseCreationId("k" & $i).get()
+      doAssert req.createdIds.get()[cid] == parseId("sid" & $i).get()
 
 # --- Referencable properties ---
 
@@ -131,7 +132,7 @@ block propReferencableKindDisjointness:
     ## direct(v).kind != referenceTo(r).kind for any v and r.
     let v = rng.rand(int)
     lastInput = $v
-    let mcid = parseMethodCallId("c" & $trial)
+    let mcid = parseMethodCallId("c" & $trial).get()
     let rr = ResultReference(resultOf: mcid, name: "M/get", path: "/ids")
     let d = direct(v)
     let r = referenceTo[int](rr)

@@ -26,42 +26,31 @@ import ../mproperty
 block parseErrorFields:
   let e = parseError("Id", "expected JSON JString")
   assertEq e.typeName, "Id"
-  assertEq e.msg, "expected JSON JString"
+  assertEq e.message, "expected JSON JString"
   assertEq e.value, ""
 
 block checkJsonKindAcceptsCorrect:
-  checkJsonKind(%"hello", JString, "Test")
+  doAssert checkJsonKind(%"hello", JString, "Test").isOk
 
 block checkJsonKindRejectsNil:
   const nilNode: JsonNode = nil
-  doAssertRaises(ref ValidationError):
-    checkJsonKind(nilNode, JString, "Test")
+  doAssert checkJsonKind(nilNode, JString, "Test").isErr
 
 block checkJsonKindRejectsJNull:
-  doAssertRaises(ref ValidationError):
-    checkJsonKind(newJNull(), JString, "Test")
+  doAssert checkJsonKind(newJNull(), JString, "Test").isErr
 
 block checkJsonKindRejectsWrongKind:
-  doAssertRaises(ref ValidationError):
-    checkJsonKind(%42, JString, "Test")
+  doAssert checkJsonKind(%42, JString, "Test").isErr
 
 block checkJsonKindCustomMessage:
-  var caught = false
-  try:
-    checkJsonKind(%42, JString, "Test", "custom error message")
-  except ValidationError as e:
-    caught = true
-    doAssert e.msg == "custom error message"
-  doAssert caught, "expected ValidationError, but no exception was raised"
+  let r = checkJsonKind(%42, JString, "Test", "custom error message")
+  doAssert r.isErr
+  doAssert r.error.message == "custom error message"
 
 block checkJsonKindDefaultMessage:
-  var caught = false
-  try:
-    checkJsonKind(%42, JString, "Test")
-  except ValidationError as e:
-    caught = true
-    doAssert e.msg.contains("expected JSON")
-  doAssert caught, "expected ValidationError, but no exception was raised"
+  let r = checkJsonKind(%42, JString, "Test")
+  doAssert r.isErr
+  doAssert r.error.message.contains("expected JSON")
 
 block collectExtrasNone:
   let node = %*{"a": 1, "b": 2}
@@ -113,11 +102,11 @@ block roundTripPropertyName:
   assertOkEq PropertyName.fromJson(original.toJson()), original
 
 block roundTripDate:
-  let original = parseDate("2014-10-30T14:12:00+08:00")
+  let original = parseDate("2014-10-30T14:12:00+08:00").get()
   assertOkEq Date.fromJson(original.toJson()), original
 
 block roundTripUtcDate:
-  let original = parseUtcDate("2014-10-30T06:12:00Z")
+  let original = parseUtcDate("2014-10-30T06:12:00Z").get()
   assertOkEq UTCDate.fromJson(original.toJson()), original
 
 block roundTripUnsignedInt:
@@ -125,19 +114,19 @@ block roundTripUnsignedInt:
   assertOkEq UnsignedInt.fromJson(original.toJson()), original
 
 block roundTripJmapInt:
-  let original = parseJmapInt(42)
+  let original = parseJmapInt(42).get()
   assertOkEq JmapInt.fromJson(original.toJson()), original
 
 block roundTripUnsignedIntMax:
-  let original = parseUnsignedInt(9007199254740991'i64)
+  let original = parseUnsignedInt(9007199254740991'i64).get()
   assertOkEq UnsignedInt.fromJson(original.toJson()), original
 
 block roundTripJmapIntMin:
-  let original = parseJmapInt(-9007199254740991'i64)
+  let original = parseJmapInt(-9007199254740991'i64).get()
   assertOkEq JmapInt.fromJson(original.toJson()), original
 
 block roundTripIdMaxLen:
-  let original = parseIdFromServer('a'.repeat(255))
+  let original = parseIdFromServer('a'.repeat(255)).get()
   assertOkEq Id.fromJson(original.toJson()), original
 
 # --- Phase 3A: Numeric boundary off-by-one tests ---
@@ -313,7 +302,7 @@ block toJsonIdValue:
   assertEq id.toJson().getStr(""), "test123"
 
 block toJsonUnsignedIntValue:
-  let ui = parseUnsignedInt(42)
+  let ui = parseUnsignedInt(42).get()
   assertEq ui.toJson().getBiggestInt(0), 42'i64
 
 block toJsonStringKinds:
@@ -324,12 +313,12 @@ block toJsonStringKinds:
   doAssert makeCreationId().toJson().kind == JString
   doAssert makeUriTemplate().toJson().kind == JString
   doAssert makePropertyName().toJson().kind == JString
-  doAssert parseDate("2014-10-30T14:12:00+08:00").toJson().kind == JString
-  doAssert parseUtcDate("2014-10-30T06:12:00Z").toJson().kind == JString
+  doAssert parseDate("2014-10-30T14:12:00+08:00").get().toJson().kind == JString
+  doAssert parseUtcDate("2014-10-30T06:12:00Z").get().toJson().kind == JString
 
 block toJsonIntKinds:
   doAssert zeroUint().toJson().kind == JInt
-  doAssert parseJmapInt(0).toJson().kind == JInt
+  doAssert parseJmapInt(0).get().toJson().kind == JInt
 
 # =============================================================================
 # E. Property-based round-trip tests
@@ -337,57 +326,57 @@ block toJsonIntKinds:
 
 checkProperty "Id round-trip":
   let s = rng.genValidLenientString(trial, 1, 255)
-  let id = parseIdFromServer(s)
+  let id = parseIdFromServer(s).get()
   assertOkEq Id.fromJson(id.toJson()), id
 
 checkProperty "AccountId round-trip":
   let s = rng.genValidAccountId(trial)
-  let aid = parseAccountId(s)
+  let aid = parseAccountId(s).get()
   assertOkEq AccountId.fromJson(aid.toJson()), aid
 
 checkProperty "JmapState round-trip":
   let s = rng.genValidJmapState(trial)
-  let state = parseJmapState(s)
+  let state = parseJmapState(s).get()
   assertOkEq JmapState.fromJson(state.toJson()), state
 
 checkProperty "MethodCallId round-trip":
   let s = rng.genValidMethodCallId(trial)
-  let mcid = parseMethodCallId(s)
+  let mcid = parseMethodCallId(s).get()
   assertOkEq MethodCallId.fromJson(mcid.toJson()), mcid
 
 checkProperty "CreationId round-trip":
   let s = rng.genValidCreationId(trial)
-  let cid = parseCreationId(s)
+  let cid = parseCreationId(s).get()
   assertOkEq CreationId.fromJson(cid.toJson()), cid
 
 checkProperty "UriTemplate round-trip":
   let s = rng.genValidUriTemplateParametric()
-  let tmpl = parseUriTemplate(s)
+  let tmpl = parseUriTemplate(s).get()
   assertOkEq UriTemplate.fromJson(tmpl.toJson()), tmpl
 
 checkProperty "PropertyName round-trip":
   let s = rng.genValidPropertyName(trial)
-  let pn = parsePropertyName(s)
+  let pn = parsePropertyName(s).get()
   assertOkEq PropertyName.fromJson(pn.toJson()), pn
 
 checkProperty "Date round-trip":
   let s = rng.genValidDate()
-  let d = parseDate(s)
+  let d = parseDate(s).get()
   assertOkEq Date.fromJson(d.toJson()), d
 
 checkProperty "UTCDate round-trip":
   let s = rng.genValidUtcDate()
-  let d = parseUtcDate(s)
+  let d = parseUtcDate(s).get()
   assertOkEq UTCDate.fromJson(d.toJson()), d
 
 checkProperty "UnsignedInt round-trip":
   let n = rng.genValidUnsignedInt(trial)
-  let ui = parseUnsignedInt(n)
+  let ui = parseUnsignedInt(n).get()
   assertOkEq UnsignedInt.fromJson(ui.toJson()), ui
 
 checkProperty "JmapInt round-trip":
   let n = rng.genValidJmapInt(trial)
-  let ji = parseJmapInt(n)
+  let ji = parseJmapInt(n).get()
   assertOkEq JmapInt.fromJson(ji.toJson()), ji
 
 # =============================================================================
@@ -416,7 +405,7 @@ block parseErrorEmptyMessage:
   ## parseError with empty message produces a valid ValidationError.
   let err = parseError("TestType", "")
   assertEq err.typeName, "TestType"
-  assertEq err.msg, ""
+  assertEq err.message, ""
   assertEq err.value, ""
 
 # --- MaxChanges serde ---

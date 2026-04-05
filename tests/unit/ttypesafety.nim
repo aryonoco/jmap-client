@@ -12,28 +12,28 @@ import jmap_client/types
 # --- Distinct type isolation ---
 
 block distinctTypeIsolation:
-  let id = parseId("abc")
-  let aid = parseAccountId("abc")
-  let state = parseJmapState("abc")
+  let id = parseId("abc").get()
+  let aid = parseAccountId("abc").get()
+  let state = parseJmapState("abc").get()
   doAssert not compiles(id == aid)
   doAssert not compiles(id == state)
   doAssert not compiles(aid == state)
 
 block distinctTypeNoConcatenation:
-  let a = parseId("abc")
-  let b = parseId("def")
+  let a = parseId("abc").get()
+  let b = parseId("def").get()
   doAssert not compiles(a & b)
 
 block unsignedIntNoArithmetic:
-  let a = parseUnsignedInt(1)
-  let b = parseUnsignedInt(2)
+  let a = parseUnsignedInt(1).get()
+  let b = parseUnsignedInt(2).get()
   doAssert not compiles(a + b)
   doAssert not compiles(a - b)
   doAssert not compiles(a * b)
 
 block jmapIntNoArithmetic:
-  let a = parseJmapInt(1)
-  let b = parseJmapInt(2)
+  let a = parseJmapInt(1).get()
+  let b = parseJmapInt(2).get()
   doAssert not compiles(a + b)
   doAssert not compiles(a - b)
   doAssert not compiles(a * b)
@@ -65,7 +65,7 @@ block referencableWrongVariantConstruction:
     Referencable[int](
       kind: rkDirect,
       reference: ResultReference(
-        resultOf: parseMethodCallId("c1"), name: "Foo/get", path: "/ids"
+        resultOf: parseMethodCallId("c1").get(), name: "Foo/get", path: "/ids"
       ),
     )
   )
@@ -78,50 +78,51 @@ block filterWrongVariantConstruction:
 # --- Hash divergence (non-degenerate hash smoke test) ---
 
 block hashDivergenceId:
-  doAssert hash(parseId("abc")) != hash(parseId("xyz"))
+  doAssert hash(parseId("abc").get()) != hash(parseId("xyz").get())
 
 block hashDivergenceAccountId:
-  doAssert hash(parseAccountId("abc")) != hash(parseAccountId("xyz"))
+  doAssert hash(parseAccountId("abc").get()) != hash(parseAccountId("xyz").get())
 
 block hashDivergenceJmapState:
-  doAssert hash(parseJmapState("abc")) != hash(parseJmapState("xyz"))
+  doAssert hash(parseJmapState("abc").get()) != hash(parseJmapState("xyz").get())
 
 block hashDivergenceUriTemplate:
-  doAssert hash(parseUriTemplate("https://a.com")) !=
-    hash(parseUriTemplate("https://b.com"))
+  doAssert hash(parseUriTemplate("https://a.com").get()) !=
+    hash(parseUriTemplate("https://b.com").get())
 
 block hashDivergencePropertyName:
-  doAssert hash(parsePropertyName("name")) != hash(parsePropertyName("other"))
+  doAssert hash(parsePropertyName("name").get()) !=
+    hash(parsePropertyName("other").get())
 
 # =============================================================================
 # Additional distinct type isolation
 # =============================================================================
 
 block methodCallIdVsCreationIdIsolation:
-  doAssert not compiles(parseMethodCallId("a") == parseCreationId("a"))
+  doAssert not compiles(parseMethodCallId("a").get() == parseCreationId("a").get())
 
 block jmapStateVsMethodCallIdIsolation:
-  doAssert not compiles(parseJmapState("a") == parseMethodCallId("a"))
+  doAssert not compiles(parseJmapState("a").get() == parseMethodCallId("a").get())
 
 block jmapStateVsPropertyNameIsolation:
-  doAssert not compiles(parseJmapState("a") == parsePropertyName("a"))
+  doAssert not compiles(parseJmapState("a").get() == parsePropertyName("a").get())
 
 block uriTemplateVsPropertyNameIsolation:
-  doAssert not compiles(parseUriTemplate("a") == parsePropertyName("a"))
+  doAssert not compiles(parseUriTemplate("a").get() == parsePropertyName("a").get())
 
 block creationIdVsJmapStateIsolation:
-  doAssert not compiles(parseCreationId("a") == parseJmapState("a"))
+  doAssert not compiles(parseCreationId("a").get() == parseJmapState("a").get())
 
 block dateVsUtcDateIsolation:
   doAssert not compiles(
-    parseDate("2024-01-01T12:00:00Z") == parseUtcDate("2024-01-01T12:00:00Z")
+    parseDate("2024-01-01T12:00:00Z").get() == parseUtcDate("2024-01-01T12:00:00Z").get()
   )
 
 block uriTemplateVsAccountIdIsolation:
-  doAssert not compiles(parseUriTemplate("a") == parseAccountId("a"))
+  doAssert not compiles(parseUriTemplate("a").get() == parseAccountId("a").get())
 
 block creationIdVsPropertyNameIsolation:
-  doAssert not compiles(parseCreationId("a") == parsePropertyName("a"))
+  doAssert not compiles(parseCreationId("a").get() == parsePropertyName("a").get())
 
 # =============================================================================
 # Operator restriction verification
@@ -129,24 +130,24 @@ block creationIdVsPropertyNameIsolation:
 
 block unsignedIntNoNegation:
   ## UnsignedInt does not borrow unary negation (only JmapInt does).
-  doAssert not compiles(-parseUnsignedInt(0))
+  doAssert not compiles(-parseUnsignedInt(0).get())
 
 block idNoConcatenation:
   ## No string concatenation on Id.
-  doAssert not compiles(parseId("a") & parseId("b"))
+  doAssert not compiles(parseId("a").get() & parseId("b").get())
 
 block accountIdNoConcatenation:
-  doAssert not compiles(parseAccountId("a") & parseAccountId("b"))
+  doAssert not compiles(parseAccountId("a").get() & parseAccountId("b").get())
 
 block jmapStateNoLen:
   ## JmapState deliberately does not borrow len (semantically meaningless).
-  doAssert not compiles(parseJmapState("abc").len)
+  doAssert not compiles(parseJmapState("abc").get().len)
 
 block methodCallIdNoLen:
-  doAssert not compiles(parseMethodCallId("abc").len)
+  doAssert not compiles(parseMethodCallId("abc").get().len)
 
 block creationIdNoLen:
-  doAssert not compiles(parseCreationId("abc").len)
+  doAssert not compiles(parseCreationId("abc").get().len)
 
 # =============================================================================
 # Case object construction completeness
@@ -154,7 +155,7 @@ block creationIdNoLen:
 
 block transportErrorMissingHttpStatus:
   ## SetError(setInvalidProperties) must not accept existingId (wrong variant).
-  let testId = parseId("abc")
+  let testId = parseId("abc").get()
   doAssert not compiles(
     SetError(
       errorType: setInvalidProperties,
@@ -177,13 +178,13 @@ block serverCapabilityWrongVariantCoreOnMail:
       kind: ckMail,
       rawUri: "urn:ietf:params:jmap:mail",
       core: CoreCapabilities(
-        maxSizeUpload: parseUnsignedInt(1),
-        maxConcurrentUpload: parseUnsignedInt(1),
-        maxSizeRequest: parseUnsignedInt(1),
-        maxConcurrentRequests: parseUnsignedInt(1),
-        maxCallsInRequest: parseUnsignedInt(1),
-        maxObjectsInGet: parseUnsignedInt(1),
-        maxObjectsInSet: parseUnsignedInt(1),
+        maxSizeUpload: parseUnsignedInt(1).get(),
+        maxConcurrentUpload: parseUnsignedInt(1).get(),
+        maxSizeRequest: parseUnsignedInt(1).get(),
+        maxConcurrentRequests: parseUnsignedInt(1).get(),
+        maxCallsInRequest: parseUnsignedInt(1).get(),
+        maxObjectsInGet: parseUnsignedInt(1).get(),
+        maxObjectsInSet: parseUnsignedInt(1).get(),
         collationAlgorithms: initHashSet[string](),
       ),
     )
@@ -205,7 +206,7 @@ block setErrorPropertiesOnNonInvalidProperties:
 block setErrorExistingIdOnNonAlreadyExists:
   ## Constructing a setForbidden SetError with the setAlreadyExists-branch
   ## existingId field is rejected by {.strictCaseObjects.}.
-  let testId = parseId("abc")
+  let testId = parseId("abc").get()
   doAssert not compiles(
     SetError(
       errorType: setForbidden,
@@ -223,7 +224,7 @@ block referencableReferenceOnDirect:
     Referencable[int](
       kind: rkDirect,
       reference: ResultReference(
-        resultOf: parseMethodCallId("c1"), name: "Foo/get", path: "/ids"
+        resultOf: parseMethodCallId("c1").get(), name: "Foo/get", path: "/ids"
       ),
     )
   )

@@ -6,13 +6,16 @@
 ## (Layer 4). Not thread-safe — all calls must originate from a single
 ## thread (architecture §4.3).
 
+{.push raises: [].}
+
 import std/httpclient
 import std/json
 import std/strutils
 
-from std/net import TimeoutError
 when defined(ssl):
-  from std/net import SslError
+  from std/net import TimeoutError, SslError
+else:
+  from std/net import TimeoutError
 
 import ./types
 import ./serialisation
@@ -60,53 +63,70 @@ proc initJmapClient*(
     maxRedirects: int = 5,
     maxResponseBytes: int = 50_000_000,
     userAgent: string = "jmap-client-nim/0.1.0",
-): JmapClient =
+): Result[JmapClient, ValidationError] =
   ## Creates a new JmapClient from a known session URL and bearer token.
   ##
   ## Does NOT fetch the session — call ``fetchSession()`` explicitly or
   ## let ``send()`` fetch it lazily on first call.
   ##
-  ## Raises ``ValidationError`` if any parameter is invalid.
+  ## Returns err on invalid parameters.
   if sessionUrl.len == 0:
-    raise newValidationError("JmapClient", "sessionUrl must not be empty", "")
+    return err(validationError("JmapClient", "sessionUrl must not be empty", ""))
   if not sessionUrl.startsWith("https://") and not sessionUrl.startsWith("http://"):
-    raise newValidationError(
-      "JmapClient", "sessionUrl must start with https:// or http://", sessionUrl
+    return err(
+      validationError(
+        "JmapClient", "sessionUrl must start with https:// or http://", sessionUrl
+      )
     )
   if sessionUrl.contains({'\c', '\L'}):
-    raise newValidationError(
-      "JmapClient", "sessionUrl must not contain newline characters", sessionUrl
+    return err(
+      validationError(
+        "JmapClient", "sessionUrl must not contain newline characters", sessionUrl
+      )
     )
   if bearerToken.len == 0:
-    raise newValidationError("JmapClient", "bearerToken must not be empty", "")
+    return err(validationError("JmapClient", "bearerToken must not be empty", ""))
   if timeout < -1:
-    raise newValidationError("JmapClient", "timeout must be >= -1", $timeout)
+    return err(validationError("JmapClient", "timeout must be >= -1", $timeout))
   if maxRedirects < 0:
-    raise newValidationError("JmapClient", "maxRedirects must be >= 0", $maxRedirects)
+    return
+      err(validationError("JmapClient", "maxRedirects must be >= 0", $maxRedirects))
   if maxResponseBytes < 0:
-    raise newValidationError(
-      "JmapClient", "maxResponseBytes must be >= 0", $maxResponseBytes
+    return err(
+      validationError("JmapClient", "maxResponseBytes must be >= 0", $maxResponseBytes)
     )
-  let headers = newHttpHeaders(
-    {
-      "Authorization": "Bearer " & bearerToken,
-      "Content-Type": "application/json",
-      "Accept": "application/json",
-    }
-  )
-  let httpClient = newHttpClient(
-    userAgent = userAgent,
-    timeout = timeout,
-    maxRedirects = maxRedirects,
-    headers = headers,
-  )
-  JmapClient(
-    httpClient: httpClient,
-    sessionUrl: sessionUrl,
-    bearerToken: bearerToken,
-    session: none(Session),
-    maxResponseBytes: maxResponseBytes,
-    userAgent: userAgent,
+  let headers =
+    try:
+      {.cast(raises: [CatchableError]).}:
+        newHttpHeaders(
+          {
+            "Authorization": "Bearer " & bearerToken,
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+          }
+        )
+    except CatchableError:
+      return err(validationError("JmapClient", "failed to create HTTP headers", ""))
+  let httpClient =
+    try:
+      {.cast(raises: [CatchableError]).}:
+        newHttpClient(
+          userAgent = userAgent,
+          timeout = timeout,
+          maxRedirects = maxRedirects,
+          headers = headers,
+        )
+    except CatchableError:
+      return err(validationError("JmapClient", "failed to create HTTP client", ""))
+  ok(
+    JmapClient(
+      httpClient: httpClient,
+      sessionUrl: sessionUrl,
+      bearerToken: bearerToken,
+      session: none(Session),
+      maxResponseBytes: maxResponseBytes,
+      userAgent: userAgent,
+    )
   )
 
 proc discoverJmapClient*(
@@ -116,19 +136,19 @@ proc discoverJmapClient*(
     maxRedirects: int = 5,
     maxResponseBytes: int = 50_000_000,
     userAgent: string = "jmap-client-nim/0.1.0",
-): JmapClient =
+): Result[JmapClient, ValidationError] =
   ## Creates a JmapClient by constructing the ``.well-known/jmap`` URL from
   ## a domain name (RFC 8620 §2.2).
   ##
-  ## Raises ``ValidationError`` if domain or bearerToken are invalid.
+  ## Returns err if domain or bearerToken are invalid.
   if domain.len == 0:
-    raise newValidationError("JmapClient", "domain must not be empty", "")
+    return err(validationError("JmapClient", "domain must not be empty", ""))
   for c in domain:
     if c in Whitespace:
-      raise
-        newValidationError("JmapClient", "domain must not contain whitespace", domain)
+      return
+        err(validationError("JmapClient", "domain must not contain whitespace", domain))
   if '/' in domain:
-    raise newValidationError("JmapClient", "domain must not contain '/'", domain)
+    return err(validationError("JmapClient", "domain must not contain '/'", domain))
   initJmapClient(
     sessionUrl = "https://" & domain & "/.well-known/jmap",
     bearerToken = bearerToken,
@@ -150,20 +170,25 @@ proc bearerToken*(client: JmapClient): string =
   ## Returns the current bearer token.
   client.bearerToken
 
-proc setBearerToken*(client: var JmapClient, token: string) =
+proc setBearerToken*(
+    client: var JmapClient, token: string
+): Result[void, ValidationError] =
   ## Updates the bearer token. Subsequent requests use the new token.
   ## Also updates the Authorization header on the underlying HttpClient.
   ##
-  ## Raises ``ValidationError`` if token is empty.
+  ## Returns err if token is empty.
   if token.len == 0:
-    raise newValidationError("JmapClient", "bearerToken must not be empty", "")
+    return err(validationError("JmapClient", "bearerToken must not be empty", ""))
   client.bearerToken = token
-  client.httpClient.headers["Authorization"] = "Bearer " & token
+  {.cast(raises: []).}:
+    client.httpClient.headers["Authorization"] = "Bearer " & token
+  ok()
 
 proc close*(client: var JmapClient) =
   ## Closes the underlying HTTP connection. Releases the socket
   ## immediately. Idempotent — safe to call multiple times.
-  client.httpClient.close()
+  {.cast(raises: []).}:
+    client.httpClient.close()
 
 # ---------------------------------------------------------------------------
 # Pure helpers (§2, §7)
@@ -188,7 +213,7 @@ proc isTlsRelatedMsg(msg: string): bool =
   let lower = msg.toLowerAscii
   "ssl" in lower or "tls" in lower or "certificate" in lower
 
-proc classifyException*(e: ref CatchableError): ref ClientError =
+proc classifyException*(e: ref CatchableError): ClientError =
   ## Maps ``std/httpclient`` exceptions to ``ClientError(cekTransport)``.
   ## Pure: no IO, no side effects. Exhaustive over known exception types.
   var te: TransportError
@@ -208,9 +233,11 @@ proc classifyException*(e: ref CatchableError): ref ClientError =
     te = transportError(tekNetwork, "protocol error: " & e.msg)
   else:
     te = transportError(tekNetwork, "unexpected error: " & e.msg)
-  newClientError(te)
+  clientError(te)
 
-proc enforceBodySizeLimit*(maxResponseBytes: int, body: string, context: string) =
+proc enforceBodySizeLimit*(
+    maxResponseBytes: int, body: string, context: string
+): Result[void, ClientError] =
   ## Phase 2 body size enforcement: post-read rejection via actual body
   ## length. No-op when ``maxResponseBytes == 0`` (no limit). Pure.
   if maxResponseBytes > 0 and body.len > maxResponseBytes:
@@ -219,19 +246,21 @@ proc enforceBodySizeLimit*(maxResponseBytes: int, body: string, context: string)
       context & " response body exceeds limit: " & $body.len & " bytes > " &
         $maxResponseBytes & " byte limit",
     )
-    raise newClientError(te)
+    return err(clientError(te))
+  ok()
 
 proc enforceContentLengthLimit(
     maxResponseBytes: int, httpResp: httpclient.Response, context: string
-) =
+): Result[void, ClientError] =
   ## Phase 1 body size enforcement: early rejection via Content-Length
   ## header before the body is read into memory. No-op when
   ## ``maxResponseBytes == 0`` or Content-Length is absent/unparseable.
   if maxResponseBytes > 0:
     let cl =
       try:
-        httpResp.contentLength
-      except ValueError:
+        {.cast(raises: [CatchableError]).}:
+          httpResp.contentLength
+      except CatchableError:
         -1
     if cl > maxResponseBytes:
       let te = transportError(
@@ -239,65 +268,79 @@ proc enforceContentLengthLimit(
         context & " Content-Length exceeds limit: " & $cl & " bytes > " &
           $maxResponseBytes & " byte limit",
       )
-      raise newClientError(te)
+      return err(clientError(te))
+  ok()
 
-proc parseJsonBody(body: string, context: string): JsonNode =
-  ## Parses a response body as JSON. Raises ``ClientError(cekTransport)``
-  ## if the body is not valid JSON. Pure.
+proc parseJsonBody(body: string, context: string): Result[JsonNode, ClientError] =
+  ## Parses a response body as JSON. Returns err if the body is not valid JSON.
   try:
-    parseJson(body)
-  except JsonParsingError as e:
+    {.cast(raises: [CatchableError]).}:
+      ok(parseJson(body))
+  except CatchableError as e:
     let te =
       transportError(tekNetwork, "invalid JSON in " & context & " response: " & e.msg)
-    raise newClientError(te)
+    err(clientError(te))
 
-proc checkGetLimit(inv: Invocation, maxGet: int64) =
+proc checkGetLimit(inv: Invocation, maxGet: int64): Result[void, ValidationError] =
   ## Checks a /get invocation's direct ids count against maxObjectsInGet.
   ## Reference ids (JObject) and absent/null ids are silently skipped.
   if inv.arguments.isNil:
-    return
-  let idsNode = inv.arguments{"ids"}
-  if not idsNode.isNil and idsNode.kind == JArray:
-    if int64(idsNode.len) > maxGet:
-      raise newValidationError(
-        "Request",
-        inv.name & ": ids count " & $idsNode.len & " exceeds maxObjectsInGet " & $maxGet,
-        "",
-      )
+    return ok()
+  {.cast(raises: []).}:
+    let idsNode = inv.arguments{"ids"}
+    if not idsNode.isNil and idsNode.kind == JArray:
+      if int64(idsNode.len) > maxGet:
+        return err(
+          validationError(
+            "Request",
+            inv.name & ": ids count " & $idsNode.len & " exceeds maxObjectsInGet " &
+              $maxGet,
+            "",
+          )
+        )
+  ok()
 
-proc checkSetLimit(inv: Invocation, maxSet: int64) =
+proc checkSetLimit(inv: Invocation, maxSet: int64): Result[void, ValidationError] =
   ## Checks a /set invocation's combined create + update + destroy count
   ## against maxObjectsInSet. Reference destroy (JObject) is silently skipped.
   if inv.arguments.isNil:
-    return
-  var count: int64 = 0
-  let createNode = inv.arguments{"create"}
-  if not createNode.isNil and createNode.kind == JObject:
-    count += int64(createNode.len)
-  let updateNode = inv.arguments{"update"}
-  if not updateNode.isNil and updateNode.kind == JObject:
-    count += int64(updateNode.len)
-  let destroyNode = inv.arguments{"destroy"}
-  if not destroyNode.isNil and destroyNode.kind == JArray:
-    count += int64(destroyNode.len)
-  if count > maxSet:
-    raise newValidationError(
-      "Request",
-      inv.name & ": object count " & $count & " exceeds maxObjectsInSet " & $maxSet,
-      "",
-    )
+    return ok()
+  {.cast(raises: []).}:
+    var count: int64 = 0
+    let createNode = inv.arguments{"create"}
+    if not createNode.isNil and createNode.kind == JObject:
+      count += int64(createNode.len)
+    let updateNode = inv.arguments{"update"}
+    if not updateNode.isNil and updateNode.kind == JObject:
+      count += int64(updateNode.len)
+    let destroyNode = inv.arguments{"destroy"}
+    if not destroyNode.isNil and destroyNode.kind == JArray:
+      count += int64(destroyNode.len)
+    if count > maxSet:
+      return err(
+        validationError(
+          "Request",
+          inv.name & ": object count " & $count & " exceeds maxObjectsInSet " & $maxSet,
+          "",
+        )
+      )
+  ok()
 
-proc validateLimits*(request: Request, caps: CoreCapabilities) =
+proc validateLimits*(
+    request: Request, caps: CoreCapabilities
+): Result[void, ValidationError] =
   ## Pre-flight validation of a built Request against server-advertised
   ## CoreCapabilities limits. Pure — no IO, no mutation.
-  ## Raises ``ValidationError`` describing the first violation.
+  ## Returns err describing the first violation.
   let maxCalls = int64(caps.maxCallsInRequest)
   if int64(request.methodCalls.len) > maxCalls:
-    raise newValidationError(
-      "Request",
-      "method call count " & $request.methodCalls.len & " exceeds maxCallsInRequest " &
-        $maxCalls,
-      "",
+    return err(
+      validationError(
+        "Request",
+        "method call count " & $request.methodCalls.len & " exceeds maxCallsInRequest " &
+          $maxCalls,
+        "",
+      )
     )
 
   let maxGet = int64(caps.maxObjectsInGet)
@@ -305,68 +348,87 @@ proc validateLimits*(request: Request, caps: CoreCapabilities) =
 
   for inv in request.methodCalls:
     if inv.name.endsWith("/get"):
-      checkGetLimit(inv, maxGet)
+      ?checkGetLimit(inv, maxGet)
     elif inv.name.endsWith("/set"):
-      checkSetLimit(inv, maxSet)
+      ?checkSetLimit(inv, maxSet)
+  ok()
+
+proc readContentType(httpResp: httpclient.Response): string =
+  ## Reads the Content-Type header, returning empty string on failure.
+  try:
+    {.cast(raises: [CatchableError]).}:
+      httpResp.contentType.toLowerAscii
+  except CatchableError:
+    ""
+
+proc tryParseProblemDetails(body: string): Option[ClientError] =
+  ## Attempts to parse RFC 7807 problem details from a response body.
+  ## Returns some(ClientError) on success, none on failure.
+  try:
+    {.cast(raises: [CatchableError]).}:
+      let jsonNode = parseJson(body)
+      if jsonNode.kind == JObject and jsonNode.hasKey("type"):
+        let reqErrResult = RequestError.fromJson(jsonNode)
+        if reqErrResult.isOk:
+          return some(clientError(reqErrResult.get()))
+  except CatchableError:
+    discard
+  none(ClientError)
 
 proc classifyHttpResponse(
     maxResponseBytes: int, httpResp: httpclient.Response, context: string
-): string =
+): JmapResult[string] =
   ## Classifies an HTTP response. Returns the body string on 2xx with
-  ## correct Content-Type. Raises ``ClientError`` otherwise. Not pure —
+  ## correct Content-Type. Returns err otherwise. Not pure —
   ## ``httpResp.body`` lazily reads from ``bodyStream`` on first access.
   let code =
     try:
-      httpResp.code
-    except ValueError:
+      {.cast(raises: [CatchableError]).}:
+        httpResp.code
+    except CatchableError:
       let te = transportError(
         tekNetwork, "malformed HTTP status from " & context & ": " & httpResp.status
       )
-      raise newClientError(te)
+      return err(clientError(te))
 
   # Phase 1 body size enforcement (R9) — reject before reading body
-  enforceContentLengthLimit(maxResponseBytes, httpResp, context)
+  ?enforceContentLengthLimit(maxResponseBytes, httpResp, context)
 
-  let body = httpResp.body # lazy: reads bodyStream on first access
+  let body =
+    try:
+      {.cast(raises: [CatchableError]).}:
+        httpResp.body # lazy: reads bodyStream on first access
+    except CatchableError:
+      return err(clientError(transportError(tekNetwork, "failed to read body")))
 
   # Phase 2 body size enforcement (R9) — reject after reading body
-  enforceBodySizeLimit(maxResponseBytes, body, context)
+  ?enforceBodySizeLimit(maxResponseBytes, body, context)
 
   if code.is4xx or code.is5xx:
     # Attempt to parse as RFC 7807 problem details
-    let ct = httpResp.contentType.toLowerAscii
+    let ct = readContentType(httpResp)
     if ct.startsWith("application/problem+json") or ct.startsWith("application/json"):
-      try:
-        let jsonNode = parseJson(body)
-        if jsonNode.kind == JObject and jsonNode.hasKey("type"):
-          let reqErr = RequestError.fromJson(jsonNode)
-          raise newClientError(reqErr)
-      except ClientError:
-        raise # re-raise the ClientError we just created
-      except CatchableError:
-        # Malformed JSON, or valid JSON that fails RequestError schema
-        # validation — fall through to generic HTTP status error
-        discard
+      let pd = tryParseProblemDetails(body)
+      if pd.isSome:
+        return err(pd.get())
     # Generic HTTP status error (no problem details, or parsing failed)
     let te = httpStatusError(int(code), "HTTP " & $int(code) & " from " & context)
-    raise newClientError(te)
+    return err(clientError(te))
 
   # Guard: non-2xx that is not 4xx/5xx (e.g. 1xx, 3xx).
   if not code.is2xx:
     let te =
       httpStatusError(int(code), "unexpected HTTP " & $int(code) & " from " & context)
-    raise newClientError(te)
+    return err(clientError(te))
 
   # Check Content-Type on 2xx success
-  let ct = httpResp.contentType.toLowerAscii
+  let ct = readContentType(httpResp)
   if not ct.startsWith("application/json"):
-    let te = transportError(
-      tekNetwork,
-      "unexpected Content-Type from " & context & ": " & httpResp.contentType,
-    )
-    raise newClientError(te)
+    let te =
+      transportError(tekNetwork, "unexpected Content-Type from " & context & ": " & ct)
+    return err(clientError(te))
 
-  body
+  ok(body)
 
 proc setSessionForTest*(client: var JmapClient, session: Session) =
   ## Injects a cached session for testing purposes. Enables pure tests
@@ -377,47 +439,51 @@ proc setSessionForTest*(client: var JmapClient, session: Session) =
 # IO procs (§3, §4, §6)
 # ---------------------------------------------------------------------------
 
-proc fetchSession*(client: var JmapClient): Session =
+proc fetchSession*(client: var JmapClient): JmapResult[Session] =
   ## Fetches the JMAP Session resource from the server and caches it.
   ## Re-fetching replaces the cached session.
   ##
-  ## Raises ``ClientError(cekTransport)`` for network, TLS, timeout,
-  ## HTTP errors. Raises ``ClientError(cekRequest)`` for RFC 7807
-  ## problem details. Raises ``ValidationError`` if the session JSON
-  ## is structurally invalid (D4.6).
-  # {.warning[Uninit]: off.} suppresses a false positive from
-  # std/httpclient's `request` proc (uninitialized `redirectMethod`
-  # variable inside the stdlib, triggered by strictDefs + warningAsError).
+  ## Returns err for network, TLS, timeout, HTTP errors, RFC 7807
+  ## problem details, or structurally invalid session JSON.
   let httpResp =
     try:
       {.warning[Uninit]: off.}
-      client.httpClient.request(client.sessionUrl, httpMethod = HttpGet)
+      {.cast(raises: [CatchableError]).}:
+        client.httpClient.request(client.sessionUrl, httpMethod = HttpGet)
     except CatchableError as e:
-      raise classifyException(e)
-  let body = classifyHttpResponse(client.maxResponseBytes, httpResp, "session")
-  let jsonNode = parseJsonBody(body, "session")
-  let session = Session.fromJson(jsonNode)
-  client.session = some(session)
-  session
+      return err(classifyException(e))
+  let body = ?classifyHttpResponse(client.maxResponseBytes, httpResp, "session")
+  let jsonNode = ?parseJsonBody(body, "session")
+  let session = Session.fromJson(jsonNode).mapErr(
+      proc(ve: ValidationError): ClientError =
+        clientError(transportError(tekNetwork, "invalid session: " & ve.message))
+    )
+  let s = ?session
+  client.session = some(s)
+  ok(s)
 
-proc send*(client: var JmapClient, request: Request): envelope.Response =
+proc send*(client: var JmapClient, request: Request): JmapResult[envelope.Response] =
   ## Serialises a JMAP Request, POSTs to the server's apiUrl, and
   ## deserialises the Response.
   ##
   ## Lazily fetches the session on first call if not yet cached.
   ## Does NOT automatically refresh a stale session (D4.10).
   ##
-  ## Raises ``ClientError`` for transport/request failures,
-  ## ``ValidationError`` for limit violations or invalid response JSON.
+  ## Returns err for transport/request failures, limit violations,
+  ## or invalid response JSON.
 
   # Step 1: Ensure session available (may trigger IO)
   if client.session.isNone:
-    discard client.fetchSession()
+    let s = ?client.fetchSession()
+    discard s
   let session = client.session.get()
   let coreCaps = session.coreCapabilities()
 
   # Step 2: Pre-flight validation
-  validateLimits(request, coreCaps)
+  let limitsResult = validateLimits(request, coreCaps)
+  if limitsResult.isErr:
+    let ve = limitsResult.error
+    return err(clientError(transportError(tekNetwork, ve.message)))
 
   # Step 3: Serialise
   let jsonNode = request.toJson()
@@ -426,35 +492,41 @@ proc send*(client: var JmapClient, request: Request): envelope.Response =
   # Step 4: Check serialised size against maxSizeRequest
   let maxSize = int64(coreCaps.maxSizeRequest)
   if body.len > int(maxSize):
-    raise newValidationError(
+    let ve = validationError(
       "Request",
       "serialised request size " & $body.len & " octets exceeds server maxSizeRequest " &
         $maxSize,
       "",
     )
+    return err(clientError(transportError(tekNetwork, ve.message)))
 
   # Step 5: IO boundary — HTTP POST
   let httpResp =
     try:
       {.warning[Uninit]: off.}
-      client.httpClient.request(session.apiUrl, httpMethod = HttpPost, body = body)
+      {.cast(raises: [CatchableError]).}:
+        client.httpClient.request(session.apiUrl, httpMethod = HttpPost, body = body)
     except CatchableError as e:
-      raise classifyException(e)
+      return err(classifyException(e))
 
   # Step 6: Classify HTTP response
-  let respBody = classifyHttpResponse(client.maxResponseBytes, httpResp, "api")
+  let respBody = ?classifyHttpResponse(client.maxResponseBytes, httpResp, "api")
 
   # Step 7: Parse JSON
-  let respJson = parseJsonBody(respBody, "api")
+  let respJson = ?parseJsonBody(respBody, "api")
 
   # Step 8: Problem details on HTTP 200
   if respJson.kind == JObject and respJson.hasKey("type") and
       not respJson.hasKey("methodResponses"):
-    let reqErr = RequestError.fromJson(respJson)
-    raise newClientError(reqErr)
+    let reqErrResult = RequestError.fromJson(respJson)
+    if reqErrResult.isOk:
+      return err(clientError(reqErrResult.get()))
 
   # Step 9: Deserialise Response
-  envelope.Response.fromJson(respJson)
+  envelope.Response.fromJson(respJson).mapErr(
+    proc(ve: ValidationError): ClientError =
+      clientError(transportError(tekNetwork, "invalid response: " & ve.message))
+  )
 
 proc isSessionStale*(client: JmapClient, response: envelope.Response): bool =
   ## Compares ``response.sessionState`` with the cached ``Session.state``.
@@ -465,11 +537,14 @@ proc isSessionStale*(client: JmapClient, response: envelope.Response): bool =
     return false
   client.session.get().state != response.sessionState
 
-proc refreshSessionIfStale*(client: var JmapClient, response: envelope.Response): bool =
+proc refreshSessionIfStale*(
+    client: var JmapClient, response: envelope.Response
+): JmapResult[bool] =
   ## If the response indicates a stale session, re-fetches it.
-  ## Returns ``true`` if refreshed, ``false`` otherwise.
-  ## Raises ``ClientError`` on fetch failure (same as ``fetchSession``).
+  ## Returns ok(true) if refreshed, ok(false) otherwise.
+  ## Returns err on fetch failure (same as ``fetchSession``).
   if client.isSessionStale(response):
-    discard client.fetchSession()
-    return true
-  false
+    let s = ?client.fetchSession()
+    discard s
+    return ok(true)
+  ok(false)

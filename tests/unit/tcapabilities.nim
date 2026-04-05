@@ -9,6 +9,7 @@ import std/json
 
 import jmap_client/primitives
 import jmap_client/capabilities
+import jmap_client/validation
 
 import ../massertions
 import ../mfixtures
@@ -50,7 +51,7 @@ block capabilityUriUnknown:
 # --- CoreCapabilities + hasCollation ---
 
 block coreCapabilitiesHasCollation:
-  let zero = parseUnsignedInt(0)
+  let zero = parseUnsignedInt(0).get()
   let caps = CoreCapabilities(
     maxSizeUpload: zero,
     maxConcurrentUpload: zero,
@@ -65,7 +66,7 @@ block coreCapabilitiesHasCollation:
   doAssert not caps.hasCollation("i;nonexistent")
 
 block hasCollationEmptySet:
-  let zero = parseUnsignedInt(0)
+  let zero = parseUnsignedInt(0).get()
   let caps = CoreCapabilities(
     maxSizeUpload: zero,
     maxConcurrentUpload: zero,
@@ -81,7 +82,7 @@ block hasCollationEmptySet:
 # --- ServerCapability construction ---
 
 block serverCapabilityCore:
-  let zero = parseUnsignedInt(0)
+  let zero = parseUnsignedInt(0).get()
   let caps = CoreCapabilities(
     maxSizeUpload: zero,
     maxConcurrentUpload: zero,
@@ -161,8 +162,8 @@ block capabilityUriRoundTrip:
 
 block coreCapabilitiesRealisticValues:
   let caps = realisticCoreCaps()
-  doAssert caps.maxSizeUpload == parseUnsignedInt(50_000_000)
-  doAssert caps.maxCallsInRequest == parseUnsignedInt(32)
+  doAssert caps.maxSizeUpload == parseUnsignedInt(50_000_000).get()
+  doAssert caps.maxCallsInRequest == parseUnsignedInt(32).get()
   doAssert caps.hasCollation("i;ascii-casemap")
   doAssert caps.hasCollation("i;unicode-casemap")
 

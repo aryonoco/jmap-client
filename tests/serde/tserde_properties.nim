@@ -36,12 +36,12 @@ import ../mserde_fixtures
 
 checkProperty "CoreCapabilities serde round-trip":
   let original = rng.genCoreCapabilities()
-  let rt = CoreCapabilities.fromJson(original.toJson())
+  let rt = CoreCapabilities.fromJson(original.toJson()).get()
   doAssert coreCapEq(rt, original), "CoreCapabilities round-trip values differ"
 
 checkProperty "ServerCapability serde round-trip":
   let original = rng.genServerCapability()
-  let rt = ServerCapability.fromJson(original.rawUri, original.toJson())
+  let rt = ServerCapability.fromJson(original.rawUri, original.toJson()).get()
   doAssert capEq(rt, original), "ServerCapability round-trip values differ"
 
 checkProperty "Account serde round-trip":
@@ -51,7 +51,7 @@ checkProperty "Account serde round-trip":
 checkPropertyN "Session serde round-trip", ThoroughTrials:
   let original = rng.genSession()
   let j = original.toJson()
-  let v = Session.fromJson(j)
+  let v = Session.fromJson(j).get()
   doAssert v.username == original.username
   doAssert v.apiUrl == original.apiUrl
   doAssert v.state == original.state
@@ -60,14 +60,14 @@ checkPropertyN "Session serde round-trip", ThoroughTrials:
 
 checkProperty "Invocation serde round-trip (complex args)":
   let original = rng.genInvocationWithArgs()
-  let v = Invocation.fromJson(original.toJson())
+  let v = Invocation.fromJson(original.toJson()).get()
   doAssert v.name == original.name
   doAssert v.arguments == original.arguments
   doAssert v.methodCallId == original.methodCallId
 
 checkPropertyN "Request serde round-trip", ThoroughTrials:
   let original = rng.genRequest()
-  let v = Request.fromJson(original.toJson())
+  let v = Request.fromJson(original.toJson()).get()
   doAssert v.`using` == original.`using`
   doAssert v.methodCalls.len == original.methodCalls.len
   for i in 0 ..< v.methodCalls.len:
@@ -78,7 +78,7 @@ checkPropertyN "Request serde round-trip", ThoroughTrials:
 
 checkPropertyN "Response serde round-trip", ThoroughTrials:
   let original = rng.genResponse()
-  let v = Response.fromJson(original.toJson())
+  let v = Response.fromJson(original.toJson()).get()
   doAssert v.methodResponses.len == original.methodResponses.len
   doAssert v.sessionState == original.sessionState
   for i in 0 ..< v.methodResponses.len:
@@ -89,19 +89,19 @@ checkPropertyN "Response serde round-trip", ThoroughTrials:
 
 checkProperty "Filter[int] serde round-trip":
   let original = rng.genFilter(4)
-  let rt = Filter[int].fromJson(original.toJson(intToJson), fromIntCondition)
+  let rt = Filter[int].fromJson(original.toJson(intToJson), fromIntCondition).get()
   doAssert filterEq(rt, original), "Filter round-trip values differ"
 
 checkProperty "Comparator serde round-trip":
   let original = rng.genComparator()
-  let v = Comparator.fromJson(original.toJson())
+  let v = Comparator.fromJson(original.toJson()).get()
   doAssert v.property == original.property
   doAssert v.isAscending == original.isAscending
   doAssert v.collation == original.collation
 
 checkProperty "PatchObject serde round-trip (value equality)":
   let original = rng.genPatchObject(5)
-  let v = PatchObject.fromJson(original.toJson())
+  let v = PatchObject.fromJson(original.toJson()).get()
   doAssert v.len == original.len, "PatchObject round-trip length differs"
   # Verify all paths survived (toJson -> fromJson preserves keys)
   let originalJson = original.toJson()
@@ -111,7 +111,7 @@ checkProperty "PatchObject serde round-trip (value equality)":
 
 checkProperty "AddedItem serde round-trip":
   let original = rng.genAddedItem()
-  let v = AddedItem.fromJson(original.toJson())
+  let v = AddedItem.fromJson(original.toJson()).get()
   doAssert v.id == original.id
   doAssert v.index == original.index
 
@@ -125,12 +125,12 @@ checkProperty "MethodError serde round-trip":
 
 checkProperty "SetError serde round-trip":
   let original = rng.genSetError()
-  let rt = SetError.fromJson(original.toJson())
+  let rt = SetError.fromJson(original.toJson()).get()
   doAssert setErrorEq(rt, original), "SetError round-trip values differ"
 
 checkProperty "ResultReference serde round-trip":
   let mcidStr = "c" & $rng.rand(0 .. 99)
-  let mcid = parseMethodCallId(mcidStr)
+  let mcid = parseMethodCallId(mcidStr).get()
   const paths = ["/ids", "/list/*/id", "/added/*/id", "/created", "/updated"]
   const names = ["Mailbox/get", "Email/query", "Thread/get"]
   let original =
@@ -143,156 +143,72 @@ checkProperty "ResultReference serde round-trip":
 
 checkPropertyN "CoreCapabilities.fromJson never crashes on arbitrary JSON", QuickTrials:
   let node = rng.genArbitraryJsonNode(2)
-  try:
-    discard CoreCapabilities.fromJson(node)
-  except ValidationError:
-    discard
-
+  discard CoreCapabilities.fromJson(node)
 checkPropertyN "ServerCapability.fromJson never crashes on arbitrary JSON", QuickTrials:
   let node = rng.genArbitraryJsonNode(2)
   const uris = [
     "urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail",
     "https://vendor.example.com/ext", "",
   ]
-  try:
-    discard ServerCapability.fromJson(rng.oneOf(uris), node)
-  except ValidationError:
-    discard
-
+  discard ServerCapability.fromJson(rng.oneOf(uris), node)
 checkPropertyN "Account.fromJson never crashes on arbitrary JSON", QuickTrials:
   let node = rng.genArbitraryJsonNode(2)
-  try:
-    discard Account.fromJson(node)
-  except ValidationError:
-    discard
-
+  discard Account.fromJson(node)
 checkPropertyN "Session.fromJson never crashes on arbitrary JSON", QuickTrials:
   let node = rng.genArbitraryJsonObject(2)
-  try:
-    discard Session.fromJson(node)
-  except ValidationError:
-    discard
-
+  discard Session.fromJson(node)
 checkPropertyN "Invocation.fromJson never crashes on arbitrary JSON", QuickTrials:
   let node = rng.genArbitraryJsonNode(2)
-  try:
-    discard Invocation.fromJson(node)
-  except ValidationError:
-    discard
-
+  discard Invocation.fromJson(node)
 checkPropertyN "Request.fromJson never crashes on arbitrary JSON", QuickTrials:
   let node = rng.genArbitraryJsonObject(2)
-  try:
-    discard Request.fromJson(node)
-  except ValidationError:
-    discard
-
+  discard Request.fromJson(node)
 checkPropertyN "Response.fromJson never crashes on arbitrary JSON", QuickTrials:
   let node = rng.genArbitraryJsonObject(2)
-  try:
-    discard Response.fromJson(node)
-  except ValidationError:
-    discard
-
+  discard Response.fromJson(node)
 checkPropertyN "ResultReference.fromJson never crashes on arbitrary JSON", QuickTrials:
   let node = rng.genArbitraryJsonNode(2)
-  try:
-    discard ResultReference.fromJson(node)
-  except ValidationError:
-    discard
-
+  discard ResultReference.fromJson(node)
 checkPropertyN "FilterOperator.fromJson never crashes on arbitrary JSON", QuickTrials:
   let node = rng.genArbitraryJsonNode(1)
-  try:
-    discard FilterOperator.fromJson(node)
-  except ValidationError:
-    discard
-
+  discard FilterOperator.fromJson(node)
 checkPropertyN "Filter[int].fromJson never crashes on arbitrary JSON", QuickTrials:
   let node = rng.genArbitraryJsonNode(3)
-  try:
-    discard Filter[int].fromJson(node, fromIntCondition)
-  except ValidationError:
-    discard
-
+  discard Filter[int].fromJson(node, fromIntCondition)
 checkPropertyN "Comparator.fromJson never crashes on arbitrary JSON", QuickTrials:
   let node = rng.genArbitraryJsonNode(2)
-  try:
-    discard Comparator.fromJson(node)
-  except ValidationError:
-    discard
-
+  discard Comparator.fromJson(node)
 checkPropertyN "PatchObject.fromJson never crashes on arbitrary JSON", QuickTrials:
   let node = rng.genArbitraryJsonNode(2)
-  try:
-    discard PatchObject.fromJson(node)
-  except ValidationError:
-    discard
-
+  discard PatchObject.fromJson(node)
 checkPropertyN "AddedItem.fromJson never crashes on arbitrary JSON", QuickTrials:
   let node = rng.genArbitraryJsonNode(2)
-  try:
-    discard AddedItem.fromJson(node)
-  except ValidationError:
-    discard
-
+  discard AddedItem.fromJson(node)
 checkPropertyN "RequestError.fromJson never crashes on arbitrary JSON", QuickTrials:
   let node = rng.genArbitraryJsonObject(2)
-  try:
-    discard RequestError.fromJson(node)
-  except ValidationError:
-    discard
-
+  discard RequestError.fromJson(node)
 checkPropertyN "MethodError.fromJson never crashes on arbitrary JSON", QuickTrials:
   let node = rng.genArbitraryJsonObject(2)
-  try:
-    discard MethodError.fromJson(node)
-  except ValidationError:
-    discard
-
+  discard MethodError.fromJson(node)
 checkPropertyN "SetError.fromJson never crashes on arbitrary JSON", QuickTrials:
   let node = rng.genArbitraryJsonObject(2)
-  try:
-    discard SetError.fromJson(node)
-  except ValidationError:
-    discard
-
+  discard SetError.fromJson(node)
 # Primitive/identifier totality (fromJson with arbitrary JSON kinds)
 checkPropertyN "Id.fromJson never crashes on arbitrary JSON", QuickTrials:
   let node = rng.genArbitraryJsonNode(1)
-  try:
-    discard Id.fromJson(node)
-  except ValidationError:
-    discard
-
+  discard Id.fromJson(node)
 checkPropertyN "UnsignedInt.fromJson never crashes on arbitrary JSON", QuickTrials:
   let node = rng.genArbitraryJsonNode(1)
-  try:
-    discard UnsignedInt.fromJson(node)
-  except ValidationError:
-    discard
-
+  discard UnsignedInt.fromJson(node)
 checkPropertyN "JmapInt.fromJson never crashes on arbitrary JSON", QuickTrials:
   let node = rng.genArbitraryJsonNode(1)
-  try:
-    discard JmapInt.fromJson(node)
-  except ValidationError:
-    discard
-
+  discard JmapInt.fromJson(node)
 checkPropertyN "Date.fromJson never crashes on arbitrary JSON", QuickTrials:
   let node = rng.genArbitraryJsonNode(1)
-  try:
-    discard Date.fromJson(node)
-  except ValidationError:
-    discard
-
+  discard Date.fromJson(node)
 checkPropertyN "UTCDate.fromJson never crashes on arbitrary JSON", QuickTrials:
   let node = rng.genArbitraryJsonNode(1)
-  try:
-    discard UTCDate.fromJson(node)
-  except ValidationError:
-    discard
-
+  discard UTCDate.fromJson(node)
 # =============================================================================
 # C. Idempotence: toJson(fromJson(toJson(x))) == toJson(x)
 # =============================================================================
@@ -300,42 +216,42 @@ checkPropertyN "UTCDate.fromJson never crashes on arbitrary JSON", QuickTrials:
 checkProperty "CoreCapabilities serialisation idempotence":
   let original = rng.genCoreCapabilities()
   let j1 = original.toJson()
-  let parsed = CoreCapabilities.fromJson(j1)
-  let reparsed = CoreCapabilities.fromJson(parsed.toJson())
+  let parsed = CoreCapabilities.fromJson(j1).get()
+  let reparsed = CoreCapabilities.fromJson(parsed.toJson()).get()
   doAssert coreCapEq(parsed, reparsed), "CoreCapabilities idempotence failed"
 
 checkProperty "RequestError serialisation idempotence":
   let original = rng.genRequestError()
   let j1 = original.toJson()
-  let parsed = RequestError.fromJson(j1)
+  let parsed = RequestError.fromJson(j1).get()
   let j2 = parsed.toJson()
   doAssert $j1 == $j2, "RequestError idempotence failed"
 
 checkProperty "MethodError serialisation idempotence":
   let original = rng.genMethodError()
   let j1 = original.toJson()
-  let parsed = MethodError.fromJson(j1)
+  let parsed = MethodError.fromJson(j1).get()
   let j2 = parsed.toJson()
   doAssert $j1 == $j2, "MethodError idempotence failed"
 
 checkProperty "Comparator serialisation idempotence":
   let original = rng.genComparator()
   let j1 = original.toJson()
-  let parsed = Comparator.fromJson(j1)
+  let parsed = Comparator.fromJson(j1).get()
   let j2 = parsed.toJson()
   doAssert $j1 == $j2, "Comparator idempotence failed"
 
 checkProperty "AddedItem serialisation idempotence":
   let original = rng.genAddedItem()
   let j1 = original.toJson()
-  let parsed = AddedItem.fromJson(j1)
+  let parsed = AddedItem.fromJson(j1).get()
   let j2 = parsed.toJson()
   doAssert $j1 == $j2, "AddedItem idempotence failed"
 
 checkProperty "Invocation serialisation idempotence":
   let original = rng.genInvocationWithArgs()
   let j1 = original.toJson()
-  let parsed = Invocation.fromJson(j1)
+  let parsed = Invocation.fromJson(j1).get()
   let j2 = parsed.toJson()
   doAssert $j1 == $j2, "Invocation idempotence failed"
 
@@ -369,7 +285,7 @@ block compositionSetErrorVariantPreservation:
   ## SetError invalidProperties variant: properties list survives round-trip.
   let original =
     setErrorInvalidProperties("invalidProperties", @["from", "subject", "to"])
-  let v = SetError.fromJson(original.toJson())
+  let v = SetError.fromJson(original.toJson()).get()
   doAssert v.errorType == setInvalidProperties
   assertEq v.properties.len, 3
   doAssert "from" in v.properties
@@ -378,9 +294,9 @@ block compositionSetErrorVariantPreservation:
 
 block compositionSetErrorAlreadyExistsPreservation:
   ## SetError alreadyExists variant: existingId survives round-trip.
-  let eid = parseIdFromServer("msg42")
+  let eid = parseIdFromServer("msg42").get()
   let original = setErrorAlreadyExists("alreadyExists", eid)
-  let v = SetError.fromJson(original.toJson())
+  let v = SetError.fromJson(original.toJson()).get()
   doAssert v.errorType == setAlreadyExists
   assertEq string(v.existingId), "msg42"
 
@@ -391,6 +307,6 @@ block compositionResponseCreatedIdsPreservation:
   tbl[makeCreationId("new2")] = makeId("id2")
   tbl[makeCreationId("new3")] = makeId("id3")
   let original = makeResponse(createdIds = some(tbl))
-  let v = Response.fromJson(original.toJson())
+  let v = Response.fromJson(original.toJson()).get()
   doAssert v.createdIds.isSome
   assertEq v.createdIds.get().len, 3

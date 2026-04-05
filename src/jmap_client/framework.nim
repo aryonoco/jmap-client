@@ -12,16 +12,18 @@ from std/json import JsonNode, newJNull
 import ./validation
 import ./primitives
 
+{.push raises: [].}
+
 type PropertyName* = distinct string
   ## A non-empty property name identifying a field on an entity type (RFC 8620 §5.5).
 
 defineStringDistinctOps(PropertyName)
 
-proc parsePropertyName*(raw: string): PropertyName =
+func parsePropertyName*(raw: string): Result[PropertyName, ValidationError] =
   ## Validates and constructs a PropertyName. Rejects empty strings.
   if raw.len == 0:
-    raise newValidationError("PropertyName", "must not be empty", raw)
-  PropertyName(raw)
+    return err(validationError("PropertyName", "must not be empty", raw))
+  ok(PropertyName(raw))
 
 type FilterOperator* = enum
   ## RFC 8620 §5.5 filter composition operators.
@@ -43,11 +45,11 @@ type Filter*[C] = object
     operator*: FilterOperator
     conditions*: seq[Filter[C]]
 
-proc filterCondition*[C](cond: C): Filter[C] =
+func filterCondition*[C](cond: C): Filter[C] =
   ## Wraps a condition value as a leaf filter node.
   Filter[C](kind: fkCondition, condition: cond)
 
-proc filterOperator*[C](op: FilterOperator, conditions: seq[Filter[C]]): Filter[C] =
+func filterOperator*[C](op: FilterOperator, conditions: seq[Filter[C]]): Filter[C] =
   ## Composes child filters under a boolean operator (AND, OR, NOT).
   Filter[C](kind: fkOperator, operator: op, conditions: conditions)
 
@@ -58,7 +60,7 @@ type Comparator* = object
   isAscending*: bool ## true = ascending (RFC default)
   collation*: Option[string] ## RFC 4790 collation algorithm identifier
 
-proc parseComparator*(
+func parseComparator*(
     property: PropertyName,
     isAscending: bool = true,
     collation: Option[string] = none(string),
@@ -71,31 +73,36 @@ type PatchObject* = distinct Table[string, JsonNode]
 
 proc len*(p: PatchObject): int {.borrow.} ## Returns the number of entries in the patch.
 
-proc emptyPatch*(): PatchObject =
+func emptyPatch*(): PatchObject =
   ## Creates an empty PatchObject with no entries.
   PatchObject(initTable[string, JsonNode]())
 
-proc setProp*(patch: PatchObject, path: string, value: JsonNode): PatchObject =
+func setProp*(
+    patch: PatchObject, path: string, value: JsonNode
+): Result[PatchObject, ValidationError] =
   ## Sets a property at the given JSON Pointer path.
   if path.len == 0:
-    raise newValidationError("PatchObject", "path must not be empty", "")
+    return err(validationError("PatchObject", "path must not be empty", ""))
   var t = Table[string, JsonNode](patch)
   t[path] = value
-  PatchObject(t)
+  ok(PatchObject(t))
 
-proc deleteProp*(patch: PatchObject, path: string): PatchObject =
+func deleteProp*(
+    patch: PatchObject, path: string
+): Result[PatchObject, ValidationError] =
   ## Sets a property to null (deletion in JMAP PatchObject semantics).
   if path.len == 0:
-    raise newValidationError("PatchObject", "path must not be empty", "")
+    return err(validationError("PatchObject", "path must not be empty", ""))
   var t = Table[string, JsonNode](patch)
-  t[path] = newJNull()
-  PatchObject(t)
+  {.cast(noSideEffect).}:
+    t[path] = newJNull()
+  ok(PatchObject(t))
 
-proc getKey*(patch: PatchObject, key: string): Option[JsonNode] =
+func getKey*(patch: PatchObject, key: string): Option[JsonNode] =
   ## Returns the value at key, or none if absent.
   let t = Table[string, JsonNode](patch)
   if t.hasKey(key):
-    some(t[key])
+    some(t.getOrDefault(key))
   else:
     none(JsonNode)
 

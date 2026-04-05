@@ -9,6 +9,7 @@ import std/options
 import std/strutils
 import std/tables
 
+import jmap_client/validation
 import jmap_client/primitives
 import jmap_client/identifiers
 import jmap_client/capabilities
@@ -24,13 +25,13 @@ block stressManyParseIdCalls:
   for i in 0 ..< 10000:
     let s = "id" & $i
     if s.len <= 255:
-      discard parseId(s)
+      discard parseId(s).get()
 
 block stressPatchObject10000Entries:
   ## PatchObject with 10000 entries via chained setProp.
   var p = emptyPatch()
   for i in 0 ..< 10000:
-    p = p.setProp("key" & $i, %i)
+    p = p.setProp("key" & $i, %i).get()
   doAssert p.len == 10000
 
 block stressFilterDeep100:
@@ -61,9 +62,10 @@ block stressSession100Accounts:
       accountCapabilities: @[],
     )
   let session = parseSession(
-    args.capabilities, accounts, args.primaryAccounts, args.username, args.apiUrl,
-    args.downloadUrl, args.uploadUrl, args.eventSourceUrl, args.state,
-  )
+      args.capabilities, accounts, args.primaryAccounts, args.username, args.apiUrl,
+      args.downloadUrl, args.uploadUrl, args.eventSourceUrl, args.state,
+    )
+    .get()
   doAssert session.accounts.len == 100
   let acct99 = session.findAccount(makeAccountId("acct99"))
   assertSome acct99
@@ -132,7 +134,7 @@ block stressCombinatorialSession:
   var primaryAccounts = initTable[string, AccountId]()
   for i in 0 ..< 50:
     let idStr = 'A'.repeat(200) & $i # Near-boundary AccountId (200+ chars)
-    let aid = parseAccountId(idStr)
+    let aid = parseAccountId(idStr).get()
     accounts[aid] = Account(
       name: "account-" & $i,
       isPersonal: i == 0,
@@ -158,16 +160,17 @@ block stressCombinatorialSession:
     ),
   ]
   let session = parseSession(
-    caps,
-    accounts,
-    primaryAccounts,
-    "user@example.com",
-    "https://jmap.example.com/api/",
-    makeGoldenDownloadUrl(),
-    makeGoldenUploadUrl(),
-    makeGoldenEventSourceUrl(),
-    makeState("combo-stress"),
-  )
+      caps,
+      accounts,
+      primaryAccounts,
+      "user@example.com",
+      "https://jmap.example.com/api/",
+      makeGoldenDownloadUrl(),
+      makeGoldenUploadUrl(),
+      makeGoldenEventSourceUrl(),
+      makeState("combo-stress"),
+    )
+    .get()
   doAssert session.accounts.len == 50
   doAssert session.capabilities.len == 4
   doAssert session.coreCapabilities().maxSizeUpload == realisticCoreCaps().maxSizeUpload
@@ -193,7 +196,7 @@ block stressPatchObjectGetKeyMiss:
   ## 10000 getKey misses on a populated PatchObject. Verifies O(1) Table lookup.
   var p = emptyPatch()
   for i in 0 ..< 100:
-    p = p.setProp("existing" & $i, %i)
+    p = p.setProp("existing" & $i, %i).get()
   for i in 0 ..< 10000:
     doAssert p.getKey("miss" & $i).isNone
 
@@ -211,8 +214,9 @@ block stressArcSharedRefSessionParse:
   ## Validates Phase 1A ARC safety fix under repeated destruction.
   let sharedData = %*{"limit": 42}
   for i in 0 ..< 100:
-    let cap1 = ServerCapability.fromJson("urn:ietf:params:jmap:mail", sharedData)
-    let cap2 = ServerCapability.fromJson("urn:ietf:params:jmap:contacts", sharedData)
+    let cap1 = ServerCapability.fromJson("urn:ietf:params:jmap:mail", sharedData).get()
+    let cap2 =
+      ServerCapability.fromJson("urn:ietf:params:jmap:contacts", sharedData).get()
     discard cap1
     discard cap2
     # Both destroyed at end of iteration — ARC must not double-free
@@ -227,7 +231,7 @@ block stressRequestWith1000MethodCalls:
     inv.add(%("c" & $i))
     calls.add(inv)
   let j = %*{"using": ["urn:ietf:params:jmap:core"], "methodCalls": calls}
-  let r = Request.fromJson(j)
+  let r = Request.fromJson(j).get()
   assertEq r.methodCalls.len, 1000
 
 block stressPatchObject1000Entries:
@@ -235,18 +239,18 @@ block stressPatchObject1000Entries:
   var j = newJObject()
   for i in 0 ..< 1000:
     j["path/" & $i] = %i
-  let r = PatchObject.fromJson(j)
+  let r = PatchObject.fromJson(j).get()
   let rt = r.toJson()
   doAssert rt.getFields().len == 1000
 
 block stressFilterDeep100Serde:
   ## Filter tree 100 levels deep through serde round-trip.
-  proc fromIntCond(n: JsonNode): int =
+  proc fromIntCond(n: JsonNode): Result[int, ValidationError] {.raises: [].} =
     ## Deserialise int condition from {"value": N}.
-    checkJsonKind(n, JObject, "int")
+    ?checkJsonKind(n, JObject, "int")
     let vNode = n{"value"}
-    checkJsonKind(vNode, JInt, "int", "missing value")
-    vNode.getInt(0)
+    ?checkJsonKind(vNode, JInt, "int", "missing value")
+    ok(vNode.getInt(0))
 
   proc intToJsonCond(c: int): JsonNode =
     ## Serialise int condition to {"value": N}.
@@ -256,4 +260,4 @@ block stressFilterDeep100Serde:
   for i in 1 .. 100:
     f = filterOperator(foAnd, @[f])
   let j = f.toJson(intToJsonCond)
-  discard Filter[int].fromJson(j, fromIntCond)
+  discard Filter[int].fromJson(j, fromIntCond).get()

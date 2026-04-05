@@ -27,9 +27,9 @@ import ../mproperty
 # Helper definitions
 # ---------------------------------------------------------------------------
 
-proc fromDirectInt(n: JsonNode): int =
+proc fromDirectInt(n: JsonNode): int {.raises: [].} =
   ## Parse a JSON integer for Referencable[int] tests.
-  checkJsonKind(n, JInt, "int")
+  discard checkJsonKind(n, JInt, "int")
   n.getInt(0)
 
 # Golden and valid Request/Response JSON fixtures are in mfixtures.nim:
@@ -47,14 +47,14 @@ block roundTripInvocationComplexArguments:
   let args =
     %*{"accountId": "A1", "list": [1, 2, 3], "filter": {"nested": {"deep": newJNull()}}}
   let original = initInvocation("Email/get", args, makeMcid("c1"))
-  let v = Invocation.fromJson(original.toJson())
+  let v = Invocation.fromJson(original.toJson()).get()
   doAssert v.name == original.name
   doAssert v.arguments == original.arguments
   doAssert v.methodCallId == original.methodCallId
 
 block roundTripRequest:
   let original = makeRequest()
-  let v = Request.fromJson(original.toJson())
+  let v = Request.fromJson(original.toJson()).get()
   assertEq v.`using`, original.`using`
   assertEq v.methodCalls.len, original.methodCalls.len
   doAssert v.createdIds.isNone == original.createdIds.isNone
@@ -65,13 +65,13 @@ block roundTripRequestWithCreatedIds:
   tbl[makeCreationId("k2")] = makeId("id2")
   tbl[makeCreationId("k3")] = makeId("id3")
   let original = makeRequest(createdIds = some(tbl))
-  let v = Request.fromJson(original.toJson())
+  let v = Request.fromJson(original.toJson()).get()
   doAssert v.createdIds.isSome
   assertEq v.createdIds.get().len, 3
 
 block roundTripResponse:
   let original = makeResponse()
-  let v = Response.fromJson(original.toJson())
+  let v = Response.fromJson(original.toJson()).get()
   assertEq v.methodResponses.len, original.methodResponses.len
   assertEq v.sessionState, original.sessionState
   doAssert v.createdIds.isNone == original.createdIds.isNone
@@ -82,7 +82,7 @@ block roundTripResponseWithCreatedIds:
   tbl[makeCreationId("k2")] = makeId("id2")
   tbl[makeCreationId("k3")] = makeId("id3")
   let original = makeResponse(createdIds = some(tbl))
-  let v = Response.fromJson(original.toJson())
+  let v = Response.fromJson(original.toJson()).get()
   doAssert v.createdIds.isSome
   assertEq v.createdIds.get().len, 3
 
@@ -162,13 +162,13 @@ block resultReferenceToJsonFieldNames:
 
 block requestDeserGoldenRfc:
   let j = goldenRequestJson()
-  let req = Request.fromJson(j)
+  let req = Request.fromJson(j).get()
   assertEq req.`using`.len, 2
   assertEq req.`using`[0], "urn:ietf:params:jmap:core"
   assertEq req.`using`[1], "urn:ietf:params:jmap:mail"
   assertEq req.methodCalls.len, 3
   assertEq req.methodCalls[0].name, "method1"
-  assertEq req.methodCalls[0].methodCallId, parseMethodCallId("c1")
+  assertEq req.methodCalls[0].methodCallId, parseMethodCallId("c1").get()
   assertEq req.methodCalls[0].arguments{"arg1"}.getStr(""), "arg1data"
   assertEq req.methodCalls[1].name, "method2"
   assertEq req.methodCalls[2].name, "method3"
@@ -176,8 +176,8 @@ block requestDeserGoldenRfc:
 
 block requestGoldenRoundTrip:
   let j = goldenRequestJson()
-  let first = Request.fromJson(j)
-  let v = Request.fromJson(first.toJson())
+  let first = Request.fromJson(j).get()
+  let v = Request.fromJson(first.toJson()).get()
   assertEq v.`using`, first.`using`
   assertEq v.methodCalls.len, first.methodCalls.len
   for i in 0 ..< v.methodCalls.len:
@@ -186,23 +186,23 @@ block requestGoldenRoundTrip:
 
 block responseDeserGoldenRfc:
   let j = goldenResponseJson()
-  let resp = Response.fromJson(j)
+  let resp = Response.fromJson(j).get()
   assertEq resp.methodResponses.len, 4
   assertEq resp.methodResponses[0].name, "method1"
-  assertEq resp.methodResponses[0].methodCallId, parseMethodCallId("c1")
+  assertEq resp.methodResponses[0].methodCallId, parseMethodCallId("c1").get()
   assertEq resp.methodResponses[2].name, "anotherResponseFromMethod2"
-  assertEq resp.methodResponses[2].methodCallId, parseMethodCallId("c2")
+  assertEq resp.methodResponses[2].methodCallId, parseMethodCallId("c2").get()
   assertEq resp.methodResponses[3].name, "error"
-  assertEq resp.methodResponses[3].methodCallId, parseMethodCallId("c3")
+  assertEq resp.methodResponses[3].methodCallId, parseMethodCallId("c3").get()
   # Phase 2B: verify error invocation arguments (RFC 3.4.1)
   assertEq resp.methodResponses[3].arguments{"type"}.getStr(""), "unknownMethod"
-  assertEq resp.sessionState, parseJmapState("75128aab4b1b")
+  assertEq resp.sessionState, parseJmapState("75128aab4b1b").get()
   doAssert resp.createdIds.isNone
 
 block responseGoldenRoundTrip:
   let j = goldenResponseJson()
-  let first = Response.fromJson(j)
-  let v = Response.fromJson(first.toJson())
+  let first = Response.fromJson(j).get()
+  let v = Response.fromJson(first.toJson()).get()
   assertEq v.methodResponses.len, first.methodResponses.len
   assertEq v.sessionState, first.sessionState
   for i in 0 ..< v.methodResponses.len:
@@ -278,12 +278,12 @@ block requestDeserNil:
 
 block requestDeserEmptyMethodCalls:
   let j = %*{"using": ["urn:ietf:params:jmap:core"], "methodCalls": []}
-  let r = Request.fromJson(j)
+  let r = Request.fromJson(j).get()
   assertEq r.methodCalls.len, 0
 
 block requestDeserEmptyUsing:
   let j = %*{"using": [], "methodCalls": [["Mailbox/get", {}, "c0"]]}
-  let r = Request.fromJson(j)
+  let r = Request.fromJson(j).get()
   assertEq r.`using`.len, 0
 
 block requestDeserDeepInvalidInvocation:
@@ -317,7 +317,7 @@ block responseDeserNil:
 
 block responseDeserEmptyMethodResponses:
   let j = %*{"methodResponses": [], "sessionState": "s1"}
-  let r = Response.fromJson(j)
+  let r = Response.fromJson(j).get()
   assertEq r.methodResponses.len, 0
 
 block responseDeserDeepInvalidInvocation:
@@ -357,26 +357,26 @@ block resultReferenceDeserNil:
 
 block createdIdsAbsentKey:
   let j = %*{"using": ["urn:ietf:params:jmap:core"], "methodCalls": []}
-  let r = Request.fromJson(j)
+  let r = Request.fromJson(j).get()
   doAssert r.createdIds.isNone
 
 block createdIdsJNull:
   var j = validRequestJson()
   j["createdIds"] = newJNull()
-  let r = Request.fromJson(j)
+  let r = Request.fromJson(j).get()
   doAssert r.createdIds.isNone
 
 block createdIdsEmptyObject:
   var j = validRequestJson()
   j["createdIds"] = newJObject()
-  let r = Request.fromJson(j)
+  let r = Request.fromJson(j).get()
   doAssert r.createdIds.isSome
   assertEq r.createdIds.get().len, 0
 
 block createdIdsPopulatedObject:
   var j = validRequestJson()
   j["createdIds"] = %*{"k1": "id1", "k2": "id2", "k3": "id3"}
-  let r = Request.fromJson(j)
+  let r = Request.fromJson(j).get()
   doAssert r.createdIds.isSome
   assertEq r.createdIds.get().len, 3
 
@@ -420,7 +420,7 @@ block createdIdsValueEmpty:
 block responseCreatedIdsSameSemantics:
   var j = validResponseJson()
   j["createdIds"] = %*{"k1": "id1"}
-  let r = Response.fromJson(j)
+  let r = Response.fromJson(j).get()
   doAssert r.createdIds.isSome
   assertEq r.createdIds.get().len, 1
 
@@ -430,17 +430,17 @@ block responseCreatedIdsSameSemantics:
 
 block referencableDirectValue:
   let node = %*{"ids": 42}
-  let v = fromJsonField[int]("ids", node, fromDirectInt)
+  let v = fromJsonField[int]("ids", node, fromDirectInt).get()
   doAssert v.kind == rkDirect
   assertEq v.value, 42
 
 block referencableReferenceValue:
   let node = %*{"#ids": {"resultOf": "c0", "name": "Mailbox/query", "path": "/ids"}}
-  let v = fromJsonField[int]("ids", node, fromDirectInt)
+  let v = fromJsonField[int]("ids", node, fromDirectInt).get()
   doAssert v.kind == rkReference
   assertEq v.reference.name, "Mailbox/query"
   assertEq v.reference.path, "/ids"
-  assertEq v.reference.resultOf, parseMethodCallId("c0")
+  assertEq v.reference.resultOf, parseMethodCallId("c0").get()
 
 block referencableBothPresentConflictRejected:
   ## RFC 8620 section 3.7: both direct and referenced forms present must be rejected.
@@ -476,14 +476,14 @@ block referencableKeyReference:
 
 checkProperty "Invocation round-trip":
   let inv = rng.genInvocation()
-  let v = Invocation.fromJson(inv.toJson())
+  let v = Invocation.fromJson(inv.toJson()).get()
   doAssert v.name == inv.name
   doAssert v.arguments == inv.arguments
   doAssert v.methodCallId == inv.methodCallId
 
 checkProperty "ResultReference round-trip":
   let mcidStr = "c" & $rng.rand(0 .. 99)
-  let mcid = parseMethodCallId(mcidStr)
+  let mcid = parseMethodCallId(mcidStr).get()
   const paths = ["/ids", "/list/*/id", "/added/*/id", "/created", "/updated"]
   const names = ["Mailbox/get", "Email/query", "Thread/get", "Email/set"]
   let rref =
@@ -496,7 +496,7 @@ checkProperty "Request round-trip":
   for i in 0 ..< n:
     calls.add rng.genInvocation()
   let req = makeRequest(`using` = @["urn:ietf:params:jmap:core"], methodCalls = calls)
-  let v = Request.fromJson(req.toJson())
+  let v = Request.fromJson(req.toJson()).get()
   doAssert v.`using` == req.`using`
   doAssert v.methodCalls.len == req.methodCalls.len
   doAssert v.createdIds.isNone == req.createdIds.isNone
@@ -507,9 +507,9 @@ checkProperty "Response round-trip":
   for i in 0 ..< n:
     resps.add rng.genInvocation()
   let stateStr = "state" & $rng.rand(0 .. 999)
-  let state = parseJmapState(stateStr)
+  let state = parseJmapState(stateStr).get()
   let resp = makeResponse(methodResponses = resps, state = state)
-  let v = Response.fromJson(resp.toJson())
+  let v = Response.fromJson(resp.toJson()).get()
   doAssert v.methodResponses.len == resp.methodResponses.len
   doAssert v.sessionState == resp.sessionState
   doAssert v.createdIds.isNone == resp.createdIds.isNone
@@ -529,7 +529,7 @@ block invocationComplexNestedArgsRoundTrip:
     "emptyArray": [],
   }
   let inv = initInvocation("Email/query", args, makeMcid("c1"))
-  let v = Invocation.fromJson(inv.toJson())
+  let v = Invocation.fromJson(inv.toJson()).get()
   assertEq v.name, "Email/query"
   assertEq v.methodCallId, makeMcid("c1")
   # Verify complex arguments survived
@@ -548,7 +548,7 @@ block requestRoundTripWithCreatedIds:
     methodCalls: @[makeInvocation()],
     createdIds: some(tbl),
   )
-  let v = Request.fromJson(req.toJson())
+  let v = Request.fromJson(req.toJson()).get()
   assertSome v.createdIds
   let rtTbl = v.createdIds.get()
   assertEq rtTbl.len, 2
@@ -562,7 +562,7 @@ block responseRoundTripAllFields:
     sessionState: makeState("s42"),
     createdIds: some(tbl),
   )
-  let v = Response.fromJson(resp.toJson())
+  let v = Response.fromJson(resp.toJson()).get()
   assertLen v.methodResponses, 2
   assertEq v.sessionState, makeState("s42")
   assertSome v.createdIds
@@ -582,14 +582,14 @@ block referencableFromJsonFieldMalformedReference:
 block requestEmptyMethodCalls:
   ## Empty methodCalls array round-trips correctly.
   let j = %*{"using": ["urn:ietf:params:jmap:core"], "methodCalls": []}
-  let r = Request.fromJson(j)
+  let r = Request.fromJson(j).get()
   assertLen r.methodCalls, 0
   assertLen r.`using`, 1
 
 block requestEmptyUsingArray:
   ## Empty using array is valid per JSON schema.
   let j = %*{"using": [], "methodCalls": []}
-  let r = Request.fromJson(j)
+  let r = Request.fromJson(j).get()
   assertLen r.`using`, 0
 
 # =============================================================================
@@ -612,10 +612,10 @@ block errorInvocationWireFormat:
   assertEq elems[1]{"description"}.getStr(""), "No such method"
   assertEq elems[2].getStr(""), "c0"
   # Round-trip: deserialise back to Invocation, then parse arguments as MethodError
-  let rtInv = Invocation.fromJson(j)
+  let rtInv = Invocation.fromJson(j).get()
   assertEq rtInv.name, "error"
   assertEq rtInv.methodCallId, makeMcid("c0")
-  let meRt = MethodError.fromJson(rtInv.arguments)
+  let meRt = MethodError.fromJson(rtInv.arguments).get()
   doAssert meRt.errorType == metUnknownMethod
   assertSomeEq meRt.description, "No such method"
 
@@ -663,11 +663,11 @@ block backReferenceHashPrefixRoundTrip:
   assertEq callArgs{"#ids"}{"name"}.getStr(""), "Mailbox/query"
   assertEq callArgs{"#ids"}{"path"}.getStr(""), "/ids"
   # Deserialise back — arguments are preserved as-is in Invocation
-  let rtReq = Request.fromJson(j)
+  let rtReq = Request.fromJson(j).get()
   let rtArgs = rtReq.methodCalls[0].arguments
   doAssert rtArgs{"#ids"} != nil
   # Parse the #-prefixed field as a Referencable
-  let refResult = fromJsonField[int]("ids", rtArgs, fromDirectInt)
+  let refResult = fromJsonField[int]("ids", rtArgs, fromDirectInt).get()
   doAssert refResult.kind == rkReference
   assertEq refResult.reference.name, "Mailbox/query"
   assertEq refResult.reference.path, "/ids"
@@ -724,7 +724,7 @@ block responseGoldenWireFormat:
   let inv4 = initInvocation("error", args4, makeMcid("c3"))
   let resp = Response(
     methodResponses: @[inv1, inv2, inv3, inv4],
-    sessionState: parseJmapState("75128aab4b1b"),
+    sessionState: parseJmapState("75128aab4b1b").get(),
     createdIds: none(Table[CreationId, Id]),
   )
   let j = resp.toJson()

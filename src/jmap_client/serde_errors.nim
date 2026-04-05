@@ -5,6 +5,8 @@
 ## details), MethodError (per-invocation), and SetError (per-item in /set
 ## responses). Design doc §8.
 
+{.push raises: [].}
+
 import std/json
 import std/options
 
@@ -60,25 +62,29 @@ proc toJson*(re: RequestError): JsonNode =
       if key notin RequestErrorKnownKeys:
         result[key] = val
 
-proc fromJson*(T: typedesc[RequestError], node: JsonNode): RequestError =
+proc fromJson*(
+    T: typedesc[RequestError], node: JsonNode
+): Result[RequestError, ValidationError] =
   ## Deserialise RFC 7807 problem details JSON to RequestError.
-  checkJsonKind(node, JObject, $T)
-  checkJsonKind(node{"type"}, JString, $T, "missing or invalid type")
+  ?checkJsonKind(node, JObject, $T)
+  ?checkJsonKind(node{"type"}, JString, $T, "missing or invalid type")
   let rawType = node{"type"}.getStr("")
   if rawType.len == 0:
-    raise parseError($T, "empty type field")
+    return err(parseError($T, "empty type field"))
   let status = optInt(node, "status")
   let title = optString(node, "title")
   let detail = optString(node, "detail")
   let limit = optString(node, "limit")
   let extras = collectExtras(node, RequestErrorKnownKeys)
-  requestError(
-    rawType = rawType,
-    status = status,
-    title = title,
-    detail = detail,
-    limit = limit,
-    extras = extras,
+  ok(
+    requestError(
+      rawType = rawType,
+      status = status,
+      title = title,
+      detail = detail,
+      limit = limit,
+      extras = extras,
+    )
   )
 
 # =============================================================================
@@ -99,16 +105,18 @@ proc toJson*(me: MethodError): JsonNode =
       if key notin MethodErrorKnownKeys:
         result[key] = val
 
-proc fromJson*(T: typedesc[MethodError], node: JsonNode): MethodError =
+proc fromJson*(
+    T: typedesc[MethodError], node: JsonNode
+): Result[MethodError, ValidationError] =
   ## Deserialise error invocation arguments to MethodError.
-  checkJsonKind(node, JObject, $T)
-  checkJsonKind(node{"type"}, JString, $T, "missing or invalid type")
+  ?checkJsonKind(node, JObject, $T)
+  ?checkJsonKind(node{"type"}, JString, $T, "missing or invalid type")
   let rawType = node{"type"}.getStr("")
   if rawType.len == 0:
-    raise parseError($T, "empty type field")
+    return err(parseError($T, "empty type field"))
   let description = optString(node, "description")
   let extras = collectExtras(node, MethodErrorKnownKeys)
-  methodError(rawType = rawType, description = description, extras = extras)
+  ok(methodError(rawType = rawType, description = description, extras = extras))
 
 # =============================================================================
 # SetError
@@ -142,13 +150,15 @@ proc toJson*(se: SetError): JsonNode =
       if key notin knownKeys:
         result[key] = val
 
-proc fromJson*(T: typedesc[SetError], node: JsonNode): SetError =
+proc fromJson*(
+    T: typedesc[SetError], node: JsonNode
+): Result[SetError, ValidationError] =
   ## Deserialise JSON to SetError with defensive fallback (Layer 1 §8.10).
-  checkJsonKind(node, JObject, $T)
-  checkJsonKind(node{"type"}, JString, $T, "missing or invalid type")
+  ?checkJsonKind(node, JObject, $T)
+  ?checkJsonKind(node{"type"}, JString, $T, "missing or invalid type")
   let rawType = node{"type"}.getStr("")
   if rawType.len == 0:
-    raise parseError($T, "empty type field")
+    return err(parseError($T, "empty type field"))
   let description = optString(node, "description")
   let errorType = parseSetErrorType(rawType)
   # Per-variant known keys: variant-specific fields are "known" only for
@@ -173,19 +183,18 @@ proc fromJson*(T: typedesc[SetError], node: JsonNode): SetError =
       var properties: seq[string] = @[]
       for item in propsNode.getElems(@[]):
         if item.isNil:
-          raise parseError($T, "properties element is nil")
-        checkJsonKind(item, JString, $T, "properties element must be string")
+          return err(parseError($T, "properties element is nil"))
+        ?checkJsonKind(item, JString, $T, "properties element must be string")
         properties.add(item.getStr(""))
-      return setErrorInvalidProperties(rawType, properties, description, extras)
-    setError(rawType, description, extras)
+      return ok(setErrorInvalidProperties(rawType, properties, description, extras))
+    ok(setError(rawType, description, extras))
   of setAlreadyExists:
     let idNode = node{"existingId"}
     if not idNode.isNil and idNode.kind == JString:
-      try:
-        let existingId = parseIdFromServer(idNode.getStr(""))
-        return setErrorAlreadyExists(rawType, existingId, description, extras)
-      except ValidationError:
-        discard # fall through to generic setError
-    setError(rawType, description, extras)
+      let idResult = parseIdFromServer(idNode.getStr(""))
+      if idResult.isOk:
+        return ok(setErrorAlreadyExists(rawType, idResult.get(), description, extras))
+      # fall through to generic setError
+    ok(setError(rawType, description, extras))
   else:
-    setError(rawType, description, extras)
+    ok(setError(rawType, description, extras))

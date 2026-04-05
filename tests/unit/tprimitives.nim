@@ -117,9 +117,9 @@ block parseUtcDateNotZ:
 # --- Borrowed ops: string types (Id, Date, UTCDate) ---
 
 block idBorrowedOps:
-  let a = parseId("abc")
-  let b = parseId("abc")
-  let c = parseId("xyz")
+  let a = parseId("abc").get()
+  let b = parseId("abc").get()
+  let c = parseId("xyz").get()
 
   doAssert a == b
   doAssert not (a == c)
@@ -128,8 +128,8 @@ block idBorrowedOps:
   doAssert a.len == 3
 
 block dateBorrowedOps:
-  let a = parseDate("2014-10-30T14:12:00+08:00")
-  let b = parseDate("2014-10-30T14:12:00+08:00")
+  let a = parseDate("2014-10-30T14:12:00+08:00").get()
+  let b = parseDate("2014-10-30T14:12:00+08:00").get()
 
   doAssert a == b
   doAssert $a == "2014-10-30T14:12:00+08:00"
@@ -137,8 +137,8 @@ block dateBorrowedOps:
   doAssert a.len == 25
 
 block utcDateBorrowedOps:
-  let a = parseUtcDate("2014-10-30T06:12:00Z")
-  let b = parseUtcDate("2014-10-30T06:12:00Z")
+  let a = parseUtcDate("2014-10-30T06:12:00Z").get()
+  let b = parseUtcDate("2014-10-30T06:12:00Z").get()
 
   doAssert a == b
   doAssert $a == "2014-10-30T06:12:00Z"
@@ -148,9 +148,9 @@ block utcDateBorrowedOps:
 # --- Borrowed ops: int types (UnsignedInt, JmapInt) ---
 
 block unsignedIntBorrowedOps:
-  let x = parseUnsignedInt(10'i64)
-  let y = parseUnsignedInt(10'i64)
-  let z = parseUnsignedInt(20'i64)
+  let x = parseUnsignedInt(10'i64).get()
+  let y = parseUnsignedInt(10'i64).get()
+  let z = parseUnsignedInt(20'i64).get()
 
   doAssert x == y
   doAssert not (x == z)
@@ -162,9 +162,9 @@ block unsignedIntBorrowedOps:
   doAssert hash(x) == hash(y)
 
 block jmapIntBorrowedOps:
-  let x = parseJmapInt(10'i64)
-  let y = parseJmapInt(10'i64)
-  let z = parseJmapInt(20'i64)
+  let x = parseJmapInt(10'i64).get()
+  let y = parseJmapInt(10'i64).get()
+  let z = parseJmapInt(20'i64).get()
 
   doAssert x == y
   doAssert not (x == z)
@@ -178,8 +178,8 @@ block jmapIntBorrowedOps:
 # --- Unary negation on JmapInt ---
 
 block jmapIntUnaryNeg:
-  let pos = parseJmapInt(100'i64)
-  let neg = parseJmapInt(-100'i64)
+  let pos = parseJmapInt(100'i64).get()
+  let neg = parseJmapInt(-100'i64).get()
 
   doAssert -pos == neg
   doAssert -neg == pos
@@ -207,7 +207,7 @@ block parseIdFromServerNullByte:
     "Id", "contains control characters", "abc\x00def"
 
 block parseIdMultibyteUtf8:
-  let result = parseIdFromServer("\xC3\xA9\xC3\xA9")
+  let result = parseIdFromServer("\xC3\xA9\xC3\xA9").get()
   doAssert result.len == 4
 
 block parseDateInvalidCalendarAccepted:
@@ -339,17 +339,17 @@ block parseDateTwoZeroFractional:
 # --- Integer boundary completions ---
 
 block unsignedIntDollarAtMax:
-  assertEq $(parseUnsignedInt(MaxUnsignedInt)), "9007199254740991"
+  assertEq $(parseUnsignedInt(MaxUnsignedInt).get()), "9007199254740991"
 
 block jmapIntDollarAtMin:
-  assertEq $(parseJmapInt(MinJmapInt)), "-9007199254740991"
+  assertEq $(parseJmapInt(MinJmapInt).get()), "-9007199254740991"
 
 block jmapIntDollarAtMax:
-  assertEq $(parseJmapInt(MaxJmapInt)), "9007199254740991"
+  assertEq $(parseJmapInt(MaxJmapInt).get()), "9007199254740991"
 
 block jmapIntNegationAtMinEqualsMax:
-  let minVal = parseJmapInt(MinJmapInt)
-  let maxVal = parseJmapInt(MaxJmapInt)
+  let minVal = parseJmapInt(MinJmapInt).get()
+  let maxVal = parseJmapInt(MaxJmapInt).get()
   assertEq -minVal, maxVal
 
 # --- Date parser: untested code paths ---
@@ -617,10 +617,8 @@ block dateTableDrivenValid:
     ("2024-13-01T12:00:00Z", "calendar-invalid month 13 (structural only)"),
   ]
   for (input, reason) in validCases:
-    try:
-      discard parseDate(input)
-    except ValidationError:
-      doAssert false, "expected Ok for: " & reason & " (" & input & ")"
+    let r = parseDate(input)
+    doAssert r.isOk, "expected Ok for: " & reason & " (" & input & ")"
 
 block dateTableDrivenInvalid:
   ## Comprehensive table of invalid date formats — easy to extend.
@@ -641,29 +639,25 @@ block dateTableDrivenInvalid:
     ("short", "too short for RFC 3339"),
   ]
   for (input, reason) in invalidCases:
-    var wasErr = false
-    try:
-      discard parseDate(input)
-    except ValidationError:
-      wasErr = true
-    doAssert wasErr, "expected Err for: " & reason & " (" & input & ")"
+    let r = parseDate(input)
+    doAssert r.isErr, "expected Err for: " & reason & " (" & input & ")"
 
 # --- parseMaxChanges ---
 
 block parseMaxChangesRejectsZero:
-  let ui = parseUnsignedInt(0)
+  let ui = parseUnsignedInt(0).get()
   assertErrFields parseMaxChanges(ui), "MaxChanges", "must be greater than 0", "0"
 
 block parseMaxChangesAcceptsOne:
-  let ui = parseUnsignedInt(1)
+  let ui = parseUnsignedInt(1).get()
   assertOk parseMaxChanges(ui)
 
 block parseMaxChangesAcceptsMax:
-  let ui = parseUnsignedInt(MaxUnsignedInt)
+  let ui = parseUnsignedInt(MaxUnsignedInt).get()
   assertOk parseMaxChanges(ui)
 
 block parseMaxChangesBorrowedOps:
-  let a = parseMaxChanges(parseUnsignedInt(10))
-  let b = parseMaxChanges(parseUnsignedInt(10))
+  let a = parseMaxChanges(parseUnsignedInt(10).get()).get()
+  let b = parseMaxChanges(parseUnsignedInt(10).get()).get()
   doAssert a == b
   doAssert $a == "10"

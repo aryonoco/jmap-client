@@ -25,8 +25,10 @@ import ../mfixtures
 
 block initJmapClientHttpsValid:
   ## Scenario 1: valid HTTPS URL and token.
-  let c =
-    initJmapClient(sessionUrl = "https://example.com/jmap", bearerToken = "test-token")
+  let c = initJmapClient(
+      sessionUrl = "https://example.com/jmap", bearerToken = "test-token"
+    )
+    .get()
   assertEq c.sessionUrl(), "https://example.com/jmap"
   assertEq c.bearerToken(), "test-token"
   assertNone c.session()
@@ -34,8 +36,9 @@ block initJmapClientHttpsValid:
 block initJmapClientHttpValid:
   ## Scenario 2: valid HTTP URL (allowed for testing).
   let c = initJmapClient(
-    sessionUrl = "http://localhost:8080/jmap", bearerToken = "test-token"
-  )
+      sessionUrl = "http://localhost:8080/jmap", bearerToken = "test-token"
+    )
+    .get()
   assertEq c.sessionUrl(), "http://localhost:8080/jmap"
 
 block initJmapClientEmptyUrl:
@@ -87,7 +90,8 @@ block initJmapClientMaxResponseBytesZero:
 
 block discoverJmapClientValid:
   ## Scenario 10: valid domain constructs correct .well-known URL.
-  let c = discoverJmapClient(domain = "jmap.example.com", bearerToken = "test-token")
+  let c =
+    discoverJmapClient(domain = "jmap.example.com", bearerToken = "test-token").get()
   assertEq c.sessionUrl(), "https://jmap.example.com/.well-known/jmap"
 
 block discoverJmapClientEmptyDomain:
@@ -109,31 +113,33 @@ block discoverJmapClientWhitespace:
 
 block setBearerTokenValid:
   ## Scenario 14: update token, verify accessor returns new value.
-  var c =
-    initJmapClient(sessionUrl = "https://example.com/jmap", bearerToken = "old-token")
-  c.setBearerToken("new-token")
+  var c = initJmapClient(
+      sessionUrl = "https://example.com/jmap", bearerToken = "old-token"
+    )
+    .get()
+  c.setBearerToken("new-token").get()
   assertEq c.bearerToken(), "new-token"
 
 block setBearerTokenEmpty:
   ## Scenario 15: empty token rejected.
-  var c =
-    initJmapClient(sessionUrl = "https://example.com/jmap", bearerToken = "test-token")
-  var caught = false
-  try:
-    c.setBearerToken("")
-  except ValidationError as e:
-    caught = true
-    doAssert e.typeName == "JmapClient"
-    doAssert e.msg == "bearerToken must not be empty"
-    doAssert e.value == ""
-  doAssert caught, "expected ValidationError"
+  var c = initJmapClient(
+      sessionUrl = "https://example.com/jmap", bearerToken = "test-token"
+    )
+    .get()
+  let btR = c.setBearerToken("")
+  doAssert btR.isErr, "expected Err for empty token"
+  doAssert btR.error.typeName == "JmapClient"
+  doAssert btR.error.message == "bearerToken must not be empty"
+  doAssert btR.error.value == ""
 
 # --- Additional edge cases ---
 
 block initJmapClientSessionNone:
   ## Session accessor returns none before fetch.
-  let c =
-    initJmapClient(sessionUrl = "https://example.com/jmap", bearerToken = "test-token")
+  let c = initJmapClient(
+      sessionUrl = "https://example.com/jmap", bearerToken = "test-token"
+    )
+    .get()
   doAssert c.session().isNone
 
 block initJmapClientMaxRedirectsNegative:
@@ -181,8 +187,10 @@ block initJmapClientLineFeedInUrl:
 
 block closeIdempotent:
   ## Close can be called multiple times without error.
-  var c =
-    initJmapClient(sessionUrl = "https://example.com/jmap", bearerToken = "test-token")
+  var c = initJmapClient(
+      sessionUrl = "https://example.com/jmap", bearerToken = "test-token"
+    )
+    .get()
   c.close()
   c.close()
 
@@ -190,18 +198,20 @@ block closeIdempotent:
 
 block discoverJmapClientWithPort:
   ## RFC 8620 §2.2: URL template includes [:${port}] — ports in hostname valid.
-  let c = discoverJmapClient(domain = "example.com:8080", bearerToken = "test-token")
+  let c =
+    discoverJmapClient(domain = "example.com:8080", bearerToken = "test-token").get()
   assertEq c.sessionUrl(), "https://example.com:8080/.well-known/jmap"
 
 block discoverJmapClientFromEmailDomain:
   ## RFC 8620 §2.2: "MAY use the domain portion of [email address]".
-  let c = discoverJmapClient(domain = "fastmail.com", bearerToken = "test-token")
+  let c = discoverJmapClient(domain = "fastmail.com", bearerToken = "test-token").get()
   assertEq c.sessionUrl(), "https://fastmail.com/.well-known/jmap"
 
 block discoverJmapClientAlwaysHttps:
   ## RFC 8620 §1.7: "All HTTP requests MUST use the 'https://' scheme."
   ## discoverJmapClient always constructs https:// URLs.
-  let c = discoverJmapClient(domain = "jmap.example.com", bearerToken = "test-token")
+  let c =
+    discoverJmapClient(domain = "jmap.example.com", bearerToken = "test-token").get()
   doAssert c.sessionUrl().startsWith("https://"),
     "discovery URL must use https:// per RFC 8620 §1.7"
 
@@ -229,8 +239,10 @@ block initJmapClientAllEdgeLimits:
 
 block closeThenAccessors:
   ## close() affects the HTTP socket only — accessors still return original values.
-  var c =
-    initJmapClient(sessionUrl = "https://example.com/jmap", bearerToken = "test-token")
+  var c = initJmapClient(
+      sessionUrl = "https://example.com/jmap", bearerToken = "test-token"
+    )
+    .get()
   c.close()
   assertEq c.sessionUrl(), "https://example.com/jmap"
   assertEq c.bearerToken(), "test-token"
@@ -285,7 +297,7 @@ block classifyExceptionTimeout:
   let ce = classifyException(e)
   doAssert ce.kind == cekTransport
   doAssert ce.transport.kind == tekTimeout
-  doAssert ce.transport.msg == "Call to 'recv' timed out."
+  doAssert ce.transport.message == "Call to 'recv' timed out."
 
 block classifyExceptionOsErrorSsl:
   ## Scenario 38: OSError with "ssl" in message maps to tekTls.
@@ -324,13 +336,13 @@ block classifyExceptionValueError:
   let e = newException(ValueError, "unparseable URL")
   let ce = classifyException(e)
   doAssert ce.transport.kind == tekNetwork
-  doAssert "protocol error:" in ce.transport.msg
+  doAssert "protocol error:" in ce.transport.message
 
 block classifyExceptionCatchAll:
   ## Scenario 44: other CatchableError maps to tekNetwork with "unexpected error:" prefix.
   let ce = classifyException((ref CatchableError)(msg: "something unknown"))
   doAssert ce.transport.kind == tekNetwork
-  doAssert "unexpected error:" in ce.transport.msg
+  doAssert "unexpected error:" in ce.transport.message
 
 when defined(ssl):
   block classifyExceptionSslError:
@@ -339,33 +351,29 @@ when defined(ssl):
     let ce = classifyException(e)
     doAssert ce.kind == cekTransport
     doAssert ce.transport.kind == tekTls
-    doAssert ce.transport.msg == "error:1416F086:SSL routines"
+    doAssert ce.transport.message == "error:1416F086:SSL routines"
 
 # --- enforceBodySizeLimit (scenarios 45–47) ---
 
 block enforceBodySizeLimitWithin:
   ## Scenario 45: body within limit — no error.
-  enforceBodySizeLimit(100, "short body", "test")
+  enforceBodySizeLimit(100, "short body", "test").get()
 
 block enforceBodySizeLimitExceeds:
-  ## Scenario 46: body exceeds limit — ClientError raised.
-  var caught = false
-  try:
-    enforceBodySizeLimit(10, "this body exceeds ten bytes", "test")
-  except ClientError as e:
-    caught = true
-    doAssert e.kind == cekTransport
-    doAssert e.transport.kind == tekNetwork
-    doAssert "exceeds limit" in e.transport.msg
-  doAssert caught, "expected ClientError"
+  ## Scenario 46: body exceeds limit — ClientError returned.
+  let bslR = enforceBodySizeLimit(10, "this body exceeds ten bytes", "test")
+  doAssert bslR.isErr, "expected Err for body exceeds limit"
+  doAssert bslR.error.kind == cekTransport
+  doAssert bslR.error.transport.kind == tekNetwork
+  doAssert "exceeds limit" in bslR.error.transport.message
 
 block enforceBodySizeLimitAtLimit:
   ## Boundary: body length exactly at limit — no error (uses strict >).
-  enforceBodySizeLimit(10, "0123456789", "test")
+  enforceBodySizeLimit(10, "0123456789", "test").get()
 
 block enforceBodySizeLimitDisabled:
   ## Scenario 47: limit = 0 (disabled) — no error even for large body.
-  enforceBodySizeLimit(0, "any size body is fine", "test")
+  enforceBodySizeLimit(0, "any size body is fine", "test").get()
 
 # ---------------------------------------------------------------------------
 # validateLimits — design doc scenarios 21–33
@@ -375,13 +383,13 @@ block validateLimitsZeroCalls:
   ## Scenario 21: 0 calls with maxCallsInRequest = 1 — within limits.
   let caps = makeCoreCapsWithLimits(maxCallsInRequest = 1)
   let req = makeRequest(methodCalls = @[])
-  validateLimits(req, caps)
+  validateLimits(req, caps).get()
 
 block validateLimitsAtCallLimit:
   ## Scenario 22: 1 call with maxCallsInRequest = 1 — exactly at limit.
   let caps = makeCoreCapsWithLimits(maxCallsInRequest = 1)
   let req = makeRequest(methodCalls = @[makeInvocation()])
-  validateLimits(req, caps)
+  validateLimits(req, caps).get()
 
 block validateLimitsExceedsCallLimit:
   ## Scenario 23: 2 calls with maxCallsInRequest = 1 — exceeds limit.
@@ -392,14 +400,10 @@ block validateLimitsExceedsCallLimit:
       makeInvocation("Email/get", makeMcid("c1")),
     ]
   )
-  var caught = false
-  try:
-    validateLimits(req, caps)
-  except ValidationError as e:
-    caught = true
-    doAssert e.typeName == "Request"
-    doAssert "maxCallsInRequest" in e.msg
-  doAssert caught, "expected ValidationError for exceeding maxCallsInRequest"
+  let limR1 = validateLimits(req, caps)
+  doAssert limR1.isErr, "expected Err for exceeding maxCallsInRequest"
+  doAssert limR1.error.typeName == "Request"
+  doAssert "maxCallsInRequest" in limR1.error.message
 
 block validateLimitsGetWithinLimit:
   ## Scenario 24: /get with 5 direct ids, maxObjectsInGet = 10 — within limit.
@@ -411,7 +415,7 @@ block validateLimitsGetWithinLimit:
   args["ids"] = ids
   let inv = initInvocation("Email/get", args, makeMcid("c0"))
   let req = makeRequest(methodCalls = @[inv])
-  validateLimits(req, caps)
+  validateLimits(req, caps).get()
 
 block validateLimitsGetExceedsLimit:
   ## Scenario 25: /get with 11 direct ids, maxObjectsInGet = 10 — exceeds limit.
@@ -423,14 +427,10 @@ block validateLimitsGetExceedsLimit:
   args["ids"] = ids
   let inv = initInvocation("Email/get", args, makeMcid("c0"))
   let req = makeRequest(methodCalls = @[inv])
-  var caught = false
-  try:
-    validateLimits(req, caps)
-  except ValidationError as e:
-    caught = true
-    doAssert e.typeName == "Request"
-    doAssert "maxObjectsInGet" in e.msg
-  doAssert caught, "expected ValidationError for exceeding maxObjectsInGet"
+  let limR2 = validateLimits(req, caps)
+  doAssert limR2.isErr, "expected Err for exceeding maxObjectsInGet"
+  doAssert limR2.error.typeName == "Request"
+  doAssert "maxObjectsInGet" in limR2.error.message
 
 block validateLimitsGetReferenceIds:
   ## Scenario 26: /get with reference ids (JObject, not JArray) — skipped.
@@ -439,7 +439,7 @@ block validateLimitsGetReferenceIds:
   args["ids"] = newJObject() # JObject = result reference, not direct array
   let inv = initInvocation("Email/get", args, makeMcid("c0"))
   let req = makeRequest(methodCalls = @[inv])
-  validateLimits(req, caps)
+  validateLimits(req, caps).get()
 
 block validateLimitsGetNullIds:
   ## Scenario 27: /get with null ids — server decides; no limit check.
@@ -448,7 +448,7 @@ block validateLimitsGetNullIds:
   args["ids"] = newJNull()
   let inv = initInvocation("Email/get", args, makeMcid("c0"))
   let req = makeRequest(methodCalls = @[inv])
-  validateLimits(req, caps)
+  validateLimits(req, caps).get()
 
 block validateLimitsSetWithinLimit:
   ## Scenario 28: /set with 3 create + 3 update + 3 destroy = 9, limit 10.
@@ -468,7 +468,7 @@ block validateLimitsSetWithinLimit:
   args["destroy"] = destroy
   let inv = initInvocation("Mailbox/set", args, makeMcid("c0"))
   let req = makeRequest(methodCalls = @[inv])
-  validateLimits(req, caps)
+  validateLimits(req, caps).get()
 
 block validateLimitsSetExceedsLimit:
   ## Scenario 29: /set with 4 create + 4 update + 3 destroy = 11, limit 10.
@@ -488,14 +488,10 @@ block validateLimitsSetExceedsLimit:
   args["destroy"] = destroy
   let inv = initInvocation("Mailbox/set", args, makeMcid("c0"))
   let req = makeRequest(methodCalls = @[inv])
-  var caught = false
-  try:
-    validateLimits(req, caps)
-  except ValidationError as e:
-    caught = true
-    doAssert e.typeName == "Request"
-    doAssert "maxObjectsInSet" in e.msg
-  doAssert caught, "expected ValidationError for exceeding maxObjectsInSet"
+  let limR3 = validateLimits(req, caps)
+  doAssert limR3.isErr, "expected Err for exceeding maxObjectsInSet"
+  doAssert limR3.error.typeName == "Request"
+  doAssert "maxObjectsInSet" in limR3.error.message
 
 block validateLimitsSetReferenceDestroy:
   ## Scenario 30: /set with reference destroy (JObject) — count excludes refs.
@@ -504,13 +500,13 @@ block validateLimitsSetReferenceDestroy:
   args["destroy"] = newJObject() # JObject = result reference, not direct array
   let inv = initInvocation("Mailbox/set", args, makeMcid("c0"))
   let req = makeRequest(methodCalls = @[inv])
-  validateLimits(req, caps)
+  validateLimits(req, caps).get()
 
 block validateLimitsEmptyRequest:
   ## Scenario 31: empty Request with no method calls — trivially valid.
   let caps = realisticCoreCaps()
   let req = makeRequest(methodCalls = @[])
-  validateLimits(req, caps)
+  validateLimits(req, caps).get()
 
 block validateLimitsMixedWithinLimits:
   ## Scenario 32: mixed /get and /set invocations, all within limits.
@@ -533,7 +529,7 @@ block validateLimitsMixedWithinLimits:
       initInvocation("Email/set", setArgs, makeMcid("c1")),
     ]
   )
-  validateLimits(req, caps)
+  validateLimits(req, caps).get()
 
 block validateLimitsNonStandardMethod:
   ## Scenario 33: non-standard method name — no per-invocation check applied.
@@ -547,7 +543,7 @@ block validateLimitsNonStandardMethod:
   args["ids"] = ids
   let inv = initInvocation("Vendor/customMethod", args, makeMcid("c0"))
   let req = makeRequest(methodCalls = @[inv])
-  validateLimits(req, caps)
+  validateLimits(req, caps).get()
 
 # ---------------------------------------------------------------------------
 # validateLimits — additional boundary and edge-case tests
@@ -563,7 +559,7 @@ block validateLimitsGetAtLimit:
   args["ids"] = ids
   let inv = initInvocation("Email/get", args, makeMcid("c0"))
   let req = makeRequest(methodCalls = @[inv])
-  validateLimits(req, caps)
+  validateLimits(req, caps).get()
 
 block validateLimitsSetAtLimit:
   ## Boundary: /set with 4 create + 3 update + 3 destroy = 10, limit 10 — at limit.
@@ -583,7 +579,7 @@ block validateLimitsSetAtLimit:
   args["destroy"] = destroy
   let inv = initInvocation("Mailbox/set", args, makeMcid("c0"))
   let req = makeRequest(methodCalls = @[inv])
-  validateLimits(req, caps)
+  validateLimits(req, caps).get()
 
 block validateLimitsGetEmptyIds:
   ## Edge case: /get with empty ids array (0 ids) — within any limit.
@@ -592,14 +588,14 @@ block validateLimitsGetEmptyIds:
   args["ids"] = newJArray()
   let inv = initInvocation("Email/get", args, makeMcid("c0"))
   let req = makeRequest(methodCalls = @[inv])
-  validateLimits(req, caps)
+  validateLimits(req, caps).get()
 
 block validateLimitsSetEmptyArguments:
   ## Edge case: /set with empty arguments — count = 0, within any limit.
   let caps = makeCoreCapsWithLimits(maxObjectsInSet = 1)
   let inv = initInvocation("Mailbox/set", newJObject(), makeMcid("c0"))
   let req = makeRequest(methodCalls = @[inv])
-  validateLimits(req, caps)
+  validateLimits(req, caps).get()
 
 block validateLimitsSetOnlyDestroy:
   ## Edge case: /set with only a destroy array (no create/update) — count = 3.
@@ -611,7 +607,7 @@ block validateLimitsSetOnlyDestroy:
   args["destroy"] = destroy
   let inv = initInvocation("Mailbox/set", args, makeMcid("c0"))
   let req = makeRequest(methodCalls = @[inv])
-  validateLimits(req, caps)
+  validateLimits(req, caps).get()
 
 block validateLimitsMethodPartialMatch:
   ## Edge case: method name contains "/get" but does not end with it.
@@ -624,7 +620,7 @@ block validateLimitsMethodPartialMatch:
   args["ids"] = ids
   let inv = initInvocation("Email/getter", args, makeMcid("c0"))
   let req = makeRequest(methodCalls = @[inv])
-  validateLimits(req, caps)
+  validateLimits(req, caps).get()
 
 # --- setSessionForTest ---
 
@@ -632,8 +628,10 @@ block setSessionForTestVerify:
   ## setSessionForTest injects a session accessible via session() accessor.
   let args = makeSessionArgs()
   let session = parseSessionFromArgs(args)
-  var c =
-    initJmapClient(sessionUrl = "https://example.com/jmap", bearerToken = "test-token")
+  var c = initJmapClient(
+      sessionUrl = "https://example.com/jmap", bearerToken = "test-token"
+    )
+    .get()
   assertNone c.session()
   c.setSessionForTest(session)
   doAssert c.session().isSome
@@ -645,8 +643,10 @@ block isSessionStaleSameState:
   ## Scenario 34: same state -> false.
   let args = makeSessionArgs()
   let session = parseSessionFromArgs(args)
-  var c =
-    initJmapClient(sessionUrl = "https://example.com/jmap", bearerToken = "test-token")
+  var c = initJmapClient(
+      sessionUrl = "https://example.com/jmap", bearerToken = "test-token"
+    )
+    .get()
   c.setSessionForTest(session)
   let resp = makeResponse(state = args.state)
   assertEq c.isSessionStale(resp), false
@@ -655,15 +655,19 @@ block isSessionStaleDifferentState:
   ## Scenario 35: different state -> true.
   let args = makeSessionArgs()
   let session = parseSessionFromArgs(args)
-  var c =
-    initJmapClient(sessionUrl = "https://example.com/jmap", bearerToken = "test-token")
+  var c = initJmapClient(
+      sessionUrl = "https://example.com/jmap", bearerToken = "test-token"
+    )
+    .get()
   c.setSessionForTest(session)
   let resp = makeResponse(state = makeState("different-state"))
   assertEq c.isSessionStale(resp), true
 
 block isSessionStaleNoSession:
   ## Scenario 36: no cached session -> false.
-  let c =
-    initJmapClient(sessionUrl = "https://example.com/jmap", bearerToken = "test-token")
+  let c = initJmapClient(
+      sessionUrl = "https://example.com/jmap", bearerToken = "test-token"
+    )
+    .get()
   let resp = makeResponse(state = makeState("any-state"))
   assertEq c.isSessionStale(resp), false
