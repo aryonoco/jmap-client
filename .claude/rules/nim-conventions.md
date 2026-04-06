@@ -14,108 +14,88 @@ Every `.nim` file must start with this structure:
 # SPDX-License-Identifier: BSD-2-Clause
 # Copyright (c) 2026 Aryan Ameri
 
+{.push raises: [].}
+
 import std/[strutils]       # std/ imports first
 import ./types, ./errors    # local imports last
 ```
 
-Layer 5 (`src/jmap_client.nim`) additionally has `{.push raises: [].}` after the
-copyright header — this is the ONLY module with that pragma. All other modules
-allow exceptions to propagate naturally.
+`{.push raises: [].}` is on **every** source module — the compiler enforces
+that no `CatchableError` can escape any function. Error handling uses
+`Result[T, E]` from nim-results throughout.
 
 ## Error Handling
 
-Errors are communicated
-via exceptions that propagate naturally through Layers 1–4, and are caught
-at the Layer 5 C ABI boundary.
+All error handling uses Railway-Oriented Programming via nim-results.
+All error types are plain objects (not exceptions) carried on the
+`Result[T, E]` error rail. The `?` operator provides early-return
+error propagation.
 
 ### Error Type Hierarchy
 
 ```nim
 # Construction errors (Layer 1 smart constructors):
-ValidationError* = object of CatchableError
+ValidationError* = object
   typeName*: string     # e.g. "AccountId"
+  message*: string      # the failure reason
   value*: string        # the rejected input
 
 # Transport/request errors (Layer 4):
-TransportError* = object of CatchableError
-  # ... (case object with kind discriminator)
-RequestError* = object of CatchableError
-  # ...
-ClientError* = object of CatchableError
-  # Wraps TransportError or RequestError
+TransportError* = object     # case object with kind discriminator
+RequestError* = object       # RFC 7807 problem details
+ClientError* = object        # wraps TransportError or RequestError
 
-# Method/set errors — NOT exceptions, these are DATA in responses:
-MethodError* = object        # plain object, not CatchableError
-SetError* = object           # plain object, not CatchableError
+# Per-invocation and per-item errors — DATA in responses:
+MethodError* = object        # plain object
+SetError* = object           # plain object
+
+# Railway aliases:
+JmapResult*[T] = Result[T, ClientError]   # outer railway
 ```
 
 ### Smart Constructors
 
-Smart constructors validate input and raise `ValidationError` on failure,
-returning the validated type directly on success:
+Smart constructors return `Result[T, ValidationError]`:
 
 ```nim
-proc parseAccountId*(raw: string): AccountId =
+func parseAccountId*(raw: string): Result[AccountId, ValidationError] =
   ## Lenient: 1–255 octets, no control characters.
   if raw.len < 1 or raw.len > 255:
-    raise newException(ValidationError, "length must be 1-255 octets")
-  if raw.anyIt(it < ' '):
-    raise newException(ValidationError, "contains control characters")
-  AccountId(raw)
+    return err(validationError("AccountId", "length must be 1-255 octets", raw))
+  if raw.anyIt(it < ' ' or it == '\x7F'):
+    return err(validationError("AccountId", "contains control characters", raw))
+  ok(AccountId(raw))
 ```
 
-### Layer 5 Exception Boundary
+### Layer 5 C ABI Boundary
 
-Layer 5 (`src/jmap_client.nim`) has `{.push raises: [].}` and wraps every
-exported proc in `try/except`, converting exceptions to C error codes:
-
-```nim
-proc jmapDoSomething*(...): cint
-    {.exportc: "jmap_do_something", dynlib, cdecl, raises: [].} =
-  try:
-    let result = internalOperation(...)
-    return JMAP_OK
-  except TransportError as e:
-    return setLastError(e)
-  except RequestError as e:
-    return setLastError(e)
-  except CatchableError as e:
-    return setLastError(e)
-```
-
-The compiler enforces that no `CatchableError` escapes from `{.raises: [].}`
-procs. `Defect` (programmer errors like index out of bounds) is NOT tracked
-by `raises`. With `--panics:on` (enabled in this project), Defects abort
-the process via `rawQuit(1)`. Validate all inputs defensively before
-operations that could trigger Defects.
+Layer 5 pattern-matches on `Result` values to produce C error codes.
+Stdlib IO calls (in L4) that can raise are wrapped in `try/except` +
+`{.cast(raises: [CatchableError]).}` to convert exceptions to `Result`
+at the IO boundary. The compiler enforces `{.push raises: [].}` across
+all modules.
 
 ### Optional Values
 
-Use `Option[T]` from `std/options` for optional values:
+Use `Option[T]` from `std/options` for optional fields in domain types:
 
 ```nim
 import std/options
 
-proc findAccount(accounts: openArray[Account], id: AccountId): Option[Account] =
+func findAccount(accounts: openArray[Account], id: AccountId): Option[Account] =
   for a in accounts:
     if a.id == id:
       return some(a)
   none(Account)
-
-# Querying:
-if opt.isSome: echo opt.get()
-if opt.isNone: echo "missing"
 ```
 
 ## Conventions
 
-- All routines use `proc`. Purity is maintained by convention:
-  Layers 1–3 (types, serialisation, protocol logic) do not perform I/O or
-  mutate global state. Layer 4 (transport) performs I/O. Layer 5 (C ABI)
-  catches exceptions.
-- **Parse, don't validate** — smart constructors produce well-typed values or
-  raise structured errors. Invariants enforced at construction time, not
-  checked later.
+- Use `func` for pure functions (L1 types, L2 serde, L3 protocol logic).
+  Use `proc` only for: IO (L4 transport), functions taking `proc` callback
+  parameters (hidden pointer indirection prevents `func`), and L5 C ABI.
+- **Parse, don't validate** — smart constructors produce `Result` values.
+  Invariants enforced at construction time, not checked later.
 
 ## Immutability
 

@@ -18,8 +18,8 @@ Every module should have a doc comment at the top (after the copyright header):
 
 ```nim
 ## Distinct identifier types and smart constructors for the JMAP domain model.
-## Enforces non-empty constraints at construction time; raises ValidationError
-## on invalid input.
+## Enforces non-empty constraints at construction time; returns
+## Result[T, ValidationError] on the error rail for invalid input.
 ```
 
 **Good**: Explains the module's architectural role and key invariant.
@@ -35,14 +35,14 @@ Every module should have a doc comment at the top (after the copyright header):
 Add `##` only when the function has non-obvious behaviour:
 
 ```nim
-proc parseAccountId*(raw: string): AccountId =
+func parseAccountId*(raw: string): Result[AccountId, ValidationError] =
   ## Rejects empty strings. Does not validate format beyond non-emptiness —
   ## JMAP servers define valid ID formats per implementation.
 ```
 
 **Do NOT add doc comments to**:
 
-- Trivially obvious `proc` (single-expression, self-documenting name)
+- Trivially obvious `func`/`proc` (single-expression, self-documenting name)
 - Borrowed operations on distinct types (`==`, `$`, `hash`)
 - Simple field accessors
 - Type definitions where the field names are self-documenting
@@ -52,9 +52,9 @@ proc parseAccountId*(raw: string): AccountId =
 Document the **validation rules**, not the return type:
 
 ```nim
-proc parseUnsignedInt*(raw: int): UnsignedInt =
-  ## Must be >= 0. Prevents negative integers that JavaScript's
-  ## Number type can produce from JSON parsing.
+func parseUnsignedInt*(raw: int64): Result[UnsignedInt, ValidationError] =
+  ## Must be >= 0 and <= 2^53-1. Prevents negative integers and values
+  ## outside JSON's safe integer range.
 ```
 
 NOT: `## Parses an integer into an UnsignedInt, returning a Result.`

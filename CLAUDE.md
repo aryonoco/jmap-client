@@ -26,7 +26,9 @@ This project uses a devcontainer. Tool versions are managed by mise — `mise.to
 
 ## Dependencies
 
-No external dependencies. All imports are from Nim's standard library (`std/options`, `std/json`, `std/tables`, etc.).
+One external dependency: `nim-results` (status-im/nim-results) for `Result[T, E]`,
+`Opt[T]`, and the `?` operator. All other imports are from Nim's standard library
+(`std/options`, `std/json`, `std/tables`, etc.).
 
 ## Compiler Flags
 
@@ -41,32 +43,34 @@ Architecture: 5 layers (see `docs/00architecture-options.md`). Layer 1 detailed 
 
 - `src/jmap_client.nim` — Library entry point (C ABI exports, Layer 5)
 - `src/jmap_client/types.nim` — Re-exports all Layer 1 modules
-- `src/jmap_client/validation.nim` — `ValidationError` (exception), borrow templates, charset constants
+- `src/jmap_client/validation.nim` — `ValidationError` (plain object for Result error rail), borrow templates, charset constants
 - `src/jmap_client/primitives.nim` — `Id`, `UnsignedInt`, `JmapInt`, `Date`, `UTCDate`
 - `src/jmap_client/identifiers.nim` — `AccountId`, `JmapState`, `MethodCallId`, `CreationId`
 - `src/jmap_client/capabilities.nim` — `CapabilityKind`, `CoreCapabilities`, `ServerCapability`
 - `src/jmap_client/session.nim` — `Account`, `UriTemplate`, `Session`
 - `src/jmap_client/envelope.nim` — `Invocation`, `Request`, `Response`, `ResultReference`, `Referencable[T]`
 - `src/jmap_client/framework.nim` — `PropertyName`, `FilterOperator`, `Filter[C]`, `Comparator`, `PatchObject`, `AddedItem`
-- `src/jmap_client/errors.nim` — `TransportError`, `RequestError`, `ClientError` (exceptions); `MethodError`, `SetError` (response data)
+- `src/jmap_client/errors.nim` — `TransportError`, `RequestError`, `ClientError`, `MethodError`, `SetError` (all plain objects for Result error rails)
 - `src/jmap_client/client.nim` — HTTP client wrapper (Layer 4)
 - `tests/` — Test modules (categories: `unit/`, `serde/`, `property/`, `compliance/`, `stress/`)
 
 ## Coding Conventions
 
 - Use `const` and `let` bindings; `var` only when absolutely necessary
-- Error handling:
-  - Smart constructors raise `ValidationError` on invalid input, return `T` directly on success
-  - Transport/request failures raise `ClientError` (with `TransportError`/`RequestError` subtypes)
-  - Method errors (`MethodError`) and set errors (`SetError`) are data within successful responses, not exceptions
-  - Layer 5 C ABI catches all exceptions via `try/except` and converts to C error codes
-- Use `Option[T]` from `std/options` for optional values
-- Parse, don't validate — smart constructors produce well-typed values or raise structured errors
+- Error handling via Railway-Oriented Programming (nim-results):
+  - Smart constructors return `Result[T, ValidationError]` — no exceptions
+  - Transport/request failures use `Result[T, ClientError]` (`JmapResult[T]` alias)
+  - Method errors (`MethodError`) and set errors (`SetError`) are data within successful responses
+  - All error types are plain objects (not `CatchableError`), carried on the Result error rail
+  - The `?` operator provides early-return error propagation
+  - Layer 5 C ABI pattern-matches on Result values to produce C error codes
+- Use `Option[T]` from `std/options` for optional fields in domain types
+- Parse, don't validate — smart constructors produce well-typed Result values
 - Make illegal states unrepresentable — distinct types, case objects, smart constructors
 - Prefer expression-oriented style: if/case/block as expressions
 - Prefer `collect` (std/sugar) for building new collections; `allIt`/`anyIt` for predicates
-- Purity by convention: Layers 1–3 do not perform I/O or mutate global state
-- `{.push raises: [].}` ONLY on Layer 5 C ABI module (`src/jmap_client.nim`)
+- `func` for pure functions (L1 types, L2 serde, L3 protocol); `proc` only for IO (L4) or functions taking `proc` callback parameters
+- `{.push raises: [].}` on every source module — compiler-enforced total functions
 
 ## Type Safety
 

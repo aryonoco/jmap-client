@@ -16,9 +16,12 @@ Background reference: `docs/background/nim-c-abi-guide.md`
 ## Architecture
 
 - `src/jmap_client.nim` is the ONLY module with `{.exportc.}` procs.
-- Internal modules use idiomatic Nim (`proc`, exceptions, distinct types).
+- Internal modules use nim-results ROP (`func`/`proc`, `Result[T, E]`,
+  `?` operator, distinct types). `{.push raises: [].}` on every module.
 - FFI procs are thin adapters: convert C types -> Nim types, call internal
-  Nim code, catch exceptions and translate to C error codes.
+  Nim code, pattern-match on `Result` values to produce C error codes.
+  Stdlib IO calls that raise are wrapped in `try/except` +
+  `{.cast(raises: [CatchableError]).}` at the L4 IO boundary.
 
 ## Export Pragmas
 
@@ -105,8 +108,8 @@ groups (transport 1-4, request 5-9) for future extension without renumbering.
 
 ## Error Handling Across FFI
 
-C has no exceptions. Error handling projects to C as:
-- **Exceptions** (transport + request): return codes + thread-local error state.
+C has no Result types. Error handling projects to C as:
+- **Result errors** (transport + request): return codes + thread-local error state.
 - **Per-invocation method errors**: data in the response handle.
 
 ### Defects and `--panics:on`
@@ -139,9 +142,9 @@ var lastErrorCategory {.threadvar.}: JmapErrorCategory
 var lastErrorMsg {.threadvar.}: string
 var lastErrorHttpStatus {.threadvar.}: cint
 
-proc setLastError(err: ref TransportError): cint =
+proc setLastError(err: TransportError): cint =
   ## Stores details in thread-local state, returns C error code.
-  lastErrorMsg = err.msg
+  lastErrorMsg = err.message
   case err.kind
   of tekHttpStatus:
     lastErrorHttpStatus = cint(err.httpStatus)
@@ -150,32 +153,30 @@ proc setLastError(err: ref TransportError): cint =
   of tekTls: return JMAP_ERR_TLS
   of tekTimeout: return JMAP_ERR_TIMEOUT
 
-proc setLastError(err: ref RequestError): cint =
-  lastErrorMsg = err.rawType
-  case err.errorType
-  of retUnknownCapability: return JMAP_ERR_REQ_UNKNOWN_CAP
-  # ... (exhaustive over all RequestErrorType variants)
+proc setLastError(err: ClientError): cint =
+  case err.kind
+  of cekTransport: return setLastError(err.transport)
+  of cekRequest:
+    lastErrorMsg = err.request.rawType
+    case err.request.errorType
+    of retUnknownCapability: return JMAP_ERR_REQ_UNKNOWN_CAP
+    # ... (exhaustive over all RequestErrorType variants)
 ```
 
 Pattern: `clearLastError()` before each operation, `setLastError` on failure.
 `{.threadvar.}` gives each C thread its own error state.
 
-Usage in exported procs:
+Usage in exported procs (pattern-matching on Result, not try/except):
 
 ```nim
 proc jmapDoSomething*(...): cint
     {.exportc: "jmap_do_something", dynlib, cdecl, raises: [].} =
   clearLastError()
-  try:
-    let result = internalOperation(...)
-    return JMAP_OK
-  except TransportError as e:
-    return setLastError(e)
-  except RequestError as e:
-    return setLastError(e)
-  except CatchableError as e:
-    lastErrorMsg = e.msg
-    return JMAP_ERR_INTERNAL
+  let r = internalOperation(...)
+  if r.isErr:
+    return setLastError(r.error)
+  # use r.get() ...
+  return JMAP_OK
 ```
 
 ### Per-Invocation Results via Response Handles

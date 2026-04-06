@@ -1,12 +1,12 @@
 # Test Patterns for jmap-client
 
-This project uses exceptions for error handling:
+This project uses Railway-Oriented Programming via nim-results for error handling:
 
-- **Construction errors:** Smart constructors raise `ValidationError` on invalid input
-- **Transport/request errors:** `ClientError` (wrapping `TransportError`/`RequestError`) — tested in Layer 4/5
-- **Response-level errors:** `MethodError` and `SetError` are data in successful responses, not exceptions
+- **Construction errors:** Smart constructors return `Result[T, ValidationError]`
+- **Transport/request errors:** `Result[T, ClientError]` (aliased as `JmapResult[T]`)
+- **Response-level errors:** `MethodError` and `SetError` are data in successful responses
 
-Current patterns cover construction errors. Transport/request patterns will be added when those layers are built.
+All error types are plain objects carried on the Result error rail, not exceptions.
 
 ## Module Boilerplate
 
@@ -21,33 +21,21 @@ import jmap_client/primitives  # module under test
 
 ## Testing Smart Constructors
 
-Smart constructors return the validated type directly on success and raise
-`ValidationError` on failure. Test both paths:
+Smart constructors return `Result[T, ValidationError]`. Test both rails:
 
 ```nim
-# Success case
+# Success case — isOk, extract with .get()
 block:
-  let id = parseId("valid-id")
-  doAssert $id == "valid-id"
+  let r = parseId("valid-id")
+  doAssert r.isOk
+  doAssert $r.get() == "valid-id"
 
-# Failure case — empty string rejected
+# Failure case — isErr, inspect the error
 block:
-  doAssertRaises(ValidationError):
-    discard parseId("")
-```
-
-To inspect the exception fields on failure:
-
-```nim
-block:
-  var caught = false
-  try:
-    discard parseId("")
-  except ValidationError as e:
-    caught = true
-    doAssert e.typeName == "Id"
-    doAssert "empty" in e.msg or "must not" in e.msg
-  doAssert caught
+  let r = parseId("")
+  doAssert r.isErr
+  doAssert r.error.typeName == "Id"
+  doAssert "1-255" in r.error.message or "empty" in r.error.message
 ```
 
 Use `block:` to isolate each test case and prevent variable name collisions.
@@ -111,16 +99,13 @@ const testCases = [
   ("valid-id", true),
   ("also-valid", true),
   ("", false),
-  ("  ", true),  # whitespace-only is valid (only empty is rejected)
 ]
 
 for (input, expectOk) in testCases:
+  let r = parseId(input)
+  doAssert r.isOk == expectOk
   if expectOk:
-    let id = parseId(input)
-    doAssert $id == input
-  else:
-    doAssertRaises(ValidationError):
-      discard parseId(input)
+    doAssert $r.get() == input
 ```
 
 ## Round-Trip Serialisation Tests
@@ -141,7 +126,9 @@ block:
     maxObjectsInSet: UnsignedInt(500),
   )
   let j = original.toJson()
-  let rt = CoreCapabilities.fromJson(j)
+  let r = CoreCapabilities.fromJson(j)
+  doAssert r.isOk
+  let rt = r.get()
   doAssert rt.maxSizeUpload == original.maxSizeUpload
   doAssert rt.maxCallsInRequest == original.maxCallsInRequest
 ```

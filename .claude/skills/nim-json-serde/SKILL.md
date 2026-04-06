@@ -11,11 +11,12 @@ This skill complements `.claude/rules/nim-conventions.md` — it provides
 
 ## Approach
 
-Serialisation and deserialisation use `proc` with standard `std/json` APIs.
-Required fields use direct accessors (`node["key"]`, `to(T)`) that raise on
-missing/wrong-type data. Optional fields use nil-safe accessors (`node{"key"}`,
-`getStr`, etc.) or `hasKey` checks. Exceptions propagate naturally through
-Layers 1–4; Layer 5 catches them.
+Serialisation and deserialisation use `func` (pure) with standard `std/json`
+nil-safe accessors (`node{"key"}`, `getStr`, `getBiggestInt`, etc.) and return
+`Result[T, ValidationError]` via nim-results. The `?` operator provides
+early-return error propagation. Functions taking `proc` callback parameters
+(e.g., `Filter[C].toJson`) use `proc` instead due to hidden pointer
+indirection. `{.push raises: [].}` is on every module.
 
 ## References
 
@@ -27,9 +28,9 @@ Layers 1–4; Layer 5 catches them.
 
 | Question | Action |
 |----------|--------|
-| Which accessor for required fields? | `node["key"]` or `to(T)`. See [accessor-reference.md](accessor-reference.md) |
+| Which accessor for required fields? | `node{"key"}` + `checkJsonKind` returning `Result`. See [serde-patterns.md](serde-patterns.md) |
 | Which accessor for optional fields? | `node{"key"}` + nil-safe extractors. See [accessor-reference.md](accessor-reference.md) |
-| How to parse a raw JSON string? | `parseJson(s)` — raises on malformed input. See [serde-patterns.md](serde-patterns.md) |
+| How to parse a raw JSON string? | `parseJson(s)` in L4 `proc` (side-effectful). See [serde-patterns.md](serde-patterns.md) |
 | How to write toJson for an object? | See Object Pattern in [serde-patterns.md](serde-patterns.md) |
 | How to write fromJson for a case object? | See Case Object Pattern in [serde-patterns.md](serde-patterns.md) |
 | How to serialise/deserialise enums? | See Enum Serialisation in [serde-patterns.md](serde-patterns.md) |

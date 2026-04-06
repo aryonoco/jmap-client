@@ -1,107 +1,92 @@
 # Serialisation Patterns
 
-Patterns for this project. All serialisation and deserialisation logic uses
-`proc` with standard `std/json` APIs. Exceptions propagate naturally.
+Patterns for this project. Serialisation and deserialisation use `func` with
+`std/json` nil-safe accessors and return `Result[T, ValidationError]` via
+nim-results. The `?` operator provides early-return error propagation.
+`{.push raises: [].}` is on every module.
 
 ## Parsing Raw JSON
 
-Use `parseJson` directly. It raises `JsonParsingError` on malformed input,
-which propagates naturally through Layers 1–4:
+`parseJson` is side-effectful and can raise — it belongs in `proc` code
+(Layer 4 transport). Serde `func` code operates on pre-parsed `JsonNode`:
 
 ```nim
-proc parseSession*(raw: string): Session =
-  let node = parseJson(raw)
-  Session.fromJson(node)
-```
-
-If you need to handle parse errors specifically at a boundary:
-
-```nim
-proc tryParseSession*(raw: string): Session =
+# L4 proc — wraps parseJson in try/except, returns Result
+proc parseJsonBody(body: string, context: string): Result[JsonNode, ClientError] =
   try:
-    let node = parseJson(raw)
-    Session.fromJson(node)
-  except JsonParsingError as e:
-    raise newException(ClientError, "malformed JSON: " & e.msg)
+    {.cast(raises: [CatchableError]).}:
+      ok(parseJson(body))
+  except CatchableError as e:
+    err(clientError(transportError(tekNetwork, "invalid JSON: " & e.msg)))
+
+# L2 func — operates on pre-parsed JsonNode, returns Result
+func fromJson*(T: typedesc[Session], node: JsonNode): Result[Session, ValidationError] =
+  ?checkJsonKind(node, JObject, "Session")
+  # ...
 ```
 
 ## Object toJson
 
-Constructs a `JsonNode` from an object:
+Constructs a `JsonNode` from an object. Uses `func`:
 
 ```nim
-proc toJson*(s: Session): JsonNode =
-  result = %*{
-    "username": s.username,
-    "apiUrl": s.apiUrl,
-    "downloadUrl": string(s.downloadUrl),  # unwrap distinct
-    "uploadUrl": string(s.uploadUrl),
-    "eventSourceUrl": string(s.eventSourceUrl),
-    "state": string(s.state),
-  }
-  # Add capabilities array
+func toJson*(s: Session): JsonNode =
+  result = newJObject()
+  result["username"] = %s.username
+  result["apiUrl"] = %s.apiUrl
+  result["downloadUrl"] = %(string(s.downloadUrl))  # unwrap distinct
+  result["state"] = %(string(s.state))
+  # Add capabilities
   var caps = newJObject()
   for cap in s.capabilities:
     caps[cap.rawUri] = cap.toJson()
   result["capabilities"] = caps
-  # Add accounts
-  var accts = newJObject()
-  for id, acct in s.accounts:
-    accts[string(id)] = acct.toJson()
-  result["accounts"] = accts
 ```
 
-**Distinct types**: unwrap with `string(id)` or `int(val)` before passing
+**Distinct types**: unwrap with `string(id)` or `int64(val)` before passing
 to `%` — the `%` operator does not auto-unwrap distinct types.
 
 ## Object fromJson
 
-Extract from `JsonNode` using idiomatic accessors. Raise on invalid data:
+Extract from `JsonNode` using nil-safe accessors. Return `Result`:
 
 ```nim
-proc fromJson*(_: typedesc[Account], node: JsonNode): Account =
-  if node.isNil or node.kind != JObject:
-    raise newException(ValidationError, "Account: expected JSON object")
-
-  let name = node["name"].getStr()
+func fromJson*(_: typedesc[Account], node: JsonNode): Result[Account, ValidationError] =
+  ?checkJsonKind(node, JObject, "Account")
+  let name = node{"name"}.getStr("")
   if name.len == 0:
-    raise newException(ValidationError, "Account: missing or empty 'name'")
-
-  Account(
+    return err(validationError("Account", "missing or empty 'name'", ""))
+  ok(Account(
     name: name,
     isPersonal: node{"isPersonal"}.getBool(false),
     isReadOnly: node{"isReadOnly"}.getBool(false),
-  )
+  ))
 ```
 
-**Pattern**: validate `kind` first, use `node["field"]` for required fields,
-`node{"field"}.getType(default)` for optional fields with defaults, construct
-and return directly.
+**Pattern**: `checkJsonKind` with `?` first, use `node{"field"}.getType(default)`
+for extraction, smart constructors with `?` for validated types, wrap in `ok()`.
 
 ## Case Object fromJson
 
 Dispatch on the discriminator field, then parse the branch:
 
 ```nim
-proc fromJson*(_: typedesc[TransportError], node: JsonNode): TransportError =
-  if node.isNil or node.kind != JObject:
-    raise newException(ValidationError, "TransportError: expected JSON object")
-
+func fromJson*(_: typedesc[TransportError], node: JsonNode): Result[TransportError, ValidationError] =
+  ?checkJsonKind(node, JObject, "TransportError")
   let kindStr = node{"kind"}.getStr("")
   let message = node{"message"}.getStr("")
-
   case kindStr
   of "network":
-    TransportError(kind: tekNetwork, msg: message)
+    ok(TransportError(kind: tekNetwork, message: message))
   of "tls":
-    TransportError(kind: tekTls, msg: message)
+    ok(TransportError(kind: tekTls, message: message))
   of "timeout":
-    TransportError(kind: tekTimeout, msg: message)
+    ok(TransportError(kind: tekTimeout, message: message))
   of "httpStatus":
     let status = node{"httpStatus"}.getInt(0)
-    TransportError(kind: tekHttpStatus, msg: message, httpStatus: status)
+    ok(TransportError(kind: tekHttpStatus, message: message, httpStatus: status))
   else:
-    raise newException(ValidationError, "TransportError: unknown kind: " & kindStr)
+    err(validationError("TransportError", "unknown kind: " & kindStr, kindStr))
 ```
 
 ## Enum Serialisation
@@ -122,19 +107,15 @@ type MethodErrorType = enum
 Serialisation works automatically via `$` and `%`:
 
 ```nim
-proc toJson*(met: MethodErrorType): JsonNode =
+func toJson*(met: MethodErrorType): JsonNode =
   %met  # produces the backing string via $
 ```
 
-For deserialisation, match against the backing strings:
+For deserialisation, use `parseEnum` with a default (raises-free):
 
 ```nim
-proc parseMethodErrorType*(raw: string): Option[MethodErrorType] =
-  case raw
-  of "serverFail": some(metServerFail)
-  of "invalidArguments": some(metInvalidArguments)
-  # ... exhaustive
-  else: none(MethodErrorType)
+func parseMethodErrorType*(raw: string): MethodErrorType =
+  strutils.parseEnum[MethodErrorType](raw, metUnknown)
 ```
 
 **`symbolName` vs `$`**: `symbolName()` (from `std/enumutils`) returns the
@@ -146,22 +127,21 @@ Nim identifier (`"metServerFail"`). `$` returns the backing string
 JMAP Invocations are serialised as JSON arrays, NOT objects (RFC 8620 §3.3):
 
 ```nim
-proc toJson*(inv: Invocation): JsonNode =
-  %*[inv.name, inv.arguments, string(inv.methodCallId)]
+func toJson*(inv: Invocation): JsonNode =
+  var arr = newJArray()
+  arr.add(%inv.name)
+  arr.add(if inv.arguments.isNil: newJObject() else: inv.arguments)
+  arr.add(inv.methodCallId.toJson())
+  arr
 
-proc fromJson*(_: typedesc[Invocation], node: JsonNode): Invocation =
-  if node.isNil or node.kind != JArray or node.len != 3:
-    raise newException(ValidationError, "Invocation: expected 3-element JSON array")
-
-  let name = node{0}.getStr("")
-  let args = node{1}
-  let callId = node{2}.getStr("")
-
-  if name.len == 0 or args.isNil or callId.len == 0:
-    raise newException(ValidationError, "Invocation: missing name, arguments, or callId")
-
-  let mcid = parseMethodCallId(callId)
-  Invocation(name: name, arguments: args, methodCallId: mcid)
+func fromJson*(_: typedesc[Invocation], node: JsonNode): Result[Invocation, ValidationError] =
+  ?checkJsonKind(node, JArray, "Invocation")
+  if node.len != 3:
+    return err(validationError("Invocation", "expected 3-element array", ""))
+  let name = node.getElems(@[])[0].getStr("")
+  let args = node.getElems(@[])[1]
+  let callId = ?parseMethodCallId(node.getElems(@[])[2].getStr(""))
+  ok(Invocation(name: name, arguments: args, methodCallId: callId))
 ```
 
 ## Optional Fields (Option[T])
@@ -169,26 +149,28 @@ proc fromJson*(_: typedesc[Invocation], node: JsonNode): Invocation =
 Omit the field entirely when `isNone`, include when `isSome`:
 
 ```nim
-proc toJson*(r: Request): JsonNode =
+func toJson*(r: Request): JsonNode =
   result = newJObject()
   result["using"] = %r.using
-  result["methodCalls"] = %r.methodCalls.mapIt(it.toJson())
-  # Only include createdIds if present
+  var calls = newJArray()
+  for mc in r.methodCalls:
+    calls.add(mc.toJson())
+  result["methodCalls"] = calls
   if r.createdIds.isSome:
-    let ids = newJObject()
+    var ids = newJObject()
     for k, v in r.createdIds.get():
-      ids[string(k)] = %string(v)
+      ids[string(k)] = %(string(v))
     result["createdIds"] = ids
 ```
 
-For deserialisation, check presence with `hasKey` or nil-check:
+For deserialisation, check presence with nil-check:
 
 ```nim
 let createdIds =
   if node{"createdIds"}.isNil or node{"createdIds"}.kind == JNull:
     none(Table[CreationId, Id])
   else:
-    some(parseCreatedIds(node{"createdIds"}))
+    some(?parseCreatedIds(node{"createdIds"}))
 ```
 
 ## Referencable Fields (# prefix)
@@ -196,20 +178,17 @@ let createdIds =
 Result references use `#`-prefixed field names (RFC 8620 §3.7):
 
 ```nim
-proc toJson*(r: Referencable[seq[Id]]): JsonNode =
+func referencableKey*[T](fieldName: string, r: Referencable[T]): string =
   case r.kind
-  of rkDirect:
-    %r.direct.mapIt(%string(it))
-  of rkReference:
-    # The field name gets a # prefix — handled by the caller
-    r.reference.toJson()
+  of rkDirect: fieldName
+  of rkReference: "#" & fieldName
 ```
 
 At the request-builder level, emit `#fieldName` instead of `fieldName`:
 
 ```nim
 if arg.kind == rkReference:
-  result["#" & fieldName] = arg.toJson()
+  result["#" & fieldName] = arg.reference.toJson()
 else:
-  result[fieldName] = arg.toJson()
+  result[fieldName] = arg.value.toJson()
 ```

@@ -20,17 +20,17 @@ type
 
 ```nim
 template defineStringDistinctOps*(T: typedesc) =
-  proc `==`*(a, b: T): bool {.borrow.}
-  proc `$`*(a: T): string {.borrow.}
-  proc hash*(a: T): Hash {.borrow.}
-  proc len*(a: T): int {.borrow.}
+  func `==`*(a, b: T): bool {.borrow.}
+  func `$`*(a: T): string {.borrow.}
+  func hash*(a: T): Hash {.borrow.}
+  func len*(a: T): int {.borrow.}
 
 template defineIntDistinctOps*(T: typedesc) =
-  proc `==`*(a, b: T): bool {.borrow.}
-  proc `<`*(a, b: T): bool {.borrow.}
-  proc `<=`*(a, b: T): bool {.borrow.}
-  proc `$`*(a: T): string {.borrow.}
-  proc hash*(a: T): Hash {.borrow.}
+  func `==`*(a, b: T): bool {.borrow.}
+  func `<`*(a, b: T): bool {.borrow.}
+  func `<=`*(a, b: T): bool {.borrow.}
+  func `$`*(a: T): string {.borrow.}
+  func hash*(a: T): Hash {.borrow.}
 
 defineStringDistinctOps(AccountId)
 defineStringDistinctOps(EmailId)
@@ -50,23 +50,20 @@ includes `len` because it targets identifier types where length IS meaningful
 ## Smart Constructors
 
 Validation functions enforce domain constraints at construction time. They
-raise `ValidationError` on invalid input and return the validated type
-directly on success:
+return `Result[T, ValidationError]` via nim-results:
 
 ```nim
-proc parseAccountId*(raw: string): AccountId =
+func parseAccountId*(raw: string): Result[AccountId, ValidationError] =
   ## Lenient: 1–255 octets, no control characters.
-  ## AccountIds are server-assigned Id[Account] values (§1.6.2, §2).
   if raw.len < 1 or raw.len > 255:
-    raise newException(ValidationError, "length must be 1-255 octets")
-  if raw.anyIt(it < ' '):
-    raise newException(ValidationError, "contains control characters")
-  AccountId(raw)
+    return err(validationError("AccountId", "length must be 1-255 octets", raw))
+  if raw.anyIt(it < ' ' or it == '\x7F'):
+    return err(validationError("AccountId", "contains control characters", raw))
+  ok(AccountId(raw))
 ```
 
-`ValidationError` is a `CatchableError` with `typeName`, `value` fields
-and the inherited `msg` field. Not `ClientError` (that is for transport/request
-failures) and not bare `string` (loses context).
+`ValidationError` is a plain object with `typeName`, `message`, `value` fields.
+Carried on the `Result` error rail — not an exception.
 
 ## Object Variants (Sum Types)
 
@@ -86,7 +83,8 @@ type
     cekTransport
     cekRequest
 
-  ClientError* = object of CatchableError
+  ClientError* = object
+    message*: string
     case kind*: ClientErrorKind
     of cekTransport:
       transport*: TransportError
@@ -95,10 +93,10 @@ type
 ```
 
 ```nim
-proc message*(err: ClientError): string =
+func message*(err: ClientError): string =
   ## Human-readable message for any ClientError variant.
   case err.kind
-  of cekTransport: err.transport.msg
+  of cekTransport: err.transport.message
   of cekRequest:
     if err.request.detail.isSome: err.request.detail.get()
     elif err.request.title.isSome: err.request.title.get()
@@ -116,7 +114,8 @@ type
     tekTimeout
     tekHttpStatus
 
-  TransportError* = object of CatchableError
+  TransportError* = object
+    message*: string
     case kind*: TransportErrorKind
     of tekHttpStatus:
       httpStatus*: int                    # only accessible after matching kind
