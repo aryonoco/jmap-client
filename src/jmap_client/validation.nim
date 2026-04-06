@@ -35,10 +35,8 @@ template defineStringDistinctOps*(T: typedesc) =
     ## Equality comparison delegated to the underlying string.
   func `$`*(a: T): string {.borrow.}
     ## String representation delegated to the underlying string.
-  func hash*(a: T): Hash {.borrow.}
-    ## Hash delegated to the underlying string.
-  func len*(a: T): int {.borrow.}
-    ## Length delegated to the underlying string.
+  func hash*(a: T): Hash {.borrow.} ## Hash delegated to the underlying string.
+  func len*(a: T): int {.borrow.} ## Length delegated to the underlying string.
 
 template defineIntDistinctOps*(T: typedesc) =
   ## Borrows standard operations for a ``distinct int`` type: equality,
@@ -51,8 +49,7 @@ template defineIntDistinctOps*(T: typedesc) =
     ## Less-or-equal comparison delegated to the underlying integer.
   func `$`*(a: T): string {.borrow.}
     ## String representation delegated to the underlying integer.
-  func hash*(a: T): Hash {.borrow.}
-    ## Hash delegated to the underlying integer.
+  func hash*(a: T): Hash {.borrow.} ## Hash delegated to the underlying integer.
 
 const Base64UrlChars* = {'A' .. 'Z', 'a' .. 'z', '0' .. '9', '-', '_'}
   ## Characters permitted in RFC 8620 §1.2 entity identifiers.
