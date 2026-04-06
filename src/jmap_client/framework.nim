@@ -55,9 +55,17 @@ func filterOperator*[C](op: FilterOperator, conditions: seq[Filter[C]]): Filter[
 type Comparator* = object
   ## Sort criterion for /query requests (RFC 8620 §5.5). Determines the sort order
   ## for results returned by a /query method call.
-  property*: PropertyName ## the property to sort by
+  ##
+  ## Construction sealed via Pattern A (architecture §1.5.2): ``rawProperty`` is
+  ## module-private, blocking direct construction from outside this module.
+  ## Use ``parseComparator`` to construct.
+  rawProperty: string ## module-private; validated PropertyName
   isAscending*: bool ## true = ascending (RFC default)
   collation*: Opt[string] ## RFC 4790 collation algorithm identifier
+
+func property*(c: Comparator): PropertyName =
+  ## Returns the validated property name for this comparator.
+  PropertyName(c.rawProperty)
 
 func parseComparator*(
     property: PropertyName,
@@ -65,7 +73,9 @@ func parseComparator*(
     collation: Opt[string] = Opt.none(string),
 ): Comparator =
   ## Constructs a Comparator. Infallible given a valid PropertyName.
-  Comparator(property: property, isAscending: isAscending, collation: collation)
+  Comparator(
+    rawProperty: string(property), isAscending: isAscending, collation: collation
+  )
 
 type PatchObject* = distinct Table[string, JsonNode]
   ## Map of JSON Pointer paths to values for /set update operations (RFC 8620 §5.3).
@@ -106,5 +116,17 @@ func getKey*(patch: PatchObject, key: string): Opt[JsonNode] =
 
 type AddedItem* = object
   ## An item added to query results at a specific position (RFC 8620 §5.6).
-  id*: Id ## the item identifier
+  ##
+  ## Construction sealed via Pattern A (architecture Limitation 5/6a):
+  ## ``rawId`` is module-private, blocking direct construction from outside
+  ## this module. Use ``initAddedItem`` to construct.
+  rawId: string ## module-private; validated Id
   index*: UnsignedInt ## the position index
+
+func id*(item: AddedItem): Id =
+  ## Returns the validated item identifier.
+  Id(item.rawId)
+
+func initAddedItem*(id: Id, index: UnsignedInt): AddedItem =
+  ## Constructs an AddedItem. Infallible given validated Id and UnsignedInt.
+  AddedItem(rawId: string(id), index: index)

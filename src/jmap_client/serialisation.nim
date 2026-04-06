@@ -10,6 +10,8 @@ import ./serde_envelope
 import ./serde_framework
 import ./serde_errors
 
+{.push raises: [].}
+
 export serde
 export serde_session
 export serde_envelope

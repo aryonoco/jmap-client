@@ -54,14 +54,22 @@ func parseRequestErrorType*(raw: string): RequestErrorType =
 
 type RequestError* = object
   ## RFC 7807 problem details returned when the entire request is rejected.
+  ##
+  ## ``errorType`` is module-private — always derived from ``rawType`` via
+  ## ``parseRequestErrorType``. This seals the consistency invariant:
+  ## ``errorType`` and ``rawType`` cannot diverge.
   message*: string ## human-readable error description
-  errorType*: RequestErrorType ## parsed enum variant
+  errorType: RequestErrorType ## module-private; derived from rawType
   rawType*: string ## always populated — lossless round-trip
   status*: Opt[int] ## RFC 7807 "status" field
   title*: Opt[string] ## RFC 7807 "title" field
   detail*: Opt[string] ## RFC 7807 "detail" field
   limit*: Opt[string] ## which limit was exceeded (retLimit only)
   extras*: Opt[JsonNode] ## non-standard fields, lossless preservation
+
+func errorType*(re: RequestError): RequestErrorType =
+  ## Returns the parsed error type variant.
+  re.errorType
 
 func requestError*(
     rawType: string,
@@ -146,10 +154,17 @@ func parseMethodErrorType*(raw: string): MethodErrorType =
 
 type MethodError* = object
   ## Inner railway error for a single method invocation within a batch response.
-  errorType*: MethodErrorType ## parsed enum variant
+  ##
+  ## ``errorType`` is module-private — always derived from ``rawType`` via
+  ## ``parseMethodErrorType``. This seals the consistency invariant.
+  errorType: MethodErrorType ## module-private; derived from rawType
   rawType*: string ## always populated — lossless round-trip
   description*: Opt[string] ## RFC "description" field
   extras*: Opt[JsonNode] ## non-standard fields, lossless preservation
+
+func errorType*(me: MethodError): MethodErrorType =
+  ## Returns the parsed error type variant.
+  me.errorType
 
 func methodError*(
     rawType: string,

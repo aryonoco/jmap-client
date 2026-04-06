@@ -64,7 +64,7 @@ block propReferencableReferencePreservesRef:
     ## referenceTo preserves the ResultReference.
     let mcid = parseMethodCallId("c" & $trial).get()
     lastInput = $trial
-    let rr = ResultReference(resultOf: mcid, name: "Email/query", path: "/ids")
+    let rr = initResultReference(resultOf = mcid, name = "Email/query", path = "/ids")
     let r = referenceTo[seq[Id]](rr)
     doAssert r.kind == rkReference
     doAssert r.reference.resultOf == mcid
@@ -80,7 +80,7 @@ block propReferencableExclusivity:
     doAssert not (d.kind == rkReference)
 
     let mcid = parseMethodCallId("c" & $trial).get()
-    let rr = ResultReference(resultOf: mcid, name: "M/get", path: "/ids")
+    let rr = initResultReference(resultOf = mcid, name = "M/get", path = "/ids")
     let r = referenceTo[seq[Id]](rr)
     doAssert r.kind == rkReference
     doAssert not (r.kind == rkDirect)
@@ -132,7 +132,7 @@ block propReferencableKindDisjointness:
     let v = rng.rand(int)
     lastInput = $v
     let mcid = parseMethodCallId("c" & $trial).get()
-    let rr = ResultReference(resultOf: mcid, name: "M/get", path: "/ids")
+    let rr = initResultReference(resultOf = mcid, name = "M/get", path = "/ids")
     let d = direct(v)
     let r = referenceTo[int](rr)
     doAssert d.kind != r.kind

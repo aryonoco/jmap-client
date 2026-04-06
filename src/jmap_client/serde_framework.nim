@@ -169,4 +169,4 @@ func fromJson*(
   ?checkJsonKind(node, JObject, $T)
   let id = ?Id.fromJson(node{"id"})
   let index = ?UnsignedInt.fromJson(node{"index"})
-  ok(AddedItem(id: id, index: index))
+  ok(initAddedItem(id, index))

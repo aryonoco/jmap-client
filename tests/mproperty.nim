@@ -476,7 +476,7 @@ proc genInvocation*(rng: var Rand): Invocation =
   let name = rng.oneOf(methods)
   let mcidStr = "c" & $rng.rand(0 .. 99)
   let mcid = parseMethodCallId(mcidStr).get()
-  initInvocation(name, newJObject(), mcid)
+  initInvocation(name, newJObject(), mcid).get()
 
 proc genValidAccount*(rng: var Rand): Account =
   ## Generates a random Account with realistic structure: random name from a
@@ -752,7 +752,7 @@ proc genAddedItem*(rng: var Rand): AddedItem =
   ## Does NOT generate: very long Ids, very large indices.
   let id = parseId(rng.genValidIdStrict(minLen = 1, maxLen = 20)).get()
   let idx = parseUnsignedInt(rng.rand(0'i64 .. 10000'i64)).get()
-  AddedItem(id: id, index: idx)
+  initAddedItem(id, idx)
 
 proc genPatchObject*(rng: var Rand, maxKeys: int): PatchObject =
   ## Generates a random PatchObject with 0..maxKeys entries using realistic
@@ -973,7 +973,7 @@ proc genInvocationWithArgs*(rng: var Rand): Invocation =
         if rng.rand(0 .. 1) == 0:
           p.add(newJString(prop))
       p
-  initInvocation(name, args, mcid)
+  initInvocation(name, args, mcid).get()
 
 proc genRequest*(rng: var Rand): Request =
   ## Generates a random Request with 1-5 invocations (with non-trivial arguments),
@@ -1074,10 +1074,10 @@ proc genResultReference*(rng: var Rand): ResultReference =
   let mcid = parseMethodCallId("c" & $rng.rand(0 .. 999)).get()
   const names = ["Mailbox/get", "Email/get", "Thread/get", "Identity/get"]
   const paths = ["/ids", "/list/*/id", "/notFound", "/state"]
-  ResultReference(
-    resultOf: mcid,
-    name: names[rng.rand(0 .. int(names.high))],
-    path: paths[rng.rand(0 .. int(paths.high))],
+  initResultReference(
+    resultOf = mcid,
+    name = names[rng.rand(0 .. int(names.high))],
+    path = paths[rng.rand(0 .. int(paths.high))],
   )
 
 proc genMalformedSessionJson*(rng: var Rand): JsonNode =

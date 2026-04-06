@@ -12,21 +12,34 @@ import results
 
 import ./identifiers
 import ./primitives
+import ./validation
 
 {.push raises: [].}
 
 type Invocation* = object
   ## A method call or response tuple (RFC 8620 section 3.2). Serialised as a
   ## 3-element JSON array by Layer 2.
+  ##
+  ## Construction sealed via Pattern A (architecture Limitation 5/6a):
+  ## ``rawMethodCallId`` is module-private, blocking direct construction
+  ## from outside this module. Use ``initInvocation`` to construct.
   name*: string ## method name (request) or response name
   arguments*: JsonNode ## named arguments — always a JObject at the wire level
-  methodCallId*: MethodCallId ## validated method call ID
+  rawMethodCallId: string ## module-private; validated MethodCallId
+
+func methodCallId*(inv: Invocation): MethodCallId =
+  ## Returns the validated method call ID.
+  MethodCallId(inv.rawMethodCallId)
 
 func initInvocation*(
     name: string, arguments: JsonNode, methodCallId: MethodCallId
-): Invocation =
-  ## Construct an Invocation.
-  Invocation(name: name, arguments: arguments, methodCallId: methodCallId)
+): Result[Invocation, ValidationError] =
+  ## Constructs an Invocation. Validates that name is non-empty.
+  if name.len == 0:
+    return err(validationError("Invocation", "name must not be empty", name))
+  ok(
+    Invocation(name: name, arguments: arguments, rawMethodCallId: string(methodCallId))
+  )
 
 type Request* = object
   ## Top-level JMAP request envelope (RFC 8620 section 3.3). Contains the
@@ -49,9 +62,37 @@ type Response* = object
 type ResultReference* = object
   ## Back-reference to a previous method call's result (RFC 8620 section 3.7).
   ## The server resolves the JSON Pointer path against the referenced response.
+  ##
+  ## Construction sealed via private ``rawName`` field. Use
+  ## ``parseResultReference`` to construct with validation, or
+  ## ``initResultReference`` for infallible construction from pre-validated values.
   resultOf*: MethodCallId ## method call ID of the previous call
-  name*: string ## expected response name
+  rawName: string ## module-private; expected response name (non-empty)
   path*: string ## JSON Pointer (RFC 6901) with JMAP '*' array wildcard
+
+func name*(rr: ResultReference): string =
+  ## Returns the expected response name.
+  rr.rawName
+
+func parseResultReference*(
+    resultOf: MethodCallId, name: string, path: string
+): Result[ResultReference, ValidationError] =
+  ## Validates and constructs a ResultReference. Rejects empty name or path.
+  if name.len == 0:
+    return err(validationError("ResultReference", "name must not be empty", name))
+  if path.len == 0:
+    return err(validationError("ResultReference", "path must not be empty", path))
+  ok(ResultReference(resultOf: resultOf, rawName: name, path: path))
+
+func initResultReference*(
+    resultOf: MethodCallId, name: string, path: string
+): ResultReference =
+  ## Constructs a ResultReference without validation. For internal use where
+  ## name and path are known to be valid (e.g., builder-produced references
+  ## using path constants).
+  doAssert name.len > 0, "ResultReference name must not be empty"
+  doAssert path.len > 0, "ResultReference path must not be empty"
+  ResultReference(resultOf: resultOf, rawName: name, path: path)
 
 const
   RefPathIds* = "/ids" ## IDs from /query result

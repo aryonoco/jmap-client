@@ -162,7 +162,7 @@ proc makeSessionArgs*(): SessionArgs =
 # ---------------------------------------------------------------------------
 
 proc makeInvocation*(name = "Mailbox/get", mcid = makeMcid("c0")): Invocation =
-  initInvocation(name, newJObject(), mcid)
+  initInvocation(name, newJObject(), mcid).get()
 
 proc makeRequest*(
     `using`: seq[string] = @["urn:ietf:params:jmap:core"],
@@ -183,7 +183,7 @@ proc makeResponse*(
 proc makeResultReference*(
     mcid = makeMcid("c0"), name = "Mailbox/get", path = RefPathIds
 ): ResultReference =
-  ResultReference(resultOf: mcid, name: name, path: path)
+  initResultReference(resultOf = mcid, name = name, path = path)
 
 # ---------------------------------------------------------------------------
 # Error factories
@@ -312,7 +312,7 @@ proc makeComparatorWithCollation*(
   parseComparator(property, isAscending, Opt.some(collation))
 
 proc makeAddedItem*(id: Id = makeId("item1"), index: int64 = 0): AddedItem =
-  AddedItem(id: id, index: parseUnsignedInt(index).get())
+  initAddedItem(id, parseUnsignedInt(index).get())
 
 # ---------------------------------------------------------------------------
 # Filter factories
@@ -630,7 +630,7 @@ proc makeErrorInvocation*(
     mcid: MethodCallId = makeMcid("c0"), errorType = "serverFail"
 ): Invocation =
   ## An error invocation for dispatch tests.
-  initInvocation("error", %*{"type": errorType}, mcid)
+  initInvocation("error", %*{"type": errorType}, mcid).get()
 
 proc makeTypedResponse*(
     methodName: string,
@@ -639,7 +639,7 @@ proc makeTypedResponse*(
     state: JmapState = makeState("rs1"),
 ): Response =
   ## Builds a Response with a single successful method invocation.
-  let inv = initInvocation(methodName, args, mcid)
+  let inv = initInvocation(methodName, args, mcid).get()
   Response(
     methodResponses: @[inv],
     createdIds: Opt.none(Table[CreationId, Id]),

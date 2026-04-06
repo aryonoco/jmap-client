@@ -119,7 +119,7 @@ block patchObjectNoBorrowedOps:
 block addedItemConstruction:
   let id = parseId("abc").get()
   let idx = parseUnsignedInt(0'i64).get()
-  let item = AddedItem(id: id, index: idx)
+  let item = initAddedItem(id, idx)
   doAssert string(item.id) == "abc"
   doAssert int64(item.index) == 0'i64
 
@@ -187,7 +187,7 @@ block comparatorEmptyCollation:
 block addedItemMaxIndex:
   let maxIdx = parseUnsignedInt(MaxUnsignedInt).get()
   let id = parseId("test").get()
-  let ai = AddedItem(id: id, index: maxIdx)
+  let ai = initAddedItem(id, maxIdx)
   doAssert ai.index == maxIdx
 
 # --- PatchObject.getKey round-trip ---

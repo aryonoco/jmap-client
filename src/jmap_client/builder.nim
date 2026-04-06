@@ -102,7 +102,7 @@ func addInvocation(
 ): MethodCallId =
   ## Constructs an Invocation, accumulates it, and registers the capability.
   let callId = b.nextId()
-  let inv = initInvocation(name, args, callId)
+  let inv = initInvocation(name, args, callId).get()
   b.invocations.add(inv)
   b.addCapability(capability)
   callId

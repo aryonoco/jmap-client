@@ -41,7 +41,7 @@ func fromJson*(
   if callIdRaw.len == 0:
     return err(parseError($T, "method call ID must not be empty"))
   let mcid = ?parseMethodCallId(callIdRaw)
-  ok(initInvocation(name, arguments, mcid))
+  initInvocation(name, arguments, mcid)
 
 # =============================================================================
 # createdIds helper
@@ -170,12 +170,8 @@ func fromJson*(
   let pathNode = node{"path"}
   ?checkJsonKind(pathNode, JString, $T, "missing or invalid path")
   let path = pathNode.getStr("")
-  if name.len == 0:
-    return err(parseError($T, "name must not be empty"))
-  if path.len == 0:
-    return err(parseError($T, "path must not be empty"))
   let resultOf = ?parseMethodCallId(resultOfRaw)
-  ok(ResultReference(resultOf: resultOf, name: name, path: path))
+  parseResultReference(resultOf, name, path)
 
 # =============================================================================
 # Referencable[T] helpers

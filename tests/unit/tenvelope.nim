@@ -15,7 +15,7 @@ import jmap_client/validation
 
 block invocationConstruction:
   let mcid = parseMethodCallId("c1").get()
-  let inv = initInvocation("Mailbox/get", %*{"accountId": "A1"}, mcid)
+  let inv = initInvocation("Mailbox/get", %*{"accountId": "A1"}, mcid).get()
   doAssert inv.name == "Mailbox/get"
   doAssert inv.arguments == %*{"accountId": "A1"}
   doAssert inv.methodCallId == mcid
@@ -29,9 +29,9 @@ block requestRfcExample:
   let req = Request(
     `using`: @["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail"],
     methodCalls: @[
-      initInvocation("method1", %*{"arg1": "arg1data", "arg2": "arg2data"}, c1),
-      initInvocation("method2", %*{"arg1": "arg1data"}, c2),
-      initInvocation("method3", %*{}, c3),
+      initInvocation("method1", %*{"arg1": "arg1data", "arg2": "arg2data"}, c1).get(),
+      initInvocation("method2", %*{"arg1": "arg1data"}, c2).get(),
+      initInvocation("method3", %*{}, c3).get(),
     ],
   )
   doAssert req.`using`.len == 2
@@ -68,7 +68,7 @@ block responseConstruction:
   let mcid = parseMethodCallId("c1").get()
   let state = parseJmapState("state1").get()
   let resp = Response(
-    methodResponses: @[initInvocation("Mailbox/get", %*{"list": []}, mcid)],
+    methodResponses: @[initInvocation("Mailbox/get", %*{"list": []}, mcid).get()],
     sessionState: state,
   )
   doAssert resp.methodResponses.len == 1
@@ -84,12 +84,13 @@ block responseRfcExample:
   let state = parseJmapState("75128aab4b1b").get()
   let resp = Response(
     methodResponses: @[
-      initInvocation("method1", %*{"arg1": 3, "arg2": "foo"}, c1),
-      initInvocation("method2", %*{"isBlah": true}, c2),
+      initInvocation("method1", %*{"arg1": 3, "arg2": "foo"}, c1).get(),
+      initInvocation("method2", %*{"isBlah": true}, c2).get(),
       initInvocation(
         "anotherResponseFromMethod2", %*{"data": 10, "yetmoredata": "Hello"}, c2
-      ),
-      initInvocation("error", %*{"type": "unknownMethod"}, c3),
+      )
+        .get(),
+      initInvocation("error", %*{"type": "unknownMethod"}, c3).get(),
     ],
     sessionState: state,
   )
@@ -119,7 +120,7 @@ block responseWithCreatedIds:
 
 block resultReferenceConstruction:
   let mcid = parseMethodCallId("c1").get()
-  let rref = ResultReference(resultOf: mcid, name: "Mailbox/query", path: "/ids")
+  let rref = initResultReference(resultOf = mcid, name = "Mailbox/query", path = "/ids")
   doAssert rref.resultOf == mcid
   doAssert rref.name == "Mailbox/query"
   doAssert rref.path == "/ids"
@@ -143,7 +144,7 @@ block directReferencableInt:
 
 block referenceReferencableSeqId:
   let mcid = parseMethodCallId("c1").get()
-  let rref = ResultReference(resultOf: mcid, name: "Mailbox/query", path: "/ids")
+  let rref = initResultReference(resultOf = mcid, name = "Mailbox/query", path = "/ids")
   let r = referenceTo[seq[Id]](rref)
   doAssert r.kind == rkReference
   doAssert r.reference.resultOf == mcid
@@ -171,7 +172,7 @@ block referencableVariantDiscrimination:
   let id = parseId("test").get()
   let mcid = parseMethodCallId("c0").get()
   let d = direct[Id](id)
-  let rr = ResultReference(resultOf: mcid, name: "Email/get", path: "/ids")
+  let rr = initResultReference(resultOf = mcid, name = "Email/get", path = "/ids")
   let r = referenceTo[Id](rr)
   doAssert d.kind == rkDirect
   doAssert r.kind == rkReference

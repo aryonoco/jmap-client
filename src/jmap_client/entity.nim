@@ -54,6 +54,8 @@
 ##
 ## Items 1–7 are Layer 3 concerns. Item 8 is entity-specific.
 
+{.push raises: [].}
+
 template registerJmapEntity*(T: typedesc) =
   ## Compile-time check: verifies T provides the required framework
   ## overloads (``methodNamespace`` and ``capabilityUri``). Call this

@@ -170,7 +170,7 @@ func reference*[T](
   ## The ``name`` is the expected response method name (Decision D3.10:
   ## explicit, not auto-derived from T). The ``path`` is a JSON Pointer
   ## string with optional JMAP '*' wildcard.
-  ResultReference(resultOf: callId(handle), name: name, path: path)
+  initResultReference(resultOf = callId(handle), name = name, path = path)
 
 # =============================================================================
 # Type-safe reference convenience functions (Make Illegal States Unrepresentable)
@@ -184,7 +184,7 @@ func idsRef*[T](handle: ResponseHandle[QueryResponse[T]]): Referencable[seq[Id]]
   mixin methodNamespace
   let name = methodNamespace(T) & "/query"
   referenceTo[seq[Id]](
-    ResultReference(resultOf: callId(handle), name: name, path: RefPathIds)
+    initResultReference(resultOf = callId(handle), name = name, path = RefPathIds)
   )
 
 func listIdsRef*[T](handle: ResponseHandle[GetResponse[T]]): Referencable[seq[Id]] =
@@ -193,7 +193,7 @@ func listIdsRef*[T](handle: ResponseHandle[GetResponse[T]]): Referencable[seq[Id
   mixin methodNamespace
   let name = methodNamespace(T) & "/get"
   referenceTo[seq[Id]](
-    ResultReference(resultOf: callId(handle), name: name, path: RefPathListIds)
+    initResultReference(resultOf = callId(handle), name = name, path = RefPathListIds)
   )
 
 func addedIdsRef*[T](
@@ -204,5 +204,5 @@ func addedIdsRef*[T](
   mixin methodNamespace
   let name = methodNamespace(T) & "/queryChanges"
   referenceTo[seq[Id]](
-    ResultReference(resultOf: callId(handle), name: name, path: RefPathAddedIds)
+    initResultReference(resultOf = callId(handle), name = name, path = RefPathAddedIds)
   )

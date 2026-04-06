@@ -63,8 +63,8 @@ block referencableWrongVariantConstruction:
   doAssert not compiles(
     Referencable[int](
       kind: rkDirect,
-      reference: ResultReference(
-        resultOf: parseMethodCallId("c1").get(), name: "Foo/get", path: "/ids"
+      reference: initResultReference(
+        resultOf = parseMethodCallId("c1").get(), name = "Foo/get", path = "/ids"
       ),
     )
   )
@@ -222,8 +222,8 @@ block referencableReferenceOnDirect:
   doAssert not compiles(
     Referencable[int](
       kind: rkDirect,
-      reference: ResultReference(
-        resultOf: parseMethodCallId("c1").get(), name: "Foo/get", path: "/ids"
+      reference: initResultReference(
+        resultOf = parseMethodCallId("c1").get(), name = "Foo/get", path = "/ids"
       ),
     )
   )

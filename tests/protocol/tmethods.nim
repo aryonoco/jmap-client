@@ -167,8 +167,9 @@ block getRequestDirectIds:
 
 block getRequestReferenceIds:
   ## GetRequest with reference ids produces "#ids" with ResultReference.
-  let rr =
-    ResultReference(resultOf: makeMcid("c0"), name: "MockFoo/query", path: "/ids")
+  let rr = initResultReference(
+    resultOf = makeMcid("c0"), name = "MockFoo/query", path = "/ids"
+  )
   let req = GetRequest[MockFoo](
     accountId: makeAccountId("a1"),
     ids: Opt.some(referenceTo[seq[Id]](rr)),
@@ -230,8 +231,9 @@ block setRequestMinimal:
 
 block setRequestWithReferencableDestroy:
   ## SetRequest destroy with result reference produces "#destroy".
-  let rr =
-    ResultReference(resultOf: makeMcid("c0"), name: "MockFoo/query", path: "/ids")
+  let rr = initResultReference(
+    resultOf = makeMcid("c0"), name = "MockFoo/query", path = "/ids"
+  )
   let req = SetRequest[MockFoo](
     accountId: makeAccountId("a1"),
     ifInState: Opt.none(JmapState),

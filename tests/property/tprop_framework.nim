@@ -83,7 +83,7 @@ block propReferencableDirectLaw:
 
 block propReferencableRefLaw:
   let mcid = parseMethodCallId("c0").get()
-  let rref = ResultReference(resultOf: mcid, name: "Foo/get", path: "/ids")
+  let rref = initResultReference(resultOf = mcid, name = "Foo/get", path = "/ids")
   let r = referenceTo[int](rref)
   doAssert r.kind == rkReference
   doAssert r.reference.resultOf == mcid
@@ -203,7 +203,7 @@ block propAddedItemFieldPreservation:
     let id = parseId(idStr).get()
     let idxVal = rng.rand(0'i64 .. 10000'i64)
     let idx = parseUnsignedInt(idxVal).get()
-    let item = AddedItem(id: id, index: idx)
+    let item = initAddedItem(id, idx)
     doAssert string(item.id) == idStr
     doAssert int64(item.index) == idxVal
 

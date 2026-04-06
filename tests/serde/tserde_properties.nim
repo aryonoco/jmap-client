@@ -132,8 +132,9 @@ checkProperty "ResultReference serde round-trip":
   let mcid = parseMethodCallId(mcidStr).get()
   const paths = ["/ids", "/list/*/id", "/added/*/id", "/created", "/updated"]
   const names = ["Mailbox/get", "Email/query", "Thread/get"]
-  let original =
-    ResultReference(resultOf: mcid, name: rng.oneOf(names), path: rng.oneOf(paths))
+  let original = initResultReference(
+    resultOf = mcid, name = rng.oneOf(names), path = rng.oneOf(paths)
+  )
   assertOkEq ResultReference.fromJson(original.toJson()), original
 
 # =============================================================================

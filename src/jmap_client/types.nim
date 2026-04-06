@@ -25,5 +25,7 @@ export envelope
 export framework
 export errors
 
+{.push raises: [].}
+
 type JmapResult*[T] = Result[T, ClientError]
   ## Outer railway: transport/request failure or typed success.

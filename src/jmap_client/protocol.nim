@@ -10,6 +10,8 @@ import ./methods
 import ./dispatch
 import ./builder
 
+{.push raises: [].}
+
 export entity
 export methods
 export dispatch

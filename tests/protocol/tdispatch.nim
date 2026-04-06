@@ -100,10 +100,14 @@ block getHappyPath:
 
 block getExtractsCorrectInvocation:
   ## Response with multiple invocations (c0, c1); handle c1 extracts the right one.
-  let inv0 =
-    initInvocation("MockFoo/get", makeGetResponseJson("acct0", "s0"), makeMcid("c0"))
-  let inv1 =
-    initInvocation("MockFoo/get", makeGetResponseJson("acct1", "s1"), makeMcid("c1"))
+  let inv0 = initInvocation(
+      "MockFoo/get", makeGetResponseJson("acct0", "s0"), makeMcid("c0")
+    )
+    .get()
+  let inv1 = initInvocation(
+      "MockFoo/get", makeGetResponseJson("acct1", "s1"), makeMcid("c1")
+    )
+    .get()
   let resp = Response(
     methodResponses: @[inv0, inv1],
     createdIds: Opt.none(Table[CreationId, Id]),
@@ -151,7 +155,7 @@ block getMethodError:
 
 block getMalformedErrorResponse:
   ## Error invocation with non-object arguments produces err with metServerFail.
-  let malformedInv = initInvocation("error", newJArray(), makeMcid("c0"))
+  let malformedInv = initInvocation("error", newJArray(), makeMcid("c0")).get()
   let resp = Response(
     methodResponses: @[malformedInv],
     createdIds: Opt.none(Table[CreationId, Id]),

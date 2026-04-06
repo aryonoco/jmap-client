@@ -94,8 +94,8 @@ block multiMethodWithResultReference:
   let getJson = makeGetResponseJson(accountId = "A1", state = "s1")
   let resp = Response(
     methodResponses: @[
-      initInvocation("TestWidget/query", queryJson, makeMcid("c0")),
-      initInvocation("TestWidget/get", getJson, makeMcid("c1")),
+      initInvocation("TestWidget/query", queryJson, makeMcid("c0")).get(),
+      initInvocation("TestWidget/get", getJson, makeMcid("c1")).get(),
     ],
     createdIds: Opt.none(Table[CreationId, Id]),
     sessionState: makeState("rs1"),
@@ -128,8 +128,8 @@ block mixedSuccessError:
   let getJson = makeGetResponseJson(accountId = "A1", state = "s1")
   let resp = Response(
     methodResponses: @[
-      initInvocation("TestWidget/get", getJson, makeMcid("c0")),
-      initInvocation("error", %*{"type": "stateMismatch"}, makeMcid("c1")),
+      initInvocation("TestWidget/get", getJson, makeMcid("c0")).get(),
+      initInvocation("error", %*{"type": "stateMismatch"}, makeMcid("c1")).get(),
     ],
     createdIds: Opt.none(Table[CreationId, Id]),
     sessionState: makeState("rs1"),

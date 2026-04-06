@@ -45,7 +45,7 @@ block roundTripInvocation:
 block roundTripInvocationComplexArguments:
   let args =
     %*{"accountId": "A1", "list": [1, 2, 3], "filter": {"nested": {"deep": newJNull()}}}
-  let original = initInvocation("Email/get", args, makeMcid("c1"))
+  let original = initInvocation("Email/get", args, makeMcid("c1")).get()
   let v = Invocation.fromJson(original.toJson()).get()
   doAssert v.name == original.name
   doAssert v.arguments == original.arguments
@@ -96,7 +96,7 @@ block roundTripResultReferenceAllPaths:
   ]
   for path in paths:
     let rref =
-      ResultReference(resultOf: makeMcid("c0"), name: "Mailbox/get", path: path)
+      initResultReference(resultOf = makeMcid("c0"), name = "Mailbox/get", path = path)
     assertOkEq ResultReference.fromJson(rref.toJson()), rref
 
 # =============================================================================
@@ -485,8 +485,9 @@ checkProperty "ResultReference round-trip":
   let mcid = parseMethodCallId(mcidStr).get()
   const paths = ["/ids", "/list/*/id", "/added/*/id", "/created", "/updated"]
   const names = ["Mailbox/get", "Email/query", "Thread/get", "Email/set"]
-  let rref =
-    ResultReference(resultOf: mcid, name: rng.oneOf(names), path: rng.oneOf(paths))
+  let rref = initResultReference(
+    resultOf = mcid, name = rng.oneOf(names), path = rng.oneOf(paths)
+  )
   assertOkEq ResultReference.fromJson(rref.toJson()), rref
 
 checkProperty "Request round-trip":
@@ -527,7 +528,7 @@ block invocationComplexNestedArgsRoundTrip:
     "nullField": nil,
     "emptyArray": [],
   }
-  let inv = initInvocation("Email/query", args, makeMcid("c1"))
+  let inv = initInvocation("Email/query", args, makeMcid("c1")).get()
   let v = Invocation.fromJson(inv.toJson()).get()
   assertEq v.name, "Email/query"
   assertEq v.methodCallId, makeMcid("c1")
@@ -599,7 +600,7 @@ block errorInvocationWireFormat:
   ## Construct an Invocation with name="error" and MethodError arguments,
   ## serialise it, and verify the ["error", {"type": ...}, "c0"] wire format.
   let me = methodError("unknownMethod", Opt.some("No such method"))
-  let inv = initInvocation("error", me.toJson(), makeMcid("c0"))
+  let inv = initInvocation("error", me.toJson(), makeMcid("c0")).get()
   let j = inv.toJson()
   # Wire format: 3-element JSON array
   doAssert j.kind == JArray
@@ -623,7 +624,7 @@ block errorInvocationServerFailWireFormat:
   let extras = newJObject()
   extras["retryAfter"] = %30
   let me = methodError("serverFail", Opt.some("Try again"), Opt.some(extras))
-  let inv = initInvocation("error", me.toJson(), makeMcid("c5"))
+  let inv = initInvocation("error", me.toJson(), makeMcid("c5")).get()
   let j = inv.toJson()
   let elems = j.getElems(@[])
   assertEq elems[0].getStr(""), "error"
@@ -643,7 +644,7 @@ block backReferenceHashPrefixRoundTrip:
   let refObj = %*{"resultOf": "c0", "name": "Mailbox/query", "path": "/ids"}
   var args = newJObject()
   args["#ids"] = refObj
-  let inv = initInvocation("Email/get", args, makeMcid("c1"))
+  let inv = initInvocation("Email/get", args, makeMcid("c1")).get()
   let req = Request(
     `using`: @["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail"],
     methodCalls: @[inv],
@@ -682,9 +683,9 @@ block requestGoldenWireFormat:
   let args1 = %*{"arg1": "arg1data", "arg2": "arg2data"}
   let args2 = %*{"arg1": "arg1data"}
   let args3 = newJObject()
-  let inv1 = initInvocation("method1", args1, makeMcid("c1"))
-  let inv2 = initInvocation("method2", args2, makeMcid("c2"))
-  let inv3 = initInvocation("method3", args3, makeMcid("c3"))
+  let inv1 = initInvocation("method1", args1, makeMcid("c1")).get()
+  let inv2 = initInvocation("method2", args2, makeMcid("c2")).get()
+  let inv3 = initInvocation("method3", args3, makeMcid("c3")).get()
   let req = Request(
     `using`: @["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail"],
     methodCalls: @[inv1, inv2, inv3],
@@ -717,10 +718,10 @@ block responseGoldenWireFormat:
   let args2 = %*{"isBlah": true}
   let args3 = %*{"data": 10, "yetmoredata": "Hello"}
   let args4 = %*{"type": "unknownMethod"}
-  let inv1 = initInvocation("method1", args1, makeMcid("c1"))
-  let inv2 = initInvocation("method2", args2, makeMcid("c2"))
-  let inv3 = initInvocation("anotherResponseFromMethod2", args3, makeMcid("c2"))
-  let inv4 = initInvocation("error", args4, makeMcid("c3"))
+  let inv1 = initInvocation("method1", args1, makeMcid("c1")).get()
+  let inv2 = initInvocation("method2", args2, makeMcid("c2")).get()
+  let inv3 = initInvocation("anotherResponseFromMethod2", args3, makeMcid("c2")).get()
+  let inv4 = initInvocation("error", args4, makeMcid("c3")).get()
   let resp = Response(
     methodResponses: @[inv1, inv2, inv3, inv4],
     sessionState: parseJmapState("75128aab4b1b").get(),
