@@ -4,7 +4,6 @@
 ## Compile-time type safety verification via doAssert not compiles(...).
 
 from std/json import JsonNode
-import std/options
 import std/sets
 
 import jmap_client/types
@@ -51,11 +50,11 @@ block clientErrorWrongVariantConstruction:
       request: RequestError(
         errorType: retUnknown,
         rawType: "x",
-        status: none(int),
-        title: none(string),
-        detail: none(string),
-        limit: none(string),
-        extras: none(JsonNode),
+        status: Opt.none(int),
+        title: Opt.none(string),
+        detail: Opt.none(string),
+        limit: Opt.none(string),
+        extras: Opt.none(JsonNode),
       ),
     )
   )
@@ -160,8 +159,8 @@ block transportErrorMissingHttpStatus:
     SetError(
       errorType: setInvalidProperties,
       rawType: "invalidProperties",
-      description: none(string),
-      extras: none(JsonNode),
+      description: Opt.none(string),
+      extras: Opt.none(JsonNode),
       existingId: testId,
     )
   )
@@ -197,8 +196,8 @@ block setErrorPropertiesOnNonInvalidProperties:
     SetError(
       errorType: setForbidden,
       rawType: "forbidden",
-      description: none(string),
-      extras: none(JsonNode),
+      description: Opt.none(string),
+      extras: Opt.none(JsonNode),
       properties: @["name"],
     )
   )
@@ -211,8 +210,8 @@ block setErrorExistingIdOnNonAlreadyExists:
     SetError(
       errorType: setForbidden,
       rawType: "forbidden",
-      description: none(string),
-      extras: none(JsonNode),
+      description: Opt.none(string),
+      extras: Opt.none(JsonNode),
       existingId: testId,
     )
   )

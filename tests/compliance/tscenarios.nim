@@ -5,7 +5,6 @@
 ## interaction workflows that span multiple Layer 1 modules.
 
 import std/json
-import std/options
 import std/tables
 
 import jmap_client/primitives
@@ -54,7 +53,7 @@ block scenarioSessionToRequest:
   let req = Request(
     `using`: @["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail"],
     methodCalls: @[inv],
-    createdIds: none(Table[CreationId, Id]),
+    createdIds: Opt.none(Table[CreationId, Id]),
   )
   doAssert req.methodCalls.len == 1
   doAssert req.methodCalls[0].methodCallId == mcid
@@ -82,7 +81,7 @@ block scenarioMultiMethodWithReferences:
   let req = Request(
     `using`: @["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail"],
     methodCalls: @[queryInv, getInv, setInv],
-    createdIds: none(Table[CreationId, Id]),
+    createdIds: Opt.none(Table[CreationId, Id]),
   )
   doAssert req.methodCalls.len == 3
   doAssert req.methodCalls[0].methodCallId == mcid0
@@ -98,7 +97,7 @@ block scenarioCreatedIdsRoundTrip:
   let req = Request(
     `using`: @["urn:ietf:params:jmap:core"],
     methodCalls: @[makeInvocation()],
-    createdIds: some(cids),
+    createdIds: Opt.some(cids),
   )
   doAssert req.createdIds.isSome
   doAssert req.createdIds.get().len == 2
@@ -106,7 +105,7 @@ block scenarioCreatedIdsRoundTrip:
   # Response echoes the same createdIds
   let resp = Response(
     methodResponses: @[makeInvocation()],
-    createdIds: some(cids),
+    createdIds: Opt.some(cids),
     sessionState: makeState("s2"),
   )
   doAssert resp.createdIds.isSome
@@ -121,13 +120,13 @@ block scenarioResponseCorrelation:
     `using`: @["urn:ietf:params:jmap:core"],
     methodCalls:
       @[makeInvocation("Mailbox/get", mcid0), makeInvocation("Email/get", mcid1)],
-    createdIds: none(Table[CreationId, Id]),
+    createdIds: Opt.none(Table[CreationId, Id]),
   )
 
   let resp = Response(
     methodResponses:
       @[makeInvocation("Mailbox/get", mcid0), makeInvocation("Email/get", mcid1)],
-    createdIds: none(Table[CreationId, Id]),
+    createdIds: Opt.none(Table[CreationId, Id]),
     sessionState: makeState("s1"),
   )
 
@@ -153,8 +152,8 @@ block scenarioRequestRejectionCascade:
   ## Track 1: Request rejection with limit error -> message prefers detail.
   let re = requestError(
     "urn:ietf:params:jmap:error:limit",
-    detail = some("Too many method calls"),
-    limit = some("maxCallsInRequest"),
+    detail = Opt.some("Too many method calls"),
+    limit = Opt.some("maxCallsInRequest"),
   )
   let ce = clientError(re)
   doAssert ce.kind == cekRequest
@@ -165,13 +164,14 @@ block scenarioMessageCascadePriority:
   # detail present
   let re1 = requestError(
     "urn:ietf:params:jmap:error:notJSON",
-    title = some("Not JSON"),
-    detail = some("Body is not valid JSON"),
+    title = Opt.some("Not JSON"),
+    detail = Opt.some("Body is not valid JSON"),
   )
   doAssert errors.message(clientError(re1)) == "Body is not valid JSON"
 
   # detail absent, title present
-  let re2 = requestError("urn:ietf:params:jmap:error:notJSON", title = some("Not JSON"))
+  let re2 =
+    requestError("urn:ietf:params:jmap:error:notJSON", title = Opt.some("Not JSON"))
   doAssert errors.message(clientError(re2)) == "Not JSON"
 
   # both absent, falls back to rawType
@@ -186,7 +186,7 @@ block scenarioMethodErrorInResponse:
     makeMcid("c0"),
   )
   doAssert errInv.name == "error"
-  let me = methodError("invalidArguments", description = some("missing accountId"))
+  let me = methodError("invalidArguments", description = Opt.some("missing accountId"))
   doAssert me.errorType == metInvalidArguments
   doAssert me.description.get() == "missing accountId"
 
@@ -381,7 +381,7 @@ block scenarioServerCapabilityRawDataPreservation:
 block scenarioRequestErrorExtrasPreservation:
   ## Non-standard fields in RequestError are preserved in extras.
   let extras = %*{"requestId": "req-123", "retryAfter": 30}
-  let re = requestError("urn:ietf:params:jmap:error:limit", extras = some(extras))
+  let re = requestError("urn:ietf:params:jmap:error:limit", extras = Opt.some(extras))
   doAssert re.extras.isSome
   doAssert re.extras.get()["requestId"].getStr() == "req-123"
   doAssert re.extras.get()["retryAfter"].getInt() == 30
@@ -389,7 +389,7 @@ block scenarioRequestErrorExtrasPreservation:
 block scenarioMethodErrorExtrasPreservation:
   ## Non-standard fields in MethodError are preserved in extras.
   let extras = %*{"serverMessage": "database overloaded"}
-  let me = methodError("serverFail", extras = some(extras))
+  let me = methodError("serverFail", extras = Opt.some(extras))
   doAssert me.extras.isSome
   doAssert me.extras.get()["serverMessage"].getStr() == "database overloaded"
 
@@ -409,7 +409,7 @@ block scenarioEmptyUsingAndMethodCalls:
   ## Request with empty using and empty methodCalls is valid at Layer 1.
   ## Layer 3 protocol logic may reject this, but Layer 1 holds the data.
   let req =
-    Request(`using`: @[], methodCalls: @[], createdIds: none(Table[CreationId, Id]))
+    Request(`using`: @[], methodCalls: @[], createdIds: Opt.none(Table[CreationId, Id]))
   doAssert req.`using`.len == 0
   doAssert req.methodCalls.len == 0
 
@@ -422,7 +422,7 @@ block scenarioDuplicateMethodCallIdsInRequest:
   let req = Request(
     `using`: @["urn:ietf:params:jmap:core"],
     methodCalls: @[inv1, inv2],
-    createdIds: none(Table[CreationId, Id]),
+    createdIds: Opt.none(Table[CreationId, Id]),
   )
   doAssert req.methodCalls.len == 2
   doAssert req.methodCalls[0].methodCallId == req.methodCalls[1].methodCallId
@@ -432,7 +432,7 @@ block scenarioResponseWithErrorInvocation:
   let errInv = initInvocation("error", %*{"type": "serverFail"}, makeMcid("c0"))
   let resp = Response(
     methodResponses: @[errInv],
-    createdIds: none(Table[CreationId, Id]),
+    createdIds: Opt.none(Table[CreationId, Id]),
     sessionState: makeState("s1"),
   )
   doAssert resp.methodResponses[0].name == "error"
@@ -485,8 +485,8 @@ block errorCascadeDetailPriority:
   ## Request error with detail, title, and rawType — detail takes priority.
   let re = requestError(
     "urn:ietf:params:jmap:error:limit",
-    title = some("Rate Limited"),
-    detail = some("Too many requests per second"),
+    title = Opt.some("Rate Limited"),
+    detail = Opt.some("Too many requests per second"),
   )
   let ce = clientError(re)
   doAssert message(ce) == "Too many requests per second"
@@ -502,7 +502,7 @@ block sessionToRequestIntegration:
     `using`: capUris,
     methodCalls:
       @[initInvocation("Mailbox/get", newJObject(), parseMethodCallId("c0").get())],
-    createdIds: none(Table[CreationId, Id]),
+    createdIds: Opt.none(Table[CreationId, Id]),
   )
   doAssert req.`using`.len == capUris.len
 

@@ -7,7 +7,6 @@
 ## (success or ValidationError, never crash).
 
 import std/json
-import std/options
 import std/strutils
 import std/tables
 

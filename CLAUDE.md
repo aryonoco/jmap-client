@@ -28,7 +28,7 @@ This project uses a devcontainer. Tool versions are managed by mise — `mise.to
 
 One external dependency: `nim-results` (status-im/nim-results) for `Result[T, E]`,
 `Opt[T]`, and the `?` operator. All other imports are from Nim's standard library
-(`std/options`, `std/json`, `std/tables`, etc.).
+(`std/json`, `std/tables`, etc.).
 
 ## Compiler Flags
 
@@ -64,7 +64,7 @@ Architecture: 5 layers (see `docs/00architecture-options.md`). Layer 1 detailed 
   - All error types are plain objects (not `CatchableError`), carried on the Result error rail
   - The `?` operator provides early-return error propagation
   - Layer 5 C ABI pattern-matches on Result values to produce C error codes
-- Use `Option[T]` from `std/options` for optional fields in domain types
+- Use `Opt[T]` from nim-results for optional fields (not `std/options`); prefer `for val in opt:` over `if opt.isSome: opt.get()`
 - Parse, don't validate — smart constructors produce well-typed Result values
 - Make illegal states unrepresentable — distinct types, case objects, smart constructors
 - Prefer expression-oriented style: if/case/block as expressions

@@ -5,9 +5,10 @@
 ## Covers Invocation, Request, Response, ResultReference, and the
 ## Referencable[T] variant for back-reference support.
 
-import std/options
 import std/tables
 from std/json import JsonNode
+
+import results
 
 import ./identifiers
 import ./primitives
@@ -32,13 +33,13 @@ type Request* = object
   ## capability URIs, method calls, and optional creation ID map.
   `using`*: seq[string] ## capability URIs the client wishes to use
   methodCalls*: seq[Invocation] ## processed sequentially by server
-  createdIds*: Option[Table[CreationId, Id]] ## optional; enables proxy splitting
+  createdIds*: Opt[Table[CreationId, Id]] ## optional; enables proxy splitting
 
 type Response* = object
   ## Top-level JMAP response envelope (RFC 8620 section 3.4). Contains method
   ## responses, optional creation ID map, and the current session state.
   methodResponses*: seq[Invocation] ## same format as methodCalls
-  createdIds*: Option[Table[CreationId, Id]] ## only present if given in request
+  createdIds*: Opt[Table[CreationId, Id]] ## only present if given in request
   sessionState*: JmapState
     ## Current Session.state value. After every response, compare with
     ## ``Session.state``; if they differ, the session is stale and should

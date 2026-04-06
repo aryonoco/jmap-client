@@ -5,7 +5,6 @@
 ## Invocation, and Referencable.
 
 import std/json
-import std/options
 import std/random
 import std/tables
 
@@ -27,7 +26,7 @@ block propRequestPreservesMethodCallOrder:
     let req = Request(
       `using`: @["urn:ietf:params:jmap:core"],
       methodCalls: calls,
-      createdIds: none(Table[CreationId, Id]),
+      createdIds: Opt.none(Table[CreationId, Id]),
     )
     doAssert req.methodCalls.len == n
     for i in 0 ..< n:
@@ -44,7 +43,7 @@ block propResponsePreservesInvocationOrder:
     let state = parseJmapState("s" & $trial).get()
     let resp = Response(
       methodResponses: responses,
-      createdIds: none(Table[CreationId, Id]),
+      createdIds: Opt.none(Table[CreationId, Id]),
       sessionState: state,
     )
     doAssert resp.methodResponses.len == n
@@ -105,7 +104,7 @@ block propRequestCreatedIdsTablePreserved:
       let cid = parseCreationId("k" & $i).get()
       let id = parseId("sid" & $i).get()
       cids[cid] = id
-    let req = Request(`using`: @[], methodCalls: @[], createdIds: some(cids))
+    let req = Request(`using`: @[], methodCalls: @[], createdIds: Opt.some(cids))
     doAssert req.createdIds.isSome
     doAssert req.createdIds.get().len == n
     for i in 0 ..< n:

@@ -4,7 +4,6 @@
 ## Tests for generic method framework types: PropertyName, Filter, Comparator,
 ## PatchObject, and AddedItem.
 
-import std/options
 import std/json
 
 import jmap_client/validation
@@ -69,7 +68,7 @@ block parseComparatorValid:
 
 block parseComparatorWithCollation:
   let pn = parsePropertyName("name").get()
-  let c = parseComparator(pn, collation = some("i;unicode-casemap"))
+  let c = parseComparator(pn, collation = Opt.some("i;unicode-casemap"))
   doAssert c.collation.isSome
   doAssert c.collation.get() == "i;unicode-casemap"
 
@@ -181,7 +180,7 @@ block patchObjectNulInPath:
 
 block comparatorEmptyCollation:
   let pn = parsePropertyName("subject").get()
-  let c = parseComparator(pn, collation = some(""))
+  let c = parseComparator(pn, collation = Opt.some(""))
   assertOk c
   doAssert c.collation.isSome
 

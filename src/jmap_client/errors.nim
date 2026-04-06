@@ -7,9 +7,10 @@
 ## (not exceptions) for use with Railway-Oriented Programming via
 ## nim-results.
 
-import std/options
 import std/strutils
 from std/json import JsonNode
+
+import results
 
 import ./primitives
 
@@ -56,19 +57,19 @@ type RequestError* = object
   message*: string ## human-readable error description
   errorType*: RequestErrorType ## parsed enum variant
   rawType*: string ## always populated — lossless round-trip
-  status*: Option[int] ## RFC 7807 "status" field
-  title*: Option[string] ## RFC 7807 "title" field
-  detail*: Option[string] ## RFC 7807 "detail" field
-  limit*: Option[string] ## which limit was exceeded (retLimit only)
-  extras*: Option[JsonNode] ## non-standard fields, lossless preservation
+  status*: Opt[int] ## RFC 7807 "status" field
+  title*: Opt[string] ## RFC 7807 "title" field
+  detail*: Opt[string] ## RFC 7807 "detail" field
+  limit*: Opt[string] ## which limit was exceeded (retLimit only)
+  extras*: Opt[JsonNode] ## non-standard fields, lossless preservation
 
 func requestError*(
     rawType: string,
-    status: Option[int] = none(int),
-    title: Option[string] = none(string),
-    detail: Option[string] = none(string),
-    limit: Option[string] = none(string),
-    extras: Option[JsonNode] = none(JsonNode),
+    status: Opt[int] = Opt.none(int),
+    title: Opt[string] = Opt.none(string),
+    detail: Opt[string] = Opt.none(string),
+    limit: Opt[string] = Opt.none(string),
+    extras: Opt[JsonNode] = Opt.none(JsonNode),
 ): RequestError =
   ## Auto-parses rawType string to the corresponding enum variant via parseRequestErrorType.
   let re = RequestError(
@@ -112,12 +113,9 @@ func message*(err: ClientError): string =
   of cekTransport:
     err.transport.message
   of cekRequest:
-    if err.request.detail.isSome:
-      err.request.detail.get()
-    elif err.request.title.isSome:
-      err.request.title.get()
-    else:
-      err.request.rawType
+    err.request.detail.valueOr:
+      err.request.title.valueOr:
+        err.request.rawType
 
 type MethodErrorType* = enum
   ## Per-invocation error types from the inner railway (RFC 8620 §3.6.2).
@@ -150,13 +148,13 @@ type MethodError* = object
   ## Inner railway error for a single method invocation within a batch response.
   errorType*: MethodErrorType ## parsed enum variant
   rawType*: string ## always populated — lossless round-trip
-  description*: Option[string] ## RFC "description" field
-  extras*: Option[JsonNode] ## non-standard fields, lossless preservation
+  description*: Opt[string] ## RFC "description" field
+  extras*: Opt[JsonNode] ## non-standard fields, lossless preservation
 
 func methodError*(
     rawType: string,
-    description: Option[string] = none(string),
-    extras: Option[JsonNode] = none(JsonNode),
+    description: Opt[string] = Opt.none(string),
+    extras: Opt[JsonNode] = Opt.none(JsonNode),
 ): MethodError =
   ## Auto-parses rawType string to the corresponding enum variant via parseMethodErrorType.
   let me = MethodError(
@@ -189,8 +187,8 @@ func parseSetErrorType*(raw: string): SetErrorType =
 type SetError* = object
   ## Per-item error from a /set response. Variant-specific fields for invalidProperties and alreadyExists.
   rawType*: string ## always populated — lossless round-trip
-  description*: Option[string] ## optional human-readable description
-  extras*: Option[JsonNode] ## non-standard fields, lossless preservation
+  description*: Opt[string] ## optional human-readable description
+  extras*: Opt[JsonNode] ## non-standard fields, lossless preservation
   case errorType*: SetErrorType
   of setInvalidProperties:
     properties*: seq[string] ## invalid property names (§5.3)
@@ -201,8 +199,8 @@ type SetError* = object
 
 func setError*(
     rawType: string,
-    description: Option[string] = none(string),
-    extras: Option[JsonNode] = none(JsonNode),
+    description: Opt[string] = Opt.none(string),
+    extras: Opt[JsonNode] = Opt.none(JsonNode),
 ): SetError =
   ## For non-variant-specific set errors.
   ## Defensively maps invalidProperties/alreadyExists to setUnknown when
@@ -217,8 +215,8 @@ func setError*(
 func setErrorInvalidProperties*(
     rawType: string,
     properties: seq[string],
-    description: Option[string] = none(string),
-    extras: Option[JsonNode] = none(JsonNode),
+    description: Opt[string] = Opt.none(string),
+    extras: Opt[JsonNode] = Opt.none(JsonNode),
 ): SetError =
   ## Constructor for the invalidProperties variant, carrying the list of invalid property names.
   SetError(
@@ -232,8 +230,8 @@ func setErrorInvalidProperties*(
 func setErrorAlreadyExists*(
     rawType: string,
     existingId: Id,
-    description: Option[string] = none(string),
-    extras: Option[JsonNode] = none(JsonNode),
+    description: Opt[string] = Opt.none(string),
+    extras: Opt[JsonNode] = Opt.none(JsonNode),
 ): SetError =
   ## Constructor for the alreadyExists variant, carrying the ID of the existing record.
   SetError(

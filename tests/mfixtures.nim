@@ -13,7 +13,6 @@
 ## 6. Add property tests + generator in tests/property/tprop_<module>.nim
 ## 7. Add gen<T>() generator to tests/mproperty.nim
 
-import std/options
 import std/sets
 import std/tables
 import std/json
@@ -168,14 +167,14 @@ proc makeInvocation*(name = "Mailbox/get", mcid = makeMcid("c0")): Invocation =
 proc makeRequest*(
     `using`: seq[string] = @["urn:ietf:params:jmap:core"],
     methodCalls: seq[Invocation] = @[makeInvocation()],
-    createdIds = none(Table[CreationId, Id]),
+    createdIds = Opt.none(Table[CreationId, Id]),
 ): Request =
   Request(`using`: `using`, methodCalls: methodCalls, createdIds: createdIds)
 
 proc makeResponse*(
     methodResponses: seq[Invocation] = @[makeInvocation()],
     state = makeState("rs1"),
-    createdIds = none(Table[CreationId, Id]),
+    createdIds = Opt.none(Table[CreationId, Id]),
 ): Response =
   Response(
     methodResponses: methodResponses, createdIds: createdIds, sessionState: state
@@ -287,12 +286,12 @@ proc makeMinimalSession*(): SessionArgs =
 
 proc makeSetErrorInvalidProperties*(
     properties: seq[string] = @["from", "subject"],
-    description: Option[string] = none(string),
+    description: Opt[string] = Opt.none(string),
 ): SetError =
   setErrorInvalidProperties("invalidProperties", properties, description)
 
 proc makeSetErrorAlreadyExists*(
-    existingId: Id = makeId("existing1"), description: Option[string] = none(string)
+    existingId: Id = makeId("existing1"), description: Opt[string] = Opt.none(string)
 ): SetError =
   setErrorAlreadyExists("alreadyExists", existingId, description)
 
@@ -310,7 +309,7 @@ proc makeComparatorWithCollation*(
     isAscending = true,
     collation = "i;unicode-casemap",
 ): Comparator =
-  parseComparator(property, isAscending, some(collation))
+  parseComparator(property, isAscending, Opt.some(collation))
 
 proc makeAddedItem*(id: Id = makeId("item1"), index: int64 = 0): AddedItem =
   AddedItem(id: id, index: parseUnsignedInt(index).get())

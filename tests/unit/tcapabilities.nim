@@ -3,7 +3,6 @@
 
 ## Tests for CapabilityKind parsing, URI round-trip, and CoreCapabilities queries.
 
-import std/options
 import std/sets
 import std/json
 

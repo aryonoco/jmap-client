@@ -6,7 +6,6 @@
 ## Design doc scenarios 1–36, 37–50.
 
 import std/json
-import std/options
 import std/strutils
 
 from std/net import TimeoutError

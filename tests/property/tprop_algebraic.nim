@@ -1,38 +1,39 @@
 # SPDX-License-Identifier: BSD-2-Clause
 # Copyright (c) 2026 Aryan Ameri
 
-## Algebraic law tests for Option types.
+## Algebraic law tests for Opt types.
 
-import std/options
 import std/random
+
+import results
 
 import ../mproperty
 
-# --- Option ---
+# --- Opt ---
 
 block propOptSomeNoneRoundTrip:
-  checkProperty "some(x).get() == x":
+  checkProperty "Opt.some(x).get() == x":
     let x = rng.rand(int)
     lastInput = $x
-    doAssert some(x).get() == x
-    doAssert none(int).isNone
+    doAssert Opt.some(x).get() == x
+    doAssert Opt.none(int).isNone
 
 block propOptSomeIsSome:
-  checkProperty "some(x).isSome == true":
+  checkProperty "Opt.some(x).isSome == true":
     let x = rng.rand(int)
     lastInput = $x
-    doAssert some(x).isSome == true
+    doAssert Opt.some(x).isSome == true
 
 block propOptNoneIsNone:
-  checkProperty "none(int).isNone == true":
+  checkProperty "Opt.none(int).isNone == true":
     lastInput = "(none)"
-    doAssert none(int).isNone == true
+    doAssert Opt.none(int).isNone == true
 
 block propOptMapIdentity:
-  checkProperty "some(x).map(identity) == some(x)":
+  checkProperty "Opt.some(x).map(identity) == Opt.some(x)":
     let x = rng.rand(int)
     lastInput = $x
-    let m = some(x)
+    let m = Opt.some(x)
     let mapped = m.map(
       proc(v: int): int =
         v
@@ -40,10 +41,10 @@ block propOptMapIdentity:
     doAssert mapped == m
 
 block propOptMapComposition:
-  checkProperty "some(x).map(f).map(g) == some(x).map(g . f)":
+  checkProperty "Opt.some(x).map(f).map(g) == Opt.some(x).map(g . f)":
     let x = rng.rand(int.low div 4 .. int.high div 4)
     lastInput = $x
-    let m = some(x)
+    let m = Opt.some(x)
     proc f(v: int): int =
       ## Doubles the input.
       v * 2
@@ -60,41 +61,41 @@ block propOptMapComposition:
     doAssert lhs == rhs
 
 block propOptFlatMapLeftIdentity:
-  checkProperty "some(a).flatMap(f) == f(a)":
+  checkProperty "Opt.some(a).flatMap(f) == f(a)":
     let a = rng.rand(int.low div 2 .. int.high div 2)
     lastInput = $a
-    proc f(x: int): Option[int] =
+    proc f(x: int): Opt[int] =
       ## Doubles the input, wrapped in Some.
-      some(x * 2)
+      Opt.some(x * 2)
 
-    doAssert some(a).flatMap(f) == f(a)
+    doAssert Opt.some(a).flatMap(f) == f(a)
 
 block propOptFlatMapRightIdentity:
   checkProperty "m.flatMap(some) == m":
     let a = rng.rand(int)
     lastInput = $a
-    let m = some(a)
+    let m = Opt.some(a)
     doAssert m.flatMap(
-      proc(x: int): Option[int] =
-        some(x)
+      proc(x: int): Opt[int] =
+        Opt.some(x)
     ) == m
 
 block propOptFlatMapAssociativity:
   checkProperty "m.flatMap(f).flatMap(g) == m.flatMap(x => f(x).flatMap(g))":
     let a = rng.rand(int.low div 4 .. int.high div 4)
     lastInput = $a
-    let m = some(a)
-    proc f(x: int): Option[int] =
+    let m = Opt.some(a)
+    proc f(x: int): Opt[int] =
       ## Doubles the input, wrapped in Some.
-      some(x * 2)
+      Opt.some(x * 2)
 
-    proc g(x: int): Option[int] =
+    proc g(x: int): Opt[int] =
       ## Increments the input, wrapped in Some.
-      some(x + 1)
+      Opt.some(x + 1)
 
     let lhs = m.flatMap(f).flatMap(g)
     let rhs = m.flatMap(
-      proc(x: int): Option[int] =
+      proc(x: int): Opt[int] =
         f(x).flatMap(g)
     )
     doAssert lhs == rhs
@@ -102,11 +103,11 @@ block propOptFlatMapAssociativity:
 block propOptNoneFlatMapIsNone:
   checkProperty "none.flatMap(f) == none":
     lastInput = "(none)"
-    proc f(x: int): Option[int] =
+    proc f(x: int): Opt[int] =
       ## Affine transform, wrapped in Some.
-      some(x * 3 + 7)
+      Opt.some(x * 3 + 7)
 
-    doAssert none(int).flatMap(f) == none(int)
+    doAssert Opt.none(int).flatMap(f) == Opt.none(int)
 
 block propOptNoneMapIsNone:
   checkProperty "none.map(f) == none":
@@ -115,13 +116,13 @@ block propOptNoneMapIsNone:
       ## Affine transform.
       x * 7 + 13
 
-    doAssert none(int).map(f) == none(int)
+    doAssert Opt.none(int).map(f) == Opt.none(int)
 
 block propOptIsSomeXorIsNone:
   checkProperty "o.isSome != o.isNone for some and none":
     let a = rng.rand(int)
     lastInput = $a
-    let someVal = some(a)
+    let someVal = Opt.some(a)
     doAssert someVal.isSome != someVal.isNone
-    let noneVal = none(int)
+    let noneVal = Opt.none(int)
     doAssert noneVal.isSome != noneVal.isNone

@@ -7,7 +7,6 @@
 {.push raises: [].}
 
 import std/hashes
-import std/options
 import std/strutils
 import std/tables
 from std/json import JsonNode
@@ -53,23 +52,21 @@ type Session* = object
 
 func findCapability*(
     account: Account, kind: CapabilityKind
-): Option[AccountCapabilityEntry] =
+): Opt[AccountCapabilityEntry] =
   ## Finds the first account capability matching the given kind.
   for _, entry in account.accountCapabilities:
     if entry.kind == kind:
-      return some(entry)
-  none(AccountCapabilityEntry)
+      return Opt.some(entry)
+  Opt.none(AccountCapabilityEntry)
 
-func findCapabilityByUri*(
-    account: Account, uri: string
-): Option[AccountCapabilityEntry] =
+func findCapabilityByUri*(account: Account, uri: string): Opt[AccountCapabilityEntry] =
   ## Looks up an account capability by its raw URI string. Use this instead of
   ## findCapability when looking up vendor extensions (which all map to ckUnknown
   ## and would be ambiguous via findCapability).
   for _, entry in account.accountCapabilities:
     if entry.rawUri == uri:
-      return some(entry)
-  none(AccountCapabilityEntry)
+      return Opt.some(entry)
+  Opt.none(AccountCapabilityEntry)
 
 func hasCapability*(account: Account, kind: CapabilityKind): bool =
   ## Checks whether the account has a capability of the given kind.
@@ -169,37 +166,34 @@ func coreCapabilities*(session: Session): CoreCapabilities =
       discard
   raiseAssert "Session missing ckCore: violated parseSession invariant"
 
-func findCapability*(session: Session, kind: CapabilityKind): Option[ServerCapability] =
+func findCapability*(session: Session, kind: CapabilityKind): Opt[ServerCapability] =
   ## Finds the first server capability matching the given kind.
   for _, cap in session.capabilities:
     if cap.kind == kind:
-      return some(cap)
-  none(ServerCapability)
+      return Opt.some(cap)
+  Opt.none(ServerCapability)
 
-func findCapabilityByUri*(session: Session, uri: string): Option[ServerCapability] =
+func findCapabilityByUri*(session: Session, uri: string): Opt[ServerCapability] =
   ## Looks up a server capability by its raw URI string. Use this instead of
   ## findCapability when looking up vendor extensions (which all map to ckUnknown
   ## and would be ambiguous via findCapability).
   for _, cap in session.capabilities:
     if cap.rawUri == uri:
-      return some(cap)
-  none(ServerCapability)
+      return Opt.some(cap)
+  Opt.none(ServerCapability)
 
-func primaryAccount*(session: Session, kind: CapabilityKind): Option[AccountId] =
+func primaryAccount*(session: Session, kind: CapabilityKind): Opt[AccountId] =
   ## Returns the primary account for a known capability kind.
   ## Returns none if kind == ckUnknown (no canonical URI) or no primary designated.
-  let uriOpt = capabilityUri(kind)
-  if uriOpt.isNone:
-    return none(AccountId)
-  let uri = uriOpt.get()
+  let uri = ?capabilityUri(kind)
   for key, val in session.primaryAccounts:
     if key == uri:
-      return some(val)
-  none(AccountId)
+      return Opt.some(val)
+  Opt.none(AccountId)
 
-func findAccount*(session: Session, id: AccountId): Option[Account] =
+func findAccount*(session: Session, id: AccountId): Opt[Account] =
   ## Looks up an account by its AccountId.
   for key, val in session.accounts:
     if key == id:
-      return some(val)
-  none(Account)
+      return Opt.some(val)
+  Opt.none(Account)

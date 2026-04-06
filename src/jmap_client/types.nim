@@ -4,8 +4,6 @@
 ## Re-export hub for all Layer 1 modules. Import this single module to access
 ## the complete domain type vocabulary.
 
-import std/options
-
 import results
 
 import ./validation
@@ -17,7 +15,6 @@ import ./envelope
 import ./framework
 import ./errors
 
-export options
 export results
 export validation
 export primitives

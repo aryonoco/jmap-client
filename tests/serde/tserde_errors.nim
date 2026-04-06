@@ -5,7 +5,6 @@
 ## SetError round-trip, structural, edge-case, and property-based tests.
 
 import std/json
-import std/options
 import std/random
 import std/strutils
 
@@ -30,11 +29,11 @@ block roundTripRequestErrorFull:
   extras["vendor"] = %"ext-info"
   let original = requestError(
     rawType = "urn:ietf:params:jmap:error:limit",
-    status = some(429),
-    title = some("Rate limit exceeded"),
-    detail = some("Too many requests in the last minute"),
-    limit = some("maxCallsInRequest"),
-    extras = some(extras),
+    status = Opt.some(429),
+    title = Opt.some("Rate limit exceeded"),
+    detail = Opt.some("Too many requests in the last minute"),
+    limit = Opt.some("maxCallsInRequest"),
+    extras = Opt.some(extras),
   )
   assertOkEq RequestError.fromJson(original.toJson()), original
 
@@ -54,8 +53,8 @@ block roundTripMethodErrorFull:
   extras["serverHint"] = %"retry after 5s"
   let original = methodError(
     rawType = "serverFail",
-    description = some("Internal server error"),
-    extras = some(extras),
+    description = Opt.some("Internal server error"),
+    extras = Opt.some(extras),
   )
   assertOkEq MethodError.fromJson(original.toJson()), original
 
@@ -109,14 +108,15 @@ block requestErrorToJsonFieldNames:
 block requestErrorToJsonExtrasFlattened:
   let extras = newJObject()
   extras["vendorExt"] = %"data"
-  let re =
-    requestError(rawType = "urn:ietf:params:jmap:error:notJSON", extras = some(extras))
+  let re = requestError(
+    rawType = "urn:ietf:params:jmap:error:notJSON", extras = Opt.some(extras)
+  )
   let j = re.toJson()
   doAssert j{"vendorExt"} != nil
   assertEq j{"vendorExt"}.getStr(""), "data"
 
 block methodErrorToJsonFieldNames:
-  let me = methodError(rawType = "invalidArguments", description = some("bad args"))
+  let me = methodError(rawType = "invalidArguments", description = Opt.some("bad args"))
   let j = me.toJson()
   doAssert j.kind == JObject
   doAssert j{"type"} != nil
@@ -441,8 +441,9 @@ block requestErrorExtrasRoundTrip:
   let extras = newJObject()
   extras["vendorField"] = %"vendorValue"
   extras["customCode"] = %12345
-  let original =
-    requestError(rawType = "urn:ietf:params:jmap:error:limit", extras = some(extras))
+  let original = requestError(
+    rawType = "urn:ietf:params:jmap:error:limit", extras = Opt.some(extras)
+  )
   let rt = RequestError.fromJson(original.toJson()).get()
   assertSome rt.extras
   let rtExtras = rt.extras.get()
@@ -457,8 +458,8 @@ block methodErrorAllOptionalFieldsRoundTrip:
   extras["serverInfo"] = %"debug-data"
   let original = methodError(
     rawType = "serverFail",
-    description = some("Something went wrong"),
-    extras = some(extras),
+    description = Opt.some("Something went wrong"),
+    extras = Opt.some(extras),
   )
   let rt = MethodError.fromJson(original.toJson()).get()
   assertSomeEq rt.description, "Something went wrong"
@@ -517,9 +518,9 @@ block roundTripRequestErrorUnknownCapability:
   ## RFC 8620 section 3.6.1: unknownCapability with full RFC 7807 structure.
   let original = requestError(
     rawType = "urn:ietf:params:jmap:error:unknownCapability",
-    status = some(400),
-    title = some("Unknown Capability"),
-    detail = some("The request used an unknown capability URI"),
+    status = Opt.some(400),
+    title = Opt.some("Unknown Capability"),
+    detail = Opt.some("The request used an unknown capability URI"),
   )
   doAssert original.errorType == retUnknownCapability
   let j = original.toJson()
@@ -531,9 +532,9 @@ block roundTripRequestErrorNotJson:
   ## RFC 8620 section 3.6.1: notJSON.
   let original = requestError(
     rawType = "urn:ietf:params:jmap:error:notJSON",
-    status = some(400),
-    title = some("Not JSON"),
-    detail = some("The request body was not valid JSON"),
+    status = Opt.some(400),
+    title = Opt.some("Not JSON"),
+    detail = Opt.some("The request body was not valid JSON"),
   )
   doAssert original.errorType == retNotJson
   let j = original.toJson()
@@ -545,9 +546,9 @@ block roundTripRequestErrorNotRequest:
   ## RFC 8620 section 3.6.1: notRequest.
   let original = requestError(
     rawType = "urn:ietf:params:jmap:error:notRequest",
-    status = some(400),
-    title = some("Not a Request"),
-    detail = some("The JSON was valid but not a valid JMAP request"),
+    status = Opt.some(400),
+    title = Opt.some("Not a Request"),
+    detail = Opt.some("The JSON was valid but not a valid JMAP request"),
   )
   doAssert original.errorType == retNotRequest
   let j = original.toJson()
@@ -559,10 +560,10 @@ block roundTripRequestErrorLimit:
   ## RFC 8620 section 3.6.1: limit with limit field populated.
   let original = requestError(
     rawType = "urn:ietf:params:jmap:error:limit",
-    status = some(400),
-    title = some("Request Too Large"),
-    detail = some("Exceeded maxCallsInRequest"),
-    limit = some("maxCallsInRequest"),
+    status = Opt.some(400),
+    title = Opt.some("Request Too Large"),
+    detail = Opt.some("Exceeded maxCallsInRequest"),
+    limit = Opt.some("maxCallsInRequest"),
   )
   doAssert original.errorType == retLimit
   let j = original.toJson()
@@ -733,8 +734,9 @@ block requestErrorExtrasCollisionTypeField:
   let extras = newJObject()
   extras["type"] = %"evil"
   extras["vendor"] = %"safe"
-  let re =
-    requestError(rawType = "urn:ietf:params:jmap:error:limit", extras = some(extras))
+  let re = requestError(
+    rawType = "urn:ietf:params:jmap:error:limit", extras = Opt.some(extras)
+  )
   let j = re.toJson()
   assertJsonFieldEq j, "type", %"urn:ietf:params:jmap:error:limit"
   assertJsonFieldEq j, "vendor", %"safe"
@@ -750,11 +752,11 @@ block requestErrorExtrasCollisionAllStandardFields:
   extras["vendor"] = %"safe"
   let re = requestError(
     rawType = "urn:ietf:params:jmap:error:limit",
-    status = some(429),
-    title = some("Rate Limit"),
-    detail = some("Too many requests"),
-    limit = some("maxCallsInRequest"),
-    extras = some(extras),
+    status = Opt.some(429),
+    title = Opt.some("Rate Limit"),
+    detail = Opt.some("Too many requests"),
+    limit = Opt.some("maxCallsInRequest"),
+    extras = Opt.some(extras),
   )
   let j = re.toJson()
   assertJsonFieldEq j, "type", %"urn:ietf:params:jmap:error:limit"
@@ -771,8 +773,8 @@ block methodErrorExtrasCollisionTypeField:
   extras["vendor"] = %"safe"
   let me = methodError(
     rawType = "invalidArguments",
-    description = some("real description"),
-    extras = some(extras),
+    description = Opt.some("real description"),
+    extras = Opt.some(extras),
   )
   let j = me.toJson()
   assertJsonFieldEq j, "type", %"invalidArguments"
@@ -784,7 +786,9 @@ block setErrorExtrasCollisionTypeField:
   extras["type"] = %"evil"
   extras["vendor"] = %"safe"
   let se = setError(
-    rawType = "forbidden", description = some("real desc"), extras = some(extras)
+    rawType = "forbidden",
+    description = Opt.some("real desc"),
+    extras = Opt.some(extras),
   )
   let j = se.toJson()
   assertJsonFieldEq j, "type", %"forbidden"
@@ -797,7 +801,7 @@ block setErrorInvalidPropertiesExtrasCollisionProperties:
   let se = setErrorInvalidProperties(
     rawType = "invalidProperties",
     properties = @["subject", "body"],
-    extras = some(extras),
+    extras = Opt.some(extras),
   )
   let j = se.toJson()
   assertJsonFieldEq j, "type", %"invalidProperties"

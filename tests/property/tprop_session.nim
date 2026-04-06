@@ -3,7 +3,6 @@
 
 ## Property-based tests for Session and UriTemplate.
 
-import std/options
 import std/random
 import std/tables
 

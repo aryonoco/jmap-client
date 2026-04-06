@@ -7,7 +7,6 @@
 ## conditions with multi-byte characters.
 
 import std/json
-import std/options
 import std/sets
 import std/strutils
 import std/tables
@@ -280,7 +279,7 @@ block requestUsingAcceptsNul:
   let req = Request(
     `using`: @["urn:ietf:params:jmap:core\x00evil"],
     methodCalls: @[],
-    createdIds: none(Table[CreationId, Id]),
+    createdIds: Opt.none(Table[CreationId, Id]),
   )
   doAssert req.`using`[0].len == 30
 
@@ -670,7 +669,7 @@ block nulLastByteRequestUsing:
   let req = Request(
     `using`: @["urn:ietf:params:jmap:core\x00"],
     methodCalls: @[],
-    createdIds: none(Table[CreationId, Id]),
+    createdIds: Opt.none(Table[CreationId, Id]),
   )
   doAssert req.`using`[0].len > 25
   doAssert req.`using`[0].len == 26
@@ -1026,7 +1025,7 @@ block setErrorAlreadyExistsWithExtrasContainingProperties:
   let extras = newJObject()
   extras["properties"] = %*["from", "subject"]
   let se =
-    setErrorAlreadyExists("alreadyExists", makeId("exist1"), extras = some(extras))
+    setErrorAlreadyExists("alreadyExists", makeId("exist1"), extras = Opt.some(extras))
   doAssert se.errorType == setAlreadyExists
   doAssert $se.existingId == "exist1"
   doAssert se.extras.isSome
@@ -1038,8 +1037,9 @@ block setErrorInvalidPropertiesWithExtrasContainingExistingId:
   ## variant-specific properties field.
   let extras = newJObject()
   extras["existingId"] = %"fake-id"
-  let se =
-    setErrorInvalidProperties("invalidProperties", @["badProp"], extras = some(extras))
+  let se = setErrorInvalidProperties(
+    "invalidProperties", @["badProp"], extras = Opt.some(extras)
+  )
   doAssert se.errorType == setInvalidProperties
   doAssert se.properties == @["badProp"]
   doAssert se.extras.isSome
@@ -1107,11 +1107,11 @@ block jsonNodeAliasingInServerCapability:
   doAssert cap.rawData.hasKey("injected")
 
 block jsonNodeAliasingInMethodErrorExtras:
-  ## MethodError.extras (when some(jsonNode)) is a JsonNode ref —
+  ## MethodError.extras (when Opt.some(jsonNode)) is a JsonNode ref —
   ## mutations after construction are visible. Documented ARC behaviour.
   let extras = newJObject()
   extras["original"] = newJString("value")
-  let me = methodError("serverFail", extras = some(extras))
+  let me = methodError("serverFail", extras = Opt.some(extras))
   extras["injected"] = newJString("evil")
   doAssert me.extras.isSome
   doAssert me.extras.get().hasKey("injected")
@@ -1319,7 +1319,7 @@ block validationErrorPreservesFullInput:
 
 block crlfInMethodErrorDescription:
   ## CRLF in description is preserved — no sanitisation at Layer 1.
-  let me = methodError("serverFail", description = some("desc\r\nInjected: yes"))
+  let me = methodError("serverFail", description = Opt.some("desc\r\nInjected: yes"))
   doAssert "\r\n" in me.description.get()
 
 # =============================================================================

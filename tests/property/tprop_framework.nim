@@ -4,7 +4,6 @@
 ## Property-based tests for PropertyName, PatchObject, Filter, Comparator.
 
 import std/json
-import std/options
 import std/random
 import std/sequtils
 

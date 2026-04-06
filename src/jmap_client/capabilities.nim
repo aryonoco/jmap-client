@@ -4,10 +4,11 @@
 ## JMAP capability discovery types. Maps IANA-registered capability URIs to
 ## typed enums with lossless round-trip for vendor extensions.
 
-import std/options
 import std/strutils
 import std/sets
 from std/json import JsonNode
+
+import results
 
 import ./primitives
 
@@ -60,36 +61,36 @@ func parseCapabilityKind*(uri: string): CapabilityKind =
   ## Uses strutils.parseEnum which matches against the string backing values.
   strutils.parseEnum[CapabilityKind](uri, ckUnknown)
 
-func capabilityUri*(kind: CapabilityKind): Option[string] =
+func capabilityUri*(kind: CapabilityKind): Opt[string] =
   ## Returns the IANA-registered URI for a known capability.
   ## Returns none for ckUnknown — callers must use rawUri from ServerCapability.
   case kind
   of ckCore:
-    some("urn:ietf:params:jmap:core")
+    Opt.some("urn:ietf:params:jmap:core")
   of ckMail:
-    some("urn:ietf:params:jmap:mail")
+    Opt.some("urn:ietf:params:jmap:mail")
   of ckSubmission:
-    some("urn:ietf:params:jmap:submission")
+    Opt.some("urn:ietf:params:jmap:submission")
   of ckVacationResponse:
-    some("urn:ietf:params:jmap:vacationresponse")
+    Opt.some("urn:ietf:params:jmap:vacationresponse")
   of ckWebsocket:
-    some("urn:ietf:params:jmap:websocket")
+    Opt.some("urn:ietf:params:jmap:websocket")
   of ckMdn:
-    some("urn:ietf:params:jmap:mdn")
+    Opt.some("urn:ietf:params:jmap:mdn")
   of ckSmimeVerify:
-    some("urn:ietf:params:jmap:smimeverify")
+    Opt.some("urn:ietf:params:jmap:smimeverify")
   of ckBlob:
-    some("urn:ietf:params:jmap:blob")
+    Opt.some("urn:ietf:params:jmap:blob")
   of ckQuota:
-    some("urn:ietf:params:jmap:quota")
+    Opt.some("urn:ietf:params:jmap:quota")
   of ckContacts:
-    some("urn:ietf:params:jmap:contacts")
+    Opt.some("urn:ietf:params:jmap:contacts")
   of ckCalendars:
-    some("urn:ietf:params:jmap:calendars")
+    Opt.some("urn:ietf:params:jmap:calendars")
   of ckSieve:
-    some("urn:ietf:params:jmap:sieve")
+    Opt.some("urn:ietf:params:jmap:sieve")
   of ckUnknown:
-    none(string)
+    Opt.none(string)
 
 func hasCollation*(caps: CoreCapabilities, algorithm: string): bool =
   ## Checks whether the server supports a given RFC 4790 collation algorithm.

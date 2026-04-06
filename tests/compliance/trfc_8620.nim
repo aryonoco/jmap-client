@@ -6,7 +6,6 @@
 ## convention rfc8620_S<section>_<description>.
 
 import std/json
-import std/options
 import std/sets
 import std/strutils
 import std/tables
@@ -374,7 +373,7 @@ block rfc8620_S3_3_requestUsingContainsCapabilities:
   let req = Request(
     `using`: @["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail"],
     methodCalls: @[makeInvocation()],
-    createdIds: none(Table[CreationId, Id]),
+    createdIds: Opt.none(Table[CreationId, Id]),
   )
   doAssert req.`using`.len == 2
   doAssert req.`using`[0] == "urn:ietf:params:jmap:core"
@@ -387,7 +386,7 @@ block rfc8620_S3_3_requestMethodCallsOrderPreserved:
   let req = Request(
     `using`: @["urn:ietf:params:jmap:core"],
     methodCalls: @[mc0, mc1, mc2],
-    createdIds: none(Table[CreationId, Id]),
+    createdIds: Opt.none(Table[CreationId, Id]),
   )
   doAssert req.methodCalls.len == 3
   doAssert req.methodCalls[0].name == "A/get"
@@ -406,7 +405,7 @@ block rfc8620_S3_3_requestCreatedIdsPresent:
   let req = Request(
     `using`: @["urn:ietf:params:jmap:core"],
     methodCalls: @[makeInvocation()],
-    createdIds: some(cids),
+    createdIds: Opt.some(cids),
   )
   doAssert req.createdIds.isSome
   doAssert req.createdIds.get()[makeCreationId("k0")] == makeId("serverId1")
@@ -421,7 +420,7 @@ block rfc8620_S3_4_responseMethodResponsesOrdering:
   let r1 = makeInvocation("B/get", makeMcid("c1"))
   let resp = Response(
     methodResponses: @[r0, r1],
-    createdIds: none(Table[CreationId, Id]),
+    createdIds: Opt.none(Table[CreationId, Id]),
     sessionState: makeState("s1"),
   )
   doAssert resp.methodResponses.len == 2
@@ -445,7 +444,7 @@ block rfc8620_S3_3_requestEmptyUsing:
   let req = Request(
     `using`: @[],
     methodCalls: @[makeInvocation()],
-    createdIds: none(Table[CreationId, Id]),
+    createdIds: Opt.none(Table[CreationId, Id]),
   )
   doAssert req.`using`.len == 0
 
@@ -456,7 +455,7 @@ block rfc8620_S3_3_requestEmptyMethodCalls:
   let req = Request(
     `using`: @["urn:ietf:params:jmap:core"],
     methodCalls: @[],
-    createdIds: none(Table[CreationId, Id]),
+    createdIds: Opt.none(Table[CreationId, Id]),
   )
   doAssert req.methodCalls.len == 0
 
@@ -470,7 +469,7 @@ block rfc8620_S3_3_requestDuplicateMethodCallIds:
   let req = Request(
     `using`: @["urn:ietf:params:jmap:core"],
     methodCalls: @[inv1, inv2],
-    createdIds: none(Table[CreationId, Id]),
+    createdIds: Opt.none(Table[CreationId, Id]),
   )
   doAssert req.methodCalls.len == 2
   doAssert req.methodCalls[0].methodCallId == req.methodCalls[1].methodCallId
@@ -509,8 +508,9 @@ block rfc8620_S3_6_1_unknownRequestErrorFallback:
 
 block rfc8620_S3_6_1_limitErrorMustHaveLimitProperty:
   ## RFC S3.6.1: A "limit" property MUST be present for the "limit" error type.
-  let re =
-    requestError("urn:ietf:params:jmap:error:limit", limit = some("maxCallsInRequest"))
+  let re = requestError(
+    "urn:ietf:params:jmap:error:limit", limit = Opt.some("maxCallsInRequest")
+  )
   doAssert re.errorType == retLimit
   doAssert re.limit.isSome
   doAssert re.limit.get() == "maxCallsInRequest"
@@ -524,8 +524,9 @@ block rfc8620_S3_6_1_rfc7807TypeField:
 block rfc8620_S3_6_1_rfc7807ExtrasPreservesExtraFields:
   ## Non-standard fields in the problem details object are preserved in extras.
   let extra = %*{"vendor-field": "vendor-value"}
-  let re =
-    requestError("urn:ietf:params:jmap:error:unknownCapability", extras = some(extra))
+  let re = requestError(
+    "urn:ietf:params:jmap:error:unknownCapability", extras = Opt.some(extra)
+  )
   doAssert re.extras.isSome
   doAssert re.extras.get()["vendor-field"].getStr() == "vendor-value"
 
@@ -566,7 +567,8 @@ block rfc8620_S3_6_2_unknownMethodErrorFallback:
 
 block rfc8620_S3_6_2_methodErrorMayHaveDescription:
   ## RFC S3.6.2: A method error MAY include a "description" property.
-  let me = methodError("invalidArguments", description = some("missing required field"))
+  let me =
+    methodError("invalidArguments", description = Opt.some("missing required field"))
   doAssert me.errorType == metInvalidArguments
   doAssert me.description.isSome
   doAssert me.description.get() == "missing required field"
@@ -765,7 +767,7 @@ block rfc8620_S5_3_patchObjectTildeEscaping:
 
 block rfc8620_S5_3_setErrorMayHaveDescription:
   ## RFC S5.3: A SetError MAY include a "description" property.
-  let se = setError("forbidden", description = some("not authorised"))
+  let se = setError("forbidden", description = Opt.some("not authorised"))
   doAssert se.description.isSome
   doAssert se.description.get() == "not authorised"
 
@@ -825,7 +827,7 @@ block rfc8620_S5_5_comparatorExplicitDescending:
 block rfc8620_S5_5_comparatorCollationRfc4790Format:
   ## RFC 4790 collation identifier in Comparator.
   let prop = makePropertyName("subject")
-  let cmp = parseComparator(prop, collation = some("i;ascii-casemap"))
+  let cmp = parseComparator(prop, collation = Opt.some("i;ascii-casemap"))
   doAssert cmp.collation.isSome
   doAssert cmp.collation.get() == "i;ascii-casemap"
 
@@ -875,7 +877,7 @@ block rfc8620_S5_5_comparatorWithCollation:
   ## (RFC 4790 format). "i;ascii-casemap" is a standard collation.
   let prop = makePropertyName("subject")
   let cmp =
-    parseComparator(prop, isAscending = true, collation = some("i;ascii-casemap"))
+    parseComparator(prop, isAscending = true, collation = Opt.some("i;ascii-casemap"))
   doAssert cmp.property == prop
   doAssert cmp.isAscending == true
   doAssert cmp.collation.isSome
@@ -999,7 +1001,7 @@ block rfc8620_S3_4_responseCreatedIdsMerged:
   var merged = initTable[CreationId, Id]()
   merged[cid1] = id1
   merged[cid2] = id2
-  let resp = makeResponse(createdIds = some(merged))
+  let resp = makeResponse(createdIds = Opt.some(merged))
   doAssert resp.createdIds.isSome
   let ids = resp.createdIds.get()
   doAssert ids.len == 2
@@ -1010,11 +1012,11 @@ block rfc8620_S3_6_1_requestErrorAllRfc7807Fields:
   ## RFC 7807 problem details: all optional fields populated.
   let re = requestError(
     "urn:ietf:params:jmap:error:limit",
-    status = some(400),
-    title = some("Rate Limit"),
-    detail = some("Too many requests"),
-    limit = some("maxCallsInRequest"),
-    extras = some(newJObject()),
+    status = Opt.some(400),
+    title = Opt.some("Rate Limit"),
+    detail = Opt.some("Too many requests"),
+    limit = Opt.some("maxCallsInRequest"),
+    extras = Opt.some(newJObject()),
   )
   doAssert re.errorType == retLimit
   doAssert re.status.get() == 400
@@ -1097,8 +1099,9 @@ block rfc8620_S5_5_filterOperatorEmptyConditions:
 
 block rfc8620_S3_6_1_requestErrorLimitName:
   ## The "limit" field for retLimit specifies which limit was exceeded.
-  let re =
-    requestError("urn:ietf:params:jmap:error:limit", limit = some("maxCallsInRequest"))
+  let re = requestError(
+    "urn:ietf:params:jmap:error:limit", limit = Opt.some("maxCallsInRequest")
+  )
   doAssert re.errorType == retLimit
   doAssert re.limit.get() == "maxCallsInRequest"
 
@@ -1271,7 +1274,7 @@ block rfc8620_S3_3_goldenRequestToJson:
   let req = Request(
     `using`: @["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail"],
     methodCalls: @[inv1, inv2, inv3],
-    createdIds: none(Table[CreationId, Id]),
+    createdIds: Opt.none(Table[CreationId, Id]),
   )
   let j = req.toJson()
   # Verify using array
@@ -1329,10 +1332,10 @@ block rfc8620_S3_6_goldenLimitError:
   ## title, detail, limit. Round-trip and verify all fields preserved.
   let original = requestError(
     rawType = "urn:ietf:params:jmap:error:limit",
-    status = some(429),
-    title = some("Too Many Requests"),
-    detail = some("You have exceeded the rate limit"),
-    limit = some("maxObjectsInGet"),
+    status = Opt.some(429),
+    title = Opt.some("Too Many Requests"),
+    detail = Opt.some("You have exceeded the rate limit"),
+    limit = Opt.some("maxObjectsInGet"),
   )
   let j = original.toJson()
   # Verify JSON structure
@@ -1355,7 +1358,7 @@ block rfc8620_S3_6_goldenMethodError:
   ## Build a complete MethodError (serverFail with description). Round-trip
   ## and verify all fields preserved.
   let original =
-    methodError(rawType = "serverFail", description = some("Database timeout"))
+    methodError(rawType = "serverFail", description = Opt.some("Database timeout"))
   let j = original.toJson()
   # Verify JSON structure
   assertEq j{"type"}.getStr(""), "serverFail"
@@ -1372,11 +1375,11 @@ block rfc8620_S3_6_goldenMethodError:
 # =============================================================================
 
 block rfc8620_S5_5_comparatorEmptyCollation:
-  ## Comparator with collation = some(""). Document whether
+  ## Comparator with collation = Opt.some(""). Document whether
   ## parseComparator accepts an empty collation string. The library does
   ## not validate collation contents, so empty string is accepted.
   let prop = makePropertyName("subject")
-  let c = parseComparator(prop, true, some(""))
+  let c = parseComparator(prop, true, Opt.some(""))
   assertSome c.collation
   assertSomeEq c.collation, ""
   # Verify round-trip through serde
@@ -1404,9 +1407,9 @@ block rfc8620_S3_6_1_requestErrorUnknownCapability:
   ## Full round-trip with RFC 7807 structure.
   let re = requestError(
     "urn:ietf:params:jmap:error:unknownCapability",
-    status = some(400),
-    title = some("Unknown Capability"),
-    detail = some("The requested capability is not supported"),
+    status = Opt.some(400),
+    title = Opt.some("Unknown Capability"),
+    detail = Opt.some("The requested capability is not supported"),
   )
   doAssert re.errorType == retUnknownCapability
   let j = re.toJson()
@@ -1422,9 +1425,9 @@ block rfc8620_S3_6_1_requestErrorNotJSON:
   ## RFC 8620 S3.6.1: "urn:ietf:params:jmap:error:notJSON"
   let re = requestError(
     "urn:ietf:params:jmap:error:notJSON",
-    status = some(400),
-    title = some("Not JSON"),
-    detail = some("The content type was not application/json"),
+    status = Opt.some(400),
+    title = Opt.some("Not JSON"),
+    detail = Opt.some("The content type was not application/json"),
   )
   doAssert re.errorType == retNotJson
   let j = re.toJson()
@@ -1437,9 +1440,9 @@ block rfc8620_S3_6_1_requestErrorNotRequest:
   ## RFC 8620 S3.6.1: "urn:ietf:params:jmap:error:notRequest"
   let re = requestError(
     "urn:ietf:params:jmap:error:notRequest",
-    status = some(400),
-    title = some("Not Request"),
-    detail = some("The JSON was not a valid JMAP request"),
+    status = Opt.some(400),
+    title = Opt.some("Not Request"),
+    detail = Opt.some("The JSON was not a valid JMAP request"),
   )
   doAssert re.errorType == retNotRequest
   let j = re.toJson()
@@ -1452,10 +1455,10 @@ block rfc8620_S3_6_1_requestErrorLimit:
   ## RFC 8620 S3.6.1: "urn:ietf:params:jmap:error:limit"
   let re = requestError(
     "urn:ietf:params:jmap:error:limit",
-    status = some(400),
-    title = some("Limit"),
-    detail = some("Too many method calls"),
-    limit = some("maxCallsInRequest"),
+    status = Opt.some(400),
+    title = Opt.some("Limit"),
+    detail = Opt.some("Too many method calls"),
+    limit = Opt.some("maxCallsInRequest"),
   )
   doAssert re.errorType == retLimit
   let j = re.toJson()
@@ -1472,7 +1475,7 @@ block rfc8620_S3_6_1_requestErrorLimit:
 
 block rfc8620_S3_6_2_serdeServerUnavailable:
   ## serverUnavailable round-trip.
-  let me = methodError("serverUnavailable", description = some("maintenance"))
+  let me = methodError("serverUnavailable", description = Opt.some("maintenance"))
   let j = me.toJson()
   assertEq j{"type"}.getStr(""), "serverUnavailable"
   let rt = MethodError.fromJson(j).get()
@@ -1612,7 +1615,7 @@ block rfc8620_S3_6_2_serdeFromAccountNotSupportedByMethod:
 
 block rfc8620_S5_3_serdeForbidden:
   ## SetError forbidden round-trip.
-  let se = setError("forbidden", description = some("not allowed"))
+  let se = setError("forbidden", description = Opt.some("not allowed"))
   let j = se.toJson()
   assertEq j{"type"}.getStr(""), "forbidden"
   let rt = SetError.fromJson(j).get()
@@ -1663,7 +1666,7 @@ block rfc8620_S5_3_serdeWillDestroy:
 block rfc8620_S5_3_serdeInvalidProperties:
   ## SetError invalidProperties round-trip with properties array.
   let se = setErrorInvalidProperties(
-    "invalidProperties", @["subject", "from", "to"], some("bad fields")
+    "invalidProperties", @["subject", "from", "to"], Opt.some("bad fields")
   )
   doAssert se.errorType == setInvalidProperties
   let j = se.toJson()
@@ -1681,7 +1684,7 @@ block rfc8620_S5_3_serdeAlreadyExists:
   ## SetError alreadyExists round-trip with existingId.
   let existId = makeId("existingRecord42")
   let se =
-    setErrorAlreadyExists("alreadyExists", existId, some("record already present"))
+    setErrorAlreadyExists("alreadyExists", existId, Opt.some("record already present"))
   doAssert se.errorType == setAlreadyExists
   let j = se.toJson()
   assertEq j{"type"}.getStr(""), "alreadyExists"

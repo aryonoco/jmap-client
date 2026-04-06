@@ -75,7 +75,7 @@ level is missing. This is the primary navigation pattern for optional fields.
 
 | Constructor | Creates | Notes |
 |-------------|---------|-------|
-| `%val` | `JsonNode` | Auto-converts string, int, float, bool, seq, Table, `Option[T]` |
+| `%val` | `JsonNode` | Auto-converts string, int, float, bool, seq, Table |
 | `%*{...}` | `JsonNode` | Compile-time JSON literal macro |
 | `newJString(s)` | `JsonNode` | JString |
 | `newJInt(n)` | `JsonNode` | JInt |

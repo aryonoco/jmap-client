@@ -4,7 +4,6 @@
 ## Property-based tests for error type parsers and constructors.
 
 import std/json
-import std/options
 import std/random
 
 import jmap_client/primitives
@@ -206,9 +205,9 @@ block propSetErrorInvalidPropertiesFieldPreservation:
       props.add "prop" & $i
     let desc =
       if rng.rand(0 .. 1) == 0:
-        some("desc-" & $rng.rand(0 .. 99))
+        Opt.some("desc-" & $rng.rand(0 .. 99))
       else:
-        none(string)
+        Opt.none(string)
     let se = setErrorInvalidProperties("invalidProperties", props, desc)
     doAssert se.errorType == setInvalidProperties
     doAssert se.properties == props
@@ -220,9 +219,9 @@ block propSetErrorAlreadyExistsFieldPreservation:
     let id = parseId(idStr).get()
     let desc =
       if rng.rand(0 .. 1) == 0:
-        some("desc-" & $rng.rand(0 .. 99))
+        Opt.some("desc-" & $rng.rand(0 .. 99))
       else:
-        none(string)
+        Opt.none(string)
     let se = setErrorAlreadyExists("alreadyExists", id, desc)
     doAssert se.errorType == setAlreadyExists
     doAssert se.existingId == id

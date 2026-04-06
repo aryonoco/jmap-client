@@ -10,7 +10,6 @@
 ## cause, and fix in a comment.
 
 import std/json
-import std/options
 import std/strutils
 
 import jmap_client/validation

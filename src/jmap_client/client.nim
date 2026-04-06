@@ -50,7 +50,7 @@ type JmapClient* = object
   httpClient: HttpClient
   sessionUrl: string
   bearerToken: string
-  session: Option[Session]
+  session: Opt[Session]
   maxResponseBytes: int
   userAgent: string
 
@@ -123,7 +123,7 @@ proc initJmapClient*(
       httpClient: httpClient,
       sessionUrl: sessionUrl,
       bearerToken: bearerToken,
-      session: none(Session),
+      session: Opt.none(Session),
       maxResponseBytes: maxResponseBytes,
       userAgent: userAgent,
     )
@@ -158,7 +158,7 @@ proc discoverJmapClient*(
     userAgent = userAgent,
   )
 
-func session*(client: JmapClient): Option[Session] =
+func session*(client: JmapClient): Opt[Session] =
   ## Returns the cached Session, or ``none`` if not yet fetched.
   client.session
 
@@ -358,19 +358,19 @@ proc readContentType(httpResp: httpclient.Response): string =
   except CatchableError:
     ""
 
-proc tryParseProblemDetails(body: string): Option[ClientError] =
+proc tryParseProblemDetails(body: string): Opt[ClientError] =
   ## Attempts to parse RFC 7807 problem details from a response body.
-  ## Returns some(ClientError) on success, none on failure.
+  ## Returns Opt.some(ClientError) on success, none on failure.
   try:
     {.cast(raises: [CatchableError]).}:
       let jsonNode = parseJson(body)
       if jsonNode.kind == JObject and jsonNode.hasKey("type"):
         let reqErrResult = RequestError.fromJson(jsonNode)
         if reqErrResult.isOk:
-          return some(clientError(reqErrResult.get()))
+          return Opt.some(clientError(reqErrResult.get()))
   except CatchableError:
     discard
-  none(ClientError)
+  Opt.none(ClientError)
 
 proc classifyHttpResponse(
     maxResponseBytes: int, httpResp: httpclient.Response, context: string
@@ -405,9 +405,8 @@ proc classifyHttpResponse(
     # Attempt to parse as RFC 7807 problem details
     let ct = readContentType(httpResp)
     if ct.startsWith("application/problem+json") or ct.startsWith("application/json"):
-      let pd = tryParseProblemDetails(body)
-      if pd.isSome:
-        return err(pd.get())
+      for ce in tryParseProblemDetails(body):
+        return err(ce)
     # Generic HTTP status error (no problem details, or parsing failed)
     let te = httpStatusError(int(code), "HTTP " & $int(code) & " from " & context)
     return err(clientError(te))
@@ -430,7 +429,7 @@ proc classifyHttpResponse(
 proc setSessionForTest*(client: var JmapClient, session: Session) =
   ## Injects a cached session for testing purposes. Enables pure tests
   ## of ``isSessionStale`` without requiring network IO.
-  client.session = some(session)
+  client.session = Opt.some(session)
 
 # ---------------------------------------------------------------------------
 # IO procs (§3, §4, §6)
@@ -456,7 +455,7 @@ proc fetchSession*(client: var JmapClient): JmapResult[Session] =
         clientError(transportError(tekNetwork, "invalid session: " & ve.message))
     )
   let s = ?session
-  client.session = some(s)
+  client.session = Opt.some(s)
   ok(s)
 
 proc send*(client: var JmapClient, request: Request): JmapResult[envelope.Response] =
@@ -471,16 +470,15 @@ proc send*(client: var JmapClient, request: Request): JmapResult[envelope.Respon
 
   # Step 1: Ensure session available (may trigger IO)
   if client.session.isNone:
-    let s = ?client.fetchSession()
-    discard s
+    discard ?client.fetchSession()
   let session = client.session.get()
   let coreCaps = session.coreCapabilities()
 
   # Step 2: Pre-flight validation
-  let limitsResult = validateLimits(request, coreCaps)
-  if limitsResult.isErr:
-    let ve = limitsResult.error
-    return err(clientError(transportError(tekNetwork, ve.message)))
+  ?validateLimits(request, coreCaps).mapErr(
+    proc(ve: ValidationError): ClientError =
+      clientError(transportError(tekNetwork, ve.message))
+  )
 
   # Step 3: Serialise
   let jsonNode = request.toJson()
@@ -515,9 +513,8 @@ proc send*(client: var JmapClient, request: Request): JmapResult[envelope.Respon
   # Step 8: Problem details on HTTP 200
   if respJson.kind == JObject and respJson.hasKey("type") and
       not respJson.hasKey("methodResponses"):
-    let reqErrResult = RequestError.fromJson(respJson)
-    if reqErrResult.isOk:
-      return err(clientError(reqErrResult.get()))
+    for reqErr in RequestError.fromJson(respJson).optValue:
+      return err(clientError(reqErr))
 
   # Step 9: Deserialise Response
   envelope.Response.fromJson(respJson).mapErr(
@@ -530,9 +527,9 @@ func isSessionStale*(client: JmapClient, response: envelope.Response): bool =
   ## Returns ``true`` if they differ (session should be re-fetched).
   ## Returns ``false`` if no session is cached (cannot determine staleness).
   ## Pure — no IO, no mutation.
-  if client.session.isNone:
+  let s = client.session.valueOr:
     return false
-  client.session.get().state != response.sessionState
+  s.state != response.sessionState
 
 proc refreshSessionIfStale*(
     client: var JmapClient, response: envelope.Response

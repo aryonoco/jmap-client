@@ -5,7 +5,6 @@
 ## large data structures, and performance boundaries.
 
 import std/json
-import std/options
 import std/strutils
 import std/tables
 
@@ -77,7 +76,7 @@ block stressResponse100Invocations:
     invocations.add makeInvocation("Method/" & $i, makeMcid("c" & $i))
   let resp = Response(
     methodResponses: invocations,
-    createdIds: none(Table[CreationId, Id]),
+    createdIds: Opt.none(Table[CreationId, Id]),
     sessionState: makeState("s1"),
   )
   doAssert resp.methodResponses.len == 100

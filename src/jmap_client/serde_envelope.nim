@@ -7,7 +7,6 @@
 {.push raises: [].}
 
 import std/json
-import std/options
 import std/tables
 
 import ./serde
@@ -50,14 +49,14 @@ func fromJson*(
 
 func parseCreatedIds(
     node: JsonNode, typeName: string
-): Result[Option[Table[CreationId, Id]], ValidationError] =
+): Result[Opt[Table[CreationId, Id]], ValidationError] =
   ## Parse optional createdIds from a Request or Response JSON object.
   ## Container-strict: wrong container kind raises (design doc section 9).
   let cnode = node{"createdIds"}
   if cnode.isNil:
-    return ok(none(Table[CreationId, Id]))
+    return ok(Opt.none(Table[CreationId, Id]))
   if cnode.kind == JNull:
-    return ok(none(Table[CreationId, Id]))
+    return ok(Opt.none(Table[CreationId, Id]))
   if cnode.kind != JObject:
     return err(parseError(typeName, "createdIds must be object or null"))
   var tbl = initTable[CreationId, Id]()
@@ -66,7 +65,7 @@ func parseCreatedIds(
     ?checkJsonKind(v, JString, typeName, "createdIds value must be string")
     let id = ?parseIdFromServer(v.getStr(""))
     tbl[cid] = id
-  ok(some(tbl))
+  ok(Opt.some(tbl))
 
 # =============================================================================
 # Request
@@ -80,9 +79,9 @@ func toJson*(r: Request): JsonNode =
   for _, inv in r.methodCalls:
     calls.add(inv.toJson())
   result["methodCalls"] = calls
-  if r.createdIds.isSome:
+  for createdIds in r.createdIds:
     var ids = newJObject()
-    for k, v in r.createdIds.get():
+    for k, v in createdIds:
       ids[string(k)] = %string(v)
     result["createdIds"] = ids
 
@@ -116,9 +115,9 @@ func toJson*(r: Response): JsonNode =
     responses.add(inv.toJson())
   result["methodResponses"] = responses
   result["sessionState"] = %string(r.sessionState)
-  if r.createdIds.isSome:
+  for createdIds in r.createdIds:
     var ids = newJObject()
-    for k, v in r.createdIds.get():
+    for k, v in createdIds:
       ids[string(k)] = %string(v)
     result["createdIds"] = ids
 

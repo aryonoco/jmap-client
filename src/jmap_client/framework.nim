@@ -5,7 +5,6 @@
 ## Covers filters, comparators, patch objects, and query change tracking.
 
 import std/hashes
-import std/options
 import std/tables
 from std/json import JsonNode, newJNull
 
@@ -58,12 +57,12 @@ type Comparator* = object
   ## for results returned by a /query method call.
   property*: PropertyName ## the property to sort by
   isAscending*: bool ## true = ascending (RFC default)
-  collation*: Option[string] ## RFC 4790 collation algorithm identifier
+  collation*: Opt[string] ## RFC 4790 collation algorithm identifier
 
 func parseComparator*(
     property: PropertyName,
     isAscending: bool = true,
-    collation: Option[string] = none(string),
+    collation: Opt[string] = Opt.none(string),
 ): Comparator =
   ## Constructs a Comparator. Infallible given a valid PropertyName.
   Comparator(property: property, isAscending: isAscending, collation: collation)
@@ -97,13 +96,13 @@ func deleteProp*(
   t[path] = newJNull()
   ok(PatchObject(t))
 
-func getKey*(patch: PatchObject, key: string): Option[JsonNode] =
+func getKey*(patch: PatchObject, key: string): Opt[JsonNode] =
   ## Returns the value at key, or none if absent.
   let t = Table[string, JsonNode](patch)
   if t.hasKey(key):
-    some(t.getOrDefault(key))
+    Opt.some(t.getOrDefault(key))
   else:
-    none(JsonNode)
+    Opt.none(JsonNode)
 
 type AddedItem* = object
   ## An item added to query results at a specific position (RFC 8620 §5.6).

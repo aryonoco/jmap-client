@@ -4,7 +4,6 @@
 ## Tests for JMAP Request/Response envelope types.
 
 import std/json
-import std/options
 import std/tables
 
 import jmap_client/identifiers
@@ -51,7 +50,7 @@ block requestWithCreatedIds:
   let id = parseId("abc").get()
   var tbl = initTable[CreationId, Id]()
   tbl[cid] = id
-  let req = Request(`using`: @[], methodCalls: @[], createdIds: some(tbl))
+  let req = Request(`using`: @[], methodCalls: @[], createdIds: Opt.some(tbl))
   doAssert req.createdIds.isSome
   let extracted = req.createdIds.get()
   doAssert extracted.len == 1
@@ -109,7 +108,8 @@ block responseWithCreatedIds:
   let state = parseJmapState("state2").get()
   var tbl = initTable[CreationId, Id]()
   tbl[cid] = id
-  let resp = Response(methodResponses: @[], createdIds: some(tbl), sessionState: state)
+  let resp =
+    Response(methodResponses: @[], createdIds: Opt.some(tbl), sessionState: state)
   doAssert resp.createdIds.isSome
   let extracted = resp.createdIds.get()
   doAssert extracted.len == 1
@@ -159,7 +159,7 @@ block referencableConcreteTypes:
   doAssert idSeq.kind == rkDirect
   doAssert idSeq.value.len == 1
 
-  let optRef = direct(some("x"))
+  let optRef = direct(Opt.some("x"))
   doAssert optRef.kind == rkDirect
   doAssert optRef.value.isSome
   doAssert optRef.value.get() == "x"
@@ -187,6 +187,6 @@ block requestDuplicateUsing:
   let req = Request(
     `using`: @["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:core"],
     methodCalls: @[],
-    createdIds: none(Table[CreationId, Id]),
+    createdIds: Opt.none(Table[CreationId, Id]),
   )
   doAssert req.`using`.len == 2

@@ -5,7 +5,6 @@
 ## Filter[C], PatchObject, and AddedItem.
 
 import std/json
-import std/options
 import std/random
 import std/strutils
 
@@ -138,7 +137,7 @@ block comparatorToJsonFieldNames:
   doAssert j{"collation"}.isNil
 
 block comparatorToJsonCollationAbsent:
-  let c = parseComparator(makePropertyName(), true, none(string))
+  let c = parseComparator(makePropertyName(), true, Opt.none(string))
   let j = c.toJson()
   doAssert j{"collation"}.isNil, "collation key must be absent when none"
 
@@ -425,8 +424,9 @@ block filterDeserNestedDepth3:
 
 block comparatorAllFieldsRoundTrip:
   ## Comparator with property + isAscending=false + collation round-trips.
-  let c =
-    parseComparator(makePropertyName("receivedAt"), false, some("i;unicode-casemap"))
+  let c = parseComparator(
+    makePropertyName("receivedAt"), false, Opt.some("i;unicode-casemap")
+  )
   let v = Comparator.fromJson(c.toJson()).get()
   assertEq string(v.property), "receivedAt"
   doAssert v.isAscending == false

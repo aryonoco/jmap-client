@@ -7,7 +7,6 @@
 ## rows from section 14.6, and lenient Option helper coverage.
 
 import std/json
-import std/options
 import std/tables
 
 import jmap_client/validation
@@ -86,10 +85,10 @@ block goldenSetRequestToJson:
   updateTbl[uid] = updateData
   let req = SetRequest[MockFoo](
     accountId: acctId,
-    ifInState: some(ifState),
-    create: some(createTbl),
-    update: some(updateTbl),
-    destroy: some(direct(@[did1, did2])),
+    ifInState: Opt.some(ifState),
+    create: Opt.some(createTbl),
+    update: Opt.some(updateTbl),
+    destroy: Opt.some(direct(@[did1, did2])),
   )
   let j = req.toJson()
   doAssert j{"accountId"}.getStr("") == "A13824"
@@ -144,8 +143,8 @@ block getRequestAllDefaults:
   ## GetRequest with all none produces only accountId.
   let req = GetRequest[MockFoo](
     accountId: makeAccountId("a1"),
-    ids: none(Referencable[seq[Id]]),
-    properties: none(seq[string]),
+    ids: Opt.none(Referencable[seq[Id]]),
+    properties: Opt.none(seq[string]),
   )
   let j = req.toJson()
   doAssert j{"accountId"}.getStr("") == "a1"
@@ -156,8 +155,8 @@ block getRequestDirectIds:
   ## GetRequest with direct ids produces "ids" array.
   let req = GetRequest[MockFoo](
     accountId: makeAccountId("a1"),
-    ids: some(direct(@[makeId("x1"), makeId("x2")])),
-    properties: none(seq[string]),
+    ids: Opt.some(direct(@[makeId("x1"), makeId("x2")])),
+    properties: Opt.none(seq[string]),
   )
   let j = req.toJson()
   doAssert j{"ids"}.kind == JArray
@@ -170,8 +169,8 @@ block getRequestReferenceIds:
     ResultReference(resultOf: makeMcid("c0"), name: "MockFoo/query", path: "/ids")
   let req = GetRequest[MockFoo](
     accountId: makeAccountId("a1"),
-    ids: some(referenceTo[seq[Id]](rr)),
-    properties: none(seq[string]),
+    ids: Opt.some(referenceTo[seq[Id]](rr)),
+    properties: Opt.none(seq[string]),
   )
   let j = req.toJson()
   doAssert j{"ids"}.isNil
@@ -182,8 +181,8 @@ block getRequestWithProperties:
   ## GetRequest with properties produces "properties" array.
   let req = GetRequest[MockFoo](
     accountId: makeAccountId("a1"),
-    ids: none(Referencable[seq[Id]]),
-    properties: some(@["name", "email"]),
+    ids: Opt.none(Referencable[seq[Id]]),
+    properties: Opt.some(@["name", "email"]),
   )
   let j = req.toJson()
   doAssert j{"properties"}.kind == JArray
@@ -194,7 +193,7 @@ block changesRequestMinimal:
   let req = ChangesRequest[MockFoo](
     accountId: makeAccountId("a1"),
     sinceState: makeState("s0"),
-    maxChanges: none(MaxChanges),
+    maxChanges: Opt.none(MaxChanges),
   )
   let j = req.toJson()
   doAssert j{"accountId"}.getStr("") == "a1"
@@ -206,7 +205,7 @@ block changesRequestWithMaxChanges:
   let req = ChangesRequest[MockFoo](
     accountId: makeAccountId("a1"),
     sinceState: makeState("s0"),
-    maxChanges: some(makeMaxChanges(50)),
+    maxChanges: Opt.some(makeMaxChanges(50)),
   )
   let j = req.toJson()
   doAssert j{"maxChanges"}.getBiggestInt(0) == 50
@@ -215,10 +214,10 @@ block setRequestMinimal:
   ## SetRequest with only accountId.
   let req = SetRequest[MockFoo](
     accountId: makeAccountId("a1"),
-    ifInState: none(JmapState),
-    create: none(Table[CreationId, JsonNode]),
-    update: none(Table[Id, PatchObject]),
-    destroy: none(Referencable[seq[Id]]),
+    ifInState: Opt.none(JmapState),
+    create: Opt.none(Table[CreationId, JsonNode]),
+    update: Opt.none(Table[Id, PatchObject]),
+    destroy: Opt.none(Referencable[seq[Id]]),
   )
   let j = req.toJson()
   doAssert j{"accountId"}.getStr("") == "a1"
@@ -233,10 +232,10 @@ block setRequestWithReferencableDestroy:
     ResultReference(resultOf: makeMcid("c0"), name: "MockFoo/query", path: "/ids")
   let req = SetRequest[MockFoo](
     accountId: makeAccountId("a1"),
-    ifInState: none(JmapState),
-    create: none(Table[CreationId, JsonNode]),
-    update: none(Table[Id, PatchObject]),
-    destroy: some(referenceTo[seq[Id]](rr)),
+    ifInState: Opt.none(JmapState),
+    create: Opt.none(Table[CreationId, JsonNode]),
+    update: Opt.none(Table[Id, PatchObject]),
+    destroy: Opt.some(referenceTo[seq[Id]](rr)),
   )
   let j = req.toJson()
   doAssert j{"destroy"}.isNil
@@ -249,12 +248,12 @@ block copyRequestMinimal:
   createTbl[makeCreationId("k1")] = %*{"id": "src1"}
   let req = CopyRequest[MockFoo](
     fromAccountId: makeAccountId("from1"),
-    ifFromInState: none(JmapState),
+    ifFromInState: Opt.none(JmapState),
     accountId: makeAccountId("to1"),
-    ifInState: none(JmapState),
+    ifInState: Opt.none(JmapState),
     create: createTbl,
     onSuccessDestroyOriginal: false,
-    destroyFromIfInState: none(JmapState),
+    destroyFromIfInState: Opt.none(JmapState),
   )
   let j = req.toJson()
   doAssert j{"fromAccountId"}.getStr("") == "from1"
@@ -268,12 +267,12 @@ block copyRequestOnSuccessTrue:
   createTbl[makeCreationId("k1")] = %*{"id": "src1"}
   let req = CopyRequest[MockFoo](
     fromAccountId: makeAccountId("from1"),
-    ifFromInState: none(JmapState),
+    ifFromInState: Opt.none(JmapState),
     accountId: makeAccountId("to1"),
-    ifInState: none(JmapState),
+    ifInState: Opt.none(JmapState),
     create: createTbl,
     onSuccessDestroyOriginal: true,
-    destroyFromIfInState: none(JmapState),
+    destroyFromIfInState: Opt.none(JmapState),
   )
   let j = req.toJson()
   doAssert j{"onSuccessDestroyOriginal"}.getBool(false) == true
@@ -282,12 +281,12 @@ block queryRequestMinimal:
   ## QueryRequest with only required fields.
   let req = QueryRequest[MockQueryable, MockFilter](
     accountId: makeAccountId("a1"),
-    filter: none(Filter[MockFilter]),
-    sort: none(seq[Comparator]),
+    filter: Opt.none(Filter[MockFilter]),
+    sort: Opt.none(seq[Comparator]),
     position: JmapInt(0),
-    anchor: none(Id),
+    anchor: Opt.none(Id),
     anchorOffset: JmapInt(0),
-    limit: none(UnsignedInt),
+    limit: Opt.none(UnsignedInt),
     calculateTotal: false,
   )
   let j = req.toJson(mockFilterToJson)
@@ -302,12 +301,12 @@ block queryRequestWithFilter:
   ## QueryRequest with filter via callback -- proves filterType(T) expansion.
   let req = QueryRequest[MockQueryable, MockFilter](
     accountId: makeAccountId("a1"),
-    filter: some(filterCondition(MockFilter())),
-    sort: none(seq[Comparator]),
+    filter: Opt.some(filterCondition(MockFilter())),
+    sort: Opt.none(seq[Comparator]),
     position: JmapInt(0),
-    anchor: none(Id),
+    anchor: Opt.none(Id),
     anchorOffset: JmapInt(0),
-    limit: none(UnsignedInt),
+    limit: Opt.none(UnsignedInt),
     calculateTotal: false,
   )
   let j = req.toJson(mockFilterToJson)
@@ -318,11 +317,11 @@ block queryChangesRequestMinimal:
   ## QueryChangesRequest with only required fields.
   let req = QueryChangesRequest[MockQueryable, MockFilter](
     accountId: makeAccountId("a1"),
-    filter: none(Filter[MockFilter]),
-    sort: none(seq[Comparator]),
+    filter: Opt.none(Filter[MockFilter]),
+    sort: Opt.none(seq[Comparator]),
     sinceQueryState: makeState("qs0"),
-    maxChanges: none(MaxChanges),
-    upToId: none(Id),
+    maxChanges: Opt.none(MaxChanges),
+    upToId: Opt.none(Id),
     calculateTotal: false,
   )
   let j = req.toJson(mockFilterToJson)
@@ -332,16 +331,16 @@ block queryChangesRequestMinimal:
 
 block queryChangesRequestAllFields:
   ## QueryChangesRequest with all fields populated.
-  let comp = parseComparator(makePropertyName("name"), true, none(string))
+  let comp = parseComparator(makePropertyName("name"), true, Opt.none(string))
   var sortSeq: seq[Comparator]
   sortSeq.add(comp)
   let req = QueryChangesRequest[MockQueryable, MockFilter](
     accountId: makeAccountId("a1"),
-    filter: some(filterCondition(MockFilter())),
-    sort: some(sortSeq),
+    filter: Opt.some(filterCondition(MockFilter())),
+    sort: Opt.some(sortSeq),
     sinceQueryState: makeState("qs0"),
-    maxChanges: some(makeMaxChanges(10)),
-    upToId: some(makeId("upTo1")),
+    maxChanges: Opt.some(makeMaxChanges(10)),
+    upToId: Opt.some(makeId("upTo1")),
     calculateTotal: true,
   )
   let j = req.toJson(mockFilterToJson)
@@ -356,7 +355,7 @@ block changesRequestMinimalToJson:
   let req = ChangesRequest[MockFoo](
     accountId: makeAccountId("a1"),
     sinceState: makeState("s0"),
-    maxChanges: none(MaxChanges),
+    maxChanges: Opt.none(MaxChanges),
   )
   let j = req.toJson()
   doAssert j.len == 2

@@ -40,11 +40,9 @@ block:
 
 Use `block:` to isolate each test case and prevent variable name collisions.
 
-## Testing Option[T]
+## Testing Opt[T]
 
 ```nim
-import std/options
-
 block:
   let found = findAccount(accounts, knownId)
   doAssert found.isSome

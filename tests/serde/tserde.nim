@@ -5,7 +5,6 @@
 ## round-trip serialisation.
 
 import std/json
-import std/options
 import std/strutils
 
 import jmap_client/serde

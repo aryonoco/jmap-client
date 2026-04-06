@@ -3,7 +3,6 @@
 
 ## Tests for transport, request, client, method, and set error constructors.
 
-import std/options
 import std/json
 import std/strutils
 
@@ -117,8 +116,9 @@ block httpStatusError502:
 # --- RequestError constructor ---
 
 block requestErrorLimit:
-  let e =
-    requestError("urn:ietf:params:jmap:error:limit", limit = some("maxCallsInRequest"))
+  let e = requestError(
+    "urn:ietf:params:jmap:error:limit", limit = Opt.some("maxCallsInRequest")
+  )
   doAssert e.errorType == retLimit
   doAssert e.rawType == "urn:ietf:params:jmap:error:limit"
   doAssert e.limit.isSome
@@ -131,8 +131,8 @@ block requestErrorLimit:
 block requestErrorLimitWithExtras:
   let e = requestError(
     "urn:ietf:params:jmap:error:limit",
-    limit = some("maxCallsInRequest"),
-    extras = some(%*{"requestId": "abc"}),
+    limit = Opt.some("maxCallsInRequest"),
+    extras = Opt.some(%*{"requestId": "abc"}),
   )
   doAssert e.extras.isSome
 
@@ -162,7 +162,9 @@ block messageTransport:
 
 block messageRequestWithDetail:
   let ce = clientError(
-    requestError("urn:ietf:params:jmap:error:limit", detail = some("Too many calls"))
+    requestError(
+      "urn:ietf:params:jmap:error:limit", detail = Opt.some("Too many calls")
+    )
   )
   doAssert errors.message(ce) == "Too many calls"
 
@@ -170,15 +172,15 @@ block messageRequestDetailPreferredOverTitle:
   let ce = clientError(
     requestError(
       "urn:ietf:params:jmap:error:limit",
-      title = some("Limit Exceeded"),
-      detail = some("Too many calls"),
+      title = Opt.some("Limit Exceeded"),
+      detail = Opt.some("Too many calls"),
     )
   )
   doAssert errors.message(ce) == "Too many calls"
 
 block messageRequestWithTitleOnly:
   let ce = clientError(
-    requestError("urn:ietf:params:jmap:error:limit", title = some("Limit Exceeded"))
+    requestError("urn:ietf:params:jmap:error:limit", title = Opt.some("Limit Exceeded"))
   )
   doAssert errors.message(ce) == "Limit Exceeded"
 
@@ -196,13 +198,13 @@ block methodErrorKnown:
   doAssert e.extras.isNone
 
 block methodErrorUnknownWithExtras:
-  let e = methodError("custom", extras = some(%*{"hint": "retry"}))
+  let e = methodError("custom", extras = Opt.some(%*{"hint": "retry"}))
   doAssert e.errorType == metUnknown
   doAssert e.rawType == "custom"
   doAssert e.extras.isSome
 
 block methodErrorWithDescription:
-  let e = methodError("serverFail", description = some("internal error"))
+  let e = methodError("serverFail", description = Opt.some("internal error"))
   doAssert e.errorType == metServerFail
   doAssert e.description.isSome
   doAssert e.description.get() == "internal error"
@@ -216,7 +218,9 @@ block setErrorForbidden:
 
 block setErrorWithDescriptionAndExtras:
   let e = setError(
-    "overQuota", description = some("quota exceeded"), extras = some(%*{"limit": 100})
+    "overQuota",
+    description = Opt.some("quota exceeded"),
+    extras = Opt.some(%*{"limit": 100}),
   )
   doAssert e.errorType == setOverQuota
   doAssert e.description.isSome
@@ -365,11 +369,11 @@ block setErrorAllElseBranch:
 block requestErrorAllFieldsPopulated:
   let e = requestError(
     "urn:ietf:params:jmap:error:limit",
-    status = some(400),
-    title = some("Request Limit"),
-    detail = some("Too many calls"),
-    limit = some("maxCallsInRequest"),
-    extras = some(%*{"requestId": "abc"}),
+    status = Opt.some(400),
+    title = Opt.some("Request Limit"),
+    detail = Opt.some("Too many calls"),
+    limit = Opt.some("maxCallsInRequest"),
+    extras = Opt.some(%*{"requestId": "abc"}),
   )
   doAssert e.status.isSome
   doAssert e.status.get() == 400
@@ -406,7 +410,10 @@ block parseRequestErrorTypeUnderscore:
 
 block setErrorInvalidPropertiesMultiple:
   let se = setErrorInvalidProperties(
-    "invalidProperties", @["from", "to", "subject"], none(string), none(JsonNode)
+    "invalidProperties",
+    @["from", "to", "subject"],
+    Opt.none(string),
+    Opt.none(JsonNode),
   )
   doAssert se.errorType == setInvalidProperties
   doAssert se.properties.len == 3
@@ -420,7 +427,7 @@ block setErrorAllVariantsThroughGenericConstructor:
   # and must preserve rawType
   for variant in SetErrorType:
     let rawType = $variant
-    let se = setError(rawType, none(string), none(JsonNode))
+    let se = setError(rawType, Opt.none(string), Opt.none(JsonNode))
     doAssert se.rawType == rawType
 
 # --- ClientError message cascade ---
@@ -429,11 +436,11 @@ block clientErrorMessageCascadeDetail:
   # When detail is present, message returns detail
   let re = requestError(
     "urn:ietf:params:jmap:error:limit",
-    some(429),
-    some("Rate Limited"),
-    some("Too many requests"),
-    some("maxCallsInRequest"),
-    none(JsonNode),
+    Opt.some(429),
+    Opt.some("Rate Limited"),
+    Opt.some("Too many requests"),
+    Opt.some("maxCallsInRequest"),
+    Opt.none(JsonNode),
   )
   let ce = clientError(re)
   assertEq errors.message(ce), "Too many requests"
@@ -442,11 +449,11 @@ block clientErrorMessageCascadeTitle:
   # When detail is absent, message returns title
   let re = requestError(
     "urn:ietf:params:jmap:error:limit",
-    some(429),
-    some("Rate Limited"),
-    none(string),
-    none(string),
-    none(JsonNode),
+    Opt.some(429),
+    Opt.some("Rate Limited"),
+    Opt.none(string),
+    Opt.none(string),
+    Opt.none(JsonNode),
   )
   let ce = clientError(re)
   assertEq errors.message(ce), "Rate Limited"
@@ -455,11 +462,11 @@ block clientErrorMessageCascadeRawType:
   # When both detail and title absent, message returns rawType
   let re = requestError(
     "urn:ietf:params:jmap:error:limit",
-    none(int),
-    none(string),
-    none(string),
-    none(string),
-    none(JsonNode),
+    Opt.none(int),
+    Opt.none(string),
+    Opt.none(string),
+    Opt.none(string),
+    Opt.none(JsonNode),
   )
   let ce = clientError(re)
   assertEq errors.message(ce), "urn:ietf:params:jmap:error:limit"
@@ -478,8 +485,8 @@ block setErrorInvalidPropertiesAllFields:
   let se = setErrorInvalidProperties(
     "invalidProperties",
     @["from", "to"],
-    description = some("bad properties"),
-    extras = some(%*{"hint": "check format"}),
+    description = Opt.some("bad properties"),
+    extras = Opt.some(%*{"hint": "check format"}),
   )
   doAssert se.errorType == setInvalidProperties
   doAssert se.properties == @["from", "to"]
@@ -493,8 +500,8 @@ block setErrorAlreadyExistsAllFields:
   let se = setErrorAlreadyExists(
     "alreadyExists",
     existId,
-    description = some("duplicate detected"),
-    extras = some(%*{"server": "info"}),
+    description = Opt.some("duplicate detected"),
+    extras = Opt.some(%*{"server": "info"}),
   )
   doAssert se.errorType == setAlreadyExists
   doAssert se.existingId == existId
@@ -518,7 +525,8 @@ block setErrorAlreadyExistsMaxLengthId:
 
 block requestErrorLimitFieldNonLimitType:
   ## Limit field populated for a non-retLimit error type.
-  let re = requestError("urn:ietf:params:jmap:error:notJSON", limit = some("maxSize"))
+  let re =
+    requestError("urn:ietf:params:jmap:error:notJSON", limit = Opt.some("maxSize"))
   assertEq re.errorType, retNotJson
   assertSome re.limit
 
@@ -593,8 +601,8 @@ block messageClientErrorRequestWithDetail:
   ## message(ClientError) for cekRequest prefers detail over title.
   let re = requestError(
     "urn:ietf:params:jmap:error:limit",
-    title = some("Limit"),
-    detail = some("Too many objects in request"),
+    title = Opt.some("Limit"),
+    detail = Opt.some("Too many objects in request"),
   )
   let ce = clientError(re)
   assertEq message(ce), "Too many objects in request"
@@ -602,7 +610,7 @@ block messageClientErrorRequestWithDetail:
 block messageClientErrorRequestWithTitleOnly:
   ## message(ClientError) for cekRequest uses title when detail is absent.
   let re = requestError(
-    "urn:ietf:params:jmap:error:notRequest", title = some("Not a JMAP Request")
+    "urn:ietf:params:jmap:error:notRequest", title = Opt.some("Not a JMAP Request")
   )
   let ce = clientError(re)
   assertEq message(ce), "Not a JMAP Request"

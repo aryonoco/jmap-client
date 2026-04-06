@@ -4,7 +4,6 @@
 ## Tests for Layer 1 re-export hub.
 
 import std/json
-import std/options
 import std/tables
 
 import jmap_client/types
@@ -70,5 +69,5 @@ block reExportAccessibility:
   # std/tables consumption: Request with createdIds
   var tbl = initTable[CreationId, Id]()
   tbl[cid] = id
-  let req = Request(`using`: @[], methodCalls: @[], createdIds: some(tbl))
+  let req = Request(`using`: @[], methodCalls: @[], createdIds: Opt.some(tbl))
   doAssert req.createdIds.isSome

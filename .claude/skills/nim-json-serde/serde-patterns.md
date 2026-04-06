@@ -144,9 +144,10 @@ func fromJson*(_: typedesc[Invocation], node: JsonNode): Result[Invocation, Vali
   ok(Invocation(name: name, arguments: args, methodCallId: callId))
 ```
 
-## Optional Fields (Option[T])
+## Optional Fields (Opt[T])
 
-Omit the field entirely when `isNone`, include when `isSome`:
+Use `for val in opt:` to emit a field only when present (Opt's `items`
+iterator yields 0 or 1 values):
 
 ```nim
 func toJson*(r: Request): JsonNode =
@@ -156,21 +157,21 @@ func toJson*(r: Request): JsonNode =
   for mc in r.methodCalls:
     calls.add(mc.toJson())
   result["methodCalls"] = calls
-  if r.createdIds.isSome:
+  for createdIds in r.createdIds:
     var ids = newJObject()
-    for k, v in r.createdIds.get():
+    for k, v in createdIds:
       ids[string(k)] = %(string(v))
     result["createdIds"] = ids
 ```
 
-For deserialisation, check presence with nil-check:
+For lenient deserialisation, use `optJsonField` (shared helper in `serde.nim`):
 
 ```nim
-let createdIds =
-  if node{"createdIds"}.isNil or node{"createdIds"}.kind == JNull:
-    none(Table[CreationId, Id])
-  else:
-    some(?parseCreatedIds(node{"createdIds"}))
+func optString(node: JsonNode, key: string): Opt[string] =
+  Opt.some((?optJsonField(node, key, JString)).getStr(""))
+
+func optState*(node: JsonNode, key: string): Opt[JmapState] =
+  parseJmapState((?optJsonField(node, key, JString)).getStr("")).optValue
 ```
 
 ## Referencable Fields (# prefix)

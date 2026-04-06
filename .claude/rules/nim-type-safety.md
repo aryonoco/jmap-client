@@ -98,9 +98,9 @@ func message*(err: ClientError): string =
   case err.kind
   of cekTransport: err.transport.message
   of cekRequest:
-    if err.request.detail.isSome: err.request.detail.get()
-    elif err.request.title.isSome: err.request.title.get()
-    else: err.request.rawType
+    err.request.detail.valueOr:
+      err.request.title.valueOr:
+        err.request.rawType
   # Exhaustive — adding a new ClientErrorKind variant forces a compile error here
 ```
 
@@ -136,8 +136,8 @@ type
   MethodError* = object            # flat — all variants share same shape
     errorType*: MethodErrorType
     rawType*: string               # always populated, lossless round-trip
-    description*: Option[string]
-    extras*: Option[JsonNode]      # preserves non-standard server fields
+    description*: Opt[string]
+    extras*: Opt[JsonNode]         # preserves non-standard server fields
 ```
 
 When a few variants carry extra fields, use `case` with `else: discard`:
@@ -145,8 +145,8 @@ When a few variants carry extra fields, use `case` with `else: discard`:
 ```nim
 type SetError* = object
   rawType*: string
-  description*: Option[string]
-  extras*: Option[JsonNode]
+  description*: Opt[string]
+  extras*: Opt[JsonNode]
   case errorType*: SetErrorType
   of setInvalidProperties: properties*: seq[string]
   of setAlreadyExists: existingId*: Id
@@ -197,7 +197,7 @@ Use when the safety benefit is clear, not on every type.
 ## Nil Avoidance
 
 - Prefer value types in domain core — nil impossible.
-- For optional values, use `Option[T]` from `std/options`, not nilable refs.
+- For optional values, use `Opt[T]` from nim-results, not nilable refs or `std/options`.
 - `Uninit` + `ProveInit` warnings are errors — all vars provably initialised.
 
 ## Anti-Patterns

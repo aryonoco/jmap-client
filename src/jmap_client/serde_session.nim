@@ -8,7 +8,6 @@
 {.push raises: [].}
 
 import std/json
-import std/options
 import std/sets
 import std/tables
 

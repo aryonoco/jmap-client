@@ -1,6 +1,6 @@
 ---
 name: nim-json-serde
-description: "Nim std/json serialisation and deserialisation reference — idiomatic accessors (node[\"key\"], node{\"key\"}, getStr, getInt, to(T)), toJson and fromJson patterns for objects and case objects, enum serialisation ($ returns backing string, symbolName returns identifier), Option[T] field handling, and Invocation as JSON array. Use when writing or reviewing JSON serialisation code in Nim."
+description: "Nim std/json serialisation and deserialisation reference — idiomatic accessors (node[\"key\"], node{\"key\"}, getStr, getInt, to(T)), toJson and fromJson patterns for objects and case objects, enum serialisation ($ returns backing string, symbolName returns identifier), Opt[T] field handling, and Invocation as JSON array. Use when writing or reviewing JSON serialisation code in Nim."
 user-invocable: false
 ---
 
@@ -35,7 +35,7 @@ indirection. `{.push raises: [].}` is on every module.
 | How to write fromJson for a case object? | See Case Object Pattern in [serde-patterns.md](serde-patterns.md) |
 | How to serialise/deserialise enums? | See Enum Serialisation in [serde-patterns.md](serde-patterns.md) |
 | How to handle Invocation as JSON array? | See Array Tuple Pattern in [serde-patterns.md](serde-patterns.md) |
-| How to handle Option[T] fields? | See Optional Fields in [serde-patterns.md](serde-patterns.md) |
+| How to handle Opt[T] fields? | See Optional Fields in [serde-patterns.md](serde-patterns.md) |
 | How to handle `#`-prefixed reference keys? | See Referencable Pattern in [serde-patterns.md](serde-patterns.md) |
 
 When these references are insufficient, read the stdlib source directly:

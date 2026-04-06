@@ -7,7 +7,6 @@
 {.push raises: [].}
 
 import std/json
-import std/options
 
 import ./types
 
@@ -31,8 +30,8 @@ func checkJsonKind*(
     return err(validationError(typeName, checkMsg, ""))
   ok()
 
-func collectExtras*(node: JsonNode, knownKeys: openArray[string]): Option[JsonNode] =
-  ## Collect non-standard fields from a JSON object into Option[JsonNode].
+func collectExtras*(node: JsonNode, knownKeys: openArray[string]): Opt[JsonNode] =
+  ## Collect non-standard fields from a JSON object into Opt[JsonNode].
   ## Returns none if no extra fields exist.
   ## Precondition: caller has verified node.kind == JObject.
   var extras = newJObject()
@@ -42,9 +41,18 @@ func collectExtras*(node: JsonNode, knownKeys: openArray[string]): Option[JsonNo
       extras[key] = val
       found = true
   if found:
-    some(extras)
+    Opt.some(extras)
   else:
-    none(JsonNode)
+    Opt.none(JsonNode)
+
+func optJsonField*(node: JsonNode, key: string, kind: JsonNodeKind): Opt[JsonNode] =
+  ## Lenient field extraction: absent, null, or wrong kind -> none.
+  ## Companion to checkJsonKind (strict: returns Result with error details).
+  let child = node{key}
+  if child.isNil or child.kind != kind:
+    Opt.none(JsonNode)
+  else:
+    Opt.some(child)
 
 # --- toJson: distinct string types ---
 

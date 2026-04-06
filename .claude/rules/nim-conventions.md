@@ -77,17 +77,22 @@ all modules.
 
 ### Optional Values
 
-Use `Option[T]` from `std/options` for optional fields in domain types:
+Use `Opt[T]` from nim-results for optional fields — not `std/options`.
+`Opt[T]` is `Result[T, void]`, so it shares the full Result API (`?`,
+`valueOr:`, `map`, `flatMap`, iterators):
 
 ```nim
-import std/options
-
-func findAccount(accounts: openArray[Account], id: AccountId): Option[Account] =
+func findAccount(accounts: openArray[Account], id: AccountId): Opt[Account] =
   for a in accounts:
     if a.id == id:
-      return some(a)
-  none(Account)
+      return Opt.some(a)
+  Opt.none(Account)
 ```
+
+Prefer `for val in opt:` over `if opt.isSome: opt.get()` for conditional
+consumption. Use `valueOr:` for fallback values. Use `?` for early return
+from functions returning `Opt[T]`. Use `.optValue` to bridge `Result[T, E]`
+to `Opt[T]` (discards error details).
 
 ## Conventions
 

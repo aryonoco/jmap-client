@@ -7,7 +7,6 @@
 {.push raises: [].}
 
 import std/json
-import std/options
 import std/tables
 
 import ./serde
@@ -44,8 +43,8 @@ func fromJson*(
 func toJson*(c: Comparator): JsonNode =
   ## Serialise Comparator to JSON (RFC 8620 section 5.5).
   result = %*{"property": string(c.property), "isAscending": c.isAscending}
-  if c.collation.isSome:
-    result["collation"] = %c.collation.get()
+  for col in c.collation:
+    result["collation"] = %col
 
 func fromJson*(
     T: typedesc[Comparator], node: JsonNode
@@ -62,10 +61,10 @@ func fromJson*(
   let isAscending = ascNode.getBool(true)
     # nil-safe; returns true (RFC default) when absent
   let collNode = node{"collation"}
-  var collation = none(string)
+  var collation = Opt.none(string)
   if not collNode.isNil:
     if collNode.kind == JString:
-      collation = some(collNode.getStr(""))
+      collation = Opt.some(collNode.getStr(""))
   ok(parseComparator(property, isAscending, collation))
 
 # =============================================================================

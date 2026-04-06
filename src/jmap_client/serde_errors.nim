@@ -8,7 +8,6 @@
 {.push raises: [].}
 
 import std/json
-import std/options
 
 import ./serde
 import ./types
@@ -17,25 +16,13 @@ import ./types
 # Lenient Option field helpers (§1.4b: absent, null, or wrong kind -> none)
 # =============================================================================
 
-func optString(node: JsonNode, key: string): Option[string] =
+func optString(node: JsonNode, key: string): Opt[string] =
   ## Extract an optional string field leniently: absent or wrong kind -> none.
-  let child = node{key}
-  if child.isNil:
-    none(string)
-  elif child.kind != JString:
-    none(string)
-  else:
-    some(child.getStr(""))
+  Opt.some((?optJsonField(node, key, JString)).getStr(""))
 
-func optInt(node: JsonNode, key: string): Option[int] =
+func optInt(node: JsonNode, key: string): Opt[int] =
   ## Extract an optional integer field leniently: absent or wrong kind -> none.
-  let child = node{key}
-  if child.isNil:
-    none(int)
-  elif child.kind != JInt:
-    none(int)
-  else:
-    some(int(child.getBiggestInt(0)))
+  Opt.some(int((?optJsonField(node, key, JInt)).getBiggestInt(0)))
 
 # =============================================================================
 # RequestError
@@ -49,16 +36,16 @@ func toJson*(re: RequestError): JsonNode =
   ## to prevent manual construction from corrupting the wire format.
   result = newJObject()
   result["type"] = %re.rawType
-  if re.status.isSome:
-    result["status"] = %re.status.get()
-  if re.title.isSome:
-    result["title"] = %re.title.get()
-  if re.detail.isSome:
-    result["detail"] = %re.detail.get()
-  if re.limit.isSome:
-    result["limit"] = %re.limit.get()
-  if re.extras.isSome:
-    for key, val in re.extras.get().pairs:
+  for v in re.status:
+    result["status"] = %v
+  for v in re.title:
+    result["title"] = %v
+  for v in re.detail:
+    result["detail"] = %v
+  for v in re.limit:
+    result["limit"] = %v
+  for extras in re.extras:
+    for key, val in extras.pairs:
       if key notin RequestErrorKnownKeys:
         result[key] = val
 
@@ -98,10 +85,10 @@ func toJson*(me: MethodError): JsonNode =
   ## Extras with keys colliding with standard fields are silently skipped.
   result = newJObject()
   result["type"] = %me.rawType
-  if me.description.isSome:
-    result["description"] = %me.description.get()
-  if me.extras.isSome:
-    for key, val in me.extras.get().pairs:
+  for v in me.description:
+    result["description"] = %v
+  for extras in me.extras:
+    for key, val in extras.pairs:
       if key notin MethodErrorKnownKeys:
         result[key] = val
 
@@ -128,8 +115,8 @@ func toJson*(se: SetError): JsonNode =
   ## silently skipped.
   result = newJObject()
   result["type"] = %se.rawType
-  if se.description.isSome:
-    result["description"] = %se.description.get()
+  for v in se.description:
+    result["description"] = %v
   case se.errorType
   of setInvalidProperties:
     result["properties"] = %se.properties
@@ -137,7 +124,7 @@ func toJson*(se: SetError): JsonNode =
     result["existingId"] = %string(se.existingId)
   else:
     discard
-  if se.extras.isSome:
+  for extras in se.extras:
     let knownKeys =
       case se.errorType
       of setInvalidProperties:
@@ -146,7 +133,7 @@ func toJson*(se: SetError): JsonNode =
         @["type", "description", "existingId"]
       else:
         @["type", "description"]
-    for key, val in se.extras.get().pairs:
+    for key, val in extras.pairs:
       if key notin knownKeys:
         result[key] = val
 

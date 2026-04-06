@@ -7,7 +7,6 @@
 ## = toJson), and composition chain error propagation.
 
 import std/json
-import std/options
 import std/random
 import std/tables
 
@@ -306,7 +305,7 @@ block compositionResponseCreatedIdsPreservation:
   tbl[makeCreationId("new1")] = makeId("id1")
   tbl[makeCreationId("new2")] = makeId("id2")
   tbl[makeCreationId("new3")] = makeId("id3")
-  let original = makeResponse(createdIds = some(tbl))
+  let original = makeResponse(createdIds = Opt.some(tbl))
   let v = Response.fromJson(original.toJson()).get()
   doAssert v.createdIds.isSome
   assertEq v.createdIds.get().len, 3

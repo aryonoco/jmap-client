@@ -12,7 +12,6 @@
 ## 5. Register property tests in tests/property/tprop_<module>.nim
 
 import std/json
-import std/options
 import std/random
 import std/sets
 import std/strutils
@@ -547,16 +546,16 @@ proc genRequestError*(rng: var Rand): RequestError =
   let raw = rng.oneOf(rawTypes)
   let status =
     if rng.rand(0 .. 1) == 0:
-      some(rng.oneOf([400, 403, 404, 500, 503]))
+      Opt.some(rng.oneOf([400, 403, 404, 500, 503]))
     else:
-      none(int)
+      Opt.none(int)
   const titles =
     ["Error Title", "Bad Request", "Forbidden", "Rate Limited", "Capability Missing"]
   let title =
     if rng.rand(0 .. 1) == 0:
-      some(rng.oneOf(titles) & "-" & $rng.rand(0 .. 99))
+      Opt.some(rng.oneOf(titles) & "-" & $rng.rand(0 .. 99))
     else:
-      none(string)
+      Opt.none(string)
   const details = [
     "Detailed description", "The request body is not valid JSON",
     "Unknown capability requested", "Too many concurrent requests",
@@ -564,25 +563,25 @@ proc genRequestError*(rng: var Rand): RequestError =
   ]
   let detail =
     if rng.rand(0 .. 1) == 0:
-      some(rng.oneOf(details) & " #" & $rng.rand(0 .. 99))
+      Opt.some(rng.oneOf(details) & " #" & $rng.rand(0 .. 99))
     else:
-      none(string)
+      Opt.none(string)
   const limits = [
     "maxSizeUpload", "maxConcurrentUpload", "maxSizeRequest", "maxConcurrentRequests",
     "maxCallsInRequest",
   ]
   let limit =
     if rng.rand(0 .. 1) == 0:
-      some(rng.oneOf(limits))
+      Opt.some(rng.oneOf(limits))
     else:
-      none(string)
+      Opt.none(string)
   let extras =
     if rng.rand(0 .. 2) == 0:
       let node = newJObject()
       node["vendor"] = newJString("ext-" & $rng.rand(0 .. 99))
-      some(node)
+      Opt.some(node)
     else:
-      none(JsonNode)
+      Opt.none(JsonNode)
   requestError(raw, status, title, detail, limit, extras)
 
 proc genMethodError*(rng: var Rand): MethodError =
@@ -597,16 +596,16 @@ proc genMethodError*(rng: var Rand): MethodError =
   let raw = rng.oneOf(rawTypes)
   let desc =
     if rng.rand(0 .. 1) == 0:
-      some("description-" & $rng.rand(0 .. 99))
+      Opt.some("description-" & $rng.rand(0 .. 99))
     else:
-      none(string)
+      Opt.none(string)
   let extras =
     if rng.rand(0 .. 2) == 0:
       let node = newJObject()
       node["extra"] = newJString("value-" & $rng.rand(0 .. 99))
-      some(node)
+      Opt.some(node)
     else:
-      none(JsonNode)
+      Opt.none(JsonNode)
   methodError(raw, desc, extras)
 
 proc genSetError*(rng: var Rand): SetError =
@@ -618,16 +617,16 @@ proc genSetError*(rng: var Rand): SetError =
   let branch = rng.rand(0 .. 2)
   let desc =
     if rng.rand(0 .. 1) == 0:
-      some("desc-" & $rng.rand(0 .. 99))
+      Opt.some("desc-" & $rng.rand(0 .. 99))
     else:
-      none(string)
+      Opt.none(string)
   let extras =
     if rng.rand(0 .. 2) == 0:
       let node = newJObject()
       node["vendorField"] = newJString("value-" & $rng.rand(0 .. 99))
-      some(node)
+      Opt.some(node)
     else:
-      none(JsonNode)
+      Opt.none(JsonNode)
   case branch
   of 0:
     # invalidProperties variant
@@ -742,9 +741,9 @@ proc genComparator*(rng: var Rand): Comparator =
   let asc = rng.rand(0 .. 1) == 0
   let coll =
     if rng.rand(0 .. 2) == 0:
-      some("i;ascii-casemap")
+      Opt.some("i;ascii-casemap")
     else:
-      none(string)
+      Opt.none(string)
   parseComparator(prop, asc, coll)
 
 proc genAddedItem*(rng: var Rand): AddedItem =
@@ -999,9 +998,9 @@ proc genRequest*(rng: var Rand): Request =
         let cid = parseCreationId("new" & $i).get()
         let id = parseIdFromServer("id" & $i).get()
         tbl[cid] = id
-      some(tbl)
+      Opt.some(tbl)
     else:
-      none(Table[CreationId, Id])
+      Opt.none(Table[CreationId, Id])
   Request(`using`: usingUris, methodCalls: calls, createdIds: createdIds)
 
 proc genResponse*(rng: var Rand): Response =
@@ -1021,9 +1020,9 @@ proc genResponse*(rng: var Rand): Response =
         let cid = parseCreationId("new" & $i).get()
         let id = parseIdFromServer("id" & $i).get()
         tbl[cid] = id
-      some(tbl)
+      Opt.some(tbl)
     else:
-      none(Table[CreationId, Id])
+      Opt.none(Table[CreationId, Id])
   Response(methodResponses: resps, createdIds: createdIds, sessionState: state)
 
 proc genSession*(rng: var Rand): Session =

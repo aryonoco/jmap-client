@@ -5,7 +5,6 @@
 ## ResultReference, and Referencable[T] dispatch tests.
 
 import std/json
-import std/options
 import std/random
 import std/strutils
 import std/tables
@@ -64,7 +63,7 @@ block roundTripRequestWithCreatedIds:
   tbl[makeCreationId("k1")] = makeId("id1")
   tbl[makeCreationId("k2")] = makeId("id2")
   tbl[makeCreationId("k3")] = makeId("id3")
-  let original = makeRequest(createdIds = some(tbl))
+  let original = makeRequest(createdIds = Opt.some(tbl))
   let v = Request.fromJson(original.toJson()).get()
   doAssert v.createdIds.isSome
   assertEq v.createdIds.get().len, 3
@@ -81,7 +80,7 @@ block roundTripResponseWithCreatedIds:
   tbl[makeCreationId("k1")] = makeId("id1")
   tbl[makeCreationId("k2")] = makeId("id2")
   tbl[makeCreationId("k3")] = makeId("id3")
-  let original = makeResponse(createdIds = some(tbl))
+  let original = makeResponse(createdIds = Opt.some(tbl))
   let v = Response.fromJson(original.toJson()).get()
   doAssert v.createdIds.isSome
   assertEq v.createdIds.get().len, 3
@@ -132,7 +131,7 @@ block requestToJsonFieldNames:
 block requestToJsonCreatedIdsPresent:
   var tbl = initTable[CreationId, Id]()
   tbl[makeCreationId("k1")] = makeId("id1")
-  let req = makeRequest(createdIds = some(tbl))
+  let req = makeRequest(createdIds = Opt.some(tbl))
   let j = req.toJson()
   doAssert j{"createdIds"} != nil
   doAssert j{"createdIds"}.kind == JObject
@@ -546,7 +545,7 @@ block requestRoundTripWithCreatedIds:
   let req = Request(
     `using`: @["urn:ietf:params:jmap:core"],
     methodCalls: @[makeInvocation()],
-    createdIds: some(tbl),
+    createdIds: Opt.some(tbl),
   )
   let v = Request.fromJson(req.toJson()).get()
   assertSome v.createdIds
@@ -560,7 +559,7 @@ block responseRoundTripAllFields:
   let resp = Response(
     methodResponses: @[makeInvocation(), makeInvocation("Email/set", makeMcid("c2"))],
     sessionState: makeState("s42"),
-    createdIds: some(tbl),
+    createdIds: Opt.some(tbl),
   )
   let v = Response.fromJson(resp.toJson()).get()
   assertLen v.methodResponses, 2
@@ -599,7 +598,7 @@ block requestEmptyUsingArray:
 block errorInvocationWireFormat:
   ## Construct an Invocation with name="error" and MethodError arguments,
   ## serialise it, and verify the ["error", {"type": ...}, "c0"] wire format.
-  let me = methodError("unknownMethod", some("No such method"))
+  let me = methodError("unknownMethod", Opt.some("No such method"))
   let inv = initInvocation("error", me.toJson(), makeMcid("c0"))
   let j = inv.toJson()
   # Wire format: 3-element JSON array
@@ -623,7 +622,7 @@ block errorInvocationServerFailWireFormat:
   ## Error invocation with serverFail type and extras.
   let extras = newJObject()
   extras["retryAfter"] = %30
-  let me = methodError("serverFail", some("Try again"), some(extras))
+  let me = methodError("serverFail", Opt.some("Try again"), Opt.some(extras))
   let inv = initInvocation("error", me.toJson(), makeMcid("c5"))
   let j = inv.toJson()
   let elems = j.getElems(@[])
@@ -648,7 +647,7 @@ block backReferenceHashPrefixRoundTrip:
   let req = Request(
     `using`: @["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail"],
     methodCalls: @[inv],
-    createdIds: none(Table[CreationId, Id]),
+    createdIds: Opt.none(Table[CreationId, Id]),
   )
   # Serialise the Request
   let j = req.toJson()
@@ -689,7 +688,7 @@ block requestGoldenWireFormat:
   let req = Request(
     `using`: @["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail"],
     methodCalls: @[inv1, inv2, inv3],
-    createdIds: none(Table[CreationId, Id]),
+    createdIds: Opt.none(Table[CreationId, Id]),
   )
   let j = req.toJson()
   doAssert j{"using"} != nil
@@ -725,7 +724,7 @@ block responseGoldenWireFormat:
   let resp = Response(
     methodResponses: @[inv1, inv2, inv3, inv4],
     sessionState: parseJmapState("75128aab4b1b").get(),
-    createdIds: none(Table[CreationId, Id]),
+    createdIds: Opt.none(Table[CreationId, Id]),
   )
   let j = resp.toJson()
   doAssert j{"methodResponses"} != nil

@@ -6,7 +6,6 @@
 ## and idempotence for all composite serde types.
 
 import std/json
-import std/options
 import std/random
 
 import jmap_client/serde
