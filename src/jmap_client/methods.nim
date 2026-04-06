@@ -174,45 +174,41 @@ type ChangesResponse*[T] = object
 type SetResponse*[T] = object
   ## Response arguments for Foo/set (RFC 8620 section 5.3).
   ## Wire format uses parallel maps (created/notCreated, etc.); the internal
-  ## representation preserves this structure as separate success/failure
-  ## tables mirroring the wire format.
+  ## representation merges these into unified Result maps (Decision 3.9B).
+  ## Each identifier has exactly one outcome — impossible for an ID to
+  ## appear in both success and failure branches.
   accountId*: AccountId ## The identifier of the account used for the call.
   oldState*: Opt[JmapState]
     ## The state before making the requested changes, or none if the server
     ## does not know the previous state.
   newState*: JmapState ## The state that will now be returned by Foo/get.
-  created*: Table[CreationId, JsonNode]
-    ## Successfully created entities. Wire ``created`` entries keyed by
-    ## creation identifier, values are the server-assigned entity data.
-  notCreated*: Table[CreationId, SetError]
-    ## Failed create operations. Wire ``notCreated`` entries keyed by
-    ## creation identifier, values are SetError details.
-  updated*: Table[Id, Opt[JsonNode]]
-    ## Successfully updated entities. Wire ``updated`` entries keyed by
-    ## record identifier. None means no server-set properties changed;
-    ## Some contains changed property data.
-  notUpdated*: Table[Id, SetError]
-    ## Failed update operations. Wire ``notUpdated`` entries keyed by
-    ## record identifier, values are SetError details.
-  destroyed*: seq[Id]
-    ## Successfully destroyed record identifiers. Wire ``destroyed`` array.
-  notDestroyed*: Table[Id, SetError]
-    ## Failed destroy operations. Wire ``notDestroyed`` entries keyed by
-    ## record identifier, values are SetError details.
+  createResults*: Table[CreationId, Result[JsonNode, SetError]]
+    ## Merged create outcomes. Wire ``created`` entries become
+    ## ``Result.ok(entityJson)``; wire ``notCreated`` entries become
+    ## ``Result.err(setError)``. Last-writer-wins on duplicate keys.
+  updateResults*: Table[Id, Result[Opt[JsonNode], SetError]]
+    ## Merged update outcomes. Wire ``updated`` entries with null value
+    ## become ``ok(Opt.none(JsonNode))``; non-null values become
+    ## ``ok(Opt.some(entityJson))``. Wire ``notUpdated`` entries become
+    ## ``Result.err(setError)``.
+  destroyResults*: Table[Id, Result[void, SetError]]
+    ## Merged destroy outcomes. Wire ``destroyed`` entries become
+    ## ``Result.ok()``; wire ``notDestroyed`` entries become
+    ## ``Result.err(setError)``.
 
 type CopyResponse*[T] = object
   ## Response arguments for Foo/copy (RFC 8620 section 5.4).
   ## Structurally similar to SetResponse but only has create results.
+  ## Uses unified Result maps (Decision 3.9B).
   fromAccountId*: AccountId ## The identifier of the account records were copied from.
   accountId*: AccountId ## The identifier of the account records were copied to.
   oldState*: Opt[JmapState] ## The state of the destination account before the copy.
   newState*: JmapState
     ## The state that will now be returned by Foo/get on the destination
     ## account.
-  created*: Table[CreationId, JsonNode]
-    ## Successfully copied entities, keyed by creation identifier.
-  notCreated*: Table[CreationId, SetError]
-    ## Failed copy operations, keyed by creation identifier.
+  createResults*: Table[CreationId, Result[JsonNode, SetError]]
+    ## Merged copy outcomes. Same merging semantics as SetResponse
+    ## create branch (Decision 3.9B).
 
 type QueryResponse*[T] = object
   ## Response arguments for Foo/query (RFC 8620 section 5.5).
@@ -386,72 +382,68 @@ proc toJson*[T, C](
 
 func mergeCreateResults(
     node: JsonNode
-): Result[(Table[CreationId, JsonNode], Table[CreationId, SetError]), ValidationError] =
-  ## Merge wire ``created``/``notCreated`` maps into separate success/failure
-  ## tables (RFC 8620 section 5.3). Used by both SetResponse and CopyResponse.
-  ## Last-writer-wins for duplicate keys (section 8.5).
-  var created = initTable[CreationId, JsonNode]()
-  var notCreated = initTable[CreationId, SetError]()
+): Result[Table[CreationId, Result[JsonNode, SetError]], ValidationError] =
+  ## Merge wire ``created``/``notCreated`` maps into a unified Result table
+  ## (RFC 8620 section 5.3, Decision 3.9B). Used by both SetResponse and
+  ## CopyResponse. Last-writer-wins for duplicate keys (section 8.5).
+  var tbl = initTable[CreationId, Result[JsonNode, SetError]]()
   let createdNode = node{"created"}
   if not createdNode.isNil and createdNode.kind == JObject:
     for k, v in createdNode.pairs:
       let cid = ?parseCreationId(k)
-      created[cid] = v
+      tbl[cid] = Result[JsonNode, SetError].ok(v)
   let notCreatedNode = node{"notCreated"}
   if not notCreatedNode.isNil and notCreatedNode.kind == JObject:
     for k, v in notCreatedNode.pairs:
       let cid = ?parseCreationId(k)
       let se = ?SetError.fromJson(v)
-      created.del(cid)
-      notCreated[cid] = se
-  ok((created, notCreated))
+      tbl[cid] = Result[JsonNode, SetError].err(se)
+  ok(tbl)
 
 func mergeUpdateResults(
     node: JsonNode
-): Result[(Table[Id, Opt[JsonNode]], Table[Id, SetError]), ValidationError] =
-  ## Merge wire ``updated``/``notUpdated`` maps into separate success/failure
-  ## tables (RFC 8620 section 5.3). Null value in ``updated`` means no
-  ## server-set properties changed; non-null contains changed properties.
+): Result[Table[Id, Result[Opt[JsonNode], SetError]], ValidationError] =
+  ## Merge wire ``updated``/``notUpdated`` maps into a unified Result table
+  ## (RFC 8620 section 5.3, Decision 3.9B). Null value in ``updated`` means
+  ## no server-set properties changed; non-null contains changed properties.
   ## Last-writer-wins for duplicate keys (section 8.5).
-  var updated = initTable[Id, Opt[JsonNode]]()
-  var notUpdated = initTable[Id, SetError]()
+  var tbl = initTable[Id, Result[Opt[JsonNode], SetError]]()
   let updatedNode = node{"updated"}
   if not updatedNode.isNil and updatedNode.kind == JObject:
     for k, v in updatedNode.pairs:
       let id = ?parseIdFromServer(k)
       if v.isNil or v.kind == JNull:
-        updated[id] = Opt.none(JsonNode)
+        tbl[id] = Result[Opt[JsonNode], SetError].ok(Opt.none(JsonNode))
       else:
-        updated[id] = Opt.some(v)
+        tbl[id] = Result[Opt[JsonNode], SetError].ok(Opt.some(v))
   let notUpdatedNode = node{"notUpdated"}
   if not notUpdatedNode.isNil and notUpdatedNode.kind == JObject:
     for k, v in notUpdatedNode.pairs:
       let id = ?parseIdFromServer(k)
       let se = ?SetError.fromJson(v)
-      updated.del(id)
-      notUpdated[id] = se
-  ok((updated, notUpdated))
+      tbl[id] = Result[Opt[JsonNode], SetError].err(se)
+  ok(tbl)
 
 func mergeDestroyResults(
     node: JsonNode
-): Result[(seq[Id], Table[Id, SetError]), ValidationError] =
-  ## Merge wire ``destroyed``/``notDestroyed`` into separate success/failure
-  ## collections (RFC 8620 section 5.3). ``destroyed`` is a flat array on
-  ## the wire, represented as seq[Id].
-  var destroyed: seq[Id] = @[]
-  var notDestroyed = initTable[Id, SetError]()
+): Result[Table[Id, Result[void, SetError]], ValidationError] =
+  ## Merge wire ``destroyed``/``notDestroyed`` into a unified Result table
+  ## (RFC 8620 section 5.3, Decision 3.9B). ``destroyed`` is a flat array
+  ## on the wire; each ID becomes ``Result.ok()``. ``notDestroyed`` entries
+  ## become ``Result.err(setError)``. Last-writer-wins on duplicate keys.
+  var tbl = initTable[Id, Result[void, SetError]]()
   let destroyedNode = node{"destroyed"}
   if not destroyedNode.isNil and destroyedNode.kind == JArray:
     for _, elem in destroyedNode.getElems(@[]):
       let id = ?parseIdFromServer(elem.getStr(""))
-      destroyed.add(id)
+      tbl[id] = Result[void, SetError].ok()
   let notDestroyedNode = node{"notDestroyed"}
   if not notDestroyedNode.isNil and notDestroyedNode.kind == JObject:
     for k, v in notDestroyedNode.pairs:
       let id = ?parseIdFromServer(k)
       let se = ?SetError.fromJson(v)
-      notDestroyed[id] = se
-  ok((destroyed, notDestroyed))
+      tbl[id] = Result[void, SetError].err(se)
+  ok(tbl)
 
 # =============================================================================
 # Response fromJson (Pattern L3-B)
@@ -531,20 +523,17 @@ func fromJson*[T](
   let accountId = ?parseAccountId(node{"accountId"}.getStr(""))
   let newState = ?parseJmapState(node{"newState"}.getStr(""))
   let oldState = optState(node, "oldState")
-  let (created, notCreated) = ?mergeCreateResults(node)
-  let (updated, notUpdated) = ?mergeUpdateResults(node)
-  let (destroyed, notDestroyed) = ?mergeDestroyResults(node)
+  let createResults = ?mergeCreateResults(node)
+  let updateResults = ?mergeUpdateResults(node)
+  let destroyResults = ?mergeDestroyResults(node)
   ok(
     SetResponse[T](
       accountId: accountId,
       newState: newState,
       oldState: oldState,
-      created: created,
-      notCreated: notCreated,
-      updated: updated,
-      notUpdated: notUpdated,
-      destroyed: destroyed,
-      notDestroyed: notDestroyed,
+      createResults: createResults,
+      updateResults: updateResults,
+      destroyResults: destroyResults,
     )
   )
 
@@ -560,15 +549,14 @@ func fromJson*[T](
   let accountId = ?parseAccountId(node{"accountId"}.getStr(""))
   let newState = ?parseJmapState(node{"newState"}.getStr(""))
   let oldState = optState(node, "oldState")
-  let (created, notCreated) = ?mergeCreateResults(node)
+  let createResults = ?mergeCreateResults(node)
   ok(
     CopyResponse[T](
       fromAccountId: fromAccountId,
       accountId: accountId,
       newState: newState,
       oldState: oldState,
-      created: created,
-      notCreated: notCreated,
+      createResults: createResults,
     )
   )
 

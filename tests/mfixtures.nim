@@ -589,3 +589,72 @@ proc setErrorEq*(a, b: SetError): bool =
     a.existingId == b.existingId
   else:
     true
+
+# ---------------------------------------------------------------------------
+# Builder / dispatch fixtures
+# ---------------------------------------------------------------------------
+
+proc makeGetResponseJson*(accountId = "acct1", state = "s1"): JsonNode =
+  ## Minimal valid GetResponse JSON for dispatch tests.
+  %*{"accountId": accountId, "state": state, "list": [], "notFound": []}
+
+proc makeChangesResponseJson*(
+    accountId = "acct1", oldState = "s1", newState = "s2"
+): JsonNode =
+  ## Minimal valid ChangesResponse JSON.
+  %*{
+    "accountId": accountId,
+    "oldState": oldState,
+    "newState": newState,
+    "hasMoreChanges": false,
+    "created": [],
+    "updated": [],
+    "destroyed": [],
+  }
+
+proc makeSetResponseJson*(accountId = "acct1", newState = "s2"): JsonNode =
+  ## Minimal valid SetResponse JSON (empty results).
+  %*{"accountId": accountId, "newState": newState}
+
+proc makeQueryResponseJson*(accountId = "acct1", queryState = "qs1"): JsonNode =
+  ## Minimal valid QueryResponse JSON.
+  %*{
+    "accountId": accountId,
+    "queryState": queryState,
+    "canCalculateChanges": true,
+    "position": 0,
+    "ids": [],
+  }
+
+proc makeErrorInvocation*(
+    mcid: MethodCallId = makeMcid("c0"), errorType = "serverFail"
+): Invocation =
+  ## An error invocation for dispatch tests.
+  initInvocation("error", %*{"type": errorType}, mcid)
+
+proc makeTypedResponse*(
+    methodName: string,
+    args: JsonNode,
+    mcid: MethodCallId = makeMcid("c0"),
+    state: JmapState = makeState("rs1"),
+): Response =
+  ## Builds a Response with a single successful method invocation.
+  let inv = initInvocation(methodName, args, mcid)
+  Response(
+    methodResponses: @[inv],
+    createdIds: Opt.none(Table[CreationId, Id]),
+    sessionState: state,
+  )
+
+proc makeErrorResponse*(
+    errorType: string,
+    mcid: MethodCallId = makeMcid("c0"),
+    state: JmapState = makeState("rs1"),
+): Response =
+  ## Builds a Response with a single error invocation.
+  let inv = makeErrorInvocation(mcid, errorType)
+  Response(
+    methodResponses: @[inv],
+    createdIds: Opt.none(Table[CreationId, Id]),
+    sessionState: state,
+  )

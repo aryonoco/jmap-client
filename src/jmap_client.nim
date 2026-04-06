@@ -9,10 +9,10 @@
 
 import jmap_client/types
 import jmap_client/serialisation
-import jmap_client/methods
+import jmap_client/protocol
 import jmap_client/client
 
 export types
 export serialisation
-export methods
+export protocol
 export client

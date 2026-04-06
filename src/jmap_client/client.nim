@@ -19,6 +19,7 @@ else:
 
 import ./types
 import ./serialisation
+import ./builder
 
 # Design §9.1 (D4.12): compile-time hint when -d:ssl is missing.
 # Uses {.hint:} rather than {.warning:} because config.nims promotes
@@ -542,3 +543,12 @@ proc refreshSessionIfStale*(
     discard s
     return ok(true)
   ok(false)
+
+proc send*(
+    client: var JmapClient, builder: RequestBuilder
+): JmapResult[envelope.Response] =
+  ## Convenience: builds the request and sends it in one step.
+  ## Equivalent to ``client.send(builder.build())``.
+  ## This is the imperative shell boundary where the functional core
+  ## (builder) meets IO.
+  client.send(builder.build())

@@ -118,22 +118,24 @@ block goldenSetResponseMerging:
   doAssert sr.oldState.isSome
   doAssert sr.oldState.get() == makeState("state1")
   doAssert sr.newState == makeState("state2")
-  # created: k1 ok, notCreated: k2 err
-  assertLen sr.created, 1
-  assertLen sr.notCreated, 1
-  doAssert makeCreationId("k1") in sr.created
-  doAssert sr.notCreated[makeCreationId("k2")].errorType == setForbidden
-  # updated: id1 none, id2 some; notUpdated: id3 err
-  assertLen sr.updated, 2
-  assertLen sr.notUpdated, 1
-  doAssert sr.updated[makeId("id1")].isNone
-  doAssert sr.updated[makeId("id2")].isSome
-  doAssert sr.notUpdated[makeId("id3")].errorType == setNotFound
-  # destroyed: id4; notDestroyed: id5 err
-  assertLen sr.destroyed, 1
-  assertLen sr.notDestroyed, 1
-  doAssert makeId("id4") in sr.destroyed
-  doAssert sr.notDestroyed[makeId("id5")].errorType == setForbidden
+  # createResults: k1 ok, k2 err (Decision 3.9B unified Result maps)
+  assertLen sr.createResults, 2
+  doAssert sr.createResults[makeCreationId("k1")].isOk
+  doAssert sr.createResults[makeCreationId("k2")].isErr
+  doAssert sr.createResults[makeCreationId("k2")].error().errorType == setForbidden
+  # updateResults: id1 ok(none), id2 ok(some), id3 err
+  assertLen sr.updateResults, 3
+  doAssert sr.updateResults[makeId("id1")].isOk
+  doAssert sr.updateResults[makeId("id1")].get().isNone
+  doAssert sr.updateResults[makeId("id2")].isOk
+  doAssert sr.updateResults[makeId("id2")].get().isSome
+  doAssert sr.updateResults[makeId("id3")].isErr
+  doAssert sr.updateResults[makeId("id3")].error().errorType == setNotFound
+  # destroyResults: id4 ok, id5 err
+  assertLen sr.destroyResults, 2
+  doAssert sr.destroyResults[makeId("id4")].isOk
+  doAssert sr.destroyResults[makeId("id5")].isErr
+  doAssert sr.destroyResults[makeId("id5")].error().errorType == setForbidden
 
 # ===========================================================================
 # B. Request toJson tests
@@ -502,33 +504,30 @@ block changesResponseEmptyArrays:
 # ===========================================================================
 
 block setResponseBothNull:
-  ## Both created and notCreated null produces empty tables.
+  ## Both created and notCreated null produces empty Result tables.
   let j = %*{"accountId": "a1", "newState": "s1"}
   let sr = SetResponse[MockFoo].fromJson(j).get()
-  assertLen sr.created, 0
-  assertLen sr.notCreated, 0
-  assertLen sr.updated, 0
-  assertLen sr.notUpdated, 0
-  assertLen sr.destroyed, 0
-  assertLen sr.notDestroyed, 0
+  assertLen sr.createResults, 0
+  assertLen sr.updateResults, 0
+  assertLen sr.destroyResults, 0
 
 block setResponseCreatedOnly:
-  ## Created entries only -- all ok.
+  ## Created entries only — all ok in unified Result map.
   let j = %*{"accountId": "a1", "newState": "s1", "created": {"k1": {"id": "id1"}}}
   let sr = SetResponse[MockFoo].fromJson(j).get()
-  assertLen sr.created, 1
-  doAssert makeCreationId("k1") in sr.created
+  assertLen sr.createResults, 1
+  doAssert sr.createResults[makeCreationId("k1")].isOk
 
 block setResponseNotCreatedOnly:
-  ## NotCreated entries only -- all err.
+  ## NotCreated entries only — all err in unified Result map.
   let j =
     %*{"accountId": "a1", "newState": "s1", "notCreated": {"k1": {"type": "forbidden"}}}
   let sr = SetResponse[MockFoo].fromJson(j).get()
-  assertLen sr.notCreated, 1
-  doAssert makeCreationId("k1") in sr.notCreated
+  assertLen sr.createResults, 1
+  doAssert sr.createResults[makeCreationId("k1")].isErr
 
 block setResponseMixedCreateResults:
-  ## Mixed created and notCreated.
+  ## Mixed created and notCreated in unified Result map.
   let j = %*{
     "accountId": "a1",
     "newState": "s1",
@@ -536,26 +535,29 @@ block setResponseMixedCreateResults:
     "notCreated": {"k2": {"type": "forbidden"}},
   }
   let sr = SetResponse[MockFoo].fromJson(j).get()
-  assertLen sr.created, 1
-  assertLen sr.notCreated, 1
+  assertLen sr.createResults, 2
+  doAssert sr.createResults[makeCreationId("k1")].isOk
+  doAssert sr.createResults[makeCreationId("k2")].isErr
 
 block setResponseUpdatedNull:
-  ## Updated entry with null value produces none.
+  ## Updated entry with null value produces ok(none) in unified Result map.
   let j = %*{"accountId": "a1", "newState": "s1", "updated": {"id1": nil}}
   let sr = SetResponse[MockFoo].fromJson(j).get()
-  doAssert sr.updated[makeId("id1")].isNone
+  doAssert sr.updateResults[makeId("id1")].isOk
+  doAssert sr.updateResults[makeId("id1")].get().isNone
 
 block setResponseUpdatedObject:
-  ## Updated entry with object value produces some.
+  ## Updated entry with object value produces ok(some) in unified Result map.
   let j = %*{"accountId": "a1", "newState": "s1", "updated": {"id1": {"prop": "val"}}}
   let sr = SetResponse[MockFoo].fromJson(j).get()
-  doAssert sr.updated[makeId("id1")].isSome
+  doAssert sr.updateResults[makeId("id1")].isOk
+  doAssert sr.updateResults[makeId("id1")].get().isSome
 
 block setResponseDestroyedEmpty:
-  ## Destroyed empty array produces empty destroyed.
+  ## Destroyed empty array produces empty destroyResults.
   let j = %*{"accountId": "a1", "newState": "s1", "destroyed": []}
   let sr = SetResponse[MockFoo].fromJson(j).get()
-  assertLen sr.destroyed, 0
+  assertLen sr.destroyResults, 0
 
 block setResponseOldStateAbsent:
   ## OldState absent produces none.
@@ -576,12 +578,14 @@ block setResponseNotCreatedUnknownType:
     "accountId": "a1", "newState": "s1", "notCreated": {"k1": {"type": "futureError"}}
   }
   let sr = SetResponse[MockFoo].fromJson(j).get()
-  let se = sr.notCreated[makeCreationId("k1")]
+  doAssert sr.createResults[makeCreationId("k1")].isErr
+  let se = sr.createResults[makeCreationId("k1")].error()
   doAssert se.errorType == setUnknown
   doAssert se.rawType == "futureError"
 
 block setResponseDuplicateIdLastWriterWins:
-  ## Same id in created and notCreated -- last writer (notCreated) wins.
+  ## Same id in created and notCreated — last writer (notCreated) wins.
+  ## Unified Result map: single entry, err (not two separate entries).
   let j = %*{
     "accountId": "a1",
     "newState": "s1",
@@ -589,9 +593,8 @@ block setResponseDuplicateIdLastWriterWins:
     "notCreated": {"k1": {"type": "forbidden"}},
   }
   let sr = SetResponse[MockFoo].fromJson(j).get()
-  assertLen sr.created, 0
-  assertLen sr.notCreated, 1
-  doAssert makeCreationId("k1") in sr.notCreated
+  assertLen sr.createResults, 1
+  doAssert sr.createResults[makeCreationId("k1")].isErr
 
 block setResponseMalformedNotCreatedEntry:
   ## Malformed notCreated entry (non-object) aborts entire merge with err.
@@ -604,7 +607,7 @@ block setResponseMalformedNotCreatedEntry:
 # ===========================================================================
 
 block copyResponseAlreadyExists:
-  ## All notCreated with alreadyExists.
+  ## All notCreated with alreadyExists — unified Result map err branch.
   let j = %*{
     "fromAccountId": "from1",
     "accountId": "to1",
@@ -612,7 +615,8 @@ block copyResponseAlreadyExists:
     "notCreated": {"k1": {"type": "alreadyExists", "existingId": "existing1"}},
   }
   let cr = CopyResponse[MockFoo].fromJson(j).get()
-  let se = cr.notCreated[makeCreationId("k1")]
+  doAssert cr.createResults[makeCreationId("k1")].isErr
+  let se = cr.createResults[makeCreationId("k1")].error()
   doAssert se.errorType == setAlreadyExists
 
 block copyResponseMalformedExistingId:
@@ -624,11 +628,12 @@ block copyResponseMalformedExistingId:
     "notCreated": {"k1": {"type": "alreadyExists", "existingId": ""}},
   }
   let cr = CopyResponse[MockFoo].fromJson(j).get()
-  let se = cr.notCreated[makeCreationId("k1")]
+  doAssert cr.createResults[makeCreationId("k1")].isErr
+  let se = cr.createResults[makeCreationId("k1")].error()
   doAssert se.rawType == "alreadyExists"
 
 block copyResponseAllFailed:
-  ## Created null, notCreated has entries -- all copies failed.
+  ## Created null, notCreated has entries — all copies failed (unified err).
   let j = %*{
     "fromAccountId": "from1",
     "accountId": "to1",
@@ -636,11 +641,11 @@ block copyResponseAllFailed:
     "notCreated": {"k1": {"type": "forbidden"}},
   }
   let cr = CopyResponse[MockFoo].fromJson(j).get()
-  assertLen cr.notCreated, 1
-  doAssert makeCreationId("k1") in cr.notCreated
+  assertLen cr.createResults, 1
+  doAssert cr.createResults[makeCreationId("k1")].isErr
 
 block copyResponseValidCreated:
-  ## Valid created entry with server-set id.
+  ## Valid created entry with server-set id — unified ok branch.
   let j = %*{
     "fromAccountId": "from1",
     "accountId": "to1",
@@ -648,10 +653,10 @@ block copyResponseValidCreated:
     "created": {"k1": {"id": "newid1"}},
   }
   let cr = CopyResponse[MockFoo].fromJson(j).get()
-  doAssert makeCreationId("k1") in cr.created
+  doAssert cr.createResults[makeCreationId("k1")].isOk
 
 block copyResponseCreatedNullNotCreatedPresent:
-  ## Created null + notCreated entries.
+  ## Created null + notCreated entries — all err in unified map.
   let j = %*{
     "fromAccountId": "from1",
     "accountId": "to1",
@@ -659,7 +664,9 @@ block copyResponseCreatedNullNotCreatedPresent:
     "notCreated": {"k1": {"type": "forbidden"}, "k2": {"type": "overQuota"}},
   }
   let cr = CopyResponse[MockFoo].fromJson(j).get()
-  assertLen cr.notCreated, 2
+  assertLen cr.createResults, 2
+  doAssert cr.createResults[makeCreationId("k1")].isErr
+  doAssert cr.createResults[makeCreationId("k2")].isErr
 
 # ===========================================================================
 # G. QueryResponse fromJson tests
