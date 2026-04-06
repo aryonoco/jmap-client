@@ -7,6 +7,8 @@
 ## ``registerJmapEntity`` and ``registerQueryableEntity`` templates detect
 ## missing overloads at compile time with domain-specific error messages.
 
+import std/json
+
 import jmap_client/validation
 import jmap_client/entity
 
@@ -45,6 +47,9 @@ registerJmapEntity(MockQueryable)
 template filterType*(T: typedesc[MockQueryable]): typedesc =
   MockFilterCondition
 
+func filterConditionToJson*(c: MockFilterCondition): JsonNode =
+  newJObject()
+
 registerQueryableEntity(MockQueryable)
 
 # Types for negative tests (deliberately missing overloads)
@@ -60,6 +65,22 @@ type NoMethodNs = object
 
 func capabilityUri*(T: typedesc[NoMethodNs]): string =
   "urn:test:nomethodns"
+
+type NoFilterToJson = object
+
+func methodNamespace*(T: typedesc[NoFilterToJson]): string =
+  "NoFilterToJson"
+
+func capabilityUri*(T: typedesc[NoFilterToJson]): string =
+  "urn:test:nofj"
+
+type NoFilterToJsonFilter = object
+
+template filterType*(T: typedesc[NoFilterToJson]): typedesc =
+  NoFilterToJsonFilter
+
+registerJmapEntity(NoFilterToJson)
+## Has filterType but no filterConditionToJson — registerQueryableEntity must fail.
 
 {.pop.} # ruleOff: "params"
 {.pop.} # ruleOff: "objects"
@@ -105,3 +126,9 @@ block missingMethodNamespace:
 block missingFilterType:
   ## MockFoo has no filterType — registerQueryableEntity must fail.
   assertNotCompiles(registerQueryableEntity(MockFoo))
+
+block missingFilterConditionToJson:
+  ## Type with filterType but no filterConditionToJson must fail.
+  ## NoFilterToJson (defined at module level) has filterType but deliberately
+  ## omits filterConditionToJson.
+  assertNotCompiles(registerQueryableEntity(NoFilterToJson))

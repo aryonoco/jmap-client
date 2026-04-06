@@ -281,3 +281,81 @@ proc addQueryChanges*[T, C](
   let callId =
     addInvocation(b, methodNamespace(T) & "/queryChanges", args, capabilityUri(T))
   ResponseHandle[QueryChangesResponse[T]](callId)
+
+# =============================================================================
+# Single-type-parameter query overloads (resolve filter via template expansion)
+# =============================================================================
+#
+# These are templates (not procs) because filterType(T) must appear in type
+# positions that are resolved at the call site. Nim's `mixin` only affects
+# the function body, not the parameter signature. Templates expand at the
+# call site where filterType is visible, avoiding this limitation.
+#
+# The two-parameter `addQuery[T, C]` proc remains as an escape hatch for
+# custom filter types not registered via the entity framework.
+
+template addQuery*[T](
+    b: var RequestBuilder, accountId: AccountId
+): ResponseHandle[QueryResponse[T]] =
+  ## Single-type-parameter Foo/query. Resolves the filter condition type
+  ## from ``filterType(T)`` and the serialisation callback from
+  ## ``filterConditionToJson`` at the call site (template expansion).
+  ##
+  ## This closes a type-safety gap: the two-parameter ``addQuery[T, C]``
+  ## allows ``C != filterType(T)``, which compiles but produces semantically
+  ## wrong JSON. This overload makes that impossible.
+  ##
+  ## For queries with filters, use the two-parameter ``addQuery[T, C]``
+  ## overload which accepts a filter parameter, or use ``addQuery[T]`` for
+  ## filterless queries and add filters via the pipeline combinators.
+  addQuery[T, filterType(T)](
+    b,
+    accountId,
+    proc(c: filterType(T)): JsonNode {.noSideEffect, raises: [].} =
+      filterConditionToJson(c),
+  )
+
+template addQueryChanges*[T](
+    b: var RequestBuilder, accountId: AccountId, sinceQueryState: JmapState
+): ResponseHandle[QueryChangesResponse[T]] =
+  ## Single-type-parameter Foo/queryChanges. Same resolution as ``addQuery[T]``.
+  addQueryChanges[T, filterType(T)](
+    b,
+    accountId,
+    sinceQueryState,
+    proc(c: filterType(T)): JsonNode {.noSideEffect, raises: [].} =
+      filterConditionToJson(c),
+  )
+
+# =============================================================================
+# Argument-construction helpers (reduce Opt.some/direct nesting at call sites)
+# =============================================================================
+
+func directIds*(ids: openArray[Id]): Opt[Referencable[seq[Id]]] =
+  ## Wraps a sequence of IDs into ``Opt[Referencable[seq[Id]]]`` for direct
+  ## (non-reference) use. Eliminates the ``Opt.some(direct(@[...]))`` nesting
+  ## at call sites.
+  ##
+  ## **Before:** ``addGet[T](b, acctId, ids = Opt.some(direct(@[id1, id2])))``
+  ## **After:** ``addGet[T](b, acctId, ids = directIds(@[id1, id2]))``
+  Opt.some(direct(@ids))
+
+func initCreates*(
+    pairs: openArray[(CreationId, JsonNode)]
+): Opt[Table[CreationId, JsonNode]] =
+  ## Builds an Opt-wrapped create table from CreationId/JsonNode pairs.
+  ## Keys must be validated ``CreationId`` values — preserves smart-constructor
+  ## discipline. Use ``parseCreationId`` or test helper ``makeCreationId``
+  ## to obtain keys.
+  var tbl = initTable[CreationId, JsonNode](pairs.len)
+  for (k, v) in pairs:
+    tbl[k] = v
+  Opt.some(tbl)
+
+func initUpdates*(pairs: openArray[(Id, PatchObject)]): Opt[Table[Id, PatchObject]] =
+  ## Builds an Opt-wrapped update table from Id/PatchObject pairs.
+  ## Keys must be validated ``Id`` values.
+  var tbl = initTable[Id, PatchObject](pairs.len)
+  for (k, v) in pairs:
+    tbl[k] = v
+  Opt.some(tbl)

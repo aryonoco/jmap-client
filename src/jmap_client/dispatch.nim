@@ -206,3 +206,23 @@ func addedIdsRef*[T](
   referenceTo[seq[Id]](
     initResultReference(resultOf = callId(handle), name = name, path = RefPathAddedIds)
   )
+
+func createdRef*[T](handle: ResponseHandle[ChangesResponse[T]]): Referencable[seq[Id]] =
+  ## Convenience: reference to /created from a /changes response. Only
+  ## compiles on ``ResponseHandle[ChangesResponse[T]]`` — the compiler
+  ## rejects this on get/set/query handles.
+  mixin methodNamespace
+  let name = methodNamespace(T) & "/changes"
+  referenceTo[seq[Id]](
+    initResultReference(resultOf = callId(handle), name = name, path = RefPathCreated)
+  )
+
+func updatedRef*[T](handle: ResponseHandle[ChangesResponse[T]]): Referencable[seq[Id]] =
+  ## Convenience: reference to /updated from a /changes response. Only
+  ## compiles on ``ResponseHandle[ChangesResponse[T]]`` — the compiler
+  ## rejects this on get/set/query handles.
+  mixin methodNamespace
+  let name = methodNamespace(T) & "/changes"
+  referenceTo[seq[Id]](
+    initResultReference(resultOf = callId(handle), name = name, path = RefPathUpdated)
+  )

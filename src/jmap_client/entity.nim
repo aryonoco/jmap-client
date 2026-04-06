@@ -44,8 +44,8 @@
 ## 3. ``proc capabilityUri*(T: typedesc[Entity]): string``.
 ## 4. ``template filterType*(T: typedesc[Entity]): typedesc`` (if supports
 ##    ``/query``).
-## 5. ``filterConditionToJson`` callback ``proc(c: filterType(Entity)):
-##    JsonNode`` (if supports ``/query``).
+## 5. ``func filterConditionToJson*(c: filterType(Entity)): JsonNode``
+##    (if supports ``/query``). Must use this exact name for mixin resolution.
 ## 6. ``registerJmapEntity(Entity)`` at module scope.
 ## 7. ``registerQueryableEntity(Entity)`` at module scope (if supports
 ##    ``/query``).
@@ -85,15 +85,26 @@ template registerJmapEntity*(T: typedesc) =
       .}
 
 template registerQueryableEntity*(T: typedesc) =
-  ## Compile-time check: verifies T provides ``filterType`` in addition
-  ## to the base framework overloads. Call after ``registerJmapEntity``
-  ## for entity types that support /query and /queryChanges.
-  ## Produces a domain-specific error if the filterType template is
-  ## missing or does not return a typedesc.
+  ## Compile-time check: verifies T provides ``filterType`` and
+  ## ``filterConditionToJson`` in addition to the base framework overloads.
+  ## Call after ``registerJmapEntity`` for entity types that support /query
+  ## and /queryChanges. Produces domain-specific errors if either is missing.
+  ##
+  ## ``filterConditionToJson`` is the standardised name for the filter
+  ## serialisation callback. The single-type-parameter ``addQuery[T]``
+  ## overload resolves it via ``mixin``, eliminating the need to pass the
+  ## callback explicitly at every call site.
   static:
     when not compiles(filterType(T)):
       {.
         error:
           "registerQueryableEntity: " & $T &
           " is missing `template filterType*(T: typedesc[" & $T & "]): typedesc`"
+      .}
+    when not compiles(filterConditionToJson(default(filterType(T)))):
+      {.
+        error:
+          "registerQueryableEntity: " & $T &
+          " is missing `func filterConditionToJson*(c: " & $filterType(T) &
+          "): JsonNode`"
       .}

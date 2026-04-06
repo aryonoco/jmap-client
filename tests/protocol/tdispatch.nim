@@ -49,6 +49,9 @@ proc capabilityUri*(T: typedesc[MockQueryable]): string =
 template filterType*(T: typedesc[MockQueryable]): typedesc =
   MockFilter
 
+func filterConditionToJson(c: MockFilter): JsonNode =
+  newJObject()
+
 registerJmapEntity(MockQueryable)
 registerQueryableEntity(MockQueryable)
 
@@ -267,6 +270,41 @@ block listIdsRefRejectsQueryHandle:
   ## A QueryResponse handle cannot call listIdsRef (type-safe rejection).
   let handle = ResponseHandle[QueryResponse[MockQueryable]](makeMcid("c0"))
   assertNotCompiles listIdsRef(handle)
+
+block createdRefOnChangesHandle:
+  ## ResponseHandle[ChangesResponse[MockFoo]] produces Referencable with
+  ## path /created and name MockFoo/changes.
+  let handle = ResponseHandle[ChangesResponse[MockFoo]](makeMcid("c0"))
+  let r = createdRef(handle)
+  doAssert r.kind == rkReference
+  doAssert r.reference.path == RefPathCreated
+  doAssert r.reference.name == "MockFoo/changes"
+  doAssert r.reference.resultOf == makeMcid("c0")
+
+block updatedRefOnChangesHandle:
+  ## ResponseHandle[ChangesResponse[MockFoo]] produces Referencable with
+  ## path /updated and name MockFoo/changes.
+  let handle = ResponseHandle[ChangesResponse[MockFoo]](makeMcid("c0"))
+  let r = updatedRef(handle)
+  doAssert r.kind == rkReference
+  doAssert r.reference.path == RefPathUpdated
+  doAssert r.reference.name == "MockFoo/changes"
+  doAssert r.reference.resultOf == makeMcid("c0")
+
+block createdRefRejectsGetHandle:
+  ## A GetResponse handle cannot call createdRef (type-safe rejection).
+  let handle = ResponseHandle[GetResponse[MockFoo]](makeMcid("c0"))
+  assertNotCompiles createdRef(handle)
+
+block createdRefRejectsQueryHandle:
+  ## A QueryResponse handle cannot call createdRef (type-safe rejection).
+  let handle = ResponseHandle[QueryResponse[MockQueryable]](makeMcid("c0"))
+  assertNotCompiles createdRef(handle)
+
+block updatedRefRejectsSetHandle:
+  ## A SetResponse handle cannot call updatedRef (type-safe rejection).
+  let handle = ResponseHandle[SetResponse[MockFoo]](makeMcid("c0"))
+  assertNotCompiles updatedRef(handle)
 
 # ===========================================================================
 # G. Generic reference (escape hatch)

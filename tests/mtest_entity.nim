@@ -54,6 +54,11 @@ func capabilityUri*(T: typedesc[TestWidget]): string =
 template filterType*(T: typedesc[TestWidget]): typedesc =
   TestWidgetFilter
 
+func filterConditionToJson*(f: TestWidgetFilter): JsonNode {.raises: [].} =
+  result = newJObject()
+  for n in f.name:
+    result["name"] = %n
+
 registerJmapEntity(TestWidget)
 registerQueryableEntity(TestWidget)
 
@@ -74,11 +79,6 @@ func fromJson*(
   let nameNode = node{"name"}
   ?checkJsonKind(nameNode, JString, "TestWidget", "name must be string")
   ok(TestWidget(id: id, name: nameNode.getStr("")))
-
-func widgetFilterToJson*(f: TestWidgetFilter): JsonNode {.raises: [].} =
-  result = newJObject()
-  for n in f.name:
-    result["name"] = %n
 
 {.pop.} # params
 {.pop.} # objects

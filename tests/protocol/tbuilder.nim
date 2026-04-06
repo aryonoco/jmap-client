@@ -50,11 +50,11 @@ proc capabilityUri*(T: typedesc[MockQueryable]): string =
 template filterType*(T: typedesc[MockQueryable]): typedesc =
   MockFilter
 
+proc filterConditionToJson(c: MockFilter): JsonNode {.noSideEffect, raises: [].} =
+  %*{"mock": true}
+
 registerJmapEntity(MockQueryable)
 registerQueryableEntity(MockQueryable)
-
-proc mockFilterToJson(c: MockFilter): JsonNode {.noSideEffect, raises: [].} =
-  %*{"mock": true}
 
 {.pop.} # params
 {.pop.} # objects
@@ -322,7 +322,8 @@ block addCopyMinimal:
 block addQueryMinimal:
   ## addQuery with only accountId and callback produces "MockQueryable/query".
   var b = initRequestBuilder()
-  discard addQuery[MockQueryable, MockFilter](b, makeAccountId("a1"), mockFilterToJson)
+  discard
+    addQuery[MockQueryable, MockFilter](b, makeAccountId("a1"), filterConditionToJson)
   let req = b.build()
   assertLen req.methodCalls, 1
   let inv = req.methodCalls[0]
@@ -336,13 +337,40 @@ block addQueryWithFilter:
   discard addQuery[MockQueryable, MockFilter](
     b,
     makeAccountId("a1"),
-    mockFilterToJson,
+    filterConditionToJson,
     filter = Opt.some(filterCondition(MockFilter())),
   )
   let req = b.build()
   let inv = req.methodCalls[0]
   doAssert inv.arguments{"filter"}.kind == JObject
   doAssert inv.arguments{"filter"}{"mock"}.getBool(false) == true
+
+# ===========================================================================
+# J2. Single-type-parameter addQuery[T] (mixin-resolved)
+# ===========================================================================
+
+block addQuerySingleParam:
+  ## addQuery[T] resolves filterType and filterConditionToJson via mixin.
+  ## Produces the same invocation as the two-parameter version.
+  var b = initRequestBuilder()
+  discard addQuery[MockQueryable](b, makeAccountId("a1"))
+  let req = b.build()
+  assertLen req.methodCalls, 1
+  let inv = req.methodCalls[0]
+  assertEq inv.name, "MockQueryable/query"
+  assertEq inv.arguments{"accountId"}.getStr(""), "a1"
+
+block addQuerySingleParamMatchesTwoParam:
+  ## Single-param and two-param produce identical Request structures.
+  var b1 = initRequestBuilder()
+  discard
+    addQuery[MockQueryable, MockFilter](b1, makeAccountId("a1"), filterConditionToJson)
+  var b2 = initRequestBuilder()
+  discard addQuery[MockQueryable](b2, makeAccountId("a1"))
+  let r1 = b1.build()
+  let r2 = b2.build()
+  assertEq r1.methodCalls[0].name, r2.methodCalls[0].name
+  assertEq $r1.`using`, $r2.`using`
 
 # ===========================================================================
 # K. addQueryChanges
@@ -352,13 +380,25 @@ block addQueryChangesMinimal:
   ## addQueryChanges with required fields produces "MockQueryable/queryChanges".
   var b = initRequestBuilder()
   discard addQueryChanges[MockQueryable, MockFilter](
-    b, makeAccountId("a1"), makeState("qs0"), mockFilterToJson
+    b, makeAccountId("a1"), makeState("qs0"), filterConditionToJson
   )
   let req = b.build()
   assertLen req.methodCalls, 1
   let inv = req.methodCalls[0]
   assertEq inv.name, "MockQueryable/queryChanges"
   assertEq inv.arguments{"sinceQueryState"}.getStr(""), "qs0"
+
+# ===========================================================================
+# K2. Single-type-parameter addQueryChanges[T]
+# ===========================================================================
+
+block addQueryChangesSingleParam:
+  ## addQueryChanges[T] resolves filter via mixin, matching two-param version.
+  var b = initRequestBuilder()
+  discard addQueryChanges[MockQueryable](b, makeAccountId("a1"), makeState("qs0"))
+  let req = b.build()
+  assertLen req.methodCalls, 1
+  assertEq req.methodCalls[0].name, "MockQueryable/queryChanges"
 
 # ===========================================================================
 # L. Result reference integration (golden test)
@@ -370,7 +410,7 @@ block queryToGetWithResultReference:
   ## the first via "#ids".
   var b = initRequestBuilder()
   let queryHandle =
-    addQuery[MockQueryable, MockFilter](b, makeAccountId("a1"), mockFilterToJson)
+    addQuery[MockQueryable, MockFilter](b, makeAccountId("a1"), filterConditionToJson)
   let idsReference = queryHandle.idsRef()
   discard addGet[MockQueryable](b, makeAccountId("a1"), ids = Opt.some(idsReference))
   let req = b.build()
@@ -398,3 +438,66 @@ block idsRefRejectsGetHandle:
   var b = initRequestBuilder()
   let getHandle = addGet[MockFoo](b, makeAccountId("a1"))
   assertNotCompiles(getHandle.idsRef())
+
+# ===========================================================================
+# N. Argument-construction helpers
+# ===========================================================================
+
+block directIdsWrapsCorrectly:
+  ## directIds produces Opt.some(direct(@[ids])) for use with addGet.
+  let ids = directIds(@[makeId("x1"), makeId("x2")])
+  doAssert ids.isSome
+  let r = ids.get()
+  doAssert r.kind == rkDirect
+  assertLen r.value, 2
+  assertEq $r.value[0], "x1"
+  assertEq $r.value[1], "x2"
+
+block directIdsEmpty:
+  ## directIds with an empty seq produces Opt.some(direct(@[])).
+  let ids = directIds(newSeq[Id]())
+  doAssert ids.isSome
+  doAssert ids.get().kind == rkDirect
+  assertLen ids.get().value, 0
+
+block directIdsWithAddGet:
+  ## directIds integrates with addGet — replaces Opt.some(direct(@[...])).
+  var b = initRequestBuilder()
+  discard addGet[MockFoo](
+    b, makeAccountId("a1"), ids = directIds(@[makeId("x1"), makeId("x2")])
+  )
+  let req = b.build()
+  assertLen req.methodCalls, 1
+  let ids = req.methodCalls[0].arguments{"ids"}
+  doAssert ids.kind == JArray
+  assertLen ids.elems, 2
+
+block initCreatesBuildsTable:
+  ## initCreates builds an Opt-wrapped Table from CreationId/JsonNode pairs.
+  let creates = initCreates(
+    {makeCreationId("k1"): %*{"name": "A"}, makeCreationId("k2"): %*{"name": "B"}}
+  )
+  doAssert creates.isSome
+  let tbl = creates.get()
+  assertLen tbl, 2
+  doAssert tbl[makeCreationId("k1")]["name"].getStr("") == "A"
+  doAssert tbl[makeCreationId("k2")]["name"].getStr("") == "B"
+
+block initCreatesWithAddSet:
+  ## initCreates integrates with addSet — replaces manual table construction.
+  var b = initRequestBuilder()
+  discard addSet[MockFoo](
+    b,
+    makeAccountId("a1"),
+    create = initCreates({makeCreationId("k1"): %*{"name": "New"}}),
+  )
+  let req = b.build()
+  let inv = req.methodCalls[0]
+  doAssert inv.arguments{"create"}.kind == JObject
+  doAssert inv.arguments{"create"}{"k1"}{"name"}.getStr("") == "New"
+
+block initUpdatesBuildsTable:
+  ## initUpdates builds an Opt-wrapped Table from Id/PatchObject pairs.
+  let updates = initUpdates({makeId("id1"): emptyPatch()})
+  doAssert updates.isSome
+  assertLen updates.get(), 1

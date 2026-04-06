@@ -55,11 +55,11 @@ proc capabilityUri*(T: typedesc[MockQueryable]): string =
 template filterType*(T: typedesc[MockQueryable]): typedesc =
   MockFilter
 
+proc filterConditionToJson(c: MockFilter): JsonNode =
+  %*{"mock": true}
+
 registerJmapEntity(MockQueryable)
 registerQueryableEntity(MockQueryable)
-
-proc mockFilterToJson(c: MockFilter): JsonNode =
-  %*{"mock": true}
 
 {.pop.} # params
 {.pop.} # objects
@@ -293,7 +293,7 @@ block queryRequestMinimal:
     limit: Opt.none(UnsignedInt),
     calculateTotal: false,
   )
-  let j = req.toJson(mockFilterToJson)
+  let j = req.toJson(filterConditionToJson)
   doAssert j{"accountId"}.getStr("") == "a1"
   doAssert j{"filter"}.isNil
   doAssert j{"sort"}.isNil
@@ -313,7 +313,7 @@ block queryRequestWithFilter:
     limit: Opt.none(UnsignedInt),
     calculateTotal: false,
   )
-  let j = req.toJson(mockFilterToJson)
+  let j = req.toJson(filterConditionToJson)
   doAssert j{"filter"}.kind == JObject
   doAssert j{"filter"}{"mock"}.getBool(false) == true
 
@@ -328,7 +328,7 @@ block queryChangesRequestMinimal:
     upToId: Opt.none(Id),
     calculateTotal: false,
   )
-  let j = req.toJson(mockFilterToJson)
+  let j = req.toJson(filterConditionToJson)
   doAssert j{"sinceQueryState"}.getStr("") == "qs0"
   doAssert j{"calculateTotal"}.getBool(true) == false
   doAssert j{"filter"}.isNil
@@ -347,7 +347,7 @@ block queryChangesRequestAllFields:
     upToId: Opt.some(makeId("upTo1")),
     calculateTotal: true,
   )
-  let j = req.toJson(mockFilterToJson)
+  let j = req.toJson(filterConditionToJson)
   doAssert j{"filter"}.kind == JObject
   doAssert j{"sort"}.kind == JArray
   doAssert j{"maxChanges"}.getBiggestInt(0) == 10
