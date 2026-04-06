@@ -12,6 +12,11 @@ from std/json import JsonNode
 
 import results
 
+when defined(ssl):
+  from std/net import TimeoutError, SslError
+else:
+  from std/net import TimeoutError
+
 import ./primitives
 
 {.push raises: [].}
@@ -124,6 +129,64 @@ func message*(err: ClientError): string =
     err.request.detail.valueOr:
       err.request.title.valueOr:
         err.request.rawType
+
+type RequestContext* = enum
+  ## Identifies the JMAP endpoint being processed. Used in error messages
+  ## by size-limit and HTTP-response classification functions.
+  rcSession = "session"
+  rcApi = "api"
+
+func isTlsRelatedMsg(msg: string): bool =
+  ## Heuristic: checks whether an OSError message indicates a TLS failure.
+  ## OpenSSL surfaces TLS errors as OSError with keywords in the message
+  ## (D4.5). False positives are harmless — the error is still a transport
+  ## failure and ``msg`` carries the actual underlying error.
+  let lower = msg.toLowerAscii
+  "ssl" in lower or "tls" in lower or "certificate" in lower
+
+func classifyException*(e: ref CatchableError): ClientError =
+  ## Maps ``std/httpclient`` exceptions to ``ClientError(cekTransport)``.
+  ## Pure: no IO, no side effects. Exhaustive over known exception types.
+  var te: TransportError
+  if e of ref TimeoutError:
+    te = transportError(tekTimeout, e.msg)
+  elif (when defined(ssl): e of ref SslError else: false):
+    te = transportError(tekTls, e.msg)
+  elif e of ref OSError:
+    te =
+      if isTlsRelatedMsg(e.msg):
+        transportError(tekTls, e.msg)
+      else:
+        transportError(tekNetwork, e.msg)
+  elif e of ref IOError:
+    te = transportError(tekNetwork, e.msg)
+  elif e of ref ValueError:
+    te = transportError(tekNetwork, "protocol error: " & e.msg)
+  else:
+    te = transportError(tekNetwork, "unexpected error: " & e.msg)
+  clientError(te)
+
+func sizeLimitExceeded*(
+    context: RequestContext, what: string, actual, limit: int
+): ClientError =
+  ## Constructs a ``ClientError`` for a size-limit violation. Shared by
+  ## body-length and Content-Length enforcement.
+  clientError(
+    transportError(
+      tekNetwork,
+      $context & " " & what & " exceeds limit: " & $actual & " bytes > " & $limit &
+        " byte limit",
+    )
+  )
+
+func enforceBodySizeLimit*(
+    maxResponseBytes: int, body: string, context: RequestContext
+): Result[void, ClientError] =
+  ## Phase 2 body size enforcement: post-read rejection via actual body
+  ## length. No-op when ``maxResponseBytes == 0`` (no limit). Pure.
+  if maxResponseBytes > 0 and body.len > maxResponseBytes:
+    return err(sizeLimitExceeded(context, "response body", body.len, maxResponseBytes))
+  ok()
 
 type MethodErrorType* = enum
   ## Per-invocation error types from the inner railway (RFC 8620 §3.6.2).

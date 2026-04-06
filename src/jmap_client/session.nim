@@ -80,6 +80,17 @@ func hasKind(caps: openArray[ServerCapability], kind: CapabilityKind): bool =
       return true
   false
 
+func expandUriTemplate*(
+    tmpl: UriTemplate, variables: openArray[(string, string)]
+): string =
+  ## Expands an RFC 6570 Level 1 URI template by replacing ``{name}`` with
+  ## the corresponding value. Variables not found in ``variables`` are left
+  ## unexpanded. Caller is responsible for percent-encoding values that
+  ## require it (``std/uri.encodeUrl(value, usePlus=false)``). Pure.
+  result = string(tmpl)
+  for (name, value) in variables:
+    result = result.replace("{" & name & "}", value)
+
 func parseUriTemplate*(raw: string): Result[UriTemplate, ValidationError] =
   ## Non-empty validation. No RFC 6570 parsing — template expansion is Layer 4.
   if raw.len == 0:

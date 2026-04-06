@@ -15,6 +15,7 @@ when defined(ssl):
 import jmap_client/client
 import jmap_client/envelope
 import jmap_client/errors
+import jmap_client/session
 import jmap_client/validation
 
 import ../massertions
@@ -356,11 +357,11 @@ when defined(ssl):
 
 block enforceBodySizeLimitWithin:
   ## Scenario 45: body within limit — no error.
-  enforceBodySizeLimit(100, "short body", "test").get()
+  enforceBodySizeLimit(100, "short body", rcSession).get()
 
 block enforceBodySizeLimitExceeds:
   ## Scenario 46: body exceeds limit — ClientError returned.
-  let bslR = enforceBodySizeLimit(10, "this body exceeds ten bytes", "test")
+  let bslR = enforceBodySizeLimit(10, "this body exceeds ten bytes", rcSession)
   doAssert bslR.isErr, "expected Err for body exceeds limit"
   doAssert bslR.error.kind == cekTransport
   doAssert bslR.error.transport.kind == tekNetwork
@@ -368,11 +369,11 @@ block enforceBodySizeLimitExceeds:
 
 block enforceBodySizeLimitAtLimit:
   ## Boundary: body length exactly at limit — no error (uses strict >).
-  enforceBodySizeLimit(10, "0123456789", "test").get()
+  enforceBodySizeLimit(10, "0123456789", rcSession).get()
 
 block enforceBodySizeLimitDisabled:
   ## Scenario 47: limit = 0 (disabled) — no error even for large body.
-  enforceBodySizeLimit(0, "any size body is fine", "test").get()
+  enforceBodySizeLimit(0, "any size body is fine", rcSession).get()
 
 # ---------------------------------------------------------------------------
 # validateLimits — design doc scenarios 21–33

@@ -12,11 +12,6 @@ import std/httpclient
 import std/json
 import std/strutils
 
-when defined(ssl):
-  from std/net import TimeoutError, SslError
-else:
-  from std/net import TimeoutError
-
 import ./types
 import ./serialisation
 import ./builder
@@ -194,63 +189,8 @@ proc close*(client: var JmapClient) =
 # Pure helpers (§2, §7)
 # ---------------------------------------------------------------------------
 
-func expandUriTemplate*(
-    tmpl: UriTemplate, variables: openArray[(string, string)]
-): string =
-  ## Expands an RFC 6570 Level 1 URI template by replacing ``{name}`` with
-  ## the corresponding value. Variables not found in ``variables`` are left
-  ## unexpanded. Caller is responsible for percent-encoding values that
-  ## require it (``std/uri.encodeUrl(value, usePlus=false)``). Pure.
-  result = string(tmpl)
-  for (name, value) in variables:
-    result = result.replace("{" & name & "}", value)
-
-func isTlsRelatedMsg(msg: string): bool =
-  ## Heuristic: checks whether an OSError message indicates a TLS failure.
-  ## OpenSSL surfaces TLS errors as OSError with keywords in the message
-  ## (D4.5). False positives are harmless — the error is still a transport
-  ## failure and ``msg`` carries the actual underlying error.
-  let lower = msg.toLowerAscii
-  "ssl" in lower or "tls" in lower or "certificate" in lower
-
-func classifyException*(e: ref CatchableError): ClientError =
-  ## Maps ``std/httpclient`` exceptions to ``ClientError(cekTransport)``.
-  ## Pure: no IO, no side effects. Exhaustive over known exception types.
-  var te: TransportError
-  if e of ref TimeoutError:
-    te = transportError(tekTimeout, e.msg)
-  elif (when defined(ssl): e of ref SslError else: false):
-    te = transportError(tekTls, e.msg)
-  elif e of ref OSError:
-    te =
-      if isTlsRelatedMsg(e.msg):
-        transportError(tekTls, e.msg)
-      else:
-        transportError(tekNetwork, e.msg)
-  elif e of ref IOError:
-    te = transportError(tekNetwork, e.msg)
-  elif e of ref ValueError:
-    te = transportError(tekNetwork, "protocol error: " & e.msg)
-  else:
-    te = transportError(tekNetwork, "unexpected error: " & e.msg)
-  clientError(te)
-
-func enforceBodySizeLimit*(
-    maxResponseBytes: int, body: string, context: string
-): Result[void, ClientError] =
-  ## Phase 2 body size enforcement: post-read rejection via actual body
-  ## length. No-op when ``maxResponseBytes == 0`` (no limit). Pure.
-  if maxResponseBytes > 0 and body.len > maxResponseBytes:
-    let te = transportError(
-      tekNetwork,
-      context & " response body exceeds limit: " & $body.len & " bytes > " &
-        $maxResponseBytes & " byte limit",
-    )
-    return err(clientError(te))
-  ok()
-
 proc enforceContentLengthLimit(
-    maxResponseBytes: int, httpResp: httpclient.Response, context: string
+    maxResponseBytes: int, httpResp: httpclient.Response, context: RequestContext
 ): Result[void, ClientError] =
   ## Phase 1 body size enforcement: early rejection via Content-Length
   ## header before the body is read into memory. No-op when
@@ -263,22 +203,19 @@ proc enforceContentLengthLimit(
       except CatchableError:
         -1
     if cl > maxResponseBytes:
-      let te = transportError(
-        tekNetwork,
-        context & " Content-Length exceeds limit: " & $cl & " bytes > " &
-          $maxResponseBytes & " byte limit",
-      )
-      return err(clientError(te))
+      return err(sizeLimitExceeded(context, "Content-Length", cl, maxResponseBytes))
   ok()
 
-proc parseJsonBody(body: string, context: string): Result[JsonNode, ClientError] =
+proc parseJsonBody(
+    body: string, context: RequestContext
+): Result[JsonNode, ClientError] =
   ## Parses a response body as JSON. Returns err if the body is not valid JSON.
   try:
     {.cast(raises: [CatchableError]).}:
       ok(parseJson(body))
   except CatchableError as e:
     let te =
-      transportError(tekNetwork, "invalid JSON in " & context & " response: " & e.msg)
+      transportError(tekNetwork, "invalid JSON in " & $context & " response: " & e.msg)
     err(clientError(te))
 
 func checkGetLimit(inv: Invocation, maxGet: int64): Result[void, ValidationError] =
@@ -374,18 +311,19 @@ proc tryParseProblemDetails(body: string): Opt[ClientError] =
   Opt.none(ClientError)
 
 proc classifyHttpResponse(
-    maxResponseBytes: int, httpResp: httpclient.Response, context: string
-): JmapResult[string] =
-  ## Classifies an HTTP response. Returns the body string on 2xx with
-  ## correct Content-Type. Returns err otherwise. Not pure —
-  ## ``httpResp.body`` lazily reads from ``bodyStream`` on first access.
+    maxResponseBytes: int, httpResp: httpclient.Response, context: RequestContext
+): JmapResult[JsonNode] =
+  ## Classifies an HTTP response and parses the JSON body. Returns the
+  ## parsed ``JsonNode`` on 2xx with correct Content-Type. Returns err
+  ## otherwise. Not pure — ``httpResp.body`` lazily reads from
+  ## ``bodyStream`` on first access.
   let code =
     try:
       {.cast(raises: [CatchableError]).}:
         httpResp.code
     except CatchableError:
       let te = transportError(
-        tekNetwork, "malformed HTTP status from " & context & ": " & httpResp.status
+        tekNetwork, "malformed HTTP status from " & $context & ": " & httpResp.status
       )
       return err(clientError(te))
 
@@ -409,23 +347,23 @@ proc classifyHttpResponse(
       for ce in tryParseProblemDetails(body):
         return err(ce)
     # Generic HTTP status error (no problem details, or parsing failed)
-    let te = httpStatusError(int(code), "HTTP " & $int(code) & " from " & context)
+    let te = httpStatusError(int(code), "HTTP " & $int(code) & " from " & $context)
     return err(clientError(te))
 
   # Guard: non-2xx that is not 4xx/5xx (e.g. 1xx, 3xx).
   if not code.is2xx:
     let te =
-      httpStatusError(int(code), "unexpected HTTP " & $int(code) & " from " & context)
+      httpStatusError(int(code), "unexpected HTTP " & $int(code) & " from " & $context)
     return err(clientError(te))
 
   # Check Content-Type on 2xx success
   let ct = readContentType(httpResp)
   if not ct.startsWith("application/json"):
     let te =
-      transportError(tekNetwork, "unexpected Content-Type from " & context & ": " & ct)
+      transportError(tekNetwork, "unexpected Content-Type from " & $context & ": " & ct)
     return err(clientError(te))
 
-  ok(body)
+  parseJsonBody(body, context)
 
 proc setSessionForTest*(client: var JmapClient, session: Session) =
   ## Injects a cached session for testing purposes. Enables pure tests
@@ -449,8 +387,7 @@ proc fetchSession*(client: var JmapClient): JmapResult[Session] =
         client.httpClient.request(client.sessionUrl, httpMethod = HttpGet)
     except CatchableError as e:
       return err(classifyException(e))
-  let body = ?classifyHttpResponse(client.maxResponseBytes, httpResp, "session")
-  let jsonNode = ?parseJsonBody(body, "session")
+  let jsonNode = ?classifyHttpResponse(client.maxResponseBytes, httpResp, rcSession)
   let session = Session.fromJson(jsonNode).mapErr(
       proc(ve: ValidationError): ClientError =
         clientError(transportError(tekNetwork, "invalid session: " & ve.message))
@@ -505,11 +442,8 @@ proc send*(client: var JmapClient, request: Request): JmapResult[envelope.Respon
     except CatchableError as e:
       return err(classifyException(e))
 
-  # Step 6: Classify HTTP response
-  let respBody = ?classifyHttpResponse(client.maxResponseBytes, httpResp, "api")
-
-  # Step 7: Parse JSON
-  let respJson = ?parseJsonBody(respBody, "api")
+  # Step 6: Classify HTTP response and parse JSON
+  let respJson = ?classifyHttpResponse(client.maxResponseBytes, httpResp, rcApi)
 
   # Step 8: Problem details on HTTP 200
   if respJson.kind == JObject and respJson.hasKey("type") and
