@@ -71,7 +71,7 @@ func parseComparator*(
 type PatchObject* = distinct Table[string, JsonNode]
   ## Map of JSON Pointer paths to values for /set update operations (RFC 8620 §5.3).
 
-proc len*(p: PatchObject): int {.borrow.} ## Returns the number of entries in the patch.
+func len*(p: PatchObject): int {.borrow.} ## Returns the number of entries in the patch.
 
 func emptyPatch*(): PatchObject =
   ## Creates an empty PatchObject with no entries.
@@ -94,8 +94,7 @@ func deleteProp*(
   if path.len == 0:
     return err(validationError("PatchObject", "path must not be empty", ""))
   var t = Table[string, JsonNode](patch)
-  {.cast(noSideEffect).}:
-    t[path] = newJNull()
+  t[path] = newJNull()
   ok(PatchObject(t))
 
 func getKey*(patch: PatchObject, key: string): Option[JsonNode] =

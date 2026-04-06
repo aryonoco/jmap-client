@@ -17,11 +17,11 @@ import ./types
 # FilterOperator
 # =============================================================================
 
-proc toJson*(op: FilterOperator): JsonNode =
+func toJson*(op: FilterOperator): JsonNode =
   ## Serialise FilterOperator to its RFC string.
   %($op)
 
-proc fromJson*(
+func fromJson*(
     T: typedesc[FilterOperator], node: JsonNode
 ): Result[FilterOperator, ValidationError] =
   ## Deserialise a JSON string to FilterOperator. Not total — unknown
@@ -41,13 +41,13 @@ proc fromJson*(
 # Comparator
 # =============================================================================
 
-proc toJson*(c: Comparator): JsonNode =
+func toJson*(c: Comparator): JsonNode =
   ## Serialise Comparator to JSON (RFC 8620 section 5.5).
   result = %*{"property": string(c.property), "isAscending": c.isAscending}
   if c.collation.isSome:
     result["collation"] = %c.collation.get()
 
-proc fromJson*(
+func fromJson*(
     T: typedesc[Comparator], node: JsonNode
 ): Result[Comparator, ValidationError] =
   ## Deserialise JSON to Comparator (RFC 8620 section 5.5).
@@ -133,7 +133,7 @@ proc fromJson*[C](
 # PatchObject
 # =============================================================================
 
-proc toJson*(patch: PatchObject): JsonNode =
+func toJson*(patch: PatchObject): JsonNode =
   ## Serialise PatchObject to JSON. Keys are JSON Pointer paths,
   ## null values represent property deletion.
   let tbl = Table[string, JsonNode](patch)
@@ -141,7 +141,7 @@ proc toJson*(patch: PatchObject): JsonNode =
   for path, value in tbl:
     result[path] = value
 
-proc fromJson*(
+func fromJson*(
     T: typedesc[PatchObject], node: JsonNode
 ): Result[PatchObject, ValidationError] =
   ## Deserialise JSON to PatchObject using smart constructors.
@@ -159,11 +159,11 @@ proc fromJson*(
 # AddedItem
 # =============================================================================
 
-proc toJson*(item: AddedItem): JsonNode =
+func toJson*(item: AddedItem): JsonNode =
   ## Serialise AddedItem to JSON (RFC 8620 section 5.6).
   result = %*{"id": string(item.id), "index": int64(item.index)}
 
-proc fromJson*(
+func fromJson*(
     T: typedesc[AddedItem], node: JsonNode
 ): Result[AddedItem, ValidationError] =
   ## Deserialise JSON to AddedItem.

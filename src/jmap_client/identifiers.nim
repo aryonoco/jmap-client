@@ -22,31 +22,34 @@ type JmapState* = distinct string
   ## Opaque server state token for change tracking (RFC 8620 §5.3). No len
   ## borrow — length is meaningless.
 
-{.push ruleOff: "hasDoc".}
-proc `==`*(a, b: JmapState): bool {.borrow.}
-proc `$`*(a: JmapState): string {.borrow.}
-proc hash*(a: JmapState): Hash {.borrow.}
-{.pop.}
+func `==`*(a, b: JmapState): bool {.borrow.}
+  ## Equality comparison delegated to the underlying string.
+func `$`*(a: JmapState): string {.borrow.}
+  ## String representation delegated to the underlying string.
+func hash*(a: JmapState): Hash {.borrow.}
+  ## Hash delegated to the underlying string.
 
 type MethodCallId* = distinct string
   ## Client-assigned tag correlating requests with responses in a batch
   ## (RFC 8620 §3.2).
 
-{.push ruleOff: "hasDoc".}
-proc `==`*(a, b: MethodCallId): bool {.borrow.}
-proc `$`*(a: MethodCallId): string {.borrow.}
-proc hash*(a: MethodCallId): Hash {.borrow.}
-{.pop.}
+func `==`*(a, b: MethodCallId): bool {.borrow.}
+  ## Equality comparison delegated to the underlying string.
+func `$`*(a: MethodCallId): string {.borrow.}
+  ## String representation delegated to the underlying string.
+func hash*(a: MethodCallId): Hash {.borrow.}
+  ## Hash delegated to the underlying string.
 
 type CreationId* = distinct string
   ## Client-assigned temporary ID for back-references within a /set call
   ## (RFC 8620 §5.3). Wire format prefixes with '#'.
 
-{.push ruleOff: "hasDoc".}
-proc `==`*(a, b: CreationId): bool {.borrow.}
-proc `$`*(a: CreationId): string {.borrow.}
-proc hash*(a: CreationId): Hash {.borrow.}
-{.pop.}
+func `==`*(a, b: CreationId): bool {.borrow.}
+  ## Equality comparison delegated to the underlying string.
+func `$`*(a: CreationId): string {.borrow.}
+  ## String representation delegated to the underlying string.
+func hash*(a: CreationId): Hash {.borrow.}
+  ## Hash delegated to the underlying string.
 
 func parseAccountId*(raw: string): Result[AccountId, ValidationError] =
   ## Lenient: 1-255 octets, no control characters.

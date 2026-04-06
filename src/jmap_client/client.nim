@@ -158,15 +158,15 @@ proc discoverJmapClient*(
     userAgent = userAgent,
   )
 
-proc session*(client: JmapClient): Option[Session] =
+func session*(client: JmapClient): Option[Session] =
   ## Returns the cached Session, or ``none`` if not yet fetched.
   client.session
 
-proc sessionUrl*(client: JmapClient): string =
+func sessionUrl*(client: JmapClient): string =
   ## Returns the session resource URL.
   client.sessionUrl
 
-proc bearerToken*(client: JmapClient): string =
+func bearerToken*(client: JmapClient): string =
   ## Returns the current bearer token.
   client.bearerToken
 
@@ -180,8 +180,7 @@ proc setBearerToken*(
   if token.len == 0:
     return err(validationError("JmapClient", "bearerToken must not be empty", ""))
   client.bearerToken = token
-  {.cast(raises: []).}:
-    client.httpClient.headers["Authorization"] = "Bearer " & token
+  client.httpClient.headers["Authorization"] = "Bearer " & token
   ok()
 
 proc close*(client: var JmapClient) =
@@ -194,7 +193,7 @@ proc close*(client: var JmapClient) =
 # Pure helpers (§2, §7)
 # ---------------------------------------------------------------------------
 
-proc expandUriTemplate*(
+func expandUriTemplate*(
     tmpl: UriTemplate, variables: openArray[(string, string)]
 ): string =
   ## Expands an RFC 6570 Level 1 URI template by replacing ``{name}`` with
@@ -205,7 +204,7 @@ proc expandUriTemplate*(
   for (name, value) in variables:
     result = result.replace("{" & name & "}", value)
 
-proc isTlsRelatedMsg(msg: string): bool =
+func isTlsRelatedMsg(msg: string): bool =
   ## Heuristic: checks whether an OSError message indicates a TLS failure.
   ## OpenSSL surfaces TLS errors as OSError with keywords in the message
   ## (D4.5). False positives are harmless — the error is still a transport
@@ -213,7 +212,7 @@ proc isTlsRelatedMsg(msg: string): bool =
   let lower = msg.toLowerAscii
   "ssl" in lower or "tls" in lower or "certificate" in lower
 
-proc classifyException*(e: ref CatchableError): ClientError =
+func classifyException*(e: ref CatchableError): ClientError =
   ## Maps ``std/httpclient`` exceptions to ``ClientError(cekTransport)``.
   ## Pure: no IO, no side effects. Exhaustive over known exception types.
   var te: TransportError
@@ -235,7 +234,7 @@ proc classifyException*(e: ref CatchableError): ClientError =
     te = transportError(tekNetwork, "unexpected error: " & e.msg)
   clientError(te)
 
-proc enforceBodySizeLimit*(
+func enforceBodySizeLimit*(
     maxResponseBytes: int, body: string, context: string
 ): Result[void, ClientError] =
   ## Phase 2 body size enforcement: post-read rejection via actual body
@@ -281,52 +280,50 @@ proc parseJsonBody(body: string, context: string): Result[JsonNode, ClientError]
       transportError(tekNetwork, "invalid JSON in " & context & " response: " & e.msg)
     err(clientError(te))
 
-proc checkGetLimit(inv: Invocation, maxGet: int64): Result[void, ValidationError] =
+func checkGetLimit(inv: Invocation, maxGet: int64): Result[void, ValidationError] =
   ## Checks a /get invocation's direct ids count against maxObjectsInGet.
   ## Reference ids (JObject) and absent/null ids are silently skipped.
   if inv.arguments.isNil:
     return ok()
-  {.cast(raises: []).}:
-    let idsNode = inv.arguments{"ids"}
-    if not idsNode.isNil and idsNode.kind == JArray:
-      if int64(idsNode.len) > maxGet:
-        return err(
-          validationError(
-            "Request",
-            inv.name & ": ids count " & $idsNode.len & " exceeds maxObjectsInGet " &
-              $maxGet,
-            "",
-          )
-        )
-  ok()
-
-proc checkSetLimit(inv: Invocation, maxSet: int64): Result[void, ValidationError] =
-  ## Checks a /set invocation's combined create + update + destroy count
-  ## against maxObjectsInSet. Reference destroy (JObject) is silently skipped.
-  if inv.arguments.isNil:
-    return ok()
-  {.cast(raises: []).}:
-    var count: int64 = 0
-    let createNode = inv.arguments{"create"}
-    if not createNode.isNil and createNode.kind == JObject:
-      count += int64(createNode.len)
-    let updateNode = inv.arguments{"update"}
-    if not updateNode.isNil and updateNode.kind == JObject:
-      count += int64(updateNode.len)
-    let destroyNode = inv.arguments{"destroy"}
-    if not destroyNode.isNil and destroyNode.kind == JArray:
-      count += int64(destroyNode.len)
-    if count > maxSet:
+  let idsNode = inv.arguments{"ids"}
+  if not idsNode.isNil and idsNode.kind == JArray:
+    if int64(idsNode.len) > maxGet:
       return err(
         validationError(
           "Request",
-          inv.name & ": object count " & $count & " exceeds maxObjectsInSet " & $maxSet,
+          inv.name & ": ids count " & $idsNode.len & " exceeds maxObjectsInGet " &
+            $maxGet,
           "",
         )
       )
   ok()
 
-proc validateLimits*(
+func checkSetLimit(inv: Invocation, maxSet: int64): Result[void, ValidationError] =
+  ## Checks a /set invocation's combined create + update + destroy count
+  ## against maxObjectsInSet. Reference destroy (JObject) is silently skipped.
+  if inv.arguments.isNil:
+    return ok()
+  var count: int64 = 0
+  let createNode = inv.arguments{"create"}
+  if not createNode.isNil and createNode.kind == JObject:
+    count += int64(createNode.len)
+  let updateNode = inv.arguments{"update"}
+  if not updateNode.isNil and updateNode.kind == JObject:
+    count += int64(updateNode.len)
+  let destroyNode = inv.arguments{"destroy"}
+  if not destroyNode.isNil and destroyNode.kind == JArray:
+    count += int64(destroyNode.len)
+  if count > maxSet:
+    return err(
+      validationError(
+        "Request",
+        inv.name & ": object count " & $count & " exceeds maxObjectsInSet " & $maxSet,
+        "",
+      )
+    )
+  ok()
+
+func validateLimits*(
     request: Request, caps: CoreCapabilities
 ): Result[void, ValidationError] =
   ## Pre-flight validation of a built Request against server-advertised
@@ -528,7 +525,7 @@ proc send*(client: var JmapClient, request: Request): JmapResult[envelope.Respon
       clientError(transportError(tekNetwork, "invalid response: " & ve.message))
   )
 
-proc isSessionStale*(client: JmapClient, response: envelope.Response): bool =
+func isSessionStale*(client: JmapClient, response: envelope.Response): bool =
   ## Compares ``response.sessionState`` with the cached ``Session.state``.
   ## Returns ``true`` if they differ (session should be re-fetched).
   ## Returns ``false`` if no session is cached (cannot determine staleness).

@@ -24,7 +24,7 @@ import ./serialisation
 # Lenient Option helpers (internal, not exported)
 # =============================================================================
 
-proc optState*(node: JsonNode, key: string): Option[JmapState] =
+func optState*(node: JsonNode, key: string): Option[JmapState] =
   ## Lenient optional JmapState extraction (section 5a.5 leniency).
   ## Absent, null, wrong kind, or invalid content all produce none.
   let child = node{key}
@@ -36,7 +36,7 @@ proc optState*(node: JsonNode, key: string): Option[JmapState] =
   else:
     none(JmapState)
 
-proc optUnsignedInt*(node: JsonNode, key: string): Option[UnsignedInt] =
+func optUnsignedInt*(node: JsonNode, key: string): Option[UnsignedInt] =
   ## Lenient optional UnsignedInt extraction (section 5a.5 leniency).
   ## Absent, null, wrong kind, or invalid content all produce none.
   let child = node{key}
@@ -271,7 +271,7 @@ type QueryChangesResponse*[T] = object
 # Request toJson (Pattern L3-A)
 # =============================================================================
 
-proc toJson*[T](req: GetRequest[T]): JsonNode =
+func toJson*[T](req: GetRequest[T]): JsonNode =
   ## Serialise GetRequest to JSON arguments object (RFC 8620 section 5.1).
   ## Omits ``ids`` and ``properties`` when none.
   ## Dispatches Referencable ids via referencableKey.
@@ -294,7 +294,7 @@ proc toJson*[T](req: GetRequest[T]): JsonNode =
       arr.add(%p)
     result["properties"] = arr
 
-proc toJson*[T](req: ChangesRequest[T]): JsonNode =
+func toJson*[T](req: ChangesRequest[T]): JsonNode =
   ## Serialise ChangesRequest to JSON arguments object (RFC 8620 section 5.2).
   ## Omits ``maxChanges`` when none.
   result = newJObject()
@@ -303,7 +303,7 @@ proc toJson*[T](req: ChangesRequest[T]): JsonNode =
   if req.maxChanges.isSome:
     result["maxChanges"] = req.maxChanges.get().toJson()
 
-proc toJson*[T](req: SetRequest[T]): JsonNode =
+func toJson*[T](req: SetRequest[T]): JsonNode =
   ## Serialise SetRequest to JSON arguments object (RFC 8620 section 5.3).
   ## Omits ``ifInState``, ``create``, ``update``, ``destroy`` when none.
   ## Dispatches Referencable destroy via referencableKey.
@@ -333,7 +333,7 @@ proc toJson*[T](req: SetRequest[T]): JsonNode =
     of rkReference:
       result[destroyKey] = destroyVal.reference.toJson()
 
-proc toJson*[T](req: CopyRequest[T]): JsonNode =
+func toJson*[T](req: CopyRequest[T]): JsonNode =
   ## Serialise CopyRequest to JSON arguments object (RFC 8620 section 5.4).
   ## ``create`` is required (always emitted). ``onSuccessDestroyOriginal``
   ## always emitted.
@@ -401,7 +401,7 @@ proc toJson*[T, C](
 # SetResponse merging helpers (section 8)
 # =============================================================================
 
-proc mergeCreateResults(
+func mergeCreateResults(
     node: JsonNode
 ): Result[(Table[CreationId, JsonNode], Table[CreationId, SetError]), ValidationError] =
   ## Merge wire ``created``/``notCreated`` maps into separate success/failure
@@ -423,7 +423,7 @@ proc mergeCreateResults(
       notCreated[cid] = se
   ok((created, notCreated))
 
-proc mergeUpdateResults(
+func mergeUpdateResults(
     node: JsonNode
 ): Result[(Table[Id, Option[JsonNode]], Table[Id, SetError]), ValidationError] =
   ## Merge wire ``updated``/``notUpdated`` maps into separate success/failure
@@ -449,7 +449,7 @@ proc mergeUpdateResults(
       notUpdated[id] = se
   ok((updated, notUpdated))
 
-proc mergeDestroyResults(
+func mergeDestroyResults(
     node: JsonNode
 ): Result[(seq[Id], Table[Id, SetError]), ValidationError] =
   ## Merge wire ``destroyed``/``notDestroyed`` into separate success/failure
@@ -474,7 +474,7 @@ proc mergeDestroyResults(
 # Response fromJson (Pattern L3-B)
 # =============================================================================
 
-proc fromJson*[T](
+func fromJson*[T](
     R: typedesc[GetResponse[T]], node: JsonNode
 ): Result[GetResponse[T], ValidationError] =
   ## Deserialise JSON arguments to GetResponse (RFC 8620 section 5.1).
@@ -496,7 +496,7 @@ proc fromJson*[T](
       notFound.add(id)
   ok(GetResponse[T](accountId: accountId, state: state, list: list, notFound: notFound))
 
-proc fromJson*[T](
+func fromJson*[T](
     R: typedesc[ChangesResponse[T]], node: JsonNode
 ): Result[ChangesResponse[T], ValidationError] =
   ## Deserialise JSON arguments to ChangesResponse (RFC 8620 section 5.2).
@@ -538,7 +538,7 @@ proc fromJson*[T](
     )
   )
 
-proc fromJson*[T](
+func fromJson*[T](
     R: typedesc[SetResponse[T]], node: JsonNode
 ): Result[SetResponse[T], ValidationError] =
   ## Deserialise JSON arguments to SetResponse (RFC 8620 section 5.3).
@@ -565,7 +565,7 @@ proc fromJson*[T](
     )
   )
 
-proc fromJson*[T](
+func fromJson*[T](
     R: typedesc[CopyResponse[T]], node: JsonNode
 ): Result[CopyResponse[T], ValidationError] =
   ## Deserialise JSON arguments to CopyResponse (RFC 8620 section 5.4).
@@ -589,7 +589,7 @@ proc fromJson*[T](
     )
   )
 
-proc fromJson*[T](
+func fromJson*[T](
     R: typedesc[QueryResponse[T]], node: JsonNode
 ): Result[QueryResponse[T], ValidationError] =
   ## Deserialise JSON arguments to QueryResponse (RFC 8620 section 5.5).
@@ -624,7 +624,7 @@ proc fromJson*[T](
     )
   )
 
-proc fromJson*[T](
+func fromJson*[T](
     R: typedesc[QueryChangesResponse[T]], node: JsonNode
 ): Result[QueryChangesResponse[T], ValidationError] =
   ## Deserialise JSON arguments to QueryChangesResponse (RFC 8620 section 5.6).

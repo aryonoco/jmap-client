@@ -19,7 +19,7 @@ import ./types
 # CoreCapabilities
 # =============================================================================
 
-proc toJson*(caps: CoreCapabilities): JsonNode =
+func toJson*(caps: CoreCapabilities): JsonNode =
   ## Serialise CoreCapabilities to JSON (RFC 8620 §2).
   result = %*{
     "maxSizeUpload": int64(caps.maxSizeUpload),
@@ -35,7 +35,7 @@ proc toJson*(caps: CoreCapabilities): JsonNode =
     algArr.add(%alg)
   result["collationAlgorithms"] = algArr
 
-proc fromJson*(
+func fromJson*(
     T: typedesc[CoreCapabilities], node: JsonNode
 ): Result[CoreCapabilities, ValidationError] =
   ## Deserialise urn:ietf:params:jmap:core capability data.
@@ -79,7 +79,7 @@ proc fromJson*(
 # ServerCapability
 # =============================================================================
 
-proc toJson*(cap: ServerCapability): JsonNode =
+func toJson*(cap: ServerCapability): JsonNode =
   ## Serialise capability data (not the URI key — handled by Session.toJson).
   ## Non-core capabilities deep-copy to prevent callers from mutating internal
   ## state through the returned ref (mirrors fromJson's ownData pattern).
@@ -92,7 +92,7 @@ proc toJson*(cap: ServerCapability): JsonNode =
     else:
       cap.rawData.copy()
 
-proc ownData(data: JsonNode): JsonNode =
+func ownData(data: JsonNode): JsonNode =
   ## Deep-copy a JsonNode to avoid ARC double-free on shared refs.
   ## Mirrors the pattern used by AccountCapabilityEntry.fromJson.
   if data.isNil:
@@ -100,7 +100,7 @@ proc ownData(data: JsonNode): JsonNode =
   else:
     data.copy()
 
-proc fromJson*(
+func fromJson*(
     T: typedesc[ServerCapability], uri: string, data: JsonNode
 ): Result[ServerCapability, ValidationError] =
   ## Deserialise a capability from its URI and JSON data.
@@ -143,7 +143,7 @@ proc fromJson*(
 # AccountCapabilityEntry
 # =============================================================================
 
-proc toJson*(entry: AccountCapabilityEntry): JsonNode =
+func toJson*(entry: AccountCapabilityEntry): JsonNode =
   ## Serialise the capability data (URI key handled by Account.toJson).
   ## Deep-copies to prevent callers from mutating internal state through
   ## the returned ref (mirrors fromJson's deep-copy pattern).
@@ -152,7 +152,7 @@ proc toJson*(entry: AccountCapabilityEntry): JsonNode =
   else:
     entry.data.copy()
 
-proc fromJson*(
+func fromJson*(
     T: typedesc[AccountCapabilityEntry], uri: string, data: JsonNode
 ): Result[AccountCapabilityEntry, ValidationError] =
   ## Deserialise an account capability entry from URI and JSON data.
@@ -172,7 +172,7 @@ proc fromJson*(
 # Account
 # =============================================================================
 
-proc toJson*(acct: Account): JsonNode =
+func toJson*(acct: Account): JsonNode =
   ## Serialise Account to JSON (RFC 8620 §2).
   result =
     %*{"name": acct.name, "isPersonal": acct.isPersonal, "isReadOnly": acct.isReadOnly}
@@ -181,7 +181,7 @@ proc toJson*(acct: Account): JsonNode =
     acctCaps[entry.rawUri] = entry.toJson()
   result["accountCapabilities"] = acctCaps
 
-proc fromJson*(T: typedesc[Account], node: JsonNode): Result[Account, ValidationError] =
+func fromJson*(T: typedesc[Account], node: JsonNode): Result[Account, ValidationError] =
   ## Deserialise JSON to Account (RFC 8620 §2).
   ?checkJsonKind(node, JObject, $T)
   ?checkJsonKind(node{"name"}, JString, $T, "missing or invalid name")
@@ -209,7 +209,7 @@ proc fromJson*(T: typedesc[Account], node: JsonNode): Result[Account, Validation
 # Session
 # =============================================================================
 
-proc toJson*(s: Session): JsonNode =
+func toJson*(s: Session): JsonNode =
   ## Serialise Session to JSON (RFC 8620 §2).
   result = %*{
     "username": s.username,
@@ -235,7 +235,7 @@ proc toJson*(s: Session): JsonNode =
     primary[uri] = %string(id)
   result["primaryAccounts"] = primary
 
-proc fromJson*(T: typedesc[Session], node: JsonNode): Result[Session, ValidationError] =
+func fromJson*(T: typedesc[Session], node: JsonNode): Result[Session, ValidationError] =
   ## Deserialise JSON to Session (RFC 8620 §2). Calls parseSession for
   ## structural invariant validation.
   ?checkJsonKind(node, JObject, $T)

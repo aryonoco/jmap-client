@@ -17,11 +17,11 @@ import ./types
 # Invocation
 # =============================================================================
 
-proc toJson*(inv: Invocation): JsonNode =
+func toJson*(inv: Invocation): JsonNode =
   ## Serialise Invocation as 3-element JSON array (RFC 8620 section 3.2).
   result = %*[inv.name, inv.arguments, string(inv.methodCallId)]
 
-proc fromJson*(
+func fromJson*(
     T: typedesc[Invocation], node: JsonNode
 ): Result[Invocation, ValidationError] =
   ## Deserialise a 3-element JSON array to Invocation (RFC 8620 section 3.2).
@@ -48,7 +48,7 @@ proc fromJson*(
 # createdIds helper
 # =============================================================================
 
-proc parseCreatedIds(
+func parseCreatedIds(
     node: JsonNode, typeName: string
 ): Result[Option[Table[CreationId, Id]], ValidationError] =
   ## Parse optional createdIds from a Request or Response JSON object.
@@ -72,7 +72,7 @@ proc parseCreatedIds(
 # Request
 # =============================================================================
 
-proc toJson*(r: Request): JsonNode =
+func toJson*(r: Request): JsonNode =
   ## Serialise Request to JSON (RFC 8620 section 3.3).
   result = newJObject()
   result["using"] = %r.`using`
@@ -86,7 +86,7 @@ proc toJson*(r: Request): JsonNode =
       ids[string(k)] = %string(v)
     result["createdIds"] = ids
 
-proc fromJson*(T: typedesc[Request], node: JsonNode): Result[Request, ValidationError] =
+func fromJson*(T: typedesc[Request], node: JsonNode): Result[Request, ValidationError] =
   ## Deserialise JSON to Request (RFC 8620 section 3.3).
   ?checkJsonKind(node, JObject, $T)
   let usingNode = node{"using"}
@@ -108,7 +108,7 @@ proc fromJson*(T: typedesc[Request], node: JsonNode): Result[Request, Validation
 # Response
 # =============================================================================
 
-proc toJson*(r: Response): JsonNode =
+func toJson*(r: Response): JsonNode =
   ## Serialise Response to JSON (RFC 8620 section 3.4).
   result = newJObject()
   var responses = newJArray()
@@ -122,7 +122,7 @@ proc toJson*(r: Response): JsonNode =
       ids[string(k)] = %string(v)
     result["createdIds"] = ids
 
-proc fromJson*(
+func fromJson*(
     T: typedesc[Response], node: JsonNode
 ): Result[Response, ValidationError] =
   ## Deserialise JSON to Response (RFC 8620 section 3.4).
@@ -153,11 +153,11 @@ proc fromJson*(
 # ResultReference
 # =============================================================================
 
-proc toJson*(r: ResultReference): JsonNode =
+func toJson*(r: ResultReference): JsonNode =
   ## Serialise ResultReference to JSON (RFC 8620 section 3.7).
   result = %*{"resultOf": string(r.resultOf), "name": r.name, "path": r.path}
 
-proc fromJson*(
+func fromJson*(
     T: typedesc[ResultReference], node: JsonNode
 ): Result[ResultReference, ValidationError] =
   ## Deserialise JSON to ResultReference (RFC 8620 section 3.7).
@@ -182,7 +182,7 @@ proc fromJson*(
 # Referencable[T] helpers
 # =============================================================================
 
-proc referencableKey*[T](fieldName: string, r: Referencable[T]): string =
+func referencableKey*[T](fieldName: string, r: Referencable[T]): string =
   ## Returns the JSON key: plain for direct, #-prefixed for reference.
   case r.kind
   of rkDirect:

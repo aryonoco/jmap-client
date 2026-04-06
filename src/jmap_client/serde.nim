@@ -11,12 +11,12 @@ import std/options
 
 import ./types
 
-proc parseError*(typeName, message: string): ValidationError =
+func parseError*(typeName, message: string): ValidationError =
   ## Convenience constructor for deserialisation errors.
   ## Sets value to empty — JSON context is captured in message.
   validationError(typeName, message, "")
 
-proc checkJsonKind*(
+func checkJsonKind*(
     node: JsonNode, expected: JsonNodeKind, typeName: string, message: string = ""
 ): Result[void, ValidationError] =
   ## Validates JsonNodeKind before extraction. Returns err on mismatch.
@@ -31,7 +31,7 @@ proc checkJsonKind*(
     return err(validationError(typeName, checkMsg, ""))
   ok()
 
-proc collectExtras*(node: JsonNode, knownKeys: openArray[string]): Option[JsonNode] =
+func collectExtras*(node: JsonNode, knownKeys: openArray[string]): Option[JsonNode] =
   ## Collect non-standard fields from a JSON object into Option[JsonNode].
   ## Returns none if no extra fields exist.
   ## Precondition: caller has verified node.kind == JObject.
@@ -48,132 +48,132 @@ proc collectExtras*(node: JsonNode, knownKeys: openArray[string]): Option[JsonNo
 
 # --- toJson: distinct string types ---
 
-proc toJson*(x: Id): JsonNode =
+func toJson*(x: Id): JsonNode =
   ## Serialise Id to JSON string.
   %(string(x))
 
-proc toJson*(x: AccountId): JsonNode =
+func toJson*(x: AccountId): JsonNode =
   ## Serialise AccountId to JSON string.
   %(string(x))
 
-proc toJson*(x: JmapState): JsonNode =
+func toJson*(x: JmapState): JsonNode =
   ## Serialise JmapState to JSON string.
   %(string(x))
 
-proc toJson*(x: MethodCallId): JsonNode =
+func toJson*(x: MethodCallId): JsonNode =
   ## Serialise MethodCallId to JSON string.
   %(string(x))
 
-proc toJson*(x: CreationId): JsonNode =
+func toJson*(x: CreationId): JsonNode =
   ## Serialise CreationId to JSON string.
   %(string(x))
 
-proc toJson*(x: UriTemplate): JsonNode =
+func toJson*(x: UriTemplate): JsonNode =
   ## Serialise UriTemplate to JSON string.
   %(string(x))
 
-proc toJson*(x: PropertyName): JsonNode =
+func toJson*(x: PropertyName): JsonNode =
   ## Serialise PropertyName to JSON string.
   %(string(x))
 
-proc toJson*(x: Date): JsonNode =
+func toJson*(x: Date): JsonNode =
   ## Serialise Date to JSON string.
   %(string(x))
 
-proc toJson*(x: UTCDate): JsonNode =
+func toJson*(x: UTCDate): JsonNode =
   ## Serialise UTCDate to JSON string.
   %(string(x))
 
 # --- toJson: distinct int types ---
 
-proc toJson*(x: UnsignedInt): JsonNode =
+func toJson*(x: UnsignedInt): JsonNode =
   ## Serialise UnsignedInt to JSON integer.
   %(int64(x))
 
-proc toJson*(x: JmapInt): JsonNode =
+func toJson*(x: JmapInt): JsonNode =
   ## Serialise JmapInt to JSON integer.
   %(int64(x))
 
 # --- fromJson: distinct string types ---
 
-proc fromJson*(T: typedesc[Id], node: JsonNode): Result[Id, ValidationError] =
+func fromJson*(T: typedesc[Id], node: JsonNode): Result[Id, ValidationError] =
   ## Deserialise a JSON string to Id (lenient: server-assigned).
   ?checkJsonKind(node, JString, $T)
   parseIdFromServer(node.getStr(""))
 
-proc fromJson*(
+func fromJson*(
     T: typedesc[AccountId], node: JsonNode
 ): Result[AccountId, ValidationError] =
   ## Deserialise a JSON string to AccountId (lenient: server-assigned).
   ?checkJsonKind(node, JString, $T)
   parseAccountId(node.getStr(""))
 
-proc fromJson*(
+func fromJson*(
     T: typedesc[JmapState], node: JsonNode
 ): Result[JmapState, ValidationError] =
   ## Deserialise a JSON string to JmapState.
   ?checkJsonKind(node, JString, $T)
   parseJmapState(node.getStr(""))
 
-proc fromJson*(
+func fromJson*(
     T: typedesc[MethodCallId], node: JsonNode
 ): Result[MethodCallId, ValidationError] =
   ## Deserialise a JSON string to MethodCallId.
   ?checkJsonKind(node, JString, $T)
   parseMethodCallId(node.getStr(""))
 
-proc fromJson*(
+func fromJson*(
     T: typedesc[CreationId], node: JsonNode
 ): Result[CreationId, ValidationError] =
   ## Deserialise a JSON string to CreationId.
   ?checkJsonKind(node, JString, $T)
   parseCreationId(node.getStr(""))
 
-proc fromJson*(
+func fromJson*(
     T: typedesc[UriTemplate], node: JsonNode
 ): Result[UriTemplate, ValidationError] =
   ## Deserialise a JSON string to UriTemplate.
   ?checkJsonKind(node, JString, $T)
   parseUriTemplate(node.getStr(""))
 
-proc fromJson*(
+func fromJson*(
     T: typedesc[PropertyName], node: JsonNode
 ): Result[PropertyName, ValidationError] =
   ## Deserialise a JSON string to PropertyName.
   ?checkJsonKind(node, JString, $T)
   parsePropertyName(node.getStr(""))
 
-proc fromJson*(T: typedesc[Date], node: JsonNode): Result[Date, ValidationError] =
+func fromJson*(T: typedesc[Date], node: JsonNode): Result[Date, ValidationError] =
   ## Deserialise a JSON string to Date (RFC 3339 structural validation).
   ?checkJsonKind(node, JString, $T)
   parseDate(node.getStr(""))
 
-proc fromJson*(T: typedesc[UTCDate], node: JsonNode): Result[UTCDate, ValidationError] =
+func fromJson*(T: typedesc[UTCDate], node: JsonNode): Result[UTCDate, ValidationError] =
   ## Deserialise a JSON string to UTCDate (RFC 3339, Z suffix required).
   ?checkJsonKind(node, JString, $T)
   parseUtcDate(node.getStr(""))
 
 # --- fromJson: distinct int types ---
 
-proc fromJson*(
+func fromJson*(
     T: typedesc[UnsignedInt], node: JsonNode
 ): Result[UnsignedInt, ValidationError] =
   ## Deserialise a JSON integer to UnsignedInt (0..2^53-1).
   ?checkJsonKind(node, JInt, $T)
   parseUnsignedInt(node.getBiggestInt(0))
 
-proc fromJson*(T: typedesc[JmapInt], node: JsonNode): Result[JmapInt, ValidationError] =
+func fromJson*(T: typedesc[JmapInt], node: JsonNode): Result[JmapInt, ValidationError] =
   ## Deserialise a JSON integer to JmapInt (-(2^53-1)..2^53-1).
   ?checkJsonKind(node, JInt, $T)
   parseJmapInt(node.getBiggestInt(0))
 
 # --- toJson/fromJson: MaxChanges ---
 
-proc toJson*(x: MaxChanges): JsonNode =
+func toJson*(x: MaxChanges): JsonNode =
   ## Serialise MaxChanges to JSON integer.
   %(int64(UnsignedInt(x)))
 
-proc fromJson*(
+func fromJson*(
     T: typedesc[MaxChanges], node: JsonNode
 ): Result[MaxChanges, ValidationError] =
   ## Deserialise a JSON integer to MaxChanges (must be > 0).

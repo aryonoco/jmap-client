@@ -28,21 +28,31 @@ func validationError*(typeName, message, value: string): ValidationError =
   ## Constructs a ValidationError value for use on the error rail.
   ValidationError(typeName: typeName, message: message, value: value)
 
-{.push ruleOff: "hasDoc".}
-
 template defineStringDistinctOps*(T: typedesc) =
-  proc `==`*(a, b: T): bool {.borrow.}
-  proc `$`*(a: T): string {.borrow.}
-  proc hash*(a: T): Hash {.borrow.}
-  proc len*(a: T): int {.borrow.}
+  ## Borrows standard operations for a ``distinct string`` type: equality,
+  ## stringification, hashing, and length.
+  func `==`*(a, b: T): bool {.borrow.}
+    ## Equality comparison delegated to the underlying string.
+  func `$`*(a: T): string {.borrow.}
+    ## String representation delegated to the underlying string.
+  func hash*(a: T): Hash {.borrow.}
+    ## Hash delegated to the underlying string.
+  func len*(a: T): int {.borrow.}
+    ## Length delegated to the underlying string.
 
 template defineIntDistinctOps*(T: typedesc) =
-  proc `==`*(a, b: T): bool {.borrow.}
-  proc `<`*(a, b: T): bool {.borrow.}
-  proc `<=`*(a, b: T): bool {.borrow.}
-  proc `$`*(a: T): string {.borrow.}
-  proc hash*(a: T): Hash {.borrow.}
+  ## Borrows standard operations for a ``distinct int`` type: equality,
+  ## ordering, stringification, and hashing.
+  func `==`*(a, b: T): bool {.borrow.}
+    ## Equality comparison delegated to the underlying integer.
+  func `<`*(a, b: T): bool {.borrow.}
+    ## Less-than comparison delegated to the underlying integer.
+  func `<=`*(a, b: T): bool {.borrow.}
+    ## Less-or-equal comparison delegated to the underlying integer.
+  func `$`*(a: T): string {.borrow.}
+    ## String representation delegated to the underlying integer.
+  func hash*(a: T): Hash {.borrow.}
+    ## Hash delegated to the underlying integer.
 
 const Base64UrlChars* = {'A' .. 'Z', 'a' .. 'z', '0' .. '9', '-', '_'}
-
-{.pop.}
+  ## Characters permitted in RFC 8620 §1.2 entity identifiers.

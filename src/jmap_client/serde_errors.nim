@@ -17,7 +17,7 @@ import ./types
 # Lenient Option field helpers (§1.4b: absent, null, or wrong kind -> none)
 # =============================================================================
 
-proc optString(node: JsonNode, key: string): Option[string] =
+func optString(node: JsonNode, key: string): Option[string] =
   ## Extract an optional string field leniently: absent or wrong kind -> none.
   let child = node{key}
   if child.isNil:
@@ -27,7 +27,7 @@ proc optString(node: JsonNode, key: string): Option[string] =
   else:
     some(child.getStr(""))
 
-proc optInt(node: JsonNode, key: string): Option[int] =
+func optInt(node: JsonNode, key: string): Option[int] =
   ## Extract an optional integer field leniently: absent or wrong kind -> none.
   let child = node{key}
   if child.isNil:
@@ -43,7 +43,7 @@ proc optInt(node: JsonNode, key: string): Option[int] =
 
 const RequestErrorKnownKeys = ["type", "status", "title", "detail", "limit"]
 
-proc toJson*(re: RequestError): JsonNode =
+func toJson*(re: RequestError): JsonNode =
   ## Serialise RequestError to RFC 7807 problem details JSON.
   ## Extras with keys colliding with standard fields are silently skipped
   ## to prevent manual construction from corrupting the wire format.
@@ -62,7 +62,7 @@ proc toJson*(re: RequestError): JsonNode =
       if key notin RequestErrorKnownKeys:
         result[key] = val
 
-proc fromJson*(
+func fromJson*(
     T: typedesc[RequestError], node: JsonNode
 ): Result[RequestError, ValidationError] =
   ## Deserialise RFC 7807 problem details JSON to RequestError.
@@ -93,7 +93,7 @@ proc fromJson*(
 
 const MethodErrorKnownKeys = ["type", "description"]
 
-proc toJson*(me: MethodError): JsonNode =
+func toJson*(me: MethodError): JsonNode =
   ## Serialise MethodError to JSON (RFC 8620 §3.6.2).
   ## Extras with keys colliding with standard fields are silently skipped.
   result = newJObject()
@@ -105,7 +105,7 @@ proc toJson*(me: MethodError): JsonNode =
       if key notin MethodErrorKnownKeys:
         result[key] = val
 
-proc fromJson*(
+func fromJson*(
     T: typedesc[MethodError], node: JsonNode
 ): Result[MethodError, ValidationError] =
   ## Deserialise error invocation arguments to MethodError.
@@ -122,7 +122,7 @@ proc fromJson*(
 # SetError
 # =============================================================================
 
-proc toJson*(se: SetError): JsonNode =
+func toJson*(se: SetError): JsonNode =
   ## Serialise SetError to JSON (RFC 8620 §5.3, §5.4).
   ## Extras with keys colliding with standard or variant-specific fields are
   ## silently skipped.
@@ -150,7 +150,7 @@ proc toJson*(se: SetError): JsonNode =
       if key notin knownKeys:
         result[key] = val
 
-proc fromJson*(
+func fromJson*(
     T: typedesc[SetError], node: JsonNode
 ): Result[SetError, ValidationError] =
   ## Deserialise JSON to SetError with defensive fallback (Layer 1 §8.10).
