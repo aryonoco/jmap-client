@@ -398,6 +398,53 @@ for shared helpers and on Layer 1 `types` for domain types. No domain serde
 module imports another domain serde module. Each file is independently
 testable.
 
+### Layer 3 Internal File Organisation
+
+Layer 3 decomposes into modules by concern, with an optional ergonomic
+extension:
+
+```
+src/jmap_client/
+  entity.nim          — Entity registration framework
+                        (registerJmapEntity, registerQueryableEntity,
+                        associated type resolution via filterType template)
+  methods.nim         — Standard method request/response types
+                        (GetRequest[T], SetResponse[T], etc.),
+                        request toJson (Pattern L3-A),
+                        response fromJson (Pattern L3-B),
+                        SetResponse/CopyResponse merging (Pattern L3-C)
+  dispatch.nim        — Phantom-typed ResponseHandle[T],
+                        get[T] extraction, railway bridge
+                        (ValidationError → MethodError),
+                        type-safe reference convenience functions
+  builder.nim         — RequestBuilder accumulation,
+                        add* methods, call ID generation,
+                        capability auto-collection,
+                        argument-construction helpers
+  convenience.nim     — Pipeline combinators (opt-in, not re-exported):
+                        addQueryThenGet, addChangesToGet,
+                        paired handle types
+  protocol.nim        — Re-exports entity, methods, dispatch, builder
+                        (Layer 3 hub; excludes convenience.nim)
+```
+
+Internal import DAG (each module imports only what it needs):
+
+| Module | Imports from (within Layer 3) |
+|--------|------------------------------|
+| `entity` | *(none — imports Layer 1 `types` and `std/json` only)* |
+| `methods` | *(none — imports Layer 1 `types` and Layer 2 `serialisation` only)* |
+| `dispatch` | `methods` |
+| `builder` | `methods`, `dispatch` |
+| `convenience` | `methods`, `dispatch`, `builder` |
+| `protocol` | `entity`, `methods`, `dispatch`, `builder` (re-export hub) |
+
+No cycles. `entity` and `methods` are independent base modules.
+`dispatch` depends on `methods` for response types. `builder` depends
+on both `methods` and `dispatch`. `convenience` depends on the full
+stack but is deliberately excluded from `protocol.nim` — users must
+import it explicitly for pipeline ergonomics.
+
 ---
 
 ## Layer 1: Domain Types + Errors
@@ -460,7 +507,9 @@ and `CreationId` (§3.3, client-generated, no `#` prefix — also not
 constrained by §1.2). `MethodCallId` and `CreationId` are separate from `Id`
 because the RFC imposes different constraints: §1.2's base64url charset and
 1-255 octet length rules apply to entity identifiers, not to protocol-level
-identifiers. When adding RFC 8621 later: `MailboxId`,
+identifiers. Additionally, `MaxChanges` (§5.2) is `distinct UnsignedInt`
+with a smart constructor that rejects zero — used by `/changes` and
+`/queryChanges` requests. When adding RFC 8621 later: `MailboxId`,
 `EmailId`, `ThreadId`, etc.
 
 All distinct identifier types use the `{.requiresInit.}` pragma to prevent
@@ -1355,6 +1404,24 @@ no IO), compatible with `func`. `get[T]` locates the `Invocation` by matching
 the `ResponseHandle`'s call ID, then delegates to the appropriate Layer 2
 `fromJson` to produce the typed result.
 
+**Railway bridge.** When `fromJson` returns `err(ValidationError)` (Track 0),
+`get[T]` converts it losslessly to `err(MethodError)` (Track 2) via
+`validationToMethodError`, preserving the full `ValidationError` structure
+in `MethodError.extras` as structured JSON. This bridges the construction
+railway into the per-invocation railway so callers need only handle
+`Result[T, MethodError]`.
+
+**Entity data limitation (Decision D3.6).** The phantom type `T` in
+`ResponseHandle[T]` controls which response envelope type is extracted
+(e.g., `GetResponse[Mailbox]` vs `SetResponse[Mailbox]`), but entity data
+within those response types remains `JsonNode`. For example,
+`GetResponse[T].list` is `seq[JsonNode]`, not `seq[T]`. RFC 8620 Core
+defines no concrete entity types — `T`'s contribution is the method name
+(via `methodNamespace`), capability URI (via `capabilityUri`), and
+compile-time handle constraints. Entity-specific typed parsing (e.g.,
+`Mailbox.fromJson`) is deferred to RFC 8621 extension modules. See §3.11
+for the full rationale.
+
 ### 3.5 Entity Type Framework
 
 The 6 standard methods are generic over entity type. Each entity type must
@@ -1665,6 +1732,148 @@ could carry proof that it resolves to `seq[Id]`. In Nim (and Rust, Haskell
 without advanced extensions), the relationship between path and result type is
 a runtime assumption documented by convention.
 
+**Type-safe reference convenience functions.** In addition to the generic
+`reference[T](handle, name, path)` escape hatch, the implementation provides
+constrained convenience functions that only compile on the correct handle
+type:
+
+- `idsRef[T](handle: ResponseHandle[QueryResponse[T]])` — `/ids` from `/query`
+- `listIdsRef[T](handle: ResponseHandle[GetResponse[T]])` — `/list/*/id` from `/get`
+- `addedIdsRef[T](handle: ResponseHandle[QueryChangesResponse[T]])` — `/added/*/id` from `/queryChanges`
+- `createdRef[T](handle: ResponseHandle[ChangesResponse[T]])` — `/created` from `/changes`
+- `updatedRef[T](handle: ResponseHandle[ChangesResponse[T]])` — `/updated` from `/changes`
+
+Each function auto-derives the response method name from `T` via `mixin
+methodNamespace`, eliminating a class of bugs where the reference path is
+valid but the method name is wrong. The phantom type constraint means the
+compiler rejects, e.g., `idsRef` on a `ResponseHandle[GetResponse[T]]` —
+making illegal references unrepresentable.
+
+### 3.11 Entity Data Representation
+
+RFC 8620 Core defines the six standard methods generically — `Foo/get`,
+`Foo/set`, etc. — but defines no concrete entity types. Entity types
+(`Mailbox`, `Email`, `Thread`, etc.) come from extension RFCs (primarily
+RFC 8621). This raises the question of how entity data is represented in
+request and response types.
+
+#### Option 3.11A: Fully typed entity data
+
+`GetResponse[T].list` is `seq[T]`. `SetRequest[T].create` is
+`Table[CreationId, T]`. Entity bodies are fully parsed at the protocol layer.
+
+- **Pros:** Maximum type safety. Entity data is typed end-to-end.
+- **Cons:** Requires `T.fromJson` and `T.toJson` to be available at the
+  protocol layer. RFC 8620 Core cannot define these — it has no entity types.
+  Forces a circular dependency: protocol layer (Layer 3) must know entity
+  serialisation (which itself depends on Layer 2 + entity-specific knowledge).
+  Impractical for a Core-only library.
+
+#### Option 3.11B: Raw `JsonNode` entity data (Decision D3.6)
+
+Entity data in request and response types is `JsonNode`. The phantom type
+parameter `T` controls method dispatch (method name, capability URI, handle
+constraints) but does not participate in entity body parsing.
+
+```
+GetResponse[T].list:          seq[JsonNode]
+SetRequest[T].create:         Opt[Table[CreationId, JsonNode]]
+SetResponse[T].createResults: Table[CreationId, Result[JsonNode, SetError]]
+```
+
+- **Pros:**
+  - RFC 8620 Core is self-contained — no entity-specific knowledge needed.
+  - Extension modules (RFC 8621) can add typed parsing independently.
+  - Matches the Rust `jmap-client` crate's approach (`serde_json::Value`
+    for entity data in generic response types).
+  - No data loss — unknown entity properties are preserved.
+- **Cons:**
+  - Entity data is untyped at the protocol layer. Callers must parse
+    `JsonNode` items themselves.
+  - The phantom type `T` creates an expectation of typed entity extraction
+    that the implementation does not fulfil (see note below).
+
+#### Decision: 3.11B
+
+Raw `JsonNode` for entity data. RFC 8620 Core genuinely has no entity types
+to parse. The phantom type `T` provides substantial value — method name
+resolution, capability auto-registration, handle type constraints, type-safe
+reference functions — without requiring entity body parsing.
+
+**Extension point for RFC 8621.** When adding typed entity support, the
+expected pattern is:
+
+```nim
+# In an RFC 8621 extension module:
+type Mailbox = object
+  id: Id
+  name: string
+  parentId: Opt[Id]
+  # ...
+
+func fromJson(T: typedesc[Mailbox], node: JsonNode): Result[Mailbox, ValidationError] = ...
+
+# Convenience extractor (could be a generic helper):
+func parseEntities[T](resp: GetResponse[T]): Result[seq[T], ValidationError] =
+  var entities: seq[T] = @[]
+  for item in resp.list:
+    entities.add(?T.fromJson(item))
+  ok(entities)
+```
+
+No changes to Layers 1–3 Core code are required. The `registerJmapEntity`
+and `registerQueryableEntity` templates already provide the compile-time
+verification that an entity type implements the required overloads.
+
+### 3.12 Unidirectional Serialisation
+
+Standard method types have asymmetric serialisation needs: request types
+are built by the client and sent to the server; response types are received
+from the server and parsed by the client.
+
+#### Decision: D3.7 — Unidirectional serialisation
+
+- **Request types** (`GetRequest[T]`, `SetRequest[T]`, etc.) receive only
+  `toJson`. The client never parses its own requests.
+- **Response types** (`GetResponse[T]`, `SetResponse[T]`, etc.) receive only
+  `fromJson`. The client never serialises server responses.
+
+This eliminates ~12 unused serialisation functions (6 request `fromJson` +
+6 response `toJson`) and avoids maintaining code paths that can never be
+exercised. Layer 2 types (Invocation, Session, errors, etc.) retain
+bidirectional serialisation because they participate in both directions
+(e.g., Invocation appears in both Request and Response).
+
+### 3.13 Pipeline Combinators
+
+Common JMAP patterns chain two method calls with a result reference between
+them (e.g., query-then-get, changes-then-get). While the builder's `add*`
+functions and result reference construction are sufficient, the boilerplate
+is repetitive.
+
+An optional `convenience.nim` module (not re-exported by `protocol.nim`)
+provides pipeline combinators:
+
+```
+addQueryThenGet[T](b, accountId, ...)
+  → QueryGetHandles[T] = (query: ResponseHandle[QueryResponse[T]],
+                           get: ResponseHandle[GetResponse[T]])
+
+addChangesToGet[T](b, accountId, sinceState, ...)
+  → ChangesGetHandles[T] = (changes: ResponseHandle[ChangesResponse[T]],
+                             get: ResponseHandle[GetResponse[T]])
+```
+
+Each combinator adds two method calls to the builder, wires the result
+reference automatically, and returns a paired handle type for type-safe
+extraction of both responses. Paired `getBoth[T]` extraction procs return
+both results as a tuple.
+
+These are opt-in ergonomics — users who import only `protocol` get the
+full builder API without the convenience layer. The combinators are
+templates (not procs) to ensure `mixin methodNamespace` resolution at
+the call site.
+
 ---
 
 ## Layer 4: Transport + Session Discovery
@@ -1838,6 +2047,28 @@ or `cint`-returning accessor functions instead. Enum layout (size, backing
 type, variant ordering) is a Nim compiler implementation detail that may
 change between Nim versions.
 
+### 5.5 Implementation Status
+
+**Layer 5 is architecturally designed but not yet implemented.** The entry
+point (`src/jmap_client.nim`) currently serves as a re-export hub for the
+Nim API:
+
+```nim
+export types         # Layer 1
+export serialisation # Layer 2
+export protocol      # Layer 3
+export client        # Layer 4
+```
+
+No `{.exportc.}` procs, `{.dynlib.}` pragmas, opaque handles, error codes,
+or memory management pairs exist yet. The FFI contract is fully documented
+in `.claude/rules/nim-ffi-boundary.md` and `docs/background/nim-c-abi-guide.md`,
+covering type mapping, string handling, enum sizing, error codes, thread-local
+state, ARC ownership, and library initialisation. Implementation will follow
+the patterns described in §5.1–5.4 when the C ABI boundary is built.
+
+Layers 1–4 are fully implemented and tested.
+
 ---
 
 ## Summary of Decisions
@@ -1865,6 +2096,9 @@ section where the option is defined (e.g., 1.3B is the second option in §1.3).
 | 3. Protocol | Entity-specific typed patch builders (3.8A) | Type-safe construction per entity |
 | 3. Protocol | SetResponse as unified Result maps (3.9B) | Per-item Result pattern within successful method response |
 | 3. Protocol | String paths with constants, no validation (3.10A) | Server validates; client provides convenience |
+| 3. Protocol | Entity data as raw `JsonNode` in request/response types (3.11B, Decision D3.6) | RFC 8620 Core has no entity types; typed entity parsing deferred to RFC 8621 extension modules |
+| 3. Protocol | Unidirectional serialisation: request `toJson` only, response `fromJson` only (Decision D3.7) | Eliminates unused code paths; Layer 2 types retain bidirectional serialisation |
+| 3. Protocol | Pipeline combinators in opt-in `convenience.nim` (§3.13) | Reduces result-reference wiring boilerplate; not re-exported by `protocol.nim` |
 | 4. Transport | `std/httpclient`, synchronous (4.1A) | No deps, swappable later |
 | 4. Transport | Single-threaded: handles not thread-safe (§4.3) | Simplifies design; matches `std/httpclient` constraint |
 | 4. Transport | Bearer token auth on JmapClient; header callback later (§4.4) | RFC 8620 §1.1 requires auth; minimal surface for v1 |
@@ -1873,6 +2107,7 @@ section where the option is defined (e.g., 1.3B is the second option in §1.3).
 | 4. Transport | Direct URL + .well-known, no DNS SRV | Matches all reference implementations |
 | 5. C ABI | Lossy projection, opaque handles, per-object free (5.3A) | Standard C pattern |
 | 5. C ABI | No ABI stability pre-1.0; C consumers must recompile (§5.4) | Opaque handles insulate; no raw enum exposure through C ABI |
+| 5. C ABI | Not yet implemented; Layers 1–4 complete (§5.5) | Entry point is Nim re-export hub; FFI contract documented |
 
 ## Testability per Layer
 
@@ -1888,13 +2123,39 @@ Each layer is testable without the layers above it:
   Referencable[T] serialises correctly for both branches.
 - **Layer 3 (Protocol Logic):** Unit test request builder logic: call ID
   generation, phantom-typed handle creation, builder produces correct immutable
-  Request values. Unit test entity type concept satisfaction (3.5A). Unit test
-  method request/response construction. Verify associated-type template
-  resolution (3.7B). Verify unified Result maps in SetResponse (3.9B). Unit test
-  that builder produces correct ResultReference values from phantom-typed
-  handles. Verify path constants.
+  Request values. Unit test entity type registration via
+  `registerJmapEntity`/`registerQueryableEntity` (3.5B). Unit test method
+  request/response construction, including unidirectional serialisation (D3.7).
+  Verify associated-type template resolution (3.7B). Verify unified Result maps
+  in SetResponse (3.9B). Unit test that builder produces correct ResultReference
+  values from phantom-typed handles, including type-safe convenience references.
+  Verify path constants. Unit test pipeline combinators (§3.13).
 - **Layer 4 (Transport):** Integration test against a real or mock JMAP server.
+  Unit test client constructors, accessors, mutators, bearer token validation,
+  session discovery, request size enforcement, and error classification.
 - **Layer 5 (C ABI):** Integration test from C code linking the shared library.
+  (Not yet implemented — see §5.5.)
 
 The RFC includes JSON examples for almost every type. These serve as test
 fixtures for Layers 1 and 2.
+
+### Implemented Test Organisation
+
+Tests are organised by category under `tests/`:
+
+```
+tests/
+  unit/           — Layer 1 types, session invariants, client constructors
+  serde/          — Layer 2 round-trip serialisation, adversarial inputs
+  protocol/       — Layer 3 builder, dispatch, entity registration,
+                    methods, convenience combinators
+  property/       — Property-based tests across all layers
+  integration/    — Multi-method request-response pipeline flows
+  compliance/     — RFC 8620 compliance scenarios, regression tests
+  stress/         — Stress and adversarial scenarios
+```
+
+Shared test infrastructure: `mfixtures.nim` (test fixtures), `mproperty.nim`
+(property test utilities), `massertions.nim` (custom assertions),
+`mtest_entity.nim` (mock entity registration), `mserde_fixtures.nim`
+(serialisation test data).
