@@ -4,6 +4,8 @@
 ## JMAP capability discovery types. Maps IANA-registered capability URIs to
 ## typed enums with lossless round-trip for vendor extensions.
 
+{.push raises: [].}
+
 import std/strutils
 import std/sets
 from std/json import JsonNode
@@ -11,8 +13,6 @@ from std/json import JsonNode
 import results
 
 import ./primitives
-
-{.push raises: [].}
 
 type CapabilityKind* = enum
   ## JMAP capability identifiers from the IANA registry.

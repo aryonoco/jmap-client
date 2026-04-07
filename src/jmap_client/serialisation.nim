@@ -4,13 +4,13 @@
 ## Re-export hub for all Layer 2 serialisation modules. Import this single
 ## module to access every toJson/fromJson pair and the shared helpers.
 
+{.push raises: [].}
+
 import ./serde
 import ./serde_session
 import ./serde_envelope
 import ./serde_framework
 import ./serde_errors
-
-{.push raises: [].}
 
 export serde
 export serde_session

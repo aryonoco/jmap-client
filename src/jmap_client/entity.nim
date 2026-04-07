@@ -12,9 +12,9 @@
 ##
 ## **Required overloads** (§4.1). Every entity type must provide:
 ##
-## - ``proc methodNamespace*(T: typedesc[Entity]): string`` — returns the
+## - ``func methodNamespace*(T: typedesc[Entity]): string`` — returns the
 ##   entity name for method construction ("Mailbox" → "Mailbox/get").
-## - ``proc capabilityUri*(T: typedesc[Entity]): string`` — returns the
+## - ``func capabilityUri*(T: typedesc[Entity]): string`` — returns the
 ##   capability URI for the ``using`` array (e.g. "urn:ietf:params:jmap:mail").
 ##
 ## **No concept constraint** (Decision D3.4). Generic ``add*`` functions leave
@@ -40,8 +40,8 @@
 ## **Entity module checklist.** Every entity module must provide:
 ##
 ## 1. Entity type definition (e.g. ``type Mailbox* = object``).
-## 2. ``proc methodNamespace*(T: typedesc[Entity]): string``.
-## 3. ``proc capabilityUri*(T: typedesc[Entity]): string``.
+## 2. ``func methodNamespace*(T: typedesc[Entity]): string``.
+## 3. ``func capabilityUri*(T: typedesc[Entity]): string``.
 ## 4. ``template filterType*(T: typedesc[Entity]): typedesc`` (if supports
 ##    ``/query``).
 ## 5. ``func filterConditionToJson*(c: filterType(Entity)): JsonNode``
@@ -74,13 +74,13 @@ template registerJmapEntity*(T: typedesc) =
     when not compiles(methodNamespace(T)):
       {.
         error:
-          "registerJmapEntity: " & $T & " is missing `proc methodNamespace*(T: typedesc[" &
+          "registerJmapEntity: " & $T & " is missing `func methodNamespace*(T: typedesc[" &
           $T & "]): string`"
       .}
     when not compiles(capabilityUri(T)):
       {.
         error:
-          "registerJmapEntity: " & $T & " is missing `proc capabilityUri*(T: typedesc[" &
+          "registerJmapEntity: " & $T & " is missing `func capabilityUri*(T: typedesc[" &
           $T & "]): string`"
       .}
 

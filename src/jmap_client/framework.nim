@@ -4,14 +4,14 @@
 ## Generic method framework types for JMAP standard methods (RFC 8620 §5).
 ## Covers filters, comparators, patch objects, and query change tracking.
 
+{.push raises: [].}
+
 import std/hashes
 import std/tables
 from std/json import JsonNode, newJNull
 
 import ./validation
 import ./primitives
-
-{.push raises: [].}
 
 type PropertyName* = distinct string
   ## A non-empty property name identifying a field on an entity type (RFC 8620 §5.5).

@@ -5,12 +5,12 @@
 ## to access entity registration, standard method types, request building,
 ## and response dispatch.
 
+{.push raises: [].}
+
 import ./entity
 import ./methods
 import ./dispatch
 import ./builder
-
-{.push raises: [].}
 
 export entity
 export methods

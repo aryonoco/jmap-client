@@ -7,6 +7,8 @@
 ## (not exceptions) for use with Railway-Oriented Programming via
 ## nim-results.
 
+{.push raises: [].}
+
 import std/strutils
 from std/json import JsonNode
 
@@ -19,8 +21,6 @@ else:
 
 from ./validation import ValidationError
 import ./primitives
-
-{.push raises: [].}
 
 type TransportErrorKind* = enum
   ## Failure mode before any JMAP-level processing occurs.
@@ -157,23 +157,22 @@ func isTlsRelatedMsg(msg: string): bool =
 func classifyException*(e: ref CatchableError): ClientError =
   ## Maps ``std/httpclient`` exceptions to ``ClientError(cekTransport)``.
   ## Pure: no IO, no side effects. Exhaustive over known exception types.
-  var te: TransportError
-  if e of ref TimeoutError:
-    te = transportError(tekTimeout, e.msg)
-  elif (when defined(ssl): e of ref SslError else: false):
-    te = transportError(tekTls, e.msg)
-  elif e of ref OSError:
-    te =
+  let te =
+    if e of ref TimeoutError:
+      transportError(tekTimeout, e.msg)
+    elif (when defined(ssl): e of ref SslError else: false):
+      transportError(tekTls, e.msg)
+    elif e of ref OSError:
       if isTlsRelatedMsg(e.msg):
         transportError(tekTls, e.msg)
       else:
         transportError(tekNetwork, e.msg)
-  elif e of ref IOError:
-    te = transportError(tekNetwork, e.msg)
-  elif e of ref ValueError:
-    te = transportError(tekNetwork, "protocol error: " & e.msg)
-  else:
-    te = transportError(tekNetwork, "unexpected error: " & e.msg)
+    elif e of ref IOError:
+      transportError(tekNetwork, e.msg)
+    elif e of ref ValueError:
+      transportError(tekNetwork, "protocol error: " & e.msg)
+    else:
+      transportError(tekNetwork, "unexpected error: " & e.msg)
   clientError(te)
 
 func sizeLimitExceeded*(

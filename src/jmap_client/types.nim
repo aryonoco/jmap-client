@@ -4,6 +4,8 @@
 ## Re-export hub for all Layer 1 modules. Import this single module to access
 ## the complete domain type vocabulary.
 
+{.push raises: [].}
+
 import results
 
 import ./validation
@@ -24,8 +26,6 @@ export session
 export envelope
 export framework
 export errors
-
-{.push raises: [].}
 
 type JmapResult*[T] = Result[T, ClientError]
   ## Outer railway: transport/request failure or typed success.

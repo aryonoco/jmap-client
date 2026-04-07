@@ -5,6 +5,8 @@
 ## Covers Invocation, Request, Response, ResultReference, and the
 ## Referencable[T] variant for back-reference support.
 
+{.push raises: [].}
+
 import std/tables
 from std/json import JsonNode
 
@@ -13,8 +15,6 @@ import results
 import ./identifiers
 import ./primitives
 import ./validation
-
-{.push raises: [].}
 
 type Invocation* = object
   ## A method call or response tuple (RFC 8620 section 3.2). Serialised as a

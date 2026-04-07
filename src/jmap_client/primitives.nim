@@ -29,7 +29,7 @@ type JmapInt* = distinct int64
   ## (RFC 8620 §1.3).
 
 defineIntDistinctOps(JmapInt)
-proc `-`*(a: JmapInt): JmapInt {.borrow.} ## unary negation
+func `-`*(a: JmapInt): JmapInt {.borrow.} ## unary negation
 
 type Date* = distinct string
   ## RFC 3339 date-time string with structural validation but no calendar
