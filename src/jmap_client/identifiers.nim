@@ -52,10 +52,7 @@ func parseAccountId*(raw: string): Result[AccountId, ValidationError] =
   ## Lenient: 1-255 octets, no control characters.
   ## AccountIds are server-assigned Id[Account] values (§1.6.2, §2) —
   ## same lenient rules as parseIdFromServer.
-  if raw.len < 1 or raw.len > 255:
-    return err(validationError("AccountId", "length must be 1-255 octets", raw))
-  if raw.anyIt(it < ' ' or it == '\x7F'):
-    return err(validationError("AccountId", "contains control characters", raw))
+  ?validateServerAssignedToken("AccountId", raw)
   doAssert raw.len >= 1 and raw.len <= 255
   ok(AccountId(raw))
 

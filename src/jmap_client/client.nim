@@ -390,7 +390,7 @@ proc fetchSession*(client: var JmapClient): JmapResult[Session] =
   let jsonNode = ?classifyHttpResponse(client.maxResponseBytes, httpResp, rcSession)
   let session = Session.fromJson(jsonNode).mapErr(
       proc(ve: ValidationError): ClientError =
-        clientError(transportError(tekNetwork, "invalid session: " & ve.message))
+        validationToClientErrorCtx(ve, "invalid session: ")
     )
   let s = ?session
   client.session = Opt.some(s)
@@ -413,10 +413,7 @@ proc send*(client: var JmapClient, request: Request): JmapResult[envelope.Respon
   let coreCaps = session.coreCapabilities()
 
   # Step 2: Pre-flight validation
-  ?validateLimits(request, coreCaps).mapErr(
-    proc(ve: ValidationError): ClientError =
-      clientError(transportError(tekNetwork, ve.message))
-  )
+  ?validateLimits(request, coreCaps).mapErr(validationToClientError)
 
   # Step 3: Serialise
   let jsonNode = request.toJson()
@@ -454,7 +451,7 @@ proc send*(client: var JmapClient, request: Request): JmapResult[envelope.Respon
   # Step 9: Deserialise Response
   envelope.Response.fromJson(respJson).mapErr(
     proc(ve: ValidationError): ClientError =
-      clientError(transportError(tekNetwork, "invalid response: " & ve.message))
+      validationToClientErrorCtx(ve, "invalid response: ")
   )
 
 func isSessionStale*(client: JmapClient, response: envelope.Response): bool =

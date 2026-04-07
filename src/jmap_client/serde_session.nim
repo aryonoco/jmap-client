@@ -99,6 +99,12 @@ func ownData(data: JsonNode): JsonNode =
   else:
     data.copy()
 
+template mkNonCoreCap(k: CapabilityKind): untyped =
+  ## Constructs a non-core ServerCapability with deep-copied data. Uses a
+  ## compile-time literal discriminator to satisfy ARC branch tracking on
+  ## case objects with ref fields (rawData: JsonNode).
+  ok(ServerCapability(kind: k, rawUri: uri, rawData: ownData(data)))
+
 func fromJson*(
     T: typedesc[ServerCapability], uri: string, data: JsonNode
 ): Result[ServerCapability, ValidationError] =
@@ -114,29 +120,29 @@ func fromJson*(
     let core = ?CoreCapabilities.fromJson(data)
     ok(ServerCapability(kind: ckCore, rawUri: uri, core: core))
   of ckMail:
-    ok(ServerCapability(kind: ckMail, rawUri: uri, rawData: ownData(data)))
+    mkNonCoreCap(ckMail)
   of ckSubmission:
-    ok(ServerCapability(kind: ckSubmission, rawUri: uri, rawData: ownData(data)))
+    mkNonCoreCap(ckSubmission)
   of ckVacationResponse:
-    ok(ServerCapability(kind: ckVacationResponse, rawUri: uri, rawData: ownData(data)))
+    mkNonCoreCap(ckVacationResponse)
   of ckWebsocket:
-    ok(ServerCapability(kind: ckWebsocket, rawUri: uri, rawData: ownData(data)))
+    mkNonCoreCap(ckWebsocket)
   of ckMdn:
-    ok(ServerCapability(kind: ckMdn, rawUri: uri, rawData: ownData(data)))
+    mkNonCoreCap(ckMdn)
   of ckSmimeVerify:
-    ok(ServerCapability(kind: ckSmimeVerify, rawUri: uri, rawData: ownData(data)))
+    mkNonCoreCap(ckSmimeVerify)
   of ckBlob:
-    ok(ServerCapability(kind: ckBlob, rawUri: uri, rawData: ownData(data)))
+    mkNonCoreCap(ckBlob)
   of ckQuota:
-    ok(ServerCapability(kind: ckQuota, rawUri: uri, rawData: ownData(data)))
+    mkNonCoreCap(ckQuota)
   of ckContacts:
-    ok(ServerCapability(kind: ckContacts, rawUri: uri, rawData: ownData(data)))
+    mkNonCoreCap(ckContacts)
   of ckCalendars:
-    ok(ServerCapability(kind: ckCalendars, rawUri: uri, rawData: ownData(data)))
+    mkNonCoreCap(ckCalendars)
   of ckSieve:
-    ok(ServerCapability(kind: ckSieve, rawUri: uri, rawData: ownData(data)))
+    mkNonCoreCap(ckSieve)
   of ckUnknown:
-    ok(ServerCapability(kind: ckUnknown, rawUri: uri, rawData: ownData(data)))
+    mkNonCoreCap(ckUnknown)
 
 # =============================================================================
 # AccountCapabilityEntry
@@ -157,14 +163,10 @@ func fromJson*(
   ## Deserialise an account capability entry from URI and JSON data.
   if uri.len == 0:
     return err(parseError($T, "capability URI must not be empty"))
-  # Deep-copy to avoid ARC double-free on shared JsonNode refs.
-  let ownedData =
-    if data.isNil:
-      newJObject()
-    else:
-      data.copy()
   ok(
-    AccountCapabilityEntry(kind: parseCapabilityKind(uri), rawUri: uri, data: ownedData)
+    AccountCapabilityEntry(
+      kind: parseCapabilityKind(uri), rawUri: uri, data: ownData(data)
+    )
   )
 
 # =============================================================================

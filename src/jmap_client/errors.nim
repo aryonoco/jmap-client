@@ -17,6 +17,7 @@ when defined(ssl):
 else:
   from std/net import TimeoutError
 
+from ./validation import ValidationError
 import ./primitives
 
 {.push raises: [].}
@@ -128,6 +129,16 @@ func message*(err: ClientError): string =
   case err.kind
   of cekTransport: err.transport.message
   of cekRequest: err.request.message
+
+func validationToClientError*(ve: ValidationError): ClientError =
+  ## Bridges the construction railway (ValidationError) to the outer railway
+  ## (ClientError). For use with ``mapErr`` when a Layer 1 validation failure
+  ## must be surfaced as a transport error.
+  clientError(transportError(tekNetwork, ve.message))
+
+func validationToClientErrorCtx*(ve: ValidationError, context: string): ClientError =
+  ## Bridges with a context prefix prepended to the error message.
+  clientError(transportError(tekNetwork, context & ve.message))
 
 type RequestContext* = enum
   ## Identifies the JMAP endpoint being processed. Used in error messages

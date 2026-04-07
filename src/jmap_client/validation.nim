@@ -7,6 +7,7 @@
 {.push raises: [].}
 
 import std/hashes
+import std/sequtils
 
 import results
 export results
@@ -50,6 +51,18 @@ template defineIntDistinctOps*(T: typedesc) =
   func `$`*(a: T): string {.borrow.}
     ## String representation delegated to the underlying integer.
   func hash*(a: T): Hash {.borrow.} ## Hash delegated to the underlying integer.
+
+func validateServerAssignedToken*(
+    typeName: string, raw: string
+): Result[void, ValidationError] =
+  ## Shared validation for server-assigned identifiers: 1–255 octets, no
+  ## control characters. Used by parseIdFromServer and parseAccountId to
+  ## eliminate duplicated validation logic.
+  if raw.len < 1 or raw.len > 255:
+    return err(validationError(typeName, "length must be 1-255 octets", raw))
+  if raw.anyIt(it < ' ' or it == '\x7F'):
+    return err(validationError(typeName, "contains control characters", raw))
+  ok()
 
 const Base64UrlChars* = {'A' .. 'Z', 'a' .. 'z', '0' .. '9', '-', '_'}
   ## Characters permitted in RFC 8620 §1.2 entity identifiers.

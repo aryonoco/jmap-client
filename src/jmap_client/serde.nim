@@ -45,6 +45,30 @@ func collectExtras*(node: JsonNode, knownKeys: openArray[string]): Opt[JsonNode]
   else:
     Opt.none(JsonNode)
 
+func parseIdArray*(
+    node: JsonNode, typeName: string, fieldName: string
+): Result[seq[Id], ValidationError] =
+  ## Validates that ``node`` is a JSON array and parses each element as a
+  ## server-assigned Id. Shared helper for the fromJson sites in methods.nim
+  ## that deserialise mandatory arrays of identifiers.
+  ?checkJsonKind(node, JArray, typeName, fieldName & " must be array")
+  var ids: seq[Id] = @[]
+  for _, elem in node.getElems(@[]):
+    let id = ?parseIdFromServer(elem.getStr(""))
+    ids.add(id)
+  ok(ids)
+
+func parseOptIdArray*(node: JsonNode): Result[seq[Id], ValidationError] =
+  ## Lenient variant: absent or non-array node yields an empty seq.
+  ## For optional Id arrays like GetResponse.notFound.
+  if node.isNil or node.kind != JArray:
+    return ok(newSeq[Id]())
+  var ids: seq[Id] = @[]
+  for _, elem in node.getElems(@[]):
+    let id = ?parseIdFromServer(elem.getStr(""))
+    ids.add(id)
+  ok(ids)
+
 func optJsonField*(node: JsonNode, key: string, kind: JsonNodeKind): Opt[JsonNode] =
   ## Lenient field extraction: absent, null, or wrong kind -> none.
   ## Companion to checkJsonKind (strict: returns Result with error details).

@@ -463,12 +463,7 @@ func fromJson*[T](
   let listNode = node{"list"}
   ?checkJsonKind(listNode, JArray, "GetResponse", "list must be array")
   let list = listNode.getElems(@[])
-  var notFound: seq[Id] = @[]
-  let nfNode = node{"notFound"}
-  if not nfNode.isNil and nfNode.kind == JArray:
-    for _, elem in nfNode.getElems(@[]):
-      let id = ?parseIdFromServer(elem.getStr(""))
-      notFound.add(id)
+  let notFound = ?parseOptIdArray(node{"notFound"})
   ok(GetResponse[T](accountId: accountId, state: state, list: list, notFound: notFound))
 
 func fromJson*[T](
@@ -483,24 +478,9 @@ func fromJson*[T](
   let hmcNode = node{"hasMoreChanges"}
   ?checkJsonKind(hmcNode, JBool, "ChangesResponse", "hasMoreChanges must be boolean")
   let hasMoreChanges = hmcNode.getBool(false)
-  let createdNode = node{"created"}
-  ?checkJsonKind(createdNode, JArray, "ChangesResponse", "created must be array")
-  var created: seq[Id] = @[]
-  for _, elem in createdNode.getElems(@[]):
-    let id = ?parseIdFromServer(elem.getStr(""))
-    created.add(id)
-  let updatedNode = node{"updated"}
-  ?checkJsonKind(updatedNode, JArray, "ChangesResponse", "updated must be array")
-  var updated: seq[Id] = @[]
-  for _, elem in updatedNode.getElems(@[]):
-    let id = ?parseIdFromServer(elem.getStr(""))
-    updated.add(id)
-  let destroyedNode = node{"destroyed"}
-  ?checkJsonKind(destroyedNode, JArray, "ChangesResponse", "destroyed must be array")
-  var destroyed: seq[Id] = @[]
-  for _, elem in destroyedNode.getElems(@[]):
-    let id = ?parseIdFromServer(elem.getStr(""))
-    destroyed.add(id)
+  let created = ?parseIdArray(node{"created"}, "ChangesResponse", "created")
+  let updated = ?parseIdArray(node{"updated"}, "ChangesResponse", "updated")
+  let destroyed = ?parseIdArray(node{"destroyed"}, "ChangesResponse", "destroyed")
   ok(
     ChangesResponse[T](
       accountId: accountId,
@@ -575,12 +555,7 @@ func fromJson*[T](
   let posNode = node{"position"}
   ?checkJsonKind(posNode, JInt, "QueryResponse", "position must be integer")
   let position = ?parseUnsignedInt(posNode.getBiggestInt(0))
-  let idsNode = node{"ids"}
-  ?checkJsonKind(idsNode, JArray, "QueryResponse", "ids must be array")
-  var ids: seq[Id] = @[]
-  for _, elem in idsNode.getElems(@[]):
-    let id = ?parseIdFromServer(elem.getStr(""))
-    ids.add(id)
+  let ids = ?parseIdArray(node{"ids"}, "QueryResponse", "ids")
   let total = optUnsignedInt(node, "total")
   let limit = optUnsignedInt(node, "limit")
   ok(
@@ -607,12 +582,7 @@ func fromJson*[T](
   let oldQueryState = ?parseJmapState(node{"oldQueryState"}.getStr(""))
   let newQueryState = ?parseJmapState(node{"newQueryState"}.getStr(""))
   let total = optUnsignedInt(node, "total")
-  let removedNode = node{"removed"}
-  ?checkJsonKind(removedNode, JArray, "QueryChangesResponse", "removed must be array")
-  var removed: seq[Id] = @[]
-  for _, elem in removedNode.getElems(@[]):
-    let id = ?parseIdFromServer(elem.getStr(""))
-    removed.add(id)
+  let removed = ?parseIdArray(node{"removed"}, "QueryChangesResponse", "removed")
   let addedNode = node{"added"}
   ?checkJsonKind(addedNode, JArray, "QueryChangesResponse", "added must be array")
   var added: seq[AddedItem] = @[]

@@ -73,10 +73,7 @@ func parseIdFromServer*(raw: string): Result[Id, ValidationError] =
   ## Lenient: 1-255 octets, no control characters.
   ## For server-assigned IDs in responses. Tolerates servers that deviate
   ## from the strict base64url charset (e.g., Cyrus IMAP).
-  if raw.len < 1 or raw.len > 255:
-    return err(validationError("Id", "length must be 1-255 octets", raw))
-  if raw.anyIt(it < ' ' or it == '\x7F'):
-    return err(validationError("Id", "contains control characters", raw))
+  ?validateServerAssignedToken("Id", raw)
   let id = Id(raw)
   doAssert id.len >= 1 and id.len <= 255
   ok(id)

@@ -41,6 +41,15 @@ func initInvocation*(
     Invocation(name: name, arguments: arguments, rawMethodCallId: string(methodCallId))
   )
 
+func initInvocationUnchecked*(
+    name: string, arguments: JsonNode, methodCallId: MethodCallId
+): Invocation =
+  ## Infallible constructor for internal use where name is provably non-empty
+  ## (e.g., builder-generated method names like "Mailbox/get"). Matches the
+  ## ``initResultReference`` pattern for infallible counterparts.
+  doAssert name.len > 0, "Invocation name must not be empty"
+  Invocation(name: name, arguments: arguments, rawMethodCallId: string(methodCallId))
+
 type Request* = object
   ## Top-level JMAP request envelope (RFC 8620 section 3.3). Contains the
   ## capability URIs, method calls, and optional creation ID map.
