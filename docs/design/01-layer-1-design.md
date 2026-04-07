@@ -60,8 +60,9 @@ reflects the codebase after that revision.
   an opaque stdlib type that cannot be further constrained without a wrapper.
   Several types use **Pattern A** (sealed construction via module-private
   fields) to prevent direct construction that would bypass validation — see
-  `Invocation` (§6.1), `ResultReference` (§6.4), `Comparator` (§7.3),
-  `AddedItem` (§7.5), `RequestError` (§8.4), and `MethodError` (§8.8).
+  `Session` (§5.3), `Invocation` (§6.1), `ResultReference` (§6.4),
+  `Comparator` (§7.3), `AddedItem` (§7.5), `RequestError` (§8.4), and
+  `MethodError` (§8.8).
 - **Dual validation strictness** — accept server-generated data leniently
   (tolerating minor RFC deviations such as non-base64url ID characters),
   construct client-generated data strictly. Both paths return `err` on truly
@@ -182,6 +183,27 @@ construction-time validation). `ClientError` (Section 8.6) is a separate
 concern for runtime transport/request failures (Layer 4). These are different
 error categories and are not unified into a single type.
 
+**Shared server-assigned token validation:**
+
+```nim
+func validateServerAssignedToken*(
+    typeName: string, raw: string
+): Result[void, ValidationError] =
+  ## Shared validation for server-assigned identifiers: 1–255 octets, no
+  ## control characters. Used by parseIdFromServer and parseAccountId to
+  ## eliminate duplicated validation logic.
+  if raw.len < 1 or raw.len > 255:
+    return err(validationError(typeName, "length must be 1-255 octets", raw))
+  if raw.anyIt(it < ' ' or it == '\x7F'):
+    return err(validationError(typeName, "contains control characters", raw))
+  ok()
+```
+
+`validateServerAssignedToken` extracts the shared lenient validation logic
+for server-assigned identifiers (`parseIdFromServer`, `parseAccountId`).
+These constructors delegate to this function via the `?` operator rather
+than duplicating the same length/control-character checks.
+
 **Module:** `src/jmap_client/validation.nim`
 
 ### 1.2 Smart Constructor Pattern
@@ -210,16 +232,21 @@ func parseFoo*(raw: InputType): Result[Foo, ValidationError] =
   is the base type conversion (`string(x)` or `int64(x)`), which is not
   accessible outside the defining module without explicit borrowing. Only the
   smart constructor is public.
-- For non-distinct object types (e.g., `Session`), Nim cannot prevent direct
-  construction via `Session(field1: val1, ...)` when fields are public. The
-  smart constructor enforces invariants that direct construction does not.
-  Functions that depend on these invariants (e.g., `coreCapabilities`) use
-  `raiseAssert` for the unreachable branch.
+- For non-distinct object types with invariants, **Pattern A** (sealed
+  construction via module-private fields) prevents direct construction from
+  outside the defining module. `Session` uses this pattern: all fields are
+  module-private (`rawCapabilities`, `rawAccounts`, etc.), with public
+  accessor functions for read access. External code cannot construct
+  `Session(...)` directly because the field names are invisible outside
+  `session.nim`. Functions that depend on constructor-guaranteed invariants
+  (e.g., `coreCapabilities` depends on `ckCore` presence) use `raiseAssert`
+  for the unreachable branch.
 - For types where direct construction must be prevented, **Pattern A**
-  (sealed construction) uses a module-private field to block direct
-  construction from outside the module, with a public accessor to read the
-  value. See `Invocation` (§6.1), `ResultReference` (§6.4), `Comparator`
-  (§7.3), `AddedItem` (§7.5), `RequestError` (§8.4), `MethodError` (§8.8).
+  (sealed construction) uses module-private fields to block direct
+  construction from outside the module, with public accessors to read the
+  values. See `Session` (§5.3), `Invocation` (§6.1), `ResultReference`
+  (§6.4), `Comparator` (§7.3), `AddedItem` (§7.5), `RequestError` (§8.4),
+  `MethodError` (§8.8).
 - For types with no invariants beyond their constituent types, the raw
   constructor may be exported directly.
 
@@ -299,10 +326,7 @@ func parseIdFromServer*(raw: string): Result[Id, ValidationError] =
   ## Lenient: 1-255 octets, no control characters (including DEL).
   ## For server-assigned IDs in responses. Tolerates servers that deviate
   ## from the strict base64url charset (e.g., Cyrus IMAP).
-  if raw.len < 1 or raw.len > 255:
-    return err(validationError("Id", "length must be 1-255 octets", raw))
-  if raw.anyIt(it < ' ' or it == '\x7F'):
-    return err(validationError("Id", "contains control characters", raw))
+  ?validateServerAssignedToken("Id", raw)
   let id = Id(raw)
   doAssert id.len >= 1 and id.len <= 255
   ok(id)
@@ -601,10 +625,7 @@ func parseAccountId*(raw: string): Result[AccountId, ValidationError] =
   ## Lenient: 1-255 octets, no control characters (including DEL).
   ## AccountIds are server-assigned Id[Account] values (§1.6.2, §2) —
   ## same lenient rules as parseIdFromServer.
-  if raw.len < 1 or raw.len > 255:
-    return err(validationError("AccountId", "length must be 1-255 octets", raw))
-  if raw.anyIt(it < ' ' or it == '\x7F'):
-    return err(validationError("AccountId", "contains control characters", raw))
+  ?validateServerAssignedToken("AccountId", raw)
   doAssert raw.len >= 1 and raw.len <= 255
   ok(AccountId(raw))
 ```
@@ -1003,16 +1024,35 @@ endpoint URLs, and session state.
 ```nim
 import std/tables
 
-type Session* = object
-  capabilities*: seq[ServerCapability]         ## server-level capabilities
-  accounts*: Table[AccountId, Account]            ## keyed by AccountId
-  primaryAccounts*: Table[string, AccountId]   ## keyed by raw capability URI
-  username*: string                            ## or empty string if none
-  apiUrl*: string                              ## URL for JMAP API requests
-  downloadUrl*: UriTemplate                    ## RFC 6570 Level 1 template
-  uploadUrl*: UriTemplate                      ## RFC 6570 Level 1 template
-  eventSourceUrl*: UriTemplate                 ## RFC 6570 Level 1 template
-  state*: JmapState                            ## session state token
+type Session* {.ruleOff: "objects".} = object
+  ## Fields are module-private; external access via UFCS accessor funcs.
+  rawCapabilities: seq[ServerCapability]
+  rawAccounts: Table[AccountId, Account]
+  rawPrimaryAccounts: Table[string, AccountId]
+  rawUsername: string
+  rawApiUrl: string
+  rawDownloadUrl: UriTemplate
+  rawUploadUrl: UriTemplate
+  rawEventSourceUrl: UriTemplate
+  rawState: JmapState
+```
+
+All fields are module-private, enforcing construction exclusively via
+`parseSession`. This is the sealed construction pattern: no external code
+can bypass validation by constructing `Session(...)` directly, because the
+field names are invisible outside the defining module. Public read access
+is provided by UFCS accessor functions:
+
+```nim
+func capabilities*(s: Session): seq[ServerCapability] = s.rawCapabilities
+func accounts*(s: Session): Table[AccountId, Account] = s.rawAccounts
+func primaryAccounts*(s: Session): Table[string, AccountId] = s.rawPrimaryAccounts
+func username*(s: Session): string = s.rawUsername
+func apiUrl*(s: Session): string = s.rawApiUrl
+func downloadUrl*(s: Session): UriTemplate = s.rawDownloadUrl
+func uploadUrl*(s: Session): UriTemplate = s.rawUploadUrl
+func eventSourceUrl*(s: Session): UriTemplate = s.rawEventSourceUrl
+func state*(s: Session): JmapState = s.rawState
 ```
 
 All fields are required per the RFC. `accounts` uses `AccountId` keys —
@@ -1097,15 +1137,15 @@ func parseSession*(
         "Session", "eventSourceUrl missing {" & variable & "}", string(eventSourceUrl)
       ))
   let session = Session(
-    capabilities: capabilities,
-    accounts: accounts,
-    primaryAccounts: primaryAccounts,
-    username: username,
-    apiUrl: apiUrl,
-    downloadUrl: downloadUrl,
-    uploadUrl: uploadUrl,
-    eventSourceUrl: eventSourceUrl,
-    state: state,
+    rawCapabilities: capabilities,
+    rawAccounts: accounts,
+    rawPrimaryAccounts: primaryAccounts,
+    rawUsername: username,
+    rawApiUrl: apiUrl,
+    rawDownloadUrl: downloadUrl,
+    rawUploadUrl: uploadUrl,
+    rawEventSourceUrl: eventSourceUrl,
+    rawState: state,
   )
   doAssert session.capabilities.hasKind(ckCore)
   doAssert session.apiUrl.len > 0
@@ -1134,7 +1174,7 @@ func coreCapabilities*(session: Session): CoreCapabilities =
   ## Returns the core capabilities. Total function (no Result) because
   ## parseSession guarantees ckCore is present. Raises AssertionDefect
   ## if the invariant is violated by direct construction.
-  for _, cap in session.capabilities:
+  for _, cap in session.rawCapabilities:
     case cap.kind
     of ckCore:
       return cap.core
@@ -1151,7 +1191,7 @@ constructed directly without `ckCore`, `coreCapabilities` raises
 
 ```nim
 func findCapability*(session: Session, kind: CapabilityKind): Opt[ServerCapability] =
-  for _, cap in session.capabilities:
+  for _, cap in session.rawCapabilities:
     if cap.kind == kind:
       return Opt.some(cap)
   Opt.none(ServerCapability)
@@ -1159,7 +1199,7 @@ func findCapability*(session: Session, kind: CapabilityKind): Opt[ServerCapabili
 func findCapabilityByUri*(session: Session, uri: string): Opt[ServerCapability] =
   ## Looks up a capability by its raw URI string. Use this instead of
   ## findCapability when looking up vendor extensions.
-  for _, cap in session.capabilities:
+  for _, cap in session.rawCapabilities:
     if cap.rawUri == uri:
       return Opt.some(cap)
   Opt.none(ServerCapability)
@@ -1168,13 +1208,13 @@ func primaryAccount*(session: Session, kind: CapabilityKind): Opt[AccountId] =
   ## Returns the primary account for a known capability kind.
   ## Returns none if kind == ckUnknown (no canonical URI) or no primary designated.
   let uri = ?capabilityUri(kind)
-  for key, val in session.primaryAccounts:
+  for key, val in session.rawPrimaryAccounts:
     if key == uri:
       return Opt.some(val)
   Opt.none(AccountId)
 
 func findAccount*(session: Session, id: AccountId): Opt[Account] =
-  for key, val in session.accounts:
+  for key, val in session.rawAccounts:
     if key == id:
       return Opt.some(val)
   Opt.none(Account)
@@ -1239,6 +1279,15 @@ func initInvocation*(
   if name.len == 0:
     return err(validationError("Invocation", "name must not be empty", name))
   ok(Invocation(name: name, arguments: arguments, rawMethodCallId: string(methodCallId)))
+
+func initInvocationUnchecked*(
+    name: string, arguments: JsonNode, methodCallId: MethodCallId
+): Invocation =
+  ## Infallible constructor for internal use where name is provably non-empty
+  ## (e.g., builder-generated method names like "Mailbox/get"). Matches the
+  ## ``initResultReference`` pattern for infallible counterparts.
+  doAssert name.len > 0, "Invocation name must not be empty"
+  Invocation(name: name, arguments: arguments, rawMethodCallId: string(methodCallId))
 ```
 
 **Module:** `src/jmap_client/envelope.nim`
@@ -1734,7 +1783,6 @@ type RequestError* = object
   ## errorType is module-private — always derived from rawType via
   ## parseRequestErrorType. This seals the consistency invariant:
   ## errorType and rawType cannot diverge.
-  message*: string               ## human-readable error description
   errorType: RequestErrorType    ## module-private; derived from rawType
   rawType*: string               ## always populated — lossless round-trip
   status*: Opt[int]              ## RFC 7807 "status" field
@@ -1744,13 +1792,26 @@ type RequestError* = object
   extras*: Opt[JsonNode]         ## non-standard fields, lossless preservation
 ```
 
-**Accessor:**
+No `message` field — the human-readable message is derived from the RFC 7807
+fields via the `message` accessor function, avoiding duplication.
+
+**Accessors:**
 
 ```nim
 func errorType*(re: RequestError): RequestErrorType =
   ## Returns the parsed error type variant.
   re.errorType
+
+func message*(re: RequestError): string =
+  ## Human-readable message via cascade: detail > title > rawType.
+  re.detail.valueOr:
+    re.title.valueOr:
+      re.rawType
 ```
+
+`message` prefers `detail` over `title` over `rawType` (following RFC 7807
+guidance). Uses `valueOr` from nim-results for ergonomic fallback chains on
+`Opt[T]`.
 
 **Constructor helper:**
 
@@ -1767,7 +1828,6 @@ func requestError*(
   let re = RequestError(
     errorType: parseRequestErrorType(rawType),
     rawType: rawType,
-    message: rawType,
     status: status,
     title: title,
     detail: detail,
@@ -1804,7 +1864,7 @@ or protocol level.
 
 ```nim
 type ClientError* = object
-  message*: string  ## human-readable error description
+  ## Outer railway error: either a transport failure or a JMAP request rejection.
   case kind*: ClientErrorKind
   of cekTransport:
     transport*: TransportError
@@ -1812,16 +1872,19 @@ type ClientError* = object
     request*: RequestError
 ```
 
+No `message` field — the human-readable message is derived from the variant's
+data via the `message` accessor function, avoiding duplication.
+
 **Constructor helpers:**
 
 ```nim
 func clientError*(transport: TransportError): ClientError =
   ## Lifts a transport failure into the outer railway.
-  ClientError(kind: cekTransport, transport: transport, message: transport.message)
+  ClientError(kind: cekTransport, transport: transport)
 
 func clientError*(request: RequestError): ClientError =
   ## Lifts a request rejection into the outer railway.
-  ClientError(kind: cekRequest, request: request, message: request.rawType)
+  ClientError(kind: cekRequest, request: request)
 ```
 
 **Accessor helper:**
@@ -1831,15 +1894,28 @@ func message*(err: ClientError): string =
   ## Human-readable message for any ClientError variant.
   case err.kind
   of cekTransport: err.transport.message
-  of cekRequest:
-    err.request.detail.valueOr:
-      err.request.title.valueOr:
-        err.request.rawType
+  of cekRequest: err.request.message
 ```
 
-For `cekRequest`, prefers `detail` over `title` over `rawType` (following
-RFC 7807 guidance). Uses `valueOr` from nim-results for ergonomic fallback
-chains on `Opt[T]`.
+For `cekRequest`, delegates to `RequestError.message` (which applies the
+cascade: `detail` > `title` > `rawType`).
+
+**Bridge helpers (construction railway → outer railway):**
+
+```nim
+func validationToClientError*(ve: ValidationError): ClientError =
+  ## Bridges the construction railway (ValidationError) to the outer railway
+  ## (ClientError). For use with ``mapErr`` when a Layer 1 validation failure
+  ## must be surfaced as a transport error.
+  clientError(transportError(tekNetwork, ve.message))
+
+func validationToClientErrorCtx*(ve: ValidationError, context: string): ClientError =
+  ## Bridges with a context prefix prepended to the error message.
+  clientError(transportError(tekNetwork, context & ve.message))
+```
+
+These are used in Layer 2/4 when a deserialization failure (which produces
+`ValidationError`) must be surfaced on the outer railway (`ClientError`).
 
 ### 8.6a Exception Classification
 
@@ -2122,6 +2198,7 @@ All borrowed operations are `func`.
 | `CapabilityKind` | `parseCapabilityKind` | Total (always succeeds) | returns `CapabilityKind` |
 | `Session` | `parseSession` | Core cap present, URLs valid, templates have variables, no newlines in apiUrl | `Result[Session, ValidationError]` |
 | `Invocation` | `initInvocation` | Non-empty name | `Result[Invocation, ValidationError]` |
+| `Invocation` | `initInvocationUnchecked` | Infallible (doAssert guards) | returns `Invocation` |
 | `ResultReference` | `parseResultReference` | Non-empty name and path | `Result[ResultReference, ValidationError]` |
 | `ResultReference` | `initResultReference` | Infallible (doAssert guards) | returns `ResultReference` |
 | `PropertyName` | `parsePropertyName` | Non-empty | `Result[PropertyName, ValidationError]` |
@@ -2138,6 +2215,8 @@ All borrowed operations are `func`.
 | `RequestError` | `requestError` | None (lossless round-trip) | returns `RequestError` |
 | `ClientError` | `clientError` (2 overloads) | None (total) | returns `ClientError` |
 | `ClientError` | `classifyException` | None (total) | returns `ClientError` |
+| `ClientError` | `validationToClientError` | None (bridges ValidationError → ClientError) | returns `ClientError` |
+| `ClientError` | `validationToClientErrorCtx` | None (bridges with context prefix) | returns `ClientError` |
 | `MethodError` | `methodError` | None (lossless round-trip) | returns `MethodError` |
 | `SetError` | `setError` | None (lossless + defensive fallback) | returns `SetError` |
 | `SetError` | `setErrorInvalidProperties` | None (total) | returns `SetError` |
@@ -2154,7 +2233,8 @@ directly — error types cannot fail construction.
 ```
 src/jmap_client/
   validation.nim      <- ValidationError (plain object), borrow templates,
-                         charset constants, nim-results re-export
+                         charset constants, validateServerAssignedToken,
+                         nim-results re-export
   primitives.nim      <- Id, UnsignedInt, JmapInt, Date, UTCDate, MaxChanges
   identifiers.nim     <- AccountId, JmapState, MethodCallId, CreationId
   capabilities.nim    <- CapabilityKind, CoreCapabilities, ServerCapability
@@ -2167,6 +2247,7 @@ src/jmap_client/
   errors.nim          <- TransportErrorKind, TransportError (plain object),
                          RequestErrorType, RequestError (plain object),
                          ClientErrorKind, ClientError (plain object),
+                         validationToClientError, validationToClientErrorCtx,
                          RequestContext, classifyException, enforceBodySizeLimit,
                          MethodErrorType, MethodError (plain object),
                          SetErrorType, SetError (plain object)
@@ -2177,7 +2258,7 @@ src/jmap_client/
 ### Import Graph
 
 ```
-            validation.nim       (std/hashes, results)
+            validation.nim       (std/hashes, std/sequtils, results)
              ^         ^
   primitives.nim    identifiers.nim   (std/hashes, std/sequtils each)
    ^   ^   ^   ^       ^        ^

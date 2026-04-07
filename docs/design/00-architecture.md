@@ -167,8 +167,10 @@ enabled in this project, they are effectively resolved:
    direct construction from outside the defining module is impossible.** This
    "private field" pattern (used by `Comparator`, `Invocation`, `AddedItem`)
    is strictly stronger than the convention-only approach — it is
-   compiler-enforced. Objects without private fields (e.g., `Session`,
-   `Account`) remain convention-enforced. Functions that depend on
+   compiler-enforced. `Session` also uses module-private fields with
+   public accessor `func`s (see §1.7 Session type), making it
+   compiler-enforced. Objects without private fields (e.g., `Account`)
+   remain convention-enforced. Functions that depend on
    smart-constructor invariants use `raiseAssert` (a `Defect`) for the
    unreachable branch — this is outside the `Result`/`Opt` railway.
 
@@ -357,7 +359,7 @@ Internal import DAG (each module imports only what its types reference):
 | `identifiers` | `validation` |
 | `capabilities` | `primitives` |
 | `framework` | `validation`, `primitives` |
-| `errors` | `primitives` |
+| `errors` | `validation`, `primitives` |
 | `session` | `validation`, `identifiers`, `capabilities` |
 | `envelope` | `validation`, `identifiers`, `primitives` |
 | `types` | all of the above (re-export hub) |
@@ -744,7 +746,7 @@ Comparator = object
   collation: Opt[string]     ## RFC 4790 collation algorithm identifier
 
 func property(c: Comparator): PropertyName  ## typed accessor
-func parseComparator(...): Result[Comparator, ValidationError]  ## only construction path
+func parseComparator(property: PropertyName, isAscending: bool, collation: Opt[string]): Comparator  ## infallible given valid PropertyName
 ```
 
 `property` is stored internally as `string` to allow `seq[Comparator]` in
@@ -1081,7 +1083,6 @@ ClientErrorKind = enum
   cekTransport, cekRequest
 
 ClientError = object
-  message: string          # human-readable error description
   case kind: ClientErrorKind
   of cekTransport: transport: TransportError
   of cekRequest: request: RequestError
@@ -1091,10 +1092,10 @@ func clientError(request: RequestError): ClientError
 func message(err: ClientError): string  ## extracts human-readable message
 ```
 
-`message` is a shared field across both variants, populated by the
-smart constructors. The `message` accessor func provides a richer
-extraction — preferring `detail` then `title` then `rawType` for
-request errors.
+`message` is an accessor `func`, not a stored field — it dispatches
+on the variant kind. For transport errors it returns
+`transport.message`; for request errors it cascades
+`detail` → `title` → `rawType`.
 
 #### MethodError (inner railway error type)
 
@@ -1420,7 +1421,7 @@ ResponseHandle[T] = distinct MethodCallId  # wraps the call ID; T is phantom
 let queryHandle: ResponseHandle[QueryResponse[Mailbox]] = builder.addQuery(...)
 
 # Response extraction is type-safe:
-func get[T](resp: Response, handle: ResponseHandle[T]): Result[T, MethodError]
+proc get[T](resp: Response, handle: ResponseHandle[T]): Result[T, MethodError]
 ```
 
 - **Pros:**
@@ -1454,12 +1455,14 @@ where the request was built. Do not store handles beyond the response
 processing scope. A future release could add a request-scoped nonce to
 detect cross-request misuse at runtime.
 
-`get[T]` is a Layer 3 function that operates on the Layer 1 `Response` type
-directly — no separate wrapper type is needed. JSON-to-type deserialisation
-(Layer 2's `fromJson` functions) is a pure tree transform (`JsonNode` → `T`,
-no IO), compatible with `func`. `get[T]` locates the `Invocation` by matching
-the `ResponseHandle`'s call ID, then delegates to the appropriate Layer 2
-`fromJson` to produce the typed result.
+`get[T]` is a Layer 3 `proc` that operates on the Layer 1 `Response` type
+directly — no separate wrapper type is needed. It is `proc` (not `func`)
+because it uses `mixin fromJson` to resolve `T.fromJson` at the caller's
+scope — `mixin` introduces hidden pointer indirection that prevents `func`.
+JSON-to-type deserialisation (Layer 2's `fromJson` functions) is a pure
+tree transform (`JsonNode` → `T`, no IO). `get[T]` locates the `Invocation`
+by matching the `ResponseHandle`'s call ID, then delegates to the
+appropriate Layer 2 `fromJson` to produce the typed result.
 
 **Railway bridge.** When `fromJson` returns `err(ValidationError)` (Track 0),
 `get[T]` converts it losslessly to `err(MethodError)` (Track 2) via
@@ -1950,9 +1953,13 @@ both results as a named result object (`QueryGetResults[T]`,
 `ChangesGetResults[T]`).
 
 These are opt-in ergonomics — users who import only `protocol` get the
-full builder API without the convenience layer. The combinators are
-templates (not procs) to ensure `mixin methodNamespace` resolution at
-the call site.
+full builder API without the convenience layer. `addQueryThenGet` is a
+`template` (to ensure `mixin methodNamespace` and `mixin filterType`
+resolution at the call site for the underlying `addQuery[T]` call).
+`addChangesToGet` is a `func` (no mixin resolution needed — it calls
+`addChanges` and `addGet` which do not require filter type resolution).
+Paired `getBoth` extraction uses `proc` (because `mixin fromJson`
+prevents `func`).
 
 ---
 

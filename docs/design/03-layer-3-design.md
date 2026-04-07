@@ -304,9 +304,13 @@ func addInvocation(b: var RequestBuilder, name: string,
     args: JsonNode, capability: string): MethodCallId =
   ## Constructs an Invocation from the given method name and arguments,
   ## adds it to the builder, registers the capability, and returns the
-  ## generated call ID.
+  ## generated call ID. Uses ``initInvocationUnchecked`` because
+  ## builder-generated method names (``methodNamespace(T) & "/get"``)
+  ## and auto-generated call IDs (``"c0"``, ``"c1"``) are provably
+  ## valid — the builder controls both entirely, so validation would
+  ## be redundant.
   let callId = b.nextId()
-  let inv = initInvocation(name, args, callId).get()
+  let inv = initInvocationUnchecked(name, args, callId)
   b.invocations.add(inv)
   b.addCapability(capability)
   callId
@@ -608,6 +612,40 @@ func validationToMethodError*(ve: ValidationError): MethodError =
 
 ### 3.4 Extraction Functions
 
+**3.4.0 Internal `extractInvocation` helper**
+
+The shared extraction logic — scanning `methodResponses`, detecting
+missing invocations, and detecting method errors — is factored into an
+internal helper. Both `get[T]` overloads delegate to it, keeping the
+public API as two-line functions that compose `extractInvocation` with
+type-specific parsing.
+
+```nim
+func extractInvocation(resp: Response, targetId: MethodCallId
+): Result[Invocation, MethodError] =
+  ## Finds and validates an invocation: returns the invocation for normal
+  ## responses, or an appropriate MethodError for missing/error responses.
+  ##
+  ## Algorithm:
+  ## 1. Scan methodResponses for invocation matching targetId.
+  ## 2. Not found → err(serverFail).
+  ## 3. If name == "error" → parse as MethodError, return err.
+  ##    Malformed error → err(serverFail).
+  ## 4. Otherwise → return ok(invocation).
+  let matchOpt = findInvocation(resp, targetId)
+  if matchOpt.isNone:
+    return err(methodError(rawType = "serverFail",
+      description = Opt.some("no response for call ID " & $targetId)))
+  let inv = matchOpt.get()
+  if inv.name == "error":
+    let meResult = MethodError.fromJson(inv.arguments)
+    if meResult.isOk:
+      return err(meResult.get())
+    return err(methodError(rawType = "serverFail",
+      description = Opt.some("malformed error response for call ID " & $targetId)))
+  ok(inv)
+```
+
 **3.4.1 Default extraction via `mixin fromJson`**
 
 ```nim
@@ -615,31 +653,12 @@ proc get*[T](resp: Response, handle: ResponseHandle[T]
 ): Result[T, MethodError] =
   ## Extracts a typed response from the Response envelope using ``mixin
   ## fromJson`` to resolve ``T.fromJson`` at the caller's scope.
-  ##
-  ## Algorithm:
-  ## 1. Scan methodResponses for invocation matching handle's call ID.
-  ## 2. Not found → err(serverFail).
-  ## 3. If name == "error" → parse as MethodError, return err.
-  ## 4. Otherwise → call T.fromJson(arguments) via mixin.
-  ##    ok → return ok. err(ValidationError) → convert to MethodError
-  ##    via validationToMethodError.
+  ## Delegates to ``extractInvocation`` for scanning and error detection,
+  ## then applies ``T.fromJson`` to the arguments. Validation failures
+  ## are converted to MethodError via ``mapErr(validationToMethodError)``.
   mixin fromJson
-  let targetId = callId(handle)
-  let matchOpt = findInvocation(resp, targetId)
-  if matchOpt.isNone:
-    return err(methodError(rawType = "serverFail",
-      description = Opt.some("no response for call ID " & $targetId)))
-  let matchedInv = matchOpt.get()
-  if matchedInv.name == "error":
-    let meResult = MethodError.fromJson(matchedInv.arguments)
-    if meResult.isOk:
-      return err(meResult.get())
-    return err(methodError(rawType = "serverFail",
-      description = Opt.some("malformed error response for call ID " & $targetId)))
-  let parseResult = T.fromJson(matchedInv.arguments)
-  if parseResult.isOk:
-    return ok(parseResult.get())
-  err(validationToMethodError(parseResult.error()))
+  let inv = ?extractInvocation(resp, callId(handle))
+  T.fromJson(inv.arguments).mapErr(validationToMethodError)
 ```
 
 **3.4.2 Callback overload (escape hatch)**
@@ -649,13 +668,18 @@ proc get*[T](resp: Response, handle: ResponseHandle[T],
     fromArgs: proc(node: JsonNode): Result[T, ValidationError]
         {.noSideEffect, raises: [].},
 ): Result[T, MethodError] =
-  ## Same algorithm but uses caller-supplied callback instead of mixin.
+  ## Same structure but uses caller-supplied callback instead of mixin.
   ## For custom parsing where T.fromJson is not discoverable via mixin
   ## (e.g., entity-specific extractors, JsonNode for Core/echo).
+  let inv = ?extractInvocation(resp, callId(handle))
+  fromArgs(inv.arguments).mapErr(validationToMethodError)
 ```
 
-Both overloads share the same algorithm. The callback overload replaces
-`mixin fromJson` resolution with an explicit `fromArgs` callback.
+Both overloads share the same structure: delegate to `extractInvocation`
+for invocation lookup and error detection, then apply a parsing function
+to the arguments. The `mapErr(validationToMethodError)` combinator
+converts Track 0 (`ValidationError`) to Track 2 (`MethodError`)
+idiomatically without explicit `isOk`/`isErr` branching.
 
 **Decision D3.3:** The extraction function returns `Result[T, MethodError]`.
 Method errors are data within a successful HTTP response — per-invocation,
@@ -1021,12 +1045,7 @@ func fromJson*[T](R: typedesc[GetResponse[T]], node: JsonNode
   let listNode = node{"list"}
   ?checkJsonKind(listNode, JArray, "GetResponse", "list must be array")
   let list = listNode.getElems(@[])
-  var notFound: seq[Id] = @[]
-  let nfNode = node{"notFound"}
-  if not nfNode.isNil and nfNode.kind == JArray:
-    for _, elem in nfNode.getElems(@[]):
-      let id = ?parseIdFromServer(elem.getStr(""))
-      notFound.add(id)
+  let notFound = ?parseOptIdArray(node{"notFound"})
   ok(GetResponse[T](accountId: accountId, state: state, list: list,
                      notFound: notFound))
 ```
@@ -1038,8 +1057,10 @@ func fromJson*[T](R: typedesc[GetResponse[T]], node: JsonNode
   constructor (returns `err` on invalid input, propagated via `?`).
 - Server-assigned identifiers: use lenient constructors
   (`parseIdFromServer`, `parseAccountId`).
-- `seq` fields: check `JArray` kind, iterate `getElems()`, validate
-  and accumulate each element.
+- Required `seq` fields: use `parseIdArray` (strict — checks `JArray`
+  kind, iterates `getElems()`, validates each element via `?`).
+- Supplementary `seq` fields (e.g., `notFound`): use `parseOptIdArray`
+  (lenient — absent, null, or wrong kind produces empty `seq`).
 - Optional fields (`Opt[T]`): absent, null, or wrong kind produces
   `Opt.none(T)` (lenient, per §5a.4).
 - Return type: `Result[T, ValidationError]`. Error propagation via `?`.
@@ -1175,6 +1196,8 @@ Layer 3's `methods.nim` imports the following from Layer 2 via the
 | `parseError` | `serde.nim` | Constructing `ValidationError` in `fromJson` |
 | `checkJsonKind` | `serde.nim` | Kind validation — returns `err(ValidationError)` on mismatch |
 | `optJsonField` | `serde.nim` | Lenient extraction of optional JSON fields |
+| `parseIdArray` | `serde.nim` | Strict extraction of required `seq[Id]` fields (e.g., `ChangesResponse.created`) |
+| `parseOptIdArray` | `serde.nim` | Lenient extraction of supplementary `seq[Id]` fields (e.g., `GetResponse.notFound` — absent/null/wrong-kind produces empty seq) |
 | `collectExtras` (transitive) | `serde.nim` | Called internally by `SetError.fromJson` and `MethodError.fromJson` (Layer 2 error parsers) during SetResponse merging and dispatch error detection |
 | `toJson` (all primitive/id types) | `serde.nim` | Serialising `AccountId`, `Id`, `JmapState`, etc. in request `toJson` |
 | `fromJson` (all primitive/id types) | `serde.nim` | Deserialising server-assigned identifiers in response `fromJson` |
@@ -2207,9 +2230,9 @@ src/jmap_client/
                     addQuery (proc + template), addQueryChanges
                     (proc + template), directIds, initCreates, initUpdates
   dispatch.nim    — ResponseHandle[T] type, ops (==, $, hash, callId),
-                    validationToMethodError, get[T] (mixin + callback
-                    overloads), reference, idsRef, listIdsRef, addedIdsRef,
-                    createdRef, updatedRef
+                    validationToMethodError, extractInvocation (internal),
+                    get[T] (mixin + callback overloads), reference,
+                    idsRef, listIdsRef, addedIdsRef, createdRef, updatedRef
   protocol.nim    — Re-export hub; imports and re-exports entity, methods,
                     builder, dispatch
   convenience.nim — Optional pipeline combinators (NOT re-exported by
@@ -2250,6 +2273,15 @@ No cycles. Each module independently testable.
 ### 14.3 Test Files
 
 ```
+tests/
+  mtest_entity.nim — Shared mock entity (TestWidget) with filter condition
+                     type (TestWidgetFilter), all framework overloads
+                     (methodNamespace, capabilityUri, filterType,
+                     filterConditionToJson), registration, and
+                     toJson/fromJson. Reference implementation of the
+                     entity module checklist (§4.6). Imported by all
+                     protocol test modules.
+
 tests/protocol/
   tentity.nim      — Mock entity type satisfies framework requirements;
                      registerJmapEntity compile-time check;

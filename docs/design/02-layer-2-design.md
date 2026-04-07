@@ -396,6 +396,38 @@ func optJsonField*(node: JsonNode, key: string, kind: JsonNodeKind
     Opt.some(child)
 ```
 
+Two additional helpers for parsing arrays of server-assigned identifiers
+(used by `methods.nim` for response deserialisation):
+
+```nim
+func parseIdArray*(node: JsonNode, typeName: string, fieldName: string
+    ): Result[seq[Id], ValidationError] =
+  ## Validates that node is a JSON array and parses each element as a
+  ## server-assigned Id. Shared helper for the fromJson sites in methods.nim
+  ## that deserialise mandatory arrays of identifiers.
+  ?checkJsonKind(node, JArray, typeName, fieldName & " must be array")
+  var ids: seq[Id] = @[]
+  for _, elem in node.getElems(@[]):
+    let id = ?parseIdFromServer(elem.getStr(""))
+    ids.add(id)
+  ok(ids)
+
+func parseOptIdArray*(node: JsonNode): Result[seq[Id], ValidationError] =
+  ## Lenient variant: absent or non-array node yields an empty seq.
+  ## For optional Id arrays like GetResponse.notFound.
+  if node.isNil or node.kind != JArray:
+    return ok(newSeq[Id]())
+  var ids: seq[Id] = @[]
+  for _, elem in node.getElems(@[]):
+    let id = ?parseIdFromServer(elem.getStr(""))
+    ids.add(id)
+  ok(ids)
+```
+
+`parseIdArray` is strict (returns `err` if the node is not `JArray`);
+`parseOptIdArray` is lenient (absent or non-array yields an empty `seq`).
+Both parse each element via `parseIdFromServer` (server-assigned, lenient).
+
 **Module:** `src/jmap_client/serde.nim`
 
 Two additional lenient Opt field helpers live in `serde_errors.nim`
@@ -582,6 +614,12 @@ func ownData(data: JsonNode): JsonNode =
   ## Deep-copy a JsonNode to avoid ARC double-free on shared refs.
   if data.isNil: newJObject() else: data.copy()
 
+template mkNonCoreCap(k: CapabilityKind): untyped =
+  ## Constructs a non-core ServerCapability with deep-copied data. Uses a
+  ## compile-time literal discriminator to satisfy ARC branch tracking on
+  ## case objects with ref fields (rawData: JsonNode).
+  ok(ServerCapability(kind: k, rawUri: uri, rawData: ownData(data)))
+
 func fromJson*(T: typedesc[ServerCapability], uri: string, data: JsonNode
     ): Result[ServerCapability, ValidationError] =
   ## Deserialise a capability from its URI and JSON data.
@@ -591,20 +629,27 @@ func fromJson*(T: typedesc[ServerCapability], uri: string, data: JsonNode
     ?checkJsonKind(data, JObject, $T, "core capability data must be JSON object")
     let core = ?CoreCapabilities.fromJson(data)
     ok(ServerCapability(kind: ckCore, rawUri: uri, core: core))
-  of ckMail:
-    ok(ServerCapability(kind: ckMail, rawUri: uri, rawData: ownData(data)))
-  of ckSubmission:
-    ok(ServerCapability(kind: ckSubmission, rawUri: uri, rawData: ownData(data)))
-  # ... (one branch per CapabilityKind variant)
-  of ckUnknown:
-    ok(ServerCapability(kind: ckUnknown, rawUri: uri, rawData: ownData(data)))
+  of ckMail: mkNonCoreCap(ckMail)
+  of ckSubmission: mkNonCoreCap(ckSubmission)
+  of ckVacationResponse: mkNonCoreCap(ckVacationResponse)
+  of ckWebsocket: mkNonCoreCap(ckWebsocket)
+  of ckMdn: mkNonCoreCap(ckMdn)
+  of ckSmimeVerify: mkNonCoreCap(ckSmimeVerify)
+  of ckBlob: mkNonCoreCap(ckBlob)
+  of ckQuota: mkNonCoreCap(ckQuota)
+  of ckContacts: mkNonCoreCap(ckContacts)
+  of ckCalendars: mkNonCoreCap(ckCalendars)
+  of ckSieve: mkNonCoreCap(ckSieve)
+  of ckUnknown: mkNonCoreCap(ckUnknown)
 ```
 
-**ARC safety: deep copy + exhaustive case.** Non-core branches deep-copy
-`data` via `ownData()` to avoid ARC double-free when the input `JsonNode`
-tree is shared between multiple capabilities. Each branch uses a
-compile-time literal discriminator (`ckMail`, `ckSubmission`, etc.) rather
-than `{.cast(uncheckedAssign).}:` — runtime discriminator reassignment
+**ARC safety: deep copy + exhaustive case + `mkNonCoreCap` template.**
+Non-core branches deep-copy `data` via `ownData()` to avoid ARC
+double-free when the input `JsonNode` tree is shared between multiple
+capabilities. The `mkNonCoreCap` template eliminates boilerplate while
+preserving ARC safety — each call site expands with a compile-time
+literal discriminator (`ckMail`, `ckSubmission`, etc.) rather than
+`{.cast(uncheckedAssign).}:`. Runtime discriminator reassignment
 **corrupts ARC's branch tracking** on case objects whose `else` branch
 contains `ref` fields (like `rawData: JsonNode`). The exhaustive case
 avoids this by never mutating the discriminator after construction.
@@ -925,11 +970,46 @@ capability data as values:
 Layer 2 receives each `(uri, data)` pair from the Session parser and
 dispatches based on the URI.
 
-**`toJson`/`fromJson`:** Full code shown in §2 (Pattern B canonical
-example). Dispatches on `parseCapabilityKind(uri)` → `ckCore` calls
+**`toJson`:** Full code shown in §2 (Pattern B canonical example).
+
+**`fromJson`:** Dispatches on `parseCapabilityKind(uri)`. `ckCore` calls
 `CoreCapabilities.fromJson(data)` with a preceding `checkJsonKind` for
-improved error context; all other kinds use exhaustive `case` branches
-with compile-time literal discriminators.
+improved error context. All other kinds use a `mkNonCoreCap` template
+with exhaustive `case` branches and compile-time literal discriminators:
+
+```nim
+template mkNonCoreCap(k: CapabilityKind): untyped =
+  ## Constructs a non-core ServerCapability with deep-copied data. Uses a
+  ## compile-time literal discriminator to satisfy ARC branch tracking on
+  ## case objects with ref fields (rawData: JsonNode).
+  ok(ServerCapability(kind: k, rawUri: uri, rawData: ownData(data)))
+
+func fromJson*(T: typedesc[ServerCapability], uri: string, data: JsonNode
+    ): Result[ServerCapability, ValidationError] =
+  let parsedKind = parseCapabilityKind(uri)
+  case parsedKind
+  of ckCore:
+    ?checkJsonKind(data, JObject, $T, "core capability data must be JSON object")
+    let core = ?CoreCapabilities.fromJson(data)
+    ok(ServerCapability(kind: ckCore, rawUri: uri, core: core))
+  of ckMail: mkNonCoreCap(ckMail)
+  of ckSubmission: mkNonCoreCap(ckSubmission)
+  of ckVacationResponse: mkNonCoreCap(ckVacationResponse)
+  of ckWebsocket: mkNonCoreCap(ckWebsocket)
+  of ckMdn: mkNonCoreCap(ckMdn)
+  of ckSmimeVerify: mkNonCoreCap(ckSmimeVerify)
+  of ckBlob: mkNonCoreCap(ckBlob)
+  of ckQuota: mkNonCoreCap(ckQuota)
+  of ckContacts: mkNonCoreCap(ckContacts)
+  of ckCalendars: mkNonCoreCap(ckCalendars)
+  of ckSieve: mkNonCoreCap(ckSieve)
+  of ckUnknown: mkNonCoreCap(ckUnknown)
+```
+
+The `mkNonCoreCap` template eliminates boilerplate while preserving ARC
+safety — each branch uses a compile-time literal discriminator (the template
+is expanded at each call site, so the discriminator is a constant known at
+compile time).
 
 **`toJson` deep-copy.** `ServerCapability.toJson` deep-copies `rawData`
 for non-core capabilities (via `.copy()`) to prevent callers from mutating
@@ -1850,6 +1930,20 @@ variant-specific fields: `invalidProperties` carries `properties: seq[string]`,
 {"type": "alreadyExists", "existingId": "msg42"}
 ```
 
+**Shared helper — `setErrorKnownKeys`:** Extracts the per-variant known
+key set for DRY use in both `toJson` (collision guard) and `fromJson`
+(extras collection):
+
+```nim
+func setErrorKnownKeys(errorType: SetErrorType): seq[string] =
+  ## Returns the set of known JSON keys for a given SetError variant.
+  ## Used by both toJson and fromJson to determine which keys belong in extras.
+  case errorType
+  of setInvalidProperties: @["type", "description", "properties"]
+  of setAlreadyExists: @["type", "description", "existingId"]
+  else: @["type", "description"]
+```
+
 **`toJson`:**
 
 ```nim
@@ -1869,11 +1963,7 @@ func toJson*(se: SetError): JsonNode =
   else:
     discard
   for extras in se.extras:
-    let knownKeys =
-      case se.errorType
-      of setInvalidProperties: @["type", "description", "properties"]
-      of setAlreadyExists: @["type", "description", "existingId"]
-      else: @["type", "description"]
+    let knownKeys = setErrorKnownKeys(se.errorType)
     for key, val in extras.pairs:
       if key notin knownKeys:
         result[key] = val
@@ -1900,11 +1990,7 @@ func fromJson*(T: typedesc[SetError], node: JsonNode
   # Per-variant known keys: variant-specific fields are "known" only for
   # their own variant. Misplaced RFC fields on other variants are preserved
   # in extras rather than silently dropped (Decision 1.7C: lossless).
-  let knownKeys =
-    case errorType
-    of setInvalidProperties: @["type", "description", "properties"]
-    of setAlreadyExists: @["type", "description", "existingId"]
-    else: @["type", "description"]
+  let knownKeys = setErrorKnownKeys(errorType)
   let extras = collectExtras(node, knownKeys)
   # Defensive fallback: dispatch to variant-specific constructors only
   # when variant data is present. Otherwise fall back to generic setError
@@ -2116,8 +2202,8 @@ src/jmap_client/
   serialisation.nim      <- Re-export hub (Layer 2 equivalent of types.nim);
                            imports and re-exports serde + all domain modules
   serde.nim              <- parseError, checkJsonKind, collectExtras,
-                           optJsonField, serde templates,
-                           primitive/identifier ser/de
+                           optJsonField, parseIdArray, parseOptIdArray,
+                           serde templates, primitive/identifier ser/de
   serde_session.nim      <- CoreCapabilities, ServerCapability,
                            AccountCapabilityEntry, Account, Session
   serde_envelope.nim     <- Invocation, Request, Response,
@@ -2177,7 +2263,12 @@ serialisation.nim <- re-exports serde + all domain modules
 they do NOT import each other. No circular dependencies.
 
 **Downstream:** Layer 3 imports `serialisation.nim` (which re-exports
-everything). Tests import individual serde modules for focused testing.
+everything). In particular, `methods.nim` (standard method request/response
+types) uses `parseIdArray`, `parseOptIdArray`, `optJsonField`,
+`checkJsonKind`, and `collectExtras` from `serde.nim` via the hub, plus
+all the primitive/identifier `toJson`/`fromJson` pairs and
+`SetError.fromJson` from `serde_errors.nim`.
+Tests import individual serde modules for focused testing.
 
 **Why 6 files, not 1.** With ~25 ser/de pairs producing ~700 lines, a
 single file is feasible. However, 6 files provide: (a) independently testable

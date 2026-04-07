@@ -58,7 +58,8 @@ boundary where IO occurs. The six governing principles apply as follows:
   shell. Within Layer 4, the design maximises the pure surface: pure
   funcs (`validateLimits`, `checkGetLimit`, `checkSetLimit`,
   `isSessionStale`, `classifyException`, `enforceBodySizeLimit`,
-  `sizeLimitExceeded`) are separated from the IO procs (`fetchSession`,
+  `sizeLimitExceeded`, `validationToClientError`,
+  `validationToClientErrorCtx`) are separated from the IO procs (`fetchSession`,
   `send`, `refreshSessionIfStale`, `close`). `classifyHttpResponse`
   composes pure classification rules around a single impure step
   (`httpResp.body` lazy stream read) — it is impure but thin. The IO
@@ -722,6 +723,29 @@ proc parseJsonBody(
     err(clientError(te))
 ```
 
+### 2.9 Validation-to-Client Error Bridge (errors.nim, Pure)
+
+DRY helpers that map `ValidationError` (the construction railway) to
+`ClientError` (the outer railway). Used by `fetchSession` and `send`
+via `mapErr` when Layer 2 deserialisation returns `err(ValidationError)`.
+
+```nim
+func validationToClientError*(ve: ValidationError): ClientError =
+  ## Bridges the construction railway (ValidationError) to the outer railway
+  ## (ClientError). For use with ``mapErr`` when a Layer 1 validation failure
+  ## must be surfaced as a transport error.
+  clientError(transportError(tekNetwork, ve.message))
+
+func validationToClientErrorCtx*(ve: ValidationError, context: string): ClientError =
+  ## Bridges with a context prefix prepended to the error message.
+  clientError(transportError(tekNetwork, context & ve.message))
+```
+
+`validationToClientError` replaces inline closures like
+`proc(ve: ValidationError): ClientError = clientError(transportError(tekNetwork, ve.message))`.
+`validationToClientErrorCtx` adds a prefix (e.g., `"invalid session: "`,
+`"invalid response: "`) for contextual error messages.
+
 ---
 
 ## 3. Session Discovery and Fetching
@@ -779,7 +803,7 @@ proc fetchSession*(client: var JmapClient): JmapResult[Session] =
   # Step 4-5: Deserialisation + error mapping
   let session = Session.fromJson(jsonNode).mapErr(
       proc(ve: ValidationError): ClientError =
-        clientError(transportError(tekNetwork, "invalid session: " & ve.message))
+        validationToClientErrorCtx(ve, "invalid session: ")
     )
   let s = ?session
 
@@ -803,23 +827,11 @@ the return value is initialised on all paths through the stdlib code.
 
 ```nim
 proc send*(client: var JmapClient, request: Request): JmapResult[envelope.Response] =
-  ## The primary API call. Serialises a JMAP Request, POSTs to the
-  ## server's apiUrl, and deserialises the Response.
+  ## Serialises a JMAP Request, POSTs to the server's apiUrl, and
+  ## deserialises the Response.
   ##
-  ## Composes transforms around IO steps:
-  ## 1. Ensure session available (may trigger IO via fetchSession).
-  ## 2. Pure: validateLimits — pre-flight check against CoreCapabilities.
-  ## 3. Pure: toJson + $ — serialise Request to JSON string.
-  ## 4. Pure: check serialised size against maxSizeRequest.
-  ## 5. IO:   HTTP POST.
-  ## 6. IO:   classifyHttpResponse — status, content-type, body size,
-  ##    JSON parse (reads body stream on first access; see §2.7 note).
-  ## 7. Pure: problem details detection on HTTP 200.
-  ## 8. Pure: Response.fromJson — JsonNode -> Response (Layer 2).
-  ##
-  ## Session staleness: after return, the caller should check
-  ## ``isSessionStale(client, response)`` and call ``fetchSession()``
-  ## if stale. ``send`` does NOT automatically refresh (Decision D4.10).
+  ## Lazily fetches the session on first call if not yet cached.
+  ## Does NOT automatically refresh a stale session (D4.10).
   ##
   ## Returns err for transport/request failures, limit violations,
   ## or invalid response JSON.
@@ -841,15 +853,13 @@ If `fetchSession` returns err, the `?` operator propagates it.
 **Step 2: Pre-flight validation (R13).**
 
 ```nim
-?validateLimits(request, coreCaps).mapErr(
-  proc(ve: ValidationError): ClientError =
-    clientError(transportError(tekNetwork, ve.message))
-)
+?validateLimits(request, coreCaps).mapErr(validationToClientError)
 ```
 
 Pure func (§5). Returns `Result[void, ValidationError]` which is
-mapped to `ClientError` via `mapErr` to match the `JmapResult` outer
-railway, then propagated with `?`.
+mapped to `ClientError` via `mapErr` using the DRY bridge function
+(§2.9) to match the `JmapResult` outer railway, then propagated
+with `?`.
 
 **Step 3: Serialise.**
 
@@ -909,7 +919,7 @@ body is not valid JSON — a server encoding error analogous to a protocol
 violation. `tekHttpStatus` implies a meaningful status code, which is
 inappropriate for a parsing failure.
 
-**Step 7: Problem details detection on HTTP 200.**
+**Step 8: Problem details detection on HTTP 200.**
 
 **RFC reference:** §3.6.1 (lines 1079-1136). Request-level errors
 may be returned with HTTP 200 status.
@@ -933,16 +943,22 @@ required). Alternative considered: check Content-Type for
 `application/problem+json` — rejected because many servers return
 problem details with `application/json` Content-Type.
 
-**Step 8: Deserialise as JMAP Response.**
+**Note:** Step 7 is intentionally unassigned. The implementation
+comment numbering skips from step 6 to step 8 — an artefact of an
+intermediate revision that removed a step. The numbering is preserved
+to avoid churn in cross-references.
+
+**Step 9: Deserialise as JMAP Response.**
 
 ```nim
 envelope.Response.fromJson(respJson).mapErr(
   proc(ve: ValidationError): ClientError =
-    clientError(transportError(tekNetwork, "invalid response: " & ve.message))
+    validationToClientErrorCtx(ve, "invalid response: ")
 )
 ```
 
-`ValidationError` from Layer 2 is mapped to `ClientError` via `mapErr`.
+`ValidationError` from Layer 2 is mapped to `ClientError` via
+`mapErr` using the DRY bridge function (§2.9).
 
 ### 4.3 Convenience Overloads
 
@@ -1319,6 +1335,8 @@ src/jmap_client/
                          MethodError, SetError types + constructors;
                          RequestContext enum; classifyException;
                          sizeLimitExceeded; enforceBodySizeLimit;
+                         validationToClientError;
+                         validationToClientErrorCtx;
                          isTlsRelatedMsg (private)
   session.nim         — expandUriTemplate (collocated with UriTemplate
                          and Session types)
@@ -1335,10 +1353,11 @@ src/jmap_client/
                          classifyHttpResponse (private),
                          parseJsonBody (private)
   dispatch.nim        — ResponseHandle[T] (phantom-typed handle),
-                         get[T] (mixin + callback overloads),
+                         callId, get[T] (mixin + callback overloads),
                          validationToMethodError, reference,
                          idsRef, listIdsRef, addedIdsRef, createdRef,
-                         updatedRef; findInvocation (private).
+                         updatedRef; findInvocation (private),
+                         extractInvocation (private).
                          Layer 3 module, re-exported via protocol.nim.
   convenience.nim     — Pipeline combinators: QueryGetHandles[T],
                          addQueryThenGet, ChangesGetHandles[T],
@@ -1350,9 +1369,14 @@ src/jmap_client/
 
 **Decision D4.13: Module split.** Error types and pure error-related
 functions (`classifyException`, `enforceBodySizeLimit`,
-`sizeLimitExceeded`) live in `errors.nim` because they construct and
-operate on error types and require `std/net` imports for exception type
-matching. `expandUriTemplate` lives in `session.nim` alongside the
+`sizeLimitExceeded`, `validationToClientError`,
+`validationToClientErrorCtx`) live in `errors.nim` because they
+construct and operate on error types and require `std/net` imports for
+exception type matching. The validation bridge functions
+(`validationToClientError`, `validationToClientErrorCtx`) also live
+in `errors.nim` because they construct `ClientError` values — they
+import `ValidationError` from `./validation` via `from` import.
+`expandUriTemplate` lives in `session.nim` alongside the
 `UriTemplate` type. `client.nim` contains the `JmapClient` type and
 all procs that operate on it. Internal helpers
 (`enforceContentLengthLimit`, `readContentType`,
@@ -1381,6 +1405,8 @@ errors.nim imports:
   std/net              — TimeoutError (selective import via `from`);
                          SslError (selective import, guarded by
                          `when defined(ssl)`)
+  ./validation         — ValidationError (via `from` import; used
+                         by validationToClientError/Ctx bridge funcs)
   ./primitives         — Id (for SetError.existingId)
 
 client.nim imports:
@@ -1419,6 +1445,9 @@ convenience.nim imports:
 - `std/net` is imported only in `errors.nim` (selective import via
   `from std/net import TimeoutError` and `SslError` under
   `when defined(ssl)`), not in `client.nim`.
+- `./validation` is imported only in `errors.nim` (selective import via
+  `from ./validation import ValidationError`) for the validation bridge
+  functions (`validationToClientError`, `validationToClientErrorCtx`).
 - `./builder` is imported in `client.nim` for the `send(RequestBuilder)`
   convenience overload.
 - `dispatch.nim` and `convenience.nim` do not import `client.nim` — the
@@ -1487,7 +1516,7 @@ default (Decision D4.14).
 | D4.10 | Manual session staleness (not auto-refresh in `send`) | Auto-refresh | Hidden network request, unpredictable latency. RFC uses SHOULD. Composable tools provided. |
 | D4.11 | URI template: caller percent-encodes values (`std/uri.encodeUrl` available) | Library encodes | Common identifiers are base64url-safe. Full RFC 6570 disproportionate. |
 | D4.12 | Compile-time hint (`{.hint:}`) for missing `-d:ssl` | `{.warning:}` (blocked by `warningAsError: User`); compile error | `{.hint:}` is informational and non-blocking. `{.warning:}` was the original design but `config.nims` promotes User warnings to errors. |
-| D4.13 | Error types and classifiers in `errors.nim`; `expandUriTemplate` in `session.nim`; `JmapClient` and IO in `client.nim` | Single file | Error types require `std/net` imports; collocating `expandUriTemplate` with `UriTemplate` type is natural; `client.nim` contains all JmapClient-related code. |
+| D4.13 | Error types, classifiers, and validation bridge functions in `errors.nim`; `expandUriTemplate` in `session.nim`; `JmapClient` and IO in `client.nim` | Single file | Error types require `std/net` imports; validation bridge functions construct `ClientError` values; collocating `expandUriTemplate` with `UriTemplate` type is natural; `client.nim` contains all JmapClient-related code. |
 | D4.14 | `convenience.nim` is opt-in (not re-exported by any hub) | Auto-export via `protocol.nim` | Pipeline combinators encode opinionated choices (reference paths, same-account assumption). The core API in `builder.nim` + `dispatch.nim` provides full control. Lessons from OpenSSL/libgit2: freezing the core API surface while providing opt-in ergonomics reduces breaking changes. |
 
 ### Deferred Decisions
@@ -1672,7 +1701,10 @@ default (Decision D4.14).
 15. Updated `src/jmap_client.nim` to import and re-export `types`,
     `serialisation`, `protocol`, and `client`. Updated `protocol.nim`
     to re-export `entity`, `methods`, `dispatch`, `builder`.
-16. Wrote unit tests — `tests/unit/tclient.nim` covering scenarios 1-50.
+16. Wrote unit tests — `tests/unit/tclient.nim` covering scenarios 1-47
+    (including 13a, 13b, 13c, 44a, 46a) plus additional edge cases.
+    Scenarios 48-50 (Content-Length Phase 1 enforcement) require
+    `httpclient.Response` and are covered by integration tests.
 17. Ran `just ci`.
 
 ---
@@ -1688,6 +1720,7 @@ default (Decision D4.14).
 | `send` | §3.1 (lines 854-863), §3.3 (lines 882-943), §3.4 (lines 975-1003) | API request/response |
 | `send(RequestBuilder)` | §3.1 | Convenience overload bridging Layer 3 builder to Layer 4 IO |
 | `ResponseHandle[T]` | §3.4 (lines 975-1003) | Phantom-typed handle for compile-time response dispatch (in `dispatch.nim`) |
+| `callId` | §3.4 (lines 975-1003) | Extracts underlying `MethodCallId` from a `ResponseHandle[T]` (in `dispatch.nim`) |
 | `get[T]` | §3.4 (lines 975-1003), §3.6.2 | Typed extraction from Response envelope, detects method errors (in `dispatch.nim`) |
 | `addQueryThenGet` | §5.1 (Foo/query), §5.1 (Foo/get), §3.7 (result references) | Pipeline combinator with automatic `/ids` reference wiring (in `convenience.nim`) |
 | `addChangesToGet` | §5.2 (Foo/changes), §5.1 (Foo/get), §3.7 (result references) | Sync pipeline with `/created` reference wiring (in `convenience.nim`) |
@@ -1702,6 +1735,8 @@ default (Decision D4.14).
 | `enforceBodySizeLimit` | Client-side (R9); not RFC-specified | Phase 2 response body size cap — post-read via actual body length |
 | `classifyException` | N/A — maps stdlib exceptions | In `errors.nim`; maps `std/httpclient` exceptions to `ClientError` |
 | `sizeLimitExceeded` | Client-side (R9) | In `errors.nim`; shared error constructor |
+| `validationToClientError` | N/A — railway bridge | In `errors.nim`; DRY bridge from `ValidationError` to `ClientError` |
+| `validationToClientErrorCtx` | N/A — railway bridge | In `errors.nim`; DRY bridge with context prefix |
 | `RequestContext` | N/A — internal enum | In `errors.nim`; `rcSession` / `rcApi` for error messages |
 | Bearer token auth | §1.7 (line 429), §8.2 | `Authorization: Bearer {token}` |
 | Content-Type: `application/json` | §3.1 (lines 860-862) | Required on request; expected on response |
