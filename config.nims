@@ -47,6 +47,9 @@ system.switch("warningAsError", "ResultShadowed")
 system.switch("warningAsError", "UnsafeDefault")
 system.switch("warningAsError", "UnsafeCode")
 system.switch("warningAsError", "ImplicitDefaultValue")
+# Off-by-default, explicitly enabled: experimental strict funcs analysis
+system.switch("warning", "ObservableStores:on")
+system.switch("warningAsError", "ObservableStores")
 system.switch("warningAsError", "CaseTransition")
 
 # --- Type safety ---
@@ -124,7 +127,6 @@ system.switch("warningAsError", "User")
 #   ImplicitRangeConversion — fires inside stdlib (system/indices.nim); unfixable
 #   ProveField / ProveIndex — experimental, extremely noisy
 #   GcUnsafe — fires from proc callback parameters in generics; GcUnsafe2 suffices
-#   ObservableStores — experimental strict funcs analysis
 #   ResultUsed — requires `discard` on every function return value
 
 # Hints as errors

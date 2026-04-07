@@ -59,6 +59,11 @@ srcDir = "src"
   ImplicitDefaultValue
 --warningAsError:
   CaseTransition
+# Off-by-default, explicitly enabled: experimental strict funcs analysis
+--warning:
+  ObservableStores:on
+--warningAsError:
+  ObservableStores
 
 # --- Type safety ---
 --warningAsError:
@@ -192,7 +197,6 @@ srcDir = "src"
 #   ImplicitRangeConversion — fires inside stdlib (system/indices.nim); unfixable
 #   ProveField / ProveIndex — experimental, extremely noisy
 #   GcUnsafe — fires from proc callback parameters in generics; GcUnsafe2 suffices
-#   ObservableStores — experimental strict funcs analysis
 #   ResultUsed — requires `discard` on every function return value
 
 --hintAsError:
