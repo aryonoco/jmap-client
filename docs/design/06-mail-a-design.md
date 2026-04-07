@@ -227,38 +227,38 @@ one Email per RFC §3). Sealing prevents construction of a Thread with empty
 `emailIds` outside the smart constructor.
 
 ```nim
-type Thread* {.requiresInit.} = object
+type Thread* = object
   rawId: Id              ## module-private
   rawEmailIds: seq[Id]   ## module-private, guaranteed non-empty
 ```
 
-`{.requiresInit.}` complements the sealed fields. The project already
-enables `strictDefs` and promotes `ProveInit` to an error, which prevents
-*using* an uninitialised variable. `{.requiresInit.}` adds a distinct
-layer: it prevents explicit zero-initialisation via `Thread()` (the object
-constructor with all fields omitted) from outside the module. With sealed
-fields, the consumer cannot name any fields in the constructor, so
-`Thread()` is the only external constructor syntax — and it would produce
-`rawEmailIds = @[]`, violating the non-empty invariant.
+Sealed fields alone prevent external construction with invalid state.
+The consumer cannot name any fields in the constructor (they are
+module-private), so the only external constructor syntax is `Thread()` —
+which produces a zero-initialised value with `rawEmailIds = @[]`. While
+this compiles, the result is meaningless: no field values can be specified,
+and all legitimate construction paths go through `parseThread` (which
+enforces non-empty `emailIds`) or `Thread.fromJson`.
 
-The project's `config.nims` promotes `UnsafeDefault` and `UnsafeSetLen`
-warnings to compile errors. Combined with `{.requiresInit.}`, this means:
-- `default(Thread)` is a compile error (`UnsafeDefault`).
-- `seq[Thread].setLen(n)` is a compile error (`UnsafeSetLen`).
-- `newSeq[Thread](n)` is a compile error (uses `setLen` internally).
+The project's `config.nims` promotes `ProveInit` to an error, which
+prevents *using* an uninitialised variable:
 - `var t: Thread` without provable initialisation is a compile error
   (`ProveInit`).
 
-These four checks cover all known routes to zero-initialised `Thread`
-values. Combined with sealed fields (which prevent external construction),
-the non-empty `emailIds` invariant is enforced at compile time.
+Note: The original design specified `{.requiresInit.}` to additionally
+reject `Thread()` zero-initialisation. This pragma was dropped during
+implementation because it is incompatible with `seq[Thread]` under the
+project's `UnsafeSetLen` error promotion — Nim's internal `seq` hooks
+(`=destroy`, `=copy`) instantiate `setLen` code paths, causing compile
+errors even on `seq[Thread].add()`. This would block `GetResponse[Thread]`
+and any collection usage. The Session type follows the same sealed-fields-
+only pattern without `{.requiresInit.}`.
 
 **Principles:**
-- **Make illegal states unrepresentable** — Module-private fields +
-  `{.requiresInit.}` + smart constructor guarantee non-empty `emailIds`.
-  Direct construction of `Thread(rawId: x, rawEmailIds: @[])` is prevented
-  outside `thread.nim`, and `Thread()` zero-initialisation is rejected by
-  the pragma.
+- **Make illegal states unrepresentable** — Module-private fields + smart
+  constructor guarantee non-empty `emailIds`. Direct construction of
+  `Thread(rawId: x, rawEmailIds: @[])` is prevented outside `thread.nim`
+  by sealed fields.
 - **Parse, don't validate** — The smart constructor enforces the invariant
   once at the construction boundary.
 
@@ -1145,7 +1145,7 @@ structural JSON correctness.
 | A11 | Serde module split for addresses | A) In `serde_identity.nim`, B) Separate `serde_addresses.nim` | B (shared bounded context, dependency flow) | DDD, DRY |
 | A12 | VacationResponse set signature | A) `Table[Id, PatchObject]`, B) `PatchObject` (singleton hardcoded) | B (eliminate caller-specified id) | Make illegal states unrepresentable |
 | A13 | `emailQuerySortOptions` collection type | A) `seq[string]`, B) `HashSet[string]` | B (O(1) membership testing, `collationAlgorithms` precedent) | DDD, DRY |
-| A14 | Thread `{.requiresInit.}` pragma | A) Plain object, B) `{.requiresInit.}` | B (prevents zero-initialisation via `Thread()`, complements sealed fields and `strictDefs`/`ProveInit`) | Make illegal states unrepresentable |
+| A14 | Thread `{.requiresInit.}` pragma | A) Plain object, B) `{.requiresInit.}` | Originally B, dropped during implementation — `{.requiresInit.}` is incompatible with `seq[Thread]` under `UnsafeSetLen` error promotion. Sealed fields only (Session pattern). | Make illegal states unrepresentable |
 | A15 | VacationResponse singleton id location | A) String literal in serde + builder, B) Shared `const` in `vacation.nim` | B (single source of truth, importable by serde and builder) | DRY |
 | A16 | `submissionExtensions` table type | A) `Table`, B) `OrderedTable` | B (preserves JSON key order, consistent with `std/json` internals) | DDD |
 | A17 | Mail error typed accessors | A) Extend core SetError, B) Parallel MailSetError case object, C) Typed accessor functions | C (extraction from extras) | Parse-don't-validate, Open-Closed, DDD |

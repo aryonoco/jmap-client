@@ -57,21 +57,20 @@ rejection), `toJson` with/without name, `fromJson` with missing/null email,
 **Design doc:** §3 (Thread entity), Decisions A4, A10, A14.
 
 `thread.nim` defines `Thread` with Pattern A sealed fields (`rawId: Id`,
-`rawEmailIds: seq[Id]`), `{.requiresInit.}` pragma, and `parseThread`
-smart constructor (validates `emailIds.len > 0`, post-construction
-`doAssert`). UFCS accessors `id` and `emailIds`. The `{.requiresInit.}`
-pragma combined with sealed fields and project-wide `UnsafeDefault`/
-`UnsafeSetLen` error promotions prevents all routes to zero-initialised
-`Thread` values.
+`rawEmailIds: seq[Id]`) and `parseThread` smart constructor (validates
+`emailIds.len > 0`, post-construction `doAssert`). UFCS accessors `id`
+and `emailIds`. Sealed fields prevent external construction with invalid
+state (follows Session pattern).
 
 `serde_thread.nim` provides `toJson` (uses accessor functions) and
 `fromJson` (parses `id` via `Id.fromJson`, parses `emailIds` as JArray
 with per-element `Id.fromJson`, delegates to `parseThread`).
 
-Tests cover scenarios 13–23: single/multiple/empty `emailIds` construction,
-accessor correctness, `toJson` structure, `fromJson` valid/invalid/empty
-array, compile-time rejection of `default(Thread)` and
-`seq[Thread].setLen(1)`.
+Tests cover scenarios 13–21 plus sealed field safety: single/multiple/empty
+`emailIds` construction, accessor correctness, `toJson` structure, `fromJson`
+valid/invalid/empty array, sealed field protection from external modules
+(named construction rejected, direct field access rejected), and `seq[Thread]`
+collection operations.
 
 ---
 
