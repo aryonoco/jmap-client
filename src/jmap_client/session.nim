@@ -128,8 +128,8 @@ func expandUriTemplate*(
   ## unexpanded. Caller is responsible for percent-encoding values that
   ## require it (``std/uri.encodeUrl(value, usePlus=false)``). Pure.
   result = string(tmpl)
-  for (name, value) in variables:
-    result = result.replace("{" & name & "}", value)
+  for i in 0 ..< variables.len:
+    result = result.replace("{" & variables[i][0] & "}", variables[i][1])
 
 func parseUriTemplate*(raw: string): Result[UriTemplate, ValidationError] =
   ## Non-empty validation. No RFC 6570 parsing — template expansion is Layer 4.
