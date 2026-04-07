@@ -122,7 +122,7 @@ src/jmap_client/mail/
 ├── keyword.nim                 # Keyword distinct type, parseKeyword, system constants
 ├── addresses.nim               # EmailAddress, EmailAddressGroup
 ├── headers.nim                 # EmailHeader, HeaderPropertyKey, HeaderValue, AllowedHeaderForms
-├── body.nim                    # EmailBodyPart (isMultipart case object), EmailBodyValue, PartId
+├── body.nim                    # EmailBodyPart (read), BlueprintBodyPart (creation), EmailBodyValue, PartId
 │
 │  # Entity types (Layer 1)
 ├── mailbox.nim                 # Mailbox, MailboxRights, MailboxIdSet
@@ -156,9 +156,10 @@ src/jmap_client/mail/
 ├── serde_mail_filters.nim
 │
 │  # Entity registration + builder extensions (Layer 3)
-├── mail_entities.nim           # registerJmapEntity for all 7 types
+├── mail_entities.nim           # registerJmapEntity for 6 entity types (not VacationResponse)
 ├── mail_builders.nim           # Entity-specific overloads of standard methods
-├── mail_methods.nim            # Custom methods (Email/import, Email/parse, SearchSnippet/get)
+├── mail_methods.nim            # Custom methods (Email/import, Email/parse, SearchSnippet/get,
+│                               #   VacationResponse/get, VacationResponse/set)
 └── mail_convenience.nim        # Pipeline combinators for common mail patterns
 ```
 
@@ -194,7 +195,9 @@ keyword.nim    addresses.nim          (no dependencies on each other)
     │          mail_errors.nim         (standalone — parses from core SetError)
     │
     │  Serde modules: each serde_X.nim imports X.nim + core serde helpers
-    │  No serde module imports another serde module (except through re-export hubs)
+    │  Shared sub-type serde (serde_addresses, serde_keyword, serde_headers,
+    │    serde_body) may be imported directly by entity serde modules that
+    │    need them. Entity serde modules do not import each other.
     │
     │  Layer 3 modules: import Layer 1 types + Layer 2 serde + core protocol
     └────────► mail_builders.nim, mail_methods.nim, mail_convenience.nim
@@ -224,7 +227,7 @@ The shared sub-types are organised by semantic domain, not by parent entity:
 |--------|-------|-----------|
 | `addresses.nim` | `EmailAddress`, `EmailAddressGroup` | Used by Email, Identity, EmailSubmission. About addresses, not any single entity. |
 | `headers.nim` | `EmailHeader`, `HeaderPropertyKey`, `HeaderValue`, `AllowedHeaderForms` | About parsed header forms. One-way dependency on `addresses.nim` (Addresses/GroupedAddresses forms produce `EmailAddress`/`EmailAddressGroup`). |
-| `body.nim` | `EmailBodyPart`, `EmailBodyValue`, `PartId` | About MIME structure. Separate bounded context from headers. |
+| `body.nim` | `EmailBodyPart` (read), `BlueprintBodyPart` (creation), `EmailBodyValue`, `PartId` | About MIME structure. Separate bounded context from headers. |
 
 **Principles:** DDD (bounded contexts), single-responsibility (each module has
 one focus), one-way dependencies (no cycles).
@@ -260,7 +263,9 @@ extensions.
   `rawData: JsonNode` for non-core URIs. This is correct — core genuinely
   doesn't know what `maxMailboxDepth` means.
 - Mail Layer 1 (`mail_capabilities.nim`) defines `MailCapabilities` and
-  `SubmissionCapabilities` as fully typed objects with smart constructors.
+  `SubmissionCapabilities` as plain public-field objects (no smart
+  constructors — follows the `CoreCapabilities` pattern in core).
+  Validation happens in the serde layer's parsing functions.
 - Mail Layer 2 (`serde_mail_capabilities.nim`) provides
   `parseMailCapabilities(cap: ServerCapability): Result[MailCapabilities, ValidationError]`.
 - Consumer calls `parseMailCapabilities` once after session fetch, holds typed
@@ -297,19 +302,23 @@ extensions.
   `msetMailboxHasChild`, `msetMailboxHasEmail`, `msetBlobNotFound`,
   `msetTooManyKeywords`, `msetTooManyMailboxes`, `msetInvalidEmail`,
   `msetTooManyRecipients`, `msetNoRecipients`, `msetInvalidRecipients`,
-  `msetForbiddenMailFrom`, `msetForbiddenFrom`, `msetCannotUnsend`,
-  `msetUnknown`.
+  `msetForbiddenMailFrom`, `msetForbiddenFrom`, `msetForbiddenToSend`,
+  `msetCannotUnsend`, `msetUnknown`.
 - Mail Layer 1 provides
-  `parseMailSetErrorType(error: SetError): MailSetErrorType` — inspects
-  `rawType`, returns typed classification.
+  `parseMailSetErrorType(rawType: string): MailSetErrorType` — classifies
+  the raw type string into a typed enum variant. Takes `string` (not
+  `SetError`) for consistency with core's `parseRequestErrorType`,
+  `parseMethodErrorType`, and `parseSetErrorType`, which all take raw
+  strings. The consumer passes `setError.rawType`.
 
 **Principles:**
 - **Make illegal states unrepresentable** — `MailSetErrorType` is a closed
   enum. Pattern matching is exhaustive (with `msetUnknown` as catch-all). No
   stringly-typed comparisons leak into consumer code.
 - **Railway-Oriented Programming** — The error classification stays on the
-  same rail. `parseMailSetErrorType` takes a `SetError` (already on the
-  success rail as data) and refines it — it doesn't change railways.
+  same rail. `parseMailSetErrorType` takes the raw type string (from a
+  `SetError` already on the success rail as data) and refines it into a
+  typed enum — it doesn't change railways.
 - **Total functions** — `parseMailSetErrorType` maps every possible `rawType`
   to a variant. `msetUnknown` makes it total.
 - **Open-Closed** — Core's `SetError` is unchanged. Mail adds classification
@@ -615,8 +624,9 @@ is enforced at the type level.
 
 **Principles:**
 - **Make illegal states unrepresentable** — The case discriminant encodes
-  the RFC invariant directly. Leaf nodes always have `partId`/`blobId`/`size`.
-  Multipart nodes always have `subParts`. No runtime checks needed downstream.
+  the RFC invariant directly. Leaf nodes always have `partId`/`blobId`.
+  Multipart nodes always have `subParts`. All nodes have `size` (RFC
+  unconditional). No runtime checks needed downstream.
 - **Parse, don't validate** — The serde layer inspects the `type` field
   (or presence of `subParts`), picks the correct discriminant, and constructs
   the right variant. By the time you hold an `EmailBodyPart`, the invariant
@@ -640,6 +650,7 @@ type EmailBodyPart* = object
   cid*: Opt[string]               # Content-Id without angle brackets
   language*: Opt[seq[string]]     # Content-Language tags
   location*: Opt[string]          # Content-Location URI
+  size*: UnsignedInt              # RFC unconditional — all parts, including multipart
 
   case isMultipart*: bool
   of true:
@@ -647,7 +658,6 @@ type EmailBodyPart* = object
   of false:
     partId*: PartId               # unique within the Email
     blobId*: Id                   # reference to content blob
-    size*: UnsignedInt            # decoded content size in octets
 ```
 
 ### 7.4. PartId Distinct Type
@@ -837,6 +847,70 @@ sacrificing type safety. The duplication is structural, not behavioural.
 
 ### 8.4. EmailBlueprint (Creation Model)
 
+#### BlueprintBodyPart (Creation-Specific Body Part)
+
+RFC 8621 §4.6 imposes creation-specific constraints on body parts that differ
+fundamentally from the read model:
+
+- `partId` XOR `blobId` (not both; `partId` means "bodyValues lookup key",
+  `blobId` means "uploaded blob reference")
+- `charset` MUST be omitted if `partId` is given
+- `size` MUST be omitted if `partId` is given; if `blobId` is given, optional
+  and ignored by the server
+- `Content-Transfer-Encoding` header MUST NOT be given
+
+The read-model `EmailBodyPart` has `partId` and `blobId` on the same branch
+(both always present). The creation constraints are fundamentally different —
+`partId` and `blobId` are mutually exclusive, and `size`/`charset` conditionality
+depends on which is used. A nested case object encodes this at the type level:
+
+```nim
+type BlueprintPartSource* = enum
+  bpsInline    # partId → bodyValues lookup
+  bpsBlobRef   # blobId → uploaded blob reference
+
+type BlueprintBodyPart* = object
+  contentType*: string
+  name*: Opt[string]
+  disposition*: Opt[string]
+  cid*: Opt[string]
+  language*: Opt[seq[string]]
+  location*: Opt[string]
+  extraHeaders*: Table[HeaderPropertyKey, HeaderValue]
+
+  case isMultipart*: bool
+  of true:
+    subParts*: seq[BlueprintBodyPart]
+  of false:
+    case source*: BlueprintPartSource
+    of bpsInline:
+      partId*: PartId               # no charset, no size
+    of bpsBlobRef:
+      blobId*: Id
+      size*: Opt[UnsignedInt]       # optional, ignored by server
+      charset*: Opt[string]
+```
+
+**Principles:**
+- **Make illegal states unrepresentable** — The nested case object encodes
+  `partId XOR blobId XOR multipart` directly. "charset with partId" and "size
+  with partId" become uncompilable. The outer `isMultipart` discriminant
+  preserves tree-walking consistency with the read model.
+- **DDD** — Creation body parts and read body parts are different aggregates
+  with different invariants. This follows the same reasoning as `ParsedEmail`
+  vs `Email` vs `EmailBlueprint` (§8.3, §8.6).
+- **Parse, don't validate** — The `Content-Transfer-Encoding MUST NOT be given`
+  constraint is cross-field validation between `extraHeaders` and the part
+  structure, enforced in the smart constructor.
+
+**Serde note:** The `toJson` for `BlueprintBodyPart` must use key-**omission**
+for absent fields (not `null` emission). Inline parts (`bpsInline`) must not
+emit `blobId`, `charset`, or `size` keys at all — the RFC says these properties
+"MUST be omitted", not "must be null". This is a different serialisation strategy
+from the read model and must be explicitly tested.
+
+#### EmailBlueprint (Creation Model)
+
 The name `EmailBlueprint` conveys "a complete, validated email specification
 ready for submission to the server" — a domain concept, not a lifecycle
 annotation. Names like `EmailForCreate` describe when it's used; `EmailBlueprint`
@@ -868,15 +942,17 @@ type EmailBlueprint* = object
   # Additional headers (dynamic, validated form-per-header)
   extraHeaders*: Table[HeaderPropertyKey, HeaderValue]
 
+  # Body values — shared across both creation paths (see design note below)
+  bodyValues*: Table[PartId, EmailBodyValue]
+
   # Body — case discriminant enforces "either/or, never both"
   case bodyKind*: EmailBodyKind
   of ebkStructured:
-    bodyStructure*: EmailBodyPart
+    bodyStructure*: BlueprintBodyPart   # creation-specific body part type
   of ebkFlat:
-    textBody*: Opt[EmailBodyPart]       # at most one text/plain (singular, not seq)
-    htmlBody*: Opt[EmailBodyPart]       # at most one text/html (singular, not seq)
-    attachments*: seq[EmailBodyPart]    # zero or more
-    bodyValues*: Table[PartId, EmailBodyValue]
+    textBody*: Opt[BlueprintBodyPart]   # at most one text/plain (singular, not seq)
+    htmlBody*: Opt[BlueprintBodyPart]   # at most one text/html (singular, not seq)
+    attachments*: seq[BlueprintBodyPart] # zero or more
 ```
 
 **Key design decisions:**
@@ -887,10 +963,18 @@ type EmailBlueprint* = object
   field, `ebkFlat` has the others. The compiler prevents the "never both"
   violation.
 
+- **`bodyValues` shared across both paths** — Both creation paths need
+  `bodyValues`: `ebkStructured` parts with `partId` reference inline content
+  via `bodyValues`; `ebkFlat` `textBody`/`htmlBody` parts with `partId` do
+  the same. RFC §4.6: "If a partId is given, this partId MUST be present in
+  the bodyValues property." An empty `bodyValues` is valid when all parts use
+  `blobId`. The serde layer omits empty `bodyValues` from creation JSON
+  rather than emitting `"bodyValues": {}`.
+
 - **Singular `textBody`/`htmlBody`** — The RFC allows at most one
   `text/plain` part in `textBody` and at most one `text/html` part in
   `htmlBody` on creation. Either may be omitted (a text-only email has
-  no `htmlBody`; an HTML-only email has no `textBody`). `Opt[EmailBodyPart]`
+  no `htmlBody`; an HTML-only email has no `textBody`). `Opt[BlueprintBodyPart]`
   captures this: optional, but when present exactly one (not `seq`).
   `attachments` remains `seq` (zero-or-more).
 
@@ -910,13 +994,18 @@ RFC 8621 §4.6 constraints enforced:
    by type: `EmailBlueprint` has no `headers: seq[EmailHeader]` field)
 3. No duplicate header representations — can't set both `fromAddr` and
    `extraHeaders` with `header:From:asAddresses`
-4. Content-* headers only permitted on `EmailBodyPart`, not at top level
+4. Content-* headers only permitted on `BlueprintBodyPart`, not at top level
    via `extraHeaders`
 5. `ebkFlat`: when present, `textBody` must be `text/plain`; `htmlBody` must
    be `text/html`; at least one of `textBody`/`htmlBody` must be present
 6. `bodyValues` entries: `isEncodingProblem` and `isTruncated` must both
    be `false`
 7. Allowed header forms validated against `AllowedHeaderForms` const table
+8. All `partId` references in `bodyStructure` (for `ebkStructured`) or
+   `textBody`/`htmlBody` (for `ebkFlat`) must resolve to entries in
+   `bodyValues`
+9. `Content-Transfer-Encoding` header MUST NOT appear in any
+   `BlueprintBodyPart.extraHeaders`
 
 **Validation errors are specific and actionable:**
 - `"duplicate header representation: both 'fromAddr' and extraHeader 'header:From:asAddresses' specified"`
@@ -954,12 +1043,16 @@ when inputs partially overlap.
 For each entity whose standard method has extra parameters, provide a named
 builder function in the mail module. Entities without extensions use the core
 generic builder unchanged. Entity-specific overloads return entity-specific
-response types when the response shape differs.
+response types when the response shape differs from the standard generic
+(e.g., `MailboxChangesResponse`), or the standard generic otherwise
+(e.g., `GetResponse[Email]`).
 
 ### 9.2. Pattern
 
 All entity-specific builder overloads:
-- Live in `mail_builders.nim` (Layer 3, mail module)
+- Live in `mail_builders.nim` (Layer 3, mail module), except for
+  VacationResponse which lives in `mail_methods.nim` (see §10,
+  Design A §5.3)
 - Call core's internal `addInvocation` to accumulate the `Invocation`
 - Return `ResponseHandle[T]` with the appropriate response type
 - Are `func` (pure) — the one exception is when taking a
@@ -975,12 +1068,14 @@ func addEmailGet*(b: var RequestBuilder,
     ids: Opt[Referencable[seq[Id]]] = ...,
     properties: Opt[seq[PropertyName]] = ...,   # PropertyName, not string
     bodyFetchOptions: EmailBodyFetchOptions = ...,
-): ResponseHandle[EmailGetResponse]
+): ResponseHandle[GetResponse[Email]]
 ```
 
-Returns `ResponseHandle[EmailGetResponse]` — not `ResponseHandle[GetResponse[Email]]`
-— because the response shape carries body-specific data controlled by the
-request parameters.
+Returns `ResponseHandle[GetResponse[Email]]` — the Email/get response envelope
+is structurally identical to the standard `/get` response. Body fetch options
+affect the content of `Email` objects in the `list`, not the response wrapper.
+The phantom type parameterisation already prevents extracting the wrong
+response.
 
 **EmailBodyFetchOptions value object** (DRY — shared with `EmailParseRequest`):
 ```nim
@@ -1018,13 +1113,43 @@ type QueryParams* = object
   calculateTotal*: bool          # default false
 ```
 
+**EmailComparator — mail-specific sort type:**
+
+RFC §4.4.2 requires keyword-based sort properties (`hasKeyword`,
+`allInThreadHaveKeyword`, `someInThreadHaveKeyword`) to carry an additional
+`keyword` property on the Comparator object. Core's `Comparator` has no
+`keyword` field — mail extends through composition, not modification:
+
+```nim
+type EmailComparator* = object
+  comparator*: Comparator
+  keyword*: Opt[Keyword]
+```
+
+Smart constructor `parseEmailComparator` validates: when property is a
+keyword-bearing sort (`hasKeyword`, `allInThreadHaveKeyword`,
+`someInThreadHaveKeyword`), `keyword` must be `some`; for all other sort
+properties, `keyword` must be `none`. Lives in `mail_builders.nim`.
+
+The serde layer serialises `EmailComparator` as a **flat** JSON object with
+`keyword` as a sibling field (not nested): `{"property": "hasKeyword",
+"keyword": "$flagged", "isAscending": false}`.
+
+**Principles:**
+- **DDD** — keyword-on-sort is mail-domain knowledge. Core doesn't know what
+  `$flagged` means.
+- **Open-Closed** — Core `Comparator` is unchanged. Mail adds `keyword`
+  through composition.
+- **Make illegal states unrepresentable** — The smart constructor prevents
+  keyword-less `hasKeyword` sorts and keyword-bearing `receivedAt` sorts.
+
 **Email/query → `addEmailQuery`:**
 ```nim
 proc addEmailQuery*(b: var RequestBuilder,
     accountId: AccountId,
     filterConditionToJson: proc(c: EmailFilterCondition): JsonNode {.noSideEffect, raises: [].},
     filter: Opt[Filter[EmailFilterCondition]] = ...,
-    sort: Opt[seq[Comparator]] = ...,
+    sort: Opt[seq[EmailComparator]] = ...,
     queryParams: QueryParams = ...,
     collapseThreads: bool = false,
 ): ResponseHandle[QueryResponse[Email]]
@@ -1033,7 +1158,8 @@ proc addEmailQuery*(b: var RequestBuilder,
 `proc` not `func` due to callback parameter — inherited constraint, documented.
 
 **Email/queryChanges → `addEmailQueryChanges`:**
-Adds `collapseThreads` to standard `/queryChanges` parameters.
+Adds `collapseThreads` to standard `/queryChanges` parameters. Sort parameter
+uses `Opt[seq[EmailComparator]]` (same as `addEmailQuery`).
 
 **Email/copy → `addEmailCopy` / `addEmailCopyChained`:**
 Adds `onSuccessDestroyOriginal` and `destroyFromIfInState` to standard `/copy`
@@ -1060,20 +1186,39 @@ func addMailboxSet*(b: var RequestBuilder,
 destroyed mailbox are also destroyed. When `false` (default), the server
 returns a `mailboxHasEmail` SetError for non-empty mailboxes.
 
+**VacationResponse/get → `addVacationResponseGet`:**
+```nim
+func addVacationResponseGet*(b: var RequestBuilder,
+    accountId: AccountId,
+    properties: Opt[seq[PropertyName]] = Opt.none(seq[PropertyName]),
+): ResponseHandle[GetResponse[VacationResponse]]
+```
+
+Omits `ids` — always fetches all, which is just the singleton. No `ids`
+parameter because the only valid id is `"singleton"`. Lives in
+`mail_methods.nim` (not `mail_builders.nim`) alongside other custom methods.
+
 **VacationResponse/set → `addVacationResponseSet`:**
 ```nim
 func addVacationResponseSet*(b: var RequestBuilder,
     accountId: AccountId,
-    ifInState: Opt[JmapState] = ...,
-    update: Table[Id, PatchObject],     # only update, no create/destroy
+    update: PatchObject,
+    ifInState: Opt[JmapState] = Opt.none(JmapState),
 ): ResponseHandle[SetResponse[VacationResponse]]
 ```
 
+Takes `PatchObject` directly (not `Table[Id, PatchObject]`) — the
+`"singleton"` id is hardcoded internally via `VacationResponseSingletonId`.
+Consumers never specify the id because there is only one valid value.
 No `create`/`destroy` parameters — the RFC forbids both for the singleton.
-A compile-time constraint, not a runtime error from the server.
+Lives in `mail_methods.nim`.
 
-**Principle:** Make illegal states unrepresentable — the overload's signature
-prevents create/destroy attempts.
+**Note:** VacationResponse is NOT registered with `registerJmapEntity`.
+Only two of six standard methods are valid, so custom builder functions
+prevent invalid method calls at compile time (see Design A §5.3, §8.1).
+
+**Principle:** Make illegal states unrepresentable — the function signatures
+prevent create/destroy attempts and wrong-id specification.
 
 ### 9.4. Entities Using Generic Builder Unchanged
 
@@ -1085,11 +1230,11 @@ directly.
 
 ### 9.5. Dispatch Confirmation
 
-Entity-specific response types (`EmailGetResponse`, `MailboxChangesResponse`)
-work with the existing phantom-typed dispatch. The railway from
-`ResponseHandle[EmailGetResponse]` through `get[EmailGetResponse]` to
-`Result[EmailGetResponse, MethodError]` uses the same mechanism as core's
-generic dispatch — no core modifications required.
+Entity-specific response types (`MailboxChangesResponse`) and standard
+generics (`GetResponse[Email]`) work with the existing phantom-typed dispatch.
+The railway from `ResponseHandle[GetResponse[Email]]` through
+`get[GetResponse[Email]]` to `Result[GetResponse[Email], MethodError]` uses
+the same mechanism as core's generic dispatch — no core modifications required.
 
 **Principle:** DRY — core provides the dispatch mechanism, mail provides the
 types. The phantom type parameterisation handles the rest.
@@ -1204,7 +1349,11 @@ type SearchSnippetGetResponse* = object
 **Builder:** `addSearchSnippetGet(b, accountId, emailIds, filter) → ResponseHandle[SearchSnippetGetResponse]`
 
 Key differences from standard `/get`:
-- `filter` is required (not optional)
+- `filter` is required (not optional) — the RFC permits `filter: null` on the
+  wire, but a null filter produces vacuous results (no search terms to
+  highlight, so every snippet has null `subject` and `preview`). The required
+  filter prevents this domain-meaningless request. Consumers needing wire-level
+  null can use `addInvocation` directly.
 - No `state` in response — stateless derived data
 - `SearchSnippet` has no `id` property (keyed by `emailId`)
 
@@ -1385,6 +1534,30 @@ type EmailCopyResults* = object
   emailSet*: SetResponse[Email]
 ```
 
+**EmailCopyItem — typed creation entry:**
+
+RFC §4.7: "only the `mailboxIds`, `keywords`, and `receivedAt` properties may
+be set during the copy." A typed creation entry constrains to these properties:
+
+```nim
+type EmailCopyItem* = object
+  id*: Id                            # source email in from-account, required
+  mailboxIds*: Opt[MailboxIdSet]     # override destination mailboxes
+  keywords*: Opt[KeywordSet]         # override keywords
+  receivedAt*: Opt[UTCDate]          # override received date
+```
+
+`Opt.none` means "keep the source value"; `Opt.some(value)` means "override."
+When all three override fields are `Opt.none`, the serde layer emits `{}`
+(copy with no overrides — the most common case). Follows the `EmailImportItem`
+pattern (§10.3).
+
+**Principles:**
+- **Make illegal states unrepresentable** — Prevents setting arbitrary
+  properties (e.g., `subject`) on a copy operation that servers will reject.
+- **DDD** — Copy is a distinct operation with distinct valid inputs (§8.6
+  principle).
+
 Two overloads, same pattern as EmailSubmission (§11.4–11.5):
 
 - `addEmailCopy` — standard `/copy` with `onSuccessDestroyOriginal` defaulting
@@ -1392,10 +1565,11 @@ Two overloads, same pattern as EmailSubmission (§11.4–11.5):
 - `addEmailCopyChained` — always sets `onSuccessDestroyOriginal: true`, returns
   `EmailCopyHandles`
 
+Both overloads accept `create: Table[CreationId, EmailCopyItem]`.
+
 `addEmailCopyChained` adds `destroyFromIfInState: Opt[JmapState]` (state
 assertion for the source account destroy). Both overloads add the standard
-`Email/copy` parameters (`fromAccountId`, `ifFromInState`, `ifInState`,
-`create`).
+`Email/copy` parameters (`fromAccountId`, `ifFromInState`, `ifInState`).
 
 `getBoth` extracts both responses, handling the absent implicit response case
 (all copies failed). Response location uses method name dispatch (§11.7).
@@ -1615,13 +1789,13 @@ Quick reference for each entity's methods, key properties, and design notes.
 | Module | `email.nim` |
 | Types | `Email` (read model), `ParsedEmail` (blob-backed), `EmailBlueprint` (creation) |
 | Methods | `/get` (extra: body fetch options), `/changes`, `/query` (extra: `collapseThreads`), `/queryChanges` (extra: `collapseThreads`), `/set`, `/copy` (extra: `onSuccessDestroyOriginal`), `/import`, `/parse` |
-| Key sub-types | `EmailAddress`, `EmailAddressGroup`, `EmailHeader`, `HeaderPropertyKey`, `HeaderValue`, `EmailBodyPart`, `EmailBodyValue`, `PartId`, `KeywordSet`, `MailboxIdSet` |
+| Key sub-types | `EmailAddress`, `EmailAddressGroup`, `EmailHeader`, `HeaderPropertyKey`, `HeaderValue`, `EmailBodyPart` (read), `BlueprintBodyPart` (creation), `EmailBodyValue`, `PartId`, `KeywordSet`, `MailboxIdSet`, `EmailComparator`, `EmailCopyItem` |
 | Filter conditions | `EmailFilterCondition` — 19 fields including thread-keyword filters, header filter |
-| Sort properties | `receivedAt` (must), `size`, `from`, `to`, `subject`, `sentAt`, `hasKeyword`, `allInThreadHaveKeyword`, `someInThreadHaveKeyword` (should) |
-| Builder overloads | `addEmailGet`, `addEmailQuery`, `addEmailQueryChanges`, `addEmailCopy`/`addEmailCopyChained` (compound handle, §11.10) |
+| Sort properties | `receivedAt` (must), `size`, `from`, `to`, `subject`, `sentAt`, `hasKeyword`, `allInThreadHaveKeyword`, `someInThreadHaveKeyword` (should). Keyword-bearing sorts use `EmailComparator` with required `keyword` field. |
+| Builder overloads | `addEmailGet`, `addEmailQuery` (sort via `EmailComparator`), `addEmailQueryChanges`, `addEmailCopy`/`addEmailCopyChained` (compound handle, §11.10, create via `EmailCopyItem`) |
 | Custom methods | `addEmailImport`, `addEmailParse` |
 | Mutability | Only `mailboxIds` and `keywords` mutable after creation |
-| Design notes | Most complex entity. Three distinct types for read/parse/create models. Body-kind case discriminant on blueprint. |
+| Design notes | Most complex entity. Three distinct types for read/parse/create models. Body-kind case discriminant on blueprint. `BlueprintBodyPart` nested case object for creation body parts. |
 
 ### 13.4. SearchSnippet
 
@@ -1638,10 +1812,11 @@ Quick reference for each entity's methods, key properties, and design notes.
 | Aspect | Detail |
 |--------|--------|
 | Module | `identity.nim` |
+| Types | `Identity` (read model), `IdentityCreate` (creation model — enforces `email`-required at the type level) |
 | Methods | `/get`, `/changes`, `/set` |
 | Properties | `id`, `name`, `email` (immutable), `replyTo`, `bcc`, `textSignature`, `htmlSignature`, `mayDelete` (server-set) |
-| Builder | Uses generic builder — no extensions |
-| Design notes | Simple entity. `email` is immutable after creation. |
+| Builder | Uses generic builder — no extensions. `IdentityCreate` feeds into generic `addSet[Identity]` via `toJson()`. |
+| Design notes | Simple entity. `email` is immutable after creation. `IdentityCreate` is a distinct creation type (same rationale as `EmailBlueprint` — different domain operations deserve different types). |
 
 ### 13.6. EmailSubmission
 
@@ -1661,9 +1836,10 @@ Quick reference for each entity's methods, key properties, and design notes.
 |--------|--------|
 | Module | `vacation.nim` |
 | Methods | `/get`, `/set` (update only — no create, no destroy) |
-| Properties | `id` (always "singleton"), `isEnabled`, `fromDate`, `toDate`, `subject`, `textBody`, `htmlBody` |
-| Builder overload | `addVacationResponseSet` (update-only signature) |
-| Design notes | Singleton pattern — exactly one per account, id always "singleton". Builder overload prevents create/destroy at compile time. |
+| Properties | `isEnabled`, `fromDate`, `toDate`, `subject`, `textBody`, `htmlBody`. No `id` field — the `"singleton"` id is a protocol constant, not state. Serde validates on deserialise and emits on serialise. |
+| Entity registration | NOT registered with `registerJmapEntity`. Custom builder functions prevent invalid method calls at compile time. |
+| Builder functions | `addVacationResponseGet` (omits `ids` — always fetches singleton), `addVacationResponseSet` (takes `PatchObject` directly, singleton id hardcoded internally). Both in `mail_methods.nim`. |
+| Design notes | Singleton pattern — exactly one per account. Builder functions prevent create/destroy and wrong-id at compile time. |
 
 ---
 
@@ -1686,7 +1862,7 @@ Quick reference for each entity's methods, key properties, and design notes.
 | 13 | ParsedEmail vs Email | Shared type with Opt.none vs distinct type | Distinct `ParsedEmail` | Parse-don't-validate, DDD |
 | 14 | EmailBlueprint naming | Lifecycle name vs domain name | `EmailBlueprint` (domain concept) | DDD |
 | 15 | EmailBlueprint errors | Short-circuit vs accumulate | `Result[T, seq[ValidationError]]` | Total functions, ROP |
-| 16 | VacationResponse builder | Generic /set vs update-only overload | `addVacationResponseSet` (no create/destroy) | Make illegal states unrepresentable |
+| 16 | VacationResponse builder | A) Register + generic builder, B) Custom get/set only (not registered) | B (`addVacationResponseGet`, `addVacationResponseSet` in `mail_methods.nim`; singleton id hardcoded; no create/destroy) | Make illegal states unrepresentable, DDD |
 | 17 | QueryParams DRY | Repeated params vs value object | `QueryParams` value object | DRY |
 | 18 | EmailBodyFetchOptions DRY | Repeated params vs value object | `EmailBodyFetchOptions` value object | DRY |
 | 19 | SubmissionEmailRef | String with # prefix vs case type | Case type (`serDirect`/`serCreationRef`) | Make illegal states unrepresentable, Parse-don't-validate |
@@ -1695,3 +1871,10 @@ Quick reference for each entity's methods, key properties, and design notes.
 | 22 | Opt[Opt[T]] for null-filterable fields | Opt[T] vs Opt[Opt[T]] vs sentinel | `Opt[Opt[T]]` | Make illegal states unrepresentable |
 | 23 | Mailbox/set builder overload | Generic /set vs entity-specific with onDestroyRemoveEmails | `addMailboxSet` with extra param | DDD, Make illegal states unrepresentable |
 | 24 | Email/copy compound handle | Single handle vs compound (same as §11) | `addEmailCopy`/`addEmailCopyChained` | DDD, Make illegal states unrepresentable |
+| 25 | `size` unconditional on `EmailBodyPart` | A) Leaf-only, B) Shared | B (RFC §4.1.4 unconditional) | Total functions |
+| 26 | `forbiddenToSend` in `MailSetErrorType` | A) Omit (catch-all), B) Include | B (RFC §7.5, §10.6.12 IANA) | Total functions |
+| 27 | `bodyValues` shared on `EmailBlueprint` | A) Flat-only, B) Shared | B (RFC §4.6: both paths need it) | Make illegal states unrepresentable |
+| 28 | Email sort with keyword property | A) Core Comparator, B) Core extras, C) EmailComparator, D) Builder-side | C (composition, not modification) | DDD, Open-Closed, Make illegal states unrepresentable |
+| 29 | Creation body part type | A) Reuse read model, B) Flat 3-way type, C) Nested case object | C (preserves `isMultipart` structure) | Make illegal states unrepresentable, DDD |
+| 30 | `EmailGetResponse` vs `GetResponse[Email]` | A) Custom type, B) Standard generic | B (response envelope identical) | DRY |
+| 31 | `EmailCopyItem` typed creation entry | A) Untyped JSON, B) Typed `EmailCopyItem` | B (constrains to 3 valid override properties) | Make illegal states unrepresentable, DDD |

@@ -40,12 +40,18 @@ func parseAccountId*(raw: string): Result[AccountId, ValidationError] =
   ## JMAP servers define valid ID formats per implementation.
 ```
 
-**Do NOT add doc comments to**:
+**Prefer minimal doc comments on**:
 
 - Trivially obvious `func`/`proc` (single-expression, self-documenting name)
 - Borrowed operations on distinct types (`==`, `$`, `hash`)
 - Simple field accessors
 - Type definitions where the field names are self-documenting
+
+However, nimalyzer enforces `check hasDoc all` — every exported symbol must
+have a `##` doc comment. Where a doc comment adds no real insight, keep it to
+a single short line (e.g. `## Equality comparison.`) rather than omitting it
+entirely. Do not pad these with filler; a terse placeholder satisfies the
+linter without introducing noise.
 
 ## Smart Constructor Documentation
 
