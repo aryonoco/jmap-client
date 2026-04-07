@@ -11,8 +11,10 @@ rule for Layer 1 of the jmap-client library. It builds upon the decisions made i
 identifiers, the Session object and everything it contains (§2), the
 Request/Response envelope (§3.2–3.4, §3.7), the generic method framework
 types (§5.3 PatchObject, §5.5 Filter/Comparator, §5.6 AddedItem), and all
-error types (TransportError, RequestError, ClientError as exceptions;
-MethodError and SetError as response data). Serialisation (Layer 2), protocol
+error types (TransportError, RequestError, ClientError as outer railway
+plain objects; MethodError and SetError as inner railway response data).
+All error types are plain objects for Railway-Oriented Programming via
+nim-results. Serialisation (Layer 2), protocol
 logic (Layer 3), and transport (Layer 4) are out of scope. Binary data (§6)
 and push (§7) are deferred; see architecture.md §4.5–4.6.
 
@@ -23,16 +25,19 @@ reflects the codebase after that revision.
 
 **Design principles.** Every decision follows:
 
-- **Exception-based error handling** — smart constructors raise
-  `ValidationError` (a `CatchableError`) on invalid input and return `T`
-  directly on success. Exceptions propagate naturally through Layers 1–4
-  and are caught at the Layer 5 C ABI boundary.
+- **Railway-Oriented Programming** — smart constructors return
+  `Result[T, ValidationError]` on success/failure. `ValidationError` is a
+  plain object (not an exception), carried on the error rail. The `?`
+  operator provides early-return error propagation. Transport/request
+  failures use `Result[T, ClientError]` (`JmapResult[T]` alias). All error
+  types are plain objects for use with nim-results.
 - **Functional Core, Imperative Shell** — Layers 1–3 do not perform I/O or
-  mutate global state. Purity is maintained by convention and code review,
-  not by compiler enforcement. `proc` is used throughout (not `func`).
-  Layer 4 performs I/O. Layer 5 catches exceptions.
+  mutate global state. Purity is enforced by the compiler: `func` is used
+  for all pure functions (Layers 1–3), `proc` only for I/O (Layer 4) or
+  functions taking `proc` callback parameters. `{.push raises: [].}` on
+  every source module — compiler-enforced total functions.
 - **Immutability by default** — `let` bindings. No mutable state in Layer 1.
-  Local `var` inside `proc` is permitted when building return values from
+  Local `var` inside `func` is permitted when building return values from
   stdlib containers whose APIs require mutation (e.g., `Table` in
   `PatchObject.setProp`).
 - **Total functions** — every function has a defined output for every input.
@@ -43,22 +48,27 @@ reflects the codebase after that revision.
   constructor, `AssertionDefect` terminates the process — this signals a
   programming error, not a recoverable runtime condition. With
   `--panics:on`, Defects abort via `rawQuit(1)`.
-- **Parse, don't validate** — smart constructors produce well-typed values or
-  raise structured errors. Invariants enforced at construction time.
-- **Make illegal states unrepresentable** — distinct types, case objects, and
-  smart constructors encode domain invariants in the type system where the
-  type system permits. Some invariants (e.g., `Invocation.arguments` must be
-  a JSON object, not an array) are enforced at construction time by Layer 2
-  parsing and Layer 3 builders rather than by the Layer 1 type definition,
-  because `JsonNode` is an opaque stdlib type that cannot be further
-  constrained without a wrapper.
+- **Parse, don't validate** — smart constructors produce well-typed Result
+  values or return structured errors. Invariants enforced at construction
+  time.
+- **Make illegal states unrepresentable** — distinct types, case objects,
+  smart constructors, and sealed construction (module-private fields) encode
+  domain invariants in the type system where the type system permits. Some
+  invariants (e.g., `Invocation.arguments` must be a JSON object, not an
+  array) are enforced at construction time by Layer 2 parsing and Layer 3
+  builders rather than by the Layer 1 type definition, because `JsonNode` is
+  an opaque stdlib type that cannot be further constrained without a wrapper.
+  Several types use **Pattern A** (sealed construction via module-private
+  fields) to prevent direct construction that would bypass validation — see
+  `Invocation` (§6.1), `ResultReference` (§6.4), `Comparator` (§7.3),
+  `AddedItem` (§7.5), `RequestError` (§8.4), and `MethodError` (§8.8).
 - **Dual validation strictness** — accept server-generated data leniently
   (tolerating minor RFC deviations such as non-base64url ID characters),
-  construct client-generated data strictly. Both paths raise on truly invalid
-  input — neither silently accepts garbage. Strict constructors are used when
-  the client creates values; lenient constructors are used during JSON
-  deserialisation of server responses. This principle appears concretely in
-  `Id` (§2.1: `parseId` vs `parseIdFromServer`), `AccountId` (§3.1), and
+  construct client-generated data strictly. Both paths return `err` on truly
+  invalid input — neither silently accepts garbage. Strict constructors are
+  used when the client creates values; lenient constructors are used during
+  JSON deserialisation of server responses. This principle appears concretely
+  in `Id` (§2.1: `parseId` vs `parseIdFromServer`), `AccountId` (§3.1), and
   `Session` cross-reference validation (§5.3).
 
 **Compiler flags.** These constrain every type definition (from `config.nims`):
@@ -83,10 +93,10 @@ Warnings promoted to errors include `CStringConv`, `EnumConv`,
 
 **Notable compiler flags NOT used:**
 
-- `strictFuncs` — removed in architecture revision; purity by convention
+- `strictFuncs` — not needed; `func` used throughout Layers 1–3 provides
+  equivalent purity enforcement
 - `strictNotNil` — removed; fires inside stdlib generics in Nim 2.2
 - `strictCaseObjects` — removed; standard Nim case object protections suffice
-- `{.push raises: [].}` — only on Layer 5 (`src/jmap_client.nim`)
 
 ---
 
@@ -102,16 +112,18 @@ has a concrete reason tied to the compiler constraints.
 | `std/hashes` | `Hash` type, `hash` borrowing for distinct types | `hash(distinctVal)` auto-delegates to base type via `{.borrow.}` |
 | `std/tables` | `Table[AccountId, T]`, `Table[string, T]` | For `Session.accounts`, `Session.primaryAccounts`, `Request.createdIds`, `PatchObject` base type |
 | `std/sets` | `HashSet[string]` | For `CoreCapabilities.collationAlgorithms` — proper set semantics (no duplicates, O(1) lookup) |
-| `std/strutils` | `parseEnum[T](s, default)`, `contains` | `parseEnum` is total, no exceptions — replaces manual `CapabilityKind` case statement |
-| `std/json` | `JsonNode`, `JsonNodeKind`, `newJNull` | For untyped capability data (`ServerCapability`), `Invocation.arguments`, `PatchObject` deletion |
-| `std/options` | `Option[T]`, `some`, `none`, `isSome`, `isNone`, `get` | For optional values throughout. Re-exported via `types.nim` |
-| `std/sequtils` | `allIt`, `anyIt` | Predicate templates that expand inline — work inside `proc` for charset validation |
+| `std/strutils` | `parseEnum[T](s, default)`, `contains`, `replace`, `toLowerAscii` | `parseEnum` is total, no exceptions — replaces manual `CapabilityKind` case statement |
+| `std/json` | `JsonNode`, `newJNull` | For untyped capability data (`ServerCapability`), `Invocation.arguments`, `PatchObject` deletion |
+| `results` (nim-results) | `Result[T, E]`, `Opt[T]`, `ok`, `err`, `?` operator | For Railway-Oriented Programming. `Result` for smart constructors. `Opt[T]` for optional fields (replaces `std/options`). Re-exported via `types.nim` |
+| `std/sequtils` | `allIt`, `anyIt` | Predicate templates that expand inline — work inside `func` for charset validation |
+| `std/net` | `TimeoutError`, `SslError` (when `defined(ssl)`) | For `classifyException` in `errors.nim` — exception classification |
 | built-in `set[char]` | Charset validation constants | `{'A'..'Z', 'a'..'z', '0'..'9', '-', '_'}` for `Id` validation |
 
 ### Modules evaluated and rejected
 
 | Module | Reason not used in Layer 1 |
 |--------|---------------------------|
+| `std/options` | Replaced by `Opt[T]` from nim-results. `Opt[T]` integrates with the `?` operator and Railway-Oriented Programming. |
 | `std/times` | `times.parse` is `proc` with side effects. A convenience `toDateTime` converter may be provided in a separate utility module. |
 | `std/parseutils` | Pattern replicated using `allIt` template from sequtils. |
 | `std/uri` | `parseUri` raises `UriParseError`. `apiUrl` is passed directly to the HTTP client — no need to decompose. |
@@ -123,11 +135,11 @@ has a concrete reason tied to the compiler constraints.
 | Finding | Impact |
 |---------|--------|
 | `hash` auto-borrows for distinct types | No manual `hash` implementation needed — `{.borrow.}` suffices |
-| `$` for string-backed enums returns the **backing string**, not the symbolic name; `symbolName` from `std/enumutils` returns the symbolic name | `$ckCore` returns `"urn:ietf:params:jmap:core"`. However `$ckUnknown` returns `"ckUnknown"` (no backing string), requiring custom `proc capabilityUri(kind): Option[string]` to force callers to handle `ckUnknown` |
+| `$` for string-backed enums returns the **backing string**, not the symbolic name; `symbolName` from `std/enumutils` returns the symbolic name | `$ckCore` returns `"urn:ietf:params:jmap:core"`. However `$ckUnknown` returns `"ckUnknown"` (no backing string), requiring custom `func capabilityUri(kind): Opt[string]` to force callers to handle `ckUnknown` |
 | `parseEnum[T](s, default)` is total (no exceptions) | Can be called freely — returns the default on any unrecognised input |
 | `parseEnum` matches against **both** symbolic names and string backing values | Negligible risk: JMAP servers send URIs, not Nim identifiers |
 | `RangeDefect` bypasses `{.push raises: [].}` (Defect, not CatchableError) | Range types crash instead of raising — not suitable for expected runtime failures |
-| `allIt` is a template that expands inline | Works for charset validation in smart constructors |
+| `allIt` is a template that expands inline | Works for charset validation in `func` smart constructors |
 | `allIt` on empty seq returns `true` (vacuous truth) | Callers must guard `allIt` predicate checks with a non-empty check when an empty input requires a different error |
 | Defects (RangeDefect, FieldDefect, AssertionDefect) are fatal | With `--panics:on`, they abort via `rawQuit(1)` — not suitable for expected runtime failures |
 
@@ -139,30 +151,31 @@ has a concrete reason tied to the compiler constraints.
 
 RFC reference: not applicable (library-internal type).
 
-`ValidationError` is the error type for Layer 1 smart constructors. It inherits
-from `CatchableError` and carries enough context to produce a useful error
-message without requiring the caller to know which constructor failed.
+`ValidationError` is the error type for Layer 1 smart constructors. It is a
+plain object (not an exception) carried on the `Result` error rail, with enough
+context to produce a useful error message without requiring the caller to know
+which constructor failed.
 
 ```nim
-type ValidationError* = object of CatchableError
+type ValidationError* = object
+  ## Structured error carrying the type name, failure reason, and raw input.
+  ## Returned on the error rail by all smart constructors on invalid input.
   typeName*: string   ## which type failed ("Id", "UnsignedInt", etc.)
+  message*: string    ## the failure reason
   value*: string      ## the raw input that failed validation
 ```
-
-The `msg` field (inherited from `CatchableError`) carries the failure reason
-(e.g., "length must be 1-255 octets").
 
 Constructor helper:
 
 ```nim
-proc newValidationError*(typeName, message, value: string): ref ValidationError =
-  ## Constructs a ref ValidationError suitable for raising.
-  result = (ref ValidationError)(msg: message, typeName: typeName, value: value)
+func validationError*(typeName, message, value: string): ValidationError =
+  ## Constructs a ValidationError value for use on the error rail.
+  ValidationError(typeName: typeName, message: message, value: value)
 ```
 
-`newValidationError` returns `ref ValidationError` because Nim's `raise`
-statement requires a `ref` to a `CatchableError` subtype. Smart constructors
-call `raise newValidationError(...)` on invalid input.
+`validationError` returns a value (not a ref) because it is used with
+`Result[T, ValidationError]`, not raised as an exception. Smart constructors
+call `return err(validationError(...))` on invalid input.
 
 `ValidationError` is the error type for smart constructor failures (Layer 1
 construction-time validation). `ClientError` (Section 8.6) is a separate
@@ -177,19 +190,22 @@ Every type with construction-time invariants has a smart constructor following
 this pattern:
 
 ```nim
-proc parseFoo*(raw: InputType): Foo =
-  ## Raises ValidationError on invalid input.
+func parseFoo*(raw: InputType): Result[Foo, ValidationError] =
+  ## Returns err on invalid input, ok on success.
   if <validation fails>:
-    raise newValidationError("Foo", "reason", raw)
+    return err(validationError("Foo", "reason", raw))
   doAssert <postcondition>
-  Foo(raw)
+  ok(Foo(raw))
 ```
 
-- Always a `proc`.
-- Raises `ValidationError` on invalid input, returns `T` directly on success.
+- Always a `func` (compiler-enforced purity).
+- Returns `Result[T, ValidationError]`: `err(...)` on invalid input,
+  `ok(...)` on success. Never raises exceptions.
 - Uses `doAssert` postconditions to verify invariants after construction.
   With `--panics:on` and `--assertions:on`, failed assertions abort the
   process — these are programmer error checks, not runtime validation.
+- The `?` operator provides early-return error propagation: `?parseDate(raw)`
+  returns `err` automatically if `parseDate` fails.
 - For distinct types (e.g., `Id`, `UnsignedInt`, `Date`), the raw constructor
   is the base type conversion (`string(x)` or `int64(x)`), which is not
   accessible outside the defining module without explicit borrowing. Only the
@@ -199,6 +215,11 @@ proc parseFoo*(raw: InputType): Foo =
   smart constructor enforces invariants that direct construction does not.
   Functions that depend on these invariants (e.g., `coreCapabilities`) use
   `raiseAssert` for the unreachable branch.
+- For types where direct construction must be prevented, **Pattern A**
+  (sealed construction) uses a module-private field to block direct
+  construction from outside the module, with a public accessor to read the
+  value. See `Invocation` (§6.1), `ResultReference` (§6.4), `Comparator`
+  (§7.3), `AddedItem` (§7.5), `RequestError` (§8.4), `MethodError` (§8.8).
 - For types with no invariants beyond their constituent types, the raw
   constructor may be exported directly.
 
@@ -211,18 +232,22 @@ distinct types. Uses `std/hashes` for the `Hash` type.
 import std/hashes
 
 template defineStringDistinctOps*(T: typedesc) =
-  proc `==`*(a, b: T): bool {.borrow.}
-  proc `$`*(a: T): string {.borrow.}
-  proc hash*(a: T): Hash {.borrow.}
-  proc len*(a: T): int {.borrow.}
+  func `==`*(a, b: T): bool {.borrow.}
+  func `$`*(a: T): string {.borrow.}
+  func hash*(a: T): Hash {.borrow.}
+  func len*(a: T): int {.borrow.}
 
 template defineIntDistinctOps*(T: typedesc) =
-  proc `==`*(a, b: T): bool {.borrow.}
-  proc `<`*(a, b: T): bool {.borrow.}
-  proc `<=`*(a, b: T): bool {.borrow.}
-  proc `$`*(a: T): string {.borrow.}
-  proc hash*(a: T): Hash {.borrow.}
+  func `==`*(a, b: T): bool {.borrow.}
+  func `<`*(a, b: T): bool {.borrow.}
+  func `<=`*(a, b: T): bool {.borrow.}
+  func `$`*(a: T): string {.borrow.}
+  func hash*(a: T): Hash {.borrow.}
 ```
+
+The module also contains `ruleOff` / `ruleOn` pragma templates for suppressing
+nimalyzer rules, imports and re-exports `results` from nim-results, and defines
+the `Base64UrlChars` charset constant.
 
 **Module:** `src/jmap_client/validation.nim`
 
@@ -259,37 +284,37 @@ Two constructors following the dual validation strictness principle (see
 Design principles):
 
 ```nim
-proc parseId*(raw: string): Id =
+func parseId*(raw: string): Result[Id, ValidationError] =
   ## Strict: 1-255 octets, base64url charset only.
   ## For client-constructed IDs (e.g., method call IDs used as creation IDs).
   if raw.len < 1 or raw.len > 255:
-    raise newValidationError("Id", "length must be 1-255 octets", raw)
+    return err(validationError("Id", "length must be 1-255 octets", raw))
   if not raw.allIt(it in Base64UrlChars):
-    raise newValidationError("Id", "contains characters outside base64url alphabet", raw)
+    return err(validationError("Id", "contains characters outside base64url alphabet", raw))
   let id = Id(raw)
   doAssert id.len >= 1 and id.len <= 255
-  id
+  ok(id)
 
-proc parseIdFromServer*(raw: string): Id =
+func parseIdFromServer*(raw: string): Result[Id, ValidationError] =
   ## Lenient: 1-255 octets, no control characters (including DEL).
   ## For server-assigned IDs in responses. Tolerates servers that deviate
   ## from the strict base64url charset (e.g., Cyrus IMAP).
   if raw.len < 1 or raw.len > 255:
-    raise newValidationError("Id", "length must be 1-255 octets", raw)
+    return err(validationError("Id", "length must be 1-255 octets", raw))
   if raw.anyIt(it < ' ' or it == '\x7F'):
-    raise newValidationError("Id", "contains control characters", raw)
+    return err(validationError("Id", "contains control characters", raw))
   let id = Id(raw)
   doAssert id.len >= 1 and id.len <= 255
-  id
+  ok(id)
 ```
 
 **Rationale for dual constructors.** The RFC MUST constraint is 1–255 octets
 and base64url charset. In practice, some servers send IDs with characters
 outside this set. Refusing to parse the entire server response because of an
 ID charset violation makes the library unusable with those servers. Both
-constructors raise on truly invalid input (empty strings, control characters)
-— neither silently accepts garbage. The strict constructor is used when the
-client constructs IDs; the lenient constructor is used during JSON
+constructors return `err` on truly invalid input (empty strings, control
+characters) — neither silently accepts garbage. The strict constructor is used
+when the client constructs IDs; the lenient constructor is used during JSON
 deserialisation of server responses.
 
 **Control character handling.** Both lenient constructors (`parseIdFromServer`,
@@ -321,13 +346,13 @@ const MaxUnsignedInt*: int64 = 9_007_199_254_740_991'i64  ## 2^53 - 1
 **Smart constructor:**
 
 ```nim
-proc parseUnsignedInt*(value: int64): UnsignedInt =
+func parseUnsignedInt*(value: int64): Result[UnsignedInt, ValidationError] =
   if value < 0:
-    raise newValidationError("UnsignedInt", "must be non-negative", $value)
+    return err(validationError("UnsignedInt", "must be non-negative", $value))
   if value > MaxUnsignedInt:
-    raise newValidationError("UnsignedInt", "exceeds 2^53-1", $value)
+    return err(validationError("UnsignedInt", "exceeds 2^53-1", $value))
   doAssert value >= 0 and value <= MaxUnsignedInt
-  UnsignedInt(value)
+  ok(UnsignedInt(value))
 ```
 
 **Decision D1 rationale.** `range[0'i64..9007199254740991'i64]` was rejected
@@ -363,11 +388,11 @@ const
 **Smart constructor:**
 
 ```nim
-proc parseJmapInt*(value: int64): JmapInt =
+func parseJmapInt*(value: int64): Result[JmapInt, ValidationError] =
   if value < MinJmapInt or value > MaxJmapInt:
-    raise newValidationError("JmapInt", "outside JSON-safe integer range", $value)
+    return err(validationError("JmapInt", "outside JSON-safe integer range", $value))
   doAssert value >= MinJmapInt and value <= MaxJmapInt
-  JmapInt(value)
+  ok(JmapInt(value))
 ```
 
 **Note.** `JmapInt` (not `Int`) avoids shadowing Nim's built-in `int`. The type
@@ -402,29 +427,31 @@ Validation is decomposed into four private helpers, called sequentially in
 ```nim
 const AsciiDigits = {'0'..'9'}
 
-proc validateDatePortion(raw: string) =
+func validateDatePortion(raw: string): Result[void, ValidationError] =
   ## YYYY-MM-DD at positions 0..9.
   if not (
     raw[0 .. 3].allIt(it in AsciiDigits) and raw[4] == '-' and
     raw[5 .. 6].allIt(it in AsciiDigits) and raw[7] == '-' and
     raw[8 .. 9].allIt(it in AsciiDigits)
   ):
-    raise newValidationError("Date", "invalid date portion", raw)
+    return err(validationError("Date", "invalid date portion", raw))
+  ok()
 
-proc validateTimePortion(raw: string) =
+func validateTimePortion(raw: string): Result[void, ValidationError] =
   ## HH:MM:SS at positions 11..18, with uppercase 'T' separator at 10.
   if raw[10] != 'T':
-    raise newValidationError("Date", "'T' separator must be uppercase", raw)
+    return err(validationError("Date", "'T' separator must be uppercase", raw))
   if not (
     raw[11 .. 12].allIt(it in AsciiDigits) and raw[13] == ':' and
     raw[14 .. 15].allIt(it in AsciiDigits) and raw[16] == ':' and
     raw[17 .. 18].allIt(it in AsciiDigits)
   ):
-    raise newValidationError("Date", "invalid time portion", raw)
+    return err(validationError("Date", "invalid time portion", raw))
   if raw.anyIt(it in {'t', 'z'}):
-    raise newValidationError("Date", "'T' and 'Z' must be uppercase (RFC 3339)", raw)
+    return err(validationError("Date", "'T' and 'Z' must be uppercase (RFC 3339)", raw))
+  ok()
 
-proc validateFractionalSeconds(raw: string) =
+func validateFractionalSeconds(raw: string): Result[void, ValidationError] =
   ## If a '.' follows position 19, digits must follow and not all be zero.
   if raw.len > 19 and raw[19] == '.':
     let dotEnd = block:
@@ -433,13 +460,14 @@ proc validateFractionalSeconds(raw: string) =
         inc i
       i
     if dotEnd == 20:
-      raise newValidationError(
+      return err(validationError(
         "Date", "fractional seconds must contain at least one digit", raw
-      )
+      ))
     if raw[20 ..< dotEnd].allIt(it == '0'):
-      raise newValidationError("Date", "zero fractional seconds must be omitted", raw)
+      return err(validationError("Date", "zero fractional seconds must be omitted", raw))
+  ok()
 
-proc offsetStart(raw: string): int =
+func offsetStart(raw: string): int =
   ## Returns the position where the timezone offset begins.
   result = 19
   if result < raw.len and raw[result] == '.':
@@ -447,36 +475,40 @@ proc offsetStart(raw: string): int =
     while result < raw.len and raw[result] in AsciiDigits:
       inc result
 
-proc isValidNumericOffset(raw: string, pos: int): bool =
+func isValidNumericOffset(raw: string, pos: int): bool =
   ## Checks that raw[pos..pos+5] matches +HH:MM or -HH:MM structurally.
   pos + 6 == raw.len and raw[pos + 1] in AsciiDigits and raw[pos + 2] in AsciiDigits and
     raw[pos + 3] == ':' and raw[pos + 4] in AsciiDigits and raw[pos + 5] in AsciiDigits
 
-proc validateTimezoneOffset(raw: string) =
+func validateTimezoneOffset(raw: string): Result[void, ValidationError] =
   ## Validates timezone offset after seconds and optional fractional seconds.
   ## Must be 'Z' or '+HH:MM' or '-HH:MM'.
   let pos = offsetStart(raw)
   if pos >= raw.len:
-    raise newValidationError("Date", "missing timezone offset", raw)
+    return err(validationError("Date", "missing timezone offset", raw))
   if raw[pos] == 'Z':
     if pos + 1 != raw.len:
-      raise newValidationError("Date", "trailing characters after 'Z'", raw)
-    return
+      return err(validationError("Date", "trailing characters after 'Z'", raw))
+    return ok()
   if raw[pos] notin {'+', '-'} or not isValidNumericOffset(raw, pos):
-    raise newValidationError("Date", "timezone offset must be 'Z' or '+/-HH:MM'", raw)
+    return err(validationError("Date", "timezone offset must be 'Z' or '+/-HH:MM'", raw))
+  ok()
 
-proc parseDate*(raw: string): Date =
+func parseDate*(raw: string): Result[Date, ValidationError] =
   ## Structural validation of an RFC 3339 date-time string.
   ## Does NOT perform calendar validation (e.g., February 30).
   if raw.len < 20:
-    raise newValidationError("Date", "too short for RFC 3339 date-time", raw)
-  validateDatePortion(raw)
-  validateTimePortion(raw)
-  validateFractionalSeconds(raw)
-  validateTimezoneOffset(raw)
+    return err(validationError("Date", "too short for RFC 3339 date-time", raw))
+  ?validateDatePortion(raw)
+  ?validateTimePortion(raw)
+  ?validateFractionalSeconds(raw)
+  ?validateTimezoneOffset(raw)
   doAssert raw.len >= 20 and raw[10] == 'T'
-  Date(raw)
+  ok(Date(raw))
 ```
+
+Note: The private validation helpers return `Result[void, ValidationError]`,
+and the `?` operator propagates errors automatically via early return.
 
 **Decision D3 rationale.** `std/times.DateTime` was evaluated but rejected for
 Layer 1 because `distinct string` preserves the exact server representation
@@ -503,13 +535,15 @@ defineStringDistinctOps(UTCDate)
 **Smart constructor:**
 
 ```nim
-proc parseUtcDate*(raw: string): UTCDate =
+func parseUtcDate*(raw: string): Result[UTCDate, ValidationError] =
   ## All Date validation rules, plus: must end with 'Z'.
-  discard parseDate(raw)
+  let dateResult = parseDate(raw)
+  if dateResult.isErr:
+    return err(dateResult.error)
   if raw[^1] != 'Z':
-    raise newValidationError("UTCDate", "time-offset must be 'Z'", raw)
+    return err(validationError("UTCDate", "time-offset must be 'Z'", raw))
   doAssert raw[^1] == 'Z'
-  UTCDate(raw)
+  ok(UTCDate(raw))
 ```
 
 **Module:** `src/jmap_client/primitives.nim`
@@ -531,11 +565,11 @@ defineIntDistinctOps(MaxChanges)
 **Smart constructor:**
 
 ```nim
-proc parseMaxChanges*(raw: UnsignedInt): MaxChanges =
-  ## Rejects 0, which the RFC forbids.
+func parseMaxChanges*(raw: UnsignedInt): Result[MaxChanges, ValidationError] =
+  ## Smart constructor: rejects 0, which the RFC forbids.
   if int64(raw) == 0:
-    raise newValidationError("MaxChanges", "must be greater than 0", $int64(raw))
-  MaxChanges(raw)
+    return err(validationError("MaxChanges", "must be greater than 0", $int64(raw)))
+  ok(MaxChanges(raw))
 ```
 
 **Module:** `src/jmap_client/primitives.nim`
@@ -563,16 +597,16 @@ defineStringDistinctOps(AccountId)
 **Smart constructor:**
 
 ```nim
-proc parseAccountId*(raw: string): AccountId =
+func parseAccountId*(raw: string): Result[AccountId, ValidationError] =
   ## Lenient: 1-255 octets, no control characters (including DEL).
   ## AccountIds are server-assigned Id[Account] values (§1.6.2, §2) —
   ## same lenient rules as parseIdFromServer.
   if raw.len < 1 or raw.len > 255:
-    raise newValidationError("AccountId", "length must be 1-255 octets", raw)
+    return err(validationError("AccountId", "length must be 1-255 octets", raw))
   if raw.anyIt(it < ' ' or it == '\x7F'):
-    raise newValidationError("AccountId", "contains control characters", raw)
+    return err(validationError("AccountId", "contains control characters", raw))
   doAssert raw.len >= 1 and raw.len <= 255
-  AccountId(raw)
+  ok(AccountId(raw))
 ```
 
 **Module:** `src/jmap_client/identifiers.nim`
@@ -587,9 +621,9 @@ represents changes. Used for change detection and delta synchronisation.
 
 ```nim
 type JmapState* = distinct string
-proc `==`*(a, b: JmapState): bool {.borrow.}
-proc `$`*(a: JmapState): string {.borrow.}
-proc hash*(a: JmapState): Hash {.borrow.}
+func `==`*(a, b: JmapState): bool {.borrow.}
+func `$`*(a: JmapState): string {.borrow.}
+func hash*(a: JmapState): Hash {.borrow.}
 ```
 
 `len` is not borrowed — the length of a state token is not meaningful to
@@ -598,15 +632,15 @@ consumers.
 **Smart constructor:**
 
 ```nim
-proc parseJmapState*(raw: string): JmapState =
+func parseJmapState*(raw: string): Result[JmapState, ValidationError] =
   ## Non-empty, no control characters (including DEL). Server-assigned —
   ## same defensive checks as other server-assigned identifiers.
   if raw.len == 0:
-    raise newValidationError("JmapState", "must not be empty", raw)
+    return err(validationError("JmapState", "must not be empty", raw))
   if raw.anyIt(it < ' ' or it == '\x7F'):
-    raise newValidationError("JmapState", "contains control characters", raw)
+    return err(validationError("JmapState", "contains control characters", raw))
   doAssert raw.len > 0
-  JmapState(raw)
+  ok(JmapState(raw))
 ```
 
 **Module:** `src/jmap_client/identifiers.nim`
@@ -620,9 +654,9 @@ correlate responses to method calls.
 
 ```nim
 type MethodCallId* = distinct string
-proc `==`*(a, b: MethodCallId): bool {.borrow.}
-proc `$`*(a: MethodCallId): string {.borrow.}
-proc hash*(a: MethodCallId): Hash {.borrow.}
+func `==`*(a, b: MethodCallId): bool {.borrow.}
+func `$`*(a: MethodCallId): string {.borrow.}
+func hash*(a: MethodCallId): Hash {.borrow.}
 ```
 
 `len` is not borrowed — method call IDs are opaque correlation tokens whose
@@ -631,12 +665,12 @@ length is not meaningful to consumers (same rationale as `JmapState`, §3.2).
 **Smart constructor:**
 
 ```nim
-proc parseMethodCallId*(raw: string): MethodCallId =
+func parseMethodCallId*(raw: string): Result[MethodCallId, ValidationError] =
   ## Non-empty. Client-generated.
   if raw.len == 0:
-    raise newValidationError("MethodCallId", "must not be empty", raw)
+    return err(validationError("MethodCallId", "must not be empty", raw))
   doAssert raw.len > 0
-  MethodCallId(raw)
+  ok(MethodCallId(raw))
 ```
 
 **Module:** `src/jmap_client/identifiers.nim`
@@ -651,9 +685,9 @@ NOT include the `#` prefix — that is a serialisation concern (Layer 2).
 
 ```nim
 type CreationId* = distinct string
-proc `==`*(a, b: CreationId): bool {.borrow.}
-proc `$`*(a: CreationId): string {.borrow.}
-proc hash*(a: CreationId): Hash {.borrow.}
+func `==`*(a, b: CreationId): bool {.borrow.}
+func `$`*(a: CreationId): string {.borrow.}
+func hash*(a: CreationId): Hash {.borrow.}
 ```
 
 `len` is not borrowed — creation IDs are opaque client-generated identifiers
@@ -662,14 +696,14 @@ whose length is not meaningful to consumers.
 **Smart constructor:**
 
 ```nim
-proc parseCreationId*(raw: string): CreationId =
+func parseCreationId*(raw: string): Result[CreationId, ValidationError] =
   ## Non-empty. Must not start with '#' (the prefix is a wire-format concern).
   if raw.len == 0:
-    raise newValidationError("CreationId", "must not be empty", raw)
+    return err(validationError("CreationId", "must not be empty", raw))
   if raw[0] == '#':
-    raise newValidationError("CreationId", "must not include '#' prefix", raw)
+    return err(validationError("CreationId", "must not include '#' prefix", raw))
   doAssert raw.len > 0 and raw[0] != '#'
-  CreationId(raw)
+  ok(CreationId(raw))
 ```
 
 **Module:** `src/jmap_client/identifiers.nim`
@@ -721,9 +755,10 @@ satisfies this constraint.
 ```nim
 import std/strutils
 
-proc parseCapabilityKind*(uri: string): CapabilityKind =
+func parseCapabilityKind*(uri: string): CapabilityKind =
   ## Maps a capability URI string to an enum value.
   ## Total function: always succeeds. Unknown URIs map to ckUnknown.
+  ## Uses strutils.parseEnum which matches against the string backing values.
   strutils.parseEnum[CapabilityKind](uri, ckUnknown)
 ```
 
@@ -734,27 +769,27 @@ parameter never raises — it returns the default on any unrecognised input.
 
 `$ckCore` returns `"urn:ietf:params:jmap:core"` (the backing string).
 However, `$ckUnknown` returns `"ckUnknown"` (no backing string assigned),
-which is not a valid capability URI. A function returning `Option[string]`
+which is not a valid capability URI. A function returning `Opt[string]`
 forces callers to handle `ckUnknown` explicitly:
 
 ```nim
-proc capabilityUri*(kind: CapabilityKind): Option[string] =
+func capabilityUri*(kind: CapabilityKind): Opt[string] =
   ## Returns the IANA-registered URI for a known capability.
   ## Returns none for ckUnknown — callers must use rawUri from ServerCapability.
   case kind
-  of ckCore: some("urn:ietf:params:jmap:core")
-  of ckMail: some("urn:ietf:params:jmap:mail")
-  of ckSubmission: some("urn:ietf:params:jmap:submission")
-  of ckVacationResponse: some("urn:ietf:params:jmap:vacationresponse")
-  of ckWebsocket: some("urn:ietf:params:jmap:websocket")
-  of ckMdn: some("urn:ietf:params:jmap:mdn")
-  of ckSmimeVerify: some("urn:ietf:params:jmap:smimeverify")
-  of ckBlob: some("urn:ietf:params:jmap:blob")
-  of ckQuota: some("urn:ietf:params:jmap:quota")
-  of ckContacts: some("urn:ietf:params:jmap:contacts")
-  of ckCalendars: some("urn:ietf:params:jmap:calendars")
-  of ckSieve: some("urn:ietf:params:jmap:sieve")
-  of ckUnknown: none(string)
+  of ckCore: Opt.some("urn:ietf:params:jmap:core")
+  of ckMail: Opt.some("urn:ietf:params:jmap:mail")
+  of ckSubmission: Opt.some("urn:ietf:params:jmap:submission")
+  of ckVacationResponse: Opt.some("urn:ietf:params:jmap:vacationresponse")
+  of ckWebsocket: Opt.some("urn:ietf:params:jmap:websocket")
+  of ckMdn: Opt.some("urn:ietf:params:jmap:mdn")
+  of ckSmimeVerify: Opt.some("urn:ietf:params:jmap:smimeverify")
+  of ckBlob: Opt.some("urn:ietf:params:jmap:blob")
+  of ckQuota: Opt.some("urn:ietf:params:jmap:quota")
+  of ckContacts: Opt.some("urn:ietf:params:jmap:contacts")
+  of ckCalendars: Opt.some("urn:ietf:params:jmap:calendars")
+  of ckSieve: Opt.some("urn:ietf:params:jmap:sieve")
+  of ckUnknown: Opt.none(string)
 ```
 
 **CRITICAL:** `CapabilityKind` must NOT be used as a `Table` key. Multiple
@@ -800,7 +835,7 @@ provides: no duplicates, O(1) lookup via `in`, proper set semantics.
 **Helper:**
 
 ```nim
-proc hasCollation*(caps: CoreCapabilities, algorithm: string): bool =
+func hasCollation*(caps: CoreCapabilities, algorithm: string): bool =
   algorithm in caps.collationAlgorithms
 ```
 
@@ -878,22 +913,22 @@ entries (different vendor URIs) would collide in a table keyed by
 **Helpers:**
 
 ```nim
-proc findCapability*(account: Account, kind: CapabilityKind): Option[AccountCapabilityEntry] =
+func findCapability*(account: Account, kind: CapabilityKind): Opt[AccountCapabilityEntry] =
   for _, entry in account.accountCapabilities:
     if entry.kind == kind:
-      return some(entry)
-  none(AccountCapabilityEntry)
+      return Opt.some(entry)
+  Opt.none(AccountCapabilityEntry)
 
-proc findCapabilityByUri*(account: Account, uri: string): Option[AccountCapabilityEntry] =
+func findCapabilityByUri*(account: Account, uri: string): Opt[AccountCapabilityEntry] =
   ## Looks up an account capability by its raw URI string. Use this instead of
   ## findCapability when looking up vendor extensions (which all map to
   ## ckUnknown and would be ambiguous via findCapability).
   for _, entry in account.accountCapabilities:
     if entry.rawUri == uri:
-      return some(entry)
-  none(AccountCapabilityEntry)
+      return Opt.some(entry)
+  Opt.none(AccountCapabilityEntry)
 
-proc hasCapability*(account: Account, kind: CapabilityKind): bool =
+func hasCapability*(account: Account, kind: CapabilityKind): bool =
   account.findCapability(kind).isSome
 ```
 
@@ -919,23 +954,40 @@ defineStringDistinctOps(UriTemplate)
 **Smart constructor:**
 
 ```nim
-proc parseUriTemplate*(raw: string): UriTemplate =
-  ## Non-empty. No RFC 6570 parsing — template expansion is Layer 4 (IO).
+func parseUriTemplate*(raw: string): Result[UriTemplate, ValidationError] =
+  ## Non-empty validation. No RFC 6570 parsing — template expansion is Layer 4.
   if raw.len == 0:
-    raise newValidationError("UriTemplate", "must not be empty", raw)
-  UriTemplate(raw)
+    return err(validationError("UriTemplate", "must not be empty", raw))
+  ok(UriTemplate(raw))
 ```
 
 **Variable presence check:**
 
 ```nim
-proc hasVariable*(tmpl: UriTemplate, name: string): bool =
-  ## Checks if the template contains {name}. Simple string search.
+func hasVariable*(tmpl: UriTemplate, name: string): bool =
+  ## Checks whether the template contains {name}. Simple substring search.
   let target = "{" & name & "}"
   target in string(tmpl)
 ```
 
 Used by the Session smart constructor to verify required template variables.
+
+**Template expansion:**
+
+```nim
+func expandUriTemplate*(
+    tmpl: UriTemplate, variables: openArray[(string, string)]
+): string =
+  ## Expands an RFC 6570 Level 1 URI template by replacing {name} with
+  ## the corresponding value. Variables not found in variables are left
+  ## unexpanded. Caller is responsible for percent-encoding values.
+  result = string(tmpl)
+  for (name, value) in variables:
+    result = result.replace("{" & name & "}", value)
+```
+
+Pure function. Caller is responsible for percent-encoding values that require
+it (`std/uri.encodeUrl(value, usePlus=false)`).
 
 **Module:** `src/jmap_client/session.nim`
 
@@ -990,9 +1042,9 @@ by `parseSession`.
 **Private helper:**
 
 ```nim
-proc hasKind(caps: openArray[ServerCapability], kind: CapabilityKind): bool =
+func hasKind(caps: openArray[ServerCapability], kind: CapabilityKind): bool =
   ## Checks whether any capability matches the given kind. Used by parseSession
-  ## before a Session object exists.
+  ## before a Session object exists (so Session.findCapability is unavailable).
   for _, cap in caps:
     if cap.kind == kind:
       return true
@@ -1002,7 +1054,7 @@ proc hasKind(caps: openArray[ServerCapability], kind: CapabilityKind): bool =
 **Smart constructor:**
 
 ```nim
-proc parseSession*(
+func parseSession*(
   capabilities: seq[ServerCapability],
   accounts: Table[AccountId, Account],
   primaryAccounts: Table[string, AccountId],
@@ -1012,38 +1064,38 @@ proc parseSession*(
   uploadUrl: UriTemplate,
   eventSourceUrl: UriTemplate,
   state: JmapState,
-): Session =
+): Result[Session, ValidationError] =
   ## Validates structural invariants:
-  ## 1. capabilities includes ckCore (RFC §2: MUST)
+  ## 1. capabilities includes ckCore (RFC section 2: MUST)
   ## 2. apiUrl is non-empty
-  ## 3. apiUrl contains no newline characters
-  ## 4. downloadUrl contains {accountId}, {blobId}, {type}, {name} (RFC §2)
-  ## 5. uploadUrl contains {accountId} (RFC §2)
-  ## 6. eventSourceUrl contains {types}, {closeafter}, {ping} (RFC §2)
+  ## 3. downloadUrl contains {accountId}, {blobId}, {type}, {name} (RFC section 2)
+  ## 4. uploadUrl contains {accountId} (RFC section 2)
+  ## 5. eventSourceUrl contains {types}, {closeafter}, {ping} (RFC section 2)
+  ## Deliberately omits cross-reference validation (Decision D7).
   if not capabilities.hasKind(ckCore):
-    raise newValidationError(
+    return err(validationError(
       "Session", "capabilities must include urn:ietf:params:jmap:core", ""
-    )
+    ))
   if apiUrl.len == 0:
-    raise newValidationError("Session", "apiUrl must not be empty", "")
+    return err(validationError("Session", "apiUrl must not be empty", ""))
   if apiUrl.contains({'\c', '\L'}):
-    raise newValidationError(
+    return err(validationError(
       "Session", "apiUrl must not contain newline characters", apiUrl
-    )
+    ))
   for variable in ["accountId", "blobId", "type", "name"]:
     if not downloadUrl.hasVariable(variable):
-      raise newValidationError(
+      return err(validationError(
         "Session", "downloadUrl missing {" & variable & "}", string(downloadUrl)
-      )
+      ))
   if not uploadUrl.hasVariable("accountId"):
-    raise newValidationError(
+    return err(validationError(
       "Session", "uploadUrl missing {accountId}", string(uploadUrl)
-    )
+    ))
   for variable in ["types", "closeafter", "ping"]:
     if not eventSourceUrl.hasVariable(variable):
-      raise newValidationError(
+      return err(validationError(
         "Session", "eventSourceUrl missing {" & variable & "}", string(eventSourceUrl)
-      )
+      ))
   let session = Session(
     capabilities: capabilities,
     accounts: accounts,
@@ -1057,7 +1109,7 @@ proc parseSession*(
   )
   doAssert session.capabilities.hasKind(ckCore)
   doAssert session.apiUrl.len > 0
-  session
+  ok(session)
 ```
 
 **Decision D7 rationale (cross-reference leniency).** `parseSession`
@@ -1078,9 +1130,9 @@ leniently, construct own data strictly.
 **Accessor helpers:**
 
 ```nim
-proc coreCapabilities*(session: Session): CoreCapabilities =
-  ## Returns the core capabilities. Total over Sessions constructed via
-  ## parseSession (which guarantees ckCore is present). Raises AssertionDefect
+func coreCapabilities*(session: Session): CoreCapabilities =
+  ## Returns the core capabilities. Total function (no Result) because
+  ## parseSession guarantees ckCore is present. Raises AssertionDefect
   ## if the invariant is violated by direct construction.
   for _, cap in session.capabilities:
     case cap.kind
@@ -1098,36 +1150,39 @@ constructed directly without `ckCore`, `coreCapabilities` raises
 `--panics:on`, this aborts the process.
 
 ```nim
-proc findCapability*(session: Session, kind: CapabilityKind): Option[ServerCapability] =
+func findCapability*(session: Session, kind: CapabilityKind): Opt[ServerCapability] =
   for _, cap in session.capabilities:
     if cap.kind == kind:
-      return some(cap)
-  none(ServerCapability)
+      return Opt.some(cap)
+  Opt.none(ServerCapability)
 
-proc findCapabilityByUri*(session: Session, uri: string): Option[ServerCapability] =
+func findCapabilityByUri*(session: Session, uri: string): Opt[ServerCapability] =
   ## Looks up a capability by its raw URI string. Use this instead of
   ## findCapability when looking up vendor extensions.
   for _, cap in session.capabilities:
     if cap.rawUri == uri:
-      return some(cap)
-  none(ServerCapability)
+      return Opt.some(cap)
+  Opt.none(ServerCapability)
 
-proc primaryAccount*(session: Session, kind: CapabilityKind): Option[AccountId] =
-  let uriOpt = capabilityUri(kind)
-  if uriOpt.isNone:
-    return none(AccountId)
-  let uri = uriOpt.get()
+func primaryAccount*(session: Session, kind: CapabilityKind): Opt[AccountId] =
+  ## Returns the primary account for a known capability kind.
+  ## Returns none if kind == ckUnknown (no canonical URI) or no primary designated.
+  let uri = ?capabilityUri(kind)
   for key, val in session.primaryAccounts:
     if key == uri:
-      return some(val)
-  none(AccountId)
+      return Opt.some(val)
+  Opt.none(AccountId)
 
-proc findAccount*(session: Session, id: AccountId): Option[Account] =
+func findAccount*(session: Session, id: AccountId): Opt[Account] =
   for key, val in session.accounts:
     if key == id:
-      return some(val)
-  none(Account)
+      return Opt.some(val)
+  Opt.none(Account)
 ```
+
+Note: `primaryAccount` uses the `?` operator on `capabilityUri(kind)`. If
+`kind == ckUnknown`, `capabilityUri` returns `Opt.none(string)`, and `?`
+causes `primaryAccount` to return `Opt.none(AccountId)` immediately.
 
 **`primaryAccount` failure modes.** Returns `none` in two cases: (1) `kind
 == ckUnknown` (no canonical URI to look up — use `session.primaryAccounts`
@@ -1155,19 +1210,35 @@ concern — the type definition here is the Nim representation.
 import std/json
 
 type Invocation* = object
+  ## Construction sealed via Pattern A (architecture Limitation 5/6a):
+  ## rawMethodCallId is module-private, blocking direct construction
+  ## from outside this module. Use initInvocation to construct.
   name*: string             ## method name (request) or response name
-  arguments*: JsonNode      ## named arguments — always a JObject
-  methodCallId*: MethodCallId  ## validated method call ID
+  arguments*: JsonNode      ## named arguments — always a JObject at the wire level
+  rawMethodCallId: string   ## module-private; validated MethodCallId
 ```
 
 `arguments` is `JsonNode` at the envelope level. Typed extraction into
 concrete method response types happens in Layer 3.
 
+**Accessor:**
+
+```nim
+func methodCallId*(inv: Invocation): MethodCallId =
+  ## Returns the validated method call ID.
+  MethodCallId(inv.rawMethodCallId)
+```
+
 **Constructor:**
 
 ```nim
-proc initInvocation*(name: string, arguments: JsonNode, methodCallId: MethodCallId): Invocation =
-  Invocation(name: name, arguments: arguments, methodCallId: methodCallId)
+func initInvocation*(
+    name: string, arguments: JsonNode, methodCallId: MethodCallId
+): Result[Invocation, ValidationError] =
+  ## Constructs an Invocation. Validates that name is non-empty.
+  if name.len == 0:
+    return err(validationError("Invocation", "name must not be empty", name))
+  ok(Invocation(name: name, arguments: arguments, rawMethodCallId: string(methodCallId)))
 ```
 
 **Module:** `src/jmap_client/envelope.nim`
@@ -1182,13 +1253,13 @@ import std/tables
 type Request* = object
   `using`*: seq[string]            ## capability URIs the client wishes to use
   methodCalls*: seq[Invocation]    ## processed sequentially by server
-  createdIds*: Option[Table[CreationId, Id]]  ## optional; enables proxy splitting
+  createdIds*: Opt[Table[CreationId, Id]]  ## optional; enables proxy splitting
 ```
 
 `using` is `seq[string]` (raw URIs, not `seq[CapabilityKind]`) because vendor
 extension URIs would collide at `ckUnknown`.
 
-`createdIds` is `Option` because the RFC specifies it as optional.
+`createdIds` is `Opt` because the RFC specifies it as optional.
 
 **No smart constructor.** Built by the Layer 3 request builder.
 
@@ -1201,8 +1272,11 @@ extension URIs would collide at `ckUnknown`.
 ```nim
 type Response* = object
   methodResponses*: seq[Invocation]            ## same format as methodCalls
-  createdIds*: Option[Table[CreationId, Id]]   ## only if given in request
-  sessionState*: JmapState                     ## current Session.state value
+  createdIds*: Opt[Table[CreationId, Id]]      ## only present if given in request
+  sessionState*: JmapState
+    ## Current Session.state value. After every response, compare with
+    ## Session.state; if they differ, the session is stale and should
+    ## be re-fetched (RFC 8620 §3.4).
 ```
 
 **Module:** `src/jmap_client/envelope.nim`
@@ -1216,9 +1290,44 @@ method call in the same request.
 
 ```nim
 type ResultReference* = object
-  resultOf*: MethodCallId  ## method call ID of previous call
-  name*: string            ## expected response name
-  path*: string            ## JSON Pointer (RFC 6901) with '*' array wildcard
+  ## Construction sealed via private rawName field. Use
+  ## parseResultReference to construct with validation, or
+  ## initResultReference for infallible construction from pre-validated values.
+  resultOf*: MethodCallId  ## method call ID of the previous call
+  rawName: string          ## module-private; expected response name (non-empty)
+  path*: string            ## JSON Pointer (RFC 6901) with JMAP '*' array wildcard
+```
+
+**Accessor:**
+
+```nim
+func name*(rr: ResultReference): string =
+  ## Returns the expected response name.
+  rr.rawName
+```
+
+**Constructors:**
+
+```nim
+func parseResultReference*(
+    resultOf: MethodCallId, name: string, path: string
+): Result[ResultReference, ValidationError] =
+  ## Validates and constructs a ResultReference. Rejects empty name or path.
+  if name.len == 0:
+    return err(validationError("ResultReference", "name must not be empty", name))
+  if path.len == 0:
+    return err(validationError("ResultReference", "path must not be empty", path))
+  ok(ResultReference(resultOf: resultOf, rawName: name, path: path))
+
+func initResultReference*(
+    resultOf: MethodCallId, name: string, path: string
+): ResultReference =
+  ## Constructs a ResultReference without validation. For internal use where
+  ## name and path are known to be valid (e.g., builder-produced references
+  ## using path constants).
+  doAssert name.len > 0, "ResultReference name must not be empty"
+  doAssert path.len > 0, "ResultReference path must not be empty"
+  ResultReference(resultOf: resultOf, rawName: name, path: path)
 ```
 
 **Path constants for common reference targets:**
@@ -1258,10 +1367,10 @@ type
 **Constructor helpers:**
 
 ```nim
-proc direct*[T](value: T): Referencable[T] =
+func direct*[T](value: T): Referencable[T] =
   Referencable[T](kind: rkDirect, value: value)
 
-proc referenceTo*[T](reference: ResultReference): Referencable[T] =
+func referenceTo*[T](reference: ResultReference): Referencable[T] =
   Referencable[T](kind: rkReference, reference: reference)
 ```
 
@@ -1319,10 +1428,10 @@ type
 **Constructor helpers:**
 
 ```nim
-proc filterCondition*[C](cond: C): Filter[C] =
+func filterCondition*[C](cond: C): Filter[C] =
   Filter[C](kind: fkCondition, condition: cond)
 
-proc filterOperator*[C](op: FilterOperator, conditions: seq[Filter[C]]): Filter[C] =
+func filterOperator*[C](op: FilterOperator, conditions: seq[Filter[C]]): Filter[C] =
   Filter[C](kind: fkOperator, operator: op, conditions: conditions)
 ```
 
@@ -1346,10 +1455,10 @@ defineStringDistinctOps(PropertyName)
 **Smart constructor:**
 
 ```nim
-proc parsePropertyName*(raw: string): PropertyName =
+func parsePropertyName*(raw: string): Result[PropertyName, ValidationError] =
   if raw.len == 0:
-    raise newValidationError("PropertyName", "must not be empty", raw)
-  PropertyName(raw)
+    return err(validationError("PropertyName", "must not be empty", raw))
+  ok(PropertyName(raw))
 ```
 
 **Module:** `src/jmap_client/framework.nim`
@@ -1362,9 +1471,20 @@ proc parsePropertyName*(raw: string): PropertyName =
 
 ```nim
 type Comparator* = object
-  property*: PropertyName    ## property name to sort by
+  ## Construction sealed via Pattern A (architecture §1.5.2): rawProperty is
+  ## module-private, blocking direct construction from outside this module.
+  ## Use parseComparator to construct.
+  rawProperty: string        ## module-private; validated PropertyName
   isAscending*: bool         ## true = ascending (RFC default)
-  collation*: Option[string]    ## RFC 4790 collation algorithm identifier
+  collation*: Opt[string]    ## RFC 4790 collation algorithm identifier
+```
+
+**Accessor:**
+
+```nim
+func property*(c: Comparator): PropertyName =
+  ## Returns the validated property name for this comparator.
+  PropertyName(c.rawProperty)
 ```
 
 `isAscending` defaults to `true` per RFC §5.5. The constructor mirrors
@@ -1373,12 +1493,13 @@ this default for convenience.
 **Constructor:**
 
 ```nim
-proc parseComparator*(
+func parseComparator*(
   property: PropertyName,
   isAscending: bool = true,
-  collation: Option[string] = none(string)
+  collation: Opt[string] = Opt.none(string),
 ): Comparator =
-  Comparator(property: property, isAscending: isAscending, collation: collation)
+  ## Constructs a Comparator. Infallible given a valid PropertyName.
+  Comparator(rawProperty: string(property), isAscending: isAscending, collation: collation)
 ```
 
 The non-empty property invariant is enforced by `PropertyName`'s smart
@@ -1404,7 +1525,7 @@ type PatchObject* = distinct Table[string, JsonNode]
 **Borrowed operations:**
 
 ```nim
-proc len*(p: PatchObject): int {.borrow.}
+func len*(p: PatchObject): int {.borrow.}
 ```
 
 Only `len` is borrowed. Mutating `Table` operations (`[]=`, `del`, `clear`)
@@ -1414,24 +1535,28 @@ the only write path, ensuring path validation cannot be bypassed.
 **Smart constructors:**
 
 ```nim
-proc emptyPatch*(): PatchObject =
+func emptyPatch*(): PatchObject =
   PatchObject(initTable[string, JsonNode]())
 
-proc setProp*(patch: PatchObject, path: string, value: JsonNode): PatchObject =
+func setProp*(
+    patch: PatchObject, path: string, value: JsonNode
+): Result[PatchObject, ValidationError] =
   ## Sets a property at the given JSON Pointer path.
   if path.len == 0:
-    raise newValidationError("PatchObject", "path must not be empty", "")
+    return err(validationError("PatchObject", "path must not be empty", ""))
   var t = Table[string, JsonNode](patch)
   t[path] = value
-  PatchObject(t)
+  ok(PatchObject(t))
 
-proc deleteProp*(patch: PatchObject, path: string): PatchObject =
+func deleteProp*(
+    patch: PatchObject, path: string
+): Result[PatchObject, ValidationError] =
   ## Sets a property to null (deletion in JMAP PatchObject semantics).
   if path.len == 0:
-    raise newValidationError("PatchObject", "path must not be empty", "")
+    return err(validationError("PatchObject", "path must not be empty", ""))
   var t = Table[string, JsonNode](patch)
   t[path] = newJNull()
-  PatchObject(t)
+  ok(PatchObject(t))
 ```
 
 `setProp` and `deleteProp` copy the table to a local `var`, mutate it, and
@@ -1441,13 +1566,13 @@ uses move semantics when the caller does not retain the original.
 **Read accessor:**
 
 ```nim
-proc getKey*(patch: PatchObject, key: string): Option[JsonNode] =
+func getKey*(patch: PatchObject, key: string): Opt[JsonNode] =
   ## Returns the value at key, or none if absent.
   let t = Table[string, JsonNode](patch)
   if t.hasKey(key):
-    some(t[key])
+    Opt.some(t.getOrDefault(key))
   else:
-    none(JsonNode)
+    Opt.none(JsonNode)
 ```
 
 **Module:** `src/jmap_client/framework.nim`
@@ -1461,12 +1586,28 @@ response.
 
 ```nim
 type AddedItem* = object
-  id*: Id
-  index*: UnsignedInt
+  ## Construction sealed via Pattern A (architecture Limitation 5/6a):
+  ## rawId is module-private, blocking direct construction from outside
+  ## this module. Use initAddedItem to construct.
+  rawId: string          ## module-private; validated Id
+  index*: UnsignedInt    ## the position index
 ```
 
-**No smart constructor.** Both fields enforce their own invariants via their
-respective smart constructors (`parseIdFromServer`, `parseUnsignedInt`).
+**Accessor:**
+
+```nim
+func id*(item: AddedItem): Id =
+  ## Returns the validated item identifier.
+  Id(item.rawId)
+```
+
+**Constructor:**
+
+```nim
+func initAddedItem*(id: Id, index: UnsignedInt): AddedItem =
+  ## Constructs an AddedItem. Infallible given validated Id and UnsignedInt.
+  AddedItem(rawId: string(id), index: index)
+```
 
 **Module:** `src/jmap_client/framework.nim`
 
@@ -1474,21 +1615,24 @@ respective smart constructors (`parseIdFromServer`, `parseUnsignedInt`).
 
 ## 8. Error Types
 
-Error types implement a three-track error hierarchy. The outer railway uses
-exception types (`TransportError`, `RequestError`, `ClientError`) for
-transport/request failures — these inherit from `CatchableError` and are
-raised by Layer 4 transport code, then caught at the Layer 5 C ABI boundary.
-The inner railway uses data types (`MethodError`, `SetError`) for
-per-invocation and per-item errors within successful JMAP responses — these
-are NOT exceptions.
+Error types implement a three-railway error hierarchy. All error types are
+**plain objects** (not exceptions) for use with Railway-Oriented Programming
+via nim-results. The outer railway (`TransportError`, `RequestError`,
+`ClientError`) handles transport/request failures — these are carried on the
+`Result` error rail via `Result[T, ClientError]` (`JmapResult[T]` alias).
+The inner railway (`MethodError`, `SetError`) handles per-invocation and
+per-item errors within successful JMAP responses — these are data within
+successful `Response` values.
 
-All error constructors are `proc` and return values directly. Error types
+All error constructors are `func` and return values directly. Error types
 represent received data or classified exceptions; they cannot fail
 construction.
 
 All error types that carry a `type` string follow the lossless round-trip
 pattern: a parsed enum (`errorType`) alongside a preserved raw string
 (`rawType`). Serialisation always uses `rawType`, never `$errorType`.
+Where `errorType` is sealed (module-private), a public accessor function
+is provided.
 
 ### 8.1 TransportErrorKind
 
@@ -1514,11 +1658,13 @@ RFC-defined wire strings.
 
 **RFC reference:** Not in RFC (library-internal type).
 
-**Purpose:** Exception type (inherits from `CatchableError`) carrying a
-human-readable message and variant-specific data for transport failures.
+**Purpose:** Plain object carrying a human-readable message and
+variant-specific data for transport failures. Carried on the `Result` error
+rail as part of `ClientError`.
 
 ```nim
-type TransportError* = object of CatchableError
+type TransportError* = object
+  message*: string  ## human-readable error description
   case kind*: TransportErrorKind
   of tekHttpStatus:
     httpStatus*: int
@@ -1528,9 +1674,8 @@ type TransportError* = object of CatchableError
 
 **Design decisions:**
 
-1. **Inherits from `CatchableError`.** Transport errors are raised by Layer 4
-   and caught at the Layer 5 C ABI boundary. The `msg` field (inherited from
-   `CatchableError`) carries the human-readable message.
+1. **Plain object (not `CatchableError`).** Transport errors are carried on
+   the `Result` error rail via `ClientError`, not raised as exceptions.
 
 2. **`httpStatus` is `int`, not `UnsignedInt`.** HTTP status codes are standard
    integers (100–599). Using `UnsignedInt` would add unnecessary ceremony.
@@ -1542,11 +1687,13 @@ type TransportError* = object of CatchableError
 **Constructor helpers:**
 
 ```nim
-proc transportError*(kind: TransportErrorKind, message: string): TransportError =
-  TransportError(kind: kind, msg: message)
+func transportError*(kind: TransportErrorKind, message: string): TransportError =
+  ## For non-HTTP-status transport errors.
+  TransportError(kind: kind, message: message)
 
-proc httpStatusError*(status: int, message: string): TransportError =
-  TransportError(kind: tekHttpStatus, msg: message, httpStatus: status)
+func httpStatusError*(status: int, message: string): TransportError =
+  ## For HTTP-level failures without a JMAP problem details body.
+  TransportError(kind: tekHttpStatus, message: message, httpStatus: status)
 ```
 
 **Module:** `src/jmap_client/errors.nim`
@@ -1567,7 +1714,8 @@ type RequestErrorType* = enum
 **Parsing function:**
 
 ```nim
-proc parseRequestErrorType*(raw: string): RequestErrorType =
+func parseRequestErrorType*(raw: string): RequestErrorType =
+  ## Total function: always succeeds. Unknown URIs map to retUnknown.
   strutils.parseEnum[RequestErrorType](raw, retUnknown)
 ```
 
@@ -1577,41 +1725,57 @@ proc parseRequestErrorType*(raw: string): RequestErrorType =
 
 **RFC reference:** §3.6.1, RFC 7807.
 
-**Purpose:** Exception type representing a request-level error — an HTTP
-response with `Content-Type: application/problem+json`.
+**Purpose:** Plain object representing a request-level error — an HTTP
+response with `Content-Type: application/problem+json`. Carried on the
+`Result` error rail as part of `ClientError`.
 
 ```nim
-type RequestError* = object of CatchableError
-  errorType*: RequestErrorType   ## parsed enum variant
+type RequestError* = object
+  ## errorType is module-private — always derived from rawType via
+  ## parseRequestErrorType. This seals the consistency invariant:
+  ## errorType and rawType cannot diverge.
+  message*: string               ## human-readable error description
+  errorType: RequestErrorType    ## module-private; derived from rawType
   rawType*: string               ## always populated — lossless round-trip
-  status*: Option[int]           ## RFC 7807 "status" field
-  title*: Option[string]         ## RFC 7807 "title" field
-  detail*: Option[string]        ## RFC 7807 "detail" field
-  limit*: Option[string]         ## which limit was exceeded (retLimit only)
-  extras*: Option[JsonNode]      ## non-standard fields, lossless preservation
+  status*: Opt[int]              ## RFC 7807 "status" field
+  title*: Opt[string]            ## RFC 7807 "title" field
+  detail*: Opt[string]           ## RFC 7807 "detail" field
+  limit*: Opt[string]            ## which limit was exceeded (retLimit only)
+  extras*: Opt[JsonNode]         ## non-standard fields, lossless preservation
+```
+
+**Accessor:**
+
+```nim
+func errorType*(re: RequestError): RequestErrorType =
+  ## Returns the parsed error type variant.
+  re.errorType
 ```
 
 **Constructor helper:**
 
 ```nim
-proc requestError*(
+func requestError*(
   rawType: string,
-  status: Option[int] = none(int),
-  title: Option[string] = none(string),
-  detail: Option[string] = none(string),
-  limit: Option[string] = none(string),
-  extras: Option[JsonNode] = none(JsonNode),
+  status: Opt[int] = Opt.none(int),
+  title: Opt[string] = Opt.none(string),
+  detail: Opt[string] = Opt.none(string),
+  limit: Opt[string] = Opt.none(string),
+  extras: Opt[JsonNode] = Opt.none(JsonNode),
 ): RequestError =
-  result = RequestError(
+  ## Auto-parses rawType string to the corresponding enum variant.
+  let re = RequestError(
     errorType: parseRequestErrorType(rawType),
     rawType: rawType,
+    message: rawType,
     status: status,
     title: title,
     detail: detail,
     limit: limit,
     extras: extras,
   )
-  doAssert result.rawType == rawType
+  doAssert re.rawType == rawType
+  return re
 ```
 
 **Module:** `src/jmap_client/errors.nim`
@@ -1632,12 +1796,15 @@ type ClientErrorKind* = enum
 
 **RFC reference:** Not in RFC (library-internal).
 
-**Purpose:** The outer railway exception type. Wraps either a `TransportError`
-or a `RequestError`. When raised, no method responses exist — the entire
-request failed at the transport or protocol level.
+**Purpose:** The outer railway error type. Wraps either a `TransportError`
+or a `RequestError`. Carried on the `Result` error rail as
+`Result[T, ClientError]` (`JmapResult[T]` alias). When present on the error
+rail, no method responses exist — the entire request failed at the transport
+or protocol level.
 
 ```nim
-type ClientError* = object of CatchableError
+type ClientError* = object
+  message*: string  ## human-readable error description
   case kind*: ClientErrorKind
   of cekTransport:
     transport*: TransportError
@@ -1648,38 +1815,73 @@ type ClientError* = object of CatchableError
 **Constructor helpers:**
 
 ```nim
-proc clientError*(transport: TransportError): ClientError =
-  ClientError(kind: cekTransport, transport: transport, msg: transport.msg)
+func clientError*(transport: TransportError): ClientError =
+  ## Lifts a transport failure into the outer railway.
+  ClientError(kind: cekTransport, transport: transport, message: transport.message)
 
-proc clientError*(request: RequestError): ClientError =
-  ClientError(kind: cekRequest, request: request, msg: request.rawType)
-
-proc newClientError*(transport: TransportError): ref ClientError =
-  ## Ref-returning constructor for raising transport failures as exceptions.
-  (ref ClientError)(kind: cekTransport, transport: transport, msg: transport.msg)
-
-proc newClientError*(request: RequestError): ref ClientError =
-  ## Ref-returning constructor for raising request rejections as exceptions.
-  (ref ClientError)(kind: cekRequest, request: request, msg: request.rawType)
+func clientError*(request: RequestError): ClientError =
+  ## Lifts a request rejection into the outer railway.
+  ClientError(kind: cekRequest, request: request, message: request.rawType)
 ```
-
-Two pairs of constructors: value-returning (`clientError`) for data
-manipulation, and ref-returning (`newClientError`) for raising as exceptions.
 
 **Accessor helper:**
 
 ```nim
-proc message*(err: ClientError): string =
+func message*(err: ClientError): string =
+  ## Human-readable message for any ClientError variant.
   case err.kind
-  of cekTransport: err.transport.msg
+  of cekTransport: err.transport.message
   of cekRequest:
-    if err.request.detail.isSome: err.request.detail.get()
-    elif err.request.title.isSome: err.request.title.get()
-    else: err.request.rawType
+    err.request.detail.valueOr:
+      err.request.title.valueOr:
+        err.request.rawType
 ```
 
 For `cekRequest`, prefers `detail` over `title` over `rawType` (following
-RFC 7807 guidance).
+RFC 7807 guidance). Uses `valueOr` from nim-results for ergonomic fallback
+chains on `Opt[T]`.
+
+### 8.6a Exception Classification
+
+**Purpose:** Maps `std/httpclient` exceptions to `ClientError` values for the
+outer railway. Pure function with no IO.
+
+```nim
+func classifyException*(e: ref CatchableError): ClientError =
+  ## Maps std/httpclient exceptions to ClientError(cekTransport).
+  ## Pure: no IO, no side effects. Exhaustive over known exception types.
+```
+
+Exception type mapping:
+- `TimeoutError` → `tekTimeout`
+- `SslError` (when `defined(ssl)`) → `tekTls`
+- `OSError` with TLS-related message → `tekTls` (heuristic)
+- `OSError` → `tekNetwork`
+- `IOError` → `tekNetwork`
+- `ValueError` → `tekNetwork` (protocol error)
+- Other → `tekNetwork` (unexpected error)
+
+### 8.6b Request Context and Size Enforcement
+
+**Purpose:** Shared utilities for request/response size enforcement.
+
+```nim
+type RequestContext* = enum
+  ## Identifies the JMAP endpoint being processed.
+  rcSession = "session"
+  rcApi = "api"
+
+func sizeLimitExceeded*(
+    context: RequestContext, what: string, actual, limit: int
+): ClientError =
+  ## Constructs a ClientError for a size-limit violation.
+
+func enforceBodySizeLimit*(
+    maxResponseBytes: int, body: string, context: RequestContext
+): Result[void, ClientError] =
+  ## Phase 2 body size enforcement: post-read rejection via actual body
+  ## length. No-op when maxResponseBytes == 0 (no limit). Pure.
+```
 
 **Module:** `src/jmap_client/errors.nim`
 
@@ -1718,7 +1920,8 @@ type MethodErrorType* = enum
 **Parsing function:**
 
 ```nim
-proc parseMethodErrorType*(raw: string): MethodErrorType =
+func parseMethodErrorType*(raw: string): MethodErrorType =
+  ## Total function: always succeeds. Unknown types map to metUnknown.
   strutils.parseEnum[MethodErrorType](raw, metUnknown)
 ```
 
@@ -1734,27 +1937,39 @@ calls report errors.
 
 ```nim
 type MethodError* = object
-  errorType*: MethodErrorType    ## parsed enum variant
+  ## errorType is module-private — always derived from rawType via
+  ## parseMethodErrorType. This seals the consistency invariant.
+  errorType: MethodErrorType     ## module-private; derived from rawType
   rawType*: string               ## always populated — lossless round-trip
-  description*: Option[string]   ## RFC "description" field
-  extras*: Option[JsonNode]      ## non-standard fields, lossless preservation
+  description*: Opt[string]      ## RFC "description" field
+  extras*: Opt[JsonNode]         ## non-standard fields, lossless preservation
+```
+
+**Accessor:**
+
+```nim
+func errorType*(me: MethodError): MethodErrorType =
+  ## Returns the parsed error type variant.
+  me.errorType
 ```
 
 **Constructor helper:**
 
 ```nim
-proc methodError*(
+func methodError*(
   rawType: string,
-  description: Option[string] = none(string),
-  extras: Option[JsonNode] = none(JsonNode),
+  description: Opt[string] = Opt.none(string),
+  extras: Opt[JsonNode] = Opt.none(JsonNode),
 ): MethodError =
-  result = MethodError(
+  ## Auto-parses rawType string to the corresponding enum variant.
+  let me = MethodError(
     errorType: parseMethodErrorType(rawType),
     rawType: rawType,
     description: description,
     extras: extras,
   )
-  doAssert result.rawType == rawType
+  doAssert me.rawType == rawType
+  return me
 ```
 
 **Module:** `src/jmap_client/errors.nim`
@@ -1781,7 +1996,8 @@ type SetErrorType* = enum
 **Parsing function:**
 
 ```nim
-proc parseSetErrorType*(raw: string): SetErrorType =
+func parseSetErrorType*(raw: string): SetErrorType =
+  ## Total function: always succeeds. Unknown types map to setUnknown.
   strutils.parseEnum[SetErrorType](raw, setUnknown)
 ```
 
@@ -1798,8 +2014,8 @@ variant-specific fields on two error types.
 ```nim
 type SetError* = object
   rawType*: string               ## always populated — lossless round-trip
-  description*: Option[string]   ## optional human-readable description
-  extras*: Option[JsonNode]      ## non-standard fields, lossless preservation
+  description*: Opt[string]      ## optional human-readable description
+  extras*: Opt[JsonNode]         ## non-standard fields, lossless preservation
   case errorType*: SetErrorType
   of setInvalidProperties:
     properties*: seq[string]     ## invalid property names (§5.3)
@@ -1812,10 +2028,10 @@ type SetError* = object
 **Constructor helpers (three constructors for three construction paths):**
 
 ```nim
-proc setError*(
+func setError*(
   rawType: string,
-  description: Option[string] = none(string),
-  extras: Option[JsonNode] = none(JsonNode),
+  description: Opt[string] = Opt.none(string),
+  extras: Opt[JsonNode] = Opt.none(JsonNode),
 ): SetError =
   ## For non-variant-specific set errors.
   ## Defensively maps invalidProperties/alreadyExists to setUnknown when
@@ -1827,11 +2043,11 @@ proc setError*(
     errorType: safeType, rawType: rawType, description: description, extras: extras
   )
 
-proc setErrorInvalidProperties*(
+func setErrorInvalidProperties*(
   rawType: string,
   properties: seq[string],
-  description: Option[string] = none(string),
-  extras: Option[JsonNode] = none(JsonNode),
+  description: Opt[string] = Opt.none(string),
+  extras: Opt[JsonNode] = Opt.none(JsonNode),
 ): SetError =
   SetError(
     errorType: setInvalidProperties, rawType: rawType,
@@ -1839,11 +2055,11 @@ proc setErrorInvalidProperties*(
     properties: properties,
   )
 
-proc setErrorAlreadyExists*(
+func setErrorAlreadyExists*(
   rawType: string,
   existingId: Id,
-  description: Option[string] = none(string),
-  extras: Option[JsonNode] = none(JsonNode),
+  description: Opt[string] = Opt.none(string),
+  extras: Opt[JsonNode] = Opt.none(JsonNode),
 ): SetError =
   SetError(
     errorType: setAlreadyExists, rawType: rawType,
@@ -1883,7 +2099,7 @@ calls `setErrorInvalidProperties` only when the JSON contains the
 | `PropertyName` | Y | Y | Y | Y | | | |
 | `PatchObject` | | | | Y | | | |
 
-All borrowed operations are `proc`.
+All borrowed operations are `func`.
 
 ---
 
@@ -1891,25 +2107,29 @@ All borrowed operations are `proc`.
 
 | Type | Constructor | Validation | Behaviour |
 |------|------------|-----------|-----------|
-| `Id` | `parseId` | Strict: 1-255 octets, base64url charset | raises `ValidationError` or returns `Id` |
-| `Id` | `parseIdFromServer` | Lenient: 1-255 octets, no control chars | raises `ValidationError` or returns `Id` |
-| `UnsignedInt` | `parseUnsignedInt` | `0 <= value <= 2^53-1` | raises `ValidationError` or returns `UnsignedInt` |
-| `JmapInt` | `parseJmapInt` | `-2^53+1 <= value <= 2^53-1` | raises `ValidationError` or returns `JmapInt` |
-| `MaxChanges` | `parseMaxChanges` | Must be > 0 | raises `ValidationError` or returns `MaxChanges` |
-| `Date` | `parseDate` | Structural RFC 3339 + timezone offset | raises `ValidationError` or returns `Date` |
-| `UTCDate` | `parseUtcDate` | Date rules + ends with Z | raises `ValidationError` or returns `UTCDate` |
-| `AccountId` | `parseAccountId` | Lenient: 1-255 octets, no control chars | raises `ValidationError` or returns `AccountId` |
-| `JmapState` | `parseJmapState` | Non-empty, no control chars | raises `ValidationError` or returns `JmapState` |
-| `MethodCallId` | `parseMethodCallId` | Non-empty | raises `ValidationError` or returns `MethodCallId` |
-| `CreationId` | `parseCreationId` | Non-empty, no `#` prefix | raises `ValidationError` or returns `CreationId` |
-| `UriTemplate` | `parseUriTemplate` | Non-empty | raises `ValidationError` or returns `UriTemplate` |
+| `Id` | `parseId` | Strict: 1-255 octets, base64url charset | `Result[Id, ValidationError]` |
+| `Id` | `parseIdFromServer` | Lenient: 1-255 octets, no control chars | `Result[Id, ValidationError]` |
+| `UnsignedInt` | `parseUnsignedInt` | `0 <= value <= 2^53-1` | `Result[UnsignedInt, ValidationError]` |
+| `JmapInt` | `parseJmapInt` | `-2^53+1 <= value <= 2^53-1` | `Result[JmapInt, ValidationError]` |
+| `MaxChanges` | `parseMaxChanges` | Must be > 0 | `Result[MaxChanges, ValidationError]` |
+| `Date` | `parseDate` | Structural RFC 3339 + timezone offset | `Result[Date, ValidationError]` |
+| `UTCDate` | `parseUtcDate` | Date rules + ends with Z | `Result[UTCDate, ValidationError]` |
+| `AccountId` | `parseAccountId` | Lenient: 1-255 octets, no control chars | `Result[AccountId, ValidationError]` |
+| `JmapState` | `parseJmapState` | Non-empty, no control chars | `Result[JmapState, ValidationError]` |
+| `MethodCallId` | `parseMethodCallId` | Non-empty | `Result[MethodCallId, ValidationError]` |
+| `CreationId` | `parseCreationId` | Non-empty, no `#` prefix | `Result[CreationId, ValidationError]` |
+| `UriTemplate` | `parseUriTemplate` | Non-empty | `Result[UriTemplate, ValidationError]` |
 | `CapabilityKind` | `parseCapabilityKind` | Total (always succeeds) | returns `CapabilityKind` |
-| `Session` | `parseSession` | Core cap present, URLs valid, templates have variables, no newlines in apiUrl | raises `ValidationError` or returns `Session` |
-| `PropertyName` | `parsePropertyName` | Non-empty | raises `ValidationError` or returns `PropertyName` |
+| `Session` | `parseSession` | Core cap present, URLs valid, templates have variables, no newlines in apiUrl | `Result[Session, ValidationError]` |
+| `Invocation` | `initInvocation` | Non-empty name | `Result[Invocation, ValidationError]` |
+| `ResultReference` | `parseResultReference` | Non-empty name and path | `Result[ResultReference, ValidationError]` |
+| `ResultReference` | `initResultReference` | Infallible (doAssert guards) | returns `ResultReference` |
+| `PropertyName` | `parsePropertyName` | Non-empty | `Result[PropertyName, ValidationError]` |
 | `Comparator` | `parseComparator` | Infallible (PropertyName enforces non-empty) | returns `Comparator` |
+| `AddedItem` | `initAddedItem` | Infallible (Id and UnsignedInt pre-validated) | returns `AddedItem` |
 | `PatchObject` | `emptyPatch` | None (total) | returns `PatchObject` |
-| `PatchObject` | `setProp` | Non-empty path | raises `ValidationError` or returns `PatchObject` |
-| `PatchObject` | `deleteProp` | Non-empty path | raises `ValidationError` or returns `PatchObject` |
+| `PatchObject` | `setProp` | Non-empty path | `Result[PatchObject, ValidationError]` |
+| `PatchObject` | `deleteProp` | Non-empty path | `Result[PatchObject, ValidationError]` |
 | `RequestErrorType` | `parseRequestErrorType` | Total (always succeeds) | returns `RequestErrorType` |
 | `MethodErrorType` | `parseMethodErrorType` | Total (always succeeds) | returns `MethodErrorType` |
 | `SetErrorType` | `parseSetErrorType` | Total (always succeeds) | returns `SetErrorType` |
@@ -1917,14 +2137,14 @@ All borrowed operations are `proc`.
 | `TransportError` | `httpStatusError` | None (total) | returns `TransportError` |
 | `RequestError` | `requestError` | None (lossless round-trip) | returns `RequestError` |
 | `ClientError` | `clientError` (2 overloads) | None (total) | returns `ClientError` |
-| `ClientError` | `newClientError` (2 overloads) | None (total) | returns `ref ClientError` |
+| `ClientError` | `classifyException` | None (total) | returns `ClientError` |
 | `MethodError` | `methodError` | None (lossless round-trip) | returns `MethodError` |
 | `SetError` | `setError` | None (lossless + defensive fallback) | returns `SetError` |
 | `SetError` | `setErrorInvalidProperties` | None (total) | returns `SetError` |
 | `SetError` | `setErrorAlreadyExists` | None (total) | returns `SetError` |
 
-All domain type constructors are `proc`. Smart constructors that validate
-raise `ValidationError` on failure. Error type constructors return values
+All domain type constructors are `func`. Smart constructors that validate
+return `Result[T, ValidationError]`. Error type constructors return values
 directly — error types cannot fail construction.
 
 ---
@@ -1933,53 +2153,56 @@ directly — error types cannot fail construction.
 
 ```
 src/jmap_client/
-  validation.nim      <- ValidationError (CatchableError), borrow templates,
-                         charset constants
+  validation.nim      <- ValidationError (plain object), borrow templates,
+                         charset constants, nim-results re-export
   primitives.nim      <- Id, UnsignedInt, JmapInt, Date, UTCDate, MaxChanges
   identifiers.nim     <- AccountId, JmapState, MethodCallId, CreationId
   capabilities.nim    <- CapabilityKind, CoreCapabilities, ServerCapability
-  session.nim         <- Account, AccountCapabilityEntry, UriTemplate, Session
+  session.nim         <- Account, AccountCapabilityEntry, UriTemplate, Session,
+                         expandUriTemplate
   envelope.nim        <- Invocation, Request, Response,
                          ResultReference, Referencable[T]
   framework.nim       <- PropertyName, FilterOperator, Filter[C],
                          Comparator, PatchObject, AddedItem
-  errors.nim          <- TransportErrorKind, TransportError (CatchableError),
-                         RequestErrorType, RequestError (CatchableError),
-                         ClientErrorKind, ClientError (CatchableError),
+  errors.nim          <- TransportErrorKind, TransportError (plain object),
+                         RequestErrorType, RequestError (plain object),
+                         ClientErrorKind, ClientError (plain object),
+                         RequestContext, classifyException, enforceBodySizeLimit,
                          MethodErrorType, MethodError (plain object),
                          SetErrorType, SetError (plain object)
-  types.nim           <- Re-exports all of the above + std/options
+  types.nim           <- Re-exports all of the above + results (nim-results),
+                         defines JmapResult[T] alias
 ```
 
 ### Import Graph
 
 ```
-            validation.nim       (std/hashes)
+            validation.nim       (std/hashes, results)
              ^         ^
   primitives.nim    identifiers.nim   (std/hashes, std/sequtils each)
    ^   ^   ^   ^       ^        ^
-   |   |   |  errors.nim |       |    (std/options, std/strutils, std/json)
+   |   |   |  errors.nim |       |    (std/strutils, std/json, results, std/net)
    |   |   |             |       |
-   |   | framework.nim   |       |    (std/hashes, std/options, std/tables, std/json)
+   |   | framework.nim   |       |    (std/hashes, std/tables, std/json)
    |   |                 |       |
-   | capabilities.nim    |       |    (std/options, std/strutils, std/sets, std/json)
+   | capabilities.nim    |       |    (std/strutils, std/sets, std/json, results)
    |        ^            |       |
-   |    session.nim -----+       |    (std/hashes, std/options, std/strutils, std/tables, std/json)
+   |    session.nim -----+       |    (std/hashes, std/strutils, std/tables, std/json)
    |        |                    |
-  envelope.nim ------------------+    (std/options, std/tables, std/json)
+  envelope.nim ------------------+    (std/tables, std/json, results)
         ^
-  types.nim                           (re-exports all + std/options)
+  types.nim                           (re-exports all + results)
 ```
 
 All arrows point upward — no cycles. `validation.nim` is the root dependency.
 `primitives.nim` and `identifiers.nim` both depend on `validation.nim` directly.
 `identifiers.nim` depends on `validation.nim` (for `defineStringDistinctOps`,
-`ValidationError`, `newValidationError`), not on `primitives.nim`.
-`errors.nim` depends on `primitives.nim` (for `Id`).
+`ValidationError`, `validationError`), not on `primitives.nim`.
+`errors.nim` depends on `primitives.nim` (for `Id`) and `results`.
 `framework.nim` depends on both `validation.nim` and `primitives.nim`.
-`capabilities.nim` depends on `primitives.nim` (for `UnsignedInt`).
+`capabilities.nim` depends on `primitives.nim` (for `UnsignedInt`) and `results`.
 `envelope.nim` depends on `identifiers.nim` (for `MethodCallId`, `CreationId`,
-`JmapState`) and `primitives.nim` (for `Id`).
+`JmapState`), `primitives.nim` (for `Id`), and `results`.
 `session.nim` depends on `validation.nim`, `identifiers.nim` (for `AccountId`,
 `JmapState`) and `capabilities.nim` (for `CapabilityKind`, `ServerCapability`,
 `CoreCapabilities`).
@@ -1988,10 +2211,10 @@ All arrows point upward — no cycles. `validation.nim` is the root dependency.
 dependencies. Each module imports only what it directly needs. Downstream
 code (Layer 2+, tests) should import `types` for the full public API.
 
-`types.nim` re-exports everything plus `std/options`:
+`types.nim` re-exports everything plus `results` (nim-results):
 
 ```nim
-import std/options
+import results
 
 import ./validation
 import ./primitives
@@ -2002,9 +2225,16 @@ import ./envelope
 import ./framework
 import ./errors
 
-export options
+export results
 export validation, primitives, identifiers, capabilities,
        session, envelope, framework, errors
+```
+
+`types.nim` also defines the outer railway alias:
+
+```nim
+type JmapResult*[T] = Result[T, ClientError]
+  ## Outer railway: transport/request failure or typed success.
 ```
 
 ---
@@ -2132,71 +2362,71 @@ The deserialiser should accept both forms.
 
 | Type | Input | Expected | Reason |
 |------|-------|----------|--------|
-| `Id` (strict) | `""` | raises | empty |
-| `Id` (strict) | `"a" * 256` | raises | exceeds 255 octets |
+| `Id` (strict) | `""` | `err` | empty |
+| `Id` (strict) | `"a" * 256` | `err` | exceeds 255 octets |
 | `Id` (strict) | `"a" * 255` | `Id` | maximum valid length |
 | `Id` (strict) | `"abc123-_XYZ"` | `Id` | all base64url chars |
-| `Id` (strict) | `"abc=def"` | raises | pad character not allowed |
-| `Id` (strict) | `"abc def"` | raises | space not allowed |
+| `Id` (strict) | `"abc=def"` | `err` | pad character not allowed |
+| `Id` (strict) | `"abc def"` | `err` | space not allowed |
 | `Id` (lenient) | `"abc+def"` | `Id` | lenient allows non-base64url |
-| `Id` (lenient) | `"abc\x00def"` | raises | control characters rejected |
-| `Id` (lenient) | `"abc\x7Fdef"` | raises | DEL rejected |
+| `Id` (lenient) | `"abc\x00def"` | `err` | control characters rejected |
+| `Id` (lenient) | `"abc\x7Fdef"` | `err` | DEL rejected |
 | `UnsignedInt` | `0` | `UnsignedInt` | minimum valid |
 | `UnsignedInt` | `9007199254740991` | `UnsignedInt` | 2^53-1, maximum valid |
-| `UnsignedInt` | `-1` | raises | negative |
-| `UnsignedInt` | `9007199254740992` | raises | 2^53, exceeds maximum |
+| `UnsignedInt` | `-1` | `err` | negative |
+| `UnsignedInt` | `9007199254740992` | `err` | 2^53, exceeds maximum |
 | `MaxChanges` | `UnsignedInt(1)` | `MaxChanges` | minimum valid |
-| `MaxChanges` | `UnsignedInt(0)` | raises | must be > 0 |
+| `MaxChanges` | `UnsignedInt(0)` | `err` | must be > 0 |
 | `JmapInt` | `-9007199254740991` | `JmapInt` | -(2^53-1), minimum valid |
 | `JmapInt` | `9007199254740991` | `JmapInt` | 2^53-1, maximum valid |
 | `Date` | `"2014-10-30T14:12:00+08:00"` | `Date` | RFC example |
 | `Date` | `"2014-10-30T14:12:00.123Z"` | `Date` | non-zero fractional seconds |
-| `Date` | `"2014-10-30t14:12:00Z"` | raises | lowercase 't' |
-| `Date` | `"2014-10-30T14:12:00.000Z"` | raises | zero frac must be omitted |
-| `Date` | `"2014-10-30T14:12:00.Z"` | raises | empty fractional part (no digits after dot) |
-| `Date` | `"2014-10-30T14:12:00.0Z"` | raises | zero fractional seconds must be omitted |
+| `Date` | `"2014-10-30t14:12:00Z"` | `err` | lowercase 't' |
+| `Date` | `"2014-10-30T14:12:00.000Z"` | `err` | zero frac must be omitted |
+| `Date` | `"2014-10-30T14:12:00.Z"` | `err` | empty fractional part (no digits after dot) |
+| `Date` | `"2014-10-30T14:12:00.0Z"` | `err` | zero fractional seconds must be omitted |
 | `Date` | `"2014-10-30T14:12:00.100Z"` | `Date` | non-zero fractional (trailing zero is fine) |
-| `Date` | `"2014-10-30T14:12:00z"` | raises | lowercase 'z' |
-| `Date` | `"2014-10-30"` | raises | too short, missing time |
-| `Date` | `"2014-10-30T14:12:00"` | raises | missing timezone offset |
+| `Date` | `"2014-10-30T14:12:00z"` | `err` | lowercase 'z' |
+| `Date` | `"2014-10-30"` | `err` | too short, missing time |
+| `Date` | `"2014-10-30T14:12:00"` | `err` | missing timezone offset |
 | `UTCDate` | `"2014-10-30T06:12:00Z"` | `UTCDate` | RFC example |
-| `UTCDate` | `"2014-10-30T06:12:00+00:00"` | raises | must be Z, not +00:00 |
+| `UTCDate` | `"2014-10-30T06:12:00+00:00"` | `err` | must be Z, not +00:00 |
 | `CapabilityKind` | `"urn:ietf:params:jmap:core"` | `ckCore` | known URI |
 | `CapabilityKind` | `"urn:ietf:params:jmap:mail"` | `ckMail` | known URI |
 | `CapabilityKind` | `"https://vendor.example/ext"` | `ckUnknown` | vendor URI |
 | `CapabilityKind` | `""` | `ckUnknown` | empty string |
-| `CreationId` | `"#abc"` | raises | must not include # prefix |
+| `CreationId` | `"#abc"` | `err` | must not include # prefix |
 | `CreationId` | `"abc"` | `CreationId` | valid creation ID |
-| `AccountId` | `""` | raises | empty |
+| `AccountId` | `""` | `err` | empty |
 | `AccountId` | `"A13824"` | `AccountId` | valid (RFC §2.1 example) |
-| `AccountId` | `"a" * 256` | raises | exceeds 255 octets |
+| `AccountId` | `"a" * 256` | `err` | exceeds 255 octets |
 | `AccountId` | `"a" * 255` | `AccountId` | maximum valid length |
-| `AccountId` | `"abc\x00def"` | raises | control characters rejected |
-| `AccountId` | `"abc\x7Fdef"` | raises | DEL rejected |
-| `JmapState` | `""` | raises | empty |
+| `AccountId` | `"abc\x00def"` | `err` | control characters rejected |
+| `AccountId` | `"abc\x7Fdef"` | `err` | DEL rejected |
+| `JmapState` | `""` | `err` | empty |
 | `JmapState` | `"75128aab4b1b"` | `JmapState` | valid (RFC §2.1 example) |
-| `JmapState` | `"abc\x00def"` | raises | control characters rejected |
-| `JmapState` | `"abc\x7Fdef"` | raises | DEL rejected |
-| `Session` | missing core capability | raises | RFC MUST constraint |
-| `Session` | downloadUrl without `{blobId}` | raises | RFC MUST constraint |
-| `Session` | apiUrl with newline | raises | newline characters rejected |
+| `JmapState` | `"abc\x00def"` | `err` | control characters rejected |
+| `JmapState` | `"abc\x7Fdef"` | `err` | DEL rejected |
+| `Session` | missing core capability | `err` | RFC MUST constraint |
+| `Session` | downloadUrl without `{blobId}` | `err` | RFC MUST constraint |
+| `Session` | apiUrl with newline | `err` | newline characters rejected |
 | `Session` | valid RFC §2.1 example | `Session` | golden test |
-| `Session` | constructed directly without `ckCore` | `coreCapabilities` raises `AssertionDefect` | invariant violation |
+| `Session` | constructed directly without `ckCore` | `coreCapabilities` panics (`AssertionDefect`) | invariant violation |
 | `findCapabilityByUri` (Session) | `findCapabilityByUri(session, "https://example.com/apis/foobar")` | `some(...)` with `kind == ckUnknown` | vendor extension lookup |
 | `findCapabilityByUri` (Session) | `findCapabilityByUri(session, "urn:nonexistent")` | `none` | unknown URI |
 | `findCapabilityByUri` (Account) | `findCapabilityByUri(account, "urn:ietf:params:jmap:mail")` | `some(...)` with `kind == ckMail` | known capability lookup |
 | `primaryAccount` | `primaryAccount(session, ckMail)` | `some(AccountId("A13824"))` | known capability with primary account |
 | `primaryAccount` | `primaryAccount(session, ckUnknown)` | `none` | ckUnknown has no canonical URI |
 | `primaryAccount` | `primaryAccount(session, ckBlob)` | `none` | known capability without primary account |
-| `PropertyName` | `""` | raises | empty property name |
+| `PropertyName` | `""` | `err` | empty property name |
 | `PropertyName` | `"name"` | `PropertyName` | valid property name |
-| `Comparator` | `property: parsePropertyName("")` | raises | empty property (PropertyName rejects) |
+| `Comparator` | `property: parsePropertyName("")` | `err` | empty property (PropertyName rejects) |
 | `Comparator` | `property: parsePropertyName("name")` | `Comparator` | minimal valid |
-| `Comparator` | `property: parsePropertyName("name"), collation: some("i;unicode-casemap")` | `Comparator` | with collation |
-| `PatchObject` | `setProp(emptyPatch(), "", ...)` | raises | empty path |
+| `Comparator` | `property: parsePropertyName("name"), collation: Opt.some("i;unicode-casemap")` | `Comparator` | with collation |
+| `PatchObject` | `setProp(emptyPatch(), "", ...)` | `err` | empty path |
 | `PatchObject` | `setProp(emptyPatch(), "name", ...)` | `PatchObject` | simple property set |
 | `PatchObject` | `deleteProp(emptyPatch(), "addresses/0")` | `PatchObject` | nested path deletion |
-| `PatchObject` | `getKey(emptyPatch(), "name")` | `none` | absent key |
+| `PatchObject` | `getKey(emptyPatch(), "name")` | `Opt.none` | absent key |
 | `RequestErrorType` | `"urn:ietf:params:jmap:error:unknownCapability"` | `retUnknownCapability` | known URI |
 | `RequestErrorType` | `"urn:ietf:params:jmap:error:notJSON"` | `retNotJson` | known URI |
 | `RequestErrorType` | `"urn:vendor:custom:error"` | `retUnknown` | unknown URI |
@@ -2212,13 +2442,13 @@ The deserialiser should accept both forms.
 | `SetErrorType` | `"vendorSpecific"` | `setUnknown` | unknown type |
 | `TransportError` | `transportError(tekTimeout, "timed out")` | valid, `kind == tekTimeout` | convenience constructor |
 | `TransportError` | `httpStatusError(502, "Bad Gateway")` | valid, `httpStatus == 502` | HTTP status variant |
-| `RequestError` | `requestError("urn:ietf:params:jmap:error:limit", limit = some("maxCallsInRequest"))` | `errorType == retLimit`, rawType preserved | lossless round-trip |
+| `RequestError` | `requestError("urn:ietf:params:jmap:error:limit", limit = Opt.some("maxCallsInRequest"))` | `errorType == retLimit`, rawType preserved | lossless round-trip |
 | `RequestError` | `requestError("urn:vendor:custom")` | `errorType == retUnknown`, rawType preserved | unknown type preserved |
-| `RequestError` | `requestError("urn:ietf:params:jmap:error:limit", limit = some("maxCallsInRequest"), extras = some(%*{"requestId": "abc"}))` | extras preserved | lossless round-trip for extension members |
+| `RequestError` | `requestError("urn:ietf:params:jmap:error:limit", limit = Opt.some("maxCallsInRequest"), extras = Opt.some(%*{"requestId": "abc"}))` | extras preserved | lossless round-trip for extension members |
 | `ClientError` | `clientError(transportError(tekNetwork, "refused"))` | `kind == cekTransport` | wrapping transport |
 | `ClientError` | `clientError(requestError("...notJSON"))` | `kind == cekRequest` | wrapping request |
 | `MethodError` | `methodError("unknownMethod")` | `errorType == metUnknownMethod` | lossless round-trip |
-| `MethodError` | `methodError("custom", extras = some(%*{"hint": "retry"}))` | `errorType == metUnknown`, extras preserved | unknown with extras |
+| `MethodError` | `methodError("custom", extras = Opt.some(%*{"hint": "retry"}))` | `errorType == metUnknown`, extras preserved | unknown with extras |
 | `SetError` | `setError("forbidden")` | `errorType == setForbidden` | non-variant-specific |
 | `SetError` | `setErrorInvalidProperties("invalidProperties", @["name"])` | `errorType == setInvalidProperties` | variant-specific |
 | `SetError` | `setErrorAlreadyExists("alreadyExists", someId)` | `errorType == setAlreadyExists` | variant-specific |

@@ -194,12 +194,15 @@ enabled in this project, they are effectively resolved:
    **6b. `Result[T, E]` construction.** When `T` contains a
    `{.requiresInit.}` field, `nim-results`' `err()` and `?` operator fail
    to compile because they default-construct the inactive union branch.
-   **Workaround (Pattern C):** `initResultErr[T, E](x)` — a shared helper
-   (defined in `serde.nim`) that constructs the Result in error state via
-   manual case-branch assignment, bypassing default construction. Used by
-   `serde_envelope.nim` (`Response`) and `serde_errors.nim` (`SetError`).
-   Note: `Comparator.fromJson` no longer needs `initResultErr` because
-   Pattern A eliminated the `{.requiresInit.}` field from the object.
+   **Resolved:** Pattern A (Limitation 6a) eliminated all
+   `{.requiresInit.}` fields from objects used in `Result` containers.
+   `Comparator` stores `rawProperty: string` (private) instead of
+   `property: PropertyName`; `AddedItem` stores `rawId: string` (private)
+   instead of `id: Id`; `Invocation` stores `rawMethodCallId: string`
+   (private) instead of `methodCallId: MethodCallId`. With no
+   `{.requiresInit.}` fields remaining in `Result`-wrapped types,
+   `nim-results`' `err()` and `?` operator work without a workaround.
+   The `initResultErr` helper (Pattern C) was removed.
 
 7. **`config.nims` vs `.nimble` flag enforcement.** The Nim compiler reads
    `config.nims` but NOT `.nimble` files. `just build`/`just test`/`just lint`
@@ -339,7 +342,9 @@ src/jmap_client/
   session.nim         — Account, AccountCapabilityEntry, UriTemplate, Session
   envelope.nim        — Invocation, Request, Response, ResultReference, Referencable[T]
   framework.nim       — PropertyName, FilterOperator, Filter[C], Comparator, PatchObject, AddedItem
-  errors.nim          — TransportError, RequestError, ClientError, MethodError, SetError
+  errors.nim          — TransportError, RequestError, ClientError, MethodError, SetError,
+                        RequestContext, classifyException, sizeLimitExceeded,
+                        enforceBodySizeLimit (pure L4 support functions on L1 types)
   types.nim           — Re-exports all of the above; defines JmapResult[T] alias
 ```
 
@@ -354,7 +359,7 @@ Internal import DAG (each module imports only what its types reference):
 | `framework` | `validation`, `primitives` |
 | `errors` | `primitives` |
 | `session` | `validation`, `identifiers`, `capabilities` |
-| `envelope` | `identifiers`, `primitives` |
+| `envelope` | `validation`, `identifiers`, `primitives` |
 | `types` | all of the above (re-export hub) |
 
 No cycles. The graph is a DAG, not a linear chain — `identifiers`,
@@ -409,18 +414,21 @@ src/jmap_client/
                         (registerJmapEntity, registerQueryableEntity,
                         associated type resolution via filterType template)
   methods.nim         — Standard method request/response types
-                        (GetRequest[T], SetResponse[T], etc.),
+                        (GetRequest[T], QueryRequest[T, C], SetResponse[T], etc.),
                         request toJson (Pattern L3-A),
                         response fromJson (Pattern L3-B),
                         SetResponse/CopyResponse merging (Pattern L3-C)
   dispatch.nim        — Phantom-typed ResponseHandle[T],
-                        get[T] extraction, railway bridge
-                        (ValidationError → MethodError),
+                        get[T] extraction (mixin + callback overloads),
+                        railway bridge (ValidationError → MethodError),
                         type-safe reference convenience functions
   builder.nim         — RequestBuilder accumulation,
-                        add* methods, call ID generation,
-                        capability auto-collection,
-                        argument-construction helpers
+                        addEcho/addGet/addChanges/addSet/addCopy (func),
+                        addQuery/addQueryChanges (proc, callback params),
+                        single-parameter template overloads via filterType(T),
+                        call ID generation, capability auto-collection,
+                        argument-construction helpers (directIds, initCreates,
+                        initUpdates)
   convenience.nim     — Pipeline combinators (opt-in, not re-exported):
                         addQueryThenGet, addChangesToGet,
                         paired handle types
@@ -432,7 +440,7 @@ Internal import DAG (each module imports only what it needs):
 
 | Module | Imports from (within Layer 3) |
 |--------|------------------------------|
-| `entity` | *(none — imports Layer 1 `types` and `std/json` only)* |
+| `entity` | *(none — pure templates with no imports)* |
 | `methods` | *(none — imports Layer 1 `types` and Layer 2 `serialisation` only)* |
 | `dispatch` | `methods` |
 | `builder` | `methods`, `dispatch` |
@@ -809,12 +817,18 @@ Records that an item was added to the query results at a specific position.
 
 ```nim
 AddedItem = object
-  id: Id
+  rawId: string        ## module-private; validated Id
   index: UnsignedInt
+
+func id(item: AddedItem): Id        ## typed accessor
+func initAddedItem(id: Id, index: UnsignedInt): AddedItem  ## infallible given valid inputs
 ```
 
-Both fields enforce their own invariants via their respective smart
-constructors.
+`id` is stored internally as `string` to allow `seq[AddedItem]` in
+`Opt`/`Result` containers without triggering `UnsafeSetLen` (see Limitation
+6a Pattern A). The module-private `rawId` field blocks direct object
+construction from outside `framework.nim`, making `initAddedItem` the
+only construction path. The `id*()` accessor returns a validated `Id` view.
 
 ### 1.6 Error Architecture
 
@@ -978,13 +992,19 @@ MethodErrorType = enum
   metUnknown
 
 MethodError = object
-  errorType: MethodErrorType
-  rawType: string          # always populated, even for known types
+  errorType: MethodErrorType  # module-private; derived from rawType
+  rawType: string             # always populated, even for known types
   description: Opt[string]
+
+func errorType(me: MethodError): MethodErrorType  ## typed accessor
+func methodError(rawType: string, ...): MethodError  ## auto-parses rawType
 ```
 
-`rawType` is always populated. Serialisation is lossless — can always round-trip
-through `MethodError` without losing the original string.
+`errorType` is module-private — always derived from `rawType` via
+`parseMethodErrorType`. This seals the consistency invariant: `errorType`
+and `rawType` cannot diverge. `rawType` is always populated. Serialisation
+is lossless — can always round-trip through `MethodError` without losing
+the original string.
 
 - **Pros:**
   - Exhaustive matching for known types. Fallback for unknown.
@@ -1038,14 +1058,21 @@ RequestErrorType = enum
   retUnknown
 
 RequestError = object
-  errorType: RequestErrorType
-  rawType: string
+  message: string             # human-readable error description
+  errorType: RequestErrorType # module-private; derived from rawType
+  rawType: string             # always populated — lossless round-trip
   status: Opt[int]
   title: Opt[string]
   detail: Opt[string]
   limit: Opt[string]
   extras: Opt[JsonNode]       # non-standard fields, lossless preservation
+
+func errorType(re: RequestError): RequestErrorType  ## typed accessor
+func requestError(rawType: string, ...): RequestError  ## auto-parses rawType
 ```
+
+`errorType` is module-private — always derived from `rawType` via
+`parseRequestErrorType`, sealing the consistency invariant.
 
 #### ClientError (outer railway error type)
 
@@ -1054,24 +1081,39 @@ ClientErrorKind = enum
   cekTransport, cekRequest
 
 ClientError = object
+  message: string          # human-readable error description
   case kind: ClientErrorKind
   of cekTransport: transport: TransportError
   of cekRequest: request: RequestError
+
+func clientError(transport: TransportError): ClientError
+func clientError(request: RequestError): ClientError
+func message(err: ClientError): string  ## extracts human-readable message
 ```
+
+`message` is a shared field across both variants, populated by the
+smart constructors. The `message` accessor func provides a richer
+extraction — preferring `detail` then `title` then `rawType` for
+request errors.
 
 #### MethodError (inner railway error type)
 
 ```nim
 MethodError = object
-  errorType: MethodErrorType
-  rawType: string
+  errorType: MethodErrorType  # module-private; derived from rawType
+  rawType: string             # always populated — lossless round-trip
   description: Opt[string]
   extras: Opt[JsonNode]       # lossless preservation of non-standard fields
+
+func errorType(me: MethodError): MethodErrorType  ## typed accessor
+func methodError(rawType: string, ...): MethodError  ## auto-parses rawType
 ```
 
 MethodError is intentionally flat — not a case object. RFC 8620 specifies only
 `description` as an optional per-type field on method errors. All method error
 types share the same shape. No variant-specific fields are RFC-mandated.
+`errorType` is module-private — always derived from `rawType` via
+`parseMethodErrorType`, sealing the consistency invariant.
 
 `extras` preserves any additional fields the server sends that are not modeled
 as typed fields (e.g., some servers send `arguments` on `invalidArguments`).
@@ -1333,6 +1375,21 @@ non-`var` parameter — a pure projection, not a destructive consume. The
 accumulation methods (`addGet`, etc.) take `var`; `build()` does not mutate.
 The builder is safely reusable, and `build()` is unambiguously pure.
 
+**Implemented `add*` methods:**
+
+- `addEcho(args)` — Core/echo (RFC 8620 §4). Returns `ResponseHandle[JsonNode]`.
+- `addGet[T](accountId, ids, properties)` — Foo/get (§5.1). `func`.
+- `addChanges[T](accountId, sinceState, maxChanges)` — Foo/changes (§5.2). `func`.
+- `addSet[T](accountId, ifInState, create, update, destroy)` — Foo/set (§5.3). `func`.
+- `addCopy[T](fromAccountId, accountId, create, ...)` — Foo/copy (§5.4). `func`.
+- `addQuery[T, C](accountId, filterConditionToJson, filter, ...)` — Foo/query (§5.5). `proc` (callback parameter).
+- `addQueryChanges[T, C](accountId, sinceQueryState, filterConditionToJson, ...)` — Foo/queryChanges (§5.6). `proc` (callback parameter).
+- `addQuery[T](accountId, ...)` — Single-parameter template that resolves `filterType(T)`.
+- `addQueryChanges[T](accountId, sinceQueryState, ...)` — Single-parameter template that resolves `filterType(T)`.
+
+Helper functions: `directIds(openArray[Id])`, `initCreates(pairs)`,
+`initUpdates(pairs)` for ergonomic argument construction.
+
 ### 3.4 Response Processing
 
 #### Option 3.4A: Fully typed response dispatch
@@ -1573,30 +1630,52 @@ Untyped filters. Typed filter constructors per entity return `JsonNode`.
   `Email/query`. Runtime errors only from the server. Antithetical to the
   "make illegal states unrepresentable" principle.
 
-#### Decision: 3.7B, with explicit two-parameter fallback as the safe default
+#### Decision: 3.7B at the builder level, two-parameter types underneath
 
 Typed filters from the start. No `JsonNode` escape hatches in the user-facing
-API. Use type-level `template`s (not `proc`s) for associated type resolution.
-If template-based resolution proves fragile under strict mode, fall back to
-explicit two-parameter types with convenience aliases (see below).
+API. The implementation uses a hybrid approach:
+
+**Type definitions use two parameters** (the fallback from the original
+3.7B proposal). `QueryRequest[T, C]` and `QueryChangesRequest[T, C]`
+carry the filter condition type `C` as an explicit second parameter.
+Using `filterType(T)` in the type-definition position proved fragile
+under Nim's strict mode with deeply nested generics — the two-parameter
+approach is robust and explicit.
+
+```
+QueryRequest[T, C] = object
+  filter: Opt[Filter[C]]
+  ...
+
+QueryChangesRequest[T, C] = object
+  filter: Opt[Filter[C]]
+  ...
+```
+
+**Builder templates resolve `filterType(T)` at the call site.** The
+builder provides single-type-parameter template overloads (`addQuery[T]`,
+`addQueryChanges[T]`) that call `mixin filterType` and forward to the
+two-parameter `proc` overloads (`addQuery[T, C]`, `addQueryChanges[T, C]`).
+This gives callers the ergonomics of Decision 3.7B while the underlying
+types use the robust two-parameter representation:
+
+```
+# Template overload resolves filterType(T) at call site:
+template addQuery[T](b, accountId, ...): ResponseHandle[QueryResponse[T]] =
+  addQuery[T, filterType(T)](b, accountId, ...)
+
+# Two-parameter proc is the escape hatch for non-discoverable types:
+proc addQuery[T, C](b, accountId, filterConditionToJson, ...): ResponseHandle[QueryResponse[T]]
+```
+
+The two-parameter `addQuery[T, C]` and `addQueryChanges[T, C]` are `proc`
+(not `func`) because they accept a `proc` callback parameter
+(`filterConditionToJson`) for serialising the filter condition type — hidden
+pointer indirection prevents `func`. The single-parameter template
+overloads delegate to these procs.
 
 Core defines the generic filter *framework* but no concrete filter types.
 Concrete filters come from RFC 8621 and other extensions.
-
-#### Fallback if 3.7B fails
-
-If `filterType(T)` does not work in a type position under strict mode, use
-explicit two-parameter types with convenience aliases:
-
-```
-QueryRequest[T, F] = object
-  filter: Opt[Referencable[Filter[F]]]
-  ...
-
-type MailboxQueryRequest = QueryRequest[Mailbox, MailboxFilterCondition]
-```
-
-More verbose but achievable. The alias hides the second parameter.
 
 ### 3.8 Entity-Specific Patch Builders
 
@@ -1867,7 +1946,8 @@ addChangesToGet[T](b, accountId, sinceState, ...)
 Each combinator adds two method calls to the builder, wires the result
 reference automatically, and returns a paired handle type for type-safe
 extraction of both responses. Paired `getBoth[T]` extraction procs return
-both results as a tuple.
+both results as a named result object (`QueryGetResults[T]`,
+`ChangesGetResults[T]`).
 
 These are opt-in ergonomics — users who import only `protocol` get the
 full builder API without the convenience layer. The combinators are
@@ -1914,7 +1994,17 @@ The RFC specifies DNS SRV lookup, then `.well-known/jmap`, then follow redirects
 In practice, every client library takes a direct URL or does `.well-known` only.
 None implement DNS SRV.
 
-Implement: direct URL and `.well-known/jmap`. Skip DNS SRV.
+Two construction paths:
+
+- `initJmapClient(sessionUrl, bearerToken, ...)` — direct URL. Validates URL
+  (https:// or http://, no newlines), token (non-empty), and numeric params.
+  Returns `Result[JmapClient, ValidationError]`.
+- `discoverJmapClient(domain, bearerToken, ...)` — constructs
+  `https://{domain}/.well-known/jmap` and delegates to `initJmapClient`.
+  Validates domain (non-empty, no whitespace, no `/`).
+
+Neither constructor fetches the Session — call `fetchSession()` explicitly
+or let `send()` lazy-fetch on first use. DNS SRV is not implemented.
 
 ### 4.3 Transport Layer Boundary
 
@@ -1923,11 +2013,60 @@ effects: IO). Everything below is `func` (pure). The boundary is explicit and
 narrow:
 
 ```
-proc send(client: JmapClient, request: Request): JmapResult[Response]
+proc send(client: var JmapClient, request: Request): JmapResult[Response]
+proc send(client: var JmapClient, builder: RequestBuilder): JmapResult[Response]
+proc fetchSession(client: var JmapClient): JmapResult[Session]
 ```
 
-All errors become `ClientError` on the error track. Success produces an immutable
-`Response` value.
+All three procs take `var JmapClient` because session caching is a mutation
+on the client object. `send()` lazy-fetches the session into the cached
+field; `fetchSession()` populates it explicitly; `refreshSessionIfStale()`
+may replace it.
+
+The `send(Request)` overload is the core IO boundary. The `send(builder)`
+convenience overload calls `builder.build()` and forwards to `send(Request)`.
+
+**Lazy session fetch.** `send()` auto-fetches the Session if not yet cached.
+This triggers IO on first use — callers can also call `fetchSession()`
+explicitly before the first `send()`.
+
+**Pre-flight validation.** Before serialising the request, `send()` validates
+against `CoreCapabilities` limits: method call count vs `maxCallsInRequest`,
+per-invocation `/get` ids count vs `maxObjectsInGet`, per-invocation `/set`
+object count vs `maxObjectsInSet`, and serialised request size vs
+`maxSizeRequest`. The pure function `validateLimits(request, caps)` returns
+`Result[void, ValidationError]`; `send()` maps the `ValidationError` to
+`ClientError(cekTransport)` at the call site via `mapErr`, failing without
+touching the network.
+
+**Response body size limits.** `JmapClient` accepts an optional
+`maxResponseBytes` configuration. Both `Content-Length` header and actual
+body length are checked, producing `ClientError` on violation.
+
+**HTTP response classification.** The transport layer parses HTTP responses
+in stages: enforce Content-Length limit, validate Content-Type
+(`application/json`), attempt RFC 7807 problem details parsing on 4xx/5xx,
+detect problem details masquerading as 200 OK (has `type` field but no
+`methodResponses`), and deserialise `Response.fromJson()`.
+
+**Session staleness detection.** Two pure/IO functions support session
+refresh without requiring automatic refresh on every response:
+
+```
+func isSessionStale(client: JmapClient, response: Response): bool
+proc refreshSessionIfStale(client: var JmapClient, response: Response): JmapResult[bool]
+```
+
+`send()` does not auto-refresh — the caller controls when to check.
+
+All errors become `ClientError` on the error track. Success produces an
+immutable `Response` value.
+
+**Exception classification.** `classifyException` (defined in `errors.nim`
+as a pure function) maps `std/httpclient` exceptions to `ClientError`:
+`TimeoutError` → `tekTimeout`, `SslError` → `tekTls`, `IOError` →
+`tekNetwork`, `ValueError` → `tekNetwork`, and a catch-all for unknown
+`CatchableError` subtypes.
 
 **Threading constraint.** Single-threaded. Handles are not thread-safe; all
 calls must be made from a single thread. This matches `std/httpclient`'s
@@ -1939,10 +2078,12 @@ Multi-threaded use requires the consumer to synchronise externally.
 RFC 8620 §1.1 requires authentication but does not mandate a mechanism.
 Bearer tokens are the dominant pattern in JMAP deployments (Fastmail, etc.).
 
-The `JmapClient` object stores a bearer token. The transport layer attaches
-it as `Authorization: Bearer <token>` on every HTTP request automatically.
-The token is provided at `JmapClient` construction time and can be updated
-via a setter proc.
+The `JmapClient` object stores a bearer token in a private field. The
+transport layer attaches it as `Authorization: Bearer <token>` on every
+HTTP request automatically. The token is provided at `JmapClient`
+construction time and can be updated via `setBearerToken(token)`, which
+validates the token (non-empty) and updates the HTTP `Authorization`
+header immediately. Read-only access via `bearerToken()` accessor.
 
 For non-bearer authentication schemes (e.g., OAuth2 refresh flows, custom
 headers), a header callback escape hatch can be added in a future release.
@@ -2084,15 +2225,17 @@ section where the option is defined (e.g., 1.3B is the second option in §1.3).
 | 1. Types+Errors | Opaque PatchObject distinct type (1.5B) | Distinct from arbitrary tables; only `len` borrowed; mutating ops excluded |
 | 1. Types+Errors | `PropertyName = distinct string` for Comparator.property (§1.5.2) | Non-empty validation via smart constructor; stored as private `rawProperty: string` with typed accessor (Limitation 6a Pattern A) |
 | 1. Types+Errors | Three lifecycle railways + data-level Result pattern: ValidationError, ClientError, MethodError; per-item Result[T, SetError] (1.6C) | Construction, transport, per-invocation separation; per-item outcomes as data within successful SetResponse |
-| 1. Types+Errors | Full enum + rawType for lossless round-trip (1.7C) | Parse, don't validate; preserve original |
+| 1. Types+Errors | Full enum + rawType for lossless round-trip; errorType private with accessor (1.7C) | Parse, don't validate; preserve original; sealed consistency invariant between errorType and rawType |
+| 1. Types+Errors | `message` field on `ClientError` and `RequestError` (§1.8) | Human-readable error description; `ClientError.message()` accessor prefers detail/title/rawType |
 | 1. Types+Errors | SetError as case object with variant-specific fields (1.8.1) | invalidProperties/alreadyExists carry typed data |
+| 1. Types+Errors | L4 support functions in errors.nim: `classifyException`, `enforceBodySizeLimit` (§1.8) | Pure functions on L1 types serving L4 needs; no upward dependency |
 | 2. Serialisation | `std/json` manual ser/de, no external deps (2.1A, potentially evolving to 2.1C) | Total parsing, `raises: []` via boundary catch |
 | 2. Serialisation | camelCase in Nim source (2.2A) | Zero conversion, leverages style insensitivity |
 | 3. Protocol | Auto-incrementing call IDs (3.2A) | Simple, no safety implications |
 | 3. Protocol | Builder produces immutable Request (3.3B) | Owned mutation under strictFuncs; effect boundary at Layer 4 |
 | 3. Protocol | Phantom-typed ResponseHandle (3.4C) | Compile-time response type safety |
 | 3. Protocol | Plain overloaded procs + `registerJmapEntity`/`registerQueryableEntity` templates with `when not compiles` error messages (3.5B) | Concepts rejected (experimental, known bugs); registration templates catch missing overloads at definition site with domain-specific errors |
-| 3. Protocol | Associated type resolution via templates (3.7B) | No JsonNode escape hatches in user-facing API |
+| 3. Protocol | Two-parameter `QueryRequest[T, C]` types with `filterType(T)` template overloads in builder (3.7B hybrid) | Types use robust two-parameter form; builder templates resolve `filterType(T)` at call site for single-parameter ergonomics; no JsonNode escape hatches |
 | 3. Protocol | Entity-specific typed patch builders (3.8A) | Type-safe construction per entity |
 | 3. Protocol | SetResponse as unified Result maps (3.9B) | Per-item Result pattern within successful method response |
 | 3. Protocol | String paths with constants, no validation (3.10A) | Server validates; client provides convenience |
@@ -2104,7 +2247,11 @@ section where the option is defined (e.g., 1.3B is the second option in §1.3).
 | 4. Transport | Bearer token auth on JmapClient; header callback later (§4.4) | RFC 8620 §1.1 requires auth; minimal surface for v1 |
 | 4. Transport | Push/EventSource out of scope for initial release (§4.5) | No Layer 1–3 changes needed; Layer 4 concern when added |
 | 4. Transport | Binary data (upload/download/Blob copy) out of scope for initial release (§4.6) | Session URL templates already modelled; Layer 1 `UploadResponse` + Layer 4 procs when added |
-| 4. Transport | Direct URL + .well-known, no DNS SRV | Matches all reference implementations |
+| 4. Transport | Direct URL (`initJmapClient`) + .well-known (`discoverJmapClient`), no DNS SRV (§4.2) | Two construction paths; both return `Result[JmapClient, ValidationError]` |
+| 4. Transport | Lazy session fetch in `send()`; explicit `fetchSession()` also available (§4.3) | First `send()` auto-fetches if no cached Session; caller can pre-fetch |
+| 4. Transport | Pre-flight `validateLimits` returns `Result[void, ValidationError]`; `send()` maps to `ClientError` via `mapErr` (§4.3) | Fail fast on `maxCallsInRequest`, `maxObjectsInGet`, `maxObjectsInSet`, `maxSizeRequest` |
+| 4. Transport | Session staleness detection: `isSessionStale` (pure) + `refreshSessionIfStale` (IO) (§4.3) | Caller controls refresh; `send()` does not auto-refresh |
+| 4. Transport | `send(builder)` convenience overload (§4.3) | Calls `builder.build()` then `send(request)` |
 | 5. C ABI | Lossy projection, opaque handles, per-object free (5.3A) | Standard C pattern |
 | 5. C ABI | No ABI stability pre-1.0; C consumers must recompile (§5.4) | Opaque handles insulate; no raw enum exposure through C ABI |
 | 5. C ABI | Not yet implemented; Layers 1–4 complete (§5.5) | Entry point is Nim re-export hub; FFI contract documented |
