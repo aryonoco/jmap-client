@@ -324,6 +324,41 @@ extensions.
 - **Open-Closed** — Core's `SetError` is unchanged. Mail adds classification
   through a new module.
 
+### 4.3.1. Error Extra Properties
+
+Several RFC 8621 errors carry MUST-level extra properties beyond `type`
+and `description`. These are preserved in `SetError.extras: Opt[JsonNode]`
+at the core level. The mail layer provides typed accessor functions that
+extract and parse these properties defensively (returning `Opt[T]` to
+handle non-compliant servers that omit required fields):
+
+| Error Type | Accessor | Return Type | RFC Requirement |
+|------------|----------|-------------|-----------------|
+| `blobNotFound` | `notFoundBlobIds*(se: SetError)` | `Opt[seq[Id]]` | MUST (§4.6) |
+| `tooLarge` | `maxSize*(se: SetError)` | `Opt[UnsignedInt]` | MUST (§7.5) |
+| `tooManyRecipients` | `maxRecipients*(se: SetError)` | `Opt[UnsignedInt]` | MUST (§7.5) |
+| `invalidRecipients` | `invalidRecipientAddresses*(se: SetError)` | `Opt[seq[string]]` | MUST (§7.5) |
+| `invalidEmail` | `invalidEmailProperties*(se: SetError)` | `Opt[seq[string]]` | SHOULD (§7.5) |
+
+These accessors live in `mail_errors.nim` alongside `MailSetErrorType`.
+The pattern follows Open-Closed: core's `SetError` is unchanged, mail
+adds typed extraction through composition.
+
+**Principles:**
+- **Parse, don't validate** — consumers receive typed `Opt[seq[Id]]`,
+  not raw `JsonNode` requiring manual parsing.
+- **Total functions** — `Opt[T]` return type handles both compliant
+  servers (that include the property) and non-compliant ones (that omit
+  it). The accessor is total over all possible `SetError` shapes.
+- **Open-Closed** — core unchanged. Mail adds typed accessors.
+
+Note: Core errors with typed variant fields (`setInvalidProperties` with
+`properties: seq[string]`, `setAlreadyExists` with `existingId: Id`) are
+accessed directly through the case object — no mail-layer accessor needed.
+The two-step dispatch pattern (mail `MailSetErrorType` → core
+`SetErrorType` fallthrough) is documented in the per-entity companion
+document.
+
 ### 4.4. Method Extensions Boundary
 
 **Options analysed:**
@@ -340,8 +375,9 @@ extensions.
 - Mail Layer 3 (`mail_builders.nim`) provides entity-specific overloads
   (`addEmailGet`, `addMailboxQuery`, `addEmailQuery`) with extra parameters.
 - Mail Layer 3 (`mail_methods.nim`) provides custom methods
-  (`addEmailImport`, `addEmailParse`, `addSearchSnippetGet`) with bespoke
-  request/response types.
+  (`addEmailImport`, `addEmailParse`, `addSearchSnippetGet`) and singleton
+  builder functions (`addVacationResponseGet`, `addVacationResponseSet`)
+  with bespoke request/response types.
 - Entities without extensions (`Thread`, `Identity`) use the core generic
   builder unchanged.
 
@@ -1051,8 +1087,7 @@ response types when the response shape differs from the standard generic
 
 All entity-specific builder overloads:
 - Live in `mail_builders.nim` (Layer 3, mail module), except for
-  VacationResponse which lives in `mail_methods.nim` (see §10,
-  Design A §5.3)
+  VacationResponse which lives in `mail_methods.nim` (Design A §5.3)
 - Call core's internal `addInvocation` to accumulate the `Invocation`
 - Return `ResponseHandle[T]` with the appropriate response type
 - Are `func` (pure) — the one exception is when taking a
@@ -1246,9 +1281,11 @@ types. The phantom type parameterisation handles the rest.
 ### 10.1. Decision
 
 Non-standard methods (`Email/import`, `Email/parse`, `SearchSnippet/get`)
-get custom builder functions in `mail_methods.nim` with bespoke request/response
-types. They compose with the existing builder infrastructure (addInvocation,
-ResponseHandle, get[T]) without modifying core.
+and singleton builder functions (`VacationResponse/get`,
+`VacationResponse/set`) get custom builder functions in `mail_methods.nim`
+with bespoke request/response types. They compose with the existing builder
+infrastructure (addInvocation, ResponseHandle, get[T]) without modifying
+core.
 
 ### 10.2. Options Analysed
 
@@ -1292,15 +1329,46 @@ type EmailImportResponse* = object
   accountId*: AccountId
   oldState*: Opt[JmapState]
   newState*: JmapState
-  created*: Opt[Table[CreationId, Email]]
-  notCreated*: Opt[Table[CreationId, SetError]]
+  createResults*: Table[CreationId, Result[JsonNode, SetError]]
+    ## Merged from wire created/notCreated maps (Decision 3.9B).
+    ## Successful entries contain JSON with exactly four properties:
+    ## id, blobId, threadId, size (RFC 8621 §4.8).
 ```
+
+The merged `Result` map follows the same pattern as `SetResponse.createResults`
+and `CopyResponse.createResults` (Decision 3.9B, D3.6). The wire-level
+`created`/`notCreated` parallel maps are merged into a single
+`Result[JsonNode, SetError]` table by the serde layer.
+
+**Narrow response shape:** RFC §4.8 mandates that successful entries contain
+only `id`, `blobId`, `threadId`, and `size`. The same four-field shape applies
+to `Email/set` create (§4.6) and `Email/copy` (§4.7) responses. A shared
+consumer-facing type may be defined in a per-entity companion document:
+
+```nim
+type EmailCreatedItem* = object
+  id*: Id
+  blobId*: Id
+  threadId*: Id
+  size*: UnsignedInt
+```
+
+This parallels how `GetResponse[T].list` returns `seq[JsonNode]` with
+entity-specific parsing as the caller's responsibility (D3.6).
 
 **Builder:** `addEmailImport(b, accountId, emails, ifInState) → ResponseHandle[EmailImportResponse]`
 
 `EmailImportItem` has its own smart constructor enforcing the "at least one
 mailbox" invariant. `EmailImportRequest` requires non-empty `emails` table.
 Both accumulate validation errors.
+
+**Duplicate detection:** RFC §4.8 permits servers to reject duplicate
+imports with `alreadyExists` (a core `SetErrorType` variant with typed
+`existingId: Id` — see `errors.nim`). Duplicate detection is
+server-optional: some servers (e.g., Cyrus/Fastmail) enforce it, others
+silently create duplicates. Consumers must handle both outcomes.
+`alreadyExists` is NOT in `MailSetErrorType` — it is a core RFC 8620
+error classified by core's `SetError` case object.
 
 ### 10.4. Email/parse
 
@@ -1823,12 +1891,53 @@ Quick reference for each entity's methods, key properties, and design notes.
 | Aspect | Detail |
 |--------|--------|
 | Module | `submission.nim` |
-| Types | `EmailSubmission`, `Envelope`, `Address`, `DeliveryStatus`, `UndoStatus`, `SubmissionEmailRef` |
+| Types | `EmailSubmission`, `Envelope`, `SubmissionAddress`, `DeliveryStatus`, `DeliveredStatus`, `DisplayedStatus`, `UndoStatus`, `SubmissionEmailRef` |
 | Methods | `/get`, `/changes`, `/query`, `/queryChanges`, `/set` (with implicit chaining) |
 | Filter conditions | `EmailSubmissionFilterCondition` — `identityIds`, `emailIds`, `threadIds`, `undoStatus`, date range |
 | Sort properties | `emailId`, `threadId`, `sentAt` (all must support) |
 | Builder overloads | `addEmailSubmissionSet` (plain), `addEmailSubmissionSetChained` (compound handles) |
 | Design notes | Implicit `Email/set` chaining is the trickiest protocol feature. `SubmissionEmailRef` case type for `#creationId` / direct id references. `UndoStatus` enum shared between entity and filter. |
+
+**Sub-type design decisions:**
+
+**`DeliveredStatus` and `DisplayedStatus` enums** — same pattern as
+`UndoStatus` (§12.6). The RFC constrains `delivered` to four values and
+`displayed` to two. Forward-compatibility catch-all variants included:
+
+```nim
+type DeliveredStatus* = enum
+  delQueued = "queued"
+  delYes = "yes"
+  delNo = "no"
+  delUnknown = "unknown"
+
+type DisplayedStatus* = enum
+  dispUnknown = "unknown"
+  dispYes = "yes"
+```
+
+Both are defined in `submission.nim` alongside `UndoStatus` and the entity.
+Parsing uses the same `strutils.parseEnum` + catch-all pattern as
+`UndoStatus`. Server interoperability note: `deliveryStatus` is `null` on
+many servers (RFC: "This property MAY not be supported by all servers, in
+which case it will remain null").
+
+**`SubmissionAddress` — distinct from `EmailAddress`:** The RFC's
+`Address` in `Envelope` is an SMTP Mailbox (RFC 5321), not an RFC 5322
+`EmailAddress`. It carries optional SMTP extension `parameters`:
+
+```nim
+type SubmissionAddress* = object
+  email*: string               # SMTP Mailbox address
+  parameters*: Opt[Table[string, Opt[string]]]
+    ## SMTP extension parameters. Outer Opt: null vs present.
+    ## Inner Opt: valueless parameters (null) vs valued (string).
+```
+
+Named `SubmissionAddress` (not `Address`) to avoid collision with the
+generic term and to express the SMTP-envelope context. Full type
+definitions for `DeliveryStatus`, `Envelope`, and `EmailSubmission`
+are deferred to the per-entity companion document.
 
 ### 13.7. VacationResponse
 
@@ -1836,7 +1945,7 @@ Quick reference for each entity's methods, key properties, and design notes.
 |--------|--------|
 | Module | `vacation.nim` |
 | Methods | `/get`, `/set` (update only — no create, no destroy) |
-| Properties | `isEnabled`, `fromDate`, `toDate`, `subject`, `textBody`, `htmlBody`. No `id` field — the `"singleton"` id is a protocol constant, not state. Serde validates on deserialise and emits on serialise. |
+| Properties | `isEnabled: bool`, `fromDate: Opt[UTCDate]`, `toDate: Opt[UTCDate]`, `subject: Opt[string]`, `textBody: Opt[string]`, `htmlBody: Opt[string]`. No `id` field — the `"singleton"` id is a protocol constant, not state. Serde validates on deserialise and emits on serialise. |
 | Entity registration | NOT registered with `registerJmapEntity`. Custom builder functions prevent invalid method calls at compile time. |
 | Builder functions | `addVacationResponseGet` (omits `ids` — always fetches singleton), `addVacationResponseSet` (takes `PatchObject` directly, singleton id hardcoded internally). Both in `mail_methods.nim`. |
 | Design notes | Singleton pattern — exactly one per account. Builder functions prevent create/destroy and wrong-id at compile time. |
@@ -1878,3 +1987,6 @@ Quick reference for each entity's methods, key properties, and design notes.
 | 29 | Creation body part type | A) Reuse read model, B) Flat 3-way type, C) Nested case object | C (preserves `isMultipart` structure) | Make illegal states unrepresentable, DDD |
 | 30 | `EmailGetResponse` vs `GetResponse[Email]` | A) Custom type, B) Standard generic | B (response envelope identical) | DRY |
 | 31 | `EmailCopyItem` typed creation entry | A) Untyped JSON, B) Typed `EmailCopyItem` | B (constrains to 3 valid override properties) | Make illegal states unrepresentable, DDD |
+| 32 | Email/import response type | A) Full `Email`, B) Merged `Result[JsonNode, SetError]` map | B (D3.6 + D3.9B consistency) | DRY, Parse-don't-validate |
+| 33 | DeliveredStatus/DisplayedStatus | A) String, B) Enum with catch-all | B (same pattern as UndoStatus) | Make illegal states unrepresentable, DDD |
+| 34 | SubmissionAddress vs EmailAddress | A) Reuse EmailAddress, B) Distinct type | B (different RFC contexts: 5321 vs 5322) | DDD, Make illegal states unrepresentable |

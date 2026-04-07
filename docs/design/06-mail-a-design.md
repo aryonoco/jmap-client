@@ -8,7 +8,7 @@ for each entity, cutting vertically through the architecture.
 Builds on the cross-cutting architecture design (`05-mail-design.md`) and the
 existing RFC 8620 infrastructure (`00-architecture.md` through
 `04-layer-4-design.md`). Decisions from the cross-cutting doc are referenced by
-section number. Revisions to cross-cutting decisions are documented in §8.
+section number.
 
 ---
 
@@ -21,9 +21,8 @@ section number. Revisions to cross-cutting decisions are documented in §8.
 5. [VacationResponse — vacation.nim](#5-vacationresponse--vacationnim)
 6. [Capability Types — mail_capabilities.nim](#6-capability-types--mail_capabilitiesnim)
 7. [Mail Set Error Types — mail_errors.nim](#7-mail-set-error-types--mail_errorsnim)
-8. [Cross-Cutting Doc Revisions](#8-cross-cutting-doc-revisions)
-9. [Test Specification](#9-test-specification)
-10. [Decision Traceability Matrix](#10-decision-traceability-matrix)
+8. [Test Specification](#8-test-specification)
+9. [Decision Traceability Matrix](#9-decision-traceability-matrix)
 
 ---
 
@@ -55,8 +54,7 @@ Design C documents.
 ### 1.4. Relationship to Cross-Cutting Design
 
 This document refines `05-mail-design.md` into implementation-ready
-specifications. Where this document revises a cross-cutting decision, the
-revision is documented in §8 with rationale.
+specifications.
 
 ### 1.5. Module Summary
 
@@ -930,35 +928,28 @@ of msetUnknown:
 
 ### 7.3. Typed Error Accessors
 
-RFC 8621 §7.5 mandates structured fields on certain error types:
-`tooManyRecipients` MUST include `maxRecipients: UnsignedInt`, and
-`invalidRecipients` MUST include `invalidRecipients: String[]`. These
-fields land in `SetError.extras: Opt[JsonNode]` as raw JSON — core's
-`SetError` cannot be extended (Open-Closed Principle).
+Several RFC 8621 errors carry MUST-level extra properties beyond `type`
+and `description`. These fields land in `SetError.extras: Opt[JsonNode]`
+as raw JSON — core's `SetError` cannot be extended (Open-Closed
+Principle).
 
 The mail layer provides typed extraction via accessor functions in
 `mail_errors.nim`:
 
-```nim
-func maxRecipients*(se: SetError): Opt[UnsignedInt]
-  ## Extracts the mandatory maxRecipients field from a tooManyRecipients
-  ## SetError. Returns Opt.none if the field is absent or malformed.
+| Error Type | Accessor | Return Type | RFC Requirement |
+|------------|----------|-------------|-----------------|
+| `blobNotFound` | `notFoundBlobIds*(se: SetError)` | `Opt[seq[Id]]` | MUST (§4.6) |
+| `tooLarge` | `maxSize*(se: SetError)` | `Opt[UnsignedInt]` | MUST (§7.5) |
+| `tooManyRecipients` | `maxRecipients*(se: SetError)` | `Opt[UnsignedInt]` | MUST (§7.5) |
+| `invalidRecipients` | `invalidRecipientAddresses*(se: SetError)` | `Opt[seq[string]]` | MUST (§7.5) |
+| `invalidEmail` | `invalidEmailProperties*(se: SetError)` | `Opt[seq[string]]` | SHOULD (§7.5) |
 
-func invalidRecipientAddresses*(se: SetError): Opt[seq[string]]
-  ## Extracts the mandatory invalidRecipients field from an
-  ## invalidRecipients SetError. Returns Opt.none if the field is absent
-  ## or malformed.
-```
-
-Returns `Opt[T]` (not `Result`) because the server may omit a MUST
+All return `Opt[T]` (not `Result`) because the server may omit a MUST
 field — the accessor is typed extraction, not a parsing boundary.
-`maxRecipients` applies to `msetTooManyRecipients`;
-`invalidRecipientAddresses` applies to `msetInvalidRecipients`.
 
-These error types only matter for entities in Design B/C
-(EmailSubmission). The accessors are specified here because the enum is
-defined upfront per Decision A8, and the accessor functions belong
-alongside the enum in `mail_errors.nim`.
+These error types apply to entities in Design B/C. The accessors are
+specified here because the enum is defined upfront per Decision A8, and
+the accessor functions belong alongside the enum in `mail_errors.nim`.
 
 **Principles:**
 - **Parse, don't validate** — Typed extraction from raw JSON, not
@@ -1004,99 +995,13 @@ error enums for other RFC extensions.
 
 ---
 
-## 8. Cross-Cutting Doc Revisions
-
-This section documents where this detailed design refines or revises
-decisions from `05-mail-design.md`.
-
-### 8.1. VacationResponse Entity Registration
-
-**Cross-cutting doc §9.3, §13.7:** Assumed VacationResponse would be
-registered with `registerJmapEntity` and use a builder overload alongside the
-generic builder.
-
-**Revision:** VacationResponse is NOT registered. Custom
-`addVacationResponseGet` and `addVacationResponseSet` are the only entry
-points. This prevents invalid method calls (`addChanges[VacationResponse]`,
-`addSet[VacationResponse]` with create/destroy) at compile time.
-
-**Rationale:** Make illegal states unrepresentable. VacationResponse supports
-only `/get` and `/set` (update-only) — two of the six standard methods.
-Registration would expose four invalid generic builder methods.
-
-**Impact on module layout:**
-- `mail_entities.nim` registers 6 entities, not 7.
-- `mail_methods.nim` scope expands to include `addVacationResponseGet` and
-  `addVacationResponseSet` (alongside `addEmailImport`, `addEmailParse`,
-  `addSearchSnippetGet`).
-
-### 8.2. addVacationResponseGet (New)
-
-**Cross-cutting doc:** Not specified. Only `addVacationResponseSet` was
-documented (§9.3).
-
-**Addition:** `addVacationResponseGet` is a new custom builder function.
-Omits `ids` parameter (always fetches the singleton). Specified in §5.3.
-
-### 8.3. addVacationResponseSet Signature
-
-**Cross-cutting doc §9.3:** `update: Table[Id, PatchObject]`.
-
-**Revision:** `update: PatchObject` — the `"singleton"` id is hardcoded
-internally. Consumers never specify the id because there is only one valid
-value.
-
-**Rationale:** Make illegal states unrepresentable — eliminates the
-possibility of a wrong id.
-
-### 8.4. VacationResponse Type — No id Field
-
-**Cross-cutting doc §13.7:** Listed `id` as a property (always
-`"singleton"`).
-
-**Revision:** The `VacationResponse` type has no `id` field. The serde layer
-validates `"singleton"` on deserialise and emits it on serialise. A constant
-is not state.
-
-**Rationale:** Make illegal states unrepresentable, DDD — protocol addressing
-is not domain knowledge.
-
-### 8.5. IdentityCreate Type (New)
-
-**Cross-cutting doc §13.5, §9.4:** Identity uses the generic builder
-unchanged with no creation type.
-
-**Addition:** `IdentityCreate` type enforces `email`-required-on-create at
-the type level. The generic builder is still used unchanged —
-`IdentityCreate` feeds into it via `toJson()`. No Layer 3 extensions.
-
-**Rationale:** Make illegal states unrepresentable, DDD — create and read are
-different domain operations with different valid shapes.
-
-### 8.6. parseMailSetErrorType Signature
-
-**Cross-cutting doc §4.3:** `parseMailSetErrorType(error: SetError): MailSetErrorType`
-— takes a `SetError` object.
-
-**Revision:** `parseMailSetErrorType(rawType: string): MailSetErrorType` — takes
-the raw type string directly.
-
-**Rationale:** Consistency with core's `parseRequestErrorType`,
-`parseMethodErrorType`, and `parseSetErrorType`, which all take raw strings.
-The function only needs the `rawType` field, not the entire `SetError` object.
-Consumer calls `parseMailSetErrorType(setError.rawType)`.
-
-**Impact:** Cross-cutting doc §4.3 updated to match.
-
----
-
-## 9. Test Specification
+## 8. Test Specification
 
 Numbered test scenarios for implementation plan reference. Unit tests verify
 smart constructors and type invariants. Serde tests verify round-trip and
 structural JSON correctness.
 
-### 9.1. EmailAddress (scenarios 1–8)
+### 8.1. EmailAddress (scenarios 1–8)
 
 | # | Scenario | Expected |
 |---|----------|----------|
@@ -1109,7 +1014,7 @@ structural JSON correctness.
 | 7 | `fromJson` missing `email` field | `err(ValidationError)` |
 | 8 | `fromJson` null `email` field | `err(ValidationError)` |
 
-### 9.2. EmailAddressGroup (scenarios 9–12)
+### 8.2. EmailAddressGroup (scenarios 9–12)
 
 | # | Scenario | Expected |
 |---|----------|----------|
@@ -1118,7 +1023,7 @@ structural JSON correctness.
 | 11 | Construction with empty addresses | valid |
 | 12 | `toJson`/`fromJson` round-trip | identity |
 
-### 9.3. Thread (scenarios 13–23)
+### 8.3. Thread (scenarios 13–23)
 
 | # | Scenario | Expected |
 |---|----------|----------|
@@ -1134,7 +1039,7 @@ structural JSON correctness.
 | 22 | `default(Thread)` | compile error (`UnsafeDefault`) |
 | 23 | `var s: seq[Thread]; s.setLen(1)` | compile error (`UnsafeSetLen`) |
 
-### 9.4. Identity (scenarios 24–32)
+### 8.4. Identity (scenarios 24–32)
 
 | # | Scenario | Expected |
 |---|----------|----------|
@@ -1148,7 +1053,7 @@ structural JSON correctness.
 | 31 | `toJson`/`fromJson` round-trip | identity |
 | 32 | `fromJson` with `"email": ""` | `err(ValidationError)` |
 
-### 9.5. IdentityCreate (scenarios 33–37)
+### 8.5. IdentityCreate (scenarios 33–37)
 
 | # | Scenario | Expected |
 |---|----------|----------|
@@ -1158,7 +1063,7 @@ structural JSON correctness.
 | 36 | `toJson` includes all fields | structural match |
 | 37 | `toJson` does not emit `id` or `mayDelete` | verified absent |
 
-### 9.6. VacationResponse (scenarios 38–44)
+### 8.6. VacationResponse (scenarios 38–44)
 
 | # | Scenario | Expected |
 |---|----------|----------|
@@ -1170,7 +1075,7 @@ structural JSON correctness.
 | 43 | `toJson`/`fromJson` round-trip | identity |
 | 44 | No `id` field on type | compile-time: `v.id` does not compile |
 
-### 9.7. MailCapabilities (scenarios 45–51)
+### 8.7. MailCapabilities (scenarios 45–51)
 
 | # | Scenario | Expected |
 |---|----------|----------|
@@ -1182,7 +1087,7 @@ structural JSON correctness.
 | 50 | `maxSizeMailboxName = 99` | `err(ValidationError)` |
 | 51 | `maxSizeMailboxName = 100` | `ok` |
 
-### 9.8. SubmissionCapabilities (scenarios 52–55)
+### 8.8. SubmissionCapabilities (scenarios 52–55)
 
 | # | Scenario | Expected |
 |---|----------|----------|
@@ -1191,7 +1096,7 @@ structural JSON correctness.
 | 54 | `maxDelayedSend = 0` (valid, means not supported) | `ok` |
 | 55 | `submissionExtensions` with multiple EHLO entries | `ok`, parsed correctly |
 
-### 9.9. MailSetErrorType (scenarios 56–63)
+### 8.9. MailSetErrorType (scenarios 56–69)
 
 | # | Scenario | Expected |
 |---|----------|----------|
@@ -1203,21 +1108,27 @@ structural JSON correctness.
 | 61 | `maxRecipients` on SetError with absent/malformed `extras` | `Opt.none` |
 | 62 | `invalidRecipientAddresses` on `invalidRecipients` SetError with valid `extras` | `Opt.some(seq[string])` |
 | 63 | `invalidRecipientAddresses` on SetError with absent/malformed `extras` | `Opt.none` |
+| 64 | `notFoundBlobIds` on `blobNotFound` SetError with valid `extras` | `Opt.some(seq[Id])` |
+| 65 | `notFoundBlobIds` on SetError with absent/malformed `extras` | `Opt.none` |
+| 66 | `maxSize` on `tooLarge` SetError with valid `extras` | `Opt.some(UnsignedInt)` |
+| 67 | `maxSize` on SetError with absent/malformed `extras` | `Opt.none` |
+| 68 | `invalidEmailProperties` on `invalidEmail` SetError with valid `extras` | `Opt.some(seq[string])` |
+| 69 | `invalidEmailProperties` on SetError with absent/malformed `extras` | `Opt.none` |
 
-### 9.10. Entity Registration and Builder (scenarios 64–69)
+### 8.10. Entity Registration and Builder (scenarios 70–75)
 
 | # | Scenario | Expected |
 |---|----------|----------|
-| 64 | `registerJmapEntity(Thread)` compiles | pass |
-| 65 | `registerJmapEntity(Identity)` compiles | pass |
-| 66 | `addVacationResponseGet` produces invocation name `"VacationResponse/get"` | pass |
-| 67 | `addVacationResponseGet` adds vacationresponse capability | pass |
-| 68 | `addVacationResponseSet` produces invocation with `"singleton"` in update map | pass |
-| 69 | `addVacationResponseSet` omits create and destroy from invocation args | pass |
+| 70 | `registerJmapEntity(Thread)` compiles | pass |
+| 71 | `registerJmapEntity(Identity)` compiles | pass |
+| 72 | `addVacationResponseGet` produces invocation name `"VacationResponse/get"` | pass |
+| 73 | `addVacationResponseGet` adds vacationresponse capability | pass |
+| 74 | `addVacationResponseSet` produces invocation with `"singleton"` in update map | pass |
+| 75 | `addVacationResponseSet` omits create and destroy from invocation args | pass |
 
 ---
 
-## 10. Decision Traceability Matrix
+## 9. Decision Traceability Matrix
 
 | # | Decision | Options Considered | Chosen | Primary Principles |
 |---|----------|--------------------|--------|-------------------|
