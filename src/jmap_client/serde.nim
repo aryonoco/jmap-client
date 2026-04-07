@@ -13,7 +13,7 @@ import ./types
 func parseError*(typeName, message: string): ValidationError =
   ## Convenience constructor for deserialisation errors.
   ## Sets value to empty — JSON context is captured in message.
-  validationError(typeName, message, "")
+  return validationError(typeName, message, "")
 
 func checkJsonKind*(
     node: JsonNode, expected: JsonNodeKind, typeName: string, message: string = ""
@@ -28,7 +28,7 @@ func checkJsonKind*(
     return err(validationError(typeName, checkMsg, ""))
   if node.kind != expected:
     return err(validationError(typeName, checkMsg, ""))
-  ok()
+  return ok()
 
 func collectExtras*(node: JsonNode, knownKeys: openArray[string]): Opt[JsonNode] =
   ## Collect non-standard fields from a JSON object into Opt[JsonNode].
@@ -41,9 +41,8 @@ func collectExtras*(node: JsonNode, knownKeys: openArray[string]): Opt[JsonNode]
       extras[key] = val
       found = true
   if found:
-    Opt.some(extras)
-  else:
-    Opt.none(JsonNode)
+    return Opt.some(extras)
+  return Opt.none(JsonNode)
 
 func parseIdArray*(
     node: JsonNode, typeName: string, fieldName: string
@@ -56,7 +55,7 @@ func parseIdArray*(
   for _, elem in node.getElems(@[]):
     let id = ?parseIdFromServer(elem.getStr(""))
     ids.add(id)
-  ok(ids)
+  return ok(ids)
 
 func parseOptIdArray*(node: JsonNode): Result[seq[Id], ValidationError] =
   ## Lenient variant: absent or non-array node yields an empty seq.
@@ -67,16 +66,15 @@ func parseOptIdArray*(node: JsonNode): Result[seq[Id], ValidationError] =
   for _, elem in node.getElems(@[]):
     let id = ?parseIdFromServer(elem.getStr(""))
     ids.add(id)
-  ok(ids)
+  return ok(ids)
 
 func optJsonField*(node: JsonNode, key: string, kind: JsonNodeKind): Opt[JsonNode] =
   ## Lenient field extraction: absent, null, or wrong kind -> none.
   ## Companion to checkJsonKind (strict: returns Result with error details).
   let child = node{key}
   if child.isNil or child.kind != kind:
-    Opt.none(JsonNode)
-  else:
-    Opt.some(child)
+    return Opt.none(JsonNode)
+  return Opt.some(child)
 
 # --- Serde templates for distinct types ---
 #
@@ -88,7 +86,7 @@ template defineDistinctStringToJson*(T: typedesc) =
   ## to a JSON string node.
   func toJson*(x: T): JsonNode =
     ## Serialise distinct string to JSON string.
-    %(string(x))
+    return %(string(x))
 
 template defineDistinctStringFromJson*(T: typedesc, parser: untyped) =
   ## Generates a ``fromJson`` overload that deserialises a JSON string node
@@ -96,14 +94,14 @@ template defineDistinctStringFromJson*(T: typedesc, parser: untyped) =
   func fromJson*(t: typedesc[T], node: JsonNode): Result[T, ValidationError] =
     ## Deserialise JSON string via the type's smart constructor.
     ?checkJsonKind(node, JString, $T)
-    parser(node.getStr(""))
+    return parser(node.getStr(""))
 
 template defineDistinctIntToJson*(T: typedesc, Base: typedesc) =
   ## Generates a ``toJson`` overload that serialises a distinct int type
   ## to a JSON integer node via the given base integer type.
   func toJson*(x: T): JsonNode =
     ## Serialise distinct int to JSON integer.
-    %(Base(x))
+    return %(Base(x))
 
 template defineDistinctIntFromJson*(T: typedesc, parser: untyped) =
   ## Generates a ``fromJson`` overload that deserialises a JSON integer node
@@ -111,7 +109,7 @@ template defineDistinctIntFromJson*(T: typedesc, parser: untyped) =
   func fromJson*(t: typedesc[T], node: JsonNode): Result[T, ValidationError] =
     ## Deserialise JSON integer via the type's smart constructor.
     ?checkJsonKind(node, JInt, $T)
-    parser(node.getBiggestInt(0))
+    return parser(node.getBiggestInt(0))
 
 # --- toJson/fromJson: distinct string types ---
 
@@ -147,7 +145,7 @@ defineDistinctIntFromJson(JmapInt, parseJmapInt)
 
 func toJson*(x: MaxChanges): JsonNode =
   ## Serialise MaxChanges to JSON integer.
-  %(int64(UnsignedInt(x)))
+  return %(int64(UnsignedInt(x)))
 
 func fromJson*(
     T: typedesc[MaxChanges], node: JsonNode
@@ -155,4 +153,4 @@ func fromJson*(
   ## Deserialise a JSON integer to MaxChanges (must be > 0).
   ?checkJsonKind(node, JInt, $T)
   let ui = ?parseUnsignedInt(node.getBiggestInt(0))
-  parseMaxChanges(ui)
+  return parseMaxChanges(ui)

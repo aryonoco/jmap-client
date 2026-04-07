@@ -18,11 +18,11 @@ import ./types
 
 func optString(node: JsonNode, key: string): Opt[string] =
   ## Extract an optional string field leniently: absent or wrong kind -> none.
-  Opt.some((?optJsonField(node, key, JString)).getStr(""))
+  return Opt.some((?optJsonField(node, key, JString)).getStr(""))
 
 func optInt(node: JsonNode, key: string): Opt[int] =
   ## Extract an optional integer field leniently: absent or wrong kind -> none.
-  Opt.some(int((?optJsonField(node, key, JInt)).getBiggestInt(0)))
+  return Opt.some(int((?optJsonField(node, key, JInt)).getBiggestInt(0)))
 
 # =============================================================================
 # RequestError
@@ -34,20 +34,21 @@ func toJson*(re: RequestError): JsonNode =
   ## Serialise RequestError to RFC 7807 problem details JSON.
   ## Extras with keys colliding with standard fields are silently skipped
   ## to prevent manual construction from corrupting the wire format.
-  result = newJObject()
-  result["type"] = %re.rawType
+  var node = newJObject()
+  node["type"] = %re.rawType
   for v in re.status:
-    result["status"] = %v
+    node["status"] = %v
   for v in re.title:
-    result["title"] = %v
+    node["title"] = %v
   for v in re.detail:
-    result["detail"] = %v
+    node["detail"] = %v
   for v in re.limit:
-    result["limit"] = %v
+    node["limit"] = %v
   for extras in re.extras:
     for key, val in extras.pairs:
       if key notin RequestErrorKnownKeys:
-        result[key] = val
+        node[key] = val
+  return node
 
 func fromJson*(
     T: typedesc[RequestError], node: JsonNode
@@ -63,7 +64,7 @@ func fromJson*(
   let detail = optString(node, "detail")
   let limit = optString(node, "limit")
   let extras = collectExtras(node, RequestErrorKnownKeys)
-  ok(
+  return ok(
     requestError(
       rawType = rawType,
       status = status,
@@ -83,14 +84,15 @@ const MethodErrorKnownKeys = ["type", "description"]
 func toJson*(me: MethodError): JsonNode =
   ## Serialise MethodError to JSON (RFC 8620 §3.6.2).
   ## Extras with keys colliding with standard fields are silently skipped.
-  result = newJObject()
-  result["type"] = %me.rawType
+  var node = newJObject()
+  node["type"] = %me.rawType
   for v in me.description:
-    result["description"] = %v
+    node["description"] = %v
   for extras in me.extras:
     for key, val in extras.pairs:
       if key notin MethodErrorKnownKeys:
-        result[key] = val
+        node[key] = val
+  return node
 
 func fromJson*(
     T: typedesc[MethodError], node: JsonNode
@@ -103,7 +105,7 @@ func fromJson*(
     return err(parseError($T, "empty type field"))
   let description = optString(node, "description")
   let extras = collectExtras(node, MethodErrorKnownKeys)
-  ok(methodError(rawType = rawType, description = description, extras = extras))
+  return ok(methodError(rawType = rawType, description = description, extras = extras))
 
 # =============================================================================
 # SetError
@@ -114,32 +116,33 @@ func setErrorKnownKeys(errorType: SetErrorType): seq[string] =
   ## Used by both toJson and fromJson to determine which keys belong in extras.
   case errorType
   of setInvalidProperties:
-    @["type", "description", "properties"]
+    return @["type", "description", "properties"]
   of setAlreadyExists:
-    @["type", "description", "existingId"]
+    return @["type", "description", "existingId"]
   else:
-    @["type", "description"]
+    return @["type", "description"]
 
 func toJson*(se: SetError): JsonNode =
   ## Serialise SetError to JSON (RFC 8620 §5.3, §5.4).
   ## Extras with keys colliding with standard or variant-specific fields are
   ## silently skipped.
-  result = newJObject()
-  result["type"] = %se.rawType
+  var node = newJObject()
+  node["type"] = %se.rawType
   for v in se.description:
-    result["description"] = %v
+    node["description"] = %v
   case se.errorType
   of setInvalidProperties:
-    result["properties"] = %se.properties
+    node["properties"] = %se.properties
   of setAlreadyExists:
-    result["existingId"] = %string(se.existingId)
+    node["existingId"] = %string(se.existingId)
   else:
     discard
   for extras in se.extras:
     let knownKeys = setErrorKnownKeys(se.errorType)
     for key, val in extras.pairs:
       if key notin knownKeys:
-        result[key] = val
+        node[key] = val
+  return node
 
 func fromJson*(
     T: typedesc[SetError], node: JsonNode
@@ -171,7 +174,7 @@ func fromJson*(
         ?checkJsonKind(item, JString, $T, "properties element must be string")
         properties.add(item.getStr(""))
       return ok(setErrorInvalidProperties(rawType, properties, description, extras))
-    ok(setError(rawType, description, extras))
+    return ok(setError(rawType, description, extras))
   of setAlreadyExists:
     let idNode = node{"existingId"}
     if not idNode.isNil and idNode.kind == JString:
@@ -179,6 +182,6 @@ func fromJson*(
       if idResult.isOk:
         return ok(setErrorAlreadyExists(rawType, idResult.get(), description, extras))
       # fall through to generic setError
-    ok(setError(rawType, description, extras))
+    return ok(setError(rawType, description, extras))
   else:
-    ok(setError(rawType, description, extras))
+    return ok(setError(rawType, description, extras))

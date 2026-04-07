@@ -18,7 +18,7 @@ import ./types
 
 func toJson*(op: FilterOperator): JsonNode =
   ## Serialise FilterOperator to its RFC string.
-  %($op)
+  return %($op)
 
 func fromJson*(
     T: typedesc[FilterOperator], node: JsonNode
@@ -28,13 +28,13 @@ func fromJson*(
   ?checkJsonKind(node, JString, $T)
   case node.getStr("")
   of "AND":
-    ok(foAnd)
+    return ok(foAnd)
   of "OR":
-    ok(foOr)
+    return ok(foOr)
   of "NOT":
-    ok(foNot)
+    return ok(foNot)
   else:
-    err(parseError($T, "unknown operator: " & node.getStr("")))
+    return err(parseError($T, "unknown operator: " & node.getStr("")))
 
 # =============================================================================
 # Comparator
@@ -42,9 +42,10 @@ func fromJson*(
 
 func toJson*(c: Comparator): JsonNode =
   ## Serialise Comparator to JSON (RFC 8620 section 5.5).
-  result = %*{"property": string(c.property), "isAscending": c.isAscending}
+  var node = %*{"property": string(c.property), "isAscending": c.isAscending}
   for col in c.collation:
-    result["collation"] = %col
+    node["collation"] = %col
+  return node
 
 func fromJson*(
     T: typedesc[Comparator], node: JsonNode
@@ -65,7 +66,7 @@ func fromJson*(
   if not collNode.isNil:
     if collNode.kind == JString:
       collation = Opt.some(collNode.getStr(""))
-  ok(parseComparator(property, isAscending, collation))
+  return ok(parseComparator(property, isAscending, collation))
 
 # =============================================================================
 # Filter[C]
@@ -75,12 +76,12 @@ proc toJson*[C](f: Filter[C], filterConditionToJson: proc(c: C): JsonNode): Json
   ## Serialise Filter[C] to JSON. Caller provides condition serialiser.
   case f.kind
   of fkCondition:
-    filterConditionToJson(f.condition)
+    return filterConditionToJson(f.condition)
   of fkOperator:
     var conditions = newJArray()
     for child in f.conditions:
       conditions.add(child.toJson(filterConditionToJson))
-    %*{"operator": $f.operator, "conditions": conditions}
+    return %*{"operator": $f.operator, "conditions": conditions}
 
 const MaxFilterDepth* = 128
   ## Maximum nesting depth for Filter[C].fromJson deserialisation.
@@ -104,18 +105,17 @@ proc fromJsonImpl[C](
   let opNode = node{"operator"}
   if opNode.isNil:
     let cond = ?fromCondition(node)
-    ok(filterCondition(cond))
-  else:
-    let op = ?FilterOperator.fromJson(opNode)
-    let conditionsNode = node{"conditions"}
-    ?checkJsonKind(
-      conditionsNode, JArray, typeName, "missing or invalid conditions array"
-    )
-    var children: seq[Filter[C]] = @[]
-    for childNode in conditionsNode.getElems(@[]):
-      let child = ?fromJsonImpl[C](childNode, fromCondition, depth - 1)
-      children.add(child)
-    ok(filterOperator(op, children))
+    return ok(filterCondition(cond))
+  let op = ?FilterOperator.fromJson(opNode)
+  let conditionsNode = node{"conditions"}
+  ?checkJsonKind(
+    conditionsNode, JArray, typeName, "missing or invalid conditions array"
+  )
+  var children: seq[Filter[C]] = @[]
+  for childNode in conditionsNode.getElems(@[]):
+    let child = ?fromJsonImpl[C](childNode, fromCondition, depth - 1)
+    children.add(child)
+  return ok(filterOperator(op, children))
 
 proc fromJson*[C](
     T: typedesc[Filter[C]],
@@ -126,7 +126,7 @@ proc fromJson*[C](
   ## Dispatches on presence of "operator" key. Nesting depth is capped at
   ## MaxFilterDepth to prevent stack overflow on pathological input.
   discard $T # consumed for nimalyzer params rule
-  fromJsonImpl[C](node, fromCondition, MaxFilterDepth)
+  return fromJsonImpl[C](node, fromCondition, MaxFilterDepth)
 
 # =============================================================================
 # PatchObject
@@ -136,9 +136,10 @@ func toJson*(patch: PatchObject): JsonNode =
   ## Serialise PatchObject to JSON. Keys are JSON Pointer paths,
   ## null values represent property deletion.
   let tbl = Table[string, JsonNode](patch)
-  result = newJObject()
+  var node = newJObject()
   for path, value in tbl:
-    result[path] = value
+    node[path] = value
+  return node
 
 func fromJson*(
     T: typedesc[PatchObject], node: JsonNode
@@ -152,7 +153,7 @@ func fromJson*(
       patch = ?deleteProp(patch, path)
     else:
       patch = ?setProp(patch, path, value)
-  ok(patch)
+  return ok(patch)
 
 # =============================================================================
 # AddedItem
@@ -160,7 +161,7 @@ func fromJson*(
 
 func toJson*(item: AddedItem): JsonNode =
   ## Serialise AddedItem to JSON (RFC 8620 section 5.6).
-  result = %*{"id": string(item.id), "index": int64(item.index)}
+  return %*{"id": string(item.id), "index": int64(item.index)}
 
 func fromJson*(
     T: typedesc[AddedItem], node: JsonNode
@@ -169,4 +170,4 @@ func fromJson*(
   ?checkJsonKind(node, JObject, $T)
   let id = ?Id.fromJson(node{"id"})
   let index = ?UnsignedInt.fromJson(node{"index"})
-  ok(initAddedItem(id, index))
+  return ok(initAddedItem(id, index))

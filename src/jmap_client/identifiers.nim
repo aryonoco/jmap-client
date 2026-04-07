@@ -54,7 +54,7 @@ func parseAccountId*(raw: string): Result[AccountId, ValidationError] =
   ## same lenient rules as parseIdFromServer.
   ?validateServerAssignedToken("AccountId", raw)
   doAssert raw.len >= 1 and raw.len <= 255
-  ok(AccountId(raw))
+  return ok(AccountId(raw))
 
 func parseJmapState*(raw: string): Result[JmapState, ValidationError] =
   ## Non-empty, no control characters. Server-assigned — same defensive
@@ -64,21 +64,20 @@ func parseJmapState*(raw: string): Result[JmapState, ValidationError] =
   if raw.anyIt(it < ' ' or it == '\x7F'):
     return err(validationError("JmapState", "contains control characters", raw))
   doAssert raw.len > 0
-  ok(JmapState(raw))
+  return ok(JmapState(raw))
 
 func parseMethodCallId*(raw: string): Result[MethodCallId, ValidationError] =
   ## Non-empty. Client-generated.
   if raw.len == 0:
     return err(validationError("MethodCallId", "must not be empty", raw))
   doAssert raw.len > 0
-  ok(MethodCallId(raw))
+  return ok(MethodCallId(raw))
 
 func parseCreationId*(raw: string): Result[CreationId, ValidationError] =
   ## Non-empty. Must not start with '#' (the prefix is a wire-format concern).
   if raw.len < 1:
-    err(validationError("CreationId", "must not be empty", raw))
+    return err(validationError("CreationId", "must not be empty", raw))
   elif raw[0] == '#':
-    err(validationError("CreationId", "must not include '#' prefix", raw))
-  else:
-    doAssert raw.len > 0
-    ok(CreationId(raw))
+    return err(validationError("CreationId", "must not include '#' prefix", raw))
+  doAssert raw.len > 0
+  return ok(CreationId(raw))

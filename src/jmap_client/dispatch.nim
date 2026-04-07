@@ -38,19 +38,19 @@ type ResponseHandle*[T] = distinct MethodCallId
 
 func `==`*[T](a, b: ResponseHandle[T]): bool =
   ## Equality comparison delegated to the underlying MethodCallId.
-  MethodCallId(a) == MethodCallId(b)
+  return MethodCallId(a) == MethodCallId(b)
 
 func `$`*[T](a: ResponseHandle[T]): string =
   ## String representation delegated to the underlying MethodCallId.
-  $MethodCallId(a)
+  return $MethodCallId(a)
 
 func hash*[T](a: ResponseHandle[T]): Hash =
   ## Hash delegated to the underlying MethodCallId.
-  hash(MethodCallId(a))
+  return hash(MethodCallId(a))
 
 func callId*[T](handle: ResponseHandle[T]): MethodCallId =
   ## Extracts the underlying MethodCallId from a ResponseHandle.
-  MethodCallId(handle)
+  return MethodCallId(handle)
 
 # =============================================================================
 # Railway bridge: Track 0 (ValidationError) → Track 2 (MethodError)
@@ -62,7 +62,7 @@ func validationToMethodError*(ve: ValidationError): MethodError =
   ## structure in MethodError.extras as structured JSON so no diagnostic
   ## information is lost.
   let extras = %*{"typeName": ve.typeName, "value": ve.value}
-  methodError(
+  return methodError(
     rawType = "serverFail",
     description = Opt.some(ve.message),
     extras = Opt.some(extras),
@@ -77,7 +77,7 @@ func findInvocation(resp: Response, targetId: MethodCallId): Opt[Invocation] =
   for inv in resp.methodResponses:
     if inv.methodCallId == targetId:
       return Opt.some(inv)
-  Opt.none(Invocation)
+  return Opt.none(Invocation)
 
 func extractInvocation(
     resp: Response, targetId: MethodCallId
@@ -103,7 +103,7 @@ func extractInvocation(
         description = Opt.some("malformed error response for call ID " & $targetId),
       )
     )
-  ok(inv)
+  return ok(inv)
 
 # =============================================================================
 # get[T] — default extraction via mixin fromJson
@@ -121,7 +121,7 @@ proc get*[T](resp: Response, handle: ResponseHandle[T]): Result[T, MethodError] 
   ##    ok → return ok. err(ValidationError) → convert to MethodError.
   mixin fromJson
   let inv = ?extractInvocation(resp, callId(handle))
-  T.fromJson(inv.arguments).mapErr(validationToMethodError)
+  return T.fromJson(inv.arguments).mapErr(validationToMethodError)
 
 # =============================================================================
 # get[T] — callback overload (escape hatch)
@@ -137,7 +137,7 @@ proc get*[T](
   ## For custom parsing where ``T.fromJson`` is not discoverable via mixin
   ## (e.g., entity-specific extractors or JsonNode for Core/echo).
   let inv = ?extractInvocation(resp, callId(handle))
-  fromArgs(inv.arguments).mapErr(validationToMethodError)
+  return fromArgs(inv.arguments).mapErr(validationToMethodError)
 
 # =============================================================================
 # Reference construction — generic escape hatch
@@ -150,7 +150,7 @@ func reference*[T](
   ## The ``name`` is the expected response method name (Decision D3.10:
   ## explicit, not auto-derived from T). The ``path`` is a JSON Pointer
   ## string with optional JMAP '*' wildcard.
-  initResultReference(resultOf = callId(handle), name = name, path = path)
+  return initResultReference(resultOf = callId(handle), name = name, path = path)
 
 # =============================================================================
 # Type-safe reference convenience functions (Make Illegal States Unrepresentable)
@@ -163,7 +163,7 @@ func idsRef*[T](handle: ResponseHandle[QueryResponse[T]]): Referencable[seq[Id]]
   ## ``mixin methodNamespace``.
   mixin methodNamespace
   let name = methodNamespace(T) & "/query"
-  referenceTo[seq[Id]](
+  return referenceTo[seq[Id]](
     initResultReference(resultOf = callId(handle), name = name, path = RefPathIds)
   )
 
@@ -172,7 +172,7 @@ func listIdsRef*[T](handle: ResponseHandle[GetResponse[T]]): Referencable[seq[Id
   ## compiles on ``ResponseHandle[GetResponse[T]]``.
   mixin methodNamespace
   let name = methodNamespace(T) & "/get"
-  referenceTo[seq[Id]](
+  return referenceTo[seq[Id]](
     initResultReference(resultOf = callId(handle), name = name, path = RefPathListIds)
   )
 
@@ -183,7 +183,7 @@ func addedIdsRef*[T](
   ## Only compiles on ``ResponseHandle[QueryChangesResponse[T]]``.
   mixin methodNamespace
   let name = methodNamespace(T) & "/queryChanges"
-  referenceTo[seq[Id]](
+  return referenceTo[seq[Id]](
     initResultReference(resultOf = callId(handle), name = name, path = RefPathAddedIds)
   )
 
@@ -193,7 +193,7 @@ func createdRef*[T](handle: ResponseHandle[ChangesResponse[T]]): Referencable[se
   ## rejects this on get/set/query handles.
   mixin methodNamespace
   let name = methodNamespace(T) & "/changes"
-  referenceTo[seq[Id]](
+  return referenceTo[seq[Id]](
     initResultReference(resultOf = callId(handle), name = name, path = RefPathCreated)
   )
 
@@ -203,6 +203,6 @@ func updatedRef*[T](handle: ResponseHandle[ChangesResponse[T]]): Referencable[se
   ## rejects this on get/set/query handles.
   mixin methodNamespace
   let name = methodNamespace(T) & "/changes"
-  referenceTo[seq[Id]](
+  return referenceTo[seq[Id]](
     initResultReference(resultOf = callId(handle), name = name, path = RefPathUpdated)
   )

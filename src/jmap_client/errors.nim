@@ -40,11 +40,11 @@ type TransportError* = object
 
 func transportError*(kind: TransportErrorKind, message: string): TransportError =
   ## For non-HTTP-status transport errors.
-  TransportError(kind: kind, message: message)
+  return TransportError(kind: kind, message: message)
 
 func httpStatusError*(status: int, message: string): TransportError =
   ## For HTTP-level failures without a JMAP problem details body.
-  TransportError(kind: tekHttpStatus, message: message, httpStatus: status)
+  return TransportError(kind: tekHttpStatus, message: message, httpStatus: status)
 
 type RequestErrorType* = enum
   ## Request-level error types from the JMAP problem details response (RFC 8620 §3.6.1).
@@ -56,7 +56,7 @@ type RequestErrorType* = enum
 
 func parseRequestErrorType*(raw: string): RequestErrorType =
   ## Total function: always succeeds. Unknown URIs map to retUnknown.
-  strutils.parseEnum[RequestErrorType](raw, retUnknown)
+  return strutils.parseEnum[RequestErrorType](raw, retUnknown)
 
 type RequestError* = object
   ## RFC 7807 problem details returned when the entire request is rejected.
@@ -74,11 +74,11 @@ type RequestError* = object
 
 func errorType*(re: RequestError): RequestErrorType =
   ## Returns the parsed error type variant.
-  re.errorType
+  return re.errorType
 
 func message*(re: RequestError): string =
   ## Human-readable message via cascade: detail > title > rawType.
-  re.detail.valueOr:
+  return re.detail.valueOr:
     re.title.valueOr:
       re.rawType
 
@@ -118,27 +118,29 @@ type ClientError* = object
 
 func clientError*(transport: TransportError): ClientError =
   ## Lifts a transport failure into the outer railway.
-  ClientError(kind: cekTransport, transport: transport)
+  return ClientError(kind: cekTransport, transport: transport)
 
 func clientError*(request: RequestError): ClientError =
   ## Lifts a request rejection into the outer railway.
-  ClientError(kind: cekRequest, request: request)
+  return ClientError(kind: cekRequest, request: request)
 
 func message*(err: ClientError): string =
   ## Human-readable message for any ClientError variant.
   case err.kind
-  of cekTransport: err.transport.message
-  of cekRequest: err.request.message
+  of cekTransport:
+    return err.transport.message
+  of cekRequest:
+    return err.request.message
 
 func validationToClientError*(ve: ValidationError): ClientError =
   ## Bridges the construction railway (ValidationError) to the outer railway
   ## (ClientError). For use with ``mapErr`` when a Layer 1 validation failure
   ## must be surfaced as a transport error.
-  clientError(transportError(tekNetwork, ve.message))
+  return clientError(transportError(tekNetwork, ve.message))
 
 func validationToClientErrorCtx*(ve: ValidationError, context: string): ClientError =
   ## Bridges with a context prefix prepended to the error message.
-  clientError(transportError(tekNetwork, context & ve.message))
+  return clientError(transportError(tekNetwork, context & ve.message))
 
 type RequestContext* = enum
   ## Identifies the JMAP endpoint being processed. Used in error messages
@@ -152,7 +154,7 @@ func isTlsRelatedMsg(msg: string): bool =
   ## (D4.5). False positives are harmless — the error is still a transport
   ## failure and ``msg`` carries the actual underlying error.
   let lower = msg.toLowerAscii
-  "ssl" in lower or "tls" in lower or "certificate" in lower
+  return "ssl" in lower or "tls" in lower or "certificate" in lower
 
 func classifyException*(e: ref CatchableError): ClientError =
   ## Maps ``std/httpclient`` exceptions to ``ClientError(cekTransport)``.
@@ -173,14 +175,14 @@ func classifyException*(e: ref CatchableError): ClientError =
       transportError(tekNetwork, "protocol error: " & e.msg)
     else:
       transportError(tekNetwork, "unexpected error: " & e.msg)
-  clientError(te)
+  return clientError(te)
 
 func sizeLimitExceeded*(
     context: RequestContext, what: string, actual, limit: int
 ): ClientError =
   ## Constructs a ``ClientError`` for a size-limit violation. Shared by
   ## body-length and Content-Length enforcement.
-  clientError(
+  return clientError(
     transportError(
       tekNetwork,
       $context & " " & what & " exceeds limit: " & $actual & " bytes > " & $limit &
@@ -195,7 +197,7 @@ func enforceBodySizeLimit*(
   ## length. No-op when ``maxResponseBytes == 0`` (no limit). Pure.
   if maxResponseBytes > 0 and body.len > maxResponseBytes:
     return err(sizeLimitExceeded(context, "response body", body.len, maxResponseBytes))
-  ok()
+  return ok()
 
 type MethodErrorType* = enum
   ## Per-invocation error types from the inner railway (RFC 8620 §3.6.2).
@@ -222,7 +224,7 @@ type MethodErrorType* = enum
 
 func parseMethodErrorType*(raw: string): MethodErrorType =
   ## Total function: always succeeds. Unknown types map to metUnknown.
-  strutils.parseEnum[MethodErrorType](raw, metUnknown)
+  return strutils.parseEnum[MethodErrorType](raw, metUnknown)
 
 type MethodError* = object
   ## Inner railway error for a single method invocation within a batch response.
@@ -236,7 +238,7 @@ type MethodError* = object
 
 func errorType*(me: MethodError): MethodErrorType =
   ## Returns the parsed error type variant.
-  me.errorType
+  return me.errorType
 
 func methodError*(
     rawType: string,
@@ -269,7 +271,7 @@ type SetErrorType* = enum
 
 func parseSetErrorType*(raw: string): SetErrorType =
   ## Total function: always succeeds. Unknown types map to setUnknown.
-  strutils.parseEnum[SetErrorType](raw, setUnknown)
+  return strutils.parseEnum[SetErrorType](raw, setUnknown)
 
 type SetError* = object
   ## Per-item error from a /set response. Variant-specific fields for invalidProperties and alreadyExists.
@@ -295,7 +297,7 @@ func setError*(
   let errorType = parseSetErrorType(rawType)
   let safeType =
     if errorType in {setInvalidProperties, setAlreadyExists}: setUnknown else: errorType
-  SetError(
+  return SetError(
     errorType: safeType, rawType: rawType, description: description, extras: extras
   )
 
@@ -306,7 +308,7 @@ func setErrorInvalidProperties*(
     extras: Opt[JsonNode] = Opt.none(JsonNode),
 ): SetError =
   ## Constructor for the invalidProperties variant, carrying the list of invalid property names.
-  SetError(
+  return SetError(
     errorType: setInvalidProperties,
     rawType: rawType,
     description: description,
@@ -321,7 +323,7 @@ func setErrorAlreadyExists*(
     extras: Opt[JsonNode] = Opt.none(JsonNode),
 ): SetError =
   ## Constructor for the alreadyExists variant, carrying the ID of the existing record.
-  SetError(
+  return SetError(
     errorType: setAlreadyExists,
     rawType: rawType,
     description: description,

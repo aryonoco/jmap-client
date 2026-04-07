@@ -90,7 +90,7 @@ func addChangesToGet*[T](
   let ch = addChanges[T](b, accountId, sinceState, maxChanges)
   let gh =
     addGet[T](b, accountId, ids = Opt.some(ch.createdRef()), properties = properties)
-  ChangesGetHandles[T](changes: ch, get: gh)
+  return ChangesGetHandles[T](changes: ch, get: gh)
 
 # =============================================================================
 # getBoth — paired response extraction
@@ -110,7 +110,7 @@ proc getBoth*[T](
   mixin fromJson
   let qr = ?resp.get(handles.query)
   let gr = ?resp.get(handles.get)
-  ok(QueryGetResults[T](query: qr, get: gr))
+  return ok(QueryGetResults[T](query: qr, get: gr))
 
 type ChangesGetResults*[T] = object
   ## Paired extraction results from a changes-then-get pipeline.
@@ -124,4 +124,4 @@ proc getBoth*[T](
   mixin fromJson
   let cr = ?resp.get(handles.changes)
   let gr = ?resp.get(handles.get)
-  ok(ChangesGetResults[T](changes: cr, get: gr))
+  return ok(ChangesGetResults[T](changes: cr, get: gr))

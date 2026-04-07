@@ -20,7 +20,7 @@ import ./types
 
 func toJson*(caps: CoreCapabilities): JsonNode =
   ## Serialise CoreCapabilities to JSON (RFC 8620 §2).
-  result = %*{
+  var node = %*{
     "maxSizeUpload": int64(caps.maxSizeUpload),
     "maxConcurrentUpload": int64(caps.maxConcurrentUpload),
     "maxSizeRequest": int64(caps.maxSizeRequest),
@@ -32,7 +32,8 @@ func toJson*(caps: CoreCapabilities): JsonNode =
   var algArr = newJArray()
   for alg in caps.collationAlgorithms:
     algArr.add(%alg)
-  result["collationAlgorithms"] = algArr
+  node["collationAlgorithms"] = algArr
+  return node
 
 func fromJson*(
     T: typedesc[CoreCapabilities], node: JsonNode
@@ -43,25 +44,23 @@ func fromJson*(
   let maxConcurrentUpload = ?UnsignedInt.fromJson(node{"maxConcurrentUpload"})
   let maxSizeRequest = ?UnsignedInt.fromJson(node{"maxSizeRequest"})
   # Decision D2.6: accept both singular and plural forms (RFC §2.1 typo)
-  let maxConcurrentRequests = block:
-    let plural = node{"maxConcurrentRequests"}
-    let singular = node{"maxConcurrentRequest"}
-    if plural.isNil and singular.isNil:
-      return err(parseError($T, "missing maxConcurrentRequests"))
-    let chosen = if plural.isNil: singular else: plural
-    ?UnsignedInt.fromJson(chosen)
+  let plural = node{"maxConcurrentRequests"}
+  let singular = node{"maxConcurrentRequest"}
+  if plural.isNil and singular.isNil:
+    return err(parseError($T, "missing maxConcurrentRequests"))
+  let maxConcurrentRequests =
+    ?UnsignedInt.fromJson(if plural.isNil: singular else: plural)
   let maxCallsInRequest = ?UnsignedInt.fromJson(node{"maxCallsInRequest"})
   let maxObjectsInGet = ?UnsignedInt.fromJson(node{"maxObjectsInGet"})
   let maxObjectsInSet = ?UnsignedInt.fromJson(node{"maxObjectsInSet"})
-  let collationAlgorithms = block:
-    let arr = node{"collationAlgorithms"}
-    ?checkJsonKind(arr, JArray, $T, "missing or invalid collationAlgorithms")
-    var algs: seq[string] = @[]
-    for elem in arr.getElems(@[]):
-      ?checkJsonKind(elem, JString, $T, "collationAlgorithms element must be string")
-      algs.add(elem.getStr(""))
-    toHashSet(algs)
-  ok(
+  let algArrNode = node{"collationAlgorithms"}
+  ?checkJsonKind(algArrNode, JArray, $T, "missing or invalid collationAlgorithms")
+  var algs: seq[string] = @[]
+  for elem in algArrNode.getElems(@[]):
+    ?checkJsonKind(elem, JString, $T, "collationAlgorithms element must be string")
+    algs.add(elem.getStr(""))
+  let collationAlgorithms = toHashSet(algs)
+  return ok(
     CoreCapabilities(
       maxSizeUpload: maxSizeUpload,
       maxConcurrentUpload: maxConcurrentUpload,
@@ -84,26 +83,24 @@ func toJson*(cap: ServerCapability): JsonNode =
   ## state through the returned ref (mirrors fromJson's ownData pattern).
   case cap.kind
   of ckCore:
-    cap.core.toJson()
+    return cap.core.toJson()
   else:
     if cap.rawData.isNil:
-      newJObject()
-    else:
-      cap.rawData.copy()
+      return newJObject()
+    return cap.rawData.copy()
 
 func ownData(data: JsonNode): JsonNode =
   ## Deep-copy a JsonNode to avoid ARC double-free on shared refs.
   ## Mirrors the pattern used by AccountCapabilityEntry.fromJson.
   if data.isNil:
-    newJObject()
-  else:
-    data.copy()
+    return newJObject()
+  return data.copy()
 
 template mkNonCoreCap(k: CapabilityKind): untyped =
   ## Constructs a non-core ServerCapability with deep-copied data. Uses a
   ## compile-time literal discriminator to satisfy ARC branch tracking on
   ## case objects with ref fields (rawData: JsonNode).
-  ok(ServerCapability(kind: k, rawUri: uri, rawData: ownData(data)))
+  return ok(ServerCapability(kind: k, rawUri: uri, rawData: ownData(data)))
 
 func fromJson*(
     T: typedesc[ServerCapability], uri: string, data: JsonNode
@@ -118,7 +115,7 @@ func fromJson*(
   of ckCore:
     ?checkJsonKind(data, JObject, $T, "core capability data must be JSON object")
     let core = ?CoreCapabilities.fromJson(data)
-    ok(ServerCapability(kind: ckCore, rawUri: uri, core: core))
+    return ok(ServerCapability(kind: ckCore, rawUri: uri, core: core))
   of ckMail:
     mkNonCoreCap(ckMail)
   of ckSubmission:
@@ -153,9 +150,8 @@ func toJson*(entry: AccountCapabilityEntry): JsonNode =
   ## Deep-copies to prevent callers from mutating internal state through
   ## the returned ref (mirrors fromJson's deep-copy pattern).
   if entry.data.isNil:
-    newJObject()
-  else:
-    entry.data.copy()
+    return newJObject()
+  return entry.data.copy()
 
 func fromJson*(
     T: typedesc[AccountCapabilityEntry], uri: string, data: JsonNode
@@ -163,7 +159,7 @@ func fromJson*(
   ## Deserialise an account capability entry from URI and JSON data.
   if uri.len == 0:
     return err(parseError($T, "capability URI must not be empty"))
-  ok(
+  return ok(
     AccountCapabilityEntry(
       kind: parseCapabilityKind(uri), rawUri: uri, data: ownData(data)
     )
@@ -175,12 +171,13 @@ func fromJson*(
 
 func toJson*(acct: Account): JsonNode =
   ## Serialise Account to JSON (RFC 8620 §2).
-  result =
+  var node =
     %*{"name": acct.name, "isPersonal": acct.isPersonal, "isReadOnly": acct.isReadOnly}
   var acctCaps = newJObject()
   for _, entry in acct.accountCapabilities:
     acctCaps[entry.rawUri] = entry.toJson()
-  result["accountCapabilities"] = acctCaps
+  node["accountCapabilities"] = acctCaps
+  return node
 
 func fromJson*(T: typedesc[Account], node: JsonNode): Result[Account, ValidationError] =
   ## Deserialise JSON to Account (RFC 8620 §2).
@@ -197,7 +194,7 @@ func fromJson*(T: typedesc[Account], node: JsonNode): Result[Account, Validation
   for uri, data in acctCapsNode.pairs:
     let entry = ?AccountCapabilityEntry.fromJson(uri, data)
     accountCapabilities.add(entry)
-  ok(
+  return ok(
     Account(
       name: name,
       isPersonal: isPersonal,
@@ -212,7 +209,7 @@ func fromJson*(T: typedesc[Account], node: JsonNode): Result[Account, Validation
 
 func toJson*(s: Session): JsonNode =
   ## Serialise Session to JSON (RFC 8620 §2).
-  result = %*{
+  var node = %*{
     "username": s.username,
     "apiUrl": s.apiUrl,
     "downloadUrl": string(s.downloadUrl),
@@ -224,17 +221,18 @@ func toJson*(s: Session): JsonNode =
   var caps = newJObject()
   for _, cap in s.capabilities:
     caps[cap.rawUri] = cap.toJson()
-  result["capabilities"] = caps
+  node["capabilities"] = caps
   # accounts: AccountId -> Account
   var accts = newJObject()
   for id, acct in s.accounts:
     accts[string(id)] = acct.toJson()
-  result["accounts"] = accts
+  node["accounts"] = accts
   # primaryAccounts: capability URI -> AccountId
   var primary = newJObject()
   for uri, id in s.primaryAccounts:
     primary[uri] = %string(id)
-  result["primaryAccounts"] = primary
+  node["primaryAccounts"] = primary
+  return node
 
 func fromJson*(T: typedesc[Session], node: JsonNode): Result[Session, ValidationError] =
   ## Deserialise JSON to Session (RFC 8620 §2). Calls parseSession for
@@ -288,7 +286,7 @@ func fromJson*(T: typedesc[Session], node: JsonNode): Result[Session, Validation
   let state = ?parseJmapState(node{"state"}.getStr(""))
 
   # 7. Call parseSession for structural invariant validation
-  parseSession(
+  return parseSession(
     capabilities = capabilities,
     accounts = accounts,
     primaryAccounts = primaryAccounts,

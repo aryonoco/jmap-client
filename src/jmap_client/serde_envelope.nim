@@ -18,7 +18,7 @@ import ./types
 
 func toJson*(inv: Invocation): JsonNode =
   ## Serialise Invocation as 3-element JSON array (RFC 8620 section 3.2).
-  result = %*[inv.name, inv.arguments, string(inv.methodCallId)]
+  return %*[inv.name, inv.arguments, string(inv.methodCallId)]
 
 func fromJson*(
     T: typedesc[Invocation], node: JsonNode
@@ -41,7 +41,7 @@ func fromJson*(
   if callIdRaw.len == 0:
     return err(parseError($T, "method call ID must not be empty"))
   let mcid = ?parseMethodCallId(callIdRaw)
-  initInvocation(name, arguments, mcid)
+  return initInvocation(name, arguments, mcid)
 
 # =============================================================================
 # createdIds helper
@@ -65,7 +65,7 @@ func parseCreatedIds(
     ?checkJsonKind(v, JString, typeName, "createdIds value must be string")
     let id = ?parseIdFromServer(v.getStr(""))
     tbl[cid] = id
-  ok(Opt.some(tbl))
+  return ok(Opt.some(tbl))
 
 # =============================================================================
 # Request
@@ -73,17 +73,18 @@ func parseCreatedIds(
 
 func toJson*(r: Request): JsonNode =
   ## Serialise Request to JSON (RFC 8620 section 3.3).
-  result = newJObject()
-  result["using"] = %r.`using`
+  var node = newJObject()
+  node["using"] = %r.`using`
   var calls = newJArray()
   for _, inv in r.methodCalls:
     calls.add(inv.toJson())
-  result["methodCalls"] = calls
+  node["methodCalls"] = calls
   for createdIds in r.createdIds:
     var ids = newJObject()
     for k, v in createdIds:
       ids[string(k)] = %string(v)
-    result["createdIds"] = ids
+    node["createdIds"] = ids
+  return node
 
 func fromJson*(T: typedesc[Request], node: JsonNode): Result[Request, ValidationError] =
   ## Deserialise JSON to Request (RFC 8620 section 3.3).
@@ -101,7 +102,8 @@ func fromJson*(T: typedesc[Request], node: JsonNode): Result[Request, Validation
     let inv = ?Invocation.fromJson(callNode)
     methodCalls.add(inv)
   let createdIds = ?parseCreatedIds(node, $T)
-  ok(Request(`using`: usingSeq, methodCalls: methodCalls, createdIds: createdIds))
+  return
+    ok(Request(`using`: usingSeq, methodCalls: methodCalls, createdIds: createdIds))
 
 # =============================================================================
 # Response
@@ -109,17 +111,18 @@ func fromJson*(T: typedesc[Request], node: JsonNode): Result[Request, Validation
 
 func toJson*(r: Response): JsonNode =
   ## Serialise Response to JSON (RFC 8620 section 3.4).
-  result = newJObject()
+  var node = newJObject()
   var responses = newJArray()
   for _, inv in r.methodResponses:
     responses.add(inv.toJson())
-  result["methodResponses"] = responses
-  result["sessionState"] = %string(r.sessionState)
+  node["methodResponses"] = responses
+  node["sessionState"] = %string(r.sessionState)
   for createdIds in r.createdIds:
     var ids = newJObject()
     for k, v in createdIds:
       ids[string(k)] = %string(v)
-    result["createdIds"] = ids
+    node["createdIds"] = ids
+  return node
 
 func fromJson*(
     T: typedesc[Response], node: JsonNode
@@ -140,7 +143,7 @@ func fromJson*(
   )
   let sessionState = ?parseJmapState(sessionStateNode.getStr(""))
   let createdIds = ?parseCreatedIds(node, $T)
-  ok(
+  return ok(
     Response(
       methodResponses: methodResponses,
       createdIds: createdIds,
@@ -154,7 +157,7 @@ func fromJson*(
 
 func toJson*(r: ResultReference): JsonNode =
   ## Serialise ResultReference to JSON (RFC 8620 section 3.7).
-  result = %*{"resultOf": string(r.resultOf), "name": r.name, "path": r.path}
+  return %*{"resultOf": string(r.resultOf), "name": r.name, "path": r.path}
 
 func fromJson*(
     T: typedesc[ResultReference], node: JsonNode
@@ -171,7 +174,7 @@ func fromJson*(
   ?checkJsonKind(pathNode, JString, $T, "missing or invalid path")
   let path = pathNode.getStr("")
   let resultOf = ?parseMethodCallId(resultOfRaw)
-  parseResultReference(resultOf, name, path)
+  return parseResultReference(resultOf, name, path)
 
 # =============================================================================
 # Referencable[T] helpers
@@ -181,9 +184,9 @@ func referencableKey*[T](fieldName: string, r: Referencable[T]): string =
   ## Returns the JSON key: plain for direct, #-prefixed for reference.
   case r.kind
   of rkDirect:
-    fieldName
+    return fieldName
   of rkReference:
-    "#" & fieldName
+    return "#" & fieldName
 
 proc fromJsonField*[T](
     fieldName: string, node: JsonNode, fromDirect: proc(n: JsonNode): T {.raises: [].}
@@ -213,4 +216,4 @@ proc fromJsonField*[T](
     return
       err(parseError("Referencable", "missing field: " & fieldName & " or " & refKey))
   let value = fromDirect(directNode)
-  ok(direct[T](value))
+  return ok(direct[T](value))

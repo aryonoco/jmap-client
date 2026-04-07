@@ -59,17 +59,16 @@ func parseCapabilityKind*(uri: string): CapabilityKind =
   ## Maps a capability URI string to an enum value.
   ## Total function: always succeeds. Unknown URIs map to ckUnknown.
   ## Uses strutils.parseEnum which matches against the string backing values.
-  strutils.parseEnum[CapabilityKind](uri, ckUnknown)
+  return strutils.parseEnum[CapabilityKind](uri, ckUnknown)
 
 func capabilityUri*(kind: CapabilityKind): Opt[string] =
   ## Returns the IANA-registered URI for a known capability.
   ## Returns none for ckUnknown — callers must use rawUri from ServerCapability.
   ## Uses ``$`` on the string-backed enum, which returns the backing string.
   if kind == ckUnknown:
-    Opt.none(string)
-  else:
-    Opt.some($kind)
+    return Opt.none(string)
+  return Opt.some($kind)
 
 func hasCollation*(caps: CoreCapabilities, algorithm: string): bool =
   ## Checks whether the server supports a given RFC 4790 collation algorithm.
-  algorithm in caps.collationAlgorithms
+  return algorithm in caps.collationAlgorithms

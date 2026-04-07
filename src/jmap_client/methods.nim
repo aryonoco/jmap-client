@@ -26,12 +26,12 @@ import ./serialisation
 func optState*(node: JsonNode, key: string): Opt[JmapState] =
   ## Lenient optional JmapState extraction (section 5a.5 leniency).
   ## Absent, null, wrong kind, or invalid content all produce none.
-  parseJmapState((?optJsonField(node, key, JString)).getStr("")).optValue
+  return parseJmapState((?optJsonField(node, key, JString)).getStr("")).optValue
 
 func optUnsignedInt*(node: JsonNode, key: string): Opt[UnsignedInt] =
   ## Lenient optional UnsignedInt extraction (section 5a.5 leniency).
   ## Absent, null, wrong kind, or invalid content all produce none.
-  parseUnsignedInt((?optJsonField(node, key, JInt)).getBiggestInt(0)).optValue
+  return parseUnsignedInt((?optJsonField(node, key, JInt)).getBiggestInt(0)).optValue
 
 # =============================================================================
 # Request type definitions (section 6)
@@ -256,8 +256,8 @@ func toJson*[T](req: GetRequest[T]): JsonNode =
   ## Serialise GetRequest to JSON arguments object (RFC 8620 section 5.1).
   ## Omits ``ids`` and ``properties`` when none.
   ## Dispatches Referencable ids via referencableKey.
-  result = newJObject()
-  result["accountId"] = req.accountId.toJson()
+  var node = newJObject()
+  node["accountId"] = req.accountId.toJson()
   for idsVal in req.ids:
     let idsKey = referencableKey("ids", idsVal)
     case idsVal.kind
@@ -265,42 +265,44 @@ func toJson*[T](req: GetRequest[T]): JsonNode =
       var arr = newJArray()
       for id in idsVal.value:
         arr.add(id.toJson())
-      result[idsKey] = arr
+      node[idsKey] = arr
     of rkReference:
-      result[idsKey] = idsVal.reference.toJson()
+      node[idsKey] = idsVal.reference.toJson()
   for props in req.properties:
     var arr = newJArray()
     for p in props:
       arr.add(%p)
-    result["properties"] = arr
+    node["properties"] = arr
+  return node
 
 func toJson*[T](req: ChangesRequest[T]): JsonNode =
   ## Serialise ChangesRequest to JSON arguments object (RFC 8620 section 5.2).
   ## Omits ``maxChanges`` when none.
-  result = newJObject()
-  result["accountId"] = req.accountId.toJson()
-  result["sinceState"] = req.sinceState.toJson()
+  var node = newJObject()
+  node["accountId"] = req.accountId.toJson()
+  node["sinceState"] = req.sinceState.toJson()
   for mc in req.maxChanges:
-    result["maxChanges"] = mc.toJson()
+    node["maxChanges"] = mc.toJson()
+  return node
 
 func toJson*[T](req: SetRequest[T]): JsonNode =
   ## Serialise SetRequest to JSON arguments object (RFC 8620 section 5.3).
   ## Omits ``ifInState``, ``create``, ``update``, ``destroy`` when none.
   ## Dispatches Referencable destroy via referencableKey.
-  result = newJObject()
-  result["accountId"] = req.accountId.toJson()
+  var node = newJObject()
+  node["accountId"] = req.accountId.toJson()
   for s in req.ifInState:
-    result["ifInState"] = s.toJson()
+    node["ifInState"] = s.toJson()
   for createMap in req.create:
     var createObj = newJObject()
     for k, v in createMap:
       createObj[string(k)] = v
-    result["create"] = createObj
+    node["create"] = createObj
   for updateMap in req.update:
     var updateObj = newJObject()
     for k, v in updateMap:
       updateObj[string(k)] = v.toJson()
-    result["update"] = updateObj
+    node["update"] = updateObj
   for destroyVal in req.destroy:
     let destroyKey = referencableKey("destroy", destroyVal)
     case destroyVal.kind
@@ -308,28 +310,30 @@ func toJson*[T](req: SetRequest[T]): JsonNode =
       var arr = newJArray()
       for id in destroyVal.value:
         arr.add(id.toJson())
-      result[destroyKey] = arr
+      node[destroyKey] = arr
     of rkReference:
-      result[destroyKey] = destroyVal.reference.toJson()
+      node[destroyKey] = destroyVal.reference.toJson()
+  return node
 
 func toJson*[T](req: CopyRequest[T]): JsonNode =
   ## Serialise CopyRequest to JSON arguments object (RFC 8620 section 5.4).
   ## ``create`` is required (always emitted). ``onSuccessDestroyOriginal``
   ## always emitted.
-  result = newJObject()
-  result["fromAccountId"] = req.fromAccountId.toJson()
+  var node = newJObject()
+  node["fromAccountId"] = req.fromAccountId.toJson()
   for s in req.ifFromInState:
-    result["ifFromInState"] = s.toJson()
-  result["accountId"] = req.accountId.toJson()
+    node["ifFromInState"] = s.toJson()
+  node["accountId"] = req.accountId.toJson()
   for s in req.ifInState:
-    result["ifInState"] = s.toJson()
+    node["ifInState"] = s.toJson()
   var createObj = newJObject()
   for k, v in req.create:
     createObj[string(k)] = v
-  result["create"] = createObj
-  result["onSuccessDestroyOriginal"] = %req.onSuccessDestroyOriginal
+  node["create"] = createObj
+  node["onSuccessDestroyOriginal"] = %req.onSuccessDestroyOriginal
   for s in req.destroyFromIfInState:
-    result["destroyFromIfInState"] = s.toJson()
+    node["destroyFromIfInState"] = s.toJson()
+  return node
 
 proc toJson*[T, C](
     req: QueryRequest[T, C], filterConditionToJson: proc(c: C): JsonNode
@@ -337,22 +341,23 @@ proc toJson*[T, C](
   ## Serialise QueryRequest to JSON arguments object (RFC 8620 section 5.5).
   ## ``position``, ``anchorOffset``, ``calculateTotal`` always emitted.
   ## Filter serialised via ``filterConditionToJson`` callback.
-  result = newJObject()
-  result["accountId"] = req.accountId.toJson()
+  var node = newJObject()
+  node["accountId"] = req.accountId.toJson()
   for f in req.filter:
-    result["filter"] = f.toJson(filterConditionToJson)
+    node["filter"] = f.toJson(filterConditionToJson)
   for sortSeq in req.sort:
     var arr = newJArray()
     for c in sortSeq:
       arr.add(c.toJson())
-    result["sort"] = arr
-  result["position"] = req.position.toJson()
+    node["sort"] = arr
+  node["position"] = req.position.toJson()
   for a in req.anchor:
-    result["anchor"] = a.toJson()
-  result["anchorOffset"] = req.anchorOffset.toJson()
+    node["anchor"] = a.toJson()
+  node["anchorOffset"] = req.anchorOffset.toJson()
   for lim in req.limit:
-    result["limit"] = lim.toJson()
-  result["calculateTotal"] = %req.calculateTotal
+    node["limit"] = lim.toJson()
+  node["calculateTotal"] = %req.calculateTotal
+  return node
 
 proc toJson*[T, C](
     req: QueryChangesRequest[T, C], filterConditionToJson: proc(c: C): JsonNode
@@ -360,21 +365,22 @@ proc toJson*[T, C](
   ## Serialise QueryChangesRequest to JSON arguments object
   ## (RFC 8620 section 5.6). ``calculateTotal`` always emitted.
   ## Filter serialised via ``filterConditionToJson`` callback.
-  result = newJObject()
-  result["accountId"] = req.accountId.toJson()
+  var node = newJObject()
+  node["accountId"] = req.accountId.toJson()
   for f in req.filter:
-    result["filter"] = f.toJson(filterConditionToJson)
+    node["filter"] = f.toJson(filterConditionToJson)
   for sortSeq in req.sort:
     var arr = newJArray()
     for c in sortSeq:
       arr.add(c.toJson())
-    result["sort"] = arr
-  result["sinceQueryState"] = req.sinceQueryState.toJson()
+    node["sort"] = arr
+  node["sinceQueryState"] = req.sinceQueryState.toJson()
   for mc in req.maxChanges:
-    result["maxChanges"] = mc.toJson()
+    node["maxChanges"] = mc.toJson()
   for uid in req.upToId:
-    result["upToId"] = uid.toJson()
-  result["calculateTotal"] = %req.calculateTotal
+    node["upToId"] = uid.toJson()
+  node["calculateTotal"] = %req.calculateTotal
+  return node
 
 # =============================================================================
 # SetResponse merging helpers (section 8)
@@ -398,7 +404,7 @@ func mergeCreateResults(
       let cid = ?parseCreationId(k)
       let se = ?SetError.fromJson(v)
       tbl[cid] = Result[JsonNode, SetError].err(se)
-  ok(tbl)
+  return ok(tbl)
 
 func mergeUpdateResults(
     node: JsonNode
@@ -422,7 +428,7 @@ func mergeUpdateResults(
       let id = ?parseIdFromServer(k)
       let se = ?SetError.fromJson(v)
       tbl[id] = Result[Opt[JsonNode], SetError].err(se)
-  ok(tbl)
+  return ok(tbl)
 
 func mergeDestroyResults(
     node: JsonNode
@@ -443,7 +449,7 @@ func mergeDestroyResults(
       let id = ?parseIdFromServer(k)
       let se = ?SetError.fromJson(v)
       tbl[id] = Result[void, SetError].err(se)
-  ok(tbl)
+  return ok(tbl)
 
 # =============================================================================
 # Response fromJson (Pattern L3-B)
@@ -464,7 +470,9 @@ func fromJson*[T](
   ?checkJsonKind(listNode, JArray, "GetResponse", "list must be array")
   let list = listNode.getElems(@[])
   let notFound = ?parseOptIdArray(node{"notFound"})
-  ok(GetResponse[T](accountId: accountId, state: state, list: list, notFound: notFound))
+  return ok(
+    GetResponse[T](accountId: accountId, state: state, list: list, notFound: notFound)
+  )
 
 func fromJson*[T](
     R: typedesc[ChangesResponse[T]], node: JsonNode
@@ -481,7 +489,7 @@ func fromJson*[T](
   let created = ?parseIdArray(node{"created"}, "ChangesResponse", "created")
   let updated = ?parseIdArray(node{"updated"}, "ChangesResponse", "updated")
   let destroyed = ?parseIdArray(node{"destroyed"}, "ChangesResponse", "destroyed")
-  ok(
+  return ok(
     ChangesResponse[T](
       accountId: accountId,
       oldState: oldState,
@@ -506,7 +514,7 @@ func fromJson*[T](
   let createResults = ?mergeCreateResults(node)
   let updateResults = ?mergeUpdateResults(node)
   let destroyResults = ?mergeDestroyResults(node)
-  ok(
+  return ok(
     SetResponse[T](
       accountId: accountId,
       newState: newState,
@@ -530,7 +538,7 @@ func fromJson*[T](
   let newState = ?parseJmapState(node{"newState"}.getStr(""))
   let oldState = optState(node, "oldState")
   let createResults = ?mergeCreateResults(node)
-  ok(
+  return ok(
     CopyResponse[T](
       fromAccountId: fromAccountId,
       accountId: accountId,
@@ -558,7 +566,7 @@ func fromJson*[T](
   let ids = ?parseIdArray(node{"ids"}, "QueryResponse", "ids")
   let total = optUnsignedInt(node, "total")
   let limit = optUnsignedInt(node, "limit")
-  ok(
+  return ok(
     QueryResponse[T](
       accountId: accountId,
       queryState: queryState,
@@ -589,7 +597,7 @@ func fromJson*[T](
   for _, elem in addedNode.getElems(@[]):
     let item = ?AddedItem.fromJson(elem)
     added.add(item)
-  ok(
+  return ok(
     QueryChangesResponse[T](
       accountId: accountId,
       oldQueryState: oldQueryState,

@@ -29,7 +29,7 @@ type Invocation* = object
 
 func methodCallId*(inv: Invocation): MethodCallId =
   ## Returns the validated method call ID.
-  MethodCallId(inv.rawMethodCallId)
+  return MethodCallId(inv.rawMethodCallId)
 
 func initInvocation*(
     name: string, arguments: JsonNode, methodCallId: MethodCallId
@@ -37,7 +37,7 @@ func initInvocation*(
   ## Constructs an Invocation. Validates that name is non-empty.
   if name.len == 0:
     return err(validationError("Invocation", "name must not be empty", name))
-  ok(
+  return ok(
     Invocation(name: name, arguments: arguments, rawMethodCallId: string(methodCallId))
   )
 
@@ -48,7 +48,8 @@ func initInvocationUnchecked*(
   ## (e.g., builder-generated method names like "Mailbox/get"). Matches the
   ## ``initResultReference`` pattern for infallible counterparts.
   doAssert name.len > 0, "Invocation name must not be empty"
-  Invocation(name: name, arguments: arguments, rawMethodCallId: string(methodCallId))
+  return
+    Invocation(name: name, arguments: arguments, rawMethodCallId: string(methodCallId))
 
 type Request* = object
   ## Top-level JMAP request envelope (RFC 8620 section 3.3). Contains the
@@ -81,7 +82,7 @@ type ResultReference* = object
 
 func name*(rr: ResultReference): string =
   ## Returns the expected response name.
-  rr.rawName
+  return rr.rawName
 
 func parseResultReference*(
     resultOf: MethodCallId, name: string, path: string
@@ -91,7 +92,7 @@ func parseResultReference*(
     return err(validationError("ResultReference", "name must not be empty", name))
   if path.len == 0:
     return err(validationError("ResultReference", "path must not be empty", path))
-  ok(ResultReference(resultOf: resultOf, rawName: name, path: path))
+  return ok(ResultReference(resultOf: resultOf, rawName: name, path: path))
 
 func initResultReference*(
     resultOf: MethodCallId, name: string, path: string
@@ -101,7 +102,7 @@ func initResultReference*(
   ## using path constants).
   doAssert name.len > 0, "ResultReference name must not be empty"
   doAssert path.len > 0, "ResultReference path must not be empty"
-  ResultReference(resultOf: resultOf, rawName: name, path: path)
+  return ResultReference(resultOf: resultOf, rawName: name, path: path)
 
 const
   RefPathIds* = "/ids" ## IDs from /query result
@@ -129,8 +130,8 @@ type
 
 func direct*[T](value: T): Referencable[T] =
   ## Wraps a direct value into a Referencable.
-  Referencable[T](kind: rkDirect, value: value)
+  return Referencable[T](kind: rkDirect, value: value)
 
 func referenceTo*[T](reference: ResultReference): Referencable[T] =
   ## Wraps a result reference into a Referencable.
-  Referencable[T](kind: rkReference, reference: reference)
+  return Referencable[T](kind: rkReference, reference: reference)

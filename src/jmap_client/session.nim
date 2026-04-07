@@ -56,39 +56,39 @@ type Session* {.ruleOff: "objects".} = object
 
 func capabilities*(s: Session): seq[ServerCapability] =
   ## Server-level capabilities.
-  s.rawCapabilities
+  return s.rawCapabilities
 
 func accounts*(s: Session): Table[AccountId, Account] =
   ## Accounts keyed by AccountId.
-  s.rawAccounts
+  return s.rawAccounts
 
 func primaryAccounts*(s: Session): Table[string, AccountId] =
   ## Primary accounts keyed by raw capability URI (not CapabilityKind).
-  s.rawPrimaryAccounts
+  return s.rawPrimaryAccounts
 
 func username*(s: Session): string =
   ## Authenticated username, or empty string if none.
-  s.rawUsername
+  return s.rawUsername
 
 func apiUrl*(s: Session): string =
   ## URL for JMAP API requests.
-  s.rawApiUrl
+  return s.rawApiUrl
 
 func downloadUrl*(s: Session): UriTemplate =
   ## RFC 6570 Level 1 template for blob downloads.
-  s.rawDownloadUrl
+  return s.rawDownloadUrl
 
 func uploadUrl*(s: Session): UriTemplate =
   ## RFC 6570 Level 1 template for uploads.
-  s.rawUploadUrl
+  return s.rawUploadUrl
 
 func eventSourceUrl*(s: Session): UriTemplate =
   ## RFC 6570 Level 1 template for event source.
-  s.rawEventSourceUrl
+  return s.rawEventSourceUrl
 
 func state*(s: Session): JmapState =
   ## Session state token.
-  s.rawState
+  return s.rawState
 
 func findCapability*(
     account: Account, kind: CapabilityKind
@@ -97,7 +97,7 @@ func findCapability*(
   for _, entry in account.accountCapabilities:
     if entry.kind == kind:
       return Opt.some(entry)
-  Opt.none(AccountCapabilityEntry)
+  return Opt.none(AccountCapabilityEntry)
 
 func findCapabilityByUri*(account: Account, uri: string): Opt[AccountCapabilityEntry] =
   ## Looks up an account capability by its raw URI string. Use this instead of
@@ -106,11 +106,11 @@ func findCapabilityByUri*(account: Account, uri: string): Opt[AccountCapabilityE
   for _, entry in account.accountCapabilities:
     if entry.rawUri == uri:
       return Opt.some(entry)
-  Opt.none(AccountCapabilityEntry)
+  return Opt.none(AccountCapabilityEntry)
 
 func hasCapability*(account: Account, kind: CapabilityKind): bool =
   ## Checks whether the account has a capability of the given kind.
-  account.findCapability(kind).isSome
+  return account.findCapability(kind).isSome
 
 func hasKind(caps: openArray[ServerCapability], kind: CapabilityKind): bool =
   ## Checks whether any capability matches the given kind. Used by parseSession
@@ -118,7 +118,7 @@ func hasKind(caps: openArray[ServerCapability], kind: CapabilityKind): bool =
   for _, cap in caps:
     if cap.kind == kind:
       return true
-  false
+  return false
 
 func expandUriTemplate*(
     tmpl: UriTemplate, variables: openArray[(string, string)]
@@ -127,20 +127,21 @@ func expandUriTemplate*(
   ## the corresponding value. Variables not found in ``variables`` are left
   ## unexpanded. Caller is responsible for percent-encoding values that
   ## require it (``std/uri.encodeUrl(value, usePlus=false)``). Pure.
-  result = string(tmpl)
+  var tmplStr = string(tmpl)
   for i in 0 ..< variables.len:
-    result = result.replace("{" & variables[i][0] & "}", variables[i][1])
+    tmplStr = tmplStr.replace("{" & variables[i][0] & "}", variables[i][1])
+  return tmplStr
 
 func parseUriTemplate*(raw: string): Result[UriTemplate, ValidationError] =
   ## Non-empty validation. No RFC 6570 parsing — template expansion is Layer 4.
   if raw.len == 0:
     return err(validationError("UriTemplate", "must not be empty", raw))
-  ok(UriTemplate(raw))
+  return ok(UriTemplate(raw))
 
 func hasVariable*(tmpl: UriTemplate, name: string): bool =
   ## Checks whether the template contains {name}. Simple substring search.
   let target = "{" & name & "}"
-  target in string(tmpl)
+  return target in string(tmpl)
 
 func parseSession*(
     capabilities: seq[ServerCapability],
@@ -203,7 +204,7 @@ func parseSession*(
   )
   doAssert session.rawCapabilities.hasKind(ckCore)
   doAssert session.rawApiUrl.len > 0
-  ok(session)
+  return ok(session)
 
 func coreCapabilities*(session: Session): CoreCapabilities =
   ## Returns the core capabilities. Total function (no Result) because
@@ -222,7 +223,7 @@ func findCapability*(session: Session, kind: CapabilityKind): Opt[ServerCapabili
   for _, cap in session.rawCapabilities:
     if cap.kind == kind:
       return Opt.some(cap)
-  Opt.none(ServerCapability)
+  return Opt.none(ServerCapability)
 
 func findCapabilityByUri*(session: Session, uri: string): Opt[ServerCapability] =
   ## Looks up a server capability by its raw URI string. Use this instead of
@@ -231,7 +232,7 @@ func findCapabilityByUri*(session: Session, uri: string): Opt[ServerCapability] 
   for _, cap in session.rawCapabilities:
     if cap.rawUri == uri:
       return Opt.some(cap)
-  Opt.none(ServerCapability)
+  return Opt.none(ServerCapability)
 
 func primaryAccount*(session: Session, kind: CapabilityKind): Opt[AccountId] =
   ## Returns the primary account for a known capability kind.
@@ -240,11 +241,11 @@ func primaryAccount*(session: Session, kind: CapabilityKind): Opt[AccountId] =
   for key, val in session.rawPrimaryAccounts:
     if key == uri:
       return Opt.some(val)
-  Opt.none(AccountId)
+  return Opt.none(AccountId)
 
 func findAccount*(session: Session, id: AccountId): Opt[Account] =
   ## Looks up an account by its AccountId.
   for key, val in session.rawAccounts:
     if key == id:
       return Opt.some(val)
-  Opt.none(Account)
+  return Opt.none(Account)

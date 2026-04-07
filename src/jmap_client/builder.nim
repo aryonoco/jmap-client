@@ -48,7 +48,7 @@ type RequestBuilder* = object
 func initRequestBuilder*(): RequestBuilder =
   ## Creates a fresh builder with counter at zero, no invocations, no
   ## capabilities.
-  RequestBuilder(nextCallId: 0, invocations: @[], capabilityUris: @[])
+  return RequestBuilder(nextCallId: 0, invocations: @[], capabilityUris: @[])
 
 # =============================================================================
 # Read-only accessors (immutability by default)
@@ -56,15 +56,15 @@ func initRequestBuilder*(): RequestBuilder =
 
 func methodCallCount*(b: RequestBuilder): int =
   ## Number of method calls accumulated so far.
-  b.invocations.len
+  return b.invocations.len
 
 func isEmpty*(b: RequestBuilder): bool =
   ## True if no method calls have been added.
-  b.invocations.len == 0
+  return b.invocations.len == 0
 
 func capabilities*(b: RequestBuilder): seq[string] =
   ## Snapshot of the deduplicated capability URIs registered so far.
-  b.capabilityUris
+  return b.capabilityUris
 
 # =============================================================================
 # Build — pure snapshot
@@ -75,7 +75,7 @@ func build*(b: RequestBuilder): Request =
   ## ``createdIds`` is always none — proxy splitting is a Layer 4 concern.
   ## The builder can continue accumulating after ``build()`` for sequential
   ## requests.
-  Request(
+  return Request(
     `using`: b.capabilityUris,
     methodCalls: b.invocations,
     createdIds: Opt.none(Table[CreationId, Id]),
@@ -90,7 +90,7 @@ func nextId(b: var RequestBuilder): MethodCallId =
   ## Bypasses parseMethodCallId because the format is provably valid (D3.9).
   let callId = MethodCallId("c" & $b.nextCallId)
   b.nextCallId += 1
-  callId
+  return callId
 
 func addCapability(b: var RequestBuilder, cap: string) =
   ## Adds a capability URI if not already present.
@@ -105,7 +105,7 @@ func addInvocation(
   let inv = initInvocationUnchecked(name, args, callId)
   b.invocations.add(inv)
   b.addCapability(capability)
-  callId
+  return callId
 
 # =============================================================================
 # DRY template for non-query add* methods
@@ -338,7 +338,7 @@ func directIds*(ids: openArray[Id]): Opt[Referencable[seq[Id]]] =
   ##
   ## **Before:** ``addGet[T](b, acctId, ids = Opt.some(direct(@[id1, id2])))``
   ## **After:** ``addGet[T](b, acctId, ids = directIds(@[id1, id2]))``
-  Opt.some(direct(@ids))
+  return Opt.some(direct(@ids))
 
 func initCreates*(
     pairs: openArray[(CreationId, JsonNode)]
@@ -350,7 +350,7 @@ func initCreates*(
   var tbl = initTable[CreationId, JsonNode](pairs.len)
   for (k, v) in pairs:
     tbl[k] = v
-  Opt.some(tbl)
+  return Opt.some(tbl)
 
 func initUpdates*(pairs: openArray[(Id, PatchObject)]): Opt[Table[Id, PatchObject]] =
   ## Builds an Opt-wrapped update table from Id/PatchObject pairs.
@@ -358,4 +358,4 @@ func initUpdates*(pairs: openArray[(Id, PatchObject)]): Opt[Table[Id, PatchObjec
   var tbl = initTable[Id, PatchObject](pairs.len)
   for (k, v) in pairs:
     tbl[k] = v
-  Opt.some(tbl)
+  return Opt.some(tbl)

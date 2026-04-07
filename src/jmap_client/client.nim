@@ -114,7 +114,7 @@ proc initJmapClient*(
         )
     except CatchableError:
       return err(validationError("JmapClient", "failed to create HTTP client", ""))
-  ok(
+  return ok(
     JmapClient(
       httpClient: httpClient,
       sessionUrl: sessionUrl,
@@ -145,7 +145,7 @@ proc discoverJmapClient*(
         err(validationError("JmapClient", "domain must not contain whitespace", domain))
   if '/' in domain:
     return err(validationError("JmapClient", "domain must not contain '/'", domain))
-  initJmapClient(
+  return initJmapClient(
     sessionUrl = "https://" & domain & "/.well-known/jmap",
     bearerToken = bearerToken,
     timeout = timeout,
@@ -156,15 +156,15 @@ proc discoverJmapClient*(
 
 func session*(client: JmapClient): Opt[Session] =
   ## Returns the cached Session, or ``none`` if not yet fetched.
-  client.session
+  return client.session
 
 func sessionUrl*(client: JmapClient): string =
   ## Returns the session resource URL.
-  client.sessionUrl
+  return client.sessionUrl
 
 func bearerToken*(client: JmapClient): string =
   ## Returns the current bearer token.
-  client.bearerToken
+  return client.bearerToken
 
 proc setBearerToken*(
     client: var JmapClient, token: string
@@ -177,7 +177,7 @@ proc setBearerToken*(
     return err(validationError("JmapClient", "bearerToken must not be empty", ""))
   client.bearerToken = token
   client.httpClient.headers["Authorization"] = "Bearer " & token
-  ok()
+  return ok()
 
 proc close*(client: var JmapClient) =
   ## Closes the underlying HTTP connection. Releases the socket
@@ -204,7 +204,7 @@ proc enforceContentLengthLimit(
         -1
     if cl > maxResponseBytes:
       return err(sizeLimitExceeded(context, "Content-Length", cl, maxResponseBytes))
-  ok()
+  return ok()
 
 proc parseJsonBody(
     body: string, context: RequestContext
@@ -212,11 +212,11 @@ proc parseJsonBody(
   ## Parses a response body as JSON. Returns err if the body is not valid JSON.
   try:
     {.cast(raises: [CatchableError]).}:
-      ok(parseJson(body))
+      return ok(parseJson(body))
   except CatchableError as e:
     let te =
       transportError(tekNetwork, "invalid JSON in " & $context & " response: " & e.msg)
-    err(clientError(te))
+    return err(clientError(te))
 
 func checkGetLimit(inv: Invocation, maxGet: int64): Result[void, ValidationError] =
   ## Checks a /get invocation's direct ids count against maxObjectsInGet.
@@ -234,7 +234,7 @@ func checkGetLimit(inv: Invocation, maxGet: int64): Result[void, ValidationError
           "",
         )
       )
-  ok()
+  return ok()
 
 func checkSetLimit(inv: Invocation, maxSet: int64): Result[void, ValidationError] =
   ## Checks a /set invocation's combined create + update + destroy count
@@ -259,7 +259,7 @@ func checkSetLimit(inv: Invocation, maxSet: int64): Result[void, ValidationError
         "",
       )
     )
-  ok()
+  return ok()
 
 func validateLimits*(
     request: Request, caps: CoreCapabilities
@@ -286,15 +286,15 @@ func validateLimits*(
       ?checkGetLimit(inv, maxGet)
     elif inv.name.endsWith("/set"):
       ?checkSetLimit(inv, maxSet)
-  ok()
+  return ok()
 
 proc readContentType(httpResp: httpclient.Response): string =
   ## Reads the Content-Type header, returning empty string on failure.
   try:
     {.cast(raises: [CatchableError]).}:
-      httpResp.contentType.toLowerAscii
+      return httpResp.contentType.toLowerAscii
   except CatchableError:
-    ""
+    return ""
 
 proc tryParseProblemDetails(body: string): Opt[ClientError] =
   ## Attempts to parse RFC 7807 problem details from a response body.
@@ -308,7 +308,7 @@ proc tryParseProblemDetails(body: string): Opt[ClientError] =
           return Opt.some(clientError(reqErrResult.get()))
   except CatchableError:
     discard
-  Opt.none(ClientError)
+  return Opt.none(ClientError)
 
 proc classifyHttpResponse(
     maxResponseBytes: int, httpResp: httpclient.Response, context: RequestContext
@@ -363,7 +363,7 @@ proc classifyHttpResponse(
       transportError(tekNetwork, "unexpected Content-Type from " & $context & ": " & ct)
     return err(clientError(te))
 
-  parseJsonBody(body, context)
+  return parseJsonBody(body, context)
 
 proc setSessionForTest*(client: var JmapClient, session: Session) =
   ## Injects a cached session for testing purposes. Enables pure tests
@@ -394,7 +394,7 @@ proc fetchSession*(client: var JmapClient): JmapResult[Session] =
     )
   let s = ?session
   client.session = Opt.some(s)
-  ok(s)
+  return ok(s)
 
 proc send*(client: var JmapClient, request: Request): JmapResult[envelope.Response] =
   ## Serialises a JMAP Request, POSTs to the server's apiUrl, and
@@ -449,10 +449,10 @@ proc send*(client: var JmapClient, request: Request): JmapResult[envelope.Respon
       return err(clientError(reqErr))
 
   # Step 9: Deserialise Response
-  envelope.Response.fromJson(respJson).mapErr(
-    proc(ve: ValidationError): ClientError =
-      validationToClientErrorCtx(ve, "invalid response: ")
-  )
+  return envelope.Response.fromJson(respJson).mapErr(
+      proc(ve: ValidationError): ClientError =
+        validationToClientErrorCtx(ve, "invalid response: ")
+    )
 
 func isSessionStale*(client: JmapClient, response: envelope.Response): bool =
   ## Compares ``response.sessionState`` with the cached ``Session.state``.
@@ -461,7 +461,7 @@ func isSessionStale*(client: JmapClient, response: envelope.Response): bool =
   ## Pure — no IO, no mutation.
   let s = client.session.valueOr:
     return false
-  s.state != response.sessionState
+  return s.state != response.sessionState
 
 proc refreshSessionIfStale*(
     client: var JmapClient, response: envelope.Response
@@ -473,7 +473,7 @@ proc refreshSessionIfStale*(
     let s = ?client.fetchSession()
     discard s
     return ok(true)
-  ok(false)
+  return ok(false)
 
 proc send*(
     client: var JmapClient, builder: RequestBuilder
@@ -482,4 +482,4 @@ proc send*(
   ## Equivalent to ``client.send(builder.build())``.
   ## This is the imperative shell boundary where the functional core
   ## (builder) meets IO.
-  client.send(builder.build())
+  return client.send(builder.build())

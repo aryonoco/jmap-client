@@ -27,7 +27,7 @@ type ValidationError* = object
 
 func validationError*(typeName, message, value: string): ValidationError =
   ## Constructs a ValidationError value for use on the error rail.
-  ValidationError(typeName: typeName, message: message, value: value)
+  return ValidationError(typeName: typeName, message: message, value: value)
 
 template defineStringDistinctOps*(T: typedesc) =
   ## Borrows standard operations for a ``distinct string`` type: equality,
@@ -62,7 +62,7 @@ func validateServerAssignedToken*(
     return err(validationError(typeName, "length must be 1-255 octets", raw))
   if raw.anyIt(it < ' ' or it == '\x7F'):
     return err(validationError(typeName, "contains control characters", raw))
-  ok()
+  return ok()
 
 const Base64UrlChars* = {'A' .. 'Z', 'a' .. 'z', '0' .. '9', '-', '_'}
   ## Characters permitted in RFC 8620 §1.2 entity identifiers.

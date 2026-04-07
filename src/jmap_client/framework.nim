@@ -22,7 +22,7 @@ func parsePropertyName*(raw: string): Result[PropertyName, ValidationError] =
   ## Validates and constructs a PropertyName. Rejects empty strings.
   if raw.len == 0:
     return err(validationError("PropertyName", "must not be empty", raw))
-  ok(PropertyName(raw))
+  return ok(PropertyName(raw))
 
 type FilterOperator* = enum
   ## RFC 8620 §5.5 filter composition operators.
@@ -46,11 +46,11 @@ type Filter*[C] = object
 
 func filterCondition*[C](cond: C): Filter[C] =
   ## Wraps a condition value as a leaf filter node.
-  Filter[C](kind: fkCondition, condition: cond)
+  return Filter[C](kind: fkCondition, condition: cond)
 
 func filterOperator*[C](op: FilterOperator, conditions: seq[Filter[C]]): Filter[C] =
   ## Composes child filters under a boolean operator (AND, OR, NOT).
-  Filter[C](kind: fkOperator, operator: op, conditions: conditions)
+  return Filter[C](kind: fkOperator, operator: op, conditions: conditions)
 
 type Comparator* = object
   ## Sort criterion for /query requests (RFC 8620 §5.5). Determines the sort order
@@ -65,7 +65,7 @@ type Comparator* = object
 
 func property*(c: Comparator): PropertyName =
   ## Returns the validated property name for this comparator.
-  PropertyName(c.rawProperty)
+  return PropertyName(c.rawProperty)
 
 func parseComparator*(
     property: PropertyName,
@@ -73,7 +73,7 @@ func parseComparator*(
     collation: Opt[string] = Opt.none(string),
 ): Comparator =
   ## Constructs a Comparator. Infallible given a valid PropertyName.
-  Comparator(
+  return Comparator(
     rawProperty: string(property), isAscending: isAscending, collation: collation
   )
 
@@ -84,7 +84,7 @@ func len*(p: PatchObject): int {.borrow.} ## Returns the number of entries in th
 
 func emptyPatch*(): PatchObject =
   ## Creates an empty PatchObject with no entries.
-  PatchObject(initTable[string, JsonNode]())
+  return PatchObject(initTable[string, JsonNode]())
 
 func setProp*(
     patch: PatchObject, path: string, value: JsonNode
@@ -94,7 +94,7 @@ func setProp*(
     return err(validationError("PatchObject", "path must not be empty", ""))
   var t = Table[string, JsonNode](patch)
   t[path] = value
-  ok(PatchObject(t))
+  return ok(PatchObject(t))
 
 func deleteProp*(
     patch: PatchObject, path: string
@@ -104,15 +104,14 @@ func deleteProp*(
     return err(validationError("PatchObject", "path must not be empty", ""))
   var t = Table[string, JsonNode](patch)
   t[path] = newJNull()
-  ok(PatchObject(t))
+  return ok(PatchObject(t))
 
 func getKey*(patch: PatchObject, key: string): Opt[JsonNode] =
   ## Returns the value at key, or none if absent.
   let t = Table[string, JsonNode](patch)
   if t.hasKey(key):
-    Opt.some(t.getOrDefault(key))
-  else:
-    Opt.none(JsonNode)
+    return Opt.some(t.getOrDefault(key))
+  return Opt.none(JsonNode)
 
 type AddedItem* = object
   ## An item added to query results at a specific position (RFC 8620 §5.6).
@@ -125,8 +124,8 @@ type AddedItem* = object
 
 func id*(item: AddedItem): Id =
   ## Returns the validated item identifier.
-  Id(item.rawId)
+  return Id(item.rawId)
 
 func initAddedItem*(id: Id, index: UnsignedInt): AddedItem =
   ## Constructs an AddedItem. Infallible given validated Id and UnsignedInt.
-  AddedItem(rawId: string(id), index: index)
+  return AddedItem(rawId: string(id), index: index)
