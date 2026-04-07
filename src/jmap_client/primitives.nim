@@ -57,6 +57,18 @@ const
 
 const AsciiDigits = {'0' .. '9'}
 
+func allDigits(raw: string, first, last: int): bool =
+  ## Checks that raw[first..last] are all ASCII digits.
+  if first < 0 or last >= raw.len:
+    false
+  else:
+    var res = true
+    for i in first .. last:
+      if raw[i] notin AsciiDigits:
+        res = false
+        break
+    res
+
 func parseId*(raw: string): Result[Id, ValidationError] =
   ## Strict: 1-255 octets, base64url charset only.
   ## For client-constructed IDs (e.g., method call IDs used as creation IDs).
@@ -104,75 +116,97 @@ func parseMaxChanges*(raw: UnsignedInt): Result[MaxChanges, ValidationError] =
 
 func validateDatePortion(raw: string): Result[void, ValidationError] =
   ## YYYY-MM-DD at positions 0..9.
-  if not (
-    raw[0 .. 3].allIt(it in AsciiDigits) and raw[4] == '-' and
-    raw[5 .. 6].allIt(it in AsciiDigits) and raw[7] == '-' and
-    raw[8 .. 9].allIt(it in AsciiDigits)
+  if raw.len < 10:
+    err(validationError("Date", "invalid date portion", raw))
+  elif not (
+    allDigits(raw, 0, 3) and raw[4] == '-' and allDigits(raw, 5, 6) and raw[7] == '-' and
+    allDigits(raw, 8, 9)
   ):
-    return err(validationError("Date", "invalid date portion", raw))
-  ok()
+    err(validationError("Date", "invalid date portion", raw))
+  else:
+    ok()
 
 func validateTimePortion(raw: string): Result[void, ValidationError] =
   ## HH:MM:SS at positions 11..18, with uppercase 'T' separator at 10.
-  if raw[10] != 'T':
-    return err(validationError("Date", "'T' separator must be uppercase", raw))
-  if not (
-    raw[11 .. 12].allIt(it in AsciiDigits) and raw[13] == ':' and
-    raw[14 .. 15].allIt(it in AsciiDigits) and raw[16] == ':' and
-    raw[17 .. 18].allIt(it in AsciiDigits)
+  if raw.len < 19:
+    err(validationError("Date", "invalid time portion", raw))
+  elif raw[10] != 'T':
+    err(validationError("Date", "'T' separator must be uppercase", raw))
+  elif not (
+    allDigits(raw, 11, 12) and raw[13] == ':' and allDigits(raw, 14, 15) and
+    raw[16] == ':' and allDigits(raw, 17, 18)
   ):
-    return err(validationError("Date", "invalid time portion", raw))
-  if raw.anyIt(it in {'t', 'z'}):
-    return err(validationError("Date", "'T' and 'Z' must be uppercase (RFC 3339)", raw))
-  ok()
+    err(validationError("Date", "invalid time portion", raw))
+  elif raw.anyIt(it in {'t', 'z'}):
+    err(validationError("Date", "'T' and 'Z' must be uppercase (RFC 3339)", raw))
+  else:
+    ok()
 
 func validateFractionalSeconds(raw: string): Result[void, ValidationError] =
   ## If a '.' follows position 19, digits must follow and not all be zero.
-  if raw.len > 19 and raw[19] == '.':
-    let dotEnd = block:
-      var i = 20
-      while i < raw.len and raw[i] in AsciiDigits:
-        inc i
-      i
-    if dotEnd == 20:
-      return err(
-        validationError(
-          "Date", "fractional seconds must contain at least one digit", raw
+  if raw.len > 19:
+    if raw[19] == '.':
+      let dotEnd = block:
+        var i = 20
+        while i < raw.len:
+          if raw[i] notin AsciiDigits:
+            break
+          inc i
+        i
+      if dotEnd == 20:
+        return err(
+          validationError(
+            "Date", "fractional seconds must contain at least one digit", raw
+          )
         )
-      )
-    if raw[20 ..< dotEnd].allIt(it == '0'):
-      return
-        err(validationError("Date", "zero fractional seconds must be omitted", raw))
+      var allZero = true
+      for i in 20 ..< min(dotEnd, raw.len):
+        if raw[i] != '0':
+          allZero = false
+          break
+      if allZero:
+        return
+          err(validationError("Date", "zero fractional seconds must be omitted", raw))
   ok()
 
 func offsetStart(raw: string): int =
   ## Returns the position where the timezone offset begins (after fractional
   ## seconds, if any).
-  result = 19
-  if result < raw.len and raw[result] == '.':
-    inc result
-    while result < raw.len and raw[result] in AsciiDigits:
-      inc result
+  if raw.len <= 19:
+    19
+  elif raw[19] != '.':
+    19
+  else:
+    var pos = 20
+    while pos < raw.len:
+      if raw[pos] notin AsciiDigits:
+        break
+      inc pos
+    pos
 
 func isValidNumericOffset(raw: string, pos: int): bool =
   ## Checks that raw[pos..pos+5] matches +HH:MM or -HH:MM structurally.
-  pos + 6 == raw.len and raw[pos + 1] in AsciiDigits and raw[pos + 2] in AsciiDigits and
-    raw[pos + 3] == ':' and raw[pos + 4] in AsciiDigits and raw[pos + 5] in AsciiDigits
+  if pos < 0 or raw.len < pos + 6:
+    false
+  else:
+    pos + 6 == raw.len and raw[pos + 1] in AsciiDigits and raw[pos + 2] in AsciiDigits and
+      raw[pos + 3] == ':' and raw[pos + 4] in AsciiDigits and raw[pos + 5] in AsciiDigits
 
 func validateTimezoneOffset(raw: string): Result[void, ValidationError] =
   ## Validates timezone offset after seconds and optional fractional seconds.
   ## Must be 'Z' or '+HH:MM' or '-HH:MM'.
   let pos = offsetStart(raw)
-  if pos >= raw.len:
-    return err(validationError("Date", "missing timezone offset", raw))
-  if raw[pos] == 'Z':
+  if pos < 0 or pos >= raw.len:
+    err(validationError("Date", "missing timezone offset", raw))
+  elif raw[pos] == 'Z':
     if pos + 1 != raw.len:
-      return err(validationError("Date", "trailing characters after 'Z'", raw))
-    return ok()
-  if raw[pos] notin {'+', '-'} or not isValidNumericOffset(raw, pos):
-    return
-      err(validationError("Date", "timezone offset must be 'Z' or '+/-HH:MM'", raw))
-  ok()
+      err(validationError("Date", "trailing characters after 'Z'", raw))
+    else:
+      ok()
+  elif raw[pos] notin {'+', '-'} or not isValidNumericOffset(raw, pos):
+    err(validationError("Date", "timezone offset must be 'Z' or '+/-HH:MM'", raw))
+  else:
+    ok()
 
 func parseDate*(raw: string): Result[Date, ValidationError] =
   ## Structural validation of an RFC 3339 date-time string.
@@ -184,13 +218,16 @@ func parseDate*(raw: string): Result[Date, ValidationError] =
   ?validateTimePortion(raw)
   ?validateFractionalSeconds(raw)
   ?validateTimezoneOffset(raw)
-  doAssert raw.len >= 20 and raw[10] == 'T'
+  doAssert raw.len >= 20
   ok(Date(raw))
 
 func parseUtcDate*(raw: string): Result[UTCDate, ValidationError] =
   ## All Date validation rules, plus: must end with 'Z'.
   discard ?parseDate(raw)
-  if raw[^1] != 'Z':
-    return err(validationError("UTCDate", "time-offset must be 'Z'", raw))
-  doAssert raw[^1] == 'Z'
-  ok(UTCDate(raw))
+  if raw.len < 20:
+    err(validationError("UTCDate", "too short for RFC 3339 date-time", raw))
+  elif raw[^1] != 'Z':
+    err(validationError("UTCDate", "time-offset must be 'Z'", raw))
+  else:
+    doAssert raw[^1] == 'Z'
+    ok(UTCDate(raw))

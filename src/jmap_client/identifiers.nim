@@ -75,9 +75,10 @@ func parseMethodCallId*(raw: string): Result[MethodCallId, ValidationError] =
 
 func parseCreationId*(raw: string): Result[CreationId, ValidationError] =
   ## Non-empty. Must not start with '#' (the prefix is a wire-format concern).
-  if raw.len == 0:
-    return err(validationError("CreationId", "must not be empty", raw))
-  if raw[0] == '#':
-    return err(validationError("CreationId", "must not include '#' prefix", raw))
-  doAssert raw.len > 0 and raw[0] != '#'
-  ok(CreationId(raw))
+  if raw.len < 1:
+    err(validationError("CreationId", "must not be empty", raw))
+  elif raw[0] == '#':
+    err(validationError("CreationId", "must not include '#' prefix", raw))
+  else:
+    doAssert raw.len > 0
+    ok(CreationId(raw))
