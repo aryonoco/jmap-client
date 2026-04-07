@@ -13,6 +13,7 @@ system.switch("path", system.thisDir() & "/src")
 # testament, or nim check.
 
 # Memory management — ARC for FFI shared library safety
+
 system.switch("mm", "arc")
 
 # Threading
@@ -123,12 +124,6 @@ system.switch("warningAsError", "UnusedImportdoc")
 # --- Meta ---
 system.switch("warningAsError", "User")
 
-# Off-by-default warnings NOT enabled (rationale):
-#   ImplicitRangeConversion — fires inside stdlib (system/indices.nim); unfixable
-#   ProveField / ProveIndex — experimental, extremely noisy
-#   GcUnsafe — fires from proc callback parameters in generics; GcUnsafe2 suffices
-#   ResultUsed — requires `discard` on every function return value
-
 # Hints as errors
 system.switch("hintAsError", "DuplicateModuleImport")
 
@@ -147,9 +142,38 @@ system.switch("rangeChecks", "on")
 system.switch("fieldChecks", "on")
 system.switch("assertions", "on")
 
-# staticBoundChecks intentionally omitted: fires inside stdlib
-# (system/indices.nim, collections/tables.nim); unfixable
+# =============================================================================
+# Intentionally omitted — each fires in stdlib or dependencies, unfixable
+# =============================================================================
 
-# strictNotNil intentionally omitted: generic/template instantiation from
-# stdlib (Option[T], seq, Table) fires inside user modules even with
-# per-module {.experimental: "strictNotNil".} pragmas; unfixable in Nim 2.2
+# --- Warnings NOT promoted to errors ---
+#
+#   ResultUsed — warns when the implicit `result` variable is used instead
+#     of explicit `return`. All project code uses explicit returns, but
+#     nim-results (ok/err/? operator internals) and stdlib (sequtils, hashes)
+#     use implicit `result` pervasively in templates that expand inside our
+#     modules. Enabling would require patching upstream.
+#
+#   ImplicitRangeConversion — fires inside stdlib (system/indices.nim) on
+#     range-type index operations. Cannot be suppressed from user code.
+#
+#   ProveField — experimental dataflow analysis for case-object field access.
+#     Extremely noisy; fires on valid patterns in both project and stdlib code.
+#
+#   ProveIndex — experimental dataflow analysis for array/seq indexing.
+#     Extremely noisy; fires on valid patterns in both project and stdlib code.
+#
+#   GcUnsafe — fires from proc callback parameters in generic functions
+#     (hidden pointer indirection). GcUnsafe2 covers real GC-safety issues
+#     without false-positiving on callback signatures.
+
+# --- Experimental features NOT enabled ---
+#
+#   staticBoundChecks — compile-time array/seq bounds proving. Fires inside
+#     stdlib (system/indices.nim, collections/tables.nim) on internal index
+#     arithmetic. Cannot be suppressed from user code.
+#
+#   strictNotNil — compile-time nil safety. Generic/template instantiation
+#     from stdlib (Option[T], seq, Table) fires inside user modules even
+#     with per-module {.experimental: "strictNotNil".} pragmas. Unfixable
+#     in Nim 2.2.
