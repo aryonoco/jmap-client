@@ -24,7 +24,7 @@ plug into that infrastructure.
 8. [Email Type and Creation Type](#8-email-type-and-creation-type)
 9. [Entity-Specific Builder Overloads](#9-entity-specific-builder-overloads)
 10. [Custom Methods](#10-custom-methods)
-11. [EmailSubmission Compound Handles](#11-emailsubmission-compound-handles)
+11. [Compound Handles](#11-compound-handles)
 12. [Filter Conditions](#12-filter-conditions)
 13. [Per-Entity Summary](#13-per-entity-summary)
 
@@ -1035,9 +1035,30 @@ proc addEmailQuery*(b: var RequestBuilder,
 **Email/queryChanges → `addEmailQueryChanges`:**
 Adds `collapseThreads` to standard `/queryChanges` parameters.
 
+**Email/copy → `addEmailCopy` / `addEmailCopyChained`:**
+Adds `onSuccessDestroyOriginal` and `destroyFromIfInState` to standard `/copy`
+parameters. `addEmailCopyChained` returns `EmailCopyHandles` — see §11.10 for
+compound handle details.
+
 **Mailbox/changes → `addMailboxChanges`:**
 Returns `ResponseHandle[MailboxChangesResponse]` with the extra
 `updatedProperties: Opt[seq[string]]` field.
+
+**Mailbox/set → `addMailboxSet`:**
+```nim
+func addMailboxSet*(b: var RequestBuilder,
+    accountId: AccountId,
+    ifInState: Opt[JmapState] = ...,
+    create: Opt[Table[CreationId, Mailbox]] = ...,
+    update: Opt[Table[Id, PatchObject]] = ...,
+    destroy: Opt[seq[Id]] = ...,
+    onDestroyRemoveEmails: bool = false,
+): ResponseHandle[SetResponse[Mailbox]]
+```
+
+`onDestroyRemoveEmails` (RFC 8621 §2.5): when `true`, emails solely in a
+destroyed mailbox are also destroyed. When `false` (default), the server
+returns a `mailboxHasEmail` SetError for non-empty mailboxes.
 
 **VacationResponse/set → `addVacationResponseSet`:**
 ```nim
@@ -1153,6 +1174,7 @@ type EmailParseResponse* = object
   accountId*: AccountId
   parsed*: Opt[Table[Id, ParsedEmail]]    # blobId → ParsedEmail (not Email)
   notParseable*: Opt[seq[Id]]
+  notFound*: Opt[seq[Id]]                 # blobIds not found on the server
 ```
 
 **Builder:** `addEmailParse(b, accountId, blobIds, ...) → ResponseHandle[EmailParseResponse]`
@@ -1210,16 +1232,24 @@ Across all three custom methods:
 
 ---
 
-## 11. EmailSubmission Compound Handles
+## 11. Compound Handles
 
 ### 11.1. Decision
 
-`addEmailSubmissionSet` has two overloads distinguished by name:
+Two methods produce implicit `Email/set` responses alongside their primary
+response, requiring compound handles:
+
+**EmailSubmission/set:** Two overloads distinguished by name:
 - `addEmailSubmissionSet` — standard `/set`, returns single handle
 - `addEmailSubmissionSetChained` — with `onSuccess*` parameters, returns
   compound handles
 
-The compound handle follows the pattern established by `QueryGetHandles[T]`
+**Email/copy:** Two overloads distinguished by name (§11.10):
+- `addEmailCopy` — standard `/copy`, returns single handle
+- `addEmailCopyChained` — with `onSuccessDestroyOriginal`, returns compound
+  handles
+
+Both follow the compound handle pattern established by `QueryGetHandles[T]`
 in the convenience layer.
 
 ### 11.2. Options Analysed
@@ -1332,11 +1362,48 @@ responses exist. Total over all possible response shapes.
 
 ### 11.9. DRY Consideration
 
-`EmailSubmissionSetHandles`/`getBoth` follows the exact pattern of
-`QueryGetHandles[T]`/`getBoth`. If this compound-handle pattern appears a
-third time, consider whether a generic `CompoundHandles[A, B]` with a generic
-`getBoth` would eliminate per-pattern boilerplate. Two instances is acceptable
-duplication; three warrants abstraction.
+Three compound-handle types now exist: `QueryGetHandles[T]` (convenience
+layer), `EmailSubmissionSetHandles` (§11.3), and `EmailCopyHandles` (§11.10).
+Evaluate during implementation whether the three instances share enough
+structure to justify a generic `CompoundHandles[A, B]` with a generic
+`getBoth`.
+
+### 11.10. Email/copy Compound Handle
+
+RFC 8621 §4.7 defines `onSuccessDestroyOriginal: bool` on `Email/copy`. When
+`true`, the server destroys the original in the source account after successful
+copy and produces an implicit `Email/set` destroy response with the same method
+call id.
+
+```nim
+type EmailCopyHandles* = object
+  copy*: ResponseHandle[CopyResponse[Email]]
+  implicitEmailSet*: ResponseHandle[SetResponse[Email]]
+
+type EmailCopyResults* = object
+  copy*: CopyResponse[Email]
+  emailSet*: SetResponse[Email]
+```
+
+Two overloads, same pattern as EmailSubmission (§11.4–11.5):
+
+- `addEmailCopy` — standard `/copy` with `onSuccessDestroyOriginal` defaulting
+  to `false`, returns `ResponseHandle[CopyResponse[Email]]`
+- `addEmailCopyChained` — always sets `onSuccessDestroyOriginal: true`, returns
+  `EmailCopyHandles`
+
+`addEmailCopyChained` adds `destroyFromIfInState: Opt[JmapState]` (state
+assertion for the source account destroy). Both overloads add the standard
+`Email/copy` parameters (`fromAccountId`, `ifFromInState`, `ifInState`,
+`create`).
+
+`getBoth` extracts both responses, handling the absent implicit response case
+(all copies failed). Response location uses method name dispatch (§11.7).
+
+**Principles:**
+- **DDD** — Different function names for different domain operations.
+- **Make illegal states unrepresentable** — The chained overload always destroys
+  the original. The return type tells you there are two responses to handle.
 
 ---
 
@@ -1527,7 +1594,7 @@ Quick reference for each entity's methods, key properties, and design notes.
 | Key sub-types | `MailboxRights` (9 boolean fields), `MailboxIdSet` (distinct `HashSet[Id]`) |
 | Filter conditions | `MailboxFilterCondition` — `parentId`, `name`, `role`, `hasAnyRole`, `isSubscribed` |
 | Sort properties | `sortOrder`, `name` |
-| Builder overloads | `addMailboxQuery` (sortAsTree, filterAsTree), `addMailboxChanges` (returns `MailboxChangesResponse`) |
+| Builder overloads | `addMailboxQuery` (sortAsTree, filterAsTree), `addMailboxChanges` (returns `MailboxChangesResponse`), `addMailboxSet` (onDestroyRemoveEmails) |
 | Roles | From IANA registry, lowercase. One role per mailbox, one mailbox per role per account. |
 | Design notes | `MailboxIdSet` on Email uses same set pattern as `KeywordSet`. Mailbox roles are strings (not enum) since the registry is open-ended. |
 
@@ -1547,11 +1614,11 @@ Quick reference for each entity's methods, key properties, and design notes.
 |--------|--------|
 | Module | `email.nim` |
 | Types | `Email` (read model), `ParsedEmail` (blob-backed), `EmailBlueprint` (creation) |
-| Methods | `/get` (extra: body fetch options), `/changes`, `/query` (extra: `collapseThreads`), `/queryChanges` (extra: `collapseThreads`), `/set`, `/copy`, `/import`, `/parse` |
+| Methods | `/get` (extra: body fetch options), `/changes`, `/query` (extra: `collapseThreads`), `/queryChanges` (extra: `collapseThreads`), `/set`, `/copy` (extra: `onSuccessDestroyOriginal`), `/import`, `/parse` |
 | Key sub-types | `EmailAddress`, `EmailAddressGroup`, `EmailHeader`, `HeaderPropertyKey`, `HeaderValue`, `EmailBodyPart`, `EmailBodyValue`, `PartId`, `KeywordSet`, `MailboxIdSet` |
 | Filter conditions | `EmailFilterCondition` — 19 fields including thread-keyword filters, header filter |
 | Sort properties | `receivedAt` (must), `size`, `from`, `to`, `subject`, `sentAt`, `hasKeyword`, `allInThreadHaveKeyword`, `someInThreadHaveKeyword` (should) |
-| Builder overloads | `addEmailGet`, `addEmailQuery`, `addEmailQueryChanges` |
+| Builder overloads | `addEmailGet`, `addEmailQuery`, `addEmailQueryChanges`, `addEmailCopy`/`addEmailCopyChained` (compound handle, §11.10) |
 | Custom methods | `addEmailImport`, `addEmailParse` |
 | Mutability | Only `mailboxIds` and `keywords` mutable after creation |
 | Design notes | Most complex entity. Three distinct types for read/parse/create models. Body-kind case discriminant on blueprint. |
@@ -1626,3 +1693,5 @@ Quick reference for each entity's methods, key properties, and design notes.
 | 20 | UndoStatus | String vs enum | Enum in `submission.nim` | Make illegal states unrepresentable, DDD |
 | 21 | Filter conditions as smart-constructed | Smart constructors vs plain construction | Plain construction (value objects, not entities). Exception: `EmailHeaderFilter` | DDD (value objects), ROP |
 | 22 | Opt[Opt[T]] for null-filterable fields | Opt[T] vs Opt[Opt[T]] vs sentinel | `Opt[Opt[T]]` | Make illegal states unrepresentable |
+| 23 | Mailbox/set builder overload | Generic /set vs entity-specific with onDestroyRemoveEmails | `addMailboxSet` with extra param | DDD, Make illegal states unrepresentable |
+| 24 | Email/copy compound handle | Single handle vs compound (same as §11) | `addEmailCopy`/`addEmailCopyChained` | DDD, Make illegal states unrepresentable |
