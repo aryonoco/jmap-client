@@ -24,6 +24,7 @@ system.switch("panics", "on")
 
 # Experimental type safety
 system.switch("experimental", "strictDefs")
+system.switch("experimental", "strictEffects")
 
 # styleCheck:error intentionally omitted: test files use underscored block names
 # (rfc8620_S1_2_..., regression_2026_03_...) as a deliberate naming convention
@@ -187,10 +188,6 @@ system.switch("assertions", "on")
 #     from stdlib (Option[T], seq, Table) fires inside user modules even
 #     with per-module {.experimental: "strictNotNil".} pragmas. Unfixable
 #     in Nim 2.2.
-#
-#   strictEffects — stricter effect tracking for `raises` and `tags`.
-#     Already effectively covered by {.push raises: [].} on every module.
-#     Enabling adds no value beyond what the project already enforces.
 #
 #   strictCaseObjects — compile-time field-access validity for case objects.
 #     Every field access is checked against the discriminator at compile time.

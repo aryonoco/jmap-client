@@ -20,6 +20,8 @@ srcDir = "src"
 # Type safety
 --experimental:
   strictDefs
+--experimental:
+  strictEffects
 --threads:
   on
 
