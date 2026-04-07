@@ -79,6 +79,32 @@ func findInvocation(resp: Response, targetId: MethodCallId): Opt[Invocation] =
       return Opt.some(inv)
   Opt.none(Invocation)
 
+func extractInvocation(
+    resp: Response, targetId: MethodCallId
+): Result[Invocation, MethodError] =
+  ## Finds and validates an invocation: returns the invocation for normal
+  ## responses, or an appropriate MethodError for missing/error responses.
+  let matchOpt = findInvocation(resp, targetId)
+  if matchOpt.isNone:
+    return err(
+      methodError(
+        rawType = "serverFail",
+        description = Opt.some("no response for call ID " & $targetId),
+      )
+    )
+  let inv = matchOpt.get()
+  if inv.name == "error":
+    let meResult = MethodError.fromJson(inv.arguments)
+    if meResult.isOk:
+      return err(meResult.get())
+    return err(
+      methodError(
+        rawType = "serverFail",
+        description = Opt.some("malformed error response for call ID " & $targetId),
+      )
+    )
+  ok(inv)
+
 # =============================================================================
 # get[T] — default extraction via mixin fromJson
 # =============================================================================
@@ -94,32 +120,8 @@ proc get*[T](resp: Response, handle: ResponseHandle[T]): Result[T, MethodError] 
   ## 4. Otherwise → call T.fromJson(arguments) via mixin.
   ##    ok → return ok. err(ValidationError) → convert to MethodError.
   mixin fromJson
-  let targetId = callId(handle)
-  let matchOpt = findInvocation(resp, targetId)
-  if matchOpt.isNone:
-    return err(
-      methodError(
-        rawType = "serverFail",
-        description = Opt.some("no response for call ID " & $targetId),
-      )
-    )
-  let matchedInv = matchOpt.get()
-  # Detect method-level error response (RFC 8620 section 3.6.2)
-  if matchedInv.name == "error":
-    let meResult = MethodError.fromJson(matchedInv.arguments)
-    if meResult.isOk:
-      return err(meResult.get())
-    return err(
-      methodError(
-        rawType = "serverFail",
-        description = Opt.some("malformed error response for call ID " & $targetId),
-      )
-    )
-  # Parse via mixin-resolved fromJson
-  let parseResult = T.fromJson(matchedInv.arguments)
-  if parseResult.isOk:
-    return ok(parseResult.get())
-  err(validationToMethodError(parseResult.error()))
+  let inv = ?extractInvocation(resp, callId(handle))
+  T.fromJson(inv.arguments).mapErr(validationToMethodError)
 
 # =============================================================================
 # get[T] — callback overload (escape hatch)
@@ -134,30 +136,8 @@ proc get*[T](
   ## Extracts a typed response using a caller-supplied parsing callback.
   ## For custom parsing where ``T.fromJson`` is not discoverable via mixin
   ## (e.g., entity-specific extractors or JsonNode for Core/echo).
-  let targetId = callId(handle)
-  let matchOpt = findInvocation(resp, targetId)
-  if matchOpt.isNone:
-    return err(
-      methodError(
-        rawType = "serverFail",
-        description = Opt.some("no response for call ID " & $targetId),
-      )
-    )
-  let matchedInv = matchOpt.get()
-  if matchedInv.name == "error":
-    let meResult = MethodError.fromJson(matchedInv.arguments)
-    if meResult.isOk:
-      return err(meResult.get())
-    return err(
-      methodError(
-        rawType = "serverFail",
-        description = Opt.some("malformed error response for call ID " & $targetId),
-      )
-    )
-  let parseResult = fromArgs(matchedInv.arguments)
-  if parseResult.isOk:
-    return ok(parseResult.get())
-  err(validationToMethodError(parseResult.error()))
+  let inv = ?extractInvocation(resp, callId(handle))
+  fromArgs(inv.arguments).mapErr(validationToMethodError)
 
 # =============================================================================
 # Reference construction — generic escape hatch

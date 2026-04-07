@@ -64,33 +64,11 @@ func parseCapabilityKind*(uri: string): CapabilityKind =
 func capabilityUri*(kind: CapabilityKind): Opt[string] =
   ## Returns the IANA-registered URI for a known capability.
   ## Returns none for ckUnknown — callers must use rawUri from ServerCapability.
-  case kind
-  of ckCore:
-    Opt.some("urn:ietf:params:jmap:core")
-  of ckMail:
-    Opt.some("urn:ietf:params:jmap:mail")
-  of ckSubmission:
-    Opt.some("urn:ietf:params:jmap:submission")
-  of ckVacationResponse:
-    Opt.some("urn:ietf:params:jmap:vacationresponse")
-  of ckWebsocket:
-    Opt.some("urn:ietf:params:jmap:websocket")
-  of ckMdn:
-    Opt.some("urn:ietf:params:jmap:mdn")
-  of ckSmimeVerify:
-    Opt.some("urn:ietf:params:jmap:smimeverify")
-  of ckBlob:
-    Opt.some("urn:ietf:params:jmap:blob")
-  of ckQuota:
-    Opt.some("urn:ietf:params:jmap:quota")
-  of ckContacts:
-    Opt.some("urn:ietf:params:jmap:contacts")
-  of ckCalendars:
-    Opt.some("urn:ietf:params:jmap:calendars")
-  of ckSieve:
-    Opt.some("urn:ietf:params:jmap:sieve")
-  of ckUnknown:
+  ## Uses ``$`` on the string-backed enum, which returns the backing string.
+  if kind == ckUnknown:
     Opt.none(string)
+  else:
+    Opt.some($kind)
 
 func hasCollation*(caps: CoreCapabilities, algorithm: string): bool =
   ## Checks whether the server supports a given RFC 4790 collation algorithm.

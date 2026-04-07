@@ -3,13 +3,13 @@
 
 ## Pipeline combinators for common JMAP multi-method patterns.
 ##
-## This module is **NOT** re-exported by ``protocol.nim``. Users who want
+## This module should **NOT** be re-exported by ``protocol.nim``. Users who want
 ## pipeline combinators must explicitly ``import jmap_client/convenience``.
-## This physical separation (recommended by the OpenSSL/libgit2 analysis)
+## This physical separation
 ## keeps the core API surface in ``builder.nim`` and ``dispatch.nim`` frozen
-## while providing opt-in ergonomics.
+## while providing opt-in ergonomics (lessons from analysing OpenSSL/libgit2 )
 ##
-## **Naming convention.** Pipeline combinators use the ``add*`` prefix because
+## **Naming convention.** Pipeline combinators **MUST** use the ``add*`` prefix because
 ## they mutate the ``RequestBuilder`` (following the builder naming convention).
 ## Paired extraction uses ``getBoth`` (always exactly two handles).
 ##

@@ -36,19 +36,59 @@ type UriTemplate* = distinct string
 
 defineStringDistinctOps(UriTemplate)
 
-type Session* = object
+# nimalyzer: Session intentionally has no public fields. Fields are
+# module-private to enforce construction via parseSession (which guarantees
+# ckCore is present and apiUrl is non-empty). Public accessor funcs below
+# provide read access; UFCS makes s.field syntax work unchanged for callers.
+type Session* {.ruleOff: "objects".} = object
   ## The JMAP Session resource (RFC 8620 section 2). Contains server capabilities,
   ## user accounts, API endpoint URLs, and session state.
-  capabilities*: seq[ServerCapability] ## server-level capabilities
-  accounts*: Table[AccountId, Account] ## keyed by AccountId
-  primaryAccounts*: Table[string, AccountId]
-    ## keyed by raw capability URI (not CapabilityKind)
-  username*: string ## or empty string if none
-  apiUrl*: string ## URL for JMAP API requests
-  downloadUrl*: UriTemplate ## RFC 6570 Level 1 template
-  uploadUrl*: UriTemplate ## RFC 6570 Level 1 template
-  eventSourceUrl*: UriTemplate ## RFC 6570 Level 1 template
-  state*: JmapState ## session state token
+  ## Fields are module-private; external access via UFCS accessor funcs.
+  rawCapabilities: seq[ServerCapability]
+  rawAccounts: Table[AccountId, Account]
+  rawPrimaryAccounts: Table[string, AccountId]
+  rawUsername: string
+  rawApiUrl: string
+  rawDownloadUrl: UriTemplate
+  rawUploadUrl: UriTemplate
+  rawEventSourceUrl: UriTemplate
+  rawState: JmapState
+
+func capabilities*(s: Session): seq[ServerCapability] =
+  ## Server-level capabilities.
+  s.rawCapabilities
+
+func accounts*(s: Session): Table[AccountId, Account] =
+  ## Accounts keyed by AccountId.
+  s.rawAccounts
+
+func primaryAccounts*(s: Session): Table[string, AccountId] =
+  ## Primary accounts keyed by raw capability URI (not CapabilityKind).
+  s.rawPrimaryAccounts
+
+func username*(s: Session): string =
+  ## Authenticated username, or empty string if none.
+  s.rawUsername
+
+func apiUrl*(s: Session): string =
+  ## URL for JMAP API requests.
+  s.rawApiUrl
+
+func downloadUrl*(s: Session): UriTemplate =
+  ## RFC 6570 Level 1 template for blob downloads.
+  s.rawDownloadUrl
+
+func uploadUrl*(s: Session): UriTemplate =
+  ## RFC 6570 Level 1 template for uploads.
+  s.rawUploadUrl
+
+func eventSourceUrl*(s: Session): UriTemplate =
+  ## RFC 6570 Level 1 template for event source.
+  s.rawEventSourceUrl
+
+func state*(s: Session): JmapState =
+  ## Session state token.
+  s.rawState
 
 func findCapability*(
     account: Account, kind: CapabilityKind
@@ -151,25 +191,25 @@ func parseSession*(
         )
       )
   let session = Session(
-    capabilities: capabilities,
-    accounts: accounts,
-    primaryAccounts: primaryAccounts,
-    username: username,
-    apiUrl: apiUrl,
-    downloadUrl: downloadUrl,
-    uploadUrl: uploadUrl,
-    eventSourceUrl: eventSourceUrl,
-    state: state,
+    rawCapabilities: capabilities,
+    rawAccounts: accounts,
+    rawPrimaryAccounts: primaryAccounts,
+    rawUsername: username,
+    rawApiUrl: apiUrl,
+    rawDownloadUrl: downloadUrl,
+    rawUploadUrl: uploadUrl,
+    rawEventSourceUrl: eventSourceUrl,
+    rawState: state,
   )
-  doAssert session.capabilities.hasKind(ckCore)
-  doAssert session.apiUrl.len > 0
+  doAssert session.rawCapabilities.hasKind(ckCore)
+  doAssert session.rawApiUrl.len > 0
   ok(session)
 
 func coreCapabilities*(session: Session): CoreCapabilities =
   ## Returns the core capabilities. Total function (no Result) because
   ## parseSession guarantees ckCore is present. Raises AssertionDefect if
   ## the invariant is violated by direct construction.
-  for _, cap in session.capabilities:
+  for _, cap in session.rawCapabilities:
     case cap.kind
     of ckCore:
       return cap.core
@@ -179,7 +219,7 @@ func coreCapabilities*(session: Session): CoreCapabilities =
 
 func findCapability*(session: Session, kind: CapabilityKind): Opt[ServerCapability] =
   ## Finds the first server capability matching the given kind.
-  for _, cap in session.capabilities:
+  for _, cap in session.rawCapabilities:
     if cap.kind == kind:
       return Opt.some(cap)
   Opt.none(ServerCapability)
@@ -188,7 +228,7 @@ func findCapabilityByUri*(session: Session, uri: string): Opt[ServerCapability] 
   ## Looks up a server capability by its raw URI string. Use this instead of
   ## findCapability when looking up vendor extensions (which all map to ckUnknown
   ## and would be ambiguous via findCapability).
-  for _, cap in session.capabilities:
+  for _, cap in session.rawCapabilities:
     if cap.rawUri == uri:
       return Opt.some(cap)
   Opt.none(ServerCapability)
@@ -197,14 +237,14 @@ func primaryAccount*(session: Session, kind: CapabilityKind): Opt[AccountId] =
   ## Returns the primary account for a known capability kind.
   ## Returns none if kind == ckUnknown (no canonical URI) or no primary designated.
   let uri = ?capabilityUri(kind)
-  for key, val in session.primaryAccounts:
+  for key, val in session.rawPrimaryAccounts:
     if key == uri:
       return Opt.some(val)
   Opt.none(AccountId)
 
 func findAccount*(session: Session, id: AccountId): Opt[Account] =
   ## Looks up an account by its AccountId.
-  for key, val in session.accounts:
+  for key, val in session.rawAccounts:
     if key == id:
       return Opt.some(val)
   Opt.none(Account)

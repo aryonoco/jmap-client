@@ -109,6 +109,17 @@ func fromJson*(
 # SetError
 # =============================================================================
 
+func setErrorKnownKeys(errorType: SetErrorType): seq[string] =
+  ## Returns the set of known JSON keys for a given SetError variant.
+  ## Used by both toJson and fromJson to determine which keys belong in extras.
+  case errorType
+  of setInvalidProperties:
+    @["type", "description", "properties"]
+  of setAlreadyExists:
+    @["type", "description", "existingId"]
+  else:
+    @["type", "description"]
+
 func toJson*(se: SetError): JsonNode =
   ## Serialise SetError to JSON (RFC 8620 §5.3, §5.4).
   ## Extras with keys colliding with standard or variant-specific fields are
@@ -125,14 +136,7 @@ func toJson*(se: SetError): JsonNode =
   else:
     discard
   for extras in se.extras:
-    let knownKeys =
-      case se.errorType
-      of setInvalidProperties:
-        @["type", "description", "properties"]
-      of setAlreadyExists:
-        @["type", "description", "existingId"]
-      else:
-        @["type", "description"]
+    let knownKeys = setErrorKnownKeys(se.errorType)
     for key, val in extras.pairs:
       if key notin knownKeys:
         result[key] = val
@@ -151,14 +155,7 @@ func fromJson*(
   # Per-variant known keys: variant-specific fields are "known" only for
   # their own variant. Misplaced RFC fields on other variants are preserved
   # in extras rather than silently dropped (Decision 1.7C: lossless).
-  let knownKeys =
-    case errorType
-    of setInvalidProperties:
-      @["type", "description", "properties"]
-    of setAlreadyExists:
-      @["type", "description", "existingId"]
-    else:
-      @["type", "description"]
+  let knownKeys = setErrorKnownKeys(errorType)
   let extras = collectExtras(node, knownKeys)
   # Defensive fallback: dispatch to variant-specific constructors only
   # when variant data is present. Otherwise fall back to generic setError

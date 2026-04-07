@@ -84,7 +84,6 @@ type
     cekRequest
 
   ClientError* = object
-    message*: string
     case kind*: ClientErrorKind
     of cekTransport:
       transport*: TransportError
@@ -95,12 +94,10 @@ type
 ```nim
 func message*(err: ClientError): string =
   ## Human-readable message for any ClientError variant.
+  ## Resolves via UFCS — ``err.message`` calls this function.
   case err.kind
   of cekTransport: err.transport.message
-  of cekRequest:
-    err.request.detail.valueOr:
-      err.request.title.valueOr:
-        err.request.rawType
+  of cekRequest: err.request.message
   # Exhaustive — adding a new ClientErrorKind variant forces a compile error here
 ```
 

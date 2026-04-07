@@ -63,7 +63,6 @@ type RequestError* = object
   ## ``errorType`` is module-private — always derived from ``rawType`` via
   ## ``parseRequestErrorType``. This seals the consistency invariant:
   ## ``errorType`` and ``rawType`` cannot diverge.
-  message*: string ## human-readable error description
   errorType: RequestErrorType ## module-private; derived from rawType
   rawType*: string ## always populated — lossless round-trip
   status*: Opt[int] ## RFC 7807 "status" field
@@ -75,6 +74,12 @@ type RequestError* = object
 func errorType*(re: RequestError): RequestErrorType =
   ## Returns the parsed error type variant.
   re.errorType
+
+func message*(re: RequestError): string =
+  ## Human-readable message via cascade: detail > title > rawType.
+  re.detail.valueOr:
+    re.title.valueOr:
+      re.rawType
 
 func requestError*(
     rawType: string,
@@ -88,7 +93,6 @@ func requestError*(
   let re = RequestError(
     errorType: parseRequestErrorType(rawType),
     rawType: rawType,
-    message: rawType,
     status: status,
     title: title,
     detail: detail,
@@ -105,7 +109,6 @@ type ClientErrorKind* = enum
 
 type ClientError* = object
   ## Outer railway error: either a transport failure or a JMAP request rejection.
-  message*: string ## human-readable error description
   case kind*: ClientErrorKind
   of cekTransport:
     transport*: TransportError
@@ -114,21 +117,17 @@ type ClientError* = object
 
 func clientError*(transport: TransportError): ClientError =
   ## Lifts a transport failure into the outer railway.
-  ClientError(kind: cekTransport, transport: transport, message: transport.message)
+  ClientError(kind: cekTransport, transport: transport)
 
 func clientError*(request: RequestError): ClientError =
   ## Lifts a request rejection into the outer railway.
-  ClientError(kind: cekRequest, request: request, message: request.rawType)
+  ClientError(kind: cekRequest, request: request)
 
 func message*(err: ClientError): string =
   ## Human-readable message for any ClientError variant.
   case err.kind
-  of cekTransport:
-    err.transport.message
-  of cekRequest:
-    err.request.detail.valueOr:
-      err.request.title.valueOr:
-        err.request.rawType
+  of cekTransport: err.transport.message
+  of cekRequest: err.request.message
 
 type RequestContext* = enum
   ## Identifies the JMAP endpoint being processed. Used in error messages

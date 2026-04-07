@@ -192,9 +192,7 @@ func parseDate*(raw: string): Result[Date, ValidationError] =
 
 func parseUtcDate*(raw: string): Result[UTCDate, ValidationError] =
   ## All Date validation rules, plus: must end with 'Z'.
-  let dateResult = parseDate(raw)
-  if dateResult.isErr:
-    return err(dateResult.error)
+  discard ?parseDate(raw)
   if raw[^1] != 'Z':
     return err(validationError("UTCDate", "time-offset must be 'Z'", raw))
   doAssert raw[^1] == 'Z'
