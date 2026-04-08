@@ -32,9 +32,14 @@ traceability matrix, B1–B21) provide per-scenario coverage targets.
 Add the `defineHashSetDistinctOps` template to `validation.nim` alongside
 the existing `defineStringDistinctOps` and `defineIntDistinctOps`. The
 template takes two `typedesc` parameters (`T` for the distinct type, `E`
-for the element type) and borrows three read-only operations: `len`,
+for the element type) and provides three read-only operations: `len`,
 `contains`, `card`. No mutation operations — these are immutable read
-models (Decision B3).
+models (Decision B3). `len` and `card` use `{.borrow.}`. `contains`
+uses a manual implementation (`sets.contains(HashSet[E](s), e)`) because
+`{.borrow.}` unwraps both distinct types independently, causing a type
+mismatch when `E` is itself distinct. Add `import std/sets` to
+`validation.nim` (template non-parameter identifiers resolve at the
+definition site).
 
 Add the `QueryParams` value object to `framework.nim`. Five plain public
 fields: `position: JmapInt` (default `JmapInt(0)`), `anchor: Opt[Id]`

@@ -121,18 +121,32 @@ modification of existing types), DRY (shared infrastructure defined once).
 
 **Module:** `src/jmap_client/validation.nim`
 
-A new borrow template alongside the existing `defineStringDistinctOps` and
-`defineIntDistinctOps`. Borrows read-only operations for `distinct
+A new template alongside the existing `defineStringDistinctOps` and
+`defineIntDistinctOps`. Provides read-only operations for `distinct
 HashSet[T]` types.
 
 ```nim
 template defineHashSetDistinctOps*(T: typedesc, E: typedesc) =
-  ## Borrows standard read-only operations for a ``distinct HashSet``
-  ## type. T is the distinct type, E is the element type.
+  ## Read-only operations for a ``distinct HashSet`` type.
+  ## T is the distinct type, E is the element type.
   func len*(s: T): int {.borrow.}
-  func contains*(s: T, e: E): bool {.borrow.}
+  func contains*(s: T, e: E): bool =
+    sets.contains(HashSet[E](s), e)
   func card*(s: T): int {.borrow.}
 ```
+
+`len` and `card` use `{.borrow.}` (single-parameter, only the set type is
+unwrapped). `contains` requires a manual implementation because Nim's
+`{.borrow.}` unwraps *both* distinct type parameters independently — it
+peels `T → HashSet[E]` (correct) but also `E → base-of-E` (incorrect),
+producing a type mismatch when `E` is itself distinct (e.g.,
+`Keyword = distinct string` causes lookup for
+`contains(HashSet[Keyword], string)` which does not exist). The manual
+implementation converts only the set type and delegates to `sets.contains`.
+
+The template requires `std/sets` to be imported at the definition site
+(`validation.nim`), because Nim resolves non-parameter identifiers in
+template bodies at the definition site, not the expansion site.
 
 **Minimal read-only operations only.** No mutation ops (`incl`, `excl`),
 no functional builders (`with`, `without`). These are read models —

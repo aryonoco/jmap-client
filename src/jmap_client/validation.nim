@@ -8,6 +8,7 @@
 
 import std/hashes
 import std/sequtils
+import std/sets
 
 import results
 export results
@@ -61,8 +62,11 @@ template defineHashSetDistinctOps*(T: typedesc, E: typedesc) =
   ## as whole sets or used as table keys.
   func len*(s: T): int {.borrow.}
     ## Number of elements delegated to the underlying HashSet.
-  func contains*(s: T, e: E): bool {.borrow.}
+  func contains*(s: T, e: E): bool =
     ## Membership test delegated to the underlying HashSet.
+    ## Cannot use ``{.borrow.}`` — Nim unwraps both distinct types, causing
+    ## a type mismatch when ``E`` is itself distinct (e.g. Keyword = distinct string).
+    sets.contains(HashSet[E](s), e)
   func card*(s: T): int {.borrow.} ## Cardinality delegated to the underlying HashSet.
 
 func validateServerAssignedToken*(
