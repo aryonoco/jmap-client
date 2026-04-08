@@ -11,9 +11,15 @@ import ./serde_thread
 import ./serde_identity
 import ./serde_vacation
 import ./serde_mail_capabilities
+import ./serde_keyword
+import ./serde_mailbox
+import ./serde_mail_filters
 
 export serde_addresses
 export serde_thread
 export serde_identity
 export serde_vacation
 export serde_mail_capabilities
+export serde_keyword
+export serde_mailbox
+export serde_mail_filters

@@ -9,7 +9,6 @@ import std/json
 
 import jmap_client/mail/mailbox
 import jmap_client/mail/mail_filters
-import jmap_client/mail/serde_mailbox
 import jmap_client/mail/serde_mail_filters
 import jmap_client/validation
 import jmap_client/primitives

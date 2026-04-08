@@ -10,7 +10,6 @@ import std/json
 
 import ../serde
 import ../types
-import ./mailbox
 import ./mail_filters
 import ./serde_mailbox
 

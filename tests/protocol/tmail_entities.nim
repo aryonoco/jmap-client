@@ -1,8 +1,9 @@
 # SPDX-License-Identifier: BSD-2-Clause
 # Copyright (c) 2026 Aryan Ameri
 
-## Entity registration tests for Thread and Identity (RFC 8621 sections 3, 6).
-## Covers design doc scenarios 70–71, builder integration, negative
+## Entity registration tests for Thread, Identity, and Mailbox (RFC 8621
+## sections 2, 3, 6). Covers design doc scenarios 68–71, builder
+## integration, mixin resolution for queryable entities, negative
 ## compile-time safety for VacationResponse (Decision A7), and capability
 ## deduplication.
 
@@ -20,6 +21,8 @@ import jmap_client/builder
 import jmap_client/mail/thread
 import jmap_client/mail/identity
 import jmap_client/mail/vacation
+import jmap_client/mail/mailbox
+import jmap_client/mail/mail_filters
 import jmap_client/mail/mail_entities
 
 import ../massertions
@@ -143,3 +146,88 @@ block multipleEntityCapabilities:
   assertLen caps, 2
   doAssert "urn:ietf:params:jmap:mail" in caps
   doAssert "urn:ietf:params:jmap:submission" in caps
+
+# ===========================================================================
+# E. Mailbox registration tests (scenarios 68-69)
+# ===========================================================================
+
+block mailboxRegistrationCompiles:
+  ## Scenario 68: Mailbox registers with registerJmapEntity — implicit pass.
+  doAssert true
+
+block mailboxQueryableRegistrationCompiles:
+  ## Scenario 69: Mailbox registers with registerQueryableEntity — implicit pass.
+  doAssert true
+
+block mailboxOverloadValues:
+  ## methodNamespace and capabilityUri return expected values for Mailbox.
+  assertEq methodNamespace(Mailbox), "Mailbox"
+  assertEq capabilityUri(Mailbox), "urn:ietf:params:jmap:mail"
+
+# ===========================================================================
+# F. Mailbox generic builder integration
+# ===========================================================================
+
+block addGetMailbox:
+  ## addGet[Mailbox] produces "Mailbox/get" with mail capability.
+  var b = initRequestBuilder()
+  discard addGet[Mailbox](b, makeAccountId("a1"))
+  let req = b.build()
+  assertLen req.methodCalls, 1
+  let inv = req.methodCalls[0]
+  assertEq inv.name, "Mailbox/get"
+  assertEq inv.arguments{"accountId"}.getStr(""), "a1"
+  doAssert "urn:ietf:params:jmap:mail" in req.`using`
+
+block addChangesMailbox:
+  ## addChanges[Mailbox] produces "Mailbox/changes".
+  var b = initRequestBuilder()
+  discard addChanges[Mailbox](b, makeAccountId("a1"), makeState("s0"))
+  let req = b.build()
+  assertLen req.methodCalls, 1
+  assertEq req.methodCalls[0].name, "Mailbox/changes"
+  assertEq req.methodCalls[0].arguments{"sinceState"}.getStr(""), "s0"
+
+block addSetMailbox:
+  ## addSet[Mailbox] produces "Mailbox/set".
+  var b = initRequestBuilder()
+  discard addSet[Mailbox](b, makeAccountId("a1"))
+  let req = b.build()
+  assertLen req.methodCalls, 1
+  assertEq req.methodCalls[0].name, "Mailbox/set"
+
+# ===========================================================================
+# G. Mixin resolution tests (critical — proves filterType + filterConditionToJson resolve)
+# ===========================================================================
+
+block addQueryMailboxSingleParam:
+  ## Single-parameter addQuery[Mailbox] resolves via mixin. This test
+  ## compiling IS the proof that mixin resolution works for filterType
+  ## and filterConditionToJson.
+  var b = initRequestBuilder()
+  discard addQuery[Mailbox](b, makeAccountId("a1"))
+  let req = b.build()
+  assertLen req.methodCalls, 1
+  assertEq req.methodCalls[0].name, "Mailbox/query"
+
+block addQueryChangesMailboxSingleParam:
+  ## Single-parameter addQueryChanges[Mailbox] resolves via mixin.
+  var b = initRequestBuilder()
+  discard addQueryChanges[Mailbox](b, makeAccountId("a1"), makeState("qs0"))
+  let req = b.build()
+  assertLen req.methodCalls, 1
+  assertEq req.methodCalls[0].name, "Mailbox/queryChanges"
+
+# ===========================================================================
+# H. Mailbox capability deduplication
+# ===========================================================================
+
+block mailboxCapabilityDedup:
+  ## Thread + Mailbox both register "urn:ietf:params:jmap:mail"; verify
+  ## the builder deduplicates to exactly one entry.
+  var b = initRequestBuilder()
+  discard addGet[thread.Thread](b, makeAccountId())
+  discard addGet[Mailbox](b, makeAccountId())
+  let caps = b.capabilities
+  assertLen caps, 1
+  assertEq caps[0], "urn:ietf:params:jmap:mail"

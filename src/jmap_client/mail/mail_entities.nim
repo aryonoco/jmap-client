@@ -1,15 +1,21 @@
 # SPDX-License-Identifier: BSD-2-Clause
 # Copyright (c) 2026 Aryan Ameri
 
-## Entity registration for Thread and Identity (RFC 8621 sections 3, 6).
-## VacationResponse is deliberately NOT registered (Decision A7) — it uses
-## custom builder functions in ``mail_methods`` instead.
+## Entity registration for Thread, Identity, and Mailbox (RFC 8621
+## sections 2, 3, 6). VacationResponse is deliberately NOT registered
+## (Decision A7) — it uses custom builder functions in ``mail_methods``
+## instead.
 
 {.push raises: [].}
+
+import std/json
 
 import ../entity
 import ./thread
 import ./identity
+import ./mailbox
+import ./mail_filters
+import ./serde_mail_filters
 
 # ---------------------------------------------------------------------------
 # Thread (RFC 8621 section 3) — supports /get, /changes
@@ -42,3 +48,31 @@ func capabilityUri*(T: typedesc[Identity]): string =
   "urn:ietf:params:jmap:submission"
 
 registerJmapEntity(Identity)
+
+# ---------------------------------------------------------------------------
+# Mailbox (RFC 8621 section 2) — supports /get, /changes, /set, /query,
+# /queryChanges
+# ---------------------------------------------------------------------------
+
+func methodNamespace*(T: typedesc[Mailbox]): string =
+  ## JMAP method prefix for Mailbox (e.g. "Mailbox/get").
+  discard $T # consumed for nimalyzer params rule
+  "Mailbox"
+
+func capabilityUri*(T: typedesc[Mailbox]): string =
+  ## Capability URI for Mailbox methods.
+  discard $T # consumed for nimalyzer params rule
+  "urn:ietf:params:jmap:mail"
+
+template filterType*(T: typedesc[Mailbox]): typedesc =
+  ## Associated filter condition type for Mailbox/query.
+  discard $T # consumed for nimalyzer params rule
+  MailboxFilterCondition
+
+func filterConditionToJson*(c: MailboxFilterCondition): JsonNode =
+  ## Serialise MailboxFilterCondition to JSON. Resolved via ``mixin`` in the
+  ## single-type-parameter ``addQuery[Mailbox]`` template.
+  c.toJson()
+
+registerJmapEntity(Mailbox)
+registerQueryableEntity(Mailbox)

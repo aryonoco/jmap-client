@@ -12,6 +12,9 @@ import ./identity
 import ./vacation
 import ./mail_capabilities
 import ./mail_errors
+import ./keyword
+import ./mailbox
+import ./mail_filters
 
 export addresses
 export thread
@@ -19,3 +22,6 @@ export identity
 export vacation
 export mail_capabilities
 export mail_errors
+export keyword
+export mailbox
+export mail_filters
