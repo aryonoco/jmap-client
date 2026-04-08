@@ -67,6 +67,32 @@ func parseAccountId*(raw: string): Result[AccountId, ValidationError] =
   ok(AccountId(raw))
 ```
 
+### Serde Conventions
+
+- **Lenient fromJson for server data** — All `fromJson` for distinct types
+  use the lenient `*FromServer` parser variant (e.g., `parseIdFromServer`,
+  `parseKeywordFromServer`). Strict parsers (e.g., `parseId`,
+  `parseKeyword`) are for client-constructed values only. Postel's law:
+  be lenient on receive.
+- **Strict/lenient pairs are principled, not mechanical** — The pair exists
+  only when there is a meaningful gap between spec-specific constraints
+  (e.g., IMAP forbidden chars for Keyword) and structural constraints
+  (non-empty, bounded length, no control chars). When no gap exists (e.g.,
+  `MailboxRole`), a single parser suffices for both client and server use.
+- **Creation types and filter conditions are toJson-only** — Types that
+  flow client → server (creation models like `IdentityCreate`,
+  `MailboxCreate`; query specifications like `MailboxFilterCondition`) have
+  `toJson` but no `fromJson`. The server never sends these back.
+
+### Builder Conventions
+
+- **Entity-specific builders accept typed creation models** — Custom
+  builder functions that exist for other reasons (extra parameters like
+  `onDestroyRemoveEmails`) should accept typed creation models (e.g.,
+  `Table[CreationId, MailboxCreate]`) rather than raw `JsonNode`. The
+  builder calls `toJson` internally. Generic builders (`addSet[T]`) accept
+  `JsonNode` because they must be entity-agnostic.
+
 ### Layer 5 C ABI Boundary
 
 Layer 5 pattern-matches on `Result` values to produce C error codes.
