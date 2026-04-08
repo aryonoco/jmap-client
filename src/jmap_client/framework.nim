@@ -129,3 +129,13 @@ func id*(item: AddedItem): Id =
 func initAddedItem*(id: Id, index: UnsignedInt): AddedItem =
   ## Constructs an AddedItem. Infallible given validated Id and UnsignedInt.
   return AddedItem(rawId: string(id), index: index)
+
+type QueryParams* = object
+  ## Standard query window parameters shared by all ``/query`` methods
+  ## (RFC 8620 section 5.5). All defaults match RFC specification via
+  ## Nim zero-initialisation: ``QueryParams()`` produces correct RFC defaults.
+  position*: JmapInt ## default 0
+  anchor*: Opt[Id] ## default: absent
+  anchorOffset*: JmapInt ## default 0
+  limit*: Opt[UnsignedInt] ## default: absent
+  calculateTotal*: bool ## default false

@@ -52,6 +52,19 @@ template defineIntDistinctOps*(T: typedesc) =
     ## String representation delegated to the underlying integer.
   func hash*(a: T): Hash {.borrow.} ## Hash delegated to the underlying integer.
 
+template defineHashSetDistinctOps*(T: typedesc, E: typedesc) =
+  ## Borrows standard read-only operations for a ``distinct HashSet``
+  ## type. ``T`` is the distinct type, ``E`` is the element type.
+  ## No mutation operations — these are immutable read models (Decision B3).
+  ## No ``==`` or ``hash`` — set equality is not a domain operation for
+  ## these types; they are constructed once and queried, never compared
+  ## as whole sets or used as table keys.
+  func len*(s: T): int {.borrow.}
+    ## Number of elements delegated to the underlying HashSet.
+  func contains*(s: T, e: E): bool {.borrow.}
+    ## Membership test delegated to the underlying HashSet.
+  func card*(s: T): int {.borrow.} ## Cardinality delegated to the underlying HashSet.
+
 func validateServerAssignedToken*(
     typeName: string, raw: string
 ): Result[void, ValidationError] =

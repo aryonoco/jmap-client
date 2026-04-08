@@ -173,10 +173,15 @@ Plain public fields, no smart constructor — all field combinations are
 valid per RFC. Default values match RFC 8620 §5.5.
 
 **Core refactor:** The existing `addQuery[T, C]` and
-`addQueryChanges[T, C]` in `builder.nim` currently accept these five
-parameters individually. They should be refactored to accept `QueryParams`
-instead. This is a mechanical signature change — existing callers are
-updated by wrapping their individual arguments in `QueryParams(...)`.
+`addQueryChanges[T, C]` procs in `builder.nim` currently accept these five
+parameters individually. They are refactored to accept `QueryParams`
+instead. This is a mechanical signature change — the builder unpacks
+`QueryParams` fields when constructing the request object. The
+single-type-parameter template overloads (`addQuery[T]`,
+`addQueryChanges[T]`) are unchanged — Nim cannot evaluate `QueryParams()`
+(which contains case-object `Opt[T]` fields) as a template default value.
+For custom `QueryParams`, callers use the two-parameter proc overloads
+directly.
 
 **Principles:**
 - **DRY** — Five parameters defined once, not duplicated across every
@@ -1058,20 +1063,15 @@ proc addMailboxQueryChanges*(b: var RequestBuilder,
     maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges),
     upToId: Opt[Id] = Opt.none(Id),
     calculateTotal: bool = false,
-    sortAsTree: bool = false,
-    filterAsTree: bool = false,
 ): ResponseHandle[QueryChangesResponse[Mailbox]]
 ```
 
 - Adds `"urn:ietf:params:jmap:mail"` capability.
 - Creates invocation with name `"Mailbox/queryChanges"`.
-- Includes `sortAsTree` and `filterAsTree` — per RFC 8621 §2.6, which
-  extends Mailbox/queryChanges with these parameters.
-
-**Architecture doc discrepancy:** The cross-cutting architecture doc §13.1
-states "standard params only" for Mailbox/queryChanges. This contradicts
-RFC 8621 §2.6 which explicitly extends `/queryChanges` with the same tree
-parameters. The RFC is the upstream authority; this design follows the RFC.
+- Standard parameters only — RFC 8621 §2.4 specifies this as a standard
+  /queryChanges method with no additional request arguments. The tree
+  parameters (`sortAsTree`, `filterAsTree`) apply only to Mailbox/query
+  (§2.3), not to Mailbox/queryChanges.
 
 ### 6.6. addMailboxSet
 
@@ -1237,7 +1237,7 @@ round-trip and structural JSON correctness.
 | 73 | `addMailboxQuery` with `sortAsTree = true` includes parameter in args | pass |
 | 74 | `addMailboxQuery` with `filterAsTree = true` includes parameter in args | pass |
 | 75 | `addMailboxQueryChanges` produces invocation name `"Mailbox/queryChanges"` | pass |
-| 76 | `addMailboxQueryChanges` with tree parameters includes them in args | pass |
+| 76 | `addMailboxQueryChanges` does NOT include sortAsTree/filterAsTree | pass |
 | 77 | `addMailboxSet` produces invocation name `"Mailbox/set"` | pass |
 | 78 | `addMailboxSet` with `onDestroyRemoveEmails = true` includes parameter | pass |
 | 79 | `addMailboxSet` with typed `MailboxCreate` serialises correctly in create map | pass |
@@ -1259,7 +1259,7 @@ round-trip and structural JSON correctness.
 | B9 | MailboxChangesResponse modelling | A) Custom flat type, B) Composition, C) Composition + forwarding template | C (composition + forwardChangesFields template) | DRY, Code reads like the spec, Open-Closed |
 | B10 | QueryParams location | A) mail_builders.nim, B) framework.nim, C) Skip entirely | B + core addQuery refactor (core prerequisite) | DRY, DDD, One source of truth |
 | B11 | Filter condition serde direction | A) toJson only, B) Both toJson and fromJson | A (general convention: filter conditions are query creation types) | Parse-don't-validate, DDD |
-| B12 | Mailbox/queryChanges builder | A) Custom with sortAsTree/filterAsTree, B) Use core generic | A (RFC 8621 §2.6 extends queryChanges with tree params) | Code reads like the spec, Total functions |
+| B12 | Mailbox/queryChanges builder | A) Custom with sortAsTree/filterAsTree, B) Use core generic | B (RFC 8621 §2.4: standard /queryChanges, no extensions) | Code reads like the spec |
 | B13 | Tree option parameter style | A) MailboxTreeOptions type, B) Inline booleans | B (2 params across 2 functions — premature abstraction) | Booleans exception (may*/AsTree naming self-documenting, RFC models as Boolean) |
 | B14 | Mailbox entity registration | A) Register + custom overloads, B) Register + hide generics, C) All custom | Modified A (register for infrastructure, custom overloads as API, re-export customs from hub) | DDD, Make the right thing easy, DRY |
 | B15 | fromJson parser convention | A) Lenient per-type, B) General convention | B (general rule: all fromJson use lenient *FromServer parser) | DRY, Postel's law |

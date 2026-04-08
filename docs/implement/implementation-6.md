@@ -48,13 +48,18 @@ accept `QueryParams` instead of the five individual parameters (`position`,
 `anchor`, `anchorOffset`, `limit`, `calculateTotal`). Mechanical signature
 change — the builder unpacks `QueryParams` fields into the request. The
 single-type-parameter template overloads (`addQuery[T]`,
-`addQueryChanges[T]`) also gain the `queryParams` parameter with default
-`QueryParams()`.
+`addQueryChanges[T]`) are unchanged — Nim cannot evaluate `QueryParams()`
+(which contains case-object `Opt[T]` fields) as a template default value.
+For custom `QueryParams`, callers use the two-parameter proc overloads
+directly.
 
-Update `tests/protocol/tbuilder.nim`: replace individual query parameters
-with `queryParams = QueryParams(...)` wrapping in all affected test blocks.
-Add a test verifying `QueryParams()` with all defaults produces expected
-output.
+Update `tests/protocol/tbuilder.nim`: existing test blocks need no changes
+(all use default parameters, which are identical with default
+`QueryParams()`). Add four new test blocks verifying `QueryParams`
+integration: non-default fields unpacked correctly, default `QueryParams()`
+matches RFC 8620 §5.5, `calculateTotal` flows through to queryChanges,
+and non-applicable fields (position, anchor, anchorOffset, limit) do not
+leak into queryChanges JSON.
 
 ---
 
@@ -246,9 +251,9 @@ plus `sortAsTree: bool = false` and `filterAsTree: bool = false` (inline
 booleans per Decision B13). Returns `ResponseHandle[QueryResponse[Mailbox]]`.
 
 `addMailboxQueryChanges` (`proc`): adds mail capability,
-`"Mailbox/queryChanges"` invocation. Includes `sortAsTree` and
-`filterAsTree` per RFC 8621 §2.6 (Decision B12). Returns
-`ResponseHandle[QueryChangesResponse[Mailbox]]`.
+`"Mailbox/queryChanges"` invocation. Standard parameters only — RFC 8621
+§2.4 specifies no additional request arguments (Decision B12, corrected).
+Returns `ResponseHandle[QueryChangesResponse[Mailbox]]`.
 
 `addMailboxSet` (`func`): adds mail capability, `"Mailbox/set"` invocation.
 Accepts `Table[CreationId, MailboxCreate]` for create (typed per Decision
@@ -267,7 +272,7 @@ absent (64), null (65), forwarding accessors (66), missing base field (67).
 `addMailboxChanges` invocation name (70), capability (71).
 `addMailboxQuery` invocation name (72), `sortAsTree` in args (73),
 `filterAsTree` in args (74). `addMailboxQueryChanges` invocation name (75),
-tree parameters (76). `addMailboxSet` invocation name (77),
+no tree parameters (76). `addMailboxSet` invocation name (77),
 `onDestroyRemoveEmails` (78), typed `MailboxCreate` in create map (79).
 
 ---

@@ -401,6 +401,79 @@ block addQueryChangesSingleParam:
   assertEq req.methodCalls[0].name, "MockQueryable/queryChanges"
 
 # ===========================================================================
+# K3. QueryParams integration
+# ===========================================================================
+
+block addQueryWithQueryParams:
+  ## QueryParams fields are unpacked into the query request arguments.
+  ## Unset fields retain RFC 8620 section 5.5 defaults.
+  var b = initRequestBuilder()
+  discard addQuery[MockQueryable, MockFilter](
+    b,
+    makeAccountId("a1"),
+    filterConditionToJson,
+    queryParams = QueryParams(position: JmapInt(10), calculateTotal: true),
+  )
+  let req = b.build()
+  let inv = req.methodCalls[0]
+  # Explicitly set fields
+  assertEq inv.arguments{"position"}.getBiggestInt(0), 10
+  assertEq inv.arguments{"calculateTotal"}.getBool(false), true
+  # Unset fields retain defaults
+  assertEq inv.arguments{"anchorOffset"}.getBiggestInt(-1), 0
+  doAssert inv.arguments{"anchor"}.isNil
+  doAssert inv.arguments{"limit"}.isNil
+
+block addQueryDefaultQueryParams:
+  ## Default QueryParams() matches RFC 8620 section 5.5 defaults.
+  var b = initRequestBuilder()
+  discard
+    addQuery[MockQueryable, MockFilter](b, makeAccountId("a1"), filterConditionToJson)
+  let req = b.build()
+  let inv = req.methodCalls[0]
+  assertEq inv.arguments{"position"}.getBiggestInt(-1), 0
+  assertEq inv.arguments{"anchorOffset"}.getBiggestInt(-1), 0
+  assertEq inv.arguments{"calculateTotal"}.getBool(true), false
+  doAssert inv.arguments{"anchor"}.isNil
+  doAssert inv.arguments{"limit"}.isNil
+
+block addQueryChangesWithQueryParams:
+  ## QueryParams.calculateTotal flows through to queryChanges arguments.
+  var b = initRequestBuilder()
+  discard addQueryChanges[MockQueryable, MockFilter](
+    b,
+    makeAccountId("a1"),
+    makeState("qs0"),
+    filterConditionToJson,
+    queryParams = QueryParams(calculateTotal: true),
+  )
+  let req = b.build()
+  let inv = req.methodCalls[0]
+  assertEq inv.arguments{"calculateTotal"}.getBool(false), true
+
+block addQueryChangesIgnoresNonApplicableFields:
+  ## Non-applicable QueryParams fields (position, anchor, anchorOffset, limit)
+  ## are NOT emitted in queryChanges arguments — they are silently ignored
+  ## per RFC 8620 section 5.6.
+  var b = initRequestBuilder()
+  discard addQueryChanges[MockQueryable, MockFilter](
+    b,
+    makeAccountId("a1"),
+    makeState("qs0"),
+    filterConditionToJson,
+    queryParams = QueryParams(position: JmapInt(99), calculateTotal: true),
+  )
+  let req = b.build()
+  let inv = req.methodCalls[0]
+  # calculateTotal flows through
+  assertEq inv.arguments{"calculateTotal"}.getBool(false), true
+  # position does NOT appear (not applicable to /queryChanges)
+  doAssert inv.arguments{"position"}.isNil
+  # anchor and limit also absent
+  doAssert inv.arguments{"anchor"}.isNil
+  doAssert inv.arguments{"limit"}.isNil
+
+# ===========================================================================
 # L. Result reference integration (golden test)
 # ===========================================================================
 

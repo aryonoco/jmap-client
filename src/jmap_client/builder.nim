@@ -223,11 +223,7 @@ proc addQuery*[T, C](
     filterConditionToJson: proc(c: C): JsonNode {.noSideEffect, raises: [].},
     filter: Opt[Filter[C]] = Opt.none(Filter[C]),
     sort: Opt[seq[Comparator]] = Opt.none(seq[Comparator]),
-    position: JmapInt = JmapInt(0),
-    anchor: Opt[Id] = Opt.none(Id),
-    anchorOffset: JmapInt = JmapInt(0),
-    limit: Opt[UnsignedInt] = Opt.none(UnsignedInt),
-    calculateTotal: bool = false,
+    queryParams: QueryParams = QueryParams(),
 ): ResponseHandle[QueryResponse[T]] =
   ## Adds a Foo/query invocation. Searches, sorts, and windows entity data
   ## on the server. ``C`` is the filter condition type, resolved from
@@ -240,11 +236,11 @@ proc addQuery*[T, C](
     accountId: accountId,
     filter: filter,
     sort: sort,
-    position: position,
-    anchor: anchor,
-    anchorOffset: anchorOffset,
-    limit: limit,
-    calculateTotal: calculateTotal,
+    position: queryParams.position,
+    anchor: queryParams.anchor,
+    anchorOffset: queryParams.anchorOffset,
+    limit: queryParams.limit,
+    calculateTotal: queryParams.calculateTotal,
   )
   let args = req.toJson(filterConditionToJson)
   let callId = addInvocation(b, methodNamespace(T) & "/query", args, capabilityUri(T))
@@ -263,10 +259,15 @@ proc addQueryChanges*[T, C](
     sort: Opt[seq[Comparator]] = Opt.none(seq[Comparator]),
     maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges),
     upToId: Opt[Id] = Opt.none(Id),
-    calculateTotal: bool = false,
+    queryParams: QueryParams = QueryParams(),
 ): ResponseHandle[QueryChangesResponse[T]] =
   ## Adds a Foo/queryChanges invocation. Efficiently updates a cached query
   ## to match the new server state. ``C`` is the filter condition type.
+  ##
+  ## Only ``queryParams.calculateTotal`` is used — the remaining four
+  ## query window fields (position, anchor, anchorOffset, limit) are
+  ## not applicable to /queryChanges (RFC 8620 section 5.6) and are
+  ## ignored.
   mixin methodNamespace, capabilityUri
   let req = QueryChangesRequest[T, C](
     accountId: accountId,
@@ -275,7 +276,7 @@ proc addQueryChanges*[T, C](
     sinceQueryState: sinceQueryState,
     maxChanges: maxChanges,
     upToId: upToId,
-    calculateTotal: calculateTotal,
+    calculateTotal: queryParams.calculateTotal,
   )
   let args = req.toJson(filterConditionToJson)
   let callId =
@@ -305,9 +306,8 @@ template addQuery*[T](
   ## allows ``C != filterType(T)``, which compiles but produces semantically
   ## wrong JSON. This overload makes that impossible.
   ##
-  ## For queries with filters, use the two-parameter ``addQuery[T, C]``
-  ## overload which accepts a filter parameter, or use ``addQuery[T]`` for
-  ## filterless queries and add filters via the pipeline combinators.
+  ## For queries with filters or custom ``QueryParams``, use the
+  ## two-parameter ``addQuery[T, C]`` overload which accepts both.
   addQuery[T, filterType(T)](
     b,
     accountId,
@@ -319,6 +319,8 @@ template addQueryChanges*[T](
     b: var RequestBuilder, accountId: AccountId, sinceQueryState: JmapState
 ): ResponseHandle[QueryChangesResponse[T]] =
   ## Single-type-parameter Foo/queryChanges. Same resolution as ``addQuery[T]``.
+  ## For custom ``QueryParams``, use the two-parameter
+  ## ``addQueryChanges[T, C]`` overload.
   addQueryChanges[T, filterType(T)](
     b,
     accountId,
