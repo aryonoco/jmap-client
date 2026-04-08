@@ -1,6 +1,37 @@
 # jmap-client
 
-Cross-platform JMAP (RFC 8620/8621) client library in Nim. Designed for FFI use from C/C++ via `--mm:arc` and `{.exportc, dynlib, cdecl, raises: [].}`.
+Cross-platform JMAP (RFC 8620/8621) client library in Nim. Designed for FFI use from C/C++
+
+## Principles
+
+**IMPORTANT**: All code MUST adhere to the following principles:
+
+**Domain Modeling**
+- Domain-Driven Design: code reads like the spec.
+- Newtype everything that has meaning.
+- Make illegal states unrepresentable.
+- Make state transitions explicit in the type. Not `User` with a `status` field — three types or a sum type.
+- One source of truth per fact. If two fields can disagree, one shouldn't exist.
+- Booleans are a code smell.
+
+**Boundaries**
+- Functional core, imperative shell. Push effects to the edge; keep the middle pure.
+- Parse once at the boundary; trust forever in the interior.
+- Constructors are privileges, not rights. Smart constructors only; raw constructors private.
+- Immutability by default. Mutation should be explicitly justified and local.
+- Total functions. Defined for every input of the declared type.
+
+**Signatures**
+- Errors are part of the API. Name variants, never collapse to strings.
+- Railway-oriented: errors flow through `Result`, not exceptions.
+- Return types are documentation the compiler checks. Prefer rich return types over rich docstrings.
+- Constructors that can fail return `Result`; constructors that can't, don't.
+- Postel's law: accept the most general type, return the most specific.
+
+**API ergonomics**
+- Make the right thing easy and the wrong thing hard.
+- DRY — but duplicated appearance is not duplicated knowledge.
+
 
 ## CRITICAL: NO AI ATTRIBUTION
 
@@ -34,12 +65,15 @@ One external dependency: `nim-results` (status-im/nim-results) for `Result[T, E]
 
 Defined in `jmap_client.nimble` and `config.nims`: `--mm:arc`, `strictDefs`, `threads:on`, `floatChecks:on`, `styleCheck:error`. Various `warningAsError` settings for quality enforcement. See `.claude/rules/nim-type-safety.md` for implications.
 
-## Project Structure
+## Nim Reference
 
-Architecture: 5 layers (see `docs/00architecture-options.md`). Layer 1 detailed design in `docs/layer-1-design.md`.
+To verify how Nim works, Access the Nim source code at /.nim-reference
+- Standard Library: at /.nim-reference/lib
+- Official Nim docs: /.nim-reference/doc
 
-- `docs/design/` — Architecture and per-layer design specifications (00-architecture, 01–06 layer designs, 04-architecture-revision)
-- `docs/implement/` — Per-layer implementation plans (`implementation-1.md` through `implementation-4.md`)
+## Important Directories
+
+- `docs/design/` — Architecture and per-layer design specifications
 
 - `src/jmap_client.nim` — Library entry point (C ABI exports, Layer 5)
 - `src/jmap_client/types.nim` — Re-exports all Layer 1 modules
@@ -50,35 +84,33 @@ Architecture: 5 layers (see `docs/00architecture-options.md`). Layer 1 detailed 
 - `src/jmap_client/session.nim` — `AccountCapabilityEntry`, `Account`, `UriTemplate`, `Session`
 - `src/jmap_client/envelope.nim` — `Invocation`, `Request`, `Response`, `ResultReference`, `Referencable[T]`
 - `src/jmap_client/framework.nim` — `PropertyName`, `FilterOperator`, `Filter[C]`, `Comparator`, `PatchObject`, `AddedItem`
-- `src/jmap_client/errors.nim` — `TransportError`, `RequestError`, `ClientError`, `MethodError`, `SetError` (all plain objects for Result error rails)
+- `src/jmap_client/errors.nim` — `TransportError`, `RequestError`, `ClientError`, `MethodError`, `SetError`
 - `src/jmap_client/client.nim` — HTTP client wrapper (Layer 4)
 - `tests/` — Test modules (categories: `unit/`, `serde/`, `property/`, `compliance/`, `stress/`)
 
 ## Coding Conventions
 
-- Use `const` and `let` bindings; `var` only when absolutely necessary
+- Use `const` and `let` bindings; `var` only when absolutely necessary and only locally
 - Error handling via Railway-Oriented Programming (nim-results):
   - Smart constructors return `Result[T, ValidationError]` — no exceptions
   - Transport/request failures use `Result[T, ClientError]` (`JmapResult[T]` alias)
   - Method errors (`MethodError`) and set errors (`SetError`) are data within successful responses
-  - All error types are plain objects (not `CatchableError`), carried on the Result error rail
+  - All error types are plain objects carried on the Result error rail
   - The `?` operator provides early-return error propagation
-  - Layer 5 C ABI pattern-matches on Result values to produce C error codes
 - Use `Opt[T]` from nim-results for optional fields (not `std/options`); prefer `for val in opt:` over `if opt.isSome: opt.get()`
-- Parse, don't validate — smart constructors produce well-typed Result values
-- Make illegal states unrepresentable — distinct types, case objects, smart constructors
 - Prefer expression-oriented style: if/case/block as expressions
 - Prefer `collect` (std/sugar) for building new collections; `allIt`/`anyIt` for predicates
-- `func` for pure functions (L1 types, L2 serde, L3 protocol); `proc` only for IO (L4) or functions taking `proc` callback parameters
+- Prefer `func` for pure functions (L1 types, L2 serde, L3 protocol); `proc` only for IO (L4) or functions taking `proc` callback parameters
 - `{.push raises: [].}` on every source module — compiler-enforced total functions
 
-## Type Safety
+## C ABI
 
-- Use distinct types for domain identifiers
-- Export C ABI functions with `{.exportc: "jmap_name", dynlib, cdecl, raises: [].}` pragmas
+  - Export C ABI functions with `{.exportc: "jmap_name", dynlib, cdecl, raises: [].}` pragmas
+  - Layer 5 C ABI pattern-matches on Result values to produce C error codes
 
-## Language
+## Comments
 
+- Comments should explain _why_, never _what_. The _what_ belongs in the types.
 - Comments and docstrings: British English spelling
 
 ## Nim Coding Rules
