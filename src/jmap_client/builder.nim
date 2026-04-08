@@ -97,7 +97,7 @@ func addCapability(b: var RequestBuilder, cap: string) =
   if cap notin b.capabilityUris:
     b.capabilityUris.add(cap)
 
-func addInvocation(
+func addInvocation*(
     b: var RequestBuilder, name: string, args: JsonNode, capability: string
 ): MethodCallId =
   ## Constructs an Invocation, accumulates it, and registers the capability.
