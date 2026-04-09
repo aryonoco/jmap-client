@@ -66,9 +66,9 @@ All modules live under `src/jmap_client/mail/` per cross-cutting doc §3.3.
 
 | Module | Layer | Contents |
 |--------|-------|----------|
-| `headers.nim` | L1 | `HeaderForm`, `EmailHeader`, `HeaderPropertyKey`, `HeaderValue`, `allowedForms`, `validateHeaderForm` |
-| `body.nim` | L1 | `PartId`, `EmailBodyPart`, `EmailBodyValue`, `BlueprintPartSource`, `BlueprintBodyPart` |
-| `serde_headers.nim` | L2 | `parseHeaderPropertyName`, `toPropertyString`, `parseHeaderValue`, `toJson`/`fromJson` for `HeaderValue` and `EmailHeader` |
+| `headers.nim` | L1 | `HeaderForm`, `EmailHeader`, `parseEmailHeader`, `HeaderPropertyKey`, `parseHeaderPropertyName`, `toPropertyString`, `HeaderValue`, `allowedForms`, `validateHeaderForm` |
+| `body.nim` | L1 | `PartId`, `parsePartIdFromServer`, `EmailBodyPart`, `EmailBodyValue`, `BlueprintPartSource`, `BlueprintBodyPart` |
+| `serde_headers.nim` | L2 | `parseHeaderValue`, `toJson`/`fromJson` for `HeaderValue` and `EmailHeader` |
 | `serde_body.nim` | L2 | `toJson`/`fromJson` for `EmailBodyPart`, `fromJson`/`toJson` for `EmailBodyValue`, `toJson` for `BlueprintBodyPart`, `PartId` serde |
 
 ---
