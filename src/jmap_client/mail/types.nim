@@ -15,6 +15,8 @@ import ./mail_errors
 import ./keyword
 import ./mailbox
 import ./mail_filters
+import ./headers
+import ./body
 
 export addresses
 export thread
@@ -25,3 +27,5 @@ export mail_errors
 export keyword
 export mailbox
 export mail_filters
+export headers
+export body
