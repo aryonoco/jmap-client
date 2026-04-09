@@ -1343,7 +1343,7 @@ cohesion: entity + its method parameter types together (parallels
 | `snippet.nim` | `SearchSnippet` | Standalone per RFC §5 |
 | `mail_filters.nim` | `EmailFilterCondition`, `EmailHeaderFilter` (adds to existing) | Filter conditions grouped by concern, parallels existing `MailboxFilterCondition` |
 | `serde_email.nim` | `emailFromJson`, `parsedEmailFromJson`, `emailComparatorFromJson`, shared helpers | All Email/ParsedEmail serde + shared helpers (D7) |
-| `serde_snippet.nim` | `searchSnippetFromJson` | SearchSnippet serde |
+| `serde_snippet.nim` | `searchSnippetFromJson`, `SearchSnippet.toJson` | SearchSnippet serde |
 | `serde_mail_filters.nim` | `EmailFilterCondition.toJson` (adds to existing) | Filter serde grouped with existing `MailboxFilterCondition.toJson` |
 | `mail_entities.nim` | Entity registration for Email (adds to existing) | Extends existing module |
 | `mail_builders.nim` | `addEmailGet`, `addEmailQuery`, `addEmailQueryChanges` (adds to existing) | Standard method builders, parallels existing Mailbox builders |
@@ -1653,7 +1653,7 @@ responses and client inputs.
 
 | # | Scenario | Expected |
 |---|----------|----------|
-| 104 | `parseEmailHeaderFilter` name containing `":"` (colon) | `ok` — colon is valid in RFC 5322 header names |
+| 104 | `parseEmailHeaderFilter` name containing `":"` (colon) | `ok` — smart constructor validates only non-empty, not character set; RFC 5322 §2.2 and RFC 8621 §4.1.3 exclude colon from header field names, but character-set validation is delegated to the server |
 | 105 | `parseEmailHeaderFilter` name containing `\x00` (NUL byte) | `ok` — only empty string is rejected; documents FFI truncation risk |
 | 106 | `EmailFilterCondition.toJson` header filter with value `""` (empty string) | `["Name", ""]` — 2-element array, distinct from absent value (1-element) |
 
