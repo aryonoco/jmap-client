@@ -28,6 +28,10 @@ import jmap_client/framework
 import jmap_client/envelope
 import jmap_client/errors
 
+import jmap_client/mail/types
+import jmap_client/mail/email
+import jmap_client/mail/snippet
+
 proc zeroUint*(): UnsignedInt =
   parseUnsignedInt(0).get()
 
@@ -362,6 +366,117 @@ proc makeCyrusSession*(): SessionArgs =
     uploadUrl: makeGoldenUploadUrl(),
     eventSourceUrl: makeGoldenEventSourceUrl(),
     state: makeState("cyrus-abcdef"),
+  )
+
+# ---------------------------------------------------------------------------
+# Mail Part D factories
+# ---------------------------------------------------------------------------
+
+proc makeSearchSnippet*(
+    emailId: Id = makeId("email1"),
+    subject: Opt[string] = Opt.none(string),
+    preview: Opt[string] = Opt.none(string),
+): SearchSnippet =
+  SearchSnippet(emailId: emailId, subject: subject, preview: preview)
+
+proc makeEmailHeaderFilter*(
+    name = "Subject", value: Opt[string] = Opt.none(string)
+): EmailHeaderFilter =
+  parseEmailHeaderFilter(name, value).get()
+
+proc makeEmailFilterCondition*(): EmailFilterCondition =
+  ## All-none filter — matches everything. Baseline for toJson tests.
+  default(EmailFilterCondition)
+
+proc makeEmailComparator*(): EmailComparator =
+  plainComparator(pspReceivedAt)
+
+proc makeKeywordComparator*(): EmailComparator =
+  keywordComparator(kspHasKeyword, kwSeen)
+
+proc makeEmailBodyFetchOptions*(): EmailBodyFetchOptions =
+  default(EmailBodyFetchOptions)
+
+proc makeLeafBodyPart*(): EmailBodyPart =
+  ## Minimal leaf EmailBodyPart for Email fixture construction.
+  EmailBodyPart(
+    isMultipart: false,
+    contentType: "text/plain",
+    size: zeroUint(),
+    partId: parsePartIdFromServer("1").get(),
+    blobId: makeId("blob1"),
+    headers: @[],
+    name: Opt.none(string),
+    charset: Opt.none(string),
+    disposition: Opt.none(string),
+    cid: Opt.none(string),
+    language: Opt.none(seq[string]),
+    location: Opt.none(string),
+  )
+
+proc makeEmail*(): Email =
+  ## Minimal valid Email satisfying parseEmail (non-empty mailboxIds).
+  let leaf = makeLeafBodyPart()
+  parseEmail(
+    Email(
+      id: makeId("email1"),
+      blobId: makeId("blob1"),
+      threadId: makeId("thread1"),
+      mailboxIds: initMailboxIdSet(@[makeId("mbx1")]),
+      keywords: initKeywordSet(@[]),
+      size: zeroUint(),
+      receivedAt: parseUtcDate("2025-01-15T09:00:00Z").get(),
+      messageId: Opt.none(seq[string]),
+      inReplyTo: Opt.none(seq[string]),
+      references: Opt.none(seq[string]),
+      sender: Opt.none(seq[EmailAddress]),
+      fromAddr: Opt.none(seq[EmailAddress]),
+      to: Opt.none(seq[EmailAddress]),
+      cc: Opt.none(seq[EmailAddress]),
+      bcc: Opt.none(seq[EmailAddress]),
+      replyTo: Opt.none(seq[EmailAddress]),
+      subject: Opt.none(string),
+      sentAt: Opt.none(Date),
+      headers: @[],
+      requestedHeaders: initTable[HeaderPropertyKey, HeaderValue](),
+      requestedHeadersAll: initTable[HeaderPropertyKey, seq[HeaderValue]](),
+      bodyStructure: leaf,
+      bodyValues: initTable[PartId, EmailBodyValue](),
+      textBody: @[],
+      htmlBody: @[],
+      attachments: @[],
+      hasAttachment: false,
+      preview: "",
+    )
+  )
+    .get()
+
+proc makeParsedEmail*(): ParsedEmail =
+  ## Minimal ParsedEmail (threadId = Opt.none).
+  let leaf = makeLeafBodyPart()
+  ParsedEmail(
+    threadId: Opt.none(Id),
+    messageId: Opt.none(seq[string]),
+    inReplyTo: Opt.none(seq[string]),
+    references: Opt.none(seq[string]),
+    sender: Opt.none(seq[EmailAddress]),
+    fromAddr: Opt.none(seq[EmailAddress]),
+    to: Opt.none(seq[EmailAddress]),
+    cc: Opt.none(seq[EmailAddress]),
+    bcc: Opt.none(seq[EmailAddress]),
+    replyTo: Opt.none(seq[EmailAddress]),
+    subject: Opt.none(string),
+    sentAt: Opt.none(Date),
+    headers: @[],
+    requestedHeaders: initTable[HeaderPropertyKey, HeaderValue](),
+    requestedHeadersAll: initTable[HeaderPropertyKey, seq[HeaderValue]](),
+    bodyStructure: leaf,
+    bodyValues: initTable[PartId, EmailBodyValue](),
+    textBody: @[],
+    htmlBody: @[],
+    attachments: @[],
+    hasAttachment: false,
+    preview: "",
   )
 
 # ---------------------------------------------------------------------------
