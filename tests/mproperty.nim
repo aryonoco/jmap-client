@@ -24,6 +24,9 @@ import jmap_client/identifiers
 import jmap_client/primitives
 import jmap_client/session
 import jmap_client/validation
+import jmap_client/mail/addresses
+import jmap_client/mail/headers
+import jmap_client/mail/body
 
 {.push ruleOff: "hasDoc".}
 {.push ruleOff: "params".}
@@ -1222,6 +1225,335 @@ proc genMalformedSessionJson*(rng: var Rand): JsonNode =
       %42
     else: # Null
       newJNull()
+
+# ---------------------------------------------------------------------------
+# Mail Part A prereq generators (EmailAddress, EmailAddressGroup)
+# ---------------------------------------------------------------------------
+
+proc genEmailAddress*(rng: var Rand): EmailAddress =
+  ## Generates a valid EmailAddress with random email and optional name.
+  ## Email: picked from a pool of realistic addr-specs.
+  ## Name: 50% Opt.some (random display name), 50% Opt.none.
+  ## Does NOT generate: empty emails, format-invalid addr-specs.
+  const emails = [
+    "alice@example.com", "bob@corp.org", "charlie@test.io", "user+tag@domain.example",
+    "a@b.c",
+  ]
+  const names = ["Alice Smith", "Bob Jones", "Charlie", "Dr. Example"]
+  let email = rng.oneOf(emails)
+  let name =
+    if rng.rand(0 .. 1) == 0:
+      Opt.some(rng.oneOf(names))
+    else:
+      Opt.none(string)
+  parseEmailAddress(email, name).get()
+
+proc genEmailAddressGroup*(rng: var Rand): EmailAddressGroup =
+  ## Generates an EmailAddressGroup with optional name and 0–3 addresses.
+  ## Name: 50% Opt.some, 50% Opt.none. Addresses may be empty.
+  ## Does NOT generate: deeply nested structures (EmailAddressGroup is flat).
+  const groupNames = ["Work", "Family", "Team", "undisclosed-recipients"]
+  let name =
+    if rng.rand(0 .. 1) == 0:
+      Opt.some(rng.oneOf(groupNames))
+    else:
+      Opt.none(string)
+  let count = rng.rand(0 .. 3)
+  var addrs: seq[EmailAddress] = @[]
+  for _ in 0 ..< count:
+    addrs.add(rng.genEmailAddress())
+  EmailAddressGroup(name: name, addresses: addrs)
+
+# ---------------------------------------------------------------------------
+# Mail Part C generators
+# ---------------------------------------------------------------------------
+
+proc genHeaderForm*(rng: var Rand): HeaderForm =
+  ## Picks uniformly from all 7 HeaderForm variants.
+  ## Does NOT bias toward any particular form.
+  rng.oneOf(
+    [hfRaw, hfText, hfAddresses, hfGroupedAddresses, hfMessageIds, hfDate, hfUrls]
+  )
+
+proc genEmailHeader*(rng: var Rand, trial: int = -1): EmailHeader =
+  ## Generates a valid EmailHeader with a realistic header name and random value.
+  ## Early trials (< 2): minimal name ("X"), empty value.
+  ## Remaining: name from RFC 5322 pool, value 0–80 printable ASCII chars.
+  ## Does NOT generate: empty names, control characters in values.
+  const headerNames = [
+    "From", "To", "Subject", "Date", "Message-Id", "Content-Type", "X-Mailer",
+    "X-Custom", "Reply-To", "Cc", "Bcc", "In-Reply-To", "References",
+    "List-Unsubscribe", "MIME-Version",
+  ]
+  if trial >= 0 and trial == 0:
+    return parseEmailHeader("X", "").get()
+  if trial >= 0 and trial == 1:
+    return parseEmailHeader("From", "").get()
+  let name = rng.oneOf(headerNames)
+  let valueLen = rng.rand(0 .. 80)
+  var value = newString(valueLen)
+  for i in 0 ..< valueLen:
+    value[i] = rng.genAsciiPrintable()
+  parseEmailHeader(name, value).get()
+
+proc buildHeaderPropertyWire(rng: var Rand, name: string, form: HeaderForm): string =
+  ## Builds a wire-format header property string from name and form.
+  result = "header:" & name
+  if form != hfRaw or rng.rand(0 .. 1) == 0:
+    result &= ":" & $form
+  if rng.rand(0 .. 3) == 0:
+    result &= ":all"
+
+proc genHeaderPropertyKey*(rng: var Rand, trial: int = -1): HeaderPropertyKey =
+  ## Generates a valid HeaderPropertyKey by constructing a wire-format string
+  ## and parsing it. Mixes known RFC headers with unknown custom headers.
+  ## Early trials (< 4): specific boundary cases (no form, with :all, etc.).
+  ## Remaining: random header name + valid form + optional :all.
+  ## Does NOT generate: invalid keys, empty names, unknown form suffixes.
+  const knownHeaders = [
+    "from", "to", "subject", "date", "message-id", "list-unsubscribe", "reply-to", "cc",
+    "bcc", "in-reply-to", "references", "list-archive",
+  ]
+  const unknownHeaders = ["x-custom", "x-mailer", "x-priority", "x-vendor-ext"]
+  if trial >= 0 and trial < 4:
+    const earlyStrings = [
+      "header:from:asAddresses", "header:subject:asText", "header:from",
+      "header:from:asAddresses:all",
+    ]
+    return parseHeaderPropertyName(earlyStrings[trial]).get()
+  # Pick a header name — 75% known, 25% unknown
+  let name =
+    if rng.rand(0 .. 3) < 3:
+      rng.oneOf(knownHeaders)
+    else:
+      rng.oneOf(unknownHeaders)
+  # Pick a valid form for this header
+  let allowed = allowedForms(name)
+  var formChoices: seq[HeaderForm] = @[]
+  for f in HeaderForm:
+    if f in allowed:
+      formChoices.add(f)
+  let form = rng.oneOf(formChoices)
+  parseHeaderPropertyName(rng.buildHeaderPropertyWire(name, form)).get()
+
+proc genPrintableString(rng: var Rand, maxLen: int = 60): string =
+  ## Generates a random printable ASCII string of 0..maxLen characters.
+  let valueLen = rng.rand(0 .. maxLen)
+  result = newString(valueLen)
+  for i in 0 ..< valueLen:
+    result[i] = rng.genAsciiPrintable()
+
+proc genHeaderValueString(rng: var Rand, form: HeaderForm): HeaderValue =
+  ## Generates hfRaw or hfText HeaderValue variants with random content.
+  let val = rng.genPrintableString(60)
+  case form
+  of hfRaw:
+    HeaderValue(form: hfRaw, rawValue: val)
+  of hfText:
+    HeaderValue(form: hfText, textValue: val)
+  else:
+    HeaderValue(form: hfRaw, rawValue: val)
+
+proc genHeaderValueNullable(rng: var Rand, form: HeaderForm): HeaderValue =
+  ## Generates nullable HeaderValue variants (hfMessageIds, hfDate, hfUrls).
+  ## 30% Opt.none, 70% Opt.some.
+  case form
+  of hfMessageIds:
+    if rng.rand(0 .. 9) < 3:
+      return HeaderValue(form: hfMessageIds, messageIds: Opt.none(seq[string]))
+    let count = rng.rand(0 .. 3)
+    var ids: seq[string] = @[]
+    for i in 0 ..< count:
+      ids.add("<msg" & $i & "@example.com>")
+    HeaderValue(form: hfMessageIds, messageIds: Opt.some(ids))
+  of hfDate:
+    if rng.rand(0 .. 9) < 3:
+      return HeaderValue(form: hfDate, date: Opt.none(Date))
+    let d = parseDate(rng.genValidDate()).get()
+    HeaderValue(form: hfDate, date: Opt.some(d))
+  of hfUrls:
+    if rng.rand(0 .. 9) < 3:
+      return HeaderValue(form: hfUrls, urls: Opt.none(seq[string]))
+    let count = rng.rand(0 .. 3)
+    var urlList: seq[string] = @[]
+    for i in 0 ..< count:
+      urlList.add("https://example.com/path" & $i)
+    HeaderValue(form: hfUrls, urls: Opt.some(urlList))
+  else:
+    HeaderValue(form: hfRaw, rawValue: "")
+
+proc genHeaderValue*(rng: var Rand, form: HeaderForm): HeaderValue =
+  ## Generates a HeaderValue for the given form variant.
+  ## Nullable forms (hfMessageIds, hfDate, hfUrls): 30% Opt.none, 70% Opt.some.
+  ## Does NOT generate: malformed addresses or dates.
+  case form
+  of hfRaw, hfText:
+    rng.genHeaderValueString(form)
+  of hfAddresses:
+    let count = rng.rand(0 .. 3)
+    var addrs: seq[EmailAddress] = @[]
+    for _ in 0 ..< count:
+      addrs.add(rng.genEmailAddress())
+    HeaderValue(form: hfAddresses, addresses: addrs)
+  of hfGroupedAddresses:
+    let count = rng.rand(0 .. 2)
+    var groups: seq[EmailAddressGroup] = @[]
+    for _ in 0 ..< count:
+      groups.add(rng.genEmailAddressGroup())
+    HeaderValue(form: hfGroupedAddresses, groups: groups)
+  of hfMessageIds, hfDate, hfUrls:
+    rng.genHeaderValueNullable(form)
+
+proc genHeaderValue*(rng: var Rand): HeaderValue =
+  ## Generates a HeaderValue with a randomly chosen form variant.
+  let form = rng.genHeaderForm()
+  rng.genHeaderValue(form)
+
+proc genPartId*(rng: var Rand, trial: int = -1): PartId =
+  ## Generates a valid PartId (non-empty, no control characters).
+  ## Early trials (< 4): typical MIME part numbers ("1", "1.2", "1.2.3", "2").
+  ## Remaining: random printable ASCII strings (1–20 chars).
+  ## Does NOT generate: empty strings, control characters.
+  if trial >= 0 and trial < 4:
+    const earlyIds = ["1", "1.2", "1.2.3", "2"]
+    return parsePartIdFromServer(earlyIds[trial]).get()
+  let length = rng.rand(1 .. 20)
+  var s = newString(length)
+  for i in 0 ..< length:
+    s[i] = rng.genAsciiPrintable()
+  parsePartIdFromServer(s).get()
+
+proc genEmailBodyValue*(rng: var Rand): EmailBodyValue =
+  ## Generates an EmailBodyValue with random content and flag combinations.
+  ## Value: 0–100 printable ASCII chars. Flags: random booleans.
+  ## Does NOT generate: values with control characters.
+  let valueLen = rng.rand(0 .. 100)
+  var val = newString(valueLen)
+  for i in 0 ..< valueLen:
+    val[i] = rng.genAsciiPrintable()
+  EmailBodyValue(
+    value: val,
+    isEncodingProblem: rng.rand(0 .. 1) == 0,
+    isTruncated: rng.rand(0 .. 1) == 0,
+  )
+
+type BodyPartSharedFields {.ruleOff: "objects".} = object
+  ## Shared optional fields for genEmailBodyPart leaf/multipart generation.
+  hdrs: seq[EmailHeader]
+  name: Opt[string]
+  disposition: Opt[string]
+  cid: Opt[string]
+  language: Opt[seq[string]]
+  location: Opt[string]
+
+proc genBodyPartSharedFields(rng: var Rand): BodyPartSharedFields =
+  ## Generates shared optional fields for EmailBodyPart.
+  var hdrs: seq[EmailHeader] = @[]
+  for _ in 0 ..< rng.rand(0 .. 2):
+    hdrs.add(rng.genEmailHeader())
+  BodyPartSharedFields(
+    hdrs: hdrs,
+    name:
+      if rng.rand(0 .. 2) == 0:
+        Opt.some("file" & $rng.rand(1 .. 99) & ".dat")
+      else:
+        Opt.none(string),
+    disposition:
+      if rng.rand(0 .. 2) == 0:
+        Opt.some(rng.oneOf(["inline", "attachment"]))
+      else:
+        Opt.none(string),
+    cid:
+      if rng.rand(0 .. 4) == 0:
+        Opt.some("cid" & $rng.rand(1 .. 999) & "@example.com")
+      else:
+        Opt.none(string),
+    language:
+      if rng.rand(0 .. 3) == 0:
+        Opt.some(@["en"])
+      else:
+        Opt.none(seq[string]),
+    location:
+      if rng.rand(0 .. 4) == 0:
+        Opt.some("https://example.com/part/" & $rng.rand(1 .. 999))
+      else:
+        Opt.none(string),
+  )
+
+proc genEmailBodyPart*(rng: var Rand, maxDepth: int = 3): EmailBodyPart =
+  ## Generates a random EmailBodyPart tree with controlled depth.
+  ## At maxDepth <= 0 or 50% chance: leaf part with text/* or binary content
+  ## type. Otherwise: multipart with 0–3 recursive children.
+  ## Leaf charset follows the RFC rule: Opt.some for text/*, Opt.none otherwise.
+  ## Does NOT generate: trees deeper than maxDepth, invalid partId or blobId.
+  const leafTypes = ["text/plain", "text/html", "image/png", "application/pdf"]
+  const multipartTypes =
+    ["multipart/mixed", "multipart/alternative", "multipart/related"]
+  let sf = rng.genBodyPartSharedFields()
+
+  if maxDepth <= 0 or rng.rand(0 .. 1) == 0:
+    let ct = rng.oneOf(leafTypes)
+    let charset =
+      if ct.startsWith("text/"):
+        Opt.some("utf-8")
+      else:
+        Opt.none(string)
+    return EmailBodyPart(
+      headers: sf.hdrs,
+      name: sf.name,
+      contentType: ct,
+      charset: charset,
+      disposition: sf.disposition,
+      cid: sf.cid,
+      language: sf.language,
+      location: sf.location,
+      size: UnsignedInt(rng.rand(1'i64 .. 50000'i64)),
+      isMultipart: false,
+      partId: rng.genPartId(),
+      blobId: Id(rng.genValidIdStrict(minLen = 3, maxLen = 20)),
+    )
+  let ct = rng.oneOf(multipartTypes)
+  var children: seq[EmailBodyPart] = @[]
+  for _ in 0 ..< rng.rand(0 .. 3):
+    children.add(rng.genEmailBodyPart(maxDepth - 1))
+  EmailBodyPart(
+    headers: sf.hdrs,
+    name: sf.name,
+    contentType: ct,
+    charset: Opt.none(string),
+    disposition: sf.disposition,
+    cid: sf.cid,
+    language: sf.language,
+    location: sf.location,
+    size: UnsignedInt(0),
+    isMultipart: true,
+    subParts: children,
+  )
+
+proc genArbitraryHeaderPropertyString*(rng: var Rand, trial: int = -1): string =
+  ## Generates strings for totality testing of parseHeaderPropertyName.
+  ## Early trials (< 6): curated boundary cases (empty, missing prefix,
+  ## empty name, unknown form, trailing colon, too many segments).
+  ## Remaining: mix of valid-looking and garbage strings.
+  ## Does NOT guarantee: valid or invalid — the full input space is covered.
+  if trial >= 0 and trial < 6:
+    const earlyStrings = [
+      "", "header:", "header::", "From:asText", "header:From:asUnknown",
+      "header:From:asAddresses:all:extra",
+    ]
+    return earlyStrings[trial]
+  # Mix: 50% header:-prefixed with random content, 50% arbitrary
+  if rng.rand(0 .. 1) == 0:
+    let restLen = rng.rand(0 .. 40)
+    var rest = newString(restLen)
+    for i in 0 ..< restLen:
+      rest[i] = rng.genArbitraryByte()
+    return "header:" & rest
+  let length = rng.rand(0 .. 50)
+  var s = newString(length)
+  for i in 0 ..< length:
+    s[i] = rng.genArbitraryByte()
+  return s
 
 {.pop.} # params
 {.pop.} # hasDoc
