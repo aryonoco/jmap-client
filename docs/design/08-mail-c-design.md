@@ -23,6 +23,9 @@ by section number.
 2. [Header Sub-Types — headers.nim](#2-header-sub-types--headersnim)
 3. [Body Sub-Types — body.nim](#3-body-sub-types--bodynim)
 4. [Test Specification](#4-test-specification)
+   - 4.1–4.9: Unit, serde, and compile-time tests per type
+   - 4.10: Adversarial scenarios
+   - 4.11: Property-based test strategy
 5. [Decision Traceability Matrix](#5-decision-traceability-matrix)
 
 ---
@@ -212,8 +215,18 @@ Post-construction `doAssert` verifies `rawName.len > 0`.
 
 The smart constructor does **not** validate that the form is allowed for the
 given header name. That is domain validation (§2.6), not structural parsing.
+
+The parser also does **not** validate that the header name contains only
+printable ASCII characters (33–126, excluding colon), even though RFC 8621
+§4.1.3 defines `{header-field-name}` with this constraint. This is a
+deliberate strict/lenient split: the structural parser is lenient to accept
+server-provided header property names (Postel's law). The printable-ASCII
+constraint is enforced on client-constructed values at the Part D boundary
+— see §2.6.
+
 The structural parser's concern is "is this a well-formed header property
-name?" — not "does the RFC permit this combination?"
+name?" — not "does the RFC permit this combination?" or "is the name valid
+for sending?"
 
 **Principles:**
 - **Make illegal states unrepresentable** — Module-private fields + smart
@@ -287,7 +300,7 @@ parsing fails. One meaning per state: `Opt.none` is not "absent" or
 "not requested", it is "parse failure on the server side."
 
 **`hfDate` uses `Date`** (RFC 3339, any timezone), not `UTCDate`. RFC 8621
-§4.1.2.4 specifies the `Date` header parsed form returns a `Date`, not a
+§4.1.2.6 specifies the `Date` header parsed form returns a `Date`, not a
 `UTCDate`. The `Date` distinct type from `primitives.nim` matches the spec.
 
 **`hfAddresses` and `hfGroupedAddresses`** reference `seq[EmailAddress]`
@@ -312,23 +325,59 @@ Nim's case object syntax.
 **RFC reference:** §4.1.2.
 
 `allowedForms` maps known header names to their permitted parsed form sets.
-Unknown headers (including vendor extensions) allow all forms per the RFC.
+The table covers every header field defined in RFC 5322 and RFC 2369, plus
+`List-Id` from RFC 2919 (explicitly named in §4.1.2.2 — see note below).
+Headers defined in these RFCs but not listed for any parsed form (e.g.,
+`Return-Path`, `Received`) are restricted to Raw only. Unknown headers
+(including vendor extensions and headers from other RFCs not explicitly
+named in §4.1.2) allow all forms per the RFC's catch-all clause.
 
 **Private table + public function:**
 
 ```nim
 const allowedHeaderFormsTable: Table[string, set[HeaderForm]] = {
-  "from":        {hfAddresses, hfGroupedAddresses, hfRaw},
-  "sender":      {hfAddresses, hfGroupedAddresses, hfRaw},
-  "reply-to":    {hfAddresses, hfGroupedAddresses, hfRaw},
-  "to":          {hfAddresses, hfGroupedAddresses, hfRaw},
-  "cc":          {hfAddresses, hfGroupedAddresses, hfRaw},
-  "bcc":         {hfAddresses, hfGroupedAddresses, hfRaw},
-  "subject":     {hfText, hfRaw},
-  "date":        {hfDate, hfRaw},
-  "message-id":  {hfMessageIds, hfRaw},
-  "in-reply-to": {hfMessageIds, hfRaw},
-  "references":  {hfMessageIds, hfRaw},
+  ## RFC 5322 §3.6.2–3.6.3 address headers (§4.1.2.3, §4.1.2.4)
+  "from":              {hfAddresses, hfGroupedAddresses, hfRaw},
+  "sender":            {hfAddresses, hfGroupedAddresses, hfRaw},
+  "reply-to":          {hfAddresses, hfGroupedAddresses, hfRaw},
+  "to":                {hfAddresses, hfGroupedAddresses, hfRaw},
+  "cc":                {hfAddresses, hfGroupedAddresses, hfRaw},
+  "bcc":               {hfAddresses, hfGroupedAddresses, hfRaw},
+  ## RFC 5322 §3.6.6 resent address headers (§4.1.2.3, §4.1.2.4)
+  "resent-from":       {hfAddresses, hfGroupedAddresses, hfRaw},
+  "resent-sender":     {hfAddresses, hfGroupedAddresses, hfRaw},
+  ## RFC 5322 §4.5.6 obsolete resent field, listed in RFC 8621 §4.1.2.3
+  "resent-reply-to":   {hfAddresses, hfGroupedAddresses, hfRaw},
+  "resent-to":         {hfAddresses, hfGroupedAddresses, hfRaw},
+  "resent-cc":         {hfAddresses, hfGroupedAddresses, hfRaw},
+  "resent-bcc":        {hfAddresses, hfGroupedAddresses, hfRaw},
+  ## RFC 5322 §3.6.5 text headers (§4.1.2.2)
+  "subject":           {hfText, hfRaw},
+  "comments":          {hfText, hfRaw},
+  "keywords":          {hfText, hfRaw},
+  ## RFC 2919 — explicitly named in §4.1.2.2 (Text). Although List-Id is
+  ## not defined in RFC 5322 or RFC 2369 (so the catch-all in §4.1.2.3–7
+  ## would technically permit all forms), the RFC's explicit enumeration
+  ## under Text is treated as the authoritative restriction (Decision C40).
+  "list-id":           {hfText, hfRaw},
+  ## RFC 5322 §3.6.1 + §3.6.6 date headers (§4.1.2.6)
+  "date":              {hfDate, hfRaw},
+  "resent-date":       {hfDate, hfRaw},
+  ## RFC 5322 §3.6.4 + §3.6.6 message-id headers (§4.1.2.5)
+  "message-id":        {hfMessageIds, hfRaw},
+  "in-reply-to":       {hfMessageIds, hfRaw},
+  "references":        {hfMessageIds, hfRaw},
+  "resent-message-id": {hfMessageIds, hfRaw},
+  ## RFC 2369 list headers (§4.1.2.7)
+  "list-help":         {hfUrls, hfRaw},
+  "list-unsubscribe":  {hfUrls, hfRaw},
+  "list-subscribe":    {hfUrls, hfRaw},
+  "list-post":         {hfUrls, hfRaw},
+  "list-owner":        {hfUrls, hfRaw},
+  "list-archive":      {hfUrls, hfRaw},
+  ## RFC 5322 §3.6.7 — not listed for any parsed form (Raw only)
+  "return-path":       {hfRaw},
+  "received":          {hfRaw},
 }.toTable
 ```
 
@@ -377,9 +426,15 @@ is allowed, `err(ValidationError)` if not.
 
 Consumers compose this as needed:
 - EmailBlueprint's smart constructor (Part D) calls `validateHeaderForm`
-  on creation-model headers — strict for client-constructed values.
-- The serde layer for server-provided header data **skips** this check —
-  Postel's law: accept unusual form combinations from servers.
+  on creation-model headers — strict for client-constructed values. Part D
+  also validates that all `HeaderPropertyKey` names in `extraHeaders`
+  contain only printable ASCII (33–126, excluding colon) per RFC 8621
+  §4.1.3. This follows the same strict/lenient split as `parseId` vs
+  `parseIdFromServer`: strict on client-constructed values, lenient on
+  server-provided data (Decision C42).
+- The serde layer for server-provided header data **skips** both checks —
+  Postel's law: accept unusual form combinations and non-standard name
+  characters from servers.
 
 **Principles:**
 - **Parse once at the boundary** — Each boundary does its own level of
@@ -533,8 +588,13 @@ Borrowed operations via `defineStringDistinctOps(PartId)`: `==`, `$`,
 func parsePartIdFromServer*(raw: string): Result[PartId, ValidationError]
 ```
 
-Validates: `raw` non-empty. No control characters (same
-`validateServerAssignedToken` pattern as `parseIdFromServer`).
+Validates: `raw` non-empty. No length limit — RFC 8621 types `partId` as
+`String` (not `Id`), so the 1–255 octet constraint from RFC 8620's `Id`
+definition does not apply. `PartId` uses its own validation function, not
+the shared `validateServerAssignedToken` used by `Id`. Control characters
+(< 0x20) are rejected as a defensive Postel's-law measure (no compliant
+server would produce them), not because the RFC mandates it — this is a
+distinct decision from the `Id` character-set constraint (Decision C41).
 Post-construction `doAssert` verifies `len > 0`.
 
 Single parser, named `parsePartIdFromServer` per the B15 convention: all
@@ -603,12 +663,19 @@ empty; the field is never conceptually absent. This parallels
 present, possibly empty, never null. `fromJson` defaults to `@[]` if
 absent.
 
-**`charset` field** — `Opt[string]`. Represents exactly what the server
-sent: absent/null → `Opt.none`, present → `Opt.some(value)`. The
-`us-ascii` default for `text/*` parts is consumer interpretation, not
-parsing. `Opt.none` means "server did not provide a charset value" — the
-consumer has both `charset` and `contentType` on the same object and can
-compose the default rule.
+**`charset` field** — `Opt[string]`. Two states per the RFC: a string
+value (either the explicit charset parameter or the implicit `"us-ascii"`
+default for `text/*` parts), or `Opt.none` meaning "not `text/*`". The
+`fromJson` boundary applies the RFC rule: if `contentType` is `text/*` and
+charset is absent/null, emit `Opt.some("us-ascii")`. The boundary already
+inspects `contentType` to derive `isMultipart`; applying the charset
+default in the same parse pass is not a layer violation — it is the same
+field, in the same function, for the same reason (deriving domain truth
+from `contentType`). Postel's law: if a non-compliant server sends null
+charset for a `text/*` part, the default is applied rather than passing
+ambiguity inward. After the boundary, interior code can trust: "if charset
+is `Opt.some`, it carries a value; if `Opt.none`, the part is not
+`text/*`."
 
 **`size` field** — `UnsignedInt` on all parts, including multipart. RFC
 8621 §4.1.4 specifies `size` unconditionally. In the serde layer, `size`
@@ -849,8 +916,14 @@ func fromJsonImpl(
   `contentType` is the one source of truth for the discriminant.
 - Extracts shared fields:
   - `headers`: JArray of `EmailHeader.fromJson`. Absent → `@[]`.
-  - `name`, `charset`, `disposition`, `cid`, `location`: `Opt[string]`.
+  - `name`, `disposition`, `cid`, `location`: `Opt[string]`.
     Absent/null → `Opt.none`.
+  - `charset`: `Opt[string]`. If `contentType` starts with `"text/"` and
+    charset is absent/null, emit `Opt.some("us-ascii")` (RFC §4.1.4
+    implicit default, Postel's law for non-compliant servers). If
+    `contentType` is not `text/*` and charset is absent/null, emit
+    `Opt.none`. If charset is present as a string, emit
+    `Opt.some(value)` regardless of `contentType`.
   - `language`: `Opt[seq[string]]`. Absent/null → `Opt.none`. Present
     JArray → `Opt.some(seq)`.
   - `size`: `UnsignedInt`. On leaf parts, required (absent → error). On
@@ -1007,131 +1080,264 @@ over an incidental mechanical similarity.
 
 Numbered test scenarios for implementation plan reference. Unit tests verify
 smart constructors and type invariants. Serde tests verify round-trip and
-structural JSON correctness. Numbering is self-contained to this document.
+structural JSON correctness. Compile-time tests verify that case objects and
+sealed types prevent invalid access. Numbering is self-contained to this
+document. Scenarios added during test optimisation review use alphabetic
+suffixes (e.g., 4a, 4b) relative to the original scenario they follow.
 
-### 4.1. HeaderForm (scenarios 1–3)
+### 4.1. HeaderForm (scenarios 1–4, 4a–4b)
 
 | # | Scenario | Expected |
 |---|----------|----------|
 | 1 | `parseEnum[HeaderForm]` for each known suffix string (`"asRaw"`, `"asText"`, `"asAddresses"`, `"asGroupedAddresses"`, `"asMessageIds"`, `"asDate"`, `"asURLs"`) | correct variant |
-| 2 | `nimIdentNormalize` verification for `"asURLs"` vs `hfUrls` — confirm `parseEnum` produces `hfUrls` | pass (or thin wrapper handles) |
-| 3 | Unknown suffix string (e.g., `"asUnknown"`) via `parseEnum` with default | fallback value or wrapper error |
+| 2 | `nimIdentNormalize` verification for `"asURLs"` vs `hfUrls` — confirm wrapper function produces `hfUrls`. Verify and document whether `parseEnum` or a manual match function is used | pass — wrapper handles any mismatch |
+| 3 | Unknown suffix string (e.g., `"asUnknown"`) via wrapper function | `err` — unrecognised form suffix rejected |
+| 4 | `$` operator for all 7 variants produces string backing: `$hfAddresses == "asAddresses"`, `$hfUrls == "asURLs"`, etc. | pass — load-bearing for `toPropertyString` |
+| 4a | Wrapper function with empty string `""` | `err` — no form suffix to parse |
+| 4b | Wrapper function with `"as_Addresses"` (underscore in suffix) — `nimIdentNormalize` false match test | Pin behaviour: `ok` (if `parseEnum` normalises) or `err` (if exact match). Document the parsing mechanism |
 
-### 4.2. EmailHeader (scenarios 4–8)
-
-| # | Scenario | Expected |
-|---|----------|----------|
-| 4 | `parseEmailHeader("From", "joe@example.com")` | `ok`, name = `"From"`, value = `"joe@example.com"` |
-| 5 | `parseEmailHeader("", "value")` | `err(ValidationError)` |
-| 6 | `parseEmailHeader("X-Custom", "")` — empty value is valid | `ok` |
-| 7 | `toJson` produces `{"name": "From", "value": "..."}` | structural match |
-| 8 | `fromJson`/`toJson` round-trip | identity |
-
-### 4.3. HeaderPropertyKey (scenarios 9–22)
+### 4.2. EmailHeader (scenarios 5–11, 11a–11f)
 
 | # | Scenario | Expected |
 |---|----------|----------|
-| 9 | `parseHeaderPropertyName("header:From:asAddresses")` | `ok`, name = `"from"`, form = `hfAddresses`, isAll = `false` |
-| 10 | `parseHeaderPropertyName("header:Subject:asText")` | `ok`, name = `"subject"`, form = `hfText`, isAll = `false` |
-| 11 | `parseHeaderPropertyName("header:From:asAddresses:all")` | `ok`, name = `"from"`, form = `hfAddresses`, isAll = `true` |
-| 12 | `parseHeaderPropertyName("header:From")` — no form suffix → `hfRaw` | `ok`, name = `"from"`, form = `hfRaw`, isAll = `false` |
-| 13 | `parseHeaderPropertyName("header:From:all")` — `:all` without form | `ok`, name = `"from"`, form = `hfRaw`, isAll = `true` |
-| 14 | `parseHeaderPropertyName("From:asAddresses")` — missing `header:` prefix | `err(ValidationError)` |
-| 15 | `parseHeaderPropertyName("header::asAddresses")` — empty name | `err(ValidationError)` |
-| 16 | `parseHeaderPropertyName("header:From:asUnknown")` — unknown form suffix | `err(ValidationError)` |
-| 17 | Name normalised to lowercase: `"header:FROM:asRaw"` → name = `"from"` | pass |
-| 18 | `toPropertyString` produces `"header:from:asAddresses"` (form suffix from enum string backing) | pass |
-| 19 | `toPropertyString` with `hfRaw` omits form suffix: `"header:from"` | pass |
-| 20 | `toPropertyString` with `:all`: `"header:from:asAddresses:all"` | pass |
-| 21 | `toPropertyString` round-trip with `parseHeaderPropertyName` | identity |
-| 22 | Accessor functions `name`, `form`, `isAll` return correct values | pass |
+| 5 | `parseEmailHeader("From", "joe@example.com")` | `ok`, name = `"From"`, value = `"joe@example.com"` |
+| 6 | `parseEmailHeader("", "value")` | `err(ValidationError)` |
+| 7 | `parseEmailHeader("X-Custom", "")` — empty value is valid | `ok` |
+| 8 | `toJson` produces `{"name": "From", "value": "..."}` | structural match |
+| 9 | `fromJson`/`toJson` round-trip | identity |
+| 10 | `parseEmailHeader` with control character in name (`"From\x00"`, `"X\x1F"`) — no format validation beyond non-empty | `ok` (lenient — server provides arbitrary names) |
+| 11 | `parseEmailHeader` with whitespace-only name (`"   "`) — non-empty but semantically vacuous | `ok` (non-empty constraint is structural, not semantic) |
+| 11a | `fromJson` with non-JObject input (JArray) | `err(ValidationError)` |
+| 11b | `fromJson` with absent `"name"` key | `err(ValidationError)` |
+| 11c | `fromJson` with `"name": null` | `err(ValidationError)` |
+| 11d | `fromJson` with `"name"` as JInt (wrong kind) | `err(ValidationError)` |
+| 11e | `fromJson` with absent `"value"` key | `err(ValidationError)` |
+| 11f | `fromJson` with `"value": null` | `err(ValidationError)` |
 
-### 4.4. HeaderValue (scenarios 23–37)
-
-| # | Scenario | Expected |
-|---|----------|----------|
-| 23 | `parseHeaderValue(hfRaw, JString)` | `ok`, rawValue populated |
-| 24 | `parseHeaderValue(hfText, JString)` | `ok`, textValue populated |
-| 25 | `parseHeaderValue(hfAddresses, JArray of address objects)` | `ok`, addresses populated |
-| 26 | `parseHeaderValue(hfGroupedAddresses, JArray of group objects)` | `ok`, groups populated |
-| 27 | `parseHeaderValue(hfMessageIds, JArray of JString)` | `ok`, messageIds = `Opt.some(seq)` |
-| 28 | `parseHeaderValue(hfMessageIds, JNull)` | `ok`, messageIds = `Opt.none` |
-| 29 | `parseHeaderValue(hfDate, JString valid date)` | `ok`, date = `Opt.some(Date)` |
-| 30 | `parseHeaderValue(hfDate, JNull)` | `ok`, date = `Opt.none` |
-| 31 | `parseHeaderValue(hfUrls, JArray of JString)` | `ok`, urls = `Opt.some(seq)` |
-| 32 | `parseHeaderValue(hfUrls, JNull)` | `ok`, urls = `Opt.none` |
-| 33 | `parseHeaderValue(hfRaw, JInt)` — wrong JSON kind | `err(ValidationError)` |
-| 34 | `parseHeaderValue(hfAddresses, JString)` — wrong kind | `err(ValidationError)` |
-| 35 | `toJson` for each of 7 forms | structural match |
-| 36 | `toJson`/`parseHeaderValue` round-trip per form | identity |
-| 37 | `toJson` for `hfDate` with `Opt.none` | `null` |
-
-### 4.5. allowedForms + validateHeaderForm (scenarios 38–44)
+### 4.3. HeaderPropertyKey (scenarios 12–29, 29a–29e)
 
 | # | Scenario | Expected |
 |---|----------|----------|
-| 38 | `allowedForms("from")` | `{hfAddresses, hfGroupedAddresses, hfRaw}` |
-| 39 | `allowedForms("subject")` | `{hfText, hfRaw}` |
-| 40 | `allowedForms("date")` | `{hfDate, hfRaw}` |
-| 41 | `allowedForms("message-id")` | `{hfMessageIds, hfRaw}` |
-| 42 | `allowedForms("x-custom-header")` — unknown header | `{hfRaw..hfUrls}` (all forms) |
-| 43 | `validateHeaderForm` with `from` + `hfAddresses` | `ok` |
-| 44 | `validateHeaderForm` with `subject` + `hfAddresses` | `err(ValidationError)` |
+| 12 | `parseHeaderPropertyName("header:From:asAddresses")` | `ok`, name = `"from"`, form = `hfAddresses`, isAll = `false` |
+| 13 | `parseHeaderPropertyName("header:Subject:asText")` | `ok`, name = `"subject"`, form = `hfText`, isAll = `false` |
+| 14 | `parseHeaderPropertyName("header:From:asAddresses:all")` | `ok`, name = `"from"`, form = `hfAddresses`, isAll = `true` |
+| 15 | `parseHeaderPropertyName("header:From")` — no form suffix → `hfRaw` | `ok`, name = `"from"`, form = `hfRaw`, isAll = `false` |
+| 16 | `parseHeaderPropertyName("header:From:all")` — `:all` without form | `ok`, name = `"from"`, form = `hfRaw`, isAll = `true` |
+| 17 | `parseHeaderPropertyName("From:asAddresses")` — missing `header:` prefix | `err(ValidationError)` |
+| 18 | `parseHeaderPropertyName("header::asAddresses")` — empty name | `err(ValidationError)` |
+| 19 | `parseHeaderPropertyName("header:From:asUnknown")` — unknown form suffix | `err(ValidationError)` |
+| 20 | Name normalised to lowercase: `"header:FROM:asRaw"` → name = `"from"` | pass |
+| 21 | `toPropertyString` produces `"header:from:asAddresses"` (form suffix from enum string backing) | pass |
+| 22 | `toPropertyString` with `hfRaw` omits form suffix: `"header:from"` | pass |
+| 23 | `toPropertyString` with `:all`: `"header:from:asAddresses:all"` | pass |
+| 24 | `toPropertyString` round-trip with `parseHeaderPropertyName` | identity |
+| 25 | `parseHeaderPropertyName("header:From:asRaw")` — explicit hfRaw form suffix | `ok`, name = `"from"`, form = `hfRaw`, isAll = `false` |
+| 26 | `parseHeaderPropertyName("header:From:asRaw:all")` — explicit hfRaw + `:all` | `ok`, name = `"from"`, form = `hfRaw`, isAll = `true` |
+| 27 | `parseHeaderPropertyName("header:X-My:Custom:asText")` — colon in apparent name portion | `err(ValidationError)` — RFC 5322 header names do not contain colons; the parser treats colons as structural delimiters. The segment `"Custom"` is parsed as an unrecognised form suffix |
+| 28 | `parseHeaderPropertyName("header:FROM:asAddresses")` — full uppercase name | `ok`, name = `"from"` |
+| 29 | Form suffix case variants: `"header:From:asaddresses"`, `"header:From:ASADDRESSES"` | Pin behaviour: `err` or `ok` per the form suffix parsing mechanism. `parseEnum` applies `nimIdentNormalize` (case-insensitive after first character). Document the exact rule used |
+| 29a | `parseHeaderPropertyName("")` — empty string | `err(ValidationError)` |
+| 29b | `parseHeaderPropertyName("header:From:asAddresses:")` — trailing colon after form | `err(ValidationError)` — segment after form suffix is neither `"all"` nor absent |
+| 29c | `parseHeaderPropertyName("header:From:asAddresses:ALL")` — `:all` suffix uppercase | Pin behaviour: `err` or `ok`. Document the case sensitivity rule for the `:all` suffix |
+| 29d | `parseHeaderPropertyName("header:From:as_Addresses")` — underscore in form suffix (`nimIdentNormalize` false match) | Pin behaviour: `ok` (if `parseEnum` normalises) or `err` (if exact match). Document whether `parseEnum` normalisation applies to form suffix parsing |
+| 29e | `HeaderPropertyKey` equality after case normalisation: keys from `"header:FROM:asAddresses"` and `"header:from:asAddresses"` | `key1 == key2` and `hash(key1) == hash(key2)` — required for correct `Table` key behaviour in `extraHeaders` |
 
-### 4.6. PartId (scenarios 45–48)
-
-| # | Scenario | Expected |
-|---|----------|----------|
-| 45 | `parsePartIdFromServer("1")` | `ok` |
-| 46 | `parsePartIdFromServer("")` | `err(ValidationError)` |
-| 47 | `parsePartIdFromServer` with control character | `err(ValidationError)` |
-| 48 | `toJson`/`fromJson` round-trip | identity |
-
-### 4.7. EmailBodyPart (scenarios 49–65)
-
-| # | Scenario | Expected |
-|---|----------|----------|
-| 49 | `fromJson` leaf part (`"type": "text/plain"`) — required `partId`, `blobId` present | `ok`, `isMultipart == false` |
-| 50 | `fromJson` multipart (`"type": "multipart/mixed"`) — `subParts` present | `ok`, `isMultipart == true` |
-| 51 | `fromJson` multipart with absent `subParts` | `ok`, `subParts == @[]` |
-| 52 | `fromJson` leaf with absent `partId` | `err(ValidationError)` |
-| 53 | `fromJson` leaf with absent `blobId` | `err(ValidationError)` |
-| 54 | `isMultipart` derived from `contentType`, not `subParts` key presence | pass |
-| 55 | `size` required on leaf, absent → `err` | pass |
-| 56 | `size` absent on multipart → default `UnsignedInt(0)` | pass |
-| 57 | `charset` absent → `Opt.none` | pass |
-| 58 | `charset` present → `Opt.some(value)` | pass |
-| 59 | `headers` absent → `@[]` | pass |
-| 60 | `headers` present → parsed `seq[EmailHeader]` | pass |
-| 61 | `contentType` field maps to/from `"type"` wire key | pass |
-| 62 | Depth limit: nesting at depth 129 → `err(ValidationError)` | pass |
-| 63 | `toJson` round-trip for leaf part | identity |
-| 64 | `toJson` round-trip for multipart with children | identity |
-| 65 | `toJson` depth limit — deeply nested structure → `err` or truncation | totality preserved |
-
-### 4.8. EmailBodyValue (scenarios 66–71)
+### 4.4. HeaderValue (scenarios 30–52, 52a–52c)
 
 | # | Scenario | Expected |
 |---|----------|----------|
-| 66 | `fromJson` all fields present, flags false | `ok` |
-| 67 | `fromJson` with `isEncodingProblem = true` | `ok` (read model allows) |
-| 68 | `fromJson` with `isTruncated = true` | `ok` |
-| 69 | `fromJson` with both flags true | `ok` |
-| 70 | `fromJson` flags absent → default `false` | pass |
-| 71 | `toJson`/`fromJson` round-trip | identity |
+| 30 | `parseHeaderValue(hfRaw, JString)` | `ok`, rawValue populated |
+| 31 | `parseHeaderValue(hfText, JString)` | `ok`, textValue populated |
+| 32 | `parseHeaderValue(hfAddresses, JArray of address objects)` | `ok`, addresses populated |
+| 33 | `parseHeaderValue(hfGroupedAddresses, JArray of group objects)` | `ok`, groups populated |
+| 34 | `parseHeaderValue(hfMessageIds, JArray of JString)` | `ok`, messageIds = `Opt.some(seq)` |
+| 35 | `parseHeaderValue(hfMessageIds, JNull)` | `ok`, messageIds = `Opt.none` |
+| 36 | `parseHeaderValue(hfDate, JString valid date)` | `ok`, date = `Opt.some(Date)` |
+| 37 | `parseHeaderValue(hfDate, JNull)` | `ok`, date = `Opt.none` |
+| 38 | `parseHeaderValue(hfUrls, JArray of JString)` | `ok`, urls = `Opt.some(seq)` |
+| 39 | `parseHeaderValue(hfUrls, JNull)` | `ok`, urls = `Opt.none` |
+| 40 | `parseHeaderValue(hfRaw, JInt)` — wrong JSON kind | `err(ValidationError)` |
+| 41 | `parseHeaderValue(hfAddresses, JString)` — wrong kind | `err(ValidationError)` |
+| 42 | `toJson` for each of 7 forms | structural match |
+| 43 | `toJson`/`parseHeaderValue` round-trip per form, including `Opt.none` variants for `hfMessageIds`, `hfDate`, `hfUrls` (null → toJson → parseHeaderValue → null) | identity |
+| 44 | `toJson` for `hfDate` with `Opt.none` | `null` |
+| 45 | `parseHeaderValue(hfAddresses, JArray of [])` — empty addresses array | `ok`, addresses = `@[]` |
+| 46 | `parseHeaderValue(hfGroupedAddresses, JArray of [])` — empty groups array | `ok`, groups = `@[]` |
+| 47 | `parseHeaderValue(hfMessageIds, JArray of [])` — empty message-id array | `ok`, messageIds = `Opt.some(@[])` |
+| 48 | `parseHeaderValue(hfUrls, JArray of [])` — empty URLs array | `ok`, urls = `Opt.some(@[])` |
+| 49 | `parseHeaderValue(hfAddresses, JArray with malformed address)` — missing `email` field in element | `err(ValidationError)` — propagated from `EmailAddress.fromJson` |
+| 50 | `parseHeaderValue(hfDate, JString with malformed date)` — e.g., `"not-a-date"` | `err(ValidationError)` — propagated from `Date.fromJson` |
+| 51 | Wrong JSON kind for remaining forms: `hfText` + JInt, `hfGroupedAddresses` + JString, `hfMessageIds` + JObject, `hfDate` + JArray, `hfUrls` + JObject | `err(ValidationError)` for each |
+| 52 | `parseHeaderValue(hfAddresses, JNull)` — null for non-nullable form | `err(ValidationError)` |
+| 52a | `parseHeaderValue(hfRaw, %"")` — empty raw string | `ok`, `rawValue == ""` |
+| 52b | `parseHeaderValue(hfAddresses, %*[42, "not-an-object"])` — mixed-kind array elements | `err(ValidationError)` on first non-JObject element |
+| 52c | `parseHeaderValue(hfMessageIds, %*["valid", 42])` — non-JString element in message-id array | `err(ValidationError)` on the JInt element |
 
-### 4.9. BlueprintBodyPart (scenarios 72–79)
+### 4.5. allowedForms + validateHeaderForm (scenarios 53–69, 60a, 69a)
 
 | # | Scenario | Expected |
 |---|----------|----------|
-| 72 | `toJson` inline leaf (`bpsInline`) — emits `partId`, omits `blobId`/`charset`/`size` | structural match |
-| 73 | `toJson` blob-ref leaf (`bpsBlobRef`) — emits `blobId`, optional `charset`/`size` | structural match |
-| 74 | `toJson` blob-ref leaf with `charset` and `size` present | both emitted |
-| 75 | `toJson` blob-ref leaf with `charset` and `size` absent | both omitted |
-| 76 | `toJson` multipart — emits `subParts`, recursive | structural match |
-| 77 | `toJson` depth limit — deeply nested structure | totality preserved |
-| 78 | `toJson` emits `"type"` key from `contentType` field | pass |
-| 79 | No `fromJson` for `BlueprintBodyPart` — creation type is toJson-only | compile-time: no such function |
+| 53 | `allowedForms("from")` | `{hfAddresses, hfGroupedAddresses, hfRaw}` |
+| 54 | `allowedForms("subject")` | `{hfText, hfRaw}` |
+| 55 | `allowedForms("date")` | `{hfDate, hfRaw}` |
+| 56 | `allowedForms("message-id")` | `{hfMessageIds, hfRaw}` |
+| 57 | `allowedForms("x-custom-header")` — unknown header | `{hfRaw..hfUrls}` (all forms) |
+| 58 | `validateHeaderForm` with `from` + `hfAddresses` | `ok` |
+| 59 | `validateHeaderForm` with `subject` + `hfAddresses` | `err(ValidationError)` |
+| 60 | `allowedForms("resent-from")` — resent address category representative | `{hfAddresses, hfGroupedAddresses, hfRaw}` |
+| 61 | `allowedForms("list-unsubscribe")` — URLs category representative | `{hfUrls, hfRaw}` |
+| 62 | `allowedForms("return-path")` — Raw-only category | `{hfRaw}` |
+| 60a | Table completeness: `allowedHeaderFormsTable` contains exactly 27 entries, and every entry's form set includes `hfRaw` | pass — implementation SHOULD exhaustively test every table entry; this scenario asserts structural correctness |
+| 68 | `validateHeaderForm` with unknown header (`"x-custom"`) + `hfAddresses` | `ok` — unknown headers allow all forms |
+| 69 | `validateHeaderForm` with `from` + `hfRaw` | `ok` — Raw always allowed |
+| 69a | `allowedForms("FROM")` — non-lowercase input | `{hfRaw..hfUrls}` (all forms) — lookup misses because table keys are lowercase. Documents the caller contract: callers MUST pass lowercase names |
+
+### 4.6. PartId (scenarios 70–76, 73a)
+
+| # | Scenario | Expected |
+|---|----------|----------|
+| 70 | `parsePartIdFromServer("1")` | `ok` |
+| 71 | `parsePartIdFromServer("")` | `err(ValidationError)` |
+| 72 | `parsePartIdFromServer` with control character | `err(ValidationError)` |
+| 73 | `toJson`/`fromJson` round-trip | identity |
+| 73a | `PartId` equality: two constructions from same string produce equal values; `hash` matches | pass — required for `bodyValues` map key correctness |
+| 74 | `parsePartIdFromServer` with long value (e.g., 500 chars) | `ok` — no length limit (partId is String, not Id) |
+| 75 | `parsePartIdFromServer` with multi-byte UTF-8 at any length | `ok` |
+| 76 | `parsePartIdFromServer` with typical server formats (`"1"`, `"1.2"`, `"1.2.3"`) | `ok` |
+
+### 4.7. EmailBodyPart (scenarios 77–108, 97a–99d, 102a, 108a–108c)
+
+| # | Scenario | Expected |
+|---|----------|----------|
+| 77 | `fromJson` leaf part (`"type": "text/plain"`) — required `partId`, `blobId` present | `ok`, `isMultipart == false` |
+| 78 | `fromJson` multipart (`"type": "multipart/mixed"`) — `subParts` present | `ok`, `isMultipart == true` |
+| 79 | `fromJson` multipart with absent `subParts` | `ok`, `subParts == @[]` |
+| 80 | `fromJson` leaf with absent `partId` | `err(ValidationError)` |
+| 81 | `fromJson` leaf with absent `blobId` | `err(ValidationError)` |
+| 82 | `isMultipart` derived from `contentType`, not `subParts` key presence | pass |
+| 83 | `size` required on leaf, absent → `err` | pass |
+| 84 | `size` absent on multipart → default `UnsignedInt(0)` | pass |
+| 85 | `charset` absent on `text/plain` → `Opt.some("us-ascii")` (RFC default applied) | pass |
+| 86 | `charset` present on `text/plain` → `Opt.some(value)` | pass |
+| 87 | `charset` null on `text/html` → `Opt.some("us-ascii")` (Postel's law) | pass |
+| 88 | `charset` absent on `image/png` → `Opt.none` (not text/*) | pass |
+| 89 | `charset` absent on `multipart/mixed` → `Opt.none` (not text/*) | pass |
+| 90 | `charset` present on `image/png` → `Opt.some(value)` (trust server) | pass |
+| 91 | `headers` absent → `@[]` | pass |
+| 92 | `headers` present → parsed `seq[EmailHeader]` | pass |
+| 93 | Depth limit: nesting at depth 129 → `err(ValidationError)` | pass |
+| 94 | `toJson` round-trip for leaf part | identity |
+| 95 | `toJson` round-trip for multipart with children | identity |
+| 96 | `toJson` depth limit — deeply nested structure → `err` or truncation | totality preserved |
+| 97 | `fromJson` with absent `contentType`/`"type"` key | `err(ValidationError)` |
+| 98 | `fromJson` with `contentType` = `"MULTIPART/MIXED"` (uppercase) | `ok`, `isMultipart == true` (case-insensitive prefix check) |
+| 99 | `fromJson` with `contentType` = `"multipart/"` (nothing after slash) | `ok`, `isMultipart == true` |
+| 100 | `fromJson` leaf with `subParts` key present → ignored | `ok`, `isMultipart == false` |
+| 101 | `fromJson` multipart with `partId`/`blobId` keys present → ignored | `ok`, `isMultipart == true` |
+| 102 | `fromJson` with null element in `headers` array | `err(ValidationError)` |
+| 103 | `fromJson` with null element in `subParts` array | `err(ValidationError)` |
+| 104 | `fromJson` at depth exactly 128 | `ok` — boundary success |
+| 105 | `fromJson` with `charset` = `""` (empty string) on `text/plain` | `ok`, `charset == Opt.some("")` (Postel's law) |
+| 106 | `fromJson` with `size` as negative number | `err(ValidationError)` — propagated from `UnsignedInt.fromJson` |
+| 107 | `fromJson` with `size` exceeding 2^53-1 | `err(ValidationError)` — propagated from `UnsignedInt.fromJson` |
+| 108 | `toJson` at depth exactly 128 | `ok` — totality preserved at boundary |
+| 97a | `fromJson` with non-JObject input (JArray, JNull, JString) | `err(ValidationError)` |
+| 97b | `fromJson` with `"type"` key as JInt (wrong JSON kind) | `err(ValidationError)` |
+| 98a | `fromJson` `"TEXT/PLAIN"` with absent charset — case sensitivity of `text/*` prefix check | Pin and justify: `Opt.some("us-ascii")` (case-insensitive, consistent with `isMultipart` per scenario 98) or `Opt.none` (case-sensitive). If `isMultipart` is case-insensitive, `text/*` should be too for consistency |
+| 99a | `fromJson` `"text/"` (nothing after slash) with absent charset | `ok`, `charset == Opt.some("us-ascii")` — starts with `"text/"` |
+| 99b | `fromJson` `"textplain"` (no slash) — not a valid MIME type but structurally valid JSON | `ok`, `isMultipart == false`, leaf requires `partId`/`blobId` |
+| 99c | `fromJson` `"multipart"` (no trailing slash) — does not start with `"multipart/"` | Not multipart. Treated as leaf; absent `partId`/`blobId` → `err(ValidationError)` |
+| 99d | `fromJson` with `contentType = ""` (empty string) | Pin behaviour: `ok` or `err`. If `ok`: `isMultipart == false`, `charset == Opt.none` |
+| 102a | `fromJson` with `language` array containing JInt element | `err(ValidationError)` — parallel to scenario 102 for headers |
+| 108a | Compile-time: accessing `partId` on multipart variant | Does not compile (`assertNotCompiles`) |
+| 108b | Compile-time: accessing `subParts` on leaf variant | Does not compile (`assertNotCompiles`) |
+| 108c | `fromJson` with duplicate `"type"` key (`"text/plain"` then `"multipart/mixed"`) — `std/json` last-wins semantics | `ok`, `isMultipart == true` (second key wins), `subParts` defaults to `@[]`. `partId`/`blobId` keys ignored on multipart |
+
+### 4.8. EmailBodyValue (scenarios 109–118, 115a, 118a–118b)
+
+| # | Scenario | Expected |
+|---|----------|----------|
+| 109 | `fromJson` all fields present, flags false | `ok` |
+| 110 | `fromJson` with `isEncodingProblem = true` | `ok` (read model allows) |
+| 111 | `fromJson` with `isTruncated = true` | `ok` |
+| 112 | `fromJson` with both flags true | `ok` |
+| 113 | `fromJson` flags absent → default `false` | pass |
+| 114 | `toJson`/`fromJson` round-trip | identity |
+| 115 | `fromJson` with absent `value` field | `err(ValidationError)` |
+| 116 | `fromJson` with `value` = `null` | `err(ValidationError)` |
+| 117 | `fromJson` with wrong JSON kind for `value` (JInt instead of JString) | `err(ValidationError)` |
+| 118 | `fromJson` with wrong JSON kind for flags (JString `"true"` instead of JBool `true`) | `err(ValidationError)` |
+| 115a | `fromJson` with non-JObject input (JArray, JNull) | `err(ValidationError)` |
+| 118a | `fromJson` with `value = ""` (empty string) | `ok`, `value == ""` |
+| 118b | `fromJson` with `isEncodingProblem: null` (JNull, not absent) — distinct from absent | Pin behaviour: `ok` (treated as absent → default `false`) or `err(ValidationError)` (strict kind check). Document the null-vs-absent rule for bool flags |
+
+### 4.9. BlueprintBodyPart (scenarios 119–131, 125a–125d, 127a, 130a–130b)
+
+| # | Scenario | Expected |
+|---|----------|----------|
+| 119 | `toJson` inline leaf (`bpsInline`) — emits `partId`, omits `blobId`/`charset`/`size` | structural match |
+| 120 | `toJson` blob-ref leaf (`bpsBlobRef`) — emits `blobId`, optional `charset`/`size` | structural match |
+| 121 | `toJson` blob-ref leaf with `charset` and `size` present | both emitted |
+| 122 | `toJson` blob-ref leaf with `charset` and `size` absent | both omitted |
+| 123 | `toJson` multipart — emits `subParts`, recursive | structural match |
+| 124 | `toJson` depth limit — depth 128 → `ok`, depth 129 → `err` or truncation (matching `MaxBodyPartDepth = 128` and scenarios 93/104/108) | totality preserved at exact boundary |
+| 125 | No `fromJson` for `BlueprintBodyPart` — creation type is toJson-only | compile-time: no such function |
+| 126 | `toJson` inline leaf — verify `blobId`, `charset`, `size` keys are **absent** (not null) in JSON output | pass — keys not in `node.fields` |
+| 127 | `toJson` with `extraHeaders` — entries emitted as `"header:name:asForm": value` properties | structural match |
+| 128 | `toJson` with empty `extraHeaders` table — no extra properties emitted | structural match |
+| 129 | `toJson` multipart with empty `subParts` (`@[]`) | `"subParts": []` emitted |
+| 130 | `toJson` multipart with 2+ levels of nesting (multipart → multipart → leaf) | structural match |
+| 131 | `toJson` blob-ref leaf with `Opt.none` for both `charset` and `size` — verify both keys **absent** | pass — keys not in `node.fields` |
+| 125a | Compile-time: accessing `blobId` on inline variant | Does not compile (`assertNotCompiles`) |
+| 125b | Compile-time: accessing `charset` on inline variant | Does not compile (`assertNotCompiles`) |
+| 125c | Compile-time: accessing `partId` on multipart variant | Does not compile (`assertNotCompiles`) |
+| 125d | Compile-time: accessing `subParts` on leaf variant | Does not compile (`assertNotCompiles`) |
+| 127a | `toJson` with `extraHeaders` entry whose key has `hfRaw` form — verify `toPropertyString` omits form suffix in JSON key | structural match: key is `"header:x-custom"`, not `"header:x-custom:asRaw"` |
+| 130a | `toJson` multipart with mixed children: one inline leaf + one blob-ref leaf in same `subParts` | structural match — both serialised correctly |
+| 130b | `toJson` with `extraHeaders` where key.form ≠ value.form (e.g., key `hfAddresses`, value `hfText`) | Serialises without error. Documents that form consistency enforcement is deferred to Part D's `EmailBlueprint` smart constructor |
+
+### 4.10. Adversarial Scenarios (scenarios A1–A6)
+
+Adversarial edge cases probing parsing boundaries and cross-component
+interactions. These follow the conventions established in
+`tests/serde/tserde_adversarial.nim` and `tests/stress/tadversarial.nim`.
+
+| # | Scenario | Expected |
+|---|----------|----------|
+| A1 | `parseHeaderPropertyName("header:From\x00Evil:asAddresses")` — NUL byte in header name portion | Pin behaviour: `ok` with NUL in name (NUL byte is not `0x3A` colon, not caught by any character check), or `err` if ASCII-only names enforced. Document FFI truncation risk: C-side `strlen` sees `"header:From"` |
+| A2 | `parseHeaderPropertyName` with overlong UTF-8 colon `\xC0\xBA` in name portion — overlong encoding of `:` (0x3A) | `ok` — overlong-encoded colons are NOT literal `0x3A` bytes and do not trigger delimiter splits. Name contains raw bytes. Document the byte-level (not Unicode-aware) splitting |
+| A3 | `EmailBodyPart.fromJson` with `"type"` value containing NUL: `"text/plain\x00multipart/mixed"` | `ok`, `isMultipart == false` — `startsWith("multipart/")` operates on full byte sequence. NUL is not `/`. Document Nim/C semantic divergence |
+| A4 | `EmailBodyPart.fromJson` multipart with 10,000 leaf children — breadth stress | `ok` — no breadth limit specified. Depth limit does not restrict breadth. Documents memory implication |
+| A5 | `BlueprintBodyPart.toJson` with `extraHeaders` containing `Content-Transfer-Encoding` key | `toJson` emits the header without error. RFC 8621 §4.6 MUST NOT constraint is enforced by Part D's `EmailBlueprint` smart constructor, not at the Part C vocabulary level |
+| A6 | `EmailBodyPart.fromJson` with `"size": 3.14` (JFloat, not JInt) | `err(ValidationError)` — `UnsignedInt.fromJson` requires `JInt` kind. JFloat is a distinct JSON kind |
+
+### 4.11. Property-Based Test Strategy
+
+Property-based tests follow the `mproperty.nim` infrastructure (fixed seed,
+edge-biased generators, tiered trial counts). These are not numbered
+scenarios but describe the coverage strategy for random/generative testing.
+
+**Round-trip identity** (DefaultTrials = 500):
+- `EmailBodyPart`: generate random recursive structures (mixed multipart
+  and leaf), verify `fromJson(toJson(part)) == part`.
+- `HeaderValue`: all 7 forms including `Opt.none` variants, verify
+  `parseHeaderValue(form, toJson(value)) == value`.
+- `EmailHeader`: random name/value pairs, verify round-trip.
+- `PartId`: random valid strings, verify round-trip.
+
+**Totality** (ThoroughTrials = 2000):
+- `EmailBodyPart.fromJson` never crashes on arbitrary `JsonNode` input
+  (malformed objects, wrong kinds, deeply nested structures). Uses
+  `discard` — must not panic.
+- `parseHeaderPropertyName` never crashes on arbitrary strings (empty,
+  very long, binary content, embedded NULs).
+- `parseHeaderValue` never crashes on arbitrary `(HeaderForm, JsonNode)`
+  pairs.
+
+**Edge-biased generators:** Early trials (0–3) cover boundary conditions:
+empty strings, depth-1, max depth (128), `Opt.none` variants, empty
+arrays, single-element arrays. Remaining trials use uniform random
+generation across the valid input space.
 
 ---
 
@@ -1144,7 +1350,7 @@ structural JSON correctness. Numbering is self-contained to this document.
 | C3 | HeaderPropertyKey form validation scope | A) Validate against AllowedHeaderForms in constructor, B) No form validation in constructor, C) Strict/lenient pair, Modified B) Separate `validateHeaderForm` function | Modified B — structural parsing (`parseHeaderPropertyName`) and domain validation (`validateHeaderForm`) are separate concerns | Parse once at the boundary, Postel's law, Total functions, DRY |
 | C4 | HeaderForm enum style | A) String-backed, B) Plain enum + manual parse | A — JMAP suffix string as backing. `parseEnum` for free. Code reads like the spec | DRY, Code reads like the spec, One source of truth |
 | C5 | HeaderValue parse failure representation | A) Opt.none, B) Explicit parse-failure variant | A — one meaning per state. None = "server could not parse." No overloaded semantics | Make illegal states unrepresentable, One source of truth |
-| C6 | hfDate variant type | A) Date (RFC 3339, any timezone), B) UTCDate | A — RFC 8621 §4.1.2.4 specifies Date, not UTCDate | Code reads like the spec, DDD |
+| C6 | hfDate variant type | A) Date (RFC 3339, any timezone), B) UTCDate | A — RFC 8621 §4.1.2.6 specifies Date, not UTCDate | Code reads like the spec, DDD |
 | C7 | HeaderValue construction | A) Per-variant constructors, B) Single dispatch function, C) Both, D) No constructors — case object IS the constructor | D — adding wrappers would be DRY-violating ceremony restating what the type system enforces | DRY, Make illegal states unrepresentable |
 | C8 | EmailHeader type | A) Plain object + smart constructor, B) Sealed Pattern A | A — EmailAddress pattern. Smart constructor enforces non-empty name. Sealing disproportionate to risk | Parse-don't-validate, Total functions |
 | C9 | EmailHeader module | A) In headers.nim, B) Separate module | A — same bounded context. Dependency graph shows always co-required | DDD |
@@ -1158,7 +1364,7 @@ structural JSON correctness. Numbering is self-contained to this document.
 | C17 | EmailBodyPart depth limit mechanism | A) Module-level constant, B) Parameter with default, Modified A) Private const + private fromJsonImpl pattern | Modified A — follows Filter[C] precedent from serde_framework.nim. Public API hides depth entirely | DRY, Parse once at the boundary, Make the right thing easy, Total functions |
 | C18 | Depth limit value | A) 64, B) 128, C) 32 | B — consistency with Filter[C] precedent | DRY |
 | C19 | EmailBodyPart contentType field naming | A) contentType (RFC 2045 domain concept), B) type (backtick-escaped), C) contentType with serde mapping | Modified C — domain concept is Content-Type (RFC 2045). Serde maps to/from "type" wire key. JMAP's abbreviation is not the source of truth | DDD, Code reads like the spec, One source of truth |
-| C20 | EmailBodyPart charset | A) Opt[string] no default, B) Opt[string] default applied for text/* | Modified A — Opt.none = "server did not provide charset." Default is consumer interpretation, not parsing. Consumer has both fields | One source of truth, Parse once at the boundary |
+| C20 | EmailBodyPart charset | A) Opt[string] no default, B) Opt[string] default applied for text/* at serde boundary | B — RFC §4.1.4 defines charset as always a string for text/* (explicit or implicit "us-ascii"), null only for non-text/*. fromJson already inspects contentType to derive isMultipart; applying the charset default in the same parse pass is consistent. Opt.none = "not text/*". Postel's law: non-compliant servers sending null for text/* get the default applied, not ambiguity passed inward | Parse once at the boundary, Code reads like the spec, One source of truth, Postel's law |
 | C21 | EmailBodyValue construction | A) Plain object, B) Smart constructor enforcing flags false | Modified A — all combinations valid for read model. Creation constraint belongs to Part D's EmailBlueprint | Constructors that can't fail don't, DDD |
 | C22 | BlueprintBodyPart placement | A) In Part C (body.nim), B) Deferred to Part D | Modified A — creation vocabulary, not creation model. Shares PartId, isMultipart, recursive structure with read model | DDD, DRY |
 | C23 | BlueprintBodyPart extraHeaders type | A) Table[HeaderPropertyKey, HeaderValue], B) seq of tuples, C) Table[string, HeaderValue] | Modified A — typed keys. Form consistency is cross-field invariant enforced by Part D's EmailBlueprint smart constructor | Make illegal states unrepresentable, DDD |
@@ -1178,3 +1384,6 @@ structural JSON correctness. Numbering is self-contained to this document.
 | C37 | `:all` suffix serde | A) Caller's responsibility, B) Export parseHeaderValues (plural) | A — parseHeaderValues would be a mechanical wrapper carrying no domain knowledge | DRY |
 | C38 | HeaderPropertyKey input format | A) Full wire string including `header:` prefix, B) After prefix | A — the type encapsulates the entire header:Name:form:all structure. Full wire string is input and output | Parse-don't-validate, One source of truth |
 | C39 | HeaderPropertyKey toPropertyString | A) Emit lowercase name + enum string backing form, B) Store and emit original casing | Modified A — each component from its own source of truth. Canonical form IS the domain truth | One source of truth, DRY |
+| C40 | List-Id in allowedForms table | A) Include with {hfText, hfRaw}, B) Exclude (let catch-all grant all forms) | A — RFC 8621 §4.1.2.2 explicitly names List-Id under Text. Although List-Id is RFC 2919 (not RFC 5322/2369) and technically qualifies for every section's catch-all, the explicit enumeration under one specific form is treated as the authoritative restriction. The catch-all is not intended to override explicit mentions | Code reads like the spec, One source of truth |
+| C41 | PartId validation constraints | A) Reuse validateServerAssignedToken (Id constraints), B) Own validator (non-empty + defensive control-char rejection), C) Non-empty only | Modified B — RFC 8621 types partId as String, not Id. No length limit is imposed. Control-character rejection is a defensive Postel's-law measure, not an RFC mandate. PartId's constraints derive from its own RFC definition, not from Id's | One source of truth, Code reads like the spec, Postel's law |
+| C42 | HeaderPropertyKey name character validation | A) In parseHeaderPropertyName (structural parser), B) Deferred to Part D's EmailBlueprint, C) No validation | Modified B — structural parser is lenient for server-provided data (Postel's law). Part D's EmailBlueprint enforces printable-ASCII (33–126, no colon) on client-constructed extraHeaders keys per RFC 8621 §4.1.3. Same strict/lenient split as parseId/parseIdFromServer | Parse once at the boundary, Postel's law, Make the right thing easy |
