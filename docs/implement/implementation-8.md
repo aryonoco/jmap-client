@@ -9,7 +9,7 @@ under `src/jmap_client/mail/`. Full specification:
 `docs/design/09-mail-d-design.md`, building on cross-cutting design
 `docs/design/05-mail-design.md`.
 
-5 steps, one commit each, bottom-up through the dependency DAG. Every step
+5 phases, one commit each, bottom-up through the dependency DAG. Every phase
 passes `just ci` before committing.
 
 Cross-cutting requirements apply to all steps: all modules follow established
@@ -23,14 +23,7 @@ helpers, and generators.
 
 ---
 
-## Step 1: L1 Types — email.nim + snippet.nim + mail_filters.nim additions
-
-**Create:** `src/jmap_client/mail/email.nim`,
-`src/jmap_client/mail/snippet.nim`,
-`tests/unit/mail/temail.nim`
-
-**Update:** `src/jmap_client/mail/mail_filters.nim`,
-`tests/mfixtures.nim`
+## Phase 1: L1 Types — email.nim + snippet.nim + mail_filters.nim additions
 
 **Design doc:** §2–6 (type definitions), §7 (SearchSnippet), §12.1
 (scenarios 1–2), §12.14 (fixture factories), Decisions D1–D3, D6–D9,
@@ -39,7 +32,9 @@ D12, D16, D20.
 Three independent L1 modules. None depend on each other; all depend only
 on pre-existing Parts A–C types.
 
-### email.nim
+### Step 1: email.nim
+
+**Create:** `src/jmap_client/mail/email.nim`
 
 Defines seven types in one module (domain cohesion, D14):
 
@@ -86,13 +81,17 @@ constructor beyond `fromJson`.
 Convenience predicate `isLeaf(part: EmailBodyPart): bool` for leaf-only
 body list assertions (D6).
 
-### snippet.nim
+### Step 2: snippet.nim
+
+**Create:** `src/jmap_client/mail/snippet.nim`
 
 `SearchSnippet` as plain object with `emailId: Id`, `subject: Opt[string]`,
 `preview: Opt[string]`. No smart constructor — pure data carrier.
-`SearchSnippet.toJson` is defined in `serde_snippet.nim` (Step 2), not here.
+`SearchSnippet.toJson` is defined in `serde_snippet.nim` (Phase 2), not here.
 
-### mail_filters.nim additions
+### Step 3: mail_filters.nim additions
+
+**Update:** `src/jmap_client/mail/mail_filters.nim`
 
 `EmailHeaderFilter` with Pattern A sealed `name` field (non-empty
 invariant) and public `value: Opt[string]`. `name` accessor function.
@@ -104,7 +103,9 @@ membership (2), date/size (4), thread keywords (3), per-email keywords
 for the `from` property. No smart constructor — all field combinations
 valid (B16). Keyword fields use typed `Keyword`, not `string`.
 
-### Fixture factories (§12.14)
+### Step 4: Fixture factories (§12.14)
+
+**Update:** `tests/mfixtures.nim`
 
 Add to `tests/mfixtures.nim` — type-level factories for use across all
 Part D test files:
@@ -118,32 +119,31 @@ minimal `ParsedEmail` (`threadId = Opt.none`).
 `makeEmailFilterCondition()` → all-none filter for toJson baseline.
 `makeSearchSnippet()` → minimal valid `SearchSnippet`.
 
-### Tests
+### Step 5: Tests
+
+**Create:** `tests/unit/mail/temail.nim`
 
 `tests/unit/mail/temail.nim` (§12.1, scenarios 1–2, plus isLeaf):
 `parseEmail` non-empty mailboxIds (1), empty mailboxIds rejection with
 `typeName = "Email"` (2). `isLeaf` returns true for a leaf
 `EmailBodyPart` and false for a multipart part.
 
+### CI gate
+
+Run `just ci` before committing.
+
 ---
 
-## Step 2: L2 Serde — serde_email.nim + serde_snippet.nim + serde_mail_filters.nim additions
-
-**Create:** `src/jmap_client/mail/serde_email.nim`,
-`src/jmap_client/mail/serde_snippet.nim`,
-`tests/serde/mail/tserde_email.nim`,
-`tests/serde/mail/tserde_snippet.nim`
-
-**Update:** `src/jmap_client/mail/serde_mail_filters.nim`,
-`tests/serde/mail/tserde_mail_filters.nim`,
-`tests/mfixtures.nim`
+## Phase 2: L2 Serde — serde_email.nim + serde_snippet.nim + serde_mail_filters.nim additions
 
 **Design doc:** §8.1–8.11 (all serde), §12.2–12.9 (scenarios 3–74,
-excluding response-type scenarios 66–74 deferred to Step 3), §12.14
+excluding response-type scenarios 66–74 deferred to Phase 3), §12.14
 (equality helpers, JSON fixtures), Decisions D4, D5, D7, D8, D9, D13,
 D15, D19.
 
-### serde_email.nim
+### Step 6: serde_email.nim
+
+**Create:** `src/jmap_client/mail/serde_email.nim`
 
 The most complex deserialiser in the library. Three internal shared helper
 types and procs (D7) for code shared between `emailFromJson` and
@@ -191,7 +191,9 @@ top-level keys. `fromAddr` emits as `"from"` key.
 `EmailBodyFetchOptions.toJson` maps `BodyValueScope` enum back to the
 three RFC booleans (D9). `bvsNone` omits all fetch keys.
 
-### serde_snippet.nim
+### Step 7: serde_snippet.nim
+
+**Create:** `src/jmap_client/mail/serde_snippet.nim`
 
 `searchSnippetFromJson` extracts `emailId` (required), `subject` and
 `preview` (both `Opt`, null yields `Opt.none`).
@@ -199,30 +201,32 @@ three RFC booleans (D9). `bvsNone` omits all fetch keys.
 `SearchSnippet.toJson` emits all three fields: `emailId` via `Id.toJson`,
 `subject` and `preview` via `Opt` → null when none.
 
-### serde_mail_filters.nim additions
+### Step 8: serde_mail_filters.nim additions
+
+**Update:** `src/jmap_client/mail/serde_mail_filters.nim`
 
 `EmailFilterCondition.toJson` only — no fromJson (B11). Same pattern as
 existing `MailboxFilterCondition.toJson`. `fromAddr` emits as `"from"`
 key. `header` field emits as 1-or-2 element JArray. Keyword fields emit
 via `$` (Keyword → string). `Opt.none` fields omitted.
 
-### Shared serde helpers
+### Step 9: Shared serde helpers
 
 Two new helpers needed (not currently in codebase):
 
 `collapseNullToEmptySeq` — parses `Id[]|null` fields where null/absent
 collapses to empty seq. Used by `SearchSnippetGetResponse` and
-`EmailParseResponse` in Step 3. Place in `serde.nim` (shared core) or
+`EmailParseResponse` in Phase 3. Place in `serde.nim` (shared core) or
 locally in mail serde — decide based on whether core RFC 8620 types
 need it.
 
 `parseIdKeyedTable` — parses JSON object into `Table[Id, T]` with typed
-value parser callback. Used by `EmailParseResponse.fromJson` in Step 3.
+value parser callback. Used by `EmailParseResponse.fromJson` in Phase 3.
 Same placement decision as above.
 
-### Equality helpers and JSON fixtures (§12.14)
+### Step 10: Equality helpers and JSON fixtures (§12.14)
 
-Add to `tests/mfixtures.nim`:
+**Update:** `tests/mfixtures.nim`
 
 Equality helpers: `emailEq(a, b: Email): bool` (field-by-field, handles
 Table/seq/case-object HeaderValue, follows `sessionEq` pattern),
@@ -233,9 +237,11 @@ comparisons), `emailComparatorEq(a, b: EmailComparator): bool`
 JSON fixtures derived from type factories via `toJson()` (not
 hand-crafted): `makeEmailJson()`, `makeParsedEmailJson()`,
 `makeSearchSnippetJson()`. Hand-crafted JSON reserved for adversarial
-tests in Step 3.
+tests in Phase 3.
 
-### Tests
+### Step 11: serde_email tests
+
+**Create:** `tests/serde/mail/tserde_email.nim`
 
 `tests/serde/mail/tserde_email.nim` (§12.2–12.5, scenarios 3–45):
 
@@ -265,10 +271,18 @@ fromJson all three keyword variants individually (39–41), keyword
 property without keyword field (42), unknown property (43), isAscending
 round-trip (44), collation round-trip (45).
 
+### Step 12: serde_snippet tests
+
+**Create:** `tests/serde/mail/tserde_snippet.nim`
+
 `tests/serde/mail/tserde_snippet.nim` (§12.9, scenarios 64–65 only):
 `searchSnippetFromJson` valid (64), null subject/preview (65).
-Response-type scenarios (66–74) deferred to Step 3 when response types
+Response-type scenarios (66–74) deferred to Phase 3 when response types
 exist.
+
+### Step 13: serde_mail_filters tests
+
+**Update:** `tests/serde/mail/tserde_mail_filters.nim`
 
 Update `tests/serde/mail/tserde_mail_filters.nim` (§12.6–12.8,
 scenarios 46–63): EmailBodyFetchOptions.toJson defaults to `{}` (46),
@@ -280,29 +294,22 @@ hasKeyword (57), all 5 keyword fields (58), fromAddr → `"from"` (59),
 header both forms (60), mixed filter (61), inMailboxOtherThan empty seq
 (62), all 20 fields populated (63).
 
+### CI gate
+
+Run `just ci` before committing.
+
 ---
 
-## Step 3: L3 — Entity registration + builders + custom methods + adversarial/integration tests
-
-**Update:** `src/jmap_client/mail/mail_entities.nim`,
-`src/jmap_client/mail/mail_builders.nim`,
-`src/jmap_client/mail/mail_methods.nim`,
-`src/jmap_client/builder.nim`
-
-**Create:** `tests/serde/mail/tserde_email_adversarial.nim`,
-`tests/serde/mail/tserde_email_integration.nim`
-
-**Update tests:** `tests/protocol/tmail_entities.nim`,
-`tests/protocol/tmail_builders.nim`, `tests/protocol/tmail_methods.nim`,
-`tests/serde/mail/tserde_snippet.nim`,
-`tests/mfixtures.nim`
+## Phase 3: L3 — Entity registration + builders + custom methods + adversarial/integration tests
 
 **Design doc:** §9–10 (builders and custom methods), §12.9 (response-type
 scenarios 66–74), §12.10 (scenarios 75–90), §12.11 (adversarial scenarios
 91–123), §12.13 (integration scenarios 132–136), §12.14 (response JSON
 fixtures), Decisions D10–D13, D17, D18.
 
-### mail_entities.nim additions
+### Step 14: mail_entities.nim additions
+
+**Update:** `src/jmap_client/mail/mail_entities.nim`
 
 Register Email: `methodNamespace` returns `"Email"`, `capabilityUri`
 returns `"urn:ietf:params:jmap:mail"`. `registerJmapEntity(Email)`.
@@ -310,7 +317,9 @@ returns `"urn:ietf:params:jmap:mail"`. `registerJmapEntity(Email)`.
 `EmailFilterCondition` and `filterConditionToJson` dispatching to
 `EmailFilterCondition.toJson`.
 
-### builder.nim refactoring (D10)
+### Step 15: builder.nim refactoring (D10)
+
+**Update:** `src/jmap_client/builder.nim`
 
 Extract an internal (non-exported) helper proc from the existing
 `addQuery` body that builds the common query arguments JSON (accountId,
@@ -325,7 +334,9 @@ precedent — construct a `QueryRequest` with `sort: Opt.none`, call
 on the resulting `JsonNode`. This is already established by
 `addMailboxQuery`.
 
-### mail_builders.nim additions
+### Step 16: mail_builders.nim additions
+
+**Update:** `src/jmap_client/mail/mail_builders.nim`
 
 `addEmailGet` (`func`): adds mail capability, `"Email/get"` invocation.
 Standard `ids`, `properties` parameters plus `bodyFetchOptions:
@@ -349,7 +360,9 @@ internal helper. Returns `ResponseHandle[QueryResponse[Email]]`.
 `collapseThreads`. Same sort type. Returns
 `ResponseHandle[QueryChangesResponse[Email]]`.
 
-### mail_methods.nim additions
+### Step 17: mail_methods.nim additions
+
+**Update:** `src/jmap_client/mail/mail_methods.nim`
 
 `EmailParseResponse` type: `accountId: AccountId`, `parsed: Table[Id,
 ParsedEmail]`, `notParseable: seq[Id]`, `notFound: seq[Id]`.
@@ -376,7 +389,9 @@ callback, same pattern as `addEmailQuery`. `filter` is required
 concatenates internally. Returns
 `ResponseHandle[SearchSnippetGetResponse]`.
 
-### Response JSON fixtures (§12.14)
+### Step 18: Response JSON fixtures (§12.14)
+
+**Update:** `tests/mfixtures.nim`
 
 Add to `tests/mfixtures.nim`: `makeSearchSnippetGetResponseJson()` and
 `makeEmailParseResponseJson()`. These are hand-crafted JSON (not derived
@@ -384,10 +399,16 @@ via `toJson()`) because response types are server-only with no `toJson`.
 They require the response types defined in `mail_methods.nim` above for
 structural reference.
 
-### Tests
+### Step 19: Entity registration tests
+
+**Update:** `tests/protocol/tmail_entities.nim`
 
 Update `tests/protocol/tmail_entities.nim`: Email registration compiles,
 `addChanges[Email]` produces `"Email/changes"` (scenario 77).
+
+### Step 20: Builder tests
+
+**Update:** `tests/protocol/tmail_builders.nim`
 
 Update `tests/protocol/tmail_builders.nim` (§12.10, scenarios 75–83):
 `addEmailGet` name + capability + default body options (75), non-default
@@ -396,11 +417,19 @@ true (79), collapseThreads false default behaviour (80), EmailComparator
 sort (81). `addEmailQueryChanges` name (82), collapseThreads + sort
 parameters (83).
 
+### Step 21: Method tests
+
+**Update:** `tests/protocol/tmail_methods.nim`
+
 Update `tests/protocol/tmail_methods.nim` (§12.10, scenarios 84–90):
 `addEmailParse` name + capability (84), body fetch options parity with
 addEmailGet (85). `addSearchSnippetGet` name (86), single email id (87),
 cons-cell ids (88), filter required compile check via
 `assertNotCompiles` (89), filter serialised in args (90).
+
+### Step 22: Response serde tests
+
+**Update:** `tests/serde/mail/tserde_snippet.nim`
 
 Extend `tests/serde/mail/tserde_snippet.nim` (§12.9, scenarios 66–74):
 `searchSnippetGetResponseFromJson` notFound null (66), notFound array
@@ -408,6 +437,10 @@ Extend `tests/serde/mail/tserde_snippet.nim` (§12.9, scenarios 66–74):
 (69), parsed entries (70), parsed key absent (71), `"notParsable"` RFC
 key (72), `"notParseable"` Nim spelling NOT accepted (73). Non-JObject
 input for both response types (74).
+
+### Step 23: Adversarial tests
+
+**Create:** `tests/serde/mail/tserde_email_adversarial.nim`
 
 Create `tests/serde/mail/tserde_email_adversarial.nim` (§12.11,
 scenarios 91–123): Two-phase boundary — `"from"` and
@@ -428,6 +461,10 @@ types (114). Recursive 50-level body (115), Cyrillic homoglyph key
 (120), attachments-hasAttachment contradiction (121), temporal
 contradiction in filter (122), referential integrity not validated (123).
 
+### Step 24: Integration tests
+
+**Create:** `tests/serde/mail/tserde_email_integration.nim`
+
 Create `tests/serde/mail/tserde_email_integration.nim` (§12.13,
 scenarios 132–136): Shared helper parity — same JSON to emailFromJson
 and parsedEmailFromJson produces identical shared fields (132). Email
@@ -436,17 +473,26 @@ preserving keys and values (134). Builder body fetch options parity
 between addEmailGet and addEmailParse (135). Builder-filter chain —
 addEmailQuery filter matches EmailFilterCondition.toJson output (136).
 
+### CI gate
+
+Run `just ci` before committing.
+
 ---
 
-## Step 4: Re-export hub updates
-
-**Update:** `src/jmap_client/mail/types.nim`,
-`src/jmap_client/mail/serialisation.nim`
+## Phase 4: Re-export hub updates
 
 **Design doc:** §11.3 (re-export hub updates).
 
+### Step 25: types.nim re-exports
+
+**Update:** `src/jmap_client/mail/types.nim`
+
 Update `mail/types.nim` to import and re-export Part D Layer 1 modules:
 `email`, `snippet`.
+
+### Step 26: serialisation.nim re-exports
+
+**Update:** `src/jmap_client/mail/serialisation.nim`
 
 Update `mail/serialisation.nim` to import and re-export Part D Layer 2
 modules: `serde_email`, `serde_snippet`.
@@ -467,18 +513,21 @@ Verify all Part D public symbols are accessible through
 `searchSnippetGetResponseFromJson`, `emailParseResponseFromJson`,
 `EmailParseResponse`, `SearchSnippetGetResponse`, `addEmailGet`,
 `addEmailQuery`, `addEmailQueryChanges`, `addEmailParse`,
-`addSearchSnippetGet`. Run `just ci`.
+`addSearchSnippetGet`.
+
+### CI gate
+
+Run `just ci` before committing.
 
 ---
 
-## Step 5: Property-based tests
-
-**Update:** `tests/mproperty.nim`
-**Create:** `tests/property/tprop_mail_d.nim`
+## Phase 5: Property-based tests
 
 **Design doc:** §12.12 (scenarios 124–131), §12.14 (generators).
 
-### Generators (§12.14)
+### Step 27: Generators (§12.14)
+
+**Update:** `tests/mproperty.nim`
 
 Add to `tests/mproperty.nim` following existing conventions (edge-biased
 early trials, fixed seed):
@@ -504,7 +553,9 @@ tests), `genEmail(rng)` (composes all leaf + helper generators, 28
 fields), `genParsedEmail(rng)` (like genEmail minus 6 metadata, threadId
 50/50 some/none).
 
-### Property tests (§12.12, scenarios 124–131)
+### Step 28: Property tests (§12.12, scenarios 124–131)
+
+**Create:** `tests/property/tprop_mail_d.nim`
 
 `tests/property/tprop_mail_d.nim` covers:
 
@@ -528,4 +579,6 @@ Email round-trip (130, ThoroughTrials = 2000):
 `emailFromJson(e.toJson()) == e` for valid Email including dynamic
 headers. ParsedEmail round-trip (131, ThoroughTrials = 2000).
 
-Run `just ci`.
+### CI gate
+
+Run `just ci` before committing.
