@@ -170,3 +170,4 @@ Do not nest `It`-templates — inner `it` shadows outer.
   `tek` for `TransportErrorKind`).
 - Comments/docstrings: British English. Identifiers: US English.
 - `--hintAsError:DuplicateModuleImport` — no redundant imports.
+- nimalyzer `params` rule: satisfy unused `typedesc` parameters with `discard $T`, not `{.push ruleOff: "params".}`.
