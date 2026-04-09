@@ -1407,113 +1407,413 @@ export serde_snippet
 
 ## 12. Test Specification
 
-### 12.1. Email (scenarios 1–15)
+**136 scenarios** across 14 subsections: example-based unit and serde tests
+(§12.1–12.10), adversarial/red-team tests (§12.11), property-based tests
+(§12.12), integration tests (§12.13), and test infrastructure (§12.14).
+
+**Design principles applied to the test spec itself:**
+
+- **Remove trivia.** Total constructors are correct by construction — the type
+  system guarantees them. Old scenarios 23–25 (trivially testing that
+  `plainComparator(pspReceivedAt)` produces `eckPlain`) are removed; the
+  toJson/fromJson tests exercise constructors implicitly.
+- **Merge overlap.** Scenarios that test the same code path with only cosmetic
+  differences are consolidated (e.g., convenience header null and present in
+  one scenario; `addEmailGet` name + capability + default body options in one).
+- **Test routing, not parsing.** Lower-level parsers (`HeaderPropertyKey`,
+  `EmailBodyValue`, `PartId`, `Keyword`) are exhaustively tested in Part C
+  tests. Email/ParsedEmail tests verify only that Phase 1 and Phase 2 *route*
+  correctly to those parsers.
+- **Adversarial coverage.** Boundary exploitation, injection, type confusion,
+  and spelling mismatch tests — absent from the original spec.
+- **Property-based coverage.** Round-trip, structural invariant, and totality
+  properties that subsume groups of example tests.
+- **Integration coverage.** Cross-component tests verifying shared helper
+  parity, builder–serde chains, and round-trip preservation.
+
+### 12.1. Email Smart Constructor (scenarios 1–2)
 
 | # | Scenario | Expected |
 |---|----------|----------|
 | 1 | `parseEmail` with non-empty `mailboxIds` | `ok(Email)` |
-| 2 | `parseEmail` with empty `mailboxIds` | `err(ValidationError)` |
-| 3 | `emailFromJson` complete valid JSON (all properties) | `ok(Email)`, all fields populated |
-| 4 | `emailFromJson` with absent `keywords` key | `ok`, `keywords` = empty `KeywordSet` |
-| 5 | `emailFromJson` convenience header null → `Opt.none` | pass |
-| 6 | `emailFromJson` convenience header present → `Opt.some(...)` | pass |
-| 7 | `emailFromJson` with `header:Subject:asText` dynamic property | routed to `requestedHeaders` |
-| 8 | `emailFromJson` with `header:From:asAddresses:all` | routed to `requestedHeadersAll` |
-| 9 | `emailFromJson` with unknown non-`header:` key → silently ignored | pass |
-| 10 | `emailFromJson` with `bodyValues` keyed by `PartId` | `Table[PartId, EmailBodyValue]` correctly populated |
-| 11 | `Email.toJson` round-trip: `Opt.none` → null | pass |
-| 12 | `Email.toJson` emits dynamic headers as top-level keys | pass |
-| 13 | `Email.toJson` empty `requestedHeaders` → no extra keys | pass |
-| 14 | `Email.toJson` `fromAddr` field → `"from"` key | pass |
-| 15 | `emailFromJson` missing required metadata field → `err` | pass |
+| 2 | `parseEmail` with empty `mailboxIds` | `err(ValidationError)` with `typeName = "Email"` |
 
-### 12.2. ParsedEmail (scenarios 16–22)
+### 12.2. Email fromJson (scenarios 3–17)
 
 | # | Scenario | Expected |
 |---|----------|----------|
-| 16 | `parsedEmailFromJson` valid JSON with `threadId: null` | `ok`, `threadId = Opt.none` |
-| 17 | `parsedEmailFromJson` valid JSON with `threadId` present | `ok`, `threadId = Opt.some(id)` |
-| 18 | `parsedEmailFromJson` shares convenience header parsing with Email | same extraction results |
-| 19 | `parsedEmailFromJson` shares body parsing with Email | same extraction results |
-| 20 | `parsedEmailFromJson` with dynamic headers | correctly routed |
-| 21 | `parsedEmailFromJson` absent metadata fields (id, blobId, etc.) not an error | pass |
-| 22 | `ParsedEmail.toJson` does not emit `id`, `blobId`, `mailboxIds`, `keywords`, `size`, `receivedAt` | verified absent |
+| 3 | `emailFromJson` non-JObject input (JArray, JString, JNull) | `err` referencing "expected JObject" |
+| 4 | `emailFromJson` complete valid JSON (all 28 fields populated) | `ok(Email)`, all fields correct — golden path |
+| 5 | `emailFromJson` with absent `keywords` key | `ok`, `keywords` = empty `KeywordSet` (RFC default) |
+| 6 | `emailFromJson` convenience headers: null → `Opt.none`, present → `Opt.some(...)` (combined) | both cases pass in single test |
+| 7 | `emailFromJson` `"from"` JSON key → `fromAddr` field | `ok`, `fromAddr = Opt.some(...)` |
+| 8 | `emailFromJson` with `header:Subject:asText` dynamic property | routed to `requestedHeaders` table |
+| 9 | `emailFromJson` with `header:From:asAddresses:all` dynamic property | routed to `requestedHeadersAll` table |
+| 10 | `emailFromJson` with both non-`:all` and `:all` dynamic headers in same JSON | both tables populated simultaneously |
+| 11 | `emailFromJson` with unknown non-`header:` key → silently ignored | pass (Postel's law) |
+| 12 | `emailFromJson` with `bodyValues` keyed by `PartId` | `Table[PartId, EmailBodyValue]` correctly populated |
+| 13 | `emailFromJson` missing required metadata field (each of id, blobId, threadId, mailboxIds, size, receivedAt individually) | `err` for each |
+| 14 | `emailFromJson` convenience header with wrong JSON type (e.g. `"from": 42`) | `err` from `parseConvenienceHeaders` |
+| 15 | `emailFromJson` malformed dynamic header key (`"header:"`, `"header:From:asUnknown"`, too many segments) | `err` propagated from `parseHeaderPropertyName` |
+| 16 | `emailFromJson` `mailboxIds` as JNull (unlike `keywords`, no default) | `err` from `MailboxIdSet.fromJson` |
+| 17 | `emailFromJson` `keywords` present but wrong JSON type (JArray instead of JObject) | `err` from `KeywordSet.fromJson` |
 
-### 12.3. EmailComparator (scenarios 23–31)
+**Rationale for scenario 13 expansion:** The original spec tested "a missing
+metadata field" without specifying which. Each of the 6 non-defaultable
+metadata fields exercises a different direct-lookup error path. `keywords` is
+excluded because it defaults to empty (scenario 5).
 
-| # | Scenario | Expected |
-|---|----------|----------|
-| 23 | `plainComparator(pspReceivedAt)` | `eckPlain`, property = `pspReceivedAt` |
-| 24 | `keywordComparator(kspHasKeyword, kwFlagged)` | `eckKeyword`, keyword = `$flagged` |
-| 25 | `plainComparator(pspSubject, isAscending = Opt.some(false))` | `isAscending` set |
-| 26 | `toJson` plain comparator → `{"property": "receivedAt"}` | pass |
-| 27 | `toJson` keyword comparator → `{"property": "hasKeyword", "keyword": "$flagged"}` | pass |
-| 28 | `toJson` omits `isAscending` when `Opt.none` | pass |
-| 29 | `emailComparatorFromJson` plain property | `ok(eckPlain)` |
-| 30 | `emailComparatorFromJson` keyword property without `keyword` field | `err` |
-| 31 | `emailComparatorFromJson` unknown property → `err` | pass |
-
-### 12.4. EmailBodyFetchOptions (scenarios 32–37)
-
-| # | Scenario | Expected |
-|---|----------|----------|
-| 32 | `default(EmailBodyFetchOptions).toJson` → `{}` (all defaults) | pass |
-| 33 | `bvsText` → `{"fetchTextBodyValues": true}` | pass |
-| 34 | `bvsHtml` → `{"fetchHTMLBodyValues": true}` | pass |
-| 35 | `bvsTextAndHtml` → both true | pass |
-| 36 | `bvsAll` → `{"fetchAllBodyValues": true}` | pass |
-| 37 | `maxBodyValueBytes` present → emitted | pass |
-
-### 12.5. EmailFilterCondition (scenarios 38–47)
+### 12.3. Email toJson (scenarios 18–23)
 
 | # | Scenario | Expected |
 |---|----------|----------|
-| 38 | `toJson` all fields none → `{}` | pass |
-| 39 | `toJson` `inMailbox = Opt.some(id)` → `{"inMailbox": "..."}` | pass |
-| 40 | `toJson` `hasKeyword = Opt.some(kwSeen)` → `{"hasKeyword": "$seen"}` | pass |
-| 41 | `toJson` `fromAddr` → `"from"` key | pass |
-| 42 | `toJson` `header` with name only → `["Name"]` | pass |
-| 43 | `toJson` `header` with name + value → `["Name", "value"]` | pass |
-| 44 | `parseEmailHeaderFilter("Subject")` → `ok` | pass |
-| 45 | `parseEmailHeaderFilter("")` → `err(ValidationError)` | pass |
-| 46 | `toJson` mixed filter (multiple fields) | structural match |
-| 47 | `toJson` `inMailboxOtherThan` with empty seq → `{"inMailboxOtherThan": []}` | pass |
+| 18 | `Email.toJson` `Opt.none` convenience headers → `null` | pass |
+| 19 | `Email.toJson` `fromAddr` field → `"from"` key in JSON | pass |
+| 20 | `Email.toJson` `requestedHeaders` entries emitted as top-level keys | `"header:Subject:asText": "..."` |
+| 21 | `Email.toJson` `requestedHeadersAll` entries emitted as top-level keys with `:all` suffix | `"header:From:asAddresses:all": [...]` |
+| 22 | `Email.toJson` empty `requestedHeaders` + empty `requestedHeadersAll` → no extra keys | JSON key count = standard fields only |
+| 23 | `Email.toJson` empty `seq` → `[]`, empty `Table` → `{}` (D5 contract) | `textBody: []`, `bodyValues: {}` |
 
-### 12.6. SearchSnippet (scenarios 48–54)
+**Rationale for scenario 23:** Decision D5 specifies "emit all domain fields
+always." This test verifies the three empty-value emission paths: `Opt.none` →
+null (scenario 18), empty seq → `[]`, and empty Table → `{}`.
 
-| # | Scenario | Expected |
-|---|----------|----------|
-| 48 | `searchSnippetFromJson` valid | `ok(SearchSnippet)` |
-| 49 | `searchSnippetFromJson` subject/preview null → `Opt.none` | pass |
-| 50 | `searchSnippetGetResponseFromJson` with `notFound: null` → empty seq | pass |
-| 51 | `searchSnippetGetResponseFromJson` with `notFound: [...]` → parsed seq | pass |
-| 52 | `emailParseResponseFromJson` with `parsed: null` → empty Table | pass |
-| 53 | `emailParseResponseFromJson` with parsed entries → `Table[Id, ParsedEmail]` | pass |
-| 54 | `emailParseResponseFromJson` `notParsable` key (not `notParseable`) → parsed | pass |
-
-### 12.7. Builders (scenarios 55–65)
+### 12.4. ParsedEmail (scenarios 24–33)
 
 | # | Scenario | Expected |
 |---|----------|----------|
-| 55 | `addEmailGet` produces invocation name `"Email/get"` | pass |
-| 56 | `addEmailGet` adds mail capability | pass |
-| 57 | `addEmailGet` with body fetch options includes body keys in args | pass |
-| 58 | `addEmailGet` with `default(EmailBodyFetchOptions)` omits body keys | pass |
-| 59 | `addChanges[Email]` produces invocation name `"Email/changes"` | pass |
-| 60 | `addEmailQuery` produces invocation name `"Email/query"` | pass |
-| 61 | `addEmailQuery` with `collapseThreads = true` includes parameter | pass |
-| 62 | `addEmailQuery` with `EmailComparator` sort serialises correctly | pass |
-| 63 | `addEmailQueryChanges` produces invocation name `"Email/queryChanges"` | pass |
-| 64 | `addEmailParse` produces invocation name `"Email/parse"` | pass |
-| 65 | `addSearchSnippetGet` produces invocation name `"SearchSnippet/get"` | pass |
+| 24 | `parsedEmailFromJson` valid JSON with `threadId: null` | `ok`, `threadId = Opt.none` |
+| 25 | `parsedEmailFromJson` valid JSON with `threadId` present | `ok`, `threadId = Opt.some(id)` |
+| 26 | `parsedEmailFromJson` absent metadata fields (id, blobId, mailboxIds, keywords, size, receivedAt) in JSON | `ok` — ParsedEmail does not require them |
+| 27 | `parsedEmailFromJson` `"from"` JSON key → `fromAddr` field | `ok`, shared `parseConvenienceHeaders` applies same mapping |
+| 28 | `parsedEmailFromJson` with dynamic headers | correctly routed to both tables |
+| 29 | `parsedEmailFromJson` `threadId` as JInt (wrong type) | `err(ValidationError)` |
+| 30 | `parsedEmailFromJson` server sends absent-by-design metadata fields (id, blobId, mailboxIds, etc.) present in JSON | `ok`, extra fields silently ignored (Postel's law) |
+| 31 | `ParsedEmail.toJson` does not emit id, blobId, mailboxIds, keywords, size, receivedAt; DOES emit threadId | verified absent/present |
+| 32 | `ParsedEmail.toJson` `fromAddr` field → `"from"` key | pass |
+| 33 | `ParsedEmail` round-trip: `parsedEmailFromJson(pe.toJson()) == pe` for all fields including dynamic headers | identity preserved |
 
-### 12.8. SearchSnippet/get Builder (scenarios 66–68)
+**Rationale for scenarios 26 vs 30:** These test opposite conditions. Scenario
+26 verifies that ParsedEmail works without metadata (expected case — the type
+does not require them). Scenario 30 verifies that ParsedEmail works with
+unexpected metadata (Postel's law — a server may return full Email properties
+for a parse result).
+
+### 12.5. EmailComparator (scenarios 34–45)
+
+Trivial constructor tests (old 23–25) removed. Total constructors are correct
+by construction — `PlainSortProperty` constrains the value set, `Keyword` is
+validated at construction time. The toJson and fromJson tests exercise
+constructors implicitly.
 
 | # | Scenario | Expected |
 |---|----------|----------|
-| 66 | `addSearchSnippetGet` with single email id → `emailIds: [id]` | pass |
-| 67 | `addSearchSnippetGet` with cons-cell ids → `emailIds: [first, rest...]` | pass |
-| 68 | `addSearchSnippetGet` `filter` required (not Opt) — no default | compile check |
+| 34 | `toJson` plain comparator → `{"property": "receivedAt"}` | pass |
+| 35 | `toJson` keyword comparator → `{"property": "hasKeyword", "keyword": "$flagged"}` | pass |
+| 36 | `toJson` omits `isAscending` and `collation` when `Opt.none` | neither key present |
+| 37 | `toJson` keyword comparator with `isAscending` and `collation` both set | all four keys present |
+| 38 | `emailComparatorFromJson` plain property → `ok(eckPlain)` | pass |
+| 39 | `emailComparatorFromJson` `hasKeyword` with valid keyword → `ok(eckKeyword)` | pass |
+| 40 | `emailComparatorFromJson` `allInThreadHaveKeyword` with valid keyword → `ok(eckKeyword)` | pass |
+| 41 | `emailComparatorFromJson` `someInThreadHaveKeyword` with valid keyword → `ok(eckKeyword)` | pass |
+| 42 | `emailComparatorFromJson` keyword property without `keyword` field | `err` |
+| 43 | `emailComparatorFromJson` unknown property string | `err` |
+| 44 | `emailComparatorFromJson` extracts `isAscending` correctly | `Opt.some(false)` round-trips |
+| 45 | `emailComparatorFromJson` extracts `collation` correctly | `Opt.some("i;unicode-casemap")` round-trips |
+
+**Rationale for scenarios 39–41:** The serde layer (§8.6) iterates over all
+`KeywordSortProperty` variants to match the `property` string. Testing only
+one variant leaves iteration bugs undetected. All three keyword sort variants
+are explicitly tested for regression detection.
+
+### 12.6. EmailBodyFetchOptions (scenarios 46–52)
+
+| # | Scenario | Expected |
+|---|----------|----------|
+| 46 | `default(EmailBodyFetchOptions).toJson` → `{}` (all defaults) | pass |
+| 47 | `bvsText` → `{"fetchTextBodyValues": true}` | pass |
+| 48 | `bvsHtml` → `{"fetchHTMLBodyValues": true}` | pass |
+| 49 | `bvsTextAndHtml` → both `fetchTextBodyValues` and `fetchHTMLBodyValues` true | pass |
+| 50 | `bvsAll` → `{"fetchAllBodyValues": true}` | pass |
+| 51 | `maxBodyValueBytes` present → emitted | pass |
+| 52 | `bodyProperties = Opt.some(@[...])` → emitted as JSON array | pass |
+
+### 12.7. EmailHeaderFilter (scenarios 53–54)
+
+| # | Scenario | Expected |
+|---|----------|----------|
+| 53 | `parseEmailHeaderFilter("Subject")` | `ok`, `name == "Subject"` |
+| 54 | `parseEmailHeaderFilter("")` | `err(ValidationError)` "header name must not be empty" |
+
+### 12.8. EmailFilterCondition (scenarios 55–63)
+
+| # | Scenario | Expected |
+|---|----------|----------|
+| 55 | `toJson` all fields none → `{}` | pass |
+| 56 | `toJson` `inMailbox = Opt.some(id)` → `{"inMailbox": "..."}` | pass |
+| 57 | `toJson` `hasKeyword = Opt.some(kwSeen)` → `{"hasKeyword": "$seen"}` | pass |
+| 58 | `toJson` all 5 keyword fields (`hasKeyword`, `notKeyword`, `allInThreadHaveKeyword`, `someInThreadHaveKeyword`, `noneInThreadHaveKeyword`) with explicit `$keyword` value verification | all 5 keys present with correct `$keyword` string values |
+| 59 | `toJson` `fromAddr` → `"from"` key in JSON | pass |
+| 60 | `toJson` `header` name only → `["Name"]`; name + value → `["Name", "value"]` | both forms correct |
+| 61 | `toJson` mixed filter (multiple fields from different groups) | structural match — correct keys, correct types |
+| 62 | `toJson` `inMailboxOtherThan` with empty seq → `{"inMailboxOtherThan": []}` | pass (vacuous but not illegal) |
+| 63 | `toJson` all 20 fields populated simultaneously | JSON object with 20 keys, all correct types |
+
+**Rationale for scenario 58:** Keyword filter fields use typed `Keyword`
+serialised via `$`. Testing all five fields simultaneously verifies the
+`$keyword` string conversion for each — catching name/key transposition bugs
+that scenario 63 (all 20 fields) checks structurally but not by value.
+
+**Rationale for scenario 63:** With 20 fields, a key-name typo or wrong
+serialisation for a single field is easy to introduce. The complete-population
+test catches regressions that single-field tests miss.
+
+### 12.9. SearchSnippet and Response Types (scenarios 64–74)
+
+| # | Scenario | Expected |
+|---|----------|----------|
+| 64 | `searchSnippetFromJson` valid | `ok(SearchSnippet)`, all fields populated |
+| 65 | `searchSnippetFromJson` `subject`/`preview` null | `ok`, both `Opt.none` |
+| 66 | `searchSnippetGetResponseFromJson` with `notFound: null` | `ok`, `notFound` = empty seq |
+| 67 | `searchSnippetGetResponseFromJson` with `notFound: [...]` | `ok`, `notFound` = parsed seq |
+| 68 | `searchSnippetGetResponseFromJson` `notFound` key absent (not null, absent) | `ok`, `notFound` = empty seq |
+| 69 | `emailParseResponseFromJson` with `parsed: null` | `ok`, `parsed` = empty `Table` |
+| 70 | `emailParseResponseFromJson` with parsed entries | `ok`, `Table[Id, ParsedEmail]` populated |
+| 71 | `emailParseResponseFromJson` `parsed` key absent (not null, absent) | `ok`, `parsed` = empty `Table` |
+| 72 | `emailParseResponseFromJson` reads `"notParsable"` key (RFC spelling) | `notParseable` field populated |
+| 73 | `emailParseResponseFromJson` `"notParseable"` key (Nim spelling) NOT accepted as alias | `notParseable` field stays empty — only RFC key `"notParsable"` is read |
+| 74 | `searchSnippetGetResponseFromJson` / `emailParseResponseFromJson` non-JObject input | `err` referencing "expected JObject" |
+
+**Rationale for scenario 73:** The design document (§8.11) explicitly documents
+the spelling mismatch between the RFC key `"notParsable"` and the Nim field
+`notParseable`. This test verifies that the serde layer reads ONLY the RFC key,
+preventing silent data loss if the wrong key is used.
+
+### 12.10. Builders (scenarios 75–90)
+
+| # | Scenario | Expected |
+|---|----------|----------|
+| 75 | `addEmailGet` produces `"Email/get"`, adds `urn:ietf:params:jmap:mail` capability, default body options omits body keys | all three checks pass |
+| 76 | `addEmailGet` with non-default body fetch options includes body keys in args | body keys present |
+| 77 | `addChanges[Email]` produces `"Email/changes"` | pass |
+| 78 | `addEmailQuery` produces `"Email/query"` | pass |
+| 79 | `addEmailQuery` with `collapseThreads = true` includes parameter in args | pass |
+| 80 | `addEmailQuery` with `collapseThreads = false` (default) — verify emission/omission behaviour | consistent with RFC expectation |
+| 81 | `addEmailQuery` with `EmailComparator` sort serialises correctly | `sort` array in args matches `EmailComparator.toJson` |
+| 82 | `addEmailQueryChanges` produces `"Email/queryChanges"` | pass |
+| 83 | `addEmailQueryChanges` with `collapseThreads` and `EmailComparator` sort parameters | both serialised in args |
+| 84 | `addEmailParse` produces `"Email/parse"`, adds mail capability | pass |
+| 85 | `addEmailParse` with body fetch options includes body keys in args | body keys present, matching `addEmailGet` pattern |
+| 86 | `addSearchSnippetGet` produces `"SearchSnippet/get"` | pass |
+| 87 | `addSearchSnippetGet` with single email id → `emailIds: [id]` | pass |
+| 88 | `addSearchSnippetGet` with cons-cell ids → `emailIds: [first, rest...]` | pass |
+| 89 | `addSearchSnippetGet` `filter` required (not Opt) — `assertNotCompiles` | compile-time check |
+| 90 | `addSearchSnippetGet` serialises `filter` in request args | filter structure present in args |
+
+**Rationale for scenarios 75, 84 merges:** Builder basics (invocation name +
+capability + default behaviour) are low-information tests. Consolidating them
+into single test blocks reduces noise while preserving coverage.
+
+### 12.11. Adversarial Tests (scenarios 91–123)
+
+Red-team scenarios targeting boundary exploitation, injection, type confusion,
+semantic ambiguity, and cross-field contradiction. These test the defence of
+the serde boundary against malformed, ambiguous, or adversarial server
+responses and client inputs.
+
+**Two-phase parsing boundary (emailFromJson Phase 1 vs Phase 2):**
+
+| # | Scenario | Expected |
+|---|----------|----------|
+| 91 | Both `"from"` (populated and as JNull) and `"header:From:asAddresses"` keys present in JSON | `ok` — Phase 1 routes `"from"` to `fromAddr` (populated or `Opt.none`); Phase 2 routes `"header:From:asAddresses"` to `requestedHeaders` — no interference between phases regardless of null state |
+| 92 | 100 dynamic `header:*` keys in single JSON object | `ok` — all routed to correct tables — stress test Phase 2 iteration |
+
+**Dynamic header injection:**
+
+| # | Scenario | Expected |
+|---|----------|----------|
+| 93 | `"header:"` key (empty header name after colon) | `err` from `parseHeaderPropertyName` — empty name |
+| 94 | `"header:From:asAddresses:all:extra"` (5 colon-separated segments) | `err` — too many segments |
+| 95 | `"header:From:asUnknown"` (invalid form name) | `err` from `parseHeaderPropertyName` — unknown form |
+| 96 | `"header"` key (no trailing colon — not `"header:"`) | silently ignored — `startsWith("header:")` does not match |
+
+**EmailComparator discriminant synthesis:**
+
+| # | Scenario | Expected |
+|---|----------|----------|
+| 97 | `emailComparatorFromJson` with `property: "received_At"` (underscore) | `err` — `$enum` comparison is NOT `nimIdentNormalize` |
+| 98 | `emailComparatorFromJson` with `property: "RECEIVERAT"` (wrong case) | `err` — exact string match, case-sensitive |
+| 99 | `emailComparatorFromJson` with `property: " receivedAt"` (leading whitespace) | `err` — no whitespace stripping |
+| 100 | `emailComparatorFromJson` with `property: "hasKeyword"` and `keyword: ""` (empty string) | `err` from `Keyword.fromJson` — empty keyword |
+| 101 | `emailComparatorFromJson` with `property: "receivedAt"` and spurious `keyword` field present | `ok(eckPlain)` — `keyword` field silently ignored on plain branch |
+| 102 | `emailComparatorFromJson` with `property` field entirely missing | `err` — missing discriminant |
+| 103 | `emailComparatorFromJson` with `property: null` (JNull instead of JString) | `err` from `extractString` |
+
+**EmailHeaderFilter adversarial:**
+
+| # | Scenario | Expected |
+|---|----------|----------|
+| 104 | `parseEmailHeaderFilter` name containing `":"` (colon) | `ok` — colon is valid in RFC 5322 header names |
+| 105 | `parseEmailHeaderFilter` name containing `\x00` (NUL byte) | `ok` — only empty string is rejected; documents FFI truncation risk |
+| 106 | `EmailFilterCondition.toJson` header filter with value `""` (empty string) | `["Name", ""]` — 2-element array, distinct from absent value (1-element) |
+
+**Table[PartId, EmailBodyValue] adversarial:**
+
+| # | Scenario | Expected |
+|---|----------|----------|
+| 107 | `emailFromJson` `bodyValues` with duplicate PartId keys in raw JSON | `ok` — last-wins semantics (std/json `OrderedTable` behaviour) |
+| 108 | `emailFromJson` `bodyValues` with empty-string PartId key `""` | `err` from `parsePartIdFromServer` — empty string rejection |
+
+**EmailFilterCondition structural edge cases:**
+
+| # | Scenario | Expected |
+|---|----------|----------|
+| 109 | `toJson` with `minSize = Opt.some(0)` and `maxSize = Opt.some(0)` (contradictory) | both keys emitted — filter does not validate temporal/size consistency |
+| 110 | `toJson` header filter with name containing `":"` | `["Na:me"]` — colon preserved in first array element |
+
+**Response type adversarial:**
+
+| # | Scenario | Expected |
+|---|----------|----------|
+| 111 | `searchSnippetGetResponseFromJson` with `list: null` (JNull for required field) | `err(ValidationError)` — `list` is required, not nullable |
+| 112 | `searchSnippetFromJson` with `subject: "<mark>XSS</mark><script>alert(1)</script>"` | `ok` — HTML content preserved verbatim; library does not sanitise |
+| 113 | `searchSnippetFromJson` with extra unknown field in JSON | `ok` — extra field silently ignored (Postel's law, forward compatibility) |
+| 114 | `emailFromJson` with all 28 fields present as wrong JSON types (JInt for every string field) | `err` on first failing field — never panics, never crashes |
+
+**Recursive structure and resource stress:**
+
+| # | Scenario | Expected |
+|---|----------|----------|
+| 115 | `emailFromJson` with 50-level nested multipart `bodyStructure` (recursive MIME tree) | `ok(Email)` — parser handles recursive depth gracefully; never stack overflow |
+| 116 | Dynamic header key with Cyrillic homoglyph prefix (`"һeader:Subject:asText"` with U+04BB) alongside real `"header:Subject:asText"` | `ok` — Cyrillic key silently ignored (`startsWith("header:")` byte-level match fails); real key routed to `requestedHeaders` |
+| 117 | `emailFromJson` with `size` at `2^53-1` (max safe JSON integer / `UnsignedInt` max) | `ok(Email)` with `size` value preserved exactly — no overflow or truncation |
+
+**Cross-field semantic contradictions:**
+
+| # | Scenario | Expected |
+|---|----------|----------|
+| 118 | Both `"header:From:asText"` and `"header:From:asAddresses"` (same header name, different form) in single JSON | `ok` — both routed to `requestedHeaders` under distinct `HeaderPropertyKey` keys (form is part of key identity) |
+| 119 | `emailFromJson` with `bodyValues` entry having `isTruncated: true` AND `isEncodingProblem: true` AND `value: ""` | `ok(Email)` — all flag combinations valid; no mutual exclusivity validation |
+| 120 | `emailFromJson` with `keywords: {"$Draft": true}` but `mailboxIds` pointing to non-Draft mailbox | `ok(Email)` — keyword/mailbox consistency not validated at serde layer (Postel's law) |
+| 121 | `emailFromJson` with non-empty `attachments` list but `hasAttachment: false` | `ok(Email)` — semantic contradiction preserved; no cross-field validation |
+| 122 | `EmailFilterCondition.toJson` with `before` date earlier than `after` date (logically impossible range) | both keys emitted — filter does not validate temporal consistency |
+| 123 | `searchSnippetGetResponseFromJson` with snippet referencing `emailId` not in any Email result set | `ok(SearchSnippetGetResponse)` — referential integrity not validated at serde layer |
+
+### 12.12. Property-Based Tests (scenarios 124–131)
+
+Property-based tests use fixed-seed generators (`mproperty.nim` infrastructure)
+with edge-biased early trials. They supplement, not replace, example-based
+tests — the example tests serve as documentation, the property tests probe the
+input space.
+
+| # | Property | Generator | Trials |
+|---|----------|-----------|--------|
+| 124 | **EmailComparator round-trip:** `emailComparatorFromJson(ec.toJson()) == ec` for any valid `EmailComparator` | `genEmailComparator` — uniform over `eckPlain`/`eckKeyword` branches, random optional fields | `DefaultTrials` (500) |
+| 125 | **EmailBodyFetchOptions structural:** `BodyValueScope` variant determines exactly which `fetch*BodyValues` keys appear in `toJson` output | `genEmailBodyFetchOptions` — uniform over 5 `BodyValueScope` variants, random optional fields | `QuickTrials` (200) |
+| 126 | **EmailFilterCondition field-count:** `fc.toJson().len == count of Opt.some fields in fc` | `genEmailFilterCondition` — early-biased: trial 0 = all-none, trial 1 = all-some, remaining trials each of 20 fields independently 30% some / 70% none | `DefaultTrials` (500) |
+| 127 | **Totality — emailFromJson:** never crashes (returns `ok` or `err`) on arbitrary `JsonNode` input | `genArbitraryJsonNode(rng, maxDepth=3)` | `DefaultTrials` (500) |
+| 128 | **Totality — parsedEmailFromJson:** never crashes on arbitrary `JsonNode` input | `genArbitraryJsonNode(rng, maxDepth=3)` | `DefaultTrials` (500) |
+| 129 | **Totality — emailComparatorFromJson:** never crashes on arbitrary `JsonNode` input | `genArbitraryJsonNode(rng, maxDepth=2)` | `DefaultTrials` (500) |
+| 130 | **Email round-trip:** `emailFromJson(e.toJson()) == e` for any valid `Email` including dynamic headers in both tables | `genEmail` — composes `genConvenienceHeaders`, `genBodyFields`, `genMailboxIdSet`, `genKeywordSet`, existing generators | `ThoroughTrials` (2000) |
+| 131 | **ParsedEmail round-trip:** `parsedEmailFromJson(pe.toJson()) == pe` for any valid `ParsedEmail` | `genParsedEmail` — composes shared helpers from `genEmail` minus 6 metadata fields, `threadId` 50/50 some/none | `ThoroughTrials` (2000) |
+
+**Rationale:** The totality properties (127–129) are the highest-value property
+tests. They guarantee that no server response — no matter how malformed — can
+crash the client's parsing layer. Arbitrary `JsonNode` generators include
+wrong types, deep nesting, empty objects, null values, and numeric edge cases.
+The round-trip properties (130–131) verify that no field is silently lost or
+corrupted through the serialisation boundary for the two most complex types.
+
+**Rationale for scenario 126 early-bias:** With 20 independent binary fields at
+30% `some` rate, 500 random trials cover ~0.05% of the 2^20 combination space.
+Edge cases (all-none producing `{}`, all-some producing all 20 keys) have
+probabilities < 0.1% per trial. Early-biasing trials 0 and 1 guarantees
+these critical extremes are always tested.
+
+### 12.13. Integration Tests (scenarios 132–136)
+
+Cross-component tests that verify interactions between types, shared helpers,
+and the builder–serde chain.
+
+| # | Scenario | Scope |
+|---|----------|-------|
+| 132 | **Shared helper parity:** identical JSON (convenience headers + body + dynamic headers) fed to both `emailFromJson` and `parsedEmailFromJson` → shared fields produce identical results | serde helpers: `parseConvenienceHeaders`, `parseBodyFields`, Phase 2 routing |
+| 133 | **Email round-trip:** `emailFromJson(email.toJson()) == email` for a fully-populated Email including dynamic headers in both tables | full `emailFromJson` + `Email.toJson` |
+| 134 | **Dynamic header Phase 2 round-trip:** JSON with both `:all` and non-`:all` `header:*` keys → `emailFromJson` → `Email.toJson` → dynamic header keys preserved with correct names and values | Phase 2 routing → toJson dynamic header emission |
+| 135 | **Builder body fetch options parity:** `addEmailGet` and `addEmailParse` with identical non-default `EmailBodyFetchOptions` → produce identical body-related keys in request args | builder serde consistency |
+| 136 | **Builder–filter chain:** `addEmailQuery` with non-trivial `EmailFilterCondition` → serialised filter in request args matches `EmailFilterCondition.toJson` output | builder → filter serde chain |
+
+### 12.14. Test Infrastructure
+
+**Test file organisation:** All new files under `tests/` following established
+naming conventions (t-prefix, domain-cohesive grouping).
+
+| File | Scenarios | Rationale |
+|------|-----------|-----------|
+| `tests/unit/mail/temail.nim` | 1–2 | Smart constructor tests. Parallels `tmailbox.nim`. |
+| `tests/serde/mail/tserde_email.nim` | 3–45 | Email, ParsedEmail, EmailComparator serde. All source in `serde_email.nim`. |
+| `tests/serde/mail/tserde_snippet.nim` | 64–74 | SearchSnippet + response types. Parallels `tserde_vacation.nim`. |
+| `tests/serde/mail/tserde_mail_filters.nim` (extend) | 53–63 | EmailFilterCondition + EmailHeaderFilter. Appended after existing `MailboxFilterCondition` tests. |
+| `tests/protocol/tmail_builders.nim` (extend) | 75–83 | `addEmailGet`, `addEmailQuery`, `addEmailQueryChanges`. Appended after existing Mailbox builders. |
+| `tests/protocol/tmail_methods.nim` (extend) | 84–90 | `addEmailParse`, `addSearchSnippetGet`. Appended after existing VacationResponse tests. |
+| `tests/protocol/tmail_entities.nim` (extend) | — | Entity registration: `methodNamespace(Email) == "Email"`, `registerQueryableEntity` compiles. |
+| `tests/serde/mail/tserde_email_adversarial.nim` | 91–123 | Adversarial tests. Parallels `tserde_adversarial.nim` for core types. |
+| `tests/property/tprop_mail_d.nim` | 124–131 | Property tests. Parallels `tprop_mail_c.nim`. |
+| `tests/serde/mail/tserde_email_integration.nim` | 132–136 | Integration tests. Cross-component verification. |
+
+**New fixture factories** (add to `tests/mfixtures.nim`):
+
+| Function | Returns | Purpose |
+|----------|---------|---------|
+| `makeEmail()` | `Email` | Minimal valid Email (non-empty `mailboxIds`, empty keywords, default body). Satisfies `parseEmail`. |
+| `makeParsedEmail()` | `ParsedEmail` | Minimal ParsedEmail (`threadId = Opt.none`). |
+| `makeEmailComparator()` | `EmailComparator` | Plain comparator for builder tests. |
+| `makeKeywordComparator()` | `EmailComparator` | Keyword comparator for builder tests. |
+| `makeEmailBodyFetchOptions()` | `EmailBodyFetchOptions` | Default body fetch options. |
+| `makeEmailFilterCondition()` | `EmailFilterCondition` | All-none filter for toJson baseline. |
+| `makeSearchSnippet()` | `SearchSnippet` | Minimal valid SearchSnippet. |
+| `makeEmailJson()` | `JsonNode` | Golden Email JSON with all 28 fields. Derived from `makeEmail().toJson()`. Round-trip reference. |
+| `makeParsedEmailJson()` | `JsonNode` | Valid ParsedEmail JSON without metadata. Derived from `makeParsedEmail().toJson()`. |
+| `makeSearchSnippetJson()` | `JsonNode` | Valid SearchSnippet JSON. |
+| `makeSearchSnippetGetResponseJson()` | `JsonNode` | Valid `SearchSnippetGetResponse` JSON. |
+| `makeEmailParseResponseJson()` | `JsonNode` | Valid `EmailParseResponse` JSON. |
+
+JSON fixtures for typed objects (`makeEmailJson`, `makeParsedEmailJson`) are
+derived from type factories via `toJson()` rather than hand-crafted JSON
+literals. This ensures the golden JSON always reflects the current type
+definition. Hand-crafted JSON is reserved for adversarial tests requiring
+specific malformations (wrong types, missing fields, injection payloads).
+
+**Equality helpers** (add to `tests/mfixtures.nim`):
+
+| Function | Purpose |
+|----------|---------|
+| `emailEq(a, b: Email): bool` | Field-by-field equality. Handles `Table`, `seq`, case-object `HeaderValue`. Follows `sessionEq` pattern. |
+| `parsedEmailEq(a, b: ParsedEmail): bool` | Same pattern as `emailEq`. Delegates to common field comparisons for shared groups. |
+| `emailComparatorEq(a, b: EmailComparator): bool` | Case-object equality. Follows `setErrorEq` pattern. |
+
+**New generators** (add to `tests/mproperty.nim`):
+
+| Generator | Composes | Trials |
+|-----------|----------|--------|
+| `genKeyword(rng)` | Pool of standard keywords + random valid flag names | — |
+| `genKeywordSet(rng)` | 0–5 keywords from `genKeyword` | — |
+| `genMailboxIdSet(rng)` | 1–5 Ids from `makeId` (non-empty for Email invariant) | — |
+| `genEmailComparator(rng)` | 50/50 plain/keyword, random optional `isAscending`/`collation` | — |
+| `genEmailBodyFetchOptions(rng)` | Uniform `BodyValueScope`, optional `bodyProperties`/`maxBodyValueBytes` | — |
+| `genEmailFilterCondition(rng)` | Early-biased: trial 0 = all-none, trial 1 = all-some, remaining trials each of 20 fields independently 30% some / 70% none | — |
+| `genSearchSnippet(rng)` | Random `emailId`, optional `subject`/`preview` | — |
+| `genConvenienceHeaders(rng)` | Shared helper: 11 convenience header fields. Composes `genEmailAddress`, `genValidDate`, `genArbitraryString`. Used by both `genEmail` and `genParsedEmail`. | — |
+| `genBodyFields(rng)` | Shared helper: 7 body fields. Composes `genEmailBodyPart`, `genPartId`, `genEmailBodyValue`. Used by both `genEmail` and `genParsedEmail`. | — |
+| `genDeepBodyStructure(rng, depth)` | Recursively nested multipart structure for adversarial stress tests (scenario 115) | — |
+| `genEmail(rng)` | Composes: `makeId`, `genMailboxIdSet`, `genKeywordSet`, `genConvenienceHeaders`, `genBodyFields`, `genEmailHeader`, `genHeaderPropertyKey` + `genHeaderValue` | `ThoroughTrials` (2000) |
+| `genParsedEmail(rng)` | Like `genEmail` minus metadata, `threadId` 50/50 some/none. Composes same shared helpers as `genEmail`. | `ThoroughTrials` (2000) |
+
+Both `genEmail` and `genParsedEmail` compose shared helpers
+`genConvenienceHeaders` and `genBodyFields` to ensure parity — mirroring the
+serde layer's `parseConvenienceHeaders` and `parseBodyFields` helper
+extraction (D7). This prevents divergence between the two generators' shared
+field groups.
 
 ---
 
