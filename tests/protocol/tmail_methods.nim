@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: BSD-2-Clause
 # Copyright (c) 2026 Aryan Ameri
 
-## VacationResponse custom builder tests (RFC 8621 section 7). Covers design
-## doc scenarios 72–75, singleton constraints, and multi-operation composition.
+## Custom method builder tests (RFC 8621). Covers VacationResponse scenarios
+## 72–75, Email/parse scenarios 84–85, and SearchSnippet/get scenarios 86–90.
 
 {.push raises: [].}
 
@@ -15,7 +15,9 @@ import jmap_client/dispatch
 import jmap_client/builder
 import jmap_client/mail/thread
 import jmap_client/mail/vacation
+import jmap_client/mail/email
 import jmap_client/mail/mail_entities
+import jmap_client/mail/mail_filters
 import jmap_client/mail/mail_methods
 
 import ../massertions
@@ -165,3 +167,90 @@ block vacationAndThreadMixedCapabilities:
   assertLen caps, 2
   doAssert "urn:ietf:params:jmap:vacationresponse" in caps
   doAssert "urn:ietf:params:jmap:mail" in caps
+
+# ===========================================================================
+# D. Email/parse and SearchSnippet/get
+# ===========================================================================
+
+block addEmailParseInvocationName:
+  ## Scenario 84: invocation name is "Email/parse", capability is mail.
+  let b0 = initRequestBuilder()
+  let (b1, _) = b0.addEmailParse(makeAccountId("a1"), @[makeId("blob1")])
+  let req = b1.build()
+  assertLen req.methodCalls, 1
+  assertEq req.methodCalls[0].name, "Email/parse"
+  assertLen req.`using`, 1
+  assertEq req.`using`[0], "urn:ietf:params:jmap:mail"
+
+block addEmailParseWithBodyFetchOptions:
+  ## Scenario 85: bvsText emits fetchTextBodyValues = true.
+  let opts = EmailBodyFetchOptions(fetchBodyValues: bvsText)
+  let b0 = initRequestBuilder()
+  let (b1, _) =
+    b0.addEmailParse(makeAccountId("a1"), @[makeId("blob1")], bodyFetchOptions = opts)
+  let req = b1.build()
+  let args = req.methodCalls[0].arguments
+  doAssert args{"fetchTextBodyValues"}.getBool(false) == true
+
+block addSearchSnippetGetInvocationName:
+  ## Scenario 86: invocation name is "SearchSnippet/get", capability is mail.
+  let cond = filterCondition(makeEmailFilterCondition())
+  let b0 = initRequestBuilder()
+  let (b1, _) = b0.addSearchSnippetGet(
+    makeAccountId("a1"), filterConditionToJson, cond, makeId("e1")
+  )
+  let req = b1.build()
+  assertLen req.methodCalls, 1
+  assertEq req.methodCalls[0].name, "SearchSnippet/get"
+  assertLen req.`using`, 1
+  assertEq req.`using`[0], "urn:ietf:params:jmap:mail"
+
+block addSearchSnippetGetSingleId:
+  ## Scenario 87: emailIds contains exactly the head ID when no tail.
+  let cond = filterCondition(makeEmailFilterCondition())
+  let b0 = initRequestBuilder()
+  let (b1, _) = b0.addSearchSnippetGet(
+    makeAccountId("a1"), filterConditionToJson, cond, makeId("e1")
+  )
+  let req = b1.build()
+  let ids = req.methodCalls[0].arguments{"emailIds"}
+  doAssert ids.kind == JArray
+  assertLen ids.getElems(@[]), 1
+  assertEq ids.getElems(@[])[0].getStr(""), "e1"
+
+block addSearchSnippetGetConsIds:
+  ## Scenario 88: emailIds from head + tail produces ["e1","e2","e3"].
+  let cond = filterCondition(makeEmailFilterCondition())
+  let b0 = initRequestBuilder()
+  let (b1, _) = b0.addSearchSnippetGet(
+    makeAccountId("a1"),
+    filterConditionToJson,
+    cond,
+    makeId("e1"),
+    @[makeId("e2"), makeId("e3")],
+  )
+  let req = b1.build()
+  let ids = req.methodCalls[0].arguments{"emailIds"}
+  doAssert ids.kind == JArray
+  assertLen ids.getElems(@[]), 3
+  assertEq ids.getElems(@[])[0].getStr(""), "e1"
+  assertEq ids.getElems(@[])[1].getStr(""), "e2"
+  assertEq ids.getElems(@[])[2].getStr(""), "e3"
+
+block addSearchSnippetGetFilterRequired:
+  ## Scenario 89: omitting the filter parameter is a compile error.
+  assertNotCompiles:
+    let b0 = initRequestBuilder()
+    discard
+      b0.addSearchSnippetGet(makeAccountId("a1"), filterConditionToJson, makeId("e1"))
+
+block addSearchSnippetGetFilterInArgs:
+  ## Scenario 90: filter JSON object is present in arguments.
+  let cond = filterCondition(makeEmailFilterCondition())
+  let b0 = initRequestBuilder()
+  let (b1, _) = b0.addSearchSnippetGet(
+    makeAccountId("a1"), filterConditionToJson, cond, makeId("e1")
+  )
+  let req = b1.build()
+  let filterNode = req.methodCalls[0].arguments{"filter"}
+  doAssert filterNode.kind == JObject

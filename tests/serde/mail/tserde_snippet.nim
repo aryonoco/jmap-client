@@ -1,15 +1,17 @@
 # SPDX-License-Identifier: BSD-2-Clause
 # Copyright (c) 2026 Aryan Ameri
 
-## Serde tests for SearchSnippet (§12.9, scenarios 64–65).
-## Response-type scenarios (66–74) deferred to Phase 3 Step 22.
+## Serde tests for SearchSnippet (§12.9, scenarios 64–65) and response types
+## EmailParseResponse (§4.9) and SearchSnippetGetResponse (§5.1, scenarios 66–74).
 
 {.push raises: [].}
 
 import std/json
+import std/tables
 
 import jmap_client/mail/snippet
 import jmap_client/mail/serde_snippet
+import jmap_client/mail/mail_methods
 import jmap_client/validation
 import jmap_client/primitives
 
@@ -63,3 +65,67 @@ block toJsonNullFields:
   assertJsonFieldEq node, "emailId", %"email1"
   assertJsonFieldEq node, "subject", newJNull()
   assertJsonFieldEq node, "preview", newJNull()
+
+# ============= C. Response type serde =============
+
+block searchSnippetGetResponseNotFoundNull: # scenario 66
+  ## notFound: null collapses to empty seq.
+  let j = %*{"accountId": "acct1", "list": [], "notFound": nil}
+  let res = searchSnippetGetResponseFromJson(j)
+  assertOk res
+  assertLen res.get().notFound, 0
+
+block searchSnippetGetResponseNotFoundArray: # scenario 67
+  ## notFound array with entries.
+  let j = %*{"accountId": "acct1", "list": [], "notFound": ["id1", "id2"]}
+  let res = searchSnippetGetResponseFromJson(j)
+  assertOk res
+  assertLen res.get().notFound, 2
+
+block searchSnippetGetResponseNotFoundAbsent: # scenario 68
+  ## notFound key absent collapses to empty seq.
+  let j = %*{"accountId": "acct1", "list": []}
+  let res = searchSnippetGetResponseFromJson(j)
+  assertOk res
+  assertLen res.get().notFound, 0
+
+block emailParseResponseParsedNull: # scenario 69
+  ## parsed: null collapses to empty Table.
+  let j = %*{"accountId": "acct1", "parsed": nil, "notParsable": [], "notFound": []}
+  let res = emailParseResponseFromJson(j)
+  assertOk res
+  assertLen res.get().parsed, 0
+
+block emailParseResponseParsedEntries: # scenario 70
+  ## Fixture produces a 1-entry parsed Table.
+  let j = makeEmailParseResponseJson()
+  let res = emailParseResponseFromJson(j)
+  assertOk res
+  assertLen res.get().parsed, 1
+
+block emailParseResponseParsedAbsent: # scenario 71
+  ## parsed key absent collapses to empty Table.
+  let j = %*{"accountId": "acct1", "notParsable": [], "notFound": []}
+  let res = emailParseResponseFromJson(j)
+  assertOk res
+  assertLen res.get().parsed, 0
+
+block emailParseResponseNotParsableRfcKey: # scenario 72
+  ## RFC wire key "notParsable" populates notParseable field.
+  let j = %*{"accountId": "acct1", "parsed": {}, "notParsable": ["b1"], "notFound": []}
+  let res = emailParseResponseFromJson(j)
+  assertOk res
+  assertLen res.get().notParseable, 1
+
+block emailParseResponseNotParseableNimKeyIgnored: # scenario 73
+  ## Nim-spelled key "notParseable" is NOT read — only RFC key is recognised.
+  let j = %*{"accountId": "acct1", "parsed": {}, "notParseable": ["b1"], "notFound": []}
+  let res = emailParseResponseFromJson(j)
+  assertOk res
+  assertLen res.get().notParseable, 0
+
+block responseTypesNonObject: # scenario 74
+  ## Both fromJson functions reject non-JObject input.
+  let arr = newJArray()
+  assertErr searchSnippetGetResponseFromJson(arr)
+  assertErr emailParseResponseFromJson(arr)
