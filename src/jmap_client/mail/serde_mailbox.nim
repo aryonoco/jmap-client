@@ -58,17 +58,14 @@ func toJson*(ms: MailboxIdSet): JsonNode =
     node[$id] = newJBool(true)
   return node
 
-{.push ruleOff: "params".}
-
 func fromJson*(T: typedesc[MailboxIdSet], node: JsonNode): Result[T, ValidationError] =
   ## Deserialise ``{"id": true, ...}`` to MailboxIdSet. Rejects non-object,
   ## non-boolean values, and explicit ``false``.
-  ?checkJsonKind(node, JObject, "MailboxIdSet")
+  ?checkJsonKind(node, JObject, $T)
   var hs = initHashSet[Id](node.len)
   for key, val in node.pairs:
     if val.kind != JBool or not val.getBool(false):
-      return
-        err(validationError("MailboxIdSet", "all mailbox id values must be true", key))
+      return err(validationError($T, "all mailbox id values must be true", key))
     let id = ?parseIdFromServer(key)
     hs.incl(id)
   return ok(MailboxIdSet(hs))
@@ -95,7 +92,7 @@ func fromJson*(
     T: typedesc[MailboxRights], node: JsonNode
 ): Result[MailboxRights, ValidationError] =
   ## Deserialise JSON object to MailboxRights. All 9 boolean fields are required.
-  ?checkJsonKind(node, JObject, "MailboxRights")
+  ?checkJsonKind(node, JObject, $T)
   let mayReadItems = ?parseBoolField(node, "mayReadItems", "MailboxRights")
   let mayAddItems = ?parseBoolField(node, "mayAddItems", "MailboxRights")
   let mayRemoveItems = ?parseBoolField(node, "mayRemoveItems", "MailboxRights")
@@ -149,12 +146,12 @@ func fromJson*(T: typedesc[Mailbox], node: JsonNode): Result[Mailbox, Validation
   ## Deserialise JSON object to Mailbox. Validates all required fields.
   ## Rejects absent, null, or empty name. Absent or null parentId/role
   ## yield Opt.none.
-  ?checkJsonKind(node, JObject, "Mailbox")
+  ?checkJsonKind(node, JObject, $T)
   let id = ?Id.fromJson(node{"id"})
-  ?checkJsonKind(node{"name"}, JString, "Mailbox", "missing or invalid name")
+  ?checkJsonKind(node{"name"}, JString, $T, "missing or invalid name")
   let name = node{"name"}.getStr("")
   if name.len == 0:
-    return err(parseError("Mailbox", "name must not be empty"))
+    return err(parseError($T, "name must not be empty"))
   let parentId = ?parseOptId(node, "parentId")
   let role = ?parseOptMailboxRole(node, "role")
   let sortOrder = ?UnsignedInt.fromJson(node{"sortOrder"})
@@ -179,8 +176,6 @@ func fromJson*(T: typedesc[Mailbox], node: JsonNode): Result[Mailbox, Validation
       isSubscribed: isSubscribed,
     )
   )
-
-{.pop.} # ruleOff: "params"
 
 # =============================================================================
 # MailboxCreate

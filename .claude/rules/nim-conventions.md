@@ -170,4 +170,8 @@ Do not nest `It`-templates — inner `it` shadows outer.
   `tek` for `TransportErrorKind`).
 - Comments/docstrings: British English. Identifiers: US English.
 - `--hintAsError:DuplicateModuleImport` — no redundant imports.
-- nimalyzer `params` rule: satisfy unused `typedesc` parameters with `discard $T`, not `{.push ruleOff: "params".}`.
+- nimalyzer `params` rule: prefer natural consumption of `typedesc`
+  parameters (e.g., `$T` in `checkJsonKind`/`validationError` calls instead
+  of hardcoding the type name). Fall back to `discard $T` only when the
+  function has no place to use the parameter (e.g., returns a literal or
+  delegates immediately). Never use `{.push ruleOff: "params".}`.

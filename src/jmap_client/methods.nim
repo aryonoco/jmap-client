@@ -462,8 +462,7 @@ func fromJson*[T](
   ## Uses lenient constructors for server-assigned identifiers. ``list``
   ## contains raw JsonNode entities -- entity-specific parsing is the
   ## caller's responsibility.
-  discard $R
-  ?checkJsonKind(node, JObject, "GetResponse")
+  ?checkJsonKind(node, JObject, $R)
   let accountId = ?parseAccountId(node{"accountId"}.getStr(""))
   let state = ?parseJmapState(node{"state"}.getStr(""))
   let listNode = node{"list"}
@@ -478,8 +477,7 @@ func fromJson*[T](
     R: typedesc[ChangesResponse[T]], node: JsonNode
 ): Result[ChangesResponse[T], ValidationError] =
   ## Deserialise JSON arguments to ChangesResponse (RFC 8620 section 5.2).
-  discard $R
-  ?checkJsonKind(node, JObject, "ChangesResponse")
+  ?checkJsonKind(node, JObject, $R)
   let accountId = ?parseAccountId(node{"accountId"}.getStr(""))
   let oldState = ?parseJmapState(node{"oldState"}.getStr(""))
   let newState = ?parseJmapState(node{"newState"}.getStr(""))
@@ -506,8 +504,7 @@ func fromJson*[T](
 ): Result[SetResponse[T], ValidationError] =
   ## Deserialise JSON arguments to SetResponse (RFC 8620 section 5.3).
   ## Merges parallel wire maps into separate success/failure tables (section 8).
-  discard $R
-  ?checkJsonKind(node, JObject, "SetResponse")
+  ?checkJsonKind(node, JObject, $R)
   let accountId = ?parseAccountId(node{"accountId"}.getStr(""))
   let newState = ?parseJmapState(node{"newState"}.getStr(""))
   let oldState = optState(node, "oldState")
@@ -531,8 +528,7 @@ func fromJson*[T](
   ## Deserialise JSON arguments to CopyResponse (RFC 8620 section 5.4).
   ## Merges created/notCreated wire maps into separate success/failure
   ## tables (section 8).
-  discard $R
-  ?checkJsonKind(node, JObject, "CopyResponse")
+  ?checkJsonKind(node, JObject, $R)
   let fromAccountId = ?parseAccountId(node{"fromAccountId"}.getStr(""))
   let accountId = ?parseAccountId(node{"accountId"}.getStr(""))
   let newState = ?parseJmapState(node{"newState"}.getStr(""))
@@ -553,8 +549,7 @@ func fromJson*[T](
 ): Result[QueryResponse[T], ValidationError] =
   ## Deserialise JSON arguments to QueryResponse (RFC 8620 section 5.5).
   ## ``total`` and ``limit`` use lenient Option handling (absent -> none).
-  discard $R
-  ?checkJsonKind(node, JObject, "QueryResponse")
+  ?checkJsonKind(node, JObject, $R)
   let accountId = ?parseAccountId(node{"accountId"}.getStr(""))
   let queryState = ?parseJmapState(node{"queryState"}.getStr(""))
   let cccNode = node{"canCalculateChanges"}
@@ -584,8 +579,7 @@ func fromJson*[T](
   ## Deserialise JSON arguments to QueryChangesResponse (RFC 8620 section 5.6).
   ## ``total`` uses lenient Option handling (absent -> none). ``added`` elements
   ## parsed via AddedItem.fromJson (Layer 2).
-  discard $R
-  ?checkJsonKind(node, JObject, "QueryChangesResponse")
+  ?checkJsonKind(node, JObject, $R)
   let accountId = ?parseAccountId(node{"accountId"}.getStr(""))
   let oldQueryState = ?parseJmapState(node{"oldQueryState"}.getStr(""))
   let newQueryState = ?parseJmapState(node{"newQueryState"}.getStr(""))

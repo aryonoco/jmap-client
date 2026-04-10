@@ -81,16 +81,13 @@ forwardChangesFields(MailboxChangesResponse)
 # MailboxChangesResponse fromJson
 # =============================================================================
 
-{.push ruleOff: "params".}
-
 func fromJson*(
     R: typedesc[MailboxChangesResponse], node: JsonNode
 ): Result[MailboxChangesResponse, ValidationError] =
   ## Deserialise JSON to MailboxChangesResponse. Reuses
   ## ``ChangesResponse[Mailbox].fromJson`` for the 7 standard fields, then
   ## extracts the Mailbox-specific ``updatedProperties`` extension.
-  discard $R
-  ?checkJsonKind(node, JObject, "MailboxChangesResponse")
+  ?checkJsonKind(node, JObject, $R)
   let base = ?ChangesResponse[Mailbox].fromJson(node)
   let upNode = node{"updatedProperties"}
   let updatedProperties =
@@ -100,22 +97,13 @@ func fromJson*(
       var props: seq[string] = @[]
       for _, elem in upNode.getElems(@[]):
         if elem.kind != JString:
-          return err(
-            validationError(
-              "MailboxChangesResponse", "updatedProperties elements must be strings", ""
-            )
-          )
+          return
+            err(validationError($R, "updatedProperties elements must be strings", ""))
         props.add(elem.getStr(""))
       Opt.some(props)
     else:
-      return err(
-        validationError(
-          "MailboxChangesResponse", "updatedProperties must be array or null", ""
-        )
-      )
+      return err(validationError($R, "updatedProperties must be array or null", ""))
   return ok(MailboxChangesResponse(base: base, updatedProperties: updatedProperties))
-
-{.pop.} # ruleOff: "params"
 
 # =============================================================================
 # addMailboxChanges — Mailbox/changes (RFC 8621 §2.2)

@@ -24,18 +24,14 @@ func toJson*(ks: KeywordSet): JsonNode =
     node[$kw] = newJBool(true)
   return node
 
-{.push ruleOff: "params".}
-
 func fromJson*(T: typedesc[KeywordSet], node: JsonNode): Result[T, ValidationError] =
   ## Deserialise ``{"keyword": true, ...}`` to KeywordSet. Rejects non-object,
   ## non-boolean values, and explicit ``false``.
-  ?checkJsonKind(node, JObject, "KeywordSet")
+  ?checkJsonKind(node, JObject, $T)
   var hs = initHashSet[Keyword](node.len)
   for key, val in node.pairs:
     if val.kind != JBool or not val.getBool(false):
-      return err(validationError("KeywordSet", "all keyword values must be true", key))
+      return err(validationError($T, "all keyword values must be true", key))
     let kw = ?parseKeywordFromServer(key)
     hs.incl(kw)
   return ok(KeywordSet(hs))
-
-{.pop.} # ruleOff: "params"
