@@ -57,16 +57,15 @@ const
 
 const AsciiDigits = {'0' .. '9'}
 
-func allDigits(raw: string, first, last: int): bool =
+func allDigits(raw: string, first, last: Natural): bool =
   ## Checks that raw[first..last] are all ASCII digits.
-  if first < 0 or last >= raw.len:
+  if last >= raw.len:
     return false
-  var res = true
-  for i in first .. last:
+  # min(last, raw.high) gives the prover a direct upper-bound proof
+  for i in first .. min(last, raw.high):
     if raw[i] notin AsciiDigits:
-      res = false
-      break
-  return res
+      return false
+  return true
 
 func parseId*(raw: string): Result[Id, ValidationError] =
   ## Strict: 1-255 octets, base64url charset only.
@@ -164,33 +163,39 @@ func validateFractionalSeconds(raw: string): Result[void, ValidationError] =
           err(validationError("Date", "zero fractional seconds must be omitted", raw))
   return ok()
 
-func offsetStart(raw: string): int =
+func offsetStart(raw: string): Natural =
   ## Returns the position where the timezone offset begins (after fractional
   ## seconds, if any).
   if raw.len <= 19:
     return 19
   elif raw[19] != '.':
     return 19
-  var pos = 20
+  var pos: Natural = 20
   while pos < raw.len:
     if raw[pos] notin AsciiDigits:
       break
     inc pos
   return pos
 
-func isValidNumericOffset(raw: string, pos: int): bool =
+func isValidNumericOffset(raw: string, pos: Natural): bool =
   ## Checks that raw[pos..pos+5] matches +HH:MM or -HH:MM structurally.
-  if pos < 0 or raw.len < pos + 6:
+  if pos + 6 != raw.len:
     return false
-  return
-    pos + 6 == raw.len and raw[pos + 1] in AsciiDigits and raw[pos + 2] in AsciiDigits and
-    raw[pos + 3] == ':' and raw[pos + 4] in AsciiDigits and raw[pos + 5] in AsciiDigits
+  # min(pos + 5, raw.high) gives the prover a direct upper-bound proof;
+  # Natural pos gives the lower-bound proof (pos + 1 >= 1 >= 0).
+  for i in (pos + 1) .. min(pos + 5, raw.high):
+    let ch = raw[i]
+    if i == pos + 3:
+      if ch != ':': return false
+    else:
+      if ch notin AsciiDigits: return false
+  return true
 
 func validateTimezoneOffset(raw: string): Result[void, ValidationError] =
   ## Validates timezone offset after seconds and optional fractional seconds.
   ## Must be 'Z' or '+HH:MM' or '-HH:MM'.
   let pos = offsetStart(raw)
-  if pos < 0 or pos >= raw.len:
+  if pos >= raw.len:
     return err(validationError("Date", "missing timezone offset", raw))
   elif raw[pos] == 'Z':
     if pos + 1 != raw.len:
