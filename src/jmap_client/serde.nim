@@ -7,6 +7,7 @@
 {.push raises: [].}
 
 import std/json
+import std/tables
 
 import ./types
 
@@ -67,6 +68,38 @@ func parseOptIdArray*(node: JsonNode): Result[seq[Id], ValidationError] =
     let id = ?parseIdFromServer(elem.getStr(""))
     ids.add(id)
   return ok(ids)
+
+proc collapseNullToEmptySeq*(
+    node: JsonNode,
+    key: string,
+    parser: proc(s: string): Result[Id, ValidationError] {.raises: [].},
+): Result[seq[Id], ValidationError] =
+  ## Parses an ``Id[]|null`` field by key where null or absent collapses
+  ## to an empty seq. Each array element's string value is passed to
+  ## ``parser``. Used by response types that have nullable Id arrays (D13).
+  let child = node{key}
+  if child.isNil or child.kind != JArray:
+    return ok(newSeq[Id]())
+  var ids: seq[Id] = @[]
+  for elem in child.getElems(@[]):
+    ids.add(?parser(elem.getStr("")))
+  return ok(ids)
+
+proc parseIdKeyedTable*[T](
+    node: JsonNode,
+    parseValue: proc(n: JsonNode): Result[T, ValidationError] {.raises: [].},
+): Result[Table[Id, T], ValidationError] =
+  ## Parses a JSON object into ``Table[Id, T]``. Each key is parsed as a
+  ## server-assigned ``Id``; each value via the caller-supplied parser.
+  ## Nil or non-object node yields an empty table (lenient, D15).
+  if node.isNil or node.kind != JObject:
+    return ok(initTable[Id, T]())
+  var tbl = initTable[Id, T](node.len)
+  for key, val in node.pairs:
+    let id = ?parseIdFromServer(key)
+    let parsed = ?parseValue(val)
+    tbl[id] = parsed
+  return ok(tbl)
 
 func optJsonField*(node: JsonNode, key: string, kind: JsonNodeKind): Opt[JsonNode] =
   ## Lenient field extraction: absent, null, or wrong kind -> none.

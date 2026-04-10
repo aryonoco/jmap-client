@@ -120,6 +120,10 @@ Detailed Nim patterns are in `.claude/rules/`:
 - `nim-type-safety.md` — distinct types, case objects, enums, smart constructors
 - `nim-ffi-boundary.md` — C ABI exports, type mapping, memory ownership, error projection
 
+## Static Analysis
+
+- Never suppress or relax nimalyzer rules (e.g. `ruleOff: "complexity"`). Always restructure code to fall under the limit — decompose into sub-helpers, extract field-group comparisons, use generics for shared logic.
+
 ## Workflow
 
 - Run `just ci` before committing (runs reuse + fmt-check + lint + test)

@@ -31,6 +31,8 @@ import jmap_client/errors
 import jmap_client/mail/types
 import jmap_client/mail/email
 import jmap_client/mail/snippet
+import jmap_client/mail/serde_email
+import jmap_client/mail/serde_snippet
 
 proc zeroUint*(): UnsignedInt =
   parseUnsignedInt(0).get()
@@ -706,6 +708,154 @@ proc setErrorEq*(a, b: SetError): bool =
     true
 
 # ---------------------------------------------------------------------------
+# Mail Part D equality helpers
+# ---------------------------------------------------------------------------
+
+proc headerValueEq*(a, b: HeaderValue): bool =
+  ## Deep value equality for HeaderValue (case object discriminated by
+  ## HeaderForm). Case objects lack reliable auto-generated ``==``.
+  if a.form != b.form:
+    return false
+  case a.form
+  of hfRaw:
+    a.rawValue == b.rawValue
+  of hfText:
+    a.textValue == b.textValue
+  of hfAddresses:
+    a.addresses == b.addresses
+  of hfGroupedAddresses:
+    a.groups == b.groups
+  of hfMessageIds:
+    a.messageIds == b.messageIds
+  of hfDate:
+    a.date == b.date
+  of hfUrls:
+    a.urls == b.urls
+
+proc bodyPartCoreFieldsEq(a, b: EmailBodyPart): bool =
+  ## Compares discriminant, content-type, and structural fields.
+  a.contentType == b.contentType and a.isMultipart == b.isMultipart and
+    a.headers == b.headers and a.name == b.name and a.size == b.size
+
+proc bodyPartOptFieldsEq(a, b: EmailBodyPart): bool =
+  ## Compares optional MIME metadata fields.
+  a.charset == b.charset and a.disposition == b.disposition and a.cid == b.cid and
+    a.language == b.language and a.location == b.location
+
+proc bodyPartEq*(a, b: EmailBodyPart): bool =
+  ## Recursive structural equality for EmailBodyPart (case object
+  ## discriminated by ``isMultipart``). Delegates shared fields to
+  ## ``bodyPartSharedFieldsEq``, then compares branch-specific fields.
+  if not bodyPartCoreFieldsEq(a, b) or not bodyPartOptFieldsEq(a, b):
+    return false
+  if a.isMultipart:
+    if a.subParts.len != b.subParts.len:
+      return false
+    for i in 0 ..< a.subParts.len:
+      if not bodyPartEq(a.subParts[i], b.subParts[i]):
+        return false
+    return true
+  a.partId == b.partId and a.blobId == b.blobId
+
+proc headerTableEq*(a, b: Table[HeaderPropertyKey, HeaderValue]): bool =
+  ## Value equality for dynamic header tables. Delegates to ``headerValueEq``
+  ## for case-object values.
+  if a.len != b.len:
+    return false
+  for key, val in a:
+    if key notin b:
+      return false
+    if not headerValueEq(val, b[key]):
+      return false
+  true
+
+proc headerTableAllEq*(a, b: Table[HeaderPropertyKey, seq[HeaderValue]]): bool =
+  ## Value equality for ``:all`` dynamic header tables. Element-wise
+  ## ``headerValueEq`` on each seq.
+  if a.len != b.len:
+    return false
+  for key, vals in a:
+    if key notin b:
+      return false
+    let bVals = b[key]
+    if vals.len != bVals.len:
+      return false
+    for i in 0 ..< vals.len:
+      if not headerValueEq(vals[i], bVals[i]):
+        return false
+  true
+
+proc bodyPartSeqEq*(a, b: seq[EmailBodyPart]): bool =
+  ## Element-wise ``bodyPartEq`` for body part sequences.
+  if a.len != b.len:
+    return false
+  for i in 0 ..< a.len:
+    if not bodyPartEq(a[i], b[i]):
+      return false
+  true
+
+# Generic sub-helpers for field groups shared between Email and ParsedEmail.
+# Mirrors D7's shared serde helper decomposition (parseConvenienceHeaders,
+# parseBodyFields). Generic over T so both types use the same comparison logic.
+
+proc convStringHeadersEq[T](a, b: T): bool =
+  ## Compares string/date convenience headers (5 fields).
+  a.messageId == b.messageId and a.inReplyTo == b.inReplyTo and
+    a.references == b.references and a.subject == b.subject and a.sentAt == b.sentAt
+
+proc convAddressHeadersEq[T](a, b: T): bool =
+  ## Compares address convenience headers (6 fields).
+  a.sender == b.sender and a.fromAddr == b.fromAddr and a.to == b.to and a.cc == b.cc and
+    a.bcc == b.bcc and a.replyTo == b.replyTo
+
+proc bodyFieldsEq[T](a, b: T): bool =
+  ## Compares body fields (7 fields). Delegates to ``bodyPartEq`` and
+  ## ``bodyPartSeqEq`` for case-object fields.
+  bodyPartEq(a.bodyStructure, b.bodyStructure) and a.bodyValues == b.bodyValues and
+    bodyPartSeqEq(a.textBody, b.textBody) and bodyPartSeqEq(a.htmlBody, b.htmlBody) and
+    bodyPartSeqEq(a.attachments, b.attachments) and a.hasAttachment == b.hasAttachment and
+    a.preview == b.preview
+
+proc emailMetadataEq(a, b: Email): bool =
+  ## Compares Email metadata fields (7 fields). Unwraps distinct HashSet types
+  ## that have no ``==`` (excluded by ``defineHashSetDistinctOps``).
+  a.id == b.id and a.blobId == b.blobId and a.threadId == b.threadId and
+    HashSet[Id](a.mailboxIds) == HashSet[Id](b.mailboxIds) and
+    HashSet[Keyword](a.keywords) == HashSet[Keyword](b.keywords) and a.size == b.size and
+    a.receivedAt == b.receivedAt
+
+proc emailEq*(a, b: Email): bool =
+  ## Deep value equality for Email (28 fields). Decomposes into metadata,
+  ## convenience headers, dynamic headers, and body sub-comparisons.
+  ## Follows ``sessionEq`` pattern.
+  emailMetadataEq(a, b) and convStringHeadersEq(a, b) and convAddressHeadersEq(a, b) and
+    a.headers == b.headers and headerTableEq(a.requestedHeaders, b.requestedHeaders) and
+    headerTableAllEq(a.requestedHeadersAll, b.requestedHeadersAll) and bodyFieldsEq(
+    a, b
+  )
+
+proc parsedEmailEq*(a, b: ParsedEmail): bool =
+  ## Deep value equality for ParsedEmail (22 fields). Same shared field groups
+  ## as ``emailEq`` minus 6 metadata fields, plus ``threadId: Opt[Id]``.
+  ## Reuses generic sub-helpers for shared convenience header and body groups.
+  a.threadId == b.threadId and convStringHeadersEq(a, b) and convAddressHeadersEq(a, b) and
+    a.headers == b.headers and headerTableEq(a.requestedHeaders, b.requestedHeaders) and
+    headerTableAllEq(a.requestedHeadersAll, b.requestedHeadersAll) and bodyFieldsEq(
+    a, b
+  )
+
+proc emailComparatorEq*(a, b: EmailComparator): bool =
+  ## Deep value equality for EmailComparator (case object). Follows
+  ## ``setErrorEq`` pattern: shared fields then branch comparison.
+  if a.kind != b.kind or a.isAscending != b.isAscending or a.collation != b.collation:
+    return false
+  case a.kind
+  of eckPlain:
+    a.property == b.property
+  of eckKeyword:
+    a.keywordProperty == b.keywordProperty and a.keyword == b.keyword
+
+# ---------------------------------------------------------------------------
 # Builder / dispatch fixtures
 # ---------------------------------------------------------------------------
 
@@ -773,3 +923,21 @@ proc makeErrorResponse*(
     createdIds: Opt.none(Table[CreationId, Id]),
     sessionState: state,
   )
+
+# ---------------------------------------------------------------------------
+# Mail Part D JSON fixtures (derived from type factories via toJson)
+# ---------------------------------------------------------------------------
+
+proc makeEmailJson*(): JsonNode =
+  ## Golden Email JSON with all 28 fields. Derived from ``makeEmail().toJson()``
+  ## so the fixture always reflects the current type definition (§12.14).
+  makeEmail().toJson()
+
+proc makeParsedEmailJson*(): JsonNode =
+  ## Valid ParsedEmail JSON without metadata. Derived from
+  ## ``makeParsedEmail().toJson()``.
+  makeParsedEmail().toJson()
+
+proc makeSearchSnippetJson*(): JsonNode =
+  ## Valid SearchSnippet JSON. Derived from ``makeSearchSnippet().toJson()``.
+  makeSearchSnippet().toJson()
