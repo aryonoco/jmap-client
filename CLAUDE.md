@@ -100,7 +100,7 @@ To verify how Nim works, Access the Nim source code at /.nim-reference
 - Use `Opt[T]` from nim-results for optional fields (not `std/options`); prefer `for val in opt:` over `if opt.isSome: opt.get()`
 - Prefer expression-oriented style: if/case/block as expressions
 - Prefer `collect` (std/sugar) for building new collections; `allIt`/`anyIt` for predicates
-- Prefer `func` for pure functions (L1 types, L2 serde, L3 protocol); `proc` only for IO (L4) or functions taking `proc` callback parameters
+- Prefer `func` for pure functions (L1 types, L2 serde, L3 protocol); callback parameters use `{.noSideEffect.}` to preserve `func` purity; `proc` only for IO (L4) or actual side effects (e.g. `var` parameter mutation)
 - `{.push raises: [].}` on every source module — compiler-enforced total functions
 
 ## C ABI

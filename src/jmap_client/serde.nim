@@ -69,10 +69,10 @@ func parseOptIdArray*(node: JsonNode): Result[seq[Id], ValidationError] =
     ids.add(id)
   return ok(ids)
 
-proc collapseNullToEmptySeq*(
+func collapseNullToEmptySeq*(
     node: JsonNode,
     key: string,
-    parser: proc(s: string): Result[Id, ValidationError] {.raises: [].},
+    parser: proc(s: string): Result[Id, ValidationError] {.noSideEffect, raises: [].},
 ): Result[seq[Id], ValidationError] =
   ## Parses an ``Id[]|null`` field by key where null or absent collapses
   ## to an empty seq. Each array element's string value is passed to
@@ -85,9 +85,10 @@ proc collapseNullToEmptySeq*(
     ids.add(?parser(elem.getStr("")))
   return ok(ids)
 
-proc parseIdKeyedTable*[T](
+func parseIdKeyedTable*[T](
     node: JsonNode,
-    parseValue: proc(n: JsonNode): Result[T, ValidationError] {.raises: [].},
+    parseValue:
+      proc(n: JsonNode): Result[T, ValidationError] {.noSideEffect, raises: [].},
 ): Result[Table[Id, T], ValidationError] =
   ## Parses a JSON object into ``Table[Id, T]``. Each key is parsed as a
   ## server-assigned ``Id``; each value via the caller-supplied parser.

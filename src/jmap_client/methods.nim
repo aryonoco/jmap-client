@@ -335,8 +335,9 @@ func toJson*[T](req: CopyRequest[T]): JsonNode =
     node["destroyFromIfInState"] = s.toJson()
   return node
 
-proc toJson*[T, C](
-    req: QueryRequest[T, C], filterConditionToJson: proc(c: C): JsonNode
+func toJson*[T, C](
+    req: QueryRequest[T, C],
+    filterConditionToJson: proc(c: C): JsonNode {.noSideEffect, raises: [].},
 ): JsonNode =
   ## Serialise QueryRequest to JSON arguments object (RFC 8620 section 5.5).
   ## ``position``, ``anchorOffset``, ``calculateTotal`` always emitted.
@@ -359,8 +360,9 @@ proc toJson*[T, C](
   node["calculateTotal"] = %req.calculateTotal
   return node
 
-proc toJson*[T, C](
-    req: QueryChangesRequest[T, C], filterConditionToJson: proc(c: C): JsonNode
+func toJson*[T, C](
+    req: QueryChangesRequest[T, C],
+    filterConditionToJson: proc(c: C): JsonNode {.noSideEffect, raises: [].},
 ): JsonNode =
   ## Serialise QueryChangesRequest to JSON arguments object
   ## (RFC 8620 section 5.6). ``calculateTotal`` always emitted.

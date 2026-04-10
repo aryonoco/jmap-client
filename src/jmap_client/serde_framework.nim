@@ -72,7 +72,10 @@ func fromJson*(
 # Filter[C]
 # =============================================================================
 
-proc toJson*[C](f: Filter[C], filterConditionToJson: proc(c: C): JsonNode): JsonNode =
+func toJson*[C](
+    f: Filter[C],
+    filterConditionToJson: proc(c: C): JsonNode {.noSideEffect, raises: [].},
+): JsonNode =
   ## Serialise Filter[C] to JSON. Caller provides condition serialiser.
   case f.kind
   of fkCondition:
@@ -92,9 +95,10 @@ const MaxFilterDepth* = 128
   ## library's fromJson accepts pre-parsed JsonNode, so that limit does not
   ## apply at this layer.
 
-proc fromJsonImpl[C](
+func fromJsonImpl[C](
     node: JsonNode,
-    fromCondition: proc(n: JsonNode): Result[C, ValidationError] {.raises: [].},
+    fromCondition:
+      proc(n: JsonNode): Result[C, ValidationError] {.noSideEffect, raises: [].},
     depth: int,
 ): Result[Filter[C], ValidationError] =
   ## Internal recursive helper with depth tracking.
@@ -117,10 +121,11 @@ proc fromJsonImpl[C](
     children.add(child)
   return ok(filterOperator(op, children))
 
-proc fromJson*[C](
+func fromJson*[C](
     T: typedesc[Filter[C]],
     node: JsonNode,
-    fromCondition: proc(n: JsonNode): Result[C, ValidationError] {.raises: [].},
+    fromCondition:
+      proc(n: JsonNode): Result[C, ValidationError] {.noSideEffect, raises: [].},
 ): Result[Filter[C], ValidationError] =
   ## Deserialise JSON to Filter[C]. Caller provides condition deserialiser.
   ## Dispatches on presence of "operator" key. Nesting depth is capped at

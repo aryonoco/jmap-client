@@ -101,7 +101,7 @@ type QueryGetResults*[T] = object
   query*: QueryResponse[T]
   get*: GetResponse[T]
 
-proc getBoth*[T](
+func getBoth*[T](
     resp: Response, handles: QueryGetHandles[T]
 ): Result[QueryGetResults[T], MethodError] =
   ## Extracts both query and get responses, failing on the first error.
@@ -117,7 +117,7 @@ type ChangesGetResults*[T] = object
   changes*: ChangesResponse[T]
   get*: GetResponse[T]
 
-proc getBoth*[T](
+func getBoth*[T](
     resp: Response, handles: ChangesGetHandles[T]
 ): Result[ChangesGetResults[T], MethodError] =
   ## Extracts both changes and get responses, failing on the first error.

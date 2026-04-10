@@ -188,8 +188,10 @@ func referencableKey*[T](fieldName: string, r: Referencable[T]): string =
   of rkReference:
     return "#" & fieldName
 
-proc fromJsonField*[T](
-    fieldName: string, node: JsonNode, fromDirect: proc(n: JsonNode): T {.raises: [].}
+func fromJsonField*[T](
+    fieldName: string,
+    node: JsonNode,
+    fromDirect: proc(n: JsonNode): T {.noSideEffect, raises: [].},
 ): Result[Referencable[T], ValidationError] =
   ## Parse a Referencable field from a JSON object.
   ## Checks "#fieldName" (reference) first, then "fieldName" (direct).

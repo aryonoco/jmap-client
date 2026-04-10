@@ -122,9 +122,11 @@ to `Opt[T]` (discards error details).
 
 ## Conventions
 
-- Use `func` for pure functions (L1 types, L2 serde, L3 protocol logic).
-  Use `proc` only for: IO (L4 transport), functions taking `proc` callback
-  parameters (hidden pointer indirection prevents `func`), and L5 C ABI.
+- `func` everywhere except IO and mutation. L1 types, L2 serde, L3
+  protocol — all `func`. Callback parameters take `{.noSideEffect, raises: [].}`
+  on the proc type; `mixin` resolves pure at instantiation. `proc` only
+  for: IO (L4 transport), `var` parameter mutation (builders), and L5
+  C ABI exports.
 - **Parse, don't validate** — smart constructors produce `Result` values.
   Invariants enforced at construction time, not checked later.
 

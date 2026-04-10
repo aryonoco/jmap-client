@@ -109,7 +109,7 @@ func extractInvocation(
 # get[T] — default extraction via mixin fromJson
 # =============================================================================
 
-proc get*[T](resp: Response, handle: ResponseHandle[T]): Result[T, MethodError] =
+func get*[T](resp: Response, handle: ResponseHandle[T]): Result[T, MethodError] =
   ## Extracts a typed response from the Response envelope using ``mixin
   ## fromJson`` to resolve ``T.fromJson`` at the caller's scope.
   ##
@@ -127,7 +127,7 @@ proc get*[T](resp: Response, handle: ResponseHandle[T]): Result[T, MethodError] 
 # get[T] — callback overload (escape hatch)
 # =============================================================================
 
-proc get*[T](
+func get*[T](
     resp: Response,
     handle: ResponseHandle[T],
     fromArgs:
