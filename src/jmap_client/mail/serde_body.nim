@@ -156,13 +156,6 @@ func fromJson*(
 # EmailBodyPart — toJson
 # =============================================================================
 
-func emitOptOrNull(node: var JsonNode, key: string, opt: Opt[string]) =
-  ## Emit optional string as value when present, null when absent.
-  if opt.isSome:
-    node[key] = %opt.get()
-  else:
-    node[key] = newJNull()
-
 func emitLanguageOrNull(node: var JsonNode, opt: Opt[seq[string]]) =
   ## Emit optional language array as value when present, null when absent.
   if opt.isSome:
@@ -187,12 +180,12 @@ func toJsonImpl(part: EmailBodyPart, depth: int): JsonNode =
   node["headers"] = headersArr
 
   # Optional strings: Opt.none → null
-  emitOptOrNull(node, "name", part.name)
-  emitOptOrNull(node, "charset", part.charset)
-  emitOptOrNull(node, "disposition", part.disposition)
-  emitOptOrNull(node, "cid", part.cid)
+  emitOptStringOrNull(node, "name", part.name)
+  emitOptStringOrNull(node, "charset", part.charset)
+  emitOptStringOrNull(node, "disposition", part.disposition)
+  emitOptStringOrNull(node, "cid", part.cid)
   emitLanguageOrNull(node, part.language)
-  emitOptOrNull(node, "location", part.location)
+  emitOptStringOrNull(node, "location", part.location)
   node["size"] = part.size.toJson()
 
   # Branch-specific

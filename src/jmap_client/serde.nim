@@ -76,6 +76,20 @@ func optJsonField*(node: JsonNode, key: string, kind: JsonNodeKind): Opt[JsonNod
     return Opt.none(JsonNode)
   return Opt.some(child)
 
+func emitOptOrNull*[T](node: var JsonNode, key: string, opt: Opt[T]) =
+  ## Emits an optional value via toJson when present, null when absent.
+  if opt.isSome:
+    node[key] = opt.get().toJson()
+  else:
+    node[key] = newJNull()
+
+func emitOptStringOrNull*(node: var JsonNode, key: string, opt: Opt[string]) =
+  ## Emits an optional string as value when present, null when absent.
+  if opt.isSome:
+    node[key] = %opt.get()
+  else:
+    node[key] = newJNull()
+
 # --- Serde templates for distinct types ---
 #
 # Each template generates a concrete toJson/fromJson overload. The parser

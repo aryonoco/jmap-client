@@ -374,22 +374,8 @@ func parsedEmailFromJson*(node: JsonNode): Result[ParsedEmail, ValidationError] 
   )
 
 # =============================================================================
-# toJson Emit Helpers
+# Email-Specific toJson Emit Helpers
 # =============================================================================
-
-func emitOptOrNull[T](node: var JsonNode, key: string, opt: Opt[T]) =
-  ## Emits an optional value via toJson when present, null when absent.
-  if opt.isSome:
-    node[key] = opt.get().toJson()
-  else:
-    node[key] = newJNull()
-
-func emitOptStringOrNull(node: var JsonNode, key: string, opt: Opt[string]) =
-  ## Emits an optional string as value when present, null when absent.
-  if opt.isSome:
-    node[key] = %opt.get()
-  else:
-    node[key] = newJNull()
 
 func emitOptStringSeqOrNull(node: var JsonNode, key: string, opt: Opt[seq[string]]) =
   ## Emits an optional string sequence as JSON array when present, null when absent.

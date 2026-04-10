@@ -1,0 +1,42 @@
+# SPDX-License-Identifier: BSD-2-Clause
+# Copyright (c) 2026 Aryan Ameri
+
+## Serialisation for SearchSnippet (RFC 8621 §5).
+
+{.push raises: [].}
+
+import std/json
+
+import ../serde
+import ../types
+import ./snippet
+
+func searchSnippetFromJson*(node: JsonNode): Result[SearchSnippet, ValidationError] =
+  ## Deserialises a SearchSnippet from server JSON.
+  ## ``emailId`` is required; ``subject`` and ``preview`` are optional
+  ## (absent/null yields ``Opt.none``).
+  const typeName = "SearchSnippet"
+  ?checkJsonKind(node, JObject, typeName)
+  let emailId = ?Id.fromJson(node{"emailId"})
+  let subject = block:
+    let f = optJsonField(node, "subject", JString)
+    if f.isSome:
+      Opt.some(f.get().getStr(""))
+    else:
+      Opt.none(string)
+  let preview = block:
+    let f = optJsonField(node, "preview", JString)
+    if f.isSome:
+      Opt.some(f.get().getStr(""))
+    else:
+      Opt.none(string)
+  ok(SearchSnippet(emailId: emailId, subject: subject, preview: preview))
+
+func toJson*(ss: SearchSnippet): JsonNode =
+  ## Serialise SearchSnippet to JSON. Emits all fields always (D5):
+  ## ``Opt.none`` emits null.
+  var node = newJObject()
+  node["emailId"] = ss.emailId.toJson()
+  emitOptStringOrNull(node, "subject", ss.subject)
+  emitOptStringOrNull(node, "preview", ss.preview)
+  return node
