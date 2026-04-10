@@ -941,3 +941,21 @@ proc makeParsedEmailJson*(): JsonNode =
 proc makeSearchSnippetJson*(): JsonNode =
   ## Valid SearchSnippet JSON. Derived from ``makeSearchSnippet().toJson()``.
   makeSearchSnippet().toJson()
+
+# ---------------------------------------------------------------------------
+# Mail Part D response JSON fixtures (hand-crafted, server-originated)
+# ---------------------------------------------------------------------------
+
+proc makeEmailParseResponseJson*(): JsonNode =
+  ## Hand-crafted EmailParseResponse JSON (RFC 8621 §4.9). Wire key is
+  ## ``"notParsable"`` (RFC spelling), not ``"notParseable"``.
+  %*{
+    "accountId": "acct1",
+    "parsed": {"blob1": makeParsedEmailJson()},
+    "notParsable": [],
+    "notFound": [],
+  }
+
+proc makeSearchSnippetGetResponseJson*(): JsonNode =
+  ## Hand-crafted SearchSnippetGetResponse JSON (RFC 8621 §5.1).
+  %*{"accountId": "acct1", "list": [makeSearchSnippetJson()], "notFound": []}

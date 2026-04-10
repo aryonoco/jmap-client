@@ -1,13 +1,15 @@
 # SPDX-License-Identifier: BSD-2-Clause
 # Copyright (c) 2026 Aryan Ameri
 
-## Custom builder functions for VacationResponse (RFC 8621 section 7).
-## VacationResponse is a singleton — no entity registration, no create/destroy,
-## no /changes. The singleton id is hardcoded internally (Decision A7, A12).
+## Custom builder functions and response types for methods that need
+## special handling beyond the generic ``addGet``/``addSet``/etc. builders.
+## Covers VacationResponse (RFC 8621 §7), Email/parse (§4.9), and
+## SearchSnippet/get (§5.1).
 
 {.push raises: [], noSideEffect.}
 
 import std/json
+import std/tables
 
 import ../types
 import ../serialisation
@@ -15,8 +17,14 @@ import ../methods
 import ../dispatch
 import ../builder
 import ./vacation
+import ./snippet
+import ./email
+import ./mail_filters
+import ./serde_email
+import ./serde_snippet
 
 const VacationResponseCapUri = "urn:ietf:params:jmap:vacationresponse"
+const MailCapUri = "urn:ietf:params:jmap:mail"
 
 # =============================================================================
 # VacationResponse/get
@@ -61,3 +69,134 @@ func addVacationResponseSet*(
   let (newBuilder, callId) =
     b.addInvocation("VacationResponse/set", args, VacationResponseCapUri)
   return (newBuilder, ResponseHandle[SetResponse[VacationResponse]](callId))
+
+# =============================================================================
+# EmailParseResponse (RFC 8621 §4.9)
+# =============================================================================
+
+{.push ruleOff: "objects".}
+
+type
+  EmailParseResponse* = object
+    ## Response to Email/parse (RFC 8621 §4.9). Maps blob IDs to parsed
+    ## email representations. ``notParseable`` uses Nim spelling; the wire
+    ## key is ``"notParsable"`` (RFC spelling).
+    accountId*: AccountId
+    parsed*: Table[Id, ParsedEmail]
+    notParseable*: seq[Id]
+    notFound*: seq[Id]
+
+  SearchSnippetGetResponse* = object
+    ## Response to SearchSnippet/get (RFC 8621 §5.1). Returns search
+    ## context snippets for a set of email IDs against a filter.
+    accountId*: AccountId
+    list*: seq[SearchSnippet]
+    notFound*: seq[Id]
+
+{.pop.}
+
+# =============================================================================
+# EmailParseResponse fromJson
+# =============================================================================
+
+func emailParseResponseFromJson*(
+    node: JsonNode
+): Result[EmailParseResponse, ValidationError] =
+  ## Deserialise server JSON to ``EmailParseResponse``.
+  ## Wire key ``"notParsable"`` maps to Nim field ``notParseable``.
+  const typeName = "EmailParseResponse"
+  ?checkJsonKind(node, JObject, typeName)
+  let accountId = ?AccountId.fromJson(node{"accountId"})
+  let parsed = ?parseIdKeyedTable[ParsedEmail](node{"parsed"}, parsedEmailFromJson)
+  let notParseable = ?collapseNullToEmptySeq(node, "notParsable", parseIdFromServer)
+  let notFound = ?collapseNullToEmptySeq(node, "notFound", parseIdFromServer)
+  ok(
+    EmailParseResponse(
+      accountId: accountId,
+      parsed: parsed,
+      notParseable: notParseable,
+      notFound: notFound,
+    )
+  )
+
+# =============================================================================
+# SearchSnippetGetResponse fromJson
+# =============================================================================
+
+func searchSnippetGetResponseFromJson*(
+    node: JsonNode
+): Result[SearchSnippetGetResponse, ValidationError] =
+  ## Deserialise server JSON to ``SearchSnippetGetResponse``.
+  const typeName = "SearchSnippetGetResponse"
+  ?checkJsonKind(node, JObject, typeName)
+  let accountId = ?AccountId.fromJson(node{"accountId"})
+  let listNode = node{"list"}
+  let list =
+    if listNode.isNil or listNode.kind != JArray:
+      newSeq[SearchSnippet]()
+    else:
+      var snippets: seq[SearchSnippet] = @[]
+      for elem in listNode.getElems(@[]):
+        snippets.add(?searchSnippetFromJson(elem))
+      snippets
+  let notFound = ?collapseNullToEmptySeq(node, "notFound", parseIdFromServer)
+  ok(SearchSnippetGetResponse(accountId: accountId, list: list, notFound: notFound))
+
+# =============================================================================
+# addEmailParse — Email/parse (RFC 8621 §4.9)
+# =============================================================================
+
+func addEmailParse*(
+    b: RequestBuilder,
+    accountId: AccountId,
+    blobIds: seq[Id],
+    properties: Opt[seq[string]] = Opt.none(seq[string]),
+    bodyFetchOptions: EmailBodyFetchOptions = default(EmailBodyFetchOptions),
+): (RequestBuilder, ResponseHandle[EmailParseResponse]) =
+  ## Adds an Email/parse invocation. ``blobIds`` is a plain seq (no result
+  ## references — Email/parse doesn't support them). Body fetch options are
+  ## merged into the arguments, same pattern as ``addEmailGet``.
+  var args = newJObject()
+  args["accountId"] = accountId.toJson()
+  var arr = newJArray()
+  for id in blobIds:
+    arr.add(id.toJson())
+  args["blobIds"] = arr
+  for props in properties:
+    var propsArr = newJArray()
+    for p in props:
+      propsArr.add(%p)
+    args["properties"] = propsArr
+  let bodyArgs = bodyFetchOptions.toJson()
+  for key, val in bodyArgs:
+    args[key] = val
+  let (newBuilder, callId) = b.addInvocation("Email/parse", args, MailCapUri)
+  (newBuilder, ResponseHandle[EmailParseResponse](callId))
+
+# =============================================================================
+# addSearchSnippetGet — SearchSnippet/get (RFC 8621 §5.1)
+# =============================================================================
+
+func addSearchSnippetGet*(
+    b: RequestBuilder,
+    accountId: AccountId,
+    filterConditionToJson:
+      proc(c: EmailFilterCondition): JsonNode {.noSideEffect, raises: [].},
+    filter: Filter[EmailFilterCondition],
+    firstEmailId: Id,
+    restEmailIds: seq[Id] = @[],
+): (RequestBuilder, ResponseHandle[SearchSnippetGetResponse]) =
+  ## Adds a SearchSnippet/get invocation (RFC 8621 §5.1). ``filter`` is
+  ## required (search snippets are meaningless without a query context).
+  ## Cons-cell pattern (``firstEmailId`` + ``restEmailIds``) enforces at
+  ## least one email ID at compile time (Decision D12).
+  var args = newJObject()
+  args["accountId"] = accountId.toJson()
+  args["filter"] = filter.toJson(filterConditionToJson)
+  var emailIds = newJArray()
+  emailIds.add(firstEmailId.toJson())
+  for id in restEmailIds:
+    emailIds.add(id.toJson())
+  args["emailIds"] = emailIds
+  let (newBuilder, callId) = b.addInvocation("SearchSnippet/get", args, MailCapUri)
+  (newBuilder, ResponseHandle[SearchSnippetGetResponse](callId))
