@@ -27,6 +27,11 @@ import jmap_client/validation
 import jmap_client/mail/addresses
 import jmap_client/mail/headers
 import jmap_client/mail/body
+import jmap_client/mail/email
+import jmap_client/mail/keyword
+import jmap_client/mail/mailbox
+import jmap_client/mail/mail_filters
+import jmap_client/mail/snippet
 
 {.push ruleOff: "hasDoc".}
 {.push ruleOff: "params".}
@@ -1554,6 +1559,436 @@ proc genArbitraryHeaderPropertyString*(rng: var Rand, trial: int = -1): string =
   for i in 0 ..< length:
     s[i] = rng.genArbitraryByte()
   return s
+
+# ---------------------------------------------------------------------------
+# Mail Part D generators
+# ---------------------------------------------------------------------------
+
+# -- Helper types (D7 shared parity) --
+
+type ConvenienceHeadersGen {.ruleOff: "objects".} = object
+  messageId: Opt[seq[string]]
+  inReplyTo: Opt[seq[string]]
+  references: Opt[seq[string]]
+  sender: Opt[seq[EmailAddress]]
+  fromAddr: Opt[seq[EmailAddress]]
+  to: Opt[seq[EmailAddress]]
+  cc: Opt[seq[EmailAddress]]
+  bcc: Opt[seq[EmailAddress]]
+  replyTo: Opt[seq[EmailAddress]]
+  subject: Opt[string]
+  sentAt: Opt[Date]
+
+type BodyFieldsGen {.ruleOff: "objects".} = object
+  bodyStructure: EmailBodyPart
+  bodyValues: Table[PartId, EmailBodyValue]
+  textBody: seq[EmailBodyPart]
+  htmlBody: seq[EmailBodyPart]
+  attachments: seq[EmailBodyPart]
+  hasAttachment: bool
+  preview: string
+
+type DynamicHeadersGen {.ruleOff: "objects".} = object
+  requestedHeaders: Table[HeaderPropertyKey, HeaderValue]
+  requestedHeadersAll: Table[HeaderPropertyKey, seq[HeaderValue]]
+
+# -- Internal helpers --
+
+proc genOptStringSeq(rng: var Rand): Opt[seq[string]] =
+  if rng.rand(0 .. 9) < 4:
+    var ids: seq[string] = @[]
+    for _ in 0 ..< rng.rand(0 .. 3):
+      ids.add("<msg" & $rng.rand(1 .. 999) & "@example.com>")
+    Opt.some(ids)
+  else:
+    Opt.none(seq[string])
+
+proc genOptAddresses(rng: var Rand): Opt[seq[EmailAddress]] =
+  if rng.rand(0 .. 9) < 4:
+    var addrs: seq[EmailAddress] = @[]
+    for _ in 0 ..< rng.rand(0 .. 3):
+      addrs.add(rng.genEmailAddress())
+    Opt.some(addrs)
+  else:
+    Opt.none(seq[EmailAddress])
+
+# -- Leaf generators --
+
+proc genKeyword*(rng: var Rand): Keyword =
+  const kwConstants =
+    [kwDraft, kwSeen, kwFlagged, kwAnswered, kwForwarded, kwPhishing, kwJunk, kwNotJunk]
+  if rng.rand(0 .. 9) < 7:
+    return rng.oneOf(kwConstants)
+  let s = rng.genStringFrom({'a' .. 'z', '0' .. '9', '$', '-', '_', '.'}, 1, 20)
+  parseKeyword(s).get()
+
+proc genKeywordSet*(rng: var Rand): KeywordSet =
+  var kws: seq[Keyword] = @[]
+  for _ in 0 ..< rng.rand(0 .. 5):
+    kws.add(rng.genKeyword())
+  initKeywordSet(kws)
+
+proc genMailboxIdSet*(rng: var Rand): MailboxIdSet =
+  var ids: seq[Id] = @[]
+  for _ in 0 ..< rng.rand(1 .. 5):
+    ids.add(Id(rng.genValidIdStrict()))
+  initMailboxIdSet(ids)
+
+proc genSearchSnippet*(rng: var Rand): SearchSnippet =
+  SearchSnippet(
+    emailId: Id(rng.genValidIdStrict()),
+    subject:
+      if rng.rand(0 .. 1) == 0:
+        Opt.some(rng.genPrintableString(80))
+      else:
+        Opt.none(string),
+    preview:
+      if rng.rand(0 .. 1) == 0:
+        Opt.some(rng.genPrintableString(256))
+      else:
+        Opt.none(string),
+  )
+
+proc genEmailHeaderFilter*(rng: var Rand): EmailHeaderFilter =
+  const namePool = ["Subject", "From", "To", "X-Custom", "Date"]
+  let name = rng.oneOf(namePool)
+  let value =
+    if rng.rand(0 .. 1) == 0:
+      Opt.some(rng.genPrintableString(30))
+    else:
+      Opt.none(string)
+  parseEmailHeaderFilter(name, value).get()
+
+# -- Shared helper generators (D7 parity) --
+
+proc genHeaderPropertyKeyForDynamic(rng: var Rand, forAll: bool): HeaderPropertyKey =
+  const knownHeaders = [
+    "from", "to", "subject", "date", "message-id", "list-unsubscribe", "reply-to", "cc",
+    "bcc", "in-reply-to", "references", "list-archive",
+  ]
+  const unknownHeaders = ["x-custom", "x-mailer", "x-priority", "x-vendor-ext"]
+  let name =
+    if rng.rand(0 .. 3) < 3:
+      rng.oneOf(knownHeaders)
+    else:
+      rng.oneOf(unknownHeaders)
+  let allowed = allowedForms(name)
+  var formChoices: seq[HeaderForm] = @[]
+  for f in HeaderForm:
+    if f in allowed:
+      formChoices.add(f)
+  let form = rng.oneOf(formChoices)
+  var wire = "header:" & name
+  if form != hfRaw or rng.rand(0 .. 1) == 0:
+    wire &= ":" & $form
+  if forAll:
+    wire &= ":all"
+  parseHeaderPropertyName(wire).get()
+
+proc genConvenienceHeaders(rng: var Rand): ConvenienceHeadersGen =
+  ConvenienceHeadersGen(
+    messageId: rng.genOptStringSeq(),
+    inReplyTo: rng.genOptStringSeq(),
+    references: rng.genOptStringSeq(),
+    sender: rng.genOptAddresses(),
+    fromAddr: rng.genOptAddresses(),
+    to: rng.genOptAddresses(),
+    cc: rng.genOptAddresses(),
+    bcc: rng.genOptAddresses(),
+    replyTo: rng.genOptAddresses(),
+    subject:
+      if rng.rand(0 .. 1) == 0:
+        Opt.some(rng.genPrintableString(80))
+      else:
+        Opt.none(string),
+    sentAt:
+      if rng.rand(0 .. 1) == 0:
+        Opt.some(parseDate(rng.genValidDate()).get())
+      else:
+        Opt.none(Date),
+  )
+
+proc genBodyFields(rng: var Rand): BodyFieldsGen =
+  var bodyValues = initTable[PartId, EmailBodyValue]()
+  for _ in 0 ..< rng.rand(0 .. 2):
+    bodyValues[rng.genPartId()] = rng.genEmailBodyValue()
+  var textBody: seq[EmailBodyPart] = @[]
+  for _ in 0 ..< rng.rand(0 .. 1):
+    textBody.add(rng.genEmailBodyPart(0))
+  var htmlBody: seq[EmailBodyPart] = @[]
+  for _ in 0 ..< rng.rand(0 .. 1):
+    htmlBody.add(rng.genEmailBodyPart(0))
+  var attachments: seq[EmailBodyPart] = @[]
+  for _ in 0 ..< rng.rand(0 .. 2):
+    attachments.add(rng.genEmailBodyPart(0))
+  BodyFieldsGen(
+    bodyStructure: rng.genEmailBodyPart(2),
+    bodyValues: bodyValues,
+    textBody: textBody,
+    htmlBody: htmlBody,
+    attachments: attachments,
+    hasAttachment: rng.rand(0 .. 1) == 0,
+    preview: rng.genPrintableString(256),
+  )
+
+proc genDynamicHeaders(rng: var Rand): DynamicHeadersGen =
+  var reqHeaders = initTable[HeaderPropertyKey, HeaderValue]()
+  for _ in 0 ..< rng.rand(0 .. 2):
+    let key = rng.genHeaderPropertyKeyForDynamic(forAll = false)
+    reqHeaders[key] = rng.genHeaderValue(key.form)
+  var reqHeadersAll = initTable[HeaderPropertyKey, seq[HeaderValue]]()
+  for _ in 0 ..< rng.rand(0 .. 1):
+    let key = rng.genHeaderPropertyKeyForDynamic(forAll = true)
+    var vals: seq[HeaderValue] = @[]
+    for _ in 0 ..< rng.rand(1 .. 3):
+      vals.add(rng.genHeaderValue(key.form))
+    reqHeadersAll[key] = vals
+  DynamicHeadersGen(requestedHeaders: reqHeaders, requestedHeadersAll: reqHeadersAll)
+
+# -- Domain type generators --
+
+proc genEmailComparator*(rng: var Rand): EmailComparator =
+  const collationPool = ["i;ascii-casemap", "i;ascii-numeric", "i;unicode-casemap"]
+  let isAscending =
+    case rng.rand(0 .. 2)
+    of 0:
+      Opt.none(bool)
+    of 1:
+      Opt.some(true)
+    else:
+      Opt.some(false)
+  let collation =
+    if rng.rand(0 .. 9) < 3:
+      Opt.some(rng.oneOf(collationPool))
+    else:
+      Opt.none(string)
+  if rng.rand(0 .. 1) == 0:
+    let prop =
+      rng.oneOf([pspReceivedAt, pspSize, pspFrom, pspTo, pspSubject, pspSentAt])
+    plainComparator(prop, isAscending, collation)
+  else:
+    let ksp =
+      rng.oneOf([kspHasKeyword, kspAllInThreadHaveKeyword, kspSomeInThreadHaveKeyword])
+    keywordComparator(ksp, rng.genKeyword(), isAscending, collation)
+
+proc genEmailBodyFetchOptions*(rng: var Rand): EmailBodyFetchOptions =
+  const bodyPropertyPool = [
+    "partId", "blobId", "size", "name", "type", "charset", "disposition", "cid",
+    "language", "location", "headers",
+  ]
+  let scope = rng.oneOf([bvsNone, bvsText, bvsHtml, bvsTextAndHtml, bvsAll])
+  let bodyProperties =
+    if rng.rand(0 .. 9) < 4:
+      var props: seq[PropertyName] = @[]
+      for _ in 0 ..< rng.rand(1 .. 5):
+        props.add(parsePropertyName(rng.oneOf(bodyPropertyPool)).get())
+      Opt.some(props)
+    else:
+      Opt.none(seq[PropertyName])
+  let maxBytes =
+    if rng.rand(0 .. 9) < 4:
+      Opt.some(parseUnsignedInt(rng.genValidUnsignedInt()).get())
+    else:
+      Opt.none(UnsignedInt)
+  EmailBodyFetchOptions(
+    bodyProperties: bodyProperties, fetchBodyValues: scope, maxBodyValueBytes: maxBytes
+  )
+
+# -- EmailFilterCondition sub-helpers --
+
+proc fillMailboxFilterFields(
+    rng: var Rand, fc: var EmailFilterCondition, allSome: bool
+) =
+  if allSome or rng.rand(0 .. 9) < 3:
+    fc.inMailbox = Opt.some(Id(rng.genValidIdStrict()))
+  if allSome or rng.rand(0 .. 9) < 3:
+    var ids: seq[Id] = @[]
+    for _ in 0 ..< rng.rand(1 .. 3):
+      ids.add(Id(rng.genValidIdStrict()))
+    fc.inMailboxOtherThan = Opt.some(ids)
+
+proc fillDateSizeFilterFields(
+    rng: var Rand, fc: var EmailFilterCondition, allSome: bool
+) =
+  if allSome or rng.rand(0 .. 9) < 3:
+    fc.before = Opt.some(parseUtcDate(rng.genValidUtcDate()).get())
+  if allSome or rng.rand(0 .. 9) < 3:
+    fc.after = Opt.some(parseUtcDate(rng.genValidUtcDate()).get())
+  if allSome or rng.rand(0 .. 9) < 3:
+    fc.minSize = Opt.some(parseUnsignedInt(rng.genValidUnsignedInt()).get())
+  if allSome or rng.rand(0 .. 9) < 3:
+    fc.maxSize = Opt.some(parseUnsignedInt(rng.genValidUnsignedInt()).get())
+
+proc fillThreadKeywordFilterFields(
+    rng: var Rand, fc: var EmailFilterCondition, allSome: bool
+) =
+  if allSome or rng.rand(0 .. 9) < 3:
+    fc.allInThreadHaveKeyword = Opt.some(rng.genKeyword())
+  if allSome or rng.rand(0 .. 9) < 3:
+    fc.someInThreadHaveKeyword = Opt.some(rng.genKeyword())
+  if allSome or rng.rand(0 .. 9) < 3:
+    fc.noneInThreadHaveKeyword = Opt.some(rng.genKeyword())
+
+proc fillPerEmailKeywordFilterFields(
+    rng: var Rand, fc: var EmailFilterCondition, allSome: bool
+) =
+  if allSome or rng.rand(0 .. 9) < 3:
+    fc.hasKeyword = Opt.some(rng.genKeyword())
+  if allSome or rng.rand(0 .. 9) < 3:
+    fc.notKeyword = Opt.some(rng.genKeyword())
+
+proc fillTextSearchFilterFields(
+    rng: var Rand, fc: var EmailFilterCondition, allSome: bool
+) =
+  if allSome or rng.rand(0 .. 9) < 3:
+    fc.text = Opt.some(rng.genPrintableString(30))
+  if allSome or rng.rand(0 .. 9) < 3:
+    fc.fromAddr = Opt.some(rng.genPrintableString(30))
+  if allSome or rng.rand(0 .. 9) < 3:
+    fc.to = Opt.some(rng.genPrintableString(30))
+  if allSome or rng.rand(0 .. 9) < 3:
+    fc.cc = Opt.some(rng.genPrintableString(30))
+
+proc fillTextSearchFilterFields2(
+    rng: var Rand, fc: var EmailFilterCondition, allSome: bool
+) =
+  if allSome or rng.rand(0 .. 9) < 3:
+    fc.bcc = Opt.some(rng.genPrintableString(30))
+  if allSome or rng.rand(0 .. 9) < 3:
+    fc.subject = Opt.some(rng.genPrintableString(30))
+  if allSome or rng.rand(0 .. 9) < 3:
+    fc.body = Opt.some(rng.genPrintableString(30))
+
+proc genEmailFilterCondition*(rng: var Rand, trial: int = -1): EmailFilterCondition =
+  if trial == 0:
+    return EmailFilterCondition()
+  let allSome = trial == 1
+  var fc = EmailFilterCondition()
+  rng.fillMailboxFilterFields(fc, allSome)
+  rng.fillDateSizeFilterFields(fc, allSome)
+  rng.fillThreadKeywordFilterFields(fc, allSome)
+  rng.fillPerEmailKeywordFilterFields(fc, allSome)
+  if allSome or rng.rand(0 .. 9) < 3:
+    fc.hasAttachment = Opt.some(rng.rand(0 .. 1) == 0)
+  rng.fillTextSearchFilterFields(fc, allSome)
+  rng.fillTextSearchFilterFields2(fc, allSome)
+  if allSome or rng.rand(0 .. 9) < 3:
+    fc.header = Opt.some(rng.genEmailHeaderFilter())
+  fc
+
+# -- Stress generator --
+
+proc genDeepBodyStructure*(rng: var Rand, depth: int): EmailBodyPart =
+  let sf = rng.genBodyPartSharedFields()
+  if depth <= 0:
+    return EmailBodyPart(
+      headers: sf.hdrs,
+      name: sf.name,
+      contentType: "text/plain",
+      charset: Opt.some("utf-8"),
+      disposition: sf.disposition,
+      cid: sf.cid,
+      language: sf.language,
+      location: sf.location,
+      size: UnsignedInt(rng.rand(1'i64 .. 50000'i64)),
+      isMultipart: false,
+      partId: rng.genPartId(),
+      blobId: Id(rng.genValidIdStrict(minLen = 3, maxLen = 20)),
+    )
+  var children: seq[EmailBodyPart] = @[]
+  children.add(rng.genDeepBodyStructure(depth - 1))
+  if rng.rand(0 .. 1) == 0:
+    children.add(rng.genEmailBodyPart(0))
+  EmailBodyPart(
+    headers: sf.hdrs,
+    name: sf.name,
+    contentType: "multipart/mixed",
+    charset: Opt.none(string),
+    disposition: sf.disposition,
+    cid: sf.cid,
+    language: sf.language,
+    location: sf.location,
+    size: UnsignedInt(0),
+    isMultipart: true,
+    subParts: children,
+  )
+
+# -- Composite generators --
+
+proc genEmail*(rng: var Rand): Email =
+  let ch = rng.genConvenienceHeaders()
+  let bf = rng.genBodyFields()
+  let dh = rng.genDynamicHeaders()
+  var rawHeaders: seq[EmailHeader] = @[]
+  for _ in 0 ..< rng.rand(0 .. 3):
+    rawHeaders.add(rng.genEmailHeader())
+  Email(
+    id: Id(rng.genValidIdStrict()),
+    blobId: Id(rng.genValidIdStrict()),
+    threadId: Id(rng.genValidIdStrict()),
+    mailboxIds: rng.genMailboxIdSet(),
+    keywords: rng.genKeywordSet(),
+    size: parseUnsignedInt(rng.genValidUnsignedInt()).get(),
+    receivedAt: parseUtcDate(rng.genValidUtcDate()).get(),
+    messageId: ch.messageId,
+    inReplyTo: ch.inReplyTo,
+    references: ch.references,
+    sender: ch.sender,
+    fromAddr: ch.fromAddr,
+    to: ch.to,
+    cc: ch.cc,
+    bcc: ch.bcc,
+    replyTo: ch.replyTo,
+    subject: ch.subject,
+    sentAt: ch.sentAt,
+    headers: rawHeaders,
+    requestedHeaders: dh.requestedHeaders,
+    requestedHeadersAll: dh.requestedHeadersAll,
+    bodyStructure: bf.bodyStructure,
+    bodyValues: bf.bodyValues,
+    textBody: bf.textBody,
+    htmlBody: bf.htmlBody,
+    attachments: bf.attachments,
+    hasAttachment: bf.hasAttachment,
+    preview: bf.preview,
+  )
+
+proc genParsedEmail*(rng: var Rand): ParsedEmail =
+  let ch = rng.genConvenienceHeaders()
+  let bf = rng.genBodyFields()
+  let dh = rng.genDynamicHeaders()
+  var rawHeaders: seq[EmailHeader] = @[]
+  for _ in 0 ..< rng.rand(0 .. 3):
+    rawHeaders.add(rng.genEmailHeader())
+  let threadId =
+    if rng.rand(0 .. 1) == 0:
+      Opt.some(Id(rng.genValidIdStrict()))
+    else:
+      Opt.none(Id)
+  ParsedEmail(
+    threadId: threadId,
+    messageId: ch.messageId,
+    inReplyTo: ch.inReplyTo,
+    references: ch.references,
+    sender: ch.sender,
+    fromAddr: ch.fromAddr,
+    to: ch.to,
+    cc: ch.cc,
+    bcc: ch.bcc,
+    replyTo: ch.replyTo,
+    subject: ch.subject,
+    sentAt: ch.sentAt,
+    headers: rawHeaders,
+    requestedHeaders: dh.requestedHeaders,
+    requestedHeadersAll: dh.requestedHeadersAll,
+    bodyStructure: bf.bodyStructure,
+    bodyValues: bf.bodyValues,
+    textBody: bf.textBody,
+    htmlBody: bf.htmlBody,
+    attachments: bf.attachments,
+    hasAttachment: bf.hasAttachment,
+    preview: bf.preview,
+  )
 
 {.pop.} # params
 {.pop.} # hasDoc
