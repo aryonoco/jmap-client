@@ -13,9 +13,13 @@ under `src/jmap_client/mail/`. Full specification:
 passes `just ci` before committing.
 
 Cross-cutting requirements apply to all steps: all modules follow established
-core patterns — SPDX header, `{.push raises: [].}`, `func` for pure
-functions, `Result[T, ValidationError]` for smart constructors, `Opt[T]` for
-optional fields, `checkJsonKind`/`optJsonField`/`parseError` for serde.
+core patterns — SPDX header, `{.push raises: [], noSideEffect.}` for L1–L3
+modules (purity + totality), `func` for all routines (including those with
+callback parameters — callbacks carry `{.noSideEffect, raises: [].}` pragma),
+`Result[T, ValidationError]` for smart constructors, `Opt[T]` for optional
+fields, `checkJsonKind`/`optJsonField`/`parseError` for serde. All builders
+use immutable `RequestBuilder` with `(RequestBuilder, ResponseHandle[T])`
+tuple return (project-wide functional convention).
 Design doc §12 (test specification, 136 scenarios across §12.1–12.14) and
 §13 (decision traceability matrix, D1–D20) provide per-scenario coverage
 targets. §12.14 specifies test file organisation, fixture factories, equality
@@ -205,24 +209,32 @@ three RFC booleans (D9). `bvsNone` omits all fetch keys.
 
 **Update:** `src/jmap_client/mail/serde_mail_filters.nim`
 
+`EmailHeaderFilter.toJson` serialises as a 1-or-2 element JArray
+(separate function, not inlined into `EmailFilterCondition.toJson`).
+
 `EmailFilterCondition.toJson` only — no fromJson (B11). Same pattern as
 existing `MailboxFilterCondition.toJson`. `fromAddr` emits as `"from"`
-key. `header` field emits as 1-or-2 element JArray. Keyword fields emit
-via `$` (Keyword → string). `Opt.none` fields omitted.
+key. Keyword fields emit via `$` (Keyword → string). `Opt.none` fields
+omitted. Field-group serialisation extracted into internal UFCS helpers
+(`emitDateSizeFilters`, `emitKeywordFilters`, `emitTextSearchFilters`)
+to stay under nimalyzer complexity limits. `header` field delegates to
+`EmailHeaderFilter.toJson`.
 
 ### Step 9: Shared serde helpers
 
-Two new helpers needed (not currently in codebase):
+**Update:** `src/jmap_client/serde.nim`
+
+Two helpers added to `serde.nim` (shared core module):
 
 `collapseNullToEmptySeq` — parses `Id[]|null` fields where null/absent
-collapses to empty seq. Used by `SearchSnippetGetResponse` and
-`EmailParseResponse` in Phase 3. Place in `serde.nim` (shared core) or
-locally in mail serde — decide based on whether core RFC 8620 types
-need it.
+collapses to empty seq. Returns `Result` (callers use `?` operator).
+Used by `SearchSnippetGetResponse` and `EmailParseResponse` in Phase 3.
+Placed in shared `serde.nim` as a general-purpose pattern.
 
 `parseIdKeyedTable` — parses JSON object into `Table[Id, T]` with typed
-value parser callback. Used by `EmailParseResponse.fromJson` in Phase 3.
-Same placement decision as above.
+value parser callback. Handles null/absent input internally (returns
+empty table). Used by `EmailParseResponse.fromJson` in Phase 3. Placed
+in shared `serde.nim` alongside `collapseNullToEmptySeq`.
 
 ### Step 10: Equality helpers and JSON fixtures (§12.14)
 
@@ -317,48 +329,61 @@ returns `"urn:ietf:params:jmap:mail"`. `registerJmapEntity(Email)`.
 `EmailFilterCondition` and `filterConditionToJson` dispatching to
 `EmailFilterCondition.toJson`.
 
-### Step 15: builder.nim refactoring (D10)
+### Step 15: Serialise-then-assemble pattern (D10)
 
-**Update:** `src/jmap_client/builder.nim`
+`src/jmap_client/methods.nim` provides the serialise-then-assemble
+infrastructure. `SerializedSort = distinct JsonNode` and
+`SerializedFilter = distinct JsonNode` are newtype wrappers that
+prevent accidental sort/filter swaps at compile time. Generic
+serialisers `serializeOptSort[S]` and `serializeOptFilter[C]` convert
+typed sort/filter values into these wrappers. `assembleQueryArgs` and
+`assembleQueryChangesArgs` build the complete protocol frame from
+pre-serialised parts — single source of truth for the query wire format.
 
-Extract an internal (non-exported) helper proc from the existing
-`addQuery` body that builds the common query arguments JSON (accountId,
-filter serialisation, QueryParams unpacking). Both the generic
-`addQuery[T, C]` and the new `addEmailQuery` delegate to this helper.
-Same extraction for `addQueryChanges` / `addEmailQueryChanges`. This
-avoids duplicating filter/sort/window serialisation logic.
+`serializeOptSort` uses `mixin toJson` to defer symbol resolution to
+the instantiation site, allowing `EmailComparator.toJson` to be resolved
+at the call site in `mail_builders.nim` without `methods.nim` importing
+mail modules. `QueryRequest.toJson` and `QueryChangesRequest.toJson`
+delegate to the assembly functions, keeping the generic builder path
+in sync.
 
-Alternative (if extraction proves disruptive): follow the Mailbox
-precedent — construct a `QueryRequest` with `sort: Opt.none`, call
-`toJson`, then patch in `EmailComparator` sort and `collapseThreads`
-on the resulting `JsonNode`. This is already established by
-`addMailboxQuery`.
+`serde_email.nim` provides `emitInto` for `EmailBodyFetchOptions`,
+which emits body-fetch keys directly into an existing `JsonNode` —
+shared by `addEmailGet` and `addEmailParse`.
 
 ### Step 16: mail_builders.nim additions
 
 **Update:** `src/jmap_client/mail/mail_builders.nim`
 
-`addEmailGet` (`func`): adds mail capability, `"Email/get"` invocation.
-Standard `ids`, `properties` parameters plus `bodyFetchOptions:
-EmailBodyFetchOptions = default(EmailBodyFetchOptions)`. Body fetch
-options serialised via `toJson` and merged into invocation arguments.
-Default omits all body-fetch keys. Returns
-`ResponseHandle[GetResponse[Email]]`.
+`addEmailGet` (`func`): takes immutable `RequestBuilder`, adds mail
+capability, `"Email/get"` invocation. Standard `ids`, `properties`
+parameters plus `bodyFetchOptions: EmailBodyFetchOptions =
+default(EmailBodyFetchOptions)`. Body fetch options emitted via
+`emitInto` directly into the `GetRequest.toJson()` result. Default
+omits all body-fetch keys. Returns
+`(RequestBuilder, ResponseHandle[GetResponse[Email]])`.
 
 Email/changes uses generic `addChanges[Email]` directly (D17). No custom
 wrapper.
 
-`addEmailQuery` (`proc` — callback parameter): adds mail capability,
-`"Email/query"` invocation. Accepts `seq[EmailComparator]` for sort
-(not `seq[Comparator]`), `Filter[EmailFilterCondition]`,
-`QueryParams`, `collapseThreads: bool = false`. Delegates to extracted
-internal helper. Returns `ResponseHandle[QueryResponse[Email]]`.
+`addEmailQuery` (`func` — callback parameters with `{.noSideEffect,
+raises: [].}` pragma are compatible with `func` under the module's
+`{.push raises: [], noSideEffect.}`): takes immutable `RequestBuilder`,
+adds mail capability, `"Email/query"` invocation. Accepts
+`seq[EmailComparator]` for sort (not `seq[Comparator]`),
+`Filter[EmailFilterCondition]`, `QueryParams`,
+`collapseThreads: bool = false`. Uses `assembleQueryArgs` with
+`serializeOptSort(sort)` — mixin resolves `EmailComparator.toJson`
+at the call site. `collapseThreads` added as honest extension of
+the correct base. Returns
+`(RequestBuilder, ResponseHandle[QueryResponse[Email]])`.
 
-`addEmailQueryChanges` (`proc`): adds mail capability,
-`"Email/queryChanges"` invocation. Parallel to `addEmailQuery` with
-`sinceQueryState`, `maxChanges`, `upToId`, `calculateTotal`,
-`collapseThreads`. Same sort type. Returns
-`ResponseHandle[QueryChangesResponse[Email]]`.
+`addEmailQueryChanges` (`func`): takes immutable `RequestBuilder`, adds
+mail capability, `"Email/queryChanges"` invocation. Parallel to
+`addEmailQuery` with `sinceQueryState`, `maxChanges`, `upToId`,
+`calculateTotal`, `collapseThreads`. Same serialise-then-assemble
+pattern via `assembleQueryChangesArgs`. Returns
+`(RequestBuilder, ResponseHandle[QueryChangesResponse[Email]])`.
 
 ### Step 17: mail_methods.nim additions
 
@@ -372,22 +397,25 @@ RFC key is `"notParsable"` (one 'e'); Nim field is `notParseable`.
 
 `SearchSnippetGetResponse` type: `accountId: AccountId`,
 `list: seq[SearchSnippet]`, `notFound: seq[Id]`.
-`searchSnippetGetResponseFromJson` uses `collapseNullToEmptySeq` for
-`notFound`.
+`searchSnippetGetResponseFromJson` defaults `list` to empty seq when
+absent or null (Postel's law — lenient on receive). Uses
+`collapseNullToEmptySeq` for `notFound`.
 
-`addEmailParse` (`func`): adds mail capability, `"Email/parse"`
-invocation. `blobIds: seq[Id]` (not Referencable), optional
-`properties`, `bodyFetchOptions`. Returns
-`ResponseHandle[EmailParseResponse]`.
+`addEmailParse` (`func`): takes immutable `RequestBuilder`, adds mail
+capability, `"Email/parse"` invocation. `blobIds: seq[Id]` (not
+Referencable), optional `properties`, `bodyFetchOptions`. Returns
+`(RequestBuilder, ResponseHandle[EmailParseResponse])`.
 
-`addSearchSnippetGet` (`proc` — `filterConditionToJson` callback
-parameter): adds mail capability, `"SearchSnippet/get"` invocation.
+`addSearchSnippetGet` (`func` — callback parameters with
+`{.noSideEffect, raises: [].}` pragma are compatible with `func`):
+takes immutable `RequestBuilder`, adds mail capability,
+`"SearchSnippet/get"` invocation.
 `filterConditionToJson: proc(c: EmailFilterCondition): JsonNode`
 callback, same pattern as `addEmailQuery`. `filter` is required
 (not Opt). `emailIds` non-emptiness enforced via cons-cell pattern:
 `firstEmailId: Id, restEmailIds: seq[Id] = @[]` (D12). Builder
 concatenates internally. Returns
-`ResponseHandle[SearchSnippetGetResponse]`.
+`(RequestBuilder, ResponseHandle[SearchSnippetGetResponse])`.
 
 ### Step 18: Response JSON fixtures (§12.14)
 
@@ -453,7 +481,7 @@ plain (101), missing property (102), null property (103).
 EmailHeaderFilter — colon in name (104), NUL byte (105). Filter with
 empty value vs absent (106). PartId — duplicate keys last-wins (107),
 empty string rejection (108). Filter contradictory size (109), colon in
-header name (110). Response adversarial — null list (111), HTML
+header name (110). Response adversarial — lenient empty list (111), HTML
 preserved in snippet (112), unknown fields ignored (113), all wrong
 types (114). Recursive 50-level body (115), Cyrillic homoglyph key
 (116), max UnsignedInt (117). Cross-field — same header different form

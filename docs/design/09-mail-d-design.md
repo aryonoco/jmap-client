@@ -111,10 +111,10 @@ All modules live under `src/jmap_client/mail/` per cross-cutting doc §3.3.
 | `snippet.nim` | L1 | `SearchSnippet` |
 | `mail_filters.nim` | L1 | `EmailFilterCondition`, `EmailHeaderFilter` (extends existing module with Mailbox filters) |
 | `serde_email.nim` | L2 | `toJson`/`fromJson` for Email, ParsedEmail, EmailComparator, EmailBodyFetchOptions; shared serde helpers |
-| `serde_snippet.nim` | L2 | `fromJson` for SearchSnippet |
+| `serde_snippet.nim` | L2 | `fromJson`/`toJson` for SearchSnippet |
 | `mail_entities.nim` | L3 | Entity registration for Email (extends existing module) |
-| `mail_builders.nim` | L3 | `addEmailGet`, `addEmailQuery`, `addEmailQueryChanges` |
-| `mail_methods.nim` | L3 | `addEmailParse`, `addSearchSnippetGet`, `EmailParseResponse`, `SearchSnippetGetResponse` (extends existing module) |
+| `mail_builders.nim` | L4 | `addEmailGet`, `addEmailQuery`, `addEmailQueryChanges` |
+| `mail_methods.nim` | L4 | `addEmailParse`, `addSearchSnippetGet`, `EmailParseResponse`, `SearchSnippetGetResponse` (extends existing module) |
 
 ---
 
@@ -582,7 +582,7 @@ smart constructor — unlike the filter condition itself, where all combinations
 are valid, an `EmailHeaderFilter` with an empty name is structurally invalid.
 
 ```nim
-type EmailHeaderFilter* = object
+type EmailHeaderFilter* {.ruleOff: "objects".} = object
   ## Filter sub-type for the ``header`` property of EmailFilterCondition
   ## (RFC 8621 §4.4.1). The ``name`` field is sealed (Pattern A) to enforce
   ## the non-empty invariant.
@@ -607,8 +607,15 @@ func parseEmailHeaderFilter*(
   if name.len == 0:
     return err(validationError(
       "EmailHeaderFilter", "header name must not be empty", name))
-  ok(EmailHeaderFilter(name: name, value: value))
+  let ehf = EmailHeaderFilter(name: name, value: value)
+  doAssert ehf.name.len > 0
+  return ok(ehf)
 ```
+
+**`doAssert` post-condition:** The implementation includes a `doAssert` after
+construction to verify the invariant holds through the module-private field.
+This is a defensive measure — the check is redundant given the guard above
+but documents the contract.
 
 **Principles:**
 - **Parse, don't validate** — Non-empty name enforced at construction time.
@@ -694,7 +701,7 @@ Unlike most data types, SearchSnippet has no `id` property — it is keyed by
 ### 7.1. Type Definition
 
 ```nim
-type SearchSnippet* = object
+type SearchSnippet* {.ruleOff: "objects".} = object
   ## Search result highlight for an Email (RFC 8621 §5).
   ## No ``id`` property — keyed by ``emailId``.
   emailId*: Id                    ## The Email this snippet describes.
@@ -716,7 +723,7 @@ search snippets.
 ### 7.2. SearchSnippetGetResponse
 
 ```nim
-type SearchSnippetGetResponse* = object
+type SearchSnippetGetResponse* {.ruleOff: "objects".} = object
   ## Response for SearchSnippet/get (RFC 8621 §5.1).
   accountId*: AccountId
   list*: seq[SearchSnippet]       ## Snippets for requested Email ids.
@@ -731,7 +738,7 @@ possibly-empty list. "Parse once at the boundary."
 ### 7.3. EmailParseResponse
 
 ```nim
-type EmailParseResponse* = object
+type EmailParseResponse* {.ruleOff: "objects".} = object
   ## Response for Email/parse (RFC 8621 §4.9).
   accountId*: AccountId
   parsed*: Table[Id, ParsedEmail]   ## Blob id → parsed Email, for successfully parsed blobs.
@@ -777,52 +784,59 @@ future RFC extensions).
 ```nim
 func emailFromJson*(node: JsonNode): Result[Email, ValidationError] =
   ## Parses a complete Email object from server JSON.
-  if node.kind != JObject:
-    return err(validationError("Email", "expected JObject", $node.kind))
+  ## Does NOT call ``parseEmail`` — constructs Email directly (D15: lenient
+  ## at server-to-client boundary, trust RFC contract).
+  const typeName = "Email"
+  ?checkJsonKind(node, JObject, typeName)
 
   # ── Phase 1: Structured extraction ──
 
-  # Metadata
-  let id = ? Id.fromJson(node, "id")
-  let blobId = ? Id.fromJson(node, "blobId")
-  let threadId = ? Id.fromJson(node, "threadId")
-  let mailboxIds = ? MailboxIdSet.fromJson(node, "mailboxIds")
-  let keywords = node.keywordsOrDefault()   # defaults to empty KeywordSet if absent
-  let size = ? UnsignedInt.fromJson(node, "size")
-  let receivedAt = ? UTCDate.fromJson(node, "receivedAt")
+  # Metadata — single-argument Id.fromJson with {} safe accessor
+  let id = ? Id.fromJson(node{"id"})
+  let blobId = ? Id.fromJson(node{"blobId"})
+  let threadId = ? Id.fromJson(node{"threadId"})
+  let mailboxIds = ? MailboxIdSet.fromJson(node{"mailboxIds"})
+  let keywords = block:                       # defaults to empty KeywordSet if absent
+    let kwNode = node{"keywords"}
+    if kwNode.isNil or kwNode.kind == JNull:
+      initKeywordSet(newSeq[Keyword]())
+    else:
+      ? KeywordSet.fromJson(kwNode)
+  let size = ? UnsignedInt.fromJson(node{"size"})
+  let receivedAt = ? UTCDate.fromJson(node{"receivedAt"})
 
   # Convenience headers — shared helper
   let convHeaders = ? parseConvenienceHeaders(node)
 
   # Raw headers
-  let headers = ? parseRawHeaders(node)
+  let hdrs = ? parseRawHeaders(node)
 
   # Body — shared helper
-  let bodyFields = ? parseBodyFields(node)
+  let bf = ? parseBodyFields(node)
 
   # ── Phase 2: Dynamic header discovery ──
-  var reqHeaders: Table[HeaderPropertyKey, HeaderValue]
-  var reqHeadersAll: Table[HeaderPropertyKey, seq[HeaderValue]]
-  for key, val in node:
+  var reqHeaders = initTable[HeaderPropertyKey, HeaderValue]()
+  var reqHeadersAll = initTable[HeaderPropertyKey, seq[HeaderValue]]()
+  for key, val in node.pairs:
     if key.startsWith("header:"):
       let hpk = ? parseHeaderPropertyName(key)
       if hpk.isAll:
         reqHeadersAll[hpk] = ? parseHeaderValueArray(val, hpk.form)
       else:
-        reqHeaders[hpk] = ? parseHeaderValue(val, hpk.form)
+        reqHeaders[hpk] = ? parseHeaderValue(hpk.form, val)
 
-  ok(Email(
+  return ok(Email(
     id: id, blobId: blobId, threadId: threadId,
     mailboxIds: mailboxIds, keywords: keywords,
     size: size, receivedAt: receivedAt,
     messageId: convHeaders.messageId,
     inReplyTo: convHeaders.inReplyTo,
     # ... (all convenience header fields from shared helper)
-    headers: headers,
+    headers: hdrs,
     requestedHeaders: reqHeaders,
     requestedHeadersAll: reqHeadersAll,
-    bodyStructure: bodyFields.bodyStructure,
-    bodyValues: bodyFields.bodyValues,
+    bodyStructure: bf.bodyStructure,
+    bodyValues: bf.bodyValues,
     # ... (all body fields from shared helper)
   ))
 ```
@@ -830,7 +844,23 @@ func emailFromJson*(node: JsonNode): Result[Email, ValidationError] =
 **`keywords` default:** RFC §4.1.1 specifies `keywords` with `default: {}`.
 If the key is absent from the JSON, `fromJson` defaults to an empty
 `KeywordSet` rather than failing. This is the only metadata field with a
-default value.
+default value. The default is handled inline via a block expression (no
+separate `keywordsOrDefault` helper).
+
+**`checkJsonKind` + `parseError`:** Serde routines use `checkJsonKind` (a
+shared helper returning `Result`) for type validation and `parseError` (a
+convenience wrapper around `validationError` with an empty `value` field)
+for serde-specific error construction.
+
+**Single-argument `fromJson` with `{}` accessor:** All metadata extraction
+uses `Id.fromJson(node{"key"})` — the `{}` safe accessor returns `nil` for
+absent keys, which the downstream `fromJson` detects and converts to an
+error. This is the project-wide pattern, not the two-argument
+`fromJson(node, "key")` form.
+
+**`parseHeaderValue` argument order:** The implementation takes `(form, val)`
+— form first, value second — matching the convention that the discriminating
+type parameter precedes the data.
 
 **No parallel set of known property names.** Phase 2 does not maintain a set
 of "known properties" to skip. Phase 1 extracts known properties by direct
@@ -847,16 +877,16 @@ and body phases are identical — delegating to the same shared helper procs.
 
 ```nim
 func parsedEmailFromJson*(node: JsonNode): Result[ParsedEmail, ValidationError] =
-  if node.kind != JObject:
-    return err(validationError("ParsedEmail", "expected JObject", $node.kind))
+  const typeName = "ParsedEmail"
+  ?checkJsonKind(node, JObject, typeName)
 
   let threadId = ? parseOptId(node, "threadId")   # Opt[Id], null → Opt.none
   let convHeaders = ? parseConvenienceHeaders(node)
-  let headers = ? parseRawHeaders(node)
-  let bodyFields = ? parseBodyFields(node)
+  let hdrs = ? parseRawHeaders(node)
+  let bf = ? parseBodyFields(node)
   # Phase 2: dynamic header discovery — identical to Email
   # ...
-  ok(ParsedEmail(threadId: threadId, ...))
+  return ok(ParsedEmail(threadId: threadId, ...))
 ```
 
 ### 8.3. Shared Serde Helpers (D7)
@@ -868,46 +898,57 @@ logic is not (DRY where it matters most — boundary code).
 **`parseConvenienceHeaders`:**
 
 ```nim
-type ConvenienceHeaders = object
+type ConvenienceHeaders {.ruleOff: "objects".} = object
   ## Internal helper — not exported. Groups convenience header extraction
   ## results for both Email and ParsedEmail fromJson.
-  messageId*: Opt[seq[string]]
-  inReplyTo*: Opt[seq[string]]
-  references*: Opt[seq[string]]
-  sender*: Opt[seq[EmailAddress]]
-  fromAddr*: Opt[seq[EmailAddress]]
-  to*: Opt[seq[EmailAddress]]
-  cc*: Opt[seq[EmailAddress]]
-  bcc*: Opt[seq[EmailAddress]]
-  replyTo*: Opt[seq[EmailAddress]]
-  subject*: Opt[string]
-  sentAt*: Opt[Date]
+  messageId: Opt[seq[string]]
+  inReplyTo: Opt[seq[string]]
+  references: Opt[seq[string]]
+  sender: Opt[seq[EmailAddress]]
+  fromAddr: Opt[seq[EmailAddress]]
+  to: Opt[seq[EmailAddress]]
+  cc: Opt[seq[EmailAddress]]
+  bcc: Opt[seq[EmailAddress]]
+  replyTo: Opt[seq[EmailAddress]]
+  subject: Opt[string]
+  sentAt: Opt[Date]
 
 func parseConvenienceHeaders(node: JsonNode): Result[ConvenienceHeaders, ValidationError] =
   ## Extracts the 11 convenience header fields from a JSON object.
   ## Shared by emailFromJson and parsedEmailFromJson.
-  # messageId, inReplyTo, references: Opt[seq[string]] via asMessageIds
-  # sender, fromAddr, to, cc, bcc, replyTo: Opt[seq[EmailAddress]] via asAddresses
-  # subject: Opt[string] via asText
-  # sentAt: Opt[Date] via asDate
-  # "from" key in JSON → fromAddr field
+  ## Uses internal helpers: parseOptStringSeq (messageId, inReplyTo, references),
+  ## parseOptAddresses (sender, from, to, cc, bcc, replyTo),
+  ## parseOptString (subject), parseOptDate (sentAt).
+  ## JSON "from" key → fromAddr field.
 ```
+
+**Internal parsing helpers:** `serde_email.nim` defines several non-exported
+helpers used by `parseConvenienceHeaders`: `parseOptStringSeq` (optional
+string arrays), `parseOptAddresses` (optional address arrays),
+`parseOptString` (optional strings via `optJsonField`), `parseOptDate`
+(optional dates), `parseOptId` (optional ids). These compose the
+`checkJsonKind` and domain `fromJson` functions at finer granularity than
+shown in §8.1.
 
 **`parseBodyFields`:**
 
 ```nim
-type BodyFields = object
-  bodyStructure*: EmailBodyPart
-  bodyValues*: Table[PartId, EmailBodyValue]
-  textBody*: seq[EmailBodyPart]
-  htmlBody*: seq[EmailBodyPart]
-  attachments*: seq[EmailBodyPart]
-  hasAttachment*: bool
-  preview*: string
+type BodyFields {.ruleOff: "objects".} = object
+  bodyStructure: EmailBodyPart
+  bodyValues: Table[PartId, EmailBodyValue]
+  textBody: seq[EmailBodyPart]
+  htmlBody: seq[EmailBodyPart]
+  attachments: seq[EmailBodyPart]
+  hasAttachment: bool
+  preview: string
 
 func parseBodyFields(node: JsonNode): Result[BodyFields, ValidationError] =
   ## Extracts the 7 body fields from a JSON object.
   ## bodyValues keys parsed via parsePartIdFromServer (D19 — typed PartId key).
+  ## Uses internal helpers: parseBodyValues (Table with PartId keys),
+  ## parseBodyPartArray (optional array of EmailBodyPart defaulting to @[]).
+  ## hasAttachment defaults to false if absent/null.
+  ## preview defaults to "" if absent/null.
 ```
 
 **`parseRawHeaders`:**
@@ -942,9 +983,9 @@ func toJson*(e: Email): JsonNode =
   node["size"] = e.size.toJson()
   node["receivedAt"] = e.receivedAt.toJson()
 
-  # Convenience headers — Opt.none → null
-  node["messageId"] = e.messageId.toJsonOrNull()
-  node["from"] = e.fromAddr.toJsonOrNull()    # fromAddr → "from" key
+  # Convenience headers — Opt.none → null (via emitOptStringSeqOrNull / emitOptAddressesOrNull)
+  emitOptStringSeqOrNull(node, "messageId", e.messageId)
+  emitOptAddressesOrNull(node, "from", e.fromAddr)    # fromAddr → "from" key
   # ... (remaining headers)
 
   # Body
@@ -954,12 +995,23 @@ func toJson*(e: Email): JsonNode =
 
   # Dynamic headers — N top-level keys
   for hpk, val in e.requestedHeaders:
-    node[hpk.toPropertyName()] = val.toJson()
+    node[hpk.toPropertyString()] = val.toJson()
   for hpk, vals in e.requestedHeadersAll:
-    node[hpk.toPropertyName()] = vals.toJson()
+    var arr = newJArray()
+    for v in vals: arr.add(v.toJson())
+    node[hpk.toPropertyString()] = arr
 
   return node
 ```
+
+**Emit helpers:** `emitOptStringSeqOrNull` and `emitOptAddressesOrNull` are
+internal UFCS helpers in `serde_email.nim` that emit `Opt` fields as JSON
+array (present) or null (absent). `emitOptStringOrNull` and `emitOptOrNull`
+(from the shared `serde.nim` module) handle scalar optional fields.
+
+**Dynamic header `:all` emission:** The `requestedHeadersAll` table values
+are `seq[HeaderValue]`, serialised by building a `JArray` element-by-element
+(not via `vals.toJson()` as a single call).
 
 **Domain state vs view state:** Dynamic headers are N top-level keys in JSON,
 not a single `"requestedHeaders"` field. The `Table` is a domain-side
@@ -1004,23 +1056,32 @@ boundary. If the property matches a `KeywordSortProperty` value, constructs
 
 ```nim
 func emailComparatorFromJson*(node: JsonNode): Result[EmailComparator, ValidationError] =
-  if node.kind != JObject:
-    return err(validationError("EmailComparator", "expected JObject", $node.kind))
-  let propStr = ? extractString(node, "property")
-  # Try keyword sort properties first (require keyword field)
+  const typeName = "EmailComparator"
+  ?checkJsonKind(node, JObject, typeName)
+
+  # Required property string via {} accessor + checkJsonKind
+  let propNode = node{"property"}
+  ?checkJsonKind(propNode, JString, typeName, "missing or invalid property")
+  let propStr = propNode.getStr("")
+
+  # Optional shared fields via optJsonField
+  let isAscending = block:
+    let f = optJsonField(node, "isAscending", JBool)
+    if f.isSome: Opt.some(f.get().getBool(true)) else: Opt.none(bool)
+  let collation = block:
+    let f = optJsonField(node, "collation", JString)
+    if f.isSome: Opt.some(f.get().getStr("")) else: Opt.none(string)
+
+  # Try keyword sort properties first (exact string match via $enum)
   for ksp in KeywordSortProperty:
     if $ksp == propStr:
-      let kw = ? Keyword.fromJson(node, "keyword")
-      return ok(keywordComparator(ksp, kw,
-        isAscending = extractOptBool(node, "isAscending"),
-        collation = extractOptString(node, "collation")))
+      let kw = ? Keyword.fromJson(node{"keyword"})
+      return ok(keywordComparator(ksp, kw, isAscending, collation))
   # Try plain sort properties
   for psp in PlainSortProperty:
     if $psp == propStr:
-      return ok(plainComparator(psp,
-        isAscending = extractOptBool(node, "isAscending"),
-        collation = extractOptString(node, "collation")))
-  err(validationError("EmailComparator", "unknown sort property", propStr))
+      return ok(plainComparator(psp, isAscending, collation))
+  return err(parseError(typeName, "unknown sort property: " & propStr))
 ```
 
 ### 8.7. EmailFilterCondition toJson
@@ -1028,38 +1089,38 @@ func emailComparatorFromJson*(node: JsonNode): Result[EmailComparator, Validatio
 toJson only — no fromJson (B11 convention). Same pattern as
 `MailboxFilterCondition.toJson` (Design B §5.2).
 
+The implementation extracts field-group serialisation into internal UFCS
+helpers to keep each function under the nimalyzer complexity limit:
+
+- `emitDateSizeFilters(node, fc)` — 4 date/size fields
+- `emitKeywordFilters(node, fc)` — 5 keyword fields (thread + per-email)
+- `emitTextSearchFilters(node, fc)` — 7 text search fields
+
+`EmailHeaderFilter` also has its own `toJson` function (serialises as a 1-or-2
+element JSON array) rather than being inlined into `EmailFilterCondition.toJson`.
+
 ```nim
+func toJson*(ehf: EmailHeaderFilter): JsonNode =
+  ## Serialise EmailHeaderFilter as a 1-or-2 element JSON array.
+  var arr = newJArray()
+  arr.add(%ehf.name)
+  for val in ehf.value: arr.add(%val)
+  return arr
+
 func toJson*(fc: EmailFilterCondition): JsonNode =
   var node = newJObject()
-  # Simple Opt fields — omit when none
+  # Mailbox membership
   for v in fc.inMailbox: node["inMailbox"] = v.toJson()
   for v in fc.inMailboxOtherThan:
-    node["inMailboxOtherThan"] = toJsonArray(v)
-  for v in fc.before: node["before"] = v.toJson()
-  for v in fc.after: node["after"] = v.toJson()
-  for v in fc.minSize: node["minSize"] = v.toJson()
-  for v in fc.maxSize: node["maxSize"] = v.toJson()
-  # Keyword fields — emit as string (Keyword → string via $)
-  for v in fc.allInThreadHaveKeyword: node["allInThreadHaveKeyword"] = %($v)
-  for v in fc.someInThreadHaveKeyword: node["someInThreadHaveKeyword"] = %($v)
-  for v in fc.noneInThreadHaveKeyword: node["noneInThreadHaveKeyword"] = %($v)
-  for v in fc.hasKeyword: node["hasKeyword"] = %($v)
-  for v in fc.notKeyword: node["notKeyword"] = %($v)
-  for v in fc.hasAttachment: node["hasAttachment"] = %v
-  # Text search — string fields
-  for v in fc.text: node["text"] = %v
-  for v in fc.fromAddr: node["from"] = %v            # fromAddr → "from" key
-  for v in fc.to: node["to"] = %v
-  for v in fc.cc: node["cc"] = %v
-  for v in fc.bcc: node["bcc"] = %v
-  for v in fc.subject: node["subject"] = %v
-  for v in fc.body: node["body"] = %v
-  # Header filter — emit as 1-or-2 element array
-  for v in fc.header:
     var arr = newJArray()
-    arr.add(%v.name)
-    for txt in v.value: arr.add(%txt)
-    node["header"] = arr
+    for id in v: arr.add(id.toJson())
+    node["inMailboxOtherThan"] = arr
+  node.emitDateSizeFilters(fc)
+  node.emitKeywordFilters(fc)
+  for v in fc.hasAttachment: node["hasAttachment"] = %v
+  node.emitTextSearchFilters(fc)
+  # Header filter — delegates to EmailHeaderFilter.toJson
+  for v in fc.header: node["header"] = v.toJson()
   return node
 ```
 
@@ -1092,11 +1153,15 @@ the server.
 
 ```nim
 func searchSnippetFromJson*(node: JsonNode): Result[SearchSnippet, ValidationError] =
-  if node.kind != JObject:
-    return err(validationError("SearchSnippet", "expected JObject", $node.kind))
-  let emailId = ? Id.fromJson(node, "emailId")
-  let subject = extractOptString(node, "subject")   # null → Opt.none
-  let preview = extractOptString(node, "preview")
+  const typeName = "SearchSnippet"
+  ?checkJsonKind(node, JObject, typeName)
+  let emailId = ? Id.fromJson(node{"emailId"})
+  let subject = block:
+    let f = optJsonField(node, "subject", JString)
+    if f.isSome: Opt.some(f.get().getStr("")) else: Opt.none(string)
+  let preview = block:
+    let f = optJsonField(node, "preview", JString)
+    if f.isSome: Opt.some(f.get().getStr("")) else: Opt.none(string)
   ok(SearchSnippet(emailId: emailId, subject: subject, preview: preview))
 ```
 
@@ -1105,37 +1170,49 @@ func searchSnippetFromJson*(node: JsonNode): Result[SearchSnippet, ValidationErr
 ```nim
 func searchSnippetGetResponseFromJson*(node: JsonNode):
     Result[SearchSnippetGetResponse, ValidationError] =
-  if node.kind != JObject:
-    return err(validationError("SearchSnippetGetResponse", "expected JObject", $node.kind))
-  let accountId = ? AccountId.fromJson(node, "accountId")
-  let list = ? parseJsonArray(node, "list", searchSnippetFromJson)
-  let notFound = collapseNullToEmptySeq(node, "notFound", parseIdFromServer)
+  const typeName = "SearchSnippetGetResponse"
+  ?checkJsonKind(node, JObject, typeName)
+  let accountId = ? AccountId.fromJson(node{"accountId"})
+  let list =
+    if node{"list"}.isNil or node{"list"}.kind != JArray:
+      newSeq[SearchSnippet]()
+    else:
+      var snippets: seq[SearchSnippet] = @[]
+      for elem in node{"list"}.getElems(@[]):
+        snippets.add(? searchSnippetFromJson(elem))
+      snippets
+  let notFound = ? collapseNullToEmptySeq(node, "notFound", parseIdFromServer)
   ok(SearchSnippetGetResponse(accountId: accountId, list: list, notFound: notFound))
 ```
 
+**Lenient `list` handling:** `list` defaults to an empty seq when absent or
+not a JArray (including null). This follows Postel's law — the implementation
+is lenient rather than erroring on a null `list`. In practice, the server
+always returns a list, but a lenient deserialiser is more robust.
+
 **`collapseNullToEmptySeq`:** Helper that parses `Id[]|null` — null or absent
-→ `@[]`, present → parse each element. Shared by `SearchSnippetGetResponse`
-and `EmailParseResponse`.
+→ `@[]`, present → parse each element. Returns `Result` (requires `?`).
+Shared by `SearchSnippetGetResponse` and `EmailParseResponse`.
 
 ### 8.11. EmailParseResponse fromJson
 
 ```nim
 func emailParseResponseFromJson*(node: JsonNode):
     Result[EmailParseResponse, ValidationError] =
-  if node.kind != JObject:
-    return err(validationError("EmailParseResponse", "expected JObject", $node.kind))
-  let accountId = ? AccountId.fromJson(node, "accountId")
-  # parsed: Id[Email]|null — null → empty Table
-  let parsed = if node.hasKey("parsed") and node["parsed"].kind == JObject:
-    ? parseIdKeyedTable(node["parsed"], parsedEmailFromJson)
-  else:
-    initTable[Id, ParsedEmail]()
-  let notParseable = collapseNullToEmptySeq(node, "notParsable", parseIdFromServer)
-  let notFound = collapseNullToEmptySeq(node, "notFound", parseIdFromServer)
+  const typeName = "EmailParseResponse"
+  ?checkJsonKind(node, JObject, typeName)
+  let accountId = ? AccountId.fromJson(node{"accountId"})
+  let parsed = ? parseIdKeyedTable[ParsedEmail](node{"parsed"}, parsedEmailFromJson)
+  let notParseable = ? collapseNullToEmptySeq(node, "notParsable", parseIdFromServer)
+  let notFound = ? collapseNullToEmptySeq(node, "notFound", parseIdFromServer)
   ok(EmailParseResponse(
     accountId: accountId, parsed: parsed,
     notParseable: notParseable, notFound: notFound))
 ```
+
+**`parseIdKeyedTable` handles null internally:** The function accepts a
+possibly-nil `JsonNode` (via `{}` accessor) and returns an empty table for
+absent or null input. No inline null check needed at the call site.
 
 **Note:** The RFC spells the field `"notParsable"` (one 'e'). The Nim field
 uses `notParseable` (British English, per coding conventions), but the serde
@@ -1167,12 +1244,12 @@ overloads for methods with extra parameters.
 **Module:** `src/jmap_client/mail/mail_builders.nim`
 
 ```nim
-func addEmailGet*(b: var RequestBuilder,
+func addEmailGet*(b: RequestBuilder,
     accountId: AccountId,
     ids: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]),
     properties: Opt[seq[string]] = Opt.none(seq[string]),
     bodyFetchOptions: EmailBodyFetchOptions = default(EmailBodyFetchOptions),
-): ResponseHandle[GetResponse[Email]]
+): (RequestBuilder, ResponseHandle[GetResponse[Email]])
 ```
 
 - Adds `"urn:ietf:params:jmap:mail"` capability.
@@ -1181,13 +1258,15 @@ func addEmailGet*(b: var RequestBuilder,
 - `bodyFetchOptions` serialised via `toJson` and merged into the invocation
   arguments. `default(EmailBodyFetchOptions)` omits all body-fetch keys
   (correct RFC default).
-- Returns `ResponseHandle[GetResponse[Email]]` — the standard generic
-  response. Callers who need typed `Email` objects parse individual
-  `JsonNode` entries from `GetResponse.list` via `emailFromJson`.
+- Returns `(RequestBuilder, ResponseHandle[GetResponse[Email]])` — the
+  immutable builder pattern (new builder + typed response handle). Callers
+  who need typed `Email` objects parse individual `JsonNode` entries from
+  `GetResponse.list` via `emailFromJson`.
 
-**`func` not `proc`:** No callback parameters. Unlike `addEmailQuery`
-(which takes `filterConditionToJson`), `addEmailGet` has no proc parameters,
-so `func` is appropriate.
+**Immutable builder pattern:** All builders take an immutable
+`RequestBuilder` and return a new `(RequestBuilder, ResponseHandle[T])`
+tuple — no `var` mutation. This follows the project-wide functional
+convention established in the RFC 8620 builder infrastructure.
 
 ### 9.3. Email/changes — Generic Builder (D17)
 
@@ -1209,7 +1288,7 @@ generic `addQuery` takes `Opt[seq[Comparator]]` — `EmailComparator` is a
 different type, so generic `addQuery` cannot carry it without type erasure.
 
 ```nim
-proc addEmailQuery*(b: var RequestBuilder,
+func addEmailQuery*(b: RequestBuilder,
     accountId: AccountId,
     filterConditionToJson:
       proc(c: EmailFilterCondition): JsonNode {.noSideEffect, raises: [].},
@@ -1218,7 +1297,7 @@ proc addEmailQuery*(b: var RequestBuilder,
     sort: Opt[seq[EmailComparator]] = Opt.none(seq[EmailComparator]),
     queryParams: QueryParams = QueryParams(),
     collapseThreads: bool = false,
-): ResponseHandle[QueryResponse[Email]]
+): (RequestBuilder, ResponseHandle[QueryResponse[Email]])
 ```
 
 - Adds `"urn:ietf:params:jmap:mail"` capability.
@@ -1226,14 +1305,16 @@ proc addEmailQuery*(b: var RequestBuilder,
 - Serialises `collapseThreads` into request arguments alongside standard
   query parameters.
 - `sort` serialised via `EmailComparator.toJson` (not `Comparator.toJson`).
-- `proc` not `func` due to callback parameter (`filterConditionToJson`).
-- Returns `ResponseHandle[QueryResponse[Email]]` — standard query response.
-
-**Internal helper extraction:** The invocation-building logic currently inside
-`addQuery` is extracted into an internal (non-exported) helper proc. Both
-`addQuery[T, C]` and `addEmailQuery` delegate to this helper. This avoids
-duplicating the filter serialisation, sort serialisation, and `QueryParams`
-unpacking logic.
+  Uses the serialise-then-assemble pattern: `serializeOptSort(sort)` resolves
+  `EmailComparator.toJson` via `mixin` at the call site, producing a
+  `SerializedSort` wrapper. `assembleQueryArgs` builds the complete protocol
+  frame from pre-serialised parts — no false intermediate, no post-hoc patching.
+- `func` not `proc` — callback parameters with `{.noSideEffect, raises: [].}`
+  pragma are compatible with `func` under the module's
+  `{.push raises: [], noSideEffect.}`. All L1–L3 builders in this project use
+  `func`.
+- Returns `(RequestBuilder, ResponseHandle[QueryResponse[Email]])` — immutable
+  builder tuple.
 
 ### 9.5. addEmailQueryChanges (D18)
 
@@ -1244,7 +1325,7 @@ Parallel to D10. Email/queryChanges (RFC §4.5) extends standard
 as D10 — generic `addQueryChanges` cannot carry `EmailComparator`.
 
 ```nim
-proc addEmailQueryChanges*(b: var RequestBuilder,
+func addEmailQueryChanges*(b: RequestBuilder,
     accountId: AccountId,
     sinceQueryState: JmapState,
     filterConditionToJson:
@@ -1256,13 +1337,14 @@ proc addEmailQueryChanges*(b: var RequestBuilder,
     upToId: Opt[Id] = Opt.none(Id),
     calculateTotal: bool = false,
     collapseThreads: bool = false,
-): ResponseHandle[QueryChangesResponse[Email]]
+): (RequestBuilder, ResponseHandle[QueryChangesResponse[Email]])
 ```
 
 - Adds `"urn:ietf:params:jmap:mail"` capability.
 - Creates invocation with name `"Email/queryChanges"`.
-- Delegates to the same extracted internal helper as `addEmailQuery`.
-- `proc` not `func` due to callback parameter.
+- Follows the same serialise-then-assemble pattern as `addEmailQuery`.
+- `func` — same rationale as `addEmailQuery` (callback with `noSideEffect`
+  pragma is compatible with `func` under the module push pragma).
 
 ---
 
@@ -1275,12 +1357,12 @@ proc addEmailQueryChanges*(b: var RequestBuilder,
 **RFC reference:** §4.9.
 
 ```nim
-func addEmailParse*(b: var RequestBuilder,
+func addEmailParse*(b: RequestBuilder,
     accountId: AccountId,
     blobIds: seq[Id],
     properties: Opt[seq[string]] = Opt.none(seq[string]),
     bodyFetchOptions: EmailBodyFetchOptions = default(EmailBodyFetchOptions),
-): ResponseHandle[EmailParseResponse]
+): (RequestBuilder, ResponseHandle[EmailParseResponse])
 ```
 
 - Adds `"urn:ietf:params:jmap:mail"` capability.
@@ -1288,10 +1370,9 @@ func addEmailParse*(b: var RequestBuilder,
 - `blobIds` is `seq[Id]` (not `Referencable` — Email/parse does not support
   result references on `blobIds`).
 - `bodyFetchOptions` shared with `addEmailGet` (D9).
-- Returns `ResponseHandle[EmailParseResponse]` — dedicated typed response
-  (D11). Callers receive `Table[Id, ParsedEmail]` — fully typed, no second
-  parsing step.
-- `func` — no callback parameters.
+- Returns `(RequestBuilder, ResponseHandle[EmailParseResponse])` — immutable
+  builder tuple with dedicated typed response (D11). Callers receive
+  `Table[Id, ParsedEmail]` — fully typed, no second parsing step.
 
 ### 10.2. addSearchSnippetGet (D12)
 
@@ -1300,14 +1381,14 @@ func addEmailParse*(b: var RequestBuilder,
 **RFC reference:** §5.1.
 
 ```nim
-proc addSearchSnippetGet*(b: var RequestBuilder,
+func addSearchSnippetGet*(b: RequestBuilder,
     accountId: AccountId,
     filterConditionToJson:
       proc(c: EmailFilterCondition): JsonNode {.noSideEffect, raises: [].},
     filter: Filter[EmailFilterCondition],
     firstEmailId: Id,
     restEmailIds: seq[Id] = @[],
-): ResponseHandle[SearchSnippetGetResponse]
+): (RequestBuilder, ResponseHandle[SearchSnippetGetResponse])
 ```
 
 - Adds `"urn:ietf:params:jmap:mail"` capability.
@@ -1319,7 +1400,8 @@ proc addSearchSnippetGet*(b: var RequestBuilder,
   least one email id. The builder concatenates `@[firstEmailId] &
   restEmailIds` internally.
 - Builder is total: no `Result`, no validation. Every input combination valid.
-- `proc` not `func` due to callback parameter.
+- `func` — callback with `{.noSideEffect, raises: [].}` pragma is compatible
+  with `func` under the module push pragma (same as `addEmailQuery`).
 
 **Cons-cell pattern (D12):** Encodes `NonEmpty` without a wrapper type.
 Appropriate when the constraint is local to one call site. The caller writes
@@ -1342,9 +1424,9 @@ cohesion: entity + its method parameter types together (parallels
 | `email.nim` | `Email`, `ParsedEmail`, `PlainSortProperty`, `KeywordSortProperty`, `EmailComparator`, `BodyValueScope`, `EmailBodyFetchOptions` | Entity + method parameter types, parallels `mailbox.nim` |
 | `snippet.nim` | `SearchSnippet` | Standalone per RFC §5 |
 | `mail_filters.nim` | `EmailFilterCondition`, `EmailHeaderFilter` (adds to existing) | Filter conditions grouped by concern, parallels existing `MailboxFilterCondition` |
-| `serde_email.nim` | `emailFromJson`, `parsedEmailFromJson`, `emailComparatorFromJson`, shared helpers | All Email/ParsedEmail serde + shared helpers (D7) |
+| `serde_email.nim` | `emailFromJson`, `parsedEmailFromJson`, `Email.toJson`, `ParsedEmail.toJson`, `emailComparatorFromJson`, `EmailComparator.toJson`, `EmailBodyFetchOptions.toJson`, shared helpers (`ConvenienceHeaders`, `BodyFields`, `parseConvenienceHeaders`, `parseBodyFields`, `parseRawHeaders`, `parseHeaderValueArray`, `emitOptStringSeqOrNull`, `emitOptAddressesOrNull`) | All Email/ParsedEmail/EmailComparator/EmailBodyFetchOptions serde + shared helpers (D7) |
 | `serde_snippet.nim` | `searchSnippetFromJson`, `SearchSnippet.toJson` | SearchSnippet serde |
-| `serde_mail_filters.nim` | `EmailFilterCondition.toJson` (adds to existing) | Filter serde grouped with existing `MailboxFilterCondition.toJson` |
+| `serde_mail_filters.nim` | `EmailHeaderFilter.toJson`, `EmailFilterCondition.toJson` + extracted helpers (`emitDateSizeFilters`, `emitKeywordFilters`, `emitTextSearchFilters`) (adds to existing) | Filter serde grouped with existing `MailboxFilterCondition.toJson` |
 | `mail_entities.nim` | Entity registration for Email (adds to existing) | Extends existing module |
 | `mail_builders.nim` | `addEmailGet`, `addEmailQuery`, `addEmailQueryChanges` (adds to existing) | Standard method builders, parallels existing Mailbox builders |
 | `mail_methods.nim` | `addEmailParse`, `addSearchSnippetGet`, `EmailParseResponse`, `SearchSnippetGetResponse` (adds to existing) | Custom methods + bespoke response types |
@@ -1352,13 +1434,16 @@ cohesion: entity + its method parameter types together (parallels
 ### 11.2. Dependency Flow
 
 ```
-email.nim ──→ keyword.nim (KeywordSet)
+email.nim ──→ validation.nim (ValidationError)
+          ──→ primitives.nim (Id, UnsignedInt, UTCDate, Date, Opt)
+          ──→ framework.nim (PropertyName)
+          ──→ keyword.nim (Keyword, KeywordSet)
           ──→ addresses.nim (EmailAddress)
           ──→ headers.nim (HeaderPropertyKey, HeaderValue, EmailHeader)
           ──→ body.nim (EmailBodyPart, EmailBodyValue, PartId)
           ──→ mailbox.nim (MailboxIdSet)
 
-snippet.nim ──→ (core types only — Id, Opt)
+snippet.nim ──→ validation.nim, primitives.nim (Id, Opt, ValidationError)
 
 mail_filters.nim ──→ keyword.nim (Keyword)
                  ──→ (core types — Id, UnsignedInt, UTCDate)
@@ -1647,7 +1732,7 @@ responses and client inputs.
 | 100 | `emailComparatorFromJson` with `property: "hasKeyword"` and `keyword: ""` (empty string) | `err` from `Keyword.fromJson` — empty keyword |
 | 101 | `emailComparatorFromJson` with `property: "receivedAt"` and spurious `keyword` field present | `ok(eckPlain)` — `keyword` field silently ignored on plain branch |
 | 102 | `emailComparatorFromJson` with `property` field entirely missing | `err` — missing discriminant |
-| 103 | `emailComparatorFromJson` with `property: null` (JNull instead of JString) | `err` from `extractString` |
+| 103 | `emailComparatorFromJson` with `property: null` (JNull instead of JString) | `err` from `checkJsonKind` |
 
 **EmailHeaderFilter adversarial:**
 
@@ -1675,7 +1760,7 @@ responses and client inputs.
 
 | # | Scenario | Expected |
 |---|----------|----------|
-| 111 | `searchSnippetGetResponseFromJson` with `list: null` (JNull for required field) | `err(ValidationError)` — `list` is required, not nullable |
+| 111 | `searchSnippetGetResponseFromJson` with `list: null` (JNull for required field) | `ok` — `list` defaults to empty seq (Postel's law — lenient on receive) |
 | 112 | `searchSnippetFromJson` with `subject: "<mark>XSS</mark><script>alert(1)</script>"` | `ok` — HTML content preserved verbatim; library does not sanitise |
 | 113 | `searchSnippetFromJson` with extra unknown field in JSON | `ok` — extra field silently ignored (Postel's law, forward compatibility) |
 | 114 | `emailFromJson` with all 28 fields present as wrong JSON types (JInt for every string field) | `err` on first failing field — never panics, never crashes |
@@ -1830,7 +1915,7 @@ field groups.
 | D7 | ParsedEmail code sharing with Email | A) Full duplication, B) Shared sub-objects, C) Inheritance, D) Generic, E) Shared serde helpers | A + E (types duplicated; serde helpers shared) | DRY — duplicated appearance is not duplicated knowledge, DDD |
 | D8 | EmailComparator structure | A) Opt[Keyword] on Comparator, B) Flat enum, C) Single split enum, D) Case object with split enums | D (case object + PlainSortProperty + KeywordSortProperty; both constructors total) | Make illegal states unrepresentable, Constructors that can't fail don't, Total functions |
 | D9 | EmailBodyFetchOptions | A) Inline 3 bools, B) Shared type with enum, C) Shared type with bools | Modified B (BodyValueScope enum; shared by Email/get and Email/parse) | Booleans are a code smell, DRY, Make the right thing easy |
-| D10 | addEmailQuery sort type | A) Custom builder, B) Type erasure, C) Internal helper extraction | A + C (custom builder with EmailComparator; shared internal helper with addQuery) | Make illegal states unrepresentable, Make the right thing easy |
+| D10 | addEmailQuery sort type | A) Custom builder, B) Type erasure, C) Internal helper extraction | A (custom builder with EmailComparator; serialise-then-assemble pattern — `serializeOptSort` resolves `EmailComparator.toJson` via `mixin`, `assembleQueryArgs` builds complete protocol frame from `SerializedSort`/`SerializedFilter` wrappers) | Make illegal states unrepresentable, Make the right thing easy |
 | D11 | Email/parse response structure | A) Raw JsonNode in response, B) Typed ParsedEmail | B (dedicated EmailParseResponse with Table[Id, ParsedEmail]) | Parse once at the boundary, Code reads like the spec |
 | D12 | SearchSnippet/get filter + emailIds | A) Both Opt, B) Both required, C) Required filter + required non-empty emailIds | Modified C (cons-cell: firstEmailId + restEmailIds; filter required not Opt) | Total functions, Make the right thing easy |
 | D13 | SearchSnippet response structure | A) Plain fields, B) Smart constructor, C) notFound as Opt | Modified A (plain fields; notFound as seq[Id] collapsing null/[] to empty seq) | Parse once at the boundary, Code reads like the spec |

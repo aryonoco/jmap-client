@@ -380,3 +380,60 @@ block comparatorFromJsonCollation: # scenario 45
     emailComparatorFromJson(%*{"property": "size", "collation": "i;unicode-casemap"})
   assertOk res
   assertSomeEq res.get().collation, "i;unicode-casemap"
+
+# ============= F. emitInto tests =============
+
+block emitIntoDefault:
+  ## emitInto with default(EmailBodyFetchOptions) adds no keys.
+  var node = newJObject()
+  default(EmailBodyFetchOptions).emitInto(node)
+  doAssert node.len == 0
+
+block emitIntoText:
+  ## emitInto with bvsText emits fetchTextBodyValues: true.
+  var node = newJObject()
+  let opts = EmailBodyFetchOptions(fetchBodyValues: bvsText)
+  opts.emitInto(node)
+  doAssert node{"fetchTextBodyValues"}.getBool(false) == true
+  doAssert node{"fetchHTMLBodyValues"}.isNil
+  doAssert node{"fetchAllBodyValues"}.isNil
+
+block emitIntoHtml:
+  ## emitInto with bvsHtml emits fetchHTMLBodyValues: true.
+  var node = newJObject()
+  let opts = EmailBodyFetchOptions(fetchBodyValues: bvsHtml)
+  opts.emitInto(node)
+  doAssert node{"fetchHTMLBodyValues"}.getBool(false) == true
+  doAssert node{"fetchTextBodyValues"}.isNil
+
+block emitIntoTextAndHtml:
+  ## emitInto with bvsTextAndHtml emits both fetch booleans.
+  var node = newJObject()
+  let opts = EmailBodyFetchOptions(fetchBodyValues: bvsTextAndHtml)
+  opts.emitInto(node)
+  doAssert node{"fetchTextBodyValues"}.getBool(false) == true
+  doAssert node{"fetchHTMLBodyValues"}.getBool(false) == true
+
+block emitIntoAll:
+  ## emitInto with bvsAll emits fetchAllBodyValues: true.
+  var node = newJObject()
+  let opts = EmailBodyFetchOptions(fetchBodyValues: bvsAll)
+  opts.emitInto(node)
+  doAssert node{"fetchAllBodyValues"}.getBool(false) == true
+
+block emitIntoParityWithToJson:
+  ## emitInto on fresh node produces same result as toJson.
+  let opts = EmailBodyFetchOptions(fetchBodyValues: bvsText)
+  var emitNode = newJObject()
+  opts.emitInto(emitNode)
+  let toJsonNode = opts.toJson()
+  doAssert $emitNode == $toJsonNode
+
+block emitIntoPreservesExistingKeys:
+  ## emitInto adds keys to an existing node without clobbering.
+  var node = %*{"accountId": "a1", "ids": []}
+  let opts = EmailBodyFetchOptions(fetchBodyValues: bvsText)
+  opts.emitInto(node)
+  doAssert node{"accountId"}.getStr("") == "a1"
+  doAssert node{"ids"}.kind == JArray
+  doAssert node{"fetchTextBodyValues"}.getBool(false) == true

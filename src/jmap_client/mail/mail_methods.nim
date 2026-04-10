@@ -167,9 +167,7 @@ func addEmailParse*(
     for p in props:
       propsArr.add(%p)
     args["properties"] = propsArr
-  let bodyArgs = bodyFetchOptions.toJson()
-  for key, val in bodyArgs:
-    args[key] = val
+  bodyFetchOptions.emitInto(args)
   let (newBuilder, callId) = b.addInvocation("Email/parse", args, MailCapUri)
   (newBuilder, ResponseHandle[EmailParseResponse](callId))
 
@@ -192,7 +190,7 @@ func addSearchSnippetGet*(
   ## least one email ID at compile time (Decision D12).
   var args = newJObject()
   args["accountId"] = accountId.toJson()
-  args["filter"] = filter.toJson(filterConditionToJson)
+  args["filter"] = serializeFilter(filter, filterConditionToJson).toJsonNode()
   var emailIds = newJArray()
   emailIds.add(firstEmailId.toJson())
   for id in restEmailIds:

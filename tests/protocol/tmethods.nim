@@ -863,3 +863,134 @@ block optUnsignedIntLeniency:
   let valid = %*{"total": 100}
   let result = optUnsignedInt(valid, "total")
   doAssert result.isSome
+
+# ===========================================================================
+# J. SerializedSort / SerializedFilter distinct types
+# ===========================================================================
+
+block serializeOptSortNone:
+  ## serializeOptSort with Opt.none produces Opt.none(SerializedSort).
+  let result = serializeOptSort(Opt.none(seq[Comparator]))
+  doAssert result.isNone
+
+block serializeOptSortSome:
+  ## serializeOptSort with a Comparator seq produces Opt.some(SerializedSort)
+  ## containing a JArray with the expected shape.
+  let comp = parseComparator(makePropertyName("name"), true, Opt.none(string))
+  let result = serializeOptSort(Opt.some(@[comp]))
+  doAssert result.isSome
+  let arr = result.get().toJsonNode()
+  doAssert arr.kind == JArray
+  assertLen arr.getElems(@[]), 1
+  doAssert arr[0]{"property"}.getStr("") == "name"
+  doAssert arr[0]{"isAscending"}.getBool(false) == true
+
+block serializeOptFilterNone:
+  ## serializeOptFilter with Opt.none produces Opt.none(SerializedFilter).
+  let result = serializeOptFilter(Opt.none(Filter[MockFilter]), filterConditionToJson)
+  doAssert result.isNone
+
+block serializeOptFilterSome:
+  ## serializeOptFilter with a filter tree produces serialised JSON.
+  let f = filterCondition(MockFilter())
+  let result = serializeOptFilter(Opt.some(f), filterConditionToJson)
+  doAssert result.isSome
+  let node = result.get().toJsonNode()
+  doAssert node{"mock"}.getBool(false) == true
+
+block serializeFilterRequired:
+  ## serializeFilter (non-Opt) wraps the filter JSON in SerializedFilter.
+  let f = filterCondition(MockFilter())
+  let result = serializeFilter(f, filterConditionToJson)
+  let node = result.toJsonNode()
+  doAssert node{"mock"}.getBool(false) == true
+
+block assembleQueryArgsMinimal:
+  ## assembleQueryArgs with default QueryParams — minimal JSON.
+  let j = assembleQueryArgs(
+    makeAccountId("a1"),
+    Opt.none(SerializedFilter),
+    Opt.none(SerializedSort),
+    QueryParams(),
+  )
+  doAssert j{"accountId"}.getStr("") == "a1"
+  doAssert j{"filter"}.isNil
+  doAssert j{"sort"}.isNil
+  doAssert j{"position"}.getBiggestInt(-1) == 0
+  doAssert j{"anchorOffset"}.getBiggestInt(-1) == 0
+  doAssert j{"calculateTotal"}.getBool(true) == false
+
+block assembleQueryArgsAllFields:
+  ## assembleQueryArgs with all fields populated.
+  let comp = parseComparator(makePropertyName("name"), true, Opt.none(string))
+  let f = filterCondition(MockFilter())
+  let qp = QueryParams(
+    position: JmapInt(5),
+    anchor: Opt.some(makeId("anchor1")),
+    anchorOffset: JmapInt(-2),
+    limit: Opt.some(parseUnsignedInt(25).get()),
+    calculateTotal: true,
+  )
+  let j = assembleQueryArgs(
+    makeAccountId("a1"),
+    serializeOptFilter(Opt.some(f), filterConditionToJson),
+    serializeOptSort(Opt.some(@[comp])),
+    qp,
+  )
+  doAssert j{"accountId"}.getStr("") == "a1"
+  doAssert j{"filter"}{"mock"}.getBool(false) == true
+  doAssert j{"sort"}.kind == JArray
+  assertLen j{"sort"}.getElems(@[]), 1
+  doAssert j{"position"}.getBiggestInt(0) == 5
+  doAssert j{"anchor"}.getStr("") == "anchor1"
+  doAssert j{"anchorOffset"}.getBiggestInt(0) == -2
+  doAssert j{"limit"}.getBiggestInt(0) == 25
+  doAssert j{"calculateTotal"}.getBool(false) == true
+
+block assembleQueryChangesArgsMinimal:
+  ## assembleQueryChangesArgs with only required fields.
+  let j = assembleQueryChangesArgs(
+    makeAccountId("a1"),
+    makeState("qs0"),
+    Opt.none(SerializedFilter),
+    Opt.none(SerializedSort),
+    Opt.none(MaxChanges),
+    Opt.none(Id),
+    false,
+  )
+  doAssert j{"accountId"}.getStr("") == "a1"
+  doAssert j{"sinceQueryState"}.getStr("") == "qs0"
+  doAssert j{"filter"}.isNil
+  doAssert j{"sort"}.isNil
+  doAssert j{"maxChanges"}.isNil
+  doAssert j{"upToId"}.isNil
+  doAssert j{"calculateTotal"}.getBool(true) == false
+
+block assembleQueryChangesArgsAllFields:
+  ## assembleQueryChangesArgs with all fields populated.
+  let comp = parseComparator(makePropertyName("name"), true, Opt.none(string))
+  let f = filterCondition(MockFilter())
+  let j = assembleQueryChangesArgs(
+    makeAccountId("a1"),
+    makeState("qs0"),
+    serializeOptFilter(Opt.some(f), filterConditionToJson),
+    serializeOptSort(Opt.some(@[comp])),
+    Opt.some(makeMaxChanges(10)),
+    Opt.some(makeId("upTo1")),
+    true,
+  )
+  doAssert j{"filter"}{"mock"}.getBool(false) == true
+  doAssert j{"sort"}.kind == JArray
+  doAssert j{"sinceQueryState"}.getStr("") == "qs0"
+  doAssert j{"maxChanges"}.getBiggestInt(0) == 10
+  doAssert j{"upToId"}.getStr("") == "upTo1"
+  doAssert j{"calculateTotal"}.getBool(false) == true
+
+block serializedSortFilterTypeSafety:
+  ## SerializedSort and SerializedFilter are distinct — cannot assign between them.
+  assertNotCompiles:
+    let s = SerializedSort(newJArray())
+    let f: SerializedFilter = s
+  assertNotCompiles:
+    let f = SerializedFilter(newJObject())
+    let s: SerializedSort = f

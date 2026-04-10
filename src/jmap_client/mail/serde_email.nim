@@ -599,12 +599,10 @@ func toJson*(c: EmailComparator): JsonNode =
 # EmailBodyFetchOptions
 # =============================================================================
 
-func toJson*(opts: EmailBodyFetchOptions): JsonNode =
-  ## Serialise EmailBodyFetchOptions to request JSON arguments.
+func emitInto*(opts: EmailBodyFetchOptions, node: var JsonNode) =
+  ## Emit body fetch option keys directly into target node.
+  ## Shared by addEmailGet and addEmailParse — avoids toJson + merge loop.
   ## Maps ``BodyValueScope`` enum back to the three RFC booleans (D9).
-  ## ``bvsNone`` omits all fetch keys; ``default(EmailBodyFetchOptions).toJson``
-  ## produces ``{}``.
-  var node = newJObject()
 
   # bodyProperties: emit array when present
   for props in opts.bodyProperties:
@@ -631,4 +629,10 @@ func toJson*(opts: EmailBodyFetchOptions): JsonNode =
   for v in opts.maxBodyValueBytes:
     node["maxBodyValueBytes"] = v.toJson()
 
+func toJson*(opts: EmailBodyFetchOptions): JsonNode =
+  ## Serialise EmailBodyFetchOptions to request JSON arguments.
+  ## ``bvsNone`` omits all fetch keys; ``default(EmailBodyFetchOptions).toJson``
+  ## produces ``{}``.
+  var node = newJObject()
+  opts.emitInto(node)
   return node

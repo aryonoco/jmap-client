@@ -145,17 +145,12 @@ func addMailboxQuery*(
   ## Adds a Mailbox/query invocation with Mailbox-specific tree parameters
   ## (RFC 8621 §2.3, Decision B13). ``sortAsTree`` and ``filterAsTree`` are
   ## always emitted (explicit > defaults).
-  let req = QueryRequest[Mailbox, MailboxFilterCondition](
-    accountId: accountId,
-    filter: filter,
-    sort: sort,
-    position: queryParams.position,
-    anchor: queryParams.anchor,
-    anchorOffset: queryParams.anchorOffset,
-    limit: queryParams.limit,
-    calculateTotal: queryParams.calculateTotal,
+  var args = assembleQueryArgs(
+    accountId,
+    serializeOptFilter(filter, filterConditionToJson),
+    serializeOptSort(sort),
+    queryParams,
   )
-  var args = req.toJson(filterConditionToJson)
   args["sortAsTree"] = %sortAsTree
   args["filterAsTree"] = %filterAsTree
   let (newBuilder, callId) = b.addInvocation("Mailbox/query", args, MailCapUri)
@@ -249,9 +244,7 @@ func addEmailGet*(
   ## values to fetch and optional truncation. Default produces no extra keys.
   let req = GetRequest[Email](accountId: accountId, ids: ids, properties: properties)
   var args = req.toJson()
-  let bodyArgs = bodyFetchOptions.toJson()
-  for key, val in bodyArgs:
-    args[key] = val
+  bodyFetchOptions.emitInto(args)
   let (newBuilder, callId) = b.addInvocation("Email/get", args, MailCapUri)
   (newBuilder, ResponseHandle[GetResponse[Email]](callId))
 
@@ -271,24 +264,15 @@ func addEmailQuery*(
 ): (RequestBuilder, ResponseHandle[QueryResponse[Email]]) =
   ## Adds an Email/query invocation with Email-specific sort
   ## (``EmailComparator``) and ``collapseThreads`` (RFC 8621 §4.4,
-  ## Decision D11). ``collapseThreads`` is always emitted (explicit >
-  ## defaults).
-  let req = QueryRequest[Email, EmailFilterCondition](
-    accountId: accountId,
-    filter: filter,
-    sort: Opt.none(seq[Comparator]),
-    position: queryParams.position,
-    anchor: queryParams.anchor,
-    anchorOffset: queryParams.anchorOffset,
-    limit: queryParams.limit,
-    calculateTotal: queryParams.calculateTotal,
+  ## Decision D11). Uses serialise-then-assemble — ``serializeOptSort``
+  ## resolves ``EmailComparator.toJson`` via mixin at this call site.
+  ## ``collapseThreads`` is always emitted (explicit > defaults).
+  var args = assembleQueryArgs(
+    accountId,
+    serializeOptFilter(filter, filterConditionToJson),
+    serializeOptSort(sort),
+    queryParams,
   )
-  var args = req.toJson(filterConditionToJson)
-  for sortSeq in sort:
-    var arr = newJArray()
-    for c in sortSeq:
-      arr.add(c.toJson())
-    args["sort"] = arr
   args["collapseThreads"] = %collapseThreads
   let (newBuilder, callId) = b.addInvocation("Email/query", args, MailCapUri)
   (newBuilder, ResponseHandle[QueryResponse[Email]](callId))
@@ -311,23 +295,17 @@ func addEmailQueryChanges*(
     collapseThreads: bool = false,
 ): (RequestBuilder, ResponseHandle[QueryChangesResponse[Email]]) =
   ## Adds an Email/queryChanges invocation with Email-specific sort and
-  ## ``collapseThreads`` (RFC 8621 §4.5). Follows ``addEmailQuery`` pattern
-  ## for sort patching. ``collapseThreads`` always emitted.
-  let req = QueryChangesRequest[Email, EmailFilterCondition](
-    accountId: accountId,
-    filter: filter,
-    sort: Opt.none(seq[Comparator]),
-    sinceQueryState: sinceQueryState,
-    maxChanges: maxChanges,
-    upToId: upToId,
-    calculateTotal: calculateTotal,
+  ## ``collapseThreads`` (RFC 8621 §4.5). Uses serialise-then-assemble —
+  ## no false intermediate. ``collapseThreads`` always emitted.
+  var args = assembleQueryChangesArgs(
+    accountId,
+    sinceQueryState,
+    serializeOptFilter(filter, filterConditionToJson),
+    serializeOptSort(sort),
+    maxChanges,
+    upToId,
+    calculateTotal,
   )
-  var args = req.toJson(filterConditionToJson)
-  for sortSeq in sort:
-    var arr = newJArray()
-    for c in sortSeq:
-      arr.add(c.toJson())
-    args["sort"] = arr
   args["collapseThreads"] = %collapseThreads
   let (newBuilder, callId) = b.addInvocation("Email/queryChanges", args, MailCapUri)
   (newBuilder, ResponseHandle[QueryChangesResponse[Email]](callId))

@@ -249,6 +249,109 @@ type QueryChangesResponse*[T] = object
     ## that was included in removed (due to mutable property changes).
 
 # =============================================================================
+# Pre-serialised wrappers (serialise-then-assemble pattern)
+# =============================================================================
+
+type
+  SerializedSort* = distinct JsonNode
+    ## Pre-serialised sort array. Wraps an already-serialised JArray.
+    ## Distinct from SerializedFilter — newtype prevents accidental swap.
+  SerializedFilter* = distinct JsonNode
+    ## Pre-serialised filter tree. Wraps an already-serialised JObject/JArray.
+
+func toJsonNode*(s: SerializedSort): JsonNode =
+  ## Unwrap a pre-serialised sort array to its underlying JsonNode.
+  JsonNode(s)
+
+func toJsonNode*(f: SerializedFilter): JsonNode =
+  ## Unwrap a pre-serialised filter tree to its underlying JsonNode.
+  JsonNode(f)
+
+# =============================================================================
+# Serialisers
+# =============================================================================
+
+func serializeOptSort*[S](sort: Opt[seq[S]]): Opt[SerializedSort] =
+  ## Pre-serialise an optional sort array. Generic over sort element type.
+  ## Resolves ``toJson`` via ``mixin`` at instantiation site — works for
+  ## both ``Comparator`` and ``EmailComparator``.
+  mixin toJson
+  for sortSeq in sort:
+    var arr = newJArray()
+    for c in sortSeq:
+      arr.add(c.toJson())
+    return Opt.some(SerializedSort(arr))
+  Opt.none(SerializedSort)
+
+func serializeOptFilter*[C](
+    filter: Opt[Filter[C]],
+    filterConditionToJson: proc(c: C): JsonNode {.noSideEffect, raises: [].},
+): Opt[SerializedFilter] =
+  ## Pre-serialise an optional filter tree via the entity-specific callback.
+  for f in filter:
+    return Opt.some(SerializedFilter(f.toJson(filterConditionToJson)))
+  Opt.none(SerializedFilter)
+
+func serializeFilter*[C](
+    filter: Filter[C],
+    filterConditionToJson: proc(c: C): JsonNode {.noSideEffect, raises: [].},
+): SerializedFilter =
+  ## Pre-serialise a required filter tree. Non-Opt variant for builders
+  ## where the filter is mandatory (e.g. SearchSnippet/get).
+  SerializedFilter(filter.toJson(filterConditionToJson))
+
+# =============================================================================
+# Assembly functions
+# =============================================================================
+
+func assembleQueryArgs*(
+    accountId: AccountId,
+    filter: Opt[SerializedFilter],
+    sort: Opt[SerializedSort],
+    queryParams: QueryParams,
+): JsonNode =
+  ## Build standard Foo/query request arguments from pre-serialised parts.
+  ## Single source of truth for the query protocol frame.
+  var node = newJObject()
+  node["accountId"] = accountId.toJson()
+  for f in filter:
+    node["filter"] = f.toJsonNode()
+  for s in sort:
+    node["sort"] = s.toJsonNode()
+  node["position"] = queryParams.position.toJson()
+  for a in queryParams.anchor:
+    node["anchor"] = a.toJson()
+  node["anchorOffset"] = queryParams.anchorOffset.toJson()
+  for lim in queryParams.limit:
+    node["limit"] = lim.toJson()
+  node["calculateTotal"] = %queryParams.calculateTotal
+  return node
+
+func assembleQueryChangesArgs*(
+    accountId: AccountId,
+    sinceQueryState: JmapState,
+    filter: Opt[SerializedFilter],
+    sort: Opt[SerializedSort],
+    maxChanges: Opt[MaxChanges],
+    upToId: Opt[Id],
+    calculateTotal: bool,
+): JsonNode =
+  ## Build standard Foo/queryChanges request arguments from pre-serialised parts.
+  var node = newJObject()
+  node["accountId"] = accountId.toJson()
+  for f in filter:
+    node["filter"] = f.toJsonNode()
+  for s in sort:
+    node["sort"] = s.toJsonNode()
+  node["sinceQueryState"] = sinceQueryState.toJson()
+  for mc in maxChanges:
+    node["maxChanges"] = mc.toJson()
+  for uid in upToId:
+    node["upToId"] = uid.toJson()
+  node["calculateTotal"] = %calculateTotal
+  return node
+
+# =============================================================================
 # Request toJson (Pattern L3-A)
 # =============================================================================
 
@@ -340,49 +443,37 @@ func toJson*[T, C](
     filterConditionToJson: proc(c: C): JsonNode {.noSideEffect, raises: [].},
 ): JsonNode =
   ## Serialise QueryRequest to JSON arguments object (RFC 8620 section 5.5).
-  ## ``position``, ``anchorOffset``, ``calculateTotal`` always emitted.
-  ## Filter serialised via ``filterConditionToJson`` callback.
-  var node = newJObject()
-  node["accountId"] = req.accountId.toJson()
-  for f in req.filter:
-    node["filter"] = f.toJson(filterConditionToJson)
-  for sortSeq in req.sort:
-    var arr = newJArray()
-    for c in sortSeq:
-      arr.add(c.toJson())
-    node["sort"] = arr
-  node["position"] = req.position.toJson()
-  for a in req.anchor:
-    node["anchor"] = a.toJson()
-  node["anchorOffset"] = req.anchorOffset.toJson()
-  for lim in req.limit:
-    node["limit"] = lim.toJson()
-  node["calculateTotal"] = %req.calculateTotal
-  return node
+  ## Delegates to ``assembleQueryArgs`` — single source of truth for the
+  ## query protocol frame.
+  assembleQueryArgs(
+    req.accountId,
+    serializeOptFilter(req.filter, filterConditionToJson),
+    serializeOptSort(req.sort),
+    QueryParams(
+      position: req.position,
+      anchor: req.anchor,
+      anchorOffset: req.anchorOffset,
+      limit: req.limit,
+      calculateTotal: req.calculateTotal,
+    ),
+  )
 
 func toJson*[T, C](
     req: QueryChangesRequest[T, C],
     filterConditionToJson: proc(c: C): JsonNode {.noSideEffect, raises: [].},
 ): JsonNode =
   ## Serialise QueryChangesRequest to JSON arguments object
-  ## (RFC 8620 section 5.6). ``calculateTotal`` always emitted.
-  ## Filter serialised via ``filterConditionToJson`` callback.
-  var node = newJObject()
-  node["accountId"] = req.accountId.toJson()
-  for f in req.filter:
-    node["filter"] = f.toJson(filterConditionToJson)
-  for sortSeq in req.sort:
-    var arr = newJArray()
-    for c in sortSeq:
-      arr.add(c.toJson())
-    node["sort"] = arr
-  node["sinceQueryState"] = req.sinceQueryState.toJson()
-  for mc in req.maxChanges:
-    node["maxChanges"] = mc.toJson()
-  for uid in req.upToId:
-    node["upToId"] = uid.toJson()
-  node["calculateTotal"] = %req.calculateTotal
-  return node
+  ## (RFC 8620 section 5.6). Delegates to ``assembleQueryChangesArgs`` —
+  ## single source of truth for the queryChanges protocol frame.
+  assembleQueryChangesArgs(
+    req.accountId,
+    req.sinceQueryState,
+    serializeOptFilter(req.filter, filterConditionToJson),
+    serializeOptSort(req.sort),
+    req.maxChanges,
+    req.upToId,
+    req.calculateTotal,
+  )
 
 # =============================================================================
 # SetResponse merging helpers (section 8)
