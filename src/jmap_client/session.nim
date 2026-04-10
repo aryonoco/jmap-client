@@ -4,7 +4,7 @@
 ## JMAP Session resource types (RFC 8620 section 2). Account capability entries,
 ## accounts, URI templates, and the Session aggregate with structural validation.
 
-{.push raises: [].}
+{.push raises: [], noSideEffect.}
 
 import std/hashes
 import std/strutils

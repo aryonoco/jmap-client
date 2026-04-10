@@ -4,7 +4,7 @@
 ## Re-export hub for all Layer 1 mail modules. Import this single module to
 ## access the complete RFC 8621 mail type vocabulary.
 
-{.push raises: [].}
+{.push raises: [], noSideEffect.}
 
 import ./addresses
 import ./thread

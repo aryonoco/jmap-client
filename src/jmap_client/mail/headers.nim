@@ -4,7 +4,7 @@
 ## Header sub-types for RFC 8621 (JMAP Mail) section 4.1.2. Shared bounded
 ## context used by Email, EmailBodyPart, and BlueprintBodyPart.
 
-{.push raises: [].}
+{.push raises: [], noSideEffect.}
 
 import std/hashes
 import std/strutils

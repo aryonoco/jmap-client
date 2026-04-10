@@ -100,8 +100,8 @@ To verify how Nim works, Access the Nim source code at /.nim-reference
 - Use `Opt[T]` from nim-results for optional fields (not `std/options`); prefer `for val in opt:` over `if opt.isSome: opt.get()`
 - Prefer expression-oriented style: if/case/block as expressions
 - Prefer `collect` (std/sugar) for building new collections; `allIt`/`anyIt` for predicates
-- **`func` is mandatory in L1–L3** (types, serde, protocol) — no `proc` permitted. Callback parameters use `{.noSideEffect, raises: [].}` to preserve `func` purity; `mixin` resolves pure at instantiation. `proc` only allowed in L4 (IO/transport) and L5 (C ABI exports)
-- `{.push raises: [].}` on every source module — compiler-enforced total functions
+- **`func` is mandatory in L1–L3** (types, serde, protocol) — no `proc` permitted. `{.push raises: [], noSideEffect.}` at the top of each L1–L3 module enforces purity at compile time. Callback parameters use `{.noSideEffect, raises: [].}` on the proc type; `mixin` resolves pure at instantiation. `proc` only allowed in L4 (IO/transport) and L5 (C ABI exports)
+- **Push pragmas on every source module** — L1–L3: `{.push raises: [], noSideEffect.}` (totality + purity); L4–L5: `{.push raises: [].}`
 
 ## C ABI
 

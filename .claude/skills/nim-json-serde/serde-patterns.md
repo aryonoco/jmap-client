@@ -3,7 +3,8 @@
 Patterns for this project. Serialisation and deserialisation use `func` with
 `std/json` nil-safe accessors and return `Result[T, ValidationError]` via
 nim-results. The `?` operator provides early-return error propagation.
-`{.push raises: [].}` is on every module.
+`{.push raises: [], noSideEffect.}` is on every serde module (L1–L3);
+L4–L5 use `{.push raises: [].}` without `noSideEffect`.
 
 ## Parsing Raw JSON
 

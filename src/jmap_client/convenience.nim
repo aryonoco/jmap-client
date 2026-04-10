@@ -18,7 +18,7 @@
 ## control, use the individual ``addQuery``/``addGet``/``addChanges`` functions
 ## from the core API.
 
-{.push raises: [].}
+{.push raises: [], noSideEffect.}
 
 import ./types
 import ./methods

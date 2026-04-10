@@ -5,7 +5,7 @@
 ## details), MethodError (per-invocation), and SetError (per-item in /set
 ## responses). Design doc §8.
 
-{.push raises: [].}
+{.push raises: [], noSideEffect.}
 
 import std/json
 

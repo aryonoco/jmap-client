@@ -5,7 +5,7 @@
 ## constraints. Bounded to JSON-safe integer ranges (2^53-1) per the JMAP
 ## specification.
 
-{.push raises: [].}
+{.push raises: [], noSideEffect.}
 
 import std/hashes
 import std/sequtils

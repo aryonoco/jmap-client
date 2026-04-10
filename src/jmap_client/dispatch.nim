@@ -18,7 +18,7 @@
 ## with Response B, will silently extract the wrong invocation. Use handles
 ## immediately within the scope where the request was built.
 
-{.push raises: [].}
+{.push raises: [], noSideEffect.}
 
 import std/hashes
 import std/json

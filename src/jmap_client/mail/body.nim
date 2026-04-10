@@ -5,7 +5,7 @@
 ## PartId, EmailBodyPart (read model), EmailBodyValue, BlueprintPartSource,
 ## and BlueprintBodyPart (creation model).
 
-{.push raises: [].}
+{.push raises: [], noSideEffect.}
 
 import std/hashes
 import std/sequtils

@@ -4,7 +4,7 @@
 ## Serialisation for JMAP envelope types: Invocation, Request, Response,
 ## ResultReference, and Referencable[T] helpers (RFC 8620 sections 3.2-3.4, 3.7).
 
-{.push raises: [].}
+{.push raises: [], noSideEffect.}
 
 import std/json
 import std/tables

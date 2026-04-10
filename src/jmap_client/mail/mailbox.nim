@@ -7,7 +7,7 @@
 ## Mailbox is the read model; MailboxCreate is the creation model with a smart
 ## constructor enforcing non-empty name.
 
-{.push raises: [].}
+{.push raises: [], noSideEffect.}
 
 import std/hashes
 import std/sets

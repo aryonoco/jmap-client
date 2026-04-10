@@ -4,7 +4,7 @@
 ## Shared serialisation helpers and primitive/identifier type ser/de pairs.
 ## All domain serde modules import this module for the shared helpers.
 
-{.push raises: [].}
+{.push raises: [], noSideEffect.}
 
 import std/json
 import std/tables

@@ -9,7 +9,7 @@
 ## parameter surface), ``addMailboxSet`` (onDestroyRemoveEmails, typed
 ## MailboxCreate).
 
-{.push raises: [].}
+{.push raises: [], noSideEffect.}
 
 import std/json
 import std/tables

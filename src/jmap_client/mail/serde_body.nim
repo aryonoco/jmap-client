@@ -3,7 +3,7 @@
 
 ## Serialisation for body sub-types (RFC 8621 sections 4.1.4, 4.6).
 
-{.push raises: [].}
+{.push raises: [], noSideEffect.}
 
 import std/json
 import std/strutils

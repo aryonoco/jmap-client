@@ -6,7 +6,7 @@
 ## replies. There is no ``id`` field on the Nim type — the singleton identity
 ## ("singleton") is handled purely in serialisation (Design Decision A6).
 
-{.push raises: [].}
+{.push raises: [], noSideEffect.}
 
 import ../validation
 import ../primitives

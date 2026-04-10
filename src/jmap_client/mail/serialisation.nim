@@ -4,7 +4,7 @@
 ## Re-export hub for all Layer 2 mail serialisation modules. Import this
 ## single module to access every mail toJson/fromJson pair.
 
-{.push raises: [].}
+{.push raises: [], noSideEffect.}
 
 import ./serde_addresses
 import ./serde_thread

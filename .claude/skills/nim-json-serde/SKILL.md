@@ -16,7 +16,8 @@ nil-safe accessors (`node{"key"}`, `getStr`, `getBiggestInt`, etc.) and return
 `Result[T, ValidationError]` via nim-results. The `?` operator provides
 early-return error propagation. Functions taking `proc` callback parameters
 (e.g., `Filter[C].toJson`) use `proc` instead due to hidden pointer
-indirection. `{.push raises: [].}` is on every module.
+indirection. `{.push raises: [], noSideEffect.}` is on every serde module
+(L1–L3); L4–L5 use `{.push raises: [].}` without `noSideEffect`.
 
 ## References
 

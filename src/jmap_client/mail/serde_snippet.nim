@@ -3,7 +3,7 @@
 
 ## Serialisation for SearchSnippet (RFC 8621 §5).
 
-{.push raises: [].}
+{.push raises: [], noSideEffect.}
 
 import std/json
 

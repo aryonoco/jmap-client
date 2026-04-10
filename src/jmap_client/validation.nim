@@ -4,7 +4,7 @@
 ## Shared validation infrastructure — error type, borrow templates, charset
 ## constants, and Result helpers used by all smart constructors.
 
-{.push raises: [].}
+{.push raises: [], noSideEffect.}
 
 import std/hashes
 import std/sequtils

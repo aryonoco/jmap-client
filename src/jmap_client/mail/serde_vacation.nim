@@ -3,7 +3,7 @@
 
 ## Serialisation for VacationResponse entity (RFC 8621 section 7).
 
-{.push raises: [].}
+{.push raises: [], noSideEffect.}
 
 import std/json
 

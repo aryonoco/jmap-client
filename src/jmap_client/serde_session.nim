@@ -5,7 +5,7 @@
 ## ServerCapability, AccountCapabilityEntry, Account, and Session
 ## (RFC 8620 section 2).
 
-{.push raises: [].}
+{.push raises: [], noSideEffect.}
 
 import std/json
 import std/sets

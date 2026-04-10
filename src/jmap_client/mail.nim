@@ -5,7 +5,7 @@
 ## module to access mail types, serialisation, entity registration, and
 ## method builders.
 
-{.push raises: [].}
+{.push raises: [], noSideEffect.}
 
 import jmap_client/mail/types
 import jmap_client/mail/serialisation

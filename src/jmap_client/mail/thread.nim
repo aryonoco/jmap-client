@@ -5,7 +5,7 @@
 ## Emails; every Thread contains at least one Email. Both properties (id,
 ## emailIds) are server-set and immutable — Thread has no /set method.
 
-{.push raises: [].}
+{.push raises: [], noSideEffect.}
 
 import ../validation
 import ../primitives

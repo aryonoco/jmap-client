@@ -5,7 +5,7 @@
 ## Covers Invocation, Request, Response, ResultReference, and the
 ## Referencable[T] variant for back-reference support.
 
-{.push raises: [].}
+{.push raises: [], noSideEffect.}
 
 import std/tables
 from std/json import JsonNode

@@ -5,7 +5,7 @@
 ## from primitives.nim because these omit `len` — length is meaningless for
 ## opaque server tokens.
 
-{.push raises: [].}
+{.push raises: [], noSideEffect.}
 
 import std/hashes
 import std/sequtils

@@ -4,7 +4,7 @@
 ## Serialisation for Mailbox entity and supporting types (RFC 8621 §2).
 ## MailboxCreate is toJson-only — creation models flow client-to-server only.
 
-{.push raises: [].}
+{.push raises: [], noSideEffect.}
 
 import std/json
 import std/sets

@@ -6,7 +6,7 @@
 ## (RFC 8621 section 4.1.2.4) are used by Identity, Email, and
 ## EmailSubmission entities.
 
-{.push raises: [].}
+{.push raises: [], noSideEffect.}
 
 import ../validation
 

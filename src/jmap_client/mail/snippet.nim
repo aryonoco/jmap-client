@@ -5,7 +5,7 @@
 ## Pure data carrier highlighting search matches in an Email.
 ## Serde defined separately in ``serde_snippet.nim``.
 
-{.push raises: [].}
+{.push raises: [], noSideEffect.}
 
 import ../validation
 import ../primitives

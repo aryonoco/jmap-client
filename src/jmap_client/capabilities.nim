@@ -4,7 +4,7 @@
 ## JMAP capability discovery types. Maps IANA-registered capability URIs to
 ## typed enums with lossless round-trip for vendor extensions.
 
-{.push raises: [].}
+{.push raises: [], noSideEffect.}
 
 import std/strutils
 import std/sets

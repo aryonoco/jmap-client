@@ -14,15 +14,19 @@ Every `.nim` file must start with this structure:
 # SPDX-License-Identifier: BSD-2-Clause
 # Copyright (c) 2026 Aryan Ameri
 
-{.push raises: [].}
+{.push raises: [], noSideEffect.}   # L1–L3 modules
 
 import std/[strutils]       # std/ imports first
 import ./types, ./errors    # local imports last
 ```
 
-`{.push raises: [].}` is on **every** source module — the compiler enforces
-that no `CatchableError` can escape any function. Error handling uses
-`Result[T, E]` from nim-results throughout.
+- **L1–L3** (types, serde, protocol): `{.push raises: [], noSideEffect.}` —
+  compiler-enforced total functions AND purity. Every routine in the module
+  must be side-effect free, regardless of whether it uses `func` or `proc`.
+- **L4** (IO/transport) and **L5** (C ABI exports): `{.push raises: [].}` —
+  only totality enforced; side effects are legitimate for IO and FFI.
+
+Error handling uses `Result[T, E]` from nim-results throughout.
 
 ## Error Handling
 
@@ -98,8 +102,8 @@ func parseAccountId*(raw: string): Result[AccountId, ValidationError] =
 Layer 5 pattern-matches on `Result` values to produce C error codes.
 Stdlib IO calls (in L4) that can raise are wrapped in `try/except` +
 `{.cast(raises: [CatchableError]).}` to convert exceptions to `Result`
-at the IO boundary. The compiler enforces `{.push raises: [].}` across
-all modules.
+at the IO boundary. L4–L5 use `{.push raises: [].}`; L1–L3 use
+`{.push raises: [], noSideEffect.}` (see Module Boilerplate above).
 
 ### Optional Values
 
@@ -123,11 +127,14 @@ to `Opt[T]` (discards error details).
 ## Conventions
 
 - **`func` is mandatory in L1–L3** — no `proc` permitted in types,
-  serde, or protocol modules. Callback parameters take
-  `{.noSideEffect, raises: [].}` on the proc type; `mixin` resolves
-  pure at instantiation. Builders return
+  serde, or protocol modules. `{.push raises: [], noSideEffect.}` at
+  the top of each L1–L3 module enforces this at compile time — any
+  routine with side effects will fail to compile. Callback parameters
+  take `{.noSideEffect, raises: [].}` on the proc type; `mixin`
+  resolves pure at instantiation. Builders return
   `(RequestBuilder, ResponseHandle[T])` tuples — no `var` mutation.
-  `proc` only for: IO (L4 transport) and L5 C ABI exports.
+  `proc` only for: IO (L4 transport) and L5 C ABI exports, which use
+  `{.push raises: [].}` without `noSideEffect`.
 - **Parse, don't validate** — smart constructors produce `Result` values.
   Invariants enforced at construction time, not checked later.
 

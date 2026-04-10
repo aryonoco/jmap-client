@@ -4,7 +4,7 @@
 ## Mail-specific set error types and typed accessor functions for extracting
 ## structured data from SetError.extras (RFC 8621 sections 4-7).
 
-{.push raises: [].}
+{.push raises: [], noSideEffect.}
 
 import std/strutils
 import std/json

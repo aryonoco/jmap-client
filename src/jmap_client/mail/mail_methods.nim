@@ -5,7 +5,7 @@
 ## VacationResponse is a singleton — no entity registration, no create/destroy,
 ## no /changes. The singleton id is hardcoded internally (Decision A7, A12).
 
-{.push raises: [].}
+{.push raises: [], noSideEffect.}
 
 import std/json
 

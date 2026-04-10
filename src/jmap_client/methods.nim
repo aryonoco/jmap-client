@@ -11,7 +11,7 @@
 ## Entity data is raw ``JsonNode`` (Decision D3.6) -- entity-specific parsing
 ## is the caller's responsibility.
 
-{.push raises: [].}
+{.push raises: [], noSideEffect.}
 
 import std/json
 import std/tables

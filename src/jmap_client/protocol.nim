@@ -5,7 +5,7 @@
 ## to access entity registration, standard method types, request building,
 ## and response dispatch.
 
-{.push raises: [].}
+{.push raises: [], noSideEffect.}
 
 import ./entity
 import ./methods

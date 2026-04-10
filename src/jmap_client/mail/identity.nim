@@ -6,7 +6,7 @@
 ## is a read model with plain public fields; IdentityCreate is the creation
 ## model with a smart constructor enforcing non-empty email.
 
-{.push raises: [].}
+{.push raises: [], noSideEffect.}
 
 import ../validation
 import ../primitives

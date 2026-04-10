@@ -20,7 +20,7 @@
 ## **Call ID generation.** Auto-incrementing "c0", "c1", "c2"... (Decision
 ## 3.2A). Call IDs are scoped to a single builder instance.
 
-{.push raises: [].}
+{.push raises: [], noSideEffect.}
 
 import std/json
 import std/tables

@@ -4,7 +4,7 @@
 ## Re-export hub for all Layer 1 modules. Import this single module to access
 ## the complete domain type vocabulary.
 
-{.push raises: [].}
+{.push raises: [], noSideEffect.}
 
 import results
 

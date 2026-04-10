@@ -5,7 +5,7 @@
 ## Keywords are case-insensitive labels on Email objects (e.g. $seen, $flagged).
 ## KeywordSet is an immutable set of keywords used in Email and filter types.
 
-{.push raises: [].}
+{.push raises: [], noSideEffect.}
 
 import std/hashes
 import std/sets

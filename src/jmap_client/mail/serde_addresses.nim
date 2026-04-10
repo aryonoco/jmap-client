@@ -3,7 +3,7 @@
 
 ## Serialisation for email address sub-types (RFC 8621 section 4.1.2.3-4).
 
-{.push raises: [].}
+{.push raises: [], noSideEffect.}
 
 import std/json
 

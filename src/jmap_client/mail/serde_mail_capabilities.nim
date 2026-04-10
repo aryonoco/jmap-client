@@ -5,7 +5,7 @@
 ## These parse functions take a ServerCapability (case object) and extract
 ## typed capability data from its rawData JSON field.
 
-{.push raises: [].}
+{.push raises: [], noSideEffect.}
 
 import std/json
 import std/sets

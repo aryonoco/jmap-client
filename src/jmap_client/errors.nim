@@ -7,7 +7,7 @@
 ## (not exceptions) for use with Railway-Oriented Programming via
 ## nim-results.
 
-{.push raises: [].}
+{.push raises: [], noSideEffect.}
 
 import std/strutils
 from std/json import JsonNode

@@ -4,7 +4,7 @@
 ## Serialisation for Email, ParsedEmail, EmailComparator, and
 ## EmailBodyFetchOptions (RFC 8621 sections 4.1-4.9).
 
-{.push raises: [].}
+{.push raises: [], noSideEffect.}
 
 import std/json
 import std/strutils

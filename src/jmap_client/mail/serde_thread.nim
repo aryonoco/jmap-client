@@ -3,7 +3,7 @@
 
 ## Serialisation for Thread entity (RFC 8621 section 3).
 
-{.push raises: [].}
+{.push raises: [], noSideEffect.}
 
 import std/json
 

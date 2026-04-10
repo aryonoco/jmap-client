@@ -6,7 +6,7 @@
 ## urn:ietf:params:jmap:mail capability; SubmissionCapabilities carries
 ## the limits for urn:ietf:params:jmap:submission.
 
-{.push raises: [].}
+{.push raises: [], noSideEffect.}
 
 import std/sets
 import std/tables

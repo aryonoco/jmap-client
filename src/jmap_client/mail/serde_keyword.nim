@@ -5,7 +5,7 @@
 ## Keywords serialise as JSON strings. KeywordSet serialises as a JSON object
 ## mapping keyword strings to ``true`` (RFC 8621 patch-object pattern).
 
-{.push raises: [].}
+{.push raises: [], noSideEffect.}
 
 import std/json
 import std/sets

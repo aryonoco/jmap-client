@@ -4,7 +4,7 @@
 ## Generic method framework types for JMAP standard methods (RFC 8620 §5).
 ## Covers filters, comparators, patch objects, and query change tracking.
 
-{.push raises: [].}
+{.push raises: [], noSideEffect.}
 
 import std/hashes
 import std/tables

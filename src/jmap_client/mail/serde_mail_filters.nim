@@ -5,7 +5,7 @@
 ## EmailHeaderFilter / EmailFilterCondition (RFC 8621 §4.4.1).
 ## toJson only — filter conditions flow client-to-server only (Decision B11).
 
-{.push raises: [].}
+{.push raises: [], noSideEffect.}
 
 import std/json
 

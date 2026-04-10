@@ -9,7 +9,7 @@
 ## specific value). EmailFilterCondition uses simple Opt[T] — no field needs
 ## three-state null semantics.
 
-{.push raises: [].}
+{.push raises: [], noSideEffect.}
 
 import ../validation
 import ../primitives

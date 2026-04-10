@@ -6,7 +6,7 @@
 ## (Decision A7) — it uses custom builder functions in ``mail_methods``
 ## instead.
 
-{.push raises: [].}
+{.push raises: [], noSideEffect.}
 
 import std/json
 

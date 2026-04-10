@@ -7,7 +7,7 @@
 ## query-time parameter types. All types colocated per domain cohesion
 ## (Decision D14).
 
-{.push raises: [].}
+{.push raises: [], noSideEffect.}
 
 import std/tables
 
