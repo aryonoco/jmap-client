@@ -8,14 +8,11 @@
 ## response extraction via ``dispatch.get[T]``.
 ##
 ## **Pure functional core.** Each ``add*`` returns a new
-## ``(RequestBuilder, ResponseHandle[T])`` tuple — no mutation.
-## Under ``--mm:arc``, dead bindings are moved in place (zero copy).
-## ``build()`` is a pure snapshot projection. The effect boundary is at
-## Layer 4's ``proc send()``.
+## ``(RequestBuilder, ResponseHandle[T])`` tuple.
 ##
 ## **Capability auto-collection.** Each ``add*`` registers its entity's
 ## capability URI. The ``using`` array in the built Request is automatically
-## deduplicated — no manual management required.
+## deduplicated.
 ##
 ## **Call ID generation.** Auto-incrementing "c0", "c1", "c2"... (Decision
 ## 3.2A). Call IDs are scoped to a single builder instance.
@@ -38,8 +35,7 @@ import ./dispatch
 
 type RequestBuilder* = object
   ## Immutable accumulator for constructing a JMAP Request (RFC 8620
-  ## section 3.3). All fields are private — each ``add*`` returns a new
-  ## builder with the addition applied.
+  ## section 3.3).
   nextCallId: int ## monotonic counter for "c0", "c1", ...
   invocations: seq[Invocation] ## accumulated method calls
   capabilityUris: seq[string] ## deduplicated capability URIs
@@ -72,7 +68,7 @@ func capabilities*(b: RequestBuilder): seq[string] =
 # =============================================================================
 
 func build*(b: RequestBuilder): Request =
-  ## Pure snapshot of the current builder state. Does not mutate the builder.
+  ## Snapshot of the current builder state.
   ## ``createdIds`` is always none — proxy splitting is a Layer 4 concern.
   ## The builder can continue accumulating after ``build()`` for sequential
   ## requests.
@@ -114,7 +110,7 @@ func addInvocation*(
   )
 
 # =============================================================================
-# DRY template for non-query add* methods
+# Template for non-query add* methods
 # =============================================================================
 
 template addMethodImpl(
@@ -294,7 +290,7 @@ func addQueryChanges*[T, C](
 # Single-type-parameter query overloads (resolve filter via template expansion)
 # =============================================================================
 #
-# These are templates (not procs) because filterType(T) must appear in type
+# These are templates  because filterType(T) must appear in type
 # positions that are resolved at the call site. Nim's `mixin` only affects
 # the function body, not the parameter signature. Templates expand at the
 # call site where filterType is visible, avoiding this limitation.
@@ -344,9 +340,6 @@ func directIds*(ids: openArray[Id]): Opt[Referencable[seq[Id]]] =
   ## Wraps a sequence of IDs into ``Opt[Referencable[seq[Id]]]`` for direct
   ## (non-reference) use. Eliminates the ``Opt.some(direct(@[...]))`` nesting
   ## at call sites.
-  ##
-  ## **Before:** ``addGet[T](b, acctId, ids = Opt.some(direct(@[id1, id2])))``
-  ## **After:** ``addGet[T](b, acctId, ids = directIds(@[id1, id2]))``
   return Opt.some(direct(@ids))
 
 func initCreates*(
@@ -354,8 +347,7 @@ func initCreates*(
 ): Opt[Table[CreationId, JsonNode]] =
   ## Builds an Opt-wrapped create table from CreationId/JsonNode pairs.
   ## Keys must be validated ``CreationId`` values — preserves smart-constructor
-  ## discipline. Use ``parseCreationId`` or test helper ``makeCreationId``
-  ## to obtain keys.
+  ## discipline. Use ``parseCreationId`` to obtain keys.
   var tbl = initTable[CreationId, JsonNode](pairs.len)
   for (k, v) in pairs:
     tbl[k] = v
