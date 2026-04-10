@@ -20,8 +20,10 @@ import ../methods
 import ../dispatch
 import ../builder
 import ./mailbox
+import ./email
 import ./mail_filters
 import ./serde_mailbox
+import ./serde_email
 
 const MailCapUri = "urn:ietf:params:jmap:mail"
 
@@ -230,3 +232,102 @@ func addMailboxSet*(
   args["onDestroyRemoveEmails"] = %onDestroyRemoveEmails
   let (newBuilder, callId) = b.addInvocation("Mailbox/set", args, MailCapUri)
   (newBuilder, ResponseHandle[SetResponse[Mailbox]](callId))
+
+# =============================================================================
+# addEmailGet — Email/get (RFC 8621 §4.2)
+# =============================================================================
+
+func addEmailGet*(
+    b: RequestBuilder,
+    accountId: AccountId,
+    ids: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]),
+    properties: Opt[seq[string]] = Opt.none(seq[string]),
+    bodyFetchOptions: EmailBodyFetchOptions = default(EmailBodyFetchOptions),
+): (RequestBuilder, ResponseHandle[GetResponse[Email]]) =
+  ## Adds an Email/get invocation with Email-specific body fetch options
+  ## (RFC 8621 §4.2, Decision D9). ``bodyFetchOptions`` controls which body
+  ## values to fetch and optional truncation. Default produces no extra keys.
+  let req = GetRequest[Email](accountId: accountId, ids: ids, properties: properties)
+  var args = req.toJson()
+  let bodyArgs = bodyFetchOptions.toJson()
+  for key, val in bodyArgs:
+    args[key] = val
+  let (newBuilder, callId) = b.addInvocation("Email/get", args, MailCapUri)
+  (newBuilder, ResponseHandle[GetResponse[Email]](callId))
+
+# =============================================================================
+# addEmailQuery — Email/query (RFC 8621 §4.4)
+# =============================================================================
+
+func addEmailQuery*(
+    b: RequestBuilder,
+    accountId: AccountId,
+    filterConditionToJson:
+      proc(c: EmailFilterCondition): JsonNode {.noSideEffect, raises: [].},
+    filter: Opt[Filter[EmailFilterCondition]] = Opt.none(Filter[EmailFilterCondition]),
+    sort: Opt[seq[EmailComparator]] = Opt.none(seq[EmailComparator]),
+    queryParams: QueryParams = QueryParams(),
+    collapseThreads: bool = false,
+): (RequestBuilder, ResponseHandle[QueryResponse[Email]]) =
+  ## Adds an Email/query invocation with Email-specific sort
+  ## (``EmailComparator``) and ``collapseThreads`` (RFC 8621 §4.4,
+  ## Decision D11). ``collapseThreads`` is always emitted (explicit >
+  ## defaults).
+  let req = QueryRequest[Email, EmailFilterCondition](
+    accountId: accountId,
+    filter: filter,
+    sort: Opt.none(seq[Comparator]),
+    position: queryParams.position,
+    anchor: queryParams.anchor,
+    anchorOffset: queryParams.anchorOffset,
+    limit: queryParams.limit,
+    calculateTotal: queryParams.calculateTotal,
+  )
+  var args = req.toJson(filterConditionToJson)
+  for sortSeq in sort:
+    var arr = newJArray()
+    for c in sortSeq:
+      arr.add(c.toJson())
+    args["sort"] = arr
+  args["collapseThreads"] = %collapseThreads
+  let (newBuilder, callId) = b.addInvocation("Email/query", args, MailCapUri)
+  (newBuilder, ResponseHandle[QueryResponse[Email]](callId))
+
+# =============================================================================
+# addEmailQueryChanges — Email/queryChanges (RFC 8621 §4.5)
+# =============================================================================
+
+func addEmailQueryChanges*(
+    b: RequestBuilder,
+    accountId: AccountId,
+    sinceQueryState: JmapState,
+    filterConditionToJson:
+      proc(c: EmailFilterCondition): JsonNode {.noSideEffect, raises: [].},
+    filter: Opt[Filter[EmailFilterCondition]] = Opt.none(Filter[EmailFilterCondition]),
+    sort: Opt[seq[EmailComparator]] = Opt.none(seq[EmailComparator]),
+    maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges),
+    upToId: Opt[Id] = Opt.none(Id),
+    calculateTotal: bool = false,
+    collapseThreads: bool = false,
+): (RequestBuilder, ResponseHandle[QueryChangesResponse[Email]]) =
+  ## Adds an Email/queryChanges invocation with Email-specific sort and
+  ## ``collapseThreads`` (RFC 8621 §4.5). Follows ``addEmailQuery`` pattern
+  ## for sort patching. ``collapseThreads`` always emitted.
+  let req = QueryChangesRequest[Email, EmailFilterCondition](
+    accountId: accountId,
+    filter: filter,
+    sort: Opt.none(seq[Comparator]),
+    sinceQueryState: sinceQueryState,
+    maxChanges: maxChanges,
+    upToId: upToId,
+    calculateTotal: calculateTotal,
+  )
+  var args = req.toJson(filterConditionToJson)
+  for sortSeq in sort:
+    var arr = newJArray()
+    for c in sortSeq:
+      arr.add(c.toJson())
+    args["sort"] = arr
+  args["collapseThreads"] = %collapseThreads
+  let (newBuilder, callId) = b.addInvocation("Email/queryChanges", args, MailCapUri)
+  (newBuilder, ResponseHandle[QueryChangesResponse[Email]](callId))

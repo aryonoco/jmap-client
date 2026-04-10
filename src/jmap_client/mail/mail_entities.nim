@@ -14,6 +14,7 @@ import ../entity
 import ./thread
 import ./identity
 import ./mailbox
+import ./email
 import ./mail_filters
 import ./serde_mail_filters
 
@@ -76,3 +77,31 @@ func filterConditionToJson*(c: MailboxFilterCondition): JsonNode =
 
 registerJmapEntity(Mailbox)
 registerQueryableEntity(Mailbox)
+
+# ---------------------------------------------------------------------------
+# Email (RFC 8621 section 4) — supports /get, /changes, /set, /query,
+# /queryChanges
+# ---------------------------------------------------------------------------
+
+func methodNamespace*(T: typedesc[Email]): string =
+  ## JMAP method prefix for Email (e.g. "Email/get").
+  discard $T # consumed for nimalyzer params rule
+  "Email"
+
+func capabilityUri*(T: typedesc[Email]): string =
+  ## Capability URI for Email methods.
+  discard $T # consumed for nimalyzer params rule
+  "urn:ietf:params:jmap:mail"
+
+template filterType*(T: typedesc[Email]): typedesc =
+  ## Associated filter condition type for Email/query.
+  discard $T # consumed for nimalyzer params rule
+  EmailFilterCondition
+
+func filterConditionToJson*(c: EmailFilterCondition): JsonNode =
+  ## Serialise EmailFilterCondition to JSON. Resolved via ``mixin`` in the
+  ## single-type-parameter ``addQuery[Email]`` template.
+  c.toJson()
+
+registerJmapEntity(Email)
+registerQueryableEntity(Email)

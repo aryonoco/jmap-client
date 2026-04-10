@@ -1,10 +1,11 @@
 # SPDX-License-Identifier: BSD-2-Clause
 # Copyright (c) 2026 Aryan Ameri
 
-## Custom Mailbox builder and response tests (RFC 8621 §2). Covers design
-## doc scenarios 63-79: MailboxChangesResponse serde, addMailboxChanges,
-## addMailboxQuery, addMailboxQueryChanges, addMailboxSet, plus adversarial
-## serde tests and builder parameter combination tests.
+## Custom Mailbox and Email builder and response tests (RFC 8621 §2, §4).
+## Covers design doc scenarios 63-83: MailboxChangesResponse serde,
+## addMailboxChanges, addMailboxQuery, addMailboxQueryChanges, addMailboxSet,
+## addEmailGet, addEmailQuery, addEmailQueryChanges, plus adversarial serde
+## tests and builder parameter combination tests.
 
 {.push raises: [].}
 
@@ -16,6 +17,9 @@ import jmap_client/serialisation
 import jmap_client/methods
 import jmap_client/builder
 import jmap_client/mail/mailbox
+import jmap_client/mail/email
+import jmap_client/mail/serde_email
+import jmap_client/mail/serde_mail_filters
 import jmap_client/mail/mail_entities
 import jmap_client/mail/mail_builders
 
@@ -288,3 +292,142 @@ block addMailboxSetDefaultOnDestroy:
   let req = b1.build()
   let args = req.methodCalls[0].arguments
   doAssert args{"onDestroyRemoveEmails"}.getBool(true) == false
+
+# ===========================================================================
+# G. addEmailGet builder tests (scenarios 75-76)
+# ===========================================================================
+
+block addEmailGetInvocationName:
+  ## Scenario 75: produces "Email/get" with mail capability.
+  let b0 = initRequestBuilder()
+  let (b1, _) = b0.addEmailGet(makeAccountId("a1"))
+  let req = b1.build()
+  assertLen req.methodCalls, 1
+  assertEq req.methodCalls[0].name, "Email/get"
+  doAssert "urn:ietf:params:jmap:mail" in req.`using`
+
+block addEmailGetDefaultBodyFetch:
+  ## Scenario 75: default EmailBodyFetchOptions produces no body-fetch keys.
+  let b0 = initRequestBuilder()
+  let (b1, _) = b0.addEmailGet(makeAccountId("a1"))
+  let req = b1.build()
+  let args = req.methodCalls[0].arguments
+  doAssert args{"fetchTextBodyValues"}.isNil
+  doAssert args{"fetchHTMLBodyValues"}.isNil
+  doAssert args{"fetchAllBodyValues"}.isNil
+  doAssert args{"bodyProperties"}.isNil
+  doAssert args{"maxBodyValueBytes"}.isNil
+
+block addEmailGetWithBodyFetchOptions:
+  ## Scenario 76: bvsText emits fetchTextBodyValues: true.
+  let opts = EmailBodyFetchOptions(
+    bodyProperties: Opt.none(seq[PropertyName]),
+    fetchBodyValues: bvsText,
+    maxBodyValueBytes: Opt.none(UnsignedInt),
+  )
+  let b0 = initRequestBuilder()
+  let (b1, _) = b0.addEmailGet(makeAccountId("a1"), bodyFetchOptions = opts)
+  let req = b1.build()
+  let args = req.methodCalls[0].arguments
+  doAssert args{"fetchTextBodyValues"}.getBool(false) == true
+  doAssert args{"fetchHTMLBodyValues"}.isNil
+  doAssert args{"fetchAllBodyValues"}.isNil
+
+# ===========================================================================
+# H. addEmailQuery builder tests (scenarios 78-81)
+# ===========================================================================
+
+block addEmailQueryInvocationName:
+  ## Scenario 78: produces "Email/query" with mail capability.
+  let b0 = initRequestBuilder()
+  let (b1, _) = b0.addEmailQuery(makeAccountId("a1"), filterConditionToJson)
+  let req = b1.build()
+  assertLen req.methodCalls, 1
+  assertEq req.methodCalls[0].name, "Email/query"
+  doAssert "urn:ietf:params:jmap:mail" in req.`using`
+
+block addEmailQueryCollapseThreadsTrue:
+  ## Scenario 79: collapseThreads = true in args.
+  let b0 = initRequestBuilder()
+  let (b1, _) =
+    b0.addEmailQuery(makeAccountId("a1"), filterConditionToJson, collapseThreads = true)
+  let req = b1.build()
+  let args = req.methodCalls[0].arguments
+  doAssert args{"collapseThreads"}.getBool(false) == true
+
+block addEmailQueryCollapseThreadsDefault:
+  ## Scenario 80: default collapseThreads = false always emitted.
+  let b0 = initRequestBuilder()
+  let (b1, _) = b0.addEmailQuery(makeAccountId("a1"), filterConditionToJson)
+  let req = b1.build()
+  let args = req.methodCalls[0].arguments
+  doAssert args{"collapseThreads"}.getBool(true) == false
+
+block addEmailQueryWithSort:
+  ## Scenario 81: EmailComparator sort serialised correctly.
+  let comp = plainComparator(pspReceivedAt, isAscending = Opt.some(false))
+  let b0 = initRequestBuilder()
+  let (b1, _) = b0.addEmailQuery(
+    makeAccountId("a1"), filterConditionToJson, sort = Opt.some(@[comp])
+  )
+  let req = b1.build()
+  let args = req.methodCalls[0].arguments
+  let sortArr = args{"sort"}
+  doAssert not sortArr.isNil
+  doAssert sortArr.kind == JArray
+  assertLen sortArr.getElems(@[]), 1
+  let sortObj = sortArr[0]
+  assertEq sortObj{"property"}.getStr(""), "receivedAt"
+  doAssert sortObj{"isAscending"}.getBool(true) == false
+
+block addEmailQueryNoSort:
+  ## sort: Opt.none → no sort key in args.
+  let b0 = initRequestBuilder()
+  let (b1, _) = b0.addEmailQuery(makeAccountId("a1"), filterConditionToJson)
+  let req = b1.build()
+  let args = req.methodCalls[0].arguments
+  doAssert args{"sort"}.isNil
+
+# ===========================================================================
+# I. addEmailQueryChanges builder tests (scenarios 82-83)
+# ===========================================================================
+
+block addEmailQueryChangesInvocationName:
+  ## Scenario 82: produces "Email/queryChanges" with mail capability.
+  let b0 = initRequestBuilder()
+  let (b1, _) = b0.addEmailQueryChanges(
+    makeAccountId("a1"), makeState("qs0"), filterConditionToJson
+  )
+  let req = b1.build()
+  assertLen req.methodCalls, 1
+  assertEq req.methodCalls[0].name, "Email/queryChanges"
+  doAssert "urn:ietf:params:jmap:mail" in req.`using`
+
+block addEmailQueryChangesCollapseAndSort:
+  ## Scenario 83: both collapseThreads and sort in args.
+  let comp = plainComparator(pspSize)
+  let b0 = initRequestBuilder()
+  let (b1, _) = b0.addEmailQueryChanges(
+    makeAccountId("a1"),
+    makeState("qs0"),
+    filterConditionToJson,
+    sort = Opt.some(@[comp]),
+    collapseThreads = true,
+  )
+  let req = b1.build()
+  let args = req.methodCalls[0].arguments
+  doAssert args{"collapseThreads"}.getBool(false) == true
+  let sortArr = args{"sort"}
+  doAssert not sortArr.isNil
+  assertLen sortArr.getElems(@[]), 1
+  assertEq sortArr[0]{"property"}.getStr(""), "size"
+
+block addEmailQueryChangesSinceState:
+  ## sinceQueryState appears in args.
+  let b0 = initRequestBuilder()
+  let (b1, _) = b0.addEmailQueryChanges(
+    makeAccountId("a1"), makeState("qs0"), filterConditionToJson
+  )
+  let req = b1.build()
+  let args = req.methodCalls[0].arguments
+  assertEq args{"sinceQueryState"}.getStr(""), "qs0"

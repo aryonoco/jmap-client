@@ -22,6 +22,7 @@ import jmap_client/mail/thread
 import jmap_client/mail/identity
 import jmap_client/mail/vacation
 import jmap_client/mail/mailbox
+import jmap_client/mail/email
 import jmap_client/mail/mail_filters
 import jmap_client/mail/mail_entities
 
@@ -228,6 +229,90 @@ block mailboxCapabilityDedup:
   let b0 = initRequestBuilder()
   let (b1, _) = addGet[thread.Thread](b0, makeAccountId())
   let (b2, _) = addGet[Mailbox](b1, makeAccountId())
+  let caps = b2.capabilities
+  assertLen caps, 1
+  assertEq caps[0], "urn:ietf:params:jmap:mail"
+
+# ===========================================================================
+# I. Email registration tests
+# ===========================================================================
+
+block emailRegistrationCompiles:
+  ## Email registers with registerJmapEntity — implicit pass.
+  doAssert true
+
+block emailQueryableRegistrationCompiles:
+  ## Email registers with registerQueryableEntity — implicit pass.
+  doAssert true
+
+block emailOverloadValues:
+  ## methodNamespace and capabilityUri return expected values for Email.
+  assertEq methodNamespace(Email), "Email"
+  assertEq capabilityUri(Email), "urn:ietf:params:jmap:mail"
+
+# ===========================================================================
+# J. Email generic builder integration
+# ===========================================================================
+
+block addGetEmail:
+  ## addGet[Email] produces "Email/get" with correct accountId and capability.
+  let b0 = initRequestBuilder()
+  let (b1, _) = addGet[Email](b0, makeAccountId("a1"))
+  let req = b1.build()
+  assertLen req.methodCalls, 1
+  let inv = req.methodCalls[0]
+  assertEq inv.name, "Email/get"
+  assertEq inv.arguments{"accountId"}.getStr(""), "a1"
+  doAssert "urn:ietf:params:jmap:mail" in req.`using`
+
+block addChangesEmail:
+  ## addChanges[Email] produces "Email/changes" with sinceState (D17).
+  let b0 = initRequestBuilder()
+  let (b1, _) = addChanges[Email](b0, makeAccountId("a1"), makeState("s0"))
+  let req = b1.build()
+  assertLen req.methodCalls, 1
+  let inv = req.methodCalls[0]
+  assertEq inv.name, "Email/changes"
+  assertEq inv.arguments{"sinceState"}.getStr(""), "s0"
+
+block addSetEmail:
+  ## addSet[Email] produces "Email/set".
+  let b0 = initRequestBuilder()
+  let (b1, _) = addSet[Email](b0, makeAccountId("a1"))
+  let req = b1.build()
+  assertLen req.methodCalls, 1
+  assertEq req.methodCalls[0].name, "Email/set"
+
+# ===========================================================================
+# K. Email mixin resolution tests
+# ===========================================================================
+
+block addQueryEmailSingleParam:
+  ## Single-parameter addQuery[Email] resolves via mixin — produces "Email/query".
+  let b0 = initRequestBuilder()
+  let (b1, _) = addQuery[Email](b0, makeAccountId("a1"))
+  let req = b1.build()
+  assertLen req.methodCalls, 1
+  assertEq req.methodCalls[0].name, "Email/query"
+
+block addQueryChangesEmailSingleParam:
+  ## Single-parameter addQueryChanges[Email] resolves via mixin.
+  let b0 = initRequestBuilder()
+  let (b1, _) = addQueryChanges[Email](b0, makeAccountId("a1"), makeState("qs0"))
+  let req = b1.build()
+  assertLen req.methodCalls, 1
+  assertEq req.methodCalls[0].name, "Email/queryChanges"
+
+# ===========================================================================
+# L. Email capability deduplication
+# ===========================================================================
+
+block emailThreadCapabilityDedup:
+  ## Thread + Email both register "urn:ietf:params:jmap:mail"; verify
+  ## the builder deduplicates to exactly one entry.
+  let b0 = initRequestBuilder()
+  let (b1, _) = addGet[thread.Thread](b0, makeAccountId())
+  let (b2, _) = addGet[Email](b1, makeAccountId())
   let caps = b2.capabilities
   assertLen caps, 1
   assertEq caps[0], "urn:ietf:params:jmap:mail"
