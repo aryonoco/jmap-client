@@ -16,6 +16,8 @@ import ./serde_mailbox
 import ./serde_mail_filters
 import ./serde_headers
 import ./serde_body
+import ./serde_email
+import ./serde_snippet
 
 export serde_addresses
 export serde_thread
@@ -27,3 +29,5 @@ export serde_mailbox
 export serde_mail_filters
 export serde_headers
 export serde_body
+export serde_email
+export serde_snippet

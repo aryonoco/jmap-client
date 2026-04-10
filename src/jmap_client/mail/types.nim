@@ -17,6 +17,8 @@ import ./mailbox
 import ./mail_filters
 import ./headers
 import ./body
+import ./email
+import ./snippet
 
 export addresses
 export thread
@@ -29,3 +31,5 @@ export mailbox
 export mail_filters
 export headers
 export body
+export email
+export snippet
