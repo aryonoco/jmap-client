@@ -122,11 +122,12 @@ to `Opt[T]` (discards error details).
 
 ## Conventions
 
-- `func` everywhere except IO and mutation. L1 types, L2 serde, L3
-  protocol — all `func`. Callback parameters take `{.noSideEffect, raises: [].}`
-  on the proc type; `mixin` resolves pure at instantiation. `proc` only
-  for: IO (L4 transport), `var` parameter mutation (builders), and L5
-  C ABI exports.
+- **`func` is mandatory in L1–L3** — no `proc` permitted in types,
+  serde, or protocol modules. Callback parameters take
+  `{.noSideEffect, raises: [].}` on the proc type; `mixin` resolves
+  pure at instantiation. Builders return
+  `(RequestBuilder, ResponseHandle[T])` tuples — no `var` mutation.
+  `proc` only for: IO (L4 transport) and L5 C ABI exports.
 - **Parse, don't validate** — smart constructors produce `Result` values.
   Invariants enforced at construction time, not checked later.
 

@@ -110,26 +110,26 @@ func fromJson*(
 # =============================================================================
 
 func addMailboxChanges*(
-    b: var RequestBuilder,
+    b: RequestBuilder,
     accountId: AccountId,
     sinceState: JmapState,
     maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges),
-): ResponseHandle[MailboxChangesResponse] =
+): (RequestBuilder, ResponseHandle[MailboxChangesResponse]) =
   ## Adds a Mailbox/changes invocation. Returns a handle typed to the
   ## extended ``MailboxChangesResponse`` (which includes ``updatedProperties``).
   let req = ChangesRequest[Mailbox](
     accountId: accountId, sinceState: sinceState, maxChanges: maxChanges
   )
   let args = req.toJson()
-  let callId = b.addInvocation("Mailbox/changes", args, MailCapUri)
-  ResponseHandle[MailboxChangesResponse](callId)
+  let (newBuilder, callId) = b.addInvocation("Mailbox/changes", args, MailCapUri)
+  (newBuilder, ResponseHandle[MailboxChangesResponse](callId))
 
 # =============================================================================
 # addMailboxQuery — Mailbox/query (RFC 8621 §2.3)
 # =============================================================================
 
-proc addMailboxQuery*(
-    b: var RequestBuilder,
+func addMailboxQuery*(
+    b: RequestBuilder,
     accountId: AccountId,
     filterConditionToJson:
       proc(c: MailboxFilterCondition): JsonNode {.noSideEffect, raises: [].},
@@ -139,7 +139,7 @@ proc addMailboxQuery*(
     queryParams: QueryParams = QueryParams(),
     sortAsTree: bool = false,
     filterAsTree: bool = false,
-): ResponseHandle[QueryResponse[Mailbox]] =
+): (RequestBuilder, ResponseHandle[QueryResponse[Mailbox]]) =
   ## Adds a Mailbox/query invocation with Mailbox-specific tree parameters
   ## (RFC 8621 §2.3, Decision B13). ``sortAsTree`` and ``filterAsTree`` are
   ## always emitted (explicit > defaults).
@@ -156,15 +156,15 @@ proc addMailboxQuery*(
   var args = req.toJson(filterConditionToJson)
   args["sortAsTree"] = %sortAsTree
   args["filterAsTree"] = %filterAsTree
-  let callId = b.addInvocation("Mailbox/query", args, MailCapUri)
-  ResponseHandle[QueryResponse[Mailbox]](callId)
+  let (newBuilder, callId) = b.addInvocation("Mailbox/query", args, MailCapUri)
+  (newBuilder, ResponseHandle[QueryResponse[Mailbox]](callId))
 
 # =============================================================================
 # addMailboxQueryChanges — Mailbox/queryChanges (RFC 8621 §2.4)
 # =============================================================================
 
-proc addMailboxQueryChanges*(
-    b: var RequestBuilder,
+func addMailboxQueryChanges*(
+    b: RequestBuilder,
     accountId: AccountId,
     sinceQueryState: JmapState,
     filterConditionToJson:
@@ -175,7 +175,7 @@ proc addMailboxQueryChanges*(
     maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges),
     upToId: Opt[Id] = Opt.none(Id),
     calculateTotal: bool = false,
-): ResponseHandle[QueryChangesResponse[Mailbox]] =
+): (RequestBuilder, ResponseHandle[QueryChangesResponse[Mailbox]]) =
   ## Adds a Mailbox/queryChanges invocation. Standard /queryChanges
   ## parameters only — NO sortAsTree/filterAsTree (Decision B12: RFC 8621
   ## §2.4 specifies no additional request arguments).
@@ -189,15 +189,15 @@ proc addMailboxQueryChanges*(
     calculateTotal: calculateTotal,
   )
   let args = req.toJson(filterConditionToJson)
-  let callId = b.addInvocation("Mailbox/queryChanges", args, MailCapUri)
-  ResponseHandle[QueryChangesResponse[Mailbox]](callId)
+  let (newBuilder, callId) = b.addInvocation("Mailbox/queryChanges", args, MailCapUri)
+  (newBuilder, ResponseHandle[QueryChangesResponse[Mailbox]](callId))
 
 # =============================================================================
 # addMailboxSet — Mailbox/set (RFC 8621 §2.5)
 # =============================================================================
 
 func addMailboxSet*(
-    b: var RequestBuilder,
+    b: RequestBuilder,
     accountId: AccountId,
     ifInState: Opt[JmapState] = Opt.none(JmapState),
     create: Opt[Table[CreationId, MailboxCreate]] =
@@ -205,7 +205,7 @@ func addMailboxSet*(
     update: Opt[Table[Id, PatchObject]] = Opt.none(Table[Id, PatchObject]),
     destroy: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]),
     onDestroyRemoveEmails: bool = false,
-): ResponseHandle[SetResponse[Mailbox]] =
+): (RequestBuilder, ResponseHandle[SetResponse[Mailbox]]) =
   ## Adds a Mailbox/set invocation with typed ``MailboxCreate`` creation
   ## models (Decision B21) and ``onDestroyRemoveEmails`` extension
   ## (RFC 8621 §2.5). Always emits ``onDestroyRemoveEmails`` (explicit >
@@ -228,5 +228,5 @@ func addMailboxSet*(
   )
   var args = req.toJson()
   args["onDestroyRemoveEmails"] = %onDestroyRemoveEmails
-  let callId = b.addInvocation("Mailbox/set", args, MailCapUri)
-  ResponseHandle[SetResponse[Mailbox]](callId)
+  let (newBuilder, callId) = b.addInvocation("Mailbox/set", args, MailCapUri)
+  (newBuilder, ResponseHandle[SetResponse[Mailbox]](callId))

@@ -77,13 +77,13 @@ block initBuilderEmpty:
   doAssert req.createdIds.isNone
 
 block buildDoesNotMutate:
-  ## build() is a pure snapshot. Adding more calls after the first build
-  ## produces a larger second snapshot without altering the first.
-  var b = initRequestBuilder()
-  discard b.addEcho(%*{"ping": 1})
-  let req1 = b.build()
-  discard b.addEcho(%*{"ping": 2})
-  let req2 = b.build()
+  ## build() is a pure snapshot. Branching from the same builder state
+  ## produces independent snapshots.
+  let b0 = initRequestBuilder()
+  let (b1, _) = b0.addEcho(%*{"ping": 1})
+  let req1 = b1.build()
+  let (b2, _) = b1.addEcho(%*{"ping": 2})
+  let req2 = b2.build()
   assertLen req1.methodCalls, 1
   assertLen req2.methodCalls, 2
 
@@ -93,20 +93,20 @@ block buildDoesNotMutate:
 
 block callIdAutoIncrement:
   ## Successive add* calls produce auto-incrementing call IDs "c0", "c1", "c2".
-  var b = initRequestBuilder()
-  let h0 = b.addEcho(%*{})
-  let h1 = b.addEcho(%*{})
-  let h2 = b.addEcho(%*{})
+  let b0 = initRequestBuilder()
+  let (b1, h0) = b0.addEcho(%*{})
+  let (b2, h1) = b1.addEcho(%*{})
+  let (_, h2) = b2.addEcho(%*{})
   assertEq $h0, "c0"
   assertEq $h1, "c1"
   assertEq $h2, "c2"
 
 block callIdResetPerBuilder:
   ## Each builder instance starts its counter at zero independently.
-  var b1 = initRequestBuilder()
-  var b2 = initRequestBuilder()
-  let h1 = b1.addEcho(%*{})
-  let h2 = b2.addEcho(%*{})
+  let ba0 = initRequestBuilder()
+  let bb0 = initRequestBuilder()
+  let (_, h1) = ba0.addEcho(%*{})
+  let (_, h2) = bb0.addEcho(%*{})
   assertEq $h1, "c0"
   assertEq $h2, "c0"
 
@@ -116,19 +116,19 @@ block callIdResetPerBuilder:
 
 block capabilityDedup:
   ## Two addGet calls for the same entity register the capability only once.
-  var b = initRequestBuilder()
-  discard addGet[MockFoo](b, makeAccountId())
-  discard addGet[MockFoo](b, makeAccountId())
-  let caps = b.capabilities
+  let b0 = initRequestBuilder()
+  let (b1, _) = addGet[MockFoo](b0, makeAccountId())
+  let (b2, _) = addGet[MockFoo](b1, makeAccountId())
+  let caps = b2.capabilities
   assertLen caps, 1
   assertEq caps[0], "urn:test:mockfoo"
 
 block multipleCapabilities:
   ## Calls for different entities accumulate distinct capability URIs.
-  var b = initRequestBuilder()
-  discard addGet[MockFoo](b, makeAccountId())
-  discard addGet[MockQueryable](b, makeAccountId())
-  let caps = b.capabilities
+  let b0 = initRequestBuilder()
+  let (b1, _) = addGet[MockFoo](b0, makeAccountId())
+  let (b2, _) = addGet[MockQueryable](b1, makeAccountId())
+  let caps = b2.capabilities
   assertLen caps, 2
   doAssert "urn:test:mockfoo" in caps
   doAssert "urn:test:mockqueryable" in caps
@@ -139,12 +139,12 @@ block multipleCapabilities:
 
 block accessorsAfterOperations:
   ## After two addEcho calls the accessors reflect the accumulated state.
-  var b = initRequestBuilder()
-  discard b.addEcho(%*{"a": 1})
-  discard b.addEcho(%*{"b": 2})
-  assertEq b.methodCallCount, 2
-  doAssert not b.isEmpty
-  let caps = b.capabilities
+  let b0 = initRequestBuilder()
+  let (b1, _) = b0.addEcho(%*{"a": 1})
+  let (b2, _) = b1.addEcho(%*{"b": 2})
+  assertEq b2.methodCallCount, 2
+  doAssert not b2.isEmpty
+  let caps = b2.capabilities
   assertLen caps, 1
   assertEq caps[0], "urn:ietf:params:jmap:core"
 
@@ -155,9 +155,9 @@ block accessorsAfterOperations:
 block addEchoHappyPath:
   ## addEcho produces an invocation named "Core/echo" with the core
   ## capability URI.
-  var b = initRequestBuilder()
-  discard b.addEcho(%*{"hello": "world"})
-  let req = b.build()
+  let b0 = initRequestBuilder()
+  let (b1, _) = b0.addEcho(%*{"hello": "world"})
+  let req = b1.build()
   assertLen req.methodCalls, 1
   let inv = req.methodCalls[0]
   assertEq inv.name, "Core/echo"
@@ -166,10 +166,10 @@ block addEchoHappyPath:
 block addEchoArgsPreserved:
   ## The arguments JSON passed to addEcho is preserved unchanged in the
   ## built Request invocation.
-  var b = initRequestBuilder()
+  let b0 = initRequestBuilder()
   let args = %*{"key": "value", "num": 42}
-  discard b.addEcho(args)
-  let req = b.build()
+  let (b1, _) = b0.addEcho(args)
+  let req = b1.build()
   let inv = req.methodCalls[0]
   assertEq inv.arguments{"key"}.getStr(""), "value"
   assertEq inv.arguments{"num"}.getBiggestInt(0), 42
@@ -180,9 +180,9 @@ block addEchoArgsPreserved:
 
 block addGetMinimal:
   ## addGet with only accountId omits ids and properties from arguments.
-  var b = initRequestBuilder()
-  discard addGet[MockFoo](b, makeAccountId("a1"))
-  let req = b.build()
+  let b0 = initRequestBuilder()
+  let (b1, _) = addGet[MockFoo](b0, makeAccountId("a1"))
+  let req = b1.build()
   assertLen req.methodCalls, 1
   let inv = req.methodCalls[0]
   assertEq inv.name, "MockFoo/get"
@@ -192,11 +192,11 @@ block addGetMinimal:
 
 block addGetWithDirectIds:
   ## addGet with direct ids emits an "ids" array in arguments.
-  var b = initRequestBuilder()
-  discard addGet[MockFoo](
-    b, makeAccountId("a1"), ids = Opt.some(direct(@[makeId("x1"), makeId("x2")]))
+  let b0 = initRequestBuilder()
+  let (b1, _) = addGet[MockFoo](
+    b0, makeAccountId("a1"), ids = Opt.some(direct(@[makeId("x1"), makeId("x2")]))
   )
-  let req = b.build()
+  let req = b1.build()
   let inv = req.methodCalls[0]
   doAssert inv.arguments{"ids"}.kind == JArray
   assertLen inv.arguments{"ids"}.getElems(@[]), 2
@@ -205,12 +205,12 @@ block addGetWithDirectIds:
 block addGetWithReferenceIds:
   ## addGet with referenced ids emits a "#ids" key with a ResultReference
   ## object instead of a plain "ids" array.
-  var b = initRequestBuilder()
+  let b0 = initRequestBuilder()
   let rr =
     makeResultReference(mcid = makeMcid("c0"), name = "MockFoo/query", path = "/ids")
-  discard
-    addGet[MockFoo](b, makeAccountId("a1"), ids = Opt.some(referenceTo[seq[Id]](rr)))
-  let req = b.build()
+  let (b1, _) =
+    addGet[MockFoo](b0, makeAccountId("a1"), ids = Opt.some(referenceTo[seq[Id]](rr)))
+  let req = b1.build()
   let inv = req.methodCalls[0]
   doAssert inv.arguments{"ids"}.isNil
   doAssert inv.arguments{"#ids"}.kind == JObject
@@ -218,10 +218,10 @@ block addGetWithReferenceIds:
 
 block addGetWithProperties:
   ## addGet with properties emits a "properties" array in arguments.
-  var b = initRequestBuilder()
-  discard
-    addGet[MockFoo](b, makeAccountId("a1"), properties = Opt.some(@["name", "size"]))
-  let req = b.build()
+  let b0 = initRequestBuilder()
+  let (b1, _) =
+    addGet[MockFoo](b0, makeAccountId("a1"), properties = Opt.some(@["name", "size"]))
+  let req = b1.build()
   let inv = req.methodCalls[0]
   doAssert inv.arguments{"properties"}.kind == JArray
   assertLen inv.arguments{"properties"}.getElems(@[]), 2
@@ -232,9 +232,9 @@ block addGetWithProperties:
 
 block addChangesMinimal:
   ## addChanges with only required fields produces "MockFoo/changes".
-  var b = initRequestBuilder()
-  discard addChanges[MockFoo](b, makeAccountId("a1"), makeState("s0"))
-  let req = b.build()
+  let b0 = initRequestBuilder()
+  let (b1, _) = addChanges[MockFoo](b0, makeAccountId("a1"), makeState("s0"))
+  let req = b1.build()
   assertLen req.methodCalls, 1
   let inv = req.methodCalls[0]
   assertEq inv.name, "MockFoo/changes"
@@ -244,11 +244,11 @@ block addChangesMinimal:
 
 block addChangesWithMaxChanges:
   ## addChanges with maxChanges emits the value in arguments.
-  var b = initRequestBuilder()
-  discard addChanges[MockFoo](
-    b, makeAccountId("a1"), makeState("s0"), maxChanges = Opt.some(makeMaxChanges(50))
+  let b0 = initRequestBuilder()
+  let (b1, _) = addChanges[MockFoo](
+    b0, makeAccountId("a1"), makeState("s0"), maxChanges = Opt.some(makeMaxChanges(50))
   )
-  let req = b.build()
+  let req = b1.build()
   let inv = req.methodCalls[0]
   assertEq inv.arguments{"maxChanges"}.getBiggestInt(0), 50
 
@@ -258,9 +258,9 @@ block addChangesWithMaxChanges:
 
 block addSetMinimal:
   ## addSet with only accountId produces "MockFoo/set" with no optional fields.
-  var b = initRequestBuilder()
-  discard addSet[MockFoo](b, makeAccountId("a1"))
-  let req = b.build()
+  let b0 = initRequestBuilder()
+  let (b1, _) = addSet[MockFoo](b0, makeAccountId("a1"))
+  let req = b1.build()
   assertLen req.methodCalls, 1
   let inv = req.methodCalls[0]
   assertEq inv.name, "MockFoo/set"
@@ -276,16 +276,16 @@ block addSetWithAllFields:
   createTbl[makeCreationId("k1")] = %*{"name": "New"}
   var updateTbl = initTable[Id, PatchObject]()
   updateTbl[makeId("id1")] = emptyPatch()
-  var b = initRequestBuilder()
-  discard addSet[MockFoo](
-    b,
+  let b0 = initRequestBuilder()
+  let (b1, _) = addSet[MockFoo](
+    b0,
     makeAccountId("a1"),
     ifInState = Opt.some(makeState("s0")),
     create = Opt.some(createTbl),
     update = Opt.some(updateTbl),
     destroy = Opt.some(direct(@[makeId("d1")])),
   )
-  let req = b.build()
+  let req = b1.build()
   let inv = req.methodCalls[0]
   doAssert inv.arguments{"ifInState"}.getStr("") == "s0"
   doAssert inv.arguments{"create"}.kind == JObject
@@ -300,14 +300,14 @@ block addCopyMinimal:
   ## addCopy with required fields only produces "MockFoo/copy".
   var createTbl = initTable[CreationId, JsonNode]()
   createTbl[makeCreationId("k1")] = %*{"id": "src1"}
-  var b = initRequestBuilder()
-  discard addCopy[MockFoo](
-    b,
+  let b0 = initRequestBuilder()
+  let (b1, _) = addCopy[MockFoo](
+    b0,
     fromAccountId = makeAccountId("from1"),
     accountId = makeAccountId("to1"),
     create = createTbl,
   )
-  let req = b.build()
+  let req = b1.build()
   assertLen req.methodCalls, 1
   let inv = req.methodCalls[0]
   assertEq inv.name, "MockFoo/copy"
@@ -321,10 +321,10 @@ block addCopyMinimal:
 
 block addQueryMinimal:
   ## addQuery with only accountId and callback produces "MockQueryable/query".
-  var b = initRequestBuilder()
-  discard
-    addQuery[MockQueryable, MockFilter](b, makeAccountId("a1"), filterConditionToJson)
-  let req = b.build()
+  let b0 = initRequestBuilder()
+  let (b1, _) =
+    addQuery[MockQueryable, MockFilter](b0, makeAccountId("a1"), filterConditionToJson)
+  let req = b1.build()
   assertLen req.methodCalls, 1
   let inv = req.methodCalls[0]
   assertEq inv.name, "MockQueryable/query"
@@ -333,14 +333,14 @@ block addQueryMinimal:
 
 block addQueryWithFilter:
   ## addQuery with a filter condition emits the filter in arguments JSON.
-  var b = initRequestBuilder()
-  discard addQuery[MockQueryable, MockFilter](
-    b,
+  let b0 = initRequestBuilder()
+  let (b1, _) = addQuery[MockQueryable, MockFilter](
+    b0,
     makeAccountId("a1"),
     filterConditionToJson,
     filter = Opt.some(filterCondition(MockFilter())),
   )
-  let req = b.build()
+  let req = b1.build()
   let inv = req.methodCalls[0]
   doAssert inv.arguments{"filter"}.kind == JObject
   doAssert inv.arguments{"filter"}{"mock"}.getBool(false) == true
@@ -352,9 +352,9 @@ block addQueryWithFilter:
 block addQuerySingleParam:
   ## addQuery[T] resolves filterType and filterConditionToJson via mixin.
   ## Produces the same invocation as the two-parameter version.
-  var b = initRequestBuilder()
-  discard addQuery[MockQueryable](b, makeAccountId("a1"))
-  let req = b.build()
+  let b0 = initRequestBuilder()
+  let (b1, _) = addQuery[MockQueryable](b0, makeAccountId("a1"))
+  let req = b1.build()
   assertLen req.methodCalls, 1
   let inv = req.methodCalls[0]
   assertEq inv.name, "MockQueryable/query"
@@ -362,13 +362,13 @@ block addQuerySingleParam:
 
 block addQuerySingleParamMatchesTwoParam:
   ## Single-param and two-param produce identical Request structures.
-  var b1 = initRequestBuilder()
-  discard
-    addQuery[MockQueryable, MockFilter](b1, makeAccountId("a1"), filterConditionToJson)
-  var b2 = initRequestBuilder()
-  discard addQuery[MockQueryable](b2, makeAccountId("a1"))
-  let r1 = b1.build()
-  let r2 = b2.build()
+  let ba0 = initRequestBuilder()
+  let (ba1, _) =
+    addQuery[MockQueryable, MockFilter](ba0, makeAccountId("a1"), filterConditionToJson)
+  let bb0 = initRequestBuilder()
+  let (bb1, _) = addQuery[MockQueryable](bb0, makeAccountId("a1"))
+  let r1 = ba1.build()
+  let r2 = bb1.build()
   assertEq r1.methodCalls[0].name, r2.methodCalls[0].name
   assertEq $r1.`using`, $r2.`using`
 
@@ -378,11 +378,11 @@ block addQuerySingleParamMatchesTwoParam:
 
 block addQueryChangesMinimal:
   ## addQueryChanges with required fields produces "MockQueryable/queryChanges".
-  var b = initRequestBuilder()
-  discard addQueryChanges[MockQueryable, MockFilter](
-    b, makeAccountId("a1"), makeState("qs0"), filterConditionToJson
+  let b0 = initRequestBuilder()
+  let (b1, _) = addQueryChanges[MockQueryable, MockFilter](
+    b0, makeAccountId("a1"), makeState("qs0"), filterConditionToJson
   )
-  let req = b.build()
+  let req = b1.build()
   assertLen req.methodCalls, 1
   let inv = req.methodCalls[0]
   assertEq inv.name, "MockQueryable/queryChanges"
@@ -394,9 +394,10 @@ block addQueryChangesMinimal:
 
 block addQueryChangesSingleParam:
   ## addQueryChanges[T] resolves filter via mixin, matching two-param version.
-  var b = initRequestBuilder()
-  discard addQueryChanges[MockQueryable](b, makeAccountId("a1"), makeState("qs0"))
-  let req = b.build()
+  let b0 = initRequestBuilder()
+  let (b1, _) =
+    addQueryChanges[MockQueryable](b0, makeAccountId("a1"), makeState("qs0"))
+  let req = b1.build()
   assertLen req.methodCalls, 1
   assertEq req.methodCalls[0].name, "MockQueryable/queryChanges"
 
@@ -407,14 +408,14 @@ block addQueryChangesSingleParam:
 block addQueryWithQueryParams:
   ## QueryParams fields are unpacked into the query request arguments.
   ## Unset fields retain RFC 8620 section 5.5 defaults.
-  var b = initRequestBuilder()
-  discard addQuery[MockQueryable, MockFilter](
-    b,
+  let b0 = initRequestBuilder()
+  let (b1, _) = addQuery[MockQueryable, MockFilter](
+    b0,
     makeAccountId("a1"),
     filterConditionToJson,
     queryParams = QueryParams(position: JmapInt(10), calculateTotal: true),
   )
-  let req = b.build()
+  let req = b1.build()
   let inv = req.methodCalls[0]
   # Explicitly set fields
   assertEq inv.arguments{"position"}.getBiggestInt(0), 10
@@ -426,10 +427,10 @@ block addQueryWithQueryParams:
 
 block addQueryDefaultQueryParams:
   ## Default QueryParams() matches RFC 8620 section 5.5 defaults.
-  var b = initRequestBuilder()
-  discard
-    addQuery[MockQueryable, MockFilter](b, makeAccountId("a1"), filterConditionToJson)
-  let req = b.build()
+  let b0 = initRequestBuilder()
+  let (b1, _) =
+    addQuery[MockQueryable, MockFilter](b0, makeAccountId("a1"), filterConditionToJson)
+  let req = b1.build()
   let inv = req.methodCalls[0]
   assertEq inv.arguments{"position"}.getBiggestInt(-1), 0
   assertEq inv.arguments{"anchorOffset"}.getBiggestInt(-1), 0
@@ -439,15 +440,15 @@ block addQueryDefaultQueryParams:
 
 block addQueryChangesWithQueryParams:
   ## QueryParams.calculateTotal flows through to queryChanges arguments.
-  var b = initRequestBuilder()
-  discard addQueryChanges[MockQueryable, MockFilter](
-    b,
+  let b0 = initRequestBuilder()
+  let (b1, _) = addQueryChanges[MockQueryable, MockFilter](
+    b0,
     makeAccountId("a1"),
     makeState("qs0"),
     filterConditionToJson,
     queryParams = QueryParams(calculateTotal: true),
   )
-  let req = b.build()
+  let req = b1.build()
   let inv = req.methodCalls[0]
   assertEq inv.arguments{"calculateTotal"}.getBool(false), true
 
@@ -455,15 +456,15 @@ block addQueryChangesIgnoresNonApplicableFields:
   ## Non-applicable QueryParams fields (position, anchor, anchorOffset, limit)
   ## are NOT emitted in queryChanges arguments — they are silently ignored
   ## per RFC 8620 section 5.6.
-  var b = initRequestBuilder()
-  discard addQueryChanges[MockQueryable, MockFilter](
-    b,
+  let b0 = initRequestBuilder()
+  let (b1, _) = addQueryChanges[MockQueryable, MockFilter](
+    b0,
     makeAccountId("a1"),
     makeState("qs0"),
     filterConditionToJson,
     queryParams = QueryParams(position: JmapInt(99), calculateTotal: true),
   )
-  let req = b.build()
+  let req = b1.build()
   let inv = req.methodCalls[0]
   # calculateTotal flows through
   assertEq inv.arguments{"calculateTotal"}.getBool(false), true
@@ -481,12 +482,13 @@ block queryToGetWithResultReference:
   ## Pipeline: addQuery, take idsRef from the query handle, pass to addGet.
   ## The built Request must have two invocations with the second referencing
   ## the first via "#ids".
-  var b = initRequestBuilder()
-  let queryHandle =
-    addQuery[MockQueryable, MockFilter](b, makeAccountId("a1"), filterConditionToJson)
+  let b0 = initRequestBuilder()
+  let (b1, queryHandle) =
+    addQuery[MockQueryable, MockFilter](b0, makeAccountId("a1"), filterConditionToJson)
   let idsReference = queryHandle.idsRef()
-  discard addGet[MockQueryable](b, makeAccountId("a1"), ids = Opt.some(idsReference))
-  let req = b.build()
+  let (b2, _) =
+    addGet[MockQueryable](b1, makeAccountId("a1"), ids = Opt.some(idsReference))
+  let req = b2.build()
   assertLen req.methodCalls, 2
   # First invocation is the query
   let queryInv = req.methodCalls[0]
@@ -508,8 +510,8 @@ block queryToGetWithResultReference:
 block idsRefRejectsGetHandle:
   ## idsRef only compiles on ResponseHandle[QueryResponse[T]].
   ## A GetResponse handle must be rejected at compile time.
-  var b = initRequestBuilder()
-  let getHandle = addGet[MockFoo](b, makeAccountId("a1"))
+  let b0 = initRequestBuilder()
+  let (_, getHandle) = addGet[MockFoo](b0, makeAccountId("a1"))
   assertNotCompiles(getHandle.idsRef())
 
 # ===========================================================================
@@ -535,11 +537,11 @@ block directIdsEmpty:
 
 block directIdsWithAddGet:
   ## directIds integrates with addGet — replaces Opt.some(direct(@[...])).
-  var b = initRequestBuilder()
-  discard addGet[MockFoo](
-    b, makeAccountId("a1"), ids = directIds(@[makeId("x1"), makeId("x2")])
+  let b0 = initRequestBuilder()
+  let (b1, _) = addGet[MockFoo](
+    b0, makeAccountId("a1"), ids = directIds(@[makeId("x1"), makeId("x2")])
   )
-  let req = b.build()
+  let req = b1.build()
   assertLen req.methodCalls, 1
   let ids = req.methodCalls[0].arguments{"ids"}
   doAssert ids.kind == JArray
@@ -558,13 +560,13 @@ block initCreatesBuildsTable:
 
 block initCreatesWithAddSet:
   ## initCreates integrates with addSet — replaces manual table construction.
-  var b = initRequestBuilder()
-  discard addSet[MockFoo](
-    b,
+  let b0 = initRequestBuilder()
+  let (b1, _) = addSet[MockFoo](
+    b0,
     makeAccountId("a1"),
     create = initCreates({makeCreationId("k1"): %*{"name": "New"}}),
   )
-  let req = b.build()
+  let req = b1.build()
   let inv = req.methodCalls[0]
   doAssert inv.arguments{"create"}.kind == JObject
   doAssert inv.arguments{"create"}{"k1"}{"name"}.getStr("") == "New"

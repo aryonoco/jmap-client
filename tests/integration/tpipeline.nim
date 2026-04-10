@@ -30,9 +30,9 @@ import ../mtest_entity
 
 block builderToRequestJson:
   ## Build a GetRequest for TestWidget and verify Request JSON structure.
-  var b = initRequestBuilder()
-  let gh = addGet[TestWidget](b, accountId = makeAccountId("A1"))
-  let req = b.build()
+  let b0 = initRequestBuilder()
+  let (b1, gh) = addGet[TestWidget](b0, accountId = makeAccountId("A1"))
+  let req = b1.build()
   doAssert req.`using` == @["urn:test:widget"]
   assertLen req.methodCalls, 1
   doAssert req.methodCalls[0].name == "TestWidget/get"
@@ -46,8 +46,8 @@ block builderToRequestJson:
 
 block fullRoundTrip:
   ## Build request, construct synthetic response, extract typed result.
-  var b = initRequestBuilder()
-  let gh = addGet[TestWidget](b, accountId = makeAccountId("A1"))
+  let b0 = initRequestBuilder()
+  let (_, gh) = addGet[TestWidget](b0, accountId = makeAccountId("A1"))
   # Synthetic response with a GetResponse containing a TestWidget
   let getJson = %*{
     "accountId": "A1",
@@ -69,15 +69,15 @@ block fullRoundTrip:
 
 block multiMethodWithResultReference:
   ## addQuery -> idsRef -> addGet with referenced ids.
-  var b = initRequestBuilder()
-  let qh = addQuery[TestWidget, TestWidgetFilter](
-    b, accountId = makeAccountId("A1"), filterConditionToJson = filterConditionToJson
+  let b0 = initRequestBuilder()
+  let (b1, qh) = addQuery[TestWidget, TestWidgetFilter](
+    b0, accountId = makeAccountId("A1"), filterConditionToJson = filterConditionToJson
   )
   # Use type-safe idsRef -- auto-derives name "TestWidget/query"
   let idsRefVal = qh.idsRef()
-  let gh =
-    addGet[TestWidget](b, accountId = makeAccountId("A1"), ids = Opt.some(idsRefVal))
-  let req = b.build()
+  let (b2, gh) =
+    addGet[TestWidget](b1, accountId = makeAccountId("A1"), ids = Opt.some(idsRefVal))
+  let req = b2.build()
   assertLen req.methodCalls, 2
   doAssert req.methodCalls[0].name == "TestWidget/query"
   doAssert req.methodCalls[1].name == "TestWidget/get"
@@ -109,8 +109,8 @@ block multiMethodWithResultReference:
 
 block errorPipeline:
   ## Method error detection through the pipeline.
-  var b = initRequestBuilder()
-  let gh = addGet[TestWidget](b, accountId = makeAccountId("A1"))
+  let b0 = initRequestBuilder()
+  let (_, gh) = addGet[TestWidget](b0, accountId = makeAccountId("A1"))
   let resp = makeErrorResponse("unknownMethod", makeMcid("c0"))
   let result = resp.get(gh)
   assertErr result
@@ -122,9 +122,9 @@ block errorPipeline:
 
 block mixedSuccessError:
   ## Two method calls: first succeeds, second returns error.
-  var b = initRequestBuilder()
-  let gh = addGet[TestWidget](b, accountId = makeAccountId("A1"))
-  let sh = addSet[TestWidget](b, accountId = makeAccountId("A1"))
+  let b0 = initRequestBuilder()
+  let (b1, gh) = addGet[TestWidget](b0, accountId = makeAccountId("A1"))
+  let (_, sh) = addSet[TestWidget](b1, accountId = makeAccountId("A1"))
   let getJson = makeGetResponseJson(accountId = "A1", state = "s1")
   let resp = Response(
     methodResponses: @[
@@ -154,12 +154,12 @@ block builderSendConvenience:
   let session = parseSessionFromArgs(sessionArgs)
   client.setSessionForTest(session)
   # Build a simple echo request
-  var b = initRequestBuilder()
-  discard b.addEcho(%*{"test": true})
+  let b0 = initRequestBuilder()
+  let (b1, _) = b0.addEcho(%*{"test": true})
   # send(client, builder) will fail at HTTP POST (no real server), but
   # the pre-flight validation and serialisation paths are exercised.
   # We expect a transport error, not a panic or compile error.
-  let result = client.send(b)
+  let result = client.send(b1)
   # The result should be an error (network failure), not a panic
   assertErr result
 
@@ -169,15 +169,15 @@ block builderSendConvenience:
 
 block queryWithFilter:
   ## Build a query with TestWidgetFilter and verify filter serialisation.
-  var b = initRequestBuilder()
+  let b0 = initRequestBuilder()
   let f = TestWidgetFilter(name: Opt.some("test"))
-  let qh = addQuery[TestWidget, TestWidgetFilter](
-    b,
+  let (b1, qh) = addQuery[TestWidget, TestWidgetFilter](
+    b0,
     accountId = makeAccountId("A1"),
     filterConditionToJson = filterConditionToJson,
     filter = Opt.some(filterCondition(f)),
   )
-  let req = b.build()
+  let req = b1.build()
   let args = req.methodCalls[0].arguments
   let filterNode = args{"filter"}
   doAssert not filterNode.isNil
@@ -193,8 +193,8 @@ block queryWithFilter:
 
 block setResponseUnifiedMaps:
   ## Build a set request and verify unified Result map extraction.
-  var b = initRequestBuilder()
-  let sh = addSet[TestWidget](b, accountId = makeAccountId("A1"))
+  let b0 = initRequestBuilder()
+  let (_, sh) = addSet[TestWidget](b0, accountId = makeAccountId("A1"))
   # Synthetic SetResponse with mixed success/failure
   let setJson = %*{
     "accountId": "A1",

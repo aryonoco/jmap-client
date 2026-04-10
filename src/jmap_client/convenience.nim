@@ -10,7 +10,7 @@
 ## while providing opt-in ergonomics (lessons from analysing OpenSSL/libgit2 )
 ##
 ## **Naming convention.** Pipeline combinators **MUST** use the ``add*`` prefix because
-## they mutate the ``RequestBuilder`` (following the builder naming convention).
+## they thread the ``RequestBuilder`` state (following the builder naming convention).
 ## Paired extraction uses ``getBoth`` (always exactly two handles).
 ##
 ## **Implicit decisions.** Each combinator documents the choices it makes
@@ -40,8 +40,8 @@ type QueryGetHandles*[T] = object
 # =============================================================================
 
 template addQueryThenGet*[T](
-    b: var RequestBuilder, accountId: AccountId
-): QueryGetHandles[T] =
+    b: RequestBuilder, accountId: AccountId
+): (RequestBuilder, QueryGetHandles[T]) =
   ## Adds Foo/query + Foo/get with automatic result reference wiring.
   ## The get's ``ids`` parameter references the query's ``/ids`` path.
   ## Resolves filter type and serialisation callback via template expansion.
@@ -55,9 +55,9 @@ template addQueryThenGet*[T](
   ## For queries with filters, use the core API directly:
   ## ``addQuery[T, C]`` + ``idsRef`` + ``addGet[T]``.
   block:
-    let qh = addQuery[T](b, accountId)
-    let gh = addGet[T](b, accountId, ids = Opt.some(qh.idsRef()))
-    QueryGetHandles[T](query: qh, get: gh)
+    let (b1, qh) = addQuery[T](b, accountId)
+    let (b2, gh) = addGet[T](b1, accountId, ids = Opt.some(qh.idsRef()))
+    (b2, QueryGetHandles[T](query: qh, get: gh))
 
 # =============================================================================
 # ChangesGetHandles — paired handles from addChangesToGet
@@ -73,12 +73,12 @@ type ChangesGetHandles*[T] = object
 # =============================================================================
 
 func addChangesToGet*[T](
-    b: var RequestBuilder,
+    b: RequestBuilder,
     accountId: AccountId,
     sinceState: JmapState,
     maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges),
     properties: Opt[seq[string]] = Opt.none(seq[string]),
-): ChangesGetHandles[T] =
+): (RequestBuilder, ChangesGetHandles[T]) =
   ## Adds Foo/changes + Foo/get with automatic result reference from
   ## ``/created``. The get fetches newly created records identified by
   ## the changes response.
@@ -87,10 +87,10 @@ func addChangesToGet*[T](
   ## - Reference path is ``/created`` (RefPathCreated) — only newly created
   ##   IDs are fetched. For updated IDs, use the core API with ``updatedRef``.
   ## - Both calls use the same ``accountId``
-  let ch = addChanges[T](b, accountId, sinceState, maxChanges)
-  let gh =
-    addGet[T](b, accountId, ids = Opt.some(ch.createdRef()), properties = properties)
-  return ChangesGetHandles[T](changes: ch, get: gh)
+  let (b1, ch) = addChanges[T](b, accountId, sinceState, maxChanges)
+  let (b2, gh) =
+    addGet[T](b1, accountId, ids = Opt.some(ch.createdRef()), properties = properties)
+  return (b2, ChangesGetHandles[T](changes: ch, get: gh))
 
 # =============================================================================
 # getBoth — paired response extraction

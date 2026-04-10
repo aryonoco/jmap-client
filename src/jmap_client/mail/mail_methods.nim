@@ -23,10 +23,10 @@ const VacationResponseCapUri = "urn:ietf:params:jmap:vacationresponse"
 # =============================================================================
 
 func addVacationResponseGet*(
-    b: var RequestBuilder,
+    b: RequestBuilder,
     accountId: AccountId,
     properties: Opt[seq[string]] = Opt.none(seq[string]),
-): ResponseHandle[GetResponse[VacationResponse]] =
+): (RequestBuilder, ResponseHandle[GetResponse[VacationResponse]]) =
   ## Adds a VacationResponse/get invocation (RFC 8621 section 7). Always
   ## fetches the singleton — no ``ids`` parameter. Optionally restricts
   ## returned properties.
@@ -34,19 +34,20 @@ func addVacationResponseGet*(
     accountId: accountId, ids: Opt.none(Referencable[seq[Id]]), properties: properties
   )
   let args = req.toJson()
-  let callId = b.addInvocation("VacationResponse/get", args, VacationResponseCapUri)
-  ResponseHandle[GetResponse[VacationResponse]](callId)
+  let (newBuilder, callId) =
+    b.addInvocation("VacationResponse/get", args, VacationResponseCapUri)
+  return (newBuilder, ResponseHandle[GetResponse[VacationResponse]](callId))
 
 # =============================================================================
 # VacationResponse/set
 # =============================================================================
 
 func addVacationResponseSet*(
-    b: var RequestBuilder,
+    b: RequestBuilder,
     accountId: AccountId,
     update: PatchObject,
     ifInState: Opt[JmapState] = Opt.none(JmapState),
-): ResponseHandle[SetResponse[VacationResponse]] =
+): (RequestBuilder, ResponseHandle[SetResponse[VacationResponse]]) =
   ## Adds a VacationResponse/set invocation (RFC 8621 section 7). Updates
   ## the singleton only — no create or destroy. The singleton id is
   ## hardcoded from ``VacationResponseSingletonId``.
@@ -57,5 +58,6 @@ func addVacationResponseSet*(
   var updateMap = newJObject()
   updateMap[VacationResponseSingletonId] = update.toJson()
   args["update"] = updateMap
-  let callId = b.addInvocation("VacationResponse/set", args, VacationResponseCapUri)
-  ResponseHandle[SetResponse[VacationResponse]](callId)
+  let (newBuilder, callId) =
+    b.addInvocation("VacationResponse/set", args, VacationResponseCapUri)
+  return (newBuilder, ResponseHandle[SetResponse[VacationResponse]](callId))

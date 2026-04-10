@@ -7,10 +7,11 @@
 ## function returns a phantom-typed ``ResponseHandle[T]`` for type-safe
 ## response extraction via ``dispatch.get[T]``.
 ##
-## **Functional core.** The builder uses owned ``var`` mutation under
-## ``func`` — the Nim equivalent of a State computation. ``build()`` is a
-## pure snapshot projection. The effect boundary is at Layer 4's
-## ``proc send()``.
+## **Pure functional core.** Each ``add*`` returns a new
+## ``(RequestBuilder, ResponseHandle[T])`` tuple — no mutation.
+## Under ``--mm:arc``, dead bindings are moved in place (zero copy).
+## ``build()`` is a pure snapshot projection. The effect boundary is at
+## Layer 4's ``proc send()``.
 ##
 ## **Capability auto-collection.** Each ``add*`` registers its entity's
 ## capability URI. The ``using`` array in the built Request is automatically
@@ -36,9 +37,9 @@ import ./dispatch
 {.push ruleOff: "objects".}
 
 type RequestBuilder* = object
-  ## Accumulates method calls and capabilities for constructing a JMAP
-  ## Request (RFC 8620 section 3.3). All fields are private — the builder
-  ## is the sole construction and mutation path.
+  ## Immutable accumulator for constructing a JMAP Request (RFC 8620
+  ## section 3.3). All fields are private — each ``add*`` returns a new
+  ## builder with the addition applied.
   nextCallId: int ## monotonic counter for "c0", "c1", ...
   invocations: seq[Invocation] ## accumulated method calls
   capabilityUris: seq[string] ## deduplicated capability URIs
@@ -85,63 +86,71 @@ func build*(b: RequestBuilder): Request =
 # Internal helpers (not exported)
 # =============================================================================
 
-func nextId(b: var RequestBuilder): MethodCallId =
-  ## Generates "c0", "c1", ... via direct MethodCallId construction.
+func nextId(b: RequestBuilder): MethodCallId =
+  ## Computes the next call ID from the current counter without mutation.
   ## Bypasses parseMethodCallId because the format is provably valid (D3.9).
-  let callId = MethodCallId("c" & $b.nextCallId)
-  b.nextCallId += 1
-  return callId
+  MethodCallId("c" & $b.nextCallId)
 
-func addCapability(b: var RequestBuilder, cap: string) =
-  ## Adds a capability URI if not already present.
-  if cap notin b.capabilityUris:
-    b.capabilityUris.add(cap)
+func withCapability(caps: seq[string], cap: string): seq[string] =
+  ## Returns a new capability list with ``cap`` added if not already present.
+  if cap in caps:
+    caps
+  else:
+    caps & @[cap]
 
 func addInvocation*(
-    b: var RequestBuilder, name: string, args: JsonNode, capability: string
-): MethodCallId =
-  ## Constructs an Invocation, accumulates it, and registers the capability.
+    b: RequestBuilder, name: string, args: JsonNode, capability: string
+): (RequestBuilder, MethodCallId) =
+  ## Constructs an Invocation and returns a new builder with it accumulated.
   let callId = b.nextId()
   let inv = initInvocationUnchecked(name, args, callId)
-  b.invocations.add(inv)
-  b.addCapability(capability)
-  return callId
+  return (
+    RequestBuilder(
+      nextCallId: b.nextCallId + 1,
+      invocations: b.invocations & @[inv],
+      capabilityUris: withCapability(b.capabilityUris, capability),
+    ),
+    callId,
+  )
 
 # =============================================================================
 # DRY template for non-query add* methods
 # =============================================================================
 
 template addMethodImpl(
-    b: var RequestBuilder, T: typedesc, suffix: string, req: typed, RespType: typedesc
+    b: RequestBuilder, T: typedesc, suffix: string, req: typed, RespType: typedesc
 ): untyped =
   ## Shared boilerplate for non-query add* functions: mixin resolution,
   ## toJson serialisation, invocation accumulation, handle wrapping.
   mixin methodNamespace, capabilityUri
   let args = req.toJson()
-  let callId =
+  let (newBuilder, callId) =
     addInvocation(b, methodNamespace(T) & "/" & suffix, args, capabilityUri(T))
-  ResponseHandle[RespType](callId)
+  (newBuilder, ResponseHandle[RespType](callId))
 
 # =============================================================================
 # addEcho — Core/echo (RFC 8620 section 4)
 # =============================================================================
 
-func addEcho*(b: var RequestBuilder, args: JsonNode): ResponseHandle[JsonNode] =
+func addEcho*(
+    b: RequestBuilder, args: JsonNode
+): (RequestBuilder, ResponseHandle[JsonNode]) =
   ## Adds a Core/echo invocation (RFC 8620 section 4). The server echoes
   ## the arguments back unchanged. Useful for connectivity testing.
-  let callId = b.addInvocation("Core/echo", args, "urn:ietf:params:jmap:core")
-  ResponseHandle[JsonNode](callId)
+  let (newBuilder, callId) =
+    b.addInvocation("Core/echo", args, "urn:ietf:params:jmap:core")
+  return (newBuilder, ResponseHandle[JsonNode](callId))
 
 # =============================================================================
 # addGet — Foo/get (RFC 8620 section 5.1)
 # =============================================================================
 
 func addGet*[T](
-    b: var RequestBuilder,
+    b: RequestBuilder,
     accountId: AccountId,
     ids: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]),
     properties: Opt[seq[string]] = Opt.none(seq[string]),
-): ResponseHandle[GetResponse[T]] =
+): (RequestBuilder, ResponseHandle[GetResponse[T]]) =
   ## Adds a Foo/get invocation. Fetches objects by identifiers, optionally
   ## returning only a subset of properties.
   let req = GetRequest[T](accountId: accountId, ids: ids, properties: properties)
@@ -152,11 +161,11 @@ func addGet*[T](
 # =============================================================================
 
 func addChanges*[T](
-    b: var RequestBuilder,
+    b: RequestBuilder,
     accountId: AccountId,
     sinceState: JmapState,
     maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges),
-): ResponseHandle[ChangesResponse[T]] =
+): (RequestBuilder, ResponseHandle[ChangesResponse[T]]) =
   ## Adds a Foo/changes invocation. Retrieves identifiers for records that
   ## have changed since a given state.
   let req = ChangesRequest[T](
@@ -169,13 +178,13 @@ func addChanges*[T](
 # =============================================================================
 
 func addSet*[T](
-    b: var RequestBuilder,
+    b: RequestBuilder,
     accountId: AccountId,
     ifInState: Opt[JmapState] = Opt.none(JmapState),
     create: Opt[Table[CreationId, JsonNode]] = Opt.none(Table[CreationId, JsonNode]),
     update: Opt[Table[Id, PatchObject]] = Opt.none(Table[Id, PatchObject]),
     destroy: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]),
-): ResponseHandle[SetResponse[T]] =
+): (RequestBuilder, ResponseHandle[SetResponse[T]]) =
   ## Adds a Foo/set invocation. Creates, updates, and/or destroys records
   ## in a single method call.
   let req = SetRequest[T](
@@ -192,7 +201,7 @@ func addSet*[T](
 # =============================================================================
 
 func addCopy*[T](
-    b: var RequestBuilder,
+    b: RequestBuilder,
     fromAccountId: AccountId,
     accountId: AccountId,
     create: Table[CreationId, JsonNode],
@@ -200,7 +209,7 @@ func addCopy*[T](
     ifInState: Opt[JmapState] = Opt.none(JmapState),
     onSuccessDestroyOriginal: bool = false,
     destroyFromIfInState: Opt[JmapState] = Opt.none(JmapState),
-): ResponseHandle[CopyResponse[T]] =
+): (RequestBuilder, ResponseHandle[CopyResponse[T]]) =
   ## Adds a Foo/copy invocation. Copies records from one account to another.
   let req = CopyRequest[T](
     fromAccountId: fromAccountId,
@@ -217,20 +226,17 @@ func addCopy*[T](
 # addQuery — Foo/query (RFC 8620 section 5.5)
 # =============================================================================
 
-proc addQuery*[T, C](
-    b: var RequestBuilder,
+func addQuery*[T, C](
+    b: RequestBuilder,
     accountId: AccountId,
     filterConditionToJson: proc(c: C): JsonNode {.noSideEffect, raises: [].},
     filter: Opt[Filter[C]] = Opt.none(Filter[C]),
     sort: Opt[seq[Comparator]] = Opt.none(seq[Comparator]),
     queryParams: QueryParams = QueryParams(),
-): ResponseHandle[QueryResponse[T]] =
+): (RequestBuilder, ResponseHandle[QueryResponse[T]]) =
   ## Adds a Foo/query invocation. Searches, sorts, and windows entity data
   ## on the server. ``C`` is the filter condition type, resolved from
   ## ``filterType(T)`` by the caller.
-  ##
-  ## Must be ``proc`` (not ``func``) because ``filterConditionToJson`` is a
-  ## ``proc`` callback parameter.
   mixin methodNamespace, capabilityUri
   let req = QueryRequest[T, C](
     accountId: accountId,
@@ -243,15 +249,16 @@ proc addQuery*[T, C](
     calculateTotal: queryParams.calculateTotal,
   )
   let args = req.toJson(filterConditionToJson)
-  let callId = addInvocation(b, methodNamespace(T) & "/query", args, capabilityUri(T))
-  ResponseHandle[QueryResponse[T]](callId)
+  let (newBuilder, callId) =
+    addInvocation(b, methodNamespace(T) & "/query", args, capabilityUri(T))
+  (newBuilder, ResponseHandle[QueryResponse[T]](callId))
 
 # =============================================================================
 # addQueryChanges — Foo/queryChanges (RFC 8620 section 5.6)
 # =============================================================================
 
-proc addQueryChanges*[T, C](
-    b: var RequestBuilder,
+func addQueryChanges*[T, C](
+    b: RequestBuilder,
     accountId: AccountId,
     sinceQueryState: JmapState,
     filterConditionToJson: proc(c: C): JsonNode {.noSideEffect, raises: [].},
@@ -260,7 +267,7 @@ proc addQueryChanges*[T, C](
     maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges),
     upToId: Opt[Id] = Opt.none(Id),
     queryParams: QueryParams = QueryParams(),
-): ResponseHandle[QueryChangesResponse[T]] =
+): (RequestBuilder, ResponseHandle[QueryChangesResponse[T]]) =
   ## Adds a Foo/queryChanges invocation. Efficiently updates a cached query
   ## to match the new server state. ``C`` is the filter condition type.
   ##
@@ -279,9 +286,9 @@ proc addQueryChanges*[T, C](
     calculateTotal: queryParams.calculateTotal,
   )
   let args = req.toJson(filterConditionToJson)
-  let callId =
+  let (newBuilder, callId) =
     addInvocation(b, methodNamespace(T) & "/queryChanges", args, capabilityUri(T))
-  ResponseHandle[QueryChangesResponse[T]](callId)
+  (newBuilder, ResponseHandle[QueryChangesResponse[T]](callId))
 
 # =============================================================================
 # Single-type-parameter query overloads (resolve filter via template expansion)
@@ -292,12 +299,12 @@ proc addQueryChanges*[T, C](
 # the function body, not the parameter signature. Templates expand at the
 # call site where filterType is visible, avoiding this limitation.
 #
-# The two-parameter `addQuery[T, C]` proc remains as an escape hatch for
+# The two-parameter `addQuery[T, C]` func remains as an escape hatch for
 # custom filter types not registered via the entity framework.
 
 template addQuery*[T](
-    b: var RequestBuilder, accountId: AccountId
-): ResponseHandle[QueryResponse[T]] =
+    b: RequestBuilder, accountId: AccountId
+): (RequestBuilder, ResponseHandle[QueryResponse[T]]) =
   ## Single-type-parameter Foo/query. Resolves the filter condition type
   ## from ``filterType(T)`` and the serialisation callback from
   ## ``filterConditionToJson`` at the call site (template expansion).
@@ -316,8 +323,8 @@ template addQuery*[T](
   )
 
 template addQueryChanges*[T](
-    b: var RequestBuilder, accountId: AccountId, sinceQueryState: JmapState
-): ResponseHandle[QueryChangesResponse[T]] =
+    b: RequestBuilder, accountId: AccountId, sinceQueryState: JmapState
+): (RequestBuilder, ResponseHandle[QueryChangesResponse[T]]) =
   ## Single-type-parameter Foo/queryChanges. Same resolution as ``addQuery[T]``.
   ## For custom ``QueryParams``, use the two-parameter
   ## ``addQueryChanges[T, C]`` overload.

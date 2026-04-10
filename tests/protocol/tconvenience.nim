@@ -56,18 +56,18 @@ registerQueryableEntity(MockQueryable)
 
 block addQueryThenGetProducesTwoInvocations:
   ## addQueryThenGet adds both query and get with result reference wiring.
-  var b = initRequestBuilder()
-  let handles = addQueryThenGet[MockQueryable](b, makeAccountId("a1"))
-  let req = b.build()
+  let b0 = initRequestBuilder()
+  let (b1, handles) = addQueryThenGet[MockQueryable](b0, makeAccountId("a1"))
+  let req = b1.build()
   assertLen req.methodCalls, 2
   assertEq req.methodCalls[0].name, "MockQueryable/query"
   assertEq req.methodCalls[1].name, "MockQueryable/get"
 
 block addQueryThenGetWiresResultReference:
   ## The get invocation references the query's /ids path.
-  var b = initRequestBuilder()
-  let handles = addQueryThenGet[MockQueryable](b, makeAccountId("a1"))
-  let req = b.build()
+  let b0 = initRequestBuilder()
+  let (b1, handles) = addQueryThenGet[MockQueryable](b0, makeAccountId("a1"))
+  let req = b1.build()
   let getArgs = req.methodCalls[1].arguments
   doAssert getArgs{"ids"}.isNil # direct ids NOT present
   let refNode = getArgs{"#ids"}
@@ -78,8 +78,8 @@ block addQueryThenGetWiresResultReference:
 
 block addQueryThenGetHandlesArePhantomTyped:
   ## The returned handles have correct phantom types.
-  var b = initRequestBuilder()
-  let handles = addQueryThenGet[MockQueryable](b, makeAccountId("a1"))
+  let b0 = initRequestBuilder()
+  let (_, handles) = addQueryThenGet[MockQueryable](b0, makeAccountId("a1"))
   # query handle is ResponseHandle[QueryResponse[MockQueryable]]
   doAssert $handles.query == "c0"
   # get handle is ResponseHandle[GetResponse[MockQueryable]]
@@ -87,9 +87,9 @@ block addQueryThenGetHandlesArePhantomTyped:
 
 block addQueryThenGetAutoCollectsCapability:
   ## Capability URI is registered once (not duplicated).
-  var b = initRequestBuilder()
-  discard addQueryThenGet[MockQueryable](b, makeAccountId("a1"))
-  let req = b.build()
+  let b0 = initRequestBuilder()
+  let (b1, _) = addQueryThenGet[MockQueryable](b0, makeAccountId("a1"))
+  let req = b1.build()
   assertLen req.`using`, 1
   assertEq req.`using`[0], "urn:test:mockqueryable"
 
@@ -99,18 +99,19 @@ block addQueryThenGetAutoCollectsCapability:
 
 block addChangesToGetProducesTwoInvocations:
   ## addChangesToGet adds changes + get with /created reference.
-  var b = initRequestBuilder()
-  let handles = addChangesToGet[MockQueryable](b, makeAccountId("a1"), makeState("s0"))
-  let req = b.build()
+  let b0 = initRequestBuilder()
+  let (b1, handles) =
+    addChangesToGet[MockQueryable](b0, makeAccountId("a1"), makeState("s0"))
+  let req = b1.build()
   assertLen req.methodCalls, 2
   assertEq req.methodCalls[0].name, "MockQueryable/changes"
   assertEq req.methodCalls[1].name, "MockQueryable/get"
 
 block addChangesToGetWiresCreatedRef:
   ## The get invocation references the changes' /created path.
-  var b = initRequestBuilder()
-  discard addChangesToGet[MockQueryable](b, makeAccountId("a1"), makeState("s0"))
-  let req = b.build()
+  let b0 = initRequestBuilder()
+  let (b1, _) = addChangesToGet[MockQueryable](b0, makeAccountId("a1"), makeState("s0"))
+  let req = b1.build()
   let getArgs = req.methodCalls[1].arguments
   let refNode = getArgs{"#ids"}
   doAssert not refNode.isNil
@@ -123,8 +124,8 @@ block addChangesToGetWiresCreatedRef:
 
 block getBothQueryGetSuccess:
   ## getBoth extracts both query and get results from a synthetic response.
-  var b = initRequestBuilder()
-  let handles = addQueryThenGet[MockQueryable](b, makeAccountId("a1"))
+  let b0 = initRequestBuilder()
+  let (_, handles) = addQueryThenGet[MockQueryable](b0, makeAccountId("a1"))
   let queryJson = makeQueryResponseJson(accountId = "a1", queryState = "qs1")
   let getJson = makeGetResponseJson(accountId = "a1", state = "s1")
   let resp = Response(
@@ -143,8 +144,8 @@ block getBothQueryGetSuccess:
 
 block getBothQueryGetMethodError:
   ## getBoth fails on the first MethodError (query error = get not attempted).
-  var b = initRequestBuilder()
-  let handles = addQueryThenGet[MockQueryable](b, makeAccountId("a1"))
+  let b0 = initRequestBuilder()
+  let (_, handles) = addQueryThenGet[MockQueryable](b0, makeAccountId("a1"))
   let errorJson = %*{"type": "serverFail"}
   let getJson = makeGetResponseJson(accountId = "a1", state = "s1")
   let resp = Response(
