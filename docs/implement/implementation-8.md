@@ -192,8 +192,10 @@ top-level keys. `fromAddr` emits as `"from"` key.
 `property` as string. `eckKeyword` additionally emits `keyword`.
 `isAscending` and `collation` omitted when `Opt.none`.
 
-`EmailBodyFetchOptions.toJson` maps `BodyValueScope` enum back to the
-three RFC booleans (D9). `bvsNone` omits all fetch keys.
+`EmailBodyFetchOptions.emitInto` emits body-fetch keys directly into an
+existing `JsonNode` — maps `BodyValueScope` enum back to the three RFC
+booleans (D9). `EmailBodyFetchOptions.toJson` delegates to `emitInto`.
+`bvsNone` omits all fetch keys.
 
 ### Step 7: serde_snippet.nim
 

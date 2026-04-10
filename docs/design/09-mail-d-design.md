@@ -113,8 +113,8 @@ All modules live under `src/jmap_client/mail/` per cross-cutting doc §3.3.
 | `serde_email.nim` | L2 | `toJson`/`fromJson` for Email, ParsedEmail, EmailComparator, EmailBodyFetchOptions; shared serde helpers |
 | `serde_snippet.nim` | L2 | `fromJson`/`toJson` for SearchSnippet |
 | `mail_entities.nim` | L3 | Entity registration for Email (extends existing module) |
-| `mail_builders.nim` | L4 | `addEmailGet`, `addEmailQuery`, `addEmailQueryChanges` |
-| `mail_methods.nim` | L4 | `addEmailParse`, `addSearchSnippetGet`, `EmailParseResponse`, `SearchSnippetGetResponse` (extends existing module) |
+| `mail_builders.nim` | L3 | `addEmailGet`, `addEmailQuery`, `addEmailQueryChanges` |
+| `mail_methods.nim` | L3 | `addEmailParse`, `addSearchSnippetGet`, `EmailParseResponse`, `SearchSnippetGetResponse` (extends existing module) |
 
 ---
 
@@ -1124,15 +1124,21 @@ func toJson*(fc: EmailFilterCondition): JsonNode =
   return node
 ```
 
-### 8.8. EmailBodyFetchOptions toJson
+### 8.8. EmailBodyFetchOptions Serde
+
+Two serialisation functions: `emitInto` for direct key injection into an
+existing `JsonNode` (used by builders), and `toJson` as a standalone wrapper.
 
 ```nim
-func toJson*(opts: EmailBodyFetchOptions): JsonNode =
-  ## Serialises body fetch options into request arguments.
-  ## Maps BodyValueScope enum back to the three RFC booleans.
-  var node = newJObject()
-  for v in opts.bodyProperties:
-    node["bodyProperties"] = toJsonArray(v)
+func emitInto*(opts: EmailBodyFetchOptions, node: var JsonNode) =
+  ## Emit body fetch option keys directly into target node.
+  ## Shared by addEmailGet and addEmailParse — avoids toJson + merge loop.
+  ## Maps BodyValueScope enum back to the three RFC booleans (D9).
+  for props in opts.bodyProperties:
+    var arr = newJArray()
+    for p in props:
+      arr.add(p.toJson())
+    node["bodyProperties"] = arr
   case opts.fetchBodyValues
   of bvsNone: discard                                  # all false — omit
   of bvsText: node["fetchTextBodyValues"] = %true
@@ -1143,8 +1149,18 @@ func toJson*(opts: EmailBodyFetchOptions): JsonNode =
   of bvsAll: node["fetchAllBodyValues"] = %true
   for v in opts.maxBodyValueBytes:
     node["maxBodyValueBytes"] = v.toJson()
+
+func toJson*(opts: EmailBodyFetchOptions): JsonNode =
+  ## Standalone serialisation — delegates to emitInto.
+  var node = newJObject()
+  opts.emitInto(node)
   return node
 ```
+
+**`emitInto` vs `toJson`:** Builders call `emitInto` directly to inject
+body-fetch keys into the invocation arguments node, avoiding a second
+`JsonNode` allocation and merge loop. `toJson` exists for standalone use
+(e.g., tests, diagnostics).
 
 No `fromJson` — body fetch options are request parameters, never returned by
 the server.
@@ -1255,9 +1271,9 @@ func addEmailGet*(b: RequestBuilder,
 - Adds `"urn:ietf:params:jmap:mail"` capability.
 - Creates invocation with name `"Email/get"`.
 - Standard `/get` parameters (`ids`, `properties`) plus body fetch options.
-- `bodyFetchOptions` serialised via `toJson` and merged into the invocation
-  arguments. `default(EmailBodyFetchOptions)` omits all body-fetch keys
-  (correct RFC default).
+- `bodyFetchOptions` injected via `emitInto` directly into the invocation
+  arguments node (§8.8). `default(EmailBodyFetchOptions)` omits all
+  body-fetch keys (correct RFC default).
 - Returns `(RequestBuilder, ResponseHandle[GetResponse[Email]])` — the
   immutable builder pattern (new builder + typed response handle). Callers
   who need typed `Email` objects parse individual `JsonNode` entries from
@@ -1369,7 +1385,8 @@ func addEmailParse*(b: RequestBuilder,
 - Creates invocation with name `"Email/parse"`.
 - `blobIds` is `seq[Id]` (not `Referencable` — Email/parse does not support
   result references on `blobIds`).
-- `bodyFetchOptions` shared with `addEmailGet` (D9).
+- `bodyFetchOptions` injected via `emitInto` (§8.8), shared pattern with
+  `addEmailGet` (D9).
 - Returns `(RequestBuilder, ResponseHandle[EmailParseResponse])` — immutable
   builder tuple with dedicated typed response (D11). Callers receive
   `Table[Id, ParsedEmail]` — fully typed, no second parsing step.
@@ -1424,7 +1441,7 @@ cohesion: entity + its method parameter types together (parallels
 | `email.nim` | `Email`, `ParsedEmail`, `PlainSortProperty`, `KeywordSortProperty`, `EmailComparator`, `BodyValueScope`, `EmailBodyFetchOptions` | Entity + method parameter types, parallels `mailbox.nim` |
 | `snippet.nim` | `SearchSnippet` | Standalone per RFC §5 |
 | `mail_filters.nim` | `EmailFilterCondition`, `EmailHeaderFilter` (adds to existing) | Filter conditions grouped by concern, parallels existing `MailboxFilterCondition` |
-| `serde_email.nim` | `emailFromJson`, `parsedEmailFromJson`, `Email.toJson`, `ParsedEmail.toJson`, `emailComparatorFromJson`, `EmailComparator.toJson`, `EmailBodyFetchOptions.toJson`, shared helpers (`ConvenienceHeaders`, `BodyFields`, `parseConvenienceHeaders`, `parseBodyFields`, `parseRawHeaders`, `parseHeaderValueArray`, `emitOptStringSeqOrNull`, `emitOptAddressesOrNull`) | All Email/ParsedEmail/EmailComparator/EmailBodyFetchOptions serde + shared helpers (D7) |
+| `serde_email.nim` | `emailFromJson`, `parsedEmailFromJson`, `Email.toJson`, `ParsedEmail.toJson`, `emailComparatorFromJson`, `EmailComparator.toJson`, `EmailBodyFetchOptions.emitInto`, `EmailBodyFetchOptions.toJson`, shared helpers (`ConvenienceHeaders`, `BodyFields`, `parseConvenienceHeaders`, `parseBodyFields`, `parseRawHeaders`, `parseHeaderValueArray`, `emitOptStringSeqOrNull`, `emitOptAddressesOrNull`) | All Email/ParsedEmail/EmailComparator/EmailBodyFetchOptions serde + shared helpers (D7) |
 | `serde_snippet.nim` | `searchSnippetFromJson`, `SearchSnippet.toJson` | SearchSnippet serde |
 | `serde_mail_filters.nim` | `EmailHeaderFilter.toJson`, `EmailFilterCondition.toJson` + extracted helpers (`emitDateSizeFilters`, `emitKeywordFilters`, `emitTextSearchFilters`) (adds to existing) | Filter serde grouped with existing `MailboxFilterCondition.toJson` |
 | `mail_entities.nim` | Entity registration for Email (adds to existing) | Extends existing module |
@@ -1914,7 +1931,7 @@ field groups.
 | D6 | textBody/htmlBody/attachments leaf-only validation | A) Validate in smart constructor, B) Accept (Postel's law) | B (trust server's contract; provide convenience `isLeaf` predicate) | Postel's law, DDD |
 | D7 | ParsedEmail code sharing with Email | A) Full duplication, B) Shared sub-objects, C) Inheritance, D) Generic, E) Shared serde helpers | A + E (types duplicated; serde helpers shared) | DRY — duplicated appearance is not duplicated knowledge, DDD |
 | D8 | EmailComparator structure | A) Opt[Keyword] on Comparator, B) Flat enum, C) Single split enum, D) Case object with split enums | D (case object + PlainSortProperty + KeywordSortProperty; both constructors total) | Make illegal states unrepresentable, Constructors that can't fail don't, Total functions |
-| D9 | EmailBodyFetchOptions | A) Inline 3 bools, B) Shared type with enum, C) Shared type with bools | Modified B (BodyValueScope enum; shared by Email/get and Email/parse) | Booleans are a code smell, DRY, Make the right thing easy |
+| D9 | EmailBodyFetchOptions | A) Inline 3 bools, B) Shared type with enum, C) Shared type with bools | Modified B (BodyValueScope enum; shared by Email/get and Email/parse; `emitInto` for direct key injection into builder args, `toJson` as standalone wrapper) | Booleans are a code smell, DRY, Make the right thing easy |
 | D10 | addEmailQuery sort type | A) Custom builder, B) Type erasure, C) Internal helper extraction | A (custom builder with EmailComparator; serialise-then-assemble pattern — `serializeOptSort` resolves `EmailComparator.toJson` via `mixin`, `assembleQueryArgs` builds complete protocol frame from `SerializedSort`/`SerializedFilter` wrappers) | Make illegal states unrepresentable, Make the right thing easy |
 | D11 | Email/parse response structure | A) Raw JsonNode in response, B) Typed ParsedEmail | B (dedicated EmailParseResponse with Table[Id, ParsedEmail]) | Parse once at the boundary, Code reads like the spec |
 | D12 | SearchSnippet/get filter + emailIds | A) Both Opt, B) Both required, C) Required filter + required non-empty emailIds | Modified C (cons-cell: firstEmailId + restEmailIds; filter required not Opt) | Total functions, Make the right thing easy |
