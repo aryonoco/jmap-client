@@ -186,9 +186,11 @@ func isValidNumericOffset(raw: string, pos: Natural): bool =
   for i in (pos + 1) .. min(pos + 5, raw.high):
     let ch = raw[i]
     if i == pos + 3:
-      if ch != ':': return false
+      if ch != ':':
+        return false
     else:
-      if ch notin AsciiDigits: return false
+      if ch notin AsciiDigits:
+        return false
   return true
 
 func validateTimezoneOffset(raw: string): Result[void, ValidationError] =
