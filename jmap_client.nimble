@@ -199,7 +199,8 @@ srcDir = "src"
 #   ImplicitRangeConversion — fires inside stdlib (system/indices.nim); unfixable
 #   ProveField / ProveIndex — experimental, extremely noisy
 #   GcUnsafe — fires from proc callback parameters in generics; GcUnsafe2 suffices
-#   ResultUsed — requires `discard` on every function return value
+#   ResultUsed — compiler bug in Nim 2.2.8 (compiler/semexprs.nim:1388–1401):
+#     fires on every variable access, not just implicit `result`. Non-functional.
 
 --hintAsError:
   DuplicateModuleImport

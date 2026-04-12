@@ -149,11 +149,11 @@ system.switch("assertions", "on")
 
 # --- Warnings NOT promoted to errors ---
 #
-#   ResultUsed — warns when the implicit `result` variable is used instead
-#     of explicit `return`. All project code uses explicit returns, but
-#     nim-results (ok/err/? operator internals) and stdlib (sequtils, hashes)
-#     use implicit `result` pervasively in templates that expand inside our
-#     modules. Enabling would require patching upstream.
+#   ResultUsed — compiler bug in Nim 2.2.8 (compiler/semexprs.nim:1388–1401):
+#     the warning fires inside the `of skVar, skLet, skResult, skForVar:`
+#     branch with no guard on `s.kind == skResult`, so it triggers on every
+#     variable access, not just the implicit `result` variable. Non-functional
+#     until the compiler is patched.
 #
 #   ImplicitRangeConversion — fires inside stdlib (system/indices.nim) on
 #     range-type index operations. Cannot be suppressed from user code.
