@@ -2,7 +2,24 @@
 
 Cross-platform JMAP (RFC 8620/8621) client library in Nim. Designed for FFI use from C/C++
 
-## Principles
+
+## CRITICAL: Git Commit Message Format
+
+Git Commit messages MUST be modeled after the Linux kernel.
+
+The subject line should use the subsystem/component: short description format, stay under 75 characters, and use imperative mood ("fix" not "fixed" or "fixes").
+
+The body should be wrapped at ~75 columns, explain why the change is needed (not just what it does), and be separated from the subject by a blank line.
+
+The following 3 lines MUST be included at the end of EVERY git message body:
+
+Co-developed-by: Aryan Ameri <github@aryan.ameri.coffee>
+Signed-off-by: Aryan Ameri <github@aryan.ameri.coffee>
+Assisted-by: Claude:claude-4.6-opus
+
+No other AI/LLM attribution in any other format should appear in the git message.
+
+## Development Principles
 
 **IMPORTANT**: All code MUST adhere to the following principles:
 
@@ -33,9 +50,7 @@ Cross-platform JMAP (RFC 8620/8621) client library in Nim. Designed for FFI use 
 - DRY — but duplicated appearance is not duplicated knowledge.
 
 
-## CRITICAL: NO AI ATTRIBUTION
 
-**DO NOT** mention AI, LLM, Claude, Claude Code, Anthropic, "generated", "assisted", or any similar reference **anywhere** — not in code, comments, commit messages, docstrings, PR descriptions, or any other artifact. No `Co-Authored-By`, no `Generated with`, no `AI-assisted`, nothing.
 
 ## Development Environment
 
