@@ -49,9 +49,6 @@ No other AI/LLM attribution in any other format should appear in the git message
 - Make the right thing easy and the wrong thing hard.
 - DRY — but duplicated appearance is not duplicated knowledge.
 
-
-
-
 ## Development Environment
 
 This project uses a devcontainer. Tool versions are managed by mise — `mise.toml` is the single source of truth.
