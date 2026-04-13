@@ -13,6 +13,8 @@
 ## 6. Add property tests + generator in tests/property/tprop_<module>.nim
 ## 7. Add gen<T>() generator to tests/mproperty.nim
 
+import std/hashes
+import std/os
 import std/sets
 import std/tables
 import std/json
@@ -33,6 +35,7 @@ import jmap_client/mail/email
 import jmap_client/mail/snippet
 import jmap_client/mail/serde_email
 import jmap_client/mail/serde_snippet
+import jmap_client/mail/email_blueprint
 
 proc zeroUint*(): UnsignedInt =
   parseUnsignedInt(0).get()
@@ -959,3 +962,379 @@ proc makeEmailParseResponseJson*(): JsonNode =
 proc makeSearchSnippetGetResponseJson*(): JsonNode =
   ## Hand-crafted SearchSnippetGetResponse JSON (RFC 8621 §5.1).
   %*{"accountId": "acct1", "list": [makeSearchSnippetJson()], "notFound": []}
+
+# ---------------------------------------------------------------------------
+# Mail Part E factories
+# ---------------------------------------------------------------------------
+
+proc makeEmailAddress*(
+    email: string = "user@example.com", name: string = ""
+): EmailAddress =
+  ## Convenience wrapper around ``parseEmailAddress``. When ``name`` is
+  ## the empty string, the EmailAddress has ``Opt.none`` for its name.
+  let nameOpt =
+    if name.len > 0:
+      Opt.some(name)
+    else:
+      Opt.none(string)
+  parseEmailAddress(email, nameOpt).get()
+
+# I-1 ------------------------------------------------------------------------
+proc makeBlueprintEmailHeaderName*(s = "x-custom"): BlueprintEmailHeaderName =
+  parseBlueprintEmailHeaderName(s).get()
+
+# I-2 ------------------------------------------------------------------------
+proc makeBlueprintBodyHeaderName*(s = "x-body-custom"): BlueprintBodyHeaderName =
+  parseBlueprintBodyHeaderName(s).get()
+
+# I-3 — makeBhmv* family (seven forms × {multi, single} = fourteen procs). --
+# Multi constructors return ``Result[...,ValidationError]`` so ``.get()``
+# unwraps on the happy-path default. Single constructors return the value
+# directly per headers.nim lines 439-471.
+
+proc makeBhmvRaw*(values: seq[string] = @["v1"]): BlueprintHeaderMultiValue =
+  rawMulti(values).get()
+
+proc makeBhmvText*(values: seq[string] = @["v1"]): BlueprintHeaderMultiValue =
+  textMulti(values).get()
+
+proc makeBhmvAddresses*(
+    values: seq[seq[EmailAddress]] = @[@[makeEmailAddress()]]
+): BlueprintHeaderMultiValue =
+  addressesMulti(values).get()
+
+proc makeBhmvGroupedAddresses*(
+    values: seq[seq[EmailAddressGroup]] = @[newSeq[EmailAddressGroup]()]
+): BlueprintHeaderMultiValue =
+  groupedAddressesMulti(values).get()
+
+proc makeBhmvMessageIds*(
+    values: seq[seq[string]] = @[@["<id@host>"]]
+): BlueprintHeaderMultiValue =
+  messageIdsMulti(values).get()
+
+proc makeBhmvDate*(
+    values: seq[Date] = @[parseDate("2025-01-15T09:00:00Z").get()]
+): BlueprintHeaderMultiValue =
+  dateMulti(values).get()
+
+proc makeBhmvUrls*(
+    values: seq[seq[string]] = @[@["https://example.com"]]
+): BlueprintHeaderMultiValue =
+  urlsMulti(values).get()
+
+proc makeBhmvRawSingle*(value = "v1"): BlueprintHeaderMultiValue =
+  rawSingle(value)
+
+proc makeBhmvTextSingle*(value = "v1"): BlueprintHeaderMultiValue =
+  textSingle(value)
+
+proc makeBhmvAddressesSingle*(
+    value: seq[EmailAddress] = @[makeEmailAddress()]
+): BlueprintHeaderMultiValue =
+  addressesSingle(value)
+
+proc makeBhmvGroupedAddressesSingle*(
+    value: seq[EmailAddressGroup] = @[]
+): BlueprintHeaderMultiValue =
+  groupedAddressesSingle(value)
+
+proc makeBhmvMessageIdsSingle*(
+    value: seq[string] = @["<id@host>"]
+): BlueprintHeaderMultiValue =
+  messageIdsSingle(value)
+
+proc makeBhmvDateSingle*(
+    value: Date = parseDate("2025-01-15T09:00:00Z").get()
+): BlueprintHeaderMultiValue =
+  dateSingle(value)
+
+proc makeBhmvUrlsSingle*(
+    value: seq[string] = @["https://example.com"]
+): BlueprintHeaderMultiValue =
+  urlsSingle(value)
+
+# I-4 ------------------------------------------------------------------------
+proc makeNonEmptyMailboxIdSet*(
+    ids: seq[Id] = @[makeId("mbx1"), makeId("mbx2")]
+): NonEmptyMailboxIdSet =
+  ## Default is a 2-element set so tests that exercise cardinality-sensitive
+  ## paths don't accidentally mask "len = 1" bugs.
+  parseNonEmptyMailboxIdSet(ids).get()
+
+# I-5 ------------------------------------------------------------------------
+proc makeNonEmptySeq*[T](s: seq[T]): NonEmptySeq[T] =
+  parseNonEmptySeq(s).get()
+
+# I-6 ------------------------------------------------------------------------
+proc makeBlueprintBodyValue*(value = "hi"): BlueprintBodyValue =
+  BlueprintBodyValue(value: value)
+
+# I-7 ------------------------------------------------------------------------
+proc makeBlueprintBodyPartInline*(
+    partId = parsePartIdFromServer("1").get(),
+    contentType = "text/plain",
+    value = makeBlueprintBodyValue(),
+    extraHeaders: Table[BlueprintBodyHeaderName, BlueprintHeaderMultiValue] =
+      initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
+): BlueprintBodyPart =
+  BlueprintBodyPart(
+    isMultipart: false,
+    source: bpsInline,
+    partId: partId,
+    value: value,
+    contentType: contentType,
+    extraHeaders: extraHeaders,
+    name: Opt.none(string),
+    disposition: Opt.none(string),
+    cid: Opt.none(string),
+    language: Opt.none(seq[string]),
+    location: Opt.none(string),
+  )
+
+# I-8 ------------------------------------------------------------------------
+proc makeBlueprintBodyPartBlobRef*(
+    blobId = makeId("blob1"),
+    contentType = "image/png",
+    extraHeaders: Table[BlueprintBodyHeaderName, BlueprintHeaderMultiValue] =
+      initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
+): BlueprintBodyPart =
+  BlueprintBodyPart(
+    isMultipart: false,
+    source: bpsBlobRef,
+    blobId: blobId,
+    size: Opt.none(UnsignedInt),
+    charset: Opt.none(string),
+    contentType: contentType,
+    extraHeaders: extraHeaders,
+    name: Opt.none(string),
+    disposition: Opt.none(string),
+    cid: Opt.none(string),
+    language: Opt.none(seq[string]),
+    location: Opt.none(string),
+  )
+
+# I-9 ------------------------------------------------------------------------
+proc makeBlueprintBodyPartMultipart*(
+    subParts: seq[BlueprintBodyPart] = @[],
+    contentType = "multipart/mixed",
+    extraHeaders: Table[BlueprintBodyHeaderName, BlueprintHeaderMultiValue] =
+      initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
+): BlueprintBodyPart =
+  BlueprintBodyPart(
+    isMultipart: true,
+    subParts: subParts,
+    contentType: contentType,
+    extraHeaders: extraHeaders,
+    name: Opt.none(string),
+    disposition: Opt.none(string),
+    cid: Opt.none(string),
+    language: Opt.none(seq[string]),
+    location: Opt.none(string),
+  )
+
+# I-10a ----------------------------------------------------------------------
+proc makeEmailBlueprint*(
+    mailboxIds: NonEmptyMailboxIdSet = makeNonEmptyMailboxIdSet()
+): EmailBlueprint =
+  parseEmailBlueprint(mailboxIds = mailboxIds).get()
+
+# I-10b ----------------------------------------------------------------------
+proc makeFullEmailBlueprint*(): EmailBlueprint =
+  ## Populates every 11 convenience fields, one top-level extraHeaders
+  ## entry, and a flat body with a text-plain inline leaf plus two
+  ## attachments (one inline PDF, one blob-ref PNG). Two inline entries
+  ## means ``bodyValues`` has exactly two keys — enough to exercise the
+  ## derived-map walker without being adversarially complex.
+  let alice = makeEmailAddress("alice@example.com", "Alice")
+  let bob = makeEmailAddress("bob@example.com", "Bob")
+  var extra = initTable[BlueprintEmailHeaderName, BlueprintHeaderMultiValue]()
+  extra[makeBlueprintEmailHeaderName("x-marker")] = makeBhmvTextSingle("full")
+  let textInline = makeBlueprintBodyPartInline(
+    partId = parsePartIdFromServer("1").get(),
+    value = BlueprintBodyValue(value: "text leaf"),
+  )
+  let attachInline = makeBlueprintBodyPartInline(
+    partId = parsePartIdFromServer("2").get(),
+    contentType = "application/pdf",
+    value = BlueprintBodyValue(value: "pdf leaf"),
+  )
+  let attachBlob =
+    makeBlueprintBodyPartBlobRef(blobId = makeId("blobA"), contentType = "image/png")
+  let body =
+    flatBody(textBody = Opt.some(textInline), attachments = @[attachInline, attachBlob])
+  parseEmailBlueprint(
+    mailboxIds = makeNonEmptyMailboxIdSet(),
+    body = body,
+    keywords = initKeywordSet(@[parseKeyword("$seen").get()]),
+    receivedAt = Opt.some(parseUtcDate("2025-01-15T09:00:00Z").get()),
+    fromAddr = Opt.some(@[alice]),
+    to = Opt.some(@[bob]),
+    cc = Opt.some(@[alice]),
+    bcc = Opt.some(@[bob]),
+    replyTo = Opt.some(@[alice]),
+    sender = Opt.some(alice),
+    subject = Opt.some("hello"),
+    sentAt = Opt.some(parseDate("2025-01-15T08:00:00Z").get()),
+    messageId = Opt.some(@["<id1@host>"]),
+    inReplyTo = Opt.some(@["<id0@host>"]),
+    references = Opt.some(@["<id0@host>"]),
+    extraHeaders = extra,
+  )
+    .get()
+
+# I-11a ----------------------------------------------------------------------
+proc makeFlatBody*(
+    textBody: Opt[BlueprintBodyPart] = Opt.none(BlueprintBodyPart),
+    htmlBody: Opt[BlueprintBodyPart] = Opt.none(BlueprintBodyPart),
+    attachments: seq[BlueprintBodyPart] = @[],
+): EmailBlueprintBody =
+  ## Thin wrapper over the module helper — tests delegate rather than
+  ## reconstructing the case object by hand (design §6.5.2).
+  flatBody(textBody, htmlBody, attachments)
+
+# I-11b ----------------------------------------------------------------------
+proc makeStructuredBody*(
+    root: BlueprintBodyPart = makeBlueprintBodyPartInline()
+): EmailBlueprintBody =
+  ## Thin wrapper over the module helper.
+  structuredBody(root)
+
+# I-12 -----------------------------------------------------------------------
+proc makeBlueprintWithDuplicateAt*(
+    dupName = "from",
+    dupKind = ebcEmailTopLevelHeaderDuplicate,
+    loc: Opt[BodyPartLocation] = Opt.none(BodyPartLocation),
+): Result[EmailBlueprint, EmailBlueprintErrors] =
+  ## Collapses the three duplicate-trigger scenarios (top-level,
+  ## bodyStructure, body-part) into one factory. Returns the raw
+  ## ``Result`` so tests can assert on ``.isErr`` / ``.error`` payloads.
+  ## Callers for non-duplicate variants (text/html content-type,
+  ## allowed-form) build inputs directly — the ``else`` branch fires
+  ## ``raiseAssert`` on misuse (test-author error, not a domain concern).
+  discard loc ## reserved for future fine-grained BodyPartLocation targeting
+  case dupKind
+  of ebcEmailTopLevelHeaderDuplicate:
+    var extra = initTable[BlueprintEmailHeaderName, BlueprintHeaderMultiValue]()
+    extra[makeBlueprintEmailHeaderName(dupName)] = makeBhmvTextSingle()
+    parseEmailBlueprint(
+      mailboxIds = makeNonEmptyMailboxIdSet(),
+      fromAddr = Opt.some(@[makeEmailAddress()]),
+      extraHeaders = extra,
+    )
+  of ebcBodyStructureHeaderDuplicate:
+    # Root bodyStructure's extraHeaders duplicates a top-level name.
+    var rootExtra = initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue]()
+    rootExtra[makeBlueprintBodyHeaderName(dupName)] = makeBhmvTextSingle()
+    let root = makeBlueprintBodyPartMultipart(
+      subParts = @[makeBlueprintBodyPartInline()], extraHeaders = rootExtra
+    )
+    var topExtra = initTable[BlueprintEmailHeaderName, BlueprintHeaderMultiValue]()
+    topExtra[makeBlueprintEmailHeaderName(dupName)] = makeBhmvTextSingle()
+    parseEmailBlueprint(
+      mailboxIds = makeNonEmptyMailboxIdSet(),
+      body = structuredBody(root),
+      extraHeaders = topExtra,
+    )
+  of ebcBodyPartHeaderDuplicate:
+    # Body part's extraHeaders duplicates a domain field on the same part.
+    # "content-type" is always a domain header, guaranteeing a collision
+    # regardless of ``dupName``.
+    var partExtra = initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue]()
+    partExtra[makeBlueprintBodyHeaderName("content-type")] = makeBhmvTextSingle()
+    let leaf = makeBlueprintBodyPartInline(extraHeaders = partExtra)
+    parseEmailBlueprint(
+      mailboxIds = makeNonEmptyMailboxIdSet(),
+      body = flatBody(textBody = Opt.some(leaf)),
+    )
+  else:
+    raiseAssert "makeBlueprintWithDuplicateAt: unsupported dupKind " & $dupKind
+
+# I-13 -----------------------------------------------------------------------
+proc makeBodyPartLocationInline*(
+    partId = parsePartIdFromServer("1").get()
+): BodyPartLocation =
+  BodyPartLocation(kind: bplInline, partId: partId)
+
+proc makeBodyPartLocationBlobRef*(blobId = makeId("blob1")): BodyPartLocation =
+  BodyPartLocation(kind: bplBlobRef, blobId: blobId)
+
+proc makeBodyPartLocationMultipart*(
+    path: BodyPartPath = BodyPartPath(@[])
+): BodyPartLocation =
+  BodyPartLocation(kind: bplMultipart, path: path)
+
+# I-14 deferred to Step 18 (Phase 4) alongside toJson.
+
+# I-15 -----------------------------------------------------------------------
+proc makeBlueprintEmailHeaderMap*(
+    entries: seq[(BlueprintEmailHeaderName, BlueprintHeaderMultiValue)] = @[]
+): Table[BlueprintEmailHeaderName, BlueprintHeaderMultiValue] =
+  result = initTable[BlueprintEmailHeaderName, BlueprintHeaderMultiValue]()
+  for (k, v) in entries:
+    result[k] = v
+
+proc makeBlueprintBodyHeaderMap*(
+    entries: seq[(BlueprintBodyHeaderName, BlueprintHeaderMultiValue)] = @[]
+): Table[BlueprintBodyHeaderName, BlueprintHeaderMultiValue] =
+  result = initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue]()
+  for (k, v) in entries:
+    result[k] = v
+
+# I-16 -----------------------------------------------------------------------
+proc makeBodyPartPath*(s: seq[int] = @[]): BodyPartPath =
+  BodyPartPath(s)
+
+# I-17 -----------------------------------------------------------------------
+proc makeSpineBodyPart*(
+    depth: int = 3, leafKind: BodyPartLocationKind = bplInline
+): BlueprintBodyPart =
+  ## Deterministic spine: wraps ``depth`` multipart containers around a
+  ## single leaf. ``bplMultipart`` degenerates to ``bplInline`` at the
+  ## leaf level since leaves can't be multipart.
+  doAssert depth >= 0
+  result =
+    case leafKind
+    of bplInline:
+      makeBlueprintBodyPartInline()
+    of bplBlobRef:
+      makeBlueprintBodyPartBlobRef()
+    of bplMultipart:
+      makeBlueprintBodyPartInline()
+  for _ in 0 ..< depth:
+    result = makeBlueprintBodyPartMultipart(subParts = @[result])
+
+# I-18 -----------------------------------------------------------------------
+template withLocale*(locale: string, body: untyped) =
+  ## Sets LC_CTYPE and LC_ALL for the duration of ``body``, restoring
+  ## the prior values on exit. Used by locale-sensitive scenarios (e.g.
+  ## Turkish dotted-i round-trip).
+  let prevCtype = getEnv("LC_CTYPE")
+  let prevAll = getEnv("LC_ALL")
+  putEnv("LC_CTYPE", locale)
+  putEnv("LC_ALL", locale)
+  try:
+    body
+  finally:
+    putEnv("LC_CTYPE", prevCtype)
+    putEnv("LC_ALL", prevAll)
+
+# I-19 -----------------------------------------------------------------------
+proc adversarialHashCollisionNames*(n: int): seq[string] =
+  ## Produces ``n`` distinct strings whose ``std/hashes.hash(string)``
+  ## values coincide (or share a low-order-byte bucket) with the hash of
+  ## ``"hdos-0"``. Exact collision-set construction depends on the
+  ## runtime-randomised seed, so we brute-force-scan up to 1e6 candidates.
+  doAssert n >= 0
+  if n == 0:
+    return @[]
+  let target = hash("hdos-0")
+  result = @[]
+  var i = 0
+  while result.len < n and i < 1_000_000:
+    let s = "hdos-" & $i
+    if hash(s) == target or (hash(s) and 0xFF) == (target and 0xFF):
+      if s notin result:
+        result.add(s)
+    inc i
+  doAssert result.len == n, "insufficient hash collisions found"
