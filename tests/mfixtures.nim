@@ -1338,3 +1338,253 @@ proc adversarialHashCollisionNames*(n: int): seq[string] =
         result.add(s)
     inc i
   doAssert result.len == n, "insufficient hash collisions found"
+
+# ---------------------------------------------------------------------------
+# Mail Part E equality helpers
+# ---------------------------------------------------------------------------
+#
+# Defined in strict dependency order: each helper only references
+# helpers declared above it. The K-series numbering in the design doc
+# (§6.5.4) is preserved in the banner comments, but the source order
+# is K-6, K-8, K-3, K-5 helpers, K-5, K-4, K-1, K-2, K-9, K-7 meta,
+# K-7 so forward declarations are unnecessary.
+
+# K-6 ------------------------------------------------------------------------
+proc blueprintHeaderMultiValueEq*(a, b: BlueprintHeaderMultiValue): bool =
+  ## Case-object equality on the ``HeaderForm`` discriminant; each arm
+  ## compares the ``NonEmptySeq[T]`` via its borrowed ``==``.
+  if a.form != b.form:
+    return false
+  case a.form
+  of hfRaw:
+    a.rawValues == b.rawValues
+  of hfText:
+    a.textValues == b.textValues
+  of hfAddresses:
+    a.addressLists == b.addressLists
+  of hfGroupedAddresses:
+    a.groupLists == b.groupLists
+  of hfMessageIds:
+    a.messageIdLists == b.messageIdLists
+  of hfDate:
+    a.dateValues == b.dateValues
+  of hfUrls:
+    a.urlLists == b.urlLists
+
+# K-8 ------------------------------------------------------------------------
+proc nonEmptyMailboxIdSetEq*(a, b: NonEmptyMailboxIdSet): bool =
+  ## Unwraps the distinct ``HashSet[Id]`` — ``==`` is intentionally not
+  ## borrowed at the type level (``defineHashSetDistinctOps`` omits it).
+  HashSet[Id](a) == HashSet[Id](b)
+
+# K-3 ------------------------------------------------------------------------
+proc bodyPartLocationEq*(a, b: BodyPartLocation): bool =
+  ## Discriminant first, then variant-specific identifier field.
+  ## ``path`` comparison uses the borrowed ``==`` on ``BodyPartPath``.
+  if a.kind != b.kind:
+    return false
+  case a.kind
+  of bplInline:
+    a.partId == b.partId
+  of bplBlobRef:
+    a.blobId == b.blobId
+  of bplMultipart:
+    a.path == b.path
+
+# K-5 sub-helpers ------------------------------------------------------------
+
+proc blueprintBodyExtraHeadersEq(
+    a, b: Table[BlueprintBodyHeaderName, BlueprintHeaderMultiValue]
+): bool =
+  ## Value-level Table equality: names must match, values compared via K-6.
+  if a.len != b.len:
+    return false
+  for k, v in a:
+    if k notin b:
+      return false
+    if not blueprintHeaderMultiValueEq(v, b[k]):
+      return false
+  true
+
+proc blueprintBodyPartCoreFieldsEq(a, b: BlueprintBodyPart): bool =
+  ## Shared-field group: contentType, isMultipart discriminant, and
+  ## extraHeaders table. Kept under the complexity budget by pulling
+  ## these out of the recursive helper.
+  a.contentType == b.contentType and a.isMultipart == b.isMultipart and
+    blueprintBodyExtraHeadersEq(a.extraHeaders, b.extraHeaders)
+
+proc blueprintBodyPartOptFieldsEq(a, b: BlueprintBodyPart): bool =
+  ## Optional-field group: MIME metadata fields present on both variants.
+  a.name == b.name and a.disposition == b.disposition and a.cid == b.cid and
+    a.language == b.language and a.location == b.location
+
+proc blueprintBodyPartLeafEq(a, b: BlueprintBodyPart): bool =
+  ## Leaf variant equality: ``source`` discriminant plus the
+  ## variant-specific identifier fields.
+  if a.source != b.source:
+    return false
+  case a.source
+  of bpsInline:
+    a.partId == b.partId and a.value == b.value
+  of bpsBlobRef:
+    a.blobId == b.blobId and a.size == b.size and a.charset == b.charset
+
+# K-5 ------------------------------------------------------------------------
+proc blueprintBodyPartEq*(a, b: BlueprintBodyPart): bool =
+  ## Recursive case-object equality. Delegates shared fields to the two
+  ## sub-helpers and leaf variants to ``blueprintBodyPartLeafEq``,
+  ## keeping each helper under the nimalyzer complexity budget.
+  if not blueprintBodyPartCoreFieldsEq(a, b):
+    return false
+  if not blueprintBodyPartOptFieldsEq(a, b):
+    return false
+  if a.isMultipart:
+    if a.subParts.len != b.subParts.len:
+      return false
+    for i in 0 ..< a.subParts.len:
+      if not blueprintBodyPartEq(a.subParts[i], b.subParts[i]):
+        return false
+    true
+  else:
+    blueprintBodyPartLeafEq(a, b)
+
+# K-4 sub-helpers ------------------------------------------------------------
+
+proc flatTextBodyEq(a, b: EmailBlueprintBody): bool =
+  ## ``ebkFlat`` textBody slot equality — both ``isSome``-parity and
+  ## (when both populated) the leaf comparison.
+  if a.textBody.isSome != b.textBody.isSome:
+    return false
+  for ta in a.textBody:
+    for tb in b.textBody:
+      if not blueprintBodyPartEq(ta, tb):
+        return false
+  true
+
+proc flatHtmlBodyEq(a, b: EmailBlueprintBody): bool =
+  ## ``ebkFlat`` htmlBody slot equality.
+  if a.htmlBody.isSome != b.htmlBody.isSome:
+    return false
+  for ha in a.htmlBody:
+    for hb in b.htmlBody:
+      if not blueprintBodyPartEq(ha, hb):
+        return false
+  true
+
+proc flatAttachmentsEq(a, b: EmailBlueprintBody): bool =
+  ## ``ebkFlat`` attachments slot equality — element-wise.
+  if a.attachments.len != b.attachments.len:
+    return false
+  for i in 0 ..< a.attachments.len:
+    if not blueprintBodyPartEq(a.attachments[i], b.attachments[i]):
+      return false
+  true
+
+proc flatBodyPartsEq(a, b: EmailBlueprintBody): bool =
+  ## ``ebkFlat`` variant equality — composes the three slot helpers.
+  flatTextBodyEq(a, b) and flatHtmlBodyEq(a, b) and flatAttachmentsEq(a, b)
+
+# K-4 ------------------------------------------------------------------------
+proc emailBlueprintBodyEq*(a, b: EmailBlueprintBody): bool =
+  ## Case-object equality on the ``EmailBodyKind`` discriminant.
+  if a.kind != b.kind:
+    return false
+  case a.kind
+  of ebkStructured:
+    blueprintBodyPartEq(a.bodyStructure, b.bodyStructure)
+  of ebkFlat:
+    flatBodyPartsEq(a, b)
+
+# K-1 ------------------------------------------------------------------------
+proc emailBlueprintErrorEq*(a, b: EmailBlueprintError): bool =
+  ## Case-object equality on the constraint enum. ``where`` delegates
+  ## to K-3 (``bodyPartLocationEq``).
+  if a.constraint != b.constraint:
+    return false
+  case a.constraint
+  of ebcEmailTopLevelHeaderDuplicate:
+    a.dupName == b.dupName
+  of ebcBodyStructureHeaderDuplicate:
+    a.bodyStructureDupName == b.bodyStructureDupName
+  of ebcBodyPartHeaderDuplicate:
+    a.bodyPartDupName == b.bodyPartDupName and bodyPartLocationEq(a.where, b.where)
+  of ebcTextBodyNotTextPlain:
+    a.actualTextType == b.actualTextType
+  of ebcHtmlBodyNotTextHtml:
+    a.actualHtmlType == b.actualHtmlType
+  of ebcAllowedFormRejected:
+    a.rejectedName == b.rejectedName and a.rejectedForm == b.rejectedForm
+
+# K-2 ------------------------------------------------------------------------
+proc emailBlueprintErrorsSetEq*(a, b: EmailBlueprintErrors): bool =
+  ## Multiset equality — order-insensitive, duplicate-sensitive. Used
+  ## for variant-coverage scenarios where emission order is incidental
+  ## (e.g., design scenarios 7i, 101, 101a-c).
+  if a.len != b.len:
+    return false
+  var bUsed = newSeq[bool](b.len)
+  for x in a:
+    var found = false
+    for j in 0 ..< b.len:
+      if not bUsed[j] and emailBlueprintErrorEq(x, b[j]):
+        bUsed[j] = true
+        found = true
+        break
+    if not found:
+      return false
+  true
+
+# K-9 ------------------------------------------------------------------------
+proc emailBlueprintErrorsOrderedEq*(a, b: EmailBlueprintErrors): bool =
+  ## Element-wise, order-sensitive. Contrast with K-2: used for the
+  ## error-ordering determinism property (scenario 94) where the order
+  ## of emission IS the thing being verified.
+  if a.len != b.len:
+    return false
+  for i in 0 ..< a.len:
+    if not emailBlueprintErrorEq(a[i], b[i]):
+      return false
+  true
+
+# K-7 sub-helpers ------------------------------------------------------------
+
+proc blueprintTopExtraHeadersEq(
+    a, b: Table[BlueprintEmailHeaderName, BlueprintHeaderMultiValue]
+): bool =
+  ## Value-level Table equality at the top-level (email) header-name axis.
+  if a.len != b.len:
+    return false
+  for k, v in a:
+    if k notin b:
+      return false
+    if not blueprintHeaderMultiValueEq(v, b[k]):
+      return false
+  true
+
+proc blueprintAddrFieldsEq(a, b: EmailBlueprint): bool =
+  ## Six RFC 5322 address convenience fields.
+  a.fromAddr == b.fromAddr and a.to == b.to and a.cc == b.cc and a.bcc == b.bcc and
+    a.replyTo == b.replyTo and a.sender == b.sender
+
+proc blueprintScalarFieldsEq(a, b: EmailBlueprint): bool =
+  ## Five non-address convenience fields.
+  a.subject == b.subject and a.sentAt == b.sentAt and a.messageId == b.messageId and
+    a.inReplyTo == b.inReplyTo and a.references == b.references
+
+proc emailBlueprintMetadataEq(a, b: EmailBlueprint): bool =
+  ## Mailbox set, keywords set, receivedAt, and the eleven convenience
+  ## fields. Uses UFCS accessors throughout because the ``raw*`` fields
+  ## are module-private to ``email_blueprint.nim``. Keywords compared
+  ## via HashSet-unwrap since ``KeywordSet`` has no ``==`` by design.
+  nonEmptyMailboxIdSetEq(a.mailboxIds, b.mailboxIds) and
+    HashSet[Keyword](a.keywords) == HashSet[Keyword](b.keywords) and
+    a.receivedAt == b.receivedAt and blueprintAddrFieldsEq(a, b) and
+    blueprintScalarFieldsEq(a, b)
+
+# K-7 ------------------------------------------------------------------------
+proc emailBlueprintEq*(a, b: EmailBlueprint): bool =
+  ## Deep structural equality. Decomposes into metadata, body, and
+  ## top-level extraHeaders groups so each sub-helper stays under the
+  ## nimalyzer complexity budget — same precedent as ``emailEq`` above.
+  emailBlueprintMetadataEq(a, b) and emailBlueprintBodyEq(a.body, b.body) and
+    blueprintTopExtraHeadersEq(a.extraHeaders, b.extraHeaders)
