@@ -230,3 +230,61 @@ func parseUtcDate*(raw: string): Result[UTCDate, ValidationError] =
     return err(validationError("UTCDate", "time-offset must be 'Z'", raw))
   doAssert raw[^1] == 'Z'
   return ok(UTCDate(raw))
+
+# =============================================================================
+# NonEmptySeq[T]
+# =============================================================================
+
+type NonEmptySeq*[T] = distinct seq[T]
+  ## A sequence guaranteed to contain at least one element. Construction is
+  ## gated by parseNonEmptySeq; mutating operations (add, setLen, del) are
+  ## deliberately not borrowed to preserve the non-empty invariant at the
+  ## type level (Part E §4.6).
+
+template defineNonEmptySeqOps*(T: typedesc) =
+  ## Borrows the read-only operations legitimate for NonEmptySeq[T].
+  ## Mirrors defineStringDistinctOps / defineHashSetDistinctOps: each
+  ## element type T invokes this template once. Mutating ops intentionally
+  ## absent — they would violate the non-empty invariant.
+  func `==`*(a, b: NonEmptySeq[T]): bool {.borrow.}
+    ## Equality delegated to the underlying seq.
+  func `$`*(a: NonEmptySeq[T]): string {.borrow.}
+    ## String representation delegated to the underlying seq.
+  func hash*(a: NonEmptySeq[T]): Hash {.borrow.} ## Hash delegated to the underlying seq.
+  func len*(a: NonEmptySeq[T]): int {.borrow.}
+    ## Length delegated to the underlying seq (always at least 1).
+  func `[]`*(a: NonEmptySeq[T], i: Natural): lent T =
+    ## Indexed access; explicit unwrap because ``seq[T].[]`` is the compiler
+    ## magic ``ArrGet`` (system.nim) whose declared signature uses ``T`` for
+    ## the container, which ``{.borrow.}`` cannot reconcile with the
+    ## element-``T`` here. Same workaround as ``defineHashSetDistinctOps``'s
+    ## explicit-body ``contains`` (validation.nim).
+    seq[T](a)[i]
+  func contains*(a: NonEmptySeq[T], x: T): bool =
+    ## Membership test; explicit body because ``{.borrow.}`` unwraps both
+    ## distinct types — when ``T`` is itself distinct (e.g. ``Date``), the
+    ## borrow's ``x`` collapses to the underlying type and the call no
+    ## longer matches ``seq[T].contains``. Same workaround as
+    ## ``defineHashSetDistinctOps``'s ``contains`` (validation.nim).
+    system.contains(seq[T](a), x)
+  iterator items*(a: NonEmptySeq[T]): T =
+    ## Yields each element. Unwraps the distinct type to iterate the
+    ## underlying seq.
+    for x in seq[T](a):
+      yield x
+
+  iterator pairs*(a: NonEmptySeq[T]): (int, T) =
+    ## Yields (index, element) tuples. Order matches the underlying seq.
+    for p in pairs(seq[T](a)):
+      yield p
+
+func parseNonEmptySeq*[T](s: seq[T]): Result[NonEmptySeq[T], ValidationError] =
+  ## Strict: rejects empty input on the error rail. The typeName field on
+  ## the returned ValidationError is "NonEmptySeq" (not parametrised on T,
+  ## matching the codebase convention for identifying the failing distinct
+  ## type family).
+  if s.len == 0:
+    return err(validationError("NonEmptySeq", "must not be empty", ""))
+  let nes = NonEmptySeq[T](s)
+  doAssert seq[T](nes).len > 0
+  return ok(nes)

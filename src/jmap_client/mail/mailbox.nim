@@ -49,8 +49,14 @@ const
   roleSubscriptions* = MailboxRole("subscriptions") ## RFC 8621 well-known role.
 
 # =============================================================================
-# MailboxIdSet
+# Mailbox ID Collections
 # =============================================================================
+#
+# Two parallel types with different invariants, kept side-by-side so the
+# "same shape, different contract" relationship is structurally visible
+# (Part E §4.2.3, Decision E15).
+
+# 1. MailboxIdSet — general-purpose, empty allowed (read models, Decision B4)
 
 type MailboxIdSet* = distinct HashSet[Id]
   ## Immutable set of mailbox identifiers. Read-only operations only — no
@@ -72,6 +78,31 @@ iterator items*(ms: MailboxIdSet): Id =
   ## the underlying HashSet.
   for id in HashSet[Id](ms):
     yield id
+
+# 2. NonEmptyMailboxIdSet — creation-context, at-least-one enforced (Part E §4.2)
+
+type NonEmptyMailboxIdSet* = distinct HashSet[Id]
+  ## Non-empty set of mailbox identifiers for client-constructed email
+  ## creation payloads. Construction is gated by parseNonEmptyMailboxIdSet;
+  ## mutating operations (incl, excl) are deliberately not borrowed — they
+  ## would violate the at-least-one invariant. Consumed by parseEmailBlueprint
+  ## (Phase 3 Step 11) as the typed mailboxIds parameter.
+
+defineNonEmptyHashSetDistinctOps(NonEmptyMailboxIdSet, Id)
+
+func parseNonEmptyMailboxIdSet*(
+    ids: openArray[Id]
+): Result[NonEmptyMailboxIdSet, ValidationError] =
+  ## Strict: requires at least one identifier. Duplicates are deduplicated
+  ## by the underlying HashSet. Returns err on empty input.
+  if ids.len == 0:
+    return err(validationError("NonEmptyMailboxIdSet", "must not be empty", ""))
+  var hs = initHashSet[Id](ids.len)
+  for id in ids:
+    hs.incl(id)
+  let nems = NonEmptyMailboxIdSet(hs)
+  doAssert HashSet[Id](nems).len > 0
+  return ok(nems)
 
 # =============================================================================
 # MailboxRights

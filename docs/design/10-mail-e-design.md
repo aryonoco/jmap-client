@@ -1089,11 +1089,15 @@ level.
 type NonEmptyMailboxIdSet* = distinct HashSet[Id]
 ```
 
-Borrowed read-only operations (`==`, `$`, `hash`, `items`, `len`,
-`contains`, `iterator pairs`) via `defineHashSetDistinctOps(NonEmptyMailboxIdSet)`
+Borrowed read-only operations (`==`, `$`, `items`, `len`, `contains`,
+`iterator pairs`) via `defineNonEmptyHashSetDistinctOps(NonEmptyMailboxIdSet, Id)`
 (a template parallel to `defineStringDistinctOps` from
 `primitives.nim`). Mutating operations (`incl`, `excl`) are deliberately
-not borrowed — mutation could violate the non-empty invariant.
+not borrowed — mutation could violate the non-empty invariant. `hash`
+is also absent: stdlib `HashSet.hash` reads `result` before initialising
+it, which fails the project's `strictDefs` + `Uninit`-as-error under
+`{.borrow.}`. The domain has no concrete use for `NonEmptyMailboxIdSet`
+as a Table key, so Decision B3's rationale applies.
 
 #### 4.2.2. Smart Constructor
 
@@ -1140,7 +1144,7 @@ func initMailboxIdSet*(...) ...
 
 # 2. NonEmptyMailboxIdSet — creation-context, at-least-one enforced
 type NonEmptyMailboxIdSet* = distinct HashSet[Id]
-defineHashSetDistinctOps(NonEmptyMailboxIdSet)
+defineNonEmptyHashSetDistinctOps(NonEmptyMailboxIdSet, Id)
 func parseNonEmptyMailboxIdSet*(...) ...
 ```
 
@@ -1970,7 +1974,7 @@ after ASCII lowercase normalisation.
 | 30 | Wire-format / colon rejection table: `parseBlueprintEmailHeaderName("header:X-Custom:asText")`, `parseBlueprintEmailHeaderName("X:Custom")` | Both `err` — colon is not valid in RFC 5322 `ftext`. Callers with wire strings use `parseHeaderPropertyName` (Part C §2.3) and pass `.name` |
 | 31 | Character-validation rejection table (one byte per row): `""`, `"X-Has Space"` (0x20), `"X-Has\tTab"` (0x09), `"X-Del\x7F"` (DEL), `"X-\x00NUL"` (NUL), `"X-UTF8-\xC3\xA9"` (high byte) | All `err` — consolidates 31/31a/31b/31c/31d as a table-driven scenario |
 | 32 | Prefix-boundary table: `parseBlueprintEmailHeaderName("Content")` (no hyphen), `"contents"` (no hyphen after prefix), `"content-"` (minimum forbidden value) | First two `ok`, third `err` — pins the `startsWith("content-")` check exactly |
-| 32a | `parseBlueprintEmailHeaderName` iterated over every byte 0..255 in position 0 and in the middle of a 10-char name | `ok` iff byte ∈ {0x21..0x7E}; `err` otherwise. Exactly 94 accepted bytes per position, 162 rejected — pins the printable-ASCII predicate against off-by-one errors on 0x20 / 0x7F (adversarial boundary per A-11) |
+| 32a | `parseBlueprintEmailHeaderName` iterated over every byte 0..255 in position 0 and in the middle of a 10-char name | `ok` iff byte ∈ {0x21..0x7E} \ {0x3A}; `err` otherwise. Exactly 93 accepted bytes per position, 163 rejected (printable-ASCII minus the colon, which is rejected by the separate no-colon rule) — pins the predicate composition against off-by-one errors on 0x20 / 0x7F (adversarial boundary per A-11) |
 | 32c | `assertNotCompiles parseBlueprintEmailHeaderNameFromServer("X-Custom")` (and the symmetric body variant) | Does not compile — pins the **strict-only** naming commitment: no lenient server-side sibling exists for either blueprint header-name type. The creation vocabulary is unidirectional (R1-3); Postel's-law lenient parsing is for read-model types only (§1.4). A future accidental add of a `*FromServer` parser would open a second construction path through the creation aggregate, violating "constructors are privileges, not rights." |
 
 #### 6.1.5. `BlueprintBodyHeaderName` (scenarios 33–37b)

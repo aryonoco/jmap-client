@@ -3,6 +3,7 @@
 
 ## Tests for Id, UnsignedInt, JmapInt, Date, and UTCDate smart constructors.
 
+import std/hashes
 import std/strutils
 
 import jmap_client/primitives
@@ -661,3 +662,37 @@ block parseMaxChangesBorrowedOps:
   let b = parseMaxChanges(parseUnsignedInt(10).get()).get()
   doAssert a == b
   doAssert $a == "10"
+
+# ============= J. NonEmptySeq[T] (Part E §6.1.5b scenarios 37i–37l) =============
+
+# primitives.nim deliberately leaves op-set instantiation to the consumer, so
+# NonEmptySeq[int] must be opted in here before the scenarios below can
+# exercise `==`, `[]`, `hash`, `len`, and iteration on that element type.
+defineNonEmptySeqOps(int)
+
+block parseNonEmptySeqBasic: # §6.1.5b scenario 37i
+  let res = parseNonEmptySeq(@[1, 2, 3])
+  assertOk res
+  let ne = res.get()
+  assertLen ne, 3
+  assertEq ne[0], 1
+  assertEq ne[2], 3
+  var collected: seq[int] = @[]
+  for x in ne:
+    collected.add(x)
+  assertEq collected, @[1, 2, 3]
+
+block parseNonEmptySeqEmptyRejected: # §6.1.5b scenario 37j
+  assertErrFields parseNonEmptySeq[string](@[]), "NonEmptySeq", "must not be empty", ""
+
+block parseNonEmptySeqEqualityAndHash: # §6.1.5b scenario 37k
+  let a = parseNonEmptySeq(@[1, 2, 3]).get()
+  let b = parseNonEmptySeq(@[1, 2, 3]).get()
+  assertEq a, b
+  assertEq hash(a), hash(b)
+
+block parseNonEmptySeqMutabilityGuard: # §6.1.5b scenario 37l
+  let ne = parseNonEmptySeq(@[1, 2]).get()
+  assertNotCompiles ne.add(3)
+  assertNotCompiles ne.setLen(0)
+  assertNotCompiles ne.del(0)

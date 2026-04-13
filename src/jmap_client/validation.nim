@@ -69,6 +69,34 @@ template defineHashSetDistinctOps*(T: typedesc, E: typedesc) =
     sets.contains(HashSet[E](s), e)
   func card*(s: T): int {.borrow.} ## Cardinality delegated to the underlying HashSet.
 
+template defineNonEmptyHashSetDistinctOps*(T, E: typedesc) =
+  ## Creation-context hashset ops. Composes the read-model base template
+  ## and adds the operations legitimate when the set is client-constructed
+  ## and carries a non-empty invariant. Kept distinct from
+  ## defineHashSetDistinctOps so Decision B3 (no ``==`` on read-model
+  ## sets) is preserved for the base case; creation-context types opt in
+  ## to the richer op set explicitly. ``hash`` is deliberately absent —
+  ## stdlib ``HashSet.hash`` reads ``result`` before initialising it,
+  ## which fails ``strictDefs`` + ``Uninit``-as-error under ``{.borrow.}``.
+  ## The domain has no use for a non-empty mailbox-id set as a Table key.
+  defineHashSetDistinctOps(T, E) # inherits: len, contains, card
+  func `==`*(a, b: T): bool {.borrow.} ## Equality delegated to the underlying HashSet.
+  func `$`*(a: T): string {.borrow.}
+    ## String representation delegated to the underlying HashSet.
+  iterator items*(s: T): E =
+    ## Yields each element. Unwraps the distinct type to iterate the
+    ## underlying HashSet.
+    for e in HashSet[E](s):
+      yield e
+
+  iterator pairs*(s: T): (int, E) =
+    ## Yields (index, element) tuples. HashSet ordering is not defined;
+    ## the index is a monotonic enumeration counter, not a stable position.
+    var i = 0
+    for e in HashSet[E](s):
+      yield (i, e)
+      inc i
+
 func validateServerAssignedToken*(
     typeName: string, raw: string
 ): Result[void, ValidationError] =

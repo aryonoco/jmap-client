@@ -233,3 +233,239 @@ func validateHeaderForm*(
       )
     )
   return ok(key)
+
+# =============================================================================
+# Creation-Model Header Vocabulary (RFC 8621 §4.6 / Design §4.3–4.5, §5.3)
+# =============================================================================
+# Unidirectional client-to-server vocabulary used by ``EmailBlueprint``
+# (top-level ``extraHeaders``) and ``BlueprintBodyPart`` (body-part
+# ``extraHeaders``). Parallel to the query vocabulary above
+# (``HeaderPropertyKey`` / ``HeaderValue``) but with two intentional
+# asymmetries: (a) no ``*FromServer`` lenient sibling — the server never
+# sends these back; (b) name-only Table key identity with the form living
+# on the paired value (``BlueprintHeaderMultiValue``), so intra-Table
+# duplicates are structurally impossible.
+
+# =============================================================================
+# BlueprintEmailHeaderName (Design §4.3)
+# =============================================================================
+
+type BlueprintEmailHeaderName* = distinct string
+  ## Lowercase-normalised header name for ``EmailBlueprint.extraHeaders``.
+  ## Construct via ``parseBlueprintEmailHeaderName``. Forbids names
+  ## starting with ``content-`` (RFC 8621 §4.6 constraint 4 — the
+  ## Content-* family is managed by JMAP itself). Identity is name-only.
+
+defineStringDistinctOps(BlueprintEmailHeaderName)
+
+func parseBlueprintEmailHeaderName*(
+    name: string
+): Result[BlueprintEmailHeaderName, ValidationError] =
+  ## Strict smart constructor (client-constructed data). Rejects empty
+  ## input, bytes outside 0x21..0x7E (non-printable ASCII), colon
+  ## (RFC 5322 §3.6.8 ftext), and names starting with ``content-`` after
+  ## lowercase normalisation. No ``*FromServer`` sibling: creation-model
+  ## vocabulary is unidirectional (R1-3, §5.3 E28).
+  if name.len == 0:
+    return
+      err(validationError("BlueprintEmailHeaderName", "name must not be empty", name))
+  for ch in name:
+    if ch notin {'\x21' .. '\x7E'}:
+      return err(
+        validationError(
+          "BlueprintEmailHeaderName", "name contains non-printable byte", name
+        )
+      )
+  if ':' in name:
+    return err(
+      validationError("BlueprintEmailHeaderName", "name must not contain a colon", name)
+    )
+  let normalised = name.toLowerAscii()
+  if normalised.startsWith("content-"):
+    return err(
+      validationError(
+        "BlueprintEmailHeaderName", "name must not start with 'content-'", name
+      )
+    )
+  let hn = BlueprintEmailHeaderName(normalised)
+  doAssert hn.len > 0
+  doAssert not string(hn).startsWith("content-")
+  return ok(hn)
+
+# =============================================================================
+# BlueprintBodyHeaderName (Design §4.4)
+# =============================================================================
+
+type BlueprintBodyHeaderName* = distinct string
+  ## Lowercase-normalised header name for ``BlueprintBodyPart.extraHeaders``.
+  ## Construct via ``parseBlueprintBodyHeaderName``. Forbids only the
+  ## exact name ``content-transfer-encoding`` (RFC 8621 §4.6 constraint 9
+  ## — JMAP chooses the encoding); other ``Content-*`` headers are
+  ## permitted on body parts. Identity is name-only.
+
+defineStringDistinctOps(BlueprintBodyHeaderName)
+
+func parseBlueprintBodyHeaderName*(
+    name: string
+): Result[BlueprintBodyHeaderName, ValidationError] =
+  ## Strict smart constructor (client-constructed data). Rejects empty
+  ## input, bytes outside 0x21..0x7E (non-printable ASCII), colon
+  ## (RFC 5322 §3.6.8 ftext), and the exact lowercase name
+  ## ``content-transfer-encoding``. No ``*FromServer`` sibling.
+  if name.len == 0:
+    return
+      err(validationError("BlueprintBodyHeaderName", "name must not be empty", name))
+  for ch in name:
+    if ch notin {'\x21' .. '\x7E'}:
+      return err(
+        validationError(
+          "BlueprintBodyHeaderName", "name contains non-printable byte", name
+        )
+      )
+  if ':' in name:
+    return err(
+      validationError("BlueprintBodyHeaderName", "name must not contain a colon", name)
+    )
+  let normalised = name.toLowerAscii()
+  if normalised == "content-transfer-encoding":
+    return err(
+      validationError(
+        "BlueprintBodyHeaderName", "name must not be 'content-transfer-encoding'", name
+      )
+    )
+  let hn = BlueprintBodyHeaderName(normalised)
+  doAssert hn.len > 0
+  doAssert string(hn) != "content-transfer-encoding"
+  return ok(hn)
+
+# =============================================================================
+# NonEmptySeq op-template instantiations (Design §4.5.1 / §4.6)
+# =============================================================================
+# Five instantiations cover the seven BlueprintHeaderMultiValue variants —
+# ``string`` backs hfRaw+hfText, ``seq[string]`` backs hfMessageIds+hfUrls.
+# Instantiated at the consumer module (mirrors mailbox.nim's treatment of
+# ``defineNonEmptyHashSetDistinctOps``) to keep the creation vocabulary
+# self-contained.
+
+defineNonEmptySeqOps(string)
+defineNonEmptySeqOps(Date)
+defineNonEmptySeqOps(seq[EmailAddress])
+defineNonEmptySeqOps(seq[EmailAddressGroup])
+defineNonEmptySeqOps(seq[string])
+
+# =============================================================================
+# BlueprintHeaderMultiValue (Design §4.5.1)
+# =============================================================================
+
+type BlueprintHeaderMultiValue* {.ruleOff: "objects".} = object
+  ## One or more values for a single header field, all sharing one parsed
+  ## form (RFC 8621 §4.1.2). The case discriminant enforces form
+  ## uniformity; ``NonEmptySeq[T]`` enforces at-least-one-value. This type
+  ## has no standalone wire identity — wire-key composition
+  ## (``"header:<name>:as<Form>[:all]"``) lives at the consumer aggregate
+  ## (Design §4.5.3 — ``EmailBlueprint.toJson``, ``BlueprintBodyPart.toJson``).
+  case form*: HeaderForm
+  of hfRaw: rawValues*: NonEmptySeq[string]
+  of hfText: textValues*: NonEmptySeq[string]
+  of hfAddresses: addressLists*: NonEmptySeq[seq[EmailAddress]]
+  of hfGroupedAddresses: groupLists*: NonEmptySeq[seq[EmailAddressGroup]]
+  of hfMessageIds: messageIdLists*: NonEmptySeq[seq[string]]
+  of hfDate: dateValues*: NonEmptySeq[Date]
+  of hfUrls: urlLists*: NonEmptySeq[seq[string]]
+
+# =============================================================================
+# BlueprintHeaderMultiValue — *Multi constructors (Design §4.5.2)
+# =============================================================================
+# One helper per ``HeaderForm`` variant. Each delegates to
+# ``parseNonEmptySeq`` for the non-empty invariant, then constructs the
+# corresponding case variant.
+
+func rawMulti*(
+    values: seq[string]
+): Result[BlueprintHeaderMultiValue, ValidationError] =
+  ## Constructs a ``hfRaw`` multi-value. Errs if ``values`` is empty.
+  let ne = ?parseNonEmptySeq(values)
+  return ok(BlueprintHeaderMultiValue(form: hfRaw, rawValues: ne))
+
+func textMulti*(
+    values: seq[string]
+): Result[BlueprintHeaderMultiValue, ValidationError] =
+  ## Constructs a ``hfText`` multi-value. Errs if ``values`` is empty.
+  let ne = ?parseNonEmptySeq(values)
+  return ok(BlueprintHeaderMultiValue(form: hfText, textValues: ne))
+
+func addressesMulti*(
+    values: seq[seq[EmailAddress]]
+): Result[BlueprintHeaderMultiValue, ValidationError] =
+  ## Constructs an ``hfAddresses`` multi-value. Errs if ``values`` is empty.
+  let ne = ?parseNonEmptySeq(values)
+  return ok(BlueprintHeaderMultiValue(form: hfAddresses, addressLists: ne))
+
+func groupedAddressesMulti*(
+    values: seq[seq[EmailAddressGroup]]
+): Result[BlueprintHeaderMultiValue, ValidationError] =
+  ## Constructs an ``hfGroupedAddresses`` multi-value. Errs if ``values``
+  ## is empty.
+  let ne = ?parseNonEmptySeq(values)
+  return ok(BlueprintHeaderMultiValue(form: hfGroupedAddresses, groupLists: ne))
+
+func messageIdsMulti*(
+    values: seq[seq[string]]
+): Result[BlueprintHeaderMultiValue, ValidationError] =
+  ## Constructs an ``hfMessageIds`` multi-value. Errs if ``values`` is empty.
+  let ne = ?parseNonEmptySeq(values)
+  return ok(BlueprintHeaderMultiValue(form: hfMessageIds, messageIdLists: ne))
+
+func dateMulti*(values: seq[Date]): Result[BlueprintHeaderMultiValue, ValidationError] =
+  ## Constructs a ``hfDate`` multi-value. Errs if ``values`` is empty.
+  let ne = ?parseNonEmptySeq(values)
+  return ok(BlueprintHeaderMultiValue(form: hfDate, dateValues: ne))
+
+func urlsMulti*(
+    values: seq[seq[string]]
+): Result[BlueprintHeaderMultiValue, ValidationError] =
+  ## Constructs an ``hfUrls`` multi-value. Errs if ``values`` is empty.
+  let ne = ?parseNonEmptySeq(values)
+  return ok(BlueprintHeaderMultiValue(form: hfUrls, urlLists: ne))
+
+# =============================================================================
+# BlueprintHeaderMultiValue — *Single constructors (Design §4.5.2)
+# =============================================================================
+# Zero-ceremony constructors for the common single-value case. ``@[value]``
+# is statically non-empty, so we take the direct distinct-coercion path
+# equivalent to ``parseNonEmptySeq``'s post-validation construction —
+# avoiding ``raises:[]``-incompatible ``.tryGet`` ceremony.
+
+func rawSingle*(value: string): BlueprintHeaderMultiValue =
+  ## Constructs a ``hfRaw`` single-value.
+  BlueprintHeaderMultiValue(form: hfRaw, rawValues: NonEmptySeq[string](@[value]))
+
+func textSingle*(value: string): BlueprintHeaderMultiValue =
+  ## Constructs a ``hfText`` single-value.
+  BlueprintHeaderMultiValue(form: hfText, textValues: NonEmptySeq[string](@[value]))
+
+func addressesSingle*(value: seq[EmailAddress]): BlueprintHeaderMultiValue =
+  ## Constructs an ``hfAddresses`` single-value carrying one address list.
+  BlueprintHeaderMultiValue(
+    form: hfAddresses, addressLists: NonEmptySeq[seq[EmailAddress]](@[value])
+  )
+
+func groupedAddressesSingle*(value: seq[EmailAddressGroup]): BlueprintHeaderMultiValue =
+  ## Constructs an ``hfGroupedAddresses`` single-value carrying one group list.
+  BlueprintHeaderMultiValue(
+    form: hfGroupedAddresses, groupLists: NonEmptySeq[seq[EmailAddressGroup]](@[value])
+  )
+
+func messageIdsSingle*(value: seq[string]): BlueprintHeaderMultiValue =
+  ## Constructs an ``hfMessageIds`` single-value carrying one message-id list.
+  BlueprintHeaderMultiValue(
+    form: hfMessageIds, messageIdLists: NonEmptySeq[seq[string]](@[value])
+  )
+
+func dateSingle*(value: Date): BlueprintHeaderMultiValue =
+  ## Constructs a ``hfDate`` single-value.
+  BlueprintHeaderMultiValue(form: hfDate, dateValues: NonEmptySeq[Date](@[value]))
+
+func urlsSingle*(value: seq[string]): BlueprintHeaderMultiValue =
+  ## Constructs an ``hfUrls`` single-value carrying one URL list.
+  BlueprintHeaderMultiValue(form: hfUrls, urlLists: NonEmptySeq[seq[string]](@[value]))

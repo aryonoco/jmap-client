@@ -137,3 +137,21 @@ func toJson*(v: HeaderValue): JsonNode =
         arr.add(%u)
       return arr
     return newJNull()
+
+# =============================================================================
+# BlueprintEmailHeaderName (Design §4.3.3)
+# =============================================================================
+# Distinct-string wire projection: ``toJson`` emits the wrapped lowercase
+# name; ``fromJson`` routes through the strict smart constructor. The
+# wire-key composition (``"header:<name>:as<Form>[:all]"``) is performed
+# at the consumer aggregate (``EmailBlueprint.toJson``), not here.
+
+defineDistinctStringToJson(BlueprintEmailHeaderName)
+defineDistinctStringFromJson(BlueprintEmailHeaderName, parseBlueprintEmailHeaderName)
+
+# =============================================================================
+# BlueprintBodyHeaderName (Design §4.4.3)
+# =============================================================================
+
+defineDistinctStringToJson(BlueprintBodyHeaderName)
+defineDistinctStringFromJson(BlueprintBodyHeaderName, parseBlueprintBodyHeaderName)

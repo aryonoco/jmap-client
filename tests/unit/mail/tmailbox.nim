@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: BSD-2-Clause
 # Copyright (c) 2026 Aryan Ameri
 
-## Unit tests for Mailbox types (scenarios 23-27, 30-31, 50-52).
+## Unit tests for Mailbox types (scenarios 23-27, 30-31, 50-52;
+## Part E §6.1.3 scenarios 24-27a).
 
 {.push raises: [].}
 
@@ -84,3 +85,38 @@ block parseMailboxCreateAllFields: # scenario 51
 
 block parseMailboxCreateEmptyName: # scenario 52
   assertErrFields parseMailboxCreate(""), "MailboxCreate", "name must not be empty", ""
+
+# ============= D. NonEmptyMailboxIdSet (Part E §6.1.3 scenarios 24–27a) =============
+
+block parseNonEmptyMailboxIdSetSingle: # §6.1.3 scenario 24
+  let id1 = parseId("mbx1").get()
+  let res = parseNonEmptyMailboxIdSet(@[id1])
+  assertOk res
+  assertLen res.get(), 1
+
+block parseNonEmptyMailboxIdSetEmptyRejected: # §6.1.3 scenario 25
+  assertErrType parseNonEmptyMailboxIdSet(@[]), "NonEmptyMailboxIdSet"
+
+block parseNonEmptyMailboxIdSetDedup: # §6.1.3 scenario 26
+  let id1 = parseId("mbx1").get()
+  let id2 = parseId("mbx2").get()
+  let res = parseNonEmptyMailboxIdSet(@[id1, id2, id1])
+  assertOk res
+  assertLen res.get(), 2
+
+block parseNonEmptyMailboxIdSetEqualityAndHash: # §6.1.3 scenario 27
+  let id1 = parseId("mbx1").get()
+  let id2 = parseId("mbx2").get()
+  let a = parseNonEmptyMailboxIdSet(@[id1, id2]).get()
+  let b = parseNonEmptyMailboxIdSet(@[id2, id1]).get()
+  assertEq a, b
+
+block parseNonEmptyMailboxIdSetMutabilityGuard: # §6.1.3 scenario 27a
+  let id1 = parseId("mbx1").get()
+  let s = parseNonEmptyMailboxIdSet(@[id1]).get()
+  # Any Id value suffices to probe whether `incl` / `excl` / `clear` are
+  # borrowed — the arguments never evaluate at runtime under
+  # `assertNotCompiles`.
+  assertNotCompiles s.incl(id1)
+  assertNotCompiles s.excl(id1)
+  assertNotCompiles s.clear()
