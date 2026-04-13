@@ -143,11 +143,12 @@ template assertBlueprintErr*(expr: untyped, variant: EmailBlueprintConstraint) =
   let res = expr
   assertErr res
   var found = false
-  for e in res.error.items:
+  for e in res.unsafeError.items:
     if e.constraint == variant:
       found = true
       break
-  doAssert found, "expected Err containing variant " & $variant & ", got " & $res.error
+  doAssert found,
+    "expected Err containing variant " & $variant & ", got " & $res.unsafeError
 
 template assertBlueprintErrContains*(
     expr: untyped, variant: EmailBlueprintConstraint, field, expected: untyped
@@ -159,19 +160,19 @@ template assertBlueprintErrContains*(
   let res = expr
   assertErr res
   var matched = false
-  for e in res.error.items:
+  for e in res.unsafeError.items:
     if e.constraint == variant and e.field == expected:
       matched = true
       break
   doAssert matched,
-    "variant " & $variant & " with expected field value not found: " & $res.error
+    "variant " & $variant & " with expected field value not found: " & $res.unsafeError
 
 template assertBlueprintErrCount*(expr: untyped, n: int) =
   ## L-3: exact-count assertion on the accumulated error rail. Verifies
   ## that every violation was surfaced, not just the first.
   let res = expr
   assertErr res
-  let actual = res.error.len
+  let actual = res.unsafeError.len
   doAssert actual == n, "expected " & $n & " errors, got " & $actual
 
 template assertBlueprintOkEq*(expr: untyped, expected: EmailBlueprint) =
@@ -219,7 +220,7 @@ template assertBlueprintErrAny*(
   let res = expr
   assertErr res
   var seen: set[EmailBlueprintConstraint] = {}
-  for e in res.error.items:
+  for e in res.unsafeError.items:
     if e.constraint in variants:
       seen.incl e.constraint
   let missing = variants - seen
