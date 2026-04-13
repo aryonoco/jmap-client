@@ -43,7 +43,7 @@ cross-cutting doc are referenced by section number.
 |------|--------|-----------|
 | `EmailBlueprint` | `email_blueprint.nim` | Creation-model aggregate for Email/set |
 | `EmailBlueprintBody` | `email_blueprint.nim` | Case-object wrapping the body input; discriminant encodes `bodyStructure` XOR flat-list at the type level |
-| `BlueprintBodyValue` | `email_blueprint.nim` | Value-only sibling of `EmailBodyValue`; no creation-invalid flag fields |
+| `BlueprintBodyValue` | `body.nim` (extended) | Value-only sibling of `EmailBodyValue`; no creation-invalid flag fields. Co-located with its consumer field `BlueprintBodyPart.bpsInline.value` (§5.1) so `email_blueprint.nim → body.nim` remains a one-way import |
 | `NonEmptyMailboxIdSet` | `mailbox.nim` | Parallel to `MailboxIdSet`; encodes "at least one" at the type level |
 | `BlueprintEmailHeaderName` | `headers.nim` | Distinct string; header name valid for Email top-level `extraHeaders` (forbids Content-*); identity on name only (intra-Table uniqueness) |
 | `BlueprintBodyHeaderName` | `headers.nim` | Distinct string; header name valid for `BlueprintBodyPart.extraHeaders` (forbids Content-Transfer-Encoding); identity on name only |
@@ -166,14 +166,14 @@ see DTM rows E25, E26, and E28 for details.
 
 | Module | Layer | Status | Contents |
 |--------|-------|--------|----------|
-| `email_blueprint.nim` | L1 | **new** | `EmailBlueprint`, `EmailBlueprintBody`, `BlueprintBodyValue`, `EmailBodyKind`, `EmailBlueprintConstraint`, `EmailBlueprintError`, `EmailBlueprintErrors`, `BodyPartPath`, `BodyPartLocation`, `BodyPartLocationKind`, `parseEmailBlueprint`, `flatBody`, `structuredBody`, accessors, `bodyValues` |
+| `email_blueprint.nim` | L1 | **new** | `EmailBlueprint`, `EmailBlueprintBody`, `EmailBodyKind`, `EmailBlueprintConstraint`, `EmailBlueprintError`, `EmailBlueprintErrors`, `BodyPartPath`, `BodyPartLocation`, `BodyPartLocationKind`, `parseEmailBlueprint`, `flatBody`, `structuredBody`, accessors, `bodyValues` |
 | `serde_email_blueprint.nim` | L2 | **new** | `toJson` for `EmailBlueprint` |
 | `mailbox.nim` | L1 | extended | `NonEmptyMailboxIdSet`, `parseNonEmptyMailboxIdSet` added under a "Mailbox ID Collections" section |
 | `headers.nim` | L1 | extended | Under a new "Creation-Model Header Vocabulary" labelled section: `BlueprintEmailHeaderName`, `BlueprintBodyHeaderName`, `BlueprintHeaderMultiValue`, per-form helper constructors (`rawMulti`, `textMulti`, ...), smart constructors |
 | `serde_headers.nim` | L2 | extended | Serde for the two new distinct-string name types; wire-key composition for `BlueprintHeaderMultiValue` (handled at the consumer layer — see `serde_email_blueprint.nim` and `serde_body.nim`) |
 | `primitives.nim` | L1 | extended | `NonEmptySeq[T]`, `parseNonEmptySeq[T]`, `defineNonEmptySeqOps[T]` template |
-| `body.nim` | L1 | modified | `BlueprintBodyPart.bpsInline` gains `value: BlueprintBodyValue`; `extraHeaders` retyped to `Table[BlueprintBodyHeaderName, BlueprintHeaderMultiValue]` |
-| `serde_body.nim` | L2 | modified | `BlueprintBodyPart.toJson` emits `partId` only on inline parts; the `value` is harvested separately by `EmailBlueprint.toJson` |
+| `body.nim` | L1 | modified | Hosts new `BlueprintBodyValue` (§4.1); `BlueprintBodyPart.bpsInline` gains `value: BlueprintBodyValue`; `extraHeaders` retyped to `Table[BlueprintBodyHeaderName, BlueprintHeaderMultiValue]` |
+| `serde_body.nim` | L2 | modified | Hosts `BlueprintBodyValue.toJson` (§4.1.3); `BlueprintBodyPart.toJson` emits `partId` only on inline parts; the `value` is harvested separately by `EmailBlueprint.toJson` |
 | `types.nim` | — | extended | Re-exports the new public types |
 
 ---
@@ -965,9 +965,26 @@ runtime RFC §4.6 constraint into a type-level fact, per the strip-pattern
 
 ### 4.1. BlueprintBodyValue
 
-**Module:** `src/jmap_client/mail/email_blueprint.nim`
+**Module:** `src/jmap_client/mail/body.nim` (extended).
 
 **RFC reference:** §4.1.4 (EmailBodyValue); §4.6 creation constraint 6.
+
+**Module placement:** `BlueprintBodyValue` is grouped logically with the
+other "supporting creation types" in §4, but physically lives in `body.nim`
+alongside `BlueprintBodyPart`. Two independent reasons drive this:
+
+1. `body.nim`'s `BlueprintBodyPart.bpsInline` branch takes a
+   `value: BlueprintBodyValue` field (§5.1), so the type must be visible to
+   `body.nim` — either defined there, or imported from elsewhere.
+2. `email_blueprint.nim` imports `body.nim` for `BlueprintBodyPart` (§3.2).
+   Defining `BlueprintBodyValue` in `email_blueprint.nim` would force
+   `body.nim` to import `email_blueprint.nim` in return — a mutual import
+   that Nim cannot resolve for object-field type checking.
+
+Hosting the leaf type with the dependent module keeps `email_blueprint.nim
+→ body.nim` a one-way import. This is the only §4 type that does not live
+in a module its name suggests; the choice follows the dependency graph, not
+the conceptual grouping.
 
 A `BlueprintBodyValue` carries the text content of an inline body part on
 creation. It is the creation-time sibling of `EmailBodyValue` from Part C
@@ -1020,6 +1037,11 @@ aggregates with different invariants. **Different knowledge deserves
 different appearance.**
 
 #### 4.1.3. Serde — toJson
+
+**Module:** `src/jmap_client/mail/serde_body.nim` (extended) — paired with
+the type's L1 home, per the convention used elsewhere in `body.nim` /
+`serde_body.nim`. `serde_email_blueprint.nim` imports `serde_body` for the
+harvest in §5.4.
 
 ```nim
 func toJson*(v: BlueprintBodyValue): JsonNode =
