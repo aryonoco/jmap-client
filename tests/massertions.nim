@@ -6,10 +6,13 @@
 
 import std/strutils
 import std/json
+import std/times
 
 import jmap_client/validation
 import jmap_client/errors
 import jmap_client/capabilities
+import jmap_client/mail/email_blueprint
+import jmap_client/mail/headers
 
 import ./mfixtures
 
@@ -128,3 +131,126 @@ template assertSetOkEq*(expr: untyped, expected: SetError) =
   ## Evaluates expr and verifies its SetError value equals expected.
   let v = expr
   doAssert setErrorEq(v, expected), "SetError values differ"
+
+# ---------------------------------------------------------------------------
+# Mail Part E assertion templates (L-1..L-9). Design §6.5.5 is authoritative.
+# ---------------------------------------------------------------------------
+
+template assertBlueprintErr*(expr: untyped, variant: EmailBlueprintConstraint) =
+  ## L-1: verifies a Result is err AND at least one error carries the
+  ## given ``EmailBlueprintConstraint`` variant. Delegates the isErr
+  ## check to ``assertErr`` so diagnostic wording stays consistent.
+  let res = expr
+  assertErr res
+  var found = false
+  for e in res.error.items:
+    if e.constraint == variant:
+      found = true
+      break
+  doAssert found, "expected Err containing variant " & $variant & ", got " & $res.error
+
+template assertBlueprintErrContains*(
+    expr: untyped, variant: EmailBlueprintConstraint, field, expected: untyped
+) =
+  ## L-2: verifies a Result is err AND at least one error matches both
+  ## the variant discriminant and a variant-specific field value. The
+  ## discriminant guard precedes the field read, which is what keeps the
+  ## case-object field access safe at runtime.
+  let res = expr
+  assertErr res
+  var matched = false
+  for e in res.error.items:
+    if e.constraint == variant and e.field == expected:
+      matched = true
+      break
+  doAssert matched,
+    "variant " & $variant & " with expected field value not found: " & $res.error
+
+template assertBlueprintErrCount*(expr: untyped, n: int) =
+  ## L-3: exact-count assertion on the accumulated error rail. Verifies
+  ## that every violation was surfaced, not just the first.
+  let res = expr
+  assertErr res
+  let actual = res.error.len
+  doAssert actual == n, "expected " & $n & " errors, got " & $actual
+
+template assertBlueprintOkEq*(expr: untyped, expected: EmailBlueprint) =
+  ## L-4: ok-rail equality via K-7 ``emailBlueprintEq``. Parallel to
+  ## ``assertCapOkEq`` / ``assertSetOkEq`` above — delegates the
+  ## value-level comparison to the dedicated helper rather than relying
+  ## on a compiler-generated ``==`` that cannot traverse case objects.
+  let res = expr
+  doAssert res.isOk, "expected Ok result, got Err"
+  let v = res.get()
+  doAssert emailBlueprintEq(v, expected), "EmailBlueprint values differ"
+
+template assertJsonKeyAbsent*(node: JsonNode, key: string) =
+  ## L-5: symmetric complement of ``assertJsonFieldEq`` — asserts that
+  ## an optional serde field was omitted from the encoded object.
+  let field = node{key}
+  doAssert field == nil, "expected field '" & key & "' to be absent"
+
+template assertJsonHasHeaderKey*(
+    node: JsonNode, name: string, form: HeaderForm, isAll = false
+) =
+  ## L-6 (presence half): composes the ``"header:Name:asForm[:all]"``
+  ## wire key and asserts it is present on ``node``. Exploits that each
+  ## ``HeaderForm`` variant's backing string IS the wire ``as*`` suffix.
+  let suffix = if isAll: ":all" else: ""
+  let wireKey = "header:" & name & ":" & $form & suffix
+  let field = node{wireKey}
+  doAssert field != nil, "expected header key '" & wireKey & "' present"
+
+template assertJsonMissingHeaderKey*(
+    node: JsonNode, name: string, form: HeaderForm, isAll = false
+) =
+  ## L-6 (absence half): asserts the composed header wire key is NOT
+  ## present on ``node``.
+  let suffix = if isAll: ":all" else: ""
+  let wireKey = "header:" & name & ":" & $form & suffix
+  doAssert node{wireKey} == nil, "expected header key '" & wireKey & "' absent"
+
+template assertBlueprintErrAny*(
+    expr: untyped, variants: set[EmailBlueprintConstraint]
+) =
+  ## L-7: every variant in ``variants`` must appear at least once on the
+  ## error rail. Useful for accumulated-failure scenarios where multiple
+  ## independent checks fire.
+  let res = expr
+  assertErr res
+  var seen: set[EmailBlueprintConstraint] = {}
+  for e in res.error.items:
+    if e.constraint in variants:
+      seen.incl e.constraint
+  let missing = variants - seen
+  doAssert missing == {}, "missing variants: " & $missing
+
+template assertBoundedRatio*(slowExpr, fastExpr: untyped, maxRatio: float) =
+  ## L-8: runtime bound on the ratio of two ``cpuTime`` measurements.
+  ## Callers supply an ``expensive`` and ``baseline`` expression; this
+  ## template enforces ``expensive / baseline <= maxRatio`` (HashDoS
+  ## gate). Guard against division by zero when the baseline resolves
+  ## below clock resolution.
+  let startFast = cpuTime()
+  discard fastExpr
+  let fastElapsed = cpuTime() - startFast
+  let startSlow = cpuTime()
+  discard slowExpr
+  let slowElapsed = cpuTime() - startSlow
+  let ratio =
+    if fastElapsed <= 0.0:
+      0.0
+    else:
+      slowElapsed / fastElapsed
+  doAssert ratio <= maxRatio, "ratio " & $ratio & " exceeds bound " & $maxRatio
+
+template assertJsonStringEquals*(node: JsonNode, key: string, exactBytes: string) =
+  ## L-9: byte-exact string-field match. Unlike ``assertJsonFieldEq``,
+  ## this helper pins ``JString`` kind AND compares the decoded string
+  ## byte-for-byte, including embedded escapes.
+  let field = node{key}
+  doAssert field != nil, "expected field '" & key & "' present"
+  doAssert field.kind == JString, "expected JString, got " & $field.kind
+  let actual = field.getStr()
+  doAssert actual == exactBytes,
+    "field '" & key & "': expected '" & exactBytes & "', got '" & actual & "'"
