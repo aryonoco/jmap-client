@@ -73,6 +73,17 @@ type EmailBodyValue* {.ruleOff: "objects".} = object
   isTruncated*: bool ## Default false.
 
 # =============================================================================
+# BlueprintBodyValue
+# =============================================================================
+
+type BlueprintBodyValue* {.ruleOff: "objects".} = object
+  ## Creation-time body-value carrier (RFC 8621 §4.1.4 / §4.6
+  ## constraint 6). Strips ``isEncodingProblem`` and ``isTruncated`` from
+  ## ``EmailBodyValue`` — both flags are mandated false on creation, so the
+  ## stripped type makes the illegal state unrepresentable.
+  value*: string ## Decoded body content.
+
+# =============================================================================
 # BlueprintPartSource
 # =============================================================================
 
@@ -95,14 +106,15 @@ type BlueprintBodyPart* {.ruleOff: "objects".} = object
   cid*: Opt[string]
   language*: Opt[seq[string]]
   location*: Opt[string]
-  extraHeaders*: Table[HeaderPropertyKey, HeaderValue]
+  extraHeaders*: Table[BlueprintBodyHeaderName, BlueprintHeaderMultiValue]
   case isMultipart*: bool
   of true:
     subParts*: seq[BlueprintBodyPart] ## Recursive children.
   of false:
     case source*: BlueprintPartSource
     of bpsInline:
-      partId*: PartId ## Key into bodyValues.
+      partId*: PartId ## Co-located reference to the body value (R3-3).
+      value*: BlueprintBodyValue ## Co-located content (Design §5.1, R3-3).
     of bpsBlobRef:
       blobId*: Id
       size*: Opt[UnsignedInt] ## Optional, ignored by server.

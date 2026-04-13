@@ -100,10 +100,11 @@ block blobIdOnInline: # scenario 125a
   assertNotCompiles(
     BlueprintBodyPart(
       contentType: "text/plain",
-      extraHeaders: initTable[HeaderPropertyKey, HeaderValue](),
+      extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
       isMultipart: false,
       source: bpsInline,
       partId: PartId("1"),
+      value: BlueprintBodyValue(value: ""),
       blobId: Id("abc"),
     )
   )
@@ -112,10 +113,11 @@ block charsetOnInline: # scenario 125b
   assertNotCompiles(
     BlueprintBodyPart(
       contentType: "text/plain",
-      extraHeaders: initTable[HeaderPropertyKey, HeaderValue](),
+      extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
       isMultipart: false,
       source: bpsInline,
       partId: PartId("1"),
+      value: BlueprintBodyValue(value: ""),
       charset: Opt.some("utf-8"),
     )
   )
@@ -124,7 +126,7 @@ block partIdOnMultipartBlueprint: # scenario 125c
   assertNotCompiles(
     BlueprintBodyPart(
       contentType: "multipart/mixed",
-      extraHeaders: initTable[HeaderPropertyKey, HeaderValue](),
+      extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
       isMultipart: true,
       subParts: @[],
       partId: PartId("1"),
@@ -135,10 +137,11 @@ block subPartsOnLeafBlueprint: # scenario 125d
   assertNotCompiles(
     BlueprintBodyPart(
       contentType: "text/plain",
-      extraHeaders: initTable[HeaderPropertyKey, HeaderValue](),
+      extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
       isMultipart: false,
       source: bpsInline,
       partId: PartId("1"),
+      value: BlueprintBodyValue(value: ""),
       subParts: @[],
     )
   )

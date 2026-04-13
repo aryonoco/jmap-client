@@ -2,7 +2,10 @@
 # Copyright (c) 2026 Aryan Ameri
 
 ## Serde tests for body sub-types (scenarios 77–131, 97a–99d, 102a, 108c,
-## 115a, 118a–118b, 127a, 130a–130b, A1–A6).
+## 115a, 118a–118b, 127a, 130a, A1–A4, A6). Scenarios 130b (form
+## mismatch) and A5 (CTE in extraHeaders) retired with Part E §5.2:
+## both are structurally unreachable; CTE-rejection moved to
+## theaders_blueprint.nim.
 
 import std/json
 import std/strutils
@@ -453,10 +456,11 @@ block bodyValueNullFlag: # scenario 118b
 block bpInlineLeaf: # scenario 119
   let bp = BlueprintBodyPart(
     contentType: "text/plain",
-    extraHeaders: initTable[HeaderPropertyKey, HeaderValue](),
+    extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
     isMultipart: false,
     source: bpsInline,
     partId: PartId("1"),
+    value: BlueprintBodyValue(value: ""),
   )
   let node = bp.toJson()
   assertJsonFieldEq node, "type", %"text/plain"
@@ -469,7 +473,7 @@ block bpInlineLeaf: # scenario 119
 block bpBlobRefLeaf: # scenario 120
   let bp = BlueprintBodyPart(
     contentType: "image/png",
-    extraHeaders: initTable[HeaderPropertyKey, HeaderValue](),
+    extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
     isMultipart: false,
     source: bpsBlobRef,
     blobId: Id("abc123"),
@@ -483,7 +487,7 @@ block bpBlobRefLeaf: # scenario 120
 block bpBlobRefBothPresent: # scenario 121
   let bp = BlueprintBodyPart(
     contentType: "image/png",
-    extraHeaders: initTable[HeaderPropertyKey, HeaderValue](),
+    extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
     isMultipart: false,
     source: bpsBlobRef,
     blobId: Id("abc"),
@@ -497,7 +501,7 @@ block bpBlobRefBothPresent: # scenario 121
 block bpBlobRefBothAbsent: # scenario 122
   let bp = BlueprintBodyPart(
     contentType: "image/png",
-    extraHeaders: initTable[HeaderPropertyKey, HeaderValue](),
+    extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
     isMultipart: false,
     source: bpsBlobRef,
     blobId: Id("abc"),
@@ -511,14 +515,15 @@ block bpBlobRefBothAbsent: # scenario 122
 block bpMultipart: # scenario 123
   let child = BlueprintBodyPart(
     contentType: "text/plain",
-    extraHeaders: initTable[HeaderPropertyKey, HeaderValue](),
+    extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
     isMultipart: false,
     source: bpsInline,
     partId: PartId("1"),
+    value: BlueprintBodyValue(value: ""),
   )
   let bp = BlueprintBodyPart(
     contentType: "multipart/mixed",
-    extraHeaders: initTable[HeaderPropertyKey, HeaderValue](),
+    extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
     isMultipart: true,
     subParts: @[child],
   )
@@ -531,15 +536,16 @@ block bpMultipart: # scenario 123
 block bpDepthLimit: # scenario 124
   var bp = BlueprintBodyPart(
     contentType: "text/plain",
-    extraHeaders: initTable[HeaderPropertyKey, HeaderValue](),
+    extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
     isMultipart: false,
     source: bpsInline,
     partId: PartId("1"),
+    value: BlueprintBodyValue(value: ""),
   )
   for i in 0 ..< 200:
     bp = BlueprintBodyPart(
       contentType: "multipart/mixed",
-      extraHeaders: initTable[HeaderPropertyKey, HeaderValue](),
+      extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
       isMultipart: true,
       subParts: @[bp],
     )
@@ -552,10 +558,11 @@ block bpNoFromJson: # scenario 125
 block bpInlineKeyAbsence: # scenario 126
   let bp = BlueprintBodyPart(
     contentType: "text/plain",
-    extraHeaders: initTable[HeaderPropertyKey, HeaderValue](),
+    extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
     isMultipart: false,
     source: bpsInline,
     partId: PartId("1"),
+    value: BlueprintBodyValue(value: ""),
   )
   let node = bp.toJson()
   # Keys must be absent (not null, not present)
@@ -564,44 +571,47 @@ block bpInlineKeyAbsence: # scenario 126
   doAssert "size" notin node
 
 block bpExtraHeaders: # scenario 127
-  let key = parseHeaderPropertyName("header:x-custom:asText").get()
-  var headers = initTable[HeaderPropertyKey, HeaderValue]()
-  headers[key] = HeaderValue(form: hfText, textValue: "custom value")
+  let name = parseBlueprintBodyHeaderName("x-custom").get()
+  var headers = initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue]()
+  headers[name] = textSingle("custom value")
   let bp = BlueprintBodyPart(
     contentType: "text/plain",
     extraHeaders: headers,
     isMultipart: false,
     source: bpsInline,
     partId: PartId("1"),
+    value: BlueprintBodyValue(value: ""),
   )
   let node = bp.toJson()
   doAssert node{"header:x-custom:asText"} != nil
   assertEq node{"header:x-custom:asText"}, %"custom value"
 
 block bpExtraHeadersHfRaw: # scenario 127a
-  # hfRaw form suffix is omitted in toPropertyString
-  let key = parseHeaderPropertyName("header:x-custom:asRaw").get()
-  var headers = initTable[HeaderPropertyKey, HeaderValue]()
-  headers[key] = HeaderValue(form: hfRaw, rawValue: "raw value")
+  # hfRaw form suffix is omitted by composeBodyHeaderKey.
+  let name = parseBlueprintBodyHeaderName("x-custom").get()
+  var headers = initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue]()
+  headers[name] = rawSingle("raw value")
   let bp = BlueprintBodyPart(
     contentType: "text/plain",
     extraHeaders: headers,
     isMultipart: false,
     source: bpsInline,
     partId: PartId("1"),
+    value: BlueprintBodyValue(value: ""),
   )
   let node = bp.toJson()
-  # Key should be "header:x-custom" (no ":asRaw")
+  # Key should be "header:x-custom" (no ":asRaw" — hfRaw suppressed).
   doAssert node{"header:x-custom"} != nil
   assertEq node{"header:x-custom"}, %"raw value"
 
 block bpEmptyExtraHeaders: # scenario 128
   let bp = BlueprintBodyPart(
     contentType: "text/plain",
-    extraHeaders: initTable[HeaderPropertyKey, HeaderValue](),
+    extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
     isMultipart: false,
     source: bpsInline,
     partId: PartId("1"),
+    value: BlueprintBodyValue(value: ""),
   )
   let node = bp.toJson()
   # Only standard keys should be present
@@ -611,7 +621,7 @@ block bpEmptyExtraHeaders: # scenario 128
 block bpMultipartEmptySubParts: # scenario 129
   let bp = BlueprintBodyPart(
     contentType: "multipart/mixed",
-    extraHeaders: initTable[HeaderPropertyKey, HeaderValue](),
+    extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
     isMultipart: true,
     subParts: @[],
   )
@@ -622,20 +632,21 @@ block bpMultipartEmptySubParts: # scenario 129
 block bpNestedMultipart: # scenario 130
   let leaf = BlueprintBodyPart(
     contentType: "text/plain",
-    extraHeaders: initTable[HeaderPropertyKey, HeaderValue](),
+    extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
     isMultipart: false,
     source: bpsInline,
     partId: PartId("1"),
+    value: BlueprintBodyValue(value: ""),
   )
   let inner = BlueprintBodyPart(
     contentType: "multipart/alternative",
-    extraHeaders: initTable[HeaderPropertyKey, HeaderValue](),
+    extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
     isMultipart: true,
     subParts: @[leaf],
   )
   let outer = BlueprintBodyPart(
     contentType: "multipart/mixed",
-    extraHeaders: initTable[HeaderPropertyKey, HeaderValue](),
+    extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
     isMultipart: true,
     subParts: @[inner],
   )
@@ -650,14 +661,15 @@ block bpNestedMultipart: # scenario 130
 block bpMixedChildren: # scenario 130a
   let inline = BlueprintBodyPart(
     contentType: "text/plain",
-    extraHeaders: initTable[HeaderPropertyKey, HeaderValue](),
+    extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
     isMultipart: false,
     source: bpsInline,
     partId: PartId("1"),
+    value: BlueprintBodyValue(value: ""),
   )
   let blobRef = BlueprintBodyPart(
     contentType: "image/png",
-    extraHeaders: initTable[HeaderPropertyKey, HeaderValue](),
+    extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
     isMultipart: false,
     source: bpsBlobRef,
     blobId: Id("abc"),
@@ -666,7 +678,7 @@ block bpMixedChildren: # scenario 130a
   )
   let mp = BlueprintBodyPart(
     contentType: "multipart/mixed",
-    extraHeaders: initTable[HeaderPropertyKey, HeaderValue](),
+    extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
     isMultipart: true,
     subParts: @[inline, blobRef],
   )
@@ -677,26 +689,10 @@ block bpMixedChildren: # scenario 130a
   # Second child: blob-ref with blobId
   doAssert node{"subParts"}{1}{"blobId"} != nil
 
-block bpFormMismatch: # scenario 130b
-  # key.form ≠ value.form → serialises without error
-  let key = parseHeaderPropertyName("header:from:asAddresses").get()
-  var headers = initTable[HeaderPropertyKey, HeaderValue]()
-  headers[key] = HeaderValue(form: hfText, textValue: "mismatched")
-  let bp = BlueprintBodyPart(
-    contentType: "text/plain",
-    extraHeaders: headers,
-    isMultipart: false,
-    source: bpsInline,
-    partId: PartId("1"),
-  )
-  let node = bp.toJson()
-  # Should serialise without error — form consistency enforced by Part D
-  doAssert node{"header:from:asAddresses"} != nil
-
 block bpBlobRefBothOptAbsent: # scenario 131
   let bp = BlueprintBodyPart(
     contentType: "image/png",
-    extraHeaders: initTable[HeaderPropertyKey, HeaderValue](),
+    extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
     isMultipart: false,
     source: bpsBlobRef,
     blobId: Id("abc"),
@@ -742,22 +738,6 @@ block adversarial10kChildren: # scenario A4
   let res = EmailBodyPart.fromJson(node)
   assertOk res
   assertLen res.get().subParts, 10_000
-
-block adversarialContentTransferEncoding: # scenario A5
-  # Content-Transfer-Encoding in extraHeaders — toJson emits without error.
-  # RFC §4.6 MUST NOT is enforced by Part D's EmailBlueprint, not Part C.
-  let key = parseHeaderPropertyName("header:content-transfer-encoding:asRaw").get()
-  var headers = initTable[HeaderPropertyKey, HeaderValue]()
-  headers[key] = HeaderValue(form: hfRaw, rawValue: "base64")
-  let bp = BlueprintBodyPart(
-    contentType: "text/plain",
-    extraHeaders: headers,
-    isMultipart: false,
-    source: bpsInline,
-    partId: PartId("1"),
-  )
-  let node = bp.toJson()
-  doAssert node{"header:content-transfer-encoding"} != nil
 
 block adversarialFloatSize: # scenario A6
   const raw = """{"type": "text/plain", "partId": "1", "blobId": "abc", "size": 3.14}"""
