@@ -17,6 +17,7 @@ import ./mailbox
 import ./mail_filters
 import ./headers
 import ./body
+import ./email_blueprint
 import ./email
 import ./snippet
 
@@ -31,5 +32,6 @@ export mailbox
 export mail_filters
 export headers
 export body
+export email_blueprint
 export email
 export snippet
