@@ -28,6 +28,7 @@ import jmap_client/mail/addresses
 import jmap_client/mail/headers
 import jmap_client/mail/body
 import jmap_client/mail/email
+import jmap_client/mail/email_blueprint
 import jmap_client/mail/keyword
 import jmap_client/mail/mailbox
 import jmap_client/mail/mail_filters
@@ -1988,6 +1989,1067 @@ proc genParsedEmail*(rng: var Rand): ParsedEmail =
     attachments: bf.attachments,
     hasAttachment: bf.hasAttachment,
     preview: bf.preview,
+  )
+
+# ---------------------------------------------------------------------------
+# Mail Part E generators (J-1..J-16) — design §6.3, §6.5.3
+# ---------------------------------------------------------------------------
+
+# J-1 ------------------------------------------------------------------------
+proc genBlueprintEmailHeaderName*(
+    rng: var Rand, trial: int = -1
+): BlueprintEmailHeaderName =
+  ## Generates valid ``BlueprintEmailHeaderName`` values (construction gated
+  ## by ``parseBlueprintEmailHeaderName``: non-empty, printable 0x21..0x7E,
+  ## no colon, not ``content-``-prefixed). Names are normalised to lowercase.
+  ## Covers: minimal length (``"a"``), max-length printable-no-colon,
+  ## mixed-case round-trip, a ``"content"`` bare name (allowed — only the
+  ## ``content-`` prefix is rejected).
+  ## Does NOT generate: invalid names (use ``genInvalidBlueprintEmailHeaderName``
+  ## for those), names with colon, names with non-printable bytes.
+  if trial >= 0 and trial < 6:
+    const earlyNames = [
+      "a", "X-ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij", "X-Foo", "X-BAR", "X-baZ",
+      "content",
+    ]
+    return parseBlueprintEmailHeaderName(earlyNames[trial]).get()
+  let length = rng.rand(1 .. 40)
+  var s = newString(length)
+  for i in 0 ..< length:
+    # 0x21..0x7E minus ':' (0x3A)
+    var c = char(rng.rand(0x21 .. 0x7E))
+    while c == ':':
+      c = char(rng.rand(0x21 .. 0x7E))
+    s[i] = c
+  # Avoid content- prefix — prepend 'x-' if the random body would start that way.
+  if s.toLowerAscii().startsWith("content-"):
+    s = "x-" & s
+  parseBlueprintEmailHeaderName(s).get()
+
+# J-2 ------------------------------------------------------------------------
+proc genInvalidBlueprintEmailHeaderName*(rng: var Rand, trial: int = -1): string =
+  ## Generates strings that ``parseBlueprintEmailHeaderName`` rejects.
+  ## Covers: empty string, ``content-`` family, wire-form literals (colon),
+  ## whitespace-containing, NUL-containing, and the shortest ``content-``
+  ## prefix (``"content-"`` with no body).
+  ## Does NOT generate: strings that happen to pass validation (those would
+  ## belong in J-1); exhaustive adversarial bytes (``genMaliciousString`` is
+  ## the dedicated source for those).
+  if trial >= 0 and trial < 6:
+    const earlyStrings = [
+      "", "Content-Type", "header:From:asText", "X-Has Space", "X-Has\x00NUL",
+      "content-",
+    ]
+    return earlyStrings[trial]
+  rng.genMaliciousString(trial)
+
+# J-3 ------------------------------------------------------------------------
+proc genBlueprintBodyHeaderName*(
+    rng: var Rand, trial: int = -1
+): BlueprintBodyHeaderName =
+  ## Generates valid ``BlueprintBodyHeaderName`` values (construction gated
+  ## by ``parseBlueprintBodyHeaderName``: non-empty, printable 0x21..0x7E,
+  ## no colon, not exactly ``content-transfer-encoding``). The ``Content-*``
+  ## family IS permitted on body parts — only CTE is blocked.
+  ## Covers: ``content-type`` (allowed on body parts), ``content-disposition``
+  ## (allowed), ``X-Custom`` (user-defined), ``content-transfer-encoding-x``
+  ## (near-miss: not the exact rejected name, so passes).
+  ## Does NOT generate: ``content-transfer-encoding`` exactly, empty,
+  ## colon-bearing, non-printable.
+  if trial >= 0 and trial < 4:
+    const earlyNames =
+      ["Content-Type", "Content-Disposition", "X-Custom", "Content-Transfer-Encoding-X"]
+    return parseBlueprintBodyHeaderName(earlyNames[trial]).get()
+  let length = rng.rand(1 .. 40)
+  var s = newString(length)
+  for i in 0 ..< length:
+    var c = char(rng.rand(0x21 .. 0x7E))
+    while c == ':':
+      c = char(rng.rand(0x21 .. 0x7E))
+    s[i] = c
+  if s.toLowerAscii() == "content-transfer-encoding":
+    s = "x-" & s
+  parseBlueprintBodyHeaderName(s).get()
+
+proc genInvalidBlueprintBodyHeaderName*(rng: var Rand, trial: int = -1): string =
+  ## Generates strings that ``parseBlueprintBodyHeaderName`` rejects.
+  ## Covers: empty, exact ``content-transfer-encoding`` (+ case variants),
+  ## colon-bearing, whitespace, NUL-bearing.
+  ## Does NOT generate: valid body-header names (those belong in J-3's
+  ## positive branch).
+  if trial >= 0 and trial < 5:
+    const earlyStrings = [
+      "", "Content-Transfer-Encoding", "content-transfer-encoding", "X-Has Space",
+      "X-Has\x00NUL",
+    ]
+    return earlyStrings[trial]
+  rng.genMaliciousString(trial)
+
+# J-6 ------------------------------------------------------------------------
+proc genNonEmptySeq*[T](
+    rng: var Rand,
+    genElem: proc(rng: var Rand): T {.noSideEffect, raises: [].},
+    trial: int = -1,
+): NonEmptySeq[T] =
+  ## Generic non-empty-seq generator. Composes an element generator up to
+  ## 10 times; early trials hit the boundaries (len 1, len 2).
+  ## Covers: minimum length (1), len 2, random length up to 10.
+  ## Does NOT generate: empty seqs (rejected by ``parseNonEmptySeq``), or
+  ## lengths beyond 10 (extraHeaders-form cardinality rarely exceeds a
+  ## handful in practice; larger fan-outs are covered by adversarial
+  ## generators J-15).
+  let length =
+    if trial >= 0 and trial < 2:
+      [1, 2][trial]
+    else:
+      rng.rand(1 .. 10)
+  var s: seq[T] = @[]
+  for _ in 0 ..< length:
+    s.add(genElem(rng))
+  parseNonEmptySeq(s).get()
+
+# J-4 ------------------------------------------------------------------------
+proc genRawValue(rng: var Rand): string =
+  ## One raw header value. Printable ASCII, 1..40 chars.
+  let length = rng.rand(1 .. 40)
+  result = newString(length)
+  for i in 0 ..< length:
+    result[i] = rng.genAsciiPrintable()
+
+proc genTextValue(rng: var Rand): string =
+  ## One structured-text header value. Printable ASCII, 1..40 chars.
+  let length = rng.rand(1 .. 40)
+  result = newString(length)
+  for i in 0 ..< length:
+    result[i] = rng.genAsciiPrintable()
+
+proc genAddressListValue(rng: var Rand): seq[EmailAddress] =
+  ## One address-list element (for ``hfAddresses``).
+  let count = rng.rand(1 .. 3)
+  result = @[]
+  for _ in 0 ..< count:
+    result.add(rng.genEmailAddress())
+
+proc genGroupedAddressListValue(rng: var Rand): seq[EmailAddressGroup] =
+  ## One grouped-address-list element (for ``hfGroupedAddresses``).
+  let count = rng.rand(1 .. 2)
+  result = @[]
+  for _ in 0 ..< count:
+    result.add(rng.genEmailAddressGroup())
+
+proc genMessageIdListValue(rng: var Rand): seq[string] =
+  ## One Message-Id list element (for ``hfMessageIds``).
+  let count = rng.rand(1 .. 3)
+  result = @[]
+  for i in 0 ..< count:
+    result.add("<mid" & $i & "@example.com>")
+
+proc genUrlListValue(rng: var Rand): seq[string] =
+  ## One URL list element (for ``hfUrls``).
+  let count = rng.rand(1 .. 2)
+  result = @[]
+  for i in 0 ..< count:
+    result.add("https://example.com/" & $i)
+
+proc genDateValue(rng: var Rand): Date =
+  ## One Date element (for ``hfDate``).
+  parseDate(rng.genValidDate()).get()
+
+proc genBlueprintHeaderMultiValue*(
+    rng: var Rand, form: HeaderForm, trial: int = -1
+): BlueprintHeaderMultiValue =
+  ## Generates a ``BlueprintHeaderMultiValue`` for the given ``form``.
+  ## Covers: single-value case (len 1, triggers no ``:all`` suffix) and
+  ## multi-value case (len 2, triggers the ``:all`` suffix). Delegates
+  ## per-form element construction to private helpers above.
+  ## Does NOT generate: cross-form mismatches (each invocation fixes one
+  ## ``HeaderForm``), or lengths beyond 10.
+  case form
+  of hfRaw:
+    BlueprintHeaderMultiValue(
+      form: hfRaw, rawValues: rng.genNonEmptySeq(genRawValue, trial)
+    )
+  of hfText:
+    BlueprintHeaderMultiValue(
+      form: hfText, textValues: rng.genNonEmptySeq(genTextValue, trial)
+    )
+  of hfAddresses:
+    BlueprintHeaderMultiValue(
+      form: hfAddresses, addressLists: rng.genNonEmptySeq(genAddressListValue, trial)
+    )
+  of hfGroupedAddresses:
+    BlueprintHeaderMultiValue(
+      form: hfGroupedAddresses,
+      groupLists: rng.genNonEmptySeq(genGroupedAddressListValue, trial),
+    )
+  of hfMessageIds:
+    BlueprintHeaderMultiValue(
+      form: hfMessageIds,
+      messageIdLists: rng.genNonEmptySeq(genMessageIdListValue, trial),
+    )
+  of hfDate:
+    BlueprintHeaderMultiValue(
+      form: hfDate, dateValues: rng.genNonEmptySeq(genDateValue, trial)
+    )
+  of hfUrls:
+    BlueprintHeaderMultiValue(
+      form: hfUrls, urlLists: rng.genNonEmptySeq(genUrlListValue, trial)
+    )
+
+# J-5 ------------------------------------------------------------------------
+proc genNonEmptyMailboxIdSet*(rng: var Rand, trial: int = -1): NonEmptyMailboxIdSet =
+  ## Generates valid ``NonEmptyMailboxIdSet`` values with varying cardinality.
+  ## Covers: len 1 (boundary), len 2 with a duplicate that collapses to 1,
+  ## 2..20 distinct Ids.
+  ## Does NOT generate: empty seqs (rejected by
+  ## ``parseNonEmptyMailboxIdSet``), invalid ID payloads, sets >20 elements.
+  if trial >= 0 and trial < 3:
+    case trial
+    of 0:
+      return parseNonEmptyMailboxIdSet(@[parseId("mbx-0").get()]).get()
+    of 1:
+      let id = parseId("mbx-dup").get()
+      return parseNonEmptyMailboxIdSet(@[id, id, id]).get()
+    else:
+      return parseNonEmptyMailboxIdSet(
+          @[parseId("mbx-a").get(), parseId("mbx-b").get()]
+        )
+        .get()
+  let count = rng.rand(1 .. 20)
+  var ids: seq[Id] = @[]
+  for i in 0 ..< count:
+    ids.add(parseId("mbx-" & $i).get())
+  parseNonEmptyMailboxIdSet(ids).get()
+
+# J-7 ------------------------------------------------------------------------
+proc genBlueprintBodyValue*(rng: var Rand, trial: int = -1): BlueprintBodyValue =
+  ## Generates a ``BlueprintBodyValue`` with varying content shape.
+  ## Covers: empty string, control bytes, 64 KiB payload, short printable.
+  ## Does NOT generate: invalid-encoding or truncated states — those are
+  ## fields on ``EmailBodyValue`` (the read model), not ``BlueprintBodyValue``,
+  ## which intentionally strips them (illegal on creation, §4.6 constraint 6).
+  if trial >= 0 and trial < 4:
+    const earlyValues = ["", "\x00\x01", "", "Hello"]
+    if trial == 2:
+      return BlueprintBodyValue(value: 'a'.repeat(65536))
+    return BlueprintBodyValue(value: earlyValues[trial])
+  let length = rng.rand(0 .. 1000)
+  var s = newString(length)
+  for i in 0 ..< length:
+    s[i] = rng.genAsciiPrintable()
+  BlueprintBodyValue(value: s)
+
+# J-8 helpers ---------------------------------------------------------------
+proc genBlueprintPartCid(rng: var Rand): Opt[string] =
+  if rng.rand(0 .. 4) == 0:
+    Opt.some("cid" & $rng.rand(1 .. 999) & "@example.com")
+  else:
+    Opt.none(string)
+
+proc genBlueprintPartLocation(rng: var Rand): Opt[string] =
+  if rng.rand(0 .. 4) == 0:
+    Opt.some("https://example.com/part/" & $rng.rand(1 .. 999))
+  else:
+    Opt.none(string)
+
+proc genBlueprintPartLanguage(rng: var Rand): Opt[seq[string]] =
+  if rng.rand(0 .. 3) == 0:
+    Opt.some(@["en"])
+  else:
+    Opt.none(seq[string])
+
+proc genBlueprintPartName(rng: var Rand): Opt[string] =
+  if rng.rand(0 .. 2) == 0:
+    Opt.some("file" & $rng.rand(1 .. 99) & ".dat")
+  else:
+    Opt.none(string)
+
+proc genBlueprintPartDisposition(rng: var Rand): Opt[string] =
+  if rng.rand(0 .. 2) == 0:
+    Opt.some(rng.oneOf(["inline", "attachment"]))
+  else:
+    Opt.none(string)
+
+proc genBodyPartExtraHeaders(
+    rng: var Rand
+): Table[BlueprintBodyHeaderName, BlueprintHeaderMultiValue] =
+  result = initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue]()
+  let count = rng.rand(0 .. 2)
+  for i in 0 ..< count:
+    let name = parseBlueprintBodyHeaderName("x-body-" & $rng.rand(0 .. 999)).get()
+    if name notin result:
+      result[name] = rng.genBlueprintHeaderMultiValue(hfText)
+
+# J-8 ------------------------------------------------------------------------
+proc genBlueprintBodyPart*(rng: var Rand, maxDepth: int = 4): BlueprintBodyPart =
+  ## Generates a ``BlueprintBodyPart`` tree with depth <= ``maxDepth``.
+  ## Leaves alternate between ``bpsInline`` (co-located partId+value) and
+  ## ``bpsBlobRef`` (uploaded-blob reference). Multipart containers carry
+  ## 0..3 recursive children. ``MaxBodyPartDepth`` is the hard cap —
+  ## callers that want pathological depths construct them directly.
+  ## Covers: inline leaves, blob-ref leaves, multipart containers,
+  ## optional fields (``name`` / ``disposition`` / ``cid`` / ``language``
+  ## / ``location``).
+  ## Does NOT generate: trees of depth > ``MaxBodyPartDepth`` (would be
+  ## rejected by ``parseEmailBlueprint``), colliding ``partId`` across
+  ## sibling leaves (documented gap §7 E30 — last-wins applies).
+  const leafTypes = ["text/plain", "text/html", "image/png", "application/pdf"]
+  const multipartTypes =
+    ["multipart/mixed", "multipart/alternative", "multipart/related"]
+
+  if maxDepth <= 0 or rng.rand(0 .. 1) == 0:
+    let ct = rng.oneOf(leafTypes)
+    let name = rng.genBlueprintPartName()
+    let disposition = rng.genBlueprintPartDisposition()
+    let cid = rng.genBlueprintPartCid()
+    let language = rng.genBlueprintPartLanguage()
+    let location = rng.genBlueprintPartLocation()
+    let extraHeaders = rng.genBodyPartExtraHeaders()
+    if rng.rand(0 .. 1) == 0:
+      return BlueprintBodyPart(
+        contentType: ct,
+        name: name,
+        disposition: disposition,
+        cid: cid,
+        language: language,
+        location: location,
+        extraHeaders: extraHeaders,
+        isMultipart: false,
+        source: bpsInline,
+        partId: rng.genPartId(),
+        value: rng.genBlueprintBodyValue(),
+      )
+    return BlueprintBodyPart(
+      contentType: ct,
+      name: name,
+      disposition: disposition,
+      cid: cid,
+      language: language,
+      location: location,
+      extraHeaders: extraHeaders,
+      isMultipart: false,
+      source: bpsBlobRef,
+      blobId: Id(rng.genValidIdStrict(minLen = 3, maxLen = 20)),
+      size: Opt.none(UnsignedInt),
+      charset: Opt.none(string),
+    )
+  let ct = rng.oneOf(multipartTypes)
+  var children: seq[BlueprintBodyPart] = @[]
+  for _ in 0 ..< rng.rand(0 .. 3):
+    children.add(rng.genBlueprintBodyPart(maxDepth - 1))
+  BlueprintBodyPart(
+    contentType: ct,
+    name: rng.genBlueprintPartName(),
+    disposition: rng.genBlueprintPartDisposition(),
+    cid: rng.genBlueprintPartCid(),
+    language: rng.genBlueprintPartLanguage(),
+    location: rng.genBlueprintPartLocation(),
+    extraHeaders: rng.genBodyPartExtraHeaders(),
+    isMultipart: true,
+    subParts: children,
+  )
+
+# J-9 ------------------------------------------------------------------------
+proc genEmailBlueprintBody*(rng: var Rand, trial: int = -1): EmailBlueprintBody =
+  ## Generates an ``EmailBlueprintBody`` (case object discriminated on
+  ## ``EmailBodyKind``).
+  ## Covers: empty ``flatBody()``; ``structuredBody`` with a multipart
+  ## root; ``flatBody`` with textBody + htmlBody + 2 attachments.
+  ## Does NOT generate: flat bodies whose textBody isn't text/plain (would
+  ## fail ``parseEmailBlueprint`` constraint 5a) or htmlBody isn't text/html
+  ## (5b) — use the adversarial generator J-15 for those.
+  if trial >= 0 and trial < 3:
+    case trial
+    of 0:
+      return flatBody()
+    of 1:
+      return structuredBody(
+        BlueprintBodyPart(
+          contentType: "multipart/mixed",
+          name: Opt.none(string),
+          disposition: Opt.none(string),
+          cid: Opt.none(string),
+          language: Opt.none(seq[string]),
+          location: Opt.none(string),
+          extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
+          isMultipart: true,
+          subParts: @[rng.genBlueprintBodyPart(maxDepth = 1)],
+        )
+      )
+    else:
+      let textLeaf = BlueprintBodyPart(
+        contentType: "text/plain",
+        name: Opt.none(string),
+        disposition: Opt.none(string),
+        cid: Opt.none(string),
+        language: Opt.none(seq[string]),
+        location: Opt.none(string),
+        extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
+        isMultipart: false,
+        source: bpsInline,
+        partId: rng.genPartId(),
+        value: rng.genBlueprintBodyValue(),
+      )
+      let htmlLeaf = BlueprintBodyPart(
+        contentType: "text/html",
+        name: Opt.none(string),
+        disposition: Opt.none(string),
+        cid: Opt.none(string),
+        language: Opt.none(seq[string]),
+        location: Opt.none(string),
+        extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
+        isMultipart: false,
+        source: bpsInline,
+        partId: rng.genPartId(),
+        value: rng.genBlueprintBodyValue(),
+      )
+      return flatBody(
+        textBody = Opt.some(textLeaf),
+        htmlBody = Opt.some(htmlLeaf),
+        attachments = @[
+          rng.genBlueprintBodyPart(maxDepth = 1), rng.genBlueprintBodyPart(maxDepth = 1)
+        ],
+      )
+  # Random: 50/50 structured vs flat.
+  if rng.rand(0 .. 1) == 0:
+    structuredBody(rng.genBlueprintBodyPart(maxDepth = 3))
+  else:
+    let textLeaf =
+      if rng.rand(0 .. 1) == 0:
+        Opt.some(
+          BlueprintBodyPart(
+            contentType: "text/plain",
+            name: Opt.none(string),
+            disposition: Opt.none(string),
+            cid: Opt.none(string),
+            language: Opt.none(seq[string]),
+            location: Opt.none(string),
+            extraHeaders:
+              initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
+            isMultipart: false,
+            source: bpsInline,
+            partId: rng.genPartId(),
+            value: rng.genBlueprintBodyValue(),
+          )
+        )
+      else:
+        Opt.none(BlueprintBodyPart)
+    let htmlLeaf =
+      if rng.rand(0 .. 1) == 0:
+        Opt.some(
+          BlueprintBodyPart(
+            contentType: "text/html",
+            name: Opt.none(string),
+            disposition: Opt.none(string),
+            cid: Opt.none(string),
+            language: Opt.none(seq[string]),
+            location: Opt.none(string),
+            extraHeaders:
+              initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
+            isMultipart: false,
+            source: bpsInline,
+            partId: rng.genPartId(),
+            value: rng.genBlueprintBodyValue(),
+          )
+        )
+      else:
+        Opt.none(BlueprintBodyPart)
+    var attachments: seq[BlueprintBodyPart] = @[]
+    let attCount = rng.rand(0 .. 2)
+    for _ in 0 ..< attCount:
+      attachments.add(rng.genBlueprintBodyPart(maxDepth = 1))
+    flatBody(textBody = textLeaf, htmlBody = htmlLeaf, attachments = attachments)
+
+# J-10 -----------------------------------------------------------------------
+proc genEmailBlueprint*(rng: var Rand, trial: int = -1): EmailBlueprint =
+  ## Generates a valid ``EmailBlueprint``. Trial biasing picks minimal and
+  ## maximal fixtures early, then composes random content for the rest.
+  ## Composes J-5 (mailboxIds), J-9 (body), J-4 (header values).
+  ## Covers: minimal blueprint (single mailbox, empty body), fully-populated
+  ## blueprint (every convenience field set, one extraHeaders entry), random
+  ## compositions.
+  ## Does NOT generate: blueprints that would fail ``parseEmailBlueprint``
+  ## (use J-15 for adversarial composition). Table insertion order matters
+  ## for the wire output — J-16 handles permutation testing.
+  if trial >= 0 and trial < 2:
+    case trial
+    of 0:
+      return
+        parseEmailBlueprint(mailboxIds = rng.genNonEmptyMailboxIdSet(trial = 0)).get()
+    else:
+      # Fully populated fixture mirroring makeFullEmailBlueprint.
+      let alice = parseEmailAddress("alice@example.com", Opt.some("Alice")).get()
+      let bob = parseEmailAddress("bob@example.com", Opt.some("Bob")).get()
+      var extra = initTable[BlueprintEmailHeaderName, BlueprintHeaderMultiValue]()
+      extra[parseBlueprintEmailHeaderName("x-marker").get()] = textSingle("full")
+      let textInline = BlueprintBodyPart(
+        contentType: "text/plain",
+        name: Opt.none(string),
+        disposition: Opt.none(string),
+        cid: Opt.none(string),
+        language: Opt.none(seq[string]),
+        location: Opt.none(string),
+        extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
+        isMultipart: false,
+        source: bpsInline,
+        partId: parsePartIdFromServer("1").get(),
+        value: BlueprintBodyValue(value: "text leaf"),
+      )
+      let body = flatBody(textBody = Opt.some(textInline))
+      return parseEmailBlueprint(
+          mailboxIds = rng.genNonEmptyMailboxIdSet(trial = 2),
+          body = body,
+          keywords = initKeywordSet(@[parseKeyword("$seen").get()]),
+          receivedAt = Opt.some(parseUtcDate("2025-01-15T09:00:00Z").get()),
+          fromAddr = Opt.some(@[alice]),
+          to = Opt.some(@[bob]),
+          cc = Opt.some(@[alice]),
+          bcc = Opt.some(@[bob]),
+          replyTo = Opt.some(@[alice]),
+          sender = Opt.some(alice),
+          subject = Opt.some("hello"),
+          sentAt = Opt.some(parseDate("2025-01-15T08:00:00Z").get()),
+          messageId = Opt.some(@["<id1@host>"]),
+          inReplyTo = Opt.some(@["<id0@host>"]),
+          references = Opt.some(@["<id0@host>"]),
+          extraHeaders = extra,
+        )
+        .get()
+  # Random composition — avoid constraint violations by keeping convenience
+  # fields and body-part extraHeaders drawn from non-colliding namespaces.
+  let ids = rng.genNonEmptyMailboxIdSet()
+  let body = rng.genEmailBlueprintBody()
+  var extra = initTable[BlueprintEmailHeaderName, BlueprintHeaderMultiValue]()
+  let extraCount = rng.rand(0 .. 3)
+  for i in 0 ..< extraCount:
+    let nameStr = "x-r" & $i & "-" & $rng.rand(0 .. 999)
+    let nameRes = parseBlueprintEmailHeaderName(nameStr)
+    if nameRes.isOk:
+      let name = nameRes.get()
+      if name notin extra:
+        extra[name] = rng.genBlueprintHeaderMultiValue(hfText)
+  let res = parseEmailBlueprint(mailboxIds = ids, body = body, extraHeaders = extra)
+  if res.isOk:
+    return res.get()
+  # Fall back to minimal on unexpected rejection (e.g., depth bias hit).
+  parseEmailBlueprint(mailboxIds = ids).get()
+
+# J-11 -----------------------------------------------------------------------
+type BlueprintTriggerArgs* {.ruleOff: "objects".} = object
+  ## Captured arguments + expected constraint-set for J-11. Property 88
+  ## and 94 surface ``$args`` on failure via ``lastInput``.
+  mailboxIds*: NonEmptyMailboxIdSet
+  body*: EmailBlueprintBody
+  fromAddr*: Opt[seq[EmailAddress]]
+  subject*: Opt[string]
+  extraHeaders*: Table[BlueprintEmailHeaderName, BlueprintHeaderMultiValue]
+  expected*: set[EmailBlueprintConstraint]
+
+proc buildTrigger(
+    rng: var Rand, variant: EmailBlueprintConstraint
+): BlueprintTriggerArgs =
+  ## Per-variant trigger builder. Each branch returns args that fire the
+  ## single named constraint. ``ebcBodyPartDepthExceeded`` uses a depth-129
+  ## spine; the mutually-exclusive-body variants take the appropriate body
+  ## shape.
+  case variant
+  of ebcEmailTopLevelHeaderDuplicate:
+    var extra = initTable[BlueprintEmailHeaderName, BlueprintHeaderMultiValue]()
+    extra[parseBlueprintEmailHeaderName("from").get()] = textSingle("v")
+    let addr0 = parseEmailAddress("a@b.c", Opt.none(string)).get()
+    BlueprintTriggerArgs(
+      mailboxIds: rng.genNonEmptyMailboxIdSet(trial = 0),
+      body: flatBody(),
+      fromAddr: Opt.some(@[addr0]),
+      subject: Opt.none(string),
+      extraHeaders: extra,
+      expected: {ebcEmailTopLevelHeaderDuplicate},
+    )
+  of ebcBodyStructureHeaderDuplicate:
+    var rootExtra = initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue]()
+    rootExtra[parseBlueprintBodyHeaderName("from").get()] = textSingle("v")
+    let root = BlueprintBodyPart(
+      contentType: "multipart/mixed",
+      name: Opt.none(string),
+      disposition: Opt.none(string),
+      cid: Opt.none(string),
+      language: Opt.none(seq[string]),
+      location: Opt.none(string),
+      extraHeaders: rootExtra,
+      isMultipart: true,
+      subParts: @[],
+    )
+    var topExtra = initTable[BlueprintEmailHeaderName, BlueprintHeaderMultiValue]()
+    topExtra[parseBlueprintEmailHeaderName("from").get()] = textSingle("v")
+    BlueprintTriggerArgs(
+      mailboxIds: rng.genNonEmptyMailboxIdSet(trial = 0),
+      body: structuredBody(root),
+      fromAddr: Opt.none(seq[EmailAddress]),
+      subject: Opt.none(string),
+      extraHeaders: topExtra,
+      expected: {ebcBodyStructureHeaderDuplicate},
+    )
+  of ebcBodyPartHeaderDuplicate:
+    var partExtra = initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue]()
+    partExtra[parseBlueprintBodyHeaderName("content-type").get()] = textSingle("v")
+    let leaf = BlueprintBodyPart(
+      contentType: "text/plain",
+      name: Opt.none(string),
+      disposition: Opt.none(string),
+      cid: Opt.none(string),
+      language: Opt.none(seq[string]),
+      location: Opt.none(string),
+      extraHeaders: partExtra,
+      isMultipart: false,
+      source: bpsInline,
+      partId: parsePartIdFromServer("1").get(),
+      value: BlueprintBodyValue(value: "v"),
+    )
+    BlueprintTriggerArgs(
+      mailboxIds: rng.genNonEmptyMailboxIdSet(trial = 0),
+      body: flatBody(textBody = Opt.some(leaf)),
+      fromAddr: Opt.none(seq[EmailAddress]),
+      subject: Opt.none(string),
+      extraHeaders: initTable[BlueprintEmailHeaderName, BlueprintHeaderMultiValue](),
+      expected: {ebcBodyPartHeaderDuplicate},
+    )
+  of ebcTextBodyNotTextPlain:
+    let leaf = BlueprintBodyPart(
+      contentType: "application/pdf",
+      name: Opt.none(string),
+      disposition: Opt.none(string),
+      cid: Opt.none(string),
+      language: Opt.none(seq[string]),
+      location: Opt.none(string),
+      extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
+      isMultipart: false,
+      source: bpsInline,
+      partId: parsePartIdFromServer("1").get(),
+      value: BlueprintBodyValue(value: "v"),
+    )
+    BlueprintTriggerArgs(
+      mailboxIds: rng.genNonEmptyMailboxIdSet(trial = 0),
+      body: flatBody(textBody = Opt.some(leaf)),
+      fromAddr: Opt.none(seq[EmailAddress]),
+      subject: Opt.none(string),
+      extraHeaders: initTable[BlueprintEmailHeaderName, BlueprintHeaderMultiValue](),
+      expected: {ebcTextBodyNotTextPlain},
+    )
+  of ebcHtmlBodyNotTextHtml:
+    let leaf = BlueprintBodyPart(
+      contentType: "text/plain",
+      name: Opt.none(string),
+      disposition: Opt.none(string),
+      cid: Opt.none(string),
+      language: Opt.none(seq[string]),
+      location: Opt.none(string),
+      extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
+      isMultipart: false,
+      source: bpsInline,
+      partId: parsePartIdFromServer("1").get(),
+      value: BlueprintBodyValue(value: "v"),
+    )
+    BlueprintTriggerArgs(
+      mailboxIds: rng.genNonEmptyMailboxIdSet(trial = 0),
+      body: flatBody(htmlBody = Opt.some(leaf)),
+      fromAddr: Opt.none(seq[EmailAddress]),
+      subject: Opt.none(string),
+      extraHeaders: initTable[BlueprintEmailHeaderName, BlueprintHeaderMultiValue](),
+      expected: {ebcHtmlBodyNotTextHtml},
+    )
+  of ebcAllowedFormRejected:
+    var extra = initTable[BlueprintEmailHeaderName, BlueprintHeaderMultiValue]()
+    extra[parseBlueprintEmailHeaderName("subject").get()] =
+      dateSingle(parseDate("2025-01-15T09:00:00Z").get())
+    BlueprintTriggerArgs(
+      mailboxIds: rng.genNonEmptyMailboxIdSet(trial = 0),
+      body: flatBody(),
+      fromAddr: Opt.none(seq[EmailAddress]),
+      subject: Opt.none(string),
+      extraHeaders: extra,
+      expected: {ebcAllowedFormRejected},
+    )
+  of ebcBodyPartDepthExceeded:
+    # Build a depth-129 spine of multipart containers around one leaf.
+    var leaf: BlueprintBodyPart = BlueprintBodyPart(
+      contentType: "text/plain",
+      name: Opt.none(string),
+      disposition: Opt.none(string),
+      cid: Opt.none(string),
+      language: Opt.none(seq[string]),
+      location: Opt.none(string),
+      extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
+      isMultipart: false,
+      source: bpsInline,
+      partId: parsePartIdFromServer("1").get(),
+      value: BlueprintBodyValue(value: "v"),
+    )
+    for _ in 0 .. 128:
+      leaf = BlueprintBodyPart(
+        contentType: "multipart/mixed",
+        name: Opt.none(string),
+        disposition: Opt.none(string),
+        cid: Opt.none(string),
+        language: Opt.none(seq[string]),
+        location: Opt.none(string),
+        extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
+        isMultipart: true,
+        subParts: @[leaf],
+      )
+    BlueprintTriggerArgs(
+      mailboxIds: rng.genNonEmptyMailboxIdSet(trial = 0),
+      body: structuredBody(leaf),
+      fromAddr: Opt.none(seq[EmailAddress]),
+      subject: Opt.none(string),
+      extraHeaders: initTable[BlueprintEmailHeaderName, BlueprintHeaderMultiValue](),
+      expected: {ebcBodyPartDepthExceeded},
+    )
+
+proc genBlueprintErrorTrigger*(rng: var Rand, trial: int = -1): BlueprintTriggerArgs =
+  ## Generates ``parseEmailBlueprint`` args that fire at least one named
+  ## constraint variant on the error rail. Early trials 0..6 bijection one
+  ## variant each (bijection over the 7-variant ``EmailBlueprintConstraint``
+  ## enum); later trials pick one at random.
+  ## Covers: every ``EmailBlueprintConstraint`` variant at least once via
+  ## the first seven trials.
+  ## Does NOT generate: multi-variant composite triggers (scenario 101's
+  ## job — lives in the stress suite).
+  const variants = [
+    ebcEmailTopLevelHeaderDuplicate, ebcBodyStructureHeaderDuplicate,
+    ebcBodyPartHeaderDuplicate, ebcTextBodyNotTextPlain, ebcHtmlBodyNotTextHtml,
+    ebcAllowedFormRejected, ebcBodyPartDepthExceeded,
+  ]
+  let idx =
+    if trial >= 0 and trial < variants.len:
+      trial
+    else:
+      rng.rand(0 .. variants.len - 1)
+  buildTrigger(rng, variants[idx])
+
+# J-12 -----------------------------------------------------------------------
+proc genBodyPartPath*(rng: var Rand, trial: int = -1): BodyPartPath =
+  ## Generates ``BodyPartPath`` values for locator tests.
+  ## Covers: root (``@[]``), depth-1 (``@[0]``), depth-3 (``@[0,1,2]``),
+  ## random short paths.
+  ## Does NOT generate: paths longer than ``MaxBodyPartDepth``, negative or
+  ## ``int.low``/``int.high`` entries (scenario 99f owns that axis).
+  if trial >= 0 and trial < 3:
+    case trial
+    of 0:
+      return BodyPartPath(@[])
+    of 1:
+      return BodyPartPath(@[0])
+    else:
+      return BodyPartPath(@[0, 1, 2])
+  let length = rng.rand(0 .. 8)
+  var s: seq[int] = @[]
+  for _ in 0 ..< length:
+    s.add(rng.rand(0 .. 16))
+  BodyPartPath(s)
+
+proc genBodyPartLocation*(rng: var Rand, trial: int = -1): BodyPartLocation =
+  ## Generates ``BodyPartLocation`` values across all three kinds.
+  ## Covers: inline/blob-ref/multipart — one per early trial.
+  ## Does NOT generate: locations with adversarial int payloads (scenario
+  ## 99f).
+  if trial >= 0 and trial < 3:
+    case trial
+    of 0:
+      return BodyPartLocation(kind: bplInline, partId: rng.genPartId(trial = 0))
+    of 1:
+      return
+        BodyPartLocation(kind: bplBlobRef, blobId: Id(rng.genValidIdStrict(minLen = 3)))
+    else:
+      return BodyPartLocation(kind: bplMultipart, path: rng.genBodyPartPath(trial = 1))
+  case rng.rand(0 .. 2)
+  of 0:
+    BodyPartLocation(kind: bplInline, partId: rng.genPartId())
+  of 1:
+    BodyPartLocation(kind: bplBlobRef, blobId: Id(rng.genValidIdStrict(minLen = 3)))
+  else:
+    BodyPartLocation(kind: bplMultipart, path: rng.genBodyPartPath())
+
+# J-13 -----------------------------------------------------------------------
+proc genEmailBlueprintError*(rng: var Rand, trial: int = -1): EmailBlueprintError =
+  ## Generates a single ``EmailBlueprintError`` uniformly over the seven
+  ## ``EmailBlueprintConstraint`` variants. Payload strings are drawn from
+  ## ``genMaliciousString`` / ``genLongArbitraryString`` — the same
+  ## adversarial sources the suite already uses, so payload coverage is
+  ## centralised. DO NOT reimplement a local NUL/CRLF helper here.
+  ## Covers: every variant at least once via the first seven trials; every
+  ## payload slot eventually sees adversarial bytes.
+  ## Does NOT generate: sealed ``EmailBlueprintErrors`` directly (use
+  ## ``genEmailBlueprintErrors`` which constructs via ``parseEmailBlueprint``
+  ## triggers).
+  const variants = [
+    ebcEmailTopLevelHeaderDuplicate, ebcBodyStructureHeaderDuplicate,
+    ebcBodyPartHeaderDuplicate, ebcTextBodyNotTextPlain, ebcHtmlBodyNotTextHtml,
+    ebcAllowedFormRejected, ebcBodyPartDepthExceeded,
+  ]
+  let idx =
+    if trial >= 0 and trial < variants.len:
+      trial
+    else:
+      rng.rand(0 .. variants.len - 1)
+  case variants[idx]
+  of ebcEmailTopLevelHeaderDuplicate:
+    EmailBlueprintError(
+      constraint: ebcEmailTopLevelHeaderDuplicate,
+      dupName: rng.genMaliciousString(trial),
+    )
+  of ebcBodyStructureHeaderDuplicate:
+    EmailBlueprintError(
+      constraint: ebcBodyStructureHeaderDuplicate,
+      bodyStructureDupName: rng.genMaliciousString(trial),
+    )
+  of ebcBodyPartHeaderDuplicate:
+    EmailBlueprintError(
+      constraint: ebcBodyPartHeaderDuplicate,
+      where: rng.genBodyPartLocation(),
+      bodyPartDupName: rng.genMaliciousString(trial),
+    )
+  of ebcTextBodyNotTextPlain:
+    EmailBlueprintError(
+      constraint: ebcTextBodyNotTextPlain,
+      actualTextType: rng.genLongArbitraryString(trial, maxLen = 1024),
+    )
+  of ebcHtmlBodyNotTextHtml:
+    EmailBlueprintError(
+      constraint: ebcHtmlBodyNotTextHtml,
+      actualHtmlType: rng.genLongArbitraryString(trial, maxLen = 1024),
+    )
+  of ebcAllowedFormRejected:
+    EmailBlueprintError(
+      constraint: ebcAllowedFormRejected,
+      rejectedName: rng.genMaliciousString(trial),
+      rejectedForm: rng.oneOf(
+        [hfRaw, hfText, hfAddresses, hfGroupedAddresses, hfMessageIds, hfDate, hfUrls]
+      ),
+    )
+  of ebcBodyPartDepthExceeded:
+    EmailBlueprintError(
+      constraint: ebcBodyPartDepthExceeded,
+      observedDepth: rng.rand(129 .. 10_000),
+      depthLocation: rng.genBodyPartLocation(),
+    )
+
+proc genEmailBlueprintErrors*(rng: var Rand, trial: int = -1): EmailBlueprintErrors =
+  ## Generates a non-empty ``EmailBlueprintErrors`` aggregate by composing
+  ## triggers and running them through the public smart constructor
+  ## ``parseEmailBlueprint``. Pattern A seal means that IS the only
+  ## construction path — no internal short-cut exists.
+  ## Covers: 1..3 simultaneous triggers (composed over the same args).
+  ## Does NOT generate: empty aggregates (sealed type forbids that state).
+  let args = rng.genBlueprintErrorTrigger(trial)
+  let res = parseEmailBlueprint(
+    mailboxIds = args.mailboxIds,
+    body = args.body,
+    fromAddr = args.fromAddr,
+    subject = args.subject,
+    extraHeaders = args.extraHeaders,
+  )
+  doAssert res.isErr
+  res.unsafeError
+
+# J-14 -----------------------------------------------------------------------
+proc genEmailBlueprintDelta*(
+    rng: var Rand, trial: int = -1
+): tuple[a, b: EmailBlueprint] =
+  ## Generates a pair of blueprints differing in exactly one observable
+  ## field — subject, one extraHeaders entry, or one Opt flip. Property 91
+  ## (injectivity) relies on the inequality precondition.
+  ## Covers: subject difference, extraHeaders cardinality difference,
+  ## Opt flip on messageId.
+  ## Does NOT generate: equal blueprints, blueprints differing in
+  ## multiple fields simultaneously.
+  let ids = rng.genNonEmptyMailboxIdSet()
+  let k = rng.rand(0 .. 2)
+  case k
+  of 0:
+    # Subject difference: a has subject, b is otherwise identical but lacks it.
+    let a = parseEmailBlueprint(
+        mailboxIds = ids, subject = Opt.some("alpha-" & $rng.rand(0 .. 9_999))
+      )
+      .get()
+    let b = parseEmailBlueprint(mailboxIds = ids, subject = Opt.none(string)).get()
+    (a: a, b: b)
+  of 1:
+    # extraHeaders cardinality: a has one entry, b has none.
+    var extra = initTable[BlueprintEmailHeaderName, BlueprintHeaderMultiValue]()
+    extra[parseBlueprintEmailHeaderName("x-delta").get()] =
+      textSingle("v-" & $rng.rand(0 .. 9_999))
+    let a = parseEmailBlueprint(mailboxIds = ids, extraHeaders = extra).get()
+    let b = parseEmailBlueprint(mailboxIds = ids).get()
+    (a: a, b: b)
+  else:
+    # messageId Opt flip.
+    let a = parseEmailBlueprint(
+        mailboxIds = ids, messageId = Opt.some(@["<m-" & $rng.rand(0 .. 9_999) & "@h>"])
+      )
+      .get()
+    let b =
+      parseEmailBlueprint(mailboxIds = ids, messageId = Opt.none(seq[string])).get()
+    (a: a, b: b)
+
+# J-15 -----------------------------------------------------------------------
+type BlueprintCtorArgs* {.ruleOff: "objects".} = object
+  ## Argument packet for property 95's adversarial totality trial.
+  ## ``lastInput`` is set from a stringified digest so failures report
+  ## which adversarial shape tripped the assertion.
+  mailboxIds*: NonEmptyMailboxIdSet
+  body*: EmailBlueprintBody
+  keywords*: KeywordSet
+  receivedAt*: Opt[UTCDate]
+  fromAddr*: Opt[seq[EmailAddress]]
+  to*: Opt[seq[EmailAddress]]
+  cc*: Opt[seq[EmailAddress]]
+  bcc*: Opt[seq[EmailAddress]]
+  replyTo*: Opt[seq[EmailAddress]]
+  sender*: Opt[EmailAddress]
+  subject*: Opt[string]
+  sentAt*: Opt[Date]
+  messageId*: Opt[seq[string]]
+  inReplyTo*: Opt[seq[string]]
+  references*: Opt[seq[string]]
+  extraHeaders*: Table[BlueprintEmailHeaderName, BlueprintHeaderMultiValue]
+  digest*: string
+
+proc genAdversarialSubject(rng: var Rand, trial: int): string =
+  rng.genMaliciousString(trial)
+
+proc genAdversarialExtraHeaders(
+    rng: var Rand
+): Table[BlueprintEmailHeaderName, BlueprintHeaderMultiValue] =
+  ## Adversarial header fan-out. Cardinality drawn from {0, 1, 1000}. The
+  ## design note called for 10_000 but I-19 caps realistic fan-out at ~1000
+  ## before the brute-force collision scan runs out of candidates — adopted
+  ## the same ceiling here.
+  result = initTable[BlueprintEmailHeaderName, BlueprintHeaderMultiValue]()
+  const cardOptions = [0, 1, 1000]
+  let card = rng.oneOf(cardOptions)
+  for i in 0 ..< card:
+    let nameStr = "x-adv-" & $i
+    let nameRes = parseBlueprintEmailHeaderName(nameStr)
+    if nameRes.isOk:
+      result[nameRes.get()] = textSingle("v")
+
+proc adversarialDepthBody(rng: var Rand): EmailBlueprintBody =
+  ## Body shape with depth drawn from {0, 128, 129, 256} — boundary values
+  ## that exercise ``parseEmailBlueprint``'s depth check on both sides of
+  ## ``MaxBodyPartDepth``.
+  const depths = [0, 128, 129, 256]
+  let depth = rng.oneOf(depths)
+  var leaf: BlueprintBodyPart = BlueprintBodyPart(
+    contentType: "text/plain",
+    name: Opt.none(string),
+    disposition: Opt.none(string),
+    cid: Opt.none(string),
+    language: Opt.none(seq[string]),
+    location: Opt.none(string),
+    extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
+    isMultipart: false,
+    source: bpsInline,
+    partId: parsePartIdFromServer("1").get(),
+    value: BlueprintBodyValue(value: "v"),
+  )
+  for _ in 0 ..< depth:
+    leaf = BlueprintBodyPart(
+      contentType: "multipart/mixed",
+      name: Opt.none(string),
+      disposition: Opt.none(string),
+      cid: Opt.none(string),
+      language: Opt.none(seq[string]),
+      location: Opt.none(string),
+      extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
+      isMultipart: true,
+      subParts: @[leaf],
+    )
+  structuredBody(leaf)
+
+proc genAdversarialBlueprintArgs*(rng: var Rand, trial: int = -1): BlueprintCtorArgs =
+  ## Adversarial ctor argument pack — composes malicious subject / body
+  ## depth boundaries {0, 128, 129, 256} / header cardinalities {0, 1, 1000}.
+  ## Consumers MUST use ``ThoroughTrials`` (property 95's budget of 2000
+  ## trials), NOT the default 500 — the input space is large and the
+  ## property (no raise) is cheap enough to warrant saturation.
+  ## Covers: all four depth boundaries, three cardinalities, ten
+  ## ``genMaliciousString`` payloads.
+  ## Does NOT generate: adversarial invalid inputs to parsers themselves
+  ## (e.g. malformed mailbox Ids — those are J-2/J-3's axis).
+  let ids = rng.genNonEmptyMailboxIdSet()
+  let body = rng.adversarialDepthBody()
+  let extra = rng.genAdversarialExtraHeaders()
+  let subject = rng.genAdversarialSubject(trial)
+  BlueprintCtorArgs(
+    mailboxIds: ids,
+    body: body,
+    keywords: initKeywordSet(@[]),
+    receivedAt: Opt.none(UTCDate),
+    fromAddr: Opt.none(seq[EmailAddress]),
+    to: Opt.none(seq[EmailAddress]),
+    cc: Opt.none(seq[EmailAddress]),
+    bcc: Opt.none(seq[EmailAddress]),
+    replyTo: Opt.none(seq[EmailAddress]),
+    sender: Opt.none(EmailAddress),
+    subject: Opt.some(subject),
+    sentAt: Opt.none(Date),
+    messageId: Opt.none(seq[string]),
+    inReplyTo: Opt.none(seq[string]),
+    references: Opt.none(seq[string]),
+    extraHeaders: extra,
+    digest: "trial=" & $trial & " subjectLen=" & $subject.len & " extras=" & $extra.len,
+  )
+
+# J-16 -----------------------------------------------------------------------
+proc genBlueprintInsertionPermutation*(
+    rng: var Rand, trial: int = -1
+): tuple[a, permuted: EmailBlueprint] =
+  ## Generates a blueprint pair ``(a, permuted)`` whose ``extraHeaders``
+  ## Tables were populated in different insertion orders but carry
+  ## identical ``(name, value)`` pairs. Property 97e asserts
+  ## ``emailBlueprintEq`` ignores insertion order.
+  ## Covers: reverse-order (trial 0), random permutations (trials 1..).
+  ## Does NOT generate: structurally different Tables (same key-set by
+  ## construction).
+  let ids = rng.genNonEmptyMailboxIdSet()
+  var entries: seq[(BlueprintEmailHeaderName, BlueprintHeaderMultiValue)] = @[]
+  let count = rng.rand(2 .. 6)
+  var seenNames = initHashSet[string]()
+  while entries.len < count:
+    let i = entries.len
+    let nameStr = "x-perm-" & $i & "-" & $rng.rand(0 .. 999)
+    if nameStr in seenNames:
+      continue
+    seenNames.incl(nameStr)
+    let nameRes = parseBlueprintEmailHeaderName(nameStr)
+    if nameRes.isOk:
+      entries.add((nameRes.get(), textSingle("v" & $i)))
+
+  var tableA = initTable[BlueprintEmailHeaderName, BlueprintHeaderMultiValue]()
+  for (k, v) in entries:
+    tableA[k] = v
+
+  var entriesB: seq[(BlueprintEmailHeaderName, BlueprintHeaderMultiValue)] =
+    if trial == 0:
+      var reversed = entries
+      for i in 0 ..< reversed.len div 2:
+        let j = reversed.len - 1 - i
+        let tmp = reversed[i]
+        reversed[i] = reversed[j]
+        reversed[j] = tmp
+      reversed
+    else:
+      var shuffled = entries
+      rng.shuffle(shuffled)
+      shuffled
+
+  var tableB = initTable[BlueprintEmailHeaderName, BlueprintHeaderMultiValue]()
+  for (k, v) in entriesB:
+    tableB[k] = v
+
+  (
+    a: parseEmailBlueprint(mailboxIds = ids, extraHeaders = tableA).get(),
+    permuted: parseEmailBlueprint(mailboxIds = ids, extraHeaders = tableB).get(),
   )
 
 {.pop.} # params

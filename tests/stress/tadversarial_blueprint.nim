@@ -65,8 +65,37 @@ proc minimal102cBlueprint(): EmailBlueprint =
   let ids = parseNonEmptyMailboxIdSet(@[parseId("mbx-det").get()]).get()
   parseEmailBlueprint(mailboxIds = ids, subject = Opt.some("fixed subject")).get()
 
+proc multiEntry102eBlueprint(): EmailBlueprint =
+  ## Multi-entry blueprint for the cross-process *structural-equality*
+  ## gate (scenario 102e). Exercises several ``extraHeaders`` entries and
+  ## a multi-``Id`` ``mailboxIds`` set so that Table / HashSet iteration
+  ## order matters for the wire form. The serialiser does not currently
+  ## sort — two processes may emit byte-divergent output with identical
+  ## structural content. 102e pins the structural contract; byte-equality
+  ## is NOT asserted and is not a contract jmap-client offers here.
+  let ids = parseNonEmptyMailboxIdSet(
+      @[parseId("mbx-a").get(), parseId("mbx-b").get(), parseId("mbx-c").get()]
+    )
+    .get()
+  var extra = initTable[BlueprintEmailHeaderName, BlueprintHeaderMultiValue]()
+  extra[parseBlueprintEmailHeaderName("x-alpha").get()] = textSingle("one")
+  extra[parseBlueprintEmailHeaderName("x-beta").get()] = textSingle("two")
+  extra[parseBlueprintEmailHeaderName("x-gamma").get()] = textSingle("three")
+  extra[parseBlueprintEmailHeaderName("x-delta").get()] = textSingle("four")
+  extra[parseBlueprintEmailHeaderName("x-epsilon").get()] = textSingle("five")
+  parseEmailBlueprint(
+    mailboxIds = ids, subject = Opt.some("structural only"), extraHeaders = extra
+  )
+    .get()
+
 if existsEnv("JMAP_STEP22_CHILD"):
-  let bp = minimal102cBlueprint()
+  let variant = getEnv("JMAP_STEP22_VARIANT", "minimal")
+  let bp =
+    case variant
+    of "multi":
+      multiEntry102eBlueprint()
+    else:
+      minimal102cBlueprint()
   echo $bp.toJson()
   quit(0)
 
@@ -444,7 +473,7 @@ block crossProcessByteDeterminism: # scenario 102c
   let child = startProcess(
     getAppFilename(),
     args = @[],
-    env = newStringTable({"JMAP_STEP22_CHILD": "1"}),
+    env = newStringTable({"JMAP_STEP22_CHILD": "1", "JMAP_STEP22_VARIANT": "minimal"}),
     options = {poStdErrToStdOut, poUsePath},
   )
   let childStdout = child.outputStream.readAll().strip()
@@ -454,3 +483,34 @@ block crossProcessByteDeterminism: # scenario 102c
     "scenario 102c child exited " & $exitCode & "; output:\n" & childStdout
   doAssert childStdout == parentJson,
     "cross-process byte mismatch\nparent: " & parentJson & "\nchild:  " & childStdout
+
+block crossProcessStructuralOnly: # scenario 102e
+  ## Complement to 102c. With multiple ``extraHeaders`` entries and a
+  ## multi-``Id`` ``mailboxIds`` set, ``Table`` / ``HashSet`` iteration
+  ## orders that depend on the process-wide hash seed influence the
+  ## serialiser's output. ``parseJson`` compares recursively and is
+  ## insensitive to key emission order, so structural equality MUST
+  ## hold even when the byte outputs diverge. Byte-equality is NOT
+  ## asserted — that is deliberately a 102c-only promise, limited to
+  ## the single-entry fixture.
+  ##
+  ## This block turns the implicit single-entry choice in 102c into an
+  ## explicit contract pair: 102c = byte-equal (single-entry), 102e =
+  ## structurally-equal (multi-entry).
+  let parentJson = $multiEntry102eBlueprint().toJson()
+  let child = startProcess(
+    getAppFilename(),
+    args = @[],
+    env = newStringTable({"JMAP_STEP22_CHILD": "1", "JMAP_STEP22_VARIANT": "multi"}),
+    options = {poStdErrToStdOut, poUsePath},
+  )
+  let childStdout = child.outputStream.readAll().strip()
+  let exitCode = child.waitForExit()
+  child.close()
+  doAssert exitCode == 0,
+    "scenario 102e child exited " & $exitCode & "; output:\n" & childStdout
+  let parentObj = parseJson(parentJson)
+  let childObj = parseJson(childStdout)
+  doAssert parentObj == childObj,
+    "cross-process structural mismatch\nparent: " & parentJson & "\nchild:  " &
+      childStdout
