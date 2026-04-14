@@ -49,6 +49,13 @@ const DefaultTrials* = 500 ## Standard property trial count.
 
 const ThoroughTrials* = 2000 ## For properties with large input spaces (Date, Session).
 
+const CrossProcessTrials* = 100
+  ## For properties whose per-trial cost is dominated by spawning a child
+  ## process (``startProcess`` + ``waitForExit``). Nim-runtime init + exec
+  ## runs ~100 ms/trial on Linux — five times the pure-Nim trial budget
+  ## the other tiers assume. Tuned so cross-process tiers add ~10 s to CI
+  ## rather than the ~200 s that ``ThoroughTrials`` would impose.
+
 # ---------------------------------------------------------------------------
 # Property check templates
 # ---------------------------------------------------------------------------

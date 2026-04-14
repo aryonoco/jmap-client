@@ -62,7 +62,14 @@ if existsEnv("JMAP_E_97A_CHILD"):
 # =============================================================================
 
 block propTotalityParseEmailBlueprint: # 85
-  checkProperty "parseEmailBlueprint totality on adversarial argument shapes":
+  ## Uses ``QuickTrials`` because each trial walks an adversarial body tree
+  ## (up to ``MaxBodyPartDepth``-nested parts) through every validator in
+  ## ``parseEmailBlueprint`` — ~25 ms/trial in release. Totality is a
+  ## smoke-level invariant: any failure is a crash and surfaces in the first
+  ## handful of trials, so 200 runs is amply sufficient and the adversarial
+  ## space is re-exercised by property 95 at ``DefaultTrials``.
+  checkPropertyN "parseEmailBlueprint totality on adversarial argument shapes",
+    QuickTrials:
     let args = rng.genAdversarialBlueprintArgs(trial)
     lastInput = args.digest
     discard parseEmailBlueprint(
@@ -91,7 +98,13 @@ block propTotalityToJson: # 86
     discard bp.toJson()
 
 block propDeterminism: # 87
-  checkProperty "parseEmailBlueprint is a pure function of its arguments":
+  ## Uses ``QuickTrials`` because each trial calls ``parseEmailBlueprint``
+  ## *twice* on adversarial inputs — ~50 ms/trial in release. Purity is a
+  ## structural invariant of the function (no global state, no RNG,
+  ## iteration over insertion-ordered ``Table``); divergence would surface
+  ## on any trial, and the error-ordering leg is re-exercised by property
+  ## 94 (``propErrorOrderingDeterminism``) with the same validator stack.
+  checkPropertyN "parseEmailBlueprint is a pure function of its arguments", QuickTrials:
     let args = rng.genAdversarialBlueprintArgs(trial)
     lastInput = args.digest
     let r1 = parseEmailBlueprint(
@@ -284,8 +297,15 @@ block propErrorOrderingDeterminism: # 94
 # =============================================================================
 
 block propAdversarialTotality: # 95
+  ## Uses ``DefaultTrials`` rather than ``ThoroughTrials`` because each
+  ## trial runs the full ``parseEmailBlueprint`` + ``toJson`` pipeline on
+  ## a ``genAdversarialBlueprintArgs`` payload — ~70 ms/trial in release
+  ## when the generator emits a ``MaxBodyPartDepth``-nested body and a
+  ## large ``extraHeaders`` map. At ``ThoroughTrials`` this block alone
+  ## took ~137 s, eclipsing every other test in CI; 500 trials keeps the
+  ## adversarial coverage broad while holding wall-clock under ~35 s.
   checkPropertyN "parseEmailBlueprint + toJson survive adversarial inputs at scale",
-    ThoroughTrials:
+    DefaultTrials:
     let args = rng.genAdversarialBlueprintArgs(trial)
     lastInput = args.digest
     let res = parseEmailBlueprint(
@@ -350,8 +370,15 @@ block propCrossProcessStructuralEquality: # 97a
   ## is not a contract jmap-client offers except for the single-entry
   ## fixture in scenario 102c. Consumers parse on receipt and compare
   ## structurally; that is the invariant this property pins.
+  ##
+  ## Uses ``CrossProcessTrials`` rather than ``ThoroughTrials`` because
+  ## each trial forks a fresh Nim binary — subprocess spawn at ~100 ms
+  ## dominates the trial cost by ~5×, so the budget is expressed in
+  ## wall-clock seconds, not statistical breadth. Non-determinism in the
+  ## serialiser would surface in the first handful of trials if it
+  ## existed; 100 spawns is amply sufficient to catch it.
   checkPropertyN "cross-process structural equality of $toJson on random blueprints",
-    ThoroughTrials:
+    CrossProcessTrials:
     var localRng = initRand(trial)
     let bp = localRng.genEmailBlueprint(trial mod 3)
     lastInput = "trial " & $trial
