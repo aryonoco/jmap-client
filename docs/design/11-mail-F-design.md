@@ -48,7 +48,8 @@ mail `/set` surface onto the typed algebra.
 | Type | Module | Rationale |
 |------|--------|-----------|
 | `EmailCreatedItem` | `mail/email.nim` (extended) | Four-field typed record (`id`, `blobId`, `threadId`, `size`) shared across §§4.6/4.7/4.8 successful-create entries (F2). |
-| `EmailSetResponse` | `mail/email.nim` (extended) | `Email/set` response with `createResults: Table[CreationId, Result[EmailCreatedItem, SetError]]`. |
+| `UpdatedEntry` | `mail/email.nim` (extended) | Two-case object encoding RFC 8620 §5.3's `Foo\|null` per-id value in the `updated` map: `uekUnchanged` (server made no changes the client doesn't already know) or `uekChanged(changedProperties: JsonNode)`. Replaces the double-`Opt` shape that admitted two encodings of the same fact (F2.1). |
+| `EmailSetResponse` | `mail/email.nim` (extended) | `Email/set` response with `createResults: Table[CreationId, Result[EmailCreatedItem, SetError]]` and `updated: Opt[Table[Id, UpdatedEntry]]`. |
 | `EmailCopyResponse` | `mail/email.nim` (extended) | `Email/copy` response, same `createResults` shape. |
 | `EmailImportResponse` | `mail/email.nim` (extended) | `Email/import` response, same `createResults` shape. |
 | `EmailCopyItem` | `mail/email.nim` (extended) | Creation-side override model for `Email/copy` (constrains to `mailboxIds`, `keywords`, `receivedAt` per RFC §4.7). |
@@ -56,9 +57,9 @@ mail `/set` surface onto the typed algebra.
 | `NonEmptyEmailImportMap` | `mail/email.nim` (extended) | `distinct Table[CreationId, EmailImportItem]`; smart constructor enforces non-empty + duplicate-CreationId-free (F13). |
 | `EmailUpdate` | `mail/email_update.nim` (new) | Case object; six variants matching RFC §4.6 wire patch operations (F4.2). |
 | `EmailUpdateSet` | `mail/email_update.nim` (new) | `distinct seq[EmailUpdate]`; smart constructor rejects empty + three conflict classes (F22, F23). |
-| `MailboxUpdate` | `mail/mailbox.nim` (extended) | Case object; variants per RFC 8621 §2.5 settable Mailbox properties. |
+| `MailboxUpdate` | `mail/mailbox.nim` (extended) | Case object; variants per RFC 8621 §2 settable Mailbox properties. |
 | `MailboxUpdateSet` | `mail/mailbox.nim` (extended) | `distinct seq[MailboxUpdate]`; smart constructor rejects empty + duplicate-target-property. |
-| `VacationResponseUpdate` | `mail/vacation.nim` (extended) | Case object; variants per RFC 8621 §7.1 settable VacationResponse properties. |
+| `VacationResponseUpdate` | `mail/vacation.nim` (extended) | Case object; variants per RFC 8621 §8 settable VacationResponse properties. |
 | `VacationResponseUpdateSet` | `mail/vacation.nim` (extended) | Same shape as `MailboxUpdateSet`. |
 | `EmailCopyHandles` | `mail/mail_builders.nim` (extended) | Two-handle record for the `addEmailCopyAndDestroy` compound overload (F3, F11). |
 | `EmailCopyResults` | `mail/mail_builders.nim` (extended) | Extraction target of `getBoth(EmailCopyHandles)` (F12). |
@@ -107,9 +108,12 @@ part:
   moves from runtime rejection in the smart constructor to a signature-
   level type-level fact.
 - Architecture §11.10's `EmailCopyItem.mailboxIds: Opt[MailboxIdSet]`
-  tightens to `Opt[NonEmptyMailboxIdSet]`. RFC §4.7 states "if present,
-  MUST contain at least one entry" — the `NonEmptyMailboxIdSet` inner type
-  encodes that directly (F10).
+  tightens to `Opt[NonEmptyMailboxIdSet]`. RFC §4.1.1 requires every
+  Email in the mail store to "belong to one or more Mailboxes at all
+  times"; a copy override that supplies an empty `mailboxIds` map would
+  produce a resulting Email that violates this invariant. The
+  `NonEmptyMailboxIdSet` inner type encodes the post-override
+  non-emptiness directly (F10).
 - Architecture §11.10 names the compound-handle fields
   `copy`/`implicitEmailSet` and the chained overload
   `addEmailCopyChained`. Part F renames these to `copy`/`destroy` and
@@ -229,9 +233,9 @@ algebra the **only** public path to mail `/set` update semantics.
 
 | Module | Layer | Status | Contents added |
 |--------|-------|--------|----------------|
-| `mail/email.nim` | L1 | extended | `EmailCreatedItem`, `EmailSetResponse`, `EmailCopyResponse`, `EmailImportResponse`, `EmailCopyItem`, `EmailImportItem`, `NonEmptyEmailImportMap`, `initEmailCopyItem`, `initEmailImportItem`, `initNonEmptyEmailImportMap` |
+| `mail/email.nim` | L1 | extended | `EmailCreatedItem`, `UpdatedEntry`, `UpdatedEntryKind`, `EmailSetResponse`, `EmailCopyResponse`, `EmailImportResponse`, `EmailCopyItem`, `EmailImportItem`, `NonEmptyEmailImportMap`, `initEmailCopyItem`, `initEmailImportItem`, `initNonEmptyEmailImportMap` |
 | `mail/email_update.nim` | L1 | **new** | `EmailUpdate`, `EmailUpdateVariantKind`, six protocol-primitive smart constructors, five convenience smart constructors, `EmailUpdateSet`, `initEmailUpdateSet` |
-| `mail/serde_email.nim` | L2 | extended | `toJson`/`fromJson` for `EmailCreatedItem`, `EmailSetResponse`, `EmailCopyResponse`, `EmailImportResponse`; `toJson` for `EmailCopyItem`, `EmailImportItem`, `NonEmptyEmailImportMap` |
+| `mail/serde_email.nim` | L2 | extended | `toJson`/`fromJson` for `EmailCreatedItem`, `UpdatedEntry`, `EmailSetResponse`, `EmailCopyResponse`, `EmailImportResponse`; `toJson` for `EmailCopyItem`, `EmailImportItem`, `NonEmptyEmailImportMap` |
 | `mail/serde_email_update.nim` | L2 | **new** | `toJson` for `EmailUpdate`, `EmailUpdateSet` (translates to wire patch) |
 | `mail/mailbox.nim` | L1 | extended | `MailboxUpdate`, `MailboxUpdateSet`, `initMailboxUpdateSet` (appended under a "Mailbox Update Algebra" section, mirroring the "Mailbox Creation Model" block at line 140) |
 | `mail/serde_mailbox.nim` | L2 | extended | `toJson` for `MailboxUpdate`, `MailboxUpdateSet` |
@@ -294,17 +298,40 @@ and validated across Parts A–D. The error rail is the core
 `blobNotFound`, `tooManyKeywords`) surface via the `rawType` +
 `MailSetErrorType` decoding scheme established by Part A (§7).
 
+RFC 8620 §5.3 types the per-id value in the `updated` response map as
+`Foo|null` — `null` signalling "server made no further changes the
+client doesn't already know" and a non-null object carrying the server-
+altered properties. A single `Opt[JsonNode]` field would admit two
+encodings of the "null" case (`Opt.none` vs `Opt.some(JNull)`),
+violating one-source-of-truth. The dedicated two-case object makes the
+state split a type-level fact:
+
 ```nim
+type
+  UpdatedEntryKind* = enum
+    uekUnchanged
+      ## Server made no changes the client doesn't already know.
+    uekChanged
+      ## Server altered properties; payload is the changed property map.
+  UpdatedEntry* = object
+    case kind*: UpdatedEntryKind
+    of uekUnchanged:
+      discard
+    of uekChanged:
+      changedProperties*: JsonNode
+        ## Kept as raw JSON because the set of properties the server
+        ## may alter is open-ended.
+
 type EmailSetResponse* = object
-  ## Email/set response (RFC 8621 §4.6).
+  ## Email/set response (RFC 8621 §4.6; response envelope shape per
+  ## RFC 8620 §5.3).
   accountId*: AccountId
   oldState*: Opt[JmapState]
   newState*: JmapState
   createResults*: Table[CreationId, Result[EmailCreatedItem, SetError]]
-  updated*: Opt[Table[Id, Opt[JsonNode]]]
-    ## RFC §4.6: map of id to null (no server-side changes) or an object
-    ## containing server-side-changed properties. Kept as raw JSON because
-    ## the set of properties the server may alter is open-ended.
+  updated*: Opt[Table[Id, UpdatedEntry]]
+    ## RFC 8620 §5.3 `Id[Foo|null]|null`: outer Opt = map absent/null;
+    ## per-entry `UpdatedEntry` encodes the `Foo|null` split.
   destroyed*: Opt[seq[Id]]
   notUpdated*: Opt[Table[Id, SetError]]
   notDestroyed*: Opt[Table[Id, SetError]]
@@ -345,6 +372,21 @@ silent default-zero), because the merge layer catches the parse failure
 and demotes it to a synthetic `SetError` with `errorType: setUnknown` and
 a descriptive `rawType`. This keeps the Result rail total without
 introducing default values.
+
+`UpdatedEntry.fromJson` maps the RFC 8620 §5.3 `Foo|null` inner value:
+a JSON `null` becomes `UpdatedEntry(kind: uekUnchanged)`; a JSON
+object becomes `UpdatedEntry(kind: uekChanged, changedProperties: …)`.
+Any other JSON kind (string, number, array, boolean) surfaces as
+`Err` on the containing `Result` rail — the spec admits only object
+or null at this position. Because the `uekUnchanged` variant holds no
+payload, a server that sends `null` and a server that sends `{}` for
+the same semantic intent ("no further changes") still parse into
+distinct values (`uekUnchanged` vs `uekChanged(JObject{})`), and the
+library does **not** collapse them: `{}` represents the server
+explicitly asserting an empty property delta, which is a different
+wire claim than `null` even if the client-visible behaviour is the
+same. Keeping the two apart preserves the server's intent on the
+error-inspection rail and matches the `Foo|null` wire shape exactly.
 
 ### 2.4. Rationale
 
@@ -462,12 +504,19 @@ Six variants, one per RFC-sanctioned wire patch operation:
 
 | Variant | Wire path (target) | Wire value | RFC semantic |
 |---------|--------------------|------------|--------------|
-| `euAddKeyword(k)` | `keywords/$k` | `true` | Add keyword `k` to the email's keyword set. |
-| `euRemoveKeyword(k)` | `keywords/$k` | `null` | Remove keyword `k`. |
+| `euAddKeyword(k)` | `keywords/{keyword}` | `true` | Add keyword `k` to the email's keyword set. |
+| `euRemoveKeyword(k)` | `keywords/{keyword}` | `null` | Remove keyword `k`. |
 | `euSetKeywords(ks)` | `keywords` | object | Replace the full keyword set. |
-| `euAddToMailbox(id)` | `mailboxIds/$id` | `true` | Add this email to mailbox `id`. |
-| `euRemoveFromMailbox(id)` | `mailboxIds/$id` | `null` | Remove this email from mailbox `id`. |
+| `euAddToMailbox(id)` | `mailboxIds/{id}` | `true` | Add this email to mailbox `id`. |
+| `euRemoveFromMailbox(id)` | `mailboxIds/{id}` | `null` | Remove this email from mailbox `id`. |
 | `euSetMailboxIds(ids)` | `mailboxIds` | object | Replace the full mailbox membership set. |
+
+Placeholder convention: `{keyword}` denotes the keyword value (which
+for IANA-registered keywords begins with a literal `$`, e.g., `$seen`);
+`{id}` denotes a bare `Id` value (no prefix). The keyword token is
+RFC 6901 escaped before emission (see §3.2.5); the id token requires
+no escaping because the `Id` charset (RFC 8620 §1.2) excludes `/` and
+`~`.
 
 Six variants precisely cover the RFC §4.6 update surface. The library
 intentionally does not expose update paths for other Email properties
@@ -600,11 +649,11 @@ For each variant, a **target path**:
 
 | Variant | Target path | Operation kind |
 |---------|-------------|----------------|
-| `euAddKeyword(k)` | `keywords/$k` | sub-path write (value `true`) |
-| `euRemoveKeyword(k)` | `keywords/$k` | sub-path write (value `null`) |
+| `euAddKeyword(k)` | `keywords/{keyword}` | sub-path write (value `true`) |
+| `euRemoveKeyword(k)` | `keywords/{keyword}` | sub-path write (value `null`) |
 | `euSetKeywords(ks)` | `keywords` | full-replace |
-| `euAddToMailbox(id)` | `mailboxIds/$id` | sub-path write (value `true`) |
-| `euRemoveFromMailbox(id)` | `mailboxIds/$id` | sub-path write (value `null`) |
+| `euAddToMailbox(id)` | `mailboxIds/{id}` | sub-path write (value `true`) |
+| `euRemoveFromMailbox(id)` | `mailboxIds/{id}` | sub-path write (value `null`) |
 | `euSetMailboxIds(ids)` | `mailboxIds` | full-replace |
 
 **Class 1 — Duplicate target path.** Two or more updates with the same
@@ -621,7 +670,7 @@ defensible answer.
 - `euAddKeyword(kwSeen)` + `euRemoveKeyword(kwSeen)` (both target
   `keywords/$seen` with opposite values)
 - `euAddToMailbox(id1)` + `euRemoveFromMailbox(id1)` (both target
-  `mailboxIds/$id1` with opposite values)
+  `mailboxIds/id1` with opposite values)
 
 Rejected because the wire shape would carry a single key with the
 last-write-wins value; one of the two operations is a no-op. If the
@@ -636,12 +685,14 @@ Examples:
 - `euAddToMailbox(id1)` + `euSetMailboxIds(ids)` (both operate on
   `mailboxIds`)
 
-Rejected because RFC 8620 §5.3 does not guarantee the wire evaluation
-order for keys at different depths of the same parent. Some servers
-evaluate `keywords/$seen` before `keywords`; others do the reverse; the
-result is server-dependent. The caller almost certainly meant one or the
-other — either the sub-path delta OR the full replacement, not both
-inter-twined.
+Rejected categorically by RFC 8620 §5.3 (lines 1918–1920): "There MUST
+NOT be two patches in the PatchObject where the pointer of one is the
+prefix of the pointer of the other." A server that receives such a
+combination MUST reject the update with an `invalidPatch` SetError.
+Emitting this shape is a wire-level protocol violation, not merely
+ambiguity the server might resolve inconsistently — the typed algebra
+must therefore refuse to construct the offending value at the client
+boundary.
 
 **Independent cases (NOT conflicts):**
 - `euSetKeywords(ks)` + `euSetMailboxIds(ids)` — different parent paths
@@ -661,14 +712,18 @@ value would introduce a parallel "no updates for this id" encoding,
 violating one-source-of-truth and producing a wasteful empty
 `{}`-shaped wire patch.
 
-**Why not `NonEmptyEmailUpdateSet`?** RFC 8620 §5.3 explicitly permits an
-empty patch object at the wire level (it is a state-refresh ping, not an
-error). The non-emptiness in `EmailUpdateSet` is a **client-imposed**
-invariant, not a protocol-level one; naming the type `NonEmpty...` would
-falsely suggest the spec cares about the emptiness distinction. Contrast
-`NonEmptyMailboxIdSet` in RFC §4.7, where "if present, MUST contain at
-least one entry" is written into the spec and the type name documents
-the spec-level commitment.
+**Why not `NonEmptyEmailUpdateSet`?** RFC 8620 §5.3 defines
+`PatchObject` as `String[*]` — an unordered set of patches — and the
+`A[B]` notation (RFC 8620 §1.1) imposes no lower bound on cardinality,
+so an empty patch object is not syntactically forbidden. The RFC is
+silent on whether servers must accept an empty `PatchObject`; a
+conformant server may return `invalidPatch`. The non-emptiness in
+`EmailUpdateSet` is therefore a **client-imposed** invariant, not a
+protocol-level one; naming the type `NonEmpty...` would falsely suggest
+the spec cares about the emptiness distinction. Contrast
+`NonEmptyMailboxIdSet`, where the spec-level "MUST belong to one or
+more Mailboxes" invariant in RFC §4.1.1 makes the type name document a
+genuine spec-level commitment.
 
 **Accumulation semantics.** The smart constructor performs all three
 conflict checks plus the empty-input check in a single pass. If any
@@ -679,14 +734,30 @@ first one.
 
 #### 3.2.5. Serde
 
+`PatchObject` keys are JSON Pointers per RFC 8620 §5.3. RFC 6901 §3
+requires two characters to be escaped within a reference token: `~`
+becomes `~0` and `/` becomes `~1`. RFC 8621 §4.1.1 (line 1383) lists
+the keyword charset as ASCII `%x21-%x7e` minus `( ) { ] % * " \` — the
+set explicitly **does not** exclude `/` or `~`, so a spec-faithful
+`Keyword` smart constructor must accept keywords containing them
+(Postel: accept the most general type). Escaping therefore belongs at
+the serialisation boundary, not on the type. `Id` values (RFC 8620
+§1.2) are restricted to `[A-Za-z0-9_-]` and need no escaping.
+
 ```nim
+func jsonPointerEscape(s: string): string {.noSideEffect.} =
+  ## RFC 6901 §3 reference-token escaping: `~` → `~0`, `/` → `~1`.
+  ## Order matters: escape `~` first, otherwise the `~1` produced for
+  ## `/` would be re-escaped into `~01`.
+  result = s.replace("~", "~0").replace("/", "~1")
+
 func toJson*(u: EmailUpdate): (string, JsonNode) {.noSideEffect.} =
   ## Emits the ``(wire-key, wire-value)`` pair for a single update.
   case u.kind
   of euAddKeyword:
-    ("keywords/" & $u.keyword, %true)
+    ("keywords/" & jsonPointerEscape($u.keyword), %true)
   of euRemoveKeyword:
-    ("keywords/" & $u.keyword, newJNull())
+    ("keywords/" & jsonPointerEscape($u.keyword), newJNull())
   of euSetKeywords:
     ("keywords", u.keywords.toJson())
   of euAddToMailbox:
@@ -699,7 +770,8 @@ func toJson*(u: EmailUpdate): (string, JsonNode) {.noSideEffect.} =
 func toJson*(us: EmailUpdateSet): JsonNode {.noSideEffect.} =
   ## Flatten the validated update-set to an RFC 8620 §5.3 wire patch.
   ## Post-condition: every key is distinct (guaranteed by the smart
-  ## constructor's Class 1 rejection); values are valid per RFC §4.6.
+  ## constructor's Class 1 rejection); values are valid per RFC §4.6;
+  ## all reference tokens are RFC 6901-escaped.
   result = newJObject()
   for u in seq[EmailUpdate](us):
     let (k, v) = u.toJson()
@@ -709,14 +781,16 @@ func toJson*(us: EmailUpdateSet): JsonNode {.noSideEffect.} =
 The serde layer is intentionally mechanical — all the interesting work
 has already been done by the smart constructor. `toJson(EmailUpdateSet)`
 cannot produce a conflicting `PatchObject` because the input is already
-conflict-free.
+conflict-free, and cannot produce a malformed JSON Pointer because
+every keyword reference token is escaped before concatenation.
 
 ### 3.3. MailboxUpdate
 
-RFC 8621 §2.5 lists the settable Mailbox properties. Unlike `EmailUpdate`,
-none of these have a sub-path/full-replace tension — every settable
-Mailbox property is a whole-value replace. The update algebra is
-correspondingly simpler:
+RFC 8621 §2 lists the settable Mailbox properties (§2.5 only adds the
+`onDestroyRemoveEmails` argument and two SetError types). Unlike
+`EmailUpdate`, none of these have a sub-path/full-replace tension —
+every settable Mailbox property is a whole-value replace. The update
+algebra is correspondingly simpler:
 
 ```nim
 type MailboxUpdateVariantKind* = enum
@@ -775,8 +849,9 @@ one top-level key; no sub-path flattening is needed.
 
 ### 3.4. VacationResponseUpdate
 
-RFC 8621 §7.1 specifies the VacationResponse singleton's settable
-properties. Structurally identical to `MailboxUpdate`:
+RFC 8621 §8 specifies the VacationResponse singleton's settable
+properties (§8.1 is the `/get` shape; §8.2 is `/set`). Structurally
+identical to `MailboxUpdate`:
 
 ```nim
 type VacationResponseUpdateVariantKind* = enum
@@ -889,9 +964,12 @@ Key choices:
 - **`destroy` uses `Referencable[seq[Id]]`** — the standard JMAP
   back-reference mechanism from core. A caller may pass literal ids or
   a result-reference into a previous invocation's output.
-- **Empty create/update/destroy permitted.** RFC 8620 §5.3 permits a
-  bare `Email/set { accountId: "..." }` as a state-refresh ping; the
-  builder signature supports this via `Opt.none` defaults.
+- **Empty create/update/destroy permitted.** RFC 8620 §5.3 places no
+  lower bound on the `create`, `update`, or `destroy` arguments; a
+  bare `Email/set { accountId: "..." }` invocation is wire-legal and
+  has well-defined semantics (return the current state, make no
+  changes). The builder signature supports this via `Opt.none`
+  defaults.
 
 ### 4.2. Response Handling
 
@@ -961,11 +1039,18 @@ func initEmailCopyItem*(
 ```
 
 **`mailboxIds` tightened to `Opt[NonEmptyMailboxIdSet]`** (not
-`Opt[MailboxIdSet]` as in architecture §11.10). RFC §4.7 states: "If
-present, [the copy's `mailboxIds`] MUST contain at least one entry";
-`NonEmptyMailboxIdSet` encodes that directly. This is the same
-tightening applied to `EmailBlueprint.mailboxIds` in Part E (F14 →
-`NonEmptyMailboxIdSet`).
+`Opt[MailboxIdSet]` as in architecture §11.10). RFC §4.7 lists
+`mailboxIds`, `keywords`, and `receivedAt` as the only properties that
+may be overridden during copy but is silent on cardinality itself; the
+non-emptiness requirement derives from RFC §4.1.1's "An Email in the
+mail store MUST belong to one or more Mailboxes at all times" applied
+to the resulting Email after the copy override is merged. If the
+override is supplied, it replaces the source's mailbox membership
+wholesale, so the override itself must be non-empty — otherwise the
+resulting Email would have zero mailboxes and violate the §4.1.1
+invariant. `NonEmptyMailboxIdSet` encodes this on the override type
+directly. This is the same tightening applied to
+`EmailBlueprint.mailboxIds` in Part E (F14 → `NonEmptyMailboxIdSet`).
 
 **Total constructor (no `Result`).** Mirrors Part E's `initKeywordSet`,
 `initMailboxIdSet`, and `parseNonEmptyMailboxIdSet` precedents. The
@@ -1118,8 +1203,8 @@ Part G `EmailSubmissionHandles` that is coming. Rationale:
 RFC 8621 §4.8 specifies four properties per import entry:
 
 - `blobId: Id` — the raw `message/rfc822` blob previously uploaded.
-- `mailboxIds: Id[Boolean]` — "A map of Mailbox ids ... MUST contain at
-  least one entry" (RFC §4.8).
+- `mailboxIds: Id[Boolean]` — "The ids of the Mailboxes to assign this
+  Email to. At least one Mailbox MUST be given." (RFC §4.8).
 - `keywords: String[Boolean]` — default empty.
 - `receivedAt: UTCDate` — default "time of the most recent Received
   header, or import time on the server if none".
@@ -1293,11 +1378,58 @@ SetError variant is already extractable via an existing mechanism.
 | Email/copy (§4.7) | `alreadyExists` | `setAlreadyExists` | `err.existingId: Id` (core case-branch) |
 | Email/copy (§4.7) | `notFound` | `setNotFound` | no payload |
 | Email/import (§4.8) | `alreadyExists` | `setAlreadyExists` | `err.existingId: Id` (core case-branch) |
-| Email/import (§4.8) | `notFound` | `setNotFound` | no payload (blobId not found) |
 | Email/import (§4.8) | `invalidEmail` | — (mail `msetInvalidEmail` via `rawType`) | `err.invalidEmailProperties(): Opt[seq[string]]` |
-| Email/import (§4.8) | `overQuota` | — (mail `msetOverQuota` via `rawType`) | no payload |
-| Email/import (§4.8) | `tooLarge` | — (mail `msetTooLarge` via `rawType`) | `err.maxSize(): Opt[UnsignedInt]` |
+| Email/import (§4.8) | `overQuota` | `setOverQuota` | no payload (core RFC 8620 §5.3 generic SetError) |
 | Email/import (§4.8) | `invalidProperties` | `setInvalidProperties` | `err.properties: seq[string]` (core case-branch) |
+
+RFC §4.8 does not define a mail-specific `notFound` or `tooLarge`
+SetError for `Email/import`. An unknown `blobId` surfaces as
+`invalidProperties` per §4.8's "If the 'blobId', 'mailboxIds', or
+'keywords' properties are invalid (e.g., missing, wrong type, id not
+found), the server MUST reject the import with an 'invalidProperties'
+SetError" (RFC lines 3040–3042). The mail-specific `msetTooLarge`
+variant (paired with the `maxSize` payload extractor at
+`mail_errors.nim:56`) is defined by EmailSubmission (Part G) and does
+not apply to Part F methods. The *core* `setTooLarge` (RFC 8620 §5.3,
+no payload) does apply — see the per-operation scoping table below.
+Implementers must route `tooLarge` errors from Part F methods to
+`setTooLarge`, not `msetTooLarge`.
+
+Core RFC 8620 §5.3 generic SetErrors apply transitively to Part F
+methods, scoped per RFC §5.3's per-operation annotations:
+
+| SetError | RFC op-scope | Email/set | Email/copy | Email/import |
+|----------|--------------|-----------|------------|--------------|
+| `forbidden` | create;update;destroy | ✓ | ✓ | ✓ |
+| `overQuota` | create;update | ✓ (create;update) | ✓ (create) | ✓ (create) |
+| `tooLarge` | create;update | ✓ (create;update) | ✓ (create) | ✓ (create) |
+| `rateLimit` | create | ✓ (create) | ✓ (create) | ✓ (create) |
+| `notFound` | update;destroy | ✓ (update) | ✓ (see RFC 8620 §5.4 "create or update" clause; RFC 8621 §4.7 also grants `notFound` explicitly for missing blobId) | — |
+| `invalidPatch` | update | ✓ (update only) | — | — |
+| `willDestroy` | update | ✓ (update only) | — | — |
+| `invalidProperties` | create;update | ✓ (create;update) | ✓ (create) | ✓ (create) |
+
+`singleton` (RFC §5.3: create;destroy) is **not** applicable to any
+Part F method because Email is not a singleton type — singleton types
+in JMAP Mail are `VacationResponse` (RFC 8621 §8) and `Identity` (RFC
+8621 §6). A conformant server will never emit `singleton` for Email
+and implementers need not wire a handler branch for it.
+
+All variants in the table surface via core's `SetErrorType` enum with
+no mail-specific payload extractors. `invalidPatch` remains relevant
+post-F19: the typed update algebra still serialises to an RFC 8620
+§5.3 JSON Pointer patch that a server may reject (for example, if a
+keyword contains an unescaped JSON Pointer metacharacter — see
+§3.2.5).
+
+**`Email/copy` with `onSuccessDestroyOriginal: true`:** RFC 8620 §5.4
+specifies that a successful copy with `onSuccessDestroyOriginal` emits
+a *second* response sharing the same method-call-id, corresponding to
+an implicit `Email/set { destroy: [...] }` call on the source account.
+That implicit response carries its own `notDestroyed` SetError map,
+populated with destroy-scoped SetErrors: `notFound`, `forbidden`,
+`willDestroy`. Implementers must expect and handle two responses per
+copy when this flag is set.
 
 ### 7.3. Caller flow
 
@@ -1349,18 +1481,31 @@ Rationale:
 
 ### 7.4. Method-level errors
 
-Some RFC §4.7 errors are `MethodErrorType`, not `SetErrorType` — these
-surface on the outer `MethodError` railway, not inside `createResults`.
-RFC-listed for Part F methods:
+Some errors for Part F methods are `MethodErrorType`, not
+`SetErrorType` — these surface on the outer `MethodError` railway, not
+inside `createResults`. RFC-listed method-specific errors:
 
 | Method | MethodError | Core `MethodErrorType`? |
 |--------|-------------|-------------------------|
 | Email/set | `stateMismatch` | `metStateMismatch` |
+| Email/set | `requestTooLarge` | `metRequestTooLarge` |
 | Email/copy | `stateMismatch` | `metStateMismatch` |
 | Email/copy | `fromAccountNotFound` | `metFromAccountNotFound` |
 | Email/copy | `fromAccountNotSupportedByMethod` | `metFromAccountNotSupportedByMethod` |
-| Email/copy | `anchorNotFound` (only if RFC 8620 anchor positioning used) | `metAnchorNotFound` |
 | Email/import | `stateMismatch` | `metStateMismatch` |
+| Email/import | `requestTooLarge` | `metRequestTooLarge` |
+
+RFC 8620 §5.3 defines `requestTooLarge` as a method-level error for
+every `/set`-shape method (RFC 8620 lines 2169–2172); it applies
+directly to `Email/set` and by analogy to `Email/import` (which has a
+creation-id map and a batch-count limit structurally identical to
+`/set`, though RFC 8621 §4.8 enumerates only `stateMismatch` as an
+explicit additional method-level error). It does not apply to `/copy`. `anchorNotFound` is
+specific to `/query`/`/queryChanges` (RFC 8620 §§5.5–5.6) and does not
+apply to any Part F method. RFC 8620 §3.6.2 generic method-level
+errors (`serverFail`, `accountNotFound`, `accountNotSupportedByMethod`,
+`accountReadOnly`, `invalidArguments`, `invalidResultReference`,
+`forbidden`) apply transitively to all three methods.
 
 All of these are already in core's `MethodErrorType` enum. Part F adds
 no new method-error classifications.
