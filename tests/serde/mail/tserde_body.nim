@@ -587,7 +587,7 @@ block bpExtraHeaders: # scenario 127
   assertEq node{"header:x-custom:asText"}, %"custom value"
 
 block bpExtraHeadersHfRaw: # scenario 127a
-  # hfRaw form suffix is omitted by composeBodyHeaderKey.
+  # hfRaw form suffix is omitted by composeHeaderKey.
   let name = parseBlueprintBodyHeaderName("x-custom").get()
   var headers = initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue]()
   headers[name] = rawSingle("raw value")

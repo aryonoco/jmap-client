@@ -71,6 +71,23 @@ func fromJson*(T: typedesc[MailboxIdSet], node: JsonNode): Result[T, ValidationE
   return ok(MailboxIdSet(hs))
 
 # =============================================================================
+# NonEmptyMailboxIdSet (Part E §4.2)
+# =============================================================================
+# Creation-context distinct HashSet: toJson-only per R1-3. The non-empty
+# invariant is guaranteed by ``parseNonEmptyMailboxIdSet`` at construction;
+# the serialiser simply projects the backing set onto the ``{id: true, ...}``
+# wire shape — identical to ``MailboxIdSet`` but retyped at the signature.
+
+func toJson*(ms: NonEmptyMailboxIdSet): JsonNode =
+  ## Serialise NonEmptyMailboxIdSet as ``{"id": true, ...}``. Wire shape
+  ## matches ``MailboxIdSet``; the non-empty invariant is enforced at
+  ## construction, not here.
+  var node = newJObject()
+  for id in ms:
+    node[$id] = newJBool(true)
+  return node
+
+# =============================================================================
 # MailboxRights
 # =============================================================================
 

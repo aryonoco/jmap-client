@@ -11,10 +11,8 @@ import std/tables
 
 import ../serde
 import ../types
-import ./addresses
 import ./body
 import ./headers
-import ./serde_addresses
 import ./serde_headers
 
 # =============================================================================
@@ -271,112 +269,6 @@ func emitLanguage(node: var JsonNode, opt: Opt[seq[string]]) =
       arr.add(%lang)
     node["language"] = arr
 
-# extraHeaders helpers (Design §5.2 / §5.4). BlueprintHeaderMultiValue has
-# no standalone wire identity (Design §4.5.3) — wire-key composition lives
-# here at the consumer aggregate, not on the value itself.
-
-func multiLen(m: BlueprintHeaderMultiValue): int =
-  ## Length of the underlying NonEmptySeq for any variant. The case-object
-  ## wraps seven differently-named fields, so no borrowed ``len`` exists.
-  case m.form
-  of hfRaw: m.rawValues.len
-  of hfText: m.textValues.len
-  of hfAddresses: m.addressLists.len
-  of hfGroupedAddresses: m.groupLists.len
-  of hfMessageIds: m.messageIdLists.len
-  of hfDate: m.dateValues.len
-  of hfUrls: m.urlLists.len
-
-func composeBodyHeaderKey(
-    name: BlueprintBodyHeaderName, form: HeaderForm, isAll: bool
-): string =
-  ## Compose ``"header:<name>[:as<Form>][:all]"``. Omits the form segment for
-  ## ``hfRaw`` (matches headers.nim ``toPropertyString`` convention).
-  result = "header:" & string(name)
-  if form != hfRaw:
-    result &= ":" & $form
-  if isAll:
-    result &= ":all"
-
-func neStringToJson(ne: NonEmptySeq[string]): JsonNode =
-  ## Cardinality 1 → JString; otherwise JArray of JString. Used for ``hfRaw``
-  ## and ``hfText`` variants.
-  if ne.len == 1:
-    return %ne[0]
-  result = newJArray()
-  for v in ne:
-    result.add(%v)
-
-func neAddrListsToJson(ne: NonEmptySeq[seq[EmailAddress]]): JsonNode =
-  ## Cardinality 1 → JArray of address objects; otherwise JArray of JArrays.
-  if ne.len == 1:
-    result = newJArray()
-    for ea in ne[0]:
-      result.add(ea.toJson())
-    return
-  result = newJArray()
-  for lst in ne:
-    var inner = newJArray()
-    for ea in lst:
-      inner.add(ea.toJson())
-    result.add(inner)
-
-func neGroupListsToJson(ne: NonEmptySeq[seq[EmailAddressGroup]]): JsonNode =
-  ## Cardinality 1 → JArray of group objects; otherwise JArray of JArrays.
-  if ne.len == 1:
-    result = newJArray()
-    for g in ne[0]:
-      result.add(g.toJson())
-    return
-  result = newJArray()
-  for lst in ne:
-    var inner = newJArray()
-    for g in lst:
-      inner.add(g.toJson())
-    result.add(inner)
-
-func neStringSeqToJson(ne: NonEmptySeq[seq[string]]): JsonNode =
-  ## Cardinality 1 → flat JArray of JString; otherwise JArray of JArrays.
-  ## Used for ``hfMessageIds`` and ``hfUrls`` variants.
-  if ne.len == 1:
-    result = newJArray()
-    for s in ne[0]:
-      result.add(%s)
-    return
-  result = newJArray()
-  for lst in ne:
-    var inner = newJArray()
-    for s in lst:
-      inner.add(%s)
-    result.add(inner)
-
-func neDateToJson(ne: NonEmptySeq[Date]): JsonNode =
-  ## Cardinality 1 → JString (RFC 3339); otherwise JArray of JString.
-  if ne.len == 1:
-    return ne[0].toJson()
-  result = newJArray()
-  for d in ne:
-    result.add(d.toJson())
-
-func blueprintMultiValueToJson(m: BlueprintHeaderMultiValue): JsonNode =
-  ## Variant dispatcher for BlueprintHeaderMultiValue serialisation. Private
-  ## because the value has no standalone wire identity (Design §4.5.3).
-  case m.form
-  of hfRaw:
-    neStringToJson(m.rawValues)
-  of hfText:
-    neStringToJson(m.textValues)
-  of hfAddresses:
-    neAddrListsToJson(m.addressLists)
-  of hfGroupedAddresses:
-    neGroupListsToJson(m.groupLists)
-  of hfMessageIds:
-    neStringSeqToJson(m.messageIdLists)
-  of hfDate:
-    neDateToJson(m.dateValues)
-  of hfUrls:
-    neStringSeqToJson(m.urlLists)
-
 func bpToJsonImpl(bp: BlueprintBodyPart, depth: int): JsonNode =
   ## Recursive depth-limited serialisation of BlueprintBodyPart.
   var node = newJObject()
@@ -395,7 +287,7 @@ func bpToJsonImpl(bp: BlueprintBodyPart, depth: int): JsonNode =
   # multi-value type has no standalone wire identity.
   for name, mv in bp.extraHeaders:
     let isAll = multiLen(mv) > 1
-    node[composeBodyHeaderKey(name, mv.form, isAll)] = blueprintMultiValueToJson(mv)
+    node[composeHeaderKey(name, mv.form, isAll)] = blueprintMultiValueToJson(mv)
 
   # Branch-specific
   if bp.isMultipart:
