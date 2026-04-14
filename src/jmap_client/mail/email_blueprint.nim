@@ -114,6 +114,7 @@ type EmailBlueprintConstraint* = enum
   ebcTextBodyNotTextPlain
   ebcHtmlBodyNotTextHtml
   ebcAllowedFormRejected
+  ebcBodyPartDepthExceeded
 
 type EmailBlueprintError* = object
   ## A single constraint violation. Payload fields are variant-specific:
@@ -135,6 +136,9 @@ type EmailBlueprintError* = object
   of ebcAllowedFormRejected:
     rejectedName*: string ## Lowercase header name whose form is disallowed.
     rejectedForm*: HeaderForm ## The form that isn't permitted for this name.
+  of ebcBodyPartDepthExceeded:
+    observedDepth*: int ## Depth of the first subtree exceeding ``MaxBodyPartDepth``.
+    depthLocation*: BodyPartLocation ## Location of the offending subtree root.
 
 func `==`*(a, b: EmailBlueprintError): bool =
   ## Hand-rolled equality for the case object. Discriminant first, then
@@ -156,6 +160,8 @@ func `==`*(a, b: EmailBlueprintError): bool =
     a.actualHtmlType == b.actualHtmlType
   of ebcAllowedFormRejected:
     a.rejectedName == b.rejectedName and a.rejectedForm == b.rejectedForm
+  of ebcBodyPartDepthExceeded:
+    a.observedDepth == b.observedDepth and a.depthLocation == b.depthLocation
 
 # =============================================================================
 # EmailBlueprintErrors (sealed — Pattern A)
@@ -199,6 +205,12 @@ func `$`*(e: EmailBlueprintErrors): string =
   ## Delegates to ``$seq[EmailBlueprintError]``. Fine for diagnostics;
   ## structured rendering is the caller's responsibility.
   $e.errors
+
+func capacity*(e: EmailBlueprintErrors): int {.inline.} =
+  ## Underlying seq capacity — exposed for amortised-growth regression
+  ## gates (Step 22 scenarios 101a, 101c). Reads through the sealed
+  ## container without exposing a mutable handle.
+  e.errors.capacity
 
 # =============================================================================
 # message — bounded, NUL-stripped rendering
@@ -245,6 +257,8 @@ func message*(e: EmailBlueprintError): string =
   of ebcAllowedFormRejected:
     "header form " & $e.rejectedForm & " not allowed for header name " &
       clipForMessage(e.rejectedName)
+  of ebcBodyPartDepthExceeded:
+    "body part tree depth " & $e.observedDepth & " exceeds maximum " & $MaxBodyPartDepth
 
 # =============================================================================
 # EmailBlueprintBody
@@ -545,6 +559,41 @@ func checkBodyTreeAllowedForms(body: EmailBlueprintBody): seq[EmailBlueprintErro
     for att in body.attachments:
       result.add walkBodyTreeAllowedForms(att)
 
+func walkBodyPartDepth(
+    part: BlueprintBodyPart, depth: int, path: seq[int]
+): seq[EmailBlueprintError] =
+  ## Recurses through ``part.subParts`` carrying the current ancestor-count
+  ## depth (root = 0). When ``depth`` exceeds ``MaxBodyPartDepth`` one error
+  ## is emitted for the offending subtree root and recursion halts there —
+  ## a 1000-leaf subtree at depth 130 reports once, not 1000 times.
+  result = @[]
+  if depth > MaxBodyPartDepth:
+    result.add EmailBlueprintError(
+      constraint: ebcBodyPartDepthExceeded,
+      observedDepth: depth,
+      depthLocation: locationOf(part, path),
+    )
+    return
+  if part.isMultipart:
+    for i, child in part.subParts:
+      result.add walkBodyPartDepth(child, depth + 1, path & @[i])
+
+func checkBodyPartDepth(body: EmailBlueprintBody): seq[EmailBlueprintError] =
+  ## Enforces ``MaxBodyPartDepth`` as a construction-time invariant on the
+  ## body tree. Each entry point (bodyStructure root, or one of textBody /
+  ## htmlBody / each attachment in ebkFlat) starts with depth 0.
+  result = @[]
+  case body.kind
+  of ebkStructured:
+    result.add walkBodyPartDepth(body.bodyStructure, 0, @[])
+  of ebkFlat:
+    for tb in body.textBody:
+      result.add walkBodyPartDepth(tb, 0, @[0])
+    for hb in body.htmlBody:
+      result.add walkBodyPartDepth(hb, 0, @[1])
+    for i, att in body.attachments:
+      result.add walkBodyPartDepth(att, 0, @[2 + i])
+
 # =============================================================================
 # parseEmailBlueprint — smart constructor
 # =============================================================================
@@ -604,6 +653,7 @@ func parseEmailBlueprint*(
   errs.add checkBodyPartDuplicates(body)
   errs.add checkTopLevelAllowedForms(bp)
   errs.add checkBodyTreeAllowedForms(body)
+  errs.add checkBodyPartDepth(body)
   if errs.len == 0:
     return ok(bp)
   doAssert errs.len > 0

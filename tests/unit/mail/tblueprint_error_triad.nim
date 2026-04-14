@@ -72,7 +72,6 @@ block depthCouplingInvariantSampled: # §6.1.5c scenario 37r
   # depth-5 case reconstructed here, a 7g-style depth-2 case, and
   # a 7k-style flat-attachments path. A runtime sample, not a
   # proof — the structural bound is argued in the design doc.
-  const MaxBodyPartDepth = 128
 
   # Trigger A — depth-5 multipart (mirrors 37q).
   block:

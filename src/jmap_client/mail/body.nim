@@ -16,6 +16,18 @@ import ../primitives
 import ./headers
 
 # =============================================================================
+# Type-level invariants
+# =============================================================================
+
+const MaxBodyPartDepth* = 128
+  ## Maximum nesting depth of a ``BlueprintBodyPart`` tree. Carried as a
+  ## type-level invariant by ``parseEmailBlueprint`` — trees exceeding this
+  ## depth are rejected at construction via ``ebcBodyPartDepthExceeded``,
+  ## so the serialiser can recurse unconditionally. ``EmailBodyPart``
+  ## (server-received) uses the same bound defensively at the wire-in
+  ## boundary in ``serde_body.fromJson`` per Postel's law.
+
+# =============================================================================
 # PartId
 # =============================================================================
 

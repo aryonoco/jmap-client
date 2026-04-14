@@ -26,11 +26,6 @@ defineDistinctStringFromJson(PartId, parsePartIdFromServer)
 # EmailBodyPart — fromJson
 # =============================================================================
 
-const MaxBodyPartDepth = 128
-  ## Maximum nesting depth for EmailBodyPart/BlueprintBodyPart serialisation.
-  ## Defence-in-depth guard against stack overflow. Matches MaxFilterDepth
-  ## in serde_framework.nim.
-
 func parseOptString(node: JsonNode, key: string): Opt[string] =
   ## Extracts an optional string field: absent, null, or wrong kind → none.
   let f = optJsonField(node, key, JString)
@@ -269,12 +264,13 @@ func emitLanguage(node: var JsonNode, opt: Opt[seq[string]]) =
       arr.add(%lang)
     node["language"] = arr
 
-func bpToJsonImpl(bp: BlueprintBodyPart, depth: int): JsonNode =
-  ## Recursive depth-limited serialisation of BlueprintBodyPart.
+func bpToJsonImpl(bp: BlueprintBodyPart): JsonNode =
+  ## Recursive serialisation of BlueprintBodyPart. Unbounded by construction:
+  ## ``parseEmailBlueprint`` rejects trees exceeding ``MaxBodyPartDepth``
+  ## via ``ebcBodyPartDepthExceeded``, so a well-typed blueprint's tree is
+  ## guaranteed to fit the stack budget.
   var node = newJObject()
   node["type"] = %bp.contentType
-  if depth <= 0:
-    return node
 
   # Shared optional fields: OMIT when Opt.none (not null)
   emitOpt(node, "name", bp.name)
@@ -293,7 +289,7 @@ func bpToJsonImpl(bp: BlueprintBodyPart, depth: int): JsonNode =
   if bp.isMultipart:
     var subPartsArr = newJArray()
     for child in bp.subParts:
-      subPartsArr.add(bpToJsonImpl(child, depth - 1))
+      subPartsArr.add(bpToJsonImpl(child))
     node["subParts"] = subPartsArr
   else:
     case bp.source
@@ -312,5 +308,5 @@ func bpToJsonImpl(bp: BlueprintBodyPart, depth: int): JsonNode =
 
 func toJson*(bp: BlueprintBodyPart): JsonNode =
   ## Serialise BlueprintBodyPart to JSON. ``Opt.none`` fields are omitted
-  ## (not emitted as null). Recursive with depth limit for totality.
-  return bpToJsonImpl(bp, MaxBodyPartDepth)
+  ## (not emitted as null). Bounded by construction — see ``bpToJsonImpl``.
+  return bpToJsonImpl(bp)

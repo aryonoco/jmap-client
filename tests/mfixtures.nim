@@ -1514,6 +1514,9 @@ proc emailBlueprintErrorEq*(a, b: EmailBlueprintError): bool =
     a.actualHtmlType == b.actualHtmlType
   of ebcAllowedFormRejected:
     a.rejectedName == b.rejectedName and a.rejectedForm == b.rejectedForm
+  of ebcBodyPartDepthExceeded:
+    a.observedDepth == b.observedDepth and
+      bodyPartLocationEq(a.depthLocation, b.depthLocation)
 
 # K-2 ------------------------------------------------------------------------
 proc emailBlueprintErrorsSetEq*(a, b: EmailBlueprintErrors): bool =

@@ -74,25 +74,18 @@ if existsEnv("JMAP_STEP22_CHILD"):
 # Section A — §6.4.2 Structural and resource boundaries
 # =============================================================================
 
-block depthExceeds128Accepted: # scenario 99
-  ## Delivered behaviour: ``parseEmailBlueprint`` does not enforce the
-  ## ``MaxBodyPartDepth = 128`` limit — only ``serde_body.fromJsonImpl``
-  ## does, and ``toJson`` silently truncates at depth 128 by emitting a
-  ## type-only stub (``serde_body.nim:276``). The first-audit design
-  ## said scenario 99 should return ``err`` from a propagated depth-limit
-  ## predicate; this is not the delivered contract. Pin the current
-  ## contract: at depth 129 the smart constructor returns ``ok``, and
-  ## the serialiser remains total (no panic, no exception). If the
-  ## design decision is ever revisited, this test fails loud.
+block depthExceeds128Rejected: # scenario 99
+  ## ``parseEmailBlueprint`` rejects body trees deeper than
+  ## ``MaxBodyPartDepth`` at construction time via the accumulating error
+  ## rail — the invariant is carried by the type, not by serialisation.
+  ## A depth-129 spine surfaces exactly one ``ebcBodyPartDepthExceeded``
+  ## per offending subtree root, so the error rail stays readable rather
+  ## than drowning in per-leaf duplicates.
   let spine = makeSpineBodyPart(depth = 129)
   let res = parseEmailBlueprint(
     mailboxIds = makeNonEmptyMailboxIdSet(), body = structuredBody(spine)
   )
-  assertOk res
-  let bp = res.get()
-  let json = bp.toJson()
-  doAssert json.kind == JObject
-  doAssert json{"bodyStructure"} != nil
+  assertBlueprintErrAny res, {ebcBodyPartDepthExceeded}
 
 block depthAt128Accepted: # scenario 99a
   ## Boundary success: depth exactly 128 is within the serde depth
