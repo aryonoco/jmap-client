@@ -82,23 +82,30 @@ func emitStructuredBody(node: var JsonNode, root: BlueprintBodyPart) =
   ## places the result on the aggregate.
   node["bodyStructure"] = root.toJson()
 
-func emitFlatBody(node: var JsonNode, body: EmailBlueprintBody) =
+func emitFlatBody(
+    node: var JsonNode,
+    textBody: Opt[BlueprintBodyPart],
+    htmlBody: Opt[BlueprintBodyPart],
+    attachments: seq[BlueprintBodyPart],
+) =
   ## Emit the ``ebkFlat`` branch — each of ``textBody`` / ``htmlBody`` /
   ## ``attachments`` is omitted when its slot is ``Opt.none`` or empty
   ## (R4-3). ``textBody`` and ``htmlBody`` are JArrays of length 1 when
   ## present (wire schema forces array, even though the domain type carries
-  ## at most one leaf).
-  for tb in body.textBody:
+  ## at most one leaf). Caller deconstructs the case object at the
+  ## ``ebkFlat`` branch so this helper has no case-object access surface
+  ## (FFI panic-surface contract per §6.4.4).
+  for tb in textBody:
     var arr = newJArray()
     arr.add(tb.toJson())
     node["textBody"] = arr
-  for hb in body.htmlBody:
+  for hb in htmlBody:
     var arr = newJArray()
     arr.add(hb.toJson())
     node["htmlBody"] = arr
-  if body.attachments.len > 0:
+  if attachments.len > 0:
     var arr = newJArray()
-    for att in body.attachments:
+    for att in attachments:
       arr.add(att.toJson())
     node["attachments"] = arr
 
@@ -158,7 +165,7 @@ func toJson*(bp: EmailBlueprint): JsonNode =
   of ebkStructured:
     emitStructuredBody(node, bp.body.bodyStructure)
   of ebkFlat:
-    emitFlatBody(node, bp.body)
+    emitFlatBody(node, bp.body.textBody, bp.body.htmlBody, bp.body.attachments)
 
   emitBodyValues(node, bp.bodyValues)
 
