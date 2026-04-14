@@ -93,7 +93,7 @@ func extractInvocation(
       )
     )
   let inv = matchOpt.get()
-  if inv.name == "error":
+  if inv.rawName == "error":
     let meResult = MethodError.fromJson(inv.arguments)
     if meResult.isOk:
       return err(meResult.get())
@@ -144,12 +144,13 @@ func get*[T](
 # =============================================================================
 
 func reference*[T](
-    handle: ResponseHandle[T], name: string, path: string
+    handle: ResponseHandle[T], name: MethodName, path: RefPath
 ): ResultReference =
   ## Constructs a ResultReference from a handle (RFC 8620 section 3.7).
   ## The ``name`` is the expected response method name (Decision D3.10:
-  ## explicit, not auto-derived from T). The ``path`` is a JSON Pointer
-  ## string with optional JMAP '*' wildcard.
+  ## explicit, not auto-derived from T). The ``path`` is a typed
+  ## ``RefPath`` whose backing string is the JSON Pointer with optional
+  ## JMAP '*' wildcard — see ``methods_enum.RefPath``.
   return initResultReference(resultOf = callId(handle), name = name, path = path)
 
 # =============================================================================
@@ -160,20 +161,22 @@ func idsRef*[T](handle: ResponseHandle[QueryResponse[T]]): Referencable[seq[Id]]
   ## Convenience: reference to /ids from a /query response. Only compiles
   ## on ``ResponseHandle[QueryResponse[T]]`` — the compiler rejects this
   ## on get/set/changes handles. Auto-derives the response name from T via
-  ## ``mixin methodNamespace``.
-  mixin methodNamespace
-  let name = methodNamespace(T) & "/query"
+  ## ``mixin queryMethodName``.
+  mixin queryMethodName
   return referenceTo[seq[Id]](
-    initResultReference(resultOf = callId(handle), name = name, path = RefPathIds)
+    initResultReference(
+      resultOf = callId(handle), name = queryMethodName(T), path = rpIds
+    )
   )
 
 func listIdsRef*[T](handle: ResponseHandle[GetResponse[T]]): Referencable[seq[Id]] =
   ## Convenience: reference to /list/*/id from a /get response. Only
   ## compiles on ``ResponseHandle[GetResponse[T]]``.
-  mixin methodNamespace
-  let name = methodNamespace(T) & "/get"
+  mixin getMethodName
   return referenceTo[seq[Id]](
-    initResultReference(resultOf = callId(handle), name = name, path = RefPathListIds)
+    initResultReference(
+      resultOf = callId(handle), name = getMethodName(T), path = rpListIds
+    )
   )
 
 func addedIdsRef*[T](
@@ -181,28 +184,31 @@ func addedIdsRef*[T](
 ): Referencable[seq[Id]] =
   ## Convenience: reference to /added/*/id from a /queryChanges response.
   ## Only compiles on ``ResponseHandle[QueryChangesResponse[T]]``.
-  mixin methodNamespace
-  let name = methodNamespace(T) & "/queryChanges"
+  mixin queryChangesMethodName
   return referenceTo[seq[Id]](
-    initResultReference(resultOf = callId(handle), name = name, path = RefPathAddedIds)
+    initResultReference(
+      resultOf = callId(handle), name = queryChangesMethodName(T), path = rpAddedIds
+    )
   )
 
 func createdRef*[T](handle: ResponseHandle[ChangesResponse[T]]): Referencable[seq[Id]] =
   ## Convenience: reference to /created from a /changes response. Only
   ## compiles on ``ResponseHandle[ChangesResponse[T]]`` — the compiler
   ## rejects this on get/set/query handles.
-  mixin methodNamespace
-  let name = methodNamespace(T) & "/changes"
+  mixin changesMethodName
   return referenceTo[seq[Id]](
-    initResultReference(resultOf = callId(handle), name = name, path = RefPathCreated)
+    initResultReference(
+      resultOf = callId(handle), name = changesMethodName(T), path = rpCreated
+    )
   )
 
 func updatedRef*[T](handle: ResponseHandle[ChangesResponse[T]]): Referencable[seq[Id]] =
   ## Convenience: reference to /updated from a /changes response. Only
   ## compiles on ``ResponseHandle[ChangesResponse[T]]`` — the compiler
   ## rejects this on get/set/query handles.
-  mixin methodNamespace
-  let name = methodNamespace(T) & "/changes"
+  mixin changesMethodName
   return referenceTo[seq[Id]](
-    initResultReference(resultOf = callId(handle), name = name, path = RefPathUpdated)
+    initResultReference(
+      resultOf = callId(handle), name = changesMethodName(T), path = rpUpdated
+    )
   )

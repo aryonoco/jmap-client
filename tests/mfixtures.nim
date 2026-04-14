@@ -28,6 +28,7 @@ import jmap_client/capabilities
 import jmap_client/session
 import jmap_client/framework
 import jmap_client/envelope
+import jmap_client/methods_enum
 import jmap_client/errors
 
 import jmap_client/mail/types
@@ -170,8 +171,14 @@ proc makeSessionArgs*(): SessionArgs =
 # Envelope factories
 # ---------------------------------------------------------------------------
 
-proc makeInvocation*(name = "Mailbox/get", mcid = makeMcid("c0")): Invocation =
-  initInvocation(name, newJObject(), mcid).get()
+proc makeInvocation*(name = mnMailboxGet, mcid = makeMcid("c0")): Invocation =
+  initInvocation(name, newJObject(), mcid)
+
+proc makeInvocation*(name: string, mcid = makeMcid("c0")): Invocation =
+  ## Wire-boundary variant for tests exercising forward-compat method names
+  ## (e.g. "A/get", "error" response tag) that don't belong in the
+  ## MethodName enum. Delegates to parseInvocation and unwraps on success.
+  parseInvocation(name, newJObject(), mcid).get()
 
 proc makeRequest*(
     `using`: seq[string] = @["urn:ietf:params:jmap:core"],
@@ -190,7 +197,7 @@ proc makeResponse*(
   )
 
 proc makeResultReference*(
-    mcid = makeMcid("c0"), name = "Mailbox/get", path = RefPathIds
+    mcid = makeMcid("c0"), name = mnMailboxGet, path = rpIds
 ): ResultReference =
   initResultReference(resultOf = mcid, name = name, path = path)
 
@@ -897,8 +904,10 @@ proc makeQueryResponseJson*(accountId = "acct1", queryState = "qs1"): JsonNode =
 proc makeErrorInvocation*(
     mcid: MethodCallId = makeMcid("c0"), errorType = "serverFail"
 ): Invocation =
-  ## An error invocation for dispatch tests.
-  initInvocation("error", %*{"type": errorType}, mcid).get()
+  ## An error invocation for dispatch tests. The literal "error" wire tag
+  ## is a JMAP response marker (RFC 8620 §3.6.1), not a method name — goes
+  ## through parseInvocation (the string-taking wire-boundary constructor).
+  parseInvocation("error", %*{"type": errorType}, mcid).get()
 
 proc makeTypedResponse*(
     methodName: string,
@@ -907,7 +916,9 @@ proc makeTypedResponse*(
     state: JmapState = makeState("rs1"),
 ): Response =
   ## Builds a Response with a single successful method invocation.
-  let inv = initInvocation(methodName, args, mcid).get()
+  ## Takes the method name as a string so fixtures can target forward-compat
+  ## or unknown methods alongside those in the MethodName enum.
+  let inv = parseInvocation(methodName, args, mcid).get()
   Response(
     methodResponses: @[inv],
     createdIds: Opt.none(Table[CreationId, Id]),

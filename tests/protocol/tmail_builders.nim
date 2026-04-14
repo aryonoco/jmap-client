@@ -18,8 +18,6 @@ import jmap_client/methods
 import jmap_client/builder
 import jmap_client/mail/mailbox
 import jmap_client/mail/email
-import jmap_client/mail/serde_email
-import jmap_client/mail/serde_mail_filters
 import jmap_client/mail/mail_entities
 import jmap_client/mail/mail_builders
 
@@ -174,7 +172,7 @@ block addMailboxChangesInvocationName:
   let (b1, _) = b0.addMailboxChanges(makeAccountId("a1"), makeState("s0"))
   let req = b1.build()
   assertLen req.methodCalls, 1
-  assertEq req.methodCalls[0].name, "Mailbox/changes"
+  assertEq req.methodCalls[0].name, mnMailboxChanges
 
 block addMailboxChangesCapability:
   ## Scenario 71: adds "urn:ietf:params:jmap:mail" to using.
@@ -194,7 +192,7 @@ block addMailboxQueryInvocationName:
   let (b1, _) = b0.addMailboxQuery(makeAccountId("a1"), filterConditionToJson)
   let req = b1.build()
   assertLen req.methodCalls, 1
-  assertEq req.methodCalls[0].name, "Mailbox/query"
+  assertEq req.methodCalls[0].name, mnMailboxQuery
 
 block addMailboxQuerySortAsTree:
   ## Scenario 73: sortAsTree = true → args{"sortAsTree"} == true.
@@ -237,7 +235,7 @@ block addMailboxQueryChangesInvocationName:
   )
   let req = b1.build()
   assertLen req.methodCalls, 1
-  assertEq req.methodCalls[0].name, "Mailbox/queryChanges"
+  assertEq req.methodCalls[0].name, mnMailboxQueryChanges
 
 block addMailboxQueryChangesNoTreeParams:
   ## Scenario 76: no sortAsTree/filterAsTree in args (Decision B12).
@@ -260,7 +258,7 @@ block addMailboxSetInvocationName:
   let (b1, _) = b0.addMailboxSet(makeAccountId("a1"))
   let req = b1.build()
   assertLen req.methodCalls, 1
-  assertEq req.methodCalls[0].name, "Mailbox/set"
+  assertEq req.methodCalls[0].name, mnMailboxSet
 
 block addMailboxSetOnDestroyRemoveEmails:
   ## Scenario 78: onDestroyRemoveEmails = true in args.
@@ -303,7 +301,7 @@ block addEmailGetInvocationName:
   let (b1, _) = b0.addEmailGet(makeAccountId("a1"))
   let req = b1.build()
   assertLen req.methodCalls, 1
-  assertEq req.methodCalls[0].name, "Email/get"
+  assertEq req.methodCalls[0].name, mnEmailGet
   doAssert "urn:ietf:params:jmap:mail" in req.`using`
 
 block addEmailGetDefaultBodyFetch:
@@ -343,7 +341,7 @@ block addEmailQueryInvocationName:
   let (b1, _) = b0.addEmailQuery(makeAccountId("a1"), filterConditionToJson)
   let req = b1.build()
   assertLen req.methodCalls, 1
-  assertEq req.methodCalls[0].name, "Email/query"
+  assertEq req.methodCalls[0].name, mnEmailQuery
   doAssert "urn:ietf:params:jmap:mail" in req.`using`
 
 block addEmailQueryCollapseThreadsTrue:
@@ -400,7 +398,7 @@ block addEmailQueryChangesInvocationName:
   )
   let req = b1.build()
   assertLen req.methodCalls, 1
-  assertEq req.methodCalls[0].name, "Email/queryChanges"
+  assertEq req.methodCalls[0].name, mnEmailQueryChanges
   doAssert "urn:ietf:params:jmap:mail" in req.`using`
 
 block addEmailQueryChangesCollapseAndSort:

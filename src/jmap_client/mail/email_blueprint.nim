@@ -656,7 +656,6 @@ func parseEmailBlueprint*(
   errs.add checkBodyPartDepth(body)
   if errs.len == 0:
     return ok(bp)
-  doAssert errs.len > 0
   return err(EmailBlueprintErrors(errors: errs))
 
 # =============================================================================

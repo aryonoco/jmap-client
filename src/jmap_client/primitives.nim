@@ -75,18 +75,14 @@ func parseId*(raw: string): Result[Id, ValidationError] =
   if not raw.allIt(it in Base64UrlChars):
     return
       err(validationError("Id", "contains characters outside base64url alphabet", raw))
-  let id = Id(raw)
-  doAssert id.len >= 1 and id.len <= 255
-  return ok(id)
+  return ok(Id(raw))
 
 func parseIdFromServer*(raw: string): Result[Id, ValidationError] =
   ## Lenient: 1-255 octets, no control characters.
   ## For server-assigned IDs in responses. Tolerates servers that deviate
   ## from the strict base64url charset (e.g., Cyrus IMAP).
   ?validateServerAssignedToken("Id", raw)
-  let id = Id(raw)
-  doAssert id.len >= 1 and id.len <= 255
-  return ok(id)
+  return ok(Id(raw))
 
 func parseUnsignedInt*(value: int64): Result[UnsignedInt, ValidationError] =
   ## Must be 0..2^53-1. Prevents negative values and integers outside JSON's
@@ -95,7 +91,6 @@ func parseUnsignedInt*(value: int64): Result[UnsignedInt, ValidationError] =
     return err(validationError("UnsignedInt", "must be non-negative", $value))
   if value > MaxUnsignedInt:
     return err(validationError("UnsignedInt", "exceeds 2^53-1", $value))
-  doAssert value >= 0 and value <= MaxUnsignedInt
   return ok(UnsignedInt(value))
 
 func parseJmapInt*(value: int64): Result[JmapInt, ValidationError] =
@@ -103,7 +98,6 @@ func parseJmapInt*(value: int64): Result[JmapInt, ValidationError] =
   ## range.
   if value < MinJmapInt or value > MaxJmapInt:
     return err(validationError("JmapInt", "outside JSON-safe integer range", $value))
-  doAssert value >= MinJmapInt and value <= MaxJmapInt
   return ok(JmapInt(value))
 
 func parseMaxChanges*(raw: UnsignedInt): Result[MaxChanges, ValidationError] =
@@ -218,7 +212,6 @@ func parseDate*(raw: string): Result[Date, ValidationError] =
   ?validateTimePortion(raw)
   ?validateFractionalSeconds(raw)
   ?validateTimezoneOffset(raw)
-  doAssert raw.len >= 20
   return ok(Date(raw))
 
 func parseUtcDate*(raw: string): Result[UTCDate, ValidationError] =
@@ -228,7 +221,6 @@ func parseUtcDate*(raw: string): Result[UTCDate, ValidationError] =
     return err(validationError("UTCDate", "too short for RFC 3339 date-time", raw))
   elif raw[^1] != 'Z':
     return err(validationError("UTCDate", "time-offset must be 'Z'", raw))
-  doAssert raw[^1] == 'Z'
   return ok(UTCDate(raw))
 
 # =============================================================================
@@ -285,6 +277,4 @@ func parseNonEmptySeq*[T](s: seq[T]): Result[NonEmptySeq[T], ValidationError] =
   ## type family).
   if s.len == 0:
     return err(validationError("NonEmptySeq", "must not be empty", ""))
-  let nes = NonEmptySeq[T](s)
-  doAssert seq[T](nes).len > 0
-  return ok(nes)
+  return ok(NonEmptySeq[T](s))

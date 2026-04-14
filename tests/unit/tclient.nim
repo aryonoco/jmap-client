@@ -15,6 +15,7 @@ when defined(ssl):
 import jmap_client/client
 import jmap_client/envelope
 import jmap_client/errors
+import jmap_client/methods_enum
 import jmap_client/session
 import jmap_client/validation
 
@@ -413,7 +414,7 @@ block validateLimitsGetWithinLimit:
   for i in 0 ..< 5:
     ids.add(%("id" & $i))
   args["ids"] = ids
-  let inv = initInvocation("Email/get", args, makeMcid("c0")).get()
+  let inv = initInvocation(mnEmailGet, args, makeMcid("c0"))
   let req = makeRequest(methodCalls = @[inv])
   validateLimits(req, caps).get()
 
@@ -425,7 +426,7 @@ block validateLimitsGetExceedsLimit:
   for i in 0 ..< 11:
     ids.add(%("id" & $i))
   args["ids"] = ids
-  let inv = initInvocation("Email/get", args, makeMcid("c0")).get()
+  let inv = initInvocation(mnEmailGet, args, makeMcid("c0"))
   let req = makeRequest(methodCalls = @[inv])
   let limR2 = validateLimits(req, caps)
   doAssert limR2.isErr, "expected Err for exceeding maxObjectsInGet"
@@ -437,7 +438,7 @@ block validateLimitsGetReferenceIds:
   let caps = makeCoreCapsWithLimits(maxObjectsInGet = 1)
   var args = newJObject()
   args["ids"] = newJObject() # JObject = result reference, not direct array
-  let inv = initInvocation("Email/get", args, makeMcid("c0")).get()
+  let inv = initInvocation(mnEmailGet, args, makeMcid("c0"))
   let req = makeRequest(methodCalls = @[inv])
   validateLimits(req, caps).get()
 
@@ -446,7 +447,7 @@ block validateLimitsGetNullIds:
   let caps = makeCoreCapsWithLimits(maxObjectsInGet = 1)
   var args = newJObject()
   args["ids"] = newJNull()
-  let inv = initInvocation("Email/get", args, makeMcid("c0")).get()
+  let inv = initInvocation(mnEmailGet, args, makeMcid("c0"))
   let req = makeRequest(methodCalls = @[inv])
   validateLimits(req, caps).get()
 
@@ -466,7 +467,7 @@ block validateLimitsSetWithinLimit:
   for i in 0 ..< 3:
     destroy.add(%("id" & $i))
   args["destroy"] = destroy
-  let inv = initInvocation("Mailbox/set", args, makeMcid("c0")).get()
+  let inv = initInvocation(mnMailboxSet, args, makeMcid("c0"))
   let req = makeRequest(methodCalls = @[inv])
   validateLimits(req, caps).get()
 
@@ -486,7 +487,7 @@ block validateLimitsSetExceedsLimit:
   for i in 0 ..< 3:
     destroy.add(%("id" & $i))
   args["destroy"] = destroy
-  let inv = initInvocation("Mailbox/set", args, makeMcid("c0")).get()
+  let inv = initInvocation(mnMailboxSet, args, makeMcid("c0"))
   let req = makeRequest(methodCalls = @[inv])
   let limR3 = validateLimits(req, caps)
   doAssert limR3.isErr, "expected Err for exceeding maxObjectsInSet"
@@ -498,7 +499,7 @@ block validateLimitsSetReferenceDestroy:
   let caps = makeCoreCapsWithLimits(maxObjectsInSet = 1)
   var args = newJObject()
   args["destroy"] = newJObject() # JObject = result reference, not direct array
-  let inv = initInvocation("Mailbox/set", args, makeMcid("c0")).get()
+  let inv = initInvocation(mnMailboxSet, args, makeMcid("c0"))
   let req = makeRequest(methodCalls = @[inv])
   validateLimits(req, caps).get()
 
@@ -525,8 +526,8 @@ block validateLimitsMixedWithinLimits:
   setArgs["create"] = create
   let req = makeRequest(
     methodCalls = @[
-      initInvocation("Mailbox/get", getArgs, makeMcid("c0")).get(),
-      initInvocation("Email/set", setArgs, makeMcid("c1")).get(),
+      initInvocation(mnMailboxGet, getArgs, makeMcid("c0")),
+      initInvocation(mnEmailSet, setArgs, makeMcid("c1")),
     ]
   )
   validateLimits(req, caps).get()
@@ -541,7 +542,7 @@ block validateLimitsNonStandardMethod:
   for i in 0 ..< 100:
     ids.add(%("id" & $i))
   args["ids"] = ids
-  let inv = initInvocation("Vendor/customMethod", args, makeMcid("c0")).get()
+  let inv = parseInvocation("Vendor/customMethod", args, makeMcid("c0")).get()
   let req = makeRequest(methodCalls = @[inv])
   validateLimits(req, caps).get()
 
@@ -557,7 +558,7 @@ block validateLimitsGetAtLimit:
   for i in 0 ..< 10:
     ids.add(%("id" & $i))
   args["ids"] = ids
-  let inv = initInvocation("Email/get", args, makeMcid("c0")).get()
+  let inv = initInvocation(mnEmailGet, args, makeMcid("c0"))
   let req = makeRequest(methodCalls = @[inv])
   validateLimits(req, caps).get()
 
@@ -577,7 +578,7 @@ block validateLimitsSetAtLimit:
   for i in 0 ..< 3:
     destroy.add(%("id" & $i))
   args["destroy"] = destroy
-  let inv = initInvocation("Mailbox/set", args, makeMcid("c0")).get()
+  let inv = initInvocation(mnMailboxSet, args, makeMcid("c0"))
   let req = makeRequest(methodCalls = @[inv])
   validateLimits(req, caps).get()
 
@@ -586,14 +587,14 @@ block validateLimitsGetEmptyIds:
   let caps = makeCoreCapsWithLimits(maxObjectsInGet = 1)
   var args = newJObject()
   args["ids"] = newJArray()
-  let inv = initInvocation("Email/get", args, makeMcid("c0")).get()
+  let inv = initInvocation(mnEmailGet, args, makeMcid("c0"))
   let req = makeRequest(methodCalls = @[inv])
   validateLimits(req, caps).get()
 
 block validateLimitsSetEmptyArguments:
   ## Edge case: /set with empty arguments — count = 0, within any limit.
   let caps = makeCoreCapsWithLimits(maxObjectsInSet = 1)
-  let inv = initInvocation("Mailbox/set", newJObject(), makeMcid("c0")).get()
+  let inv = initInvocation(mnMailboxSet, newJObject(), makeMcid("c0"))
   let req = makeRequest(methodCalls = @[inv])
   validateLimits(req, caps).get()
 
@@ -605,7 +606,7 @@ block validateLimitsSetOnlyDestroy:
   for i in 0 ..< 3:
     destroy.add(%("id" & $i))
   args["destroy"] = destroy
-  let inv = initInvocation("Mailbox/set", args, makeMcid("c0")).get()
+  let inv = initInvocation(mnMailboxSet, args, makeMcid("c0"))
   let req = makeRequest(methodCalls = @[inv])
   validateLimits(req, caps).get()
 
@@ -618,7 +619,7 @@ block validateLimitsMethodPartialMatch:
   for i in 0 ..< 100:
     ids.add(%("id" & $i))
   args["ids"] = ids
-  let inv = initInvocation("Email/getter", args, makeMcid("c0")).get()
+  let inv = parseInvocation("Email/getter", args, makeMcid("c0")).get()
   let req = makeRequest(methodCalls = @[inv])
   validateLimits(req, caps).get()
 

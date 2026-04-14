@@ -44,9 +44,7 @@ func parsePartIdFromServer*(raw: string): Result[PartId, ValidationError] =
     return err(validationError("PartId", "must not be empty", raw))
   if raw.anyIt(ord(it) < 0x20):
     return err(validationError("PartId", "contains control characters", raw))
-  let pid = PartId(raw)
-  doAssert pid.len > 0
-  return ok(pid)
+  return ok(PartId(raw))
 
 # =============================================================================
 # EmailBodyPart

@@ -18,7 +18,10 @@ import ./types
 
 func toJson*(inv: Invocation): JsonNode =
   ## Serialise Invocation as 3-element JSON array (RFC 8620 section 3.2).
-  return %*[inv.name, inv.arguments, string(inv.methodCallId)]
+  ## Uses ``rawName`` so forward-compatible unknown method names round-trip
+  ## losslessly — ``$inv.name`` would collapse them to the ``mnUnknown``
+  ## symbol name.
+  return %*[inv.rawName, inv.arguments, string(inv.methodCallId)]
 
 func fromJson*(
     T: typedesc[Invocation], node: JsonNode
@@ -41,7 +44,7 @@ func fromJson*(
   if callIdRaw.len == 0:
     return err(parseError($T, "method call ID must not be empty"))
   let mcid = ?parseMethodCallId(callIdRaw)
-  return initInvocation(name, arguments, mcid)
+  return parseInvocation(name, arguments, mcid)
 
 # =============================================================================
 # createdIds helper
@@ -157,7 +160,9 @@ func fromJson*(
 
 func toJson*(r: ResultReference): JsonNode =
   ## Serialise ResultReference to JSON (RFC 8620 section 3.7).
-  return %*{"resultOf": string(r.resultOf), "name": r.name, "path": r.path}
+  ## Uses ``rawName`` / ``rawPath`` to preserve verbatim wire strings,
+  ## including any forward-compatible unknown variants.
+  return %*{"resultOf": string(r.resultOf), "name": r.rawName, "path": r.rawPath}
 
 func fromJson*(
     T: typedesc[ResultReference], node: JsonNode

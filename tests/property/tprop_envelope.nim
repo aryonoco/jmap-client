@@ -11,6 +11,7 @@ import std/tables
 import jmap_client/primitives
 import jmap_client/identifiers
 import jmap_client/envelope
+import jmap_client/methods_enum
 import jmap_client/validation
 
 import ../mproperty
@@ -64,11 +65,11 @@ block propReferencableReferencePreservesRef:
     ## referenceTo preserves the ResultReference.
     let mcid = parseMethodCallId("c" & $trial).get()
     lastInput = $trial
-    let rr = initResultReference(resultOf = mcid, name = "Email/query", path = "/ids")
+    let rr = initResultReference(resultOf = mcid, name = mnEmailQuery, path = rpIds)
     let r = referenceTo[seq[Id]](rr)
     doAssert r.kind == rkReference
     doAssert r.reference.resultOf == mcid
-    doAssert r.reference.path == "/ids"
+    doAssert r.reference.path == rpIds
 
 block propReferencableExclusivity:
   checkProperty "propReferencableExclusivity":
@@ -80,7 +81,7 @@ block propReferencableExclusivity:
     doAssert not (d.kind == rkReference)
 
     let mcid = parseMethodCallId("c" & $trial).get()
-    let rr = initResultReference(resultOf = mcid, name = "M/get", path = "/ids")
+    let rr = initResultReference(resultOf = mcid, name = mnMailboxGet, path = rpIds)
     let r = referenceTo[seq[Id]](rr)
     doAssert r.kind == rkReference
     doAssert not (r.kind == rkDirect)
@@ -89,8 +90,8 @@ block propInvocationPreservesFields:
   checkProperty "propInvocationPreservesFields":
     ## Invocation construction preserves all three fields.
     let inv = genInvocation(rng)
-    lastInput = inv.name
-    doAssert inv.name.len > 0
+    lastInput = inv.rawName
+    doAssert inv.rawName.len > 0
     doAssert inv.arguments.kind == JObject
     # methodCallId was set by genInvocation
 
@@ -132,7 +133,7 @@ block propReferencableKindDisjointness:
     let v = rng.rand(int)
     lastInput = $v
     let mcid = parseMethodCallId("c" & $trial).get()
-    let rr = initResultReference(resultOf = mcid, name = "M/get", path = "/ids")
+    let rr = initResultReference(resultOf = mcid, name = mnMailboxGet, path = rpIds)
     let d = direct(v)
     let r = referenceTo[int](rr)
     doAssert d.kind != r.kind

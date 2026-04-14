@@ -49,7 +49,7 @@ block scenarioSessionToRequest:
 
   # Construct a Request
   let mcid = makeMcid("c0")
-  let inv = initInvocation("Mailbox/get", %*{"accountId": $acctId}, mcid).get()
+  let inv = initInvocation(mnMailboxGet, %*{"accountId": $acctId}, mcid)
   let req = Request(
     `using`: @["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail"],
     methodCalls: @[inv],
@@ -65,20 +65,18 @@ block scenarioMultiMethodWithReferences:
   let mcid2 = makeMcid("c2")
 
   let queryInv = initInvocation(
-      "Email/query", %*{"accountId": "acct1", "filter": {"inMailbox": "inbox"}}, mcid0
-    )
-    .get()
+    mnEmailQuery, %*{"accountId": "acct1", "filter": {"inMailbox": "inbox"}}, mcid0
+  )
 
   # get with ResultReference pointing to query's /ids
-  let rr =
-    initResultReference(resultOf = mcid0, name = "Email/query", path = RefPathIds)
+  let rr = initResultReference(resultOf = mcid0, name = mnEmailQuery, path = rpIds)
   let getRef = referenceTo[seq[Id]](rr)
   doAssert getRef.kind == rkReference
   doAssert getRef.reference.resultOf == mcid0
 
-  let getInv = initInvocation("Email/get", %*{"accountId": "acct1"}, mcid1).get()
+  let getInv = initInvocation(mnEmailGet, %*{"accountId": "acct1"}, mcid1)
 
-  let setInv = initInvocation("Email/set", %*{"accountId": "acct1"}, mcid2).get()
+  let setInv = initInvocation(mnEmailSet, %*{"accountId": "acct1"}, mcid2)
 
   let req = Request(
     `using`: @["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail"],
@@ -182,13 +180,13 @@ block scenarioMessageCascadePriority:
 
 block scenarioMethodErrorInResponse:
   ## Track 2: Method error within a successful response.
-  let errInv = initInvocation(
+  let errInv = parseInvocation(
       "error",
       %*{"type": "invalidArguments", "description": "missing accountId"},
       makeMcid("c0"),
     )
     .get()
-  doAssert errInv.name == "error"
+  doAssert errInv.rawName == "error"
   let me = methodError("invalidArguments", description = Opt.some("missing accountId"))
   doAssert me.errorType == metInvalidArguments
   doAssert me.description.get() == "missing accountId"
@@ -330,8 +328,8 @@ block scenarioSessionAccountCapabilityChain:
 block scenarioResultReferenceCorrelation:
   ## ResultReference.resultOf matches a previous Invocation's MethodCallId.
   let mcid = makeMcid("query-0")
-  let queryInv = makeInvocation("Email/query", mcid)
-  let rr = initResultReference(resultOf = mcid, name = "Email/query", path = RefPathIds)
+  let queryInv = makeInvocation(mnEmailQuery, mcid)
+  let rr = initResultReference(resultOf = mcid, name = mnEmailQuery, path = rpIds)
   doAssert rr.resultOf == queryInv.methodCallId
 
 block scenarioSetErrorWithIdFromPrimitives:
@@ -348,12 +346,11 @@ block scenarioReferencableBothForms:
   doAssert directForm.kind == rkDirect
   doAssert directForm.value.len == 2
 
-  let rr = initResultReference(
-    resultOf = makeMcid("c0"), name = "Email/query", path = RefPathIds
-  )
+  let rr =
+    initResultReference(resultOf = makeMcid("c0"), name = mnEmailQuery, path = rpIds)
   let refForm = referenceTo[seq[Id]](rr)
   doAssert refForm.kind == rkReference
-  doAssert refForm.reference.path == "/ids"
+  doAssert refForm.reference.path == rpIds
 
 # =============================================================================
 # Data preservation
@@ -421,8 +418,8 @@ block scenarioDuplicateMethodCallIdsInRequest:
   ## Request with duplicate MethodCallIds is valid at Layer 1. The protocol
   ## uses MethodCallId for correlation; uniqueness is a Layer 3 concern.
   let mcid = makeMcid("shared")
-  let inv1 = initInvocation("Email/get", newJObject(), mcid).get()
-  let inv2 = initInvocation("Email/query", newJObject(), mcid).get()
+  let inv1 = initInvocation(mnEmailGet, newJObject(), mcid)
+  let inv2 = initInvocation(mnEmailQuery, newJObject(), mcid)
   let req = Request(
     `using`: @["urn:ietf:params:jmap:core"],
     methodCalls: @[inv1, inv2],
@@ -433,13 +430,13 @@ block scenarioDuplicateMethodCallIdsInRequest:
 
 block scenarioResponseWithErrorInvocation:
   ## Response containing an Invocation with name="error" is valid.
-  let errInv = initInvocation("error", %*{"type": "serverFail"}, makeMcid("c0")).get()
+  let errInv = parseInvocation("error", %*{"type": "serverFail"}, makeMcid("c0")).get()
   let resp = Response(
     methodResponses: @[errInv],
     createdIds: Opt.none(Table[CreationId, Id]),
     sessionState: makeState("s1"),
   )
-  doAssert resp.methodResponses[0].name == "error"
+  doAssert resp.methodResponses[0].rawName == "error"
 
 block scenarioHasVariableEmptyString:
   ## hasVariable with empty name searches for "{}" — not present in typical
@@ -504,9 +501,8 @@ block sessionToRequestIntegration:
     capUris.add cap.rawUri
   let req = Request(
     `using`: capUris,
-    methodCalls: @[
-      initInvocation("Mailbox/get", newJObject(), parseMethodCallId("c0").get()).get()
-    ],
+    methodCalls:
+      @[initInvocation(mnMailboxGet, newJObject(), parseMethodCallId("c0").get())],
     createdIds: Opt.none(Table[CreationId, Id]),
   )
   doAssert req.`using`.len == capUris.len
@@ -514,8 +510,7 @@ block sessionToRequestIntegration:
 block resultReferenceWithPriorInvocation:
   ## Build a ResultReference that references a prior Invocation's MethodCallId.
   let mcid1 = parseMethodCallId("c1").get()
-  let inv1 = initInvocation("Email/query", newJObject(), mcid1).get()
-  let ref1 =
-    initResultReference(resultOf = mcid1, name = "Email/query", path = RefPathIds)
+  let inv1 = initInvocation(mnEmailQuery, newJObject(), mcid1)
+  let ref1 = initResultReference(resultOf = mcid1, name = mnEmailQuery, path = rpIds)
   doAssert ref1.resultOf == inv1.methodCallId
-  doAssert ref1.path == "/ids"
+  doAssert ref1.path == rpIds

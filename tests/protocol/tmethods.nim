@@ -15,6 +15,7 @@ import jmap_client/identifiers
 import jmap_client/envelope
 import jmap_client/framework
 import jmap_client/errors
+import jmap_client/methods_enum
 import jmap_client/serde
 import jmap_client/serde_envelope
 import jmap_client/serde_framework
@@ -34,11 +35,20 @@ import ../mfixtures
 
 type MockFoo = object
 
-proc methodNamespace*(T: typedesc[MockFoo]): string =
-  "MockFoo"
+proc methodEntity*(T: typedesc[MockFoo]): MethodEntity =
+  meTest
 
 proc capabilityUri*(T: typedesc[MockFoo]): string =
   "urn:test:mockfoo"
+
+proc getMethodName*(T: typedesc[MockFoo]): MethodName =
+  mnMailboxGet
+
+proc changesMethodName*(T: typedesc[MockFoo]): MethodName =
+  mnMailboxChanges
+
+proc setMethodName*(T: typedesc[MockFoo]): MethodName =
+  mnMailboxSet
 
 registerJmapEntity(MockFoo)
 
@@ -46,11 +56,20 @@ type MockFilter = object
 
 type MockQueryable = object
 
-proc methodNamespace*(T: typedesc[MockQueryable]): string =
-  "MockQueryable"
+proc methodEntity*(T: typedesc[MockQueryable]): MethodEntity =
+  meTest
 
 proc capabilityUri*(T: typedesc[MockQueryable]): string =
   "urn:test:mockqueryable"
+
+proc getMethodName*(T: typedesc[MockQueryable]): MethodName =
+  mnMailboxGet
+
+proc queryMethodName*(T: typedesc[MockQueryable]): MethodName =
+  mnEmailQuery
+
+proc queryChangesMethodName*(T: typedesc[MockQueryable]): MethodName =
+  mnEmailQueryChanges
 
 template filterType*(T: typedesc[MockQueryable]): typedesc =
   MockFilter
@@ -167,9 +186,8 @@ block getRequestDirectIds:
 
 block getRequestReferenceIds:
   ## GetRequest with reference ids produces "#ids" with ResultReference.
-  let rr = initResultReference(
-    resultOf = makeMcid("c0"), name = "MockFoo/query", path = "/ids"
-  )
+  let rr =
+    initResultReference(resultOf = makeMcid("c0"), name = mnEmailQuery, path = rpIds)
   let req = GetRequest[MockFoo](
     accountId: makeAccountId("a1"),
     ids: Opt.some(referenceTo[seq[Id]](rr)),
@@ -231,9 +249,8 @@ block setRequestMinimal:
 
 block setRequestWithReferencableDestroy:
   ## SetRequest destroy with result reference produces "#destroy".
-  let rr = initResultReference(
-    resultOf = makeMcid("c0"), name = "MockFoo/query", path = "/ids"
-  )
+  let rr =
+    initResultReference(resultOf = makeMcid("c0"), name = mnEmailQuery, path = rpIds)
   let req = SetRequest[MockFoo](
     accountId: makeAccountId("a1"),
     ifInState: Opt.none(JmapState),

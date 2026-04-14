@@ -32,6 +32,4 @@ func parseThread*(id: Id, emailIds: seq[Id]): Result[Thread, ValidationError] =
   ## Smart constructor: validates emailIds is non-empty, constructs Thread.
   if emailIds.len == 0:
     return err(validationError("Thread", "emailIds must contain at least one Id", ""))
-  let t = Thread(rawId: id, rawEmailIds: emailIds)
-  doAssert t.rawEmailIds.len > 0
-  return ok(t)
+  return ok(Thread(rawId: id, rawEmailIds: emailIds))

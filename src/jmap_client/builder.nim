@@ -95,11 +95,12 @@ func withCapability(caps: seq[string], cap: string): seq[string] =
     caps & @[cap]
 
 func addInvocation*(
-    b: RequestBuilder, name: string, args: JsonNode, capability: string
+    b: RequestBuilder, name: MethodName, args: JsonNode, capability: string
 ): (RequestBuilder, MethodCallId) =
   ## Constructs an Invocation and returns a new builder with it accumulated.
+  ## ``name`` is typed — illegal (empty) names are structurally impossible.
   let callId = b.nextId()
-  let inv = initInvocationUnchecked(name, args, callId)
+  let inv = initInvocation(name, args, callId)
   return (
     RequestBuilder(
       nextCallId: b.nextCallId + 1,
@@ -114,14 +115,21 @@ func addInvocation*(
 # =============================================================================
 
 template addMethodImpl(
-    b: RequestBuilder, T: typedesc, suffix: string, req: typed, RespType: typedesc
+    b: RequestBuilder,
+    T: typedesc,
+    methodNameResolver: untyped,
+    req: typed,
+    RespType: typedesc,
 ): untyped =
   ## Shared boilerplate for non-query add* functions: mixin resolution,
   ## toJson serialisation, invocation accumulation, handle wrapping.
-  mixin methodNamespace, capabilityUri
+  ## ``methodNameResolver`` is the per-verb resolver (e.g. ``getMethodName``),
+  ## resolved via ``mixin`` at the caller's scope. Passing the wrong verb
+  ## for an entity (e.g. ``setMethodName`` on Thread) is a compile error.
+  mixin methodNameResolver, capabilityUri
   let args = req.toJson()
   let (newBuilder, callId) =
-    addInvocation(b, methodNamespace(T) & "/" & suffix, args, capabilityUri(T))
+    addInvocation(b, methodNameResolver(T), args, capabilityUri(T))
   (newBuilder, ResponseHandle[RespType](callId))
 
 # =============================================================================
@@ -134,7 +142,7 @@ func addEcho*(
   ## Adds a Core/echo invocation (RFC 8620 section 4). The server echoes
   ## the arguments back unchanged. Useful for connectivity testing.
   let (newBuilder, callId) =
-    b.addInvocation("Core/echo", args, "urn:ietf:params:jmap:core")
+    b.addInvocation(mnCoreEcho, args, "urn:ietf:params:jmap:core")
   return (newBuilder, ResponseHandle[JsonNode](callId))
 
 # =============================================================================
@@ -150,7 +158,7 @@ func addGet*[T](
   ## Adds a Foo/get invocation. Fetches objects by identifiers, optionally
   ## returning only a subset of properties.
   let req = GetRequest[T](accountId: accountId, ids: ids, properties: properties)
-  addMethodImpl(b, T, "get", req, GetResponse[T])
+  addMethodImpl(b, T, getMethodName, req, GetResponse[T])
 
 # =============================================================================
 # addChanges — Foo/changes (RFC 8620 section 5.2)
@@ -167,7 +175,7 @@ func addChanges*[T](
   let req = ChangesRequest[T](
     accountId: accountId, sinceState: sinceState, maxChanges: maxChanges
   )
-  addMethodImpl(b, T, "changes", req, ChangesResponse[T])
+  addMethodImpl(b, T, changesMethodName, req, ChangesResponse[T])
 
 # =============================================================================
 # addSet — Foo/set (RFC 8620 section 5.3)
@@ -190,7 +198,7 @@ func addSet*[T](
     update: update,
     destroy: destroy,
   )
-  addMethodImpl(b, T, "set", req, SetResponse[T])
+  addMethodImpl(b, T, setMethodName, req, SetResponse[T])
 
 # =============================================================================
 # addCopy — Foo/copy (RFC 8620 section 5.4)
@@ -216,7 +224,7 @@ func addCopy*[T](
     onSuccessDestroyOriginal: onSuccessDestroyOriginal,
     destroyFromIfInState: destroyFromIfInState,
   )
-  addMethodImpl(b, T, "copy", req, CopyResponse[T])
+  addMethodImpl(b, T, copyMethodName, req, CopyResponse[T])
 
 # =============================================================================
 # addQuery — Foo/query (RFC 8620 section 5.5)
@@ -233,7 +241,7 @@ func addQuery*[T, C](
   ## Adds a Foo/query invocation. Searches, sorts, and windows entity data
   ## on the server. ``C`` is the filter condition type, resolved from
   ## ``filterType(T)`` by the caller.
-  mixin methodNamespace, capabilityUri
+  mixin queryMethodName, capabilityUri
   let req = QueryRequest[T, C](
     accountId: accountId,
     filter: filter,
@@ -246,7 +254,7 @@ func addQuery*[T, C](
   )
   let args = req.toJson(filterConditionToJson)
   let (newBuilder, callId) =
-    addInvocation(b, methodNamespace(T) & "/query", args, capabilityUri(T))
+    addInvocation(b, queryMethodName(T), args, capabilityUri(T))
   (newBuilder, ResponseHandle[QueryResponse[T]](callId))
 
 # =============================================================================
@@ -271,7 +279,7 @@ func addQueryChanges*[T, C](
   ## query window fields (position, anchor, anchorOffset, limit) are
   ## not applicable to /queryChanges (RFC 8620 section 5.6) and are
   ## ignored.
-  mixin methodNamespace, capabilityUri
+  mixin queryChangesMethodName, capabilityUri
   let req = QueryChangesRequest[T, C](
     accountId: accountId,
     filter: filter,
@@ -283,7 +291,7 @@ func addQueryChanges*[T, C](
   )
   let args = req.toJson(filterConditionToJson)
   let (newBuilder, callId) =
-    addInvocation(b, methodNamespace(T) & "/queryChanges", args, capabilityUri(T))
+    addInvocation(b, queryChangesMethodName(T), args, capabilityUri(T))
   (newBuilder, ResponseHandle[QueryChangesResponse[T]](callId))
 
 # =============================================================================

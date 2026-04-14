@@ -80,7 +80,7 @@ block stressResponse100Invocations:
     sessionState: makeState("s1"),
   )
   doAssert resp.methodResponses.len == 100
-  doAssert resp.methodResponses[99].name == "Method/99"
+  doAssert resp.methodResponses[99].rawName == "Method/99"
 
 block stressLongFractionalSeconds:
   ## Date with 100000-digit fractional seconds.

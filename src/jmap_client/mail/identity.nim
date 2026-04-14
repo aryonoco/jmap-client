@@ -45,13 +45,13 @@ func parseIdentityCreate*(
   ## All parameters except email have RFC-matching defaults for ergonomic use.
   if email.len == 0:
     return err(validationError("IdentityCreate", "email must not be empty", ""))
-  let ic = IdentityCreate(
-    email: email,
-    name: name,
-    replyTo: replyTo,
-    bcc: bcc,
-    textSignature: textSignature,
-    htmlSignature: htmlSignature,
+  return ok(
+    IdentityCreate(
+      email: email,
+      name: name,
+      replyTo: replyTo,
+      bcc: bcc,
+      textSignature: textSignature,
+      htmlSignature: htmlSignature,
+    )
   )
-  doAssert ic.email.len > 0
-  return ok(ic)

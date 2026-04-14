@@ -852,7 +852,7 @@ block extraFieldsIgnoredResultReference:
     "resultOf": "c0", "name": "Mailbox/get", "path": "/ids", "vendorExtension": "test"
   }
   let r = ResultReference.fromJson(j).get()
-  assertEq r.name, "Mailbox/get"
+  assertEq r.rawName, "Mailbox/get"
 
 block extraFieldsIgnoredAddedItem:
   ## AddedItem JSON with an extra unknown field must parse successfully.
@@ -980,13 +980,13 @@ block resultReferencePathWildcard:
   ## ResultReference with wildcard in path -> accepted.
   let j = %*{"resultOf": "c0", "name": "Email/get", "path": "/list/*/id"}
   let r = ResultReference.fromJson(j).get()
-  assertEq r.path, "/list/*/id"
+  assertEq r.rawPath, "/list/*/id"
 
 block resultReferencePathDeeplyNested:
   ## Deeply nested JSON Pointer path -> accepted.
   let j = %*{"resultOf": "c0", "name": "Email/get", "path": "/a/b/c/d/e/f/g"}
   let r = ResultReference.fromJson(j).get()
-  assertEq r.path, "/a/b/c/d/e/f/g"
+  assertEq r.rawPath, "/a/b/c/d/e/f/g"
 
 block resultReferencePathControlChars:
   ## Control characters in ResultReference path -> accepted.

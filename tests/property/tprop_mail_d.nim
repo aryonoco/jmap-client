@@ -8,8 +8,6 @@
 
 import std/json
 import std/random
-import std/strutils
-import std/tables
 
 import jmap_client/validation
 import jmap_client/primitives

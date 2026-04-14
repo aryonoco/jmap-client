@@ -32,9 +32,7 @@ func parseMailboxRole*(raw: string): Result[MailboxRole, ValidationError] =
   ## server values — single parser per Decision B20.
   if raw.len == 0:
     return err(validationError("MailboxRole", "must not be empty", raw))
-  let mr = MailboxRole(raw.toLowerAscii())
-  doAssert mr.len > 0
-  return ok(mr)
+  return ok(MailboxRole(raw.toLowerAscii()))
 
 const
   roleInbox* = MailboxRole("inbox") ## RFC 8621 well-known role.
@@ -100,9 +98,7 @@ func parseNonEmptyMailboxIdSet*(
   var hs = initHashSet[Id](ids.len)
   for id in ids:
     hs.incl(id)
-  let nems = NonEmptyMailboxIdSet(hs)
-  doAssert HashSet[Id](nems).len > 0
-  return ok(nems)
+  return ok(NonEmptyMailboxIdSet(hs))
 
 # =============================================================================
 # MailboxRights
@@ -164,12 +160,12 @@ func parseMailboxCreate*(
   ## All parameters except name have RFC-matching defaults for ergonomic use.
   if name.len == 0:
     return err(validationError("MailboxCreate", "name must not be empty", ""))
-  let mc = MailboxCreate(
-    name: name,
-    parentId: parentId,
-    role: role,
-    sortOrder: sortOrder,
-    isSubscribed: isSubscribed,
+  return ok(
+    MailboxCreate(
+      name: name,
+      parentId: parentId,
+      role: role,
+      sortOrder: sortOrder,
+      isSubscribed: isSubscribed,
+    )
   )
-  doAssert mc.name.len > 0
-  return ok(mc)

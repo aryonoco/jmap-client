@@ -12,6 +12,7 @@ import ./validation
 import ./primitives
 import ./identifiers
 import ./capabilities
+import ./methods_enum
 import ./session
 import ./envelope
 import ./framework
@@ -22,6 +23,7 @@ export validation
 export primitives
 export identifiers
 export capabilities
+export methods_enum
 export session
 export envelope
 export framework

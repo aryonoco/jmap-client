@@ -13,43 +13,63 @@ from std/json import JsonNode
 import results
 
 import ./identifiers
+import ./methods_enum
 import ./primitives
 import ./validation
 
-type Invocation* = object
+# nimalyzer: Invocation intentionally has no public fields.
+# rawName / rawMethodCallId are module-private so construction flows
+# through ``initInvocation`` (typed, infallible) or ``parseInvocation``
+# (string-taking, fallible at the wire). Public accessor funcs below
+# provide read access; UFCS keeps the ``inv.name`` spelling unchanged.
+type Invocation* {.ruleOff: "objects".} = object
   ## A method call or response tuple (RFC 8620 section 3.2). Serialised as a
   ## 3-element JSON array by Layer 2.
-  ##
-  ## Construction sealed via Pattern A (architecture Limitation 5/6a):
-  ## ``rawMethodCallId`` is module-private, blocking direct construction
-  ## from outside this module. Use ``initInvocation`` to construct.
-  name*: string ## method name (request) or response name
   arguments*: JsonNode ## named arguments — always a JObject at the wire level
-  rawMethodCallId: string ## module-private; validated MethodCallId
+  rawMethodCallId: string ## module-private; always a validated MethodCallId
+  rawName: string ## module-private; always a non-empty wire-format name
 
 func methodCallId*(inv: Invocation): MethodCallId =
   ## Returns the validated method call ID.
   return MethodCallId(inv.rawMethodCallId)
 
+func name*(inv: Invocation): MethodName =
+  ## Typed method-name accessor. Returns ``mnUnknown`` for wire names the
+  ## library doesn't recognise (forward compatibility — ``rawName`` preserves
+  ## the verbatim string for lossless round-trip).
+  return parseMethodName(inv.rawName)
+
+func rawName*(inv: Invocation): string =
+  ## Verbatim wire name. Always non-empty (enforced at construction).
+  ## Prefer ``name`` for comparison against a known variant; use ``rawName``
+  ## for wire emission and for forward-compatible inspection of unknown
+  ## method names (e.g. the literal ``"error"`` response tag).
+  return inv.rawName
+
 func initInvocation*(
-    name: string, arguments: JsonNode, methodCallId: MethodCallId
-): Result[Invocation, ValidationError] =
-  ## Constructs an Invocation. Validates that name is non-empty.
-  if name.len == 0:
-    return err(validationError("Invocation", "name must not be empty", name))
-  return ok(
-    Invocation(name: name, arguments: arguments, rawMethodCallId: string(methodCallId))
+    name: MethodName, arguments: JsonNode, methodCallId: MethodCallId
+): Invocation =
+  ## Total, typed constructor. ``MethodName`` is a string-backed enum;
+  ## the wire name is ``$name`` — empty is structurally unrepresentable.
+  ## Stores the backing string verbatim in ``rawName`` so round-trip is
+  ## identity-functional.
+  return Invocation(
+    arguments: arguments, rawMethodCallId: string(methodCallId), rawName: $name
   )
 
-func initInvocationUnchecked*(
-    name: string, arguments: JsonNode, methodCallId: MethodCallId
-): Invocation =
-  ## Infallible constructor for internal use where name is provably non-empty
-  ## (e.g., builder-generated method names like "Mailbox/get"). Matches the
-  ## ``initResultReference`` pattern for infallible counterparts.
-  doAssert name.len > 0, "Invocation name must not be empty"
-  return
-    Invocation(name: name, arguments: arguments, rawMethodCallId: string(methodCallId))
+func parseInvocation*(
+    rawName: string, arguments: JsonNode, methodCallId: MethodCallId
+): Result[Invocation, ValidationError] =
+  ## Wire-boundary constructor: accepts any non-empty string so unknown
+  ## method names round-trip losslessly (Postel's law). Used only by
+  ## ``serde_envelope.fromJson``.
+  if rawName.len == 0:
+    return err(validationError("Invocation", "name must not be empty", rawName))
+  return ok(
+    Invocation(
+      arguments: arguments, rawMethodCallId: string(methodCallId), rawName: rawName
+    )
+  )
 
 type Request* = object
   ## Top-level JMAP request envelope (RFC 8620 section 3.3). Contains the
@@ -69,49 +89,57 @@ type Response* = object
     ## be re-fetched (RFC 8620 §3.4). The RFC uses permissive language
     ## ("may") for this check — it is not a MUST-level requirement.
 
-type ResultReference* = object
+# nimalyzer: ResultReference intentionally has no public fields.
+# rawName / rawPath are module-private so construction flows through
+# ``initResultReference`` (typed, infallible) or ``parseResultReference``
+# (string-taking, fallible at the wire).
+type ResultReference* {.ruleOff: "objects".} = object
   ## Back-reference to a previous method call's result (RFC 8620 section 3.7).
   ## The server resolves the JSON Pointer path against the referenced response.
-  ##
-  ## Construction sealed via private ``rawName`` field. Use
-  ## ``parseResultReference`` to construct with validation, or
-  ## ``initResultReference`` for infallible construction from pre-validated values.
   resultOf*: MethodCallId ## method call ID of the previous call
   rawName: string ## module-private; expected response name (non-empty)
-  path*: string ## JSON Pointer (RFC 6901) with JMAP '*' array wildcard
+  rawPath: string ## module-private; JSON Pointer (RFC 6901) with JMAP '*'
 
-func name*(rr: ResultReference): string =
-  ## Returns the expected response name.
+func name*(rr: ResultReference): MethodName =
+  ## Typed response-name accessor. Returns ``mnUnknown`` for forward-compat
+  ## wire names — ``rawName`` preserves the verbatim string.
+  return parseMethodName(rr.rawName)
+
+func rawName*(rr: ResultReference): string =
+  ## Verbatim wire name of the referenced response.
   return rr.rawName
+
+func path*(rr: ResultReference): RefPath =
+  ## Typed result-reference path. Unknown paths fall back to ``rpIds`` —
+  ## but this never fires in practice because the server only echoes
+  ## paths we sent, which are always drawn from the enum.
+  for p in RefPath:
+    if $p == rr.rawPath:
+      return p
+  return rpIds
+
+func rawPath*(rr: ResultReference): string =
+  ## Verbatim wire path — e.g. ``"/ids"`` or ``"/list/*/id"``.
+  return rr.rawPath
+
+func initResultReference*(
+    resultOf: MethodCallId, name: MethodName, path: RefPath
+): ResultReference =
+  ## Total, typed constructor. Both enum parameters are string-backed;
+  ## stored verbatim as ``$name`` / ``$path`` for lossless wire emission.
+  return ResultReference(resultOf: resultOf, rawName: $name, rawPath: $path)
 
 func parseResultReference*(
     resultOf: MethodCallId, name: string, path: string
 ): Result[ResultReference, ValidationError] =
-  ## Validates and constructs a ResultReference. Rejects empty name or path.
+  ## Wire-boundary constructor. Accepts any non-empty strings so forward-
+  ## compatible references (unknown method names, unknown paths) round-trip
+  ## losslessly. Used only by ``serde_envelope.fromJson``.
   if name.len == 0:
     return err(validationError("ResultReference", "name must not be empty", name))
   if path.len == 0:
     return err(validationError("ResultReference", "path must not be empty", path))
-  return ok(ResultReference(resultOf: resultOf, rawName: name, path: path))
-
-func initResultReference*(
-    resultOf: MethodCallId, name: string, path: string
-): ResultReference =
-  ## Constructs a ResultReference without validation. For internal use where
-  ## name and path are known to be valid (e.g., builder-produced references
-  ## using path constants).
-  doAssert name.len > 0, "ResultReference name must not be empty"
-  doAssert path.len > 0, "ResultReference path must not be empty"
-  return ResultReference(resultOf: resultOf, rawName: name, path: path)
-
-const
-  RefPathIds* = "/ids" ## IDs from /query result
-  RefPathListIds* = "/list/*/id" ## IDs from /get result
-  RefPathAddedIds* = "/added/*/id" ## IDs from /queryChanges result
-  RefPathCreated* = "/created" ## created map from /changes or /set result
-  RefPathUpdated* = "/updated" ## updated IDs from /changes result
-  RefPathUpdatedProperties* = "/updatedProperties"
-    ## updatedProperties from Mailbox/changes (RFC 8621 section 2.2)
+  return ok(ResultReference(resultOf: resultOf, rawName: name, rawPath: path))
 
 type
   ReferencableKind* = enum

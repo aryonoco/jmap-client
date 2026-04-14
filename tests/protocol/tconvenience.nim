@@ -31,11 +31,20 @@ type MockFilter = object
 
 type MockQueryable = object
 
-proc methodNamespace*(T: typedesc[MockQueryable]): string =
-  "MockQueryable"
+proc methodEntity*(T: typedesc[MockQueryable]): MethodEntity =
+  meTest
 
 proc capabilityUri*(T: typedesc[MockQueryable]): string =
   "urn:test:mockqueryable"
+
+proc getMethodName*(T: typedesc[MockQueryable]): MethodName =
+  mnMailboxGet
+
+proc changesMethodName*(T: typedesc[MockQueryable]): MethodName =
+  mnMailboxChanges
+
+proc queryMethodName*(T: typedesc[MockQueryable]): MethodName =
+  mnEmailQuery
 
 template filterType*(T: typedesc[MockQueryable]): typedesc =
   MockFilter
@@ -60,8 +69,8 @@ block addQueryThenGetProducesTwoInvocations:
   let (b1, handles) = addQueryThenGet[MockQueryable](b0, makeAccountId("a1"))
   let req = b1.build()
   assertLen req.methodCalls, 2
-  assertEq req.methodCalls[0].name, "MockQueryable/query"
-  assertEq req.methodCalls[1].name, "MockQueryable/get"
+  assertEq req.methodCalls[0].name, mnEmailQuery
+  assertEq req.methodCalls[1].name, mnMailboxGet
 
 block addQueryThenGetWiresResultReference:
   ## The get invocation references the query's /ids path.
@@ -73,7 +82,7 @@ block addQueryThenGetWiresResultReference:
   let refNode = getArgs{"#ids"}
   doAssert not refNode.isNil
   assertEq refNode{"resultOf"}.getStr(""), "c0"
-  assertEq refNode{"name"}.getStr(""), "MockQueryable/query"
+  assertEq refNode{"name"}.getStr(""), "Email/query"
   assertEq refNode{"path"}.getStr(""), "/ids"
 
 block addQueryThenGetHandlesArePhantomTyped:
@@ -104,8 +113,8 @@ block addChangesToGetProducesTwoInvocations:
     addChangesToGet[MockQueryable](b0, makeAccountId("a1"), makeState("s0"))
   let req = b1.build()
   assertLen req.methodCalls, 2
-  assertEq req.methodCalls[0].name, "MockQueryable/changes"
-  assertEq req.methodCalls[1].name, "MockQueryable/get"
+  assertEq req.methodCalls[0].name, mnMailboxChanges
+  assertEq req.methodCalls[1].name, mnMailboxGet
 
 block addChangesToGetWiresCreatedRef:
   ## The get invocation references the changes' /created path.
@@ -116,7 +125,7 @@ block addChangesToGetWiresCreatedRef:
   let refNode = getArgs{"#ids"}
   doAssert not refNode.isNil
   assertEq refNode{"path"}.getStr(""), "/created"
-  assertEq refNode{"name"}.getStr(""), "MockQueryable/changes"
+  assertEq refNode{"name"}.getStr(""), "Mailbox/changes"
 
 # ===========================================================================
 # C. getBoth for QueryGetHandles
@@ -130,8 +139,8 @@ block getBothQueryGetSuccess:
   let getJson = makeGetResponseJson(accountId = "a1", state = "s1")
   let resp = Response(
     methodResponses: @[
-      initInvocation("MockQueryable/query", queryJson, makeMcid("c0")).get(),
-      initInvocation("MockQueryable/get", getJson, makeMcid("c1")).get(),
+      initInvocation(mnEmailQuery, queryJson, makeMcid("c0")),
+      initInvocation(mnMailboxGet, getJson, makeMcid("c1")),
     ],
     createdIds: Opt.none(Table[CreationId, Id]),
     sessionState: makeState("rs1"),
@@ -150,8 +159,8 @@ block getBothQueryGetMethodError:
   let getJson = makeGetResponseJson(accountId = "a1", state = "s1")
   let resp = Response(
     methodResponses: @[
-      initInvocation("error", errorJson, makeMcid("c0")).get(),
-      initInvocation("MockQueryable/get", getJson, makeMcid("c1")).get(),
+      parseInvocation("error", errorJson, makeMcid("c0")).get(),
+      initInvocation(mnMailboxGet, getJson, makeMcid("c1")),
     ],
     createdIds: Opt.none(Table[CreationId, Id]),
     sessionState: makeState("rs1"),

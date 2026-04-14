@@ -55,10 +55,10 @@ block reExportAccessibility:
   doAssert comp.isAscending
 
   # envelope
-  let inv = initInvocation("Foo/get", %*{}, mcid).get()
-  doAssert inv.name == "Foo/get"
-  let rref = initResultReference(resultOf = mcid, name = "Foo/get", path = "/ids")
-  doAssert rref.path == "/ids"
+  let inv = parseInvocation("Foo/get", %*{}, mcid).get()
+  doAssert inv.rawName == "Foo/get"
+  let rref = initResultReference(resultOf = mcid, name = mnEmailQuery, path = rpIds)
+  doAssert rref.path == rpIds
   let d = direct(42)
   doAssert d.kind == rkDirect
 

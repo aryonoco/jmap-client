@@ -53,7 +53,6 @@ func parseAccountId*(raw: string): Result[AccountId, ValidationError] =
   ## AccountIds are server-assigned Id[Account] values (§1.6.2, §2) —
   ## same lenient rules as parseIdFromServer.
   ?validateServerAssignedToken("AccountId", raw)
-  doAssert raw.len >= 1 and raw.len <= 255
   return ok(AccountId(raw))
 
 func parseJmapState*(raw: string): Result[JmapState, ValidationError] =
@@ -63,14 +62,12 @@ func parseJmapState*(raw: string): Result[JmapState, ValidationError] =
     return err(validationError("JmapState", "must not be empty", raw))
   if raw.anyIt(it < ' ' or it == '\x7F'):
     return err(validationError("JmapState", "contains control characters", raw))
-  doAssert raw.len > 0
   return ok(JmapState(raw))
 
 func parseMethodCallId*(raw: string): Result[MethodCallId, ValidationError] =
   ## Non-empty. Client-generated.
   if raw.len == 0:
     return err(validationError("MethodCallId", "must not be empty", raw))
-  doAssert raw.len > 0
   return ok(MethodCallId(raw))
 
 func parseCreationId*(raw: string): Result[CreationId, ValidationError] =
@@ -79,5 +76,4 @@ func parseCreationId*(raw: string): Result[CreationId, ValidationError] =
     return err(validationError("CreationId", "must not be empty", raw))
   elif raw[0] == '#':
     return err(validationError("CreationId", "must not include '#' prefix", raw))
-  doAssert raw.len > 0
   return ok(CreationId(raw))

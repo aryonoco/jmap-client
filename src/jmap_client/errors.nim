@@ -91,7 +91,7 @@ func requestError*(
     extras: Opt[JsonNode] = Opt.none(JsonNode),
 ): RequestError =
   ## Auto-parses rawType string to the corresponding enum variant via parseRequestErrorType.
-  let re = RequestError(
+  return RequestError(
     errorType: parseRequestErrorType(rawType),
     rawType: rawType,
     status: status,
@@ -100,8 +100,6 @@ func requestError*(
     limit: limit,
     extras: extras,
   )
-  doAssert re.rawType == rawType
-  return re
 
 type ClientErrorKind* = enum
   ## Discriminator for the outer railway: transport failure or request rejection.
@@ -246,14 +244,12 @@ func methodError*(
     extras: Opt[JsonNode] = Opt.none(JsonNode),
 ): MethodError =
   ## Auto-parses rawType string to the corresponding enum variant via parseMethodErrorType.
-  let me = MethodError(
+  return MethodError(
     errorType: parseMethodErrorType(rawType),
     rawType: rawType,
     description: description,
     extras: extras,
   )
-  doAssert me.rawType == rawType
-  return me
 
 type SetErrorType* = enum
   ## Per-item error types within a /set response (RFC 8620 §5.3).

@@ -258,23 +258,25 @@ block uriTemplateNulAtStart:
   assertOk parseUriTemplate("\x00valid")
 
 block invocationNameAcceptsNul:
-  ## Invocation.name is a bare string with no validation.
-  let inv = initInvocation("Email/get\x00Evil/set", newJObject(), makeMcid("c0")).get()
-  doAssert inv.name.len == 18
+  ## Invocation.rawName is a bare string with no validation (wire boundary).
+  let inv = parseInvocation("Email/get\x00Evil/set", newJObject(), makeMcid("c0")).get()
+  doAssert inv.rawName.len == 18
 
 block resultReferencePathAcceptsNul:
-  ## ResultReference.path is a bare string; NUL bytes are preserved.
-  let rr = initResultReference(
-    resultOf = makeMcid("c0"), name = "Email/get", path = "/ids\x00/evil"
-  )
-  doAssert rr.path.len == 10
+  ## ResultReference.rawPath is a bare string; NUL bytes are preserved.
+  let rr = parseResultReference(
+      resultOf = makeMcid("c0"), name = "Email/get", path = "/ids\x00/evil"
+    )
+    .get()
+  doAssert rr.rawPath.len == 10
 
 block resultReferenceNameAcceptsNul:
-  ## ResultReference.name is a bare string; NUL bytes are preserved.
-  let rr = initResultReference(
-    resultOf = makeMcid("c0"), name = "Email/get\x00hidden", path = "/ids"
-  )
-  doAssert rr.name.len == 16
+  ## ResultReference.rawName is a bare string; NUL bytes are preserved.
+  let rr = parseResultReference(
+      resultOf = makeMcid("c0"), name = "Email/get\x00hidden", path = "/ids"
+    )
+    .get()
+  doAssert rr.rawName.len == 16
 
 block requestUsingAcceptsNul:
   ## Request.using elements are bare strings; NUL bytes are not checked.
@@ -654,18 +656,19 @@ block int64ExtremeJmapIntLow:
 # trailing NULs at the FFI boundary.
 
 block nulLastByteInvocationName:
-  ## Invocation name with trailing NUL: Nim preserves it, C strlen() would not.
-  let inv = initInvocation("Email/get\x00", newJObject(), makeMcid("c0")).get()
-  doAssert inv.name.len > 9
-  doAssert inv.name.len == 10
+  ## Invocation rawName with trailing NUL: Nim preserves it, C strlen() would not.
+  let inv = parseInvocation("Email/get\x00", newJObject(), makeMcid("c0")).get()
+  doAssert inv.rawName.len > 9
+  doAssert inv.rawName.len == 10
 
 block nulLastByteResultReferencePath:
-  ## ResultReference path with trailing NUL: Nim preserves it.
-  let rr = initResultReference(
-    resultOf = makeMcid("c0"), name = "Email/get", path = "/ids\x00"
-  )
-  doAssert rr.path.len > 4
-  doAssert rr.path.len == 5
+  ## ResultReference rawPath with trailing NUL: Nim preserves it.
+  let rr = parseResultReference(
+      resultOf = makeMcid("c0"), name = "Email/get", path = "/ids\x00"
+    )
+    .get()
+  doAssert rr.rawPath.len > 4
+  doAssert rr.rawPath.len == 5
 
 block nulLastByteRequestUsing:
   ## Request.using element with trailing NUL: Nim preserves it.
@@ -686,7 +689,7 @@ block jsonNodeAliasingInInvocation:
   ## visible through the Invocation's arguments field (ref sharing under ARC).
   let args = newJObject()
   args["key1"] = newJString("value1")
-  let inv = initInvocation("Test/method", args, makeMcid("c0")).get()
+  let inv = parseInvocation("Test/method", args, makeMcid("c0")).get()
   # Mutate the original JsonNode after construction.
   args["key2"] = newJString("injected")
   # Under ARC, ref sharing means the Invocation sees the mutation.

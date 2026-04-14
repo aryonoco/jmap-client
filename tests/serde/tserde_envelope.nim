@@ -16,6 +16,7 @@ import jmap_client/primitives
 import jmap_client/identifiers
 import jmap_client/envelope
 import jmap_client/errors
+import jmap_client/methods_enum
 import jmap_client/validation
 
 import ../massertions
@@ -45,7 +46,7 @@ block roundTripInvocation:
 block roundTripInvocationComplexArguments:
   let args =
     %*{"accountId": "A1", "list": [1, 2, 3], "filter": {"nested": {"deep": newJNull()}}}
-  let original = initInvocation("Email/get", args, makeMcid("c1")).get()
+  let original = initInvocation(mnEmailGet, args, makeMcid("c1"))
   let v = Invocation.fromJson(original.toJson()).get()
   doAssert v.name == original.name
   doAssert v.arguments == original.arguments
@@ -90,13 +91,10 @@ block roundTripResultReference:
   assertOkEq ResultReference.fromJson(original.toJson()), original
 
 block roundTripResultReferenceAllPaths:
-  let paths = [
-    RefPathIds, RefPathListIds, RefPathAddedIds, RefPathCreated, RefPathUpdated,
-    RefPathUpdatedProperties,
-  ]
+  let paths = [rpIds, rpListIds, rpAddedIds, rpCreated, rpUpdated, rpUpdatedProperties]
   for path in paths:
     let rref =
-      initResultReference(resultOf = makeMcid("c0"), name = "Mailbox/get", path = path)
+      initResultReference(resultOf = makeMcid("c0"), name = mnMailboxGet, path = path)
     assertOkEq ResultReference.fromJson(rref.toJson()), rref
 
 # =============================================================================
@@ -166,11 +164,11 @@ block requestDeserGoldenRfc:
   assertEq req.`using`[0], "urn:ietf:params:jmap:core"
   assertEq req.`using`[1], "urn:ietf:params:jmap:mail"
   assertEq req.methodCalls.len, 3
-  assertEq req.methodCalls[0].name, "method1"
+  assertEq req.methodCalls[0].rawName, "method1"
   assertEq req.methodCalls[0].methodCallId, parseMethodCallId("c1").get()
   assertEq req.methodCalls[0].arguments{"arg1"}.getStr(""), "arg1data"
-  assertEq req.methodCalls[1].name, "method2"
-  assertEq req.methodCalls[2].name, "method3"
+  assertEq req.methodCalls[1].rawName, "method2"
+  assertEq req.methodCalls[2].rawName, "method3"
   doAssert req.createdIds.isNone
 
 block requestGoldenRoundTrip:
@@ -180,18 +178,18 @@ block requestGoldenRoundTrip:
   assertEq v.`using`, first.`using`
   assertEq v.methodCalls.len, first.methodCalls.len
   for i in 0 ..< v.methodCalls.len:
-    assertEq v.methodCalls[i].name, first.methodCalls[i].name
+    assertEq v.methodCalls[i].rawName, first.methodCalls[i].rawName
     assertEq v.methodCalls[i].methodCallId, first.methodCalls[i].methodCallId
 
 block responseDeserGoldenRfc:
   let j = goldenResponseJson()
   let resp = Response.fromJson(j).get()
   assertEq resp.methodResponses.len, 4
-  assertEq resp.methodResponses[0].name, "method1"
+  assertEq resp.methodResponses[0].rawName, "method1"
   assertEq resp.methodResponses[0].methodCallId, parseMethodCallId("c1").get()
-  assertEq resp.methodResponses[2].name, "anotherResponseFromMethod2"
+  assertEq resp.methodResponses[2].rawName, "anotherResponseFromMethod2"
   assertEq resp.methodResponses[2].methodCallId, parseMethodCallId("c2").get()
-  assertEq resp.methodResponses[3].name, "error"
+  assertEq resp.methodResponses[3].rawName, "error"
   assertEq resp.methodResponses[3].methodCallId, parseMethodCallId("c3").get()
   # Phase 2B: verify error invocation arguments (RFC 3.4.1)
   assertEq resp.methodResponses[3].arguments{"type"}.getStr(""), "unknownMethod"
@@ -205,7 +203,7 @@ block responseGoldenRoundTrip:
   assertEq v.methodResponses.len, first.methodResponses.len
   assertEq v.sessionState, first.sessionState
   for i in 0 ..< v.methodResponses.len:
-    assertEq v.methodResponses[i].name, first.methodResponses[i].name
+    assertEq v.methodResponses[i].rawName, first.methodResponses[i].rawName
     assertEq v.methodResponses[i].methodCallId, first.methodResponses[i].methodCallId
 
 # =============================================================================
@@ -437,8 +435,8 @@ block referencableReferenceValue:
   let node = %*{"#ids": {"resultOf": "c0", "name": "Mailbox/query", "path": "/ids"}}
   let v = fromJsonField[int]("ids", node, fromDirectInt).get()
   doAssert v.kind == rkReference
-  assertEq v.reference.name, "Mailbox/query"
-  assertEq v.reference.path, "/ids"
+  assertEq v.reference.name, mnMailboxQuery
+  assertEq v.reference.path, rpIds
   assertEq v.reference.resultOf, parseMethodCallId("c0").get()
 
 block referencableBothPresentConflictRejected:
@@ -483,8 +481,8 @@ checkProperty "Invocation round-trip":
 checkProperty "ResultReference round-trip":
   let mcidStr = "c" & $rng.rand(0 .. 99)
   let mcid = parseMethodCallId(mcidStr).get()
-  const paths = ["/ids", "/list/*/id", "/added/*/id", "/created", "/updated"]
-  const names = ["Mailbox/get", "Email/query", "Thread/get", "Email/set"]
+  const paths = [rpIds, rpListIds, rpAddedIds, rpCreated, rpUpdated]
+  const names = [mnMailboxGet, mnEmailQuery, mnThreadGet, mnEmailSet]
   let rref = initResultReference(
     resultOf = mcid, name = rng.oneOf(names), path = rng.oneOf(paths)
   )
@@ -528,9 +526,9 @@ block invocationComplexNestedArgsRoundTrip:
     "nullField": nil,
     "emptyArray": [],
   }
-  let inv = initInvocation("Email/query", args, makeMcid("c1")).get()
+  let inv = initInvocation(mnEmailQuery, args, makeMcid("c1"))
   let v = Invocation.fromJson(inv.toJson()).get()
-  assertEq v.name, "Email/query"
+  assertEq v.name, mnEmailQuery
   assertEq v.methodCallId, makeMcid("c1")
   # Verify complex arguments survived
   doAssert v.arguments{"filter"} != nil
@@ -600,7 +598,7 @@ block errorInvocationWireFormat:
   ## Construct an Invocation with name="error" and MethodError arguments,
   ## serialise it, and verify the ["error", {"type": ...}, "c0"] wire format.
   let me = methodError("unknownMethod", Opt.some("No such method"))
-  let inv = initInvocation("error", me.toJson(), makeMcid("c0")).get()
+  let inv = parseInvocation("error", me.toJson(), makeMcid("c0")).get()
   let j = inv.toJson()
   # Wire format: 3-element JSON array
   doAssert j.kind == JArray
@@ -613,7 +611,7 @@ block errorInvocationWireFormat:
   assertEq elems[2].getStr(""), "c0"
   # Round-trip: deserialise back to Invocation, then parse arguments as MethodError
   let rtInv = Invocation.fromJson(j).get()
-  assertEq rtInv.name, "error"
+  assertEq rtInv.rawName, "error"
   assertEq rtInv.methodCallId, makeMcid("c0")
   let meRt = MethodError.fromJson(rtInv.arguments).get()
   doAssert meRt.errorType == metUnknownMethod
@@ -624,7 +622,7 @@ block errorInvocationServerFailWireFormat:
   let extras = newJObject()
   extras["retryAfter"] = %30
   let me = methodError("serverFail", Opt.some("Try again"), Opt.some(extras))
-  let inv = initInvocation("error", me.toJson(), makeMcid("c5")).get()
+  let inv = parseInvocation("error", me.toJson(), makeMcid("c5")).get()
   let j = inv.toJson()
   let elems = j.getElems(@[])
   assertEq elems[0].getStr(""), "error"
@@ -644,7 +642,7 @@ block backReferenceHashPrefixRoundTrip:
   let refObj = %*{"resultOf": "c0", "name": "Mailbox/query", "path": "/ids"}
   var args = newJObject()
   args["#ids"] = refObj
-  let inv = initInvocation("Email/get", args, makeMcid("c1")).get()
+  let inv = initInvocation(mnEmailGet, args, makeMcid("c1"))
   let req = Request(
     `using`: @["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail"],
     methodCalls: @[inv],
@@ -669,8 +667,8 @@ block backReferenceHashPrefixRoundTrip:
   # Parse the #-prefixed field as a Referencable
   let refResult = fromJsonField[int]("ids", rtArgs, fromDirectInt).get()
   doAssert refResult.kind == rkReference
-  assertEq refResult.reference.name, "Mailbox/query"
-  assertEq refResult.reference.path, "/ids"
+  assertEq refResult.reference.name, mnMailboxQuery
+  assertEq refResult.reference.path, rpIds
   assertEq refResult.reference.resultOf, makeMcid("c0")
 
 # =============================================================================
@@ -683,9 +681,9 @@ block requestGoldenWireFormat:
   let args1 = %*{"arg1": "arg1data", "arg2": "arg2data"}
   let args2 = %*{"arg1": "arg1data"}
   let args3 = newJObject()
-  let inv1 = initInvocation("method1", args1, makeMcid("c1")).get()
-  let inv2 = initInvocation("method2", args2, makeMcid("c2")).get()
-  let inv3 = initInvocation("method3", args3, makeMcid("c3")).get()
+  let inv1 = parseInvocation("method1", args1, makeMcid("c1")).get()
+  let inv2 = parseInvocation("method2", args2, makeMcid("c2")).get()
+  let inv3 = parseInvocation("method3", args3, makeMcid("c3")).get()
   let req = Request(
     `using`: @["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail"],
     methodCalls: @[inv1, inv2, inv3],
@@ -718,10 +716,10 @@ block responseGoldenWireFormat:
   let args2 = %*{"isBlah": true}
   let args3 = %*{"data": 10, "yetmoredata": "Hello"}
   let args4 = %*{"type": "unknownMethod"}
-  let inv1 = initInvocation("method1", args1, makeMcid("c1")).get()
-  let inv2 = initInvocation("method2", args2, makeMcid("c2")).get()
-  let inv3 = initInvocation("anotherResponseFromMethod2", args3, makeMcid("c2")).get()
-  let inv4 = initInvocation("error", args4, makeMcid("c3")).get()
+  let inv1 = parseInvocation("method1", args1, makeMcid("c1")).get()
+  let inv2 = parseInvocation("method2", args2, makeMcid("c2")).get()
+  let inv3 = parseInvocation("anotherResponseFromMethod2", args3, makeMcid("c2")).get()
+  let inv4 = parseInvocation("error", args4, makeMcid("c3")).get()
   let resp = Response(
     methodResponses: @[inv1, inv2, inv3, inv4],
     sessionState: parseJmapState("75128aab4b1b").get(),

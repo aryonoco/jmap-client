@@ -14,10 +14,8 @@ import jmap_client/methods
 import jmap_client/dispatch
 import jmap_client/builder
 import jmap_client/mail/thread
-import jmap_client/mail/vacation
 import jmap_client/mail/email
 import jmap_client/mail/mail_entities
-import jmap_client/mail/mail_filters
 import jmap_client/mail/mail_methods
 
 import ../massertions
@@ -33,7 +31,7 @@ block vacationGetInvocationName:
   let (b1, _) = b0.addVacationResponseGet(makeAccountId("a1"))
   let req = b1.build()
   assertLen req.methodCalls, 1
-  assertEq req.methodCalls[0].name, "VacationResponse/get"
+  assertEq req.methodCalls[0].name, mnVacationResponseGet
 
 block vacationGetCapability:
   ## Scenario 73: capability is "urn:ietf:params:jmap:vacationresponse".
@@ -90,7 +88,7 @@ block vacationSetInvocationName:
   let (b1, _) = b0.addVacationResponseSet(makeAccountId("a1"), emptyPatch())
   let req = b1.build()
   assertLen req.methodCalls, 1
-  assertEq req.methodCalls[0].name, "VacationResponse/set"
+  assertEq req.methodCalls[0].name, mnVacationResponseSet
 
 block vacationSetCapability:
   ## Capability is "urn:ietf:params:jmap:vacationresponse".
@@ -154,8 +152,8 @@ block vacationGetAndSetInOneRequest:
   let (b2, _) = b1.addVacationResponseSet(makeAccountId("a1"), emptyPatch())
   let req = b2.build()
   assertLen req.methodCalls, 2
-  assertEq req.methodCalls[0].name, "VacationResponse/get"
-  assertEq req.methodCalls[1].name, "VacationResponse/set"
+  assertEq req.methodCalls[0].name, mnVacationResponseGet
+  assertEq req.methodCalls[1].name, mnVacationResponseSet
   assertLen req.`using`, 1
 
 block vacationAndThreadMixedCapabilities:
@@ -178,7 +176,7 @@ block addEmailParseInvocationName:
   let (b1, _) = b0.addEmailParse(makeAccountId("a1"), @[makeId("blob1")])
   let req = b1.build()
   assertLen req.methodCalls, 1
-  assertEq req.methodCalls[0].name, "Email/parse"
+  assertEq req.methodCalls[0].name, mnEmailParse
   assertLen req.`using`, 1
   assertEq req.`using`[0], "urn:ietf:params:jmap:mail"
 
@@ -201,7 +199,7 @@ block addSearchSnippetGetInvocationName:
   )
   let req = b1.build()
   assertLen req.methodCalls, 1
-  assertEq req.methodCalls[0].name, "SearchSnippet/get"
+  assertEq req.methodCalls[0].name, mnSearchSnippetGet
   assertLen req.`using`, 1
   assertEq req.`using`[0], "urn:ietf:params:jmap:mail"
 

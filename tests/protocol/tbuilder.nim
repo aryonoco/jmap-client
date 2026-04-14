@@ -29,11 +29,23 @@ import ../mfixtures
 
 type MockFoo = object
 
-proc methodNamespace*(T: typedesc[MockFoo]): string =
-  "MockFoo"
+proc methodEntity*(T: typedesc[MockFoo]): MethodEntity =
+  meTest
 
 proc capabilityUri*(T: typedesc[MockFoo]): string =
   "urn:test:mockfoo"
+
+proc getMethodName*(T: typedesc[MockFoo]): MethodName =
+  mnMailboxGet
+
+proc changesMethodName*(T: typedesc[MockFoo]): MethodName =
+  mnMailboxChanges
+
+proc setMethodName*(T: typedesc[MockFoo]): MethodName =
+  mnMailboxSet
+
+proc copyMethodName*(T: typedesc[MockFoo]): MethodName =
+  mnEmailCopy
 
 registerJmapEntity(MockFoo)
 
@@ -41,11 +53,26 @@ type MockFilter = object
 
 type MockQueryable = object
 
-proc methodNamespace*(T: typedesc[MockQueryable]): string =
-  "MockQueryable"
+proc methodEntity*(T: typedesc[MockQueryable]): MethodEntity =
+  meTest
 
 proc capabilityUri*(T: typedesc[MockQueryable]): string =
   "urn:test:mockqueryable"
+
+proc getMethodName*(T: typedesc[MockQueryable]): MethodName =
+  mnMailboxGet
+
+proc changesMethodName*(T: typedesc[MockQueryable]): MethodName =
+  mnMailboxChanges
+
+proc setMethodName*(T: typedesc[MockQueryable]): MethodName =
+  mnMailboxSet
+
+proc queryMethodName*(T: typedesc[MockQueryable]): MethodName =
+  mnEmailQuery
+
+proc queryChangesMethodName*(T: typedesc[MockQueryable]): MethodName =
+  mnEmailQueryChanges
 
 template filterType*(T: typedesc[MockQueryable]): typedesc =
   MockFilter
@@ -160,7 +187,7 @@ block addEchoHappyPath:
   let req = b1.build()
   assertLen req.methodCalls, 1
   let inv = req.methodCalls[0]
-  assertEq inv.name, "Core/echo"
+  assertEq inv.name, mnCoreEcho
   doAssert "urn:ietf:params:jmap:core" in req.`using`
 
 block addEchoArgsPreserved:
@@ -185,7 +212,7 @@ block addGetMinimal:
   let req = b1.build()
   assertLen req.methodCalls, 1
   let inv = req.methodCalls[0]
-  assertEq inv.name, "MockFoo/get"
+  assertEq inv.name, mnMailboxGet
   assertEq inv.arguments{"accountId"}.getStr(""), "a1"
   doAssert inv.arguments{"ids"}.isNil
   doAssert inv.arguments{"properties"}.isNil
@@ -206,8 +233,7 @@ block addGetWithReferenceIds:
   ## addGet with referenced ids emits a "#ids" key with a ResultReference
   ## object instead of a plain "ids" array.
   let b0 = initRequestBuilder()
-  let rr =
-    makeResultReference(mcid = makeMcid("c0"), name = "MockFoo/query", path = "/ids")
+  let rr = makeResultReference(mcid = makeMcid("c0"), name = mnEmailQuery, path = rpIds)
   let (b1, _) =
     addGet[MockFoo](b0, makeAccountId("a1"), ids = Opt.some(referenceTo[seq[Id]](rr)))
   let req = b1.build()
@@ -237,7 +263,7 @@ block addChangesMinimal:
   let req = b1.build()
   assertLen req.methodCalls, 1
   let inv = req.methodCalls[0]
-  assertEq inv.name, "MockFoo/changes"
+  assertEq inv.name, mnMailboxChanges
   assertEq inv.arguments{"accountId"}.getStr(""), "a1"
   assertEq inv.arguments{"sinceState"}.getStr(""), "s0"
   doAssert inv.arguments{"maxChanges"}.isNil
@@ -263,7 +289,7 @@ block addSetMinimal:
   let req = b1.build()
   assertLen req.methodCalls, 1
   let inv = req.methodCalls[0]
-  assertEq inv.name, "MockFoo/set"
+  assertEq inv.name, mnMailboxSet
   assertEq inv.arguments{"accountId"}.getStr(""), "a1"
   doAssert inv.arguments{"ifInState"}.isNil
   doAssert inv.arguments{"create"}.isNil
@@ -310,7 +336,7 @@ block addCopyMinimal:
   let req = b1.build()
   assertLen req.methodCalls, 1
   let inv = req.methodCalls[0]
-  assertEq inv.name, "MockFoo/copy"
+  assertEq inv.name, mnEmailCopy
   assertEq inv.arguments{"fromAccountId"}.getStr(""), "from1"
   assertEq inv.arguments{"accountId"}.getStr(""), "to1"
   doAssert inv.arguments{"create"}.kind == JObject
@@ -327,7 +353,7 @@ block addQueryMinimal:
   let req = b1.build()
   assertLen req.methodCalls, 1
   let inv = req.methodCalls[0]
-  assertEq inv.name, "MockQueryable/query"
+  assertEq inv.name, mnEmailQuery
   assertEq inv.arguments{"accountId"}.getStr(""), "a1"
   doAssert inv.arguments{"filter"}.isNil
 
@@ -357,7 +383,7 @@ block addQuerySingleParam:
   let req = b1.build()
   assertLen req.methodCalls, 1
   let inv = req.methodCalls[0]
-  assertEq inv.name, "MockQueryable/query"
+  assertEq inv.name, mnEmailQuery
   assertEq inv.arguments{"accountId"}.getStr(""), "a1"
 
 block addQuerySingleParamMatchesTwoParam:
@@ -385,7 +411,7 @@ block addQueryChangesMinimal:
   let req = b1.build()
   assertLen req.methodCalls, 1
   let inv = req.methodCalls[0]
-  assertEq inv.name, "MockQueryable/queryChanges"
+  assertEq inv.name, mnEmailQueryChanges
   assertEq inv.arguments{"sinceQueryState"}.getStr(""), "qs0"
 
 # ===========================================================================
@@ -399,7 +425,7 @@ block addQueryChangesSingleParam:
     addQueryChanges[MockQueryable](b0, makeAccountId("a1"), makeState("qs0"))
   let req = b1.build()
   assertLen req.methodCalls, 1
-  assertEq req.methodCalls[0].name, "MockQueryable/queryChanges"
+  assertEq req.methodCalls[0].name, mnEmailQueryChanges
 
 # ===========================================================================
 # K3. QueryParams integration
@@ -492,15 +518,15 @@ block queryToGetWithResultReference:
   assertLen req.methodCalls, 2
   # First invocation is the query
   let queryInv = req.methodCalls[0]
-  assertEq queryInv.name, "MockQueryable/query"
+  assertEq queryInv.name, mnEmailQuery
   # Second invocation is the get with a back-reference
   let getInv = req.methodCalls[1]
-  assertEq getInv.name, "MockQueryable/get"
+  assertEq getInv.name, mnMailboxGet
   doAssert getInv.arguments{"ids"}.isNil
   doAssert getInv.arguments{"#ids"}.kind == JObject
   let refObj = getInv.arguments{"#ids"}
   assertEq refObj{"resultOf"}.getStr(""), $queryHandle
-  assertEq refObj{"name"}.getStr(""), "MockQueryable/query"
+  assertEq refObj{"name"}.getStr(""), "Email/query"
   assertEq refObj{"path"}.getStr(""), "/ids"
 
 # ===========================================================================

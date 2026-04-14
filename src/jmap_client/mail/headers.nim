@@ -55,9 +55,7 @@ func parseEmailHeader*(
   ## Smart constructor: validates non-empty name, constructs EmailHeader.
   if name.len == 0:
     return err(validationError("EmailHeader", "name must not be empty", name))
-  let eh = EmailHeader(name: name, value: value)
-  doAssert eh.name.len > 0
-  return ok(eh)
+  return ok(EmailHeader(name: name, value: value))
 
 # =============================================================================
 # HeaderPropertyKey
@@ -109,18 +107,12 @@ func parseHeaderPropertyName*(raw: string): Result[HeaderPropertyKey, Validation
   let name = segments[0].toLowerAscii()
   case segments.len
   of 1:
-    let key = HeaderPropertyKey(rawName: name, rawForm: hfRaw, rawIsAll: false)
-    doAssert key.rawName.len > 0
-    return ok(key)
+    return ok(HeaderPropertyKey(rawName: name, rawForm: hfRaw, rawIsAll: false))
   of 2:
     if cmpIgnoreCase(segments[1], "all") == 0:
-      let key = HeaderPropertyKey(rawName: name, rawForm: hfRaw, rawIsAll: true)
-      doAssert key.rawName.len > 0
-      return ok(key)
+      return ok(HeaderPropertyKey(rawName: name, rawForm: hfRaw, rawIsAll: true))
     let form = ?parseHeaderForm(segments[1])
-    let key = HeaderPropertyKey(rawName: name, rawForm: form, rawIsAll: false)
-    doAssert key.rawName.len > 0
-    return ok(key)
+    return ok(HeaderPropertyKey(rawName: name, rawForm: form, rawIsAll: false))
   of 3:
     let form = ?parseHeaderForm(segments[1])
     if cmpIgnoreCase(segments[2], "all") != 0:
@@ -129,9 +121,7 @@ func parseHeaderPropertyName*(raw: string): Result[HeaderPropertyKey, Validation
           "HeaderPropertyKey", "expected ':all' suffix, got ':" & segments[2] & "'", raw
         )
       )
-    let key = HeaderPropertyKey(rawName: name, rawForm: form, rawIsAll: true)
-    doAssert key.rawName.len > 0
-    return ok(key)
+    return ok(HeaderPropertyKey(rawName: name, rawForm: form, rawIsAll: true))
   else:
     return err(validationError("HeaderPropertyKey", "too many segments", raw))
 
@@ -287,10 +277,7 @@ func parseBlueprintEmailHeaderName*(
         "BlueprintEmailHeaderName", "name must not start with 'content-'", name
       )
     )
-  let hn = BlueprintEmailHeaderName(normalised)
-  doAssert hn.len > 0
-  doAssert not string(hn).startsWith("content-")
-  return ok(hn)
+  return ok(BlueprintEmailHeaderName(normalised))
 
 # =============================================================================
 # BlueprintBodyHeaderName (Design §4.4)
@@ -333,10 +320,7 @@ func parseBlueprintBodyHeaderName*(
         "BlueprintBodyHeaderName", "name must not be 'content-transfer-encoding'", name
       )
     )
-  let hn = BlueprintBodyHeaderName(normalised)
-  doAssert hn.len > 0
-  doAssert string(hn) != "content-transfer-encoding"
-  return ok(hn)
+  return ok(BlueprintBodyHeaderName(normalised))
 
 # =============================================================================
 # NonEmptySeq op-template instantiations (Design §4.5.1 / §4.6)

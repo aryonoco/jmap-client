@@ -10,6 +10,7 @@ import std/json
 import std/random
 import std/tables
 
+import jmap_client/methods_enum
 import jmap_client/serde
 import jmap_client/serde_envelope
 import jmap_client/serde_session
@@ -130,8 +131,8 @@ checkProperty "SetError serde round-trip":
 checkProperty "ResultReference serde round-trip":
   let mcidStr = "c" & $rng.rand(0 .. 99)
   let mcid = parseMethodCallId(mcidStr).get()
-  const paths = ["/ids", "/list/*/id", "/added/*/id", "/created", "/updated"]
-  const names = ["Mailbox/get", "Email/query", "Thread/get"]
+  const paths = [rpIds, rpListIds, rpAddedIds, rpCreated, rpUpdated]
+  const names = [mnMailboxGet, mnEmailQuery, mnThreadGet]
   let original = initResultReference(
     resultOf = mcid, name = rng.oneOf(names), path = rng.oneOf(paths)
   )

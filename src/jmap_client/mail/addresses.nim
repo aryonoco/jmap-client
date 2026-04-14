@@ -28,6 +28,4 @@ func parseEmailAddress*(
   ## deliver clean JSON with pre-parsed addresses.
   if email.len == 0:
     return err(validationError("EmailAddress", "email must not be empty", ""))
-  let ea = EmailAddress(name: name, email: email)
-  doAssert ea.email.len > 0
-  return ok(ea)
+  return ok(EmailAddress(name: name, email: email))

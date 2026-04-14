@@ -47,10 +47,10 @@ template addQueryThenGet*[T](
   ## Resolves filter type and serialisation callback via template expansion.
   ##
   ## **Implicit decisions:**
-  ## - Reference path is always ``/ids`` (RefPathIds)
+  ## - Reference path is always ``/ids`` (``rpIds``)
   ## - Both calls use the same ``accountId`` (no cross-account)
   ## - No filter, sort, or properties constraints applied
-  ## - Response method name derived from ``methodNamespace(T)``
+  ## - Response method name derived from ``queryMethodName(T)``
   ##
   ## For queries with filters, use the core API directly:
   ## ``addQuery[T, C]`` + ``idsRef`` + ``addGet[T]``.
@@ -84,7 +84,7 @@ func addChangesToGet*[T](
   ## the changes response.
   ##
   ## **Implicit decisions:**
-  ## - Reference path is ``/created`` (RefPathCreated) — only newly created
+  ## - Reference path is ``/created`` (``rpCreated``) — only newly created
   ##   IDs are fetched. For updated IDs, use the core API with ``updatedRef``.
   ## - Both calls use the same ``accountId``
   let (b1, ch) = addChanges[T](b, accountId, sinceState, maxChanges)

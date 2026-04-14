@@ -9,6 +9,7 @@ import std/sequtils
 
 import jmap_client/envelope
 import jmap_client/framework
+import jmap_client/methods_enum
 import jmap_client/validation
 import jmap_client/identifiers
 import jmap_client/primitives
@@ -83,7 +84,7 @@ block propReferencableDirectLaw:
 
 block propReferencableRefLaw:
   let mcid = parseMethodCallId("c0").get()
-  let rref = initResultReference(resultOf = mcid, name = "Foo/get", path = "/ids")
+  let rref = initResultReference(resultOf = mcid, name = mnEmailGet, path = rpIds)
   let r = referenceTo[int](rref)
   doAssert r.kind == rkReference
   doAssert r.reference.resultOf == mcid

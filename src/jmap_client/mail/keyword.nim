@@ -32,17 +32,13 @@ func parseKeyword*(raw: string): Result[Keyword, ValidationError] =
     return err(validationError("Keyword", "contains non-printable character", raw))
   if raw.anyIt(it in KeywordForbiddenChars):
     return err(validationError("Keyword", "contains forbidden character", raw))
-  let kw = Keyword(raw.toLowerAscii())
-  doAssert kw.len >= 1 and kw.len <= 255
-  return ok(kw)
+  return ok(Keyword(raw.toLowerAscii()))
 
 func parseKeywordFromServer*(raw: string): Result[Keyword, ValidationError] =
   ## Lenient: 1–255 octets, no control characters, lowercase normalised.
   ## Tolerates IMAP-forbidden chars that strict rejects.
   ?validateServerAssignedToken("Keyword", raw)
-  let kw = Keyword(raw.toLowerAscii())
-  doAssert kw.len >= 1 and kw.len <= 255
-  return ok(kw)
+  return ok(Keyword(raw.toLowerAscii()))
 
 const
   kwDraft* = Keyword("$draft") ## IANA $draft keyword.

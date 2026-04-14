@@ -123,7 +123,7 @@ func addMailboxChanges*(
     accountId: accountId, sinceState: sinceState, maxChanges: maxChanges
   )
   let args = req.toJson()
-  let (newBuilder, callId) = b.addInvocation("Mailbox/changes", args, MailCapUri)
+  let (newBuilder, callId) = b.addInvocation(mnMailboxChanges, args, MailCapUri)
   (newBuilder, ResponseHandle[MailboxChangesResponse](callId))
 
 # =============================================================================
@@ -153,7 +153,7 @@ func addMailboxQuery*(
   )
   args["sortAsTree"] = %sortAsTree
   args["filterAsTree"] = %filterAsTree
-  let (newBuilder, callId) = b.addInvocation("Mailbox/query", args, MailCapUri)
+  let (newBuilder, callId) = b.addInvocation(mnMailboxQuery, args, MailCapUri)
   (newBuilder, ResponseHandle[QueryResponse[Mailbox]](callId))
 
 # =============================================================================
@@ -186,7 +186,7 @@ func addMailboxQueryChanges*(
     calculateTotal: calculateTotal,
   )
   let args = req.toJson(filterConditionToJson)
-  let (newBuilder, callId) = b.addInvocation("Mailbox/queryChanges", args, MailCapUri)
+  let (newBuilder, callId) = b.addInvocation(mnMailboxQueryChanges, args, MailCapUri)
   (newBuilder, ResponseHandle[QueryChangesResponse[Mailbox]](callId))
 
 # =============================================================================
@@ -225,7 +225,7 @@ func addMailboxSet*(
   )
   var args = req.toJson()
   args["onDestroyRemoveEmails"] = %onDestroyRemoveEmails
-  let (newBuilder, callId) = b.addInvocation("Mailbox/set", args, MailCapUri)
+  let (newBuilder, callId) = b.addInvocation(mnMailboxSet, args, MailCapUri)
   (newBuilder, ResponseHandle[SetResponse[Mailbox]](callId))
 
 # =============================================================================
@@ -245,7 +245,7 @@ func addEmailGet*(
   let req = GetRequest[Email](accountId: accountId, ids: ids, properties: properties)
   var args = req.toJson()
   bodyFetchOptions.emitInto(args)
-  let (newBuilder, callId) = b.addInvocation("Email/get", args, MailCapUri)
+  let (newBuilder, callId) = b.addInvocation(mnEmailGet, args, MailCapUri)
   (newBuilder, ResponseHandle[GetResponse[Email]](callId))
 
 # =============================================================================
@@ -274,7 +274,7 @@ func addEmailQuery*(
     queryParams,
   )
   args["collapseThreads"] = %collapseThreads
-  let (newBuilder, callId) = b.addInvocation("Email/query", args, MailCapUri)
+  let (newBuilder, callId) = b.addInvocation(mnEmailQuery, args, MailCapUri)
   (newBuilder, ResponseHandle[QueryResponse[Email]](callId))
 
 # =============================================================================
@@ -307,5 +307,5 @@ func addEmailQueryChanges*(
     calculateTotal,
   )
   args["collapseThreads"] = %collapseThreads
-  let (newBuilder, callId) = b.addInvocation("Email/queryChanges", args, MailCapUri)
+  let (newBuilder, callId) = b.addInvocation(mnEmailQueryChanges, args, MailCapUri)
   (newBuilder, ResponseHandle[QueryChangesResponse[Email]](callId))

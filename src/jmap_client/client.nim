@@ -229,7 +229,7 @@ func checkGetLimit(inv: Invocation, maxGet: int64): Result[void, ValidationError
       return err(
         validationError(
           "Request",
-          inv.name & ": ids count " & $idsNode.len & " exceeds maxObjectsInGet " &
+          inv.rawName & ": ids count " & $idsNode.len & " exceeds maxObjectsInGet " &
             $maxGet,
           "",
         )
@@ -255,7 +255,7 @@ func checkSetLimit(inv: Invocation, maxSet: int64): Result[void, ValidationError
     return err(
       validationError(
         "Request",
-        inv.name & ": object count " & $count & " exceeds maxObjectsInSet " & $maxSet,
+        inv.rawName & ": object count " & $count & " exceeds maxObjectsInSet " & $maxSet,
         "",
       )
     )
@@ -282,9 +282,9 @@ func validateLimits*(
   let maxSet = int64(caps.maxObjectsInSet)
 
   for inv in request.methodCalls:
-    if inv.name.endsWith("/get"):
+    if inv.rawName.endsWith("/get"):
       ?checkGetLimit(inv, maxGet)
-    elif inv.name.endsWith("/set"):
+    elif inv.rawName.endsWith("/set"):
       ?checkSetLimit(inv, maxSet)
   return ok()
 

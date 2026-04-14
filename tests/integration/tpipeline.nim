@@ -35,7 +35,7 @@ block builderToRequestJson:
   let req = b1.build()
   doAssert req.`using` == @["urn:test:widget"]
   assertLen req.methodCalls, 1
-  doAssert req.methodCalls[0].name == "TestWidget/get"
+  doAssert req.methodCalls[0].name == mnMailboxGet
   let args = req.methodCalls[0].arguments
   doAssert args{"accountId"}.getStr("") == "A1"
   doAssert $gh == "c0"
@@ -79,23 +79,23 @@ block multiMethodWithResultReference:
     addGet[TestWidget](b1, accountId = makeAccountId("A1"), ids = Opt.some(idsRefVal))
   let req = b2.build()
   assertLen req.methodCalls, 2
-  doAssert req.methodCalls[0].name == "TestWidget/query"
-  doAssert req.methodCalls[1].name == "TestWidget/get"
+  doAssert req.methodCalls[0].name == mnEmailQuery
+  doAssert req.methodCalls[1].name == mnMailboxGet
   # Verify the #ids key in the get invocation
   let getArgs = req.methodCalls[1].arguments
   doAssert getArgs{"ids"}.isNil # direct "ids" should NOT be present
   let refNode = getArgs{"#ids"}
   doAssert not refNode.isNil
   doAssert refNode{"resultOf"}.getStr("") == "c0"
-  doAssert refNode{"name"}.getStr("") == "TestWidget/query"
+  doAssert refNode{"name"}.getStr("") == "Email/query"
   doAssert refNode{"path"}.getStr("") == "/ids"
   # Construct synthetic multi-invocation response and extract both
   let queryJson = makeQueryResponseJson(accountId = "A1", queryState = "qs1")
   let getJson = makeGetResponseJson(accountId = "A1", state = "s1")
   let resp = Response(
     methodResponses: @[
-      initInvocation("TestWidget/query", queryJson, makeMcid("c0")).get(),
-      initInvocation("TestWidget/get", getJson, makeMcid("c1")).get(),
+      initInvocation(mnEmailQuery, queryJson, makeMcid("c0")),
+      initInvocation(mnMailboxGet, getJson, makeMcid("c1")),
     ],
     createdIds: Opt.none(Table[CreationId, Id]),
     sessionState: makeState("rs1"),
@@ -128,8 +128,8 @@ block mixedSuccessError:
   let getJson = makeGetResponseJson(accountId = "A1", state = "s1")
   let resp = Response(
     methodResponses: @[
-      initInvocation("TestWidget/get", getJson, makeMcid("c0")).get(),
-      initInvocation("error", %*{"type": "stateMismatch"}, makeMcid("c1")).get(),
+      initInvocation(mnMailboxGet, getJson, makeMcid("c0")),
+      parseInvocation("error", %*{"type": "stateMismatch"}, makeMcid("c1")).get(),
     ],
     createdIds: Opt.none(Table[CreationId, Id]),
     sessionState: makeState("rs1"),

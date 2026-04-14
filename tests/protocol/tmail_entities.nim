@@ -42,13 +42,13 @@ block identityRegistrationCompiles:
   doAssert true
 
 block threadOverloadValues:
-  ## methodNamespace and capabilityUri return expected values for Thread.
-  assertEq methodNamespace(thread.Thread), "Thread"
+  ## methodEntity and capabilityUri return expected values for Thread.
+  assertEq methodEntity(thread.Thread), meThread
   assertEq capabilityUri(thread.Thread), "urn:ietf:params:jmap:mail"
 
 block identityOverloadValues:
-  ## methodNamespace and capabilityUri return expected values for Identity.
-  assertEq methodNamespace(Identity), "Identity"
+  ## methodEntity and capabilityUri return expected values for Identity.
+  assertEq methodEntity(Identity), meIdentity
   assertEq capabilityUri(Identity), "urn:ietf:params:jmap:submission"
 
 # ===========================================================================
@@ -85,7 +85,7 @@ block addGetThread:
   let req = b1.build()
   assertLen req.methodCalls, 1
   let inv = req.methodCalls[0]
-  assertEq inv.name, "Thread/get"
+  assertEq inv.name, mnThreadGet
   assertEq inv.arguments{"accountId"}.getStr(""), "a1"
   doAssert "urn:ietf:params:jmap:mail" in req.`using`
 
@@ -96,7 +96,7 @@ block addChangesThread:
   let req = b1.build()
   assertLen req.methodCalls, 1
   let inv = req.methodCalls[0]
-  assertEq inv.name, "Thread/changes"
+  assertEq inv.name, mnThreadChanges
   assertEq inv.arguments{"sinceState"}.getStr(""), "s0"
 
 block addGetIdentity:
@@ -106,7 +106,7 @@ block addGetIdentity:
   let req = b1.build()
   assertLen req.methodCalls, 1
   let inv = req.methodCalls[0]
-  assertEq inv.name, "Identity/get"
+  assertEq inv.name, mnIdentityGet
   doAssert "urn:ietf:params:jmap:submission" in req.`using`
 
 block addChangesIdentity:
@@ -115,7 +115,7 @@ block addChangesIdentity:
   let (b1, _) = addChanges[Identity](b0, makeAccountId("a1"), makeState("s0"))
   let req = b1.build()
   assertLen req.methodCalls, 1
-  assertEq req.methodCalls[0].name, "Identity/changes"
+  assertEq req.methodCalls[0].name, mnIdentityChanges
 
 block addSetIdentity:
   ## addSet[Identity] produces "Identity/set".
@@ -123,7 +123,7 @@ block addSetIdentity:
   let (b1, _) = addSet[Identity](b0, makeAccountId("a1"))
   let req = b1.build()
   assertLen req.methodCalls, 1
-  assertEq req.methodCalls[0].name, "Identity/set"
+  assertEq req.methodCalls[0].name, mnIdentitySet
 
 # ===========================================================================
 # D. Capability deduplication
@@ -161,8 +161,8 @@ block mailboxQueryableRegistrationCompiles:
   doAssert true
 
 block mailboxOverloadValues:
-  ## methodNamespace and capabilityUri return expected values for Mailbox.
-  assertEq methodNamespace(Mailbox), "Mailbox"
+  ## methodEntity and capabilityUri return expected values for Mailbox.
+  assertEq methodEntity(Mailbox), meMailbox
   assertEq capabilityUri(Mailbox), "urn:ietf:params:jmap:mail"
 
 # ===========================================================================
@@ -176,7 +176,7 @@ block addGetMailbox:
   let req = b1.build()
   assertLen req.methodCalls, 1
   let inv = req.methodCalls[0]
-  assertEq inv.name, "Mailbox/get"
+  assertEq inv.name, mnMailboxGet
   assertEq inv.arguments{"accountId"}.getStr(""), "a1"
   doAssert "urn:ietf:params:jmap:mail" in req.`using`
 
@@ -186,7 +186,7 @@ block addChangesMailbox:
   let (b1, _) = addChanges[Mailbox](b0, makeAccountId("a1"), makeState("s0"))
   let req = b1.build()
   assertLen req.methodCalls, 1
-  assertEq req.methodCalls[0].name, "Mailbox/changes"
+  assertEq req.methodCalls[0].name, mnMailboxChanges
   assertEq req.methodCalls[0].arguments{"sinceState"}.getStr(""), "s0"
 
 block addSetMailbox:
@@ -195,7 +195,7 @@ block addSetMailbox:
   let (b1, _) = addSet[Mailbox](b0, makeAccountId("a1"))
   let req = b1.build()
   assertLen req.methodCalls, 1
-  assertEq req.methodCalls[0].name, "Mailbox/set"
+  assertEq req.methodCalls[0].name, mnMailboxSet
 
 # ===========================================================================
 # G. Mixin resolution tests (critical — proves filterType + filterConditionToJson resolve)
@@ -209,7 +209,7 @@ block addQueryMailboxSingleParam:
   let (b1, _) = addQuery[Mailbox](b0, makeAccountId("a1"))
   let req = b1.build()
   assertLen req.methodCalls, 1
-  assertEq req.methodCalls[0].name, "Mailbox/query"
+  assertEq req.methodCalls[0].name, mnMailboxQuery
 
 block addQueryChangesMailboxSingleParam:
   ## Single-parameter addQueryChanges[Mailbox] resolves via mixin.
@@ -217,7 +217,7 @@ block addQueryChangesMailboxSingleParam:
   let (b1, _) = addQueryChanges[Mailbox](b0, makeAccountId("a1"), makeState("qs0"))
   let req = b1.build()
   assertLen req.methodCalls, 1
-  assertEq req.methodCalls[0].name, "Mailbox/queryChanges"
+  assertEq req.methodCalls[0].name, mnMailboxQueryChanges
 
 # ===========================================================================
 # H. Mailbox capability deduplication
@@ -246,8 +246,8 @@ block emailQueryableRegistrationCompiles:
   doAssert true
 
 block emailOverloadValues:
-  ## methodNamespace and capabilityUri return expected values for Email.
-  assertEq methodNamespace(Email), "Email"
+  ## methodEntity and capabilityUri return expected values for Email.
+  assertEq methodEntity(Email), meEmail
   assertEq capabilityUri(Email), "urn:ietf:params:jmap:mail"
 
 # ===========================================================================
@@ -261,7 +261,7 @@ block addGetEmail:
   let req = b1.build()
   assertLen req.methodCalls, 1
   let inv = req.methodCalls[0]
-  assertEq inv.name, "Email/get"
+  assertEq inv.name, mnEmailGet
   assertEq inv.arguments{"accountId"}.getStr(""), "a1"
   doAssert "urn:ietf:params:jmap:mail" in req.`using`
 
@@ -272,7 +272,7 @@ block addChangesEmail:
   let req = b1.build()
   assertLen req.methodCalls, 1
   let inv = req.methodCalls[0]
-  assertEq inv.name, "Email/changes"
+  assertEq inv.name, mnEmailChanges
   assertEq inv.arguments{"sinceState"}.getStr(""), "s0"
 
 block addSetEmail:
@@ -281,7 +281,7 @@ block addSetEmail:
   let (b1, _) = addSet[Email](b0, makeAccountId("a1"))
   let req = b1.build()
   assertLen req.methodCalls, 1
-  assertEq req.methodCalls[0].name, "Email/set"
+  assertEq req.methodCalls[0].name, mnEmailSet
 
 # ===========================================================================
 # K. Email mixin resolution tests
@@ -293,7 +293,7 @@ block addQueryEmailSingleParam:
   let (b1, _) = addQuery[Email](b0, makeAccountId("a1"))
   let req = b1.build()
   assertLen req.methodCalls, 1
-  assertEq req.methodCalls[0].name, "Email/query"
+  assertEq req.methodCalls[0].name, mnEmailQuery
 
 block addQueryChangesEmailSingleParam:
   ## Single-parameter addQueryChanges[Email] resolves via mixin.
@@ -301,7 +301,7 @@ block addQueryChangesEmailSingleParam:
   let (b1, _) = addQueryChanges[Email](b0, makeAccountId("a1"), makeState("qs0"))
   let req = b1.build()
   assertLen req.methodCalls, 1
-  assertEq req.methodCalls[0].name, "Email/queryChanges"
+  assertEq req.methodCalls[0].name, mnEmailQueryChanges
 
 # ===========================================================================
 # L. Email capability deduplication

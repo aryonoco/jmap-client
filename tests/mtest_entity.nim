@@ -7,7 +7,7 @@
 ##
 ## Entity module checklist (Layer 3 design §4.6):
 ## 1. Entity type definition
-## 2. methodNamespace overload
+## 2. methodEntity overload
 ## 3. capabilityUri overload
 ## 4. filterType template (queryable)
 ## 5. filterConditionToJson callback
@@ -45,11 +45,29 @@ type TestWidgetFilter* = object ## Filter condition for TestWidget/query.
 # Entity framework overloads
 # =============================================================================
 
-func methodNamespace*(T: typedesc[TestWidget]): string =
-  "TestWidget"
+func methodEntity*(T: typedesc[TestWidget]): MethodEntity =
+  meTest
 
 func capabilityUri*(T: typedesc[TestWidget]): string =
   "urn:test:widget"
+
+func getMethodName*(T: typedesc[TestWidget]): MethodName =
+  mnMailboxGet
+
+func changesMethodName*(T: typedesc[TestWidget]): MethodName =
+  mnMailboxChanges
+
+func setMethodName*(T: typedesc[TestWidget]): MethodName =
+  mnMailboxSet
+
+func queryMethodName*(T: typedesc[TestWidget]): MethodName =
+  mnEmailQuery
+
+func queryChangesMethodName*(T: typedesc[TestWidget]): MethodName =
+  mnEmailQueryChanges
+
+func copyMethodName*(T: typedesc[TestWidget]): MethodName =
+  mnEmailCopy
 
 template filterType*(T: typedesc[TestWidget]): typedesc =
   TestWidgetFilter

@@ -21,6 +21,7 @@ import jmap_client/envelope
 import jmap_client/errors
 import jmap_client/framework
 import jmap_client/identifiers
+import jmap_client/methods_enum
 import jmap_client/primitives
 import jmap_client/session
 import jmap_client/validation
@@ -481,11 +482,11 @@ proc genInvocation*(rng: var Rand): Invocation =
   ## Email/get, etc.) and a random MethodCallId (c0-c99).
   ## Arguments are always an empty JObject.
   ## Does NOT generate: non-standard method names, complex arguments.
-  const methods = ["Mailbox/get", "Email/get", "Email/query", "Email/set", "Thread/get"]
+  const methods = [mnMailboxGet, mnEmailGet, mnEmailQuery, mnEmailSet, mnThreadGet]
   let name = rng.oneOf(methods)
   let mcidStr = "c" & $rng.rand(0 .. 99)
   let mcid = parseMethodCallId(mcidStr).get()
-  initInvocation(name, newJObject(), mcid).get()
+  initInvocation(name, newJObject(), mcid)
 
 proc genValidAccount*(rng: var Rand): Account =
   ## Generates a random Account with realistic structure: random name from a
@@ -962,8 +963,8 @@ proc genInvocationWithArgs*(rng: var Rand): Invocation =
   ## Method names from 7 standard JMAP methods. MethodCallId range: c0-c999.
   ## Does NOT generate: result references, vendor-specific method names.
   const methods = [
-    "Mailbox/get", "Email/get", "Email/query", "Email/set", "Thread/get",
-    "Identity/get", "SearchSnippet/get",
+    mnMailboxGet, mnEmailGet, mnEmailQuery, mnEmailSet, mnThreadGet, mnIdentityGet,
+    mnSearchSnippetGet,
   ]
   let name = rng.oneOf(methods)
   let mcidStr = "c" & $rng.rand(0 .. 999)
@@ -982,7 +983,7 @@ proc genInvocationWithArgs*(rng: var Rand): Invocation =
         if rng.rand(0 .. 1) == 0:
           p.add(newJString(prop))
       p
-  initInvocation(name, args, mcid).get()
+  initInvocation(name, args, mcid)
 
 proc genRequest*(rng: var Rand): Request =
   ## Generates a random Request with 1-5 invocations (with non-trivial arguments),
@@ -1083,11 +1084,12 @@ proc genResultReference*(rng: var Rand): ResultReference =
   let mcid = parseMethodCallId("c" & $rng.rand(0 .. 999)).get()
   const names = ["Mailbox/get", "Email/get", "Thread/get", "Identity/get"]
   const paths = ["/ids", "/list/*/id", "/notFound", "/state"]
-  initResultReference(
+  parseResultReference(
     resultOf = mcid,
     name = names[rng.rand(0 .. int(names.high))],
     path = paths[rng.rand(0 .. int(paths.high))],
   )
+    .get()
 
 proc genMalformedSessionJson*(rng: var Rand): JsonNode =
   ## Generates plausible but subtly broken Session JSON for totality testing.

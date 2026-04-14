@@ -9,6 +9,7 @@
 
 import std/json
 
+import jmap_client/methods_enum
 import jmap_client/validation
 import jmap_client/entity
 
@@ -24,8 +25,8 @@ import ../massertions
 
 type MockFoo = object
 
-func methodNamespace*(T: typedesc[MockFoo]): string =
-  "MockFoo"
+func methodEntity*(T: typedesc[MockFoo]): MethodEntity =
+  meTest
 
 func capabilityUri*(T: typedesc[MockFoo]): string =
   "urn:test:mockfoo"
@@ -36,8 +37,8 @@ type MockFilterCondition = object
 
 type MockQueryable = object
 
-func methodNamespace*(T: typedesc[MockQueryable]): string =
-  "MockQueryable"
+func methodEntity*(T: typedesc[MockQueryable]): MethodEntity =
+  meTest
 
 func capabilityUri*(T: typedesc[MockQueryable]): string =
   "urn:test:mockqueryable"
@@ -58,8 +59,8 @@ type NoBoth = object
 
 type NoCapUri = object
 
-func methodNamespace*(T: typedesc[NoCapUri]): string =
-  "NoCapUri"
+func methodEntity*(T: typedesc[NoCapUri]): MethodEntity =
+  meTest
 
 type NoMethodNs = object
 
@@ -68,8 +69,8 @@ func capabilityUri*(T: typedesc[NoMethodNs]): string =
 
 type NoFilterToJson = object
 
-func methodNamespace*(T: typedesc[NoFilterToJson]): string =
-  "NoFilterToJson"
+func methodEntity*(T: typedesc[NoFilterToJson]): MethodEntity =
+  meTest
 
 func capabilityUri*(T: typedesc[NoFilterToJson]): string =
   "urn:test:nofj"
@@ -101,10 +102,12 @@ block registerQueryableEntity:
   doAssert true
 
 block overloadValuesCorrect:
-  ## Overloads return the expected values.
-  doAssert methodNamespace(MockFoo) == "MockFoo"
+  ## Overloads return the expected values. Typed dispatch: methodEntity
+  ## resolves per typedesc to the test sentinel; capabilityUri yields the
+  ## distinct URI registered for each mock.
+  doAssert methodEntity(MockFoo) == meTest
   doAssert capabilityUri(MockFoo) == "urn:test:mockfoo"
-  doAssert methodNamespace(MockQueryable) == "MockQueryable"
+  doAssert methodEntity(MockQueryable) == meTest
   doAssert capabilityUri(MockQueryable) == "urn:test:mockqueryable"
 
 # ---------------------------------------------------------------------------
@@ -116,10 +119,10 @@ block missingBothOverloads:
   assertNotCompiles(registerJmapEntity(NoBoth))
 
 block missingCapabilityUri:
-  ## Type with only methodNamespace — registerJmapEntity must fail.
+  ## Type with only methodEntity — registerJmapEntity must fail.
   assertNotCompiles(registerJmapEntity(NoCapUri))
 
-block missingMethodNamespace:
+block missingMethodEntity:
   ## Type with only capabilityUri — registerJmapEntity must fail.
   assertNotCompiles(registerJmapEntity(NoMethodNs))
 

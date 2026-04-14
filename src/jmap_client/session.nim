@@ -202,14 +202,13 @@ func parseSession*(
     rawEventSourceUrl: eventSourceUrl,
     rawState: state,
   )
-  doAssert session.rawCapabilities.hasKind(ckCore)
-  doAssert session.rawApiUrl.len > 0
   return ok(session)
 
 func coreCapabilities*(session: Session): CoreCapabilities =
   ## Returns the core capabilities. Total function (no Result) because
-  ## parseSession guarantees ckCore is present. Raises AssertionDefect if
-  ## the invariant is violated by direct construction.
+  ## parseSession guarantees ckCore is present and rawCapabilities is
+  ## module-private (Pattern A — direct construction from outside this
+  ## module is refused by the compiler).
   for _, cap in session.rawCapabilities:
     case cap.kind
     of ckCore:

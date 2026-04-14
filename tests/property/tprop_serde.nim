@@ -80,7 +80,7 @@ block propRoundTripAddedItem:
 block propRoundTripResultReference:
   checkPropertyN "ResultReference round-trip preserves all fields", ThoroughTrials:
     let rref = rng.genResultReference()
-    lastInput = rref.name
+    lastInput = rref.rawName
     let j = rref.toJson()
     let rt = ResultReference.fromJson(j).get()
     doAssert rt.resultOf == rref.resultOf
@@ -207,7 +207,7 @@ block propTotalityAddedItemArbitraryJson:
 block propIdempotenceInvocation:
   checkPropertyN "Invocation serialisation is idempotent", ThoroughTrials:
     let inv = rng.genInvocationWithArgs()
-    lastInput = inv.name
+    lastInput = inv.rawName
     let j1 = inv.toJson()
     let parsed = Invocation.fromJson(j1).get()
     let j2 = parsed.toJson()
@@ -216,7 +216,7 @@ block propIdempotenceInvocation:
 block propIdempotenceResultReference:
   checkPropertyN "ResultReference serialisation is idempotent", ThoroughTrials:
     let rref = rng.genResultReference()
-    lastInput = rref.name
+    lastInput = rref.rawName
     let j1 = rref.toJson()
     let parsed = ResultReference.fromJson(j1).get()
     let j2 = parsed.toJson()
@@ -275,7 +275,7 @@ block propRequestInvocationCountRoundTrip:
 block propInvocationArgumentsRoundTrip:
   checkPropertyN "Invocation arguments preserved through round-trip", ThoroughTrials:
     let inv = rng.genInvocationWithArgs()
-    lastInput = inv.name
+    lastInput = inv.rawName
     let j = inv.toJson()
     let rt = Invocation.fromJson(j).get()
     doAssert rt.arguments == inv.arguments,

@@ -52,9 +52,7 @@ func parseEmailHeaderFilter*(
   if name.len == 0:
     return
       err(validationError("EmailHeaderFilter", "header name must not be empty", name))
-  let ehf = EmailHeaderFilter(name: name, value: value)
-  doAssert ehf.name.len > 0
-  return ok(ehf)
+  return ok(EmailHeaderFilter(name: name, value: value))
 
 # =============================================================================
 # EmailFilterCondition

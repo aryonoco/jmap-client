@@ -16,6 +16,7 @@ import jmap_client/identifiers
 import jmap_client/capabilities
 import jmap_client/session
 import jmap_client/envelope
+import jmap_client/methods_enum
 import jmap_client/framework
 import jmap_client/errors
 import jmap_client/serde
@@ -350,8 +351,8 @@ block rfc8620_S2_collationAlgorithmStandardIdentifiers:
 block rfc8620_S3_2_invocationStructure:
   ## An Invocation has three elements: name, arguments, methodCallId.
   let mcid = makeMcid("call0")
-  let inv = initInvocation("Foo/get", newJObject(), mcid).get()
-  doAssert inv.name == "Foo/get"
+  let inv = parseInvocation("Foo/get", newJObject(), mcid).get()
+  doAssert inv.rawName == "Foo/get"
   doAssert inv.arguments.kind == JObject
   doAssert inv.methodCallId == mcid
 
@@ -360,8 +361,8 @@ block rfc8620_S3_2_methodCallIdCorrelation:
   let mcid1 = makeMcid("c1")
   let mcid2 = makeMcid("c2")
   doAssert mcid1 != mcid2
-  let inv1 = initInvocation("A/get", newJObject(), mcid1).get()
-  let inv2 = initInvocation("B/get", newJObject(), mcid2).get()
+  let inv1 = parseInvocation("A/get", newJObject(), mcid1).get()
+  let inv2 = parseInvocation("B/get", newJObject(), mcid2).get()
   doAssert inv1.methodCallId != inv2.methodCallId
 
 # =============================================================================
@@ -389,9 +390,9 @@ block rfc8620_S3_3_requestMethodCallsOrderPreserved:
     createdIds: Opt.none(Table[CreationId, Id]),
   )
   doAssert req.methodCalls.len == 3
-  doAssert req.methodCalls[0].name == "A/get"
-  doAssert req.methodCalls[1].name == "B/get"
-  doAssert req.methodCalls[2].name == "C/get"
+  doAssert req.methodCalls[0].rawName == "A/get"
+  doAssert req.methodCalls[1].rawName == "B/get"
+  doAssert req.methodCalls[2].rawName == "C/get"
 
 block rfc8620_S3_3_requestCreatedIdsOptional:
   ## createdIds is optional; none is valid.
@@ -424,8 +425,8 @@ block rfc8620_S3_4_responseMethodResponsesOrdering:
     sessionState: makeState("s1"),
   )
   doAssert resp.methodResponses.len == 2
-  doAssert resp.methodResponses[0].name == "A/get"
-  doAssert resp.methodResponses[1].name == "B/get"
+  doAssert resp.methodResponses[0].rawName == "A/get"
+  doAssert resp.methodResponses[1].rawName == "B/get"
 
 block rfc8620_S3_4_responseSessionStateMandatory:
   ## sessionState is always present in a Response.
@@ -477,10 +478,10 @@ block rfc8620_S3_3_requestDuplicateMethodCallIds:
 block rfc8620_S3_4_responseErrorInvocation:
   ## RFC 8620 S3.4: A response may contain an Invocation with name="error"
   ## to signal a per-method failure. Layer 1 accepts any invocation name.
-  let errInv = initInvocation("error", %*{"type": "serverFail"}, makeMcid("c0")).get()
+  let errInv = parseInvocation("error", %*{"type": "serverFail"}, makeMcid("c0")).get()
   let resp = makeResponse(methodResponses = @[errInv])
   doAssert resp.methodResponses.len == 1
-  doAssert resp.methodResponses[0].name == "error"
+  doAssert resp.methodResponses[0].rawName == "error"
 
 # =============================================================================
 # S3.6.1 — Request-Level Errors (RFC 8620 section 3.6.1)
@@ -577,8 +578,8 @@ block rfc8620_S3_6_2_errorResponseNameConvention:
   ## RFC S3.6.2: Method-level error responses use "error" as the invocation name.
   ## This is a convention verified at the type level by constructing an Invocation.
   let errInv =
-    initInvocation("error", %*{"type": "invalidArguments"}, makeMcid("c0")).get()
-  doAssert errInv.name == "error"
+    parseInvocation("error", %*{"type": "invalidArguments"}, makeMcid("c0")).get()
+  doAssert errInv.rawName == "error"
 
 block rfc8620_S3_6_1_requestErrorCaseSensitiveFirstChar:
   ## RFC 8620 S3.6.1: parseRequestErrorType uses strutils.parseEnum which
@@ -644,20 +645,20 @@ block rfc8620_S3_6_2_setErrorMinimalFields:
 
 block rfc8620_S3_7_resultReferencePathConstants:
   ## The spec defines standard JSON Pointer paths for result references.
-  doAssert RefPathIds == "/ids"
-  doAssert RefPathListIds == "/list/*/id"
-  doAssert RefPathAddedIds == "/added/*/id"
-  doAssert RefPathCreated == "/created"
-  doAssert RefPathUpdated == "/updated"
-  doAssert RefPathUpdatedProperties == "/updatedProperties"
+  doAssert $rpIds == "/ids"
+  doAssert $rpListIds == "/list/*/id"
+  doAssert $rpAddedIds == "/added/*/id"
+  doAssert $rpCreated == "/created"
+  doAssert $rpUpdated == "/updated"
+  doAssert $rpUpdatedProperties == "/updatedProperties"
 
 block rfc8620_S3_7_resultReferenceConstruction:
   ## A ResultReference ties a back-reference to a previous call's result.
   let mcid = makeMcid("c0")
-  let rr = initResultReference(resultOf = mcid, name = "Mailbox/get", path = RefPathIds)
+  let rr = initResultReference(resultOf = mcid, name = mnMailboxGet, path = rpIds)
   doAssert rr.resultOf == mcid
-  doAssert rr.name == "Mailbox/get"
-  doAssert rr.path == "/ids"
+  doAssert rr.name == mnMailboxGet
+  doAssert rr.path == rpIds
 
 block rfc8620_S3_7_referencableVariants:
   ## Referencable[T] is either a direct value or a result reference.
@@ -665,23 +666,22 @@ block rfc8620_S3_7_referencableVariants:
   doAssert directIds.kind == rkDirect
 
   let mcid = makeMcid("c0")
-  let rr =
-    initResultReference(resultOf = mcid, name = "Mailbox/query", path = RefPathIds)
+  let rr = initResultReference(resultOf = mcid, name = mnMailboxQuery, path = rpIds)
   let refIds = referenceTo[seq[Id]](rr)
   doAssert refIds.kind == rkReference
-  doAssert refIds.reference.path == "/ids"
+  doAssert refIds.reference.path == rpIds
 
 block rfc8620_S3_7_wildcardInPath:
   ## RFC S3.7: The '*' character is a JMAP extension to JSON Pointer for array wildcard.
-  doAssert '*' in RefPathListIds
-  doAssert '*' in RefPathAddedIds
+  doAssert '*' in $rpListIds
+  doAssert '*' in $rpAddedIds
 
 block rfc8620_S3_7_resultReferenceTriple:
   ## A ResultReference has all three required fields: resultOf, name, path.
-  let rr = makeResultReference(makeMcid("c0"), "Email/query", RefPathIds)
+  let rr = makeResultReference(makeMcid("c0"), mnEmailQuery, rpIds)
   doAssert rr.resultOf == makeMcid("c0")
-  doAssert rr.name == "Email/query"
-  doAssert rr.path == "/ids"
+  doAssert rr.name == mnEmailQuery
+  doAssert rr.path == rpIds
 
 block rfc8620_S3_7_resultReferenceEmptyPath:
   ## RFC 8620 S3.7: parseResultReference validates that path is non-empty.
@@ -692,19 +692,24 @@ block rfc8620_S3_7_resultReferenceEmptyPath:
   doAssert "must not be empty" in rr.error.message
 
 block rfc8620_S3_7_resultReferenceRootPath:
-  ## RFC 8620 S3.7: Layer 1 stores the path string as-is. A root JSON
-  ## Pointer "/" is accepted at Layer 1; semantic validation is deferred.
-  let rr =
-    initResultReference(resultOf = makeMcid("c0"), name = "Mailbox/get", path = "/")
-  doAssert rr.path == "/"
+  ## RFC 8620 S3.7: the wire-boundary parser stores the path string as-is.
+  ## A root JSON Pointer "/" is accepted at Layer 1; semantic validation
+  ## is deferred to the server. Non-enum paths round-trip via parseResultReference.
+  let rr = parseResultReference(
+      resultOf = makeMcid("c0"), name = "Mailbox/get", path = "/"
+    )
+    .get()
+  doAssert rr.rawPath == "/"
 
 block rfc8620_S3_7_resultReferenceDoubleSeparator:
-  ## RFC 8620 S3.7: Layer 1 stores the path string as-is. A double
-  ## separator "//" is accepted at Layer 1; path syntax validation is a
-  ## Layer 3 concern.
-  let rr =
-    initResultReference(resultOf = makeMcid("c0"), name = "Mailbox/get", path = "//")
-  doAssert rr.path == "//"
+  ## RFC 8620 S3.7: the wire-boundary parser stores the path string as-is.
+  ## A double separator "//" is accepted at Layer 1; path syntax validation
+  ## is a Layer 3 concern. Non-enum paths round-trip via parseResultReference.
+  let rr = parseResultReference(
+      resultOf = makeMcid("c0"), name = "Mailbox/get", path = "//"
+    )
+    .get()
+  doAssert rr.rawPath == "//"
 
 # =============================================================================
 # S5.3 — PatchObject and SetError (RFC 8620 section 5.3)
@@ -990,8 +995,8 @@ block rfc8620_S3_2_responseDuplicateMethodCallId:
   ## RFC 8620 S3.2: a method may return one or more responses, all sharing
   ## the same methodCallId.
   let mcid = makeMcid("c0")
-  let inv1 = initInvocation("Mailbox/get", newJObject(), mcid).get()
-  let inv2 = initInvocation("Mailbox/get", newJObject(), mcid).get()
+  let inv1 = initInvocation(mnMailboxGet, newJObject(), mcid)
+  let inv2 = initInvocation(mnMailboxGet, newJObject(), mcid)
   let resp = makeResponse(methodResponses = @[inv1, inv2])
   doAssert resp.methodResponses.len == 2
   doAssert resp.methodResponses[0].methodCallId == resp.methodResponses[1].methodCallId
@@ -1271,12 +1276,12 @@ block rfc8620_S2_goldenSessionToJson:
 block rfc8620_S3_3_goldenRequestToJson:
   ## Construct a Request matching RFC 8620 section 3.3.1 example, serialise,
   ## and verify the JSON structure matches.
-  let inv1 = initInvocation(
+  let inv1 = parseInvocation(
       "method1", %*{"arg1": "arg1data", "arg2": "arg2data"}, makeMcid("c1")
     )
     .get()
-  let inv2 = initInvocation("method2", %*{"arg1": "arg1data"}, makeMcid("c2")).get()
-  let inv3 = initInvocation("method3", newJObject(), makeMcid("c3")).get()
+  let inv2 = parseInvocation("method2", %*{"arg1": "arg1data"}, makeMcid("c2")).get()
+  let inv3 = parseInvocation("method3", newJObject(), makeMcid("c3")).get()
   let req = Request(
     `using`: @["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail"],
     methodCalls: @[inv1, inv2, inv3],
@@ -1309,19 +1314,19 @@ block rfc8620_S3_4_goldenResponseFromJson:
   let resp = r
   assertEq resp.methodResponses.len, 4
   # First response: ["method1", {"arg1": 3, "arg2": "foo"}, "c1"]
-  assertEq resp.methodResponses[0].name, "method1"
+  assertEq resp.methodResponses[0].rawName, "method1"
   assertEq resp.methodResponses[0].methodCallId, makeMcid("c1")
   assertEq resp.methodResponses[0].arguments{"arg1"}.getInt(0), 3
   assertEq resp.methodResponses[0].arguments{"arg2"}.getStr(""), "foo"
   # Second response: ["method2", {"isBlah": true}, "c2"]
-  assertEq resp.methodResponses[1].name, "method2"
+  assertEq resp.methodResponses[1].rawName, "method2"
   assertEq resp.methodResponses[1].methodCallId, makeMcid("c2")
   doAssert resp.methodResponses[1].arguments{"isBlah"}.getBool(false) == true
   # Third response: ["anotherResponseFromMethod2", {...}, "c2"]
-  assertEq resp.methodResponses[2].name, "anotherResponseFromMethod2"
+  assertEq resp.methodResponses[2].rawName, "anotherResponseFromMethod2"
   assertEq resp.methodResponses[2].methodCallId, makeMcid("c2")
   # Fourth response: ["error", {"type": "unknownMethod"}, "c3"]
-  assertEq resp.methodResponses[3].name, "error"
+  assertEq resp.methodResponses[3].rawName, "error"
   assertEq resp.methodResponses[3].methodCallId, makeMcid("c3")
   assertEq resp.methodResponses[3].arguments{"type"}.getStr(""), "unknownMethod"
   # Session state

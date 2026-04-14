@@ -43,7 +43,7 @@ func addVacationResponseGet*(
   )
   let args = req.toJson()
   let (newBuilder, callId) =
-    b.addInvocation("VacationResponse/get", args, VacationResponseCapUri)
+    b.addInvocation(mnVacationResponseGet, args, VacationResponseCapUri)
   return (newBuilder, ResponseHandle[GetResponse[VacationResponse]](callId))
 
 # =============================================================================
@@ -67,7 +67,7 @@ func addVacationResponseSet*(
   updateMap[VacationResponseSingletonId] = update.toJson()
   args["update"] = updateMap
   let (newBuilder, callId) =
-    b.addInvocation("VacationResponse/set", args, VacationResponseCapUri)
+    b.addInvocation(mnVacationResponseSet, args, VacationResponseCapUri)
   return (newBuilder, ResponseHandle[SetResponse[VacationResponse]](callId))
 
 # =============================================================================
@@ -168,7 +168,7 @@ func addEmailParse*(
       propsArr.add(%p)
     args["properties"] = propsArr
   bodyFetchOptions.emitInto(args)
-  let (newBuilder, callId) = b.addInvocation("Email/parse", args, MailCapUri)
+  let (newBuilder, callId) = b.addInvocation(mnEmailParse, args, MailCapUri)
   (newBuilder, ResponseHandle[EmailParseResponse](callId))
 
 # =============================================================================
@@ -196,5 +196,5 @@ func addSearchSnippetGet*(
   for id in restEmailIds:
     emailIds.add(id.toJson())
   args["emailIds"] = emailIds
-  let (newBuilder, callId) = b.addInvocation("SearchSnippet/get", args, MailCapUri)
+  let (newBuilder, callId) = b.addInvocation(mnSearchSnippetGet, args, MailCapUri)
   (newBuilder, ResponseHandle[SearchSnippetGetResponse](callId))
