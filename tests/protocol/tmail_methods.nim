@@ -261,3 +261,60 @@ block addSearchSnippetGetFilterInArgs:
   let req = b1.build()
   let filterNode = req.methodCalls[0].arguments{"filter"}
   doAssert filterNode.kind == JObject
+
+# ===========================================================================
+# E. addEmailImport — Email/import (RFC 8621 §4.8)
+# ===========================================================================
+
+block addEmailImportInvocationName:
+  ## E.1: invocation name is "Email/import" and the mail capability URI
+  ## is added. The returned handle is phantom-typed to
+  ## ``EmailImportResponse`` — binding it to a mismatched
+  ## ``ResponseHandle`` parameter must not compile.
+  let emails = makeNonEmptyEmailImportMap(
+    @[(makeCreationId("k1"), makeEmailImportItem(blobId = makeId("b1")))]
+  )
+  let b0 = initRequestBuilder()
+  let (b1, handle) = b0.addEmailImport(makeAccountId("a1"), emails)
+  let req = b1.build()
+  assertLen req.methodCalls, 1
+  assertEq req.methodCalls[0].name, mnEmailImport
+  assertLen req.`using`, 1
+  assertEq req.`using`[0], "urn:ietf:params:jmap:mail"
+  assertNotCompiles:
+    let badHandle: ResponseHandle[EmailSetResponse] = handle
+
+block addEmailImportEmailsPassthrough:
+  ## E.2: the typed ``NonEmptyEmailImportMap`` flattens to the wire via
+  ## ``toJson(NonEmptyEmailImportMap)`` at the builder boundary — the
+  ## per-creation-id blobId survives unchanged into ``args.emails``.
+  let emails = makeNonEmptyEmailImportMap(
+    @[(makeCreationId("k1"), makeEmailImportItem(blobId = makeId("b1")))]
+  )
+  let b0 = initRequestBuilder()
+  let (b1, _) = b0.addEmailImport(makeAccountId("a1"), emails)
+  let req = b1.build()
+  let emailsNode = req.methodCalls[0].arguments{"emails"}
+  doAssert emailsNode.kind == JObject
+  assertEq emailsNode{"k1"}{"blobId"}.getStr(""), "b1"
+
+block addEmailImportIfInStateSomePassthrough:
+  ## E.3: ``ifInState: Opt.some`` → key emitted with exact state string.
+  let emails =
+    makeNonEmptyEmailImportMap(@[(makeCreationId("k1"), makeEmailImportItem())])
+  let b0 = initRequestBuilder()
+  let (b1, _) = b0.addEmailImport(
+    makeAccountId("a1"), emails, ifInState = Opt.some(makeState("s0"))
+  )
+  let req = b1.build()
+  assertEq req.methodCalls[0].arguments{"ifInState"}.getStr(""), "s0"
+
+block addEmailImportIfInStateNoneOmitted:
+  ## E.4: default (``Opt.none``) ``ifInState`` → omit the key, never
+  ## emit JSON ``null``.
+  let emails =
+    makeNonEmptyEmailImportMap(@[(makeCreationId("k1"), makeEmailImportItem())])
+  let b0 = initRequestBuilder()
+  let (b1, _) = b0.addEmailImport(makeAccountId("a1"), emails)
+  let req = b1.build()
+  doAssert req.methodCalls[0].arguments{"ifInState"}.isNil
