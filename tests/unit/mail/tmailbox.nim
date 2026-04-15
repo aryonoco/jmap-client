@@ -23,7 +23,9 @@ block parseMailboxRoleUppercase: # scenario 24
 block parseMailboxRoleCustom: # scenario 25
   let res = parseMailboxRole("CustomRole")
   assertOk res
-  assertEq res.get(), MailboxRole("customrole")
+  let role = res.get()
+  assertEq role.kind, mrOther
+  assertEq role.identifier, "customrole"
 
 block parseMailboxRoleEmpty: # scenario 26
   assertErrFields parseMailboxRole(""), "MailboxRole", "must not be empty", ""

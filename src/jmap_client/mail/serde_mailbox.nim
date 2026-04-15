@@ -17,8 +17,21 @@ import ./mailbox
 # MailboxRole
 # =============================================================================
 
-defineDistinctStringToJson(MailboxRole)
-defineDistinctStringFromJson(MailboxRole, parseMailboxRole)
+func toJson*(r: MailboxRole): JsonNode =
+  ## Serialise ``MailboxRole`` to its RFC 8621 §2 wire identifier. For the
+  ## ten well-known kinds this is the enum backing string; for ``mrOther``
+  ## it is the captured vendor-extension identifier.
+  return %r.identifier
+
+func fromJson*(
+    T: typedesc[MailboxRole], node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[MailboxRole, SerdeViolation] =
+  ## Deserialise a JSON string to ``MailboxRole`` via ``parseMailboxRole``.
+  ## Rejects non-string nodes with ``svkWrongKind``; wraps any parser
+  ## violation (empty, control chars) as ``svkFieldParserFailed``.
+  discard $T # consumed for nimalyzer params rule
+  ?expectKind(node, JString, path)
+  return wrapInner(parseMailboxRole(node.getStr("")), path)
 
 # =============================================================================
 # Helpers

@@ -20,31 +20,131 @@ import ../primitives
 # MailboxRole
 # =============================================================================
 
-type MailboxRole* = distinct string
-  ## A mailbox role label: non-empty, case-insensitive, stored as lowercase.
-  ## Single parser — no strict/lenient pair (Decision B20: no meaningful gap
-  ## between spec and structural constraints).
+type MailboxRoleKind* = enum
+  ## Discriminator for ``MailboxRole``. Backing strings are the RFC 8621 §2
+  ## wire identifiers; ``mrOther`` carries a vendor-extension role whose
+  ## raw identifier lives alongside.
+  mrInbox = "inbox"
+  mrDrafts = "drafts"
+  mrSent = "sent"
+  mrTrash = "trash"
+  mrJunk = "junk"
+  mrArchive = "archive"
+  mrImportant = "important"
+  mrAll = "all"
+  mrFlagged = "flagged"
+  mrSubscriptions = "subscriptions"
+  mrOther
 
-defineStringDistinctOps(MailboxRole)
+type MailboxRole* {.ruleOff: "objects".} = object
+  ## Validated RFC 8621 §2 mailbox role.
+  ##
+  ## Construction sealed: ``rawKind`` and ``rawIdentifier`` are module-private,
+  ## so direct literal construction from outside this module is rejected.
+  ## Use ``parseMailboxRole`` for untrusted input, or the named ``roleInbox``
+  ## / ``roleDrafts`` / ... constants for the 10 well-known values.
+  ##
+  ## Lowercase-normalised: the parser folds input to lowercase before
+  ## classification and vendor-extension capture — round-trips losslessly
+  ## over the wire.
+  case rawKind: MailboxRoleKind
+  of mrOther:
+    rawIdentifier: string ## wire identifier for vendor extensions
+  of mrInbox, mrDrafts, mrSent, mrTrash, mrJunk, mrArchive, mrImportant, mrAll,
+      mrFlagged, mrSubscriptions:
+    discard
 
-func parseMailboxRole*(raw: string): Result[MailboxRole, ValidationError] =
-  ## Validates non-empty, normalises to lowercase. Used for both client and
-  ## server values — single parser per Decision B20.
-  if raw.len == 0:
-    return err(validationError("MailboxRole", "must not be empty", raw))
-  return ok(MailboxRole(raw.toLowerAscii()))
+func kind*(r: MailboxRole): MailboxRoleKind =
+  ## Returns the discriminator — one of the ten RFC 8621 kinds or ``mrOther``.
+  return r.rawKind
+
+func identifier*(r: MailboxRole): string =
+  ## Returns the wire identifier string. For the ten well-known kinds, this
+  ## is the enum's backing string; for ``mrOther`` it is the vendor-extension
+  ## identifier captured at parse time.
+  case r.rawKind
+  of mrOther:
+    return r.rawIdentifier
+  of mrInbox, mrDrafts, mrSent, mrTrash, mrJunk, mrArchive, mrImportant, mrAll,
+      mrFlagged, mrSubscriptions:
+    return $r.rawKind
+
+func `$`*(r: MailboxRole): string =
+  ## Wire-form string — equivalent to ``identifier``.
+  return r.identifier
+
+func `==`*(a, b: MailboxRole): bool =
+  ## Structural equality. Two values are equal iff their kinds agree and,
+  ## for ``mrOther``, their raw identifiers match byte-for-byte.
+  if a.rawKind != b.rawKind:
+    return false
+  case a.rawKind
+  of mrOther:
+    return a.rawIdentifier == b.rawIdentifier
+  of mrInbox, mrDrafts, mrSent, mrTrash, mrJunk, mrArchive, mrImportant, mrAll,
+      mrFlagged, mrSubscriptions:
+    return true
+
+func hash*(r: MailboxRole): Hash =
+  ## Hash mixing the kind ordinal with the raw identifier for ``mrOther``.
+  ## Consistent with ``==`` — equal values produce equal hashes.
+  var h: Hash = 0
+  h = h !& hash(ord(r.rawKind))
+  case r.rawKind
+  of mrOther:
+    h = h !& hash(r.rawIdentifier)
+  of mrInbox, mrDrafts, mrSent, mrTrash, mrJunk, mrArchive, mrImportant, mrAll,
+      mrFlagged, mrSubscriptions:
+    discard
+  result = !$h
 
 const
-  roleInbox* = MailboxRole("inbox") ## RFC 8621 well-known role.
-  roleDrafts* = MailboxRole("drafts") ## RFC 8621 well-known role.
-  roleSent* = MailboxRole("sent") ## RFC 8621 well-known role.
-  roleTrash* = MailboxRole("trash") ## RFC 8621 well-known role.
-  roleJunk* = MailboxRole("junk") ## RFC 8621 well-known role.
-  roleArchive* = MailboxRole("archive") ## RFC 8621 well-known role.
-  roleImportant* = MailboxRole("important") ## RFC 8621 well-known role.
-  roleAll* = MailboxRole("all") ## RFC 8621 well-known role.
-  roleFlagged* = MailboxRole("flagged") ## RFC 8621 well-known role.
-  roleSubscriptions* = MailboxRole("subscriptions") ## RFC 8621 well-known role.
+  roleInbox* = MailboxRole(rawKind: mrInbox) ## RFC 8621 well-known role.
+  roleDrafts* = MailboxRole(rawKind: mrDrafts) ## RFC 8621 well-known role.
+  roleSent* = MailboxRole(rawKind: mrSent) ## RFC 8621 well-known role.
+  roleTrash* = MailboxRole(rawKind: mrTrash) ## RFC 8621 well-known role.
+  roleJunk* = MailboxRole(rawKind: mrJunk) ## RFC 8621 well-known role.
+  roleArchive* = MailboxRole(rawKind: mrArchive) ## RFC 8621 well-known role.
+  roleImportant* = MailboxRole(rawKind: mrImportant) ## RFC 8621 well-known role.
+  roleAll* = MailboxRole(rawKind: mrAll) ## RFC 8621 well-known role.
+  roleFlagged* = MailboxRole(rawKind: mrFlagged) ## RFC 8621 well-known role.
+  roleSubscriptions* = MailboxRole(rawKind: mrSubscriptions) ## RFC 8621 well-known role.
+
+func parseMailboxRole*(raw: string): Result[MailboxRole, ValidationError] =
+  ## Validates and constructs a ``MailboxRole``. Rejects empty input and
+  ## control characters; lowercase-normalises and classifies against the
+  ## ten RFC 8621 §2 well-known roles, falling back to ``mrOther`` for
+  ## vendor extensions. Lossless round-trip over the wire:
+  ## ``$(parseMailboxRole(x).get) == x.toLowerAscii`` holds for every ``x``
+  ## that survives detection. Single parser — no strict/lenient pair
+  ## (Decision B20: no meaningful gap between spec and structural constraints).
+  detectNonControlString(raw).isOkOr:
+    return err(toValidationError(error, "MailboxRole", raw))
+  let normalised = raw.toLowerAscii()
+  let parsed = parseEnum[MailboxRoleKind](normalised, mrOther)
+  case parsed
+  of mrInbox:
+    return ok(roleInbox)
+  of mrDrafts:
+    return ok(roleDrafts)
+  of mrSent:
+    return ok(roleSent)
+  of mrTrash:
+    return ok(roleTrash)
+  of mrJunk:
+    return ok(roleJunk)
+  of mrArchive:
+    return ok(roleArchive)
+  of mrImportant:
+    return ok(roleImportant)
+  of mrAll:
+    return ok(roleAll)
+  of mrFlagged:
+    return ok(roleFlagged)
+  of mrSubscriptions:
+    return ok(roleSubscriptions)
+  of mrOther:
+    return ok(MailboxRole(rawKind: mrOther, rawIdentifier: normalised))
 
 # =============================================================================
 # Mailbox ID Collections
