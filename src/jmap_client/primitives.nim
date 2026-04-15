@@ -106,33 +106,49 @@ func parseMaxChanges*(raw: UnsignedInt): Result[MaxChanges, ValidationError] =
     return err(validationError("MaxChanges", "must be greater than 0", $int64(raw)))
   return ok(MaxChanges(raw))
 
-func validateDatePortion(raw: string): Result[void, ValidationError] =
-  ## YYYY-MM-DD at positions 0..9.
-  if raw.len < 10:
-    return err(validationError("Date", "invalid date portion", raw))
-  elif not (
+type DateViolation = enum
+  ## Structural failures of an RFC 3339 date-time string. Module-private;
+  ## the public parsers translate these to ``ValidationError`` at the
+  ## wire boundary (``toValidationError``) so every failure message
+  ## lives in exactly one place and adding a variant forces a compile
+  ## error at the translator, not at every detector.
+  dvTooShort
+  dvBadDatePortion
+  dvLowercaseT
+  dvBadTimePortion
+  dvLowercaseTOrZ
+  dvEmptyFraction
+  dvZeroFraction
+  dvMissingOffset
+  dvTrailingAfterZ
+  dvBadNumericOffset
+  dvRequiresZ
+
+func detectDatePortion(raw: string): Result[void, DateViolation] =
+  ## YYYY-MM-DD at positions 0..9. Precondition: raw.len >= 20
+  ## (enforced by detectDate before this detector is reached).
+  if not (
     allDigits(raw, 0, 3) and raw[4] == '-' and allDigits(raw, 5, 6) and raw[7] == '-' and
     allDigits(raw, 8, 9)
   ):
-    return err(validationError("Date", "invalid date portion", raw))
+    return err(dvBadDatePortion)
   return ok()
 
-func validateTimePortion(raw: string): Result[void, ValidationError] =
+func detectTimePortion(raw: string): Result[void, DateViolation] =
   ## HH:MM:SS at positions 11..18, with uppercase 'T' separator at 10.
-  if raw.len < 19:
-    return err(validationError("Date", "invalid time portion", raw))
-  elif raw[10] != 'T':
-    return err(validationError("Date", "'T' separator must be uppercase", raw))
+  ## Precondition: raw.len >= 20 (enforced by detectDate).
+  if raw[10] != 'T':
+    return err(dvLowercaseT)
   elif not (
     allDigits(raw, 11, 12) and raw[13] == ':' and allDigits(raw, 14, 15) and
     raw[16] == ':' and allDigits(raw, 17, 18)
   ):
-    return err(validationError("Date", "invalid time portion", raw))
+    return err(dvBadTimePortion)
   elif raw.anyIt(it in {'t', 'z'}):
-    return err(validationError("Date", "'T' and 'Z' must be uppercase (RFC 3339)", raw))
+    return err(dvLowercaseTOrZ)
   return ok()
 
-func validateFractionalSeconds(raw: string): Result[void, ValidationError] =
+func detectFractionalSeconds(raw: string): Result[void, DateViolation] =
   ## If a '.' follows position 19, digits must follow and not all be zero.
   if raw.len > 19:
     if raw[19] == '.':
@@ -142,19 +158,14 @@ func validateFractionalSeconds(raw: string): Result[void, ValidationError] =
           break
         inc dotEnd
       if dotEnd == 20:
-        return err(
-          validationError(
-            "Date", "fractional seconds must contain at least one digit", raw
-          )
-        )
+        return err(dvEmptyFraction)
       var allZero = true
       for i in 20 ..< min(dotEnd, raw.len):
         if raw[i] != '0':
           allZero = false
           break
       if allZero:
-        return
-          err(validationError("Date", "zero fractional seconds must be omitted", raw))
+        return err(dvZeroFraction)
   return ok()
 
 func offsetStart(raw: string): Natural =
@@ -187,40 +198,85 @@ func isValidNumericOffset(raw: string, pos: Natural): bool =
         return false
   return true
 
-func validateTimezoneOffset(raw: string): Result[void, ValidationError] =
+func detectTimezoneOffset(raw: string): Result[void, DateViolation] =
   ## Validates timezone offset after seconds and optional fractional seconds.
   ## Must be 'Z' or '+HH:MM' or '-HH:MM'.
   let pos = offsetStart(raw)
   if pos >= raw.len:
-    return err(validationError("Date", "missing timezone offset", raw))
+    return err(dvMissingOffset)
   elif raw[pos] == 'Z':
     if pos + 1 != raw.len:
-      return err(validationError("Date", "trailing characters after 'Z'", raw))
+      return err(dvTrailingAfterZ)
     return ok()
   elif raw[pos] notin {'+', '-'} or not isValidNumericOffset(raw, pos):
-    return
-      err(validationError("Date", "timezone offset must be 'Z' or '+/-HH:MM'", raw))
+    return err(dvBadNumericOffset)
   return ok()
+
+func detectDate(raw: string): Result[void, DateViolation] =
+  ## Composes the four structural sub-detectors. ``?`` short-circuits
+  ## on the first violation, mirroring the existing contract.
+  if raw.len < 20:
+    return err(dvTooShort)
+  ?detectDatePortion(raw)
+  ?detectTimePortion(raw)
+  ?detectFractionalSeconds(raw)
+  ?detectTimezoneOffset(raw)
+  return ok()
+
+func detectUtcDate(raw: string): Result[void, DateViolation] =
+  ## Composes ``detectDate`` with the UTCDate-specific Z narrowing.
+  ## Precondition after ``?detectDate``: raw.len >= 20 and the offset
+  ## parses; RFC 8620 §1.4 narrows that offset to the literal 'Z'.
+  ?detectDate(raw)
+  if raw[^1] != 'Z':
+    return err(dvRequiresZ)
+  return ok()
+
+func toValidationError(v: DateViolation, typeName, raw: string): ValidationError =
+  ## Sole domain-to-wire translator. ``typeName`` is caller-supplied so
+  ## ``parseDate`` and ``parseUtcDate`` share the translator while each
+  ## reports its own outer type name — closing the pre-existing leak
+  ## where UTCDate failures in the shared path surfaced as
+  ## ``typeName="Date"``.
+  case v
+  of dvTooShort:
+    validationError(typeName, "too short for RFC 3339 date-time", raw)
+  of dvBadDatePortion:
+    validationError(typeName, "invalid date portion", raw)
+  of dvLowercaseT:
+    validationError(typeName, "'T' separator must be uppercase", raw)
+  of dvBadTimePortion:
+    validationError(typeName, "invalid time portion", raw)
+  of dvLowercaseTOrZ:
+    validationError(typeName, "'T' and 'Z' must be uppercase (RFC 3339)", raw)
+  of dvEmptyFraction:
+    validationError(typeName, "fractional seconds must contain at least one digit", raw)
+  of dvZeroFraction:
+    validationError(typeName, "zero fractional seconds must be omitted", raw)
+  of dvMissingOffset:
+    validationError(typeName, "missing timezone offset", raw)
+  of dvTrailingAfterZ:
+    validationError(typeName, "trailing characters after 'Z'", raw)
+  of dvBadNumericOffset:
+    validationError(typeName, "timezone offset must be 'Z' or '+/-HH:MM'", raw)
+  of dvRequiresZ:
+    validationError(typeName, "time-offset must be 'Z'", raw)
 
 func parseDate*(raw: string): Result[Date, ValidationError] =
   ## Structural validation of an RFC 3339 date-time string.
   ## Does NOT perform calendar validation (e.g., February 30) or
   ## validate timezone offset format beyond uppercase checks.
-  if raw.len < 20:
-    return err(validationError("Date", "too short for RFC 3339 date-time", raw))
-  ?validateDatePortion(raw)
-  ?validateTimePortion(raw)
-  ?validateFractionalSeconds(raw)
-  ?validateTimezoneOffset(raw)
+  detectDate(raw).isOkOr:
+    return err(toValidationError(error, "Date", raw))
   return ok(Date(raw))
 
 func parseUtcDate*(raw: string): Result[UTCDate, ValidationError] =
-  ## All Date validation rules, plus: must end with 'Z'.
-  discard ?parseDate(raw)
-  if raw.len < 20:
-    return err(validationError("UTCDate", "too short for RFC 3339 date-time", raw))
-  elif raw[^1] != 'Z':
-    return err(validationError("UTCDate", "time-offset must be 'Z'", raw))
+  ## All Date validation rules, plus: must end with 'Z'. Shares
+  ## ``detectDate`` with ``parseDate`` via the translator's
+  ## caller-supplied ``typeName``, so UTCDate failures never leak the
+  ## ``Date`` typeName as they did before the ADT refactor.
+  detectUtcDate(raw).isOkOr:
+    return err(toValidationError(error, "UTCDate", raw))
   return ok(UTCDate(raw))
 
 # =============================================================================
