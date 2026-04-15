@@ -9,7 +9,6 @@
 
 import std/hashes
 import std/sets
-import std/sequtils
 import std/strutils
 
 import ../validation
@@ -26,18 +25,15 @@ defineStringDistinctOps(Keyword)
 func parseKeyword*(raw: string): Result[Keyword, ValidationError] =
   ## Strict: printable ASCII (0x21–0x7E), no IMAP-forbidden chars, lowercase
   ## normalised. For client-constructed keywords.
-  if raw.len < 1 or raw.len > 255:
-    return err(validationError("Keyword", "length must be 1-255 octets", raw))
-  if not raw.allIt(it >= '!' and it <= '~'):
-    return err(validationError("Keyword", "contains non-printable character", raw))
-  if raw.anyIt(it in KeywordForbiddenChars):
-    return err(validationError("Keyword", "contains forbidden character", raw))
+  detectStrictPrintableToken(raw, KeywordForbiddenChars).isOkOr:
+    return err(toValidationError(error, "Keyword", raw))
   return ok(Keyword(raw.toLowerAscii()))
 
 func parseKeywordFromServer*(raw: string): Result[Keyword, ValidationError] =
   ## Lenient: 1–255 octets, no control characters, lowercase normalised.
   ## Tolerates IMAP-forbidden chars that strict rejects.
-  ?validateServerAssignedToken("Keyword", raw)
+  detectLenientToken(raw).isOkOr:
+    return err(toValidationError(error, "Keyword", raw))
   return ok(Keyword(raw.toLowerAscii()))
 
 const

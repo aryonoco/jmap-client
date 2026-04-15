@@ -70,18 +70,16 @@ func allDigits(raw: string, first, last: Natural): bool =
 func parseId*(raw: string): Result[Id, ValidationError] =
   ## Strict: 1-255 octets, base64url charset only.
   ## For client-constructed IDs (e.g., method call IDs used as creation IDs).
-  if raw.len < 1 or raw.len > 255:
-    return err(validationError("Id", "length must be 1-255 octets", raw))
-  if not raw.allIt(it in Base64UrlChars):
-    return
-      err(validationError("Id", "contains characters outside base64url alphabet", raw))
+  detectStrictBase64UrlToken(raw).isOkOr:
+    return err(toValidationError(error, "Id", raw))
   return ok(Id(raw))
 
 func parseIdFromServer*(raw: string): Result[Id, ValidationError] =
   ## Lenient: 1-255 octets, no control characters.
   ## For server-assigned IDs in responses. Tolerates servers that deviate
   ## from the strict base64url charset (e.g., Cyrus IMAP).
-  ?validateServerAssignedToken("Id", raw)
+  detectLenientToken(raw).isOkOr:
+    return err(toValidationError(error, "Id", raw))
   return ok(Id(raw))
 
 func parseUnsignedInt*(value: int64): Result[UnsignedInt, ValidationError] =

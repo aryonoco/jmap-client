@@ -8,7 +8,6 @@
 {.push raises: [], noSideEffect.}
 
 import std/hashes
-import std/sequtils
 
 import ./validation
 
@@ -52,28 +51,25 @@ func parseAccountId*(raw: string): Result[AccountId, ValidationError] =
   ## Lenient: 1-255 octets, no control characters.
   ## AccountIds are server-assigned Id[Account] values (§1.6.2, §2) —
   ## same lenient rules as parseIdFromServer.
-  ?validateServerAssignedToken("AccountId", raw)
+  detectLenientToken(raw).isOkOr:
+    return err(toValidationError(error, "AccountId", raw))
   return ok(AccountId(raw))
 
 func parseJmapState*(raw: string): Result[JmapState, ValidationError] =
   ## Non-empty, no control characters. Server-assigned — same defensive
   ## checks as other server-assigned identifiers.
-  if raw.len == 0:
-    return err(validationError("JmapState", "must not be empty", raw))
-  if raw.anyIt(it < ' ' or it == '\x7F'):
-    return err(validationError("JmapState", "contains control characters", raw))
+  detectNonControlString(raw).isOkOr:
+    return err(toValidationError(error, "JmapState", raw))
   return ok(JmapState(raw))
 
 func parseMethodCallId*(raw: string): Result[MethodCallId, ValidationError] =
   ## Non-empty. Client-generated.
-  if raw.len == 0:
-    return err(validationError("MethodCallId", "must not be empty", raw))
+  detectNonEmpty(raw).isOkOr:
+    return err(toValidationError(error, "MethodCallId", raw))
   return ok(MethodCallId(raw))
 
 func parseCreationId*(raw: string): Result[CreationId, ValidationError] =
   ## Non-empty. Must not start with '#' (the prefix is a wire-format concern).
-  if raw.len < 1:
-    return err(validationError("CreationId", "must not be empty", raw))
-  elif raw[0] == '#':
-    return err(validationError("CreationId", "must not include '#' prefix", raw))
+  detectNonEmptyNoPrefix(raw).isOkOr:
+    return err(toValidationError(error, "CreationId", raw))
   return ok(CreationId(raw))

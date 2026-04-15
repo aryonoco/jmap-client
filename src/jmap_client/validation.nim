@@ -150,17 +150,135 @@ template validateUniqueByIt*(
       errs.add validationError(typeName, dupMsg, $k)
     errs
 
-func validateServerAssignedToken*(
-    typeName: string, raw: string
-): Result[void, ValidationError] =
-  ## Shared validation for server-assigned identifiers: 1–255 octets, no
-  ## control characters. Used by parseIdFromServer and parseAccountId to
-  ## eliminate duplicated validation logic.
-  if raw.len < 1 or raw.len > 255:
-    return err(validationError(typeName, "length must be 1-255 octets", raw))
-  if raw.anyIt(it < ' ' or it == '\x7F'):
-    return err(validationError(typeName, "contains control characters", raw))
-  return ok()
-
 const Base64UrlChars* = {'A' .. 'Z', 'a' .. 'z', '0' .. '9', '-', '_'}
   ## Characters permitted in RFC 8620 §1.2 entity identifiers.
+
+type TokenViolation* = enum
+  ## Shared structural-failure vocabulary for every token-shaped identifier
+  ## parser in this library (``Id``, ``AccountId``, ``JmapState``,
+  ## ``MethodCallId``, ``CreationId``, ``Keyword``, ``MailboxRole``). Each
+  ## variant maps to exactly one wire message at ``toValidationError``; the
+  ## message lives in one place. Adding a variant forces a compile error at
+  ## the translator, not at every detector.
+  tvEmpty
+  tvLengthOutOfRange
+  tvControlChars
+  tvNonPrintableAscii
+  tvForbiddenChar
+  tvNotBase64Url
+  tvCreationIdPrefix
+
+func toValidationError*(v: TokenViolation, typeName, raw: string): ValidationError =
+  ## Sole domain-to-wire translator for ``TokenViolation``. ``typeName`` is
+  ## caller-supplied so every parser across every module shares this one site
+  ## while branding its own outer type name. Adding a ``TokenViolation``
+  ## variant forces a compile error here.
+  case v
+  of tvEmpty:
+    validationError(typeName, "must not be empty", raw)
+  of tvLengthOutOfRange:
+    validationError(typeName, "length must be 1-255 octets", raw)
+  of tvControlChars:
+    validationError(typeName, "contains control characters", raw)
+  of tvNonPrintableAscii:
+    validationError(typeName, "contains non-printable character", raw)
+  of tvForbiddenChar:
+    validationError(typeName, "contains forbidden character", raw)
+  of tvNotBase64Url:
+    validationError(typeName, "contains characters outside base64url alphabet", raw)
+  of tvCreationIdPrefix:
+    validationError(typeName, "must not include '#' prefix", raw)
+
+# --- Atomic detectors -------------------------------------------------------
+
+func detectNonEmpty*(raw: string): Result[void, TokenViolation] =
+  ## Non-empty precondition. Exported because ``parseMethodCallId`` uses it
+  ## directly — the sole single-atomic parser.
+  if raw.len == 0:
+    return err(tvEmpty)
+  return ok()
+
+func detectLengthInRange(
+    raw: string, minLen, maxLen: int
+): Result[void, TokenViolation] =
+  ## Fires ``tvLengthOutOfRange`` when ``raw.len`` falls outside
+  ## ``[minLen, maxLen]``. At the canonical (1, 255) bounds this covers BOTH
+  ## empty input and overlong input with the single
+  ## "length must be 1-255 octets" wire message — matching the existing
+  ## ``parseId`` / ``parseAccountId`` / ``parseKeyword`` contract.
+  if raw.len < minLen or raw.len > maxLen:
+    return err(tvLengthOutOfRange)
+  return ok()
+
+func detectNoControlChars(raw: string): Result[void, TokenViolation] =
+  ## Rejects bytes below SP (0x20) and DEL (0x7F).
+  if raw.anyIt(it < ' ' or it == '\x7F'):
+    return err(tvControlChars)
+  return ok()
+
+func detectPrintableAscii(raw: string): Result[void, TokenViolation] =
+  ## Restricts to printable ASCII (0x21..0x7E).
+  if not raw.allIt(it >= '!' and it <= '~'):
+    return err(tvNonPrintableAscii)
+  return ok()
+
+func detectNoForbiddenChar(
+    raw: string, forbidden: set[char]
+): Result[void, TokenViolation] =
+  ## Rejects any byte in ``forbidden``. Caller supplies the per-type set
+  ## (e.g., ``KeywordForbiddenChars`` for ``parseKeyword``).
+  if raw.anyIt(it in forbidden):
+    return err(tvForbiddenChar)
+  return ok()
+
+func detectBase64UrlAlphabet(raw: string): Result[void, TokenViolation] =
+  ## Restricts to RFC 8620 §1.2 base64url characters.
+  if not raw.allIt(it in Base64UrlChars):
+    return err(tvNotBase64Url)
+  return ok()
+
+func detectNoCreationIdPrefix(raw: string): Result[void, TokenViolation] =
+  ## Rejects leading '#' — the wire-format prefix is applied at serialisation,
+  ## so interior ``CreationId`` values must not carry it.
+  if raw.len > 0 and raw[0] == '#':
+    return err(tvCreationIdPrefix)
+  return ok()
+
+# --- Composite detectors (name the per-parser policies) --------------------
+
+func detectLenientToken*(raw: string): Result[void, TokenViolation] =
+  ## 1..255 octets, no control characters. For server-assigned tokens that
+  ## may deviate from strict charset rules (Postel's law). Consumed by
+  ## ``parseAccountId``, ``parseIdFromServer``, ``parseKeywordFromServer``.
+  ?detectLengthInRange(raw, 1, 255)
+  ?detectNoControlChars(raw)
+  return ok()
+
+func detectNonControlString*(raw: string): Result[void, TokenViolation] =
+  ## Non-empty, no control characters, no upper length bound. Consumed by
+  ## ``parseJmapState`` and ``parseMailboxRole`` pre-classification.
+  ?detectNonEmpty(raw)
+  ?detectNoControlChars(raw)
+  return ok()
+
+func detectStrictBase64UrlToken*(raw: string): Result[void, TokenViolation] =
+  ## 1..255 octets, RFC 8620 §1.2 base64url alphabet. Consumed by ``parseId``.
+  ?detectLengthInRange(raw, 1, 255)
+  ?detectBase64UrlAlphabet(raw)
+  return ok()
+
+func detectStrictPrintableToken*(
+    raw: string, forbidden: set[char]
+): Result[void, TokenViolation] =
+  ## 1..255 octets, printable ASCII (0x21..0x7E), no ``forbidden`` bytes.
+  ## Consumed by ``parseKeyword`` with ``KeywordForbiddenChars``.
+  ?detectLengthInRange(raw, 1, 255)
+  ?detectPrintableAscii(raw)
+  ?detectNoForbiddenChar(raw, forbidden)
+  return ok()
+
+func detectNonEmptyNoPrefix*(raw: string): Result[void, TokenViolation] =
+  ## Non-empty, no '#' prefix. Consumed by ``parseCreationId``.
+  ?detectNonEmpty(raw)
+  ?detectNoCreationIdPrefix(raw)
+  return ok()
