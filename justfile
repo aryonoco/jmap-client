@@ -174,6 +174,25 @@ lint:
     nim check src/jmap_client.nim
     @echo "Lint checks passed"
 
+# Lint every src/ module as its own entry point — catches effect-analysis
+# failures in modules not yet transitively reachable from src/jmap_client.nim
+# (e.g. a new module awaiting a re-export). Complements `lint`, which only
+# sees the transitive closure from the library entry point.
+lint-isolated:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    shopt -s inherit_errexit
+    echo "Running isolated nim check over every src/ module..."
+    find src -name '*.nim' -type f -print0 | \
+        xargs -0 -n1 -P"$(nproc)" bash -c '
+            file="$1"
+            if ! output=$(nim check --hints:off "$file" 2>&1); then
+                printf "\n=== FAIL: %s ===\n%s\n" "$file" "$output"
+                exit 1
+            fi
+        ' --
+    echo "Isolated lint passed"
+
 # Static analysis with nimalyzer
 analyse:
     @echo "Running static analysis..."
@@ -184,7 +203,7 @@ analyse:
 analyze: analyse
 
 # Run all code quality checks
-check: fmt-check lint analyse
+check: fmt-check lint lint-isolated analyse
     @echo "All quality checks passed"
 
 # =============================================================================
@@ -198,7 +217,7 @@ reuse:
     @echo "REUSE compliance check passed"
 
 # Run full CI pipeline locally (mirrors .github/workflows/ci.yml)
-ci: reuse fmt-check lint analyse test
+ci: reuse fmt-check lint lint-isolated analyse test
     @echo ""
     @echo "============================================"
     @echo "All CI checks passed!"
