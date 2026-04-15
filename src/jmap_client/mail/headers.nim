@@ -335,6 +335,51 @@ type BlueprintEmailHeaderName* = distinct string
 
 defineStringDistinctOps(BlueprintEmailHeaderName)
 
+type BlueprintNameViolation = enum
+  ## Structural failure modes for blueprint header-name parsing.
+  ## Three variants (``bnvEmpty``, ``bnvNonPrintable``, ``bnvContainsColon``)
+  ## are shared by both Email and Body parsers; the remaining two are
+  ## parser-specific but live in the same enum so the translator is the
+  ## single wire-message boundary.
+  bnvEmpty
+  bnvNonPrintable
+  bnvContainsColon
+  bnvContentPrefix
+  bnvContentTransferEncoding
+
+func toValidationError(
+    v: BlueprintNameViolation, typeName, raw: string
+): ValidationError =
+  ## Sole domain-to-wire translator. ``typeName`` is caller-supplied so
+  ## ``parseBlueprintEmailHeaderName`` and ``parseBlueprintBodyHeaderName``
+  ## share the translator while each reports its own outer type name —
+  ## the same typeName-parameter pattern as ``DateViolation`` in
+  ## ``primitives.nim``.
+  case v
+  of bnvEmpty:
+    validationError(typeName, "name must not be empty", raw)
+  of bnvNonPrintable:
+    validationError(typeName, "name contains non-printable byte", raw)
+  of bnvContainsColon:
+    validationError(typeName, "name must not contain a colon", raw)
+  of bnvContentPrefix:
+    validationError(typeName, "name must not start with 'content-'", raw)
+  of bnvContentTransferEncoding:
+    validationError(typeName, "name must not be 'content-transfer-encoding'", raw)
+
+func detectBlueprintCommon(name: string): Result[void, BlueprintNameViolation] =
+  ## Structural rules shared by both blueprint-name parsers: non-empty,
+  ## printable-ASCII only (octets 0x21..0x7E, RFC 5322 §3.6.8 ftext), and
+  ## no colon (which would terminate the header-name grammar).
+  if name.len == 0:
+    return err(bnvEmpty)
+  for ch in name:
+    if ch notin {'\x21' .. '\x7E'}:
+      return err(bnvNonPrintable)
+  if ':' in name:
+    return err(bnvContainsColon)
+  ok()
+
 func parseBlueprintEmailHeaderName*(
     name: string
 ): Result[BlueprintEmailHeaderName, ValidationError] =
@@ -343,28 +388,12 @@ func parseBlueprintEmailHeaderName*(
   ## (RFC 5322 §3.6.8 ftext), and names starting with ``content-`` after
   ## lowercase normalisation. No ``*FromServer`` sibling: creation-model
   ## vocabulary is unidirectional (R1-3, §5.3 E28).
-  if name.len == 0:
-    return
-      err(validationError("BlueprintEmailHeaderName", "name must not be empty", name))
-  for ch in name:
-    if ch notin {'\x21' .. '\x7E'}:
-      return err(
-        validationError(
-          "BlueprintEmailHeaderName", "name contains non-printable byte", name
-        )
-      )
-  if ':' in name:
-    return err(
-      validationError("BlueprintEmailHeaderName", "name must not contain a colon", name)
-    )
+  detectBlueprintCommon(name).isOkOr:
+    return err(toValidationError(error, "BlueprintEmailHeaderName", name))
   let normalised = name.toLowerAscii()
   if normalised.startsWith("content-"):
-    return err(
-      validationError(
-        "BlueprintEmailHeaderName", "name must not start with 'content-'", name
-      )
-    )
-  return ok(BlueprintEmailHeaderName(normalised))
+    return err(toValidationError(bnvContentPrefix, "BlueprintEmailHeaderName", name))
+  ok(BlueprintEmailHeaderName(normalised))
 
 # =============================================================================
 # BlueprintBodyHeaderName (Design §4.4)
@@ -386,28 +415,14 @@ func parseBlueprintBodyHeaderName*(
   ## input, bytes outside 0x21..0x7E (non-printable ASCII), colon
   ## (RFC 5322 §3.6.8 ftext), and the exact lowercase name
   ## ``content-transfer-encoding``. No ``*FromServer`` sibling.
-  if name.len == 0:
-    return
-      err(validationError("BlueprintBodyHeaderName", "name must not be empty", name))
-  for ch in name:
-    if ch notin {'\x21' .. '\x7E'}:
-      return err(
-        validationError(
-          "BlueprintBodyHeaderName", "name contains non-printable byte", name
-        )
-      )
-  if ':' in name:
-    return err(
-      validationError("BlueprintBodyHeaderName", "name must not contain a colon", name)
-    )
+  detectBlueprintCommon(name).isOkOr:
+    return err(toValidationError(error, "BlueprintBodyHeaderName", name))
   let normalised = name.toLowerAscii()
   if normalised == "content-transfer-encoding":
     return err(
-      validationError(
-        "BlueprintBodyHeaderName", "name must not be 'content-transfer-encoding'", name
-      )
+      toValidationError(bnvContentTransferEncoding, "BlueprintBodyHeaderName", name)
     )
-  return ok(BlueprintBodyHeaderName(normalised))
+  ok(BlueprintBodyHeaderName(normalised))
 
 # =============================================================================
 # NonEmptySeq op-template instantiations (Design §4.5.1 / §4.6)
