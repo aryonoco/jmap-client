@@ -143,6 +143,109 @@ func hasVariable*(tmpl: UriTemplate, name: string): bool =
   let target = "{" & name & "}"
   return target in string(tmpl)
 
+type UriRole = enum
+  ## Tags the three RFC 8620 section 2 URI templates advertised by the server
+  ## Session object. Backing string matches the field name used in the wire
+  ## error message (e.g. ``"downloadUrl missing {accountId}"``).
+  urDownload = "downloadUrl"
+  urUpload = "uploadUrl"
+  urEventSource = "eventSourceUrl"
+
+type SessionViolationKind = enum
+  svMissingCoreCapability
+  svEmptyApiUrl
+  svApiUrlControlChar
+  svUriMissingVariable
+
+type SessionViolation {.ruleOff: "objects".} = object
+  case kind: SessionViolationKind
+  of svMissingCoreCapability, svEmptyApiUrl:
+    discard
+  of svApiUrlControlChar:
+    apiUrl: string
+  of svUriMissingVariable:
+    role: UriRole
+    variable: string
+    rawUri: string
+
+func requiredVariables(role: UriRole): seq[string] =
+  ## Single source of truth for the RFC 8620 section 2 required URI variables
+  ## per template role. Iteration order is the message-reporting order
+  ## (first-missing wins), preserving pre-refactor behaviour.
+  case role
+  of urDownload:
+    @["accountId", "blobId", "type", "name"]
+  of urUpload:
+    @["accountId"]
+  of urEventSource:
+    @["types", "closeafter", "ping"]
+
+func toValidationError(v: SessionViolation): ValidationError =
+  ## Sole domain-to-wire translator for ``SessionViolation``. Adding a new
+  ## ``SessionViolationKind`` variant forces a compile error here.
+  case v.kind
+  of svMissingCoreCapability:
+    validationError(
+      "Session", "capabilities must include urn:ietf:params:jmap:core", ""
+    )
+  of svEmptyApiUrl:
+    validationError("Session", "apiUrl must not be empty", "")
+  of svApiUrlControlChar:
+    validationError("Session", "apiUrl must not contain newline characters", v.apiUrl)
+  of svUriMissingVariable:
+    validationError("Session", $v.role & " missing {" & v.variable & "}", v.rawUri)
+
+func detectCoreCapability(
+    caps: openArray[ServerCapability]
+): Result[void, SessionViolation] =
+  ## RFC 8620 section 2: server capability list MUST include the JMAP core
+  ## capability identifier (``urn:ietf:params:jmap:core``).
+  if caps.hasKind(ckCore):
+    return ok()
+  err(SessionViolation(kind: svMissingCoreCapability))
+
+func detectApiUrl(apiUrl: string): Result[void, SessionViolation] =
+  ## RFC 8620 section 2: apiUrl MUST be a non-empty URL free of embedded
+  ## newline characters (which would break HTTP request-line framing).
+  if apiUrl.len == 0:
+    return err(SessionViolation(kind: svEmptyApiUrl))
+  if apiUrl.contains({'\c', '\L'}):
+    return err(SessionViolation(kind: svApiUrlControlChar, apiUrl: apiUrl))
+  ok()
+
+func detectUriVariables(
+    role: UriRole, tmpl: UriTemplate
+): Result[void, SessionViolation] =
+  ## Short-circuits on the first required variable missing from ``tmpl``.
+  ## Iteration order matches ``requiredVariables(role)`` — that is the
+  ## reporting order the existing tests pin down.
+  for variable in requiredVariables(role):
+    if not tmpl.hasVariable(variable):
+      return err(
+        SessionViolation(
+          kind: svUriMissingVariable,
+          role: role,
+          variable: variable,
+          rawUri: string(tmpl),
+        )
+      )
+  ok()
+
+func detectSession(
+    capabilities: openArray[ServerCapability],
+    apiUrl: string,
+    downloadUrl, uploadUrl, eventSourceUrl: UriTemplate,
+): Result[void, SessionViolation] =
+  ## Composes the five structural sub-detectors with ``?`` short-circuit,
+  ## mirroring the original ``parseSession`` ordering so first-error
+  ## reporting is byte-identical to the pre-refactor behaviour.
+  ?detectCoreCapability(capabilities)
+  ?detectApiUrl(apiUrl)
+  ?detectUriVariables(urDownload, downloadUrl)
+  ?detectUriVariables(urUpload, uploadUrl)
+  ?detectUriVariables(urEventSource, eventSourceUrl)
+  ok()
+
 func parseSession*(
     capabilities: seq[ServerCapability],
     accounts: Table[AccountId, Account],
@@ -156,53 +259,26 @@ func parseSession*(
 ): Result[Session, ValidationError] =
   ## Validates structural invariants:
   ## 1. capabilities includes ckCore (RFC section 2: MUST)
-  ## 2. apiUrl is non-empty
+  ## 2. apiUrl is non-empty and free of newlines
   ## 3. downloadUrl contains {accountId}, {blobId}, {type}, {name} (RFC section 2)
   ## 4. uploadUrl contains {accountId} (RFC section 2)
   ## 5. eventSourceUrl contains {types}, {closeafter}, {ping} (RFC section 2)
   ## Deliberately omits cross-reference validation (Decision D7).
-  if not capabilities.hasKind(ckCore):
-    return err(
-      validationError(
-        "Session", "capabilities must include urn:ietf:params:jmap:core", ""
-      )
+  detectSession(capabilities, apiUrl, downloadUrl, uploadUrl, eventSourceUrl).isOkOr:
+    return err(toValidationError(error))
+  ok(
+    Session(
+      rawCapabilities: capabilities,
+      rawAccounts: accounts,
+      rawPrimaryAccounts: primaryAccounts,
+      rawUsername: username,
+      rawApiUrl: apiUrl,
+      rawDownloadUrl: downloadUrl,
+      rawUploadUrl: uploadUrl,
+      rawEventSourceUrl: eventSourceUrl,
+      rawState: state,
     )
-  if apiUrl.len == 0:
-    return err(validationError("Session", "apiUrl must not be empty", ""))
-  if apiUrl.contains({'\c', '\L'}):
-    return err(
-      validationError("Session", "apiUrl must not contain newline characters", apiUrl)
-    )
-  for variable in ["accountId", "blobId", "type", "name"]:
-    if not downloadUrl.hasVariable(variable):
-      return err(
-        validationError(
-          "Session", "downloadUrl missing {" & variable & "}", string(downloadUrl)
-        )
-      )
-  if not uploadUrl.hasVariable("accountId"):
-    return err(
-      validationError("Session", "uploadUrl missing {accountId}", string(uploadUrl))
-    )
-  for variable in ["types", "closeafter", "ping"]:
-    if not eventSourceUrl.hasVariable(variable):
-      return err(
-        validationError(
-          "Session", "eventSourceUrl missing {" & variable & "}", string(eventSourceUrl)
-        )
-      )
-  let session = Session(
-    rawCapabilities: capabilities,
-    rawAccounts: accounts,
-    rawPrimaryAccounts: primaryAccounts,
-    rawUsername: username,
-    rawApiUrl: apiUrl,
-    rawDownloadUrl: downloadUrl,
-    rawUploadUrl: uploadUrl,
-    rawEventSourceUrl: eventSourceUrl,
-    rawState: state,
   )
-  return ok(session)
 
 func coreCapabilities*(session: Session): CoreCapabilities =
   ## Returns the core capabilities. Total function (no Result) because
