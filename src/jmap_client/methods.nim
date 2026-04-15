@@ -76,6 +76,52 @@ type SetRequest*[T] = object
     ## A list of identifiers for records to permanently delete. Referencable:
     ## may be a direct seq or a result reference.
 
+type CopyDestroyModeKind* = enum
+  ## Discriminator for ``CopyDestroyMode``. Names the two RFC 8620 §5.4
+  ## post-copy dispositions: ``cdmKeep`` leaves the originals in place;
+  ## ``cdmDestroyAfterSuccess`` triggers an implicit Foo/set destroy of
+  ## the originals in the from-account after a successful copy.
+  cdmKeep
+  cdmDestroyAfterSuccess
+
+type CopyDestroyMode* {.ruleOff: "objects".} = object
+  ## Typed post-copy disposition for ``CopyRequest`` (RFC 8620 §5.4).
+  ##
+  ## Closes the illegal-state hole left by the prior flat representation
+  ## (``onSuccessDestroyOriginal: bool`` + ``destroyFromIfInState:
+  ## Opt[JmapState]``), where a non-empty ``destroyFromIfInState`` alongside
+  ## ``onSuccessDestroyOriginal: false`` was structurally expressible but
+  ## semantically meaningless -- the server would silently ignore the
+  ## ``ifInState`` because no implicit destroy was issued. The case object
+  ## makes the two legitimate combinations the only representable ones.
+  ##
+  ## Construction via the smart constructors ``keepOriginals`` and
+  ## ``destroyAfterSuccess``; direct case-object construction is acceptable
+  ## because the discriminator is module-public (the illegal state is gone).
+  case kind*: CopyDestroyModeKind
+  of cdmKeep:
+    discard
+  of cdmDestroyAfterSuccess:
+    destroyIfInState*: Opt[JmapState]
+      ## Passed as ``ifInState`` to the implicit Foo/set call. ``Opt.none``
+      ## disables the state guard on the implicit destroy.
+
+func keepOriginals*(): CopyDestroyMode =
+  ## Constructs the ``cdmKeep`` variant -- the server leaves originals in
+  ## place after a successful copy. Wire projection omits the implicit
+  ## destroy fields (``onSuccessDestroyOriginal: false``, no
+  ## ``destroyFromIfInState``).
+  return CopyDestroyMode(kind: cdmKeep)
+
+func destroyAfterSuccess*(
+    ifInState: Opt[JmapState] = Opt.none(JmapState)
+): CopyDestroyMode =
+  ## Constructs the ``cdmDestroyAfterSuccess`` variant -- the server issues
+  ## an implicit Foo/set destroy of the originals after a successful copy.
+  ## ``ifInState`` is the optional state guard passed through to that
+  ## implicit destroy call.
+  return CopyDestroyMode(kind: cdmDestroyAfterSuccess, destroyIfInState: ifInState)
+
 type CopyRequest*[T] = object
   ## Request arguments for Foo/copy (RFC 8620 section 5.4).
   ## Copies records from one account to another.
@@ -89,12 +135,10 @@ type CopyRequest*[T] = object
     ## A map of creation identifiers to entity data objects. Required (not
     ## optional). Each Foo object must contain an "id" property referencing
     ## the record in the from-account.
-  onSuccessDestroyOriginal*: bool
-    ## If true, the server attempts to destroy the originals after successful
-    ## copies via an implicit Foo/set call.
-  destroyFromIfInState*: Opt[JmapState]
-    ## Passed as "ifInState" to the implicit Foo/set call when
-    ## onSuccessDestroyOriginal is true.
+  destroyMode*: CopyDestroyMode
+    ## Post-copy disposition of the originals. Case object -- the illegal
+    ## combination "state-guard supplied with no implicit destroy" is
+    ## structurally unrepresentable.
 
 type QueryRequest*[T, C] = object
   ## Request arguments for Foo/query (RFC 8620 section 5.5).
@@ -415,7 +459,8 @@ func toJson*[T](req: SetRequest[T]): JsonNode =
 func toJson*[T](req: CopyRequest[T]): JsonNode =
   ## Serialise CopyRequest to JSON arguments object (RFC 8620 section 5.4).
   ## ``create`` is required (always emitted). ``onSuccessDestroyOriginal``
-  ## always emitted.
+  ## always emitted. The ``destroyMode`` ADT dispatches back onto the two
+  ## wire fields so the emitted JSON is byte-identical to the pre-ADT form.
   var node = newJObject()
   node["fromAccountId"] = req.fromAccountId.toJson()
   for s in req.ifFromInState:
@@ -427,9 +472,13 @@ func toJson*[T](req: CopyRequest[T]): JsonNode =
   for k, v in req.create:
     createObj[string(k)] = v
   node["create"] = createObj
-  node["onSuccessDestroyOriginal"] = %req.onSuccessDestroyOriginal
-  for s in req.destroyFromIfInState:
-    node["destroyFromIfInState"] = s.toJson()
+  case req.destroyMode.kind
+  of cdmKeep:
+    node["onSuccessDestroyOriginal"] = %false
+  of cdmDestroyAfterSuccess:
+    node["onSuccessDestroyOriginal"] = %true
+    for s in req.destroyMode.destroyIfInState:
+      node["destroyFromIfInState"] = s.toJson()
   return node
 
 func toJson*[T, C](

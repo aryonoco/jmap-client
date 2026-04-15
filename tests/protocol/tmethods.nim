@@ -267,8 +267,7 @@ block copyRequestMinimal:
     accountId: makeAccountId("to1"),
     ifInState: Opt.none(JmapState),
     create: createTbl,
-    onSuccessDestroyOriginal: false,
-    destroyFromIfInState: Opt.none(JmapState),
+    destroyMode: keepOriginals(),
   )
   let j = req.toJson()
   doAssert j{"fromAccountId"}.getStr("") == "from1"
@@ -277,7 +276,8 @@ block copyRequestMinimal:
   doAssert j{"onSuccessDestroyOriginal"}.getBool(true) == false
 
 block copyRequestOnSuccessTrue:
-  ## CopyRequest with onSuccessDestroyOriginal true always emitted.
+  ## CopyRequest with destroy-after-success mode always emits
+  ## onSuccessDestroyOriginal true.
   var createTbl = initTable[CreationId, JsonNode]()
   createTbl[makeCreationId("k1")] = %*{"id": "src1"}
   let req = CopyRequest[MockFoo](
@@ -286,8 +286,7 @@ block copyRequestOnSuccessTrue:
     accountId: makeAccountId("to1"),
     ifInState: Opt.none(JmapState),
     create: createTbl,
-    onSuccessDestroyOriginal: true,
-    destroyFromIfInState: Opt.none(JmapState),
+    destroyMode: destroyAfterSuccess(),
   )
   let j = req.toJson()
   doAssert j{"onSuccessDestroyOriginal"}.getBool(false) == true

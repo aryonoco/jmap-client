@@ -188,18 +188,19 @@ func addCopy*[T](
     create: Table[CreationId, JsonNode],
     ifFromInState: Opt[JmapState] = Opt.none(JmapState),
     ifInState: Opt[JmapState] = Opt.none(JmapState),
-    onSuccessDestroyOriginal: bool = false,
-    destroyFromIfInState: Opt[JmapState] = Opt.none(JmapState),
+    destroyMode: CopyDestroyMode = keepOriginals(),
 ): (RequestBuilder, ResponseHandle[CopyResponse[T]]) =
   ## Adds a Foo/copy invocation. Copies records from one account to another.
+  ## ``destroyMode`` defaults to ``keepOriginals()`` -- pass
+  ## ``destroyAfterSuccess(ifInState)`` to trigger the RFC 8620 §5.4
+  ## implicit Foo/set destroy on the originals.
   let req = CopyRequest[T](
     fromAccountId: fromAccountId,
     ifFromInState: ifFromInState,
     accountId: accountId,
     ifInState: ifInState,
     create: create,
-    onSuccessDestroyOriginal: onSuccessDestroyOriginal,
-    destroyFromIfInState: destroyFromIfInState,
+    destroyMode: destroyMode,
   )
   addMethodImpl(b, T, copyMethodName, req, CopyResponse[T])
 
