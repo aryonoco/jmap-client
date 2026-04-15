@@ -65,11 +65,7 @@ defineHashSetDistinctOps(MailboxIdSet, Id)
 func initMailboxIdSet*(ids: openArray[Id]): MailboxIdSet =
   ## Constructs a MailboxIdSet from the given identifiers. Empty set is valid.
   ## Duplicates are naturally deduplicated by the underlying HashSet.
-  var hs = initHashSet[Id](ids.len)
-  for id in ids:
-    hs.incl(id)
-  let ms = MailboxIdSet(hs)
-  return ms
+  MailboxIdSet(ids.toHashSet)
 
 iterator items*(ms: MailboxIdSet): Id =
   ## Yields each identifier in the set. Unwraps the distinct type to iterate
@@ -95,10 +91,7 @@ func parseNonEmptyMailboxIdSet*(
   ## by the underlying HashSet. Returns err on empty input.
   if ids.len == 0:
     return err(validationError("NonEmptyMailboxIdSet", "must not be empty", ""))
-  var hs = initHashSet[Id](ids.len)
-  for id in ids:
-    hs.incl(id)
-  return ok(NonEmptyMailboxIdSet(hs))
+  return ok(NonEmptyMailboxIdSet(ids.toHashSet))
 
 # =============================================================================
 # MailboxRights

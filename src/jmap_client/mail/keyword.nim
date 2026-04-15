@@ -60,11 +60,7 @@ func initKeywordSet*(keywords: openArray[Keyword]): KeywordSet =
   ## Constructs a KeywordSet from the given keywords. Empty set is valid
   ## (Decision B2). Duplicates are naturally deduplicated by the underlying
   ## HashSet.
-  var hs = initHashSet[Keyword](keywords.len)
-  for kw in keywords:
-    hs.incl(kw)
-  let ks = KeywordSet(hs)
-  return ks
+  KeywordSet(keywords.toHashSet)
 
 iterator items*(ks: KeywordSet): Keyword =
   ## Yields each keyword in the set. Unwraps the distinct type to iterate
