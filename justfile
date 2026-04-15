@@ -77,15 +77,15 @@ build:
 # TESTING
 # =============================================================================
 
-# Run all tests (parallel via testament categories + megatest)
+# Run all tests except those in tests/testament_skip.txt (see test-full for everything)
 test:
     #!/usr/bin/env bash
     set -euo pipefail
     shopt -s inherit_errexit
     cleanup() { find tests/ -name 'megatest' -type f -delete; find tests/ -name 'megatest.nim' -type f -delete; }
     trap cleanup EXIT
-    echo "Running tests..."
-    testament --backendLogging:off all
+    echo "Running tests (excluding slow tests from tests/testament_skip.txt)..."
+    testament --backendLogging:off --skipFrom:tests/testament_skip.txt all
     echo "All tests passed"
 
 # Run tests with verbose output
@@ -109,10 +109,10 @@ test-serde:
     @echo "Running serde tests..."
     testament cat serde
 
-# Run property-based tests only
+# Run property-based tests only (excludes slow tests from tests/testament_skip.txt)
 test-prop:
     @echo "Running property tests..."
-    testament cat property
+    testament --skipFrom:tests/testament_skip.txt cat property
 
 # Run RFC/scenario compliance tests only
 test-rfc:
@@ -131,12 +131,12 @@ test-parallel:
     shopt -s inherit_errexit
     cleanup() { find tests/ -name 'megatest' -type f -delete; find tests/ -name 'megatest.nim' -type f -delete; }
     trap cleanup EXIT
-    echo "Running tests in parallel by category..."
-    testament --backendLogging:off cat unit &
-    testament --backendLogging:off cat serde &
-    testament --backendLogging:off cat property &
-    testament --backendLogging:off cat compliance &
-    testament --backendLogging:off cat stress &
+    echo "Running tests in parallel by category (excluding tests/testament_skip.txt)..."
+    testament --backendLogging:off --skipFrom:tests/testament_skip.txt cat unit &
+    testament --backendLogging:off --skipFrom:tests/testament_skip.txt cat serde &
+    testament --backendLogging:off --skipFrom:tests/testament_skip.txt cat property &
+    testament --backendLogging:off --skipFrom:tests/testament_skip.txt cat compliance &
+    testament --backendLogging:off --skipFrom:tests/testament_skip.txt cat stress &
     wait
     echo "All parallel tests passed"
 
@@ -146,6 +146,17 @@ test-report:
     testament all
     testament html
     @echo "Test report: testresults.html"
+
+# Run every test including slow ones from tests/testament_skip.txt. Use periodically.
+test-full:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    shopt -s inherit_errexit
+    cleanup() { find tests/ -name 'megatest' -type f -delete; find tests/ -name 'megatest.nim' -type f -delete; }
+    trap cleanup EXIT
+    echo "Running FULL test suite (including slow tests)..."
+    testament --backendLogging:off all
+    echo "Full test suite passed"
 
 # =============================================================================
 # CODE QUALITY

@@ -1,0 +1,6 @@
+# Tests skipped by `just test`, `just test-parallel`, `just test-prop`, `just ci`.
+# Run them via `just test-full`. Keep this list minimal — only tests whose
+# wall-clock cost outweighs their routine-run value.
+#
+# tprop_mail_e.nim: ~100+s, 18 EmailBlueprint property groups (A-D).
+tests/property/tprop_mail_e.nim
