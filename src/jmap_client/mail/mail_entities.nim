@@ -175,6 +175,11 @@ func copyMethodName*(T: typedesc[Email]): MethodName =
   discard $T
   mnEmailCopy
 
+func importMethodName*(T: typedesc[Email]): MethodName =
+  ## Email/import method name.
+  discard $T
+  mnEmailImport
+
 func capabilityUri*(T: typedesc[Email]): string =
   ## Capability URI for Email methods.
   discard $T

@@ -9,11 +9,15 @@
 
 {.push raises: [], noSideEffect.}
 
+import std/json
+import std/sets
 import std/tables
 
 import ../validation
 import ../primitives
 import ../framework
+import ../identifiers
+import ../errors
 
 import ./keyword
 import ./mailbox
@@ -225,3 +229,188 @@ type ParsedEmail* {.ruleOff: "objects".} = object
   attachments*: seq[EmailBodyPart] ## Leaf parts — non-body content.
   hasAttachment*: bool ## Server heuristic.
   preview*: string ## Up to 256 characters plaintext fragment.
+
+# =============================================================================
+# EmailCreatedItem
+# =============================================================================
+
+type EmailCreatedItem* {.ruleOff: "objects".} = object
+  ## Successful-create entry for Email/set, Email/copy, and Email/import
+  ## (RFC 8621 §§4.6/4.7/4.8). Exactly the four fields the RFC mandates;
+  ## no ``Opt`` on any field — a server omitting any of the four has emitted
+  ## a malformed response (Design §2.1, F2).
+  id*: Id ## JMAP object id of the created Email.
+  blobId*: Id ## Blob id for the raw RFC 5322 octets.
+  threadId*: Id ## Thread the created Email belongs to.
+  size*: UnsignedInt ## Raw message size in octets.
+
+# =============================================================================
+# UpdatedEntry
+# =============================================================================
+
+type UpdatedEntryKind* = enum
+  ## Discriminator for the RFC 8620 §5.3 ``Foo|null`` inner value.
+  uekUnchanged
+    ## Server made no changes the client doesn't already know
+    ## (wire value: JSON null).
+  uekChanged
+    ## Server altered properties; payload is the changed-property map
+    ## (wire value: JSON object).
+
+type UpdatedEntry* {.ruleOff: "objects".} = object
+  ## Encodes the per-id value in a /set ``updated`` response map per RFC
+  ## 8620 §5.3 (Design §2.2, F2.1). Case object makes the ``Foo|null``
+  ## split a type-level fact: ``Opt[JsonNode]`` would admit two encodings
+  ## of "null" (``Opt.none`` vs ``Opt.some(JNull)``), violating
+  ## one-source-of-truth.
+  case kind*: UpdatedEntryKind
+  of uekUnchanged:
+    discard
+  of uekChanged:
+    changedProperties*: JsonNode
+      ## Raw JSON — the alterable property set is
+      ## open-ended per RFC 8621 §4.6.
+
+# =============================================================================
+# Email Write Responses
+# =============================================================================
+
+type EmailSetResponse* {.ruleOff: "objects".} = object
+  ## Email/set response (RFC 8621 §4.6; envelope shape per RFC 8620 §5.3).
+  ## The ``updated``/``notUpdated`` and ``destroyed``/``notDestroyed`` maps
+  ## are kept separate (not merged into a single ``Result``-valued Table as
+  ## in core's ``SetResponse[T]``): ``UpdatedEntry`` is payload data, not a
+  ## success/error split (Design §2.2, F2.1).
+  accountId*: AccountId ## Account the /set targeted.
+  oldState*: Opt[JmapState] ## Server state before the call, or none.
+  newState*: JmapState ## Server state after the call.
+  createResults*: Table[CreationId, Result[EmailCreatedItem, SetError]]
+    ## Per-CreationId success/error for ``create`` entries.
+  updated*: Opt[Table[Id, UpdatedEntry]]
+    ## RFC 8620 §5.3 ``Id[Foo|null]|null``: outer Opt = map absent/null;
+    ## per-entry ``UpdatedEntry`` encodes the inner ``Foo|null`` split.
+  destroyed*: Opt[seq[Id]] ## Ids the server successfully destroyed.
+  notUpdated*: Opt[Table[Id, SetError]] ## Per-id failures on ``update``.
+  notDestroyed*: Opt[Table[Id, SetError]] ## Per-id failures on ``destroy``.
+
+type EmailCopyResponse* {.ruleOff: "objects".} = object
+  ## Email/copy response (RFC 8621 §4.7). Shares the four-field
+  ## successful-create shape but omits /set-specific fields that /copy
+  ## never populates (Design §2.2).
+  fromAccountId*: AccountId ## Source account the copy originated from.
+  accountId*: AccountId ## Destination account.
+  oldState*: Opt[JmapState] ## Destination state before the call, or none.
+  newState*: JmapState ## Destination state after the call.
+  createResults*: Table[CreationId, Result[EmailCreatedItem, SetError]]
+    ## Per-CreationId success/error for copied entries.
+
+type EmailImportResponse* {.ruleOff: "objects".} = object
+  ## Email/import response (RFC 8621 §4.8). Minimal — no ``updated`` or
+  ## ``destroyed`` (import creates only).
+  accountId*: AccountId ## Account the /import targeted.
+  oldState*: Opt[JmapState] ## Server state before the call, or none.
+  newState*: JmapState ## Server state after the call.
+  createResults*: Table[CreationId, Result[EmailCreatedItem, SetError]]
+    ## Per-CreationId success/error for imported entries.
+
+# =============================================================================
+# EmailCopyItem
+# =============================================================================
+
+type EmailCopyItem* {.ruleOff: "objects".} = object
+  ## Source email + optional destination-account overrides for Email/copy
+  ## (RFC 8621 §4.7). ``Opt.none`` override = preserve source value;
+  ## ``Opt.some`` = replace in destination.
+  id*: Id ## Source email id in the from-account.
+  mailboxIds*: Opt[NonEmptyMailboxIdSet]
+    ## If overridden, the resulting Email must still belong to at least one
+    ## Mailbox (RFC 8621 §4.1.1); NonEmpty encodes this on the override
+    ## type (Design §5.1, F10).
+  keywords*: Opt[KeywordSet] ## If overridden, replaces the source keywords.
+  receivedAt*: Opt[UTCDate] ## If overridden, replaces the source receivedAt.
+
+func initEmailCopyItem*(
+    id: Id,
+    mailboxIds: Opt[NonEmptyMailboxIdSet] = Opt.none(NonEmptyMailboxIdSet),
+    keywords: Opt[KeywordSet] = Opt.none(KeywordSet),
+    receivedAt: Opt[UTCDate] = Opt.none(UTCDate),
+): EmailCopyItem =
+  ## Total constructor. All field types are themselves smart-constructed
+  ## (``parseId``, ``parseNonEmptyMailboxIdSet``, ``initKeywordSet``,
+  ## ``parseUtcDate``); no cross-field invariant exists at this composition
+  ## level (F10).
+  EmailCopyItem(
+    id: id, mailboxIds: mailboxIds, keywords: keywords, receivedAt: receivedAt
+  )
+
+# =============================================================================
+# EmailImportItem
+# =============================================================================
+
+type EmailImportItem* {.ruleOff: "objects".} = object
+  ## Creation-side model for a single Email/import entry (RFC 8621 §4.8).
+  blobId*: Id ## Previously uploaded message/rfc822 blob.
+  mailboxIds*: NonEmptyMailboxIdSet
+    ## RFC §4.8: "At least one Mailbox MUST be given." Required + non-empty.
+  keywords*: Opt[KeywordSet]
+    ## ``Opt.none``: omit the key (server default — empty).
+    ## ``Opt.some(empty)``: explicitly empty (Phase 3 serde collapses to
+    ## omitted). ``Opt.some(non-empty)``: emit the full keyword map.
+  receivedAt*: Opt[UTCDate]
+    ## ``Opt.none``: defer to server default (most recent Received header
+    ## or import time). Client cannot replicate without parsing the raw
+    ## RFC 5322 message (Design §6.1).
+
+func initEmailImportItem*(
+    blobId: Id,
+    mailboxIds: NonEmptyMailboxIdSet,
+    keywords: Opt[KeywordSet] = Opt.none(KeywordSet),
+    receivedAt: Opt[UTCDate] = Opt.none(UTCDate),
+): EmailImportItem =
+  ## Total constructor. ``mailboxIds`` is required (non-Opt) per RFC §4.8
+  ## and pre-validated non-empty via ``NonEmptyMailboxIdSet``. No
+  ## cross-field invariants at this level (F15).
+  EmailImportItem(
+    blobId: blobId, mailboxIds: mailboxIds, keywords: keywords, receivedAt: receivedAt
+  )
+
+# =============================================================================
+# NonEmptyEmailImportMap
+# =============================================================================
+
+type NonEmptyEmailImportMap* = distinct Table[CreationId, EmailImportItem]
+  ## Non-empty, duplicate-``CreationId``-free map of Email/import creation
+  ## entries. Construction is gated by ``initNonEmptyEmailImportMap``; the
+  ## raw distinct constructor is not part of the public surface (Design
+  ## §6.2, F13).
+
+func initNonEmptyEmailImportMap*(
+    items: openArray[(CreationId, EmailImportItem)]
+): Result[NonEmptyEmailImportMap, seq[ValidationError]] =
+  ## Accumulating smart constructor mirroring ``initMailboxUpdateSet``
+  ## (mailbox.nim) and ``initVacationResponseUpdateSet`` (vacation.nim).
+  ## Rejects empty input — ``addEmailImport``'s ``emails`` parameter is
+  ## non-Opt; an empty map makes the whole call meaningless (Design §6.2).
+  ## Rejects duplicate ``CreationId`` — silent shadowing at Table
+  ## construction turns data-loss into a silent accept; ``openArray`` (not
+  ## ``Table``) preserves duplicate keys for inspection. All detected
+  ## violations surface in a single Err pass.
+  var errs: seq[ValidationError] = @[]
+  if items.len == 0:
+    errs.add validationError(
+      "NonEmptyEmailImportMap", "must contain at least one entry", ""
+    )
+  var seen = initHashSet[CreationId]()
+  for entry in items:
+    if entry[0] in seen:
+      errs.add validationError(
+        "NonEmptyEmailImportMap", "duplicate CreationId", $entry[0]
+      )
+    else:
+      seen.incl entry[0]
+  if errs.len > 0:
+    return err(errs)
+  var t = initTable[CreationId, EmailImportItem](items.len)
+  for entry in items:
+    t[entry[0]] = entry[1]
+  return ok(NonEmptyEmailImportMap(t))

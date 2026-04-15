@@ -37,6 +37,7 @@ type MethodName* = enum
   mnEmailQueryChanges = "Email/queryChanges"
   mnEmailCopy = "Email/copy"
   mnEmailParse = "Email/parse"
+  mnEmailImport = "Email/import"
   mnVacationResponseGet = "VacationResponse/get"
   mnVacationResponseSet = "VacationResponse/set"
   mnSearchSnippetGet = "SearchSnippet/get"

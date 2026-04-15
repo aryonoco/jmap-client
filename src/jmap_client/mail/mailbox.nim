@@ -169,3 +169,88 @@ func parseMailboxCreate*(
       isSubscribed: isSubscribed,
     )
   )
+
+# =============================================================================
+# Mailbox Update Algebra
+# =============================================================================
+
+type MailboxUpdateVariantKind* = enum
+  ## Discriminator for MailboxUpdate: names the settable RFC 8621 §2
+  ## Mailbox property being replaced. One variant per whole-value target
+  ## — no sub-path variants because every Mailbox property is replace-only.
+  muSetName
+  muSetParentId
+  muSetRole
+  muSetSortOrder
+  muSetIsSubscribed
+
+type MailboxUpdate* {.ruleOff: "objects".} = object
+  ## Single typed Mailbox patch operation. One variant per RFC 8621 §2
+  ## settable property. Whole-value replace semantics — no sub-path
+  ## targeting (contrast EmailUpdate, which targets keyword/mailbox
+  ## sub-paths). Case object makes "exactly one target per update" a
+  ## type-level fact, closing the empty-update and multi-property-update
+  ## holes that a flat five-`Opt[T]` record would leave open.
+  case kind*: MailboxUpdateVariantKind
+  of muSetName:
+    name*: string
+  of muSetParentId:
+    parentId*: Opt[Id] ## RFC 8621 §2 permits null to reparent to the top level.
+  of muSetRole:
+    role*: Opt[MailboxRole] ## RFC 8621 §2 permits null to clear the role.
+  of muSetSortOrder:
+    sortOrder*: UnsignedInt
+  of muSetIsSubscribed:
+    isSubscribed*: bool
+
+func setName*(name: string): MailboxUpdate =
+  ## Replace the target Mailbox's display name. Total — an empty name
+  ## would surface as an RFC 8621 §2 server-side rejection, not a
+  ## client-side validation error.
+  MailboxUpdate(kind: muSetName, name: name)
+
+func setParentId*(parentId: Opt[Id]): MailboxUpdate =
+  ## Replace the target Mailbox's parentId. Opt.none reparents to the
+  ## top level per RFC 8621 §2.
+  MailboxUpdate(kind: muSetParentId, parentId: parentId)
+
+func setRole*(role: Opt[MailboxRole]): MailboxUpdate =
+  ## Replace the target Mailbox's role. Opt.none clears the role.
+  MailboxUpdate(kind: muSetRole, role: role)
+
+func setSortOrder*(sortOrder: UnsignedInt): MailboxUpdate =
+  ## Replace the target Mailbox's sortOrder hint.
+  MailboxUpdate(kind: muSetSortOrder, sortOrder: sortOrder)
+
+func setIsSubscribed*(isSubscribed: bool): MailboxUpdate =
+  ## Replace the target Mailbox's isSubscribed flag.
+  MailboxUpdate(kind: muSetIsSubscribed, isSubscribed: isSubscribed)
+
+type MailboxUpdateSet* = distinct seq[MailboxUpdate]
+  ## Validated, conflict-free batch of MailboxUpdate operations targeting
+  ## a single Mailbox id. Construction gated by initMailboxUpdateSet —
+  ## the raw distinct constructor is not part of the public surface.
+
+func initMailboxUpdateSet*(
+    updates: openArray[MailboxUpdate]
+): Result[MailboxUpdateSet, seq[ValidationError]] =
+  ## Accumulating smart constructor (Part F design §3.3, §4.4). Rejects:
+  ##   * empty input — the builder has exactly one "no updates for this
+  ##     id" representation (omit the entry from the outer table);
+  ##   * duplicate target property — two updates with the same kind would
+  ##     produce a JSON patch object with duplicate keys.
+  ## All detected violations surface in a single Err pass.
+  var errs: seq[ValidationError] = @[]
+  if updates.len == 0:
+    errs.add validationError("MailboxUpdateSet", "must contain at least one update", "")
+  var seen: set[MailboxUpdateVariantKind] = {}
+  for update in updates:
+    if update.kind in seen:
+      errs.add validationError(
+        "MailboxUpdateSet", "duplicate target property", $update.kind
+      )
+    else:
+      seen.incl update.kind
+  if errs.len > 0:
+    return err(errs)
+  return ok(MailboxUpdateSet(@updates))
