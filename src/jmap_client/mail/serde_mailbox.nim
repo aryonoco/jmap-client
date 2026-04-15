@@ -214,3 +214,33 @@ func toJson*(mc: MailboxCreate): JsonNode =
   node["sortOrder"] = mc.sortOrder.toJson()
   node["isSubscribed"] = %mc.isSubscribed
   return node
+
+# =============================================================================
+# MailboxUpdate
+# =============================================================================
+
+func toJson*(u: MailboxUpdate): (string, JsonNode) =
+  ## Emit the ``(wire-key, wire-value)`` pair for a single Mailbox update.
+  ## RFC 8621 §2 settable Mailbox properties are whole-value replace — each
+  ## variant maps to exactly one top-level property, no sub-path flattening.
+  case u.kind
+  of muSetName:
+    ("name", %u.name)
+  of muSetParentId:
+    ("parentId", u.parentId.optToJsonOrNull())
+  of muSetRole:
+    ("role", u.role.optToJsonOrNull())
+  of muSetSortOrder:
+    ("sortOrder", u.sortOrder.toJson())
+  of muSetIsSubscribed:
+    ("isSubscribed", %u.isSubscribed)
+
+func toJson*(us: MailboxUpdateSet): JsonNode =
+  ## Flatten the validated update-set to an RFC 8620 §5.3 wire patch.
+  ## ``initMailboxUpdateSet`` has already rejected duplicate target
+  ## properties, so blind aggregation cannot shadow a prior entry.
+  var node = newJObject()
+  for u in seq[MailboxUpdate](us):
+    let (key, value) = u.toJson()
+    node[key] = value
+  return node

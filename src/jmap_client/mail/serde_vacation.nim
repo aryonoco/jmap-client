@@ -96,3 +96,34 @@ func fromJson*(
       htmlBody: htmlBody,
     )
   )
+
+# =============================================================================
+# VacationResponseUpdate
+# =============================================================================
+
+func toJson*(u: VacationResponseUpdate): (string, JsonNode) =
+  ## Emit the ``(wire-key, wire-value)`` pair for a single VacationResponse
+  ## update. RFC 8621 §8 settable properties are whole-value replace.
+  case u.kind
+  of vruSetIsEnabled:
+    ("isEnabled", %u.isEnabled)
+  of vruSetFromDate:
+    ("fromDate", u.fromDate.optToJsonOrNull())
+  of vruSetToDate:
+    ("toDate", u.toDate.optToJsonOrNull())
+  of vruSetSubject:
+    ("subject", u.subject.optStringToJsonOrNull())
+  of vruSetTextBody:
+    ("textBody", u.textBody.optStringToJsonOrNull())
+  of vruSetHtmlBody:
+    ("htmlBody", u.htmlBody.optStringToJsonOrNull())
+
+func toJson*(us: VacationResponseUpdateSet): JsonNode =
+  ## Flatten the validated update-set to an RFC 8620 §5.3 wire patch.
+  ## ``initVacationResponseUpdateSet`` has already rejected duplicate
+  ## target properties, so blind aggregation cannot shadow.
+  var node = newJObject()
+  for u in seq[VacationResponseUpdate](us):
+    let (key, value) = u.toJson()
+    node[key] = value
+  return node

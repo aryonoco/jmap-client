@@ -110,19 +110,20 @@ func optJsonField*(node: JsonNode, key: string, kind: JsonNodeKind): Opt[JsonNod
     return Opt.none(JsonNode)
   return Opt.some(child)
 
-func emitOptOrNull*[T](node: var JsonNode, key: string, opt: Opt[T]) =
-  ## Emits an optional value via toJson when present, null when absent.
-  if opt.isSome:
-    node[key] = opt.get().toJson()
-  else:
-    node[key] = newJNull()
+func optToJsonOrNull*[T](opt: Opt[T]): JsonNode =
+  ## Converts an optional value to JSON via ``toJson`` when present, or
+  ## ``newJNull()`` when absent. Call site: ``node[key] = opt.optToJsonOrNull()``.
+  result = newJNull()
+  for val in opt:
+    result = val.toJson()
 
-func emitOptStringOrNull*(node: var JsonNode, key: string, opt: Opt[string]) =
-  ## Emits an optional string as value when present, null when absent.
-  if opt.isSome:
-    node[key] = %opt.get()
-  else:
-    node[key] = newJNull()
+func optStringToJsonOrNull*(opt: Opt[string]): JsonNode =
+  ## Converts an optional string to a JSON string when present, or
+  ## ``newJNull()`` when absent. Specialised because ``string`` has no
+  ## ``toJson`` overload in this codebase (``%`` is the idiom).
+  result = newJNull()
+  for val in opt:
+    result = %val
 
 # --- Serde templates for distinct types ---
 #

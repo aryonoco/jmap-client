@@ -175,12 +175,12 @@ func toJsonImpl(part: EmailBodyPart, depth: int): JsonNode =
   node["headers"] = headersArr
 
   # Optional strings: Opt.none → null
-  emitOptStringOrNull(node, "name", part.name)
-  emitOptStringOrNull(node, "charset", part.charset)
-  emitOptStringOrNull(node, "disposition", part.disposition)
-  emitOptStringOrNull(node, "cid", part.cid)
+  node["name"] = part.name.optStringToJsonOrNull()
+  node["charset"] = part.charset.optStringToJsonOrNull()
+  node["disposition"] = part.disposition.optStringToJsonOrNull()
+  node["cid"] = part.cid.optStringToJsonOrNull()
   emitLanguageOrNull(node, part.language)
-  emitOptStringOrNull(node, "location", part.location)
+  node["location"] = part.location.optStringToJsonOrNull()
   node["size"] = part.size.toJson()
 
   # Branch-specific

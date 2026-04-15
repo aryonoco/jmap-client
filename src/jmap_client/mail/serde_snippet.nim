@@ -37,6 +37,6 @@ func toJson*(ss: SearchSnippet): JsonNode =
   ## ``Opt.none`` emits null.
   var node = newJObject()
   node["emailId"] = ss.emailId.toJson()
-  emitOptStringOrNull(node, "subject", ss.subject)
-  emitOptStringOrNull(node, "preview", ss.preview)
+  node["subject"] = ss.subject.optStringToJsonOrNull()
+  node["preview"] = ss.preview.optStringToJsonOrNull()
   return node

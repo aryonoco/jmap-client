@@ -429,8 +429,8 @@ func toJson*(e: Email): JsonNode =
   emitOptAddressesOrNull(node, "cc", e.cc)
   emitOptAddressesOrNull(node, "bcc", e.bcc)
   emitOptAddressesOrNull(node, "replyTo", e.replyTo)
-  emitOptStringOrNull(node, "subject", e.subject)
-  emitOptOrNull(node, "sentAt", e.sentAt)
+  node["subject"] = e.subject.optStringToJsonOrNull()
+  node["sentAt"] = e.sentAt.optToJsonOrNull()
 
   # Raw headers
   var headersArr = newJArray()
@@ -480,7 +480,7 @@ func toJson*(pe: ParsedEmail): JsonNode =
   var node = newJObject()
 
   # Metadata: only threadId
-  emitOptOrNull(node, "threadId", pe.threadId)
+  node["threadId"] = pe.threadId.optToJsonOrNull()
 
   # Convenience headers: Opt.none emits null
   emitOptStringSeqOrNull(node, "messageId", pe.messageId)
@@ -492,8 +492,8 @@ func toJson*(pe: ParsedEmail): JsonNode =
   emitOptAddressesOrNull(node, "cc", pe.cc)
   emitOptAddressesOrNull(node, "bcc", pe.bcc)
   emitOptAddressesOrNull(node, "replyTo", pe.replyTo)
-  emitOptStringOrNull(node, "subject", pe.subject)
-  emitOptOrNull(node, "sentAt", pe.sentAt)
+  node["subject"] = pe.subject.optStringToJsonOrNull()
+  node["sentAt"] = pe.sentAt.optToJsonOrNull()
 
   # Raw headers
   var headersArr = newJArray()
