@@ -327,7 +327,65 @@ proc parseJsonBody(
       transportError(tekNetwork, "invalid JSON in " & $context & " response: " & e.msg)
     return err(clientError(te))
 
-func checkGetLimit(inv: Invocation, maxGet: int64): Result[void, ValidationError] =
+type RequestLimitViolationKind = enum
+  rlvMaxCallsInRequest
+  rlvMaxObjectsInGet
+  rlvMaxObjectsInSet
+  rlvMaxSizeRequest
+
+type RequestLimitViolation {.ruleOff: "objects".} = object
+  case kind: RequestLimitViolationKind
+  of rlvMaxCallsInRequest:
+    actualCalls: int64
+    maxCalls: int64
+  of rlvMaxObjectsInGet:
+    getMethodName: string
+    actualGetIds: int
+    maxGet: int64
+  of rlvMaxObjectsInSet:
+    setMethodName: string
+    actualSetObjects: int64
+    maxSet: int64
+  of rlvMaxSizeRequest:
+    actualSize: int
+    maxSize: int64
+
+func toValidationError(v: RequestLimitViolation): ValidationError =
+  ## Sole domain-to-wire translator for ``RequestLimitViolation``. Every
+  ## compound limit message lives here; adding a ``rlvX`` variant forces a
+  ## compile error at this site.
+  case v.kind
+  of rlvMaxCallsInRequest:
+    validationError(
+      "Request",
+      "method call count " & $v.actualCalls & " exceeds maxCallsInRequest " & $v.maxCalls,
+      "",
+    )
+  of rlvMaxObjectsInGet:
+    validationError(
+      "Request",
+      v.getMethodName & ": ids count " & $v.actualGetIds & " exceeds maxObjectsInGet " &
+        $v.maxGet,
+      "",
+    )
+  of rlvMaxObjectsInSet:
+    validationError(
+      "Request",
+      v.setMethodName & ": object count " & $v.actualSetObjects &
+        " exceeds maxObjectsInSet " & $v.maxSet,
+      "",
+    )
+  of rlvMaxSizeRequest:
+    validationError(
+      "Request",
+      "serialised request size " & $v.actualSize &
+        " octets exceeds server maxSizeRequest " & $v.maxSize,
+      "",
+    )
+
+func detectGetLimit(
+    inv: Invocation, maxGet: int64
+): Result[void, RequestLimitViolation] =
   ## Checks a /get invocation's direct ids count against maxObjectsInGet.
   ## Reference ids (JObject) and absent/null ids are silently skipped.
   if inv.arguments.isNil:
@@ -336,16 +394,18 @@ func checkGetLimit(inv: Invocation, maxGet: int64): Result[void, ValidationError
   if not idsNode.isNil and idsNode.kind == JArray:
     if int64(idsNode.len) > maxGet:
       return err(
-        validationError(
-          "Request",
-          inv.rawName & ": ids count " & $idsNode.len & " exceeds maxObjectsInGet " &
-            $maxGet,
-          "",
+        RequestLimitViolation(
+          kind: rlvMaxObjectsInGet,
+          getMethodName: inv.rawName,
+          actualGetIds: idsNode.len,
+          maxGet: maxGet,
         )
       )
-  return ok()
+  ok()
 
-func checkSetLimit(inv: Invocation, maxSet: int64): Result[void, ValidationError] =
+func detectSetLimit(
+    inv: Invocation, maxSet: int64
+): Result[void, RequestLimitViolation] =
   ## Checks a /set invocation's combined create + update + destroy count
   ## against maxObjectsInSet. Reference destroy (JObject) is silently skipped.
   if inv.arguments.isNil:
@@ -362,13 +422,44 @@ func checkSetLimit(inv: Invocation, maxSet: int64): Result[void, ValidationError
     count += int64(destroyNode.len)
   if count > maxSet:
     return err(
-      validationError(
-        "Request",
-        inv.rawName & ": object count " & $count & " exceeds maxObjectsInSet " & $maxSet,
-        "",
+      RequestLimitViolation(
+        kind: rlvMaxObjectsInSet,
+        setMethodName: inv.rawName,
+        actualSetObjects: count,
+        maxSet: maxSet,
       )
     )
-  return ok()
+  ok()
+
+func detectMaxCalls(
+    request: Request, maxCalls: int64
+): Result[void, RequestLimitViolation] =
+  ## Total method-call count (top-level only — batching across HTTP
+  ## requests is a separate concern) against maxCallsInRequest.
+  if int64(request.methodCalls.len) > maxCalls:
+    return err(
+      RequestLimitViolation(
+        kind: rlvMaxCallsInRequest,
+        actualCalls: int64(request.methodCalls.len),
+        maxCalls: maxCalls,
+      )
+    )
+  ok()
+
+func detectRequestLimits(
+    request: Request, caps: CoreCapabilities
+): Result[void, RequestLimitViolation] =
+  ## Pre-flight composition: max-calls then per-invocation /get and /set
+  ## limits. Preserves pre-refactor traversal order.
+  ?detectMaxCalls(request, int64(caps.maxCallsInRequest))
+  let maxGet = int64(caps.maxObjectsInGet)
+  let maxSet = int64(caps.maxObjectsInSet)
+  for inv in request.methodCalls:
+    if inv.rawName.endsWith("/get"):
+      ?detectGetLimit(inv, maxGet)
+    elif inv.rawName.endsWith("/set"):
+      ?detectSetLimit(inv, maxSet)
+  ok()
 
 func validateLimits*(
     request: Request, caps: CoreCapabilities
@@ -376,26 +467,9 @@ func validateLimits*(
   ## Pre-flight validation of a built Request against server-advertised
   ## CoreCapabilities limits. Pure — no IO, no mutation.
   ## Returns err describing the first violation.
-  let maxCalls = int64(caps.maxCallsInRequest)
-  if int64(request.methodCalls.len) > maxCalls:
-    return err(
-      validationError(
-        "Request",
-        "method call count " & $request.methodCalls.len & " exceeds maxCallsInRequest " &
-          $maxCalls,
-        "",
-      )
-    )
-
-  let maxGet = int64(caps.maxObjectsInGet)
-  let maxSet = int64(caps.maxObjectsInSet)
-
-  for inv in request.methodCalls:
-    if inv.rawName.endsWith("/get"):
-      ?checkGetLimit(inv, maxGet)
-    elif inv.rawName.endsWith("/set"):
-      ?checkSetLimit(inv, maxSet)
-  return ok()
+  detectRequestLimits(request, caps).isOkOr:
+    return err(toValidationError(error))
+  ok()
 
 proc readContentType(httpResp: httpclient.Response): string =
   ## Reads the Content-Type header, returning empty string on failure.
@@ -531,13 +605,12 @@ proc send*(client: var JmapClient, request: Request): JmapResult[envelope.Respon
   # Step 4: Check serialised size against maxSizeRequest
   let maxSize = int64(coreCaps.maxSizeRequest)
   if body.len > int(maxSize):
-    let ve = validationError(
-      "Request",
-      "serialised request size " & $body.len & " octets exceeds server maxSizeRequest " &
-        $maxSize,
-      "",
+    let ve = toValidationError(
+      RequestLimitViolation(
+        kind: rlvMaxSizeRequest, actualSize: body.len, maxSize: maxSize
+      )
     )
-    return err(clientError(transportError(tekNetwork, ve.message)))
+    return err(validationToClientError(ve))
 
   # Step 5: IO boundary — HTTP POST
   let httpResp =
