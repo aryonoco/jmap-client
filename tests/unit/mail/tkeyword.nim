@@ -40,6 +40,15 @@ block parseKeywordForbiddenBackslash: # scenario 7
   assertErrFields parseKeyword("test\\"),
     "Keyword", "contains forbidden character", "test\\"
 
+block keywordWithTildeAccepted: # F2 §8.3 (F1 §3.2.5 charset)
+  assertOk parseKeyword("$has~tilde")
+
+block keywordWithSlashAccepted: # F2 §8.3 (F1 §3.2.5 charset)
+  assertOk parseKeyword("$has/slash")
+
+block keywordWithBothAccepted: # F2 §8.3 (F1 §3.2.5 charset)
+  assertOk parseKeyword("$~/")
+
 # ============= B. parseKeywordFromServer (lenient) =============
 
 block parseKeywordFromServerForbiddenAccepted: # scenario 8

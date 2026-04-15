@@ -174,3 +174,36 @@ block initMailboxUpdateSetTwoDistinctRepeated:
       seen.incl muSetParentId
   doAssert muSetName in seen
   doAssert muSetParentId in seen
+
+# ============= F. MailboxUpdate setter-shape =============
+
+block setNameConstructsCorrectKind:
+  let u = setName("Inbox")
+  assertEq u.kind, muSetName
+  assertEq u.name, "Inbox"
+
+block setParentIdNoneConstructsCorrectKind:
+  let u = setParentId(Opt.none(Id))
+  assertEq u.kind, muSetParentId
+  assertNone u.parentId
+
+block setParentIdSomeConstructsCorrectKind:
+  let pid = parseId("parent1").get()
+  let u = setParentId(Opt.some(pid))
+  assertEq u.kind, muSetParentId
+  assertSomeEq u.parentId, pid
+
+block setRoleConstructsCorrectKind:
+  let u = setRole(Opt.some(roleInbox))
+  assertEq u.kind, muSetRole
+  assertSomeEq u.role, roleInbox
+
+block setSortOrderConstructsCorrectKind:
+  let u = setSortOrder(UnsignedInt(5))
+  assertEq u.kind, muSetSortOrder
+  assertEq u.sortOrder, UnsignedInt(5)
+
+block setIsSubscribedConstructsCorrectKind:
+  let u = setIsSubscribed(true)
+  assertEq u.kind, muSetIsSubscribed
+  assertEq u.isSubscribed, true

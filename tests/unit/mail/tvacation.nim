@@ -86,3 +86,21 @@ block initVacationResponseUpdateSetTwoDistinctRepeated:
       seen.incl vruSetSubject
   doAssert vruSetIsEnabled in seen
   doAssert vruSetSubject in seen
+
+# ============= C. Remaining VacationResponseUpdate setters =============
+
+block setToDateConstructsCorrectKind:
+  let d = parseUtcDate("2026-04-15T12:00:00Z").get()
+  let u = setToDate(Opt.some(d))
+  assertEq u.kind, vruSetToDate
+  assertSomeEq u.toDate, d
+
+block setTextBodyClearsWhenNone:
+  let u = setTextBody(Opt.none(string))
+  assertEq u.kind, vruSetTextBody
+  assertNone u.textBody
+
+block setHtmlBodyConstructsCorrectKind:
+  let u = setHtmlBody(Opt.some("<p>away</p>"))
+  assertEq u.kind, vruSetHtmlBody
+  assertSomeEq u.htmlBody, "<p>away</p>"
