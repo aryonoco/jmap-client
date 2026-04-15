@@ -28,17 +28,48 @@ type HeaderForm* = enum
   hfDate = "asDate"
   hfUrls = "asURLs"
 
-func parseHeaderForm*(raw: string): Result[HeaderForm, ValidationError] =
-  ## Parses a header form suffix string into a HeaderForm variant.
-  ## Uses nimIdentNormalize for case-insensitive matching (preserving
-  ## first-char case).
+type HeaderFormViolationKind = enum
+  ## Structural failures of a header form suffix. Module-private; the
+  ## public parsers translate these to ``ValidationError`` at the wire
+  ## boundary (``toValidationError``) so inline text cannot drift from
+  ## detection.
+  hfvEmpty
+  hfvUnknown
+
+func detectHeaderForm(raw: string): Result[HeaderForm, HeaderFormViolationKind] =
+  ## Pure classifier: either names the ``HeaderForm`` or names why it
+  ## failed. Distinct from ``parseHeaderForm`` so the key-level parser
+  ## can rewrap the violation under its own ``typeName`` without
+  ## committing to a wire shape here.
   if raw.len == 0:
-    return err(validationError("HeaderForm", "empty form suffix", raw))
+    return err(hfvEmpty)
   let normalized = nimIdentNormalize(raw)
   for form in HeaderForm:
     if nimIdentNormalize($form) == normalized:
       return ok(form)
-  return err(validationError("HeaderForm", "unknown header form suffix", raw))
+  return err(hfvUnknown)
+
+func formViolationMessage(v: HeaderFormViolationKind): string =
+  ## Single source of truth for form-violation wire messages — shared by
+  ## both ``toValidationError`` overloads so a new
+  ## ``HeaderFormViolationKind`` variant forces a compile error in
+  ## exactly one place, not two.
+  case v
+  of hfvEmpty: "empty form suffix"
+  of hfvUnknown: "unknown header form suffix"
+
+func toValidationError(v: HeaderFormViolationKind, raw: string): ValidationError =
+  ## Sole domain-to-wire translator for direct ``parseHeaderForm``
+  ## callers; emits ``typeName="HeaderForm"``.
+  validationError("HeaderForm", formViolationMessage(v), raw)
+
+func parseHeaderForm*(raw: string): Result[HeaderForm, ValidationError] =
+  ## Parses a header form suffix string into a HeaderForm variant.
+  ## Uses nimIdentNormalize for case-insensitive matching (preserving
+  ## first-char case).
+  let form = detectHeaderForm(raw).valueOr:
+    return err(toValidationError(error, raw))
+  ok(form)
 
 # =============================================================================
 # EmailHeader
@@ -93,37 +124,93 @@ func hash*(k: HeaderPropertyKey): Hash =
   h = h !& hash(k.rawIsAll)
   result = !$h
 
+type HeaderKeyViolationKind = enum
+  ## Structural failures of a wire-format header property name
+  ## (RFC 8621 §4.1.3). Discriminator for ``HeaderKeyViolation``; drives
+  ## ``toValidationError`` exhaustiveness.
+  hkvMissingPrefix
+  hkvEmptyName
+  hkvInvalidForm
+  hkvExpectedAllSuffix
+  hkvTooManySegments
+
+type HeaderKeyViolation {.ruleOff: "objects".} = object
+  ## Internal classification of a ``parseHeaderPropertyName`` failure.
+  ## ``hkvInvalidForm`` nests the inner form violation so the translator
+  ## can reuse ``formViolationMessage`` rather than duplicate its wire
+  ## text; ``hkvExpectedAllSuffix`` captures the offending segment so
+  ## the translator can interpolate it into the wire message.
+  case kind: HeaderKeyViolationKind
+  of hkvInvalidForm:
+    formViolation: HeaderFormViolationKind
+  of hkvExpectedAllSuffix:
+    badSuffix: string
+  of hkvMissingPrefix, hkvEmptyName, hkvTooManySegments:
+    discard
+
+func classifyHeaderKey(raw: string): Result[HeaderPropertyKey, HeaderKeyViolation] =
+  ## Pure classifier: parses ``raw`` into a ``HeaderPropertyKey`` or
+  ## returns a ``HeaderKeyViolation`` describing the structural failure.
+  ## Delegates form parsing to ``detectHeaderForm`` so the inner
+  ## violation stays in ADT form — the outer translator, not the inner
+  ## form parser, picks the ``typeName`` for
+  ## ``parseHeaderPropertyName``'s wire errors.
+  if not raw.startsWith("header:"):
+    return err(HeaderKeyViolation(kind: hkvMissingPrefix))
+  let rest = raw[7 .. ^1]
+  let segments = rest.split(':')
+  if segments.len == 0 or segments[0].len == 0:
+    return err(HeaderKeyViolation(kind: hkvEmptyName))
+  let name = segments[0].toLowerAscii()
+  case segments.len
+  of 1:
+    ok(HeaderPropertyKey(rawName: name, rawForm: hfRaw, rawIsAll: false))
+  of 2:
+    if cmpIgnoreCase(segments[1], "all") == 0:
+      ok(HeaderPropertyKey(rawName: name, rawForm: hfRaw, rawIsAll: true))
+    else:
+      # Literal-per-branch ``kind: hkvInvalidForm`` is required at
+      # case-object construction — Nim rejects a runtime discriminator
+      # even when every arm shares field shape (manual §7.7).
+      let form = detectHeaderForm(segments[1]).valueOr:
+        return err(HeaderKeyViolation(kind: hkvInvalidForm, formViolation: error))
+      ok(HeaderPropertyKey(rawName: name, rawForm: form, rawIsAll: false))
+  of 3:
+    let form = detectHeaderForm(segments[1]).valueOr:
+      return err(HeaderKeyViolation(kind: hkvInvalidForm, formViolation: error))
+    if cmpIgnoreCase(segments[2], "all") != 0:
+      return err(HeaderKeyViolation(kind: hkvExpectedAllSuffix, badSuffix: segments[2]))
+    ok(HeaderPropertyKey(rawName: name, rawForm: form, rawIsAll: true))
+  else:
+    err(HeaderKeyViolation(kind: hkvTooManySegments))
+
+func toValidationError(v: HeaderKeyViolation, raw: string): ValidationError =
+  ## Sole domain-to-wire translator for key violations; emits
+  ## ``typeName="HeaderPropertyKey"`` for every variant. Adding a
+  ## ``HeaderKeyViolationKind`` variant forces a compile error here
+  ## rather than silently leaking the inner form violation's typeName.
+  case v.kind
+  of hkvMissingPrefix:
+    validationError("HeaderPropertyKey", "missing 'header:' prefix", raw)
+  of hkvEmptyName:
+    validationError("HeaderPropertyKey", "empty header name", raw)
+  of hkvInvalidForm:
+    validationError("HeaderPropertyKey", formViolationMessage(v.formViolation), raw)
+  of hkvExpectedAllSuffix:
+    validationError(
+      "HeaderPropertyKey", "expected ':all' suffix, got ':" & v.badSuffix & "'", raw
+    )
+  of hkvTooManySegments:
+    validationError("HeaderPropertyKey", "too many segments", raw)
+
 func parseHeaderPropertyName*(raw: string): Result[HeaderPropertyKey, ValidationError] =
   ## Parses a full wire-format header property name including the ``header:``
   ## prefix. Validates structural correctness only — does not check whether
   ## the form is allowed for the header name (see ``validateHeaderForm``).
   ## Normalises the header name to lowercase.
-  if not raw.startsWith("header:"):
-    return err(validationError("HeaderPropertyKey", "missing 'header:' prefix", raw))
-  let rest = raw[7 .. ^1]
-  let segments = rest.split(':')
-  if segments.len == 0 or segments[0].len == 0:
-    return err(validationError("HeaderPropertyKey", "empty header name", raw))
-  let name = segments[0].toLowerAscii()
-  case segments.len
-  of 1:
-    return ok(HeaderPropertyKey(rawName: name, rawForm: hfRaw, rawIsAll: false))
-  of 2:
-    if cmpIgnoreCase(segments[1], "all") == 0:
-      return ok(HeaderPropertyKey(rawName: name, rawForm: hfRaw, rawIsAll: true))
-    let form = ?parseHeaderForm(segments[1])
-    return ok(HeaderPropertyKey(rawName: name, rawForm: form, rawIsAll: false))
-  of 3:
-    let form = ?parseHeaderForm(segments[1])
-    if cmpIgnoreCase(segments[2], "all") != 0:
-      return err(
-        validationError(
-          "HeaderPropertyKey", "expected ':all' suffix, got ':" & segments[2] & "'", raw
-        )
-      )
-    return ok(HeaderPropertyKey(rawName: name, rawForm: form, rawIsAll: true))
-  else:
-    return err(validationError("HeaderPropertyKey", "too many segments", raw))
+  let key = classifyHeaderKey(raw).valueOr:
+    return err(toValidationError(error, raw))
+  ok(key)
 
 func toPropertyString*(k: HeaderPropertyKey): string =
   ## Reconstructs the wire-format property string from component fields.
