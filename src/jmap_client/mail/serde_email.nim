@@ -11,6 +11,7 @@ import std/strutils
 import std/tables
 
 import ../serde
+import ../serde_errors
 import ../types
 import ./addresses
 import ./keyword
@@ -635,4 +636,346 @@ func toJson*(opts: EmailBodyFetchOptions): JsonNode =
   ## produces ``{}``.
   var node = newJObject()
   opts.emitInto(node)
+  return node
+
+# =============================================================================
+# EmailCreatedItem
+# =============================================================================
+
+func toJson*(item: EmailCreatedItem): JsonNode =
+  ## Serialise EmailCreatedItem to JSON (RFC 8621 §§4.6/4.7/4.8).
+  ## All four fields required per the RFC — none Opt.
+  var node = newJObject()
+  node["id"] = item.id.toJson()
+  node["blobId"] = item.blobId.toJson()
+  node["threadId"] = item.threadId.toJson()
+  node["size"] = item.size.toJson()
+  return node
+
+func fromJson*(
+    T: typedesc[EmailCreatedItem], node: JsonNode
+): Result[EmailCreatedItem, ValidationError] =
+  ## Deserialise JSON to EmailCreatedItem. All four fields required per RFC;
+  ## missing any field yields err — servers omitting any are malformed
+  ## (Design §2.1, F2).
+  ?checkJsonKind(node, JObject, $T)
+  let id = ?Id.fromJson(node{"id"})
+  let blobId = ?Id.fromJson(node{"blobId"})
+  let threadId = ?Id.fromJson(node{"threadId"})
+  let size = ?UnsignedInt.fromJson(node{"size"})
+  return ok(EmailCreatedItem(id: id, blobId: blobId, threadId: threadId, size: size))
+
+# =============================================================================
+# UpdatedEntry
+# =============================================================================
+
+func toJson*(entry: UpdatedEntry): JsonNode =
+  ## Serialise UpdatedEntry. uekUnchanged emits null (RFC 8620 §5.3 Foo|null
+  ## inner split); uekChanged emits the raw changedProperties JsonNode.
+  case entry.kind
+  of uekUnchanged:
+    newJNull()
+  of uekChanged:
+    entry.changedProperties
+
+func fromJson*(
+    T: typedesc[UpdatedEntry], node: JsonNode
+): Result[UpdatedEntry, ValidationError] =
+  ## Deserialise JSON to UpdatedEntry. null → uekUnchanged; object →
+  ## uekChanged with the object as changedProperties.
+  if node.isNil or node.kind == JNull:
+    return ok(UpdatedEntry(kind: uekUnchanged))
+  if node.kind == JObject:
+    return ok(UpdatedEntry(kind: uekChanged, changedProperties: node))
+  return err(validationError($T, "expected object or null", $node.kind))
+
+# =============================================================================
+# Email write-response shared helpers
+# =============================================================================
+# The three Email write responses (/set, /copy, /import) share envelope
+# pieces: oldState, merged created/notCreated, and /set's four split maps.
+# Extracting these as named helpers keeps each response's toJson/fromJson
+# under the complexity budget while keeping intent at the call site.
+
+func parseOptJmapStateField(
+    node: JsonNode, key: string
+): Result[Opt[JmapState], ValidationError] =
+  ## Extracts an optional JmapState: absent/null yields none.
+  let field = node{key}
+  if field.isNil or field.kind == JNull:
+    return ok(Opt.none(JmapState))
+  return ok(Opt.some(?JmapState.fromJson(field)))
+
+func mergeCreatedResults(
+    node: JsonNode
+): Result[Table[CreationId, Result[EmailCreatedItem, SetError]], ValidationError] =
+  ## Merges wire ``created`` and ``notCreated`` maps into a single Table
+  ## keyed by CreationId, with per-entry Result carrying either the typed
+  ## EmailCreatedItem (ok) or SetError (err). Design §2.1, F2.
+  var tbl = initTable[CreationId, Result[EmailCreatedItem, SetError]]()
+  let createdNode = node{"created"}
+  if not createdNode.isNil and createdNode.kind == JObject:
+    for k, v in createdNode.pairs:
+      let cid = ?parseCreationId(k)
+      let item = ?EmailCreatedItem.fromJson(v)
+      tbl[cid] = Result[EmailCreatedItem, SetError].ok(item)
+  let notCreatedNode = node{"notCreated"}
+  if not notCreatedNode.isNil and notCreatedNode.kind == JObject:
+    for k, v in notCreatedNode.pairs:
+      let cid = ?parseCreationId(k)
+      let se = ?SetError.fromJson(v)
+      tbl[cid] = Result[EmailCreatedItem, SetError].err(se)
+  return ok(tbl)
+
+func parseOptUpdatedMap(
+    node: JsonNode, key, typeName: string
+): Result[Opt[Table[Id, UpdatedEntry]], ValidationError] =
+  ## Parses RFC 8620 §5.3 ``Id[Foo|null]|null`` — outer Opt = map
+  ## absent/null; per-entry ``UpdatedEntry`` encodes the inner split.
+  let sub = node{key}
+  if sub.isNil or sub.kind == JNull:
+    return ok(Opt.none(Table[Id, UpdatedEntry]))
+  ?checkJsonKind(sub, JObject, typeName, key & " must be object or null")
+  var tbl = initTable[Id, UpdatedEntry]()
+  for k, v in sub.pairs:
+    let id = ?parseIdFromServer(k)
+    tbl[id] = ?UpdatedEntry.fromJson(v)
+  return ok(Opt.some(tbl))
+
+func parseOptSetErrorMap(
+    node: JsonNode, key, typeName: string
+): Result[Opt[Table[Id, SetError]], ValidationError] =
+  ## Parses ``notUpdated`` / ``notDestroyed`` maps: absent/null yields
+  ## none; object yields ``Table[Id, SetError]``.
+  let sub = node{key}
+  if sub.isNil or sub.kind == JNull:
+    return ok(Opt.none(Table[Id, SetError]))
+  ?checkJsonKind(sub, JObject, typeName, key & " must be object or null")
+  var tbl = initTable[Id, SetError]()
+  for k, v in sub.pairs:
+    let id = ?parseIdFromServer(k)
+    tbl[id] = ?SetError.fromJson(v)
+  return ok(Opt.some(tbl))
+
+func parseOptDestroyedIds(
+    node: JsonNode, typeName: string
+): Result[Opt[seq[Id]], ValidationError] =
+  ## Parses the ``destroyed`` array: absent/null yields none.
+  let sub = node{"destroyed"}
+  if sub.isNil or sub.kind == JNull:
+    return ok(Opt.none(seq[Id]))
+  ?checkJsonKind(sub, JArray, typeName, "destroyed must be array or null")
+  var ids: seq[Id] = @[]
+  for elem in sub.getElems(@[]):
+    ids.add(?parseIdFromServer(elem.getStr("")))
+  return ok(Opt.some(ids))
+
+func emitCreateResults(
+    createResults: Table[CreationId, Result[EmailCreatedItem, SetError]], node: JsonNode
+) =
+  ## Splits a merged createResults Table back into the wire
+  ## ``created`` and ``notCreated`` maps; omits either key when empty.
+  var created = newJObject()
+  var notCreated = newJObject()
+  for cid, r in createResults:
+    if r.isOk:
+      created[string(cid)] = r.get().toJson()
+    else:
+      notCreated[string(cid)] = r.error.toJson()
+  if created.len > 0:
+    node["created"] = created
+  if notCreated.len > 0:
+    node["notCreated"] = notCreated
+
+func emitOptIdUpdatedMap(
+    node: JsonNode, key: string, tbl: Opt[Table[Id, UpdatedEntry]]
+) =
+  ## Emits the ``updated`` map when present; omits the key otherwise.
+  for t in tbl:
+    var obj = newJObject()
+    for id, entry in t:
+      obj[string(id)] = entry.toJson()
+    node[key] = obj
+
+func emitOptIdSetErrorMap(node: JsonNode, key: string, tbl: Opt[Table[Id, SetError]]) =
+  ## Emits ``notUpdated`` / ``notDestroyed`` maps when present; omits
+  ## the key otherwise.
+  for t in tbl:
+    var obj = newJObject()
+    for id, se in t:
+      obj[string(id)] = se.toJson()
+    node[key] = obj
+
+func emitOptDestroyedIds(node: JsonNode, ids: Opt[seq[Id]]) =
+  ## Emits the ``destroyed`` array when present; omits the key otherwise.
+  for xs in ids:
+    var arr = newJArray()
+    for id in xs:
+      arr.add(id.toJson())
+    node["destroyed"] = arr
+
+# =============================================================================
+# EmailSetResponse
+# =============================================================================
+
+func toJson*(resp: EmailSetResponse): JsonNode =
+  ## Serialise EmailSetResponse (RFC 8621 §4.6, envelope RFC 8620 §5.3).
+  ## Splits createResults back into wire created/notCreated maps.
+  var node = newJObject()
+  node["accountId"] = resp.accountId.toJson()
+  for s in resp.oldState:
+    node["oldState"] = s.toJson()
+  node["newState"] = resp.newState.toJson()
+  emitCreateResults(resp.createResults, node)
+  emitOptIdUpdatedMap(node, "updated", resp.updated)
+  emitOptIdSetErrorMap(node, "notUpdated", resp.notUpdated)
+  emitOptDestroyedIds(node, resp.destroyed)
+  emitOptIdSetErrorMap(node, "notDestroyed", resp.notDestroyed)
+  return node
+
+func fromJson*(
+    T: typedesc[EmailSetResponse], node: JsonNode
+): Result[EmailSetResponse, ValidationError] =
+  ## Deserialise JSON to EmailSetResponse (RFC 8621 §4.6).
+  ## Merges wire created/notCreated into typed createResults. updated/
+  ## notUpdated and destroyed/notDestroyed stay split per the typed response
+  ## shape (Design §2.2, F2.1).
+  ?checkJsonKind(node, JObject, $T)
+  let accountId = ?AccountId.fromJson(node{"accountId"})
+  let newState = ?JmapState.fromJson(node{"newState"})
+  let oldState = ?parseOptJmapStateField(node, "oldState")
+  let createResults = ?mergeCreatedResults(node)
+  let updated = ?parseOptUpdatedMap(node, "updated", $T)
+  let notUpdated = ?parseOptSetErrorMap(node, "notUpdated", $T)
+  let destroyed = ?parseOptDestroyedIds(node, $T)
+  let notDestroyed = ?parseOptSetErrorMap(node, "notDestroyed", $T)
+  return ok(
+    EmailSetResponse(
+      accountId: accountId,
+      oldState: oldState,
+      newState: newState,
+      createResults: createResults,
+      updated: updated,
+      notUpdated: notUpdated,
+      destroyed: destroyed,
+      notDestroyed: notDestroyed,
+    )
+  )
+
+# =============================================================================
+# EmailCopyResponse
+# =============================================================================
+
+func toJson*(resp: EmailCopyResponse): JsonNode =
+  ## Serialise EmailCopyResponse (RFC 8621 §4.7). Splits createResults back
+  ## into wire created/notCreated; no updated/destroyed fields.
+  var node = newJObject()
+  node["fromAccountId"] = resp.fromAccountId.toJson()
+  node["accountId"] = resp.accountId.toJson()
+  for s in resp.oldState:
+    node["oldState"] = s.toJson()
+  node["newState"] = resp.newState.toJson()
+  emitCreateResults(resp.createResults, node)
+  return node
+
+func fromJson*(
+    T: typedesc[EmailCopyResponse], node: JsonNode
+): Result[EmailCopyResponse, ValidationError] =
+  ## Deserialise JSON to EmailCopyResponse (RFC 8621 §4.7).
+  ?checkJsonKind(node, JObject, $T)
+  let fromAccountId = ?AccountId.fromJson(node{"fromAccountId"})
+  let accountId = ?AccountId.fromJson(node{"accountId"})
+  let newState = ?JmapState.fromJson(node{"newState"})
+  let oldState = ?parseOptJmapStateField(node, "oldState")
+  let createResults = ?mergeCreatedResults(node)
+  return ok(
+    EmailCopyResponse(
+      fromAccountId: fromAccountId,
+      accountId: accountId,
+      oldState: oldState,
+      newState: newState,
+      createResults: createResults,
+    )
+  )
+
+# =============================================================================
+# EmailImportResponse
+# =============================================================================
+
+func toJson*(resp: EmailImportResponse): JsonNode =
+  ## Serialise EmailImportResponse (RFC 8621 §4.8). Minimal envelope —
+  ## imports have no update/destroy branches.
+  var node = newJObject()
+  node["accountId"] = resp.accountId.toJson()
+  for s in resp.oldState:
+    node["oldState"] = s.toJson()
+  node["newState"] = resp.newState.toJson()
+  emitCreateResults(resp.createResults, node)
+  return node
+
+func fromJson*(
+    T: typedesc[EmailImportResponse], node: JsonNode
+): Result[EmailImportResponse, ValidationError] =
+  ## Deserialise JSON to EmailImportResponse (RFC 8621 §4.8).
+  ?checkJsonKind(node, JObject, $T)
+  let accountId = ?AccountId.fromJson(node{"accountId"})
+  let newState = ?JmapState.fromJson(node{"newState"})
+  let oldState = ?parseOptJmapStateField(node, "oldState")
+  let createResults = ?mergeCreatedResults(node)
+  return ok(
+    EmailImportResponse(
+      accountId: accountId,
+      oldState: oldState,
+      newState: newState,
+      createResults: createResults,
+    )
+  )
+
+# =============================================================================
+# EmailCopyItem (toJson only — client → server)
+# =============================================================================
+
+func toJson*(item: EmailCopyItem): JsonNode =
+  ## Serialise EmailCopyItem for Email/copy create entries (RFC 8621 §4.7).
+  ## id always emitted; overrides omitted when Opt.none (preserve source).
+  var node = newJObject()
+  node["id"] = item.id.toJson()
+  for mids in item.mailboxIds:
+    node["mailboxIds"] = mids.toJson()
+  for kws in item.keywords:
+    node["keywords"] = kws.toJson()
+  for ra in item.receivedAt:
+    node["receivedAt"] = ra.toJson()
+  return node
+
+# =============================================================================
+# EmailImportItem (toJson only — client → server)
+# =============================================================================
+
+func toJson*(item: EmailImportItem): JsonNode =
+  ## Serialise EmailImportItem for Email/import entries (RFC 8621 §4.8).
+  ## blobId and mailboxIds always emitted; keywords omitted both when
+  ## Opt.none AND when Opt.some(empty) — an empty keyword set is the
+  ## server default (Design §6.1, F16). receivedAt when Opt.some.
+  var node = newJObject()
+  node["blobId"] = item.blobId.toJson()
+  node["mailboxIds"] = item.mailboxIds.toJson()
+  for kws in item.keywords:
+    if kws.len > 0:
+      node["keywords"] = kws.toJson()
+  for ra in item.receivedAt:
+    node["receivedAt"] = ra.toJson()
+  return node
+
+# =============================================================================
+# NonEmptyEmailImportMap (toJson only — client → server)
+# =============================================================================
+
+func toJson*(m: NonEmptyEmailImportMap): JsonNode =
+  ## Serialise NonEmptyEmailImportMap. Smart constructor has already
+  ## enforced non-empty and unique-CreationId invariants (Design §6.2, F13).
+  let tbl = Table[CreationId, EmailImportItem](m)
+  var node = newJObject()
+  for cid, item in tbl:
+    node[string(cid)] = item.toJson()
   return node
