@@ -98,20 +98,15 @@ func initVacationResponseUpdateSet*(
   ##     exactly one "no updates" representation (omit the call entirely);
   ##   * duplicate target property — two updates with the same kind would
   ##     produce a JSON patch object with duplicate keys.
-  ## All detected violations surface in a single Err pass.
-  var errs: seq[ValidationError] = @[]
-  if updates.len == 0:
-    errs.add validationError(
-      "VacationResponseUpdateSet", "must contain at least one update", ""
-    )
-  var seen: set[VacationResponseUpdateVariantKind] = {}
-  for update in updates:
-    if update.kind in seen:
-      errs.add validationError(
-        "VacationResponseUpdateSet", "duplicate target property", $update.kind
-      )
-    else:
-      seen.incl update.kind
+  ## All violations surface in a single Err pass; each repeated kind is
+  ## reported exactly once regardless of occurrence count.
+  let errs = validateUniqueByIt(
+    updates,
+    it.kind,
+    typeName = "VacationResponseUpdateSet",
+    emptyMsg = "must contain at least one update",
+    dupMsg = "duplicate target property",
+  )
   if errs.len > 0:
     return err(errs)
-  return ok(VacationResponseUpdateSet(@updates))
+  ok(VacationResponseUpdateSet(@updates))

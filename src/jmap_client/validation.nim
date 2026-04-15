@@ -97,6 +97,59 @@ template defineNonEmptyHashSetDistinctOps*(T, E: typedesc) =
       yield (i, e)
       inc i
 
+template duplicatesByIt(s: untyped, keyExpr: untyped): untyped =
+  ## Unexported helper. Returns ``seq[K]`` containing every key
+  ## ``keyExpr`` that appears more than once in ``s``, each key at most
+  ## once, in order of first repeat (when the key first becomes a
+  ## known duplicate).
+  ##
+  ## Template (not ``func``) so ``keyExpr`` expands inline and inherits
+  ## the caller's ``{.push raises: [], noSideEffect.}`` — mirrors the
+  ## ``std/sequtils.mapIt`` / ``filterIt`` / ``anyIt`` idiom. Uses two
+  ## local ``HashSet``s (functional-core Pattern 7: imperative kernel,
+  ## local mutation only); each element dispatches through
+  ## ``containsOrIncl`` (Pattern 3 equivalent for ``HashSet``), which
+  ## never raises.
+  block:
+    type K = typeof(
+      block:
+        var it {.inject.}: typeof(items(s), typeOfIter)
+        keyExpr
+    )
+
+    var seen = initHashSet[K]()
+    var reported = initHashSet[K]()
+    var dups: seq[K] = @[]
+    for it {.inject.} in s:
+      let k = keyExpr
+      if seen.containsOrIncl(k):
+        if not reported.containsOrIncl(k):
+          dups.add k
+    dups
+
+template validateUniqueByIt*(
+    s: untyped, keyExpr: untyped, typeName, emptyMsg, dupMsg: string
+): seq[ValidationError] =
+  ## Accumulating uniqueness validator for smart constructors. Returns
+  ## a ``seq[ValidationError]`` that is empty iff ``s`` is non-empty
+  ## and all keys (as produced by ``keyExpr`` over the injected ``it``)
+  ## are distinct. Otherwise:
+  ##   * one ``emptyMsg`` error when ``s.len == 0``;
+  ##   * one ``dupMsg`` error per distinct repeated key — three
+  ##     occurrences of the same key yield exactly one error, naming
+  ##     the key once.
+  ## Sole translation boundary from the internal uniqueness
+  ## classification to the wire ``ValidationError`` shape — callers
+  ## supply the three wire strings at the call site rather than
+  ## hand-building ``ValidationError`` inline.
+  block:
+    var errs: seq[ValidationError] = @[]
+    if s.len == 0:
+      errs.add validationError(typeName, emptyMsg, "")
+    for k in duplicatesByIt(s, keyExpr):
+      errs.add validationError(typeName, dupMsg, $k)
+    errs
+
 func validateServerAssignedToken*(
     typeName: string, raw: string
 ): Result[void, ValidationError] =

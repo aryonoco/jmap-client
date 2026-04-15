@@ -120,3 +120,57 @@ block parseNonEmptyMailboxIdSetMutabilityGuard: # §6.1.3 scenario 27a
   assertNotCompiles s.incl(id1)
   assertNotCompiles s.excl(id1)
   assertNotCompiles s.clear()
+
+# ============= E. initMailboxUpdateSet =============
+#
+# Uniqueness-by-kind contract: each distinct repeated ``kind`` yields
+# exactly one error regardless of how many times it occurs. N
+# duplicates of the same kind therefore produce ONE error, not N-1.
+
+block initMailboxUpdateSetEmpty:
+  let res = initMailboxUpdateSet(@[])
+  assertErr res
+  assertLen res.error, 1
+  assertEq res.error[0].typeName, "MailboxUpdateSet"
+  assertEq res.error[0].message, "must contain at least one update"
+  assertEq res.error[0].value, ""
+
+block initMailboxUpdateSetSingleValid:
+  assertOk initMailboxUpdateSet(@[setName("Inbox")])
+
+block initMailboxUpdateSetTwoSameKind:
+  let res = initMailboxUpdateSet(@[setName("A"), setName("B")])
+  assertErr res
+  assertLen res.error, 1
+  assertEq res.error[0].typeName, "MailboxUpdateSet"
+  assertEq res.error[0].message, "duplicate target property"
+  assertEq res.error[0].value, "muSetName"
+
+block initMailboxUpdateSetThreeSameKind:
+  ## Three occurrences of the same kind still yield ONE error —
+  ## the Haskell-style "each repeated key reported once" contract.
+  let res = initMailboxUpdateSet(@[setName("A"), setName("B"), setName("C")])
+  assertErr res
+  assertLen res.error, 1
+  assertEq res.error[0].value, "muSetName"
+
+block initMailboxUpdateSetTwoDistinctRepeated:
+  ## Two distinct repeated kinds → TWO errors, one per distinct
+  ## duplicate key. Verifies the output set via set-membership so the
+  ## test does not depend on error ordering.
+  let pid = parseId("p1").get()
+  let res = initMailboxUpdateSet(
+    @[setName("A"), setName("B"), setParentId(Opt.some(pid)), setParentId(Opt.none(Id))]
+  )
+  assertErr res
+  assertLen res.error, 2
+  var seen: set[MailboxUpdateVariantKind] = {}
+  for e in res.error:
+    assertEq e.typeName, "MailboxUpdateSet"
+    assertEq e.message, "duplicate target property"
+    if e.value == "muSetName":
+      seen.incl muSetName
+    elif e.value == "muSetParentId":
+      seen.incl muSetParentId
+  doAssert muSetName in seen
+  doAssert muSetParentId in seen

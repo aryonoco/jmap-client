@@ -393,24 +393,19 @@ func initNonEmptyEmailImportMap*(
   ## non-Opt; an empty map makes the whole call meaningless (Design §6.2).
   ## Rejects duplicate ``CreationId`` — silent shadowing at Table
   ## construction turns data-loss into a silent accept; ``openArray`` (not
-  ## ``Table``) preserves duplicate keys for inspection. All detected
-  ## violations surface in a single Err pass.
-  var errs: seq[ValidationError] = @[]
-  if items.len == 0:
-    errs.add validationError(
-      "NonEmptyEmailImportMap", "must contain at least one entry", ""
-    )
-  var seen = initHashSet[CreationId]()
-  for entry in items:
-    if entry[0] in seen:
-      errs.add validationError(
-        "NonEmptyEmailImportMap", "duplicate CreationId", $entry[0]
-      )
-    else:
-      seen.incl entry[0]
+  ## ``Table``) preserves duplicate keys for inspection. All violations
+  ## surface in a single Err pass; each repeated CreationId is reported
+  ## exactly once regardless of occurrence count.
+  let errs = validateUniqueByIt(
+    items,
+    it[0],
+    typeName = "NonEmptyEmailImportMap",
+    emptyMsg = "must contain at least one entry",
+    dupMsg = "duplicate CreationId",
+  )
   if errs.len > 0:
     return err(errs)
   var t = initTable[CreationId, EmailImportItem](items.len)
-  for entry in items:
-    t[entry[0]] = entry[1]
-  return ok(NonEmptyEmailImportMap(t))
+  for (cid, item) in items:
+    t[cid] = item
+  ok(NonEmptyEmailImportMap(t))

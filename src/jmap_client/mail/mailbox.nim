@@ -239,18 +239,15 @@ func initMailboxUpdateSet*(
   ##     id" representation (omit the entry from the outer table);
   ##   * duplicate target property — two updates with the same kind would
   ##     produce a JSON patch object with duplicate keys.
-  ## All detected violations surface in a single Err pass.
-  var errs: seq[ValidationError] = @[]
-  if updates.len == 0:
-    errs.add validationError("MailboxUpdateSet", "must contain at least one update", "")
-  var seen: set[MailboxUpdateVariantKind] = {}
-  for update in updates:
-    if update.kind in seen:
-      errs.add validationError(
-        "MailboxUpdateSet", "duplicate target property", $update.kind
-      )
-    else:
-      seen.incl update.kind
+  ## All violations surface in a single Err pass; each repeated kind is
+  ## reported exactly once regardless of occurrence count.
+  let errs = validateUniqueByIt(
+    updates,
+    it.kind,
+    typeName = "MailboxUpdateSet",
+    emptyMsg = "must contain at least one update",
+    dupMsg = "duplicate target property",
+  )
   if errs.len > 0:
     return err(errs)
-  return ok(MailboxUpdateSet(@updates))
+  ok(MailboxUpdateSet(@updates))
