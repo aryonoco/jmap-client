@@ -137,6 +137,13 @@ to `Opt[T]` (discards error details).
   `{.push raises: [].}` without `noSideEffect`.
 - **Parse, don't validate** — smart constructors produce `Result` values.
   Invariants enforced at construction time, not checked later.
+- **Template combinators preserve purity** — `mapIt`, `filterIt`, `collect`,
+  `foldl`, `allIt`, `anyIt`, `toSeq`, `concat` are templates that expand
+  inline and inherit the caller's pragmas, so they compose freely inside a
+  `func`. `proc`-based higher-order functions (e.g., `seq.map(p)`) use
+  `effectsOf: op` to propagate the callback's effects — pass a pure closure
+  and the call stays pure. See `nim-functional-core.md` for the full
+  catalogue of safe primitives under `raises: [], noSideEffect`.
 
 ## Immutability
 
@@ -150,6 +157,11 @@ to `Opt[T]` (discards error details).
 - `openArray[T]` for read-only parameters. `collect` (std/sugar) over
   `.filterIt().mapIt()` for building new collections. `allIt`/`anyIt` for
   predicates. NEVER define `converter` procs.
+- If traditional FP-patterns are not feasible, local `var` inside an L1–L3 `func`
+  is acceptable when the mutation is
+  not observable to the caller. Accumulating tables, folds,
+  and `collect` bodies are the canonical uses. See `nim-functional-core.md`
+  pattern "Imperative kernel inside a functional shell".
 
 ## Expression-Oriented Style
 

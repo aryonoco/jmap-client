@@ -130,6 +130,7 @@ To verify how Nim works, Access the Nim source code at /.nim-reference
 Detailed Nim patterns are in `.claude/rules/`:
 - `nim-conventions.md` — error handling, immutability, expression style, naming
 - `nim-type-safety.md` — distinct types, case objects, enums, smart constructors
+- `nim-functional-core.md` — L1–L3 FP idioms: safe stdlib primitives, sum-type ADTs, `withValue`, set algebra, translation boundaries
 - `nim-ffi-boundary.md` — C ABI exports, type mapping, memory ownership, error projection
 
 ## Static Analysis
