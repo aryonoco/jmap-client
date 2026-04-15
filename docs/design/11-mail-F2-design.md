@@ -6,6 +6,13 @@ F1 (§1–§7 and §9) into this document remain valid without rewriting.
 See F1 for the full context (scope, typed update algebras, response
 surface, builders, and the Decision Traceability Matrix).
 
+This document was realigned with the actual Part F implementation
+after the F1 source code landed. Where F1's prose and the shipped
+code disagree, **the shipped code is authoritative** and this document
+specifies the tests against it. The per-section "Implementation
+reality" notes flag the places where the test shape differs from
+what F1 prose would have suggested.
+
 ---
 
 ## 8. Test Specification
@@ -35,13 +42,31 @@ Part F mirrors Part E's test category shape (F17):
    coherence"), JSON-structural attacks (§8.2.3 "JSON-structural
    attack surface"), and the `cast`-bypass policy pin
    (§8.2.3 "Cast-bypass behaviour").
-5. **Compile-time reachability** — a single `tmail_f_reexport.nim`
-   file (action: `"compile"`) proving every new public symbol is
-   reachable through the top-level `jmap_client` re-export chain, that
-   `PatchObject` is **not** publicly visible (F19 enforcement, §8.5.1),
-   that every new variant-kind enum is exhaustive under `case`, and
-   that every creation-side type is `toJson`-only (no `fromJson` in
-   scope — F1 §1.6 asymmetric serde discipline; §8.2.2 block 4).
+5. **Compile-time reachability** — the shipped file is
+   `tests/compile/tcompile_mail_f_public_surface.nim` (action:
+   `"compile"` via the ambient `{.push raises: [].}`; the `static:`
+   block compiles but has no runtime effect). It proves every new
+   public symbol is reachable through the top-level `jmap_client`
+   re-export chain. See §8.2.2 for the shape.
+
+   **Implementation reality — divergence from F1 prose.** F1 §1.5.1
+   and §1.5.3 describe `PatchObject` being *demoted* (the `*` export
+   dropped but the type still existing internally). The shipped
+   implementation goes one step further: `PatchObject` is **removed
+   entirely** from `src/jmap_client/framework.nim`. All mail update
+   paths flow through the three typed algebras directly; no wire-
+   patch primitive is carried in-tree. Consequently the previously
+   planned `assertNotCompiles((let _: PatchObject = default(PatchObject)))`
+   gate plus `assertNotCompiles(jmap_client.emptyPatch())` gate
+   would be trivially true against a non-existent symbol and carry
+   no information; they are **not** in the shipped compile test.
+   Variant-kind exhaustiveness probes and `fromJson`-absence pins
+   also do not appear in the shipped compile test — the `declared()`
+   approach (see §8.2.2) already catches symbol regressions at the
+   re-export boundary, and variant-forgetting is caught by the
+   compiler's default exhaustiveness check on every internal `case`
+   site (e.g., `email_update.nim:163-169` `shape`, `email_update.nim:171-185`
+   `classify`, `email_update.nim:226-242` `toValidationError`).
 
 **File-naming note.** Part E's adversarial stress file is
 `tests/stress/tadversarial_blueprint.nim` (per-concept, not
@@ -49,10 +74,22 @@ part-lettered). Part F deliberately deviates to
 `tadversarial_mail_f.nim` to mirror the property-test convention
 (`tprop_mail_f.nim` / `tprop_mail_e.nim`) — by Part F, the
 part-lettered scheme has stabilised across two property files and
-one compliance file, and warrants the third instance for the
-adversarial slot. The Part E adversarial file is the structural
-precedent (`tests/stress/tadversarial_blueprint.nim`), referenced
-explicitly by §8.10 below.
+warrants the third instance for the adversarial slot. The Part E
+adversarial file is the structural precedent
+(`tests/stress/tadversarial_blueprint.nim`), referenced explicitly
+by §8.10 below.
+
+**Test-idiom note.** The shipped test style across all new files in
+this part is `block <name>:` + `assertOk`/`assertErr`/`assertEq`/
+`assertLen` from `tests/massertions.nim` plus raw `doAssert` for
+inline checks. No `std/unittest` `test "name":` blocks, no `suite`
+wrappers. The canonical precedent for the style is
+`tests/unit/mail/temail.nim` (already extended for Part F with the
+`initNonEmptyEmailImportMap*` blocks at lines 59–125) and
+`tests/unit/mail/tmailbox.nim` (already extended for Part F with the
+`initMailboxUpdateSet*` blocks at lines 124–176). Prescriptions in
+§8.3 and §8.4 below name proposed `block` identifiers directly, not
+unittest-style titles.
 
 Test-infrastructure additions (§8.6) follow Part E's 7-step fixture
 protocol (`tests/mfixtures.nim:7-14`) and naming convention
@@ -71,6 +108,14 @@ feature is explicitly disallowed.
 
 Following Part E's convention (F17), the lettered-by-part files cover
 test concerns whose scope spans multiple types within the Part.
+
+**State of play (as of the F1 implementation landing):**
+
+| File | Status |
+|------|--------|
+| `tests/property/tprop_mail_f.nim` | **Not yet created** — all five property groups in §8.2.1 are still to be written. |
+| `tests/compile/tcompile_mail_f_public_surface.nim` | **Shipped** — 49 `declared()` assertions covering every F1 public symbol. See §8.2.2 for the actual shape and the enhancements still to layer on. |
+| `tests/stress/tadversarial_mail_f.nim` | **Not yet created** — the adversarial-scenario blocks in §8.2.3 are still to be written. |
 
 #### 8.2.1. `tests/property/tprop_mail_f.nim`
 
@@ -104,63 +149,95 @@ uses the native `for variant in MethodErrorType:` idiom (precedent:
 `tests/unit/terrors.nim:428`); see §8.6.1 for the rationale on
 preferring native enum iteration over a wrapper template.
 
-#### 8.2.2. `tests/compliance/tmail_f_reexport.nim`
+#### 8.2.2. `tests/compile/tcompile_mail_f_public_surface.nim`
 
-Compile-time smoke test (`action: "compile"`). Pattern follows
-`tests/compliance/tmail_e_reexport.nim`. Four sub-blocks:
+Compile-only smoke test. Shipped shape: a single top-level
+`import jmap_client` plus a `static:` block containing 49
+`declared(<symbol>)` assertions, one per new public symbol (types,
+variant-kind enums, primitive+convenience ctors, set-ctors, builder
+procs, method-name enum variant, entity resolver constant). A
+single runtime-scope `doAssert $mnEmailImport == "Email/import"`
+pins the imported module against Nim's `UnusedImport` check.
 
-1. **Symbol reachability** — every new public symbol is reachable
-   through the top-level `import jmap_client` re-export chain.
-   Covered symbols: `EmailUpdate`, `EmailUpdateVariantKind`,
-   `EmailUpdateSet`, `MailboxUpdate`, `MailboxUpdateVariantKind`,
-   `MailboxUpdateSet`, `VacationResponseUpdate`,
-   `VacationResponseUpdateVariantKind`, `VacationResponseUpdateSet`,
-   `EmailCreatedItem`, `UpdatedEntry`, `UpdatedEntryKind`,
-   `EmailSetResponse`, `EmailCopyResponse`, `EmailImportResponse`,
-   `EmailCopyItem`, `EmailImportItem`, `NonEmptyEmailImportMap`,
-   `EmailCopyHandles`, `EmailCopyResults`; all six protocol-primitive
-   plus five domain-named `EmailUpdate` constructors; all five
-   `MailboxUpdate` and six `VacationResponseUpdate` constructors;
-   the three `init*UpdateSet` smart constructors;
-   `getBoth(EmailCopyHandles)`. Trivial newtype-wrapper assertions
-   (`distinct seq` re-exports for which the only behaviour is
-   "exists") are intentionally omitted in favour of accessor-level
-   UFCS exercise per the `tmail_e_reexport.nim`
-   `touchEmailBlueprintAccessors` precedent.
-2. **`PatchObject` demotion enforcement (F19)** — an
-   `assertNotCompiles` block placed immediately after
-   `import jmap_client`, before the reachability section:
-   `assertNotCompiles((let _: PatchObject = default(PatchObject)))`
-   plus `assertNotCompiles(jmap_client.emptyPatch())`. Pins the
-   `*` removal at the public boundary so an accidental re-export
-   fails CI loudly.
-3. **Variant-kind exhaustiveness probes** — three procs that take
-   each new variant-kind discriminator and `case` over every
-   constructor without an `else`. The compiler refuses to build if
-   any variant is unhandled, guarding against silent variant
-   forgetting in future parts. Covers `EmailUpdateVariantKind`
-   (6 variants), `MailboxUpdateVariantKind` (5 variants),
-   `VacationResponseUpdateVariantKind` (6 variants),
-   `UpdatedEntryKind` (2 variants).
-4. **Asymmetric serde discipline pin (F1 §1.6)** — F1 §1.6 commits
-   creation models to **`toJson`-only** (no `fromJson`). One
-   `assertNotCompiles` per creation type pins that no `fromJson`
-   overload is reachable through the public re-export surface:
-   - `emailUpdateHasNoFromJson` —
-     `assertNotCompiles((let _ = EmailUpdate.fromJson(newJObject())))`
-   - `emailUpdateSetHasNoFromJson` —
-     `assertNotCompiles((let _ = EmailUpdateSet.fromJson(newJObject())))`
-   - `emailCopyItemHasNoFromJson` —
-     `assertNotCompiles((let _ = EmailCopyItem.fromJson(newJObject())))`
-   - `emailImportItemHasNoFromJson` —
-     `assertNotCompiles((let _ = EmailImportItem.fromJson(newJObject())))`
-   - `nonEmptyEmailImportMapHasNoFromJson` —
-     `assertNotCompiles((let _ = NonEmptyEmailImportMap.fromJson(newJObject())))`
-   Pins F1 §1.6's "client → server only" Postel application — these
-   types should never appear on a server-to-client decode path.
-   `MailboxUpdate*` and `VacationResponseUpdate*` are creation
-   models for their respective `/set` methods and receive identical
-   pins in this block (one `assertNotCompiles` per type).
+**Why `declared()` and not `compiles()`.** `declared()` sidesteps
+overload-resolution ambiguity on generically-named constructors
+(`setName`, `setRole`, `setSubject`, …) that a naïve
+`compiles(let x: EmailUpdate = setName("x"))` probe would snag on.
+`declared()` asks only "is this identifier visible at this site?",
+which is exactly the re-export invariant under test. The shipped
+file documents this choice in its opening docstring.
+
+**Covered symbols (authoritative list, from the shipped file):**
+
+- **Types (20):** `EmailUpdate`, `EmailUpdateVariantKind`,
+  `EmailUpdateSet`, `EmailCreatedItem`, `UpdatedEntry`,
+  `UpdatedEntryKind`, `EmailSetResponse`, `EmailCopyResponse`,
+  `EmailImportResponse`, `EmailCopyItem`, `EmailImportItem`,
+  `NonEmptyEmailImportMap`, `MailboxUpdate`,
+  `MailboxUpdateVariantKind`, `MailboxUpdateSet`,
+  `VacationResponseUpdate`, `VacationResponseUpdateVariantKind`,
+  `VacationResponseUpdateSet`, `EmailCopyHandles`,
+  `EmailCopyResults`.
+- **Protocol-primitive EmailUpdate ctors (6):** `addKeyword`,
+  `removeKeyword`, `setKeywords`, `addToMailbox`,
+  `removeFromMailbox`, `setMailboxIds`.
+- **Domain-named EmailUpdate ctors (5):** `markRead`, `markUnread`,
+  `markFlagged`, `markUnflagged`, `moveToMailbox`.
+- **Set/map ctors (6):** `initEmailUpdateSet`, `initEmailCopyItem`,
+  `initEmailImportItem`, `initNonEmptyEmailImportMap`,
+  `initMailboxUpdateSet`, `initVacationResponseUpdateSet`.
+- **MailboxUpdate ctors (5):** `setName`, `setParentId`, `setRole`,
+  `setSortOrder`, `setIsSubscribed`.
+- **VacationResponseUpdate ctors (6):** `setIsEnabled`,
+  `setFromDate`, `setToDate`, `setSubject`, `setTextBody`,
+  `setHtmlBody`.
+- **Methods/builders (5):** `addEmailSet`, `addEmailCopy`,
+  `addEmailCopyAndDestroy`, `addEmailImport`, `getBoth`.
+- **Enum variant (1):** `mnEmailImport`.
+- **Entity resolver (1):** `importMethodName`.
+
+**What the shipped file deliberately does NOT do:**
+
+- **No `PatchObject`-demotion `assertNotCompiles` gate.**
+  `PatchObject` is **removed entirely** from
+  `src/jmap_client/framework.nim`; an `assertNotCompiles` against a
+  type that does not exist is trivially true and carries no
+  information. `git log -Sframework.nim -- 'PatchObject'` is the
+  durable record of the removal.
+- **No variant-kind exhaustiveness probes.** Internal `case` sites
+  in `email_update.nim` (`shape`, `classify`, `toValidationError`)
+  and in the three `toJson(…Update)` sites already force the
+  compiler to witness every variant. A dedicated probe would add
+  no coverage the production code does not already provide.
+- **No asymmetric `fromJson`-absence pins.** The creation types
+  (`EmailUpdate`, `EmailUpdateSet`, `EmailCopyItem`,
+  `EmailImportItem`, `NonEmptyEmailImportMap`, `MailboxUpdate`,
+  `MailboxUpdateSet`, `VacationResponseUpdate`,
+  `VacationResponseUpdateSet`) have no `fromJson` defined at their
+  declaration sites in `serde_email_update.nim`, `serde_email.nim`,
+  `serde_mailbox.nim`, `serde_vacation.nim`; `grep -n 'fromJson'`
+  across those files is the primary check. Note that the three
+  **response** types (`EmailSetResponse`, `EmailCopyResponse`,
+  `EmailImportResponse`) DO have `fromJson` — they flow server →
+  client, so two-way serde is correct and a blanket "no `fromJson`
+  for anything new in F" pin would be wrong.
+
+**Optional enhancement — if reviewer strictness demands it.** A
+subsequent PR could add per-creation-type pins in the form:
+
+```nim
+static:
+  doAssert not compiles(EmailUpdate.fromJson(newJObject()))
+  doAssert not compiles(EmailUpdateSet.fromJson(newJObject()))
+  ...
+```
+
+Placed at the end of the `static:` block, each assertion documents
+one type's toJson-only contract at compile time without the
+false-positive risk of `assertNotCompiles` (which also fails on
+unrelated compile errors). This is **not** in the shipped file; it
+is a potential later addition if the `grep`-level check proves
+insufficient in practice.
 
 #### 8.2.3. `tests/stress/tadversarial_mail_f.nim`
 
@@ -317,16 +394,18 @@ which Nim's type system cannot prevent. The pin documents what the
 library does NOT promise:
 
 - `castBypassDocumentsNoPostHocValidation` —
-  `cast[EmailUpdateSet](@[euAddKeyword(k), euAddKeyword(k)])` (a
-  Class 1 violation) is accepted by `toJson` and emits structurally
-  malformed wire JSON. The test asserts the malformed output is
-  produced (negative assertion: no runtime check fires) and pins
-  the documented contract that callers using `cast` opt out of the
-  invariant guarantee. The test docstring explicitly states this
-  is a **negative-pin** test — the library deliberately does NOT
-  add a runtime check, since the cost of post-hoc validation on
-  every `toJson` would penalise the well-typed path. F1 §3.2.4
-  links to this test by name.
+  `cast[EmailUpdateSet](@[addKeyword(k), addKeyword(k)])` (a Class 1
+  violation) is accepted by `toJson` and emits structurally malformed
+  wire JSON. The test asserts the malformed output is produced
+  (negative assertion: no runtime check fires) and pins the
+  documented contract that callers using `cast` opt out of the
+  invariant guarantee. The test docstring explicitly states this is
+  a **negative-pin** test — the library deliberately does NOT add a
+  runtime check, since the cost of post-hoc validation on every
+  `toJson` would penalise the well-typed path. F1 §3.2.4 links to
+  this test by name. The constructor names are the protocol-primitive
+  public symbols (`addKeyword`, …), not the `eu*` variant-kind
+  identifiers, which are discriminators, not ctors.
 - `castBypassEmptyAccepted` —
   `cast[EmailUpdateSet](newSeq[EmailUpdate]())` (empty — would be
   rejected by `initEmailUpdateSet`) is accepted by `toJson` and
@@ -339,35 +418,89 @@ trivially fail; they are only used by `tadversarial_mail_f.nim`.
 
 ### 8.3. New per-concept test files
 
+**State-of-play key.** Each row below is tagged:
+- **SHIPPED** — the blocks already exist in the cited file after the F1 implementation merge. Reproduced here verbatim so this document is a single source of truth.
+- **TO-ADD** — blocks still to be written in the cited file (creating the file first if it does not exist).
+
+**Error-rail shape (applies to every TO-ADD below unless noted).** The
+shipped `ValidationError` record has exactly three fields:
+`typeName: string`, `message: string`, `value: string`. There is
+**no** `classification` field, `kind` enum, or similar typed
+discriminator on `ValidationError`; all prior F2 drafts that
+referenced `error[0].classification == Class2OppositeOperations`
+(or any enum-valued classifier) are fictional and have been
+rewritten to check `error[0].message` against the literal message
+string the production code emits. The authoritative messages, per
+the shipped implementation, are:
+
+| Type | Invariant | `message` | `value` |
+|------|-----------|-----------|---------|
+| `EmailUpdateSet` | Empty input | `"must contain at least one update"` | `""` |
+| `EmailUpdateSet` | Class 1 (duplicate target path) | `"duplicate target path"` | target path, e.g. `"keywords/$seen"` |
+| `EmailUpdateSet` | Class 2 (opposite operations) | `"opposite operations on same sub-path"` | sub-path |
+| `EmailUpdateSet` | Class 3 (sub-path + full-replace) | `"sub-path operation alongside full-replace on same parent"` | parent property, e.g. `"keywords"` |
+| `MailboxUpdateSet` | Empty | `"must contain at least one update"` | `""` |
+| `MailboxUpdateSet` | Duplicate target property | `"duplicate target property"` | symbolic kind, e.g. `"muSetName"` |
+| `VacationResponseUpdateSet` | Empty | `"must contain at least one update"` | `""` |
+| `VacationResponseUpdateSet` | Duplicate target property | `"duplicate target property"` | symbolic kind, e.g. `"vruSetIsEnabled"` |
+| `NonEmptyEmailImportMap` | Empty | `"must contain at least one entry"` | `""` |
+| `NonEmptyEmailImportMap` | Duplicate `CreationId` | `"duplicate CreationId"` | the duplicated CreationId text, e.g. `"c1"` |
+
+Note the singular case where `NonEmptyEmailImportMap` uses the
+word "entry" rather than "update" — import payloads are not
+updates, so the shared `validateUniqueByIt` helper is invoked with
+a different `emptyMsg` string at the call site
+(`email.nim:399-405`).
+
+**Uniqueness-collapsing contract.** Three of the four set-style
+smart constructors use `validateUniqueByIt`
+(`validation.nim:130-151`), which reports **each repeated key
+exactly once regardless of occurrence count**. Three duplicates of
+the same key yield **one** error, not two. This applies to
+`MailboxUpdateSet`, `VacationResponseUpdateSet`, and
+`NonEmptyEmailImportMap`. `EmailUpdateSet` uses a different path-
+based detector (`samePathConflicts`, `email_update.nim:204-224`)
+that emits one conflict per same-path occurrence AFTER the first;
+N occurrences at a single target path therefore yield N − 1
+Class 1 conflicts. Tests must calibrate their exact-count
+assertions accordingly (see §8.10).
+
 Unit — `tests/unit/mail/`:
 
 | File | Concerns |
 |------|----------|
-| `temail_update.nim` | (1) Six protocol-primitive constructors emit the correct payload (kind discriminator is implicit in the constructor literal — explicit `kind == ...` tautology omitted). (2) Five domain-named convenience constructors are structurally `emailUpdateEq`-equal to their primitive counterparts: `markRead() ≡ addKeyword(kwSeen)`, `markUnread() ≡ removeKeyword(kwSeen)`, `markFlagged() ≡ addKeyword(kwFlagged)`, `markUnflagged() ≡ removeKeyword(kwFlagged)`, `moveToMailbox(id) ≡ setMailboxIds(parseNonEmptyMailboxIdSet(@[id]).get())`. (3) Negative cases pinning equality non-degeneracy: `moveToMailbox(id1) ≠ moveToMailbox(id2)` for distinct ids; `addKeyword(k1) ≠ addKeyword(k2)` for distinct keywords. |
-| `temail_update_set.nim` | (1) Empty input rejected — single-shot `emptyInputRejected` (was prop group B; F22). (2) Class 1 enumerated by §8.7.1 — six named tests, one per shape. (3) Class 2 enumerated by §8.7.2 — two named tests (`class2KeywordOpposite`, `class2MailboxOpposite`). (4) Class 3 enumerated by §8.7.3 — four named tests (`class3{Add,Remove}{Keyword,Mailbox}VsSet`). (5) Class 1+2 overlap pin — `class1And2Overlap` asserts exactly 1 error is emitted with `classification == Class2OppositeOperations` (the committed tighter-classification policy, §8.7.2). (6) Independent cases (§8.7.4) — four mandatory positive tests: `independentSetKeywordsAndSetMailboxIds`, `independentTwoDifferentKeywordsAdded`, `independentKeywordAddAndMailboxAdd`, `independentMailboxAddAndDifferentMailboxRemove`. (7) Accumulation arithmetic — `accumulateMixedClasses` (1×Class 1 + 1×Class 2 + 1×Class 3 → exactly 3 errors via `assertUpdateSetErrCount`); `accumulateOneClassThree` (3× Class 3 → exactly 3 errors); `accumulateEmptyAlone` (empty → exactly 1 error). |
-| `tnon_empty_email_import_map.nim` | (1) `nonEmptyImportMapEmptyRejected`. (2) `nonEmptyImportMapDuplicateCreationIdRejected`. (3) `nonEmptyImportMapDuplicateAndEmptyAccumulatedSeparately` — the empty case and the duplicate case cannot co-occur on a single input (empty has no duplicates); this test exercises the two invariants as independent failures in the same test file, pinning the error-rail shape is identical. (4) `nonEmptyImportMapPreservesInsertionOrder` — construct from `@[("c1",_), ("c2",_), ("c3",_)]`; iterate via `pairs`; assert order is `c1, c2, c3`. Repeat with shuffled input `@[("c3",_), ("c1",_), ("c2",_)]`; assert iteration order matches input. (5) `nonEmptyImportMapDeterministicErrorOrder` — supply input containing two duplicate pairs at disjoint positions; assert errors emit in input-encounter order. Trivial "valid input → Ok" smoke is folded into (4) — the order-preservation case implicitly asserts construction succeeds with expected `len` and per-`CreationId` accessibility. |
-| `temail_copy_item.nim` | (1) `copyItemTypeRejectsEmptyMailboxIdSet` — `assertNotCompiles(EmailCopyItem(id: id1, mailboxIds: Opt.some(initMailboxIdSet(@[]))))`. Pins F1 §6.1's "the override slot rejects empty sets at the type level". (2) `copyItemTypeRejectsNonEmptyMailboxIdSetWrongDistinct` — `assertNotCompiles(initEmailCopyItem(id = id1, mailboxIds = Opt.some(initMailboxIdSet(@[id1]))))`. Pins that even a *non-empty* `MailboxIdSet` is the wrong distinct type for the override slot — it must be a `NonEmptyMailboxIdSet`. The (1)/(2) pair separates the empty-rejection axis from the distinct-type axis. The serde row in `tserde_email_copy.nim` covers full-override and minimal-construction wire output (§8.3 serde table); the redundant in-vitro field-readback assertions and the `parseNonEmptyMailboxIdSet(@[])` runtime check (already pinned in `tnon_empty_mailbox_id_set.nim`) have been removed. |
-| `temail_import_item.nim` | (1) `importItemRejectsOptNoneMailboxIds` — `assertNotCompiles(initEmailImportItem(blobId = b, mailboxIds = Opt.none(NonEmptyMailboxIdSet)))`; pins that `mailboxIds` is required (no `Opt.none` form for this field). (2) `importItemKeywordsRoundTripThreeStates` — exercises `Opt.none` / `Opt.some(initKeywordSet(@[]))` / `Opt.some(non-empty)` for the `keywords` slot. Wire collapses the first two into a single omission (`Opt.some(empty)` may or may not serialise as `{}` — the test asserts whichever convention the serde uses and pins it), but the type distinguishes them at construction time. Trivial "minimal construction returns object" case removed — folded into (1) and (2). |
-| `tvacation.nim` | NEW unit file (the existing `tserde_vacation.nim` is serde-only; no unit counterpart currently exists). (1) `vacationResponseSixFieldsConstructed` — smart-constructor behaviour for all six fields on `VacationResponse`. (2) Six named tests covering `VacationResponseUpdate` variant construction, one per variant (`vacationResponseUpdateSetIsEnabled`, `vacationResponseUpdateSetFromDate`, `vacationResponseUpdateSetToDate`, `vacationResponseUpdateSetSubject`, `vacationResponseUpdateSetTextBody`, `vacationResponseUpdateSetHtmlBody`). (3) `vacationResponseUpdateSetEmptyRejected`. (4) Six duplicate-target tests, one per `VacationResponseUpdateVariantKind` variant (`vacationResponseUpdateSetDuplicateSetIsEnabled`, `vacationResponseUpdateSetDuplicateSetFromDate`, `vacationResponseUpdateSetDuplicateSetToDate`, `vacationResponseUpdateSetDuplicateSetSubject`, `vacationResponseUpdateSetDuplicateSetTextBody`, `vacationResponseUpdateSetDuplicateSetHtmlBody`). Native `for variant in VacationResponseUpdateVariantKind:` iteration (precedent: `tests/unit/terrors.nim:428`) is acceptable for (4). |
-| `tkeyword.nim` (append) | (1) `keywordWithTildeAccepted` — `parseKeyword("$has~tilde")`. (2) `keywordWithSlashAccepted` — `parseKeyword("$has/slash")`. (3) `keywordWithBothAccepted` — `parseKeyword("$~/")`. Pins F1 §3.2.5's spec-faithful Postel commitment — RFC 8621 §4.1.1's keyword charset includes `~` and `/`. Required upstream of §8.8's escape-boundary tests; without it those tests cannot construct their inputs. |
+| `temail.nim` — §C `initNonEmptyEmailImportMap` block group at lines 59–125 | **SHIPPED.** Five `block`s: (1) `initNonEmptyEmailImportMapEmpty` — empty input → one `typeName: "NonEmptyEmailImportMap"`, `message: "must contain at least one entry"`, `value: ""` error. (2) `initNonEmptyEmailImportMapSingleValid` — single valid entry → `Ok`. (3) `initNonEmptyEmailImportMapTwoSameCreationId` — two entries sharing a CreationId → one error with `value == "c1"`. (4) `initNonEmptyEmailImportMapThreeSameCreationId` — three entries sharing a CreationId → one error (pins the uniqueness-collapsing contract at N = 3). (5) `initNonEmptyEmailImportMapTwoDistinctRepeated` — four entries forming two distinct duplicate pairs → exactly two errors, one per distinct repeated key, verified via set-membership so the test does not depend on error ordering. Order-preservation, happy-path smoke, and `pairs`-iteration visibility are NOT independently tested in the shipped file — the single-valid block plus the wire-level serde tests (§8.3 serde row) are the implicit order/structural checks. |
+| `tmailbox.nim` — §E `initMailboxUpdateSet` block group at lines 124–176 | **SHIPPED.** Five `block`s: (1) `initMailboxUpdateSetEmpty` — one error with `message: "must contain at least one update"`. (2) `initMailboxUpdateSetSingleValid`. (3) `initMailboxUpdateSetTwoSameKind` — two `setName` → one error with `value: "muSetName"`. (4) `initMailboxUpdateSetThreeSameKind` — three `setName` → one error (uniqueness-collapse at N = 3). (5) `initMailboxUpdateSetTwoDistinctRepeated` — four entries forming two distinct duplicate pairs (`setName` ×2 + `setParentId` ×2) → exactly two errors, set-membership-verified. The per-variant fold across the five `MailboxUpdateVariantKind` values is **deliberately not** in the shipped scope: (2)–(5) sample `muSetName` and `muSetParentId` as representatives of the value-axes that could behave differently (`string` payload, `Opt[Id]` payload). A future follow-up PR could add `initMailboxUpdateSetDuplicateSetRole` / `...SortOrder` / `...IsSubscribed` for exhaustion. |
+| `tvacation.nim` — §A/B block groups at lines 17–88 | **SHIPPED.** Section A — three setter-shape blocks: (1) `setIsEnabledConstructsCorrectKind`, (2) `setFromDateConstructsCorrectKind`, (3) `setSubjectClearsWhenNone`. These sample the three distinct payload shapes (`bool`, `Opt[UTCDate]`, `Opt[string]`) without enumerating all six setters. Section B — five set-level blocks mirroring `tmailbox.nim`: `initVacationResponseUpdateSetEmpty` / `SingleValid` / `TwoSameKind` / `ThreeSameKind` / `TwoDistinctRepeated`, with `value: "vruSetIsEnabled"` / `"vruSetSubject"` as the duplicate-kind tokens. Same "no exhaustive fold" posture as `tmailbox.nim`. |
+| `temail_update.nim` | **TO-ADD.** New file. (1) `addKeywordConstructsCorrectKind` through `setMailboxIdsConstructsCorrectKind` — six blocks, one per protocol-primitive, asserting `u.kind` + the variant payload field. (2) Five convenience-equivalence blocks: `markReadEqualsAddKeywordSeen`, `markUnreadEqualsRemoveKeywordSeen`, `markFlaggedEqualsAddKeywordFlagged`, `markUnflaggedEqualsRemoveKeywordFlagged`, `moveToMailboxEqualsSetMailboxIdsSingleton`. Each asserts `kind` match plus structural payload match — no `emailUpdateEq` helper is prescribed because Nim's derived `==` handles every payload type used by these branches (`Keyword` via `defineStringDistinctOps`, `NonEmptyMailboxIdSet` via `defineNonEmptyHashSetDistinctOps` borrowing `==`, and `KeywordSet` is NOT exercised by the convenience constructors, so the equality gap on `KeywordSet` never fires in this file). (3) Negative-discrimination blocks: `moveToMailboxDistinctIds` (construct two with distinct `Id`, assert `kind` matches and `mailboxes` differ); `addKeywordDistinctKeywords`. |
+| `temail_update_set.nim` | **TO-ADD.** New file. Structure mirrors `temail.nim`'s C-block idiom. (1) `emailUpdateSetEmpty` — one error with `typeName == "EmailUpdateSet"`, `message == "must contain at least one update"`, `value == ""`. (2) Class 1 — six blocks, one per shape in §8.7.1; each asserts `assertLen res.error, 1`, `error[0].message == "duplicate target path"`, and `error[0].value` is the expected target-path string. (3) Class 2 — two blocks (`class2KeywordOpposite`, `class2MailboxOpposite`); assertion pattern same, but `message == "opposite operations on same sub-path"`. (4) Class 3 — four blocks per §8.7.3; assertion pattern same, `message == "sub-path operation alongside full-replace on same parent"`, `value == "keywords"` / `"mailboxIds"`. (5) Class 1+2 overlap — `class1And2Overlap`: feed `@[addKeyword(kwSeen), removeKeyword(kwSeen)]`, assert `assertLen res.error, 1` (not 2), `error[0].message == "opposite operations on same sub-path"` (Class 2 wins — the shipped `samePathConflicts` loop emits `ckOppositeOps` when kinds differ, `ckDuplicatePath` when kinds match, never both for the same path). (6) Independent cases (§8.7.4) — four mandatory positive `assertOk` blocks. (7) Accumulation — `accumulateMixedClasses` (one Class 1 + one Class 2 + one Class 3 → `assertLen res.error, 3`); `accumulateThreeClass3` (three distinct Class 3 violations on `keywords` and `mailboxIds` parents → exact count check). Empty-alone is already covered by (1). |
+| `temail_copy_item.nim` | **TO-ADD.** New file. (1) `copyItemTypeRejectsEmptyMailboxIdSet` — `assertNotCompiles(EmailCopyItem(id: id1, mailboxIds: Opt.some(initMailboxIdSet(@[]))))`. Pins F1 §6.1 "the override slot rejects empty sets at the type level" — the override field is typed `Opt[NonEmptyMailboxIdSet]`, so any `MailboxIdSet` literal (empty or not) is a compile error. (2) `copyItemTypeRejectsNonEmptyMailboxIdSetWrongDistinct` — `assertNotCompiles(initEmailCopyItem(id = id1, mailboxIds = Opt.some(initMailboxIdSet(@[id1]))))`. Pins that `MailboxIdSet` is the wrong distinct — the override slot demands `NonEmptyMailboxIdSet`. The (1)/(2) pair separates the empty-rejection axis from the distinct-type axis. (3) `copyItemIdOnlyRoundTrip` — `let ci = initEmailCopyItem(id = id1)`; assert every override field is `Opt.none`. (4) `copyItemAllOverridesPopulated` — construct with `Opt.some` in every override field and assert structural readback. Serde shape pinning is delegated to §8.3 serde row. |
+| `temail_import_item.nim` | **TO-ADD.** New file. (1) `importItemRejectsOptNoneMailboxIds` — `assertNotCompiles(initEmailImportItem(blobId = b, mailboxIds = Opt.none(NonEmptyMailboxIdSet)))`. Pins that `mailboxIds` is required (non-Opt `NonEmptyMailboxIdSet`). (2) `importItemMinimalConstruction` — `let i = initEmailImportItem(b, mbxs)`; assert `i.keywords.isNone and i.receivedAt.isNone`. (3) `importItemKeywordsThreeStates` — exercise the three `Opt.none` / `Opt.some(initKeywordSet(@[]))` / `Opt.some(non-empty)` forms. Wire-level collapse of the first two is delegated to §8.3 serde row. |
+| `tkeyword.nim` (append new section) | **TO-ADD.** New section appending to the existing file. Three blocks: `keywordWithTildeAccepted` (`parseKeyword("$has~tilde")`), `keywordWithSlashAccepted` (`parseKeyword("$has/slash")`), `keywordWithBothAccepted` (`parseKeyword("$~/")`). Pins F1 §3.2.5's spec-faithful Postel commitment — RFC 8621 §4.1.1's keyword charset includes `~` and `/`. Required upstream of §8.8's escape-boundary serde tests; without it those tests cannot construct the adversarial inputs. |
 
-Serde — `tests/serde/mail/`:
+Serde — `tests/serde/mail/` (all **TO-ADD** unless marked):
 
 | File | Concerns |
 |------|----------|
-| `tserde_email_update.nim` | (a) `toJson(EmailUpdate)` emits the correct `(key, value)` pair for each variant — six cases. (b) `toJson(EmailUpdateSet)` flattens to a JSON object with distinct keys (type-level guarantee, verified at wire). (c) `moveToMailbox(id)` wire output: positive (`("mailboxIds", { string(id): true })`) and negative (`key != "mailboxIds/" & string(id)`) — pins F21 against `euAddToMailbox` regression. (d) RFC 6901 escape-boundary unit tests — full enumeration in §8.8 table (six named cases). |
-| `tserde_email_import.nim` | `toJson(EmailImportItem)` emits the four required fields; `Opt.none` variants omit keys, `Opt.some` emits them. `toJson(NonEmptyEmailImportMap)` emits the correct top-level object with `CreationId` keys. `EmailImportResponse.fromJson` parses well-formed responses, including `created: null` (per RFC §4.8) and `created: {}` (empty) as distinct accepted shapes; malformed responses surface as `Err` on the Result rail. |
-| `tserde_email_copy.nim` | `toJson(EmailCopyItem)` — minimal (id only) emits `{}` for overrides; full override emits the three override keys; `Opt.none` overrides are omitted. `EmailCopyResponse.fromJson` parses three shapes: `created`-only, `notCreated`-only (asserts `notCreated` populates `Err(SetError)` entries in `createResults` at the correct `CreationId`), and combined. Type-level: `assertNotCompiles((let r: EmailCopyResponse = default(EmailCopyResponse); discard r.updated))` — pins F1 §2.2's "EmailCopyResponse omits /set-specific fields". |
-| `tserde_email_set_response.nim` | `EmailSetResponse.fromJson` parses the eight-field shape (`accountId`, `oldState`, `newState`, `createResults`, `updated`, `destroyed`, `notUpdated`, `notDestroyed`); the `createResults` merge layer correctly reconstructs the merged table from wire `created`/`notCreated` maps; `EmailCreatedItem.fromJson` rejects missing-field shapes (consolidated from `tadversarial_mail_f.nim` per C5 deduplication — §8.9 row keeps the malformed-shape coverage; this file focuses on happy-path shape pinning). `updated` outer three-state coverage: absent → `Opt.none`; `null` → `Opt.none`; `{}` → `Opt.some(emptyTable)`. `destroyed` three-state coverage: absent / empty-array / two-element. `UpdatedEntry` distinctness pins (`null` vs `{}`) per §8.9 response-decode matrix. |
+| `tserde_email_update.nim` | **TO-ADD** (new file). (a) `toJson(EmailUpdate)` returns a `(string, JsonNode)` tuple — the shipped signature is `func toJson*(u: EmailUpdate): (string, JsonNode)` at `serde_email_update.nim:28`, not a bare `JsonNode`. Six blocks, one per variant: `addKeyword` emits `("keywords/" & escaped, newJBool(true))`; `removeKeyword` emits `("keywords/" & escaped, newJNull())`; `setKeywords` emits `("keywords", keywords.toJson())`; `addToMailbox` / `removeFromMailbox` / `setMailboxIds` follow the analogous pattern with `mailboxIds` as parent. (b) `toJson(EmailUpdateSet)` flattens to a `JsonNode` with distinct keys (the shipped iteration at `serde_email_update.nim:48-57` uses `for u in seq[EmailUpdate](us)` over the validated set). (c) `moveToMailbox(id)` wire output: positive (`key == "mailboxIds"`, value is an object with `string(id)` key) and negative (`key != "mailboxIds/" & string(id)`) — pins F21 against `addToMailbox` regression. (d) RFC 6901 escape-boundary blocks — full enumeration in §8.8 table. Since `jsonPointerEscape` is **not exported** (no `*` at `serde_email_update.nim:22`), every escape-boundary assertion drives through `toJson(addKeyword(parseKeyword(k).get()))` and inspects the tuple `.0` string. |
+| `tserde_email_import.nim` | **TO-ADD** (new file). `toJson(EmailImportItem)` emits `blobId` and `mailboxIds` always; omits `keywords`/`receivedAt` when `Opt.none`, emits them when `Opt.some`. `toJson(NonEmptyEmailImportMap)` emits the correct top-level object with `CreationId` keys. `EmailImportResponse.fromJson` parses well-formed responses, including `created: null` (per RFC §4.8) and `created: {}` (empty) as distinct accepted shapes that both decode to an empty `createResults` table. Malformed responses surface as `Err(ValidationError)` on the Result rail. |
+| `tserde_email_copy.nim` | **TO-ADD** (new file). `toJson(EmailCopyItem)` — minimal (`initEmailCopyItem(id)` alone) emits only the `id` key; full override emits the three override keys; `Opt.none` overrides omit their keys. `EmailCopyResponse.fromJson` parses three shapes: `created`-only, `notCreated`-only (asserts `notCreated` populates `Err(SetError)` entries in `createResults` at the correct `CreationId`), and combined. The `fromAccountId` field is required (assert `Err` on absence). Type-level: `assertNotCompiles((let r: EmailCopyResponse = default(EmailCopyResponse); discard r.updated))` — pins F1 §2.2's "EmailCopyResponse omits /set-specific fields". |
+| `tserde_email_set_response.nim` | **TO-ADD** (new file). `EmailSetResponse.fromJson` parses the eight-field shape (`accountId`, `oldState`, `newState`, `createResults`, `updated`, `destroyed`, `notUpdated`, `notDestroyed`); the `createResults` merge layer correctly reconstructs the merged table from wire `created`/`notCreated` maps (helper name: `mergeCreatedResults`, used at `serde_email.nim:847`); `EmailCreatedItem.fromJson` rejects missing-field shapes (consolidated here per C5 deduplication — the broader malformed-shape coverage is in `tadversarial_mail_f.nim` §8.9; this file focuses on happy-path shape pinning). `updated` outer three-state coverage: absent → `Opt.none`; `null` → `Opt.none`; `{}` → `Opt.some(emptyTable)`. `destroyed` three-state coverage: absent / empty-array / two-element. `UpdatedEntry` distinctness pins (`null` → `uekUnchanged`; `{}` → `uekChanged(JObject{})`) per §8.9 response-decode matrix. `toJson(EmailSetResponse)` round-trip: construct a response, toJson, fromJson, assert equality of the reconstructed record (or equivalent field-wise pins if deep `==` on `Result[EmailCreatedItem, SetError]` is awkward — use per-field `assertEq` on `accountId`, `newState`, etc., plus a per-CreationId iteration over `createResults`). |
 
 ### 8.4. Existing-file appends
 
-`tests/protocol/tmail_builders.nim` — append cases (one test per
-bullet):
+`tests/protocol/tmail_builders.nim` — **all TO-ADD**; no F1-specific
+block exists in the shipped file for `addEmailSet`, `addEmailCopy`,
+`addEmailCopyAndDestroy`, or `getBoth`. The `addMailboxSet` blocks
+at lines 252–293 pre-date the Part F migration; since the builder
+signature has migrated to `Opt[Table[Id, MailboxUpdateSet]]`, those
+blocks continue to compile (no `update` value was supplied) but do
+not exercise the new typed path. The prescribed appends:
 
 - `addEmailSetFullInvocation` — builds an invocation with the correct
-  method name, args shape, and capability URI; phantom-typed response
-  handle carries `EmailSetResponse`; `create`/`update`/`destroy`
+  method name (`mnEmailSet`), args shape, and capability URI
+  (`"urn:ietf:params:jmap:mail"`); phantom-typed response handle
+  carries `EmailSetResponse`; `create`/`update`/`destroy`
   parameters serialise correctly when all three are `Opt.some`.
 - `addEmailSetMinimalAccountIdOnly` — all of `create`, `update`,
   `destroy`, `ifInState` `Opt.none`; wire JSON contains `accountId`
@@ -377,13 +510,28 @@ bullet):
   `"ifInState": "<state>"`; negative counterpart
   `addEmailSetIfInStateOmittedWhenNone` — `ifInState: Opt.none`
   emits no key (no `null`).
+- `addEmailSetTypedUpdate` — construct a valid `EmailUpdateSet` via
+  `initEmailUpdateSet(@[markRead()]).get()`, pass through the builder
+  with `update: Opt.some(tbl)` (where `tbl` is a
+  `Table[Id, EmailUpdateSet]` with one entry), inspect
+  `args["update"][string(id)]["keywords/$seen"]` on the wire and
+  assert `getBool(false) == true`. Pins that the typed algebra
+  flattens through `toJson(EmailUpdateSet)` at the builder boundary.
 - `addEmailCopyPhantomType` — phantom-typed handle carries
   `EmailCopyResponse`; no `onSuccessDestroyOriginal` key emitted
   (the simple overload never sets it).
 - `addEmailCopyIfInStateEmittedWithCopySemantics` — `ifInState: Opt.some`
   on the `Email/copy` arg surface (NOT `destroyFromIfInState`).
 - `addEmailCopyAndDestroyEmitsTrue` — `onSuccessDestroyOriginal: true`
-  emitted; return shape is `(RequestBuilder, EmailCopyHandles)`.
+  emitted; return shape is `(RequestBuilder, EmailCopyHandles)`. The
+  `EmailCopyHandles.destroy` field is of type
+  `NameBoundHandle[EmailSetResponse]` — not `ResponseHandle`. This
+  is an RFC 8620 §5.4 dispatch refinement: the implicit Email/set
+  response shares a call-id with the parent Email/copy, so the
+  destroy handle carries `methodName: mnEmailSet` to disambiguate.
+  The block should include an assertion that
+  `handles.destroy.methodName == mnEmailSet` and that
+  `handles.destroy.callId == handles.copy.callId()`.
 - `addEmailCopyAndDestroyDestroyFromIfInStateSome` — wire JSON
   contains `"destroyFromIfInState": "<state>"`.
 - `addEmailCopyAndDestroyDestroyFromIfInStateNone` — wire JSON does
@@ -394,45 +542,79 @@ bullet):
   all three appear in the serialised arguments without aliasing or
   silent drop.
 - `getBothCopyAndDestroyHappyPath` — both invocations present under
-  shared method-call-id; extracts `EmailCopyResults` with both fields
-  populated; `accountId`/`newState` survive intact across both.
+  shared method-call-id (the first with `name == "Email/copy"`, the
+  second with `name == "Email/set"`); `getBoth` returns
+  `Ok(EmailCopyResults)` with both fields populated;
+  `accountId`/`newState` survive intact across both. The internal
+  dispatch sequence is `resp.get(handles.copy)` (uses the default
+  `ResponseHandle` overload at `dispatch.nim:185`) followed by
+  `resp.get(handles.destroy)` (uses the `NameBoundHandle` overload
+  at `dispatch.nim:219` which call-id AND method-name filters).
+  F1 §5.4's earlier `resp.extract(…)` phrasing was superseded
+  during implementation; the shipped API uses `get`.
 - `getBothShortCircuitOnCopyError` — table-driven across the seven
   applicable `MethodErrorType` variants (`metStateMismatch`,
   `metFromAccountNotFound`, `metFromAccountNotSupportedByMethod`,
   `metServerFail`, `metForbidden`, `metAccountNotFound`,
   `metAccountReadOnly`) using the native `for variant in
   MethodErrorType:` idiom (precedent: `tests/unit/terrors.nim:428`).
-  Mirrors `getBothQueryGetMethodError` at `tconvenience.nim:154`.
-- `getBothShortCircuitOnDestroyMissing` — implicit destroy
-  invocation absent; second `?` returns
-  `Err(MethodError{rawType: "serverFail"})` per F12.
+  Mirrors `getBothQueryGetMethodError` at `tconvenience.nim`.
+- `getBothShortCircuitOnDestroyMissing` — copy invocation present,
+  implicit destroy invocation absent (zero invocations with
+  `name == "Email/set"` sharing the call-id); second `?` in
+  `getBoth` body returns `Err(MethodError{rawType: "serverFail"})`
+  carrying the description
+  `"no Email/set response for call ID <cid>"` (see
+  `dispatch.nim:161-167`). Pin F12.
 - `getBothShortCircuitOnDestroyError` — copy succeeded; destroy
-  invocation present but with its own method-error; `getBoth`
-  surfaces destroy's error on the Err rail.
-- `addMailboxSetMigratedTypedUpdate` — empty `MailboxUpdateSet`
-  rejected at construction time (not at builder time); a valid
-  `MailboxUpdateSet` passes through and serialises to
-  PatchObject-shaped JSON at the wire.
+  invocation present but with `name == "error"` and a typed
+  MethodError payload; `getBoth` surfaces destroy's error on the
+  Err rail with the server-provided `errorType`.
+- `addMailboxSetTypedUpdate` — construct a valid `MailboxUpdateSet`
+  via `initMailboxUpdateSet(@[setName("Renamed")]).get()`, wrap in a
+  `Table[Id, MailboxUpdateSet]`, pass via
+  `update: Opt.some(tbl)`, and assert the wire `args["update"]
+  [string(id)]["name"].getStr("") == "Renamed"`. Pins that
+  `addMailboxSet`'s migrated signature (mail_builders.nim:200-235)
+  routes through `toJson(MailboxUpdateSet)` correctly.
+- `addMailboxSetEmptyUpdateSetRejectedAtConstruction` —
+  `initMailboxUpdateSet(@[])` returns `Err`, so the builder is never
+  invoked with an empty set. Construct-level pin; no builder call.
 
-`tests/protocol/tmail_methods.nim` — append cases (one test per
-bullet):
+`tests/protocol/tmail_methods.nim` — **PARTIALLY SHIPPED.** The
+shipped `B. VacationResponse/set` group at lines 89–151 covers
+`vacationSetInvocationName`, `vacationSetCapability`,
+`vacationSetSingletonInUpdate`, `vacationSetOmitsCreateDestroy`,
+`vacationSetWithIfInState`, `vacationSetOmitsIfInStateWhenNone`, and
+`vacationSetPatchValues` — the typed-update migration is exercised
+throughout via `minimalVacUpdate = initVacationResponseUpdateSet(
+@[setIsEnabled(true)]).get()`. `addEmailImport` blocks are
+**TO-ADD**:
 
-- `addEmailImportPhantomTyped` — phantom-typed handle carries
-  `EmailImportResponse`; `emails: NonEmptyEmailImportMap` parameter
-  serialises to the correct top-level `emails` key.
+- `addEmailImportInvocationName` — invocation name is `Email/import`;
+  capability is `"urn:ietf:params:jmap:mail"`; phantom-typed handle
+  carries `EmailImportResponse`.
+- `addEmailImportEmailsPassthrough` — construct a
+  `NonEmptyEmailImportMap` with one entry via
+  `initNonEmptyEmailImportMap(@[(cid, item)]).get()`; assert
+  `args["emails"][string(cid)]["blobId"].getStr("")` matches the
+  input blob id.
 - `addEmailImportIfInStateSomePassthrough` — `ifInState: Opt.some`
-  emits `"ifInState": "<state>"`; `Opt.none` counterpart
-  `addEmailImportIfInStateNoneOmitted` — no key emitted.
-- `addVacationResponseSetMigratedTypedUpdate` — `singleton` id
-  hardcoded internally; `update: VacationResponseUpdateSet` parameter
-  serialises to the correct wire patch; `ifInState` parameter
-  passes through unchanged.
-- `addVacationResponseSetEmptyRejectedAtConstruction` — empty input
-  is rejected by `initVacationResponseUpdateSet`, not by the
-  builder (same separation of concerns as `addMailboxSet`).
+  emits `"ifInState": "<state>"`.
+- `addEmailImportIfInStateNoneOmitted` — no key emitted when
+  `Opt.none` (no `null`).
 
-`tests/protocol/tmail_method_errors.nim` (NEW file) — method-level
-error decode coverage, per §8.11 matrix:
+`addVacationResponseSetEmptyRejectedAtConstruction` is **not added**
+at the builder-test layer because the builder signature
+(mail_methods.nim:54-72) demands `update: VacationResponseUpdateSet`
+(non-Opt); the empty-rejection invariant lives entirely on the
+smart constructor and is already tested at
+`tests/unit/mail/tvacation.nim:37-43`. Adding a duplicate at the
+builder layer would exercise the same failure at two layers and
+violate DRY.
+
+`tests/protocol/tmail_method_errors.nim` (**TO-ADD** new file) —
+method-level error decode coverage, per §8.11 matrix:
 
 - `Email/set` + `requestTooLarge` →
   `MethodError{errorType: metRequestTooLarge}` on outer rail.
@@ -448,17 +630,25 @@ Plus the generic-`SetError` applicability matrix per §8.11 (one
 named test per `✓` cell; one negative `singleton` test per `✗`
 cell).
 
-`tests/unit/mail/tmailbox.nim` — append cases for `MailboxUpdate`
-(five variants, each with total constructor) and `MailboxUpdateSet`.
-The duplicate-target-property class is enumerated explicitly: one
-named test per `MailboxUpdateVariantKind` variant (`muSetName`,
-`muSetParentId`, `muSetRole`, `muSetSortOrder`, `muSetIsSubscribed`)
-— five tests covering the variant fold.
+`tests/unit/mail/tmailbox.nim` — **PARTIALLY SHIPPED.** The §E
+block group at lines 124–176 covers the set-level invariants for
+`MailboxUpdateSet`. What remains **TO-ADD** is per-variant setter
+shape coverage on `MailboxUpdate` itself: five blocks
+(`setNameConstructsCorrectKind`,
+`setParentIdNoneConstructsCorrectKind`,
+`setParentIdSomeConstructsCorrectKind`,
+`setRoleConstructsCorrectKind`,
+`setSortOrderConstructsCorrectKind`,
+`setIsSubscribedConstructsCorrectKind`) — six in total, accounting
+for the `Opt[Id]` payload requiring both Some/None cases. Pattern
+mirrors the three shipped `VacationResponseUpdate` setter blocks in
+`tvacation.nim:19-33`.
 
-`tests/serde/mail/tserde_mailbox.nim` — append cases for
-`toJson(MailboxUpdate)` (five variants) and `toJson(MailboxUpdateSet)`
-(flattening to top-level JSON object, one key per variant).
-Critical nullable-wire cases:
+`tests/serde/mail/tserde_mailbox.nim` — **TO-ADD** append cases for
+`toJson(MailboxUpdate)` (five variants) and
+`toJson(MailboxUpdateSet)` (flattening to a top-level JSON object,
+one key per variant — analogous to `toJson(EmailUpdateSet)` but
+whole-value-replace only). Critical nullable-wire cases:
 
 - `setRoleNoneEmitsJsonNull` — `setRole(Opt.none(MailboxRole)).toJson()
   == ("role", newJNull())`. Pins `Opt.none → JSON null` mapping
@@ -471,109 +661,104 @@ Critical nullable-wire cases:
 - `setParentIdSomeEmitsString` —
   `setParentId(Opt.some(id1)).toJson() == ("parentId", %string(id1))`.
 
-`tests/unit/mail/tvacation.nim` — append cases for
-`VacationResponseUpdate` (six variants) and
-`VacationResponseUpdateSet` duplicate-target enumeration: six named
-tests, one per `VacationResponseUpdateVariantKind` variant.
+`tests/unit/mail/tvacation.nim` — **PARTIALLY SHIPPED.** See §8.3
+row. The three shipped setter blocks
+(`setIsEnabledConstructsCorrectKind`,
+`setFromDateConstructsCorrectKind`, `setSubjectClearsWhenNone`)
+sample the three payload-shape axes (`bool`, `Opt[UTCDate]`,
+`Opt[string]`). **TO-ADD** is exhaustion across all six
+`VacationResponseUpdateVariantKind` variants for coverage
+completeness plus the serde-wire duplicate-target tests if
+reviewers demand full variant-fold symmetry with
+`tmailbox.nim`'s `initMailboxUpdateSet` scope.
 
-`tests/serde/mail/tserde_vacation.nim` — append cases for
-`toJson(VacationResponseUpdate)` (six variants) and
+`tests/serde/mail/tserde_vacation.nim` — **TO-ADD** append cases
+for `toJson(VacationResponseUpdate)` (six variants) and
 `toJson(VacationResponseUpdateSet)` (flattening). Nullable-wire
 pins for `vruSetFromDate`, `vruSetToDate`, `vruSetSubject`,
 `vruSetTextBody`, `vruSetHtmlBody` (each: `Opt.none → JSON null`,
-`Opt.some → value`).
+`Opt.some → value`). Note: `toJson(VacationResponseUpdate)` has the
+same `(string, JsonNode)` tuple return shape as
+`toJson(MailboxUpdate)`; blocks assert tuple components separately
+with `assertEq pair[0], "expectedKey"` + `assertEq pair[1], expectedNode`.
 
-### 8.5. PatchObject migration strategy
+### 8.5. PatchObject migration (historical)
 
-Exactly seventeen test files reference `PatchObject` (105 total
-occurrences). Two migration strategies apply:
+**Implementation reality — fully superseded by the F1 landing.**
+F1 §1.5 prescribed demoting `PatchObject` (drop the `*` export,
+keep the type internal). The shipped implementation went one step
+further and **removed `PatchObject` from the codebase entirely**:
 
-1. **Strategy 1 — typed algebra rewrite.** The test's purpose is to
-   exercise a public mail surface; the `PatchObject` reference is
-   incidental setup. Rewrite setup to construct typed update-sets
-   via the public smart constructors, then assert against the typed
-   algebra. Core `PatchObject` serde becomes transitively covered.
-2. **Strategy 2 — `{.all.}` escape hatch.** The test's purpose is
-   core-internal verification of `PatchObject` itself as an RFC 8620
-   §5.3 wire primitive. Retain internal-symbol access via
-   `import jmap_client/framework {.all.}` so the test continues to
-   see the (now-private) `PatchObject` symbol.
+```text
+$ grep -r 'PatchObject' src/ tests/
+(no matches)
+```
 
-The strategy allocation is committed here — no per-file decision is
-deferred to the implementation PR:
+`src/jmap_client/framework.nim` no longer declares `PatchObject`;
+none of the seventeen test files previously enumerated in this
+section still reference it. The entire migration table in the
+prior draft of this section is therefore obsolete — every
+strategy-1 and strategy-2 allocation has been superseded by
+outright removal. `git log --follow -- src/jmap_client/framework.nim`
+plus `git log -S PatchObject` are the durable audit trails.
 
-| File | Occurrences | Strategy | Rationale |
-|------|-------------|----------|-----------|
-| `tests/protocol/tmail_methods.nim` | 2 | **1** | Mail-method builder tests; `addVacationResponseSet` migrates to `VacationResponseUpdateSet`. |
-| `tests/protocol/tmethods.nim` | 3 | **1** | Generic `/set` builder tests; the mail-shaped ones migrate to typed algebras. Non-mail `/set` cases (Mailbox/set remainder, Identity/set) continue on the generic path — those keep `SetRequest[T]` wrappers that happen to carry `PatchObject` internally, so strategy 1 applies to the PatchObject-touching tests only. |
-| `tests/protocol/tbuilder.nim` | 2 | **1** | Same reasoning as `tmethods.nim`. |
-| `tests/mproperty.nim` | 3 | **1** | The three occurrences are in `genPatchObject` (generator) and `genPatchPath` (path generator). If no strategy-2 file requires them (see below), delete both generators post-migration. |
-| `tests/unit/tframework.nim` | 6 | **2** | Direct unit test of `PatchObject` invariants (path non-empty, set-or-delete ops, RFC 6901). Core-internal by construction. |
-| `tests/serde/tserde_framework.nim` | 24 | **2** | Highest-count file — direct serde of `PatchObject`. Core-internal wire-format test. |
-| `tests/property/tprop_framework.nim` | 7 | **2** | Property tests on `PatchObject` serde round-trip. Core-internal. |
-| `tests/serde/tserde_type_safety.nim` | 8 | **2** | Type-level guarantees on `PatchObject` construction/access. Core-internal. |
-| `tests/serde/tserde_properties.nim` | 7 | **2** | Property tests for core framework serde. Core-internal. |
-| `tests/property/tprop_serde.nim` | 9 | **2** | Property tests for framework serde round-trip. Core-internal. |
-| `tests/stress/tadversarial.nim` | 3 | **2** | Adversarial RFC 6901 tilde-encoding tests on `PatchObject` (§8.8 Layer 1 baseline). Explicitly core-internal by design. |
-| `tests/serde/tserde_adversarial.nim` | 15 | **2** | Adversarial serde cases for `PatchObject`. Core-internal. |
-| `tests/compliance/trfc_8620.nim` | 3 | **2** | RFC 8620 §5.3 compliance tests — `PatchObject` IS the spec primitive under test. Core-internal by definition. |
-| `tests/compliance/tregression.nim` | 2 | **2** | Pinned regressions on historic `PatchObject` bugs. Core-internal. |
-| `tests/stress/tstress.nim` | 7 | **2** | Stress tests of `PatchObject` under large inputs. Core-internal. |
-| `tests/serde/tserialisation.nim` | 1 | **2** | Single reference; core-internal. |
-| `tests/property/tprop_session.nim` | 3 | **2** | Quick totality property on `PatchObject.getKey` — core-internal. |
-
-**Count:** Strategy 1 applies to 4 files; Strategy 2 to 13. The
-`{.all.}` escape hatch is legitimately load-bearing — 13 of 17 files
-exist to verify the internal RFC-5.3 primitive, not the mail surface.
-Demotion is about API ergonomics (F19: no consumer should see
-`PatchObject`), not about removing its tests.
-
-**Generator fate (crystalising §8.5.2).** Strategy-2 files adopt
-`{.all.}`, so `genPatchObject` and `genPatchPath` remain callable
-from the 13 strategy-2 files. However, they are demoted from the
-shared-generator API: relocated to a module-private helper within
-`tests/property/tprop_framework.nim` (the highest-value consumer)
-and re-exported via `{.all.}` to the other strategy-2 files that
-need them. The 4 strategy-1 files lose the dependency entirely.
-
-#### 8.5.1. Compile-time enforcement of the demotion
-
-The migration is gated by a compile-time test in
-`tests/compliance/tmail_f_reexport.nim` (§8.2.2 block 2): an
+**Gate for regression.** Because the symbol no longer exists, an
 `assertNotCompiles((let _: PatchObject = default(PatchObject)))`
-block immediately after `import jmap_client`, plus
-`assertNotCompiles(jmap_client.emptyPatch())`. This prevents an
-accidental re-addition of the `*` export from slipping through code
-review — the type system catches what eyes might miss.
+gate would be trivially true and carry no information. The
+equivalent regression protection is that any reintroduction of the
+type would have to surface as a new `src/` file change reviewed on
+its own merits; a grep in CI (`! grep -r 'PatchObject' src/`) is
+the minimal mechanical check. Consistent with F19's "wrong-thing
+hard" principle, but pushed one level further: the wrong thing is
+not merely hard, it is impossible without re-landing the removed
+type.
 
-#### 8.5.2. Generator and fixture migration debt
+#### 8.5.1. Generator and fixture migration debt — RESOLVED
 
-Three pieces of test infrastructure require post-migration assessment:
+The `genPatchObject`, `genPatchPath`, and `makeSetResponseJson`
+items were flagged for post-migration relocation in the earlier
+draft of §8.5.2. With `PatchObject` absent entirely:
 
-- `genPatchObject` (`tests/mproperty.nim:774`) — 13 call sites use
-  strategy 2 (see §8.5 table), so the generator is retained but
-  **relocated to `tests/property/tprop_framework.nim`** as a
-  module-private helper, and consumed by sibling strategy-2 files
-  via their own `{.all.}` import of `framework`. The `mproperty.nim`
-  public slot is removed.
-- `genPatchPath` (`tests/mproperty.nim:476`) — same relocation.
-- `makeSetResponseJson` (`tests/mfixtures.nim:890`) — remains valid
-  for `Mailbox/set` and `Identity/set` (which continue on the generic
-  `SetResponse[T]` path), but **must not** be used for `Email/set`
-  testing post-migration. Replace with the typed `makeEmailSetResponse`
-  factory (§8.6.1).
-
-Generator relocation and `{.all.}` additions are recorded in the
-implementation PR's commit messages so the migration log is
-greppable from `git log` and cross-checkable against the §8.5 table.
+- `genPatchObject` and `genPatchPath` do not exist in the shipped
+  `tests/mproperty.nim`. If a future part needs a wire-patch
+  generator, it must be reintroduced scoped to its consumer.
+- `makeSetResponseJson` (if it existed) is not required by any
+  Part F test — every Email-side response test uses the typed
+  factories prescribed in §8.6.1.
 
 ### 8.6. Test infrastructure additions
 
+**Shipped state as of the F1 code merge:**
+
+- `tests/mfixtures.nim` — contains **zero** F1-type factories
+  (`makeEmailUpdate*`, `makeEmailCopyItem`, etc.). The three shipped
+  test files that exercise F1 types (`temail.nim`, `tmailbox.nim`,
+  `tvacation.nim`) construct their fixtures inline using the public
+  smart constructors (`parseCreationId`, `parseId`,
+  `parseNonEmptyMailboxIdSet`, `initEmailImportItem`,
+  `initMailboxUpdateSet`, `initVacationResponseUpdateSet`). Whether
+  the TO-ADD files below introduce `make*` factories is a scale-
+  threshold decision: when a construction recipe is repeated across
+  three or more `block`s, extract it; otherwise inline.
+- `tests/mproperty.nim` — contains **zero** F1-type generators. The
+  property file (§8.2.1) is not yet written; when it is, generators
+  land there alongside the existing `genEmailBlueprint` family.
+- `tests/massertions.nim` — contains the generic `assertOk`,
+  `assertErr`, `assertEq`, `assertLen`, `assertNone`, `assertSomeEq`
+  helpers used by the shipped F1 test blocks. No F1-specific
+  assertion template is yet required: the shipped tests use
+  combinations of the generic helpers (e.g., `assertErr res` +
+  `assertLen res.error, 1` + `assertEq res.error[0].message, "..."`)
+  for the exact-count pattern that the earlier draft of §8.6.4
+  packaged into `assertUpdateSetErrCount`.
+
 #### 8.6.1. Reuse-mapping table
 
-Each new factory / generator / template / equality helper lists its
-closest existing precedent so the implementation PR follows the
-established pattern rather than reinventing it.
+Each new factory / generator / template lists its closest existing
+precedent so the implementation PR follows the established pattern
+rather than reinventing it. The table is advisory — some rows may
+not need materialising at all if callers prefer inline construction
+(see preceding paragraph).
 
 | New item | Closest existing precedent | Path:Line |
 |----------|---------------------------|-----------|
@@ -627,12 +812,25 @@ random sampling:
   ≥ 6 are random. Per J-5, the generator's **non-empty** path and
   **empty** edge-case path share one entry point, saving a separate
   generator per cardinality tier.
-| `assertUpdateSetErr(expr, violations: set[EmailUpdateSetViolation])` | `assertBlueprintErr` (L-1) | `massertions.nim:139` |
-| `assertUpdateSetErrCount(expr, n: int)` (NEW; exact-count counterpart to L-3) | `assertBlueprintErrCount` | `massertions.nim:170` |
-| `assertCopyHandleShortCircuit(resp, handles, expected: MethodErrorType)` (renamed from `assertCompoundHandleShortCircuit` per Part E `assert<Entity><Property>` naming convention) | `getBothQueryGetMethodError` block | `tconvenience.nim:154` |
+| `assertUpdateSetErrCount(expr, n: int)` (optional; exact-count counterpart to L-3) | `assertBlueprintErrCount` | `massertions.nim` |
 | `genJsonNodeAdversarial(rng, trial)` (NEW; generates JNull/JInt/JBool/JArray/JObject-with-wrong-keys for adversarial response-decode) | `genSetErrorAdversarialExtras` (trial-biased extras attack) | (new in `mproperty.nim`) |
-| `genEmailUpdateSetCastBypass(rng, trial)` (NEW; generates `cast[EmailUpdateSet]`-shaped malformed sequences for §8.2.3 "Cast-bypass behaviour") | `genBlueprintErrorTrigger` (J-11 targeted-invariant) | `mproperty.nim:2717` |
-| `genKeywordEscapeAdversarialPair(rng, trial)` (NEW; generates adversarial keyword pairs that collide under a swapped-replace-order bug — `("a/b", "a~1b")`, `("~", "~0")`, `("/", "~1")`) | `genBlueprintErrorTrigger` (trial-biased enumeration) | `mproperty.nim:2717` |
+| `genEmailUpdateSetCastBypass(rng, trial)` (NEW; generates `cast[EmailUpdateSet]`-shaped malformed sequences for §8.2.3 "Cast-bypass behaviour") | `genBlueprintErrorTrigger` (J-11 targeted-invariant) | `mproperty.nim` |
+| `genKeywordEscapeAdversarialPair(rng, trial)` (NEW; generates adversarial keyword pairs that collide under a swapped-replace-order bug — `("a/b", "a~1b")`, `("~", "~0")`, `("/", "~1")`) | `genBlueprintErrorTrigger` (trial-biased enumeration) | `mproperty.nim` |
+
+The previously listed `assertUpdateSetErr(…, violations: set[EmailUpdateSetViolation])`
+row has been **removed**. `EmailUpdateSetViolation` was a fictional
+enum in an earlier draft of F2; the shipped `ValidationError` shape
+is three plain strings (§8.3), and tests discriminate via
+`error[0].message == "..."` literals. A dedicated assertion helper
+that consumed a hypothetical violation-set enum would require
+synthesising an enum the production code does not emit.
+
+The previously listed `assertCopyHandleShortCircuit(resp, handles, expected: MethodErrorType)`
+helper is also **removed**. Short-circuit tests drive through the
+shipped `getBoth(EmailCopyHandles)` directly per §8.4, using
+`assertErr` + `assertEq err.errorType, <variant>` inline — the
+helper would paper over the two-`?` structure that the test is
+intended to exercise.
 
 **Native enum iteration over `forAllVariants` combinator.** Where
 §8.4 and §8.11 exercise every `MethodErrorType` or `SetErrorType`
@@ -641,23 +839,38 @@ variant, the idiom is the native `for variant in T:` loop
 MethodErrorType:`). No `forAllVariants[T]` combinator is introduced —
 it would add a macro layer over the standard-library iteration that
 already compiles to the same thing, and test readers are better
-served by the direct idiom. The `for variant in T:` pattern is
-mandated for the §8.4 `getBothShortCircuitOnCopyError`, §8.11
-SetError matrix cells, and the per-variant duplicate-target folds
-in §8.3 (`tvacation.nim`, `tmailbox.nim`).
+served by the direct idiom. The pattern is specifically mandated
+for the §8.4 `getBothShortCircuitOnCopyError` and §8.11 SetError
+matrix cells. It is **not** mandated for the duplicate-target
+coverage in `tvacation.nim` and `tmailbox.nim` — the shipped
+blocks there (lines 124–176 and 37–88 respectively) sample a
+representative pair of variants (`muSetName`/`muSetParentId`,
+`vruSetIsEnabled`/`vruSetSubject`) rather than folding over the
+full enum. Full-enum exhaustion is optional per-variant expansion
+if reviewers demand it.
 
 #### 8.6.2. Equality-helper classification
+
+**Shipped state.** The Part F unit tests currently ship **no
+custom equality helpers**. All comparisons are done field-wise via
+`assertEq` against payload fields directly (see
+`tests/unit/mail/tvacation.nim:19-33` for the setter-shape checks
+— each block asserts `u.kind` + a specific payload field, no
+whole-object `==`). The classification table below remains valid
+as a guide if later TO-ADD tests hit a genuine case where
+field-wise becomes verbose; at the shipped scale the inline style
+is the strict winner.
 
 Nim's compiler-derived `==` on case objects and plain objects is
 structural for fields whose types themselves carry `==`. Only one
 mail type, `KeywordSet`, deliberately omits borrowed `==` (via
-`defineHashSetDistinctOps` at `validation.nim:56` — the base
+`defineHashSetDistinctOps` at `validation.nim` — the base
 template omits `==` for read-only model sets; see that template's
 docstring for the domain rationale). `NonEmptyMailboxIdSet` uses
-`defineNonEmptyHashSetDistinctOps` (`validation.nim:72`), which
-**does** borrow `==` (line 83) — creation-context sets opt into
-the richer op set. Custom helpers are needed only where derived
-equality cannot reach `KeywordSet`.
+`defineNonEmptyHashSetDistinctOps`, which **does** borrow `==` —
+creation-context sets opt into the richer op set. Custom helpers
+are only ever needed where derived equality cannot reach
+`KeywordSet`.
 
 | Helper | Classification | Rationale |
 |--------|----------------|-----------|
@@ -726,23 +939,29 @@ fire-drill that motivated commit `3514fe4`. Tier values are
 authoritative in `tests/mproperty.nim:41-58`; the table here
 documents intent — actual numbers track the file.
 
-#### 8.6.4. New `massertions.nim` template
+#### 8.6.4. Optional `massertions.nim` template
+
+The shipped F1 tests inline the exact-count pattern via
+`assertErr res` + `assertLen res.error, <n>` (see
+`tests/unit/mail/tmailbox.nim:142-148` and analogous sites), which
+reads cleanly and requires no new helper. A packaged
+`assertUpdateSetErrCount` template may be added if reviewers find
+the inline pattern noisy at the scale the §8.10 stress blocks
+reach, but it is **not required**:
 
 ```nim
 template assertUpdateSetErrCount*(expr: untyped, n: int) =
-  ## Exact-count assertion on the accumulated error rail for
-  ## EmailUpdateSet (and analogous typed update sets). Mirrors
-  ## assertBlueprintErrCount (L-3) for accumulating constructors.
+  ## Optional — exact-count assertion on the accumulated error rail.
+  ## The shipped style uses inline ``assertLen res.error, n``.
   let res = expr
   assertErr res
-  let actual = res.error.len
-  doAssert actual == n,
-    "expected " & $n & " errors, got " & $actual
+  assertLen res.error, n
 ```
 
-Required by §8.10's scale invariants and §8.3's `accumulate*` unit
-tests. Without it, exact-count checks must inline the comparison,
-breaking consistency with the established assertion-helper pattern.
+If added, the precedent is `assertBlueprintErrCount` in the Part E
+scope. The decision can be deferred until §8.10 adopts its final
+shape — nothing in the shipped `tests/massertions.nim` currently
+blocks the inline pattern.
 
 ### 8.7. Conflict-pair equivalence-class enumeration tables
 
@@ -776,22 +995,37 @@ product made the property redundant against the unit enumeration;
 Both Class 2 shapes also collide on target path (Class 1 condition).
 F1 §3.2.4's narrative treats them as Class 2 examples.
 
-**Overlap policy — committed.** The implementation emits **Class 2
-only** for these overlap shapes (the tighter, more-informative
-classification). Rationale: Class 2 strictly implies Class 1 for
-these shape pairs (same sub-path plus opposite operation is a
-superset condition), so reporting both errors would produce
-redundant output that a consumer must deduplicate. The `class1And2Overlap`
-unit test asserts:
+**Overlap policy — committed, aligned to shipped code.** The
+implementation emits **Class 2 only** for these overlap shapes
+(the tighter, more-informative classification). The shipped
+`samePathConflicts` at `src/jmap_client/mail/email_update.nim:204-224`
+branches the decision cleanly: if the two updates at the same path
+have `kind == op.kind` the emitted conflict is `ckDuplicatePath`
+(Class 1); if the kinds differ, the emitted conflict is
+`ckOppositeOps` (Class 2). The two paths are mutually exclusive —
+never both. Rationale: Class 2 strictly implies Class 1 for these
+shape pairs (same sub-path plus opposite operation is a superset
+condition), so reporting both would produce redundant output a
+consumer must deduplicate.
 
-```
+**`class1And2Overlap` block — shape.** `ValidationError` (declared
+in `src/jmap_client/validation.nim`) has **three fields**:
+`typeName: string`, `message: string`, `value: string`. There is no
+`classification` enum field; discrimination between Class 1 / 2 / 3
+is done at the wire error-message text layer. The unit assertion
+therefore reads:
+
+```nim
+let seen = parseKeyword("$seen").get()
 let es = initEmailUpdateSet(@[
-  euAddKeyword(kwSeen),
-  euRemoveKeyword(kwSeen)
+  addKeyword(seen),
+  removeKeyword(seen),
 ])
-doAssert es.isErr
-doAssert es.error.len == 1
-doAssert es.error[0].classification == Class2OppositeOperations
+assertErr es
+assertLen es.error, 1
+assertEq es.error[0].typeName, "EmailUpdateSet"
+assertEq es.error[0].message, "opposite operations on same sub-path"
+assertEq es.error[0].value, "keywords/$seen"
 ```
 
 Choosing "emit tighter" (Class 2) matches the RFC 6902 JSON Patch
@@ -832,9 +1066,22 @@ addition closes the diagonal.
 
 ### 8.8. RFC 6901 escape-boundary test matrix
 
-Pins F1 §3.2.5's `jsonPointerEscape` contract. Table-driven cases in
-`tests/serde/mail/tserde_email_update.nim`; bijectivity quantified
-in property group D (§8.2.1).
+Pins F1 §3.2.5's `jsonPointerEscape` contract. Table-driven cases
+in `tests/serde/mail/tserde_email_update.nim` (TO-ADD);
+bijectivity quantified in property group D (§8.2.1).
+
+**Implementation reality — `jsonPointerEscape` is private.** The
+helper at `src/jmap_client/mail/serde_email_update.nim:22` has no
+`*` export marker: it is called only from within that same module
+by the six-branch `toJson(EmailUpdate)` at lines 28–46. Tests
+therefore cannot import `jsonPointerEscape` directly; each block
+drives through the public `toJson(EmailUpdate)` path, supplying an
+input via `addKeyword(parseKeyword("<raw>").get())` (or
+`removeKeyword(...)` / `setKeywords(...)` as appropriate) and
+asserting the `.0` (string) component of the returned tuple. This
+keeps the escape helper legitimately module-private per F1's "one
+source of truth" rule — the only reader of `jsonPointerEscape` is
+the six-branch dispatcher adjacent to it.
 
 | Test name | Input keyword | Expected wire-key fragment | Attack pinned |
 |-----------|---------------|----------------------------|---------------|
@@ -864,13 +1111,14 @@ The upstream `parseKeyword` acceptance of `~` and `/` is pinned in
 `tests/unit/mail/tkeyword.nim` (§8.3) — without it the escape tests
 above are unreachable in practice.
 
-The Layer 1 baseline (`PatchObject` stores keys verbatim, performs
-no encoding) is established by `tests/stress/tadversarial.nim`
-blocks `patchJsonPointerTilde0Encoding` /
-`patchJsonPointerTilde1Encoding` / `patchObjectRfc6901TildeZero` /
-`patchObjectRfc6901TildeOne`. The §8.8 tests above verify the
-**Layer 2** guarantee that `toJson(EmailUpdate)` supplies the
-encoding the lower layer omits.
+With `PatchObject` absent from the codebase (§8.5), the earlier
+"Layer 1 baseline" framing (in which a raw wire-patch type stored
+keys verbatim and escaping lived entirely in the serde layer above
+it) no longer applies. Escaping is now an internal detail of the
+single `toJson(EmailUpdate)` boundary at
+`src/jmap_client/mail/serde_email_update.nim:22-46`; the §8.8
+blocks collectively establish the entire encoding contract at that
+one site.
 
 ### 8.9. Adversarial response-decode matrix
 
@@ -973,7 +1221,8 @@ scenario 101a.) If a future change moves `EmailUpdateSet` to a
 
 Pins F1 §7.2 table 2 — eight generic `SetError` variants × three
 methods × the operations each method supports. Lives in
-`tests/protocol/tmail_method_errors.nim` (§8.4 NEW file).
+`tests/protocol/tmail_method_errors.nim` (**TO-ADD** new file, per
+§8.4).
 
 | `SetError` variant | RFC operation scope | Email/set | Email/copy | Email/import |
 |--------------------|---------------------|-----------|------------|--------------|
@@ -1013,63 +1262,60 @@ Mechanical mapping between F1 commitments and the test cases that
 pin them. Surfaces holes by inspection — every F1 § that makes a
 behavioural promise has at least one row.
 
-| F1 § | Promise | Test file | Test name |
-|------|---------|-----------|-----------|
-| §1.5.3 | `PatchObject` demoted from public API | `tests/compliance/tmail_f_reexport.nim` | `patchObjectNotPubliclyVisible` (compile-time, §8.5.1) |
-| §1.6 | `EmailUpdate` is `toJson`-only (no `fromJson`) | `tests/compliance/tmail_f_reexport.nim` | `emailUpdateHasNoFromJson` (§8.2.2 block 4) |
-| §1.6 | `EmailUpdateSet` is `toJson`-only | `tests/compliance/tmail_f_reexport.nim` | `emailUpdateSetHasNoFromJson` |
-| §1.6 | `EmailCopyItem` is `toJson`-only | `tests/compliance/tmail_f_reexport.nim` | `emailCopyItemHasNoFromJson` |
-| §1.6 | `EmailImportItem` is `toJson`-only | `tests/compliance/tmail_f_reexport.nim` | `emailImportItemHasNoFromJson` |
-| §1.6 | `NonEmptyEmailImportMap` is `toJson`-only | `tests/compliance/tmail_f_reexport.nim` | `nonEmptyEmailImportMapHasNoFromJson` |
-| §2.1 | `EmailCreatedItem` refuses partial construction | `tests/serde/mail/tserde_email_set_response.nim` | `emailCreatedItemMissingSizeRejected` |
-| §2.2 | `EmailCopyResponse` has no `updated`/`destroyed` fields | `tests/serde/mail/tserde_email_copy.nim` | `emailCopyResponseHasNoUpdatedField` (compile-time) |
-| §2.3 | `UpdatedEntry` distinguishes `{}` from `null` | `tests/serde/mail/tserde_email_set_response.nim` | `updatedEntryNullVsEmptyDistinct` |
+| F1 § | Promise | Test file | Test name / evidence |
+|------|---------|-----------|----------------------|
+| §1.5.3 | `PatchObject` absent from public API | `! grep -r PatchObject src/` in CI | Mechanical grep; §8.5 explains why an `assertNotCompiles`-style gate would be trivially true. |
+| §1.6 | Creation types have no public `fromJson` | `grep -L 'fromJson' src/jmap_client/mail/serde_email_update.nim` + analogous | Mechanical grep across the four creation-side serde modules. Optional compile-time pin described in §8.2.2 "Optional enhancement". |
+| §2.1 | `EmailCreatedItem` refuses partial construction | `tests/serde/mail/tserde_email_set_response.nim` (TO-ADD) | `emailCreatedItemMissingSizeRejected` |
+| §2.2 | `EmailCopyResponse` has no `updated`/`destroyed` fields | `tests/serde/mail/tserde_email_copy.nim` (TO-ADD) | `emailCopyResponseHasNoUpdatedField` (`assertNotCompiles` block) |
+| §2.3 | `UpdatedEntry` distinguishes `{}` from `null` | `tests/serde/mail/tserde_email_set_response.nim` (TO-ADD) | `updatedEntryNullVsEmptyDistinct` |
 | §2.3 | `UpdatedEntry` rejects non-object/non-null kinds | `tests/stress/tadversarial_mail_f.nim` (per §8.9 rows) | `updatedEntryRejectsString`, `updatedEntryRejectsNumber`, `updatedEntryRejectsArray`, `updatedEntryRejectsBool` |
 | §2.3 | `UpdatedEntry` round-trip preserves `null` vs `{}` | `tests/stress/tadversarial_mail_f.nim` | `updatedEntryRoundTripPreservesDistinction` |
 | §2.5 | `EmailSetResponse.updated` three-state (absent/null/{}) | `tests/serde/mail/tserde_email_set_response.nim` | `updatedTopLevelAbsent`, `updatedTopLevelNull`, `updatedTopLevelEmptyObject` |
 | §2.5 | `EmailSetResponse.destroyed` three-state | `tests/serde/mail/tserde_email_set_response.nim` | `destroyedAbsent`, `destroyedEmptyArray`, `destroyedTwoElement` |
-| §3.2.1 | `EmailUpdateVariantKind` exhaustive case | `tests/compliance/tmail_f_reexport.nim` | `emailUpdateVariantKindExhaustiveCaseCompiles` |
-| §3.2.1 | Six primitive + five convenience constructors | `tests/unit/mail/temail_update.nim` | per `temail_update.nim` (1) and (2) — 11 named tests, see §8.3 row |
-| §3.2.3.1 | `moveToMailbox` emits `euSetMailboxIds`, NOT `euAddToMailbox` | `tests/serde/mail/tserde_email_update.nim` | `moveToMailboxWireIsSetMailboxIds` (positive + negative pair) |
-| §3.2.3.1 | `moveToMailbox(id) ≡ setMailboxIds(...)` quantified over `Id` | `tests/property/tprop_mail_f.nim` | property group F |
-| §3.2.4 Class 1 | All 6 duplicate-target shapes rejected | `tests/unit/mail/temail_update_set.nim` | per §8.7.1 (6 named tests, one per row) |
-| §3.2.4 Class 2 | Both opposite-op shapes rejected | `tests/unit/mail/temail_update_set.nim` | `class2KeywordOpposite`, `class2MailboxOpposite` |
-| §3.2.4 Class 3 | All 4 sub-path × full-replace shapes rejected | `tests/unit/mail/temail_update_set.nim` | per §8.7.3 (4 named tests) |
-| §3.2.4 Class 3 | Payload-irrelevance (empty vs non-empty setKeywords) | `tests/stress/tadversarial_mail_f.nim` | `class3PayloadIrrelevantEmptySetKeywords`, `class3PayloadIrrelevantNonEmptySetKeywords` |
-| §3.2.4 Independent | 4 accepted combinations | `tests/unit/mail/temail_update_set.nim` | per §8.7.4 (4 mandatory positive tests) |
-| §3.2.4 Accumulation | One `ValidationError` per detected conflict | `tests/unit/mail/temail_update_set.nim` | `accumulateMixedClasses` (exact-3 via `assertUpdateSetErrCount`); `accumulateOneClassThree`; `accumulateEmptyAlone` |
-| §3.2.4 Class 1+2 overlap | Pin reported class = Class 2 (committed policy) | `tests/unit/mail/temail_update_set.nim` | `class1And2Overlap` |
-| §3.2.4 | Single-pass algorithm doesn't bail after fixed prefix | `tests/stress/tadversarial_mail_f.nim` | `emailUpdateSetLatePositionConflict` |
+| §3.2.1 | `EmailUpdateVariantKind` exhaustiveness witnessed | Production code — `shape` / `classify` / `toValidationError` / `toJson(EmailUpdate)` each `case` over every variant with no `else` (`email_update.nim:163-242`, `serde_email_update.nim:28-46`) | Compiler-enforced at every build; no dedicated test required. |
+| §3.2.1 | Six primitive + five convenience constructors — all declared | `tests/compile/tcompile_mail_f_public_surface.nim:42-54` | **SHIPPED.** `declared()` assertions for each constructor name; any removal breaks the compile-only file. Shape / payload behaviour covered by `temail_update.nim` (TO-ADD, §8.3 row). |
+| §3.2.3.1 | `moveToMailbox` emits `euSetMailboxIds`, NOT `euAddToMailbox` | `tests/serde/mail/tserde_email_update.nim` (TO-ADD) | `moveToMailboxWireIsSetMailboxIds` (positive + negative pair) |
+| §3.2.3.1 | `moveToMailbox(id) ≡ setMailboxIds(...)` quantified over `Id` | `tests/property/tprop_mail_f.nim` (TO-ADD) | property group F |
+| §3.2.4 Class 1 | All 6 duplicate-target shapes rejected | `tests/unit/mail/temail_update_set.nim` (TO-ADD) | per §8.7.1 (6 named blocks, one per row); each asserts `error[0].message == "duplicate target path"` |
+| §3.2.4 Class 2 | Both opposite-op shapes rejected | `tests/unit/mail/temail_update_set.nim` | `class2KeywordOpposite`, `class2MailboxOpposite`; each asserts `error[0].message == "opposite operations on same sub-path"` |
+| §3.2.4 Class 3 | All 4 sub-path × full-replace shapes rejected | `tests/unit/mail/temail_update_set.nim` | per §8.7.3 (4 named blocks); each asserts `error[0].message == "sub-path operation alongside full-replace on same parent"` |
+| §3.2.4 Class 3 | Payload-irrelevance (empty vs non-empty setKeywords) | `tests/stress/tadversarial_mail_f.nim` (TO-ADD) | `class3PayloadIrrelevantEmptySetKeywords`, `class3PayloadIrrelevantNonEmptySetKeywords` |
+| §3.2.4 Independent | 4 accepted combinations | `tests/unit/mail/temail_update_set.nim` | per §8.7.4 (4 mandatory positive `assertOk` blocks) |
+| §3.2.4 Accumulation | One `ValidationError` per detected conflict | `tests/unit/mail/temail_update_set.nim` | `accumulateMixedClasses` (inline `assertLen res.error, 3`); `accumulateThreeClass3`; `accumulateEmptyAlone` (folds into the empty block) |
+| §3.2.4 Class 1+2 overlap | Pin reported class = Class 2 (committed policy) | `tests/unit/mail/temail_update_set.nim` | `class1And2Overlap`; asserts `error[0].message == "opposite operations on same sub-path"` (no `classification` field exists on `ValidationError` — the `message` string is the discriminator) |
+| §3.2.4 | Single-pass algorithm doesn't bail after fixed prefix | `tests/stress/tadversarial_mail_f.nim` (TO-ADD) | `emailUpdateSetLatePositionConflict` |
 | §3.2.4 | Scale — anchored & unanchored conflict patterns | `tests/stress/tadversarial_mail_f.nim` | `emailUpdateSet10kClass1Anchored`, `emailUpdateSet10kClass1NoAnchor`, `emailUpdateSet100kWallClock` |
 | §3.2.4 | Cast-bypass does NOT add post-hoc validation | `tests/stress/tadversarial_mail_f.nim` | `castBypassDocumentsNoPostHocValidation`, `castBypassEmptyAccepted` |
-| §3.2.5 | RFC 6901 `~ → ~0`, `/ → ~1`, escape order matters | `tests/serde/mail/tserde_email_update.nim` | per §8.8 (15 named tests including new rows `escEmbeddedTildeZero`, `escEmbeddedTildeOne`, `escDoubleTilde`, `escDoubleSlash`, `escTrailingTilde`, `escLeadingTilde`, `escSingleTilde`, `escSingleSlash`, `escUtf8Keyword`) |
-| §3.2.5 | Pointer escape bijectivity | `tests/property/tprop_mail_f.nim` | property group D |
-| §3.2.5 | `Keyword` charset includes `~` and `/` | `tests/unit/mail/tkeyword.nim` | `keywordWithTildeAccepted`, `keywordWithSlashAccepted`, `keywordWithBothAccepted` |
-| §3.3 | `MailboxUpdateSet` duplicate-target rejection (5 variants) | `tests/unit/mail/tmailbox.nim` | per-variant fold (5 named tests, native `for variant in MailboxUpdateVariantKind:`) |
-| §3.3 | `setRole(Opt.none) → JSON null` (clear-role) | `tests/serde/mail/tserde_mailbox.nim` | `setRoleNoneEmitsJsonNull` |
+| §3.2.5 | RFC 6901 `~ → ~0`, `/ → ~1`, escape order matters | `tests/serde/mail/tserde_email_update.nim` (TO-ADD) | per §8.8 (15 named blocks driven through `toJson(addKeyword(parseKeyword("<raw>").get()))` since `jsonPointerEscape` is module-private) |
+| §3.2.5 | Pointer escape bijectivity | `tests/property/tprop_mail_f.nim` (TO-ADD) | property group D |
+| §3.2.5 | `Keyword` charset includes `~` and `/` | `tests/unit/mail/tkeyword.nim` append | `keywordWithTildeAccepted`, `keywordWithSlashAccepted`, `keywordWithBothAccepted` (TO-ADD) |
+| §3.3 | `MailboxUpdateSet` duplicate-target rejection | `tests/unit/mail/tmailbox.nim:124-176` | **SHIPPED.** Five blocks: `initMailboxUpdateSetEmpty`, `...SingleValid`, `...TwoSameKind`, `...ThreeSameKind`, `...TwoDistinctRepeated`. Per-variant fold across all five `MailboxUpdateVariantKind` values is TO-ADD. |
+| §3.3 | `setRole(Opt.none) → JSON null` (clear-role) | `tests/serde/mail/tserde_mailbox.nim` (TO-ADD) | `setRoleNoneEmitsJsonNull` |
 | §3.3 | `setRole(Opt.some(role)) → JSON string` | `tests/serde/mail/tserde_mailbox.nim` | `setRoleSomeEmitsString` |
 | §3.3 | `setParentId(Opt.none) → JSON null` (reparent-to-top) | `tests/serde/mail/tserde_mailbox.nim` | `setParentIdNoneEmitsJsonNull` |
 | §3.3 | `setParentId(Opt.some(id)) → JSON string` | `tests/serde/mail/tserde_mailbox.nim` | `setParentIdSomeEmitsString` |
-| §3.4 | `VacationResponseUpdateSet` duplicate-target rejection (6 variants) | `tests/unit/mail/tvacation.nim` | per-variant fold (6 named tests per §8.3 `tvacation.nim` (4)) |
-| §3.4 | `VacationResponseUpdate` nullable-field wire behaviour | `tests/serde/mail/tserde_vacation.nim` | `vruSetFromDateNoneEmitsNull`, `vruSetToDateNoneEmitsNull`, `vruSetSubjectNoneEmitsNull`, `vruSetTextBodyNoneEmitsNull`, `vruSetHtmlBodyNoneEmitsNull` (per-field Opt.none pin) |
-| §4.1 | `addEmailSet` full invocation | `tests/protocol/tmail_builders.nim` | `addEmailSetFullInvocation` |
-| §4.1 | `addEmailSet` minimal (all `Opt.none`) | `tests/protocol/tmail_builders.nim` | `addEmailSetMinimalAccountIdOnly` |
-| §4.1 | `addEmailSet` `ifInState` wire semantics | `tests/protocol/tmail_builders.nim` | `addEmailSetIfInStateEmitted`, `addEmailSetIfInStateOmittedWhenNone` |
-| §4.2 | `addEmailImport` phantom-typed response | `tests/protocol/tmail_methods.nim` | `addEmailImportPhantomTyped` |
-| §4.2 | `addEmailImport` `ifInState` pass-through | `tests/protocol/tmail_methods.nim` | `addEmailImportIfInStateSomePassthrough`, `addEmailImportIfInStateNoneOmitted` |
-| §5.3 | `addEmailCopyAndDestroy` emits `onSuccessDestroyOriginal: true`; all three state params | `tests/protocol/tmail_builders.nim` | `addEmailCopyAndDestroyEmitsTrue`, `addEmailCopyAndDestroyDestroyFromIfInStateSome`, `addEmailCopyAndDestroyDestroyFromIfInStateNone`, `addEmailCopyAndDestroyAllStateParamsSome` |
-| §5.3 | `addEmailCopy` (simple) has no `onSuccessDestroyOriginal` | `tests/protocol/tmail_builders.nim` | `addEmailCopyPhantomType`, `addEmailCopyIfInStateEmittedWithCopySemantics` |
-| §5.4 | `getBoth` happy path + short-circuits (copy error, destroy missing, destroy error) | `tests/protocol/tmail_builders.nim` | `getBothCopyAndDestroyHappyPath`, `getBothShortCircuitOnCopyError` (table-driven via `for variant in MethodErrorType:`), `getBothShortCircuitOnDestroyMissing`, `getBothShortCircuitOnDestroyError` |
+| §3.4 | `VacationResponseUpdateSet` duplicate-target rejection | `tests/unit/mail/tvacation.nim:37-88` | **SHIPPED.** Five blocks: `initVacationResponseUpdateSetEmpty`, `...SingleValid`, `...TwoSameKind`, `...ThreeSameKind`, `...TwoDistinctRepeated`. Full six-variant fold is TO-ADD. |
+| §3.4 | `VacationResponseUpdate` nullable-field wire behaviour | `tests/serde/mail/tserde_vacation.nim` (TO-ADD) | `vruSetFromDateNoneEmitsNull`, `vruSetToDateNoneEmitsNull`, `vruSetSubjectNoneEmitsNull`, `vruSetTextBodyNoneEmitsNull`, `vruSetHtmlBodyNoneEmitsNull` (per-field Opt.none pin) |
+| §4.1 | `addEmailSet` full invocation | `tests/protocol/tmail_builders.nim` append (TO-ADD) | `addEmailSetFullInvocation` |
+| §4.1 | `addEmailSet` minimal (all `Opt.none`) | `tests/protocol/tmail_builders.nim` append | `addEmailSetMinimalAccountIdOnly` |
+| §4.1 | `addEmailSet` `ifInState` wire semantics | `tests/protocol/tmail_builders.nim` append | `addEmailSetIfInStateEmitted`, `addEmailSetIfInStateOmittedWhenNone` |
+| §4.1 | `addEmailSet` typed-update flows through | `tests/protocol/tmail_builders.nim` append | `addEmailSetTypedUpdate` (pins `toJson(EmailUpdateSet)` threading) |
+| §4.2 | `addEmailImport` invocation + capability + phantom-typed response | `tests/protocol/tmail_methods.nim` append (TO-ADD) | `addEmailImportInvocationName` |
+| §4.2 | `addEmailImport` `emails: NonEmptyEmailImportMap` flows through | `tests/protocol/tmail_methods.nim` append | `addEmailImportEmailsPassthrough` |
+| §4.2 | `addEmailImport` `ifInState` pass-through | `tests/protocol/tmail_methods.nim` append | `addEmailImportIfInStateSomePassthrough`, `addEmailImportIfInStateNoneOmitted` |
+| §5.3 | `addEmailCopyAndDestroy` emits `onSuccessDestroyOriginal: true`; all three state params | `tests/protocol/tmail_builders.nim` append | `addEmailCopyAndDestroyEmitsTrue`, `addEmailCopyAndDestroyDestroyFromIfInStateSome`, `addEmailCopyAndDestroyDestroyFromIfInStateNone`, `addEmailCopyAndDestroyAllStateParamsSome` |
+| §5.3 | `addEmailCopyAndDestroy` destroy handle carries `NameBoundHandle` with `methodName: mnEmailSet` | `tests/protocol/tmail_builders.nim` append | `addEmailCopyAndDestroyEmitsTrue` assertion on `handles.destroy.methodName == mnEmailSet` and `handles.destroy.callId == handles.copy.callId()` |
+| §5.3 | `addEmailCopy` (simple) has no `onSuccessDestroyOriginal` | `tests/protocol/tmail_builders.nim` append | `addEmailCopyPhantomType`, `addEmailCopyIfInStateEmittedWithCopySemantics` |
+| §5.4 | `getBoth` happy path + short-circuits (copy error, destroy missing, destroy error) | `tests/protocol/tmail_builders.nim` append | `getBothCopyAndDestroyHappyPath`, `getBothShortCircuitOnCopyError` (table-driven via `for variant in MethodErrorType:`), `getBothShortCircuitOnDestroyMissing`, `getBothShortCircuitOnDestroyError`. Internal dispatch: `resp.get(handles.copy)` + `resp.get(handles.destroy)` per the shipped `getBoth` body in `mail_builders.nim:456-466`. |
 | §5.4 | `getBoth` adversarial (method-call-id mismatch, empty createResults) | `tests/stress/tadversarial_mail_f.nim` | (three adversarial scenarios enumerated in §8.2.3 "`getBoth(EmailCopyHandles)` adversarial") |
-| §6.2 | `NonEmptyEmailImportMap` preserves insertion order | `tests/unit/mail/tnon_empty_email_import_map.nim` | `nonEmptyImportMapPreservesInsertionOrder` |
-| §6.2 | Order-deterministic error messages | `tests/unit/mail/tnon_empty_email_import_map.nim` | `nonEmptyImportMapDeterministicErrorOrder` |
-| §6.2 | Empty & duplicate invariants both accumulated | `tests/unit/mail/tnon_empty_email_import_map.nim` | `nonEmptyImportMapEmptyRejected`, `nonEmptyImportMapDuplicateCreationIdRejected`, `nonEmptyImportMapDuplicateAndEmptyAccumulatedSeparately` |
-| §6.2 | Scale — 10k entries with duplicate at end | `tests/stress/tadversarial_mail_f.nim` | `nonEmptyImportMap10kWithDupAtEnd` |
-| §6.1 | `EmailCopyItem` mailbox-override type-level rejection | `tests/unit/mail/temail_copy_item.nim` | `copyItemTypeRejectsEmptyMailboxIdSet`, `copyItemTypeRejectsNonEmptyMailboxIdSetWrongDistinct` |
-| §6.1 | `EmailCopyItem` serde (minimal / full override) | `tests/serde/mail/tserde_email_copy.nim` | `emailCopyItemMinimalEmitsEmpty`, `emailCopyItemFullOverrideEmitsThreeKeys` |
-| §6.3 | `EmailImportItem` required `mailboxIds`, optional `keywords` | `tests/unit/mail/temail_import_item.nim` | `importItemRejectsOptNoneMailboxIds`, `importItemKeywordsRoundTripThreeStates` |
+| §6.2 | `NonEmptyEmailImportMap` invariants | `tests/unit/mail/temail.nim:59-125` | **SHIPPED.** Five blocks (see §8.3 row). The earlier-drafted `nonEmptyImportMapPreservesInsertionOrder` and `nonEmptyImportMapDeterministicErrorOrder` blocks are **not in the shipped file** — the shipped `initNonEmptyEmailImportMapTwoDistinctRepeated` uses set-membership verification so it does not depend on error ordering, sidestepping the deterministic-order concern entirely. |
+| §6.2 | Scale — 10k entries with duplicate at end | `tests/stress/tadversarial_mail_f.nim` (TO-ADD) | `nonEmptyImportMap10kWithDupAtEnd` |
+| §6.1 | `EmailCopyItem` mailbox-override type-level rejection | `tests/unit/mail/temail_copy_item.nim` (TO-ADD) | `copyItemTypeRejectsEmptyMailboxIdSet`, `copyItemTypeRejectsNonEmptyMailboxIdSetWrongDistinct` |
+| §6.1 | `EmailCopyItem` serde (minimal / full override) | `tests/serde/mail/tserde_email_copy.nim` (TO-ADD) | `emailCopyItemMinimalEmitsIdOnly`, `emailCopyItemFullOverrideEmitsThreeKeys` |
+| §6.3 | `EmailImportItem` required `mailboxIds`, optional `keywords` | `tests/unit/mail/temail_import_item.nim` (TO-ADD) | `importItemRejectsOptNoneMailboxIds`, `importItemKeywordsThreeStates` |
 | §7.1 | `SetError.extras` extractors work via Email-method `createResults` | `tests/stress/tadversarial_mail_f.nim` | `emailSetExtrasReachableFromCreateResults`, `emailCopyExtrasReachableFromCreateResults`, `emailImportExtrasReachableFromCreateResults` |
-| §7.2 | Generic `SetError` applicability matrix | `tests/protocol/tmail_method_errors.nim` | per §8.11 cell (one named test per method × operation for ✓ cells, one `singleton` negative test per method for ✗ cell) |
+| §7.2 | Generic `SetError` applicability matrix | `tests/protocol/tmail_method_errors.nim` (TO-ADD) | per §8.11 cell (one named test per method × operation for ✓ cells, one `singleton` negative test per method for ✗ cell) |
 | §7.4 | Method-level errors per method (3 × ≤ 7) | `tests/protocol/tmail_method_errors.nim` | per §8.4 `tmail_method_errors.nim` list (7 named tests) |
 | §7.5 | Adversarial `SetError.extras` via integration path | `tests/stress/tadversarial_mail_f.nim` | (five cases enumerated in §8.2.3 "SetError.extras adversarial") |
 | §8 (meta) | Cross-response coherence anomalies | `tests/stress/tadversarial_mail_f.nim` | `coherenceOldStateNewStateEqual`, `coherenceOldStateNewStateNullPair`, `coherenceAccountIdMismatchAcrossInvocations`, `coherenceUpdatedSameKeyTwice`, `coherenceCreatedAndNotCreatedShareKey` |
@@ -1090,20 +1336,25 @@ Implementation PR verification sequence:
 - `just fmt-check` — nph formatting unchanged.
 - `just ci` — full pipeline green.
 
-The compile-time reachability smoke (`tmail_f_reexport.nim` with
-`action: "compile"`) fails loudly if any new public symbol is not
-re-exported through `jmap_client.nim`, OR if `PatchObject` becomes
-publicly visible again (§8.5.1 enforcement gate), OR if any
-variant-kind discriminator gains a variant that an existing `case`
-fails to handle (§8.2.2 block 3), OR if any creation-model type
-gains a reachable `fromJson` overload (§8.2.2 block 4). Property
-tests in `tprop_mail_f.nim` cover the accumulating-constructor
-totality (B), the duplicate-key invariant for
-`NonEmptyEmailImportMap` (C), the RFC 6901 escape bijectivity (D),
-the `toJson(EmailUpdateSet)` post-condition (E), and the
-`moveToMailbox ≡ setMailboxIds` quantification (F). Coverage matrix
-§8.12 is the single inspection point for "is every F1 promise
-pinned by a test?"
+The compile-only smoke (`tests/compile/tcompile_mail_f_public_surface.nim`,
+**SHIPPED** — see §8.2.2) fails loudly at the `static:` block if
+any new public symbol is not re-exported through
+`src/jmap_client.nim`'s cascade. Variant-kind exhaustiveness is
+witnessed by the internal production `case` sites in
+`src/jmap_client/mail/email_update.nim` on every build (no
+dedicated probe needed — see §8.2.2). `PatchObject` regression is
+prevented by the symbol's outright absence (§8.5) — a CI grep
+(`! grep -r 'PatchObject' src/`) is the minimal mechanical check.
+
+Property tests in `tprop_mail_f.nim` (TO-ADD) will cover the
+accumulating-constructor totality (B), the duplicate-key invariant
+for `NonEmptyEmailImportMap` (C), the RFC 6901 escape bijectivity
+(D), the `toJson(EmailUpdateSet)` post-condition (E), and the
+`moveToMailbox ≡ setMailboxIds` quantification (F). Coverage
+matrix §8.12 is the single inspection point for "is every F1
+promise pinned by a test?" — the **SHIPPED** tags in that table
+are the authoritative list of what is already green against the
+F1 implementation.
 
 ---
 
