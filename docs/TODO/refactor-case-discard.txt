@@ -1,0 +1,40 @@
+Refactor Case Else Discard
+
+Differences
+
+    of <variant>: discard — explicit enumeration. Each no-payload variant is named:
+    case kind*: SetErrorType
+    of setInvalidProperties: properties*: seq[string]
+    of setAlreadyExists: existingId*: Id
+    of setForbidden, setOverQuota, setTooLarge, setRateLimit, setNotFound,
+       setInvalidPatch, setWillDestroy, setSingleton, setUnknown: discard
+
+    else: discard — catch-all. Implicit for all unlisted variants:
+    case kind*: SetErrorType
+    of setInvalidProperties: properties*: seq[string]
+    of setAlreadyExists: existingId*: Id
+    else: discard
+
+    Type safety comparison
+
+    of <variant>: discard is more type-safe:
+
+    1. Adding a new enum variant — explicit form forces a compile error (must place the new variant somewhere);
+    else: discard silently absorbs it as no-payload, masking a deliberate decision.
+    2. Self-documentation — the type's structure shows every variant; with else, a reader must consult the enum
+    definition to know what's covered.
+    3. Refactoring visibility — moving a variant in/out of a payload branch shows up in diffs explicitly; with
+    else, the move is invisible.
+
+    Why the codebase uses else: discard anyway
+
+    nim-conventions.md (the SetError example) uses else: discard because SetErrorType has 11 variants and only 2
+     carry payload — enumerating 9 names would be noise. This is an ergonomic concession for sparse-payload case
+     objects.
+
+    Note the asymmetry: the same rules file says case expressions in code "should always handle ALL variants —
+    avoid catch-all else." That stronger rule applies to runtime control flow, not type definitions. In type
+    definitions, the trade-off favours readability when payload variants are very rare.
+
+
+We should tighten this. Change nim-conventions.md to specify using explicit of <variant>: discard. Then update all the codebase to remove else discard.
