@@ -919,32 +919,40 @@ block rfc8620_conformance_parseEnumNimIdentNormalize:
 
 block rfc8620_conformance_losslessRoundTripAllErrorTypes:
   ## All error constructors preserve rawType for lossless round-trip.
+  ## ``setError`` defensively maps payload-bearing rawType strings without
+  ## wire data to ``setUnknown``, so round-trip only holds for the
+  ## payload-less variants.
   for met in MethodErrorType:
     if met != metUnknown:
       doAssert methodError($met).rawType == $met
+  const PayloadBearing = {
+    setInvalidProperties, setAlreadyExists, setBlobNotFound, setInvalidEmail,
+    setTooManyRecipients, setInvalidRecipients,
+  }
   for se in SetErrorType:
-    if se notin {setUnknown, setInvalidProperties, setAlreadyExists}:
+    if se notin PayloadBearing + {setUnknown}:
       doAssert setError($se).rawType == $se
   for re in RequestErrorType:
     if re != retUnknown:
       doAssert requestError($re).rawType == $re
 
 # =============================================================================
-# RFC 8621 — JMAP Mail error type fallthrough
+# RFC 8621 — JMAP Mail error type classification
 # =============================================================================
 
-block rfc8621_setErrorMailboxHasChildFallsThrough:
-  ## RFC 8621 set error types are not modelled in Layer 1; they fall to setUnknown.
-  doAssert parseSetErrorType("mailboxHasChild") == setUnknown
+block rfc8621_setErrorMailboxHasChildClassified:
+  ## RFC 8621 §2.3 mailboxHasChild is now a first-class SetErrorType variant.
+  doAssert parseSetErrorType("mailboxHasChild") == setMailboxHasChild
 
-block rfc8621_setErrorBlobNotFoundFallsThrough:
-  doAssert parseSetErrorType("blobNotFound") == setUnknown
+block rfc8621_setErrorBlobNotFoundClassified:
+  ## RFC 8621 §4.6 blobNotFound is now a first-class payload-bearing variant.
+  doAssert parseSetErrorType("blobNotFound") == setBlobNotFound
 
-block rfc8621_submissionErrorsFallThrough:
-  ## RFC 8621 S7 submission-specific error types fall to setUnknown.
-  doAssert parseSetErrorType("forbiddenFrom") == setUnknown
-  doAssert parseSetErrorType("forbiddenToSend") == setUnknown
-  doAssert parseSetErrorType("noRecipients") == setUnknown
+block rfc8621_submissionErrorsClassified:
+  ## RFC 8621 §7.5 submission-specific error types are first-class variants.
+  doAssert parseSetErrorType("forbiddenFrom") == setForbiddenFrom
+  doAssert parseSetErrorType("forbiddenToSend") == setForbiddenToSend
+  doAssert parseSetErrorType("noRecipients") == setNoRecipients
 
 # =============================================================================
 # Phase 5 — Priority 1: MUST requirements

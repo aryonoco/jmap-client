@@ -48,7 +48,7 @@ block isLeafFalseForMultipart:
     name: Opt.none(string),
     contentType: "multipart/mixed",
     charset: Opt.none(string),
-    disposition: Opt.none(string),
+    disposition: Opt.none(ContentDisposition),
     cid: Opt.none(string),
     language: Opt.none(seq[string]),
     location: Opt.none(string),

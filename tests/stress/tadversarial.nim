@@ -507,9 +507,13 @@ block uriTemplateVariableSubstringFalseNegative:
   doAssert tmpl.hasVariable("accountIdblobId")
 
 block uriTemplateEmptyVariableName:
-  ## hasVariable("") checks for "{}" as a substring.
-  let tmpl = parseUriTemplate("https://e.com/{}/{name}").get()
-  doAssert tmpl.hasVariable("")
+  ## Empty ``{}`` is now rejected at parse time — the new tokeniser
+  ## surfaces position-bearing errors rather than silently round-tripping
+  ## nonsensical templates (was lenient substring search before).
+  let res = parseUriTemplate("https://e.com/{}/{name}")
+  doAssert res.isErr
+  doAssert res.error.typeName == "UriTemplate"
+  doAssert "empty variable" in res.error.message
 
 block sessionCoreCapabilityMismatchedRawUri:
   ## ckCore with a non-matching rawUri is accepted (validation checks kind, not URI).
@@ -1131,12 +1135,15 @@ block sessionFindCapabilityCkUnknown:
   assertSome specific
   doAssert specific.get().rawUri == "https://vendor.example.com/ext2"
 
-block uriTemplateHasVariableNestedBraces:
-  ## parseUriTemplate("https://e.com/{{accountId}}") passes validation.
-  ## hasVariable returns true for "accountId" because "{accountId}" is a
-  ## substring of "{{accountId}}". Documented edge case.
-  let tmpl = parseUriTemplate("https://e.com/{{accountId}}").get()
-  doAssert tmpl.hasVariable("accountId")
+block uriTemplateNestedBracesRejected:
+  ## Nested braces ``{{accountId}}`` are rejected at parse time: the
+  ## inner ``{`` is an invalid variable-name character. The previous
+  ## substring-based ``hasVariable`` silently accepted this edge case;
+  ## the parsed-once representation tightens the contract.
+  let res = parseUriTemplate("https://e.com/{{accountId}}")
+  doAssert res.isErr
+  doAssert res.error.typeName == "UriTemplate"
+  doAssert "invalid variable character" in res.error.message
 
 block uriTemplateNulInFullTemplate:
   ## A template with NUL passes both parseUriTemplate and parseSession because

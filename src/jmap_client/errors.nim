@@ -252,7 +252,13 @@ func methodError*(
   )
 
 type SetErrorType* = enum
-  ## Per-item error types within a /set response (RFC 8620 §5.3).
+  ## Per-item error types within a ``/set`` response. Covers RFC 8620 §5.3
+  ## core variants plus the RFC 8621 §2.3 / §4.6 / §6 / §7.5 mail-specific
+  ## variants. The ``"forbiddenFrom"`` wire string is shared between
+  ## ``Identity/set`` (§6) and ``EmailSubmission/set`` (§7.5); a single
+  ## enum variant ``setForbiddenFrom`` covers both contexts — the calling
+  ## method determines which SHOULD-semantic applies.
+  # RFC 8620 §5.3 / §5.4 — core
   setForbidden = "forbidden"
   setOverQuota = "overQuota"
   setTooLarge = "tooLarge"
@@ -263,6 +269,22 @@ type SetErrorType* = enum
   setInvalidProperties = "invalidProperties"
   setAlreadyExists = "alreadyExists"
   setSingleton = "singleton"
+  # RFC 8621 §2.3 — Mailbox/set
+  setMailboxHasChild = "mailboxHasChild"
+  setMailboxHasEmail = "mailboxHasEmail"
+  # RFC 8621 §4.6 — Email/set
+  setBlobNotFound = "blobNotFound"
+  setTooManyKeywords = "tooManyKeywords"
+  setTooManyMailboxes = "tooManyMailboxes"
+  # RFC 8621 §7.5 — EmailSubmission/set (and §6 Identity/set)
+  setInvalidEmail = "invalidEmail"
+  setTooManyRecipients = "tooManyRecipients"
+  setNoRecipients = "noRecipients"
+  setInvalidRecipients = "invalidRecipients"
+  setForbiddenMailFrom = "forbiddenMailFrom"
+  setForbiddenFrom = "forbiddenFrom"
+  setForbiddenToSend = "forbiddenToSend"
+  setCannotUnsend = "cannotUnsend"
   setUnknown
 
 func parseSetErrorType*(raw: string): SetErrorType =
@@ -270,32 +292,122 @@ func parseSetErrorType*(raw: string): SetErrorType =
   return strutils.parseEnum[SetErrorType](raw, setUnknown)
 
 type SetError* = object
-  ## Per-item error from a /set response. Variant-specific fields for invalidProperties and alreadyExists.
+  ## Per-item error from a ``/set`` response. Five payload-bearing arms
+  ## match the RFC-mandated data: ``setInvalidProperties`` /
+  ## ``setAlreadyExists`` (RFC 8620 §5.3 / §5.4), ``setBlobNotFound`` /
+  ## ``setInvalidEmail`` / ``setTooManyRecipients`` /
+  ## ``setInvalidRecipients`` (RFC 8621 §4.6 / §7.5), and ``setTooLarge``
+  ## augmented with ``maxSize`` (RFC 8621 §7.5 SHOULD).
+  ##
+  ## ``rawErrorType`` is module-private — the public ``errorType*``
+  ## accessor returns the discriminator so pattern-matching continues to
+  ## work via UFCS, but literal construction of payload-bearing variants
+  ## without their payloads is rejected at compile time (Pattern A). Use
+  ## the variant-specific smart constructors (``setErrorInvalidProperties``
+  ## etc.); generic ``setError`` is reserved for payload-less variants
+  ## and defensively maps payload-bearing rawType strings without wire
+  ## data to ``setUnknown``.
   rawType*: string ## always populated — lossless round-trip
   description*: Opt[string] ## optional human-readable description
   extras*: Opt[JsonNode] ## non-standard fields, lossless preservation
-  case errorType*: SetErrorType
+  case rawErrorType: SetErrorType
   of setInvalidProperties:
-    properties*: seq[string] ## invalid property names (§5.3)
+    properties*: seq[string] ## RFC 8620 §5.3 SHOULD: invalid property names
   of setAlreadyExists:
-    existingId*: Id ## the existing record's ID (§5.4)
+    existingId*: Id ## RFC 8620 §5.4 MUST: the existing record's ID
+  of setBlobNotFound:
+    notFound*: seq[Id] ## RFC 8621 §4.6 MUST: unresolved blob IDs
+  of setInvalidEmail:
+    invalidEmailPropertyNames*: seq[string]
+      ## RFC 8621 §7.5 SHOULD: invalid Email property names. Field name
+      ## avoids collision with mail-layer accessor ``invalidEmailProperties``.
+  of setTooManyRecipients:
+    maxRecipientCount*: UnsignedInt
+      ## RFC 8621 §7.5 MUST: server's recipient cap. Field name avoids
+      ## collision with mail-layer accessor ``maxRecipients``.
+  of setInvalidRecipients:
+    invalidRecipients*: seq[string]
+      ## RFC 8621 §7.5 MUST: recipient addresses that failed validation.
+  of setTooLarge:
+    maxSizeOctets*: Opt[UnsignedInt]
+      ## RFC 8621 §7.5 SHOULD: server's size cap (octets). Field name
+      ## avoids collision with mail-layer accessor ``maxSize``.
   else:
     discard
+
+func errorType*(se: SetError): SetErrorType =
+  ## Returns the parsed discriminator variant. Accessor preserves the
+  ## previous field-level API surface after sealing ``rawErrorType``.
+  return se.rawErrorType
+
+template seFieldsPlain(lit: untyped): SetError =
+  ## Builds a payload-less SetError with a literal discriminator. Expanded
+  ## inline at each ``of X: seFieldsPlain(X)`` call site in ``setError``
+  ## below — the literal substitution satisfies Nim's case-object
+  ## construction rule (Pattern 4: no runtime discriminator allowed).
+  SetError(
+    rawErrorType: lit, rawType: rawType, description: description, extras: extras
+  )
 
 func setError*(
     rawType: string,
     description: Opt[string] = Opt.none(string),
     extras: Opt[JsonNode] = Opt.none(JsonNode),
 ): SetError =
-  ## For non-variant-specific set errors.
-  ## Defensively maps invalidProperties/alreadyExists to setUnknown when
-  ## variant-specific data is absent.
+  ## For non-variant-specific set errors. Defensively maps the six
+  ## required-payload variants (invalidProperties, alreadyExists,
+  ## blobNotFound, invalidEmail, tooManyRecipients, invalidRecipients)
+  ## to ``setUnknown`` when variant-specific data is absent — use the
+  ## ``setErrorXyz`` smart constructors to supply the payload.
+  ## ``setTooLarge`` admits an absent ``maxSize`` (RFC 8621 §7.5 SHOULD,
+  ## not MUST), so it is constructed with ``Opt.none`` here.
   let errorType = parseSetErrorType(rawType)
-  let safeType =
-    if errorType in {setInvalidProperties, setAlreadyExists}: setUnknown else: errorType
-  return SetError(
-    errorType: safeType, rawType: rawType, description: description, extras: extras
-  )
+  case errorType
+  of setInvalidProperties, setAlreadyExists, setBlobNotFound, setInvalidEmail,
+      setTooManyRecipients, setInvalidRecipients:
+    seFieldsPlain(setUnknown)
+  of setTooLarge:
+    SetError(
+      rawErrorType: setTooLarge,
+      rawType: rawType,
+      description: description,
+      extras: extras,
+      maxSizeOctets: Opt.none(UnsignedInt),
+    )
+  of setForbidden:
+    seFieldsPlain(setForbidden)
+  of setOverQuota:
+    seFieldsPlain(setOverQuota)
+  of setRateLimit:
+    seFieldsPlain(setRateLimit)
+  of setNotFound:
+    seFieldsPlain(setNotFound)
+  of setInvalidPatch:
+    seFieldsPlain(setInvalidPatch)
+  of setWillDestroy:
+    seFieldsPlain(setWillDestroy)
+  of setSingleton:
+    seFieldsPlain(setSingleton)
+  of setMailboxHasChild:
+    seFieldsPlain(setMailboxHasChild)
+  of setMailboxHasEmail:
+    seFieldsPlain(setMailboxHasEmail)
+  of setTooManyKeywords:
+    seFieldsPlain(setTooManyKeywords)
+  of setTooManyMailboxes:
+    seFieldsPlain(setTooManyMailboxes)
+  of setNoRecipients:
+    seFieldsPlain(setNoRecipients)
+  of setForbiddenMailFrom:
+    seFieldsPlain(setForbiddenMailFrom)
+  of setForbiddenFrom:
+    seFieldsPlain(setForbiddenFrom)
+  of setForbiddenToSend:
+    seFieldsPlain(setForbiddenToSend)
+  of setCannotUnsend:
+    seFieldsPlain(setCannotUnsend)
+  of setUnknown:
+    seFieldsPlain(setUnknown)
 
 func setErrorInvalidProperties*(
     rawType: string,
@@ -303,9 +415,9 @@ func setErrorInvalidProperties*(
     description: Opt[string] = Opt.none(string),
     extras: Opt[JsonNode] = Opt.none(JsonNode),
 ): SetError =
-  ## Constructor for the invalidProperties variant, carrying the list of invalid property names.
+  ## Constructor for ``setInvalidProperties`` — carries the invalid property names (RFC 8620 §5.3).
   return SetError(
-    errorType: setInvalidProperties,
+    rawErrorType: setInvalidProperties,
     rawType: rawType,
     description: description,
     extras: extras,
@@ -318,11 +430,92 @@ func setErrorAlreadyExists*(
     description: Opt[string] = Opt.none(string),
     extras: Opt[JsonNode] = Opt.none(JsonNode),
 ): SetError =
-  ## Constructor for the alreadyExists variant, carrying the ID of the existing record.
+  ## Constructor for ``setAlreadyExists`` — carries the existing record's ID (RFC 8620 §5.4).
   return SetError(
-    errorType: setAlreadyExists,
+    rawErrorType: setAlreadyExists,
     rawType: rawType,
     description: description,
     extras: extras,
     existingId: existingId,
+  )
+
+func setErrorBlobNotFound*(
+    rawType: string,
+    notFound: seq[Id],
+    description: Opt[string] = Opt.none(string),
+    extras: Opt[JsonNode] = Opt.none(JsonNode),
+): SetError =
+  ## Constructor for ``setBlobNotFound`` — carries the unresolved blob
+  ## IDs (RFC 8621 §4.6 MUST).
+  return SetError(
+    rawErrorType: setBlobNotFound,
+    rawType: rawType,
+    description: description,
+    extras: extras,
+    notFound: notFound,
+  )
+
+func setErrorInvalidEmail*(
+    rawType: string,
+    propertyNames: seq[string],
+    description: Opt[string] = Opt.none(string),
+    extras: Opt[JsonNode] = Opt.none(JsonNode),
+): SetError =
+  ## Constructor for ``setInvalidEmail`` — carries the names of invalid
+  ## Email properties (RFC 8621 §7.5 SHOULD).
+  return SetError(
+    rawErrorType: setInvalidEmail,
+    rawType: rawType,
+    description: description,
+    extras: extras,
+    invalidEmailPropertyNames: propertyNames,
+  )
+
+func setErrorTooManyRecipients*(
+    rawType: string,
+    cap: UnsignedInt,
+    description: Opt[string] = Opt.none(string),
+    extras: Opt[JsonNode] = Opt.none(JsonNode),
+): SetError =
+  ## Constructor for ``setTooManyRecipients`` — carries the server's
+  ## recipient cap (RFC 8621 §7.5 MUST).
+  return SetError(
+    rawErrorType: setTooManyRecipients,
+    rawType: rawType,
+    description: description,
+    extras: extras,
+    maxRecipientCount: cap,
+  )
+
+func setErrorInvalidRecipients*(
+    rawType: string,
+    addresses: seq[string],
+    description: Opt[string] = Opt.none(string),
+    extras: Opt[JsonNode] = Opt.none(JsonNode),
+): SetError =
+  ## Constructor for ``setInvalidRecipients`` — carries the recipient
+  ## addresses that failed validation (RFC 8621 §7.5 MUST).
+  return SetError(
+    rawErrorType: setInvalidRecipients,
+    rawType: rawType,
+    description: description,
+    extras: extras,
+    invalidRecipients: addresses,
+  )
+
+func setErrorTooLarge*(
+    rawType: string,
+    maxSize: Opt[UnsignedInt] = Opt.none(UnsignedInt),
+    description: Opt[string] = Opt.none(string),
+    extras: Opt[JsonNode] = Opt.none(JsonNode),
+): SetError =
+  ## Constructor for ``setTooLarge`` — carries the server's optional size
+  ## cap (RFC 8621 §7.5 SHOULD). ``maxSize`` defaults to ``Opt.none`` so
+  ## the RFC 8620 §5.3 core use of tooLarge without a cap is expressible.
+  return SetError(
+    rawErrorType: setTooLarge,
+    rawType: rawType,
+    description: description,
+    extras: extras,
+    maxSizeOctets: maxSize,
   )

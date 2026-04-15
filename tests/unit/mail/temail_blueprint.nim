@@ -137,7 +137,7 @@ block bodyPartContentDispositionDuplicate: # §6.1.1 scenario 7f
     contentType: "text/plain",
     extraHeaders: partExtra,
     name: Opt.none(string),
-    disposition: Opt.some("attachment"),
+    disposition: Opt.some(dispositionAttachment),
     cid: Opt.none(string),
     language: Opt.none(seq[string]),
     location: Opt.none(string),

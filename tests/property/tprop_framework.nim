@@ -199,11 +199,14 @@ block propFilterOperatorPreserved:
 
 block propUriTemplatePostConstructionLen:
   ## After successful parseUriTemplate, the template has non-zero length.
+  ## ``UriTemplate`` is a parsed case object with no ``len`` (its parts
+  ## count differs from its source length); round-trip via ``$`` for the
+  ## source-string size assertion.
   checkProperty "propUriTemplatePostConstructionLen":
     let s = genValidUriTemplateParametric(rng)
     lastInput = s
     let t = parseUriTemplate(s).get()
-    doAssert t.len > 0
+    doAssert ($t).len > 0
 block propPropertyNamePostConstructionLen:
   ## After successful parsePropertyName, the name has non-zero length.
   checkProperty "propPropertyNamePostConstructionLen":

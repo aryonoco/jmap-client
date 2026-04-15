@@ -243,9 +243,9 @@ func toJson*(s: Session): JsonNode =
   var node = %*{
     "username": s.username,
     "apiUrl": s.apiUrl,
-    "downloadUrl": string(s.downloadUrl),
-    "uploadUrl": string(s.uploadUrl),
-    "eventSourceUrl": string(s.eventSourceUrl),
+    "downloadUrl": $s.downloadUrl,
+    "uploadUrl": $s.uploadUrl,
+    "eventSourceUrl": $s.eventSourceUrl,
     "state": string(s.state),
   }
   # capabilities: URI -> capability data

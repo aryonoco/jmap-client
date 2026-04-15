@@ -363,5 +363,12 @@ block setErrorApplicabilityExhaustiveFold:
       discard # covered by ✗ cells in Section C
     of setAlreadyExists:
       discard # not in Part F matrix (Mailbox /set only; pinned in tmailbox.nim)
+    of setMailboxHasChild, setMailboxHasEmail:
+      discard # RFC 8621 §2.3 Mailbox/set — pinned in tmailbox.nim
+    of setBlobNotFound, setTooManyKeywords, setTooManyMailboxes, setInvalidEmail:
+      discard # RFC 8621 §4.6 Email/set — pinned in tmail_errors.nim
+    of setTooManyRecipients, setNoRecipients, setInvalidRecipients,
+        setForbiddenMailFrom, setForbiddenFrom, setForbiddenToSend, setCannotUnsend:
+      discard # RFC 8621 §7.5 EmailSubmission/set — pinned in tmail_errors.nim
     of setUnknown:
       discard # Postel catch-all — pinned in tserde_errors.nim

@@ -9,6 +9,7 @@
 
 import std/hashes
 import std/sequtils
+import std/strutils
 import std/tables
 
 import ../validation
@@ -47,6 +48,108 @@ func parsePartIdFromServer*(raw: string): Result[PartId, ValidationError] =
   return ok(PartId(raw))
 
 # =============================================================================
+# ContentDisposition
+# =============================================================================
+
+type ContentDispositionKind* = enum
+  ## Discriminator for ``ContentDisposition``. Backing strings are the
+  ## RFC 2183 §2.1 IANA-registered disposition types; ``cdExtension``
+  ## carries a vendor-extension or x-token whose raw identifier lives
+  ## alongside.
+  cdInline = "inline"
+  cdAttachment = "attachment"
+  cdExtension
+
+type ContentDisposition* {.ruleOff: "objects".} = object
+  ## Validated RFC 2183 §2.1 disposition-type.
+  ##
+  ## Construction sealed: ``rawKind`` and ``rawIdentifier`` are
+  ## module-private, so direct literal construction from outside this
+  ## module is rejected. Use ``parseContentDisposition`` for untrusted
+  ## input, or the named ``dispositionInline`` / ``dispositionAttachment``
+  ## constants for the two well-known IANA values.
+  ##
+  ## Lowercase-normalised: RFC 2183 §2.1 states "values are not
+  ## case-sensitive", and §2.8 mandates handling unknowns — the
+  ## ``cdExtension`` arm is the escape hatch. Round-trips losslessly
+  ## over the wire as the lowercased token.
+  case rawKind: ContentDispositionKind
+  of cdExtension:
+    rawIdentifier: string
+  of cdInline, cdAttachment:
+    discard
+
+func kind*(d: ContentDisposition): ContentDispositionKind =
+  ## Returns the discriminator — ``cdInline``, ``cdAttachment``, or
+  ## ``cdExtension`` for vendor extensions.
+  return d.rawKind
+
+func identifier*(d: ContentDisposition): string =
+  ## Returns the wire identifier string. For the two well-known kinds,
+  ## this is the enum's backing string; for ``cdExtension`` it is the
+  ## vendor-extension identifier captured at parse time.
+  case d.rawKind
+  of cdExtension:
+    return d.rawIdentifier
+  of cdInline, cdAttachment:
+    return $d.rawKind
+
+func `$`*(d: ContentDisposition): string =
+  ## Wire-form string — equivalent to ``identifier``.
+  return d.identifier
+
+func `==`*(a, b: ContentDisposition): bool =
+  ## Structural equality. Two values are equal iff their kinds agree and,
+  ## for ``cdExtension``, their raw identifiers match byte-for-byte.
+  if a.rawKind != b.rawKind:
+    return false
+  case a.rawKind
+  of cdExtension:
+    return a.rawIdentifier == b.rawIdentifier
+  of cdInline, cdAttachment:
+    return true
+
+func hash*(d: ContentDisposition): Hash =
+  ## Hash mixing the kind ordinal with the raw identifier for
+  ## ``cdExtension``. Consistent with ``==``.
+  var h: Hash = 0
+  h = h !& hash(ord(d.rawKind))
+  case d.rawKind
+  of cdExtension:
+    h = h !& hash(d.rawIdentifier)
+  of cdInline, cdAttachment:
+    discard
+  result = !$h
+
+const
+  dispositionInline* = ContentDisposition(rawKind: cdInline)
+    ## RFC 2183 §2.1 well-known disposition.
+  dispositionAttachment* = ContentDisposition(rawKind: cdAttachment)
+    ## RFC 2183 §2.1 well-known disposition.
+
+func parseContentDisposition*(
+    raw: string
+): Result[ContentDisposition, ValidationError] =
+  ## Validates and constructs a ``ContentDisposition``. Rejects empty
+  ## input and control characters; lowercase-normalises (§2.1: values
+  ## are not case-sensitive) and classifies against the two well-known
+  ## IANA types, falling back to ``cdExtension`` for §2.8 vendor-
+  ## extension and x-tokens. Lossless round-trip over the wire.
+  ## Single parser — no strict/lenient pair (same rationale as
+  ## ``parseMailboxRole``).
+  detectNonControlString(raw).isOkOr:
+    return err(toValidationError(error, "ContentDisposition", raw))
+  let normalised = raw.toLowerAscii()
+  let parsed = parseEnum[ContentDispositionKind](normalised, cdExtension)
+  case parsed
+  of cdInline:
+    return ok(dispositionInline)
+  of cdAttachment:
+    return ok(dispositionAttachment)
+  of cdExtension:
+    return ok(ContentDisposition(rawKind: cdExtension, rawIdentifier: normalised))
+
+# =============================================================================
 # EmailBodyPart
 # =============================================================================
 
@@ -59,7 +162,8 @@ type EmailBodyPart* {.ruleOff: "objects".} = object
   name*: Opt[string] ## Decoded filename.
   contentType*: string ## e.g. "text/plain", "multipart/mixed".
   charset*: Opt[string] ## Server-provided or implicit "us-ascii" for text/*.
-  disposition*: Opt[string] ## "inline", "attachment", or none.
+  disposition*: Opt[ContentDisposition]
+    ## RFC 2183 §2.1 disposition or none. Parsed at wire boundary.
   cid*: Opt[string] ## Content-Id without angle brackets.
   language*: Opt[seq[string]] ## Content-Language tags.
   location*: Opt[string] ## Content-Location URI.
@@ -112,7 +216,7 @@ type BlueprintBodyPart* {.ruleOff: "objects".} = object
   ## separates inline from blob-referenced parts.
   contentType*: string
   name*: Opt[string]
-  disposition*: Opt[string]
+  disposition*: Opt[ContentDisposition]
   cid*: Opt[string]
   language*: Opt[seq[string]]
   location*: Opt[string]

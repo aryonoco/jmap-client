@@ -33,6 +33,20 @@ func parseOptString(node: JsonNode, key: string): Opt[string] =
     return Opt.some(f.get().getStr(""))
   return Opt.none(string)
 
+func parseOptDisposition(
+    node: JsonNode, path: JsonPath
+): Result[Opt[ContentDisposition], SerdeViolation] =
+  ## Parses the optional ``disposition`` field. Absent, null, or wrong kind
+  ## yields none; present-string goes through ``parseContentDisposition`` so
+  ## malformed wire tokens surface at the parsing boundary rather than being
+  ## silently round-tripped.
+  let f = optJsonField(node, "disposition", JString)
+  if f.isSome:
+    let d =
+      ?wrapInner(parseContentDisposition(f.get().getStr("")), path / "disposition")
+    return ok(Opt.some(d))
+  return ok(Opt.none(ContentDisposition))
+
 func parseCharsetField(node: JsonNode, ctLower: string): Opt[string] =
   ## Parse charset with text/* default (Decision C20).
   let f = optJsonField(node, "charset", JString)
@@ -94,7 +108,7 @@ func fromJsonImpl(
   # --- Shared fields ---
   let headers = ?parseHeadersField(node, path)
   let name = parseOptString(node, "name")
-  let disposition = parseOptString(node, "disposition")
+  let disposition = ?parseOptDisposition(node, path)
   let cid = parseOptString(node, "cid")
   let location = parseOptString(node, "location")
   let charset = parseCharsetField(node, ctLower)
@@ -183,7 +197,10 @@ func toJsonImpl(part: EmailBodyPart, depth: int): JsonNode =
   # Optional strings: Opt.none → null
   node["name"] = part.name.optStringToJsonOrNull()
   node["charset"] = part.charset.optStringToJsonOrNull()
-  node["disposition"] = part.disposition.optStringToJsonOrNull()
+  if part.disposition.isSome:
+    node["disposition"] = %($part.disposition.get())
+  else:
+    node["disposition"] = newJNull()
   node["cid"] = part.cid.optStringToJsonOrNull()
   emitLanguageOrNull(node, part.language)
   node["location"] = part.location.optStringToJsonOrNull()
@@ -293,7 +310,8 @@ func bpToJsonImpl(bp: BlueprintBodyPart): JsonNode =
 
   # Shared optional fields: OMIT when Opt.none (not null)
   emitOpt(node, "name", bp.name)
-  emitOpt(node, "disposition", bp.disposition)
+  for d in bp.disposition:
+    node["disposition"] = %($d)
   emitOpt(node, "cid", bp.cid)
   emitLanguage(node, bp.language)
   emitOpt(node, "location", bp.location)

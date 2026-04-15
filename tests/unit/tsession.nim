@@ -5,6 +5,7 @@
 
 import std/json
 import std/sets
+import std/strutils
 import std/tables
 
 import jmap_client/primitives
@@ -155,6 +156,9 @@ block parseUriTemplateValid:
   doAssert $tmpl == "https://example.com/{accountId}"
 
 block uriTemplateBorrowedOps:
+  ## Now a case object; ``len`` was a borrow-only hangover from the
+  ## previous ``distinct string`` representation and is dropped. Source
+  ## length is recovered via ``$`` when needed.
   let a = parseUriTemplate("https://example.com/{id}").get()
   let b = parseUriTemplate("https://example.com/{id}").get()
   let c = parseUriTemplate("https://other.com/").get()
@@ -162,7 +166,7 @@ block uriTemplateBorrowedOps:
   doAssert not (a == c)
   doAssert $a == "https://example.com/{id}"
   doAssert hash(a) == hash(b)
-  doAssert a.len == 24
+  doAssert ($a).len == 24
 
 block hasVariablePresent:
   let tmpl = parseUriTemplate("https://example.com/{accountId}").get()
@@ -437,20 +441,15 @@ block parseSessionDuplicateCkCore:
     state = args.state,
   )
 
-block parseSessionNestedBraces:
-  let dl = parseUriTemplate("https://e.com/{{accountId}}/{blobId}/{type}/{name}").get()
-  let args = makeSessionArgs()
-  assertOk parseSession(
-    capabilities = args.capabilities,
-    accounts = args.accounts,
-    primaryAccounts = args.primaryAccounts,
-    username = args.username,
-    apiUrl = args.apiUrl,
-    downloadUrl = dl,
-    uploadUrl = args.uploadUrl,
-    eventSourceUrl = args.eventSourceUrl,
-    state = args.state,
-  )
+block parseSessionNestedBracesRejectedAtParse:
+  ## Nested ``{{accountId}}`` is rejected at ``parseUriTemplate`` rather
+  ## than being round-tripped via substring search. Session construction
+  ## never sees a malformed template; the error surfaces at the serde
+  ## boundary or the explicit constructor call.
+  let res = parseUriTemplate("https://e.com/{{accountId}}/{blobId}/{type}/{name}")
+  doAssert res.isErr
+  doAssert res.error.typeName == "UriTemplate"
+  doAssert "invalid variable character" in res.error.message
 
 # =============================================================================
 # H. Missing session URL variable validations

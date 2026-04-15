@@ -177,7 +177,7 @@ block roundTripLeaf: # scenario 94
   assertEq rt.headers[0].name, "X-Custom"
   # Opt fields
   assertSomeEq rt.charset, "utf-8"
-  assertSomeEq rt.disposition, "inline"
+  assertSomeEq rt.disposition, dispositionInline
   assertSomeEq rt.name, "file.txt"
   assertSomeEq rt.cid, "cid123"
   assertSome rt.language
@@ -208,7 +208,7 @@ block toJsonDepthStress: # scenario 96
     name: Opt.none(string),
     contentType: "text/plain",
     charset: Opt.none(string),
-    disposition: Opt.none(string),
+    disposition: Opt.none(ContentDisposition),
     cid: Opt.none(string),
     language: Opt.none(seq[string]),
     location: Opt.none(string),
@@ -223,7 +223,7 @@ block toJsonDepthStress: # scenario 96
       name: Opt.none(string),
       contentType: "multipart/mixed",
       charset: Opt.none(string),
-      disposition: Opt.none(string),
+      disposition: Opt.none(ContentDisposition),
       cid: Opt.none(string),
       language: Opt.none(seq[string]),
       location: Opt.none(string),
@@ -240,7 +240,7 @@ block toJsonDepthExact128: # scenario 108
     name: Opt.none(string),
     contentType: "text/plain",
     charset: Opt.none(string),
-    disposition: Opt.none(string),
+    disposition: Opt.none(ContentDisposition),
     cid: Opt.none(string),
     language: Opt.none(seq[string]),
     location: Opt.none(string),
@@ -255,7 +255,7 @@ block toJsonDepthExact128: # scenario 108
       name: Opt.none(string),
       contentType: "multipart/mixed",
       charset: Opt.none(string),
-      disposition: Opt.none(string),
+      disposition: Opt.none(ContentDisposition),
       cid: Opt.none(string),
       language: Opt.none(seq[string]),
       location: Opt.none(string),

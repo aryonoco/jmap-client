@@ -7,6 +7,8 @@
 {.push raises: [], noSideEffect.}
 
 import std/hashes
+import std/parseutils
+import std/sets
 import std/strutils
 import std/tables
 from std/json import JsonNode
@@ -30,21 +32,79 @@ type Account* = object
   isReadOnly*: bool ## true if entire account is read-only
   accountCapabilities*: seq[AccountCapabilityEntry] ## per-account capability data
 
-type UriTemplate* = distinct string
-  ## RFC 6570 Level 1 URI template stored as validated string. Template expansion
-  ## is Layer 4 (IO); Layer 1 stores the template and provides structural checks.
+type UriPartKind* = enum
+  ## Discriminator for ``UriPart``: a literal segment or a variable reference.
+  upLiteral
+  upVariable
 
-defineStringDistinctOps(UriTemplate)
+type UriPart* {.ruleOff: "objects".} = object
+  ## A single segment of a parsed RFC 6570 Level 1 URI template — either
+  ## a literal run of bytes or a ``{name}`` variable reference.
+  case kind*: UriPartKind
+  of upLiteral:
+    text*: string
+  of upVariable:
+    name*: string ## variable name without braces
+
+type UriTemplate* {.ruleOff: "objects".} = object
+  ## RFC 6570 Level 1 URI template parsed once into an alternating
+  ## sequence of literal segments and variable references. Sealed:
+  ## ``rawParts``, ``rawVariables``, and ``rawSource`` are module-private;
+  ## ``parseUriTemplate`` is the only path in. ``rawSource`` preserves
+  ## the original text for lossless ``$`` round-trip; ``rawVariables``
+  ## supports O(1) ``hasVariable`` lookup.
+  rawParts: seq[UriPart]
+  rawVariables: HashSet[string]
+  rawSource: string
+
+func parts*(t: UriTemplate): seq[UriPart] =
+  ## Parsed token sequence. Alternates ``upLiteral`` and ``upVariable``
+  ## arms in source order.
+  return t.rawParts
+
+func variables*(t: UriTemplate): HashSet[string] =
+  ## Set of variable names referenced by the template. Derived at parse
+  ## time — O(1) per membership check.
+  return t.rawVariables
+
+func `$`*(t: UriTemplate): string =
+  ## Byte-for-byte round-trip with the input string accepted by
+  ## ``parseUriTemplate``.
+  return t.rawSource
+
+func hash*(t: UriTemplate): Hash =
+  ## Hash derived from ``rawSource`` — consistent with ``==``.
+  return hash(t.rawSource)
+
+func `==`*(a, b: UriTemplate): bool =
+  ## Structural equality via raw source comparison. Two parsed
+  ## templates are equal iff they round-trip to the same string.
+  return a.rawSource == b.rawSource
+
+const CoreCapabilityUri* = "urn:ietf:params:jmap:core"
+  ## RFC 8620 §2 canonical URI for the ``urn:ietf:params:jmap:core``
+  ## capability. Session synthesises a ``ServerCapability`` with this URI
+  ## on every accessor call — the core arm is stored once as a typed
+  ## ``CoreCapabilities`` field, not as a case-object entry in the list.
 
 # nimalyzer: Session intentionally has no public fields. Fields are
 # module-private to enforce construction via parseSession (which guarantees
 # ckCore is present and apiUrl is non-empty). Public accessor funcs below
 # provide read access; UFCS makes s.field syntax work unchanged for callers.
 type Session* {.ruleOff: "objects".} = object
-  ## The JMAP Session resource (RFC 8620 section 2). Contains server capabilities,
-  ## user accounts, API endpoint URLs, and session state.
+  ## The JMAP Session resource (RFC 8620 section 2). Contains server
+  ## capabilities, user accounts, API endpoint URLs, and session state.
   ## Fields are module-private; external access via UFCS accessor funcs.
-  rawCapabilities: seq[ServerCapability]
+  ##
+  ## ``rawCore`` stores the RFC-required core capability as typed data
+  ## (not a case-object arm) — parseSession extracts it from the input
+  ## capability list, so the MUST invariant lifts from a runtime panic
+  ## (previous ``raiseAssert`` in ``coreCapabilities``) into the type.
+  ## ``rawAdditional`` holds the remaining capabilities; the ``capabilities``
+  ## accessor synthesises the core entry on demand for API symmetry and
+  ## byte-identical wire serialisation.
+  rawCore: CoreCapabilities
+  rawAdditional: seq[ServerCapability]
   rawAccounts: Table[AccountId, Account]
   rawPrimaryAccounts: Table[string, AccountId]
   rawUsername: string
@@ -55,8 +115,12 @@ type Session* {.ruleOff: "objects".} = object
   rawState: JmapState
 
 func capabilities*(s: Session): seq[ServerCapability] =
-  ## Server-level capabilities.
-  return s.rawCapabilities
+  ## Server-level capabilities, core entry synthesised from ``rawCore``
+  ## and prepended so the list is RFC-conformant and byte-identical to
+  ## the wire format.
+  result = @[ServerCapability(rawUri: CoreCapabilityUri, kind: ckCore, core: s.rawCore)]
+  for cap in s.rawAdditional:
+    result.add(cap)
 
 func accounts*(s: Session): Table[AccountId, Account] =
   ## Accounts keyed by AccountId.
@@ -112,36 +176,134 @@ func hasCapability*(account: Account, kind: CapabilityKind): bool =
   ## Checks whether the account has a capability of the given kind.
   return account.findCapability(kind).isSome
 
-func hasKind(caps: openArray[ServerCapability], kind: CapabilityKind): bool =
-  ## Checks whether any capability matches the given kind. Used by parseSession
-  ## before a Session object exists (so Session.findCapability is unavailable).
-  for _, cap in caps:
-    if cap.kind == kind:
-      return true
-  return false
+type UriTemplateViolationKind = enum
+  ## Internal structural-failure vocabulary for ``parseUriTemplate``.
+  ## Single-site translation to ``ValidationError`` — adding a variant
+  ## forces a compile error at ``toValidationError``.
+  utkEmpty
+  utkUnmatchedOpenBrace
+  utkEmptyVariable
+  utkInvalidVariableChar
+
+type UriTemplateViolation {.ruleOff: "objects".} = object
+  case kind: UriTemplateViolationKind
+  of utkEmpty:
+    discard
+  of utkUnmatchedOpenBrace, utkEmptyVariable:
+    position: int
+  of utkInvalidVariableChar:
+    invalidPosition: int
+    badChar: char
+
+func toValidationError(v: UriTemplateViolation, raw: string): ValidationError =
+  ## Sole domain-to-wire translator for ``UriTemplateViolation``.
+  case v.kind
+  of utkEmpty:
+    validationError("UriTemplate", "must not be empty", raw)
+  of utkUnmatchedOpenBrace:
+    validationError("UriTemplate", "unmatched '{' at position " & $v.position, raw)
+  of utkEmptyVariable:
+    validationError(
+      "UriTemplate", "empty variable '{}' at position " & $v.position, raw
+    )
+  of utkInvalidVariableChar:
+    validationError(
+      "UriTemplate",
+      "invalid variable character '" & $v.badChar & "' at position " & $v.invalidPosition,
+      raw,
+    )
+
+func isValidVariableChar(c: char): bool =
+  ## Conservative RFC 6570 §2.3 varname charset: ASCII alphanumerics plus
+  ## underscore. Every JMAP-required variable (``accountId``, ``blobId``,
+  ## ``type``, ``name``, ``types``, ``closeafter``, ``ping``) qualifies;
+  ## percent-encoded varnames are not used by JMAP templates.
+  return c.isAlphaNumeric or c == '_'
+
+func detectInvalidVariableChar(
+    name: string, startPos: int
+): Result[void, UriTemplateViolation] =
+  ## Walks the captured variable name and fires on the first disallowed byte.
+  for offset, c in name:
+    if not isValidVariableChar(c):
+      return err(
+        UriTemplateViolation(
+          kind: utkInvalidVariableChar, invalidPosition: startPos + offset, badChar: c
+        )
+      )
+  ok()
+
+func parseUriTemplate*(raw: string): Result[UriTemplate, ValidationError] =
+  ## Parses an RFC 6570 Level 1 URI template into a token sequence.
+  ## Rejects empty input, unmatched ``{``, empty ``{}`` variables, and
+  ## variable names containing disallowed characters. Stray ``}`` not
+  ## preceded by ``{`` is treated as a literal byte, preserving the
+  ## pre-refactor ``replace``-based expander's lenient behaviour.
+  if raw.len == 0:
+    return err(toValidationError(UriTemplateViolation(kind: utkEmpty), raw))
+  var parts: seq[UriPart] = @[]
+  var variables = initHashSet[string]()
+  var i = 0
+  while i < raw.len:
+    var literal = ""
+    let consumed = parseUntil(raw, literal, '{', i)
+    if literal.len > 0:
+      parts.add(UriPart(kind: upLiteral, text: literal))
+    i += consumed
+    if i >= raw.len:
+      break
+    # positioned at '{'
+    let openBrace = i
+    inc i
+    var name = ""
+    let nameConsumed = parseUntil(raw, name, '}', i)
+    if i + nameConsumed >= raw.len:
+      return err(
+        toValidationError(
+          UriTemplateViolation(kind: utkUnmatchedOpenBrace, position: openBrace), raw
+        )
+      )
+    if name.len == 0:
+      return err(
+        toValidationError(
+          UriTemplateViolation(kind: utkEmptyVariable, position: openBrace), raw
+        )
+      )
+    detectInvalidVariableChar(name, i).isOkOr:
+      return err(toValidationError(error, raw))
+    parts.add(UriPart(kind: upVariable, name: name))
+    variables.incl(name)
+    i += nameConsumed + 1 # step past '}'
+  ok(UriTemplate(rawParts: parts, rawVariables: variables, rawSource: raw))
+
+func hasVariable*(tmpl: UriTemplate, name: string): bool =
+  ## O(1) membership test against the pre-built variable set.
+  return name in tmpl.rawVariables
 
 func expandUriTemplate*(
     tmpl: UriTemplate, variables: openArray[(string, string)]
 ): string =
-  ## Expands an RFC 6570 Level 1 URI template by replacing ``{name}`` with
-  ## the corresponding value. Variables not found in ``variables`` are left
-  ## unexpanded. Caller is responsible for percent-encoding values that
-  ## require it (``std/uri.encodeUrl(value, usePlus=false)``). Pure.
-  var tmplStr = string(tmpl)
-  for i in 0 ..< variables.len:
-    tmplStr = tmplStr.replace("{" & variables[i][0] & "}", variables[i][1])
-  return tmplStr
-
-func parseUriTemplate*(raw: string): Result[UriTemplate, ValidationError] =
-  ## Non-empty validation. No RFC 6570 parsing — template expansion is Layer 4.
-  if raw.len == 0:
-    return err(validationError("UriTemplate", "must not be empty", raw))
-  return ok(UriTemplate(raw))
-
-func hasVariable*(tmpl: UriTemplate, name: string): bool =
-  ## Checks whether the template contains {name}. Simple substring search.
-  let target = "{" & name & "}"
-  return target in string(tmpl)
+  ## Folds the parsed parts into a string. Variables not found in
+  ## ``variables`` are emitted unexpanded as ``{name}`` (matches the
+  ## pre-refactor ``replace``-based expander). Caller is responsible
+  ## for percent-encoding values that require it
+  ## (``std/uri.encodeUrl(value, usePlus=false)``). Pure.
+  result = ""
+  for part in tmpl.rawParts:
+    case part.kind
+    of upLiteral:
+      result.add(part.text)
+    of upVariable:
+      var found = false
+      for i in 0 ..< variables.len:
+        if variables[i][0] == part.name:
+          result.add(variables[i][1])
+          found = true
+          break
+      if not found:
+        result.add("{")
+        result.add(part.name)
+        result.add("}")
 
 type UriRole = enum
   ## Tags the three RFC 8620 section 2 URI templates advertised by the server
@@ -195,13 +357,35 @@ func toValidationError(v: SessionViolation): ValidationError =
   of svUriMissingVariable:
     validationError("Session", $v.role & " missing {" & v.variable & "}", v.rawUri)
 
-func detectCoreCapability(
+type CorePartition = object
+  ## Internal helper: the core capability extracted from the input list,
+  ## plus the remainder. Constructed only via ``partitionCore``; consumed
+  ## only by ``parseSession``. Kept private so the split is an
+  ## implementation detail of Session construction.
+  core: CoreCapabilities
+  additional: seq[ServerCapability]
+
+func partitionCore(
     caps: openArray[ServerCapability]
-): Result[void, SessionViolation] =
-  ## RFC 8620 section 2: server capability list MUST include the JMAP core
-  ## capability identifier (``urn:ietf:params:jmap:core``).
-  if caps.hasKind(ckCore):
-    return ok()
+): Result[CorePartition, SessionViolation] =
+  ## Splits ``caps`` into the unique core arm plus everything else.
+  ## RFC 8620 §2 says the capability list MUST include
+  ## ``urn:ietf:params:jmap:core``; absence returns
+  ## ``svMissingCoreCapability``. Duplicate ``ckCore`` entries — which
+  ## the RFC does not contemplate — retain the first-seen core arm and
+  ## silently drop the rest, preserving the pre-refactor
+  ## ``hasKind``/linear-scan behaviour.
+  var coreOpt = Opt.none(CoreCapabilities)
+  var additional: seq[ServerCapability] = @[]
+  for cap in caps:
+    case cap.kind
+    of ckCore:
+      if coreOpt.isNone:
+        coreOpt = Opt.some(cap.core)
+    else:
+      additional.add(cap)
+  for core in coreOpt:
+    return ok(CorePartition(core: core, additional: additional))
   err(SessionViolation(kind: svMissingCoreCapability))
 
 func detectApiUrl(apiUrl: string): Result[void, SessionViolation] =
@@ -223,10 +407,7 @@ func detectUriVariables(
     if not tmpl.hasVariable(variable):
       return err(
         SessionViolation(
-          kind: svUriMissingVariable,
-          role: role,
-          variable: variable,
-          rawUri: string(tmpl),
+          kind: svUriMissingVariable, role: role, variable: variable, rawUri: $tmpl
         )
       )
   ok()
@@ -235,16 +416,17 @@ func detectSession(
     capabilities: openArray[ServerCapability],
     apiUrl: string,
     downloadUrl, uploadUrl, eventSourceUrl: UriTemplate,
-): Result[void, SessionViolation] =
+): Result[CorePartition, SessionViolation] =
   ## Composes the five structural sub-detectors with ``?`` short-circuit,
-  ## mirroring the original ``parseSession`` ordering so first-error
-  ## reporting is byte-identical to the pre-refactor behaviour.
-  ?detectCoreCapability(capabilities)
+  ## returning the extracted core partition so ``parseSession`` can feed
+  ## ``rawCore`` / ``rawAdditional`` without a second traversal. First-
+  ## error ordering matches the pre-refactor behaviour.
+  let partition = ?partitionCore(capabilities)
   ?detectApiUrl(apiUrl)
   ?detectUriVariables(urDownload, downloadUrl)
   ?detectUriVariables(urUpload, uploadUrl)
   ?detectUriVariables(urEventSource, eventSourceUrl)
-  ok()
+  ok(partition)
 
 func parseSession*(
     capabilities: seq[ServerCapability],
@@ -264,11 +446,14 @@ func parseSession*(
   ## 4. uploadUrl contains {accountId} (RFC section 2)
   ## 5. eventSourceUrl contains {types}, {closeafter}, {ping} (RFC section 2)
   ## Deliberately omits cross-reference validation (Decision D7).
-  detectSession(capabilities, apiUrl, downloadUrl, uploadUrl, eventSourceUrl).isOkOr:
+  let partition = detectSession(
+    capabilities, apiUrl, downloadUrl, uploadUrl, eventSourceUrl
+  ).valueOr:
     return err(toValidationError(error))
   ok(
     Session(
-      rawCapabilities: capabilities,
+      rawCore: partition.core,
+      rawAdditional: partition.additional,
       rawAccounts: accounts,
       rawPrimaryAccounts: primaryAccounts,
       rawUsername: username,
@@ -281,21 +466,20 @@ func parseSession*(
   )
 
 func coreCapabilities*(session: Session): CoreCapabilities =
-  ## Returns the core capabilities. Total function (no Result) because
-  ## parseSession guarantees ckCore is present and rawCapabilities is
-  ## module-private (Pattern A — direct construction from outside this
-  ## module is refused by the compiler).
-  for _, cap in session.rawCapabilities:
-    case cap.kind
-    of ckCore:
-      return cap.core
-    else:
-      discard
-  raiseAssert "Session missing ckCore: violated parseSession invariant"
+  ## Total function: ``rawCore`` is stored as a typed field at Session
+  ## construction time, so the RFC 8620 §2 MUST invariant is enforced by
+  ## the type — no panic path, no runtime assertion.
+  return session.rawCore
 
 func findCapability*(session: Session, kind: CapabilityKind): Opt[ServerCapability] =
-  ## Finds the first server capability matching the given kind.
-  for _, cap in session.rawCapabilities:
+  ## Finds the first server capability matching the given kind. ``ckCore``
+  ## short-circuits to the synthesised core arm — ``rawCore`` is stored
+  ## directly, not in ``rawAdditional``.
+  if kind == ckCore:
+    return Opt.some(
+      ServerCapability(rawUri: CoreCapabilityUri, kind: ckCore, core: session.rawCore)
+    )
+  for _, cap in session.rawAdditional:
     if cap.kind == kind:
       return Opt.some(cap)
   return Opt.none(ServerCapability)
@@ -304,7 +488,11 @@ func findCapabilityByUri*(session: Session, uri: string): Opt[ServerCapability] 
   ## Looks up a server capability by its raw URI string. Use this instead of
   ## findCapability when looking up vendor extensions (which all map to ckUnknown
   ## and would be ambiguous via findCapability).
-  for _, cap in session.rawCapabilities:
+  if uri == CoreCapabilityUri:
+    return Opt.some(
+      ServerCapability(rawUri: CoreCapabilityUri, kind: ckCore, core: session.rawCore)
+    )
+  for _, cap in session.rawAdditional:
     if cap.rawUri == uri:
       return Opt.some(cap)
   return Opt.none(ServerCapability)

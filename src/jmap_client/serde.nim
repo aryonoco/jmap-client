@@ -466,7 +466,6 @@ defineDistinctStringToJson(AccountId)
 defineDistinctStringToJson(JmapState)
 defineDistinctStringToJson(MethodCallId)
 defineDistinctStringToJson(CreationId)
-defineDistinctStringToJson(UriTemplate)
 defineDistinctStringToJson(PropertyName)
 defineDistinctStringToJson(Date)
 defineDistinctStringToJson(UTCDate)
@@ -476,10 +475,25 @@ defineDistinctStringFromJson(AccountId, parseAccountId)
 defineDistinctStringFromJson(JmapState, parseJmapState)
 defineDistinctStringFromJson(MethodCallId, parseMethodCallId)
 defineDistinctStringFromJson(CreationId, parseCreationId)
-defineDistinctStringFromJson(UriTemplate, parseUriTemplate)
 defineDistinctStringFromJson(PropertyName, parsePropertyName)
 defineDistinctStringFromJson(Date, parseDate)
 defineDistinctStringFromJson(UTCDate, parseUtcDate)
+
+# --- toJson/fromJson: UriTemplate (case-object; manual ser/de) ---
+
+func toJson*(x: UriTemplate): JsonNode =
+  ## Serialise a parsed URI template to its lossless source string.
+  return %($x)
+
+func fromJson*(
+    t: typedesc[UriTemplate], node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[UriTemplate, SerdeViolation] =
+  ## Deserialise a JSON string through ``parseUriTemplate``. Malformed
+  ## templates (unmatched braces, empty ``{}``, invalid variable chars)
+  ## surface as ``ValidationError`` wrapped by ``wrapInner``.
+  discard $t # consumed for nimalyzer params rule
+  ?expectKind(node, JString, path)
+  return wrapInner(parseUriTemplate(node.getStr("")), path)
 
 # --- toJson/fromJson: distinct int types ---
 

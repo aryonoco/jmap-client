@@ -1434,7 +1434,7 @@ type BodyPartSharedFields {.ruleOff: "objects".} = object
   ## Shared optional fields for genEmailBodyPart leaf/multipart generation.
   hdrs: seq[EmailHeader]
   name: Opt[string]
-  disposition: Opt[string]
+  disposition: Opt[ContentDisposition]
   cid: Opt[string]
   language: Opt[seq[string]]
   location: Opt[string]
@@ -1453,9 +1453,9 @@ proc genBodyPartSharedFields(rng: var Rand): BodyPartSharedFields =
         Opt.none(string),
     disposition:
       if rng.rand(0 .. 2) == 0:
-        Opt.some(rng.oneOf(["inline", "attachment"]))
+        Opt.some(rng.oneOf([dispositionInline, dispositionAttachment]))
       else:
-        Opt.none(string),
+        Opt.none(ContentDisposition),
     cid:
       if rng.rand(0 .. 4) == 0:
         Opt.some("cid" & $rng.rand(1 .. 999) & "@example.com")
@@ -2252,11 +2252,11 @@ proc genBlueprintPartName(rng: var Rand): Opt[string] =
   else:
     Opt.none(string)
 
-proc genBlueprintPartDisposition(rng: var Rand): Opt[string] =
+proc genBlueprintPartDisposition(rng: var Rand): Opt[ContentDisposition] =
   if rng.rand(0 .. 2) == 0:
-    Opt.some(rng.oneOf(["inline", "attachment"]))
+    Opt.some(rng.oneOf([dispositionInline, dispositionAttachment]))
   else:
-    Opt.none(string)
+    Opt.none(ContentDisposition)
 
 proc genBodyPartExtraHeaders(
     rng: var Rand
@@ -2355,7 +2355,7 @@ proc genEmailBlueprintBody*(rng: var Rand, trial: int = -1): EmailBlueprintBody 
         BlueprintBodyPart(
           contentType: "multipart/mixed",
           name: Opt.none(string),
-          disposition: Opt.none(string),
+          disposition: Opt.none(ContentDisposition),
           cid: Opt.none(string),
           language: Opt.none(seq[string]),
           location: Opt.none(string),
@@ -2368,7 +2368,7 @@ proc genEmailBlueprintBody*(rng: var Rand, trial: int = -1): EmailBlueprintBody 
       let textLeaf = BlueprintBodyPart(
         contentType: "text/plain",
         name: Opt.none(string),
-        disposition: Opt.none(string),
+        disposition: Opt.none(ContentDisposition),
         cid: Opt.none(string),
         language: Opt.none(seq[string]),
         location: Opt.none(string),
@@ -2381,7 +2381,7 @@ proc genEmailBlueprintBody*(rng: var Rand, trial: int = -1): EmailBlueprintBody 
       let htmlLeaf = BlueprintBodyPart(
         contentType: "text/html",
         name: Opt.none(string),
-        disposition: Opt.none(string),
+        disposition: Opt.none(ContentDisposition),
         cid: Opt.none(string),
         language: Opt.none(seq[string]),
         location: Opt.none(string),
@@ -2408,7 +2408,7 @@ proc genEmailBlueprintBody*(rng: var Rand, trial: int = -1): EmailBlueprintBody 
           BlueprintBodyPart(
             contentType: "text/plain",
             name: Opt.none(string),
-            disposition: Opt.none(string),
+            disposition: Opt.none(ContentDisposition),
             cid: Opt.none(string),
             language: Opt.none(seq[string]),
             location: Opt.none(string),
@@ -2428,7 +2428,7 @@ proc genEmailBlueprintBody*(rng: var Rand, trial: int = -1): EmailBlueprintBody 
           BlueprintBodyPart(
             contentType: "text/html",
             name: Opt.none(string),
-            disposition: Opt.none(string),
+            disposition: Opt.none(ContentDisposition),
             cid: Opt.none(string),
             language: Opt.none(seq[string]),
             location: Opt.none(string),
@@ -2473,7 +2473,7 @@ proc genEmailBlueprint*(rng: var Rand, trial: int = -1): EmailBlueprint =
       let textInline = BlueprintBodyPart(
         contentType: "text/plain",
         name: Opt.none(string),
-        disposition: Opt.none(string),
+        disposition: Opt.none(ContentDisposition),
         cid: Opt.none(string),
         language: Opt.none(seq[string]),
         location: Opt.none(string),
@@ -2559,7 +2559,7 @@ proc buildTrigger(
     let root = BlueprintBodyPart(
       contentType: "multipart/mixed",
       name: Opt.none(string),
-      disposition: Opt.none(string),
+      disposition: Opt.none(ContentDisposition),
       cid: Opt.none(string),
       language: Opt.none(seq[string]),
       location: Opt.none(string),
@@ -2583,7 +2583,7 @@ proc buildTrigger(
     let leaf = BlueprintBodyPart(
       contentType: "text/plain",
       name: Opt.none(string),
-      disposition: Opt.none(string),
+      disposition: Opt.none(ContentDisposition),
       cid: Opt.none(string),
       language: Opt.none(seq[string]),
       location: Opt.none(string),
@@ -2605,7 +2605,7 @@ proc buildTrigger(
     let leaf = BlueprintBodyPart(
       contentType: "application/pdf",
       name: Opt.none(string),
-      disposition: Opt.none(string),
+      disposition: Opt.none(ContentDisposition),
       cid: Opt.none(string),
       language: Opt.none(seq[string]),
       location: Opt.none(string),
@@ -2627,7 +2627,7 @@ proc buildTrigger(
     let leaf = BlueprintBodyPart(
       contentType: "text/plain",
       name: Opt.none(string),
-      disposition: Opt.none(string),
+      disposition: Opt.none(ContentDisposition),
       cid: Opt.none(string),
       language: Opt.none(seq[string]),
       location: Opt.none(string),
@@ -2662,7 +2662,7 @@ proc buildTrigger(
     var leaf: BlueprintBodyPart = BlueprintBodyPart(
       contentType: "text/plain",
       name: Opt.none(string),
-      disposition: Opt.none(string),
+      disposition: Opt.none(ContentDisposition),
       cid: Opt.none(string),
       language: Opt.none(seq[string]),
       location: Opt.none(string),
@@ -2676,7 +2676,7 @@ proc buildTrigger(
       leaf = BlueprintBodyPart(
         contentType: "multipart/mixed",
         name: Opt.none(string),
-        disposition: Opt.none(string),
+        disposition: Opt.none(ContentDisposition),
         cid: Opt.none(string),
         language: Opt.none(seq[string]),
         location: Opt.none(string),
@@ -2930,7 +2930,7 @@ proc adversarialDepthBody(rng: var Rand): EmailBlueprintBody =
   var leaf: BlueprintBodyPart = BlueprintBodyPart(
     contentType: "text/plain",
     name: Opt.none(string),
-    disposition: Opt.none(string),
+    disposition: Opt.none(ContentDisposition),
     cid: Opt.none(string),
     language: Opt.none(seq[string]),
     location: Opt.none(string),
@@ -2944,7 +2944,7 @@ proc adversarialDepthBody(rng: var Rand): EmailBlueprintBody =
     leaf = BlueprintBodyPart(
       contentType: "multipart/mixed",
       name: Opt.none(string),
-      disposition: Opt.none(string),
+      disposition: Opt.none(ContentDisposition),
       cid: Opt.none(string),
       language: Opt.none(seq[string]),
       location: Opt.none(string),

@@ -28,11 +28,11 @@ block propUriTemplateMaliciousTotality:
     lastInput = s
     discard parseUriTemplate(s)
 block propUriTemplateNonEmpty:
-  checkProperty "valid UriTemplate has len > 0":
+  checkProperty "valid UriTemplate round-trips to non-empty string":
     let s = genValidUriTemplateParametric(rng)
     lastInput = s
     let tmpl = parseUriTemplate(s).get()
-    doAssert tmpl.len > 0
+    doAssert ($tmpl).len > 0
 
 block propUriTemplateRoundTrip:
   checkProperty "$(parseUriTemplate(s)) == s for valid s":
