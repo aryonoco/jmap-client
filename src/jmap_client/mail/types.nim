@@ -19,6 +19,7 @@ import ./headers
 import ./body
 import ./email_blueprint
 import ./email
+import ./email_update
 import ./snippet
 
 export addresses
@@ -34,4 +35,5 @@ export headers
 export body
 export email_blueprint
 export email
+export email_update
 export snippet

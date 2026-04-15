@@ -18,6 +18,7 @@ import ./serde_headers
 import ./serde_body
 import ./serde_email_blueprint
 import ./serde_email
+import ./serde_email_update
 import ./serde_snippet
 
 export serde_addresses
@@ -32,4 +33,5 @@ export serde_headers
 export serde_body
 export serde_email_blueprint
 export serde_email
+export serde_email_update
 export serde_snippet
