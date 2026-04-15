@@ -7,10 +7,12 @@ import std/json
 
 import jmap_client/mail/vacation
 import jmap_client/mail/serde_vacation
+import jmap_client/serde
 import jmap_client/validation
 import jmap_client/primitives
 
 import ../../massertions
+import ../../mfixtures
 
 # ============= A. VacationResponse fromJson =============
 
@@ -144,3 +146,80 @@ block toJsonAllNone:
   assertJsonFieldEq node, "subject", newJNull()
   assertJsonFieldEq node, "textBody", newJNull()
   assertJsonFieldEq node, "htmlBody", newJNull()
+
+# ============= F. VacationResponseUpdate serde =============
+
+block setIsEnabledTuple:
+  let (key, value) = makeSetIsEnabled(true).toJson()
+  assertEq key, "isEnabled"
+  assertEq value, %true
+
+block vruSetFromDateNoneEmitsNull:
+  let (key, value) = makeSetFromDate(Opt.none(UTCDate)).toJson()
+  assertEq key, "fromDate"
+  assertEq value, newJNull()
+
+block vruSetFromDateSomeEmitsString:
+  let d = parseUtcDate("2026-01-01T00:00:00Z").get()
+  let (key, value) = makeSetFromDate(Opt.some(d)).toJson()
+  assertEq key, "fromDate"
+  assertEq value, d.toJson()
+
+block vruSetToDateNoneEmitsNull:
+  let (key, value) = makeSetToDate(Opt.none(UTCDate)).toJson()
+  assertEq key, "toDate"
+  assertEq value, newJNull()
+
+block vruSetToDateSomeEmitsString:
+  let d = parseUtcDate("2026-02-01T00:00:00Z").get()
+  let (key, value) = makeSetToDate(Opt.some(d)).toJson()
+  assertEq key, "toDate"
+  assertEq value, d.toJson()
+
+block vruSetSubjectNoneEmitsNull:
+  let (key, value) = makeSetSubject(Opt.none(string)).toJson()
+  assertEq key, "subject"
+  assertEq value, newJNull()
+
+block vruSetSubjectSomeEmitsString:
+  let (key, value) = makeSetSubject(Opt.some("Away")).toJson()
+  assertEq key, "subject"
+  assertEq value, %"Away"
+
+block vruSetTextBodyNoneEmitsNull:
+  let (key, value) = makeSetTextBody(Opt.none(string)).toJson()
+  assertEq key, "textBody"
+  assertEq value, newJNull()
+
+block vruSetTextBodySomeEmitsString:
+  let (key, value) = makeSetTextBody(Opt.some("Gone fishing.")).toJson()
+  assertEq key, "textBody"
+  assertEq value, %"Gone fishing."
+
+block vruSetHtmlBodyNoneEmitsNull:
+  let (key, value) = makeSetHtmlBody(Opt.none(string)).toJson()
+  assertEq key, "htmlBody"
+  assertEq value, newJNull()
+
+block vruSetHtmlBodySomeEmitsString:
+  let (key, value) = makeSetHtmlBody(Opt.some("<p>Away</p>")).toJson()
+  assertEq key, "htmlBody"
+  assertEq value, %"<p>Away</p>"
+
+block vacationResponseUpdateSetFlattensTuple:
+  ## Pins the flatten behaviour including the ``Opt.none → null`` wire
+  ## contract: a "clear the textBody" update must surface as ``null``
+  ## in the patch object, not as key-absent.
+  let us = makeVacationResponseUpdateSet(
+    @[
+      makeSetIsEnabled(true),
+      makeSetSubject(Opt.some("Away")),
+      makeSetTextBody(Opt.none(string)),
+    ]
+  )
+  let node = us.toJson()
+  doAssert node.kind == JObject
+  assertLen node, 3
+  assertJsonFieldEq node, "isEnabled", %true
+  assertJsonFieldEq node, "subject", %"Away"
+  assertJsonFieldEq node, "textBody", newJNull()

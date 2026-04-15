@@ -14,6 +14,7 @@ import jmap_client/validation
 import jmap_client/primitives
 
 import ../../massertions
+import ../../mfixtures
 
 # ============= A. MailboxRole serde =============
 
@@ -461,3 +462,54 @@ block toJsonMailboxCreateNullOpts: # scenario 55
   let node = mc.toJson()
   assertJsonFieldEq node, "parentId", newJNull()
   assertJsonFieldEq node, "role", newJNull()
+
+# ============= F. MailboxUpdate serde =============
+
+block setNameTuple:
+  let (key, value) = makeSetName("Renamed").toJson()
+  assertEq key, "name"
+  assertEq value, %"Renamed"
+
+block setParentIdNoneEmitsJsonNull:
+  ## RFC 8621 §2 reparent-to-top-level is expressed as ``parentId: null`` on
+  ## the wire — NOT key-absent. Pins the nullable semantic that distinguishes
+  ## "clear the parent" from "don't update the parent".
+  let (key, value) = makeSetParentId(Opt.none(Id)).toJson()
+  assertEq key, "parentId"
+  assertEq value, newJNull()
+
+block setParentIdSomeEmitsString:
+  let id1 = parseId("parent1").get()
+  let (key, value) = makeSetParentId(Opt.some(id1)).toJson()
+  assertEq key, "parentId"
+  assertEq value, id1.toJson()
+
+block setRoleNoneEmitsJsonNull:
+  ## RFC 8621 §2 clear-role is expressed as ``role: null`` on the wire.
+  let (key, value) = makeSetRole(Opt.none(MailboxRole)).toJson()
+  assertEq key, "role"
+  assertEq value, newJNull()
+
+block setRoleSomeEmitsString:
+  let (key, value) = makeSetRole(Opt.some(roleInbox)).toJson()
+  assertEq key, "role"
+  assertEq value, %"inbox"
+
+block mailboxUpdateSetFlattensTuple:
+  let us = makeMailboxUpdateSet(@[makeSetName("X"), makeSetIsSubscribed(false)])
+  let node = us.toJson()
+  doAssert node.kind == JObject
+  assertLen node, 2
+  assertJsonFieldEq node, "name", %"X"
+  assertJsonFieldEq node, "isSubscribed", %false
+
+block mailboxUpdateSetRoundTripsWireOrder:
+  ## Re-stringify / re-parse round-trip guards against accidental
+  ## key-order mangling by the flatten aggregator.
+  let us = makeMailboxUpdateSet(@[makeSetName("X"), makeSetIsSubscribed(false)])
+  let node = us.toJson()
+  let reparsed = parseJson($node)
+  doAssert reparsed.kind == JObject
+  assertLen reparsed, 2
+  assertJsonFieldEq reparsed, "name", %"X"
+  assertJsonFieldEq reparsed, "isSubscribed", %false
