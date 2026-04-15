@@ -70,7 +70,7 @@ NOT: `## Parses an integer into an UnsignedInt, returning a Result.`
 Explain WHY, never WHAT:
 
 ```nim
-proc parseCapabilityKind*(uri: string): CapabilityKind =
+func parseCapabilityKind*(uri: string): CapabilityKind =
   # Exhaustive match against IANA-registered URIs.
   # Falls back to ckUnknown for vendor extensions — these are
   # preserved via rawUri on the parent ServerCapability.

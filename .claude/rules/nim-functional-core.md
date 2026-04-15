@@ -1,7 +1,6 @@
 ---
 paths:
   - "src/**/*.nim"
-  - "tests/**/*.nim"
 ---
 
 # Functional Core (L1–L3)
@@ -11,8 +10,10 @@ paths:
 Applies to **L1 (types), L2 (serde), L3 (protocol)** modules under
 `{.push raises: [], noSideEffect.}`. Layer 4 (transport/IO) and Layer 5
 (C ABI) are NOT governed by this rule — those layers legitimately mutate,
-raise, and perform IO; see `nim-ffi-boundary.md`. Module boilerplate and
-the layer pragma split live in `nim-conventions.md` (Module Boilerplate).
+raise, and perform IO; see `nim-ffi-boundary.md`.
+Test files are also NOT governed by this rule.
+Module boilerplate and
+the layer pragma split live in `nim-conventions.md`.
 
 ## Mental Model
 
