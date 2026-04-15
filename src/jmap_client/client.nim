@@ -52,6 +52,144 @@ type JmapClient* = object
 
 {.pop.}
 
+type JmapClientViolationKind = enum
+  jcvEmptySessionUrl
+  jcvSessionUrlBadScheme
+  jcvSessionUrlControlChar
+  jcvEmptyBearerToken
+  jcvTimeoutTooLow
+  jcvMaxRedirectsNegative
+  jcvMaxResponseBytesNegative
+  jcvHttpHeadersInitFailed
+  jcvHttpClientInitFailed
+  jcvEmptyDomain
+  jcvDomainWhitespace
+  jcvDomainSlash
+
+type JmapClientViolation {.ruleOff: "objects".} = object
+  case kind: JmapClientViolationKind
+  of jcvEmptySessionUrl, jcvEmptyBearerToken, jcvEmptyDomain, jcvHttpHeadersInitFailed,
+      jcvHttpClientInitFailed:
+    discard
+  of jcvSessionUrlBadScheme, jcvSessionUrlControlChar:
+    sessionUrl: string
+  of jcvTimeoutTooLow:
+    timeout: int
+  of jcvMaxRedirectsNegative:
+    maxRedirects: int
+  of jcvMaxResponseBytesNegative:
+    maxResponseBytes: int
+  of jcvDomainWhitespace, jcvDomainSlash:
+    domain: string
+
+func toValidationError(v: JmapClientViolation): ValidationError =
+  ## Sole domain-to-wire translator for ``JmapClientViolation``. Every wire
+  ## message lives here; adding a ``jcvX`` variant forces a compile error
+  ## at this site.
+  case v.kind
+  of jcvEmptySessionUrl:
+    validationError("JmapClient", "sessionUrl must not be empty", "")
+  of jcvSessionUrlBadScheme:
+    validationError(
+      "JmapClient", "sessionUrl must start with https:// or http://", v.sessionUrl
+    )
+  of jcvSessionUrlControlChar:
+    validationError(
+      "JmapClient", "sessionUrl must not contain newline characters", v.sessionUrl
+    )
+  of jcvEmptyBearerToken:
+    validationError("JmapClient", "bearerToken must not be empty", "")
+  of jcvTimeoutTooLow:
+    validationError("JmapClient", "timeout must be >= -1", $v.timeout)
+  of jcvMaxRedirectsNegative:
+    validationError("JmapClient", "maxRedirects must be >= 0", $v.maxRedirects)
+  of jcvMaxResponseBytesNegative:
+    validationError("JmapClient", "maxResponseBytes must be >= 0", $v.maxResponseBytes)
+  of jcvHttpHeadersInitFailed:
+    validationError("JmapClient", "failed to create HTTP headers", "")
+  of jcvHttpClientInitFailed:
+    validationError("JmapClient", "failed to create HTTP client", "")
+  of jcvEmptyDomain:
+    validationError("JmapClient", "domain must not be empty", "")
+  of jcvDomainWhitespace:
+    validationError("JmapClient", "domain must not contain whitespace", v.domain)
+  of jcvDomainSlash:
+    validationError("JmapClient", "domain must not contain '/'", v.domain)
+
+func detectSessionUrl(sessionUrl: string): Result[void, JmapClientViolation] =
+  ## Structural validation of the JMAP session URL: non-empty, https:// or
+  ## http:// scheme, no embedded newlines that would break HTTP framing.
+  if sessionUrl.len == 0:
+    return err(JmapClientViolation(kind: jcvEmptySessionUrl))
+  if not sessionUrl.startsWith("https://") and not sessionUrl.startsWith("http://"):
+    return
+      err(JmapClientViolation(kind: jcvSessionUrlBadScheme, sessionUrl: sessionUrl))
+  if sessionUrl.contains({'\c', '\L'}):
+    return
+      err(JmapClientViolation(kind: jcvSessionUrlControlChar, sessionUrl: sessionUrl))
+  ok()
+
+func detectBearerToken(token: string): Result[void, JmapClientViolation] =
+  ## Bearer token non-emptiness — the server rejects empty Authorization
+  ## headers anyway, but failing here saves a round-trip.
+  if token.len == 0:
+    return err(JmapClientViolation(kind: jcvEmptyBearerToken))
+  ok()
+
+func detectTimeout(timeout: int): Result[void, JmapClientViolation] =
+  ## HttpClient accepts -1 (no timeout) and non-negative values; anything
+  ## below -1 is nonsense.
+  if timeout < -1:
+    return err(JmapClientViolation(kind: jcvTimeoutTooLow, timeout: timeout))
+  ok()
+
+func detectMaxRedirects(maxRedirects: int): Result[void, JmapClientViolation] =
+  ## Redirect-follow count cannot be negative.
+  if maxRedirects < 0:
+    return err(
+      JmapClientViolation(kind: jcvMaxRedirectsNegative, maxRedirects: maxRedirects)
+    )
+  ok()
+
+func detectMaxResponseBytes(maxResponseBytes: int): Result[void, JmapClientViolation] =
+  ## Response-size cap cannot be negative (zero disables the check).
+  if maxResponseBytes < 0:
+    return err(
+      JmapClientViolation(
+        kind: jcvMaxResponseBytesNegative, maxResponseBytes: maxResponseBytes
+      )
+    )
+  ok()
+
+func detectClientConfig(
+    sessionUrl: string,
+    bearerToken: string,
+    timeout: int,
+    maxRedirects: int,
+    maxResponseBytes: int,
+): Result[void, JmapClientViolation] =
+  ## Sequential short-circuit composition of the five pure config
+  ## detectors. Ordering matches pre-refactor first-error reporting.
+  ?detectSessionUrl(sessionUrl)
+  ?detectBearerToken(bearerToken)
+  ?detectTimeout(timeout)
+  ?detectMaxRedirects(maxRedirects)
+  ?detectMaxResponseBytes(maxResponseBytes)
+  ok()
+
+func detectDomain(domain: string): Result[void, JmapClientViolation] =
+  ## Bare-domain validation for ``.well-known/jmap`` URL construction
+  ## (RFC 8620 §2.2). Rejects empty, whitespace, and slash-containing
+  ## inputs; scheme/path appear in the synthesised session URL.
+  if domain.len == 0:
+    return err(JmapClientViolation(kind: jcvEmptyDomain))
+  for c in domain:
+    if c in Whitespace:
+      return err(JmapClientViolation(kind: jcvDomainWhitespace, domain: domain))
+  if '/' in domain:
+    return err(JmapClientViolation(kind: jcvDomainSlash, domain: domain))
+  ok()
+
 proc initJmapClient*(
     sessionUrl: string,
     bearerToken: string,
@@ -66,31 +204,8 @@ proc initJmapClient*(
   ## let ``send()`` fetch it lazily on first call.
   ##
   ## Returns err on invalid parameters.
-  if sessionUrl.len == 0:
-    return err(validationError("JmapClient", "sessionUrl must not be empty", ""))
-  if not sessionUrl.startsWith("https://") and not sessionUrl.startsWith("http://"):
-    return err(
-      validationError(
-        "JmapClient", "sessionUrl must start with https:// or http://", sessionUrl
-      )
-    )
-  if sessionUrl.contains({'\c', '\L'}):
-    return err(
-      validationError(
-        "JmapClient", "sessionUrl must not contain newline characters", sessionUrl
-      )
-    )
-  if bearerToken.len == 0:
-    return err(validationError("JmapClient", "bearerToken must not be empty", ""))
-  if timeout < -1:
-    return err(validationError("JmapClient", "timeout must be >= -1", $timeout))
-  if maxRedirects < 0:
-    return
-      err(validationError("JmapClient", "maxRedirects must be >= 0", $maxRedirects))
-  if maxResponseBytes < 0:
-    return err(
-      validationError("JmapClient", "maxResponseBytes must be >= 0", $maxResponseBytes)
-    )
+  detectClientConfig(sessionUrl, bearerToken, timeout, maxRedirects, maxResponseBytes).isOkOr:
+    return err(toValidationError(error))
   let headers =
     try:
       {.cast(raises: [CatchableError]).}:
@@ -102,7 +217,7 @@ proc initJmapClient*(
           }
         )
     except CatchableError:
-      return err(validationError("JmapClient", "failed to create HTTP headers", ""))
+      return err(toValidationError(JmapClientViolation(kind: jcvHttpHeadersInitFailed)))
   let httpClient =
     try:
       {.cast(raises: [CatchableError]).}:
@@ -113,8 +228,8 @@ proc initJmapClient*(
           headers = headers,
         )
     except CatchableError:
-      return err(validationError("JmapClient", "failed to create HTTP client", ""))
-  return ok(
+      return err(toValidationError(JmapClientViolation(kind: jcvHttpClientInitFailed)))
+  ok(
     JmapClient(
       httpClient: httpClient,
       sessionUrl: sessionUrl,
@@ -137,15 +252,9 @@ proc discoverJmapClient*(
   ## a domain name (RFC 8620 §2.2).
   ##
   ## Returns err if domain or bearerToken are invalid.
-  if domain.len == 0:
-    return err(validationError("JmapClient", "domain must not be empty", ""))
-  for c in domain:
-    if c in Whitespace:
-      return
-        err(validationError("JmapClient", "domain must not contain whitespace", domain))
-  if '/' in domain:
-    return err(validationError("JmapClient", "domain must not contain '/'", domain))
-  return initJmapClient(
+  detectDomain(domain).isOkOr:
+    return err(toValidationError(error))
+  initJmapClient(
     sessionUrl = "https://" & domain & "/.well-known/jmap",
     bearerToken = bearerToken,
     timeout = timeout,
@@ -173,11 +282,11 @@ proc setBearerToken*(
   ## Also updates the Authorization header on the underlying HttpClient.
   ##
   ## Returns err if token is empty.
-  if token.len == 0:
-    return err(validationError("JmapClient", "bearerToken must not be empty", ""))
+  detectBearerToken(token).isOkOr:
+    return err(toValidationError(error))
   client.bearerToken = token
   client.httpClient.headers["Authorization"] = "Bearer " & token
-  return ok()
+  ok()
 
 proc close*(client: var JmapClient) =
   ## Closes the underlying HTTP connection. Releases the socket
