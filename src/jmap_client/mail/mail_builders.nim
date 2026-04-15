@@ -21,9 +21,13 @@ import ../dispatch
 import ../builder
 import ./mailbox
 import ./email
+import ./email_blueprint
+import ./email_update
 import ./mail_filters
 import ./serde_mailbox
 import ./serde_email
+import ./serde_email_blueprint
+import ./serde_email_update
 
 const MailCapUri = "urn:ietf:params:jmap:mail"
 
@@ -199,15 +203,14 @@ func addMailboxSet*(
     ifInState: Opt[JmapState] = Opt.none(JmapState),
     create: Opt[Table[CreationId, MailboxCreate]] =
       Opt.none(Table[CreationId, MailboxCreate]),
-    update: Opt[Table[Id, PatchObject]] = Opt.none(Table[Id, PatchObject]),
+    update: Opt[Table[Id, MailboxUpdateSet]] = Opt.none(Table[Id, MailboxUpdateSet]),
     destroy: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]),
     onDestroyRemoveEmails: bool = false,
 ): (RequestBuilder, ResponseHandle[SetResponse[Mailbox]]) =
-  ## Adds a Mailbox/set invocation with typed ``MailboxCreate`` creation
-  ## models (Decision B21) and ``onDestroyRemoveEmails`` extension
-  ## (RFC 8621 §2.5). Always emits ``onDestroyRemoveEmails`` (explicit >
-  ## defaults).
-  # Convert typed Table[CreationId, MailboxCreate] → Table[CreationId, JsonNode]
+  ## Adds a Mailbox/set invocation with typed ``MailboxCreate`` and
+  ## ``MailboxUpdateSet`` per Design §4.1 (Part F migration). No raw
+  ## ``PatchObject`` on the public surface. ``onDestroyRemoveEmails``
+  ## RFC 8621 §2.5 extension always emitted.
   let jsonCreate = block:
     var res = Opt.none(Table[CreationId, JsonNode])
     for createMap in create:
@@ -216,14 +219,17 @@ func addMailboxSet*(
         tbl[k] = v.toJson()
       res = Opt.some(tbl)
     res
+  # Build SetRequest with update omitted — zero-inits to Opt.none, so
+  # PatchObject is never named in this module (post-demotion safety).
   let req = SetRequest[Mailbox](
-    accountId: accountId,
-    ifInState: ifInState,
-    create: jsonCreate,
-    update: update,
-    destroy: destroy,
+    accountId: accountId, ifInState: ifInState, create: jsonCreate, destroy: destroy
   )
   var args = req.toJson()
+  for updateMap in update:
+    var updateObj = newJObject()
+    for id, updateSet in updateMap:
+      updateObj[string(id)] = updateSet.toJson()
+    args["update"] = updateObj
   args["onDestroyRemoveEmails"] = %onDestroyRemoveEmails
   let (newBuilder, callId) = b.addInvocation(mnMailboxSet, args, MailCapUri)
   (newBuilder, ResponseHandle[SetResponse[Mailbox]](callId))
@@ -309,3 +315,153 @@ func addEmailQueryChanges*(
   args["collapseThreads"] = %collapseThreads
   let (newBuilder, callId) = b.addInvocation(mnEmailQueryChanges, args, MailCapUri)
   (newBuilder, ResponseHandle[QueryChangesResponse[Email]](callId))
+
+# =============================================================================
+# addEmailSet — Email/set (RFC 8621 §4.6)
+# =============================================================================
+
+func addEmailSet*(
+    b: RequestBuilder,
+    accountId: AccountId,
+    ifInState: Opt[JmapState] = Opt.none(JmapState),
+    create: Opt[Table[CreationId, EmailBlueprint]] =
+      Opt.none(Table[CreationId, EmailBlueprint]),
+    update: Opt[Table[Id, EmailUpdateSet]] = Opt.none(Table[Id, EmailUpdateSet]),
+    destroy: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]),
+): (RequestBuilder, ResponseHandle[EmailSetResponse]) =
+  ## Adds an Email/set invocation. Typed create (EmailBlueprint) and update
+  ## (EmailUpdateSet) per Design §4.1; no raw PatchObject on the public
+  ## surface. Returns a handle typed to the Email-specific
+  ## ``EmailSetResponse`` (split ``updated``/``notUpdated`` and
+  ## ``destroyed``/``notDestroyed`` — ``UpdatedEntry`` is payload data,
+  ## not a success/error split).
+  let jsonCreate = block:
+    var res = Opt.none(Table[CreationId, JsonNode])
+    for createMap in create:
+      var tbl = initTable[CreationId, JsonNode](createMap.len)
+      for k, v in createMap:
+        tbl[k] = v.toJson()
+      res = Opt.some(tbl)
+    res
+  # Build SetRequest with update omitted — zero-inits to Opt.none, so
+  # PatchObject is never named in this module.
+  let req = SetRequest[Email](
+    accountId: accountId, ifInState: ifInState, create: jsonCreate, destroy: destroy
+  )
+  var args = req.toJson()
+  for updateMap in update:
+    var updateObj = newJObject()
+    for id, updateSet in updateMap:
+      updateObj[string(id)] = updateSet.toJson()
+    args["update"] = updateObj
+  let (newBuilder, callId) = b.addInvocation(mnEmailSet, args, MailCapUri)
+  (newBuilder, ResponseHandle[EmailSetResponse](callId))
+
+# =============================================================================
+# addEmailCopy — Email/copy (RFC 8621 §4.7)
+# =============================================================================
+
+func addEmailCopy*(
+    b: RequestBuilder,
+    fromAccountId: AccountId,
+    accountId: AccountId,
+    create: Table[CreationId, EmailCopyItem],
+    ifFromInState: Opt[JmapState] = Opt.none(JmapState),
+    ifInState: Opt[JmapState] = Opt.none(JmapState),
+): (RequestBuilder, ResponseHandle[EmailCopyResponse]) =
+  ## Simple Email/copy invocation (non-compound; no implicit destroy).
+  ## ``onSuccessDestroyOriginal`` omitted (wire default false per RFC 8620
+  ## §5.4). For the compound overload, use ``addEmailCopyAndDestroy``.
+  var args = newJObject()
+  args["fromAccountId"] = fromAccountId.toJson()
+  for s in ifFromInState:
+    args["ifFromInState"] = s.toJson()
+  args["accountId"] = accountId.toJson()
+  for s in ifInState:
+    args["ifInState"] = s.toJson()
+  var createObj = newJObject()
+  for cid, item in create:
+    createObj[string(cid)] = item.toJson()
+  args["create"] = createObj
+  let (newBuilder, callId) = b.addInvocation(mnEmailCopy, args, MailCapUri)
+  (newBuilder, ResponseHandle[EmailCopyResponse](callId))
+
+# =============================================================================
+# EmailCopyHandles / EmailCopyResults — compound dispatch (RFC 8620 §5.4)
+# =============================================================================
+
+{.push ruleOff: "objects".}
+
+type EmailCopyHandles* = object
+  ## Paired handles from ``addEmailCopyAndDestroy``. The implicit Email/set
+  ## destroy response shares its call-id with the parent Email/copy per
+  ## RFC 8620 §5.4; destroy carries its own method-name (Email/set) via
+  ## ``NameBoundHandle`` so ``getBoth`` dispatches correctly without a
+  ## filter argument at the call site (Design §5.4).
+  copy*: ResponseHandle[EmailCopyResponse]
+  destroy*: NameBoundHandle[EmailSetResponse]
+
+type EmailCopyResults* = object
+  ## Paired extraction results from ``addEmailCopyAndDestroy``.
+  copy*: EmailCopyResponse
+  destroy*: EmailSetResponse
+
+{.pop.}
+
+# =============================================================================
+# addEmailCopyAndDestroy — compound Email/copy with implicit Email/set destroy
+# =============================================================================
+
+func addEmailCopyAndDestroy*(
+    b: RequestBuilder,
+    fromAccountId: AccountId,
+    accountId: AccountId,
+    create: Table[CreationId, EmailCopyItem],
+    ifFromInState: Opt[JmapState] = Opt.none(JmapState),
+    ifInState: Opt[JmapState] = Opt.none(JmapState),
+    destroyFromIfInState: Opt[JmapState] = Opt.none(JmapState),
+): (RequestBuilder, EmailCopyHandles) =
+  ## Compound Email/copy with ``onSuccessDestroyOriginal: true``. On
+  ## successful copy the server performs an implicit Email/set call that
+  ## destroys the originals in the from-account; that implicit response
+  ## shares the parent call-id per RFC 8620 §5.4 (Design §5.3).
+  ##
+  ## Both handles are built from the same ``MethodCallId`` returned by
+  ## ``addInvocation``; the destroy handle carries ``mnEmailSet`` so
+  ## ``getBoth`` can disambiguate the two wire invocations.
+  var args = newJObject()
+  args["fromAccountId"] = fromAccountId.toJson()
+  for s in ifFromInState:
+    args["ifFromInState"] = s.toJson()
+  args["accountId"] = accountId.toJson()
+  for s in ifInState:
+    args["ifInState"] = s.toJson()
+  var createObj = newJObject()
+  for cid, item in create:
+    createObj[string(cid)] = item.toJson()
+  args["create"] = createObj
+  args["onSuccessDestroyOriginal"] = %true
+  for s in destroyFromIfInState:
+    args["destroyFromIfInState"] = s.toJson()
+  let (newBuilder, cid) = b.addInvocation(mnEmailCopy, args, MailCapUri)
+  let handles = EmailCopyHandles(
+    copy: ResponseHandle[EmailCopyResponse](cid),
+    destroy: NameBoundHandle[EmailSetResponse](callId: cid, methodName: mnEmailSet),
+  )
+  (newBuilder, handles)
+
+# =============================================================================
+# getBoth — paired extraction for EmailCopyHandles
+# =============================================================================
+
+func getBoth*(
+    resp: Response, handles: EmailCopyHandles
+): Result[EmailCopyResults, MethodError] =
+  ## Extract both copy and implicit-destroy responses. Dispatches via UFCS:
+  ## ``handles.copy`` resolves through the default ``get[T]`` overload;
+  ## ``handles.destroy`` resolves through the ``NameBoundHandle`` ``get[T]``
+  ## overload, which applies the method-name filter from handle data.
+  mixin fromJson
+  let copy = ?resp.get(handles.copy)
+  let destroy = ?resp.get(handles.destroy)
+  return ok(EmailCopyResults(copy: copy, destroy: destroy))

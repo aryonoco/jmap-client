@@ -11,6 +11,10 @@ import std/tables
 
 import ./serde
 import ./types
+# {.all.} pulls in the module-private `PatchObject` whose `toJson` and
+# `fromJson` are exported from this file (Part F Phase 4, design §1.5.3 —
+# type is internal-only but its wire serde is public surface).
+import ./framework {.all.}
 
 # =============================================================================
 # FilterOperator

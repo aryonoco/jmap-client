@@ -18,6 +18,10 @@ import std/tables
 
 import ./types
 import ./serialisation
+# {.all.} pulls in the module-private `PatchObject`: `SetRequest[T]` stores
+# the wire update map as `Opt[Table[Id, PatchObject]]` and its `toJson`
+# iterates that map (Part F Phase 4, design §1.5.3).
+import ./framework {.all.}
 
 # =============================================================================
 # Lenient Option helpers (internal, not exported)

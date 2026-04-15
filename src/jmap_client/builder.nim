@@ -26,6 +26,10 @@ import ./types
 import ./serialisation
 import ./methods
 import ./dispatch
+# {.all.} pulls in the module-private `PatchObject`: `addSet[T]` and
+# `initUpdates` both name `PatchObject` in their signatures
+# (Part F Phase 4, design §1.5.3).
+import ./framework {.all.}
 
 # =============================================================================
 # RequestBuilder type
@@ -361,9 +365,12 @@ func initCreates*(
     tbl[k] = v
   return Opt.some(tbl)
 
-func initUpdates*(pairs: openArray[(Id, PatchObject)]): Opt[Table[Id, PatchObject]] =
+func initUpdates(pairs: openArray[(Id, PatchObject)]): Opt[Table[Id, PatchObject]] =
   ## Builds an Opt-wrapped update table from Id/PatchObject pairs.
   ## Keys must be validated ``Id`` values.
+  ##
+  ## **Internal only.** Demoted in Part F Phase 4 alongside ``PatchObject``
+  ## (design §1.5.3); public callers compose typed update algebras instead.
   var tbl = initTable[Id, PatchObject](pairs.len)
   for (k, v) in pairs:
     tbl[k] = v

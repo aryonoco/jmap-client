@@ -22,6 +22,7 @@ import ./email
 import ./mail_filters
 import ./serde_email
 import ./serde_snippet
+import ./serde_vacation
 
 const VacationResponseCapUri = "urn:ietf:params:jmap:vacationresponse"
 const MailCapUri = "urn:ietf:params:jmap:mail"
@@ -53,12 +54,12 @@ func addVacationResponseGet*(
 func addVacationResponseSet*(
     b: RequestBuilder,
     accountId: AccountId,
-    update: PatchObject,
+    update: VacationResponseUpdateSet,
     ifInState: Opt[JmapState] = Opt.none(JmapState),
 ): (RequestBuilder, ResponseHandle[SetResponse[VacationResponse]]) =
-  ## Adds a VacationResponse/set invocation (RFC 8621 section 7). Updates
-  ## the singleton only — no create or destroy. The singleton id is
-  ## hardcoded from ``VacationResponseSingletonId``.
+  ## Adds a VacationResponse/set invocation (RFC 8621 section 7). Typed
+  ## ``VacationResponseUpdateSet`` per Design §4.1 (Part F migration).
+  ## Singleton id remains hardcoded from ``VacationResponseSingletonId``.
   var args = newJObject()
   args["accountId"] = accountId.toJson()
   for state in ifInState:
@@ -198,3 +199,24 @@ func addSearchSnippetGet*(
   args["emailIds"] = emailIds
   let (newBuilder, callId) = b.addInvocation(mnSearchSnippetGet, args, MailCapUri)
   (newBuilder, ResponseHandle[SearchSnippetGetResponse](callId))
+
+# =============================================================================
+# addEmailImport — Email/import (RFC 8621 §4.8)
+# =============================================================================
+
+func addEmailImport*(
+    b: RequestBuilder,
+    accountId: AccountId,
+    emails: NonEmptyEmailImportMap,
+    ifInState: Opt[JmapState] = Opt.none(JmapState),
+): (RequestBuilder, ResponseHandle[EmailImportResponse]) =
+  ## Adds an Email/import invocation (RFC 8621 §4.8). ``emails`` is non-Opt
+  ## — ``initNonEmptyEmailImportMap`` guarantees non-empty; an empty
+  ## /import is semantically void (Design §6.2, F13).
+  var args = newJObject()
+  args["accountId"] = accountId.toJson()
+  args["emails"] = emails.toJson()
+  for state in ifInState:
+    args["ifInState"] = state.toJson()
+  let (newBuilder, callId) = b.addInvocation(mnEmailImport, args, MailCapUri)
+  (newBuilder, ResponseHandle[EmailImportResponse](callId))

@@ -17,9 +17,17 @@ import jmap_client/mail/thread
 import jmap_client/mail/email
 import jmap_client/mail/mail_entities
 import jmap_client/mail/mail_methods
+import jmap_client/mail/vacation
 
 import ../massertions
 import ../mfixtures
+
+# Minimal non-empty VacationResponseUpdateSet used wherever the test is
+# exercising builder mechanics (invocation name, capability, envelope
+# fields) rather than the update content. Produces {"isEnabled": true}
+# on the wire — the one scenario that inspects the patch body asserts
+# exactly that.
+let minimalVacUpdate = initVacationResponseUpdateSet(@[setIsEnabled(true)]).get()
 
 # ===========================================================================
 # A. VacationResponse/get
@@ -85,7 +93,7 @@ block vacationGetMinimal:
 block vacationSetInvocationName:
   ## Invocation name is "VacationResponse/set".
   let b0 = initRequestBuilder()
-  let (b1, _) = b0.addVacationResponseSet(makeAccountId("a1"), emptyPatch())
+  let (b1, _) = b0.addVacationResponseSet(makeAccountId("a1"), minimalVacUpdate)
   let req = b1.build()
   assertLen req.methodCalls, 1
   assertEq req.methodCalls[0].name, mnVacationResponseSet
@@ -93,7 +101,7 @@ block vacationSetInvocationName:
 block vacationSetCapability:
   ## Capability is "urn:ietf:params:jmap:vacationresponse".
   let b0 = initRequestBuilder()
-  let (b1, _) = b0.addVacationResponseSet(makeAccountId("a1"), emptyPatch())
+  let (b1, _) = b0.addVacationResponseSet(makeAccountId("a1"), minimalVacUpdate)
   let req = b1.build()
   assertLen req.`using`, 1
   assertEq req.`using`[0], "urn:ietf:params:jmap:vacationresponse"
@@ -101,7 +109,7 @@ block vacationSetCapability:
 block vacationSetSingletonInUpdate:
   ## Scenario 74: update map has key "singleton" with PatchObject JSON.
   let b0 = initRequestBuilder()
-  let (b1, _) = b0.addVacationResponseSet(makeAccountId("a1"), emptyPatch())
+  let (b1, _) = b0.addVacationResponseSet(makeAccountId("a1"), minimalVacUpdate)
   let req = b1.build()
   let updateMap = req.methodCalls[0].arguments{"update"}
   doAssert updateMap.kind == JObject
@@ -110,7 +118,7 @@ block vacationSetSingletonInUpdate:
 block vacationSetOmitsCreateDestroy:
   ## Scenario 75: no create or destroy keys in arguments.
   let b0 = initRequestBuilder()
-  let (b1, _) = b0.addVacationResponseSet(makeAccountId("a1"), emptyPatch())
+  let (b1, _) = b0.addVacationResponseSet(makeAccountId("a1"), minimalVacUpdate)
   let req = b1.build()
   let args = req.methodCalls[0].arguments
   doAssert args{"create"}.isNil
@@ -120,7 +128,7 @@ block vacationSetWithIfInState:
   ## ifInState emitted when specified.
   let b0 = initRequestBuilder()
   let (b1, _) = b0.addVacationResponseSet(
-    makeAccountId("a1"), emptyPatch(), ifInState = Opt.some(makeState("s0"))
+    makeAccountId("a1"), minimalVacUpdate, ifInState = Opt.some(makeState("s0"))
   )
   let req = b1.build()
   assertEq req.methodCalls[0].arguments{"ifInState"}.getStr(""), "s0"
@@ -128,15 +136,17 @@ block vacationSetWithIfInState:
 block vacationSetOmitsIfInStateWhenNone:
   ## ifInState key absent when Opt.none (default).
   let b0 = initRequestBuilder()
-  let (b1, _) = b0.addVacationResponseSet(makeAccountId("a1"), emptyPatch())
+  let (b1, _) = b0.addVacationResponseSet(makeAccountId("a1"), minimalVacUpdate)
   let req = b1.build()
   doAssert req.methodCalls[0].arguments{"ifInState"}.isNil
 
 block vacationSetPatchValues:
-  ## PatchObject values correctly serialised inside update.singleton.
-  let patch = emptyPatch().setProp("isEnabled", %true).get()
+  ## Typed VacationResponseUpdateSet values correctly serialised inside
+  ## update.singleton — wire shape matches what the retired PatchObject
+  ## path produced.
+  let updateSet = initVacationResponseUpdateSet(@[setIsEnabled(true)]).get()
   let b0 = initRequestBuilder()
-  let (b1, _) = b0.addVacationResponseSet(makeAccountId("a1"), patch)
+  let (b1, _) = b0.addVacationResponseSet(makeAccountId("a1"), updateSet)
   let req = b1.build()
   let singleton = req.methodCalls[0].arguments{"update"}{"singleton"}
   doAssert singleton{"isEnabled"}.getBool(false) == true
@@ -149,7 +159,7 @@ block vacationGetAndSetInOneRequest:
   ## Both get and set in one builder: two invocations, capability once.
   let b0 = initRequestBuilder()
   let (b1, _) = b0.addVacationResponseGet(makeAccountId("a1"))
-  let (b2, _) = b1.addVacationResponseSet(makeAccountId("a1"), emptyPatch())
+  let (b2, _) = b1.addVacationResponseSet(makeAccountId("a1"), minimalVacUpdate)
   let req = b2.build()
   assertLen req.methodCalls, 2
   assertEq req.methodCalls[0].name, mnVacationResponseGet

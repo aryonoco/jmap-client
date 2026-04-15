@@ -17,7 +17,7 @@ import jmap_client/mail/serde_email
 import jmap_client/mail/serde_mail_filters
 import jmap_client/validation
 import jmap_client/primitives
-import jmap_client/framework
+import jmap_client/framework {.all.}
 
 import ../../massertions
 import ../../mfixtures

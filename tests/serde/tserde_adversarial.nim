@@ -20,7 +20,7 @@ import jmap_client/identifiers
 import jmap_client/capabilities
 import jmap_client/session
 import jmap_client/envelope
-import jmap_client/framework
+import jmap_client/framework {.all.}
 import jmap_client/errors
 import jmap_client/validation
 

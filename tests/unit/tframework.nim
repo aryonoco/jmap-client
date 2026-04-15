@@ -8,7 +8,7 @@ import std/json
 
 import jmap_client/validation
 import jmap_client/primitives
-import jmap_client/framework
+import jmap_client/framework {.all.}
 
 import ../massertions
 

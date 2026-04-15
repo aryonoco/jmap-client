@@ -22,7 +22,7 @@ import jmap_client/mail/mail_methods
 import jmap_client/mail/serde_email
 import jmap_client/mail/serde_mail_filters
 import jmap_client/builder
-import jmap_client/framework
+import jmap_client/framework {.all.}
 import jmap_client/primitives
 import jmap_client/validation
 

@@ -7,6 +7,7 @@ import std/json
 import std/tables
 
 import jmap_client/types
+import jmap_client/framework {.all.}
 
 # --- Re-export accessibility ---
 

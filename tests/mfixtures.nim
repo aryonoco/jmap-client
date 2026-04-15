@@ -26,7 +26,7 @@ import jmap_client/primitives
 import jmap_client/identifiers
 import jmap_client/capabilities
 import jmap_client/session
-import jmap_client/framework
+import jmap_client/framework {.all.}
 import jmap_client/envelope
 import jmap_client/methods_enum
 import jmap_client/errors

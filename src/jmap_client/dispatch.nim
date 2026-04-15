@@ -53,6 +53,36 @@ func callId*[T](handle: ResponseHandle[T]): MethodCallId =
   return MethodCallId(handle)
 
 # =============================================================================
+# NameBoundHandle[T] — dispatch for compound overloads (RFC 8620 §5.4)
+# =============================================================================
+
+type NameBoundHandle*[T] = object
+  ## Response handle whose wire invocation shares its call-id with a sibling
+  ## invocation (RFC 8620 §5.4 compound overloads, e.g. the implicit Email/set
+  ## destroy response accompanying Email/copy with onSuccessDestroyOriginal).
+  ##
+  ## The method-name fact travels with the handle — set once at the builder
+  ## construction site, never at the extraction site. Dispatch resolves via
+  ## call-id + method-name simultaneously, so UFCS extraction (resp.get(h))
+  ## needs no filter argument. "Parse once at the boundary, trust forever"
+  ## applied to dispatch: the constraint lives in the type, not in every
+  ## caller's argument list.
+  callId*: MethodCallId
+  methodName*: MethodName
+
+func `==`*[T](a, b: NameBoundHandle[T]): bool =
+  ## Equality on both components.
+  a.callId == b.callId and a.methodName == b.methodName
+
+func `$`*[T](h: NameBoundHandle[T]): string =
+  ## String form: "<callId>@<methodName>".
+  $h.callId & "@" & $h.methodName
+
+func hash*[T](h: NameBoundHandle[T]): Hash =
+  ## Hash combining both components.
+  !$(h.callId.hash !& h.methodName.hash)
+
+# =============================================================================
 # Railway bridge: Track 0 (ValidationError) → Track 2 (MethodError)
 # =============================================================================
 
@@ -106,6 +136,49 @@ func extractInvocation(
   return ok(inv)
 
 # =============================================================================
+# Name-filtered dispatch helpers (private)
+# =============================================================================
+
+func findInvocationByName(
+    resp: Response, targetId: MethodCallId, filterName: MethodName
+): Opt[Invocation] =
+  ## Scans methodResponses for the first invocation matching BOTH call-id
+  ## AND method-name. Used by compound overload dispatch where multiple
+  ## invocations share a call-id (RFC 8620 §5.4).
+  for inv in resp.methodResponses:
+    if inv.methodCallId == targetId and inv.rawName == $filterName:
+      return Opt.some(inv)
+  return Opt.none(Invocation)
+
+func extractInvocationByName(
+    resp: Response, targetId: MethodCallId, filterName: MethodName
+): Result[Invocation, MethodError] =
+  ## Name-filtered counterpart to ``extractInvocation``. Returns the first
+  ## invocation matching both call-id and method-name, or an appropriate
+  ## MethodError for missing/error responses.
+  let matchOpt = findInvocationByName(resp, targetId, filterName)
+  if matchOpt.isNone:
+    return err(
+      methodError(
+        rawType = "serverFail",
+        description =
+          Opt.some("no " & $filterName & " response for call ID " & $targetId),
+      )
+    )
+  let inv = matchOpt.get()
+  if inv.rawName == "error":
+    let meResult = MethodError.fromJson(inv.arguments)
+    if meResult.isOk:
+      return err(meResult.get())
+    return err(
+      methodError(
+        rawType = "serverFail",
+        description = Opt.some("malformed error response for call ID " & $targetId),
+      )
+    )
+  return ok(inv)
+
+# =============================================================================
 # get[T] — default extraction via mixin fromJson
 # =============================================================================
 
@@ -138,6 +211,19 @@ func get*[T](
   ## (e.g., entity-specific extractors or JsonNode for Core/echo).
   let inv = ?extractInvocation(resp, callId(handle))
   return fromArgs(inv.arguments).mapErr(validationToMethodError)
+
+# =============================================================================
+# get[T] — NameBoundHandle overload
+# =============================================================================
+
+func get*[T](resp: Response, h: NameBoundHandle[T]): Result[T, MethodError] =
+  ## Extract a typed response using a NameBoundHandle. The method-name
+  ## filter lives in the handle itself — no filter argument at the call
+  ## site. Used by compound overloads where a sibling invocation shares
+  ## the call-id (RFC 8620 §5.4).
+  mixin fromJson
+  let inv = ?extractInvocationByName(resp, h.callId, h.methodName)
+  return T.fromJson(inv.arguments).mapErr(validationToMethodError)
 
 # =============================================================================
 # Reference construction — generic escape hatch

@@ -10,7 +10,7 @@ import std/strutils
 
 import jmap_client/serde_framework
 import jmap_client/primitives
-import jmap_client/framework
+import jmap_client/framework {.all.}
 import jmap_client/validation
 
 import ../massertions
