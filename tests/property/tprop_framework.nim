@@ -226,7 +226,7 @@ block propComparatorFieldPreservation:
     lastInput = $c.property
     doAssert c.property.len > 0
     if c.collation.isSome:
-      doAssert c.collation.get().len > 0
+      doAssert ($c.collation.get()).len > 0
 
 block propAddedItemTotality:
   checkProperty "genAddedItem id in bounds and index non-negative":

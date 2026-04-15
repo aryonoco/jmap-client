@@ -260,11 +260,11 @@ block comparatorNullProperty:
   assertErr Comparator.fromJson(j)
 
 block comparatorEmptyCollation:
-  ## {"property":"x","collation":""} -> assertOk (empty collation is just a string).
+  ## ``{"property":"x","collation":""}`` — the empty string is the RFC-default
+  ## sentinel on the wire; it maps to ``Opt.none`` so the parse still succeeds.
   let j = %*{"property": "x", "collation": ""}
   let r = Comparator.fromJson(j).get()
-  doAssert r.collation.isSome
-  assertEq r.collation.get(), ""
+  doAssert r.collation.isNone
 
 # =============================================================================
 # D. Error adversarial

@@ -10,6 +10,8 @@ import std/hashes
 
 import ./validation
 import ./primitives
+import ./collation
+export collation
 
 type PropertyName* = distinct string
   ## A non-empty property name identifying a field on an entity type (RFC 8620 §5.5).
@@ -59,7 +61,7 @@ type Comparator* = object
   ## Use ``parseComparator`` to construct.
   rawProperty: string ## module-private; validated PropertyName
   isAscending*: bool ## true = ascending (RFC default)
-  collation*: Opt[string] ## RFC 4790 collation algorithm identifier
+  collation*: Opt[CollationAlgorithm] ## RFC 4790 collation algorithm identifier
 
 func property*(c: Comparator): PropertyName =
   ## Returns the validated property name for this comparator.
@@ -68,7 +70,7 @@ func property*(c: Comparator): PropertyName =
 func parseComparator*(
     property: PropertyName,
     isAscending: bool = true,
-    collation: Opt[string] = Opt.none(string),
+    collation: Opt[CollationAlgorithm] = Opt.none(CollationAlgorithm),
 ): Comparator =
   ## Constructs a Comparator. Infallible given a valid PropertyName.
   return Comparator(

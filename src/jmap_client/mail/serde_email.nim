@@ -585,9 +585,15 @@ func emailComparatorFromJson*(
   let collation = block:
     let f = optJsonField(node, "collation", JString)
     if f.isSome:
-      Opt.some(f.get().getStr(""))
+      let raw = f.get().getStr("")
+      if raw.len > 0:
+        # Empty string is the RFC-default sentinel; treat as ``Opt.none``.
+        let alg = ?wrapInner(parseCollationAlgorithm(raw), path / "collation")
+        Opt.some(alg)
+      else:
+        Opt.none(CollationAlgorithm)
     else:
-      Opt.none(string)
+      Opt.none(CollationAlgorithm)
 
   # Try keyword sort properties first (exact string match via $enum)
   for ksp in KeywordSortProperty:
@@ -623,7 +629,7 @@ func toJson*(c: EmailComparator): JsonNode =
   for v in c.isAscending:
     node["isAscending"] = %v
   for v in c.collation:
-    node["collation"] = %v
+    node["collation"] = %($v)
   return node
 
 # =============================================================================

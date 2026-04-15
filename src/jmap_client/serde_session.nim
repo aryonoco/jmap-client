@@ -31,7 +31,7 @@ func toJson*(caps: CoreCapabilities): JsonNode =
   }
   var algArr = newJArray()
   for alg in caps.collationAlgorithms:
-    algArr.add(%alg)
+    algArr.add(%($alg))
   node["collationAlgorithms"] = algArr
   return node
 
@@ -68,10 +68,13 @@ func fromJson*(
   let maxObjectsInSet =
     ?UnsignedInt.fromJson(node{"maxObjectsInSet"}, path / "maxObjectsInSet")
   let algArrNode = ?fieldJArray(node, "collationAlgorithms", path)
-  var algs: seq[string] = @[]
+  var algs: seq[CollationAlgorithm] = @[]
   for i, elem in algArrNode.getElems(@[]):
     ?expectKind(elem, JString, path / "collationAlgorithms" / i)
-    algs.add(elem.getStr(""))
+    let alg = ?wrapInner(
+      parseCollationAlgorithm(elem.getStr("")), path / "collationAlgorithms" / i
+    )
+    algs.add(alg)
   let collationAlgorithms = toHashSet(algs)
   return ok(
     CoreCapabilities(

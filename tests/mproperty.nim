@@ -680,9 +680,12 @@ proc genCoreCapabilities*(rng: var Rand): CoreCapabilities =
   ## Generates a random CoreCapabilities with varied UnsignedInt values for each
   ## field and 0-3 collation algorithms from the RFC set.
   ## Does NOT generate: custom collation algorithms, extremely large field values.
-  var collations = initHashSet[string]()
+  var collations = initHashSet[CollationAlgorithm]()
   let collCount = rng.rand(0 .. 3)
-  const allColl = ["i;ascii-casemap", "i;ascii-numeric", "i;unicode-casemap", "i;octet"]
+  const allColl = [
+    CollationAsciiCasemap, CollationAsciiNumeric, CollationUnicodeCasemap,
+    CollationOctet,
+  ]
   for i in 0 ..< collCount:
     collations.incl rng.oneOf(allColl)
   CoreCapabilities(
@@ -742,15 +745,16 @@ proc genServerCapability*(rng: var Rand): ServerCapability =
 
 proc genComparator*(rng: var Rand): Comparator =
   ## Generates a random Comparator with a random printable PropertyName,
-  ## random isAscending flag, and optional collation (33% chance of "i;ascii-casemap").
-  ## Does NOT generate: empty collation strings, non-standard collation algorithms.
+  ## random isAscending flag, and optional collation (33% chance of
+  ## ``CollationAsciiCasemap``).
+  ## Does NOT generate: non-standard collation algorithms.
   let prop = parsePropertyName(rng.genValidPropertyName()).get()
   let asc = rng.rand(0 .. 1) == 0
   let coll =
     if rng.rand(0 .. 2) == 0:
-      Opt.some("i;ascii-casemap")
+      Opt.some(CollationAsciiCasemap)
     else:
-      Opt.none(string)
+      Opt.none(CollationAlgorithm)
   parseComparator(prop, asc, coll)
 
 proc genAddedItem*(rng: var Rand): AddedItem =
@@ -1732,7 +1736,8 @@ proc genDynamicHeaders(rng: var Rand): DynamicHeadersGen =
 # -- Domain type generators --
 
 proc genEmailComparator*(rng: var Rand): EmailComparator =
-  const collationPool = ["i;ascii-casemap", "i;ascii-numeric", "i;unicode-casemap"]
+  const collationPool =
+    [CollationAsciiCasemap, CollationAsciiNumeric, CollationUnicodeCasemap]
   let isAscending =
     case rng.rand(0 .. 2)
     of 0:
@@ -1745,7 +1750,7 @@ proc genEmailComparator*(rng: var Rand): EmailComparator =
     if rng.rand(0 .. 9) < 3:
       Opt.some(rng.oneOf(collationPool))
     else:
-      Opt.none(string)
+      Opt.none(CollationAlgorithm)
   if rng.rand(0 .. 1) == 0:
     let prop =
       rng.oneOf([pspReceivedAt, pspSize, pspFrom, pspTo, pspSubject, pspSentAt])

@@ -59,10 +59,10 @@ block coreCapabilitiesHasCollation:
     maxCallsInRequest: zero,
     maxObjectsInGet: zero,
     maxObjectsInSet: zero,
-    collationAlgorithms: toHashSet(["i;ascii-casemap", "i;unicode-casemap"]),
+    collationAlgorithms: toHashSet([CollationAsciiCasemap, CollationUnicodeCasemap]),
   )
-  doAssert caps.hasCollation("i;ascii-casemap")
-  doAssert not caps.hasCollation("i;nonexistent")
+  doAssert caps.hasCollation(CollationAsciiCasemap)
+  doAssert not caps.hasCollation(parseCollationAlgorithm("i;nonexistent").get())
 
 block hasCollationEmptySet:
   let zero = parseUnsignedInt(0).get()
@@ -74,9 +74,9 @@ block hasCollationEmptySet:
     maxCallsInRequest: zero,
     maxObjectsInGet: zero,
     maxObjectsInSet: zero,
-    collationAlgorithms: initHashSet[string](),
+    collationAlgorithms: initHashSet[CollationAlgorithm](),
   )
-  doAssert not caps.hasCollation("i;ascii-casemap")
+  doAssert not caps.hasCollation(CollationAsciiCasemap)
 
 # --- ServerCapability construction ---
 
@@ -90,7 +90,7 @@ block serverCapabilityCore:
     maxCallsInRequest: zero,
     maxObjectsInGet: zero,
     maxObjectsInSet: zero,
-    collationAlgorithms: initHashSet[string](),
+    collationAlgorithms: initHashSet[CollationAlgorithm](),
   )
   let sc =
     ServerCapability(rawUri: "urn:ietf:params:jmap:core", kind: ckCore, core: caps)
@@ -163,8 +163,8 @@ block coreCapabilitiesRealisticValues:
   let caps = realisticCoreCaps()
   doAssert caps.maxSizeUpload == parseUnsignedInt(50_000_000).get()
   doAssert caps.maxCallsInRequest == parseUnsignedInt(32).get()
-  doAssert caps.hasCollation("i;ascii-casemap")
-  doAssert caps.hasCollation("i;unicode-casemap")
+  doAssert caps.hasCollation(CollationAsciiCasemap)
+  doAssert caps.hasCollation(CollationUnicodeCasemap)
 
 block serverCapabilityRawUriPreserved:
   let sc = ServerCapability(

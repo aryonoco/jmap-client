@@ -13,6 +13,8 @@ from std/json import JsonNode
 import results
 
 import ./primitives
+import ./collation
+export collation
 
 type CapabilityKind* = enum
   ## JMAP capability identifiers from the IANA registry.
@@ -43,7 +45,8 @@ type CoreCapabilities* = object
   maxCallsInRequest*: UnsignedInt ## Max method calls per single API request
   maxObjectsInGet*: UnsignedInt ## Max objects per single /get call
   maxObjectsInSet*: UnsignedInt ## Max combined create/update/destroy per /set call
-  collationAlgorithms*: HashSet[string] ## Collation algorithm identifiers (RFC 4790)
+  collationAlgorithms*: HashSet[CollationAlgorithm]
+    ## Collation algorithm identifiers (RFC 4790)
 
 type ServerCapability* = object
   ## Tagged capability with typed data for ckCore and raw JSON for extensions.
@@ -69,6 +72,6 @@ func capabilityUri*(kind: CapabilityKind): Opt[string] =
     return Opt.none(string)
   return Opt.some($kind)
 
-func hasCollation*(caps: CoreCapabilities, algorithm: string): bool =
+func hasCollation*(caps: CoreCapabilities, algorithm: CollationAlgorithm): bool =
   ## Checks whether the server supports a given RFC 4790 collation algorithm.
   return algorithm in caps.collationAlgorithms

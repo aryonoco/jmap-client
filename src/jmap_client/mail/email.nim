@@ -18,6 +18,7 @@ import ../primitives
 import ../framework
 import ../identifiers
 import ../errors
+import ../collation
 
 import ./keyword
 import ./mailbox
@@ -62,7 +63,7 @@ type EmailComparator* {.ruleOff: "objects".} = object
   ## standard Comparator with keyword-bearing sort properties. Case object
   ## makes illegal states (keyword sort without keyword) unrepresentable.
   isAscending*: Opt[bool] ## Absent = server default (RFC: true).
-  collation*: Opt[string] ## RFC 4790 collation identifier.
+  collation*: Opt[CollationAlgorithm] ## RFC 4790 collation identifier.
   case kind*: EmailComparatorKind
   of eckPlain:
     property*: PlainSortProperty ## Non-keyword sort property.
@@ -73,7 +74,7 @@ type EmailComparator* {.ruleOff: "objects".} = object
 func plainComparator*(
     property: PlainSortProperty,
     isAscending: Opt[bool] = Opt.none(bool),
-    collation: Opt[string] = Opt.none(string),
+    collation: Opt[CollationAlgorithm] = Opt.none(CollationAlgorithm),
 ): EmailComparator =
   ## Constructs an EmailComparator for a non-keyword sort property.
   ## Infallible — all input combinations are valid.
@@ -85,7 +86,7 @@ func keywordComparator*(
     keywordProperty: KeywordSortProperty,
     keyword: Keyword,
     isAscending: Opt[bool] = Opt.none(bool),
-    collation: Opt[string] = Opt.none(string),
+    collation: Opt[CollationAlgorithm] = Opt.none(CollationAlgorithm),
 ): EmailComparator =
   ## Constructs an EmailComparator for a keyword-bearing sort property.
   ## Infallible — all input combinations are valid.

@@ -11,6 +11,7 @@ import results
 import ./validation
 import ./primitives
 import ./identifiers
+import ./collation
 import ./capabilities
 import ./methods_enum
 import ./session
@@ -22,6 +23,7 @@ export results
 export validation
 export primitives
 export identifiers
+export collation
 export capabilities
 export methods_enum
 export session

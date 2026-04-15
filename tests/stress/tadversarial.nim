@@ -1063,7 +1063,7 @@ block sessionDuplicateCkCore:
     maxCallsInRequest: parseUnsignedInt(1).get(),
     maxObjectsInGet: parseUnsignedInt(1).get(),
     maxObjectsInSet: parseUnsignedInt(1).get(),
-    collationAlgorithms: initHashSet[string](),
+    collationAlgorithms: initHashSet[CollationAlgorithm](),
   )
   let coreCaps2 = CoreCapabilities(
     maxSizeUpload: parseUnsignedInt(999).get(),
@@ -1073,7 +1073,7 @@ block sessionDuplicateCkCore:
     maxCallsInRequest: parseUnsignedInt(99).get(),
     maxObjectsInGet: parseUnsignedInt(99).get(),
     maxObjectsInSet: parseUnsignedInt(99).get(),
-    collationAlgorithms: initHashSet[string](),
+    collationAlgorithms: initHashSet[CollationAlgorithm](),
   )
   let cap1 =
     ServerCapability(rawUri: "urn:ietf:params:jmap:core", kind: ckCore, core: coreCaps1)

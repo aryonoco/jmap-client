@@ -77,7 +77,7 @@ proc zeroCoreCaps*(): CoreCapabilities =
     maxCallsInRequest: z,
     maxObjectsInGet: z,
     maxObjectsInSet: z,
-    collationAlgorithms: initHashSet[string](),
+    collationAlgorithms: initHashSet[CollationAlgorithm](),
   )
 
 proc realisticCoreCaps*(): CoreCapabilities =
@@ -89,7 +89,7 @@ proc realisticCoreCaps*(): CoreCapabilities =
     maxCallsInRequest: parseUnsignedInt(32).get(),
     maxObjectsInGet: parseUnsignedInt(1000).get(),
     maxObjectsInSet: parseUnsignedInt(500).get(),
-    collationAlgorithms: toHashSet(["i;ascii-casemap", "i;unicode-casemap"]),
+    collationAlgorithms: toHashSet([CollationAsciiCasemap, CollationUnicodeCasemap]),
   )
 
 proc makeCoreCapsWithLimits*(
@@ -106,7 +106,7 @@ proc makeCoreCapsWithLimits*(
     maxCallsInRequest: parseUnsignedInt(maxCallsInRequest).get(),
     maxObjectsInGet: parseUnsignedInt(maxObjectsInGet).get(),
     maxObjectsInSet: parseUnsignedInt(maxObjectsInSet).get(),
-    collationAlgorithms: initHashSet[string](),
+    collationAlgorithms: initHashSet[CollationAlgorithm](),
   )
 
 proc makeCoreServerCap*(caps = zeroCoreCaps()): ServerCapability =
@@ -325,7 +325,7 @@ proc makeComparator*(
 proc makeComparatorWithCollation*(
     property: PropertyName = makePropertyName("subject"),
     isAscending = true,
-    collation = "i;unicode-casemap",
+    collation: CollationAlgorithm = CollationUnicodeCasemap,
 ): Comparator =
   parseComparator(property, isAscending, Opt.some(collation))
 

@@ -184,7 +184,7 @@ block serverCapabilityWrongVariantCoreOnMail:
         maxCallsInRequest: parseUnsignedInt(1).get(),
         maxObjectsInGet: parseUnsignedInt(1).get(),
         maxObjectsInSet: parseUnsignedInt(1).get(),
-        collationAlgorithms: initHashSet[string](),
+        collationAlgorithms: initHashSet[CollationAlgorithm](),
       ),
     )
   )

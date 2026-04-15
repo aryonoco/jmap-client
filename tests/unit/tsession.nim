@@ -30,7 +30,7 @@ let testCoreCaps = CoreCapabilities(
   maxCallsInRequest: zero,
   maxObjectsInGet: zero,
   maxObjectsInSet: zero,
-  collationAlgorithms: initHashSet[string](),
+  collationAlgorithms: initHashSet[CollationAlgorithm](),
 )
 
 let testAccount = Account(

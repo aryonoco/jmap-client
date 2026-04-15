@@ -62,7 +62,7 @@ block coreCapabilitiesDeserValid:
   let caps = CoreCapabilities.fromJson(j).get()
   assertEq int64(caps.maxSizeUpload), 50000000'i64
   assertEq int64(caps.maxCallsInRequest), 32'i64
-  doAssert caps.collationAlgorithms.contains("i;ascii-numeric")
+  doAssert caps.collationAlgorithms.contains(CollationAsciiNumeric)
 
 block coreCapabilitiesDeserMissingField:
   let j = %*{
@@ -332,6 +332,26 @@ block coreCapabilitiesCollationDuplicatesDeduplication:
   }
   let r = CoreCapabilities.fromJson(j).get()
   assertEq r.collationAlgorithms.len, 2
+
+block coreCapabilitiesCollationVendorExtensionRoundTrip:
+  ## Vendor extension identifiers round-trip through toJson/fromJson
+  ## preserving identity (``caOther`` branch).
+  var j = validCoreCapsJson()
+  j["collationAlgorithms"] = %*["x-foo", "i;octet"]
+  let r = CoreCapabilities.fromJson(j).get()
+  assertEq r.collationAlgorithms.len, 2
+  doAssert r.collationAlgorithms.contains(CollationOctet)
+  doAssert r.collationAlgorithms.contains(parseCollationAlgorithm("x-foo").get())
+  # Round-trip preserves wire identifier
+  let rt = CoreCapabilities.fromJson(r.toJson()).get()
+  doAssert rt.collationAlgorithms.contains(parseCollationAlgorithm("x-foo").get())
+
+block coreCapabilitiesCollationEmptyStringElementErr:
+  ## An empty string in the collationAlgorithms array violates the wire
+  ## invariant and surfaces a SerdeViolation with the element-index path.
+  var j = validCoreCapsJson()
+  j["collationAlgorithms"] = %*[""]
+  assertErrContains CoreCapabilities.fromJson(j), "/collationAlgorithms/0"
 
 block serverCapabilityNestedRawDataRoundTrip:
   let data = %*{"foo": {"bar": [1, 2, {"baz": true}]}}

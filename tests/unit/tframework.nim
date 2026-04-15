@@ -68,9 +68,9 @@ block parseComparatorValid:
 
 block parseComparatorWithCollation:
   let pn = parsePropertyName("name").get()
-  let c = parseComparator(pn, collation = Opt.some("i;unicode-casemap"))
+  let c = parseComparator(pn, collation = Opt.some(CollationUnicodeCasemap))
   doAssert c.collation.isSome
-  doAssert c.collation.get() == "i;unicode-casemap"
+  doAssert c.collation.get() == CollationUnicodeCasemap
 
 block parseComparatorNotAscending:
   let pn = parsePropertyName("subject").get()
@@ -106,12 +106,6 @@ block filterOperatorAndSingle:
   doAssert f.conditions.len == 1
 
 # --- Comparator and AddedItem edge cases ---
-
-block comparatorEmptyCollation:
-  let pn = parsePropertyName("subject").get()
-  let c = parseComparator(pn, collation = Opt.some(""))
-  assertOk c
-  doAssert c.collation.isSome
 
 block addedItemMaxIndex:
   let maxIdx = parseUnsignedInt(MaxUnsignedInt).get()

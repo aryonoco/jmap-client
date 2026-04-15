@@ -53,7 +53,7 @@ func toJson*(c: Comparator): JsonNode =
   ## Serialise Comparator to JSON (RFC 8620 section 5.5).
   var node = %*{"property": string(c.property), "isAscending": c.isAscending}
   for col in c.collation:
-    node["collation"] = %col
+    node["collation"] = %($col)
   return node
 
 func fromJson*(
@@ -77,9 +77,13 @@ func fromJson*(
   let isAscending = ascNode.getBool(true)
     # nil-safe; returns true (RFC default) when absent
   let collNode = node{"collation"}
-  var collation = Opt.none(string)
+  var collation = Opt.none(CollationAlgorithm)
   if not collNode.isNil and collNode.kind == JString:
-    collation = Opt.some(collNode.getStr(""))
+    let raw = collNode.getStr("")
+    if raw.len > 0:
+      # Empty string is the RFC-default sentinel; treat as ``Opt.none``.
+      let alg = ?wrapInner(parseCollationAlgorithm(raw), path / "collation")
+      collation = Opt.some(alg)
   return ok(parseComparator(property, isAscending, collation))
 
 # =============================================================================

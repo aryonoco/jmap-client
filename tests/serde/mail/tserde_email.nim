@@ -19,6 +19,7 @@ import jmap_client/mail/body
 import jmap_client/mail/keyword
 import jmap_client/mail/addresses
 import jmap_client/mail/serde_email
+import jmap_client/collation
 import jmap_client/serde
 import jmap_client/validation
 
@@ -326,7 +327,7 @@ block comparatorToJsonOmitsOptionals: # scenario 36
 
 block comparatorToJsonAllKeys: # scenario 37
   let c = keywordComparator(
-    kspHasKeyword, kwSeen, Opt.some(false), Opt.some("i;unicode-casemap")
+    kspHasKeyword, kwSeen, Opt.some(false), Opt.some(CollationUnicodeCasemap)
   )
   let node = c.toJson()
   assertLen node, 4
@@ -380,7 +381,7 @@ block comparatorFromJsonCollation: # scenario 45
   let res =
     emailComparatorFromJson(%*{"property": "size", "collation": "i;unicode-casemap"})
   assertOk res
-  assertSomeEq res.get().collation, "i;unicode-casemap"
+  assertSomeEq res.get().collation, CollationUnicodeCasemap
 
 # ============= F. emitInto tests =============
 

@@ -103,12 +103,12 @@ block comparatorToJsonFieldNames:
   doAssert j{"collation"}.isNil
 
 block comparatorToJsonCollationAbsent:
-  let c = parseComparator(makePropertyName(), true, Opt.none(string))
+  let c = parseComparator(makePropertyName(), true, Opt.none(CollationAlgorithm))
   let j = c.toJson()
   doAssert j{"collation"}.isNil, "collation key must be absent when none"
 
 block comparatorToJsonCollationPresent:
-  let c = makeComparatorWithCollation(collation = "i;unicode-casemap")
+  let c = makeComparatorWithCollation(collation = CollationUnicodeCasemap)
   let j = c.toJson()
   doAssert j{"collation"} != nil
   assertEq j{"collation"}.getStr(""), "i;unicode-casemap"
@@ -181,7 +181,7 @@ block comparatorDeserAllFieldsPresent:
   assertEq string(v.property), "subject"
   doAssert not v.isAscending
   doAssert v.collation.isSome
-  assertEq v.collation.get(), "i;unicode-casemap"
+  assertEq v.collation.get(), CollationUnicodeCasemap
 
 block comparatorDeserMissingIsAscending:
   let j = %*{"property": "subject"}
@@ -346,12 +346,12 @@ block filterDeserNestedDepth3:
 block comparatorAllFieldsRoundTrip:
   ## Comparator with property + isAscending=false + collation round-trips.
   let c = parseComparator(
-    makePropertyName("receivedAt"), false, Opt.some("i;unicode-casemap")
+    makePropertyName("receivedAt"), false, Opt.some(CollationUnicodeCasemap)
   )
   let v = Comparator.fromJson(c.toJson()).get()
   assertEq string(v.property), "receivedAt"
   doAssert v.isAscending == false
-  assertSomeEq v.collation, "i;unicode-casemap"
+  assertSomeEq v.collation, CollationUnicodeCasemap
 
 block addedItemDeserIndexZeroBoundary:
   ## Boundary: index = 0 is valid.

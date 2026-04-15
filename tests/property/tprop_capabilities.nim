@@ -73,10 +73,14 @@ block propCoreCapabilitiesHasCollationConsistency:
     let caps = genCoreCapabilities(rng)
     for alg in caps.collationAlgorithms:
       doAssert hasCollation(caps, alg)
-    doAssert not hasCollation(caps, "i;nonexistent-collation-xyz")
+    # The generator draws from the four IANA identifiers only — any caOther
+    # value is guaranteed to be outside the generated set.
+    doAssert not hasCollation(
+      caps, parseCollationAlgorithm("i;nonexistent-collation-xyz").get()
+    )
 
 block propCoreCapabilitiesCollationAlgorithmsValid:
-  checkProperty "genCoreCapabilities collation strings are non-empty":
+  checkProperty "genCoreCapabilities collation identifiers are non-empty":
     let caps = genCoreCapabilities(rng)
     for alg in caps.collationAlgorithms:
-      doAssert alg.len > 0
+      doAssert ($alg).len > 0

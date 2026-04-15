@@ -340,9 +340,9 @@ block rfc8620_S2_accountObjectStructure:
 block rfc8620_S2_collationAlgorithmStandardIdentifiers:
   ## RFC 4790 standard collation identifiers used in JMAP core capabilities.
   let caps = realisticCoreCaps()
-  doAssert caps.hasCollation("i;ascii-casemap")
-  doAssert caps.hasCollation("i;unicode-casemap")
-  doAssert not caps.hasCollation("i;nonexistent")
+  doAssert caps.hasCollation(CollationAsciiCasemap)
+  doAssert caps.hasCollation(CollationUnicodeCasemap)
+  doAssert not caps.hasCollation(parseCollationAlgorithm("i;nonexistent").get())
 
 # =============================================================================
 # S3.2 — Invocation (RFC 8620 section 3.2)
@@ -806,9 +806,9 @@ block rfc8620_S5_5_comparatorExplicitDescending:
 block rfc8620_S5_5_comparatorCollationRfc4790Format:
   ## RFC 4790 collation identifier in Comparator.
   let prop = makePropertyName("subject")
-  let cmp = parseComparator(prop, collation = Opt.some("i;ascii-casemap"))
+  let cmp = parseComparator(prop, collation = Opt.some(CollationAsciiCasemap))
   doAssert cmp.collation.isSome
-  doAssert cmp.collation.get() == "i;ascii-casemap"
+  doAssert cmp.collation.get() == CollationAsciiCasemap
 
 block rfc8620_S5_5_filterDeepNesting:
   ## A 3-level deep filter tree is structurally valid.
@@ -855,12 +855,13 @@ block rfc8620_S5_5_comparatorWithCollation:
   ## RFC 8620 S5.5: a Comparator may include a collation identifier
   ## (RFC 4790 format). "i;ascii-casemap" is a standard collation.
   let prop = makePropertyName("subject")
-  let cmp =
-    parseComparator(prop, isAscending = true, collation = Opt.some("i;ascii-casemap"))
+  let cmp = parseComparator(
+    prop, isAscending = true, collation = Opt.some(CollationAsciiCasemap)
+  )
   doAssert cmp.property == prop
   doAssert cmp.isAscending == true
   doAssert cmp.collation.isSome
-  doAssert cmp.collation.get() == "i;ascii-casemap"
+  doAssert cmp.collation.get() == CollationAsciiCasemap
 
 # =============================================================================
 # S5.6 — /queryChanges (RFC 8620 section 5.6)
@@ -1348,20 +1349,15 @@ block rfc8620_S3_6_goldenMethodError:
 # Phase 6C — Interop edge cases
 # =============================================================================
 
-block rfc8620_S5_5_comparatorEmptyCollation:
-  ## Comparator with collation = Opt.some(""). Document whether
-  ## parseComparator accepts an empty collation string. The library does
-  ## not validate collation contents, so empty string is accepted.
-  let prop = makePropertyName("subject")
-  let c = parseComparator(prop, true, Opt.some(""))
-  assertSome c.collation
-  assertSomeEq c.collation, ""
-  # Verify round-trip through serde
-  let j = c.toJson()
-  doAssert j{"collation"} != nil
-  assertEq j{"collation"}.getStr("~sentinel~"), ""
+block rfc8620_S5_5_comparatorEmptyCollationWireSentinel:
+  ## Empty-string collation on the wire is the RFC-default sentinel. The
+  ## Layer 1 type (``Opt[CollationAlgorithm]``) makes the absence of a
+  ## collation unrepresentable as any string value, so ``fromJson`` maps
+  ## ``"collation": ""`` to ``Opt.none``. The stricter interior type
+  ## removes the ambiguity the old stringly-typed model carried.
+  let j = %*{"property": "subject", "collation": ""}
   let rt = Comparator.fromJson(j).get()
-  assertSomeEq rt.collation, ""
+  doAssert rt.collation.isNone
 
 block rfc8620_S1_4_leapSecondWithFractional:
   ## Test parseDate("2024-06-30T23:59:60.123Z").get(). Layer 1 performs structural
