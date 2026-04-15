@@ -37,6 +37,8 @@ import jmap_client/mail/snippet
 import jmap_client/mail/serde_email
 import jmap_client/mail/serde_snippet
 import jmap_client/mail/email_blueprint
+import jmap_client/mail/mail_builders
+import jmap_client/dispatch
 
 proc zeroUint*(): UnsignedInt =
   parseUnsignedInt(0).get()
@@ -1602,3 +1604,248 @@ proc emailBlueprintEq*(a, b: EmailBlueprint): bool =
   ## nimalyzer complexity budget — same precedent as ``emailEq`` above.
   emailBlueprintMetadataEq(a, b) and emailBlueprintBodyEq(a.body, b.body) and
     blueprintTopExtraHeadersEq(a.extraHeaders, b.extraHeaders)
+
+# ---------------------------------------------------------------------------
+# Mail Part F2 — update algebra factories (Section A: EmailUpdate variants)
+# ---------------------------------------------------------------------------
+
+proc makeAddKeyword*(k: Keyword = kwSeen): EmailUpdate =
+  addKeyword(k)
+
+proc makeRemoveKeyword*(k: Keyword = kwSeen): EmailUpdate =
+  removeKeyword(k)
+
+proc makeSetKeywords*(ks: KeywordSet = initKeywordSet([kwSeen])): EmailUpdate =
+  setKeywords(ks)
+
+proc makeAddToMailbox*(id: Id = makeId("mbx1")): EmailUpdate =
+  addToMailbox(id)
+
+proc makeRemoveFromMailbox*(id: Id = makeId("mbx1")): EmailUpdate =
+  removeFromMailbox(id)
+
+proc makeSetMailboxIds*(
+    ids: NonEmptyMailboxIdSet = makeNonEmptyMailboxIdSet()
+): EmailUpdate =
+  setMailboxIds(ids)
+
+proc makeMarkRead*(): EmailUpdate =
+  markRead()
+
+proc makeMarkUnread*(): EmailUpdate =
+  markUnread()
+
+proc makeMarkFlagged*(): EmailUpdate =
+  markFlagged()
+
+proc makeMarkUnflagged*(): EmailUpdate =
+  markUnflagged()
+
+proc makeMoveToMailbox*(id: Id = makeId("mbx1")): EmailUpdate =
+  moveToMailbox(id)
+
+# ---------------------------------------------------------------------------
+# Section C — MailboxUpdate variant factories
+# ---------------------------------------------------------------------------
+#
+# MailboxUpdate has five RFC 8621 §2 settable properties (name, parentId,
+# role, sortOrder, isSubscribed). The implementation-plan wording of "six"
+# does not match the F1 source — wrap the five that actually exist.
+
+proc makeSetName*(name: string = "Inbox"): MailboxUpdate =
+  setName(name)
+
+proc makeSetParentId*(parentId: Opt[Id] = Opt.none(Id)): MailboxUpdate =
+  setParentId(parentId)
+
+proc makeSetRole*(role: Opt[MailboxRole] = Opt.none(MailboxRole)): MailboxUpdate =
+  setRole(role)
+
+proc makeSetSortOrder*(
+    sortOrder: UnsignedInt = parseUnsignedInt(0).get()
+): MailboxUpdate =
+  setSortOrder(sortOrder)
+
+proc makeSetIsSubscribed*(isSubscribed: bool = true): MailboxUpdate =
+  setIsSubscribed(isSubscribed)
+
+# ---------------------------------------------------------------------------
+# Section D — VacationResponseUpdate variant factories
+# ---------------------------------------------------------------------------
+
+proc makeSetIsEnabled*(isEnabled: bool = true): VacationResponseUpdate =
+  setIsEnabled(isEnabled)
+
+proc makeSetFromDate*(
+    fromDate: Opt[UTCDate] = Opt.none(UTCDate)
+): VacationResponseUpdate =
+  setFromDate(fromDate)
+
+proc makeSetToDate*(toDate: Opt[UTCDate] = Opt.none(UTCDate)): VacationResponseUpdate =
+  setToDate(toDate)
+
+proc makeSetSubject*(subject: Opt[string] = Opt.none(string)): VacationResponseUpdate =
+  setSubject(subject)
+
+proc makeSetTextBody*(
+    textBody: Opt[string] = Opt.none(string)
+): VacationResponseUpdate =
+  setTextBody(textBody)
+
+proc makeSetHtmlBody*(
+    htmlBody: Opt[string] = Opt.none(string)
+): VacationResponseUpdate =
+  setHtmlBody(htmlBody)
+
+# ---------------------------------------------------------------------------
+# Section B — update set builders (declared AFTER sections A/C/D because
+# defaults reference their factories)
+# ---------------------------------------------------------------------------
+
+proc makeEmailUpdateSet*(
+    updates: openArray[EmailUpdate] = @[makeAddKeyword()]
+): EmailUpdateSet =
+  initEmailUpdateSet(updates).get()
+
+proc makeMailboxUpdateSet*(
+    updates: openArray[MailboxUpdate] = @[makeSetName()]
+): MailboxUpdateSet =
+  initMailboxUpdateSet(updates).get()
+
+proc makeVacationResponseUpdateSet*(
+    updates: openArray[VacationResponseUpdate] = @[makeSetIsEnabled()]
+): VacationResponseUpdateSet =
+  initVacationResponseUpdateSet(updates).get()
+
+# ---------------------------------------------------------------------------
+# Section E — EmailCopyItem factories
+# ---------------------------------------------------------------------------
+
+proc makeEmailCopyItem*(
+    id: Id = makeId("src1"),
+    mailboxIds: Opt[NonEmptyMailboxIdSet] = Opt.none(NonEmptyMailboxIdSet),
+    keywords: Opt[KeywordSet] = Opt.none(KeywordSet),
+    receivedAt: Opt[UTCDate] = Opt.none(UTCDate),
+): EmailCopyItem =
+  initEmailCopyItem(id, mailboxIds, keywords, receivedAt)
+
+proc makeFullEmailCopyItem*(
+    id: Id = makeId("src1"),
+    mailboxIds: NonEmptyMailboxIdSet = makeNonEmptyMailboxIdSet(),
+    keywords: KeywordSet = initKeywordSet([kwSeen]),
+    receivedAt: UTCDate = parseUtcDate("2026-01-01T00:00:00Z").get(),
+): EmailCopyItem =
+  ## "Full" variant: every override populated. The UTC literal mirrors
+  ## the precedent in ``makeFullEmailBlueprint`` — Nim rejects required
+  ## parameters after defaulted ones, so a fixture default is required.
+  initEmailCopyItem(id, Opt.some(mailboxIds), Opt.some(keywords), Opt.some(receivedAt))
+
+# ---------------------------------------------------------------------------
+# Section F — EmailImportItem factories
+# ---------------------------------------------------------------------------
+
+proc makeEmailImportItem*(
+    blobId: Id = makeId("blob1"),
+    mailboxIds: NonEmptyMailboxIdSet = makeNonEmptyMailboxIdSet(),
+    keywords: Opt[KeywordSet] = Opt.none(KeywordSet),
+    receivedAt: Opt[UTCDate] = Opt.none(UTCDate),
+): EmailImportItem =
+  initEmailImportItem(blobId, mailboxIds, keywords, receivedAt)
+
+proc makeFullEmailImportItem*(
+    blobId: Id = makeId("blob1"),
+    mailboxIds: NonEmptyMailboxIdSet = makeNonEmptyMailboxIdSet(),
+    keywords: KeywordSet = initKeywordSet([kwSeen]),
+    receivedAt: UTCDate = parseUtcDate("2026-01-01T00:00:00Z").get(),
+): EmailImportItem =
+  ## "Full" variant: every optional populated.
+  initEmailImportItem(blobId, mailboxIds, Opt.some(keywords), Opt.some(receivedAt))
+
+# ---------------------------------------------------------------------------
+# Section G — NonEmptyEmailImportMap builder
+# ---------------------------------------------------------------------------
+
+proc makeNonEmptyEmailImportMap*(
+    items: openArray[(CreationId, EmailImportItem)] =
+      @[(makeCreationId("k0"), makeEmailImportItem())]
+): NonEmptyEmailImportMap =
+  initNonEmptyEmailImportMap(items).get()
+
+# ---------------------------------------------------------------------------
+# Section H — Email write response builders
+# ---------------------------------------------------------------------------
+#
+# Take typed records, not JsonNode — response types carry public fields
+# and no smart constructor exists. Defaults produce a minimal happy-path
+# response so tests can override only what they pin.
+
+proc makeEmailSetResponse*(
+    accountId: AccountId = makeAccountId(),
+    oldState: Opt[JmapState] = Opt.none(JmapState),
+    newState: JmapState = makeState("s1"),
+    createResults: Table[CreationId, Result[EmailCreatedItem, SetError]] =
+      initTable[CreationId, Result[EmailCreatedItem, SetError]](),
+    updated: Opt[Table[Id, UpdatedEntry]] = Opt.none(Table[Id, UpdatedEntry]),
+    destroyed: Opt[seq[Id]] = Opt.none(seq[Id]),
+    notUpdated: Opt[Table[Id, SetError]] = Opt.none(Table[Id, SetError]),
+    notDestroyed: Opt[Table[Id, SetError]] = Opt.none(Table[Id, SetError]),
+): EmailSetResponse =
+  EmailSetResponse(
+    accountId: accountId,
+    oldState: oldState,
+    newState: newState,
+    createResults: createResults,
+    updated: updated,
+    destroyed: destroyed,
+    notUpdated: notUpdated,
+    notDestroyed: notDestroyed,
+  )
+
+proc makeEmailCopyResponse*(
+    fromAccountId: AccountId = makeAccountId("src"),
+    accountId: AccountId = makeAccountId("dst"),
+    oldState: Opt[JmapState] = Opt.none(JmapState),
+    newState: JmapState = makeState("s1"),
+    createResults: Table[CreationId, Result[EmailCreatedItem, SetError]] =
+      initTable[CreationId, Result[EmailCreatedItem, SetError]](),
+): EmailCopyResponse =
+  ## No updated / destroyed fields per RFC 8621 §4.7 — pinned negatively
+  ## by Phase 2 serde tests.
+  EmailCopyResponse(
+    fromAccountId: fromAccountId,
+    accountId: accountId,
+    oldState: oldState,
+    newState: newState,
+    createResults: createResults,
+  )
+
+proc makeEmailImportResponse*(
+    accountId: AccountId = makeAccountId(),
+    oldState: Opt[JmapState] = Opt.none(JmapState),
+    newState: JmapState = makeState("s1"),
+    createResults: Table[CreationId, Result[EmailCreatedItem, SetError]] =
+      initTable[CreationId, Result[EmailCreatedItem, SetError]](),
+): EmailImportResponse =
+  EmailImportResponse(
+    accountId: accountId,
+    oldState: oldState,
+    newState: newState,
+    createResults: createResults,
+  )
+
+# ---------------------------------------------------------------------------
+# Section I — EmailCopyHandles compound builder
+# ---------------------------------------------------------------------------
+
+proc makeEmailCopyHandles*(
+    sharedCallId: MethodCallId = makeMcid("c0")
+): EmailCopyHandles =
+  ## Both handles share one ``MethodCallId`` per RFC 8620 §5.4 — the
+  ## implicit Email/set destroy response shares its call-id with the
+  ## parent Email/copy invocation. Phase 4 protocol tests may add a
+  ## distinct-MCID overload later if the mismatch case needs exercising.
+  EmailCopyHandles(
+    copy: ResponseHandle[EmailCopyResponse](sharedCallId),
+    destroy:
+      NameBoundHandle[EmailSetResponse](callId: sharedCallId, methodName: mnEmailSet),
+  )

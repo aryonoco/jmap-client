@@ -30,6 +30,7 @@ import jmap_client/mail/headers
 import jmap_client/mail/body
 import jmap_client/mail/email
 import jmap_client/mail/email_blueprint
+import jmap_client/mail/email_update
 import jmap_client/mail/keyword
 import jmap_client/mail/mailbox
 import jmap_client/mail/mail_filters
@@ -3033,6 +3034,305 @@ proc genBlueprintInsertionPermutation*(
     a: parseEmailBlueprint(mailboxIds = ids, extraHeaders = tableA).get(),
     permuted: parseEmailBlueprint(mailboxIds = ids, extraHeaders = tableB).get(),
   )
+
+# ---------------------------------------------------------------------------
+# Mail Part F2 — update algebra / copy+import map / escape-boundary generators
+# ---------------------------------------------------------------------------
+
+proc genEmailUpdate*(rng: var Rand, trial: int = -1): EmailUpdate =
+  ## Generates ``EmailUpdate`` values spanning the six primitive variants,
+  ## the five convenience shortcuts, and the two setKeywords boundary
+  ## cases (empty, full IANA system-keyword set).
+  ## Covers: every ``EmailUpdateVariantKind`` variant in declaration order
+  ## (trials 0–5), the five convenience constructors (trials 6–10), empty
+  ## ``setKeywords`` (trial 11), full IANA ``setKeywords`` (trial 12),
+  ## random variants for remaining trials.
+  ## Does NOT generate: invalid field payloads (field types are themselves
+  ## smart-constructed).
+  const ianaSystemKeywords = [kwSeen, kwFlagged, kwDraft, kwAnswered, kwForwarded]
+  if trial >= 0 and trial < 6:
+    var idx = 0
+    for variant in EmailUpdateVariantKind:
+      if idx == trial:
+        return
+          case variant
+          of euAddKeyword:
+            addKeyword(rng.genKeyword())
+          of euRemoveKeyword:
+            removeKeyword(rng.genKeyword())
+          of euSetKeywords:
+            setKeywords(rng.genKeywordSet())
+          of euAddToMailbox:
+            addToMailbox(Id(rng.genValidIdStrict()))
+          of euRemoveFromMailbox:
+            removeFromMailbox(Id(rng.genValidIdStrict()))
+          of euSetMailboxIds:
+            setMailboxIds(rng.genNonEmptyMailboxIdSet())
+      inc idx
+  if trial >= 6 and trial < 11:
+    case trial - 6
+    of 0:
+      return markRead()
+    of 1:
+      return markUnread()
+    of 2:
+      return markFlagged()
+    of 3:
+      return markUnflagged()
+    of 4:
+      return moveToMailbox(Id(rng.genValidIdStrict()))
+    else:
+      discard
+  if trial == 11:
+    return setKeywords(initKeywordSet([]))
+  if trial == 12:
+    return setKeywords(initKeywordSet(ianaSystemKeywords))
+  # Random tail — pick a variant uniformly, fill with fresh leaf generators.
+  let pick = rng.rand(0 .. 10)
+  case pick
+  of 0:
+    addKeyword(rng.genKeyword())
+  of 1:
+    removeKeyword(rng.genKeyword())
+  of 2:
+    setKeywords(rng.genKeywordSet())
+  of 3:
+    addToMailbox(Id(rng.genValidIdStrict()))
+  of 4:
+    removeFromMailbox(Id(rng.genValidIdStrict()))
+  of 5:
+    setMailboxIds(rng.genNonEmptyMailboxIdSet())
+  of 6:
+    markRead()
+  of 7:
+    markUnread()
+  of 8:
+    markFlagged()
+  of 9:
+    markUnflagged()
+  else:
+    moveToMailbox(Id(rng.genValidIdStrict()))
+
+proc genEmailUpdateSet*(rng: var Rand, trial: int = -1): EmailUpdateSet =
+  ## Generates only valid (non-empty, conflict-free) ``EmailUpdateSet``
+  ## values. Retries on conflict up to a bounded cap so per-trial cost
+  ## stays at a handful of ``initEmailUpdateSet`` calls.
+  ## Covers: single-element set (trial 0), two-element disjoint-variant
+  ## set (trial 1), random 1..8 with retry (remaining trials).
+  ## Does NOT generate: invalid sets — use ``genInvalidEmailUpdateSet``.
+  if trial == 0:
+    return initEmailUpdateSet(@[addKeyword(kwSeen)]).get()
+  if trial == 1:
+    return initEmailUpdateSet(
+        @[addKeyword(kwSeen), addToMailbox(Id(rng.genValidIdStrict()))]
+      )
+      .get()
+  const maxRetries = 16
+  for _ in 0 ..< maxRetries:
+    let size = rng.rand(1 .. 8)
+    var updates: seq[EmailUpdate] = @[]
+    for _ in 0 ..< size:
+      updates.add(rng.genEmailUpdate(-1))
+    let attempt = initEmailUpdateSet(updates)
+    if attempt.isOk:
+      return attempt.get()
+  # Fall back to the guaranteed-valid single-element set — prevents
+  # pathological seeds from stalling a property run.
+  initEmailUpdateSet(@[addKeyword(kwSeen)]).get()
+
+proc genInvalidEmailUpdateSet*(rng: var Rand, trial: int = -1): seq[EmailUpdate] =
+  ## Generates ``seq[EmailUpdate]`` values that ``initEmailUpdateSet``
+  ## will reject. Returns the raw seq — callers assert
+  ## ``initEmailUpdateSet(result).isErr``.
+  ## Covers: empty (trial 0, F22), Class 1 duplicate path (trial 1),
+  ## Class 2 opposite ops (trial 2), Class 3 sub-path + full-replace on
+  ## parent (trial 3), all three classes mixed (trial 4), random
+  ## conflict injection (remaining trials).
+  ## Does NOT generate: valid sets — use ``genEmailUpdateSet``.
+  let kw = rng.genKeyword()
+  if trial == 0:
+    return @[]
+  if trial == 1:
+    return @[addKeyword(kw), addKeyword(kw)]
+  if trial == 2:
+    return @[addKeyword(kw), removeKeyword(kw)]
+  if trial == 3:
+    return @[addKeyword(kw), setKeywords(initKeywordSet([kw]))]
+  if trial == 4:
+    let mbx = Id(rng.genValidIdStrict())
+    return @[
+      addKeyword(kw),
+      addKeyword(kw),
+      removeKeyword(kw),
+      addToMailbox(mbx),
+      setMailboxIds(rng.genNonEmptyMailboxIdSet()),
+    ]
+  # Random conflict injection — pick one of the three classes.
+  case rng.rand(0 .. 2)
+  of 0:
+    @[addKeyword(kw), addKeyword(kw)]
+  of 1:
+    @[addKeyword(kw), removeKeyword(kw)]
+  else:
+    @[addKeyword(kw), setKeywords(initKeywordSet([kw]))]
+
+proc genImportItemDefault(rng: var Rand): EmailImportItem =
+  ## Minimal-payload ``EmailImportItem`` for the import-map generator.
+  ## Keywords and receivedAt are deliberately absent — the map-level
+  ## duplicate-key contract is the subject of the generator, not per-item
+  ## field coverage.
+  initEmailImportItem(
+    blobId = Id(rng.genValidIdStrict()),
+    mailboxIds = rng.genNonEmptyMailboxIdSet(),
+    keywords = Opt.none(KeywordSet),
+    receivedAt = Opt.none(UTCDate),
+  )
+
+proc genImportMapFixedTrial(
+    rng: var Rand, trial: int
+): seq[(CreationId, EmailImportItem)] =
+  ## Fixed edge cases (F2 §8.2.1 mandatory schedule): positions of
+  ## duplicate keys, three-occurrence, empty, and cluster.
+  let cidDup = parseCreationId("kdup").get()
+  case trial
+  of 0:
+    @[(parseCreationId("k0").get(), genImportItemDefault(rng))]
+  of 1:
+    @[
+      (cidDup, genImportItemDefault(rng)),
+      (cidDup, genImportItemDefault(rng)),
+      (parseCreationId("k2").get(), genImportItemDefault(rng)),
+      (parseCreationId("k3").get(), genImportItemDefault(rng)),
+    ]
+  of 2:
+    @[
+      (parseCreationId("k0").get(), genImportItemDefault(rng)),
+      (parseCreationId("k1").get(), genImportItemDefault(rng)),
+      (cidDup, genImportItemDefault(rng)),
+      (cidDup, genImportItemDefault(rng)),
+    ]
+  of 3:
+    @[
+      (cidDup, genImportItemDefault(rng)),
+      (parseCreationId("k1").get(), genImportItemDefault(rng)),
+      (cidDup, genImportItemDefault(rng)),
+      (cidDup, genImportItemDefault(rng)),
+    ]
+  of 4:
+    @[]
+  of 5:
+    @[
+      (cidDup, genImportItemDefault(rng)),
+      (cidDup, genImportItemDefault(rng)),
+      (cidDup, genImportItemDefault(rng)),
+      (cidDup, genImportItemDefault(rng)),
+      (cidDup, genImportItemDefault(rng)),
+    ]
+  else:
+    @[]
+
+proc genImportMapRandom(rng: var Rand): seq[(CreationId, EmailImportItem)] =
+  ## Random-cardinality tail: 1..8 entries, coin-flip whether to inject
+  ## duplicates by re-using a prior position's CreationId.
+  let size = rng.rand(1 .. 8)
+  let allowDups = rng.rand(0 .. 1) == 0
+  var entries: seq[(CreationId, EmailImportItem)] = @[]
+  for i in 0 ..< size:
+    let cid =
+      if allowDups and i > 0 and rng.rand(0 .. 2) == 0:
+        entries[rng.rand(0 .. entries.high)][0]
+      else:
+        parseCreationId("k" & $i).get()
+    entries.add((cid, genImportItemDefault(rng)))
+  entries
+
+proc genNonEmptyEmailImportMap*(
+    rng: var Rand, trial: int = -1
+): seq[(CreationId, EmailImportItem)] =
+  ## Generates ``seq[(CreationId, EmailImportItem)]`` for
+  ## ``initNonEmptyEmailImportMap`` — callers construct the map themselves
+  ## so they can inspect the pre-dedup shape.
+  ## Covers: single entry (trial 0), early duplicate CreationId (trial 1),
+  ## late duplicate (trial 2), three-occurrence duplicate (trial 3),
+  ## empty (trial 4, rejected), many-position cluster (trial 5),
+  ## random 1..8 entries with coin-flip duplicates (remaining trials).
+  ## Does NOT generate: invalid ``EmailImportItem`` payloads.
+  if trial >= 0 and trial < 6:
+    return genImportMapFixedTrial(rng, trial)
+  genImportMapRandom(rng)
+
+proc genJsonNodeAdversarial*(rng: var Rand, trial: int = -1): JsonNode =
+  ## Generates malformed ``JsonNode`` values for adversarial response-decode
+  ## tests. Biases toward shapes that violate the serde type assumptions:
+  ## null-for-object, int-for-string, array-with-wrong-elements,
+  ## object-with-missing-or-unknown-keys.
+  ## Does NOT follow a mandatory schedule — purely trial-shaped.
+  discard trial
+  case rng.rand(0 .. 5)
+  of 0:
+    newJNull()
+  of 1:
+    newJInt(rng.rand(0'i64 .. 9_999_999'i64))
+  of 2:
+    newJBool(rng.rand(0 .. 1) == 0)
+  of 3:
+    var arr = newJArray()
+    for _ in 0 ..< rng.rand(1 .. 4):
+      arr.add(newJNull())
+    arr
+  of 4:
+    var obj = newJObject()
+    obj["unknownKey" & $rng.rand(0 .. 99)] = newJNull()
+    obj["another"] = newJInt(rng.rand(-100 .. 100))
+    obj
+  else:
+    # Missing required keys — empty object where server sent {"type":...}.
+    newJObject()
+
+proc genEmailUpdateSetCastBypass*(rng: var Rand, trial: int = -1): seq[EmailUpdate] =
+  ## Generates ``seq[EmailUpdate]`` shapes that — if ``cast[EmailUpdateSet]``
+  ## were applied — would bypass ``initEmailUpdateSet``'s validation. Used
+  ## by cast-bypass behaviour pins: tests document that ``cast`` does NOT
+  ## validate post-hoc.
+  ## Covers: empty (trial 0), Class 1 duplicate (trial 1), Class 2 opposite
+  ## (trial 2), oversized seq (trial 3), random conflict (remaining).
+  ## Does NOT generate: valid sets — this generator's contract is "never
+  ## constructible via the smart ctor".
+  let kw = rng.genKeyword()
+  if trial == 0:
+    return @[]
+  if trial == 1:
+    return @[addKeyword(kw), addKeyword(kw)]
+  if trial == 2:
+    return @[addKeyword(kw), removeKeyword(kw)]
+  if trial == 3:
+    var oversized: seq[EmailUpdate] = @[]
+    for i in 0 ..< 64:
+      oversized.add(addKeyword(kw))
+    return oversized
+  # Fall through to the invalid generator's random class injection.
+  rng.genInvalidEmailUpdateSet(-1)
+
+proc genKeywordEscapeAdversarialPair*(
+    rng: var Rand, trial: int = -1
+): (string, string) =
+  ## Generates raw ``(string, string)`` pairs for RFC 6901 JSON Pointer
+  ## escape-boundary tests. Callers build ``Keyword`` via
+  ## ``parseKeyword(raw).get()`` — Phase 2 widens ``parseKeyword``'s charset
+  ## to admit ``~`` and ``/``.
+  ## Covers: canonical escape collision ``("a/b", "a~1b")`` at trial 0,
+  ## ``("~", "~0")`` at trial 1, ``("/", "~1")`` at trial 2, random
+  ## pair from the keyword-charset for remaining trials.
+  ## Does NOT generate: pairs whose elements fail current ``parseKeyword``.
+  if trial == 0:
+    return ("a/b", "a~1b")
+  if trial == 1:
+    return ("~", "~0")
+  if trial == 2:
+    return ("/", "~1")
+  let a = rng.genStringFrom({'a' .. 'z', '0' .. '9', '$', '-', '_', '.'}, 1, 20)
+  let b = rng.genStringFrom({'a' .. 'z', '0' .. '9', '$', '-', '_', '.'}, 1, 20)
+  (a, b)
 
 {.pop.} # params
 {.pop.} # hasDoc
