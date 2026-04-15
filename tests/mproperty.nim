@@ -19,7 +19,7 @@ import std/strutils
 import jmap_client/capabilities
 import jmap_client/envelope
 import jmap_client/errors
-import jmap_client/framework {.all.}
+import jmap_client/framework
 import jmap_client/identifiers
 import jmap_client/methods_enum
 import jmap_client/primitives
@@ -473,17 +473,6 @@ proc genFilter*(rng: var Rand, maxDepth: int): Filter[int] =
     children.add rng.genFilter(maxDepth - 1)
   filterOperator(op, children)
 
-proc genPatchPath*(rng: var Rand): string =
-  ## Generates random PatchObject path strings from a fixed set of realistic
-  ## JSON Pointer-like segments (subject, keywords/$seen, mailboxIds/mb1, etc.).
-  ## Does NOT generate: empty paths, very long paths, paths with special characters.
-  const paths = [
-    "subject", "keywords/$seen", "mailboxIds/mb1", "body/content", "from/0/name",
-    "to/0/email", "header:X-Custom", "attachments/0/blobId", "textBody/0/partId",
-    "htmlBody/0/partId",
-  ]
-  rng.oneOf(paths)
-
 proc genInvocation*(rng: var Rand): Invocation =
   ## Generates a random Invocation with a realistic method name (Mailbox/get,
   ## Email/get, etc.) and a random MethodCallId (c0-c99).
@@ -770,22 +759,6 @@ proc genAddedItem*(rng: var Rand): AddedItem =
   let id = parseId(rng.genValidIdStrict(minLen = 1, maxLen = 20)).get()
   let idx = parseUnsignedInt(rng.rand(0'i64 .. 10000'i64)).get()
   initAddedItem(id, idx)
-
-proc genPatchObject*(rng: var Rand, maxKeys: int): PatchObject =
-  ## Generates a random PatchObject with 0..maxKeys entries using realistic
-  ## path strings. ~30% of entries are deleteProp (null values); the rest
-  ## are setProp with empty JObject values.
-  ## Does NOT generate: very long path strings, deeply nested JSON values.
-  let count = rng.rand(0 .. maxKeys)
-  var p = emptyPatch()
-  for i in 0 ..< count:
-    let path = rng.genPatchPath()
-    if rng.rand(0 .. 9) < 3: # ~30% probability of delete
-      p = p.deleteProp(path).get()
-    else:
-      let val = newJObject()
-      p = p.setProp(path, val).get()
-  p
 
 proc genValidUriTemplateParametric*(rng: var Rand): string =
   ## Generates parametric URI template strings by assembling random path segments

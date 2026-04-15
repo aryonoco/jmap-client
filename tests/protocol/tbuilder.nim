@@ -9,13 +9,13 @@ import std/json
 import std/tables
 
 import jmap_client/types
-import jmap_client/framework {.all.}
+import jmap_client/framework
 import jmap_client/serialisation
 import jmap_client/serde_envelope
 import jmap_client/entity
 import jmap_client/methods
 import jmap_client/dispatch
-import jmap_client/builder {.all.}
+import jmap_client/builder
 
 import ../massertions
 import ../mfixtures
@@ -278,46 +278,6 @@ block addChangesWithMaxChanges:
   let req = b1.build()
   let inv = req.methodCalls[0]
   assertEq inv.arguments{"maxChanges"}.getBiggestInt(0), 50
-
-# ===========================================================================
-# H. addSet
-# ===========================================================================
-
-block addSetMinimal:
-  ## addSet with only accountId produces "MockFoo/set" with no optional fields.
-  let b0 = initRequestBuilder()
-  let (b1, _) = addSet[MockFoo](b0, makeAccountId("a1"))
-  let req = b1.build()
-  assertLen req.methodCalls, 1
-  let inv = req.methodCalls[0]
-  assertEq inv.name, mnMailboxSet
-  assertEq inv.arguments{"accountId"}.getStr(""), "a1"
-  doAssert inv.arguments{"ifInState"}.isNil
-  doAssert inv.arguments{"create"}.isNil
-  doAssert inv.arguments{"update"}.isNil
-  doAssert inv.arguments{"destroy"}.isNil
-
-block addSetWithAllFields:
-  ## addSet with create, update, and destroy all emitted in arguments.
-  var createTbl = initTable[CreationId, JsonNode]()
-  createTbl[makeCreationId("k1")] = %*{"name": "New"}
-  var updateTbl = initTable[Id, PatchObject]()
-  updateTbl[makeId("id1")] = emptyPatch()
-  let b0 = initRequestBuilder()
-  let (b1, _) = addSet[MockFoo](
-    b0,
-    makeAccountId("a1"),
-    ifInState = Opt.some(makeState("s0")),
-    create = Opt.some(createTbl),
-    update = Opt.some(updateTbl),
-    destroy = Opt.some(direct(@[makeId("d1")])),
-  )
-  let req = b1.build()
-  let inv = req.methodCalls[0]
-  doAssert inv.arguments{"ifInState"}.getStr("") == "s0"
-  doAssert inv.arguments{"create"}.kind == JObject
-  doAssert inv.arguments{"update"}.kind == JObject
-  doAssert inv.arguments{"destroy"}.kind == JArray
 
 # ===========================================================================
 # I. addCopy
@@ -584,22 +544,3 @@ block initCreatesBuildsTable:
   assertLen tbl, 2
   doAssert tbl[makeCreationId("k1")]["name"].getStr("") == "A"
   doAssert tbl[makeCreationId("k2")]["name"].getStr("") == "B"
-
-block initCreatesWithAddSet:
-  ## initCreates integrates with addSet — replaces manual table construction.
-  let b0 = initRequestBuilder()
-  let (b1, _) = addSet[MockFoo](
-    b0,
-    makeAccountId("a1"),
-    create = initCreates({makeCreationId("k1"): %*{"name": "New"}}),
-  )
-  let req = b1.build()
-  let inv = req.methodCalls[0]
-  doAssert inv.arguments{"create"}.kind == JObject
-  doAssert inv.arguments{"create"}{"k1"}{"name"}.getStr("") == "New"
-
-block initUpdatesBuildsTable:
-  ## initUpdates builds an Opt-wrapped Table from Id/PatchObject pairs.
-  let updates = initUpdates({makeId("id1"): emptyPatch()})
-  doAssert updates.isSome
-  assertLen updates.get(), 1

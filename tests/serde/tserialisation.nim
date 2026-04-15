@@ -8,7 +8,7 @@ import std/json
 
 import jmap_client/serialisation
 import jmap_client/types
-import jmap_client/framework {.all.}
+import jmap_client/framework
 
 import ../massertions
 import ../mfixtures
@@ -105,9 +105,6 @@ block frameworkTypes:
 
   let comp = makeComparator()
   assertOk Comparator.fromJson(comp.toJson())
-
-  let patch = emptyPatch()
-  assertOk PatchObject.fromJson(patch.toJson())
 
   let item = makeAddedItem()
   assertOk AddedItem.fromJson(item.toJson())

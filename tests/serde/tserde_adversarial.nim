@@ -20,7 +20,7 @@ import jmap_client/identifiers
 import jmap_client/capabilities
 import jmap_client/session
 import jmap_client/envelope
-import jmap_client/framework {.all.}
+import jmap_client/framework
 import jmap_client/errors
 import jmap_client/validation
 
@@ -266,22 +266,6 @@ block comparatorEmptyCollation:
   doAssert r.collation.isSome
   assertEq r.collation.get(), ""
 
-block patchObjectLargePathCount:
-  ## PatchObject with 1000 paths -> should succeed.
-  var j = newJObject()
-  for i in 0 ..< 1000:
-    j["path/" & $i] = %i
-  let r = PatchObject.fromJson(j).get()
-  assertEq r.len, 1000
-
-block patchObjectLongPathString:
-  ## Path with 10,000 char key -> should succeed.
-  var j = newJObject()
-  let longKey = 'a'.repeat(10000)
-  j[longKey] = %42
-  let r = PatchObject.fromJson(j).get()
-  assertEq r.len, 1
-
 # =============================================================================
 # D. Error adversarial
 # =============================================================================
@@ -502,10 +486,6 @@ block emptyObjectForAllTypes:
   assertErr AddedItem.fromJson(empty)
   assertErr RequestError.fromJson(empty)
   assertErr MethodError.fromJson(empty)
-
-block emptyObjectPatchObjectValid:
-  ## PatchObject with empty JSON object is valid (empty patch).
-  assertOk PatchObject.fromJson(newJObject())
 
 # =============================================================================
 # L. ARC shared-ref stress (validates Phase 1A fix)
@@ -929,52 +909,8 @@ block wrongCasedFieldSessionUsername:
   assertErrContains Session.fromJson(j2), "missing or invalid username"
 
 # =============================================================================
-# Phase 5C: Path injection tests (PatchObject and ResultReference)
+# Phase 5C: Path injection tests (ResultReference)
 # =============================================================================
-
-block patchObjectPathTraversal:
-  ## Directory traversal path -> accepted (Layer 1 does not interpret paths).
-  var j = newJObject()
-  j["../../etc/passwd"] = %"malicious"
-  let r = PatchObject.fromJson(j).get()
-  doAssert r.getKey("../../etc/passwd").isSome
-
-block patchObjectPathTildeZeroEscape:
-  ## RFC 6901 tilde escape ~0 -> accepted and preserved as-is.
-  var j = newJObject()
-  j["/a~0b"] = %"val"
-  let r = PatchObject.fromJson(j).get()
-  doAssert r.getKey("/a~0b").isSome
-
-block patchObjectPathTildeOneEscape:
-  ## RFC 6901 tilde escape ~1 -> accepted and preserved as-is.
-  var j = newJObject()
-  j["/a~1b"] = %"val"
-  let r = PatchObject.fromJson(j).get()
-  doAssert r.getKey("/a~1b").isSome
-
-block patchObjectPathNulByte:
-  ## NUL byte in PatchObject path -> accepted. Documents FFI truncation risk.
-  var j = newJObject()
-  j["/a\x00b"] = %"val"
-  assertOk PatchObject.fromJson(j)
-
-block patchObjectPathVeryLong:
-  ## 10,000-character path -> accepted (no length restriction on paths).
-  var j = newJObject()
-  let longPath = 'a'.repeat(10000)
-  j[longPath] = %42
-  let r = PatchObject.fromJson(j).get()
-  assertEq r.len, 1
-
-block patchObjectTraversalRoundTrip:
-  ## Directory traversal path survives toJson -> fromJson round-trip.
-  var j = newJObject()
-  j["../../etc/passwd"] = %"malicious"
-  let r = PatchObject.fromJson(j).get()
-  let j2 = r.toJson()
-  let r2 = PatchObject.fromJson(j2).get()
-  doAssert r2.getKey("../../etc/passwd").isSome
 
 block resultReferencePathWildcard:
   ## ResultReference with wildcard in path -> accepted.

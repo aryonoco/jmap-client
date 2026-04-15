@@ -26,10 +26,6 @@ import ./types
 import ./serialisation
 import ./methods
 import ./dispatch
-# {.all.} pulls in the module-private `PatchObject`: `addSet[T]` and
-# `initUpdates` both name `PatchObject` in their signatures
-# (Part F Phase 4, design §1.5.3).
-import ./framework {.all.}
 
 # =============================================================================
 # RequestBuilder type
@@ -180,29 +176,6 @@ func addChanges*[T](
     accountId: accountId, sinceState: sinceState, maxChanges: maxChanges
   )
   addMethodImpl(b, T, changesMethodName, req, ChangesResponse[T])
-
-# =============================================================================
-# addSet — Foo/set (RFC 8620 section 5.3)
-# =============================================================================
-
-func addSet*[T](
-    b: RequestBuilder,
-    accountId: AccountId,
-    ifInState: Opt[JmapState] = Opt.none(JmapState),
-    create: Opt[Table[CreationId, JsonNode]] = Opt.none(Table[CreationId, JsonNode]),
-    update: Opt[Table[Id, PatchObject]] = Opt.none(Table[Id, PatchObject]),
-    destroy: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]),
-): (RequestBuilder, ResponseHandle[SetResponse[T]]) =
-  ## Adds a Foo/set invocation. Creates, updates, and/or destroys records
-  ## in a single method call.
-  let req = SetRequest[T](
-    accountId: accountId,
-    ifInState: ifInState,
-    create: create,
-    update: update,
-    destroy: destroy,
-  )
-  addMethodImpl(b, T, setMethodName, req, SetResponse[T])
 
 # =============================================================================
 # addCopy — Foo/copy (RFC 8620 section 5.4)
@@ -361,17 +334,6 @@ func initCreates*(
   ## Keys must be validated ``CreationId`` values — preserves smart-constructor
   ## discipline. Use ``parseCreationId`` to obtain keys.
   var tbl = initTable[CreationId, JsonNode](pairs.len)
-  for (k, v) in pairs:
-    tbl[k] = v
-  return Opt.some(tbl)
-
-func initUpdates(pairs: openArray[(Id, PatchObject)]): Opt[Table[Id, PatchObject]] =
-  ## Builds an Opt-wrapped update table from Id/PatchObject pairs.
-  ## Keys must be validated ``Id`` values.
-  ##
-  ## **Internal only.** Demoted in Part F Phase 4 alongside ``PatchObject``
-  ## (design §1.5.3); public callers compose typed update algebras instead.
-  var tbl = initTable[Id, PatchObject](pairs.len)
   for (k, v) in pairs:
     tbl[k] = v
   return Opt.some(tbl)

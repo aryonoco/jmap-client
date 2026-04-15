@@ -2,13 +2,13 @@
 # Copyright (c) 2026 Aryan Ameri
 
 ## Tests for generic method framework types: PropertyName, Filter, Comparator,
-## PatchObject, and AddedItem.
+## and AddedItem.
 
 import std/json
 
 import jmap_client/validation
 import jmap_client/primitives
-import jmap_client/framework {.all.}
+import jmap_client/framework
 
 import ../massertions
 
@@ -77,43 +77,6 @@ block parseComparatorNotAscending:
   let c = parseComparator(pn, isAscending = false)
   doAssert c.isAscending == false
 
-# --- PatchObject ---
-
-block emptyPatchLen:
-  doAssert emptyPatch().len == 0
-
-block setPropEmptyPath:
-  assertErrFields setProp(emptyPatch(), "", newJNull()),
-    "PatchObject", "path must not be empty", ""
-
-block setPropValid:
-  let p = setProp(emptyPatch(), "name", %"Alice").get()
-  doAssert p.len == 1
-
-block deletePropValid:
-  let p = deleteProp(emptyPatch(), "addresses/0").get()
-  doAssert p.len == 1
-
-block deletePropEmptyPath:
-  assertErrFields deleteProp(emptyPatch(), ""),
-    "PatchObject", "path must not be empty", ""
-
-block chainedSetProp:
-  let p1 = setProp(emptyPatch(), "name", %"Alice").get()
-  let p2 = setProp(p1, "age", %30).get()
-  doAssert p2.len == 2
-
-block patchObjectImmutability:
-  let original = emptyPatch()
-  let modified = setProp(original, "name", %"Alice").get()
-  doAssert original.len == 0
-  doAssert modified.len == 1
-
-block patchObjectNoBorrowedOps:
-  doAssert not compiles(emptyPatch() == emptyPatch())
-  doAssert not compiles($emptyPatch())
-  doAssert not compiles(hash(emptyPatch()))
-
 # --- AddedItem ---
 
 block addedItemConstruction:
@@ -122,27 +85,6 @@ block addedItemConstruction:
   let item = initAddedItem(id, idx)
   doAssert string(item.id) == "abc"
   doAssert int64(item.index) == 0'i64
-
-# --- Adversarial edge cases ---
-
-block setPropSlashOnlyPath:
-  assertOk setProp(emptyPatch(), "/", %"val")
-
-block setPropOverwriteSameKey:
-  let p1 = setProp(emptyPatch(), "name", %"Alice").get()
-  let p2 = setProp(p1, "name", %"Bob").get()
-  doAssert p2.len == 1
-
-block setPropThenDeleteSameKey:
-  let p1 = setProp(emptyPatch(), "name", %"Alice").get()
-  let p2 = deleteProp(p1, "name").get()
-  doAssert p2.len == 1
-
-block patchObjectManyEntries:
-  var p = emptyPatch()
-  for i in 0 ..< 100:
-    p = setProp(p, "path" & $i, %i).get()
-  doAssert p.len == 100
 
 # --- Filter arity tests ---
 
@@ -163,19 +105,6 @@ block filterOperatorAndSingle:
   let f = filterOperator[int](foAnd, @[filterCondition[int](42)])
   doAssert f.conditions.len == 1
 
-# --- PatchObject edge cases ---
-
-block patchObjectTildeEscapePath:
-  # RFC 6901 tilde escaping: stored as-is (no path parsing at Layer 1)
-  let r = emptyPatch().setProp("a~0b", %"val").get()
-  assertEq r.len, 1
-
-block patchObjectDoubleslashPath:
-  assertOk emptyPatch().setProp("//", %"val")
-
-block patchObjectNulInPath:
-  assertOk emptyPatch().setProp("a\x00b", %"val")
-
 # --- Comparator and AddedItem edge cases ---
 
 block comparatorEmptyCollation:
@@ -189,29 +118,6 @@ block addedItemMaxIndex:
   let id = parseId("test").get()
   let ai = initAddedItem(id, maxIdx)
   doAssert ai.index == maxIdx
-
-# --- PatchObject.getKey round-trip ---
-
-block patchObjectGetKeyAbsent:
-  # getKey on an empty patch for any key returns isNone
-  let p = emptyPatch()
-  assertNone p.getKey("anything")
-  assertNone p.getKey("name")
-  assertNone p.getKey("")
-
-block patchObjectSetPropThenGetKey:
-  # setProp then getKey verifying actual JSON value content
-  let p = setProp(emptyPatch(), "name", %"Alice").get()
-  let got = p.getKey("name")
-  assertSome got
-  doAssert got.get().getStr() == "Alice"
-
-block patchObjectDeletePropThenGetKey:
-  # deleteProp then getKey returns JSON null
-  let p = deleteProp(emptyPatch(), "addr/0").get()
-  let got = p.getKey("addr/0")
-  assertSome got
-  doAssert got.get().kind == JNull
 
 block parsePropertyNameSingleChar:
   ## parsePropertyName accepts a single-character string.

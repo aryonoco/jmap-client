@@ -7,7 +7,7 @@ import std/random
 import std/tables
 
 import jmap_client/capabilities
-import jmap_client/framework {.all.}
+import jmap_client/framework
 import jmap_client/identifiers
 import jmap_client/primitives
 import jmap_client/session
@@ -161,13 +161,6 @@ block propUriTemplateHasVariableTotality:
     let varName = genArbitraryString(rng)
     lastInput = varName
     discard tmpl.hasVariable(varName)
-
-block propPatchObjectGetKeyTotality:
-  checkPropertyN "PatchObject.getKey never crashes", QuickTrials:
-    let p = genPatchObject(rng, rng.rand(0 .. 5))
-    let key = genArbitraryString(rng)
-    lastInput = key
-    discard p.getKey(key)
 
 # --- Randomised session generation properties ---
 

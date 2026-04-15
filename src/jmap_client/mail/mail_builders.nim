@@ -208,9 +208,9 @@ func addMailboxSet*(
     onDestroyRemoveEmails: bool = false,
 ): (RequestBuilder, ResponseHandle[SetResponse[Mailbox]]) =
   ## Adds a Mailbox/set invocation with typed ``MailboxCreate`` and
-  ## ``MailboxUpdateSet`` per Design §4.1 (Part F migration). No raw
-  ## ``PatchObject`` on the public surface. ``onDestroyRemoveEmails``
-  ## RFC 8621 §2.5 extension always emitted.
+  ## ``MailboxUpdateSet`` per Design §4.1 (Part F migration). The typed
+  ## update algebra is the only public update path.
+  ## ``onDestroyRemoveEmails`` RFC 8621 §2.5 extension always emitted.
   let jsonCreate = block:
     var res = Opt.none(Table[CreationId, JsonNode])
     for createMap in create:
@@ -219,8 +219,8 @@ func addMailboxSet*(
         tbl[k] = v.toJson()
       res = Opt.some(tbl)
     res
-  # Build SetRequest with update omitted — zero-inits to Opt.none, so
-  # PatchObject is never named in this module (post-demotion safety).
+  # SetRequest serialises the common fields; the typed update map is
+  # appended to `args["update"]` below, bypassing any wire-patch wrapper.
   let req = SetRequest[Mailbox](
     accountId: accountId, ifInState: ifInState, create: jsonCreate, destroy: destroy
   )
@@ -330,10 +330,9 @@ func addEmailSet*(
     destroy: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]),
 ): (RequestBuilder, ResponseHandle[EmailSetResponse]) =
   ## Adds an Email/set invocation. Typed create (EmailBlueprint) and update
-  ## (EmailUpdateSet) per Design §4.1; no raw PatchObject on the public
-  ## surface. Returns a handle typed to the Email-specific
-  ## ``EmailSetResponse`` (split ``updated``/``notUpdated`` and
-  ## ``destroyed``/``notDestroyed`` — ``UpdatedEntry`` is payload data,
+  ## (EmailUpdateSet) per Design §4.1. Returns a handle typed to the
+  ## Email-specific ``EmailSetResponse`` (split ``updated``/``notUpdated``
+  ## and ``destroyed``/``notDestroyed`` — ``UpdatedEntry`` is payload data,
   ## not a success/error split).
   let jsonCreate = block:
     var res = Opt.none(Table[CreationId, JsonNode])
@@ -343,8 +342,8 @@ func addEmailSet*(
         tbl[k] = v.toJson()
       res = Opt.some(tbl)
     res
-  # Build SetRequest with update omitted — zero-inits to Opt.none, so
-  # PatchObject is never named in this module.
+  # SetRequest serialises the common fields; the typed update map is
+  # appended to `args["update"]` below.
   let req = SetRequest[Email](
     accountId: accountId, ifInState: ifInState, create: jsonCreate, destroy: destroy
   )

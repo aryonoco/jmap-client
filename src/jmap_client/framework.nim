@@ -7,8 +7,6 @@
 {.push raises: [], noSideEffect.}
 
 import std/hashes
-import std/tables
-from std/json import JsonNode, newJNull
 
 import ./validation
 import ./primitives
@@ -76,48 +74,6 @@ func parseComparator*(
   return Comparator(
     rawProperty: string(property), isAscending: isAscending, collation: collation
   )
-
-type PatchObject = distinct Table[string, JsonNode]
-  ## Map of JSON Pointer paths to values for /set update operations (RFC 8620 §5.3).
-  ##
-  ## **Internal carrier only.** Retired from the public surface in Part F
-  ## Phase 4 (design §1.5). Callers compose entity-specific typed update
-  ## algebras (`EmailUpdateSet`, `MailboxUpdateSet`,
-  ## `VacationResponseUpdateSet`); this module-private type continues to
-  ## serve as the generic /set wire shape for `SetRequest[T].update`.
-
-func len(p: PatchObject): int {.borrow.} ## Returns the number of entries in the patch.
-
-func emptyPatch(): PatchObject =
-  ## Creates an empty PatchObject with no entries.
-  return PatchObject(initTable[string, JsonNode]())
-
-func setProp(
-    patch: PatchObject, path: string, value: JsonNode
-): Result[PatchObject, ValidationError] =
-  ## Sets a property at the given JSON Pointer path.
-  if path.len == 0:
-    return err(validationError("PatchObject", "path must not be empty", ""))
-  var t = Table[string, JsonNode](patch)
-  t[path] = value
-  return ok(PatchObject(t))
-
-func deleteProp(
-    patch: PatchObject, path: string
-): Result[PatchObject, ValidationError] =
-  ## Sets a property to null (deletion in JMAP PatchObject semantics).
-  if path.len == 0:
-    return err(validationError("PatchObject", "path must not be empty", ""))
-  var t = Table[string, JsonNode](patch)
-  t[path] = newJNull()
-  return ok(PatchObject(t))
-
-func getKey(patch: PatchObject, key: string): Opt[JsonNode] =
-  ## Returns the value at key, or none if absent.
-  let t = Table[string, JsonNode](patch)
-  if t.hasKey(key):
-    return Opt.some(t.getOrDefault(key))
-  return Opt.none(JsonNode)
 
 type AddedItem* = object
   ## An item added to query results at a specific position (RFC 8620 §5.6).

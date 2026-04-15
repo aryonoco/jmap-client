@@ -14,7 +14,7 @@ import jmap_client/identifiers
 import jmap_client/capabilities
 import jmap_client/session
 import jmap_client/envelope
-import jmap_client/framework {.all.}
+import jmap_client/framework
 
 import ../massertions
 import ../mfixtures
@@ -25,13 +25,6 @@ block stressManyParseIdCalls:
     let s = "id" & $i
     if s.len <= 255:
       discard parseId(s).get()
-
-block stressPatchObject10000Entries:
-  ## PatchObject with 10000 entries via chained setProp.
-  var p = emptyPatch()
-  for i in 0 ..< 10000:
-    p = p.setProp("key" & $i, %i).get()
-  doAssert p.len == 10000
 
 block stressFilterDeep100:
   ## Filter tree 100 levels deep. Tests ARC destructor chain.
@@ -191,14 +184,6 @@ block stressFilterExponentialSharing:
     f = filterOperator[int](foOr, @[f, f])
   doAssert f.kind == fkOperator
 
-block stressPatchObjectGetKeyMiss:
-  ## 10000 getKey misses on a populated PatchObject. Verifies O(1) Table lookup.
-  var p = emptyPatch()
-  for i in 0 ..< 100:
-    p = p.setProp("existing" & $i, %i).get()
-  for i in 0 ..< 10000:
-    doAssert p.getKey("miss" & $i).isNone
-
 # =============================================================================
 # Layer 2 serde stress tests
 # =============================================================================
@@ -232,15 +217,6 @@ block stressRequestWith1000MethodCalls:
   let j = %*{"using": ["urn:ietf:params:jmap:core"], "methodCalls": calls}
   let r = Request.fromJson(j).get()
   assertEq r.methodCalls.len, 1000
-
-block stressPatchObject1000Entries:
-  ## PatchObject with 1000 entries via serde round-trip.
-  var j = newJObject()
-  for i in 0 ..< 1000:
-    j["path/" & $i] = %i
-  let r = PatchObject.fromJson(j).get()
-  let rt = r.toJson()
-  doAssert rt.getFields().len == 1000
 
 block stressFilterDeep100Serde:
   ## Filter tree 100 levels deep through serde round-trip.

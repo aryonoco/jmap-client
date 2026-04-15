@@ -2,7 +2,7 @@
 # Copyright (c) 2026 Aryan Ameri
 
 ## Tests for Layer 2 framework serialisation: FilterOperator, Comparator,
-## Filter[C], PatchObject, and AddedItem.
+## Filter[C], and AddedItem.
 
 import std/json
 import std/random
@@ -10,7 +10,7 @@ import std/strutils
 
 import jmap_client/serde_framework
 import jmap_client/primitives
-import jmap_client/framework {.all.}
+import jmap_client/framework
 import jmap_client/validation
 
 import ../massertions
@@ -66,40 +66,6 @@ block roundTripFilterNestedDepth2:
   let original = makeFilterAnd(@[makeFilterCondition(1), inner, makeFilterCondition(3)])
   let v = Filter[int].fromJson(original.toJson(intToJson), fromIntCondition).get()
   doAssert filterEq(v, original)
-
-block roundTripPatchObjectEmpty:
-  let original = emptyPatch()
-  let v = PatchObject.fromJson(original.toJson()).get()
-  assertEq v.len, 0
-
-block roundTripPatchObjectSingleSet:
-  let original = emptyPatch().setProp("name", %"New Name").get()
-  let v = PatchObject.fromJson(original.toJson()).get()
-  assertEq v.len, 1
-
-block roundTripPatchObjectSingleDelete:
-  let original = emptyPatch().deleteProp("role").get()
-  let v = PatchObject.fromJson(original.toJson()).get()
-  assertEq v.len, 1
-
-block roundTripPatchObjectMixed:
-  var p = emptyPatch()
-  p = p.setProp("name", %"Updated").get()
-  p = p.deleteProp("role").get()
-  p = p.setProp("sortOrder", %42).get()
-  let v = PatchObject.fromJson(p.toJson()).get()
-  assertEq v.len, 3
-
-block roundTripPatchObjectNestedValues:
-  var p = emptyPatch()
-  p = p.setProp("simple", %"text").get()
-  p = p.setProp("number", %42).get()
-  p = p.setProp("flag", %true).get()
-  p = p.setProp("nested", %*{"a": {"b": true}}).get()
-  p = p.setProp("array", %*[1, 2, 3]).get()
-  p = p.setProp("mixed", %*{"x": 1, "y": [2, 3], "z": {"d": true}}).get()
-  let v = PatchObject.fromJson(p.toJson()).get()
-  assertEq v.len, 6
 
 block roundTripAddedItem:
   let original = makeAddedItem()
@@ -163,17 +129,6 @@ block filterToJsonOperator:
   doAssert j{"conditions"} != nil
   doAssert j{"conditions"}.kind == JArray
   assertEq j{"conditions"}.len, 1
-
-block patchObjectToJsonFieldNames:
-  var p = emptyPatch()
-  p = p.setProp("name", %"val").get()
-  p = p.deleteProp("role").get()
-  let j = p.toJson()
-  doAssert j.kind == JObject
-  doAssert j{"name"} != nil
-  assertEq j{"name"}.getStr(""), "val"
-  doAssert j{"role"} != nil
-  doAssert j{"role"}.kind == JNull
 
 block addedItemToJsonFieldNames:
   let item = makeAddedItem()
@@ -323,40 +278,6 @@ block filterDeserNil:
   const nilNode: JsonNode = nil
   assertErr Filter[int].fromJson(nilNode, fromIntCondition)
 
-# --- PatchObject ---
-
-block patchObjectDeserSingleSet:
-  let j = %*{"name": "New Name"}
-  let v = PatchObject.fromJson(j).get()
-  assertEq v.len, 1
-
-block patchObjectDeserSingleDelete:
-  let j = %*{"role": newJNull()}
-  let v = PatchObject.fromJson(j).get()
-  assertEq v.len, 1
-
-block patchObjectDeserNestedMixed:
-  let j = %*{"a": 1, "b": [2, 3], "c": {"d": true}}
-  let v = PatchObject.fromJson(j).get()
-  assertEq v.len, 3
-
-block patchObjectDeserMultiple:
-  let j = %*{"a": 1, "b": 2}
-  let v = PatchObject.fromJson(j).get()
-  assertEq v.len, 2
-
-block patchObjectDeserEmpty:
-  let j = newJObject()
-  let v = PatchObject.fromJson(j).get()
-  assertEq v.len, 0
-
-block patchObjectDeserNotObject:
-  assertErr PatchObject.fromJson(%"notobject")
-
-block patchObjectDeserNil:
-  const nilNode: JsonNode = nil
-  assertErr PatchObject.fromJson(nilNode)
-
 # --- AddedItem ---
 
 block addedItemDeserValid:
@@ -432,17 +353,6 @@ block comparatorAllFieldsRoundTrip:
   doAssert v.isAscending == false
   assertSomeEq v.collation, "i;unicode-casemap"
 
-block patchObjectTildeEscapedKeys:
-  ## JSON Pointer path with ~0 (escaped ~) and ~1 (escaped /) per RFC 6901.
-  let j = %*{"a~0b": "tilde", "c~1d": "slash"}
-  let r = PatchObject.fromJson(j).get()
-  # Verify the paths survive round-trip
-  let rt = r.toJson()
-  doAssert rt{"a~0b"} != nil
-  assertEq rt{"a~0b"}.getStr(""), "tilde"
-  doAssert rt{"c~1d"} != nil
-  assertEq rt{"c~1d"}.getStr(""), "slash"
-
 block addedItemDeserIndexZeroBoundary:
   ## Boundary: index = 0 is valid.
   let j = %*{"id": "item1", "index": 0}
@@ -490,11 +400,6 @@ checkProperty "Filter[int] round-trip":
   let f = rng.genFilter(3)
   let v = Filter[int].fromJson(f.toJson(intToJson), fromIntCondition).get()
   doAssert filterEq(v, f), "Filter values differ"
-
-checkProperty "PatchObject round-trip":
-  let p = rng.genPatchObject(5)
-  let v = PatchObject.fromJson(p.toJson()).get()
-  doAssert v.len == p.len, "PatchObject lengths differ"
 
 checkProperty "AddedItem round-trip":
   let item = rng.genAddedItem()

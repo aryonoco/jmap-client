@@ -107,7 +107,7 @@ block vacationSetCapability:
   assertEq req.`using`[0], "urn:ietf:params:jmap:vacationresponse"
 
 block vacationSetSingletonInUpdate:
-  ## Scenario 74: update map has key "singleton" with PatchObject JSON.
+  ## Scenario 74: update map has key "singleton" with typed-algebra JSON.
   let b0 = initRequestBuilder()
   let (b1, _) = b0.addVacationResponseSet(makeAccountId("a1"), minimalVacUpdate)
   let req = b1.build()
@@ -142,8 +142,7 @@ block vacationSetOmitsIfInStateWhenNone:
 
 block vacationSetPatchValues:
   ## Typed VacationResponseUpdateSet values correctly serialised inside
-  ## update.singleton — wire shape matches what the retired PatchObject
-  ## path produced.
+  ## update.singleton — matches the RFC 8620 §5.3 wire patch shape.
   let updateSet = initVacationResponseUpdateSet(@[setIsEnabled(true)]).get()
   let b0 = initRequestBuilder()
   let (b1, _) = b0.addVacationResponseSet(makeAccountId("a1"), updateSet)

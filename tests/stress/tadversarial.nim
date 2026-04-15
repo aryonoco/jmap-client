@@ -15,7 +15,7 @@ import jmap_client/validation
 import jmap_client/primitives
 import jmap_client/identifiers
 import jmap_client/capabilities
-import jmap_client/framework {.all.}
+import jmap_client/framework
 import jmap_client/errors
 import jmap_client/session
 import jmap_client/envelope
@@ -328,11 +328,6 @@ block idFromServerThreeByteOverlongNul:
 block idFromServerFourByteOverlongNul:
   ## 4-byte overlong NUL \xF0\x80\x80\x80: all bytes >= 0x80, accepted.
   assertOk parseIdFromServer("abc\xF0\x80\x80\x80def")
-
-block patchObjectOverlongSlash:
-  ## Overlong encoding of '/' (0x2F): \xC0\xAF. Both bytes >= 0x20.
-  ## Accepted as-is by PatchObject (no RFC 6901 parsing at Layer 1).
-  assertOk emptyPatch().setProp("a\xC0\xAFb", %"val")
 
 # =============================================================================
 # j) UTF-8 truncation and continuation byte edge cases
@@ -928,44 +923,6 @@ block controlCharAtPosition254InAccountId:
   assertErr parseAccountId(s)
 
 # =============================================================================
-# 6c) PatchObject advanced semantics
-# =============================================================================
-
-block patchJsonPointerTilde1Encoding:
-  ## "a~1b" and "a/b" are different keys at Layer 1 (no RFC 6901 parsing).
-  let p = emptyPatch().setProp("a~1b", %1).get()
-  doAssert p.getKey("a~1b").isSome
-  doAssert p.getKey("a/b").isNone
-
-block patchJsonPointerTilde0Encoding:
-  ## "a~0b" and "a~b" are different keys at Layer 1.
-  let p = emptyPatch().setProp("a~0b", %1).get()
-  doAssert p.getKey("a~0b").isSome
-  doAssert p.getKey("a~b").isNone
-
-block patchNullValueVsDeletion:
-  ## setProp with newJNull() and deleteProp both result in JNull at the key.
-  let pSet = emptyPatch().setProp("key", newJNull()).get()
-  let pDel = emptyPatch().deleteProp("key").get()
-  doAssert pSet.len == 1
-  doAssert pDel.len == 1
-  doAssert pSet.getKey("key").get().kind == JNull
-  doAssert pDel.getKey("key").get().kind == JNull
-
-block patchJsonNodeAliasingUnderArc:
-  ## Mutating a JsonNode after setProp — verify ref sharing under ARC.
-  let node = newJObject()
-  node["original"] = newJString("value")
-  let p = emptyPatch().setProp("key", node).get()
-  ## Mutate the original node.
-  node["injected"] = newJString("new")
-  ## Under ARC with ref sharing, mutation is visible through the patch.
-  let retrieved = p.getKey("key")
-  doAssert retrieved.isSome
-  doAssert retrieved.get().hasKey("injected"),
-    "ref sharing: mutation should be visible under ARC"
-
-# =============================================================================
 # 6d) Filter tree edge cases
 # =============================================================================
 
@@ -1050,38 +1007,6 @@ block setErrorInvalidPropertiesWithExtrasContainingExistingId:
   doAssert se.properties == @["badProp"]
   doAssert se.extras.isSome
   doAssert se.extras.get()["existingId"].getStr() == "fake-id"
-
-# =============================================================================
-# PatchObject path edge cases
-# =============================================================================
-
-block patchObjectRfc6901TildeZero:
-  ## setProp preserves literal ~0 in the path (no RFC 6901 decoding at Layer 1).
-  let patch = emptyPatch().setProp("foo~0bar", %"val").get()
-  let key = patch.getKey("foo~0bar")
-  assertSome key
-  assertEq key.get().getStr(), "val"
-
-block patchObjectRfc6901TildeOne:
-  ## setProp preserves literal ~1 in the path (no RFC 6901 decoding at Layer 1).
-  let patch = emptyPatch().setProp("foo~1bar", %"val").get()
-  let key = patch.getKey("foo~1bar")
-  assertSome key
-  assertEq key.get().getStr(), "val"
-
-block patchObjectLeadingSlash:
-  ## setProp stores the key with a leading slash verbatim.
-  let patch = emptyPatch().setProp("/subject", %"val").get()
-  let key = patch.getKey("/subject")
-  assertSome key
-  assertEq key.get().getStr(), "val"
-
-block patchObjectBareSlash:
-  ## A bare "/" is a valid non-empty path and is accepted by setProp.
-  let patch = emptyPatch().setProp("/", %"val").get()
-  let key = patch.getKey("/")
-  assertSome key
-  assertEq key.get().getStr(), "val"
 
 # =============================================================================
 # 5.1) JsonNode ref-sharing documentation tests

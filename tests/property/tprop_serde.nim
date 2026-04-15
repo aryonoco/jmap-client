@@ -19,7 +19,7 @@ import jmap_client/identifiers
 import jmap_client/capabilities
 import jmap_client/session
 import jmap_client/envelope
-import jmap_client/framework {.all.}
+import jmap_client/framework
 import jmap_client/errors
 
 import ../mfixtures
@@ -190,11 +190,6 @@ block propTotalityMethodErrorArbitraryJson:
     let j = rng.genArbitraryJsonNode(2)
     lastInput = $j.kind
     discard MethodError.fromJson(j)
-block propTotalityPatchObjectArbitraryJson:
-  checkProperty "PatchObject.fromJson never crashes on arbitrary JSON":
-    let j = rng.genArbitraryJsonNode(2)
-    lastInput = $j.kind
-    discard PatchObject.fromJson(j)
 block propTotalityAddedItemArbitraryJson:
   checkProperty "AddedItem.fromJson never crashes on arbitrary JSON":
     let j = rng.genArbitraryJsonNode(2)
@@ -387,15 +382,6 @@ block propRoundTripSession:
     # in account capabilities get deduplicated by the JSON object).
     let normalised = Session.fromJson(j).get()
     doAssert sessionEq(rt, normalised), "Session round-trip identity violated"
-
-block propRoundTripPatchObject:
-  ## PatchObject JSON round-trip identity.
-  checkPropertyN "PatchObject.fromJson(patch.toJson()) == patch", ThoroughTrials:
-    let patch = rng.genPatchObject(5)
-    lastInput = $patch.len & " entries"
-    let j = patch.toJson()
-    let rt = PatchObject.fromJson(j).get()
-    doAssert rt.toJson() == j, "PatchObject round-trip identity violated"
 
 # =============================================================================
 # K. Canonical form: singular maxConcurrentRequest parses as plural

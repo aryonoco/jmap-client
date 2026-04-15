@@ -13,7 +13,7 @@ import jmap_client/validation
 import jmap_client/primitives
 import jmap_client/identifiers
 import jmap_client/envelope
-import jmap_client/framework {.all.}
+import jmap_client/framework
 import jmap_client/errors
 import jmap_client/methods_enum
 import jmap_client/serde
@@ -89,24 +89,21 @@ registerQueryableEntity(MockQueryable)
 # ===========================================================================
 
 block goldenSetRequestToJson:
-  ## Golden test section 14.2: SetRequest with create/update/destroy.
+  ## Golden test section 14.2: SetRequest with create/destroy (common fields).
+  ## Update semantics are carried by entity-specific builders post-Part F;
+  ## SetRequest[T] no longer carries an ``update`` field.
   let acctId = makeAccountId("A13824")
   let ifState = makeState("abc123")
   let cid = makeCreationId("k1")
-  let uid = makeId("id1")
   let did1 = makeId("id2")
   let did2 = makeId("id3")
   let createData = %*{"name": "New Item"}
-  let updateData = setProp(emptyPatch(), "name", %*"Updated").get()
   var createTbl = initTable[CreationId, JsonNode]()
   createTbl[cid] = createData
-  var updateTbl = initTable[Id, PatchObject]()
-  updateTbl[uid] = updateData
   let req = SetRequest[MockFoo](
     accountId: acctId,
     ifInState: Opt.some(ifState),
     create: Opt.some(createTbl),
-    update: Opt.some(updateTbl),
     destroy: Opt.some(direct(@[did1, did2])),
   )
   let j = req.toJson()
@@ -114,8 +111,7 @@ block goldenSetRequestToJson:
   doAssert j{"ifInState"}.getStr("") == "abc123"
   doAssert j{"create"}.kind == JObject
   doAssert j{"create"}{"k1"} != nil
-  doAssert j{"update"}.kind == JObject
-  doAssert j{"update"}{"id1"} != nil
+  doAssert j{"update"}.isNil
   doAssert j{"destroy"}.kind == JArray
   assertLen j{"destroy"}.getElems(@[]), 2
 
@@ -237,7 +233,6 @@ block setRequestMinimal:
     accountId: makeAccountId("a1"),
     ifInState: Opt.none(JmapState),
     create: Opt.none(Table[CreationId, JsonNode]),
-    update: Opt.none(Table[Id, PatchObject]),
     destroy: Opt.none(Referencable[seq[Id]]),
   )
   let j = req.toJson()
@@ -255,7 +250,6 @@ block setRequestWithReferencableDestroy:
     accountId: makeAccountId("a1"),
     ifInState: Opt.none(JmapState),
     create: Opt.none(Table[CreationId, JsonNode]),
-    update: Opt.none(Table[Id, PatchObject]),
     destroy: Opt.some(referenceTo[seq[Id]](rr)),
   )
   let j = req.toJson()

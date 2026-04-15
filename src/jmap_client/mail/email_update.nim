@@ -189,7 +189,7 @@ func classify(u: EmailUpdate): PathOp =
 # -----------------------------------------------------------------------------
 
 func parentPrefixConflicts(ops: openArray[PathOp]): seq[Conflict] =
-  ## Class 3 — RFC 8620 §5.3 prefix-pointer prohibition. A ``PatchObject``
+  ## Class 3 — RFC 8620 §5.3 prefix-pointer prohibition. A wire patch
   ## MUST NOT pair a full-replace on ``<p>`` with any sub-path write under
   ## ``<p>/...``; detection is the intersection of the two parent-path
   ## sets.

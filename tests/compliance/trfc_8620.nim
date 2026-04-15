@@ -17,7 +17,7 @@ import jmap_client/capabilities
 import jmap_client/session
 import jmap_client/envelope
 import jmap_client/methods_enum
-import jmap_client/framework {.all.}
+import jmap_client/framework
 import jmap_client/errors
 import jmap_client/serde
 import jmap_client/serde_envelope
@@ -712,7 +712,7 @@ block rfc8620_S3_7_resultReferenceDoubleSeparator:
   doAssert rr.rawPath == "//"
 
 # =============================================================================
-# S5.3 — PatchObject and SetError (RFC 8620 section 5.3)
+# S5.3 — SetError (RFC 8620 section 5.3)
 # =============================================================================
 
 block rfc8620_S5_3_setErrorTypesRecognised:
@@ -743,37 +743,6 @@ block rfc8620_S5_3_alreadyExistsMustIncludeExistingId:
   let se = setErrorAlreadyExists("alreadyExists", existId)
   doAssert se.errorType == setAlreadyExists
   doAssert se.existingId == existId
-
-block rfc8620_S5_3_patchObjectSetAndDelete:
-  ## PatchObject supports setting values and deleting (setting to null).
-  let p0 = emptyPatch()
-  doAssert p0.len == 0
-  let p1 = p0.setProp("subject", %"hello").get()
-  doAssert p1.len == 1
-  let p2 = p1.deleteProp("keywords/$seen").get()
-  doAssert p2.len == 2
-
-block rfc8620_S5_3_patchObjectPathImplicitLeadingSlash:
-  ## RFC S5.3: Paths have an implicit leading '/'. "subject" means "/subject".
-  let p = emptyPatch().setProp("subject", %"hello").get()
-  doAssert p.len == 1
-  doAssert p.getKey("subject").isSome
-
-block rfc8620_S5_3_patchObjectNestedPath:
-  ## Nested paths like "mailboxIds/mb1" are accepted (implicit "/mailboxIds/mb1").
-  let p = emptyPatch().setProp("mailboxIds/mb1", %true).get()
-  doAssert p.getKey("mailboxIds/mb1").isSome
-
-block rfc8620_S5_3_patchObjectNullMeansDelete:
-  ## RFC S5.3: Setting to null means delete/reset. deleteProp produces a null value.
-  let p = emptyPatch().deleteProp("keywords/$seen").get()
-  doAssert p.getKey("keywords/$seen").isSome
-  doAssert p.getKey("keywords/$seen").get().kind == JNull
-
-block rfc8620_S5_3_patchObjectTildeEscaping:
-  ## RFC 6901 tilde escaping: ~0 encodes '~', ~1 encodes '/'. Stored as-is.
-  assertOk emptyPatch().setProp("a~0b", %"val")
-  assertOk emptyPatch().setProp("a~1b", %"val")
 
 block rfc8620_S5_3_setErrorMayHaveDescription:
   ## RFC S5.3: A SetError MAY include a "description" property.
@@ -1049,12 +1018,6 @@ block rfc8620_S3_6_2_methodErrorRawTypeNonEmpty:
     let me = methodError(rt)
     doAssert me.rawType.len > 0
     doAssert me.rawType == rt
-
-block rfc8620_S5_3_patchObjectEmptyPathRejected:
-  ## PatchObject paths MUST be non-empty (RFC 6901 JSON Pointer).
-  let p = emptyPatch()
-  assertErr p.setProp("", newJObject())
-  assertErr p.deleteProp("")
 
 block rfc8620_S5_3_setErrorDefensiveFallback:
   ## Generic setError() defensively maps variant-specific types to setUnknown

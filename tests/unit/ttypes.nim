@@ -7,7 +7,7 @@ import std/json
 import std/tables
 
 import jmap_client/types
-import jmap_client/framework {.all.}
+import jmap_client/framework
 
 # --- Re-export accessibility ---
 
@@ -51,7 +51,6 @@ block reExportAccessibility:
   # framework
   let pn = parsePropertyName("name").get()
   doAssert $pn == "name"
-  doAssert emptyPatch().len == 0
   let comp = parseComparator(pn)
   doAssert comp.isAscending
 

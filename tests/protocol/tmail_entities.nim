@@ -25,6 +25,7 @@ import jmap_client/mail/mailbox
 import jmap_client/mail/email
 import jmap_client/mail/mail_filters
 import jmap_client/mail/mail_entities
+import jmap_client/mail/mail_builders
 
 import ../massertions
 import ../mfixtures
@@ -69,11 +70,6 @@ block vacationResponseGenericChangesBlocked:
   let b0 = initRequestBuilder()
   assertNotCompiles(addChanges[VacationResponse](b0, makeAccountId(), makeState()))
 
-block vacationResponseGenericSetBlocked:
-  ## Generic addSet must not compile for VacationResponse.
-  let b0 = initRequestBuilder()
-  assertNotCompiles(addSet[VacationResponse](b0, makeAccountId()))
-
 # ===========================================================================
 # C. Builder integration tests
 # ===========================================================================
@@ -116,14 +112,6 @@ block addChangesIdentity:
   let req = b1.build()
   assertLen req.methodCalls, 1
   assertEq req.methodCalls[0].name, mnIdentityChanges
-
-block addSetIdentity:
-  ## addSet[Identity] produces "Identity/set".
-  let b0 = initRequestBuilder()
-  let (b1, _) = addSet[Identity](b0, makeAccountId("a1"))
-  let req = b1.build()
-  assertLen req.methodCalls, 1
-  assertEq req.methodCalls[0].name, mnIdentitySet
 
 # ===========================================================================
 # D. Capability deduplication
@@ -189,10 +177,10 @@ block addChangesMailbox:
   assertEq req.methodCalls[0].name, mnMailboxChanges
   assertEq req.methodCalls[0].arguments{"sinceState"}.getStr(""), "s0"
 
-block addSetMailbox:
-  ## addSet[Mailbox] produces "Mailbox/set".
+block addMailboxSetMethodName:
+  ## addMailboxSet produces "Mailbox/set".
   let b0 = initRequestBuilder()
-  let (b1, _) = addSet[Mailbox](b0, makeAccountId("a1"))
+  let (b1, _) = addMailboxSet(b0, makeAccountId("a1"))
   let req = b1.build()
   assertLen req.methodCalls, 1
   assertEq req.methodCalls[0].name, mnMailboxSet
@@ -275,10 +263,10 @@ block addChangesEmail:
   assertEq inv.name, mnEmailChanges
   assertEq inv.arguments{"sinceState"}.getStr(""), "s0"
 
-block addSetEmail:
-  ## addSet[Email] produces "Email/set".
+block addEmailSetMethodName:
+  ## addEmailSet produces "Email/set".
   let b0 = initRequestBuilder()
-  let (b1, _) = addSet[Email](b0, makeAccountId("a1"))
+  let (b1, _) = addEmailSet(b0, makeAccountId("a1"))
   let req = b1.build()
   assertLen req.methodCalls, 1
   assertEq req.methodCalls[0].name, mnEmailSet

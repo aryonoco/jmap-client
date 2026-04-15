@@ -19,6 +19,8 @@ import jmap_client/methods
 import jmap_client/dispatch
 import jmap_client/builder
 import jmap_client/client
+import jmap_client/mail/mail_builders
+import jmap_client/mail/mailbox
 
 import ../massertions
 import ../mfixtures
@@ -124,7 +126,7 @@ block mixedSuccessError:
   ## Two method calls: first succeeds, second returns error.
   let b0 = initRequestBuilder()
   let (b1, gh) = addGet[TestWidget](b0, accountId = makeAccountId("A1"))
-  let (_, sh) = addSet[TestWidget](b1, accountId = makeAccountId("A1"))
+  let (_, sh) = addMailboxSet(b1, accountId = makeAccountId("A1"))
   let getJson = makeGetResponseJson(accountId = "A1", state = "s1")
   let resp = Response(
     methodResponses: @[
@@ -194,7 +196,7 @@ block queryWithFilter:
 block setResponseUnifiedMaps:
   ## Build a set request and verify unified Result map extraction.
   let b0 = initRequestBuilder()
-  let (_, sh) = addSet[TestWidget](b0, accountId = makeAccountId("A1"))
+  let (_, sh) = addMailboxSet(b0, accountId = makeAccountId("A1"))
   # Synthetic SetResponse with mixed success/failure
   let setJson = %*{
     "accountId": "A1",
@@ -204,7 +206,7 @@ block setResponseUnifiedMaps:
     "destroyed": ["w-old"],
     "notDestroyed": {"w-keep": {"type": "notFound"}},
   }
-  let resp = makeTypedResponse("TestWidget/set", setJson, makeMcid("c0"))
+  let resp = makeTypedResponse("Mailbox/set", setJson, makeMcid("c0"))
   let result = resp.get(sh)
   assertOk result
   let sr = result.get()

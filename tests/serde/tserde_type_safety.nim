@@ -17,7 +17,7 @@ import jmap_client/identifiers
 import jmap_client/capabilities
 import jmap_client/session
 import jmap_client/envelope
-import jmap_client/framework {.all.}
+import jmap_client/framework
 import jmap_client/errors
 
 import ../massertions
@@ -428,29 +428,6 @@ block comparatorWrongKindJString:
 
 block comparatorWrongKindJArray:
   assertErr Comparator.fromJson(%*[1, 2])
-
-# --- PatchObject ---
-
-block patchObjectWrongKindNil:
-  assertErr PatchObject.fromJson(nilNode)
-
-block patchObjectWrongKindJNull:
-  assertErr PatchObject.fromJson(newJNull())
-
-block patchObjectWrongKindJBool:
-  assertErr PatchObject.fromJson(newJBool(true))
-
-block patchObjectWrongKindJInt:
-  assertErr PatchObject.fromJson(%42)
-
-block patchObjectWrongKindJFloat:
-  assertErr PatchObject.fromJson(newJFloat(3.14))
-
-block patchObjectWrongKindJString:
-  assertErr PatchObject.fromJson(%"hello")
-
-block patchObjectWrongKindJArray:
-  assertErr PatchObject.fromJson(%*[1, 2])
 
 # --- AddedItem ---
 

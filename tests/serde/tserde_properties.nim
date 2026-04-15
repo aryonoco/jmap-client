@@ -21,7 +21,7 @@ import jmap_client/identifiers
 import jmap_client/capabilities
 import jmap_client/session
 import jmap_client/envelope
-import jmap_client/framework {.all.}
+import jmap_client/framework
 import jmap_client/errors
 import jmap_client/validation
 
@@ -99,16 +99,6 @@ checkProperty "Comparator serde round-trip":
   doAssert v.isAscending == original.isAscending
   doAssert v.collation == original.collation
 
-checkProperty "PatchObject serde round-trip (value equality)":
-  let original = rng.genPatchObject(5)
-  let v = PatchObject.fromJson(original.toJson()).get()
-  doAssert v.len == original.len, "PatchObject round-trip length differs"
-  # Verify all paths survived (toJson -> fromJson preserves keys)
-  let originalJson = original.toJson()
-  let rtJson = v.toJson()
-  for key, val in originalJson.pairs:
-    doAssert rtJson{key} != nil, "PatchObject key '" & key & "' lost in round-trip"
-
 checkProperty "AddedItem serde round-trip":
   let original = rng.genAddedItem()
   let v = AddedItem.fromJson(original.toJson()).get()
@@ -179,9 +169,6 @@ checkPropertyN "Filter[int].fromJson never crashes on arbitrary JSON", QuickTria
 checkPropertyN "Comparator.fromJson never crashes on arbitrary JSON", QuickTrials:
   let node = rng.genArbitraryJsonNode(2)
   discard Comparator.fromJson(node)
-checkPropertyN "PatchObject.fromJson never crashes on arbitrary JSON", QuickTrials:
-  let node = rng.genArbitraryJsonNode(2)
-  discard PatchObject.fromJson(node)
 checkPropertyN "AddedItem.fromJson never crashes on arbitrary JSON", QuickTrials:
   let node = rng.genArbitraryJsonNode(2)
   discard AddedItem.fromJson(node)

@@ -2,10 +2,11 @@
 # Copyright (c) 2026 Aryan Ameri
 
 ## Serialisation for EmailUpdate and EmailUpdateSet (RFC 8621 §4.6 update
-## semantics). Flattens the typed update algebra to an RFC 8620 §5.3
-## ``PatchObject``-shaped ``JsonNode``, with RFC 6901 JSON Pointer escaping
-## on keyword reference tokens. Sender-side only — creation types admit no
-## ``fromJson`` per the Postel-strict construction rule.
+## semantics). Flattens the typed update algebra to an RFC 8620 §5.3 wire
+## patch ``JsonNode`` (JSON-Pointer-keyed object), with RFC 6901 JSON
+## Pointer escaping on keyword reference tokens. Sender-side only —
+## creation types admit no ``fromJson`` per the Postel-strict construction
+## rule.
 
 {.push raises: [], noSideEffect.}
 

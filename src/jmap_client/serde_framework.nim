@@ -2,19 +2,14 @@
 # Copyright (c) 2026 Aryan Ameri
 
 ## Serialisation for JMAP framework types: FilterOperator, Comparator,
-## Filter[C], PatchObject, and AddedItem (RFC 8620 sections 5.3, 5.5, 5.6).
+## Filter[C], and AddedItem (RFC 8620 sections 5.5, 5.6).
 
 {.push raises: [], noSideEffect.}
 
 import std/json
-import std/tables
 
 import ./serde
 import ./types
-# {.all.} pulls in the module-private `PatchObject` whose `toJson` and
-# `fromJson` are exported from this file (Part F Phase 4, design §1.5.3 —
-# type is internal-only but its wire serde is public surface).
-import ./framework {.all.}
 
 # =============================================================================
 # FilterOperator
@@ -136,33 +131,6 @@ func fromJson*[C](
   ## MaxFilterDepth to prevent stack overflow on pathological input.
   discard $T # consumed for nimalyzer params rule
   return fromJsonImpl[C](node, fromCondition, MaxFilterDepth)
-
-# =============================================================================
-# PatchObject
-# =============================================================================
-
-func toJson*(patch: PatchObject): JsonNode =
-  ## Serialise PatchObject to JSON. Keys are JSON Pointer paths,
-  ## null values represent property deletion.
-  let tbl = Table[string, JsonNode](patch)
-  var node = newJObject()
-  for path, value in tbl:
-    node[path] = value
-  return node
-
-func fromJson*(
-    T: typedesc[PatchObject], node: JsonNode
-): Result[PatchObject, ValidationError] =
-  ## Deserialise JSON to PatchObject using smart constructors.
-  ## null values -> deleteProp, other values -> setProp.
-  ?checkJsonKind(node, JObject, $T)
-  var patch = emptyPatch()
-  for path, value in node.pairs:
-    if value.isNil or value.kind == JNull:
-      patch = ?deleteProp(patch, path)
-    else:
-      patch = ?setProp(patch, path, value)
-  return ok(patch)
 
 # =============================================================================
 # AddedItem

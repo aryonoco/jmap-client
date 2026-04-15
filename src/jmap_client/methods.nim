@@ -18,10 +18,6 @@ import std/tables
 
 import ./types
 import ./serialisation
-# {.all.} pulls in the module-private `PatchObject`: `SetRequest[T]` stores
-# the wire update map as `Opt[Table[Id, PatchObject]]` and its `toJson`
-# iterates that map (Part F Phase 4, design §1.5.3).
-import ./framework {.all.}
 
 # =============================================================================
 # Lenient Option helpers (internal, not exported)
@@ -76,9 +72,6 @@ type SetRequest*[T] = object
   create*: Opt[Table[CreationId, JsonNode]]
     ## A map of creation identifiers to entity data objects. Entity data is
     ## JsonNode because Layer 3 Core cannot know T's serialisation format.
-  update*: Opt[Table[Id, PatchObject]]
-    ## A map of record identifiers to PatchObject values representing the
-    ## changes to apply.
   destroy*: Opt[Referencable[seq[Id]]]
     ## A list of identifiers for records to permanently delete. Referencable:
     ## may be a direct seq or a result reference.
@@ -394,8 +387,10 @@ func toJson*[T](req: ChangesRequest[T]): JsonNode =
 
 func toJson*[T](req: SetRequest[T]): JsonNode =
   ## Serialise SetRequest to JSON arguments object (RFC 8620 section 5.3).
-  ## Omits ``ifInState``, ``create``, ``update``, ``destroy`` when none.
-  ## Dispatches Referencable destroy via referencableKey.
+  ## Common fields only — ``update`` is assembled by entity-specific
+  ## builders from their typed update algebras (``EmailUpdateSet``,
+  ## ``MailboxUpdateSet``, ``VacationResponseUpdateSet``) and merged into
+  ## the args after this call returns.
   var node = newJObject()
   node["accountId"] = req.accountId.toJson()
   for s in req.ifInState:
@@ -405,11 +400,6 @@ func toJson*[T](req: SetRequest[T]): JsonNode =
     for k, v in createMap:
       createObj[string(k)] = v
     node["create"] = createObj
-  for updateMap in req.update:
-    var updateObj = newJObject()
-    for k, v in updateMap:
-      updateObj[string(k)] = v.toJson()
-    node["update"] = updateObj
   for destroyVal in req.destroy:
     let destroyKey = referencableKey("destroy", destroyVal)
     case destroyVal.kind
