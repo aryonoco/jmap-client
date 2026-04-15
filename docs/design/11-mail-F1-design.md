@@ -242,7 +242,7 @@ algebra the **only** public path to mail `/set` update semantics.
 | `mail/vacation.nim` | L1 | extended | `VacationResponseUpdate`, `VacationResponseUpdateSet`, `initVacationResponseUpdateSet` |
 | `mail/serde_vacation.nim` | L2 | extended | `toJson` for `VacationResponseUpdate`, `VacationResponseUpdateSet` |
 | `mail/mail_builders.nim` | L3 | extended | `addEmailSet`, `addEmailCopy`, `addEmailCopyAndDestroy`, `EmailCopyHandles`, `EmailCopyResults`, `getBoth(EmailCopyHandles)`; `addMailboxSet`'s `update` parameter migrated to `Opt[Table[Id, MailboxUpdateSet]]` |
-| `mail/mail_methods.nim` | L3 | extended | `addEmailImport` + `EmailImportResponse.fromJson`; `addVacationResponseSet`'s `update` parameter migrated to `VacationResponseUpdateSet` |
+| `mail/mail_methods.nim` | L3 | extended | `addEmailImport`; `addVacationResponseSet`'s `update` parameter migrated to `VacationResponseUpdateSet` (`EmailImportResponse.fromJson` lives in `serde_email.nim` per L2/L3 layer split) |
 | `methods_enum.nim` | L1 | extended | `mnEmailImport` enum variant |
 | `mail/mail_entities.nim` | L1 | extended | `importMethodName` constant on `Email` |
 | `framework.nim` | L1 | modified | `PatchObject*` loses `*` export (F19) |
