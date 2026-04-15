@@ -4,3 +4,5 @@
 #
 # tprop_mail_e.nim: ~100+s, 18 EmailBlueprint property groups (A-D).
 tests/property/tprop_mail_e.nim
+# tadversarial_mail_f.nim: ~85 tests incl. 10k (<=500ms) and 100k (<=5s) scale.
+tests/stress/tadversarial_mail_f.nim
