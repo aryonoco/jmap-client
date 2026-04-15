@@ -572,8 +572,10 @@ proc fetchSession*(client: var JmapClient): JmapResult[Session] =
       return err(classifyException(e))
   let jsonNode = ?classifyHttpResponse(client.maxResponseBytes, httpResp, rcSession)
   let session = Session.fromJson(jsonNode).mapErr(
-      proc(ve: ValidationError): ClientError =
-        validationToClientErrorCtx(ve, "invalid session: ")
+      proc(sv: SerdeViolation): ClientError =
+        validationToClientErrorCtx(
+          toValidationError(sv, "Session"), "invalid session: "
+        )
     )
   let s = ?session
   client.session = Opt.some(s)
@@ -632,8 +634,10 @@ proc send*(client: var JmapClient, request: Request): JmapResult[envelope.Respon
 
   # Step 9: Deserialise Response
   return envelope.Response.fromJson(respJson).mapErr(
-      proc(ve: ValidationError): ClientError =
-        validationToClientErrorCtx(ve, "invalid response: ")
+      proc(sv: SerdeViolation): ClientError =
+        validationToClientErrorCtx(
+          toValidationError(sv, "Response"), "invalid response: "
+        )
     )
 
 func isSessionStale*(client: JmapClient, response: envelope.Response): bool =

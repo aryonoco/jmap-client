@@ -853,24 +853,24 @@ block wrongCasedFieldRequestMethodCalls:
   let j = %*{
     "using": ["urn:ietf:params:jmap:core"], "MethodCalls": [["Mailbox/get", {}, "c0"]]
   }
-  assertErrContains Request.fromJson(j), "missing or invalid methodCalls"
+  assertErrContains Request.fromJson(j), "methodCalls"
 
 block wrongCasedFieldRequestUsing:
   ## "Using" (PascalCase) instead of "using".
   let j = %*{
     "Using": ["urn:ietf:params:jmap:core"], "methodCalls": [["Mailbox/get", {}, "c0"]]
   }
-  assertErrContains Request.fromJson(j), "missing or invalid using"
+  assertErrContains Request.fromJson(j), "using"
 
 block wrongCasedFieldResponseMethodResponses:
   ## "method_responses" (snake_case) instead of "methodResponses".
   let j = %*{"method_responses": [["Mailbox/get", {}, "c0"]], "sessionState": "s1"}
-  assertErrContains Response.fromJson(j), "missing or invalid methodResponses"
+  assertErrContains Response.fromJson(j), "methodResponses"
 
 block wrongCasedFieldResponseSessionState:
   ## "SessionState" (PascalCase) instead of "sessionState".
   let j = %*{"methodResponses": [["Mailbox/get", {}, "c0"]], "SessionState": "s1"}
-  assertErrContains Response.fromJson(j), "missing or invalid sessionState"
+  assertErrContains Response.fromJson(j), "sessionState"
 
 block wrongCasedFieldSessionCapabilities:
   ## "Capabilities" (PascalCase) instead of "capabilities" in Session JSON.
@@ -890,7 +890,7 @@ block wrongCasedFieldSessionCapabilities:
       "https://jmap.example.com/eventsource/?types={types}&closeafter={closeafter}&ping={ping}",
     "state": "s1",
   }
-  assertErrContains Session.fromJson(j2), "missing or invalid capabilities"
+  assertErrContains Session.fromJson(j2), "capabilities"
 
 block wrongCasedFieldSessionUsername:
   ## "user_name" (snake_case) instead of "username" in Session JSON.
@@ -906,7 +906,7 @@ block wrongCasedFieldSessionUsername:
     "eventSourceUrl": j["eventSourceUrl"],
     "state": "s1",
   }
-  assertErrContains Session.fromJson(j2), "missing or invalid username"
+  assertErrContains Session.fromJson(j2), "username"
 
 # =============================================================================
 # Phase 5C: Path injection tests (ResultReference)

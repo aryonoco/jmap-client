@@ -8,6 +8,7 @@ import std/json
 import std/sets
 import std/tables
 
+import jmap_client/serde
 import jmap_client/serde_session
 import jmap_client/primitives
 import jmap_client/capabilities
@@ -126,8 +127,7 @@ block coreCapabilitiesDeserCollationNonString:
     "maxObjectsInSet": 1,
     "collationAlgorithms": [42],
   }
-  assertErrContains CoreCapabilities.fromJson(j),
-    "collationAlgorithms element must be string"
+  assertErrContains CoreCapabilities.fromJson(j), "at /collationAlgorithms/"
 
 block coreCapabilitiesDeserCollationWrongKind:
   let j = %*{
@@ -140,8 +140,7 @@ block coreCapabilitiesDeserCollationWrongKind:
     "maxObjectsInSet": 1,
     "collationAlgorithms": "notarray",
   }
-  assertErrContains CoreCapabilities.fromJson(j),
-    "missing or invalid collationAlgorithms"
+  assertErrContains CoreCapabilities.fromJson(j), "collationAlgorithms"
 
 block coreCapabilitiesDeserNotObjectOrNil:
   assertErr CoreCapabilities.fromJson(%*[1, 2, 3])
@@ -188,7 +187,7 @@ block coreCapabilitiesDeserNeitherPresent:
     "maxObjectsInSet": 1,
     "collationAlgorithms": [],
   }
-  assertErrContains CoreCapabilities.fromJson(j), "missing maxConcurrentRequests"
+  assertErrContains CoreCapabilities.fromJson(j), "maxConcurrentRequests"
 
 # =============================================================================
 # B. ServerCapability
@@ -216,7 +215,13 @@ block serverCapabilityDeserCkCoreValid:
 
 block serverCapabilityDeserCkCoreMissingField:
   let j = %*{"maxSizeUpload": 1}
-  assertErrType ServerCapability.fromJson("urn:ietf:params:jmap:core", j), "UnsignedInt"
+  ## Missing required field surfaces as ``svkNilNode`` (the field wasn't
+  ## present, so the descent into the distinct-int fromJson sees a nil
+  ## node). Path carries the field name for diagnostic precision.
+  let res = ServerCapability.fromJson("urn:ietf:params:jmap:core", j)
+  doAssert res.isErr
+  doAssert res.error.kind == svkNilNode
+  doAssert res.error.expectedKindForNil == JInt
 
 block serverCapabilityDeserUnknownUri:
   let data = %*{"maxFoosFinangled": 42}
@@ -248,9 +253,11 @@ block serverCapabilityToJsonNilVsNonNilRawData:
 
 block serverCapabilityCoreBranchInvalidCoreData:
   ## Passing a JArray instead of JObject for ckCore capability data must return err.
-  let data = %*[1, 2, 3]
-  assertErrContains ServerCapability.fromJson("urn:ietf:params:jmap:core", data),
-    "core capability data must be JSON object"
+  let res = ServerCapability.fromJson("urn:ietf:params:jmap:core", %*[1, 2, 3])
+  doAssert res.isErr
+  doAssert res.error.kind == svkWrongKind
+  doAssert res.error.expectedKind == JObject
+  doAssert res.error.actualKind == JArray
 
 # =============================================================================
 # C. ServerCapability variant round-trips and edge cases
@@ -427,7 +434,7 @@ block coreCapsMissingMaxConcurrentRequests:
   # validCoreCapsJson uses plural form; verify it is now absent
   doAssert j{"maxConcurrentRequests"}.isNil
   doAssert j{"maxConcurrentRequest"}.isNil
-  assertErrContains CoreCapabilities.fromJson(j), "missing maxConcurrentRequests"
+  assertErrContains CoreCapabilities.fromJson(j), "maxConcurrentRequests"
 
 block coreCapsMissingMaxCallsInRequest:
   var j = validCoreCapsJson()
@@ -447,8 +454,7 @@ block coreCapsMissingMaxObjectsInSet:
 block coreCapsMissingCollationAlgorithms:
   var j = validCoreCapsJson()
   j.delete("collationAlgorithms")
-  assertErrContains CoreCapabilities.fromJson(j),
-    "missing or invalid collationAlgorithms"
+  assertErrContains CoreCapabilities.fromJson(j), "collationAlgorithms"
 
 # =============================================================================
 # I. Phase 3I: AccountCapabilityEntry boundary tests

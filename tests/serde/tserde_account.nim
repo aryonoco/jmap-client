@@ -96,32 +96,32 @@ block accountDeserNotObjectOrNil:
 
 block accountDeserMissingName:
   let j = %*{"isPersonal": true, "isReadOnly": false, "accountCapabilities": {}}
-  assertErrContains Account.fromJson(j), "missing or invalid name"
+  assertErrContains Account.fromJson(j), "name"
 
 block accountDeserMissingIsPersonal:
   ## Phase 3B: missing isPersonal field must return err.
   let j = %*{"name": "test", "isReadOnly": false, "accountCapabilities": {}}
-  assertErrContains Account.fromJson(j), "missing or invalid isPersonal"
+  assertErrContains Account.fromJson(j), "isPersonal"
 
 block accountDeserMissingIsReadOnly:
   ## Phase 3B: missing isReadOnly field must return err.
   let j = %*{"name": "test", "isPersonal": true, "accountCapabilities": {}}
-  assertErrContains Account.fromJson(j), "missing or invalid isReadOnly"
+  assertErrContains Account.fromJson(j), "isReadOnly"
 
 block accountDeserWrongKindIsPersonal:
   let j = %*{
     "name": "test", "isPersonal": "true", "isReadOnly": false, "accountCapabilities": {}
   }
-  assertErrContains Account.fromJson(j), "missing or invalid isPersonal"
+  assertErrContains Account.fromJson(j), "at /isPersonal"
 
 block accountDeserWrongKindIsReadOnly:
   let j =
     %*{"name": "test", "isPersonal": true, "isReadOnly": 1, "accountCapabilities": {}}
-  assertErrContains Account.fromJson(j), "missing or invalid isReadOnly"
+  assertErrContains Account.fromJson(j), "at /isReadOnly"
 
 block accountDeserMissingAccountCapabilities:
   let j = %*{"name": "test", "isPersonal": true, "isReadOnly": false}
-  assertErrContains Account.fromJson(j), "missing or invalid accountCapabilities"
+  assertErrContains Account.fromJson(j), "accountCapabilities"
 
 block accountDeserEmptyAccountCapabilities:
   let j = %*{

@@ -101,16 +101,19 @@ type
 # =============================================================================
 
 func emailParseResponseFromJson*(
-    node: JsonNode
-): Result[EmailParseResponse, ValidationError] =
+    node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[EmailParseResponse, SerdeViolation] =
   ## Deserialise server JSON to ``EmailParseResponse``.
   ## Wire key ``"notParsable"`` maps to Nim field ``notParseable``.
-  const typeName = "EmailParseResponse"
-  ?checkJsonKind(node, JObject, typeName)
-  let accountId = ?AccountId.fromJson(node{"accountId"})
-  let parsed = ?parseIdKeyedTable[ParsedEmail](node{"parsed"}, parsedEmailFromJson)
-  let notParseable = ?collapseNullToEmptySeq(node, "notParsable", parseIdFromServer)
-  let notFound = ?collapseNullToEmptySeq(node, "notFound", parseIdFromServer)
+  ?expectKind(node, JObject, path)
+  let accountIdNode = ?fieldJString(node, "accountId", path)
+  let accountId = ?AccountId.fromJson(accountIdNode, path / "accountId")
+  let parsed = ?parseIdKeyedTable[ParsedEmail](
+    node{"parsed"}, parsedEmailFromJson, path / "parsed"
+  )
+  let notParseable =
+    ?collapseNullToEmptySeq(node, "notParsable", parseIdFromServer, path)
+  let notFound = ?collapseNullToEmptySeq(node, "notFound", parseIdFromServer, path)
   ok(
     EmailParseResponse(
       accountId: accountId,
@@ -125,22 +128,22 @@ func emailParseResponseFromJson*(
 # =============================================================================
 
 func searchSnippetGetResponseFromJson*(
-    node: JsonNode
-): Result[SearchSnippetGetResponse, ValidationError] =
+    node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[SearchSnippetGetResponse, SerdeViolation] =
   ## Deserialise server JSON to ``SearchSnippetGetResponse``.
-  const typeName = "SearchSnippetGetResponse"
-  ?checkJsonKind(node, JObject, typeName)
-  let accountId = ?AccountId.fromJson(node{"accountId"})
+  ?expectKind(node, JObject, path)
+  let accountIdNode = ?fieldJString(node, "accountId", path)
+  let accountId = ?AccountId.fromJson(accountIdNode, path / "accountId")
   let listNode = node{"list"}
   let list =
     if listNode.isNil or listNode.kind != JArray:
       newSeq[SearchSnippet]()
     else:
       var snippets: seq[SearchSnippet] = @[]
-      for elem in listNode.getElems(@[]):
-        snippets.add(?searchSnippetFromJson(elem))
+      for i, elem in listNode.getElems(@[]):
+        snippets.add(?searchSnippetFromJson(elem, path / "list" / i))
       snippets
-  let notFound = ?collapseNullToEmptySeq(node, "notFound", parseIdFromServer)
+  let notFound = ?collapseNullToEmptySeq(node, "notFound", parseIdFromServer, path)
   ok(SearchSnippetGetResponse(accountId: accountId, list: list, notFound: notFound))
 
 # =============================================================================

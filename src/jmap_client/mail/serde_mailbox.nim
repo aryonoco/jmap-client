@@ -25,27 +25,29 @@ defineDistinctStringFromJson(MailboxRole, parseMailboxRole)
 # =============================================================================
 
 func parseBoolField(
-    node: JsonNode, key, typeName: string
-): Result[bool, ValidationError] =
-  ## Extracts a required boolean field, returning ValidationError if absent or non-bool.
-  ?checkJsonKind(node{key}, JBool, typeName, "missing or invalid " & key)
-  return ok(node{key}.getBool(false))
+    node: JsonNode, key: string, path: JsonPath
+): Result[bool, SerdeViolation] =
+  ## Extracts a required boolean field.
+  let field = ?fieldJBool(node, key, path)
+  return ok(field.getBool(false))
 
-func parseOptId(node: JsonNode, key: string): Result[Opt[Id], ValidationError] =
+func parseOptId(
+    node: JsonNode, key: string, path: JsonPath
+): Result[Opt[Id], SerdeViolation] =
   ## Extracts an optional Id field: nil/JNull yields Opt.none, otherwise parses via Id.fromJson.
   let field = node{key}
   if field.isNil or field.kind == JNull:
     return ok(Opt.none(Id))
-  return ok(Opt.some(?Id.fromJson(field)))
+  return ok(Opt.some(?Id.fromJson(field, path / key)))
 
 func parseOptMailboxRole(
-    node: JsonNode, key: string
-): Result[Opt[MailboxRole], ValidationError] =
+    node: JsonNode, key: string, path: JsonPath
+): Result[Opt[MailboxRole], SerdeViolation] =
   ## Extracts an optional MailboxRole field: nil/JNull yields Opt.none, otherwise parses via MailboxRole.fromJson.
   let field = node{key}
   if field.isNil or field.kind == JNull:
     return ok(Opt.none(MailboxRole))
-  return ok(Opt.some(?MailboxRole.fromJson(field)))
+  return ok(Opt.some(?MailboxRole.fromJson(field, path / key)))
 
 # =============================================================================
 # MailboxIdSet
@@ -58,15 +60,34 @@ func toJson*(ms: MailboxIdSet): JsonNode =
     node[$id] = newJBool(true)
   return node
 
-func fromJson*(T: typedesc[MailboxIdSet], node: JsonNode): Result[T, ValidationError] =
+func fromJson*(
+    T: typedesc[MailboxIdSet], node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[T, SerdeViolation] =
   ## Deserialise ``{"id": true, ...}`` to MailboxIdSet. Rejects non-object,
   ## non-boolean values, and explicit ``false``.
-  ?checkJsonKind(node, JObject, $T)
+  discard $T # consumed for nimalyzer params rule
+  ?expectKind(node, JObject, path)
   var hs = initHashSet[Id](node.len)
   for key, val in node.pairs:
-    if val.kind != JBool or not val.getBool(false):
-      return err(validationError($T, "all mailbox id values must be true", key))
-    let id = ?parseIdFromServer(key)
+    if val.kind != JBool:
+      return err(
+        SerdeViolation(
+          kind: svkWrongKind,
+          path: path / key,
+          expectedKind: JBool,
+          actualKind: val.kind,
+        )
+      )
+    if not val.getBool(false):
+      return err(
+        SerdeViolation(
+          kind: svkEnumNotRecognised,
+          path: path / key,
+          enumTypeLabel: "mailbox id value",
+          rawValue: "false",
+        )
+      )
+    let id = ?wrapInner(parseIdFromServer(key), path / key)
     hs.incl(id)
   return ok(MailboxIdSet(hs))
 
@@ -106,19 +127,20 @@ func toJson*(mr: MailboxRights): JsonNode =
   return node
 
 func fromJson*(
-    T: typedesc[MailboxRights], node: JsonNode
-): Result[MailboxRights, ValidationError] =
+    T: typedesc[MailboxRights], node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[MailboxRights, SerdeViolation] =
   ## Deserialise JSON object to MailboxRights. All 9 boolean fields are required.
-  ?checkJsonKind(node, JObject, $T)
-  let mayReadItems = ?parseBoolField(node, "mayReadItems", "MailboxRights")
-  let mayAddItems = ?parseBoolField(node, "mayAddItems", "MailboxRights")
-  let mayRemoveItems = ?parseBoolField(node, "mayRemoveItems", "MailboxRights")
-  let maySetSeen = ?parseBoolField(node, "maySetSeen", "MailboxRights")
-  let maySetKeywords = ?parseBoolField(node, "maySetKeywords", "MailboxRights")
-  let mayCreateChild = ?parseBoolField(node, "mayCreateChild", "MailboxRights")
-  let mayRename = ?parseBoolField(node, "mayRename", "MailboxRights")
-  let mayDelete = ?parseBoolField(node, "mayDelete", "MailboxRights")
-  let maySubmit = ?parseBoolField(node, "maySubmit", "MailboxRights")
+  discard $T # consumed for nimalyzer params rule
+  ?expectKind(node, JObject, path)
+  let mayReadItems = ?parseBoolField(node, "mayReadItems", path)
+  let mayAddItems = ?parseBoolField(node, "mayAddItems", path)
+  let mayRemoveItems = ?parseBoolField(node, "mayRemoveItems", path)
+  let maySetSeen = ?parseBoolField(node, "maySetSeen", path)
+  let maySetKeywords = ?parseBoolField(node, "maySetKeywords", path)
+  let mayCreateChild = ?parseBoolField(node, "mayCreateChild", path)
+  let mayRename = ?parseBoolField(node, "mayRename", path)
+  let mayDelete = ?parseBoolField(node, "mayDelete", path)
+  let maySubmit = ?parseBoolField(node, "maySubmit", path)
   return ok(
     MailboxRights(
       mayReadItems: mayReadItems,
@@ -159,25 +181,34 @@ func toJson*(mbx: Mailbox): JsonNode =
   node["isSubscribed"] = %mbx.isSubscribed
   return node
 
-func fromJson*(T: typedesc[Mailbox], node: JsonNode): Result[Mailbox, ValidationError] =
+func fromJson*(
+    T: typedesc[Mailbox], node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[Mailbox, SerdeViolation] =
   ## Deserialise JSON object to Mailbox. Validates all required fields.
   ## Rejects absent, null, or empty name. Absent or null parentId/role
   ## yield Opt.none.
-  ?checkJsonKind(node, JObject, $T)
-  let id = ?Id.fromJson(node{"id"})
-  ?checkJsonKind(node{"name"}, JString, $T, "missing or invalid name")
-  let name = node{"name"}.getStr("")
-  if name.len == 0:
-    return err(parseError($T, "name must not be empty"))
-  let parentId = ?parseOptId(node, "parentId")
-  let role = ?parseOptMailboxRole(node, "role")
-  let sortOrder = ?UnsignedInt.fromJson(node{"sortOrder"})
-  let totalEmails = ?UnsignedInt.fromJson(node{"totalEmails"})
-  let unreadEmails = ?UnsignedInt.fromJson(node{"unreadEmails"})
-  let totalThreads = ?UnsignedInt.fromJson(node{"totalThreads"})
-  let unreadThreads = ?UnsignedInt.fromJson(node{"unreadThreads"})
-  let myRights = ?MailboxRights.fromJson(node{"myRights"})
-  let isSubscribed = ?parseBoolField(node, "isSubscribed", "Mailbox")
+  discard $T # consumed for nimalyzer params rule
+  ?expectKind(node, JObject, path)
+  let idNode = ?fieldJString(node, "id", path)
+  let id = ?Id.fromJson(idNode, path / "id")
+  let nameNode = ?fieldJString(node, "name", path)
+  let name = nameNode.getStr("")
+  ?nonEmptyStr(name, "name", path / "name")
+  let parentId = ?parseOptId(node, "parentId", path)
+  let role = ?parseOptMailboxRole(node, "role", path)
+  let sortOrderNode = ?fieldJInt(node, "sortOrder", path)
+  let sortOrder = ?UnsignedInt.fromJson(sortOrderNode, path / "sortOrder")
+  let totalEmailsNode = ?fieldJInt(node, "totalEmails", path)
+  let totalEmails = ?UnsignedInt.fromJson(totalEmailsNode, path / "totalEmails")
+  let unreadEmailsNode = ?fieldJInt(node, "unreadEmails", path)
+  let unreadEmails = ?UnsignedInt.fromJson(unreadEmailsNode, path / "unreadEmails")
+  let totalThreadsNode = ?fieldJInt(node, "totalThreads", path)
+  let totalThreads = ?UnsignedInt.fromJson(totalThreadsNode, path / "totalThreads")
+  let unreadThreadsNode = ?fieldJInt(node, "unreadThreads", path)
+  let unreadThreads = ?UnsignedInt.fromJson(unreadThreadsNode, path / "unreadThreads")
+  let myRightsNode = ?fieldJObject(node, "myRights", path)
+  let myRights = ?MailboxRights.fromJson(myRightsNode, path / "myRights")
+  let isSubscribed = ?parseBoolField(node, "isSubscribed", path)
   return ok(
     Mailbox(
       id: id,

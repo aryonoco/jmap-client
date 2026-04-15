@@ -172,7 +172,7 @@ block requestErrorDeserTypeWrongKind:
 
 block requestErrorDeserEmptyType:
   let j = %*{"type": ""}
-  assertErrContains RequestError.fromJson(j), "empty type field"
+  assertErrContains RequestError.fromJson(j), "type field must not be empty"
 
 block requestErrorDeserUnknownType:
   let j = %*{"type": "urn:example:custom"}
@@ -209,7 +209,7 @@ block methodErrorDeserTypeWrongKind:
 
 block methodErrorDeserEmptyType:
   let j = %*{"type": ""}
-  assertErrContains MethodError.fromJson(j), "empty type field"
+  assertErrContains MethodError.fromJson(j), "type field must not be empty"
 
 block methodErrorDeserUnknownType:
   let j = %*{"type": "customVendorError"}
@@ -264,7 +264,7 @@ block setErrorDeserInvalidPropertiesWrongKind:
 
 block setErrorDeserInvalidPropertiesNonStringElement:
   let j = %*{"type": "invalidProperties", "properties": [42]}
-  assertErrContains SetError.fromJson(j), "properties element must be string"
+  assertErrContains SetError.fromJson(j), "at /properties/"
 
 block setErrorDeserAlreadyExistsWithId:
   let j = %*{"type": "alreadyExists", "existingId": "msg42"}

@@ -26,16 +26,17 @@ func toJson*(t: thread.Thread): JsonNode =
   return node
 
 func fromJson*(
-    T: typedesc[thread.Thread], node: JsonNode
-): Result[thread.Thread, ValidationError] =
+    T: typedesc[thread.Thread], node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[thread.Thread, SerdeViolation] =
   ## Deserialise JSON object to Thread. Rejects absent, null, or wrong-type
   ## fields. Delegates to parseThread which enforces non-empty emailIds.
-  ?checkJsonKind(node, JObject, "Thread")
-  let id = ?Id.fromJson(node{"id"})
-  let emailIdsNode = node{"emailIds"}
-  ?checkJsonKind(emailIdsNode, JArray, "Thread", "missing or invalid emailIds")
+  discard $T # consumed for nimalyzer params rule
+  ?expectKind(node, JObject, path)
+  let idNode = ?fieldJString(node, "id", path)
+  let id = ?Id.fromJson(idNode, path / "id")
+  let emailIdsNode = ?fieldJArray(node, "emailIds", path)
   var emailIds: seq[Id] = @[]
-  for elem in emailIdsNode.getElems(@[]):
-    let eid = ?Id.fromJson(elem)
+  for i, elem in emailIdsNode.getElems(@[]):
+    let eid = ?Id.fromJson(elem, path / "emailIds" / i)
     emailIds.add(eid)
-  return parseThread(id, emailIds)
+  return wrapInner(parseThread(id, emailIds), path)

@@ -13,9 +13,10 @@ proc intToJson*(c: int): JsonNode =
   ## Serialise an int condition to a JSON object for Filter[int] tests.
   %*{"value": c}
 
-proc fromIntCondition*(n: JsonNode): Result[int, ValidationError] =
+proc fromIntCondition*(
+    n: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[int, SerdeViolation] =
   ## Deserialise a JSON object to int for Filter[int] tests.
-  ?checkJsonKind(n, JObject, "int")
-  let vNode = n{"value"}
-  ?checkJsonKind(vNode, JInt, "int", "missing or invalid value")
+  ?expectKind(n, JObject, path)
+  let vNode = ?fieldJInt(n, "value", path)
   ok(vNode.getInt(0))

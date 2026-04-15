@@ -11,13 +11,15 @@ import ../serde
 import ../types
 import ./snippet
 
-func searchSnippetFromJson*(node: JsonNode): Result[SearchSnippet, ValidationError] =
+func searchSnippetFromJson*(
+    node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[SearchSnippet, SerdeViolation] =
   ## Deserialises a SearchSnippet from server JSON.
   ## ``emailId`` is required; ``subject`` and ``preview`` are optional
   ## (absent/null yields ``Opt.none``).
-  const typeName = "SearchSnippet"
-  ?checkJsonKind(node, JObject, typeName)
-  let emailId = ?Id.fromJson(node{"emailId"})
+  ?expectKind(node, JObject, path)
+  let emailIdNode = ?fieldJString(node, "emailId", path)
+  let emailId = ?Id.fromJson(emailIdNode, path / "emailId")
   let subject = block:
     let f = optJsonField(node, "subject", JString)
     if f.isSome:

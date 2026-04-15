@@ -11,6 +11,7 @@ import std/times
 import jmap_client/validation
 import jmap_client/errors
 import jmap_client/capabilities
+import jmap_client/serde
 import jmap_client/mail/email_blueprint
 import jmap_client/mail/headers
 
@@ -31,11 +32,24 @@ template assertErr*(expr: untyped) =
   let res = expr
   doAssert res.isErr, "expected Err result, got Ok"
 
+template toValidationShape(err: untyped): ValidationError =
+  ## Normalises an error rail value to ``ValidationError`` shape so the
+  ## existing substring/field-matching helpers dispatch against either
+  ## an L1 ``ValidationError`` (unchanged) or an L2 ``SerdeViolation``
+  ## (translated via ``toValidationError``). The ``rootType`` of
+  ## ``"Serde"`` is a synthetic label — tests should prefer
+  ## ``assertSvKind`` / ``assertSvInner`` when asserting at the serde
+  ## boundary; this bridge only preserves existing substring tests.
+  when err is SerdeViolation:
+    toValidationError(err, "Serde")
+  else:
+    err
+
 template assertErrFields*(expr: untyped, tn, expectedMsg, val: string) =
   ## Verifies error fields on a Result.
   let res = expr
   doAssert res.isErr, "expected Err result, got Ok"
-  let e = res.error
+  let e = toValidationShape(res.error)
   doAssert e.typeName == tn, "typeName: expected " & tn & ", got " & e.typeName
   doAssert e.message == expectedMsg,
     "message: expected " & expectedMsg & ", got " & e.message
@@ -45,13 +59,13 @@ template assertErrType*(expr: untyped, tn: string) =
   ## Verifies the typeName field of a Result error.
   let res = expr
   doAssert res.isErr, "expected Err result, got Ok"
-  doAssert res.error.typeName == tn
+  doAssert toValidationShape(res.error).typeName == tn
 
 template assertErrMsg*(expr: untyped, expectedMsg: string) =
   ## Verifies the message field of a Result error.
   let res = expr
   doAssert res.isErr, "expected Err result, got Ok"
-  doAssert res.error.message == expectedMsg
+  doAssert toValidationShape(res.error).message == expectedMsg
 
 template assertSome*(o: untyped) =
   doAssert o.isSome, "expected Some, got None"
@@ -69,9 +83,57 @@ template assertErrContains*(expr: untyped, substring: string) =
   ## Verifies the message field of a Result error contains a substring.
   let res = expr
   doAssert res.isErr, "expected Err result, got Ok"
-  let m = res.error.message
+  let m = toValidationShape(res.error).message
   doAssert strutils.contains(m, substring),
     "expected message containing '" & substring & "', got '" & m & "'"
+
+# ---------------------------------------------------------------------------
+# SerdeViolation assertions (structural — NOT substring-based)
+# ---------------------------------------------------------------------------
+# These replace the pattern ``assertErrContains(res, "missing X")`` that used
+# to paper over stringly-typed serde errors. Pattern-match on the ADT kind
+# instead; variant fields live under each ``of`` arm (see ``SerdeViolation``
+# in ``serde.nim``).
+
+template assertSvKind*(expr: untyped, expected: SerdeViolationKind) =
+  ## Verifies that a Result[_, SerdeViolation] err is the expected kind.
+  let res = expr
+  doAssert res.isErr, "expected Err result, got Ok"
+  let sv = res.error
+  doAssert sv.kind == expected, "expected svk " & $expected & ", got " & $sv.kind
+
+template assertSvPath*(expr: untyped, expectedRfc6901: string) =
+  ## Verifies the RFC 6901 JSON-Pointer rendering of the violation's path.
+  let res = expr
+  doAssert res.isErr, "expected Err result, got Ok"
+  let actual = $res.error.path
+  doAssert actual == expectedRfc6901,
+    "expected path '" & expectedRfc6901 & "', got '" & actual & "'"
+
+template assertSvInner*(expr: untyped, innerTypeName: string) =
+  ## Verifies an ``svkFieldParserFailed`` violation and that the inner
+  ## ValidationError carries the given ``typeName``. Use when bridging
+  ## to L1 smart-constructor failures propagated through serde.
+  let res = expr
+  doAssert res.isErr, "expected Err result, got Ok"
+  let sv = res.error
+  doAssert sv.kind == svkFieldParserFailed,
+    "expected svkFieldParserFailed, got " & $sv.kind
+  doAssert sv.inner.typeName == innerTypeName,
+    "expected inner typeName '" & innerTypeName & "', got '" & sv.inner.typeName & "'"
+
+template assertSvTranslated*(expr: untyped, rootType: string, substring: string) =
+  ## Bridge helper: translates a ``SerdeViolation`` to the wire
+  ## ``ValidationError`` via ``toValidationError`` and asserts the
+  ## rendered message contains ``substring``. Use when a test genuinely
+  ## exercises the translator boundary (e.g. end-to-end failure shape
+  ## inspection); prefer ``assertSvKind`` for pure serde-layer assertions.
+  let res = expr
+  doAssert res.isErr, "expected Err result, got Ok"
+  let ve = toValidationError(res.error, rootType)
+  doAssert strutils.contains(ve.message, substring),
+    "expected translated message containing '" & substring & "', got '" & ve.message &
+      "'"
 
 template assertOkEq*(expr: untyped, expected: untyped) =
   ## Evaluates expr (Result) and verifies its Ok value equals expected.

@@ -16,15 +16,15 @@ import ./vacation
 # =============================================================================
 
 func parseOptUtcDate(
-    node: JsonNode, key: string
-): Result[Opt[UTCDate], ValidationError] =
+    node: JsonNode, key: string, path: JsonPath
+): Result[Opt[UTCDate], SerdeViolation] =
   ## Parse an optional UTCDate field. Absent or null yields Opt.none;
   ## JString yields Opt.some with parsed value; other types rejected.
   let field = node{key}
   if field.isNil or field.kind == JNull:
     return ok(Opt.none(UTCDate))
-  ?checkJsonKind(field, JString, "VacationResponse", key & " must be string")
-  let d = ?UTCDate.fromJson(field)
+  ?expectKind(field, JString, path / key)
+  let d = ?UTCDate.fromJson(field, path / key)
   return ok(Opt.some(d))
 
 func parseOptString(node: JsonNode, key: string): Opt[string] =
@@ -70,19 +70,27 @@ func toJson*(vr: VacationResponse): JsonNode =
   return node
 
 func fromJson*(
-    T: typedesc[VacationResponse], node: JsonNode
-): Result[VacationResponse, ValidationError] =
+    T: typedesc[VacationResponse], node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[VacationResponse, SerdeViolation] =
   ## Deserialise JSON object to VacationResponse. Validates the singleton id
   ## field and required isEnabled boolean. Optional date and string fields
   ## default to Opt.none when absent or null.
-  ?checkJsonKind(node, JObject, $T)
-  ?checkJsonKind(node{"id"}, JString, $T, "missing or invalid id")
-  if node{"id"}.getStr("") != VacationResponseSingletonId:
-    return err(parseError($T, "id must be \"singleton\""))
-  ?checkJsonKind(node{"isEnabled"}, JBool, $T, "missing or invalid isEnabled")
-  let isEnabled = node{"isEnabled"}.getBool(false)
-  let fromDate = ?parseOptUtcDate(node, "fromDate")
-  let toDate = ?parseOptUtcDate(node, "toDate")
+  discard $T # consumed for nimalyzer params rule
+  ?expectKind(node, JObject, path)
+  let idNode = ?fieldJString(node, "id", path)
+  if idNode.getStr("") != VacationResponseSingletonId:
+    return err(
+      SerdeViolation(
+        kind: svkEnumNotRecognised,
+        path: path / "id",
+        enumTypeLabel: "VacationResponse id",
+        rawValue: idNode.getStr(""),
+      )
+    )
+  let isEnabledNode = ?fieldJBool(node, "isEnabled", path)
+  let isEnabled = isEnabledNode.getBool(false)
+  let fromDate = ?parseOptUtcDate(node, "fromDate", path)
+  let toDate = ?parseOptUtcDate(node, "toDate", path)
   let subject = parseOptString(node, "subject")
   let textBody = parseOptString(node, "textBody")
   let htmlBody = parseOptString(node, "htmlBody")

@@ -19,6 +19,7 @@ import jmap_client/mail/body
 import jmap_client/mail/keyword
 import jmap_client/mail/addresses
 import jmap_client/mail/serde_email
+import jmap_client/serde
 import jmap_client/validation
 
 import ../../massertions
@@ -30,8 +31,8 @@ block fromJsonNonObject: # scenario 3
   for input in [newJArray(), newJString("x"), newJNull()]:
     let res = emailFromJson(input)
     doAssert res.isErr, "expected Err for non-JObject input"
-    doAssert res.unsafeError.message.contains("expected JSON JObject"),
-      "error must mention expected JSON JObject"
+    doAssert res.unsafeError.kind == svkWrongKind, "error must be svkWrongKind"
+    doAssert res.unsafeError.expectedKind == JObject, "error must expect JObject"
 
 block fromJsonGoldenPath: # scenario 4
   let j = makeEmailJson()

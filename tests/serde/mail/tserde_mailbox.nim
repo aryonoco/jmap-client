@@ -9,6 +9,7 @@ import std/json
 
 import jmap_client/mail/mailbox
 import jmap_client/mail/serde_mailbox
+import jmap_client/serde
 import jmap_client/validation
 import jmap_client/primitives
 
@@ -44,8 +45,13 @@ block fromJsonMailboxIdSet: # scenario 33
   doAssert parseId("mbx2").get() in ms
 
 block fromJsonMailboxIdSetFalse: # scenario 34
-  assertErrFields MailboxIdSet.fromJson(%*{"mbx1": false}),
-    "MailboxIdSet", "all mailbox id values must be true", "mbx1"
+  ## Explicit ``false`` for any mailbox id value is rejected structurally
+  ## via ``svkEnumNotRecognised``.
+  let res = MailboxIdSet.fromJson(%*{"mbx1": false})
+  doAssert res.isErr
+  doAssert res.error.kind == svkEnumNotRecognised
+  doAssert res.error.rawValue == "false"
+  doAssert $res.error.path == "/mbx1"
 
 block roundTripMailboxIdSet: # scenario 35
   let id1 = parseId("mbx1").get()

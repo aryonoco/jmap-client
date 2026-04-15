@@ -25,76 +25,73 @@ func toJson*(eh: EmailHeader): JsonNode =
   return node
 
 func fromJson*(
-    T: typedesc[EmailHeader], node: JsonNode
-): Result[EmailHeader, ValidationError] =
+    T: typedesc[EmailHeader], node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[EmailHeader, SerdeViolation] =
   ## Deserialise JSON object to EmailHeader. Rejects absent, null, or
   ## non-string ``name`` and ``value``.
-  ?checkJsonKind(node, JObject, $T)
-  let nameNode = node{"name"}
-  ?checkJsonKind(nameNode, JString, $T, "missing or invalid name")
+  discard $T # consumed for nimalyzer params rule
+  ?expectKind(node, JObject, path)
+  let nameNode = ?fieldJString(node, "name", path)
   let name = nameNode.getStr("")
-  let valueNode = node{"value"}
-  ?checkJsonKind(valueNode, JString, $T, "missing or invalid value")
+  let valueNode = ?fieldJString(node, "value", path)
   let value = valueNode.getStr("")
-  return parseEmailHeader(name, value)
+  return wrapInner(parseEmailHeader(name, value), path)
 
 # =============================================================================
 # HeaderValue — parseHeaderValue
 # =============================================================================
 
 func parseNullableStringArray(
-    node: JsonNode, formName: string, elemDesc: string
-): Result[Opt[seq[string]], ValidationError] =
+    node: JsonNode, path: JsonPath
+): Result[Opt[seq[string]], SerdeViolation] =
   ## Shared parser for nullable string array forms (hfMessageIds, hfUrls).
   ## JNull → Opt.none. JArray of JString → Opt.some(seq).
   if node.isNil or node.kind == JNull:
     return ok(Opt.none(seq[string]))
-  ?checkJsonKind(node, JArray, "HeaderValue", formName & " requires JArray or null")
+  ?expectKind(node, JArray, path)
   var strs: seq[string] = @[]
-  for elem in node.getElems(@[]):
-    ?checkJsonKind(elem, JString, "HeaderValue", elemDesc)
+  for i, elem in node.getElems(@[]):
+    ?expectKind(elem, JString, path / i)
     strs.add(elem.getStr(""))
   return ok(Opt.some(strs))
 
 func parseHeaderValue*(
-    form: HeaderForm, node: JsonNode
-): Result[HeaderValue, ValidationError] =
+    form: HeaderForm, node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[HeaderValue, SerdeViolation] =
   ## Parses a JSON value into the correct ``HeaderValue`` variant based on
   ## the given form. Nullable forms (messageIds, date, urls) accept JNull
   ## as ``Opt.none``.
   case form
   of hfRaw:
-    ?checkJsonKind(node, JString, "HeaderValue", "hfRaw requires JString")
+    ?expectKind(node, JString, path)
     return ok(HeaderValue(form: hfRaw, rawValue: node.getStr("")))
   of hfText:
-    ?checkJsonKind(node, JString, "HeaderValue", "hfText requires JString")
+    ?expectKind(node, JString, path)
     return ok(HeaderValue(form: hfText, textValue: node.getStr("")))
   of hfAddresses:
-    ?checkJsonKind(node, JArray, "HeaderValue", "hfAddresses requires JArray")
+    ?expectKind(node, JArray, path)
     var addrs: seq[EmailAddress] = @[]
-    for elem in node.getElems(@[]):
-      let ea = ?EmailAddress.fromJson(elem)
+    for i, elem in node.getElems(@[]):
+      let ea = ?EmailAddress.fromJson(elem, path / i)
       addrs.add(ea)
     return ok(HeaderValue(form: hfAddresses, addresses: addrs))
   of hfGroupedAddresses:
-    ?checkJsonKind(node, JArray, "HeaderValue", "hfGroupedAddresses requires JArray")
+    ?expectKind(node, JArray, path)
     var groups: seq[EmailAddressGroup] = @[]
-    for elem in node.getElems(@[]):
-      let g = ?EmailAddressGroup.fromJson(elem)
+    for i, elem in node.getElems(@[]):
+      let g = ?EmailAddressGroup.fromJson(elem, path / i)
       groups.add(g)
     return ok(HeaderValue(form: hfGroupedAddresses, groups: groups))
   of hfMessageIds:
-    let ids = ?parseNullableStringArray(
-      node, "hfMessageIds", "message-id element must be string"
-    )
+    let ids = ?parseNullableStringArray(node, path)
     return ok(HeaderValue(form: hfMessageIds, messageIds: ids))
   of hfDate:
     if node.isNil or node.kind == JNull:
       return ok(HeaderValue(form: hfDate, date: Opt.none(Date)))
-    let d = ?Date.fromJson(node)
+    let d = ?Date.fromJson(node, path)
     return ok(HeaderValue(form: hfDate, date: Opt.some(d)))
   of hfUrls:
-    let urls = ?parseNullableStringArray(node, "hfUrls", "URL element must be string")
+    let urls = ?parseNullableStringArray(node, path)
     return ok(HeaderValue(form: hfUrls, urls: urls))
 
 # =============================================================================

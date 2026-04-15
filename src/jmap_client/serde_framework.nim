@@ -20,12 +20,15 @@ func toJson*(op: FilterOperator): JsonNode =
   return %($op)
 
 func fromJson*(
-    T: typedesc[FilterOperator], node: JsonNode
-): Result[FilterOperator, ValidationError] =
+    T: typedesc[FilterOperator], node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[FilterOperator, SerdeViolation] =
   ## Deserialise a JSON string to FilterOperator. Not total — unknown
-  ## operators return err because the RFC defines exactly three.
-  ?checkJsonKind(node, JString, $T)
-  case node.getStr("")
+  ## operators return ``svkEnumNotRecognised`` because the RFC defines
+  ## exactly three.
+  discard $T # consumed for nimalyzer params rule
+  ?expectKind(node, JString, path)
+  let raw = node.getStr("")
+  case raw
   of "AND":
     return ok(foAnd)
   of "OR":
@@ -33,7 +36,14 @@ func fromJson*(
   of "NOT":
     return ok(foNot)
   else:
-    return err(parseError($T, "unknown operator: " & node.getStr("")))
+    return err(
+      SerdeViolation(
+        kind: svkEnumNotRecognised,
+        path: path,
+        enumTypeLabel: "FilterOperator",
+        rawValue: raw,
+      )
+    )
 
 # =============================================================================
 # Comparator
@@ -47,24 +57,29 @@ func toJson*(c: Comparator): JsonNode =
   return node
 
 func fromJson*(
-    T: typedesc[Comparator], node: JsonNode
-): Result[Comparator, ValidationError] =
+    T: typedesc[Comparator], node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[Comparator, SerdeViolation] =
   ## Deserialise JSON to Comparator (RFC 8620 section 5.5).
-  ?checkJsonKind(node, JObject, $T)
-  let propNode = node{"property"}
-  ?checkJsonKind(propNode, JString, $T, "missing or invalid property")
-  let property = ?parsePropertyName(propNode.getStr(""))
+  discard $T # consumed for nimalyzer params rule
+  ?expectKind(node, JObject, path)
+  let propNode = ?fieldJString(node, "property", path)
+  let property = ?wrapInner(parsePropertyName(propNode.getStr("")), path / "property")
   let ascNode = node{"isAscending"}
-  if not ascNode.isNil:
-    if ascNode.kind != JBool:
-      return err(parseError($T, "isAscending must be boolean"))
+  if not ascNode.isNil and ascNode.kind != JBool:
+    return err(
+      SerdeViolation(
+        kind: svkWrongKind,
+        path: path / "isAscending",
+        expectedKind: JBool,
+        actualKind: ascNode.kind,
+      )
+    )
   let isAscending = ascNode.getBool(true)
     # nil-safe; returns true (RFC default) when absent
   let collNode = node{"collation"}
   var collation = Opt.none(string)
-  if not collNode.isNil:
-    if collNode.kind == JString:
-      collation = Opt.some(collNode.getStr(""))
+  if not collNode.isNil and collNode.kind == JString:
+    collation = Opt.some(collNode.getStr(""))
   return ok(parseComparator(property, isAscending, collation))
 
 # =============================================================================
@@ -96,41 +111,43 @@ const MaxFilterDepth* = 128
 
 func fromJsonImpl[C](
     node: JsonNode,
-    fromCondition:
-      proc(n: JsonNode): Result[C, ValidationError] {.noSideEffect, raises: [].},
+    fromCondition: proc(n: JsonNode, p: JsonPath): Result[C, SerdeViolation] {.
+      noSideEffect, raises: []
+    .},
     depth: int,
-): Result[Filter[C], ValidationError] =
+    path: JsonPath,
+): Result[Filter[C], SerdeViolation] =
   ## Internal recursive helper with depth tracking.
-  const typeName = "Filter"
-  ?checkJsonKind(node, JObject, typeName)
+  ?expectKind(node, JObject, path)
   if depth <= 0:
-    return err(parseError(typeName, "maximum nesting depth exceeded"))
+    return
+      err(SerdeViolation(kind: svkDepthExceeded, path: path, maxDepth: MaxFilterDepth))
   let opNode = node{"operator"}
   if opNode.isNil:
-    let cond = ?fromCondition(node)
+    let cond = ?fromCondition(node, path)
     return ok(filterCondition(cond))
-  let op = ?FilterOperator.fromJson(opNode)
-  let conditionsNode = node{"conditions"}
-  ?checkJsonKind(
-    conditionsNode, JArray, typeName, "missing or invalid conditions array"
-  )
+  let op = ?FilterOperator.fromJson(opNode, path / "operator")
+  let conditionsNode = ?fieldJArray(node, "conditions", path)
   var children: seq[Filter[C]] = @[]
-  for childNode in conditionsNode.getElems(@[]):
-    let child = ?fromJsonImpl[C](childNode, fromCondition, depth - 1)
+  for i, childNode in conditionsNode.getElems(@[]):
+    let child =
+      ?fromJsonImpl[C](childNode, fromCondition, depth - 1, path / "conditions" / i)
     children.add(child)
   return ok(filterOperator(op, children))
 
 func fromJson*[C](
     T: typedesc[Filter[C]],
     node: JsonNode,
-    fromCondition:
-      proc(n: JsonNode): Result[C, ValidationError] {.noSideEffect, raises: [].},
-): Result[Filter[C], ValidationError] =
+    fromCondition: proc(n: JsonNode, p: JsonPath): Result[C, SerdeViolation] {.
+      noSideEffect, raises: []
+    .},
+    path: JsonPath = emptyJsonPath(),
+): Result[Filter[C], SerdeViolation] =
   ## Deserialise JSON to Filter[C]. Caller provides condition deserialiser.
   ## Dispatches on presence of "operator" key. Nesting depth is capped at
   ## MaxFilterDepth to prevent stack overflow on pathological input.
   discard $T # consumed for nimalyzer params rule
-  return fromJsonImpl[C](node, fromCondition, MaxFilterDepth)
+  return fromJsonImpl[C](node, fromCondition, MaxFilterDepth, path)
 
 # =============================================================================
 # AddedItem
@@ -141,10 +158,13 @@ func toJson*(item: AddedItem): JsonNode =
   return %*{"id": string(item.id), "index": int64(item.index)}
 
 func fromJson*(
-    T: typedesc[AddedItem], node: JsonNode
-): Result[AddedItem, ValidationError] =
+    T: typedesc[AddedItem], node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[AddedItem, SerdeViolation] =
   ## Deserialise JSON to AddedItem.
-  ?checkJsonKind(node, JObject, $T)
-  let id = ?Id.fromJson(node{"id"})
-  let index = ?UnsignedInt.fromJson(node{"index"})
+  discard $T # consumed for nimalyzer params rule
+  ?expectKind(node, JObject, path)
+  let idNode = ?fieldJString(node, "id", path)
+  let id = ?Id.fromJson(idNode, path / "id")
+  let indexNode = ?fieldJInt(node, "index", path)
+  let index = ?UnsignedInt.fromJson(indexNode, path / "index")
   return ok(initAddedItem(id, index))

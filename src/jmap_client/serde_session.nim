@@ -36,28 +36,41 @@ func toJson*(caps: CoreCapabilities): JsonNode =
   return node
 
 func fromJson*(
-    T: typedesc[CoreCapabilities], node: JsonNode
-): Result[CoreCapabilities, ValidationError] =
+    T: typedesc[CoreCapabilities], node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[CoreCapabilities, SerdeViolation] =
   ## Deserialise urn:ietf:params:jmap:core capability data.
-  ?checkJsonKind(node, JObject, $T)
-  let maxSizeUpload = ?UnsignedInt.fromJson(node{"maxSizeUpload"})
-  let maxConcurrentUpload = ?UnsignedInt.fromJson(node{"maxConcurrentUpload"})
-  let maxSizeRequest = ?UnsignedInt.fromJson(node{"maxSizeRequest"})
+  discard $T # consumed for nimalyzer params rule
+  ?expectKind(node, JObject, path)
+  let maxSizeUpload =
+    ?UnsignedInt.fromJson(node{"maxSizeUpload"}, path / "maxSizeUpload")
+  let maxConcurrentUpload =
+    ?UnsignedInt.fromJson(node{"maxConcurrentUpload"}, path / "maxConcurrentUpload")
+  let maxSizeRequest =
+    ?UnsignedInt.fromJson(node{"maxSizeRequest"}, path / "maxSizeRequest")
   # Decision D2.6: accept both singular and plural forms (RFC §2.1 typo)
   let plural = node{"maxConcurrentRequests"}
   let singular = node{"maxConcurrentRequest"}
   if plural.isNil and singular.isNil:
-    return err(parseError($T, "missing maxConcurrentRequests"))
+    return err(
+      SerdeViolation(
+        kind: svkMissingField, path: path, missingFieldName: "maxConcurrentRequests"
+      )
+    )
   let maxConcurrentRequests =
-    ?UnsignedInt.fromJson(if plural.isNil: singular else: plural)
-  let maxCallsInRequest = ?UnsignedInt.fromJson(node{"maxCallsInRequest"})
-  let maxObjectsInGet = ?UnsignedInt.fromJson(node{"maxObjectsInGet"})
-  let maxObjectsInSet = ?UnsignedInt.fromJson(node{"maxObjectsInSet"})
-  let algArrNode = node{"collationAlgorithms"}
-  ?checkJsonKind(algArrNode, JArray, $T, "missing or invalid collationAlgorithms")
+    if plural.isNil:
+      ?UnsignedInt.fromJson(singular, path / "maxConcurrentRequest")
+    else:
+      ?UnsignedInt.fromJson(plural, path / "maxConcurrentRequests")
+  let maxCallsInRequest =
+    ?UnsignedInt.fromJson(node{"maxCallsInRequest"}, path / "maxCallsInRequest")
+  let maxObjectsInGet =
+    ?UnsignedInt.fromJson(node{"maxObjectsInGet"}, path / "maxObjectsInGet")
+  let maxObjectsInSet =
+    ?UnsignedInt.fromJson(node{"maxObjectsInSet"}, path / "maxObjectsInSet")
+  let algArrNode = ?fieldJArray(node, "collationAlgorithms", path)
   var algs: seq[string] = @[]
-  for elem in algArrNode.getElems(@[]):
-    ?checkJsonKind(elem, JString, $T, "collationAlgorithms element must be string")
+  for i, elem in algArrNode.getElems(@[]):
+    ?expectKind(elem, JString, path / "collationAlgorithms" / i)
     algs.add(elem.getStr(""))
   let collationAlgorithms = toHashSet(algs)
   return ok(
@@ -103,18 +116,22 @@ template mkNonCoreCap(k: CapabilityKind): untyped =
   return ok(ServerCapability(kind: k, rawUri: uri, rawData: ownData(data)))
 
 func fromJson*(
-    T: typedesc[ServerCapability], uri: string, data: JsonNode
-): Result[ServerCapability, ValidationError] =
+    T: typedesc[ServerCapability],
+    uri: string,
+    data: JsonNode,
+    path: JsonPath = emptyJsonPath(),
+): Result[ServerCapability, SerdeViolation] =
   ## Deserialise a capability from its URI and JSON data.
   ## Non-core capabilities deep-copy data to avoid ARC double-free on shared
   ## JsonNode refs, and use compile-time literal discriminators (exhaustive
   ## case) instead of uncheckedAssign, which corrupts ARC branch tracking
   ## on case objects with ref fields.
+  discard $T # consumed for nimalyzer params rule
   let parsedKind = parseCapabilityKind(uri)
   case parsedKind
   of ckCore:
-    ?checkJsonKind(data, JObject, $T, "core capability data must be JSON object")
-    let core = ?CoreCapabilities.fromJson(data)
+    ?expectKind(data, JObject, path)
+    let core = ?CoreCapabilities.fromJson(data, path)
     return ok(ServerCapability(kind: ckCore, rawUri: uri, core: core))
   of ckMail:
     mkNonCoreCap(ckMail)
@@ -154,11 +171,19 @@ func toJson*(entry: AccountCapabilityEntry): JsonNode =
   return entry.data.copy()
 
 func fromJson*(
-    T: typedesc[AccountCapabilityEntry], uri: string, data: JsonNode
-): Result[AccountCapabilityEntry, ValidationError] =
+    T: typedesc[AccountCapabilityEntry],
+    uri: string,
+    data: JsonNode,
+    path: JsonPath = emptyJsonPath(),
+): Result[AccountCapabilityEntry, SerdeViolation] =
   ## Deserialise an account capability entry from URI and JSON data.
+  discard $T # consumed for nimalyzer params rule
   if uri.len == 0:
-    return err(parseError($T, "capability URI must not be empty"))
+    return err(
+      SerdeViolation(
+        kind: svkEmptyRequired, path: path, emptyFieldLabel: "capability URI"
+      )
+    )
   return ok(
     AccountCapabilityEntry(
       kind: parseCapabilityKind(uri), rawUri: uri, data: ownData(data)
@@ -179,20 +204,23 @@ func toJson*(acct: Account): JsonNode =
   node["accountCapabilities"] = acctCaps
   return node
 
-func fromJson*(T: typedesc[Account], node: JsonNode): Result[Account, ValidationError] =
+func fromJson*(
+    T: typedesc[Account], node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[Account, SerdeViolation] =
   ## Deserialise JSON to Account (RFC 8620 §2).
-  ?checkJsonKind(node, JObject, $T)
-  ?checkJsonKind(node{"name"}, JString, $T, "missing or invalid name")
-  let name = node{"name"}.getStr("")
-  ?checkJsonKind(node{"isPersonal"}, JBool, $T, "missing or invalid isPersonal")
-  let isPersonal = node{"isPersonal"}.getBool(false)
-  ?checkJsonKind(node{"isReadOnly"}, JBool, $T, "missing or invalid isReadOnly")
-  let isReadOnly = node{"isReadOnly"}.getBool(false)
-  let acctCapsNode = node{"accountCapabilities"}
-  ?checkJsonKind(acctCapsNode, JObject, $T, "missing or invalid accountCapabilities")
+  discard $T # consumed for nimalyzer params rule
+  ?expectKind(node, JObject, path)
+  let nameNode = ?fieldJString(node, "name", path)
+  let name = nameNode.getStr("")
+  let isPersonalNode = ?fieldJBool(node, "isPersonal", path)
+  let isPersonal = isPersonalNode.getBool(false)
+  let isReadOnlyNode = ?fieldJBool(node, "isReadOnly", path)
+  let isReadOnly = isReadOnlyNode.getBool(false)
+  let acctCapsNode = ?fieldJObject(node, "accountCapabilities", path)
   var accountCapabilities: seq[AccountCapabilityEntry] = @[]
   for uri, data in acctCapsNode.pairs:
-    let entry = ?AccountCapabilityEntry.fromJson(uri, data)
+    let entry =
+      ?AccountCapabilityEntry.fromJson(uri, data, path / "accountCapabilities" / uri)
     accountCapabilities.add(entry)
   return ok(
     Account(
@@ -234,66 +262,71 @@ func toJson*(s: Session): JsonNode =
   node["primaryAccounts"] = primary
   return node
 
-func fromJson*(T: typedesc[Session], node: JsonNode): Result[Session, ValidationError] =
+func fromJson*(
+    T: typedesc[Session], node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[Session, SerdeViolation] =
   ## Deserialise JSON to Session (RFC 8620 §2). Calls parseSession for
   ## structural invariant validation.
-  ?checkJsonKind(node, JObject, $T)
+  discard $T # consumed for nimalyzer params rule
+  ?expectKind(node, JObject, path)
 
   # 1. Parse capabilities
-  let capsNode = node{"capabilities"}
-  ?checkJsonKind(capsNode, JObject, $T, "missing or invalid capabilities")
+  let capsNode = ?fieldJObject(node, "capabilities", path)
   var capabilities: seq[ServerCapability] = @[]
   for uri, data in capsNode.pairs:
-    let cap = ?ServerCapability.fromJson(uri, data)
+    let cap = ?ServerCapability.fromJson(uri, data, path / "capabilities" / uri)
     capabilities.add(cap)
 
   # 2. Parse accounts
-  let acctsNode = node{"accounts"}
-  ?checkJsonKind(acctsNode, JObject, $T, "missing or invalid accounts")
+  let acctsNode = ?fieldJObject(node, "accounts", path)
   var accounts = initTable[AccountId, Account]()
   for idStr, acctData in acctsNode.pairs:
-    let accountId = ?parseAccountId(idStr)
-    let account = ?Account.fromJson(acctData)
+    let accountId = ?wrapInner(parseAccountId(idStr), path / "accounts" / idStr)
+    let account = ?Account.fromJson(acctData, path / "accounts" / idStr)
     accounts[accountId] = account
 
   # 3. Parse primaryAccounts (required per RFC §2)
-  let primaryNode = node{"primaryAccounts"}
-  ?checkJsonKind(primaryNode, JObject, $T, "missing or invalid primaryAccounts")
+  let primaryNode = ?fieldJObject(node, "primaryAccounts", path)
   var primaryAccounts = initTable[string, AccountId]()
   for uri, idNode in primaryNode.pairs:
-    ?checkJsonKind(idNode, JString, $T, "primaryAccounts value must be string")
-    let accountId = ?parseAccountId(idNode.getStr(""))
+    ?expectKind(idNode, JString, path / "primaryAccounts" / uri)
+    let accountId =
+      ?wrapInner(parseAccountId(idNode.getStr("")), path / "primaryAccounts" / uri)
     primaryAccounts[uri] = accountId
 
   # 4. Parse scalar fields
-  ?checkJsonKind(node{"username"}, JString, $T, "missing or invalid username")
-  let username = node{"username"}.getStr("")
-  ?checkJsonKind(node{"apiUrl"}, JString, $T, "missing or invalid apiUrl")
-  let apiUrl = node{"apiUrl"}.getStr("")
+  let usernameNode = ?fieldJString(node, "username", path)
+  let username = usernameNode.getStr("")
+  let apiUrlNode = ?fieldJString(node, "apiUrl", path)
+  let apiUrl = apiUrlNode.getStr("")
 
   # 5. Parse URI templates
-  ?checkJsonKind(node{"downloadUrl"}, JString, $T, "missing or invalid downloadUrl")
-  let downloadUrl = ?parseUriTemplate(node{"downloadUrl"}.getStr(""))
-  ?checkJsonKind(node{"uploadUrl"}, JString, $T, "missing or invalid uploadUrl")
-  let uploadUrl = ?parseUriTemplate(node{"uploadUrl"}.getStr(""))
-  ?checkJsonKind(
-    node{"eventSourceUrl"}, JString, $T, "missing or invalid eventSourceUrl"
-  )
-  let eventSourceUrl = ?parseUriTemplate(node{"eventSourceUrl"}.getStr(""))
+  let downloadUrlNode = ?fieldJString(node, "downloadUrl", path)
+  let downloadUrl =
+    ?wrapInner(parseUriTemplate(downloadUrlNode.getStr("")), path / "downloadUrl")
+  let uploadUrlNode = ?fieldJString(node, "uploadUrl", path)
+  let uploadUrl =
+    ?wrapInner(parseUriTemplate(uploadUrlNode.getStr("")), path / "uploadUrl")
+  let eventSourceUrlNode = ?fieldJString(node, "eventSourceUrl", path)
+  let eventSourceUrl =
+    ?wrapInner(parseUriTemplate(eventSourceUrlNode.getStr("")), path / "eventSourceUrl")
 
   # 6. Parse state
-  ?checkJsonKind(node{"state"}, JString, $T, "missing or invalid state")
-  let state = ?parseJmapState(node{"state"}.getStr(""))
+  let stateNode = ?fieldJString(node, "state", path)
+  let state = ?wrapInner(parseJmapState(stateNode.getStr("")), path / "state")
 
   # 7. Call parseSession for structural invariant validation
-  return parseSession(
-    capabilities = capabilities,
-    accounts = accounts,
-    primaryAccounts = primaryAccounts,
-    username = username,
-    apiUrl = apiUrl,
-    downloadUrl = downloadUrl,
-    uploadUrl = uploadUrl,
-    eventSourceUrl = eventSourceUrl,
-    state = state,
+  return wrapInner(
+    parseSession(
+      capabilities = capabilities,
+      accounts = accounts,
+      primaryAccounts = primaryAccounts,
+      username = username,
+      apiUrl = apiUrl,
+      downloadUrl = downloadUrl,
+      uploadUrl = uploadUrl,
+      eventSourceUrl = eventSourceUrl,
+      state = state,
+    ),
+    path,
   )

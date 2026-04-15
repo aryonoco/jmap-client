@@ -220,11 +220,12 @@ block stressRequestWith1000MethodCalls:
 
 block stressFilterDeep100Serde:
   ## Filter tree 100 levels deep through serde round-trip.
-  proc fromIntCond(n: JsonNode): Result[int, ValidationError] {.raises: [].} =
+  proc fromIntCond(
+      n: JsonNode, path: JsonPath = emptyJsonPath()
+  ): Result[int, SerdeViolation] {.raises: [].} =
     ## Deserialise int condition from {"value": N}.
-    ?checkJsonKind(n, JObject, "int")
-    let vNode = n{"value"}
-    ?checkJsonKind(vNode, JInt, "int", "missing value")
+    ?expectKind(n, JObject, path)
+    let vNode = ?fieldJInt(n, "value", path)
     ok(vNode.getInt(0))
 
   proc intToJsonCond(c: int): JsonNode =

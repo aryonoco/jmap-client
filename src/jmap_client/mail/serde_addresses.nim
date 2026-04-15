@@ -26,13 +26,13 @@ func toJson*(ea: EmailAddress): JsonNode =
   return node
 
 func fromJson*(
-    T: typedesc[EmailAddress], node: JsonNode
-): Result[EmailAddress, ValidationError] =
+    T: typedesc[EmailAddress], node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[EmailAddress, SerdeViolation] =
   ## Deserialise JSON object to EmailAddress. Rejects absent or non-string email.
   ## Absent or null name maps to Opt.none.
-  ?checkJsonKind(node, JObject, $T)
-  let emailNode = node{"email"}
-  ?checkJsonKind(emailNode, JString, $T, "missing or invalid email")
+  discard $T # consumed for nimalyzer params rule
+  ?expectKind(node, JObject, path)
+  let emailNode = ?fieldJString(node, "email", path)
   let email = emailNode.getStr("")
   let name = block:
     let nameField = optJsonField(node, "name", JString)
@@ -40,7 +40,7 @@ func fromJson*(
       Opt.some(nameField.get().getStr(""))
     else:
       Opt.none(string)
-  return parseEmailAddress(email, name)
+  return wrapInner(parseEmailAddress(email, name), path)
 
 # =============================================================================
 # EmailAddressGroup
@@ -60,21 +60,21 @@ func toJson*(group: EmailAddressGroup): JsonNode =
   return node
 
 func fromJson*(
-    T: typedesc[EmailAddressGroup], node: JsonNode
-): Result[EmailAddressGroup, ValidationError] =
+    T: typedesc[EmailAddressGroup], node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[EmailAddressGroup, SerdeViolation] =
   ## Deserialise JSON object to EmailAddressGroup. Rejects absent or non-array
   ## addresses. Short-circuits on first invalid element.
-  ?checkJsonKind(node, JObject, $T)
+  discard $T # consumed for nimalyzer params rule
+  ?expectKind(node, JObject, path)
   let name = block:
     let nameField = optJsonField(node, "name", JString)
     if nameField.isSome:
       Opt.some(nameField.get().getStr(""))
     else:
       Opt.none(string)
-  let addrsNode = node{"addresses"}
-  ?checkJsonKind(addrsNode, JArray, $T, "missing or invalid addresses")
+  let addrsNode = ?fieldJArray(node, "addresses", path)
   var addrs: seq[EmailAddress] = @[]
-  for elem in addrsNode.getElems(@[]):
-    let ea = ?EmailAddress.fromJson(elem)
+  for i, elem in addrsNode.getElems(@[]):
+    let ea = ?EmailAddress.fromJson(elem, path / "addresses" / i)
     addrs.add(ea)
   return ok(EmailAddressGroup(name: name, addresses: addrs))

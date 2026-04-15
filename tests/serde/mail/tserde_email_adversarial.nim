@@ -24,6 +24,7 @@ import jmap_client/mail/mail_methods
 import jmap_client/mail/serde_email
 import jmap_client/mail/serde_snippet
 import jmap_client/mail/serde_mail_filters
+import jmap_client/serde
 import jmap_client/validation
 import jmap_client/primitives
 
@@ -61,13 +62,16 @@ block twoPhaseStress100Headers: # scenario 92
 # =============================================================================
 
 block headerEmptyName: # scenario 93
-  ## "header:" with empty name after prefix -> err.
+  ## "header:" with empty name after prefix -> err. ``parseHeaderPropertyName``
+  ## (L1 smart constructor) raises the underlying ValidationError; serde
+  ## wraps it in ``svkFieldParserFailed``.
   var j = makeEmailJson()
   j["header:"] = %"test"
   let res = emailFromJson(j)
   doAssert res.isErr, "expected Err for empty header name"
-  doAssert res.unsafeError.message.contains("empty header name"),
-    "error must mention empty header name"
+  doAssert res.unsafeError.kind == svkFieldParserFailed
+  doAssert res.unsafeError.inner.message.contains("empty header name"),
+    "inner error must mention empty header name"
 
 block headerTooManySegments: # scenario 94
   ## 5 colon-separated segments -> err.
@@ -75,8 +79,9 @@ block headerTooManySegments: # scenario 94
   j["header:From:asAddresses:all:extra"] = %"test"
   let res = emailFromJson(j)
   doAssert res.isErr, "expected Err for too many segments"
-  doAssert res.unsafeError.message.contains("too many segments"),
-    "error must mention too many segments"
+  doAssert res.unsafeError.kind == svkFieldParserFailed
+  doAssert res.unsafeError.inner.message.contains("too many segments"),
+    "inner error must mention too many segments"
 
 block headerInvalidForm: # scenario 95
   ## Unknown form suffix -> err.
@@ -84,8 +89,9 @@ block headerInvalidForm: # scenario 95
   j["header:From:asUnknown"] = %"test"
   let res = emailFromJson(j)
   doAssert res.isErr, "expected Err for unknown form"
-  doAssert res.unsafeError.message.contains("unknown header form suffix"),
-    "error must mention unknown header form suffix"
+  doAssert res.unsafeError.kind == svkFieldParserFailed
+  doAssert res.unsafeError.inner.message.contains("unknown header form suffix"),
+    "inner error must mention unknown header form suffix"
 
 block headerKeyWithoutColon: # scenario 96
   ## Key "header" (no colon) does not start with "header:" — ignored.
@@ -111,9 +117,12 @@ block comparatorLeadingSpace: # scenario 99
   assertErr emailComparatorFromJson(%*{"property": " receivedAt"})
 
 block comparatorEmptyKeyword: # scenario 100
-  ## Empty keyword string fails server-assigned token validation.
+  ## Empty keyword string fails server-assigned token validation — inner
+  ## smart-constructor error propagates as ``svkFieldParserFailed``.
   let res = emailComparatorFromJson(%*{"property": "hasKeyword", "keyword": ""})
-  assertErrContains res, "length must be 1-255"
+  doAssert res.isErr
+  doAssert res.unsafeError.kind == svkFieldParserFailed
+  doAssert res.unsafeError.inner.message.contains("length must be 1-255")
 
 block comparatorPlainSpuriousKeyword: # scenario 101
   ## Keyword field ignored when property is a plain sort property.
@@ -174,14 +183,16 @@ block bodyValuesDuplicatePartId: # scenario 107
   assertEq res.get().bodyValues[pid].value, "second"
 
 block bodyValuesEmptyPartId: # scenario 108
-  ## Empty string as PartId key -> err (parsePartIdFromServer rejects).
+  ## Empty string as PartId key -> err (parsePartIdFromServer rejects). The
+  ## L1 validation error surfaces as ``svkFieldParserFailed``.
   var j = makeEmailJson()
   j["bodyValues"] =
     %*{"": {"value": "test", "isEncodingProblem": false, "isTruncated": false}}
   let res = emailFromJson(j)
   doAssert res.isErr, "expected Err for empty PartId"
-  doAssert res.unsafeError.message.contains("must not be empty"),
-    "error must mention empty PartId"
+  doAssert res.unsafeError.kind == svkFieldParserFailed
+  doAssert res.unsafeError.inner.message.contains("must not be empty"),
+    "inner error must mention empty PartId"
 
 # =============================================================================
 # F. EmailFilterCondition Structural (scenarios 109–110)

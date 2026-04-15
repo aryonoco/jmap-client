@@ -474,8 +474,8 @@ func toJson*[T, C](
 # =============================================================================
 
 func mergeCreateResults(
-    node: JsonNode
-): Result[Table[CreationId, Result[JsonNode, SetError]], ValidationError] =
+    node: JsonNode, path: JsonPath
+): Result[Table[CreationId, Result[JsonNode, SetError]], SerdeViolation] =
   ## Merge wire ``created``/``notCreated`` maps into a unified Result table
   ## (RFC 8620 section 5.3, Decision 3.9B). Used by both SetResponse and
   ## CopyResponse. Last-writer-wins for duplicate keys (section 8.5).
@@ -483,19 +483,19 @@ func mergeCreateResults(
   let createdNode = node{"created"}
   if not createdNode.isNil and createdNode.kind == JObject:
     for k, v in createdNode.pairs:
-      let cid = ?parseCreationId(k)
+      let cid = ?wrapInner(parseCreationId(k), path / "created" / k)
       tbl[cid] = Result[JsonNode, SetError].ok(v)
   let notCreatedNode = node{"notCreated"}
   if not notCreatedNode.isNil and notCreatedNode.kind == JObject:
     for k, v in notCreatedNode.pairs:
-      let cid = ?parseCreationId(k)
-      let se = ?SetError.fromJson(v)
+      let cid = ?wrapInner(parseCreationId(k), path / "notCreated" / k)
+      let se = ?SetError.fromJson(v, path / "notCreated" / k)
       tbl[cid] = Result[JsonNode, SetError].err(se)
   return ok(tbl)
 
 func mergeUpdateResults(
-    node: JsonNode
-): Result[Table[Id, Result[Opt[JsonNode], SetError]], ValidationError] =
+    node: JsonNode, path: JsonPath
+): Result[Table[Id, Result[Opt[JsonNode], SetError]], SerdeViolation] =
   ## Merge wire ``updated``/``notUpdated`` maps into a unified Result table
   ## (RFC 8620 section 5.3, Decision 3.9B). Null value in ``updated`` means
   ## no server-set properties changed; non-null contains changed properties.
@@ -504,7 +504,7 @@ func mergeUpdateResults(
   let updatedNode = node{"updated"}
   if not updatedNode.isNil and updatedNode.kind == JObject:
     for k, v in updatedNode.pairs:
-      let id = ?parseIdFromServer(k)
+      let id = ?wrapInner(parseIdFromServer(k), path / "updated" / k)
       if v.isNil or v.kind == JNull:
         tbl[id] = Result[Opt[JsonNode], SetError].ok(Opt.none(JsonNode))
       else:
@@ -512,14 +512,14 @@ func mergeUpdateResults(
   let notUpdatedNode = node{"notUpdated"}
   if not notUpdatedNode.isNil and notUpdatedNode.kind == JObject:
     for k, v in notUpdatedNode.pairs:
-      let id = ?parseIdFromServer(k)
-      let se = ?SetError.fromJson(v)
+      let id = ?wrapInner(parseIdFromServer(k), path / "notUpdated" / k)
+      let se = ?SetError.fromJson(v, path / "notUpdated" / k)
       tbl[id] = Result[Opt[JsonNode], SetError].err(se)
   return ok(tbl)
 
 func mergeDestroyResults(
-    node: JsonNode
-): Result[Table[Id, Result[void, SetError]], ValidationError] =
+    node: JsonNode, path: JsonPath
+): Result[Table[Id, Result[void, SetError]], SerdeViolation] =
   ## Merge wire ``destroyed``/``notDestroyed`` into a unified Result table
   ## (RFC 8620 section 5.3, Decision 3.9B). ``destroyed`` is a flat array
   ## on the wire; each ID becomes ``Result.ok()``. ``notDestroyed`` entries
@@ -527,14 +527,14 @@ func mergeDestroyResults(
   var tbl = initTable[Id, Result[void, SetError]]()
   let destroyedNode = node{"destroyed"}
   if not destroyedNode.isNil and destroyedNode.kind == JArray:
-    for _, elem in destroyedNode.getElems(@[]):
-      let id = ?parseIdFromServer(elem.getStr(""))
+    for i, elem in destroyedNode.getElems(@[]):
+      let id = ?wrapInner(parseIdFromServer(elem.getStr("")), path / "destroyed" / i)
       tbl[id] = Result[void, SetError].ok()
   let notDestroyedNode = node{"notDestroyed"}
   if not notDestroyedNode.isNil and notDestroyedNode.kind == JObject:
     for k, v in notDestroyedNode.pairs:
-      let id = ?parseIdFromServer(k)
-      let se = ?SetError.fromJson(v)
+      let id = ?wrapInner(parseIdFromServer(k), path / "notDestroyed" / k)
+      let se = ?SetError.fromJson(v, path / "notDestroyed" / k)
       tbl[id] = Result[void, SetError].err(se)
   return ok(tbl)
 
@@ -543,37 +543,44 @@ func mergeDestroyResults(
 # =============================================================================
 
 func fromJson*[T](
-    R: typedesc[GetResponse[T]], node: JsonNode
-): Result[GetResponse[T], ValidationError] =
+    R: typedesc[GetResponse[T]], node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[GetResponse[T], SerdeViolation] =
   ## Deserialise JSON arguments to GetResponse (RFC 8620 section 5.1).
   ## Uses lenient constructors for server-assigned identifiers. ``list``
   ## contains raw JsonNode entities -- entity-specific parsing is the
   ## caller's responsibility.
-  ?checkJsonKind(node, JObject, $R)
-  let accountId = ?parseAccountId(node{"accountId"}.getStr(""))
-  let state = ?parseJmapState(node{"state"}.getStr(""))
-  let listNode = node{"list"}
-  ?checkJsonKind(listNode, JArray, "GetResponse", "list must be array")
+  discard $R # consumed for nimalyzer params rule
+  ?expectKind(node, JObject, path)
+  let accountIdNode = ?fieldJString(node, "accountId", path)
+  let accountId =
+    ?wrapInner(parseAccountId(accountIdNode.getStr("")), path / "accountId")
+  let stateNode = ?fieldJString(node, "state", path)
+  let state = ?wrapInner(parseJmapState(stateNode.getStr("")), path / "state")
+  let listNode = ?fieldJArray(node, "list", path)
   let list = listNode.getElems(@[])
-  let notFound = ?parseOptIdArray(node{"notFound"})
+  let notFound = ?parseOptIdArray(node{"notFound"}, path / "notFound")
   return ok(
     GetResponse[T](accountId: accountId, state: state, list: list, notFound: notFound)
   )
 
 func fromJson*[T](
-    R: typedesc[ChangesResponse[T]], node: JsonNode
-): Result[ChangesResponse[T], ValidationError] =
+    R: typedesc[ChangesResponse[T]], node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[ChangesResponse[T], SerdeViolation] =
   ## Deserialise JSON arguments to ChangesResponse (RFC 8620 section 5.2).
-  ?checkJsonKind(node, JObject, $R)
-  let accountId = ?parseAccountId(node{"accountId"}.getStr(""))
-  let oldState = ?parseJmapState(node{"oldState"}.getStr(""))
-  let newState = ?parseJmapState(node{"newState"}.getStr(""))
-  let hmcNode = node{"hasMoreChanges"}
-  ?checkJsonKind(hmcNode, JBool, "ChangesResponse", "hasMoreChanges must be boolean")
+  discard $R # consumed for nimalyzer params rule
+  ?expectKind(node, JObject, path)
+  let accountIdNode = ?fieldJString(node, "accountId", path)
+  let accountId =
+    ?wrapInner(parseAccountId(accountIdNode.getStr("")), path / "accountId")
+  let oldStateNode = ?fieldJString(node, "oldState", path)
+  let oldState = ?wrapInner(parseJmapState(oldStateNode.getStr("")), path / "oldState")
+  let newStateNode = ?fieldJString(node, "newState", path)
+  let newState = ?wrapInner(parseJmapState(newStateNode.getStr("")), path / "newState")
+  let hmcNode = ?fieldJBool(node, "hasMoreChanges", path)
   let hasMoreChanges = hmcNode.getBool(false)
-  let created = ?parseIdArray(node{"created"}, "ChangesResponse", "created")
-  let updated = ?parseIdArray(node{"updated"}, "ChangesResponse", "updated")
-  let destroyed = ?parseIdArray(node{"destroyed"}, "ChangesResponse", "destroyed")
+  let created = ?parseIdArrayField(node, "created", path)
+  let updated = ?parseIdArrayField(node, "updated", path)
+  let destroyed = ?parseIdArrayField(node, "destroyed", path)
   return ok(
     ChangesResponse[T](
       accountId: accountId,
@@ -587,17 +594,21 @@ func fromJson*[T](
   )
 
 func fromJson*[T](
-    R: typedesc[SetResponse[T]], node: JsonNode
-): Result[SetResponse[T], ValidationError] =
+    R: typedesc[SetResponse[T]], node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[SetResponse[T], SerdeViolation] =
   ## Deserialise JSON arguments to SetResponse (RFC 8620 section 5.3).
   ## Merges parallel wire maps into separate success/failure tables (section 8).
-  ?checkJsonKind(node, JObject, $R)
-  let accountId = ?parseAccountId(node{"accountId"}.getStr(""))
-  let newState = ?parseJmapState(node{"newState"}.getStr(""))
+  discard $R # consumed for nimalyzer params rule
+  ?expectKind(node, JObject, path)
+  let accountIdNode = ?fieldJString(node, "accountId", path)
+  let accountId =
+    ?wrapInner(parseAccountId(accountIdNode.getStr("")), path / "accountId")
+  let newStateNode = ?fieldJString(node, "newState", path)
+  let newState = ?wrapInner(parseJmapState(newStateNode.getStr("")), path / "newState")
   let oldState = optState(node, "oldState")
-  let createResults = ?mergeCreateResults(node)
-  let updateResults = ?mergeUpdateResults(node)
-  let destroyResults = ?mergeDestroyResults(node)
+  let createResults = ?mergeCreateResults(node, path)
+  let updateResults = ?mergeUpdateResults(node, path)
+  let destroyResults = ?mergeDestroyResults(node, path)
   return ok(
     SetResponse[T](
       accountId: accountId,
@@ -610,17 +621,23 @@ func fromJson*[T](
   )
 
 func fromJson*[T](
-    R: typedesc[CopyResponse[T]], node: JsonNode
-): Result[CopyResponse[T], ValidationError] =
+    R: typedesc[CopyResponse[T]], node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[CopyResponse[T], SerdeViolation] =
   ## Deserialise JSON arguments to CopyResponse (RFC 8620 section 5.4).
   ## Merges created/notCreated wire maps into separate success/failure
   ## tables (section 8).
-  ?checkJsonKind(node, JObject, $R)
-  let fromAccountId = ?parseAccountId(node{"fromAccountId"}.getStr(""))
-  let accountId = ?parseAccountId(node{"accountId"}.getStr(""))
-  let newState = ?parseJmapState(node{"newState"}.getStr(""))
+  discard $R # consumed for nimalyzer params rule
+  ?expectKind(node, JObject, path)
+  let fromAccountIdNode = ?fieldJString(node, "fromAccountId", path)
+  let fromAccountId =
+    ?wrapInner(parseAccountId(fromAccountIdNode.getStr("")), path / "fromAccountId")
+  let accountIdNode = ?fieldJString(node, "accountId", path)
+  let accountId =
+    ?wrapInner(parseAccountId(accountIdNode.getStr("")), path / "accountId")
+  let newStateNode = ?fieldJString(node, "newState", path)
+  let newState = ?wrapInner(parseJmapState(newStateNode.getStr("")), path / "newState")
   let oldState = optState(node, "oldState")
-  let createResults = ?mergeCreateResults(node)
+  let createResults = ?mergeCreateResults(node, path)
   return ok(
     CopyResponse[T](
       fromAccountId: fromAccountId,
@@ -632,20 +649,24 @@ func fromJson*[T](
   )
 
 func fromJson*[T](
-    R: typedesc[QueryResponse[T]], node: JsonNode
-): Result[QueryResponse[T], ValidationError] =
+    R: typedesc[QueryResponse[T]], node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[QueryResponse[T], SerdeViolation] =
   ## Deserialise JSON arguments to QueryResponse (RFC 8620 section 5.5).
   ## ``total`` and ``limit`` use lenient Option handling (absent -> none).
-  ?checkJsonKind(node, JObject, $R)
-  let accountId = ?parseAccountId(node{"accountId"}.getStr(""))
-  let queryState = ?parseJmapState(node{"queryState"}.getStr(""))
-  let cccNode = node{"canCalculateChanges"}
-  ?checkJsonKind(cccNode, JBool, "QueryResponse", "canCalculateChanges must be boolean")
+  discard $R # consumed for nimalyzer params rule
+  ?expectKind(node, JObject, path)
+  let accountIdNode = ?fieldJString(node, "accountId", path)
+  let accountId =
+    ?wrapInner(parseAccountId(accountIdNode.getStr("")), path / "accountId")
+  let queryStateNode = ?fieldJString(node, "queryState", path)
+  let queryState =
+    ?wrapInner(parseJmapState(queryStateNode.getStr("")), path / "queryState")
+  let cccNode = ?fieldJBool(node, "canCalculateChanges", path)
   let canCalculateChanges = cccNode.getBool(false)
-  let posNode = node{"position"}
-  ?checkJsonKind(posNode, JInt, "QueryResponse", "position must be integer")
-  let position = ?parseUnsignedInt(posNode.getBiggestInt(0))
-  let ids = ?parseIdArray(node{"ids"}, "QueryResponse", "ids")
+  let posNode = ?fieldJInt(node, "position", path)
+  let position =
+    ?wrapInner(parseUnsignedInt(posNode.getBiggestInt(0)), path / "position")
+  let ids = ?parseIdArrayField(node, "ids", path)
   let total = optUnsignedInt(node, "total")
   let limit = optUnsignedInt(node, "limit")
   return ok(
@@ -661,22 +682,30 @@ func fromJson*[T](
   )
 
 func fromJson*[T](
-    R: typedesc[QueryChangesResponse[T]], node: JsonNode
-): Result[QueryChangesResponse[T], ValidationError] =
+    R: typedesc[QueryChangesResponse[T]],
+    node: JsonNode,
+    path: JsonPath = emptyJsonPath(),
+): Result[QueryChangesResponse[T], SerdeViolation] =
   ## Deserialise JSON arguments to QueryChangesResponse (RFC 8620 section 5.6).
   ## ``total`` uses lenient Option handling (absent -> none). ``added`` elements
   ## parsed via AddedItem.fromJson (Layer 2).
-  ?checkJsonKind(node, JObject, $R)
-  let accountId = ?parseAccountId(node{"accountId"}.getStr(""))
-  let oldQueryState = ?parseJmapState(node{"oldQueryState"}.getStr(""))
-  let newQueryState = ?parseJmapState(node{"newQueryState"}.getStr(""))
+  discard $R # consumed for nimalyzer params rule
+  ?expectKind(node, JObject, path)
+  let accountIdNode = ?fieldJString(node, "accountId", path)
+  let accountId =
+    ?wrapInner(parseAccountId(accountIdNode.getStr("")), path / "accountId")
+  let oldQueryStateNode = ?fieldJString(node, "oldQueryState", path)
+  let oldQueryState =
+    ?wrapInner(parseJmapState(oldQueryStateNode.getStr("")), path / "oldQueryState")
+  let newQueryStateNode = ?fieldJString(node, "newQueryState", path)
+  let newQueryState =
+    ?wrapInner(parseJmapState(newQueryStateNode.getStr("")), path / "newQueryState")
   let total = optUnsignedInt(node, "total")
-  let removed = ?parseIdArray(node{"removed"}, "QueryChangesResponse", "removed")
-  let addedNode = node{"added"}
-  ?checkJsonKind(addedNode, JArray, "QueryChangesResponse", "added must be array")
+  let removed = ?parseIdArrayField(node, "removed", path)
+  let addedNode = ?fieldJArray(node, "added", path)
   var added: seq[AddedItem] = @[]
-  for _, elem in addedNode.getElems(@[]):
-    let item = ?AddedItem.fromJson(elem)
+  for i, elem in addedNode.getElems(@[]):
+    let item = ?AddedItem.fromJson(elem, path / "added" / i)
     added.add(item)
   return ok(
     QueryChangesResponse[T](

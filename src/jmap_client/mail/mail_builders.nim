@@ -88,27 +88,43 @@ forwardChangesFields(MailboxChangesResponse)
 # =============================================================================
 
 func fromJson*(
-    R: typedesc[MailboxChangesResponse], node: JsonNode
-): Result[MailboxChangesResponse, ValidationError] =
+    R: typedesc[MailboxChangesResponse],
+    node: JsonNode,
+    path: JsonPath = emptyJsonPath(),
+): Result[MailboxChangesResponse, SerdeViolation] =
   ## Deserialise JSON to MailboxChangesResponse. Reuses
   ## ``ChangesResponse[Mailbox].fromJson`` for the 7 standard fields, then
   ## extracts the Mailbox-specific ``updatedProperties`` extension.
-  ?checkJsonKind(node, JObject, $R)
-  let base = ?ChangesResponse[Mailbox].fromJson(node)
+  discard $R # consumed for nimalyzer params rule
+  ?expectKind(node, JObject, path)
+  let base = ?ChangesResponse[Mailbox].fromJson(node, path)
   let upNode = node{"updatedProperties"}
   let updatedProperties =
     if upNode.isNil or upNode.kind == JNull:
       Opt.none(seq[string])
     elif upNode.kind == JArray:
       var props: seq[string] = @[]
-      for _, elem in upNode.getElems(@[]):
+      for i, elem in upNode.getElems(@[]):
         if elem.kind != JString:
-          return
-            err(validationError($R, "updatedProperties elements must be strings", ""))
+          return err(
+            SerdeViolation(
+              kind: svkWrongKind,
+              path: path / "updatedProperties" / i,
+              expectedKind: JString,
+              actualKind: elem.kind,
+            )
+          )
         props.add(elem.getStr(""))
       Opt.some(props)
     else:
-      return err(validationError($R, "updatedProperties must be array or null", ""))
+      return err(
+        SerdeViolation(
+          kind: svkWrongKind,
+          path: path / "updatedProperties",
+          expectedKind: JArray,
+          actualKind: upNode.kind,
+        )
+      )
   return ok(MailboxChangesResponse(base: base, updatedProperties: updatedProperties))
 
 # =============================================================================

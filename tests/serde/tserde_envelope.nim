@@ -29,7 +29,7 @@ import ../mproperty
 
 proc fromDirectInt(n: JsonNode): int {.raises: [].} =
   ## Parse a JSON integer for Referencable[int] tests.
-  discard checkJsonKind(n, JInt, "int")
+  discard expectKind(n, JInt, emptyJsonPath())
   n.getInt(0)
 
 # Golden and valid Request/Response JSON fixtures are in mfixtures.nim:
@@ -247,11 +247,11 @@ block invocationDeserJNull:
 
 block requestDeserMissingUsing:
   let j = %*{"methodCalls": [["Mailbox/get", {}, "c0"]]}
-  assertErrContains Request.fromJson(j), "missing or invalid using"
+  assertErrContains Request.fromJson(j), "using"
 
 block requestDeserMissingMethodCalls:
   let j = %*{"using": ["urn:ietf:params:jmap:core"]}
-  assertErrContains Request.fromJson(j), "missing or invalid methodCalls"
+  assertErrContains Request.fromJson(j), "methodCalls"
 
 block requestDeserUsingNotArray:
   let j =
@@ -264,7 +264,7 @@ block requestDeserMethodCallsNotArray:
 
 block requestDeserUsingElementNotString:
   let j = %*{"using": [42], "methodCalls": [["Mailbox/get", {}, "c0"]]}
-  assertErrContains Request.fromJson(j), "using element must be string"
+  assertErrContains Request.fromJson(j), "at /using/"
 
 block requestDeserNotObject:
   assertErr Request.fromJson(%*[1, 2, 3])
@@ -291,11 +291,11 @@ block requestDeserDeepInvalidInvocation:
 
 block responseDeserMissingMethodResponses:
   let j = %*{"sessionState": "s1"}
-  assertErrContains Response.fromJson(j), "missing or invalid methodResponses"
+  assertErrContains Response.fromJson(j), "methodResponses"
 
 block responseDeserMissingSessionState:
   let j = %*{"methodResponses": [["Mailbox/get", {}, "c0"]]}
-  assertErrContains Response.fromJson(j), "missing or invalid sessionState"
+  assertErrContains Response.fromJson(j), "sessionState"
 
 block responseDeserMethodResponsesNotArray:
   let j = %*{"methodResponses": {}, "sessionState": "s1"}
@@ -325,15 +325,15 @@ block responseDeserDeepInvalidInvocation:
 
 block resultReferenceDeserMissingResultOf:
   let j = %*{"name": "Mailbox/get", "path": "/ids"}
-  assertErrContains ResultReference.fromJson(j), "missing or invalid resultOf"
+  assertErrContains ResultReference.fromJson(j), "resultOf"
 
 block resultReferenceDeserMissingName:
   let j = %*{"resultOf": "c0", "path": "/ids"}
-  assertErrContains ResultReference.fromJson(j), "missing or invalid name"
+  assertErrContains ResultReference.fromJson(j), "name"
 
 block resultReferenceDeserMissingPath:
   let j = %*{"resultOf": "c0", "name": "Mailbox/get"}
-  assertErrContains ResultReference.fromJson(j), "missing or invalid path"
+  assertErrContains ResultReference.fromJson(j), "path"
 
 block resultReferenceDeserEmptyName:
   let j = %*{"resultOf": "c0", "name": "", "path": "/ids"}
@@ -380,7 +380,7 @@ block createdIdsPopulatedObject:
 block createdIdsWrongKindArray:
   var j = validRequestJson()
   j["createdIds"] = %*[1, 2]
-  assertErrContains Request.fromJson(j), "createdIds must be object or null"
+  assertErrContains Request.fromJson(j), "at /createdIds"
 
 block createdIdsWrongKindString:
   var j = validRequestJson()
@@ -390,7 +390,7 @@ block createdIdsWrongKindString:
 block createdIdsValueNotString:
   var j = validRequestJson()
   j["createdIds"] = %*{"k1": 42}
-  assertErrContains Request.fromJson(j), "createdIds value must be string"
+  assertErrContains Request.fromJson(j), "/createdIds/k1"
 
 block createdIdsKeyStartsWithHash:
   var j = validRequestJson()
@@ -574,8 +574,7 @@ block referencableFromJsonFieldMalformedReference:
   ## When a '#'-prefixed key contains a malformed ResultReference (non-string
   ## resultOf), the error must propagate through fromJsonField.
   let node = %*{"#ids": {"resultOf": 42, "name": "Mailbox/get", "path": "/ids"}}
-  assertErrContains fromJsonField[int]("ids", node, fromDirectInt),
-    "missing or invalid resultOf"
+  assertErrContains fromJsonField[int]("ids", node, fromDirectInt), "resultOf"
 
 block requestEmptyMethodCalls:
   ## Empty methodCalls array round-trips correctly.

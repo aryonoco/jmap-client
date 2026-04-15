@@ -51,14 +51,14 @@ func toJson*(re: RequestError): JsonNode =
   return node
 
 func fromJson*(
-    T: typedesc[RequestError], node: JsonNode
-): Result[RequestError, ValidationError] =
+    T: typedesc[RequestError], node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[RequestError, SerdeViolation] =
   ## Deserialise RFC 7807 problem details JSON to RequestError.
-  ?checkJsonKind(node, JObject, $T)
-  ?checkJsonKind(node{"type"}, JString, $T, "missing or invalid type")
-  let rawType = node{"type"}.getStr("")
-  if rawType.len == 0:
-    return err(parseError($T, "empty type field"))
+  discard $T # consumed for nimalyzer params rule
+  ?expectKind(node, JObject, path)
+  let typeNode = ?fieldJString(node, "type", path)
+  let rawType = typeNode.getStr("")
+  ?nonEmptyStr(rawType, "type field", path / "type")
   let status = optInt(node, "status")
   let title = optString(node, "title")
   let detail = optString(node, "detail")
@@ -95,14 +95,14 @@ func toJson*(me: MethodError): JsonNode =
   return node
 
 func fromJson*(
-    T: typedesc[MethodError], node: JsonNode
-): Result[MethodError, ValidationError] =
+    T: typedesc[MethodError], node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[MethodError, SerdeViolation] =
   ## Deserialise error invocation arguments to MethodError.
-  ?checkJsonKind(node, JObject, $T)
-  ?checkJsonKind(node{"type"}, JString, $T, "missing or invalid type")
-  let rawType = node{"type"}.getStr("")
-  if rawType.len == 0:
-    return err(parseError($T, "empty type field"))
+  discard $T # consumed for nimalyzer params rule
+  ?expectKind(node, JObject, path)
+  let typeNode = ?fieldJString(node, "type", path)
+  let rawType = typeNode.getStr("")
+  ?nonEmptyStr(rawType, "type field", path / "type")
   let description = optString(node, "description")
   let extras = collectExtras(node, MethodErrorKnownKeys)
   return ok(methodError(rawType = rawType, description = description, extras = extras))
@@ -145,14 +145,14 @@ func toJson*(se: SetError): JsonNode =
   return node
 
 func fromJson*(
-    T: typedesc[SetError], node: JsonNode
-): Result[SetError, ValidationError] =
+    T: typedesc[SetError], node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[SetError, SerdeViolation] =
   ## Deserialise JSON to SetError with defensive fallback (Layer 1 §8.10).
-  ?checkJsonKind(node, JObject, $T)
-  ?checkJsonKind(node{"type"}, JString, $T, "missing or invalid type")
-  let rawType = node{"type"}.getStr("")
-  if rawType.len == 0:
-    return err(parseError($T, "empty type field"))
+  discard $T # consumed for nimalyzer params rule
+  ?expectKind(node, JObject, path)
+  let typeNode = ?fieldJString(node, "type", path)
+  let rawType = typeNode.getStr("")
+  ?nonEmptyStr(rawType, "type field", path / "type")
   let description = optString(node, "description")
   let errorType = parseSetErrorType(rawType)
   # Per-variant known keys: variant-specific fields are "known" only for
@@ -168,10 +168,8 @@ func fromJson*(
     let propsNode = node{"properties"}
     if not propsNode.isNil and propsNode.kind == JArray:
       var properties: seq[string] = @[]
-      for item in propsNode.getElems(@[]):
-        if item.isNil:
-          return err(parseError($T, "properties element is nil"))
-        ?checkJsonKind(item, JString, $T, "properties element must be string")
+      for i, item in propsNode.getElems(@[]):
+        ?expectKind(item, JString, path / "properties" / i)
         properties.add(item.getStr(""))
       return ok(setErrorInvalidProperties(rawType, properties, description, extras))
     return ok(setError(rawType, description, extras))

@@ -1,40 +1,310 @@
 # SPDX-License-Identifier: BSD-2-Clause
 # Copyright (c) 2026 Aryan Ameri
 
-## Shared serialisation helpers and primitive/identifier type ser/de pairs.
-## All domain serde modules import this module for the shared helpers.
+## Shared serialisation helpers, primitive/identifier ser/de pairs, and the
+## ``SerdeViolation`` structured-error ADT that every ``fromJson`` in this
+## codebase produces on failure.
+##
+## Design: ``fromJson`` sites return ``Result[T, SerdeViolation]`` — a
+## sum-type carrying an RFC 6901 JSON Pointer (``JsonPath``) plus a
+## variant-specific payload. Composition preserves the path: when an outer
+## ``fromJson`` calls an inner one, the outer prepends path segments as it
+## descends. Translation to the wire ``ValidationError`` shape happens at
+## exactly one site — ``toValidationError`` — at the L3/L4 boundary.
+##
+## Adding a new structural-violation kind forces a compile error in
+## ``toValidationError`` and nowhere else.
 
 {.push raises: [], noSideEffect.}
 
 import std/json
+import std/strutils
 import std/tables
 
 import ./types
 
-func parseError*(typeName, message: string): ValidationError =
-  ## Convenience constructor for deserialisation errors.
-  ## Sets value to empty — JSON context is captured in message.
-  return validationError(typeName, message, "")
+# =============================================================================
+# JsonPath — structured RFC 6901 JSON Pointer
+# =============================================================================
 
-func checkJsonKind*(
-    node: JsonNode, expected: JsonNodeKind, typeName: string, message: string = ""
-): Result[void, ValidationError] =
-  ## Validates JsonNodeKind before extraction. Returns err on mismatch.
-  let checkMsg =
-    if message.len > 0:
-      message
-    else:
-      "expected JSON " & $expected
+type JsonPathElementKind* = enum
+  ## Discriminator for ``JsonPathElement`` — a path segment is either a
+  ## named object key or a zero-based array index.
+  jpeKey
+  jpeIndex
+
+type JsonPathElement* {.ruleOff: "objects".} = object
+  ## One segment of a ``JsonPath``. Discriminated so indices and escaped
+  ## keys remain distinguishable throughout composition.
+  case kind*: JsonPathElementKind
+  of jpeKey:
+    key*: string
+  of jpeIndex:
+    idx*: int
+
+type JsonPath* = distinct seq[JsonPathElement]
+  ## Ordered, immutable path of object keys and array indices — rendered
+  ## as an RFC 6901 JSON Pointer string by ``$``. Composed left-to-right
+  ## via the ``/`` operator as a ``fromJson`` descends the wire tree.
+
+func emptyJsonPath*(): JsonPath =
+  ## The empty RFC 6901 pointer — references the root of the document.
+  return JsonPath(@[])
+
+func jsonPointerEscape*(s: string): string =
+  ## RFC 6901 §3 reference-token escaping. ``~`` MUST be escaped first:
+  ## escaping ``/`` first would produce ``~1`` that a second pass would
+  ## re-escape into ``~01``, corrupting tokens containing ``/``.
+  return s.replace("~", "~0").replace("/", "~1")
+
+func `/`*(p: JsonPath, key: string): JsonPath =
+  ## Extend the path with a named object key. Produces a fresh path;
+  ## ``p`` is unchanged.
+  return JsonPath(seq[JsonPathElement](p) & @[JsonPathElement(kind: jpeKey, key: key)])
+
+func `/`*(p: JsonPath, idx: int): JsonPath =
+  ## Extend the path with a zero-based array index. Produces a fresh
+  ## path; ``p`` is unchanged.
+  return
+    JsonPath(seq[JsonPathElement](p) & @[JsonPathElement(kind: jpeIndex, idx: idx)])
+
+func `$`*(p: JsonPath): string =
+  ## Render as an RFC 6901 JSON Pointer string. The empty path renders
+  ## as ``""`` (references the whole document); otherwise each segment
+  ## contributes a leading ``/`` plus the escaped token or the index.
+  result = ""
+  for elem in seq[JsonPathElement](p):
+    case elem.kind
+    of jpeKey:
+      result.add("/" & jsonPointerEscape(elem.key))
+    of jpeIndex:
+      result.add("/" & $elem.idx)
+
+# =============================================================================
+# SerdeViolation — structured deserialisation error
+# =============================================================================
+
+type SerdeViolationKind* = enum
+  ## Enumerates the structural deserialisation-failure modes. Each variant
+  ## corresponds to exactly one ``of`` arm in ``SerdeViolation``; adding a
+  ## kind here forces a compile error in ``toValidationError``.
+  svkWrongKind ## Node present but the wrong ``JsonNodeKind``.
+  svkNilNode ## Node absent where one was required (top-level only).
+  svkMissingField ## Required object field not present.
+  svkEmptyRequired ## Wire-boundary non-empty invariant violated.
+  svkArrayLength ## Array had the wrong number of elements.
+  svkFieldParserFailed ## An inner smart constructor rejected the value.
+  svkConflictingFields ## Two mutually-exclusive fields both present.
+  svkEnumNotRecognised ## Token outside the enum's accepted set.
+  svkDepthExceeded ## Recursive nesting exceeded the stack-safety cap.
+
+type SerdeViolation* {.ruleOff: "objects".} = object
+  ## Structured deserialisation error. The ``path`` locates the violation
+  ## inside the wire tree (RFC 6901); the variant carries the detail.
+  path*: JsonPath
+  case kind*: SerdeViolationKind
+  of svkWrongKind:
+    expectedKind*: JsonNodeKind
+    actualKind*: JsonNodeKind
+  of svkNilNode:
+    expectedKindForNil*: JsonNodeKind
+  of svkMissingField:
+    missingFieldName*: string
+  of svkEmptyRequired:
+    emptyFieldLabel*: string
+  of svkArrayLength:
+    expectedLen*: int
+    actualLen*: int
+  of svkFieldParserFailed:
+    inner*: ValidationError
+  of svkConflictingFields:
+    conflictKeyA*: string
+    conflictKeyB*: string
+    conflictRule*: string
+  of svkEnumNotRecognised:
+    enumTypeLabel*: string
+    rawValue*: string
+  of svkDepthExceeded:
+    maxDepth*: int
+
+# =============================================================================
+# Combinators
+# =============================================================================
+
+func expectKind*(
+    node: JsonNode, expected: JsonNodeKind, path: JsonPath
+): Result[void, SerdeViolation] =
+  ## Assert that ``node`` has the given kind. A nil node maps to
+  ## ``svkNilNode`` — this is the top-level case, where the whole
+  ## document was expected but absent. A non-nil wrong-kind node maps to
+  ## ``svkWrongKind`` at the current path.
   if node.isNil:
-    return err(validationError(typeName, checkMsg, ""))
+    return
+      err(SerdeViolation(kind: svkNilNode, path: path, expectedKindForNil: expected))
   if node.kind != expected:
-    return err(validationError(typeName, checkMsg, ""))
+    return err(
+      SerdeViolation(
+        kind: svkWrongKind, path: path, expectedKind: expected, actualKind: node.kind
+      )
+    )
   return ok()
 
+func fieldOfKind*(
+    node: JsonNode, key: string, expected: JsonNodeKind, path: JsonPath
+): Result[JsonNode, SerdeViolation] =
+  ## Extract a required typed child from an object node. Missing →
+  ## ``svkMissingField`` anchored at the parent path (the child doesn't
+  ## exist to point at). Wrong kind → ``svkWrongKind`` at ``path / key``.
+  ## Precondition: caller has already verified ``node.kind == JObject``.
+  let child = node{key}
+  if child.isNil:
+    return err(SerdeViolation(kind: svkMissingField, path: path, missingFieldName: key))
+  if child.kind != expected:
+    return err(
+      SerdeViolation(
+        kind: svkWrongKind,
+        path: path / key,
+        expectedKind: expected,
+        actualKind: child.kind,
+      )
+    )
+  return ok(child)
+
+func fieldJObject*(
+    node: JsonNode, key: string, path: JsonPath
+): Result[JsonNode, SerdeViolation] =
+  ## Required object-valued field; short-hand over ``fieldOfKind``.
+  return fieldOfKind(node, key, JObject, path)
+
+func fieldJString*(
+    node: JsonNode, key: string, path: JsonPath
+): Result[JsonNode, SerdeViolation] =
+  ## Required string-valued field; short-hand over ``fieldOfKind``.
+  return fieldOfKind(node, key, JString, path)
+
+func fieldJArray*(
+    node: JsonNode, key: string, path: JsonPath
+): Result[JsonNode, SerdeViolation] =
+  ## Required array-valued field; short-hand over ``fieldOfKind``.
+  return fieldOfKind(node, key, JArray, path)
+
+func fieldJBool*(
+    node: JsonNode, key: string, path: JsonPath
+): Result[JsonNode, SerdeViolation] =
+  ## Required boolean-valued field; short-hand over ``fieldOfKind``.
+  return fieldOfKind(node, key, JBool, path)
+
+func fieldJInt*(
+    node: JsonNode, key: string, path: JsonPath
+): Result[JsonNode, SerdeViolation] =
+  ## Required integer-valued field; short-hand over ``fieldOfKind``.
+  return fieldOfKind(node, key, JInt, path)
+
+func optField*(node: JsonNode, key: string): Opt[JsonNode] =
+  ## Lenient optional field access: absent → ``Opt.none``. Kind is NOT
+  ## validated; callers that need typed optionals check the kind on the
+  ## extracted node.
+  let child = node{key}
+  if child.isNil:
+    return Opt.none(JsonNode)
+  return Opt.some(child)
+
+func expectLen*(node: JsonNode, n: int, path: JsonPath): Result[void, SerdeViolation] =
+  ## Assert that a JSON array has exactly ``n`` elements. Precondition:
+  ## caller has already verified ``node.kind == JArray``.
+  if node.len != n:
+    return err(
+      SerdeViolation(
+        kind: svkArrayLength, path: path, expectedLen: n, actualLen: node.len
+      )
+    )
+  return ok()
+
+func nonEmptyStr*(
+    s: string, label: string, path: JsonPath
+): Result[void, SerdeViolation] =
+  ## Assert that a wire-boundary string is non-empty. ``label`` describes
+  ## the field's purpose (``"method name"``, ``"type field"``, etc.) —
+  ## the translator renders it verbatim followed by ``" must not be empty"``.
+  if s.len == 0:
+    return
+      err(SerdeViolation(kind: svkEmptyRequired, path: path, emptyFieldLabel: label))
+  return ok()
+
+func wrapInner*[T](
+    r: Result[T, ValidationError], path: JsonPath
+): Result[T, SerdeViolation] =
+  ## Bridge an L1 smart-constructor failure into the serde railway. The
+  ## inner ``ValidationError`` is preserved losslessly inside
+  ## ``svkFieldParserFailed`` — the translator reconstructs its original
+  ## shape, augmented only with the path suffix.
+  if r.isOk:
+    return ok(r.get())
+  return err(SerdeViolation(kind: svkFieldParserFailed, path: path, inner: r.error))
+
+# =============================================================================
+# Translator — sole SerdeViolation → ValidationError boundary
+# =============================================================================
+
+func toValidationError*(v: SerdeViolation, rootType: string): ValidationError =
+  ## Translate a structured violation to the wire ``ValidationError``
+  ## shape. The suffix ``" at <rfc-6901-pointer>"`` is appended when the
+  ## path is non-empty. For ``svkFieldParserFailed`` the inner
+  ## ``typeName`` and ``value`` are preserved verbatim; otherwise
+  ## ``rootType`` is used.
+  let pathStr = $v.path
+  let suffix =
+    if pathStr.len == 0:
+      ""
+    else:
+      " at " & pathStr
+  case v.kind
+  of svkWrongKind:
+    return validationError(
+      rootType, "expected " & $v.expectedKind & ", got " & $v.actualKind & suffix, ""
+    )
+  of svkNilNode:
+    return validationError(
+      rootType, "expected " & $v.expectedKindForNil & ", got nil" & suffix, ""
+    )
+  of svkMissingField:
+    return
+      validationError(rootType, "missing field: " & v.missingFieldName & suffix, "")
+  of svkEmptyRequired:
+    return
+      validationError(rootType, v.emptyFieldLabel & " must not be empty" & suffix, "")
+  of svkArrayLength:
+    return validationError(
+      rootType,
+      "expected " & $v.expectedLen & " elements, got " & $v.actualLen & suffix,
+      "",
+    )
+  of svkFieldParserFailed:
+    return validationError(v.inner.typeName, v.inner.message & suffix, v.inner.value)
+  of svkConflictingFields:
+    return validationError(
+      rootType,
+      "cannot specify both " & v.conflictKeyA & " and " & v.conflictKeyB & " (" &
+        v.conflictRule & ")" & suffix,
+      "",
+    )
+  of svkEnumNotRecognised:
+    return validationError(
+      rootType, "unknown " & v.enumTypeLabel & ": " & v.rawValue & suffix, v.rawValue
+    )
+  of svkDepthExceeded:
+    return validationError(
+      rootType, "maximum nesting depth (" & $v.maxDepth & ") exceeded" & suffix, ""
+    )
+
+# =============================================================================
+# Shared serde helpers
+# =============================================================================
+
 func collectExtras*(node: JsonNode, knownKeys: openArray[string]): Opt[JsonNode] =
-  ## Collect non-standard fields from a JSON object into Opt[JsonNode].
-  ## Returns none if no extra fields exist.
-  ## Precondition: caller has verified node.kind == JObject.
+  ## Collect non-standard fields from a JSON object into ``Opt[JsonNode]``.
+  ## Returns ``Opt.none`` when no extra fields exist.
+  ## Precondition: caller has verified ``node.kind == JObject``.
   var extras = newJObject()
   var found = false
   for key, val in node.pairs:
@@ -45,27 +315,42 @@ func collectExtras*(node: JsonNode, knownKeys: openArray[string]): Opt[JsonNode]
     return Opt.some(extras)
   return Opt.none(JsonNode)
 
-func parseIdArray*(
-    node: JsonNode, typeName: string, fieldName: string
-): Result[seq[Id], ValidationError] =
-  ## Validates that ``node`` is a JSON array and parses each element as a
-  ## server-assigned Id. Shared helper for the fromJson sites in methods.nim
-  ## that deserialise mandatory arrays of identifiers.
-  ?checkJsonKind(node, JArray, typeName, fieldName & " must be array")
+func parseIdArray*(node: JsonNode, path: JsonPath): Result[seq[Id], SerdeViolation] =
+  ## Validate ``node`` as a JSON array and parse each element as a
+  ## server-assigned ``Id``. Used when the whole node IS the array.
+  ?expectKind(node, JArray, path)
   var ids: seq[Id] = @[]
-  for _, elem in node.getElems(@[]):
-    let id = ?parseIdFromServer(elem.getStr(""))
+  for i, elem in node.getElems(@[]):
+    let id = ?wrapInner(parseIdFromServer(elem.getStr("")), path / i)
     ids.add(id)
   return ok(ids)
 
-func parseOptIdArray*(node: JsonNode): Result[seq[Id], ValidationError] =
-  ## Lenient variant: absent or non-array node yields an empty seq.
-  ## For optional Id arrays like GetResponse.notFound.
+func parseIdArrayField*(
+    parent: JsonNode, key: string, path: JsonPath
+): Result[seq[Id], SerdeViolation] =
+  ## Required id-array field on an object: missing → ``svkMissingField``,
+  ## wrong kind → ``svkWrongKind``, per-element failure →
+  ## ``svkFieldParserFailed``. Preferred over ``parseIdArray(node{"key"}, …)``
+  ## because it distinguishes missing from wrong-kind.
+  let arrNode = ?fieldJArray(parent, key, path)
+  var ids: seq[Id] = @[]
+  for i, elem in arrNode.getElems(@[]):
+    let id = ?wrapInner(parseIdFromServer(elem.getStr("")), path / key / i)
+    ids.add(id)
+  return ok(ids)
+
+func parseOptIdArray*(
+    node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[seq[Id], SerdeViolation] =
+  ## Lenient variant of ``parseIdArray``: absent or non-array nodes
+  ## collapse to the empty seq. For optional id arrays such as
+  ## ``GetResponse.notFound``. Per-element failures still surface via
+  ## ``svkFieldParserFailed`` at ``path / i``.
   if node.isNil or node.kind != JArray:
     return ok(newSeq[Id]())
   var ids: seq[Id] = @[]
-  for _, elem in node.getElems(@[]):
-    let id = ?parseIdFromServer(elem.getStr(""))
+  for i, elem in node.getElems(@[]):
+    let id = ?wrapInner(parseIdFromServer(elem.getStr("")), path / i)
     ids.add(id)
   return ok(ids)
 
@@ -73,59 +358,67 @@ func collapseNullToEmptySeq*(
     node: JsonNode,
     key: string,
     parser: proc(s: string): Result[Id, ValidationError] {.noSideEffect, raises: [].},
-): Result[seq[Id], ValidationError] =
-  ## Parses an ``Id[]|null`` field by key where null or absent collapses
-  ## to an empty seq. Each array element's string value is passed to
-  ## ``parser``. Used by response types that have nullable Id arrays (D13).
+    path: JsonPath,
+): Result[seq[Id], SerdeViolation] =
+  ## Parse an ``Id[]|null`` field by key where null or absent collapses to
+  ## an empty seq. Each array element's string value is passed to
+  ## ``parser``. Used by response types that have nullable id arrays (D13).
   let child = node{key}
   if child.isNil or child.kind != JArray:
     return ok(newSeq[Id]())
   var ids: seq[Id] = @[]
-  for elem in child.getElems(@[]):
-    ids.add(?parser(elem.getStr("")))
+  for i, elem in child.getElems(@[]):
+    ids.add(?wrapInner(parser(elem.getStr("")), path / key / i))
   return ok(ids)
 
 func parseIdKeyedTable*[T](
     node: JsonNode,
-    parseValue:
-      proc(n: JsonNode): Result[T, ValidationError] {.noSideEffect, raises: [].},
-): Result[Table[Id, T], ValidationError] =
-  ## Parses a JSON object into ``Table[Id, T]``. Each key is parsed as a
-  ## server-assigned ``Id``; each value via the caller-supplied parser.
-  ## Nil or non-object node yields an empty table (lenient, D15).
+    parseValue: proc(n: JsonNode, p: JsonPath): Result[T, SerdeViolation] {.
+      noSideEffect, raises: []
+    .},
+    path: JsonPath,
+): Result[Table[Id, T], SerdeViolation] =
+  ## Parse a JSON object into ``Table[Id, T]``. Each key is parsed as a
+  ## server-assigned ``Id``; each value via the caller-supplied parser,
+  ## which receives the descended path. Nil or non-object node yields an
+  ## empty table (lenient, D15).
   if node.isNil or node.kind != JObject:
     return ok(initTable[Id, T]())
   var tbl = initTable[Id, T](node.len)
   for key, val in node.pairs:
-    let id = ?parseIdFromServer(key)
-    let parsed = ?parseValue(val)
+    let id = ?wrapInner(parseIdFromServer(key), path / key)
+    let parsed = ?parseValue(val, path / key)
     tbl[id] = parsed
   return ok(tbl)
 
 func optJsonField*(node: JsonNode, key: string, kind: JsonNodeKind): Opt[JsonNode] =
-  ## Lenient field extraction: absent, null, or wrong kind -> none.
-  ## Companion to checkJsonKind (strict: returns Result with error details).
+  ## Lenient typed-optional field access: absent, null, or wrong kind →
+  ## ``Opt.none``. Companion to ``fieldOfKind`` (strict: returns a Result
+  ## with the specific violation).
   let child = node{key}
   if child.isNil or child.kind != kind:
     return Opt.none(JsonNode)
   return Opt.some(child)
 
 func optToJsonOrNull*[T](opt: Opt[T]): JsonNode =
-  ## Converts an optional value to JSON via ``toJson`` when present, or
-  ## ``newJNull()`` when absent. Call site: ``node[key] = opt.optToJsonOrNull()``.
+  ## Convert an optional value to JSON via ``toJson`` when present, or
+  ## ``newJNull()`` when absent. Call site:
+  ## ``node[key] = opt.optToJsonOrNull()``.
   result = newJNull()
   for val in opt:
     result = val.toJson()
 
 func optStringToJsonOrNull*(opt: Opt[string]): JsonNode =
-  ## Converts an optional string to a JSON string when present, or
+  ## Convert an optional string to a JSON string when present, or
   ## ``newJNull()`` when absent. Specialised because ``string`` has no
   ## ``toJson`` overload in this codebase (``%`` is the idiom).
   result = newJNull()
   for val in opt:
     result = %val
 
-# --- Serde templates for distinct types ---
+# =============================================================================
+# Serde templates for distinct types
+# =============================================================================
 #
 # Each template generates a concrete toJson/fromJson overload. The parser
 # parameter (untyped) is the smart constructor name for the target type.
@@ -140,10 +433,13 @@ template defineDistinctStringToJson*(T: typedesc) =
 template defineDistinctStringFromJson*(T: typedesc, parser: untyped) =
   ## Generates a ``fromJson`` overload that deserialises a JSON string node
   ## via the type's smart constructor (passed as ``parser``).
-  func fromJson*(t: typedesc[T], node: JsonNode): Result[T, ValidationError] =
+  func fromJson*(
+      t: typedesc[T], node: JsonNode, path: JsonPath = emptyJsonPath()
+  ): Result[T, SerdeViolation] =
     ## Deserialise JSON string via the type's smart constructor.
-    ?checkJsonKind(node, JString, $T)
-    return parser(node.getStr(""))
+    discard $t # consumed for nimalyzer params rule
+    ?expectKind(node, JString, path)
+    return wrapInner(parser(node.getStr("")), path)
 
 template defineDistinctIntToJson*(T: typedesc, Base: typedesc) =
   ## Generates a ``toJson`` overload that serialises a distinct int type
@@ -155,10 +451,13 @@ template defineDistinctIntToJson*(T: typedesc, Base: typedesc) =
 template defineDistinctIntFromJson*(T: typedesc, parser: untyped) =
   ## Generates a ``fromJson`` overload that deserialises a JSON integer node
   ## via the type's smart constructor (passed as ``parser``).
-  func fromJson*(t: typedesc[T], node: JsonNode): Result[T, ValidationError] =
+  func fromJson*(
+      t: typedesc[T], node: JsonNode, path: JsonPath = emptyJsonPath()
+  ): Result[T, SerdeViolation] =
     ## Deserialise JSON integer via the type's smart constructor.
-    ?checkJsonKind(node, JInt, $T)
-    return parser(node.getBiggestInt(0))
+    discard $t # consumed for nimalyzer params rule
+    ?expectKind(node, JInt, path)
+    return wrapInner(parser(node.getBiggestInt(0)), path)
 
 # --- toJson/fromJson: distinct string types ---
 
@@ -197,9 +496,10 @@ func toJson*(x: MaxChanges): JsonNode =
   return %(int64(UnsignedInt(x)))
 
 func fromJson*(
-    T: typedesc[MaxChanges], node: JsonNode
-): Result[MaxChanges, ValidationError] =
+    T: typedesc[MaxChanges], node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[MaxChanges, SerdeViolation] =
   ## Deserialise a JSON integer to MaxChanges (must be > 0).
-  ?checkJsonKind(node, JInt, $T)
-  let ui = ?parseUnsignedInt(node.getBiggestInt(0))
-  return parseMaxChanges(ui)
+  discard $T # consumed for nimalyzer params rule
+  ?expectKind(node, JInt, path)
+  let ui = ?wrapInner(parseUnsignedInt(node.getBiggestInt(0)), path)
+  return wrapInner(parseMaxChanges(ui), path)

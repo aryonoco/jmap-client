@@ -43,67 +43,71 @@ func parseCharsetField(node: JsonNode, ctLower: string): Opt[string] =
   return Opt.none(string)
 
 func parseLanguageField(
-    node: JsonNode, typeName: string
-): Result[Opt[seq[string]], ValidationError] =
+    node: JsonNode, path: JsonPath
+): Result[Opt[seq[string]], SerdeViolation] =
   ## Parse optional language tag array.
   let langNode = node{"language"}
   if langNode.isNil or langNode.kind == JNull or langNode.kind != JArray:
     return ok(Opt.none(seq[string]))
   var langs: seq[string] = @[]
-  for elem in langNode.getElems(@[]):
-    ?checkJsonKind(elem, JString, typeName, "language element must be string")
+  for i, elem in langNode.getElems(@[]):
+    ?expectKind(elem, JString, path / "language" / i)
     langs.add(elem.getStr(""))
   return ok(Opt.some(langs))
 
 func parseSizeField(
-    node: JsonNode, isMultipart: bool
-): Result[UnsignedInt, ValidationError] =
+    node: JsonNode, isMultipart: bool, path: JsonPath
+): Result[UnsignedInt, SerdeViolation] =
   ## Parse size: required on leaf, default 0 on multipart (Decision C16).
   let sizeNode = node{"size"}
   if isMultipart and (sizeNode.isNil or sizeNode.kind != JInt):
     return ok(UnsignedInt(0))
-  return UnsignedInt.fromJson(sizeNode)
+  return UnsignedInt.fromJson(sizeNode, path / "size")
 
-func parseHeadersField(node: JsonNode): Result[seq[EmailHeader], ValidationError] =
+func parseHeadersField(
+    node: JsonNode, path: JsonPath
+): Result[seq[EmailHeader], SerdeViolation] =
   ## Parse optional headers array: absent or non-array yields empty seq.
   var headers: seq[EmailHeader] = @[]
   let headersNode = node{"headers"}
   if not headersNode.isNil and headersNode.kind == JArray:
-    for elem in headersNode.getElems(@[]):
-      headers.add(?EmailHeader.fromJson(elem))
+    for i, elem in headersNode.getElems(@[]):
+      headers.add(?EmailHeader.fromJson(elem, path / "headers" / i))
   return ok(headers)
 
-func fromJsonImpl(node: JsonNode, depth: int): Result[EmailBodyPart, ValidationError] =
+func fromJsonImpl(
+    node: JsonNode, depth: int, path: JsonPath
+): Result[EmailBodyPart, SerdeViolation] =
   ## Recursive depth-limited deserialisation of EmailBodyPart.
-  const typeName = "EmailBodyPart"
-  ?checkJsonKind(node, JObject, typeName)
+  ?expectKind(node, JObject, path)
   if depth <= 0:
-    return err(parseError(typeName, "maximum nesting depth exceeded"))
+    return err(
+      SerdeViolation(kind: svkDepthExceeded, path: path, maxDepth: MaxBodyPartDepth)
+    )
 
   # contentType from "type" wire key (Decision C19)
-  let typeNode = node{"type"}
-  ?checkJsonKind(typeNode, JString, typeName, "missing or invalid type")
+  let typeNode = ?fieldJString(node, "type", path)
   let contentType = typeNode.getStr("")
   let ctLower = contentType.toLowerAscii()
   let isMultipart = ctLower.startsWith("multipart/")
 
   # --- Shared fields ---
-  let headers = ?parseHeadersField(node)
+  let headers = ?parseHeadersField(node, path)
   let name = parseOptString(node, "name")
   let disposition = parseOptString(node, "disposition")
   let cid = parseOptString(node, "cid")
   let location = parseOptString(node, "location")
   let charset = parseCharsetField(node, ctLower)
-  let language = ?parseLanguageField(node, typeName)
-  let size = ?parseSizeField(node, isMultipart)
+  let language = ?parseLanguageField(node, path)
+  let size = ?parseSizeField(node, isMultipart, path)
 
   # --- Branch-specific fields ---
   if isMultipart:
     var subParts: seq[EmailBodyPart] = @[]
     let subPartsNode = node{"subParts"}
     if not subPartsNode.isNil and subPartsNode.kind == JArray:
-      for elem in subPartsNode.getElems(@[]):
-        subParts.add(?fromJsonImpl(elem, depth - 1))
+      for i, elem in subPartsNode.getElems(@[]):
+        subParts.add(?fromJsonImpl(elem, depth - 1, path / "subParts" / i))
     return ok(
       EmailBodyPart(
         headers: headers,
@@ -120,8 +124,10 @@ func fromJsonImpl(node: JsonNode, depth: int): Result[EmailBodyPart, ValidationE
       )
     )
 
-  let partId = ?PartId.fromJson(node{"partId"})
-  let blobId = ?Id.fromJson(node{"blobId"})
+  let partIdNode = ?fieldJString(node, "partId", path)
+  let partId = ?PartId.fromJson(partIdNode, path / "partId")
+  let blobIdNode = ?fieldJString(node, "blobId", path)
+  let blobId = ?Id.fromJson(blobIdNode, path / "blobId")
   return ok(
     EmailBodyPart(
       headers: headers,
@@ -140,12 +146,12 @@ func fromJsonImpl(node: JsonNode, depth: int): Result[EmailBodyPart, ValidationE
   )
 
 func fromJson*(
-    T: typedesc[EmailBodyPart], node: JsonNode
-): Result[EmailBodyPart, ValidationError] =
+    T: typedesc[EmailBodyPart], node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[EmailBodyPart, SerdeViolation] =
   ## Deserialise JSON to EmailBodyPart. Recursive with depth limit.
   ## ``isMultipart`` is derived from ``contentType`` (case-insensitive).
   discard $T
-  return fromJsonImpl(node, MaxBodyPartDepth)
+  return fromJsonImpl(node, MaxBodyPartDepth, path)
 
 # =============================================================================
 # EmailBodyPart — toJson
@@ -204,24 +210,37 @@ func toJson*(part: EmailBodyPart): JsonNode =
 # =============================================================================
 
 func fromJson*(
-    T: typedesc[EmailBodyValue], node: JsonNode
-): Result[EmailBodyValue, ValidationError] =
+    T: typedesc[EmailBodyValue], node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[EmailBodyValue, SerdeViolation] =
   ## Deserialise JSON to EmailBodyValue.
-  const typeName = "EmailBodyValue"
-  ?checkJsonKind(node, JObject, typeName)
-  let valueNode = node{"value"}
-  ?checkJsonKind(valueNode, JString, typeName, "missing or invalid value")
+  discard $T # consumed for nimalyzer params rule
+  ?expectKind(node, JObject, path)
+  let valueNode = ?fieldJString(node, "value", path)
   let value = valueNode.getStr("")
 
   # Bool flags: absent/null → default false; present non-bool → err
   let epNode = node{"isEncodingProblem"}
   if not epNode.isNil and epNode.kind != JNull and epNode.kind != JBool:
-    return err(parseError(typeName, "isEncodingProblem must be boolean"))
+    return err(
+      SerdeViolation(
+        kind: svkWrongKind,
+        path: path / "isEncodingProblem",
+        expectedKind: JBool,
+        actualKind: epNode.kind,
+      )
+    )
   let isEncodingProblem = epNode.getBool(false)
 
   let trNode = node{"isTruncated"}
   if not trNode.isNil and trNode.kind != JNull and trNode.kind != JBool:
-    return err(parseError(typeName, "isTruncated must be boolean"))
+    return err(
+      SerdeViolation(
+        kind: svkWrongKind,
+        path: path / "isTruncated",
+        expectedKind: JBool,
+        actualKind: trNode.kind,
+      )
+    )
   let isTruncated = trNode.getBool(false)
 
   return ok(

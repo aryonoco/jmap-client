@@ -11,19 +11,13 @@
 {.push raises: [], noSideEffect.}
 
 import std/json
-import std/strutils
 
 import ../primitives
+import ../serde
 import ./email_update
 import ./keyword
 import ./serde_keyword
 import ./serde_mailbox
-
-func jsonPointerEscape(s: string): string =
-  ## RFC 6901 §3 reference-token escaping. ``~`` MUST be escaped first:
-  ## escaping ``/`` first would produce ``~1`` that a second pass would
-  ## re-escape into ``~01``, corrupting keywords containing ``/``.
-  s.replace("~", "~0").replace("/", "~1")
 
 func toJson*(u: EmailUpdate): (string, JsonNode) =
   ## Emit the ``(wire-key, wire-value)`` pair for a single update. The

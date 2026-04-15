@@ -18,7 +18,13 @@ import ../mfixtures
 # =============================================================================
 
 block sharedHelpers:
-  let e = parseError("Test", "msg")
+  ## Verifies that the ``SerdeViolation`` translator and ``collectExtras``
+  ## flow through the ``serialisation`` re-export. Construction of a
+  ## ``svkMissingField`` violation mirrors the old ``parseError`` shape
+  ## check — after translation the ``typeName`` is the passed rootType.
+  let v =
+    SerdeViolation(kind: svkMissingField, path: emptyJsonPath(), missingFieldName: "x")
+  let e = toValidationError(v, "Test")
   doAssert e.typeName == "Test"
 
   let node = %*{"a": 1, "extra": 2}

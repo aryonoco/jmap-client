@@ -60,34 +60,34 @@ type BodyFields {.ruleOff: "objects".} = object
 # =============================================================================
 
 func parseOptStringSeq(
-    node: JsonNode, key: string
-): Result[Opt[seq[string]], ValidationError] =
+    node: JsonNode, key: string, path: JsonPath
+): Result[Opt[seq[string]], SerdeViolation] =
   ## Parses an optional array of strings: absent/null yields Opt.none,
   ## JArray of JString yields Opt.some(seq). Used for messageId, inReplyTo,
   ## references convenience headers.
   let field = node{key}
   if field.isNil or field.kind == JNull:
     return ok(Opt.none(seq[string]))
-  ?checkJsonKind(field, JArray, "Email", key & " must be array or null")
+  ?expectKind(field, JArray, path / key)
   var strs: seq[string] = @[]
-  for elem in field.getElems(@[]):
-    ?checkJsonKind(elem, JString, "Email", key & " element must be string")
+  for i, elem in field.getElems(@[]):
+    ?expectKind(elem, JString, path / key / i)
     strs.add(elem.getStr(""))
   return ok(Opt.some(strs))
 
 func parseOptAddresses(
-    node: JsonNode, key: string
-): Result[Opt[seq[EmailAddress]], ValidationError] =
+    node: JsonNode, key: string, path: JsonPath
+): Result[Opt[seq[EmailAddress]], SerdeViolation] =
   ## Parses an optional array of EmailAddress: absent/null yields Opt.none,
   ## JArray yields Opt.some(seq). Used for sender, from, to, cc, bcc, replyTo
   ## convenience headers.
   let field = node{key}
   if field.isNil or field.kind == JNull:
     return ok(Opt.none(seq[EmailAddress]))
-  ?checkJsonKind(field, JArray, "Email", key & " must be array or null")
+  ?expectKind(field, JArray, path / key)
   var addrs: seq[EmailAddress] = @[]
-  for elem in field.getElems(@[]):
-    let ea = ?EmailAddress.fromJson(elem)
+  for i, elem in field.getElems(@[]):
+    let ea = ?EmailAddress.fromJson(elem, path / key / i)
     addrs.add(ea)
   return ok(Opt.some(addrs))
 
@@ -98,39 +98,43 @@ func parseOptString(node: JsonNode, key: string): Opt[string] =
     return Opt.some(f.get().getStr(""))
   return Opt.none(string)
 
-func parseOptDate(node: JsonNode, key: string): Result[Opt[Date], ValidationError] =
+func parseOptDate(
+    node: JsonNode, key: string, path: JsonPath
+): Result[Opt[Date], SerdeViolation] =
   ## Parses an optional Date field: absent/null yields Opt.none,
   ## JString yields parsed Date (may fail).
   let field = node{key}
   if field.isNil or field.kind == JNull:
     return ok(Opt.none(Date))
-  let d = ?Date.fromJson(field)
+  let d = ?Date.fromJson(field, path / key)
   return ok(Opt.some(d))
 
-func parseOptId(node: JsonNode, key: string): Result[Opt[Id], ValidationError] =
+func parseOptId(
+    node: JsonNode, key: string, path: JsonPath
+): Result[Opt[Id], SerdeViolation] =
   ## Parses an optional Id field: absent/null yields Opt.none.
   let field = node{key}
   if field.isNil or field.kind == JNull:
     return ok(Opt.none(Id))
-  return ok(Opt.some(?Id.fromJson(field)))
+  return ok(Opt.some(?Id.fromJson(field, path / key)))
 
 func parseConvenienceHeaders(
-    node: JsonNode
-): Result[ConvenienceHeaders, ValidationError] =
+    node: JsonNode, path: JsonPath
+): Result[ConvenienceHeaders, SerdeViolation] =
   ## Extracts the 11 convenience header fields from a JSON object.
   ## Shared by emailFromJson and parsedEmailFromJson.
   ## JSON ``"from"`` key maps to ``fromAddr`` field (``from`` is a Nim keyword).
-  let messageId = ?parseOptStringSeq(node, "messageId")
-  let inReplyTo = ?parseOptStringSeq(node, "inReplyTo")
-  let references = ?parseOptStringSeq(node, "references")
-  let sender = ?parseOptAddresses(node, "sender")
-  let fromAddr = ?parseOptAddresses(node, "from")
-  let to = ?parseOptAddresses(node, "to")
-  let cc = ?parseOptAddresses(node, "cc")
-  let bcc = ?parseOptAddresses(node, "bcc")
-  let replyTo = ?parseOptAddresses(node, "replyTo")
+  let messageId = ?parseOptStringSeq(node, "messageId", path)
+  let inReplyTo = ?parseOptStringSeq(node, "inReplyTo", path)
+  let references = ?parseOptStringSeq(node, "references", path)
+  let sender = ?parseOptAddresses(node, "sender", path)
+  let fromAddr = ?parseOptAddresses(node, "from", path)
+  let to = ?parseOptAddresses(node, "to", path)
+  let cc = ?parseOptAddresses(node, "cc", path)
+  let bcc = ?parseOptAddresses(node, "bcc", path)
+  let replyTo = ?parseOptAddresses(node, "replyTo", path)
   let subject = parseOptString(node, "subject")
-  let sentAt = ?parseOptDate(node, "sentAt")
+  let sentAt = ?parseOptDate(node, "sentAt", path)
   return ok(
     ConvenienceHeaders(
       messageId: messageId,
@@ -147,18 +151,20 @@ func parseConvenienceHeaders(
     )
   )
 
-func parseRawHeaders(node: JsonNode): Result[seq[EmailHeader], ValidationError] =
+func parseRawHeaders(
+    node: JsonNode, path: JsonPath
+): Result[seq[EmailHeader], SerdeViolation] =
   ## Extracts the headers field (seq[EmailHeader]). Absent key yields empty seq.
   var hdrs: seq[EmailHeader] = @[]
   let headersNode = node{"headers"}
   if not headersNode.isNil and headersNode.kind == JArray:
-    for elem in headersNode.getElems(@[]):
-      hdrs.add(?EmailHeader.fromJson(elem))
+    for i, elem in headersNode.getElems(@[]):
+      hdrs.add(?EmailHeader.fromJson(elem, path / "headers" / i))
   return ok(hdrs)
 
 func parseBodyValues(
-    node: JsonNode
-): Result[Table[PartId, EmailBodyValue], ValidationError] =
+    node: JsonNode, path: JsonPath
+): Result[Table[PartId, EmailBodyValue], SerdeViolation] =
   ## Parses bodyValues as Table[PartId, EmailBodyValue]. Absent/non-object
   ## yields empty table. Keys parsed via parsePartIdFromServer for typed
   ## PartId keys (D19).
@@ -166,35 +172,45 @@ func parseBodyValues(
   let bvNode = node{"bodyValues"}
   if not bvNode.isNil and bvNode.kind == JObject:
     for key, val in bvNode.pairs:
-      let pid = ?parsePartIdFromServer(key)
-      let ebv = ?EmailBodyValue.fromJson(val)
+      let pid = ?wrapInner(parsePartIdFromServer(key), path / "bodyValues" / key)
+      let ebv = ?EmailBodyValue.fromJson(val, path / "bodyValues" / key)
       bv[pid] = ebv
   return ok(bv)
 
 func parseBodyPartArray(
-    node: JsonNode, key: string
-): Result[seq[EmailBodyPart], ValidationError] =
+    node: JsonNode, key: string, path: JsonPath
+): Result[seq[EmailBodyPart], SerdeViolation] =
   ## Parses an optional array of EmailBodyPart: absent/non-array yields empty seq.
   var parts: seq[EmailBodyPart] = @[]
   let arrNode = node{key}
   if not arrNode.isNil and arrNode.kind == JArray:
-    for elem in arrNode.getElems(@[]):
-      parts.add(?EmailBodyPart.fromJson(elem))
+    for i, elem in arrNode.getElems(@[]):
+      parts.add(?EmailBodyPart.fromJson(elem, path / key / i))
   return ok(parts)
 
-func parseBodyFields(node: JsonNode): Result[BodyFields, ValidationError] =
+func parseBodyFields(
+    node: JsonNode, path: JsonPath
+): Result[BodyFields, SerdeViolation] =
   ## Extracts the 7 body fields from a JSON object.
   ## Shared by emailFromJson and parsedEmailFromJson.
-  let bodyStructure = ?EmailBodyPart.fromJson(node{"bodyStructure"})
-  let bodyVals = ?parseBodyValues(node)
-  let textBody = ?parseBodyPartArray(node, "textBody")
-  let htmlBody = ?parseBodyPartArray(node, "htmlBody")
-  let attachments = ?parseBodyPartArray(node, "attachments")
+  let bodyStructureNode = ?fieldJObject(node, "bodyStructure", path)
+  let bodyStructure = ?EmailBodyPart.fromJson(bodyStructureNode, path / "bodyStructure")
+  let bodyVals = ?parseBodyValues(node, path)
+  let textBody = ?parseBodyPartArray(node, "textBody", path)
+  let htmlBody = ?parseBodyPartArray(node, "htmlBody", path)
+  let attachments = ?parseBodyPartArray(node, "attachments", path)
 
   # hasAttachment: absent/null defaults to false; non-bool rejected
   let haNode = node{"hasAttachment"}
   if not haNode.isNil and haNode.kind != JNull and haNode.kind != JBool:
-    return err(parseError("Email", "hasAttachment must be boolean"))
+    return err(
+      SerdeViolation(
+        kind: svkWrongKind,
+        path: path / "hasAttachment",
+        expectedKind: JBool,
+        actualKind: haNode.kind,
+      )
+    )
   let hasAttachment = haNode.getBool(false)
 
   # preview: absent/null defaults to ""
@@ -218,64 +234,71 @@ func parseBodyFields(node: JsonNode): Result[BodyFields, ValidationError] =
   )
 
 func parseHeaderValueArray(
-    node: JsonNode, form: HeaderForm
-): Result[seq[HeaderValue], ValidationError] =
+    node: JsonNode, form: HeaderForm, path: JsonPath
+): Result[seq[HeaderValue], SerdeViolation] =
   ## Parses a JSON array of header values for ``:all`` dynamic header properties.
   ## Each element parsed via parseHeaderValue with the given form.
-  ?checkJsonKind(node, JArray, "Email", "header:*:all value must be array")
+  ?expectKind(node, JArray, path)
   var values: seq[HeaderValue] = @[]
-  for elem in node.getElems(@[]):
-    values.add(?parseHeaderValue(form, elem))
+  for i, elem in node.getElems(@[]):
+    values.add(?parseHeaderValue(form, elem, path / i))
   return ok(values)
 
 # =============================================================================
 # emailFromJson
 # =============================================================================
 
-func emailFromJson*(node: JsonNode): Result[Email, ValidationError] =
+func emailFromJson*(
+    node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[Email, SerdeViolation] =
   ## Deserialises a complete Email object from server JSON using two-phase
   ## strategy (D4). Phase 1: structured extraction of all standard properties.
   ## Phase 2: dynamic header discovery for ``header:`` prefixed keys.
   ## Does NOT call ``parseEmail`` — constructs Email directly (D15: lenient
   ## at server-to-client boundary, trust RFC contract).
-  const typeName = "Email"
-  ?checkJsonKind(node, JObject, typeName)
+  ?expectKind(node, JObject, path)
 
   # == Phase 1: Structured extraction ==
 
   # Metadata
-  let id = ?Id.fromJson(node{"id"})
-  let blobId = ?Id.fromJson(node{"blobId"})
-  let threadId = ?Id.fromJson(node{"threadId"})
-  let mailboxIds = ?MailboxIdSet.fromJson(node{"mailboxIds"})
+  let idNode = ?fieldJString(node, "id", path)
+  let id = ?Id.fromJson(idNode, path / "id")
+  let blobIdNode = ?fieldJString(node, "blobId", path)
+  let blobId = ?Id.fromJson(blobIdNode, path / "blobId")
+  let threadIdNode = ?fieldJString(node, "threadId", path)
+  let threadId = ?Id.fromJson(threadIdNode, path / "threadId")
+  let mailboxIdsNode = ?fieldJObject(node, "mailboxIds", path)
+  let mailboxIds = ?MailboxIdSet.fromJson(mailboxIdsNode, path / "mailboxIds")
   let keywords = block:
     let kwNode = node{"keywords"}
     if kwNode.isNil or kwNode.kind == JNull:
       initKeywordSet(newSeq[Keyword]())
     else:
-      ?KeywordSet.fromJson(kwNode)
-  let size = ?UnsignedInt.fromJson(node{"size"})
-  let receivedAt = ?UTCDate.fromJson(node{"receivedAt"})
+      ?KeywordSet.fromJson(kwNode, path / "keywords")
+  let sizeNode = ?fieldJInt(node, "size", path)
+  let size = ?UnsignedInt.fromJson(sizeNode, path / "size")
+  let receivedAtNode = ?fieldJString(node, "receivedAt", path)
+  let receivedAt = ?UTCDate.fromJson(receivedAtNode, path / "receivedAt")
 
   # Convenience headers (shared helper)
-  let convHeaders = ?parseConvenienceHeaders(node)
+  let convHeaders = ?parseConvenienceHeaders(node, path)
 
   # Raw headers
-  let hdrs = ?parseRawHeaders(node)
+  let hdrs = ?parseRawHeaders(node, path)
 
   # Body (shared helper)
-  let bf = ?parseBodyFields(node)
+  let bf = ?parseBodyFields(node, path)
 
   # == Phase 2: Dynamic header discovery ==
   var reqHeaders = initTable[HeaderPropertyKey, HeaderValue]()
   var reqHeadersAll = initTable[HeaderPropertyKey, seq[HeaderValue]]()
   for key, val in node.pairs:
     if key.startsWith("header:"):
-      let hpk = ?parseHeaderPropertyName(key)
+      let hpk = ?wrapInner(parseHeaderPropertyName(key), path / key)
       if hpk.isAll:
-        reqHeadersAll[hpk] = ?parseHeaderValueArray(val, hpk.form)
+        reqHeadersAll[hpk] = ?parseHeaderValueArray(val, hpk.form, path / key)
       else:
-        reqHeaders[hpk] = ?parseHeaderValue(hpk.form, val)
+        reqHeaders[hpk] = ?parseHeaderValue(hpk.form, val, path / key)
 
   return ok(
     Email(
@@ -314,38 +337,39 @@ func emailFromJson*(node: JsonNode): Result[Email, ValidationError] =
 # parsedEmailFromJson
 # =============================================================================
 
-func parsedEmailFromJson*(node: JsonNode): Result[ParsedEmail, ValidationError] =
+func parsedEmailFromJson*(
+    node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[ParsedEmail, SerdeViolation] =
   ## Deserialises a ParsedEmail from server JSON (Email/parse response).
   ## Same two-phase strategy as emailFromJson but only threadId from metadata.
   ## Missing metadata fields (id, blobId, mailboxIds, keywords, size,
   ## receivedAt) are structurally absent — not extracted.
-  const typeName = "ParsedEmail"
-  ?checkJsonKind(node, JObject, typeName)
+  ?expectKind(node, JObject, path)
 
   # == Phase 1: Structured extraction ==
 
   # Metadata: only threadId survives
-  let threadId = ?parseOptId(node, "threadId")
+  let threadId = ?parseOptId(node, "threadId", path)
 
   # Convenience headers (shared helper)
-  let convHeaders = ?parseConvenienceHeaders(node)
+  let convHeaders = ?parseConvenienceHeaders(node, path)
 
   # Raw headers
-  let hdrs = ?parseRawHeaders(node)
+  let hdrs = ?parseRawHeaders(node, path)
 
   # Body (shared helper)
-  let bf = ?parseBodyFields(node)
+  let bf = ?parseBodyFields(node, path)
 
   # == Phase 2: Dynamic header discovery ==
   var reqHeaders = initTable[HeaderPropertyKey, HeaderValue]()
   var reqHeadersAll = initTable[HeaderPropertyKey, seq[HeaderValue]]()
   for key, val in node.pairs:
     if key.startsWith("header:"):
-      let hpk = ?parseHeaderPropertyName(key)
+      let hpk = ?wrapInner(parseHeaderPropertyName(key), path / key)
       if hpk.isAll:
-        reqHeadersAll[hpk] = ?parseHeaderValueArray(val, hpk.form)
+        reqHeadersAll[hpk] = ?parseHeaderValueArray(val, hpk.form, path / key)
       else:
-        reqHeaders[hpk] = ?parseHeaderValue(hpk.form, val)
+        reqHeaders[hpk] = ?parseHeaderValue(hpk.form, val, path / key)
 
   return ok(
     ParsedEmail(
@@ -539,18 +563,16 @@ func toJson*(pe: ParsedEmail): JsonNode =
 # =============================================================================
 
 func emailComparatorFromJson*(
-    node: JsonNode
-): Result[EmailComparator, ValidationError] =
+    node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[EmailComparator, SerdeViolation] =
   ## Deserialises an EmailComparator by synthesising the discriminant from
   ## the property string value (D8). Tries KeywordSortProperty values first
   ## (require ``keyword`` field present), then PlainSortProperty values.
   ## Case-sensitive exact match on backing strings.
-  const typeName = "EmailComparator"
-  ?checkJsonKind(node, JObject, typeName)
+  ?expectKind(node, JObject, path)
 
   # Required property string
-  let propNode = node{"property"}
-  ?checkJsonKind(propNode, JString, typeName, "missing or invalid property")
+  let propNode = ?fieldJString(node, "property", path)
   let propStr = propNode.getStr("")
 
   # Optional shared fields
@@ -570,7 +592,8 @@ func emailComparatorFromJson*(
   # Try keyword sort properties first (exact string match via $enum)
   for ksp in KeywordSortProperty:
     if $ksp == propStr:
-      let kw = ?Keyword.fromJson(node{"keyword"})
+      let kwNode = ?fieldJString(node, "keyword", path)
+      let kw = ?Keyword.fromJson(kwNode, path / "keyword")
       return ok(keywordComparator(ksp, kw, isAscending, collation))
 
   # Try plain sort properties
@@ -578,7 +601,14 @@ func emailComparatorFromJson*(
     if $psp == propStr:
       return ok(plainComparator(psp, isAscending, collation))
 
-  return err(parseError(typeName, "unknown sort property: " & propStr))
+  return err(
+    SerdeViolation(
+      kind: svkEnumNotRecognised,
+      path: path / "property",
+      enumTypeLabel: "sort property",
+      rawValue: propStr,
+    )
+  )
 
 func toJson*(c: EmailComparator): JsonNode =
   ## Serialise EmailComparator to JSON. Dispatches on kind.
@@ -653,16 +683,21 @@ func toJson*(item: EmailCreatedItem): JsonNode =
   return node
 
 func fromJson*(
-    T: typedesc[EmailCreatedItem], node: JsonNode
-): Result[EmailCreatedItem, ValidationError] =
+    T: typedesc[EmailCreatedItem], node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[EmailCreatedItem, SerdeViolation] =
   ## Deserialise JSON to EmailCreatedItem. All four fields required per RFC;
   ## missing any field yields err — servers omitting any are malformed
   ## (Design §2.1, F2).
-  ?checkJsonKind(node, JObject, $T)
-  let id = ?Id.fromJson(node{"id"})
-  let blobId = ?Id.fromJson(node{"blobId"})
-  let threadId = ?Id.fromJson(node{"threadId"})
-  let size = ?UnsignedInt.fromJson(node{"size"})
+  discard $T # consumed for nimalyzer params rule
+  ?expectKind(node, JObject, path)
+  let idNode = ?fieldJString(node, "id", path)
+  let id = ?Id.fromJson(idNode, path / "id")
+  let blobIdNode = ?fieldJString(node, "blobId", path)
+  let blobId = ?Id.fromJson(blobIdNode, path / "blobId")
+  let threadIdNode = ?fieldJString(node, "threadId", path)
+  let threadId = ?Id.fromJson(threadIdNode, path / "threadId")
+  let sizeNode = ?fieldJInt(node, "size", path)
+  let size = ?UnsignedInt.fromJson(sizeNode, path / "size")
   return ok(EmailCreatedItem(id: id, blobId: blobId, threadId: threadId, size: size))
 
 # =============================================================================
@@ -679,15 +714,20 @@ func toJson*(entry: UpdatedEntry): JsonNode =
     entry.changedProperties
 
 func fromJson*(
-    T: typedesc[UpdatedEntry], node: JsonNode
-): Result[UpdatedEntry, ValidationError] =
+    T: typedesc[UpdatedEntry], node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[UpdatedEntry, SerdeViolation] =
   ## Deserialise JSON to UpdatedEntry. null → uekUnchanged; object →
   ## uekChanged with the object as changedProperties.
+  discard $T # consumed for nimalyzer params rule
   if node.isNil or node.kind == JNull:
     return ok(UpdatedEntry(kind: uekUnchanged))
   if node.kind == JObject:
     return ok(UpdatedEntry(kind: uekChanged, changedProperties: node))
-  return err(validationError($T, "expected object or null", $node.kind))
+  return err(
+    SerdeViolation(
+      kind: svkWrongKind, path: path, expectedKind: JObject, actualKind: node.kind
+    )
+  )
 
 # =============================================================================
 # Email write-response shared helpers
@@ -698,17 +738,17 @@ func fromJson*(
 # under the complexity budget while keeping intent at the call site.
 
 func parseOptJmapStateField(
-    node: JsonNode, key: string
-): Result[Opt[JmapState], ValidationError] =
+    node: JsonNode, key: string, path: JsonPath
+): Result[Opt[JmapState], SerdeViolation] =
   ## Extracts an optional JmapState: absent/null yields none.
   let field = node{key}
   if field.isNil or field.kind == JNull:
     return ok(Opt.none(JmapState))
-  return ok(Opt.some(?JmapState.fromJson(field)))
+  return ok(Opt.some(?JmapState.fromJson(field, path / key)))
 
 func mergeCreatedResults(
-    node: JsonNode
-): Result[Table[CreationId, Result[EmailCreatedItem, SetError]], ValidationError] =
+    node: JsonNode, path: JsonPath
+): Result[Table[CreationId, Result[EmailCreatedItem, SetError]], SerdeViolation] =
   ## Merges wire ``created`` and ``notCreated`` maps into a single Table
   ## keyed by CreationId, with per-entry Result carrying either the typed
   ## EmailCreatedItem (ok) or SetError (err). Design §2.1, F2.
@@ -716,58 +756,58 @@ func mergeCreatedResults(
   let createdNode = node{"created"}
   if not createdNode.isNil and createdNode.kind == JObject:
     for k, v in createdNode.pairs:
-      let cid = ?parseCreationId(k)
-      let item = ?EmailCreatedItem.fromJson(v)
+      let cid = ?wrapInner(parseCreationId(k), path / "created" / k)
+      let item = ?EmailCreatedItem.fromJson(v, path / "created" / k)
       tbl[cid] = Result[EmailCreatedItem, SetError].ok(item)
   let notCreatedNode = node{"notCreated"}
   if not notCreatedNode.isNil and notCreatedNode.kind == JObject:
     for k, v in notCreatedNode.pairs:
-      let cid = ?parseCreationId(k)
-      let se = ?SetError.fromJson(v)
+      let cid = ?wrapInner(parseCreationId(k), path / "notCreated" / k)
+      let se = ?SetError.fromJson(v, path / "notCreated" / k)
       tbl[cid] = Result[EmailCreatedItem, SetError].err(se)
   return ok(tbl)
 
 func parseOptUpdatedMap(
-    node: JsonNode, key, typeName: string
-): Result[Opt[Table[Id, UpdatedEntry]], ValidationError] =
+    node: JsonNode, key: string, path: JsonPath
+): Result[Opt[Table[Id, UpdatedEntry]], SerdeViolation] =
   ## Parses RFC 8620 §5.3 ``Id[Foo|null]|null`` — outer Opt = map
   ## absent/null; per-entry ``UpdatedEntry`` encodes the inner split.
   let sub = node{key}
   if sub.isNil or sub.kind == JNull:
     return ok(Opt.none(Table[Id, UpdatedEntry]))
-  ?checkJsonKind(sub, JObject, typeName, key & " must be object or null")
+  ?expectKind(sub, JObject, path / key)
   var tbl = initTable[Id, UpdatedEntry]()
   for k, v in sub.pairs:
-    let id = ?parseIdFromServer(k)
-    tbl[id] = ?UpdatedEntry.fromJson(v)
+    let id = ?wrapInner(parseIdFromServer(k), path / key / k)
+    tbl[id] = ?UpdatedEntry.fromJson(v, path / key / k)
   return ok(Opt.some(tbl))
 
 func parseOptSetErrorMap(
-    node: JsonNode, key, typeName: string
-): Result[Opt[Table[Id, SetError]], ValidationError] =
+    node: JsonNode, key: string, path: JsonPath
+): Result[Opt[Table[Id, SetError]], SerdeViolation] =
   ## Parses ``notUpdated`` / ``notDestroyed`` maps: absent/null yields
   ## none; object yields ``Table[Id, SetError]``.
   let sub = node{key}
   if sub.isNil or sub.kind == JNull:
     return ok(Opt.none(Table[Id, SetError]))
-  ?checkJsonKind(sub, JObject, typeName, key & " must be object or null")
+  ?expectKind(sub, JObject, path / key)
   var tbl = initTable[Id, SetError]()
   for k, v in sub.pairs:
-    let id = ?parseIdFromServer(k)
-    tbl[id] = ?SetError.fromJson(v)
+    let id = ?wrapInner(parseIdFromServer(k), path / key / k)
+    tbl[id] = ?SetError.fromJson(v, path / key / k)
   return ok(Opt.some(tbl))
 
 func parseOptDestroyedIds(
-    node: JsonNode, typeName: string
-): Result[Opt[seq[Id]], ValidationError] =
+    node: JsonNode, path: JsonPath
+): Result[Opt[seq[Id]], SerdeViolation] =
   ## Parses the ``destroyed`` array: absent/null yields none.
   let sub = node{"destroyed"}
   if sub.isNil or sub.kind == JNull:
     return ok(Opt.none(seq[Id]))
-  ?checkJsonKind(sub, JArray, typeName, "destroyed must be array or null")
+  ?expectKind(sub, JArray, path / "destroyed")
   var ids: seq[Id] = @[]
-  for elem in sub.getElems(@[]):
-    ids.add(?parseIdFromServer(elem.getStr("")))
+  for i, elem in sub.getElems(@[]):
+    ids.add(?wrapInner(parseIdFromServer(elem.getStr("")), path / "destroyed" / i))
   return ok(Opt.some(ids))
 
 func emitCreateResults(
@@ -834,21 +874,24 @@ func toJson*(resp: EmailSetResponse): JsonNode =
   return node
 
 func fromJson*(
-    T: typedesc[EmailSetResponse], node: JsonNode
-): Result[EmailSetResponse, ValidationError] =
+    T: typedesc[EmailSetResponse], node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[EmailSetResponse, SerdeViolation] =
   ## Deserialise JSON to EmailSetResponse (RFC 8621 §4.6).
   ## Merges wire created/notCreated into typed createResults. updated/
   ## notUpdated and destroyed/notDestroyed stay split per the typed response
   ## shape (Design §2.2, F2.1).
-  ?checkJsonKind(node, JObject, $T)
-  let accountId = ?AccountId.fromJson(node{"accountId"})
-  let newState = ?JmapState.fromJson(node{"newState"})
-  let oldState = ?parseOptJmapStateField(node, "oldState")
-  let createResults = ?mergeCreatedResults(node)
-  let updated = ?parseOptUpdatedMap(node, "updated", $T)
-  let notUpdated = ?parseOptSetErrorMap(node, "notUpdated", $T)
-  let destroyed = ?parseOptDestroyedIds(node, $T)
-  let notDestroyed = ?parseOptSetErrorMap(node, "notDestroyed", $T)
+  discard $T # consumed for nimalyzer params rule
+  ?expectKind(node, JObject, path)
+  let accountIdNode = ?fieldJString(node, "accountId", path)
+  let accountId = ?AccountId.fromJson(accountIdNode, path / "accountId")
+  let newStateNode = ?fieldJString(node, "newState", path)
+  let newState = ?JmapState.fromJson(newStateNode, path / "newState")
+  let oldState = ?parseOptJmapStateField(node, "oldState", path)
+  let createResults = ?mergeCreatedResults(node, path)
+  let updated = ?parseOptUpdatedMap(node, "updated", path)
+  let notUpdated = ?parseOptSetErrorMap(node, "notUpdated", path)
+  let destroyed = ?parseOptDestroyedIds(node, path)
+  let notDestroyed = ?parseOptSetErrorMap(node, "notDestroyed", path)
   return ok(
     EmailSetResponse(
       accountId: accountId,
@@ -879,15 +922,19 @@ func toJson*(resp: EmailCopyResponse): JsonNode =
   return node
 
 func fromJson*(
-    T: typedesc[EmailCopyResponse], node: JsonNode
-): Result[EmailCopyResponse, ValidationError] =
+    T: typedesc[EmailCopyResponse], node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[EmailCopyResponse, SerdeViolation] =
   ## Deserialise JSON to EmailCopyResponse (RFC 8621 §4.7).
-  ?checkJsonKind(node, JObject, $T)
-  let fromAccountId = ?AccountId.fromJson(node{"fromAccountId"})
-  let accountId = ?AccountId.fromJson(node{"accountId"})
-  let newState = ?JmapState.fromJson(node{"newState"})
-  let oldState = ?parseOptJmapStateField(node, "oldState")
-  let createResults = ?mergeCreatedResults(node)
+  discard $T # consumed for nimalyzer params rule
+  ?expectKind(node, JObject, path)
+  let fromAccountIdNode = ?fieldJString(node, "fromAccountId", path)
+  let fromAccountId = ?AccountId.fromJson(fromAccountIdNode, path / "fromAccountId")
+  let accountIdNode = ?fieldJString(node, "accountId", path)
+  let accountId = ?AccountId.fromJson(accountIdNode, path / "accountId")
+  let newStateNode = ?fieldJString(node, "newState", path)
+  let newState = ?JmapState.fromJson(newStateNode, path / "newState")
+  let oldState = ?parseOptJmapStateField(node, "oldState", path)
+  let createResults = ?mergeCreatedResults(node, path)
   return ok(
     EmailCopyResponse(
       fromAccountId: fromAccountId,
@@ -914,14 +961,17 @@ func toJson*(resp: EmailImportResponse): JsonNode =
   return node
 
 func fromJson*(
-    T: typedesc[EmailImportResponse], node: JsonNode
-): Result[EmailImportResponse, ValidationError] =
+    T: typedesc[EmailImportResponse], node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[EmailImportResponse, SerdeViolation] =
   ## Deserialise JSON to EmailImportResponse (RFC 8621 §4.8).
-  ?checkJsonKind(node, JObject, $T)
-  let accountId = ?AccountId.fromJson(node{"accountId"})
-  let newState = ?JmapState.fromJson(node{"newState"})
-  let oldState = ?parseOptJmapStateField(node, "oldState")
-  let createResults = ?mergeCreatedResults(node)
+  discard $T # consumed for nimalyzer params rule
+  ?expectKind(node, JObject, path)
+  let accountIdNode = ?fieldJString(node, "accountId", path)
+  let accountId = ?AccountId.fromJson(accountIdNode, path / "accountId")
+  let newStateNode = ?fieldJString(node, "newState", path)
+  let newState = ?JmapState.fromJson(newStateNode, path / "newState")
+  let oldState = ?parseOptJmapStateField(node, "oldState", path)
+  let createResults = ?mergeCreatedResults(node, path)
   return ok(
     EmailImportResponse(
       accountId: accountId,

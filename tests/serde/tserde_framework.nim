@@ -146,10 +146,10 @@ block addedItemToJsonFieldNames:
 # --- FilterOperator ---
 
 block filterOperatorDeserCustom:
-  assertErrContains FilterOperator.fromJson(%"CUSTOM"), "unknown operator"
+  assertErrContains FilterOperator.fromJson(%"CUSTOM"), "unknown FilterOperator"
 
 block filterOperatorDeserEmpty:
-  assertErrContains FilterOperator.fromJson(%""), "unknown operator"
+  assertErrContains FilterOperator.fromJson(%""), "unknown FilterOperator"
 
 block filterOperatorDeserCaseSensitiveLower:
   assertErr FilterOperator.fromJson(%"and")
@@ -169,8 +169,8 @@ block filterOperatorDeserWrongKind:
 
 block filterOperatorDeserEmptyString:
   ## Empty string falls into the else branch of the case statement,
-  ## raising ValidationError with "unknown operator".
-  assertErrContains FilterOperator.fromJson(%""), "unknown operator"
+  ## raising ValidationError with "unknown FilterOperator".
+  assertErrContains FilterOperator.fromJson(%""), "unknown FilterOperator"
 
 # --- Comparator ---
 
@@ -190,7 +190,7 @@ block comparatorDeserMissingIsAscending:
 
 block comparatorDeserMissingProperty:
   let j = %*{"isAscending": true}
-  assertErrContains Comparator.fromJson(j), "missing or invalid property"
+  assertErrContains Comparator.fromJson(j), "property"
 
 block comparatorDeserPropertyWrongKind:
   let j = %*{"property": 42, "isAscending": true}
@@ -198,7 +198,7 @@ block comparatorDeserPropertyWrongKind:
 
 block comparatorDeserIsAscendingWrongKind:
   let j = %*{"property": "subject", "isAscending": "yes"}
-  assertErrContains Comparator.fromJson(j), "isAscending must be boolean"
+  assertErrContains Comparator.fromJson(j), "at /isAscending"
 
 block comparatorDeserNotObject:
   assertErr Comparator.fromJson(%*[1, 2, 3])
@@ -228,7 +228,7 @@ block filterDeserCondition:
   doAssert v.kind == fkCondition
 
 block filterDeserConditionNotObject:
-  # Non-JObject input rejected by checkJsonKind
+  # Non-JObject input rejected by expectKind
   assertErr Filter[int].fromJson(%42, fromIntCondition)
 
 block filterDeserOperatorWithConditions:
@@ -262,7 +262,7 @@ block filterDeserMissingConditions:
 
 block filterOperatorMissingConditionsArray:
   ## JSON with "operator" present but no "conditions" key must return err.
-  ## Exercises the checkJsonKind guard on the conditions array.
+  ## Exercises the ``fieldJArray`` guard on the conditions array.
   let j = %*{"operator": "AND"}
   assertErr Filter[int].fromJson(j, fromIntCondition)
 

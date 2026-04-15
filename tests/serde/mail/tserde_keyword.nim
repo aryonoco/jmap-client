@@ -9,6 +9,7 @@ import std/json
 
 import jmap_client/mail/keyword
 import jmap_client/mail/serde_keyword
+import jmap_client/serde
 import jmap_client/validation
 
 import ../../massertions
@@ -39,8 +40,13 @@ block fromJsonValid: # scenario 20
   doAssert kwSeen in ks
 
 block fromJsonFalseValue: # scenario 21
-  assertErrFields KeywordSet.fromJson(%*{"$seen": false}),
-    "KeywordSet", "all keyword values must be true", "$seen"
+  ## Explicit ``false`` for any keyword value is rejected structurally via
+  ## ``svkEnumNotRecognised`` at the offending path.
+  let res = KeywordSet.fromJson(%*{"$seen": false})
+  doAssert res.isErr
+  doAssert res.error.kind == svkEnumNotRecognised
+  doAssert res.error.rawValue == "false"
+  doAssert $res.error.path == "/$seen"
 
 # ============= C. KeywordSet round-trip =============
 

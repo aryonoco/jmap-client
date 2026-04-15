@@ -111,7 +111,7 @@ block getHappyPath:
   let handle = ResponseHandle[GetResponse[MockFoo]](makeMcid("c0"))
   let fromGetResponse = proc(
       n: JsonNode
-  ): Result[GetResponse[MockFoo], ValidationError] {.noSideEffect, raises: [].} =
+  ): Result[GetResponse[MockFoo], SerdeViolation] {.noSideEffect, raises: [].} =
     GetResponse[MockFoo].fromJson(n)
   let result = resp.get(handle, fromGetResponse)
   assertOk result
@@ -130,7 +130,7 @@ block getExtractsCorrectInvocation:
   let handle = ResponseHandle[GetResponse[MockFoo]](makeMcid("c1"))
   let fromGetResponse = proc(
       n: JsonNode
-  ): Result[GetResponse[MockFoo], ValidationError] {.noSideEffect, raises: [].} =
+  ): Result[GetResponse[MockFoo], SerdeViolation] {.noSideEffect, raises: [].} =
     GetResponse[MockFoo].fromJson(n)
   let result = resp.get(handle, fromGetResponse)
   assertOk result
@@ -148,7 +148,7 @@ block getNotFound:
   let handle = ResponseHandle[GetResponse[MockFoo]](makeMcid("c99"))
   let fromGetResponse = proc(
       n: JsonNode
-  ): Result[GetResponse[MockFoo], ValidationError] {.noSideEffect, raises: [].} =
+  ): Result[GetResponse[MockFoo], SerdeViolation] {.noSideEffect, raises: [].} =
     GetResponse[MockFoo].fromJson(n)
   let result = resp.get(handle, fromGetResponse)
   assertErr result
@@ -160,7 +160,7 @@ block getMethodError:
   let handle = ResponseHandle[GetResponse[MockFoo]](makeMcid("c0"))
   let fromGetResponse = proc(
       n: JsonNode
-  ): Result[GetResponse[MockFoo], ValidationError] {.noSideEffect, raises: [].} =
+  ): Result[GetResponse[MockFoo], SerdeViolation] {.noSideEffect, raises: [].} =
     GetResponse[MockFoo].fromJson(n)
   let result = resp.get(handle, fromGetResponse)
   assertErr result
@@ -178,7 +178,7 @@ block getMalformedErrorResponse:
   let handle = ResponseHandle[GetResponse[MockFoo]](makeMcid("c0"))
   let fromGetResponse = proc(
       n: JsonNode
-  ): Result[GetResponse[MockFoo], ValidationError] {.noSideEffect, raises: [].} =
+  ): Result[GetResponse[MockFoo], SerdeViolation] {.noSideEffect, raises: [].} =
     GetResponse[MockFoo].fromJson(n)
   let result = resp.get(handle, fromGetResponse)
   assertErr result
@@ -190,7 +190,7 @@ block getValidationError:
   let handle = ResponseHandle[GetResponse[MockFoo]](makeMcid("c0"))
   let fromGetResponse = proc(
       n: JsonNode
-  ): Result[GetResponse[MockFoo], ValidationError] {.noSideEffect, raises: [].} =
+  ): Result[GetResponse[MockFoo], SerdeViolation] {.noSideEffect, raises: [].} =
     GetResponse[MockFoo].fromJson(n)
   let result = resp.get(handle, fromGetResponse)
   assertErr result
@@ -213,21 +213,24 @@ block getEchoHappyPath:
   let handle = ResponseHandle[JsonNode](makeMcid("c0"))
   let echoParser = proc(
       n: JsonNode
-  ): Result[JsonNode, ValidationError] {.noSideEffect, raises: [].} =
+  ): Result[JsonNode, SerdeViolation] {.noSideEffect, raises: [].} =
     ok(n)
   let result = resp.get(handle, echoParser)
   assertOk result
   doAssert result.get(){"tag"}.getStr("") == "hello"
 
 # ===========================================================================
-# E. validationToMethodError
+# E. serdeToMethodError
 # ===========================================================================
 
-block validationToMethodErrorPreservation:
-  ## Verify errorType is metServerFail, description contains the validation
+block serdeToMethodErrorPreservation:
+  ## Verify errorType is metServerFail, description is the translated
   ## message, and extras is a JObject containing typeName and value keys.
+  ## An ``svkFieldParserFailed`` wrapping an inner ValidationError preserves
+  ## the inner typeName/value losslessly through the translator.
   let ve = validationError("AccountId", "length must be 1-255 octets", "")
-  let me = validationToMethodError(ve)
+  let sv = SerdeViolation(kind: svkFieldParserFailed, path: emptyJsonPath(), inner: ve)
+  let me = serdeToMethodError("Wrapper")(sv)
   doAssert me.errorType == metServerFail
   doAssert me.rawType == "serverFail"
   doAssert me.description.isSome

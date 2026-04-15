@@ -9,6 +9,7 @@ import jmap_client/mail/addresses
 import jmap_client/mail/identity
 import jmap_client/mail/serde_addresses
 import jmap_client/mail/serde_identity
+import jmap_client/serde
 import jmap_client/validation
 import jmap_client/primitives
 
@@ -141,7 +142,11 @@ block roundTripMinimal:
 
 block fromJsonEmptyEmail: # scenario 32
   let node = %*{"id": "id1", "email": "", "mayDelete": false}
-  assertErrFields Identity.fromJson(node), "Identity", "email must not be empty", ""
+  let res = Identity.fromJson(node)
+  doAssert res.isErr
+  doAssert res.error.kind == svkEmptyRequired
+  doAssert res.error.emptyFieldLabel == "email"
+  doAssert $res.error.path == "/email"
 
 block fromJsonNullEmail:
   let node = %*{"id": "id1", "email": nil, "mayDelete": false}

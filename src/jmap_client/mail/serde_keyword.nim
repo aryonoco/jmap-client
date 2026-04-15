@@ -24,14 +24,33 @@ func toJson*(ks: KeywordSet): JsonNode =
     node[$kw] = newJBool(true)
   return node
 
-func fromJson*(T: typedesc[KeywordSet], node: JsonNode): Result[T, ValidationError] =
+func fromJson*(
+    T: typedesc[KeywordSet], node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[T, SerdeViolation] =
   ## Deserialise ``{"keyword": true, ...}`` to KeywordSet. Rejects non-object,
   ## non-boolean values, and explicit ``false``.
-  ?checkJsonKind(node, JObject, $T)
+  discard $T # consumed for nimalyzer params rule
+  ?expectKind(node, JObject, path)
   var hs = initHashSet[Keyword](node.len)
   for key, val in node.pairs:
-    if val.kind != JBool or not val.getBool(false):
-      return err(validationError($T, "all keyword values must be true", key))
-    let kw = ?parseKeywordFromServer(key)
+    if val.kind != JBool:
+      return err(
+        SerdeViolation(
+          kind: svkWrongKind,
+          path: path / key,
+          expectedKind: JBool,
+          actualKind: val.kind,
+        )
+      )
+    if not val.getBool(false):
+      return err(
+        SerdeViolation(
+          kind: svkEnumNotRecognised,
+          path: path / key,
+          enumTypeLabel: "keyword value",
+          rawValue: "false",
+        )
+      )
+    let kw = ?wrapInner(parseKeywordFromServer(key), path / key)
     hs.incl(kw)
   return ok(KeywordSet(hs))

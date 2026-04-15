@@ -18,28 +18,28 @@ import ./serde_addresses
 # =============================================================================
 
 func parseDefaultingString(
-    node: JsonNode, key: string
-): Result[string, ValidationError] =
+    node: JsonNode, key: string, path: JsonPath
+): Result[string, SerdeViolation] =
   ## Parse a string field that defaults to "" on absent or null.
   ## Rejects non-string values.
   let field = node{key}
   if field.isNil or field.kind == JNull:
     return ok("")
-  ?checkJsonKind(field, JString, "Identity", key & " must be string")
+  ?expectKind(field, JString, path / key)
   return ok(field.getStr(""))
 
 func parseOptEmailAddresses(
-    node: JsonNode, key: string
-): Result[Opt[seq[EmailAddress]], ValidationError] =
+    node: JsonNode, key: string, path: JsonPath
+): Result[Opt[seq[EmailAddress]], SerdeViolation] =
   ## Parse an optional array of email addresses. Absent or null yields Opt.none;
   ## JArray yields Opt.some with parsed elements; other types rejected.
   let field = node{key}
   if field.isNil or field.kind == JNull:
     return ok(Opt.none(seq[EmailAddress]))
-  ?checkJsonKind(field, JArray, "Identity", key & " must be array or null")
+  ?expectKind(field, JArray, path / key)
   var addrs: seq[EmailAddress] = @[]
-  for elem in field.getElems(@[]):
-    let ea = ?EmailAddress.fromJson(elem)
+  for i, elem in field.getElems(@[]):
+    let ea = ?EmailAddress.fromJson(elem, path / key / i)
     addrs.add(ea)
   return ok(Opt.some(addrs))
 
@@ -73,24 +73,25 @@ func toJson*(ident: Identity): JsonNode =
   return node
 
 func fromJson*(
-    T: typedesc[Identity], node: JsonNode
-): Result[Identity, ValidationError] =
+    T: typedesc[Identity], node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[Identity, SerdeViolation] =
   ## Deserialise JSON object to Identity. Rejects absent or wrong-type required
   ## fields. Absent name/textSignature/htmlSignature default to "".
   ## Absent or null replyTo/bcc default to Opt.none.
-  ?checkJsonKind(node, JObject, "Identity")
-  let id = ?Id.fromJson(node{"id"})
-  ?checkJsonKind(node{"email"}, JString, "Identity", "missing or invalid email")
-  let email = node{"email"}.getStr("")
-  if email.len == 0:
-    return err(parseError("Identity", "email must not be empty"))
-  let name = ?parseDefaultingString(node, "name")
-  let replyTo = ?parseOptEmailAddresses(node, "replyTo")
-  let bcc = ?parseOptEmailAddresses(node, "bcc")
-  let textSignature = ?parseDefaultingString(node, "textSignature")
-  let htmlSignature = ?parseDefaultingString(node, "htmlSignature")
-  ?checkJsonKind(node{"mayDelete"}, JBool, "Identity", "missing or invalid mayDelete")
-  let mayDelete = node{"mayDelete"}.getBool(false)
+  discard $T # consumed for nimalyzer params rule
+  ?expectKind(node, JObject, path)
+  let idNode = ?fieldJString(node, "id", path)
+  let id = ?Id.fromJson(idNode, path / "id")
+  let emailNode = ?fieldJString(node, "email", path)
+  let email = emailNode.getStr("")
+  ?nonEmptyStr(email, "email", path / "email")
+  let name = ?parseDefaultingString(node, "name", path)
+  let replyTo = ?parseOptEmailAddresses(node, "replyTo", path)
+  let bcc = ?parseOptEmailAddresses(node, "bcc", path)
+  let textSignature = ?parseDefaultingString(node, "textSignature", path)
+  let htmlSignature = ?parseDefaultingString(node, "htmlSignature", path)
+  let mayDeleteNode = ?fieldJBool(node, "mayDelete", path)
+  let mayDelete = mayDeleteNode.getBool(false)
   return ok(
     Identity(
       id: id,

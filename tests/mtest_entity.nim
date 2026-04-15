@@ -90,12 +90,13 @@ func toJson*(w: TestWidget): JsonNode =
   result["name"] = %w.name
 
 func fromJson*(
-    R: typedesc[TestWidget], node: JsonNode
-): Result[TestWidget, ValidationError] =
-  ?checkJsonKind(node, JObject, "TestWidget")
-  let id = ?parseIdFromServer(node{"id"}.getStr(""))
-  let nameNode = node{"name"}
-  ?checkJsonKind(nameNode, JString, "TestWidget", "name must be string")
+    R: typedesc[TestWidget], node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[TestWidget, SerdeViolation] =
+  discard $R # consumed for nimalyzer params rule
+  ?expectKind(node, JObject, path)
+  let idNode = ?fieldJString(node, "id", path)
+  let id = ?wrapInner(parseIdFromServer(idNode.getStr("")), path / "id")
+  let nameNode = ?fieldJString(node, "name", path)
   ok(TestWidget(id: id, name: nameNode.getStr("")))
 
 {.pop.} # params

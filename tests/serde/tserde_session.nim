@@ -102,7 +102,7 @@ block sessionDeserMissingCapabilities:
       "https://example.com/es/?types={types}&closeafter={closeafter}&ping={ping}",
     "state": "s1",
   }
-  assertErrContains Session.fromJson(j), "missing or invalid capabilities"
+  assertErrContains Session.fromJson(j), "capabilities"
 
 block sessionDeserCapabilitiesNotObject:
   var j = validSessionJson()
@@ -137,12 +137,12 @@ block sessionDeserMissingPrimaryAccounts:
     "eventSourceUrl": j["eventSourceUrl"],
     "state": j["state"],
   }
-  assertErrContains Session.fromJson(j2), "missing or invalid primaryAccounts"
+  assertErrContains Session.fromJson(j2), "primaryAccounts"
 
 block sessionDeserPrimaryAccountsValueIsInt:
   var j = validSessionJson()
   j["primaryAccounts"] = %*{"urn:ietf:params:jmap:mail": 42}
-  assertErrContains Session.fromJson(j), "primaryAccounts value must be string"
+  assertErrContains Session.fromJson(j), "at /primaryAccounts/"
 
 block sessionDeserEmptyAccounts:
   let j = validSessionJson()
@@ -160,7 +160,7 @@ block sessionDeserMissingUsername:
     "eventSourceUrl": j["eventSourceUrl"],
     "state": j["state"],
   }
-  assertErrContains Session.fromJson(j2), "missing or invalid username"
+  assertErrContains Session.fromJson(j2), "username"
 
 block sessionDeserMissingApiUrl:
   var j = validSessionJson()
@@ -174,12 +174,12 @@ block sessionDeserMissingApiUrl:
     "eventSourceUrl": j["eventSourceUrl"],
     "state": j["state"],
   }
-  assertErrContains Session.fromJson(j2), "missing or invalid apiUrl"
+  assertErrContains Session.fromJson(j2), "apiUrl"
 
 block sessionDeserEmptyApiUrl:
   var j = validSessionJson()
   j["apiUrl"] = %""
-  assertErrContains Session.fromJson(j), "apiUrl must not be empty"
+  assertErrContains Session.fromJson(j), "apiUrl"
 
 block sessionDeserMissingState:
   var j = validSessionJson()
@@ -193,7 +193,7 @@ block sessionDeserMissingState:
     "uploadUrl": j["uploadUrl"],
     "eventSourceUrl": j["eventSourceUrl"],
   }
-  assertErrContains Session.fromJson(j2), "missing or invalid state"
+  assertErrContains Session.fromJson(j2), "state"
 
 block sessionDeserNotObjectOrNil:
   assertErr Session.fromJson(%*[1, 2])
@@ -338,7 +338,7 @@ block sessionDeserMissingDownloadUrl:
     "eventSourceUrl": j["eventSourceUrl"],
     "state": j["state"],
   }
-  assertErrContains Session.fromJson(j2), "missing or invalid downloadUrl"
+  assertErrContains Session.fromJson(j2), "downloadUrl"
 
 block sessionDeserMissingUploadUrl:
   ## Session JSON missing uploadUrl must raise ValidationError.
@@ -353,7 +353,7 @@ block sessionDeserMissingUploadUrl:
     "eventSourceUrl": j["eventSourceUrl"],
     "state": j["state"],
   }
-  assertErrContains Session.fromJson(j2), "missing or invalid uploadUrl"
+  assertErrContains Session.fromJson(j2), "uploadUrl"
 
 block sessionDeserMissingEventSourceUrl:
   ## Session JSON missing eventSourceUrl must raise ValidationError.
@@ -368,7 +368,7 @@ block sessionDeserMissingEventSourceUrl:
     "uploadUrl": j["uploadUrl"],
     "state": j["state"],
   }
-  assertErrContains Session.fromJson(j2), "missing or invalid eventSourceUrl"
+  assertErrContains Session.fromJson(j2), "eventSourceUrl"
 
 block sessionDeserDownloadUrlMissingBlobId:
   ## downloadUrl lacking {blobId} must be rejected by parseSession validation.

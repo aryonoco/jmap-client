@@ -22,34 +22,53 @@ import ../mproperty
 # A. Shared helpers
 # =============================================================================
 
-block parseErrorFields:
-  let e = parseError("Id", "expected JSON JString")
-  assertEq e.typeName, "Id"
-  assertEq e.message, "expected JSON JString"
-  assertEq e.value, ""
+block expectKindAcceptsCorrect:
+  doAssert expectKind(%"hello", JString, emptyJsonPath()).isOk
 
-block checkJsonKindAcceptsCorrect:
-  doAssert checkJsonKind(%"hello", JString, "Test").isOk
-
-block checkJsonKindRejectsNil:
+block expectKindRejectsNilAsNilNode:
   const nilNode: JsonNode = nil
-  doAssert checkJsonKind(nilNode, JString, "Test").isErr
-
-block checkJsonKindRejectsJNull:
-  doAssert checkJsonKind(newJNull(), JString, "Test").isErr
-
-block checkJsonKindRejectsWrongKind:
-  doAssert checkJsonKind(%42, JString, "Test").isErr
-
-block checkJsonKindCustomMessage:
-  let r = checkJsonKind(%42, JString, "Test", "custom error message")
+  let r = expectKind(nilNode, JString, emptyJsonPath())
   doAssert r.isErr
-  doAssert r.error.message == "custom error message"
+  doAssert r.error.kind == svkNilNode
 
-block checkJsonKindDefaultMessage:
-  let r = checkJsonKind(%42, JString, "Test")
+block expectKindRejectsJNullAsWrongKind:
+  let r = expectKind(newJNull(), JString, emptyJsonPath())
   doAssert r.isErr
-  doAssert r.error.message.contains("expected JSON")
+  doAssert r.error.kind == svkWrongKind
+  doAssert r.error.actualKind == JNull
+
+block expectKindRejectsWrongKind:
+  let r = expectKind(%42, JString, emptyJsonPath())
+  doAssert r.isErr
+  doAssert r.error.kind == svkWrongKind
+  doAssert r.error.expectedKind == JString
+  doAssert r.error.actualKind == JInt
+
+block fieldOfKindMissing:
+  ## Missing field yields svkMissingField anchored at the parent path.
+  let obj = %*{"a": 1}
+  let r = fieldOfKind(obj, "b", JInt, emptyJsonPath())
+  doAssert r.isErr
+  doAssert r.error.kind == svkMissingField
+  doAssert r.error.missingFieldName == "b"
+
+block fieldOfKindWrongKindPath:
+  ## Wrong-kind on a field anchors the path at parent/key.
+  let obj = %*{"a": "not-int"}
+  let r = fieldOfKind(obj, "a", JInt, emptyJsonPath())
+  doAssert r.isErr
+  doAssert r.error.kind == svkWrongKind
+  doAssert $r.error.path == "/a"
+
+block jsonPathConcat:
+  ## Path concatenation yields RFC 6901 shape.
+  let p = emptyJsonPath() / "methodResponses" / 0 / "arguments" / "accountId"
+  assertEq $p, "/methodResponses/0/arguments/accountId"
+
+block jsonPathEscapes:
+  ## Tilde and slash in reference tokens escape per RFC 6901 §3.
+  let p = emptyJsonPath() / "a/b" / "c~d"
+  assertEq $p, "/a~1b/c~0d"
 
 block collectExtrasNone:
   let node = %*{"a": 1, "b": 2}
@@ -382,7 +401,7 @@ checkProperty "JmapInt round-trip":
 # F. Additional edge-case tests
 # =============================================================================
 
-block checkJsonKindMcdcKindMismatchNonNil:
+block expectKindMcdcKindMismatchNonNil:
   ## MC/DC: node is non-nil but has wrong kind — proves kind mismatch alone
   ## triggers error without relying on nil check.
   let node = %42 # JInt, not JString
@@ -399,13 +418,6 @@ block collectExtrasMixedKnownUnknown:
   doAssert e{"y"} != nil
   doAssert e{"a"}.isNil, "known key 'a' must not be in extras"
   doAssert e{"b"}.isNil, "known key 'b' must not be in extras"
-
-block parseErrorEmptyMessage:
-  ## parseError with empty message produces a valid ValidationError.
-  let err = parseError("TestType", "")
-  assertEq err.typeName, "TestType"
-  assertEq err.message, ""
-  assertEq err.value, ""
 
 # --- MaxChanges serde ---
 

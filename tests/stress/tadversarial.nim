@@ -19,6 +19,7 @@ import jmap_client/framework
 import jmap_client/errors
 import jmap_client/session
 import jmap_client/envelope
+import jmap_client/serde
 import jmap_client/serde_envelope
 import jmap_client/serde_session
 
@@ -1330,3 +1331,48 @@ block stressSessionAccountCapabilities100k:
   let parsedAccounts = r.accounts
   for acctId, account in parsedAccounts:
     assertGe account.accountCapabilities.len, 100_000
+
+# =============================================================================
+# RFC 6901 JSON Pointer composition under deep nesting
+# =============================================================================
+# SerdeViolation path composition must survive every descent step. These
+# tests submit malformed JSON at a specific deep location, then assert the
+# translated ValidationError message ends with the expected pointer.
+
+block responsePointerNestedCallIdFailure:
+  ## A malformed methodCallId (integer where string expected) inside the
+  ## first Invocation of a Response surfaces with the full path
+  ## ``/methodResponses/0/2`` — Response → methodResponses[0] (Invocation)
+  ## → element[2] (callId position).
+  let j = %*{"methodResponses": [["Mailbox/get", {}, 42]], "sessionState": "s1"}
+  let res = Response.fromJson(j)
+  doAssert res.isErr
+  let sv = res.error
+  doAssert sv.kind == svkWrongKind
+  doAssert $sv.path == "/methodResponses/0/2",
+    "path must compose through all nesting levels: got " & $sv.path
+
+block requestPointerCreatedIdsValue:
+  ## A non-string value inside Request.createdIds must surface with the
+  ## full path ``/createdIds/k1``.
+  let j = %*{
+    "using": ["urn:ietf:params:jmap:core"], "methodCalls": [], "createdIds": {"k1": 42}
+  }
+  let res = Request.fromJson(j)
+  doAssert res.isErr
+  let sv = res.error
+  doAssert sv.kind == svkWrongKind
+  doAssert $sv.path == "/createdIds/k1",
+    "path must compose through the createdIds descent: got " & $sv.path
+
+block invocationPointerWrongArity:
+  ## Invocation array with 2 elements (should be 3) surfaces as
+  ## ``svkArrayLength`` with a descent-aware path.
+  let j = %*{"methodResponses": [["Mailbox/get", {}]], "sessionState": "s1"}
+  let res = Response.fromJson(j)
+  doAssert res.isErr
+  let sv = res.error
+  doAssert sv.kind == svkArrayLength
+  doAssert sv.expectedLen == 3
+  doAssert sv.actualLen == 2
+  doAssert $sv.path == "/methodResponses/0"

@@ -83,20 +83,25 @@ func hash*[T](h: NameBoundHandle[T]): Hash =
   !$(h.callId.hash !& h.methodName.hash)
 
 # =============================================================================
-# Railway bridge: Track 0 (ValidationError) → Track 2 (MethodError)
+# Railway bridge: serde (SerdeViolation) → per-invocation (MethodError)
 # =============================================================================
 
-func validationToMethodError*(ve: ValidationError): MethodError =
-  ## Lossless conversion from the construction railway (Track 0) to the
-  ## per-invocation railway (Track 2). Preserves the full ValidationError
-  ## structure in MethodError.extras as structured JSON so no diagnostic
-  ## information is lost.
-  let extras = %*{"typeName": ve.typeName, "value": ve.value}
-  return methodError(
-    rawType = "serverFail",
-    description = Opt.some(ve.message),
-    extras = Opt.some(extras),
-  )
+func serdeToMethodError*(
+    rootType: string
+): proc(sv: SerdeViolation): MethodError {.noSideEffect, raises: [].} =
+  ## Returns a closure that translates a ``SerdeViolation`` into a
+  ## ``MethodError`` via the canonical ``toValidationError`` translator
+  ## (with ``rootType``), then packs the resulting shape into a
+  ## ``serverFail`` method error. Preserves ``typeName`` and ``value`` in
+  ## ``extras`` so no diagnostic information is lost.
+  return proc(sv: SerdeViolation): MethodError {.noSideEffect, raises: [].} =
+    let ve = toValidationError(sv, rootType)
+    let extras = %*{"typeName": ve.typeName, "value": ve.value}
+    methodError(
+      rawType = "serverFail",
+      description = Opt.some(ve.message),
+      extras = Opt.some(extras),
+    )
 
 # =============================================================================
 # Internal helpers
@@ -191,10 +196,12 @@ func get*[T](resp: Response, handle: ResponseHandle[T]): Result[T, MethodError] 
   ## 2. Not found → err(serverFail).
   ## 3. If name == "error" → parse as MethodError, return err.
   ## 4. Otherwise → call T.fromJson(arguments) via mixin.
-  ##    ok → return ok. err(ValidationError) → convert to MethodError.
+  ##    ok → return ok. err(SerdeViolation) → convert to MethodError
+  ##    via ``serdeToMethodError($T)`` (translator with ``T``'s name as
+  ##    root context).
   mixin fromJson
   let inv = ?extractInvocation(resp, callId(handle))
-  return T.fromJson(inv.arguments).mapErr(validationToMethodError)
+  return T.fromJson(inv.arguments).mapErr(serdeToMethodError($T))
 
 # =============================================================================
 # get[T] — callback overload (escape hatch)
@@ -204,13 +211,13 @@ func get*[T](
     resp: Response,
     handle: ResponseHandle[T],
     fromArgs:
-      proc(node: JsonNode): Result[T, ValidationError] {.noSideEffect, raises: [].},
+      proc(node: JsonNode): Result[T, SerdeViolation] {.noSideEffect, raises: [].},
 ): Result[T, MethodError] =
   ## Extracts a typed response using a caller-supplied parsing callback.
   ## For custom parsing where ``T.fromJson`` is not discoverable via mixin
   ## (e.g., entity-specific extractors or JsonNode for Core/echo).
   let inv = ?extractInvocation(resp, callId(handle))
-  return fromArgs(inv.arguments).mapErr(validationToMethodError)
+  return fromArgs(inv.arguments).mapErr(serdeToMethodError($T))
 
 # =============================================================================
 # get[T] — NameBoundHandle overload
@@ -223,7 +230,7 @@ func get*[T](resp: Response, h: NameBoundHandle[T]): Result[T, MethodError] =
   ## the call-id (RFC 8620 §5.4).
   mixin fromJson
   let inv = ?extractInvocationByName(resp, h.callId, h.methodName)
-  return T.fromJson(inv.arguments).mapErr(validationToMethodError)
+  return T.fromJson(inv.arguments).mapErr(serdeToMethodError($T))
 
 # =============================================================================
 # Reference construction — generic escape hatch
