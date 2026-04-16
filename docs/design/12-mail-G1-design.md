@@ -53,14 +53,15 @@ the cross-entity form `EmailSubmissionHandles`, where the two handles span
 
 | Type | Module | Rationale |
 |------|--------|-----------|
-| `RFC5321Mailbox` | `submission_envelope.nim` | Distinct string for RFC 5321 Forward-path/Reverse-path. Separates SMTP mailbox grammar from RFC 5322 addr-spec at the type level (G6). |
+| `RFC5321Mailbox` | `submission_envelope.nim` | Distinct string for RFC 5321 `Mailbox` production (`Local-part "@" ( Domain / address-literal )`). Separates SMTP mailbox grammar from RFC 5322 addr-spec at the type level (G6). |
 | `RFC5321Keyword` | `submission_envelope.nim` | Distinct string for RFC 5321 `esmtp-keyword` grammar. Used for SMTP extension parameter names and submission capability keys (G8, G25). |
-| `SubmissionAddress` | `submission_envelope.nim` | `RFC5321Mailbox` + `SubmissionParams`. RFC §7's Envelope Address type — distinct from `EmailAddress` (G6). |
+| `SubmissionAddress` | `submission_envelope.nim` | `RFC5321Mailbox` + `Opt[SubmissionParams]`. RFC §7's Envelope Address type — distinct from `EmailAddress`; parameters nullable per RFC (G6, G34). |
 | `SubmissionParamKind` | `submission_envelope.nim` | 12-variant sealed enum (11 well-known SMTP extensions + `spkExtension` catch-all). |
 | `SubmissionParam` | `submission_envelope.nim` | Case object with per-variant typed payloads (enums, distinct newtypes, dates) (G8c). |
 | `SubmissionParamKey` | `submission_envelope.nim` | Case-object identity key for `SubmissionParams` Table (G8a). |
 | `SubmissionParams` | `submission_envelope.nim` | `distinct OrderedTable[SubmissionParamKey, SubmissionParam]`. Structural uniqueness (G8a). |
-| `Envelope` | `submission_envelope.nim` | `mailFrom: SubmissionAddress` + `rcptTo: NonEmptyRcptList`. |
+| `ReversePath` | `submission_envelope.nim` | Two-variant sum: `rpkNullPath` (SMTP `<>`, with `Opt[SubmissionParams]`) or `rpkMailbox` (`SubmissionAddress`). Models `Reverse-path = Path / "<>"` at `Envelope.mailFrom` (G32). |
+| `Envelope` | `submission_envelope.nim` | `mailFrom: ReversePath` + `rcptTo: NonEmptyRcptList`. |
 | `NonEmptyRcptList` | `submission_envelope.nim` | `distinct seq[SubmissionAddress]` with strict/lenient parser pair (G7). |
 | `UndoStatus` | `submission_status.nim` | 3-variant string-backed enum: `usPending`, `usFinal`, `usCanceled`. Also serves as the phantom type parameter for `EmailSubmission` (G3). |
 | `DeliveredState` | `submission_status.nim` | 5-variant enum (4 RFC-defined + `dsOther` catch-all) with `ParsedDeliveredState` wrapper (G10). |
@@ -79,6 +80,7 @@ the cross-entity form `EmailSubmissionHandles`, where the two handles span
 | `EmailSubmissionSetResponse` | `email_submission.nim` | Response for `EmailSubmission/set`. |
 | `EmailSubmissionHandles` | `email_submission.nim` | Compound-handle record: `submission: ResponseHandle[...]` + `emailSet: NameBoundHandle[...]` (G21). |
 | `EmailSubmissionResults` | `email_submission.nim` | Extraction target of `getBoth(EmailSubmissionHandles)` (G21). |
+| `IdOrCreationRef` | `email_submission.nim` | Two-variant sum: existing `Id` or `CreationId` reference. Models RFC 8620 §5.3 creation references in `onSuccess*` keys — distinct from `Referencable[T]` which models §3.7 result references (G35). |
 | `SubmissionExtensionMap` | `mail_capabilities.nim` (amended) | `distinct OrderedTable[RFC5321Keyword, seq[string]]`. Tightens existing `SubmissionCapabilities` (G25). |
 
 Supporting enums and distinct newtypes for SMTP parameter payloads:
@@ -95,13 +97,10 @@ Supporting enums and distinct newtypes for SMTP parameter payloads:
   holds — two compound-handle sites (`EmailCopyHandles`,
   `EmailSubmissionHandles`) is under threshold. Part H or later may promote
   to generic once a third instance materialises (G21).
-- **RFC 5321 mailbox grammar parser depth:** `parseRFC5321Mailbox` validates
-  surface-level shape (non-empty, no control characters, starts with valid
-  char). Full quoted-string and source-route handling deferred to an
-  implementation-time refinement.
-- **`SmtpReply` structured parser:** G12 adopted a distinct-string approach.
-  A future refinement may add `parseSmtpReplyStructured` returning a
-  `(ReplyCode, Opt[EnhancedStatusCode], String)` tuple.
+- **`SmtpReply` structured parser:** G12 adopted a distinct-string approach
+  with Reply-code range validation. A future refinement may add
+  `parseSmtpReplyStructured` returning a
+  `(ReplyCode, Opt[EnhancedStatusCode], String)` tuple per RFC 3463.
 
 ### 1.4. RFC §7 Constraint Table
 
@@ -111,9 +110,10 @@ Supporting enums and distinct newtypes for SMTP parameter payloads:
 | §7 ¶3 | `emailId` MUST reference a valid Email in the account | `Id` (referential; server-authoritative) |
 | §7 ¶3 | `threadId` is immutable, server-set | Not in `EmailSubmissionBlueprint`; only on read model |
 | §7 ¶4 | `envelope` is immutable; if null, server synthesises from Email headers | `Opt[Envelope]` on blueprint (G14); `Opt[Envelope]` on entity |
-| §7 ¶5 | `envelope.mailFrom` cardinality: exactly 1 | `SubmissionAddress` (non-optional field on `Envelope`) |
+| §7 ¶5 | `envelope.mailFrom` cardinality: exactly 1; MAY be empty string (null reverse path); parameters permitted on null path (RFC 5321 §4.1.1.2) | `ReversePath` (`rpkNullPath` carrying `Opt[SubmissionParams]`, or `rpkMailbox` carrying `SubmissionAddress`) (G32) |
 | §7 ¶5 | `envelope.rcptTo` cardinality: 1..N | `NonEmptyRcptList` (distinct seq + smart ctor) (G7) |
 | §7 ¶5 | `envelope.Address.email` is RFC 5321 Mailbox | `RFC5321Mailbox` (distinct string) (G6) |
+| §7 ¶5 | `envelope.Address.parameters` is `Object|null` | `Opt[SubmissionParams]` on `SubmissionAddress` (G34) |
 | §7 ¶5 | `envelope.Address.parameters` keys are RFC 5321 esmtp-keywords | `SubmissionParamKey` + `RFC5321Keyword` (G8, G8a) |
 | §7 ¶7 | `undoStatus` values: "pending", "final", "canceled" | `UndoStatus` enum (also phantom type parameter) (G3) |
 | §7 ¶7 | Only transition: "pending" → "canceled" via client update | `cancelUpdate(s: EmailSubmission[usPending])` typed arrow (G4) |
@@ -123,8 +123,8 @@ Supporting enums and distinct newtypes for SMTP parameter payloads:
 | §7 ¶8 | `smtpReply` is structured SMTP reply text | `SmtpReply` (distinct string, validated) (G12) |
 | §7 ¶9 | `dsnBlobIds`, `mdnBlobIds` are server-set arrays | `seq[BlobId]` on read model only |
 | §7.5 ¶1 | Only `undoStatus` updatable post-create | `EmailSubmissionUpdate` single variant (G16) |
-| §7.5 ¶3 | `onSuccessUpdateEmail` applies PatchObject to Email on success | `Table[Referencable[Id], EmailUpdateSet]` (G22) |
-| §7.5 ¶3 | `onSuccessDestroyEmail` destroys Email on success | `seq[Referencable[Id]]` (G22) |
+| §7.5 ¶3 | `onSuccessUpdateEmail` applies PatchObject to Email on success | `Table[IdOrCreationRef, EmailUpdateSet]` (G22, G35) |
+| §7.5 ¶3 | `onSuccessDestroyEmail` destroys Email on success | `seq[IdOrCreationRef]` (G22, G35) |
 | §7.5 ¶5 | SetError `invalidEmail` includes problematic property names | Existing `setInvalidEmail` + `invalidEmailPropertyNames*: seq[string]` (G23) |
 | §7.5 ¶5 | SetError `tooManyRecipients` includes max count | Existing `setTooManyRecipients` + `maxRecipientCount*: UnsignedInt` (G23) |
 | §7.5 ¶5 | SetError `noRecipients` when rcptTo empty | Existing `setNoRecipients` (G23) |
@@ -140,9 +140,9 @@ Supporting enums and distinct newtypes for SMTP parameter payloads:
 
 | Module | Layer | Status | Contents |
 |--------|-------|--------|----------|
-| `submission_envelope.nim` | L1 | **New** | `RFC5321Mailbox`, `RFC5321Keyword`, `SubmissionAddress`, `SubmissionParamKind`, `SubmissionParam`, `SubmissionParamKey`, `SubmissionParams`, `Envelope`, `NonEmptyRcptList`, all parameter-payload enums/newtypes (`BodyEncoding`, `DsnRetType`, `DsnNotifyFlag`, `OrcptAddrType`, `DeliveryByMode`, `HoldForSeconds`, `MtPriority`). |
+| `submission_envelope.nim` | L1 | **New** | `RFC5321Mailbox`, `RFC5321Keyword`, `SubmissionAddress`, `SubmissionParamKind`, `SubmissionParam`, `SubmissionParamKey`, `SubmissionParams`, `ReversePath`, `Envelope`, `NonEmptyRcptList`, all parameter-payload enums/newtypes (`BodyEncoding`, `DsnRetType`, `DsnNotifyFlag`, `OrcptAddrType`, `DeliveryByMode`, `HoldForSeconds`, `MtPriority`). |
 | `submission_status.nim` | L1 | **New** | `UndoStatus`, `DeliveredState`, `ParsedDeliveredState`, `DisplayedState`, `ParsedDisplayedState`, `SmtpReply`, `DeliveryStatus`, `DeliveryStatusMap`. |
-| `email_submission.nim` | L1 | **New** | `EmailSubmission[S: static UndoStatus]`, `AnyEmailSubmission`, `EmailSubmissionBlueprint`, `EmailSubmissionUpdate`, `NonEmptyEmailSubmissionUpdates`, `EmailSubmissionFilterCondition`, `NonEmptyIdSeq`, `EmailSubmissionSortProperty`, `EmailSubmissionComparator`, `EmailSubmissionSetResponse`, `EmailSubmissionHandles`, `EmailSubmissionResults`. |
+| `email_submission.nim` | L1 | **New** | `EmailSubmission[S: static UndoStatus]`, `AnyEmailSubmission`, `IdOrCreationRef`, `EmailSubmissionBlueprint`, `EmailSubmissionUpdate`, `NonEmptyEmailSubmissionUpdates`, `EmailSubmissionFilterCondition`, `NonEmptyIdSeq`, `EmailSubmissionSortProperty`, `EmailSubmissionComparator`, `EmailSubmissionSetResponse`, `EmailSubmissionHandles`, `EmailSubmissionResults`. |
 | `serde_email_submission.nim` | L2 | **New** | Serde for all three L1 modules. `SerdeViolation` + `JsonPath` throughout. Single or split TBD at implementation. |
 | `submission_builders.nim` | L3 | **New** | Builders for all 5 methods + compound `addEmailSubmissionAndEmailSet`. Entity registration for EmailSubmission. |
 | `mail_capabilities.nim` | L1 | **Amended** | `SubmissionCapabilities.submissionExtensions` tightened from `OrderedTable[string, seq[string]]` to `SubmissionExtensionMap` (G25). |
@@ -158,10 +158,10 @@ All types in this section live in `submission_envelope.nim` under
 
 ### 2.1. RFC5321Mailbox
 
-RFC 8621 §7's `Address.email` field uses RFC 5321 Forward-path/Reverse-path
-grammar — distinct from the RFC 5322 `addr-spec` used in Email headers
-(`EmailAddress.email`). The distinct newtype prevents cross-use at the type
-level (G6).
+RFC 8621 §7's `Address.email` field uses the RFC 5321 `Mailbox` production
+(`Local-part "@" ( Domain / address-literal )`, §4.1.2) — distinct from the
+RFC 5322 `addr-spec` used in Email headers (`EmailAddress.email`). The
+distinct newtype prevents cross-use at the type level (G6).
 
 ```nim
 type RFC5321Mailbox* = distinct string
@@ -174,31 +174,47 @@ func parseRFC5321Mailbox*(raw: string): Result[RFC5321Mailbox, ValidationError]
 func parseRFC5321MailboxFromServer*(raw: string): Result[RFC5321Mailbox, ValidationError]
 ```
 
-The strict parser validates RFC 5321 mailbox grammar at client-construction
-time. The lenient parser validates structural shape only (non-empty, no
-control characters) for server-received data. RFC 5321 allows edge cases
-(quoted-string, source-route obsolete-but-permitted) that the strict parser
-may reject; the lenient parser accepts them per Postel's law.
+The strict parser validates the full RFC 5321 `Mailbox` grammar at
+client-construction time: `Dot-string` and `Quoted-string` local-parts,
+`Domain` and `address-literal` (IPv4, IPv6, General-address-literal) domain
+forms. The lenient parser validates structural shape only (non-empty, no
+control characters, contains `@`) for server-received data — Postel's law.
+Neither parser handles the enclosing `Path` production (`"<" [ A-d-l ":" ]
+Mailbox ">"`); source routes are part of `Path`, not `Mailbox`, and are
+irrelevant at the JMAP layer.
 
 ### 2.2. RFC5321Keyword
 
-SMTP extension keywords (`esmtp-keyword` per RFC 5321: letter + letter/digit/
-hyphen sequence). Used as parameter names in `SubmissionParam.spkExtension`
-and as capability keys in `SubmissionExtensionMap` (G8, G25).
+SMTP extension keywords (`esmtp-keyword` per RFC 5321 §4.1.2:
+`(ALPHA / DIGIT) *(ALPHA / DIGIT / "-")`). Used as parameter names in
+`SubmissionParam.spkExtension` and as capability keys in
+`SubmissionExtensionMap` (G8, G25).
 
 ```nim
 type RFC5321Keyword* = distinct string
 
-func `==`*(a, b: RFC5321Keyword): bool {.borrow.}
+func `==`*(a, b: RFC5321Keyword): bool
 func `$`*(a: RFC5321Keyword): string {.borrow.}
-func hash*(a: RFC5321Keyword): Hash {.borrow.}
+func hash*(a: RFC5321Keyword): Hash
 
 func parseRFC5321Keyword*(raw: string): Result[RFC5321Keyword, ValidationError]
 ```
 
-Validates: starts with ASCII letter, followed by letters/digits/hyphens,
-length >= 1. Single parser — no strict/lenient pair (the grammar is
-unambiguous; server-sent and client-sent values share the same constraints).
+Validates: starts with ASCII letter or digit, followed by
+letters/digits/hyphens, length >= 1. Single parser — no strict/lenient pair
+(the grammar is unambiguous; server-sent and client-sent values share the
+same constraints). Note: `esmtp-keyword`'s trailing `*(ALPHA / DIGIT / "-")`
+permits trailing hyphens, unlike `Ldh-str` (`*( ALPHA / DIGIT / "-" )
+Let-dig`) which must end with a letter or digit. The `RFC5321Mailbox` parser
+must enforce the stricter `Ldh-str` rule for `Standardized-tag` inside
+`General-address-literal`, while `RFC5321Keyword` uses the more permissive
+`esmtp-keyword` production.
+
+`==` and `hash` are case-insensitive (ASCII case-fold), matching RFC 5321
+§2.4 ("extension name keywords are not case sensitive") and §4.1.1.1 ("EHLO
+keywords… MUST always be recognized and processed in a case-insensitive
+manner"). This ensures correct Table lookups in `SubmissionExtensionMap` and
+`SubmissionParamKey` regardless of server casing.
 
 ### 2.3. SubmissionParam — Typed Sealed Sum + Extension Arm
 
@@ -322,19 +338,51 @@ The key is derived from the value via `paramKey` — "derived-not-stored"
 (Pattern 6). The Table indexes by derived identity; the value carries the
 full payload.
 
+`SubmissionAddress.parameters` is `Opt[SubmissionParams]` (G34), matching
+the RFC's `Object|null`. `Opt.none` represents absent/null parameters;
+`Opt.some` with an empty `SubmissionParams` represents the empty `{}`
+JSON object — the serde layer distinguishes both cases per the codebase's
+standard `Opt[T]` convention.
+
 ### 2.5. SubmissionAddress + Envelope
 
 ```nim
 type
   SubmissionAddress* {.ruleOff: "objects".} = object
     mailbox*:    RFC5321Mailbox
-    parameters*: SubmissionParams
+    parameters*: Opt[SubmissionParams]
+
+  ReversePathKind* = enum
+    rpkNullPath      ## SMTP null reverse path <>; wire: empty string; may carry Mail-parameters
+    rpkMailbox       ## Valid RFC 5321 Mailbox with optional parameters
+
+  ReversePath* {.ruleOff: "objects".} = object
+    ## Models SMTP Reverse-path = Path / "<>" (RFC 5321 §4.1.2).
+    ## Distinguished from SubmissionAddress so rcptTo (Forward-path only)
+    ## cannot admit empty addresses (G32).
+    case kind*: ReversePathKind
+    of rpkNullPath: nullPathParams*: Opt[SubmissionParams]
+    of rpkMailbox:  sender*: SubmissionAddress
 
   NonEmptyRcptList* = distinct seq[SubmissionAddress]
 
   Envelope* {.ruleOff: "objects".} = object
-    mailFrom*: SubmissionAddress
+    mailFrom*: ReversePath
     rcptTo*:   NonEmptyRcptList
+```
+
+Smart constructors for `ReversePath`:
+
+```nim
+func nullReversePath*(
+    params: Opt[SubmissionParams] = Opt.none(SubmissionParams)
+): ReversePath =
+  ## Infallible constructor for the SMTP null reverse path <>.
+  ReversePath(kind: rpkNullPath, nullPathParams: params)
+
+func reversePath*(addr: SubmissionAddress): ReversePath =
+  ## Infallible wrapper: lifts a validated SubmissionAddress into ReversePath.
+  ReversePath(kind: rpkMailbox, sender: addr)
 ```
 
 `NonEmptyRcptList` has a strict/lenient parser pair (G7):
@@ -405,9 +453,12 @@ type ParsedDisplayedState* {.ruleOff: "objects".} = object
 
 ### 3.3. SmtpReply
 
-Distinct string; smart constructor validates surface shape (starts with 3
-ASCII digits + space). Deeper structural parsing (code + enhanced-code + text
-decomposition) deferred (G12).
+Distinct string; smart constructor validates Reply-code per RFC 5321 §4.2
+(`Reply-code = %x32-35 %x30-35 %x30-39`; first digit 2–5, second digit
+0–5, third digit 0–9), optionally followed by SP or hyphen and text.
+Multiline replies (continuation lines with hyphen separator) are accepted.
+Deeper structural parsing (enhanced status code decomposition per RFC 3463)
+deferred (G12).
 
 ```nim
 type SmtpReply* = distinct string
@@ -641,6 +692,13 @@ keys), then parse the value according to the variant.
 xtext-encoded wire strings (ENVID, ORCPT recipient) are decoded at the serde
 boundary (G27/G8c); interior holds plain unicode.
 
+`toJson`/`fromJson` for `ReversePath`: the wire format is the RFC §7
+`Address` object in both cases. `rpkNullPath` serialises with `email` set
+to the empty string `""` and optional `parameters`; `rpkMailbox` delegates
+to `SubmissionAddress` serde. `fromJson` dispatches on the `email` field:
+empty string → `rpkNullPath` (with optional parameters parsed from the same
+object), non-empty → parse as `RFC5321Mailbox` → `rpkMailbox`.
+
 ### 7.3. Creation and Filter Serialisation
 
 `EmailSubmissionBlueprint`, `EmailSubmissionFilterCondition`, and
@@ -651,6 +709,12 @@ and the server never sends them back.
 the wire — the `toJson` translates the single variant
 `esuSetUndoStatusToCanceled` into the PatchObject
 `{ "undoStatus": "canceled" }`.
+
+`toJson`-only for `IdOrCreationRef` (map-key serialisation in the compound
+builder's `onSuccessUpdateEmail` / `onSuccessDestroyEmail`): `icrDirect`
+serialises as the `Id` string value; `icrCreation` serialises as
+`"#" & string(creationId)` per RFC 8620 §5.3. No `fromJson` — the server
+never sends these keys back.
 
 ---
 
@@ -729,6 +793,12 @@ type EmailSubmissionFilterCondition* {.ruleOff: "objects".} = object
   after*:       Opt[UTCDate]
 ```
 
+**Strictness note (G37):** The RFC allows empty arrays for `identityIds`,
+`emailIds`, and `threadIds`. This design wraps them in
+`Opt[NonEmptyIdSeq]` — an intentional "make the wrong thing hard" choice.
+An empty filter list matches nothing, which is almost certainly a caller
+error. `Opt.none` provides the "no constraint on this property" case.
+
 `undoStatus` is typed against the `UndoStatus` enum. Since this field is
 client-sent, the `dsOther`/`dpOther` catch-all pattern from G10/G11 does not
 apply (G18).
@@ -756,6 +826,45 @@ property is named `sendAt`. The wire token is authoritative (G19).
 
 ## 9. Cross-Entity Compound Builder
 
+### 9.0. IdOrCreationRef — Creation Reference Keys
+
+RFC 8621 §7.5's `onSuccessUpdateEmail` and `onSuccessDestroyEmail` use map
+keys that are either an existing EmailSubmission `Id` or a `#`-prefixed
+creation id from the same `/set` call (RFC 8620 §5.3). This is a
+**creation reference**, not a **result reference** (RFC 8620 §3.7).
+
+- Creation reference (§5.3): `"#k1490"` — a string key; the `#` prefix
+  means "resolve this creation id after the creates in this same `/set`
+  call succeed." No `resultOf`/`name`/`path` structure.
+- Result reference (§3.7): `"#ids": {"resultOf": "c0", "name": "Foo/get",
+  "path": "/ids"}` — a JSON object replacing a field value; resolves the
+  output of a previous method call in the batch.
+
+`Referencable[T]` models result references. `IdOrCreationRef` models
+creation references (G35, G36).
+
+```nim
+type
+  IdOrCreationRefKind* = enum
+    icrDirect      ## Existing EmailSubmission Id
+    icrCreation    ## Creation reference (wire: "#" + creationId)
+
+  IdOrCreationRef* {.ruleOff: "objects".} = object
+    ## Either an existing EmailSubmission Id or a creation-id reference
+    ## to a submission being created in the same /set call. Wire format:
+    ## direct ids serialise as their string value; creation references
+    ## serialise as "#" & string(creationId).
+    case kind*: IdOrCreationRefKind
+    of icrDirect:   id*: Id
+    of icrCreation: creationId*: CreationId
+
+func directRef*(id: Id): IdOrCreationRef =
+  IdOrCreationRef(kind: icrDirect, id: id)
+
+func creationRef*(cid: CreationId): IdOrCreationRef =
+  IdOrCreationRef(kind: icrCreation, creationId: cid)
+```
+
 ### 9.1. addEmailSubmissionAndEmailSet
 
 Named per F1's AND-connector convention (`addEmailCopyAndDestroy`) (G20).
@@ -769,8 +878,8 @@ func addEmailSubmissionAndEmailSet*(
     create: Opt[Table[CreationId, EmailSubmissionBlueprint]] = ...,
     update: Opt[NonEmptyEmailSubmissionUpdates] = ...,
     destroy: Opt[seq[Id]] = ...,
-    onSuccessUpdateEmail: Opt[Table[Referencable[Id], EmailUpdateSet]] = ...,
-    onSuccessDestroyEmail: Opt[seq[Referencable[Id]]] = ...,
+    onSuccessUpdateEmail: Opt[Table[IdOrCreationRef, EmailUpdateSet]] = ...,
+    onSuccessDestroyEmail: Opt[seq[IdOrCreationRef]] = ...,
     ifInState: Opt[JmapState] = ...,
 ): (RequestBuilder, EmailSubmissionHandles)
 ```
@@ -790,7 +899,7 @@ let updates = initEmailUpdateSet(@[
 let (req, handles) = b.addEmailSubmissionAndEmailSet(
   accountId = acc,
   create = { creationRef: blueprint }.toTable,
-  onSuccessUpdateEmail = { Referencable.creation(creationRef): updates }.toTable,
+  onSuccessUpdateEmail = { creationRef(submissionCid): updates }.toTable,
 )
 ```
 
@@ -817,9 +926,10 @@ func getBoth*(
 
 ## 10. SetError Extensions Reference
 
-All 9 EmailSubmission-specific `SetErrorType` variants already exist in
-`errors.nim` from commit `a23f39a` (G23). No new variants or accessors
-needed (G24).
+All 8 EmailSubmission-specific `SetErrorType` variants plus the standard
+`tooLarge` (reused with submission-specific `maxSize` payload per RFC 8621
+§7.5) already exist in `errors.nim` from commit `a23f39a` (G23). No new
+variants or accessors needed (G24).
 
 | Method | RFC-listed error | Existing enum variant | Payload accessor |
 |--------|-----------------|----------------------|-----------------|
@@ -899,8 +1009,8 @@ EmailSubmission implementation.
 | G19 | Sort comparator typing | (A) string, (B) enum + catch-all, (C) closed enum | **B** — `EmailSubmissionSortProperty` + `esspOther` | Forward compatibility |
 | G20 | Compound builder naming | (A) addEmailSubmissionAndEmailSet, (B) Send, (C) verbose, (D) SendAndFile | **A** — AND-connector | F1 naming convention |
 | G21 | Compound handle shape | (A) specific EmailSubmissionHandles, (B) generic CompoundHandles | **A** — specific | F1 Rule-of-Three (F3) |
-| G22 | onSuccess* args | (A) typed EmailUpdateSet, (B) raw JsonNode, (C) domain helpers | **A** — reuses F1 typed update algebra | DRY; type safety |
-| G23 | New SetError variants | Yes / No | **No** — all 9 exist from `a23f39a` | — |
+| G22 | onSuccess* value args | (A) typed EmailUpdateSet, (B) raw JsonNode, (C) domain helpers | **A** — reuses F1 typed update algebra; key type corrected from `Referencable[Id]` to `IdOrCreationRef` by G35 | DRY; type safety |
+| G23 | New SetError variants | Yes / No | **No** — all 8 extra + standard `tooLarge` exist from `a23f39a` | — |
 | G24 | Payload-less accessors | Yes / No | **No** — nothing to extract | — |
 | G25 | SubmissionExtensions typing | (A) keep raw, (B) upgrade + distinct, (C) upgrade keys only | **B** — `SubmissionExtensionMap` | One type for one concept |
 | G26 | Serde pattern | Confirm SerdeViolation + JsonPath | **Confirmed** | `c8f45b3` pattern |
@@ -909,3 +1019,9 @@ EmailSubmission implementation.
 | G29 | Roadmap appendix format | Table / paragraph / list | **Table** — concept / RFC § / size / scope | — |
 | G30 | DTM columns | F1 / simplified / + files | **F1** — 5 columns | Consistency |
 | G31 | Doc depth target | Match F1 / proportional / whatever | **Whatever it takes** | — |
+| G32 | Envelope.mailFrom type | (A) SubmissionAddress (rejects empty), (B) Opt[RFC5321Mailbox] (loses params), (C) ReversePath sum (null parameterless), (C′) ReversePath sum (null with params) | **C′** — `ReversePath(rpkNullPath + Opt[SubmissionParams] \| rpkMailbox)` | Make illegal states unrepresentable; RFC fidelity — SMTP null path permits Mail-parameters (RFC 5321 §4.1.1.2); RFC 8621 §7 ¶5 ENVID note |
+| G33 | ReversePath placement | (A) On SubmissionAddress (pollutes rcptTo), (B) On Envelope.mailFrom field | **B** — field-level sum; SubmissionAddress unchanged | rcptTo never admits empty |
+| G34 | Parameters nullability | (A) Non-optional SubmissionParams, (B) Opt[SubmissionParams] | **B** — `Opt[SubmissionParams]` | RFC fidelity (`Object\|null`); codebase `Opt[Table]` precedent |
+| G35 | onSuccess* key type | (A) Referencable[Id] (result-ref shape), (B) plain string, (C) IdOrCreationRef sum | **C** — `IdOrCreationRef(icrDirect \| icrCreation)` | RFC 8620 §5.3 vs §3.7 are distinct mechanisms |
+| G36 | IdOrCreationRef vs Referencable | (A) Extend Referencable with third arm, (B) Separate type | **B** — different wire format, different semantics | One type for one concept |
+| G37 | Filter list empty-rejection | (A) Opt[seq[Id]] (permits empty), (B) Opt[NonEmptyIdSeq] (rejects empty) | **B** — intentional strictness | Make the wrong thing hard |
