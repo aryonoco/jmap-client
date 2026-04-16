@@ -692,6 +692,19 @@ keys), then parse the value according to the variant.
 xtext-encoded wire strings (ENVID, ORCPT recipient) are decoded at the serde
 boundary (G27/G8c); interior holds plain unicode.
 
+> **Finding flagged during Step 1 (2026-04-16) — re-examine at Step 10 planning.**
+> RFC 8621 §7 (lines 4207–4210) explicitly says *"any xtext or unitext encodings
+> are removed (see [RFC3461] and [RFC6533]) and JSON string encoding is applied"*
+> for JMAP `Address` parameters. This suggests a pure-JMAP client does **not**
+> xtext-encode on send or xtext-decode on receive — the server performs that
+> translation at the SMTP boundary. If this reading is correct, the G27/G8c
+> xtext-at-serde-boundary decision would contradict the wire contract and the
+> `xtextEncode` / `xtextDecode` helpers called for in `implementation-12.md`
+> Step 10 would be out of scope (or scoped only to SMTP-adjacent testing).
+> The Step 10 implementer should confirm against RFC 8621 §7 and RFC 3461 §4
+> before building xtext helpers; the final call sits with that author, not
+> with Step 1.
+
 `toJson`/`fromJson` for `ReversePath`: the wire format is the RFC §7
 `Address` object in both cases. `rpkNullPath` serialises with `email` set
 to the empty string `""` and optional `parameters`; `rpkMailbox` delegates

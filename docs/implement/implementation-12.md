@@ -106,6 +106,18 @@ decision per design §1.5) covering all Phase 1–2 L1 modules.
   wire encoding. `ReversePath` serde dispatches on empty vs non-empty
   `email` field.
 
+  > **Finding flagged during Step 1 (2026-04-16) — re-examine before
+  > building xtext helpers.** RFC 8621 §7 (lines 4207–4210) says *"any
+  > xtext or unitext encodings are removed (see [RFC3461] and [RFC6533])
+  > and JSON string encoding is applied"* for JMAP `Address` parameters.
+  > If that governs, a pure-JMAP client does not xtext-encode on send or
+  > xtext-decode on receive — the server handles it at the SMTP boundary,
+  > and the `xtextEncode` / `xtextDecode` helpers above would be either
+  > scoped to SMTP-adjacent testing or dropped entirely. See design §7.2
+  > for the same note. Step 10's author should confirm this reading
+  > against RFC 8621 §7 and make the call; Step 1 only surfaces the
+  > contradiction.
+
 - **Step 11:** Extend with status type serde per design §§3, 7.1.
   Include a named `parseUndoStatus(raw, path)` returning
   `Result[UndoStatus, SerdeViolation]` — Step 12's `AnyEmailSubmission`
