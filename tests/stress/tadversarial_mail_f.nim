@@ -8,9 +8,14 @@ discard """
 ## Adversarial / stress tests for Mail Part F — pins F1 promises on
 ## ``EmailUpdate`` / ``EmailUpdateSet`` / ``EmailCopyItem`` /
 ## ``EmailImportItem`` / ``NonEmptyEmailImportMap`` and the
-## ``EmailSetResponse`` / ``EmailCopyResponse`` / ``EmailImportResponse``
-## decode surface under malformed wire input, conflict-algebra edge
-## cases, cast-bypass scenarios, and scale invariants.
+## ``SetResponse[EmailCreatedItem]`` / ``CopyResponse[EmailCreatedItem]``
+## / ``EmailImportResponse`` decode surface under malformed wire input,
+## conflict-algebra edge cases, cast-bypass scenarios, and scale
+## invariants. The bespoke ``EmailSetResponse`` / ``EmailCopyResponse``
+## were folded into the generic ``SetResponse[T]`` / ``CopyResponse[T]``
+## (commit aa638a8); the merged ``updateResults`` / ``destroyResults``
+## tables now carry what the old split ``updated``/``notUpdated`` and
+## ``destroyed``/``notDestroyed`` pairs encoded (Decision 3.9B).
 ##
 ## Eight top-level groups per F2 §8.2.3 + §8.10:
 ##   Block 1 — Response-decode adversarial (§8.9 matrix)
@@ -37,6 +42,7 @@ import jmap_client/mail/email_update
 import jmap_client/mail/keyword
 import jmap_client/mail/mail_builders
 import jmap_client/mail/mailbox
+import jmap_client/methods
 import jmap_client/methods_enum
 import jmap_client/mail/serde_email
 import jmap_client/mail/serde_email_update
@@ -50,42 +56,54 @@ import ../mfixtures
 # =============================================================================
 # Block 1 — Response-decode adversarial (F2 §8.9)
 # =============================================================================
-# Three sub-groups: EmailSetResponse (~30), EmailCopyResponse (~15),
-# EmailImportResponse (~9). Each named block constructs a malformed
+# Three sub-groups: Email/set (~30), Email/copy (~15), Email/import (~9)
+# response decode — the first two via the generic ``SetResponse``/
+# ``CopyResponse[EmailCreatedItem]``, the third via the bespoke
+# ``EmailImportResponse``. Each named block constructs a malformed
 # ``JsonNode`` inline, calls ``T.fromJson(node)``, and asserts either
 # ``Ok`` on the Postel-lenient rows or ``Err`` on the shape-strict rows.
-# Two asymmetries drive the lenient/strict split:
 #
-# * ``mergeCreatedResults`` (serde_email.nim) silently drops non-JObject
-#   ``created`` / ``notCreated`` top-level values — Ok with empty map.
-# * ``parseOptUpdatedMap`` / ``parseOptSetErrorMap`` / ``parseOptDestroyedIds``
-#   call ``expectKind`` on their sub-node — non-JObject / non-JArray yields
-#   Err via the ``SerdeViolation`` rail.
+# The lenient/strict split follows a single principle: strict where a
+# typed return forces parsing, lenient where the return is a passthrough.
 #
-# Sub-entry wrong shape (e.g. JString where JObject expected in ``created``)
-# propagates through ``EmailCreatedItem.fromJson`` / ``SetError.fromJson``
-# via ``?`` — the whole response surfaces Err, not a per-entry synthesised
-# failure. Tests below pin that actual behaviour.
+# * Top-level maps (``mergeCreateResults`` / ``mergeUpdateResults`` /
+#   ``mergeDestroyResults`` in methods.nim) silently drop wrong-kind
+#   top-level values — Ok with an empty merged table. Postel on receive.
+# * Inner values on the *success* rail are lenient where the return is
+#   ``Opt[JsonNode]`` (updateResults) — the library doesn't know the
+#   entity-specific PatchObject shape, so the raw node passes through
+#   verbatim as ``ok(Opt.some(v))``. RFC 8620 §5.3 specifies
+#   ``PatchObject|null`` for this inner value; the library admits the
+#   whole non-null JSON surface on the success rail and defers the
+#   structural check to callers who know their entity.
+# * Inner values on the *error* rail are strict — ``SetError.fromJson``
+#   must produce a typed sum, so non-object/missing-``type`` entries
+#   propagate Err via ``?``.
+# * Inner values where a typed ``T`` is produced (``created`` →
+#   ``EmailCreatedItem``) are strict — ``T.fromJson`` can't invent a
+#   typed record from a JString, so Err is forced by the type contract.
+# * ``destroyed`` element strictness comes from ``parseIdFromServer``'s
+#   non-empty / no-control-characters invariants, not a kind check.
 
 block emailSetResponseAdversarialGroup:
   block createdAsJArray:
     # mergeCreatedResults ignores non-JObject created; Ok with empty.
     let payload = parseJson("""{"accountId": "a1", "newState": "s1", "created": []}""")
-    let res = EmailSetResponse.fromJson(payload)
+    let res = SetResponse[EmailCreatedItem].fromJson(payload)
     assertOk res
     assertLen res.get().createResults, 0
 
   block createdJNull:
     let payload =
       parseJson("""{"accountId": "a1", "newState": "s1", "created": null}""")
-    let res = EmailSetResponse.fromJson(payload)
+    let res = SetResponse[EmailCreatedItem].fromJson(payload)
     assertOk res
     assertLen res.get().createResults, 0
 
   block createdAsJString:
     let payload =
       parseJson("""{"accountId": "a1", "newState": "s1", "created": "oops"}""")
-    let res = EmailSetResponse.fromJson(payload)
+    let res = SetResponse[EmailCreatedItem].fromJson(payload)
     assertOk res
     assertLen res.get().createResults, 0
 
@@ -96,14 +114,14 @@ block emailSetResponseAdversarialGroup:
          "created": {"#badkey": {"id": "x", "blobId": "b",
                                  "threadId": "t", "size": 0}}}"""
     )
-    assertErr EmailSetResponse.fromJson(payload)
+    assertErr SetResponse[EmailCreatedItem].fromJson(payload)
 
   block createdEntryKeyEmpty:
     let payload = parseJson(
       """{"accountId": "a1", "newState": "s1",
          "created": {"": {"id": "x", "blobId": "b", "threadId": "t", "size": 0}}}"""
     )
-    assertErr EmailSetResponse.fromJson(payload)
+    assertErr SetResponse[EmailCreatedItem].fromJson(payload)
 
   block createdEntryValueAsJString:
     # EmailCreatedItem.fromJson expects JObject; svkWrongKind bubbles via `?`.
@@ -111,14 +129,14 @@ block emailSetResponseAdversarialGroup:
       """{"accountId": "a1", "newState": "s1",
          "created": {"c1": "not-an-object"}}"""
     )
-    assertErr EmailSetResponse.fromJson(payload)
+    assertErr SetResponse[EmailCreatedItem].fromJson(payload)
 
   block createdEntryMissingSize:
     let payload = parseJson(
       """{"accountId": "a1", "newState": "s1",
          "created": {"c1": {"id": "x", "blobId": "b", "threadId": "t"}}}"""
     )
-    assertErr EmailSetResponse.fromJson(payload)
+    assertErr SetResponse[EmailCreatedItem].fromJson(payload)
 
   block createdEntrySizeAsString:
     let payload = parseJson(
@@ -126,7 +144,7 @@ block emailSetResponseAdversarialGroup:
          "created": {"c1": {"id": "x", "blobId": "b",
                             "threadId": "t", "size": "bad"}}}"""
     )
-    assertErr EmailSetResponse.fromJson(payload)
+    assertErr SetResponse[EmailCreatedItem].fromJson(payload)
 
   block createdEntryIdAsInteger:
     let payload = parseJson(
@@ -134,7 +152,7 @@ block emailSetResponseAdversarialGroup:
          "created": {"c1": {"id": 42, "blobId": "b",
                             "threadId": "t", "size": 0}}}"""
     )
-    assertErr EmailSetResponse.fromJson(payload)
+    assertErr SetResponse[EmailCreatedItem].fromJson(payload)
 
   block createdEntryExtraUnknownFields:
     # Postel: unknown sub-entry fields ignored; accept-and-round-trip.
@@ -143,55 +161,81 @@ block emailSetResponseAdversarialGroup:
          "created": {"c1": {"id": "x", "blobId": "b", "threadId": "t",
                             "size": 0, "unknown": "extra"}}}"""
     )
-    assertOk EmailSetResponse.fromJson(payload)
+    assertOk SetResponse[EmailCreatedItem].fromJson(payload)
 
-  block updatedEntryRejectsString:
+  block updatedEntryAdmitsString:
+    # Passthrough — inner non-null ``updated`` values are preserved as
+    # ``ok(Opt.some(raw))`` regardless of JSON kind. RFC 8620 §5.3
+    # specifies PatchObject, but the library defers that structural
+    # check to the caller (methods.nim mergeUpdateResults).
     let payload =
       parseJson("""{"accountId": "a1", "newState": "s1", "updated": {"e1": "oops"}}""")
-    assertErr EmailSetResponse.fromJson(payload)
+    let res = SetResponse[EmailCreatedItem].fromJson(payload)
+    assertOk res
+    let id = parseId("e1").get()
+    doAssert res.get().updateResults[id].isOk
+    assertEq res.get().updateResults[id].get().get().kind, JString
 
-  block updatedEntryRejectsNumber:
+  block updatedEntryAdmitsNumber:
     let payload =
       parseJson("""{"accountId": "a1", "newState": "s1", "updated": {"e1": 42}}""")
-    assertErr EmailSetResponse.fromJson(payload)
+    let res = SetResponse[EmailCreatedItem].fromJson(payload)
+    assertOk res
+    let id = parseId("e1").get()
+    doAssert res.get().updateResults[id].isOk
+    assertEq res.get().updateResults[id].get().get().kind, JInt
 
-  block updatedEntryRejectsArray:
+  block updatedEntryAdmitsArray:
     let payload =
       parseJson("""{"accountId": "a1", "newState": "s1", "updated": {"e1": []}}""")
-    assertErr EmailSetResponse.fromJson(payload)
+    let res = SetResponse[EmailCreatedItem].fromJson(payload)
+    assertOk res
+    let id = parseId("e1").get()
+    doAssert res.get().updateResults[id].isOk
+    assertEq res.get().updateResults[id].get().get().kind, JArray
 
-  block updatedEntryRejectsBool:
+  block updatedEntryAdmitsBool:
     let payload =
       parseJson("""{"accountId": "a1", "newState": "s1", "updated": {"e1": true}}""")
-    assertErr EmailSetResponse.fromJson(payload)
+    let res = SetResponse[EmailCreatedItem].fromJson(payload)
+    assertOk res
+    let id = parseId("e1").get()
+    doAssert res.get().updateResults[id].isOk
+    assertEq res.get().updateResults[id].get().get().kind, JBool
 
   block updatedEntryNull:
-    # F1 §2.3: JNull => uekUnchanged.
+    # RFC 8620 §5.3 inner-null: wire ``{id: null}`` => ok(Opt.none) — the
+    # server made no property changes the client doesn't already know.
     let payload =
       parseJson("""{"accountId": "a1", "newState": "s1", "updated": {"e1": null}}""")
-    let res = EmailSetResponse.fromJson(payload)
+    let res = SetResponse[EmailCreatedItem].fromJson(payload)
     assertOk res
-    let tbl = res.get().updated.get()
     let id = parseId("e1").get()
-    assertEq tbl[id].kind, uekUnchanged
+    doAssert res.get().updateResults[id].isOk
+    doAssert res.get().updateResults[id].get().isNone
 
   block updatedEntryEmptyObject:
-    # F1 §2.3: {} => uekChanged with empty object payload.
+    # RFC 8620 §5.3 inner-object: wire ``{id: {}}`` => ok(Opt.some(JObject))
+    # — server altered something, changed-property map is just empty.
     let payload =
       parseJson("""{"accountId": "a1", "newState": "s1", "updated": {"e1": {}}}""")
-    let res = EmailSetResponse.fromJson(payload)
+    let res = SetResponse[EmailCreatedItem].fromJson(payload)
     assertOk res
     let id = parseId("e1").get()
-    assertEq res.get().updated.get()[id].kind, uekChanged
+    doAssert res.get().updateResults[id].isOk
+    doAssert res.get().updateResults[id].get().isSome
+    assertEq res.get().updateResults[id].get().get().kind, JObject
 
   block updatedEntryRoundTripPreservesDistinction:
-    # Re-encode null => null; re-encode {} => {}.
+    # The inner null-vs-object distinction is preserved across round-trip
+    # by Opt[JsonNode] inside Result: Opt.none → wire null, Opt.some(node)
+    # → inner node verbatim (methods.nim emitSplitUpdateResults).
     let nullPayload =
       parseJson("""{"accountId": "a1", "newState": "s1", "updated": {"e1": null}}""")
     let emptyPayload =
       parseJson("""{"accountId": "a1", "newState": "s1", "updated": {"e1": {}}}""")
-    let nullResp = EmailSetResponse.fromJson(nullPayload).get()
-    let emptyResp = EmailSetResponse.fromJson(emptyPayload).get()
+    let nullResp = SetResponse[EmailCreatedItem].fromJson(nullPayload).get()
+    let emptyResp = SetResponse[EmailCreatedItem].fromJson(emptyPayload).get()
     doAssert toJson(nullResp){"updated"}{"e1"}.kind == JNull
     doAssert toJson(emptyResp){"updated"}{"e1"}.kind == JObject
 
@@ -201,102 +245,126 @@ block emailSetResponseAdversarialGroup:
     let payload = parseJson(
       """{"accountId": "a1", "newState": "s1", "updated": {"\u0001bad": null}}"""
     )
-    assertErr EmailSetResponse.fromJson(payload)
+    assertErr SetResponse[EmailCreatedItem].fromJson(payload)
 
   block updatedTopLevelAbsent:
     let payload = parseJson("""{"accountId": "a1", "newState": "s1"}""")
-    let res = EmailSetResponse.fromJson(payload)
+    let res = SetResponse[EmailCreatedItem].fromJson(payload)
     assertOk res
-    doAssert res.get().updated.isNone
+    assertLen res.get().updateResults, 0
 
   block updatedTopLevelNull:
     let payload =
       parseJson("""{"accountId": "a1", "newState": "s1", "updated": null}""")
-    let res = EmailSetResponse.fromJson(payload)
+    let res = SetResponse[EmailCreatedItem].fromJson(payload)
     assertOk res
-    doAssert res.get().updated.isNone
+    assertLen res.get().updateResults, 0
 
   block updatedTopLevelEmptyObject:
+    # Decision 3.9B: the merged ``updateResults`` table does NOT distinguish
+    # top-level absent from ``updated: {}`` — both project to an empty
+    # table (unlike pre-refactor ``Opt[Table]`` which preserved the split).
+    # RFC 8620 §5.3 treats the two wire shapes as semantically identical.
     let payload = parseJson("""{"accountId": "a1", "newState": "s1", "updated": {}}""")
-    let res = EmailSetResponse.fromJson(payload)
+    let res = SetResponse[EmailCreatedItem].fromJson(payload)
     assertOk res
-    doAssert res.get().updated.isSome
-    assertLen res.get().updated.get(), 0
+    assertLen res.get().updateResults, 0
 
   block updatedTopLevelAsArray:
+    # Top-level wrong-kind ``updated`` is silently dropped by
+    # mergeUpdateResults (uniform Postel across all three merge helpers).
     let payload = parseJson("""{"accountId": "a1", "newState": "s1", "updated": []}""")
-    assertErr EmailSetResponse.fromJson(payload)
+    let res = SetResponse[EmailCreatedItem].fromJson(payload)
+    assertOk res
+    assertLen res.get().updateResults, 0
 
   block updatedEntryWellFormedWrongPayload:
-    # Shape-faithful inner object; UpdatedEntry.fromJson preserves raw.
+    # Shape-faithful inner object; parseOptUpdatedMap preserves the raw
+    # JsonNode on the Ok rail without interpreting its contents.
     let payload = parseJson(
       """{"accountId": "a1", "newState": "s1", "updated": {"e1": {"id": 42}}}"""
     )
-    let res = EmailSetResponse.fromJson(payload)
+    let res = SetResponse[EmailCreatedItem].fromJson(payload)
     assertOk res
     let id = parseId("e1").get()
-    assertEq res.get().updated.get()[id].kind, uekChanged
+    doAssert res.get().updateResults[id].isOk
+    doAssert res.get().updateResults[id].get().isSome
 
   block destroyedAsJNull:
     let payload =
       parseJson("""{"accountId": "a1", "newState": "s1", "destroyed": null}""")
-    let res = EmailSetResponse.fromJson(payload)
+    let res = SetResponse[EmailCreatedItem].fromJson(payload)
     assertOk res
-    doAssert res.get().destroyed.isNone
+    assertLen res.get().destroyResults, 0
 
   block destroyedAbsent:
     let payload = parseJson("""{"accountId": "a1", "newState": "s1"}""")
-    let res = EmailSetResponse.fromJson(payload)
+    let res = SetResponse[EmailCreatedItem].fromJson(payload)
     assertOk res
-    doAssert res.get().destroyed.isNone
+    assertLen res.get().destroyResults, 0
 
   block destroyedEmptyArray:
     let payload =
       parseJson("""{"accountId": "a1", "newState": "s1", "destroyed": []}""")
-    let res = EmailSetResponse.fromJson(payload)
+    let res = SetResponse[EmailCreatedItem].fromJson(payload)
     assertOk res
-    assertLen res.get().destroyed.get(), 0
+    assertLen res.get().destroyResults, 0
 
   block destroyedTwoElements:
+    # Wire ``destroyed`` array entries become Ok rows in the merged map.
     let payload = parseJson(
       """{"accountId": "a1", "newState": "s1", "destroyed": ["id1", "id2"]}"""
     )
-    let res = EmailSetResponse.fromJson(payload)
+    let res = SetResponse[EmailCreatedItem].fromJson(payload)
     assertOk res
-    assertLen res.get().destroyed.get(), 2
+    assertLen res.get().destroyResults, 2
+    doAssert res.get().destroyResults[parseId("id1").get()].isOk
+    doAssert res.get().destroyResults[parseId("id2").get()].isOk
 
   block destroyedAsJObject:
+    # Top-level wrong-kind ``destroyed`` (JObject instead of JArray) is
+    # silently dropped by mergeDestroyResults — uniform Postel.
     let payload =
       parseJson("""{"accountId": "a1", "newState": "s1", "destroyed": {}}""")
-    assertErr EmailSetResponse.fromJson(payload)
+    let res = SetResponse[EmailCreatedItem].fromJson(payload)
+    assertOk res
+    assertLen res.get().destroyResults, 0
 
   block oldStateJNull:
     let payload =
       parseJson("""{"accountId": "a1", "newState": "s1", "oldState": null}""")
-    let res = EmailSetResponse.fromJson(payload)
+    let res = SetResponse[EmailCreatedItem].fromJson(payload)
     assertOk res
     doAssert res.get().oldState.isNone
 
   block accountIdJNull:
     let payload = parseJson("""{"accountId": null, "newState": "s1"}""")
-    assertErr EmailSetResponse.fromJson(payload)
+    assertErr SetResponse[EmailCreatedItem].fromJson(payload)
 
   block accountIdWrongType:
     let payload = parseJson("""{"accountId": true, "newState": "s1"}""")
-    assertErr EmailSetResponse.fromJson(payload)
+    assertErr SetResponse[EmailCreatedItem].fromJson(payload)
 
   block newStateJInt:
     let payload = parseJson("""{"accountId": "a1", "newState": 42}""")
-    assertErr EmailSetResponse.fromJson(payload)
+    assertErr SetResponse[EmailCreatedItem].fromJson(payload)
 
   block oldStateWrongType:
+    # ``optState`` (methods.nim) is explicitly lenient: absent, null, wrong
+    # kind, or invalid content all yield ``Opt.none``. Postel on receive.
     let payload = parseJson("""{"accountId": "a1", "newState": "s1", "oldState": 42}""")
-    assertErr EmailSetResponse.fromJson(payload)
+    let res = SetResponse[EmailCreatedItem].fromJson(payload)
+    assertOk res
+    doAssert res.get().oldState.isNone
 
   block notUpdatedAsJArray:
+    # Top-level wrong-kind ``notUpdated`` (JArray instead of JObject) is
+    # silently dropped by mergeUpdateResults — uniform Postel.
     let payload =
       parseJson("""{"accountId": "a1", "newState": "s1", "notUpdated": []}""")
-    assertErr EmailSetResponse.fromJson(payload)
+    let res = SetResponse[EmailCreatedItem].fromJson(payload)
+    assertOk res
+    assertLen res.get().updateResults, 0
 
   block notUpdatedKeyEmpty:
     # parseIdFromServer on "" fails (non-empty constraint).
@@ -304,33 +372,40 @@ block emailSetResponseAdversarialGroup:
       """{"accountId": "a1", "newState": "s1",
          "notUpdated": {"": {"type": "forbidden"}}}"""
     )
-    assertErr EmailSetResponse.fromJson(payload)
+    assertErr SetResponse[EmailCreatedItem].fromJson(payload)
 
   block notUpdatedAndNotDestroyedSameKey:
+    # Wire ``notUpdated`` and ``notDestroyed`` entries ride the Err rail
+    # of the merged ``updateResults`` / ``destroyResults`` tables
+    # (Decision 3.9B). The same Id can appear on both failure maps —
+    # the library does not cross-validate.
     let payload = parseJson(
       """{"accountId": "a1", "newState": "s1",
          "notUpdated": {"x1": {"type": "forbidden"}},
          "notDestroyed": {"x1": {"type": "forbidden"}}}"""
     )
-    let res = EmailSetResponse.fromJson(payload)
+    let res = SetResponse[EmailCreatedItem].fromJson(payload)
     assertOk res
-    doAssert res.get().notUpdated.isSome
-    doAssert res.get().notDestroyed.isSome
+    let id = parseId("x1").get()
+    doAssert res.get().updateResults[id].isErr
+    doAssert res.get().destroyResults[id].isErr
+    assertEq res.get().updateResults[id].error.errorType, setForbidden
+    assertEq res.get().destroyResults[id].error.errorType, setForbidden
 
   block topLevelResponseJNull:
-    assertErr EmailSetResponse.fromJson(parseJson("null"))
+    assertErr SetResponse[EmailCreatedItem].fromJson(parseJson("null"))
 
   block topLevelResponseJArray:
-    assertErr EmailSetResponse.fromJson(parseJson("[]"))
+    assertErr SetResponse[EmailCreatedItem].fromJson(parseJson("[]"))
 
   block topLevelResponseEmptyObject:
     # Missing accountId / newState => Err.
-    assertErr EmailSetResponse.fromJson(parseJson("{}"))
+    assertErr SetResponse[EmailCreatedItem].fromJson(parseJson("{}"))
 
   block topLevelResponseExtraKeys:
     # Postel on top level.
     let payload = parseJson("""{"accountId": "a1", "newState": "s1", "foo": 42}""")
-    assertOk EmailSetResponse.fromJson(payload)
+    assertOk SetResponse[EmailCreatedItem].fromJson(payload)
 
   block nestedUnknownFields:
     let payload = parseJson(
@@ -338,18 +413,18 @@ block emailSetResponseAdversarialGroup:
          "created": {"c1": {"id": "x", "blobId": "b", "threadId": "t",
                             "size": 0, "nested": {"deep": "extra"}}}}"""
     )
-    assertOk EmailSetResponse.fromJson(payload)
+    assertOk SetResponse[EmailCreatedItem].fromJson(payload)
 
 block emailCopyResponseAdversarialGroup:
   block copyFromAccountIdMissing:
     # fromAccountId is required; absent => Err.
     let payload = parseJson("""{"accountId": "dst", "newState": "s1"}""")
-    assertErr EmailCopyResponse.fromJson(payload)
+    assertErr CopyResponse[EmailCreatedItem].fromJson(payload)
 
   block copyFromAccountIdWrongType:
     let payload =
       parseJson("""{"fromAccountId": 42, "accountId": "dst", "newState": "s1"}""")
-    assertErr EmailCopyResponse.fromJson(payload)
+    assertErr CopyResponse[EmailCreatedItem].fromJson(payload)
 
   block copyNotCreatedAsJArray:
     # mergeCreatedResults lenient; non-JObject notCreated silently dropped.
@@ -357,7 +432,7 @@ block emailCopyResponseAdversarialGroup:
       """{"fromAccountId": "src", "accountId": "dst",
          "newState": "s1", "notCreated": []}"""
     )
-    let res = EmailCopyResponse.fromJson(payload)
+    let res = CopyResponse[EmailCreatedItem].fromJson(payload)
     assertOk res
     assertLen res.get().createResults, 0
 
@@ -366,7 +441,7 @@ block emailCopyResponseAdversarialGroup:
       """{"fromAccountId": "src", "accountId": "dst",
          "newState": "s1", "notCreated": null}"""
     )
-    let res = EmailCopyResponse.fromJson(payload)
+    let res = CopyResponse[EmailCreatedItem].fromJson(payload)
     assertOk res
     assertLen res.get().createResults, 0
 
@@ -376,7 +451,7 @@ block emailCopyResponseAdversarialGroup:
          "newState": "s1",
          "notCreated": {"#bad": {"type": "forbidden"}}}"""
     )
-    assertErr EmailCopyResponse.fromJson(payload)
+    assertErr CopyResponse[EmailCreatedItem].fromJson(payload)
 
   block copyNotCreatedEntryMissingType:
     # SetError.fromJson requires a ``type`` field.
@@ -384,7 +459,7 @@ block emailCopyResponseAdversarialGroup:
       """{"fromAccountId": "src", "accountId": "dst",
          "newState": "s1", "notCreated": {"c1": {}}}"""
     )
-    assertErr EmailCopyResponse.fromJson(payload)
+    assertErr CopyResponse[EmailCreatedItem].fromJson(payload)
 
   block copyNotCreatedEntryForbiddenNoDescription:
     let payload = parseJson(
@@ -392,7 +467,7 @@ block emailCopyResponseAdversarialGroup:
          "newState": "s1",
          "notCreated": {"c1": {"type": "forbidden"}}}"""
     )
-    let res = EmailCopyResponse.fromJson(payload)
+    let res = CopyResponse[EmailCreatedItem].fromJson(payload)
     assertOk res
     let cid = parseCreationId("c1").get()
     doAssert res.get().createResults[cid].isErr
@@ -407,7 +482,7 @@ block emailCopyResponseAdversarialGroup:
          "newState": "s1",
          "notCreated": {"c1": {"type": "customServerExtension"}}}"""
     )
-    let res = EmailCopyResponse.fromJson(payload)
+    let res = CopyResponse[EmailCreatedItem].fromJson(payload)
     assertOk res
     let cid = parseCreationId("c1").get()
     let err = res.get().createResults[cid].error
@@ -425,7 +500,7 @@ block emailCopyResponseAdversarialGroup:
          "newState": "s1",
          "notCreated": {"c1": {"type": "invalidProperties", "properties": 42}}}"""
     )
-    let res = EmailCopyResponse.fromJson(payload)
+    let res = CopyResponse[EmailCreatedItem].fromJson(payload)
     assertOk res
     let cid = parseCreationId("c1").get()
     let err = res.get().createResults[cid].error
@@ -440,7 +515,7 @@ block emailCopyResponseAdversarialGroup:
          "notCreated": {"c1": {"type": "invalidProperties",
                                "properties": []}}}"""
     )
-    let res = EmailCopyResponse.fromJson(payload)
+    let res = CopyResponse[EmailCreatedItem].fromJson(payload)
     assertOk res
     let cid = parseCreationId("c1").get()
     let err = res.get().createResults[cid].error
@@ -455,13 +530,13 @@ block emailCopyResponseAdversarialGroup:
          "notCreated": {"c1": {"type": "forbidden",
                                "description": "bad \u0000 byte"}}}"""
     )
-    let res = EmailCopyResponse.fromJson(payload)
+    let res = CopyResponse[EmailCreatedItem].fromJson(payload)
     assertOk res
 
   block copyAccountIdJNull:
     let payload =
       parseJson("""{"fromAccountId": "src", "accountId": null, "newState": "s1"}""")
-    assertErr EmailCopyResponse.fromJson(payload)
+    assertErr CopyResponse[EmailCreatedItem].fromJson(payload)
 
   block copyCreatedSameKeyAsNotCreated:
     # Real-world server bug (Cyrus / Stalwart): same CreationId in both
@@ -474,14 +549,14 @@ block emailCopyResponseAdversarialGroup:
                             "threadId": "t", "size": 0}},
          "notCreated": {"c1": {"type": "forbidden"}}}"""
     )
-    let res = EmailCopyResponse.fromJson(payload)
+    let res = CopyResponse[EmailCreatedItem].fromJson(payload)
     assertOk res
     let cid = parseCreationId("c1").get()
     doAssert res.get().createResults[cid].isErr
 
   block copyTopLevelEmptyObject:
     # Missing fromAccountId / accountId / newState => Err.
-    assertErr EmailCopyResponse.fromJson(parseJson("{}"))
+    assertErr CopyResponse[EmailCreatedItem].fromJson(parseJson("{}"))
 
   block copyTopLevelExtraKeys:
     # Postel.
@@ -489,12 +564,12 @@ block emailCopyResponseAdversarialGroup:
       """{"fromAccountId": "src", "accountId": "dst",
          "newState": "s1", "experimental": true}"""
     )
-    assertOk EmailCopyResponse.fromJson(payload)
+    assertOk CopyResponse[EmailCreatedItem].fromJson(payload)
 
   block copyOldStateAbsent:
     let payload =
       parseJson("""{"fromAccountId": "src", "accountId": "dst", "newState": "s1"}""")
-    let res = EmailCopyResponse.fromJson(payload)
+    let res = CopyResponse[EmailCreatedItem].fromJson(payload)
     assertOk res
     doAssert res.get().oldState.isNone
 
@@ -589,7 +664,7 @@ block setErrorExtrasIntegrationGroup:
       "{\"accountId\": \"a1\", \"newState\": \"s1\", " & "\"notCreated\": {\"c1\": " &
         adversarial & "}}"
     )
-    let res = EmailSetResponse.fromJson(payload)
+    let res = SetResponse[EmailCreatedItem].fromJson(payload)
     assertOk res
     let cid = parseCreationId("c1").get()
     let err = res.get().createResults[cid].error
@@ -625,7 +700,7 @@ block setErrorExtrasIntegrationGroup:
       "{\"fromAccountId\": \"src\", \"accountId\": \"dst\", " &
         "\"newState\": \"s1\", \"notCreated\": {\"c1\": " & adversarial & "}}"
     )
-    let res = EmailCopyResponse.fromJson(payload)
+    let res = CopyResponse[EmailCreatedItem].fromJson(payload)
     assertOk res
     let cid = parseCreationId("c1").get()
     let err = res.get().createResults[cid].error
@@ -739,11 +814,11 @@ block conflictAlgebraCornerCasesGroup:
 # Helpers are inlined per F2 §8.6 (used <3 times).
 
 func copyOkArgs(): JsonNode =
-  ## Minimal valid EmailCopyResponse payload.
+  ## Minimal valid Email/copy response payload (``CopyResponse`` wire shape).
   %*{"fromAccountId": "src", "accountId": "dst", "newState": "s1"}
 
 func setOkArgs(): JsonNode =
-  ## Minimal valid EmailSetResponse payload.
+  ## Minimal valid Email/set response payload (``SetResponse`` wire shape).
   %*{"accountId": "dst", "newState": "s1"}
 
 block getBothAdversarialGroup:
@@ -831,7 +906,7 @@ block crossResponseCoherenceGroup:
          "created": {"c1": {"id": "x", "blobId": "b",
                             "threadId": "t", "size": 0}}}"""
     )
-    assertOk EmailSetResponse.fromJson(payload)
+    assertOk SetResponse[EmailCreatedItem].fromJson(payload)
 
   block coherenceOldStateNewStateNullPair:
     # RFC 8620 §5.5: oldState/newState pair is independently optional.
@@ -841,7 +916,7 @@ block crossResponseCoherenceGroup:
          "created": {"c1": {"id": "x", "blobId": "b",
                             "threadId": "t", "size": 0}}}"""
     )
-    let res = EmailSetResponse.fromJson(payload)
+    let res = SetResponse[EmailCreatedItem].fromJson(payload)
     assertOk res
     doAssert res.get().oldState.isNone
 
@@ -870,15 +945,18 @@ block crossResponseCoherenceGroup:
   block coherenceUpdatedSameKeyTwice:
     # std/json parseJson silently accepts duplicate object keys and keeps
     # the last occurrence. The second ``"e1": {}`` wins over ``"e1": null``,
-    # so the decoded UpdatedEntry is ``uekChanged``.
+    # so the decoded entry is ok(Opt.some(JObject)) — the changed-object
+    # branch of RFC 8620 §5.3 inner Foo|null.
     let payload = parseJson(
       """{"accountId": "a1", "newState": "s1",
          "updated": {"e1": null, "e1": {}}}"""
     )
-    let res = EmailSetResponse.fromJson(payload)
+    let res = SetResponse[EmailCreatedItem].fromJson(payload)
     assertOk res
     let id = parseId("e1").get()
-    assertEq res.get().updated.get()[id].kind, uekChanged
+    doAssert res.get().updateResults[id].isOk
+    doAssert res.get().updateResults[id].get().isSome
+    assertEq res.get().updateResults[id].get().get().kind, JObject
 
   block coherenceCreatedAndNotCreatedShareKey:
     # Real-world server bug (observed in Cyrus / Stalwart): same CreationId
@@ -892,7 +970,7 @@ block crossResponseCoherenceGroup:
                             "threadId": "t", "size": 0}},
          "notCreated": {"c1": {"type": "forbidden"}}}"""
     )
-    let res = EmailSetResponse.fromJson(payload)
+    let res = SetResponse[EmailCreatedItem].fromJson(payload)
     assertOk res
     let cid = parseCreationId("c1").get()
     doAssert res.get().createResults[cid].isErr
@@ -925,7 +1003,7 @@ block jsonStructuralAttackGroup:
     # corrupts. If std/json tolerates the BOM, the decode must still
     # succeed; if it rejects, ``raised`` will be true.
     if not raised:
-      assertOk EmailSetResponse.fromJson(parsed)
+      assertOk SetResponse[EmailCreatedItem].fromJson(parsed)
 
   block structuralNanInfinity:
     # NaN / Infinity are JavaScript extensions, not strict JSON.
@@ -955,14 +1033,14 @@ block jsonStructuralAttackGroup:
     let wire =
       "{\"accountId\": \"a1\", \"newState\": \"s1\", \"unknown\": " & deep & "}"
     let payload = parseJson(wire)
-    assertOk EmailSetResponse.fromJson(payload)
+    assertOk SetResponse[EmailCreatedItem].fromJson(payload)
 
   block structuralLargeStringSize:
     # 1 MB id in the ``destroyed`` array — ``parseIdFromServer`` caps at
     # 255 octets, so the entry is rejected without allocation pathology.
     let big = repeat("x", 1_000_000)
     let payload = %*{"accountId": "a1", "newState": "s1", "destroyed": [big]}
-    assertErr EmailSetResponse.fromJson(payload)
+    assertErr SetResponse[EmailCreatedItem].fromJson(payload)
 
   block structuralEmptyKey:
     # Empty CreationId rejected by parseCreationId (non-empty constraint).
@@ -971,7 +1049,7 @@ block jsonStructuralAttackGroup:
          "created": {"": {"id": "x", "blobId": "b",
                           "threadId": "t", "size": 0}}}"""
     )
-    assertErr EmailSetResponse.fromJson(payload)
+    assertErr SetResponse[EmailCreatedItem].fromJson(payload)
 
   block structuralUnicodeNoncharacters:
     # U+FFFE is a Unicode non-character but valid UTF-8 at the byte level.

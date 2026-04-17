@@ -656,9 +656,16 @@ func mergeUpdateResults(
     node: JsonNode, path: JsonPath
 ): Result[Table[Id, Result[Opt[JsonNode], SetError]], SerdeViolation] =
   ## Merge wire ``updated``/``notUpdated`` maps into a unified Result table
-  ## (RFC 8620 section 5.3, Decision 3.9B). Null value in ``updated`` means
-  ## no server-set properties changed; non-null contains changed properties.
-  ## Last-writer-wins for duplicate keys (section 8.5).
+  ## (RFC 8620 section 5.3, Decision 3.9B). Null value in ``updated`` maps
+  ## to ``ok(Opt.none)`` (server made no property changes the client
+  ## doesn't already know); any non-null value maps to ``ok(Opt.some(v))``
+  ## verbatim — RFC 8620 specifies ``PatchObject`` for this slot, but the
+  ## library intentionally passes the raw node through because the entity-
+  ## specific PatchObject shape is unknown at this layer. Postel on
+  ## receive: defer the structural check to callers who know their
+  ## entity. ``notUpdated`` entries go through ``SetError.fromJson`` and
+  ## are therefore strict — a typed sum must parse. Last-writer-wins for
+  ## duplicate keys (section 8.5).
   var tbl = initTable[Id, Result[Opt[JsonNode], SetError]]()
   let updatedNode = node{"updated"}
   if not updatedNode.isNil and updatedNode.kind == JObject:
