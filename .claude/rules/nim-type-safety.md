@@ -150,6 +150,17 @@ type SetError* = object
   else: discard
 ```
 
+### Case objects need an explicit `==` / `$` / `hash`
+
+Auto-derived `==` on a case object fails with *parallel 'fields'
+iterator does not work for 'case' objects*. The failure often
+surfaces transitively — a `distinct seq[X]` / `distinct Table[K, X]`
+whose `X` is a case object only breaks when something downstream
+(borrowed `==`, `Result[Distinct, _]` equality) forces structural
+equality through it. Fix at the case-object level with an explicit
+arm-dispatch `==` (same for `$` and `hash` if the chain needs them);
+never paper over it on the distinct wrapper.
+
 ## Enums
 
 - Constrain values to known sets — NEVER use `string` for a finite set.
