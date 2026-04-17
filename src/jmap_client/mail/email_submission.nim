@@ -259,3 +259,20 @@ type EmailSubmissionFilterCondition* {.ruleOff: "objects".} = object
   undoStatus*: Opt[UndoStatus]
   before*: Opt[UTCDate]
   after*: Opt[UTCDate]
+
+# -----------------------------------------------------------------------------
+# EmailSubmissionSortProperty — /query sort property enum (RFC 8621 §7.3)
+#
+# Wire token "sentAt" ≠ entity field name "sendAt" — the RFC's inconsistency,
+# preserved verbatim. esspOther catch-all mirrors dsOther / dpOther in
+# submission_status.nim for forward compatibility with vendor extensions.
+# -----------------------------------------------------------------------------
+
+type EmailSubmissionSortProperty* = enum
+  ## Sort properties for ``EmailSubmission/query`` (RFC 8621 §7.3).
+  ## ``esspOther`` is the catch-all for vendor-extension sort tokens — the
+  ## raw wire string survives on ``EmailSubmissionComparator.rawProperty``.
+  esspEmailId = "emailId"
+  esspThreadId = "threadId"
+  esspSentAt = "sentAt"
+  esspOther
