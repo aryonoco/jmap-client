@@ -2,9 +2,9 @@
 # Copyright (c) 2026 Aryan Ameri
 
 ## RFC 8621 §7 EmailSubmission entity read model with GADT-style phantom
-## indexing on ``UndoStatus`` (G1 design §4). The phantom parameter lifts
-## the RFC's "only pending submissions may be canceled" invariant from
-## runtime guard into the type system. ``AnyEmailSubmission`` is the
+## indexing on ``UndoStatus``. The phantom parameter lifts
+## the RFC's "only pending submissions may be canceled" invariant
+## into the type system. ``AnyEmailSubmission`` is the
 ## existential wrapper — serde produces it once at the wire boundary;
 ## consumers pattern-match on ``.state`` to recover the phantom-indexed
 ## branch.
@@ -22,10 +22,8 @@ import ./submission_status
 type EmailSubmission*[S: static UndoStatus] {.ruleOff: "objects".} = object
   ## Entity read model indexed on the RFC 8621 §7 ``undoStatus``. Each
   ## ``S`` produces a distinct concrete type — ``EmailSubmission[usPending]``
-  ## vs ``EmailSubmission[usFinal]`` — so Step 7's ``cancelUpdate`` can
-  ## constrain on ``EmailSubmission[usPending]`` only. Adding a
-  ## hypothetical fourth ``UndoStatus`` variant forces compile errors at
-  ## every ``AnyEmailSubmission`` case site and every ``toAny`` overload.
+  ## vs ``EmailSubmission[usFinal]`` — `cancelUpdate`` can
+  ## constrain on ``EmailSubmission[usPending]`` only.
   id*: Id
   identityId*: Id
   emailId*: Id
@@ -37,7 +35,7 @@ type EmailSubmission*[S: static UndoStatus] {.ruleOff: "objects".} = object
   mdnBlobIds*: seq[BlobId]
 
 type AnyEmailSubmission* {.ruleOff: "objects".} = object
-  ## Existential wrapper discriminated on ``UndoStatus``. Serde (Step 12)
+  ## Existential wrapper discriminated on ``UndoStatus``. Serde
   ## dispatches once on the wire ``undoStatus`` field and constructs the
   ## corresponding phantom-typed branch via the ``toAny`` overloads.
   case state*: UndoStatus
@@ -64,8 +62,7 @@ func `==`*(a, b: AnyEmailSubmission): bool =
   ## Arm-dispatched structural equality. Auto-derived ``==`` on a case
   ## object uses a parallel ``fields`` iterator that rejects the
   ## discriminated shape. Delegates each branch to the non-case
-  ## ``EmailSubmission[S].==`` which auto-derives cleanly once
-  ## ``ReversePath.==`` is in place.
+  ## ``EmailSubmission[S].==``.
   if a.state != b.state:
     return false
   case a.state
@@ -77,7 +74,7 @@ func `==`*(a, b: AnyEmailSubmission): bool =
     a.canceled == b.canceled
 
 # -----------------------------------------------------------------------------
-# EmailSubmissionBlueprint — creation model (RFC 8621 §7.5; design §5, G13–G15)
+# EmailSubmissionBlueprint — creation model (RFC 8621 §7.5)
 #
 # Shape: Pattern A sealing (raw* private fields + same-name UFCS accessors)
 # combined with Result[T, seq[ValidationError]] error rail.
@@ -86,18 +83,14 @@ func `==`*(a, b: AnyEmailSubmission): bool =
 type EmailSubmissionBlueprint* {.ruleOff: "objects".} = object
   ## Creation model for ``EmailSubmission/set`` create operations. Carries
   ## the three client-settable fields per RFC 8621 §7.5: ``identityId``,
-  ## ``emailId``, and an optional ``envelope``. Named "Blueprint" to match
-  ## ``EmailBlueprint`` (F1) — signals construction-with-rules (G13).
+  ## ``emailId``, and an optional ``envelope``.
   ##
   ## Fields are module-private with a ``raw`` prefix; construction is gated
   ## by ``parseEmailSubmissionBlueprint`` and read access is via same-name
-  ## UFCS accessors below. Direct brace construction outside this module is
-  ## a compile error — Pattern A sealing ensures the smart constructor is
-  ## the sole construction path, so any future client-checkable rule lands
-  ## inside the constructor body with zero call-site churn.
+  ## UFCS accessors below.
   ##
   ## When ``envelope`` is ``Opt.none``, the server synthesises the envelope
-  ## from the referenced Email's headers per RFC §7.5 ¶4 (G14).
+  ## from the referenced Email's headers per RFC §7.5 ¶4.
   rawIdentityId: Id
   rawEmailId: Id
   rawEnvelope: Opt[Envelope]
@@ -105,10 +98,7 @@ type EmailSubmissionBlueprint* {.ruleOff: "objects".} = object
 func parseEmailSubmissionBlueprint*(
     identityId: Id, emailId: Id, envelope: Opt[Envelope] = Opt.none(Envelope)
 ): Result[EmailSubmissionBlueprint, seq[ValidationError]] =
-  ## Accumulating-error smart constructor. Returns ``Result[T, seq[...]]``
-  ## for API-shape parity with sibling creation constructors
-  ## (``parseEmailBlueprint``, ``initEmailUpdateSet``,
-  ## ``parseNonEmptyRcptList``) per G15.
+  ## Accumulating-error smart constructor. Returns ``Result[T, seq[...]]``.
   ##
   ok(
     EmailSubmissionBlueprint(
@@ -129,28 +119,22 @@ func envelope*(bp: EmailSubmissionBlueprint): Opt[Envelope] =
   bp.rawEnvelope
 
 # -----------------------------------------------------------------------------
-# EmailSubmissionUpdate — update algebra (RFC 8621 §7.5 ¶3; design §6, G16)
+# EmailSubmissionUpdate — update algebra (RFC 8621 §7.5 ¶3)
 #
 # Typed patch operations for EmailSubmission/set update. The RFC permits
-# exactly one mutation post-create: ``undoStatus`` pending → canceled. The
-# sealed-sum shape (one variant today) mirrors F1 ``EmailUpdate`` so future
-# variants force compile errors at every ``case`` site.
+# exactly one mutation post-create: ``undoStatus`` pending → canceled.
 # -----------------------------------------------------------------------------
 
 type EmailSubmissionUpdateVariantKind* = enum
   ## Discriminator for ``EmailSubmissionUpdate``. Single variant today —
-  ## the sealed-sum shape exists for forwards compatibility (G16): adding
-  ## a second variant later would force compile errors at every ``case``
-  ## site.
+  ## the sealed-sum shape exists for forwards compatibility
   esuSetUndoStatusToCanceled
 
 type EmailSubmissionUpdate* {.ruleOff: "objects".} = object
   ## Typed EmailSubmission patch operation (RFC 8621 §7.5 ¶3). One
   ## variant today — pending → canceled — matching the RFC's single
-  ## permitted mutation. Sealed-sum shape preserves F1 ``EmailUpdate``
-  ## parity (G16). Nullary variant (``discard``) is deliberate: the
-  ## discriminator alone carries the semantics, mirroring how
-  ## ``euSetKeywords`` in F1 carries data only when data is meaningful.
+  ## permitted mutation. Nullary variant (``discard``) is deliberate: the
+  ## discriminator alone carries the semantics.
   case kind*: EmailSubmissionUpdateVariantKind
   of esuSetUndoStatusToCanceled:
     discard
@@ -160,16 +144,16 @@ func setUndoStatusToCanceled*(): EmailSubmissionUpdate =
   ## ``undoStatus: "canceled"`` wire patch. Total — the RFC imposes no
   ## client-checkable preconditions on the patch value itself; the
   ## "pending only" invariant is enforced at the submission site via
-  ## ``cancelUpdate``'s phantom-typed parameter, not here.
+  ## ``cancelUpdate``'s phantom-typed parameter.
   EmailSubmissionUpdate(kind: esuSetUndoStatusToCanceled)
 
 func cancelUpdate*(s: EmailSubmission[usPending]): EmailSubmissionUpdate =
   ## Cancel a pending submission — thin ergonomic wrapper that carries
   ## the RFC 8621 §7 invariant "only pending may be canceled" in the
   ## type. ``cancelUpdate(EmailSubmission[usFinal])`` and
-  ## ``cancelUpdate(EmailSubmission[usCanceled])`` are compile errors
-  ## (G4). The ``s`` parameter is unused at runtime — the phantom binds
-  ## at the call site purely to carry the compile-time guarantee.
+  ## ``cancelUpdate(EmailSubmission[usCanceled])`` are compile errors.
+  ## The ``s`` parameter is unused at runtime — the phantom binds
+  ## at the call site to carry the compile-time guarantee.
   discard s
   setUndoStatusToCanceled()
 
@@ -193,12 +177,11 @@ type NonEmptyEmailSubmissionUpdates* = distinct Table[Id, EmailSubmissionUpdate]
 func parseNonEmptyEmailSubmissionUpdates*(
     items: openArray[(Id, EmailSubmissionUpdate)]
 ): Result[NonEmptyEmailSubmissionUpdates, seq[ValidationError]] =
-  ## Accumulating smart constructor mirroring ``initNonEmptyEmailImportMap``
-  ## (email.nim) and ``parseEmailSubmissionBlueprint`` above. Rejects:
+  ## Accumulating smart constructor.
+  ## Rejects:
   ##   * empty input — the ``/set`` builder's ``update:`` field has
   ##     exactly one "no updates" representation: omit the entry via
-  ##     ``Opt.none``. Allowing an empty Table would create a second
-  ##     encoding and break one-source-of-truth.
+  ##     ``Opt.none``.
   ##   * duplicate ``Id`` keys — silent last-wins shadowing at Table
   ##     construction would swallow caller data; ``openArray`` (not
   ##     ``Table``) preserves duplicates for inspection.
@@ -217,3 +200,41 @@ func parseNonEmptyEmailSubmissionUpdates*(
   for (id, update) in items:
     t[id] = update
   ok(NonEmptyEmailSubmissionUpdates(t))
+
+# -----------------------------------------------------------------------------
+# NonEmptyIdSeq — non-empty seq[Id] for EmailSubmissionFilterCondition list
+# fields. Dedicated distinct (rather than an alias for NonEmptySeq[Id]) for
+# symmetry with NonEmptyRcptList in submission_envelope.nim.
+# -----------------------------------------------------------------------------
+
+type NonEmptyIdSeq* = distinct seq[Id]
+  ## Non-empty seq of ``Id`` for filter list fields. Construction gated by
+  ## ``parseNonEmptyIdSeq``; the raw distinct constructor is module-private
+  ## surface, consistent with ``NonEmptyRcptList``.
+
+func `==`*(a, b: NonEmptyIdSeq): bool {.borrow.}
+  ## Element-wise equality delegated to the underlying ``seq[Id]``.
+
+func `$`*(a: NonEmptyIdSeq): string {.borrow.}
+  ## Textual form delegated to the underlying ``seq[Id]`` (diagnostic only).
+
+func len*(a: NonEmptyIdSeq): int {.borrow.}
+  ## Element count; invariant ``>= 1`` by construction.
+
+func `[]`*(a: NonEmptyIdSeq, i: Natural): lent Id =
+  ## Indexed read-only access; the underlying ``seq[Id]`` retains ownership.
+  seq[Id](a)[i]
+
+iterator items*(a: NonEmptyIdSeq): Id =
+  ## Iteration over the underlying ``seq[Id]``.
+  for x in seq[Id](a):
+    yield x
+
+func parseNonEmptyIdSeq*(items: openArray[Id]): Result[NonEmptyIdSeq, ValidationError] =
+  ## Strict: rejects empty input. Duplicate ids permitted (RFC 8621 §7.3
+  ## filter list semantics accept any combination). Matches
+  ## ``parseNonEmptySeq`` (primitives.nim) — single ``ValidationError``,
+  ## non-empty check only.
+  if items.len == 0:
+    return err(validationError("NonEmptyIdSeq", "must not be empty", ""))
+  ok(NonEmptyIdSeq(@items))
