@@ -16,6 +16,7 @@ import std/tables
 import ../primitives
 import ../identifiers
 import ../validation
+import ../framework
 import ./submission_envelope
 import ./submission_status
 
@@ -276,3 +277,53 @@ type EmailSubmissionSortProperty* = enum
   esspThreadId = "threadId"
   esspSentAt = "sentAt"
   esspOther
+
+# -----------------------------------------------------------------------------
+# EmailSubmissionComparator — /query sort criterion (RFC 8621 §7.3)
+#
+# Plain record with a property enum + rawProperty round-trip string. Mirrors
+# ParsedDeliveredState / ParsedDisplayedState (submission_status.nim): both
+# fields public; the smart constructor below resolves the wire token once
+# and stores rawProperty as the round-trip carrier.
+# -----------------------------------------------------------------------------
+
+type EmailSubmissionComparator* {.ruleOff: "objects".} = object
+  ## ``/query`` sort criterion for EmailSubmission. ``isAscending`` defaults
+  ## to ``true`` per RFC 8620 §5.5; ``collation`` absent means "the server
+  ## default" (RFC 4790 collation registry). ``rawProperty`` carries the
+  ## wire token verbatim — for ``esspOther`` it is the only authoritative
+  ## value; for known properties it equals the string backing of
+  ## ``property``.
+  property*: EmailSubmissionSortProperty
+  rawProperty*: string
+  isAscending*: bool
+  collation*: Opt[CollationAlgorithm]
+
+func parseEmailSubmissionComparator*(
+    rawProperty: string,
+    isAscending: bool = true,
+    collation: Opt[CollationAlgorithm] = Opt.none(CollationAlgorithm),
+): Result[EmailSubmissionComparator, ValidationError] =
+  ## Smart constructor. Resolves the wire token to a known
+  ## ``EmailSubmissionSortProperty`` variant, falling back to ``esspOther``
+  ## with the raw token preserved. Rejects empty ``rawProperty``.
+  if rawProperty.len == 0:
+    return err(
+      validationError(
+        "EmailSubmissionComparator", "property must not be empty", rawProperty
+      )
+    )
+  let property =
+    case rawProperty
+    of "emailId": esspEmailId
+    of "threadId": esspThreadId
+    of "sentAt": esspSentAt
+    else: esspOther
+  ok(
+    EmailSubmissionComparator(
+      property: property,
+      rawProperty: rawProperty,
+      isAscending: isAscending,
+      collation: collation,
+    )
+  )
