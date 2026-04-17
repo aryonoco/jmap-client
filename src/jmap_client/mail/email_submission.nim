@@ -11,6 +11,8 @@
 
 {.push raises: [], noSideEffect.}
 
+import std/tables
+
 import ../primitives
 import ../identifiers
 import ../validation
@@ -125,3 +127,93 @@ func emailId*(bp: EmailSubmissionBlueprint): Id =
 func envelope*(bp: EmailSubmissionBlueprint): Opt[Envelope] =
   ## UFCS accessor — ``bp.envelope`` reads as a field access.
   bp.rawEnvelope
+
+# -----------------------------------------------------------------------------
+# EmailSubmissionUpdate — update algebra (RFC 8621 §7.5 ¶3; design §6, G16)
+#
+# Typed patch operations for EmailSubmission/set update. The RFC permits
+# exactly one mutation post-create: ``undoStatus`` pending → canceled. The
+# sealed-sum shape (one variant today) mirrors F1 ``EmailUpdate`` so future
+# variants force compile errors at every ``case`` site.
+# -----------------------------------------------------------------------------
+
+type EmailSubmissionUpdateVariantKind* = enum
+  ## Discriminator for ``EmailSubmissionUpdate``. Single variant today —
+  ## the sealed-sum shape exists for forwards compatibility (G16): adding
+  ## a second variant later would force compile errors at every ``case``
+  ## site.
+  esuSetUndoStatusToCanceled
+
+type EmailSubmissionUpdate* {.ruleOff: "objects".} = object
+  ## Typed EmailSubmission patch operation (RFC 8621 §7.5 ¶3). One
+  ## variant today — pending → canceled — matching the RFC's single
+  ## permitted mutation. Sealed-sum shape preserves F1 ``EmailUpdate``
+  ## parity (G16). Nullary variant (``discard``) is deliberate: the
+  ## discriminator alone carries the semantics, mirroring how
+  ## ``euSetKeywords`` in F1 carries data only when data is meaningful.
+  case kind*: EmailSubmissionUpdateVariantKind
+  of esuSetUndoStatusToCanceled:
+    discard
+
+func setUndoStatusToCanceled*(): EmailSubmissionUpdate =
+  ## Protocol-primitive constructor for the RFC 8621 §7.5 ¶3
+  ## ``undoStatus: "canceled"`` wire patch. Total — the RFC imposes no
+  ## client-checkable preconditions on the patch value itself; the
+  ## "pending only" invariant is enforced at the submission site via
+  ## ``cancelUpdate``'s phantom-typed parameter, not here.
+  EmailSubmissionUpdate(kind: esuSetUndoStatusToCanceled)
+
+func cancelUpdate*(s: EmailSubmission[usPending]): EmailSubmissionUpdate =
+  ## Cancel a pending submission — thin ergonomic wrapper that carries
+  ## the RFC 8621 §7 invariant "only pending may be canceled" in the
+  ## type. ``cancelUpdate(EmailSubmission[usFinal])`` and
+  ## ``cancelUpdate(EmailSubmission[usCanceled])`` are compile errors
+  ## (G4). The ``s`` parameter is unused at runtime — the phantom binds
+  ## at the call site purely to carry the compile-time guarantee.
+  discard s
+  setUndoStatusToCanceled()
+
+# -----------------------------------------------------------------------------
+# NonEmptyEmailSubmissionUpdates — non-empty, dup-free batch for /set update
+# -----------------------------------------------------------------------------
+
+type NonEmptyEmailSubmissionUpdates* = distinct Table[Id, EmailSubmissionUpdate]
+  ## Non-empty, duplicate-free batch of per-submission update operations
+  ## keyed by existing EmailSubmission ``Id``. Construction gated by
+  ## ``parseNonEmptyEmailSubmissionUpdates``; the raw distinct
+  ## constructor is module-private surface, matching
+  ## ``NonEmptyEmailImportMap`` (email.nim) and ``DeliveryStatusMap``
+  ## (submission_status.nim) — serde (Step 12) unwrap-casts to iterate.
+  ##
+  ## Creation-reference keys (``#ref``-style forward references to
+  ## sibling create operations) are a Builder-layer concern routed
+  ## through ``IdOrCreationRef`` — this L1 type stays focused on
+  ## resolved ``Id`` keys.
+
+func parseNonEmptyEmailSubmissionUpdates*(
+    items: openArray[(Id, EmailSubmissionUpdate)]
+): Result[NonEmptyEmailSubmissionUpdates, seq[ValidationError]] =
+  ## Accumulating smart constructor mirroring ``initNonEmptyEmailImportMap``
+  ## (email.nim) and ``parseEmailSubmissionBlueprint`` above. Rejects:
+  ##   * empty input — the ``/set`` builder's ``update:`` field has
+  ##     exactly one "no updates" representation: omit the entry via
+  ##     ``Opt.none``. Allowing an empty Table would create a second
+  ##     encoding and break one-source-of-truth.
+  ##   * duplicate ``Id`` keys — silent last-wins shadowing at Table
+  ##     construction would swallow caller data; ``openArray`` (not
+  ##     ``Table``) preserves duplicates for inspection.
+  ## All violations surface in a single Err pass; each repeated id is
+  ## reported exactly once regardless of occurrence count.
+  let errs = validateUniqueByIt(
+    items,
+    it[0],
+    typeName = "NonEmptyEmailSubmissionUpdates",
+    emptyMsg = "must contain at least one entry",
+    dupMsg = "duplicate submission id",
+  )
+  if errs.len > 0:
+    return err(errs)
+  var t = initTable[Id, EmailSubmissionUpdate](items.len)
+  for (id, update) in items:
+    t[id] = update
+  ok(NonEmptyEmailSubmissionUpdates(t))
