@@ -15,7 +15,7 @@ The following 3 lines MUST be included at the end of EVERY git message body:
 
 Co-developed-by: Aryan Ameri <github@aryan.ameri.coffee>
 Signed-off-by: Aryan Ameri <github@aryan.ameri.coffee>
-Assisted-by: Claude:claude-4.6-opus
+Assisted-by: Claude:claude-4.7-opus
 
 No other AI/LLM attribution in any other format should appear in the git message.
 
@@ -51,7 +51,7 @@ No other AI/LLM attribution in any other format should appear in the git message
 
 ## Development Environment
 
-This project uses a devcontainer. Tool versions are managed by mise — `mise.toml` is the single source of truth.
+You are running in the  devcontainer. Tooling is managed by `mise.toml` - single source of truth.
 
 ## Commands
 
@@ -59,13 +59,12 @@ This project uses a devcontainer. Tool versions are managed by mise — `mise.to
 - `just build` - Build shared library
 - `just test` - Run test suite
 - `just fmt` - Format all source files with nph
-- `just fmt-check` - Verify formatting (CI-friendly)
+- `just fmt-check` - Verify formatting
 - `just lint` - Run lint checks
 - `just analyse` - Run nimalyzer static analysis
 - `just ci` - Run full CI pipeline (reuse + fmt-check + lint + analyse + test)
 - `just clean` - Remove build artifacts
 - `just docs` - Generate HTML documentation
-- `just versions` - Show tool versions
 
 ## Dependencies
 
@@ -75,17 +74,20 @@ One external dependency: `nim-results` (status-im/nim-results) for `Result[T, E]
 
 ## Compiler Flags
 
-Defined in `jmap_client.nimble` and `config.nims`: `--mm:arc`, `strictDefs`, `threads:on`, `floatChecks:on`, `styleCheck:error`. Various `warningAsError` settings for quality enforcement. See `.claude/rules/nim-type-safety.md` for implications.
+Defined in `jmap_client.nimble` and `config.nims`: `--mm:arc`, `strictDefs`, `threads:on`, `floatChecks:on`, `styleCheck:error`. Various `warningAsError`.
+Never loosen compiler or analyzer's settings.
 
 ## Nim Reference
 
-To verify how Nim works, Access the Nim source code at /.nim-reference
+Access the Nim source code at /.nim-reference
 - Standard Library: at /.nim-reference/lib
 - Official Nim docs: /.nim-reference/doc
 
 ## Important Directories
 
-- `docs/design/` — Architecture and per-layer design specifications
+- `docs/design/` — Architecture and design specifications
+- `docs/rfcs/` — Authoritative text of various RFCs related to the project.
+  Consult freely to validate your understanding of what an RFC actually stipulates.
 
 - `src/jmap_client.nim` — Library entry point (C ABI exports, Layer 5)
 - `src/jmap_client/types.nim` — Re-exports all Layer 1 modules
@@ -97,7 +99,8 @@ To verify how Nim works, Access the Nim source code at /.nim-reference
 - `src/jmap_client/envelope.nim` — `Invocation`, `Request`, `Response`, `ResultReference`, `Referencable[T]`
 - `src/jmap_client/framework.nim` — `PropertyName`, `FilterOperator`, `Filter[C]`, `Comparator`, `AddedItem`
 - `src/jmap_client/errors.nim` — `TransportError`, `RequestError`, `ClientError`, `MethodError`, `SetError`
-- `src/jmap_client/client.nim` — HTTP client wrapper (Layer 4)
+- `src/jmap_client/client.nim` — HTTP client wrapper (Only Layer 4 file)
+- `src/jmap_client/mail` — RFC8621 JMAP Mail implementation
 - `tests/` — Test modules (categories: `unit/`, `serde/`, `property/`, `compliance/`, `stress/`)
 
 ## Coding Conventions
@@ -135,10 +138,9 @@ Detailed Nim patterns are in `.claude/rules/`:
 
 ## Static Analysis
 
-- Never suppress or relax nimalyzer rules (e.g. `ruleOff: "complexity"`). Always restructure code to fall under the limit — decompose into sub-helpers, extract field-group comparisons, use generics for shared logic.
+- Never suppress or relax nimalyzer rules (e.g. `ruleOff: "complexity"`). Always restructure code to comply. To reduce complexity decompose into sub-helpers, extract field-group comparisons, use generics for shared logic.
 
 ## Workflow
 
 - Run `just ci` before committing (runs reuse + fmt-check + lint + test)
-- Use nph for formatting (devcontainer auto-configured, format-on-save enabled)
-- Run `just versions` to verify tool versions
+- Use nph for formatting
