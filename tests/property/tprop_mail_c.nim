@@ -12,6 +12,7 @@ import std/strutils
 
 import jmap_client/validation
 import jmap_client/primitives
+import jmap_client/identifiers
 import jmap_client/mail/headers
 import jmap_client/mail/body
 import jmap_client/mail/serde_headers
