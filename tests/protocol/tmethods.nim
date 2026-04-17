@@ -50,6 +50,17 @@ proc changesMethodName*(T: typedesc[MockFoo]): MethodName =
 proc setMethodName*(T: typedesc[MockFoo]): MethodName =
   mnMailboxSet
 
+func fromJson*(
+    T: typedesc[MockFoo], node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[MockFoo, SerdeViolation] =
+  ## Permissive MockFoo deserialiser — the promoted ``SetResponse[T]`` /
+  ## ``CopyResponse[T]`` resolves ``T.fromJson`` via ``mixin`` at
+  ## instantiation. Tests only assert ``isOk``/``isErr``; the concrete
+  ## ``MockFoo()`` value is never inspected.
+  discard $T
+  ?expectKind(node, JObject, path)
+  ok(MockFoo())
+
 registerJmapEntity(MockFoo)
 
 type MockFilter = object

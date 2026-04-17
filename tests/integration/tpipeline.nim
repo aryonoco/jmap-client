@@ -197,11 +197,39 @@ block setResponseUnifiedMaps:
   ## Build a set request and verify unified Result map extraction.
   let b0 = initRequestBuilder()
   let (_, sh) = addMailboxSet(b0, accountId = makeAccountId("A1"))
-  # Synthetic SetResponse with mixed success/failure
+  # Synthetic SetResponse with mixed success/failure. The ``created``
+  # entry is a complete Mailbox wire object — typed ``SetResponse[Mailbox]``
+  # parses it via ``Mailbox.fromJson``, so every RFC 8621 §2 required
+  # field must be present.
+  let mailboxRights = %*{
+    "mayReadItems": true,
+    "mayAddItems": true,
+    "mayRemoveItems": true,
+    "maySetSeen": true,
+    "maySetKeywords": true,
+    "mayCreateChild": true,
+    "mayRename": true,
+    "mayDelete": true,
+    "maySubmit": true,
+  }
   let setJson = %*{
     "accountId": "A1",
     "newState": "s2",
-    "created": {"k1": {"id": "w-new", "name": "New Widget"}},
+    "created": {
+      "k1": {
+        "id": "w-new",
+        "name": "New Mailbox",
+        "parentId": nil,
+        "role": nil,
+        "sortOrder": 0,
+        "totalEmails": 0,
+        "unreadEmails": 0,
+        "totalThreads": 0,
+        "unreadThreads": 0,
+        "myRights": mailboxRights,
+        "isSubscribed": true,
+      }
+    },
     "notCreated": {"k2": {"type": "forbidden"}},
     "destroyed": ["w-old"],
     "notDestroyed": {"w-keep": {"type": "notFound"}},

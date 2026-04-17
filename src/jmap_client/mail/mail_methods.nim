@@ -24,6 +24,14 @@ import ./serde_email
 import ./serde_snippet
 import ./serde_vacation
 
+# Re-export the serde modules whose ``fromJson`` overloads are required at
+# the dispatch call-site (``get(handle)``): the generic ``SetResponse[T]``
+# resolves ``T.fromJson`` via ``mixin`` at the outer instantiation site, so
+# the caller must have these in scope.
+export serde_vacation
+export serde_email
+export serde_snippet
+
 const VacationResponseCapUri = "urn:ietf:params:jmap:vacationresponse"
 const MailCapUri = "urn:ietf:params:jmap:mail"
 

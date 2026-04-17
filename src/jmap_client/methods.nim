@@ -218,15 +218,21 @@ type SetResponse*[T] = object
   ## representation merges these into unified Result maps (Decision 3.9B).
   ## Each identifier has exactly one outcome — impossible for an ID to
   ## appear in both success and failure branches.
+  ##
+  ## ``T`` is the typed ``created`` entry payload: the generic ``fromJson``
+  ## resolves ``T.fromJson`` via ``mixin`` at instantiation to parse wire
+  ## ``created[cid]`` into ``T``. ``updateResults`` stays ``Opt[JsonNode]``
+  ## because update payloads are open-ended partial entities; typing them
+  ## needs per-entity partial types which are out of scope for this pass.
   accountId*: AccountId ## The identifier of the account used for the call.
   oldState*: Opt[JmapState]
     ## The state before making the requested changes, or none if the server
     ## does not know the previous state.
   newState*: JmapState ## The state that will now be returned by Foo/get.
-  createResults*: Table[CreationId, Result[JsonNode, SetError]]
+  createResults*: Table[CreationId, Result[T, SetError]]
     ## Merged create outcomes. Wire ``created`` entries become
-    ## ``Result.ok(entityJson)``; wire ``notCreated`` entries become
-    ## ``Result.err(setError)``. Last-writer-wins on duplicate keys.
+    ## ``Result.ok(entity)`` via ``T.fromJson``; wire ``notCreated`` entries
+    ## become ``Result.err(setError)``. Last-writer-wins on duplicate keys.
   updateResults*: Table[Id, Result[Opt[JsonNode], SetError]]
     ## Merged update outcomes. Wire ``updated`` entries with null value
     ## become ``ok(Opt.none(JsonNode))``; non-null values become
@@ -240,14 +246,16 @@ type SetResponse*[T] = object
 type CopyResponse*[T] = object
   ## Response arguments for Foo/copy (RFC 8620 section 5.4).
   ## Structurally similar to SetResponse but only has create results.
-  ## Uses unified Result maps (Decision 3.9B).
+  ## Uses unified Result maps (Decision 3.9B). Shares the typed-``T``
+  ## semantics of ``SetResponse[T]`` — ``T.fromJson`` resolves at
+  ## instantiation via ``mixin``.
   fromAccountId*: AccountId ## The identifier of the account records were copied from.
   accountId*: AccountId ## The identifier of the account records were copied to.
   oldState*: Opt[JmapState] ## The state of the destination account before the copy.
   newState*: JmapState
     ## The state that will now be returned by Foo/get on the destination
     ## account.
-  createResults*: Table[CreationId, Result[JsonNode, SetError]]
+  createResults*: Table[CreationId, Result[T, SetError]]
     ## Merged copy outcomes. Same merging semantics as SetResponse
     ## create branch (Decision 3.9B).
 
@@ -522,24 +530,31 @@ func toJson*[T, C](
 # SetResponse merging helpers (section 8)
 # =============================================================================
 
-func mergeCreateResults(
+func mergeCreateResults*[T](
     node: JsonNode, path: JsonPath
-): Result[Table[CreationId, Result[JsonNode, SetError]], SerdeViolation] =
+): Result[Table[CreationId, Result[T, SetError]], SerdeViolation] =
   ## Merge wire ``created``/``notCreated`` maps into a unified Result table
   ## (RFC 8620 section 5.3, Decision 3.9B). Used by both SetResponse and
   ## CopyResponse. Last-writer-wins for duplicate keys (section 8.5).
-  var tbl = initTable[CreationId, Result[JsonNode, SetError]]()
+  ##
+  ## ``T.fromJson`` resolves at instantiation via ``mixin`` — every ``T``
+  ## that ends up in ``SetResponse[T]`` / ``CopyResponse[T]`` MUST define
+  ## ``fromJson(_: typedesc[T], JsonNode, JsonPath): Result[T,
+  ## SerdeViolation]``.
+  mixin fromJson
+  var tbl = initTable[CreationId, Result[T, SetError]]()
   let createdNode = node{"created"}
   if not createdNode.isNil and createdNode.kind == JObject:
     for k, v in createdNode.pairs:
       let cid = ?wrapInner(parseCreationId(k), path / "created" / k)
-      tbl[cid] = Result[JsonNode, SetError].ok(v)
+      let entity = ?T.fromJson(v, path / "created" / k)
+      tbl[cid] = Result[T, SetError].ok(entity)
   let notCreatedNode = node{"notCreated"}
   if not notCreatedNode.isNil and notCreatedNode.kind == JObject:
     for k, v in notCreatedNode.pairs:
       let cid = ?wrapInner(parseCreationId(k), path / "notCreated" / k)
       let se = ?SetError.fromJson(v, path / "notCreated" / k)
-      tbl[cid] = Result[JsonNode, SetError].err(se)
+      tbl[cid] = Result[T, SetError].err(se)
   return ok(tbl)
 
 func mergeUpdateResults(
@@ -647,6 +662,8 @@ func fromJson*[T](
 ): Result[SetResponse[T], SerdeViolation] =
   ## Deserialise JSON arguments to SetResponse (RFC 8620 section 5.3).
   ## Merges parallel wire maps into separate success/failure tables (section 8).
+  ## ``T.fromJson`` is resolved at instantiation via ``mixin``.
+  mixin fromJson
   discard $R # consumed for nimalyzer params rule
   ?expectKind(node, JObject, path)
   let accountIdNode = ?fieldJString(node, "accountId", path)
@@ -655,7 +672,7 @@ func fromJson*[T](
   let newStateNode = ?fieldJString(node, "newState", path)
   let newState = ?wrapInner(parseJmapState(newStateNode.getStr("")), path / "newState")
   let oldState = optState(node, "oldState")
-  let createResults = ?mergeCreateResults(node, path)
+  let createResults = ?mergeCreateResults[T](node, path)
   let updateResults = ?mergeUpdateResults(node, path)
   let destroyResults = ?mergeDestroyResults(node, path)
   return ok(
@@ -674,7 +691,9 @@ func fromJson*[T](
 ): Result[CopyResponse[T], SerdeViolation] =
   ## Deserialise JSON arguments to CopyResponse (RFC 8620 section 5.4).
   ## Merges created/notCreated wire maps into separate success/failure
-  ## tables (section 8).
+  ## tables (section 8). ``T.fromJson`` resolves at instantiation via
+  ## ``mixin``.
+  mixin fromJson
   discard $R # consumed for nimalyzer params rule
   ?expectKind(node, JObject, path)
   let fromAccountIdNode = ?fieldJString(node, "fromAccountId", path)
@@ -686,7 +705,7 @@ func fromJson*[T](
   let newStateNode = ?fieldJString(node, "newState", path)
   let newState = ?wrapInner(parseJmapState(newStateNode.getStr("")), path / "newState")
   let oldState = optState(node, "oldState")
-  let createResults = ?mergeCreateResults(node, path)
+  let createResults = ?mergeCreateResults[T](node, path)
   return ok(
     CopyResponse[T](
       fromAccountId: fromAccountId,

@@ -29,6 +29,13 @@ import ./serde_email
 import ./serde_email_blueprint
 import ./serde_email_update
 
+# Re-export the serde modules whose ``fromJson`` overloads are required at
+# the dispatch call-site (``get(handle)``): the generic ``SetResponse[T]``
+# and ``CopyResponse[T]`` resolve ``T.fromJson`` via ``mixin`` at the outer
+# instantiation site, so the caller must have these in scope.
+export serde_mailbox
+export serde_email
+
 const MailCapUri = "urn:ietf:params:jmap:mail"
 
 # =============================================================================
