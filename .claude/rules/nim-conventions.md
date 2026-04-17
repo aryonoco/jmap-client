@@ -131,7 +131,10 @@ to `Opt[T]` (discards error details).
   the top of each L1–L3 module enforces this at compile time — any
   routine with side effects will fail to compile. Callback parameters
   take `{.noSideEffect, raises: [].}` on the proc type; `mixin`
-  resolves pure at instantiation. Builders return
+  resolves pure at instantiation. Note: `mixin` defers symbol lookup
+  only across a generic instantiation boundary — inside a non-generic
+  `func` it is a no-op, so any symbol a monomorphic body calls must
+  already be in scope at the definition site. Builders return
   `(RequestBuilder, ResponseHandle[T])` tuples — no `var` mutation.
   `proc` only for: IO (L4 transport) and L5 C ABI exports, which use
   `{.push raises: [].}` without `noSideEffect`.
