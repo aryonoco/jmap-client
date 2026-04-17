@@ -97,11 +97,10 @@ Run `just ci` before committing.
 
 ## Phase 3: L2 serde
 
-One new L2 serde module (or split per concern — implementation-time
-decision per design §1.5) covering all Phase 1–2 L1 modules.
+Multiple L2 serde modules (split per concern) covering all Phase 1–2 L1 modules.
 
 - **Step 10:** Create `src/jmap_client/mail/serde_email_submission.nim`
-  (or split) with envelope serde per design §7.2. Implement
+  (and the other relevant serde modules) with envelope serde per design §7.2. Implement
   `xtextEncode`/`xtextDecode` helpers (RFC 3461 §4) for ENVID/ORCPT
   wire encoding. `ReversePath` serde dispatches on empty vs non-empty
   `email` field.
@@ -115,8 +114,7 @@ decision per design §1.5) covering all Phase 1–2 L1 modules.
   > and the `xtextEncode` / `xtextDecode` helpers above would be either
   > scoped to SMTP-adjacent testing or dropped entirely. See design §7.2
   > for the same note. Step 10's author should confirm this reading
-  > against RFC 8621 §7 and make the call; Step 1 only surfaces the
-  > contradiction.
+  > against RFC 8621 §7 and make the call
 
 - **Step 11:** Extend with status type serde per design §§3, 7.1.
   Include a named `parseUndoStatus(raw, path)` returning
