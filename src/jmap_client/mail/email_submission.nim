@@ -11,6 +11,7 @@
 
 {.push raises: [], noSideEffect.}
 
+import std/hashes
 import std/tables
 
 import ../primitives
@@ -18,8 +19,10 @@ import ../identifiers
 import ../validation
 import ../framework
 import ../methods
+import ../dispatch
 import ./submission_envelope
 import ./submission_status
+import ./email
 
 type EmailSubmission*[S: static UndoStatus] {.ruleOff: "objects".} = object
   ## Entity read model indexed on the RFC 8621 §7 ``undoStatus``. Each
@@ -365,3 +368,128 @@ type EmailSubmissionSetResponse* = SetResponse[EmailSubmissionCreatedItem]
   ## per-entity ``fromJson`` for
   ## ``EmailSubmissionCreatedItem`` lands in the L2 serde module — until
   ## then this alias is callable as a typed handle but cannot be parsed.
+
+# -----------------------------------------------------------------------------
+# IdOrCreationRef — creation-reference key for onSuccess* maps (RFC 8620 §5.3)
+#
+# Distinct from ``Referencable[T]`` (RFC 8620 §3.7): creation references are
+# string-shaped wire keys (``"#"`` + ``creationId``) that resolve against
+# sibling creates in the same ``/set`` call; result references are
+# JSON-object-shaped values substituting a previous call's output.
+# Different wire shape, different semantics — separate types (G35/G36).
+# -----------------------------------------------------------------------------
+
+type IdOrCreationRefKind* = enum
+  ## Discriminator for ``IdOrCreationRef``. ``icrDirect`` references an
+  ## EmailSubmission already persisted on the server; ``icrCreation``
+  ## references one being created in the same ``/set`` call — the wire
+  ## form prepends ``"#"`` to the creation id per RFC 8620 §5.3.
+  icrDirect
+  icrCreation
+
+type IdOrCreationRef* {.ruleOff: "objects".} = object
+  ## Either an existing EmailSubmission ``Id`` or a ``CreationId``-shaped
+  ## forward reference to a submission being created in the same ``/set``
+  ## call. Used as the map key in ``onSuccessUpdateEmail`` and as the list
+  ## element in ``onSuccessDestroyEmail`` on the compound builder
+  ## ``addEmailSubmissionAndEmailSet`` (RFC 8621 §7.5 ¶3).
+  ##
+  ## Wire format (resolved by L2 serde): ``icrDirect`` serialises as the
+  ## underlying ``Id`` string; ``icrCreation`` serialises as ``"#"``
+  ## concatenated with the underlying ``CreationId`` string.
+  case kind*: IdOrCreationRefKind
+  of icrDirect:
+    id*: Id
+  of icrCreation:
+    creationId*: CreationId
+
+func `==`*(a, b: IdOrCreationRef): bool =
+  ## Arm-dispatched structural equality. Auto-derived ``==`` on a case
+  ## object fails with *parallel 'fields' iterator does not work for
+  ## 'case' objects*; the arm-dispatch pattern mirrors
+  ## ``SubmissionParamKey.==``. Cross-arm values compare unequal even on
+  ## coincident payload strings — an ``icrDirect`` with ``Id("abc")``
+  ## and an ``icrCreation`` with ``CreationId("abc")`` are not the same
+  ## key.
+  if a.kind != b.kind:
+    return false
+  case a.kind
+  of icrDirect:
+    a.id == b.id
+  of icrCreation:
+    a.creationId == b.creationId
+
+func hash*(k: IdOrCreationRef): Hash =
+  ## Arm-dispatched hash honouring the ``a == b ⇒ hash(a) == hash(b)``
+  ## contract. Mixes the discriminator ordinal into the payload hash so
+  ## ``directRef(Id("abc"))`` and ``creationRef(CreationId("abc"))`` land
+  ## in different buckets — ``Id.hash`` and ``CreationId.hash`` both
+  ## delegate to ``string.hash``, so without the ordinal mix-in
+  ## coincident payload strings would collide across arms and
+  ## ``Table[IdOrCreationRef, _]`` lookups in the compound builder would
+  ## silently break. Follows ``SubmissionParamKey.hash``.
+  case k.kind
+  of icrDirect:
+    var h: Hash = 0
+    h = h !& hash(icrDirect.ord)
+    h = h !& hash(k.id)
+    !$h
+  of icrCreation:
+    var h: Hash = 0
+    h = h !& hash(icrCreation.ord)
+    h = h !& hash(k.creationId)
+    !$h
+
+func directRef*(id: Id): IdOrCreationRef =
+  ## Smart constructor for an existing-``Id`` reference. Total — the
+  ## ``Id`` has already been validated upstream (``parseId`` or
+  ## ``parseIdFromServer``); no further constraint applies.
+  IdOrCreationRef(kind: icrDirect, id: id)
+
+func creationRef*(cid: CreationId): IdOrCreationRef =
+  ## Smart constructor for a forward-reference to a sibling create
+  ## operation. The ``"#"`` prefix is a wire concern — added at
+  ## ``toJson`` time, not stored on the ``CreationId``.
+  IdOrCreationRef(kind: icrCreation, creationId: cid)
+
+# -----------------------------------------------------------------------------
+# EmailSubmissionHandles / EmailSubmissionResults (RFC 8621 §7.5)
+#
+# Cross-entity compound handle pair for ``addEmailSubmissionAndEmailSet``. The
+# parent ``EmailSubmission/set`` and the implicit ``Email/set`` share a
+# call-id per RFC 8620 §5.4; ``NameBoundHandle`` on ``emailSet`` carries
+# the method-name filter so dispatch can distinguish the two sibling
+# invocations at the extraction site. G21 chose specific over generic (F1
+# Rule-of-Three still holds at two compound sites — ``EmailCopyHandles`` +
+# ``EmailSubmissionHandles``).
+#
+# The paired extractor ``getBoth`` lives with the compound builder in
+# ``submission_builders.nim`` (the L3 builder module). That placement
+# mirrors F1's ``mail_builders.nim``: the builder file imports the L2
+# serde modules so ``EmailSubmissionCreatedItem.fromJson`` and
+# ``EmailCreatedItem.fromJson`` are in scope when the monomorphic
+# ``?resp.get(handles.…)`` calls force generic instantiation of
+# ``SetResponse[T].fromJson`` at the extractor's definition site. Placing
+# ``getBoth`` in this L1 module would force that instantiation before the
+# Step 12 serde exists and fail to compile — ``mixin fromJson`` only
+# defers resolution when the enclosing routine is itself generic.
+# -----------------------------------------------------------------------------
+
+type EmailSubmissionHandles* {.ruleOff: "objects".} = object
+  ## Paired handles returned by ``addEmailSubmissionAndEmailSet``. Both
+  ## carry the same ``MethodCallId`` — the implicit ``Email/set`` that
+  ## ``onSuccessUpdateEmail`` / ``onSuccessDestroyEmail`` triggers shares
+  ## its call-id with the parent ``EmailSubmission/set`` per RFC 8620
+  ## §5.4. ``emailSet`` is a ``NameBoundHandle`` so ``getBoth`` (in
+  ## ``submission_builders.nim``) can disambiguate the two sibling
+  ## invocations at the dispatch site by method name (``mnEmailSet``).
+  submission*: ResponseHandle[EmailSubmissionSetResponse]
+  emailSet*: NameBoundHandle[SetResponse[EmailCreatedItem]]
+
+type EmailSubmissionResults* {.ruleOff: "objects".} = object
+  ## Paired extraction target of ``getBoth(EmailSubmissionHandles)``. The
+  ## ``emailSet`` payload reuses ``SetResponse[EmailCreatedItem]``
+  ## inline — no ``EmailSetResponse`` alias exists, matching F1's
+  ## ``EmailCopyResults.destroy`` field shape.
+  submission*: EmailSubmissionSetResponse
+  emailSet*: SetResponse[EmailCreatedItem]

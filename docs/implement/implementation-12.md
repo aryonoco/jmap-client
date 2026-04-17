@@ -87,7 +87,22 @@ on the Phase 1 modules.
 - **Step 9:** Extend with `IdOrCreationRef` per design §9.0 (G35/G36:
   creation references, distinct from `Referencable[T]` result
   references) and compound-handle types per design §9.2:
-  `EmailSubmissionHandles`, `EmailSubmissionResults`, `getBoth`.
+  `EmailSubmissionHandles`, `EmailSubmissionResults`.
+
+  > **Deviation from design §1.5 — enforced by Nim's type-resolution
+  > semantics.** `getBoth` does NOT land in Step 9. The monomorphic
+  > `?resp.get(handles.submission)` body forces generic instantiation
+  > of `SetResponse[EmailSubmissionCreatedItem].fromJson` at the
+  > extractor's definition site, which recurses into
+  > `EmailSubmissionCreatedItem.fromJson` — not yet in scope until
+  > Step 12 lands the L2 serde. `mixin fromJson` only defers resolution
+  > when the enclosing routine is itself generic; it is a no-op inside
+  > a non-generic `func`. Placing `getBoth` in `email_submission.nim`
+  > produces *"expression '' has no type (or is ambiguous)"* at
+  > `methods.nim:645-646` inside `mergeCreateResults[T]`. F1 sidesteps
+  > this by hosting its `getBoth` in `mail_builders.nim` (L3), where
+  > the file imports L2 serde. Step 9 leaves `getBoth` for Step 17 (see
+  > Step 17 note below).
 
 ### CI gate
 
@@ -163,7 +178,16 @@ Wires L1/L2 types into the builder layer and amends existing modules.
   with standard method builders per design §8:
   `addEmailSubmissionGet`, `addEmailSubmissionChanges`,
   `addEmailSubmissionQuery`, `addEmailSubmissionQueryChanges`,
-  `addEmailSubmissionSet` (simple).
+  `addEmailSubmissionSet` (simple). Additionally, add `getBoth(Response,
+  EmailSubmissionHandles): Result[EmailSubmissionResults, MethodError]`
+  here (deferred from Step 9 — see that step's note). This module must
+  `import ./serde_email_submission` and `./serde_email` (or re-export
+  them) so `EmailSubmissionCreatedItem.fromJson` and
+  `EmailCreatedItem.fromJson` are in scope at `getBoth`'s definition
+  site — same pattern as F1's `mail_builders.nim:32-37`. The `getBoth`
+  body mirrors F1 (`mail_builders.nim:481-491`): `mixin fromJson`,
+  `?resp.get(handles.submission)`, `?resp.get(handles.emailSet)`,
+  `ok(EmailSubmissionResults(...))`.
 
 - **Step 18:** Extend `submission_builders.nim` with the compound
   builder per design §9.1: `addEmailSubmissionAndEmailSet` with
