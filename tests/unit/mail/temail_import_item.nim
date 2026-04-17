@@ -12,6 +12,7 @@ import jmap_client/mail/mailbox
 import jmap_client/mail/keyword
 import jmap_client/validation
 import jmap_client/primitives
+import jmap_client/identifiers
 
 import ../../massertions
 
@@ -20,7 +21,7 @@ import ../../massertions
 block importItemRejectsOptNoneMailboxIds: # F1 §6.1
   ## mailboxIds is non-Opt NonEmptyMailboxIdSet. Passing Opt.none
   ## (or any Opt wrapper) is a compile error at the call-site.
-  let b = parseId("blob1").get()
+  let b = parseBlobId("blob1").get()
   assertNotCompiles(
     initEmailImportItem(blobId = b, mailboxIds = Opt.none(NonEmptyMailboxIdSet))
   )
@@ -28,7 +29,7 @@ block importItemRejectsOptNoneMailboxIds: # F1 §6.1
 # ============= B. Minimal construction =============
 
 block importItemMinimalConstruction:
-  let b = parseId("blob1").get()
+  let b = parseBlobId("blob1").get()
   let mbx = parseId("m1").get()
   let ids = parseNonEmptyMailboxIdSet(@[mbx]).get()
   let i = initEmailImportItem(b, ids)
@@ -43,7 +44,7 @@ block importItemKeywordsThreeStates:
   ## Opt.none / Opt.some(empty) / Opt.some(non-empty) are three
   ## distinguishable states at the value layer. Phase 3 serde pins
   ## the first two collapse to "omit the key" on the wire.
-  let b = parseId("blob1").get()
+  let b = parseBlobId("blob1").get()
   let mbx = parseId("m1").get()
   let ids = parseNonEmptyMailboxIdSet(@[mbx]).get()
   let absent = initEmailImportItem(b, ids)

@@ -318,8 +318,9 @@ block ebkFlatAttachmentsMixed: # scenario 70
     contentType = "application/pdf",
     value = BlueprintBodyValue(value: "pdfbytes"),
   )
-  let png =
-    makeBlueprintBodyPartBlobRef(blobId = makeId("blobA"), contentType = "image/png")
+  let png = makeBlueprintBodyPartBlobRef(
+    blobId = makeBlobId("blobA"), contentType = "image/png"
+  )
   let bp = parseEmailBlueprint(
       mailboxIds = makeNonEmptyMailboxIdSet(),
       body = flatBody(attachments = @[pdf, png]),

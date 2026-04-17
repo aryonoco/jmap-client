@@ -14,6 +14,7 @@ import std/tables
 
 import ../validation
 import ../primitives
+import ../identifiers
 import ./headers
 
 # =============================================================================
@@ -173,7 +174,7 @@ type EmailBodyPart* {.ruleOff: "objects".} = object
     subParts*: seq[EmailBodyPart] ## Recursive children.
   of false:
     partId*: PartId ## Unique within the Email.
-    blobId*: Id ## Reference to content blob.
+    blobId*: BlobId ## Reference to content blob.
 
 # =============================================================================
 # EmailBodyValue
@@ -230,6 +231,6 @@ type BlueprintBodyPart* {.ruleOff: "objects".} = object
       partId*: PartId ## Co-located reference to the body value (R3-3).
       value*: BlueprintBodyValue ## Co-located content (Design §5.1, R3-3).
     of bpsBlobRef:
-      blobId*: Id
+      blobId*: BlobId
       size*: Opt[UnsignedInt] ## Optional, ignored by server.
       charset*: Opt[string]

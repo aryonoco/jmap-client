@@ -18,6 +18,7 @@ import std/sets
 import std/tables
 
 import ../primitives
+import ../identifiers
 import ../validation
 import ./addresses
 import ./body
@@ -81,7 +82,7 @@ type BodyPartLocation* = object
   of bplInline:
     partId*: PartId
   of bplBlobRef:
-    blobId*: Id
+    blobId*: BlobId
   of bplMultipart:
     path*: BodyPartPath
 

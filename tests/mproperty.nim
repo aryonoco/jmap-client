@@ -1503,7 +1503,7 @@ proc genEmailBodyPart*(rng: var Rand, maxDepth: int = 3): EmailBodyPart =
       size: UnsignedInt(rng.rand(1'i64 .. 50000'i64)),
       isMultipart: false,
       partId: rng.genPartId(),
-      blobId: Id(rng.genValidIdStrict(minLen = 3, maxLen = 20)),
+      blobId: BlobId(rng.genValidIdStrict(minLen = 3, maxLen = 20)),
     )
   let ct = rng.oneOf(multipartTypes)
   var children: seq[EmailBodyPart] = @[]
@@ -1882,7 +1882,7 @@ proc genDeepBodyStructure*(rng: var Rand, depth: int): EmailBodyPart =
       size: UnsignedInt(rng.rand(1'i64 .. 50000'i64)),
       isMultipart: false,
       partId: rng.genPartId(),
-      blobId: Id(rng.genValidIdStrict(minLen = 3, maxLen = 20)),
+      blobId: BlobId(rng.genValidIdStrict(minLen = 3, maxLen = 20)),
     )
   var children: seq[EmailBodyPart] = @[]
   children.add(rng.genDeepBodyStructure(depth - 1))
@@ -1913,7 +1913,7 @@ proc genEmail*(rng: var Rand): Email =
     rawHeaders.add(rng.genEmailHeader())
   Email(
     id: Id(rng.genValidIdStrict()),
-    blobId: Id(rng.genValidIdStrict()),
+    blobId: BlobId(rng.genValidIdStrict()),
     threadId: Id(rng.genValidIdStrict()),
     mailboxIds: rng.genMailboxIdSet(),
     keywords: rng.genKeywordSet(),
@@ -2317,7 +2317,7 @@ proc genBlueprintBodyPart*(rng: var Rand, maxDepth: int = 4): BlueprintBodyPart 
       extraHeaders: extraHeaders,
       isMultipart: false,
       source: bpsBlobRef,
-      blobId: Id(rng.genValidIdStrict(minLen = 3, maxLen = 20)),
+      blobId: BlobId(rng.genValidIdStrict(minLen = 3, maxLen = 20)),
       size: Opt.none(UnsignedInt),
       charset: Opt.none(string),
     )
@@ -2745,15 +2745,16 @@ proc genBodyPartLocation*(rng: var Rand, trial: int = -1): BodyPartLocation =
     of 0:
       return BodyPartLocation(kind: bplInline, partId: rng.genPartId(trial = 0))
     of 1:
-      return
-        BodyPartLocation(kind: bplBlobRef, blobId: Id(rng.genValidIdStrict(minLen = 3)))
+      return BodyPartLocation(
+        kind: bplBlobRef, blobId: BlobId(rng.genValidIdStrict(minLen = 3))
+      )
     else:
       return BodyPartLocation(kind: bplMultipart, path: rng.genBodyPartPath(trial = 1))
   case rng.rand(0 .. 2)
   of 0:
     BodyPartLocation(kind: bplInline, partId: rng.genPartId())
   of 1:
-    BodyPartLocation(kind: bplBlobRef, blobId: Id(rng.genValidIdStrict(minLen = 3)))
+    BodyPartLocation(kind: bplBlobRef, blobId: BlobId(rng.genValidIdStrict(minLen = 3)))
   else:
     BodyPartLocation(kind: bplMultipart, path: rng.genBodyPartPath())
 
@@ -3187,7 +3188,7 @@ proc genImportItemDefault(rng: var Rand): EmailImportItem =
   ## duplicate-key contract is the subject of the generator, not per-item
   ## field coverage.
   initEmailImportItem(
-    blobId = Id(rng.genValidIdStrict()),
+    blobId = BlobId(rng.genValidIdStrict()),
     mailboxIds = rng.genNonEmptyMailboxIdSet(),
     keywords = Opt.none(KeywordSet),
     receivedAt = Opt.none(UTCDate),

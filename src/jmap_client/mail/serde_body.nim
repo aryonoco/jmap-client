@@ -141,7 +141,7 @@ func fromJsonImpl(
   let partIdNode = ?fieldJString(node, "partId", path)
   let partId = ?PartId.fromJson(partIdNode, path / "partId")
   let blobIdNode = ?fieldJString(node, "blobId", path)
-  let blobId = ?Id.fromJson(blobIdNode, path / "blobId")
+  let blobId = ?BlobId.fromJson(blobIdNode, path / "blobId")
   return ok(
     EmailBodyPart(
       headers: headers,

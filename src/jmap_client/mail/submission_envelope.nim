@@ -70,6 +70,19 @@ func reversePath*(address: SubmissionAddress): ReversePath =
   ## Lifts an already-validated ``SubmissionAddress`` into ``ReversePath``.
   ReversePath(kind: rpkMailbox, sender: address)
 
+func `==`*(a, b: ReversePath): bool =
+  ## Structural equality across the two RFC 5321 Reverse-path arms. Auto-
+  ## derived ``==`` on a case object fails with the parallel-fields-iterator
+  ## compile error; this dispatches on the shared discriminator and compares
+  ## only the fields valid for the matched arm. Mirrors ``SubmissionParam.==``.
+  if a.kind != b.kind:
+    return false
+  case a.kind
+  of rpkNullPath:
+    a.nullPathParams == b.nullPathParams
+  of rpkMailbox:
+    a.sender == b.sender
+
 func `==`*(a, b: NonEmptyRcptList): bool {.borrow.}
   ## Element-wise equality delegated to the underlying seq.
 

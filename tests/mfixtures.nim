@@ -55,6 +55,9 @@ proc makeMcid*(s = "c0"): MethodCallId =
 proc makeCreationId*(s = "k0"): CreationId =
   parseCreationId(s).get()
 
+proc makeBlobId*(s = "blob0"): BlobId =
+  parseBlobId(s).get()
+
 proc makeState*(s = "state0"): JmapState =
   parseJmapState(s).get()
 
@@ -418,7 +421,7 @@ proc makeLeafBodyPart*(): EmailBodyPart =
     contentType: "text/plain",
     size: zeroUint(),
     partId: parsePartIdFromServer("1").get(),
-    blobId: makeId("blob1"),
+    blobId: makeBlobId("blob1"),
     headers: @[],
     name: Opt.none(string),
     charset: Opt.none(string),
@@ -434,7 +437,7 @@ proc makeEmail*(): Email =
   parseEmail(
     Email(
       id: makeId("email1"),
-      blobId: makeId("blob1"),
+      blobId: makeBlobId("blob1"),
       threadId: makeId("thread1"),
       mailboxIds: initMailboxIdSet(@[makeId("mbx1")]),
       keywords: initKeywordSet(@[]),
@@ -1107,7 +1110,7 @@ proc makeBlueprintBodyPartInline*(
 
 # I-8 ------------------------------------------------------------------------
 proc makeBlueprintBodyPartBlobRef*(
-    blobId = makeId("blob1"),
+    blobId = makeBlobId("blob1"),
     contentType = "image/png",
     extraHeaders: Table[BlueprintBodyHeaderName, BlueprintHeaderMultiValue] =
       initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
@@ -1172,8 +1175,9 @@ proc makeFullEmailBlueprint*(): EmailBlueprint =
     contentType = "application/pdf",
     value = BlueprintBodyValue(value: "pdf leaf"),
   )
-  let attachBlob =
-    makeBlueprintBodyPartBlobRef(blobId = makeId("blobA"), contentType = "image/png")
+  let attachBlob = makeBlueprintBodyPartBlobRef(
+    blobId = makeBlobId("blobA"), contentType = "image/png"
+  )
   let body =
     flatBody(textBody = Opt.some(textInline), attachments = @[attachInline, attachBlob])
   parseEmailBlueprint(
@@ -1269,7 +1273,7 @@ proc makeBodyPartLocationInline*(
 ): BodyPartLocation =
   BodyPartLocation(kind: bplInline, partId: partId)
 
-proc makeBodyPartLocationBlobRef*(blobId = makeId("blob1")): BodyPartLocation =
+proc makeBodyPartLocationBlobRef*(blobId = makeBlobId("blob1")): BodyPartLocation =
   BodyPartLocation(kind: bplBlobRef, blobId: blobId)
 
 proc makeBodyPartLocationMultipart*(
@@ -1745,7 +1749,7 @@ proc makeFullEmailCopyItem*(
 # ---------------------------------------------------------------------------
 
 proc makeEmailImportItem*(
-    blobId: Id = makeId("blob1"),
+    blobId: BlobId = makeBlobId("blob1"),
     mailboxIds: NonEmptyMailboxIdSet = makeNonEmptyMailboxIdSet(),
     keywords: Opt[KeywordSet] = Opt.none(KeywordSet),
     receivedAt: Opt[UTCDate] = Opt.none(UTCDate),
@@ -1753,7 +1757,7 @@ proc makeEmailImportItem*(
   initEmailImportItem(blobId, mailboxIds, keywords, receivedAt)
 
 proc makeFullEmailImportItem*(
-    blobId: Id = makeId("blob1"),
+    blobId: BlobId = makeBlobId("blob1"),
     mailboxIds: NonEmptyMailboxIdSet = makeNonEmptyMailboxIdSet(),
     keywords: KeywordSet = initKeywordSet([kwSeen]),
     receivedAt: UTCDate = parseUtcDate("2026-01-01T00:00:00Z").get(),

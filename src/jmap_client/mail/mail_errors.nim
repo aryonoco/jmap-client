@@ -14,15 +14,16 @@
 
 import ../validation
 import ../primitives
+import ../identifiers
 import ../errors
 
-func notFoundBlobIds*(se: SetError): Opt[seq[Id]] =
+func notFoundBlobIds*(se: SetError): Opt[seq[BlobId]] =
   ## Unresolved blob IDs from a ``setBlobNotFound`` error (RFC 8621 §4.6).
   case se.errorType
   of setBlobNotFound:
     Opt.some(se.notFound)
   else:
-    Opt.none(seq[Id])
+    Opt.none(seq[BlobId])
 
 func maxSize*(se: SetError): Opt[UnsignedInt] =
   ## Server's size cap from a ``setTooLarge`` error (RFC 8621 §7.5 SHOULD).

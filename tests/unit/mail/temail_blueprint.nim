@@ -22,6 +22,7 @@ import jmap_client/mail/headers
 import jmap_client/mail/mailbox
 import jmap_client/mail/serde_body
 import jmap_client/primitives
+import jmap_client/identifiers
 import jmap_client/validation
 
 import ../../massertions
@@ -185,8 +186,9 @@ block bodyPartBlobRefAtDepthTwo: # §6.1.1 scenario 7h
   # routes to ``bplBlobRef`` (leaf), so ``where`` carries the blobId.
   var leafExtra = initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue]()
   leafExtra[makeBlueprintBodyHeaderName("content-type")] = makeBhmvTextSingle()
-  let target =
-    makeBlueprintBodyPartBlobRef(blobId = makeId("blobDeep"), extraHeaders = leafExtra)
+  let target = makeBlueprintBodyPartBlobRef(
+    blobId = makeBlobId("blobDeep"), extraHeaders = leafExtra
+  )
   let mid = makeBlueprintBodyPartMultipart(subParts = @[target])
   let root = makeBlueprintBodyPartMultipart(subParts = @[mid])
   let res = parseEmailBlueprint(
@@ -196,7 +198,7 @@ block bodyPartBlobRefAtDepthTwo: # §6.1.1 scenario 7h
   var found = false
   for e in res.unsafeError.items:
     if e.constraint == ebcBodyPartHeaderDuplicate and e.where.kind == bplBlobRef and
-        e.where.blobId == makeId("blobDeep"):
+        e.where.blobId == makeBlobId("blobDeep"):
       found = true
       break
   doAssert found, "expected blob-ref duplicate at depth 2, got " & $res.unsafeError
@@ -243,8 +245,8 @@ block flatAttachmentsNestedPathEncoding: # §6.1.1 scenario 7k
   let offender = makeBlueprintBodyPartMultipart(
     subParts = @[makeBlueprintBodyPartInline()], extraHeaders = innerExtra
   )
-  let att0 = makeBlueprintBodyPartBlobRef(blobId = makeId("a0"))
-  let att1 = makeBlueprintBodyPartBlobRef(blobId = makeId("a1"))
+  let att0 = makeBlueprintBodyPartBlobRef(blobId = makeBlobId("a0"))
+  let att1 = makeBlueprintBodyPartBlobRef(blobId = makeBlobId("a1"))
   let body = flatBody(attachments = @[att0, att1, offender])
   let res = parseEmailBlueprint(mailboxIds = makeNonEmptyMailboxIdSet(), body = body)
   assertErr res
@@ -258,7 +260,7 @@ block flatAttachmentsNestedPathEncoding: # §6.1.1 scenario 7k
 
 block bodyPartLocationRoundTrip: # §6.1.1 scenario 7l
   let inline = makeBodyPartLocationInline(parsePartIdFromServer("3").get())
-  let blob = makeBodyPartLocationBlobRef(makeId("blobZ"))
+  let blob = makeBodyPartLocationBlobRef(makeBlobId("blobZ"))
   let mp = makeBodyPartLocationMultipart(makeBodyPartPath(@[1, 2, 3]))
   doAssert bodyPartLocationEq(inline, inline)
   doAssert bodyPartLocationEq(blob, blob)
@@ -337,8 +339,8 @@ block fullAccessorMarkerTuple: # §6.1.1 scenario 12
   assertEq bp.references, Opt.some(@["<id0@host>"])
 
 block flatAttachmentsOnly: # §6.1.1 scenario 17
-  let att1 = makeBlueprintBodyPartBlobRef(blobId = makeId("a1"))
-  let att2 = makeBlueprintBodyPartBlobRef(blobId = makeId("a2"))
+  let att1 = makeBlueprintBodyPartBlobRef(blobId = makeBlobId("a1"))
+  let att2 = makeBlueprintBodyPartBlobRef(blobId = makeBlobId("a2"))
   let res = parseEmailBlueprint(
     mailboxIds = makeNonEmptyMailboxIdSet(),
     body = flatBody(attachments = @[att1, att2]),
@@ -403,8 +405,8 @@ block bodyValuesEmptyOnAllBlobRef: # §6.1.7 scenario 50
   # All leaves blob-referenced — no inline partIds to harvest. Serde
   # omit-on-empty assertion lands in Phase 4 Step 18 alongside
   # ``EmailBlueprint.toJson``.
-  let b1 = makeBlueprintBodyPartBlobRef(blobId = makeId("b1"))
-  let b2 = makeBlueprintBodyPartBlobRef(blobId = makeId("b2"))
+  let b1 = makeBlueprintBodyPartBlobRef(blobId = makeBlobId("b1"))
+  let b2 = makeBlueprintBodyPartBlobRef(blobId = makeBlobId("b2"))
   let root = makeBlueprintBodyPartMultipart(subParts = @[b1, b2])
   let bp = parseEmailBlueprint(
       mailboxIds = makeNonEmptyMailboxIdSet(), body = structuredBody(root)

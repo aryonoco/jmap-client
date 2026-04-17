@@ -21,6 +21,7 @@ else:
 
 from ./validation import ValidationError
 import ./primitives
+import ./identifiers
 
 type TransportErrorKind* = enum
   ## Failure mode before any JMAP-level processing occurs.
@@ -316,7 +317,7 @@ type SetError* = object
   of setAlreadyExists:
     existingId*: Id ## RFC 8620 §5.4 MUST: the existing record's ID
   of setBlobNotFound:
-    notFound*: seq[Id] ## RFC 8621 §4.6 MUST: unresolved blob IDs
+    notFound*: seq[BlobId] ## RFC 8621 §4.6 MUST: unresolved blob IDs
   of setInvalidEmail:
     invalidEmailPropertyNames*: seq[string]
       ## RFC 8621 §7.5 SHOULD: invalid Email property names. Field name
@@ -441,7 +442,7 @@ func setErrorAlreadyExists*(
 
 func setErrorBlobNotFound*(
     rawType: string,
-    notFound: seq[Id],
+    notFound: seq[BlobId],
     description: Opt[string] = Opt.none(string),
     extras: Opt[JsonNode] = Opt.none(JsonNode),
 ): SetError =

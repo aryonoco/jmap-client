@@ -43,7 +43,7 @@ block blueprintBodyPartInlineRequiresValue: # §6.1.6 scenario 41
   assertNotCompiles BlueprintBodyPart(
     isMultipart: false,
     source: bpsBlobRef,
-    blobId: makeId("b1"),
+    blobId: makeBlobId("b1"),
     value: BlueprintBodyValue(value: "x"),
   )
 

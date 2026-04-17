@@ -90,7 +90,7 @@ block inlineLeafHasPartIdNoBlobIdChartsetSize: # scenario 78
 block blobRefLeafHasBlobIdNoPartId: # scenario 79
   # Dual to 78 — blob-ref leaves expose ``blobId`` and elide ``partId``.
   let leaf =
-    makeBlueprintBodyPartBlobRef(blobId = makeId("B"), contentType = "image/png")
+    makeBlueprintBodyPartBlobRef(blobId = makeBlobId("B"), contentType = "image/png")
   let bp = parseEmailBlueprint(
       mailboxIds = makeNonEmptyMailboxIdSet(), body = flatBody(attachments = @[leaf])
     )

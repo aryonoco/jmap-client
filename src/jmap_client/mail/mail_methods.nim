@@ -83,9 +83,9 @@ type
     ## email representations. ``notParseable`` uses Nim spelling; the wire
     ## key is ``"notParsable"`` (RFC spelling).
     accountId*: AccountId
-    parsed*: Table[Id, ParsedEmail]
-    notParseable*: seq[Id]
-    notFound*: seq[Id]
+    parsed*: Table[BlobId, ParsedEmail]
+    notParseable*: seq[BlobId]
+    notFound*: seq[BlobId]
 
   SearchSnippetGetResponse* = object
     ## Response to SearchSnippet/get (RFC 8621 §5.1). Returns search
@@ -108,12 +108,11 @@ func emailParseResponseFromJson*(
   ?expectKind(node, JObject, path)
   let accountIdNode = ?fieldJString(node, "accountId", path)
   let accountId = ?AccountId.fromJson(accountIdNode, path / "accountId")
-  let parsed = ?parseIdKeyedTable[ParsedEmail](
-    node{"parsed"}, parsedEmailFromJson, path / "parsed"
+  let parsed = ?parseKeyedTable[BlobId, ParsedEmail](
+    node{"parsed"}, parseBlobId, parsedEmailFromJson, path / "parsed"
   )
-  let notParseable =
-    ?collapseNullToEmptySeq(node, "notParsable", parseIdFromServer, path)
-  let notFound = ?collapseNullToEmptySeq(node, "notFound", parseIdFromServer, path)
+  let notParseable = ?collapseNullToEmptySeq(node, "notParsable", parseBlobId, path)
+  let notFound = ?collapseNullToEmptySeq(node, "notFound", parseBlobId, path)
   ok(
     EmailParseResponse(
       accountId: accountId,
@@ -153,7 +152,7 @@ func searchSnippetGetResponseFromJson*(
 func addEmailParse*(
     b: RequestBuilder,
     accountId: AccountId,
-    blobIds: seq[Id],
+    blobIds: seq[BlobId],
     properties: Opt[seq[string]] = Opt.none(seq[string]),
     bodyFetchOptions: EmailBodyFetchOptions = default(EmailBodyFetchOptions),
 ): (RequestBuilder, ResponseHandle[EmailParseResponse]) =

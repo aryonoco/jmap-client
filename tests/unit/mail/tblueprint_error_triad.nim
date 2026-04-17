@@ -13,7 +13,7 @@ import std/tables
 import jmap_client/mail/body
 import jmap_client/mail/email_blueprint
 import jmap_client/mail/headers
-import jmap_client/primitives
+import jmap_client/identifiers
 import jmap_client/validation
 
 import ../../massertions
@@ -26,7 +26,7 @@ block discriminantDistinguishesSameBytes: # §6.1.5c scenario 37p
   # this at the discriminant layer before any field read.
   let inline =
     BodyPartLocation(kind: bplInline, partId: parsePartIdFromServer("p").get())
-  let blob = BodyPartLocation(kind: bplBlobRef, blobId: parseId("p").get())
+  let blob = BodyPartLocation(kind: bplBlobRef, blobId: parseBlobId("p").get())
   doAssert not bodyPartLocationEq(inline, blob),
     "discriminant must distinguish identical byte payloads"
   # Self-equality preserved on both sides.
@@ -117,7 +117,7 @@ block depthCouplingInvariantSampled: # §6.1.5c scenario 37r
       subParts = @[makeBlueprintBodyPartInline()], extraHeaders = extra
     )
     let body = makeFlatBody(
-      attachments = @[makeBlueprintBodyPartBlobRef(blobId = makeId("a0")), offender]
+      attachments = @[makeBlueprintBodyPartBlobRef(blobId = makeBlobId("a0")), offender]
     )
     let res = parseEmailBlueprint(mailboxIds = makeNonEmptyMailboxIdSet(), body = body)
     assertErr res

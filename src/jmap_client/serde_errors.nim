@@ -202,10 +202,10 @@ func fromJsonBlobNotFound(
   let arr = node{"notFound"}
   if arr.isNil or arr.kind != JArray:
     return ok(setError(rawType, description, extras))
-  var ids: seq[Id] = @[]
+  var ids: seq[BlobId] = @[]
   for i, item in arr.getElems(@[]):
     ?expectKind(item, JString, path / "notFound" / i)
-    let idResult = parseIdFromServer(item.getStr(""))
+    let idResult = parseBlobId(item.getStr(""))
     if idResult.isErr:
       return ok(setError(rawType, description, extras))
     ids.add(idResult.get())

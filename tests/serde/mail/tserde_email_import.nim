@@ -26,9 +26,9 @@ import ../../mfixtures
 # ============= A. toJson(EmailImportItem) =============
 
 block importItemBlobIdAlwaysEmitted:
-  let item = makeEmailImportItem(blobId = makeId("blob1"))
+  let item = makeEmailImportItem(blobId = makeBlobId("blob1"))
   let node = item.toJson()
-  assertJsonFieldEq node, "blobId", makeId("blob1").toJson()
+  assertJsonFieldEq node, "blobId", makeBlobId("blob1").toJson()
 
 block importItemMailboxIdsAlwaysEmitted:
   let item = makeEmailImportItem()

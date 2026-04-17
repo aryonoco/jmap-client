@@ -16,6 +16,7 @@ import jmap_client/mail/serde_body
 import jmap_client/mail/headers
 import jmap_client/validation
 import jmap_client/primitives
+import jmap_client/identifiers
 
 import ../../massertions
 
@@ -35,7 +36,7 @@ block fromJsonLeafPart: # scenario 77
   assertEq part.isMultipart, false
   assertEq part.contentType, "text/plain"
   assertEq part.partId, PartId("1")
-  assertEq part.blobId, Id("abc123")
+  assertEq part.blobId, BlobId("abc123")
   assertSomeEq part.charset, "utf-8"
 
 block fromJsonMultipart: # scenario 78
@@ -215,7 +216,7 @@ block toJsonDepthStress: # scenario 96
     size: UnsignedInt(0),
     isMultipart: false,
     partId: PartId("1"),
-    blobId: Id("abc"),
+    blobId: BlobId("abc"),
   )
   for i in 0 ..< 200:
     part = EmailBodyPart(
@@ -247,7 +248,7 @@ block toJsonDepthExact128: # scenario 108
     size: UnsignedInt(0),
     isMultipart: false,
     partId: PartId("1"),
-    blobId: Id("abc"),
+    blobId: BlobId("abc"),
   )
   for i in 0 ..< 127:
     part = EmailBodyPart(
@@ -476,7 +477,7 @@ block bpBlobRefLeaf: # scenario 120
     extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
     isMultipart: false,
     source: bpsBlobRef,
-    blobId: Id("abc123"),
+    blobId: BlobId("abc123"),
     size: Opt.some(UnsignedInt(5678)),
     charset: Opt.some("utf-8"),
   )
@@ -490,7 +491,7 @@ block bpBlobRefBothPresent: # scenario 121
     extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
     isMultipart: false,
     source: bpsBlobRef,
-    blobId: Id("abc"),
+    blobId: BlobId("abc"),
     size: Opt.some(UnsignedInt(100)),
     charset: Opt.some("binary"),
   )
@@ -504,7 +505,7 @@ block bpBlobRefBothAbsent: # scenario 122
     extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
     isMultipart: false,
     source: bpsBlobRef,
-    blobId: Id("abc"),
+    blobId: BlobId("abc"),
     size: Opt.none(UnsignedInt),
     charset: Opt.none(string),
   )
@@ -672,7 +673,7 @@ block bpMixedChildren: # scenario 130a
     extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
     isMultipart: false,
     source: bpsBlobRef,
-    blobId: Id("abc"),
+    blobId: BlobId("abc"),
     size: Opt.none(UnsignedInt),
     charset: Opt.none(string),
   )
@@ -695,7 +696,7 @@ block bpBlobRefBothOptAbsent: # scenario 131
     extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
     isMultipart: false,
     source: bpsBlobRef,
-    blobId: Id("abc"),
+    blobId: BlobId("abc"),
     size: Opt.none(UnsignedInt),
     charset: Opt.none(string),
   )

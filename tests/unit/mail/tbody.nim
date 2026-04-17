@@ -89,7 +89,7 @@ block subPartsOnLeaf: # scenario 108b
       size: UnsignedInt(0),
       isMultipart: false,
       partId: PartId("1"),
-      blobId: Id("abc"),
+      blobId: BlobId("abc"),
       subParts: @[],
     )
   )
@@ -105,7 +105,7 @@ block blobIdOnInline: # scenario 125a
       source: bpsInline,
       partId: PartId("1"),
       value: BlueprintBodyValue(value: ""),
-      blobId: Id("abc"),
+      blobId: BlobId("abc"),
     )
   )
 

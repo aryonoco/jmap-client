@@ -79,7 +79,7 @@ block emailCreatedItemMinimalConstruction:
   assertOk res
   let item = res.get()
   assertEq item.id, makeId("e1")
-  assertEq item.blobId, makeId("b1")
+  assertEq item.blobId, makeBlobId("b1")
   assertEq item.threadId, makeId("t1")
   assertEq item.size, parseUnsignedInt(42).get()
 
@@ -152,7 +152,7 @@ block updatedEntryNullVsEmptyDistinct:
 block emailSetResponseRoundTrip:
   var cr = initTable[CreationId, Result[EmailCreatedItem, SetError]]()
   let item = EmailCreatedItem(
-    id: makeId("e1"), blobId: makeId("b1"), threadId: makeId("t1"), size: zeroUint()
+    id: makeId("e1"), blobId: makeBlobId("b1"), threadId: makeId("t1"), size: zeroUint()
   )
   cr[makeCreationId("k0")] = Result[EmailCreatedItem, SetError].ok(item)
   cr[makeCreationId("k1")] =

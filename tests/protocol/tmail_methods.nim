@@ -182,7 +182,7 @@ block vacationAndThreadMixedCapabilities:
 block addEmailParseInvocationName:
   ## Scenario 84: invocation name is "Email/parse", capability is mail.
   let b0 = initRequestBuilder()
-  let (b1, _) = b0.addEmailParse(makeAccountId("a1"), @[makeId("blob1")])
+  let (b1, _) = b0.addEmailParse(makeAccountId("a1"), @[makeBlobId("blob1")])
   let req = b1.build()
   assertLen req.methodCalls, 1
   assertEq req.methodCalls[0].name, mnEmailParse
@@ -193,8 +193,9 @@ block addEmailParseWithBodyFetchOptions:
   ## Scenario 85: bvsText emits fetchTextBodyValues = true.
   let opts = EmailBodyFetchOptions(fetchBodyValues: bvsText)
   let b0 = initRequestBuilder()
-  let (b1, _) =
-    b0.addEmailParse(makeAccountId("a1"), @[makeId("blob1")], bodyFetchOptions = opts)
+  let (b1, _) = b0.addEmailParse(
+    makeAccountId("a1"), @[makeBlobId("blob1")], bodyFetchOptions = opts
+  )
   let req = b1.build()
   let args = req.methodCalls[0].arguments
   doAssert args{"fetchTextBodyValues"}.getBool(false) == true
@@ -272,7 +273,7 @@ block addEmailImportInvocationName:
   ## ``EmailImportResponse`` — binding it to a mismatched
   ## ``ResponseHandle`` parameter must not compile.
   let emails = makeNonEmptyEmailImportMap(
-    @[(makeCreationId("k1"), makeEmailImportItem(blobId = makeId("b1")))]
+    @[(makeCreationId("k1"), makeEmailImportItem(blobId = makeBlobId("b1")))]
   )
   let b0 = initRequestBuilder()
   let (b1, handle) = b0.addEmailImport(makeAccountId("a1"), emails)
@@ -289,7 +290,7 @@ block addEmailImportEmailsPassthrough:
   ## ``toJson(NonEmptyEmailImportMap)`` at the builder boundary — the
   ## per-creation-id blobId survives unchanged into ``args.emails``.
   let emails = makeNonEmptyEmailImportMap(
-    @[(makeCreationId("k1"), makeEmailImportItem(blobId = makeId("b1")))]
+    @[(makeCreationId("k1"), makeEmailImportItem(blobId = makeBlobId("b1")))]
   )
   let b0 = initRequestBuilder()
   let (b1, _) = b0.addEmailImport(makeAccountId("a1"), emails)

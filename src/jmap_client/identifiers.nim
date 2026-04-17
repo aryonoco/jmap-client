@@ -47,6 +47,18 @@ func `$`*(a: CreationId): string {.borrow.}
   ## String representation delegated to the underlying string.
 func hash*(a: CreationId): Hash {.borrow.} ## Hash delegated to the underlying string.
 
+type BlobId* = distinct string
+  ## Server-assigned opaque blob identifier (RFC 8620 §3.2). Follows the
+  ## opaque-token borrow convention (JmapState/MethodCallId/CreationId):
+  ## ==/$/hash only — no len borrow — forcing ``string(blobId).len`` at
+  ## any call site that needs length, making opacity explicit.
+
+func `==`*(a, b: BlobId): bool {.borrow.}
+  ## Equality comparison delegated to the underlying string.
+func `$`*(a: BlobId): string {.borrow.}
+  ## String representation delegated to the underlying string.
+func hash*(a: BlobId): Hash {.borrow.} ## Hash delegated to the underlying string.
+
 func parseAccountId*(raw: string): Result[AccountId, ValidationError] =
   ## Lenient: 1-255 octets, no control characters.
   ## AccountIds are server-assigned Id[Account] values (§1.6.2, §2) —
@@ -73,3 +85,10 @@ func parseCreationId*(raw: string): Result[CreationId, ValidationError] =
   detectNonEmptyNoPrefix(raw).isOkOr:
     return err(toValidationError(error, "CreationId", raw))
   return ok(CreationId(raw))
+
+func parseBlobId*(raw: string): Result[BlobId, ValidationError] =
+  ## Lenient: 1-255 octets, no control characters.
+  ## Server-assigned — same lenient rules as parseIdFromServer.
+  detectLenientToken(raw).isOkOr:
+    return err(toValidationError(error, "BlobId", raw))
+  return ok(BlobId(raw))

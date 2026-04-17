@@ -354,41 +354,48 @@ func parseOptIdArray*(
     ids.add(id)
   return ok(ids)
 
-func collapseNullToEmptySeq*(
+func collapseNullToEmptySeq*[T](
     node: JsonNode,
     key: string,
-    parser: proc(s: string): Result[Id, ValidationError] {.noSideEffect, raises: [].},
+    parser: proc(s: string): Result[T, ValidationError] {.noSideEffect, raises: [].},
     path: JsonPath,
-): Result[seq[Id], SerdeViolation] =
-  ## Parse an ``Id[]|null`` field by key where null or absent collapses to
+): Result[seq[T], SerdeViolation] =
+  ## Parse a ``T[]|null`` field by key where null or absent collapses to
   ## an empty seq. Each array element's string value is passed to
-  ## ``parser``. Used by response types that have nullable id arrays (D13).
+  ## ``parser``. Used by response types that have nullable string-keyed
+  ## arrays (D13) — generic over the element type so both ``Id`` and
+  ## ``BlobId`` arrays can share this helper.
   let child = node{key}
   if child.isNil or child.kind != JArray:
-    return ok(newSeq[Id]())
-  var ids: seq[Id] = @[]
+    return ok(newSeq[T]())
+  var items: seq[T] = @[]
   for i, elem in child.getElems(@[]):
-    ids.add(?wrapInner(parser(elem.getStr("")), path / key / i))
-  return ok(ids)
+    items.add(?wrapInner(parser(elem.getStr("")), path / key / i))
+  return ok(items)
 
-func parseIdKeyedTable*[T](
+func parseKeyedTable*[K, T](
     node: JsonNode,
+    parseKey: proc(raw: string): Result[K, ValidationError] {.noSideEffect, raises: [].},
     parseValue: proc(n: JsonNode, p: JsonPath): Result[T, SerdeViolation] {.
       noSideEffect, raises: []
     .},
     path: JsonPath,
-): Result[Table[Id, T], SerdeViolation] =
-  ## Parse a JSON object into ``Table[Id, T]``. Each key is parsed as a
-  ## server-assigned ``Id``; each value via the caller-supplied parser,
-  ## which receives the descended path. Nil or non-object node yields an
-  ## empty table (lenient, D15).
+): Result[Table[K, T], SerdeViolation] =
+  ## Parse a JSON object into ``Table[K, T]``. Each key is parsed via
+  ## the server-validated smart constructor ``parseKey``; each value
+  ## via ``parseValue``, which receives the descended path. Nil or
+  ## non-object node yields an empty table (lenient, D15).
+  ##
+  ## ``K`` must satisfy Table's requirements (``hash``, ``==``) — every
+  ## opaque-token distinct-string in this codebase (``Id``, ``BlobId``,
+  ## ``AccountId``, etc.) does so via the borrow convention.
   if node.isNil or node.kind != JObject:
-    return ok(initTable[Id, T]())
-  var tbl = initTable[Id, T](node.len)
+    return ok(initTable[K, T]())
+  var tbl = initTable[K, T](node.len)
   for key, val in node.pairs:
-    let id = ?wrapInner(parseIdFromServer(key), path / key)
+    let k = ?wrapInner(parseKey(key), path / key)
     let parsed = ?parseValue(val, path / key)
-    tbl[id] = parsed
+    tbl[k] = parsed
   return ok(tbl)
 
 func optJsonField*(node: JsonNode, key: string, kind: JsonNodeKind): Opt[JsonNode] =
@@ -466,6 +473,7 @@ defineDistinctStringToJson(AccountId)
 defineDistinctStringToJson(JmapState)
 defineDistinctStringToJson(MethodCallId)
 defineDistinctStringToJson(CreationId)
+defineDistinctStringToJson(BlobId)
 defineDistinctStringToJson(PropertyName)
 defineDistinctStringToJson(Date)
 defineDistinctStringToJson(UTCDate)
@@ -475,6 +483,7 @@ defineDistinctStringFromJson(AccountId, parseAccountId)
 defineDistinctStringFromJson(JmapState, parseJmapState)
 defineDistinctStringFromJson(MethodCallId, parseMethodCallId)
 defineDistinctStringFromJson(CreationId, parseCreationId)
+defineDistinctStringFromJson(BlobId, parseBlobId)
 defineDistinctStringFromJson(PropertyName, parsePropertyName)
 defineDistinctStringFromJson(Date, parseDate)
 defineDistinctStringFromJson(UTCDate, parseUtcDate)

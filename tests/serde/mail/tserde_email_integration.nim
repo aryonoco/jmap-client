@@ -180,8 +180,9 @@ block builderBodyFetchOptionsParity: # scenario 135
 
   # Build Email/parse request
   let b2 = initRequestBuilder()
-  let (b3, _) =
-    b2.addEmailParse(makeAccountId("a1"), @[makeId("blob1")], bodyFetchOptions = opts)
+  let (b3, _) = b2.addEmailParse(
+    makeAccountId("a1"), @[makeBlobId("blob1")], bodyFetchOptions = opts
+  )
   let parseReq = b3.build()
   let parseArgs = parseReq.methodCalls[0].arguments
 

@@ -132,7 +132,7 @@ type Email* {.ruleOff: "objects".} = object
 
   # -- Metadata (section 4.1.1) -- server-set, immutable except mailboxIds/keywords
   id*: Id ## JMAP object id (not Message-ID header).
-  blobId*: Id ## Raw RFC 5322 octets.
+  blobId*: BlobId ## Raw RFC 5322 octets.
   threadId*: Id ## Thread this Email belongs to.
   mailboxIds*: MailboxIdSet ## At least one Mailbox at all times (RFC invariant).
   keywords*: KeywordSet ## Default: empty set.
@@ -241,7 +241,7 @@ type EmailCreatedItem* {.ruleOff: "objects".} = object
   ## no ``Opt`` on any field — a server omitting any of the four has emitted
   ## a malformed response (Design §2.1, F2).
   id*: Id ## JMAP object id of the created Email.
-  blobId*: Id ## Blob id for the raw RFC 5322 octets.
+  blobId*: BlobId ## Blob id for the raw RFC 5322 octets.
   threadId*: Id ## Thread the created Email belongs to.
   size*: UnsignedInt ## Raw message size in octets.
 
@@ -350,7 +350,7 @@ func initEmailCopyItem*(
 
 type EmailImportItem* {.ruleOff: "objects".} = object
   ## Creation-side model for a single Email/import entry (RFC 8621 §4.8).
-  blobId*: Id ## Previously uploaded message/rfc822 blob.
+  blobId*: BlobId ## Previously uploaded message/rfc822 blob.
   mailboxIds*: NonEmptyMailboxIdSet
     ## RFC §4.8: "At least one Mailbox MUST be given." Required + non-empty.
   keywords*: Opt[KeywordSet]
@@ -363,7 +363,7 @@ type EmailImportItem* {.ruleOff: "objects".} = object
     ## RFC 5322 message (Design §6.1).
 
 func initEmailImportItem*(
-    blobId: Id,
+    blobId: BlobId,
     mailboxIds: NonEmptyMailboxIdSet,
     keywords: Opt[KeywordSet] = Opt.none(KeywordSet),
     receivedAt: Opt[UTCDate] = Opt.none(UTCDate),

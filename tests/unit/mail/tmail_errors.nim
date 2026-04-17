@@ -11,6 +11,7 @@ import std/json
 import jmap_client/mail/mail_errors
 import jmap_client/validation
 import jmap_client/primitives
+import jmap_client/identifiers
 import jmap_client/errors
 
 import ../../massertions
@@ -68,8 +69,7 @@ block invalidRecipientAddressesMalformed: # scenario 63
 
 block notFoundBlobIdsValid: # scenario 64
   let se = setErrorBlobNotFound(
-    "blobNotFound",
-    @[parseIdFromServer("blob1").get(), parseIdFromServer("blob2").get()],
+    "blobNotFound", @[parseBlobId("blob1").get(), parseBlobId("blob2").get()]
   )
   assertSome se.notFoundBlobIds
   assertLen se.notFoundBlobIds.get(), 2
