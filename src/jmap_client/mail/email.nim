@@ -9,7 +9,6 @@
 
 {.push raises: [], noSideEffect.}
 
-import std/json
 import std/sets
 import std/tables
 
@@ -246,64 +245,14 @@ type EmailCreatedItem* {.ruleOff: "objects".} = object
   size*: UnsignedInt ## Raw message size in octets.
 
 # =============================================================================
-# UpdatedEntry
-# =============================================================================
-
-type UpdatedEntryKind* = enum
-  ## Discriminator for the RFC 8620 §5.3 ``Foo|null`` inner value.
-  uekUnchanged
-    ## Server made no changes the client doesn't already know
-    ## (wire value: JSON null).
-  uekChanged
-    ## Server altered properties; payload is the changed-property map
-    ## (wire value: JSON object).
-
-type UpdatedEntry* {.ruleOff: "objects".} = object
-  ## Encodes the per-id value in a /set ``updated`` response map per RFC
-  ## 8620 §5.3 (Design §2.2, F2.1). Case object makes the ``Foo|null``
-  ## split a type-level fact: ``Opt[JsonNode]`` would admit two encodings
-  ## of "null" (``Opt.none`` vs ``Opt.some(JNull)``), violating
-  ## one-source-of-truth.
-  case kind*: UpdatedEntryKind
-  of uekUnchanged:
-    discard
-  of uekChanged:
-    changedProperties*: JsonNode
-      ## Raw JSON — the alterable property set is
-      ## open-ended per RFC 8621 §4.6.
-
-# =============================================================================
 # Email Write Responses
 # =============================================================================
-
-type EmailSetResponse* {.ruleOff: "objects".} = object
-  ## Email/set response (RFC 8621 §4.6; envelope shape per RFC 8620 §5.3).
-  ## The ``updated``/``notUpdated`` and ``destroyed``/``notDestroyed`` maps
-  ## are kept separate (not merged into a single ``Result``-valued Table as
-  ## in core's ``SetResponse[T]``): ``UpdatedEntry`` is payload data, not a
-  ## success/error split (Design §2.2, F2.1).
-  accountId*: AccountId ## Account the /set targeted.
-  oldState*: Opt[JmapState] ## Server state before the call, or none.
-  newState*: JmapState ## Server state after the call.
-  createResults*: Table[CreationId, Result[EmailCreatedItem, SetError]]
-    ## Per-CreationId success/error for ``create`` entries.
-  updated*: Opt[Table[Id, UpdatedEntry]]
-    ## RFC 8620 §5.3 ``Id[Foo|null]|null``: outer Opt = map absent/null;
-    ## per-entry ``UpdatedEntry`` encodes the inner ``Foo|null`` split.
-  destroyed*: Opt[seq[Id]] ## Ids the server successfully destroyed.
-  notUpdated*: Opt[Table[Id, SetError]] ## Per-id failures on ``update``.
-  notDestroyed*: Opt[Table[Id, SetError]] ## Per-id failures on ``destroy``.
-
-type EmailCopyResponse* {.ruleOff: "objects".} = object
-  ## Email/copy response (RFC 8621 §4.7). Shares the four-field
-  ## successful-create shape but omits /set-specific fields that /copy
-  ## never populates (Design §2.2).
-  fromAccountId*: AccountId ## Source account the copy originated from.
-  accountId*: AccountId ## Destination account.
-  oldState*: Opt[JmapState] ## Destination state before the call, or none.
-  newState*: JmapState ## Destination state after the call.
-  createResults*: Table[CreationId, Result[EmailCreatedItem, SetError]]
-    ## Per-CreationId success/error for copied entries.
+# Email/set and Email/copy now reuse the promoted generic ``SetResponse[T]``
+# and ``CopyResponse[T]`` from ``methods.nim`` with ``T = EmailCreatedItem``
+# (design decision X1/X2/X3). The RFC 8620 §5.3 ``Foo|null`` inner split on
+# ``updated`` is preserved by the generic's ``Opt[JsonNode]``: ``Opt.none``
+# = wire null; ``Opt.some(node)`` = wire object. ``EmailImportResponse``
+# stays bespoke — import has no /set counterpart in the generic family.
 
 type EmailImportResponse* {.ruleOff: "objects".} = object
   ## Email/import response (RFC 8621 §4.8). Minimal — no ``updated`` or

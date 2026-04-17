@@ -38,6 +38,7 @@ import jmap_client/mail/serde_email
 import jmap_client/mail/serde_snippet
 import jmap_client/mail/email_blueprint
 import jmap_client/mail/mail_builders
+import jmap_client/methods
 import jmap_client/dispatch
 
 proc zeroUint*(): UnsignedInt =
@@ -1789,20 +1790,23 @@ proc makeEmailSetResponse*(
     newState: JmapState = makeState("s1"),
     createResults: Table[CreationId, Result[EmailCreatedItem, SetError]] =
       initTable[CreationId, Result[EmailCreatedItem, SetError]](),
-    updated: Opt[Table[Id, UpdatedEntry]] = Opt.none(Table[Id, UpdatedEntry]),
-    destroyed: Opt[seq[Id]] = Opt.none(seq[Id]),
-    notUpdated: Opt[Table[Id, SetError]] = Opt.none(Table[Id, SetError]),
-    notDestroyed: Opt[Table[Id, SetError]] = Opt.none(Table[Id, SetError]),
-): EmailSetResponse =
-  EmailSetResponse(
+    updateResults: Table[Id, Result[Opt[JsonNode], SetError]] =
+      initTable[Id, Result[Opt[JsonNode], SetError]](),
+    destroyResults: Table[Id, Result[void, SetError]] =
+      initTable[Id, Result[void, SetError]](),
+): SetResponse[EmailCreatedItem] =
+  ## Email/set response fixture — the bespoke ``EmailSetResponse`` was
+  ## deleted; ``SetResponse[EmailCreatedItem]`` is the generic instantiation.
+  ## The split ``updated``/``notUpdated`` and ``destroyed``/``notDestroyed``
+  ## fields collapse into the unified ``updateResults`` / ``destroyResults``
+  ## tables (RFC 8620 §5.3 Decision 3.9B).
+  SetResponse[EmailCreatedItem](
     accountId: accountId,
     oldState: oldState,
     newState: newState,
     createResults: createResults,
-    updated: updated,
-    destroyed: destroyed,
-    notUpdated: notUpdated,
-    notDestroyed: notDestroyed,
+    updateResults: updateResults,
+    destroyResults: destroyResults,
   )
 
 proc makeEmailCopyResponse*(
@@ -1812,10 +1816,11 @@ proc makeEmailCopyResponse*(
     newState: JmapState = makeState("s1"),
     createResults: Table[CreationId, Result[EmailCreatedItem, SetError]] =
       initTable[CreationId, Result[EmailCreatedItem, SetError]](),
-): EmailCopyResponse =
-  ## No updated / destroyed fields per RFC 8621 §4.7 — pinned negatively
-  ## by Phase 2 serde tests.
-  EmailCopyResponse(
+): CopyResponse[EmailCreatedItem] =
+  ## Email/copy response fixture — the bespoke ``EmailCopyResponse`` was
+  ## deleted in favour of the generic ``CopyResponse[EmailCreatedItem]``.
+  ## No update/destroy fields per RFC 8621 §4.7.
+  CopyResponse[EmailCreatedItem](
     fromAccountId: fromAccountId,
     accountId: accountId,
     oldState: oldState,
@@ -1849,7 +1854,8 @@ proc makeEmailCopyHandles*(
   ## parent Email/copy invocation. Phase 4 protocol tests may add a
   ## distinct-MCID overload later if the mismatch case needs exercising.
   EmailCopyHandles(
-    copy: ResponseHandle[EmailCopyResponse](sharedCallId),
-    destroy:
-      NameBoundHandle[EmailSetResponse](callId: sharedCallId, methodName: mnEmailSet),
+    copy: ResponseHandle[CopyResponse[EmailCreatedItem]](sharedCallId),
+    destroy: NameBoundHandle[SetResponse[EmailCreatedItem]](
+      callId: sharedCallId, methodName: mnEmailSet
+    ),
   )

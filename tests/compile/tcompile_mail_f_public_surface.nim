@@ -16,15 +16,17 @@
 import jmap_client
 
 static:
-  # --- Types (20) ---
+  # --- Types (16) ---
+  # EmailSetResponse/EmailCopyResponse/UpdatedEntry/UpdatedEntryKind were
+  # deleted when Email/set migrated to the promoted generic
+  # SetResponse[EmailCreatedItem] / CopyResponse[EmailCreatedItem] in
+  # methods.nim (Decision X2/X3).
   doAssert declared(EmailUpdate)
   doAssert declared(EmailUpdateVariantKind)
   doAssert declared(EmailUpdateSet)
   doAssert declared(EmailCreatedItem)
-  doAssert declared(UpdatedEntry)
-  doAssert declared(UpdatedEntryKind)
-  doAssert declared(EmailSetResponse)
-  doAssert declared(EmailCopyResponse)
+  doAssert declared(SetResponse)
+  doAssert declared(CopyResponse)
   doAssert declared(EmailImportResponse)
   doAssert declared(EmailCopyItem)
   doAssert declared(EmailImportItem)

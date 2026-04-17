@@ -527,6 +527,101 @@ func toJson*[T, C](
   )
 
 # =============================================================================
+# Response toJson — split merged Result tables back to the wire shape
+# =============================================================================
+# Round-trip helpers used primarily by tests and fixtures: ``fromJson``
+# merges parallel wire maps into typed Result tables; these helpers
+# reverse the projection. Production code consumes responses, never
+# emits them — but the round-trip is load-bearing for serde tests.
+
+func emitSplitCreateResults[T](
+    createResults: Table[CreationId, Result[T, SetError]], node: JsonNode
+) =
+  ## Splits a merged ``createResults`` table into the wire ``created`` and
+  ## ``notCreated`` maps; either key is omitted when its bucket is empty.
+  ## ``T.toJson`` resolves at instantiation via ``mixin``.
+  mixin toJson
+  var created = newJObject()
+  var notCreated = newJObject()
+  for cid, r in createResults:
+    if r.isOk:
+      created[string(cid)] = r.get().toJson()
+    else:
+      notCreated[string(cid)] = r.error().toJson()
+  if created.len > 0:
+    node["created"] = created
+  if notCreated.len > 0:
+    node["notCreated"] = notCreated
+
+func emitSplitUpdateResults(
+    updateResults: Table[Id, Result[Opt[JsonNode], SetError]], node: JsonNode
+) =
+  ## Splits a merged ``updateResults`` table into ``updated`` and
+  ## ``notUpdated`` wire maps. ``Opt.none`` projects to JSON null;
+  ## ``Opt.some(n)`` projects to the inner node verbatim.
+  var updated = newJObject()
+  var notUpdated = newJObject()
+  for id, r in updateResults:
+    if r.isOk:
+      let inner = r.get()
+      updated[string(id)] =
+        if inner.isSome:
+          inner.get()
+        else:
+          newJNull()
+    else:
+      notUpdated[string(id)] = r.error().toJson()
+  if updated.len > 0:
+    node["updated"] = updated
+  if notUpdated.len > 0:
+    node["notUpdated"] = notUpdated
+
+func emitSplitDestroyResults(
+    destroyResults: Table[Id, Result[void, SetError]], node: JsonNode
+) =
+  ## Splits a merged ``destroyResults`` table into the wire ``destroyed``
+  ## array and ``notDestroyed`` map. Empty buckets omit their key.
+  var destroyed = newJArray()
+  var notDestroyed = newJObject()
+  for id, r in destroyResults:
+    if r.isOk:
+      destroyed.add(id.toJson())
+    else:
+      notDestroyed[string(id)] = r.error().toJson()
+  if destroyed.len > 0:
+    node["destroyed"] = destroyed
+  if notDestroyed.len > 0:
+    node["notDestroyed"] = notDestroyed
+
+func toJson*[T](resp: SetResponse[T]): JsonNode =
+  ## Serialise SetResponse[T] back to the RFC 8620 §5.3 wire shape:
+  ## merged Result tables split into parallel created/notCreated,
+  ## updated/notUpdated, destroyed/notDestroyed maps.
+  mixin toJson
+  var node = newJObject()
+  node["accountId"] = resp.accountId.toJson()
+  for s in resp.oldState:
+    node["oldState"] = s.toJson()
+  node["newState"] = resp.newState.toJson()
+  emitSplitCreateResults(resp.createResults, node)
+  emitSplitUpdateResults(resp.updateResults, node)
+  emitSplitDestroyResults(resp.destroyResults, node)
+  return node
+
+func toJson*[T](resp: CopyResponse[T]): JsonNode =
+  ## Serialise CopyResponse[T] back to the RFC 8620 §5.4 wire shape.
+  ## Only ``createResults`` to split; copy has no update/destroy branches.
+  mixin toJson
+  var node = newJObject()
+  node["fromAccountId"] = resp.fromAccountId.toJson()
+  node["accountId"] = resp.accountId.toJson()
+  for s in resp.oldState:
+    node["oldState"] = s.toJson()
+  node["newState"] = resp.newState.toJson()
+  emitSplitCreateResults(resp.createResults, node)
+  return node
+
+# =============================================================================
 # SetResponse merging helpers (section 8)
 # =============================================================================
 

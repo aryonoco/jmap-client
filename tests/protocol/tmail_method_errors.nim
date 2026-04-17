@@ -12,6 +12,7 @@ import std/json
 import std/tables
 
 import jmap_client/types
+import jmap_client/methods
 import jmap_client/dispatch
 import jmap_client/errors
 import jmap_client/mail/email
@@ -63,7 +64,7 @@ proc importNotCreatedJson(errType: string): JsonNode =
 
 block emailSetRequestTooLarge:
   let cid = makeMcid("c0")
-  let handle = ResponseHandle[EmailSetResponse](cid)
+  let handle = ResponseHandle[SetResponse[EmailCreatedItem]](cid)
   let resp = makeErrorResponse("requestTooLarge", cid)
   let res = resp.get(handle)
   doAssert res.isErr
@@ -71,7 +72,7 @@ block emailSetRequestTooLarge:
 
 block emailSetStateMismatch:
   let cid = makeMcid("c0")
-  let handle = ResponseHandle[EmailSetResponse](cid)
+  let handle = ResponseHandle[SetResponse[EmailCreatedItem]](cid)
   let resp = makeErrorResponse("stateMismatch", cid)
   let res = resp.get(handle)
   doAssert res.isErr
@@ -79,7 +80,7 @@ block emailSetStateMismatch:
 
 block emailCopyFromAccountNotFound:
   let cid = makeMcid("c0")
-  let handle = ResponseHandle[EmailCopyResponse](cid)
+  let handle = ResponseHandle[CopyResponse[EmailCreatedItem]](cid)
   let resp = makeErrorResponse("fromAccountNotFound", cid)
   let res = resp.get(handle)
   doAssert res.isErr
@@ -87,7 +88,7 @@ block emailCopyFromAccountNotFound:
 
 block emailCopyFromAccountNotSupportedByMethod:
   let cid = makeMcid("c0")
-  let handle = ResponseHandle[EmailCopyResponse](cid)
+  let handle = ResponseHandle[CopyResponse[EmailCreatedItem]](cid)
   let resp = makeErrorResponse("fromAccountNotSupportedByMethod", cid)
   let res = resp.get(handle)
   doAssert res.isErr
@@ -95,7 +96,7 @@ block emailCopyFromAccountNotSupportedByMethod:
 
 block emailCopyStateMismatch:
   let cid = makeMcid("c0")
-  let handle = ResponseHandle[EmailCopyResponse](cid)
+  let handle = ResponseHandle[CopyResponse[EmailCreatedItem]](cid)
   let resp = makeErrorResponse("stateMismatch", cid)
   let res = resp.get(handle)
   doAssert res.isErr
@@ -129,30 +130,28 @@ block emailImportRequestTooLarge:
 # --- forbidden (5 cells) ---------------------------------------------------
 
 block emailSetForbiddenOnCreate:
-  let r = EmailSetResponse.fromJson(setNotCreatedJson("forbidden")).get()
+  let r = SetResponse[EmailCreatedItem].fromJson(setNotCreatedJson("forbidden")).get()
   let k = makeCreationId("k1")
   doAssert k in r.createResults
   doAssert r.createResults[k].isErr
   assertEq r.createResults[k].error.errorType, setForbidden
 
 block emailSetForbiddenOnUpdate:
-  let r = EmailSetResponse.fromJson(setNotUpdatedJson("forbidden")).get()
-  assertSome r.notUpdated
-  let m = r.notUpdated.get()
+  let r = SetResponse[EmailCreatedItem].fromJson(setNotUpdatedJson("forbidden")).get()
   let id = makeId("e1")
-  doAssert id in m
-  assertEq m[id].errorType, setForbidden
+  doAssert id in r.updateResults
+  doAssert r.updateResults[id].isErr
+  assertEq r.updateResults[id].error.errorType, setForbidden
 
 block emailSetForbiddenOnDestroy:
-  let r = EmailSetResponse.fromJson(setNotDestroyedJson("forbidden")).get()
-  assertSome r.notDestroyed
-  let m = r.notDestroyed.get()
+  let r = SetResponse[EmailCreatedItem].fromJson(setNotDestroyedJson("forbidden")).get()
   let id = makeId("e1")
-  doAssert id in m
-  assertEq m[id].errorType, setForbidden
+  doAssert id in r.destroyResults
+  doAssert r.destroyResults[id].isErr
+  assertEq r.destroyResults[id].error.errorType, setForbidden
 
 block emailCopyForbiddenOnCreate:
-  let r = EmailCopyResponse.fromJson(copyNotCreatedJson("forbidden")).get()
+  let r = CopyResponse[EmailCreatedItem].fromJson(copyNotCreatedJson("forbidden")).get()
   let k = makeCreationId("k1")
   doAssert k in r.createResults
   doAssert r.createResults[k].isErr
@@ -168,18 +167,17 @@ block emailImportForbiddenOnCreate:
 # --- overQuota (4 cells) ---------------------------------------------------
 
 block emailSetOverQuotaOnCreate:
-  let r = EmailSetResponse.fromJson(setNotCreatedJson("overQuota")).get()
+  let r = SetResponse[EmailCreatedItem].fromJson(setNotCreatedJson("overQuota")).get()
   let k = makeCreationId("k1")
   doAssert r.createResults[k].isErr
   assertEq r.createResults[k].error.errorType, setOverQuota
 
 block emailSetOverQuotaOnUpdate:
-  let r = EmailSetResponse.fromJson(setNotUpdatedJson("overQuota")).get()
-  assertSome r.notUpdated
-  assertEq r.notUpdated.get()[makeId("e1")].errorType, setOverQuota
+  let r = SetResponse[EmailCreatedItem].fromJson(setNotUpdatedJson("overQuota")).get()
+  assertEq r.updateResults[makeId("e1")].error.errorType, setOverQuota
 
 block emailCopyOverQuotaOnCreate:
-  let r = EmailCopyResponse.fromJson(copyNotCreatedJson("overQuota")).get()
+  let r = CopyResponse[EmailCreatedItem].fromJson(copyNotCreatedJson("overQuota")).get()
   let k = makeCreationId("k1")
   doAssert r.createResults[k].isErr
   assertEq r.createResults[k].error.errorType, setOverQuota
@@ -193,18 +191,17 @@ block emailImportOverQuotaOnCreate:
 # --- tooLarge (4 cells) ----------------------------------------------------
 
 block emailSetTooLargeOnCreate:
-  let r = EmailSetResponse.fromJson(setNotCreatedJson("tooLarge")).get()
+  let r = SetResponse[EmailCreatedItem].fromJson(setNotCreatedJson("tooLarge")).get()
   let k = makeCreationId("k1")
   doAssert r.createResults[k].isErr
   assertEq r.createResults[k].error.errorType, setTooLarge
 
 block emailSetTooLargeOnUpdate:
-  let r = EmailSetResponse.fromJson(setNotUpdatedJson("tooLarge")).get()
-  assertSome r.notUpdated
-  assertEq r.notUpdated.get()[makeId("e1")].errorType, setTooLarge
+  let r = SetResponse[EmailCreatedItem].fromJson(setNotUpdatedJson("tooLarge")).get()
+  assertEq r.updateResults[makeId("e1")].error.errorType, setTooLarge
 
 block emailCopyTooLargeOnCreate:
-  let r = EmailCopyResponse.fromJson(copyNotCreatedJson("tooLarge")).get()
+  let r = CopyResponse[EmailCreatedItem].fromJson(copyNotCreatedJson("tooLarge")).get()
   let k = makeCreationId("k1")
   doAssert r.createResults[k].isErr
   assertEq r.createResults[k].error.errorType, setTooLarge
@@ -218,13 +215,13 @@ block emailImportTooLargeOnCreate:
 # --- rateLimit (3 cells) ---------------------------------------------------
 
 block emailSetRateLimitOnCreate:
-  let r = EmailSetResponse.fromJson(setNotCreatedJson("rateLimit")).get()
+  let r = SetResponse[EmailCreatedItem].fromJson(setNotCreatedJson("rateLimit")).get()
   let k = makeCreationId("k1")
   doAssert r.createResults[k].isErr
   assertEq r.createResults[k].error.errorType, setRateLimit
 
 block emailCopyRateLimitOnCreate:
-  let r = EmailCopyResponse.fromJson(copyNotCreatedJson("rateLimit")).get()
+  let r = CopyResponse[EmailCreatedItem].fromJson(copyNotCreatedJson("rateLimit")).get()
   let k = makeCreationId("k1")
   doAssert r.createResults[k].isErr
   assertEq r.createResults[k].error.errorType, setRateLimit
@@ -238,18 +235,16 @@ block emailImportRateLimitOnCreate:
 # --- notFound (3 cells) ----------------------------------------------------
 
 block emailSetNotFoundOnUpdate:
-  let r = EmailSetResponse.fromJson(setNotUpdatedJson("notFound")).get()
-  assertSome r.notUpdated
-  assertEq r.notUpdated.get()[makeId("e1")].errorType, setNotFound
+  let r = SetResponse[EmailCreatedItem].fromJson(setNotUpdatedJson("notFound")).get()
+  assertEq r.updateResults[makeId("e1")].error.errorType, setNotFound
 
 block emailSetNotFoundOnDestroy:
-  let r = EmailSetResponse.fromJson(setNotDestroyedJson("notFound")).get()
-  assertSome r.notDestroyed
-  assertEq r.notDestroyed.get()[makeId("e1")].errorType, setNotFound
+  let r = SetResponse[EmailCreatedItem].fromJson(setNotDestroyedJson("notFound")).get()
+  assertEq r.destroyResults[makeId("e1")].error.errorType, setNotFound
 
 block emailCopyNotFoundOnCreate:
   ## RFC 8621 §4.7 blobId-not-found path.
-  let r = EmailCopyResponse.fromJson(copyNotCreatedJson("notFound")).get()
+  let r = CopyResponse[EmailCreatedItem].fromJson(copyNotCreatedJson("notFound")).get()
   let k = makeCreationId("k1")
   doAssert r.createResults[k].isErr
   assertEq r.createResults[k].error.errorType, setNotFound
@@ -257,16 +252,15 @@ block emailCopyNotFoundOnCreate:
 # --- invalidPatch (1 cell) -------------------------------------------------
 
 block emailSetInvalidPatchOnUpdate:
-  let r = EmailSetResponse.fromJson(setNotUpdatedJson("invalidPatch")).get()
-  assertSome r.notUpdated
-  assertEq r.notUpdated.get()[makeId("e1")].errorType, setInvalidPatch
+  let r =
+    SetResponse[EmailCreatedItem].fromJson(setNotUpdatedJson("invalidPatch")).get()
+  assertEq r.updateResults[makeId("e1")].error.errorType, setInvalidPatch
 
 # --- willDestroy (1 cell) --------------------------------------------------
 
 block emailSetWillDestroyOnUpdate:
-  let r = EmailSetResponse.fromJson(setNotUpdatedJson("willDestroy")).get()
-  assertSome r.notUpdated
-  assertEq r.notUpdated.get()[makeId("e1")].errorType, setWillDestroy
+  let r = SetResponse[EmailCreatedItem].fromJson(setNotUpdatedJson("willDestroy")).get()
+  assertEq r.updateResults[makeId("e1")].error.errorType, setWillDestroy
 
 # --- invalidProperties (4 cells) -------------------------------------------
 
@@ -279,7 +273,7 @@ block emailSetInvalidPropertiesOnCreate:
     "newState": "s1",
     "notCreated": {"k1": {"type": "invalidProperties", "properties": ["subject"]}},
   }
-  let r = EmailSetResponse.fromJson(node).get()
+  let r = SetResponse[EmailCreatedItem].fromJson(node).get()
   let k = makeCreationId("k1")
   doAssert r.createResults[k].isErr
   assertEq r.createResults[k].error.errorType, setInvalidProperties
@@ -290,9 +284,8 @@ block emailSetInvalidPropertiesOnUpdate:
     "newState": "s1",
     "notUpdated": {"e1": {"type": "invalidProperties", "properties": ["from"]}},
   }
-  let r = EmailSetResponse.fromJson(node).get()
-  assertSome r.notUpdated
-  assertEq r.notUpdated.get()[makeId("e1")].errorType, setInvalidProperties
+  let r = SetResponse[EmailCreatedItem].fromJson(node).get()
+  assertEq r.updateResults[makeId("e1")].error.errorType, setInvalidProperties
 
 block emailCopyInvalidPropertiesOnCreate:
   let node = %*{
@@ -301,7 +294,7 @@ block emailCopyInvalidPropertiesOnCreate:
     "newState": "s1",
     "notCreated": {"k1": {"type": "invalidProperties", "properties": ["mailboxIds"]}},
   }
-  let r = EmailCopyResponse.fromJson(node).get()
+  let r = CopyResponse[EmailCreatedItem].fromJson(node).get()
   let k = makeCreationId("k1")
   doAssert r.createResults[k].isErr
   assertEq r.createResults[k].error.errorType, setInvalidProperties
@@ -328,13 +321,13 @@ block emailImportInvalidPropertiesOnCreate:
 # enforceable at the test level without reflection.
 
 block emailSetSingletonParsesButNotEmittable:
-  let r = EmailSetResponse.fromJson(setNotCreatedJson("singleton")).get()
+  let r = SetResponse[EmailCreatedItem].fromJson(setNotCreatedJson("singleton")).get()
   let k = makeCreationId("k1")
   doAssert r.createResults[k].isErr
   assertEq r.createResults[k].error.errorType, setSingleton
 
 block emailCopySingletonParsesButNotEmittable:
-  let r = EmailCopyResponse.fromJson(copyNotCreatedJson("singleton")).get()
+  let r = CopyResponse[EmailCreatedItem].fromJson(copyNotCreatedJson("singleton")).get()
   let k = makeCreationId("k1")
   doAssert r.createResults[k].isErr
   assertEq r.createResults[k].error.errorType, setSingleton

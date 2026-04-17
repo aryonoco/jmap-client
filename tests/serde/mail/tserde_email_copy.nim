@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: BSD-2-Clause
 # Copyright (c) 2026 Aryan Ameri
 
-## Serde tests for EmailCopyItem and EmailCopyResponse (F2 §8.3 copy row,
+## Serde tests for EmailCopyItem and CopyResponse[EmailCreatedItem] (F2 §8.3 copy row,
 ## F1 §2.2 type-level exclusion). Pins the ``Opt.none → key-absent`` override
 ## semantics, the ``created`` / ``notCreated`` merge, the required
 ## ``fromAccountId`` field, and the compile-time guarantee that
-## ``EmailCopyResponse`` omits the ``/set``-specific ``updated`` /
+## ``CopyResponse[EmailCreatedItem]`` omits the ``/set``-specific ``updated`` /
 ## ``destroyed`` fields.
 
 {.push raises: [].}
@@ -17,6 +17,7 @@ import jmap_client/mail/keyword
 import jmap_client/mail/serde_email
 import jmap_client/identifiers
 import jmap_client/primitives
+import jmap_client/methods
 import jmap_client/serde
 import jmap_client/validation
 
@@ -60,7 +61,7 @@ block emailCopyItemOptNoneOmitsKeys:
   assertJsonKeyAbsent node, "keywords"
   assertJsonKeyAbsent node, "receivedAt"
 
-# ============= B. EmailCopyResponse.fromJson =============
+# ============= B. CopyResponse[EmailCreatedItem].fromJson =============
 
 block emailCopyResponseCreatedOnly:
   let node = %*{
@@ -69,7 +70,7 @@ block emailCopyResponseCreatedOnly:
     "newState": "s1",
     "created": {"k0": {"id": "e1", "blobId": "b1", "threadId": "t1", "size": 100}},
   }
-  let res = EmailCopyResponse.fromJson(node)
+  let res = CopyResponse[EmailCreatedItem].fromJson(node)
   assertOk res
   let r = res.get()
   assertLen r.createResults, 1
@@ -83,7 +84,7 @@ block emailCopyResponseNotCreatedOnly:
     "newState": "s1",
     "notCreated": {"k1": {"type": "invalidProperties"}},
   }
-  let r = EmailCopyResponse.fromJson(node).get()
+  let r = CopyResponse[EmailCreatedItem].fromJson(node).get()
   assertLen r.createResults, 1
   doAssert makeCreationId("k1") in r.createResults
   doAssert r.createResults[makeCreationId("k1")].isErr
@@ -96,7 +97,7 @@ block emailCopyResponseCombined:
     "created": {"k0": {"id": "e1", "blobId": "b1", "threadId": "t1", "size": 100}},
     "notCreated": {"k1": {"type": "invalidProperties"}},
   }
-  let r = EmailCopyResponse.fromJson(node).get()
+  let r = CopyResponse[EmailCreatedItem].fromJson(node).get()
   assertLen r.createResults, 2
   doAssert r.createResults[makeCreationId("k0")].isOk
   doAssert r.createResults[makeCreationId("k1")].isErr
@@ -107,17 +108,17 @@ block emailCopyResponseRequiresFromAccountId:
   ## RFC 8621 §4.7: ``fromAccountId`` is mandatory (it names the source
   ## account the copy originated from). Parser must reject its absence.
   let node = %*{"accountId": "dst", "newState": "s1"}
-  assertErr EmailCopyResponse.fromJson(node)
+  assertErr CopyResponse[EmailCreatedItem].fromJson(node)
 
 # ============= D. Type-level exclusion (compile-time pin) =============
 
 block emailCopyResponseHasNoUpdatedField:
-  ## Pins F1 §2.2's type-level guarantee: ``EmailCopyResponse`` has NO
+  ## Pins F1 §2.2's type-level guarantee: ``CopyResponse[EmailCreatedItem]`` has NO
   ## ``updated`` (nor ``destroyed``) field — those belong to ``/set`` only.
   ## Structured as ``assertNotCompiles`` so an accidental field addition
   ## to the type breaks the test rather than a runtime assertion.
   assertNotCompiles(
     block:
-      let r: EmailCopyResponse = default(EmailCopyResponse)
+      let r: CopyResponse[EmailCreatedItem] = default(CopyResponse[EmailCreatedItem])
       discard r.updated
   )

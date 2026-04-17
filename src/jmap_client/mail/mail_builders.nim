@@ -351,12 +351,12 @@ func addEmailSet*(
       Opt.none(Table[CreationId, EmailBlueprint]),
     update: Opt[Table[Id, EmailUpdateSet]] = Opt.none(Table[Id, EmailUpdateSet]),
     destroy: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]),
-): (RequestBuilder, ResponseHandle[EmailSetResponse]) =
+): (RequestBuilder, ResponseHandle[SetResponse[EmailCreatedItem]]) =
   ## Adds an Email/set invocation. Typed create (EmailBlueprint) and update
   ## (EmailUpdateSet) per Design §4.1. Returns a handle typed to the
-  ## Email-specific ``EmailSetResponse`` (split ``updated``/``notUpdated``
-  ## and ``destroyed``/``notDestroyed`` — ``UpdatedEntry`` is payload data,
-  ## not a success/error split).
+  ## generic ``SetResponse[EmailCreatedItem]`` — ``createResults`` carries
+  ## the typed per-entity payload, ``updateResults`` / ``destroyResults``
+  ## follow the RFC 8620 §5.3 merged-Result-table shape.
   let jsonCreate = block:
     var res = Opt.none(Table[CreationId, JsonNode])
     for createMap in create:
@@ -377,7 +377,7 @@ func addEmailSet*(
       updateObj[string(id)] = updateSet.toJson()
     args["update"] = updateObj
   let (newBuilder, callId) = b.addInvocation(mnEmailSet, args, MailCapUri)
-  (newBuilder, ResponseHandle[EmailSetResponse](callId))
+  (newBuilder, ResponseHandle[SetResponse[EmailCreatedItem]](callId))
 
 # =============================================================================
 # addEmailCopy — Email/copy (RFC 8621 §4.7)
@@ -390,7 +390,7 @@ func addEmailCopy*(
     create: Table[CreationId, EmailCopyItem],
     ifFromInState: Opt[JmapState] = Opt.none(JmapState),
     ifInState: Opt[JmapState] = Opt.none(JmapState),
-): (RequestBuilder, ResponseHandle[EmailCopyResponse]) =
+): (RequestBuilder, ResponseHandle[CopyResponse[EmailCreatedItem]]) =
   ## Simple Email/copy invocation (non-compound; no implicit destroy).
   ## ``onSuccessDestroyOriginal`` omitted (wire default false per RFC 8620
   ## §5.4). For the compound overload, use ``addEmailCopyAndDestroy``.
@@ -406,7 +406,7 @@ func addEmailCopy*(
     createObj[string(cid)] = item.toJson()
   args["create"] = createObj
   let (newBuilder, callId) = b.addInvocation(mnEmailCopy, args, MailCapUri)
-  (newBuilder, ResponseHandle[EmailCopyResponse](callId))
+  (newBuilder, ResponseHandle[CopyResponse[EmailCreatedItem]](callId))
 
 # =============================================================================
 # EmailCopyHandles / EmailCopyResults — compound dispatch (RFC 8620 §5.4)
@@ -420,13 +420,13 @@ type EmailCopyHandles* = object
   ## RFC 8620 §5.4; destroy carries its own method-name (Email/set) via
   ## ``NameBoundHandle`` so ``getBoth`` dispatches correctly without a
   ## filter argument at the call site (Design §5.4).
-  copy*: ResponseHandle[EmailCopyResponse]
-  destroy*: NameBoundHandle[EmailSetResponse]
+  copy*: ResponseHandle[CopyResponse[EmailCreatedItem]]
+  destroy*: NameBoundHandle[SetResponse[EmailCreatedItem]]
 
 type EmailCopyResults* = object
   ## Paired extraction results from ``addEmailCopyAndDestroy``.
-  copy*: EmailCopyResponse
-  destroy*: EmailSetResponse
+  copy*: CopyResponse[EmailCreatedItem]
+  destroy*: SetResponse[EmailCreatedItem]
 
 {.pop.}
 
@@ -467,8 +467,10 @@ func addEmailCopyAndDestroy*(
     args["destroyFromIfInState"] = s.toJson()
   let (newBuilder, cid) = b.addInvocation(mnEmailCopy, args, MailCapUri)
   let handles = EmailCopyHandles(
-    copy: ResponseHandle[EmailCopyResponse](cid),
-    destroy: NameBoundHandle[EmailSetResponse](callId: cid, methodName: mnEmailSet),
+    copy: ResponseHandle[CopyResponse[EmailCreatedItem]](cid),
+    destroy: NameBoundHandle[SetResponse[EmailCreatedItem]](
+      callId: cid, methodName: mnEmailSet
+    ),
   )
   (newBuilder, handles)
 

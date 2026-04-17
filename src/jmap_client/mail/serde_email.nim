@@ -707,41 +707,13 @@ func fromJson*(
   return ok(EmailCreatedItem(id: id, blobId: blobId, threadId: threadId, size: size))
 
 # =============================================================================
-# UpdatedEntry
+# EmailImportResponse-only helpers
 # =============================================================================
-
-func toJson*(entry: UpdatedEntry): JsonNode =
-  ## Serialise UpdatedEntry. uekUnchanged emits null (RFC 8620 §5.3 Foo|null
-  ## inner split); uekChanged emits the raw changedProperties JsonNode.
-  case entry.kind
-  of uekUnchanged:
-    newJNull()
-  of uekChanged:
-    entry.changedProperties
-
-func fromJson*(
-    T: typedesc[UpdatedEntry], node: JsonNode, path: JsonPath = emptyJsonPath()
-): Result[UpdatedEntry, SerdeViolation] =
-  ## Deserialise JSON to UpdatedEntry. null → uekUnchanged; object →
-  ## uekChanged with the object as changedProperties.
-  discard $T # consumed for nimalyzer params rule
-  if node.isNil or node.kind == JNull:
-    return ok(UpdatedEntry(kind: uekUnchanged))
-  if node.kind == JObject:
-    return ok(UpdatedEntry(kind: uekChanged, changedProperties: node))
-  return err(
-    SerdeViolation(
-      kind: svkWrongKind, path: path, expectedKind: JObject, actualKind: node.kind
-    )
-  )
-
-# =============================================================================
-# Email write-response shared helpers
-# =============================================================================
-# The three Email write responses (/set, /copy, /import) share envelope
-# pieces: oldState, merged created/notCreated, and /set's four split maps.
-# Extracting these as named helpers keeps each response's toJson/fromJson
-# under the complexity budget while keeping intent at the call site.
+# Email/set and Email/copy now route through the generic
+# ``SetResponse[EmailCreatedItem]`` / ``CopyResponse[EmailCreatedItem]``
+# serde in ``methods.nim``. ``EmailImportResponse`` stays bespoke (no
+# generic ``ImportResponse[T]`` exists), so the envelope-extraction and
+# create-merge helpers below remain for its single caller.
 
 func parseOptJmapStateField(
     node: JsonNode, key: string, path: JsonPath
@@ -756,8 +728,7 @@ func mergeCreatedResults(
     node: JsonNode, path: JsonPath
 ): Result[Table[CreationId, Result[EmailCreatedItem, SetError]], SerdeViolation] =
   ## Merges wire ``created`` and ``notCreated`` maps into a single Table
-  ## keyed by CreationId, with per-entry Result carrying either the typed
-  ## EmailCreatedItem (ok) or SetError (err). Design §2.1, F2.
+  ## keyed by CreationId for EmailImportResponse (RFC 8621 §4.8).
   var tbl = initTable[CreationId, Result[EmailCreatedItem, SetError]]()
   let createdNode = node{"created"}
   if not createdNode.isNil and createdNode.kind == JObject:
@@ -772,49 +743,6 @@ func mergeCreatedResults(
       let se = ?SetError.fromJson(v, path / "notCreated" / k)
       tbl[cid] = Result[EmailCreatedItem, SetError].err(se)
   return ok(tbl)
-
-func parseOptUpdatedMap(
-    node: JsonNode, key: string, path: JsonPath
-): Result[Opt[Table[Id, UpdatedEntry]], SerdeViolation] =
-  ## Parses RFC 8620 §5.3 ``Id[Foo|null]|null`` — outer Opt = map
-  ## absent/null; per-entry ``UpdatedEntry`` encodes the inner split.
-  let sub = node{key}
-  if sub.isNil or sub.kind == JNull:
-    return ok(Opt.none(Table[Id, UpdatedEntry]))
-  ?expectKind(sub, JObject, path / key)
-  var tbl = initTable[Id, UpdatedEntry]()
-  for k, v in sub.pairs:
-    let id = ?wrapInner(parseIdFromServer(k), path / key / k)
-    tbl[id] = ?UpdatedEntry.fromJson(v, path / key / k)
-  return ok(Opt.some(tbl))
-
-func parseOptSetErrorMap(
-    node: JsonNode, key: string, path: JsonPath
-): Result[Opt[Table[Id, SetError]], SerdeViolation] =
-  ## Parses ``notUpdated`` / ``notDestroyed`` maps: absent/null yields
-  ## none; object yields ``Table[Id, SetError]``.
-  let sub = node{key}
-  if sub.isNil or sub.kind == JNull:
-    return ok(Opt.none(Table[Id, SetError]))
-  ?expectKind(sub, JObject, path / key)
-  var tbl = initTable[Id, SetError]()
-  for k, v in sub.pairs:
-    let id = ?wrapInner(parseIdFromServer(k), path / key / k)
-    tbl[id] = ?SetError.fromJson(v, path / key / k)
-  return ok(Opt.some(tbl))
-
-func parseOptDestroyedIds(
-    node: JsonNode, path: JsonPath
-): Result[Opt[seq[Id]], SerdeViolation] =
-  ## Parses the ``destroyed`` array: absent/null yields none.
-  let sub = node{"destroyed"}
-  if sub.isNil or sub.kind == JNull:
-    return ok(Opt.none(seq[Id]))
-  ?expectKind(sub, JArray, path / "destroyed")
-  var ids: seq[Id] = @[]
-  for i, elem in sub.getElems(@[]):
-    ids.add(?wrapInner(parseIdFromServer(elem.getStr("")), path / "destroyed" / i))
-  return ok(Opt.some(ids))
 
 func emitCreateResults(
     createResults: Table[CreationId, Result[EmailCreatedItem, SetError]], node: JsonNode
@@ -832,124 +760,6 @@ func emitCreateResults(
     node["created"] = created
   if notCreated.len > 0:
     node["notCreated"] = notCreated
-
-func emitOptIdUpdatedMap(
-    node: JsonNode, key: string, tbl: Opt[Table[Id, UpdatedEntry]]
-) =
-  ## Emits the ``updated`` map when present; omits the key otherwise.
-  for t in tbl:
-    var obj = newJObject()
-    for id, entry in t:
-      obj[string(id)] = entry.toJson()
-    node[key] = obj
-
-func emitOptIdSetErrorMap(node: JsonNode, key: string, tbl: Opt[Table[Id, SetError]]) =
-  ## Emits ``notUpdated`` / ``notDestroyed`` maps when present; omits
-  ## the key otherwise.
-  for t in tbl:
-    var obj = newJObject()
-    for id, se in t:
-      obj[string(id)] = se.toJson()
-    node[key] = obj
-
-func emitOptDestroyedIds(node: JsonNode, ids: Opt[seq[Id]]) =
-  ## Emits the ``destroyed`` array when present; omits the key otherwise.
-  for xs in ids:
-    var arr = newJArray()
-    for id in xs:
-      arr.add(id.toJson())
-    node["destroyed"] = arr
-
-# =============================================================================
-# EmailSetResponse
-# =============================================================================
-
-func toJson*(resp: EmailSetResponse): JsonNode =
-  ## Serialise EmailSetResponse (RFC 8621 §4.6, envelope RFC 8620 §5.3).
-  ## Splits createResults back into wire created/notCreated maps.
-  var node = newJObject()
-  node["accountId"] = resp.accountId.toJson()
-  for s in resp.oldState:
-    node["oldState"] = s.toJson()
-  node["newState"] = resp.newState.toJson()
-  emitCreateResults(resp.createResults, node)
-  emitOptIdUpdatedMap(node, "updated", resp.updated)
-  emitOptIdSetErrorMap(node, "notUpdated", resp.notUpdated)
-  emitOptDestroyedIds(node, resp.destroyed)
-  emitOptIdSetErrorMap(node, "notDestroyed", resp.notDestroyed)
-  return node
-
-func fromJson*(
-    T: typedesc[EmailSetResponse], node: JsonNode, path: JsonPath = emptyJsonPath()
-): Result[EmailSetResponse, SerdeViolation] =
-  ## Deserialise JSON to EmailSetResponse (RFC 8621 §4.6).
-  ## Merges wire created/notCreated into typed createResults. updated/
-  ## notUpdated and destroyed/notDestroyed stay split per the typed response
-  ## shape (Design §2.2, F2.1).
-  discard $T # consumed for nimalyzer params rule
-  ?expectKind(node, JObject, path)
-  let accountIdNode = ?fieldJString(node, "accountId", path)
-  let accountId = ?AccountId.fromJson(accountIdNode, path / "accountId")
-  let newStateNode = ?fieldJString(node, "newState", path)
-  let newState = ?JmapState.fromJson(newStateNode, path / "newState")
-  let oldState = ?parseOptJmapStateField(node, "oldState", path)
-  let createResults = ?mergeCreatedResults(node, path)
-  let updated = ?parseOptUpdatedMap(node, "updated", path)
-  let notUpdated = ?parseOptSetErrorMap(node, "notUpdated", path)
-  let destroyed = ?parseOptDestroyedIds(node, path)
-  let notDestroyed = ?parseOptSetErrorMap(node, "notDestroyed", path)
-  return ok(
-    EmailSetResponse(
-      accountId: accountId,
-      oldState: oldState,
-      newState: newState,
-      createResults: createResults,
-      updated: updated,
-      notUpdated: notUpdated,
-      destroyed: destroyed,
-      notDestroyed: notDestroyed,
-    )
-  )
-
-# =============================================================================
-# EmailCopyResponse
-# =============================================================================
-
-func toJson*(resp: EmailCopyResponse): JsonNode =
-  ## Serialise EmailCopyResponse (RFC 8621 §4.7). Splits createResults back
-  ## into wire created/notCreated; no updated/destroyed fields.
-  var node = newJObject()
-  node["fromAccountId"] = resp.fromAccountId.toJson()
-  node["accountId"] = resp.accountId.toJson()
-  for s in resp.oldState:
-    node["oldState"] = s.toJson()
-  node["newState"] = resp.newState.toJson()
-  emitCreateResults(resp.createResults, node)
-  return node
-
-func fromJson*(
-    T: typedesc[EmailCopyResponse], node: JsonNode, path: JsonPath = emptyJsonPath()
-): Result[EmailCopyResponse, SerdeViolation] =
-  ## Deserialise JSON to EmailCopyResponse (RFC 8621 §4.7).
-  discard $T # consumed for nimalyzer params rule
-  ?expectKind(node, JObject, path)
-  let fromAccountIdNode = ?fieldJString(node, "fromAccountId", path)
-  let fromAccountId = ?AccountId.fromJson(fromAccountIdNode, path / "fromAccountId")
-  let accountIdNode = ?fieldJString(node, "accountId", path)
-  let accountId = ?AccountId.fromJson(accountIdNode, path / "accountId")
-  let newStateNode = ?fieldJString(node, "newState", path)
-  let newState = ?JmapState.fromJson(newStateNode, path / "newState")
-  let oldState = ?parseOptJmapStateField(node, "oldState", path)
-  let createResults = ?mergeCreatedResults(node, path)
-  return ok(
-    EmailCopyResponse(
-      fromAccountId: fromAccountId,
-      accountId: accountId,
-      oldState: oldState,
-      newState: newState,
-      createResults: createResults,
-    )
-  )
 
 # =============================================================================
 # EmailImportResponse
