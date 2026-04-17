@@ -73,5 +73,3 @@ func `==`*(a, b: AnyEmailSubmission): bool =
     a.final == b.final
   of usCanceled:
     a.canceled == b.canceled
-
-{.pop.}
