@@ -17,6 +17,7 @@ import ../primitives
 import ../identifiers
 import ../validation
 import ../framework
+import ../methods
 import ./submission_envelope
 import ./submission_status
 
@@ -327,3 +328,40 @@ func parseEmailSubmissionComparator*(
       collation: collation,
     )
   )
+
+# -----------------------------------------------------------------------------
+# EmailSubmissionCreatedItem — minimum RFC-mandated server-set subset
+# returned in the created map for each successful /set create. Parallels
+# EmailCreatedItem (email.nim) — plain record of the server-authoritative
+# fields the client couldn't have known at submit time.
+# -----------------------------------------------------------------------------
+
+type EmailSubmissionCreatedItem* {.ruleOff: "objects".} = object
+  ## RFC 8621 §7.5 ¶2 server-set subset returned in the
+  ## ``EmailSubmission/set`` ``created`` map: ``id`` (always
+  ## server-assigned), ``threadId`` (derived from the referenced Email),
+  ## ``sendAt`` (server stamp). ``undoStatus`` deliberately omitted —
+  ## delay-send-disabled servers may flip it to ``final`` or ``canceled``
+  ## immediately, so callers must read live state via ``/get`` rather than
+  ## trust a stale value carried on the create response.
+  id*: Id
+  threadId*: Id
+  sendAt*: UTCDate
+
+# -----------------------------------------------------------------------------
+# EmailSubmissionSetResponse — /set response alias (RFC 8621 §7.5)
+#
+# Typed instantiation of the generic SetResponse[T] (methods.nim). After
+# Phase A's promotion, T drives createResults' typed payload via T.fromJson
+# resolved at instantiation through ``mixin``.
+# -----------------------------------------------------------------------------
+
+type EmailSubmissionSetResponse* = SetResponse[EmailSubmissionCreatedItem]
+  ## Typed alias for the EmailSubmission/set response (RFC 8621 §7.5).
+  ## ``createResults`` carries ``EmailSubmissionCreatedItem`` payloads via
+  ## ``mergeCreateResults[EmailSubmissionCreatedItem]`` (methods.nim);
+  ## ``updateResults`` and ``destroyResults`` follow the standard merged
+  ## ``Result``-table shape. The
+  ## per-entity ``fromJson`` for
+  ## ``EmailSubmissionCreatedItem`` lands in the L2 serde module — until
+  ## then this alias is callable as a typed handle but cannot be parsed.
