@@ -22,7 +22,7 @@ import ./types, ./errors    # local imports last
 
 - **L1–L3** (types, serde, protocol): `{.push raises: [], noSideEffect.}` —
   compiler-enforced total functions AND purity. Every routine in the module
-  must be side-effect free, regardless of whether it uses `func` or `proc`.
+  must be side-effect free.
 - **L4** (IO/transport) and **L5** (C ABI exports): `{.push raises: [].}` —
   only totality enforced; side effects are legitimate for IO and FFI.
 
