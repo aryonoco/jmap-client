@@ -1,48 +1,28 @@
 # Tests skipped by `just test`, `just test-parallel`, `just test-prop`, `just ci`.
 # Run them via `just test-full`. Keep this list minimal — only tests whose
 # wall-clock cost outweighs their routine-run value, plus tests that cannot
-# join testament's megatest (each compiles standalone, so the compile cost
-# is paid in full every run).
-#
-# Annotated individual wall-clock (compile + link + run) measured against a
-# clean nimcache on 2026-04-16.
+# join testament's megatest.
+
 
 # -- Non-joinable: each file is its own compile --
-# tests/compliance/tffi_panic_surface.nim         (~0.4s, action: compile)
 tests/compliance/tffi_panic_surface.nim
-# tests/compliance/tmail_e_reexport.nim           (~1.5s, action: compile)
 tests/compliance/tmail_e_reexport.nim
-# tests/compliance/tno_asserts_in_src.nim         (~0.7s, action: compile)
 tests/compliance/tno_asserts_in_src.nim
-# tests/stress/tadversarial_blueprint.nim         (~3.3s, joinable: false)
 tests/stress/tadversarial_blueprint.nim
-# tests/stress/tadversarial_mail_f.nim            (~2.3s, joinable: false, 10k/100k scale)
 tests/stress/tadversarial_mail_f.nim
-# tests/property/tprop_mail_e.nim                 (~89s,  joinable: false, 18 EmailBlueprint groups)
 tests/property/tprop_mail_e.nim
 
 # -- Slow joinable tests (individual wall-clock > 2s) --
-# tests/stress/tadversarial.nim                   (~5.6s)
+
 tests/stress/tadversarial.nim
-# tests/property/tprop_serde.nim                  (~5.1s)
 tests/property/tprop_serde.nim
-# tests/property/tprop_identifiers.nim            (~5.0s)
 tests/property/tprop_identifiers.nim
-# tests/stress/tstress.nim                        (~4.7s)
 tests/stress/tstress.nim
-# tests/property/tprop_mail_c.nim                 (~4.2s)
 tests/property/tprop_mail_c.nim
-# tests/property/tprop_mail_d.nim                 (~2.8s)
 tests/property/tprop_mail_d.nim
-# tests/serde/tserde_properties.nim               (~2.7s)
 tests/serde/tserde_properties.nim
-# tests/property/tprop_primitives.nim             (~2.6s)
 tests/property/tprop_primitives.nim
-# tests/protocol/tmail_builders.nim               (~2.2s)
 tests/protocol/tmail_builders.nim
-# tests/unit/tclient.nim                          (~2.1s)
 tests/unit/tclient.nim
-# tests/serde/mail/tserde_email.nim               (~2.1s)
 tests/serde/mail/tserde_email.nim
-# tests/serde/tserde_adversarial.nim              (~2.0s)
 tests/serde/tserde_adversarial.nim
