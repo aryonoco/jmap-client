@@ -57,7 +57,7 @@ You are running in the  devcontainer. Tooling is managed by `mise.toml` - single
 
 - `just` - Show all available commands
 - `just build` - Build shared library
-- `just test` - Run test suite
+- `just test` - Run fast suite (skips slow files in `tests/testament_skip.txt`); agents should use this for validation and leave `just test-full` (runs everything) for the user.
 - `just fmt` - Format all source files with nph
 - `just fmt-check` - Verify formatting
 - `just lint` - Run lint checks
