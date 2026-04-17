@@ -73,3 +73,55 @@ func `==`*(a, b: AnyEmailSubmission): bool =
     a.final == b.final
   of usCanceled:
     a.canceled == b.canceled
+
+# -----------------------------------------------------------------------------
+# EmailSubmissionBlueprint — creation model (RFC 8621 §7.5; design §5, G13–G15)
+#
+# Shape: Pattern A sealing (raw* private fields + same-name UFCS accessors)
+# combined with Result[T, seq[ValidationError]] error rail.
+# -----------------------------------------------------------------------------
+
+type EmailSubmissionBlueprint* {.ruleOff: "objects".} = object
+  ## Creation model for ``EmailSubmission/set`` create operations. Carries
+  ## the three client-settable fields per RFC 8621 §7.5: ``identityId``,
+  ## ``emailId``, and an optional ``envelope``. Named "Blueprint" to match
+  ## ``EmailBlueprint`` (F1) — signals construction-with-rules (G13).
+  ##
+  ## Fields are module-private with a ``raw`` prefix; construction is gated
+  ## by ``parseEmailSubmissionBlueprint`` and read access is via same-name
+  ## UFCS accessors below. Direct brace construction outside this module is
+  ## a compile error — Pattern A sealing ensures the smart constructor is
+  ## the sole construction path, so any future client-checkable rule lands
+  ## inside the constructor body with zero call-site churn.
+  ##
+  ## When ``envelope`` is ``Opt.none``, the server synthesises the envelope
+  ## from the referenced Email's headers per RFC §7.5 ¶4 (G14).
+  rawIdentityId: Id
+  rawEmailId: Id
+  rawEnvelope: Opt[Envelope]
+
+func parseEmailSubmissionBlueprint*(
+    identityId: Id, emailId: Id, envelope: Opt[Envelope] = Opt.none(Envelope)
+): Result[EmailSubmissionBlueprint, seq[ValidationError]] =
+  ## Accumulating-error smart constructor. Returns ``Result[T, seq[...]]``
+  ## for API-shape parity with sibling creation constructors
+  ## (``parseEmailBlueprint``, ``initEmailUpdateSet``,
+  ## ``parseNonEmptyRcptList``) per G15.
+  ##
+  ok(
+    EmailSubmissionBlueprint(
+      rawIdentityId: identityId, rawEmailId: emailId, rawEnvelope: envelope
+    )
+  )
+
+func identityId*(bp: EmailSubmissionBlueprint): Id =
+  ## UFCS accessor — ``bp.identityId`` reads as a field access.
+  bp.rawIdentityId
+
+func emailId*(bp: EmailSubmissionBlueprint): Id =
+  ## UFCS accessor — ``bp.emailId`` reads as a field access.
+  bp.rawEmailId
+
+func envelope*(bp: EmailSubmissionBlueprint): Opt[Envelope] =
+  ## UFCS accessor — ``bp.envelope`` reads as a field access.
+  bp.rawEnvelope
