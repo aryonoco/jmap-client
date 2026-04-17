@@ -238,3 +238,24 @@ func parseNonEmptyIdSeq*(items: openArray[Id]): Result[NonEmptyIdSeq, Validation
   if items.len == 0:
     return err(validationError("NonEmptyIdSeq", "must not be empty", ""))
   ok(NonEmptyIdSeq(@items))
+
+# -----------------------------------------------------------------------------
+# EmailSubmissionFilterCondition — /query filter condition (RFC 8621 §7.3)
+#
+# Plain record, no smart constructor. Each typed field already validates at
+# construction (NonEmptyIdSeq / UndoStatus / UTCDate); any combination of
+# Opt.none fields is a meaningful "no constraint". toJson-only: server
+# never echoes filter conditions back.
+# -----------------------------------------------------------------------------
+
+type EmailSubmissionFilterCondition* {.ruleOff: "objects".} = object
+  ## Typed filter condition for ``EmailSubmission/query`` (RFC 8621 §7.3).
+  ## List fields use ``Opt[NonEmptyIdSeq]`` — an empty list matches nothing
+  ## on the server side and is almost certainly a caller bug, so it is
+  ## structurally unrepresentable.
+  identityIds*: Opt[NonEmptyIdSeq]
+  emailIds*: Opt[NonEmptyIdSeq]
+  threadIds*: Opt[NonEmptyIdSeq]
+  undoStatus*: Opt[UndoStatus]
+  before*: Opt[UTCDate]
+  after*: Opt[UTCDate]
