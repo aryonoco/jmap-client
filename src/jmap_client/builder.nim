@@ -208,29 +208,28 @@ func addCopy*[T](
 # addQuery — Foo/query (RFC 8620 section 5.5)
 # =============================================================================
 
-func addQuery*[T, C](
+func addQuery*[T, C, SortT](
     b: RequestBuilder,
     accountId: AccountId,
     filterConditionToJson: proc(c: C): JsonNode {.noSideEffect, raises: [].},
-    filter: Opt[Filter[C]] = Opt.none(Filter[C]),
-    sort: Opt[seq[Comparator]] = Opt.none(seq[Comparator]),
+    filter: Opt[Filter[C]] = default(Opt[Filter[C]]),
+    sort: Opt[seq[SortT]] = default(Opt[seq[SortT]]),
     queryParams: QueryParams = QueryParams(),
+    extras: seq[(string, JsonNode)] = @[],
 ): (RequestBuilder, ResponseHandle[QueryResponse[T]]) =
-  ## Adds a Foo/query invocation. Searches, sorts, and windows entity data
-  ## on the server. ``C`` is the filter condition type, resolved from
-  ## ``filterType(T)`` by the caller.
-  mixin queryMethodName, capabilityUri
-  let req = QueryRequest[T, C](
-    accountId: accountId,
-    filter: filter,
-    sort: sort,
-    position: queryParams.position,
-    anchor: queryParams.anchor,
-    anchorOffset: queryParams.anchorOffset,
-    limit: queryParams.limit,
-    calculateTotal: queryParams.calculateTotal,
+  ## Foo/query. ``T`` = entity, ``C`` = filter-condition type, ``SortT`` =
+  ## sort-element type. Entity-specific extension keys are supplied via
+  ## ``extras`` and merged into the args after the standard frame
+  ## (insertion order preserved).
+  mixin queryMethodName, capabilityUri, toJson
+  var args = assembleQueryArgs(
+    accountId,
+    serializeOptFilter(filter, filterConditionToJson),
+    serializeOptSort(sort),
+    queryParams,
   )
-  let args = req.toJson(filterConditionToJson)
+  for (k, v) in extras:
+    args[k] = v
   let (newBuilder, callId) =
     addInvocation(b, queryMethodName(T), args, capabilityUri(T))
   (newBuilder, ResponseHandle[QueryResponse[T]](callId))
@@ -239,35 +238,32 @@ func addQuery*[T, C](
 # addQueryChanges — Foo/queryChanges (RFC 8620 section 5.6)
 # =============================================================================
 
-func addQueryChanges*[T, C](
+func addQueryChanges*[T, C, SortT](
     b: RequestBuilder,
     accountId: AccountId,
     sinceQueryState: JmapState,
     filterConditionToJson: proc(c: C): JsonNode {.noSideEffect, raises: [].},
-    filter: Opt[Filter[C]] = Opt.none(Filter[C]),
-    sort: Opt[seq[Comparator]] = Opt.none(seq[Comparator]),
+    filter: Opt[Filter[C]] = default(Opt[Filter[C]]),
+    sort: Opt[seq[SortT]] = default(Opt[seq[SortT]]),
     maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges),
     upToId: Opt[Id] = Opt.none(Id),
-    queryParams: QueryParams = QueryParams(),
+    calculateTotal: bool = false,
+    extras: seq[(string, JsonNode)] = @[],
 ): (RequestBuilder, ResponseHandle[QueryChangesResponse[T]]) =
-  ## Adds a Foo/queryChanges invocation. Efficiently updates a cached query
-  ## to match the new server state. ``C`` is the filter condition type.
-  ##
-  ## Only ``queryParams.calculateTotal`` is used — the remaining four
-  ## query window fields (position, anchor, anchorOffset, limit) are
-  ## not applicable to /queryChanges (RFC 8620 section 5.6) and are
-  ## ignored.
-  mixin queryChangesMethodName, capabilityUri
-  let req = QueryChangesRequest[T, C](
-    accountId: accountId,
-    filter: filter,
-    sort: sort,
-    sinceQueryState: sinceQueryState,
-    maxChanges: maxChanges,
-    upToId: upToId,
-    calculateTotal: queryParams.calculateTotal,
+  ## Foo/queryChanges. Takes ``calculateTotal`` directly — RFC 8620
+  ## section 5.6 defines no window fields for /queryChanges.
+  mixin queryChangesMethodName, capabilityUri, toJson
+  var args = assembleQueryChangesArgs(
+    accountId,
+    sinceQueryState,
+    serializeOptFilter(filter, filterConditionToJson),
+    serializeOptSort(sort),
+    maxChanges,
+    upToId,
+    calculateTotal,
   )
-  let args = req.toJson(filterConditionToJson)
+  for (k, v) in extras:
+    args[k] = v
   let (newBuilder, callId) =
     addInvocation(b, queryChangesMethodName(T), args, capabilityUri(T))
   (newBuilder, ResponseHandle[QueryChangesResponse[T]](callId))
@@ -276,46 +272,39 @@ func addQueryChanges*[T, C](
 # Single-type-parameter query overloads (resolve filter via template expansion)
 # =============================================================================
 #
-# These are templates  because filterType(T) must appear in type
-# positions that are resolved at the call site. Nim's `mixin` only affects
-# the function body, not the parameter signature. Templates expand at the
-# call site where filterType is visible, avoiding this limitation.
-#
-# The two-parameter `addQuery[T, C]` func remains as an escape hatch for
-# custom filter types not registered via the entity framework.
+# Templates because filterType(T) must appear in type positions that are
+# resolved at the call site. Nim's `mixin` only affects the function body,
+# not the parameter signature. Templates expand at the call site where
+# filterType is visible. For entity-typed sort, use the three-parameter
+# `addQuery[T, C, S]` / `addQueryChanges[T, C, S]` forms directly.
 
 template addQuery*[T](
     b: RequestBuilder, accountId: AccountId
 ): (RequestBuilder, ResponseHandle[QueryResponse[T]]) =
-  ## Single-type-parameter Foo/query. Resolves the filter condition type
-  ## from ``filterType(T)`` and the serialisation callback from
-  ## ``filterConditionToJson`` at the call site (template expansion).
-  ##
-  ## This closes a type-safety gap: the two-parameter ``addQuery[T, C]``
-  ## allows ``C != filterType(T)``, which compiles but produces semantically
-  ## wrong JSON. This overload makes that impossible.
-  ##
-  ## For queries with filters or custom ``QueryParams``, use the
-  ## two-parameter ``addQuery[T, C]`` overload which accepts both.
-  addQuery[T, filterType(T)](
+  ## Single-type-parameter Foo/query. Resolves the filter condition
+  ## type from ``filterType(T)`` at the call site; uses the protocol-
+  ## level ``Comparator`` for sort. For entity-typed sort, use the
+  ## three-parameter ``addQuery[T, C, S]`` directly. The inner
+  ## anonymous proc disambiguates ``toJson`` — Nim's overload
+  ## resolution on a bare proc-value reference cannot bind against a
+  ## generic ``filterType(T)`` substitution.
+  addQuery[T, filterType(T), Comparator](
     b,
     accountId,
     proc(c: filterType(T)): JsonNode {.noSideEffect, raises: [].} =
-      filterConditionToJson(c),
+      c.toJson(),
   )
 
 template addQueryChanges*[T](
     b: RequestBuilder, accountId: AccountId, sinceQueryState: JmapState
 ): (RequestBuilder, ResponseHandle[QueryChangesResponse[T]]) =
   ## Single-type-parameter Foo/queryChanges. Same resolution as ``addQuery[T]``.
-  ## For custom ``QueryParams``, use the two-parameter
-  ## ``addQueryChanges[T, C]`` overload.
-  addQueryChanges[T, filterType(T)](
+  addQueryChanges[T, filterType(T), Comparator](
     b,
     accountId,
     sinceQueryState,
     proc(c: filterType(T)): JsonNode {.noSideEffect, raises: [].} =
-      filterConditionToJson(c),
+      c.toJson(),
   )
 
 # =============================================================================

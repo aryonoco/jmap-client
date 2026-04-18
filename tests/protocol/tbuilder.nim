@@ -78,8 +78,11 @@ proc queryChangesMethodName*(T: typedesc[MockQueryable]): MethodName =
 template filterType*(T: typedesc[MockQueryable]): typedesc =
   MockFilter
 
-proc filterConditionToJson(c: MockFilter): JsonNode {.noSideEffect, raises: [].} =
+func toJson(c: MockFilter): JsonNode =
   %*{"mock": true}
+
+func filterConditionToJson(c: MockFilter): JsonNode =
+  c.toJson()
 
 registerJmapEntity(MockQueryable)
 registerQueryableEntity(MockQueryable)
@@ -309,8 +312,9 @@ block addCopyMinimal:
 block addQueryMinimal:
   ## addQuery with only accountId and callback produces "MockQueryable/query".
   let b0 = initRequestBuilder()
-  let (b1, _) =
-    addQuery[MockQueryable, MockFilter](b0, makeAccountId("a1"), filterConditionToJson)
+  let (b1, _) = addQuery[MockQueryable, MockFilter, Comparator](
+    b0, makeAccountId("a1"), filterConditionToJson
+  )
   let req = b1.build()
   assertLen req.methodCalls, 1
   let inv = req.methodCalls[0]
@@ -321,7 +325,7 @@ block addQueryMinimal:
 block addQueryWithFilter:
   ## addQuery with a filter condition emits the filter in arguments JSON.
   let b0 = initRequestBuilder()
-  let (b1, _) = addQuery[MockQueryable, MockFilter](
+  let (b1, _) = addQuery[MockQueryable, MockFilter, Comparator](
     b0,
     makeAccountId("a1"),
     filterConditionToJson,
@@ -350,8 +354,9 @@ block addQuerySingleParam:
 block addQuerySingleParamMatchesTwoParam:
   ## Single-param and two-param produce identical Request structures.
   let ba0 = initRequestBuilder()
-  let (ba1, _) =
-    addQuery[MockQueryable, MockFilter](ba0, makeAccountId("a1"), filterConditionToJson)
+  let (ba1, _) = addQuery[MockQueryable, MockFilter, Comparator](
+    ba0, makeAccountId("a1"), filterConditionToJson
+  )
   let bb0 = initRequestBuilder()
   let (bb1, _) = addQuery[MockQueryable](bb0, makeAccountId("a1"))
   let r1 = ba1.build()
@@ -366,7 +371,7 @@ block addQuerySingleParamMatchesTwoParam:
 block addQueryChangesMinimal:
   ## addQueryChanges with required fields produces "MockQueryable/queryChanges".
   let b0 = initRequestBuilder()
-  let (b1, _) = addQueryChanges[MockQueryable, MockFilter](
+  let (b1, _) = addQueryChanges[MockQueryable, MockFilter, Comparator](
     b0, makeAccountId("a1"), makeState("qs0"), filterConditionToJson
   )
   let req = b1.build()
@@ -396,7 +401,7 @@ block addQueryWithQueryParams:
   ## QueryParams fields are unpacked into the query request arguments.
   ## Unset fields retain RFC 8620 section 5.5 defaults.
   let b0 = initRequestBuilder()
-  let (b1, _) = addQuery[MockQueryable, MockFilter](
+  let (b1, _) = addQuery[MockQueryable, MockFilter, Comparator](
     b0,
     makeAccountId("a1"),
     filterConditionToJson,
@@ -415,8 +420,9 @@ block addQueryWithQueryParams:
 block addQueryDefaultQueryParams:
   ## Default QueryParams() matches RFC 8620 section 5.5 defaults.
   let b0 = initRequestBuilder()
-  let (b1, _) =
-    addQuery[MockQueryable, MockFilter](b0, makeAccountId("a1"), filterConditionToJson)
+  let (b1, _) = addQuery[MockQueryable, MockFilter, Comparator](
+    b0, makeAccountId("a1"), filterConditionToJson
+  )
   let req = b1.build()
   let inv = req.methodCalls[0]
   assertEq inv.arguments{"position"}.getBiggestInt(-1), 0
@@ -425,41 +431,33 @@ block addQueryDefaultQueryParams:
   doAssert inv.arguments{"anchor"}.isNil
   doAssert inv.arguments{"limit"}.isNil
 
-block addQueryChangesWithQueryParams:
-  ## QueryParams.calculateTotal flows through to queryChanges arguments.
+block addQueryChangesCalculateTotalFlow:
+  ## ``calculateTotal`` flows through to queryChanges arguments.
   let b0 = initRequestBuilder()
-  let (b1, _) = addQueryChanges[MockQueryable, MockFilter](
+  let (b1, _) = addQueryChanges[MockQueryable, MockFilter, Comparator](
     b0,
     makeAccountId("a1"),
     makeState("qs0"),
     filterConditionToJson,
-    queryParams = QueryParams(calculateTotal: true),
+    calculateTotal = true,
   )
   let req = b1.build()
   let inv = req.methodCalls[0]
   assertEq inv.arguments{"calculateTotal"}.getBool(false), true
 
-block addQueryChangesIgnoresNonApplicableFields:
-  ## Non-applicable QueryParams fields (position, anchor, anchorOffset, limit)
-  ## are NOT emitted in queryChanges arguments — they are silently ignored
-  ## per RFC 8620 section 5.6.
-  let b0 = initRequestBuilder()
-  let (b1, _) = addQueryChanges[MockQueryable, MockFilter](
-    b0,
-    makeAccountId("a1"),
-    makeState("qs0"),
-    filterConditionToJson,
-    queryParams = QueryParams(position: JmapInt(99), calculateTotal: true),
-  )
-  let req = b1.build()
-  let inv = req.methodCalls[0]
-  # calculateTotal flows through
-  assertEq inv.arguments{"calculateTotal"}.getBool(false), true
-  # position does NOT appear (not applicable to /queryChanges)
-  doAssert inv.arguments{"position"}.isNil
-  # anchor and limit also absent
-  doAssert inv.arguments{"anchor"}.isNil
-  doAssert inv.arguments{"limit"}.isNil
+block addQueryChangesRejectsWindowParams:
+  ## RFC 8620 §5.6 defines no window parameters for /queryChanges; the
+  ## signature enforces this structurally. Passing ``position``,
+  ## ``anchor``, ``anchorOffset``, or ``limit`` is a compile error.
+  assertNotCompiles:
+    let b0 = initRequestBuilder()
+    discard addQueryChanges[MockQueryable, MockFilter, Comparator](
+      b0,
+      makeAccountId("a1"),
+      makeState("qs0"),
+      filterConditionToJson,
+      position = JmapInt(99),
+    )
 
 # ===========================================================================
 # L. Result reference integration (golden test)
@@ -470,8 +468,9 @@ block queryToGetWithResultReference:
   ## The built Request must have two invocations with the second referencing
   ## the first via "#ids".
   let b0 = initRequestBuilder()
-  let (b1, queryHandle) =
-    addQuery[MockQueryable, MockFilter](b0, makeAccountId("a1"), filterConditionToJson)
+  let (b1, queryHandle) = addQuery[MockQueryable, MockFilter, Comparator](
+    b0, makeAccountId("a1"), filterConditionToJson
+  )
   let idsReference = queryHandle.idsRef()
   let (b2, _) =
     addGet[MockQueryable](b1, makeAccountId("a1"), ids = Opt.some(idsReference))

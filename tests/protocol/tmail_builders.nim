@@ -193,7 +193,7 @@ block addMailboxChangesCapability:
 block addMailboxQueryInvocationName:
   ## Scenario 72: produces "Mailbox/query".
   let b0 = initRequestBuilder()
-  let (b1, _) = b0.addMailboxQuery(makeAccountId("a1"), filterConditionToJson)
+  let (b1, _) = b0.addMailboxQuery(makeAccountId("a1"))
   let req = b1.build()
   assertLen req.methodCalls, 1
   assertEq req.methodCalls[0].name, mnMailboxQuery
@@ -201,8 +201,7 @@ block addMailboxQueryInvocationName:
 block addMailboxQuerySortAsTree:
   ## Scenario 73: sortAsTree = true → args{"sortAsTree"} == true.
   let b0 = initRequestBuilder()
-  let (b1, _) =
-    b0.addMailboxQuery(makeAccountId("a1"), filterConditionToJson, sortAsTree = true)
+  let (b1, _) = b0.addMailboxQuery(makeAccountId("a1"), sortAsTree = true)
   let req = b1.build()
   let args = req.methodCalls[0].arguments
   doAssert args{"sortAsTree"}.getBool(false) == true
@@ -210,8 +209,7 @@ block addMailboxQuerySortAsTree:
 block addMailboxQueryFilterAsTree:
   ## Scenario 74: filterAsTree = true → args{"filterAsTree"} == true.
   let b0 = initRequestBuilder()
-  let (b1, _) =
-    b0.addMailboxQuery(makeAccountId("a1"), filterConditionToJson, filterAsTree = true)
+  let (b1, _) = b0.addMailboxQuery(makeAccountId("a1"), filterAsTree = true)
   let req = b1.build()
   let args = req.methodCalls[0].arguments
   doAssert args{"filterAsTree"}.getBool(false) == true
@@ -219,9 +217,8 @@ block addMailboxQueryFilterAsTree:
 block addMailboxQueryBothTreeParams:
   ## Both sortAsTree and filterAsTree set independently.
   let b0 = initRequestBuilder()
-  let (b1, _) = b0.addMailboxQuery(
-    makeAccountId("a1"), filterConditionToJson, sortAsTree = true, filterAsTree = true
-  )
+  let (b1, _) =
+    b0.addMailboxQuery(makeAccountId("a1"), sortAsTree = true, filterAsTree = true)
   let req = b1.build()
   let args = req.methodCalls[0].arguments
   doAssert args{"sortAsTree"}.getBool(false) == true
@@ -234,9 +231,7 @@ block addMailboxQueryBothTreeParams:
 block addMailboxQueryChangesInvocationName:
   ## Scenario 75: produces "Mailbox/queryChanges".
   let b0 = initRequestBuilder()
-  let (b1, _) = b0.addMailboxQueryChanges(
-    makeAccountId("a1"), makeState("qs0"), filterConditionToJson
-  )
+  let (b1, _) = b0.addMailboxQueryChanges(makeAccountId("a1"), makeState("qs0"))
   let req = b1.build()
   assertLen req.methodCalls, 1
   assertEq req.methodCalls[0].name, mnMailboxQueryChanges
@@ -244,9 +239,7 @@ block addMailboxQueryChangesInvocationName:
 block addMailboxQueryChangesNoTreeParams:
   ## Scenario 76: no sortAsTree/filterAsTree in args (Decision B12).
   let b0 = initRequestBuilder()
-  let (b1, _) = b0.addMailboxQueryChanges(
-    makeAccountId("a1"), makeState("qs0"), filterConditionToJson
-  )
+  let (b1, _) = b0.addMailboxQueryChanges(makeAccountId("a1"), makeState("qs0"))
   let req = b1.build()
   let args = req.methodCalls[0].arguments
   doAssert args{"sortAsTree"}.isNil
@@ -342,7 +335,7 @@ block addEmailGetWithBodyFetchOptions:
 block addEmailQueryInvocationName:
   ## Scenario 78: produces "Email/query" with mail capability.
   let b0 = initRequestBuilder()
-  let (b1, _) = b0.addEmailQuery(makeAccountId("a1"), filterConditionToJson)
+  let (b1, _) = b0.addEmailQuery(makeAccountId("a1"))
   let req = b1.build()
   assertLen req.methodCalls, 1
   assertEq req.methodCalls[0].name, mnEmailQuery
@@ -351,8 +344,7 @@ block addEmailQueryInvocationName:
 block addEmailQueryCollapseThreadsTrue:
   ## Scenario 79: collapseThreads = true in args.
   let b0 = initRequestBuilder()
-  let (b1, _) =
-    b0.addEmailQuery(makeAccountId("a1"), filterConditionToJson, collapseThreads = true)
+  let (b1, _) = b0.addEmailQuery(makeAccountId("a1"), collapseThreads = true)
   let req = b1.build()
   let args = req.methodCalls[0].arguments
   doAssert args{"collapseThreads"}.getBool(false) == true
@@ -360,7 +352,7 @@ block addEmailQueryCollapseThreadsTrue:
 block addEmailQueryCollapseThreadsDefault:
   ## Scenario 80: default collapseThreads = false always emitted.
   let b0 = initRequestBuilder()
-  let (b1, _) = b0.addEmailQuery(makeAccountId("a1"), filterConditionToJson)
+  let (b1, _) = b0.addEmailQuery(makeAccountId("a1"))
   let req = b1.build()
   let args = req.methodCalls[0].arguments
   doAssert args{"collapseThreads"}.getBool(true) == false
@@ -369,9 +361,7 @@ block addEmailQueryWithSort:
   ## Scenario 81: EmailComparator sort serialised correctly.
   let comp = plainComparator(pspReceivedAt, isAscending = Opt.some(false))
   let b0 = initRequestBuilder()
-  let (b1, _) = b0.addEmailQuery(
-    makeAccountId("a1"), filterConditionToJson, sort = Opt.some(@[comp])
-  )
+  let (b1, _) = b0.addEmailQuery(makeAccountId("a1"), sort = Opt.some(@[comp]))
   let req = b1.build()
   let args = req.methodCalls[0].arguments
   let sortArr = args{"sort"}
@@ -385,7 +375,7 @@ block addEmailQueryWithSort:
 block addEmailQueryNoSort:
   ## sort: Opt.none → no sort key in args.
   let b0 = initRequestBuilder()
-  let (b1, _) = b0.addEmailQuery(makeAccountId("a1"), filterConditionToJson)
+  let (b1, _) = b0.addEmailQuery(makeAccountId("a1"))
   let req = b1.build()
   let args = req.methodCalls[0].arguments
   doAssert args{"sort"}.isNil
@@ -397,9 +387,7 @@ block addEmailQueryNoSort:
 block addEmailQueryChangesInvocationName:
   ## Scenario 82: produces "Email/queryChanges" with mail capability.
   let b0 = initRequestBuilder()
-  let (b1, _) = b0.addEmailQueryChanges(
-    makeAccountId("a1"), makeState("qs0"), filterConditionToJson
-  )
+  let (b1, _) = b0.addEmailQueryChanges(makeAccountId("a1"), makeState("qs0"))
   let req = b1.build()
   assertLen req.methodCalls, 1
   assertEq req.methodCalls[0].name, mnEmailQueryChanges
@@ -412,7 +400,6 @@ block addEmailQueryChangesCollapseAndSort:
   let (b1, _) = b0.addEmailQueryChanges(
     makeAccountId("a1"),
     makeState("qs0"),
-    filterConditionToJson,
     sort = Opt.some(@[comp]),
     collapseThreads = true,
   )
@@ -427,9 +414,7 @@ block addEmailQueryChangesCollapseAndSort:
 block addEmailQueryChangesSinceState:
   ## sinceQueryState appears in args.
   let b0 = initRequestBuilder()
-  let (b1, _) = b0.addEmailQueryChanges(
-    makeAccountId("a1"), makeState("qs0"), filterConditionToJson
-  )
+  let (b1, _) = b0.addEmailQueryChanges(makeAccountId("a1"), makeState("qs0"))
   let req = b1.build()
   let args = req.methodCalls[0].arguments
   assertEq args{"sinceQueryState"}.getStr(""), "qs0"

@@ -129,11 +129,6 @@ template filterType*(T: typedesc[Mailbox]): typedesc =
   discard $T
   MailboxFilterCondition
 
-func filterConditionToJson*(c: MailboxFilterCondition): JsonNode =
-  ## Serialise MailboxFilterCondition to JSON. Resolved via ``mixin`` in the
-  ## single-type-parameter ``addQuery[Mailbox]`` template.
-  c.toJson()
-
 registerJmapEntity(Mailbox)
 registerQueryableEntity(Mailbox)
 
@@ -192,11 +187,6 @@ template filterType*(T: typedesc[Email]): typedesc =
   discard $T
   EmailFilterCondition
 
-func filterConditionToJson*(c: EmailFilterCondition): JsonNode =
-  ## Serialise EmailFilterCondition to JSON. Resolved via ``mixin`` in the
-  ## single-type-parameter ``addQuery[Email]`` template.
-  c.toJson()
-
 registerJmapEntity(Email)
 registerQueryableEntity(Email)
 
@@ -247,11 +237,6 @@ template filterType*(T: typedesc[AnyEmailSubmission]): typedesc =
   ## Associated filter condition type for EmailSubmission/query.
   discard $T
   EmailSubmissionFilterCondition
-
-func filterConditionToJson*(c: EmailSubmissionFilterCondition): JsonNode =
-  ## Serialise EmailSubmissionFilterCondition to JSON. Resolved via ``mixin``
-  ## in the single-type-parameter ``addQuery[AnyEmailSubmission]`` template.
-  c.toJson()
 
 registerJmapEntity(AnyEmailSubmission)
 registerQueryableEntity(AnyEmailSubmission)

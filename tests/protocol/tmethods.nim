@@ -21,6 +21,7 @@ import jmap_client/serde_envelope
 import jmap_client/serde_framework
 import jmap_client/entity
 import jmap_client/methods
+import jmap_client/builder
 
 import ../massertions
 import ../mfixtures
@@ -85,8 +86,11 @@ proc queryChangesMethodName*(T: typedesc[MockQueryable]): MethodName =
 template filterType*(T: typedesc[MockQueryable]): typedesc =
   MockFilter
 
-proc filterConditionToJson(c: MockFilter): JsonNode =
+func toJson(c: MockFilter): JsonNode =
   %*{"mock": true}
+
+func filterConditionToJson(c: MockFilter): JsonNode =
+  c.toJson()
 
 registerJmapEntity(MockQueryable)
 registerQueryableEntity(MockQueryable)
@@ -303,78 +307,69 @@ block copyRequestOnSuccessTrue:
   doAssert j{"onSuccessDestroyOriginal"}.getBool(false) == true
 
 block queryRequestMinimal:
-  ## QueryRequest with only required fields.
-  let req = QueryRequest[MockQueryable, MockFilter](
-    accountId: makeAccountId("a1"),
-    filter: Opt.none(Filter[MockFilter]),
-    sort: Opt.none(seq[Comparator]),
-    position: JmapInt(0),
-    anchor: Opt.none(Id),
-    anchorOffset: JmapInt(0),
-    limit: Opt.none(UnsignedInt),
-    calculateTotal: false,
+  ## addQuery with only required fields emits accountId and nothing else
+  ## for the optional query window.
+  let b0 = initRequestBuilder()
+  let (b1, _) = addQuery[MockQueryable, MockFilter, Comparator](
+    b0, makeAccountId("a1"), filterConditionToJson
   )
-  let j = req.toJson(filterConditionToJson)
-  doAssert j{"accountId"}.getStr("") == "a1"
-  doAssert j{"filter"}.isNil
-  doAssert j{"sort"}.isNil
-  doAssert j{"position"}.getBiggestInt(-1) == 0
-  doAssert j{"anchorOffset"}.getBiggestInt(-1) == 0
-  doAssert j{"calculateTotal"}.getBool(true) == false
+  let args = b1.build().methodCalls[0].arguments
+  doAssert args{"accountId"}.getStr("") == "a1"
+  doAssert args{"filter"}.isNil
+  doAssert args{"sort"}.isNil
+  doAssert args{"position"}.getBiggestInt(-1) == 0
+  doAssert args{"anchorOffset"}.getBiggestInt(-1) == 0
+  doAssert args{"calculateTotal"}.getBool(true) == false
 
 block queryRequestWithFilter:
-  ## QueryRequest with filter via callback -- proves filterType(T) expansion.
-  let req = QueryRequest[MockQueryable, MockFilter](
-    accountId: makeAccountId("a1"),
-    filter: Opt.some(filterCondition(MockFilter())),
-    sort: Opt.none(seq[Comparator]),
-    position: JmapInt(0),
-    anchor: Opt.none(Id),
-    anchorOffset: JmapInt(0),
-    limit: Opt.none(UnsignedInt),
-    calculateTotal: false,
+  ## addQuery with a filter condition emits ``filter`` in the invocation args.
+  let b0 = initRequestBuilder()
+  let (b1, _) = addQuery[MockQueryable, MockFilter, Comparator](
+    b0,
+    makeAccountId("a1"),
+    filterConditionToJson,
+    filter = Opt.some(filterCondition(MockFilter())),
   )
-  let j = req.toJson(filterConditionToJson)
-  doAssert j{"filter"}.kind == JObject
-  doAssert j{"filter"}{"mock"}.getBool(false) == true
+  let args = b1.build().methodCalls[0].arguments
+  doAssert args{"filter"}.kind == JObject
+  doAssert args{"filter"}{"mock"}.getBool(false) == true
 
 block queryChangesRequestMinimal:
-  ## QueryChangesRequest with only required fields.
-  let req = QueryChangesRequest[MockQueryable, MockFilter](
-    accountId: makeAccountId("a1"),
-    filter: Opt.none(Filter[MockFilter]),
-    sort: Opt.none(seq[Comparator]),
-    sinceQueryState: makeState("qs0"),
-    maxChanges: Opt.none(MaxChanges),
-    upToId: Opt.none(Id),
-    calculateTotal: false,
+  ## addQueryChanges with only required fields emits accountId +
+  ## sinceQueryState; all other optional fields are absent (filter) or
+  ## carry their default (calculateTotal: false).
+  let b0 = initRequestBuilder()
+  let (b1, _) = addQueryChanges[MockQueryable, MockFilter, Comparator](
+    b0, makeAccountId("a1"), makeState("qs0"), filterConditionToJson
   )
-  let j = req.toJson(filterConditionToJson)
-  doAssert j{"sinceQueryState"}.getStr("") == "qs0"
-  doAssert j{"calculateTotal"}.getBool(true) == false
-  doAssert j{"filter"}.isNil
+  let args = b1.build().methodCalls[0].arguments
+  doAssert args{"sinceQueryState"}.getStr("") == "qs0"
+  doAssert args{"calculateTotal"}.getBool(true) == false
+  doAssert args{"filter"}.isNil
 
 block queryChangesRequestAllFields:
-  ## QueryChangesRequest with all fields populated.
+  ## addQueryChanges with every optional field populated emits each one
+  ## and preserves sort-array ordering.
   let comp =
     parseComparator(makePropertyName("name"), true, Opt.none(CollationAlgorithm))
-  var sortSeq: seq[Comparator]
-  sortSeq.add(comp)
-  let req = QueryChangesRequest[MockQueryable, MockFilter](
-    accountId: makeAccountId("a1"),
-    filter: Opt.some(filterCondition(MockFilter())),
-    sort: Opt.some(sortSeq),
-    sinceQueryState: makeState("qs0"),
-    maxChanges: Opt.some(makeMaxChanges(10)),
-    upToId: Opt.some(makeId("upTo1")),
-    calculateTotal: true,
+  let b0 = initRequestBuilder()
+  let (b1, _) = addQueryChanges[MockQueryable, MockFilter, Comparator](
+    b0,
+    makeAccountId("a1"),
+    makeState("qs0"),
+    filterConditionToJson,
+    filter = Opt.some(filterCondition(MockFilter())),
+    sort = Opt.some(@[comp]),
+    maxChanges = Opt.some(makeMaxChanges(10)),
+    upToId = Opt.some(makeId("upTo1")),
+    calculateTotal = true,
   )
-  let j = req.toJson(filterConditionToJson)
-  doAssert j{"filter"}.kind == JObject
-  doAssert j{"sort"}.kind == JArray
-  doAssert j{"maxChanges"}.getBiggestInt(0) == 10
-  doAssert j{"upToId"}.getStr("") == "upTo1"
-  doAssert j{"calculateTotal"}.getBool(false) == true
+  let args = b1.build().methodCalls[0].arguments
+  doAssert args{"filter"}.kind == JObject
+  doAssert args{"sort"}.kind == JArray
+  doAssert args{"maxChanges"}.getBiggestInt(0) == 10
+  doAssert args{"upToId"}.getStr("") == "upTo1"
+  doAssert args{"calculateTotal"}.getBool(false) == true
 
 block changesRequestMinimalToJson:
   ## Section 14.6: ChangesRequest minimal produces accountId + sinceState only.

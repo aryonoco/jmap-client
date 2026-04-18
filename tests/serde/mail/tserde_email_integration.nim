@@ -220,16 +220,14 @@ block builderFilterChain: # scenario 136
 
   # Build request via addEmailQuery
   let b0 = initRequestBuilder()
-  let (b1, _) = b0.addEmailQuery(
-    makeAccountId("a1"), filterConditionToJson, filter = Opt.some(leafFilter)
-  )
+  let (b1, _) = b0.addEmailQuery(makeAccountId("a1"), filter = Opt.some(leafFilter))
   let req = b1.build()
   let argsFilter = req.methodCalls[0].arguments{"filter"}
   doAssert argsFilter != nil, "filter must be present in request args"
   doAssert argsFilter.kind == JObject, "filter must be JObject"
 
   # Direct serialisation of the condition (fkCondition leaf delegates to
-  # filterConditionToJson(f.condition) which is fc.toJson())
+  # EmailFilterCondition.toJson via mixin — same code path as addEmailQuery).
   let directFilter = fc.toJson()
 
   # Structural equality: builder path == direct serialisation path

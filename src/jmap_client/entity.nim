@@ -50,8 +50,8 @@
 ## 4. ``func capabilityUri*(T: typedesc[Entity]): string``.
 ## 5. ``template filterType*(T: typedesc[Entity]): typedesc`` (if supports
 ##    ``/query``).
-## 6. ``func filterConditionToJson*(c: filterType(Entity)): JsonNode``
-##    (if supports ``/query``). Must use this exact name for mixin resolution.
+## 6. ``func toJson*(c: filterType(Entity)): JsonNode`` (if supports
+##    ``/query``). Resolved via ``mixin`` at the builder's call site.
 ## 7. ``registerJmapEntity(Entity)`` at module scope.
 ## 8. ``registerQueryableEntity(Entity)`` at module scope (if supports
 ##    ``/query``).
@@ -93,15 +93,13 @@ template registerJmapEntity*(T: typedesc) =
       .}
 
 template registerQueryableEntity*(T: typedesc) =
-  ## Compile-time check: verifies T provides ``filterType`` and
-  ## ``filterConditionToJson`` in addition to the base framework overloads.
-  ## Call after ``registerJmapEntity`` for entity types that support /query
-  ## and /queryChanges. Produces domain-specific errors if either is missing.
+  ## Compile-time check: verifies T provides ``filterType`` and a
+  ## ``toJson`` overload on its filter condition type, in addition to
+  ## the base framework overloads. Call after ``registerJmapEntity`` for
+  ## entity types that support /query and /queryChanges.
   ##
-  ## ``filterConditionToJson`` is the standardised name for the filter
-  ## serialisation callback. The single-type-parameter ``addQuery[T]``
-  ## overload resolves it via ``mixin``, eliminating the need to pass the
-  ## callback explicitly at every call site.
+  ## The filter condition's ``toJson`` is resolved via ``mixin`` at the
+  ## builder's instantiation site (``addQuery`` / ``addQueryChanges``).
   static:
     when not compiles(filterType(T)):
       {.
@@ -109,10 +107,9 @@ template registerQueryableEntity*(T: typedesc) =
           "registerQueryableEntity: " & $T &
           " is missing `template filterType*(T: typedesc[" & $T & "]): typedesc`"
       .}
-    when not compiles(filterConditionToJson(default(filterType(T)))):
+    when not compiles(toJson(default(filterType(T)))):
       {.
         error:
-          "registerQueryableEntity: " & $T &
-          " is missing `func filterConditionToJson*(c: " & $filterType(T) &
-          "): JsonNode`"
+          "registerQueryableEntity: " & $T & " is missing `func toJson*(c: " &
+          $filterType(T) & "): JsonNode`"
       .}

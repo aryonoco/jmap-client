@@ -64,7 +64,7 @@ proc queryChangesMethodName*(T: typedesc[MockQueryable]): MethodName =
 template filterType*(T: typedesc[MockQueryable]): typedesc =
   MockFilter
 
-func filterConditionToJson(c: MockFilter): JsonNode =
+func toJson(c: MockFilter): JsonNode =
   newJObject()
 
 registerJmapEntity(MockQueryable)

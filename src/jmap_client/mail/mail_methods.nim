@@ -23,6 +23,7 @@ import ./mail_filters
 import ./serde_email
 import ./serde_snippet
 import ./serde_vacation
+import ./serde_mail_filters
 
 # Re-export the serde modules whose ``fromJson`` overloads are required at
 # the dispatch call-site (``get(handle)``): the generic ``SetResponse[T]``
@@ -189,8 +190,6 @@ func addEmailParse*(
 func addSearchSnippetGet*(
     b: RequestBuilder,
     accountId: AccountId,
-    filterConditionToJson:
-      proc(c: EmailFilterCondition): JsonNode {.noSideEffect, raises: [].},
     filter: Filter[EmailFilterCondition],
     firstEmailId: Id,
     restEmailIds: seq[Id] = @[],
@@ -201,7 +200,7 @@ func addSearchSnippetGet*(
   ## least one email ID at compile time (Decision D12).
   var args = newJObject()
   args["accountId"] = accountId.toJson()
-  args["filter"] = serializeFilter(filter, filterConditionToJson).toJsonNode()
+  args["filter"] = serializeFilter(filter, toJson).toJsonNode()
   var emailIds = newJArray()
   emailIds.add(firstEmailId.toJson())
   for id in restEmailIds:

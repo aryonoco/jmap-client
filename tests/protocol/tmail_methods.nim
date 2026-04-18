@@ -204,9 +204,7 @@ block addSearchSnippetGetInvocationName:
   ## Scenario 86: invocation name is "SearchSnippet/get", capability is mail.
   let cond = filterCondition(makeEmailFilterCondition())
   let b0 = initRequestBuilder()
-  let (b1, _) = b0.addSearchSnippetGet(
-    makeAccountId("a1"), filterConditionToJson, cond, makeId("e1")
-  )
+  let (b1, _) = b0.addSearchSnippetGet(makeAccountId("a1"), cond, makeId("e1"))
   let req = b1.build()
   assertLen req.methodCalls, 1
   assertEq req.methodCalls[0].name, mnSearchSnippetGet
@@ -217,9 +215,7 @@ block addSearchSnippetGetSingleId:
   ## Scenario 87: emailIds contains exactly the head ID when no tail.
   let cond = filterCondition(makeEmailFilterCondition())
   let b0 = initRequestBuilder()
-  let (b1, _) = b0.addSearchSnippetGet(
-    makeAccountId("a1"), filterConditionToJson, cond, makeId("e1")
-  )
+  let (b1, _) = b0.addSearchSnippetGet(makeAccountId("a1"), cond, makeId("e1"))
   let req = b1.build()
   let ids = req.methodCalls[0].arguments{"emailIds"}
   doAssert ids.kind == JArray
@@ -231,11 +227,7 @@ block addSearchSnippetGetConsIds:
   let cond = filterCondition(makeEmailFilterCondition())
   let b0 = initRequestBuilder()
   let (b1, _) = b0.addSearchSnippetGet(
-    makeAccountId("a1"),
-    filterConditionToJson,
-    cond,
-    makeId("e1"),
-    @[makeId("e2"), makeId("e3")],
+    makeAccountId("a1"), cond, makeId("e1"), @[makeId("e2"), makeId("e3")]
   )
   let req = b1.build()
   let ids = req.methodCalls[0].arguments{"emailIds"}
@@ -249,16 +241,13 @@ block addSearchSnippetGetFilterRequired:
   ## Scenario 89: omitting the filter parameter is a compile error.
   assertNotCompiles:
     let b0 = initRequestBuilder()
-    discard
-      b0.addSearchSnippetGet(makeAccountId("a1"), filterConditionToJson, makeId("e1"))
+    discard b0.addSearchSnippetGet(makeAccountId("a1"), makeId("e1"))
 
 block addSearchSnippetGetFilterInArgs:
   ## Scenario 90: filter JSON object is present in arguments.
   let cond = filterCondition(makeEmailFilterCondition())
   let b0 = initRequestBuilder()
-  let (b1, _) = b0.addSearchSnippetGet(
-    makeAccountId("a1"), filterConditionToJson, cond, makeId("e1")
-  )
+  let (b1, _) = b0.addSearchSnippetGet(makeAccountId("a1"), cond, makeId("e1"))
   let req = b1.build()
   let filterNode = req.methodCalls[0].arguments{"filter"}
   doAssert filterNode.kind == JObject

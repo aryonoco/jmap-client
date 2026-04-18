@@ -48,7 +48,7 @@ registerJmapEntity(MockQueryable)
 template filterType*(T: typedesc[MockQueryable]): typedesc =
   MockFilterCondition
 
-func filterConditionToJson*(c: MockFilterCondition): JsonNode =
+func toJson*(c: MockFilterCondition): JsonNode =
   newJObject()
 
 registerQueryableEntity(MockQueryable)
@@ -81,7 +81,7 @@ template filterType*(T: typedesc[NoFilterToJson]): typedesc =
   NoFilterToJsonFilter
 
 registerJmapEntity(NoFilterToJson)
-## Has filterType but no filterConditionToJson — registerQueryableEntity must fail.
+## Has filterType but no toJson on the filter — registerQueryableEntity must fail.
 
 {.pop.} # ruleOff: "params"
 {.pop.} # ruleOff: "objects"
@@ -130,8 +130,8 @@ block missingFilterType:
   ## MockFoo has no filterType — registerQueryableEntity must fail.
   assertNotCompiles(registerQueryableEntity(MockFoo))
 
-block missingFilterConditionToJson:
-  ## Type with filterType but no filterConditionToJson must fail.
-  ## NoFilterToJson (defined at module level) has filterType but deliberately
-  ## omits filterConditionToJson.
+block missingFilterToJson:
+  ## Type with filterType but no ``toJson`` on the filter must fail.
+  ## ``NoFilterToJson`` (defined at module level) has ``filterType`` but
+  ## deliberately omits ``toJson(NoFilterToJsonFilter)``.
   assertNotCompiles(registerQueryableEntity(NoFilterToJson))

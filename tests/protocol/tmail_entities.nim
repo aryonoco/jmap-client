@@ -24,6 +24,7 @@ import jmap_client/mail/vacation
 import jmap_client/mail/mailbox
 import jmap_client/mail/email
 import jmap_client/mail/mail_filters
+import jmap_client/mail/serde_mail_filters
 import jmap_client/mail/mail_entities
 import jmap_client/mail/mail_builders
 

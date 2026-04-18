@@ -140,48 +140,6 @@ type CopyRequest*[T] = object
     ## combination "state-guard supplied with no implicit destroy" is
     ## structurally unrepresentable.
 
-type QueryRequest*[T, C] = object
-  ## Request arguments for Foo/query (RFC 8620 section 5.5).
-  ## Searches, sorts, and windows the data type on the server, returning
-  ## a list of identifiers matching the criteria. ``C`` is the filter
-  ## condition type, resolved from ``filterType(T)`` by the builder.
-  accountId*: AccountId ## The identifier of the account to use.
-  filter*: Opt[Filter[C]]
-    ## Determines the set of Foos returned. Generic over the filter
-    ## condition type C (resolved from filterType(T) at the call site).
-  sort*: Opt[seq[Comparator]]
-    ## Sort criteria. If none or empty, sort order is server-dependent but
-    ## must be stable between calls.
-  position*: JmapInt
-    ## The zero-based index of the first identifier to return. Default: 0.
-    ## Negative values are offset from the end. Ignored if anchor is supplied.
-  anchor*: Opt[Id] ## A Foo identifier. If supplied, position is ignored.
-  anchorOffset*: JmapInt
-    ## The index of the first result relative to the anchor's index.
-    ## May be negative. Default: 0.
-  limit*: Opt[UnsignedInt] ## The maximum number of results to return.
-  calculateTotal*: bool ## Whether the client wishes to know the total number of results.
-
-type QueryChangesRequest*[T, C] = object
-  ## Request arguments for Foo/queryChanges (RFC 8620 section 5.6).
-  ## Efficiently updates a cached query to match the new server state.
-  ## ``C`` is the filter condition type, resolved from ``filterType(T)``
-  ## by the builder.
-  accountId*: AccountId ## The identifier of the account to use.
-  filter*: Opt[Filter[C]]
-    ## The filter argument that was used with the original Foo/query.
-  sort*: Opt[seq[Comparator]]
-    ## The sort argument that was used with the original Foo/query.
-  sinceQueryState*: JmapState
-    ## The current state of the query in the client, as returned by a
-    ## previous Foo/query response with the same sort/filter.
-  maxChanges*: Opt[MaxChanges] ## The maximum number of changes to return.
-  upToId*: Opt[Id]
-    ## The last (highest-index) identifier the client has cached.
-    ## Optimisation: only applies when sort and filter are both on
-    ## immutable properties.
-  calculateTotal*: bool ## Whether the client wishes to know the total number of results.
-
 # =============================================================================
 # Response type definitions (section 7)
 # =============================================================================
@@ -488,43 +446,6 @@ func toJson*[T](req: CopyRequest[T]): JsonNode =
     for s in req.destroyMode.destroyIfInState:
       node["destroyFromIfInState"] = s.toJson()
   return node
-
-func toJson*[T, C](
-    req: QueryRequest[T, C],
-    filterConditionToJson: proc(c: C): JsonNode {.noSideEffect, raises: [].},
-): JsonNode =
-  ## Serialise QueryRequest to JSON arguments object (RFC 8620 section 5.5).
-  ## Delegates to ``assembleQueryArgs`` — single source of truth for the
-  ## query protocol frame.
-  assembleQueryArgs(
-    req.accountId,
-    serializeOptFilter(req.filter, filterConditionToJson),
-    serializeOptSort(req.sort),
-    QueryParams(
-      position: req.position,
-      anchor: req.anchor,
-      anchorOffset: req.anchorOffset,
-      limit: req.limit,
-      calculateTotal: req.calculateTotal,
-    ),
-  )
-
-func toJson*[T, C](
-    req: QueryChangesRequest[T, C],
-    filterConditionToJson: proc(c: C): JsonNode {.noSideEffect, raises: [].},
-): JsonNode =
-  ## Serialise QueryChangesRequest to JSON arguments object
-  ## (RFC 8620 section 5.6). Delegates to ``assembleQueryChangesArgs`` —
-  ## single source of truth for the queryChanges protocol frame.
-  assembleQueryChangesArgs(
-    req.accountId,
-    req.sinceQueryState,
-    serializeOptFilter(req.filter, filterConditionToJson),
-    serializeOptSort(req.sort),
-    req.maxChanges,
-    req.upToId,
-    req.calculateTotal,
-  )
 
 # =============================================================================
 # Response toJson — split merged Result tables back to the wire shape

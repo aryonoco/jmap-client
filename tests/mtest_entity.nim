@@ -10,7 +10,7 @@
 ## 2. methodEntity overload
 ## 3. capabilityUri overload
 ## 4. filterType template (queryable)
-## 5. filterConditionToJson callback
+## 5. toJson on the filter condition type
 ## 6. registerJmapEntity at module scope
 ## 7. registerQueryableEntity at module scope
 ## 8. toJson/fromJson for the entity type
@@ -72,7 +72,7 @@ func copyMethodName*(T: typedesc[TestWidget]): MethodName =
 template filterType*(T: typedesc[TestWidget]): typedesc =
   TestWidgetFilter
 
-func filterConditionToJson*(f: TestWidgetFilter): JsonNode {.raises: [].} =
+func toJson*(f: TestWidgetFilter): JsonNode {.raises: [].} =
   result = newJObject()
   for n in f.name:
     result["name"] = %n

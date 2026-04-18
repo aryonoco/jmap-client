@@ -24,10 +24,12 @@ import ./email
 import ./email_blueprint
 import ./email_update
 import ./mail_filters
+import ./mail_entities
 import ./serde_mailbox
 import ./serde_email
 import ./serde_email_blueprint
 import ./serde_email_update
+import ./serde_mail_filters
 
 # Re-export the serde modules whose ``fromJson`` overloads are required at
 # the dispatch call-site (``get(handle)``): the generic ``SetResponse[T]``
@@ -160,8 +162,6 @@ func addMailboxChanges*(
 func addMailboxQuery*(
     b: RequestBuilder,
     accountId: AccountId,
-    filterConditionToJson:
-      proc(c: MailboxFilterCondition): JsonNode {.noSideEffect, raises: [].},
     filter: Opt[Filter[MailboxFilterCondition]] =
       Opt.none(Filter[MailboxFilterCondition]),
     sort: Opt[seq[Comparator]] = Opt.none(seq[Comparator]),
@@ -169,19 +169,18 @@ func addMailboxQuery*(
     sortAsTree: bool = false,
     filterAsTree: bool = false,
 ): (RequestBuilder, ResponseHandle[QueryResponse[Mailbox]]) =
-  ## Adds a Mailbox/query invocation with Mailbox-specific tree parameters
-  ## (RFC 8621 §2.3, Decision B13). ``sortAsTree`` and ``filterAsTree`` are
-  ## always emitted (explicit > defaults).
-  var args = assembleQueryArgs(
+  ## Mailbox/query (RFC 8621 §2.3). Mailbox uses the protocol-level
+  ## ``Comparator``; the RFC defines no typed Mailbox comparator. Tree
+  ## extension args (Decision B13) are emitted unconditionally.
+  addQuery[Mailbox, MailboxFilterCondition, Comparator](
+    b,
     accountId,
-    serializeOptFilter(filter, filterConditionToJson),
-    serializeOptSort(sort),
+    toJson,
+    filter,
+    sort,
     queryParams,
+    extras = @[("sortAsTree", %sortAsTree), ("filterAsTree", %filterAsTree)],
   )
-  args["sortAsTree"] = %sortAsTree
-  args["filterAsTree"] = %filterAsTree
-  let (newBuilder, callId) = b.addInvocation(mnMailboxQuery, args, MailCapUri)
-  (newBuilder, ResponseHandle[QueryResponse[Mailbox]](callId))
 
 # =============================================================================
 # addMailboxQueryChanges — Mailbox/queryChanges (RFC 8621 §2.4)
@@ -191,8 +190,6 @@ func addMailboxQueryChanges*(
     b: RequestBuilder,
     accountId: AccountId,
     sinceQueryState: JmapState,
-    filterConditionToJson:
-      proc(c: MailboxFilterCondition): JsonNode {.noSideEffect, raises: [].},
     filter: Opt[Filter[MailboxFilterCondition]] =
       Opt.none(Filter[MailboxFilterCondition]),
     sort: Opt[seq[Comparator]] = Opt.none(seq[Comparator]),
@@ -200,21 +197,11 @@ func addMailboxQueryChanges*(
     upToId: Opt[Id] = Opt.none(Id),
     calculateTotal: bool = false,
 ): (RequestBuilder, ResponseHandle[QueryChangesResponse[Mailbox]]) =
-  ## Adds a Mailbox/queryChanges invocation. Standard /queryChanges
-  ## parameters only — NO sortAsTree/filterAsTree (Decision B12: RFC 8621
-  ## §2.4 specifies no additional request arguments).
-  let req = QueryChangesRequest[Mailbox, MailboxFilterCondition](
-    accountId: accountId,
-    filter: filter,
-    sort: sort,
-    sinceQueryState: sinceQueryState,
-    maxChanges: maxChanges,
-    upToId: upToId,
-    calculateTotal: calculateTotal,
+  ## Mailbox/queryChanges (RFC 8621 §2.4). No extension args.
+  addQueryChanges[Mailbox, MailboxFilterCondition, Comparator](
+    b, accountId, sinceQueryState, toJson, filter, sort, maxChanges, upToId,
+    calculateTotal,
   )
-  let args = req.toJson(filterConditionToJson)
-  let (newBuilder, callId) = b.addInvocation(mnMailboxQueryChanges, args, MailCapUri)
-  (newBuilder, ResponseHandle[QueryChangesResponse[Mailbox]](callId))
 
 # =============================================================================
 # addMailboxSet — Mailbox/set (RFC 8621 §2.5)
@@ -284,27 +271,22 @@ func addEmailGet*(
 func addEmailQuery*(
     b: RequestBuilder,
     accountId: AccountId,
-    filterConditionToJson:
-      proc(c: EmailFilterCondition): JsonNode {.noSideEffect, raises: [].},
     filter: Opt[Filter[EmailFilterCondition]] = Opt.none(Filter[EmailFilterCondition]),
     sort: Opt[seq[EmailComparator]] = Opt.none(seq[EmailComparator]),
     queryParams: QueryParams = QueryParams(),
     collapseThreads: bool = false,
 ): (RequestBuilder, ResponseHandle[QueryResponse[Email]]) =
-  ## Adds an Email/query invocation with Email-specific sort
-  ## (``EmailComparator``) and ``collapseThreads`` (RFC 8621 §4.4,
-  ## Decision D11). Uses serialise-then-assemble — ``serializeOptSort``
-  ## resolves ``EmailComparator.toJson`` via mixin at this call site.
-  ## ``collapseThreads`` is always emitted (explicit > defaults).
-  var args = assembleQueryArgs(
+  ## Email/query (RFC 8621 §4.4). Typed ``EmailComparator`` flows through
+  ## the generic. ``collapseThreads`` (Decision D11) is emitted unconditionally.
+  addQuery[Email, EmailFilterCondition, EmailComparator](
+    b,
     accountId,
-    serializeOptFilter(filter, filterConditionToJson),
-    serializeOptSort(sort),
+    toJson,
+    filter,
+    sort,
     queryParams,
+    extras = @[("collapseThreads", %collapseThreads)],
   )
-  args["collapseThreads"] = %collapseThreads
-  let (newBuilder, callId) = b.addInvocation(mnEmailQuery, args, MailCapUri)
-  (newBuilder, ResponseHandle[QueryResponse[Email]](callId))
 
 # =============================================================================
 # addEmailQueryChanges — Email/queryChanges (RFC 8621 §4.5)
@@ -314,8 +296,6 @@ func addEmailQueryChanges*(
     b: RequestBuilder,
     accountId: AccountId,
     sinceQueryState: JmapState,
-    filterConditionToJson:
-      proc(c: EmailFilterCondition): JsonNode {.noSideEffect, raises: [].},
     filter: Opt[Filter[EmailFilterCondition]] = Opt.none(Filter[EmailFilterCondition]),
     sort: Opt[seq[EmailComparator]] = Opt.none(seq[EmailComparator]),
     maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges),
@@ -323,21 +303,19 @@ func addEmailQueryChanges*(
     calculateTotal: bool = false,
     collapseThreads: bool = false,
 ): (RequestBuilder, ResponseHandle[QueryChangesResponse[Email]]) =
-  ## Adds an Email/queryChanges invocation with Email-specific sort and
-  ## ``collapseThreads`` (RFC 8621 §4.5). Uses serialise-then-assemble —
-  ## no false intermediate. ``collapseThreads`` always emitted.
-  var args = assembleQueryChangesArgs(
+  ## Email/queryChanges (RFC 8621 §4.5).
+  addQueryChanges[Email, EmailFilterCondition, EmailComparator](
+    b,
     accountId,
     sinceQueryState,
-    serializeOptFilter(filter, filterConditionToJson),
-    serializeOptSort(sort),
+    toJson,
+    filter,
+    sort,
     maxChanges,
     upToId,
     calculateTotal,
+    extras = @[("collapseThreads", %collapseThreads)],
   )
-  args["collapseThreads"] = %collapseThreads
-  let (newBuilder, callId) = b.addInvocation(mnEmailQueryChanges, args, MailCapUri)
-  (newBuilder, ResponseHandle[QueryChangesResponse[Email]](callId))
 
 # =============================================================================
 # addEmailSet — Email/set (RFC 8621 §4.6)
