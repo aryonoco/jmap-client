@@ -231,9 +231,7 @@ Run `just ci` before committing.
 - **Step 22:** Cross-cutting convention audit across every new and
   modified Part G source file:
   - SPDX header at line 1.
-  - `{.push raises: [], noSideEffect.}` for L1/L2;
-    `{.push raises: [].}` for L3.
-  - `func` only in L1–L3.
+  - `{.push raises: [], noSideEffect.}` for L1/L2/L3;
   - Smart constructors return `Result`; no `raise` on domain paths.
   - `Opt[T]` from nim-results, never `std/options`.
   - `toJson`-only for creation/filter types.
