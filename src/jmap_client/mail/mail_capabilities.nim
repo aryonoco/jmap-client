@@ -13,6 +13,25 @@ import std/tables
 
 import ../validation
 import ../primitives
+import ./submission_atoms
+
+type SubmissionExtensionMap* = distinct OrderedTable[RFC5321Keyword, seq[string]]
+  ## RFC 5321 §2.2.1 EHLO-name → args map for the
+  ## urn:ietf:params:jmap:submission capability's ``submissionExtensions``
+  ## field (RFC 8621 §1.3.2). Keys are validated ESMTP keywords with the
+  ## case-insensitive equality and hash defined by ``RFC5321Keyword`` —
+  ## the underlying ``OrderedTable`` therefore gives structural uniqueness
+  ## and wire-order fidelity automatically. Construction is gated by
+  ## ``parseSubmissionCapabilities`` serde; direct callers wrap a
+  ## validated ``OrderedTable[RFC5321Keyword, seq[string]]`` via the raw
+  ## distinct constructor.
+
+func `==`*(a, b: SubmissionExtensionMap): bool {.borrow.}
+  ## Structural equality via the underlying ``OrderedTable`` — keys
+  ## compare case-insensitively through ``RFC5321Keyword.==``.
+
+func `$`*(a: SubmissionExtensionMap): string {.borrow.}
+  ## Table-rendered representation preserving wire order; for diagnostics.
 
 type MailCapabilities* {.ruleOff: "objects".} = object
   ## Server-advertised limits for the urn:ietf:params:jmap:mail capability
@@ -28,4 +47,4 @@ type SubmissionCapabilities* {.ruleOff: "objects".} = object
   ## Server-advertised limits for the urn:ietf:params:jmap:submission
   ## capability (RFC 8621 section 7).
   maxDelayedSend*: UnsignedInt ## Seconds; 0 means delayed send not supported.
-  submissionExtensions*: OrderedTable[string, seq[string]] ## SMTP extension keywords.
+  submissionExtensions*: SubmissionExtensionMap ## SMTP extension keywords.

@@ -15,6 +15,7 @@ import ../serde
 import ../types
 import ../capabilities
 import ./mail_capabilities
+import ./submission_atoms
 
 # =============================================================================
 # MailCapabilities
@@ -129,19 +130,22 @@ func parseSubmissionCapabilities*(
   let mdsFld = ?fieldJInt(cap.rawData, "maxDelayedSend", path)
   let maxDelayedSend = ?UnsignedInt.fromJson(mdsFld, path / "maxDelayedSend")
 
-  # submissionExtensions: required JObject of string -> array of strings
+  # submissionExtensions: required JObject; keys are RFC 5321 esmtp-keywords,
+  # values are arrays of strings.
   let extNode = ?fieldJObject(cap.rawData, "submissionExtensions", path)
-  var extensions = initOrderedTable[string, seq[string]]()
+  var extensions = initOrderedTable[RFC5321Keyword, seq[string]]()
   for key, val in extNode.pairs:
+    let kw = ?wrapInner(parseRFC5321Keyword(key), path / "submissionExtensions" / key)
     ?expectKind(val, JArray, path / "submissionExtensions" / key)
     var args: seq[string] = @[]
     for i, elem in val.getElems(@[]):
       ?expectKind(elem, JString, path / "submissionExtensions" / key / i)
       args.add(elem.getStr(""))
-    extensions[key] = args
+    extensions[kw] = args
 
   return ok(
     SubmissionCapabilities(
-      maxDelayedSend: maxDelayedSend, submissionExtensions: extensions
+      maxDelayedSend: maxDelayedSend,
+      submissionExtensions: SubmissionExtensionMap(extensions),
     )
   )

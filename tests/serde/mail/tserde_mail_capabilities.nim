@@ -9,9 +9,11 @@ import std/tables
 
 import jmap_client/mail/mail_capabilities
 import jmap_client/mail/serde_mail_capabilities
+import jmap_client/mail/submission_atoms
 import jmap_client/validation
 import jmap_client/primitives
 import jmap_client/capabilities
+import jmap_client/serde
 
 import ../../massertions
 
@@ -138,9 +140,12 @@ block parseSubmissionCapabilitiesValid: # scenario 52
   assertOk res
   let sc = res.get()
   assertEq int64(sc.maxDelayedSend), 300'i64
-  assertEq sc.submissionExtensions.len, 2
-  assertEq sc.submissionExtensions["DELIVERBY"], @["240"]
-  assertEq sc.submissionExtensions["SIZE"], @["50000000"]
+  let extensions = OrderedTable[RFC5321Keyword, seq[string]](sc.submissionExtensions)
+  let kwDeliverby = parseRFC5321Keyword("DELIVERBY").unsafeGet()
+  let kwSize = parseRFC5321Keyword("SIZE").unsafeGet()
+  assertEq extensions.len, 2
+  assertEq extensions[kwDeliverby], @["240"]
+  assertEq extensions[kwSize], @["50000000"]
 
 # =============================================================================
 # F. SubmissionCapabilities — wrong kind
@@ -180,10 +185,14 @@ block submissionExtensionsMultiple: # scenario 55
   let res = parseSubmissionCapabilities(cap)
   assertOk res
   let sc = res.get()
-  assertEq sc.submissionExtensions.len, 3
-  assertEq sc.submissionExtensions["DELIVERBY"], @["240"]
-  assertEq sc.submissionExtensions["SIZE"], @["50000000"]
-  assertEq sc.submissionExtensions["8BITMIME"], newSeq[string]()
+  let extensions = OrderedTable[RFC5321Keyword, seq[string]](sc.submissionExtensions)
+  let kwDeliverby = parseRFC5321Keyword("DELIVERBY").unsafeGet()
+  let kwSize = parseRFC5321Keyword("SIZE").unsafeGet()
+  let kw8bitmime = parseRFC5321Keyword("8BITMIME").unsafeGet()
+  assertEq extensions.len, 3
+  assertEq extensions[kwDeliverby], @["240"]
+  assertEq extensions[kwSize], @["50000000"]
+  assertEq extensions[kw8bitmime], newSeq[string]()
 
 # =============================================================================
 # I. MailCapabilities — absent field yields Opt.none
@@ -252,6 +261,35 @@ block submissionExtensionsNonArray:
     rawUri: "urn:ietf:params:jmap:submission", kind: ckSubmission, rawData: j
   )
   assertErr parseSubmissionCapabilities(cap)
+
+# =============================================================================
+# M2. SubmissionCapabilities — invalid RFC5321Keyword in extension key
+# =============================================================================
+
+block submissionExtensionsInvalidKeyword:
+  var j = validSubmissionCapJson()
+  j["submissionExtensions"] = %*{"bad!key": ["x"]}
+  let cap = ServerCapability(
+    rawUri: "urn:ietf:params:jmap:submission", kind: ckSubmission, rawData: j
+  )
+  let res = parseSubmissionCapabilities(cap)
+  assertSvKind res, svkFieldParserFailed
+  assertSvInner res, "RFC5321Keyword"
+  assertSvPath res, "/submissionExtensions/bad!key"
+
+# =============================================================================
+# M3. SubmissionCapabilities — empty RFC5321Keyword in extension key
+# =============================================================================
+
+block submissionExtensionsEmptyKeyword:
+  var j = validSubmissionCapJson()
+  j["submissionExtensions"] = %*{"": []}
+  let cap = ServerCapability(
+    rawUri: "urn:ietf:params:jmap:submission", kind: ckSubmission, rawData: j
+  )
+  let res = parseSubmissionCapabilities(cap)
+  assertSvKind res, svkFieldParserFailed
+  assertSvInner res, "RFC5321Keyword"
 
 # =============================================================================
 # N. ckCore kind rejected for both parse functions
