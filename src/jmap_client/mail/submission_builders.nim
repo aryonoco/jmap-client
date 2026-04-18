@@ -23,9 +23,12 @@ import ../methods
 import ../dispatch
 import ../builder
 import ./email_submission
+import ./email
+import ./email_update
 import ./mail_entities
 import ./serde_email_submission
 import ./serde_email
+import ./serde_email_update
 
 export serde_email_submission
 export serde_email
@@ -153,3 +156,59 @@ func getBoth*(
   let submission = ?resp.get(handles.submission)
   let emailSet = ?resp.get(handles.emailSet)
   return ok(EmailSubmissionResults(submission: submission, emailSet: emailSet))
+
+# =============================================================================
+# addEmailSubmissionAndEmailSet — compound EmailSubmission/set + implicit
+# Email/set (RFC 8621 §7.5 ¶3, Design §9.1)
+# =============================================================================
+
+func addEmailSubmissionAndEmailSet*(
+    b: RequestBuilder,
+    accountId: AccountId,
+    create: Opt[Table[CreationId, EmailSubmissionBlueprint]] =
+      Opt.none(Table[CreationId, EmailSubmissionBlueprint]),
+    update: Opt[NonEmptyEmailSubmissionUpdates] =
+      Opt.none(NonEmptyEmailSubmissionUpdates),
+    destroy: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]),
+    onSuccessUpdateEmail: Opt[Table[IdOrCreationRef, EmailUpdateSet]] =
+      Opt.none(Table[IdOrCreationRef, EmailUpdateSet]),
+    onSuccessDestroyEmail: Opt[seq[IdOrCreationRef]] = Opt.none(seq[IdOrCreationRef]),
+    ifInState: Opt[JmapState] = Opt.none(JmapState),
+): (RequestBuilder, EmailSubmissionHandles) =
+  ## Compound EmailSubmission/set with implicit Email/set on success
+  ## (RFC 8621 §7.5 ¶3, Design §9.1). Single wire invocation; the server
+  ## emits the implicit Email/set response sharing the parent call ID
+  ## (RFC 8620 §5.4). ``handles.emailSet`` carries the ``mnEmailSet``
+  ## filter so ``getBoth`` can disambiguate without a call-site argument.
+  let jsonCreate = block:
+    var res = Opt.none(Table[CreationId, JsonNode])
+    for createMap in create:
+      var tbl = initTable[CreationId, JsonNode](createMap.len)
+      for k, v in createMap:
+        tbl[k] = v.toJson()
+      res = Opt.some(tbl)
+    res
+  let req = SetRequest[AnyEmailSubmission](
+    accountId: accountId, ifInState: ifInState, create: jsonCreate, destroy: destroy
+  )
+  var args = req.toJson()
+  for updateSet in update:
+    args["update"] = updateSet.toJson()
+  for upd in onSuccessUpdateEmail:
+    var obj = newJObject()
+    for refKey, eus in upd:
+      obj[idOrCreationRefWireKey(refKey)] = eus.toJson()
+    args["onSuccessUpdateEmail"] = obj
+  for dst in onSuccessDestroyEmail:
+    var arr = newJArray()
+    for refItem in dst:
+      arr.add(%idOrCreationRefWireKey(refItem))
+    args["onSuccessDestroyEmail"] = arr
+  let (newBuilder, cid) = b.addInvocation(mnEmailSubmissionSet, args, SubmissionCapUri)
+  let handles = EmailSubmissionHandles(
+    submission: ResponseHandle[EmailSubmissionSetResponse](cid),
+    emailSet: NameBoundHandle[SetResponse[EmailCreatedItem]](
+      callId: cid, methodName: mnEmailSet
+    ),
+  )
+  (newBuilder, handles)
