@@ -40,6 +40,11 @@ type MethodName* = enum
   mnEmailImport = "Email/import"
   mnVacationResponseGet = "VacationResponse/get"
   mnVacationResponseSet = "VacationResponse/set"
+  mnEmailSubmissionGet = "EmailSubmission/get"
+  mnEmailSubmissionChanges = "EmailSubmission/changes"
+  mnEmailSubmissionSet = "EmailSubmission/set"
+  mnEmailSubmissionQuery = "EmailSubmission/query"
+  mnEmailSubmissionQueryChanges = "EmailSubmission/queryChanges"
   mnSearchSnippetGet = "SearchSnippet/get"
 
 type MethodEntity* = enum
@@ -57,6 +62,7 @@ type MethodEntity* = enum
   meEmail
   meVacationResponse
   meSearchSnippet
+  meEmailSubmission
   meTest
 
 type RefPath* = enum

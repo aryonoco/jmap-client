@@ -22,6 +22,8 @@ import ./thread
 import ./identity
 import ./mailbox
 import ./email
+import ./email_submission
+import ./serde_email_submission
 import ./mail_filters
 import ./serde_mail_filters
 
@@ -197,3 +199,59 @@ func filterConditionToJson*(c: EmailFilterCondition): JsonNode =
 
 registerJmapEntity(Email)
 registerQueryableEntity(Email)
+
+# ---------------------------------------------------------------------------
+# EmailSubmission (RFC 8621 section 7) — supports /get, /changes, /set,
+# /query, /queryChanges
+# ---------------------------------------------------------------------------
+
+func methodEntity*(T: typedesc[AnyEmailSubmission]): MethodEntity =
+  ## Entity tag for EmailSubmission. Keys on the existential wrapper —
+  ## ``EmailSubmission[S: static UndoStatus]`` is generic and cannot be
+  ## passed as a bare typedesc (G2/G3 phantom state indexing).
+  discard $T
+  meEmailSubmission
+
+func getMethodName*(T: typedesc[AnyEmailSubmission]): MethodName =
+  ## EmailSubmission/get method name.
+  discard $T
+  mnEmailSubmissionGet
+
+func changesMethodName*(T: typedesc[AnyEmailSubmission]): MethodName =
+  ## EmailSubmission/changes method name.
+  discard $T
+  mnEmailSubmissionChanges
+
+func setMethodName*(T: typedesc[AnyEmailSubmission]): MethodName =
+  ## EmailSubmission/set method name.
+  discard $T
+  mnEmailSubmissionSet
+
+func queryMethodName*(T: typedesc[AnyEmailSubmission]): MethodName =
+  ## EmailSubmission/query method name.
+  discard $T
+  mnEmailSubmissionQuery
+
+func queryChangesMethodName*(T: typedesc[AnyEmailSubmission]): MethodName =
+  ## EmailSubmission/queryChanges method name.
+  discard $T
+  mnEmailSubmissionQueryChanges
+
+func capabilityUri*(T: typedesc[AnyEmailSubmission]): string =
+  ## RFC 8621 §1.3 — EmailSubmission methods are covered by the JMAP
+  ## Submission capability (same URI as Identity).
+  discard $T
+  "urn:ietf:params:jmap:submission"
+
+template filterType*(T: typedesc[AnyEmailSubmission]): typedesc =
+  ## Associated filter condition type for EmailSubmission/query.
+  discard $T
+  EmailSubmissionFilterCondition
+
+func filterConditionToJson*(c: EmailSubmissionFilterCondition): JsonNode =
+  ## Serialise EmailSubmissionFilterCondition to JSON. Resolved via ``mixin``
+  ## in the single-type-parameter ``addQuery[AnyEmailSubmission]`` template.
+  c.toJson()
+
+registerJmapEntity(AnyEmailSubmission)
+registerQueryableEntity(AnyEmailSubmission)
