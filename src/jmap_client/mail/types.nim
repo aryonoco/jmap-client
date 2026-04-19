@@ -21,6 +21,9 @@ import ./email_blueprint
 import ./email
 import ./email_update
 import ./snippet
+import ./submission_envelope
+import ./submission_status
+import ./email_submission
 
 export addresses
 export thread
@@ -37,3 +40,6 @@ export email_blueprint
 export email
 export email_update
 export snippet
+export submission_envelope
+export submission_status
+export email_submission

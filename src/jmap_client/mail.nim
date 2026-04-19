@@ -12,9 +12,11 @@ import jmap_client/mail/serialisation
 import jmap_client/mail/mail_entities
 import jmap_client/mail/mail_methods
 import jmap_client/mail/mail_builders
+import jmap_client/mail/submission_builders
 
 export types
 export serialisation
 export mail_entities
 export mail_methods
 export mail_builders
+export submission_builders

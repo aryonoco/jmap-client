@@ -20,6 +20,9 @@ import ./serde_email_blueprint
 import ./serde_email
 import ./serde_email_update
 import ./serde_snippet
+import ./serde_submission_envelope
+import ./serde_submission_status
+import ./serde_email_submission
 
 export serde_addresses
 export serde_thread
@@ -35,3 +38,6 @@ export serde_email_blueprint
 export serde_email
 export serde_email_update
 export serde_snippet
+export serde_submission_envelope
+export serde_submission_status
+export serde_email_submission
