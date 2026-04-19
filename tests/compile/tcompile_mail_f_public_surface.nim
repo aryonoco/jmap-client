@@ -84,6 +84,9 @@ static:
   doAssert declared(copyItemType)
   doAssert declared(copyResponseType)
 
+  # --- /get extras: EmailBodyFetchOptions → seq[(string, JsonNode)] (1) ---
+  doAssert declared(toExtras)
+
   # --- Mailbox update ctors (5) ---
   doAssert declared(setName)
   doAssert declared(setParentId)

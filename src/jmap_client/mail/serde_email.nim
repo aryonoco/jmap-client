@@ -636,42 +636,42 @@ func toJson*(c: EmailComparator): JsonNode =
 # EmailBodyFetchOptions
 # =============================================================================
 
-func emitInto*(opts: EmailBodyFetchOptions, node: var JsonNode) =
-  ## Emit body fetch option keys directly into target node.
-  ## Shared by addEmailGet and addEmailParse — avoids toJson + merge loop.
-  ## Maps ``BodyValueScope`` enum back to the three RFC booleans (D9).
-
-  # bodyProperties: emit array when present
+func toExtras*(opts: EmailBodyFetchOptions): seq[(string, JsonNode)] =
+  ## Emit body fetch option keys as a ``(key, value)`` seq. Consumed by
+  ## ``addEmailGet`` via its ``extras`` parameter and by ``addEmailParse``
+  ## via direct iteration. Maps ``BodyValueScope`` enum back to the three
+  ## RFC booleans (D9). Insertion order: ``bodyProperties``,
+  ## ``fetchTextBodyValues?``, ``fetchHTMLBodyValues?``,
+  ## ``fetchAllBodyValues?``, ``maxBodyValueBytes``.
+  result = @[]
   for props in opts.bodyProperties:
     var arr = newJArray()
     for p in props:
       arr.add(p.toJson())
-    node["bodyProperties"] = arr
-
-  # fetchBodyValues enum to RFC booleans
+    result.add(("bodyProperties", arr))
   case opts.fetchBodyValues
   of bvsNone:
     discard
   of bvsText:
-    node["fetchTextBodyValues"] = %true
+    result.add(("fetchTextBodyValues", %true))
   of bvsHtml:
-    node["fetchHTMLBodyValues"] = %true
+    result.add(("fetchHTMLBodyValues", %true))
   of bvsTextAndHtml:
-    node["fetchTextBodyValues"] = %true
-    node["fetchHTMLBodyValues"] = %true
+    result.add(("fetchTextBodyValues", %true))
+    result.add(("fetchHTMLBodyValues", %true))
   of bvsAll:
-    node["fetchAllBodyValues"] = %true
-
-  # maxBodyValueBytes: emit when present
+    result.add(("fetchAllBodyValues", %true))
   for v in opts.maxBodyValueBytes:
-    node["maxBodyValueBytes"] = v.toJson()
+    result.add(("maxBodyValueBytes", v.toJson()))
 
 func toJson*(opts: EmailBodyFetchOptions): JsonNode =
   ## Serialise EmailBodyFetchOptions to request JSON arguments.
   ## ``bvsNone`` omits all fetch keys; ``default(EmailBodyFetchOptions).toJson``
-  ## produces ``{}``.
+  ## produces ``{}``. Builds a JObject from ``toExtras`` so both paths
+  ## produce byte-identical output.
   var node = newJObject()
-  opts.emitInto(node)
+  for (k, v) in opts.toExtras():
+    node[k] = v
   return node
 
 # =============================================================================

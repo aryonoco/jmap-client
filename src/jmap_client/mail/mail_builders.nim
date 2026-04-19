@@ -147,13 +147,11 @@ func addEmailGet*(
     bodyFetchOptions: EmailBodyFetchOptions = default(EmailBodyFetchOptions),
 ): (RequestBuilder, ResponseHandle[GetResponse[Email]]) =
   ## Adds an Email/get invocation with Email-specific body fetch options
-  ## (RFC 8621 §4.2, Decision D9). ``bodyFetchOptions`` controls which body
-  ## values to fetch and optional truncation. Default produces no extra keys.
-  let req = GetRequest[Email](accountId: accountId, ids: ids, properties: properties)
-  var args = req.toJson()
-  bodyFetchOptions.emitInto(args)
-  let (newBuilder, callId) = b.addInvocation(mnEmailGet, args, MailCapUri)
-  (newBuilder, ResponseHandle[GetResponse[Email]](callId))
+  ## (RFC 8621 §4.2, Decision D9). ``bodyFetchOptions.toExtras()`` supplies
+  ## the RFC-specific keys; ``default(EmailBodyFetchOptions)`` yields an
+  ## empty seq (no extra keys). Thin wrapper over ``addGet[Email]``'s
+  ## ``extras`` parameter.
+  addGet[Email](b, accountId, ids, properties, extras = bodyFetchOptions.toExtras())
 
 # =============================================================================
 # addEmailQuery — Email/query (RFC 8621 §4.4)

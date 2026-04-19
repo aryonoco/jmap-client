@@ -154,11 +154,19 @@ func addGet*[T](
     accountId: AccountId,
     ids: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]),
     properties: Opt[seq[string]] = Opt.none(seq[string]),
+    extras: seq[(string, JsonNode)] = @[],
 ): (RequestBuilder, ResponseHandle[GetResponse[T]]) =
   ## Adds a Foo/get invocation. Fetches objects by identifiers, optionally
-  ## returning only a subset of properties.
+  ## returning only a subset of properties. Entity-specific extension keys
+  ## (e.g. Email/get's body-fetch options) are supplied via ``extras`` and
+  ## appended to the args after the standard frame (insertion order preserved).
+  mixin getMethodName, capabilityUri
   let req = GetRequest[T](accountId: accountId, ids: ids, properties: properties)
-  addMethodImpl(b, T, getMethodName, req, GetResponse[T])
+  var args = req.toJson()
+  for (k, v) in extras:
+    args[k] = v
+  let (newBuilder, callId) = addInvocation(b, getMethodName(T), args, capabilityUri(T))
+  (newBuilder, ResponseHandle[GetResponse[T]](callId))
 
 # =============================================================================
 # addChanges — Foo/changes (RFC 8620 section 5.2)

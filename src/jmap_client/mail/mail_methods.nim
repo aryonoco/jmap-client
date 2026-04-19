@@ -166,8 +166,10 @@ func addEmailParse*(
     bodyFetchOptions: EmailBodyFetchOptions = default(EmailBodyFetchOptions),
 ): (RequestBuilder, ResponseHandle[EmailParseResponse]) =
   ## Adds an Email/parse invocation. ``blobIds`` is a plain seq (no result
-  ## references — Email/parse doesn't support them). Body fetch options are
-  ## merged into the arguments, same pattern as ``addEmailGet``.
+  ## references — Email/parse doesn't support them).
+  ## ``bodyFetchOptions.toExtras()`` supplies the RFC 8621 §4.9 body-fetch
+  ## keys, merged into the args after the standard frame (insertion order
+  ## preserved).
   var args = newJObject()
   args["accountId"] = accountId.toJson()
   var arr = newJArray()
@@ -179,7 +181,8 @@ func addEmailParse*(
     for p in props:
       propsArr.add(%p)
     args["properties"] = propsArr
-  bodyFetchOptions.emitInto(args)
+  for (k, v) in bodyFetchOptions.toExtras():
+    args[k] = v
   let (newBuilder, callId) = b.addInvocation(mnEmailParse, args, MailCapUri)
   (newBuilder, ResponseHandle[EmailParseResponse](callId))
 
