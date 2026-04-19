@@ -24,11 +24,9 @@ import ../dispatch
 import ../builder
 import ./email_submission
 import ./email
-import ./email_update
 import ./mail_entities
 import ./serde_email_submission
 import ./serde_email
-import ./serde_email_update
 
 export serde_email_submission
 export serde_email
@@ -154,9 +152,10 @@ func addEmailSubmissionAndEmailSet*(
     update: Opt[NonEmptyEmailSubmissionUpdates] =
       Opt.none(NonEmptyEmailSubmissionUpdates),
     destroy: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]),
-    onSuccessUpdateEmail: Opt[Table[IdOrCreationRef, EmailUpdateSet]] =
-      Opt.none(Table[IdOrCreationRef, EmailUpdateSet]),
-    onSuccessDestroyEmail: Opt[seq[IdOrCreationRef]] = Opt.none(seq[IdOrCreationRef]),
+    onSuccessUpdateEmail: Opt[NonEmptyOnSuccessUpdateEmail] =
+      Opt.none(NonEmptyOnSuccessUpdateEmail),
+    onSuccessDestroyEmail: Opt[NonEmptyOnSuccessDestroyEmail] =
+      Opt.none(NonEmptyOnSuccessDestroyEmail),
     ifInState: Opt[JmapState] = Opt.none(JmapState),
 ): (RequestBuilder, EmailSubmissionHandles) =
   ## Compound EmailSubmission/set with implicit Email/set on success
@@ -164,26 +163,21 @@ func addEmailSubmissionAndEmailSet*(
   ## emits the implicit Email/set response sharing the parent call ID
   ## (RFC 8620 §5.4). ``handles.emailSet`` carries the ``mnEmailSet``
   ## filter so ``getBoth`` can disambiguate without a call-site argument.
-  ## The primary EmailSubmission/set call routes through the generic
-  ## ``addSet[AnyEmailSubmission, ...]`` with the two compound extras
-  ## appended in wire order.
-  let emailUpdExtras = block:
+  ## The two compound extras (``onSuccessUpdateEmail`` and
+  ## ``onSuccessDestroyEmail``) arrive as ``NonEmpty*`` wrappers — empty
+  ## and duplicate-key shapes are unrepresentable at the type level, so
+  ## ``Opt.none`` is the sole "no extras" encoding.
+  let extras = block:
     var e: seq[(string, JsonNode)] = @[]
-    for upd in onSuccessUpdateEmail:
-      var obj = newJObject()
-      for refKey, eus in upd:
-        obj[idOrCreationRefWireKey(refKey)] = eus.toJson()
-      e.add(("onSuccessUpdateEmail", obj))
-    for dst in onSuccessDestroyEmail:
-      var arr = newJArray()
-      for refItem in dst:
-        arr.add(%idOrCreationRefWireKey(refItem))
-      e.add(("onSuccessDestroyEmail", arr))
+    for v in onSuccessUpdateEmail:
+      e.add(("onSuccessUpdateEmail", v.toJson()))
+    for v in onSuccessDestroyEmail:
+      e.add(("onSuccessDestroyEmail", v.toJson()))
     e
   let (b1, sh) = addSet[
     AnyEmailSubmission, EmailSubmissionBlueprint, NonEmptyEmailSubmissionUpdates,
     EmailSubmissionSetResponse,
-  ](b, accountId, ifInState, create, update, destroy, extras = emailUpdExtras)
+  ](b, accountId, ifInState, create, update, destroy, extras = extras)
   let handles = EmailSubmissionHandles(
     submission: sh,
     emailSet: NameBoundHandle[SetResponse[EmailCreatedItem]](

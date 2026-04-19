@@ -21,8 +21,9 @@ import jmap_client/mail/mailbox
 import jmap_client/mail/email
 import jmap_client/mail/email_blueprint
 import jmap_client/mail/email_update
-import jmap_client/mail/mail_entities
+import jmap_client/mail/email_submission
 import jmap_client/mail/mail_builders
+import jmap_client/mail/submission_builders
 import jmap_client/mail/serde_email
 
 import ../massertions
@@ -724,3 +725,42 @@ block addMailboxSetEmptyUpdateSetRejectedAtConstruction:
   ## update-set (F22 invariant).
   let res = initMailboxUpdateSet(newSeq[MailboxUpdate]())
   assertErr res
+
+# ===========================================================================
+# O. addEmailSubmissionAndEmailSet wire anchor (RFC 8621 §7.5 ¶3)
+# ===========================================================================
+
+block addEmailSubmissionAndEmailSetWireAnchor:
+  ## Pins the wire shape of the compound EmailSubmission/set + implicit
+  ## Email/set (RFC 8621 §7.5 ¶3). ``onSuccessUpdateEmail`` serialises
+  ## into a JObject keyed by ``idOrCreationRefWireKey``, with each entry
+  ## carrying the flat ``EmailUpdateSet.toJson()`` patch; the
+  ## ``onSuccessDestroyEmail`` extension is a JArray of wire-key strings.
+  let identityId = makeId("idt1")
+  let emailId = makeId("m-abc")
+  let bp = parseEmailSubmissionBlueprint(identityId, emailId).get()
+  let updKey = directRef(emailId)
+  let us = initEmailUpdateSet(@[markRead()]).get()
+  let onUpd = parseNonEmptyOnSuccessUpdateEmail(@[(updKey, us)]).get()
+  let onDst = parseNonEmptyOnSuccessDestroyEmail(@[directRef(emailId)]).get()
+  var createTbl = initTable[CreationId, EmailSubmissionBlueprint]()
+  createTbl[makeCreationId("s1")] = bp
+  let b0 = initRequestBuilder()
+  let (b1, _) = b0.addEmailSubmissionAndEmailSet(
+    accountId = makeAccountId("a1"),
+    create = Opt.some(createTbl),
+    onSuccessUpdateEmail = Opt.some(onUpd),
+    onSuccessDestroyEmail = Opt.some(onDst),
+  )
+  let req = b1.build()
+  assertLen req.methodCalls, 1
+  assertEq req.methodCalls[0].name, mnEmailSubmissionSet
+  let args = req.methodCalls[0].arguments
+  let updObj = args{"onSuccessUpdateEmail"}
+  doAssert updObj != nil and updObj.kind == JObject
+  assertLen updObj, 1
+  assertEq updObj{"m-abc"}{"keywords/$seen"}, newJBool(true)
+  let destroyArr = args{"onSuccessDestroyEmail"}
+  doAssert destroyArr != nil and destroyArr.kind == JArray
+  assertLen destroyArr, 1
+  assertEq destroyArr[0].getStr(""), "m-abc"

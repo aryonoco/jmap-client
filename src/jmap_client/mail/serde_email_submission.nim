@@ -25,8 +25,10 @@ import std/tables
 import ../serde
 import ../types
 import ./email_submission
+import ./email_update
 import ./submission_envelope
 import ./submission_status
+import ./serde_email_update
 import ./serde_submission_envelope
 import ./serde_submission_status
 
@@ -219,6 +221,23 @@ func toJson*(r: IdOrCreationRef): JsonNode =
   ## ``IdOrCreationRef`` appears as a list element (e.g.,
   ## ``onSuccessDestroyEmail``) rather than a map key.
   return %idOrCreationRefWireKey(r)
+
+func toJson*(v: NonEmptyOnSuccessUpdateEmail): JsonNode =
+  ## Flatten to RFC 8621 §7.5 ¶3 wire shape
+  ## ``{idOrCreationRefKey: patchObj, ...}``. Non-empty + distinct-key
+  ## invariants enforced by ``parseNonEmptyOnSuccessUpdateEmail``.
+  var node = newJObject()
+  for k, patchSet in Table[IdOrCreationRef, EmailUpdateSet](v):
+    node[idOrCreationRefWireKey(k)] = patchSet.toJson()
+  return node
+
+func toJson*(v: NonEmptyOnSuccessDestroyEmail): JsonNode =
+  ## Flatten to RFC 8621 §7.5 ¶3 wire shape
+  ## ``[idOrCreationRefKey, ...]``.
+  var arr = newJArray()
+  for r in seq[IdOrCreationRef](v):
+    arr.add(%idOrCreationRefWireKey(r))
+  return arr
 
 # =============================================================================
 # EmailSubmissionFilterCondition — /query filter (RFC 8621 §7.3)

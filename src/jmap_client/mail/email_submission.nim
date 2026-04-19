@@ -23,6 +23,7 @@ import ../dispatch
 import ./submission_envelope
 import ./submission_status
 import ./email
+import ./email_update
 
 type EmailSubmission*[S: static UndoStatus] {.ruleOff: "objects".} = object
   ## Entity read model indexed on the RFC 8621 §7 ``undoStatus``. Each
@@ -451,6 +452,63 @@ func creationRef*(cid: CreationId): IdOrCreationRef =
   ## operation. The ``"#"`` prefix is a wire concern — added at
   ## ``toJson`` time, not stored on the ``CreationId``.
   IdOrCreationRef(kind: icrCreation, creationId: cid)
+
+# =============================================================================
+# NonEmptyOnSuccessUpdateEmail / NonEmptyOnSuccessDestroyEmail
+# (RFC 8621 §7.5 ¶3 — compound EmailSubmission/set + implicit Email/set)
+# =============================================================================
+
+type NonEmptyOnSuccessUpdateEmail* = distinct Table[IdOrCreationRef, EmailUpdateSet]
+  ## Non-empty, duplicate-free map of per-email update patches triggered
+  ## by a successful ``EmailSubmission/set`` (RFC 8621 §7.5 ¶3). Keys may
+  ## be resolved Email ids or creation-references to sibling
+  ## EmailSubmission creates; ``IdOrCreationRef`` ``==`` and ``hash`` are
+  ## arm-dispatched, so ``directRef(Id("x"))`` and
+  ## ``creationRef(CreationId("x"))`` hash into distinct buckets even
+  ## when their payload strings coincide. Construction gated by
+  ## ``parseNonEmptyOnSuccessUpdateEmail``.
+
+type NonEmptyOnSuccessDestroyEmail* = distinct seq[IdOrCreationRef]
+  ## Non-empty, duplicate-free sequence of Email references triggered
+  ## for destroy on a successful ``EmailSubmission/set`` (RFC 8621 §7.5
+  ## ¶3). Construction gated by ``parseNonEmptyOnSuccessDestroyEmail``.
+
+func parseNonEmptyOnSuccessUpdateEmail*(
+    items: openArray[(IdOrCreationRef, EmailUpdateSet)]
+): Result[NonEmptyOnSuccessUpdateEmail, seq[ValidationError]] =
+  ## Accumulating smart constructor. Rejects empty input (``Opt.none`` is
+  ## the single "no extras" representation) and duplicate
+  ## ``IdOrCreationRef`` keys (silent last-wins at Table construction
+  ## would swallow caller data).
+  let errs = validateUniqueByIt(
+    items,
+    it[0],
+    typeName = "NonEmptyOnSuccessUpdateEmail",
+    emptyMsg = "must contain at least one entry",
+    dupMsg = "duplicate id or creation reference",
+  )
+  if errs.len > 0:
+    return err(errs)
+  var t = initTable[IdOrCreationRef, EmailUpdateSet](items.len)
+  for (k, v) in items:
+    t[k] = v
+  ok(NonEmptyOnSuccessUpdateEmail(t))
+
+func parseNonEmptyOnSuccessDestroyEmail*(
+    items: openArray[IdOrCreationRef]
+): Result[NonEmptyOnSuccessDestroyEmail, seq[ValidationError]] =
+  ## Accumulating smart constructor. Rejects empty input and duplicate
+  ## ``IdOrCreationRef`` elements.
+  let errs = validateUniqueByIt(
+    items,
+    it,
+    typeName = "NonEmptyOnSuccessDestroyEmail",
+    emptyMsg = "must contain at least one entry",
+    dupMsg = "duplicate id or creation reference",
+  )
+  if errs.len > 0:
+    return err(errs)
+  ok(NonEmptyOnSuccessDestroyEmail(@items))
 
 # -----------------------------------------------------------------------------
 # EmailSubmissionHandles / EmailSubmissionResults (RFC 8621 §7.5)

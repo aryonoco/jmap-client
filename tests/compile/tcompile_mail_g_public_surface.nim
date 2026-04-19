@@ -127,6 +127,12 @@ static:
   doAssert declared(countDelivered)
   doAssert declared(anyFailed)
 
+  # --- onSuccess* NonEmpty extras ---
+  doAssert declared(NonEmptyOnSuccessUpdateEmail)
+  doAssert declared(NonEmptyOnSuccessDestroyEmail)
+  doAssert declared(parseNonEmptyOnSuccessUpdateEmail)
+  doAssert declared(parseNonEmptyOnSuccessDestroyEmail)
+
   # --- L3 method builders (6) ---
   doAssert declared(addEmailSubmissionGet)
   doAssert declared(addEmailSubmissionChanges)
