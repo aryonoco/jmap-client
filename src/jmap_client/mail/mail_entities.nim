@@ -249,6 +249,17 @@ template setResponseType*(T: typedesc[Email]): typedesc =
   discard $T
   SetResponse[EmailCreatedItem]
 
+template copyItemType*(T: typedesc[Email]): typedesc =
+  ## Associated typed copy-item type for Email/copy.
+  discard $T
+  EmailCopyItem
+
+template copyResponseType*(T: typedesc[Email]): typedesc =
+  ## Associated /copy response type for Email. The typed ``createResults``
+  ## payload is ``EmailCreatedItem`` (same shape as /set).
+  discard $T
+  CopyResponse[EmailCreatedItem]
+
 registerJmapEntity(Email)
 registerQueryableEntity(Email)
 registerSettableEntity(Email)

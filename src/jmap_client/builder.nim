@@ -232,20 +232,24 @@ func addSet*[T, C, U, R](
 # addCopy — Foo/copy (RFC 8620 section 5.4)
 # =============================================================================
 
-func addCopy*[T](
+func addCopy*[T, CopyItem, R](
     b: RequestBuilder,
     fromAccountId: AccountId,
     accountId: AccountId,
-    create: Table[CreationId, JsonNode],
+    create: Table[CreationId, CopyItem],
     ifFromInState: Opt[JmapState] = Opt.none(JmapState),
     ifInState: Opt[JmapState] = Opt.none(JmapState),
     destroyMode: CopyDestroyMode = keepOriginals(),
-): (RequestBuilder, ResponseHandle[CopyResponse[T]]) =
-  ## Adds a Foo/copy invocation. Copies records from one account to another.
-  ## ``destroyMode`` defaults to ``keepOriginals()`` -- pass
-  ## ``destroyAfterSuccess(ifInState)`` to trigger the RFC 8620 §5.4
-  ## implicit Foo/set destroy on the originals.
-  let req = CopyRequest[T](
+    extras: seq[(string, JsonNode)] = @[],
+): (RequestBuilder, ResponseHandle[R]) =
+  ## Foo/copy (RFC 8620 section 5.4). ``T`` = entity, ``CopyItem`` = typed
+  ## per-entry create-value, ``R`` = response type. ``destroyMode`` defaults
+  ## to ``keepOriginals()``; entity-specific extension keys arrive via
+  ## ``extras`` and are appended to the args after the standard frame
+  ## (insertion order preserved). ``copyMethodName``, ``capabilityUri``,
+  ## and ``CopyItem.toJson`` resolve at instantiation via ``mixin``.
+  mixin copyMethodName, capabilityUri, toJson
+  let req = CopyRequest[T, CopyItem](
     fromAccountId: fromAccountId,
     ifFromInState: ifFromInState,
     accountId: accountId,
@@ -253,7 +257,11 @@ func addCopy*[T](
     create: create,
     destroyMode: destroyMode,
   )
-  addMethodImpl(b, T, copyMethodName, req, CopyResponse[T])
+  var args = req.toJson()
+  for (k, v) in extras:
+    args[k] = v
+  let (newBuilder, callId) = addInvocation(b, copyMethodName(T), args, capabilityUri(T))
+  (newBuilder, ResponseHandle[R](callId))
 
 # =============================================================================
 # addQuery — Foo/query (RFC 8620 section 5.5)
@@ -368,6 +376,16 @@ template addSet*[T](b: RequestBuilder, accountId: AccountId): untyped =
   ## ``accountId`` to avoid referencing template-returning-typedesc calls
   ## inside a template's own parameter-list default expressions (Nim limitation).
   addSet[T, createType(T), updateType(T), setResponseType(T)](b, accountId)
+
+template addCopy*[T](
+    b: RequestBuilder, fromAccountId: AccountId, accountId: AccountId, create: untyped
+): untyped =
+  ## Single-type-parameter Foo/copy alias. Resolves ``copyItemType(T)``
+  ## and ``copyResponseType(T)`` at the call site via template expansion;
+  ## delegates to the three-parameter ``addCopy[T, CopyItem, R]``.
+  ## For calls that override ``ifFromInState`` / ``ifInState`` /
+  ## ``destroyMode`` / ``extras``, invoke the three-parameter form directly.
+  addCopy[T, copyItemType(T), copyResponseType(T)](b, fromAccountId, accountId, create)
 
 # =============================================================================
 # Argument-construction helpers (reduce Opt.some/direct nesting at call sites)

@@ -80,6 +80,10 @@ static:
   doAssert declared(changesResponseType)
   doAssert declared(MailboxChangesResponse)
 
+  # --- /copy widening: associated-type templates (2) ---
+  doAssert declared(copyItemType)
+  doAssert declared(copyResponseType)
+
   # --- Mailbox update ctors (5) ---
   doAssert declared(setName)
   doAssert declared(setParentId)

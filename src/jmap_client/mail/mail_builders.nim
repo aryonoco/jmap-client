@@ -242,22 +242,13 @@ func addEmailCopy*(
     ifFromInState: Opt[JmapState] = Opt.none(JmapState),
     ifInState: Opt[JmapState] = Opt.none(JmapState),
 ): (RequestBuilder, ResponseHandle[CopyResponse[EmailCreatedItem]]) =
-  ## Simple Email/copy invocation (non-compound; no implicit destroy).
-  ## ``onSuccessDestroyOriginal`` omitted (wire default false per RFC 8620
-  ## §5.4). For the compound overload, use ``addEmailCopyAndDestroy``.
-  var args = newJObject()
-  args["fromAccountId"] = fromAccountId.toJson()
-  for s in ifFromInState:
-    args["ifFromInState"] = s.toJson()
-  args["accountId"] = accountId.toJson()
-  for s in ifInState:
-    args["ifInState"] = s.toJson()
-  var createObj = newJObject()
-  for cid, item in create:
-    createObj[string(cid)] = item.toJson()
-  args["create"] = createObj
-  let (newBuilder, callId) = b.addInvocation(mnEmailCopy, args, MailCapUri)
-  (newBuilder, ResponseHandle[CopyResponse[EmailCreatedItem]](callId))
+  ## Simple Email/copy invocation (non-compound; no implicit destroy). Thin
+  ## wrapper over ``addCopy[Email, EmailCopyItem, CopyResponse[EmailCreatedItem]]``.
+  ## ``destroyMode`` defaults to ``keepOriginals()``, so
+  ## ``onSuccessDestroyOriginal`` is omitted from the wire per RFC 8620 §5.4.
+  addCopy[Email, EmailCopyItem, CopyResponse[EmailCreatedItem]](
+    b, fromAccountId, accountId, create, ifFromInState, ifInState
+  )
 
 # =============================================================================
 # EmailCopyHandles / EmailCopyResults — compound dispatch (RFC 8620 §5.4)
@@ -294,36 +285,29 @@ func addEmailCopyAndDestroy*(
     ifInState: Opt[JmapState] = Opt.none(JmapState),
     destroyFromIfInState: Opt[JmapState] = Opt.none(JmapState),
 ): (RequestBuilder, EmailCopyHandles) =
-  ## Compound Email/copy with ``onSuccessDestroyOriginal: true``. On
-  ## successful copy the server performs an implicit Email/set call that
-  ## destroys the originals in the from-account; that implicit response
-  ## shares the parent call-id per RFC 8620 §5.4 (Design §5.3).
-  ##
-  ## Both handles are built from the same ``MethodCallId`` returned by
-  ## ``addInvocation``; the destroy handle carries ``mnEmailSet`` so
-  ## ``getBoth`` can disambiguate the two wire invocations.
-  var args = newJObject()
-  args["fromAccountId"] = fromAccountId.toJson()
-  for s in ifFromInState:
-    args["ifFromInState"] = s.toJson()
-  args["accountId"] = accountId.toJson()
-  for s in ifInState:
-    args["ifInState"] = s.toJson()
-  var createObj = newJObject()
-  for cid, item in create:
-    createObj[string(cid)] = item.toJson()
-  args["create"] = createObj
-  args["onSuccessDestroyOriginal"] = %true
-  for s in destroyFromIfInState:
-    args["destroyFromIfInState"] = s.toJson()
-  let (newBuilder, cid) = b.addInvocation(mnEmailCopy, args, MailCapUri)
+  ## Compound Email/copy with ``onSuccessDestroyOriginal: true``. Routes
+  ## the primary Email/copy through ``addCopy[Email, ...]`` with the
+  ## destroy-mode supplied via ``destroyAfterSuccess(destroyFromIfInState)``;
+  ## the ``CopyRequest.toJson`` emits ``onSuccessDestroyOriginal: true`` and
+  ## the optional ``destroyFromIfInState`` guard. The returned handle is
+  ## paired with a ``NameBoundHandle`` filtered by ``mnEmailSet`` for the
+  ## implicit-destroy response (RFC 8620 §5.4, Design §5.3).
+  let (b1, copyHandle) = addCopy[Email, EmailCopyItem, CopyResponse[EmailCreatedItem]](
+    b,
+    fromAccountId,
+    accountId,
+    create,
+    ifFromInState,
+    ifInState,
+    destroyMode = destroyAfterSuccess(destroyFromIfInState),
+  )
   let handles = EmailCopyHandles(
-    copy: ResponseHandle[CopyResponse[EmailCreatedItem]](cid),
+    copy: copyHandle,
     destroy: NameBoundHandle[SetResponse[EmailCreatedItem]](
-      callId: cid, methodName: mnEmailSet
+      callId: MethodCallId(copyHandle), methodName: mnEmailSet
     ),
   )
-  (newBuilder, handles)
+  (b1, handles)
 
 # =============================================================================
 # getBoth — paired extraction for EmailCopyHandles

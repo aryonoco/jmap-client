@@ -51,6 +51,19 @@ proc copyMethodName*(T: typedesc[MockFoo]): MethodName =
 template changesResponseType*(T: typedesc[MockFoo]): typedesc =
   ChangesResponse[MockFoo]
 
+template copyItemType*(T: typedesc[MockFoo]): typedesc =
+  MockFoo
+
+template copyResponseType*(T: typedesc[MockFoo]): typedesc =
+  CopyResponse[MockFoo]
+
+func toJson*(f: MockFoo): JsonNode =
+  ## Test stub — ``SetRequest`` / ``CopyRequest`` generics resolve
+  ## ``C.toJson`` via ``mixin`` at instantiation, so every MockFoo used
+  ## in a typed create map must have a visible ``toJson``.
+  discard f
+  newJObject()
+
 registerJmapEntity(MockFoo)
 
 type MockFilter = object
@@ -293,9 +306,12 @@ block addChangesWithMaxChanges:
 # ===========================================================================
 
 block addCopyMinimal:
-  ## addCopy with required fields only produces "MockFoo/copy".
-  var createTbl = initTable[CreationId, JsonNode]()
-  createTbl[makeCreationId("k1")] = %*{"id": "src1"}
+  ## addCopy with required fields only produces "MockFoo/copy". Typed
+  ## create slot: ``Table[CreationId, MockFoo]``; per-entry serialisation
+  ## dispatches through ``MockFoo.toJson`` via the widened
+  ## ``CopyRequest[T, CopyItem]`` generic.
+  var createTbl = initTable[CreationId, MockFoo]()
+  createTbl[makeCreationId("k1")] = MockFoo()
   let b0 = initRequestBuilder()
   let (b1, _) = addCopy[MockFoo](
     b0,

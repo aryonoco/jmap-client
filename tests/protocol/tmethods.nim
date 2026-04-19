@@ -292,10 +292,13 @@ block setRequestWithReferencableDestroy:
   doAssert j{"#destroy"}{"resultOf"}.getStr("") == "c0"
 
 block copyRequestMinimal:
-  ## CopyRequest with required fields and defaults.
-  var createTbl = initTable[CreationId, JsonNode]()
-  createTbl[makeCreationId("k1")] = %*{"id": "src1"}
-  let req = CopyRequest[MockFoo](
+  ## CopyRequest with required fields and ``keepOriginals()`` mode. Per
+  ## RFC 8620 §5.4 spec default, ``onSuccessDestroyOriginal`` is OMITTED
+  ## from the wire when the value would be ``false`` — the key is not
+  ## emitted.
+  var createTbl = initTable[CreationId, MockFoo]()
+  createTbl[makeCreationId("k1")] = MockFoo()
+  let req = CopyRequest[MockFoo, MockFoo](
     fromAccountId: makeAccountId("from1"),
     ifFromInState: Opt.none(JmapState),
     accountId: makeAccountId("to1"),
@@ -307,14 +310,15 @@ block copyRequestMinimal:
   doAssert j{"fromAccountId"}.getStr("") == "from1"
   doAssert j{"accountId"}.getStr("") == "to1"
   doAssert j{"create"}.kind == JObject
-  doAssert j{"onSuccessDestroyOriginal"}.getBool(true) == false
+  doAssert j{"onSuccessDestroyOriginal"}.isNil
 
 block copyRequestOnSuccessTrue:
-  ## CopyRequest with destroy-after-success mode always emits
-  ## onSuccessDestroyOriginal true.
-  var createTbl = initTable[CreationId, JsonNode]()
-  createTbl[makeCreationId("k1")] = %*{"id": "src1"}
-  let req = CopyRequest[MockFoo](
+  ## CopyRequest with destroy-after-success mode emits
+  ## ``onSuccessDestroyOriginal: true`` — the non-default case, where the
+  ## server must take a side effect, is the only case the wire carries.
+  var createTbl = initTable[CreationId, MockFoo]()
+  createTbl[makeCreationId("k1")] = MockFoo()
+  let req = CopyRequest[MockFoo, MockFoo](
     fromAccountId: makeAccountId("from1"),
     ifFromInState: Opt.none(JmapState),
     accountId: makeAccountId("to1"),
