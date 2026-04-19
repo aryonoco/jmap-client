@@ -228,12 +228,10 @@ block stressFilterDeep100Serde:
     let vNode = ?fieldJInt(n, "value", path)
     ok(vNode.getInt(0))
 
-  proc intToJsonCond(c: int): JsonNode =
-    ## Serialise int condition to {"value": N}.
-    %*{"value": c}
-
   var f = filterCondition(0)
   for i in 1 .. 100:
     f = filterOperator(foAnd, @[f])
-  let j = f.toJson(intToJsonCond)
+  # ``int.toJson`` lives in mserde_fixtures (UFCS) — the mixin cascade in
+  # Filter[int].toJson picks it up at instantiation.
+  let j = f.toJson()
   discard Filter[int].fromJson(j, fromIntCond).get()

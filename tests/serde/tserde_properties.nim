@@ -89,7 +89,7 @@ checkPropertyN "Response serde round-trip", ThoroughTrials:
 
 checkProperty "Filter[int] serde round-trip":
   let original = rng.genFilter(4)
-  let rt = Filter[int].fromJson(original.toJson(intToJson), fromIntCondition).get()
+  let rt = Filter[int].fromJson(original.toJson(), fromIntCondition).get()
   doAssert filterEq(rt, original), "Filter round-trip values differ"
 
 checkProperty "Comparator serde round-trip":

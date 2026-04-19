@@ -73,12 +73,7 @@ block multiMethodWithResultReference:
   ## addQuery -> idsRef -> addGet with referenced ids.
   let b0 = initRequestBuilder()
   let (b1, qh) = addQuery[TestWidget, TestWidgetFilter, Comparator](
-    b0,
-    accountId = makeAccountId("A1"),
-    filterConditionToJson = proc(
-        c: TestWidgetFilter
-    ): JsonNode {.noSideEffect, raises: [].} =
-      c.toJson(),
+    b0, accountId = makeAccountId("A1")
   )
   # Use type-safe idsRef -- auto-derives name "TestWidget/query"
   let idsRefVal = qh.idsRef()
@@ -179,13 +174,7 @@ block queryWithFilter:
   let b0 = initRequestBuilder()
   let f = TestWidgetFilter(name: Opt.some("test"))
   let (b1, qh) = addQuery[TestWidget, TestWidgetFilter, Comparator](
-    b0,
-    accountId = makeAccountId("A1"),
-    filterConditionToJson = proc(
-        c: TestWidgetFilter
-    ): JsonNode {.noSideEffect, raises: [].} =
-      c.toJson(),
-    filter = Opt.some(filterCondition(f)),
+    b0, accountId = makeAccountId("A1"), filter = Opt.some(filterCondition(f))
   )
   let req = b1.build()
   let args = req.methodCalls[0].arguments

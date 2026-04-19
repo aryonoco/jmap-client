@@ -77,7 +77,6 @@ func addMailboxQuery*(
   addQuery[Mailbox, MailboxFilterCondition, Comparator](
     b,
     accountId,
-    toJson,
     filter,
     sort,
     queryParams,
@@ -101,8 +100,7 @@ func addMailboxQueryChanges*(
 ): (RequestBuilder, ResponseHandle[QueryChangesResponse[Mailbox]]) =
   ## Mailbox/queryChanges (RFC 8621 §2.4). No extension args.
   addQueryChanges[Mailbox, MailboxFilterCondition, Comparator](
-    b, accountId, sinceQueryState, toJson, filter, sort, maxChanges, upToId,
-    calculateTotal,
+    b, accountId, sinceQueryState, filter, sort, maxChanges, upToId, calculateTotal
   )
 
 # =============================================================================
@@ -170,7 +168,6 @@ func addEmailQuery*(
   addQuery[Email, EmailFilterCondition, EmailComparator](
     b,
     accountId,
-    toJson,
     filter,
     sort,
     queryParams,
@@ -197,7 +194,6 @@ func addEmailQueryChanges*(
     b,
     accountId,
     sinceQueryState,
-    toJson,
     filter,
     sort,
     maxChanges,

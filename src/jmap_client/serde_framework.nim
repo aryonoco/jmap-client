@@ -90,18 +90,21 @@ func fromJson*(
 # Filter[C]
 # =============================================================================
 
-func toJson*[C](
-    f: Filter[C],
-    filterConditionToJson: proc(c: C): JsonNode {.noSideEffect, raises: [].},
-): JsonNode =
-  ## Serialise Filter[C] to JSON. Caller provides condition serialiser.
+func toJson*[C](f: Filter[C]): JsonNode =
+  ## Serialise Filter[C] to JSON. Leaf condition ``C.toJson`` resolves via
+  ## ``mixin`` at the caller's instantiation scope — every entity that uses
+  ## ``Filter[C]`` must have ``C.toJson`` in import scope at the builder
+  ## call site. The recursive ``child.toJson()`` call dispatches back to
+  ## this overload for nested operator nodes (same-module lookup, no mixin
+  ## needed).
+  mixin toJson
   case f.kind
   of fkCondition:
-    return filterConditionToJson(f.condition)
+    return f.condition.toJson()
   of fkOperator:
     var conditions = newJArray()
     for child in f.conditions:
-      conditions.add(child.toJson(filterConditionToJson))
+      conditions.add(child.toJson())
     return %*{"operator": $f.operator, "conditions": conditions}
 
 const MaxFilterDepth* = 128

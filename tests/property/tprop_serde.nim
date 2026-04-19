@@ -142,7 +142,7 @@ block propRoundTripFilterInt:
   checkPropertyN "Filter[int] round-trip preserves tree structure", ThoroughTrials:
     let f = rng.genFilter(3)
     lastInput = $f.kind
-    let j = f.toJson(intToJson)
+    let j = f.toJson()
     let rt = Filter[int].fromJson(j, fromIntCondition).get()
     doAssert filterEq(rt, f), "Filter[int] round-trip identity violated"
 

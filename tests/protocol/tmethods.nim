@@ -103,9 +103,6 @@ template changesResponseType*(T: typedesc[MockQueryable]): typedesc =
 func toJson(c: MockFilter): JsonNode =
   %*{"mock": true}
 
-func filterConditionToJson(c: MockFilter): JsonNode =
-  c.toJson()
-
 registerJmapEntity(MockQueryable)
 registerQueryableEntity(MockQueryable)
 
@@ -333,9 +330,7 @@ block queryRequestMinimal:
   ## addQuery with only required fields emits accountId and nothing else
   ## for the optional query window.
   let b0 = initRequestBuilder()
-  let (b1, _) = addQuery[MockQueryable, MockFilter, Comparator](
-    b0, makeAccountId("a1"), filterConditionToJson
-  )
+  let (b1, _) = addQuery[MockQueryable, MockFilter, Comparator](b0, makeAccountId("a1"))
   let args = b1.build().methodCalls[0].arguments
   doAssert args{"accountId"}.getStr("") == "a1"
   doAssert args{"filter"}.isNil
@@ -348,10 +343,7 @@ block queryRequestWithFilter:
   ## addQuery with a filter condition emits ``filter`` in the invocation args.
   let b0 = initRequestBuilder()
   let (b1, _) = addQuery[MockQueryable, MockFilter, Comparator](
-    b0,
-    makeAccountId("a1"),
-    filterConditionToJson,
-    filter = Opt.some(filterCondition(MockFilter())),
+    b0, makeAccountId("a1"), filter = Opt.some(filterCondition(MockFilter()))
   )
   let args = b1.build().methodCalls[0].arguments
   doAssert args{"filter"}.kind == JObject
@@ -363,7 +355,7 @@ block queryChangesRequestMinimal:
   ## carry their default (calculateTotal: false).
   let b0 = initRequestBuilder()
   let (b1, _) = addQueryChanges[MockQueryable, MockFilter, Comparator](
-    b0, makeAccountId("a1"), makeState("qs0"), filterConditionToJson
+    b0, makeAccountId("a1"), makeState("qs0")
   )
   let args = b1.build().methodCalls[0].arguments
   doAssert args{"sinceQueryState"}.getStr("") == "qs0"
@@ -380,7 +372,6 @@ block queryChangesRequestAllFields:
     b0,
     makeAccountId("a1"),
     makeState("qs0"),
-    filterConditionToJson,
     filter = Opt.some(filterCondition(MockFilter())),
     sort = Opt.some(@[comp]),
     maxChanges = Opt.some(makeMaxChanges(10)),
@@ -928,13 +919,14 @@ block serializeOptSortSome:
 
 block serializeOptFilterNone:
   ## serializeOptFilter with Opt.none produces Opt.none(SerializedFilter).
-  let result = serializeOptFilter(Opt.none(Filter[MockFilter]), filterConditionToJson)
+  let result = serializeOptFilter(Opt.none(Filter[MockFilter]))
   doAssert result.isNone
 
 block serializeOptFilterSome:
   ## serializeOptFilter with a filter tree produces serialised JSON.
+  ## ``MockFilter.toJson`` resolves via the ``mixin toJson`` cascade.
   let f = filterCondition(MockFilter())
-  let result = serializeOptFilter(Opt.some(f), filterConditionToJson)
+  let result = serializeOptFilter(Opt.some(f))
   doAssert result.isSome
   let node = result.get().toJsonNode()
   doAssert node{"mock"}.getBool(false) == true
@@ -942,7 +934,7 @@ block serializeOptFilterSome:
 block serializeFilterRequired:
   ## serializeFilter (non-Opt) wraps the filter JSON in SerializedFilter.
   let f = filterCondition(MockFilter())
-  let result = serializeFilter(f, filterConditionToJson)
+  let result = serializeFilter(f)
   let node = result.toJsonNode()
   doAssert node{"mock"}.getBool(false) == true
 
@@ -975,7 +967,7 @@ block assembleQueryArgsAllFields:
   )
   let j = assembleQueryArgs(
     makeAccountId("a1"),
-    serializeOptFilter(Opt.some(f), filterConditionToJson),
+    serializeOptFilter(Opt.some(f)),
     serializeOptSort(Opt.some(@[comp])),
     qp,
   )
@@ -1016,7 +1008,7 @@ block assembleQueryChangesArgsAllFields:
   let j = assembleQueryChangesArgs(
     makeAccountId("a1"),
     makeState("qs0"),
-    serializeOptFilter(Opt.some(f), filterConditionToJson),
+    serializeOptFilter(Opt.some(f)),
     serializeOptSort(Opt.some(@[comp])),
     Opt.some(makeMaxChanges(10)),
     Opt.some(makeId("upTo1")),

@@ -203,7 +203,7 @@ func addSearchSnippetGet*(
   ## least one email ID at compile time (Decision D12).
   var args = newJObject()
   args["accountId"] = accountId.toJson()
-  args["filter"] = serializeFilter(filter, toJson).toJsonNode()
+  args["filter"] = serializeFilter(filter).toJsonNode()
   var emailIds = newJArray()
   emailIds.add(firstEmailId.toJson())
   for id in restEmailIds:

@@ -53,18 +53,18 @@ block roundTripComparatorDescending:
 
 block roundTripFilterCondition:
   let original = makeFilterCondition(42)
-  let v = Filter[int].fromJson(original.toJson(intToJson), fromIntCondition).get()
+  let v = Filter[int].fromJson(original.toJson(), fromIntCondition).get()
   doAssert filterEq(v, original)
 
 block roundTripFilterOperatorSingle:
   let original = makeFilterAnd(@[makeFilterCondition(1), makeFilterCondition(2)])
-  let v = Filter[int].fromJson(original.toJson(intToJson), fromIntCondition).get()
+  let v = Filter[int].fromJson(original.toJson(), fromIntCondition).get()
   doAssert filterEq(v, original)
 
 block roundTripFilterNestedDepth2:
   let inner = makeFilterOr(@[makeFilterCondition(10), makeFilterCondition(20)])
   let original = makeFilterAnd(@[makeFilterCondition(1), inner, makeFilterCondition(3)])
-  let v = Filter[int].fromJson(original.toJson(intToJson), fromIntCondition).get()
+  let v = Filter[int].fromJson(original.toJson(), fromIntCondition).get()
   doAssert filterEq(v, original)
 
 block roundTripAddedItem:
@@ -115,14 +115,14 @@ block comparatorToJsonCollationPresent:
 
 block filterToJsonCondition:
   let f = makeFilterCondition(99)
-  let j = f.toJson(intToJson)
+  let j = f.toJson()
   doAssert j.kind == JObject
   doAssert j{"value"} != nil
   assertEq j{"value"}.getInt(0), 99
 
 block filterToJsonOperator:
   let f = makeFilterAnd(@[makeFilterCondition(1)])
-  let j = f.toJson(intToJson)
+  let j = f.toJson()
   doAssert j.kind == JObject
   doAssert j{"operator"} != nil
   assertEq j{"operator"}.getStr(""), "AND"
@@ -376,7 +376,7 @@ block filterDeserDepth3RoundTrip:
   let level2 = filterOperator(foNot, @[leaf])
   let level1 = filterOperator(foOr, @[level2])
   let root = filterOperator(foAnd, @[level1])
-  let j = root.toJson(intToJson)
+  let j = root.toJson()
   let v = Filter[int].fromJson(j, fromIntCondition).get()
   doAssert filterEq(v, root), "depth-3 filter round-trip identity violated"
 
@@ -398,7 +398,7 @@ checkProperty "Comparator round-trip":
 
 checkProperty "Filter[int] round-trip":
   let f = rng.genFilter(3)
-  let v = Filter[int].fromJson(f.toJson(intToJson), fromIntCondition).get()
+  let v = Filter[int].fromJson(f.toJson(), fromIntCondition).get()
   doAssert filterEq(v, f), "Filter values differ"
 
 checkProperty "AddedItem round-trip":

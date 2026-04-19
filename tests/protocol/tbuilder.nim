@@ -100,9 +100,6 @@ template changesResponseType*(T: typedesc[MockQueryable]): typedesc =
 func toJson(c: MockFilter): JsonNode =
   %*{"mock": true}
 
-func filterConditionToJson(c: MockFilter): JsonNode =
-  c.toJson()
-
 registerJmapEntity(MockQueryable)
 registerQueryableEntity(MockQueryable)
 
@@ -332,11 +329,11 @@ block addCopyMinimal:
 # ===========================================================================
 
 block addQueryMinimal:
-  ## addQuery with only accountId and callback produces "MockQueryable/query".
+  ## addQuery with only accountId produces "MockQueryable/query". Leaf
+  ## condition ``MockFilter.toJson`` resolves via the ``mixin toJson``
+  ## cascade through ``serializeOptFilter`` → ``Filter[C].toJson``.
   let b0 = initRequestBuilder()
-  let (b1, _) = addQuery[MockQueryable, MockFilter, Comparator](
-    b0, makeAccountId("a1"), filterConditionToJson
-  )
+  let (b1, _) = addQuery[MockQueryable, MockFilter, Comparator](b0, makeAccountId("a1"))
   let req = b1.build()
   assertLen req.methodCalls, 1
   let inv = req.methodCalls[0]
@@ -348,10 +345,7 @@ block addQueryWithFilter:
   ## addQuery with a filter condition emits the filter in arguments JSON.
   let b0 = initRequestBuilder()
   let (b1, _) = addQuery[MockQueryable, MockFilter, Comparator](
-    b0,
-    makeAccountId("a1"),
-    filterConditionToJson,
-    filter = Opt.some(filterCondition(MockFilter())),
+    b0, makeAccountId("a1"), filter = Opt.some(filterCondition(MockFilter()))
   )
   let req = b1.build()
   let inv = req.methodCalls[0]
@@ -363,8 +357,9 @@ block addQueryWithFilter:
 # ===========================================================================
 
 block addQuerySingleParam:
-  ## addQuery[T] resolves filterType and filterConditionToJson via mixin.
-  ## Produces the same invocation as the two-parameter version.
+  ## addQuery[T] resolves ``filterType(T)`` via template expansion and
+  ## ``C.toJson`` via the mixin cascade. Produces the same invocation
+  ## as the three-type-parameter version.
   let b0 = initRequestBuilder()
   let (b1, _) = addQuery[MockQueryable](b0, makeAccountId("a1"))
   let req = b1.build()
@@ -374,11 +369,10 @@ block addQuerySingleParam:
   assertEq inv.arguments{"accountId"}.getStr(""), "a1"
 
 block addQuerySingleParamMatchesTwoParam:
-  ## Single-param and two-param produce identical Request structures.
+  ## Single-param and three-type-param produce identical Request structures.
   let ba0 = initRequestBuilder()
-  let (ba1, _) = addQuery[MockQueryable, MockFilter, Comparator](
-    ba0, makeAccountId("a1"), filterConditionToJson
-  )
+  let (ba1, _) =
+    addQuery[MockQueryable, MockFilter, Comparator](ba0, makeAccountId("a1"))
   let bb0 = initRequestBuilder()
   let (bb1, _) = addQuery[MockQueryable](bb0, makeAccountId("a1"))
   let r1 = ba1.build()
@@ -394,7 +388,7 @@ block addQueryChangesMinimal:
   ## addQueryChanges with required fields produces "MockQueryable/queryChanges".
   let b0 = initRequestBuilder()
   let (b1, _) = addQueryChanges[MockQueryable, MockFilter, Comparator](
-    b0, makeAccountId("a1"), makeState("qs0"), filterConditionToJson
+    b0, makeAccountId("a1"), makeState("qs0")
   )
   let req = b1.build()
   assertLen req.methodCalls, 1
@@ -426,7 +420,6 @@ block addQueryWithQueryParams:
   let (b1, _) = addQuery[MockQueryable, MockFilter, Comparator](
     b0,
     makeAccountId("a1"),
-    filterConditionToJson,
     queryParams = QueryParams(position: JmapInt(10), calculateTotal: true),
   )
   let req = b1.build()
@@ -442,9 +435,7 @@ block addQueryWithQueryParams:
 block addQueryDefaultQueryParams:
   ## Default QueryParams() matches RFC 8620 section 5.5 defaults.
   let b0 = initRequestBuilder()
-  let (b1, _) = addQuery[MockQueryable, MockFilter, Comparator](
-    b0, makeAccountId("a1"), filterConditionToJson
-  )
+  let (b1, _) = addQuery[MockQueryable, MockFilter, Comparator](b0, makeAccountId("a1"))
   let req = b1.build()
   let inv = req.methodCalls[0]
   assertEq inv.arguments{"position"}.getBiggestInt(-1), 0
@@ -457,11 +448,7 @@ block addQueryChangesCalculateTotalFlow:
   ## ``calculateTotal`` flows through to queryChanges arguments.
   let b0 = initRequestBuilder()
   let (b1, _) = addQueryChanges[MockQueryable, MockFilter, Comparator](
-    b0,
-    makeAccountId("a1"),
-    makeState("qs0"),
-    filterConditionToJson,
-    calculateTotal = true,
+    b0, makeAccountId("a1"), makeState("qs0"), calculateTotal = true
   )
   let req = b1.build()
   let inv = req.methodCalls[0]
@@ -474,11 +461,7 @@ block addQueryChangesRejectsWindowParams:
   assertNotCompiles:
     let b0 = initRequestBuilder()
     discard addQueryChanges[MockQueryable, MockFilter, Comparator](
-      b0,
-      makeAccountId("a1"),
-      makeState("qs0"),
-      filterConditionToJson,
-      position = JmapInt(99),
+      b0, makeAccountId("a1"), makeState("qs0"), position = JmapInt(99)
     )
 
 # ===========================================================================
@@ -490,9 +473,8 @@ block queryToGetWithResultReference:
   ## The built Request must have two invocations with the second referencing
   ## the first via "#ids".
   let b0 = initRequestBuilder()
-  let (b1, queryHandle) = addQuery[MockQueryable, MockFilter, Comparator](
-    b0, makeAccountId("a1"), filterConditionToJson
-  )
+  let (b1, queryHandle) =
+    addQuery[MockQueryable, MockFilter, Comparator](b0, makeAccountId("a1"))
   let idsReference = queryHandle.idsRef()
   let (b2, _) =
     addGet[MockQueryable](b1, makeAccountId("a1"), ids = Opt.some(idsReference))

@@ -303,22 +303,23 @@ func serializeOptSort*[S](sort: Opt[seq[S]]): Opt[SerializedSort] =
     return Opt.some(SerializedSort(arr))
   Opt.none(SerializedSort)
 
-func serializeOptFilter*[C](
-    filter: Opt[Filter[C]],
-    filterConditionToJson: proc(c: C): JsonNode {.noSideEffect, raises: [].},
-): Opt[SerializedFilter] =
-  ## Pre-serialise an optional filter tree via the entity-specific callback.
+func serializeOptFilter*[C](filter: Opt[Filter[C]]): Opt[SerializedFilter] =
+  ## Pre-serialise an optional filter tree. ``Filter[C].toJson`` resolves
+  ## the leaf condition's ``toJson`` via ``mixin`` at the builder's
+  ## instantiation scope — the entity's filter condition type must have
+  ## a visible ``toJson`` at that scope.
+  mixin toJson
   for f in filter:
-    return Opt.some(SerializedFilter(f.toJson(filterConditionToJson)))
+    return Opt.some(SerializedFilter(f.toJson()))
   Opt.none(SerializedFilter)
 
-func serializeFilter*[C](
-    filter: Filter[C],
-    filterConditionToJson: proc(c: C): JsonNode {.noSideEffect, raises: [].},
-): SerializedFilter =
+func serializeFilter*[C](filter: Filter[C]): SerializedFilter =
   ## Pre-serialise a required filter tree. Non-Opt variant for builders
   ## where the filter is mandatory (e.g. SearchSnippet/get).
-  SerializedFilter(filter.toJson(filterConditionToJson))
+  ## ``Filter[C].toJson`` resolves the leaf condition's ``toJson`` via
+  ## ``mixin`` at the caller's instantiation scope.
+  mixin toJson
+  SerializedFilter(filter.toJson())
 
 # =============================================================================
 # Assembly functions

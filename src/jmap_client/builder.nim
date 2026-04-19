@@ -278,7 +278,6 @@ func addCopy*[T, CopyItem, R](
 func addQuery*[T, C, SortT](
     b: RequestBuilder,
     accountId: AccountId,
-    filterConditionToJson: proc(c: C): JsonNode {.noSideEffect, raises: [].},
     filter: Opt[Filter[C]] = default(Opt[Filter[C]]),
     sort: Opt[seq[SortT]] = default(Opt[seq[SortT]]),
     queryParams: QueryParams = QueryParams(),
@@ -287,13 +286,12 @@ func addQuery*[T, C, SortT](
   ## Foo/query. ``T`` = entity, ``C`` = filter-condition type, ``SortT`` =
   ## sort-element type. Entity-specific extension keys are supplied via
   ## ``extras`` and merged into the args after the standard frame
-  ## (insertion order preserved).
+  ## (insertion order preserved). ``C.toJson`` resolves via ``mixin`` at
+  ## the caller's instantiation scope through the
+  ## ``serializeOptFilter`` → ``Filter[C].toJson`` cascade.
   mixin queryMethodName, capabilityUri, toJson
   var args = assembleQueryArgs(
-    accountId,
-    serializeOptFilter(filter, filterConditionToJson),
-    serializeOptSort(sort),
-    queryParams,
+    accountId, serializeOptFilter(filter), serializeOptSort(sort), queryParams
   )
   for (k, v) in extras:
     args[k] = v
@@ -309,7 +307,6 @@ func addQueryChanges*[T, C, SortT](
     b: RequestBuilder,
     accountId: AccountId,
     sinceQueryState: JmapState,
-    filterConditionToJson: proc(c: C): JsonNode {.noSideEffect, raises: [].},
     filter: Opt[Filter[C]] = default(Opt[Filter[C]]),
     sort: Opt[seq[SortT]] = default(Opt[seq[SortT]]),
     maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges),
@@ -318,12 +315,13 @@ func addQueryChanges*[T, C, SortT](
     extras: seq[(string, JsonNode)] = @[],
 ): (RequestBuilder, ResponseHandle[QueryChangesResponse[T]]) =
   ## Foo/queryChanges. Takes ``calculateTotal`` directly — RFC 8620
-  ## section 5.6 defines no window fields for /queryChanges.
+  ## section 5.6 defines no window fields for /queryChanges. ``C.toJson``
+  ## resolves via ``mixin`` at the caller's instantiation scope.
   mixin queryChangesMethodName, capabilityUri, toJson
   var args = assembleQueryChangesArgs(
     accountId,
     sinceQueryState,
-    serializeOptFilter(filter, filterConditionToJson),
+    serializeOptFilter(filter),
     serializeOptSort(sort),
     maxChanges,
     upToId,
@@ -340,39 +338,23 @@ func addQueryChanges*[T, C, SortT](
 # =============================================================================
 #
 # Templates because filterType(T) must appear in type positions that are
-# resolved at the call site. Nim's `mixin` only affects the function body,
-# not the parameter signature. Templates expand at the call site where
-# filterType is visible. For entity-typed sort, use the three-parameter
-# `addQuery[T, C, S]` / `addQueryChanges[T, C, S]` forms directly.
+# resolved at the call site. For entity-typed sort, use the three-parameter
+# addQuery[T, C, S] / addQueryChanges[T, C, S] forms directly.
 
 template addQuery*[T](
     b: RequestBuilder, accountId: AccountId
 ): (RequestBuilder, ResponseHandle[QueryResponse[T]]) =
-  ## Single-type-parameter Foo/query. Resolves the filter condition
-  ## type from ``filterType(T)`` at the call site; uses the protocol-
-  ## level ``Comparator`` for sort. For entity-typed sort, use the
-  ## three-parameter ``addQuery[T, C, S]`` directly. The inner
-  ## anonymous proc disambiguates ``toJson`` — Nim's overload
-  ## resolution on a bare proc-value reference cannot bind against a
-  ## generic ``filterType(T)`` substitution.
-  addQuery[T, filterType(T), Comparator](
-    b,
-    accountId,
-    proc(c: filterType(T)): JsonNode {.noSideEffect, raises: [].} =
-      c.toJson(),
-  )
+  ## Single-type-parameter Foo/query. Resolves the filter condition type
+  ## from ``filterType(T)`` at the call site; uses the protocol-level
+  ## ``Comparator`` for sort. For entity-typed sort, use the three-parameter
+  ## ``addQuery[T, C, S]`` directly.
+  addQuery[T, filterType(T), Comparator](b, accountId)
 
 template addQueryChanges*[T](
     b: RequestBuilder, accountId: AccountId, sinceQueryState: JmapState
 ): (RequestBuilder, ResponseHandle[QueryChangesResponse[T]]) =
   ## Single-type-parameter Foo/queryChanges. Same resolution as ``addQuery[T]``.
-  addQueryChanges[T, filterType(T), Comparator](
-    b,
-    accountId,
-    sinceQueryState,
-    proc(c: filterType(T)): JsonNode {.noSideEffect, raises: [].} =
-      c.toJson(),
-  )
+  addQueryChanges[T, filterType(T), Comparator](b, accountId, sinceQueryState)
 
 template addSet*[T](b: RequestBuilder, accountId: AccountId): untyped =
   ## Single-type-parameter Foo/set alias. Resolves ``createType(T)``,

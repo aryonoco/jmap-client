@@ -11,6 +11,15 @@ import jmap_client/validation
 
 proc intToJson*(c: int): JsonNode =
   ## Serialise an int condition to a JSON object for Filter[int] tests.
+  ## Retained for the ``Filter[int].fromJson`` callback slot (the deserialiser
+  ## still carries an explicit condition parser). Construction-side
+  ## (``Filter[int].toJson``) picks up ``toJson*(c: int)`` below via ``mixin``.
+  %*{"value": c}
+
+proc toJson*(c: int): JsonNode =
+  ## UFCS serialiser for ``int`` — the mixin-resolved path inside
+  ## ``Filter[C].toJson`` uses this overload when ``C = int``. Same body as
+  ## ``intToJson`` to keep the wire shape identical across both slots.
   %*{"value": c}
 
 proc fromIntCondition*(

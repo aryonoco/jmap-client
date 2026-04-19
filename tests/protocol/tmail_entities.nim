@@ -187,13 +187,14 @@ block addMailboxSetMethodName:
   assertEq req.methodCalls[0].name, mnMailboxSet
 
 # ===========================================================================
-# G. Mixin resolution tests (critical — proves filterType + filterConditionToJson resolve)
+# G. Mixin resolution tests (critical — proves filterType + toJson resolve)
 # ===========================================================================
 
 block addQueryMailboxSingleParam:
   ## Single-parameter addQuery[Mailbox] resolves via mixin. This test
-  ## compiling IS the proof that mixin resolution works for filterType
-  ## and filterConditionToJson.
+  ## compiling IS the proof that mixin resolution works for ``filterType``
+  ## (template returning ``typedesc``) and the leaf condition's ``toJson``
+  ## (called via ``Filter[C].toJson``'s own ``mixin toJson``).
   let b0 = initRequestBuilder()
   let (b1, _) = addQuery[Mailbox](b0, makeAccountId("a1"))
   let req = b1.build()

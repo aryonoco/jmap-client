@@ -76,7 +76,7 @@ func addEmailSubmissionQuery*(
   ## EmailSubmission/query (RFC 8621 §7.3). No extension args.
   addQuery[
     AnyEmailSubmission, EmailSubmissionFilterCondition, EmailSubmissionComparator
-  ](b, accountId, toJson, filter, sort, queryParams)
+  ](b, accountId, filter, sort, queryParams)
 
 # =============================================================================
 # addEmailSubmissionQueryChanges — EmailSubmission/queryChanges (RFC 8621 §7.4)
@@ -96,10 +96,7 @@ func addEmailSubmissionQueryChanges*(
   ## EmailSubmission/queryChanges (RFC 8621 §7.4).
   addQueryChanges[
     AnyEmailSubmission, EmailSubmissionFilterCondition, EmailSubmissionComparator
-  ](
-    b, accountId, sinceQueryState, toJson, filter, sort, maxChanges, upToId,
-    calculateTotal,
-  )
+  ](b, accountId, sinceQueryState, filter, sort, maxChanges, upToId, calculateTotal)
 
 # =============================================================================
 # addEmailSubmissionSet — EmailSubmission/set (RFC 8621 §7.5) — simple overload
