@@ -22,6 +22,7 @@ import ../methods_enum
 import ./thread
 import ./identity
 import ./mailbox
+import ./mailbox_changes_response
 import ./email
 import ./email_update
 import ./email_blueprint
@@ -54,6 +55,12 @@ func capabilityUri*(T: typedesc[thread.Thread]): string =
   discard $T
   "urn:ietf:params:jmap:mail"
 
+template changesResponseType*(T: typedesc[thread.Thread]): typedesc =
+  ## Associated /changes response type for Thread — the standard
+  ## generic ``ChangesResponse[Thread]``.
+  discard $T
+  ChangesResponse[thread.Thread]
+
 registerJmapEntity(thread.Thread)
 
 # ---------------------------------------------------------------------------
@@ -84,6 +91,12 @@ func capabilityUri*(T: typedesc[Identity]): string =
   ## Capability URI for Identity methods.
   discard $T
   "urn:ietf:params:jmap:submission"
+
+template changesResponseType*(T: typedesc[Identity]): typedesc =
+  ## Associated /changes response type for Identity — the standard
+  ## generic ``ChangesResponse[Identity]``.
+  discard $T
+  ChangesResponse[Identity]
 
 registerJmapEntity(Identity)
 
@@ -126,6 +139,14 @@ func capabilityUri*(T: typedesc[Mailbox]): string =
   ## Capability URI for Mailbox methods.
   discard $T
   "urn:ietf:params:jmap:mail"
+
+template changesResponseType*(T: typedesc[Mailbox]): typedesc =
+  ## Associated /changes response type for Mailbox. Uses the extended
+  ## ``MailboxChangesResponse`` composition (RFC 8621 §2.2) which carries
+  ## the Mailbox-specific ``updatedProperties`` field alongside the
+  ## standard ``ChangesResponse[Mailbox]``.
+  discard $T
+  MailboxChangesResponse
 
 template filterType*(T: typedesc[Mailbox]): typedesc =
   ## Associated filter condition type for Mailbox/query.
@@ -201,6 +222,12 @@ func capabilityUri*(T: typedesc[Email]): string =
   discard $T
   "urn:ietf:params:jmap:mail"
 
+template changesResponseType*(T: typedesc[Email]): typedesc =
+  ## Associated /changes response type for Email — the standard generic
+  ## ``ChangesResponse[Email]``.
+  discard $T
+  ChangesResponse[Email]
+
 template filterType*(T: typedesc[Email]): typedesc =
   ## Associated filter condition type for Email/query.
   discard $T
@@ -268,6 +295,12 @@ func capabilityUri*(T: typedesc[AnyEmailSubmission]): string =
   ## Submission capability (same URI as Identity).
   discard $T
   "urn:ietf:params:jmap:submission"
+
+template changesResponseType*(T: typedesc[AnyEmailSubmission]): typedesc =
+  ## Associated /changes response type for EmailSubmission — the standard
+  ## generic ``ChangesResponse[AnyEmailSubmission]``.
+  discard $T
+  ChangesResponse[AnyEmailSubmission]
 
 template filterType*(T: typedesc[AnyEmailSubmission]): typedesc =
   ## Associated filter condition type for EmailSubmission/query.

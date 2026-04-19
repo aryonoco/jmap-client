@@ -164,18 +164,36 @@ func addGet*[T](
 # addChanges — Foo/changes (RFC 8620 section 5.2)
 # =============================================================================
 
-func addChanges*[T](
+func addChanges*[T, RespT](
     b: RequestBuilder,
     accountId: AccountId,
     sinceState: JmapState,
     maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges),
-): (RequestBuilder, ResponseHandle[ChangesResponse[T]]) =
+): (RequestBuilder, ResponseHandle[RespT]) =
   ## Adds a Foo/changes invocation. Retrieves identifiers for records that
-  ## have changed since a given state.
+  ## have changed since a given state. ``RespT`` is the concrete response
+  ## type the caller expects — ``ChangesResponse[T]`` for standard entities,
+  ## or an extended composition type (e.g. ``MailboxChangesResponse`` with
+  ## its RFC 8621 §2.2 ``updatedProperties`` field). Request wire shape is
+  ## unchanged; only the typed response varies.
   let req = ChangesRequest[T](
     accountId: accountId, sinceState: sinceState, maxChanges: maxChanges
   )
-  addMethodImpl(b, T, changesMethodName, req, ChangesResponse[T])
+  addMethodImpl(b, T, changesMethodName, req, RespT)
+
+template addChanges*[T](
+    b: RequestBuilder,
+    accountId: AccountId,
+    sinceState: JmapState,
+    maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges),
+): untyped =
+  ## Single-type-parameter Foo/changes alias. Resolves
+  ## ``changesResponseType(T)`` at the call site via template expansion;
+  ## delegates to the two-parameter ``addChanges[T, RespT]`` with that
+  ## resolved response type. Every registered entity module supplies its
+  ## own ``changesResponseType(T)`` template (see
+  ## ``mail/mail_entities.nim`` for the five mail entities).
+  addChanges[T, changesResponseType(T)](b, accountId, sinceState, maxChanges)
 
 # =============================================================================
 # addSet — Foo/set (RFC 8620 section 5.3)

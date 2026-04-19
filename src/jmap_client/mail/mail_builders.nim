@@ -20,6 +20,7 @@ import ../methods
 import ../dispatch
 import ../builder
 import ./mailbox
+import ./mailbox_changes_response
 import ./email
 import ./email_blueprint
 import ./email_update
@@ -37,104 +38,9 @@ import ./serde_mail_filters
 # instantiation site, so the caller must have these in scope.
 export serde_mailbox
 export serde_email
+export mailbox_changes_response
 
 const MailCapUri = "urn:ietf:params:jmap:mail"
-
-# =============================================================================
-# MailboxChangesResponse (Decision B9 — composition pattern)
-# =============================================================================
-
-{.push ruleOff: "objects".}
-
-type MailboxChangesResponse* = object
-  ## Extended Foo/changes response for Mailbox (RFC 8621 §2.2). Composes
-  ## the standard ``ChangesResponse[Mailbox]`` with the Mailbox-specific
-  ## ``updatedProperties`` extension field.
-  base*: ChangesResponse[Mailbox]
-  updatedProperties*: Opt[seq[string]]
-
-{.pop.}
-
-# =============================================================================
-# UFCS forwarding accessors
-# =============================================================================
-
-template forwardChangesFields(T: typedesc) =
-  ## Generates UFCS forwarding funcs for the 7 ChangesResponse base fields,
-  ## so callers write ``resp.accountId`` instead of ``resp.base.accountId``.
-  func accountId*(r: T): AccountId =
-    ## Forwarded from ``base.accountId``.
-    r.base.accountId
-
-  func oldState*(r: T): JmapState =
-    ## Forwarded from ``base.oldState``.
-    r.base.oldState
-
-  func newState*(r: T): JmapState =
-    ## Forwarded from ``base.newState``.
-    r.base.newState
-
-  func hasMoreChanges*(r: T): bool =
-    ## Forwarded from ``base.hasMoreChanges``.
-    r.base.hasMoreChanges
-
-  func created*(r: T): seq[Id] =
-    ## Forwarded from ``base.created``.
-    r.base.created
-
-  func updated*(r: T): seq[Id] =
-    ## Forwarded from ``base.updated``.
-    r.base.updated
-
-  func destroyed*(r: T): seq[Id] =
-    ## Forwarded from ``base.destroyed``.
-    r.base.destroyed
-
-forwardChangesFields(MailboxChangesResponse)
-
-# =============================================================================
-# MailboxChangesResponse fromJson
-# =============================================================================
-
-func fromJson*(
-    R: typedesc[MailboxChangesResponse],
-    node: JsonNode,
-    path: JsonPath = emptyJsonPath(),
-): Result[MailboxChangesResponse, SerdeViolation] =
-  ## Deserialise JSON to MailboxChangesResponse. Reuses
-  ## ``ChangesResponse[Mailbox].fromJson`` for the 7 standard fields, then
-  ## extracts the Mailbox-specific ``updatedProperties`` extension.
-  discard $R # consumed for nimalyzer params rule
-  ?expectKind(node, JObject, path)
-  let base = ?ChangesResponse[Mailbox].fromJson(node, path)
-  let upNode = node{"updatedProperties"}
-  let updatedProperties =
-    if upNode.isNil or upNode.kind == JNull:
-      Opt.none(seq[string])
-    elif upNode.kind == JArray:
-      var props: seq[string] = @[]
-      for i, elem in upNode.getElems(@[]):
-        if elem.kind != JString:
-          return err(
-            SerdeViolation(
-              kind: svkWrongKind,
-              path: path / "updatedProperties" / i,
-              expectedKind: JString,
-              actualKind: elem.kind,
-            )
-          )
-        props.add(elem.getStr(""))
-      Opt.some(props)
-    else:
-      return err(
-        SerdeViolation(
-          kind: svkWrongKind,
-          path: path / "updatedProperties",
-          expectedKind: JArray,
-          actualKind: upNode.kind,
-        )
-      )
-  return ok(MailboxChangesResponse(base: base, updatedProperties: updatedProperties))
 
 # =============================================================================
 # addMailboxChanges — Mailbox/changes (RFC 8621 §2.2)
@@ -146,14 +52,10 @@ func addMailboxChanges*(
     sinceState: JmapState,
     maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges),
 ): (RequestBuilder, ResponseHandle[MailboxChangesResponse]) =
-  ## Adds a Mailbox/changes invocation. Returns a handle typed to the
-  ## extended ``MailboxChangesResponse`` (which includes ``updatedProperties``).
-  let req = ChangesRequest[Mailbox](
-    accountId: accountId, sinceState: sinceState, maxChanges: maxChanges
-  )
-  let args = req.toJson()
-  let (newBuilder, callId) = b.addInvocation(mnMailboxChanges, args, MailCapUri)
-  (newBuilder, ResponseHandle[MailboxChangesResponse](callId))
+  ## Mailbox/changes (RFC 8621 §2.2). Thin alias over
+  ## ``addChanges[Mailbox, MailboxChangesResponse]``; the extended response
+  ## carries ``updatedProperties``.
+  addChanges[Mailbox, MailboxChangesResponse](b, accountId, sinceState, maxChanges)
 
 # =============================================================================
 # addMailboxQuery — Mailbox/query (RFC 8621 §2.3)

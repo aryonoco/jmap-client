@@ -48,6 +48,9 @@ proc setMethodName*(T: typedesc[MockFoo]): MethodName =
 proc copyMethodName*(T: typedesc[MockFoo]): MethodName =
   mnEmailCopy
 
+template changesResponseType*(T: typedesc[MockFoo]): typedesc =
+  ChangesResponse[MockFoo]
+
 registerJmapEntity(MockFoo)
 
 type MockFilter = object
@@ -77,6 +80,9 @@ proc queryChangesMethodName*(T: typedesc[MockQueryable]): MethodName =
 
 template filterType*(T: typedesc[MockQueryable]): typedesc =
   MockFilter
+
+template changesResponseType*(T: typedesc[MockQueryable]): typedesc =
+  ChangesResponse[MockQueryable]
 
 func toJson(c: MockFilter): JsonNode =
   %*{"mock": true}

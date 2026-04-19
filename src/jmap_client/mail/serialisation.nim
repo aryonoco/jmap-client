@@ -13,6 +13,7 @@ import ./serde_vacation
 import ./serde_mail_capabilities
 import ./serde_keyword
 import ./serde_mailbox
+import ./mailbox_changes_response
 import ./serde_mail_filters
 import ./serde_headers
 import ./serde_body
@@ -31,6 +32,7 @@ export serde_vacation
 export serde_mail_capabilities
 export serde_keyword
 export serde_mailbox
+export mailbox_changes_response
 export serde_mail_filters
 export serde_headers
 export serde_body

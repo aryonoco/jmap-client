@@ -87,7 +87,11 @@ func addChangesToGet*[T](
   ## - Reference path is ``/created`` (``rpCreated``) — only newly created
   ##   IDs are fetched. For updated IDs, use the core API with ``updatedRef``.
   ## - Both calls use the same ``accountId``
-  let (b1, ch) = addChanges[T](b, accountId, sinceState, maxChanges)
+  ## - Uses the standard ``ChangesResponse[T]`` directly rather than
+  ##   ``changesResponseType(T)``; ``createdRef`` is defined only over
+  ##   ``ResponseHandle[ChangesResponse[T]]`` because its contract is the
+  ##   RFC 8620 §5.2 ``/created`` field, not any entity-specific extension.
+  let (b1, ch) = addChanges[T, ChangesResponse[T]](b, accountId, sinceState, maxChanges)
   let (b2, gh) =
     addGet[T](b1, accountId, ids = Opt.some(ch.createdRef()), properties = properties)
   return (b2, ChangesGetHandles[T](changes: ch, get: gh))

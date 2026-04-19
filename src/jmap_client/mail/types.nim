@@ -14,6 +14,7 @@ import ./mail_capabilities
 import ./mail_errors
 import ./keyword
 import ./mailbox
+import ./mailbox_changes_response
 import ./mail_filters
 import ./headers
 import ./body
@@ -33,6 +34,7 @@ export mail_capabilities
 export mail_errors
 export keyword
 export mailbox
+export mailbox_changes_response
 export mail_filters
 export headers
 export body

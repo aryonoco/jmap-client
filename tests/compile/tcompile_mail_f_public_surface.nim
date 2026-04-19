@@ -76,6 +76,10 @@ static:
   doAssert declared(registerSettableEntity)
   doAssert declared(addSet)
 
+  # --- /changes widening: associated-type template + extracted leaf (2) ---
+  doAssert declared(changesResponseType)
+  doAssert declared(MailboxChangesResponse)
+
   # --- Mailbox update ctors (5) ---
   doAssert declared(setName)
   doAssert declared(setParentId)
