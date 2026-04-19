@@ -115,6 +115,20 @@ static:
   # --- Entity resolver (1) ---
   doAssert declared(importMethodName)
 
+  # --- Identity /set widening ---
+  doAssert declared(IdentityUpdate)
+  doAssert declared(IdentityUpdateVariantKind)
+  doAssert declared(IdentityUpdateSet)
+  doAssert declared(NonEmptyIdentityUpdates)
+  doAssert declared(initIdentityUpdateSet)
+  doAssert declared(parseNonEmptyIdentityUpdates)
+  doAssert declared(addIdentityGet)
+  doAssert declared(addIdentityChanges)
+  doAssert declared(addIdentitySet)
+  doAssert declared(setReplyTo)
+  doAssert declared(setTextSignature)
+  doAssert declared(setHtmlSignature)
+
 # Runtime anchor: ``static:`` block above verifies visibility at compile
 ## time, but Nim's UnusedImport check tracks runtime consumption. A single
 ## runtime reference through ``mnEmailImport`` (re-exported from

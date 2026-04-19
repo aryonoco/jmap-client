@@ -9,6 +9,7 @@
 import ./serde_addresses
 import ./serde_thread
 import ./serde_identity
+import ./serde_identity_update
 import ./serde_vacation
 import ./serde_mail_capabilities
 import ./serde_keyword
@@ -28,6 +29,7 @@ import ./serde_email_submission
 export serde_addresses
 export serde_thread
 export serde_identity
+export serde_identity_update
 export serde_vacation
 export serde_mail_capabilities
 export serde_keyword

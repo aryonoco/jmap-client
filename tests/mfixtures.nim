@@ -1658,7 +1658,7 @@ proc makeMoveToMailbox*(id: Id = makeId("mbx1")): EmailUpdate =
 # does not match the F1 source — wrap the five that actually exist.
 
 proc makeSetName*(name: string = "Inbox"): MailboxUpdate =
-  setName(name)
+  mailbox.setName(name)
 
 proc makeSetParentId*(parentId: Opt[Id] = Opt.none(Id)): MailboxUpdate =
   setParentId(parentId)

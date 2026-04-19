@@ -98,7 +98,25 @@ template changesResponseType*(T: typedesc[Identity]): typedesc =
   discard $T
   ChangesResponse[Identity]
 
+template createType*(T: typedesc[Identity]): typedesc =
+  ## Associated typed create-value type for Identity/set.
+  discard $T
+  IdentityCreate
+
+template updateType*(T: typedesc[Identity]): typedesc =
+  ## Associated whole-container update algebra for Identity/set.
+  discard $T
+  NonEmptyIdentityUpdates
+
+template setResponseType*(T: typedesc[Identity]): typedesc =
+  ## Associated /set response type for Identity. RFC 8621 §6 ``created``
+  ## returns the whole ``Identity`` record — no trimmed server-set-subset
+  ## type (contrast ``EmailCreatedItem``).
+  discard $T
+  SetResponse[Identity]
+
 registerJmapEntity(Identity)
+registerSettableEntity(Identity)
 
 # ---------------------------------------------------------------------------
 # Mailbox (RFC 8621 section 2) — supports /get, /changes, /set, /query,

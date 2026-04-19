@@ -8,6 +8,8 @@
 
 {.push raises: [], noSideEffect.}
 
+import std/tables
+
 import ../validation
 import ../primitives
 import ./addresses
@@ -55,3 +57,116 @@ func parseIdentityCreate*(
       htmlSignature: htmlSignature,
     )
   )
+
+# =============================================================================
+# Identity Update Algebra (RFC 8621 §6 /set update path)
+# =============================================================================
+
+type IdentityUpdateVariantKind* = enum
+  ## Discriminator for ``IdentityUpdate``. RFC 8621 §6 settable Identity
+  ## properties only — ``id``, ``email``, and ``mayDelete`` have no variant
+  ## because they are server-set or immutable-after-create.
+  iuSetName
+  iuSetReplyTo
+  iuSetBcc
+  iuSetTextSignature
+  iuSetHtmlSignature
+
+type IdentityUpdate* {.ruleOff: "objects".} = object
+  ## Single typed Identity patch operation (RFC 8621 §6). Whole-value
+  ## replace semantics — no sub-path targeting. Case object makes
+  ## "exactly one target per update" a type-level fact; shape mirrors
+  ## ``MailboxUpdate`` and ``VacationResponseUpdate``.
+  case kind*: IdentityUpdateVariantKind
+  of iuSetName:
+    name*: string
+  of iuSetReplyTo:
+    replyTo*: Opt[seq[EmailAddress]]
+      ## Opt.none clears the default Reply-To per RFC 8621 §6.
+  of iuSetBcc:
+    bcc*: Opt[seq[EmailAddress]] ## Opt.none clears the default Bcc per RFC 8621 §6.
+  of iuSetTextSignature:
+    textSignature*: string
+  of iuSetHtmlSignature:
+    htmlSignature*: string
+
+func setName*(name: string): IdentityUpdate =
+  ## Replace the Identity's display name.
+  IdentityUpdate(kind: iuSetName, name: name)
+
+func setReplyTo*(replyTo: Opt[seq[EmailAddress]]): IdentityUpdate =
+  ## Replace the default Reply-To list. Opt.none clears it per RFC 8621 §6.
+  IdentityUpdate(kind: iuSetReplyTo, replyTo: replyTo)
+
+func setBcc*(bcc: Opt[seq[EmailAddress]]): IdentityUpdate =
+  ## Replace the default Bcc list. Opt.none clears it per RFC 8621 §6.
+  IdentityUpdate(kind: iuSetBcc, bcc: bcc)
+
+func setTextSignature*(textSignature: string): IdentityUpdate =
+  ## Replace the plain-text signature.
+  IdentityUpdate(kind: iuSetTextSignature, textSignature: textSignature)
+
+func setHtmlSignature*(htmlSignature: string): IdentityUpdate =
+  ## Replace the HTML signature.
+  IdentityUpdate(kind: iuSetHtmlSignature, htmlSignature: htmlSignature)
+
+type IdentityUpdateSet* = distinct seq[IdentityUpdate]
+  ## Validated, conflict-free batch of IdentityUpdate operations targeting
+  ## a single Identity id. Construction gated by ``initIdentityUpdateSet``
+  ## — the raw distinct constructor is not part of the public surface.
+
+func initIdentityUpdateSet*(
+    updates: openArray[IdentityUpdate]
+): Result[IdentityUpdateSet, seq[ValidationError]] =
+  ## Accumulating smart constructor. Rejects:
+  ##   * empty input — the /set builder has exactly one "no updates for
+  ##     this id" representation (omit the entry from the outer table);
+  ##   * duplicate target property — two updates with the same kind would
+  ##     produce a JSON patch object with duplicate keys.
+  ## All violations surface in a single Err pass; each repeated kind is
+  ## reported exactly once regardless of occurrence count.
+  let errs = validateUniqueByIt(
+    updates,
+    it.kind,
+    typeName = "IdentityUpdateSet",
+    emptyMsg = "must contain at least one update",
+    dupMsg = "duplicate target property",
+  )
+  if errs.len > 0:
+    return err(errs)
+  ok(IdentityUpdateSet(@updates))
+
+# =============================================================================
+# NonEmptyIdentityUpdates — whole-container /set update algebra (RFC 8621 §6)
+# =============================================================================
+
+type NonEmptyIdentityUpdates* = distinct Table[Id, IdentityUpdateSet]
+  ## Non-empty, duplicate-free batch of per-identity update operations
+  ## keyed by existing Identity ``Id``. Construction gated by
+  ## ``parseNonEmptyIdentityUpdates``; the raw distinct constructor is
+  ## module-private surface. Shape mirrors ``NonEmptyMailboxUpdates`` and
+  ## ``NonEmptyEmailUpdates``.
+
+func parseNonEmptyIdentityUpdates*(
+    items: openArray[(Id, IdentityUpdateSet)]
+): Result[NonEmptyIdentityUpdates, seq[ValidationError]] =
+  ## Accumulating smart constructor. Rejects:
+  ##   * empty input — the /set builder's ``update:`` field has exactly
+  ##     one "no updates" representation (omit the entry via ``Opt.none``);
+  ##   * duplicate ``Id`` keys — silent last-wins shadowing at Table
+  ##     construction would swallow caller data; ``openArray`` (not
+  ##     ``Table``) preserves duplicates for inspection.
+  ## All violations surface in a single Err pass.
+  let errs = validateUniqueByIt(
+    items,
+    it[0],
+    typeName = "NonEmptyIdentityUpdates",
+    emptyMsg = "must contain at least one entry",
+    dupMsg = "duplicate identity id",
+  )
+  if errs.len > 0:
+    return err(errs)
+  var t = initTable[Id, IdentityUpdateSet](items.len)
+  for (id, updateSet) in items:
+    t[id] = updateSet
+  ok(NonEmptyIdentityUpdates(t))
