@@ -63,6 +63,19 @@ static:
   doAssert declared(initMailboxUpdateSet)
   doAssert declared(initVacationResponseUpdateSet)
 
+  # --- /set widening: whole-container update wrappers (4) ---
+  doAssert declared(NonEmptyMailboxUpdates)
+  doAssert declared(NonEmptyEmailUpdates)
+  doAssert declared(parseNonEmptyMailboxUpdates)
+  doAssert declared(parseNonEmptyEmailUpdates)
+
+  # --- /set widening: associated-type templates + registration helper (5) ---
+  doAssert declared(createType)
+  doAssert declared(updateType)
+  doAssert declared(setResponseType)
+  doAssert declared(registerSettableEntity)
+  doAssert declared(addSet)
+
   # --- Mailbox update ctors (5) ---
   doAssert declared(setName)
   doAssert declared(setParentId)

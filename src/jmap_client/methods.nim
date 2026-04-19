@@ -61,17 +61,26 @@ type ChangesRequest*[T] = object
     ## The maximum number of identifiers to return. Must be > 0 per RFC
     ## (enforced by the MaxChanges smart constructor).
 
-type SetRequest*[T] = object
+type SetRequest*[T, C, U] = object
   ## Request arguments for Foo/set (RFC 8620 section 5.3).
   ## Creates, updates, and/or destroys records of type T in a single method
   ## call. Each operation is atomic; the method as a whole is NOT atomic.
+  ##
+  ## ``C`` is the typed create-entry value (e.g. ``MailboxCreate``,
+  ## ``EmailBlueprint``). ``U`` is the whole-container update algebra
+  ## (e.g. ``NonEmptyMailboxUpdates``, ``NonEmptyEmailUpdates``). Both
+  ## ``C.toJson`` and ``U.toJson`` resolve at instantiation via ``mixin``.
   accountId*: AccountId ## The identifier of the account to use.
   ifInState*: Opt[JmapState]
     ## If supplied, must match the current state; otherwise the method is
     ## aborted with a "stateMismatch" error.
-  create*: Opt[Table[CreationId, JsonNode]]
-    ## A map of creation identifiers to entity data objects. Entity data is
-    ## JsonNode because Layer 3 Core cannot know T's serialisation format.
+  create*: Opt[Table[CreationId, C]]
+    ## A map of creation identifiers to typed creation-model values.
+    ## ``C.toJson`` is resolved via ``mixin`` by the serialiser.
+  update*: Opt[U]
+    ## Typed whole-container update algebra. ``Opt.none`` omits the
+    ## ``update`` key from the wire; ``Opt.some(u)`` emits ``u.toJson()``
+    ## verbatim as the wire ``"update"`` value.
   destroy*: Opt[Referencable[seq[Id]]]
     ## A list of identifiers for records to permanently delete. Referencable:
     ## may be a direct seq or a result reference.
@@ -395,12 +404,14 @@ func toJson*[T](req: ChangesRequest[T]): JsonNode =
     node["maxChanges"] = mc.toJson()
   return node
 
-func toJson*[T](req: SetRequest[T]): JsonNode =
+func toJson*[T, C, U](req: SetRequest[T, C, U]): JsonNode =
   ## Serialise SetRequest to JSON arguments object (RFC 8620 section 5.3).
-  ## Common fields only — ``update`` is assembled by entity-specific
-  ## builders from their typed update algebras (``EmailUpdateSet``,
-  ## ``MailboxUpdateSet``, ``VacationResponseUpdateSet``) and merged into
-  ## the args after this call returns.
+  ## Wire key order: ``accountId, ifInState, create, destroy, update``.
+  ## ``C.toJson`` serialises each create entry; ``U.toJson`` serialises
+  ## the whole update container. Both resolve at instantiation via
+  ## ``mixin``. Entity-specific extension keys (e.g. ``onDestroyRemoveEmails``)
+  ## are appended by the builder after this function returns.
+  mixin toJson
   var node = newJObject()
   node["accountId"] = req.accountId.toJson()
   for s in req.ifInState:
@@ -408,7 +419,7 @@ func toJson*[T](req: SetRequest[T]): JsonNode =
   for createMap in req.create:
     var createObj = newJObject()
     for k, v in createMap:
-      createObj[string(k)] = v
+      createObj[string(k)] = v.toJson()
     node["create"] = createObj
   for destroyVal in req.destroy:
     let destroyKey = referencableKey("destroy", destroyVal)
@@ -420,6 +431,8 @@ func toJson*[T](req: SetRequest[T]): JsonNode =
       node[destroyKey] = arr
     of rkReference:
       node[destroyKey] = destroyVal.reference.toJson()
+  for updateContainer in req.update:
+    node["update"] = updateContainer.toJson()
   return node
 
 func toJson*[T](req: CopyRequest[T]): JsonNode =

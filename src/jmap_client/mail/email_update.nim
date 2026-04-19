@@ -266,3 +266,42 @@ func initEmailUpdateSet*(
   if conflicts.len > 0:
     return err(conflicts.mapIt(toValidationError(it)))
   ok(EmailUpdateSet(@updates))
+
+# =============================================================================
+# NonEmptyEmailUpdates — whole-container /set update algebra (RFC 8621 §4.6)
+# =============================================================================
+
+type NonEmptyEmailUpdates* = distinct Table[Id, EmailUpdateSet]
+  ## Non-empty, duplicate-free batch of per-email update operations keyed
+  ## by existing Email ``Id``. Construction gated by
+  ## ``parseNonEmptyEmailUpdates``; the raw distinct constructor is
+  ## module-private surface. Shape mirrors ``NonEmptyMailboxUpdates`` and
+  ## ``NonEmptyEmailSubmissionUpdates`` — ``addSet[Email, ...]`` serialises
+  ## the container via its own ``toJson`` rather than assembling the wire
+  ## patch per-caller.
+
+func parseNonEmptyEmailUpdates*(
+    items: openArray[(Id, EmailUpdateSet)]
+): Result[NonEmptyEmailUpdates, seq[ValidationError]] =
+  ## Accumulating smart constructor. Rejects:
+  ##   * empty input — the ``/set`` builder's ``update:`` field has
+  ##     exactly one "no updates" representation: omit the entry via
+  ##     ``Opt.none``.
+  ##   * duplicate ``Id`` keys — silent last-wins shadowing at Table
+  ##     construction would swallow caller data; ``openArray`` (not
+  ##     ``Table``) preserves duplicates for inspection.
+  ## All violations surface in a single Err pass; each repeated id is
+  ## reported exactly once regardless of occurrence count.
+  let errs = validateUniqueByIt(
+    items,
+    it[0],
+    typeName = "NonEmptyEmailUpdates",
+    emptyMsg = "must contain at least one entry",
+    dupMsg = "duplicate email id",
+  )
+  if errs.len > 0:
+    return err(errs)
+  var t = initTable[Id, EmailUpdateSet](items.len)
+  for (id, updateSet) in items:
+    t[id] = updateSet
+  ok(NonEmptyEmailUpdates(t))

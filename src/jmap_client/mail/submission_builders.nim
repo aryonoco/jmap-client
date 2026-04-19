@@ -33,8 +33,6 @@ import ./serde_email_update
 export serde_email_submission
 export serde_email
 
-const SubmissionCapUri = "urn:ietf:params:jmap:submission"
-
 # =============================================================================
 # addEmailSubmissionGet — EmailSubmission/get (RFC 8621 §7.1)
 # =============================================================================
@@ -119,24 +117,13 @@ func addEmailSubmissionSet*(
 ): (RequestBuilder, ResponseHandle[EmailSubmissionSetResponse]) =
   ## EmailSubmission/set (RFC 8621 §7.5). Simple overload — no
   ## ``onSuccessUpdateEmail`` / ``onSuccessDestroyEmail`` extensions; for
-  ## those, use ``addEmailSubmissionAndEmailSet``.
-  let jsonCreate = block:
-    var res = Opt.none(Table[CreationId, JsonNode])
-    for createMap in create:
-      var tbl = initTable[CreationId, JsonNode](createMap.len)
-      for k, v in createMap:
-        tbl[k] = v.toJson()
-      res = Opt.some(tbl)
-    res
-  let req = SetRequest[AnyEmailSubmission](
-    accountId: accountId, ifInState: ifInState, create: jsonCreate, destroy: destroy
-  )
-  var args = req.toJson()
-  for updateSet in update:
-    args["update"] = updateSet.toJson()
-  let (newBuilder, callId) =
-    b.addInvocation(mnEmailSubmissionSet, args, SubmissionCapUri)
-  (newBuilder, ResponseHandle[EmailSubmissionSetResponse](callId))
+  ## those, use ``addEmailSubmissionAndEmailSet``. Thin wrapper over
+  ## ``addSet[AnyEmailSubmission, EmailSubmissionBlueprint,
+  ## NonEmptyEmailSubmissionUpdates, EmailSubmissionSetResponse]``.
+  addSet[
+    AnyEmailSubmission, EmailSubmissionBlueprint, NonEmptyEmailSubmissionUpdates,
+    EmailSubmissionSetResponse,
+  ](b, accountId, ifInState, create, update, destroy)
 
 # =============================================================================
 # getBoth — paired extraction for EmailSubmissionHandles
@@ -180,35 +167,30 @@ func addEmailSubmissionAndEmailSet*(
   ## emits the implicit Email/set response sharing the parent call ID
   ## (RFC 8620 §5.4). ``handles.emailSet`` carries the ``mnEmailSet``
   ## filter so ``getBoth`` can disambiguate without a call-site argument.
-  let jsonCreate = block:
-    var res = Opt.none(Table[CreationId, JsonNode])
-    for createMap in create:
-      var tbl = initTable[CreationId, JsonNode](createMap.len)
-      for k, v in createMap:
-        tbl[k] = v.toJson()
-      res = Opt.some(tbl)
-    res
-  let req = SetRequest[AnyEmailSubmission](
-    accountId: accountId, ifInState: ifInState, create: jsonCreate, destroy: destroy
-  )
-  var args = req.toJson()
-  for updateSet in update:
-    args["update"] = updateSet.toJson()
-  for upd in onSuccessUpdateEmail:
-    var obj = newJObject()
-    for refKey, eus in upd:
-      obj[idOrCreationRefWireKey(refKey)] = eus.toJson()
-    args["onSuccessUpdateEmail"] = obj
-  for dst in onSuccessDestroyEmail:
-    var arr = newJArray()
-    for refItem in dst:
-      arr.add(%idOrCreationRefWireKey(refItem))
-    args["onSuccessDestroyEmail"] = arr
-  let (newBuilder, cid) = b.addInvocation(mnEmailSubmissionSet, args, SubmissionCapUri)
+  ## The primary EmailSubmission/set call routes through the generic
+  ## ``addSet[AnyEmailSubmission, ...]`` with the two compound extras
+  ## appended in wire order.
+  let emailUpdExtras = block:
+    var e: seq[(string, JsonNode)] = @[]
+    for upd in onSuccessUpdateEmail:
+      var obj = newJObject()
+      for refKey, eus in upd:
+        obj[idOrCreationRefWireKey(refKey)] = eus.toJson()
+      e.add(("onSuccessUpdateEmail", obj))
+    for dst in onSuccessDestroyEmail:
+      var arr = newJArray()
+      for refItem in dst:
+        arr.add(%idOrCreationRefWireKey(refItem))
+      e.add(("onSuccessDestroyEmail", arr))
+    e
+  let (b1, sh) = addSet[
+    AnyEmailSubmission, EmailSubmissionBlueprint, NonEmptyEmailSubmissionUpdates,
+    EmailSubmissionSetResponse,
+  ](b, accountId, ifInState, create, update, destroy, extras = emailUpdExtras)
   let handles = EmailSubmissionHandles(
-    submission: ResponseHandle[EmailSubmissionSetResponse](cid),
+    submission: sh,
     emailSet: NameBoundHandle[SetResponse[EmailCreatedItem]](
-      callId: cid, methodName: mnEmailSet
+      callId: MethodCallId(sh), methodName: mnEmailSet
     ),
   )
-  (newBuilder, handles)
+  (b1, handles)

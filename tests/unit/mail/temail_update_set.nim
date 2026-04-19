@@ -229,3 +229,25 @@ block accumulateClass3TwoDistinctParents:
   )
   assertErr res
   assertLen res.error, 2
+
+# ============= F. parseNonEmptyEmailUpdates =============
+
+block parseNonEmptyEmailUpdatesRejectsEmpty:
+  ## Empty input is rejected — the /set builder's ``update`` slot has
+  ## exactly one "no updates" representation (``Opt.none``).
+  let res = parseNonEmptyEmailUpdates(newSeq[(Id, EmailUpdateSet)]())
+  assertErr res
+  assertLen res.error, 1
+  assertEq res.error[0].typeName, "NonEmptyEmailUpdates"
+  assertEq res.error[0].message, "must contain at least one entry"
+
+block parseNonEmptyEmailUpdatesRejectsDuplicateId:
+  ## Duplicate ``Id`` keys are rejected — silent last-wins shadowing at
+  ## Table construction would swallow caller data.
+  let id1 = parseId("e1").get()
+  let us1 = initEmailUpdateSet(@[markRead()]).get()
+  let us2 = initEmailUpdateSet(@[markFlagged()]).get()
+  let res = parseNonEmptyEmailUpdates(@[(id1, us1), (id1, us2)])
+  assertErr res
+  assertLen res.error, 1
+  assertEq res.error[0].message, "duplicate email id"

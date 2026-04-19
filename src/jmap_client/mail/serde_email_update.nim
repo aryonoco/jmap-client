@@ -11,6 +11,7 @@
 {.push raises: [], noSideEffect.}
 
 import std/json
+import std/tables
 
 import ../primitives
 import ../serde
@@ -48,4 +49,14 @@ func toJson*(us: EmailUpdateSet): JsonNode =
   for u in seq[EmailUpdate](us):
     let (key, value) = u.toJson()
     node[key] = value
+  return node
+
+func toJson*(upd: NonEmptyEmailUpdates): JsonNode =
+  ## Flatten the whole-container update algebra to the RFC 8620 §5.3
+  ## wire ``update`` value — ``{emailId: patchObj, ...}``.
+  ## ``parseNonEmptyEmailUpdates`` has already enforced non-empty input
+  ## and distinct ids, so blind aggregation cannot shadow a prior entry.
+  var node = newJObject()
+  for id, patchSet in Table[Id, EmailUpdateSet](upd):
+    node[string(id)] = patchSet.toJson()
   return node

@@ -58,7 +58,17 @@
 ## 9. ``toJson``/``fromJson`` for the entity type itself (entity-specific,
 ##    not Layer 3 Core).
 ##
-## Items 1–8 are Layer 3 concerns. Item 9 is entity-specific.
+## 10. ``func setMethodName*(T: typedesc[Entity]): MethodName`` (if supports
+##     ``/set``).
+## 11. ``template createType*(T: typedesc[Entity]): typedesc``,
+##     ``template updateType*(T: typedesc[Entity]): typedesc``, and
+##     ``template setResponseType*(T: typedesc[Entity]): typedesc`` (if
+##     supports ``/set``). These map the entity to its typed create-value,
+##     whole-container update algebra, and /set response type respectively.
+## 12. ``registerSettableEntity(Entity)`` at module scope (if supports
+##     ``/set``).
+##
+## Items 1–8, 10–12 are Layer 3 concerns. Item 9 is entity-specific.
 
 {.push raises: [], noSideEffect.}
 
@@ -112,4 +122,40 @@ template registerQueryableEntity*(T: typedesc) =
         error:
           "registerQueryableEntity: " & $T & " is missing `func toJson*(c: " &
           $filterType(T) & "): JsonNode`"
+      .}
+
+template registerSettableEntity*(T: typedesc) =
+  ## Compile-time check: verifies T provides the four /set-related
+  ## overloads (``setMethodName``, ``createType``, ``updateType``,
+  ## ``setResponseType``) consumed by the generic ``addSet[T, C, U, R]``.
+  ## Call after ``registerJmapEntity`` for entity types that support /set.
+  ##
+  ## ``createType`` and ``updateType`` return ``typedesc``; the generic
+  ## ``addSet`` and ``SetRequest[T, C, U].toJson`` resolve the chosen
+  ## ``C.toJson`` and ``U.toJson`` via ``mixin`` at the caller's
+  ## instantiation site.
+  static:
+    when not compiles(setMethodName(T)):
+      {.
+        error:
+          "registerSettableEntity: " & $T &
+          " is missing `func setMethodName*(T: typedesc[" & $T & "]): MethodName`"
+      .}
+    when not compiles(createType(T)):
+      {.
+        error:
+          "registerSettableEntity: " & $T &
+          " is missing `template createType*(T: typedesc[" & $T & "]): typedesc`"
+      .}
+    when not compiles(updateType(T)):
+      {.
+        error:
+          "registerSettableEntity: " & $T &
+          " is missing `template updateType*(T: typedesc[" & $T & "]): typedesc`"
+      .}
+    when not compiles(setResponseType(T)):
+      {.
+        error:
+          "registerSettableEntity: " & $T &
+          " is missing `template setResponseType*(T: typedesc[" & $T & "]): typedesc`"
       .}

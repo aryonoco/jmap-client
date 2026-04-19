@@ -1859,3 +1859,24 @@ proc makeEmailCopyHandles*(
       callId: sharedCallId, methodName: mnEmailSet
     ),
   )
+
+# ---------------------------------------------------------------------------
+# Section J — Whole-container update wrappers for /set widening
+# ---------------------------------------------------------------------------
+
+proc makeNonEmptyMailboxUpdates*(
+    items: varargs[(Id, MailboxUpdateSet)]
+): NonEmptyMailboxUpdates =
+  ## Non-Opt, non-empty wrapper factory. The ``varargs`` contract
+  ## (``items.len >= 1`` at every call site) and the per-entry
+  ## ``MailboxUpdateSet`` invariant together discharge
+  ## ``parseNonEmptyMailboxUpdates``'s preconditions, so ``.get()``
+  ## is total in context.
+  parseNonEmptyMailboxUpdates(@items).get()
+
+proc makeNonEmptyEmailUpdates*(
+    items: varargs[(Id, EmailUpdateSet)]
+): NonEmptyEmailUpdates =
+  ## Non-Opt, non-empty wrapper factory. Mirrors
+  ## ``makeNonEmptyMailboxUpdates``.
+  parseNonEmptyEmailUpdates(@items).get()

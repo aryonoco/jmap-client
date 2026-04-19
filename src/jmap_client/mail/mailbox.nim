@@ -12,6 +12,7 @@
 import std/hashes
 import std/sets
 import std/strutils
+import std/tables
 
 import ../validation
 import ../primitives
@@ -344,3 +345,42 @@ func initMailboxUpdateSet*(
   if errs.len > 0:
     return err(errs)
   ok(MailboxUpdateSet(@updates))
+
+# =============================================================================
+# NonEmptyMailboxUpdates — whole-container /set update algebra (RFC 8621 §2.5)
+# =============================================================================
+
+type NonEmptyMailboxUpdates* = distinct Table[Id, MailboxUpdateSet]
+  ## Non-empty, duplicate-free batch of per-mailbox update operations keyed
+  ## by existing Mailbox ``Id``. Construction gated by
+  ## ``parseNonEmptyMailboxUpdates``; the raw distinct constructor is
+  ## module-private surface. Shape mirrors
+  ## ``NonEmptyEmailSubmissionUpdates`` (email_submission.nim) —
+  ## ``addSet[Mailbox, ...]`` serialises the container via its own
+  ## ``toJson`` rather than assembling the wire patch per-caller.
+
+func parseNonEmptyMailboxUpdates*(
+    items: openArray[(Id, MailboxUpdateSet)]
+): Result[NonEmptyMailboxUpdates, seq[ValidationError]] =
+  ## Accumulating smart constructor. Rejects:
+  ##   * empty input — the ``/set`` builder's ``update:`` field has
+  ##     exactly one "no updates" representation: omit the entry via
+  ##     ``Opt.none``.
+  ##   * duplicate ``Id`` keys — silent last-wins shadowing at Table
+  ##     construction would swallow caller data; ``openArray`` (not
+  ##     ``Table``) preserves duplicates for inspection.
+  ## All violations surface in a single Err pass; each repeated id is
+  ## reported exactly once regardless of occurrence count.
+  let errs = validateUniqueByIt(
+    items,
+    it[0],
+    typeName = "NonEmptyMailboxUpdates",
+    emptyMsg = "must contain at least one entry",
+    dupMsg = "duplicate mailbox id",
+  )
+  if errs.len > 0:
+    return err(errs)
+  var t = initTable[Id, MailboxUpdateSet](items.len)
+  for (id, updateSet) in items:
+    t[id] = updateSet
+  ok(NonEmptyMailboxUpdates(t))

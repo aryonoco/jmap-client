@@ -213,36 +213,25 @@ func addMailboxSet*(
     ifInState: Opt[JmapState] = Opt.none(JmapState),
     create: Opt[Table[CreationId, MailboxCreate]] =
       Opt.none(Table[CreationId, MailboxCreate]),
-    update: Opt[Table[Id, MailboxUpdateSet]] = Opt.none(Table[Id, MailboxUpdateSet]),
+    update: Opt[NonEmptyMailboxUpdates] = Opt.none(NonEmptyMailboxUpdates),
     destroy: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]),
     onDestroyRemoveEmails: bool = false,
 ): (RequestBuilder, ResponseHandle[SetResponse[Mailbox]]) =
-  ## Adds a Mailbox/set invocation with typed ``MailboxCreate`` and
-  ## ``MailboxUpdateSet`` per Design §4.1 (Part F migration). The typed
-  ## update algebra is the only public update path.
-  ## ``onDestroyRemoveEmails`` RFC 8621 §2.5 extension always emitted.
-  let jsonCreate = block:
-    var res = Opt.none(Table[CreationId, JsonNode])
-    for createMap in create:
-      var tbl = initTable[CreationId, JsonNode](createMap.len)
-      for k, v in createMap:
-        tbl[k] = v.toJson()
-      res = Opt.some(tbl)
-    res
-  # SetRequest serialises the common fields; the typed update map is
-  # appended to `args["update"]` below, bypassing any wire-patch wrapper.
-  let req = SetRequest[Mailbox](
-    accountId: accountId, ifInState: ifInState, create: jsonCreate, destroy: destroy
+  ## Mailbox/set (RFC 8621 §2.5). Thin wrapper over
+  ## ``addSet[Mailbox, MailboxCreate, NonEmptyMailboxUpdates, SetResponse[Mailbox]]``
+  ## with the Mailbox-specific ``onDestroyRemoveEmails`` extension emitted
+  ## via ``extras``. ``create`` and ``update`` arrive typed; the generic
+  ## ``SetRequest[T, C, U].toJson`` serialises both through the ``mixin toJson``
+  ## cascade.
+  addSet[Mailbox, MailboxCreate, NonEmptyMailboxUpdates, SetResponse[Mailbox]](
+    b,
+    accountId,
+    ifInState,
+    create,
+    update,
+    destroy,
+    extras = @[("onDestroyRemoveEmails", %onDestroyRemoveEmails)],
   )
-  var args = req.toJson()
-  for updateMap in update:
-    var updateObj = newJObject()
-    for id, updateSet in updateMap:
-      updateObj[string(id)] = updateSet.toJson()
-    args["update"] = updateObj
-  args["onDestroyRemoveEmails"] = %onDestroyRemoveEmails
-  let (newBuilder, callId) = b.addInvocation(mnMailboxSet, args, MailCapUri)
-  (newBuilder, ResponseHandle[SetResponse[Mailbox]](callId))
 
 # =============================================================================
 # addEmailGet — Email/get (RFC 8621 §4.2)
@@ -327,35 +316,17 @@ func addEmailSet*(
     ifInState: Opt[JmapState] = Opt.none(JmapState),
     create: Opt[Table[CreationId, EmailBlueprint]] =
       Opt.none(Table[CreationId, EmailBlueprint]),
-    update: Opt[Table[Id, EmailUpdateSet]] = Opt.none(Table[Id, EmailUpdateSet]),
+    update: Opt[NonEmptyEmailUpdates] = Opt.none(NonEmptyEmailUpdates),
     destroy: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]),
 ): (RequestBuilder, ResponseHandle[SetResponse[EmailCreatedItem]]) =
-  ## Adds an Email/set invocation. Typed create (EmailBlueprint) and update
-  ## (EmailUpdateSet) per Design §4.1. Returns a handle typed to the
-  ## generic ``SetResponse[EmailCreatedItem]`` — ``createResults`` carries
-  ## the typed per-entity payload, ``updateResults`` / ``destroyResults``
-  ## follow the RFC 8620 §5.3 merged-Result-table shape.
-  let jsonCreate = block:
-    var res = Opt.none(Table[CreationId, JsonNode])
-    for createMap in create:
-      var tbl = initTable[CreationId, JsonNode](createMap.len)
-      for k, v in createMap:
-        tbl[k] = v.toJson()
-      res = Opt.some(tbl)
-    res
-  # SetRequest serialises the common fields; the typed update map is
-  # appended to `args["update"]` below.
-  let req = SetRequest[Email](
-    accountId: accountId, ifInState: ifInState, create: jsonCreate, destroy: destroy
+  ## Email/set (RFC 8621 §4.6). Thin wrapper over
+  ## ``addSet[Email, EmailBlueprint, NonEmptyEmailUpdates, SetResponse[EmailCreatedItem]]``
+  ## with no entity-specific extras. The ``SetResponse[EmailCreatedItem]``
+  ## handle carries typed ``createResults`` via ``mixin``-resolved
+  ## ``EmailCreatedItem.fromJson`` at the dispatch site.
+  addSet[Email, EmailBlueprint, NonEmptyEmailUpdates, SetResponse[EmailCreatedItem]](
+    b, accountId, ifInState, create, update, destroy
   )
-  var args = req.toJson()
-  for updateMap in update:
-    var updateObj = newJObject()
-    for id, updateSet in updateMap:
-      updateObj[string(id)] = updateSet.toJson()
-    args["update"] = updateObj
-  let (newBuilder, callId) = b.addInvocation(mnEmailSet, args, MailCapUri)
-  (newBuilder, ResponseHandle[SetResponse[EmailCreatedItem]](callId))
 
 # =============================================================================
 # addEmailCopy — Email/copy (RFC 8621 §4.7)

@@ -8,6 +8,7 @@
 
 import std/json
 import std/sets
+import std/tables
 
 import ../serde
 import ../types
@@ -287,4 +288,15 @@ func toJson*(us: MailboxUpdateSet): JsonNode =
   for u in seq[MailboxUpdate](us):
     let (key, value) = u.toJson()
     node[key] = value
+  return node
+
+func toJson*(upd: NonEmptyMailboxUpdates): JsonNode =
+  ## Flatten the whole-container update algebra to the RFC 8620 §5.3
+  ## wire ``update`` value — ``{mailboxId: patchObj, ...}``.
+  ## ``parseNonEmptyMailboxUpdates`` has already enforced non-empty
+  ## input and distinct ids, so blind aggregation cannot shadow a
+  ## prior entry.
+  var node = newJObject()
+  for id, patchSet in Table[Id, MailboxUpdateSet](upd):
+    node[string(id)] = patchSet.toJson()
   return node

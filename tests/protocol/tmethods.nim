@@ -62,6 +62,14 @@ func fromJson*(
   ?expectKind(node, JObject, path)
   ok(MockFoo())
 
+func toJson*(f: MockFoo): JsonNode =
+  ## Permissive MockFoo serialiser — the widened ``SetRequest[T, C, U]`` /
+  ## ``CopyRequest[T, CopyItem]`` generics resolve ``C.toJson`` /
+  ## ``U.toJson`` via ``mixin`` at instantiation. Tests only assert the
+  ## produced key set; the emitted object is never inspected.
+  discard f
+  newJObject()
+
 registerJmapEntity(MockFoo)
 
 type MockFilter = object
@@ -105,20 +113,21 @@ registerQueryableEntity(MockQueryable)
 
 block goldenSetRequestToJson:
   ## Golden test section 14.2: SetRequest with create/destroy (common fields).
-  ## Update semantics are carried by entity-specific builders post-Part F;
-  ## SetRequest[T] no longer carries an ``update`` field.
+  ## ``SetRequest[T, C, U]`` carries ``update: Opt[U]`` — ``Opt.none`` emits
+  ## no ``update`` key on the wire, keeping the wire shape byte-identical
+  ## to the pre-widen golden.
   let acctId = makeAccountId("A13824")
   let ifState = makeState("abc123")
   let cid = makeCreationId("k1")
   let did1 = makeId("id2")
   let did2 = makeId("id3")
-  let createData = %*{"name": "New Item"}
-  var createTbl = initTable[CreationId, JsonNode]()
-  createTbl[cid] = createData
-  let req = SetRequest[MockFoo](
+  var createTbl = initTable[CreationId, MockFoo]()
+  createTbl[cid] = MockFoo()
+  let req = SetRequest[MockFoo, MockFoo, MockFoo](
     accountId: acctId,
     ifInState: Opt.some(ifState),
     create: Opt.some(createTbl),
+    update: Opt.none(MockFoo),
     destroy: Opt.some(direct(@[did1, did2])),
   )
   let j = req.toJson()
@@ -243,11 +252,14 @@ block changesRequestWithMaxChanges:
   doAssert j{"maxChanges"}.getBiggestInt(0) == 50
 
 block setRequestMinimal:
-  ## SetRequest with only accountId.
-  let req = SetRequest[MockFoo](
+  ## SetRequest with only accountId. ``SetRequest[T, C, U]`` with all
+  ## optional fields ``Opt.none`` emits only ``accountId``; every other
+  ## key (``ifInState``, ``create``, ``destroy``, ``update``) is absent.
+  let req = SetRequest[MockFoo, MockFoo, MockFoo](
     accountId: makeAccountId("a1"),
     ifInState: Opt.none(JmapState),
-    create: Opt.none(Table[CreationId, JsonNode]),
+    create: Opt.none(Table[CreationId, MockFoo]),
+    update: Opt.none(MockFoo),
     destroy: Opt.none(Referencable[seq[Id]]),
   )
   let j = req.toJson()
@@ -261,10 +273,11 @@ block setRequestWithReferencableDestroy:
   ## SetRequest destroy with result reference produces "#destroy".
   let rr =
     initResultReference(resultOf = makeMcid("c0"), name = mnEmailQuery, path = rpIds)
-  let req = SetRequest[MockFoo](
+  let req = SetRequest[MockFoo, MockFoo, MockFoo](
     accountId: makeAccountId("a1"),
     ifInState: Opt.none(JmapState),
-    create: Opt.none(Table[CreationId, JsonNode]),
+    create: Opt.none(Table[CreationId, MockFoo]),
+    update: Opt.none(MockFoo),
     destroy: Opt.some(referenceTo[seq[Id]](rr)),
   )
   let j = req.toJson()

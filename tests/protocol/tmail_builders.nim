@@ -429,14 +429,16 @@ block addEmailSetFullInvocation:
   ## the returned handle is phantom-typed to ``EmailSetResponse``.
   var createTbl = initTable[CreationId, EmailBlueprint]()
   createTbl[makeCreationId("k1")] = makeEmailBlueprint()
-  var updateTbl = initTable[Id, EmailUpdateSet]()
-  updateTbl[makeId("e1")] = initEmailUpdateSet(@[markRead()]).get()
+  let updateWrapped = parseNonEmptyEmailUpdates(
+      @[(makeId("e1"), initEmailUpdateSet(@[markRead()]).get())]
+    )
+    .get()
   let b0 = initRequestBuilder()
   let (b1, _) = b0.addEmailSet(
     makeAccountId("a1"),
     ifInState = Opt.some(makeState("s0")),
     create = Opt.some(createTbl),
-    update = Opt.some(updateTbl),
+    update = Opt.some(updateWrapped),
     destroy = Opt.some(direct(@[makeId("e9")])),
   )
   let req = b1.build()
@@ -487,10 +489,9 @@ block addEmailSetTypedUpdate:
   ## that the typed update algebra reaches the wire through the builder
   ## (Design §4.1, Part F2).
   let updateSet = initEmailUpdateSet(@[markRead()]).get()
-  var tbl = initTable[Id, EmailUpdateSet]()
-  tbl[makeId("e1")] = updateSet
+  let updateWrapped = parseNonEmptyEmailUpdates(@[(makeId("e1"), updateSet)]).get()
   let b0 = initRequestBuilder()
-  let (b1, _) = b0.addEmailSet(makeAccountId("a1"), update = Opt.some(tbl))
+  let (b1, _) = b0.addEmailSet(makeAccountId("a1"), update = Opt.some(updateWrapped))
   let req = b1.build()
   let patch = req.methodCalls[0].arguments{"update"}{"e1"}
   doAssert patch.kind == JObject
@@ -708,10 +709,9 @@ block addMailboxSetTypedUpdate:
   ## at the builder boundary. Pins the migrated ``addMailboxSet`` signature
   ## routing through the typed algebra (Design §3.3).
   let updateSet = initMailboxUpdateSet(@[setName("Renamed")]).get()
-  var tbl = initTable[Id, MailboxUpdateSet]()
-  tbl[makeId("mb1")] = updateSet
+  let updateWrapped = parseNonEmptyMailboxUpdates(@[(makeId("mb1"), updateSet)]).get()
   let b0 = initRequestBuilder()
-  let (b1, _) = b0.addMailboxSet(makeAccountId("a1"), update = Opt.some(tbl))
+  let (b1, _) = b0.addMailboxSet(makeAccountId("a1"), update = Opt.some(updateWrapped))
   let req = b1.build()
   let patch = req.methodCalls[0].arguments{"update"}{"mb1"}
   doAssert patch.kind == JObject

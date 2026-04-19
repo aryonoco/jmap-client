@@ -178,6 +178,39 @@ func addChanges*[T](
   addMethodImpl(b, T, changesMethodName, req, ChangesResponse[T])
 
 # =============================================================================
+# addSet — Foo/set (RFC 8620 section 5.3)
+# =============================================================================
+
+func addSet*[T, C, U, R](
+    b: RequestBuilder,
+    accountId: AccountId,
+    ifInState: Opt[JmapState] = Opt.none(JmapState),
+    create: Opt[Table[CreationId, C]] = Opt.none(Table[CreationId, C]),
+    update: Opt[U] = Opt.none(U),
+    destroy: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]),
+    extras: seq[(string, JsonNode)] = @[],
+): (RequestBuilder, ResponseHandle[R]) =
+  ## Foo/set (RFC 8620 section 5.3). ``T`` = entity, ``C`` = typed create
+  ## value, ``U`` = whole-container update algebra, ``R`` = response type.
+  ## Entity-specific extension keys are supplied via ``extras`` and
+  ## appended to the args after the standard frame (insertion order
+  ## preserved). ``setMethodName``, ``capabilityUri``, ``C.toJson``, and
+  ## ``U.toJson`` all resolve at instantiation via ``mixin``.
+  mixin setMethodName, capabilityUri, toJson
+  let req = SetRequest[T, C, U](
+    accountId: accountId,
+    ifInState: ifInState,
+    create: create,
+    update: update,
+    destroy: destroy,
+  )
+  var args = req.toJson()
+  for (k, v) in extras:
+    args[k] = v
+  let (newBuilder, callId) = addInvocation(b, setMethodName(T), args, capabilityUri(T))
+  (newBuilder, ResponseHandle[R](callId))
+
+# =============================================================================
 # addCopy — Foo/copy (RFC 8620 section 5.4)
 # =============================================================================
 
@@ -306,6 +339,17 @@ template addQueryChanges*[T](
     proc(c: filterType(T)): JsonNode {.noSideEffect, raises: [].} =
       c.toJson(),
   )
+
+template addSet*[T](b: RequestBuilder, accountId: AccountId): untyped =
+  ## Single-type-parameter Foo/set alias. Resolves ``createType(T)``,
+  ## ``updateType(T)``, and ``setResponseType(T)`` at the call site via
+  ## template expansion; delegates to the four-parameter
+  ## ``addSet[T, C, U, R]``. For calls that supply ``create`` / ``update``
+  ## / ``destroy`` / ``extras`` (the common case), invoke the four-parameter
+  ## form directly — the template deliberately takes only ``b`` and
+  ## ``accountId`` to avoid referencing template-returning-typedesc calls
+  ## inside a template's own parameter-list default expressions (Nim limitation).
+  addSet[T, createType(T), updateType(T), setResponseType(T)](b, accountId)
 
 # =============================================================================
 # Argument-construction helpers (reduce Opt.some/direct nesting at call sites)

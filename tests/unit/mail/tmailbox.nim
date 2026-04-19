@@ -209,3 +209,27 @@ block setIsSubscribedConstructsCorrectKind:
   let u = setIsSubscribed(true)
   assertEq u.kind, muSetIsSubscribed
   assertEq u.isSubscribed, true
+
+# ============= F. parseNonEmptyMailboxUpdates =============
+
+block parseNonEmptyMailboxUpdatesRejectsEmpty:
+  ## Empty input is explicitly rejected — the /set builder has exactly
+  ## one "no updates" representation (``Opt.none``), so an empty wrapper
+  ## is structurally forbidden.
+  let res = parseNonEmptyMailboxUpdates(newSeq[(Id, MailboxUpdateSet)]())
+  assertErr res
+  assertLen res.error, 1
+  assertEq res.error[0].typeName, "NonEmptyMailboxUpdates"
+  assertEq res.error[0].message, "must contain at least one entry"
+
+block parseNonEmptyMailboxUpdatesRejectsDuplicateId:
+  ## Duplicate ``Id`` keys are rejected — silent last-wins shadowing at
+  ## Table construction would swallow caller data. The ``openArray`` input
+  ## preserves duplicates for inspection.
+  let id1 = parseId("mb1").get()
+  let us1 = initMailboxUpdateSet(@[setName("A")]).get()
+  let us2 = initMailboxUpdateSet(@[setName("B")]).get()
+  let res = parseNonEmptyMailboxUpdates(@[(id1, us1), (id1, us2)])
+  assertErr res
+  assertLen res.error, 1
+  assertEq res.error[0].message, "duplicate mailbox id"

@@ -17,11 +17,14 @@
 import std/json
 
 import ../entity
+import ../methods
 import ../methods_enum
 import ./thread
 import ./identity
 import ./mailbox
 import ./email
+import ./email_update
+import ./email_blueprint
 import ./email_submission
 import ./serde_email_submission
 import ./mail_filters
@@ -129,8 +132,24 @@ template filterType*(T: typedesc[Mailbox]): typedesc =
   discard $T
   MailboxFilterCondition
 
+template createType*(T: typedesc[Mailbox]): typedesc =
+  ## Associated typed create-value type for Mailbox/set.
+  discard $T
+  MailboxCreate
+
+template updateType*(T: typedesc[Mailbox]): typedesc =
+  ## Associated whole-container update algebra for Mailbox/set.
+  discard $T
+  NonEmptyMailboxUpdates
+
+template setResponseType*(T: typedesc[Mailbox]): typedesc =
+  ## Associated /set response type for Mailbox.
+  discard $T
+  SetResponse[Mailbox]
+
 registerJmapEntity(Mailbox)
 registerQueryableEntity(Mailbox)
+registerSettableEntity(Mailbox)
 
 # ---------------------------------------------------------------------------
 # Email (RFC 8621 section 4) — supports /get, /changes, /set, /query,
@@ -187,8 +206,25 @@ template filterType*(T: typedesc[Email]): typedesc =
   discard $T
   EmailFilterCondition
 
+template createType*(T: typedesc[Email]): typedesc =
+  ## Associated typed create-value type for Email/set.
+  discard $T
+  EmailBlueprint
+
+template updateType*(T: typedesc[Email]): typedesc =
+  ## Associated whole-container update algebra for Email/set.
+  discard $T
+  NonEmptyEmailUpdates
+
+template setResponseType*(T: typedesc[Email]): typedesc =
+  ## Associated /set response type for Email. The typed ``createResults``
+  ## payload is ``EmailCreatedItem`` (server-set fields post-create).
+  discard $T
+  SetResponse[EmailCreatedItem]
+
 registerJmapEntity(Email)
 registerQueryableEntity(Email)
+registerSettableEntity(Email)
 
 # ---------------------------------------------------------------------------
 # EmailSubmission (RFC 8621 section 7) — supports /get, /changes, /set,
@@ -238,5 +274,21 @@ template filterType*(T: typedesc[AnyEmailSubmission]): typedesc =
   discard $T
   EmailSubmissionFilterCondition
 
+template createType*(T: typedesc[AnyEmailSubmission]): typedesc =
+  ## Associated typed create-value type for EmailSubmission/set.
+  discard $T
+  EmailSubmissionBlueprint
+
+template updateType*(T: typedesc[AnyEmailSubmission]): typedesc =
+  ## Associated whole-container update algebra for EmailSubmission/set.
+  discard $T
+  NonEmptyEmailSubmissionUpdates
+
+template setResponseType*(T: typedesc[AnyEmailSubmission]): typedesc =
+  ## Associated /set response type for EmailSubmission.
+  discard $T
+  EmailSubmissionSetResponse
+
 registerJmapEntity(AnyEmailSubmission)
 registerQueryableEntity(AnyEmailSubmission)
+registerSettableEntity(AnyEmailSubmission)
