@@ -1,0 +1,51 @@
+# SPDX-License-Identifier: BSD-2-Clause
+# Copyright (c) 2026 Aryan Ameri
+
+name: jmap-client
+
+networks:
+  jmap-net:
+    name: jmap-net
+
+services:
+  dev:
+    container_name: jmap-client
+    hostname: jmap-client
+    build:
+      context: ..
+      dockerfile: .devcontainer/Dockerfile
+      args:
+        NIM_VERSION: "2.2.8"
+    networks:
+      - jmap-net
+    volumes:
+      - ..:/workspaces/jmap-client:cached
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+      - DAC_OVERRIDE
+      - SYS_ADMIN
+      - FOWNER
+    security_opt:
+      - no-new-privileges:true
+    init: true
+    command: sleep infinity
+
+  stalwart:
+    image: stalwartlabs/stalwart:v0.15
+    container_name: stalwart
+    hostname: stalwart
+    profiles:
+      - stalwart
+    networks:
+      - jmap-net
+    environment:
+      - STALWART_ADMIN_PASSWORD=jmapdev
+    ports:
+      - "8080:8080"
+    volumes:
+      - jmc-stalwart-data:/opt/stalwart
+
+volumes:
+  jmc-stalwart-data:

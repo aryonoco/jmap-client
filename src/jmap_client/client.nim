@@ -46,6 +46,7 @@ type JmapClient* = object
   httpClient: HttpClient
   sessionUrl: string
   bearerToken: string
+  authScheme: string
   session: Opt[Session]
   maxResponseBytes: int
   userAgent: string
@@ -193,6 +194,7 @@ func detectDomain(domain: string): Result[void, JmapClientViolation] =
 proc initJmapClient*(
     sessionUrl: string,
     bearerToken: string,
+    authScheme: string = "Bearer",
     timeout: int = 30_000,
     maxRedirects: int = 5,
     maxResponseBytes: int = 50_000_000,
@@ -211,7 +213,7 @@ proc initJmapClient*(
       {.cast(raises: [CatchableError]).}:
         newHttpHeaders(
           {
-            "Authorization": "Bearer " & bearerToken,
+            "Authorization": authScheme & " " & bearerToken,
             "Content-Type": "application/json",
             "Accept": "application/json",
           }
@@ -234,6 +236,7 @@ proc initJmapClient*(
       httpClient: httpClient,
       sessionUrl: sessionUrl,
       bearerToken: bearerToken,
+      authScheme: authScheme,
       session: Opt.none(Session),
       maxResponseBytes: maxResponseBytes,
       userAgent: userAgent,
@@ -243,6 +246,7 @@ proc initJmapClient*(
 proc discoverJmapClient*(
     domain: string,
     bearerToken: string,
+    authScheme: string = "Bearer",
     timeout: int = 30_000,
     maxRedirects: int = 5,
     maxResponseBytes: int = 50_000_000,
@@ -257,6 +261,7 @@ proc discoverJmapClient*(
   initJmapClient(
     sessionUrl = "https://" & domain & "/.well-known/jmap",
     bearerToken = bearerToken,
+    authScheme = authScheme,
     timeout = timeout,
     maxRedirects = maxRedirects,
     maxResponseBytes = maxResponseBytes,
@@ -275,6 +280,10 @@ func bearerToken*(client: JmapClient): string =
   ## Returns the current bearer token.
   return client.bearerToken
 
+func authScheme*(client: JmapClient): string =
+  ## Returns the authentication scheme (e.g. "Bearer", "Basic").
+  return client.authScheme
+
 proc setBearerToken*(
     client: var JmapClient, token: string
 ): Result[void, ValidationError] =
@@ -285,7 +294,7 @@ proc setBearerToken*(
   detectBearerToken(token).isOkOr:
     return err(toValidationError(error))
   client.bearerToken = token
-  client.httpClient.headers["Authorization"] = "Bearer " & token
+  client.httpClient.headers["Authorization"] = client.authScheme & " " & token
   ok()
 
 proc close*(client: var JmapClient) =

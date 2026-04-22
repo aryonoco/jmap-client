@@ -1,13 +1,8 @@
 {
   "name": "jmap-client",
-  "build": {
-    "dockerfile": "Dockerfile",
-    "args": {
-      "NIM_VERSION": "2.2.8"
-    }
-  },
+  "dockerComposeFile": "docker-compose.yml",
+  "service": "dev",
   "workspaceFolder": "/workspaces/jmap-client",
-  "workspaceMount": "source=${localWorkspaceFolder},target=/workspaces/jmap-client,type=bind,consistency=cached",
 
   "containerUser": "vscode",
   "remoteUser": "vscode",
@@ -25,6 +20,10 @@
     "ghcr.io/devcontainers-extra/features/mise:1": {},
     "ghcr.io/devcontainers/features/github-cli:1": {
       "version": "latest"
+    },
+    "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {
+      "moby": false,
+      "dockerDashComposeVersion": "v2"
     }
   },
 
@@ -63,18 +62,6 @@
     "EDITOR": "nano",
     "VISUAL": "nano"
   },
-
-  "runArgs": [
-    "--init",
-    "--name", "jmap-client",
-    "--hostname", "jmap-client",
-    "--cap-drop=ALL",
-    "--cap-add=NET_BIND_SERVICE",
-    "--cap-add=DAC_OVERRIDE",
-    "--cap-add=SYS_ADMIN",
-    "--cap-add=FOWNER",
-    "--security-opt=no-new-privileges:true"
-  ],
 
   "onCreateCommand": "bash .devcontainer/scripts/on-create.sh",
   "postCreateCommand": "bash .devcontainer/scripts/post-create.sh",
@@ -219,7 +206,7 @@
 
   "hostRequirements": {
     "cpus": 2,
-    "memory": "4gb",
+    "memory": "6gb",
     "storage": "16gb"
   }
 }

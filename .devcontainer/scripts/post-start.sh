@@ -25,6 +25,8 @@ ver_rg=$(get_version rg --version)
 ver_python=$(get_version python3 --version)
 ver_shellcheck=$(get_version shellcheck --version)
 ver_delta=$(get_version delta --version)
+ver_docker=$(get_version docker --version)
+ver_compose=$(get_version docker compose version)
 
 echo "Tools:"
 echo "  Nim:           ${ver_nim}"
@@ -42,6 +44,8 @@ echo "  ripgrep:       ${ver_rg}"
 echo "  Python:        ${ver_python}"
 echo "  shellcheck:    ${ver_shellcheck}"
 echo "  delta:         ${ver_delta}"
+echo "  Docker:        ${ver_docker}"
+echo "  Compose:       ${ver_compose}"
 echo ""
 
 if gh auth status &>/dev/null 2>&1; then

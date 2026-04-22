@@ -301,6 +301,7 @@ lttrs
 meli
 melib
 notmuch
+stalwart
 stalwartlabs
 Twake
 webclient
@@ -387,8 +388,10 @@ Deserialising
 gomap
 gotchas
 gymastics
+healthz
 hfurls
 inited
+jmapdev
 jsffi
 mctlm
 metaprogramming

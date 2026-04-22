@@ -282,6 +282,37 @@ watch-test:
     @watchexec --exts nim --watch src/ --watch tests/ -- just test
 
 # =============================================================================
+# STALWART (JMAP integration test server)
+# =============================================================================
+
+# Start Stalwart JMAP server and seed test accounts
+stalwart-up:
+    docker compose -f .devcontainer/docker-compose.yml --profile stalwart up stalwart -d
+    .devcontainer/scripts/seed-stalwart.sh
+
+# Stop Stalwart JMAP server
+stalwart-down:
+    docker compose -f .devcontainer/docker-compose.yml --profile stalwart down
+
+# Tear down and recreate Stalwart with fresh data
+stalwart-reset:
+    docker compose -f .devcontainer/docker-compose.yml --profile stalwart down -v
+    just stalwart-up
+
+# Show Stalwart container status
+stalwart-status:
+    docker compose -f .devcontainer/docker-compose.yml --profile stalwart ps
+
+# Follow Stalwart container logs
+stalwart-logs:
+    docker compose -f .devcontainer/docker-compose.yml --profile stalwart logs -f stalwart
+
+# Run live integration tests (requires 'just stalwart-up')
+test-integration:
+    @if [ ! -f /tmp/stalwart-env.sh ]; then echo "ERROR: Run 'just stalwart-up' first"; exit 1; fi
+    . /tmp/stalwart-env.sh && testament cat "integration/live"
+
+# =============================================================================
 # REFERENCE SOURCES (.nim-reference/, git-ignored, fetched on demand)
 # =============================================================================
 

@@ -63,6 +63,10 @@ You are running in the  devcontainer. Tooling is managed by `mise.toml` - single
 - `just lint` - Run lint checks
 - `just analyse` - Run nimalyzer static analysis
 - `just ci` - Run full CI pipeline (reuse + fmt-check + lint + analyse + test)
+- `just stalwart-up` — Start Stalwart JMAP server and seed test accounts
+- `just stalwart-down` — Stop Stalwart
+- `just stalwart-reset` — Tear down and recreate with fresh data
+- `just test-integration` — Run live integration tests (requires Stalwart running)
 - `just clean` - Remove build artifacts
 - `just docs` - Generate HTML documentation
 

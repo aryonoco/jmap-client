@@ -26,3 +26,6 @@ tests/protocol/tmail_builders.nim
 tests/unit/tclient.nim
 tests/serde/mail/tserde_email.nim
 tests/serde/tserde_adversarial.nim
+
+# -- Live integration tests: require 'just stalwart-up' --
+tests/integration/live/tsession_discovery.nim

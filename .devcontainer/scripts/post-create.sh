@@ -59,7 +59,7 @@ failed=0
 for cmd in nim nimble nph nimlangserver nimalyzer just cspell reuse \
            rg bat delta shellcheck shfmt sd python3 \
            eza dust hyperfine tokei bwrap socat \
-           yq sg watchexec; do
+           yq sg watchexec docker; do
     if ! command -v "${cmd}" &>/dev/null; then
         echo "  ERROR: ${cmd} not found after installation" >&2
         failed=1
