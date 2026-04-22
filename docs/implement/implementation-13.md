@@ -221,14 +221,17 @@ cross-cutting grep check in Phase 7 for enforcement.
   `anyEmailSubmissionFinalRoundTrip`,
   `anyEmailSubmissionCanceledRoundTrip`) — wire `undoStatus` drives
   `fromJson` dispatch; `blueprintToJsonOnlyNoFromJson` (construct,
-  serialise, do not deserialise); `EmailSubmissionFilterCondition`
-  `toJson`-only with representative field combinations including
+  serialise, do not deserialise); `blueprintOptNoneEnvelopePassesThrough`
+  (§8.13 G27); `EmailSubmissionFilterCondition` `toJson`-only with
+  representative field combinations including
   `filterConditionAllFieldsPopulated`, `filterConditionOnlyUndoStatus`;
   `EmailSubmissionComparator` `comparatorSentAtTokenNotSendAt` (G19
   wire-token vs field-name mismatch — single most subtle serde pin in
-  Part G); `IdOrCreationRef` `toJson`-only both arms
+  Part G) plus `comparatorAscendingByEmailId` (§8.3 row);
+  `IdOrCreationRef` `toJson`-only both arms
   (`idOrCreationRefDirectWire`, `idOrCreationRefCreationWire`);
-  `filterConditionRejectsEmptyIdSeq` (G37 `Opt[NonEmptyIdSeq]`).
+  `filterConditionRejectsEmptyIdSeq` (G37 `Opt[NonEmptyIdSeq]`); plus
+  `EmailSubmissionSetResponse` entity-level round-trip (§8.13 G39).
 - **Step 13:** Append to
   `tests/serde/mail/tserde_submission_envelope.nim` after line 119 per
   G2 §8.3: six additional parameter-family round-trips

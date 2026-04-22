@@ -80,7 +80,7 @@ module scope. Wire output is byte-identical (design §2.5).
 
 ### CI gate
 
-Run `just ci` before committing.
+Run `just ci` before committing; the wire-byte regression nets enumerated in design §2.5 must stay green.
 
 ---
 
@@ -140,8 +140,8 @@ Additive — RFC §4.10 example output reproduced byte-for-byte.
   module-level const per design §4.3 (nine RFC 8621 §4.10 example
   properties, RFC-cited docstring), the type alias
   `EmailQueryThreadChain* = ChainedHandles4[QueryResponse[Email], GetResponse[Email], GetResponse[Thread], GetResponse[Email]]`,
-  and the builder `addEmailQueryWithThreads` with `collapseThreads`
-  defaulting to `true` per H13, returning
+  and the builder `addEmailQueryWithThreads` with full signature per
+  design §4.2 (`collapseThreads` defaults `true` per H13), returning
   `(RequestBuilder, EmailQueryThreadChain)`. All three back-reference
   paths use `ResultRefPath` variants, not string literals (H16).
 
@@ -208,7 +208,8 @@ green. No compat shim of any kind per H17 and §1.3 invariant 8.
 - **Step 17:** Replace `parseSmtpReply` at
   `src/jmap_client/mail/submission_status.nim:234-242` — same name,
   new signature `func parseSmtpReply*(raw: string): Result[ParsedSmtpReply, ValidationError]`
-  per H17. Delete the deferral docstring line at 239 ("... enhanced
+  per H17, with ingress line-terminator leniency per design §5.8.
+  Delete the deferral docstring line at 239 ("... enhanced
   status codes per RFC 3463) is deferred (G12)."). Add `renderSmtpReply*`
   deterministic inverse emitting canonical LF-terminated wire form per
   design §5.8 (canonicalisation policy: LF terminators, no trailing
@@ -276,6 +277,9 @@ is remediated in-phase before commit.
     (`DeliveryStatus.smtpReply`, `ParsedSmtpReply.raw`, `parseSmtpReply`,
     `renderSmtpReply`, structural assertions); no residual
     `SmtpReply`-typed (distinct-string) usages.
+  - **Design-doc consistency** (design §9.6 final block):
+    `rg -n 'SmtpReply\b' docs/design/` lands only on historical /
+    retirement-narrative frames.
 
 ### CI gate
 
@@ -297,7 +301,8 @@ implementation.
     fields, two `SubmissionCapabilities` fields.
   - **§6.2 Keywords (§10.4)** — four `const` bindings (`kwDraft`,
     `kwSeen`, `kwFlagged`, `kwAnswered`); `$recent` intentionally
-    absent per RFC §10.4.5 "do not use" scope.
+    absent per RFC §10.4.5 "do not use" scope; non-§10 keywords
+    scoped out per design §8.6.
   - **§6.3 Mailbox roles (§10.5)** — ten `MailboxRoleKind` variants plus
     `mrOther` catch-all; only `mrInbox` is an RFC 8621 §10.5.1
     registration, the rest derive from RFC 6154/5258/5465.
