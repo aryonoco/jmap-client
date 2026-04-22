@@ -135,6 +135,22 @@ tests are written against code, not prose:
    `EmailSubmission[S]` should exercise `toAny(...)` rather than brace
    literals — mirrors the codebase's general "constructors are
    privileges" principle.
+4. **`AnyEmailSubmission` Pattern A sealing.** The shipped code seals
+   the existential wrapper's branch fields: they are module-private
+   (`rawPending`/`rawFinal`/`rawCanceled`) and external readers use
+   the three `asPending`/`asFinal`/`asCanceled` accessors, each
+   returning `Opt[EmailSubmission[S]]`. The sealing makes wrong-branch
+   access unrepresentable at the API layer — the runtime `FieldDefect`
+   path is unreachable from external code, which matters because
+   under `--panics:on` (project default, `config.nims:23`)
+   `FieldDefect` is fatal and cannot be caught. Tests that need the
+   underlying `EmailSubmission[S]` use the accessor + `Opt` pattern
+   (`for s in a.asPending(): ...` or `a.asPending().get()` after a
+   state check), never the `raw*` fields. Serde `fromJson` constructs
+   via `toAny(sub)` — there is no brace-literal construction of
+   `AnyEmailSubmission` outside its defining module. Item 3's
+   principle ("constructors are privileges") applies with equal force
+   to readers: accessors are the reading privilege.
 
 ---
 
@@ -538,7 +554,7 @@ assertions. This mirrors F2 §8.3's policy — do not invent strings.
 |------|--------|-----------------|-----------------|
 | `tests/unit/mail/temail_submission_blueprint.nim` | **SHIPPED** (92L) | After line 92 | Per-field rejection matrix: invalid `identityId`, invalid `emailId`, invalid inner `Envelope` nested through `parseEmailSubmissionBlueprint`'s accumulating rail (the `rawEnvelope` field accepts an `Envelope` value that is already validated, so inner violations cannot propagate via `Blueprint` — but **both** malformed id inputs must accumulate); `assertNotCompiles` record-literal sidestep for Pattern A (G38); cross-check against shipped `ValidationError.message` strings via grep-then-lock. Proposed `block` names: `blueprintInvalidIdentityId`, `blueprintInvalidEmailId`, `blueprintAccumulatesBothIdErrors`, `blueprintPatternASealExplicitRawField`. |
 | `tests/unit/mail/tonsuccess_extras.nim` | **SHIPPED** (124L) | After line 124 | `IdOrCreationRef` vs `Referencable[T]` distinction: wire-shape pins (`directRef(id)` → JSON string `$id`; `creationRef(cid)` → JSON string `"#" & $cid`; `Referencable[T]` result-reference → JSON object `{"resultOf":..., "name":..., "path":...}`). Compile-time pin that the two types are distinct (`assertNotCompiles(let _: Referencable[seq[Id]] = directRef(id))`). Proposed `block` names: `idOrCreationRefWireDirectIsBareString`, `idOrCreationRefWireCreationHasHashPrefix`, `idOrCreationRefVsReferencableAreDistinctTypes`. |
-| `tests/unit/mail/temail_submission.nim` | **TO-CREATE** (~250L) | New file | Per-phantom-variant construction smoke: `EmailSubmission[usPending]`, `EmailSubmission[usFinal]`, `EmailSubmission[usCanceled]` via `toAny` lifting; `AnyEmailSubmission` construction with `state` discriminator; value-level `cancelUpdate(EmailSubmission[usPending])` producing `esuSetUndoStatusToCanceled`; **`static:` block with `assertNotCompiles` proving `cancelUpdate(default(EmailSubmission[usFinal]))` and `cancelUpdate(default(EmailSubmission[usCanceled]))` fail to compile**. This is the single most load-bearing compile-time test in G2 — a regression collapses the phantom-typed transition arrow to a runtime check. Proposed `block` names: `toAnyPendingBranchPreserved`, `toAnyFinalBranchPreserved`, `toAnyCanceledBranchPreserved`, `cancelUpdateProducesSetUndoStatusToCanceled`, `phantomArrowStaticRejectsFinalAndCanceled` (the `static:` block). |
+| `tests/unit/mail/temail_submission.nim` | **TO-CREATE** (~250L) | New file | Per-phantom-variant construction smoke: `EmailSubmission[usPending]`, `EmailSubmission[usFinal]`, `EmailSubmission[usCanceled]` via `toAny` lifting; `AnyEmailSubmission` construction with `state` discriminator; value-level `cancelUpdate(EmailSubmission[usPending])` producing `esuSetUndoStatusToCanceled`; **`static:` block with `assertNotCompiles` proving `cancelUpdate(default(EmailSubmission[usFinal]))` and `cancelUpdate(default(EmailSubmission[usCanceled]))` fail to compile**. This is the single most load-bearing compile-time test in G2 — a regression collapses the phantom-typed transition arrow to a runtime check. Block 6 (`existentialBranchAccessorContract`) pins the Pattern A sealing contract (§8 item 4): (i) accessor visibility for the three `asX` projections, (ii) compile-time refusal of brace construction with both `raw*` names (now module-private) and the pre-sealing public names (no longer exist), and (iii) the `Opt[T]` projection shape for each state × accessor combination (3 × 3 = 9 probes). Proposed `block` names: `toAnyPendingBranchPreserved`, `toAnyFinalBranchPreserved`, `toAnyCanceledBranchPreserved`, `cancelUpdateProducesSetUndoStatusToCanceled`, `phantomArrowStaticRejectsFinalAndCanceled` (the `static:` block), `existentialBranchAccessorContract`. |
 | `tests/unit/mail/temail_submission_update.nim` | **TO-CREATE** (~120L) | New file | `setUndoStatusToCanceled()` value-level construction; `parseNonEmptyEmailSubmissionUpdates` empty and duplicate-`Id` cases with message-string assertions (grep-locked per §8.3's error-rail table); accumulating behaviour when both empty and duplicate shapes co-occur (they can't — empty has no duplicates — so each invariant fires in its own input shape, matching F1 `NonEmptyEmailImportMap` style). Proposed `block` names: `setUndoStatusToCanceledValueShape`, `parseUpdatesRejectsEmpty`, `parseUpdatesRejectsDuplicateId`, `parseUpdatesHappyPathSingleEntry`. |
 | `tests/unit/mail/tsubmission_params.nim` | **TO-CREATE** (~400L) | New file | 11 well-known variants, each with a valid representative and an invalid-boundary representative per §8.7; NOTIFY mutual-exclusion rule at unit tier; `SubmissionParamKey` identity enumeration across the 12-kind × extension-name matrix; `paramKey` derivation totality (every `SubmissionParam` value produces a well-formed `SubmissionParamKey`); `SubmissionParams` insertion-order preservation (non-property enumerator — three fixed insertion sequences checked against `toJson` output). File layout driven by §8.7 matrix — one `block` per row. |
 | `tests/unit/mail/tsubmission_mailbox.nim` | **TO-CREATE** (~300L) | New file | `RFC5321Mailbox` strict parser: each of 4 local-part shapes (`Dot-string`, `Quoted-string`, long `Dot-string` near 64-octet limit, `Quoted-string` with escaped quote) × 4 domain-form shapes (plain `Domain`, IPv4 address-literal, IPv6 address-literal, General-address-literal) with one representative each — property group A covers the rest. Strict/lenient divergence cases (lenient accepts more — pin representatives). Case-insensitive `RFC5321Keyword` equality (`parseRFC5321Keyword("X-FOO") == parseRFC5321Keyword("x-foo")`); byte-equal `OrcptAddrType` equality (`parseOrcptAddrType("rfc822") != parseOrcptAddrType("RFC822")`) — pin that the two distinct types share grammar but not semantics. Proposed `block` names: `mailboxDotStringPlainDomain`, `mailboxDotStringIPv4Literal`, `mailboxDotStringIPv6Literal`, `mailboxDotStringGeneralLiteral`, `mailboxQuotedPlainDomain`, `mailboxQuotedIPv6Literal`, `mailboxStrictLenientSupersetOnPlainDomain`, `mailboxStrictLenientSupersetOnMalformedLocalPart`, `rfc5321KeywordCaseInsensitive`, `orcptAddrTypeByteEqual`. |
@@ -581,18 +597,22 @@ space at three.
 | `EmailSubmission[usPending]` | `cancelUpdate(s)` | ✅ compiles | `temail_submission.nim` unit block `cancelUpdateProducesSetUndoStatusToCanceled` |
 | `EmailSubmission[usFinal]` | `cancelUpdate(s)` | ❌ `assertNotCompiles` | `temail_submission.nim` `static:` block `phantomArrowStaticRejectsFinalAndCanceled` |
 | `EmailSubmission[usCanceled]` | `cancelUpdate(s)` | ❌ `assertNotCompiles` | Same block |
-| `AnyEmailSubmission.pending` | field access when `state == usPending` | ✅ | `temail_submission.nim` unit block `toAnyPendingBranchPreserved` |
-| `AnyEmailSubmission.final` | field access when `state == usPending` | ❌ runtime `FieldDefect` | `temail_submission.nim` block `existentialWrongBranchAccessRaisesFieldDefect` — the runtime companion to the compile-time phantom arrow; documents the standard Nim case-object access rule for this specific type |
+| `AnyEmailSubmission.asPending()` | projection when `state == usPending` | ✅ `Opt.some` with payload preserved | `temail_submission.nim` unit block `toAnyPendingBranchPreserved` |
+| `AnyEmailSubmission.asFinal()` / `asCanceled()` | projection when `state == usPending` | ❌ compile error — branch fields sealed (Pattern A); accessor returns `Opt.none` | `temail_submission.nim` block `existentialBranchAccessorContract` — pins accessor visibility, compile-time refusal of raw-name and deprecated public-name brace construction, and the 3 × 3 `Opt[T]` projection matrix |
 
-The existential-dispatch row is a runtime behaviour pin, not a
-compile-time one: accessing the wrong branch of a discriminated union
-raises `FieldDefect` because the discriminator (`state`) is the sole
-source of truth for which field is inhabited. The test block constructs
-an `AnyEmailSubmission(state: usPending, pending: ...)` and asserts
-that reading `.final` raises `FieldDefect`. This is standard Nim
-behaviour — the block exists to document that G1 chose not to add a
-runtime guard beyond what the stdlib already provides (G2's
-existential-dispatch decision).
+The existential-dispatch row (post-sealing) is **compile-time
+enforced** at the API surface: the branch fields have been renamed to
+module-private `rawPending`/`rawFinal`/`rawCanceled` and external
+consumers read via the `asPending`/`asFinal`/`asCanceled` accessor
+family. Wrong-branch field access is no longer writable at the call
+site — a regression would need to either touch the case-object fields
+inside the `email_submission` module itself or break the `Opt[T]`
+return-type shape. The test block does not attempt
+`doAssertRaises(FieldDefect)`: under `--panics:on` (project default,
+`config.nims:23`) `FieldDefect` is fatal (`rawQuit(1)`, no unwinding,
+no `finally`), so the runtime exception path is unreachable as well
+as uncatchable. The block instead pins the stronger compile-time
+contract via `assertNotCompiles` + `Opt.none` shape probes.
 
 Reference G1 §4.1–§4.3 for the decision rationale (GADT-style phantom
 encoding + existential wrapper, chosen over flat record + runtime

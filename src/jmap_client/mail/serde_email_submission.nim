@@ -106,9 +106,10 @@ func fromJson*(
     T: typedesc[AnyEmailSubmission], node: JsonNode, path: JsonPath = emptyJsonPath()
 ): Result[AnyEmailSubmission, SerdeViolation] =
   ## Peek at ``undoStatus`` once, pick the phantom branch, then delegate the
-  ## shared field list to ``fromJsonShared``. Literal ``state: usX`` per arm
-  ## is mandatory — runtime discriminator values are rejected at case-
-  ## object construction (Pattern 4 in nim-functional-core.md).
+  ## shared field list to ``fromJsonShared``. Construction flows through the
+  ## ``toAny`` overload family — the canonical gateway for the sealed
+  ## ``AnyEmailSubmission``. Each ``toAny`` overload internally uses a
+  ## literal ``state:`` per arm (Pattern 4 in nim-functional-core.md).
   discard $T # consumed for nimalyzer params rule
   ?expectKind(node, JObject, path)
   let statusNode = ?fieldJString(node, "undoStatus", path)
@@ -116,13 +117,13 @@ func fromJson*(
   case status
   of usPending:
     let sub = ?fromJsonShared[usPending](node, path)
-    return ok(AnyEmailSubmission(state: usPending, pending: sub))
+    return ok(toAny(sub))
   of usFinal:
     let sub = ?fromJsonShared[usFinal](node, path)
-    return ok(AnyEmailSubmission(state: usFinal, final: sub))
+    return ok(toAny(sub))
   of usCanceled:
     let sub = ?fromJsonShared[usCanceled](node, path)
-    return ok(AnyEmailSubmission(state: usCanceled, canceled: sub))
+    return ok(toAny(sub))
 
 # =============================================================================
 # EmailSubmissionCreatedItem — /set created-map value

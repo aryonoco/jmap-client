@@ -41,28 +41,35 @@ type EmailSubmission*[S: static UndoStatus] {.ruleOff: "objects".} = object
   mdnBlobIds*: seq[BlobId]
 
 type AnyEmailSubmission* {.ruleOff: "objects".} = object
-  ## Existential wrapper discriminated on ``UndoStatus``. Serde
-  ## dispatches once on the wire ``undoStatus`` field and constructs the
-  ## corresponding phantom-typed branch via the ``toAny`` overloads.
+  ## Existential wrapper discriminated on ``UndoStatus``. Branch fields
+  ## are module-private with a ``raw`` prefix; construction is gated by
+  ## the ``toAny`` overload family (one per phantom instantiation), and
+  ## read access is via the ``asPending`` / ``asFinal`` / ``asCanceled``
+  ## accessors below, each returning ``Opt[EmailSubmission[S]]``. The
+  ## discriminator ``state`` remains exported because callers case on
+  ## it before projecting through an accessor. Pattern A sealing
+  ## mirrors ``EmailSubmissionBlueprint`` — wrong-branch reads cannot
+  ## be written. Under ``--panics:on`` the alternative (a runtime
+  ## ``FieldDefect``) would be fatal and uncatchable.
   case state*: UndoStatus
   of usPending:
-    pending*: EmailSubmission[usPending]
+    rawPending: EmailSubmission[usPending]
   of usFinal:
-    final*: EmailSubmission[usFinal]
+    rawFinal: EmailSubmission[usFinal]
   of usCanceled:
-    canceled*: EmailSubmission[usCanceled]
+    rawCanceled: EmailSubmission[usCanceled]
 
 func toAny*(s: EmailSubmission[usPending]): AnyEmailSubmission =
   ## Lifts a pending submission into the existential wrapper.
-  AnyEmailSubmission(state: usPending, pending: s)
+  AnyEmailSubmission(state: usPending, rawPending: s)
 
 func toAny*(s: EmailSubmission[usFinal]): AnyEmailSubmission =
   ## Lifts a final submission into the existential wrapper.
-  AnyEmailSubmission(state: usFinal, final: s)
+  AnyEmailSubmission(state: usFinal, rawFinal: s)
 
 func toAny*(s: EmailSubmission[usCanceled]): AnyEmailSubmission =
   ## Lifts a canceled submission into the existential wrapper.
-  AnyEmailSubmission(state: usCanceled, canceled: s)
+  AnyEmailSubmission(state: usCanceled, rawCanceled: s)
 
 func `==`*(a, b: AnyEmailSubmission): bool =
   ## Arm-dispatched structural equality. Auto-derived ``==`` on a case
@@ -73,11 +80,35 @@ func `==`*(a, b: AnyEmailSubmission): bool =
     return false
   case a.state
   of usPending:
-    a.pending == b.pending
+    a.rawPending == b.rawPending
   of usFinal:
-    a.final == b.final
+    a.rawFinal == b.rawFinal
   of usCanceled:
-    a.canceled == b.canceled
+    a.rawCanceled == b.rawCanceled
+
+func asPending*(s: AnyEmailSubmission): Opt[EmailSubmission[usPending]] =
+  ## Safe projection onto the ``usPending`` branch. ``Opt.some`` iff
+  ## ``s.state == usPending``; ``Opt.none`` otherwise. The return-type
+  ## phantom is fixed — an ``Opt[EmailSubmission[usPending]]`` can
+  ## never carry a ``usFinal`` or ``usCanceled`` payload.
+  if s.state == usPending:
+    Opt.some(s.rawPending)
+  else:
+    Opt.none(EmailSubmission[usPending])
+
+func asFinal*(s: AnyEmailSubmission): Opt[EmailSubmission[usFinal]] =
+  ## Safe projection onto the ``usFinal`` branch.
+  if s.state == usFinal:
+    Opt.some(s.rawFinal)
+  else:
+    Opt.none(EmailSubmission[usFinal])
+
+func asCanceled*(s: AnyEmailSubmission): Opt[EmailSubmission[usCanceled]] =
+  ## Safe projection onto the ``usCanceled`` branch.
+  if s.state == usCanceled:
+    Opt.some(s.rawCanceled)
+  else:
+    Opt.none(EmailSubmission[usCanceled])
 
 # -----------------------------------------------------------------------------
 # EmailSubmissionBlueprint — creation model (RFC 8621 §7.5)
