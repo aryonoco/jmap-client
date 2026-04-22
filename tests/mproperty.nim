@@ -35,6 +35,12 @@ import jmap_client/mail/keyword
 import jmap_client/mail/mailbox
 import jmap_client/mail/mail_filters
 import jmap_client/mail/snippet
+import jmap_client/mail/submission_atoms
+import jmap_client/mail/submission_mailbox
+import jmap_client/mail/submission_param
+import jmap_client/mail/submission_envelope
+import jmap_client/mail/submission_status
+import jmap_client/mail/email_submission
 
 {.push ruleOff: "hasDoc".}
 {.push ruleOff: "params".}
@@ -3339,6 +3345,685 @@ proc genKeywordEscapeAdversarialPair*(
   let a = rng.genStringFrom({'a' .. 'z', '0' .. '9', '$', '-', '_', '.'}, 1, 20)
   let b = rng.genStringFrom({'a' .. 'z', '0' .. '9', '$', '-', '_', '.'}, 1, 20)
   (a, b)
+
+# ===========================================================================
+# Mail Part G2 generators (RFC 8621 §7 EmailSubmission)
+# ===========================================================================
+
+proc genFullSubmissionParamSeq(): seq[SubmissionParam] =
+  ## One valid representative of each ``SubmissionParamKind`` in
+  ## declaration order. Used by ``genSubmissionParams`` trials 2..4 and
+  ## ``genFullEnvelopePin`` as a deterministic coverage-dense payload
+  ## shared across property tests.
+  @[
+    bodyParam(beEightBitMime),
+    smtpUtf8Param(),
+    sizeParam(parseUnsignedInt(1024).get()),
+    envidParam("envid-gen"),
+    retParam(retFull),
+    notifyParam({dnfSuccess}).get(),
+    orcptParam(parseOrcptAddrType("rfc822").get(), "user@example.com"),
+    holdForParam(parseHoldForSeconds(parseUnsignedInt(60).get()).get()),
+    holdUntilParam(parseUtcDate("2026-01-15T09:00:00Z").get()),
+    byParam(parseJmapInt(60).get(), dbmReturn),
+    mtPriorityParam(parseMtPriority(1).get()),
+    extensionParam(parseRFC5321Keyword("X-GEN").get(), Opt.none(string)),
+  ]
+
+proc genFullEnvelopePin(): Envelope =
+  ## Pinned "coverage-dense" envelope matching ``mfixtures.makeFullEnvelope``'s
+  ## intent without importing the fixtures module. Uses two distinct rcpt
+  ## mailboxes because ``parseNonEmptyRcptList`` keys deduplication on
+  ## ``it.mailbox`` alone — same mailbox with different parameters is a
+  ## duplicate by design.
+  let mbxA = parseRFC5321Mailbox("alice@example.com").get()
+  let mbxB = parseRFC5321Mailbox("bob@example.com").get()
+  let fullParams = parseSubmissionParams(genFullSubmissionParamSeq()).get()
+  let fullAddr = SubmissionAddress(mailbox: mbxA, parameters: Opt.some(fullParams))
+  let simpleAddr =
+    SubmissionAddress(mailbox: mbxB, parameters: Opt.none(SubmissionParams))
+  Envelope(
+    mailFrom: nullReversePath(params = Opt.some(fullParams)),
+    rcptTo: parseNonEmptyRcptList(@[fullAddr, simpleAddr]).get(),
+  )
+
+# G2-1 -----------------------------------------------------------------------
+proc genRFC5321Keyword*(rng: var Rand, trial: int = -1): RFC5321Keyword =
+  ## Generates a valid ``RFC5321Keyword`` (esmtp-keyword grammar:
+  ## ``(ALPHA / DIGIT) *(ALPHA / DIGIT / "-")``, 1..64 octets, case-
+  ## insensitive equality with casing preserved in ``$``).
+  ## Early trials (< 5) cover: single letter, all digits, interior
+  ## hyphens, maximum length (64 octets), mixed case.
+  ## Remaining trials: random lead + tail chars from the grammar.
+  ## Does NOT generate: empty strings, lengths > 64, non-LDH chars.
+  if trial >= 0 and trial < 5:
+    case trial
+    of 0:
+      return parseRFC5321Keyword("A").get()
+    of 1:
+      return parseRFC5321Keyword("123").get()
+    of 2:
+      return parseRFC5321Keyword("X-FOO-BAR").get()
+    of 3:
+      return parseRFC5321Keyword('A'.repeat(64)).get()
+    else:
+      return parseRFC5321Keyword("X-VendorTag").get()
+  const LeadChars = {'A' .. 'Z', 'a' .. 'z', '0' .. '9'}
+  const TailChars = {'A' .. 'Z', 'a' .. 'z', '0' .. '9', '-'}
+  let length = rng.rand(1 .. 64)
+  var raw = newString(length)
+  raw[0] = rng.genStringFrom(LeadChars, 1, 1)[0]
+  for i in 1 ..< length:
+    raw[i] = rng.genStringFrom(TailChars, 1, 1)[0]
+  parseRFC5321Keyword(raw).get()
+
+# G2-2 -----------------------------------------------------------------------
+proc genRFC5321MailboxFixedTrial(rng: var Rand, trial: int): RFC5321Mailbox =
+  ## Fixed RFC 5321 §4.1.2 Mailbox edge cases per G2 §8.9.1: dot-string +
+  ## domain, dot-string + IPv4/IPv6 literal, quoted-string + domain,
+  ## general address-literal, boundary lengths, and one non-ASCII case
+  ## routed through the lenient server-side parser.
+  discard rng
+  case trial
+  of 0:
+    parseRFC5321Mailbox("user@example.com").get()
+  of 1:
+    parseRFC5321Mailbox("user@[192.0.2.1]").get()
+  of 2:
+    parseRFC5321Mailbox("user@[IPv6:2001:db8::1]").get()
+  of 3:
+    parseRFC5321Mailbox("\"Joe Q. Public\"@example.com").get()
+  of 4:
+    parseRFC5321Mailbox("user@[x-tag:vendor-content]").get()
+  of 5:
+    parseRFC5321Mailbox('A'.repeat(64) & "@example.com").get()
+  of 6:
+    let label = 'a'.repeat(63)
+    let domain = label & "." & label & "." & label & "." & label
+    parseRFC5321Mailbox("u@" & domain).get()
+  of 7:
+    parseRFC5321MailboxFromServer("user@m\xC3\xBCnchen.de").get()
+  else:
+    parseRFC5321Mailbox("user@example.com").get()
+
+proc genRFC5321Mailbox*(rng: var Rand, trial: int = -1): RFC5321Mailbox =
+  ## Generates a valid ``RFC5321Mailbox``.
+  ## Early trials (< 8) cover: dot-string domain, IPv4 literal, IPv6
+  ## literal, quoted-string local, general address-literal, 64-octet
+  ## local-part boundary, 255-octet domain boundary, and a non-ASCII
+  ## domain label (Postel-lenient path).
+  ## Remaining trials: random atext local + let-dig domain via the
+  ## strict parser.
+  ## Does NOT generate: inputs expected to fail parsing — see
+  ## ``genInvalidRFC5321Mailbox`` for the contrastive generator.
+  if trial >= 0 and trial < 8:
+    return genRFC5321MailboxFixedTrial(rng, trial)
+  const Atext = {
+    'A' .. 'Z',
+    'a' .. 'z',
+    '0' .. '9',
+    '!',
+    '#',
+    '$',
+    '%',
+    '&',
+    '\'',
+    '*',
+    '+',
+    '-',
+    '/',
+    '=',
+    '?',
+    '^',
+    '_',
+    '`',
+    '{',
+    '|',
+    '}',
+    '~',
+  }
+  const LetDig = {'A' .. 'Z', 'a' .. 'z', '0' .. '9'}
+  let local = rng.genStringFrom(Atext, 1, 16)
+  let dLen = rng.rand(1 .. 12)
+  var domain = newString(dLen)
+  for i in 0 ..< dLen:
+    domain[i] = rng.genStringFrom(LetDig, 1, 1)[0]
+  parseRFC5321Mailbox(local & "@" & domain & ".example").get()
+
+# G2-3 -----------------------------------------------------------------------
+proc genInvalidRFC5321MailboxFixedTrial(rng: var Rand, trial: int): string =
+  ## Fixed RFC 5321 §4.1.2 Mailbox rejection cases per G2 §8.2.3 Block 1.
+  ## The load-bearing trial 5 covers General-literal with trailing hyphen
+  ## in the Standardized-tag — contrast case against ``RFC5321Keyword``.
+  discard rng
+  case trial
+  of 0:
+    "user.@example.com"
+  of 1:
+    "\"user@example.com"
+  of 2:
+    "user@2001:db8::1"
+  of 3:
+    'A'.repeat(65) & "@example.com"
+  of 4:
+    "u@" & 'a'.repeat(256)
+  of 5:
+    "user@[x-tag-:vendor]"
+  of 6:
+    "user\x00@example.com"
+  of 7:
+    ""
+  else:
+    ""
+
+proc genInvalidRFC5321Mailbox*(rng: var Rand, trial: int = -1): string =
+  ## Generates raw strings that ``parseRFC5321Mailbox`` MUST reject.
+  ## Returns ``string`` — callers assert ``.isErr`` on the parse result.
+  ## Early trials (< 8) cover: trailing-dot local, unclosed quoted-string,
+  ## bracketless IPv6, overlong local (65), overlong domain (256), general-
+  ## literal with hyphen-terminated tag, control-char injection, empty.
+  ## Remaining trials: random garbage bytes up to 512 octets.
+  ## Does NOT generate: inputs accepted by either the strict or lenient
+  ## parser — see ``genRFC5321Mailbox`` for the valid-input generator.
+  if trial >= 0 and trial < 8:
+    return genInvalidRFC5321MailboxFixedTrial(rng, trial)
+  let length = rng.rand(0 .. 512)
+  result = newString(length)
+  for i in 0 ..< length:
+    result[i] = char(rng.rand(0 .. 255))
+
+# G2-4 -----------------------------------------------------------------------
+proc genUndoStatus*(rng: var Rand): UndoStatus =
+  ## Uniform sample of the closed 3-variant ``UndoStatus`` enum.
+  ## Does NOT bias toward any particular state — every property test
+  ## that consumes this generator touches all three arms with equal
+  ## expected frequency.
+  rng.oneOf([usPending, usFinal, usCanceled])
+
+# G2-5 -----------------------------------------------------------------------
+proc genDeliveredStateFixedTrial(rng: var Rand, trial: int): ParsedDeliveredState =
+  ## Fixed ``ParsedDeliveredState`` edge cases per G2 §8.2.1 Group H:
+  ## the four canonical arms plus two ``dsOther`` cases (known token
+  ## "deferred" and a random alphabetic fallback).
+  case trial
+  of 0:
+    parseDeliveredState("queued")
+  of 1:
+    parseDeliveredState("yes")
+  of 2:
+    parseDeliveredState("no")
+  of 3:
+    parseDeliveredState("unknown")
+  of 4:
+    parseDeliveredState("deferred")
+  of 5:
+    parseDeliveredState(rng.genStringFrom({'a' .. 'z'}, 5, 12))
+  else:
+    parseDeliveredState("unknown")
+
+proc genDeliveredState*(rng: var Rand, trial: int = -1): ParsedDeliveredState =
+  ## Generates a ``ParsedDeliveredState`` — state + rawBacking pair —
+  ## biased toward the RFC-defined four arms plus the open-world
+  ## ``dsOther`` branch used for vendor extensions.
+  ## Early trials (< 6) cover: queued, yes, no, unknown, dsOther-deferred,
+  ## dsOther-random-alphabetic.
+  ## Remaining trials: 80% pick from the four canonical arms, 20% emit a
+  ## random alphabetic token routed through ``dsOther``.
+  ## Does NOT generate: raw bytes with control chars or empty rawBacking
+  ## — the wire parser accepts those but round-trip tests assume printable.
+  if trial >= 0 and trial < 6:
+    return genDeliveredStateFixedTrial(rng, trial)
+  if rng.rand(0 .. 4) == 0:
+    return parseDeliveredState(rng.genStringFrom({'a' .. 'z'}, 3, 15))
+  let canonical = rng.oneOf(["queued", "yes", "no", "unknown"])
+  parseDeliveredState(canonical)
+
+# G2-6 -----------------------------------------------------------------------
+proc genDisplayedState*(rng: var Rand, trial: int = -1): ParsedDisplayedState =
+  ## Generates a ``ParsedDisplayedState`` — symmetric to
+  ## ``genDeliveredState`` but for the 3-variant ``DisplayedState`` enum.
+  ## Early trials (< 4) cover: unknown, yes, dpOther-partial,
+  ## dpOther-random-alphabetic.
+  ## Remaining trials: random pick from canonical ``{unknown, yes}`` or
+  ## random alphabetic token routed through ``dpOther``.
+  ## Does NOT generate: control chars or empty rawBacking.
+  if trial >= 0 and trial < 4:
+    case trial
+    of 0:
+      return parseDisplayedState("unknown")
+    of 1:
+      return parseDisplayedState("yes")
+    of 2:
+      return parseDisplayedState("partial")
+    else:
+      return parseDisplayedState(rng.genStringFrom({'a' .. 'z'}, 5, 12))
+  if rng.rand(0 .. 2) == 0:
+    return parseDisplayedState(rng.genStringFrom({'a' .. 'z'}, 3, 15))
+  let canonical = rng.oneOf(["unknown", "yes"])
+  parseDisplayedState(canonical)
+
+# G2-7 -----------------------------------------------------------------------
+proc genSmtpReplyFixedTrial(rng: var Rand, trial: int): SmtpReply =
+  ## Fixed RFC 5321 §4.2 Reply-code boundary scan per G2 §8.2.1 Group I:
+  ## digit-class edges (200, 599, 2x0/2x5, 3x9), bare code, multi-line
+  ## happy, multi-line with trailing-SP text.
+  discard rng
+  case trial
+  of 0:
+    parseSmtpReply("200 OK").get()
+  of 1:
+    parseSmtpReply("599 fail").get()
+  of 2:
+    parseSmtpReply("250 boundary").get()
+  of 3:
+    parseSmtpReply("355 edge").get()
+  of 4:
+    parseSmtpReply("259 edge").get()
+  of 5:
+    parseSmtpReply("250").get()
+  of 6:
+    parseSmtpReply("250-first\r\n250-second\r\n250 third").get()
+  of 7:
+    parseSmtpReply("421 Service not available").get()
+  of 8:
+    parseSmtpReply("550-policy\r\n550 denied").get()
+  else:
+    parseSmtpReply("250 OK").get()
+
+proc genSmtpReply*(rng: var Rand, trial: int = -1): SmtpReply =
+  ## Generates a valid ``SmtpReply`` — RFC 5321 §4.2 Reply-line(s).
+  ## Early trials (< 9) cover digit-class boundaries per G2 §8.2.1 Group I.
+  ## Remaining trials: random 1..5 lines, random code in 200..599 drawn
+  ## from the digit-class ranges, random text body.
+  ## Does NOT generate: bodies with non-ASCII bytes, mid-line mismatched
+  ## codes, or trailing ``-`` on the final line — see adversarial tests.
+  if trial >= 0 and trial < 9:
+    return genSmtpReplyFixedTrial(rng, trial)
+  let d1 = rng.rand(2 .. 5)
+  let d2 = rng.rand(0 .. 5)
+  let d3 = rng.rand(0 .. 9)
+  let code = $d1 & $d2 & $d3
+  let lineCount = rng.rand(1 .. 5)
+  var payload = ""
+  for i in 0 ..< lineCount:
+    let sep = if i == lineCount - 1: ' ' else: '-'
+    let body = rng.genStringFrom({'a' .. 'z', 'A' .. 'Z', '0' .. '9', ' '}, 1, 20)
+    if i > 0:
+      payload &= "\r\n"
+    payload &= code & sep & body
+  parseSmtpReply(payload).get()
+
+# G2-8 -----------------------------------------------------------------------
+proc genSubmissionParamKinds0to5(rng: var Rand, trial: int): SubmissionParam =
+  ## Trials 0..5: one valid representative for spkBody, spkSmtpUtf8,
+  ## spkSize, spkEnvid, spkRet, spkNotify (in declaration order).
+  discard rng
+  case trial
+  of 0:
+    bodyParam(beEightBitMime)
+  of 1:
+    smtpUtf8Param()
+  of 2:
+    sizeParam(parseUnsignedInt(1024).get())
+  of 3:
+    envidParam("envid-gen")
+  of 4:
+    retParam(retFull)
+  of 5:
+    notifyParam({dnfSuccess}).get()
+  else:
+    bodyParam(beSevenBit)
+
+proc genSubmissionParamKinds6to11(rng: var Rand, trial: int): SubmissionParam =
+  ## Trials 6..11: one valid representative for spkOrcpt, spkHoldFor,
+  ## spkHoldUntil, spkBy, spkMtPriority, spkExtension (declaration order).
+  discard rng
+  case trial
+  of 6:
+    orcptParam(parseOrcptAddrType("rfc822").get(), "user@example.com")
+  of 7:
+    holdForParam(parseHoldForSeconds(parseUnsignedInt(60).get()).get())
+  of 8:
+    holdUntilParam(parseUtcDate("2026-01-15T09:00:00Z").get())
+  of 9:
+    byParam(parseJmapInt(60).get(), dbmReturn)
+  of 10:
+    mtPriorityParam(parseMtPriority(1).get())
+  of 11:
+    extensionParam(parseRFC5321Keyword("X-GEN").get(), Opt.none(string))
+  else:
+    bodyParam(beSevenBit)
+
+proc genSubmissionParamAdversarial(rng: var Rand, trial: int): SubmissionParam =
+  ## Trials 12..14: adversarial shapes — case-split extension name,
+  ## multi-flag NOTIFY, and NEVER singleton. Exercises case-insensitive
+  ## keyword equality and the mutex constraint on ``dnfNever``.
+  discard rng
+  case trial
+  of 12:
+    extensionParam(parseRFC5321Keyword("x-foo").get(), Opt.some("val"))
+  of 13:
+    notifyParam({dnfSuccess, dnfFailure, dnfDelay}).get()
+  of 14:
+    notifyParam({dnfNever}).get()
+  else:
+    bodyParam(beSevenBit)
+
+proc genSubmissionParamFixedTrial(rng: var Rand, trial: int): SubmissionParam =
+  ## Dispatches the 15 fixed ``SubmissionParam`` trials into three 5-trial
+  ## slabs to stay under the cyclomatic complexity ceiling.
+  if trial < 6:
+    genSubmissionParamKinds0to5(rng, trial)
+  elif trial < 12:
+    genSubmissionParamKinds6to11(rng, trial)
+  else:
+    genSubmissionParamAdversarial(rng, trial)
+
+proc genSubmissionParam*(rng: var Rand, trial: int = -1): SubmissionParam =
+  ## Generates a valid ``SubmissionParam``.
+  ## Early trials (< 15) cover: all 12 ``SubmissionParamKind`` variants in
+  ## declaration order, an extension with case-adversarial name, a multi-
+  ## flag NOTIFY set, and the ``{dnfNever}`` singleton.
+  ## Remaining trials: random ``SubmissionParamKind`` (index 0..11) with
+  ## a canonical payload.
+  ## Does NOT generate: invalid NOTIFY combinations (NEVER + others), out-
+  ## of-range ``MtPriority``, malformed ``envid`` xtext — those are the
+  ## adversarial generator's domain.
+  if trial >= 0 and trial < 15:
+    return genSubmissionParamFixedTrial(rng, trial)
+  let idx = rng.rand(0 .. 11)
+  if idx < 6:
+    genSubmissionParamKinds0to5(rng, idx)
+  else:
+    genSubmissionParamKinds6to11(rng, idx)
+
+# G2-9 -----------------------------------------------------------------------
+proc genSubmissionParams*(rng: var Rand, trial: int = -1): SubmissionParams =
+  ## Generates a validated, duplicate-free ``SubmissionParams`` bag.
+  ## Early trials (< 5) cover: empty, single param, all 12 in declaration
+  ## order, all 12 + an extra extension (13 unique keys), all 12 in
+  ## reverse order (insertion-order preservation).
+  ## Remaining trials: 0..8 random params deduplicated by ``paramKey``.
+  ## Does NOT generate: duplicate-key inputs — that's the adversarial
+  ## generator's job (invalid inputs fed to ``parseSubmissionParams``).
+  if trial >= 0 and trial < 5:
+    case trial
+    of 0:
+      return parseSubmissionParams(@[]).get()
+    of 1:
+      return parseSubmissionParams(@[bodyParam(beSevenBit)]).get()
+    of 2:
+      return parseSubmissionParams(genFullSubmissionParamSeq()).get()
+    of 3:
+      let base = genFullSubmissionParamSeq()
+      let extra = extensionParam(parseRFC5321Keyword("X-EXTRA").get(), Opt.some("val"))
+      return parseSubmissionParams(base & @[extra]).get()
+    of 4:
+      let fwd = genFullSubmissionParamSeq()
+      var rev: seq[SubmissionParam] = @[]
+      for i in countdown(fwd.high, 0):
+        rev.add(fwd[i])
+      return parseSubmissionParams(rev).get()
+    else:
+      discard
+  let count = rng.rand(0 .. 8)
+  var items: seq[SubmissionParam] = @[]
+  var seen = initHashSet[SubmissionParamKey]()
+  for _ in 0 ..< count:
+    let p = rng.genSubmissionParam()
+    let k = paramKey(p)
+    if not seen.containsOrIncl(k):
+      items.add(p)
+  parseSubmissionParams(items).get()
+
+# G2-10 ----------------------------------------------------------------------
+proc genEmailSubmissionBlueprint*(
+    rng: var Rand, trial: int = -1
+): EmailSubmissionBlueprint =
+  ## Generates an ``EmailSubmissionBlueprint`` — creation model with
+  ## identityId, emailId, and optional envelope.
+  ## Early trials (< 2): minimal (Opt.none envelope), fully populated
+  ## (pinned coverage-dense envelope via ``genFullEnvelopePin``).
+  ## Remaining trials: random Id values, coin-flip envelope.
+  ## Does NOT generate: inputs that fail ``parseEmailSubmissionBlueprint``.
+  if trial >= 0 and trial < 2:
+    case trial
+    of 0:
+      return parseEmailSubmissionBlueprint(
+          identityId = parseId("iden1").get(),
+          emailId = parseId("email1").get(),
+          envelope = Opt.none(Envelope),
+        )
+        .get()
+    else:
+      return parseEmailSubmissionBlueprint(
+          identityId = parseId("idenFull").get(),
+          emailId = parseId("emailFull").get(),
+          envelope = Opt.some(genFullEnvelopePin()),
+        )
+        .get()
+  let envelope =
+    if rng.rand(0 .. 1) == 0:
+      Opt.some(genFullEnvelopePin())
+    else:
+      Opt.none(Envelope)
+  parseEmailSubmissionBlueprint(
+    identityId = parseId(rng.genValidIdStrict(minLen = 1, maxLen = 20)).get(),
+    emailId = parseId(rng.genValidIdStrict(minLen = 1, maxLen = 20)).get(),
+    envelope = envelope,
+  )
+    .get()
+
+proc genDeliveryStatusEntry(rng: var Rand): DeliveryStatus =
+  ## Builds a ``DeliveryStatus`` by composing ``genSmtpReply``,
+  ## ``genDeliveredState``, and ``genDisplayedState`` in random mode.
+  DeliveryStatus(
+    smtpReply: rng.genSmtpReply(),
+    delivered: rng.genDeliveredState(),
+    displayed: rng.genDisplayedState(),
+  )
+
+proc genDeliveryStatusMapPopulated(rng: var Rand): DeliveryStatusMap =
+  ## Produces a ``DeliveryStatusMap`` with two entries keyed by distinct
+  ## ``RFC5321Mailbox`` values. Two entries are enough to exercise the
+  ## Table-backed iteration order and the ``countDelivered`` /
+  ## ``anyFailed`` traversals at every consumer site.
+  let mbxA = parseRFC5321Mailbox("alice@example.com").get()
+  let mbxB = parseRFC5321Mailbox("bob@example.com").get()
+  var t = initTable[RFC5321Mailbox, DeliveryStatus](2)
+  t[mbxA] = genDeliveryStatusEntry(rng)
+  t[mbxB] = genDeliveryStatusEntry(rng)
+  DeliveryStatusMap(t)
+
+# G2-11 ----------------------------------------------------------------------
+proc genEmailSubmission*[S: static UndoStatus](
+    rng: var Rand, trial: int = -1
+): EmailSubmission[S] =
+  ## Generates a phantom-typed ``EmailSubmission[S]`` for any
+  ## ``S: static UndoStatus``. One body serves all three phantom branches
+  ## because the struct fields are S-invariant.
+  ## Early trials (< 2): minimal (all Opts.none, empty blob seqs), fully
+  ## populated (pinned envelope, populated delivery-status map, non-empty
+  ## DSN/MDN blob seqs).
+  ## Remaining trials: random field population with coin-flip Opts.
+  ## Does NOT bias across ``S`` — phantom choice is the caller's.
+  ## Call sites must pass ``S`` as a literal enum value for elaboration:
+  ## ``genEmailSubmission[usPending](rng, trial)``.
+  if trial >= 0 and trial < 2:
+    case trial
+    of 0:
+      return EmailSubmission[S](
+        id: parseId("es1").get(),
+        identityId: parseId("iden1").get(),
+        emailId: parseId("email1").get(),
+        threadId: parseId("thr1").get(),
+        envelope: Opt.none(Envelope),
+        sendAt: parseUtcDate("2026-01-15T09:00:00Z").get(),
+        deliveryStatus: Opt.none(DeliveryStatusMap),
+        dsnBlobIds: @[],
+        mdnBlobIds: @[],
+      )
+    else:
+      return EmailSubmission[S](
+        id: parseId("es2").get(),
+        identityId: parseId("iden2").get(),
+        emailId: parseId("email2").get(),
+        threadId: parseId("thr2").get(),
+        envelope: Opt.some(genFullEnvelopePin()),
+        sendAt: parseUtcDate("2026-01-15T09:00:00Z").get(),
+        deliveryStatus: Opt.some(genDeliveryStatusMapPopulated(rng)),
+        dsnBlobIds: @[BlobId("bdsn1"), BlobId("bdsn2")],
+        mdnBlobIds: @[BlobId("bmdn1")],
+      )
+  let envelope =
+    if rng.rand(0 .. 1) == 0:
+      Opt.some(genFullEnvelopePin())
+    else:
+      Opt.none(Envelope)
+  let dstatus =
+    if rng.rand(0 .. 1) == 0:
+      Opt.some(genDeliveryStatusMapPopulated(rng))
+    else:
+      Opt.none(DeliveryStatusMap)
+  var dsns: seq[BlobId] = @[]
+  for i in 0 ..< rng.rand(0 .. 3):
+    dsns.add(BlobId(rng.genValidIdStrict(minLen = 3, maxLen = 20)))
+  var mdns: seq[BlobId] = @[]
+  for i in 0 ..< rng.rand(0 .. 3):
+    mdns.add(BlobId(rng.genValidIdStrict(minLen = 3, maxLen = 20)))
+  EmailSubmission[S](
+    id: parseId(rng.genValidIdStrict(minLen = 1, maxLen = 20)).get(),
+    identityId: parseId(rng.genValidIdStrict(minLen = 1, maxLen = 20)).get(),
+    emailId: parseId(rng.genValidIdStrict(minLen = 1, maxLen = 20)).get(),
+    threadId: parseId(rng.genValidIdStrict(minLen = 1, maxLen = 20)).get(),
+    envelope: envelope,
+    sendAt: parseUtcDate(rng.genValidUtcDate()).get(),
+    deliveryStatus: dstatus,
+    dsnBlobIds: dsns,
+    mdnBlobIds: mdns,
+  )
+
+# G2-12 ----------------------------------------------------------------------
+proc genAnyEmailSubmission*(rng: var Rand, trial: int = -1): AnyEmailSubmission =
+  ## Generates an ``AnyEmailSubmission`` existential wrapper — serde-side
+  ## dispatch target for the three ``UndoStatus`` branches.
+  ## Early trials (0, 1, 2) force ``usPending`` / ``usFinal`` /
+  ## ``usCanceled`` respectively by constructing the matching phantom-
+  ## indexed branch and lifting via ``toAny``.
+  ## Remaining trials: sample ``UndoStatus`` uniformly, dispatch at the
+  ## case-of-state site so each arm gets fair coverage.
+  ## Does NOT construct ``AnyEmailSubmission`` via brace literal — the
+  ## ``toAny`` overload family is the RFC-faithful construction path.
+  if trial >= 0 and trial < 3:
+    case trial
+    of 0:
+      return toAny(genEmailSubmission[usPending](rng, -1))
+    of 1:
+      return toAny(genEmailSubmission[usFinal](rng, -1))
+    of 2:
+      return toAny(genEmailSubmission[usCanceled](rng, -1))
+    else:
+      discard
+  case rng.genUndoStatus()
+  of usPending:
+    toAny(genEmailSubmission[usPending](rng, -1))
+  of usFinal:
+    toAny(genEmailSubmission[usFinal](rng, -1))
+  of usCanceled:
+    toAny(genEmailSubmission[usCanceled](rng, -1))
+
+# G2-13 ----------------------------------------------------------------------
+proc genEmailSubmissionUpdate*(rng: var Rand, trial: int = -1): EmailSubmissionUpdate =
+  ## Generates the sole ``EmailSubmissionUpdate`` variant —
+  ## ``esuSetUndoStatusToCanceled``. The RFC permits exactly one mutation
+  ## post-create, so this generator is uniform across all trials. ``rng``
+  ## and ``trial`` are accepted for API symmetry with the other G2
+  ## generators but unused.
+  discard rng
+  discard trial
+  setUndoStatusToCanceled()
+
+# G2-14 ----------------------------------------------------------------------
+proc optNonEmptyIdSeqMaybe(rng: var Rand): Opt[NonEmptyIdSeq] =
+  ## Coin-flip wrapper: 50% chance of a single-element ``NonEmptyIdSeq``,
+  ## 50% chance of ``Opt.none``. Single-element is sufficient — the filter
+  ## condition's per-field semantics are Opt-presence, not cardinality.
+  if rng.rand(0 .. 1) == 0:
+    Opt.some(
+      parseNonEmptyIdSeq(
+        @[parseId(rng.genValidIdStrict(minLen = 1, maxLen = 20)).get()]
+      )
+        .get()
+    )
+  else:
+    Opt.none(NonEmptyIdSeq)
+
+proc optUndoStatusMaybe(rng: var Rand): Opt[UndoStatus] =
+  ## Coin-flip wrapper around ``genUndoStatus``. Each arm is equally
+  ## likely, so the filter condition's ``undoStatus`` field gets balanced
+  ## Opt.none and Opt.some coverage.
+  if rng.rand(0 .. 1) == 0:
+    Opt.some(rng.genUndoStatus())
+  else:
+    Opt.none(UndoStatus)
+
+proc optUtcDateMaybe(rng: var Rand): Opt[UTCDate] =
+  ## Coin-flip wrapper producing either ``Opt.some(utcDate)`` or
+  ## ``Opt.none`` — callers use it for ``before`` / ``after`` filter
+  ## fields with independent presence.
+  if rng.rand(0 .. 1) == 0:
+    Opt.some(parseUtcDate(rng.genValidUtcDate()).get())
+  else:
+    Opt.none(UTCDate)
+
+proc genEmailSubmissionFilterCondition*(
+    rng: var Rand, trial: int = -1
+): EmailSubmissionFilterCondition =
+  ## Generates an ``EmailSubmissionFilterCondition`` — 6 Opt fields per
+  ## RFC 8621 §7.3 (3 id lists, undoStatus, before, after).
+  ## Early trials (< 3): all Opt.none (empty filter), only undoStatus
+  ## populated, all 6 populated.
+  ## Remaining trials: independent coin-flip per field.
+  ## Does NOT generate: empty ``NonEmptyIdSeq`` values — those are
+  ## structurally unrepresentable by the type.
+  if trial >= 0 and trial < 3:
+    case trial
+    of 0:
+      return EmailSubmissionFilterCondition(
+        identityIds: Opt.none(NonEmptyIdSeq),
+        emailIds: Opt.none(NonEmptyIdSeq),
+        threadIds: Opt.none(NonEmptyIdSeq),
+        undoStatus: Opt.none(UndoStatus),
+        before: Opt.none(UTCDate),
+        after: Opt.none(UTCDate),
+      )
+    of 1:
+      return EmailSubmissionFilterCondition(
+        identityIds: Opt.none(NonEmptyIdSeq),
+        emailIds: Opt.none(NonEmptyIdSeq),
+        threadIds: Opt.none(NonEmptyIdSeq),
+        undoStatus: Opt.some(usPending),
+        before: Opt.none(UTCDate),
+        after: Opt.none(UTCDate),
+      )
+    else:
+      let ids = parseNonEmptyIdSeq(@[parseId("id1").get()]).get()
+      return EmailSubmissionFilterCondition(
+        identityIds: Opt.some(ids),
+        emailIds: Opt.some(ids),
+        threadIds: Opt.some(ids),
+        undoStatus: Opt.some(usFinal),
+        before: Opt.some(parseUtcDate("2026-01-15T09:00:00Z").get()),
+        after: Opt.some(parseUtcDate("2025-01-15T09:00:00Z").get()),
+      )
+  EmailSubmissionFilterCondition(
+    identityIds: optNonEmptyIdSeqMaybe(rng),
+    emailIds: optNonEmptyIdSeqMaybe(rng),
+    threadIds: optNonEmptyIdSeqMaybe(rng),
+    undoStatus: optUndoStatusMaybe(rng),
+    before: optUtcDateMaybe(rng),
+    after: optUtcDateMaybe(rng),
+  )
 
 {.pop.} # params
 {.pop.} # hasDoc

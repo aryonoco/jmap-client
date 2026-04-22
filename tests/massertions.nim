@@ -14,6 +14,10 @@ import jmap_client/capabilities
 import jmap_client/serde
 import jmap_client/mail/email_blueprint
 import jmap_client/mail/headers
+import jmap_client/mail/submission_param
+import jmap_client/mail/submission_status
+import jmap_client/mail/email_submission
+import jmap_client/mail/serde_email_submission
 
 import ./mfixtures
 
@@ -317,3 +321,44 @@ template assertJsonStringEquals*(node: JsonNode, key: string, exactBytes: string
   let actual = field.getStr()
   doAssert actual == exactBytes,
     "field '" & key & "': expected '" & exactBytes & "', got '" & actual & "'"
+
+# ---------------------------------------------------------------------------
+# Mail Part G assertion templates. Wrap the ``*Eq`` helpers from
+# ``mfixtures.nim`` (delegating to source-side ``==``) and the
+# ``IdOrCreationRef`` wire-shape pin (delegating to L2 ``toJson``).
+# ---------------------------------------------------------------------------
+
+template assertPhantomVariantEq*(actual, expected: AnyEmailSubmission) =
+  ## Asserts ``UndoStatus`` discriminator equality and branch-dispatched
+  ## payload equality. Wraps ``anyEmailSubmissionEq`` with diagnostic
+  ## output. Used by ``tprop_mail_g.nim`` Group E for the
+  ## ``AnyEmailSubmission`` round-trip property.
+  doAssert anyEmailSubmissionEq(actual, expected),
+    "AnyEmailSubmission mismatch:\n  actual:   " & $actual & "\n  expected: " & $expected
+
+template assertDeliveryStatusMapEq*(actual, expected: DeliveryStatusMap) =
+  ## Distinct-table equality honouring ``RFC5321Mailbox`` byte-equal key
+  ## semantics. Wraps ``deliveryStatusMapEq`` with diagnostic output.
+  doAssert deliveryStatusMapEq(actual, expected),
+    "DeliveryStatusMap mismatch:\n  actual:   " & $actual & "\n  expected: " & $expected
+
+template assertSubmissionParamKeyEq*(a, b: SubmissionParamKey) =
+  ## Identity check across the 12-kind matrix (the ``spkExtension`` arm
+  ## carries an extension name; the 11 standard kinds are nullary). Wraps
+  ## ``submissionParamKeyEq`` with diagnostic output. Used by
+  ## ``tsubmission_params.nim`` unit blocks.
+  doAssert submissionParamKeyEq(a, b),
+    "SubmissionParamKey mismatch:\n  a: " & $a & "\n  b: " & $b
+
+template assertIdOrCreationRefWire*(v: IdOrCreationRef, expected: string) =
+  ## Wire-form pin: ``directRef(id)`` serialises as ``$id``;
+  ## ``creationRef(cid)`` serialises as ``"#" & $cid``. Mirrors
+  ## ``assertJsonStringEquals`` in shape — pins ``JString`` kind AND
+  ## compares the decoded string byte-for-byte. Used by
+  ## ``tonsuccess_extras.nim`` wire-shape blocks.
+  let node = toJson(v)
+  doAssert node.kind == JString,
+    "expected JString from IdOrCreationRef, got " & $node.kind
+  let actual = node.getStr()
+  doAssert actual == expected,
+    "IdOrCreationRef wire mismatch:\n  actual:   " & actual & "\n  expected: " & expected

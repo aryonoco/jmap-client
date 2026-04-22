@@ -38,6 +38,12 @@ import jmap_client/mail/serde_email
 import jmap_client/mail/serde_snippet
 import jmap_client/mail/email_blueprint
 import jmap_client/mail/mail_builders
+import jmap_client/mail/submission_atoms
+import jmap_client/mail/submission_mailbox
+import jmap_client/mail/submission_param
+import jmap_client/mail/submission_envelope
+import jmap_client/mail/submission_status
+import jmap_client/mail/email_submission
 import jmap_client/methods
 import jmap_client/dispatch
 
@@ -1880,3 +1886,343 @@ proc makeNonEmptyEmailUpdates*(
   ## Non-Opt, non-empty wrapper factory. Mirrors
   ## ``makeNonEmptyMailboxUpdates``.
   parseNonEmptyEmailUpdates(@items).get()
+
+# ---------------------------------------------------------------------------
+# Mail Part G equality helpers
+# ---------------------------------------------------------------------------
+#
+# The Part G source delivery (G1) ships explicit ``func ==`` operators for
+# every case-object type covered here, plus borrowed ``==`` on the
+# ``SubmissionParams`` and ``DeliveryStatusMap`` distinct tables. These
+# wrappers therefore delegate to the source-side ``==`` rather than
+# duplicating the arm-dispatch logic — one source of truth per fact (CLAUDE.md).
+# The named call sites still exist so Phase 4 assertion wrappers and
+# Phase 5/6 property/adversarial tests have stable symbols to consume.
+
+proc anyEmailSubmissionEq*(a, b: AnyEmailSubmission): bool =
+  ## Source ``==`` arm-dispatches over ``usPending`` / ``usFinal`` /
+  ## ``usCanceled`` (``email_submission.nim:67``).
+  a == b
+
+proc submissionParamEq*(a, b: SubmissionParam): bool =
+  ## Source ``==`` arm-dispatches over the 12 ``SubmissionParamKind``
+  ## branches (``submission_param.nim:234``).
+  a == b
+
+proc submissionParamKeyEq*(a, b: SubmissionParamKey): bool =
+  ## Source ``==`` dispatches the ``spkExtension`` arm against the 11
+  ## nullary arms (``submission_param.nim:284``).
+  a == b
+
+proc submissionParamsEq*(a, b: SubmissionParams): bool =
+  ## Source borrows ``==`` from the underlying ``OrderedTable``
+  ## (``submission_param.nim:338``); insertion order participates in
+  ## equality.
+  a == b
+
+proc reversePathEq*(a, b: ReversePath): bool =
+  ## Source ``==`` arm-dispatches ``rpkNullPath`` vs ``rpkMailbox``
+  ## (``submission_envelope.nim:73``).
+  a == b
+
+proc deliveryStatusMapEq*(a, b: DeliveryStatusMap): bool =
+  ## Source borrows ``==`` from
+  ## ``Table[RFC5321Mailbox, DeliveryStatus]`` (``submission_status.nim:264``).
+  ## Key equality is byte-equal ``RFC5321Mailbox``.
+  a == b
+
+proc idOrCreationRefEq*(a, b: IdOrCreationRef): bool =
+  ## Source ``==`` enforces cross-arm inequality even on coincident payload
+  ## strings (``email_submission.nim:407``).
+  a == b
+
+proc keywordSetEq*(a, b: KeywordSet): bool =
+  ## ``KeywordSet`` is ``distinct HashSet[Keyword]`` and deliberately does
+  ## NOT borrow ``==`` (Decision B3 in ``defineHashSetDistinctOps`` —
+  ## read-model sets are queried, never compared as wholes in the source
+  ## domain). Cast through the underlying ``HashSet`` so its stdlib ``==``
+  ## dispatches via the borrowed ``Keyword.==``. Required by
+  ## ``emailUpdateEq`` for the ``euSetKeywords`` arm.
+  HashSet[Keyword](a) == HashSet[Keyword](b)
+
+proc emailUpdateEq*(a, b: EmailUpdate): bool =
+  ## Arm-dispatched structural equality for the ``EmailUpdate`` case
+  ## object (``email_update.nim:38``). Source provides no ``==`` because
+  ## case objects can't auto-derive one (parallel ``fields`` iterator
+  ## restriction) and the source code path needs equality nowhere — only
+  ## tests do. Required by ``emailUpdateSetEq``.
+  if a.kind != b.kind:
+    return false
+  case a.kind
+  of euAddKeyword, euRemoveKeyword:
+    a.keyword == b.keyword
+  of euSetKeywords:
+    keywordSetEq(a.keywords, b.keywords)
+  of euAddToMailbox, euRemoveFromMailbox:
+    a.mailboxId == b.mailboxId
+  of euSetMailboxIds:
+    a.mailboxes == b.mailboxes
+
+proc emailUpdateSetEq*(a, b: EmailUpdateSet): bool =
+  ## ``EmailUpdateSet`` is ``distinct seq[EmailUpdate]`` without a
+  ## borrowed ``==``; the underlying ``seq[EmailUpdate]`` ``==`` would in
+  ## turn require ``EmailUpdate.==``, which the source also omits.
+  ## Manual element-wise comparison through ``emailUpdateEq``.
+  let xs = seq[EmailUpdate](a)
+  let ys = seq[EmailUpdate](b)
+  if xs.len != ys.len:
+    return false
+  for i in 0 ..< xs.len:
+    if not emailUpdateEq(xs[i], ys[i]):
+      return false
+  true
+
+proc nonEmptyOnSuccessUpdateEmailEq*(a, b: NonEmptyOnSuccessUpdateEmail): bool =
+  ## ``NonEmptyOnSuccessUpdateEmail`` is
+  ## ``distinct Table[IdOrCreationRef, EmailUpdateSet]`` without a borrowed
+  ## ``==`` in the source. Stdlib ``Table.==`` would require
+  ## ``EmailUpdateSet.==`` (also absent), so we walk the underlying table
+  ## ourselves: source-defined ``IdOrCreationRef.==`` /
+  ## ``IdOrCreationRef.hash`` (``email_submission.nim:407``) drive key
+  ## lookup, ``emailUpdateSetEq`` drives value equality.
+  let aTable = Table[IdOrCreationRef, EmailUpdateSet](a)
+  let bTable = Table[IdOrCreationRef, EmailUpdateSet](b)
+  if aTable.len != bTable.len:
+    return false
+  for k, av in aTable:
+    if not bTable.hasKey(k):
+      return false
+    if not emailUpdateSetEq(av, bTable[k]):
+      return false
+  true
+
+# ---------------------------------------------------------------------------
+# Mail Part G — EmailSubmission factories (RFC 8621 §7)
+# ---------------------------------------------------------------------------
+
+# Group 1 — RFC 5321 atom factories
+
+proc makeRFC5321Mailbox*(raw = "user@example.com"): RFC5321Mailbox =
+  parseRFC5321Mailbox(raw).get()
+
+proc makeFullRFC5321Mailbox*(): RFC5321Mailbox =
+  ## Exercises two non-trivial branches of the RFC 5321 §4.1.2 grammar in
+  ## a single fixture: a quoted-string local-part carrying space + dot
+  ## (neither legal in a dot-string), and an IPv6 address-literal domain
+  ## in compressed form. Serves as the overlong-shape coverage fixture so
+  ## edge-case-sensitive tests need not hand-roll the raw string.
+  parseRFC5321Mailbox("\"Joe Q. Public\"@[IPv6:2001:db8::1]").get()
+
+proc makeRFC5321Keyword*(raw = "X-VENDOR-FOO"): RFC5321Keyword =
+  parseRFC5321Keyword(raw).get()
+
+proc makeOrcptAddrType*(raw = "rfc822"): OrcptAddrType =
+  parseOrcptAddrType(raw).get()
+
+# Group 2 — SubmissionParam algebra factories
+
+proc makeSubmissionParam*(kind: SubmissionParamKind): SubmissionParam =
+  case kind
+  of spkBody:
+    bodyParam(beEightBitMime)
+  of spkSmtpUtf8:
+    smtpUtf8Param()
+  of spkSize:
+    sizeParam(parseUnsignedInt(1024).get())
+  of spkEnvid:
+    envidParam("envid-test")
+  of spkRet:
+    retParam(retFull)
+  of spkNotify:
+    notifyParam({dnfSuccess}).get()
+  of spkOrcpt:
+    orcptParam(makeOrcptAddrType(), "user@example.com")
+  of spkHoldFor:
+    holdForParam(parseHoldForSeconds(parseUnsignedInt(60).get()).get())
+  of spkHoldUntil:
+    holdUntilParam(parseUtcDate("2026-01-15T09:00:00Z").get())
+  of spkBy:
+    byParam(parseJmapInt(60).get(), dbmReturn)
+  of spkMtPriority:
+    mtPriorityParam(parseMtPriority(1).get())
+  of spkExtension:
+    extensionParam(makeRFC5321Keyword("X-TEST"), Opt.none(string))
+
+proc makeFullSubmissionParams*(): SubmissionParams =
+  ## Populates every ``SubmissionParamKind`` variant exactly once — the
+  ## eleven IANA-registered well-known parameters plus a single
+  ## ``spkExtension``. Chosen so a single fixture exercises every arm of
+  ## ``paramKey`` derivation and every branch of ``SubmissionParam.==``
+  ## in the tests that build on this one.
+  parseSubmissionParams(
+    @[
+      makeSubmissionParam(spkBody),
+      makeSubmissionParam(spkSmtpUtf8),
+      makeSubmissionParam(spkSize),
+      makeSubmissionParam(spkEnvid),
+      makeSubmissionParam(spkRet),
+      makeSubmissionParam(spkNotify),
+      makeSubmissionParam(spkOrcpt),
+      makeSubmissionParam(spkHoldFor),
+      makeSubmissionParam(spkHoldUntil),
+      makeSubmissionParam(spkBy),
+      makeSubmissionParam(spkMtPriority),
+      makeSubmissionParam(spkExtension),
+    ]
+  )
+    .get()
+
+proc makeSubmissionAddress*(
+    mailbox: RFC5321Mailbox = makeRFC5321Mailbox(),
+    parameters: Opt[SubmissionParams] = Opt.none(SubmissionParams),
+): SubmissionAddress =
+  SubmissionAddress(mailbox: mailbox, parameters: parameters)
+
+proc makeFullSubmissionAddress*(): SubmissionAddress =
+  ## Companion to ``makeFullSubmissionParams``. Binds the exhaustive
+  ## parameter set onto a concrete mailbox so envelope-level tests reach
+  ## every parameter variant through the natural ``Envelope.rcptTo``
+  ## traversal rather than by constructing a detached ``SubmissionParams``.
+  SubmissionAddress(
+    mailbox: makeRFC5321Mailbox(), parameters: Opt.some(makeFullSubmissionParams())
+  )
+
+proc makeNullReversePath*(
+    params: Opt[SubmissionParams] = Opt.none(SubmissionParams)
+): ReversePath =
+  nullReversePath(params)
+
+proc makeMailboxReversePath*(
+    address: SubmissionAddress = makeSubmissionAddress()
+): ReversePath =
+  reversePath(address)
+
+# Group 3 — Envelope factories
+
+proc makeNonEmptyRcptList*(
+    items: seq[SubmissionAddress] = @[makeSubmissionAddress()]
+): NonEmptyRcptList =
+  parseNonEmptyRcptList(items).get()
+
+proc makeEnvelope*(
+    mailFrom: ReversePath = makeMailboxReversePath(),
+    rcptTo: NonEmptyRcptList = makeNonEmptyRcptList(),
+): Envelope =
+  Envelope(mailFrom: mailFrom, rcptTo: rcptTo)
+
+proc makeFullEnvelope*(): Envelope =
+  ## Two wire-shape divergences in one fixture: (a) a null reverse-path
+  ## that nonetheless carries Mail-parameters — RFC 5321 §4.1.1.2 permits
+  ## parameters on ``<>`` — and (b) a rcpt list mixing one address with
+  ## parameters and one without, so the ``Opt[SubmissionParams]`` branch
+  ## on ``SubmissionAddress`` is exercised twice in a single envelope.
+  Envelope(
+    mailFrom: makeNullReversePath(params = Opt.some(makeFullSubmissionParams())),
+    rcptTo:
+      makeNonEmptyRcptList(@[makeFullSubmissionAddress(), makeSubmissionAddress()]),
+  )
+
+# Group 4 — Status-type factories
+
+proc makeSmtpReply*(raw = "250 OK"): SmtpReply =
+  parseSmtpReply(raw).get()
+
+proc makeDeliveryStatus*(
+    smtpReply: SmtpReply = makeSmtpReply(),
+    delivered: ParsedDeliveredState = parseDeliveredState("yes"),
+    displayed: ParsedDisplayedState = parseDisplayedState("unknown"),
+): DeliveryStatus =
+  DeliveryStatus(smtpReply: smtpReply, delivered: delivered, displayed: displayed)
+
+proc makeDeliveryStatusMap*(
+    entries: seq[(RFC5321Mailbox, DeliveryStatus)] = @[]
+): DeliveryStatusMap =
+  var t = initTable[RFC5321Mailbox, DeliveryStatus](entries.len)
+  for (k, v) in entries:
+    t[k] = v
+  DeliveryStatusMap(t)
+
+# Group 5 — IdOrCreationRef variant factories
+
+proc makeIdOrCreationRefDirect*(id: Id = makeId("es1")): IdOrCreationRef =
+  directRef(id)
+
+proc makeIdOrCreationRefCreation*(
+    cid: CreationId = makeCreationId("k0")
+): IdOrCreationRef =
+  creationRef(cid)
+
+# Group 6 — Phantom-typed EmailSubmission factories
+
+proc makeEmailSubmission*[S: static UndoStatus](
+    id: Id = makeId("es1"),
+    identityId: Id = makeId("iden1"),
+    emailId: Id = makeId("email1"),
+    threadId: Id = makeId("thr1"),
+    envelope: Opt[Envelope] = Opt.none(Envelope),
+    sendAt: UTCDate = parseUtcDate("2026-01-15T09:00:00Z").get(),
+    deliveryStatus: Opt[DeliveryStatusMap] = Opt.none(DeliveryStatusMap),
+    dsnBlobIds: seq[BlobId] = @[],
+    mdnBlobIds: seq[BlobId] = @[],
+): EmailSubmission[S] =
+  EmailSubmission[S](
+    id: id,
+    identityId: identityId,
+    emailId: emailId,
+    threadId: threadId,
+    envelope: envelope,
+    sendAt: sendAt,
+    deliveryStatus: deliveryStatus,
+    dsnBlobIds: dsnBlobIds,
+    mdnBlobIds: mdnBlobIds,
+  )
+
+proc makeAnyEmailSubmission*(state: UndoStatus = usPending): AnyEmailSubmission =
+  case state
+  of usPending:
+    toAny(makeEmailSubmission[usPending]())
+  of usFinal:
+    toAny(makeEmailSubmission[usFinal]())
+  of usCanceled:
+    toAny(makeEmailSubmission[usCanceled]())
+
+proc makeEmailSubmissionBlueprint*(
+    identityId: Id = makeId("iden1"),
+    emailId: Id = makeId("email1"),
+    envelope: Opt[Envelope] = Opt.none(Envelope),
+): EmailSubmissionBlueprint =
+  parseEmailSubmissionBlueprint(
+    identityId = identityId, emailId = emailId, envelope = envelope
+  )
+    .get()
+
+proc makeFullEmailSubmissionBlueprint*(): EmailSubmissionBlueprint =
+  ## Non-default values in all three settable fields, binding the
+  ## coverage-dense ``makeFullEnvelope`` so blueprint-round-trip tests
+  ## reach every envelope arm through a single blueprint fixture rather
+  ## than having to compose ``makeEmailSubmissionBlueprint`` by hand.
+  parseEmailSubmissionBlueprint(
+    identityId = makeId("idenFull"),
+    emailId = makeId("emailFull"),
+    envelope = Opt.some(makeFullEnvelope()),
+  )
+    .get()
+
+# Group 7 — Compound handle factory
+
+proc makeEmailSubmissionHandles*(
+    submissionMcid: MethodCallId = makeMcid("c0"),
+    emailSetMcid: MethodCallId = makeMcid("c0"),
+): EmailSubmissionHandles =
+  ## Both handles share one ``MethodCallId`` by default per RFC 8620 §5.4 —
+  ## the implicit ``Email/set`` triggered by ``onSuccessUpdateEmail`` /
+  ## ``onSuccessDestroyEmail`` shares its call-id with the parent
+  ## ``EmailSubmission/set`` invocation. The two parameters are separate so
+  ## adversarial tests (§8.2.3 Block 6 ``getBothInnerMcIdMismatch``) can
+  ## pass divergent ids to exercise the dispatch mismatch branch.
+  EmailSubmissionHandles(
+    submission: ResponseHandle[EmailSubmissionSetResponse](submissionMcid),
+    emailSet: NameBoundHandle[SetResponse[EmailCreatedItem]](
+      callId: emailSetMcid, methodName: mnEmailSet
+    ),
+  )
