@@ -11,32 +11,23 @@ import jmap_client/types
 # --- Distinct type isolation ---
 
 block distinctTypeIsolation:
-  let id = parseId("abc").get()
-  let aid = parseAccountId("abc").get()
-  let state = parseJmapState("abc").get()
-  doAssert not compiles(id == aid)
-  doAssert not compiles(id == state)
-  doAssert not compiles(aid == state)
+  doAssert not compiles(parseId("abc").get() == parseAccountId("abc").get())
+  doAssert not compiles(parseId("abc").get() == parseJmapState("abc").get())
+  doAssert not compiles(parseAccountId("abc").get() == parseJmapState("abc").get())
 
 block distinctTypeNoConcatenation:
-  let a = parseId("abc").get()
-  let b = parseId("def").get()
-  doAssert not compiles(a & b)
+  doAssert not compiles(parseId("abc").get() & parseId("def").get())
 
 block unsignedIntNoArithmetic:
-  let a = parseUnsignedInt(1).get()
-  let b = parseUnsignedInt(2).get()
-  doAssert not compiles(a + b)
-  doAssert not compiles(a - b)
-  doAssert not compiles(a * b)
+  doAssert not compiles(parseUnsignedInt(1).get() + parseUnsignedInt(2).get())
+  doAssert not compiles(parseUnsignedInt(1).get() - parseUnsignedInt(2).get())
+  doAssert not compiles(parseUnsignedInt(1).get() * parseUnsignedInt(2).get())
 
 block jmapIntNoArithmetic:
-  let a = parseJmapInt(1).get()
-  let b = parseJmapInt(2).get()
-  doAssert not compiles(a + b)
-  doAssert not compiles(a - b)
-  doAssert not compiles(a * b)
-  doAssert compiles(-a)
+  doAssert not compiles(parseJmapInt(1).get() + parseJmapInt(2).get())
+  doAssert not compiles(parseJmapInt(1).get() - parseJmapInt(2).get())
+  doAssert not compiles(parseJmapInt(1).get() * parseJmapInt(2).get())
+  doAssert compiles(-parseJmapInt(1).get())
 
 # --- Case object construction type safety ---
 
@@ -154,14 +145,13 @@ block creationIdNoLen:
 
 block transportErrorMissingHttpStatus:
   ## SetError(setInvalidProperties) must not accept existingId (wrong variant).
-  let testId = parseId("abc").get()
   doAssert not compiles(
     SetError(
       errorType: setInvalidProperties,
       rawType: "invalidProperties",
       description: Opt.none(string),
       extras: Opt.none(JsonNode),
-      existingId: testId,
+      existingId: parseId("abc").get(),
     )
   )
 
@@ -205,14 +195,13 @@ block setErrorPropertiesOnNonInvalidProperties:
 block setErrorExistingIdOnNonAlreadyExists:
   ## Constructing a setForbidden SetError with the setAlreadyExists-branch
   ## existingId field is rejected by {.strictCaseObjects.}.
-  let testId = parseId("abc").get()
   doAssert not compiles(
     SetError(
       errorType: setForbidden,
       rawType: "forbidden",
       description: Opt.none(string),
       extras: Opt.none(JsonNode),
-      existingId: testId,
+      existingId: parseId("abc").get(),
     )
   )
 

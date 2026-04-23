@@ -66,7 +66,7 @@ registerQueryableEntity(MockQueryable)
 block addQueryThenGetProducesTwoInvocations:
   ## addQueryThenGet adds both query and get with result reference wiring.
   let b0 = initRequestBuilder()
-  let (b1, handles) = addQueryThenGet[MockQueryable](b0, makeAccountId("a1"))
+  let (b1, _) = addQueryThenGet[MockQueryable](b0, makeAccountId("a1"))
   let req = b1.build()
   assertLen req.methodCalls, 2
   assertEq req.methodCalls[0].name, mnEmailQuery
@@ -75,7 +75,7 @@ block addQueryThenGetProducesTwoInvocations:
 block addQueryThenGetWiresResultReference:
   ## The get invocation references the query's /ids path.
   let b0 = initRequestBuilder()
-  let (b1, handles) = addQueryThenGet[MockQueryable](b0, makeAccountId("a1"))
+  let (b1, _) = addQueryThenGet[MockQueryable](b0, makeAccountId("a1"))
   let req = b1.build()
   let getArgs = req.methodCalls[1].arguments
   doAssert getArgs{"ids"}.isNil # direct ids NOT present
@@ -109,8 +109,7 @@ block addQueryThenGetAutoCollectsCapability:
 block addChangesToGetProducesTwoInvocations:
   ## addChangesToGet adds changes + get with /created reference.
   let b0 = initRequestBuilder()
-  let (b1, handles) =
-    addChangesToGet[MockQueryable](b0, makeAccountId("a1"), makeState("s0"))
+  let (b1, _) = addChangesToGet[MockQueryable](b0, makeAccountId("a1"), makeState("s0"))
   let req = b1.build()
   assertLen req.methodCalls, 2
   assertEq req.methodCalls[0].name, mnMailboxChanges

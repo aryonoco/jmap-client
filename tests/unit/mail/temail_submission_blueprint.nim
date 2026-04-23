@@ -46,9 +46,11 @@ block sealingContract:
   # Pins Pattern A sealing: brace construction with the raw* field names
   # fails from outside the module. This is the contract that forces
   # callers through parseEmailSubmissionBlueprint, which is the point of
-  # the hybrid shape.
-  let idI = parseId("i-seal").get()
-  let idE = parseId("e-seal").get()
+  # the hybrid shape. `idI`/`idE` appear only inside `not compiles(...)`,
+  # so mark them {.used.} — the speculative-compile macro context doesn't
+  # count as a use for the declared-but-not-used analysis.
+  let idI {.used.} = parseId("i-seal").get()
+  let idE {.used.} = parseId("e-seal").get()
   doAssert not compiles(
     EmailSubmissionBlueprint(
       rawIdentityId: idI, rawEmailId: idE, rawEnvelope: Opt.none(Envelope)

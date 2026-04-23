@@ -41,8 +41,6 @@ export serde_mailbox
 export serde_email
 export mailbox_changes_response
 
-const MailCapUri = "urn:ietf:params:jmap:mail"
-
 # =============================================================================
 # addMailboxChanges — Mailbox/changes (RFC 8621 §2.2)
 # =============================================================================

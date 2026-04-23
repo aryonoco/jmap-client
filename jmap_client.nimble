@@ -221,8 +221,8 @@ srcDir = "src"
   CondFalse                      # condition always false
 --hintAsError:
   ConvToBaseNotNeeded            # redundant upcast to base object
-# --hintAsError:
-#   XDeclaredButNotUsed          # unused symbol
+--hintAsError:
+  XDeclaredButNotUsed            # unused symbol
 # --hintAsError:
 #   ConvFromXtoItselfNotNeeded   # T(x) where x: T
 # --hintAsError:

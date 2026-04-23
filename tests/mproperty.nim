@@ -72,8 +72,8 @@ template checkProperty*(name: string, body: untyped) =
   ## Fixed seed (42) ensures deterministic reproduction. With --panics:on,
   ## assertion failures abort immediately with a full stack trace.
   block:
-    var rng {.inject.} = initRand(42)
-    var lastInput {.inject.}: string = ""
+    var rng {.inject, used.} = initRand(42)
+    var lastInput {.inject, used.}: string = ""
     for trial {.inject.} in 0 ..< DefaultTrials:
       body
 
@@ -81,8 +81,8 @@ template checkPropertyN*(name: string, trials: int, body: untyped) =
   ## Runs body `trials` times. Use QuickTrials or ThoroughTrials for non-default
   ## counts. With --panics:on, assertion failures abort immediately.
   block:
-    var rng {.inject.} = initRand(42)
-    var lastInput {.inject.}: string = ""
+    var rng {.inject, used.} = initRand(42)
+    var lastInput {.inject, used.}: string = ""
     for trial {.inject.} in 0 ..< trials:
       body
 
