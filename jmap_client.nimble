@@ -196,7 +196,11 @@ srcDir = "src"
   User
 
 # Off-by-default warnings NOT enabled (rationale):
-#   ImplicitRangeConversion — fires inside stdlib (system/indices.nim); unfixable
+#   ImplicitRangeConversion — fires at int -> Natural/Positive parameter
+#     receptions inside stdlib generic bodies (tables, tableimpl, seqs_v2,
+#     setimpl, sequtils, strutils, system); reported at the stdlib site
+#     and structurally unsuppressible from user code. Probe path lives
+#     in config.nims behind -d:probeImplicitRange.
 #   ProveField / ProveIndex — experimental, extremely noisy
 #   GcUnsafe — fires from proc callback parameters in generics; GcUnsafe2 suffices
 #   ResultUsed — compiler bug in Nim 2.2.8 (compiler/semexprs.nim:1388–1401):

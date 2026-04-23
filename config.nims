@@ -136,6 +136,18 @@ system.switch("floatChecks", "on")
 system.switch("overflowChecks", "on")
 
 # =============================================================================
+# Diagnostic probe — ImplicitRangeConversion under -d:probeImplicitRange
+# =============================================================================
+# Off by default. Enable with:
+#   nim check -d:probeImplicitRange src/jmap_client.nim
+# Stdlib diagnostics (under */nim-*/lib/) are expected and structurally
+# unsuppressible; any diagnostic under src/ is a regression. See the
+# "Intentionally omitted" section below for the full rationale.
+when defined(probeImplicitRange):
+  system.switch("warning", "ImplicitRangeConversion:on")
+  system.switch("warningAsError", "ImplicitRangeConversion")
+
+# =============================================================================
 # Explicit runtime safety checks — default-on, made explicit to survive -d:danger
 # =============================================================================
 system.switch("boundChecks", "on")
@@ -156,8 +168,20 @@ system.switch("assertions", "on")
 #     variable access, not just the implicit `result` variable. Non-functional
 #     until the compiler is patched.
 #
-#   ImplicitRangeConversion — fires inside stdlib (system/indices.nim) on
-#     range-type index operations. Cannot be suppressed from user code.
+#   ImplicitRangeConversion — detects implicit narrowing conversions to
+#     range types (int -> Natural, int -> Positive, etc.). Triggers live
+#     in stdlib generic bodies that receive int / int-literal arguments
+#     into Natural/Positive-typed parameters — initTable, newSeq,
+#     newStringOfCap, HashSet, strutils.find, strutils.toHex. Specific
+#     firing sites: system.nim, system/seqs_v2.nim, pure/strutils.nim,
+#     pure/collections/{tables, tableimpl, sets, setimpl, sequtils}.nim.
+#     The diagnostic is reported at the stdlib file/line, NOT at the
+#     user's instantiation site, so a
+#     {.push warning[ImplicitRangeConversion]: off.} in user code cannot
+#     reach it. Enabling the flag project-wide therefore requires
+#     upstream Nim to retype those parameters as plain int. Off until
+#     then. The probe gate below lets a developer verify user-code
+#     cleanliness on demand (src/ is known-clean as of 2026-04-23).
 #
 #   ProveField — experimental dataflow analysis for case-object field access.
 #     Extremely noisy; fires on valid patterns in both project and stdlib code.

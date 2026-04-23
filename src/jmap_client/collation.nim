@@ -125,7 +125,7 @@ func toValidationError(v: CollationViolation): ValidationError =
   of cavNonPrintable:
     validationError(
       "CollationAlgorithm",
-      "contains non-printable byte 0x" & toHex(ord(v.offender), 2),
+      "contains non-printable byte 0x" & toHex(byte(ord(v.offender))),
       v.raw,
     )
 
