@@ -2103,8 +2103,15 @@ proc makeFullSubmissionAddress*(): SubmissionAddress =
   ## parameter set onto a concrete mailbox so envelope-level tests reach
   ## every parameter variant through the natural ``Envelope.rcptTo``
   ## traversal rather than by constructing a detached ``SubmissionParams``.
+  ##
+  ## Mailbox differs from the default ``makeSubmissionAddress`` mailbox so
+  ## a ``makeNonEmptyRcptList(@[makeFullSubmissionAddress(),
+  ## makeSubmissionAddress()])`` combination satisfies the distinct-mailbox
+  ## invariant on ``NonEmptyRcptList`` (RFC 8621 §7 ¶5 forbids duplicate
+  ## recipients in the envelope).
   SubmissionAddress(
-    mailbox: makeRFC5321Mailbox(), parameters: Opt.some(makeFullSubmissionParams())
+    mailbox: makeRFC5321Mailbox("rcptFull@example.com"),
+    parameters: Opt.some(makeFullSubmissionParams()),
   )
 
 proc makeNullReversePath*(
