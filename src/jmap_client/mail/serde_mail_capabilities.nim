@@ -27,8 +27,79 @@ func parseMailCapabilities*(
   ## Parses mail capability data from a ServerCapability with kind ckMail.
   ## Validates RFC constraints: maxMailboxesPerEmail >= 1 (when present),
   ## maxSizeMailboxName >= 100.
-  if cap.kind != ckMail:
-    return err(
+  case cap.kind
+  of ckMail:
+    ?expectKind(cap.rawData, JObject, path)
+
+    # maxMailboxesPerEmail: nullable UnsignedInt, >= 1 when present
+    let mmpeFld = cap.rawData{"maxMailboxesPerEmail"}
+    let maxMailboxesPerEmail =
+      if mmpeFld.isNil or mmpeFld.kind == JNull:
+        Opt.none(UnsignedInt)
+      else:
+        ?expectKind(mmpeFld, JInt, path / "maxMailboxesPerEmail")
+        let val = ?UnsignedInt.fromJson(mmpeFld, path / "maxMailboxesPerEmail")
+        if int64(val) < 1:
+          return err(
+            SerdeViolation(
+              kind: svkEmptyRequired,
+              path: path / "maxMailboxesPerEmail",
+              emptyFieldLabel: "maxMailboxesPerEmail (must be >= 1)",
+            )
+          )
+        Opt.some(val)
+
+    # maxMailboxDepth: nullable UnsignedInt, no minimum constraint
+    let mmdFld = cap.rawData{"maxMailboxDepth"}
+    let maxMailboxDepth =
+      if mmdFld.isNil or mmdFld.kind == JNull:
+        Opt.none(UnsignedInt)
+      else:
+        ?expectKind(mmdFld, JInt, path / "maxMailboxDepth")
+        let val = ?UnsignedInt.fromJson(mmdFld, path / "maxMailboxDepth")
+        Opt.some(val)
+
+    # maxSizeMailboxName: required UnsignedInt, >= 100
+    let msmnFld = ?fieldJInt(cap.rawData, "maxSizeMailboxName", path)
+    let maxSizeMailboxName = ?UnsignedInt.fromJson(msmnFld, path / "maxSizeMailboxName")
+    if int64(maxSizeMailboxName) < 100:
+      return err(
+        SerdeViolation(
+          kind: svkEmptyRequired,
+          path: path / "maxSizeMailboxName",
+          emptyFieldLabel: "maxSizeMailboxName (must be >= 100)",
+        )
+      )
+
+    # maxSizeAttachmentsPerEmail: required UnsignedInt
+    let msapeFld = ?fieldJInt(cap.rawData, "maxSizeAttachmentsPerEmail", path)
+    let maxSizeAttachmentsPerEmail =
+      ?UnsignedInt.fromJson(msapeFld, path / "maxSizeAttachmentsPerEmail")
+
+    # emailQuerySortOptions: required JArray of JString
+    let eqsoNode = ?fieldJArray(cap.rawData, "emailQuerySortOptions", path)
+    var opts: seq[string] = @[]
+    for i, elem in eqsoNode.getElems(@[]):
+      ?expectKind(elem, JString, path / "emailQuerySortOptions" / i)
+      opts.add(elem.getStr(""))
+    let emailQuerySortOptions = toHashSet(opts)
+
+    # mayCreateTopLevelMailbox: required JBool
+    let mctlmFld = ?fieldJBool(cap.rawData, "mayCreateTopLevelMailbox", path)
+    let mayCreateTopLevelMailbox = mctlmFld.getBool(false)
+
+    ok(
+      MailCapabilities(
+        maxMailboxesPerEmail: maxMailboxesPerEmail,
+        maxMailboxDepth: maxMailboxDepth,
+        maxSizeMailboxName: maxSizeMailboxName,
+        maxSizeAttachmentsPerEmail: maxSizeAttachmentsPerEmail,
+        emailQuerySortOptions: emailQuerySortOptions,
+        mayCreateTopLevelMailbox: mayCreateTopLevelMailbox,
+      )
+    )
+  else:
+    err(
       SerdeViolation(
         kind: svkEnumNotRecognised,
         path: path,
@@ -36,75 +107,6 @@ func parseMailCapabilities*(
         rawValue: $cap.kind,
       )
     )
-  ?expectKind(cap.rawData, JObject, path)
-
-  # maxMailboxesPerEmail: nullable UnsignedInt, >= 1 when present
-  let mmpeFld = cap.rawData{"maxMailboxesPerEmail"}
-  let maxMailboxesPerEmail =
-    if mmpeFld.isNil or mmpeFld.kind == JNull:
-      Opt.none(UnsignedInt)
-    else:
-      ?expectKind(mmpeFld, JInt, path / "maxMailboxesPerEmail")
-      let val = ?UnsignedInt.fromJson(mmpeFld, path / "maxMailboxesPerEmail")
-      if int64(val) < 1:
-        return err(
-          SerdeViolation(
-            kind: svkEmptyRequired,
-            path: path / "maxMailboxesPerEmail",
-            emptyFieldLabel: "maxMailboxesPerEmail (must be >= 1)",
-          )
-        )
-      Opt.some(val)
-
-  # maxMailboxDepth: nullable UnsignedInt, no minimum constraint
-  let mmdFld = cap.rawData{"maxMailboxDepth"}
-  let maxMailboxDepth =
-    if mmdFld.isNil or mmdFld.kind == JNull:
-      Opt.none(UnsignedInt)
-    else:
-      ?expectKind(mmdFld, JInt, path / "maxMailboxDepth")
-      let val = ?UnsignedInt.fromJson(mmdFld, path / "maxMailboxDepth")
-      Opt.some(val)
-
-  # maxSizeMailboxName: required UnsignedInt, >= 100
-  let msmnFld = ?fieldJInt(cap.rawData, "maxSizeMailboxName", path)
-  let maxSizeMailboxName = ?UnsignedInt.fromJson(msmnFld, path / "maxSizeMailboxName")
-  if int64(maxSizeMailboxName) < 100:
-    return err(
-      SerdeViolation(
-        kind: svkEmptyRequired,
-        path: path / "maxSizeMailboxName",
-        emptyFieldLabel: "maxSizeMailboxName (must be >= 100)",
-      )
-    )
-
-  # maxSizeAttachmentsPerEmail: required UnsignedInt
-  let msapeFld = ?fieldJInt(cap.rawData, "maxSizeAttachmentsPerEmail", path)
-  let maxSizeAttachmentsPerEmail =
-    ?UnsignedInt.fromJson(msapeFld, path / "maxSizeAttachmentsPerEmail")
-
-  # emailQuerySortOptions: required JArray of JString
-  let eqsoNode = ?fieldJArray(cap.rawData, "emailQuerySortOptions", path)
-  var opts: seq[string] = @[]
-  for i, elem in eqsoNode.getElems(@[]):
-    ?expectKind(elem, JString, path / "emailQuerySortOptions" / i)
-    opts.add(elem.getStr(""))
-  let emailQuerySortOptions = toHashSet(opts)
-
-  # mayCreateTopLevelMailbox: required JBool
-  let mctlmFld = ?fieldJBool(cap.rawData, "mayCreateTopLevelMailbox", path)
-  let mayCreateTopLevelMailbox = mctlmFld.getBool(false)
-
-  return ok(
-    MailCapabilities(
-      maxMailboxesPerEmail: maxMailboxesPerEmail,
-      maxMailboxDepth: maxMailboxDepth,
-      maxSizeMailboxName: maxSizeMailboxName,
-      maxSizeAttachmentsPerEmail: maxSizeAttachmentsPerEmail,
-      emailQuerySortOptions: emailQuerySortOptions,
-      mayCreateTopLevelMailbox: mayCreateTopLevelMailbox,
-    )
-  )
 
 # =============================================================================
 # SubmissionCapabilities
@@ -115,8 +117,35 @@ func parseSubmissionCapabilities*(
 ): Result[SubmissionCapabilities, SerdeViolation] =
   ## Parses submission capability data from a ServerCapability with kind
   ## ckSubmission. Validates field types and structure.
-  if cap.kind != ckSubmission:
-    return err(
+  case cap.kind
+  of ckSubmission:
+    ?expectKind(cap.rawData, JObject, path)
+
+    # maxDelayedSend: required UnsignedInt (0 is valid — means not supported)
+    let mdsFld = ?fieldJInt(cap.rawData, "maxDelayedSend", path)
+    let maxDelayedSend = ?UnsignedInt.fromJson(mdsFld, path / "maxDelayedSend")
+
+    # submissionExtensions: required JObject; keys are RFC 5321 esmtp-keywords,
+    # values are arrays of strings.
+    let extNode = ?fieldJObject(cap.rawData, "submissionExtensions", path)
+    var extensions = initOrderedTable[RFC5321Keyword, seq[string]]()
+    for key, val in extNode.pairs:
+      let kw = ?wrapInner(parseRFC5321Keyword(key), path / "submissionExtensions" / key)
+      ?expectKind(val, JArray, path / "submissionExtensions" / key)
+      var args: seq[string] = @[]
+      for i, elem in val.getElems(@[]):
+        ?expectKind(elem, JString, path / "submissionExtensions" / key / i)
+        args.add(elem.getStr(""))
+      extensions[kw] = args
+
+    ok(
+      SubmissionCapabilities(
+        maxDelayedSend: maxDelayedSend,
+        submissionExtensions: SubmissionExtensionMap(extensions),
+      )
+    )
+  else:
+    err(
       SerdeViolation(
         kind: svkEnumNotRecognised,
         path: path,
@@ -124,28 +153,3 @@ func parseSubmissionCapabilities*(
         rawValue: $cap.kind,
       )
     )
-  ?expectKind(cap.rawData, JObject, path)
-
-  # maxDelayedSend: required UnsignedInt (0 is valid — means not supported)
-  let mdsFld = ?fieldJInt(cap.rawData, "maxDelayedSend", path)
-  let maxDelayedSend = ?UnsignedInt.fromJson(mdsFld, path / "maxDelayedSend")
-
-  # submissionExtensions: required JObject; keys are RFC 5321 esmtp-keywords,
-  # values are arrays of strings.
-  let extNode = ?fieldJObject(cap.rawData, "submissionExtensions", path)
-  var extensions = initOrderedTable[RFC5321Keyword, seq[string]]()
-  for key, val in extNode.pairs:
-    let kw = ?wrapInner(parseRFC5321Keyword(key), path / "submissionExtensions" / key)
-    ?expectKind(val, JArray, path / "submissionExtensions" / key)
-    var args: seq[string] = @[]
-    for i, elem in val.getElems(@[]):
-      ?expectKind(elem, JString, path / "submissionExtensions" / key / i)
-      args.add(elem.getStr(""))
-    extensions[kw] = args
-
-  return ok(
-    SubmissionCapabilities(
-      maxDelayedSend: maxDelayedSend,
-      submissionExtensions: SubmissionExtensionMap(extensions),
-    )
-  )
