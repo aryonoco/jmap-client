@@ -13,6 +13,7 @@
 
 import std/json
 
+import jmap_client/envelope
 import jmap_client/identifiers
 import jmap_client/primitives
 import jmap_client/validation
@@ -121,3 +122,36 @@ block toJsonNonEmptyOnSuccessDestroyEmailEmitsWireKeyArray:
   assertLen node, 2
   assertEq node[0].getStr(""), "m-1"
   assertEq node[1].getStr(""), "#c-1"
+
+# ============= G. IdOrCreationRef vs Referencable[T] distinction =======
+
+block idOrCreationRefWireDirectIsBareString:
+  ## Direct arm serialises to the bare ``Id`` string on the wire — no
+  ## wrapping object, no prefix. Pins ``toJson(IdOrCreationRef)`` on
+  ## the ``icrDirect`` branch via the shared
+  ## ``assertIdOrCreationRefWire`` template (``JString`` kind +
+  ## byte-equal payload).
+  let v = directRef(parseId("m-1").get())
+  assertIdOrCreationRefWire(v, "m-1")
+
+block idOrCreationRefWireCreationHasHashPrefix:
+  ## Creation arm prepends ``"#"`` to the ``CreationId`` per
+  ## RFC 8620 §5.3. The prefix is a wire concern — added at
+  ## ``toJson`` time, not stored on the ``CreationId`` itself (see
+  ## ``creationRef`` docstring in ``email_submission.nim:506-510``).
+  let v = creationRef(parseCreationId("c-1").get())
+  assertIdOrCreationRefWire(v, "#c-1")
+
+block idOrCreationRefVsReferencableAreDistinctTypes:
+  ## G35 / G36: ``IdOrCreationRef`` (bare-string ``onSuccess*`` map
+  ## key, RFC 8621 §7.5 ¶3) and ``Referencable[T]`` (generic wrapper
+  ## over an inline value or a ``ResultReference`` JSON object,
+  ## RFC 8620 §3.7) share case-object shape but have disjoint wire
+  ## contracts and disjoint semantic scope. Compile-time pin guarding
+  ## against a refactor that would unify them: neither direction of
+  ## cross-assignment may typecheck.
+  let id = parseId("m-1").get()
+  assertNotCompiles:
+    let forbidden: Referencable[seq[Id]] = directRef(id)
+  assertNotCompiles:
+    let forbidden: IdOrCreationRef = direct(@[id])
