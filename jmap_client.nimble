@@ -223,8 +223,8 @@ srcDir = "src"
   ConvToBaseNotNeeded            # redundant upcast to base object
 --hintAsError:
   XDeclaredButNotUsed            # unused symbol
-# --hintAsError:
-#   ConvFromXtoItselfNotNeeded   # T(x) where x: T
+--hintAsError:
+  ConvFromXtoItselfNotNeeded     # T(x) where x: T
 # --hintAsError:
 #   Name                         # style-check violation (nimble only;
 #                                # config.nims omits to preserve testament
