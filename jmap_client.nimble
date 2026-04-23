@@ -225,10 +225,10 @@ srcDir = "src"
   XDeclaredButNotUsed            # unused symbol
 --hintAsError:
   ConvFromXtoItselfNotNeeded     # T(x) where x: T
-# --hintAsError:
-#   Name                         # style-check violation (nimble only;
-#                                # config.nims omits to preserve testament
-#                                # underscored-block exemption)
+--hintAsError:
+  Name                           # style-check violation (nimble only;
+                                 # config.nims omits to preserve testament
+                                 # underscored-block exemption)
 --floatChecks:
   on
 --overflowChecks:
