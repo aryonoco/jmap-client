@@ -11,6 +11,7 @@ tests/compliance/tno_asserts_in_src.nim
 tests/stress/tadversarial_blueprint.nim
 tests/stress/tadversarial_mail_f.nim
 tests/property/tprop_mail_e.nim
+tests/property/tprop_mail_g.nim
 
 # -- Slow joinable tests (individual wall-clock > 2s) --
 
