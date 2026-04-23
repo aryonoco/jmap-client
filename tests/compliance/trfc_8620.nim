@@ -25,6 +25,8 @@ import jmap_client/serde_errors
 import jmap_client/serde_framework
 import jmap_client/serde_session
 
+import jmap_client
+
 import ../massertions
 import ../mfixtures
 
@@ -1746,3 +1748,104 @@ block rfc8620_conformance_requestErrorFirstCharCaseSensitive:
   ## First character IS case-sensitive for URIs too.
   ## 'U' vs 'u' in "urn:" -> retUnknown.
   doAssert parseRequestErrorType("Urn:ietf:params:jmap:error:limit") == retUnknown
+
+# =============================================================================
+# RFC 8621 §7 — constraint-table compile-time traceability anchor (§8.10)
+# =============================================================================
+
+block rfc8621Section7ConstraintTableCompileTimeAnchor:
+  ## Single audit-walk stop for the G2 §8.10 traceability matrix: every
+  ## row of RFC 8621 §7 (plus the §1.3.2 submission capability rows)
+  ## names a Nim type that MUST be reachable at compile time. A rename,
+  ## un-export, or accidental removal fails this file at compile.
+  ##
+  ## Complements ``tcompile_mail_g_public_surface.nim`` (organised by
+  ## module) and the shipped ``rfc8621_submissionErrorsClassified``
+  ## block above (which pins three of the eight SetError variants at
+  ## runtime via parseSetErrorType). The static: block below pins every
+  ## other row by ``declared()``.
+  static:
+    # §1.3.2 — submission capability surface (G25).
+    doAssert declared(SubmissionCapabilities)
+    doAssert declared(SubmissionExtensionMap)
+
+    # §7 ¶3 — identityId, emailId, threadId are Id references.
+    doAssert declared(Id)
+
+    # §7 ¶4 — envelope is Opt on the blueprint; entity carries it too.
+    doAssert declared(Envelope)
+    doAssert declared(EmailSubmissionBlueprint)
+
+    # §7 ¶5 — envelope.mailFrom is ReversePath (null|mailbox); rcptTo
+    # is NonEmptyRcptList; Address.email is RFC5321Mailbox;
+    # Address.parameters is Opt[SubmissionParams] keyed by
+    # SubmissionParamKey / RFC5321Keyword.
+    doAssert declared(ReversePath)
+    doAssert declared(ReversePathKind)
+    doAssert declared(NonEmptyRcptList)
+    doAssert declared(SubmissionAddress)
+    doAssert declared(RFC5321Mailbox)
+    doAssert declared(SubmissionParams)
+    doAssert declared(SubmissionParam)
+    doAssert declared(SubmissionParamKind)
+    doAssert declared(SubmissionParamKey)
+    doAssert declared(RFC5321Keyword)
+
+    # §7 ¶7 — UndoStatus closed enum; phantom-typed pending->canceled
+    # transition realised via cancelUpdate(EmailSubmission[usPending]).
+    # The typed gate is the load-bearing pin — compiles on pending,
+    # rejected on final and canceled.
+    doAssert declared(UndoStatus)
+    doAssert declared(EmailSubmission)
+    doAssert declared(AnyEmailSubmission)
+    doAssert compiles(cancelUpdate(default(EmailSubmission[usPending])))
+    doAssert not compiles(cancelUpdate(default(EmailSubmission[usFinal])))
+    doAssert not compiles(cancelUpdate(default(EmailSubmission[usCanceled])))
+
+    # §7 ¶8 — DeliveryStatusMap keyed by RFC5321Mailbox; DeliveredState
+    # and DisplayedState closed enums with Other catch-all; SmtpReply.
+    doAssert declared(DeliveryStatus)
+    doAssert declared(DeliveryStatusMap)
+    doAssert declared(DeliveredState)
+    doAssert declared(ParsedDeliveredState)
+    doAssert declared(DisplayedState)
+    doAssert declared(ParsedDisplayedState)
+    doAssert declared(SmtpReply)
+
+    # §7 ¶9 — dsnBlobIds / mdnBlobIds are seq[BlobId] on entity.
+    doAssert declared(BlobId)
+
+    # §7.5 ¶1 — only undoStatus is updatable post-create; single-
+    # variant EmailSubmissionUpdate gates the surface.
+    doAssert declared(EmailSubmissionUpdate)
+    doAssert declared(EmailSubmissionUpdateVariantKind)
+    doAssert declared(NonEmptyEmailSubmissionUpdates)
+
+    # §7.5 ¶3 — onSuccessUpdateEmail / onSuccessDestroyEmail apply on
+    # set/create success; IdOrCreationRef admits direct-id and
+    # creation-ref arms.
+    doAssert declared(IdOrCreationRef)
+    doAssert declared(NonEmptyIdSeq)
+
+    # §7.5 ¶5-¶6 — eight submission-specific SetError variants. The
+    # shipped rfc8621_submissionErrorsClassified block pins three via
+    # parseSetErrorType; declared() pins every enum value at compile.
+    doAssert declared(SetError)
+    doAssert declared(SetErrorType)
+    doAssert declared(setInvalidEmail)
+    doAssert declared(setTooManyRecipients)
+    doAssert declared(setNoRecipients)
+    doAssert declared(setInvalidRecipients)
+    doAssert declared(setForbiddenMailFrom)
+    doAssert declared(setForbiddenFrom)
+    doAssert declared(setForbiddenToSend)
+    doAssert declared(setCannotUnsend)
+
+    # Query/sort surface is toJson-only per G22/G26 client->server
+    # contract; the TYPES must still be reachable.
+    doAssert declared(EmailSubmissionFilterCondition)
+    doAssert declared(EmailSubmissionComparator)
+    doAssert declared(EmailSubmissionSortProperty)
+
+    # §7.4 / cross-entity create-and-get idiom.
+    doAssert declared(EmailSubmissionHandles)
