@@ -43,7 +43,12 @@ const Guarded: seq[tuple[field, disc, variant: string]] = @[
   ("rejectedName", "constraint", "ebcAllowedFormRejected"),
   ("rejectedForm", "constraint", "ebcAllowedFormRejected"),
   ("subParts", "isMultipart", "true"),
-  ("source", "isMultipart", "false"),
+  ("leaf", "isMultipart", "false"),
+  # BlueprintLeafPart variant fields — discriminator is ``source``.
+  # The outer ``leaf`` is itself a variant field of BlueprintBodyPart
+  # gated on ``isMultipart == false`` (above). Inside the ``of false:``
+  # arm, ``leaf`` becomes accessible and its own ``source`` discriminator
+  # gates the remaining leaf-specific fields.
   ("partId", "source", "bpsInline"),
   ("value", "source", "bpsInline"),
   ("blobId", "source", "bpsBlobRef"),

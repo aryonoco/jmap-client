@@ -210,11 +210,16 @@ proc collectInlineLeafPartIds(part: BlueprintBodyPart): seq[PartId] =
   ## Parallels ``collectInlineValues`` in ``email_blueprint.nim`` —
   ## property 92 uses this as the oracle against the real accessor.
   result = @[]
-  if part.isMultipart:
+  case part.isMultipart
+  of true:
     for c in part.subParts:
       result.add collectInlineLeafPartIds(c)
-  elif part.source == bpsInline:
-    result.add part.partId
+  of false:
+    case part.leaf.source
+    of bpsInline:
+      result.add part.leaf.partId
+    of bpsBlobRef:
+      discard
 
 proc harvestInlinePartIds(bp: EmailBlueprint): seq[PartId] =
   ## Dispatches ``collectInlineLeafPartIds`` across whichever

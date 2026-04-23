@@ -82,8 +82,7 @@ immediately after its `{.push raises: ...}` pragma. Under strict, the
 `FieldDefect` runtime check is replaced by a compile-time proof
 obligation: every variant-field read must occur in a `case` branch
 that provably matches the field's declaration. Four empirical rules
-govern acceptance, confirmed against `guards.nim` / `sempass2.nim` in
-the Nim compiler source and minimal experiments.
+govern acceptance.
 
 ### Rule 1 — Case, not if
 
