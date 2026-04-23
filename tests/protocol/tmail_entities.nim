@@ -27,6 +27,8 @@ import jmap_client/mail/mail_filters
 import jmap_client/mail/serde_mail_filters
 import jmap_client/mail/mail_entities
 import jmap_client/mail/mail_builders
+import jmap_client/mail/email_submission
+import jmap_client/mail/serde_email_submission
 
 import ../massertions
 import ../mfixtures
@@ -306,3 +308,31 @@ block emailThreadCapabilityDedup:
   let caps = b2.capabilities
   assertLen caps, 1
   assertEq caps[0], "urn:ietf:params:jmap:mail"
+
+# ===========================================================================
+# M. EmailSubmission entity registration (G2 §8.4)
+# ===========================================================================
+
+block emailSubmissionEntityRegisteredWithSubmissionCapability:
+  ## G2 §8.4: anchor the ``AnyEmailSubmission`` registration surface — entity
+  ## tag, capability URI, and every ``EmailSubmission/*`` method name — plus
+  ## a smoke probe that ``toJson(EmailSubmissionFilterCondition)`` resolves.
+  ## Mirrors ``mailboxOverloadValues`` / ``emailOverloadValues`` /
+  ## ``identityOverloadValues`` above. The phantom-indexed ``EmailSubmission[S]``
+  ## cannot serve as a typedesc argument (G2/G3), so registration is keyed on
+  ## the existential wrapper ``AnyEmailSubmission`` per mail_entities.nim:291.
+  assertEq methodEntity(AnyEmailSubmission), meEmailSubmission
+  assertEq capabilityUri(AnyEmailSubmission), "urn:ietf:params:jmap:submission"
+  assertEq getMethodName(AnyEmailSubmission), mnEmailSubmissionGet
+  assertEq changesMethodName(AnyEmailSubmission), mnEmailSubmissionChanges
+  assertEq setMethodName(AnyEmailSubmission), mnEmailSubmissionSet
+  assertEq queryMethodName(AnyEmailSubmission), mnEmailSubmissionQuery
+  assertEq queryChangesMethodName(AnyEmailSubmission), mnEmailSubmissionQueryChanges
+
+  # toJson(EmailSubmissionFilterCondition) surface — all fields Opt.none
+  # serialises to `{}`; we only pin that the call resolves and produces a
+  # JSON object (actual sparse-emission semantics are pinned in
+  # tserde_email_submission.nim `filterConditionAllFieldsPopulated`).
+  let filter = EmailSubmissionFilterCondition()
+  let jn = filter.toJson()
+  doAssert jn.kind == JObject
