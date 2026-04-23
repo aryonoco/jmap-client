@@ -9,6 +9,7 @@
 ## overloads in scope automatically.
 
 {.push raises: [], noSideEffect.}
+{.experimental: "strictCaseObjects".}
 
 import std/tables
 

@@ -7,6 +7,7 @@
 ## model with a smart constructor enforcing non-empty email.
 
 {.push raises: [], noSideEffect.}
+{.experimental: "strictCaseObjects".}
 
 import std/tables
 

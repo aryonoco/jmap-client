@@ -6,6 +6,7 @@
 ## responses). Design doc §8.
 
 {.push raises: [], noSideEffect.}
+{.experimental: "strictCaseObjects".}
 
 import std/json
 

@@ -8,6 +8,7 @@
 ## (Decision D14).
 
 {.push raises: [], noSideEffect.}
+{.experimental: "strictCaseObjects".}
 
 import std/sets
 import std/tables

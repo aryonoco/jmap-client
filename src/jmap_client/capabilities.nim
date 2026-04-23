@@ -5,6 +5,7 @@
 ## typed enums with lossless round-trip for vendor extensions.
 
 {.push raises: [], noSideEffect.}
+{.experimental: "strictCaseObjects".}
 
 import std/strutils
 import std/sets

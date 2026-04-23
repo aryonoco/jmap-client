@@ -1103,9 +1103,7 @@ proc makeBlueprintBodyPartInline*(
 ): BlueprintBodyPart =
   BlueprintBodyPart(
     isMultipart: false,
-    source: bpsInline,
-    partId: partId,
-    value: value,
+    leaf: BlueprintLeafPart(source: bpsInline, partId: partId, value: value),
     contentType: contentType,
     extraHeaders: extraHeaders,
     name: Opt.none(string),
@@ -1124,10 +1122,12 @@ proc makeBlueprintBodyPartBlobRef*(
 ): BlueprintBodyPart =
   BlueprintBodyPart(
     isMultipart: false,
-    source: bpsBlobRef,
-    blobId: blobId,
-    size: Opt.none(UnsignedInt),
-    charset: Opt.none(string),
+    leaf: BlueprintLeafPart(
+      source: bpsBlobRef,
+      blobId: blobId,
+      size: Opt.none(UnsignedInt),
+      charset: Opt.none(string),
+    ),
     contentType: contentType,
     extraHeaders: extraHeaders,
     name: Opt.none(string),
@@ -1442,35 +1442,52 @@ proc blueprintBodyPartOptFieldsEq(a, b: BlueprintBodyPart): bool =
   a.name == b.name and a.disposition == b.disposition and a.cid == b.cid and
     a.language == b.language and a.location == b.location
 
-proc blueprintBodyPartLeafEq(a, b: BlueprintBodyPart): bool =
+proc blueprintLeafPartEq(a, b: BlueprintLeafPart): bool =
   ## Leaf variant equality: ``source`` discriminant plus the
-  ## variant-specific identifier fields.
-  if a.source != b.source:
-    return false
+  ## variant-specific identifier fields. Takes the extracted
+  ## ``BlueprintLeafPart`` directly (no outer ``isMultipart`` context
+  ## needed).
   case a.source
   of bpsInline:
-    a.partId == b.partId and a.value == b.value
+    case b.source
+    of bpsInline:
+      a.partId == b.partId and a.value == b.value
+    of bpsBlobRef:
+      false
   of bpsBlobRef:
-    a.blobId == b.blobId and a.size == b.size and a.charset == b.charset
+    case b.source
+    of bpsInline:
+      false
+    of bpsBlobRef:
+      a.blobId == b.blobId and a.size == b.size and a.charset == b.charset
 
 # K-5 ------------------------------------------------------------------------
 proc blueprintBodyPartEq*(a, b: BlueprintBodyPart): bool =
   ## Recursive case-object equality. Delegates shared fields to the two
-  ## sub-helpers and leaf variants to ``blueprintBodyPartLeafEq``,
+  ## sub-helpers and leaf variants to ``blueprintLeafPartEq``,
   ## keeping each helper under the nimalyzer complexity budget.
   if not blueprintBodyPartCoreFieldsEq(a, b):
     return false
   if not blueprintBodyPartOptFieldsEq(a, b):
     return false
-  if a.isMultipart:
-    if a.subParts.len != b.subParts.len:
-      return false
-    for i in 0 ..< a.subParts.len:
-      if not blueprintBodyPartEq(a.subParts[i], b.subParts[i]):
+  case a.isMultipart
+  of true:
+    case b.isMultipart
+    of true:
+      if a.subParts.len != b.subParts.len:
         return false
-    true
-  else:
-    blueprintBodyPartLeafEq(a, b)
+      for i in 0 ..< a.subParts.len:
+        if not blueprintBodyPartEq(a.subParts[i], b.subParts[i]):
+          return false
+      true
+    of false:
+      false
+  of false:
+    case b.isMultipart
+    of true:
+      false
+    of false:
+      blueprintLeafPartEq(a.leaf, b.leaf)
 
 # K-4 sub-helpers ------------------------------------------------------------
 

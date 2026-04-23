@@ -4,6 +4,7 @@
 ## Serialisation for header sub-types (RFC 8621 section 4.1.2).
 
 {.push raises: [], noSideEffect.}
+{.experimental: "strictCaseObjects".}
 
 import std/json
 

@@ -5,6 +5,7 @@
 ## accounts, URI templates, and the Session aggregate with structural validation.
 
 {.push raises: [], noSideEffect.}
+{.experimental: "strictCaseObjects".}
 
 import std/hashes
 import std/parseutils
@@ -197,15 +198,23 @@ type UriTemplateViolation {.ruleOff: "objects".} = object
 
 func toValidationError(v: UriTemplateViolation, raw: string): ValidationError =
   ## Sole domain-to-wire translator for ``UriTemplateViolation``.
+  ##
+  ## Use-site case must mirror the declaration's branch combination:
+  ## ``utkUnmatchedOpenBrace`` and ``utkEmptyVariable`` share a branch
+  ## on the type (both carry ``position``), so they must share one ``of``
+  ## arm here too. Strict rejects split-of-arms when the declaration
+  ## combines them — the inner ``if v.kind == ...`` discriminates between
+  ## the two without triggering another field-access check.
   case v.kind
   of utkEmpty:
     validationError("UriTemplate", "must not be empty", raw)
-  of utkUnmatchedOpenBrace:
-    validationError("UriTemplate", "unmatched '{' at position " & $v.position, raw)
-  of utkEmptyVariable:
-    validationError(
-      "UriTemplate", "empty variable '{}' at position " & $v.position, raw
-    )
+  of utkUnmatchedOpenBrace, utkEmptyVariable:
+    if v.kind == utkUnmatchedOpenBrace:
+      validationError("UriTemplate", "unmatched '{' at position " & $v.position, raw)
+    else:
+      validationError(
+        "UriTemplate", "empty variable '{}' at position " & $v.position, raw
+      )
   of utkInvalidVariableChar:
     validationError(
       "UriTemplate",

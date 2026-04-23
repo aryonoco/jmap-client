@@ -14,6 +14,7 @@
 ## Design authority: ``docs/design/12-mail-G1-design.md`` §2.5.
 
 {.push raises: [], noSideEffect.}
+{.experimental: "strictCaseObjects".}
 
 import ../validation
 
@@ -75,13 +76,22 @@ func `==`*(a, b: ReversePath): bool =
   ## derived ``==`` on a case object fails with the parallel-fields-iterator
   ## compile error; this dispatches on the shared discriminator and compares
   ## only the fields valid for the matched arm. Mirrors ``SubmissionParam.==``.
-  if a.kind != b.kind:
-    return false
+  ##
+  ## Nested case on both operands — strict doesn't carry ``a.kind ==
+  ## b.kind`` across the outer branches.
   case a.kind
   of rpkNullPath:
-    a.nullPathParams == b.nullPathParams
+    case b.kind
+    of rpkNullPath:
+      a.nullPathParams == b.nullPathParams
+    of rpkMailbox:
+      false
   of rpkMailbox:
-    a.sender == b.sender
+    case b.kind
+    of rpkNullPath:
+      false
+    of rpkMailbox:
+      a.sender == b.sender
 
 func `==`*(a, b: NonEmptyRcptList): bool {.borrow.}
   ## Element-wise equality delegated to the underlying seq.

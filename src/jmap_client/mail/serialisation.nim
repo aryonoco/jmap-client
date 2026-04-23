@@ -5,6 +5,7 @@
 ## single module to access every mail toJson/fromJson pair.
 
 {.push raises: [], noSideEffect.}
+{.experimental: "strictCaseObjects".}
 
 import ./serde_addresses
 import ./serde_thread

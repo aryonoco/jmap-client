@@ -6,6 +6,7 @@
 ## (RFC 8620 section 2).
 
 {.push raises: [], noSideEffect.}
+{.experimental: "strictCaseObjects".}
 
 import std/json
 import std/sets

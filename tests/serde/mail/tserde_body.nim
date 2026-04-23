@@ -459,9 +459,9 @@ block bpInlineLeaf: # scenario 119
     contentType: "text/plain",
     extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
     isMultipart: false,
-    source: bpsInline,
-    partId: PartId("1"),
-    value: BlueprintBodyValue(value: ""),
+    leaf: BlueprintLeafPart(
+      source: bpsInline, partId: PartId("1"), value: BlueprintBodyValue(value: "")
+    ),
   )
   let node = bp.toJson()
   assertJsonFieldEq node, "type", %"text/plain"
@@ -476,10 +476,12 @@ block bpBlobRefLeaf: # scenario 120
     contentType: "image/png",
     extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
     isMultipart: false,
-    source: bpsBlobRef,
-    blobId: BlobId("abc123"),
-    size: Opt.some(UnsignedInt(5678)),
-    charset: Opt.some("utf-8"),
+    leaf: BlueprintLeafPart(
+      source: bpsBlobRef,
+      blobId: BlobId("abc123"),
+      size: Opt.some(UnsignedInt(5678)),
+      charset: Opt.some("utf-8"),
+    ),
   )
   let node = bp.toJson()
   assertJsonFieldEq node, "type", %"image/png"
@@ -490,10 +492,12 @@ block bpBlobRefBothPresent: # scenario 121
     contentType: "image/png",
     extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
     isMultipart: false,
-    source: bpsBlobRef,
-    blobId: BlobId("abc"),
-    size: Opt.some(UnsignedInt(100)),
-    charset: Opt.some("binary"),
+    leaf: BlueprintLeafPart(
+      source: bpsBlobRef,
+      blobId: BlobId("abc"),
+      size: Opt.some(UnsignedInt(100)),
+      charset: Opt.some("binary"),
+    ),
   )
   let node = bp.toJson()
   doAssert node{"charset"} != nil
@@ -504,10 +508,12 @@ block bpBlobRefBothAbsent: # scenario 122
     contentType: "image/png",
     extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
     isMultipart: false,
-    source: bpsBlobRef,
-    blobId: BlobId("abc"),
-    size: Opt.none(UnsignedInt),
-    charset: Opt.none(string),
+    leaf: BlueprintLeafPart(
+      source: bpsBlobRef,
+      blobId: BlobId("abc"),
+      size: Opt.none(UnsignedInt),
+      charset: Opt.none(string),
+    ),
   )
   let node = bp.toJson()
   doAssert node{"charset"} == nil, "charset should be absent"
@@ -518,9 +524,9 @@ block bpMultipart: # scenario 123
     contentType: "text/plain",
     extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
     isMultipart: false,
-    source: bpsInline,
-    partId: PartId("1"),
-    value: BlueprintBodyValue(value: ""),
+    leaf: BlueprintLeafPart(
+      source: bpsInline, partId: PartId("1"), value: BlueprintBodyValue(value: "")
+    ),
   )
   let bp = BlueprintBodyPart(
     contentType: "multipart/mixed",
@@ -539,9 +545,9 @@ block bpDepthLimit: # scenario 124
     contentType: "text/plain",
     extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
     isMultipart: false,
-    source: bpsInline,
-    partId: PartId("1"),
-    value: BlueprintBodyValue(value: ""),
+    leaf: BlueprintLeafPart(
+      source: bpsInline, partId: PartId("1"), value: BlueprintBodyValue(value: "")
+    ),
   )
   for i in 0 ..< 200:
     bp = BlueprintBodyPart(
@@ -561,9 +567,9 @@ block bpInlineKeyAbsence: # scenario 126
     contentType: "text/plain",
     extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
     isMultipart: false,
-    source: bpsInline,
-    partId: PartId("1"),
-    value: BlueprintBodyValue(value: ""),
+    leaf: BlueprintLeafPart(
+      source: bpsInline, partId: PartId("1"), value: BlueprintBodyValue(value: "")
+    ),
   )
   let node = bp.toJson()
   # Keys must be absent (not null, not present)
@@ -579,9 +585,9 @@ block bpExtraHeaders: # scenario 127
     contentType: "text/plain",
     extraHeaders: headers,
     isMultipart: false,
-    source: bpsInline,
-    partId: PartId("1"),
-    value: BlueprintBodyValue(value: ""),
+    leaf: BlueprintLeafPart(
+      source: bpsInline, partId: PartId("1"), value: BlueprintBodyValue(value: "")
+    ),
   )
   let node = bp.toJson()
   doAssert node{"header:x-custom:asText"} != nil
@@ -596,9 +602,9 @@ block bpExtraHeadersHfRaw: # scenario 127a
     contentType: "text/plain",
     extraHeaders: headers,
     isMultipart: false,
-    source: bpsInline,
-    partId: PartId("1"),
-    value: BlueprintBodyValue(value: ""),
+    leaf: BlueprintLeafPart(
+      source: bpsInline, partId: PartId("1"), value: BlueprintBodyValue(value: "")
+    ),
   )
   let node = bp.toJson()
   # Key should be "header:x-custom" (no ":asRaw" — hfRaw suppressed).
@@ -610,9 +616,9 @@ block bpEmptyExtraHeaders: # scenario 128
     contentType: "text/plain",
     extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
     isMultipart: false,
-    source: bpsInline,
-    partId: PartId("1"),
-    value: BlueprintBodyValue(value: ""),
+    leaf: BlueprintLeafPart(
+      source: bpsInline, partId: PartId("1"), value: BlueprintBodyValue(value: "")
+    ),
   )
   let node = bp.toJson()
   # Only standard keys should be present
@@ -635,9 +641,9 @@ block bpNestedMultipart: # scenario 130
     contentType: "text/plain",
     extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
     isMultipart: false,
-    source: bpsInline,
-    partId: PartId("1"),
-    value: BlueprintBodyValue(value: ""),
+    leaf: BlueprintLeafPart(
+      source: bpsInline, partId: PartId("1"), value: BlueprintBodyValue(value: "")
+    ),
   )
   let inner = BlueprintBodyPart(
     contentType: "multipart/alternative",
@@ -664,18 +670,20 @@ block bpMixedChildren: # scenario 130a
     contentType: "text/plain",
     extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
     isMultipart: false,
-    source: bpsInline,
-    partId: PartId("1"),
-    value: BlueprintBodyValue(value: ""),
+    leaf: BlueprintLeafPart(
+      source: bpsInline, partId: PartId("1"), value: BlueprintBodyValue(value: "")
+    ),
   )
   let blobRef = BlueprintBodyPart(
     contentType: "image/png",
     extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
     isMultipart: false,
-    source: bpsBlobRef,
-    blobId: BlobId("abc"),
-    size: Opt.none(UnsignedInt),
-    charset: Opt.none(string),
+    leaf: BlueprintLeafPart(
+      source: bpsBlobRef,
+      blobId: BlobId("abc"),
+      size: Opt.none(UnsignedInt),
+      charset: Opt.none(string),
+    ),
   )
   let mp = BlueprintBodyPart(
     contentType: "multipart/mixed",
@@ -695,10 +703,12 @@ block bpBlobRefBothOptAbsent: # scenario 131
     contentType: "image/png",
     extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
     isMultipart: false,
-    source: bpsBlobRef,
-    blobId: BlobId("abc"),
-    size: Opt.none(UnsignedInt),
-    charset: Opt.none(string),
+    leaf: BlueprintLeafPart(
+      source: bpsBlobRef,
+      blobId: BlobId("abc"),
+      size: Opt.none(UnsignedInt),
+      charset: Opt.none(string),
+    ),
   )
   let node = bp.toJson()
   doAssert "charset" notin node

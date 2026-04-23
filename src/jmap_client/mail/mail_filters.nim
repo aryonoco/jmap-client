@@ -10,6 +10,7 @@
 ## three-state null semantics.
 
 {.push raises: [], noSideEffect.}
+{.experimental: "strictCaseObjects".}
 
 import ../validation
 import ../primitives

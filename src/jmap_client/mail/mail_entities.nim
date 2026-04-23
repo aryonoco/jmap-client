@@ -13,6 +13,7 @@
 ## undeclared-identifier compile error instead of at the server.
 
 {.push raises: [], noSideEffect.}
+{.experimental: "strictCaseObjects".}
 
 import std/json
 

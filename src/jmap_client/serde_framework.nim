@@ -5,6 +5,7 @@
 ## Filter[C], and AddedItem (RFC 8620 sections 5.5, 5.6).
 
 {.push raises: [], noSideEffect.}
+{.experimental: "strictCaseObjects".}
 
 import std/json
 

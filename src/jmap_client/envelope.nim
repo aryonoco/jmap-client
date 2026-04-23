@@ -6,6 +6,7 @@
 ## Referencable[T] variant for back-reference support.
 
 {.push raises: [], noSideEffect.}
+{.experimental: "strictCaseObjects".}
 
 import std/tables
 from std/json import JsonNode

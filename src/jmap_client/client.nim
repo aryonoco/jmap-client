@@ -7,6 +7,7 @@
 ## thread (architecture §4.3).
 
 {.push raises: [].}
+{.experimental: "strictCaseObjects".}
 
 import std/httpclient
 import std/json
@@ -90,14 +91,16 @@ func toValidationError(v: JmapClientViolation): ValidationError =
   case v.kind
   of jcvEmptySessionUrl:
     validationError("JmapClient", "sessionUrl must not be empty", "")
-  of jcvSessionUrlBadScheme:
-    validationError(
-      "JmapClient", "sessionUrl must start with https:// or http://", v.sessionUrl
-    )
-  of jcvSessionUrlControlChar:
-    validationError(
-      "JmapClient", "sessionUrl must not contain newline characters", v.sessionUrl
-    )
+  of jcvSessionUrlBadScheme, jcvSessionUrlControlChar:
+    # Combined of-arm mirrors the declaration; inner if discriminates.
+    if v.kind == jcvSessionUrlBadScheme:
+      validationError(
+        "JmapClient", "sessionUrl must start with https:// or http://", v.sessionUrl
+      )
+    else:
+      validationError(
+        "JmapClient", "sessionUrl must not contain newline characters", v.sessionUrl
+      )
   of jcvEmptyBearerToken:
     validationError("JmapClient", "bearerToken must not be empty", "")
   of jcvTimeoutTooLow:
@@ -112,10 +115,12 @@ func toValidationError(v: JmapClientViolation): ValidationError =
     validationError("JmapClient", "failed to create HTTP client", "")
   of jcvEmptyDomain:
     validationError("JmapClient", "domain must not be empty", "")
-  of jcvDomainWhitespace:
-    validationError("JmapClient", "domain must not contain whitespace", v.domain)
-  of jcvDomainSlash:
-    validationError("JmapClient", "domain must not contain '/'", v.domain)
+  of jcvDomainWhitespace, jcvDomainSlash:
+    # Combined of-arm mirrors the declaration; inner if discriminates.
+    if v.kind == jcvDomainWhitespace:
+      validationError("JmapClient", "domain must not contain whitespace", v.domain)
+    else:
+      validationError("JmapClient", "domain must not contain '/'", v.domain)
 
 func detectSessionUrl(sessionUrl: string): Result[void, JmapClientViolation] =
   ## Structural validation of the JMAP session URL: non-empty, https:// or
@@ -603,7 +608,18 @@ proc send*(client: var JmapClient, request: Request): JmapResult[envelope.Respon
   # Step 1: Ensure session available (may trigger IO)
   if client.session.isNone:
     discard ?client.fetchSession()
-  let session = client.session.get()
+  # Let-bind client.session into an immutable Opt so overload resolution
+  # picks the non-var `get` template (strict-safe). The `valueOr:` block
+  # produces a defined error path instead of the Defect that `.get()` would
+  # raise if the invariant were violated — critical for the FFI boundary
+  # (--panics:on would rawQuit(1) the host process on a Defect).
+  let sessionOpt = client.session
+  let session = sessionOpt.valueOr:
+    return err(
+      clientError(
+        transportError(tekNetwork, "session unavailable after fetchSession succeeded")
+      )
+    )
   let coreCaps = session.coreCapabilities()
 
   # Step 2: Pre-flight validation

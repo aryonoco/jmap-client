@@ -42,9 +42,11 @@ block blueprintBodyPartInlineRequiresValue: # §6.1.6 scenario 41
   # branch-crossing form is the stricter structural check.)
   assertNotCompiles BlueprintBodyPart(
     isMultipart: false,
-    source: bpsBlobRef,
-    blobId: makeBlobId("b1"),
-    value: BlueprintBodyValue(value: "x"),
+    leaf: BlueprintLeafPart(
+      source: bpsBlobRef,
+      blobId: makeBlobId("b1"),
+      value: BlueprintBodyValue(value: "x"),
+    ),
   )
 
 block headerKeyCrossContextRejected: # §6.1.6 scenario 42

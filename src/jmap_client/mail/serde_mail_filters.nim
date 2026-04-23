@@ -6,6 +6,7 @@
 ## toJson only — filter conditions flow client-to-server only (Decision B11).
 
 {.push raises: [], noSideEffect.}
+{.experimental: "strictCaseObjects".}
 
 import std/json
 

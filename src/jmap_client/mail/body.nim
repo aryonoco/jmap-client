@@ -6,6 +6,7 @@
 ## and BlueprintBodyPart (creation model).
 
 {.push raises: [], noSideEffect.}
+{.experimental: "strictCaseObjects".}
 
 import std/hashes
 import std/sequtils
@@ -102,13 +103,21 @@ func `$`*(d: ContentDisposition): string =
 func `==`*(a, b: ContentDisposition): bool =
   ## Structural equality. Two values are equal iff their kinds agree and,
   ## for ``cdExtension``, their raw identifiers match byte-for-byte.
-  if a.rawKind != b.rawKind:
-    return false
+  ##
+  ## Nested case on both operands for strictCaseObjects compatibility.
   case a.rawKind
   of cdExtension:
-    return a.rawIdentifier == b.rawIdentifier
+    case b.rawKind
+    of cdExtension:
+      a.rawIdentifier == b.rawIdentifier
+    of cdInline, cdAttachment:
+      false
   of cdInline, cdAttachment:
-    return true
+    case b.rawKind
+    of cdExtension:
+      false
+    of cdInline, cdAttachment:
+      a.rawKind == b.rawKind
 
 func hash*(d: ContentDisposition): Hash =
   ## Hash mixing the kind ordinal with the raw identifier for
@@ -211,10 +220,31 @@ type BlueprintPartSource* = enum
 # BlueprintBodyPart
 # =============================================================================
 
+type BlueprintLeafPart* {.ruleOff: "objects".} = object
+  ## The content half of a non-multipart ``BlueprintBodyPart``. Extracted
+  ## from what was previously an inner case-object branch of
+  ## ``BlueprintBodyPart`` so strict-flow-analysis can track each
+  ## discriminator independently: the outer ``BlueprintBodyPart.isMultipart``
+  ## and the inner ``BlueprintLeafPart.source``.
+  ##
+  ## Nim's strictCaseObjects flow analysis does not propagate nested
+  ## case-object facts (empirically verified — see CLAUDE.md under the
+  ## strict section). Hoisting the inner case into its own type is the
+  ## structural fix.
+  case source*: BlueprintPartSource
+  of bpsInline:
+    partId*: PartId ## Co-located reference to the body value (R3-3).
+    value*: BlueprintBodyValue ## Co-located content (Design §5.1, R3-3).
+  of bpsBlobRef:
+    blobId*: BlobId
+    size*: Opt[UnsignedInt] ## Optional, ignored by server.
+    charset*: Opt[string]
+
 type BlueprintBodyPart* {.ruleOff: "objects".} = object
-  ## Body structure for Email creation (RFC 8621 §4.6). Nested case object:
-  ## outer ``isMultipart`` separates containers from leaves; inner ``source``
-  ## separates inline from blob-referenced parts.
+  ## Body structure for Email creation (RFC 8621 §4.6). The outer
+  ## ``isMultipart`` separates containers from leaves; leaves carry a
+  ## ``BlueprintLeafPart`` whose own case discriminates inline vs
+  ## blob-referenced content.
   contentType*: string
   name*: Opt[string]
   disposition*: Opt[ContentDisposition]
@@ -226,11 +256,4 @@ type BlueprintBodyPart* {.ruleOff: "objects".} = object
   of true:
     subParts*: seq[BlueprintBodyPart] ## Recursive children.
   of false:
-    case source*: BlueprintPartSource
-    of bpsInline:
-      partId*: PartId ## Co-located reference to the body value (R3-3).
-      value*: BlueprintBodyValue ## Co-located content (Design §5.1, R3-3).
-    of bpsBlobRef:
-      blobId*: BlobId
-      size*: Opt[UnsignedInt] ## Optional, ignored by server.
-      charset*: Opt[string]
+    leaf*: BlueprintLeafPart

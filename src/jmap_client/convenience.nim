@@ -19,6 +19,7 @@
 ## from the core API.
 
 {.push raises: [], noSideEffect.}
+{.experimental: "strictCaseObjects".}
 
 import ./types
 import ./methods

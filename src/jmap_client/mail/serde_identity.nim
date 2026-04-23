@@ -4,6 +4,7 @@
 ## Serialisation for Identity entity (RFC 8621 section 6).
 
 {.push raises: [], noSideEffect.}
+{.experimental: "strictCaseObjects".}
 
 import std/json
 

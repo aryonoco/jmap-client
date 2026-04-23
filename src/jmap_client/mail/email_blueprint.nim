@@ -12,6 +12,7 @@
 ## and the derived ``bodyValues`` accessor. Layer 1 — pure and total.
 
 {.push raises: [], noSideEffect.}
+{.experimental: "strictCaseObjects".}
 
 import std/hashes
 import std/sets
@@ -89,15 +90,28 @@ type BodyPartLocation* = object
 func `==`*(a, b: BodyPartLocation): bool =
   ## Hand-rolled equality: auto-``==`` uses a parallel ``fields`` iterator
   ## that refuses case objects. Discriminant-first, then variant-specific.
-  if a.kind != b.kind:
-    return false
+  ##
+  ## Nested case on both operands for strictCaseObjects — b's discriminator
+  ## must be proved independently of a's.
   case a.kind
   of bplInline:
-    a.partId == b.partId
+    case b.kind
+    of bplInline:
+      a.partId == b.partId
+    of bplBlobRef, bplMultipart:
+      false
   of bplBlobRef:
-    a.blobId == b.blobId
+    case b.kind
+    of bplBlobRef:
+      a.blobId == b.blobId
+    of bplInline, bplMultipart:
+      false
   of bplMultipart:
-    a.path == b.path
+    case b.kind
+    of bplMultipart:
+      a.path == b.path
+    of bplInline, bplBlobRef:
+      false
 
 # =============================================================================
 # EmailBlueprintConstraint / EmailBlueprintError
@@ -146,23 +160,51 @@ func `==`*(a, b: EmailBlueprintError): bool =
   ## variant-specific payload fields. Required because Nim's auto-``==``
   ## relies on a parallel ``fields`` iterator that cannot traverse case
   ## objects (same rationale as ``BodyPartLocation.==``).
-  if a.constraint != b.constraint:
-    return false
+  ##
+  ## Nested case on both operands for strictCaseObjects.
   case a.constraint
   of ebcEmailTopLevelHeaderDuplicate:
-    a.dupName == b.dupName
+    case b.constraint
+    of ebcEmailTopLevelHeaderDuplicate:
+      a.dupName == b.dupName
+    else:
+      false
   of ebcBodyStructureHeaderDuplicate:
-    a.bodyStructureDupName == b.bodyStructureDupName
+    case b.constraint
+    of ebcBodyStructureHeaderDuplicate:
+      a.bodyStructureDupName == b.bodyStructureDupName
+    else:
+      false
   of ebcBodyPartHeaderDuplicate:
-    a.where == b.where and a.bodyPartDupName == b.bodyPartDupName
+    case b.constraint
+    of ebcBodyPartHeaderDuplicate:
+      a.where == b.where and a.bodyPartDupName == b.bodyPartDupName
+    else:
+      false
   of ebcTextBodyNotTextPlain:
-    a.actualTextType == b.actualTextType
+    case b.constraint
+    of ebcTextBodyNotTextPlain:
+      a.actualTextType == b.actualTextType
+    else:
+      false
   of ebcHtmlBodyNotTextHtml:
-    a.actualHtmlType == b.actualHtmlType
+    case b.constraint
+    of ebcHtmlBodyNotTextHtml:
+      a.actualHtmlType == b.actualHtmlType
+    else:
+      false
   of ebcAllowedFormRejected:
-    a.rejectedName == b.rejectedName and a.rejectedForm == b.rejectedForm
+    case b.constraint
+    of ebcAllowedFormRejected:
+      a.rejectedName == b.rejectedName and a.rejectedForm == b.rejectedForm
+    else:
+      false
   of ebcBodyPartDepthExceeded:
-    a.observedDepth == b.observedDepth and a.depthLocation == b.depthLocation
+    case b.constraint
+    of ebcBodyPartDepthExceeded:
+      a.observedDepth == b.observedDepth and a.depthLocation == b.depthLocation
+    else:
+      false
 
 # =============================================================================
 # EmailBlueprintErrors (sealed — Pattern A)
@@ -335,18 +377,20 @@ type EmailBlueprint* {.ruleOff: "objects".} = object
 func checkFlatBodyContentTypes(body: EmailBlueprintBody): seq[EmailBlueprintError] =
   ## Constraint 5a/5b: flat-list textBody is text/plain, htmlBody is text/html.
   result = @[]
-  if body.kind != ebkFlat:
-    return
-  for tb in body.textBody:
-    if tb.contentType != "text/plain":
-      result.add EmailBlueprintError(
-        constraint: ebcTextBodyNotTextPlain, actualTextType: tb.contentType
-      )
-  for hb in body.htmlBody:
-    if hb.contentType != "text/html":
-      result.add EmailBlueprintError(
-        constraint: ebcHtmlBodyNotTextHtml, actualHtmlType: hb.contentType
-      )
+  case body.kind
+  of ebkStructured:
+    discard
+  of ebkFlat:
+    for tb in body.textBody:
+      if tb.contentType != "text/plain":
+        result.add EmailBlueprintError(
+          constraint: ebcTextBodyNotTextPlain, actualTextType: tb.contentType
+        )
+    for hb in body.htmlBody:
+      if hb.contentType != "text/html":
+        result.add EmailBlueprintError(
+          constraint: ebcHtmlBodyNotTextHtml, actualHtmlType: hb.contentType
+        )
 
 func addAddressConvenienceNames(bp: EmailBlueprint, s: var HashSet[string]) =
   ## Adds lowercase header names for the six RFC 5322 address
@@ -462,27 +506,31 @@ func checkBodyStructureDuplicates(bp: EmailBlueprint): seq[EmailBlueprintError] 
   ## any Email top-level header (convenience or extraHeaders). Scope is
   ## ROOT only — sub-parts are covered by 3c.
   result = @[]
-  if bp.rawBody.kind != ebkStructured:
-    return
-  let topNames = topLevelHeaderNames(bp)
-  for k in bp.rawBody.bodyStructure.extraHeaders.keys:
-    let name = string(k)
-    if name in topNames:
-      result.add EmailBlueprintError(
-        constraint: ebcBodyStructureHeaderDuplicate, bodyStructureDupName: name
-      )
+  case bp.rawBody.kind
+  of ebkFlat:
+    discard
+  of ebkStructured:
+    let topNames = topLevelHeaderNames(bp)
+    for k in bp.rawBody.bodyStructure.extraHeaders.keys:
+      let name = string(k)
+      if name in topNames:
+        result.add EmailBlueprintError(
+          constraint: ebcBodyStructureHeaderDuplicate, bodyStructureDupName: name
+        )
 
 func locationOf(part: BlueprintBodyPart, path: seq[int]): BodyPartLocation =
   ## Computes the ``BodyPartLocation`` for a part at the given path.
   ## Multipart containers are located by path; leaves carry their
   ## identifier directly.
-  if part.isMultipart:
-    return BodyPartLocation(kind: bplMultipart, path: BodyPartPath(path))
-  case part.source
-  of bpsInline:
-    BodyPartLocation(kind: bplInline, partId: part.partId)
-  of bpsBlobRef:
-    BodyPartLocation(kind: bplBlobRef, blobId: part.blobId)
+  case part.isMultipart
+  of true:
+    BodyPartLocation(kind: bplMultipart, path: BodyPartPath(path))
+  of false:
+    case part.leaf.source
+    of bpsInline:
+      BodyPartLocation(kind: bplInline, partId: part.leaf.partId)
+    of bpsBlobRef:
+      BodyPartLocation(kind: bplBlobRef, blobId: part.leaf.blobId)
 
 func walkBodyPartDuplicates(
     part: BlueprintBodyPart, path: seq[int]
@@ -500,9 +548,12 @@ func walkBodyPartDuplicates(
         where: locationOf(part, path),
         bodyPartDupName: name,
       )
-  if part.isMultipart:
+  case part.isMultipart
+  of true:
     for i, child in part.subParts:
       result.add walkBodyPartDuplicates(child, path & @[i])
+  of false:
+    discard
 
 func checkBodyPartDuplicates(body: EmailBlueprintBody): seq[EmailBlueprintError] =
   ## Dispatches the tree walk: ebkStructured starts at the root with an
@@ -541,9 +592,12 @@ func walkBodyTreeAllowedForms(part: BlueprintBodyPart): seq[EmailBlueprintError]
       result.add EmailBlueprintError(
         constraint: ebcAllowedFormRejected, rejectedName: name, rejectedForm: v.form
       )
-  if part.isMultipart:
+  case part.isMultipart
+  of true:
     for child in part.subParts:
       result.add walkBodyTreeAllowedForms(child)
+  of false:
+    discard
 
 func checkBodyTreeAllowedForms(body: EmailBlueprintBody): seq[EmailBlueprintError] =
   ## Dispatches the allowed-form tree walk over the body, mirroring the
@@ -575,9 +629,12 @@ func walkBodyPartDepth(
       depthLocation: locationOf(part, path),
     )
     return
-  if part.isMultipart:
+  case part.isMultipart
+  of true:
     for i, child in part.subParts:
       result.add walkBodyPartDepth(child, depth + 1, path & @[i])
+  of false:
+    discard
 
 func checkBodyPartDepth(body: EmailBlueprintBody): seq[EmailBlueprintError] =
   ## Enforces ``MaxBodyPartDepth`` as a construction-time invariant on the
@@ -745,11 +802,16 @@ func collectInlineValues(
   ## containers recurse; blob-ref leaves contribute no entry.
   ## Duplicate partIds across the tree are a documented gap (§7 E30);
   ## ``Table`` insert-last-wins applies here.
-  if part.isMultipart:
+  case part.isMultipart
+  of true:
     for child in part.subParts:
       collectInlineValues(child, acc)
-  elif part.source == bpsInline:
-    acc[part.partId] = part.value
+  of false:
+    case part.leaf.source
+    of bpsInline:
+      acc[part.leaf.partId] = part.leaf.value
+    of bpsBlobRef:
+      discard
 
 func bodyValues*(bp: EmailBlueprint): Table[PartId, BlueprintBodyValue] =
   ## Derived accessor: walks the body tree collecting inline-leaf

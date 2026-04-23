@@ -18,6 +18,7 @@
 ## 3.2A). Call IDs are scoped to a single builder instance.
 
 {.push raises: [], noSideEffect.}
+{.experimental: "strictCaseObjects".}
 
 import std/json
 import std/tables

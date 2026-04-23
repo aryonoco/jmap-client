@@ -5,6 +5,7 @@
 ## access the complete RFC 8621 mail type vocabulary.
 
 {.push raises: [], noSideEffect.}
+{.experimental: "strictCaseObjects".}
 
 import ./addresses
 import ./thread

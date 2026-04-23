@@ -13,6 +13,7 @@
 ##     for the entity read model and creation blueprint.
 
 {.push raises: [], noSideEffect.}
+{.experimental: "strictCaseObjects".}
 
 import std/json
 import std/strutils
@@ -130,10 +131,16 @@ func paramValueToJson(p: SubmissionParam): JsonNode =
   of spkMtPriority:
     %($int(p.mtPriority))
   of spkExtension:
-    if p.extValue.isNone:
+    # `case .isOk of true: .unsafeValue` — strict-safe (case proves the
+    # discriminator) AND panic-free (unsafeValue bypasses withAssertOk,
+    # no raiseResultDefect path). Using `.get()` here would panic via
+    # rawQuit(1) under --panics:on if the invariant failed — catastrophic
+    # for the FFI C ABI boundary.
+    case p.extValue.isOk
+    of true:
+      %p.extValue.unsafeValue
+    of false:
       newJNull()
-    else:
-      %p.extValue.unsafeGet
 
 # --- Per-variant deserialisers ---------------------------------------------
 
@@ -421,10 +428,12 @@ func toJson*(a: SubmissionAddress): JsonNode =
   ## ``{"email": <mailbox>, "parameters": <object|null>}``.
   var obj = newJObject()
   obj["email"] = toJson(a.mailbox)
-  if a.parameters.isNone:
+  # Strict-safe & panic-free — see spkExtension serialiser above.
+  case a.parameters.isOk
+  of true:
+    obj["parameters"] = toJson(a.parameters.unsafeValue)
+  of false:
     obj["parameters"] = newJNull()
-  else:
-    obj["parameters"] = toJson(a.parameters.unsafeGet)
   return obj
 
 func fromJson*(
@@ -452,10 +461,12 @@ func toJson*(p: ReversePath): JsonNode =
   of rpkNullPath:
     var obj = newJObject()
     obj["email"] = %""
-    if p.nullPathParams.isNone:
+    # Strict-safe & panic-free — see spkExtension serialiser above.
+    case p.nullPathParams.isOk
+    of true:
+      obj["parameters"] = toJson(p.nullPathParams.unsafeValue)
+    of false:
       obj["parameters"] = newJNull()
-    else:
-      obj["parameters"] = toJson(p.nullPathParams.unsafeGet)
     return obj
   of rpkMailbox:
     return toJson(p.sender)

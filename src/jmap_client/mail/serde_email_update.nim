@@ -9,6 +9,7 @@
 ## rule.
 
 {.push raises: [], noSideEffect.}
+{.experimental: "strictCaseObjects".}
 
 import std/json
 import std/tables
@@ -26,17 +27,26 @@ func toJson*(u: EmailUpdate): (string, JsonNode) =
   ## tuple avoids parsing the key back out of a nested ``JsonNode``.
   ## ``Id`` reference tokens skip escaping — RFC 8620 §1.2 restricts the
   ## charset to ``[A-Za-z0-9_-]``, so neither ``~`` nor ``/`` can appear.
+  ##
+  ## Combined of-arms mirror ``EmailUpdate``'s declaration
+  ## (``euAddKeyword`` and ``euRemoveKeyword`` share ``keyword``;
+  ## ``euAddToMailbox`` and ``euRemoveFromMailbox`` share ``mailboxId``).
+  ## Strict rejects split-of-arms when the type combines them.
   case u.kind
-  of euAddKeyword:
-    ("keywords/" & jsonPointerEscape($u.keyword), newJBool(true))
-  of euRemoveKeyword:
-    ("keywords/" & jsonPointerEscape($u.keyword), newJNull())
+  of euAddKeyword, euRemoveKeyword:
+    let keyPart = "keywords/" & jsonPointerEscape($u.keyword)
+    if u.kind == euAddKeyword:
+      (keyPart, newJBool(true))
+    else:
+      (keyPart, newJNull())
   of euSetKeywords:
     ("keywords", u.keywords.toJson())
-  of euAddToMailbox:
-    ("mailboxIds/" & $u.mailboxId, newJBool(true))
-  of euRemoveFromMailbox:
-    ("mailboxIds/" & $u.mailboxId, newJNull())
+  of euAddToMailbox, euRemoveFromMailbox:
+    let keyPart = "mailboxIds/" & $u.mailboxId
+    if u.kind == euAddToMailbox:
+      (keyPart, newJBool(true))
+    else:
+      (keyPart, newJNull())
   of euSetMailboxIds:
     ("mailboxIds", u.mailboxes.toJson())
 

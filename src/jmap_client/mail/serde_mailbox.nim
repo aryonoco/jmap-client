@@ -5,6 +5,7 @@
 ## MailboxCreate is toJson-only — creation models flow client-to-server only.
 
 {.push raises: [], noSideEffect.}
+{.experimental: "strictCaseObjects".}
 
 import std/json
 import std/sets

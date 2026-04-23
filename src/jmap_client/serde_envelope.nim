@@ -5,6 +5,7 @@
 ## ResultReference, and Referencable[T] helpers (RFC 8620 sections 3.2-3.4, 3.7).
 
 {.push raises: [], noSideEffect.}
+{.experimental: "strictCaseObjects".}
 
 import std/json
 import std/tables

@@ -5,6 +5,7 @@
 ## Covers filters, comparators, patch objects, and query change tracking.
 
 {.push raises: [], noSideEffect.}
+{.experimental: "strictCaseObjects".}
 
 import std/hashes
 

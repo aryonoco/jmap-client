@@ -2,6 +2,7 @@
 # Copyright (c) 2026 Aryan Ameri
 
 {.push raises: [].}
+{.experimental: "strictCaseObjects".}
 
 ## JMAP client library entry point. Re-exports all Layer 1 types, Layer 2
 ## serialisation, and Layer 3 protocol logic; will host C ABI exports

@@ -102,9 +102,9 @@ block blobIdOnInline: # scenario 125a
       contentType: "text/plain",
       extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
       isMultipart: false,
-      source: bpsInline,
-      partId: PartId("1"),
-      value: BlueprintBodyValue(value: ""),
+      leaf: BlueprintLeafPart(
+        source: bpsInline, partId: PartId("1"), value: BlueprintBodyValue(value: "")
+      ),
       blobId: BlobId("abc"),
     )
   )
@@ -115,9 +115,9 @@ block charsetOnInline: # scenario 125b
       contentType: "text/plain",
       extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
       isMultipart: false,
-      source: bpsInline,
-      partId: PartId("1"),
-      value: BlueprintBodyValue(value: ""),
+      leaf: BlueprintLeafPart(
+        source: bpsInline, partId: PartId("1"), value: BlueprintBodyValue(value: "")
+      ),
       charset: Opt.some("utf-8"),
     )
   )
@@ -139,9 +139,9 @@ block subPartsOnLeafBlueprint: # scenario 125d
       contentType: "text/plain",
       extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
       isMultipart: false,
-      source: bpsInline,
-      partId: PartId("1"),
-      value: BlueprintBodyValue(value: ""),
+      leaf: BlueprintLeafPart(
+        source: bpsInline, partId: PartId("1"), value: BlueprintBodyValue(value: "")
+      ),
       subParts: @[],
     )
   )

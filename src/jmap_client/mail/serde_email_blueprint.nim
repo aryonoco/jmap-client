@@ -6,6 +6,7 @@
 ## collections are omitted from wire output (R4-2, R4-3).
 
 {.push raises: [], noSideEffect.}
+{.experimental: "strictCaseObjects".}
 
 import std/json
 import std/tables
@@ -161,11 +162,15 @@ func toJson*(bp: EmailBlueprint): JsonNode =
 
   emitExtraHeaders(node, bp.extraHeaders)
 
-  case bp.body.kind
+  # Let-bind bp.body so strict tracks one EmailBlueprintBody value across
+  # the case and field reads — each call of bp.body() would return an
+  # independent copy, breaking strict's flow analysis.
+  let body = bp.body
+  case body.kind
   of ebkStructured:
-    emitStructuredBody(node, bp.body.bodyStructure)
+    emitStructuredBody(node, body.bodyStructure)
   of ebkFlat:
-    emitFlatBody(node, bp.body.textBody, bp.body.htmlBody, bp.body.attachments)
+    emitFlatBody(node, body.textBody, body.htmlBody, body.attachments)
 
   emitBodyValues(node, bp.bodyValues)
 

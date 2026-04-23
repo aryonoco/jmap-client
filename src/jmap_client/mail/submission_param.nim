@@ -16,6 +16,7 @@
 ## Design authority: ``docs/design/12-mail-G1-design.md`` §2.3–2.4.
 
 {.push raises: [], noSideEffect.}
+{.experimental: "strictCaseObjects".}
 
 import std/hashes
 import std/sets
@@ -236,33 +237,82 @@ func `==`*(a, b: SubmissionParam): bool =
   ## tuple/object ``==`` uses a parallel ``fields`` iterator that rejects
   ## case objects, so this dispatches on the shared discriminator and
   ## compares only the fields valid for the matched arm.
-  if a.kind != b.kind:
-    return false
+  ##
+  ## Nested case on both operands — strict doesn't propagate ``a.kind ==
+  ## b.kind`` from an outer if-guard into each ``of`` branch, so b's
+  ## discriminator must be proved independently before reading b's
+  ## variant fields.
   case a.kind
   of spkBody:
-    a.bodyEncoding == b.bodyEncoding
+    case b.kind
+    of spkBody:
+      a.bodyEncoding == b.bodyEncoding
+    else:
+      false
   of spkSmtpUtf8:
-    true
+    case b.kind
+    of spkSmtpUtf8: true
+    else: false
   of spkSize:
-    a.sizeOctets == b.sizeOctets
+    case b.kind
+    of spkSize:
+      a.sizeOctets == b.sizeOctets
+    else:
+      false
   of spkEnvid:
-    a.envid == b.envid
+    case b.kind
+    of spkEnvid:
+      a.envid == b.envid
+    else:
+      false
   of spkRet:
-    a.retType == b.retType
+    case b.kind
+    of spkRet:
+      a.retType == b.retType
+    else:
+      false
   of spkNotify:
-    a.notifyFlags == b.notifyFlags
+    case b.kind
+    of spkNotify:
+      a.notifyFlags == b.notifyFlags
+    else:
+      false
   of spkOrcpt:
-    a.orcptAddrType == b.orcptAddrType and a.orcptOrigRecipient == b.orcptOrigRecipient
+    case b.kind
+    of spkOrcpt:
+      a.orcptAddrType == b.orcptAddrType and a.orcptOrigRecipient == b.orcptOrigRecipient
+    else:
+      false
   of spkHoldFor:
-    a.holdFor == b.holdFor
+    case b.kind
+    of spkHoldFor:
+      a.holdFor == b.holdFor
+    else:
+      false
   of spkHoldUntil:
-    a.holdUntil == b.holdUntil
+    case b.kind
+    of spkHoldUntil:
+      a.holdUntil == b.holdUntil
+    else:
+      false
   of spkBy:
-    a.byDeadline == b.byDeadline and a.byMode == b.byMode
+    case b.kind
+    of spkBy:
+      a.byDeadline == b.byDeadline and a.byMode == b.byMode
+    else:
+      false
   of spkMtPriority:
-    a.mtPriority == b.mtPriority
+    case b.kind
+    of spkMtPriority:
+      a.mtPriority == b.mtPriority
+    else:
+      false
   of spkExtension:
-    a.extName == b.extName and a.extValue == b.extValue
+    case b.kind
+    of spkExtension:
+      a.extName == b.extName and a.extValue == b.extValue
+    else:
+      false
 
 # ---------------------------------------------------------------------------
 # SubmissionParamKey — identity key for structural uniqueness
@@ -285,14 +335,25 @@ func `==`*(a, b: SubmissionParamKey): bool =
   ## Equal iff the discriminators agree and, for ``spkExtension``, the
   ## keyword names are case-insensitively equal (delegated to
   ## ``RFC5321Keyword.==``).
-  if a.kind != b.kind:
-    return false
+  ##
+  ## Nested case for strictCaseObjects: b.kind must be proved
+  ## independently before reading b.extName.
   case a.kind
   of spkExtension:
-    a.extName == b.extName
+    case b.kind
+    of spkExtension:
+      a.extName == b.extName
+    of spkBody, spkSmtpUtf8, spkSize, spkEnvid, spkRet, spkNotify, spkOrcpt, spkHoldFor,
+        spkHoldUntil, spkBy, spkMtPriority:
+      false
   of spkBody, spkSmtpUtf8, spkSize, spkEnvid, spkRet, spkNotify, spkOrcpt, spkHoldFor,
       spkHoldUntil, spkBy, spkMtPriority:
-    true
+    case b.kind
+    of spkExtension:
+      false
+    of spkBody, spkSmtpUtf8, spkSize, spkEnvid, spkRet, spkNotify, spkOrcpt, spkHoldFor,
+        spkHoldUntil, spkBy, spkMtPriority:
+      a.kind == b.kind
 
 func hash*(k: SubmissionParamKey): Hash =
   ## Delegates the ``spkExtension`` payload to ``hash(RFC5321Keyword)``,

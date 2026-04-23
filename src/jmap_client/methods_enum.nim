@@ -10,6 +10,7 @@
 ## than fail at the server.
 
 {.push raises: [], noSideEffect.}
+{.experimental: "strictCaseObjects".}
 
 type MethodName* = enum
   ## Every JMAP method the library emits on the wire, plus a catch-all

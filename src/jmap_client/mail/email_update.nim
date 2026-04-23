@@ -7,6 +7,7 @@
 ## composes them into a validated, conflict-free batch.
 
 {.push raises: [], noSideEffect.}
+{.experimental: "strictCaseObjects".}
 
 import std/sets
 import std/sequtils
@@ -228,13 +229,19 @@ func toValidationError(c: Conflict): ValidationError =
   ## ``Conflict`` form so the classification step never hand-builds wire
   ## text; adding a ``ConflictKind`` variant forces a compile error here
   ## rather than letting a new violation slip out untranslated.
+  ##
+  ## Combined of-arm mirrors the declaration (``ckDuplicatePath,
+  ## ckOppositeOps`` share ``targetPath``); the inner ``if c.kind ==``
+  ## discriminates between them without splitting the arm, which strict
+  ## would reject.
   case c.kind
-  of ckDuplicatePath:
-    validationError("EmailUpdateSet", "duplicate target path", c.targetPath)
-  of ckOppositeOps:
-    validationError(
-      "EmailUpdateSet", "opposite operations on same sub-path", c.targetPath
-    )
+  of ckDuplicatePath, ckOppositeOps:
+    if c.kind == ckDuplicatePath:
+      validationError("EmailUpdateSet", "duplicate target path", c.targetPath)
+    else:
+      validationError(
+        "EmailUpdateSet", "opposite operations on same sub-path", c.targetPath
+      )
   of ckPrefixCollision:
     validationError(
       "EmailUpdateSet", "sub-path operation alongside full-replace on same parent",

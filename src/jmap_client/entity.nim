@@ -71,6 +71,7 @@
 ## Items 1–8, 10–12 are Layer 3 concerns. Item 9 is entity-specific.
 
 {.push raises: [], noSideEffect.}
+{.experimental: "strictCaseObjects".}
 
 template registerJmapEntity*(T: typedesc) =
   ## Compile-time check: verifies T provides the required framework

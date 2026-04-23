@@ -6,6 +6,7 @@
 ## mapping keyword strings to ``true`` (RFC 8621 patch-object pattern).
 
 {.push raises: [], noSideEffect.}
+{.experimental: "strictCaseObjects".}
 
 import std/json
 import std/sets

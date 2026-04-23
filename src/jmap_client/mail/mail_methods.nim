@@ -7,6 +7,7 @@
 ## SearchSnippet/get (§5.1).
 
 {.push raises: [], noSideEffect.}
+{.experimental: "strictCaseObjects".}
 
 import std/json
 import std/tables

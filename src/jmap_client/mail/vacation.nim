@@ -7,6 +7,7 @@
 ## ("singleton") is handled purely in serialisation (Design Decision A6).
 
 {.push raises: [], noSideEffect.}
+{.experimental: "strictCaseObjects".}
 
 import ../validation
 import ../primitives

@@ -6,6 +6,7 @@
 ## emailIds) are server-set and immutable — Thread has no /set method.
 
 {.push raises: [], noSideEffect.}
+{.experimental: "strictCaseObjects".}
 
 import ../validation
 import ../primitives

@@ -19,6 +19,7 @@
 ## immediately within the scope where the request was built.
 
 {.push raises: [], noSideEffect.}
+{.experimental: "strictCaseObjects".}
 
 import std/hashes
 import std/json

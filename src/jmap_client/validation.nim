@@ -5,6 +5,7 @@
 ## constants, and Result helpers used by all smart constructors.
 
 {.push raises: [], noSideEffect.}
+{.experimental: "strictCaseObjects".}
 
 import std/hashes
 import std/sequtils

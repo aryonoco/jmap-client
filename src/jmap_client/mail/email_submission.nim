@@ -10,6 +10,7 @@
 ## branch.
 
 {.push raises: [], noSideEffect.}
+{.experimental: "strictCaseObjects".}
 
 import std/hashes
 import std/tables
@@ -76,38 +77,54 @@ func `==`*(a, b: AnyEmailSubmission): bool =
   ## object uses a parallel ``fields`` iterator that rejects the
   ## discriminated shape. Delegates each branch to the non-case
   ## ``EmailSubmission[S].==``.
-  if a.state != b.state:
-    return false
+  ##
+  ## Nested case on both operands — strict doesn't carry ``a.state ==
+  ## b.state`` across outer branches.
   case a.state
   of usPending:
-    a.rawPending == b.rawPending
+    case b.state
+    of usPending:
+      a.rawPending == b.rawPending
+    of usFinal, usCanceled:
+      false
   of usFinal:
-    a.rawFinal == b.rawFinal
+    case b.state
+    of usFinal:
+      a.rawFinal == b.rawFinal
+    of usPending, usCanceled:
+      false
   of usCanceled:
-    a.rawCanceled == b.rawCanceled
+    case b.state
+    of usCanceled:
+      a.rawCanceled == b.rawCanceled
+    of usPending, usFinal:
+      false
 
 func asPending*(s: AnyEmailSubmission): Opt[EmailSubmission[usPending]] =
   ## Safe projection onto the ``usPending`` branch. ``Opt.some`` iff
   ## ``s.state == usPending``; ``Opt.none`` otherwise. The return-type
   ## phantom is fixed — an ``Opt[EmailSubmission[usPending]]`` can
   ## never carry a ``usFinal`` or ``usCanceled`` payload.
-  if s.state == usPending:
+  case s.state
+  of usPending:
     Opt.some(s.rawPending)
-  else:
+  of usFinal, usCanceled:
     Opt.none(EmailSubmission[usPending])
 
 func asFinal*(s: AnyEmailSubmission): Opt[EmailSubmission[usFinal]] =
   ## Safe projection onto the ``usFinal`` branch.
-  if s.state == usFinal:
+  case s.state
+  of usFinal:
     Opt.some(s.rawFinal)
-  else:
+  of usPending, usCanceled:
     Opt.none(EmailSubmission[usFinal])
 
 func asCanceled*(s: AnyEmailSubmission): Opt[EmailSubmission[usCanceled]] =
   ## Safe projection onto the ``usCanceled`` branch.
-  if s.state == usCanceled:
+  case s.state
+  of usCanceled:
     Opt.some(s.rawCanceled)
-  else:
+  of usPending, usFinal:
     Opt.none(EmailSubmission[usCanceled])
 
 # -----------------------------------------------------------------------------
@@ -443,13 +460,21 @@ func `==`*(a, b: IdOrCreationRef): bool =
   ## coincident payload strings — an ``icrDirect`` with ``Id("abc")``
   ## and an ``icrCreation`` with ``CreationId("abc")`` are not the same
   ## key.
-  if a.kind != b.kind:
-    return false
+  ##
+  ## Nested case on both operands for strictCaseObjects.
   case a.kind
   of icrDirect:
-    a.id == b.id
+    case b.kind
+    of icrDirect:
+      a.id == b.id
+    of icrCreation:
+      false
   of icrCreation:
-    a.creationId == b.creationId
+    case b.kind
+    of icrDirect:
+      false
+    of icrCreation:
+      a.creationId == b.creationId
 
 func hash*(k: IdOrCreationRef): Hash =
   ## Arm-dispatched hash honouring the ``a == b ⇒ hash(a) == hash(b)``

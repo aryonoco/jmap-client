@@ -10,6 +10,7 @@
 ## rejects empty identifiers and control characters at construction.
 
 {.push raises: [], noSideEffect.}
+{.experimental: "strictCaseObjects".}
 
 import std/hashes
 import std/strutils
@@ -61,13 +62,24 @@ func `$`*(c: CollationAlgorithm): string =
 func `==`*(a, b: CollationAlgorithm): bool =
   ## Structural equality. Two values are equal iff their kinds agree and,
   ## for ``caOther``, their raw identifiers match byte-for-byte.
-  if a.rawKind != b.rawKind:
-    return false
+  ##
+  ## Nested case on both operands: strict doesn't propagate the
+  ## ``a.rawKind != b.rawKind`` short-circuit across branches, so b's
+  ## discriminator must be proved independently before reading
+  ## ``b.rawIdentifier``.
   case a.rawKind
   of caOther:
-    return a.rawIdentifier == b.rawIdentifier
+    case b.rawKind
+    of caOther:
+      a.rawIdentifier == b.rawIdentifier
+    of caAsciiCasemap, caOctet, caAsciiNumeric, caUnicodeCasemap:
+      false
   of caAsciiCasemap, caOctet, caAsciiNumeric, caUnicodeCasemap:
-    return true
+    case b.rawKind
+    of caOther:
+      false
+    of caAsciiCasemap, caOctet, caAsciiNumeric, caUnicodeCasemap:
+      a.rawKind == b.rawKind
 
 func hash*(c: CollationAlgorithm): Hash =
   ## Hash mixing the kind ordinal with the raw identifier for ``caOther``.

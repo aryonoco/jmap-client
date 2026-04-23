@@ -8,6 +8,7 @@
 ## constructor enforcing non-empty name.
 
 {.push raises: [], noSideEffect.}
+{.experimental: "strictCaseObjects".}
 
 import std/hashes
 import std/sets
@@ -77,14 +78,25 @@ func `$`*(r: MailboxRole): string =
 func `==`*(a, b: MailboxRole): bool =
   ## Structural equality. Two values are equal iff their kinds agree and,
   ## for ``mrOther``, their raw identifiers match byte-for-byte.
-  if a.rawKind != b.rawKind:
-    return false
+  ##
+  ## Nested case on both operands — see collation.nim `==` for the
+  ## strict-required pattern.
   case a.rawKind
   of mrOther:
-    return a.rawIdentifier == b.rawIdentifier
+    case b.rawKind
+    of mrOther:
+      a.rawIdentifier == b.rawIdentifier
+    of mrInbox, mrDrafts, mrSent, mrTrash, mrJunk, mrArchive, mrImportant, mrAll,
+        mrFlagged, mrSubscriptions:
+      false
   of mrInbox, mrDrafts, mrSent, mrTrash, mrJunk, mrArchive, mrImportant, mrAll,
       mrFlagged, mrSubscriptions:
-    return true
+    case b.rawKind
+    of mrOther:
+      false
+    of mrInbox, mrDrafts, mrSent, mrTrash, mrJunk, mrArchive, mrImportant, mrAll,
+        mrFlagged, mrSubscriptions:
+      a.rawKind == b.rawKind
 
 func hash*(r: MailboxRole): Hash =
   ## Hash mixing the kind ordinal with the raw identifier for ``mrOther``.

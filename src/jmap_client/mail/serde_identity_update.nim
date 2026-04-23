@@ -7,6 +7,7 @@
 ## types admit no ``fromJson`` per the Postel-strict construction rule.
 
 {.push raises: [], noSideEffect.}
+{.experimental: "strictCaseObjects".}
 
 import std/json
 import std/tables

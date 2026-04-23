@@ -4,6 +4,7 @@
 ## Serialisation for body sub-types (RFC 8621 sections 4.1.4, 4.6).
 
 {.push raises: [], noSideEffect.}
+{.experimental: "strictCaseObjects".}
 
 import std/json
 import std/strutils
@@ -206,13 +207,14 @@ func toJsonImpl(part: EmailBodyPart, depth: int): JsonNode =
   node["location"] = part.location.optStringToJsonOrNull()
   node["size"] = part.size.toJson()
 
-  # Branch-specific
-  if part.isMultipart:
+  # Branch-specific — case on isMultipart (not if) for strictCaseObjects.
+  case part.isMultipart
+  of true:
     var subPartsArr = newJArray()
     for child in part.subParts:
       subPartsArr.add(toJsonImpl(child, depth - 1))
     node["subParts"] = subPartsArr
-  else:
+  of false:
     node["partId"] = part.partId.toJson()
     node["blobId"] = part.blobId.toJson()
 
@@ -322,23 +324,27 @@ func bpToJsonImpl(bp: BlueprintBodyPart): JsonNode =
     let isAll = multiLen(mv) > 1
     node[composeHeaderKey(name, mv.form, isAll)] = blueprintMultiValueToJson(mv)
 
-  # Branch-specific
-  if bp.isMultipart:
+  # Branch-specific — outer case on BlueprintBodyPart.isMultipart, inner
+  # case on BlueprintLeafPart.source. Each discriminator is on its own
+  # type, so strict tracks them independently (nested case objects on the
+  # same type would be rejected).
+  case bp.isMultipart
+  of true:
     var subPartsArr = newJArray()
     for child in bp.subParts:
       subPartsArr.add(bpToJsonImpl(child))
     node["subParts"] = subPartsArr
-  else:
-    case bp.source
+  of false:
+    case bp.leaf.source
     of bpsInline:
-      node["partId"] = bp.partId.toJson()
-      # bp.value is NOT emitted here — harvested by EmailBlueprint.toJson
+      node["partId"] = bp.leaf.partId.toJson()
+      # bp.leaf.value is NOT emitted here — harvested by EmailBlueprint.toJson
       # into a top-level "bodyValues" object (Design §5.4).
     of bpsBlobRef:
-      node["blobId"] = bp.blobId.toJson()
-      for val in bp.size:
+      node["blobId"] = bp.leaf.blobId.toJson()
+      for val in bp.leaf.size:
         node["size"] = val.toJson()
-      for val in bp.charset:
+      for val in bp.leaf.charset:
         node["charset"] = %val
 
   return node

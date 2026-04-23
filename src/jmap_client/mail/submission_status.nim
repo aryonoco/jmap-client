@@ -20,6 +20,7 @@
 ## Design authority: ``docs/design/12-mail-G1-design.md`` §3.
 
 {.push raises: [], noSideEffect.}
+{.experimental: "strictCaseObjects".}
 
 import std/hashes
 import std/sequtils

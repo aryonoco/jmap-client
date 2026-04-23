@@ -132,9 +132,11 @@ block bodyPartContentDispositionDuplicate: # §6.1.1 scenario 7f
   partExtra[makeBlueprintBodyHeaderName("content-disposition")] = makeBhmvTextSingle()
   let leaf = BlueprintBodyPart(
     isMultipart: false,
-    source: bpsInline,
-    partId: parsePartIdFromServer("1").get(),
-    value: makeBlueprintBodyValue(),
+    leaf: BlueprintLeafPart(
+      source: bpsInline,
+      partId: parsePartIdFromServer("1").get(),
+      value: makeBlueprintBodyValue(),
+    ),
     contentType: "text/plain",
     extraHeaders: partExtra,
     name: Opt.none(string),

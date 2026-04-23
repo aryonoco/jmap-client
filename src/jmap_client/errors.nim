@@ -8,6 +8,7 @@
 ## nim-results.
 
 {.push raises: [], noSideEffect.}
+{.experimental: "strictCaseObjects".}
 
 import std/strutils
 from std/json import JsonNode
@@ -300,18 +301,20 @@ type SetError* = object
   ## ``setInvalidRecipients`` (RFC 8621 §4.6 / §7.5), and ``setTooLarge``
   ## augmented with ``maxSize`` (RFC 8621 §7.5 SHOULD).
   ##
-  ## ``rawErrorType`` is module-private — the public ``errorType*``
-  ## accessor returns the discriminator so pattern-matching continues to
-  ## work via UFCS, but literal construction of payload-bearing variants
-  ## without their payloads is rejected at compile time (Pattern A). Use
-  ## the variant-specific smart constructors (``setErrorInvalidProperties``
-  ## etc.); generic ``setError`` is reserved for payload-less variants
-  ## and defensively maps payload-bearing rawType strings without wire
-  ## data to ``setUnknown``.
+  ## ``errorType*`` is the public discriminator. Nim's case-object
+  ## construction rule already prevents payload-bearing variants from
+  ## being constructed without their payloads — strict's flow-analysis
+  ## needs direct access to the discriminator field (not an accessor
+  ## func), so exposing it lets external consumers ``case se.errorType
+  ## of setX: se.variantField`` under strictCaseObjects. The variant-
+  ## specific smart constructors (``setErrorInvalidProperties`` etc.)
+  ## remain the preferred construction path; generic ``setError`` is
+  ## reserved for payload-less variants and defensively maps payload-
+  ## bearing rawType strings without wire data to ``setUnknown``.
   rawType*: string ## always populated — lossless round-trip
   description*: Opt[string] ## optional human-readable description
   extras*: Opt[JsonNode] ## non-standard fields, lossless preservation
-  case rawErrorType: SetErrorType
+  case errorType*: SetErrorType
   of setInvalidProperties:
     properties*: seq[string] ## RFC 8620 §5.3 SHOULD: invalid property names
   of setAlreadyExists:
@@ -336,19 +339,12 @@ type SetError* = object
   else:
     discard
 
-func errorType*(se: SetError): SetErrorType =
-  ## Returns the parsed discriminator variant. Accessor preserves the
-  ## previous field-level API surface after sealing ``rawErrorType``.
-  return se.rawErrorType
-
 template seFieldsPlain(lit: untyped): SetError =
   ## Builds a payload-less SetError with a literal discriminator. Expanded
   ## inline at each ``of X: seFieldsPlain(X)`` call site in ``setError``
   ## below — the literal substitution satisfies Nim's case-object
   ## construction rule (Pattern 4: no runtime discriminator allowed).
-  SetError(
-    rawErrorType: lit, rawType: rawType, description: description, extras: extras
-  )
+  SetError(errorType: lit, rawType: rawType, description: description, extras: extras)
 
 func setError*(
     rawType: string,
@@ -369,7 +365,7 @@ func setError*(
     seFieldsPlain(setUnknown)
   of setTooLarge:
     SetError(
-      rawErrorType: setTooLarge,
+      errorType: setTooLarge,
       rawType: rawType,
       description: description,
       extras: extras,
@@ -418,7 +414,7 @@ func setErrorInvalidProperties*(
 ): SetError =
   ## Constructor for ``setInvalidProperties`` — carries the invalid property names (RFC 8620 §5.3).
   return SetError(
-    rawErrorType: setInvalidProperties,
+    errorType: setInvalidProperties,
     rawType: rawType,
     description: description,
     extras: extras,
@@ -433,7 +429,7 @@ func setErrorAlreadyExists*(
 ): SetError =
   ## Constructor for ``setAlreadyExists`` — carries the existing record's ID (RFC 8620 §5.4).
   return SetError(
-    rawErrorType: setAlreadyExists,
+    errorType: setAlreadyExists,
     rawType: rawType,
     description: description,
     extras: extras,
@@ -449,7 +445,7 @@ func setErrorBlobNotFound*(
   ## Constructor for ``setBlobNotFound`` — carries the unresolved blob
   ## IDs (RFC 8621 §4.6 MUST).
   return SetError(
-    rawErrorType: setBlobNotFound,
+    errorType: setBlobNotFound,
     rawType: rawType,
     description: description,
     extras: extras,
@@ -465,7 +461,7 @@ func setErrorInvalidEmail*(
   ## Constructor for ``setInvalidEmail`` — carries the names of invalid
   ## Email properties (RFC 8621 §7.5 SHOULD).
   return SetError(
-    rawErrorType: setInvalidEmail,
+    errorType: setInvalidEmail,
     rawType: rawType,
     description: description,
     extras: extras,
@@ -481,7 +477,7 @@ func setErrorTooManyRecipients*(
   ## Constructor for ``setTooManyRecipients`` — carries the server's
   ## recipient cap (RFC 8621 §7.5 MUST).
   return SetError(
-    rawErrorType: setTooManyRecipients,
+    errorType: setTooManyRecipients,
     rawType: rawType,
     description: description,
     extras: extras,
@@ -497,7 +493,7 @@ func setErrorInvalidRecipients*(
   ## Constructor for ``setInvalidRecipients`` — carries the recipient
   ## addresses that failed validation (RFC 8621 §7.5 MUST).
   return SetError(
-    rawErrorType: setInvalidRecipients,
+    errorType: setInvalidRecipients,
     rawType: rawType,
     description: description,
     extras: extras,
@@ -514,7 +510,7 @@ func setErrorTooLarge*(
   ## cap (RFC 8621 §7.5 SHOULD). ``maxSize`` defaults to ``Opt.none`` so
   ## the RFC 8620 §5.3 core use of tooLarge without a cap is expressible.
   return SetError(
-    rawErrorType: setTooLarge,
+    errorType: setTooLarge,
     rawType: rawType,
     description: description,
     extras: extras,

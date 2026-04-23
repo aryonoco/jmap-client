@@ -5,6 +5,7 @@
 ## context used by Email, EmailBodyPart, and BlueprintBodyPart.
 
 {.push raises: [], noSideEffect.}
+{.experimental: "strictCaseObjects".}
 
 import std/hashes
 import std/strutils

@@ -4,6 +4,7 @@
 ## Serialisation for SearchSnippet (RFC 8621 §5).
 
 {.push raises: [], noSideEffect.}
+{.experimental: "strictCaseObjects".}
 
 import std/json
 

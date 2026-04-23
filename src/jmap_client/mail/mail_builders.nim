@@ -10,6 +10,7 @@
 ## MailboxCreate).
 
 {.push raises: [], noSideEffect.}
+{.experimental: "strictCaseObjects".}
 
 import std/json
 import std/tables

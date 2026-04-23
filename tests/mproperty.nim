@@ -2309,9 +2309,9 @@ proc genBlueprintBodyPart*(rng: var Rand, maxDepth: int = 4): BlueprintBodyPart 
         location: location,
         extraHeaders: extraHeaders,
         isMultipart: false,
-        source: bpsInline,
-        partId: rng.genPartId(),
-        value: rng.genBlueprintBodyValue(),
+        leaf: BlueprintLeafPart(
+          source: bpsInline, partId: rng.genPartId(), value: rng.genBlueprintBodyValue()
+        ),
       )
     return BlueprintBodyPart(
       contentType: ct,
@@ -2322,10 +2322,12 @@ proc genBlueprintBodyPart*(rng: var Rand, maxDepth: int = 4): BlueprintBodyPart 
       location: location,
       extraHeaders: extraHeaders,
       isMultipart: false,
-      source: bpsBlobRef,
-      blobId: BlobId(rng.genValidIdStrict(minLen = 3, maxLen = 20)),
-      size: Opt.none(UnsignedInt),
-      charset: Opt.none(string),
+      leaf: BlueprintLeafPart(
+        source: bpsBlobRef,
+        blobId: BlobId(rng.genValidIdStrict(minLen = 3, maxLen = 20)),
+        size: Opt.none(UnsignedInt),
+        charset: Opt.none(string),
+      ),
     )
   let ct = rng.oneOf(multipartTypes)
   var children: seq[BlueprintBodyPart] = @[]
@@ -2380,9 +2382,9 @@ proc genEmailBlueprintBody*(rng: var Rand, trial: int = -1): EmailBlueprintBody 
         location: Opt.none(string),
         extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
         isMultipart: false,
-        source: bpsInline,
-        partId: rng.genPartId(),
-        value: rng.genBlueprintBodyValue(),
+        leaf: BlueprintLeafPart(
+          source: bpsInline, partId: rng.genPartId(), value: rng.genBlueprintBodyValue()
+        ),
       )
       let htmlLeaf = BlueprintBodyPart(
         contentType: "text/html",
@@ -2393,9 +2395,9 @@ proc genEmailBlueprintBody*(rng: var Rand, trial: int = -1): EmailBlueprintBody 
         location: Opt.none(string),
         extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
         isMultipart: false,
-        source: bpsInline,
-        partId: rng.genPartId(),
-        value: rng.genBlueprintBodyValue(),
+        leaf: BlueprintLeafPart(
+          source: bpsInline, partId: rng.genPartId(), value: rng.genBlueprintBodyValue()
+        ),
       )
       return flatBody(
         textBody = Opt.some(textLeaf),
@@ -2421,9 +2423,11 @@ proc genEmailBlueprintBody*(rng: var Rand, trial: int = -1): EmailBlueprintBody 
             extraHeaders:
               initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
             isMultipart: false,
-            source: bpsInline,
-            partId: rng.genPartId(),
-            value: rng.genBlueprintBodyValue(),
+            leaf: BlueprintLeafPart(
+              source: bpsInline,
+              partId: rng.genPartId(),
+              value: rng.genBlueprintBodyValue(),
+            ),
           )
         )
       else:
@@ -2441,9 +2445,11 @@ proc genEmailBlueprintBody*(rng: var Rand, trial: int = -1): EmailBlueprintBody 
             extraHeaders:
               initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
             isMultipart: false,
-            source: bpsInline,
-            partId: rng.genPartId(),
-            value: rng.genBlueprintBodyValue(),
+            leaf: BlueprintLeafPart(
+              source: bpsInline,
+              partId: rng.genPartId(),
+              value: rng.genBlueprintBodyValue(),
+            ),
           )
         )
       else:
@@ -2485,9 +2491,11 @@ proc genEmailBlueprint*(rng: var Rand, trial: int = -1): EmailBlueprint =
         location: Opt.none(string),
         extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
         isMultipart: false,
-        source: bpsInline,
-        partId: parsePartIdFromServer("1").get(),
-        value: BlueprintBodyValue(value: "text leaf"),
+        leaf: BlueprintLeafPart(
+          source: bpsInline,
+          partId: parsePartIdFromServer("1").get(),
+          value: BlueprintBodyValue(value: "text leaf"),
+        ),
       )
       let body = flatBody(textBody = Opt.some(textInline))
       return parseEmailBlueprint(
@@ -2595,9 +2603,11 @@ proc buildTrigger(
       location: Opt.none(string),
       extraHeaders: partExtra,
       isMultipart: false,
-      source: bpsInline,
-      partId: parsePartIdFromServer("1").get(),
-      value: BlueprintBodyValue(value: "v"),
+      leaf: BlueprintLeafPart(
+        source: bpsInline,
+        partId: parsePartIdFromServer("1").get(),
+        value: BlueprintBodyValue(value: "v"),
+      ),
     )
     BlueprintTriggerArgs(
       mailboxIds: rng.genNonEmptyMailboxIdSet(trial = 0),
@@ -2617,9 +2627,11 @@ proc buildTrigger(
       location: Opt.none(string),
       extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
       isMultipart: false,
-      source: bpsInline,
-      partId: parsePartIdFromServer("1").get(),
-      value: BlueprintBodyValue(value: "v"),
+      leaf: BlueprintLeafPart(
+        source: bpsInline,
+        partId: parsePartIdFromServer("1").get(),
+        value: BlueprintBodyValue(value: "v"),
+      ),
     )
     BlueprintTriggerArgs(
       mailboxIds: rng.genNonEmptyMailboxIdSet(trial = 0),
@@ -2639,9 +2651,11 @@ proc buildTrigger(
       location: Opt.none(string),
       extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
       isMultipart: false,
-      source: bpsInline,
-      partId: parsePartIdFromServer("1").get(),
-      value: BlueprintBodyValue(value: "v"),
+      leaf: BlueprintLeafPart(
+        source: bpsInline,
+        partId: parsePartIdFromServer("1").get(),
+        value: BlueprintBodyValue(value: "v"),
+      ),
     )
     BlueprintTriggerArgs(
       mailboxIds: rng.genNonEmptyMailboxIdSet(trial = 0),
@@ -2674,9 +2688,11 @@ proc buildTrigger(
       location: Opt.none(string),
       extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
       isMultipart: false,
-      source: bpsInline,
-      partId: parsePartIdFromServer("1").get(),
-      value: BlueprintBodyValue(value: "v"),
+      leaf: BlueprintLeafPart(
+        source: bpsInline,
+        partId: parsePartIdFromServer("1").get(),
+        value: BlueprintBodyValue(value: "v"),
+      ),
     )
     for _ in 0 .. 128:
       leaf = BlueprintBodyPart(
@@ -2943,9 +2959,11 @@ proc adversarialDepthBody(rng: var Rand): EmailBlueprintBody =
     location: Opt.none(string),
     extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
     isMultipart: false,
-    source: bpsInline,
-    partId: parsePartIdFromServer("1").get(),
-    value: BlueprintBodyValue(value: "v"),
+    leaf: BlueprintLeafPart(
+      source: bpsInline,
+      partId: parsePartIdFromServer("1").get(),
+      value: BlueprintBodyValue(value: "v"),
+    ),
   )
   for _ in 0 ..< depth:
     leaf = BlueprintBodyPart(

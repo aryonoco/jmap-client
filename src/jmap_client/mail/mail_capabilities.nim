@@ -7,6 +7,7 @@
 ## the limits for urn:ietf:params:jmap:submission.
 
 {.push raises: [], noSideEffect.}
+{.experimental: "strictCaseObjects".}
 
 import std/sets
 import std/tables

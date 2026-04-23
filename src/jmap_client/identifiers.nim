@@ -6,6 +6,7 @@
 ## opaque server tokens.
 
 {.push raises: [], noSideEffect.}
+{.experimental: "strictCaseObjects".}
 
 import std/hashes
 

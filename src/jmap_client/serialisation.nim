@@ -5,6 +5,7 @@
 ## module to access every toJson/fromJson pair and the shared helpers.
 
 {.push raises: [], noSideEffect.}
+{.experimental: "strictCaseObjects".}
 
 import ./serde
 import ./serde_session

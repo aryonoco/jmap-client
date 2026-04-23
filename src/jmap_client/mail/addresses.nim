@@ -7,6 +7,7 @@
 ## EmailSubmission entities.
 
 {.push raises: [], noSideEffect.}
+{.experimental: "strictCaseObjects".}
 
 import ../validation
 

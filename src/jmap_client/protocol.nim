@@ -6,6 +6,7 @@
 ## and response dispatch.
 
 {.push raises: [], noSideEffect.}
+{.experimental: "strictCaseObjects".}
 
 import ./entity
 import ./methods

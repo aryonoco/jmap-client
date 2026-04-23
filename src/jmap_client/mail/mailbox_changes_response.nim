@@ -11,6 +11,7 @@
 ## this leaf for its ``addMailboxChanges`` wrapper).
 
 {.push raises: [], noSideEffect.}
+{.experimental: "strictCaseObjects".}
 
 import std/json
 

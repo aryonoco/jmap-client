@@ -5,6 +5,7 @@
 ## the complete domain type vocabulary.
 
 {.push raises: [], noSideEffect.}
+{.experimental: "strictCaseObjects".}
 
 import results
 

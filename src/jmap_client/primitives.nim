@@ -6,6 +6,7 @@
 ## specification.
 
 {.push raises: [], noSideEffect.}
+{.experimental: "strictCaseObjects".}
 
 import std/hashes
 import std/sequtils

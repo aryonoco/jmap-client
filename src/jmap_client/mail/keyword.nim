@@ -6,6 +6,7 @@
 ## KeywordSet is an immutable set of keywords used in Email and filter types.
 
 {.push raises: [], noSideEffect.}
+{.experimental: "strictCaseObjects".}
 
 import std/hashes
 import std/sets

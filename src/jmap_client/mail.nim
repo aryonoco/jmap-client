@@ -6,6 +6,7 @@
 ## method builders.
 
 {.push raises: [], noSideEffect.}
+{.experimental: "strictCaseObjects".}
 
 import jmap_client/mail/types
 import jmap_client/mail/serialisation

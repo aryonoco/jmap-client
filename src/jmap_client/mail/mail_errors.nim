@@ -11,6 +11,7 @@
 ## lives next to the mail domain.
 
 {.push raises: [], noSideEffect.}
+{.experimental: "strictCaseObjects".}
 
 import ../validation
 import ../primitives

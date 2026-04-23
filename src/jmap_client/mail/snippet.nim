@@ -6,6 +6,7 @@
 ## Serde defined separately in ``serde_snippet.nim``.
 
 {.push raises: [], noSideEffect.}
+{.experimental: "strictCaseObjects".}
 
 import ../validation
 import ../primitives

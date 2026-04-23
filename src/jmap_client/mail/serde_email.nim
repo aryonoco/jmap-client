@@ -5,6 +5,7 @@
 ## EmailBodyFetchOptions (RFC 8621 sections 4.1-4.9).
 
 {.push raises: [], noSideEffect.}
+{.experimental: "strictCaseObjects".}
 
 import std/json
 import std/strutils
