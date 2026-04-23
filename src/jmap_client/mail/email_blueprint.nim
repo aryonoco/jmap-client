@@ -49,10 +49,11 @@ func hash*(a: BodyPartPath): Hash {.borrow.} ## Hash delegated to the underlying
 func len*(a: BodyPartPath): int {.borrow.}
   ## Length delegated to the underlying seq (may be zero for the root path).
 
-func `[]`*(a: BodyPartPath, i: Natural): int =
-  ## Indexed access into the path. Explicit unwrap because indexing
-  ## through ``{.borrow.}`` hits ``ArrGet`` (compiler magic).
-  seq[int](a)[i]
+func `[]`*(a: BodyPartPath, i: Idx): int =
+  ## Indexed access into the path via sealed non-negative ``Idx``.
+  ## Explicit unwrap because indexing through ``{.borrow.}`` hits
+  ## ``ArrGet`` (compiler magic).
+  seq[int](a)[i.toInt]
 
 iterator items*(a: BodyPartPath): int =
   ## Yields each index in the path.
@@ -235,10 +236,17 @@ iterator pairs*(e: EmailBlueprintErrors): (int, EmailBlueprintError) =
   for p in e.errors.pairs:
     yield p
 
-func `[]`*(e: EmailBlueprintErrors, i: Natural): EmailBlueprintError =
-  ## Indexed access into the aggregate. Out-of-range raises
-  ## ``IndexDefect`` (a ``Defect``, not a ``CatchableError``).
-  e.errors[i]
+func `[]`*(e: EmailBlueprintErrors, i: Idx): EmailBlueprintError =
+  ## Indexed access into the aggregate via sealed non-negative ``Idx``.
+  ## Out-of-range raises ``IndexDefect`` (a ``Defect``, not a
+  ## ``CatchableError``).
+  e.errors[i.toInt]
+
+func head*(e: EmailBlueprintErrors): EmailBlueprintError =
+  ## First error — guaranteed present by the non-empty invariant
+  ## documented on ``EmailBlueprintErrors``. Semantic accessor that
+  ## reads cleaner than ``e[idx(0)]``.
+  e.errors[0]
 
 func `==`*(a, b: EmailBlueprintErrors): bool =
   ## Ordered element-wise equality. Delegates to the underlying seq.
@@ -259,20 +267,22 @@ func capacity*(e: EmailBlueprintErrors): int {.inline.} =
 # message — bounded, NUL-stripped rendering
 # =============================================================================
 
-func clipForMessage(s: string, max: int = 512): string =
+func clipForMessage(s: string, max: Idx = idx(512)): string =
   ## Renders a user-provided payload string into a bounded, FFI- and
   ## log-safe form: truncates to ``max`` bytes and replaces each NUL byte
   ## with the literal escape ``\x00``. Each ``message`` invocation
   ## composes at most six clipped slots, keeping the total well within
-  ## the 8 KiB budget that scenario 11b audits.
-  var buf = newStringOfCap(min(s.len, max) + 8)
-  let limit = min(s.len, max)
+  ## the 8 KiB budget that scenario 11b audits. ``Idx`` on ``max`` makes
+  ## the ``>= 0`` precondition a type-level invariant; the explicit
+  ## ``Natural(...)`` at the stdlib boundary is an nkConv backstop.
+  let limit = min(s.len, max.toInt)
+  var buf = newStringOfCap(Natural(limit + 8))
   for i in 0 ..< limit:
     if s[i] == '\x00':
       buf.add("\\x00")
     else:
       buf.add(s[i])
-  if s.len > max:
+  if s.len > limit:
     buf.add("...")
   buf
 

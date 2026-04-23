@@ -145,37 +145,39 @@ func detectMailboxNoControlChars(raw: string): Result[void, MailboxViolation] =
     return err(mvControlChars)
   ok()
 
-func findClosingQuote(raw: string): Result[int, MailboxViolation] =
+func findClosingQuote(raw: string): Result[Idx, MailboxViolation] =
   ## Returns the index of the closing DQUOTE matching ``raw[0]``. Skips
   ## backslash-escaped chars so ``\"`` does not terminate the scan.
   ## Position-finder only — full quoted-string validation is done later
   ## by ``checkQuotedString`` once the local-part is extracted.
   ## Precondition: ``raw[0] == '"'``.
-  var i = 1
+  var i: Idx = idx(1)
   while i < raw.len:
-    case raw[i]
+    case raw[i.toInt]
     of '\\':
-      if i + 1 >= raw.len:
+      if i + idx(1) >= raw.len:
         return err(mvLocalPartBadQuotedString)
-      i += 2
+      i += idx(2)
     of '"':
       return ok(i)
     else:
-      inc i
+      i = i.succ
   err(mvLocalPartBadQuotedString)
 
 func findSplitAt(raw: string): Result[int, MailboxViolation] =
   ## Returns the index of the Mailbox ``'@'`` separator. A leading
   ## quoted local-part is walked past so that ``'@'`` inside quotes
-  ## doesn't split the address.
+  ## doesn't split the address. ``searchStart: Idx`` lifts the
+  ## non-negative precondition to the type system; ``.toNatural`` is
+  ## the explicit stdlib-boundary projection.
   if raw.len == 0:
     return err(mvEmpty)
-  let searchStart =
+  let searchStart: Idx =
     if raw[0] == '"':
-      (?findClosingQuote(raw)) + 1
+      (?findClosingQuote(raw)).succ
     else:
-      0
-  let atIdx = raw.find('@', start = searchStart)
+      idx(0)
+  let atIdx = raw.find('@', start = searchStart.toNatural)
   if atIdx < 0:
     return err(mvNoAtSign)
   ok(atIdx)

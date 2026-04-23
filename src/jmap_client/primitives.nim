@@ -58,12 +58,14 @@ const
 
 const AsciiDigits = {'0' .. '9'}
 
-func allDigits(raw: string, first, last: Natural): bool =
-  ## Checks that raw[first..last] are all ASCII digits.
+func allDigits(raw: string, first, last: Idx): bool =
+  ## Checks that raw[first..last] are all ASCII digits. ``Idx`` operands
+  ## make non-negativity a type-level invariant — callers prove
+  ## ``0 <= first <= last`` at construction (compile-time via ``idx(...)``
+  ## or runtime via ``parseIdx``).
   if last >= raw.len:
     return false
-  # min(last, raw.high) gives the prover a direct upper-bound proof
-  for i in first .. min(last, raw.high):
+  for i in first.toInt .. min(last.toInt, raw.high):
     if raw[i] notin AsciiDigits:
       return false
   return true
@@ -127,8 +129,8 @@ func detectDatePortion(raw: string): Result[void, DateViolation] =
   ## YYYY-MM-DD at positions 0..9. Precondition: raw.len >= 20
   ## (enforced by detectDate before this detector is reached).
   if not (
-    allDigits(raw, 0, 3) and raw[4] == '-' and allDigits(raw, 5, 6) and raw[7] == '-' and
-    allDigits(raw, 8, 9)
+    allDigits(raw, idx(0), idx(3)) and raw[4] == '-' and allDigits(raw, idx(5), idx(6)) and
+    raw[7] == '-' and allDigits(raw, idx(8), idx(9))
   ):
     return err(dvBadDatePortion)
   return ok()
@@ -139,8 +141,9 @@ func detectTimePortion(raw: string): Result[void, DateViolation] =
   if raw[10] != 'T':
     return err(dvLowercaseT)
   elif not (
-    allDigits(raw, 11, 12) and raw[13] == ':' and allDigits(raw, 14, 15) and
-    raw[16] == ':' and allDigits(raw, 17, 18)
+    allDigits(raw, idx(11), idx(12)) and raw[13] == ':' and
+    allDigits(raw, idx(14), idx(15)) and raw[16] == ':' and
+    allDigits(raw, idx(17), idx(18))
   ):
     return err(dvBadTimePortion)
   elif raw.anyIt(it in {'t', 'z'}):
@@ -167,29 +170,32 @@ func detectFractionalSeconds(raw: string): Result[void, DateViolation] =
         return err(dvZeroFraction)
   return ok()
 
-func offsetStart(raw: string): Natural =
+func offsetStart(raw: string): Idx =
   ## Returns the position where the timezone offset begins (after fractional
-  ## seconds, if any).
+  ## seconds, if any). ``Idx`` return type makes non-negativity a type-level
+  ## invariant for every caller.
   if raw.len <= 19:
-    return 19
+    return idx(19)
   elif raw[19] != '.':
-    return 19
-  var pos: Natural = 20
+    return idx(19)
+  var pos: Idx = idx(20)
   while pos < raw.len:
-    if raw[pos] notin AsciiDigits:
+    if raw[pos.toInt] notin AsciiDigits:
       break
-    inc pos
+    pos = pos.succ
   return pos
 
-func isValidNumericOffset(raw: string, pos: Natural): bool =
+func isValidNumericOffset(raw: string, pos: Idx): bool =
   ## Checks that raw[pos..pos+5] matches +HH:MM or -HH:MM structurally.
-  if pos + 6 != raw.len:
+  ## ``Idx`` signature makes non-negativity a type-level invariant; the
+  ## ``let p = pos.toInt`` projection is zero-cost and the subsequent
+  ## arithmetic stays in ``int`` for idiomatic stdlib interop.
+  let p = pos.toInt
+  if p + 6 != raw.len:
     return false
-  # min(pos + 5, raw.high) gives the prover a direct upper-bound proof;
-  # Natural pos gives the lower-bound proof (pos + 1 >= 1 >= 0).
-  for i in (pos + 1) .. min(pos + 5, raw.high):
+  for i in (p + 1) .. min(p + 5, raw.high):
     let ch = raw[i]
-    if i == pos + 3:
+    if i == p + 3:
       if ch != ':':
         return false
     else:
@@ -203,11 +209,11 @@ func detectTimezoneOffset(raw: string): Result[void, DateViolation] =
   let pos = offsetStart(raw)
   if pos >= raw.len:
     return err(dvMissingOffset)
-  elif raw[pos] == 'Z':
-    if pos + 1 != raw.len:
+  elif raw[pos.toInt] == 'Z':
+    if pos + idx(1) != raw.len:
       return err(dvTrailingAfterZ)
     return ok()
-  elif raw[pos] notin {'+', '-'} or not isValidNumericOffset(raw, pos):
+  elif raw[pos.toInt] notin {'+', '-'} or not isValidNumericOffset(raw, pos):
     return err(dvBadNumericOffset)
   return ok()
 
@@ -300,13 +306,15 @@ template defineNonEmptySeqOps*(T: typedesc) =
   func hash*(a: NonEmptySeq[T]): Hash {.borrow.} ## Hash delegated to the underlying seq.
   func len*(a: NonEmptySeq[T]): int {.borrow.}
     ## Length delegated to the underlying seq (always at least 1).
-  func `[]`*(a: NonEmptySeq[T], i: Natural): lent T =
-    ## Indexed access; explicit unwrap because ``seq[T].[]`` is the compiler
-    ## magic ``ArrGet`` (system.nim) whose declared signature uses ``T`` for
-    ## the container, which ``{.borrow.}`` cannot reconcile with the
-    ## element-``T`` here. Same workaround as ``defineHashSetDistinctOps``'s
-    ## explicit-body ``contains`` (validation.nim).
-    seq[T](a)[i]
+  func `[]`*(a: NonEmptySeq[T], i: Idx): lent T =
+    ## Indexed access via sealed non-negative ``Idx``. Explicit unwrap
+    ## because ``seq[T].[]`` is the compiler magic ``ArrGet`` (system.nim)
+    ## whose declared signature uses ``T`` for the container, which
+    ## ``{.borrow.}`` cannot reconcile with the element-``T`` here.
+    ## Upper-bound violations still panic via the underlying seq's
+    ## ``IndexDefect``; the ``Idx`` invariant statically rules out the
+    ## negative-``i`` case.
+    seq[T](a)[i.toInt]
   func contains*(a: NonEmptySeq[T], x: T): bool =
     ## Membership test; explicit body because ``{.borrow.}`` unwraps both
     ## distinct types — when ``T`` is itself distinct (e.g. ``Date``), the
@@ -333,3 +341,10 @@ func parseNonEmptySeq*[T](s: seq[T]): Result[NonEmptySeq[T], ValidationError] =
   if s.len == 0:
     return err(validationError("NonEmptySeq", "must not be empty", ""))
   return ok(NonEmptySeq[T](s))
+
+func head*[T](a: NonEmptySeq[T]): lent T =
+  ## First element — guaranteed present by the non-empty invariant.
+  ## Semantic accessor that reads cleaner than ``a[idx(0)]``; no
+  ## per-``T`` template instantiation required because ``T`` is
+  ## inferrable from the argument.
+  seq[T](a)[0]

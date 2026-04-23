@@ -1569,8 +1569,8 @@ proc emailBlueprintErrorsSetEq*(a, b: EmailBlueprintErrors): bool =
   var bUsed = newSeq[bool](b.len)
   for x in a:
     var found = false
-    for j in 0 ..< b.len:
-      if not bUsed[j] and emailBlueprintErrorEq(x, b[j]):
+    for j, elem in b.pairs:
+      if not bUsed[j] and emailBlueprintErrorEq(x, elem):
         bUsed[j] = true
         found = true
         break
@@ -1586,7 +1586,10 @@ proc emailBlueprintErrorsOrderedEq*(a, b: EmailBlueprintErrors): bool =
   if a.len != b.len:
     return false
   for i in 0 ..< a.len:
-    if not emailBlueprintErrorEq(a[i], b[i]):
+    # i ∈ [0, a.len) — loop bounds prove non-negativity, so parseIdx.get
+    # cannot Err at runtime.
+    let ix = parseIdx(i).get()
+    if not emailBlueprintErrorEq(a[ix], b[ix]):
       return false
   true
 

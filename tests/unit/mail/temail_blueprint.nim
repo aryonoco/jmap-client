@@ -255,7 +255,7 @@ block flatAttachmentsNestedPathEncoding: # §6.1.1 scenario 7k
   var found = false
   for e in res.unsafeError.items:
     if e.constraint == ebcBodyPartHeaderDuplicate and e.where.kind == bplMultipart and
-        e.where.path.len == 1 and e.where.path[0] == 4:
+        e.where.path.len == 1 and e.where.path[idx(0)] == 4:
       found = true
       break
   doAssert found, "expected attachments[2] path @[4], got " & $res.unsafeError
@@ -488,4 +488,4 @@ block nonEmptySeqDistinctCopySemantics: # §6.4.4 scenario 102d
   var raw = seq[string](ne)
   raw.setLen(0)
   doAssert ne.len == 1, "NonEmptySeq must retain element after unwrap-mutate"
-  doAssert ne[0] == "v", "NonEmptySeq element value must be preserved"
+  doAssert ne.head == "v", "NonEmptySeq element value must be preserved"

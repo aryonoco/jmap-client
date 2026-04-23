@@ -275,9 +275,15 @@ func `$`*(a: NonEmptyIdSeq): string {.borrow.}
 func len*(a: NonEmptyIdSeq): int {.borrow.}
   ## Element count; invariant ``>= 1`` by construction.
 
-func `[]`*(a: NonEmptyIdSeq, i: Natural): lent Id =
-  ## Indexed read-only access; the underlying ``seq[Id]`` retains ownership.
-  seq[Id](a)[i]
+func `[]`*(a: NonEmptyIdSeq, i: Idx): lent Id =
+  ## Indexed read-only access via sealed non-negative ``Idx``; the
+  ## underlying ``seq[Id]`` retains ownership.
+  seq[Id](a)[i.toInt]
+
+func head*(a: NonEmptyIdSeq): lent Id =
+  ## First element — guaranteed present by the non-empty invariant.
+  ## Semantic accessor that reads cleaner than ``a[idx(0)]``.
+  seq[Id](a)[0]
 
 iterator items*(a: NonEmptyIdSeq): Id =
   ## Iteration over the underlying ``seq[Id]``.

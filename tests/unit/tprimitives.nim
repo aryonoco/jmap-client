@@ -675,8 +675,8 @@ block parseNonEmptySeqBasic: # §6.1.5b scenario 37i
   assertOk res
   let ne = res.get()
   assertLen ne, 3
-  assertEq ne[0], 1
-  assertEq ne[2], 3
+  assertEq ne[idx(0)], 1
+  assertEq ne[idx(2)], 3
   var collected: seq[int] = @[]
   for x in ne:
     collected.add(x)

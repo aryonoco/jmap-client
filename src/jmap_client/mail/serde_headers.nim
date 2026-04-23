@@ -196,7 +196,7 @@ func neStringToJson(ne: NonEmptySeq[string]): JsonNode =
   ## Cardinality 1 → JString; otherwise JArray of JString. Used for
   ## ``hfRaw`` and ``hfText`` variants.
   if ne.len == 1:
-    return %ne[0]
+    return %ne.head
   result = newJArray()
   for v in ne:
     result.add(%v)
@@ -205,7 +205,7 @@ func neAddrListsToJson(ne: NonEmptySeq[seq[EmailAddress]]): JsonNode =
   ## Cardinality 1 → JArray of address objects; otherwise JArray of JArrays.
   if ne.len == 1:
     result = newJArray()
-    for ea in ne[0]:
+    for ea in ne.head:
       result.add(ea.toJson())
     return
   result = newJArray()
@@ -219,7 +219,7 @@ func neGroupListsToJson(ne: NonEmptySeq[seq[EmailAddressGroup]]): JsonNode =
   ## Cardinality 1 → JArray of group objects; otherwise JArray of JArrays.
   if ne.len == 1:
     result = newJArray()
-    for g in ne[0]:
+    for g in ne.head:
       result.add(g.toJson())
     return
   result = newJArray()
@@ -234,7 +234,7 @@ func neStringSeqToJson(ne: NonEmptySeq[seq[string]]): JsonNode =
   ## Used for ``hfMessageIds`` and ``hfUrls`` variants.
   if ne.len == 1:
     result = newJArray()
-    for s in ne[0]:
+    for s in ne.head:
       result.add(%s)
     return
   result = newJArray()
@@ -247,7 +247,7 @@ func neStringSeqToJson(ne: NonEmptySeq[seq[string]]): JsonNode =
 func neDateToJson(ne: NonEmptySeq[Date]): JsonNode =
   ## Cardinality 1 → JString (RFC 3339); otherwise JArray of JString.
   if ne.len == 1:
-    return ne[0].toJson()
+    return ne.head.toJson()
   result = newJArray()
   for d in ne:
     result.add(d.toJson())

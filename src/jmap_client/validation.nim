@@ -151,6 +151,90 @@ template validateUniqueByIt*(
       errs.add validationError(typeName, dupMsg, $k)
     errs
 
+# =============================================================================
+# Idx — sealed non-negative index type
+# =============================================================================
+
+type Idx* = distinct int
+  ## Validated non-negative integer, used as an index into strings, seqs,
+  ## and other ordered containers. Construction is sealed:
+  ##   * ``idx(i: static[int])`` — compile-time, negative literals rejected
+  ##     via the ``{.error.}`` pragma (a pragma, not ``doAssert`` — no
+  ##     runtime code emitted, no panic path).
+  ##   * ``parseIdx(raw: int)`` — runtime, negativity flows through the
+  ##     Result error rail (not ``RangeDefect``).
+  ## Replaces ``Natural`` at the domain layer per the project rule against
+  ## ``range[T]`` for domain constraints (``nim-type-safety.md``).
+
+defineIntDistinctOps(Idx)
+
+func toInt*(i: Idx): int {.inline.} =
+  ## Projection to raw ``int``. Total, zero-cost.
+  int(i)
+
+func toNatural*(i: Idx): Natural {.inline.} =
+  ## Projection to ``Natural`` at stdlib API boundaries that still declare
+  ## ``Natural`` (``newStringOfCap``, ``strutils.find(start=...)``). The
+  ## ``Idx`` invariant guarantees ``int(i) >= 0``; the compiler-inserted
+  ## range check at the conversion is therefore a statically unreachable
+  ## backstop, not a correctness-load-bearing check.
+  Natural(int(i))
+
+func `+`*(a, b: Idx): Idx {.inline.} =
+  ## Invariant-preserving sum. Two non-negative operands ⇒ non-negative
+  ## result. Deliberately no ``Idx - Idx`` (could underflow) and no
+  ## ``Idx + int`` (right operand unsafe); callers needing those route
+  ## through ``parseIdx`` and take the error-rail hit.
+  Idx(int(a) + int(b))
+
+func succ*(i: Idx): Idx {.inline.} =
+  ## Successor — equivalent to ``i + idx(1)``.
+  Idx(int(i) + 1)
+
+func `<`*(a: Idx, b: int): bool {.inline.} =
+  ## Read-only mixed comparison. No path smuggles a negative ``int``
+  ## into ``Idx``; comparison against a raw ``int`` is one-way.
+  int(a) < b
+
+func `<=`*(a: Idx, b: int): bool {.inline.} =
+  ## Read-only mixed less-or-equal; see ``<(Idx, int)`` for rationale.
+  int(a) <= b
+
+func `>=`*(a: Idx, b: int): bool {.inline.} =
+  ## Read-only mixed greater-or-equal; see ``<(Idx, int)`` for rationale.
+  int(a) >= b
+
+func `>`*(a: Idx, b: int): bool {.inline.} =
+  ## Read-only mixed greater-than; see ``<(Idx, int)`` for rationale.
+  int(a) > b
+
+func `==`*(a: Idx, b: int): bool {.inline.} =
+  ## Read-only mixed equality; see ``<(Idx, int)`` for rationale.
+  int(a) == b
+
+func `+=`*(a: var Idx, b: Idx) {.inline.} =
+  ## Compound addition. Both operands non-negative ⇒ result
+  ## non-negative — invariant preserved by construction.
+  a = Idx(int(a) + int(b))
+
+template idx*(i: static[int]): Idx =
+  ## Compile-time smart constructor. Negative literals are rejected at
+  ## compilation via ``{.error.}`` — a pragma, not ``doAssert``. No
+  ## runtime code is emitted and no panic path exists. Expansion is
+  ## ``Idx(i)`` (``nkConv``) which does NOT fire
+  ## ``ImplicitRangeConversion`` the way ``Natural(i)`` would.
+  when i < 0:
+    {.error: "idx requires a non-negative literal; refactor or use parseIdx".}
+  else:
+    Idx(i)
+
+func parseIdx*(raw: int): Result[Idx, ValidationError] =
+  ## Runtime smart constructor. Negativity surfaces on the Result error
+  ## rail, consistent with ``parseUnsignedInt`` / ``parseJmapInt``.
+  if raw < 0:
+    return err(validationError("Idx", "must be non-negative", $raw))
+  return ok(Idx(raw))
+
 const Base64UrlChars* = {'A' .. 'Z', 'a' .. 'z', '0' .. '9', '-', '_'}
   ## Characters permitted in RFC 8620 §1.2 entity identifiers.
 

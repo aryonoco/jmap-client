@@ -61,8 +61,8 @@ block depthFivePathEncoding: # §6.1.5c scenario 37q
   for e in res.unsafeError.items:
     if e.constraint == ebcBodyPartHeaderDuplicate and e.where.kind == bplMultipart:
       assertEq e.where.path.len, 5
-      for i in 0 .. 4:
-        assertEq e.where.path[i], 0
+      for elem in e.where.path:
+        assertEq elem, 0
       hit = true
   doAssert hit, "expected a single bplMultipart duplicate at depth 5"
 
