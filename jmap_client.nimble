@@ -209,8 +209,8 @@ srcDir = "src"
 --hintAsError:
   DuplicateModuleImport
 # Diagnostic hints — uncomment one at a time, fix surfaces, verify.
-# --hintAsError:
-#   XCannotRaiseY                # raises list contains impossible exception
+--hintAsError:
+  XCannotRaiseY                  # raises list contains impossible exception
 # --hintAsError:
 #   UnknownRaises                # forward decl without explicit .raises
 # --hintAsError:
