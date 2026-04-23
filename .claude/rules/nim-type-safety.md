@@ -75,6 +75,102 @@ at runtime. Shared fields (before `case`) always accessible. Discriminator
 immutable after construction. Adding a variant forces errors at all unhandled
 `case` sites.
 
+## strictCaseObjects
+
+Every src/ file enables `{.experimental: "strictCaseObjects".}`
+immediately after its `{.push raises: ...}` pragma. Under strict, the
+`FieldDefect` runtime check is replaced by a compile-time proof
+obligation: every variant-field read must occur in a `case` branch
+that provably matches the field's declaration. Four empirical rules
+govern acceptance, confirmed against `guards.nim` / `sempass2.nim` in
+the Nim compiler source and minimal experiments.
+
+### Rule 1 — Case, not if
+
+`if obj.kind == X: use obj.field` is NOT sufficient — strict only
+proves discriminator values through `case` statements. Convert to
+`case obj.kind of X: use obj.field`.
+
+### Rule 2 — Match the declaration's branch structure
+
+- If a field is declared in the object's `else:` branch, the use-site
+  case must also go through `else:`. `case x.kind of <all of-arms>:
+  ... else: <read else-field>` is strict-safe; `case x.kind of
+  <value-in-else>: <read else-field>` is rejected — even when the
+  value semantically falls under `else:`, strict requires literal
+  structural match.
+- If the type declares `of A, B: field: T` as a single combined arm,
+  the use site must also combine them (`of A, B: use x.field`). Split-
+  of-arms `of A: ... of B: ...` are rejected. To differentiate within
+  a combined arm, use an inner `if x.kind == A:` — the outer combined
+  `of` has already proved combined-arm membership, so the inner `if`
+  is accepted for reading the variant field.
+
+### Rule 3 — Accessors must be fields or templates
+
+A `func` accessor returning the discriminator (`func kind(x): X =
+x.rawKind`) hides the discriminator from strict. External `case
+x.kind of Y: x.variantField` then fails — strict doesn't trace
+through `func` bodies. Two fixes:
+
+- **Preferred**: make the discriminator itself a public field
+  (expose `errorType*: SetErrorType` directly).
+- **Fallback**: use a `template` accessor — template expansion
+  preserves symbol resolution, but the underlying field's visibility
+  still governs external access. A private discriminator exposed only
+  via template works within the defining module but fails from
+  external modules.
+
+### Rule 4 — Nested case objects aren't tracked across layers
+
+If type A has `case k1: B` with B having its own `case k2: ...`,
+strict proves only one level at a time — a use-site `case x.k1 of X:
+case x.k2 of Y: x.innerField` is rejected even when logically valid.
+Structural fix: extract the inner case into its own type and hold it
+as a field. Each discriminator is then on its own type, so strict
+tracks them independently.
+
+### FFI panic avoidance
+
+This project compiles with `--panics:on`, so any `Defect`
+(`ResultDefect`, `FieldDefect`, `RangeDefect`, etc.) triggers
+`rawQuit(1)` — immediate host-process termination, NO C-level error
+return, NO cleanup, NO unwinding. For an FFI-exporting library that's
+catastrophic.
+
+- `.value` / `.error` / `.get()` route through `withAssertOk` →
+  `raiseResultDefect` on Err. Strict-safe (the template is case-
+  wrapped) but NOT panic-free. Do not use as an invariant-assertion
+  in library code.
+- **In "shouldn't-happen" contexts** (invariant already proved Ok):
+  use `case x.isOk of true: x.unsafeValue of false: <default>`.
+  Strict-safe (case proves the discriminator via literal match) AND
+  panic-free (`unsafeValue` bypasses `withAssertOk`).
+- **In error-handling contexts**: use `valueOr:` with an explicit
+  `return err(...)` so the failure flows through the Result railway
+  to the FFI boundary.
+
+### `.unsafeValue` / `.unsafeError` / `.unsafeGet`
+
+Bypass `withAssertOk` — direct variant-field reads. Under strict,
+they're only accepted when the callsite wraps the access in a case
+that proves the discriminator (e.g., `case x.isOk of true:
+x.unsafeValue`). Naked `.unsafeGet` with no guard is strict-fatal.
+
+### `var` parameters are not tracked by strict
+
+`guards.nim:47-57` in the Nim compiler: `skParam` is treated as a
+let-location only when its type is NOT `tyVar`. Consequence: calling
+`.get()` / `.value()` on a var-lvalue picks the var-parameter
+overload in nim-results (`func get*[T: not void, E](self: var
+Result[T, E]): var T`, a generic func whose body strict cannot
+prove). Always let-bind first: `let tmp = varExpr; tmp.get()` (if Ok
+proved) or `let tmp = varExpr; tmp.valueOr: return err(...)` (if
+error-handling required).
+
+Nimalyzer does not flag or enforce the experimental pragma; the
+convention is enforced by code review and CI.
+
 ### Two-variant sum (error type):
 
 ```nim

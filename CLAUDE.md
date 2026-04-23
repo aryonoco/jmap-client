@@ -121,6 +121,14 @@ Access the Nim source code at /.nim-reference
 - Prefer `collect` (std/sugar) for building new collections; `allIt`/`anyIt` for predicates
 - **`func` is mandatory in L1–L3** (types, serde, protocol) — no `proc` permitted. `{.push raises: [], noSideEffect.}` at the top of each L1–L3 module enforces purity at compile time. Callback parameters use `{.noSideEffect, raises: [].}` on the proc type; `mixin` resolves pure at instantiation. `proc` only allowed in L4 (IO/transport) and L5 (C ABI exports)
 - **Push pragmas on every source module** — L1–L3: `{.push raises: [], noSideEffect.}` (totality + purity); L4–L5: `{.push raises: [].}`
+- **`{.experimental: "strictCaseObjects".}` in src/ only** — every `.nim` file under `src/` MUST have this pragma immediately after its `{.push raises: ...}` pragma. Applies to both debug and release builds via the source-level pragma (no compiler-flag dependency). Tests/ are exempt. Under strict:
+  - Use `case x.kind of foo:` — NOT `if x.kind == foo:` — to read variant fields. Strict only proves discriminator values through `case`.
+  - Use-site case arms must mirror the declaration's `of`/`else:` combinations exactly. Fields declared in the object's `else:` branch require a use-site `else:`. Split-of-arms (`of A: ... of B: ...`) are rejected when the declaration combines them (`of A, B: field: T`); within a combined arm, differentiate via inner `if x.kind == A:` (the outer combined `of` has already proved combined-arm membership).
+  - Accessor funcs hide the discriminator. Expose discriminators as public fields (preferred) or use template accessors (limited to same-module callers because template expansion respects source-module visibility).
+  - Nested case objects aren't tracked across layers. Extract the inner case into its own type and hold it as a field.
+  - `.value` / `.error` / `.get()` on a Result panic on Err via `raiseResultDefect` — under `--panics:on` that's `rawQuit(1)`, catastrophic for the FFI boundary. In "shouldn't-happen" contexts (invariant-proved Ok), prefer `case x.isOk of true: x.unsafeValue of false: <default>` — strict-safe AND panic-free. In genuine error-handling contexts, use `valueOr: return err(...)` so the failure flows through the Result railway.
+  - `.unsafeValue` / `.unsafeError` / `.unsafeGet` bypass `withAssertOk` — under strict they're only accepted inside a case that proves the discriminator (the `case x.isOk of true:` pattern above).
+  - Do NOT call `.get()` / `.value()` on a `var`-lvalue. Nim picks the `var Result → var T` overload in nim-results, which strict cannot prove (compiler limitation: var params are excluded from let-location tracking — see `guards.nim:47-57` in the Nim compiler). Let-bind to an immutable local first: `let tmp = varExpr; tmp.get()`.
 
 ## C ABI
 
