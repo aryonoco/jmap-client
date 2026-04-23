@@ -213,8 +213,8 @@ srcDir = "src"
   XCannotRaiseY                  # raises list contains impossible exception
 --hintAsError:
   UnknownRaises                  # forward decl without explicit .raises
-# --hintAsError:
-#   ExprAlwaysX                  # expression constant-folds to literal
+--hintAsError:
+  ExprAlwaysX                    # expression constant-folds to literal
 # --hintAsError:
 #   CondTrue                     # condition always true
 # --hintAsError:
