@@ -163,9 +163,9 @@ test concerns whose scope spans multiple types within the Part.
 
 | File | Status |
 |------|--------|
-| `tests/property/tprop_mail_g.nim` | **Not yet created** — all nine property groups in §8.2.1 are still to be written. Per precedent from `tprop_mail_e.nim`, the file will land in `tests/testament_skip.txt` (it runs under `just test-full`, not `just test`). |
+| `tests/property/tprop_mail_g.nim` | **SHIPPED** — all nine property groups in §8.2.1 landed with canonical block names `propRFC5321MailboxTotality` (line 54), `propRFC5321MailboxStrictLenientSuperset` (83), `propSubmissionParamsInsertionOrderRoundTrip` (130), `propSubmissionParamKeyIdentity` (154), `propAnyEmailSubmissionStateDispatch` (185), `propCancelUpdateKindInvariant` (239), `propNonEmptyEmailSubmissionUpdatesDuplicateId` (259), `propParsedDeliveredStateRawBackingRoundTrip` (306), `propParseSmtpReplyDigitBoundary` (358). Per precedent from `tprop_mail_e.nim`, registered in `tests/testament_skip.txt` (it runs under `just test-full`, not `just test`). |
 | `tests/compile/tcompile_mail_g_public_surface.nim` | **SHIPPED** — 96 `declared()` assertions plus one runtime anchor covering every G1 public symbol. See §8.2.2 for the shape and optional enhancements. |
-| `tests/stress/tadversarial_mail_g.nim` | **Not yet created** — the six adversarial-scenario blocks in §8.2.3 are still to be written. Per precedent from `tadversarial_mail_f.nim`, the file will land in `tests/testament_skip.txt` (runs under `just stress` / `just test-full`). |
+| `tests/stress/tadversarial_mail_g.nim` | **SHIPPED** — the six adversarial-scenario blocks in §8.2.3 plus the §8.12 scale block landed, organised as 7 enclosing group blocks (`rfc5321MailboxAdversarialGroup`, `submissionParamAdversarialGroup`, `envelopeCoherenceGroup`, `anyEmailSubmissionDispatchGroup`, `smtpReplyGrammarGroup`, `getBothSubmissionAdversarialGroup`, `scaleInvariantsGroup`) with per-scenario assertions as nested child blocks. Per precedent from `tadversarial_mail_f.nim`, registered in `tests/testament_skip.txt` (runs under `just stress` / `just test-full`). |
 
 #### 8.2.1. `tests/property/tprop_mail_g.nim`
 
@@ -351,14 +351,19 @@ practice. F2 §8.2.2's optional-enhancement posture is the precedent.
 
 #### 8.2.3. `tests/stress/tadversarial_mail_g.nim`
 
-**Not yet created.** Adversarial scenarios, organised into six blocks
+**SHIPPED.** Adversarial scenarios, organised into six blocks
 corresponding to matrices §8.3 (per-concept messages), §8.6 (cross-entity
 coherence), §8.7 (parameter boundaries), §8.12 (scale invariants), and
 three cross-cutting blocks covering `AnyEmailSubmission` dispatch,
-`SmtpReply` grammar, and `Envelope` coherence.
+`SmtpReply` grammar, and `Envelope` coherence. Each numbered block
+below corresponds to one enclosing group block (`*Group`) in the
+shipped file; per-scenario rows land as nested child blocks under that
+group, not as top-level peers.
 
-**Block 1 — RFC 5321 Mailbox adversarial.** Each row is one named test
-in the stress file. The strict parser must reject; the lenient parser
+**Block 1 — RFC 5321 Mailbox adversarial.** Landed inside the
+enclosing `rfc5321MailboxAdversarialGroup` block
+(`tadversarial_mail_g.nim:53`). Each row below is a nested child block
+with the cited name. The strict parser must reject; the lenient parser
 (`parseRFC5321MailboxFromServer`) either rejects or accepts per the
 Postel split — pin whichever the shipped code does and treat it as a
 contract test.
@@ -381,9 +386,10 @@ load-bearing contrast test — G1 §2.2 documents that
 `Ldh-str`. A bug that unifies the two check routines would pass all
 the positive mailbox tests but fail this single row.
 
-**Block 2 — `SubmissionParam` wire adversarial.** Drives through the
-typed parameter constructors and `toJson`/`fromJson` on
-`SubmissionParams`.
+**Block 2 — `SubmissionParam` wire adversarial.** Landed inside the
+enclosing `submissionParamAdversarialGroup` block
+(`tadversarial_mail_g.nim:103`). Drives through the typed parameter
+constructors and `toJson`/`fromJson` on `SubmissionParams`.
 
 | Test name | Input | Expected |
 |-----------|-------|----------|
@@ -398,9 +404,10 @@ typed parameter constructors and `toJson`/`fromJson` on
 | `paramEnvidXtextEncoded` | `{"ENVID": "hello\\x2Bworld"}` — per the G1 resolved note (§7.2), no xtext helpers exist; the JMAP wire carries plain UTF-8 | `Ok` — string stored verbatim |
 | `paramDuplicateKey` | Two `spkBody` entries in the input seq | `Err` (`"duplicate parameter key"` per `submission_param.nim:367`) |
 
-**Block 3 — `Envelope` serde coherence.** Tests the null-reverse-path
-shape, the strict/lenient duplicate split, and the parameters-on-null
-case.
+**Block 3 — `Envelope` serde coherence.** Landed inside the enclosing
+`envelopeCoherenceGroup` block (`tadversarial_mail_g.nim:174`). Tests
+the null-reverse-path shape, the strict/lenient duplicate split, and
+the parameters-on-null case.
 
 | Test name | Wire JSON | Expected |
 |-----------|-----------|----------|
@@ -412,10 +419,12 @@ case.
 | `envelopeDuplicateRcptToStrict` | Same via `parseNonEmptyRcptList` (client path) | `Err` (`"duplicate recipient mailbox"` per `submission_envelope.nim:118`) |
 | `envelopeOptNoneVsEmptyParams` | `SubmissionAddress` with `Opt.none(SubmissionParams)` toJson → `"parameters": null`; with `Opt.some(emptyParams)` toJson → `"parameters": {}` | Round-trip preserves the distinction (G34) |
 
-**Block 4 — `AnyEmailSubmission` dispatch adversarial.** Critical note:
-`UndoStatus` is the phantom parameter (G3), so the forwards-compat
-catch-all pattern that applies to `DeliveredState`/`DisplayedState`
-(G10/G11) does **not** apply here. Any wire `undoStatus` value outside
+**Block 4 — `AnyEmailSubmission` dispatch adversarial.** Landed inside
+the enclosing `anyEmailSubmissionDispatchGroup` block
+(`tadversarial_mail_g.nim:261`). Critical note: `UndoStatus` is the
+phantom parameter (G3), so the forwards-compat catch-all pattern that
+applies to `DeliveredState`/`DisplayedState` (G10/G11) does **not**
+apply here. Any wire `undoStatus` value outside
 `{"pending", "final", "canceled"}` must `Err` — the client commits to
 closed enumeration.
 
@@ -426,10 +435,12 @@ closed enumeration.
 | `anyUndoStatusWrongKindNull` | `{"undoStatus": null, ...}` | `Err` (`svkWrongKind` at `/undoStatus`) |
 | `anyUndoStatusUnknownValue` | `{"undoStatus": "deferred", ...}` | `Err` (`svkEnumValueUnknown` or equivalent — NOT a silent `usOther` fallback) |
 | `anyUndoStatusCaseMismatch` | `{"undoStatus": "PENDING", ...}` | `Err` — wire tokens are lowercase per G1 §3.1 |
-| `anyDispatchRoundTripPerVariant` | Serialise a fully-populated `usPending` / `usFinal` / `usCanceled` instance; confirm phantom branch on `fromJson` | Ok; `state` matches, branch payload preserved |
+| `anyDispatchAllThreeVariants` | Serialise a fully-populated `usPending` / `usFinal` / `usCanceled` instance; confirm phantom branch on `fromJson` | Ok; `state` matches, branch payload preserved |
 
-**Block 5 — `SmtpReply` grammar adversarial.** Per the shipped error
-strings at `submission_status.nim:134–152`.
+**Block 5 — `SmtpReply` grammar adversarial.** Landed inside the
+enclosing `smtpReplyGrammarGroup` block
+(`tadversarial_mail_g.nim:349`). Per the shipped error strings at
+`submission_status.nim:134–152`.
 
 | Test name | Input | Expected |
 |-----------|-------|----------|
@@ -449,11 +460,16 @@ strings at `submission_status.nim:134–152`.
 | `smtpReplyBareCodeNoText` | `"250"` | Pin shipped behaviour (may be `Ok` or `Err` depending on whether `<sep>text>` is required) |
 
 **Block 6 — `getBoth(EmailSubmissionHandles)` cross-entity
-adversarial.** Cross-references §8.6; each row in that matrix is
-realised here as a named test with a complete wire `Response` fixture.
-Unlike F1's same-entity `getBoth(EmailCopyHandles)`, these scenarios
-involve two entity namespaces (`EmailSubmission/*` and `Email/*`)
-sharing one request-response envelope.
+adversarial.** Landed inside the enclosing
+`getBothSubmissionAdversarialGroup` block
+(`tadversarial_mail_g.nim:445`). Cross-references §8.6; each row in
+that matrix is realised here as a nested child block with a complete
+wire `Response` fixture. Unlike F1's same-entity
+`getBoth(EmailCopyHandles)`, these scenarios involve two entity
+namespaces (`EmailSubmission/*` and `Email/*`) sharing one
+request-response envelope. Block 7 (the §8.12 scale invariants — 3
+blocks) lands inside a parallel `scaleInvariantsGroup` block
+(`tadversarial_mail_g.nim:562`).
 
 | Test name | Scenario | Expected `getBoth` outcome |
 |-----------|----------|---------------------------|
@@ -477,13 +493,16 @@ decode surface, and re-enumerating them here would duplicate coverage.
 
 **State-of-play key.** Each row below is tagged:
 
-- **SHIPPED** — the blocks already exist in the cited file after the G1
-  implementation merge. Scope additions go *after the last shipped
-  block*; the append line is cited per file.
-- **TO-ADD** — blocks still to be written in the cited file (creating
-  the file first if it does not exist).
+- **SHIPPED** — the blocks already exist in the cited file. Every row
+  in the table below now shows SHIPPED: the blocks the G1
+  implementation merge shipped originally, plus the blocks that G2
+  Phases 1–6 added. The Phase 7 matrix audit (this document's
+  living-artefact role per §8.10/§8.13) flipped every previously
+  pending entry; no TO-ADD rows remain in G2 scope.
+- **TO-ADD** — historical tag; preserved here so future G-part designs
+  can use the same vocabulary. No current G2 rows carry it.
 
-**Error-rail shape (applies to every TO-ADD below unless noted).** The
+**Error-rail shape (applies to every rejection assertion below).** The
 shipped `ValidationError` record has exactly three fields: `typeName:
 string`, `message: string`, `value: string`. There is **no**
 `classification` field, `kind` enum, or similar typed discriminator on
@@ -562,16 +581,16 @@ invent strings. Grep targets differ per row:
 
 | File | Status | Append position | Scope additions |
 |------|--------|-----------------|-----------------|
-| `tests/unit/mail/temail_submission_blueprint.nim` | **SHIPPED** (92L) | After line 92 | Per-field rejection matrix reflecting the G1 implementation reality: `parseEmailSubmissionBlueprint` accepts pre-parsed `Id` values and trivially returns `ok(...)` (`email_submission.nim:152-161`), so rejection of malformed identityId/emailId surfaces at the upstream `parseId` boundary; `blueprintInvalidIdentityId` / `blueprintInvalidEmailId` grep-lock the Id-layer message (`validation.nim:189`); `blueprintAccumulatesBothIdErrors` pins per-call error independence at `parseId` AND structurally asserts the blueprint's `Result[_, seq[ValidationError]]` error-rail shape is preserved for forward-compat; `rawEnvelope` carries an already-validated `Envelope`, so inner violations cannot propagate via `Blueprint`. `blueprintPatternASealExplicitRawField` uses `assertNotCompiles` (massertions.nim:150) to probe per-field record-literal construction AND field-read access, complementing the shipped `sealingContract` block. Proposed `block` names: `blueprintInvalidIdentityId`, `blueprintInvalidEmailId`, `blueprintAccumulatesBothIdErrors`, `blueprintPatternASealExplicitRawField`. |
-| `tests/unit/mail/tonsuccess_extras.nim` | **SHIPPED** (124L) | After line 124 | `IdOrCreationRef` vs `Referencable[T]` distinction: wire-shape pins (`directRef(id)` → JSON string `$id`; `creationRef(cid)` → JSON string `"#" & $cid`; `Referencable[T]` result-reference → JSON object `{"resultOf":..., "name":..., "path":...}`). Compile-time pin that the two types are distinct (`assertNotCompiles(let _: Referencable[seq[Id]] = directRef(id))`). Proposed `block` names: `idOrCreationRefWireDirectIsBareString`, `idOrCreationRefWireCreationHasHashPrefix`, `idOrCreationRefVsReferencableAreDistinctTypes`. |
-| `tests/unit/mail/temail_submission.nim` | **TO-CREATE** (~250L) | New file | Per-phantom-variant construction smoke: `EmailSubmission[usPending]`, `EmailSubmission[usFinal]`, `EmailSubmission[usCanceled]` via `toAny` lifting; `AnyEmailSubmission` construction with `state` discriminator; value-level `cancelUpdate(EmailSubmission[usPending])` producing `esuSetUndoStatusToCanceled`; **`static:` block with `assertNotCompiles` proving `cancelUpdate(default(EmailSubmission[usFinal]))` and `cancelUpdate(default(EmailSubmission[usCanceled]))` fail to compile**. This is the single most load-bearing compile-time test in G2 — a regression collapses the phantom-typed transition arrow to a runtime check. Block 6 (`existentialBranchAccessorContract`) pins the Pattern A sealing contract (§8 item 4): (i) accessor visibility for the three `asX` projections, (ii) compile-time refusal of brace construction with both `raw*` names (now module-private) and the pre-sealing public names (no longer exist), and (iii) the `Opt[T]` projection shape for each state × accessor combination (3 × 3 = 9 probes). Proposed `block` names: `toAnyPendingBranchPreserved`, `toAnyFinalBranchPreserved`, `toAnyCanceledBranchPreserved`, `cancelUpdateProducesSetUndoStatusToCanceled`, `phantomArrowStaticRejectsFinalAndCanceled` (the `static:` block), `existentialBranchAccessorContract`. |
-| `tests/unit/mail/temail_submission_update.nim` | **TO-CREATE** (~120L) | New file | `setUndoStatusToCanceled()` value-level construction; `parseNonEmptyEmailSubmissionUpdates` empty and duplicate-`Id` cases with message-string assertions (grep-locked per §8.3's error-rail table); accumulating behaviour when both empty and duplicate shapes co-occur (they can't — empty has no duplicates — so each invariant fires in its own input shape, matching F1 `NonEmptyEmailImportMap` style). Proposed `block` names: `setUndoStatusToCanceledValueShape`, `parseUpdatesRejectsEmpty`, `parseUpdatesRejectsDuplicateId`, `parseUpdatesHappyPathSingleEntry`. |
-| `tests/unit/mail/tsubmission_params.nim` | **TO-CREATE** (~400L) | New file | 11 well-known variants, each with a valid representative and an invalid-boundary representative per §8.7; NOTIFY mutual-exclusion rule at unit tier; `SubmissionParamKey` identity enumeration across the 12-kind × extension-name matrix; `paramKey` derivation totality (every `SubmissionParam` value produces a well-formed `SubmissionParamKey`); `SubmissionParams` insertion-order preservation (non-property enumerator — three fixed insertion sequences checked against `toJson` output). File layout driven by §8.7 matrix — one `block` per row. |
-| `tests/unit/mail/tsubmission_mailbox.nim` | **TO-CREATE** (~300L) | New file | `RFC5321Mailbox` strict parser: each of 4 local-part shapes (`Dot-string`, `Quoted-string`, long `Dot-string` near 64-octet limit, `Quoted-string` with escaped quote) × 4 domain-form shapes (plain `Domain`, IPv4 address-literal, IPv6 address-literal, General-address-literal) with one representative each — property group A covers the rest. Strict/lenient divergence cases (lenient accepts more — pin representatives). Case-insensitive `RFC5321Keyword` equality (`parseRFC5321Keyword("X-FOO") == parseRFC5321Keyword("x-foo")`); byte-equal `OrcptAddrType` equality (`parseOrcptAddrType("rfc822") != parseOrcptAddrType("RFC822")`) — pin that the two distinct types share grammar but not semantics. Proposed `block` names: `mailboxDotStringPlainDomain`, `mailboxDotStringIPv4Literal`, `mailboxDotStringIPv6Literal`, `mailboxDotStringGeneralLiteral`, `mailboxQuotedPlainDomain`, `mailboxQuotedIPv6Literal`, `mailboxStrictLenientSupersetOnPlainDomain`, `mailboxStrictLenientSupersetOnMalformedLocalPart`, `rfc5321KeywordCaseInsensitive`, `orcptAddrTypeByteEqual`. |
-| `tests/unit/mail/tsubmission_status.nim` | **TO-CREATE** (~200L) | New file | `DeliveredState` round-trip per variant including `dsOther` raw-backing preservation; `DisplayedState` round-trip per variant including `dpOther`; `SmtpReply` Reply-code digit-class cases (mirror the unit-tier representatives of property group I); `DeliveryStatus` composite construction from all three fields; `DeliveryStatusMap` `countDelivered` and `anyFailed` domain operations exercised on hand-constructed maps with known outcomes (three maps: all-delivered, all-failed, mixed). Proposed `block` names: `deliveredStateQueuedRoundTrip`, `deliveredStateYesRoundTrip`, `deliveredStateNoRoundTrip`, `deliveredStateUnknownRoundTrip`, `deliveredStateOtherPreservesRawBacking`, `displayedStateYesRoundTrip`, `displayedStateUnknownRoundTrip`, `displayedStateOtherPreservesRawBacking`, `smtpReplyHappy200`, `smtpReplyHappy550`, `smtpReplyMultilineHappy`, `deliveryStatusComposite`, `deliveryStatusMapCountDelivered`, `deliveryStatusMapAnyFailedFalseWhenAllDelivered`, `deliveryStatusMapAnyFailedTrueWhenOneFailed`. |
-| `tests/serde/mail/tserde_submission_envelope.nim` | **SHIPPED** (119L) | After line 119 | Full parameter-family serde coverage — the shipped file covers five families (BODY, SIZE, NOTIFY, ORCPT, extension) but omits six others. Add per-family round-trip blocks: `ENVID`, `RET`, `HOLDFOR`, `HOLDUNTIL`, `BY`, `MT-PRIORITY`, `SMTPUTF8`. `ReversePath` case object toJson/fromJson per arm (positive round-trip for `rpkNullPath` with and without params; for `rpkMailbox` with and without params). `Opt.none(SubmissionParams)` vs `Opt.some(emptyParams)` wire distinction (G34) — `Opt.none` → `"parameters": null`; `Opt.some(emptyParams)` → `"parameters": {}`; both round-trip preserving. Proposed `block` names (mirror shipped section style, lettered D through H): `D. roundTripEnvelopeEnvidAndRetParams`, `E. roundTripEnvelopeHoldForAndHoldUntilParams`, `F. roundTripEnvelopeByAndMtPriorityAndSmtpUtf8Params`, `G. reversePathNullWithParamsRoundTrip`, `H. reversePathMailboxWithoutParamsRoundTrip`, `I. parametersOptNoneDistinctFromEmptyObject`. |
-| `tests/serde/mail/tserde_submission_status.nim` | **TO-CREATE** (~200L) | New file | `UndoStatus` round-trip per variant and reject-unknown (`"deferred"` → `Err`, pinning G3's closed-enum commitment); `DeliveryStatus` composite round-trip (including `Parsed*` raw-backing fields); `DeliveryStatusMap` round-trip preserving key ordering (exercises `distinct Table[RFC5321Mailbox, DeliveryStatus]` serde). Proposed `block` names: `undoStatusPendingRoundTrip`, `undoStatusFinalRoundTrip`, `undoStatusCanceledRoundTrip`, `undoStatusUnknownIsRejected`, `deliveryStatusRoundTrip`, `deliveryStatusMapRoundTripPreservesOrder`. |
-| `tests/serde/mail/tserde_email_submission.nim` | **TO-CREATE** (~350L) | New file | `AnyEmailSubmission` dispatch round-trip — one block per phantom variant, confirming the wire-`undoStatus` field drives `fromJson` dispatch; `EmailSubmissionBlueprint` toJson-only wire shape (pin absence of `fromJson` via a block that constructs, serialises, and does **not** attempt to deserialise); `EmailSubmissionFilterCondition` toJson-only with representative field combinations (`Opt.some(NonEmptyIdSeq)` for `identityIds`; `Opt.some(UndoStatus)` for `undoStatus`; `Opt.some(UTCDate)` for `before`/`after`); `EmailSubmissionComparator` including the `sentAt` wire-token vs `sendAt` field-name mismatch (G19 — the wire emits `"sentAt"` even though the entity property is named `sendAt`); `IdOrCreationRef` toJson-only for both arms (`directRef` → JSON string; `creationRef` → JSON string with `#` prefix). Proposed `block` names: `anyEmailSubmissionPendingRoundTrip`, `anyEmailSubmissionFinalRoundTrip`, `anyEmailSubmissionCanceledRoundTrip`, `blueprintToJsonOnlyNoFromJson`, `filterConditionAllFieldsPopulated`, `filterConditionOnlyUndoStatus`, `comparatorSentAtTokenNotSendAt`, `comparatorAscendingByEmailId`, `idOrCreationRefDirectWire`, `idOrCreationRefCreationWire`. |
+| `tests/unit/mail/temail_submission_blueprint.nim` | **SHIPPED** (166L) | After line 92 (SHIPPED through 166) | Per-field rejection matrix reflecting the G1 implementation reality: `parseEmailSubmissionBlueprint` accepts pre-parsed `Id` values and trivially returns `ok(...)` (`email_submission.nim:152-161`), so rejection of malformed identityId/emailId surfaces at the upstream `parseId` boundary; `blueprintInvalidIdentityId` / `blueprintInvalidEmailId` grep-lock the Id-layer message (`validation.nim:189`); `blueprintAccumulatesBothIdErrors` pins per-call error independence at `parseId` AND structurally asserts the blueprint's `Result[_, seq[ValidationError]]` error-rail shape is preserved for forward-compat; `rawEnvelope` carries an already-validated `Envelope`, so inner violations cannot propagate via `Blueprint`. `blueprintPatternASealExplicitRawField` uses `assertNotCompiles` (massertions.nim:150) to probe per-field record-literal construction AND field-read access, complementing the shipped `sealingContract` block. SHIPPED `block` names: `blueprintInvalidIdentityId` (line 94), `blueprintInvalidEmailId` (105), `blueprintAccumulatesBothIdErrors` (113), `blueprintPatternASealExplicitRawField` (142). |
+| `tests/unit/mail/tonsuccess_extras.nim` | **SHIPPED** (157L) | After line 124 (SHIPPED through 157) | `IdOrCreationRef` vs `Referencable[T]` distinction: wire-shape pins (`directRef(id)` → JSON string `$id`; `creationRef(cid)` → JSON string `"#" & $cid`; `Referencable[T]` result-reference → JSON object `{"resultOf":..., "name":..., "path":...}`). Compile-time pin that the two types are distinct (`assertNotCompiles(let _: Referencable[seq[Id]] = directRef(id))`). SHIPPED `block` names: `idOrCreationRefWireDirectIsBareString` (line 128), `idOrCreationRefWireCreationHasHashPrefix` (137), `idOrCreationRefVsReferencableAreDistinctTypes` (145). |
+| `tests/unit/mail/temail_submission.nim` | **SHIPPED** (146L) | SHIPPED as new file | Per-phantom-variant construction smoke: `EmailSubmission[usPending]`, `EmailSubmission[usFinal]`, `EmailSubmission[usCanceled]` via `toAny` lifting; `AnyEmailSubmission` construction with `state` discriminator; value-level `cancelUpdate(EmailSubmission[usPending])` producing `esuSetUndoStatusToCanceled`; **`static:` block with `assertNotCompiles` proving `cancelUpdate(default(EmailSubmission[usFinal]))` and `cancelUpdate(default(EmailSubmission[usCanceled]))` fail to compile**. This is the single most load-bearing compile-time test in G2 — a regression collapses the phantom-typed transition arrow to a runtime check. Block 6 (`existentialBranchAccessorContract`) pins the Pattern A sealing contract (§8 item 4): (i) accessor visibility for the three `asX` projections, (ii) compile-time refusal of brace construction with both `raw*` names (now module-private) and the pre-sealing public names (no longer exist), and (iii) the `Opt[T]` projection shape for each state × accessor combination (3 × 3 = 9 probes). SHIPPED `block` names: `toAnyPendingBranchPreserved` (line 24), `toAnyFinalBranchPreserved` (39), `toAnyCanceledBranchPreserved` (51), `cancelUpdateProducesSetUndoStatusToCanceled` (63), `phantomArrowStaticRejectsFinalAndCanceled` (78 — the `static:` block), `existentialBranchAccessorContract` (93). |
+| `tests/unit/mail/temail_submission_update.nim` | **SHIPPED** (79L) | SHIPPED as new file | `setUndoStatusToCanceled()` value-level construction; `parseNonEmptyEmailSubmissionUpdates` empty and duplicate-`Id` cases with message-string assertions (grep-locked per §8.3's error-rail table); accumulating behaviour when both empty and duplicate shapes co-occur (they can't — empty has no duplicates — so each invariant fires in its own input shape, matching F1 `NonEmptyEmailImportMap` style). SHIPPED `block` names: `setUndoStatusToCanceledValueShape` (line 24), `parseUpdatesRejectsEmpty` (38), `parseUpdatesRejectsDuplicateId` (49), `parseUpdatesHappyPathSingleEntry` (63). |
+| `tests/unit/mail/tsubmission_params.nim` | **SHIPPED** (380L) | SHIPPED as new file | 11 well-known variants, each with a valid representative and an invalid-boundary representative per §8.7; NOTIFY mutual-exclusion rule at unit tier; `SubmissionParamKey` identity enumeration across the 12-kind × extension-name matrix; `paramKey` derivation totality (every `SubmissionParam` value produces a well-formed `SubmissionParamKey`); `SubmissionParams` insertion-order preservation (non-property enumerator — three fixed insertion sequences checked against `toJson` output). File layout driven by §8.7 matrix — one `block` per row. Canonical `paramKey` derivation block ships as `paramKeyDerivationTotality` (line 309); insertion-order blocks as `submissionParamsToJsonPreservesDeclarationOrder` (324), `submissionParamsToJsonPreservesReverseOrder` (344), `submissionParamsToJsonPreservesShuffledOrderWithExtension` (363). |
+| `tests/unit/mail/tsubmission_mailbox.nim` | **SHIPPED** (215L) | SHIPPED as new file | `RFC5321Mailbox` strict parser: each of 4 local-part shapes (`Dot-string`, `Quoted-string`, long `Dot-string` near 64-octet limit, `Quoted-string` with escaped quote) × 4 domain-form shapes (plain `Domain`, IPv4 address-literal, IPv6 address-literal, General-address-literal) with one representative each — property group A covers the rest. Strict/lenient divergence cases (lenient accepts more — pin representatives). Case-insensitive `RFC5321Keyword` equality (`parseRFC5321Keyword("X-FOO") == parseRFC5321Keyword("x-foo")`); byte-equal `OrcptAddrType` equality (`parseOrcptAddrType("rfc822") != parseOrcptAddrType("RFC822")`) — pin that the two distinct types share grammar but not semantics. SHIPPED `block` names: `mailboxDotStringPlainDomain` (line 34), `mailboxDotStringIPv4Literal` (43), `mailboxDotStringIPv6Literal` (58), `mailboxDotStringGeneralLiteral` (73), `mailboxQuotedPlainDomain` (95), `mailboxQuotedIPv6Literal` (112), `mailboxStrictLenientSupersetOnPlainDomain` (127), `mailboxStrictLenientSupersetOnMalformedLocalPart` (141), `rfc5321KeywordCaseInsensitive` (163), `orcptAddrTypeByteEqual` (188). |
+| `tests/unit/mail/tsubmission_status.nim` | **SHIPPED** (216L) | SHIPPED as new file | `DeliveredState` round-trip per variant including `dsOther` raw-backing preservation; `DisplayedState` round-trip per variant including `dpOther`; `SmtpReply` Reply-code digit-class cases (mirror the unit-tier representatives of property group I); `DeliveryStatus` composite construction from all three fields; `DeliveryStatusMap` `countDelivered` and `anyFailed` domain operations exercised on hand-constructed maps with known outcomes (three maps: all-delivered, all-failed, mixed). SHIPPED `block` names: `deliveredStateQueuedRoundTrip` (line 28), `deliveredStateYesRoundTrip` (38), `deliveredStateNoRoundTrip` (47), `deliveredStateUnknownRoundTrip` (57), `deliveredStateOtherPreservesRawBacking` (67), `displayedStateYesRoundTrip` (83), `displayedStateUnknownRoundTrip` (92), `displayedStateOtherPreservesRawBacking` (100), `smtpReplyHappy200` (115), `smtpReplyHappy550` (125), `smtpReplyMultilineHappy` (135), `deliveryStatusComposite` (151), `deliveryStatusMapCountDelivered` (171), `deliveryStatusMapAnyFailedFalseWhenAllDelivered` (191), `deliveryStatusMapAnyFailedTrueWhenOneFailed` (203). |
+| `tests/serde/mail/tserde_submission_envelope.nim` | **SHIPPED** (330L) | After line 119 (SHIPPED through 330) | Full parameter-family serde coverage — the shipped file now covers all 12 families (BODY, SIZE, NOTIFY, ORCPT, extension + appended ENVID, RET, HOLDFOR, HOLDUNTIL, BY, MT-PRIORITY, SMTPUTF8). `ReversePath` case object toJson/fromJson per arm (positive round-trip for `rpkNullPath` with and without params; for `rpkMailbox` with and without params). `Opt.none(SubmissionParams)` vs `Opt.some(emptyParams)` wire distinction (G34) — `Opt.none` → `"parameters": null`; `Opt.some(emptyParams)` → `"parameters": {}`; both round-trip preserving. SHIPPED `block` names (the lettered-prefix style was dropped by the implementer; the shipped names are the authoritative cite): `paramEnvidAndRetRoundTrip` (line 122), `paramHoldForAndHoldUntilRoundTrip` (153), `paramByAndMtPriorityAndSmtpUtf8RoundTrip` (186), `reversePathNullWithParamsRoundTrip` (223), `reversePathMailboxWithoutParamsRoundTrip` (257), `parametersOptNoneDistinctFromEmptyObject` (292). |
+| `tests/serde/mail/tserde_submission_status.nim` | **SHIPPED** | SHIPPED as new file | `UndoStatus` round-trip per variant and reject-unknown (`"deferred"` → `Err`, pinning G3's closed-enum commitment); `DeliveryStatus` composite round-trip (including `Parsed*` raw-backing fields); `DeliveryStatusMap` round-trip preserving key ordering (exercises `distinct Table[RFC5321Mailbox, DeliveryStatus]` serde). SHIPPED `block` names: `undoStatusPendingRoundTrip` (line 27), `undoStatusFinalRoundTrip` (37), `undoStatusCanceledRoundTrip` (45), `undoStatusUnknownIsRejected` (55), `deliveryStatusRoundTrip` (69), `deliveryStatusMapRoundTripPreservesOrder` (101). |
+| `tests/serde/mail/tserde_email_submission.nim` | **SHIPPED** | SHIPPED as new file | `AnyEmailSubmission` dispatch round-trip — one block per phantom variant, confirming the wire-`undoStatus` field drives `fromJson` dispatch; `EmailSubmissionBlueprint` toJson-only wire shape (pin absence of `fromJson` via a block that constructs, serialises, and does **not** attempt to deserialise); `EmailSubmissionFilterCondition` toJson-only with representative field combinations (`Opt.some(NonEmptyIdSeq)` for `identityIds`; `Opt.some(UndoStatus)` for `undoStatus`; `Opt.some(UTCDate)` for `before`/`after`); `EmailSubmissionComparator` including the `sentAt` wire-token vs `sendAt` field-name mismatch (G19 — the wire emits `"sentAt"` even though the entity property is named `sendAt`); `IdOrCreationRef` toJson-only for both arms (`directRef` → JSON string; `creationRef` → JSON string with `#` prefix). SHIPPED `block` names: `anyEmailSubmissionPendingRoundTrip` (line 43), `anyEmailSubmissionFinalRoundTrip` (73), `anyEmailSubmissionCanceledRoundTrip` (103), `blueprintToJsonOnlyNoFromJson` (148), `blueprintOptNoneEnvelopePassesThrough` (165, cited under §8.10 Row 4), `filterConditionAllFieldsPopulated` (184), `filterConditionOnlyUndoStatus` (210), `filterConditionRejectsEmptyIdSeq` (232, cited under G37), `comparatorSentAtTokenNotSendAt` (245), `comparatorAscendingByEmailId` (261), `idOrCreationRefDirectWire` (278), `idOrCreationRefCreationWire` (287), `emailSubmissionSetResponseEntityRoundTrip` (297, cited under G39). |
 
 ---
 
@@ -579,11 +598,11 @@ invent strings. Grep targets differ per row:
 
 | File | Status | Additions |
 |------|--------|-----------|
-| `tests/protocol/tmail_builders.nim` | **SHIPPED** (766L with §O — the `addEmailSubmissionAndEmailSet` wire anchor block) | Append blocks for the 5 simple builders: `addEmailSubmissionGet`, `addEmailSubmissionChanges`, `addEmailSubmissionQuery`, `addEmailSubmissionQueryChanges`, `addEmailSubmissionSet` (simple, non-compound). One `block` per method with a wire-shape assertion table (method name, argument projection) plus one error-rail case per method. Existing `addEmailSubmissionAndEmailSet` block extended with the `getBoth` cross-entity matrix (§8.6) realised as unit-tier representatives — five named blocks, one per scenario row. Proposed `block` names for the 5 simple builders (mirroring existing `tmail_builders.nim` naming): `P. addEmailSubmissionGetInvocation`, `Q. addEmailSubmissionChangesInvocation`, `R. addEmailSubmissionQueryInvocation`, `S. addEmailSubmissionQueryChangesInvocation`, `T. addEmailSubmissionSetSimpleInvocation`. Extend §O with six cross-entity blocks: `O.2 getBothBothSucceed`, `O.3 getBothInnerMethodError`, `O.4 getBothInnerAbsent`, `O.5 getBothInnerMcIdMismatch`, `O.6 getBothOuterNotCreatedSole`, `O.7 getBothOuterIfInStateMismatch`. |
-| `tests/protocol/tmail_entities.nim` | **SHIPPED** (308L) | One new block: `EmailSubmission` entity registration anchoring the capability URI (`urn:ietf:params:jmap:submission`), method namespace (`EmailSubmission/*`), and `toJson(EmailSubmissionFilterCondition)` surface. Mirrors the existing `Mailbox` / `Email` / `Identity` entity blocks. Proposed `block` name: `emailSubmissionEntityRegisteredWithSubmissionCapability`. |
-| `tests/protocol/tmail_method_errors.nim` | **SHIPPED** (367L) | One block covering submission-specific `MethodError` surface (e.g., `accountNotFound` on `EmailSubmission/set` flows, `stateMismatch` on `ifInState` mismatch). Reference-only for the 8 `SetError` variants — existence already classified in `trfc_8620.nim`; the **applicability** matrix (§8.8) drives net-new tests. Proposed `block` name: `emailSubmissionSetMethodErrorSurface`. |
-| `tests/serde/mail/tserde_mail_capabilities.nim` | **SHIPPED** (314L) | Append: `SubmissionExtensionMap` distinct-wrapper round-trip after the G25 amendment. Case-insensitive key behaviour (`"X-FOO"` and `"x-foo"` collide as the same key under the `RFC5321Keyword` equality). Migration probe: JSON originally serialised under the pre-G25 `OrderedTable[string, seq[string]]` shape still parses into the new distinct type (forwards-compat pin — the wire is unchanged). Proposed `block` names: `W. submissionExtensionMapRoundTripPreservesOrder`, `X. submissionExtensionMapCaseInsensitiveKey`, `Y. submissionExtensionMapParsesLegacyWireShape`. |
-| `tests/compliance/trfc_8620.nim` | **SHIPPED** (with `rfc8621_submissionErrorsClassified` block) | Append: one block anchoring RFC 8621 §7 constraint table — a compile-time `static:` assertion per row of the 27-row table in G1 §1.4 that the Nim type named for each constraint is reachable and of the documented shape. The shipped `rfc8621_submissionErrorsClassified` block already pins the 8-variant SetError surface per G23; the new block pins every other row in the matrix. Proposed `block` name: `rfc8621Section7ConstraintTableCompileTimeAnchor`. |
+| `tests/protocol/tmail_builders.nim` | **SHIPPED** (1051L) | SHIPPED blocks for the 5 simple builders — `addEmailSubmissionGetInvocation` (§P, line 949), `addEmailSubmissionChangesInvocation` (§Q, 972), `addEmailSubmissionQueryInvocation` (§R, 991), `addEmailSubmissionQueryChangesInvocation` (§S, 1010), `addEmailSubmissionSetSimpleInvocation` (§T, 1029) — one `block` per method with a wire-shape assertion table (method name, argument projection) plus error-rail surface. The existing `addEmailSubmissionAndEmailSet` block (§O) was extended with the `getBoth` cross-entity matrix (§8.6) realised as unit-tier representatives: `getBothBothSucceed` (§O.2, line 772), `getBothInnerMethodError` (§O.3, 804), `getBothInnerAbsent` (§O.4, 828), `getBothInnerMcIdMismatch` (§O.5, 847), `getBothOuterNotCreatedSole` (§O.6, 876), `getBothOuterIfInStateMismatch` (§O.7, 921). The seventh cross-entity scenario (`getBothCreationRefNotInCreateMap`) lives only in `tadversarial_mail_g.nim` Block 6; no unit-tier analogue was added in this file. |
+| `tests/protocol/tmail_entities.nim` | **SHIPPED** (338L) | One new block: `EmailSubmission` entity registration anchoring the capability URI (`urn:ietf:params:jmap:submission`), method namespace (`EmailSubmission/*`), and `toJson(EmailSubmissionFilterCondition)` surface. Mirrors the existing `Mailbox` / `Email` / `Identity` entity blocks. SHIPPED `block` name: `emailSubmissionEntityRegisteredWithSubmissionCapability` (line 316). |
+| `tests/protocol/tmail_method_errors.nim` | **SHIPPED** (566L) | SHIPPED `emailSubmissionSetMethodErrorSurface` (line 381) covers submission-specific `MethodError` surface (e.g., `accountNotFound` on `EmailSubmission/set` flows, `stateMismatch` on `ifInState` mismatch); plus the per-variant §8.8 applicability blocks — `emailSubmissionSetInvalidEmailOnCreate` (412), `emailSubmissionSetTooManyRecipientsOnCreate` (427), `emailSubmissionSetNoRecipientsOnCreate` (440), `emailSubmissionSetInvalidRecipientsOnCreate` (448), `emailSubmissionSetForbiddenMailFromOnCreate` (459), `emailSubmissionSetForbiddenFromOnCreate` (467), `emailSubmissionSetForbiddenToSendOnCreate` (475), `emailSubmissionSetTooLargeOnCreate` (483), `emailSubmissionSetCannotUnsendOnUpdate` (498), plus the closing `emailSubmissionSetErrorApplicabilityExhaustiveFold` (548). The 8 SetError variants' existence is classified in `trfc_8620.nim`; this file drives applicability. |
+| `tests/serde/mail/tserde_mail_capabilities.nim` | **SHIPPED** (396L) | SHIPPED `SubmissionExtensionMap` distinct-wrapper round-trip after the G25 amendment. Case-insensitive key behaviour (`"X-FOO"` and `"x-foo"` collide as the same key under the `RFC5321Keyword` equality). Migration probe: JSON originally serialised under the pre-G25 `OrderedTable[string, seq[string]]` shape still parses into the new distinct type (forwards-compat pin — the wire is unchanged). SHIPPED `block` names: `submissionExtensionMapRoundTripPreservesOrder` (line 320), `submissionExtensionMapCaseInsensitiveKey` (344), `submissionExtensionMapParsesLegacyWireShape` (374). |
+| `tests/compliance/trfc_8620.nim` | **SHIPPED** (with `rfc8621_submissionErrorsClassified` block) | SHIPPED `rfc8621Section7ConstraintTableCompileTimeAnchor` (line 1756) anchors RFC 8621 §7 constraint table — a compile-time `static:` assertion per row of the 27-row table in G1 §1.4 that the Nim type named for each constraint is reachable and of the documented shape. The shipped `rfc8621_submissionErrorsClassified` block already pins the 8-variant SetError surface per G23 (line 953); `rfc8621Section7ConstraintTableCompileTimeAnchor` pins every other row in the matrix. |
 
 ---
 
@@ -735,8 +754,8 @@ existing variant is exercised on the submission methods.
 
 The single net-new test is the `setCannotUnsend` applicability pin —
 this variant is update-only and exercises the reverse applicability
-from the other eight. Proposed block name:
-`emailSubmissionSetCannotUnsendOnUpdate`.
+from the other eight. SHIPPED block name:
+`emailSubmissionSetCannotUnsendOnUpdate` (`tmail_method_errors.nim:498`).
 
 **Native enum iteration is mandatory** for this matrix. The
 implementation MUST fold via `for kind in SetErrorType:` (precedent:
@@ -896,32 +915,32 @@ MUST add a row here before the implementation merges.
 | §7 ¶3 | `identityId` MUST reference a valid Identity in the account | `Id` (referential; server-authoritative) | `tserde_email_submission.nim` blueprint round-trip — client cannot enforce server-side referential integrity; pin only the structural `Id` shape |
 | §7 ¶3 | `emailId` MUST reference a valid Email in the account | `Id` | Same as above |
 | §7 ¶3 | `threadId` is immutable, server-set | Not in `EmailSubmissionBlueprint`; only on read model | `temail_submission.nim` blueprint-construction blocks pin absence; `tserde_email_submission.nim` pins presence on the read-model round-trip |
-| §7 ¶4 | `envelope` is immutable; if null, server synthesises from Email headers | `Opt[Envelope]` on blueprint (G14); `Opt[Envelope]` on entity | `tserde_email_submission.nim` `blueprintOptNoneEnvelopePassesThrough`; `temail_submission_blueprint.nim` `defaultEnvelopeIsNone` (shipped, line 79) |
-| §7 ¶5 | `envelope.mailFrom` cardinality: exactly 1; MAY be empty string; parameters permitted on null path | `ReversePath` (`rpkNullPath + Opt[SubmissionParams]` or `rpkMailbox`) (G32) | `tserde_submission_envelope.nim` `nullReversePathWireShape` (shipped); `envelopeNullMailFromWithParams` (§8.2.3) |
-| §7 ¶5 | `envelope.rcptTo` cardinality: 1..N | `NonEmptyRcptList` (G7) | `tserde_submission_envelope.nim` `emptyRcptToIsRejected` (shipped, line 110) |
-| §7 ¶5 | `envelope.Address.email` is RFC 5321 Mailbox | `RFC5321Mailbox` (G6) | `tsubmission_mailbox.nim` (TO-ADD); property group A |
-| §7 ¶5 | `envelope.Address.parameters` is `Object \| null` | `Opt[SubmissionParams]` on `SubmissionAddress` (G34) | `tserde_submission_envelope.nim` `parametersOptNoneDistinctFromEmptyObject` (TO-ADD appended block) |
-| §7 ¶5 | `envelope.Address.parameters` keys are RFC 5321 esmtp-keywords | `SubmissionParamKey` + `RFC5321Keyword` (G8, G8a) | `tsubmission_params.nim` (TO-ADD) `paramKey` derivation block; property group D |
-| §7 ¶7 | `undoStatus` values: "pending", "final", "canceled" | `UndoStatus` enum (closed; phantom parameter) (G3) | `tserde_submission_status.nim` `undoStatusUnknownIsRejected` (TO-ADD); `anyUndoStatusUnknownValue` in `tadversarial_mail_g.nim` Block 4 |
-| §7 ¶7 | Only transition: "pending" → "canceled" via client update | `cancelUpdate(s: EmailSubmission[usPending])` typed arrow (G4) | `temail_submission.nim` (TO-ADD) `static:` block `phantomArrowStaticRejectsFinalAndCanceled` — the load-bearing compile-time pin |
-| §7 ¶8 | `deliveryStatus` is per-recipient, keyed on email address | `DeliveryStatusMap` (distinct Table keyed on `RFC5321Mailbox`) (G9) | `tsubmission_status.nim` (TO-ADD) `deliveryStatusMapCountDelivered` etc. |
-| §7 ¶8 | `delivered` values: "queued", "yes", "no", "unknown" | `DeliveredState` enum + `dsOther` catch-all (G10) | `tsubmission_status.nim` per-variant round-trip; property group H |
-| §7 ¶8 | `displayed` values: "unknown", "yes" | `DisplayedState` enum + `dpOther` catch-all (G11) | Symmetric with above |
-| §7 ¶8 | `smtpReply` is structured SMTP reply text | `SmtpReply` (distinct string, validated) (G12) | `tsubmission_status.nim` happy-path blocks; property group I; adversarial block 5 |
-| §7 ¶9 | `dsnBlobIds`, `mdnBlobIds` are server-set arrays | `seq[BlobId]` on read model only | `tserde_email_submission.nim` entity round-trip blocks |
-| §7.5 ¶1 | Only `undoStatus` updatable post-create | `EmailSubmissionUpdate` single variant (G16) | `temail_submission_update.nim` (TO-ADD) — pins single-variant shape |
-| §7.5 ¶3 | `onSuccessUpdateEmail` applies PatchObject to Email on success | `NonEmptyOnSuccessUpdateEmail` = `distinct Table[IdOrCreationRef, EmailUpdateSet]` (G22, G35, + shipped NonEmpty wrapper per implementation reality note) | `tonsuccess_extras.nim` (shipped) ; wire-shape serde block E |
-| §7.5 ¶3 | `onSuccessDestroyEmail` destroys Email on success | `NonEmptyOnSuccessDestroyEmail` = `distinct seq[IdOrCreationRef]` (G22, G35) | `tonsuccess_extras.nim` (shipped); wire-shape serde block F |
-| §7.5 ¶5 | SetError `invalidEmail` includes problematic property names | Existing `setInvalidEmail` + `invalidEmailPropertyNames` accessor (G23) | `tmail_method_errors.nim` append; existence in `trfc_8620.nim` (shipped) |
-| §7.5 ¶5 | SetError `tooManyRecipients` includes max count | Existing `setTooManyRecipients` + `maxRecipientCount` accessor (G23) | Same |
-| §7.5 ¶5 | SetError `noRecipients` when rcptTo empty | Existing `setNoRecipients` (G23) | Same |
-| §7.5 ¶5 | SetError `invalidRecipients` includes bad addresses | Existing `setInvalidRecipients` + `invalidRecipients` accessor (G23) | Same |
-| §7.5 ¶5 | SetError `forbiddenMailFrom` when SMTP MAIL FROM disallowed | Existing `setForbiddenMailFrom` (G23) | Same |
-| §7.5 ¶5 | SetError `forbiddenFrom` when RFC 5322 From disallowed | Existing `setForbiddenFrom` (G23) | Same |
-| §7.5 ¶5 | SetError `forbiddenToSend` when user lacks send permission | Existing `setForbiddenToSend` (G23) | Same |
-| §7.5 ¶6 | SetError `cannotUnsend` when cancel fails | Existing `setCannotUnsend` (G23) | `tmail_method_errors.nim` append `emailSubmissionSetCannotUnsendOnUpdate` (the single NEW applicability test per §8.8) |
-| §1.3.2 | Capability `maxDelayedSend` is `UnsignedInt` seconds | Existing `SubmissionCapabilities.maxDelayedSend` | `tserde_mail_capabilities.nim` (shipped) |
-| §1.3.2 | Capability `submissionExtensions` is EHLO-name → args map | `SubmissionExtensionMap` (distinct OrderedTable) (G25) | `tserde_mail_capabilities.nim` append — distinct-wrapper round-trip + case-insensitive key (§8.4) |
+| §7 ¶4 | `envelope` is immutable; if null, server synthesises from Email headers | `Opt[Envelope]` on blueprint (G14); `Opt[Envelope]` on entity | `tserde_email_submission.nim` `blueprintOptNoneEnvelopePassesThrough` (SHIPPED, line 165); `temail_submission_blueprint.nim` `defaultEnvelopeIsNone` (SHIPPED, line 80) |
+| §7 ¶5 | `envelope.mailFrom` cardinality: exactly 1; MAY be empty string; parameters permitted on null path | `ReversePath` (`rpkNullPath + Opt[SubmissionParams]` or `rpkMailbox`) (G32) | `tserde_submission_envelope.nim` `nullReversePathWireShape` (SHIPPED, line 84); `envelopeNullMailFromWithParams` in `tadversarial_mail_g.nim` `envelopeCoherenceGroup` (SHIPPED, line 175) |
+| §7 ¶5 | `envelope.rcptTo` cardinality: 1..N | `NonEmptyRcptList` (G7) | `tserde_submission_envelope.nim` `emptyRcptToIsRejected` (SHIPPED, line 110) |
+| §7 ¶5 | `envelope.Address.email` is RFC 5321 Mailbox | `RFC5321Mailbox` (G6) | `tsubmission_mailbox.nim` (SHIPPED, blocks lines 34–188); `propRFC5321MailboxTotality` (`tprop_mail_g.nim:54`) |
+| §7 ¶5 | `envelope.Address.parameters` is `Object \| null` | `Opt[SubmissionParams]` on `SubmissionAddress` (G34) | `tserde_submission_envelope.nim` `parametersOptNoneDistinctFromEmptyObject` (SHIPPED, line 292) |
+| §7 ¶5 | `envelope.Address.parameters` keys are RFC 5321 esmtp-keywords | `SubmissionParamKey` + `RFC5321Keyword` (G8, G8a) | `tsubmission_params.nim` `paramKeyDerivationTotality` (SHIPPED, line 309); property group D `propSubmissionParamKeyIdentity` (SHIPPED, `tprop_mail_g.nim:154`) |
+| §7 ¶7 | `undoStatus` values: "pending", "final", "canceled" | `UndoStatus` enum (closed; phantom parameter) (G3) | `tserde_submission_status.nim` `undoStatusUnknownIsRejected` (SHIPPED, line 55); `anyUndoStatusUnknownValue` in `tadversarial_mail_g.nim` `anyEmailSubmissionDispatchGroup` (SHIPPED, line 294) |
+| §7 ¶7 | Only transition: "pending" → "canceled" via client update | `cancelUpdate(s: EmailSubmission[usPending])` typed arrow (G4) | `temail_submission.nim` `static:` block `phantomArrowStaticRejectsFinalAndCanceled` (SHIPPED, line 78) — the load-bearing compile-time pin |
+| §7 ¶8 | `deliveryStatus` is per-recipient, keyed on email address | `DeliveryStatusMap` (distinct Table keyed on `RFC5321Mailbox`) (G9) | `tsubmission_status.nim` `deliveryStatusMapCountDelivered` (SHIPPED, line 171) etc.; `tserde_submission_status.nim` `deliveryStatusMapRoundTripPreservesOrder` (SHIPPED, line 101) |
+| §7 ¶8 | `delivered` values: "queued", "yes", "no", "unknown" | `DeliveredState` enum + `dsOther` catch-all (G10) | `tsubmission_status.nim` per-variant round-trip blocks `deliveredStateQueuedRoundTrip`–`deliveredStateOtherPreservesRawBacking` (SHIPPED, lines 28–67); property group H `propParsedDeliveredStateRawBackingRoundTrip` (SHIPPED, `tprop_mail_g.nim:306`) |
+| §7 ¶8 | `displayed` values: "unknown", "yes" | `DisplayedState` enum + `dpOther` catch-all (G11) | `tsubmission_status.nim` `displayedState*` blocks (SHIPPED, lines 83–100); property group H symmetric |
+| §7 ¶8 | `smtpReply` is structured SMTP reply text | `SmtpReply` (distinct string, validated) (G12) | `tsubmission_status.nim` `smtpReplyHappy200` (line 115) + `smtpReplyHappy550` (125) + `smtpReplyMultilineHappy` (135) (all SHIPPED); property group I `propParseSmtpReplyDigitBoundary` (SHIPPED, `tprop_mail_g.nim:358`); adversarial `smtpReplyGrammarGroup` (SHIPPED, `tadversarial_mail_g.nim:349`) |
+| §7 ¶9 | `dsnBlobIds`, `mdnBlobIds` are server-set arrays | `seq[BlobId]` on read model only | `tserde_email_submission.nim` `emailSubmissionSetResponseEntityRoundTrip` (SHIPPED, line 297) |
+| §7.5 ¶1 | Only `undoStatus` updatable post-create | `EmailSubmissionUpdate` single variant (G16) | `temail_submission_update.nim` `setUndoStatusToCanceledValueShape` (SHIPPED, line 24) — pins single-variant shape |
+| §7.5 ¶3 | `onSuccessUpdateEmail` applies PatchObject to Email on success | `NonEmptyOnSuccessUpdateEmail` = `distinct Table[IdOrCreationRef, EmailUpdateSet]` (G22, G35, + shipped NonEmpty wrapper per implementation reality note) | `tonsuccess_extras.nim` `toJsonNonEmptyOnSuccessUpdateEmailDirectKey` (SHIPPED, line 94), `toJsonNonEmptyOnSuccessUpdateEmailCreationKey` (SHIPPED, line 106) |
+| §7.5 ¶3 | `onSuccessDestroyEmail` destroys Email on success | `NonEmptyOnSuccessDestroyEmail` = `distinct seq[IdOrCreationRef]` (G22, G35) | `tonsuccess_extras.nim` `toJsonNonEmptyOnSuccessDestroyEmailEmitsWireKeyArray` (SHIPPED, line 116) |
+| §7.5 ¶5 | SetError `invalidEmail` includes problematic property names | Existing `setInvalidEmail` + `invalidEmailPropertyNames` accessor (G23) | `tmail_method_errors.nim` `emailSubmissionSetInvalidEmailOnCreate` (SHIPPED, line 412); existence in `trfc_8620.nim` `rfc8621_submissionErrorsClassified` (SHIPPED, line 953) |
+| §7.5 ¶5 | SetError `tooManyRecipients` includes max count | Existing `setTooManyRecipients` + `maxRecipientCount` accessor (G23) | `tmail_method_errors.nim` `emailSubmissionSetTooManyRecipientsOnCreate` (SHIPPED, line 427); existence `trfc_8620.nim:953` |
+| §7.5 ¶5 | SetError `noRecipients` when rcptTo empty | Existing `setNoRecipients` (G23) | `tmail_method_errors.nim` `emailSubmissionSetNoRecipientsOnCreate` (SHIPPED, line 440); existence `trfc_8620.nim:953` |
+| §7.5 ¶5 | SetError `invalidRecipients` includes bad addresses | Existing `setInvalidRecipients` + `invalidRecipients` accessor (G23) | `tmail_method_errors.nim` `emailSubmissionSetInvalidRecipientsOnCreate` (SHIPPED, line 448); existence `trfc_8620.nim:953` |
+| §7.5 ¶5 | SetError `forbiddenMailFrom` when SMTP MAIL FROM disallowed | Existing `setForbiddenMailFrom` (G23) | `tmail_method_errors.nim` `emailSubmissionSetForbiddenMailFromOnCreate` (SHIPPED, line 459); existence `trfc_8620.nim:953` |
+| §7.5 ¶5 | SetError `forbiddenFrom` when RFC 5322 From disallowed | Existing `setForbiddenFrom` (G23) | `tmail_method_errors.nim` `emailSubmissionSetForbiddenFromOnCreate` (SHIPPED, line 467); existence `trfc_8620.nim:953` |
+| §7.5 ¶5 | SetError `forbiddenToSend` when user lacks send permission | Existing `setForbiddenToSend` (G23) | `tmail_method_errors.nim` `emailSubmissionSetForbiddenToSendOnCreate` (SHIPPED, line 475); existence `trfc_8620.nim:953` |
+| §7.5 ¶6 | SetError `cannotUnsend` when cancel fails | Existing `setCannotUnsend` (G23) | `tmail_method_errors.nim` `emailSubmissionSetCannotUnsendOnUpdate` (SHIPPED, line 498) — the single NEW applicability test per §8.8 |
+| §1.3.2 | Capability `maxDelayedSend` is `UnsignedInt` seconds | Existing `SubmissionCapabilities.maxDelayedSend` | `tserde_mail_capabilities.nim` `maxDelayedSendZero` (SHIPPED, line 164) |
+| §1.3.2 | Capability `submissionExtensions` is EHLO-name → args map | `SubmissionExtensionMap` (distinct OrderedTable) (G25) | `tserde_mail_capabilities.nim` `submissionExtensionMapRoundTripPreservesOrder` (SHIPPED, line 320), `submissionExtensionMapCaseInsensitiveKey` (SHIPPED, line 344), `submissionExtensionMapParsesLegacyWireShape` (SHIPPED, line 374) |
 
 The matrix is a **living artefact**: any new §7 promise (added under
 G40+ architecture amendments or later G parts) MUST add a row here
@@ -958,10 +977,11 @@ production `case` sites in `src/jmap_client/mail/email_submission.nim`,
 `submission_param.nim`, `serde_email_submission.nim`, and
 `serde_submission_envelope.nim` on every build — no dedicated probe
 needed. The `cancelUpdate` phantom-typed arrow's compile-time rejection
-is pinned in `temail_submission.nim`'s `static:` block (TO-ADD,
+is pinned in `temail_submission.nim`'s `static:` block
+`phantomArrowStaticRejectsFinalAndCanceled` (SHIPPED, line 78,
 §8.3) — this is the single most important compile-time test in G2.
 
-Property tests in `tprop_mail_g.nim` (TO-ADD) cover the RFC 5321 Mailbox
+Property tests in `tprop_mail_g.nim` (SHIPPED) cover the RFC 5321 Mailbox
 totality (A), strict/lenient coverage (B), `SubmissionParams`
 insertion-order round-trip (C), `SubmissionParamKey` identity algebra
 (D), `AnyEmailSubmission` round-trip (E), `cancelUpdate` value-level
@@ -1011,42 +1031,42 @@ makes a behavioural promise has at least one row.
 | G # | Promise | Test file | Test name / evidence |
 |-----|---------|-----------|----------------------|
 | G1 | Module organisation across 5 L1 + 3 L2 files | `tcompile_mail_g_public_surface.nim` (SHIPPED) | Symbol re-export cascade validates the split mechanically; no dedicated block |
-| G2 | `EmailSubmission[S: static UndoStatus]` phantom-typed entity + `AnyEmailSubmission` wrapper | `temail_submission.nim` (TO-ADD) | `toAnyPendingBranchPreserved`, `toAnyFinalBranchPreserved`, `toAnyCanceledBranchPreserved`, `anyEmailSubmissionPendingRoundTrip` (serde), property group E |
-| G3 | `[S: static UndoStatus]` generic as DataKinds encoding; enum IS phantom | `temail_submission.nim` `static:` block | `phantomArrowStaticRejectsFinalAndCanceled` — load-bearing compile-time pin; also `anyUndoStatusUnknownValue` in adversarial block 4 (closed-enum commitment) |
-| G4 | `cancelUpdate(s: EmailSubmission[usPending])` typed arrow at L1 | `temail_submission.nim` | `cancelUpdateProducesSetUndoStatusToCanceled`; property group F |
-| G6 | Distinct `RFC5321Mailbox` + `SubmissionAddress` | `tsubmission_mailbox.nim` (TO-ADD); property group A | 8 grammar blocks; adversarial block 1 |
-| G7 | `NonEmptyRcptList` strict/lenient parser pair | `tserde_submission_envelope.nim` (shipped `emptyRcptToIsRejected`); property group B | Block `envelopeDuplicateRcptToStrict` / `envelopeDuplicateRcptToLenient` in adversarial block 3 |
-| G8 | Typed sealed sum + extension arm for `SubmissionParam` | `tsubmission_params.nim` (TO-ADD) | 12 per-kind blocks per §8.7 matrix |
-| G8a | `distinct OrderedTable[SubmissionParamKey, SubmissionParam]` | `tsubmission_params.nim`; property groups C, D | `paramKey` derivation blocks |
-| G8b | 11 typed variants + extension arm | `tsubmission_params.nim` | §8.7 matrix (one block per row) |
-| G8c | Per-parameter typed payloads | `tsubmission_params.nim` | Per-variant blocks |
-| G9 | `distinct Table[RFC5321Mailbox, DeliveryStatus]` (`DeliveryStatusMap`) | `tsubmission_status.nim` (TO-ADD) | `deliveryStatusMap*` blocks; `tserde_submission_status.nim` round-trip |
-| G10 | `DeliveredState` + `dsOther` catch-all + `ParsedDeliveredState` | `tsubmission_status.nim`; property group H | Per-variant round-trip blocks; raw-backing preservation |
-| G11 | `DisplayedState` + `dpOther` catch-all | Same pattern as G10 | `displayedState*` blocks |
-| G12 | `distinct SmtpReply` + smart ctor | `tsubmission_status.nim`; property group I; adversarial block 5 | Happy + 14 rejection rows |
-| G13 | `EmailSubmissionBlueprint` naming | `temail_submission_blueprint.nim` (shipped) | `minimalBlueprint` + all 7 shipped blocks |
-| G14 | `Opt[Envelope]`; `None` = server synthesises | `temail_submission_blueprint.nim` (shipped `defaultEnvelopeIsNone` at line 79) | SHIPPED |
-| G15 | Accumulating-error `Blueprint` smart ctor | `temail_submission_blueprint.nim` (TO-ADD append) | `blueprintAccumulatesBothIdErrors` |
-| G16 | Single-variant `EmailSubmissionUpdate` | `temail_submission_update.nim` (TO-ADD) | `setUndoStatusToCanceledValueShape` |
-| G17 | `NonEmptyEmailSubmissionUpdates` | `temail_submission_update.nim`; property group G | `parseUpdatesRejectsEmpty`, `parseUpdatesRejectsDuplicateId` |
-| G18 | Typed `EmailSubmissionFilterCondition` with `NonEmptyIdSeq` | `tserde_email_submission.nim` (TO-ADD) | `filterConditionAllFieldsPopulated`, `filterConditionOnlyUndoStatus` |
-| G19 | `EmailSubmissionSortProperty` enum + `esspOther` catch-all | `tserde_email_submission.nim` | `comparatorSentAtTokenNotSendAt` — pins the wire-token vs field-name mismatch |
-| G20 | `addEmailSubmissionAndEmailSet` AND-connector naming | `tmail_builders.nim` §O (SHIPPED wire anchor) | SHIPPED |
-| G21 | Specific `EmailSubmissionHandles` (no generic) | `tmail_builders.nim` §O; §8.6 matrix | `getBoth*` blocks; compile test symbol pin |
+| G2 | `EmailSubmission[S: static UndoStatus]` phantom-typed entity + `AnyEmailSubmission` wrapper | `temail_submission.nim` (SHIPPED) | `toAnyPendingBranchPreserved` (line 24), `toAnyFinalBranchPreserved` (39), `toAnyCanceledBranchPreserved` (51); `tserde_email_submission.nim` `anyEmailSubmissionPendingRoundTrip` (SHIPPED, line 43); property group E `propAnyEmailSubmissionStateDispatch` (SHIPPED, `tprop_mail_g.nim:185`) |
+| G3 | `[S: static UndoStatus]` generic as DataKinds encoding; enum IS phantom | `temail_submission.nim` `static:` block | `phantomArrowStaticRejectsFinalAndCanceled` (SHIPPED, line 78) — load-bearing compile-time pin; also `anyUndoStatusUnknownValue` in `tadversarial_mail_g.nim` `anyEmailSubmissionDispatchGroup` (SHIPPED, line 294 — closed-enum commitment) |
+| G4 | `cancelUpdate(s: EmailSubmission[usPending])` typed arrow at L1 | `temail_submission.nim` (SHIPPED) | `cancelUpdateProducesSetUndoStatusToCanceled` (SHIPPED, line 63); property group F `propCancelUpdateKindInvariant` (SHIPPED, `tprop_mail_g.nim:239`) |
+| G6 | Distinct `RFC5321Mailbox` + `SubmissionAddress` | `tsubmission_mailbox.nim` (SHIPPED, 215L); property group A | 10 grammar blocks (SHIPPED, lines 34–188); adversarial `rfc5321MailboxAdversarialGroup` (SHIPPED, `tadversarial_mail_g.nim:53`); `propRFC5321MailboxTotality` (`tprop_mail_g.nim:54`) |
+| G7 | `NonEmptyRcptList` strict/lenient parser pair | `tserde_submission_envelope.nim` `emptyRcptToIsRejected` (SHIPPED, line 110); property group B `propRFC5321MailboxStrictLenientSuperset` (SHIPPED, `tprop_mail_g.nim:83`) | `envelopeDuplicateRcptToStrict` (SHIPPED, `tadversarial_mail_g.nim:235`) / `envelopeDuplicateRcptToLenient` (229) nested under `envelopeCoherenceGroup` |
+| G8 | Typed sealed sum + extension arm for `SubmissionParam` | `tsubmission_params.nim` (SHIPPED, 380L) | 12 per-kind blocks per §8.7 matrix; adversarial `submissionParamAdversarialGroup` (SHIPPED, `tadversarial_mail_g.nim:103`) |
+| G8a | `distinct OrderedTable[SubmissionParamKey, SubmissionParam]` | `tsubmission_params.nim` (SHIPPED); property groups C, D | `paramKeyDerivationTotality` (SHIPPED, line 309) |
+| G8b | 11 typed variants + extension arm | `tsubmission_params.nim` (SHIPPED) | §8.7 matrix (one block per row) |
+| G8c | Per-parameter typed payloads | `tsubmission_params.nim` (SHIPPED) | Per-variant blocks |
+| G9 | `distinct Table[RFC5321Mailbox, DeliveryStatus]` (`DeliveryStatusMap`) | `tsubmission_status.nim` (SHIPPED) | `deliveryStatusMapCountDelivered` (SHIPPED, line 171) etc.; `tserde_submission_status.nim` `deliveryStatusMapRoundTripPreservesOrder` (SHIPPED, line 101) |
+| G10 | `DeliveredState` + `dsOther` catch-all + `ParsedDeliveredState` | `tsubmission_status.nim` (SHIPPED); property group H `propParsedDeliveredStateRawBackingRoundTrip` (SHIPPED, `tprop_mail_g.nim:306`) | Per-variant round-trip blocks (SHIPPED, lines 28–67); raw-backing preservation |
+| G11 | `DisplayedState` + `dpOther` catch-all | Same pattern as G10 | `displayedState*` blocks (SHIPPED, lines 83–100) |
+| G12 | `distinct SmtpReply` + smart ctor | `tsubmission_status.nim` (SHIPPED); property group I; adversarial `smtpReplyGrammarGroup` | `smtpReplyHappy200`/`smtpReplyHappy550`/`smtpReplyMultilineHappy` (SHIPPED, lines 115–135) + 14 nested rejection rows (SHIPPED, `tadversarial_mail_g.nim:349`); `propParseSmtpReplyDigitBoundary` (SHIPPED, `tprop_mail_g.nim:358`) |
+| G13 | `EmailSubmissionBlueprint` naming | `temail_submission_blueprint.nim` (SHIPPED) | `minimalBlueprint` (line 23) + all 7 shipped blocks |
+| G14 | `Opt[Envelope]`; `None` = server synthesises | `temail_submission_blueprint.nim` (SHIPPED `defaultEnvelopeIsNone` at line 80) | SHIPPED |
+| G15 | Accumulating-error `Blueprint` smart ctor | `temail_submission_blueprint.nim` (SHIPPED) | `blueprintAccumulatesBothIdErrors` (SHIPPED, line 113) |
+| G16 | Single-variant `EmailSubmissionUpdate` | `temail_submission_update.nim` (SHIPPED) | `setUndoStatusToCanceledValueShape` (SHIPPED, line 24) |
+| G17 | `NonEmptyEmailSubmissionUpdates` | `temail_submission_update.nim` (SHIPPED); property group G | `parseUpdatesRejectsEmpty` (SHIPPED, line 38), `parseUpdatesRejectsDuplicateId` (SHIPPED, line 49); `propNonEmptyEmailSubmissionUpdatesDuplicateId` (SHIPPED, `tprop_mail_g.nim:259`) |
+| G18 | Typed `EmailSubmissionFilterCondition` with `NonEmptyIdSeq` | `tserde_email_submission.nim` (SHIPPED) | `filterConditionAllFieldsPopulated` (SHIPPED, line 184), `filterConditionOnlyUndoStatus` (SHIPPED, line 210) |
+| G19 | `EmailSubmissionSortProperty` enum + `esspOther` catch-all | `tserde_email_submission.nim` (SHIPPED) | `comparatorSentAtTokenNotSendAt` (SHIPPED, line 245) — pins the wire-token vs field-name mismatch |
+| G20 | `addEmailSubmissionAndEmailSet` AND-connector naming | `tmail_builders.nim` §O (SHIPPED wire anchor at line 733) | SHIPPED |
+| G21 | Specific `EmailSubmissionHandles` (no generic) | `tmail_builders.nim` §O.2–O.7 (SHIPPED); §8.6 matrix | `getBoth*` blocks (SHIPPED, lines 772–944); adversarial `getBothSubmissionAdversarialGroup` (SHIPPED, `tadversarial_mail_g.nim:445`); compile test symbol pin |
 | G22 | Typed `EmailUpdateSet` values with `IdOrCreationRef` keys | `tonsuccess_extras.nim` (SHIPPED `toJsonNonEmptyOnSuccessUpdateEmail*` blocks) | SHIPPED |
-| G23 | No new `SetError` variants; reuse 8 + `tooLarge` | `trfc_8620.nim` (SHIPPED `rfc8621_submissionErrorsClassified`); `tmail_method_errors.nim` append | Existence SHIPPED; applicability §8.8 |
+| G23 | No new `SetError` variants; reuse 8 + `tooLarge` | `trfc_8620.nim` `rfc8621_submissionErrorsClassified` (SHIPPED, line 953); `tmail_method_errors.nim` `emailSubmissionSetMethodErrorSurface` (SHIPPED, line 381) | Existence SHIPPED; applicability §8.8 (SHIPPED) |
 | G24 | No new payload-less accessors | Structural decision; no executable test | — (tagged "structural") |
-| G25 | `SubmissionExtensionMap` distinct wrapper | `tserde_mail_capabilities.nim` append | `submissionExtensionMapRoundTripPreservesOrder`, `...CaseInsensitiveKey`, `...ParsesLegacyWireShape` |
-| G26 | Serde error rail via `SerdeViolation` + `JsonPath` | Every `tserde_*.nim` (TO-ADD) block uses `assertSvKind` / `assertSvPath` per `massertions.nim` | Pattern enforced across all serde test files |
-| G27 | `fromJson` synthesises `Opt.none` when wire is null | `tserde_email_submission.nim` | `blueprintOptNoneEnvelopePassesThrough` |
-| G32 | `ReversePath` sum with nullable params | `tserde_submission_envelope.nim` (shipped `nullReversePathWireShape`); `envelopeNullMailFromWithParams` in adversarial block 3 | SHIPPED + TO-ADD |
-| G33 | `ReversePath` at `Envelope.mailFrom` field (not on `SubmissionAddress`) | `tserde_submission_envelope.nim` | `reversePathNullWithParamsRoundTrip`, `reversePathMailboxWithoutParamsRoundTrip` |
-| G34 | `Opt[SubmissionParams]` nullability | `tserde_submission_envelope.nim` | `parametersOptNoneDistinctFromEmptyObject` |
-| G35 | `IdOrCreationRef` sum for `onSuccess*` keys | `tonsuccess_extras.nim` (SHIPPED `parseNonEmptyOnSuccess*AcceptsArmDistinct*`); §8.3 appends | SHIPPED + TO-ADD `idOrCreationRefVsReferencableAreDistinctTypes` |
-| G36 | `IdOrCreationRef` vs `Referencable[T]` separate types | `tonsuccess_extras.nim` append | `idOrCreationRefVsReferencableAreDistinctTypes` compile-time pin |
-| G37 | `Opt[NonEmptyIdSeq]` filter list rejects empty | `tserde_email_submission.nim` | `filterConditionRejectsEmptyIdSeq` |
-| G38 | Pattern A sealing on `EmailSubmissionBlueprint` | `temail_submission_blueprint.nim` (shipped `sealingContract` at line 46) | SHIPPED |
-| G39 | `SetResponse[EmailSubmissionCreatedItem]` type alias | `tcompile_mail_g_public_surface.nim` (shipped — `EmailSubmissionSetResponse` symbol pin); `tserde_email_submission.nim` | SHIPPED + TO-ADD entity-level round-trip |
+| G25 | `SubmissionExtensionMap` distinct wrapper | `tserde_mail_capabilities.nim` (SHIPPED) | `submissionExtensionMapRoundTripPreservesOrder` (SHIPPED, line 320), `submissionExtensionMapCaseInsensitiveKey` (SHIPPED, line 344), `submissionExtensionMapParsesLegacyWireShape` (SHIPPED, line 374) |
+| G26 | Serde error rail via `SerdeViolation` + `JsonPath` | All G2 `tserde_*.nim` files SHIPPED; pattern enforced via `assertSvKind` / `assertSvPath` per `massertions.nim` | Pattern enforced across `tserde_email_submission.nim`, `tserde_submission_envelope.nim`, `tserde_submission_status.nim`, `tserde_mail_capabilities.nim` |
+| G27 | `fromJson` synthesises `Opt.none` when wire is null | `tserde_email_submission.nim` (SHIPPED) | `blueprintOptNoneEnvelopePassesThrough` (SHIPPED, line 165) |
+| G32 | `ReversePath` sum with nullable params | `tserde_submission_envelope.nim` `nullReversePathWireShape` (SHIPPED, line 84); `envelopeNullMailFromWithParams` in `tadversarial_mail_g.nim` `envelopeCoherenceGroup` (SHIPPED, line 175) | SHIPPED |
+| G33 | `ReversePath` at `Envelope.mailFrom` field (not on `SubmissionAddress`) | `tserde_submission_envelope.nim` (SHIPPED) | `reversePathNullWithParamsRoundTrip` (SHIPPED, line 223), `reversePathMailboxWithoutParamsRoundTrip` (SHIPPED, line 257) |
+| G34 | `Opt[SubmissionParams]` nullability | `tserde_submission_envelope.nim` (SHIPPED) | `parametersOptNoneDistinctFromEmptyObject` (SHIPPED, line 292) |
+| G35 | `IdOrCreationRef` sum for `onSuccess*` keys | `tonsuccess_extras.nim` (SHIPPED) | `parseNonEmptyOnSuccess*AcceptsArmDistinct*` + `idOrCreationRefWireDirectIsBareString` (line 128), `idOrCreationRefWireCreationHasHashPrefix` (137), `idOrCreationRefVsReferencableAreDistinctTypes` (145) |
+| G36 | `IdOrCreationRef` vs `Referencable[T]` separate types | `tonsuccess_extras.nim` (SHIPPED) | `idOrCreationRefVsReferencableAreDistinctTypes` (SHIPPED, line 145) compile-time pin |
+| G37 | `Opt[NonEmptyIdSeq]` filter list rejects empty | `tserde_email_submission.nim` (SHIPPED) | `filterConditionRejectsEmptyIdSeq` (SHIPPED, line 232) |
+| G38 | Pattern A sealing on `EmailSubmissionBlueprint` | `temail_submission_blueprint.nim` (SHIPPED `sealingContract` at line 45) | SHIPPED |
+| G39 | `SetResponse[EmailSubmissionCreatedItem]` type alias | `tcompile_mail_g_public_surface.nim` (SHIPPED — `EmailSubmissionSetResponse` symbol pin); `tserde_email_submission.nim` `emailSubmissionSetResponseEntityRoundTrip` (SHIPPED, line 297) | SHIPPED |
 
 The matrix shows full coverage across 37 G-decisions plus the
 implementation-reality divergences (`NonEmptyOnSuccessUpdateEmail` /
