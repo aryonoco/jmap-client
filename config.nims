@@ -137,8 +137,6 @@ system.switch("hintAsError", "ExprAlwaysX")                    # expression cons
 system.switch("hintAsError", "CondTrue")                       # condition always true
 system.switch("hintAsError", "CondFalse")                      # condition always false
 system.switch("hintAsError", "ConvToBaseNotNeeded")            # redundant upcast to base object
-# system.switch("hintAsError", "User")                         # {.hint: "msg".} pragma in user code
-# system.switch("hintAsError", "UserRaw")                      # raw user hint
 # system.switch("hintAsError", "XDeclaredButNotUsed")          # unused symbol
 # system.switch("hintAsError", "ConvFromXtoItselfNotNeeded")   # T(x) where x: T
 # Note: "Name" deliberately NOT listed here — see .nimble file. Promoting it

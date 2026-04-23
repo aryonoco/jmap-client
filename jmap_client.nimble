@@ -222,10 +222,6 @@ srcDir = "src"
 --hintAsError:
   ConvToBaseNotNeeded            # redundant upcast to base object
 # --hintAsError:
-#   User                         # {.hint: "msg".} pragma in user code
-# --hintAsError:
-#   UserRaw                      # raw user hint
-# --hintAsError:
 #   XDeclaredButNotUsed          # unused symbol
 # --hintAsError:
 #   ConvFromXtoItselfNotNeeded   # T(x) where x: T
