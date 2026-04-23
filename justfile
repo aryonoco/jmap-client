@@ -103,7 +103,7 @@ test-verbose:
 # Run specific test file
 test-file file:
     @echo "Running test: {{file}}"
-    testament {{file}}
+    testament pat {{file}}
 
 # Run unit tests only
 test-unit:
