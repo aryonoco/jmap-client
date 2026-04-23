@@ -312,3 +312,85 @@ block coreKindRejected:
   )
   assertErr parseMailCapabilities(coreCap)
   assertErr parseSubmissionCapabilities(coreCap)
+
+# =============================================================================
+# W. SubmissionExtensionMap — insertion order preserved through parse
+# =============================================================================
+
+block submissionExtensionMapRoundTripPreservesOrder:
+  ## G25 (§1.3.2): SubmissionExtensionMap is a distinct OrderedTable;
+  ## capabilities are server-advertised only (no toJson), so the
+  ## round-trip observable is parse-order fidelity — iterating the
+  ## parsed OrderedTable via ``pairs`` yields keys in input-JSON order.
+  var j = validSubmissionCapJson()
+  j["submissionExtensions"] =
+    parseJson("""{"SIZE": ["50000000"], "8BITMIME": [], "DELIVERBY": ["240"]}""")
+  let cap = ServerCapability(
+    rawUri: "urn:ietf:params:jmap:submission", kind: ckSubmission, rawData: j
+  )
+  let res = parseSubmissionCapabilities(cap)
+  assertOk res
+  let extensions =
+    OrderedTable[RFC5321Keyword, seq[string]](res.get().submissionExtensions)
+  var observed: seq[string] = @[]
+  for key, _ in extensions.pairs:
+    observed.add($key)
+  assertEq observed, @["SIZE", "8BITMIME", "DELIVERBY"]
+
+# =============================================================================
+# X. SubmissionExtensionMap — case-differing keys collapse to one slot
+# =============================================================================
+
+block submissionExtensionMapCaseInsensitiveKey:
+  ## G8a: RFC5321Keyword has case-fold ``==``/``hash`` per RFC 5321
+  ## §2.4, so inserting two case-differing keys into the backing
+  ## OrderedTable collapses them to a single slot. The pre-parse
+  ## ``extNode.len == 2`` assertion guards against a future std/json
+  ## change that silently deduplicates JObject duplicate keys — without
+  ## that guard, the block would false-pass on one iteration.
+  var j = validSubmissionCapJson()
+  let extNode = parseJson("""{"X-FOO": ["a"], "x-foo": ["b"]}""")
+  assertEq extNode.len, 2
+  j["submissionExtensions"] = extNode
+  let cap = ServerCapability(
+    rawUri: "urn:ietf:params:jmap:submission", kind: ckSubmission, rawData: j
+  )
+  let res = parseSubmissionCapabilities(cap)
+  assertOk res
+  let extensions =
+    OrderedTable[RFC5321Keyword, seq[string]](res.get().submissionExtensions)
+  assertEq extensions.len, 1
+  # OrderedTable.[]= updates value in place: last-writer-wins on value,
+  # first-writer-wins on the key slot (so $key would still be "X-FOO").
+  let lookupUpper = parseRFC5321Keyword("X-FOO").unsafeGet()
+  let lookupLower = parseRFC5321Keyword("x-foo").unsafeGet()
+  assertEq extensions[lookupUpper], @["b"]
+  assertEq extensions[lookupLower], @["b"]
+
+# =============================================================================
+# Y. SubmissionExtensionMap — all three RFC value-list shapes parse
+# =============================================================================
+
+block submissionExtensionMapParsesLegacyWireShape:
+  ## G25 migration pin: the wire is unchanged by the distinct-wrapper
+  ## introduction. Exercises the three value-list shapes permitted by
+  ## RFC 5321 §4.1.1.1 ESMTP-parameter syntax in one payload — empty
+  ## list, one-element empty-string, and multi-element list — proving
+  ## the new parser keeps accepting every legacy-wire form.
+  var j = validSubmissionCapJson()
+  j["submissionExtensions"] =
+    parseJson("""{"8BITMIME": [], "SMTPUTF8": [""], "DELIVERBY": ["240", "RT"]}""")
+  let cap = ServerCapability(
+    rawUri: "urn:ietf:params:jmap:submission", kind: ckSubmission, rawData: j
+  )
+  let res = parseSubmissionCapabilities(cap)
+  assertOk res
+  let extensions =
+    OrderedTable[RFC5321Keyword, seq[string]](res.get().submissionExtensions)
+  let kw8bitmime = parseRFC5321Keyword("8BITMIME").unsafeGet()
+  let kwSmtpUtf8 = parseRFC5321Keyword("SMTPUTF8").unsafeGet()
+  let kwDeliverby = parseRFC5321Keyword("DELIVERBY").unsafeGet()
+  assertEq extensions.len, 3
+  assertEq extensions[kw8bitmime], newSeq[string]()
+  assertEq extensions[kwSmtpUtf8], @[""]
+  assertEq extensions[kwDeliverby], @["240", "RT"]
