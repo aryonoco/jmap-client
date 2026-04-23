@@ -116,3 +116,215 @@ block emptyRcptToIsRejected:
   let res = Envelope.fromJson(badJson)
   assertSvKind res, svkFieldParserFailed
   assertSvPath res, "/rcptTo"
+
+# ============= D. ENVID + RET round-trip =============
+
+block paramEnvidAndRetRoundTrip:
+  ## §8.3 parameter-family continuation (ENVID + RET). G32 reverse-path
+  ## lift of a concrete mailbox; bare ``rcptTo``. RFC 3461 §4.4 (ENVID)
+  ## and §5.3 (RET=FULL). Round-trip via JSON structural equality;
+  ## spot-check wire backings.
+  let senderParams =
+    parseSubmissionParams(@[envidParam("envid-2026-04"), retParam(retFull)]).unsafeGet()
+  let senderMailbox = parseRFC5321Mailbox("sender@example.com").unsafeGet()
+  let senderAddr =
+    SubmissionAddress(mailbox: senderMailbox, parameters: Opt.some(senderParams))
+  let mailFrom = reversePath(senderAddr)
+
+  let aliceMailbox = parseRFC5321Mailbox("alice@example.com").unsafeGet()
+  let aliceAddr =
+    SubmissionAddress(mailbox: aliceMailbox, parameters: Opt.none(SubmissionParams))
+  let rcptTo = parseNonEmptyRcptListFromServer(@[aliceAddr]).unsafeGet()
+  let env = Envelope(mailFrom: mailFrom, rcptTo: rcptTo)
+
+  let firstJson = env.toJson()
+  let parsed = Envelope.fromJson(firstJson)
+  assertOk parsed
+  let secondJson = parsed.unsafeGet().toJson()
+  doAssert firstJson == secondJson, "envelope did not round-trip via JSON"
+
+  let mfParams = firstJson{"mailFrom"}{"parameters"}
+  doAssert mfParams != nil and mfParams.kind == JObject
+  assertJsonFieldEq mfParams, "ENVID", %"envid-2026-04"
+  assertJsonFieldEq mfParams, "RET", %"FULL"
+
+# ============= E. HOLDFOR + HOLDUNTIL round-trip =============
+
+block paramHoldForAndHoldUntilRoundTrip:
+  ## §8.3 parameter-family continuation (HOLDFOR + HOLDUNTIL). G32
+  ## reverse-path lift. RFC 4865 FUTURERELEASE (delay + absolute-time).
+  ## Numeric parameters ride as JSON strings of decimal digits (RFC 8621
+  ## §7.3.2); HOLDUNTIL as raw RFC 3339 Zulu.
+  let secs = parseHoldForSeconds(UnsignedInt(3600)).unsafeGet()
+  let until = parseUtcDate("2026-12-31T23:59:59Z").unsafeGet()
+  let senderParams =
+    parseSubmissionParams(@[holdForParam(secs), holdUntilParam(until)]).unsafeGet()
+  let senderMailbox = parseRFC5321Mailbox("sender@example.com").unsafeGet()
+  let senderAddr =
+    SubmissionAddress(mailbox: senderMailbox, parameters: Opt.some(senderParams))
+  let mailFrom = reversePath(senderAddr)
+
+  let aliceMailbox = parseRFC5321Mailbox("alice@example.com").unsafeGet()
+  let aliceAddr =
+    SubmissionAddress(mailbox: aliceMailbox, parameters: Opt.none(SubmissionParams))
+  let rcptTo = parseNonEmptyRcptListFromServer(@[aliceAddr]).unsafeGet()
+  let env = Envelope(mailFrom: mailFrom, rcptTo: rcptTo)
+
+  let firstJson = env.toJson()
+  let parsed = Envelope.fromJson(firstJson)
+  assertOk parsed
+  let secondJson = parsed.unsafeGet().toJson()
+  doAssert firstJson == secondJson, "envelope did not round-trip via JSON"
+
+  let mfParams = firstJson{"mailFrom"}{"parameters"}
+  doAssert mfParams != nil and mfParams.kind == JObject
+  assertJsonFieldEq mfParams, "HOLDFOR", %"3600"
+  assertJsonFieldEq mfParams, "HOLDUNTIL", %"2026-12-31T23:59:59Z"
+
+# ============= F. BY + MT-PRIORITY + SMTPUTF8 round-trip =============
+
+block paramByAndMtPriorityAndSmtpUtf8RoundTrip:
+  ## §8.3 parameter-family completion (BY + MT-PRIORITY + SMTPUTF8). G32
+  ## reverse-path lift. RFC 2852 §3 (BY=<deadline>;<mode>), RFC 6710 §2
+  ## (MT-PRIORITY), RFC 6531 §3.4 (SMTPUTF8 nullary). SMTPUTF8 emits
+  ## ``"SMTPUTF8": null`` — the canonical wire shape for a valueless
+  ## SMTP extension.
+  let pri = parseMtPriority(5).unsafeGet()
+  let senderParams = parseSubmissionParams(
+      @[byParam(JmapInt(120), dbmReturn), mtPriorityParam(pri), smtpUtf8Param()]
+    )
+    .unsafeGet()
+  let senderMailbox = parseRFC5321Mailbox("sender@example.com").unsafeGet()
+  let senderAddr =
+    SubmissionAddress(mailbox: senderMailbox, parameters: Opt.some(senderParams))
+  let mailFrom = reversePath(senderAddr)
+
+  let aliceMailbox = parseRFC5321Mailbox("alice@example.com").unsafeGet()
+  let aliceAddr =
+    SubmissionAddress(mailbox: aliceMailbox, parameters: Opt.none(SubmissionParams))
+  let rcptTo = parseNonEmptyRcptListFromServer(@[aliceAddr]).unsafeGet()
+  let env = Envelope(mailFrom: mailFrom, rcptTo: rcptTo)
+
+  let firstJson = env.toJson()
+  let parsed = Envelope.fromJson(firstJson)
+  assertOk parsed
+  let secondJson = parsed.unsafeGet().toJson()
+  doAssert firstJson == secondJson, "envelope did not round-trip via JSON"
+
+  let mfParams = firstJson{"mailFrom"}{"parameters"}
+  doAssert mfParams != nil and mfParams.kind == JObject
+  assertJsonFieldEq mfParams, "BY", %"120;R"
+  assertJsonFieldEq mfParams, "MT-PRIORITY", %"5"
+  let utf8 = mfParams{"SMTPUTF8"}
+  doAssert utf8 != nil and utf8.kind == JNull
+
+# ============= G. Null reverse path carrying Mail-parameters =============
+
+block reversePathNullWithParamsRoundTrip:
+  ## §8.3 ReversePath null-path parameter carriage. G32 / G33
+  ## discriminator (``rpkNullPath`` arm) with ``nullPathParams =
+  ## Opt.some``. RFC 5321 §4.1.1.2 permits Mail-parameters on the null
+  ## reverse-path. Wire: ``{"email": "", "parameters": {...}}``;
+  ## round-trip preserves both the null-path discriminator and the
+  ## parameter bag.
+  let params = parseSubmissionParams(@[sizeParam(UnsignedInt(4096))]).unsafeGet()
+  let mailFrom = nullReversePath(Opt.some(params))
+
+  let aliceMailbox = parseRFC5321Mailbox("alice@example.com").unsafeGet()
+  let aliceAddr =
+    SubmissionAddress(mailbox: aliceMailbox, parameters: Opt.none(SubmissionParams))
+  let rcptTo = parseNonEmptyRcptListFromServer(@[aliceAddr]).unsafeGet()
+  let env = Envelope(mailFrom: mailFrom, rcptTo: rcptTo)
+
+  let firstJson = env.toJson()
+  let mfNode = firstJson{"mailFrom"}
+  doAssert mfNode != nil and mfNode.kind == JObject
+  assertJsonFieldEq mfNode, "email", %""
+  let mfParams = mfNode{"parameters"}
+  doAssert mfParams != nil and mfParams.kind == JObject
+  assertJsonFieldEq mfParams, "SIZE", %"4096"
+
+  let parsed = Envelope.fromJson(firstJson)
+  assertOk parsed
+  let secondJson = parsed.unsafeGet().toJson()
+  doAssert firstJson == secondJson, "envelope did not round-trip via JSON"
+  let roundMailFrom = parsed.unsafeGet().mailFrom
+  doAssert roundMailFrom.kind == rpkNullPath
+  assertSome roundMailFrom.nullPathParams
+
+# ============= H. Mailbox reverse path without parameters =============
+
+block reversePathMailboxWithoutParamsRoundTrip:
+  ## §8.3 ReversePath mailbox arm with ``parameters = Opt.none``. G33
+  ## discriminator (``rpkMailbox`` arm) + G34 parameters nullability.
+  ## Wire: ``{"email": "sender@example.com", "parameters": null}`` —
+  ## ``Opt.none`` on ``SubmissionAddress.parameters`` emits JSON null,
+  ## never key elision (see ``toJson(SubmissionAddress)`` in
+  ## ``serde_submission_envelope.nim:432-436``).
+  let senderMailbox = parseRFC5321Mailbox("sender@example.com").unsafeGet()
+  let senderAddr =
+    SubmissionAddress(mailbox: senderMailbox, parameters: Opt.none(SubmissionParams))
+  let mailFrom = reversePath(senderAddr)
+
+  let aliceMailbox = parseRFC5321Mailbox("alice@example.com").unsafeGet()
+  let aliceAddr =
+    SubmissionAddress(mailbox: aliceMailbox, parameters: Opt.none(SubmissionParams))
+  let rcptTo = parseNonEmptyRcptListFromServer(@[aliceAddr]).unsafeGet()
+  let env = Envelope(mailFrom: mailFrom, rcptTo: rcptTo)
+
+  let firstJson = env.toJson()
+  let mfNode = firstJson{"mailFrom"}
+  doAssert mfNode != nil and mfNode.kind == JObject
+  assertJsonFieldEq mfNode, "email", %"sender@example.com"
+  let mfParams = mfNode{"parameters"}
+  doAssert mfParams != nil and mfParams.kind == JNull
+
+  let parsed = Envelope.fromJson(firstJson)
+  assertOk parsed
+  let secondJson = parsed.unsafeGet().toJson()
+  doAssert firstJson == secondJson, "envelope did not round-trip via JSON"
+  let roundMailFrom = parsed.unsafeGet().mailFrom
+  doAssert roundMailFrom.kind == rpkMailbox
+  assertNone roundMailFrom.sender.parameters
+
+# ============= I. Opt.none vs Opt.some(empty) distinction (G34) =============
+
+block parametersOptNoneDistinctFromEmptyObject:
+  ## §8.3 G34 pin: ``Opt.none(SubmissionParams)`` and
+  ## ``Opt.some(emptyParams)`` are wire-distinct and both must round-trip
+  ## preserving the distinction. ``Opt.none`` serialises to JSON null;
+  ## ``Opt.some(empty)`` serialises to the empty JSON object ``{}``.
+  ## ``parseSubmissionParams(@[])`` is accepted by design (see
+  ## ``submission_param.nim:409`` comment and line 431 implementation).
+  ## The single most load-bearing serde distinction in envelope coverage.
+  let mailbox = parseRFC5321Mailbox("alice@example.com").unsafeGet()
+  let addrNone =
+    SubmissionAddress(mailbox: mailbox, parameters: Opt.none(SubmissionParams))
+  let emptyParams = parseSubmissionParams(@[]).unsafeGet()
+  let addrEmpty = SubmissionAddress(mailbox: mailbox, parameters: Opt.some(emptyParams))
+
+  let jsonNone = addrNone.toJson()
+  let jsonEmpty = addrEmpty.toJson()
+
+  # Wire-distinct: null versus empty object.
+  let pNone = jsonNone{"parameters"}
+  doAssert pNone != nil and pNone.kind == JNull
+  let pEmpty = jsonEmpty{"parameters"}
+  doAssert pEmpty != nil and pEmpty.kind == JObject
+  doAssert pEmpty.len == 0
+
+  # Round-trip preserves the distinction.
+  let roundNone = SubmissionAddress.fromJson(jsonNone)
+  assertOk roundNone
+  let jsonNone2 = roundNone.unsafeGet().toJson()
+  doAssert jsonNone == jsonNone2, "Opt.none parameters did not round-trip"
+  doAssert jsonNone2{"parameters"}.kind == JNull
+  assertNone roundNone.unsafeGet().parameters
+
+  let roundEmpty = SubmissionAddress.fromJson(jsonEmpty)
+  assertOk roundEmpty
+  let jsonEmpty2 = roundEmpty.unsafeGet().toJson()
+  doAssert jsonEmpty == jsonEmpty2, "Opt.some(empty) parameters did not round-trip"
+  let pEmpty2 = jsonEmpty2{"parameters"}
+  doAssert pEmpty2.kind == JObject and pEmpty2.len == 0
+  assertSome roundEmpty.unsafeGet().parameters
