@@ -210,6 +210,32 @@ lint-isolated:
         ' --
     echo "Isolated lint passed"
 
+# Enforce --styleCheck:error + --hintAsError:Name over every src/ module.
+# Per-file iteration (not a single transitive pass) so orphan modules — files
+# not yet imported from the library entry point — are also covered; that
+# matches lint-isolated's rationale. --errorMax:0 keeps the compiler going
+# past vendored style noise (vendor/nim-results uses non-NEP1 casing we do
+# not control); vendor/ diagnostics are filtered out and any src/-scoped
+# style error fails the recipe. Tests are deliberately excluded — testament
+# specs use underscored block names (rfc8620_S1_2_... / regression_2026_03_...)
+# by convention.
+lint-style:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    shopt -s inherit_errexit
+    echo "Running styleCheck:error + hintAsError:Name over every src/ module..."
+    find src -name '*.nim' -type f -print0 | \
+        xargs -0 -n1 -P"$(nproc)" bash -c '
+            file="$1"
+            output=$(nim check --errorMax:0 --hints:off --styleCheck:error --hintAsError:Name "$file" 2>&1 || true)
+            src_errors=$(echo "$output" | grep -vE "vendor/.*Error: .* should be" | grep -E "Error: .* should be" || true)
+            if [[ -n "$src_errors" ]]; then
+                printf "\n=== FAIL: %s ===\n%s\n" "$file" "$src_errors"
+                exit 1
+            fi
+        ' --
+    echo "Style check passed (vendor/ diagnostics tolerated)"
+
 # Static analysis with nimalyzer
 analyse:
     @echo "Running static analysis..."
@@ -220,7 +246,7 @@ analyse:
 analyze: analyse
 
 # Run all code quality checks
-check: fmt-check lint lint-isolated analyse
+check: fmt-check lint lint-isolated lint-style analyse
     @echo "All quality checks passed"
 
 # =============================================================================
@@ -234,7 +260,7 @@ reuse:
     @echo "REUSE compliance check passed"
 
 # Run full CI pipeline locally (mirrors .github/workflows/ci.yml)
-ci: reuse fmt-check lint lint-isolated analyse test
+ci: reuse fmt-check lint lint-isolated lint-style analyse test
     @echo ""
     @echo "============================================"
     @echo "All CI checks passed!"

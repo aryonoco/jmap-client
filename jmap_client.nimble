@@ -208,7 +208,6 @@ srcDir = "src"
 
 --hintAsError:
   DuplicateModuleImport
-# Diagnostic hints — uncomment one at a time, fix surfaces, verify.
 --hintAsError:
   XCannotRaiseY                  # raises list contains impossible exception
 --hintAsError:
@@ -226,9 +225,10 @@ srcDir = "src"
 --hintAsError:
   ConvFromXtoItselfNotNeeded     # T(x) where x: T
 --hintAsError:
-  Name                           # style-check violation (nimble only;
-                                 # config.nims omits to preserve testament
-                                 # underscored-block exemption)
+  Name                           # enforced via `just lint-style` per-file
+                                 # over src/; config.nims omits to avoid
+                                 # breaking testament's underscored-block
+                                 # naming convention
 --floatChecks:
   on
 --overflowChecks:

@@ -27,9 +27,12 @@ system.switch("panics", "on")
 system.switch("experimental", "strictDefs")
 system.switch("experimental", "strictEffects")
 
-# styleCheck:error intentionally omitted: test files use underscored block names
-# (rfc8620_S1_2_..., regression_2026_03_...) as a deliberate naming convention
-# for traceability. The flag remains declared in .nimble for library builds.
+# styleCheck:error intentionally omitted from config.nims: a global switch
+# would hit testament test files that use underscored block names
+# (rfc8620_S1_2_..., regression_2026_03_...) as a deliberate traceability
+# convention. Enforcement over src/ lives in the `just lint-style` recipe,
+# which runs --styleCheck:error + --hintAsError:Name per-file over src/ only
+# and filters vendor/ style diagnostics out.
 
 # =============================================================================
 # Warnings as errors — every on-by-default warning promoted to an error.
@@ -128,9 +131,6 @@ system.switch("warningAsError", "User")
 
 # Hints as errors
 system.switch("hintAsError", "DuplicateModuleImport")
-# Diagnostic hints — uncomment one at a time, fix surfaces, verify.
-# Order: ascending expected code-fix cost. Rationale in
-# /home/vscode/.claude/plans/document-all-of-these-deep-blanket.md
 system.switch("hintAsError", "XCannotRaiseY")                  # raises list contains impossible exception
 system.switch("hintAsError", "UnknownRaises")                  # forward decl without explicit .raises
 system.switch("hintAsError", "ExprAlwaysX")                    # expression constant-folds to literal
@@ -139,9 +139,9 @@ system.switch("hintAsError", "CondFalse")                      # condition alway
 system.switch("hintAsError", "ConvToBaseNotNeeded")            # redundant upcast to base object
 system.switch("hintAsError", "XDeclaredButNotUsed")            # unused symbol
 system.switch("hintAsError", "ConvFromXtoItselfNotNeeded")     # T(x) where x: T
-# Note: "Name" deliberately NOT listed here — see .nimble file. Promoting it
-# requires --styleCheck:hint|error, which config.nims omits so testament can
-# use rfc8620_S1_2_... underscored block names (see line 30-32 comment above).
+# Note: "Name" deliberately NOT listed here. The hint only fires under
+# --styleCheck:hint|error, which config.nims omits (see rationale above).
+# Enforcement for src/ happens via `just lint-style`.
 
 # Float safety
 system.switch("floatChecks", "on")
