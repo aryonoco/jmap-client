@@ -6,6 +6,7 @@
 ## typed capability data from its rawData JSON field.
 
 {.push raises: [], noSideEffect.}
+{.experimental: "strictCaseObjects".}
 
 import std/json
 import std/sets
@@ -27,8 +28,32 @@ func parseMailCapabilities*(
   ## Parses mail capability data from a ServerCapability with kind ckMail.
   ## Validates RFC constraints: maxMailboxesPerEmail >= 1 (when present),
   ## maxSizeMailboxName >= 100.
+  ##
+  ## Under strictCaseObjects, `rawData` (declared in the else: branch of
+  ## ServerCapability) is only accessible when the use-site case also goes
+  ## through else:. The outer `of ckCore:` arm handles the sole explicit
+  ## of-branch; the else: arm is where all non-ckCore kinds (including
+  ## ckMail) flow.
   case cap.kind
-  of ckMail:
+  of ckCore:
+    err(
+      SerdeViolation(
+        kind: svkEnumNotRecognised,
+        path: path,
+        enumTypeLabel: "capability kind",
+        rawValue: $cap.kind,
+      )
+    )
+  else:
+    if cap.kind != ckMail:
+      return err(
+        SerdeViolation(
+          kind: svkEnumNotRecognised,
+          path: path,
+          enumTypeLabel: "capability kind",
+          rawValue: $cap.kind,
+        )
+      )
     ?expectKind(cap.rawData, JObject, path)
 
     # maxMailboxesPerEmail: nullable UnsignedInt, >= 1 when present
@@ -98,15 +123,6 @@ func parseMailCapabilities*(
         mayCreateTopLevelMailbox: mayCreateTopLevelMailbox,
       )
     )
-  else:
-    err(
-      SerdeViolation(
-        kind: svkEnumNotRecognised,
-        path: path,
-        enumTypeLabel: "capability kind",
-        rawValue: $cap.kind,
-      )
-    )
 
 # =============================================================================
 # SubmissionCapabilities
@@ -117,8 +133,29 @@ func parseSubmissionCapabilities*(
 ): Result[SubmissionCapabilities, SerdeViolation] =
   ## Parses submission capability data from a ServerCapability with kind
   ## ckSubmission. Validates field types and structure.
+  ##
+  ## Strict else-branch shape mirrors parseMailCapabilities — see the
+  ## docstring there for the rationale.
   case cap.kind
-  of ckSubmission:
+  of ckCore:
+    err(
+      SerdeViolation(
+        kind: svkEnumNotRecognised,
+        path: path,
+        enumTypeLabel: "capability kind",
+        rawValue: $cap.kind,
+      )
+    )
+  else:
+    if cap.kind != ckSubmission:
+      return err(
+        SerdeViolation(
+          kind: svkEnumNotRecognised,
+          path: path,
+          enumTypeLabel: "capability kind",
+          rawValue: $cap.kind,
+        )
+      )
     ?expectKind(cap.rawData, JObject, path)
 
     # maxDelayedSend: required UnsignedInt (0 is valid — means not supported)
@@ -142,14 +179,5 @@ func parseSubmissionCapabilities*(
       SubmissionCapabilities(
         maxDelayedSend: maxDelayedSend,
         submissionExtensions: SubmissionExtensionMap(extensions),
-      )
-    )
-  else:
-    err(
-      SerdeViolation(
-        kind: svkEnumNotRecognised,
-        path: path,
-        enumTypeLabel: "capability kind",
-        rawValue: $cap.kind,
       )
     )
