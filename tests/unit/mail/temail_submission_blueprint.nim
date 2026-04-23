@@ -12,7 +12,6 @@
 import jmap_client/mail/email_submission
 import jmap_client/mail/submission_envelope
 import jmap_client/primitives
-import jmap_client/identifiers
 import jmap_client/validation
 
 import ../../massertions
@@ -89,3 +88,77 @@ block inequalityOnIdentity:
   let bp1 = parseEmailSubmissionBlueprint(idI1, idE).get()
   let bp2 = parseEmailSubmissionBlueprint(idI2, idE).get()
   doAssert bp1 != bp2
+
+block blueprintInvalidIdentityId:
+  # Pins rejection of a malformed identityId at the upstream parseId
+  # boundary. parseEmailSubmissionBlueprint (email_submission.nim:152)
+  # accepts pre-parsed Id values, so the Id-layer message is the one any
+  # blueprint caller encounters; grep-locked from validation.nim:189.
+  let res = parseId("bad@identity")
+  assertErr res
+  assertEq res.error.typeName, "Id"
+  assertEq res.error.message, "contains characters outside base64url alphabet"
+  assertEq res.error.value, "bad@identity"
+
+block blueprintInvalidEmailId:
+  # Symmetric Id-layer rejection for the emailId field.
+  let res = parseId("bad@email")
+  assertErr res
+  assertEq res.error.typeName, "Id"
+  assertEq res.error.message, "contains characters outside base64url alphabet"
+  assertEq res.error.value, "bad@email"
+
+block blueprintAccumulatesBothIdErrors:
+  # G2 §8.3 row 555 says "both malformed id inputs must accumulate".
+  # G1's parseEmailSubmissionBlueprint accepts pre-parsed Ids, so the
+  # accumulation architecturally lives in the caller's two parseId calls.
+  # This block pins per-call error independence (each error preserves its
+  # own value and message) and smoke-checks that the blueprint's seq
+  # error-rail shape (Result[_, seq[ValidationError]]) is preserved for
+  # forward-compat with future blueprint-level constraints.
+  let identityRes = parseId("bad@identity")
+  let emailRes = parseId("bad@email")
+  assertErr identityRes
+  assertErr emailRes
+  # Independent value pins — each error carries its own raw verbatim:
+  assertEq identityRes.error.value, "bad@identity"
+  assertEq emailRes.error.value, "bad@email"
+  # Same rejection class (non-base64url), but independent ValidationError
+  # instances; messages grep-locked from validation.nim:189:
+  assertEq identityRes.error.message, "contains characters outside base64url alphabet"
+  assertEq emailRes.error.message, "contains characters outside base64url alphabet"
+  # Structural pin — the blueprint's error rail remains a seq. If a
+  # future refactor demotes to Result[_, ValidationError], the
+  # compiles() probe fails, flagging the regression.
+  let idI = parseId("validA").get()
+  let idE = parseId("validB").get()
+  let okRes = parseEmailSubmissionBlueprint(idI, idE)
+  assertOk okRes
+  doAssert compiles(okRes.error.len),
+    "blueprint error rail must remain seq[ValidationError] for accumulation forward-compat"
+
+block blueprintPatternASealExplicitRawField:
+  # G38 Pattern A per-field seal probes using the standardised
+  # assertNotCompiles template (massertions.nim:150). Complements the
+  # shipped sealingContract block (lines 46-64) which uses raw
+  # `doAssert not compiles(...)` in-line and covers only record-literal
+  # construction. This block adds:
+  #   (a) per-field probes that pinpoint WHICH field regressed if the
+  #       seal breaks (single-name construction + read-access);
+  #   (b) read-side coverage (the shipped block only tests write/ctor).
+  # G38 (§8.13 row 1038) remains SHIPPED via sealingContract; this
+  # block is supplementary diagnostic coverage.
+  let idI = parseId("i-pa").get()
+  let idE = parseId("e-pa").get()
+  # (1) Record-literal construction with raw* field names is sealed:
+  assertNotCompiles(
+    EmailSubmissionBlueprint(
+      rawIdentityId: idI, rawEmailId: idE, rawEnvelope: Opt.none(Envelope)
+    )
+  )
+  # (2) Per-field read-access from outside the module is also sealed.
+  # An accidental future `rawIdentityId*` export would surface here.
+  let bp = parseEmailSubmissionBlueprint(idI, idE).get()
+  assertNotCompiles(bp.rawIdentityId)
+  assertNotCompiles(bp.rawEmailId)
+  assertNotCompiles(bp.rawEnvelope)

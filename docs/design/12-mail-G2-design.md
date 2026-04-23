@@ -537,22 +537,32 @@ emits. The authoritative messages, read from the shipped source:
 | `NonEmptyEmailSubmissionUpdates` | empty | pin shipped string (grep `parseNonEmptyEmailSubmissionUpdates`) | `""` | `email_submission.nim` (read before writing) |
 | `NonEmptyEmailSubmissionUpdates` | duplicate `Id` | pin shipped string | offending Id | `email_submission.nim` |
 | `NonEmptyIdSeq` | empty | pin shipped string | `""` | `email_submission.nim` |
-| `EmailSubmissionBlueprint` | invalid `identityId` | pin shipped string | offending raw | `email_submission.nim` |
-| `EmailSubmissionBlueprint` | invalid `emailId` | pin shipped string | offending raw | `email_submission.nim` |
+| `EmailSubmissionBlueprint` | invalid `identityId` | `"contains characters outside base64url alphabet"` (grep-locked from `validation.nim:189`; reached via `parseId` — blueprint accepts pre-parsed `Id`) | offending raw | `validation.nim:189` (via `parseId`) |
+| `EmailSubmissionBlueprint` | invalid `emailId` | `"contains characters outside base64url alphabet"` (grep-locked from `validation.nim:189`; reached via `parseId` — blueprint accepts pre-parsed `Id`) | offending raw | `validation.nim:189` (via `parseId`) |
 
-The **implementation reality note**: three bottom rows
-(`NonEmptyEmailSubmissionUpdates`, `NonEmptyIdSeq`,
-`EmailSubmissionBlueprint` per-field) ship with messages not inspected
-during spec authoring; when writing the corresponding test blocks, the
-first step is `grep -n 'validationError\|ValidationError(' src/jmap_client/mail/email_submission.nim`
-to read the authoritative strings, then lock them in the block
-assertions. This mirrors F2 §8.3's policy — do not invent strings.
+The **implementation reality note**: the bottom rows ship with
+messages not inspected during spec authoring; the first step when
+writing the corresponding test blocks is grep-then-lock — do not
+invent strings. Grep targets differ per row:
+
+- `NonEmptyEmailSubmissionUpdates`, `NonEmptyIdSeq` — `grep -n
+  'validationError\|ValidationError(' src/jmap_client/mail/email_submission.nim`
+  (local `err(validationError(...))` literals).
+- `EmailSubmissionBlueprint` per-field — G1 made `parseEmailSubmissionBlueprint`
+  accept pre-parsed `Id` values (`email_submission.nim:152-161`), so
+  there is **no** blueprint-level `ValidationError` literal in
+  `email_submission.nim`. The authoritative strings are at
+  `validation.nim:172-191` in the `toValidationError(TokenViolation)`
+  translator (specifically `validation.nim:189` for the non-base64url
+  arm). Reached via `parseId` (`primitives.nim:75,83`). Tests pin
+  via `parseId("bad@identity").error.message`, not via the blueprint
+  constructor. This mirrors F2 §8.3's policy — do not invent strings.
 
 **Per-concept file table:**
 
 | File | Status | Append position | Scope additions |
 |------|--------|-----------------|-----------------|
-| `tests/unit/mail/temail_submission_blueprint.nim` | **SHIPPED** (92L) | After line 92 | Per-field rejection matrix: invalid `identityId`, invalid `emailId`, invalid inner `Envelope` nested through `parseEmailSubmissionBlueprint`'s accumulating rail (the `rawEnvelope` field accepts an `Envelope` value that is already validated, so inner violations cannot propagate via `Blueprint` — but **both** malformed id inputs must accumulate); `assertNotCompiles` record-literal sidestep for Pattern A (G38); cross-check against shipped `ValidationError.message` strings via grep-then-lock. Proposed `block` names: `blueprintInvalidIdentityId`, `blueprintInvalidEmailId`, `blueprintAccumulatesBothIdErrors`, `blueprintPatternASealExplicitRawField`. |
+| `tests/unit/mail/temail_submission_blueprint.nim` | **SHIPPED** (92L) | After line 92 | Per-field rejection matrix reflecting the G1 implementation reality: `parseEmailSubmissionBlueprint` accepts pre-parsed `Id` values and trivially returns `ok(...)` (`email_submission.nim:152-161`), so rejection of malformed identityId/emailId surfaces at the upstream `parseId` boundary; `blueprintInvalidIdentityId` / `blueprintInvalidEmailId` grep-lock the Id-layer message (`validation.nim:189`); `blueprintAccumulatesBothIdErrors` pins per-call error independence at `parseId` AND structurally asserts the blueprint's `Result[_, seq[ValidationError]]` error-rail shape is preserved for forward-compat; `rawEnvelope` carries an already-validated `Envelope`, so inner violations cannot propagate via `Blueprint`. `blueprintPatternASealExplicitRawField` uses `assertNotCompiles` (massertions.nim:150) to probe per-field record-literal construction AND field-read access, complementing the shipped `sealingContract` block. Proposed `block` names: `blueprintInvalidIdentityId`, `blueprintInvalidEmailId`, `blueprintAccumulatesBothIdErrors`, `blueprintPatternASealExplicitRawField`. |
 | `tests/unit/mail/tonsuccess_extras.nim` | **SHIPPED** (124L) | After line 124 | `IdOrCreationRef` vs `Referencable[T]` distinction: wire-shape pins (`directRef(id)` → JSON string `$id`; `creationRef(cid)` → JSON string `"#" & $cid`; `Referencable[T]` result-reference → JSON object `{"resultOf":..., "name":..., "path":...}`). Compile-time pin that the two types are distinct (`assertNotCompiles(let _: Referencable[seq[Id]] = directRef(id))`). Proposed `block` names: `idOrCreationRefWireDirectIsBareString`, `idOrCreationRefWireCreationHasHashPrefix`, `idOrCreationRefVsReferencableAreDistinctTypes`. |
 | `tests/unit/mail/temail_submission.nim` | **TO-CREATE** (~250L) | New file | Per-phantom-variant construction smoke: `EmailSubmission[usPending]`, `EmailSubmission[usFinal]`, `EmailSubmission[usCanceled]` via `toAny` lifting; `AnyEmailSubmission` construction with `state` discriminator; value-level `cancelUpdate(EmailSubmission[usPending])` producing `esuSetUndoStatusToCanceled`; **`static:` block with `assertNotCompiles` proving `cancelUpdate(default(EmailSubmission[usFinal]))` and `cancelUpdate(default(EmailSubmission[usCanceled]))` fail to compile**. This is the single most load-bearing compile-time test in G2 — a regression collapses the phantom-typed transition arrow to a runtime check. Block 6 (`existentialBranchAccessorContract`) pins the Pattern A sealing contract (§8 item 4): (i) accessor visibility for the three `asX` projections, (ii) compile-time refusal of brace construction with both `raw*` names (now module-private) and the pre-sealing public names (no longer exist), and (iii) the `Opt[T]` projection shape for each state × accessor combination (3 × 3 = 9 probes). Proposed `block` names: `toAnyPendingBranchPreserved`, `toAnyFinalBranchPreserved`, `toAnyCanceledBranchPreserved`, `cancelUpdateProducesSetUndoStatusToCanceled`, `phantomArrowStaticRejectsFinalAndCanceled` (the `static:` block), `existentialBranchAccessorContract`. |
 | `tests/unit/mail/temail_submission_update.nim` | **TO-CREATE** (~120L) | New file | `setUndoStatusToCanceled()` value-level construction; `parseNonEmptyEmailSubmissionUpdates` empty and duplicate-`Id` cases with message-string assertions (grep-locked per §8.3's error-rail table); accumulating behaviour when both empty and duplicate shapes co-occur (they can't — empty has no duplicates — so each invariant fires in its own input shape, matching F1 `NonEmptyEmailImportMap` style). Proposed `block` names: `setUndoStatusToCanceledValueShape`, `parseUpdatesRejectsEmpty`, `parseUpdatesRejectsDuplicateId`, `parseUpdatesHappyPathSingleEntry`. |
