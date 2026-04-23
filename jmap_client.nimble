@@ -217,8 +217,8 @@ srcDir = "src"
   ExprAlwaysX                    # expression constant-folds to literal
 --hintAsError:
   CondTrue                       # condition always true
-# --hintAsError:
-#   CondFalse                    # condition always false
+--hintAsError:
+  CondFalse                      # condition always false
 # --hintAsError:
 #   ConvToBaseNotNeeded          # redundant upcast to base object
 # --hintAsError:
