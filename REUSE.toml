@@ -56,6 +56,16 @@ SPDX-FileCopyrightText = "2026 Aryan Ameri <github@aryan.ameri.coffee>"
 SPDX-License-Identifier = "CC-BY-4.0"
 
 # =============================================================================
+# Vendored Dependencies
+# =============================================================================
+
+[[annotations]]
+path = ["vendor/nim-results/**"]
+precedence = "override"
+SPDX-FileCopyrightText = ["2019 Jacek Sieka"]
+SPDX-License-Identifier = "MIT OR Apache-2.0"
+
+# =============================================================================
 # IETF RFCs (IETF Trust) — must come after docs to take precedence
 # =============================================================================
 
