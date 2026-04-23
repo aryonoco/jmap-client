@@ -73,6 +73,12 @@ build:
     nim c --app:lib --noMain -d:ssl -o:bin/libjmap_client.so src/jmap_client.nim
     @echo "Built: bin/libjmap_client.so"
 
+# Build shared library with release optimisations
+build-release:
+    @echo "Building shared library (release)..."
+    nim c -d:release --app:lib --noMain -d:ssl -o:bin/libjmap_client.so src/jmap_client.nim
+    @echo "Built: bin/libjmap_client.so (release)"
+
 # =============================================================================
 # TESTING
 # =============================================================================

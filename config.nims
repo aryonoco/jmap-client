@@ -7,6 +7,7 @@ when withDir(thisDir(), system.fileExists("nimble.paths")):
 # end Nimble config
 
 system.switch("path", system.thisDir() & "/src")
+system.switch("path", system.thisDir() & "/vendor/nim-results")
 # Compiler switches — duplicated from jmap_client.nimble because the Nim
 # compiler reads config.nims but NOT .nimble files. Without these lines,
 # the flags declared in the .nimble file are never enforced by nim c,
@@ -189,10 +190,12 @@ system.switch("assertions", "on")
 #     with per-module {.experimental: "strictNotNil".} pragmas. Unfixable
 #     in Nim 2.2.
 #
-#   strictCaseObjects — compile-time field-access validity for case objects.
-#     Every field access is checked against the discriminator at compile time.
-#     Fires on valid patterns in stdlib and nim-results. Unfixable from
-#     user code.
+#   strictCaseObjects — not enabled globally here because stdlib/JsonNode
+#     patterns fire under the checker. Enabled per-file in src/ via
+#     {.experimental: "strictCaseObjects".}; see CLAUDE.md. Requires the
+#     vendored nim-results copy at vendor/nim-results/, which case-wraps
+#     the raise*/map*Err helpers that cannot be expressed strict-clean
+#     under upstream 0.5.1.
 #
 #   views — enables borrowing/view types (`openArray` as first-class view,
 #     `lent` returns). Experimental lifetime tracking; fires on valid stdlib

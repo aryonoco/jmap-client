@@ -249,7 +249,11 @@ when not defined(release):
 # Dependencies
 
 requires "nim >= 2.2.8"
-requires "results >= 0.5.1"
+# Temporarily vendored at vendor/nim-results/ with strictCaseObjects
+# compatibility fixes. Re-enable this line once upstream nim-results
+# ships the pr1/pr2 fixes tracked at
+# https://github.com/aryonoco/nim-results (branch strictcaseobjects-compat).
+# requires "results >= 0.5.1"
 
 # Tasks
 
