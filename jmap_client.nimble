@@ -215,8 +215,8 @@ srcDir = "src"
   UnknownRaises                  # forward decl without explicit .raises
 --hintAsError:
   ExprAlwaysX                    # expression constant-folds to literal
-# --hintAsError:
-#   CondTrue                     # condition always true
+--hintAsError:
+  CondTrue                       # condition always true
 # --hintAsError:
 #   CondFalse                    # condition always false
 # --hintAsError:
