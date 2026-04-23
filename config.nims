@@ -136,7 +136,7 @@ system.switch("hintAsError", "UnknownRaises")                  # forward decl wi
 system.switch("hintAsError", "ExprAlwaysX")                    # expression constant-folds to literal
 system.switch("hintAsError", "CondTrue")                       # condition always true
 system.switch("hintAsError", "CondFalse")                      # condition always false
-# system.switch("hintAsError", "ConvToBaseNotNeeded")          # redundant upcast to base object
+system.switch("hintAsError", "ConvToBaseNotNeeded")            # redundant upcast to base object
 # system.switch("hintAsError", "User")                         # {.hint: "msg".} pragma in user code
 # system.switch("hintAsError", "UserRaw")                      # raw user hint
 # system.switch("hintAsError", "XDeclaredButNotUsed")          # unused symbol

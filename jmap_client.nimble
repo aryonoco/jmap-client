@@ -219,8 +219,8 @@ srcDir = "src"
   CondTrue                       # condition always true
 --hintAsError:
   CondFalse                      # condition always false
-# --hintAsError:
-#   ConvToBaseNotNeeded          # redundant upcast to base object
+--hintAsError:
+  ConvToBaseNotNeeded            # redundant upcast to base object
 # --hintAsError:
 #   User                         # {.hint: "msg".} pragma in user code
 # --hintAsError:
