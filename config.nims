@@ -128,6 +128,22 @@ system.switch("warningAsError", "User")
 
 # Hints as errors
 system.switch("hintAsError", "DuplicateModuleImport")
+# Diagnostic hints — uncomment one at a time, fix surfaces, verify.
+# Order: ascending expected code-fix cost. Rationale in
+# /home/vscode/.claude/plans/document-all-of-these-deep-blanket.md
+# system.switch("hintAsError", "XCannotRaiseY")                # raises list contains impossible exception
+# system.switch("hintAsError", "UnknownRaises")                # forward decl without explicit .raises
+# system.switch("hintAsError", "ExprAlwaysX")                  # expression constant-folds to literal
+# system.switch("hintAsError", "CondTrue")                     # condition always true
+# system.switch("hintAsError", "CondFalse")                    # condition always false
+# system.switch("hintAsError", "ConvToBaseNotNeeded")          # redundant upcast to base object
+# system.switch("hintAsError", "User")                         # {.hint: "msg".} pragma in user code
+# system.switch("hintAsError", "UserRaw")                      # raw user hint
+# system.switch("hintAsError", "XDeclaredButNotUsed")          # unused symbol
+# system.switch("hintAsError", "ConvFromXtoItselfNotNeeded")   # T(x) where x: T
+# Note: "Name" deliberately NOT listed here — see .nimble file. Promoting it
+# requires --styleCheck:hint|error, which config.nims omits so testament can
+# use rfc8620_S1_2_... underscored block names (see line 30-32 comment above).
 
 # Float safety
 system.switch("floatChecks", "on")

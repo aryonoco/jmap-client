@@ -208,6 +208,31 @@ srcDir = "src"
 
 --hintAsError:
   DuplicateModuleImport
+# Diagnostic hints — uncomment one at a time, fix surfaces, verify.
+# --hintAsError:
+#   XCannotRaiseY                # raises list contains impossible exception
+# --hintAsError:
+#   UnknownRaises                # forward decl without explicit .raises
+# --hintAsError:
+#   ExprAlwaysX                  # expression constant-folds to literal
+# --hintAsError:
+#   CondTrue                     # condition always true
+# --hintAsError:
+#   CondFalse                    # condition always false
+# --hintAsError:
+#   ConvToBaseNotNeeded          # redundant upcast to base object
+# --hintAsError:
+#   User                         # {.hint: "msg".} pragma in user code
+# --hintAsError:
+#   UserRaw                      # raw user hint
+# --hintAsError:
+#   XDeclaredButNotUsed          # unused symbol
+# --hintAsError:
+#   ConvFromXtoItselfNotNeeded   # T(x) where x: T
+# --hintAsError:
+#   Name                         # style-check violation (nimble only;
+#                                # config.nims omits to preserve testament
+#                                # underscored-block exemption)
 --floatChecks:
   on
 --overflowChecks:
