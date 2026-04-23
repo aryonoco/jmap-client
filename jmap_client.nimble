@@ -211,8 +211,8 @@ srcDir = "src"
 # Diagnostic hints — uncomment one at a time, fix surfaces, verify.
 --hintAsError:
   XCannotRaiseY                  # raises list contains impossible exception
-# --hintAsError:
-#   UnknownRaises                # forward decl without explicit .raises
+--hintAsError:
+  UnknownRaises                  # forward decl without explicit .raises
 # --hintAsError:
 #   ExprAlwaysX                  # expression constant-folds to literal
 # --hintAsError:
