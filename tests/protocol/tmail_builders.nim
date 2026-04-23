@@ -764,3 +764,288 @@ block addEmailSubmissionAndEmailSetWireAnchor:
   doAssert destroyArr != nil and destroyArr.kind == JArray
   assertLen destroyArr, 1
   assertEq destroyArr[0].getStr(""), "m-abc"
+
+# ===========================================================================
+# O.2-O.7. getBoth(EmailSubmissionHandles) dispatch scenarios (G2 §8.6)
+# ===========================================================================
+
+block getBothBothSucceed:
+  ## O.2 — G2 §8.6 row 1: well-formed ``EmailSubmission/set`` + well-formed
+  ## ``Email/set`` at the shared call-id round-trip through ``getBoth`` to
+  ## the paired ``EmailSubmissionResults``. The submission-side wire JSON
+  ## is hand-built because ``EmailSubmissionCreatedItem`` is ``fromJson``-
+  ## only (RFC 8621 §7.5 ¶2 server-authoritative read-only payload); the
+  ## ``Email/set`` side reuses ``makeEmailSetResponse().toJson()``.
+  let cid = makeMcid("c0")
+  let handles = makeEmailSubmissionHandles(cid, cid)
+  let subJson = %*{
+    "accountId": "a1",
+    "newState": "sub1",
+    "created":
+      {"s1": {"id": "es1", "threadId": "thr1", "sendAt": "2026-01-15T09:00:00Z"}},
+  }
+  let setResp =
+    makeEmailSetResponse(accountId = makeAccountId("a1"), newState = makeState("em1"))
+  let resp = Response(
+    methodResponses: @[
+      initInvocation(mnEmailSubmissionSet, subJson, cid),
+      initInvocation(mnEmailSet, setResp.toJson(), cid),
+    ],
+    createdIds: Opt.none(Table[CreationId, Id]),
+    sessionState: makeState("rs1"),
+  )
+  let results = resp.getBoth(handles)
+  assertOk results
+  let r = results.get()
+  assertLen r.submission.createResults, 1
+  doAssert r.submission.createResults[makeCreationId("s1")].isOk
+  assertEq r.emailSet.newState, makeState("em1")
+
+block getBothInnerMethodError:
+  ## O.3 — G2 §8.6 row 2: well-formed submission + an ``"error"``-tagged
+  ## invocation at the shared call-id. The ``NameBoundHandle.methodName``
+  ## filter on ``handles.emailSet`` rejects the error invocation (wire tag
+  ## ``"error"`` != ``"Email/set"``), so ``getBoth`` surfaces the same
+  ## ``serverFail`` / "no Email/set response for call ID ..." shape as
+  ## O.4 — client-side masking identical to §M.4's destroy-slot precedent.
+  ## Pins that an arbitrary ``MethodErrorType`` at the inner slot never
+  ## leaks through dispatch; the visible error-type fold lives at the
+  ## outer slot (see O.7) and in Step 16's ``tmail_method_errors.nim``.
+  let cid = makeMcid("c0")
+  let handles = makeEmailSubmissionHandles(cid, cid)
+  let subJson = %*{"accountId": "a1", "newState": "sub1"}
+  let errInv = makeErrorInvocation(cid, "accountNotFound")
+  let resp = Response(
+    methodResponses: @[initInvocation(mnEmailSubmissionSet, subJson, cid), errInv],
+    createdIds: Opt.none(Table[CreationId, Id]),
+    sessionState: makeState("rs1"),
+  )
+  let results = resp.getBoth(handles)
+  assertErr results
+  assertEq results.error.rawType, "serverFail"
+  assertSomeEq results.error.description, "no Email/set response for call ID c0"
+
+block getBothInnerAbsent:
+  ## O.4 — G2 §8.6 row 3: well-formed submission, NO ``Email/set``
+  ## invocation in ``methodResponses`` at all → ``getBoth`` surfaces a
+  ## ``serverFail`` ``MethodError`` whose description pins the
+  ## filter-name via the template at ``dispatch.nim:167-172``
+  ## (``"no " & $filterName & " response for call ID " & $targetId``).
+  let cid = makeMcid("c0")
+  let handles = makeEmailSubmissionHandles(cid, cid)
+  let subJson = %*{"accountId": "a1", "newState": "sub1"}
+  let resp = Response(
+    methodResponses: @[initInvocation(mnEmailSubmissionSet, subJson, cid)],
+    createdIds: Opt.none(Table[CreationId, Id]),
+    sessionState: makeState("rs1"),
+  )
+  let results = resp.getBoth(handles)
+  assertErr results
+  assertEq results.error.rawType, "serverFail"
+  assertSomeEq results.error.description, "no Email/set response for call ID c0"
+
+block getBothInnerMcIdMismatch:
+  ## O.5 — G2 §8.6 row 4: outer submission at ``c0`` well-formed + a
+  ## well-formed ``Email/set`` at ``c1`` (the wrong call-id). The
+  ## ``NameBoundHandle.callId`` filter rejects the ``c1`` invocation
+  ## because it doesn't match ``handles.emailSet.callId == c0``, so
+  ## ``getBoth`` surfaces the identical ``serverFail`` / "no Email/set
+  ## response for call ID c0" shape as O.3 and O.4. Pins that client-
+  ## side dispatch never conflates a sibling-id invocation with the
+  ## expected inner: a routing glitch cannot leak a valid-looking
+  ## inner payload to the caller.
+  let outerCid = makeMcid("c0")
+  let innerCid = makeMcid("c1")
+  let handles = makeEmailSubmissionHandles(outerCid, outerCid)
+  let subJson = %*{"accountId": "a1", "newState": "sub1"}
+  let setResp =
+    makeEmailSetResponse(accountId = makeAccountId("a1"), newState = makeState("em1"))
+  let resp = Response(
+    methodResponses: @[
+      initInvocation(mnEmailSubmissionSet, subJson, outerCid),
+      initInvocation(mnEmailSet, setResp.toJson(), innerCid),
+    ],
+    createdIds: Opt.none(Table[CreationId, Id]),
+    sessionState: makeState("rs1"),
+  )
+  let results = resp.getBoth(handles)
+  assertErr results
+  assertEq results.error.rawType, "serverFail"
+  assertSomeEq results.error.description, "no Email/set response for call ID c0"
+
+block getBothOuterNotCreatedSole:
+  ## O.6 — G2 §8.6 row 5: outer submission with one ``notCreated``
+  ## ``SetError`` + an empty ``Email/set`` response at the shared
+  ## call-id → ``getBoth`` returns ``Ok`` with ``submission.createResults``
+  ## carrying an ``Err`` entry and ``emailSet.createResults`` empty.
+  ##
+  ## Design-doc divergence note. G2 §8.6 row 5 describes the server-
+  ## omits-inner path ("no invocation per RFC §7.5 when no creation
+  ## succeeded and no update/destroy targets existed") and says
+  ## ``getBoth`` returns ``Ok`` with an empty emailSet. The shipped
+  ## ``getBoth`` (``submission_builders.nim:139-141``) chains ``?`` on
+  ## ``resp.get(handles.emailSet)`` and cannot synthesise an empty
+  ## inner when the invocation is absent — absence surfaces as
+  ## ``serverFail`` (see O.4). To satisfy both the design-doc's ``Ok``
+  ## outcome and the shipped dispatch semantics, this block constructs
+  ## a server response that emits an empty inner ``Email/set``
+  ## invocation (server-compliant under RFC 8621 §7.5 ¶3's "if any
+  ## implicit actions attempted" wording). The absent-inner adversarial
+  ## shape is pinned by O.4 here and by Step 20's
+  ## ``tadversarial_mail_g.nim``. See G2 §8.13 for the living coverage
+  ## matrix.
+  let cid = makeMcid("c0")
+  let handles = makeEmailSubmissionHandles(cid, cid)
+  let subJson = %*{
+    "accountId": "a1",
+    "newState": "sub1",
+    "notCreated": {"s1": {"type": "invalidProperties"}},
+  }
+  let setResp =
+    makeEmailSetResponse(accountId = makeAccountId("a1"), newState = makeState("em1"))
+  let resp = Response(
+    methodResponses: @[
+      initInvocation(mnEmailSubmissionSet, subJson, cid),
+      initInvocation(mnEmailSet, setResp.toJson(), cid),
+    ],
+    createdIds: Opt.none(Table[CreationId, Id]),
+    sessionState: makeState("rs1"),
+  )
+  let results = resp.getBoth(handles)
+  assertOk results
+  let r = results.get()
+  assertLen r.submission.createResults, 1
+  doAssert r.submission.createResults[makeCreationId("s1")].isErr
+  assertLen r.emailSet.createResults, 0
+
+block getBothOuterIfInStateMismatch:
+  ## O.7 — G2 §8.6 row 6: outer invocation is an ``"error"``-tagged
+  ## invocation with ``"stateMismatch"`` at the shared call-id; no
+  ## inner invocation at all (the outer ``ifInState`` check failed
+  ## before the server ran the implicit ``Email/set``). The plain
+  ## ``ResponseHandle`` on ``handles.submission`` routes through
+  ## ``extractInvocation`` (``dispatch.nim:118-142``), which DOES
+  ## surface method errors by name-tag — so ``?resp.get(
+  ## handles.submission)`` short-circuits with ``Err(metStateMismatch)``
+  ## before ``handles.emailSet`` is consulted. The inner's absence is
+  ## therefore irrelevant, which is exactly what this block pins:
+  ## ``getBoth`` is total over the order of failures.
+  let cid = makeMcid("c0")
+  let handles = makeEmailSubmissionHandles(cid, cid)
+  let errInv = makeErrorInvocation(cid, "stateMismatch")
+  let resp = Response(
+    methodResponses: @[errInv],
+    createdIds: Opt.none(Table[CreationId, Id]),
+    sessionState: makeState("rs1"),
+  )
+  let results = resp.getBoth(handles)
+  assertErr results
+  assertEq results.error.errorType, metStateMismatch
+
+# ===========================================================================
+# P. addEmailSubmissionGet wire shape (RFC 8621 §7.1)
+# ===========================================================================
+
+block addEmailSubmissionGetInvocation:
+  ## P: addEmailSubmissionGet thin-wraps the generic ``addGet[
+  ## AnyEmailSubmission]`` and produces an ``EmailSubmission/get``
+  ## invocation (RFC 8621 §7.1) with accountId, ids, and properties
+  ## projected into arguments.
+  let b0 = initRequestBuilder()
+  let (b1, _) = b0.addEmailSubmissionGet(
+    makeAccountId("a1"),
+    ids = Opt.some(direct(@[makeId("s1")])),
+    properties = Opt.some(@["undoStatus", "sendAt"]),
+  )
+  let req = b1.build()
+  assertLen req.methodCalls, 1
+  assertEq req.methodCalls[0].name, mnEmailSubmissionGet
+  let args = req.methodCalls[0].arguments
+  assertEq args{"accountId"}.getStr(""), "a1"
+  doAssert args{"ids"}.kind == JArray
+  assertLen args{"properties"}, 2
+
+# ===========================================================================
+# Q. addEmailSubmissionChanges wire shape (RFC 8621 §7.2)
+# ===========================================================================
+
+block addEmailSubmissionChangesInvocation:
+  ## Q: addEmailSubmissionChanges produces ``EmailSubmission/changes``
+  ## (RFC 8621 §7.2) with ``sinceState`` and ``maxChanges`` projected
+  ## into arguments.
+  let b0 = initRequestBuilder()
+  let (b1, _) = b0.addEmailSubmissionChanges(
+    makeAccountId("a1"), makeState("s0"), maxChanges = Opt.some(makeMaxChanges(100))
+  )
+  let req = b1.build()
+  assertLen req.methodCalls, 1
+  assertEq req.methodCalls[0].name, mnEmailSubmissionChanges
+  let args = req.methodCalls[0].arguments
+  assertEq args{"sinceState"}.getStr(""), "s0"
+  assertEq args{"maxChanges"}.getInt(), 100
+
+# ===========================================================================
+# R. addEmailSubmissionQuery wire shape (RFC 8621 §7.3)
+# ===========================================================================
+
+block addEmailSubmissionQueryInvocation:
+  ## R: minimal addEmailSubmissionQuery (no filter, no sort) produces
+  ## ``EmailSubmission/query`` (RFC 8621 §7.3). Pins that when ``filter``
+  ## and ``sort`` default to ``Opt.none``, the G1 serde contract omits
+  ## both keys from arguments entirely (sparse emission).
+  let b0 = initRequestBuilder()
+  let (b1, _) = b0.addEmailSubmissionQuery(makeAccountId("a1"))
+  let req = b1.build()
+  assertLen req.methodCalls, 1
+  assertEq req.methodCalls[0].name, mnEmailSubmissionQuery
+  let args = req.methodCalls[0].arguments
+  assertEq args{"accountId"}.getStr(""), "a1"
+  doAssert args{"filter"}.isNil
+  doAssert args{"sort"}.isNil
+
+# ===========================================================================
+# S. addEmailSubmissionQueryChanges wire shape (RFC 8621 §7.4)
+# ===========================================================================
+
+block addEmailSubmissionQueryChangesInvocation:
+  ## S: addEmailSubmissionQueryChanges produces
+  ## ``EmailSubmission/queryChanges`` (RFC 8621 §7.4) with
+  ## ``sinceQueryState`` and ``calculateTotal`` projected into arguments.
+  let b0 = initRequestBuilder()
+  let (b1, _) = b0.addEmailSubmissionQueryChanges(
+    makeAccountId("a1"), makeState("q0"), calculateTotal = true
+  )
+  let req = b1.build()
+  assertLen req.methodCalls, 1
+  assertEq req.methodCalls[0].name, mnEmailSubmissionQueryChanges
+  let args = req.methodCalls[0].arguments
+  assertEq args{"sinceQueryState"}.getStr(""), "q0"
+  assertEq args{"calculateTotal"}.getBool(false), true
+
+# ===========================================================================
+# T. addEmailSubmissionSet simple-overload wire shape (RFC 8621 §7.5)
+# ===========================================================================
+
+block addEmailSubmissionSetSimpleInvocation:
+  ## T: addEmailSubmissionSet (simple overload) with only ``ifInState``
+  ## set produces ``EmailSubmission/set`` (RFC 8621 §7.5) with just
+  ## that key plus ``accountId``. Pins that the simple overload's
+  ## argument key set is a strict subset of the compound overload's
+  ## (compare O.1 ``addEmailSubmissionAndEmailSetWireAnchor``): the
+  ## ``onSuccessUpdateEmail`` / ``onSuccessDestroyEmail`` keys the
+  ## compound builder emits MUST NOT appear in the simple overload's
+  ## output, and ``create`` / ``update`` / ``destroy`` are omitted
+  ## when their ``Opt`` parameters default to ``none``.
+  let b0 = initRequestBuilder()
+  let (b1, _) =
+    b0.addEmailSubmissionSet(makeAccountId("a1"), ifInState = Opt.some(makeState("s0")))
+  let req = b1.build()
+  assertLen req.methodCalls, 1
+  assertEq req.methodCalls[0].name, mnEmailSubmissionSet
+  let args = req.methodCalls[0].arguments
+  assertEq args{"ifInState"}.getStr(""), "s0"
+  doAssert args{"create"}.isNil
+  doAssert args{"update"}.isNil
+  doAssert args{"destroy"}.isNil
+  doAssert args{"onSuccessUpdateEmail"}.isNil
+  doAssert args{"onSuccessDestroyEmail"}.isNil
