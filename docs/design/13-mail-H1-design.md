@@ -107,7 +107,7 @@ table is the canonical cross-reference.
 | `SmtpReply` structured parser (RFC 3463) | G1 §1.3, G1 §3.3, `submission_status.nim:240` | H1 §5 | Entity-field lift: `DeliveryStatus.smtpReply: SmtpReply` → `ParsedSmtpReply`; no on-demand helper |
 | `addEmailQueryWithSnippets` compound builder | F1 Rule-of-Three backlog | H1 §3 | New builder atop `ChainedHandles[A, B]`; uses existing `addSearchSnippetGet` internally |
 | First-login `addEmailQueryWithThreads` | G1 Appendix Roadmap | H1 §4 | New builder emitting the RFC 8621 §4.10 canonical 4-invocation chain byte-for-byte, paired with a purpose-built `EmailQueryThreadChain` record (no arity-4 generic — the workflow has one inhabitant and no parametric law worth abstracting over; §8.5 covers the retrofit path if a second arity-4 inhabitant materialises) |
-| H1 chain-builder back-reference paths | Implicit in every existing back-reference builder | H1 §4 | Phase 3 extends the existing `RefPath` enum at `src/jmap_client/methods_enum.nim:69-78` (single source of truth for RFC 8620 §3.7 path constants) — no parallel enum |
+| H1 chain-builder back-reference paths | Implicit in every existing back-reference builder | H1 §4 | Phase 3 extends the existing `RefPath` enum at `src/jmap_client/methods_enum.nim:69-80` (single source of truth for RFC 8620 §3.7 path constants) — no parallel enum |
 | Compile-time participation gates | Implicit in `be21db0` | H1 §2a, §3.5 | `registerCompoundMethod(P, I)` and `registerChainableMethod(P)` templates emitted at `mail_entities.nim` module scope |
 | RFC §10 IANA audit | Never explicit; implicit in every capability/role/keyword commit | H1 §6 | Full matrix per RFC 8621 §10 subsection, cross-referenced to file:line |
 
@@ -823,7 +823,7 @@ site, and the docstring pins its RFC origin.
 RFC 8621 §4.10 uses three JSON Pointer paths as back-reference
 targets: `/ids`, `/list/*/threadId`, `/list/*/emailIds`. The first
 already exists as `rpIds` in the existing `RefPath` enum
-(`src/jmap_client/methods_enum.nim:69-78`), whose docstring is
+(`src/jmap_client/methods_enum.nim:69-80`), whose docstring is
 verbatim *"JMAP result-reference paths (RFC 8620 §3.7) — the JSON
 Pointer fragments a chained method call reads out of a prior
 invocation's response"*. Phase 3 adds the two new paths as new
@@ -1780,7 +1780,7 @@ are one-line registry additions at §6.2 — no code change required.
 
 ### 8.7. Back-reference path constant generalisation
 
-The existing `RefPath` enum (`methods_enum.nim:69-78`) enumerates
+The existing `RefPath` enum (`methods_enum.nim:69-80`) enumerates
 the RFC 8620 §3.7 JSON Pointer paths the codebase uses today
 (`/ids`, `/list/*/id`, `/added/*/id`, `/created`, `/updated`,
 `/updatedProperties`). H1 §4 extends it with the two paths
@@ -2007,6 +2007,15 @@ The H1 document is complete when:
     symbol slated for removal appears in §9.1–§9.3. Every forbidden
     diff pattern (§9.5) is grep-expressible. Implementation PRs pass
     the §9.6 grep gate, derived mechanically from §9.1–§9.5.
+
+12. **Phases 5 (§9.6 grep gate) and 6 (§6.1–§6.4 IANA cite audit)
+    pass at HEAD.** All 15 grep invocations return zero hits or only
+    on-spec benign labels (`G12` / `Xxx`) in test-file section
+    docstrings. Every §6.1–§6.4 file:line cite resolves to the named
+    symbol. Final-verification commands (`just build`, `just test`,
+    `just analyse`, `just fmt-check`, `just ci`) green; §9.6 grep
+    gate re-run after verification still zero. Closure commit:
+    `docs/mail: close H1 Phase 5+6 structural audit`.
 
 ---
 
