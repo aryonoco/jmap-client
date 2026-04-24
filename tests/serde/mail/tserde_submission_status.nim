@@ -80,7 +80,7 @@ block deliveryStatusRoundTrip:
   let parsedUnknown = DeliveryStatus.fromJson(unknownWire)
   assertOk parsedUnknown
   let dsUnknown = parsedUnknown.unsafeGet()
-  assertEq string(dsUnknown.smtpReply), "250 Queued"
+  assertEq dsUnknown.smtpReply.raw, "250 Queued"
   assertEq dsUnknown.delivered.state, dsOther
   assertEq dsUnknown.delivered.rawBacking, "deferred"
   assertEq dsUnknown.displayed.state, dpOther
@@ -90,7 +90,7 @@ block deliveryStatusRoundTrip:
   let parsedCanonical = DeliveryStatus.fromJson(canonicalWire)
   assertOk parsedCanonical
   let dsCanonical = parsedCanonical.unsafeGet()
-  assertEq string(dsCanonical.smtpReply), "250 OK"
+  assertEq dsCanonical.smtpReply.raw, "250 OK"
   assertEq dsCanonical.delivered.state, dsYes
   assertEq dsCanonical.delivered.rawBacking, "yes"
   assertEq dsCanonical.displayed.state, dpYes
@@ -156,3 +156,19 @@ block deliveryStatusMapRoundTripPreservesOrder:
   assertOk parsedEmpty
   let expectedEmpty = makeDeliveryStatusMap(@[])
   assertDeliveryStatusMapEq parsedEmpty.unsafeGet(), expectedEmpty
+
+# ============= D. DeliveryStatus toJson CRLF→LF canonicalisation =============
+
+block deliveryStatusToJsonCanonicalisesSmtpReplyLineEndings:
+  ## H24 canonicalisation contract: ``ParsedSmtpReply.raw`` preserves
+  ## ingress bytes (including CRLF); ``toJson`` emits the canonical LF
+  ## form via ``renderSmtpReply``. Pins the sole documented
+  ## normalisation on the serde boundary.
+  let wire =
+    %*{"smtpReply": "250-first\r\n250 final", "delivered": "yes", "displayed": "yes"}
+  let parsed = DeliveryStatus.fromJson(wire)
+  assertOk parsed
+  let ds = parsed.unsafeGet()
+  assertEq ds.smtpReply.raw, "250-first\r\n250 final"
+  let emitted = ds.toJson()
+  assertEq emitted["smtpReply"].getStr(), "250-first\n250 final"

@@ -3621,7 +3621,7 @@ proc genDisplayedState*(rng: var Rand, trial: int = -1): ParsedDisplayedState =
   parseDisplayedState(canonical)
 
 # G2-7 -----------------------------------------------------------------------
-proc genSmtpReplyFixedTrial(rng: var Rand, trial: int): SmtpReply =
+proc genSmtpReplyFixedTrial(rng: var Rand, trial: int): ParsedSmtpReply =
   ## Fixed RFC 5321 §4.2 Reply-code boundary scan per G2 §8.2.1 Group I:
   ## digit-class edges (200, 599, 2x0/2x5, 3x9), bare code, multi-line
   ## happy, multi-line with trailing-SP text.
@@ -3648,7 +3648,7 @@ proc genSmtpReplyFixedTrial(rng: var Rand, trial: int): SmtpReply =
   else:
     parseSmtpReply("250 OK").get()
 
-proc genSmtpReply*(rng: var Rand, trial: int = -1): SmtpReply =
+proc genSmtpReply*(rng: var Rand, trial: int = -1): ParsedSmtpReply =
   ## Generates a valid ``SmtpReply`` — RFC 5321 §4.2 Reply-line(s).
   ## Early trials (< 9) cover digit-class boundaries per G2 §8.2.1 Group I.
   ## Remaining trials: random 1..5 lines, random code in 200..599 drawn

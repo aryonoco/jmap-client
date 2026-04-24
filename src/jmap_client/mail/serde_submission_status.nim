@@ -2,13 +2,18 @@
 # Copyright (c) 2026 Aryan Ameri
 
 ## Serde for RFC 8621 §7 EmailSubmission status vocabulary: ``UndoStatus``,
-## ``ParsedDeliveredState``, ``ParsedDisplayedState``, ``SmtpReply``,
-## ``DeliveryStatus`` and ``DeliveryStatusMap``.
+## ``ParsedDeliveredState``, ``ParsedDisplayedState``, ``DeliveryStatus``
+## and ``DeliveryStatusMap``.
 ##
 ## Direction of flow determines the surface:
-##   * ``fromJson``-only for every composite (server → client entity fields).
-##   * ``UndoStatus`` additionally ships a ``toJson`` because it appears
-##     client → server inside ``EmailSubmissionFilterCondition`` (Step 12).
+##   * ``fromJson``-only for the two ``Parsed*`` open-world enums and for
+##     ``DeliveryStatusMap`` (server → client).
+##   * ``UndoStatus`` ships ``toJson`` because it appears client → server
+##     inside ``EmailSubmissionFilterCondition`` (Step 12).
+##   * ``DeliveryStatus`` ships ``toJson`` for the H24 canonicalisation
+##     round-trip contract — CRLF/CR ingress is normalised to LF on
+##     emission, with the exact ingress bytes preserved in
+##     ``ParsedSmtpReply.raw``.
 ##
 ## ``parseUndoStatus`` is exported as a named helper so Step 12's
 ## ``AnyEmailSubmission`` dispatch can reuse the same closed-enum recognition
@@ -86,40 +91,36 @@ func fromJson*(
   return ok(parseDisplayedState(node.getStr("")))
 
 # =============================================================================
-# SmtpReply — RFC 5321 §4.2 Reply-line surface shape
-# =============================================================================
-
-func fromJson*(
-    T: typedesc[SmtpReply], node: JsonNode, path: JsonPath = emptyJsonPath()
-): Result[SmtpReply, SerdeViolation] =
-  ## Bridge the L1 smart constructor's ``ValidationError`` rail into the
-  ## serde railway. ``parseSmtpReply`` already enforces the RFC 5321 §4.2
-  ## three-digit Reply-code ABNF plus multi-line code-consistency; serde
-  ## only contributes the JString kind gate and the path attribution.
-  discard $T # consumed for nimalyzer params rule
-  ?expectKind(node, JString, path)
-  return wrapInner(parseSmtpReply(node.getStr("")), path)
-
-# =============================================================================
-# DeliveryStatus — three-field composite
+# DeliveryStatus — three-field composite; owns the SmtpReply parse
 # =============================================================================
 
 func fromJson*(
     T: typedesc[DeliveryStatus], node: JsonNode, path: JsonPath = emptyJsonPath()
 ): Result[DeliveryStatus, SerdeViolation] =
-  ## Three-field composite; every field required per RFC 8621 §7 ¶8.
-  ## Delegates each leaf to its own ``fromJson`` so path context flows
-  ## through uniformly on failure.
+  ## Three-field composite. ``smtpReply`` routes through ``parseSmtpReply``
+  ## which yields a fully-decomposed ``ParsedSmtpReply``; ingress bytes
+  ## are preserved in ``parsed.raw`` for diagnostic fidelity and H24
+  ## canonicalisation round-trip (H23).
   discard $T # consumed for nimalyzer params rule
   ?expectKind(node, JObject, path)
   let smtpReplyNode = ?fieldJString(node, "smtpReply", path)
-  let smtpReply = ?SmtpReply.fromJson(smtpReplyNode, path / "smtpReply")
+  let smtpReply =
+    ?wrapInner(parseSmtpReply(smtpReplyNode.getStr("")), path / "smtpReply")
   let deliveredNode = ?fieldJString(node, "delivered", path)
   let delivered = ?ParsedDeliveredState.fromJson(deliveredNode, path / "delivered")
   let displayedNode = ?fieldJString(node, "displayed", path)
   let displayed = ?ParsedDisplayedState.fromJson(displayedNode, path / "displayed")
-  return
-    ok(DeliveryStatus(smtpReply: smtpReply, delivered: delivered, displayed: displayed))
+  ok(DeliveryStatus(smtpReply: smtpReply, delivered: delivered, displayed: displayed))
+
+func toJson*(x: DeliveryStatus): JsonNode =
+  ## Emit the canonical wire form (H24). ``smtpReply`` renders via
+  ## ``renderSmtpReply`` — LF-terminated, no trailing whitespace;
+  ## ingress CRLF is normalised out. ``delivered`` / ``displayed``
+  ## round-trip via their preserved raw backing tokens.
+  result = newJObject()
+  result["smtpReply"] = %renderSmtpReply(x.smtpReply)
+  result["delivered"] = %x.delivered.rawBacking
+  result["displayed"] = %x.displayed.rawBacking
 
 # =============================================================================
 # DeliveryStatusMap — recipient-keyed delivery outcome table

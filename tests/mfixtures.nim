@@ -2151,11 +2151,11 @@ proc makeFullEnvelope*(): Envelope =
 
 # Group 4 — Status-type factories
 
-proc makeSmtpReply*(raw = "250 OK"): SmtpReply =
+proc makeSmtpReply*(raw = "250 OK"): ParsedSmtpReply =
   parseSmtpReply(raw).get()
 
 proc makeDeliveryStatus*(
-    smtpReply: SmtpReply = makeSmtpReply(),
+    smtpReply: ParsedSmtpReply = makeSmtpReply(),
     delivered: ParsedDeliveredState = parseDeliveredState("yes"),
     displayed: ParsedDisplayedState = parseDisplayedState("unknown"),
 ): DeliveryStatus =

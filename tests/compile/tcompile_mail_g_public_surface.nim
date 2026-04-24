@@ -51,7 +51,7 @@ static:
   doAssert declared(ParsedDeliveredState)
   doAssert declared(DisplayedState)
   doAssert declared(ParsedDisplayedState)
-  doAssert declared(SmtpReply)
+  doAssert declared(ParsedSmtpReply)
   doAssert declared(DeliveryStatus)
   doAssert declared(DeliveryStatusMap)
 

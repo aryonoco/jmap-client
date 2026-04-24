@@ -120,7 +120,7 @@ block smtpReplyHappy200:
   const raw = "250 OK"
   let res = parseSmtpReply(raw)
   assertOk res
-  assertEq $res.get(), raw
+  assertEq res.get().raw, raw
 
 block smtpReplyHappy550:
   ## RFC 5321 §4.2 permanent-failure Reply-line. Pins that the parser
@@ -130,7 +130,7 @@ block smtpReplyHappy550:
   const raw = "550 mailbox unavailable"
   let res = parseSmtpReply(raw)
   assertOk res
-  assertEq $res.get(), raw
+  assertEq res.get().raw, raw
 
 block smtpReplyMultilineHappy:
   ## RFC 5321 §4.2.1 multi-line continuation: each non-final line
@@ -142,7 +142,37 @@ block smtpReplyMultilineHappy:
   const raw = "250-first\r\n250 final"
   let res = parseSmtpReply(raw)
   assertOk res
-  assertEq $res.get(), raw
+  assertEq res.get().raw, raw
+
+block smtpReplyEnhancedCodeHappy:
+  ## RFC 3463 §2 triple on the final line. ``ParsedSmtpReply.enhanced``
+  ## carries the structured triple; ``raw`` preserves ingress bytes.
+  const raw = "250 2.1.5 Destination address valid"
+  let res = parseSmtpReply(raw)
+  assertOk res
+  let p = res.get()
+  doAssert p.replyCode == ReplyCode(250'u16)
+  doAssert p.enhanced.isSome
+  let e = p.enhanced.unsafeGet()
+  doAssert e.klass == sccSuccess
+  assertEq uint16(e.subject), 1'u16
+  assertEq uint16(e.detail), 5'u16
+  assertEq p.raw, raw
+
+block renderCanonicalReplyIsIdempotent:
+  ## Canonical LF input must render back byte-identical (H24).
+  const raw = "250 OK"
+  let p = parseSmtpReply(raw).get()
+  assertEq renderSmtpReply(p), raw
+
+block renderCrlfInputCanonicalisesToLf:
+  ## Non-canonical CRLF input: ``raw`` preserves ingress bytes; the
+  ## canonical renderer emits LF terminators only (H24, sole documented
+  ## normalisation).
+  const raw = "250-first\r\n250 final"
+  let p = parseSmtpReply(raw).get()
+  assertEq p.raw, raw
+  assertEq renderSmtpReply(p), "250-first\n250 final"
 
 # ===========================================================================
 # Section D — DeliveryStatus composite construction
@@ -158,7 +188,7 @@ block deliveryStatusComposite:
   let delivered = parseDeliveredState("yes")
   let displayed = parseDisplayedState("yes")
   let s = makeDeliveryStatus(reply, delivered, displayed)
-  assertEq $s.smtpReply, "250 OK"
+  assertEq s.smtpReply.raw, "250 OK"
   doAssert s.delivered.state == dsYes
   assertEq s.delivered.rawBacking, "yes"
   doAssert s.displayed.state == dpYes

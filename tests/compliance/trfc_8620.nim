@@ -1803,14 +1803,14 @@ block rfc8621Section7ConstraintTableCompileTimeAnchor:
     doAssert not compiles(cancelUpdate(default(EmailSubmission[usCanceled])))
 
     # §7 ¶8 — DeliveryStatusMap keyed by RFC5321Mailbox; DeliveredState
-    # and DisplayedState closed enums with Other catch-all; SmtpReply.
+    # and DisplayedState closed enums with Other catch-all; ParsedSmtpReply.
     doAssert declared(DeliveryStatus)
     doAssert declared(DeliveryStatusMap)
     doAssert declared(DeliveredState)
     doAssert declared(ParsedDeliveredState)
     doAssert declared(DisplayedState)
     doAssert declared(ParsedDisplayedState)
-    doAssert declared(SmtpReply)
+    doAssert declared(ParsedSmtpReply)
 
     # §7 ¶9 — dsnBlobIds / mdnBlobIds are seq[BlobId] on entity.
     doAssert declared(BlobId)
