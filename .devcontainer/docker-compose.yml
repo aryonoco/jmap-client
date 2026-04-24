@@ -27,8 +27,6 @@ services:
       - DAC_OVERRIDE
       - SYS_ADMIN
       - FOWNER
-    security_opt:
-      - no-new-privileges:true
     init: true
     command: sleep infinity
 

@@ -6,6 +6,33 @@ echo "  jmap-client DevContainer Setup"
 echo "=========================================="
 echo ""
 
+# The docker-outside-of-docker feature creates a `docker` group inside the
+# container with a GID it picks at install time. That GID may not match the
+# GID that owns the host's docker socket (mounted at /var/run/docker-host.sock).
+# When they diverge, `vscode` — though added to the container's docker group —
+# cannot reach the socket. Reconcile by creating a supplementary group with
+# the host socket's GID and adding vscode to it.
+echo "Reconciling docker socket GID..."
+if [[ -e /var/run/docker-host.sock ]]; then
+    HOST_DOCKER_GID=$(stat -c '%g' /var/run/docker-host.sock)
+    if [[ "${HOST_DOCKER_GID}" != "0" ]]; then
+        if ! getent group "${HOST_DOCKER_GID}" >/dev/null; then
+            sudo groupadd -g "${HOST_DOCKER_GID}" docker-host
+        fi
+        GROUP_NAME=$(getent group "${HOST_DOCKER_GID}" | cut -d: -f1)
+        if ! id -nG vscode | grep -qw "${GROUP_NAME}"; then
+            sudo usermod -aG "${GROUP_NAME}" vscode
+        fi
+        echo "  vscode has access via group ${GROUP_NAME} (GID ${HOST_DOCKER_GID})"
+    else
+        echo "  Host socket owned by gid 0; no reconciliation needed"
+    fi
+else
+    echo "  /var/run/docker-host.sock not found; skipping"
+fi
+echo "  Done"
+
+echo ""
 echo "Configuring shell..."
 DEVCONTAINER_DIR="/workspaces/jmap-client/.devcontainer"
 
