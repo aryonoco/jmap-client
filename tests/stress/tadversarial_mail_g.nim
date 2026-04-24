@@ -28,6 +28,7 @@ import std/times
 
 import results
 
+import jmap_client/dispatch
 import jmap_client/envelope
 import jmap_client/identifiers
 import jmap_client/methods_enum
