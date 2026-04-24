@@ -490,7 +490,7 @@ block getBothSubmissionAdversarialGroup:
     assertErr res
 
   block getBothInnerMcIdMismatch:
-    # §8.6 row 4: inner at wrong mcid. handles.emailSet.callId = c0 but
+    # §8.6 row 4: inner at wrong mcid. handles.implicit.callId = c0 but
     # the Invocation is at c1 — NameBoundHandle filter misses.
     let handles = makeEmailSubmissionHandles(
       submissionMcid = makeMcid("c0"), emailSetMcid = makeMcid("c0")

@@ -31,6 +31,7 @@ import ./email_submission
 import ./serde_email_submission
 import ./mail_filters
 import ./serde_mail_filters
+import ../dispatch
 
 # ---------------------------------------------------------------------------
 # Thread (RFC 8621 section 3) — supports /get, /changes
@@ -355,3 +356,10 @@ template setResponseType*(T: typedesc[AnyEmailSubmission]): typedesc =
 registerJmapEntity(AnyEmailSubmission)
 registerQueryableEntity(AnyEmailSubmission)
 registerSettableEntity(AnyEmailSubmission)
+
+# ---------------------------------------------------------------------------
+# Compound-method participation gates (RFC 8620 §5.4)
+# ---------------------------------------------------------------------------
+
+registerCompoundMethod(CopyResponse[EmailCreatedItem], SetResponse[EmailCreatedItem])
+registerCompoundMethod(EmailSubmissionSetResponse, SetResponse[EmailCreatedItem])

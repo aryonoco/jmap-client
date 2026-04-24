@@ -1880,8 +1880,8 @@ proc makeEmailCopyHandles*(
   ## parent Email/copy invocation. Phase 4 protocol tests may add a
   ## distinct-MCID overload later if the mismatch case needs exercising.
   EmailCopyHandles(
-    copy: ResponseHandle[CopyResponse[EmailCreatedItem]](sharedCallId),
-    destroy: NameBoundHandle[SetResponse[EmailCreatedItem]](
+    primary: ResponseHandle[CopyResponse[EmailCreatedItem]](sharedCallId),
+    implicit: NameBoundHandle[SetResponse[EmailCreatedItem]](
       callId: sharedCallId, methodName: mnEmailSet
     ),
   )
@@ -2248,8 +2248,8 @@ proc makeEmailSubmissionHandles*(
   ## adversarial tests (§8.2.3 Block 6 ``getBothInnerMcIdMismatch``) can
   ## pass divergent ids to exercise the dispatch mismatch branch.
   EmailSubmissionHandles(
-    submission: ResponseHandle[EmailSubmissionSetResponse](submissionMcid),
-    emailSet: NameBoundHandle[SetResponse[EmailCreatedItem]](
+    primary: ResponseHandle[EmailSubmissionSetResponse](submissionMcid),
+    implicit: NameBoundHandle[SetResponse[EmailCreatedItem]](
       callId: emailSetMcid, methodName: mnEmailSet
     ),
   )

@@ -573,43 +573,25 @@ func parseNonEmptyOnSuccessDestroyEmail*(
   ok(NonEmptyOnSuccessDestroyEmail(@items))
 
 # -----------------------------------------------------------------------------
-# EmailSubmissionHandles / EmailSubmissionResults (RFC 8621 §7.5)
+# EmailSubmissionHandles / EmailSubmissionResults (RFC 8621 §7.5, RFC 8620 §5.4)
 #
-# Cross-entity compound handle pair for ``addEmailSubmissionAndEmailSet``. The
-# parent ``EmailSubmission/set`` and the implicit ``Email/set`` share a
-# call-id per RFC 8620 §5.4; ``NameBoundHandle`` on ``emailSet`` carries
-# the method-name filter so dispatch can distinguish the two sibling
-# invocations at the extraction site. G21 chose specific over generic (F1
-# Rule-of-Three still holds at two compound sites — ``EmailCopyHandles`` +
-# ``EmailSubmissionHandles``).
-#
-# The paired extractor ``getBoth`` lives with the compound builder in
-# ``submission_builders.nim`` (the L3 builder module). That placement
-# mirrors F1's ``mail_builders.nim``: the builder file imports the L2
-# serde modules so ``EmailSubmissionCreatedItem.fromJson`` and
-# ``EmailCreatedItem.fromJson`` are in scope when the monomorphic
-# ``?resp.get(handles.…)`` calls force generic instantiation of
-# ``SetResponse[T].fromJson`` at the extractor's definition site. Placing
-# ``getBoth`` in this L1 module would force that instantiation before the
-# Step 12 serde exists and fail to compile — ``mixin fromJson`` only
-# defers resolution when the enclosing routine is itself generic.
+# Compound handle pair for ``addEmailSubmissionAndEmailSet``. Aliases of the
+# generic ``CompoundHandles[A, B]`` / ``CompoundResults[A, B]`` from
+# ``dispatch.nim``; the generic ``getBoth[A, B]`` extractor at
+# ``dispatch.nim:254-264`` dispatches by phantom-instantiation, with
+# ``mixin fromJson`` deferring serde lookup until call-site instantiation
+# (where ``SetResponse[EmailCreatedItem].fromJson`` and
+# ``EmailSubmissionSetResponse.fromJson`` are in scope).
 # -----------------------------------------------------------------------------
 
-type EmailSubmissionHandles* {.ruleOff: "objects".} = object
-  ## Paired handles returned by ``addEmailSubmissionAndEmailSet``. Both
-  ## carry the same ``MethodCallId`` — the implicit ``Email/set`` that
-  ## ``onSuccessUpdateEmail`` / ``onSuccessDestroyEmail`` triggers shares
-  ## its call-id with the parent ``EmailSubmission/set`` per RFC 8620
-  ## §5.4. ``emailSet`` is a ``NameBoundHandle`` so ``getBoth`` (in
-  ## ``submission_builders.nim``) can disambiguate the two sibling
-  ## invocations at the dispatch site by method name (``mnEmailSet``).
-  submission*: ResponseHandle[EmailSubmissionSetResponse]
-  emailSet*: NameBoundHandle[SetResponse[EmailCreatedItem]]
+type EmailSubmissionHandles* =
+  CompoundHandles[EmailSubmissionSetResponse, SetResponse[EmailCreatedItem]]
+  ## Domain-named specialisation of ``CompoundHandles[A, B]`` for
+  ## ``addEmailSubmissionAndEmailSet`` (EmailSubmission/set + implicit
+  ## Email/set per RFC 8620 §5.4 + RFC 8621 §7.5 ¶3). Fields ``primary``
+  ## / ``implicit`` inherit from the generic at ``dispatch.nim``.
 
-type EmailSubmissionResults* {.ruleOff: "objects".} = object
-  ## Paired extraction target of ``getBoth(EmailSubmissionHandles)``. The
-  ## ``emailSet`` payload reuses ``SetResponse[EmailCreatedItem]``
-  ## inline — no ``EmailSetResponse`` alias exists, matching F1's
-  ## ``EmailCopyResults.destroy`` field shape.
-  submission*: EmailSubmissionSetResponse
-  emailSet*: SetResponse[EmailCreatedItem]
+type EmailSubmissionResults* =
+  CompoundResults[EmailSubmissionSetResponse, SetResponse[EmailCreatedItem]]
+  ## Paired extraction target for ``getBoth(EmailSubmissionHandles)`` —
+  ## the generic overload in ``dispatch.nim`` handles the dispatch.

@@ -34,6 +34,7 @@ import std/times
 
 import results
 
+import jmap_client/dispatch
 import jmap_client/envelope
 import jmap_client/errors
 import jmap_client/identifiers
@@ -1212,8 +1213,8 @@ block scaleInvariantsGroup:
     doAssert dupRes.error[0].message.contains("duplicate CreationId")
 
   block getBothCopyCreateResultsEmpty:
-    # Both invocations well-formed; copy and destroy both have empty
-    # createResults. getBoth returns Ok(EmailCopyResults(copy, destroy)).
+    # Both invocations well-formed; primary and implicit both have empty
+    # createResults. getBoth returns Ok(EmailCopyResults(primary, implicit)).
     let sharedId = makeMcid("c0")
     let handles = makeEmailCopyHandles(sharedId)
     let resp = Response(
@@ -1226,5 +1227,5 @@ block scaleInvariantsGroup:
     )
     let res = getBoth(resp, handles)
     assertOk res
-    assertLen res.get().copy.createResults, 0
-    assertLen res.get().destroy.createResults, 0
+    assertLen res.get().primary.createResults, 0
+    assertLen res.get().implicit.createResults, 0

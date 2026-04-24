@@ -247,23 +247,17 @@ func addEmailCopy*(
 # EmailCopyHandles / EmailCopyResults — compound dispatch (RFC 8620 §5.4)
 # =============================================================================
 
-{.push ruleOff: "objects".}
+type EmailCopyHandles* =
+  CompoundHandles[CopyResponse[EmailCreatedItem], SetResponse[EmailCreatedItem]]
+  ## Domain-named specialisation of ``CompoundHandles[A, B]`` for
+  ## ``addEmailCopyAndDestroy`` (Email/copy + implicit Email/set destroy
+  ## per RFC 8620 §5.4). Fields ``primary`` / ``implicit`` inherit from
+  ## the generic at ``dispatch.nim``.
 
-type EmailCopyHandles* = object
-  ## Paired handles from ``addEmailCopyAndDestroy``. The implicit Email/set
-  ## destroy response shares its call-id with the parent Email/copy per
-  ## RFC 8620 §5.4; destroy carries its own method-name (Email/set) via
-  ## ``NameBoundHandle`` so ``getBoth`` dispatches correctly without a
-  ## filter argument at the call site (Design §5.4).
-  copy*: ResponseHandle[CopyResponse[EmailCreatedItem]]
-  destroy*: NameBoundHandle[SetResponse[EmailCreatedItem]]
-
-type EmailCopyResults* = object
-  ## Paired extraction results from ``addEmailCopyAndDestroy``.
-  copy*: CopyResponse[EmailCreatedItem]
-  destroy*: SetResponse[EmailCreatedItem]
-
-{.pop.}
+type EmailCopyResults* =
+  CompoundResults[CopyResponse[EmailCreatedItem], SetResponse[EmailCreatedItem]]
+  ## Paired extraction target for ``getBoth(EmailCopyHandles)`` — the
+  ## generic overload in ``dispatch.nim`` handles the dispatch.
 
 # =============================================================================
 # addEmailCopyAndDestroy — compound Email/copy with implicit Email/set destroy
@@ -295,25 +289,9 @@ func addEmailCopyAndDestroy*(
     destroyMode = destroyAfterSuccess(destroyFromIfInState),
   )
   let handles = EmailCopyHandles(
-    copy: copyHandle,
-    destroy: NameBoundHandle[SetResponse[EmailCreatedItem]](
+    primary: copyHandle,
+    implicit: NameBoundHandle[SetResponse[EmailCreatedItem]](
       callId: MethodCallId(copyHandle), methodName: mnEmailSet
     ),
   )
   (b1, handles)
-
-# =============================================================================
-# getBoth — paired extraction for EmailCopyHandles
-# =============================================================================
-
-func getBoth*(
-    resp: Response, handles: EmailCopyHandles
-): Result[EmailCopyResults, MethodError] =
-  ## Extract both copy and implicit-destroy responses. Dispatches via UFCS:
-  ## ``handles.copy`` resolves through the default ``get[T]`` overload;
-  ## ``handles.destroy`` resolves through the ``NameBoundHandle`` ``get[T]``
-  ## overload, which applies the method-name filter from handle data.
-  mixin fromJson
-  let copy = ?resp.get(handles.copy)
-  let destroy = ?resp.get(handles.destroy)
-  return ok(EmailCopyResults(copy: copy, destroy: destroy))

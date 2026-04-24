@@ -122,25 +122,6 @@ func addEmailSubmissionSet*(
   ](b, accountId, ifInState, create, update, destroy)
 
 # =============================================================================
-# getBoth — paired extraction for EmailSubmissionHandles
-# =============================================================================
-
-func getBoth*(
-    resp: Response, handles: EmailSubmissionHandles
-): Result[EmailSubmissionResults, MethodError] =
-  ## Extract both the EmailSubmission/set response and the implicit
-  ## Email/set triggered by ``onSuccessUpdateEmail`` /
-  ## ``onSuccessDestroyEmail`` (RFC 8620 §5.4 sibling-invocation
-  ## semantics). ``handles.submission`` resolves through the default
-  ## ``get[T]`` overload; ``handles.emailSet`` resolves through the
-  ## ``NameBoundHandle`` overload which applies the ``mnEmailSet``
-  ## method-name filter.
-  mixin fromJson
-  let submission = ?resp.get(handles.submission)
-  let emailSet = ?resp.get(handles.emailSet)
-  return ok(EmailSubmissionResults(submission: submission, emailSet: emailSet))
-
-# =============================================================================
 # addEmailSubmissionAndEmailSet — compound EmailSubmission/set + implicit
 # Email/set (RFC 8621 §7.5 ¶3, Design §9.1)
 # =============================================================================
@@ -162,7 +143,7 @@ func addEmailSubmissionAndEmailSet*(
   ## Compound EmailSubmission/set with implicit Email/set on success
   ## (RFC 8621 §7.5 ¶3, Design §9.1). Single wire invocation; the server
   ## emits the implicit Email/set response sharing the parent call ID
-  ## (RFC 8620 §5.4). ``handles.emailSet`` carries the ``mnEmailSet``
+  ## (RFC 8620 §5.4). ``handles.implicit`` carries the ``mnEmailSet``
   ## filter so ``getBoth`` can disambiguate without a call-site argument.
   ## The two compound extras (``onSuccessUpdateEmail`` and
   ## ``onSuccessDestroyEmail``) arrive as ``NonEmpty*`` wrappers — empty
@@ -180,8 +161,8 @@ func addEmailSubmissionAndEmailSet*(
     EmailSubmissionSetResponse,
   ](b, accountId, ifInState, create, update, destroy, extras = extras)
   let handles = EmailSubmissionHandles(
-    submission: sh,
-    emailSet: NameBoundHandle[SetResponse[EmailCreatedItem]](
+    primary: sh,
+    implicit: NameBoundHandle[SetResponse[EmailCreatedItem]](
       callId: MethodCallId(sh), methodName: mnEmailSet
     ),
   )

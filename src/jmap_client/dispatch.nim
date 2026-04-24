@@ -234,6 +234,54 @@ func get*[T](resp: Response, h: NameBoundHandle[T]): Result[T, MethodError] =
   return T.fromJson(inv.arguments).mapErr(serdeToMethodError($T))
 
 # =============================================================================
+# Compound method dispatch (RFC 8620 §5.4)
+# =============================================================================
+
+type CompoundHandles*[A, B] {.ruleOff: "objects".} = object
+  ## Paired handles for RFC 8620 §5.4 implicit-call compound methods.
+  ## ``primary`` is the declared method's response (type ``A``);
+  ## ``implicit`` is the server-emitted follow-up response (type ``B``),
+  ## carrying a method-name filter because it shares the primary's
+  ## call-id per RFC 8620 §5.4.
+  primary*: ResponseHandle[A]
+  implicit*: NameBoundHandle[B]
+
+type CompoundResults*[A, B] {.ruleOff: "objects".} = object
+  ## Paired extraction target for ``getBoth(CompoundHandles[A, B])``.
+  primary*: A
+  implicit*: B
+
+func getBoth*[A, B](
+    resp: Response, handles: CompoundHandles[A, B]
+): Result[CompoundResults[A, B], MethodError] =
+  ## Extract both responses from a §5.4 implicit-call compound. The
+  ## ``primary`` handle dispatches through the default ``get[T]``
+  ## overload; ``implicit`` dispatches through the ``NameBoundHandle``
+  ## overload, which applies the method-name filter from the handle.
+  mixin fromJson
+  let primary = ?resp.get(handles.primary)
+  let implicit = ?resp.get(handles.implicit)
+  ok(CompoundResults[A, B](primary: primary, implicit: implicit))
+
+template registerCompoundMethod*(Primary, Implicit: typedesc) =
+  ## Compile-checks that ``Primary`` parametrises ``ResponseHandle``
+  ## and that ``Implicit`` parametrises ``NameBoundHandle``. Call at
+  ## module scope in ``mail_entities.nim`` for each compound
+  ## participant. Regression (e.g. a non-type argument or a typedesc
+  ## that breaks generic instantiation) surfaces as a ``{.error.}``
+  ## at module load, not at first builder invocation.
+  static:
+    when not compiles(ResponseHandle[Primary]):
+      {.
+        error: "registerCompoundMethod: " & $Primary & " cannot back a ResponseHandle"
+      .}
+    when not compiles(NameBoundHandle[Implicit]):
+      {.
+        error:
+          "registerCompoundMethod: " & $Implicit & " not NameBoundHandle-compatible"
+      .}
+
+# =============================================================================
 # Reference construction — generic escape hatch
 # =============================================================================
 

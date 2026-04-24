@@ -544,8 +544,8 @@ block addEmailCopyIfInStateEmittedWithCopySemantics:
 
 block addEmailCopyAndDestroyEmitsTrue:
   ## L.1: compound overload emits ``onSuccessDestroyOriginal: true`` and
-  ## returns an ``EmailCopyHandles`` where the destroy handle carries
-  ## ``methodName == mnEmailSet`` and copy/destroy share a single
+  ## returns an ``EmailCopyHandles`` where the implicit handle carries
+  ## ``methodName == mnEmailSet`` and primary/implicit share a single
   ## ``MethodCallId`` per RFC 8620 §5.4 (mandatory pins from F2 §8.12).
   var createTbl = initTable[CreationId, EmailCopyItem]()
   createTbl[makeCreationId("k1")] = makeEmailCopyItem()
@@ -555,8 +555,8 @@ block addEmailCopyAndDestroyEmitsTrue:
   let req = b1.build()
   doAssert req.methodCalls[0].arguments{"onSuccessDestroyOriginal"}.getBool(false) ==
     true
-  assertEq handles.destroy.methodName, mnEmailSet
-  assertEq handles.destroy.callId, handles.copy.callId()
+  assertEq handles.implicit.methodName, mnEmailSet
+  assertEq handles.implicit.callId, handles.primary.callId()
 
 block addEmailCopyAndDestroyDestroyFromIfInStateSome:
   ## L.2: ``destroyFromIfInState: Opt.some`` → key emitted with value.
@@ -632,8 +632,8 @@ block getBothCopyAndDestroyHappyPath:
   let results = resp.getBoth(handles)
   assertOk results
   let r = results.get()
-  assertEq r.copy.accountId, makeAccountId("dst")
-  assertEq r.destroy.accountId, makeAccountId("dst")
+  assertEq r.primary.accountId, makeAccountId("dst")
+  assertEq r.implicit.accountId, makeAccountId("dst")
 
 block getBothShortCircuitOnCopyError:
   ## M.2: copy-side ``MethodError`` short-circuits ``getBoth`` before
@@ -797,14 +797,14 @@ block getBothBothSucceed:
   let results = resp.getBoth(handles)
   assertOk results
   let r = results.get()
-  assertLen r.submission.createResults, 1
-  doAssert r.submission.createResults[makeCreationId("s1")].isOk
-  assertEq r.emailSet.newState, makeState("em1")
+  assertLen r.primary.createResults, 1
+  doAssert r.primary.createResults[makeCreationId("s1")].isOk
+  assertEq r.implicit.newState, makeState("em1")
 
 block getBothInnerMethodError:
   ## O.3 — G2 §8.6 row 2: well-formed submission + an ``"error"``-tagged
   ## invocation at the shared call-id. The ``NameBoundHandle.methodName``
-  ## filter on ``handles.emailSet`` rejects the error invocation (wire tag
+  ## filter on ``handles.implicit`` rejects the error invocation (wire tag
   ## ``"error"`` != ``"Email/set"``), so ``getBoth`` surfaces the same
   ## ``serverFail`` / "no Email/set response for call ID ..." shape as
   ## O.4 — client-side masking identical to §M.4's destroy-slot precedent.
@@ -848,7 +848,7 @@ block getBothInnerMcIdMismatch:
   ## O.5 — G2 §8.6 row 4: outer submission at ``c0`` well-formed + a
   ## well-formed ``Email/set`` at ``c1`` (the wrong call-id). The
   ## ``NameBoundHandle.callId`` filter rejects the ``c1`` invocation
-  ## because it doesn't match ``handles.emailSet.callId == c0``, so
+  ## because it doesn't match ``handles.implicit.callId == c0``, so
   ## ``getBoth`` surfaces the identical ``serverFail`` / "no Email/set
   ## response for call ID c0" shape as O.3 and O.4. Pins that client-
   ## side dispatch never conflates a sibling-id invocation with the
@@ -882,9 +882,9 @@ block getBothOuterNotCreatedSole:
   ## Design-doc divergence note. G2 §8.6 row 5 describes the server-
   ## omits-inner path ("no invocation per RFC §7.5 when no creation
   ## succeeded and no update/destroy targets existed") and says
-  ## ``getBoth`` returns ``Ok`` with an empty emailSet. The shipped
-  ## ``getBoth`` (``submission_builders.nim:139-141``) chains ``?`` on
-  ## ``resp.get(handles.emailSet)`` and cannot synthesise an empty
+  ## ``getBoth`` returns ``Ok`` with an empty implicit. The shipped
+  ## generic ``getBoth[A, B]`` (``dispatch.nim:254-264``) chains ``?``
+  ## on ``resp.get(handles.implicit)`` and cannot synthesise an empty
   ## inner when the invocation is absent — absence surfaces as
   ## ``serverFail`` (see O.4). To satisfy both the design-doc's ``Ok``
   ## outcome and the shipped dispatch semantics, this block constructs
@@ -914,20 +914,20 @@ block getBothOuterNotCreatedSole:
   let results = resp.getBoth(handles)
   assertOk results
   let r = results.get()
-  assertLen r.submission.createResults, 1
-  doAssert r.submission.createResults[makeCreationId("s1")].isErr
-  assertLen r.emailSet.createResults, 0
+  assertLen r.primary.createResults, 1
+  doAssert r.primary.createResults[makeCreationId("s1")].isErr
+  assertLen r.implicit.createResults, 0
 
 block getBothOuterIfInStateMismatch:
   ## O.7 — G2 §8.6 row 6: outer invocation is an ``"error"``-tagged
   ## invocation with ``"stateMismatch"`` at the shared call-id; no
   ## inner invocation at all (the outer ``ifInState`` check failed
   ## before the server ran the implicit ``Email/set``). The plain
-  ## ``ResponseHandle`` on ``handles.submission`` routes through
+  ## ``ResponseHandle`` on ``handles.primary`` routes through
   ## ``extractInvocation`` (``dispatch.nim:118-142``), which DOES
   ## surface method errors by name-tag — so ``?resp.get(
-  ## handles.submission)`` short-circuits with ``Err(metStateMismatch)``
-  ## before ``handles.emailSet`` is consulted. The inner's absence is
+  ## handles.primary)`` short-circuits with ``Err(metStateMismatch)``
+  ## before ``handles.implicit`` is consulted. The inner's absence is
   ## therefore irrelevant, which is exactly what this block pins:
   ## ``getBoth`` is total over the order of failures.
   let cid = makeMcid("c0")
