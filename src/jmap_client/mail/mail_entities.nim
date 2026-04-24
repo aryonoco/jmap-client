@@ -369,3 +369,9 @@ registerCompoundMethod(EmailSubmissionSetResponse, SetResponse[EmailCreatedItem]
 # ---------------------------------------------------------------------------
 
 registerChainableMethod(QueryResponse[Email])
+# ``GetResponse[Email]`` chains OUT to ``Thread/get`` in the RFC 8621
+# §4.10 first-login workflow via ``rpListThreadId``.
+registerChainableMethod(GetResponse[Email])
+# ``GetResponse[Thread]`` chains OUT to ``Email/get`` in the RFC 8621
+# §4.10 first-login workflow via ``rpListEmailIds``.
+registerChainableMethod(GetResponse[thread.Thread])

@@ -16,6 +16,7 @@ import jmap_client/builder
 import jmap_client/mail/thread
 import jmap_client/mail/email
 import jmap_client/mail/mail_entities
+import jmap_client/mail/mail_builders
 import jmap_client/mail/mail_methods
 import jmap_client/mail/vacation
 
@@ -308,3 +309,52 @@ block addEmailImportIfInStateNoneOmitted:
   let (b1, _) = b0.addEmailImport(makeAccountId("a1"), emails)
   let req = b1.build()
   doAssert req.methodCalls[0].arguments{"ifInState"}.isNil
+
+# ===========================================================================
+# F. addEmailQueryWithThreads — RFC 8621 §4.10 first-login workflow
+# ===========================================================================
+
+block addEmailQueryWithThreadsFirstLogin:
+  ## RFC 8621 §4.10 first-login workflow — 4-invocation back-reference
+  ## chain wired through ``EmailQueryThreadChain``. Pins the byte-identical
+  ## invariant against silent regression.
+  let cond = filterCondition(makeEmailFilterCondition())
+  let b0 = initRequestBuilder()
+  let (b1, chain) = b0.addEmailQueryWithThreads(makeAccountId("a1"), filter = cond)
+  let req = b1.build()
+
+  assertLen req.methodCalls, 4
+  assertEq req.methodCalls[0].name, mnEmailQuery
+  assertEq req.methodCalls[1].name, mnEmailGet
+  assertEq req.methodCalls[2].name, mnThreadGet
+  assertEq req.methodCalls[3].name, mnEmailGet
+
+  doAssert req.methodCalls[1].arguments.hasKey("#ids")
+  doAssert req.methodCalls[2].arguments.hasKey("#ids")
+  doAssert req.methodCalls[3].arguments.hasKey("#ids")
+
+  let path1 = req.methodCalls[1].arguments{"#ids"}{"path"}.getStr("")
+  let path2 = req.methodCalls[2].arguments{"#ids"}{"path"}.getStr("")
+  let path3 = req.methodCalls[3].arguments{"#ids"}{"path"}.getStr("")
+  assertEq path1, "/ids"
+  assertEq path2, "/list/*/threadId"
+  assertEq path3, "/list/*/emailIds"
+
+  assertEq req.methodCalls[1].arguments{"#ids"}{"name"}.getStr(""), "Email/query"
+  assertEq req.methodCalls[2].arguments{"#ids"}{"name"}.getStr(""), "Email/get"
+  assertEq req.methodCalls[3].arguments{"#ids"}{"name"}.getStr(""), "Thread/get"
+
+  let props1 = req.methodCalls[1].arguments{"properties"}
+  doAssert props1.kind == JArray
+  assertLen props1.getElems(@[]), 1
+  assertEq props1.getElems(@[])[0].getStr(""), "threadId"
+
+  let props3 = req.methodCalls[3].arguments{"properties"}
+  doAssert props3.kind == JArray
+  assertLen props3.getElems(@[]), DefaultDisplayProperties.len
+
+  doAssert req.methodCalls[3].arguments{"fetchAllBodyValues"}.getBool(false) == true
+  assertEq req.methodCalls[3].arguments{"maxBodyValueBytes"}.getInt(0), 256
+
+  # The first invocation's ``MethodCallId`` is the one embedded in ``chain.queryH``.
+  assertEq $callId(chain.queryH), $req.methodCalls[0].methodCallId

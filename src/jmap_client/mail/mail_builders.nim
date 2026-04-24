@@ -22,12 +22,14 @@ import ../dispatch
 import ../builder
 import ./mailbox
 import ./mailbox_changes_response
+import ./thread
 import ./email
 import ./email_blueprint
 import ./email_update
 import ./mail_filters
 import ./mail_entities
 import ./serde_mailbox
+import ./serde_thread
 import ./serde_email
 import ./serde_email_blueprint
 import ./serde_email_update
@@ -38,6 +40,7 @@ import ./serde_mail_filters
 # and ``CopyResponse[T]`` resolve ``T.fromJson`` via ``mixin`` at the outer
 # instantiation site, so the caller must have these in scope.
 export serde_mailbox
+export serde_thread
 export serde_email
 export mailbox_changes_response
 
@@ -149,6 +152,50 @@ func addEmailGet*(
   ## empty seq (no extra keys). Thin wrapper over ``addGet[Email]``'s
   ## ``extras`` parameter.
   addGet[Email](b, accountId, ids, properties, extras = bodyFetchOptions.toExtras())
+
+# =============================================================================
+# addEmailGetByRef — Email/get by back-reference (RFC 8620 §3.7 / H1 §4.3)
+# =============================================================================
+
+func addEmailGetByRef*(
+    b: RequestBuilder,
+    accountId: AccountId,
+    idsRef: ResultReference,
+    properties: Opt[seq[string]] = Opt.none(seq[string]),
+    bodyFetchOptions: EmailBodyFetchOptions = default(EmailBodyFetchOptions),
+): (RequestBuilder, ResponseHandle[GetResponse[Email]]) =
+  ## Sibling of ``addEmailGet`` for RFC 8620 §3.7 back-reference chains —
+  ## ``ids`` is sourced from a previous invocation's response rather than
+  ## supplied as literal IDs. Delegates to ``addEmailGet`` with a
+  ## ``referenceTo[seq[Id]]``-wrapped ``Referencable``; the generic
+  ## ``addGet[T]`` routes ``rkReference`` variants to the ``#ids`` wire
+  ## key.
+  addEmailGet(
+    b,
+    accountId,
+    ids = Opt.some(referenceTo[seq[Id]](idsRef)),
+    properties = properties,
+    bodyFetchOptions = bodyFetchOptions,
+  )
+
+# =============================================================================
+# addThreadGetByRef — Thread/get by back-reference (RFC 8620 §3.7 / H1 §4.3)
+# =============================================================================
+
+func addThreadGetByRef*(
+    b: RequestBuilder,
+    accountId: AccountId,
+    idsRef: ResultReference,
+    properties: Opt[seq[string]] = Opt.none(seq[string]),
+): (RequestBuilder, ResponseHandle[GetResponse[thread.Thread]]) =
+  ## Sibling of generic ``addGet[thread.Thread]`` for RFC 8620 §3.7
+  ## back-reference chains. ``Thread`` is immutable and read-only — no
+  ## body-fetch analogue, so only ``properties`` is forwarded. Delegates
+  ## to ``addGet[T]`` through the ``Referencable`` wrapper, which routes
+  ## ``rkReference`` to the ``#ids`` wire key.
+  addGet[thread.Thread](
+    b, accountId, ids = Opt.some(referenceTo[seq[Id]](idsRef)), properties = properties
+  )
 
 # =============================================================================
 # addEmailQuery — Email/query (RFC 8621 §4.4)
@@ -295,3 +342,122 @@ func addEmailCopyAndDestroy*(
     ),
   )
   (b1, handles)
+
+# =============================================================================
+# EmailQueryThreadChain + addEmailQueryWithThreads (H1 §4)
+# RFC 8621 §4.10 first-login workflow: 4-invocation back-reference chain
+# =============================================================================
+
+const DefaultDisplayProperties*: seq[string] = @[
+  "threadId", "mailboxIds", "keywords", "hasAttachment", "from", "subject",
+  "receivedAt", "size", "preview",
+]
+  ## RFC 8621 §4.10 first-login example display properties. Override via
+  ## the ``displayProperties`` argument of ``addEmailQueryWithThreads``;
+  ## this const is the default for a minimally-configured first-login
+  ## scenario. One named auditable default, visible at one site (H12).
+
+type EmailQueryThreadChain* {.ruleOff: "objects".} = object
+  ## Paired handles for the RFC 8621 §4.10 first-login workflow. Each
+  ## handle binds a distinct ``MethodCallId``; the domain role of each
+  ## step lives at the field level because there is no generic above
+  ## this record to carry it (H10, H11).
+  queryH*: ResponseHandle[QueryResponse[Email]]
+  threadIdFetchH*: ResponseHandle[GetResponse[Email]]
+  threadsH*: ResponseHandle[GetResponse[thread.Thread]]
+  displayH*: ResponseHandle[GetResponse[Email]]
+
+type EmailQueryThreadResults* {.ruleOff: "objects".} = object
+  ## Paired extraction target of ``getAll(EmailQueryThreadChain)``. Plain
+  ## domain names; the enclosing type name already conveys "responses"
+  ## (H11).
+  query*: QueryResponse[Email]
+  threadIdFetch*: GetResponse[Email]
+  threads*: GetResponse[thread.Thread]
+  display*: GetResponse[Email]
+
+func getAll*(
+    resp: Response, handles: EmailQueryThreadChain
+): Result[EmailQueryThreadResults, MethodError] =
+  ## Extract all four responses from the first-login workflow. Monomorphic
+  ## over ``EmailQueryThreadChain`` — not a parametric ``getAll[A, B, C, D]``
+  ## — because the record it serves is not parametric either (H14).
+  ## Co-located with the builder rather than placed in ``dispatch.nim``
+  ## because there is no parametric shape to share with the dispatch layer.
+  mixin fromJson
+  let query = ?resp.get(handles.queryH)
+  let threadIdFetch = ?resp.get(handles.threadIdFetchH)
+  let threads = ?resp.get(handles.threadsH)
+  let display = ?resp.get(handles.displayH)
+  ok(
+    EmailQueryThreadResults(
+      query: query, threadIdFetch: threadIdFetch, threads: threads, display: display
+    )
+  )
+
+func addEmailQueryWithThreads*(
+    b: RequestBuilder,
+    accountId: AccountId,
+    filter: Filter[EmailFilterCondition],
+    sort: seq[EmailComparator] = @[],
+    queryParams: QueryParams = QueryParams(),
+    collapseThreads: bool = true,
+    displayProperties: seq[string] = DefaultDisplayProperties,
+    displayBodyFetchOptions: EmailBodyFetchOptions = EmailBodyFetchOptions(
+      fetchBodyValues: bvsAll, maxBodyValueBytes: Opt.some(UnsignedInt(256))
+    ),
+): (RequestBuilder, EmailQueryThreadChain) =
+  ## RFC 8621 §4.10 first-login workflow encoded in types. Emits the
+  ## exact 4-invocation back-reference chain the RFC demonstrates
+  ## byte-for-byte, with ``ResultReference`` paths sourced from ``RefPath``
+  ## — no stringly-typed JSON Pointers at this site (H16).
+  ##
+  ## ``filter`` is mandatory (H6; RFC 8621 §4.10 ¶1 — first-login always
+  ## filters to a user-visible mailbox scope). ``collapseThreads``
+  ## defaults to ``true`` per RFC §4.10 example (H13).
+  ## ``displayProperties`` defaults to the RFC-enumerated nine
+  ## (``DefaultDisplayProperties``); override is a normal argument (H12).
+  let sortOpt =
+    if sort.len > 0:
+      Opt.some(sort)
+    else:
+      Opt.none(seq[EmailComparator])
+
+  let (b1, queryH) =
+    addEmailQuery(b, accountId, Opt.some(filter), sortOpt, queryParams, collapseThreads)
+
+  let (b2, threadIdFetchH) = addEmailGetByRef(
+    b1,
+    accountId,
+    idsRef =
+      initResultReference(resultOf = callId(queryH), name = mnEmailQuery, path = rpIds),
+    properties = Opt.some(@["threadId"]),
+  )
+
+  let (b3, threadsH) = addThreadGetByRef(
+    b2,
+    accountId,
+    idsRef = initResultReference(
+      resultOf = callId(threadIdFetchH), name = mnEmailGet, path = rpListThreadId
+    ),
+  )
+
+  let (b4, displayH) = addEmailGetByRef(
+    b3,
+    accountId,
+    idsRef = initResultReference(
+      resultOf = callId(threadsH), name = mnThreadGet, path = rpListEmailIds
+    ),
+    properties = Opt.some(displayProperties),
+    bodyFetchOptions = displayBodyFetchOptions,
+  )
+
+  (
+    b4,
+    EmailQueryThreadChain(
+      queryH: queryH,
+      threadIdFetchH: threadIdFetchH,
+      threadsH: threadsH,
+      displayH: displayH,
+    ),
+  )

@@ -76,6 +76,8 @@ type RefPath* = enum
   rpCreated = "/created"
   rpUpdated = "/updated"
   rpUpdatedProperties = "/updatedProperties"
+  rpListThreadId = "/list/*/threadId"
+  rpListEmailIds = "/list/*/emailIds"
 
 func parseMethodName*(raw: string): MethodName =
   ## Total — returns ``mnUnknown`` for any wire string that doesn't
