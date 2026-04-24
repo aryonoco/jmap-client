@@ -107,7 +107,7 @@ table is the canonical cross-reference.
 | `SmtpReply` structured parser (RFC 3463) | G1 §1.3, G1 §3.3, `submission_status.nim:240` | H1 §5 | Entity-field lift: `DeliveryStatus.smtpReply: SmtpReply` → `ParsedSmtpReply`; no on-demand helper |
 | `addEmailQueryWithSnippets` compound builder | F1 Rule-of-Three backlog | H1 §3 | New builder atop `ChainedHandles[A, B]`; uses existing `addSearchSnippetGet` internally |
 | First-login `addEmailQueryWithThreads` | G1 Appendix Roadmap | H1 §4 | New builder emitting the RFC 8621 §4.10 canonical 4-invocation chain byte-for-byte, paired with a purpose-built `EmailQueryThreadChain` record (no arity-4 generic — the workflow has one inhabitant and no parametric law worth abstracting over; §8.5 covers the retrofit path if a second arity-4 inhabitant materialises) |
-| `ResultRefPath` constant enumeration | Implicit in every existing back-reference builder | H1 §4 | Path constants centralised in `dispatch.nim`; stringly-typed paths retired at call sites touched |
+| H1 chain-builder back-reference paths | Implicit in every existing back-reference builder | H1 §4 | Phase 3 extends the existing `RefPath` enum at `src/jmap_client/methods_enum.nim:69-78` (single source of truth for RFC 8620 §3.7 path constants) — no parallel enum |
 | Compile-time participation gates | Implicit in `be21db0` | H1 §2a, §3.5 | `registerCompoundMethod(P, I)` and `registerChainableMethod(P)` templates emitted at `mail_entities.nim` module scope |
 | RFC §10 IANA audit | Never explicit; implicit in every capability/role/keyword commit | H1 §6 | Full matrix per RFC 8621 §10 subsection, cross-referenced to file:line |
 
@@ -179,13 +179,14 @@ proposal that cannot is restructured or deferred to §8.
 
 | File | Verb | § | Wire-byte impact |
 |---|---|---|---|
-| `src/jmap_client/dispatch.nim` | Add `CompoundHandles` and `ChainedHandles` generics; overloaded `getBoth` extractors; `registerCompoundMethod` / `registerChainableMethod` gates; `ResultRefPath` enum | §2, §3, §4 | none |
+| `src/jmap_client/dispatch.nim` | Add `CompoundHandles` and `ChainedHandles` generics; overloaded `getBoth` extractors; `registerCompoundMethod` / `registerChainableMethod` gates | §2, §3 | none |
 | `src/jmap_client/mail/mail_builders.nim` | Replace object-type bodies for `EmailCopyHandles`/`EmailCopyResults` with type-alias specialisations; delete per-site `getBoth`; add purpose-built `EmailQueryThreadChain` and `EmailQueryThreadResults` records with domain-named fields (`queryH`/`threadIdFetchH`/`threadsH`/`displayH`), monomorphic `getAll` extractor co-located with the builder, `DefaultDisplayProperties` const, `addEmailQueryWithThreads` builder, `addEmailGetByRef` and `addThreadGetByRef` helpers | §2, §4 | none (wire output of `addEmailCopyAndDestroy` unchanged; new builder is additive) |
 | `src/jmap_client/mail/mail_methods.nim` | Add `addEmailQueryWithSnippets` + `EmailQuerySnippetChain` alias | §3 | none (new surface) |
 | `src/jmap_client/mail/mail_entities.nim` | Emit `registerCompoundMethod` and `registerChainableMethod` invocations at module scope | §2.4, §3.5 | none |
 | `src/jmap_client/mail/email_submission.nim` | Replace object-type bodies for `EmailSubmissionHandles`/`EmailSubmissionResults` with type-alias specialisations | §2 | none |
 | `src/jmap_client/mail/submission_builders.nim` | Delete per-site `getBoth` for `EmailSubmissionHandles` | §2 | none |
 | `src/jmap_client/mail/submission_status.nim` | Retire `SmtpReply`; add `ReplyCode`, `StatusCodeClass`, `SubjectCode`, `DetailCode`, `EnhancedStatusCode`, `ParsedSmtpReply`; extend `SmtpReplyViolation` from 10 to 15 variants; add atomic-detector templates + composite detector + single translator; migrate `DeliveryStatus.smtpReply` field | §5 | canonical byte-identical |
+| `src/jmap_client/methods_enum.nim` | Extend `RefPath` enum with `rpListThreadId = "/list/*/threadId"` and `rpListEmailIds = "/list/*/emailIds"` | §4 | none (new enum variants are additive) |
 | `src/jmap_client/mail/serde_submission_status.nim` | Route `DeliveryStatus` serde through `parseSmtpReply` / `renderSmtpReply` | §5 | canonical byte-identical |
 
 No C ABI, no L4 transport, no L5 export surface changes. H1 is entirely
@@ -533,12 +534,12 @@ func addEmailQueryWithSnippets*(
   ## query context (RFC 8621 §5.1 ¶2).
   let (b1, queryHandle) = addEmailQuery(
     b, accountId, filter, sort, queryParams, collapseThreads)
+  let emailIdsRef = initResultReference(
+    resultOf = callId(queryHandle),
+    name = mnEmailQuery,
+    path = rpIds)
   let (b2, snippetHandle) = addSearchSnippetGetByRef(
-    b1, accountId, filter,
-    emailIdsRef = ResultReference(
-      resultOf: callId(queryHandle),
-      name: mnEmailQuery,
-      path: $rrpIds))
+    b1, accountId, filter, emailIdsRef = emailIdsRef)
   (b2, EmailQuerySnippetChain(
     first: queryHandle, second: snippetHandle))
 ```
@@ -567,7 +568,7 @@ the cons-cell discipline does NOT propagate into the compound.
   duplication is simpler, each invocation stays self-contained, and
   no new `ResultReference` path is invented (H7). If a future
   optimisation materialises a `#filter` reference path, §8.7 covers
-  adding it as a `ResultRefPath` variant.
+  adding it as a `RefPath` variant.
 - **Empty-ids back-reference is legal.** If the `Email/query`
   resolves to zero ids, the `SearchSnippet/get` request receives an
   empty `emailIds` array via the back-reference. RFC 8620 §5.1 does
@@ -587,12 +588,16 @@ Analogue of `registerCompoundMethod`:
 
 ```nim
 template registerChainableMethod*(Primary: typedesc) =
-  ## Compile-checks that ``Primary`` has a registered method name,
+  ## Compile-checks that ``Primary`` parametrises ``ResponseHandle``
   ## so a back-reference to it can be constructed with a typed
-  ## ``ResultReference`` rather than stringly-typed parts.
+  ## response handle. Call at module scope in ``mail_entities.nim``
+  ## for each chain's starting method. Mirrors ``registerCompoundMethod``.
   static:
-    doAssert declared(methodName(Primary)),
-      $Primary & " not registered via registerMethod"
+    when not compiles(ResponseHandle[Primary]):
+      {.
+        error: "registerChainableMethod: " & $Primary &
+          " cannot back a ResponseHandle"
+      .}
 ```
 
 Applied in `src/jmap_client/mail/mail_entities.nim`:
@@ -607,8 +612,7 @@ is a static assertion failure at module load.
 ### 3.6. File impact
 
 - `src/jmap_client/dispatch.nim` — add `ChainedHandles`,
-  `ChainedResults`, overloaded `getBoth`, `registerChainableMethod`,
-  `ResultRefPath` enum (see §4.4).
+  `ChainedResults`, overloaded `getBoth`, `registerChainableMethod`.
 - `src/jmap_client/mail/mail_methods.nim` — add
   `addEmailQueryWithSnippets`, `EmailQuerySnippetChain` type alias,
   `addSearchSnippetGetByRef` helper.
@@ -752,29 +756,29 @@ func addEmailQueryWithThreads*(
 ): (RequestBuilder, EmailQueryThreadChain) =
   ## RFC 8621 §4.10 first-login workflow encoded in types. Emits the
   ## exact 4-invocation back-reference chain the RFC demonstrates,
-  ## with ``ResultReference`` paths from ``ResultRefPath`` — no
+  ## with ``ResultReference`` paths from ``RefPath`` — no
   ## stringly-typed JSON Pointers at this site.
   let (b1, queryH) = addEmailQuery(
     b, accountId, filter, Opt.some(sort), queryParams, collapseThreads)
 
   let (b2, threadIdFetchH) = addEmailGetByRef(
     b1, accountId,
-    idsRef = ResultReference(
-      resultOf: callId(queryH), name: mnEmailQuery,
-      path: $rrpIds),
+    idsRef = initResultReference(
+      resultOf = callId(queryH), name = mnEmailQuery,
+      path = rpIds),
     properties = @["threadId"])
 
   let (b3, threadsH) = addThreadGetByRef(
     b2, accountId,
-    idsRef = ResultReference(
-      resultOf: callId(threadIdFetchH), name: mnEmailGet,
-      path: $rrpListThreadId))
+    idsRef = initResultReference(
+      resultOf = callId(threadIdFetchH), name = mnEmailGet,
+      path = rpListThreadId))
 
   let (b4, displayH) = addEmailGetByRef(
     b3, accountId,
-    idsRef = ResultReference(
-      resultOf: callId(threadsH), name: mnThreadGet,
-      path: $rrpListEmailIds),
+    idsRef = initResultReference(
+      resultOf = callId(threadsH), name = mnThreadGet,
+      path = rpListEmailIds),
     properties = displayProperties,
     fetchHtmlBody = true,
     fetchAllBodyValues = true,
@@ -814,44 +818,47 @@ site, and the docstring pins its RFC origin.
 
 `collapseThreads` defaults to `true` per RFC §4.10 example (H13).
 
-### 4.5. `ResultRefPath` — path constants
+### 4.5. Back-reference path constants — extend `RefPath`
 
 RFC 8621 §4.10 uses three JSON Pointer paths as back-reference
-targets: `/ids`, `/list/*/threadId`, `/list/*/emailIds`. H1
-centralises these as a string-backed enum in `dispatch.nim` (H16):
+targets: `/ids`, `/list/*/threadId`, `/list/*/emailIds`. The first
+already exists as `rpIds` in the existing `RefPath` enum
+(`src/jmap_client/methods_enum.nim:69-78`), whose docstring is
+verbatim *"JMAP result-reference paths (RFC 8620 §3.7) — the JSON
+Pointer fragments a chained method call reads out of a prior
+invocation's response"*. Phase 3 adds the two new paths as new
+`RefPath` variants:
 
 ```nim
-type ResultRefPath* = enum
-  ## JSON Pointer paths used in RFC 8620 §3.7 ``ResultReference.path``
-  ## values. Enumerated variants ensure that builders never emit
-  ## stringly-typed JSON Pointers; new chain builders that need a new
-  ## path add a variant here (see §8.7 for scope).
-  rrpIds               = "/ids"
-  rrpListThreadId      = "/list/*/threadId"
-  rrpListEmailIds      = "/list/*/emailIds"
+# methods_enum.nim — Phase 3 additions to existing RefPath enum
+rpListThreadId = "/list/*/threadId"
+rpListEmailIds = "/list/*/emailIds"
 ```
 
-Usage at builder sites:
+Usage at chain-builder sites uses the typed constructor with `rpX`
+enum values directly (no stringification, no parallel enum):
 
 ```nim
-path: $rrpIds              # "/ids"
-path: $rrpListThreadId     # "/list/*/threadId"
-path: $rrpListEmailIds     # "/list/*/emailIds"
+path = rpIds            # "/ids"
+path = rpListThreadId   # "/list/*/threadId"
+path = rpListEmailIds   # "/list/*/emailIds"
 ```
 
-`$` on the string-backed enum returns the backing string verbatim
-(per `nim-type-safety.md`). Adding a new back-reference path is a
-one-line addition to the enum + one call site — and the enum
-discipline catches typos at compile time (no `\\ids` vs `/ids`
-regressions). Broader enumeration of every JMAP back-reference path
-in the wild is out of scope; see §8.7.
+H16 chooses extension over a parallel `ResultRefPath` because
+`RefPath` already occupies the "RFC 8620 §3.7 JSON Pointer path
+enum" conceptual slot and §1.3 invariant 8 (clean-refactor — no
+parallel systems) forbids a second enum with identical semantics.
+Broader enumeration of every JMAP back-reference path in the wild
+is out of scope; see §8.7.
 
 ### 4.6. File impact
 
-- `src/jmap_client/dispatch.nim` — add `ResultRefPath` enum.
-  (`CompoundHandles` / `ChainedHandles` generics and their gates are
-  added in §2 and §3; no arity-4 generic machinery lands in
-  `dispatch.nim`.)
+- `src/jmap_client/methods_enum.nim` — extend the existing
+  `RefPath` enum with `rpListThreadId = "/list/*/threadId"` and
+  `rpListEmailIds = "/list/*/emailIds"`. No additions to
+  `dispatch.nim` in this section — `CompoundHandles` /
+  `ChainedHandles` generics and their gates are added in §2 and
+  §3; no arity-4 generic machinery lands in `dispatch.nim`.
 - `src/jmap_client/mail/mail_builders.nim` — add
   `EmailQueryThreadChain` record, `EmailQueryThreadResults` record,
   monomorphic `getAll` extractor, `DefaultDisplayProperties` const,
@@ -926,9 +933,15 @@ Wire impact: new additive builder; RFC-§4.10-verbatim output.
   generic arrives only when there are two real inhabitants at each
   arity to justify the abstraction. See §8.5.
 
-- **H16. `ResultRefPath` path constants centralised in
-  `dispatch.nim`.** No stringly-typed paths at builder call sites.
-  New paths added as enum variants.
+- **H16. H1 chain-builder paths extend the existing `RefPath`
+  enum in `methods_enum.nim` — no parallel `ResultRefPath`.**
+  `RefPath`'s docstring already claims the RFC 8620 §3.7 JSON
+  Pointer slot verbatim; a parallel enum would violate §1.3
+  invariant 8 (clean-refactor: no parallel systems). §4 adds
+  `rpListThreadId` and `rpListEmailIds` as new `RefPath` variants.
+  No stringly-typed paths at builder call sites; the typed
+  `initResultReference(..., path: RefPath)` constructor is the
+  single routing point.
 
 ---
 
@@ -1624,7 +1637,7 @@ its parallel listing in §3.6.2 (request-level errors).
 | H13 | `collapseThreads` default | (A) `false`, (B) `true` per RFC §4.10 example | **B** | Match RFC canonical example |
 | H14 | Partial-extraction functions | (A) `getAll` only, monomorphic, co-located with the builder in `mail_builders.nim`; (B) `getAll` + `getFirstTwo` + `getLastThree` + etc.; (C) parametric `getAll` in `dispatch.nim` | **A** — one function; partial extraction via field access; the monomorphic extractor lives alongside the builder, not in the dispatch layer, because it has no parametric shape to share | Avoid combinatorial explosion; co-locate monomorphic extractors with their monomorphic builders |
 | H15 | Variadic `ChainedHandlesN` macro | (A) implement now, (B) Rule-of-Three deferred with explicit retrofit path | **B** — deferred to §8.5; retrofit re-expresses `ChainedHandles[A, B]` as `ChainedHandles2[A, B]` and `EmailQueryThreadChain` as a type alias over `ChainedHandles4[...]` with field-projection helpers | Not yet justified; abstraction follows two inhabitants at each arity, and the retrofit path makes the deferral reversible |
-| H16 | Back-reference path constants | (A) string literals at call sites, (B) `ResultRefPath` enum in `dispatch.nim` | **B** — centralised, compile-checked | No stringly-typed JSON Pointers |
+| H16 | Back-reference path constants | (A) string literals at call sites, (B) parallel `ResultRefPath` enum in `dispatch.nim`, (C) extend existing `RefPath` enum in `methods_enum.nim` | **C** — single source of truth for RFC 8620 §3.7 paths; §1.3 invariant 8 forbids parallel systems | `RefPath`'s docstring already claims the slot; existing code uses it; no dead scaffolding |
 | H17 | `SmtpReply` distinct string retirement | (A) keep as-is, (B) layer a second parser atop, (C) retire wholesale, migrate `DeliveryStatus.smtpReply` to `ParsedSmtpReply` | **C** — wholesale retirement; no compat shim | `515f3bd` "deleted entirely, no compat shim"; clean-refactor invariant |
 | H18 | Typed Reply-code / subject / detail | (A) bare `uint16`, (B) distinct newtypes + string-backed enum for class | **B** — four distinct newtypes + `StatusCodeClass` enum | Distinct-newtype invariant; G1 `HoldForSeconds`/`MtPriority` precedent |
 | H19 | Closed enum vs lenient bounds for subject/detail | (A) sealed enum over currently-registered values, (B) bounded 0..999 lenient | **B** — IANA Enhanced Status Codes registry is extensible; lenient accepts future codes | G1 `DeliveredState`/`DisplayedState` catch-all-arm precedent |
@@ -1767,13 +1780,17 @@ are one-line registry additions at §6.2 — no code change required.
 
 ### 8.7. Back-reference path constant generalisation
 
-`ResultRefPath` (H16) enumerates the three paths RFC 8621 §4.10 uses:
-`/ids`, `/list/*/threadId`, `/list/*/emailIds`. A broader enumeration
-covering every JMAP back-reference path observed in the wild is out
-of scope for H1 — we introduce variants only when a new chain builder
-needs one. Adding `/list/*/blobId` (for a hypothetical
-blob-fetching chain) is a one-line enum extension + a new builder;
-scope creep at H1 would introduce variants with no consumer.
+The existing `RefPath` enum (`methods_enum.nim:69-78`) enumerates
+the RFC 8620 §3.7 JSON Pointer paths the codebase uses today
+(`/ids`, `/list/*/id`, `/added/*/id`, `/created`, `/updated`,
+`/updatedProperties`). H1 §4 extends it with the two paths
+RFC 8621 §4.10 requires (`/list/*/threadId`, `/list/*/emailIds`).
+A broader enumeration covering every JMAP back-reference path
+observed in the wild is out of scope for H1 — we add variants
+only when a new chain builder needs one. Adding `/list/*/blobId`
+(for a hypothetical blob-fetching chain) is a one-line enum
+extension + a new builder; scope creep at H1 would introduce
+variants with no consumer.
 
 ---
 
@@ -1966,8 +1983,8 @@ The H1 document is complete when:
 7. **RFC conformance spot-checks:**
    - §1.5 (push) described as server-MUST, not client-MUST (§8.1).
    - §4.10 canonical example reproduced in §3 and §4 builders as
-     spec-verbatim output, with `ResultRefPath` constants matching
-     the RFC's JSON Pointer paths exactly.
+     spec-verbatim output, with `RefPath` constants matching the
+     RFC's JSON Pointer paths exactly.
    - §5.1 SearchSnippet/get filter argument is mandatory (H6).
    - §7.5 implicit-Email/set pattern lands on
      `CompoundHandles[EmailSubmissionSetResponse, SetResponse[EmailCreatedItem]]`.

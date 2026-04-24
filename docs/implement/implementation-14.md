@@ -87,18 +87,21 @@ Run `just ci` before committing; the wire-byte regression nets enumerated in des
 
 ## Phase 2: `ChainedHandles[A, B]` + `addEmailQueryWithSnippets` (design §3)
 
-Introduces the RFC 8620 §3.7 back-reference-chain sibling generic, the
-`ResultRefPath` string-backed enum centralising JSON Pointer paths, and
-the first chain builder (RFC 8621 §4.10 snippets workflow). Additive —
-no existing wire shape touched.
+Introduces the RFC 8620 §3.7 back-reference-chain sibling generic
+and the first chain builder (RFC 8621 §4.10 snippets workflow).
+Chain builders reuse the existing `RefPath` enum in
+`methods_enum.nim:69-78` for path constants — no parallel enum.
+Additive — no existing wire shape touched.
 
 - **Step 6:** Add `ChainedHandles[A, B]`, `ChainedResults[A, B]`,
   overloaded `func getBoth[A, B](resp, handles): Result[ChainedResults[A, B], MethodError]`,
-  `registerChainableMethod(Primary: typedesc)` template, and the
-  `ResultRefPath` enum (with the `rrpIds = "/ids"` variant) to
-  `src/jmap_client/dispatch.nim` per design §3.2, §3.5, §4.4. The
+  and `registerChainableMethod(Primary: typedesc)` template to
+  `src/jmap_client/dispatch.nim` per design §3.2, §3.5. The
   overloaded `getBoth` is unambiguous because `CompoundHandles` and
-  `ChainedHandles` have no structural overlap.
+  `ChainedHandles` have no structural overlap. `registerChainableMethod`
+  mirrors Phase 1's `registerCompoundMethod` pattern (`when not compiles`
+  + `{.error.}`), not the design snippet's `doAssert` which is
+  forbidden in `static:` blocks.
 
 - **Step 7:** Add `addSearchSnippetGetByRef` helper in
   `src/jmap_client/mail/mail_methods.nim` per design §3.3 — sibling of
@@ -129,15 +132,17 @@ record's field level rather than being traded for positional
 `first`/`second`/`third`/`fourth` access. Additive — RFC §4.10
 example output reproduced byte-for-byte.
 
-- **Step 9:** Extend the `ResultRefPath` enum in
-  `src/jmap_client/dispatch.nim` (introduced in Phase 2 with `rrpIds`)
-  with `rrpListThreadId = "/list/*/threadId"` and
-  `rrpListEmailIds = "/list/*/emailIds"` per design §4.5. No other
-  additions to `dispatch.nim` in this phase — per design §4.1 and
-  H10, no arity-4 generic machinery (`ChainedHandles4`,
+- **Step 9:** Extend the existing `RefPath` enum in
+  `src/jmap_client/methods_enum.nim` (lines 69-78) with
+  `rpListThreadId = "/list/*/threadId"` and
+  `rpListEmailIds = "/list/*/emailIds"` per design §4.5.
+  `RefPath` is the RFC 8620 §3.7 path enum of record; H1 paths
+  land there to preserve single source of truth (§1.3 invariant 8).
+  No additions to `dispatch.nim` in this phase — per design §4.1
+  and H10, no arity-4 generic machinery (`ChainedHandles4`,
   `ChainedResults4`, parametric `getAll[A, B, C, D]`) is introduced;
-  the arity-4 chain has one inhabitant and no parametric law worth
-  abstracting over.
+  the arity-4 chain has one inhabitant and no parametric law
+  worth abstracting over.
 
 - **Step 10:** Add `addEmailGetByRef` and `addThreadGetByRef` helpers to
   `src/jmap_client/mail/mail_builders.nim` per design §4.3 — siblings of
@@ -165,7 +170,7 @@ example output reproduced byte-for-byte.
   `addEmailQueryWithThreads` with full signature per design §4.3
   (`collapseThreads` defaults `true` per H13), returning
   `(RequestBuilder, EmailQueryThreadChain)`. All three back-reference
-  paths use `ResultRefPath` variants, not string literals (H16).
+  paths use `RefPath` variants, not string literals (H16).
 
 ### CI gate
 
