@@ -363,3 +363,9 @@ registerSettableEntity(AnyEmailSubmission)
 
 registerCompoundMethod(CopyResponse[EmailCreatedItem], SetResponse[EmailCreatedItem])
 registerCompoundMethod(EmailSubmissionSetResponse, SetResponse[EmailCreatedItem])
+
+# ---------------------------------------------------------------------------
+# Chainable-method participation gates (RFC 8620 §3.7 back-reference chains)
+# ---------------------------------------------------------------------------
+
+registerChainableMethod(QueryResponse[Email])

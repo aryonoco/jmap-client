@@ -282,6 +282,48 @@ template registerCompoundMethod*(Primary, Implicit: typedesc) =
       .}
 
 # =============================================================================
+# RFC 8620 §3.7 back-reference chains
+# =============================================================================
+
+type ChainedHandles*[A, B] {.ruleOff: "objects".} = object
+  ## Paired handles for RFC 8620 §3.7 back-reference chains. Each
+  ## handle binds a distinct ``MethodCallId``; no method-name filter
+  ## is needed because the call-ids are unique (contrast
+  ## ``CompoundHandles`` at §5.4 where a method-name filter
+  ## disambiguates a shared call-id).
+  first*: ResponseHandle[A]
+  second*: ResponseHandle[B]
+
+type ChainedResults*[A, B] {.ruleOff: "objects".} = object
+  ## Paired extraction target for ``getBoth(ChainedHandles[A, B])``.
+  first*: A
+  second*: B
+
+func getBoth*[A, B](
+    resp: Response, handles: ChainedHandles[A, B]
+): Result[ChainedResults[A, B], MethodError] =
+  ## Extract both responses from a §3.7 back-reference chain. Both
+  ## handles dispatch through the default ``get[T]`` overload because
+  ## the call-ids are distinct — no method-name filter needed.
+  ## Overloaded with the ``CompoundHandles`` variant at §5.4; the
+  ## compiler picks by argument type (no structural overlap).
+  mixin fromJson
+  let first = ?resp.get(handles.first)
+  let second = ?resp.get(handles.second)
+  ok(ChainedResults[A, B](first: first, second: second))
+
+template registerChainableMethod*(Primary: typedesc) =
+  ## Compile-checks that ``Primary`` parametrises ``ResponseHandle``,
+  ## so a back-reference to it can be constructed with a typed
+  ## response handle. Call at module scope in ``mail_entities.nim``
+  ## for each chain's starting method. Mirrors ``registerCompoundMethod``.
+  static:
+    when not compiles(ResponseHandle[Primary]):
+      {.
+        error: "registerChainableMethod: " & $Primary & " cannot back a ResponseHandle"
+      .}
+
+# =============================================================================
 # Reference construction — generic escape hatch
 # =============================================================================
 

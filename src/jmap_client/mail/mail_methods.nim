@@ -21,10 +21,10 @@ import ./vacation
 import ./snippet
 import ./email
 import ./mail_filters
+import ./mail_builders
 import ./serde_email
 import ./serde_snippet
 import ./serde_vacation
-import ./serde_mail_filters
 
 # Re-export the serde modules whose ``fromJson`` overloads are required at
 # the dispatch call-site (``get(handle)``): the generic ``SetResponse[T]``
@@ -212,6 +212,62 @@ func addSearchSnippetGet*(
   args["emailIds"] = emailIds
   let (newBuilder, callId) = b.addInvocation(mnSearchSnippetGet, args, MailCapUri)
   (newBuilder, ResponseHandle[SearchSnippetGetResponse](callId))
+
+# =============================================================================
+# addSearchSnippetGetByRef + addEmailQueryWithSnippets
+# RFC 8620 §3.7 back-reference chain for RFC 8621 §4.10 + §5.1
+# =============================================================================
+
+func addSearchSnippetGetByRef*(
+    b: RequestBuilder,
+    accountId: AccountId,
+    filter: Filter[EmailFilterCondition],
+    emailIdsRef: ResultReference,
+): (RequestBuilder, ResponseHandle[SearchSnippetGetResponse]) =
+  ## Sibling of ``addSearchSnippetGet`` for RFC 8620 §3.7 back-reference
+  ## chains — ``emailIds`` is sourced from a previous invocation's
+  ## response rather than supplied as literal IDs. ``filter`` remains
+  ## mandatory (H6; RFC 8621 §5.1 ¶2); see design §3.4 on why the
+  ## cons-cell non-emptiness discipline of the literal-ids overload
+  ## does NOT propagate into the back-reference case (H8).
+  var args = newJObject()
+  args["accountId"] = accountId.toJson()
+  args["filter"] = serializeFilter(filter).toJsonNode()
+  args["#emailIds"] = emailIdsRef.toJson()
+  let (newBuilder, callId) = b.addInvocation(mnSearchSnippetGet, args, MailCapUri)
+  (newBuilder, ResponseHandle[SearchSnippetGetResponse](callId))
+
+type EmailQuerySnippetChain* =
+  ChainedHandles[QueryResponse[Email], SearchSnippetGetResponse]
+  ## Domain-named specialisation of ``ChainedHandles[A, B]`` for
+  ## ``addEmailQueryWithSnippets`` (Email/query + SearchSnippet/get
+  ## via RFC 8620 §3.7 back-reference chain per RFC 8621 §4.10).
+  ## Fields ``first`` / ``second`` inherit from the generic at
+  ## ``dispatch.nim``.
+
+func addEmailQueryWithSnippets*(
+    b: RequestBuilder,
+    accountId: AccountId,
+    filter: Filter[EmailFilterCondition],
+    sort: Opt[seq[EmailComparator]] = Opt.none(seq[EmailComparator]),
+    queryParams: QueryParams = QueryParams(),
+    collapseThreads: bool = false,
+): (RequestBuilder, EmailQuerySnippetChain) =
+  ## Compound Email/query + SearchSnippet/get (RFC 8621 §4.10 + §5.1).
+  ## Emits two invocations with a RFC 8620 §3.7 back-reference from
+  ## the snippet request's ``emailIds`` to the query's ``/ids``.
+  ## ``filter`` is mandatory — snippets are meaningless without a
+  ## query context (H6; RFC 8621 §5.1 ¶2). The filter is duplicated
+  ## literally on the wire to both invocations rather than shared via
+  ## a second back-reference (H7; simplicity over wire-clever).
+  let (b1, queryHandle) =
+    addEmailQuery(b, accountId, Opt.some(filter), sort, queryParams, collapseThreads)
+  let emailIdsRef = initResultReference(
+    resultOf = callId(queryHandle), name = mnEmailQuery, path = rpIds
+  )
+  let (b2, snippetHandle) =
+    addSearchSnippetGetByRef(b1, accountId, filter, emailIdsRef = emailIdsRef)
+  (b2, EmailQuerySnippetChain(first: queryHandle, second: snippetHandle))
 
 # =============================================================================
 # addEmailImport — Email/import (RFC 8621 §4.8)
