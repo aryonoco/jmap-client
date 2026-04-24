@@ -6,8 +6,9 @@ Part H1 adds no new RFC surface; it closes the typed-FP lift campaign by
 raising every remaining weakly- or stringly-typed surface into a domain
 ADT with a single translator at the wire boundary. Five workstreams land
 here: `CompoundHandles[A, B]` (design §2), `ChainedHandles[A, B]` +
-`addEmailQueryWithSnippets` (§3), `ChainedHandles4[A, B, C, D]` +
-`addEmailQueryWithThreads` (§4), `ParsedSmtpReply` retiring the
+`addEmailQueryWithSnippets` (§3), purpose-built `EmailQueryThreadChain`
+record + `addEmailQueryWithThreads` (§4; no arity-4 generic — one
+inhabitant, no parametric law), `ParsedSmtpReply` retiring the
 `SmtpReply` distinct string (§5), and the RFC §10 IANA traceability
 audit (§6). The clean-refactor grep gate (§9) is enforced in Phase 5.
 
@@ -118,30 +119,51 @@ Run `just ci` before committing.
 
 ---
 
-## Phase 3: `ChainedHandles4[A, B, C, D]` + `addEmailQueryWithThreads` (design §4)
+## Phase 3: `EmailQueryThreadChain` + `addEmailQueryWithThreads` (design §4)
 
-Arity-4 sibling generic and the RFC 8621 §4.10 first-login workflow
-builder encoded spec-verbatim as four back-referenced invocations.
-Additive — RFC §4.10 example output reproduced byte-for-byte.
+Purpose-built record for the RFC 8621 §4.10 first-login workflow
+encoded spec-verbatim as four back-referenced invocations. No arity-4
+generic: the workflow has one inhabitant and no parametric law worth
+abstracting over (design §4.1), so domain vocabulary lives at the
+record's field level rather than being traded for positional
+`first`/`second`/`third`/`fourth` access. Additive — RFC §4.10
+example output reproduced byte-for-byte.
 
-- **Step 9:** Add `ChainedHandles4[A, B, C, D]`,
-  `ChainedResults4[A, B, C, D]`, and
-  `func getAll[A, B, C, D](resp, handles): Result[ChainedResults4[A, B, C, D], MethodError]`
-  to `src/jmap_client/dispatch.nim` per design §4.1. Extend the existing
-  `ResultRefPath` enum with `rrpListThreadId = "/list/*/threadId"` and
-  `rrpListEmailIds = "/list/*/emailIds"` per design §4.4.
+- **Step 9:** Extend the `ResultRefPath` enum in
+  `src/jmap_client/dispatch.nim` (introduced in Phase 2 with `rrpIds`)
+  with `rrpListThreadId = "/list/*/threadId"` and
+  `rrpListEmailIds = "/list/*/emailIds"` per design §4.5. No other
+  additions to `dispatch.nim` in this phase — per design §4.1 and
+  H10, no arity-4 generic machinery (`ChainedHandles4`,
+  `ChainedResults4`, parametric `getAll[A, B, C, D]`) is introduced;
+  the arity-4 chain has one inhabitant and no parametric law worth
+  abstracting over.
 
 - **Step 10:** Add `addEmailGetByRef` and `addThreadGetByRef` helpers to
-  `src/jmap_client/mail/mail_builders.nim` per design §4.2 — siblings of
+  `src/jmap_client/mail/mail_builders.nim` per design §4.3 — siblings of
   the existing literal-ids overloads; each accepts a `ResultReference`
-  for `ids`.
+  for `ids` (parity with §3's `addSearchSnippetGetByRef`).
 
 - **Step 11:** Add the `DefaultDisplayProperties*: seq[string]`
-  module-level const per design §4.3 (nine RFC 8621 §4.10 example
-  properties, RFC-cited docstring), the type alias
-  `EmailQueryThreadChain* = ChainedHandles4[QueryResponse[Email], GetResponse[Email], GetResponse[Thread], GetResponse[Email]]`,
-  and the builder `addEmailQueryWithThreads` with full signature per
-  design §4.2 (`collapseThreads` defaults `true` per H13), returning
+  module-level const per design §4.4 (nine RFC 8621 §4.10 example
+  properties, RFC-cited docstring). Add the purpose-built
+  `EmailQueryThreadChain` record per design §4.2 with domain-named
+  handle fields — `queryH: ResponseHandle[QueryResponse[Email]]`,
+  `threadIdFetchH: ResponseHandle[GetResponse[Email]]`,
+  `threadsH: ResponseHandle[GetResponse[Thread]]`,
+  `displayH: ResponseHandle[GetResponse[Email]]` — and the matching
+  `EmailQueryThreadResults` record with plain domain-named response
+  fields (`query`, `threadIdFetch`, `threads`, `display`; the type
+  name already conveys "responses", so no suffix is needed per H11).
+  Both records carry `{.ruleOff: "objects".}` consistent with the
+  codebase convention. Add the monomorphic
+  `func getAll(resp: Response, handles: EmailQueryThreadChain): Result[EmailQueryThreadResults, MethodError]`
+  in `mail_builders.nim` alongside the builder (NOT in `dispatch.nim`)
+  per design §4.2 / H14 — the extractor has no parametric shape to
+  share with the dispatch layer, so co-locating it with its builder
+  keeps the dispatch layer clean. Add the builder
+  `addEmailQueryWithThreads` with full signature per design §4.3
+  (`collapseThreads` defaults `true` per H13), returning
   `(RequestBuilder, EmailQueryThreadChain)`. All three back-reference
   paths use `ResultRefPath` variants, not string literals (H16).
 

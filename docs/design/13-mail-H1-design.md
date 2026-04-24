@@ -23,9 +23,12 @@ H1 applies that thesis to five remaining surfaces:
 1. **Implicit-call compound handles** (RFC 8620 §5.4) — two hand-rolled
    `getBoth` bodies collapse into one generic, mirroring the
    `SetRequest[T, C, U]` promotion of `be21db0`.
-2. **Back-reference chains** (RFC 8620 §3.7) — introduce a typed chain
-   generic, then specialise it for the two RFC 8621 §4.10 canonical
-   workflows (search-snippets-alongside-query, first-login).
+2. **Back-reference chains** (RFC 8620 §3.7) — introduce a typed
+   `ChainedHandles[A, B]` generic for arity-2 chains (parametric with a
+   genuine law: distinct call-ids, independent extraction) and a
+   purpose-built `EmailQueryThreadChain` record for the single-
+   inhabitant arity-4 first-login workflow (no law beyond "four
+   specific fields," so the domain names survive at the field level).
 3. **`SmtpReply` decomposition** — retire the `distinct string` wrapper
    for a `ParsedSmtpReply` object carrying `ReplyCode` +
    `Opt[EnhancedStatusCode]` + text, driven by atomic detectors composed
@@ -50,7 +53,7 @@ compat bridge, no stale docstring (see §9 — the Deletions inventory).
 - §1. Scope
 - §2. `CompoundHandles[A, B]` — collapsing two per-site compound types
 - §3. `ChainedHandles[A, B]` and `addEmailQueryWithSnippets`
-- §4. `ChainedHandles4[A, B, C, D]` and `addEmailQueryWithThreads`
+- §4. `EmailQueryThreadChain` and `addEmailQueryWithThreads`
 - §5. `ParsedSmtpReply` — retiring `SmtpReply`
 - §6. RFC 8621 §10 IANA traceability matrix
 - §7. Decision Traceability Matrix
@@ -101,9 +104,9 @@ table is the canonical cross-reference.
 | Deferral | Origin | Discharged in | Mechanism |
 |---|---|---|---|
 | Generic `CompoundHandles[A, B]` | G1 §1.3, F1 §F3 (Rule-of-Three) | H1 §2 | Rule-of-Two promotion: two compound sites is enough because the structural repetition is exact and §3–§4 confirm the §5.4-vs-§3.7 split is load-bearing |
-| `SmtpReply` structured parser (RFC 3463) | G1 §1.3, G1 §3.3, `submission_status.nim:239` | H1 §5 | Entity-field lift: `DeliveryStatus.smtpReply: SmtpReply` → `ParsedSmtpReply`; no on-demand helper |
+| `SmtpReply` structured parser (RFC 3463) | G1 §1.3, G1 §3.3, `submission_status.nim:240` | H1 §5 | Entity-field lift: `DeliveryStatus.smtpReply: SmtpReply` → `ParsedSmtpReply`; no on-demand helper |
 | `addEmailQueryWithSnippets` compound builder | F1 Rule-of-Three backlog | H1 §3 | New builder atop `ChainedHandles[A, B]`; uses existing `addSearchSnippetGet` internally |
-| First-login `addEmailQueryWithThreads` | G1 Appendix Roadmap | H1 §4 | New builder atop `ChainedHandles4[A, B, C, D]`; emits the RFC 8621 §4.10 canonical 4-invocation chain byte-for-byte |
+| First-login `addEmailQueryWithThreads` | G1 Appendix Roadmap | H1 §4 | New builder emitting the RFC 8621 §4.10 canonical 4-invocation chain byte-for-byte, paired with a purpose-built `EmailQueryThreadChain` record (no arity-4 generic — the workflow has one inhabitant and no parametric law worth abstracting over; §8.5 covers the retrofit path if a second arity-4 inhabitant materialises) |
 | `ResultRefPath` constant enumeration | Implicit in every existing back-reference builder | H1 §4 | Path constants centralised in `dispatch.nim`; stringly-typed paths retired at call sites touched |
 | Compile-time participation gates | Implicit in `be21db0` | H1 §2a, §3.5 | `registerCompoundMethod(P, I)` and `registerChainableMethod(P)` templates emitted at `mail_entities.nim` module scope |
 | RFC §10 IANA audit | Never explicit; implicit in every capability/role/keyword commit | H1 §6 | Full matrix per RFC 8621 §10 subsection, cross-referenced to file:line |
@@ -176,8 +179,8 @@ proposal that cannot is restructured or deferred to §8.
 
 | File | Verb | § | Wire-byte impact |
 |---|---|---|---|
-| `src/jmap_client/dispatch.nim` | Add `CompoundHandles`, `ChainedHandles`, `ChainedHandles4` generics; `getBoth`/`getAll` extractors; `registerCompoundMethod` / `registerChainableMethod` gates; `ResultRefPath` enum | §2, §3, §4 | none |
-| `src/jmap_client/mail/mail_builders.nim` | Replace object-type bodies for `EmailCopyHandles`/`EmailCopyResults` with type-alias specialisations; delete per-site `getBoth`; add `EmailQueryThreadChain` alias, `DefaultDisplayProperties` const, `addEmailQueryWithThreads` builder | §2, §4 | none (wire output of `addEmailCopyAndDestroy` unchanged; new builder is additive) |
+| `src/jmap_client/dispatch.nim` | Add `CompoundHandles` and `ChainedHandles` generics; overloaded `getBoth` extractors; `registerCompoundMethod` / `registerChainableMethod` gates; `ResultRefPath` enum | §2, §3, §4 | none |
+| `src/jmap_client/mail/mail_builders.nim` | Replace object-type bodies for `EmailCopyHandles`/`EmailCopyResults` with type-alias specialisations; delete per-site `getBoth`; add purpose-built `EmailQueryThreadChain` and `EmailQueryThreadResults` records with domain-named fields (`queryH`/`threadIdFetchH`/`threadsH`/`displayH`), monomorphic `getAll` extractor co-located with the builder, `DefaultDisplayProperties` const, `addEmailQueryWithThreads` builder, `addEmailGetByRef` and `addThreadGetByRef` helpers | §2, §4 | none (wire output of `addEmailCopyAndDestroy` unchanged; new builder is additive) |
 | `src/jmap_client/mail/mail_methods.nim` | Add `addEmailQueryWithSnippets` + `EmailQuerySnippetChain` alias | §3 | none (new surface) |
 | `src/jmap_client/mail/mail_entities.nim` | Emit `registerCompoundMethod` and `registerChainableMethod` invocations at module scope | §2.4, §3.5 | none |
 | `src/jmap_client/mail/email_submission.nim` | Replace object-type bodies for `EmailSubmissionHandles`/`EmailSubmissionResults` with type-alias specialisations | §2 | none |
@@ -214,17 +217,17 @@ method and the server-emitted follow-up. The handle for the follow-up
 must carry both the call-id *and* the expected method name — a
 `NameBoundHandle[T]` — so dispatch can disambiguate the sibling
 invocations without a filter argument at the extraction site. The
-library already embodies this at `dispatch.nim:34, 59`; H1 does not
+library already embodies this at `dispatch.nim:35, 60`; H1 does not
 change it.
 
 What H1 changes is the per-site compound-handle record. The library has
 two instances of the same structural shape: `EmailCopyHandles` at
-`src/jmap_client/mail/mail_builders.nim:253-260` and
-`EmailSubmissionHandles` at `src/jmap_client/mail/email_submission.nim:536-553`.
+`src/jmap_client/mail/mail_builders.nim:252-259` and
+`EmailSubmissionHandles` at `src/jmap_client/mail/email_submission.nim:598-615`.
 Both pair a `ResponseHandle[A]` with a `NameBoundHandle[B]`; both have
 a mirror results type pairing an `A` with a `B`; both have an
-almost-identical `getBoth` body (`mail_builders.nim:310-320` and
-`submission_builders.nim:127-140`) that extracts the pair and returns
+almost-identical `getBoth` body (`mail_builders.nim:309-319` and
+`submission_builders.nim:128-141`) that extracts the pair and returns
 `Result[Results, MethodError]`. The repetition is exact, and the pattern
 is a direct encoding of RFC 8620 §5.4 — generic over the pair of
 response types.
@@ -292,8 +295,8 @@ type EmailSubmissionResults* = CompoundResults[
   EmailSubmissionSetResponse, SetResponse[EmailCreatedItem]]
 ```
 
-The per-site `getBoth` bodies in `mail_builders.nim:310-320` and
-`submission_builders.nim:127-140` are DELETED. The generic `getBoth`
+The per-site `getBoth` bodies in `mail_builders.nim:309-319` and
+`submission_builders.nim:128-141` are DELETED. The generic `getBoth`
 in `dispatch.nim` subsumes them.
 
 ### 2.3. Migration at call sites
@@ -369,11 +372,15 @@ existing regression net pins byte-identicality:
 
 - `tests/serde/mail/tserde_email_copy.nim` — `EmailCopyHandles`
   extraction round-trips.
-- `tests/unit/mail/tmail_builders.nim` — compound-scenario wire
-  output assertions for `addEmailCopyAndDestroy`.
-- `tests/serde/mail/tserde_email_submission.nim` and
-  `tests/unit/mail/tsubmission_builders.nim` — analogous coverage for
-  `EmailSubmissionHandles`.
+- `tests/serde/mail/tserde_email_submission.nim` — analogous serde
+  round-trip coverage for `EmailSubmissionHandles`.
+- `tests/serde/mail/tserde_submission_status.nim` — `DeliveryStatus`
+  serde, indirectly exercised whenever an EmailSubmission carrying
+  a `deliveryStatus` is round-tripped.
+
+(No dedicated `tests/unit/mail/tmail_builders.nim` or
+`tsubmission_builders.nim` exists today; the serde-level fixtures
+above are the operative wire-output regression net.)
 
 Implementation PRs MUST not modify these tests except for the field-
 name migration (§2.3). Any change to assertion payloads, method-call
@@ -383,12 +390,12 @@ order, or response envelope shape is an unintended wire regression.
 
 - `src/jmap_client/dispatch.nim` — add `CompoundHandles`,
   `CompoundResults`, generic `getBoth`, `registerCompoundMethod`.
-- `src/jmap_client/mail/mail_builders.nim:253-265, 310-320` —
+- `src/jmap_client/mail/mail_builders.nim:252-264, 309-319` —
   `EmailCopyHandles`/`EmailCopyResults` become type aliases; per-site
   `getBoth` deleted.
-- `src/jmap_client/mail/email_submission.nim:536-553` —
+- `src/jmap_client/mail/email_submission.nim:598-615` —
   `EmailSubmissionHandles`/`EmailSubmissionResults` become type aliases.
-- `src/jmap_client/mail/submission_builders.nim:127-140` — per-site
+- `src/jmap_client/mail/submission_builders.nim:128-141` — per-site
   `getBoth` deleted.
 - `src/jmap_client/mail/mail_entities.nim` — add two
   `registerCompoundMethod` invocations at module scope.
@@ -538,7 +545,7 @@ func addEmailQueryWithSnippets*(
 
 A new `addSearchSnippetGetByRef` helper is introduced to accept a
 `ResultReference` for `emailIds` — the existing `addSearchSnippetGet`
-(`mail_methods.nim:193-213`) takes a literal `firstEmailId: Id` +
+(`mail_methods.nim:194-214`) takes a literal `firstEmailId: Id` +
 `restEmailIds: seq[Id]` cons-cell, which is fine when the ids are
 known at call time but cannot express a back-reference. The two
 builders coexist: `addSearchSnippetGet` for direct callers,
@@ -644,9 +651,9 @@ Wire impact: new additive builder; no existing wire shape touched.
 
 ---
 
-## 4. `ChainedHandles4[A, B, C, D]` and `addEmailQueryWithThreads`
+## 4. `EmailQueryThreadChain` and `addEmailQueryWithThreads`
 
-### 4.1. The shape at arity 4
+### 4.1. Why a purpose-built record, not an arity-4 generic
 
 RFC 8621 §4.10's canonical "first-login" workflow is a four-invocation
 back-reference chain:
@@ -657,55 +664,83 @@ back-reference chain:
 4. `Email/get` — fetch the full display properties for the emails in
    those threads.
 
-This is a structurally honest arity-4 chain, not a two-step chain
-repeated. Each back-reference path is a distinct RFC 6901 JSON Pointer
-(`/ids`, `/list/*/threadId`, `/list/*/emailIds`), not one shared path
-used twice. A generic at arity 2 cannot express it without ceremony;
-H1 introduces the arity-4 sibling generic (H10):
+Structurally, this is a four-step chain — but the parametric shape
+stops there. The four steps have **specific domain meaning** (query,
+threadIdFetch, threads, displayGet), the back-reference paths are
+three **distinct** RFC 6901 JSON Pointers (`/ids`,
+`/list/*/threadId`, `/list/*/emailIds`), and the library has **one**
+inhabitant for "arity-4 chain" — the first-login workflow itself. No
+law over arity-4 chains-in-general is being captured; no second
+inhabitant is in sight.
+
+A generic `ChainedHandles4[A, B, C, D]` with `first`/`second`/`third`/
+`fourth` fields would have the shape of parametric abstraction without
+the substance. It would satisfy no law that a purpose-built
+`EmailQueryThreadChain` record does not, and it would trade domain-
+named fields for positional ones — this is the one place §2's
+"domain-at-type-alias, structural-at-field-level" factoring runs out
+of reach, because that factoring requires a second inhabitant (a
+second type alias over the same generic) to anchor the domain. With
+one inhabitant, positional fields have no compensating domain anchor
+at any level (H10).
+
+`ChainedHandles[A, B]` of §3 IS parametric — two-step back-reference
+chains have laws (RFC 8620 §3.7 distinct call-ids, independent
+extraction), and §3 may acquire more inhabitants as future builders
+encode two-step workflows. Arity 4 stays concrete until a second
+arity-4 (or other honest arity-N) chain materialises to justify
+abstraction; §8.5's deferred variadic macro is the canonical
+escalation path and spells out the retrofit.
+
+### 4.2. The shape
 
 ```nim
-type ChainedHandles4*[A, B, C, D] {.ruleOff: "objects".} = object
-  ## Paired handles for a 4-step RFC 8620 §3.7 back-reference chain.
-  ## Each handle binds a distinct ``MethodCallId``.
-  first*:  ResponseHandle[A]
-  second*: ResponseHandle[B]
-  third*:  ResponseHandle[C]
-  fourth*: ResponseHandle[D]
+type EmailQueryThreadChain* {.ruleOff: "objects".} = object
+  ## Paired handles for the RFC 8621 §4.10 first-login workflow.
+  ## Each handle binds a distinct ``MethodCallId``; the domain role
+  ## of each step lives at the field level because there is no
+  ## generic above this record to carry it.
+  queryH*:         ResponseHandle[QueryResponse[Email]]
+  threadIdFetchH*: ResponseHandle[GetResponse[Email]]
+  threadsH*:       ResponseHandle[GetResponse[Thread]]
+  displayH*:       ResponseHandle[GetResponse[Email]]
 
-type ChainedResults4*[A, B, C, D] {.ruleOff: "objects".} = object
-  first*:  A
-  second*: B
-  third*:  C
-  fourth*: D
+type EmailQueryThreadResults* {.ruleOff: "objects".} = object
+  ## Paired extraction target of ``getAll(EmailQueryThreadChain)``.
+  ## Plain domain names; the enclosing type name conveys "responses".
+  query*:         QueryResponse[Email]
+  threadIdFetch*: GetResponse[Email]
+  threads*:       GetResponse[Thread]
+  display*:       GetResponse[Email]
 
-func getAll*[A, B, C, D](
-    resp: Response, handles: ChainedHandles4[A, B, C, D]
-): Result[ChainedResults4[A, B, C, D], MethodError] =
-  ## Extract all four responses from a §3.7 arity-4 chain.
+func getAll*(
+    resp: Response, handles: EmailQueryThreadChain
+): Result[EmailQueryThreadResults, MethodError] =
+  ## Extract all four responses from the first-login workflow.
+  ## Monomorphic over ``EmailQueryThreadChain`` — not a parametric
+  ## ``getAll[A, B, C, D]``, because the record it serves is not
+  ## parametric either.
   mixin fromJson
-  let first  = ?resp.get(handles.first)
-  let second = ?resp.get(handles.second)
-  let third  = ?resp.get(handles.third)
-  let fourth = ?resp.get(handles.fourth)
-  ok(ChainedResults4[A, B, C, D](
-    first: first, second: second, third: third, fourth: fourth))
+  let query         = ?resp.get(handles.queryH)
+  let threadIdFetch = ?resp.get(handles.threadIdFetchH)
+  let threads       = ?resp.get(handles.threadsH)
+  let display       = ?resp.get(handles.displayH)
+  ok(EmailQueryThreadResults(
+    query: query,
+    threadIdFetch: threadIdFetch,
+    threads: threads,
+    display: display))
 ```
 
-Two type parameters for a two-step chain, four for a four-step chain
-(H10). The naming mirrors `be21db0`'s `SetRequest[T, C, U]` — just-
-enough-parametricity, no more. Rule-of-Three for a variadic
-`ChainedHandlesN` is deferred to §8.5.
+`getAll` lives in `mail_builders.nim` alongside
+`addEmailQueryWithThreads` (not in `dispatch.nim`), because the
+extractor is no more parametric than the builder it serves —
+co-locating them avoids polluting `dispatch.nim` with monomorphic
+entry points.
 
-### 4.2. `addEmailQueryWithThreads` — spec-verbatim
+### 4.3. `addEmailQueryWithThreads` — spec-verbatim
 
 ```nim
-type EmailQueryThreadChain* = ChainedHandles4[
-  QueryResponse[Email],    # step 1: Email/query
-  GetResponse[Email],      # step 2: Email/get {threadId}
-  GetResponse[Thread],     # step 3: Thread/get
-  GetResponse[Email],      # step 4: Email/get {display props}
-]
-
 func addEmailQueryWithThreads*(
     b: RequestBuilder,
     accountId: AccountId,
@@ -722,23 +757,23 @@ func addEmailQueryWithThreads*(
   let (b1, queryH) = addEmailQuery(
     b, accountId, filter, Opt.some(sort), queryParams, collapseThreads)
 
-  let (b2, threadIdGetH) = addEmailGetByRef(
+  let (b2, threadIdFetchH) = addEmailGetByRef(
     b1, accountId,
     idsRef = ResultReference(
       resultOf: callId(queryH), name: mnEmailQuery,
       path: $rrpIds),
     properties = @["threadId"])
 
-  let (b3, threadGetH) = addThreadGetByRef(
+  let (b3, threadsH) = addThreadGetByRef(
     b2, accountId,
     idsRef = ResultReference(
-      resultOf: callId(threadIdGetH), name: mnEmailGet,
+      resultOf: callId(threadIdFetchH), name: mnEmailGet,
       path: $rrpListThreadId))
 
-  let (b4, displayGetH) = addEmailGetByRef(
+  let (b4, displayH) = addEmailGetByRef(
     b3, accountId,
     idsRef = ResultReference(
-      resultOf: callId(threadGetH), name: mnThreadGet,
+      resultOf: callId(threadsH), name: mnThreadGet,
       path: $rrpListEmailIds),
     properties = displayProperties,
     fetchHtmlBody = true,
@@ -746,8 +781,10 @@ func addEmailQueryWithThreads*(
     maxBodyValueBytes = UnsignedInt(256))
 
   (b4, EmailQueryThreadChain(
-    first: queryH, second: threadIdGetH,
-    third: threadGetH, fourth: displayGetH))
+    queryH: queryH,
+    threadIdFetchH: threadIdFetchH,
+    threadsH: threadsH,
+    displayH: displayH))
 ```
 
 Builder-helper dependencies `addEmailGetByRef` and `addThreadGetByRef`
@@ -755,7 +792,7 @@ accept a `ResultReference` for `ids` — siblings of the existing
 literal-ids overloads (parity with §3's `addSearchSnippetGetByRef`).
 Both are introduced in this commit.
 
-### 4.3. `DefaultDisplayProperties`
+### 4.4. `DefaultDisplayProperties`
 
 The RFC 8621 §4.10 example literally enumerates nine display
 properties for the fourth invocation. H1 exposes them as a module-
@@ -777,7 +814,7 @@ site, and the docstring pins its RFC origin.
 
 `collapseThreads` defaults to `true` per RFC §4.10 example (H13).
 
-### 4.4. `ResultRefPath` — path constants
+### 4.5. `ResultRefPath` — path constants
 
 RFC 8621 §4.10 uses three JSON Pointer paths as back-reference
 targets: `/ids`, `/list/*/threadId`, `/list/*/emailIds`. H1
@@ -809,29 +846,50 @@ discipline catches typos at compile time (no `\\ids` vs `/ids`
 regressions). Broader enumeration of every JMAP back-reference path
 in the wild is out of scope; see §8.7.
 
-### 4.5. File impact
+### 4.6. File impact
 
-- `src/jmap_client/dispatch.nim` — add `ChainedHandles4`,
-  `ChainedResults4`, `getAll`, `ResultRefPath` enum.
+- `src/jmap_client/dispatch.nim` — add `ResultRefPath` enum.
+  (`CompoundHandles` / `ChainedHandles` generics and their gates are
+  added in §2 and §3; no arity-4 generic machinery lands in
+  `dispatch.nim`.)
 - `src/jmap_client/mail/mail_builders.nim` — add
-  `EmailQueryThreadChain` alias, `DefaultDisplayProperties` const,
+  `EmailQueryThreadChain` record, `EmailQueryThreadResults` record,
+  monomorphic `getAll` extractor, `DefaultDisplayProperties` const,
   `addEmailQueryWithThreads` builder, `addEmailGetByRef` and
   `addThreadGetByRef` helpers.
 
 Wire impact: new additive builder; RFC-§4.10-verbatim output.
 
-### 4.6. Decisions
+### 4.7. Decisions
 
-- **H10. `ChainedHandles4[A, B, C, D]` as a separate named generic,
-  not a bespoke 4-field object.** Four type parameters is the honest
-  arity; `type EmailQueryThreadChain = ChainedHandles4[...]` hides
-  them at the call site. Matches the `SetRequest[T, C, U]` naming
-  precedent.
+- **H10. Purpose-built `EmailQueryThreadChain` record, not an arity-4
+  generic.** The first-login workflow has one inhabitant; there is no
+  law that `ChainedHandles4[A, B, C, D]` would satisfy that the
+  purpose-built record does not. Abstraction requires both structural
+  repetition AND a parametric law — `CompoundHandles[A, B]` (§2)
+  satisfies both (two inhabitants, `getBoth` is genuinely polymorphic
+  in `A` and `B`); the arity-4 chain satisfies neither. The §2/§3
+  "domain-at-type-alias, structural-at-field-level" factoring relies
+  on a type-alias layer above the generic to carry domain vocabulary;
+  with one inhabitant, that layer collapses, and positional
+  (`first`/`second`/`third`/`fourth`) fields would have no domain
+  anchor at any level. Domain-named fields at the record level are
+  the right answer when there is no generic above. §8.5 spells out
+  the retrofit path when a second inhabitant materialises.
 
-- **H11. Field names `first`/`second`/`third`/`fourth`.** Not
-  `query`/`threadIdFetch`/`threads`/`emails`. Consistency with
-  `ChainedHandles[A, B]` at the field level; domain vocabulary at the
-  type-alias level. Same decision as H2 for compound handles.
+- **H11. Field names `queryH` / `threadIdFetchH` / `threadsH` /
+  `displayH` on the handle record; `query` / `threadIdFetch` /
+  `threads` / `display` on the results record.** Domain-named, role-
+  descriptive, mechanical to read at call sites. The `H` suffix on
+  the handles record marks "handle, not response" and avoids
+  collision between the two records when they both appear at a call
+  site; the results record uses plain names because the type name
+  (`EmailQueryThreadResults`) already conveys "these are responses."
+  Asymmetric with H2 (which picks structural `primary`/`implicit`
+  for `CompoundHandles[A, B]`) precisely because that asymmetry
+  matters: H2 applies when multiple type aliases inhabit one
+  generic; H11 applies when there is no generic and the record itself
+  must carry domain vocabulary.
 
 - **H12. `DefaultDisplayProperties` as a module-level `const` with
   RFC docstring.** Override is a normal argument. One named
@@ -840,17 +898,33 @@ Wire impact: new additive builder; RFC-§4.10-verbatim output.
 - **H13. `collapseThreads` defaults to `true`.** RFC §4.10 example
   default.
 
-- **H14. `getAll` is one function, not four partial extractors.**
-  Partial extraction is a user concern — `resp.get(handles.first)`
-  is already available via field access. No `getFirstTwo`,
-  `getLastThree`, or similar combinatorial explosion.
+- **H14. `getAll` is one monomorphic function, not a parametric
+  extractor or a combinatorial family.** Partial extraction is a
+  user concern — `resp.get(handles.queryH)` is already available via
+  field access. `getAll` lives in `mail_builders.nim` alongside
+  `addEmailQueryWithThreads`, not in `dispatch.nim`, because it has
+  no parametric shape to share with `dispatch`-layer generics;
+  co-locating the monomorphic extractor with its builder keeps the
+  dispatch layer clean and the builder module self-contained.
 
-- **H15. Rule-of-Three deferred for `ChainedHandlesN` macro-
-  generated variadic.** Today we have `ChainedHandles[A, B]` +
-  `ChainedHandles4[A, B, C, D]`. When a 5-step chain materialises,
-  or when a third distinct arity is justified by a real builder,
-  introduce `template defineChainedHandles(n: static int)` that
-  generates arity-N generics. Noted in §8.5.
+- **H15. Rule-of-Three deferred for variadic `ChainedHandlesN` macro
+  — with an explicit retrofit path.** Today we have the
+  `ChainedHandles[A, B]` generic (§3, parametric over 2-step chains)
+  and the purpose-built `EmailQueryThreadChain` record (§4, one
+  inhabitant). When a second arity-4 chain materialises, or when a
+  distinct arity (3, 5+) is justified by a real builder, introduce
+  `template defineChainedHandles(n: static int)` that generates
+  arity-N generics, and retrofit:
+    1. Re-express `ChainedHandles[A, B]` as `ChainedHandles2[A, B]`
+       (one-line type alias preserves all existing call sites).
+    2. Re-express `EmailQueryThreadChain` as a type alias over
+       `ChainedHandles4[QueryResponse[Email], GetResponse[Email],
+       GetResponse[Thread], GetResponse[Email]]`, with field-
+       projection helpers (`template queryH(c): auto = c.first` etc.)
+       preserving the domain-named accessors at call sites.
+  The migration is mechanical because the shapes already align; the
+  generic arrives only when there are two real inhabitants at each
+  arity to justify the abstraction. See §8.5.
 
 - **H16. `ResultRefPath` path constants centralised in
   `dispatch.nim`.** No stringly-typed paths at builder call sites.
@@ -868,7 +942,7 @@ everything deeper. Callers who want to branch on the Reply-code, the
 enhanced status class, or the subject/detail codes must re-parse the
 string — every time, at every call site, with no shared vocabulary.
 RFC 3463 §2 decomposition is explicitly deferred at
-`submission_status.nim:239` with a `G12` marker. The deferral is the
+`submission_status.nim:240` with a `G12` marker. The deferral is the
 last major "validated-but-opaque" field in the RFC 8621 surface.
 
 H1 lifts it. `DeliveryStatus.smtpReply` becomes `ParsedSmtpReply`, an
@@ -977,13 +1051,13 @@ type ParsedSmtpReply* {.ruleOff: "objects".} = object
 Field ordering: discriminators first (`replyCode`), then typed
 subcomponent (`enhanced`), then diagnostic strings (`text`, `raw`).
 Matches the G1 `ParsedDeliveredState`/`ParsedDisplayedState` shape
-at `submission_status.nim:73-80, 89-93` — classification plus raw,
+at `submission_status.nim:74-80, 90-94` — classification plus raw,
 round-trippable.
 
 ### 5.4. Extended `SmtpReplyViolation` enum (10 → 15 variants)
 
 The existing module-local `SmtpReplyViolation` enum at
-`submission_status.nim:111-127` has ten variants covering the
+`submission_status.nim:112-128` has ten variants covering the
 RFC 5321 §4.2 surface grammar. H1 extends it — **same site, same
 prefix (`sr`), new variants appended** (H20). No variant is renamed;
 existing serde and detector code sees the enum exactly as today.
@@ -1030,7 +1104,7 @@ type SmtpReplyViolation* = enum
 
 Violation-vocabulary alignment — the first 10 variants are
 **identical in name, order, and semantics** to the existing enum at
-`submission_status.nim:111-127`. Only the 5 `srEnhanced*` variants
+`submission_status.nim:112-128`. Only the 5 `srEnhanced*` variants
 are appended.
 
 | Position | Existing (G1) | Extended (H1) | Change |
@@ -1186,7 +1260,7 @@ The canonicalisation policy is pinned in §5.8.
 
 ### 5.6. `DeliveryStatus` field migration
 
-The field type changes at `submission_status.nim:248-253`:
+The field type changes at `submission_status.nim:249-254`:
 
 ```nim
 # Before (G1):
@@ -1208,7 +1282,7 @@ were the G1 precedent for the parse-once shape; `ParsedSmtpReply`
 extends the same pattern into the `smtpReply` slot. All three fields
 now carry the parsed form alongside diagnostic raw bytes.
 
-`DeliveryStatusMap` at `submission_status.nim:255-260` is unchanged
+`DeliveryStatusMap` at `submission_status.nim:256-263` is unchanged
 — its value type flows through the rename.
 
 ### 5.7. Serde routing
@@ -1429,29 +1503,29 @@ longer exists, `just lint` catches it via the re-export chain in
 
 | RFC § | URI | `CapabilityKind` variant | File:line |
 |---|---|---|---|
-| §10.1 | `urn:ietf:params:jmap:mail` | `ckMail` | `src/jmap_client/capabilities.nim:25` |
-| §10.2 | `urn:ietf:params:jmap:submission` | `ckSubmission` | `src/jmap_client/capabilities.nim:27` |
-| §10.3 | `urn:ietf:params:jmap:vacationresponse` | `ckVacationResponse` | `src/jmap_client/capabilities.nim:28` |
+| §10.1 | `urn:ietf:params:jmap:mail` | `ckMail` | `src/jmap_client/capabilities.nim:26` |
+| §10.2 | `urn:ietf:params:jmap:submission` | `ckSubmission` | `src/jmap_client/capabilities.nim:28` |
+| §10.3 | `urn:ietf:params:jmap:vacationresponse` | `ckVacationResponse` | `src/jmap_client/capabilities.nim:29` |
 
 `MailCapabilities` (RFC §2) — server-advertised limits for
 `urn:ietf:params:jmap:mail`:
 
 | RFC field | Nim field | File:line |
 |---|---|---|
-| `maxMailboxesPerEmail` | `maxMailboxesPerEmail*: Opt[UnsignedInt]` | `src/jmap_client/mail/mail_capabilities.nim:39` |
-| `maxMailboxDepth` | `maxMailboxDepth*: Opt[UnsignedInt]` | `src/jmap_client/mail/mail_capabilities.nim:40` |
-| `maxSizeMailboxName` | `maxSizeMailboxName*: UnsignedInt` | `src/jmap_client/mail/mail_capabilities.nim:41` |
-| `maxSizeAttachmentsPerEmail` | `maxSizeAttachmentsPerEmail*: UnsignedInt` | `src/jmap_client/mail/mail_capabilities.nim:42` |
-| `emailQuerySortOptions` | `emailQuerySortOptions*: HashSet[string]` | `src/jmap_client/mail/mail_capabilities.nim:43` |
-| `mayCreateTopLevelMailbox` | `mayCreateTopLevelMailbox*: bool` | `src/jmap_client/mail/mail_capabilities.nim:44` |
+| `maxMailboxesPerEmail` | `maxMailboxesPerEmail*: Opt[UnsignedInt]` | `src/jmap_client/mail/mail_capabilities.nim:40` |
+| `maxMailboxDepth` | `maxMailboxDepth*: Opt[UnsignedInt]` | `src/jmap_client/mail/mail_capabilities.nim:41` |
+| `maxSizeMailboxName` | `maxSizeMailboxName*: UnsignedInt` | `src/jmap_client/mail/mail_capabilities.nim:42` |
+| `maxSizeAttachmentsPerEmail` | `maxSizeAttachmentsPerEmail*: UnsignedInt` | `src/jmap_client/mail/mail_capabilities.nim:43` |
+| `emailQuerySortOptions` | `emailQuerySortOptions*: HashSet[string]` | `src/jmap_client/mail/mail_capabilities.nim:44` |
+| `mayCreateTopLevelMailbox` | `mayCreateTopLevelMailbox*: bool` | `src/jmap_client/mail/mail_capabilities.nim:45` |
 
 `SubmissionCapabilities` (RFC §7) — server-advertised limits for
 `urn:ietf:params:jmap:submission`:
 
 | RFC field | Nim field | File:line |
 |---|---|---|
-| `maxDelayedSend` | `maxDelayedSend*: UnsignedInt` | `src/jmap_client/mail/mail_capabilities.nim:49` |
-| `submissionExtensions` | `submissionExtensions*: SubmissionExtensionMap` | `src/jmap_client/mail/mail_capabilities.nim:50` |
+| `maxDelayedSend` | `maxDelayedSend*: UnsignedInt` | `src/jmap_client/mail/mail_capabilities.nim:50` |
+| `submissionExtensions` | `submissionExtensions*: SubmissionExtensionMap` | `src/jmap_client/mail/mail_capabilities.nim:51` |
 
 `VacationResponseCapabilities` (RFC §8) has no server-advertised
 fields per the RFC — the capability is a presence flag only. No Nim
@@ -1464,14 +1538,14 @@ RFC §10.4 registers four JMAP-originated keywords and reserves one
 
 | RFC § | Keyword | Nim binding | File:line |
 |---|---|---|---|
-| §10.4.1 | `$draft` | `const kwDraft* = Keyword("$draft")` | `src/jmap_client/mail/keyword.nim:40` |
-| §10.4.2 | `$seen` | `const kwSeen* = Keyword("$seen")` | `src/jmap_client/mail/keyword.nim:41` |
-| §10.4.3 | `$flagged` | `const kwFlagged* = Keyword("$flagged")` | `src/jmap_client/mail/keyword.nim:42` |
-| §10.4.4 | `$answered` | `const kwAnswered* = Keyword("$answered")` | `src/jmap_client/mail/keyword.nim:43` |
+| §10.4.1 | `$draft` | `const kwDraft* = Keyword("$draft")` | `src/jmap_client/mail/keyword.nim:41` |
+| §10.4.2 | `$seen` | `const kwSeen* = Keyword("$seen")` | `src/jmap_client/mail/keyword.nim:42` |
+| §10.4.3 | `$flagged` | `const kwFlagged* = Keyword("$flagged")` | `src/jmap_client/mail/keyword.nim:43` |
+| §10.4.4 | `$answered` | `const kwAnswered* = Keyword("$answered")` | `src/jmap_client/mail/keyword.nim:44` |
 | §10.4.5 | `$recent` | **intentionally absent** — RFC §10.4.5 scope: "reserved"; client libraries MUST NOT set it. | — |
 
 `keyword.nim` also exposes `kwForwarded`, `kwPhishing`, `kwJunk`,
-`kwNotJunk` (lines 44–47) — these are **NOT** RFC 8621 §10.4
+`kwNotJunk` (lines 45–48) — these are **NOT** RFC 8621 §10.4
 registrations; they are IANA IMAP and JMAP Keywords registry entries
 referenced as informative examples in RFC 8621 §4.1.1. See §8.6.
 
@@ -1483,17 +1557,17 @@ Attributes registry (RFC 6154, RFC 5258) that RFC 8621 §2 references.
 
 | RFC § | Role | `MailboxRoleKind` variant | File:line |
 |---|---|---|---|
-| **§10.5.1** | **`inbox` (RFC 8621 registration)** | **`mrInbox = "inbox"`** | **`src/jmap_client/mail/mailbox.nim:28`** |
-| RFC 6154 | `drafts` | `mrDrafts = "drafts"` | `src/jmap_client/mail/mailbox.nim:29` |
-| RFC 6154 | `sent` | `mrSent = "sent"` | `src/jmap_client/mail/mailbox.nim:30` |
-| RFC 6154 | `trash` | `mrTrash = "trash"` | `src/jmap_client/mail/mailbox.nim:31` |
-| RFC 6154 | `junk` | `mrJunk = "junk"` | `src/jmap_client/mail/mailbox.nim:32` |
-| RFC 6154 | `archive` | `mrArchive = "archive"` | `src/jmap_client/mail/mailbox.nim:33` |
-| RFC 6154 | `important` | `mrImportant = "important"` | `src/jmap_client/mail/mailbox.nim:34` |
-| RFC 5258 | `all` | `mrAll = "all"` | `src/jmap_client/mail/mailbox.nim:35` |
-| RFC 5258 | `flagged` | `mrFlagged = "flagged"` | `src/jmap_client/mail/mailbox.nim:36` |
-| RFC 5465 | `subscriptions` | `mrSubscriptions = "subscriptions"` | `src/jmap_client/mail/mailbox.nim:37` |
-| (catch-all) | vendor-extension role | `mrOther` | `src/jmap_client/mail/mailbox.nim:38` |
+| **§10.5.1** | **`inbox` (RFC 8621 registration)** | **`mrInbox = "inbox"`** | **`src/jmap_client/mail/mailbox.nim:29`** |
+| RFC 6154 | `drafts` | `mrDrafts = "drafts"` | `src/jmap_client/mail/mailbox.nim:30` |
+| RFC 6154 | `sent` | `mrSent = "sent"` | `src/jmap_client/mail/mailbox.nim:31` |
+| RFC 6154 | `trash` | `mrTrash = "trash"` | `src/jmap_client/mail/mailbox.nim:32` |
+| RFC 6154 | `junk` | `mrJunk = "junk"` | `src/jmap_client/mail/mailbox.nim:33` |
+| RFC 6154 | `archive` | `mrArchive = "archive"` | `src/jmap_client/mail/mailbox.nim:34` |
+| RFC 6154 | `important` | `mrImportant = "important"` | `src/jmap_client/mail/mailbox.nim:35` |
+| RFC 5258 | `all` | `mrAll = "all"` | `src/jmap_client/mail/mailbox.nim:36` |
+| RFC 5258 | `flagged` | `mrFlagged = "flagged"` | `src/jmap_client/mail/mailbox.nim:37` |
+| RFC 5465 | `subscriptions` | `mrSubscriptions = "subscriptions"` | `src/jmap_client/mail/mailbox.nim:38` |
+| (catch-all) | vendor-extension role | `mrOther` | `src/jmap_client/mail/mailbox.nim:39` |
 
 ### 6.4. SetError codes (§10.6)
 
@@ -1503,26 +1577,31 @@ Email/set, EmailSubmission/set, and Identity/set. All twelve are
 
 | RFC origin | Code | Variant | File:line |
 |---|---|---|---|
-| RFC 8621 §2.3 Mailbox/set | `mailboxHasChild` | `setMailboxHasChild = "mailboxHasChild"` | `src/jmap_client/errors.nim:274` |
-| RFC 8621 §2.3 Mailbox/set | `mailboxHasEmail` | `setMailboxHasEmail = "mailboxHasEmail"` | `src/jmap_client/errors.nim:275` |
-| RFC 8621 §4.6 Email/set | `blobNotFound` | `setBlobNotFound = "blobNotFound"` | `src/jmap_client/errors.nim:277` |
-| RFC 8621 §4.6 Email/set | `tooManyKeywords` | `setTooManyKeywords = "tooManyKeywords"` | `src/jmap_client/errors.nim:278` |
-| RFC 8621 §4.6 Email/set | `tooManyMailboxes` | `setTooManyMailboxes = "tooManyMailboxes"` | `src/jmap_client/errors.nim:279` |
-| RFC 8621 §7.5 EmailSubmission/set | `invalidEmail` | `setInvalidEmail = "invalidEmail"` | `src/jmap_client/errors.nim:281` |
-| RFC 8621 §7.5 EmailSubmission/set | `tooManyRecipients` | `setTooManyRecipients = "tooManyRecipients"` | `src/jmap_client/errors.nim:282` |
-| RFC 8621 §7.5 EmailSubmission/set | `noRecipients` | `setNoRecipients = "noRecipients"` | `src/jmap_client/errors.nim:283` |
-| RFC 8621 §7.5 EmailSubmission/set | `invalidRecipients` | `setInvalidRecipients = "invalidRecipients"` | `src/jmap_client/errors.nim:284` |
-| RFC 8621 §7.5 EmailSubmission/set | `forbiddenMailFrom` | `setForbiddenMailFrom = "forbiddenMailFrom"` | `src/jmap_client/errors.nim:285` |
-| RFC 8621 §7.5 EmailSubmission/set | `forbiddenFrom` | `setForbiddenFrom = "forbiddenFrom"` | `src/jmap_client/errors.nim:286` |
-| RFC 8621 §7.5 EmailSubmission/set | `forbiddenToSend` | `setForbiddenToSend = "forbiddenToSend"` | `src/jmap_client/errors.nim:287` |
-| RFC 8621 §7.5 EmailSubmission/set | `cannotUnsend` | `setCannotUnsend = "cannotUnsend"` | `src/jmap_client/errors.nim:288` |
+| RFC 8621 §2.3 Mailbox/set | `mailboxHasChild` | `setMailboxHasChild = "mailboxHasChild"` | `src/jmap_client/errors.nim:275` |
+| RFC 8621 §2.3 Mailbox/set | `mailboxHasEmail` | `setMailboxHasEmail = "mailboxHasEmail"` | `src/jmap_client/errors.nim:276` |
+| RFC 8621 §4.6 Email/set | `blobNotFound` | `setBlobNotFound = "blobNotFound"` | `src/jmap_client/errors.nim:278` |
+| RFC 8621 §4.6 Email/set | `tooManyKeywords` | `setTooManyKeywords = "tooManyKeywords"` | `src/jmap_client/errors.nim:279` |
+| RFC 8621 §4.6 Email/set | `tooManyMailboxes` | `setTooManyMailboxes = "tooManyMailboxes"` | `src/jmap_client/errors.nim:280` |
+| RFC 8621 §7.5 EmailSubmission/set | `invalidEmail` | `setInvalidEmail = "invalidEmail"` | `src/jmap_client/errors.nim:282` |
+| RFC 8621 §7.5 EmailSubmission/set | `tooManyRecipients` | `setTooManyRecipients = "tooManyRecipients"` | `src/jmap_client/errors.nim:283` |
+| RFC 8621 §7.5 EmailSubmission/set | `noRecipients` | `setNoRecipients = "noRecipients"` | `src/jmap_client/errors.nim:284` |
+| RFC 8621 §7.5 EmailSubmission/set | `invalidRecipients` | `setInvalidRecipients = "invalidRecipients"` | `src/jmap_client/errors.nim:285` |
+| RFC 8621 §7.5 EmailSubmission/set | `forbiddenMailFrom` | `setForbiddenMailFrom = "forbiddenMailFrom"` | `src/jmap_client/errors.nim:286` |
+| RFC 8621 §7.5 EmailSubmission/set | `forbiddenFrom` | `setForbiddenFrom = "forbiddenFrom"` | `src/jmap_client/errors.nim:287` |
+| RFC 8621 §7.5 EmailSubmission/set | `forbiddenToSend` | `setForbiddenToSend = "forbiddenToSend"` | `src/jmap_client/errors.nim:288` |
+| RFC 8621 §7.5 EmailSubmission/set | `cannotUnsend` | `setCannotUnsend = "cannotUnsend"` | `src/jmap_client/errors.nim:289` |
 
-RFC 8620 §5.3 standard SetError codes (`invalidArguments`, `notFound`,
-`stateMismatch`, `invalidPatch`, `willDestroy`, `invalidProperties`,
-`alreadyExists`, `singleton`, `tooLarge`, `rateLimit`) are also
-`SetErrorType` variants (lines 259–272) but are RFC 8620 core, not
+RFC 8620 §5.3 standard SetError codes (`forbidden`, `overQuota`,
+`tooLarge`, `rateLimit`, `notFound`, `invalidPatch`, `willDestroy`,
+`invalidProperties`, `alreadyExists`, `singleton`) are also
+`SetErrorType` variants (`setForbidden`..`setSingleton` at
+`src/jmap_client/errors.nim:264-273`) but are RFC 8620 core, not
 RFC 8621 §10.6 — included here for completeness of the error-code
-vocabulary only.
+vocabulary only. RFC 8620 §5.3 also lists `stateMismatch` as a
+SetError code; this codebase exposes `stateMismatch` only at the
+MethodError level (`metStateMismatch` at
+`src/jmap_client/errors.nim:220`), which the RFC also permits via
+its parallel listing in §3.6.2 (request-level errors).
 
 ---
 
@@ -1539,12 +1618,12 @@ vocabulary only.
 | H7 | Filter shared via back-reference vs duplicated | (A) second `ResultReference` sharing the filter, (B) literal duplication | **B** — literal duplication | Each invocation self-contained; no new `ResultReference` path invented unless needed |
 | H8 | Non-emptiness of `emailIds` back-reference | (A) refuse empty (impossible at back-reference), (B) accept empty | **B** — accept degenerate-but-valid per RFC; cons-cell discipline does not propagate through back-reference | Honest about what the type can enforce |
 | H9 | Compile-time gate for chain participants | (A) none, (B) `registerChainableMethod(Primary)` | **B** — mirror of H4 | `be21db0` precedent |
-| H10 | Arity-4 chain representation | (A) bespoke 4-field object, (B) named generic `ChainedHandles4[A, B, C, D]` | **B** — named generic; `type EmailQueryThreadChain = ChainedHandles4[...]` hides arity at call site | `SetRequest[T, C, U]` just-enough-parametricity precedent |
-| H11 | Field names on `ChainedHandles4` | (A) `first`/`second`/`third`/`fourth`, (B) domain-specific names | **A** — positional; consistency with `ChainedHandles[A, B]`; domain vocabulary at type-alias level | H2 precedent |
+| H10 | Arity-4 chain representation | (A) purpose-built `EmailQueryThreadChain` record with domain-named fields, (B) named generic `ChainedHandles4[A, B, C, D]` with positional fields, (C) variadic `ChainedHandlesN` macro now | **A** — purpose-built record; abstraction requires structural repetition AND a parametric law, and arity-4 has neither (one inhabitant, no law over arity-4 chains as a class); §8.5 covers the retrofit when a second inhabitant arrives | No parametric law over arity-4 chains; domain vocabulary survives at the record level when there is no generic above it |
+| H11 | Field names on `EmailQueryThreadChain` / `EmailQueryThreadResults` | (A) `first`/`second`/`third`/`fourth`, (B) domain-named `queryH`/`threadIdFetchH`/`threadsH`/`displayH` on handles + `query`/`threadIdFetch`/`threads`/`display` on results | **B** — domain-named; asymmetric with H2 because the record has no generic above it, so the H2 "domain-at-type-alias" argument does not apply and the domain must live at the field level | Code reads like the spec; RFC §4.10 step names survive to the field level |
 | H12 | `DefaultDisplayProperties` location | (A) hard-coded in builder, (B) module-level `const` with docstring, (C) configuration object | **B** — one named auditable default, RFC-cited | One source of truth per fact |
 | H13 | `collapseThreads` default | (A) `false`, (B) `true` per RFC §4.10 example | **B** | Match RFC canonical example |
-| H14 | Partial-extraction functions | (A) `getAll` only, (B) `getAll` + `getFirstTwo` + `getLastThree` + etc. | **A** — one function; partial extraction via field access | Avoid combinatorial explosion; field access is already available |
-| H15 | Variadic `ChainedHandlesN` macro | (A) implement now, (B) Rule-of-Three deferred | **B** — deferred to §8.5 | Not yet justified by a third distinct arity |
+| H14 | Partial-extraction functions | (A) `getAll` only, monomorphic, co-located with the builder in `mail_builders.nim`; (B) `getAll` + `getFirstTwo` + `getLastThree` + etc.; (C) parametric `getAll` in `dispatch.nim` | **A** — one function; partial extraction via field access; the monomorphic extractor lives alongside the builder, not in the dispatch layer, because it has no parametric shape to share | Avoid combinatorial explosion; co-locate monomorphic extractors with their monomorphic builders |
+| H15 | Variadic `ChainedHandlesN` macro | (A) implement now, (B) Rule-of-Three deferred with explicit retrofit path | **B** — deferred to §8.5; retrofit re-expresses `ChainedHandles[A, B]` as `ChainedHandles2[A, B]` and `EmailQueryThreadChain` as a type alias over `ChainedHandles4[...]` with field-projection helpers | Not yet justified; abstraction follows two inhabitants at each arity, and the retrofit path makes the deferral reversible |
 | H16 | Back-reference path constants | (A) string literals at call sites, (B) `ResultRefPath` enum in `dispatch.nim` | **B** — centralised, compile-checked | No stringly-typed JSON Pointers |
 | H17 | `SmtpReply` distinct string retirement | (A) keep as-is, (B) layer a second parser atop, (C) retire wholesale, migrate `DeliveryStatus.smtpReply` to `ParsedSmtpReply` | **C** — wholesale retirement; no compat shim | `515f3bd` "deleted entirely, no compat shim"; clean-refactor invariant |
 | H18 | Typed Reply-code / subject / detail | (A) bare `uint16`, (B) distinct newtypes + string-backed enum for class | **B** — four distinct newtypes + `StatusCodeClass` enum | Distinct-newtype invariant; G1 `HoldForSeconds`/`MtPriority` precedent |
@@ -1606,38 +1685,81 @@ until Layer 5 is designed.
 ### 8.4. G2 EmailSubmission test specification
 
 G1 §1.3 deferred "Part G2 (Test Specification)" as a companion
-document handled separately per user direction. H1 does not displace
-that deferral. Test references in H1 appear only as regression-pinning
-named fixtures (e.g. `tests/serde/mail/tserde_submission_status.nim`),
-not as a test-spec deliverable.
+document handled separately per user direction. **G2 has since
+landed in full** — the design `docs/design/12-mail-G2-design.md`
+and the implementation across `tests/mail/`, `tests/property/`,
+adversarial/scale tests, and the §7 RFC 8621 constraint anchor
+under `tests/compliance/` are all merged. H1 does not take on any
+new G2 test work; references to tests in H1 are regression-pinning
+named fixtures only (e.g. `tests/serde/mail/tserde_submission_status.nim`,
+`tests/serde/mail/tserde_email_copy.nim`,
+`tests/serde/mail/tserde_email_submission.nim`).
+
+The G2 regression net is implicitly load-bearing for §5: any
+`tests/mail/` test that exercises `DeliveryStatus.smtpReply`
+indirectly via `EmailSubmission.deliveryStatus: Opt[DeliveryStatusMap]`
+(`email_submission.nim:40`) must continue to pass after the §5
+field-type migration to `ParsedSmtpReply`. Implementation PRs run
+`just test` and verify zero G2 regressions before claiming §5
+complete.
 
 ### 8.5. Variadic `ChainedHandlesN`
 
-Today we have arity 2 (`ChainedHandles[A, B]`) + arity 4
-(`ChainedHandles4[A, B, C, D]`). No builder exists at arity 3 or 5+.
-Rule-of-Three applies: when the third distinct arity materialises —
-or when a real builder needs arity 5, not a hypothetical one —
-introduce `template defineChainedHandles(n: static int)` that
-generates arity-N generics. Today the two concrete sites do not
-justify the macro, and the macro would displace the direct type
-definitions that let the compiler give clear error messages on
+Today we have arity 2 as a parametric generic (`ChainedHandles[A, B]`,
+§3) and arity 4 as a purpose-built record (`EmailQueryThreadChain`,
+§4). No *generic* exists at arity 4 — one inhabitant does not justify
+a generic. Rule-of-Three applies: when a second arity-4 chain
+materialises, or when a distinct arity (3, 5+) is justified by a
+real builder, introduce `template defineChainedHandles(n: static
+int)` that generates arity-N generics. Today the two concrete sites
+do not justify the macro, and the macro would displace the direct
+type definitions that let the compiler give clear error messages on
 mismatch.
 
+**Retrofit strategy.** When the macro lands, the existing surface
+migrates mechanically because the shapes already align:
+
+1. Re-express `ChainedHandles[A, B]` as `type ChainedHandles[A, B] =
+   ChainedHandles2[A, B]`. One-line type alias; all existing call
+   sites continue to work verbatim.
+2. Re-express `EmailQueryThreadChain` as a type alias over
+   `ChainedHandles4[QueryResponse[Email], GetResponse[Email],
+   GetResponse[Thread], GetResponse[Email]]`, and preserve the
+   domain-named field accessors via projection templates:
+
+   ```nim
+   template queryH*(c: EmailQueryThreadChain): auto = c.first
+   template threadIdFetchH*(c: EmailQueryThreadChain): auto = c.second
+   template threadsH*(c: EmailQueryThreadChain): auto = c.third
+   template displayH*(c: EmailQueryThreadChain): auto = c.fourth
+   ```
+
+   Same pattern for `EmailQueryThreadResults`. Call sites using
+   `chain.queryH` continue to work; the domain vocabulary survives
+   via the projection layer.
+
+The generic arrives only when there are two real inhabitants at each
+arity to justify the abstraction — at that point the generic unifies
+the existing shapes without breaking any consumer.
+
 This is a deliberate asymmetry with H1 §2 (Rule-of-Two promotion for
-`CompoundHandles`). The asymmetry is justified by the precedent:
-`be21db0` promoted `SetRequest[T, C, U]` at three `/set` sites, not
-two; H1 §2 promotes at two sites because the structural repetition
-is exact and the §5.4-vs-§3.7 split is load-bearing. H1 §8.5 defers
-the variadic macro because the arity-2 vs arity-4 split is the
-full set of shapes the library needs today — a third distinct arity
-would be new structural evidence.
+`CompoundHandles`). The asymmetry is principled, not opportunistic:
+H1 §2 promotes at two sites because both inhabitants are genuine —
+each has its own type alias (`EmailCopyHandles`,
+`EmailSubmissionHandles`) carrying domain vocabulary, and the
+generic's `getBoth` is polymorphic in `A` and `B` with a real law
+(RFC 8620 §5.4 dispatch). H1 §4 declines to promote at arity 4 with
+one inhabitant because there is no second type alias to anchor
+domain vocabulary and no parametric law beyond "four specific fields
+in a specific order" — abstraction without a law is shape theatre.
+When a second inhabitant arrives, the retrofit above applies.
 
 ### 8.6. `$forwarded` / `$phishing` / `$junk` / `$notjunk` keywords
 
 RFC 8621 §4.1.1 references these as informative examples from the
 IANA IMAP and JMAP Keywords registry — they are NOT RFC 8621 §10
 registrations. They are already represented in
-`src/jmap_client/mail/keyword.nim:44-47` (`kwForwarded`, `kwPhishing`,
+`src/jmap_client/mail/keyword.nim:45-48` (`kwForwarded`, `kwPhishing`,
 `kwJunk`, `kwNotJunk`), so H1 §6.2's audit table (which tracks RFC
 §10 specifically) correctly omits them. If the RFC 8621 §10.4
 registry expands in a future RFC revision to include these, they
@@ -1657,22 +1779,36 @@ scope creep at H1 would introduce variants with no consumer.
 
 ## 9. Clean-refactor: Deletions inventory + grep gate
 
-H1 encodes the clean-refactor invariant (§1.3, invariant 8) as a
-grep-verifiable inventory. Every symbol below is DELETED from the
-repository — no alias, no shim, no `{.deprecated.}` pragma, no
-bridge. Implementation PRs are verified against the grep gate in
-§9.6.
+H1 encodes the clean-refactor invariant (§1.3, invariant 8) in two
+distinct parts:
+
+- **§9.1–§9.3 are an informational inventory** — PR-author guidance
+  that enumerates symbols slated for deletion and test fixtures
+  requiring migration. These tables are not themselves gating; they
+  exist so reviewers and implementers can see the scope of
+  retirement at a glance and confirm nothing was missed.
+
+- **§9.5–§9.6 are the PR-blocking artefact** — the absolute-forbidden
+  diff patterns (§9.5) plus the grep commands (§9.6) that CI runs
+  against every implementation commit. An H1 PR is accepted iff
+  §9.5 yields zero matches in the diff and §9.6 returns zero hits
+  against the resulting tree. Every retired symbol must leave the
+  repository with no alias, no shim, no `{.deprecated.}` pragma, no
+  bridge.
+
+§9.4 documents design-doc history policy (append-only; prior docs
+are not edited).
 
 ### 9.1. §2 — Compound handles collapse
 
 | Symbol / artefact | Location | Reason retired |
 |---|---|---|
-| `type EmailCopyHandles* = object ...` body | `src/jmap_client/mail/mail_builders.nim:253-260` | Replaced by `type EmailCopyHandles* = CompoundHandles[...]` type alias |
-| `type EmailCopyResults* = object ...` body | `src/jmap_client/mail/mail_builders.nim:262-265` | Replaced by `type EmailCopyResults* = CompoundResults[...]` alias |
-| `func getBoth*(resp, handles: EmailCopyHandles): ...` body | `src/jmap_client/mail/mail_builders.nim:310-320` | Subsumed by generic `getBoth[A, B]` in `dispatch.nim` |
-| `type EmailSubmissionHandles* {.ruleOff: "objects".} = object ...` body | `src/jmap_client/mail/email_submission.nim:536-545` | Replaced by type alias |
-| `type EmailSubmissionResults* {.ruleOff: "objects".} = object ...` body | `src/jmap_client/mail/email_submission.nim:547-553` | Replaced by type alias |
-| `func getBoth*(resp, handles: EmailSubmissionHandles): ...` body | `src/jmap_client/mail/submission_builders.nim:127-140` | Subsumed by generic `getBoth[A, B]` |
+| `type EmailCopyHandles* = object ...` body | `src/jmap_client/mail/mail_builders.nim:252-259` | Replaced by `type EmailCopyHandles* = CompoundHandles[...]` type alias |
+| `type EmailCopyResults* = object ...` body | `src/jmap_client/mail/mail_builders.nim:261-264` | Replaced by `type EmailCopyResults* = CompoundResults[...]` alias |
+| `func getBoth*(resp, handles: EmailCopyHandles): ...` body | `src/jmap_client/mail/mail_builders.nim:309-319` | Subsumed by generic `getBoth[A, B]` in `dispatch.nim` |
+| `type EmailSubmissionHandles* {.ruleOff: "objects".} = object ...` body | `src/jmap_client/mail/email_submission.nim:598-607` | Replaced by type alias |
+| `type EmailSubmissionResults* {.ruleOff: "objects".} = object ...` body | `src/jmap_client/mail/email_submission.nim:609-615` | Replaced by type alias |
+| `func getBoth*(resp, handles: EmailSubmissionHandles): ...` body | `src/jmap_client/mail/submission_builders.nim:128-141` | Subsumed by generic `getBoth[A, B]` |
 | Field access `.copy` on compound handles | All call sites in `src/`, `tests/` | Renamed to `.primary` |
 | Field access `.destroy` on compound handles | All call sites | Renamed to `.implicit` |
 | Field access `.submission` on submission handles | All call sites | Renamed to `.primary` |
@@ -1683,12 +1819,12 @@ bridge. Implementation PRs are verified against the grep gate in
 
 | Symbol / artefact | Location | Reason retired |
 |---|---|---|
-| `type SmtpReply* = distinct string` | `src/jmap_client/mail/submission_status.nim:99` | Subsumed by `ParsedSmtpReply` object |
-| `defineStringDistinctOps(SmtpReply)` | `src/jmap_client/mail/submission_status.nim:109` | Dies with the type |
-| Old `SmtpReplyViolation` enum body (10 variants, module-local) | `src/jmap_client/mail/submission_status.nim:111-127` | Replaced wholesale by 15-variant exported definition at same site |
-| Old `func parseSmtpReply*(raw: string): Result[SmtpReply, ValidationError]` body | `src/jmap_client/mail/submission_status.nim:234-242` | Name reused; new signature `Result[ParsedSmtpReply, ValidationError]`; old body deleted, not kept as a fallback |
-| Deferral docstring line `## ... enhanced status codes per RFC 3463) is deferred (G12).` | `src/jmap_client/mail/submission_status.nim:239` (docstring within old `parseSmtpReply`) | Discharged by this refactor; prose deleted |
-| Field `smtpReply*: SmtpReply` on `DeliveryStatus` | `src/jmap_client/mail/submission_status.nim:251` | Migrated to `smtpReply*: ParsedSmtpReply` |
+| `type SmtpReply* = distinct string` | `src/jmap_client/mail/submission_status.nim:100` | Subsumed by `ParsedSmtpReply` object |
+| `defineStringDistinctOps(SmtpReply)` | `src/jmap_client/mail/submission_status.nim:110` | Dies with the type |
+| Old `SmtpReplyViolation` enum body (10 variants, module-local) | `src/jmap_client/mail/submission_status.nim:112-128` | Replaced wholesale by 15-variant exported definition at same site |
+| Old `func parseSmtpReply*(raw: string): Result[SmtpReply, ValidationError]` body | `src/jmap_client/mail/submission_status.nim:235-243` | Name reused; new signature `Result[ParsedSmtpReply, ValidationError]`; old body deleted, not kept as a fallback |
+| Deferral docstring line `## ... enhanced status codes per RFC 3463) is deferred (G12).` | `src/jmap_client/mail/submission_status.nim:240` (docstring within old `parseSmtpReply`) | Discharged by this refactor; prose deleted |
+| Field `smtpReply*: SmtpReply` on `DeliveryStatus` | `src/jmap_client/mail/submission_status.nim:252` | Migrated to `smtpReply*: ParsedSmtpReply` |
 | Any `## G12` / `## TBD` / `## deferred` / `## XXX` marker in `src/jmap_client/mail/` referencing RFC 3463 or `SmtpReply` | grep `src/jmap_client/mail/` | Audited; deleted |
 | Serde path in `fromJson(DeliveryStatus)` that yields `SmtpReply` | `src/jmap_client/mail/serde_submission_status.nim` | Rewritten to yield `ParsedSmtpReply`; not layered over the old path |
 
