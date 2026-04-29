@@ -11,9 +11,10 @@ RUN apt-get update \
 
 # libpcre3 (PCRE1) — required by nimalyzer at runtime. Debian Trixie dropped
 # PCRE1; fetch the Bookworm package directly (ABI-compatible with Trixie).
-RUN curl -sLO http://deb.debian.org/debian/pool/main/p/pcre3/libpcre3_8.39-15_amd64.deb \
-    && dpkg -i libpcre3_8.39-15_amd64.deb \
-    && rm libpcre3_8.39-15_amd64.deb
+RUN ARCH="$(dpkg --print-architecture)" \
+    && curl -sLO "http://deb.debian.org/debian/pool/main/p/pcre3/libpcre3_8.39-15_${ARCH}.deb" \
+    && dpkg -i "libpcre3_8.39-15_${ARCH}.deb" \
+    && rm "libpcre3_8.39-15_${ARCH}.deb"
 
 # Debian installs fd as "fdfind" and bat as "batcat"; symlink to standard names
 RUN ln -sf /usr/bin/fdfind /usr/local/bin/fd \
