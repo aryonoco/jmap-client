@@ -23,21 +23,21 @@ done
 # --- Create domain and users ---
 # POST /api/principal returns 200 {"data": <id>} on success.
 # Ignore errors for idempotency (re-running after already seeded).
-echo "Creating domain test.local..."
+echo "Creating domain example.com..."
 curl -u "$ADMIN_AUTH" -X POST -H "Content-Type: application/json" \
-  -d '{"type":"domain","name":"test.local"}' \
+  -d '{"type":"domain","name":"example.com"}' \
   -o /dev/null -s -w "  HTTP %{http_code}\n" \
   "$STALWART_URL/api/principal" || true
 
-echo "Creating user alice@test.local..."
+echo "Creating user alice@example.com..."
 curl -u "$ADMIN_AUTH" -X POST -H "Content-Type: application/json" \
-  -d '{"type":"individual","name":"alice","secrets":["alice123"],"emails":["alice@test.local"],"roles":["user"]}' \
+  -d '{"type":"individual","name":"alice","secrets":["alice123"],"emails":["alice@example.com"],"roles":["user"]}' \
   -o /dev/null -s -w "  HTTP %{http_code}\n" \
   "$STALWART_URL/api/principal" || true
 
-echo "Creating user bob@test.local..."
+echo "Creating user bob@example.com..."
 curl -u "$ADMIN_AUTH" -X POST -H "Content-Type: application/json" \
-  -d '{"type":"individual","name":"bob","secrets":["bob123"],"emails":["bob@test.local"],"roles":["user"]}' \
+  -d '{"type":"individual","name":"bob","secrets":["bob123"],"emails":["bob@example.com"],"roles":["user"]}' \
   -o /dev/null -s -w "  HTTP %{http_code}\n" \
   "$STALWART_URL/api/principal" || true
 
@@ -56,7 +56,7 @@ echo ""
 echo "=== Stalwart JMAP Test Server ==="
 echo "Session URL:  http://stalwart:8080/jmap/session"
 echo "Admin:        admin / jmapdev"
-echo "Alice:        alice@test.local / alice123"
-echo "Bob:          bob@test.local / bob123"
+echo "Alice:        alice@example.com / alice123"
+echo "Bob:          bob@example.com / bob123"
 echo "Env file:     /tmp/stalwart-env.sh"
 echo "================================="
