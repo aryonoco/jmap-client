@@ -5,7 +5,7 @@
 | Phase | State | Notes |
 |---|---|---|
 | **C0 — Helper extraction (preparatory)** | **Done** (2026-05-01) | Three new helpers landed in `tests/integration/live/mlive.nim`: `seedEmailsWithSubjects`, `seedThreadedEmails`, `resolveCollationAlgorithms`. Mirrors Phase B's preparatory commit `e11ca86`. Cumulative live tests: 11/11 (no test consumes the helpers yet). |
-| **C1 — Filter, sort, snippet, thread chain** | **Planned** | Six live tests (Steps 13–18) establishing wire compatibility for `Filter[C]` / `FilterOperator` / `Comparator` / `EmailComparator` plus the H1 `ChainedHandles[A, B]` and `EmailQueryThreadChain` surfaces. |
+| **C1 — Filter, sort, snippet, thread chain** | **In progress** | Six live tests (Steps 13–18) establishing wire compatibility for `Filter[C]` / `FilterOperator` / `Comparator` / `EmailComparator` plus the H1 `ChainedHandles[A, B]` and `EmailQueryThreadChain` surfaces. Step 13 done (2026-05-01); cumulative live tests 12/17. |
 
 Live-test pass rate (cumulative target across Phase A + B + C): **17 / 17**.
 Wire-format divergences root-caused at the `fromJson`/`toJson` layer:
@@ -500,6 +500,12 @@ place to fix each one.
    filter spans multiple fields (subject + body + sender) per the
    default; tests isolate dimensions by using `subject` directly. If a
    future surface needs `text`, expect cross-field matches.
+   **Observed at Step 13 (2026-05-01):** Stalwart 0.15.5 tokenises the
+   `subject` filter input — a multi-word filter matches every subject
+   sharing *any* token, not the literal substring. Tests must filter
+   on a single discriminator token (`"aardvark"`) rather than a phrase
+   that overlaps the corpus prefix (`"phase-c-13 match"`). Test-layer
+   fix; no parser change.
 2. **Empty collation set.** Step 15: Stalwart 0.15.5 may advertise zero
    collation algorithms. Explicit-collation sub-tests are conditional on
    `coreCapabilities.collationAlgorithms.len > 0`. If empty, the sub-test
