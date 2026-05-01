@@ -133,9 +133,7 @@ func emailParseResponseFromJson*(
   )
 
 func fromJson*(
-    T: typedesc[EmailParseResponse],
-    node: JsonNode,
-    path: JsonPath = emptyJsonPath(),
+    T: typedesc[EmailParseResponse], node: JsonNode, path: JsonPath = emptyJsonPath()
 ): Result[EmailParseResponse, SerdeViolation] =
   ## Typedesc-overload wrapper so dispatch's ``mixin fromJson`` resolves
   ## ``EmailParseResponse.fromJson`` at the ``resp.get(handle)`` site
