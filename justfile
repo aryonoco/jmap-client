@@ -343,7 +343,16 @@ stalwart-logs:
 # Run live integration tests (requires 'just stalwart-up')
 test-integration:
     @if [ ! -f /tmp/stalwart-env.sh ]; then echo "ERROR: Run 'just stalwart-up' first"; exit 1; fi
-    . /tmp/stalwart-env.sh && testament cat "integration/live"
+    . /tmp/stalwart-env.sh && testament pat "tests/integration/live/*_live.nim"
+
+# Capture Stalwart wire-payload fixtures into tests/fixtures/captured/.
+# Requires `just stalwart-up` first. Run after meaningful changes to
+# wire-shaped behaviour. Review and commit new/changed JSON files manually.
+capture-fixtures:
+    @if [ ! -f /tmp/stalwart-env.sh ]; then echo "ERROR: Run 'just stalwart-up' first"; exit 1; fi
+    . /tmp/stalwart-env.sh && JMAP_TEST_CAPTURE=1 testament pat "tests/integration/live/*_live.nim"
+    @echo "Captures written to tests/fixtures/captured/"
+    @echo "Review with 'git status' and stage with 'git add' before committing."
 
 # =============================================================================
 # REFERENCE SOURCES (.nim-reference/, git-ignored, fetched on demand)

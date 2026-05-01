@@ -51,6 +51,13 @@ type JmapClient* = object
   session: Opt[Session]
   maxResponseBytes: int
   userAgent: string
+  lastRawResponseBody: string
+    ## Raw bytes of the most recent HTTP response body (Session or
+    ## ``/jmap/api``). Populated unconditionally by ``send`` and
+    ## ``fetchSession``. Production code never reads it; the test-only
+    ## ``tests/integration/live/mcapture.captureIfRequested`` consults a
+    ## runtime env var to decide whether to persist the bytes to a
+    ## fixture file.
 
 {.pop.}
 
@@ -245,6 +252,7 @@ proc initJmapClient*(
       session: Opt.none(Session),
       maxResponseBytes: maxResponseBytes,
       userAgent: userAgent,
+      lastRawResponseBody: "",
     )
   )
 
@@ -508,12 +516,19 @@ proc tryParseProblemDetails(body: string): Opt[ClientError] =
   return Opt.none(ClientError)
 
 proc classifyHttpResponse(
-    maxResponseBytes: int, httpResp: httpclient.Response, context: RequestContext
+    maxResponseBytes: int,
+    httpResp: httpclient.Response,
+    context: RequestContext,
+    capturedBody: var string,
 ): JmapResult[JsonNode] =
   ## Classifies an HTTP response and parses the JSON body. Returns the
   ## parsed ``JsonNode`` on 2xx with correct Content-Type. Returns err
   ## otherwise. Not pure — ``httpResp.body`` lazily reads from
   ## ``bodyStream`` on first access.
+  ##
+  ## The raw body bytes are written to ``capturedBody`` immediately after
+  ## reading (before any 4xx/5xx classification) so a calling test can
+  ## persist them as a fixture without losing byte fidelity.
   let code =
     try:
       {.cast(raises: [CatchableError]).}:
@@ -533,6 +548,7 @@ proc classifyHttpResponse(
         httpResp.body # lazy: reads bodyStream on first access
     except CatchableError:
       return err(clientError(transportError(tekNetwork, "failed to read body")))
+  capturedBody = body
 
   # Phase 2 body size enforcement (R9) — reject after reading body
   ?enforceBodySizeLimit(maxResponseBytes, body, context)
@@ -567,6 +583,13 @@ proc setSessionForTest*(client: var JmapClient, session: Session) =
   ## of ``isSessionStale`` without requiring network IO.
   client.session = Opt.some(session)
 
+func lastRawResponseBody*(client: JmapClient): string =
+  ## Returns the raw bytes of the most recent HTTP response body. Empty
+  ## before the first ``send`` or ``fetchSession`` call. Test-only reach-
+  ## in for ``mcapture.captureIfRequested``; production callers should
+  ## consume the typed ``Response`` returned by ``send``.
+  client.lastRawResponseBody
+
 # ---------------------------------------------------------------------------
 # IO procs (§3, §4, §6)
 # ---------------------------------------------------------------------------
@@ -584,7 +607,9 @@ proc fetchSession*(client: var JmapClient): JmapResult[Session] =
         client.httpClient.request(client.sessionUrl, httpMethod = HttpGet)
     except CatchableError as e:
       return err(classifyException(e))
-  let jsonNode = ?classifyHttpResponse(client.maxResponseBytes, httpResp, rcSession)
+  let jsonNode = ?classifyHttpResponse(
+    client.maxResponseBytes, httpResp, rcSession, client.lastRawResponseBody
+  )
   let session = Session.fromJson(jsonNode).mapErr(
       proc(sv: SerdeViolation): ClientError =
         validationToClientErrorCtx(
@@ -649,7 +674,9 @@ proc send*(client: var JmapClient, request: Request): JmapResult[envelope.Respon
       return err(classifyException(e))
 
   # Step 6: Classify HTTP response and parse JSON
-  let respJson = ?classifyHttpResponse(client.maxResponseBytes, httpResp, rcApi)
+  let respJson = ?classifyHttpResponse(
+    client.maxResponseBytes, httpResp, rcApi, client.lastRawResponseBody
+  )
 
   # Step 8: Problem details on HTTP 200
   if respJson.kind == JObject and respJson.hasKey("type") and
