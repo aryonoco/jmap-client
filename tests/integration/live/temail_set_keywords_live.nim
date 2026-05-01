@@ -30,6 +30,7 @@ import std/tables
 import results
 import jmap_client
 import jmap_client/client
+import ./mcapture
 import ./mconfig
 import ./mlive
 
@@ -118,6 +119,9 @@ block temailSetKeywordsLive:
       update = Opt.some(updatesAgain),
     )
     let resp6 = client.send(b6).expect("send Email/set update conflict")
+    captureIfRequested(client, "email-set-state-mismatch-stalwart").expect(
+      "captureIfRequested"
+    )
     let conflictExtract = resp6.get(setHandle2)
     doAssert conflictExtract.isErr,
       "stale-ifInState Email/set must raise a method-level error"

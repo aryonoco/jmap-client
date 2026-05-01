@@ -24,6 +24,7 @@ import std/tables
 import results
 import jmap_client
 import jmap_client/client
+import ./mcapture
 import ./mconfig
 import ./mlive
 
@@ -86,7 +87,10 @@ block temailQueryChangesLive:
       sinceQueryState = queryState1,
       calculateTotal = true,
     )
-    let resp2 = client.send(b2).expect("send Email/queryChanges")
+    let resp2 = client.send(b2).expect("send Email/queryChanges with-total")
+    captureIfRequested(client, "email-query-changes-with-total-stalwart").expect(
+      "captureIfRequested"
+    )
     let qcr = resp2.get(qcHandle).expect("Email/queryChanges extract")
 
     doAssert string(qcr.oldQueryState) == string(queryState1),
@@ -102,4 +106,21 @@ block temailQueryChangesLive:
       "the added entry must be the fourth seeded id"
     doAssert qcr.added[0].index < UnsignedInt(baselineCount + 1),
       "added.index must fall within the new query's bounds"
+
+    # --- Email/queryChanges without calculateTotal ----------------------
+    # Issued purely so the captured-fixture loop records the "total
+    # absent" response shape. The assertion is that ``total`` is
+    # explicitly ``Opt.none`` — RFC 8620 §5.6: ``total`` is only present
+    # when ``calculateTotal: true`` was sent.
+    let (b3, qcNoTotalHandle) = addEmailQueryChanges(
+      initRequestBuilder(), mailAccountId, sinceQueryState = queryState1
+    )
+    let resp3 = client.send(b3).expect("send Email/queryChanges no-total")
+    captureIfRequested(client, "email-query-changes-no-total-stalwart").expect(
+      "captureIfRequested"
+    )
+    let qcrNoTotal =
+      resp3.get(qcNoTotalHandle).expect("Email/queryChanges no-total extract")
+    doAssert qcrNoTotal.total.isNone,
+      "total must be absent when calculateTotal is not requested"
     client.close()

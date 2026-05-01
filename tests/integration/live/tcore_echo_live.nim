@@ -18,6 +18,7 @@ import std/json
 import results
 import jmap_client
 import jmap_client/client
+import ./mcapture
 import ./mconfig
 
 block tcoreEchoLive:
@@ -33,6 +34,7 @@ block tcoreEchoLive:
     let args = %*{"hello": true, "n": 42, "msg": "phase-1 step-3"}
     let (b1, echoHandle) = initRequestBuilder().addEcho(args)
     let resp = client.send(b1).expect("send")
+    captureIfRequested(client, "core-echo-stalwart").expect("captureIfRequested")
     let echoExtract = proc(
         n: JsonNode
     ): Result[JsonNode, SerdeViolation] {.noSideEffect, raises: [].} =

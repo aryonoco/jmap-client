@@ -25,6 +25,7 @@ import std/tables
 import results
 import jmap_client
 import jmap_client/client
+import ./mcapture
 import ./mconfig
 import ./mlive
 
@@ -86,6 +87,9 @@ block temailChangesLive:
     let (b3, sadHandle) =
       addChanges[Email](initRequestBuilder(), mailAccountId, sinceState = bogusState)
     let resp3 = client.send(b3).expect("send Email/changes bogus")
+    captureIfRequested(client, "email-changes-bogus-state-stalwart").expect(
+      "captureIfRequested"
+    )
     let sadExtract = resp3.get(sadHandle)
     doAssert sadExtract.isErr, "bogus sinceState must surface as a method-level error"
     let methodErr = sadExtract.error

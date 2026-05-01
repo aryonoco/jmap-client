@@ -27,6 +27,7 @@ import results
 import jmap_client
 import jmap_client/client
 import jmap_client/mail/mailbox as jmailbox
+import ./mcapture
 import ./mconfig
 
 block tmailboxSetCrudLive:
@@ -108,6 +109,9 @@ block tmailboxSetCrudLive:
       initRequestBuilder(), mailAccountId, destroy = directIds(@[parentId])
     )
     let resp4 = client.send(b4).expect("send Mailbox/set destroy parent")
+    captureIfRequested(client, "mailbox-set-has-child-stalwart").expect(
+      "captureIfRequested"
+    )
     let setResp3 = resp4.get(setHandle3).expect("Mailbox/set destroy parent extract")
     var sawHasChild = false
     setResp3.destroyResults.withValue(parentId, outcome):

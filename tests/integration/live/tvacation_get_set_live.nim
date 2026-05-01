@@ -29,6 +29,7 @@ import std/tables
 import results
 import jmap_client
 import jmap_client/client
+import ./mcapture
 import ./mconfig
 
 block tvacationGetSetLive:
@@ -74,6 +75,9 @@ block tvacationGetSetLive:
     # --- Step 2: re-read and verify the three fields round-tripped ------
     let (b2, getHandle2) = addVacationResponseGet(initRequestBuilder(), vacAccountId)
     let resp2 = client.send(b2).expect("send VacationResponse/get post-set")
+    captureIfRequested(client, "vacation-get-singleton-stalwart").expect(
+      "captureIfRequested"
+    )
     let getResp2 = resp2.get(getHandle2).expect("VacationResponse/get post-set extract")
     doAssert getResp2.list.len == 1,
       "VacationResponse/get must still return exactly one singleton entry"

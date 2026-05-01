@@ -15,6 +15,7 @@ import std/tables
 import results
 import jmap_client
 import jmap_client/client
+import ./mcapture
 import ./mconfig
 
 block tmailboxGetAllLive:
@@ -35,6 +36,7 @@ block tmailboxGetAllLive:
       doAssert false, "session must advertise a primary mail account"
     let (b1, mbHandle) = addGet[Mailbox](initRequestBuilder(), mailAccountId)
     let resp = client.send(b1).expect("send")
+    captureIfRequested(client, "mailbox-get-all-stalwart").expect("captureIfRequested")
     let gr = resp.get(mbHandle).expect("Mailbox/get extract")
     doAssert gr.list.len >= 1, "alice's account must have at least one mailbox"
     var sawInbox = false

@@ -27,6 +27,7 @@ import results
 import jmap_client
 import jmap_client/client
 import jmap_client/mail/thread as jthread
+import ./mcapture
 import ./mconfig
 import ./mlive
 
@@ -86,6 +87,7 @@ block tthreadGetLive:
       sleep(100)
 
     doAssert thread.isSome, "Thread/get must return the seeded thread within 500 ms"
+    captureIfRequested(client, "thread-get-stalwart").expect("captureIfRequested")
     let t = thread.get()
     doAssert string(t.id) == string(threadId),
       "returned Thread.id must match the threadId from Email/get"

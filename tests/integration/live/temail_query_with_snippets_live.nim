@@ -35,6 +35,7 @@ import std/tables
 import results
 import jmap_client
 import jmap_client/client
+import ./mcapture
 import ./mconfig
 import ./mlive
 
@@ -78,6 +79,9 @@ block temailQueryWithSnippetsLive:
     let (b, chainHandles) =
       addEmailQueryWithSnippets(initRequestBuilder(), mailAccountId, filter = filter)
     let resp = client.send(b).expect("send Email/query+SearchSnippet/get")
+    captureIfRequested(client, "email-query-with-snippets-stalwart").expect(
+      "captureIfRequested"
+    )
     let pair = resp.getBoth(chainHandles).expect("getBoth")
 
     let queryHits = pair.first.ids.toHashSet
