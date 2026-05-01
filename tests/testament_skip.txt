@@ -31,3 +31,8 @@ tests/serde/tserde_adversarial.nim
 
 # -- Live integration tests: require 'just stalwart-up' --
 tests/integration/live/tsession_discovery.nim
+tests/integration/live/tcore_echo_live.nim
+tests/integration/live/tmailbox_get_all_live.nim
+tests/integration/live/tidentity_get_live.nim
+tests/integration/live/temail_query_get_chain_live.nim
+tests/integration/live/temail_set_keywords_live.nim
