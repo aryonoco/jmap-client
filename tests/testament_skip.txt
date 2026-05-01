@@ -45,3 +45,4 @@ tests/integration/live/temail_query_filter_simple_live.nim
 tests/integration/live/temail_query_filter_tree_live.nim
 tests/integration/live/temail_query_sort_live.nim
 tests/integration/live/tsearch_snippet_get_standalone_live.nim
+tests/integration/live/temail_query_with_snippets_live.nim

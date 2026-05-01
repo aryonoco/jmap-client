@@ -5,7 +5,7 @@
 | Phase | State | Notes |
 |---|---|---|
 | **C0 — Helper extraction (preparatory)** | **Done** (2026-05-01) | Three new helpers landed in `tests/integration/live/mlive.nim`: `seedEmailsWithSubjects`, `seedThreadedEmails`, `resolveCollationAlgorithms`. Mirrors Phase B's preparatory commit `e11ca86`. Cumulative live tests: 11/11 (no test consumes the helpers yet). |
-| **C1 — Filter, sort, snippet, thread chain** | **In progress** | Six live tests (Steps 13–18) establishing wire compatibility for `Filter[C]` / `FilterOperator` / `Comparator` / `EmailComparator` plus the H1 `ChainedHandles[A, B]` and `EmailQueryThreadChain` surfaces. Steps 13–16 done (2026-05-01); cumulative live tests 15/17. Step 16 surfaced one parser-layer divergence: `SearchSnippetGetResponse` lacked a typedesc-overload `fromJson` for dispatch's mixin resolution — fixed in `mail/methods` ahead of the test commit. |
+| **C1 — Filter, sort, snippet, thread chain** | **In progress** | Six live tests (Steps 13–18) establishing wire compatibility for `Filter[C]` / `FilterOperator` / `Comparator` / `EmailComparator` plus the H1 `ChainedHandles[A, B]` and `EmailQueryThreadChain` surfaces. Steps 13–17 done (2026-05-01); cumulative live tests 16/17. Step 16 surfaced one parser-layer divergence: `SearchSnippetGetResponse` lacked a typedesc-overload `fromJson` for dispatch's mixin resolution — fixed in `mail/methods` ahead of the test commit. |
 
 Live-test pass rate (cumulative target across Phase A + B + C): **17 / 17**.
 Wire-format divergences root-caused at the `fromJson`/`toJson` layer:
