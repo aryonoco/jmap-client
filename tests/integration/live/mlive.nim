@@ -1,12 +1,13 @@
 # SPDX-License-Identifier: BSD-2-Clause
 # Copyright (c) 2026 Aryan Ameri
 
-## Live integration test scaffolds shared across the Phase A and Phase B
-## suites. ``mconfig.nim`` stays single-purpose (env contract); this
-## module owns the Stalwart-interaction recipes that would otherwise be
-## inlined verbatim across multiple test files: resolving Alice's inbox
-## via ``Mailbox/get`` and seeding a single text/plain ``Email`` via
-## ``Email/set create``.
+## Live integration test scaffolds shared across the Phase A–D suites.
+## ``mconfig.nim`` stays single-purpose (env contract); this module owns
+## the Stalwart-interaction recipes that would otherwise be inlined
+## verbatim across multiple test files: resolving Alice's inbox via
+## ``Mailbox/get``, seeding text/plain ``Email`` instances, and seeding
+## structured (multipart/alternative, multipart/mixed, message/rfc822)
+## emails for the Phase D body-content tests.
 ##
 ## Helpers return ``Result[T, string]`` so callers can chain ``.expect``
 ## with the same ergonomics as ``loadLiveTestConfig``. They take a
@@ -20,6 +21,59 @@ import std/tables
 import results
 import jmap_client
 import jmap_client/client
+
+# ---------------------------------------------------------------------------
+# Shared blueprint-leaf factory
+# ---------------------------------------------------------------------------
+
+type LeafPartSpec* = object
+  ## Inputs for ``makeLeafPart``. Carries the variable bits — body bytes,
+  ## MIME type, optional attachment name / disposition / cid — and lets
+  ## the seed helpers stay free of repetitive ``BlueprintBodyPart``
+  ## boilerplate.
+  partId*: PartId
+  contentType*: string
+  body*: string
+  name*: Opt[string]
+  disposition*: Opt[ContentDisposition]
+  cid*: Opt[string]
+
+func makeLeafPart*(spec: LeafPartSpec): BlueprintBodyPart =
+  ## Constructs a non-multipart ``BlueprintBodyPart`` from ``spec``.
+  ## Pure — every seed helper in this module funnels through it so the
+  ## "inline leaf with these knobs" shape lives in one place.
+  BlueprintBodyPart(
+    isMultipart: false,
+    leaf: BlueprintLeafPart(
+      source: bpsInline,
+      partId: spec.partId,
+      value: BlueprintBodyValue(value: spec.body),
+    ),
+    contentType: spec.contentType,
+    extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
+    name: spec.name,
+    disposition: spec.disposition,
+    cid: spec.cid,
+    language: Opt.none(seq[string]),
+    location: Opt.none(string),
+  )
+
+func buildAliceAddr*(): EmailAddress =
+  ## ``alice@example.com`` with display name ``"Alice"`` — Stalwart's
+  ## seeded credentials. Smart-constructor invariant: input is RFC-valid
+  ## by literal so ``parseEmailAddress`` cannot Err here.
+  parseEmailAddress("alice@example.com", Opt.some("Alice")).get()
+
+func buildPartId*(label: string): PartId =
+  ## Wraps ``parsePartIdFromServer`` for a server-shaped literal. The
+  ## seeds use ``"1"`` for single-part bodies and ``"1"`` / ``"2"`` …
+  ## inside multipart trees; every literal in this module is RFC-valid,
+  ## so the parser cannot Err.
+  parsePartIdFromServer(label).get()
+
+# ---------------------------------------------------------------------------
+# Mailbox / Email helpers
+# ---------------------------------------------------------------------------
 
 proc resolveInboxId*(
     client: var JmapClient, mailAccountId: AccountId
@@ -41,49 +95,16 @@ proc resolveInboxId*(
         return ok(mb.id)
   err("no Mailbox with role==Inbox found in account")
 
-proc seedSimpleEmail*(
+proc emailSetCreate(
     client: var JmapClient,
     mailAccountId: AccountId,
-    inbox: Id,
-    subject: string,
+    blueprint: EmailBlueprint,
     creationLabel: string,
 ): Result[Id, string] =
-  ## ``Email/set create`` for a minimal text/plain message addressed
-  ## from alice@example.com to herself, filed in ``inbox``. Returns the
-  ## server-assigned ``EmailId``. Caller supplies a unique
-  ## ``creationLabel`` per seed in the same test (e.g., ``"seedA"``) so
-  ## multiple seeds in one ``Email/set`` would not collide — even though
-  ## each helper call issues its own request, the label still flows
-  ## through ``CreationId`` validation.
-  let mailboxIds = parseNonEmptyMailboxIdSet(@[inbox]).valueOr:
-    return err("parseNonEmptyMailboxIdSet failed: " & error.message)
-  let aliceAddr = parseEmailAddress("alice@example.com", Opt.some("Alice")).valueOr:
-    return err("parseEmailAddress failed: " & error.message)
-  let partId = parsePartIdFromServer("1").valueOr:
-    return err("parsePartIdFromServer failed: " & error.message)
-  let textPart = BlueprintBodyPart(
-    isMultipart: false,
-    leaf: BlueprintLeafPart(
-      source: bpsInline,
-      partId: partId,
-      value: BlueprintBodyValue(value: "Live-test seed body."),
-    ),
-    contentType: "text/plain",
-    extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
-    name: Opt.none(string),
-    disposition: Opt.none(ContentDisposition),
-    cid: Opt.none(string),
-    language: Opt.none(seq[string]),
-    location: Opt.none(string),
-  )
-  let blueprint = parseEmailBlueprint(
-    mailboxIds = mailboxIds,
-    body = flatBody(textBody = Opt.some(textPart)),
-    fromAddr = Opt.some(@[aliceAddr]),
-    to = Opt.some(@[aliceAddr]),
-    subject = Opt.some(subject),
-  ).valueOr:
-    return err("parseEmailBlueprint failed: " & $error)
+  ## Issues a single-create ``Email/set`` and returns the assigned id.
+  ## Private to this module — every seed helper builds a blueprint then
+  ## funnels through here so the creation-results unwrap lives in one
+  ## place.
   let cid = parseCreationId(creationLabel).valueOr:
     return err("parseCreationId failed: " & error.message)
   var createTbl = initTable[CreationId, EmailBlueprint]()
@@ -105,6 +126,43 @@ proc seedSimpleEmail*(
     return err("Email/set returned no result for creationId " & creationLabel)
   doAssert found
   ok(seededId)
+
+proc seedSimpleEmail*(
+    client: var JmapClient,
+    mailAccountId: AccountId,
+    inbox: Id,
+    subject: string,
+    creationLabel: string,
+): Result[Id, string] =
+  ## ``Email/set create`` for a minimal text/plain message addressed
+  ## from alice@example.com to herself, filed in ``inbox``. Returns the
+  ## server-assigned ``EmailId``. Caller supplies a unique
+  ## ``creationLabel`` per seed in the same test (e.g., ``"seedA"``) so
+  ## multiple seeds in one ``Email/set`` would not collide — even though
+  ## each helper call issues its own request, the label still flows
+  ## through ``CreationId`` validation.
+  let mailboxIds = parseNonEmptyMailboxIdSet(@[inbox]).valueOr:
+    return err("parseNonEmptyMailboxIdSet failed: " & error.message)
+  let aliceAddr = buildAliceAddr()
+  let textPart = makeLeafPart(
+    LeafPartSpec(
+      partId: buildPartId("1"),
+      contentType: "text/plain",
+      body: "Live-test seed body.",
+      name: Opt.none(string),
+      disposition: Opt.none(ContentDisposition),
+      cid: Opt.none(string),
+    )
+  )
+  let blueprint = parseEmailBlueprint(
+    mailboxIds = mailboxIds,
+    body = flatBody(textBody = Opt.some(textPart)),
+    fromAddr = Opt.some(@[aliceAddr]),
+    to = Opt.some(@[aliceAddr]),
+    subject = Opt.some(subject),
+  ).valueOr:
+    return err("parseEmailBlueprint failed: " & $error)
+  emailSetCreate(client, mailAccountId, blueprint, creationLabel)
 
 proc seedEmailsWithSubjects*(
     client: var JmapClient,
@@ -138,33 +196,21 @@ proc seedThreadedEmails*(
   ## headers wired so a server's threading pipeline groups them into a
   ## single Thread. The first email gets ``messageId = @[rootMessageId]``;
   ## each subsequent email gets ``inReplyTo = @[rootMessageId]`` and
-  ## ``references = @[rootMessageId]``. The blueprint shape mirrors
-  ## ``seedSimpleEmail`` exactly except for the threading-discriminator
-  ## fields — duplicated inline rather than extracted because Phase D will
-  ## add divergent blueprint shapes that a shared private helper would
-  ## couple unhelpfully.
+  ## ``references = @[rootMessageId]``.
   let mailboxIds = parseNonEmptyMailboxIdSet(@[inbox]).valueOr:
     return err("parseNonEmptyMailboxIdSet failed: " & error.message)
-  let aliceAddr = parseEmailAddress("alice@example.com", Opt.some("Alice")).valueOr:
-    return err("parseEmailAddress failed: " & error.message)
-  let partId = parsePartIdFromServer("1").valueOr:
-    return err("parsePartIdFromServer failed: " & error.message)
+  let aliceAddr = buildAliceAddr()
   var ids: seq[Id] = @[]
   for i, subject in subjects:
-    let textPart = BlueprintBodyPart(
-      isMultipart: false,
-      leaf: BlueprintLeafPart(
-        source: bpsInline,
-        partId: partId,
-        value: BlueprintBodyValue(value: "Live-test threaded seed body."),
-      ),
-      contentType: "text/plain",
-      extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
-      name: Opt.none(string),
-      disposition: Opt.none(ContentDisposition),
-      cid: Opt.none(string),
-      language: Opt.none(seq[string]),
-      location: Opt.none(string),
+    let textPart = makeLeafPart(
+      LeafPartSpec(
+        partId: buildPartId("1"),
+        contentType: "text/plain",
+        body: "Live-test threaded seed body.",
+        name: Opt.none(string),
+        disposition: Opt.none(ContentDisposition),
+        cid: Opt.none(string),
+      )
     )
     let messageId =
       if i == 0:
@@ -192,29 +238,180 @@ proc seedThreadedEmails*(
       references = references,
     ).valueOr:
       return err("parseEmailBlueprint failed: " & $error)
-    let creationLabel = "thread-" & $i
-    let cid = parseCreationId(creationLabel).valueOr:
-      return err("parseCreationId failed: " & error.message)
-    var createTbl = initTable[CreationId, EmailBlueprint]()
-    createTbl[cid] = blueprint
-    let (b, setHandle) =
-      addEmailSet(initRequestBuilder(), mailAccountId, create = Opt.some(createTbl))
-    let resp = client.send(b).valueOr:
-      return err("Email/set send failed: " & error.message)
-    let setResp = resp.get(setHandle).valueOr:
-      return err("Email/set extract failed: " & error.rawType)
-    var seededId: Id
-    var found = false
-    setResp.createResults.withValue(cid, outcome):
-      let item = outcome.valueOr:
-        return err("Email/set create rejected: " & error.rawType)
-      seededId = item.id
-      found = true
-    do:
-      return err("Email/set returned no result for creationId " & creationLabel)
-    doAssert found
-    ids.add(seededId)
+    let id = emailSetCreate(client, mailAccountId, blueprint, "thread-" & $i).valueOr:
+      return err("seedThreadedEmails[" & $i & "]: " & error)
+    ids.add(id)
   ok(ids)
+
+# ---------------------------------------------------------------------------
+# Phase D structured-body seeds
+# ---------------------------------------------------------------------------
+
+proc seedAlternativeEmail*(
+    client: var JmapClient,
+    mailAccountId: AccountId,
+    inbox: Id,
+    subject: string,
+    textBody: string,
+    htmlBody: string,
+    creationLabel: string,
+): Result[Id, string] =
+  ## Seeds a multipart/alternative email — text/plain + text/html siblings
+  ## that the server wraps as a single MIME message. The returned id
+  ## resolves through ``Email/get`` with ``bodyValueScope = bvsTextAndHtml``
+  ## to verify both leaves and their bodyValues map entries.
+  let mailboxIds = parseNonEmptyMailboxIdSet(@[inbox]).valueOr:
+    return err("parseNonEmptyMailboxIdSet failed: " & error.message)
+  let aliceAddr = buildAliceAddr()
+  let textPart = makeLeafPart(
+    LeafPartSpec(
+      partId: buildPartId("1"),
+      contentType: "text/plain",
+      body: textBody,
+      name: Opt.none(string),
+      disposition: Opt.none(ContentDisposition),
+      cid: Opt.none(string),
+    )
+  )
+  let htmlPart = makeLeafPart(
+    LeafPartSpec(
+      partId: buildPartId("2"),
+      contentType: "text/html",
+      body: htmlBody,
+      name: Opt.none(string),
+      disposition: Opt.none(ContentDisposition),
+      cid: Opt.none(string),
+    )
+  )
+  let blueprint = parseEmailBlueprint(
+    mailboxIds = mailboxIds,
+    body = flatBody(textBody = Opt.some(textPart), htmlBody = Opt.some(htmlPart)),
+    fromAddr = Opt.some(@[aliceAddr]),
+    to = Opt.some(@[aliceAddr]),
+    subject = Opt.some(subject),
+  ).valueOr:
+    return err("parseEmailBlueprint failed: " & $error)
+  emailSetCreate(client, mailAccountId, blueprint, creationLabel)
+
+proc seedMixedEmail*(
+    client: var JmapClient,
+    mailAccountId: AccountId,
+    inbox: Id,
+    subject: string,
+    textBody: string,
+    attachmentName: string,
+    attachmentMimeType: string,
+    attachmentBytes: string,
+    creationLabel: string,
+): Result[Id, string] =
+  ## Seeds a multipart/mixed email — text/plain body + one attachment.
+  ## ``attachmentBytes`` is sent inline; callers should pass JSON-safe
+  ## bytes (high-bit-clean ASCII or UTF-8). For binary attachments the
+  ## production path is to upload via blob first, but the live test only
+  ## needs to verify the structural attachment shape on read-back.
+  let mailboxIds = parseNonEmptyMailboxIdSet(@[inbox]).valueOr:
+    return err("parseNonEmptyMailboxIdSet failed: " & error.message)
+  let aliceAddr = buildAliceAddr()
+  let textPart = makeLeafPart(
+    LeafPartSpec(
+      partId: buildPartId("1"),
+      contentType: "text/plain",
+      body: textBody,
+      name: Opt.none(string),
+      disposition: Opt.none(ContentDisposition),
+      cid: Opt.none(string),
+    )
+  )
+  let attachPart = makeLeafPart(
+    LeafPartSpec(
+      partId: buildPartId("2"),
+      contentType: attachmentMimeType,
+      body: attachmentBytes,
+      name: Opt.some(attachmentName),
+      disposition: Opt.some(dispositionAttachment),
+      cid: Opt.none(string),
+    )
+  )
+  let blueprint = parseEmailBlueprint(
+    mailboxIds = mailboxIds,
+    body = flatBody(textBody = Opt.some(textPart), attachments = @[attachPart]),
+    fromAddr = Opt.some(@[aliceAddr]),
+    to = Opt.some(@[aliceAddr]),
+    subject = Opt.some(subject),
+  ).valueOr:
+    return err("parseEmailBlueprint failed: " & $error)
+  emailSetCreate(client, mailAccountId, blueprint, creationLabel)
+
+func buildInnerRfc822Message(
+    innerSubject: string, innerFrom: EmailAddress, innerBody: string
+): string =
+  ## Constructs a minimal RFC 5322 message string for use as a
+  ## message/rfc822 attachment payload. The exact byte sequence is
+  ## ``From: <name> <addr>\r\nTo: <self>\r\nSubject: <subj>\r\n
+  ## MIME-Version: 1.0\r\nContent-Type: text/plain; charset=utf-8\r\n
+  ## \r\n<body>``. Stalwart parses it on receive and exposes the parsed
+  ## form via ``Email/parse``.
+  let fromName = innerFrom.name.valueOr:
+    ""
+  let fromHeader =
+    if fromName.len > 0:
+      fromName & " <" & innerFrom.email & ">"
+    else:
+      "<" & innerFrom.email & ">"
+  "From: " & fromHeader & "\r\n" & "To: <alice@example.com>\r\n" & "Subject: " &
+    innerSubject & "\r\n" & "MIME-Version: 1.0\r\n" &
+    "Content-Type: text/plain; charset=utf-8\r\n" & "\r\n" & innerBody
+
+proc seedForwardedEmail*(
+    client: var JmapClient,
+    mailAccountId: AccountId,
+    inbox: Id,
+    outerSubject: string,
+    innerSubject: string,
+    innerFrom: EmailAddress,
+    innerBody: string,
+    creationLabel: string,
+): Result[Id, string] =
+  ## Seeds a multipart/mixed email — text/plain body + a message/rfc822
+  ## attachment containing a constructed inner email. Used by Phase D
+  ## Step 24 to exercise ``Email/parse`` on the attached blob.
+  let mailboxIds = parseNonEmptyMailboxIdSet(@[inbox]).valueOr:
+    return err("parseNonEmptyMailboxIdSet failed: " & error.message)
+  let aliceAddr = buildAliceAddr()
+  let textPart = makeLeafPart(
+    LeafPartSpec(
+      partId: buildPartId("1"),
+      contentType: "text/plain",
+      body: "Forwarded message follows.",
+      name: Opt.none(string),
+      disposition: Opt.none(ContentDisposition),
+      cid: Opt.none(string),
+    )
+  )
+  let innerMessage = buildInnerRfc822Message(innerSubject, innerFrom, innerBody)
+  let rfc822Part = makeLeafPart(
+    LeafPartSpec(
+      partId: buildPartId("2"),
+      contentType: "message/rfc822",
+      body: innerMessage,
+      name: Opt.some("forwarded.eml"),
+      disposition: Opt.some(dispositionAttachment),
+      cid: Opt.none(string),
+    )
+  )
+  let blueprint = parseEmailBlueprint(
+    mailboxIds = mailboxIds,
+    body = flatBody(textBody = Opt.some(textPart), attachments = @[rfc822Part]),
+    fromAddr = Opt.some(@[aliceAddr]),
+    to = Opt.some(@[aliceAddr]),
+    subject = Opt.some(outerSubject),
+  ).valueOr:
+    return err("parseEmailBlueprint failed: " & $error)
+  emailSetCreate(client, mailAccountId, blueprint, creationLabel)
+
+# ---------------------------------------------------------------------------
+# Pure helpers
+# ---------------------------------------------------------------------------
 
 func resolveCollationAlgorithms*(session: Session): HashSet[CollationAlgorithm] =
   ## Convenience: returns the ``CollationAlgorithm`` set advertised by the
