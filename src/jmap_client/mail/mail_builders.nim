@@ -118,14 +118,21 @@ func addMailboxSet*(
     update: Opt[NonEmptyMailboxUpdates] = Opt.none(NonEmptyMailboxUpdates),
     destroy: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]),
     onDestroyRemoveEmails: bool = false,
-): (RequestBuilder, ResponseHandle[SetResponse[Mailbox]]) =
+): (RequestBuilder, ResponseHandle[SetResponse[MailboxCreatedItem]]) =
   ## Mailbox/set (RFC 8621 §2.5). Thin wrapper over
-  ## ``addSet[Mailbox, MailboxCreate, NonEmptyMailboxUpdates, SetResponse[Mailbox]]``
-  ## with the Mailbox-specific ``onDestroyRemoveEmails`` extension emitted
-  ## via ``extras``. ``create`` and ``update`` arrive typed; the generic
-  ## ``SetRequest[T, C, U].toJson`` serialises both through the ``mixin toJson``
-  ## cascade.
-  addSet[Mailbox, MailboxCreate, NonEmptyMailboxUpdates, SetResponse[Mailbox]](
+  ## ``addSet[Mailbox, MailboxCreate, NonEmptyMailboxUpdates,
+  ## SetResponse[MailboxCreatedItem]]`` with the Mailbox-specific
+  ## ``onDestroyRemoveEmails`` extension emitted via ``extras``. ``create``
+  ## and ``update`` arrive typed; the generic ``SetRequest[T, C, U].toJson``
+  ## serialises both through the ``mixin toJson`` cascade. The
+  ## ``createResults`` payload is ``MailboxCreatedItem`` rather than the
+  ## full ``Mailbox`` because RFC 8620 §5.3's ``created[cid]`` carries
+  ## only the server-set subset (id + counts + myRights), and Stalwart
+  ## further trims to ``{"id": "..."}`` — the partial type lets the
+  ## parser succeed without forcing a full-entity reconstruction.
+  addSet[
+    Mailbox, MailboxCreate, NonEmptyMailboxUpdates, SetResponse[MailboxCreatedItem]
+  ](
     b,
     accountId,
     ifInState,

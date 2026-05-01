@@ -186,9 +186,14 @@ template updateType*(T: typedesc[Mailbox]): typedesc =
   NonEmptyMailboxUpdates
 
 template setResponseType*(T: typedesc[Mailbox]): typedesc =
-  ## Associated /set response type for Mailbox.
+  ## Associated /set response type for Mailbox. The wire ``created[cid]``
+  ## payload is ``MailboxCreatedItem`` (RFC 8620 §5.3 server-set subset:
+  ## ``id`` plus the four count fields and ``myRights``). Stalwart 0.15.5
+  ## omits the additional fields from this payload, so all five non-id
+  ## fields are ``Opt[T]``. Mirrors the ``IdentityCreatedItem`` and
+  ## ``EmailCreatedItem`` patterns.
   discard $T
-  SetResponse[Mailbox]
+  SetResponse[MailboxCreatedItem]
 
 registerJmapEntity(Mailbox)
 registerQueryableEntity(Mailbox)

@@ -64,6 +64,18 @@ func parseOptMailboxRole(
     return ok(Opt.none(MailboxRole))
   return ok(Opt.some(?MailboxRole.fromJson(field, path / key)))
 
+func parseOptUnsignedInt(
+    node: JsonNode, key: string, path: JsonPath
+): Result[Opt[UnsignedInt], SerdeViolation] =
+  ## Extracts an optional UnsignedInt field: nil/JNull yields Opt.none,
+  ## otherwise parses via UnsignedInt.fromJson. Used for the
+  ## ``MailboxCreatedItem`` count fields, which Stalwart 0.15.5 omits
+  ## from the Mailbox/set ``created[cid]`` payload.
+  let field = node{key}
+  if field.isNil or field.kind == JNull:
+    return ok(Opt.none(UnsignedInt))
+  return ok(Opt.some(?UnsignedInt.fromJson(field, path / key)))
+
 # =============================================================================
 # MailboxIdSet
 # =============================================================================
@@ -237,6 +249,69 @@ func fromJson*(
       unreadThreads: unreadThreads,
       myRights: myRights,
       isSubscribed: isSubscribed,
+    )
+  )
+
+# =============================================================================
+# MailboxCreatedItem — Mailbox/set ``created[cid]`` payload (RFC 8620 §5.3)
+# =============================================================================
+
+func parseOptMailboxRights(
+    node: JsonNode, key: string, path: JsonPath
+): Result[Opt[MailboxRights], SerdeViolation] =
+  ## Extracts an optional MailboxRights field: nil/JNull yields Opt.none,
+  ## otherwise parses via MailboxRights.fromJson. Local to this section
+  ## because it must be declared after MailboxRights.fromJson; the four
+  ## count-field helpers live in the global Helpers block above.
+  let field = node{key}
+  if field.isNil or field.kind == JNull:
+    return ok(Opt.none(MailboxRights))
+  return ok(Opt.some(?MailboxRights.fromJson(field, path / key)))
+
+func toJson*(item: MailboxCreatedItem): JsonNode =
+  ## Serialise ``MailboxCreatedItem`` to JSON. Emits ``id`` always; the
+  ## five server-set fields only when present (round-trips Stalwart's
+  ## elision symmetrically — Postel's law on send too).
+  var node = newJObject()
+  node["id"] = item.id.toJson()
+  for v in item.totalEmails:
+    node["totalEmails"] = v.toJson()
+  for v in item.unreadEmails:
+    node["unreadEmails"] = v.toJson()
+  for v in item.totalThreads:
+    node["totalThreads"] = v.toJson()
+  for v in item.unreadThreads:
+    node["unreadThreads"] = v.toJson()
+  for v in item.myRights:
+    node["myRights"] = v.toJson()
+  return node
+
+func fromJson*(
+    T: typedesc[MailboxCreatedItem], node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[MailboxCreatedItem, SerdeViolation] =
+  ## Deserialise the partial Mailbox payload sent in Mailbox/set
+  ## ``created[cid]``. ``id`` is required (RFC 8620 §5.3); the four
+  ## count fields and ``myRights`` are ``Opt`` because Stalwart 0.15.5
+  ## omits them (strict-RFC minor divergence, accommodated here per
+  ## Postel's law). Other Mailbox fields are not expected — the client
+  ## already sent them in ``create``.
+  discard $T # consumed for nimalyzer params rule
+  ?expectKind(node, JObject, path)
+  let idNode = ?fieldJString(node, "id", path)
+  let id = ?Id.fromJson(idNode, path / "id")
+  let totalEmails = ?parseOptUnsignedInt(node, "totalEmails", path)
+  let unreadEmails = ?parseOptUnsignedInt(node, "unreadEmails", path)
+  let totalThreads = ?parseOptUnsignedInt(node, "totalThreads", path)
+  let unreadThreads = ?parseOptUnsignedInt(node, "unreadThreads", path)
+  let myRights = ?parseOptMailboxRights(node, "myRights", path)
+  return ok(
+    MailboxCreatedItem(
+      id: id,
+      totalEmails: totalEmails,
+      unreadEmails: unreadEmails,
+      totalThreads: totalThreads,
+      unreadThreads: unreadThreads,
+      myRights: myRights,
     )
   )
 

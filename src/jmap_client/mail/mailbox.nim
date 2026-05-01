@@ -243,6 +243,31 @@ type Mailbox* {.ruleOff: "objects".} = object
   isSubscribed*: bool ## Whether the user has subscribed to this mailbox.
 
 # =============================================================================
+# MailboxCreatedItem — Mailbox/set ``created[cid]`` payload (RFC 8620 §5.3)
+# =============================================================================
+
+type MailboxCreatedItem* {.ruleOff: "objects".} = object
+  ## Server-authoritative subset returned in Mailbox/set ``created[cid]``
+  ## (RFC 8620 §5.3): the server MUST return ``id`` plus any server-set
+  ## or server-modified properties. For Mailbox, the server-set
+  ## properties per RFC 8621 §2.1 are the four count fields and
+  ## ``myRights``. The full ``Mailbox`` record is NOT returned — the
+  ## client already knows the other fields (it sent them in ``create``).
+  ##
+  ## All five server-set fields are ``Opt[T]`` because Stalwart 0.15.5
+  ## omits them from this payload (a strict-RFC §5.3 minor divergence):
+  ## the create acknowledgement is just ``{"id": "<id>"}``. Postel's-law
+  ## accommodation per ``.claude/rules/nim-conventions.md`` §"Serde
+  ## Conventions": be lenient on receive. Mirrors the
+  ## ``IdentityCreatedItem`` design (``identity.nim``).
+  id*: Id
+  totalEmails*: Opt[UnsignedInt]
+  unreadEmails*: Opt[UnsignedInt]
+  totalThreads*: Opt[UnsignedInt]
+  unreadThreads*: Opt[UnsignedInt]
+  myRights*: Opt[MailboxRights]
+
+# =============================================================================
 # MailboxCreate
 # =============================================================================
 

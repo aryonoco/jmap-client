@@ -513,3 +513,48 @@ block mailboxUpdateSetRoundTripsWireOrder:
   assertLen reparsed, 2
   assertJsonFieldEq reparsed, "name", %"X"
   assertJsonFieldEq reparsed, "isSubscribed", %false
+
+# ============= I. MailboxCreatedItem serde =============
+
+block fromJsonMailboxCreatedItemMinimal:
+  ## Stalwart 0.15.5 returns Mailbox/set ``created[cid]`` as just
+  ## ``{"id": "<id>"}``, omitting all other server-set fields per its
+  ## strict-RFC §5.3 minor divergence. ``MailboxCreatedItem.fromJson``
+  ## accepts this shape via the ``Opt`` payload fields.
+  let node = parseJson("""{"id":"h"}""")
+  let r = MailboxCreatedItem.fromJson(node)
+  doAssert r.isOk, $r
+  let item = r.get()
+  assertEq string(item.id), "h"
+  doAssert item.totalEmails.isNone
+  doAssert item.unreadEmails.isNone
+  doAssert item.totalThreads.isNone
+  doAssert item.unreadThreads.isNone
+  doAssert item.myRights.isNone
+
+block fromJsonMailboxCreatedItemFull:
+  ## RFC 8621 §2.1 server-set subset — every field present. Round-trips
+  ## through ``toJson`` symmetrically.
+  let node = parseJson(
+    """{"id":"h","totalEmails":3,"unreadEmails":1,"totalThreads":2,"unreadThreads":1,
+        "myRights":{"mayReadItems":true,"mayAddItems":true,"mayRemoveItems":true,
+        "maySetSeen":true,"maySetKeywords":true,"mayCreateChild":true,
+        "mayRename":true,"mayDelete":true,"maySubmit":true}}"""
+  )
+  let r = MailboxCreatedItem.fromJson(node)
+  doAssert r.isOk, $r
+  let item = r.get()
+  doAssert item.totalEmails.isSome and item.totalEmails.get() == UnsignedInt(3)
+  doAssert item.unreadEmails.isSome and item.unreadEmails.get() == UnsignedInt(1)
+  doAssert item.totalThreads.isSome and item.totalThreads.get() == UnsignedInt(2)
+  doAssert item.unreadThreads.isSome and item.unreadThreads.get() == UnsignedInt(1)
+  doAssert item.myRights.isSome
+  let reparsed = MailboxCreatedItem.fromJson(item.toJson())
+  doAssert reparsed.isOk, $reparsed
+  doAssert reparsed.get().totalEmails == item.totalEmails
+
+block fromJsonMailboxCreatedItemMissingId:
+  ## ``id`` is required per RFC 8620 §5.3 — its absence rejects the item.
+  let node = parseJson("""{"totalEmails":0}""")
+  let r = MailboxCreatedItem.fromJson(node)
+  doAssert r.isErr
