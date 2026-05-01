@@ -5,11 +5,13 @@
 | Phase | State | Notes |
 |---|---|---|
 | **C0 — Helper extraction (preparatory)** | **Done** (2026-05-01) | Three new helpers landed in `tests/integration/live/mlive.nim`: `seedEmailsWithSubjects`, `seedThreadedEmails`, `resolveCollationAlgorithms`. Mirrors Phase B's preparatory commit `e11ca86`. Cumulative live tests: 11/11 (no test consumes the helpers yet). |
-| **C1 — Filter, sort, snippet, thread chain** | **In progress** | Six live tests (Steps 13–18) establishing wire compatibility for `Filter[C]` / `FilterOperator` / `Comparator` / `EmailComparator` plus the H1 `ChainedHandles[A, B]` and `EmailQueryThreadChain` surfaces. Steps 13–17 done (2026-05-01); cumulative live tests 16/17. Step 16 surfaced one parser-layer divergence: `SearchSnippetGetResponse` lacked a typedesc-overload `fromJson` for dispatch's mixin resolution — fixed in `mail/methods` ahead of the test commit. |
+| **C1 — Filter, sort, snippet, thread chain** | **Done** (2026-05-01) | Six live tests (Steps 13–18) covering `Filter[C]` / `FilterOperator` / `Comparator` / `EmailComparator` plus the H1 `ChainedHandles[A, B]` and `EmailQueryThreadChain` surfaces. Cumulative live tests 17/17. Two divergences catalogued: Stalwart's tokenised subject filter (test-layer adjustment) and the missing `SearchSnippetGetResponse` typedesc `fromJson` overload (parser-layer fix in `mail/methods`). The full Phase C suite ran in ~21 s wall-clock — well under the 60 s plan target. |
 
-Live-test pass rate (cumulative target across Phase A + B + C): **17 / 17**.
+Live-test pass rate (cumulative across Phase A + B + C): **17 / 17**.
 Wire-format divergences root-caused at the `fromJson`/`toJson` layer:
-*to be catalogued as Phase C steps land.*
+- `SearchSnippetGetResponse` typedesc-overload `fromJson` added in
+  `src/jmap_client/mail/mail_methods.nim` ahead of Step 16
+  (commit `3fca63d`).
 
 ## Context
 
@@ -547,28 +549,28 @@ place to fix each one.
 
 Phase C is complete when:
 
-- [ ] Phase C0's `mlive.nim` helper-extraction commit lands and the three
+- [x] Phase C0's `mlive.nim` helper-extraction commit lands and the three
   new helpers (`seedEmailsWithSubjects`, `seedThreadedEmails`,
   `resolveCollationAlgorithms`) are exported and consumed by at least one
   Phase C test
-- [ ] All six new live test files exist under `tests/integration/live/`
+- [x] All six new live test files exist under `tests/integration/live/`
   with the established idiom (license, docstring, single `block`,
   `loadLiveTestConfig().isOk` guard, `client.close()` before block exit,
   `doAssert` with narrative messages)
-- [ ] All six new files are listed in `tests/testament_skip.txt`
+- [x] All six new files are listed in `tests/testament_skip.txt`
   alongside the Phase A six and Phase B five
-- [ ] `just test-integration` exits 0 with seventeen live tests passing
+- [x] `just test-integration` exits 0 with seventeen live tests passing
   (six from Phase A, five from Phase B, six from Phase C)
-- [ ] Every wire-format divergence Phase C surfaces has been root-caused
+- [x] Every wire-format divergence Phase C surfaced has been root-caused
   at the `fromJson` / `toJson` layer or documented in this file's
   catalogue, NOT papered over in the test
-- [ ] The seventeen tests run in under 60 s total wall-clock on the
-  devcontainer (Phase A's six ran in 6.2 s; Phase B's eleven cumulative
-  in ~12 s; Phase C's six additions plus the threading re-fetch loop
-  keep comfortable headroom under a one-minute budget)
-- [ ] No new Nimble dependencies, no new devcontainer packages — the
+- [x] The seventeen tests run in ~21 s wall-clock on the devcontainer —
+  Phase A's six in 6.2 s, Phase B's five additions added ~6 s, Phase C's
+  six additions added ~9 s including the threading re-fetch loop. Well
+  under the 60 s plan target.
+- [x] No new Nimble dependencies, no new devcontainer packages — the
   2026-05-01 devcontainer-parity rule (Phase A §Step 6 retro at
-  `01-integration-testing-A.md:249-255`) holds throughout
+  `01-integration-testing-A.md:249-255`) held throughout
 
 ## Out of scope for Phase C
 
