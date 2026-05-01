@@ -1,6 +1,14 @@
 [tools]
 # -- Nim ecosystem -------------------------------------------------------
-"github:arnetheduck/nph" = "0.7.0"
+# nph is installed via nimble in .devcontainer/scripts/on-create.sh because
+# upstream's GitHub releases mis-publish the same x86_64 binary under both
+# nph-linux_x64.tar.gz and nph-linux_arm64.tar.gz (verified empirically on
+# v0.5–v0.7). Mise selects by asset name, so on aarch64 hosts it installs
+# an x86 binary that crashes with "Dynamic loader not found:
+# /lib64/ld-linux-x86-64.so.2" the first time `just fmt-check` runs.
+# Building from source via nimble against the in-image Nim emits a binary
+# matching the host architecture on both amd64 and arm64. Pin the version
+# in on-create.sh.
 "github:nim-lang/langserver" = { version = "1.12.0", exe = "nimlangserver" }
 
 # -- Project tooling (build, lint, spell, licence) ------------------------

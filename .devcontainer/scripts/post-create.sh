@@ -31,6 +31,19 @@ echo "Installing nimalyzer via nimble..."
 nimble install nimalyzer --accept
 echo "  Done"
 
+# nph is built from source rather than fetched from GitHub releases:
+# upstream's "nph-linux_arm64.tar.gz" actually contains the x86_64 binary
+# (verified across v0.5–v0.7), so mise's GitHub-asset backend installs an
+# x86 binary on aarch64 hosts that fails with "Dynamic loader not found:
+# /lib64/ld-linux-x86-64.so.2" the first time `just fmt-check` runs.
+# Building via nimble against the in-image Nim produces a host-native
+# binary on both amd64 and arm64. Version pinned to match what mise.toml
+# previously selected.
+echo ""
+echo "Installing nph via nimble (host-native build)..."
+nimble install nph@0.7.0 --accept
+echo "  Done"
+
 # Non-interactive shells (SSH, VS Code tasks) skip .zshrc, so mise shims
 # must be injected into PATH via a profile.d script.
 echo ""
