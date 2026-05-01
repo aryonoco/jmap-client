@@ -18,5 +18,10 @@ import std/json
 template loadCapturedFixture*(name: static string): JsonNode =
   ## Embeds ``tests/testdata/captured/<name>.json`` at compile time and
   ## returns it as a parsed ``JsonNode``. Missing fixtures fail at
-  ## ``staticRead`` (compile error), not at test runtime.
-  parseJson(staticRead("../../testdata/captured/" & name & ".json"))
+  ## ``staticRead`` (compile error), not at test runtime. The two
+  ## ``const`` bindings are required so the path concatenation and
+  ## file read both occur in a compile-time context — ``parseJson``
+  ## then runs at test runtime over the embedded literal.
+  const path = "../../testdata/captured/" & name & ".json"
+  const data = staticRead(path)
+  parseJson(data)
