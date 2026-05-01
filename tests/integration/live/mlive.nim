@@ -14,6 +14,7 @@
 
 {.push raises: [].}
 
+import std/sets
 import std/tables
 
 import results
@@ -104,3 +105,120 @@ proc seedSimpleEmail*(
     return err("Email/set returned no result for creationId " & creationLabel)
   doAssert found
   ok(seededId)
+
+proc seedEmailsWithSubjects*(
+    client: var JmapClient,
+    mailAccountId: AccountId,
+    inbox: Id,
+    subjects: openArray[string],
+): Result[seq[Id], string] =
+  ## Seeds N minimal text/plain emails differentiated only by subject.
+  ## Wraps ``seedSimpleEmail`` per element of ``subjects``; returns the
+  ## server-assigned ids in the same order. The ``creationLabel`` is
+  ## derived as ``"seed-N"`` from the index — test bodies only consume
+  ## the returned ids, never the label.
+  ##
+  ## Short-circuits on the first ``Err`` per the railway pattern, so a
+  ## partial failure does not silently swallow earlier successes.
+  var ids: seq[Id] = @[]
+  for i, subject in subjects:
+    let id = seedSimpleEmail(client, mailAccountId, inbox, subject, "seed-" & $i).valueOr:
+      return err("seedEmailsWithSubjects[" & $i & "]: " & error)
+    ids.add(id)
+  ok(ids)
+
+proc seedThreadedEmails*(
+    client: var JmapClient,
+    mailAccountId: AccountId,
+    inbox: Id,
+    subjects: openArray[string],
+    rootMessageId: string,
+): Result[seq[Id], string] =
+  ## Seeds N text/plain emails with RFC 5322 In-Reply-To / References
+  ## headers wired so a server's threading pipeline groups them into a
+  ## single Thread. The first email gets ``messageId = @[rootMessageId]``;
+  ## each subsequent email gets ``inReplyTo = @[rootMessageId]`` and
+  ## ``references = @[rootMessageId]``. The blueprint shape mirrors
+  ## ``seedSimpleEmail`` exactly except for the threading-discriminator
+  ## fields — duplicated inline rather than extracted because Phase D will
+  ## add divergent blueprint shapes that a shared private helper would
+  ## couple unhelpfully.
+  let mailboxIds = parseNonEmptyMailboxIdSet(@[inbox]).valueOr:
+    return err("parseNonEmptyMailboxIdSet failed: " & error.message)
+  let aliceAddr = parseEmailAddress("alice@example.com", Opt.some("Alice")).valueOr:
+    return err("parseEmailAddress failed: " & error.message)
+  let partId = parsePartIdFromServer("1").valueOr:
+    return err("parsePartIdFromServer failed: " & error.message)
+  var ids: seq[Id] = @[]
+  for i, subject in subjects:
+    let textPart = BlueprintBodyPart(
+      isMultipart: false,
+      leaf: BlueprintLeafPart(
+        source: bpsInline,
+        partId: partId,
+        value: BlueprintBodyValue(value: "Live-test threaded seed body."),
+      ),
+      contentType: "text/plain",
+      extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
+      name: Opt.none(string),
+      disposition: Opt.none(ContentDisposition),
+      cid: Opt.none(string),
+      language: Opt.none(seq[string]),
+      location: Opt.none(string),
+    )
+    let messageId =
+      if i == 0:
+        Opt.some(@[rootMessageId])
+      else:
+        Opt.none(seq[string])
+    let inReplyTo =
+      if i == 0:
+        Opt.none(seq[string])
+      else:
+        Opt.some(@[rootMessageId])
+    let references =
+      if i == 0:
+        Opt.none(seq[string])
+      else:
+        Opt.some(@[rootMessageId])
+    let blueprint = parseEmailBlueprint(
+      mailboxIds = mailboxIds,
+      body = flatBody(textBody = Opt.some(textPart)),
+      fromAddr = Opt.some(@[aliceAddr]),
+      to = Opt.some(@[aliceAddr]),
+      subject = Opt.some(subject),
+      messageId = messageId,
+      inReplyTo = inReplyTo,
+      references = references,
+    ).valueOr:
+      return err("parseEmailBlueprint failed: " & $error)
+    let creationLabel = "thread-" & $i
+    let cid = parseCreationId(creationLabel).valueOr:
+      return err("parseCreationId failed: " & error.message)
+    var createTbl = initTable[CreationId, EmailBlueprint]()
+    createTbl[cid] = blueprint
+    let (b, setHandle) =
+      addEmailSet(initRequestBuilder(), mailAccountId, create = Opt.some(createTbl))
+    let resp = client.send(b).valueOr:
+      return err("Email/set send failed: " & error.message)
+    let setResp = resp.get(setHandle).valueOr:
+      return err("Email/set extract failed: " & error.rawType)
+    var seededId: Id
+    var found = false
+    setResp.createResults.withValue(cid, outcome):
+      let item = outcome.valueOr:
+        return err("Email/set create rejected: " & error.rawType)
+      seededId = item.id
+      found = true
+    do:
+      return err("Email/set returned no result for creationId " & creationLabel)
+    doAssert found
+    ids.add(seededId)
+  ok(ids)
+
+func resolveCollationAlgorithms*(session: Session): HashSet[CollationAlgorithm] =
+  ## Convenience: returns the ``CollationAlgorithm`` set advertised by the
+  ## server's core capabilities. Pure — no IO. Exists as a named helper for
+  ## symmetry with the seed helpers and to keep test bodies free of
+  ## capability-traversal boilerplate.
+  session.coreCapabilities.collationAlgorithms
