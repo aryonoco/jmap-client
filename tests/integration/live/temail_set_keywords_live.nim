@@ -22,6 +22,7 @@
 ## Seeds one Email of its own (does not depend on Step 6's seed) so the
 ## test runs cleanly against a freshly-reset Stalwart and asserts a
 ## known-good keyword transition without hunting for an arbitrary id.
+## Inbox lookup and email seed are delegated to ``mlive``.
 
 import std/json
 import std/tables
@@ -30,6 +31,7 @@ import results
 import jmap_client
 import jmap_client/client
 import ./mconfig
+import ./mlive
 
 block temailSetKeywordsLive:
   let cfgRes = loadLiveTestConfig()
@@ -48,56 +50,12 @@ block temailSetKeywordsLive:
     do:
       doAssert false, "session must advertise a primary mail account"
 
-    # --- Resolve inbox + seed a fresh email ------------------------------
-    let (b1, mbHandle) = addGet[Mailbox](initRequestBuilder(), mailAccountId)
-    let resp1 = client.send(b1).expect("send Mailbox/get")
-    let mbResp = resp1.get(mbHandle).expect("Mailbox/get extract")
-    var inboxId = Opt.none(Id)
-    for node in mbResp.list:
-      let mb = Mailbox.fromJson(node).expect("parse Mailbox")
-      for role in mb.role:
-        if role == roleInbox:
-          inboxId = Opt.some(mb.id)
-    doAssert inboxId.isSome, "alice's account must have an Inbox role mailbox"
-    let inbox = inboxId.get()
-
-    let mailboxIds = parseNonEmptyMailboxIdSet(@[inbox]).expect("mailboxIds")
-    let aliceAddr = parseEmailAddress("alice@example.com", Opt.some("Alice")).expect(
-        "parseEmailAddress"
+    # --- Resolve inbox + seed a fresh email (mlive helpers) --------------
+    let inbox = resolveInboxId(client, mailAccountId).expect("resolveInboxId")
+    let seededId = seedSimpleEmail(
+        client, mailAccountId, inbox, "phase-1 step-7 keyword seed", "seedKeyword"
       )
-    let textPart = BlueprintBodyPart(
-      isMultipart: false,
-      leaf: BlueprintLeafPart(
-        source: bpsInline,
-        partId: parsePartIdFromServer("1").expect("partId"),
-        value: BlueprintBodyValue(value: "Hello from phase 1 step 7."),
-      ),
-      contentType: "text/plain",
-      extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
-      name: Opt.none(string),
-      disposition: Opt.none(ContentDisposition),
-      cid: Opt.none(string),
-      language: Opt.none(seq[string]),
-      location: Opt.none(string),
-    )
-    let blueprint = parseEmailBlueprint(
-        mailboxIds = mailboxIds,
-        body = flatBody(textBody = Opt.some(textPart)),
-        fromAddr = Opt.some(@[aliceAddr]),
-        to = Opt.some(@[aliceAddr]),
-        subject = Opt.some("phase-1 step-7 keyword seed"),
-      )
-      .expect("parseEmailBlueprint")
-    let createCid = parseCreationId("seedKeyword").expect("parseCreationId")
-    var createTbl = initTable[CreationId, EmailBlueprint]()
-    createTbl[createCid] = blueprint
-    let (b2, createHandle) =
-      addEmailSet(initRequestBuilder(), mailAccountId, create = Opt.some(createTbl))
-    let resp2 = client.send(b2).expect("send Email/set create")
-    let createResp = resp2.get(createHandle).expect("Email/set create extract")
-    let createOutcome = createResp.createResults[createCid]
-    doAssert createOutcome.isOk, "Email/set create must succeed for the seeded message"
-    let seededId = createOutcome.get().id
+      .expect("seedSimpleEmail")
 
     # --- Capture pre-update state via Email/get --------------------------
     let (b3, getHandle1) = addEmailGet(

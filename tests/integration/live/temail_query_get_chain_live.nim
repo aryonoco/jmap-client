@@ -13,14 +13,13 @@
 ## megatest cleanly under ``just test-full`` when env vars are absent.
 ##
 ## Three sequential requests:
-##  1. Mailbox/get — resolve Alice's inbox id (needed for the seed's
-##     ``mailboxIds`` invariant: every Email belongs to ≥1 Mailbox).
-##  2. Email/set create — seed one Email; uses ``EmailBlueprint`` smart
-##     constructor + ``BlueprintBodyPart`` direct construction (Pattern A
-##     unsealed at the leaf).
-##  3. Email/query → Email/get — the chain. The query returns all
-##     emails for Alice (no filter); the get fetches them by reference
-##     to the query's ``ids`` (JSON Pointer ``/ids``).
+##  1. ``resolveInboxId`` (mlive) — Mailbox/get for Alice's inbox.
+##  2. ``seedSimpleEmail`` (mlive) — Email/set create for one text/plain
+##     message. Pattern A (BlueprintBodyPart) is exercised inside the
+##     helper.
+##  3. Email/query → Email/get — the chain under test. The query returns
+##     all emails for Alice (no filter); the get fetches them by
+##     reference to the query's ``ids`` (JSON Pointer ``/ids``).
 
 import std/json
 import std/tables
@@ -29,6 +28,7 @@ import results
 import jmap_client
 import jmap_client/client
 import ./mconfig
+import ./mlive
 
 block temailQueryGetChainLive:
   let cfgRes = loadLiveTestConfig()
@@ -47,57 +47,14 @@ block temailQueryGetChainLive:
     do:
       doAssert false, "session must advertise a primary mail account"
 
-    # --- Step 1: resolve inbox id ----------------------------------------
-    let (b1, mbHandle) = addGet[Mailbox](initRequestBuilder(), mailAccountId)
-    let resp1 = client.send(b1).expect("send Mailbox/get")
-    let mbResp = resp1.get(mbHandle).expect("Mailbox/get extract")
-    var inboxId = Opt.none(Id)
-    for node in mbResp.list:
-      let mb = Mailbox.fromJson(node).expect("parse Mailbox")
-      for role in mb.role:
-        if role == roleInbox:
-          inboxId = Opt.some(mb.id)
-    doAssert inboxId.isSome, "alice's account must have an Inbox role mailbox"
-    let inbox = inboxId.get()
+    # --- Step 1: resolve inbox id (mlive helper) -------------------------
+    let inbox = resolveInboxId(client, mailAccountId).expect("resolveInboxId")
 
-    # --- Step 2: seed one email via Email/set create ---------------------
-    let mailboxIds = parseNonEmptyMailboxIdSet(@[inbox]).expect("mailboxIds")
-    let aliceAddr = parseEmailAddress("alice@example.com", Opt.some("Alice")).expect(
-        "parseEmailAddress"
+    # --- Step 2: seed one email (mlive helper) ---------------------------
+    discard seedSimpleEmail(
+        client, mailAccountId, inbox, "phase-1 step-6 seed", "seedMail"
       )
-    let textPart = BlueprintBodyPart(
-      isMultipart: false,
-      leaf: BlueprintLeafPart(
-        source: bpsInline,
-        partId: parsePartIdFromServer("1").expect("partId"),
-        value: BlueprintBodyValue(value: "Hello from phase 1 step 6."),
-      ),
-      contentType: "text/plain",
-      extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
-      name: Opt.none(string),
-      disposition: Opt.none(ContentDisposition),
-      cid: Opt.none(string),
-      language: Opt.none(seq[string]),
-      location: Opt.none(string),
-    )
-    let blueprint = parseEmailBlueprint(
-        mailboxIds = mailboxIds,
-        body = flatBody(textBody = Opt.some(textPart)),
-        fromAddr = Opt.some(@[aliceAddr]),
-        to = Opt.some(@[aliceAddr]),
-        subject = Opt.some("phase-1 step-6 seed"),
-      )
-      .expect("parseEmailBlueprint")
-    let cid = parseCreationId("seedMail").expect("parseCreationId")
-    var createTbl = initTable[CreationId, EmailBlueprint]()
-    createTbl[cid] = blueprint
-    let (b2, setHandle) =
-      addEmailSet(initRequestBuilder(), mailAccountId, create = Opt.some(createTbl))
-    let resp2 = client.send(b2).expect("send Email/set")
-    let setResp = resp2.get(setHandle).expect("Email/set extract")
-    doAssert setResp.createResults.len == 1, "set must report exactly one create result"
-    doAssert setResp.createResults[cid].isOk,
-      "Email/set must succeed for the seeded message"
+      .expect("seedSimpleEmail")
 
     # --- Step 3: Email/query → Email/get via #ids back-reference ---------
     let (b3a, queryHandle) = addEmailQuery(initRequestBuilder(), mailAccountId)
