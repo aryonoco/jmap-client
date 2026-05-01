@@ -1,5 +1,14 @@
 # Integration Testing Plan — Phase A
 
+## Status (living)
+
+| Phase | State | Notes |
+|---|---|---|
+| **0 — Validate the orchestration layer** | **Done** (2026-05-01) | Step 1 commit `b02830f`, Step 2 commit `b02830f` (justfile recipe-scoping fix in `934e191`). `just test-integration` exits 0 with `tsession_discovery` PASS in 1.09s. |
+| **1 — Five foundational live tests** | Not started | Steps 3–7 below. Will need an SMTP-deliver helper before Step 6. |
+
+Live-test pass rate: **1 / 6**. Wire-format divergences root-caused at the `fromJson` layer: 0 (none discovered yet — discovery happens in Phase 1).
+
 ## Context
 
 The project has been developed in isolation for over a month: roughly
@@ -14,10 +23,9 @@ None of this establishes what the library does against a real JMAP
 server.
 
 A Stalwart JMAP devcontainer service and a single session-discovery
-smoke test were added in commit `9c0935b` on 2026-04-22. Neither has
-been exercised since. `docker compose` tooling is available inside the
-devcontainer (confirmed by `which docker`), but `/tmp/stalwart-env.sh`
-does not exist — meaning `just stalwart-up` has never been run.
+smoke test were added in commit `9c0935b` on 2026-04-22. They sat
+unexercised through the H1 type-lift campaign until the orchestration
+layer was validated end-to-end on 2026-05-01 (Phase 0, below).
 
 RFC 8620 (Core) and RFC 8621 (Mail) client-side coverage is
 approximately 95% and 90% respectively. Push notifications (§7 of both
@@ -40,44 +48,43 @@ been proven, so the bug is isolated.
 
 ## Phase 0 — Validate the orchestration layer
 
-### Step 1: Boot Stalwart
+### Step 1: Boot Stalwart — DONE (2026-05-01, commit `b02830f`)
 
     just stalwart-up
 
-Observable success:
+Observable success (all met):
 
 - `docker compose up` pulls `stalwartlabs/stalwart:v0.15` and starts
-  the container
+  the container (running 0.15.5 on this tag)
 - `seed-stalwart.sh` polling loop prints `Stalwart is ready (attempt N)`
 - Three `curl` calls to `/api/principal` each print `HTTP 200` (or
   `HTTP 409` on a re-run — acceptable; the script suppresses via `|| true`)
 - `/tmp/stalwart-env.sh` exists with four `export JMAP_TEST_*=...` lines
 - The summary block prints the seeded credentials
 
-Failure modes to expect:
+What actually went wrong (none of the originally-anticipated failure
+modes — admin creds, schema, health endpoint, network — were the issue):
 
-1. **Admin creds wrong (`HTTP 401`).** Stalwart v0.15 typically requires
-   the admin password to be set via `STALWART_ADMIN_PASSWORD` in
-   `docker-compose.yml` or via a first-run bootstrap. The seed script
-   hardcodes `admin:jmapdev`. If compose doesn't seed this, configure
-   it in compose.
-2. **Principal API schema mismatch (`HTTP 400`).** The JSON bodies in
-   `seed-stalwart.sh` are guesses at v0.15's admin API. Consult
-   Stalwart's `/api` docs for the running version.
-3. **Health endpoint missing.** `GET /healthz/live` may not exist in
-   v0.15. Substitute `GET /api/principal` with admin auth as a liveness
-   probe.
-4. **Compose network collision.** If a stale `jmap-net` exists,
-   `docker network rm jmap-net` clears it.
+- **Seed body missing the `roles` field.** `POST /api/principal` with
+  `{"type":"individual","name":"alice",…}` succeeded with HTTP 200,
+  *but* the resulting principal carries zero JMAP-method permissions.
+  Symptom didn't surface until Step 2 (HTTP 403 from `/jmap/session`
+  with `"You do not have enough permissions"`). Fix: add
+  `"roles":["user"]` per Stalwart's role model
+  (`stalw.art/docs/auth/authorization/roles`).
 
-Do not proceed to Step 2 until Step 1 is deterministic.
+The recipe-level papercut in `stalwart-down` / `stalwart-reset` (using
+`docker compose down` which ignores `--profile` filters and tore down
+the dev container too, also wiping its named volumes) was fixed in
+commit `934e191` — both recipes now use `docker compose rm -fs[v]
+stalwart` and an explicit `docker volume rm` for the named volume.
 
-### Step 2: Run the existing live session-discovery test
+### Step 2: Run the existing live session-discovery test — DONE (2026-05-01, commit `b02830f`)
 
     . /tmp/stalwart-env.sh
     just test-integration
 
-Observable success:
+Observable success (all met; `tsession_discovery` PASS in 1.09s):
 
 - Testament builds and runs `tests/integration/live/tsession_discovery.nim`
 - `loadLiveTestConfig` returns `Ok` (all four env vars present)
@@ -86,34 +93,46 @@ Observable success:
 - `session.accounts.len > 0` and `session.apiUrl.len > 0`
 - The test exits 0
 
-What this proves (first time over the wire):
+What this proved (first time over the wire):
 
 - HTTP keep-alive and connection reuse work
-- Basic auth with base64 `user@domain:password` is accepted by Stalwart
+- Basic auth with base64 `name:password` is accepted by Stalwart
+  (note: **not** `email:password` — Stalwart's internal directory
+  matches the username against the principal's `name` field, not its
+  `emails[]`. The original plan asserted email-based auth here and
+  was wrong.)
 - The `authScheme` parameter added in commit `9c0935b` correctly
-  substitutes `"Basic"` for the default `"Bearer"`
+  substitutes `"Basic"` for the default `"Bearer"` — verified at
+  `client.nim:202–302` (no client-side change needed)
 - Stalwart's Session JSON satisfies the shape `Session.fromJson` expects
 - `UriTemplate` parsing succeeds for Stalwart's actual `downloadUrl`,
   `uploadUrl`, `eventSourceUrl` values
+- `primaryAccounts` is populated across the full RFC 8620/8621 capability
+  set plus Stalwart extensions (calendars, contacts, sieve, blob,
+  websocket, principals, filenode)
 
-Failure modes to expect:
+What actually went wrong:
 
-1. **Session URL path wrong (`404`).** The seed script sets
-   `JMAP_TEST_SESSION_URL=http://stalwart:8080/jmap/session`. RFC 8620
-   §2.2 suggests `/.well-known/jmap`. If 404, inspect Stalwart's JMAP
-   docs and update the env var in the seed script.
-2. **`authScheme="Basic"` not wired through (`401`).** Commit `9c0935b`'s
-   change to `setBearerToken` is unexercised. A 401 response from a
-   correct path means the header is being built incorrectly — verify
-   `setBearerToken` reads the stored scheme instead of defaulting to
-   `"Bearer"`.
-3. **Session JSON rejects.** Stalwart may omit fields the strict parser
-   expects, or emit fields with unexpected types (e.g.
-   `primaryAccounts: null` instead of absent, `accountCapabilities: []`
-   instead of `{}`). Fix at the `fromJson` layer per the Postel's-law
-   convention in `.claude/rules/nim-conventions.md`.
+1. **Login identifier mismatch (`HTTP 401`).** The seed script
+   originally encoded `alice@test.local:alice123` into the bearer
+   token. Stalwart 0.15.5 returned `401 "You have to authenticate
+   first."` — the email form is not a recognised identifier. The
+   `name`-form `alice:alice123` returned `403` instead, which cleanly
+   isolated this from #2 below. Fix: encode `name:secret` in
+   `seed-stalwart.sh`.
+2. **Principal lacks JMAP role (`HTTP 403`).** With the correct
+   identifier, `/jmap/session` still returned `403 "You do not have
+   enough permissions to access this resource."` Fix: add
+   `"roles":["user"]` to the seed POST body. See Step 1's retro for
+   detail.
 
-Once Step 2 is green, the foundation is real.
+The originally-anticipated failure modes (session URL path,
+`authScheme` miswiring, Session JSON shape divergence) all turned out
+to be non-issues. The `authScheme` hypothesis was specifically wrong:
+the wiring landed correctly in commit `9c0935b` and the 401 was
+upstream of the client.
+
+Once Step 2 was green, the foundation became real.
 
 ## Phase 1 — Five foundational live tests
 
@@ -291,14 +310,16 @@ boundary in serde is the right place to fix each.
 
 Phase A is complete when:
 
-- `just stalwart-up` succeeds deterministically from a clean
-  devcontainer
-- `just test-integration` exits 0 with all six live tests (discovery +
-  five new) passing
-- Every wire-format divergence discovered has been root-caused and
+- [x] `just stalwart-up` succeeds deterministically from a clean
+  devcontainer (met 2026-05-01; verified via `just stalwart-reset`
+  with the recipe-scoping fix in commit `934e191`)
+- [ ] `just test-integration` exits 0 with all six live tests
+  (discovery + five new) passing — currently 1 / 6 (`tsession_discovery`
+  only)
+- [ ] Every wire-format divergence discovered has been root-caused and
   fixed at the `fromJson` layer, not papered over in the test
-- The six tests run in under 30 seconds total (baseline for regression
-  tracking)
+- [ ] The six tests run in under 30 seconds total (baseline for
+  regression tracking) — `tsession_discovery` alone runs in 1.09s
 
 ## Out of scope for Phase A
 
