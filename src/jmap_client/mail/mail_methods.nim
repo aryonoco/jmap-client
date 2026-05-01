@@ -155,6 +155,21 @@ func searchSnippetGetResponseFromJson*(
   let notFound = ?collapseNullToEmptySeq(node, "notFound", parseIdFromServer, path)
   ok(SearchSnippetGetResponse(accountId: accountId, list: list, notFound: notFound))
 
+func fromJson*(
+    T: typedesc[SearchSnippetGetResponse],
+    node: JsonNode,
+    path: JsonPath = emptyJsonPath(),
+): Result[SearchSnippetGetResponse, SerdeViolation] =
+  ## Typedesc-overload wrapper so dispatch's ``mixin fromJson`` resolves
+  ## ``SearchSnippetGetResponse.fromJson`` at the ``resp.get(handle)``
+  ## site (RFC 8621 §5.1). Mirrors the typedesc-overload pattern used by
+  ## ``Mailbox.fromJson`` / ``MailboxCreatedItem.fromJson`` / etc. — the
+  ## named function ``searchSnippetGetResponseFromJson`` continues to be
+  ## the implementation; this wrapper only exposes it through the
+  ## ``T.fromJson(node)`` mixin-discovery path.
+  discard $T # consumed for nimalyzer params rule
+  searchSnippetGetResponseFromJson(node, path)
+
 # =============================================================================
 # addEmailParse — Email/parse (RFC 8621 §4.9)
 # =============================================================================
