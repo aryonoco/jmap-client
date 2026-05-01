@@ -31,19 +31,19 @@ curl -u "$ADMIN_AUTH" -X POST -H "Content-Type: application/json" \
 
 echo "Creating user alice@test.local..."
 curl -u "$ADMIN_AUTH" -X POST -H "Content-Type: application/json" \
-  -d '{"type":"individual","name":"alice","secrets":["alice123"],"emails":["alice@test.local"]}' \
+  -d '{"type":"individual","name":"alice","secrets":["alice123"],"emails":["alice@test.local"],"roles":["user"]}' \
   -o /dev/null -s -w "  HTTP %{http_code}\n" \
   "$STALWART_URL/api/principal" || true
 
 echo "Creating user bob@test.local..."
 curl -u "$ADMIN_AUTH" -X POST -H "Content-Type: application/json" \
-  -d '{"type":"individual","name":"bob","secrets":["bob123"],"emails":["bob@test.local"]}' \
+  -d '{"type":"individual","name":"bob","secrets":["bob123"],"emails":["bob@test.local"],"roles":["user"]}' \
   -o /dev/null -s -w "  HTTP %{http_code}\n" \
   "$STALWART_URL/api/principal" || true
 
 # --- Write env file for integration tests ---
-ALICE_B64=$(echo -n 'alice@test.local:alice123' | base64 -w0)
-BOB_B64=$(echo -n 'bob@test.local:bob123' | base64 -w0)
+ALICE_B64=$(echo -n 'alice:alice123' | base64 -w0)
+BOB_B64=$(echo -n 'bob:bob123' | base64 -w0)
 
 cat > /tmp/stalwart-env.sh <<EOF
 export JMAP_TEST_SESSION_URL="http://stalwart:8080/jmap/session"
