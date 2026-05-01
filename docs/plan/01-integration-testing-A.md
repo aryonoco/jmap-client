@@ -5,9 +5,9 @@
 | Phase | State | Notes |
 |---|---|---|
 | **0 — Validate the orchestration layer** | **Done** (2026-05-01) | Step 1 commit `b02830f`, Step 2 commit `b02830f` (justfile recipe-scoping fix in `934e191`). `just test-integration` exits 0 with `tsession_discovery` PASS in 1.09s. |
-| **1 — Five foundational live tests** | Not started | Steps 3–7 below. Will need an SMTP-deliver helper before Step 6. |
+| **1 — Five foundational live tests** | **Done** (2026-05-01) | Steps 3–7 commits `c26cdca`, `d12ea3a`, `eaab495`+`c45ff46`+`3e3bcc6`, `ba8a658`, `ce44236`. `just test-integration` exits 0 with all 6 live tests in 6.2s. SMTP helper deferred — Path C (`Email/set create`) used per the "no new packages" devcontainer-parity rule. |
 
-Live-test pass rate: **1 / 6**. Wire-format divergences root-caused at the `fromJson` layer: 0 (none discovered yet — discovery happens in Phase 1).
+Live-test pass rate: **6 / 6**. Wire-format divergences root-caused at the `fromJson` layer: **1** — `SetResponse[Identity]` split into `SetResponse[IdentityCreatedItem]` (commit `c45ff46`) after Stalwart 0.15.5 returned the bare `{"id":"<id>"}` partial in Identity/set's `created[cid]` per RFC 8620 §5.3.
 
 ## Context
 
@@ -144,7 +144,7 @@ Each test lives under `tests/integration/live/` and follows the
 Write them in order. Each builds on the wire-format discoveries of the
 previous.
 
-### Step 3: `tcore_echo_live.nim`
+### Step 3: `tcore_echo_live.nim` — DONE (2026-05-01, commit `c26cdca`)
 
 Scope: the simplest possible JMAP method. Proves end-to-end
 request/response envelope plumbing with zero mail semantics.
@@ -167,7 +167,7 @@ What this proves:
 - Pre-flight validation (`maxSizeRequest`, `maxCallsInRequest`) respects
   session limits
 
-### Step 4: `tmailbox_get_all_live.nim`
+### Step 4: `tmailbox_get_all_live.nim` — DONE (2026-05-01, commit `d12ea3a`)
 
 Scope: `Mailbox/get` with `ids: null`, fetching every mailbox in
 Alice's seeded account.
@@ -195,10 +195,27 @@ What this proves:
 Most likely first real bug: a field-name mismatch or empty-vs-null
 divergence in `myRights`.
 
-### Step 5: `tidentity_get_live.nim`
+### Step 5: `tidentity_get_live.nim` — DONE (2026-05-01, commits `eaab495` + `c45ff46` + `3e3bcc6`)
 
 Scope: `Identity/get`, proving the submission capability pipeline
 separately from the mail pipeline.
+
+**What actually happened:** Three commits because the empirical run
+exposed two surprises and a wire-format divergence:
+
+1. Stalwart's identity validator rejects `.local` and `.test` (RFC 6761
+   /6762 special-use TLDs) as "Invalid e-mail address." The seeded
+   domain was switched from `test.local` to `example.com` (RFC 2606
+   reserved-for-documentation, accepted by Stalwart) — commit
+   `eaab495`.
+2. Stalwart does NOT auto-provision an Identity at principal-creation
+   time. The test creates one via `Identity/set` first, then reads it
+   back via `Identity/get` — both invocations in a single request.
+3. `Identity/set`'s `created[cid]` payload is the bare `{"id":"<id>"}`
+   per RFC 8620 §5.3 (server-set subset). The strict `Identity.fromJson`
+   parser failed; introduced `IdentityCreatedItem` mirroring
+   `EmailCreatedItem` and rewired `setResponseType(Identity)` —
+   commit `c45ff46`.
 
 Body:
 
@@ -208,8 +225,8 @@ Body:
 - Build `addIdentityGet(accountId, ids=Opt.none)`
 - Send
 - Assert `list.len >= 1`
-- Assert one identity has `email == "alice@test.local"`
-- Assert `mayDelete` is populated
+- Assert one identity has `email == "alice@example.com"`
+- Assert `mayDelete` is populated (when present — see "What actually happened")
 
 What this proves:
 
@@ -220,16 +237,22 @@ What this proves:
 If Step 4 passes and Step 5 fails, the bug is specific to the
 submission URI wiring, not the mail pipeline.
 
-### Step 6: `temail_query_get_chain_live.nim`
+### Step 6: `temail_query_get_chain_live.nim` — DONE (2026-05-01, commit `ba8a658`)
 
 Scope: two chained method calls via a result reference. The single
 most error-prone JMAP feature — your JSON Pointer syntax must agree
 with Stalwart's evaluator.
 
-Prerequisite: Alice's inbox needs at least one message. Either seed
-one via the admin API during `seed-stalwart.sh`, or have the test
-deliver via SMTP first. Prefer the SMTP helper (~20 lines) over
-extending the seed script.
+Prerequisite: Alice's inbox needs at least one message. **Path C
+selected** (use the library to test the library): the test seeds one
+Email via `Email/set create` with an `EmailBlueprint`, no SMTP path
+needed. The plan's earlier preference for an SMTP helper would have
+required a Nimble package (Nim 2.2.8 has no `std/smtpclient`), which
+violates the 2026-05-01 user-stated devcontainer-parity rule (any
+package added to the running devcontainer must also be added to
+`.devcontainer/`). Path A (Stalwart admin-API mail injection) does not
+exist — empirically verified `/api/email`, `/api/message`, etc. all
+return 404.
 
 Body:
 
@@ -252,7 +275,7 @@ What this proves:
 
 This is the first test that touches Stalwart's actual mail store.
 
-### Step 7: `temail_set_keywords_live.nim`
+### Step 7: `temail_set_keywords_live.nim` — DONE (2026-05-01, commit `ce44236`)
 
 Scope: `Email/set` with `ifInState`, flipping `$seen` on an email.
 
@@ -313,13 +336,18 @@ Phase A is complete when:
 - [x] `just stalwart-up` succeeds deterministically from a clean
   devcontainer (met 2026-05-01; verified via `just stalwart-reset`
   with the recipe-scoping fix in commit `934e191`)
-- [ ] `just test-integration` exits 0 with all six live tests
-  (discovery + five new) passing — currently 1 / 6 (`tsession_discovery`
-  only)
-- [ ] Every wire-format divergence discovered has been root-caused and
-  fixed at the `fromJson` layer, not papered over in the test
-- [ ] The six tests run in under 30 seconds total (baseline for
-  regression tracking) — `tsession_discovery` alone runs in 1.09s
+- [x] `just test-integration` exits 0 with all six live tests
+  (discovery + five new) passing — met 2026-05-01 (`tsession_discovery`,
+  `tcore_echo_live`, `tmailbox_get_all_live`, `tidentity_get_live`,
+  `temail_query_get_chain_live`, `temail_set_keywords_live` all PASS)
+- [x] Every wire-format divergence discovered has been root-caused and
+  fixed at the `fromJson` layer, not papered over in the test — met
+  2026-05-01: one divergence found (Identity/set partial response per
+  RFC 8620 §5.3) and resolved by introducing `IdentityCreatedItem`
+  (commit `c45ff46`), mirroring the existing `EmailCreatedItem` design
+- [x] The six tests run in under 30 seconds total (baseline for
+  regression tracking) — met 2026-05-01: total wall-clock ~6.2s
+  (0.85 + 0.91 + 0.92 + 0.95 + 1.07 + 1.50) against Stalwart 0.15.5
 
 ## Out of scope for Phase A
 
