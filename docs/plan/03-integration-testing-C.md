@@ -5,7 +5,7 @@
 | Phase | State | Notes |
 |---|---|---|
 | **C0 — Helper extraction (preparatory)** | **Done** (2026-05-01) | Three new helpers landed in `tests/integration/live/mlive.nim`: `seedEmailsWithSubjects`, `seedThreadedEmails`, `resolveCollationAlgorithms`. Mirrors Phase B's preparatory commit `e11ca86`. Cumulative live tests: 11/11 (no test consumes the helpers yet). |
-| **C1 — Filter, sort, snippet, thread chain** | **In progress** | Six live tests (Steps 13–18) establishing wire compatibility for `Filter[C]` / `FilterOperator` / `Comparator` / `EmailComparator` plus the H1 `ChainedHandles[A, B]` and `EmailQueryThreadChain` surfaces. Steps 13–15 done (2026-05-01); cumulative live tests 14/17. |
+| **C1 — Filter, sort, snippet, thread chain** | **In progress** | Six live tests (Steps 13–18) establishing wire compatibility for `Filter[C]` / `FilterOperator` / `Comparator` / `EmailComparator` plus the H1 `ChainedHandles[A, B]` and `EmailQueryThreadChain` surfaces. Steps 13–16 done (2026-05-01); cumulative live tests 15/17. Step 16 surfaced one parser-layer divergence: `SearchSnippetGetResponse` lacked a typedesc-overload `fromJson` for dispatch's mixin resolution — fixed in `mail/methods` ahead of the test commit. |
 
 Live-test pass rate (cumulative target across Phase A + B + C): **17 / 17**.
 Wire-format divergences root-caused at the `fromJson`/`toJson` layer:
@@ -514,6 +514,21 @@ place to fix each one.
    `null` or `""` for `subject` / `preview` when no highlight is present.
    The lenient `Opt[string]` parse handles both. Tests assert
    non-emptiness on at least one of the two fields, never both.
+   **Observed at Step 16 (2026-05-01):** Stalwart 0.15.5 populates
+   `subject` with `<mark>`-bracketed match text and `preview` with a
+   highlighted body fragment when both surfaces match the filter; the
+   parser handles this without further accommodation.
+
+7. **Custom response types missing typedesc fromJson overload.**
+   Step 16: `SearchSnippetGetResponse` had a named-function parser
+   (`searchSnippetGetResponseFromJson`) but no typedesc-overload
+   `fromJson(typedesc[T], node, path)` for dispatch's
+   `mixin fromJson` to resolve. Fixed by adding a one-line wrapper
+   next to the named function in `src/jmap_client/mail/mail_methods.nim`,
+   mirroring the established `Mailbox.fromJson` / `MailboxCreatedItem.fromJson`
+   pattern. No parser logic change. `EmailParseResponse` has the same
+   gap and will be fixed when Phase D's first live Email/parse test
+   surfaces it (strict scope discipline — no pre-emptive fixes).
 4. **Threading asynchrony.** Step 18: Stalwart's threading pipeline is
    asynchronous; thread-membership assertions need re-fetch loops. The
    fix is always at the test layer (extend budget); never paper over by
