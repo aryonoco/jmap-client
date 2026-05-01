@@ -52,3 +52,4 @@ tests/integration/live/temail_get_html_body_live.nim
 tests/integration/live/temail_get_attachments_live.nim
 tests/integration/live/temail_get_header_forms_live.nim
 tests/integration/live/temail_get_unicode_name_live.nim
+tests/integration/live/temail_parse_live.nim
