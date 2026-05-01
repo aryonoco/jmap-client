@@ -1,0 +1,1 @@
+{"methodResponses":[["Email/get",{"accountId":"c","state":"sau","list":[{"id":"qaaaaae","header:List-Post:asURLs":["mailto:list@example.com"],"header:Date:asDate":"2026-05-01T12:00:00Z","header:From:asAddresses":[{"name":"Alice","email":"alice@example.com"}]}],"notFound":[]},"c0"]],"sessionState":"3e25b2a0"}
