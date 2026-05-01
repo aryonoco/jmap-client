@@ -111,11 +111,13 @@ template updateType*(T: typedesc[Identity]): typedesc =
   NonEmptyIdentityUpdates
 
 template setResponseType*(T: typedesc[Identity]): typedesc =
-  ## Associated /set response type for Identity. RFC 8621 §6 ``created``
-  ## returns the whole ``Identity`` record — no trimmed server-set-subset
-  ## type (contrast ``EmailCreatedItem``).
+  ## Associated /set response type for Identity. The wire ``created[cid]``
+  ## payload is ``IdentityCreatedItem`` (RFC 8620 §5.3 server-set subset:
+  ## ``id`` plus the server-set ``mayDelete``). Stalwart 0.15.5 omits
+  ## ``mayDelete`` from this payload, so ``IdentityCreatedItem.mayDelete``
+  ## is ``Opt[bool]``. Mirrors the ``EmailCreatedItem`` pattern.
   discard $T
-  SetResponse[Identity]
+  SetResponse[IdentityCreatedItem]
 
 registerJmapEntity(Identity)
 registerSettableEntity(Identity)

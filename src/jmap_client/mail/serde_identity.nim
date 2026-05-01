@@ -132,3 +132,35 @@ func toJson*(ic: IdentityCreate): JsonNode =
   node["textSignature"] = %ic.textSignature
   node["htmlSignature"] = %ic.htmlSignature
   return node
+
+# =============================================================================
+# IdentityCreatedItem — Identity/set ``created[cid]`` payload (RFC 8620 §5.3)
+# =============================================================================
+
+func toJson*(item: IdentityCreatedItem): JsonNode =
+  ## Serialise IdentityCreatedItem to JSON. Emits ``id`` always; ``mayDelete``
+  ## only when present (round-trips Stalwart's elision symmetrically).
+  var node = newJObject()
+  node["id"] = item.id.toJson()
+  for v in item.mayDelete:
+    node["mayDelete"] = %v
+  return node
+
+func fromJson*(
+    T: typedesc[IdentityCreatedItem], node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[IdentityCreatedItem, SerdeViolation] =
+  ## Deserialise the partial Identity payload sent in Identity/set
+  ## ``created[cid]``. ``id`` is required (RFC 8620 §5.3); ``mayDelete`` is
+  ## ``Opt`` because Stalwart 0.15.5 omits it (strict-RFC minor divergence,
+  ## accommodated here per Postel's law). Other Identity fields are not
+  ## expected in this payload — the client already sent them in ``create``.
+  discard $T # consumed for nimalyzer params rule
+  ?expectKind(node, JObject, path)
+  let idNode = ?fieldJString(node, "id", path)
+  let id = ?Id.fromJson(idNode, path / "id")
+  let mayDeleteField = node{"mayDelete"}
+  var mayDelete = Opt.none(bool)
+  if not mayDeleteField.isNil and mayDeleteField.kind != JNull:
+    ?expectKind(mayDeleteField, JBool, path / "mayDelete")
+    mayDelete = Opt.some(mayDeleteField.getBool(false))
+  return ok(IdentityCreatedItem(id: id, mayDelete: mayDelete))

@@ -36,6 +36,22 @@ type IdentityCreate* {.ruleOff: "objects".} = object
   textSignature*: string ## Plain text signature, default "".
   htmlSignature*: string ## HTML signature, default "".
 
+type IdentityCreatedItem* {.ruleOff: "objects".} = object
+  ## Server-authoritative subset returned in Identity/set ``created[cid]``
+  ## (RFC 8620 §5.3): the server MUST return ``id`` plus any server-set or
+  ## server-modified properties; for Identity, the only such property is
+  ## ``mayDelete``. The full ``Identity`` record is NOT returned — the
+  ## client already knows the other fields (it sent them in ``create``).
+  ##
+  ## ``mayDelete`` is ``Opt[bool]`` rather than ``bool`` because Stalwart
+  ## 0.15.5 omits it from this payload (a strict-RFC §5.3 minor
+  ## divergence): the create acknowledgement is just ``{"id": "<id>"}``.
+  ## Postel's-law accommodation per ``.claude/rules/nim-conventions.md``
+  ## §"Serde Conventions": be lenient on receive. Mirrors the
+  ## ``EmailCreatedItem`` design (``email.nim``).
+  id*: Id
+  mayDelete*: Opt[bool]
+
 func parseIdentityCreate*(
     email: string,
     name: string = "",

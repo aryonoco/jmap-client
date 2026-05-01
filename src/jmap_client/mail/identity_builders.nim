@@ -2,11 +2,13 @@
 # Copyright (c) 2026 Aryan Ameri
 
 ## Builder functions for Identity (RFC 8621 §6). Thin wrappers over the
-## generic ``addGet`` / ``addChanges`` / ``addSet``; ``SetResponse[Identity]``
-## carries typed ``createResults`` via ``mixin``-resolved ``Identity.fromJson``
-## at the dispatch site. The L2 serde modules are re-exported so consumers
-## who import ``identity_builders`` get the update-algebra ``toJson``
-## overloads in scope automatically.
+## generic ``addGet`` / ``addChanges`` / ``addSet``;
+## ``SetResponse[IdentityCreatedItem]`` carries typed ``createResults`` via
+## ``mixin``-resolved ``IdentityCreatedItem.fromJson`` at the dispatch site
+## (RFC 8620 §5.3 server-set subset, contrast ``Identity`` returned by
+## ``Identity/get``). The L2 serde modules are re-exported so consumers who
+## import ``identity_builders`` get the update-algebra ``toJson`` overloads
+## in scope automatically.
 
 {.push raises: [], noSideEffect.}
 {.experimental: "strictCaseObjects".}
@@ -65,12 +67,19 @@ func addIdentitySet*(
       Opt.none(Table[CreationId, IdentityCreate]),
     update: Opt[NonEmptyIdentityUpdates] = Opt.none(NonEmptyIdentityUpdates),
     destroy: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]),
-): (RequestBuilder, ResponseHandle[SetResponse[Identity]]) =
+): (RequestBuilder, ResponseHandle[SetResponse[IdentityCreatedItem]]) =
   ## Identity/set (RFC 8621 §6.3). Thin wrapper over
-  ## ``addSet[Identity, IdentityCreate, NonEmptyIdentityUpdates, SetResponse[Identity]]``
-  ## with no entity-specific extras. Destroying an Identity whose
+  ## ``addSet[Identity, IdentityCreate, NonEmptyIdentityUpdates,
+  ## SetResponse[IdentityCreatedItem]]`` with no entity-specific extras.
+  ## ``createResults`` is keyed by ``CreationId`` and carries
+  ## ``IdentityCreatedItem`` (``id`` plus the optional server-set
+  ## ``mayDelete``), not full ``Identity`` records — the wire payload is
+  ## the server-set subset per RFC 8620 §5.3. Destroying an Identity whose
   ## ``mayDelete`` is false surfaces as a per-id ``SetError`` inside
   ## ``destroyResults`` — no client-side pre-check.
-  addSet[Identity, IdentityCreate, NonEmptyIdentityUpdates, SetResponse[Identity]](
-    b, accountId, ifInState, create, update, destroy
-  )
+  addSet[
+    Identity,
+    IdentityCreate,
+    NonEmptyIdentityUpdates,
+    SetResponse[IdentityCreatedItem],
+  ](b, accountId, ifInState, create, update, destroy)
