@@ -322,13 +322,14 @@ stalwart-up:
     docker compose -f .devcontainer/docker-compose.yml --profile stalwart up stalwart -d
     .devcontainer/scripts/seed-stalwart.sh
 
-# Stop Stalwart JMAP server
+# Stop Stalwart JMAP server (leaves the dev container untouched)
 stalwart-down:
-    docker compose -f .devcontainer/docker-compose.yml --profile stalwart down
+    docker compose -f .devcontainer/docker-compose.yml rm -fs stalwart
 
-# Tear down and recreate Stalwart with fresh data
+# Tear down and recreate Stalwart with fresh data (leaves the dev container untouched)
 stalwart-reset:
-    docker compose -f .devcontainer/docker-compose.yml --profile stalwart down -v
+    docker compose -f .devcontainer/docker-compose.yml rm -fsv stalwart
+    -docker volume rm jmap-client_jmc-stalwart-data
     just stalwart-up
 
 # Show Stalwart container status
