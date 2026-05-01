@@ -44,17 +44,14 @@ block tidentityGetLive:
     do:
       doAssert false, "session must advertise a primary submission account"
 
-    let create =
-      parseIdentityCreate(email = "alice@example.com", name = "Alice").expect(
+    let create = parseIdentityCreate(email = "alice@example.com", name = "Alice").expect(
         "parseIdentityCreate"
       )
     let cid = parseCreationId("seedAlice").expect("parseCreationId")
     var createTbl = initTable[CreationId, IdentityCreate]()
     createTbl[cid] = create
     let (b1, setHandle) = addIdentitySet(
-      initRequestBuilder(),
-      submissionAccountId,
-      create = Opt.some(createTbl),
+      initRequestBuilder(), submissionAccountId, create = Opt.some(createTbl)
     )
     let (b2, getHandle) = addIdentityGet(b1, submissionAccountId)
     let resp = client.send(b2).expect("send")

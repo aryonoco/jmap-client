@@ -63,8 +63,8 @@ block temailSetKeywordsLive:
 
     let mailboxIds = parseNonEmptyMailboxIdSet(@[inbox]).expect("mailboxIds")
     let aliceAddr = parseEmailAddress("alice@example.com", Opt.some("Alice")).expect(
-      "parseEmailAddress"
-    )
+        "parseEmailAddress"
+      )
     let textPart = BlueprintBodyPart(
       isMultipart: false,
       leaf: BlueprintLeafPart(
@@ -73,8 +73,7 @@ block temailSetKeywordsLive:
         value: BlueprintBodyValue(value: "Hello from phase 1 step 7."),
       ),
       contentType: "text/plain",
-      extraHeaders:
-        initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
+      extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
       name: Opt.none(string),
       disposition: Opt.none(ContentDisposition),
       cid: Opt.none(string),
@@ -82,19 +81,18 @@ block temailSetKeywordsLive:
       location: Opt.none(string),
     )
     let blueprint = parseEmailBlueprint(
-      mailboxIds = mailboxIds,
-      body = flatBody(textBody = Opt.some(textPart)),
-      fromAddr = Opt.some(@[aliceAddr]),
-      to = Opt.some(@[aliceAddr]),
-      subject = Opt.some("phase-1 step-7 keyword seed"),
-    )
-    .expect("parseEmailBlueprint")
+        mailboxIds = mailboxIds,
+        body = flatBody(textBody = Opt.some(textPart)),
+        fromAddr = Opt.some(@[aliceAddr]),
+        to = Opt.some(@[aliceAddr]),
+        subject = Opt.some("phase-1 step-7 keyword seed"),
+      )
+      .expect("parseEmailBlueprint")
     let createCid = parseCreationId("seedKeyword").expect("parseCreationId")
     var createTbl = initTable[CreationId, EmailBlueprint]()
     createTbl[createCid] = blueprint
-    let (b2, createHandle) = addEmailSet(
-      initRequestBuilder(), mailAccountId, create = Opt.some(createTbl)
-    )
+    let (b2, createHandle) =
+      addEmailSet(initRequestBuilder(), mailAccountId, create = Opt.some(createTbl))
     let resp2 = client.send(b2).expect("send Email/set create")
     let createResp = resp2.get(createHandle).expect("Email/set create extract")
     let createOutcome = createResp.createResults[createCid]
@@ -115,8 +113,7 @@ block temailSetKeywordsLive:
 
     # --- Happy path: set $seen with matching ifInState -------------------
     let updateSet = initEmailUpdateSet(@[markRead()]).expect("initEmailUpdateSet")
-    let updates =
-      parseNonEmptyEmailUpdates(@[(seededId, updateSet)]).expect(
+    let updates = parseNonEmptyEmailUpdates(@[(seededId, updateSet)]).expect(
         "parseNonEmptyEmailUpdates"
       )
     let (b4, setHandle1) = addEmailSet(
@@ -149,14 +146,11 @@ block temailSetKeywordsLive:
     # ``emailFromJson`` parser does not apply (Email requires every field).
     # ``KeywordSet.fromJson`` is the right granularity for this assertion.
     let keywords = KeywordSet.fromJson(kwNode).expect("parse KeywordSet")
-    doAssert kwSeen in keywords,
-      "$seen must be present after happy-path Email/set"
+    doAssert kwSeen in keywords, "$seen must be present after happy-path Email/set"
 
     # --- Conflict path: same update with the stale ifInState -------------
-    let updateSetAgain =
-      initEmailUpdateSet(@[markRead()]).expect("initEmailUpdateSet")
-    let updatesAgain =
-      parseNonEmptyEmailUpdates(@[(seededId, updateSetAgain)]).expect(
+    let updateSetAgain = initEmailUpdateSet(@[markRead()]).expect("initEmailUpdateSet")
+    let updatesAgain = parseNonEmptyEmailUpdates(@[(seededId, updateSetAgain)]).expect(
         "parseNonEmptyEmailUpdates"
       )
     let (b6, setHandle2) = addEmailSet(
@@ -171,6 +165,6 @@ block temailSetKeywordsLive:
       "stale-ifInState Email/set must raise a method-level error"
     let methodErr = conflictExtract.error
     doAssert methodErr.errorType == metStateMismatch,
-      "method error must project as metStateMismatch (got rawType=" &
-        methodErr.rawType & ")"
+      "method error must project as metStateMismatch (got rawType=" & methodErr.rawType &
+        ")"
     client.close()

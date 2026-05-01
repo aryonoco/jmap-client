@@ -63,8 +63,8 @@ block temailQueryGetChainLive:
     # --- Step 2: seed one email via Email/set create ---------------------
     let mailboxIds = parseNonEmptyMailboxIdSet(@[inbox]).expect("mailboxIds")
     let aliceAddr = parseEmailAddress("alice@example.com", Opt.some("Alice")).expect(
-      "parseEmailAddress"
-    )
+        "parseEmailAddress"
+      )
     let textPart = BlueprintBodyPart(
       isMultipart: false,
       leaf: BlueprintLeafPart(
@@ -73,8 +73,7 @@ block temailQueryGetChainLive:
         value: BlueprintBodyValue(value: "Hello from phase 1 step 6."),
       ),
       contentType: "text/plain",
-      extraHeaders:
-        initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
+      extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
       name: Opt.none(string),
       disposition: Opt.none(ContentDisposition),
       cid: Opt.none(string),
@@ -82,23 +81,21 @@ block temailQueryGetChainLive:
       location: Opt.none(string),
     )
     let blueprint = parseEmailBlueprint(
-      mailboxIds = mailboxIds,
-      body = flatBody(textBody = Opt.some(textPart)),
-      fromAddr = Opt.some(@[aliceAddr]),
-      to = Opt.some(@[aliceAddr]),
-      subject = Opt.some("phase-1 step-6 seed"),
-    )
-    .expect("parseEmailBlueprint")
+        mailboxIds = mailboxIds,
+        body = flatBody(textBody = Opt.some(textPart)),
+        fromAddr = Opt.some(@[aliceAddr]),
+        to = Opt.some(@[aliceAddr]),
+        subject = Opt.some("phase-1 step-6 seed"),
+      )
+      .expect("parseEmailBlueprint")
     let cid = parseCreationId("seedMail").expect("parseCreationId")
     var createTbl = initTable[CreationId, EmailBlueprint]()
     createTbl[cid] = blueprint
-    let (b2, setHandle) = addEmailSet(
-      initRequestBuilder(), mailAccountId, create = Opt.some(createTbl)
-    )
+    let (b2, setHandle) =
+      addEmailSet(initRequestBuilder(), mailAccountId, create = Opt.some(createTbl))
     let resp2 = client.send(b2).expect("send Email/set")
     let setResp = resp2.get(setHandle).expect("Email/set extract")
-    doAssert setResp.createResults.len == 1,
-      "set must report exactly one create result"
+    doAssert setResp.createResults.len == 1, "set must report exactly one create result"
     doAssert setResp.createResults[cid].isOk,
       "Email/set must succeed for the seeded message"
 
@@ -112,8 +109,7 @@ block temailQueryGetChainLive:
     )
     let resp3 = client.send(b3b).expect("send Email/query+get")
     let queryResp = resp3.get(queryHandle).expect("Email/query extract")
-    doAssert queryResp.ids.len >= 1,
-      "Email/query must return the seeded message"
+    doAssert queryResp.ids.len >= 1, "Email/query must return the seeded message"
     let getResp = resp3.get(getHandle).expect("Email/get extract")
     doAssert getResp.list.len == queryResp.ids.len,
       "Email/get list count must match Email/query ids count"

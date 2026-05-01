@@ -78,8 +78,5 @@ func addIdentitySet*(
   ## ``mayDelete`` is false surfaces as a per-id ``SetError`` inside
   ## ``destroyResults`` — no client-side pre-check.
   addSet[
-    Identity,
-    IdentityCreate,
-    NonEmptyIdentityUpdates,
-    SetResponse[IdentityCreatedItem],
+    Identity, IdentityCreate, NonEmptyIdentityUpdates, SetResponse[IdentityCreatedItem]
   ](b, accountId, ifInState, create, update, destroy)
