@@ -40,3 +40,4 @@ tests/integration/live/tthread_get_live.nim
 tests/integration/live/tvacation_get_set_live.nim
 tests/integration/live/tmailbox_set_crud_live.nim
 tests/integration/live/temail_changes_live.nim
+tests/integration/live/temail_query_changes_live.nim
