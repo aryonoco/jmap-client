@@ -4,12 +4,27 @@
 
 | Phase | State | Notes |
 |---|---|---|
-| **B1 — Round out standard surfaces + changes protocol** | Not started | Five live tests (Steps 8–12) extending Phase A's foundation. Each step is one commit. `just test-integration` must finish under 30s wall-clock on completion. |
+| **B1 — Round out standard surfaces + changes protocol** | **Done** (2026-05-01) | Five live tests (Steps 8–12) plus one preparatory commit (`mlive` helper extraction + Phase A migration). Six commits total. `just test-integration` clears in ~12s on a freshly-reset Stalwart 0.15.5. |
 
-Live-test pass rate (cumulative across Phase A + B): **6 / 11**.
-Wire-format divergences root-caused at the `fromJson` layer post-Phase-A:
-**1** (Identity/set partial response, commit `c45ff46`). Phase B
-divergences will be tabulated as they land.
+Live-test pass rate (cumulative across Phase A + B): **11 / 11**.
+Wire-format divergences root-caused at the `fromJson` layer:
+- Identity/set partial response (Phase A, commit `c45ff46`).
+- Mailbox/set partial response (Phase B step 10, commit `d27184a`):
+  same shape as the Identity precedent — Stalwart trims `created[cid]`
+  to `{"id": "..."}`. Fixed by introducing `MailboxCreatedItem` with
+  the five RFC 8621 §2.1 server-set fields all `Opt[T]`.
+
+Phase A divergence not at the parser layer:
+- VacationResponse/get returns the singleton in `notFound` until first
+  `/set` (Stalwart departs from RFC 8621 §7's "always provide a default"
+  mandate). Accommodated in `tvacation_get_set_live.nim` by issuing
+  `/set` before asserting on the get response.
+
+Helper extraction (preparatory commit `e11ca86`):
+- `tests/integration/live/mlive.nim` exposes `resolveInboxId` and
+  `seedSimpleEmail`, replacing the inlined Mailbox/get + Email/set
+  scaffolds that Phase A duplicated across two files. Phase B
+  consumes the helpers across four of its five tests.
 
 ## Context
 
