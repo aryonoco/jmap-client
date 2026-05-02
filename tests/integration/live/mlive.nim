@@ -548,7 +548,7 @@ func resolveSubmissionAccountId*(session: Session): Result[AccountId, string] =
   var accountId: AccountId
   var found = false
   session.primaryAccounts.withValue("urn:ietf:params:jmap:submission", v):
-    accountId = v[]
+    accountId = v
     found = true
   do:
     return err("session must advertise a primary submission account")
@@ -612,7 +612,7 @@ proc resolveOrCreateRoleMailbox(
   var createdId: Id
   var found = false
   setResp.createResults.withValue(cid, outcome):
-    let item = outcome[].valueOr:
+    let item = outcome.valueOr:
       return err("Mailbox/set rejected " & narrativeName & ": " & error.rawType)
     createdId = item.id
     found = true

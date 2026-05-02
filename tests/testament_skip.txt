@@ -59,3 +59,4 @@ tests/integration/live/temail_import_from_blob_live.nim
 tests/integration/live/temail_import_already_exists_live.nim
 tests/integration/live/temail_query_pagination_live.nim
 tests/integration/live/tmailbox_destroy_remove_emails_live.nim
+tests/integration/live/tidentity_set_crud_live.nim
