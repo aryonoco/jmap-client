@@ -57,3 +57,4 @@ tests/integration/live/temail_copy_intra_account_live.nim
 tests/integration/live/temail_copy_destroy_original_live.nim
 tests/integration/live/temail_import_from_blob_live.nim
 tests/integration/live/temail_import_already_exists_live.nim
+tests/integration/live/temail_query_pagination_live.nim
