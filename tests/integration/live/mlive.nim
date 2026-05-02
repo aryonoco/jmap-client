@@ -15,6 +15,7 @@
 
 {.push raises: [].}
 
+import std/json
 import std/sets
 import std/tables
 
@@ -419,3 +420,117 @@ func resolveCollationAlgorithms*(session: Session): HashSet[CollationAlgorithm] 
   ## symmetry with the seed helpers and to keep test bodies free of
   ## capability-traversal boilerplate.
   session.coreCapabilities.collationAlgorithms
+
+# ---------------------------------------------------------------------------
+# Phase E — additional Mailbox / Email helpers
+# ---------------------------------------------------------------------------
+
+proc resolveOrCreateMailbox*(
+    client: var JmapClient, mailAccountId: AccountId, name: string
+): Result[Id, string] =
+  ## ``Mailbox/get`` → scan for a mailbox whose ``name`` matches ``name``.
+  ## When present, returns its ``Id``. When absent, creates the mailbox as
+  ## a child of the inbox-role mailbox via ``Mailbox/set create`` and
+  ## returns the newly assigned id. Phase E supports re-runnability: on a
+  ## second run the same name resolves to the previously created mailbox.
+  let (b1, mbHandle) = addGet[Mailbox](initRequestBuilder(), mailAccountId)
+  let resp1 = client.send(b1).valueOr:
+    return err("Mailbox/get send failed: " & error.message)
+  let mbResp = resp1.get(mbHandle).valueOr:
+    return err("Mailbox/get extract failed: " & error.rawType)
+  for node in mbResp.list:
+    let mb = Mailbox.fromJson(node).valueOr:
+      return err("Mailbox parse failed during resolveOrCreateMailbox")
+    if mb.name == name:
+      return ok(mb.id)
+  let inbox = ?resolveInboxId(client, mailAccountId)
+  let create = parseMailboxCreate(name = name, parentId = Opt.some(inbox)).valueOr:
+    return err("parseMailboxCreate failed: " & error.message)
+  let cid = parseCreationId("phaseEMailbox").valueOr:
+    return err("parseCreationId failed: " & error.message)
+  var createTbl = initTable[CreationId, MailboxCreate]()
+  createTbl[cid] = create
+  let (b2, setHandle) =
+    addMailboxSet(initRequestBuilder(), mailAccountId, create = Opt.some(createTbl))
+  let resp2 = client.send(b2).valueOr:
+    return err("Mailbox/set send failed: " & error.message)
+  let setResp = resp2.get(setHandle).valueOr:
+    return err("Mailbox/set extract failed: " & error.rawType)
+  var createdId: Id
+  var found = false
+  setResp.createResults.withValue(cid, outcome):
+    let item = outcome.valueOr:
+      return err("Mailbox/set create rejected: " & error.rawType)
+    createdId = item.id
+    found = true
+  do:
+    return err("Mailbox/set returned no result for creationId phaseEMailbox")
+  doAssert found
+  ok(createdId)
+
+proc seedEmailsIntoMailbox*(
+    client: var JmapClient,
+    mailAccountId: AccountId,
+    mailbox: Id,
+    subjects: openArray[string],
+): Result[seq[Id], string] =
+  ## Variant of ``seedEmailsWithSubjects`` parametrised on the destination
+  ## mailbox rather than always seeding into the inbox. Funnels through the
+  ## same ``Email/set`` blueprint pipeline; returns the server-assigned ids
+  ## in the order of ``subjects``. Short-circuits on the first ``Err`` per
+  ## the railway pattern.
+  let mailboxIds = parseNonEmptyMailboxIdSet(@[mailbox]).valueOr:
+    return err("parseNonEmptyMailboxIdSet failed: " & error.message)
+  let aliceAddr = buildAliceAddr()
+  var ids: seq[Id] = @[]
+  for i, subject in subjects:
+    let textPart = makeLeafPart(
+      LeafPartSpec(
+        partId: buildPartId("1"),
+        contentType: "text/plain",
+        body: "Live-test seed body.",
+        name: Opt.none(string),
+        disposition: Opt.none(ContentDisposition),
+        cid: Opt.none(string),
+      )
+    )
+    let blueprint = parseEmailBlueprint(
+      mailboxIds = mailboxIds,
+      body = flatBody(textBody = Opt.some(textPart)),
+      fromAddr = Opt.some(@[aliceAddr]),
+      to = Opt.some(@[aliceAddr]),
+      subject = Opt.some(subject),
+    ).valueOr:
+      return err("parseEmailBlueprint failed: " & $error)
+    let id = emailSetCreate(client, mailAccountId, blueprint, "mbseed-" & $i).valueOr:
+      return err("seedEmailsIntoMailbox[" & $i & "]: " & error)
+    ids.add(id)
+  ok(ids)
+
+proc getFirstAttachmentBlobId*(
+    client: var JmapClient, mailAccountId: AccountId, emailId: Id
+): Result[BlobId, string] =
+  ## Issues ``Email/get`` for ``emailId`` requesting only ``id`` and
+  ## ``attachments``, then parses ``attachments[0]`` via
+  ## ``EmailBodyPart.fromJson`` and returns its ``blobId``. Used by the
+  ## Phase E import tests to bridge a seeded email to a freshly uploaded-
+  ## like blob without going through a separate upload endpoint.
+  let (b, getHandle) = addEmailGet(
+    initRequestBuilder(),
+    mailAccountId,
+    ids = directIds(@[emailId]),
+    properties = Opt.some(@["id", "attachments"]),
+  )
+  let resp = client.send(b).valueOr:
+    return err("Email/get send failed: " & error.message)
+  let getResp = resp.get(getHandle).valueOr:
+    return err("Email/get extract failed: " & error.rawType)
+  if getResp.list.len == 0:
+    return err("Email/get returned empty list for " & string(emailId))
+  let entity = getResp.list[0]
+  let attachmentsNode = entity{"attachments"}
+  if attachmentsNode.isNil or attachmentsNode.kind != JArray or attachmentsNode.len == 0:
+    return err("Email/get returned no attachments for " & string(emailId))
+  let attachment = EmailBodyPart.fromJson(attachmentsNode[0]).valueOr:
+    return err("EmailBodyPart parse failed in getFirstAttachmentBlobId")
+  ok(attachment.blobId)
