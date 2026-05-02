@@ -342,8 +342,9 @@ block emailSubmissionSetResponseEntityRoundTrip:
   doAssert r.createResults[kErr].isErr
   let okItem = r.createResults[kOk].get()
   assertEq okItem.id, makeId("sub1")
-  assertEq okItem.threadId, makeId("thr1")
-  assertEq okItem.sendAt, parseUtcDate("2026-04-01T12:00:00Z").get()
+  doAssert okItem.threadId.isSome and okItem.threadId.unsafeGet == makeId("thr1")
+  doAssert okItem.sendAt.isSome and
+    okItem.sendAt.unsafeGet == parseUtcDate("2026-04-01T12:00:00Z").get()
 
   # updateResults merges wire updated + notUpdated. Null-valued updated
   # entries become ok(Opt.none(JsonNode)); notUpdated entries become

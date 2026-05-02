@@ -135,19 +135,30 @@ func fromJson*(
     node: JsonNode,
     path: JsonPath = emptyJsonPath(),
 ): Result[EmailSubmissionCreatedItem, SerdeViolation] =
-  ## Three-field record: ``id``, ``threadId``, ``sendAt`` — the RFC 8621
-  ## §7.5 ¶2 server-set subset. ``undoStatus`` is deliberately absent here
-  ## (see ``email_submission.nim`` for rationale). Required for the
+  ## Deserialise the partial EmailSubmission payload sent in
+  ## EmailSubmission/set ``created[cid]``. ``id`` is required (RFC 8620
+  ## §5.3); ``threadId`` and ``sendAt`` are ``Opt`` because Stalwart
+  ## 0.15.5 omits them (strict-RFC §7.5 ¶2 minor divergence, accommodated
+  ## here per Postel's law — mirrors ``IdentityCreatedItem.mayDelete``
+  ## and the ``MailboxCreatedItem`` count fields). The
   ## ``mixin``-resolved ``SetResponse[EmailSubmissionCreatedItem].fromJson``
-  ## at the Step 17 extraction site.
+  ## drives this at the dispatch site.
   discard $T # consumed for nimalyzer params rule
   ?expectKind(node, JObject, path)
   let idNode = ?fieldJString(node, "id", path)
   let id = ?Id.fromJson(idNode, path / "id")
-  let threadIdNode = ?fieldJString(node, "threadId", path)
-  let threadId = ?Id.fromJson(threadIdNode, path / "threadId")
-  let sendAtNode = ?fieldJString(node, "sendAt", path)
-  let sendAt = ?UTCDate.fromJson(sendAtNode, path / "sendAt")
+  let threadIdField = node{"threadId"}
+  var threadId = Opt.none(Id)
+  if not threadIdField.isNil and threadIdField.kind != JNull:
+    ?expectKind(threadIdField, JString, path / "threadId")
+    let parsed = ?Id.fromJson(threadIdField, path / "threadId")
+    threadId = Opt.some(parsed)
+  let sendAtField = node{"sendAt"}
+  var sendAt = Opt.none(UTCDate)
+  if not sendAtField.isNil and sendAtField.kind != JNull:
+    ?expectKind(sendAtField, JString, path / "sendAt")
+    let parsed = ?UTCDate.fromJson(sendAtField, path / "sendAt")
+    sendAt = Opt.some(parsed)
   return ok(EmailSubmissionCreatedItem(id: id, threadId: threadId, sendAt: sendAt))
 
 # =============================================================================

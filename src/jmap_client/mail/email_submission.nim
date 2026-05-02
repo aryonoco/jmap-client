@@ -402,9 +402,16 @@ type EmailSubmissionCreatedItem* {.ruleOff: "objects".} = object
   ## delay-send-disabled servers may flip it to ``final`` or ``canceled``
   ## immediately, so callers must read live state via ``/get`` rather than
   ## trust a stale value carried on the create response.
+  ##
+  ## ``threadId`` and ``sendAt`` are ``Opt[T]`` because Stalwart 0.15.5
+  ## omits them from this payload (a strict-RFC §7.5 ¶2 minor
+  ## divergence): the create acknowledgement is just ``{"id": "<id>"}``.
+  ## Postel's-law accommodation per ``.claude/rules/nim-conventions.md``
+  ## §"Serde Conventions": be lenient on receive. Mirrors the
+  ## ``IdentityCreatedItem`` / ``MailboxCreatedItem`` design.
   id*: Id
-  threadId*: Id
-  sendAt*: UTCDate
+  threadId*: Opt[Id]
+  sendAt*: Opt[UTCDate]
 
 # -----------------------------------------------------------------------------
 # EmailSubmissionSetResponse — /set response alias (RFC 8621 §7.5)
