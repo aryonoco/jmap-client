@@ -61,3 +61,4 @@ tests/integration/live/temail_query_pagination_live.nim
 tests/integration/live/tmailbox_destroy_remove_emails_live.nim
 tests/integration/live/tidentity_set_crud_live.nim
 tests/integration/live/temail_submission_set_baseline_live.nim
+tests/integration/live/temail_submission_get_delivery_status_live.nim
