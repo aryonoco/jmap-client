@@ -153,15 +153,20 @@ test-report:
     testament html
     @echo "Test report: testresults.html"
 
-# Run every test including slow ones from tests/testament_skip.txt. Use periodically.
+# Run every test including slow ones from tests/testament_skip.txt and the
+# live integration suite. Requires 'just stalwart-up' first.
 test-full:
     #!/usr/bin/env bash
     set -euo pipefail
     shopt -s inherit_errexit
+    if [ ! -f /tmp/stalwart-env.sh ]; then
+        echo "ERROR: /tmp/stalwart-env.sh not found — run 'just stalwart-up' first" >&2
+        exit 1
+    fi
     cleanup() { find tests/ -name 'megatest' -type f -delete; find tests/ -name 'megatest.nim' -type f -delete; }
     trap cleanup EXIT
-    echo "Running FULL test suite (including slow tests)..."
-    testament --backendLogging:off all
+    echo "Running FULL test suite (including slow + live integration tests)..."
+    . /tmp/stalwart-env.sh && testament --backendLogging:off all
     echo "Full test suite passed"
 
 # =============================================================================
