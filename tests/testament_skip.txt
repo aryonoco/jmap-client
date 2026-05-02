@@ -65,3 +65,4 @@ tests/integration/live/temail_submission_get_delivery_status_live.nim
 tests/integration/live/temail_submission_on_success_update_live.nim
 tests/integration/live/temail_submission_on_success_destroy_live.nim
 tests/integration/live/temail_submission_changes_live.nim
+tests/integration/live/tbob_session_smoke_live.nim
