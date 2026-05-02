@@ -55,3 +55,4 @@ tests/integration/live/temail_get_unicode_name_live.nim
 tests/integration/live/temail_parse_live.nim
 tests/integration/live/temail_copy_intra_account_live.nim
 tests/integration/live/temail_copy_destroy_original_live.nim
+tests/integration/live/temail_import_from_blob_live.nim
