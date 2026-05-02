@@ -16,6 +16,7 @@
 {.push raises: [].}
 
 import std/json
+import std/os
 import std/sets
 import std/tables
 
@@ -534,3 +535,173 @@ proc getFirstAttachmentBlobId*(
   let attachment = EmailBodyPart.fromJson(attachmentsNode[0]).valueOr:
     return err("EmailBodyPart parse failed in getFirstAttachmentBlobId")
   ok(attachment.blobId)
+
+# ---------------------------------------------------------------------------
+# Phase F — EmailSubmission helpers
+# ---------------------------------------------------------------------------
+
+func resolveSubmissionAccountId*(session: Session): Result[AccountId, string] =
+  ## Reads ``session.primaryAccounts`` for the
+  ## ``urn:ietf:params:jmap:submission`` URN. Stalwart 0.15.5 binds the
+  ## same id to ``mail`` and ``submission``; the helper does not depend
+  ## on that equality. Sibling of ``resolveCollationAlgorithms``.
+  var accountId: AccountId
+  var found = false
+  session.primaryAccounts.withValue("urn:ietf:params:jmap:submission", v):
+    accountId = v[]
+    found = true
+  do:
+    return err("session must advertise a primary submission account")
+  doAssert found
+  ok(accountId)
+
+func buildEnvelope*(fromEmail, toEmail: string): Result[Envelope, string] =
+  ## Absorbs the four-stage RFC5321Mailbox / SubmissionAddress /
+  ## ReversePath / NonEmptyRcptList boilerplate that every Phase F
+  ## EmailSubmission test would otherwise repeat. Both addresses use
+  ## empty SubmissionParams (the simple case Stalwart expects for
+  ## local-domain delivery).
+  let fromMb = parseRFC5321Mailbox(fromEmail).valueOr:
+    return err("parseRFC5321Mailbox(" & fromEmail & "): " & error.message)
+  let toMb = parseRFC5321Mailbox(toEmail).valueOr:
+    return err("parseRFC5321Mailbox(" & toEmail & "): " & error.message)
+  let fromAddr =
+    SubmissionAddress(mailbox: fromMb, parameters: Opt.none(SubmissionParams))
+  let toAddr = SubmissionAddress(mailbox: toMb, parameters: Opt.none(SubmissionParams))
+  let rcpts = parseNonEmptyRcptList(@[toAddr]).valueOr:
+    return err("parseNonEmptyRcptList: empty or duplicate recipients")
+  ok(Envelope(mailFrom: reversePath(fromAddr), rcptTo: rcpts))
+
+proc resolveOrCreateRoleMailbox(
+    client: var JmapClient,
+    mailAccountId: AccountId,
+    role: MailboxRole,
+    creationLabel, narrativeName: string,
+): Result[Id, string] =
+  ## Mailbox/get → scan for a mailbox whose ``role`` matches; on miss,
+  ## creates a new mailbox under the Inbox-role parent with that role.
+  ## Internal — exposed via the ``resolveOrCreateDrafts`` /
+  ## ``resolveOrCreateSent`` named wrappers below so call sites read as
+  ## the role they want.
+  let (b1, mbHandle) = addGet[Mailbox](initRequestBuilder(), mailAccountId)
+  let resp1 = client.send(b1).valueOr:
+    return err("Mailbox/get send failed: " & error.message)
+  let mbResp = resp1.get(mbHandle).valueOr:
+    return err("Mailbox/get extract failed: " & error.rawType)
+  for node in mbResp.list:
+    let mb = Mailbox.fromJson(node).valueOr:
+      return err("Mailbox parse failed during " & narrativeName & " lookup")
+    for r in mb.role:
+      if r == role:
+        return ok(mb.id)
+  let inbox = ?resolveInboxId(client, mailAccountId)
+  let create = parseMailboxCreate(
+    name = narrativeName, parentId = Opt.some(inbox), role = Opt.some(role)
+  ).valueOr:
+    return err("parseMailboxCreate(" & narrativeName & "): " & error.message)
+  let cid = parseCreationId(creationLabel).valueOr:
+    return err("parseCreationId(" & creationLabel & "): " & error.message)
+  var createTbl = initTable[CreationId, MailboxCreate]()
+  createTbl[cid] = create
+  let (b2, setHandle) =
+    addMailboxSet(initRequestBuilder(), mailAccountId, create = Opt.some(createTbl))
+  let resp2 = client.send(b2).valueOr:
+    return err("Mailbox/set send failed: " & error.message)
+  let setResp = resp2.get(setHandle).valueOr:
+    return err("Mailbox/set extract failed: " & error.rawType)
+  var createdId: Id
+  var found = false
+  setResp.createResults.withValue(cid, outcome):
+    let item = outcome[].valueOr:
+      return err("Mailbox/set rejected " & narrativeName & ": " & error.rawType)
+    createdId = item.id
+    found = true
+  do:
+    return err("Mailbox/set returned no result for creationId " & creationLabel)
+  doAssert found
+  ok(createdId)
+
+proc resolveOrCreateDrafts*(
+    client: var JmapClient, mailAccountId: AccountId
+): Result[Id, string] =
+  ## Returns the ``Drafts``-role mailbox id, creating one under Inbox if
+  ## absent. RFC 8621 §2.2 ``Drafts`` role.
+  resolveOrCreateRoleMailbox(
+    client, mailAccountId, roleDrafts, "phaseFDrafts", "Drafts"
+  )
+
+proc resolveOrCreateSent*(
+    client: var JmapClient, mailAccountId: AccountId
+): Result[Id, string] =
+  ## Returns the ``Sent``-role mailbox id, creating one under Inbox if
+  ## absent. RFC 8621 §2.2 ``Sent`` role.
+  resolveOrCreateRoleMailbox(client, mailAccountId, roleSent, "phaseFSent", "Sent")
+
+proc seedDraftEmail*(
+    client: var JmapClient,
+    mailAccountId: AccountId,
+    drafts: Id,
+    fromAddr, toAddr: EmailAddress,
+    subject, body: string,
+    creationLabel: string,
+): Result[Id, string] =
+  ## Variant of ``seedSimpleEmail`` parametrised on from/to addresses,
+  ## destination mailbox (typically ``Drafts``), and body text. Marks
+  ## the email with the IANA ``$draft`` keyword (RFC 8621 §4.1.1) so
+  ## EmailSubmission references a real draft, not an arbitrary message.
+  let mailboxIds = parseNonEmptyMailboxIdSet(@[drafts]).valueOr:
+    return err("parseNonEmptyMailboxIdSet failed: " & error.message)
+  let draftKeyword = parseKeyword("$draft").valueOr:
+    return err("parseKeyword($draft) failed: " & error.message)
+  let textPart = makeLeafPart(
+    LeafPartSpec(
+      partId: buildPartId("1"),
+      contentType: "text/plain",
+      body: body,
+      name: Opt.none(string),
+      disposition: Opt.none(ContentDisposition),
+      cid: Opt.none(string),
+    )
+  )
+  let blueprint = parseEmailBlueprint(
+    mailboxIds = mailboxIds,
+    body = flatBody(textBody = Opt.some(textPart)),
+    keywords = initKeywordSet(@[draftKeyword]),
+    fromAddr = Opt.some(@[fromAddr]),
+    to = Opt.some(@[toAddr]),
+    subject = Opt.some(subject),
+  ).valueOr:
+    return err("parseEmailBlueprint failed: " & $error)
+  emailSetCreate(client, mailAccountId, blueprint, creationLabel)
+
+proc pollSubmissionDelivery*(
+    client: var JmapClient,
+    submissionAccountId: AccountId,
+    submissionId: Id,
+    budgetMs: int = 10000,
+): Result[EmailSubmission[usFinal], string] =
+  ## Polls EmailSubmission/get every 200 ms until ``undoStatus ==
+  ## final``, returning the phantom-narrowed ``EmailSubmission[usFinal]``.
+  ## ``Err`` on budget elapse — the bound is iterations of (sleep + poll),
+  ## so the function is decoupled from wall-clock drift.
+  const PollMs = 200
+  let maxIters = max(1, budgetMs div PollMs)
+  for _ in 0 ..< maxIters:
+    let (b, getHandle) = addEmailSubmissionGet(
+      initRequestBuilder(), submissionAccountId, ids = directIds(@[submissionId])
+    )
+    let resp = client.send(b).valueOr:
+      return err("EmailSubmission/get send failed: " & error.message)
+    let getResp = resp.get(getHandle).valueOr:
+      return err("EmailSubmission/get extract failed: " & error.rawType)
+    if getResp.list.len > 0:
+      let any = AnyEmailSubmission.fromJson(getResp.list[0]).valueOr:
+        return err("AnyEmailSubmission.fromJson failed during poll")
+      let final = any.asFinal()
+      if final.isSome:
+        return ok(final.unsafeGet)
+    sleep(PollMs)
+  err(
+    "pollSubmissionDelivery: budget exhausted (" & $budgetMs &
+      "ms) without undoStatus=final"
+  )
