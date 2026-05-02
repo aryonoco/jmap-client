@@ -22,15 +22,12 @@
 ##
 ## ``Email/get`` is issued with ``properties = Opt.some(@["id",
 ## "textBody", "bodyValues"])`` so the response is a partial Email.
-## ``emailFromJson`` is the wrong granularity (it requires every Email
-## field including ``bodyStructure`` which is not in the default
-## property set); the test parses the leaf and value entries directly
-## via their typed ``fromJson`` constructors.
+## ``Email.fromJson`` parses the sparse shape because every metadata
+## field is ``Opt[T]`` post-refactor.
 ##
 ## Listed in ``tests/testament_skip.txt`` so ``just test`` skips it; run
 ## via ``just test-integration`` after ``just stalwart-up``.
 
-import std/json
 import std/strutils
 import std/tables
 
@@ -74,13 +71,10 @@ block temailGetTextBodyLive:
     let getResp = resp.get(getHandle).expect("Email/get text body extract")
     doAssert getResp.list.len == 1, "Email/get must return the seeded message"
 
-    let entity = getResp.list[0]
-    let textBodyNode = entity{"textBody"}
-    doAssert not textBodyNode.isNil and textBodyNode.kind == JArray,
-      "Email/get with properties=[id,textBody,bodyValues] must include textBody as JArray"
-    doAssert textBodyNode.len == 1,
-      "expected one text/plain leaf, got " & $textBodyNode.len
-    let textLeaf = EmailBodyPart.fromJson(textBodyNode[0]).expect("EmailBodyPart parse")
+    let email = Email.fromJson(getResp.list[0]).expect("Email.fromJson")
+    doAssert email.textBody.len == 1,
+      "expected one text/plain leaf, got " & $email.textBody.len
+    let textLeaf = email.textBody[0]
     doAssert textLeaf.isLeaf, "textBody[0] must be a leaf"
     doAssert textLeaf.contentType == "text/plain",
       "textBody[0].contentType must be text/plain (got " & textLeaf.contentType & ")"
@@ -92,9 +86,7 @@ block temailGetTextBodyLive:
       "textBody[0].charset must be utf-8 case-insensitive (got " &
         textLeaf.charset.unsafeGet & ")"
 
-    let bodyValuesNode = entity{"bodyValues"}
-    doAssert not bodyValuesNode.isNil and bodyValuesNode.kind == JObject,
-      "Email/get with bvsText must include bodyValues as JObject"
-    doAssert bodyValuesNode.len == 1,
-      "bvsText must yield exactly one bodyValues entry (got " & $bodyValuesNode.len & ")"
+    doAssert email.bodyValues.len == 1,
+      "bvsText must yield exactly one bodyValues entry (got " & $email.bodyValues.len &
+        ")"
     client.close()

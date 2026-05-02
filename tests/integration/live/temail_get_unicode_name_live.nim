@@ -26,7 +26,6 @@
 ## Listed in ``tests/testament_skip.txt`` so ``just test`` skips it; run
 ## via ``just test-integration`` after ``just stalwart-up``.
 
-import std/json
 import std/tables
 
 import results
@@ -106,11 +105,10 @@ block temailGetUnicodeNameLive:
     let getResp = resp.get(getHandle).expect("Email/get unicode name extract")
     doAssert getResp.list.len == 1, "Email/get must return the seeded message"
 
-    let entity = getResp.list[0]
-    let fromNode = entity{"from"}
-    doAssert not fromNode.isNil and fromNode.kind == JArray and fromNode.len == 1,
-      "from must be a one-element JArray"
-    let fromAddr = EmailAddress.fromJson(fromNode[0]).expect("EmailAddress parse")
+    let email = Email.fromJson(getResp.list[0]).expect("Email.fromJson")
+    doAssert email.fromAddr.isSome and email.fromAddr.unsafeGet.len == 1,
+      "from must be a one-element list"
+    let fromAddr = email.fromAddr.unsafeGet[0]
     doAssert fromAddr.email == "alice@example.com",
       "from[0].email must be alice@example.com (got " & fromAddr.email & ")"
     doAssert fromAddr.name.isSome,

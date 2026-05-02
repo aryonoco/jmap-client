@@ -1918,13 +1918,13 @@ proc genEmail*(rng: var Rand): Email =
   for _ in 0 ..< rng.rand(0 .. 3):
     rawHeaders.add(rng.genEmailHeader())
   Email(
-    id: Id(rng.genValidIdStrict()),
-    blobId: BlobId(rng.genValidIdStrict()),
-    threadId: Id(rng.genValidIdStrict()),
-    mailboxIds: rng.genMailboxIdSet(),
-    keywords: rng.genKeywordSet(),
-    size: parseUnsignedInt(rng.genValidUnsignedInt()).get(),
-    receivedAt: parseUtcDate(rng.genValidUtcDate()).get(),
+    id: Opt.some(Id(rng.genValidIdStrict())),
+    blobId: Opt.some(BlobId(rng.genValidIdStrict())),
+    threadId: Opt.some(Id(rng.genValidIdStrict())),
+    mailboxIds: Opt.some(rng.genMailboxIdSet()),
+    keywords: Opt.some(rng.genKeywordSet()),
+    size: Opt.some(parseUnsignedInt(rng.genValidUnsignedInt()).get()),
+    receivedAt: Opt.some(parseUtcDate(rng.genValidUtcDate()).get()),
     messageId: ch.messageId,
     inReplyTo: ch.inReplyTo,
     references: ch.references,
@@ -1939,7 +1939,7 @@ proc genEmail*(rng: var Rand): Email =
     headers: rawHeaders,
     requestedHeaders: dh.requestedHeaders,
     requestedHeadersAll: dh.requestedHeadersAll,
-    bodyStructure: bf.bodyStructure,
+    bodyStructure: Opt.some(bf.bodyStructure),
     bodyValues: bf.bodyValues,
     textBody: bf.textBody,
     htmlBody: bf.htmlBody,
@@ -1976,7 +1976,7 @@ proc genParsedEmail*(rng: var Rand): ParsedEmail =
     headers: rawHeaders,
     requestedHeaders: dh.requestedHeaders,
     requestedHeadersAll: dh.requestedHeadersAll,
-    bodyStructure: bf.bodyStructure,
+    bodyStructure: Opt.some(bf.bodyStructure),
     bodyValues: bf.bodyValues,
     textBody: bf.textBody,
     htmlBody: bf.htmlBody,
@@ -1984,6 +1984,28 @@ proc genParsedEmail*(rng: var Rand): ParsedEmail =
     hasAttachment: bf.hasAttachment,
     preview: bf.preview,
   )
+
+proc genPartialEmail*(rng: var Rand): Email =
+  ## Partial-shape generator: each of the eight Opt-able metadata + body
+  ## fields is ``Opt.none`` with probability 0.5 to exercise property-
+  ## filter responses where only a subset of fields is requested.
+  result = rng.genEmail()
+  if rng.rand(1) == 0:
+    result.id = Opt.none(Id)
+  if rng.rand(1) == 0:
+    result.blobId = Opt.none(BlobId)
+  if rng.rand(1) == 0:
+    result.threadId = Opt.none(Id)
+  if rng.rand(1) == 0:
+    result.mailboxIds = Opt.none(MailboxIdSet)
+  if rng.rand(1) == 0:
+    result.keywords = Opt.none(KeywordSet)
+  if rng.rand(1) == 0:
+    result.size = Opt.none(UnsignedInt)
+  if rng.rand(1) == 0:
+    result.receivedAt = Opt.none(UTCDate)
+  if rng.rand(1) == 0:
+    result.bodyStructure = Opt.none(EmailBodyPart)
 
 # ---------------------------------------------------------------------------
 # Mail Part E generators (J-1..J-16) — design §6.3, §6.5.3

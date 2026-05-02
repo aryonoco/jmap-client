@@ -306,7 +306,8 @@ block maxUnsignedIntSize: # scenario 117
   j["size"] = newJInt(9007199254740991'i64)
   let res = emailFromJson(j)
   assertOk res
-  assertEq int64(res.get().size), 9007199254740991'i64
+  assertSome res.get().size
+  assertEq int64(res.get().size.unsafeGet), 9007199254740991'i64
 
 # =============================================================================
 # I. Cross-Field Semantic (scenarios 118–123)
@@ -341,7 +342,8 @@ block keywordDraftNonDraftMailbox: # scenario 120
   j["mailboxIds"] = %*{"inbox1": true}
   let res = emailFromJson(j)
   assertOk res
-  doAssert kwDraft in res.get().keywords, "$draft must be in keywords"
+  assertSome res.get().keywords
+  doAssert kwDraft in res.get().keywords.unsafeGet, "$draft must be in keywords"
 
 block hasAttachmentFalseWithAttachments: # scenario 121
   ## hasAttachment=false with non-empty attachments — contradiction preserved.

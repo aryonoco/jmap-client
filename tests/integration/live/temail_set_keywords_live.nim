@@ -24,7 +24,6 @@
 ## known-good keyword transition without hunting for an arbitrary id.
 ## Inbox lookup and email seed are delegated to ``mlive``.
 
-import std/json
 import std/tables
 
 import results
@@ -97,15 +96,11 @@ block temailSetKeywordsLive:
     let resp5 = client.send(b5).expect("send Email/get post-update")
     let getResp2 = resp5.get(getHandle2).expect("Email/get post-update extract")
     doAssert getResp2.list.len == 1, "Email/get must return the seeded message"
-    let kwNode = getResp2.list[0]{"keywords"}
-    doAssert not kwNode.isNil,
-      "Email/get with properties=[id, keywords] must return a keywords field"
-    # Parse just the keywords field as a typed KeywordSet — Email/get with
-    # restricted properties returns a partial entity, so the strict
-    # ``emailFromJson`` parser does not apply (Email requires every field).
-    # ``KeywordSet.fromJson`` is the right granularity for this assertion.
-    let keywords = KeywordSet.fromJson(kwNode).expect("parse KeywordSet")
-    doAssert kwSeen in keywords, "$seen must be present after happy-path Email/set"
+    let email = Email.fromJson(getResp2.list[0]).expect("Email.fromJson")
+    doAssert email.keywords.isSome,
+      "Email/get with properties=[id, keywords] must populate keywords"
+    doAssert kwSeen in email.keywords.unsafeGet,
+      "$seen must be present after happy-path Email/set"
 
     # --- Conflict path: same update with the stale ifInState -------------
     let updateSetAgain = initEmailUpdateSet(@[markRead()]).expect("initEmailUpdateSet")

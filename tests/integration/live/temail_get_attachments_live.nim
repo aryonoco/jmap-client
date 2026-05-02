@@ -29,7 +29,6 @@
 ## Listed in ``tests/testament_skip.txt`` so ``just test`` skips it; run
 ## via ``just test-integration`` after ``just stalwart-up``.
 
-import std/json
 import std/tables
 
 import results
@@ -83,14 +82,10 @@ block temailGetAttachmentsLive:
     let getResp = resp.get(getHandle).expect("Email/get attachments extract")
     doAssert getResp.list.len == 1, "Email/get must return the seeded message"
 
-    let entity = getResp.list[0]
-    let attachmentsNode = entity{"attachments"}
-    doAssert not attachmentsNode.isNil and attachmentsNode.kind == JArray,
-      "Email/get with properties=[id,attachments] must include attachments as JArray"
-    doAssert attachmentsNode.len == 1,
-      "expected one attachment, got " & $attachmentsNode.len
-    let attachment =
-      EmailBodyPart.fromJson(attachmentsNode[0]).expect("attachment parse")
+    let email = Email.fromJson(getResp.list[0]).expect("Email.fromJson")
+    doAssert email.attachments.len == 1,
+      "expected one attachment, got " & $email.attachments.len
+    let attachment = email.attachments[0]
     doAssert attachment.isLeaf, "attachments[0] must be a leaf"
     doAssert attachment.disposition.isSome, "attachments[0].disposition must be present"
     doAssert attachment.disposition.unsafeGet.kind == cdAttachment,

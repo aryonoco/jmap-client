@@ -34,11 +34,21 @@ block propRoundTripEmailComparator:
 block propRoundTripEmail:
   checkPropertyN "Email round-trip: emailFromJson(toJson(e)) == e", ThoroughTrials:
     let e = rng.genEmail()
-    lastInput = $e.id
+    lastInput = (if e.id.isSome: $e.id.unsafeGet else: "Opt.none")
     let j = e.toJson()
     let rtResult = emailFromJson(j)
     doAssert rtResult.isOk, "Email round-trip fromJson failed"
     doAssert emailEq(rtResult.get(), e), "Email round-trip identity violated"
+
+block propRoundTripPartialEmail:
+  checkPropertyN "Partial Email round-trip: emailFromJson(toJson(p)) == p",
+    ThoroughTrials:
+    let p = rng.genPartialEmail()
+    lastInput = (if p.id.isSome: $p.id.unsafeGet else: "Opt.none")
+    let j = p.toJson()
+    let rtResult = emailFromJson(j)
+    doAssert rtResult.isOk, "Partial Email round-trip fromJson failed"
+    doAssert emailEq(rtResult.get(), p), "Partial Email round-trip identity violated"
 
 block propRoundTripParsedEmail:
   checkPropertyN "ParsedEmail round-trip: parsedEmailFromJson(toJson(pe)) == pe",

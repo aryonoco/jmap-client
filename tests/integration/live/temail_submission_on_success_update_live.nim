@@ -15,7 +15,6 @@
 ## guarded on ``loadLiveTestConfig().isOk`` so the file joins testament's
 ## megatest cleanly under ``just test-full`` when env vars are absent.
 
-import std/json
 import std/sets
 import std/tables
 
@@ -130,23 +129,15 @@ block tEmailSubmissionOnSuccessUpdateLive:
     let getResp = resp4.get(emailGetHandle).expect("Email/get post-submit extract")
     doAssert getResp.list.len == 1,
       "Email/get must return one entry for the patched draft"
-    # Email/get with restricted properties returns a partial entity, so the
-    # strict ``emailFromJson`` parser does not apply (Email requires every
-    # field). Parse mailboxIds and keywords directly via their typed
-    # ``fromJson`` granularities.
-    let entity = getResp.list[0]
-    let mbIdsNode = entity{"mailboxIds"}
-    doAssert not mbIdsNode.isNil, "Email/get must include mailboxIds"
-    let mbIdsTyped = MailboxIdSet.fromJson(mbIdsNode).expect("parse MailboxIdSet")
-    let mbIds = HashSet[Id](mbIdsTyped)
+    let email = Email.fromJson(getResp.list[0]).expect("Email.fromJson")
+    doAssert email.mailboxIds.isSome, "Email/get must include mailboxIds"
+    let mbIds = HashSet[Id](email.mailboxIds.unsafeGet)
     doAssert sentId in mbIds,
       "after onSuccessUpdateEmail, draft must be in Sent (mailboxIds=" & $mbIds & ")"
     doAssert draftsId notin mbIds,
       "after onSuccessUpdateEmail, draft must no longer be in Drafts"
-    let kwNode = entity{"keywords"}
-    doAssert not kwNode.isNil, "Email/get must include keywords"
-    let kwTyped = KeywordSet.fromJson(kwNode).expect("parse KeywordSet")
-    let kwSet = HashSet[Keyword](kwTyped)
+    doAssert email.keywords.isSome, "Email/get must include keywords"
+    let kwSet = HashSet[Keyword](email.keywords.unsafeGet)
     doAssert seenKw in kwSet, "after patch, $seen must be present"
     doAssert draftKw notin kwSet, "after patch, $draft must be absent"
     client.close()

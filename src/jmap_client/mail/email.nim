@@ -126,18 +126,24 @@ type EmailBodyFetchOptions* {.ruleOff: "objects".} = object
 # =============================================================================
 
 type Email* {.ruleOff: "objects".} = object
-  ## Store-backed Email read model (RFC 8621 section 4.1).
-  ## A typed Email is a complete domain object — every property present.
-  ## Partial-property access uses raw ``GetResponse.list: seq[JsonNode]``.
+  ## Server-shaped Email read model (RFC 8621 section 4.1). Every field
+  ## the wire admits absence on is ``Opt[T]`` because ``Email/get``
+  ## supports property filtering — any property may be absent in a
+  ## sparse response. The default-properties fetch (``properties =
+  ## Opt.none``) populates each Opt with ``Opt.some``; property-filtered
+  ## fetches populate only the requested properties.
 
-  # -- Metadata (section 4.1.1) -- server-set, immutable except mailboxIds/keywords
-  id*: Id ## JMAP object id (not Message-ID header).
-  blobId*: BlobId ## Raw RFC 5322 octets.
-  threadId*: Id ## Thread this Email belongs to.
-  mailboxIds*: MailboxIdSet ## At least one Mailbox at all times (RFC invariant).
-  keywords*: KeywordSet ## Default: empty set.
-  size*: UnsignedInt ## Raw message size in octets.
-  receivedAt*: UTCDate ## IMAP internal date.
+  # -- Metadata (section 4.1.1) -- server-set; absent under property filter
+  id*: Opt[Id] ## JMAP object id (not Message-ID header).
+  blobId*: Opt[BlobId] ## Raw RFC 5322 octets.
+  threadId*: Opt[Id] ## Thread this Email belongs to.
+  mailboxIds*: Opt[MailboxIdSet]
+    ## At least one Mailbox at all times when present (RFC §4.1.1
+    ## server invariant); ``Opt.none`` means the property was not
+    ## requested.
+  keywords*: Opt[KeywordSet] ## Default-properties shape: ``Opt.some(empty set)``.
+  size*: Opt[UnsignedInt] ## Raw message size in octets.
+  receivedAt*: Opt[UTCDate] ## IMAP internal date.
 
   # -- Convenience headers (section 4.1.2-4.1.3) -- Opt.none = header absent in message
   messageId*: Opt[seq[string]] ## header:Message-ID:asMessageIds
@@ -163,7 +169,9 @@ type Email* {.ruleOff: "objects".} = object
     ## Parsed headers requested via ``header:Name:asForm:all`` (all instances).
 
   # -- Body (section 4.1.4) --
-  bodyStructure*: EmailBodyPart ## Full MIME tree.
+  bodyStructure*: Opt[EmailBodyPart]
+    ## Full MIME tree; ``Opt.none`` when ``bodyStructure`` was not
+    ## requested under a property filter.
   bodyValues*: Table[PartId, EmailBodyValue]
     ## Text part contents; empty if none fetched.
   textBody*: seq[EmailBodyPart] ## Leaf parts — text/plain preference.
@@ -171,14 +179,6 @@ type Email* {.ruleOff: "objects".} = object
   attachments*: seq[EmailBodyPart] ## Leaf parts — non-body content.
   hasAttachment*: bool ## Server heuristic.
   preview*: string ## Up to 256 characters plaintext fragment.
-
-func parseEmail*(e: Email): Result[Email, ValidationError] =
-  ## Validates the single domain invariant: mailboxIds must not be empty.
-  ## RFC 8621 section 4.1.1: "An Email in the mail store MUST belong to one or
-  ## more Mailboxes at all times."
-  if e.mailboxIds.len == 0:
-    return err(validationError("Email", "mailboxIds must not be empty", ""))
-  ok(e)
 
 func isLeaf*(part: EmailBodyPart): bool =
   ## True if this part is a leaf (not multipart/*). Convenience predicate
@@ -222,7 +222,9 @@ type ParsedEmail* {.ruleOff: "objects".} = object
     ## Parsed headers requested via ``header:Name:asForm:all`` (all instances).
 
   # -- Body --
-  bodyStructure*: EmailBodyPart ## Full MIME tree.
+  bodyStructure*: Opt[EmailBodyPart]
+    ## Full MIME tree; ``Opt.none`` when ``bodyStructure`` was not
+    ## requested under a property filter.
   bodyValues*: Table[PartId, EmailBodyValue]
     ## Text part contents; empty if none fetched.
   textBody*: seq[EmailBodyPart] ## Leaf parts — text/plain preference.

@@ -11,7 +11,7 @@
 
 {.push raises: [].}
 
-import std/json
+import std/sets
 
 import jmap_client
 import ./mloader
@@ -28,23 +28,14 @@ block tcapturedBobInboxAfterDelivery:
   doAssert getResp.list.len == 1,
     "exactly one delivered email expected (got " & $getResp.list.len & ")"
 
-  let entity = getResp.list[0]
-  let subjectNode = entity{"subject"}
-  doAssert not subjectNode.isNil and subjectNode.kind == JString,
-    "captured delivery must surface a string subject"
-  doAssert subjectNode.getStr.len > 0, "subject must be non-empty"
-
-  let fromNode = entity{"from"}
-  doAssert not fromNode.isNil and fromNode.kind == JArray and fromNode.len > 0,
-    "captured delivery must include a non-empty from array"
-  let fromAddrNode = fromNode[0]{"email"}
-  doAssert not fromAddrNode.isNil and fromAddrNode.kind == JString,
-    "from[0] must include a string email"
-  doAssert fromAddrNode.getStr == "alice@example.com",
-    "delivered from[0].email must be alice@example.com (got " & fromAddrNode.getStr & ")"
-
-  let mbIdsNode = entity{"mailboxIds"}
-  doAssert not mbIdsNode.isNil and mbIdsNode.kind == JObject,
-    "captured delivery must include a non-empty mailboxIds object"
-  doAssert mbIdsNode.len >= 1,
-    "delivered email must reside in at least one mailbox (got " & $mbIdsNode.len & ")"
+  let email = Email.fromJson(getResp.list[0]).expect("Email.fromJson")
+  doAssert email.subject.isSome and email.subject.unsafeGet.len > 0,
+    "captured delivery must surface a non-empty subject"
+  doAssert email.fromAddr.isSome and email.fromAddr.unsafeGet.len > 0,
+    "captured delivery must include a non-empty from list"
+  doAssert email.fromAddr.unsafeGet[0].email == "alice@example.com",
+    "delivered from[0].email must be alice@example.com (got " &
+      email.fromAddr.unsafeGet[0].email & ")"
+  doAssert email.mailboxIds.isSome, "captured delivery must include mailboxIds"
+  doAssert HashSet[Id](email.mailboxIds.unsafeGet).len >= 1,
+    "delivered email must reside in at least one mailbox"

@@ -14,7 +14,6 @@
 ## guarded on ``loadLiveTestConfig().isOk`` so the file joins testament's
 ## megatest cleanly under ``just test-full`` when env vars are absent.
 
-import std/json
 import std/sets
 import std/tables
 import std/times
@@ -124,28 +123,20 @@ block tEmailBobReceivesAliceDeliveryLive:
     doAssert getResp.list.len == 1,
       "bob's Email/get must return exactly one entry for the delivered id (got " &
         $getResp.list.len & ")"
-    let entity = getResp.list[0]
+    let email = Email.fromJson(getResp.list[0]).expect("Email.fromJson")
 
-    let subjectNode = entity{"subject"}
-    doAssert not subjectNode.isNil and subjectNode.kind == JString,
-      "Email/get must include a string subject"
-    doAssert subjectNode.getStr == subject,
-      "delivered subject must match seeded subject (got " & subjectNode.getStr & ")"
+    doAssert email.subject.isSome, "Email/get must include a subject"
+    doAssert email.subject.unsafeGet == subject,
+      "delivered subject must match seeded subject (got " & email.subject.unsafeGet & ")"
 
-    let fromNode = entity{"from"}
-    doAssert not fromNode.isNil and fromNode.kind == JArray and fromNode.len > 0,
-      "Email/get must include a non-empty from array"
-    let fromAddrNode = fromNode[0]{"email"}
-    doAssert not fromAddrNode.isNil and fromAddrNode.kind == JString,
-      "from[0] must include a string email"
-    doAssert fromAddrNode.getStr == "alice@example.com",
-      "delivered from[0].email must be alice@example.com (got " & fromAddrNode.getStr &
-        ")"
+    doAssert email.fromAddr.isSome and email.fromAddr.unsafeGet.len > 0,
+      "Email/get must include a non-empty from list"
+    doAssert email.fromAddr.unsafeGet[0].email == "alice@example.com",
+      "delivered from[0].email must be alice@example.com (got " &
+        email.fromAddr.unsafeGet[0].email & ")"
 
-    let mbIdsNode = entity{"mailboxIds"}
-    doAssert not mbIdsNode.isNil, "Email/get must include mailboxIds"
-    let mbIdsTyped = MailboxIdSet.fromJson(mbIdsNode).expect("parse MailboxIdSet")
-    let mbIds = HashSet[Id](mbIdsTyped)
+    doAssert email.mailboxIds.isSome, "Email/get must include mailboxIds"
+    let mbIds = HashSet[Id](email.mailboxIds.unsafeGet)
     doAssert bobInboxId in mbIds,
       "delivered email must reside in bob's inbox mailbox (mailboxIds=" & $mbIds & ")"
 

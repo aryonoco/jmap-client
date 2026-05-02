@@ -32,7 +32,6 @@
 ## Listed in ``tests/testament_skip.txt`` so ``just test`` skips it; run
 ## via ``just test-integration`` after ``just stalwart-up``.
 
-import std/json
 import std/tables
 
 import results
@@ -126,31 +125,33 @@ block temailGetHeaderFormsLive:
     let getResp = resp.get(getHandle).expect("Email/get header forms extract")
     doAssert getResp.list.len == 1, "Email/get must return the seeded message"
 
-    let entity = getResp.list[0]
+    let email = Email.fromJson(getResp.list[0]).expect("Email.fromJson")
 
-    let listPostNode = entity{"header:List-Post:asURLs"}
-    doAssert not listPostNode.isNil, "header:List-Post:asURLs must be present"
-    let listPostHV =
-      parseHeaderValue(hfUrls, listPostNode).expect("parseHeaderValue List-Post")
-    doAssert listPostHV.form == hfUrls, "List-Post HeaderValue must carry hfUrls form"
-    doAssert listPostHV.urls.isSome,
+    let listPostKey =
+      parseHeaderPropertyName("header:List-Post:asURLs").expect("listPostKey")
+    let listPostHv = email.requestedHeaders.getOrDefault(listPostKey)
+    doAssert listPostKey in email.requestedHeaders,
+      "header:List-Post:asURLs must be present"
+    doAssert listPostHv.form == hfUrls, "List-Post HeaderValue must carry hfUrls form"
+    doAssert listPostHv.urls.isSome,
       "List-Post hfUrls payload must parse — server returned non-null"
-    doAssert listPostHV.urls.unsafeGet.len == 1,
-      "expected one URL in List-Post (got " & $listPostHV.urls.unsafeGet.len & ")"
+    doAssert listPostHv.urls.unsafeGet.len == 1,
+      "expected one URL in List-Post (got " & $listPostHv.urls.unsafeGet.len & ")"
 
-    let dateNode = entity{"header:Date:asDate"}
-    doAssert not dateNode.isNil, "header:Date:asDate must be present"
-    let dateHV = parseHeaderValue(hfDate, dateNode).expect("parseHeaderValue Date")
-    doAssert dateHV.form == hfDate, "Date HeaderValue must carry hfDate form"
-    doAssert dateHV.date.isSome,
+    let dateKey = parseHeaderPropertyName("header:Date:asDate").expect("dateKey")
+    doAssert dateKey in email.requestedHeaders, "header:Date:asDate must be present"
+    let dateHv = email.requestedHeaders.getOrDefault(dateKey)
+    doAssert dateHv.form == hfDate, "Date HeaderValue must carry hfDate form"
+    doAssert dateHv.date.isSome,
       "Date hfDate payload must parse — server returned non-null"
 
-    let fromNode = entity{"header:From:asAddresses"}
-    doAssert not fromNode.isNil, "header:From:asAddresses must be present"
-    let fromHV = parseHeaderValue(hfAddresses, fromNode).expect("parseHeaderValue From")
-    doAssert fromHV.form == hfAddresses, "From HeaderValue must carry hfAddresses form"
-    doAssert fromHV.addresses.len == 1,
-      "expected one From address (got " & $fromHV.addresses.len & ")"
-    doAssert fromHV.addresses[0].email == "alice@example.com",
-      "From address must be alice@example.com (got " & fromHV.addresses[0].email & ")"
+    let fromKey = parseHeaderPropertyName("header:From:asAddresses").expect("fromKey")
+    doAssert fromKey in email.requestedHeaders,
+      "header:From:asAddresses must be present"
+    let fromHv = email.requestedHeaders.getOrDefault(fromKey)
+    doAssert fromHv.form == hfAddresses, "From HeaderValue must carry hfAddresses form"
+    doAssert fromHv.addresses.len == 1,
+      "expected one From address (got " & $fromHv.addresses.len & ")"
+    doAssert fromHv.addresses[0].email == "alice@example.com",
+      "From address must be alice@example.com (got " & fromHv.addresses[0].email & ")"
     client.close()

@@ -11,8 +11,6 @@
 
 {.push raises: [].}
 
-import std/json
-
 import jmap_client
 import ./mloader
 
@@ -23,14 +21,14 @@ block tcapturedEmailMultipartMixedAttachment:
   let inv = resp.methodResponses[0]
   doAssert inv.rawName == "Email/get"
 
-  let listNode = inv.arguments{"list"}
-  doAssert not listNode.isNil and listNode.kind == JArray and listNode.len == 1
-  let entity = listNode[0]
-  let attachmentsNode = entity{"attachments"}
-  doAssert not attachmentsNode.isNil and attachmentsNode.kind == JArray and
-    attachmentsNode.len == 1, "multipart/mixed seed exposes one attachment leaf"
+  let getResp =
+    GetResponse[Email].fromJson(inv.arguments).expect("GetResponse[Email].fromJson")
+  doAssert getResp.list.len == 1
+  let email = Email.fromJson(getResp.list[0]).expect("Email.fromJson")
+  doAssert email.attachments.len == 1,
+    "multipart/mixed seed exposes one attachment leaf"
 
-  let attachment = EmailBodyPart.fromJson(attachmentsNode[0]).expect("attachment parse")
+  let attachment = email.attachments[0]
   doAssert attachment.isLeaf, "attachment must be a leaf"
   doAssert attachment.disposition.isSome, "attachment must carry a disposition"
   doAssert attachment.disposition.unsafeGet.kind == cdAttachment,

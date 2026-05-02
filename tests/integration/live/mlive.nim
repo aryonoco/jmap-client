@@ -15,7 +15,6 @@
 
 {.push raises: [].}
 
-import std/json
 import std/os
 import std/sets
 import std/tables
@@ -513,10 +512,10 @@ proc getFirstAttachmentBlobId*(
     client: var JmapClient, mailAccountId: AccountId, emailId: Id
 ): Result[BlobId, string] =
   ## Issues ``Email/get`` for ``emailId`` requesting only ``id`` and
-  ## ``attachments``, then parses ``attachments[0]`` via
-  ## ``EmailBodyPart.fromJson`` and returns its ``blobId``. Used by the
-  ## Phase E import tests to bridge a seeded email to a freshly uploaded-
-  ## like blob without going through a separate upload endpoint.
+  ## ``attachments``, then returns the ``blobId`` of ``attachments[0]``
+  ## from the typed ``Email`` shape. Used by the Phase E import tests
+  ## to bridge a seeded email to a freshly uploaded-like blob without
+  ## going through a separate upload endpoint.
   let (b, getHandle) = addEmailGet(
     initRequestBuilder(),
     mailAccountId,
@@ -529,13 +528,11 @@ proc getFirstAttachmentBlobId*(
     return err("Email/get extract failed: " & error.rawType)
   if getResp.list.len == 0:
     return err("Email/get returned empty list for " & string(emailId))
-  let entity = getResp.list[0]
-  let attachmentsNode = entity{"attachments"}
-  if attachmentsNode.isNil or attachmentsNode.kind != JArray or attachmentsNode.len == 0:
+  let email = Email.fromJson(getResp.list[0]).valueOr:
+    return err("Email.fromJson failed in getFirstAttachmentBlobId")
+  if email.attachments.len == 0:
     return err("Email/get returned no attachments for " & string(emailId))
-  let attachment = EmailBodyPart.fromJson(attachmentsNode[0]).valueOr:
-    return err("EmailBodyPart parse failed in getFirstAttachmentBlobId")
-  ok(attachment.blobId)
+  ok(email.attachments[0].blobId)
 
 # ---------------------------------------------------------------------------
 # Phase F — EmailSubmission helpers

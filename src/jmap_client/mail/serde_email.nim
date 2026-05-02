@@ -47,8 +47,10 @@ type ConvenienceHeaders {.ruleOff: "objects".} = object
 
 type BodyFields {.ruleOff: "objects".} = object
   ## Groups 7 body fields shared by emailFromJson and parsedEmailFromJson.
-  ## Not exported — internal to this module (D7).
-  bodyStructure: EmailBodyPart
+  ## Not exported — internal to this module (D7). ``bodyStructure`` is
+  ## ``Opt[EmailBodyPart]`` because property-filtered ``Email/get``
+  ## responses may omit it.
+  bodyStructure: Opt[EmailBodyPart]
   bodyValues: Table[PartId, EmailBodyValue]
   textBody: seq[EmailBodyPart]
   htmlBody: seq[EmailBodyPart]
@@ -118,6 +120,60 @@ func parseOptId(
   if field.isNil or field.kind == JNull:
     return ok(Opt.none(Id))
   return ok(Opt.some(?Id.fromJson(field, path / key)))
+
+func parseOptBlobId(
+    node: JsonNode, key: string, path: JsonPath
+): Result[Opt[BlobId], SerdeViolation] =
+  ## Parses an optional BlobId field: absent/null yields Opt.none.
+  let field = node{key}
+  if field.isNil or field.kind == JNull:
+    return ok(Opt.none(BlobId))
+  return ok(Opt.some(?BlobId.fromJson(field, path / key)))
+
+func parseOptUnsignedInt(
+    node: JsonNode, key: string, path: JsonPath
+): Result[Opt[UnsignedInt], SerdeViolation] =
+  ## Parses an optional UnsignedInt field: absent/null yields Opt.none.
+  let field = node{key}
+  if field.isNil or field.kind == JNull:
+    return ok(Opt.none(UnsignedInt))
+  return ok(Opt.some(?UnsignedInt.fromJson(field, path / key)))
+
+func parseOptUTCDate(
+    node: JsonNode, key: string, path: JsonPath
+): Result[Opt[UTCDate], SerdeViolation] =
+  ## Parses an optional UTCDate field: absent/null yields Opt.none.
+  let field = node{key}
+  if field.isNil or field.kind == JNull:
+    return ok(Opt.none(UTCDate))
+  return ok(Opt.some(?UTCDate.fromJson(field, path / key)))
+
+func parseOptMailboxIdSet(
+    node: JsonNode, key: string, path: JsonPath
+): Result[Opt[MailboxIdSet], SerdeViolation] =
+  ## Parses an optional MailboxIdSet field: absent/null yields Opt.none.
+  let field = node{key}
+  if field.isNil or field.kind == JNull:
+    return ok(Opt.none(MailboxIdSet))
+  return ok(Opt.some(?MailboxIdSet.fromJson(field, path / key)))
+
+func parseOptKeywordSet(
+    node: JsonNode, key: string, path: JsonPath
+): Result[Opt[KeywordSet], SerdeViolation] =
+  ## Parses an optional KeywordSet field: absent/null yields Opt.none.
+  let field = node{key}
+  if field.isNil or field.kind == JNull:
+    return ok(Opt.none(KeywordSet))
+  return ok(Opt.some(?KeywordSet.fromJson(field, path / key)))
+
+func parseOptBodyPart(
+    node: JsonNode, key: string, path: JsonPath
+): Result[Opt[EmailBodyPart], SerdeViolation] =
+  ## Parses an optional EmailBodyPart field: absent/null yields Opt.none.
+  let field = node{key}
+  if field.isNil or field.kind == JNull:
+    return ok(Opt.none(EmailBodyPart))
+  return ok(Opt.some(?EmailBodyPart.fromJson(field, path / key)))
 
 func parseConvenienceHeaders(
     node: JsonNode, path: JsonPath
@@ -194,8 +250,8 @@ func parseBodyFields(
 ): Result[BodyFields, SerdeViolation] =
   ## Extracts the 7 body fields from a JSON object.
   ## Shared by emailFromJson and parsedEmailFromJson.
-  let bodyStructureNode = ?fieldJObject(node, "bodyStructure", path)
-  let bodyStructure = ?EmailBodyPart.fromJson(bodyStructureNode, path / "bodyStructure")
+  ## ``bodyStructure`` is optional: absent/null yields ``Opt.none``.
+  let bodyStructure = ?parseOptBodyPart(node, "bodyStructure", path)
   let bodyVals = ?parseBodyValues(node, path)
   let textBody = ?parseBodyPartArray(node, "textBody", path)
   let htmlBody = ?parseBodyPartArray(node, "htmlBody", path)
@@ -252,34 +308,24 @@ func parseHeaderValueArray(
 func emailFromJson*(
     node: JsonNode, path: JsonPath = emptyJsonPath()
 ): Result[Email, SerdeViolation] =
-  ## Deserialises a complete Email object from server JSON using two-phase
-  ## strategy (D4). Phase 1: structured extraction of all standard properties.
-  ## Phase 2: dynamic header discovery for ``header:`` prefixed keys.
-  ## Does NOT call ``parseEmail`` — constructs Email directly (D15: lenient
+  ## Deserialises an Email object from server JSON using two-phase
+  ## strategy (D4). Phase 1: structured extraction of all standard properties;
+  ## every field is ``Opt`` so property-filtered ``Email/get`` responses
+  ## (sparse JSON) parse without error. Phase 2: dynamic header discovery
+  ## for ``header:`` prefixed keys. Constructs Email directly (D15: lenient
   ## at server-to-client boundary, trust RFC contract).
   ?expectKind(node, JObject, path)
 
   # == Phase 1: Structured extraction ==
 
-  # Metadata
-  let idNode = ?fieldJString(node, "id", path)
-  let id = ?Id.fromJson(idNode, path / "id")
-  let blobIdNode = ?fieldJString(node, "blobId", path)
-  let blobId = ?BlobId.fromJson(blobIdNode, path / "blobId")
-  let threadIdNode = ?fieldJString(node, "threadId", path)
-  let threadId = ?Id.fromJson(threadIdNode, path / "threadId")
-  let mailboxIdsNode = ?fieldJObject(node, "mailboxIds", path)
-  let mailboxIds = ?MailboxIdSet.fromJson(mailboxIdsNode, path / "mailboxIds")
-  let keywords = block:
-    let kwNode = node{"keywords"}
-    if kwNode.isNil or kwNode.kind == JNull:
-      initKeywordSet(newSeq[Keyword]())
-    else:
-      ?KeywordSet.fromJson(kwNode, path / "keywords")
-  let sizeNode = ?fieldJInt(node, "size", path)
-  let size = ?UnsignedInt.fromJson(sizeNode, path / "size")
-  let receivedAtNode = ?fieldJString(node, "receivedAt", path)
-  let receivedAt = ?UTCDate.fromJson(receivedAtNode, path / "receivedAt")
+  # Metadata — every field is Opt to admit property-filter responses.
+  let id = ?parseOptId(node, "id", path)
+  let blobId = ?parseOptBlobId(node, "blobId", path)
+  let threadId = ?parseOptId(node, "threadId", path)
+  let mailboxIds = ?parseOptMailboxIdSet(node, "mailboxIds", path)
+  let keywords = ?parseOptKeywordSet(node, "keywords", path)
+  let size = ?parseOptUnsignedInt(node, "size", path)
+  let receivedAt = ?parseOptUTCDate(node, "receivedAt", path)
 
   # Convenience headers (shared helper)
   let convHeaders = ?parseConvenienceHeaders(node, path)
@@ -333,6 +379,16 @@ func emailFromJson*(
       preview: bf.preview,
     )
   )
+
+func fromJson*(
+    T: typedesc[Email], node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[Email, SerdeViolation] =
+  ## Typedesc-dispatch wrapper around ``emailFromJson``. Enables the
+  ## canonical ``Email.fromJson(node)`` idiom at consumer sites,
+  ## parallel to ``EmailBodyPart.fromJson`` / ``KeywordSet.fromJson`` /
+  ## ``MailboxIdSet.fromJson``.
+  discard $T # consumed for nimalyzer params rule
+  return emailFromJson(node, path)
 
 # =============================================================================
 # parsedEmailFromJson
@@ -436,14 +492,14 @@ func toJson*(e: Email): JsonNode =
   ## ``fromAddr`` emits as ``"from"`` JSON key.
   var node = newJObject()
 
-  # Metadata
-  node["id"] = e.id.toJson()
-  node["blobId"] = e.blobId.toJson()
-  node["threadId"] = e.threadId.toJson()
-  node["mailboxIds"] = e.mailboxIds.toJson()
-  node["keywords"] = e.keywords.toJson()
-  node["size"] = e.size.toJson()
-  node["receivedAt"] = e.receivedAt.toJson()
+  # Metadata — every field is Opt; absent emits null.
+  node["id"] = e.id.optToJsonOrNull()
+  node["blobId"] = e.blobId.optToJsonOrNull()
+  node["threadId"] = e.threadId.optToJsonOrNull()
+  node["mailboxIds"] = e.mailboxIds.optToJsonOrNull()
+  node["keywords"] = e.keywords.optToJsonOrNull()
+  node["size"] = e.size.optToJsonOrNull()
+  node["receivedAt"] = e.receivedAt.optToJsonOrNull()
 
   # Convenience headers: Opt.none emits null
   emitOptStringSeqOrNull(node, "messageId", e.messageId)
@@ -465,7 +521,7 @@ func toJson*(e: Email): JsonNode =
   node["headers"] = headersArr
 
   # Body
-  node["bodyStructure"] = e.bodyStructure.toJson()
+  node["bodyStructure"] = e.bodyStructure.optToJsonOrNull()
   var bvNode = newJObject()
   for pid, bv in e.bodyValues:
     bvNode[$pid] = bv.toJson()
@@ -528,7 +584,7 @@ func toJson*(pe: ParsedEmail): JsonNode =
   node["headers"] = headersArr
 
   # Body
-  node["bodyStructure"] = pe.bodyStructure.toJson()
+  node["bodyStructure"] = pe.bodyStructure.optToJsonOrNull()
   var bvNode = newJObject()
   for pid, bv in pe.bodyValues:
     bvNode[$pid] = bv.toJson()

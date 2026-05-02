@@ -10,7 +10,7 @@
 
 {.push raises: [].}
 
-import std/json
+import std/tables
 
 import jmap_client
 import ./mloader
@@ -22,29 +22,17 @@ block tcapturedEmailMultipartAlternative:
   let inv = resp.methodResponses[0]
   doAssert inv.rawName == "Email/get"
 
-  let listNode = inv.arguments{"list"}
-  doAssert not listNode.isNil and listNode.kind == JArray and listNode.len == 1,
-    "Email/get list must carry exactly one entity"
-  let entity = listNode[0]
+  let getResp =
+    GetResponse[Email].fromJson(inv.arguments).expect("GetResponse[Email].fromJson")
+  doAssert getResp.list.len == 1, "Email/get list must carry exactly one entity"
 
-  let textBodyNode = entity{"textBody"}
-  doAssert not textBodyNode.isNil and textBodyNode.kind == JArray and
-    textBodyNode.len == 1, "alternative tree exposes one text/plain leaf"
-  let textLeaf = EmailBodyPart.fromJson(textBodyNode[0]).expect("text leaf parse")
-  doAssert textLeaf.contentType == "text/plain"
-
-  let htmlBodyNode = entity{"htmlBody"}
-  doAssert not htmlBodyNode.isNil and htmlBodyNode.kind == JArray and
-    htmlBodyNode.len == 1, "alternative tree exposes one text/html leaf"
-  let htmlLeaf = EmailBodyPart.fromJson(htmlBodyNode[0]).expect("html leaf parse")
-  doAssert htmlLeaf.contentType == "text/html"
-
-  let bvNode = entity{"bodyValues"}
-  doAssert not bvNode.isNil and bvNode.kind == JObject and bvNode.len == 2,
-    "bvsTextAndHtml must yield two bodyValues entries"
-  let textValue =
-    EmailBodyValue.fromJson(bvNode[$textLeaf.partId]).expect("text value parse")
+  let email = Email.fromJson(getResp.list[0]).expect("Email.fromJson")
+  doAssert email.textBody.len == 1, "alternative tree exposes one text/plain leaf"
+  doAssert email.textBody[0].contentType == "text/plain"
+  doAssert email.htmlBody.len == 1, "alternative tree exposes one text/html leaf"
+  doAssert email.htmlBody[0].contentType == "text/html"
+  doAssert email.bodyValues.len == 2, "bvsTextAndHtml must yield two bodyValues entries"
+  let textValue = email.bodyValues[email.textBody[0].partId]
   doAssert textValue.value.len > 0, "text bodyValue must carry decoded content"
-  let htmlValue =
-    EmailBodyValue.fromJson(bvNode[$htmlLeaf.partId]).expect("html value parse")
+  let htmlValue = email.bodyValues[email.htmlBody[0].partId]
   doAssert htmlValue.value.len > 0, "html bodyValue must carry decoded content"

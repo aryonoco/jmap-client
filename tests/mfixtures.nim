@@ -439,41 +439,39 @@ proc makeLeafBodyPart*(): EmailBodyPart =
   )
 
 proc makeEmail*(): Email =
-  ## Minimal valid Email satisfying parseEmail (non-empty mailboxIds).
+  ## Minimal Email fixture. Every metadata field populated with
+  ## ``Opt.some(...)`` to mirror the default-properties wire shape.
   let leaf = makeLeafBodyPart()
-  parseEmail(
-    Email(
-      id: makeId("email1"),
-      blobId: makeBlobId("blob1"),
-      threadId: makeId("thread1"),
-      mailboxIds: initMailboxIdSet(@[makeId("mbx1")]),
-      keywords: initKeywordSet(@[]),
-      size: zeroUint(),
-      receivedAt: parseUtcDate("2025-01-15T09:00:00Z").get(),
-      messageId: Opt.none(seq[string]),
-      inReplyTo: Opt.none(seq[string]),
-      references: Opt.none(seq[string]),
-      sender: Opt.none(seq[EmailAddress]),
-      fromAddr: Opt.none(seq[EmailAddress]),
-      to: Opt.none(seq[EmailAddress]),
-      cc: Opt.none(seq[EmailAddress]),
-      bcc: Opt.none(seq[EmailAddress]),
-      replyTo: Opt.none(seq[EmailAddress]),
-      subject: Opt.none(string),
-      sentAt: Opt.none(Date),
-      headers: @[],
-      requestedHeaders: initTable[HeaderPropertyKey, HeaderValue](),
-      requestedHeadersAll: initTable[HeaderPropertyKey, seq[HeaderValue]](),
-      bodyStructure: leaf,
-      bodyValues: initTable[PartId, EmailBodyValue](),
-      textBody: @[],
-      htmlBody: @[],
-      attachments: @[],
-      hasAttachment: false,
-      preview: "",
-    )
+  Email(
+    id: Opt.some(makeId("email1")),
+    blobId: Opt.some(makeBlobId("blob1")),
+    threadId: Opt.some(makeId("thread1")),
+    mailboxIds: Opt.some(initMailboxIdSet(@[makeId("mbx1")])),
+    keywords: Opt.some(initKeywordSet(@[])),
+    size: Opt.some(zeroUint()),
+    receivedAt: Opt.some(parseUtcDate("2025-01-15T09:00:00Z").get()),
+    messageId: Opt.none(seq[string]),
+    inReplyTo: Opt.none(seq[string]),
+    references: Opt.none(seq[string]),
+    sender: Opt.none(seq[EmailAddress]),
+    fromAddr: Opt.none(seq[EmailAddress]),
+    to: Opt.none(seq[EmailAddress]),
+    cc: Opt.none(seq[EmailAddress]),
+    bcc: Opt.none(seq[EmailAddress]),
+    replyTo: Opt.none(seq[EmailAddress]),
+    subject: Opt.none(string),
+    sentAt: Opt.none(Date),
+    headers: @[],
+    requestedHeaders: initTable[HeaderPropertyKey, HeaderValue](),
+    requestedHeadersAll: initTable[HeaderPropertyKey, seq[HeaderValue]](),
+    bodyStructure: Opt.some(leaf),
+    bodyValues: initTable[PartId, EmailBodyValue](),
+    textBody: @[],
+    htmlBody: @[],
+    attachments: @[],
+    hasAttachment: false,
+    preview: "",
   )
-    .get()
 
 proc makeParsedEmail*(): ParsedEmail =
   ## Minimal ParsedEmail (threadId = Opt.none).
@@ -494,7 +492,7 @@ proc makeParsedEmail*(): ParsedEmail =
     headers: @[],
     requestedHeaders: initTable[HeaderPropertyKey, HeaderValue](),
     requestedHeadersAll: initTable[HeaderPropertyKey, seq[HeaderValue]](),
-    bodyStructure: leaf,
+    bodyStructure: Opt.some(leaf),
     bodyValues: initTable[PartId, EmailBodyValue](),
     textBody: @[],
     htmlBody: @[],
@@ -830,20 +828,40 @@ proc convAddressHeadersEq[T](a, b: T): bool =
   a.sender == b.sender and a.fromAddr == b.fromAddr and a.to == b.to and a.cc == b.cc and
     a.bcc == b.bcc and a.replyTo == b.replyTo
 
+proc optBodyPartEq(a, b: Opt[EmailBodyPart]): bool =
+  ## ``bodyStructure`` is ``Opt[EmailBodyPart]``; both none → equal,
+  ## both some → defer to ``bodyPartEq``, mixed → not equal.
+  if a.isSome and b.isSome:
+    return bodyPartEq(a.unsafeGet, b.unsafeGet)
+  return a.isSome == b.isSome
+
 proc bodyFieldsEq[T](a, b: T): bool =
   ## Compares body fields (7 fields). Delegates to ``bodyPartEq`` and
   ## ``bodyPartSeqEq`` for case-object fields.
-  bodyPartEq(a.bodyStructure, b.bodyStructure) and a.bodyValues == b.bodyValues and
+  optBodyPartEq(a.bodyStructure, b.bodyStructure) and a.bodyValues == b.bodyValues and
     bodyPartSeqEq(a.textBody, b.textBody) and bodyPartSeqEq(a.htmlBody, b.htmlBody) and
     bodyPartSeqEq(a.attachments, b.attachments) and a.hasAttachment == b.hasAttachment and
     a.preview == b.preview
 
+proc optMailboxIdSetEq(a, b: Opt[MailboxIdSet]): bool =
+  ## Distinct ``MailboxIdSet`` excludes ``==`` (from ``defineHashSetDistinctOps``);
+  ## unwrap to ``HashSet[Id]`` for comparison when both sides are some.
+  if a.isSome and b.isSome:
+    return HashSet[Id](a.unsafeGet) == HashSet[Id](b.unsafeGet)
+  return a.isSome == b.isSome
+
+proc optKeywordSetEq(a, b: Opt[KeywordSet]): bool =
+  ## Same shape as ``optMailboxIdSetEq`` for ``KeywordSet``.
+  if a.isSome and b.isSome:
+    return HashSet[Keyword](a.unsafeGet) == HashSet[Keyword](b.unsafeGet)
+  return a.isSome == b.isSome
+
 proc emailMetadataEq(a, b: Email): bool =
-  ## Compares Email metadata fields (7 fields). Unwraps distinct HashSet types
-  ## that have no ``==`` (excluded by ``defineHashSetDistinctOps``).
+  ## Compares Email metadata fields (7 ``Opt`` fields). Distinct HashSet
+  ## types are unwrapped because ``defineHashSetDistinctOps`` omits ``==``.
   a.id == b.id and a.blobId == b.blobId and a.threadId == b.threadId and
-    HashSet[Id](a.mailboxIds) == HashSet[Id](b.mailboxIds) and
-    HashSet[Keyword](a.keywords) == HashSet[Keyword](b.keywords) and a.size == b.size and
+    optMailboxIdSetEq(a.mailboxIds, b.mailboxIds) and
+    optKeywordSetEq(a.keywords, b.keywords) and a.size == b.size and
     a.receivedAt == b.receivedAt
 
 proc emailEq*(a, b: Email): bool =

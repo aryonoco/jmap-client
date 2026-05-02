@@ -77,8 +77,12 @@ block sharedHelperParity: # scenario 132
   doAssert headerTableAllEq(e.requestedHeadersAll, pe.requestedHeadersAll),
     "requestedHeadersAll mismatch"
 
-  # Body fields
-  doAssert bodyPartEq(e.bodyStructure, pe.bodyStructure), "bodyStructure mismatch"
+  # Body fields — both ``bodyStructure`` are ``Opt[EmailBodyPart]``;
+  # the shared-helper parity test fixtures always set them.
+  doAssert e.bodyStructure.isSome and pe.bodyStructure.isSome,
+    "bodyStructure: parity fixtures must populate both sides"
+  doAssert bodyPartEq(e.bodyStructure.unsafeGet, pe.bodyStructure.unsafeGet),
+    "bodyStructure mismatch"
   doAssert e.bodyValues == pe.bodyValues, "bodyValues mismatch"
   doAssert bodyPartSeqEq(e.textBody, pe.textBody), "textBody mismatch"
   doAssert bodyPartSeqEq(e.htmlBody, pe.htmlBody), "htmlBody mismatch"
@@ -97,8 +101,12 @@ block emailRoundTripWithDynamicHeaders: # scenario 133
 
   # makeEmail's bodyStructure has charset=Opt.none for text/plain; parsing
   # applies RFC 2046 default "us-ascii" (Decision C20). Set explicitly so
-  # the round-trip is stable.
-  e.bodyStructure.charset = Opt.some("us-ascii")
+  # the round-trip is stable. ``bodyStructure`` is ``Opt[EmailBodyPart]``;
+  # rebuild via ``Opt.some`` after editing the inner part.
+  doAssert e.bodyStructure.isSome
+  var bs = e.bodyStructure.unsafeGet
+  bs.charset = Opt.some("us-ascii")
+  e.bodyStructure = Opt.some(bs)
 
   # Set convenience headers to non-trivial values
   e.fromAddr =

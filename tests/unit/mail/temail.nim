@@ -1,38 +1,21 @@
 # SPDX-License-Identifier: BSD-2-Clause
 # Copyright (c) 2026 Aryan Ameri
 
-## Unit tests for Email smart constructor and isLeaf predicate
-## (§12.1, scenarios 1–2, plus isLeaf).
+## Unit tests for Email isLeaf predicate and Email/import smart
+## constructors (§12.1).
 
 {.push raises: [].}
+
+import results
 
 import jmap_client/mail/email
 import jmap_client/mail/body
 import jmap_client/mail/mailbox
-import jmap_client/validation
 import jmap_client/primitives
 import jmap_client/identifiers
 
 import ../../massertions
 import ../../mfixtures
-
-# ============= A. parseEmail =============
-
-block parseEmailValid: # scenario 1
-  assertOk parseEmail(makeEmail())
-
-block parseEmailEmptyMailboxIds: # scenario 2
-  var email = makeEmail()
-  email.mailboxIds = initMailboxIdSet(@[])
-  let res = parseEmail(email)
-  doAssert res.isErr, "expected Err result, got Ok"
-  # unsafeError avoids raiseResultDefect whose $Email has side effects
-  # due to Table fields; safe because we verified isErr above.
-  let e = res.unsafeError
-  doAssert e.typeName == "Email", "typeName: expected Email, got " & e.typeName
-  doAssert e.message == "mailboxIds must not be empty",
-    "message: expected 'mailboxIds must not be empty', got " & e.message
-  doAssert e.value == "", "value: expected empty, got " & e.value
 
 # ============= B. isLeaf =============
 

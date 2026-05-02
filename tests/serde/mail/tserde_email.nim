@@ -48,11 +48,12 @@ block fromJsonGoldenPath: # scenario 4
   doAssert emailEq(rt.get(), parsed), "golden path round-trip mismatch"
 
 block fromJsonAbsentKeywords: # scenario 5
+  ## Absent ``keywords`` parses to ``Opt.none(KeywordSet)``.
   var j = makeEmailJson()
   j.delete("keywords")
   let res = emailFromJson(j)
   assertOk res
-  assertEq res.get().keywords.len, 0
+  assertNone res.get().keywords
 
 block fromJsonConvenienceHeaders: # scenario 6
   var j = makeEmailJson()
@@ -128,11 +129,30 @@ block fromJsonBodyValuesPartId: # scenario 12
   assertEq e.bodyValues[pid].value, "hello"
 
 block fromJsonMissingMetadata: # scenario 13
+  ## Property-filtered ``Email/get`` may omit any metadata field; absence
+  ## must parse to ``Opt.none``, not error.
   const metadataKeys = ["id", "blobId", "threadId", "mailboxIds", "size", "receivedAt"]
   for key in metadataKeys:
     var j = makeEmailJson()
     j.delete(key)
-    assertErr emailFromJson(j)
+    let res = emailFromJson(j)
+    assertOk res
+    let e = res.get()
+    case key
+    of "id":
+      assertNone e.id
+    of "blobId":
+      assertNone e.blobId
+    of "threadId":
+      assertNone e.threadId
+    of "mailboxIds":
+      assertNone e.mailboxIds
+    of "size":
+      assertNone e.size
+    of "receivedAt":
+      assertNone e.receivedAt
+    else:
+      discard
 
 block fromJsonConvHeaderWrongType: # scenario 14
   var j = makeEmailJson()
@@ -156,14 +176,80 @@ block fromJsonMalformedDynamicHeader: # scenario 15
   assertErr emailFromJson(j3)
 
 block fromJsonMailboxIdsNull: # scenario 16
+  ## ``mailboxIds: null`` parses to ``Opt.none(MailboxIdSet)``.
   var j = makeEmailJson()
   j["mailboxIds"] = newJNull()
-  assertErr emailFromJson(j)
+  let res = emailFromJson(j)
+  assertOk res
+  assertNone res.get().mailboxIds
 
 block fromJsonKeywordsWrongType: # scenario 17
+  ## Wrong-kind keywords (JArray when JObject expected) still errs —
+  ## the Opt parser short-circuits only on absence/null, not wrong kind.
   var j = makeEmailJson()
   j["keywords"] = %*[1, 2, 3]
   assertErr emailFromJson(j)
+
+block fromJsonStep38PartialShape: # scenario 17a — sparse property-filter shape
+  ## Mirrors Step 38: ``properties = ["id", "subject", "from", "mailboxIds"]``.
+  let j = %*{
+    "id": "e1",
+    "subject": "phase-g step-38 marker",
+    "from": [{"name": "Alice", "email": "alice@example.com"}],
+    "mailboxIds": {"mbx1": true},
+  }
+  let res = emailFromJson(j)
+  assertOk res
+  let e = res.get()
+  assertSome e.id
+  assertSome e.subject
+  assertSome e.fromAddr
+  assertSome e.mailboxIds
+  assertNone e.blobId
+  assertNone e.threadId
+  assertNone e.size
+  assertNone e.receivedAt
+  assertNone e.bodyStructure
+
+block fromJsonBodyOnlyPartialShape: # scenario 17b — body-only sparse shape
+  ## Mirrors Phase D Step 19: ``properties = ["id", "textBody", "bodyValues"]``.
+  let j = %*{
+    "id": "e2",
+    "textBody": [{"partId": "1", "type": "text/plain", "size": 12, "blobId": "b1"}],
+    "bodyValues": {
+      "1": {"value": "hello world\n", "isEncodingProblem": false, "isTruncated": false}
+    },
+  }
+  let res = emailFromJson(j)
+  assertOk res
+  let e = res.get()
+  assertSome e.id
+  assertEq e.textBody.len, 1
+  assertEq e.bodyValues.len, 1
+  assertNone e.bodyStructure
+
+block fromJsonAttachmentsOnlyPartialShape: # scenario 17c — attachments-only shape
+  ## Mirrors Phase D Step 21: ``properties = ["id", "attachments"]``.
+  let j = %*{
+    "id": "e3",
+    "attachments": [
+      {
+        "partId": "2",
+        "type": "application/octet-stream",
+        "size": 32,
+        "blobId": "b2",
+        "disposition": "attachment",
+        "name": "sentinel.dat",
+      }
+    ],
+  }
+  let res = emailFromJson(j)
+  assertOk res
+  let e = res.get()
+  assertSome e.id
+  assertEq e.attachments.len, 1
+  assertNone e.bodyStructure
+  assertNone e.mailboxIds
 
 # ============= B. Email toJson (scenarios 18–23) =============
 

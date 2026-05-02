@@ -9,7 +9,7 @@
 
 {.push raises: [].}
 
-import std/json
+import std/tables
 
 import jmap_client
 import ./mloader
@@ -21,28 +21,30 @@ block tcapturedEmailHeaderForms:
   let inv = resp.methodResponses[0]
   doAssert inv.rawName == "Email/get"
 
-  let listNode = inv.arguments{"list"}
-  doAssert not listNode.isNil and listNode.kind == JArray and listNode.len == 1
-  let entity = listNode[0]
+  let getResp =
+    GetResponse[Email].fromJson(inv.arguments).expect("GetResponse[Email].fromJson")
+  doAssert getResp.list.len == 1
+  let email = Email.fromJson(getResp.list[0]).expect("Email.fromJson")
 
-  let listPostNode = entity{"header:List-Post:asURLs"}
-  doAssert not listPostNode.isNil
-  let listPostHV =
-    parseHeaderValue(hfUrls, listPostNode).expect("parseHeaderValue List-Post")
+  let listPostKey =
+    parseHeaderPropertyName("header:List-Post:asURLs").expect("listPostKey")
+  doAssert listPostKey in email.requestedHeaders,
+    "header:List-Post:asURLs must be present"
+  let listPostHV = email.requestedHeaders.getOrDefault(listPostKey)
   doAssert listPostHV.form == hfUrls
   doAssert listPostHV.urls.isSome and listPostHV.urls.unsafeGet.len >= 1,
     "List-Post must carry at least one URL in the captured fixture"
 
-  let dateNode = entity{"header:Date:asDate"}
-  doAssert not dateNode.isNil
-  let dateHV = parseHeaderValue(hfDate, dateNode).expect("parseHeaderValue Date")
+  let dateKey = parseHeaderPropertyName("header:Date:asDate").expect("dateKey")
+  doAssert dateKey in email.requestedHeaders, "header:Date:asDate must be present"
+  let dateHV = email.requestedHeaders.getOrDefault(dateKey)
   doAssert dateHV.form == hfDate
   doAssert dateHV.date.isSome,
     "Date must parse to a populated date in the captured fixture"
 
-  let fromNode = entity{"header:From:asAddresses"}
-  doAssert not fromNode.isNil
-  let fromHV = parseHeaderValue(hfAddresses, fromNode).expect("parseHeaderValue From")
+  let fromKey = parseHeaderPropertyName("header:From:asAddresses").expect("fromKey")
+  doAssert fromKey in email.requestedHeaders, "header:From:asAddresses must be present"
+  let fromHV = email.requestedHeaders.getOrDefault(fromKey)
   doAssert fromHV.form == hfAddresses
   doAssert fromHV.addresses.len >= 1,
     "From must carry at least one address in the captured fixture"

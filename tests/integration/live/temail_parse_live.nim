@@ -34,7 +34,6 @@
 ## Listed in ``tests/testament_skip.txt`` so ``just test`` skips it; run
 ## via ``just test-integration`` after ``just stalwart-up``.
 
-import std/json
 import std/tables
 
 import results
@@ -85,12 +84,9 @@ block temailParseLive:
     let getResp = getRespOuter.get(getHandle).expect("Email/get attachments extract")
     doAssert getResp.list.len == 1, "Email/get must return the seeded message"
 
-    let entity = getResp.list[0]
-    let attachmentsNode = entity{"attachments"}
-    doAssert not attachmentsNode.isNil and attachmentsNode.kind == JArray and
-      attachmentsNode.len == 1, "expected exactly one attachment"
-    let attachment =
-      EmailBodyPart.fromJson(attachmentsNode[0]).expect("attachment parse")
+    let email = Email.fromJson(getResp.list[0]).expect("Email.fromJson")
+    doAssert email.attachments.len == 1, "expected exactly one attachment"
+    let attachment = email.attachments[0]
     doAssert attachment.contentType == "message/rfc822",
       "attachment must be message/rfc822 (got " & attachment.contentType & ")"
     let blobId = attachment.blobId

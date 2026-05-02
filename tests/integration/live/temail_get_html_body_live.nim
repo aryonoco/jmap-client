@@ -26,7 +26,6 @@
 ## Listed in ``tests/testament_skip.txt`` so ``just test`` skips it; run
 ## via ``just test-integration`` after ``just stalwart-up``.
 
-import std/json
 import std/tables
 
 import results
@@ -76,38 +75,28 @@ block temailGetHtmlBodyLive:
     let getResp = resp.get(getHandle).expect("Email/get html body extract")
     doAssert getResp.list.len == 1, "Email/get must return the seeded message"
 
-    let entity = getResp.list[0]
-    let textBodyNode = entity{"textBody"}
-    doAssert not textBodyNode.isNil and textBodyNode.kind == JArray and
-      textBodyNode.len == 1, "expected one text/plain leaf in textBody"
-    let textLeaf = EmailBodyPart.fromJson(textBodyNode[0]).expect("text leaf parse")
+    let email = Email.fromJson(getResp.list[0]).expect("Email.fromJson")
+    doAssert email.textBody.len == 1, "expected one text/plain leaf in textBody"
+    let textLeaf = email.textBody[0]
     doAssert textLeaf.isLeaf, "textBody[0] must be a leaf"
     doAssert textLeaf.contentType == "text/plain",
       "textBody[0].contentType must be text/plain (got " & textLeaf.contentType & ")"
 
-    let htmlBodyNode = entity{"htmlBody"}
-    doAssert not htmlBodyNode.isNil and htmlBodyNode.kind == JArray and
-      htmlBodyNode.len == 1, "expected one text/html leaf in htmlBody"
-    let htmlLeaf = EmailBodyPart.fromJson(htmlBodyNode[0]).expect("html leaf parse")
+    doAssert email.htmlBody.len == 1, "expected one text/html leaf in htmlBody"
+    let htmlLeaf = email.htmlBody[0]
     doAssert htmlLeaf.isLeaf, "htmlBody[0] must be a leaf"
     doAssert htmlLeaf.contentType == "text/html",
       "htmlBody[0].contentType must be text/html (got " & htmlLeaf.contentType & ")"
 
-    let bodyValuesNode = entity{"bodyValues"}
-    doAssert not bodyValuesNode.isNil and bodyValuesNode.kind == JObject,
-      "bodyValues must be a JObject"
-    doAssert bodyValuesNode.len == 2,
-      "bvsTextAndHtml must yield two bodyValues entries (got " & $bodyValuesNode.len &
+    doAssert email.bodyValues.len == 2,
+      "bvsTextAndHtml must yield two bodyValues entries (got " & $email.bodyValues.len &
         ")"
-    let textPartIdStr = $textLeaf.partId
-    let htmlPartIdStr = $htmlLeaf.partId
-    doAssert bodyValuesNode.hasKey(textPartIdStr),
-      "bodyValues missing entry for text partId " & textPartIdStr
-    doAssert bodyValuesNode.hasKey(htmlPartIdStr),
-      "bodyValues missing entry for html partId " & htmlPartIdStr
+    doAssert textLeaf.partId in email.bodyValues,
+      "bodyValues missing entry for text partId " & $textLeaf.partId
+    doAssert htmlLeaf.partId in email.bodyValues,
+      "bodyValues missing entry for html partId " & $htmlLeaf.partId
 
-    let htmlValueNode = bodyValuesNode[htmlPartIdStr]
-    let htmlValue = EmailBodyValue.fromJson(htmlValueNode).expect("html value parse")
+    let htmlValue = email.bodyValues[htmlLeaf.partId]
     doAssert htmlValue.value == htmlBody,
       "html bodyValue.value must round-trip the injected string verbatim"
     client.close()
