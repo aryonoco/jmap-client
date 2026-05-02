@@ -23,6 +23,7 @@ import std/tables
 import results
 import jmap_client
 import jmap_client/client
+import ./mconfig
 
 # ---------------------------------------------------------------------------
 # Shared blueprint-leaf factory
@@ -705,3 +706,207 @@ proc pollSubmissionDelivery*(
     "pollSubmissionDelivery: budget exhausted (" & $budgetMs &
       "ms) without undoStatus=final"
   )
+
+# ---------------------------------------------------------------------------
+# Phase G — multi-principal + cancel-pending helpers
+# ---------------------------------------------------------------------------
+
+proc initBobClient*(cfg: LiveTestConfig): Result[JmapClient, ValidationError] =
+  ## Sibling of the alice-flavoured ``initJmapClient`` idiom each Phase A–F
+  ## test inlines. Constructs a ``JmapClient`` authenticating as bob via
+  ## ``cfg.bobToken``. The Result rail mirrors ``initJmapClient`` directly —
+  ## any future widening of ``initJmapClient``'s error rail propagates here
+  ## without a signature change at call sites.
+  initJmapClient(
+    sessionUrl = cfg.sessionUrl, bearerToken = cfg.bobToken, authScheme = cfg.authScheme
+  )
+
+func buildEnvelopeWithHoldFor*(
+    fromEmail, toEmail: string, holdSeconds: HoldForSeconds
+): Result[Envelope, string] =
+  ## Variant of ``buildEnvelope`` carrying an RFC 4865 ``HOLDFOR=`` Mail-
+  ## parameter on ``mailFrom``. The typed ``HoldForSeconds`` argument
+  ## prevents callers from passing arbitrary ``UnsignedInt``s; the
+  ## ``parseSubmissionParams`` call cannot Err for a single well-formed
+  ## ``holdForParam``. Used by Phase G Steps 41 and 42.
+  let fromMb = parseRFC5321Mailbox(fromEmail).valueOr:
+    return err("parseRFC5321Mailbox(" & fromEmail & "): " & error.message)
+  let toMb = parseRFC5321Mailbox(toEmail).valueOr:
+    return err("parseRFC5321Mailbox(" & toEmail & "): " & error.message)
+  let params = parseSubmissionParams(@[holdForParam(holdSeconds)]).valueOr:
+    return err("parseSubmissionParams(holdFor): unexpected error")
+  let fromAddr = SubmissionAddress(mailbox: fromMb, parameters: Opt.some(params))
+  let toAddr = SubmissionAddress(mailbox: toMb, parameters: Opt.none(SubmissionParams))
+  let rcpts = parseNonEmptyRcptList(@[toAddr]).valueOr:
+    return err("parseNonEmptyRcptList: empty or duplicate recipients")
+  ok(Envelope(mailFrom: reversePath(fromAddr), rcptTo: rcpts))
+
+func buildEnvelopeMulti*(
+    fromEmail: string, toEmails: openArray[string]
+): Result[Envelope, string] =
+  ## Variant of ``buildEnvelope`` parametrised on a list of envelope
+  ## recipients. Each ``toEmails`` entry maps to a ``SubmissionAddress``
+  ## with empty parameters. Caller controls duplicates via the input
+  ## list — ``parseNonEmptyRcptList`` rejects a duplicated recipient
+  ## mailbox per its existing contract. Used by Phase G Step 40.
+  let fromMb = parseRFC5321Mailbox(fromEmail).valueOr:
+    return err("parseRFC5321Mailbox(" & fromEmail & "): " & error.message)
+  let fromAddr =
+    SubmissionAddress(mailbox: fromMb, parameters: Opt.none(SubmissionParams))
+  var rcptAddrs: seq[SubmissionAddress] = @[]
+  for toEmail in toEmails:
+    let toMb = parseRFC5321Mailbox(toEmail).valueOr:
+      return err("parseRFC5321Mailbox(" & toEmail & "): " & error.message)
+    rcptAddrs.add(
+      SubmissionAddress(mailbox: toMb, parameters: Opt.none(SubmissionParams))
+    )
+  let rcpts = parseNonEmptyRcptList(rcptAddrs).valueOr:
+    return err("parseNonEmptyRcptList: empty or duplicate recipients")
+  ok(Envelope(mailFrom: reversePath(fromAddr), rcptTo: rcpts))
+
+proc resolveOrCreateAliceIdentity*(
+    client: var JmapClient, submissionAccountId: AccountId
+): Result[Id, string] =
+  ## Identity/get → scan for ``alice@example.com``; on miss, Identity/set
+  ## create ``email = "alice@example.com"``, ``name = "Alice"``. Returns
+  ## the resolved id either way. Idempotent across runs because the lookup
+  ## precedes every create. Consolidates the inline block duplicated five
+  ## times across Phase F Steps 32–36 and reused by Phase G Steps 38, 40,
+  ## 41, 42.
+  let (b1, getHandle) = addIdentityGet(initRequestBuilder(), submissionAccountId)
+  let resp1 = client.send(b1).valueOr:
+    return err("Identity/get send failed: " & error.message)
+  let getResp = resp1.get(getHandle).valueOr:
+    return err("Identity/get extract failed: " & error.rawType)
+  for node in getResp.list:
+    let ident = Identity.fromJson(node).valueOr:
+      return err("Identity parse failed during alice lookup")
+    if ident.email == "alice@example.com":
+      return ok(ident.id)
+  let createIdent = parseIdentityCreate(email = "alice@example.com", name = "Alice").valueOr:
+    return err("parseIdentityCreate failed: " & error.message)
+  let cid = parseCreationId("seedAliceIdentity").valueOr:
+    return err("parseCreationId failed: " & error.message)
+  var createTbl = initTable[CreationId, IdentityCreate]()
+  createTbl[cid] = createIdent
+  let (b2, setHandle) = addIdentitySet(
+    initRequestBuilder(), submissionAccountId, create = Opt.some(createTbl)
+  )
+  let resp2 = client.send(b2).valueOr:
+    return err("Identity/set send failed: " & error.message)
+  let setResp = resp2.get(setHandle).valueOr:
+    return err("Identity/set extract failed: " & error.rawType)
+  var createdId: Id
+  var found = false
+  setResp.createResults.withValue(cid, outcome):
+    let item = outcome.valueOr:
+      return err("Identity/set create rejected: " & error.rawType)
+    createdId = item.id
+    found = true
+  do:
+    return err("Identity/set returned no result for creationId seedAliceIdentity")
+  doAssert found
+  ok(createdId)
+
+proc pollSubmissionPending*(
+    client: var JmapClient,
+    submissionAccountId: AccountId,
+    submissionId: Id,
+    budgetMs: int = 5000,
+): Result[EmailSubmission[usPending], string] =
+  ## Structural mirror of ``pollSubmissionDelivery`` on the opposite
+  ## phantom narrowing. Polls ``EmailSubmission/get`` every 200 ms until
+  ## ``undoStatus == pending``, returning the phantom-narrowed
+  ## ``EmailSubmission[usPending]`` so ``cancelUpdate`` is callable at the
+  ## type level. Used by Phase G Steps 41 and 42.
+  const PollMs = 200
+  let maxIters = max(1, budgetMs div PollMs)
+  for _ in 0 ..< maxIters:
+    let (b, getHandle) = addEmailSubmissionGet(
+      initRequestBuilder(), submissionAccountId, ids = directIds(@[submissionId])
+    )
+    let resp = client.send(b).valueOr:
+      return err("EmailSubmission/get send failed: " & error.message)
+    let getResp = resp.get(getHandle).valueOr:
+      return err("EmailSubmission/get extract failed: " & error.rawType)
+    if getResp.list.len > 0:
+      let any = AnyEmailSubmission.fromJson(getResp.list[0]).valueOr:
+        return err("AnyEmailSubmission.fromJson failed during poll")
+      let pending = any.asPending()
+      if pending.isSome:
+        return ok(pending.unsafeGet)
+    sleep(PollMs)
+  err(
+    "pollSubmissionPending: budget exhausted (" & $budgetMs &
+      "ms) without undoStatus=pending"
+  )
+
+proc findEmailBySubjectInMailbox*(
+    client: var JmapClient,
+    mailAccountId: AccountId,
+    mailbox: Id,
+    subject: string,
+    attempts: int = 10,
+    intervalMs: int = 200,
+): Result[Id, string] =
+  ## Polls ``Email/query`` filtered by ``inMailbox`` + ``subject`` until
+  ## a matching email surfaces or the attempt budget elapses. Returns the
+  ## first matching id; ``Err`` on absence after ``attempts`` empty
+  ## results. Absorbs SMTP delivery asynchrony at the test layer per the
+  ## Phase C Step 18 precedent. Used by Phase G Step 38.
+  let filter = filterCondition(
+    EmailFilterCondition(inMailbox: Opt.some(mailbox), subject: Opt.some(subject))
+  )
+  for _ in 0 ..< max(1, attempts):
+    let (b, queryHandle) =
+      addEmailQuery(initRequestBuilder(), mailAccountId, filter = Opt.some(filter))
+    let resp = client.send(b).valueOr:
+      return err("Email/query send failed: " & error.message)
+    let queryResp = resp.get(queryHandle).valueOr:
+      return err("Email/query extract failed: " & error.rawType)
+    if queryResp.ids.len > 0:
+      return ok(queryResp.ids[0])
+    sleep(intervalMs)
+  err(
+    "findEmailBySubjectInMailbox: no match after " & $attempts & " attempts (subject=" &
+      subject & ")"
+  )
+
+proc seedMultiRecipientDraft*(
+    client: var JmapClient,
+    mailAccountId: AccountId,
+    drafts: Id,
+    fromAddr: EmailAddress,
+    toAddrs: openArray[EmailAddress],
+    subject, body: string,
+    creationLabel: string,
+): Result[Id, string] =
+  ## Variant of ``seedDraftEmail`` parametrised on a list of recipients.
+  ## Marks the email with the IANA ``$draft`` keyword (RFC 8621 §4.1.1)
+  ## so EmailSubmission references a real draft. Funnels through the
+  ## same ``Email/set`` blueprint pipeline; returns the server-assigned
+  ## id. Used by Phase G Step 40.
+  let mailboxIds = parseNonEmptyMailboxIdSet(@[drafts]).valueOr:
+    return err("parseNonEmptyMailboxIdSet failed: " & error.message)
+  let draftKeyword = parseKeyword("$draft").valueOr:
+    return err("parseKeyword($draft) failed: " & error.message)
+  let textPart = makeLeafPart(
+    LeafPartSpec(
+      partId: buildPartId("1"),
+      contentType: "text/plain",
+      body: body,
+      name: Opt.none(string),
+      disposition: Opt.none(ContentDisposition),
+      cid: Opt.none(string),
+    )
+  )
+  let blueprint = parseEmailBlueprint(
+    mailboxIds = mailboxIds,
+    body = flatBody(textBody = Opt.some(textPart)),
+    keywords = initKeywordSet(@[draftKeyword]),
+    fromAddr = Opt.some(@[fromAddr]),
+    to = Opt.some(@toAddrs),
+    subject = Opt.some(subject),
+  ).valueOr:
+    return err("parseEmailBlueprint failed: " & $error)
+  emailSetCreate(client, mailAccountId, blueprint, creationLabel)

@@ -56,34 +56,9 @@ block tEmailSubmissionChangesLive:
     let draftsId =
       resolveOrCreateDrafts(client, mailAccountId).expect("resolveOrCreateDrafts")
 
-    # --- Resolve alice's Identity, create on miss -----------------------
-    let (b0, identGetHandle) = addIdentityGet(initRequestBuilder(), submissionAccountId)
-    let resp0 = client.send(b0).expect("send Identity/get")
-    let identGetResp = resp0.get(identGetHandle).expect("Identity/get extract")
-    var aliceIdentityId = Opt.none(Id)
-    for node in identGetResp.list:
-      let ident = Identity.fromJson(node).expect("parse Identity")
-      if ident.email == "alice@example.com":
-        aliceIdentityId = Opt.some(ident.id)
-    if aliceIdentityId.isNone:
-      let createIdent = parseIdentityCreate(email = "alice@example.com", name = "Alice")
-        .expect("parseIdentityCreate")
-      let identCid = parseCreationId("seedAliceF36").expect("parseCreationId")
-      var identTbl = initTable[CreationId, IdentityCreate]()
-      identTbl[identCid] = createIdent
-      let (bIs, identSetHandle) = addIdentitySet(
-        initRequestBuilder(), submissionAccountId, create = Opt.some(identTbl)
+    let identityId = resolveOrCreateAliceIdentity(client, submissionAccountId).expect(
+        "resolveOrCreateAliceIdentity"
       )
-      let respIs = client.send(bIs).expect("send Identity/set seed")
-      let identSetResp = respIs.get(identSetHandle).expect("Identity/set seed extract")
-      identSetResp.createResults.withValue(identCid, outcome):
-        doAssert outcome.isOk,
-          "Identity/set seed must succeed: " & outcome.error.rawType
-        aliceIdentityId = Opt.some(outcome.unsafeValue.id)
-      do:
-        doAssert false, "Identity/set seed must report an outcome"
-    doAssert aliceIdentityId.isSome
-    let identityId = aliceIdentityId.unsafeGet
 
     # --- Request 1: baselines (no fixture capture) -----------------------
     let (b1, baseGetHandle) = addEmailSubmissionGet(
