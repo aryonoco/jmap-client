@@ -1,0 +1,1 @@
+{"methodResponses":[["EmailSubmission/changes",{"accountId":"c","oldState":"saq","newState":"sba","hasMoreChanges":false,"created":["c","d"],"updated":[],"destroyed":[]},"c0"],["error",{"type":"invalidArguments","description":"invalid JMAP State at line 1 column 209"},"c1"]],"sessionState":"3e25b2a0"}
