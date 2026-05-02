@@ -4,8 +4,8 @@
 
 | Phase | State | Notes |
 |---|---|---|
-| **G0 — `mlive` helper extraction** | **Pending** | Six helpers: `initBobClient`, `buildEnvelopeWithHoldFor`, `buildEnvelopeMulti`, `pollSubmissionPending`, `findEmailBySubjectInMailbox`, `seedMultiRecipientDraft`. Mirrors B/C0/D0/E0/F0.5 precedent: helpers land before any test consumes them. |
-| **G1 — Multi-principal observability + EmailSubmission CRUD completion (six steps)** | **Pending** | Six live tests (Steps 37–42). Targets cumulative 40/40 live tests, 36/36 captured replays. |
+| **G0 — `mlive` helper extraction** | **Done** (2026-05-02) | Seven helpers: `initBobClient`, `buildEnvelopeWithHoldFor`, `buildEnvelopeMulti`, `resolveOrCreateAliceIdentity`, `pollSubmissionPending`, `findEmailBySubjectInMailbox`, `seedMultiRecipientDraft`. Phase F migration consolidated five identity-resolve blocks onto the new helper in the same commit. Commit `1bd7ae1`. |
+| **G1 — Multi-principal observability + EmailSubmission CRUD completion (six steps)** | **Done** (2026-05-02) | Six live tests (Steps 37–42), six captured fixtures, six captured replays. Cumulative: **40/40** live tests, **36/36** captured replays. Wall-clock for the full integration run ~49 s on the devcontainer (target <60 s). Commits `f580c49`, `048d840`, `fb145f9`, `5268a42`, `de84ec3`, `d19933e`. |
 
 Live-test pass rate target (cumulative across A + B + C + D + E + F + G):
 **40 / 40** (`*_live.nim` files run by `just test-integration`; the 34
@@ -692,6 +692,54 @@ Explicitly deferred to later phases:
 - **Performance, concurrency, resource exhaustion** — outside the
   integration-testing campaign entirely; belongs in
   `tests/stress/` if/when it becomes a goal.
+
+## Retrospective (2026-05-02)
+
+Phase G closed in eight commits. Cumulative live-test count rose from
+34 to 40, captured-replay count from 30 to 36, exactly as the plan
+specified. Wall-clock for the full live suite is ~49 s on the
+devcontainer (target <60 s).
+
+Commit shape:
+
+  1. `1bd7ae1` — Phase G0 helpers + Phase F migration onto
+     `resolveOrCreateAliceIdentity`
+  2. `f580c49` — Step 37 `tbob_session_smoke_live`
+  3. `048d840` — Step 38 `temail_bob_receives_alice_delivery_live`
+  4. `fb145f9` — Step 39 `tcross_account_email_get_rejection_live`
+  5. `5268a42` — Step 40 `temail_submission_multi_recipient_live`
+  6. `de84ec3` — Step 41 `temail_submission_cancel_pending_live`
+  7. `d19933e` — Step 42 `temail_submission_full_lifecycle_live`
+     (capstone)
+
+Predictable wire-format divergences confirmed during execution:
+
+  1. **Cross-account `Email/get` rejection variant** (Step 39).
+     Stalwart 0.15.5 returns ``forbidden`` (rather than the alternative
+     ``accountNotFound``). Account exists; the caller has no read
+     permission without sharing/ACL. Captured fixture pins this choice.
+  2. **`DeliveryStatus` map keying for self-cc** (Step 40). Stalwart
+     does NOT dedupe a self-recipient — a two-recipient envelope
+     `alice → [bob, alice-self]` produces two distinct map entries
+     keyed by `parseRFC5321Mailbox` of each address.
+  3. **`undoStatus` transition timing after cancel** (Step 41/42).
+     Stalwart reflects the canceled state synchronously on the
+     post-update re-fetch — no asynchronous transition through the
+     SMTP queue worker. The deterministic projection is `asCanceled`
+     (rather than the alternative `asCanceled-or-final` set membership
+     the original blueprint admitted).
+  4. **EmailSubmission destroy semantics on freshly-canceled
+     submission** (Step 42). Stalwart admits the destroy with no
+     `setForbidden` / `setNotFound` rejection — outcome is `Ok` and
+     the post-destroy `/get` returns an empty list with the
+     `submissionId` in `notFound`.
+  5. **HOLDFOR honouring boundary** (Step 41/42). Stalwart honours
+     RFC 4865 `HOLDFOR=300` exactly as advertised in
+     `submissionExtensions.FUTURERELEASE`; the message stays in the
+     queue as `usPending` until the cancel update intercepts it.
+     `pollSubmissionPending` resolves on first observation (the
+     submission is pending immediately on create) so the test does
+     not block on HOLDFOR elapsing.
 
 ## Forward arc (informational)
 
