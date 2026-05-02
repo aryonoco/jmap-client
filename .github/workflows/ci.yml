@@ -77,6 +77,13 @@ jobs:
           echo "$HOME/.nimble/bin" >> $GITHUB_PATH
           echo "$HOME/.local/share/mise/shims" >> $GITHUB_PATH
 
+      # nph is built from source via nimble: upstream's GitHub release for
+      # aarch64 contains the x86_64 binary, so mise cannot reliably provide
+      # it. Mirrors .devcontainer/scripts/post-create.sh — keep versions in
+      # sync.
+      - name: Install nph
+        run: nimble install nph@0.7.0 --accept
+
       - name: Verify toolchain
         run: |
           nim --version
@@ -105,6 +112,12 @@ jobs:
 
       - name: Lint
         run: just lint
+
+      - name: Lint (isolated)
+        run: just lint-isolated
+
+      - name: Lint (style)
+        run: just lint-style
 
       - name: Static analysis
         run: just analyse
