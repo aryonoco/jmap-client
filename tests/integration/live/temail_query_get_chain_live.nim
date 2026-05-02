@@ -1,25 +1,34 @@
 # SPDX-License-Identifier: BSD-2-Clause
 # Copyright (c) 2026 Aryan Ameri
-
+#
 ## Live integration test for Email/query → Email/get chained via the
 ## RFC 8620 §3.7 result reference (``#ids`` JSON Pointer). Stalwart is
 ## empty after a fresh ``stalwart-up``, so the test seeds one Email via
 ## ``Email/set create`` (Path C of the plan: use the library to test
 ## the library; no SMTP path needed) before exercising the chain.
 ##
+## The seeded subject carries the byte-disjoint discriminator token
+## ``"chainquery6"`` and the ``Email/query`` filters on it. Re-runs
+## against an accumulated Stalwart instance bound the result set to
+## this test's own seeds — without the filter, the unbounded chain
+## eventually exceeds Stalwart's per-method-call ``Email/get`` cap as
+## the account grows. A cleanup leg destroys the seed at end-of-test
+## so the count cannot grow unboundedly even under the filter.
+##
 ## Listed in ``tests/testament_skip.txt`` so ``just test`` skips it; run
 ## via ``just test-integration`` after ``just stalwart-up``. Body is
 ## guarded on ``loadLiveTestConfig().isOk`` so the file joins testament's
 ## megatest cleanly under ``just test-full`` when env vars are absent.
 ##
-## Three sequential requests:
+## Five sequential requests:
 ##  1. ``resolveInboxId`` (mlive) — Mailbox/get for Alice's inbox.
-##  2. ``seedSimpleEmail`` (mlive) — Email/set create for one text/plain
-##     message. Pattern A (BlueprintBodyPart) is exercised inside the
-##     helper.
-##  3. Email/query → Email/get — the chain under test. The query returns
-##     all emails for Alice (no filter); the get fetches them by
-##     reference to the query's ``ids`` (JSON Pointer ``/ids``).
+##  2. ``seedSimpleEmail`` (mlive) — Email/set create for one
+##     text/plain message carrying the ``"chainquery6"`` token.
+##  3. Email/query → Email/get — the chain under test, filtered on
+##     ``"chainquery6"`` and capped at ``limit=50`` for belt-and-
+##     braces.
+##  4. Email/set destroy — cleanup leg so subsequent runs see a clean
+##     baseline for this discriminator.
 
 import std/json
 import std/tables
@@ -51,13 +60,26 @@ block temailQueryGetChainLive:
     let inbox = resolveInboxId(client, mailAccountId).expect("resolveInboxId")
 
     # --- Step 2: seed one email (mlive helper) ---------------------------
-    discard seedSimpleEmail(
-        client, mailAccountId, inbox, "phase-1 step-6 seed", "seedMail"
-      )
+    const seedSubject = "phase-1 step-6 chainquery6 seed"
+    let seedId = seedSimpleEmail(client, mailAccountId, inbox, seedSubject, "seedMail")
       .expect("seedSimpleEmail")
 
     # --- Step 3: Email/query → Email/get via #ids back-reference ---------
-    let (b3a, queryHandle) = addEmailQuery(initRequestBuilder(), mailAccountId)
+    # Filter on the byte-disjoint token ``chainquery6`` so the query
+    # returns only this test's seeds even on an accumulated Stalwart
+    # instance. Stalwart tokenises subject filters; ``chainquery6`` is
+    # a single contiguous token chosen to be unique across every
+    # ``*_live.nim`` seed. The ``limit=50`` is belt-and-braces: even
+    # if a future test reuses the token, the chain stays under
+    # Stalwart's per-method-call ``Email/get`` cap.
+    let filter = filterCondition(EmailFilterCondition(subject: Opt.some("chainquery6")))
+    let queryParams = QueryParams(limit: Opt.some(UnsignedInt(50)))
+    let (b3a, queryHandle) = addEmailQuery(
+      initRequestBuilder(),
+      mailAccountId,
+      filter = Opt.some(filter),
+      queryParams = queryParams,
+    )
     let (b3b, getHandle) = addEmailGet(
       b3a,
       mailAccountId,
@@ -74,7 +96,20 @@ block temailQueryGetChainLive:
     for node in getResp.list:
       doAssert not node{"id"}.isNil, "every Email/get entry must have an id"
       doAssert not node{"subject"}.isNil, "every Email/get entry must have a subject"
-      if node{"subject"}.getStr("") == "phase-1 step-6 seed":
+      if node{"subject"}.getStr("") == seedSubject:
         sawSeed = true
     doAssert sawSeed, "Email/get list must include the seeded subject"
+
+    # --- Step 4: cleanup — destroy the seed so re-runs stay bounded ------
+    let (b4, cleanHandle) =
+      addEmailSet(initRequestBuilder(), mailAccountId, destroy = directIds(@[seedId]))
+    let respClean = client.send(b4).expect("send Email/set cleanup")
+    let cleanResp = respClean.get(cleanHandle).expect("Email/set cleanup extract")
+    var cleaned = false
+    cleanResp.destroyResults.withValue(seedId, outcome):
+      doAssert outcome.isOk, "cleanup destroy of seed must succeed"
+      cleaned = true
+    do:
+      doAssert false, "cleanup must report an outcome for seedId"
+    doAssert cleaned
     client.close()
