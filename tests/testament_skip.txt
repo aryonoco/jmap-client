@@ -68,3 +68,4 @@ tests/integration/live/temail_submission_changes_live.nim
 tests/integration/live/tbob_session_smoke_live.nim
 tests/integration/live/temail_bob_receives_alice_delivery_live.nim
 tests/integration/live/tcross_account_email_get_rejection_live.nim
+tests/integration/live/temail_submission_multi_recipient_live.nim
