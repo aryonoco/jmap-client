@@ -2,27 +2,39 @@
 # Copyright (c) 2026 Aryan Ameri
 
 ## Live integration test for compound ``Email/copy`` with implicit
-## ``Email/set`` destroy of the source (RFC 8620 §5.4 + RFC 8621 §4.7)
-## against Stalwart. Phase E Step 26 — exercises ``addEmailCopyAndDestroy``
-## and the ``getBoth(EmailCopyHandles)`` extractor.
+## ``Email/set`` destroy when ``fromAccountId == accountId`` (RFC 8620
+## §5.4) against Stalwart. Phase E Step 26 — pins the compound
+## rejection wire shape.
+##
+## Same RFC mandate as Step 25: RFC 8620 §5.4 forbids same-account
+## copy. The compound ``addEmailCopyAndDestroy`` builder issues
+## Email/copy with ``onSuccessDestroyOriginal: true``; Stalwart 0.15.5
+## rejects the request at the method level (before any implicit
+## destroy can fire), surfacing ``metInvalidArguments``.
+##
+## This test pins the compound rejection wire shape so the client
+## correctly handles a compound copy+destroy issued naively against
+## the same account on both sides. The captured fixture feeds the
+## always-on parser-only replay test that validates
+## ``MethodError.fromJson`` against the rejection wire.
 ##
 ## Sequence:
-##  1. Resolve inbox + idempotently resolve / create the
-##     ``"phase-e step-26 archive"`` mailbox.
-##  2. Seed a single text/plain email into the inbox.
-##  3. ``Email/copy`` with ``onSuccessDestroyOriginal: true`` and
-##     creation id ``"copy26"``; extract both responses via ``getBoth``.
-##     Assert the primary copy succeeded and the implicit destroy of
-##     the source succeeded.
-##  4. ``Email/get`` the source id; assert it is reported in
-##     ``notFound`` (RFC 8620 §5.1: nonexistent ids surface there).
+##  1. Resolve inbox.
+##  2. Seed a single text/plain email.
+##  3. ``addEmailCopyAndDestroy`` with ``fromAccountId == accountId
+##     == mailAccountId``. Send. Capture
+##     ``email-copy-destroy-original-rejected-stalwart``.
+##  4. Assert ``resp.getBoth(handles).isErr`` AND
+##     ``methodErr.errorType == metInvalidArguments``.
+##  5. Cleanup: destroy the seed; assert success — the source
+##     survived because the rejection occurred before any state
+##     change.
 ##
-## Capture: ``email-copy-destroy-original-stalwart`` after the compound
-## send. Listed in ``tests/testament_skip.txt`` so ``just test`` skips
-## it; run via ``just test-integration`` after ``just stalwart-up``.
-## Body is guarded on ``loadLiveTestConfig().isOk`` so the file joins
-## testament's megatest cleanly under ``just test-full`` when env vars
-## are absent.
+## Listed in ``tests/testament_skip.txt`` so ``just test`` skips it;
+## run via ``just test-integration`` after ``just stalwart-up``. Body
+## is guarded on ``loadLiveTestConfig().isOk`` so the file joins
+## testament's megatest cleanly under ``just test-full`` when env
+## vars are absent.
 
 import std/tables
 
@@ -50,64 +62,55 @@ block temailCopyDestroyOriginalLive:
     do:
       doAssert false, "session must advertise a primary mail account"
 
-    # --- 1-2. Resolve inbox / archive, seed source -------------------------
+    # --- 1-2. Resolve inbox + seed source ---------------------------------
     let inbox = resolveInboxId(client, mailAccountId).expect("resolveInboxId")
-    let archiveId = resolveOrCreateMailbox(
-        client, mailAccountId, "phase-e step-26 archive"
-      )
-      .expect("resolveOrCreateMailbox archive")
     let sourceId = seedSimpleEmail(
-        client, mailAccountId, inbox, "phase-e step-26 mover", "seed26"
+        client, mailAccountId, inbox, "phase-e step-26 source", "seed26"
       )
-      .expect("seedSimpleEmail mover")
+      .expect("seedSimpleEmail source")
 
-    # --- 3. Compound Email/copy + implicit destroy --------------------------
+    # --- 3. Issue the rejection-bound compound copy+destroy ---------------
     let copyCid = parseCreationId("copy26").expect("parseCreationId copy26")
-    let archiveSet = parseNonEmptyMailboxIdSet(@[archiveId]).expect(
-        "parseNonEmptyMailboxIdSet archive"
-      )
+    let inboxSet =
+      parseNonEmptyMailboxIdSet(@[inbox]).expect("parseNonEmptyMailboxIdSet inbox")
     var createTbl = initTable[CreationId, EmailCopyItem]()
     createTbl[copyCid] =
-      initEmailCopyItem(id = sourceId, mailboxIds = Opt.some(archiveSet))
+      initEmailCopyItem(id = sourceId, mailboxIds = Opt.some(inboxSet))
     let (bCopy, handles) = addEmailCopyAndDestroy(
       initRequestBuilder(),
       fromAccountId = mailAccountId,
       accountId = mailAccountId,
       create = createTbl,
     )
-    let respCopy = client.send(bCopy).expect("send Email/copy + destroy")
-    captureIfRequested(client, "email-copy-destroy-original-stalwart").expect(
+    let respCopy =
+      client.send(bCopy).expect("send Email/copy + destroy (rejection-bound)")
+    captureIfRequested(client, "email-copy-destroy-original-rejected-stalwart").expect(
       "captureIfRequested"
     )
-    let results = respCopy.getBoth(handles).expect("getBoth(EmailCopyHandles)")
 
-    var copyOk = false
-    results.primary.createResults.withValue(copyCid, outcome):
-      doAssert outcome.isOk, "primary Email/copy must succeed: " & outcome.error.rawType
-      copyOk = true
-    do:
-      doAssert false, "primary Email/copy must report an outcome for copy26"
-    doAssert copyOk
+    # --- 4. Assert compound rejection at method level --------------------
+    let bothResult = respCopy.getBoth(handles)
+    doAssert bothResult.isErr,
+      "RFC 8620 §5.4 mandates accountId != fromAccountId; compound same-account " &
+        "copy+destroy must surface a method-level error"
+    let methodErr = bothResult.error
+    doAssert methodErr.errorType == metInvalidArguments,
+      "Stalwart rejects compound same-account copy with metInvalidArguments (got rawType=" &
+        methodErr.rawType & ")"
+    doAssert methodErr.rawType == "invalidArguments",
+      "rawType must round-trip the wire literal"
 
+    # --- 5. Cleanup: source must still exist -----------------------------
+    let (bClean, cleanHandle) =
+      addEmailSet(initRequestBuilder(), mailAccountId, destroy = directIds(@[sourceId]))
+    let respClean = client.send(bClean).expect("send Email/set cleanup")
+    let cleanResp = respClean.get(cleanHandle).expect("Email/set cleanup extract")
     var sourceDestroyed = false
-    results.implicit.destroyResults.withValue(sourceId, outcome):
+    cleanResp.destroyResults.withValue(sourceId, outcome):
       doAssert outcome.isOk,
-        "implicit Email/set destroy of source must succeed: " & outcome.error.rawType
+        "cleanup destroy of seed must succeed (the rejected copy did not destroy it)"
       sourceDestroyed = true
     do:
-      doAssert false, "implicit Email/set must report a destroy outcome for sourceId"
+      doAssert false, "cleanup must report an outcome for sourceId"
     doAssert sourceDestroyed
-
-    # --- 4. Source must surface in notFound --------------------------------
-    let (bGet, getHandle) =
-      addEmailGet(initRequestBuilder(), mailAccountId, ids = directIds(@[sourceId]))
-    let respGet = client.send(bGet).expect("send Email/get source post-destroy")
-    let getResp = respGet.get(getHandle).expect("Email/get source post-destroy extract")
-    doAssert getResp.list.len == 0, "source must be gone after compound copy+destroy"
-    var sawNotFound = false
-    for nfId in getResp.notFound:
-      if nfId == sourceId:
-        sawNotFound = true
-    doAssert sawNotFound,
-      "destroyed source id must surface in Email/get notFound (RFC 8620 §5.1)"
     client.close()
