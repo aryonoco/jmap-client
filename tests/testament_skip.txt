@@ -76,3 +76,4 @@ tests/integration/live/tmailbox_query_changes_live.nim
 tests/integration/live/tthread_changes_live.nim
 tests/integration/live/tidentity_changes_live.nim
 tests/integration/live/tcombined_changes_live.nim
+tests/integration/live/tcascade_changes_coherence_live.nim
