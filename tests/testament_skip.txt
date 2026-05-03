@@ -73,3 +73,4 @@ tests/integration/live/temail_submission_cancel_pending_live.nim
 tests/integration/live/temail_submission_full_lifecycle_live.nim
 tests/integration/live/tmailbox_changes_live.nim
 tests/integration/live/tmailbox_query_changes_live.nim
+tests/integration/live/tthread_changes_live.nim
