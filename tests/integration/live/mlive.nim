@@ -929,3 +929,120 @@ proc captureBaselineState*[T](
   let getResp = resp.get(getHandle).valueOr:
     return err("captureBaselineState[" & $T & "]: extract failed: " & error.rawType)
   ok(getResp.state)
+
+# ---------------------------------------------------------------------------
+# Phase I — extra-headers seed + submission corpus helpers
+# ---------------------------------------------------------------------------
+
+proc seedEmailWithHeaders*(
+    client: var JmapClient,
+    mailAccountId: AccountId,
+    inbox: Id,
+    fromAddr: EmailAddress,
+    toAddr: EmailAddress,
+    subject: string,
+    body: string,
+    extraHeaders: openArray[(BlueprintEmailHeaderName, BlueprintHeaderMultiValue)],
+    creationLabel: string,
+): Result[Id, string] =
+  ## Variant of ``seedSimpleEmail`` parametrised on caller-supplied
+  ## from/to/body and a table of top-level extra headers. Wraps the
+  ## existing ``parseEmailBlueprint`` plumbing so the test body can stay
+  ## free of repetitive ``BlueprintBodyPart`` / ``Table`` boilerplate.
+  ## Used by Phase I Step 53.
+  let mailboxIds = parseNonEmptyMailboxIdSet(@[inbox]).valueOr:
+    return err("parseNonEmptyMailboxIdSet failed: " & error.message)
+  let textPart = makeLeafPart(
+    LeafPartSpec(
+      partId: buildPartId("1"),
+      contentType: "text/plain",
+      body: body,
+      name: Opt.none(string),
+      disposition: Opt.none(ContentDisposition),
+      cid: Opt.none(string),
+    )
+  )
+  var headerTbl = initTable[BlueprintEmailHeaderName, BlueprintHeaderMultiValue]()
+  for (k, v) in extraHeaders:
+    headerTbl[k] = v
+  let blueprint = parseEmailBlueprint(
+    mailboxIds = mailboxIds,
+    body = flatBody(textBody = Opt.some(textPart)),
+    fromAddr = Opt.some(@[fromAddr]),
+    to = Opt.some(@[toAddr]),
+    subject = Opt.some(subject),
+    extraHeaders = headerTbl,
+  ).valueOr:
+    return err("parseEmailBlueprint failed: " & $error)
+  emailSetCreate(client, mailAccountId, blueprint, creationLabel)
+
+proc seedSubmissionCorpus*(
+    client: var JmapClient,
+    mailAccountId: AccountId,
+    submissionAccountId: AccountId,
+    drafts: Id,
+    fromAddr: EmailAddress,
+    identities: openArray[Id],
+    recipients: openArray[EmailAddress],
+    subjects: openArray[string],
+    creationLabelPrefix: string,
+): Result[seq[Id], string] =
+  ## Builds N submissions polled to ``usFinal``. ``N == identities.len``;
+  ## ``recipients`` and ``subjects`` cycle through their lengths so the
+  ## caller controls the corpus shape. Each iteration: seed a draft via
+  ## ``seedDraftEmail``, ``EmailSubmission/set create``, then poll to
+  ## ``usFinal`` via ``pollSubmissionDelivery``. Returns the seq of
+  ## submission ids in submission order. Used by Phase I Step 60.
+  if identities.len == 0:
+    return err("seedSubmissionCorpus: identities must not be empty")
+  if recipients.len == 0:
+    return err("seedSubmissionCorpus: recipients must not be empty")
+  if subjects.len == 0:
+    return err("seedSubmissionCorpus: subjects must not be empty")
+  var submissionIds: seq[Id] = @[]
+  for i, identityId in identities:
+    let recipient = recipients[i mod recipients.len]
+    let subject = subjects[i mod subjects.len]
+    let draftId = seedDraftEmail(
+      client,
+      mailAccountId,
+      drafts,
+      fromAddr,
+      recipient,
+      subject,
+      "phase-i corpus body " & $i,
+      creationLabelPrefix & "-draft-" & $i,
+    ).valueOr:
+      return err("seedSubmissionCorpus[" & $i & "] seedDraftEmail: " & error)
+    let envelope = buildEnvelope(fromAddr.email, recipient.email).valueOr:
+      return err("seedSubmissionCorpus[" & $i & "] buildEnvelope: " & error)
+    let blueprint = parseEmailSubmissionBlueprint(
+      identityId = identityId, emailId = draftId, envelope = Opt.some(envelope)
+    ).valueOr:
+      return err("seedSubmissionCorpus[" & $i & "] parseEmailSubmissionBlueprint")
+    let cid = parseCreationId(creationLabelPrefix & "-sub-" & $i).valueOr:
+      return err("seedSubmissionCorpus[" & $i & "] parseCreationId: " & error.message)
+    var createTbl = initTable[CreationId, EmailSubmissionBlueprint]()
+    createTbl[cid] = blueprint
+    let (b, setHandle) = addEmailSubmissionSet(
+      initRequestBuilder(), submissionAccountId, create = Opt.some(createTbl)
+    )
+    let resp = client.send(b).valueOr:
+      return err("seedSubmissionCorpus[" & $i & "] send: " & error.message)
+    let setResp = resp.get(setHandle).valueOr:
+      return err("seedSubmissionCorpus[" & $i & "] extract: " & error.rawType)
+    var submissionId: Id
+    var found = false
+    setResp.createResults.withValue(cid, outcome):
+      let item = outcome.valueOr:
+        return err("seedSubmissionCorpus[" & $i & "] create rejected: " & error.rawType)
+      submissionId = item.id
+      found = true
+    do:
+      return err("seedSubmissionCorpus[" & $i & "] no create result")
+    doAssert found
+    let final = pollSubmissionDelivery(client, submissionAccountId, submissionId).valueOr:
+      return err("seedSubmissionCorpus[" & $i & "] pollSubmissionDelivery: " & error)
+    discard final
+    submissionIds.add(submissionId)
+  ok(submissionIds)
