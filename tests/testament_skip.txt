@@ -88,3 +88,4 @@ tests/integration/live/temail_query_advanced_sort_live.nim
 tests/integration/live/temail_query_collapse_threads_live.nim
 tests/integration/live/tvacation_set_all_arms_live.nim
 tests/integration/live/tidentity_changes_with_updates_live.nim
+tests/integration/live/temail_submission_filter_sort_live.nim
