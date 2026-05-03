@@ -81,3 +81,4 @@ tests/integration/live/tmailbox_query_filter_sort_live.nim
 tests/integration/live/temail_changes_max_changes_live.nim
 tests/integration/live/temail_query_changes_filter_mismatch_live.nim
 tests/integration/live/temail_get_max_body_value_bytes_live.nim
+tests/integration/live/temail_get_header_forms_extended_live.nim
