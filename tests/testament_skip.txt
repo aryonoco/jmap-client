@@ -71,3 +71,4 @@ tests/integration/live/tcross_account_email_get_rejection_live.nim
 tests/integration/live/temail_submission_multi_recipient_live.nim
 tests/integration/live/temail_submission_cancel_pending_live.nim
 tests/integration/live/temail_submission_full_lifecycle_live.nim
+tests/integration/live/tmailbox_changes_live.nim
