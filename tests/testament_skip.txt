@@ -79,3 +79,4 @@ tests/integration/live/tcombined_changes_live.nim
 tests/integration/live/tcascade_changes_coherence_live.nim
 tests/integration/live/tmailbox_query_filter_sort_live.nim
 tests/integration/live/temail_changes_max_changes_live.nim
+tests/integration/live/temail_query_changes_filter_mismatch_live.nim

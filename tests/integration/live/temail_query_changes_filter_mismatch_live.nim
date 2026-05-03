@@ -1,0 +1,112 @@
+# SPDX-License-Identifier: BSD-2-Clause
+# Copyright (c) 2026 Aryan Ameri
+
+## Phase I Step 51 — wire test of ``Email/queryChanges`` with a
+## filter that differs from the original ``Email/query``'s filter.
+## RFC 8620 §5.6: "If the filter or sort includes a property the
+## client does not understand, OR if the filter/sort has changed
+## since the previous queryState, the server MAY return a
+## ``cannotCalculateChanges`` error."  Closes Phase C12 deferral.
+##
+## **RFC ambiguity → set-membership assertion.** RFC 8620 §5.6 uses
+## "MAY" — Stalwart is free to either reject the call or silently
+## recompute the delta against the new filter.  This test asserts
+## set membership: either ``Err`` projects to one of
+## ``metCannotCalculateChanges`` / ``metInvalidArguments``, or
+## ``Ok`` carries a structurally valid ``QueryChangesResponse[Email]``
+## with a non-empty ``oldQueryState`` matching the supplied baseline.
+## Both outcomes are RFC-conformant; capturing whichever Stalwart
+## emits at this version pins the empirical pin for Phase J's
+## divergences catalogue.
+##
+## Workflow:
+##
+##  1. Seed three emails with subjects ``phase-i 51 alpha`` /
+##     ``bravo`` / ``charlie`` so a substring-on-prefix filter
+##     matches all three and a substring-on-distinctive-token
+##     matches one.
+##  2. Original ``Email/query`` with ``filter = subject "phase-i
+##     51"``.  Capture ``queryState``.
+##  3. Mismatched ``Email/queryChanges`` with ``sinceQueryState =
+##     queryState`` and ``filter = subject "phase-i 51 alpha"``.
+##     Capture the wire response and assert RFC-conformant outcome
+##     (Err on a permitted MethodErrorType, or Ok carrying a valid
+##     QueryChangesResponse).
+##
+## Capture: ``email-query-changes-filter-mismatch-stalwart``.
+##
+## Listed in ``tests/testament_skip.txt`` so ``just test`` skips it;
+## run via ``just test-integration`` after ``just stalwart-up``.
+## Body is guarded on ``loadLiveTestConfig().isOk`` so the file
+## joins testament's megatest cleanly under ``just test-full`` when
+## env vars are absent.
+
+import std/tables
+
+import results
+import jmap_client
+import jmap_client/client
+import ./mcapture
+import ./mconfig
+import ./mlive
+
+block temailQueryChangesFilterMismatchLive:
+  let cfgRes = loadLiveTestConfig()
+  if cfgRes.isOk:
+    let cfg = cfgRes.get()
+    var client = initJmapClient(
+        sessionUrl = cfg.sessionUrl,
+        bearerToken = cfg.aliceToken,
+        authScheme = cfg.authScheme,
+      )
+      .expect("initJmapClient")
+    let session = client.fetchSession().expect("fetchSession")
+    var mailAccountId: AccountId
+    session.primaryAccounts.withValue("urn:ietf:params:jmap:mail", v):
+      mailAccountId = v
+    do:
+      doAssert false, "session must advertise a primary mail account"
+
+    let inbox = resolveInboxId(client, mailAccountId).expect("resolveInboxId")
+    let seededIds = seedEmailsWithSubjects(
+        client,
+        mailAccountId,
+        inbox,
+        @["phase-i 51 alpha", "phase-i 51 bravo", "phase-i 51 charlie"],
+      )
+      .expect("seedEmailsWithSubjects")
+    doAssert seededIds.len == 3,
+      "three seeded ids expected (got " & $seededIds.len & ")"
+
+    let filterA = filterCondition(EmailFilterCondition(subject: Opt.some("phase-i 51")))
+    let (b1, h1) =
+      addEmailQuery(initRequestBuilder(), mailAccountId, filter = Opt.some(filterA))
+    let resp1 = client.send(b1).expect("send Email/query baseline")
+    let qResp1 = resp1.get(h1).expect("Email/query baseline extract")
+    let queryStateA = qResp1.queryState
+
+    let filterB =
+      filterCondition(EmailFilterCondition(subject: Opt.some("phase-i 51 alpha")))
+    let (b2, h2) = addEmailQueryChanges(
+      initRequestBuilder(),
+      mailAccountId,
+      sinceQueryState = queryStateA,
+      filter = Opt.some(filterB),
+    )
+    let resp2 = client.send(b2).expect("send Email/queryChanges mismatched filter")
+    captureIfRequested(client, "email-query-changes-filter-mismatch-stalwart").expect(
+      "captureIfRequested"
+    )
+    let extract = resp2.get(h2)
+    case extract.isOk
+    of true:
+      let qcr = extract.unsafeValue
+      doAssert string(qcr.oldQueryState) == string(queryStateA),
+        "Ok branch: oldQueryState must echo the supplied baseline"
+    of false:
+      let methodErr = extract.unsafeError
+      doAssert methodErr.errorType in {metCannotCalculateChanges, metInvalidArguments},
+        "Err branch: method error must project as cannotCalculateChanges or " &
+          "invalidArguments (got rawType=" & methodErr.rawType & ")"
+
+    client.close()
