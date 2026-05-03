@@ -85,3 +85,4 @@ tests/integration/live/temail_get_header_forms_extended_live.nim
 tests/integration/live/temail_get_body_properties_all_live.nim
 tests/integration/live/temail_query_advanced_filter_live.nim
 tests/integration/live/temail_query_advanced_sort_live.nim
+tests/integration/live/temail_query_collapse_threads_live.nim
