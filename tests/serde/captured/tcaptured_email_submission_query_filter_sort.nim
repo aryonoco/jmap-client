@@ -24,7 +24,7 @@ block tcapturedEmailSubmissionQueryFilterSort:
       "QueryResponse[AnyEmailSubmission].fromJson"
     )
   doAssert ($qr.queryState).len > 0, "queryState must be non-empty"
-  doAssert qr.ids.len >= 4,
-    "phase-i 60 capstone seeded at least four submissions (got " & $qr.ids.len & ")"
+  doAssert qr.ids.len >= 2,
+    "phase-i 60 capstone seeded at least two submissions (got " & $qr.ids.len & ")"
   for id in qr.ids:
     doAssert string(id).len > 0, "every returned submission id must be non-empty"

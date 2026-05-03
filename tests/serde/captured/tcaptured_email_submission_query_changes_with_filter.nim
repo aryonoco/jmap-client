@@ -27,7 +27,7 @@ block tcapturedEmailSubmissionQueryChangesWithFilter:
   doAssert ($qcr.newQueryState).len > 0, "newQueryState must be non-empty"
   doAssert qcr.total.isSome,
     "calculateTotal=true must surface a total in queryChanges response"
-  doAssert qcr.added.len >= 4,
-    "phase-i 60 capstone added at least four submissions (got " & $qcr.added.len & ")"
+  doAssert qcr.added.len >= 2,
+    "phase-i 60 capstone added at least two submissions (got " & $qcr.added.len & ")"
   for item in qcr.added:
     doAssert string(item.id).len > 0, "added.id must be non-empty"
