@@ -907,3 +907,25 @@ proc seedMultiRecipientDraft*(
   ).valueOr:
     return err("parseEmailBlueprint failed: " & $error)
   emailSetCreate(client, mailAccountId, blueprint, creationLabel)
+
+# ---------------------------------------------------------------------------
+# Phase H — state-delta baseline helper
+# ---------------------------------------------------------------------------
+
+proc captureBaselineState*[T](
+    client: var JmapClient, accountId: AccountId
+): Result[JmapState, string] =
+  ## Issues ``T/get`` with an empty id list to capture the current ``state``
+  ## of the entity surface for ``accountId``. The empty ids array (``[]``)
+  ## sends ``ids: []`` on the wire — Stalwart returns zero records but the
+  ## ``state`` field is still populated, which is the only value the helper
+  ## needs. Used as the ``sinceState`` baseline for ``T/changes`` invocations
+  ## across Phase H Steps 43, 45, 46, 47, 48. ``T`` must satisfy the
+  ## ``getMethodName(T)`` and ``capabilityUri(T)`` resolvers — every entity
+  ## registered via ``registerJmapEntity`` in ``mail_entities.nim`` qualifies.
+  let (b, getHandle) = addGet[T](initRequestBuilder(), accountId, ids = directIds(@[]))
+  let resp = client.send(b).valueOr:
+    return err("captureBaselineState[" & $T & "]: send failed: " & error.message)
+  let getResp = resp.get(getHandle).valueOr:
+    return err("captureBaselineState[" & $T & "]: extract failed: " & error.rawType)
+  ok(getResp.state)
