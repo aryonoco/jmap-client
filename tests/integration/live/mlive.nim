@@ -15,6 +15,7 @@
 
 {.push raises: [].}
 
+import std/json
 import std/os
 import std/sets
 import std/tables
@@ -1046,3 +1047,64 @@ proc seedSubmissionCorpus*(
     discard final
     submissionIds.add(submissionId)
   ok(submissionIds)
+
+# ---------------------------------------------------------------------------
+# Phase J — typed-builder-bypass helpers
+# ---------------------------------------------------------------------------
+
+proc sendRawInvocation*(
+    client: var JmapClient,
+    capabilityUris: openArray[string],
+    methodName: string,
+    arguments: JsonNode,
+    callId: string = "c0",
+): Result[envelope.Response, ClientError] {.used.} =
+  ## Bypasses ``RequestBuilder``'s typed surface to construct a
+  ## ``Request`` carrying a single hand-rolled invocation. Uses
+  ## ``parseInvocation`` so unknown method names (e.g.
+  ## ``Mailbox/snorgleflarp``) round-trip losslessly into the
+  ## invocation's ``rawName``. ``client.send(request)`` still runs
+  ## ``validateLimits``; only the request-construction layer is
+  ## bypassed. Used by Phase J Steps 62, 67, 68, 70, 72.
+  let mcid = parseMethodCallId(callId).valueOr:
+    return err(clientError(transportError(tekNetwork, "invalid callId: " & callId)))
+  let invocation = parseInvocation(methodName, arguments, mcid).valueOr:
+    return
+      err(clientError(transportError(tekNetwork, "invalid methodName: " & methodName)))
+  var caps: seq[string] = @[]
+  for u in capabilityUris:
+    caps.add(u)
+  let req = Request(
+    `using`: caps,
+    methodCalls: @[invocation],
+    createdIds: Opt.none(Table[CreationId, Id]),
+  )
+  client.send(req)
+
+proc buildOversizedRequest*(accountId: AccountId, idCount: int): Request {.used.} =
+  ## Builds a ``Mailbox/get`` Request carrying ``idCount`` synthetic ids,
+  ## suitable for driving ``validateLimits`` past ``maxObjectsInGet``.
+  ## The synthetic ids are valid ``Id`` shapes (1–255 octets, no control
+  ## chars) so construction never fails. Used by Phase J Step 64.
+  var ids = newSeq[Id](idCount)
+  for i in 0 ..< idCount:
+    ids[i] = Id("phaseJsynth" & $i)
+  let (b, _) = addGet[Mailbox](initRequestBuilder(), accountId, ids = directIds(ids))
+  b.build()
+
+func injectBrokenBackReference*(
+    arguments: JsonNode,
+    refField: string,
+    refPath: string,
+    refName: string = "Mailbox/get",
+): JsonNode {.used.} =
+  ## Wraps an ``arguments`` object with a ``#<refField>`` JSON-Pointer
+  ## entry whose target path is ``refPath`` (caller-supplied —
+  ## intentionally broken / deep / adversarial). Pure helper. The
+  ## caller-supplied ``refName`` lets the broken reference name any
+  ## prior method response. Used by Phase J Steps 62, 67, 74.
+  result = newJObject()
+  for k, v in arguments.pairs:
+    if k != refField:
+      result[k] = v
+  result["#" & refField] = %*{"resultOf": "c0", "name": refName, "path": refPath}

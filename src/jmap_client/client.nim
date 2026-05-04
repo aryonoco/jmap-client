@@ -721,3 +721,47 @@ proc send*(
   ## This is the imperative shell boundary where the functional core
   ## (builder) meets IO.
   return client.send(builder.build())
+
+proc sendRawHttpForTesting*(
+    client: var JmapClient, body: string
+): JmapResult[envelope.Response] {.used.} =
+  ## Test-only escape hatch — POSTs ``body`` verbatim to the cached
+  ## session's ``apiUrl``. Bypasses ``Request.toJson`` and the pre-flight
+  ## ``validateLimits`` check so adversarial wire shapes (oversized
+  ## bodies, hand-crafted invocations, malformed JSON) reach the server
+  ## without being rejected client-side. The response still flows through
+  ## ``classifyHttpResponse`` so HTTP-error classification, RFC 7807
+  ## problem-details detection, and ``lastRawResponseBody`` capture are
+  ## identical to ``send``. The ``ForTesting`` suffix and ``{.used.}``
+  ## pragma make the test-only intent visible at every call site and
+  ## silence nimalyzer's unused-export rule on the symbol when no test
+  ## file references it yet.
+  if client.session.isNone:
+    discard ?client.fetchSession()
+  let sessionOpt = client.session
+  let session = sessionOpt.valueOr:
+    return err(
+      clientError(
+        transportError(tekNetwork, "session unavailable after fetchSession succeeded")
+      )
+    )
+  let httpResp =
+    try:
+      {.warning[Uninit]: off.}
+      {.cast(raises: [CatchableError]).}:
+        client.httpClient.request(session.apiUrl, httpMethod = HttpPost, body = body)
+    except CatchableError as e:
+      return err(classifyException(e))
+  let respJson = ?classifyHttpResponse(
+    client.maxResponseBytes, httpResp, rcApi, client.lastRawResponseBody
+  )
+  if respJson.kind == JObject and respJson.hasKey("type") and
+      not respJson.hasKey("methodResponses"):
+    for reqErr in RequestError.fromJson(respJson).optValue:
+      return err(clientError(reqErr))
+  return envelope.Response.fromJson(respJson).mapErr(
+      proc(sv: SerdeViolation): ClientError =
+        validationToClientErrorCtx(
+          toValidationError(sv, "Response"), "invalid response: "
+        )
+    )
