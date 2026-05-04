@@ -98,3 +98,4 @@ tests/integration/live/tnotfound_rail_get_live.nim
 tests/integration/live/tresult_reference_deep_paths_live.nim
 tests/integration/live/tcreated_ids_envelope_live.nim
 tests/integration/live/tmulti_instance_envelope_live.nim
+tests/integration/live/tpatch_object_deep_paths_live.nim
