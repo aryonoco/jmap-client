@@ -91,3 +91,4 @@ tests/integration/live/tidentity_changes_with_updates_live.nim
 tests/integration/live/temail_submission_filter_sort_live.nim
 tests/integration/live/trequest_level_errors_live.nim
 tests/integration/live/tmethod_error_typed_projection_live.nim
+tests/integration/live/tset_error_typed_projection_live.nim
