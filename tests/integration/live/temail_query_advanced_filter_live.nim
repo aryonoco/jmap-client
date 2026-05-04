@@ -187,11 +187,7 @@ block temailQueryAdvancedFilterLive:
       )
       .expect("initJmapClient")
     let session = client.fetchSession().expect("fetchSession")
-    var mailAccountId: AccountId
-    session.primaryAccounts.withValue("urn:ietf:params:jmap:mail", v):
-      mailAccountId = v
-    do:
-      doAssert false, "session must advertise a primary mail account"
+    let mailAccountId = resolveMailAccountId(session).expect("resolveMailAccountId")
 
     let inbox = resolveInboxId(client, mailAccountId).expect("resolveInboxId")
     let archive = resolveOrCreateMailbox(client, mailAccountId, "phase-i 55 archive")

@@ -26,6 +26,7 @@ import results
 import jmap_client
 import jmap_client/client
 import ./mconfig
+import ./mlive
 
 block tidentityGetLive:
   let cfgRes = loadLiveTestConfig()
@@ -38,11 +39,8 @@ block tidentityGetLive:
       )
       .expect("initJmapClient")
     let session = client.fetchSession().expect("fetchSession")
-    var submissionAccountId: AccountId
-    session.primaryAccounts.withValue("urn:ietf:params:jmap:submission", v):
-      submissionAccountId = v
-    do:
-      doAssert false, "session must advertise a primary submission account"
+    let submissionAccountId =
+      resolveSubmissionAccountId(session).expect("resolveSubmissionAccountId")
 
     let create = parseIdentityCreate(email = "alice@example.com", name = "Alice").expect(
         "parseIdentityCreate"

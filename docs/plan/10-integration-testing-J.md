@@ -1327,3 +1327,31 @@ with two failure modes:
   surfaces unmasked.
 
 After Phase K0 both failure modes are resolved.
+
+### Phase A–I retroactive discipline cleanup (Phase K0)
+
+Phase J established the library-contract vs server-compliance
+separation. Walking the 58 pre-Phase-J live tests under Phase K0
+surfaced one server-compliance pin and one missing helper
+duplicated 65 times across 64 files.
+
+- **`tcross_account_email_get_rejection_live.nim`**: strict
+  `errorType == metForbidden` lifted to set-membership
+  `errorType in {metForbidden, metAccountNotFound}`. RFC 8620
+  §3.6.2 admits both for cross-account rejection; Stalwart's
+  specific `forbidden` pick is now pinned only in the captured
+  replay fixture.
+- **`resolveMailAccountId(session)` helper added to
+  `mlive.nim`**: sibling of `resolveSubmissionAccountId`. Replaces
+  the 5-line `withValue` boilerplate inlined in 64 tests
+  (65 sites) with a single-line call. Net saving: 260 lines of
+  test boilerplate removed (5 × 65 − 1 × 65 = 260) less the new
+  15-line helper = 245 lines net.
+- **`tidentity_get_live.nim`**: switched to
+  `resolveSubmissionAccountId` (already extant) instead of inline
+  `withValue` pattern.
+
+No new server-compliance pins survived the audit. The remaining
+strict `errorType == ...` and `rawType == "..."` assertions in
+A–I tests all match RFC-mandated wire tokens (verified against
+RFC 8620 §§5.3-5.5 and RFC 8621 §2.5).

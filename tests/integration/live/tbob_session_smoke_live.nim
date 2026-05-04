@@ -34,11 +34,8 @@ block tBobSessionSmokeLive:
       "bob's session must advertise at least one account (got " & $session.accounts.len &
         ")"
 
-    var bobMailAccountId: AccountId
-    session.primaryAccounts.withValue("urn:ietf:params:jmap:mail", v):
-      bobMailAccountId = v
-    do:
-      doAssert false, "bob's session must advertise a primary mail account"
+    let bobMailAccountId =
+      resolveMailAccountId(session).expect("resolveMailAccountId bob")
 
     let bobAccount = session.findAccount(bobMailAccountId)
     doAssert bobAccount.isSome,

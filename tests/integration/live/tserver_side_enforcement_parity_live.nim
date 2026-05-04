@@ -44,11 +44,7 @@ block tserverSideEnforcementParityLive:
       .expect("initJmapClient")
     let session = client.fetchSession().expect("fetchSession")
     let caps = session.coreCapabilities()
-    var mailAccountId: AccountId
-    session.primaryAccounts.withValue("urn:ietf:params:jmap:mail", v):
-      mailAccountId = v
-    do:
-      doAssert false, "session must advertise a primary mail account"
+    let mailAccountId = resolveMailAccountId(session).expect("resolveMailAccountId")
 
     # Sub-test 1: oversized request body — Email/set create with a
     # ``subject`` field padded to ``maxSizeRequest + 1024`` bytes.

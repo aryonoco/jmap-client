@@ -554,6 +554,22 @@ func resolveSubmissionAccountId*(session: Session): Result[AccountId, string] =
   doAssert found
   ok(accountId)
 
+func resolveMailAccountId*(session: Session): Result[AccountId, string] =
+  ## Reads ``session.primaryAccounts`` for the
+  ## ``urn:ietf:params:jmap:mail`` URN. Sibling of
+  ## ``resolveSubmissionAccountId``. Stalwart 0.15.5 binds the
+  ## same id to ``mail`` and ``submission``; the helper does not
+  ## depend on that equality.
+  var accountId: AccountId
+  var found = false
+  session.primaryAccounts.withValue("urn:ietf:params:jmap:mail", v):
+    accountId = v
+    found = true
+  do:
+    return err("session must advertise a primary mail account")
+  doAssert found
+  ok(accountId)
+
 func buildEnvelope*(fromEmail, toEmail: string): Result[Envelope, string] =
   ## Absorbs the four-stage RFC5321Mailbox / SubmissionAddress /
   ## ReversePath / NonEmptyRcptList boilerplate that every Phase F

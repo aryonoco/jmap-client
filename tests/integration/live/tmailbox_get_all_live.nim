@@ -10,13 +10,12 @@
 ## guarded on ``loadLiveTestConfig().isOk`` so the file joins testament's
 ## megatest cleanly under ``just test-full`` when env vars are absent.
 
-import std/tables
-
 import results
 import jmap_client
 import jmap_client/client
 import ./mcapture
 import ./mconfig
+import ./mlive
 
 block tmailboxGetAllLive:
   let cfgRes = loadLiveTestConfig()
@@ -29,11 +28,7 @@ block tmailboxGetAllLive:
       )
       .expect("initJmapClient")
     let session = client.fetchSession().expect("fetchSession")
-    var mailAccountId: AccountId
-    session.primaryAccounts.withValue("urn:ietf:params:jmap:mail", v):
-      mailAccountId = v
-    do:
-      doAssert false, "session must advertise a primary mail account"
+    let mailAccountId = resolveMailAccountId(session).expect("resolveMailAccountId")
     let (b1, mbHandle) = addGet[Mailbox](initRequestBuilder(), mailAccountId)
     let resp = client.send(b1).expect("send")
     captureIfRequested(client, "mailbox-get-all-stalwart").expect("captureIfRequested")

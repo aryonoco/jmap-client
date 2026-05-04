@@ -37,11 +37,7 @@ block tpreflightValidationLive:
       .expect("initJmapClient")
     let session = client.fetchSession().expect("fetchSession")
     let caps = session.coreCapabilities()
-    var mailAccountId: AccountId
-    session.primaryAccounts.withValue("urn:ietf:params:jmap:mail", v):
-      mailAccountId = v
-    do:
-      doAssert false, "session must advertise a primary mail account"
+    let mailAccountId = resolveMailAccountId(session).expect("resolveMailAccountId")
 
     # Each sub-test captures lastRawResponseBody.len immediately
     # before the failing send and asserts the length is unchanged

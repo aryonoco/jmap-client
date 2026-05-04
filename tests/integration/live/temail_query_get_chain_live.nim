@@ -50,11 +50,7 @@ block temailQueryGetChainLive:
       )
       .expect("initJmapClient")
     let session = client.fetchSession().expect("fetchSession")
-    var mailAccountId: AccountId
-    session.primaryAccounts.withValue("urn:ietf:params:jmap:mail", v):
-      mailAccountId = v
-    do:
-      doAssert false, "session must advertise a primary mail account"
+    let mailAccountId = resolveMailAccountId(session).expect("resolveMailAccountId")
 
     # --- Step 1: resolve inbox id (mlive helper) -------------------------
     let inbox = resolveInboxId(client, mailAccountId).expect("resolveInboxId")

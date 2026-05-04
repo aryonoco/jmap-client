@@ -13,13 +13,13 @@
 ## response with the requested property subset.
 
 import std/json
-import std/tables
 
 import results
 import jmap_client
 import jmap_client/client
 import ./mcapture
 import ./mconfig
+import ./mlive
 
 block tmultiInstanceEnvelopeLive:
   let cfgRes = loadLiveTestConfig()
@@ -32,11 +32,7 @@ block tmultiInstanceEnvelopeLive:
       )
       .expect("initJmapClient")
     let session = client.fetchSession().expect("fetchSession")
-    var mailAccountId: AccountId
-    session.primaryAccounts.withValue("urn:ietf:params:jmap:mail", v):
-      mailAccountId = v
-    do:
-      doAssert false, "session must advertise a primary mail account"
+    let mailAccountId = resolveMailAccountId(session).expect("resolveMailAccountId")
 
     # Three Mailbox/get invocations with distinct property subsets:
     # - call 0: full record (no properties filter)

@@ -41,11 +41,8 @@ block tCrossAccountEmailGetRejectionLive:
     # avoid coupling the rejection probe to bob's session lifetime.
     var bobClient = initBobClient(cfg).expect("initBobClient")
     let bobSession = bobClient.fetchSession().expect("fetchSession bob")
-    var bobMailAccountId: AccountId
-    bobSession.primaryAccounts.withValue("urn:ietf:params:jmap:mail", v):
-      bobMailAccountId = v
-    do:
-      doAssert false, "bob's session must advertise a primary mail account"
+    let bobMailAccountId =
+      resolveMailAccountId(bobSession).expect("resolveMailAccountId bob")
     bobClient.close()
 
     # --- alice probes bob's accountId -----------------------------------
@@ -61,7 +58,7 @@ block tCrossAccountEmailGetRejectionLive:
       "RFC 8620 §3.6.2 — alice probing bob's accountId without sharing must " &
         "surface a method-level error"
     let methodErr = getResult.error
-    doAssert methodErr.errorType == metForbidden,
-      "Stalwart 0.15.5 rejects cross-account Email/get with forbidden " & "(got rawType=" &
-        methodErr.rawType & ")"
+    doAssert methodErr.errorType in {metForbidden, metAccountNotFound},
+      "RFC 8620 §3.6.2 admits both metForbidden and metAccountNotFound for cross-account " &
+        "rejection; got " & $methodErr.errorType & " (rawType=" & methodErr.rawType & ")"
     aliceClient.close()

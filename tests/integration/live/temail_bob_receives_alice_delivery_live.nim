@@ -38,11 +38,8 @@ block tEmailBobReceivesAliceDeliveryLive:
       )
       .expect("initJmapClient alice")
     let aliceSession = aliceClient.fetchSession().expect("fetchSession alice")
-    var aliceMailAccountId: AccountId
-    aliceSession.primaryAccounts.withValue("urn:ietf:params:jmap:mail", v):
-      aliceMailAccountId = v
-    do:
-      doAssert false, "alice's session must advertise a primary mail account"
+    let aliceMailAccountId =
+      resolveMailAccountId(aliceSession).expect("resolveMailAccountId alice")
     let aliceSubmissionAccountId = resolveSubmissionAccountId(aliceSession).expect(
         "resolveSubmissionAccountId alice"
       )
@@ -94,11 +91,8 @@ block tEmailBobReceivesAliceDeliveryLive:
     # --- bob setup ------------------------------------------------------
     var bobClient = initBobClient(cfg).expect("initBobClient")
     let bobSession = bobClient.fetchSession().expect("fetchSession bob")
-    var bobMailAccountId: AccountId
-    bobSession.primaryAccounts.withValue("urn:ietf:params:jmap:mail", v):
-      bobMailAccountId = v
-    do:
-      doAssert false, "bob's session must advertise a primary mail account"
+    let bobMailAccountId =
+      resolveMailAccountId(bobSession).expect("resolveMailAccountId bob")
     let bobInboxId =
       resolveInboxId(bobClient, bobMailAccountId).expect("resolveInboxId bob")
 
