@@ -41,7 +41,6 @@
 import std/json
 import std/os
 import std/sets
-import std/tables
 
 import results
 import jmap_client

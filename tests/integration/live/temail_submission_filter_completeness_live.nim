@@ -18,8 +18,6 @@
 ## set of returned ids is incidental — we are testing the wire-
 ## emission and parse pipeline, not Stalwart's filter semantics.
 
-import std/tables
-
 import results
 import jmap_client
 import jmap_client/client

@@ -29,8 +29,6 @@
 ## Listed in ``tests/testament_skip.txt`` so ``just test`` skips it; run
 ## via ``just test-integration`` after ``just stalwart-up``.
 
-import std/tables
-
 import results
 import jmap_client
 import jmap_client/client

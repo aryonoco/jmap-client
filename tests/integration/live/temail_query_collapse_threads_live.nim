@@ -45,7 +45,6 @@
 ## env vars are absent.
 
 import std/os
-import std/tables
 
 import results
 import jmap_client

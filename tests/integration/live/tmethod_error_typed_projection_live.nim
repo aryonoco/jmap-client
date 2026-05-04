@@ -28,7 +28,6 @@
 ## ``just test-integration``.
 
 import std/json
-import std/tables
 
 import results
 import jmap_client

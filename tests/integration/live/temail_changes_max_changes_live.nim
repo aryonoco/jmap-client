@@ -32,7 +32,6 @@
 ## env vars are absent.
 
 import std/sets
-import std/tables
 
 import results
 import jmap_client

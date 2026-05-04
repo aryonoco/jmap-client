@@ -32,7 +32,6 @@
 
 import std/algorithm
 import std/sets
-import std/tables
 
 import results
 import jmap_client

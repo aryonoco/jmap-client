@@ -41,8 +41,6 @@
 ## joins testament's megatest cleanly under ``just test-full`` when
 ## env vars are absent.
 
-import std/tables
-
 import results
 import jmap_client
 import jmap_client/client
