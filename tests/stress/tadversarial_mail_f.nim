@@ -347,8 +347,13 @@ block emailSetResponseAdversarialGroup:
     assertErr SetResponse[EmailCreatedItem].fromJson(payload)
 
   block newStateJInt:
+    # K0 Commit A: ``SetResponse.newState`` parses through the lenient
+    # ``parseOptJmapStateField``; wrong-type yields ``Opt.none`` rather
+    # than Err. Mirrors ``oldStateWrongType`` immediately below.
     let payload = parseJson("""{"accountId": "a1", "newState": 42}""")
-    assertErr SetResponse[EmailCreatedItem].fromJson(payload)
+    let res = SetResponse[EmailCreatedItem].fromJson(payload)
+    assertOk res
+    doAssert res.get().newState.isNone
 
   block oldStateWrongType:
     # ``optState`` (methods.nim) is explicitly lenient: absent, null, wrong
@@ -617,8 +622,13 @@ block emailImportResponseAdversarialGroup:
     assertOk EmailImportResponse.fromJson(payload)
 
   block emailImportResponseNewStateMissing:
+    # K0 Commit A: ``EmailImportResponse.newState`` is ``Opt[JmapState]``;
+    # absence yields ``Opt.none`` rather than Err. Mirrors
+    # ``importResponseMissingNewStateLenient`` in tserde_email_import.
     let payload = parseJson("""{"accountId": "a1"}""")
-    assertErr EmailImportResponse.fromJson(payload)
+    let res = EmailImportResponse.fromJson(payload)
+    assertOk res
+    doAssert res.get().newState.isNone
 
   block emailImportResponseOldStateValid:
     let payload =
