@@ -1,0 +1,33 @@
+# SPDX-License-Identifier: BSD-2-Clause
+# Copyright (c) 2026 Aryan Ameri
+
+## Parser-only replay test for the captured ``invalidResultReference``
+## method-level rejection (``tests/testdata/captured/
+## method-error-invalid-result-reference-stalwart.json``).
+##
+## Stalwart 0.15.5 RFC-conforms: returns ``"invalidResultReference"``
+## rawType when a method's back-reference points at a non-existent
+## prior method call.  Verifies the parser handles the variant
+## byte-for-byte.
+
+{.push raises: [].}
+
+import jmap_client
+import ./mloader
+
+block tcapturedMethodErrorInvalidResultReference:
+  let j = loadCapturedFixture("method-error-invalid-result-reference-stalwart")
+  let resp = envelope.Response.fromJson(j).expect("envelope.Response.fromJson")
+  doAssert resp.methodResponses.len >= 1
+  let inv = resp.methodResponses[resp.methodResponses.len - 1]
+  doAssert inv.rawName == "error",
+    "method-level errors arrive on the literal 'error' rawName, got " & inv.rawName
+  let me = MethodError.fromJson(inv.arguments).expect("MethodError.fromJson")
+  doAssert me.rawType == "invalidResultReference",
+    "Stalwart returns the canonical 'invalidResultReference' rawType, got " & me.rawType
+  doAssert me.errorType == metInvalidResultReference,
+    "errorType must project to metInvalidResultReference, got " & $me.errorType
+  doAssert me.errorType == parseMethodErrorType(me.rawType),
+    "errorType / rawType must be derived consistently"
+  doAssert me.description.isSome,
+    "Stalwart populates the description with the unresolvable reference"
