@@ -1,0 +1,1 @@
+{"methodResponses":[["Email/get",{"accountId":"c","state":"say","list":[{"id":"maaaaad","from":[{"name":"Alice","email":"alice@example.com"}],"receivedAt":"2026-05-04T02:09:23Z","subject":"phase-j 73 inner","keywords":{},"mailboxIds":{"a":true}}],"notFound":[]},"c0"]],"sessionState":"3e25b2a0"}
