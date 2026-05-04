@@ -41,15 +41,38 @@ curl -u "$ADMIN_AUTH" -X POST -H "Content-Type: application/json" \
   -o /dev/null -s -w "  HTTP %{http_code}\n" \
   "$STALWART_URL/api/principal" || true
 
+# --- Disable Stalwart inbound SMTP rate limiters for test traffic ---
+# Stalwart 0.15.5 ships queue.limiter.inbound.sender enabled at
+# 25 messages/hour per (sender_domain, rcpt) and queue.limiter.inbound.ip
+# at 5/sec per remote_ip. The 26th alice→bob submission would defer with
+# SMTP 452, leaving the EmailSubmission stuck at 'pending' indefinitely
+# and breaking sequential test runs. The dev container topology (private
+# Docker network, two test users) has no abuse vector, so disable both.
+echo "Disabling SMTP rate limiters for test traffic..."
+curl -u "$ADMIN_AUTH" -X POST -H "Content-Type: application/json" \
+  -d '[{"type":"insert","prefix":null,"values":[["queue.limiter.inbound.sender.enable","false"],["queue.limiter.inbound.ip.enable","false"]],"assert_empty":false}]' \
+  -o /dev/null -s -w "  HTTP %{http_code}\n" \
+  "$STALWART_URL/api/settings" || true
+
+# Stalwart caches the rate-limiter config at startup; the admin-API
+# override above only takes effect after GET /api/reload re-evaluates
+# the queue layer.
+echo "Reloading Stalwart config..."
+curl -u "$ADMIN_AUTH" \
+  -o /dev/null -s -w "  HTTP %{http_code}\n" \
+  "$STALWART_URL/api/reload" || true
+
 # --- Write env file for integration tests ---
 ALICE_B64=$(echo -n 'alice:alice123' | base64 -w0)
 BOB_B64=$(echo -n 'bob:bob123' | base64 -w0)
+ADMIN_B64=$(echo -n "$ADMIN_AUTH" | base64 -w0)
 
 cat > /tmp/stalwart-env.sh <<EOF
 export JMAP_TEST_SESSION_URL="http://stalwart:8080/jmap/session"
 export JMAP_TEST_AUTH_SCHEME="Basic"
 export JMAP_TEST_ALICE_TOKEN="$ALICE_B64"
 export JMAP_TEST_BOB_TOKEN="$BOB_B64"
+export JMAP_TEST_ADMIN_BASIC="$ADMIN_B64"
 EOF
 
 # --- JMAP-level SMTP smoke check ---
@@ -238,12 +261,32 @@ print(items[0]["undoStatus"] if items else "")
   sleep 0.5
 done
 
-SMOKE_END=$(date +%s%3N)
-SMOKE_MS=$((SMOKE_END - SMOKE_START))
 if [ "$FINAL_REACHED" -ne 1 ]; then
-  echo "ERROR: smoke check timed out waiting for undoStatus=final after ${SMOKE_MS}ms"
+  SMOKE_END=$(date +%s%3N)
+  echo "ERROR: smoke check timed out waiting for undoStatus=final after $((SMOKE_END - SMOKE_START))ms"
   exit 1
 fi
+
+# Drain the outgoing SMTP queue before declaring smoke-check success.
+# Mirrors mlive.awaitSmtpQueueDrain so the env file is written only
+# after Stalwart has genuinely delivered the smoke message — the very
+# first integration test then starts with an empty queue.
+DRAIN_REACHED=0
+TOTAL=-1
+for i in $(seq 1 60); do
+  TOTAL=$(curl -fsS -u "$ADMIN_AUTH" \
+    "$STALWART_URL/api/queue/messages?values=true" \
+    | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("data",{}).get("total",-1))')
+  if [ "$TOTAL" = "0" ]; then DRAIN_REACHED=1; break; fi
+  sleep 0.5
+done
+if [ "$DRAIN_REACHED" -ne 1 ]; then
+  echo "ERROR: smoke check SMTP queue did not drain (total=$TOTAL)"
+  exit 1
+fi
+
+SMOKE_END=$(date +%s%3N)
+SMOKE_MS=$((SMOKE_END - SMOKE_START))
 echo "alice->bob delivery confirmed in ${SMOKE_MS}ms"
 
 echo ""

@@ -15,9 +15,11 @@
 
 {.push raises: [].}
 
+import std/httpclient
 import std/json
 import std/os
 import std/sets
+import std/strutils
 import std/tables
 
 import results
@@ -689,6 +691,64 @@ proc seedDraftEmail*(
     return err("parseEmailBlueprint failed: " & $error)
   emailSetCreate(client, mailAccountId, blueprint, creationLabel)
 
+proc awaitSmtpQueueDrain*(
+    adminBasic: string, sessionUrl: string, budgetMs: int = 30000
+): Result[void, string] =
+  ## Polls Stalwart's admin ``/api/queue/messages?values=true`` endpoint
+  ## until ``data.total == 0``. Provides a deterministic barrier for
+  ## sequential submission tests: each test exits only when Stalwart's
+  ## outgoing SMTP queue is genuinely drained, eliminating cumulative-
+  ## load failures in the full integration suite. ``adminBasic`` is the
+  ## base64("admin:password") credential from ``JMAP_TEST_ADMIN_BASIC``
+  ## (populated by ``seed-stalwart.sh``); ``sessionUrl`` is the JMAP
+  ## session URL, from which the admin URL is derived (same host:port,
+  ## different path). On a clean queue this returns within one poll
+  ## (~100 ms).
+  const PollMs = 100
+  let maxIters = max(1, budgetMs div PollMs)
+  let baseUrl = sessionUrl.replace("/jmap/session", "")
+  let adminUrl = baseUrl & "/api/queue/messages?values=true"
+  var headers = newHttpHeaders()
+  headers["Authorization"] = "Basic " & adminBasic
+  headers["Accept"] = "application/json"
+  let httpClient =
+    try:
+      {.cast(raises: [CatchableError]).}:
+        newHttpClient(headers = headers)
+    except CatchableError as e:
+      return err("queue-drain httpClient init failed: " & e.msg)
+  defer:
+    try:
+      httpClient.close()
+    except CatchableError:
+      discard
+  for _ in 0 ..< maxIters:
+    let body =
+      try:
+        {.cast(raises: [CatchableError]).}:
+          httpClient.getContent(adminUrl)
+      except CatchableError as e:
+        return err("queue-drain GET failed: " & e.msg)
+    let parsed =
+      try:
+        {.cast(raises: [CatchableError]).}:
+          parseJson(body)
+      except CatchableError as e:
+        return err("queue-drain parseJson failed: " & e.msg)
+    let dataNode = parsed{"data"}
+    if dataNode.isNil:
+      return err("queue-drain response missing 'data': " & body)
+    let totalNode = dataNode{"total"}
+    if totalNode.isNil:
+      return err("queue-drain response missing 'data.total': " & body)
+    let total = totalNode.getInt(-1)
+    if total == 0:
+      return ok()
+    sleep(PollMs)
+  err(
+    "awaitSmtpQueueDrain: budget exhausted (" & $budgetMs & "ms) without queue draining"
+  )
+
 proc pollSubmissionDelivery*(
     client: var JmapClient,
     submissionAccountId: AccountId,
@@ -696,13 +756,16 @@ proc pollSubmissionDelivery*(
     budgetMs: int = 50000,
 ): Result[EmailSubmission[usFinal], string] =
   ## Polls EmailSubmission/get every 200 ms until ``undoStatus ==
-  ## final``, returning the phantom-narrowed ``EmailSubmission[usFinal]``.
-  ## ``Err`` on budget elapse — the bound is iterations of (sleep + poll),
-  ## so the function is decoupled from wall-clock drift. Default budget
-  ## widened 5× on 2026-05-04 to absorb cumulative SMTP-queue load under
-  ## the full integration suite (Phase K0).
+  ## final``, then awaits Stalwart's outgoing SMTP queue to drain.
+  ## Returns the phantom-narrowed ``EmailSubmission[usFinal]`` only
+  ## when SMTP delivery is genuinely complete (not merely when the
+  ## JMAP commit lock is in place). The drain barrier ensures
+  ## sequential submission tests don't accumulate SMTP-queue load
+  ## across the suite (Phase K1). ``Err`` on JMAP-poll budget elapse
+  ## or queue-drain timeout.
   const PollMs = 200
   let maxIters = max(1, budgetMs div PollMs)
+  var pendingFinal: Opt[EmailSubmission[usFinal]] = Opt.none(EmailSubmission[usFinal])
   for _ in 0 ..< maxIters:
     let (b, getHandle) = addEmailSubmissionGet(
       initRequestBuilder(), submissionAccountId, ids = directIds(@[submissionId])
@@ -716,12 +779,22 @@ proc pollSubmissionDelivery*(
         return err("AnyEmailSubmission.fromJson failed during poll")
       let final = any.asFinal()
       if final.isSome:
-        return ok(final.unsafeGet)
+        pendingFinal = Opt.some(final.unsafeGet)
+        break
     sleep(PollMs)
-  err(
-    "pollSubmissionDelivery: budget exhausted (" & $budgetMs &
-      "ms) without undoStatus=final"
-  )
+  let finalSub = pendingFinal.valueOr:
+    return err(
+      "pollSubmissionDelivery: budget exhausted (" & $budgetMs &
+        "ms) without undoStatus=final"
+    )
+  # K1 barrier: wait for Stalwart's SMTP queue to drain so the
+  # helper's contract is genuine SMTP completion, not just JMAP-side
+  # commit lock. Reading env keeps every existing call site unchanged.
+  let adminBasic = getEnv("JMAP_TEST_ADMIN_BASIC")
+  let sessionUrl = getEnv("JMAP_TEST_SESSION_URL")
+  if adminBasic.len > 0 and sessionUrl.len > 0:
+    ?awaitSmtpQueueDrain(adminBasic, sessionUrl)
+  ok(finalSub)
 
 # ---------------------------------------------------------------------------
 # Phase G — multi-principal + cancel-pending helpers
@@ -834,9 +907,7 @@ proc pollSubmissionPending*(
   ## phantom narrowing. Polls ``EmailSubmission/get`` every 200 ms until
   ## ``undoStatus == pending``, returning the phantom-narrowed
   ## ``EmailSubmission[usPending]`` so ``cancelUpdate`` is callable at the
-  ## type level. Used by Phase G Steps 41 and 42. Default budget widened
-  ## 5× on 2026-05-04 to absorb cumulative SMTP-queue load under the full
-  ## integration suite (Phase K0).
+  ## type level. Used by Phase G Steps 41 and 42.
   const PollMs = 200
   let maxIters = max(1, budgetMs div PollMs)
   for _ in 0 ..< maxIters:
@@ -871,9 +942,7 @@ proc findEmailBySubjectInMailbox*(
   ## a matching email surfaces or the attempt budget elapses. Returns the
   ## first matching id; ``Err`` on absence after ``attempts`` empty
   ## results. Absorbs SMTP delivery asynchrony at the test layer per the
-  ## Phase C Step 18 precedent. Used by Phase G Step 38. Default budget
-  ## widened 5× on 2026-05-04 to absorb cumulative SMTP-queue load under
-  ## the full integration suite (Phase K0).
+  ## Phase C Step 18 precedent. Used by Phase G Step 38.
   let filter = filterCondition(
     EmailFilterCondition(inMailbox: Opt.some(mailbox), subject: Opt.some(subject))
   )

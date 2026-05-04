@@ -1355,3 +1355,76 @@ No new server-compliance pins survived the audit. The remaining
 strict `errorType == ...` and `rawType == "..."` assertions in
 A–I tests all match RFC-mandated wire tokens (verified against
 RFC 8620 §§5.3-5.5 and RFC 8621 §2.5).
+
+### Phase K1 — Disable Stalwart SMTP rate limits + drain barrier
+
+Phase K0 Commit B widened submission-poll budgets 5× as a hold-the-
+line mitigation. The first ``just test-integration`` run after
+``stalwart-reset`` passed all 72 tests; the second consecutive
+run on the same Stalwart instance failed 4 submission tests with
+two distinct symptoms — SMTP reply code 452 on
+``temail_submission_multi_recipient_live`` (fast assertion
+failure at 1.35 s) and ``pollSubmissionDelivery`` budget
+exhaustion at 50 s on three others
+(``temail_submission_set_baseline_live``,
+``temail_submission_on_success_destroy_live``,
+``temail_submission_on_success_update_live``).
+
+Investigation of Stalwart's log file
+(``/opt/stalwart/logs/stalwart.log`` — not stdout, which only
+carries the startup banner) revealed the root cause:
+
+```
+INFO Rate limit exceeded (smtp.rate-limit-exceeded) id = "sender", limit = [25, 3600000ms]
+INFO Rate limit exceeded (smtp.rate-limit-exceeded) to = "bob@example.com"
+```
+
+Stalwart 0.15.5 ships ``queue.limiter.inbound.sender`` enabled
+by default at 25 messages per hour, keyed by
+``(sender_domain, rcpt)``. The 10 SMTP-using tests across two
+consecutive ``test-integration`` runs cross the 25-message
+threshold for alice@example.com → bob@example.com; further
+submissions are deferred with SMTP 452 and the corresponding
+``EmailSubmission`` entities stay at ``pending`` indefinitely
+(Stalwart's queue retry schedule starts at ~minutes — far beyond
+any test budget).
+
+The dev container runs Stalwart on a private Docker network
+with exactly two clients (alice, bob). No abuse vector exists.
+Phase K1 disables both inbound limiters at seed time via
+Stalwart's admin REST API:
+
+```
+queue.limiter.inbound.sender.enable = false
+queue.limiter.inbound.ip.enable     = false
+```
+
+Plus retains a queue-drain barrier in ``pollSubmissionDelivery``
+as defence in depth — even with rate limits off, sequential
+submissions still load Stalwart's outgoing SMTP queue and
+within-run isolation is still desirable:
+
+- ``mlive.awaitSmtpQueueDrain`` polls Stalwart's
+  ``/api/queue/messages?values=true`` admin endpoint until
+  ``data.total == 0``.
+- ``pollSubmissionDelivery`` calls ``awaitSmtpQueueDrain`` after
+  detecting ``undoStatus == final`` (env-gated so non-integration
+  call sites degrade to old behaviour).
+- ``seed-stalwart.sh`` exports ``JMAP_TEST_ADMIN_BASIC`` and
+  applies the same drain idiom to its own smoke check, so the
+  very first integration test starts with an empty queue.
+- ``mconfig.LiveTestConfig`` gains an ``adminBasic`` field so
+  future tests can hit admin endpoints without re-deriving the
+  credential from env vars.
+- K0 Commit B's 5× budget widening (50000 ms / 25000 ms / 50
+  attempts) is **kept** as headroom — useful but no longer load-
+  bearing once the rate limiter is disabled.
+
+The K1 contract for ``pollSubmissionDelivery`` is now: *return
+the phantom-narrowed ``EmailSubmission[usFinal]`` when SMTP
+delivery is genuinely complete and Stalwart's outgoing queue
+has drained*.
+
+After Phase K1 every consecutive ``just test-integration`` run
+passes all 72 tests without requiring ``stalwart-reset`` between
+runs.
