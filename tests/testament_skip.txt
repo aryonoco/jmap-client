@@ -100,3 +100,4 @@ tests/integration/live/tcreated_ids_envelope_live.nim
 tests/integration/live/tmulti_instance_envelope_live.nim
 tests/integration/live/tpatch_object_deep_paths_live.nim
 tests/integration/live/temail_submission_filter_completeness_live.nim
+tests/integration/live/tthread_keyword_filter_and_upto_id_live.nim
