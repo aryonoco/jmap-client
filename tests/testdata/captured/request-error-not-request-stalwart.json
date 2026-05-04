@@ -1,0 +1,1 @@
+{"type":"urn:ietf:params:jmap:error:notRequest","status":400,"detail":"invalid type: sequence, expected a JMAP request object at line 1 column 0"}
