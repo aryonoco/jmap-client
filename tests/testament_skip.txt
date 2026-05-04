@@ -96,3 +96,4 @@ tests/integration/live/tpreflight_validation_live.nim
 tests/integration/live/tserver_side_enforcement_parity_live.nim
 tests/integration/live/tnotfound_rail_get_live.nim
 tests/integration/live/tresult_reference_deep_paths_live.nim
+tests/integration/live/tcreated_ids_envelope_live.nim
