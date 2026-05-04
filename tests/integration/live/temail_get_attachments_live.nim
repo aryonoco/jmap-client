@@ -37,31 +37,38 @@ import ./mconfig
 import ./mlive
 
 block temailGetAttachmentsLive:
-  let cfgRes = loadLiveTestConfig()
-  if cfgRes.isOk:
-    let cfg = cfgRes.get()
+  forEachLiveTarget(target):
+    # James 3.9 compatibility: skipped on James.
+    # Reason: exercises inline-bodyValues attachments (partId-referenced bodyValues per RFC 8621 §4.6); James 3.9 requires blob-uploaded attachments (`attachments[].blobId`) and rejects inline ones with invalidArguments. The library does not yet expose the JMAP `/upload` endpoint (RFC 8620 §6.1) — that is a deliberately deferred library scope (no blob/push). Tests revisit James once `uploadBlob` lands.
+    # Replay coverage for the Stalwart wire shape is preserved via
+    # captured ``-stalwart`` fixtures.
+    if target.kind == ltkJames:
+      continue
     var client = initJmapClient(
-        sessionUrl = cfg.sessionUrl,
-        bearerToken = cfg.aliceToken,
-        authScheme = cfg.authScheme,
+        sessionUrl = target.sessionUrl,
+        bearerToken = target.aliceToken,
+        authScheme = target.authScheme,
       )
-      .expect("initJmapClient")
-    let session = client.fetchSession().expect("fetchSession")
-    let mailAccountId = resolveMailAccountId(session).expect("resolveMailAccountId")
+      .expect("initJmapClient[" & $target.kind & "]")
+    let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
+    let mailAccountId =
+      resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
 
-    let inbox = resolveInboxId(client, mailAccountId).expect("resolveInboxId")
+    let inbox = resolveInboxId(client, mailAccountId).expect(
+        "resolveInboxId[" & $target.kind & "]"
+      )
     const attachmentName = "sentinel.dat"
     const attachmentMimeType = "application/octet-stream"
     const attachmentBytes = "phase-d step-21 sentinel 32-byte"
       ## 32 ASCII octets — clean JSON round-trip.
-    doAssert attachmentBytes.len == 32, "test sentinel must be exactly 32 bytes"
+    assertOn target, attachmentBytes.len == 32, "test sentinel must be exactly 32 bytes"
 
     let seededId = seedMixedEmail(
         client, mailAccountId, inbox, "phase-d step-21 attachment",
         "Body precedes the attachment.", attachmentName, attachmentMimeType,
         attachmentBytes, "seedMixed",
       )
-      .expect("seedMixedEmail")
+      .expect("seedMixedEmail[" & $target.kind & "]")
 
     let (b, getHandle) = addEmailGet(
       initRequestBuilder(),
@@ -69,26 +76,32 @@ block temailGetAttachmentsLive:
       ids = directIds(@[seededId]),
       properties = Opt.some(@["id", "attachments"]),
     )
-    let resp = client.send(b).expect("send Email/get attachments")
-    captureIfRequested(client, "email-multipart-mixed-attachment-stalwart").expect(
-      "captureIfRequested"
-    )
-    let getResp = resp.get(getHandle).expect("Email/get attachments extract")
-    doAssert getResp.list.len == 1, "Email/get must return the seeded message"
+    let resp = client.send(b).expect("send Email/get attachments[" & $target.kind & "]")
+    captureIfRequested(client, "email-multipart-mixed-attachment-" & $target.kind)
+      .expect("captureIfRequested")
+    let getResp =
+      resp.get(getHandle).expect("Email/get attachments extract[" & $target.kind & "]")
+    assertOn target, getResp.list.len == 1, "Email/get must return the seeded message"
 
-    let email = Email.fromJson(getResp.list[0]).expect("Email.fromJson")
-    doAssert email.attachments.len == 1,
+    let email =
+      Email.fromJson(getResp.list[0]).expect("Email.fromJson[" & $target.kind & "]")
+    assertOn target,
+      email.attachments.len == 1,
       "expected one attachment, got " & $email.attachments.len
     let attachment = email.attachments[0]
-    doAssert attachment.isLeaf, "attachments[0] must be a leaf"
-    doAssert attachment.disposition.isSome, "attachments[0].disposition must be present"
-    doAssert attachment.disposition.unsafeGet.kind == cdAttachment,
+    assertOn target, attachment.isLeaf, "attachments[0] must be a leaf"
+    assertOn target,
+      attachment.disposition.isSome, "attachments[0].disposition must be present"
+    assertOn target,
+      attachment.disposition.unsafeGet.kind == cdAttachment,
       "attachments[0].disposition must be cdAttachment (got " &
         $attachment.disposition.unsafeGet.kind & ")"
-    doAssert attachment.name.isSome and attachment.name.unsafeGet == attachmentName,
+    assertOn target,
+      attachment.name.isSome and attachment.name.unsafeGet == attachmentName,
       "attachments[0].name must be the injected filename"
-    doAssert string(attachment.blobId).len > 0,
-      "attachments[0].blobId must be non-empty"
-    doAssert attachment.size == UnsignedInt(32),
+    assertOn target,
+      string(attachment.blobId).len > 0, "attachments[0].blobId must be non-empty"
+    assertOn target,
+      attachment.size == UnsignedInt(32),
       "attachments[0].size must be 32 (got " & $attachment.size & ")"
     client.close()

@@ -49,17 +49,16 @@ import ./mconfig
 import ./mlive
 
 block tmailboxDestroyRemoveEmailsLive:
-  let cfgRes = loadLiveTestConfig()
-  if cfgRes.isOk:
-    let cfg = cfgRes.get()
+  forEachLiveTarget(target):
     var client = initJmapClient(
-        sessionUrl = cfg.sessionUrl,
-        bearerToken = cfg.aliceToken,
-        authScheme = cfg.authScheme,
+        sessionUrl = target.sessionUrl,
+        bearerToken = target.aliceToken,
+        authScheme = target.authScheme,
       )
-      .expect("initJmapClient")
-    let session = client.fetchSession().expect("fetchSession")
-    let mailAccountId = resolveMailAccountId(session).expect("resolveMailAccountId")
+      .expect("initJmapClient[" & $target.kind & "]")
+    let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
+    let mailAccountId =
+      resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
 
     # =====================================================================
     # Leg A — happy path with onDestroyRemoveEmails = true
@@ -67,16 +66,16 @@ block tmailboxDestroyRemoveEmailsLive:
     let childAId = resolveOrCreateMailbox(
         client, mailAccountId, "phase-e step-30 child-a"
       )
-      .expect("resolveOrCreateMailbox child-a")
+      .expect("resolveOrCreateMailbox child-a[" & $target.kind & "]")
     let seedAIds = seedEmailsIntoMailbox(
         client,
         mailAccountId,
         childAId,
         @["phase-e step-30 a-1", "phase-e step-30 a-2", "phase-e step-30 a-3"],
       )
-      .expect("seedEmailsIntoMailbox child-a")
-    doAssert seedAIds.len == 3,
-      "leg A must seed three emails (got " & $seedAIds.len & ")"
+      .expect("seedEmailsIntoMailbox child-a[" & $target.kind & "]")
+    assertOn target,
+      seedAIds.len == 3, "leg A must seed three emails (got " & $seedAIds.len & ")"
 
     let (bDestroyA, destroyAHandle) = addMailboxSet(
       initRequestBuilder(),
@@ -84,42 +83,55 @@ block tmailboxDestroyRemoveEmailsLive:
       destroy = directIds(@[childAId]),
       onDestroyRemoveEmails = true,
     )
-    let respDestroyA = client.send(bDestroyA).expect("send Mailbox/set destroy A")
-    captureIfRequested(client, "mailbox-set-destroy-with-emails-stalwart").expect(
+    let respDestroyA =
+      client.send(bDestroyA).expect("send Mailbox/set destroy A[" & $target.kind & "]")
+    captureIfRequested(client, "mailbox-set-destroy-with-emails-" & $target.kind).expect(
       "captureIfRequested"
     )
-    let destroyAResp = respDestroyA.get(destroyAHandle).expect("Mailbox/set destroy A")
+    let destroyAResp = respDestroyA.get(destroyAHandle).expect(
+        "Mailbox/set destroy A[" & $target.kind & "]"
+      )
     var childADestroyed = false
     destroyAResp.destroyResults.withValue(childAId, outcome):
-      doAssert outcome.isOk,
+      assertOn target,
+        outcome.isOk,
         "Mailbox/set destroy with cascade must succeed: " & outcome.error.rawType
       childADestroyed = true
     do:
-      doAssert false, "Mailbox/set must report a destroy outcome for childAId"
-    doAssert childADestroyed
+      assertOn target, false, "Mailbox/set must report a destroy outcome for childAId"
+    assertOn target, childADestroyed
 
     # Mailbox absence: enumerate all and assert child-a is gone.
     let (bGetA, getAHandle) = addGet[Mailbox](initRequestBuilder(), mailAccountId)
-    let respGetA = client.send(bGetA).expect("send Mailbox/get post-A")
-    let mbResp = respGetA.get(getAHandle).expect("Mailbox/get post-A extract")
+    let respGetA =
+      client.send(bGetA).expect("send Mailbox/get post-A[" & $target.kind & "]")
+    let mbResp = respGetA.get(getAHandle).expect(
+        "Mailbox/get post-A extract[" & $target.kind & "]"
+      )
     var sawChildA = false
     for node in mbResp.list:
-      let mb = Mailbox.fromJson(node).expect("parse Mailbox")
+      let mb = Mailbox.fromJson(node).expect("parse Mailbox[" & $target.kind & "]")
       if mb.id == childAId:
         sawChildA = true
-    doAssert not sawChildA,
+    assertOn target,
+      not sawChildA,
       "child-a mailbox must be absent after destroy with onDestroyRemoveEmails"
 
     # Email cascade: every seeded id must surface in notFound.
     let (bGetE, getEHandle) =
       addEmailGet(initRequestBuilder(), mailAccountId, ids = directIds(seedAIds))
-    let respGetE = client.send(bGetE).expect("send Email/get cascade-check")
-    let getEResp = respGetE.get(getEHandle).expect("Email/get cascade-check extract")
-    doAssert getEResp.list.len == 0,
+    let respGetE =
+      client.send(bGetE).expect("send Email/get cascade-check[" & $target.kind & "]")
+    let getEResp = respGetE.get(getEHandle).expect(
+        "Email/get cascade-check extract[" & $target.kind & "]"
+      )
+    assertOn target,
+      getEResp.list.len == 0,
       "every seeded email under child-a must be cascaded; list must be empty"
     let notFoundSet = getEResp.notFound.toHashSet
     for sid in seedAIds:
-      doAssert sid in notFoundSet,
+      assertOn target,
+        sid in notFoundSet,
         "seeded email " & string(sid) & " must surface in Email/get notFound"
 
     # =====================================================================
@@ -128,34 +140,39 @@ block tmailboxDestroyRemoveEmailsLive:
     let childBId = resolveOrCreateMailbox(
         client, mailAccountId, "phase-e step-30 child-b"
       )
-      .expect("resolveOrCreateMailbox child-b")
+      .expect("resolveOrCreateMailbox child-b[" & $target.kind & "]")
     let seedBIds = seedEmailsIntoMailbox(
         client, mailAccountId, childBId, @["phase-e step-30 b-1", "phase-e step-30 b-2"]
       )
-      .expect("seedEmailsIntoMailbox child-b")
-    doAssert seedBIds.len == 2, "leg B must seed two emails (got " & $seedBIds.len & ")"
+      .expect("seedEmailsIntoMailbox child-b[" & $target.kind & "]")
+    assertOn target,
+      seedBIds.len == 2, "leg B must seed two emails (got " & $seedBIds.len & ")"
 
     let (bDestroyB, destroyBHandle) = addMailboxSet(
       initRequestBuilder(), mailAccountId, destroy = directIds(@[childBId])
     )
-    let respDestroyB =
-      client.send(bDestroyB).expect("send Mailbox/set destroy B no-cascade")
-    let destroyBResp =
-      respDestroyB.get(destroyBHandle).expect("Mailbox/set destroy B extract")
+    let respDestroyB = client.send(bDestroyB).expect(
+        "send Mailbox/set destroy B no-cascade[" & $target.kind & "]"
+      )
+    let destroyBResp = respDestroyB.get(destroyBHandle).expect(
+        "Mailbox/set destroy B extract[" & $target.kind & "]"
+      )
     var sawHasEmail = false
     destroyBResp.destroyResults.withValue(childBId, outcome):
-      doAssert outcome.isErr,
+      assertOn target,
+        outcome.isErr,
         "destroying a non-empty mailbox without onDestroyRemoveEmails must fail"
       let setErr = outcome.error
-      doAssert setErr.errorType == setMailboxHasEmail,
+      assertOn target,
+        setErr.errorType == setMailboxHasEmail,
         "errorType must be setMailboxHasEmail per RFC 8621 §2.5; got rawType=" &
           setErr.rawType
-      doAssert setErr.rawType == "mailboxHasEmail",
-        "rawType must round-trip the wire literal"
+      assertOn target,
+        setErr.rawType == "mailboxHasEmail", "rawType must round-trip the wire literal"
       sawHasEmail = true
     do:
-      doAssert false, "Mailbox/set destroy must report an outcome for childBId"
-    doAssert sawHasEmail
+      assertOn target, false, "Mailbox/set destroy must report an outcome for childBId"
+    assertOn target, sawHasEmail
 
     # =====================================================================
     # Leg C — cleanup of leg B's child
@@ -166,15 +183,18 @@ block tmailboxDestroyRemoveEmailsLive:
       destroy = directIds(@[childBId]),
       onDestroyRemoveEmails = true,
     )
-    let respCleanup = client.send(bCleanup).expect("send Mailbox/set cleanup B")
-    let cleanupResp =
-      respCleanup.get(cleanupHandle).expect("Mailbox/set cleanup B extract")
+    let respCleanup =
+      client.send(bCleanup).expect("send Mailbox/set cleanup B[" & $target.kind & "]")
+    let cleanupResp = respCleanup.get(cleanupHandle).expect(
+        "Mailbox/set cleanup B extract[" & $target.kind & "]"
+      )
     var childBCleaned = false
     cleanupResp.destroyResults.withValue(childBId, outcome):
-      doAssert outcome.isOk,
+      assertOn target,
+        outcome.isOk,
         "cleanup destroy of child-b with cascade must succeed: " & outcome.error.rawType
       childBCleaned = true
     do:
-      doAssert false, "cleanup must report a destroy outcome for childBId"
-    doAssert childBCleaned
+      assertOn target, false, "cleanup must report a destroy outcome for childBId"
+    assertOn target, childBCleaned
     client.close()

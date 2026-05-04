@@ -41,21 +41,23 @@ const SeedBodyLen = 2048
 const TruncationCap = 64
 
 block temailGetMaxBodyValueBytesLive:
-  let cfgRes = loadLiveTestConfig()
-  if cfgRes.isOk:
-    let cfg = cfgRes.get()
+  forEachLiveTarget(target):
     var client = initJmapClient(
-        sessionUrl = cfg.sessionUrl,
-        bearerToken = cfg.aliceToken,
-        authScheme = cfg.authScheme,
+        sessionUrl = target.sessionUrl,
+        bearerToken = target.aliceToken,
+        authScheme = target.authScheme,
       )
-      .expect("initJmapClient")
-    let session = client.fetchSession().expect("fetchSession")
-    let mailAccountId = resolveMailAccountId(session).expect("resolveMailAccountId")
+      .expect("initJmapClient[" & $target.kind & "]")
+    let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
+    let mailAccountId =
+      resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
 
-    let inbox = resolveInboxId(client, mailAccountId).expect("resolveInboxId")
-    let mailboxIds =
-      parseNonEmptyMailboxIdSet(@[inbox]).expect("parseNonEmptyMailboxIdSet")
+    let inbox = resolveInboxId(client, mailAccountId).expect(
+        "resolveInboxId[" & $target.kind & "]"
+      )
+    let mailboxIds = parseNonEmptyMailboxIdSet(@[inbox]).expect(
+        "parseNonEmptyMailboxIdSet[" & $target.kind & "]"
+      )
     let aliceAddr = buildAliceAddr()
     let bigBody = repeat('a', SeedBodyLen)
     let textPart = makeLeafPart(
@@ -75,23 +77,27 @@ block temailGetMaxBodyValueBytesLive:
         to = Opt.some(@[aliceAddr]),
         subject = Opt.some("phase-i 52 truncation"),
       )
-      .expect("parseEmailBlueprint")
-    let cid = parseCreationId("phase-i-52-seed").expect("parseCreationId")
+      .expect("parseEmailBlueprint[" & $target.kind & "]")
+    let cid =
+      parseCreationId("phase-i-52-seed").expect("parseCreationId[" & $target.kind & "]")
     var createTbl = initTable[CreationId, EmailBlueprint]()
     createTbl[cid] = blueprint
     let (bSeed, seedHandle) =
       addEmailSet(initRequestBuilder(), mailAccountId, create = Opt.some(createTbl))
-    let seedResp = client.send(bSeed).expect("send Email/set big body")
-    let seedSet = seedResp.get(seedHandle).expect("Email/set big body extract")
+    let seedResp =
+      client.send(bSeed).expect("send Email/set big body[" & $target.kind & "]")
+    let seedSet = seedResp.get(seedHandle).expect(
+        "Email/set big body extract[" & $target.kind & "]"
+      )
     var seededId: Id
     var found = false
     seedSet.createResults.withValue(cid, outcome):
-      let item = outcome.expect("Email/set create big body")
+      let item = outcome.expect("Email/set create big body[" & $target.kind & "]")
       seededId = item.id
       found = true
     do:
-      doAssert false, "Email/set returned no result"
-    doAssert found
+      assertOn target, false, "Email/set returned no result"
+    assertOn target, found
 
     let (bGet, getHandle) = addEmailGet(
       initRequestBuilder(),
@@ -103,23 +109,31 @@ block temailGetMaxBodyValueBytesLive:
         maxBodyValueBytes: Opt.some(UnsignedInt(TruncationCap)),
       ),
     )
-    let resp = client.send(bGet).expect("send Email/get truncation")
-    captureIfRequested(client, "email-get-max-body-value-bytes-truncated-stalwart")
-      .expect("captureIfRequested")
-    let getResp = resp.get(getHandle).expect("Email/get truncation extract")
-    doAssert getResp.list.len == 1, "Email/get must return the seeded message"
-    let email = Email.fromJson(getResp.list[0]).expect("Email.fromJson")
-    doAssert email.bodyValues.len >= 1,
+    let resp =
+      client.send(bGet).expect("send Email/get truncation[" & $target.kind & "]")
+    captureIfRequested(
+      client, "email-get-max-body-value-bytes-truncated-" & $target.kind
+    )
+      .expect("captureIfRequested[" & $target.kind & "]")
+    let getResp =
+      resp.get(getHandle).expect("Email/get truncation extract[" & $target.kind & "]")
+    assertOn target, getResp.list.len == 1, "Email/get must return the seeded message"
+    let email =
+      Email.fromJson(getResp.list[0]).expect("Email.fromJson[" & $target.kind & "]")
+    assertOn target,
+      email.bodyValues.len >= 1,
       "fetchBodyValues=bvsText must populate at least the text leaf"
     var anyTruncated = false
     for partId, bv in email.bodyValues.pairs:
-      doAssert bv.value.len <= TruncationCap,
+      assertOn target,
+        bv.value.len <= TruncationCap,
         "bodyValue under maxBodyValueBytes=" & $TruncationCap & " must satisfy " &
           "value.len <= cap (got " & $bv.value.len & " for partId=" & string(partId) &
           ")"
       if bv.isTruncated:
         anyTruncated = true
-    doAssert anyTruncated,
+    assertOn target,
+      anyTruncated,
       "at least one bodyValue must carry isTruncated=true under a 2 KB body and " &
         "a 64-byte cap"
 

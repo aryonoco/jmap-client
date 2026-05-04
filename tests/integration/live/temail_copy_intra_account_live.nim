@@ -51,29 +51,37 @@ import ./mconfig
 import ./mlive
 
 block temailCopyIntraAccountLive:
-  let cfgRes = loadLiveTestConfig()
-  if cfgRes.isOk:
-    let cfg = cfgRes.get()
+  forEachLiveTarget(target):
+    # James 3.9 compatibility: skipped on James.
+    # Reason: James 3.9 does not implement Email/copy. ``EmailCopyMethod.scala`` does not exist at the james-project-3.9.0 tag and the dispatcher returns ``unknownMethod``. Replay coverage for the Stalwart wire shape is preserved via the captured ``-stalwart`` fixture.
+    # When James adds support, remove this guard.
+    if target.kind == ltkJames:
+      continue
     var client = initJmapClient(
-        sessionUrl = cfg.sessionUrl,
-        bearerToken = cfg.aliceToken,
-        authScheme = cfg.authScheme,
+        sessionUrl = target.sessionUrl,
+        bearerToken = target.aliceToken,
+        authScheme = target.authScheme,
       )
-      .expect("initJmapClient")
-    let session = client.fetchSession().expect("fetchSession")
-    let mailAccountId = resolveMailAccountId(session).expect("resolveMailAccountId")
+      .expect("initJmapClient[" & $target.kind & "]")
+    let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
+    let mailAccountId =
+      resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
 
     # --- 1-2. Resolve inbox + seed source ---------------------------------
-    let inbox = resolveInboxId(client, mailAccountId).expect("resolveInboxId")
+    let inbox = resolveInboxId(client, mailAccountId).expect(
+        "resolveInboxId[" & $target.kind & "]"
+      )
     let sourceId = seedSimpleEmail(
         client, mailAccountId, inbox, "phase-e step-25 source", "seed25"
       )
-      .expect("seedSimpleEmail source")
+      .expect("seedSimpleEmail source[" & $target.kind & "]")
 
     # --- 3. Issue the rejection-bound Email/copy --------------------------
-    let copyCid = parseCreationId("copy25").expect("parseCreationId copy25")
-    let inboxSet =
-      parseNonEmptyMailboxIdSet(@[inbox]).expect("parseNonEmptyMailboxIdSet inbox")
+    let copyCid =
+      parseCreationId("copy25").expect("parseCreationId copy25[" & $target.kind & "]")
+    let inboxSet = parseNonEmptyMailboxIdSet(@[inbox]).expect(
+        "parseNonEmptyMailboxIdSet inbox[" & $target.kind & "]"
+      )
     var createTbl = initTable[CreationId, EmailCopyItem]()
     createTbl[copyCid] =
       initEmailCopyItem(id = sourceId, mailboxIds = Opt.some(inboxSet))
@@ -83,34 +91,43 @@ block temailCopyIntraAccountLive:
       accountId = mailAccountId,
       create = createTbl,
     )
-    let respCopy = client.send(bCopy).expect("send Email/copy (rejection-bound)")
-    captureIfRequested(client, "email-copy-intra-rejected-stalwart").expect(
+    let respCopy = client.send(bCopy).expect(
+        "send Email/copy (rejection-bound)[" & $target.kind & "]"
+      )
+    captureIfRequested(client, "email-copy-intra-rejected-" & $target.kind).expect(
       "captureIfRequested"
     )
 
     # --- 4. Assert rejection at method level ------------------------------
     let copyResult = respCopy.get(copyHandle)
-    doAssert copyResult.isErr,
+    assertOn target,
+      copyResult.isErr,
       "RFC 8620 §5.4 mandates accountId != fromAccountId; same-account Email/copy " &
         "must surface a method-level error"
     let methodErr = copyResult.error
-    doAssert methodErr.errorType == metInvalidArguments,
+    assertOn target,
+      methodErr.errorType == metInvalidArguments,
       "Stalwart rejects same-account Email/copy with metInvalidArguments (got rawType=" &
         methodErr.rawType & ")"
-    doAssert methodErr.rawType == "invalidArguments",
+    assertOn target,
+      methodErr.rawType == "invalidArguments",
       "rawType must round-trip the wire literal"
 
     # --- 5. Cleanup: source must still exist -----------------------------
     let (bClean, cleanHandle) =
       addEmailSet(initRequestBuilder(), mailAccountId, destroy = directIds(@[sourceId]))
-    let respClean = client.send(bClean).expect("send Email/set cleanup")
-    let cleanResp = respClean.get(cleanHandle).expect("Email/set cleanup extract")
+    let respClean =
+      client.send(bClean).expect("send Email/set cleanup[" & $target.kind & "]")
+    let cleanResp = respClean.get(cleanHandle).expect(
+        "Email/set cleanup extract[" & $target.kind & "]"
+      )
     var sourceDestroyed = false
     cleanResp.destroyResults.withValue(sourceId, outcome):
-      doAssert outcome.isOk,
+      assertOn target,
+        outcome.isOk,
         "cleanup destroy of seed must succeed (the rejected copy did not destroy it)"
       sourceDestroyed = true
     do:
-      doAssert false, "cleanup must report an outcome for sourceId"
-    doAssert sourceDestroyed
+      assertOn target, false, "cleanup must report an outcome for sourceId"
+    assertOn target, sourceDestroyed
     client.close()

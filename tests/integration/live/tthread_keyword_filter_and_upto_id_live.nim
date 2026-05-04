@@ -28,18 +28,24 @@ import ./mconfig
 import ./mlive
 
 block tthreadKeywordFilterAndUpToIdLive:
-  let cfgRes = loadLiveTestConfig()
-  if cfgRes.isOk:
-    let cfg = cfgRes.get()
+  forEachLiveTarget(target):
+    # James 3.9 compatibility: skipped on James.
+    # Reason: Thread-keyword filter conditions (allInThreadHaveKeyword/someInThreadHaveKeyword/noneInThreadHaveKeyword) are unimplemented on James 3.9, AND Email/queryChanges (and therefore upToId) is unimplemented altogether.
+    # When James adds support, remove this guard.
+    if target.kind == ltkJames:
+      continue
     var client = initJmapClient(
-        sessionUrl = cfg.sessionUrl,
-        bearerToken = cfg.aliceToken,
-        authScheme = cfg.authScheme,
+        sessionUrl = target.sessionUrl,
+        bearerToken = target.aliceToken,
+        authScheme = target.authScheme,
       )
-      .expect("initJmapClient")
-    let session = client.fetchSession().expect("fetchSession")
-    let mailAccountId = resolveMailAccountId(session).expect("resolveMailAccountId")
-    let inbox = resolveInboxId(client, mailAccountId).expect("resolveInboxId")
+      .expect("initJmapClient[" & $target.kind & "]")
+    let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
+    let mailAccountId =
+      resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
+    let inbox = resolveInboxId(client, mailAccountId).expect(
+        "resolveInboxId[" & $target.kind & "]"
+      )
 
     # Seed two emails into the same thread; flag exactly one.
     let seedIds = seedThreadedEmails(
@@ -49,31 +55,38 @@ block tthreadKeywordFilterAndUpToIdLive:
         @["phase-j 72 thread alpha", "phase-j 72 thread beta"],
         rootMessageId = "phase-j-72@example.com",
       )
-      .expect("seedThreadedEmails")
-    doAssert seedIds.len == 2
+      .expect("seedThreadedEmails[" & $target.kind & "]")
+    assertOn target, seedIds.len == 2
 
     # Flag the first email via Email/set update markFlagged.
     let flagUpdate = markFlagged()
-    let flagSet = initEmailUpdateSet(@[flagUpdate]).expect("initEmailUpdateSet")
+    let flagSet = initEmailUpdateSet(@[flagUpdate]).expect(
+        "initEmailUpdateSet[" & $target.kind & "]"
+      )
     let flagUpdates = parseNonEmptyEmailUpdates(@[(seedIds[0], flagSet)]).expect(
         "parseNonEmptyEmailUpdates"
       )
     let (bFlag, flagHandle) =
       addEmailSet(initRequestBuilder(), mailAccountId, update = Opt.some(flagUpdates))
-    let respFlag = client.send(bFlag).expect("send Email/set markFlagged")
-    let setResp = respFlag.get(flagHandle).expect("Email/set extract")
+    let respFlag =
+      client.send(bFlag).expect("send Email/set markFlagged[" & $target.kind & "]")
+    let setResp =
+      respFlag.get(flagHandle).expect("Email/set extract[" & $target.kind & "]")
     setResp.updateResults.withValue(seedIds[0], outcome):
-      doAssert outcome.isOk, "flag update must succeed"
+      assertOn target, outcome.isOk, "flag update must succeed"
     do:
-      doAssert false, "Email/set must report an outcome for the flagged seed"
+      assertOn target, false, "Email/set must report an outcome for the flagged seed"
 
     # Capture baseline queryState before further state changes.
     let (bBase, baseHandle) = addEmailQuery(initRequestBuilder(), mailAccountId)
-    let respBase = client.send(bBase).expect("send Email/query baseline")
-    let qrBase = respBase.get(baseHandle).expect("baseline extract")
+    let respBase =
+      client.send(bBase).expect("send Email/query baseline[" & $target.kind & "]")
+    let qrBase =
+      respBase.get(baseHandle).expect("baseline extract[" & $target.kind & "]")
     let baselineState = qrBase.queryState
 
-    let flaggedKw = parseKeyword("$flagged").expect("parseKeyword")
+    let flaggedKw =
+      parseKeyword("$flagged").expect("parseKeyword[" & $target.kind & "]")
 
     # Sub-test 1: someInThreadHaveKeyword filter.
     block someCase:
@@ -82,8 +95,11 @@ block tthreadKeywordFilterAndUpToIdLive:
       )
       let (b, h) =
         addEmailQuery(initRequestBuilder(), mailAccountId, filter = Opt.some(f))
-      let resp = client.send(b).expect("send Email/query someInThreadHaveKeyword")
-      discard resp.get(h).expect("someInThreadHaveKeyword extract")
+      let resp = client.send(b).expect(
+          "send Email/query someInThreadHaveKeyword[" & $target.kind & "]"
+        )
+      discard
+        resp.get(h).expect("someInThreadHaveKeyword extract[" & $target.kind & "]")
 
     # Sub-test 2: allInThreadHaveKeyword filter.
     block allCase:
@@ -92,8 +108,10 @@ block tthreadKeywordFilterAndUpToIdLive:
       )
       let (b, h) =
         addEmailQuery(initRequestBuilder(), mailAccountId, filter = Opt.some(f))
-      let resp = client.send(b).expect("send Email/query allInThreadHaveKeyword")
-      discard resp.get(h).expect("allInThreadHaveKeyword extract")
+      let resp = client.send(b).expect(
+          "send Email/query allInThreadHaveKeyword[" & $target.kind & "]"
+        )
+      discard resp.get(h).expect("allInThreadHaveKeyword extract[" & $target.kind & "]")
 
     # Sub-test 3: noneInThreadHaveKeyword filter — capture.
     block noneCase:
@@ -102,11 +120,14 @@ block tthreadKeywordFilterAndUpToIdLive:
       )
       let (b, h) =
         addEmailQuery(initRequestBuilder(), mailAccountId, filter = Opt.some(f))
-      let resp = client.send(b).expect("send Email/query noneInThreadHaveKeyword")
-      captureIfRequested(client, "thread-keyword-filter-stalwart").expect(
+      let resp = client.send(b).expect(
+          "send Email/query noneInThreadHaveKeyword[" & $target.kind & "]"
+        )
+      captureIfRequested(client, "thread-keyword-filter-" & $target.kind).expect(
         "captureIfRequested noneInThreadHaveKeyword"
       )
-      discard resp.get(h).expect("noneInThreadHaveKeyword extract")
+      discard
+        resp.get(h).expect("noneInThreadHaveKeyword extract[" & $target.kind & "]")
 
     # Sub-test 4: upToId parameter on Email/queryChanges.  Capture.
     block upToIdCase:
@@ -116,21 +137,25 @@ block tthreadKeywordFilterAndUpToIdLive:
         sinceQueryState = baselineState,
         upToId = Opt.some(seedIds[0]),
       )
-      let resp = client.send(b).expect("send Email/queryChanges upToId")
-      captureIfRequested(client, "email-querychanges-up-to-id-stalwart").expect(
+      let resp =
+        client.send(b).expect("send Email/queryChanges upToId[" & $target.kind & "]")
+      captureIfRequested(client, "email-querychanges-up-to-id-" & $target.kind).expect(
         "captureIfRequested upToId"
       )
-      discard resp.get(h).expect("upToId extract")
+      discard resp.get(h).expect("upToId extract[" & $target.kind & "]")
 
     # Cleanup: destroy the seed emails so re-runs are idempotent.
     let (bClean, cleanHandle) =
       addEmailSet(initRequestBuilder(), mailAccountId, destroy = directIds(seedIds))
-    let respClean = client.send(bClean).expect("send Email/set cleanup")
-    let cleanResp = respClean.get(cleanHandle).expect("Email/set cleanup extract")
+    let respClean =
+      client.send(bClean).expect("send Email/set cleanup[" & $target.kind & "]")
+    let cleanResp = respClean.get(cleanHandle).expect(
+        "Email/set cleanup extract[" & $target.kind & "]"
+      )
     for id in seedIds:
       cleanResp.destroyResults.withValue(id, outcome):
-        doAssert outcome.isOk, "cleanup destroy must succeed"
+        assertOn target, outcome.isOk, "cleanup destroy must succeed"
       do:
-        doAssert false, "cleanup must report an outcome for each seed id"
+        assertOn target, false, "cleanup must report an outcome for each seed id"
 
     client.close()

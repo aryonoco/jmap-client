@@ -38,23 +38,24 @@ import ./mconfig
 import ./mlive
 
 block temailGetTextBodyLive:
-  let cfgRes = loadLiveTestConfig()
-  if cfgRes.isOk:
-    let cfg = cfgRes.get()
+  forEachLiveTarget(target):
     var client = initJmapClient(
-        sessionUrl = cfg.sessionUrl,
-        bearerToken = cfg.aliceToken,
-        authScheme = cfg.authScheme,
+        sessionUrl = target.sessionUrl,
+        bearerToken = target.aliceToken,
+        authScheme = target.authScheme,
       )
-      .expect("initJmapClient")
-    let session = client.fetchSession().expect("fetchSession")
-    let mailAccountId = resolveMailAccountId(session).expect("resolveMailAccountId")
+      .expect("initJmapClient[" & $target.kind & "]")
+    let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
+    let mailAccountId =
+      resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
 
-    let inbox = resolveInboxId(client, mailAccountId).expect("resolveInboxId")
+    let inbox = resolveInboxId(client, mailAccountId).expect(
+        "resolveInboxId[" & $target.kind & "]"
+      )
     let seededId = seedSimpleEmail(
         client, mailAccountId, inbox, "phase-d step-19 text body", "seedTextBody"
       )
-      .expect("seedSimpleEmail")
+      .expect("seedSimpleEmail[" & $target.kind & "]")
 
     let (b, getHandle) = addEmailGet(
       initRequestBuilder(),
@@ -63,26 +64,33 @@ block temailGetTextBodyLive:
       properties = Opt.some(@["id", "textBody", "bodyValues"]),
       bodyFetchOptions = EmailBodyFetchOptions(fetchBodyValues: bvsText),
     )
-    let resp = client.send(b).expect("send Email/get text body")
-    let getResp = resp.get(getHandle).expect("Email/get text body extract")
-    doAssert getResp.list.len == 1, "Email/get must return the seeded message"
+    let resp = client.send(b).expect("send Email/get text body[" & $target.kind & "]")
+    let getResp =
+      resp.get(getHandle).expect("Email/get text body extract[" & $target.kind & "]")
+    assertOn target, getResp.list.len == 1, "Email/get must return the seeded message"
 
-    let email = Email.fromJson(getResp.list[0]).expect("Email.fromJson")
-    doAssert email.textBody.len == 1,
+    let email =
+      Email.fromJson(getResp.list[0]).expect("Email.fromJson[" & $target.kind & "]")
+    assertOn target,
+      email.textBody.len == 1,
       "expected one text/plain leaf, got " & $email.textBody.len
     let textLeaf = email.textBody[0]
-    doAssert textLeaf.isLeaf, "textBody[0] must be a leaf"
-    doAssert textLeaf.contentType == "text/plain",
+    assertOn target, textLeaf.isLeaf, "textBody[0] must be a leaf"
+    assertOn target,
+      textLeaf.contentType == "text/plain",
       "textBody[0].contentType must be text/plain (got " & textLeaf.contentType & ")"
-    doAssert textLeaf.size > UnsignedInt(0),
+    assertOn target,
+      textLeaf.size > UnsignedInt(0),
       "textBody[0].size must be > 0 (got " & $textLeaf.size & ")"
-    doAssert textLeaf.charset.isSome,
-      "textBody[0].charset must be present for a text/* leaf"
-    doAssert textLeaf.charset.unsafeGet.toLowerAscii == "utf-8",
+    assertOn target,
+      textLeaf.charset.isSome, "textBody[0].charset must be present for a text/* leaf"
+    assertOn target,
+      textLeaf.charset.unsafeGet.toLowerAscii == "utf-8",
       "textBody[0].charset must be utf-8 case-insensitive (got " &
         textLeaf.charset.unsafeGet & ")"
 
-    doAssert email.bodyValues.len == 1,
+    assertOn target,
+      email.bodyValues.len == 1,
       "bvsText must yield exactly one bodyValues entry (got " & $email.bodyValues.len &
         ")"
     client.close()

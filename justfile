@@ -154,19 +154,22 @@ test-report:
     @echo "Test report: testresults.html"
 
 # Run every test including slow ones from tests/testament_skip.txt and the
-# live integration suite. Requires 'just stalwart-up' first.
+# live integration suite. Requires at least one of Stalwart/James up.
 test-full:
     #!/usr/bin/env bash
     set -euo pipefail
     shopt -s inherit_errexit
-    if [ ! -f /tmp/stalwart-env.sh ]; then
-        echo "ERROR: /tmp/stalwart-env.sh not found — run 'just stalwart-up' first" >&2
+    if [ ! -f /tmp/stalwart-env.sh ] && [ ! -f /tmp/james-env.sh ]; then
+        echo "ERROR: at least one of /tmp/stalwart-env.sh or /tmp/james-env.sh required" >&2
+        echo "       run 'just jmap-up' (or 'just stalwart-up' / 'just james-up') first" >&2
         exit 1
     fi
     cleanup() { find tests/ -name 'megatest' -type f -delete; find tests/ -name 'megatest.nim' -type f -delete; }
     trap cleanup EXIT
     echo "Running FULL test suite (including slow + live integration tests)..."
-    . /tmp/stalwart-env.sh && testament --backendLogging:off all
+    if [ -f /tmp/stalwart-env.sh ]; then . /tmp/stalwart-env.sh; fi
+    if [ -f /tmp/james-env.sh ]; then . /tmp/james-env.sh; fi
+    testament --backendLogging:off all
     echo "Full test suite passed"
 
 # =============================================================================
@@ -319,8 +322,10 @@ watch-test:
     @watchexec --exts nim --watch src/ --watch tests/ -- just test
 
 # =============================================================================
-# STALWART (JMAP integration test server)
+# JMAP TEST SERVERS (Stalwart 0.15.5, Apache James 3.9)
 # =============================================================================
+
+# --- Stalwart -----------------------------------------------------------------
 
 # Start Stalwart JMAP server and seed test accounts
 stalwart-up:
@@ -330,6 +335,7 @@ stalwart-up:
 # Stop Stalwart JMAP server (leaves the dev container untouched)
 stalwart-down:
     docker compose -f .devcontainer/docker-compose.yml rm -fs stalwart
+    rm -f /tmp/stalwart-env.sh
 
 # Tear down and recreate Stalwart with fresh data (leaves the dev container untouched)
 stalwart-reset:
@@ -345,17 +351,90 @@ stalwart-status:
 stalwart-logs:
     docker compose -f .devcontainer/docker-compose.yml --profile stalwart logs -f stalwart
 
-# Run live integration tests (requires 'just stalwart-up')
-test-integration:
-    @if [ ! -f /tmp/stalwart-env.sh ]; then echo "ERROR: Run 'just stalwart-up' first"; exit 1; fi
-    . /tmp/stalwart-env.sh && testament pat "tests/integration/live/*_live.nim"
+# --- Apache James -------------------------------------------------------------
 
-# Capture Stalwart wire-payload fixtures into tests/testdata/captured/.
-# Requires `just stalwart-up` first. Run after meaningful changes to
-# wire-shaped behaviour. Review and commit new/changed JSON files manually.
+# Start James JMAP server (memory image) and seed test accounts
+james-up:
+    .devcontainer/scripts/ensure-james-keystore.sh
+    docker compose -f .devcontainer/docker-compose.yml --profile james build james
+    docker compose -f .devcontainer/docker-compose.yml --profile james up james -d
+    .devcontainer/scripts/seed-james.sh
+
+# Stop James (memory image is ephemeral; data dies with the container).
+# Anonymous volumes from the parent image survive ``rm -fs`` and would
+# carry leftover state across re-creates — ``-v`` removes them too, so
+# every ``james-up`` starts on a guaranteed-clean slate.
+james-down:
+    docker compose -f .devcontainer/docker-compose.yml rm -fsv james
+    rm -f /tmp/james-env.sh
+
+# Tear down and recreate James with fresh data
+james-reset: james-down james-up
+
+# Show James container status
+james-status:
+    docker compose -f .devcontainer/docker-compose.yml --profile james ps
+
+# Follow James container logs
+james-logs:
+    docker compose -f .devcontainer/docker-compose.yml --profile james logs -f james
+
+# --- Universal compositions (both servers) ------------------------------------
+
+# Start both Stalwart and James
+jmap-up: stalwart-up james-up
+
+# Stop both Stalwart and James
+jmap-down: stalwart-down james-down
+
+# Tear down and recreate both servers with fresh data
+jmap-reset: jmap-down jmap-up
+
+# Show status of both Stalwart and James
+jmap-status:
+    docker compose -f .devcontainer/docker-compose.yml --profile stalwart --profile james ps
+
+# Follow logs from both Stalwart and James
+jmap-logs:
+    docker compose -f .devcontainer/docker-compose.yml --profile stalwart --profile james logs -f
+
+# --- Test recipes -------------------------------------------------------------
+
+# Run live integration tests against EVERY configured JMAP server
+# (Stalwart and/or James). Requires 'just jmap-up' (or per-server
+# variants). Each test iterates ``forEachLiveTarget(target):`` so a
+# single testament invocation exercises both servers; failures attribute
+# to a specific server via the ``[stalwart]`` / ``[james]`` suffix that
+# ``mlive.assertOn`` injects into every assertion message.
+test-integration:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ ! -f /tmp/stalwart-env.sh ] && [ ! -f /tmp/james-env.sh ]; then
+        echo "ERROR: at least one of /tmp/stalwart-env.sh or /tmp/james-env.sh required" >&2
+        echo "       run 'just jmap-up' (or 'just stalwart-up' / 'just james-up') first" >&2
+        exit 1
+    fi
+    if [ -f /tmp/stalwart-env.sh ]; then . /tmp/stalwart-env.sh; fi
+    if [ -f /tmp/james-env.sh ]; then . /tmp/james-env.sh; fi
+    testament pat "tests/integration/live/*_live.nim"
+
+# Capture wire-payload fixtures from every configured JMAP server into
+# ``tests/testdata/captured/``. Each test's ``captureIfRequested(client,
+# "<name>-" & $target.kind)`` call writes ``<name>-stalwart.json`` and/or
+# ``<name>-james.json`` depending on which servers are configured.
+# Existing fixtures are preserved (``mcapture.nim``'s skip-if-exists guard);
+# set ``JMAP_TEST_CAPTURE_FORCE=1`` to overwrite after a deliberate change.
 capture-fixtures:
-    @if [ ! -f /tmp/stalwart-env.sh ]; then echo "ERROR: Run 'just stalwart-up' first"; exit 1; fi
-    . /tmp/stalwart-env.sh && JMAP_TEST_CAPTURE=1 testament pat "tests/integration/live/*_live.nim"
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ ! -f /tmp/stalwart-env.sh ] && [ ! -f /tmp/james-env.sh ]; then
+        echo "ERROR: at least one of /tmp/stalwart-env.sh or /tmp/james-env.sh required" >&2
+        echo "       run 'just jmap-up' (or 'just stalwart-up' / 'just james-up') first" >&2
+        exit 1
+    fi
+    if [ -f /tmp/stalwart-env.sh ]; then . /tmp/stalwart-env.sh; fi
+    if [ -f /tmp/james-env.sh ]; then . /tmp/james-env.sh; fi
+    JMAP_TEST_CAPTURE=1 testament pat "tests/integration/live/*_live.nim"
     @echo "Captures written to tests/testdata/captured/"
     @echo "Review with 'git status' and stage with 'git add' before committing."
 

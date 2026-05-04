@@ -1,0 +1,1 @@
+{"type":"urn:ietf:params:jmap:error:notJSON","status":400,"detail":"The content type of the request was not application/json or the request did not parse as I-JSON: Unrecognized token 'this': was expecting (JSON String, Number, Array, Object or token 'null', 'true' or 'false')\n at [Source: REDACTED (`StreamReadFeature.INCLUDE_SOURCE_IN_LOCATION` disabled); line: 1, column: 6]"}

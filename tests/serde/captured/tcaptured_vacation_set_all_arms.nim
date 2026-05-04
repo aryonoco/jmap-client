@@ -18,19 +18,20 @@ import jmap_client
 import ./mloader
 
 block tcapturedVacationSetAllArms:
-  let j = loadCapturedFixture("vacation-set-all-arms-stalwart")
-  let resp = envelope.Response.fromJson(j).expect("envelope.Response.fromJson")
-  doAssert resp.methodResponses.len == 1
-  let inv = resp.methodResponses[0]
-  doAssert inv.rawName == "VacationResponse/set"
+  forEachCapturedServer("vacation-set-all-arms", j):
+    let resp = envelope.Response.fromJson(j).expect("envelope.Response.fromJson")
+    doAssert resp.methodResponses.len == 1
+    let inv = resp.methodResponses[0]
+    doAssert inv.rawName == "VacationResponse/set"
 
-  let setResp = SetResponse[VacationResponse].fromJson(inv.arguments).expect(
-      "SetResponse[VacationResponse].fromJson"
-    )
-  doAssert setResp.newState.isSome, "newState must be present in this fixture"
-  let singletonId = parseIdFromServer("singleton").expect("parseIdFromServer singleton")
-  doAssert singletonId in setResp.updateResults,
-    "VacationResponse/set must report a singleton update outcome"
-  let outcome = setResp.updateResults[singletonId]
-  doAssert outcome.isOk,
-    "VacationResponse/set update with all six arms must succeed for the singleton"
+    let setResp = SetResponse[VacationResponse].fromJson(inv.arguments).expect(
+        "SetResponse[VacationResponse].fromJson"
+      )
+    doAssert setResp.newState.isSome, "newState must be present in this fixture"
+    let singletonId =
+      parseIdFromServer("singleton").expect("parseIdFromServer singleton")
+    doAssert singletonId in setResp.updateResults,
+      "VacationResponse/set must report a singleton update outcome"
+    let outcome = setResp.updateResults[singletonId]
+    doAssert outcome.isOk,
+      "VacationResponse/set update with all six arms must succeed for the singleton"

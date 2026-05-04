@@ -49,21 +49,20 @@ import ./mconfig
 import ./mlive
 
 block tmailboxChangesLive:
-  let cfgRes = loadLiveTestConfig()
-  if cfgRes.isOk:
-    let cfg = cfgRes.get()
+  forEachLiveTarget(target):
     var client = initJmapClient(
-        sessionUrl = cfg.sessionUrl,
-        bearerToken = cfg.aliceToken,
-        authScheme = cfg.authScheme,
+        sessionUrl = target.sessionUrl,
+        bearerToken = target.aliceToken,
+        authScheme = target.authScheme,
       )
-      .expect("initJmapClient")
-    let session = client.fetchSession().expect("fetchSession")
-    let mailAccountId = resolveMailAccountId(session).expect("resolveMailAccountId")
+      .expect("initJmapClient[" & $target.kind & "]")
+    let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
+    let mailAccountId =
+      resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
 
     # --- Resolve-or-create child mailbox (mutation seed) ----------------
     let tempId = resolveOrCreateMailbox(client, mailAccountId, "phase-h step-43 child")
-      .expect("resolveOrCreateMailbox child")
+      .expect("resolveOrCreateMailbox child[" & $target.kind & "]")
 
     # --- Baseline state via empty Mailbox/get (post-create) -------------
     # Captured AFTER resolve-or-create so the destroy is the only
@@ -77,28 +76,36 @@ block tmailboxChangesLive:
 
     let (bDestroy, destroyHandle) =
       addMailboxSet(initRequestBuilder(), mailAccountId, destroy = directIds(@[tempId]))
-    let respDestroy = client.send(bDestroy).expect("send Mailbox/set destroy")
-    let destroyResp =
-      respDestroy.get(destroyHandle).expect("Mailbox/set destroy extract")
+    let respDestroy =
+      client.send(bDestroy).expect("send Mailbox/set destroy[" & $target.kind & "]")
+    let destroyResp = respDestroy.get(destroyHandle).expect(
+        "Mailbox/set destroy extract[" & $target.kind & "]"
+      )
     var sawDestroyOk = false
     destroyResp.destroyResults.withValue(tempId, outcome):
-      doAssert outcome.isOk,
+      assertOn target,
+        outcome.isOk,
         "Mailbox/set destroy of empty mailbox must succeed: " & outcome.error.rawType
       sawDestroyOk = true
     do:
-      doAssert false, "Mailbox/set must report a destroy outcome for tempId"
-    doAssert sawDestroyOk
+      assertOn target, false, "Mailbox/set must report a destroy outcome for tempId"
+    assertOn target, sawDestroyOk
 
     # --- Happy path: Mailbox/changes since baseline ---------------------
     let (bHappy, happyHandle) =
       addMailboxChanges(initRequestBuilder(), mailAccountId, sinceState = baselineState)
-    let respHappy = client.send(bHappy).expect("send Mailbox/changes happy")
-    let cr = respHappy.get(happyHandle).expect("Mailbox/changes happy extract")
-    doAssert string(cr.oldState) == string(baselineState),
+    let respHappy =
+      client.send(bHappy).expect("send Mailbox/changes happy[" & $target.kind & "]")
+    let cr = respHappy.get(happyHandle).expect(
+        "Mailbox/changes happy extract[" & $target.kind & "]"
+      )
+    assertOn target,
+      string(cr.oldState) == string(baselineState),
       "oldState must echo the supplied baseline"
-    doAssert tempId in cr.destroyed,
+    assertOn target,
+      tempId in cr.destroyed,
       "create-then-destroy id must surface in destroyed (RFC 8620 §5.2 SHOULD)"
-    doAssert cr.hasMoreChanges == false, "no further changes pending"
+    assertOn target, cr.hasMoreChanges == false, "no further changes pending"
     # cr.updatedProperties is reachable as Opt[seq[string]] — the
     # MailboxChangesResponse RFC 8621 §2.2 extension. Reading it here
     # is the compile-time guarantee under test; runtime presence is
@@ -109,14 +116,17 @@ block tmailboxChangesLive:
     let bogusState = JmapState("phase-h-43-bogus-state")
     let (bSad, sadHandle) =
       addMailboxChanges(initRequestBuilder(), mailAccountId, sinceState = bogusState)
-    let respSad = client.send(bSad).expect("send Mailbox/changes bogus")
-    captureIfRequested(client, "mailbox-changes-bogus-state-stalwart").expect(
+    let respSad =
+      client.send(bSad).expect("send Mailbox/changes bogus[" & $target.kind & "]")
+    captureIfRequested(client, "mailbox-changes-bogus-state-" & $target.kind).expect(
       "captureIfRequested"
     )
     let sadExtract = respSad.get(sadHandle)
-    doAssert sadExtract.isErr, "bogus sinceState must surface as a method-level error"
+    assertOn target,
+      sadExtract.isErr, "bogus sinceState must surface as a method-level error"
     let methodErr = sadExtract.error
-    doAssert methodErr.errorType in {metCannotCalculateChanges, metInvalidArguments},
+    assertOn target,
+      methodErr.errorType in {metCannotCalculateChanges, metInvalidArguments},
       "method error must project as cannotCalculateChanges or invalidArguments " &
         "(got rawType=" & methodErr.rawType & ")"
     client.close()

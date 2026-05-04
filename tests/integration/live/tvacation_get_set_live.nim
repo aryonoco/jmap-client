@@ -31,25 +31,26 @@ import jmap_client
 import jmap_client/client
 import ./mcapture
 import ./mconfig
+import ./mlive
 
 block tvacationGetSetLive:
-  let cfgRes = loadLiveTestConfig()
-  if cfgRes.isOk:
-    let cfg = cfgRes.get()
+  forEachLiveTarget(target):
     var client = initJmapClient(
-        sessionUrl = cfg.sessionUrl,
-        bearerToken = cfg.aliceToken,
-        authScheme = cfg.authScheme,
+        sessionUrl = target.sessionUrl,
+        bearerToken = target.aliceToken,
+        authScheme = target.authScheme,
       )
-      .expect("initJmapClient")
-    let session = client.fetchSession().expect("fetchSession")
+      .expect("initJmapClient[" & $target.kind & "]")
+    let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     var vacAccountId: AccountId
     session.primaryAccounts.withValue("urn:ietf:params:jmap:vacationresponse", v):
       vacAccountId = v
     do:
-      doAssert false, "session must advertise a primary vacationresponse account"
+      assertOn target,
+        false, "session must advertise a primary vacationresponse account"
 
-    let singletonId = parseIdFromServer("singleton").expect("parseId singleton")
+    let singletonId =
+      parseIdFromServer("singleton").expect("parseId singleton[" & $target.kind & "]")
 
     # --- Step 1: enable + set subject + set textBody ---------------------
     let updateSet = initVacationResponseUpdateSet(
@@ -59,35 +60,45 @@ block tvacationGetSetLive:
           setTextBody(Opt.some("Out until next sprint.")),
         ]
       )
-      .expect("initVacationResponseUpdateSet")
+      .expect("initVacationResponseUpdateSet[" & $target.kind & "]")
     let (b1, setHandle1) =
       addVacationResponseSet(initRequestBuilder(), vacAccountId, update = updateSet)
-    let resp1 = client.send(b1).expect("send VacationResponse/set")
-    let setResp1 = resp1.get(setHandle1).expect("VacationResponse/set extract")
+    let resp1 =
+      client.send(b1).expect("send VacationResponse/set[" & $target.kind & "]")
+    let setResp1 =
+      resp1.get(setHandle1).expect("VacationResponse/set extract[" & $target.kind & "]")
     var updateOk = false
     setResp1.updateResults.withValue(singletonId, outcome):
-      doAssert outcome.isOk, "VacationResponse/set update must succeed for singleton"
+      assertOn target,
+        outcome.isOk, "VacationResponse/set update must succeed for singleton"
       updateOk = true
     do:
-      doAssert false, "VacationResponse/set must report an outcome for singleton"
-    doAssert updateOk
+      assertOn target,
+        false, "VacationResponse/set must report an outcome for singleton"
+    assertOn target, updateOk
 
     # --- Step 2: re-read and verify the three fields round-tripped ------
     let (b2, getHandle2) = addVacationResponseGet(initRequestBuilder(), vacAccountId)
-    let resp2 = client.send(b2).expect("send VacationResponse/get post-set")
-    captureIfRequested(client, "vacation-get-singleton-stalwart").expect(
+    let resp2 =
+      client.send(b2).expect("send VacationResponse/get post-set[" & $target.kind & "]")
+    captureIfRequested(client, "vacation-get-singleton-" & $target.kind).expect(
       "captureIfRequested"
     )
-    let getResp2 = resp2.get(getHandle2).expect("VacationResponse/get post-set extract")
-    doAssert getResp2.list.len == 1,
+    let getResp2 = resp2.get(getHandle2).expect(
+        "VacationResponse/get post-set extract[" & $target.kind & "]"
+      )
+    assertOn target,
+      getResp2.list.len == 1,
       "VacationResponse/get must still return exactly one singleton entry"
     let vr = VacationResponse.fromJson(getResp2.list[0]).expect(
         "parse updated VacationResponse"
       )
-    doAssert vr.isEnabled, "isEnabled must round-trip as true after set"
-    doAssert vr.subject.isSome and vr.subject.get() == "phase-b step-9 OOO",
+    assertOn target, vr.isEnabled, "isEnabled must round-trip as true after set"
+    assertOn target,
+      vr.subject.isSome and vr.subject.get() == "phase-b step-9 OOO",
       "subject must round-trip as set"
-    doAssert vr.textBody.isSome and vr.textBody.get() == "Out until next sprint.",
+    assertOn target,
+      vr.textBody.isSome and vr.textBody.get() == "Out until next sprint.",
       "textBody must round-trip as set"
 
     # --- Cleanup: disable the auto-reply --------------------------------
@@ -96,5 +107,6 @@ block tvacationGetSetLive:
       )
     let (b3, _) =
       addVacationResponseSet(initRequestBuilder(), vacAccountId, update = cleanupSet)
-    discard client.send(b3).expect("send VacationResponse/set cleanup")
+    discard
+      client.send(b3).expect("send VacationResponse/set cleanup[" & $target.kind & "]")
     client.close()

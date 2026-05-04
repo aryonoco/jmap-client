@@ -351,7 +351,14 @@ func assembleQueryArgs*(
   node["position"] = queryParams.position.toJson()
   for a in queryParams.anchor:
     node["anchor"] = a.toJson()
-  node["anchorOffset"] = queryParams.anchorOffset.toJson()
+    # ``anchorOffset`` is meaningful only when ``anchor`` is set (RFC 8620
+    # §5.5: the offset is from the anchor's position). Emitting it
+    # alongside an absent anchor is wasteful on lenient servers (Stalwart)
+    # and a hard reject on strict ones (Apache James 3.9 returns
+    # ``invalidArguments`` "anchorOffset is syntactically valid, but is
+    # not supported by the server"). Tying emission to anchor presence
+    # keeps the wire request RFC-conformant against both.
+    node["anchorOffset"] = queryParams.anchorOffset.toJson()
   for lim in queryParams.limit:
     node["limit"] = lim.toJson()
   node["calculateTotal"] = %queryParams.calculateTotal

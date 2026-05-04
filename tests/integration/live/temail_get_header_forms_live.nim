@@ -42,21 +42,23 @@ import ./mconfig
 import ./mlive
 
 block temailGetHeaderFormsLive:
-  let cfgRes = loadLiveTestConfig()
-  if cfgRes.isOk:
-    let cfg = cfgRes.get()
+  forEachLiveTarget(target):
     var client = initJmapClient(
-        sessionUrl = cfg.sessionUrl,
-        bearerToken = cfg.aliceToken,
-        authScheme = cfg.authScheme,
+        sessionUrl = target.sessionUrl,
+        bearerToken = target.aliceToken,
+        authScheme = target.authScheme,
       )
-      .expect("initJmapClient")
-    let session = client.fetchSession().expect("fetchSession")
-    let mailAccountId = resolveMailAccountId(session).expect("resolveMailAccountId")
+      .expect("initJmapClient[" & $target.kind & "]")
+    let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
+    let mailAccountId =
+      resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
 
-    let inbox = resolveInboxId(client, mailAccountId).expect("resolveInboxId")
-    let mailboxIds =
-      parseNonEmptyMailboxIdSet(@[inbox]).expect("parseNonEmptyMailboxIdSet")
+    let inbox = resolveInboxId(client, mailAccountId).expect(
+        "resolveInboxId[" & $target.kind & "]"
+      )
+    let mailboxIds = parseNonEmptyMailboxIdSet(@[inbox]).expect(
+        "parseNonEmptyMailboxIdSet[" & $target.kind & "]"
+      )
     let aliceAddr = buildAliceAddr()
     let textPart = makeLeafPart(
       LeafPartSpec(
@@ -68,11 +70,13 @@ block temailGetHeaderFormsLive:
         cid: Opt.none(string),
       )
     )
-    let listPostName =
-      parseBlueprintEmailHeaderName("List-Post").expect("List-Post header name")
+    let listPostName = parseBlueprintEmailHeaderName("List-Post").expect(
+        "List-Post header name[" & $target.kind & "]"
+      )
     var extraHeaders = initTable[BlueprintEmailHeaderName, BlueprintHeaderMultiValue]()
     extraHeaders[listPostName] = urlsSingle(@["mailto:list@example.com"])
-    let sentAt = parseDate("2026-05-01T12:00:00Z").expect("parseDate")
+    let sentAt =
+      parseDate("2026-05-01T12:00:00Z").expect("parseDate[" & $target.kind & "]")
     let blueprint = parseEmailBlueprint(
       mailboxIds = mailboxIds,
       body = flatBody(textBody = Opt.some(textPart)),
@@ -82,26 +86,30 @@ block temailGetHeaderFormsLive:
       sentAt = Opt.some(sentAt),
       extraHeaders = extraHeaders,
     )
-    doAssert blueprint.isOk, "parseEmailBlueprint must succeed"
+    assertOn target, blueprint.isOk, "parseEmailBlueprint must succeed"
     let blueprintOk = blueprint.unsafeValue
-    let cid = parseCreationId("seedHeaders").expect("parseCreationId")
+    let cid =
+      parseCreationId("seedHeaders").expect("parseCreationId[" & $target.kind & "]")
     var createTbl = initTable[CreationId, EmailBlueprint]()
     createTbl[cid] = blueprintOk
     let (bSeed, seedHandle) =
       addEmailSet(initRequestBuilder(), mailAccountId, create = Opt.some(createTbl))
-    let seedResp = client.send(bSeed).expect("send Email/set seed")
-    let seedSet = seedResp.get(seedHandle).expect("Email/set seed extract")
+    let seedResp =
+      client.send(bSeed).expect("send Email/set seed[" & $target.kind & "]")
+    let seedSet =
+      seedResp.get(seedHandle).expect("Email/set seed extract[" & $target.kind & "]")
     var seededId: Id
     var found = false
     seedSet.createResults.withValue(cid, outcome):
-      doAssert outcome.isOk,
+      assertOn target,
+        outcome.isOk,
         "Email/set must succeed: " &
           (if outcome.isErr: outcome.unsafeError.rawType else: "(ok)")
       seededId = outcome.unsafeValue.id
       found = true
     do:
-      doAssert false, "Email/set returned no result for creationId"
-    doAssert found
+      assertOn target, false, "Email/set returned no result for creationId"
+    assertOn target, found
 
     let (b, getHandle) = addEmailGet(
       initRequestBuilder(),
@@ -114,40 +122,55 @@ block temailGetHeaderFormsLive:
         ]
       ),
     )
-    let resp = client.send(b).expect("send Email/get header forms")
-    captureIfRequested(client, "email-header-forms-stalwart").expect(
+    let resp =
+      client.send(b).expect("send Email/get header forms[" & $target.kind & "]")
+    captureIfRequested(client, "email-header-forms-" & $target.kind).expect(
       "captureIfRequested"
     )
-    let getResp = resp.get(getHandle).expect("Email/get header forms extract")
-    doAssert getResp.list.len == 1, "Email/get must return the seeded message"
+    let getResp =
+      resp.get(getHandle).expect("Email/get header forms extract[" & $target.kind & "]")
+    assertOn target, getResp.list.len == 1, "Email/get must return the seeded message"
 
-    let email = Email.fromJson(getResp.list[0]).expect("Email.fromJson")
+    let email =
+      Email.fromJson(getResp.list[0]).expect("Email.fromJson[" & $target.kind & "]")
 
-    let listPostKey =
-      parseHeaderPropertyName("header:List-Post:asURLs").expect("listPostKey")
+    let listPostKey = parseHeaderPropertyName("header:List-Post:asURLs").expect(
+        "listPostKey[" & $target.kind & "]"
+      )
     let listPostHv = email.requestedHeaders.getOrDefault(listPostKey)
-    doAssert listPostKey in email.requestedHeaders,
-      "header:List-Post:asURLs must be present"
-    doAssert listPostHv.form == hfUrls, "List-Post HeaderValue must carry hfUrls form"
-    doAssert listPostHv.urls.isSome,
+    assertOn target,
+      listPostKey in email.requestedHeaders, "header:List-Post:asURLs must be present"
+    assertOn target,
+      listPostHv.form == hfUrls, "List-Post HeaderValue must carry hfUrls form"
+    assertOn target,
+      listPostHv.urls.isSome,
       "List-Post hfUrls payload must parse — server returned non-null"
-    doAssert listPostHv.urls.unsafeGet.len == 1,
+    assertOn target,
+      listPostHv.urls.unsafeGet.len == 1,
       "expected one URL in List-Post (got " & $listPostHv.urls.unsafeGet.len & ")"
 
-    let dateKey = parseHeaderPropertyName("header:Date:asDate").expect("dateKey")
-    doAssert dateKey in email.requestedHeaders, "header:Date:asDate must be present"
+    let dateKey = parseHeaderPropertyName("header:Date:asDate").expect(
+        "dateKey[" & $target.kind & "]"
+      )
+    assertOn target,
+      dateKey in email.requestedHeaders, "header:Date:asDate must be present"
     let dateHv = email.requestedHeaders.getOrDefault(dateKey)
-    doAssert dateHv.form == hfDate, "Date HeaderValue must carry hfDate form"
-    doAssert dateHv.date.isSome,
-      "Date hfDate payload must parse — server returned non-null"
+    assertOn target, dateHv.form == hfDate, "Date HeaderValue must carry hfDate form"
+    assertOn target,
+      dateHv.date.isSome, "Date hfDate payload must parse — server returned non-null"
 
-    let fromKey = parseHeaderPropertyName("header:From:asAddresses").expect("fromKey")
-    doAssert fromKey in email.requestedHeaders,
-      "header:From:asAddresses must be present"
+    let fromKey = parseHeaderPropertyName("header:From:asAddresses").expect(
+        "fromKey[" & $target.kind & "]"
+      )
+    assertOn target,
+      fromKey in email.requestedHeaders, "header:From:asAddresses must be present"
     let fromHv = email.requestedHeaders.getOrDefault(fromKey)
-    doAssert fromHv.form == hfAddresses, "From HeaderValue must carry hfAddresses form"
-    doAssert fromHv.addresses.len == 1,
+    assertOn target,
+      fromHv.form == hfAddresses, "From HeaderValue must carry hfAddresses form"
+    assertOn target,
+      fromHv.addresses.len == 1,
       "expected one From address (got " & $fromHv.addresses.len & ")"
-    doAssert fromHv.addresses[0].email == "alice@example.com",
+    assertOn target,
+      fromHv.addresses[0].email == "alice@example.com",
       "From address must be alice@example.com (got " & fromHv.addresses[0].email & ")"
     client.close()

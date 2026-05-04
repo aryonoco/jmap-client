@@ -44,9 +44,18 @@ type RequestBuilder* = object
 {.pop.}
 
 func initRequestBuilder*(): RequestBuilder =
-  ## Creates a fresh builder with counter at zero, no invocations, no
-  ## capabilities.
-  return RequestBuilder(nextCallId: 0, invocations: @[], capabilityUris: @[])
+  ## Creates a fresh builder with counter at zero, no invocations, and
+  ## ``urn:ietf:params:jmap:core`` pre-declared in ``using``. RFC 8620
+  ## §3.2 obliges clients to declare every capability they need to use;
+  ## ``core`` is the foundational namespace that every JMAP method
+  ## implicitly relies on (Result-Reference, sessionState, etc.). Lenient
+  ## servers (Stalwart 0.15.5) accept requests with ``core`` omitted;
+  ## strict servers (Apache James 3.9) reject them with
+  ## ``unknownMethod (Missing capability(ies): urn:ietf:params:jmap:core)``.
+  ## Pre-declaring it makes the client portable across both.
+  return RequestBuilder(
+    nextCallId: 0, invocations: @[], capabilityUris: @["urn:ietf:params:jmap:core"]
+  )
 
 # =============================================================================
 # Read-only accessors (immutability by default)

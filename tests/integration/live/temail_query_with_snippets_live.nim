@@ -39,20 +39,21 @@ import ./mconfig
 import ./mlive
 
 block temailQueryWithSnippetsLive:
-  let cfgRes = loadLiveTestConfig()
-  if cfgRes.isOk:
-    let cfg = cfgRes.get()
+  forEachLiveTarget(target):
     var client = initJmapClient(
-        sessionUrl = cfg.sessionUrl,
-        bearerToken = cfg.aliceToken,
-        authScheme = cfg.authScheme,
+        sessionUrl = target.sessionUrl,
+        bearerToken = target.aliceToken,
+        authScheme = target.authScheme,
       )
-      .expect("initJmapClient")
-    let session = client.fetchSession().expect("fetchSession")
-    let mailAccountId = resolveMailAccountId(session).expect("resolveMailAccountId")
+      .expect("initJmapClient[" & $target.kind & "]")
+    let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
+    let mailAccountId =
+      resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
 
     # --- Resolve inbox + seed corpus ------------------------------------
-    let inbox = resolveInboxId(client, mailAccountId).expect("resolveInboxId")
+    let inbox = resolveInboxId(client, mailAccountId).expect(
+        "resolveInboxId[" & $target.kind & "]"
+      )
     let ids = seedEmailsWithSubjects(
         client,
         mailAccountId,
@@ -62,8 +63,8 @@ block temailQueryWithSnippetsLive:
           "phase-c-17 stepseventeen bravoSeventeen",
         ],
       )
-      .expect("seedEmailsWithSubjects")
-    doAssert ids.len == 2, "seedEmailsWithSubjects must return two ids"
+      .expect("seedEmailsWithSubjects[" & $target.kind & "]")
+    assertOn target, ids.len == 2, "seedEmailsWithSubjects must return two ids"
     let id1 = ids[0]
     let id2 = ids[1]
     let corpus = ids.toHashSet
@@ -73,24 +74,29 @@ block temailQueryWithSnippetsLive:
       filterCondition(EmailFilterCondition(subject: Opt.some("stepseventeen")))
     let (b, chainHandles) =
       addEmailQueryWithSnippets(initRequestBuilder(), mailAccountId, filter = filter)
-    let resp = client.send(b).expect("send Email/query+SearchSnippet/get")
-    captureIfRequested(client, "email-query-with-snippets-stalwart").expect(
+    let resp =
+      client.send(b).expect("send Email/query+SearchSnippet/get[" & $target.kind & "]")
+    captureIfRequested(client, "email-query-with-snippets-" & $target.kind).expect(
       "captureIfRequested"
     )
-    let pair = resp.getBoth(chainHandles).expect("getBoth")
+    let pair = resp.getBoth(chainHandles).expect("getBoth[" & $target.kind & "]")
 
     let queryHits = pair.first.ids.toHashSet
-    doAssert id1 in queryHits, "Email/query result must include first seeded id"
-    doAssert id2 in queryHits, "Email/query result must include second seeded id"
+    assertOn target, id1 in queryHits, "Email/query result must include first seeded id"
+    assertOn target,
+      id2 in queryHits, "Email/query result must include second seeded id"
 
     let queryHitSet = queryHits
     var snippetIds = initHashSet[Id]()
     for snippet in pair.second.list:
-      doAssert snippet.emailId in queryHitSet,
+      assertOn target,
+        snippet.emailId in queryHitSet,
         "every snippet's emailId must appear in the chained Email/query result; got " &
           string(snippet.emailId)
       if snippet.emailId in corpus:
         snippetIds.incl(snippet.emailId)
-    doAssert id1 in snippetIds, "snippet list must include the first seeded emailId"
-    doAssert id2 in snippetIds, "snippet list must include the second seeded emailId"
+    assertOn target,
+      id1 in snippetIds, "snippet list must include the first seeded emailId"
+    assertOn target,
+      id2 in snippetIds, "snippet list must include the second seeded emailId"
     client.close()

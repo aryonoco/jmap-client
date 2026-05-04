@@ -112,14 +112,18 @@ registerQueryableEntity(MockQueryable)
 # ===========================================================================
 
 block initBuilderEmpty:
-  ## Fresh builder has no invocations, no capabilities, and builds an
-  ## empty Request.
+  ## Fresh builder has no invocations, pre-declares the foundational
+  ## ``urn:ietf:params:jmap:core`` capability (RFC 8620 §3.2 — clients
+  ## MUST declare every capability they use; ``core`` is implicit in
+  ## every method), and builds an otherwise empty Request.
   let b = initRequestBuilder()
   doAssert b.isEmpty
   assertEq b.methodCallCount, 0
-  assertLen b.capabilities, 0
+  assertLen b.capabilities, 1
+  assertEq b.capabilities[0], "urn:ietf:params:jmap:core"
   let req = b.build()
-  assertLen req.`using`, 0
+  assertLen req.`using`, 1
+  assertEq req.`using`[0], "urn:ietf:params:jmap:core"
   assertLen req.methodCalls, 0
   doAssert req.createdIds.isNone
 
@@ -162,21 +166,27 @@ block callIdResetPerBuilder:
 # ===========================================================================
 
 block capabilityDedup:
-  ## Two addGet calls for the same entity register the capability only once.
+  ## Two addGet calls for the same entity register the entity capability
+  ## only once. ``urn:ietf:params:jmap:core`` is pre-declared by
+  ## ``initRequestBuilder``, so the resulting set carries it alongside
+  ## the entity URI.
   let b0 = initRequestBuilder()
   let (b1, _) = addGet[MockFoo](b0, makeAccountId())
   let (b2, _) = addGet[MockFoo](b1, makeAccountId())
   let caps = b2.capabilities
-  assertLen caps, 1
-  assertEq caps[0], "urn:test:mockfoo"
+  assertLen caps, 2
+  doAssert "urn:ietf:params:jmap:core" in caps
+  doAssert "urn:test:mockfoo" in caps
 
 block multipleCapabilities:
-  ## Calls for different entities accumulate distinct capability URIs.
+  ## Calls for different entities accumulate distinct entity capability
+  ## URIs alongside the pre-declared ``urn:ietf:params:jmap:core``.
   let b0 = initRequestBuilder()
   let (b1, _) = addGet[MockFoo](b0, makeAccountId())
   let (b2, _) = addGet[MockQueryable](b1, makeAccountId())
   let caps = b2.capabilities
-  assertLen caps, 2
+  assertLen caps, 3
+  doAssert "urn:ietf:params:jmap:core" in caps
   doAssert "urn:test:mockfoo" in caps
   doAssert "urn:test:mockqueryable" in caps
 
@@ -427,21 +437,23 @@ block addQueryWithQueryParams:
   # Explicitly set fields
   assertEq inv.arguments{"position"}.getBiggestInt(0), 10
   assertEq inv.arguments{"calculateTotal"}.getBool(false), true
-  # Unset fields retain defaults
-  assertEq inv.arguments{"anchorOffset"}.getBiggestInt(-1), 0
+  # Unset anchor implies anchorOffset is omitted from the wire.
   doAssert inv.arguments{"anchor"}.isNil
+  doAssert inv.arguments{"anchorOffset"}.isNil
   doAssert inv.arguments{"limit"}.isNil
 
 block addQueryDefaultQueryParams:
-  ## Default QueryParams() matches RFC 8620 section 5.5 defaults.
+  ## Default QueryParams() matches RFC 8620 section 5.5 defaults. With
+  ## anchor absent, anchorOffset is omitted from the emitted JSON
+  ## (RFC 8620 §5.5: anchorOffset is meaningful only with anchor).
   let b0 = initRequestBuilder()
   let (b1, _) = addQuery[MockQueryable, MockFilter, Comparator](b0, makeAccountId("a1"))
   let req = b1.build()
   let inv = req.methodCalls[0]
   assertEq inv.arguments{"position"}.getBiggestInt(-1), 0
-  assertEq inv.arguments{"anchorOffset"}.getBiggestInt(-1), 0
   assertEq inv.arguments{"calculateTotal"}.getBool(true), false
   doAssert inv.arguments{"anchor"}.isNil
+  doAssert inv.arguments{"anchorOffset"}.isNil
   doAssert inv.arguments{"limit"}.isNil
 
 block addQueryChangesCalculateTotalFlow:

@@ -27,52 +27,61 @@ import ./mconfig
 import ./mlive
 
 block temailQueryChangesLive:
-  let cfgRes = loadLiveTestConfig()
-  if cfgRes.isOk:
-    let cfg = cfgRes.get()
+  forEachLiveTarget(target):
+    # James 3.9 compatibility: skipped on James.
+    # Reason: James 3.9 does not implement Email/queryChanges. ``EmailQueryMethod.scala`` returns ``canCalculateChanges = CANNOT`` unconditionally and no ``EmailQueryChangesMethod`` is registered.
+    # When James adds support, remove this guard.
+    if target.kind == ltkJames:
+      continue
     var client = initJmapClient(
-        sessionUrl = cfg.sessionUrl,
-        bearerToken = cfg.aliceToken,
-        authScheme = cfg.authScheme,
+        sessionUrl = target.sessionUrl,
+        bearerToken = target.aliceToken,
+        authScheme = target.authScheme,
       )
-      .expect("initJmapClient")
-    let session = client.fetchSession().expect("fetchSession")
-    let mailAccountId = resolveMailAccountId(session).expect("resolveMailAccountId")
+      .expect("initJmapClient[" & $target.kind & "]")
+    let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
+    let mailAccountId =
+      resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
 
     # --- Resolve inbox + seed three emails ------------------------------
     # The full live suite shares a Stalwart instance, so the inbox may
     # already hold messages seeded by earlier tests. The test asserts on
     # *deltas* — captured baseline ids, then the new added entry — not
     # on absolute counts.
-    let inbox = resolveInboxId(client, mailAccountId).expect("resolveInboxId")
+    let inbox = resolveInboxId(client, mailAccountId).expect(
+        "resolveInboxId[" & $target.kind & "]"
+      )
     let id1 = seedSimpleEmail(
         client, mailAccountId, inbox, "phase-b step-12 a-1", "seed1"
       )
-      .expect("seedSimpleEmail 1")
+      .expect("seedSimpleEmail 1[" & $target.kind & "]")
     let id2 = seedSimpleEmail(
         client, mailAccountId, inbox, "phase-b step-12 a-2", "seed2"
       )
-      .expect("seedSimpleEmail 2")
+      .expect("seedSimpleEmail 2[" & $target.kind & "]")
     let id3 = seedSimpleEmail(
         client, mailAccountId, inbox, "phase-b step-12 a-3", "seed3"
       )
-      .expect("seedSimpleEmail 3")
+      .expect("seedSimpleEmail 3[" & $target.kind & "]")
 
     # --- Email/query: capture queryState_1 + baseline-cardinality -------
     let (b1, queryHandle) = addEmailQuery(initRequestBuilder(), mailAccountId)
-    let resp1 = client.send(b1).expect("send Email/query baseline")
-    let queryResp = resp1.get(queryHandle).expect("Email/query baseline extract")
+    let resp1 =
+      client.send(b1).expect("send Email/query baseline[" & $target.kind & "]")
+    let queryResp = resp1.get(queryHandle).expect(
+        "Email/query baseline extract[" & $target.kind & "]"
+      )
     let queryState1 = queryResp.queryState
-    doAssert id1 in queryResp.ids, "seed 1 must appear in baseline query ids"
-    doAssert id2 in queryResp.ids, "seed 2 must appear in baseline query ids"
-    doAssert id3 in queryResp.ids, "seed 3 must appear in baseline query ids"
+    assertOn target, id1 in queryResp.ids, "seed 1 must appear in baseline query ids"
+    assertOn target, id2 in queryResp.ids, "seed 2 must appear in baseline query ids"
+    assertOn target, id3 in queryResp.ids, "seed 3 must appear in baseline query ids"
     let baselineCount = queryResp.ids.len
 
     # --- Seed a fourth email --------------------------------------------
     let id4 = seedSimpleEmail(
         client, mailAccountId, inbox, "phase-b step-12 a-4", "seed4"
       )
-      .expect("seedSimpleEmail 4")
+      .expect("seedSimpleEmail 4[" & $target.kind & "]")
 
     # --- Email/queryChanges since queryState_1 --------------------------
     let (b2, qcHandle) = addEmailQueryChanges(
@@ -81,24 +90,33 @@ block temailQueryChangesLive:
       sinceQueryState = queryState1,
       calculateTotal = true,
     )
-    let resp2 = client.send(b2).expect("send Email/queryChanges with-total")
-    captureIfRequested(client, "email-query-changes-with-total-stalwart").expect(
+    let resp2 =
+      client.send(b2).expect("send Email/queryChanges with-total[" & $target.kind & "]")
+    captureIfRequested(client, "email-query-changes-with-total-" & $target.kind).expect(
       "captureIfRequested"
     )
-    let qcr = resp2.get(qcHandle).expect("Email/queryChanges extract")
+    let qcr =
+      resp2.get(qcHandle).expect("Email/queryChanges extract[" & $target.kind & "]")
 
-    doAssert string(qcr.oldQueryState) == string(queryState1),
+    assertOn target,
+      string(qcr.oldQueryState) == string(queryState1),
       "oldQueryState must echo the supplied baseline"
-    doAssert string(qcr.newQueryState) != string(queryState1),
+    assertOn target,
+      string(qcr.newQueryState) != string(queryState1),
       "newQueryState must differ after a fresh seed"
-    doAssert qcr.total.isSome and qcr.total.get() == UnsignedInt(baselineCount + 1),
+    assertOn target,
+      qcr.total.isSome and qcr.total.get() == UnsignedInt(baselineCount + 1),
       "calculateTotal must surface baselineCount+1 (got " & $qcr.total & ")"
-    doAssert qcr.removed.len == 0, "no destroys issued — removed must be empty"
-    doAssert qcr.added.len == 1,
+    assertOn target,
+      qcr.removed.len == 0, "no destroys issued — removed must be empty"
+    assertOn target,
+      qcr.added.len == 1,
       "exactly one new entry must be added (got " & $qcr.added.len & ")"
-    doAssert string(qcr.added[0].id) == string(id4),
+    assertOn target,
+      string(qcr.added[0].id) == string(id4),
       "the added entry must be the fourth seeded id"
-    doAssert qcr.added[0].index < UnsignedInt(baselineCount + 1),
+    assertOn target,
+      qcr.added[0].index < UnsignedInt(baselineCount + 1),
       "added.index must fall within the new query's bounds"
 
     # --- Email/queryChanges without calculateTotal ----------------------
@@ -109,12 +127,15 @@ block temailQueryChangesLive:
     let (b3, qcNoTotalHandle) = addEmailQueryChanges(
       initRequestBuilder(), mailAccountId, sinceQueryState = queryState1
     )
-    let resp3 = client.send(b3).expect("send Email/queryChanges no-total")
-    captureIfRequested(client, "email-query-changes-no-total-stalwart").expect(
+    let resp3 =
+      client.send(b3).expect("send Email/queryChanges no-total[" & $target.kind & "]")
+    captureIfRequested(client, "email-query-changes-no-total-" & $target.kind).expect(
       "captureIfRequested"
     )
-    let qcrNoTotal =
-      resp3.get(qcNoTotalHandle).expect("Email/queryChanges no-total extract")
-    doAssert qcrNoTotal.total.isNone,
+    let qcrNoTotal = resp3.get(qcNoTotalHandle).expect(
+        "Email/queryChanges no-total extract[" & $target.kind & "]"
+      )
+    assertOn target,
+      qcrNoTotal.total.isNone,
       "total must be absent when calculateTotal is not requested"
     client.close()

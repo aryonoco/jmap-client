@@ -320,8 +320,16 @@ func fromJson*(
 # =============================================================================
 
 func toJson*(mc: MailboxCreate): JsonNode =
-  ## Serialise MailboxCreate to JSON. Emits all 5 fields (no server-set fields).
-  ## parentId/role emit as value or null.
+  ## Serialise MailboxCreate to JSON. ``parentId`` is always emitted
+  ## (value or null) because the wire shape distinguishes "top-level
+  ## mailbox" (null) from "nested under X" (value). ``role`` and
+  ## ``sortOrder`` are emitted only when explicitly set: Stalwart
+  ## accepts both omitted and explicit-null/zero forms, but James 3.9
+  ## treats either field as a server-set property and rejects creation
+  ## with ``invalidArguments`` whenever they appear in the payload
+  ## (``MailboxSetMethod.scala`` allow-list). RFC 8621 §2.5 leaves
+  ## both as optional client suggestions, so omitting them when the
+  ## caller did not supply a value is RFC-conformant on both targets.
   var node = newJObject()
   node["name"] = %mc.name
   for pid in mc.parentId:
@@ -330,9 +338,8 @@ func toJson*(mc: MailboxCreate): JsonNode =
     node["parentId"] = newJNull()
   for r in mc.role:
     node["role"] = r.toJson()
-  if mc.role.isNone:
-    node["role"] = newJNull()
-  node["sortOrder"] = mc.sortOrder.toJson()
+  if mc.sortOrder != UnsignedInt(0):
+    node["sortOrder"] = mc.sortOrder.toJson()
   node["isSubscribed"] = %mc.isSubscribed
   return node
 

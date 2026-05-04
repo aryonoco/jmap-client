@@ -60,32 +60,39 @@ import ./mconfig
 import ./mlive
 
 block tcombinedChangesLive:
-  let cfgRes = loadLiveTestConfig()
-  if cfgRes.isOk:
-    let cfg = cfgRes.get()
+  forEachLiveTarget(target):
+    # James 3.9 compatibility: skipped on James.
+    # Reason: exercises Thread/changes convergence after Email/set; James 3.9's Thread/changes is documented as partially implemented (`doc/specs/spec/mail/thread.mdown`: "Naive implementation") and does not advance Thread state when emails are created — `oldState == newState` and `created/updated/destroyed` stay empty. Re-fetch loop times out. Stalwart's threading pipeline is async and exercises the full RFC 8621 §3.2 contract, so the wire shape is preserved via the captured `-stalwart` fixture.
+    # Replay coverage for the Stalwart wire shape is preserved via
+    # captured ``-stalwart`` fixtures.
+    if target.kind == ltkJames:
+      continue
     var client = initJmapClient(
-        sessionUrl = cfg.sessionUrl,
-        bearerToken = cfg.aliceToken,
-        authScheme = cfg.authScheme,
+        sessionUrl = target.sessionUrl,
+        bearerToken = target.aliceToken,
+        authScheme = target.authScheme,
       )
-      .expect("initJmapClient")
-    let session = client.fetchSession().expect("fetchSession")
-    let mailAccountId = resolveMailAccountId(session).expect("resolveMailAccountId")
+      .expect("initJmapClient[" & $target.kind & "]")
+    let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
+    let mailAccountId =
+      resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
 
     # --- Resolve inbox + ensure the step-47 mailbox exists --------------
-    let inbox = resolveInboxId(client, mailAccountId).expect("resolveInboxId")
+    let inbox = resolveInboxId(client, mailAccountId).expect(
+        "resolveInboxId[" & $target.kind & "]"
+      )
     let tempMailboxId = resolveOrCreateMailbox(
         client, mailAccountId, "phase-h step-47 child"
       )
-      .expect("resolveOrCreateMailbox child")
+      .expect("resolveOrCreateMailbox child[" & $target.kind & "]")
 
     # --- Capture three baselines (post-create) --------------------------
     let baselineMailboxState = captureBaselineState[Mailbox](client, mailAccountId)
-      .expect("captureBaselineState[Mailbox]")
+      .expect("captureBaselineState[Mailbox][" & $target.kind & "]")
     let baselineThreadState = captureBaselineState[jmap_client.Thread](
         client, mailAccountId
       )
-      .expect("captureBaselineState[Thread]")
+      .expect("captureBaselineState[Thread][" & $target.kind & "]")
     let baselineEmailState = captureBaselineState[Email](client, mailAccountId).expect(
         "captureBaselineState[Email]"
       )
@@ -94,24 +101,28 @@ block tcombinedChangesLive:
     let (bDestroy, destroyHandle) = addMailboxSet(
       initRequestBuilder(), mailAccountId, destroy = directIds(@[tempMailboxId])
     )
-    let respDestroy =
-      client.send(bDestroy).expect("send Mailbox/set destroy step-47 child")
-    let destroyResp =
-      respDestroy.get(destroyHandle).expect("Mailbox/set destroy step-47 extract")
+    let respDestroy = client.send(bDestroy).expect(
+        "send Mailbox/set destroy step-47 child[" & $target.kind & "]"
+      )
+    let destroyResp = respDestroy.get(destroyHandle).expect(
+        "Mailbox/set destroy step-47 extract[" & $target.kind & "]"
+      )
     var sawDestroyOk = false
     destroyResp.destroyResults.withValue(tempMailboxId, outcome):
-      doAssert outcome.isOk,
+      assertOn target,
+        outcome.isOk,
         "Mailbox/set destroy of empty step-47 mailbox must succeed: " &
           outcome.error.rawType
       sawDestroyOk = true
     do:
-      doAssert false, "Mailbox/set must report a destroy outcome for tempMailboxId"
-    doAssert sawDestroyOk
+      assertOn target,
+        false, "Mailbox/set must report a destroy outcome for tempMailboxId"
+    assertOn target, sawDestroyOk
 
     let seededEmailId = seedSimpleEmail(
         client, mailAccountId, inbox, "phase-h step-47 seed", "step47seed"
       )
-      .expect("seedSimpleEmail")
+      .expect("seedSimpleEmail[" & $target.kind & "]")
 
     # --- Combined Request inside re-fetch loop --------------------------
     var converged = false
@@ -127,36 +138,50 @@ block tcombinedChangesLive:
       )
       let (b3, emailH) =
         addChanges[Email](b2, mailAccountId, sinceState = baselineEmailState)
-      let resp = client.send(b3).expect("send combined */changes")
-      let mailboxCr = resp.get(mailboxH).expect("Mailbox/changes extract")
-      let threadCr = resp.get(threadH).expect("Thread/changes extract")
-      let emailCr = resp.get(emailH).expect("Email/changes extract")
+      let resp = client.send(b3).expect("send combined */changes[" & $target.kind & "]")
+      let mailboxCr =
+        resp.get(mailboxH).expect("Mailbox/changes extract[" & $target.kind & "]")
+      let threadCr =
+        resp.get(threadH).expect("Thread/changes extract[" & $target.kind & "]")
+      let emailCr =
+        resp.get(emailH).expect("Email/changes extract[" & $target.kind & "]")
       if threadCr.created.len + threadCr.updated.len >= 1:
-        captureIfRequested(client, "combined-changes-mailbox-thread-email-stalwart")
-          .expect("captureIfRequested")
+        captureIfRequested(
+          client, "combined-changes-mailbox-thread-email-" & $target.kind
+        )
+          .expect("captureIfRequested[" & $target.kind & "]")
         capturedMailboxCr = mailboxCr
         capturedThreadCr = threadCr
         capturedEmailCr = emailCr
         converged = true
         break
       sleep(200)
-    doAssert converged,
+    assertOn target,
+      converged,
       "combined */changes did not converge within 1 s — extend re-fetch budget " &
         "or investigate Stalwart 0.15.5 threading pipeline"
-    doAssert string(capturedMailboxCr.oldState) == string(baselineMailboxState),
+    assertOn target,
+      string(capturedMailboxCr.oldState) == string(baselineMailboxState),
       "Mailbox/changes oldState must echo baseline"
-    doAssert string(capturedThreadCr.oldState) == string(baselineThreadState),
+    assertOn target,
+      string(capturedThreadCr.oldState) == string(baselineThreadState),
       "Thread/changes oldState must echo baseline"
-    doAssert string(capturedEmailCr.oldState) == string(baselineEmailState),
+    assertOn target,
+      string(capturedEmailCr.oldState) == string(baselineEmailState),
       "Email/changes oldState must echo baseline"
-    doAssert tempMailboxId in capturedMailboxCr.destroyed,
+    assertOn target,
+      tempMailboxId in capturedMailboxCr.destroyed,
       "destroyed mailbox id must surface in Mailbox/changes destroyed"
-    doAssert seededEmailId in capturedEmailCr.created,
+    assertOn target,
+      seededEmailId in capturedEmailCr.created,
       "seeded email id must surface in Email/changes created"
-    doAssert capturedMailboxCr.hasMoreChanges == false,
+    assertOn target,
+      capturedMailboxCr.hasMoreChanges == false,
       "Mailbox/changes hasMoreChanges must be false"
-    doAssert capturedThreadCr.hasMoreChanges == false,
+    assertOn target,
+      capturedThreadCr.hasMoreChanges == false,
       "Thread/changes hasMoreChanges must be false"
-    doAssert capturedEmailCr.hasMoreChanges == false,
+    assertOn target,
+      capturedEmailCr.hasMoreChanges == false,
       "Email/changes hasMoreChanges must be false"
     client.close()

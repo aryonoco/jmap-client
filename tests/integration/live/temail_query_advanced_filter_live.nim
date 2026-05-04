@@ -177,26 +177,38 @@ proc assertHasAttachment(
     "attachment-bearing email must surface under hasAttachment=true + before=future"
 
 block temailQueryAdvancedFilterLive:
-  let cfgRes = loadLiveTestConfig()
-  if cfgRes.isOk:
-    let cfg = cfgRes.get()
+  forEachLiveTarget(target):
+    # James 3.9 fails this test for two independent reasons:
+    #   1. ``seedMixedEmail`` (Sub-test C) uses inline-bodyValues
+    #      attachments which James rejects (requires blob upload via
+    #      RFC 8620 §6.1 ``/upload`` — the library scope deferral).
+    #   2. ``inMailboxOtherThan`` (Sub-test B) is rejected by James
+    #      when nested inside a FilterOperator AND can't combine with
+    #      ``minSize`` because James only allows top-level
+    #      ``inMailboxOtherThan`` (``doc/specs/spec/mail/message.mdown``).
+    # Captured ``-stalwart`` fixtures preserve replay coverage.
+    if target.kind == ltkJames:
+      continue
     var client = initJmapClient(
-        sessionUrl = cfg.sessionUrl,
-        bearerToken = cfg.aliceToken,
-        authScheme = cfg.authScheme,
+        sessionUrl = target.sessionUrl,
+        bearerToken = target.aliceToken,
+        authScheme = target.authScheme,
       )
-      .expect("initJmapClient")
-    let session = client.fetchSession().expect("fetchSession")
-    let mailAccountId = resolveMailAccountId(session).expect("resolveMailAccountId")
+      .expect("initJmapClient[" & $target.kind & "]")
+    let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
+    let mailAccountId =
+      resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
 
-    let inbox = resolveInboxId(client, mailAccountId).expect("resolveInboxId")
+    let inbox = resolveInboxId(client, mailAccountId).expect(
+        "resolveInboxId[" & $target.kind & "]"
+      )
     let archive = resolveOrCreateMailbox(client, mailAccountId, "phase-i 55 archive")
-      .expect("resolveOrCreateMailbox archive")
+      .expect("resolveOrCreateMailbox archive[" & $target.kind & "]")
     let smallInbox = seedEmailsWithSubjects(
         client, mailAccountId, inbox, @["phase-i 55 small a"]
       )
-      .expect("seedEmailsWithSubjects inbox small")
-    doAssert smallInbox.len == 1
+      .expect("seedEmailsWithSubjects inbox small[" & $target.kind & "]")
+    assertOn target, smallInbox.len == 1
     let largeId = seedLargeEmail(
       client, mailAccountId, inbox, "phase-i 55 large", "phase-i-55-large"
     )
@@ -205,12 +217,12 @@ block temailQueryAdvancedFilterLive:
         "phase-i-55-attach.txt", "text/plain", "phase-i 55 attachment payload",
         "phase-i-55-attach",
       )
-      .expect("seedMixedEmail attached")
+      .expect("seedMixedEmail attached[" & $target.kind & "]")
     let archiveSeeds = seedEmailsIntoMailbox(
         client, mailAccountId, archive, @["phase-i 55 archived"]
       )
-      .expect("seedEmailsIntoMailbox archive")
-    doAssert archiveSeeds.len == 1
+      .expect("seedEmailsIntoMailbox archive[" & $target.kind & "]")
+    assertOn target, archiveSeeds.len == 1
     let archiveSeed = archiveSeeds[0]
 
     assertInMailbox(client, mailAccountId, archive, archiveSeed, smallInbox)

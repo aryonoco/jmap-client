@@ -26,24 +26,26 @@ import ./mconfig
 import ./mlive
 
 block tEmailSubmissionOnSuccessUpdateLive:
-  let cfgRes = loadLiveTestConfig()
-  if cfgRes.isOk:
-    let cfg = cfgRes.get()
+  forEachLiveTarget(target):
     var client = initJmapClient(
-        sessionUrl = cfg.sessionUrl,
-        bearerToken = cfg.aliceToken,
-        authScheme = cfg.authScheme,
+        sessionUrl = target.sessionUrl,
+        bearerToken = target.aliceToken,
+        authScheme = target.authScheme,
       )
-      .expect("initJmapClient")
-    let session = client.fetchSession().expect("fetchSession")
-    let mailAccountId = resolveMailAccountId(session).expect("resolveMailAccountId")
-    let submissionAccountId =
-      resolveSubmissionAccountId(session).expect("resolveSubmissionAccountId")
+      .expect("initJmapClient[" & $target.kind & "]")
+    let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
+    let mailAccountId =
+      resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
+    let submissionAccountId = resolveSubmissionAccountId(session).expect(
+        "resolveSubmissionAccountId[" & $target.kind & "]"
+      )
 
-    let draftsId =
-      resolveOrCreateDrafts(client, mailAccountId).expect("resolveOrCreateDrafts")
-    let sentId =
-      resolveOrCreateSent(client, mailAccountId).expect("resolveOrCreateSent")
+    let draftsId = resolveOrCreateDrafts(client, mailAccountId).expect(
+        "resolveOrCreateDrafts[" & $target.kind & "]"
+      )
+    let sentId = resolveOrCreateSent(client, mailAccountId).expect(
+        "resolveOrCreateSent[" & $target.kind & "]"
+      )
 
     let identityId = resolveOrCreateAliceIdentity(client, submissionAccountId).expect(
         "resolveOrCreateAliceIdentity"
@@ -54,17 +56,20 @@ block tEmailSubmissionOnSuccessUpdateLive:
     let bobAddr = parseEmailAddress("bob@example.com", Opt.some("Bob")).expect(
         "parseEmailAddress bob"
       )
-    let envelope =
-      buildEnvelope("alice@example.com", "bob@example.com").expect("buildEnvelope")
+    let envelope = buildEnvelope("alice@example.com", "bob@example.com").expect(
+        "buildEnvelope[" & $target.kind & "]"
+      )
     let draftId = seedDraftEmail(
         client, mailAccountId, draftsId, aliceAddr, bobAddr, "phase-f step-34",
         "Submission with onSuccessUpdateEmail patch.", "draft34",
       )
-      .expect("seedDraftEmail")
+      .expect("seedDraftEmail[" & $target.kind & "]")
 
     # --- Build EmailUpdateSet patch + onSuccessUpdateEmail map ----------
-    let draftKw = parseKeyword("$draft").expect("parseKeyword $draft")
-    let seenKw = parseKeyword("$seen").expect("parseKeyword $seen")
+    let draftKw =
+      parseKeyword("$draft").expect("parseKeyword $draft[" & $target.kind & "]")
+    let seenKw =
+      parseKeyword("$seen").expect("parseKeyword $seen[" & $target.kind & "]")
     let patch = initEmailUpdateSet(
         @[
           removeFromMailbox(draftsId),
@@ -73,16 +78,24 @@ block tEmailSubmissionOnSuccessUpdateLive:
           addKeyword(seenKw),
         ]
       )
-      .expect("initEmailUpdateSet")
-    let onSuccess = parseNonEmptyOnSuccessUpdateEmail(@[(directRef(draftId), patch)])
-      .expect("parseNonEmptyOnSuccessUpdateEmail")
+      .expect("initEmailUpdateSet[" & $target.kind & "]")
+    let subCid =
+      parseCreationId("sub34").expect("parseCreationId sub34[" & $target.kind & "]")
+    # Reference the in-request submission via its creation id (RFC 8621
+    # §7.5 ¶3 — ``"#" + creationId`` resolves against the sibling create
+    # in the same /set call). James 3.9 supports only ``#cid`` references
+    # for ``onSuccessUpdateEmail`` (direct ``Id`` references against the
+    # submission's persisted id are rejected because James does not
+    # store EmailSubmissions). The ``creationRef`` form is RFC-canonical
+    # and works on both servers.
+    let onSuccess = parseNonEmptyOnSuccessUpdateEmail(@[(creationRef(subCid), patch)])
+      .expect("parseNonEmptyOnSuccessUpdateEmail[" & $target.kind & "]")
 
     # --- Build blueprint + compound submission ---------------------------
     let blueprint = parseEmailSubmissionBlueprint(
         identityId = identityId, emailId = draftId, envelope = Opt.some(envelope)
       )
-      .expect("parseEmailSubmissionBlueprint")
-    let subCid = parseCreationId("sub34").expect("parseCreationId sub34")
+      .expect("parseEmailSubmissionBlueprint[" & $target.kind & "]")
     var subTbl = initTable[CreationId, EmailSubmissionBlueprint]()
     subTbl[subCid] = blueprint
     let (b3, handles) = addEmailSubmissionAndEmailSet(
@@ -91,28 +104,58 @@ block tEmailSubmissionOnSuccessUpdateLive:
       create = Opt.some(subTbl),
       onSuccessUpdateEmail = Opt.some(onSuccess),
     )
-    let resp3 = client.send(b3).expect("send EmailSubmission/set+Email/set")
-    captureIfRequested(client, "email-submission-on-success-update-stalwart").expect(
-      "captureIfRequested"
-    )
-    let pair = resp3.getBoth(handles).expect("getBoth(EmailSubmissionHandles)")
+    let resp3 =
+      client.send(b3).expect("send EmailSubmission/set+Email/set[" & $target.kind & "]")
+    captureIfRequested(client, "email-submission-on-success-update-" & $target.kind)
+      .expect("captureIfRequested")
+    let pair = resp3.getBoth(handles).expect(
+        "getBoth(EmailSubmissionHandles)[" & $target.kind & "]"
+      )
     var submissionId: Id
     pair.primary.createResults.withValue(subCid, outcome):
-      doAssert outcome.isOk,
+      assertOn target,
+        outcome.isOk,
         "EmailSubmission/set create must succeed: " & outcome.error.rawType
       submissionId = outcome.unsafeValue.id
     do:
-      doAssert false, "EmailSubmission/set must report a create outcome"
+      assertOn target, false, "EmailSubmission/set must report a create outcome"
     pair.implicit.updateResults.withValue(draftId, outcome):
-      doAssert outcome.isOk,
-        "implicit Email/set update must succeed: " & outcome.error.rawType
+      assertOn target,
+        outcome.isOk, "implicit Email/set update must succeed: " & outcome.error.rawType
     do:
-      doAssert false, "implicit Email/set must report an update outcome for draftId"
+      assertOn target,
+        false, "implicit Email/set must report an update outcome for draftId"
 
-    # --- Poll until usFinal -----------------------------------------------
-    discard pollSubmissionDelivery(client, submissionAccountId, submissionId).expect(
-        "pollSubmissionDelivery"
-      )
+    # --- Verification leg: divergent on target -------------------------
+    case target.kind
+    of ltkStalwart:
+      # Stalwart implements EmailSubmission/get; poll until ``usFinal``
+      # before reading back the email so the SMTP queue is drained and
+      # the mailbox/keyword patch is observable.
+      discard pollSubmissionDelivery(client, submissionAccountId, submissionId).expect(
+          "pollSubmissionDelivery[stalwart]"
+        )
+    of ltkJames:
+      # James 3.9 has no ``EmailSubmission/get``. Verify delivery via
+      # inbox arrival on bob; ``onSuccessUpdateEmail`` is processed
+      # synchronously per RFC 8621 §7.5 ¶3 (works on James for
+      # in-request ``#cid`` references), so the mailbox/keyword
+      # patch is already observable.
+      var bobClient = initBobClient(target).expect("initBobClient[james]")
+      let bobSession = bobClient.fetchSession().expect("fetchSession bob[james]")
+      let bobMailAccountId =
+        resolveMailAccountId(bobSession).expect("resolveMailAccountId bob[james]")
+      let bobInbox =
+        resolveInboxId(bobClient, bobMailAccountId).expect("resolveInboxId bob[james]")
+      discard pollEmailDeliveryToInbox(
+          bobClient,
+          bobMailAccountId,
+          bobInbox,
+          subject = "phase-f step-34",
+          budgetMs = 5000,
+        )
+        .expect("pollEmailDeliveryToInbox bob[james]")
+      bobClient.close()
 
     # --- Read-back via Email/get to verify mailbox + keyword changes -----
     let (b4, emailGetHandle) = addEmailGet(
@@ -121,19 +164,25 @@ block tEmailSubmissionOnSuccessUpdateLive:
       ids = directIds(@[draftId]),
       properties = Opt.some(@["mailboxIds", "keywords"]),
     )
-    let resp4 = client.send(b4).expect("send Email/get post-submit")
-    let getResp = resp4.get(emailGetHandle).expect("Email/get post-submit extract")
-    doAssert getResp.list.len == 1,
-      "Email/get must return one entry for the patched draft"
-    let email = Email.fromJson(getResp.list[0]).expect("Email.fromJson")
-    doAssert email.mailboxIds.isSome, "Email/get must include mailboxIds"
+    let resp4 =
+      client.send(b4).expect("send Email/get post-submit[" & $target.kind & "]")
+    let getResp = resp4.get(emailGetHandle).expect(
+        "Email/get post-submit extract[" & $target.kind & "]"
+      )
+    assertOn target,
+      getResp.list.len == 1, "Email/get must return one entry for the patched draft"
+    let email =
+      Email.fromJson(getResp.list[0]).expect("Email.fromJson[" & $target.kind & "]")
+    assertOn target, email.mailboxIds.isSome, "Email/get must include mailboxIds"
     let mbIds = HashSet[Id](email.mailboxIds.unsafeGet)
-    doAssert sentId in mbIds,
+    assertOn target,
+      sentId in mbIds,
       "after onSuccessUpdateEmail, draft must be in Sent (mailboxIds=" & $mbIds & ")"
-    doAssert draftsId notin mbIds,
+    assertOn target,
+      draftsId notin mbIds,
       "after onSuccessUpdateEmail, draft must no longer be in Drafts"
-    doAssert email.keywords.isSome, "Email/get must include keywords"
+    assertOn target, email.keywords.isSome, "Email/get must include keywords"
     let kwSet = HashSet[Keyword](email.keywords.unsafeGet)
-    doAssert seenKw in kwSet, "after patch, $seen must be present"
-    doAssert draftKw notin kwSet, "after patch, $draft must be absent"
+    assertOn target, seenKw in kwSet, "after patch, $seen must be present"
+    assertOn target, draftKw notin kwSet, "after patch, $draft must be absent"
     client.close()

@@ -40,22 +40,23 @@ import ./mconfig
 import ./mlive
 
 block temailQuerySortLive:
-  let cfgRes = loadLiveTestConfig()
-  if cfgRes.isOk:
-    let cfg = cfgRes.get()
+  forEachLiveTarget(target):
     var client = initJmapClient(
-        sessionUrl = cfg.sessionUrl,
-        bearerToken = cfg.aliceToken,
-        authScheme = cfg.authScheme,
+        sessionUrl = target.sessionUrl,
+        bearerToken = target.aliceToken,
+        authScheme = target.authScheme,
       )
-      .expect("initJmapClient")
-    let session = client.fetchSession().expect("fetchSession")
-    let mailAccountId = resolveMailAccountId(session).expect("resolveMailAccountId")
+      .expect("initJmapClient[" & $target.kind & "]")
+    let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
+    let mailAccountId =
+      resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
 
     let colls = resolveCollationAlgorithms(session)
 
     # --- Resolve inbox + seed corpus ------------------------------------
-    let inbox = resolveInboxId(client, mailAccountId).expect("resolveInboxId")
+    let inbox = resolveInboxId(client, mailAccountId).expect(
+        "resolveInboxId[" & $target.kind & "]"
+      )
     let ids = seedEmailsWithSubjects(
         client,
         mailAccountId,
@@ -65,8 +66,8 @@ block temailQuerySortLive:
           "phase-c-15 stepfifteen mike",
         ],
       )
-      .expect("seedEmailsWithSubjects")
-    doAssert ids.len == 3, "seedEmailsWithSubjects must return three ids"
+      .expect("seedEmailsWithSubjects[" & $target.kind & "]")
+    assertOn target, ids.len == 3, "seedEmailsWithSubjects must return three ids"
     let zuluId = ids[0]
     let alphaId = ids[1]
     let mikeId = ids[2]
@@ -82,15 +83,18 @@ block temailQuerySortLive:
       filter = Opt.some(filter),
       sort = Opt.some(ascSort),
     )
-    let respA = client.send(ba).expect("send Email/query asc")
-    let ascResp = respA.get(ascHandle).expect("Email/query asc extract")
+    let respA = client.send(ba).expect("send Email/query asc[" & $target.kind & "]")
+    let ascResp =
+      respA.get(ascHandle).expect("Email/query asc extract[" & $target.kind & "]")
     var ascSeeded: seq[Id] = @[]
     for id in ascResp.ids:
       if id in corpus:
         ascSeeded.add(id)
-    doAssert ascSeeded.len == 3,
+    assertOn target,
+      ascSeeded.len == 3,
       "ascending sort must surface all three seeded ids; got " & $ascSeeded.len
-    doAssert ascSeeded == @[alphaId, mikeId, zuluId],
+    assertOn target,
+      ascSeeded == @[alphaId, mikeId, zuluId],
       "ascending pspSubject must order alpha → mike → zulu (got order " & $ascSeeded &
         "; expected " & $(@[alphaId, mikeId, zuluId]) & ")"
 
@@ -102,15 +106,18 @@ block temailQuerySortLive:
       filter = Opt.some(filter),
       sort = Opt.some(descSort),
     )
-    let respD = client.send(bd).expect("send Email/query desc")
-    let descResp = respD.get(descHandle).expect("Email/query desc extract")
+    let respD = client.send(bd).expect("send Email/query desc[" & $target.kind & "]")
+    let descResp =
+      respD.get(descHandle).expect("Email/query desc extract[" & $target.kind & "]")
     var descSeeded: seq[Id] = @[]
     for id in descResp.ids:
       if id in corpus:
         descSeeded.add(id)
-    doAssert descSeeded.len == 3,
+    assertOn target,
+      descSeeded.len == 3,
       "descending sort must surface all three seeded ids; got " & $descSeeded.len
-    doAssert descSeeded == @[zuluId, mikeId, alphaId],
+    assertOn target,
+      descSeeded == @[zuluId, mikeId, alphaId],
       "descending pspSubject must order zulu → mike → alpha (got order " &
         $descSeeded & ")"
 
@@ -120,8 +127,9 @@ block temailQuerySortLive:
       for c in colls:
         collationStrings.add($c)
       collationStrings.sort()
-      let chosen =
-        parseCollationAlgorithm(collationStrings[0]).expect("parseCollationAlgorithm")
+      let chosen = parseCollationAlgorithm(collationStrings[0]).expect(
+          "parseCollationAlgorithm[" & $target.kind & "]"
+        )
       let collSort = @[
         plainComparator(
           pspSubject, isAscending = Opt.some(true), collation = Opt.some(chosen)
@@ -133,13 +141,17 @@ block temailQuerySortLive:
         filter = Opt.some(filter),
         sort = Opt.some(collSort),
       )
-      let respC = client.send(bc).expect("send Email/query collation")
-      let collResp = respC.get(collHandle).expect("Email/query collation extract")
+      let respC =
+        client.send(bc).expect("send Email/query collation[" & $target.kind & "]")
+      let collResp = respC.get(collHandle).expect(
+          "Email/query collation extract[" & $target.kind & "]"
+        )
       var collSeeded: seq[Id] = @[]
       for id in collResp.ids:
         if id in corpus:
           collSeeded.add(id)
-      doAssert collSeeded == @[alphaId, mikeId, zuluId],
+      assertOn target,
+        collSeeded == @[alphaId, mikeId, zuluId],
         "explicit collation " & $chosen &
           " must round-trip ascending order alpha → mike → zulu (got " & $collSeeded &
           ")"

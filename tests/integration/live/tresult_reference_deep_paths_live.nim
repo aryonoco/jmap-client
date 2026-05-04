@@ -32,49 +32,74 @@ import ./mconfig
 import ./mlive
 
 block tresultReferenceDeepPathsLive:
-  let cfgRes = loadLiveTestConfig()
-  if cfgRes.isOk:
-    let cfg = cfgRes.get()
+  forEachLiveTarget(target):
     var client = initJmapClient(
-        sessionUrl = cfg.sessionUrl,
-        bearerToken = cfg.aliceToken,
-        authScheme = cfg.authScheme,
+        sessionUrl = target.sessionUrl,
+        bearerToken = target.aliceToken,
+        authScheme = target.authScheme,
       )
-      .expect("initJmapClient")
-    let session = client.fetchSession().expect("fetchSession")
-    let mailAccountId = resolveMailAccountId(session).expect("resolveMailAccountId")
-    let inbox = resolveInboxId(client, mailAccountId).expect("resolveInboxId")
+      .expect("initJmapClient[" & $target.kind & "]")
+    let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
+    let mailAccountId =
+      resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
+    let inbox = resolveInboxId(client, mailAccountId).expect(
+        "resolveInboxId[" & $target.kind & "]"
+      )
 
     let seedIds = seedEmailsWithSubjects(
         client,
         mailAccountId,
         inbox,
-        @[
-          "phase-j 67 ref deep alpha", "phase-j 67 ref deep beta",
-          "phase-j 67 ref deep gamma",
-        ],
+        @["phasej67refdeep alpha", "phasej67refdeep beta", "phasej67refdeep gamma"],
       )
-      .expect("seedEmailsWithSubjects")
-    doAssert seedIds.len == 3
+      .expect("seedEmailsWithSubjects[" & $target.kind & "]")
+    assertOn target, seedIds.len == 3
 
     # Sub-test 1: simple two-leg chain — Email/query → Email/get.
     # Regression-only.
     block simpleRefCase:
-      let (b1, queryHandle) = addEmailQuery(initRequestBuilder(), mailAccountId)
+      # Filter the back-referenced Email/query to the seeded discriminator
+      # so the downstream Email/get's #ids result reference does not pull
+      # an unbounded slice of inbox-wide ids. James 3.9 caps Email/get at
+      # 5 items when fetching full properties (no per-property override
+      # in the memory image) and rejects with ``requestTooLarge`` when the
+      # back-reference resolves to more. Stalwart accepts arbitrary sizes
+      # but tightening the chain doesn't change its result.
+      let chainFilter =
+        filterCondition(EmailFilterCondition(subject: Opt.some("phasej67refdeep")))
+      let (b1, queryHandle) = addEmailQuery(
+        initRequestBuilder(), mailAccountId, filter = Opt.some(chainFilter)
+      )
       let queryRef = initResultReference(callId(queryHandle), mnEmailQuery, rpIds)
       let (b2, getHandle) = addEmailGetByRef(b1, mailAccountId, idsRef = queryRef)
-      let resp = client.send(b2).expect("send Email/query → Email/get")
-      let queryResp = resp.get(queryHandle).expect("Email/query extract")
-      let getResp = resp.get(getHandle).expect("Email/get extract")
-      doAssert queryResp.ids.len >= 3,
+      let resp =
+        client.send(b2).expect("send Email/query → Email/get[" & $target.kind & "]")
+      let queryResp =
+        resp.get(queryHandle).expect("Email/query extract[" & $target.kind & "]")
+      let getResp =
+        resp.get(getHandle).expect("Email/get extract[" & $target.kind & "]")
+      assertOn target,
+        queryResp.ids.len >= 3,
         "Email/query must surface at least the seeded ids, got " & $queryResp.ids.len
-      doAssert getResp.list.len >= 3,
+      assertOn target,
+        getResp.list.len >= 3,
         "Email/get-by-ref must return matching list, got " & $getResp.list.len
 
     # Sub-test 2: three-leg deep chain via rpListThreadId.
     # Email/query → Email/get(props=[id, threadId]) → Thread/get
     block deepRefCase:
-      let (b1, queryHandle) = addEmailQuery(initRequestBuilder(), mailAccountId)
+      # Filter the back-referenced Email/query to the seeded discriminator
+      # so the downstream Email/get's #ids result reference does not pull
+      # an unbounded slice of inbox-wide ids. James 3.9 caps Email/get at
+      # 5 items when fetching full properties (no per-property override
+      # in the memory image) and rejects with ``requestTooLarge`` when the
+      # back-reference resolves to more. Stalwart accepts arbitrary sizes
+      # but tightening the chain doesn't change its result.
+      let chainFilter =
+        filterCondition(EmailFilterCondition(subject: Opt.some("phasej67refdeep")))
+      let (b1, queryHandle) = addEmailQuery(
+        initRequestBuilder(), mailAccountId, filter = Opt.some(chainFilter)
+      )
       let queryRef = initResultReference(callId(queryHandle), mnEmailQuery, rpIds)
       let (b2, getHandle) = addEmailGetByRef(
         b1, mailAccountId, idsRef = queryRef, properties = Opt.some(@["id", "threadId"])
@@ -83,18 +108,26 @@ block tresultReferenceDeepPathsLive:
         initResultReference(callId(getHandle), mnEmailGet, rpListThreadId)
       let (b3, threadHandle) =
         addThreadGetByRef(b2, mailAccountId, idsRef = getThreadIdRef)
-      let resp = client.send(b3).expect("send Email/query → Email/get → Thread/get")
-      captureIfRequested(client, "result-reference-deep-path-stalwart").expect(
+      let resp = client.send(b3).expect(
+          "send Email/query → Email/get → Thread/get[" & $target.kind & "]"
+        )
+      captureIfRequested(client, "result-reference-deep-path-" & $target.kind).expect(
         "captureIfRequested deep ref"
       )
-      let queryResp = resp.get(queryHandle).expect("Email/query extract")
-      let getResp = resp.get(getHandle).expect("Email/get extract")
-      let threadResp = resp.get(threadHandle).expect("Thread/get extract")
-      doAssert queryResp.ids.len >= 3,
+      let queryResp =
+        resp.get(queryHandle).expect("Email/query extract[" & $target.kind & "]")
+      let getResp =
+        resp.get(getHandle).expect("Email/get extract[" & $target.kind & "]")
+      let threadResp =
+        resp.get(threadHandle).expect("Thread/get extract[" & $target.kind & "]")
+      assertOn target,
+        queryResp.ids.len >= 3,
         "Email/query must surface seeded emails, got " & $queryResp.ids.len
-      doAssert getResp.list.len >= 3,
+      assertOn target,
+        getResp.list.len >= 3,
         "Email/get must surface email records, got " & $getResp.list.len
-      doAssert threadResp.list.len >= 1,
+      assertOn target,
+        threadResp.list.len >= 1,
         "Thread/get-by-deep-ref must return at least one Thread, got " &
           $threadResp.list.len
 
@@ -106,7 +139,18 @@ block tresultReferenceDeepPathsLive:
     block brokenRefCase:
       # First fire an Email/query so c0 carries ids; the broken ref
       # then names a deep path that does not exist in c0's response.
-      let (b1, queryHandle) = addEmailQuery(initRequestBuilder(), mailAccountId)
+      # Filter the back-referenced Email/query to the seeded discriminator
+      # so the downstream Email/get's #ids result reference does not pull
+      # an unbounded slice of inbox-wide ids. James 3.9 caps Email/get at
+      # 5 items when fetching full properties (no per-property override
+      # in the memory image) and rejects with ``requestTooLarge`` when the
+      # back-reference resolves to more. Stalwart accepts arbitrary sizes
+      # but tightening the chain doesn't change its result.
+      let chainFilter =
+        filterCondition(EmailFilterCondition(subject: Opt.some("phasej67refdeep")))
+      let (b1, queryHandle) = addEmailQuery(
+        initRequestBuilder(), mailAccountId, filter = Opt.some(chainFilter)
+      )
       discard queryHandle
       let getArgs = %*{"accountId": $mailAccountId}
       let getArgsRef = injectBrokenBackReference(
@@ -117,37 +161,49 @@ block tresultReferenceDeepPathsLive:
       )
       let req1 = b1.build()
       var combinedCalls = req1.methodCalls
-      let mcid = parseMethodCallId("c" & $combinedCalls.len).expect("parseMethodCallId")
-      let brokenInv =
-        parseInvocation("Email/get", getArgsRef, mcid).expect("parseInvocation")
+      let mcid = parseMethodCallId("c" & $combinedCalls.len).expect(
+          "parseMethodCallId[" & $target.kind & "]"
+        )
+      let brokenInv = parseInvocation("Email/get", getArgsRef, mcid).expect(
+          "parseInvocation[" & $target.kind & "]"
+        )
       combinedCalls.add(brokenInv)
       let combined = Request(
         `using`: req1.`using` & @["urn:ietf:params:jmap:mail"],
         methodCalls: combinedCalls,
         createdIds: Opt.none(Table[CreationId, Id]),
       )
-      let resp = client.send(combined).expect("send query+broken-get envelope")
-      doAssert resp.methodResponses.len == 2,
+      let resp = client.send(combined).expect(
+          "send query+broken-get envelope[" & $target.kind & "]"
+        )
+      assertOn target,
+        resp.methodResponses.len == 2,
         "envelope must carry two responses, got " & $resp.methodResponses.len
       let brokenInvResp = resp.methodResponses[1]
-      doAssert brokenInvResp.rawName == "error",
+      assertOn target,
+        brokenInvResp.rawName == "error",
         "broken back-reference must surface as 'error', got " & brokenInvResp.rawName
-      let me =
-        MethodError.fromJson(brokenInvResp.arguments).expect("MethodError.fromJson")
-      doAssert me.rawType.len > 0, "rawType must be losslessly preserved"
-      doAssert me.errorType in
-        {metInvalidResultReference, metInvalidArguments, metServerFail, metUnknown},
+      let me = MethodError.fromJson(brokenInvResp.arguments).expect(
+          "MethodError.fromJson[" & $target.kind & "]"
+        )
+      assertOn target, me.rawType.len > 0, "rawType must be losslessly preserved"
+      assertOn target,
+        me.errorType in
+          {metInvalidResultReference, metInvalidArguments, metServerFail, metUnknown},
         "errorType must project into the closed enum, got " & $me.errorType
 
     # Cleanup: destroy the seed emails so re-runs are idempotent.
     let (bClean, cleanHandle) =
       addEmailSet(initRequestBuilder(), mailAccountId, destroy = directIds(seedIds))
-    let respClean = client.send(bClean).expect("send Email/set cleanup")
-    let cleanResp = respClean.get(cleanHandle).expect("Email/set cleanup extract")
+    let respClean =
+      client.send(bClean).expect("send Email/set cleanup[" & $target.kind & "]")
+    let cleanResp = respClean.get(cleanHandle).expect(
+        "Email/set cleanup extract[" & $target.kind & "]"
+      )
     for id in seedIds:
       cleanResp.destroyResults.withValue(id, outcome):
-        doAssert outcome.isOk, "cleanup destroy must succeed"
+        assertOn target, outcome.isOk, "cleanup destroy must succeed"
       do:
-        doAssert false, "cleanup must report an outcome for each seed id"
+        assertOn target, false, "cleanup must report an outcome for each seed id"
 
     client.close()

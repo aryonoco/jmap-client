@@ -57,19 +57,20 @@ const ThreadConvergeAttempts = 60
 const ThreadConvergeIntervalMs = 250
 
 block temailQueryCollapseThreadsLive:
-  let cfgRes = loadLiveTestConfig()
-  if cfgRes.isOk:
-    let cfg = cfgRes.get()
+  forEachLiveTarget(target):
     var client = initJmapClient(
-        sessionUrl = cfg.sessionUrl,
-        bearerToken = cfg.aliceToken,
-        authScheme = cfg.authScheme,
+        sessionUrl = target.sessionUrl,
+        bearerToken = target.aliceToken,
+        authScheme = target.authScheme,
       )
-      .expect("initJmapClient")
-    let session = client.fetchSession().expect("fetchSession")
-    let mailAccountId = resolveMailAccountId(session).expect("resolveMailAccountId")
+      .expect("initJmapClient[" & $target.kind & "]")
+    let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
+    let mailAccountId =
+      resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
 
-    let inbox = resolveInboxId(client, mailAccountId).expect("resolveInboxId")
+    let inbox = resolveInboxId(client, mailAccountId).expect(
+        "resolveInboxId[" & $target.kind & "]"
+      )
     let threadedIds = seedThreadedEmails(
         client,
         mailAccountId,
@@ -77,12 +78,12 @@ block temailQueryCollapseThreadsLive:
         @["phase-i 57 root", "phase-i 57 reply"],
         rootMessageId = "<phase-i-57@example.com>",
       )
-      .expect("seedThreadedEmails")
-    doAssert threadedIds.len == 2, "two threaded ids expected"
+      .expect("seedThreadedEmails[" & $target.kind & "]")
+    assertOn target, threadedIds.len == 2, "two threaded ids expected"
     let standaloneId = seedSimpleEmail(
         client, mailAccountId, inbox, "phase-i 57 standalone", "phase-i-57-standalone"
       )
-      .expect("seedSimpleEmail standalone")
+      .expect("seedSimpleEmail standalone[" & $target.kind & "]")
     discard standaloneId
 
     let filter = filterCondition(EmailFilterCondition(subject: Opt.some("phase-i 57")))
@@ -93,10 +94,13 @@ block temailQueryCollapseThreadsLive:
     # the no-collapse leg must surface at least the three seeds.
     let (b1, h1) =
       addEmailQuery(initRequestBuilder(), mailAccountId, filter = Opt.some(filter))
-    let resp1 = client.send(b1).expect("send Email/query no-collapse")
-    let qr1 = resp1.get(h1).expect("Email/query no-collapse extract")
+    let resp1 =
+      client.send(b1).expect("send Email/query no-collapse[" & $target.kind & "]")
+    let qr1 =
+      resp1.get(h1).expect("Email/query no-collapse extract[" & $target.kind & "]")
     let noCollapseCount = qr1.ids.len
-    doAssert noCollapseCount >= 3,
+    assertOn target,
+      noCollapseCount >= 3,
       "default collapseThreads=false must surface at least the three seeds (got " &
         $noCollapseCount & ")"
 
@@ -123,18 +127,21 @@ block temailQueryCollapseThreadsLive:
         filter = Opt.some(filter),
         collapseThreads = true,
       )
-      let resp2 = client.send(b2).expect("send Email/query collapse")
-      let qr2 = resp2.get(h2).expect("Email/query collapse extract")
+      let resp2 =
+        client.send(b2).expect("send Email/query collapse[" & $target.kind & "]")
+      let qr2 =
+        resp2.get(h2).expect("Email/query collapse extract[" & $target.kind & "]")
       lastCollapseCount = qr2.ids.len
-      doAssert lastCollapseCount <= noCollapseCount,
+      assertOn target,
+        lastCollapseCount <= noCollapseCount,
         "collapseThreads=true must not increase the result count (collapse=" &
           $lastCollapseCount & " noCollapse=" & $noCollapseCount & ")"
-      doAssert lastCollapseCount >= 1,
+      assertOn target,
+        lastCollapseCount >= 1,
         "collapseThreads=true must surface at least one entry per thread"
       if lastCollapseCount < noCollapseCount:
-        captureIfRequested(client, "email-query-collapse-threads-stalwart").expect(
-          "captureIfRequested"
-        )
+        captureIfRequested(client, "email-query-collapse-threads-" & $target.kind)
+          .expect("captureIfRequested")
         observedConvergence = true
         break
       sleep(ThreadConvergeIntervalMs)
@@ -142,7 +149,7 @@ block temailQueryCollapseThreadsLive:
       # Capture the no-merge state so downstream replays still
       # have a fixture to parse.  The wire-shape contract has
       # already been verified by the loop's invariants.
-      captureIfRequested(client, "email-query-collapse-threads-stalwart").expect(
+      captureIfRequested(client, "email-query-collapse-threads-" & $target.kind).expect(
         "captureIfRequested no-merge"
       )
 

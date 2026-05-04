@@ -42,31 +42,46 @@ import ./mconfig
 import ./mlive
 
 block tmailboxQueryChangesLive:
-  let cfgRes = loadLiveTestConfig()
-  if cfgRes.isOk:
-    let cfg = cfgRes.get()
+  forEachLiveTarget(target):
+    # James 3.9 imposes the same restrictive contract on Mailbox/query
+    # AND Mailbox/queryChanges: ``filter`` is mandatory (RFC 8620 §5.5
+    # makes it optional, but James's ``MailboxQueryMethod.scala``
+    # demands the property), no ``FilterOperator``, no ``sort``,
+    # no ``position``/``anchor``/``anchorOffset``/``limit``,
+    # no ``calculateTotal``, no ``sortAsTree``/``filterAsTree``. The
+    # baseline ``Mailbox/query`` here uses the default ``QueryParams()``
+    # — filter absent, calculateTotal=false — and James rejects with
+    # ``invalidArguments`` "Missing '/filter' property" on entry.
+    # Replay coverage for the Stalwart wire shape is preserved via the
+    # captured ``-stalwart`` fixture.
+    if target.kind == ltkJames:
+      continue
     var client = initJmapClient(
-        sessionUrl = cfg.sessionUrl,
-        bearerToken = cfg.aliceToken,
-        authScheme = cfg.authScheme,
+        sessionUrl = target.sessionUrl,
+        bearerToken = target.aliceToken,
+        authScheme = target.authScheme,
       )
-      .expect("initJmapClient")
-    let session = client.fetchSession().expect("fetchSession")
-    let mailAccountId = resolveMailAccountId(session).expect("resolveMailAccountId")
+      .expect("initJmapClient[" & $target.kind & "]")
+    let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
+    let mailAccountId =
+      resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
 
     # --- Baseline Mailbox/query: capture queryState_1 + cardinality -----
     # The full live suite shares a Stalwart instance. The test asserts on
     # *deltas* — the captured baseline queryState, then the new added
     # entry — not on absolute counts.
     let (b1, queryHandle) = addMailboxQuery(initRequestBuilder(), mailAccountId)
-    let resp1 = client.send(b1).expect("send Mailbox/query baseline")
-    let queryResp = resp1.get(queryHandle).expect("Mailbox/query baseline extract")
+    let resp1 =
+      client.send(b1).expect("send Mailbox/query baseline[" & $target.kind & "]")
+    let queryResp = resp1.get(queryHandle).expect(
+        "Mailbox/query baseline extract[" & $target.kind & "]"
+      )
     let queryState1 = queryResp.queryState
     let baselineCount = queryResp.ids.len
 
     # --- Mutate: add a mailbox to advance the Mailbox query state -------
     let addedId = resolveOrCreateMailbox(client, mailAccountId, "phase-h step-44 added")
-      .expect("resolveOrCreateMailbox added")
+      .expect("resolveOrCreateMailbox added[" & $target.kind & "]")
 
     # --- With-total leg: Mailbox/queryChanges with calculateTotal ------
     let (b2, qcHandle) = addMailboxQueryChanges(
@@ -75,19 +90,25 @@ block tmailboxQueryChangesLive:
       sinceQueryState = queryState1,
       calculateTotal = true,
     )
-    let resp2 = client.send(b2).expect("send Mailbox/queryChanges with-total")
-    captureIfRequested(client, "mailbox-query-changes-with-total-stalwart").expect(
-      "captureIfRequested with-total"
-    )
-    let qcr = resp2.get(qcHandle).expect("Mailbox/queryChanges with-total extract")
-    doAssert string(qcr.oldQueryState) == string(queryState1),
+    let resp2 = client.send(b2).expect(
+        "send Mailbox/queryChanges with-total[" & $target.kind & "]"
+      )
+    captureIfRequested(client, "mailbox-query-changes-with-total-" & $target.kind)
+      .expect("captureIfRequested with-total")
+    let qcr = resp2.get(qcHandle).expect(
+        "Mailbox/queryChanges with-total extract[" & $target.kind & "]"
+      )
+    assertOn target,
+      string(qcr.oldQueryState) == string(queryState1),
       "oldQueryState must echo the supplied baseline"
-    doAssert qcr.total.isSome,
+    assertOn target,
+      qcr.total.isSome,
       "calculateTotal=true must surface a total (got " & $qcr.total & ")"
     let totalVal = qcr.total.get()
     for item in qcr.added:
-      doAssert string(item.id).len > 0, "every added.id must be non-empty"
-      doAssert item.index < totalVal,
+      assertOn target, string(item.id).len > 0, "every added.id must be non-empty"
+      assertOn target,
+        item.index < totalVal,
         "added.index must fall within the new query's bounds (got " & $item.index &
           ", total " & $totalVal & ")"
     # ``addedId`` may or may not surface in qcr.added depending on
@@ -105,12 +126,15 @@ block tmailboxQueryChangesLive:
     let (b3, qcNoTotalHandle) = addMailboxQueryChanges(
       initRequestBuilder(), mailAccountId, sinceQueryState = queryState1
     )
-    let resp3 = client.send(b3).expect("send Mailbox/queryChanges no-total")
-    captureIfRequested(client, "mailbox-query-changes-no-total-stalwart").expect(
+    let resp3 =
+      client.send(b3).expect("send Mailbox/queryChanges no-total[" & $target.kind & "]")
+    captureIfRequested(client, "mailbox-query-changes-no-total-" & $target.kind).expect(
       "captureIfRequested no-total"
     )
-    let qcrNoTotal =
-      resp3.get(qcNoTotalHandle).expect("Mailbox/queryChanges no-total extract")
-    doAssert qcrNoTotal.total.isNone,
+    let qcrNoTotal = resp3.get(qcNoTotalHandle).expect(
+        "Mailbox/queryChanges no-total extract[" & $target.kind & "]"
+      )
+    assertOn target,
+      qcrNoTotal.total.isNone,
       "total must be absent when calculateTotal is not requested"
     client.close()

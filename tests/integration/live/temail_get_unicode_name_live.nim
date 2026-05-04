@@ -35,25 +35,27 @@ import ./mconfig
 import ./mlive
 
 block temailGetUnicodeNameLive:
-  let cfgRes = loadLiveTestConfig()
-  if cfgRes.isOk:
-    let cfg = cfgRes.get()
+  forEachLiveTarget(target):
     var client = initJmapClient(
-        sessionUrl = cfg.sessionUrl,
-        bearerToken = cfg.aliceToken,
-        authScheme = cfg.authScheme,
+        sessionUrl = target.sessionUrl,
+        bearerToken = target.aliceToken,
+        authScheme = target.authScheme,
       )
-      .expect("initJmapClient")
-    let session = client.fetchSession().expect("fetchSession")
-    let mailAccountId = resolveMailAccountId(session).expect("resolveMailAccountId")
+      .expect("initJmapClient[" & $target.kind & "]")
+    let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
+    let mailAccountId =
+      resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
 
-    let inbox = resolveInboxId(client, mailAccountId).expect("resolveInboxId")
+    let inbox = resolveInboxId(client, mailAccountId).expect(
+        "resolveInboxId[" & $target.kind & "]"
+      )
     const unicodeName = "héllo wörld"
     let aliceAddr = parseEmailAddress("alice@example.com", Opt.some(unicodeName)).expect(
         "parseEmailAddress utf-8 name"
       )
-    let mailboxIds =
-      parseNonEmptyMailboxIdSet(@[inbox]).expect("parseNonEmptyMailboxIdSet")
+    let mailboxIds = parseNonEmptyMailboxIdSet(@[inbox]).expect(
+        "parseNonEmptyMailboxIdSet[" & $target.kind & "]"
+      )
     let textPart = makeLeafPart(
       LeafPartSpec(
         partId: buildPartId("1"),
@@ -71,25 +73,29 @@ block temailGetUnicodeNameLive:
       to = Opt.some(@[aliceAddr]),
       subject = Opt.some("phase-d step-23 unicode name"),
     )
-    doAssert blueprint.isOk, "parseEmailBlueprint must succeed"
-    let cid = parseCreationId("seedUnicode").expect("parseCreationId")
+    assertOn target, blueprint.isOk, "parseEmailBlueprint must succeed"
+    let cid =
+      parseCreationId("seedUnicode").expect("parseCreationId[" & $target.kind & "]")
     var createTbl = initTable[CreationId, EmailBlueprint]()
     createTbl[cid] = blueprint.unsafeValue
     let (bSeed, seedHandle) =
       addEmailSet(initRequestBuilder(), mailAccountId, create = Opt.some(createTbl))
-    let seedResp = client.send(bSeed).expect("send Email/set seed")
-    let seedSet = seedResp.get(seedHandle).expect("Email/set seed extract")
+    let seedResp =
+      client.send(bSeed).expect("send Email/set seed[" & $target.kind & "]")
+    let seedSet =
+      seedResp.get(seedHandle).expect("Email/set seed extract[" & $target.kind & "]")
     var seededId: Id
     var found = false
     seedSet.createResults.withValue(cid, outcome):
-      doAssert outcome.isOk,
+      assertOn target,
+        outcome.isOk,
         "Email/set must succeed: " &
           (if outcome.isErr: outcome.unsafeError.rawType else: "(ok)")
       seededId = outcome.unsafeValue.id
       found = true
     do:
-      doAssert false, "Email/set returned no result for creationId"
-    doAssert found
+      assertOn target, false, "Email/set returned no result for creationId"
+    assertOn target, found
 
     let (b, getHandle) = addEmailGet(
       initRequestBuilder(),
@@ -97,19 +103,26 @@ block temailGetUnicodeNameLive:
       ids = directIds(@[seededId]),
       properties = Opt.some(@["id", "from"]),
     )
-    let resp = client.send(b).expect("send Email/get unicode name")
-    let getResp = resp.get(getHandle).expect("Email/get unicode name extract")
-    doAssert getResp.list.len == 1, "Email/get must return the seeded message"
+    let resp =
+      client.send(b).expect("send Email/get unicode name[" & $target.kind & "]")
+    let getResp =
+      resp.get(getHandle).expect("Email/get unicode name extract[" & $target.kind & "]")
+    assertOn target, getResp.list.len == 1, "Email/get must return the seeded message"
 
-    let email = Email.fromJson(getResp.list[0]).expect("Email.fromJson")
-    doAssert email.fromAddr.isSome and email.fromAddr.unsafeGet.len == 1,
+    let email =
+      Email.fromJson(getResp.list[0]).expect("Email.fromJson[" & $target.kind & "]")
+    assertOn target,
+      email.fromAddr.isSome and email.fromAddr.unsafeGet.len == 1,
       "from must be a one-element list"
     let fromAddr = email.fromAddr.unsafeGet[0]
-    doAssert fromAddr.email == "alice@example.com",
+    assertOn target,
+      fromAddr.email == "alice@example.com",
       "from[0].email must be alice@example.com (got " & fromAddr.email & ")"
-    doAssert fromAddr.name.isSome,
+    assertOn target,
+      fromAddr.name.isSome,
       "from[0].name must be present — Stalwart preserves display names"
-    doAssert fromAddr.name.unsafeGet == unicodeName,
+    assertOn target,
+      fromAddr.name.unsafeGet == unicodeName,
       "from[0].name must round-trip the UTF-8 octets verbatim (got " &
         fromAddr.name.unsafeGet & ")"
     client.close()

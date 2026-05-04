@@ -20,36 +20,36 @@ import jmap_client
 import ./mloader
 
 block tcapturedMultiInstanceEnvelope:
-  let j = loadCapturedFixture("multi-instance-envelope-stalwart")
-  let resp = envelope.Response.fromJson(j).expect("envelope.Response.fromJson")
-  doAssert resp.methodResponses.len == 3,
-    "envelope must carry the three-leg chain; got " & $resp.methodResponses.len
-  for inv in resp.methodResponses:
-    doAssert inv.rawName == "Mailbox/get",
-      "every leg must be Mailbox/get; got " & inv.rawName
+  forEachCapturedServer("multi-instance-envelope", j):
+    let resp = envelope.Response.fromJson(j).expect("envelope.Response.fromJson")
+    doAssert resp.methodResponses.len == 3,
+      "envelope must carry the three-leg chain; got " & $resp.methodResponses.len
+    for inv in resp.methodResponses:
+      doAssert inv.rawName == "Mailbox/get",
+        "every leg must be Mailbox/get; got " & inv.rawName
 
-  # Leg 0 — full record: every Mailbox property present.
-  let fullList = resp.methodResponses[0].arguments{"list"}
-  doAssert not fullList.isNil and fullList.kind == JArray
-  doAssert fullList.len >= 1
-  doAssert fullList[0].hasKey("myRights"), "full leg must carry myRights"
-  doAssert fullList[0].hasKey("name"), "full leg must carry name"
-  discard Mailbox.fromJson(fullList[0]).expect("Mailbox.fromJson full record")
+    # Leg 0 — full record: every Mailbox property present.
+    let fullList = resp.methodResponses[0].arguments{"list"}
+    doAssert not fullList.isNil and fullList.kind == JArray
+    doAssert fullList.len >= 1
+    doAssert fullList[0].hasKey("myRights"), "full leg must carry myRights"
+    doAssert fullList[0].hasKey("name"), "full leg must carry name"
+    discard Mailbox.fromJson(fullList[0]).expect("Mailbox.fromJson full record")
 
-  # Leg 1 — sparse {id, name}: ``properties`` filter respected.
-  let sparseList = resp.methodResponses[1].arguments{"list"}
-  doAssert not sparseList.isNil and sparseList.kind == JArray
-  doAssert sparseList.len >= 1
-  doAssert sparseList[0].hasKey("id")
-  doAssert sparseList[0].hasKey("name")
-  doAssert not sparseList[0].hasKey("myRights"),
-    "sparse leg must omit non-requested properties (RFC 8621 §2.1)"
+    # Leg 1 — sparse {id, name}: ``properties`` filter respected.
+    let sparseList = resp.methodResponses[1].arguments{"list"}
+    doAssert not sparseList.isNil and sparseList.kind == JArray
+    doAssert sparseList.len >= 1
+    doAssert sparseList[0].hasKey("id")
+    doAssert sparseList[0].hasKey("name")
+    doAssert not sparseList[0].hasKey("myRights"),
+      "sparse leg must omit non-requested properties (RFC 8621 §2.1)"
 
-  # Leg 2 — counts {id, role, totalEmails}: same filter respected.
-  let countsList = resp.methodResponses[2].arguments{"list"}
-  doAssert not countsList.isNil and countsList.kind == JArray
-  doAssert countsList.len >= 1
-  doAssert countsList[0].hasKey("id")
-  doAssert countsList[0].hasKey("totalEmails")
-  doAssert not countsList[0].hasKey("name"),
-    "counts leg must omit non-requested properties"
+    # Leg 2 — counts {id, role, totalEmails}: same filter respected.
+    let countsList = resp.methodResponses[2].arguments{"list"}
+    doAssert not countsList.isNil and countsList.kind == JArray
+    doAssert countsList.len >= 1
+    doAssert countsList[0].hasKey("id")
+    doAssert countsList[0].hasKey("totalEmails")
+    doAssert not countsList[0].hasKey("name"),
+      "counts leg must omit non-requested properties"

@@ -44,32 +44,39 @@ import ./mconfig
 import ./mlive
 
 block temailGetBodyPropertiesAllLive:
-  let cfgRes = loadLiveTestConfig()
-  if cfgRes.isOk:
-    let cfg = cfgRes.get()
+  forEachLiveTarget(target):
+    # James 3.9 compatibility: skipped on James.
+    # Reason: exercises inline-bodyValues attachments (partId-referenced bodyValues per RFC 8621 §4.6); James 3.9 requires blob-uploaded attachments (`attachments[].blobId`) and rejects inline ones with invalidArguments. The library does not yet expose the JMAP `/upload` endpoint (RFC 8620 §6.1) — that is a deliberately deferred library scope (no blob/push). Tests revisit James once `uploadBlob` lands.
+    # Replay coverage for the Stalwart wire shape is preserved via
+    # captured ``-stalwart`` fixtures.
+    if target.kind == ltkJames:
+      continue
     var client = initJmapClient(
-        sessionUrl = cfg.sessionUrl,
-        bearerToken = cfg.aliceToken,
-        authScheme = cfg.authScheme,
+        sessionUrl = target.sessionUrl,
+        bearerToken = target.aliceToken,
+        authScheme = target.authScheme,
       )
-      .expect("initJmapClient")
-    let session = client.fetchSession().expect("fetchSession")
-    let mailAccountId = resolveMailAccountId(session).expect("resolveMailAccountId")
+      .expect("initJmapClient[" & $target.kind & "]")
+    let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
+    let mailAccountId =
+      resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
 
-    let inbox = resolveInboxId(client, mailAccountId).expect("resolveInboxId")
+    let inbox = resolveInboxId(client, mailAccountId).expect(
+        "resolveInboxId[" & $target.kind & "]"
+      )
     let seededId = seedMixedEmail(
         client, mailAccountId, inbox, "phase-i 54 mixed", "phase-i 54 text body",
         "phase-i-54.txt", "text/plain", "phase-i 54 attachment payload (32B sentinel)",
         "phase-i-54-seed",
       )
-      .expect("seedMixedEmail")
+      .expect("seedMixedEmail[" & $target.kind & "]")
 
     let bodyProperties = @[
-      parsePropertyName("partId").expect("partId"),
-      parsePropertyName("blobId").expect("blobId"),
-      parsePropertyName("type").expect("type"),
-      parsePropertyName("name").expect("name"),
-      parsePropertyName("size").expect("size"),
+      parsePropertyName("partId").expect("partId[" & $target.kind & "]"),
+      parsePropertyName("blobId").expect("blobId[" & $target.kind & "]"),
+      parsePropertyName("type").expect("type[" & $target.kind & "]"),
+      parsePropertyName("name").expect("name[" & $target.kind & "]"),
+      parsePropertyName("size").expect("size[" & $target.kind & "]"),
     ]
     let (b, getHandle) = addEmailGet(
       initRequestBuilder(),
@@ -80,26 +87,35 @@ block temailGetBodyPropertiesAllLive:
         fetchBodyValues: bvsAll, bodyProperties: Opt.some(bodyProperties)
       ),
     )
-    let resp = client.send(b).expect("send Email/get bodyProperties+bvsAll")
-    captureIfRequested(client, "email-get-body-properties-all-stalwart").expect(
+    let resp = client.send(b).expect(
+        "send Email/get bodyProperties+bvsAll[" & $target.kind & "]"
+      )
+    captureIfRequested(client, "email-get-body-properties-all-" & $target.kind).expect(
       "captureIfRequested"
     )
-    let getResp = resp.get(getHandle).expect("Email/get bodyProperties+bvsAll extract")
-    doAssert getResp.list.len == 1, "Email/get must return the seeded message"
-    let email = Email.fromJson(getResp.list[0]).expect("Email.fromJson")
-    doAssert email.bodyStructure.isSome,
+    let getResp = resp.get(getHandle).expect(
+        "Email/get bodyProperties+bvsAll extract[" & $target.kind & "]"
+      )
+    assertOn target, getResp.list.len == 1, "Email/get must return the seeded message"
+    let email =
+      Email.fromJson(getResp.list[0]).expect("Email.fromJson[" & $target.kind & "]")
+    assertOn target,
+      email.bodyStructure.isSome,
       "bodyStructure must be present when explicitly requested"
     let bs = email.bodyStructure.unsafeGet
-    doAssert bs.isMultipart,
-      "multipart/mixed seed must produce a multipart bodyStructure root"
-    doAssert bs.subParts.len >= 2,
+    assertOn target,
+      bs.isMultipart, "multipart/mixed seed must produce a multipart bodyStructure root"
+    assertOn target,
+      bs.subParts.len >= 2,
       "multipart/mixed seed must yield at least text + attachment subParts (got " &
         $bs.subParts.len & ")"
-    doAssert email.bodyValues.len >= 1,
+    assertOn target,
+      email.bodyValues.len >= 1,
       "bvsAll must yield at least the textBody bodyValue (got " & $email.bodyValues.len &
         " — Stalwart 0.15.5 omits attachment bodyValues even for text/* leaves)"
     for partId, bv in email.bodyValues.pairs:
-      doAssert string(partId).len > 0, "every bodyValues key must be non-empty"
-      doAssert bv.value.len > 0, "bvsAll-emitted bodyValue must carry decoded content"
+      assertOn target, string(partId).len > 0, "every bodyValues key must be non-empty"
+      assertOn target,
+        bv.value.len > 0, "bvsAll-emitted bodyValue must carry decoded content"
 
     client.close()

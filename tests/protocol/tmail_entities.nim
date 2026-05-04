@@ -121,21 +121,27 @@ block addChangesIdentity:
 # ===========================================================================
 
 block capabilityDedupThread:
-  ## Two addGet[thread.Thread] calls register the mail capability only once.
+  ## Two addGet[thread.Thread] calls register the mail capability only
+  ## once. ``urn:ietf:params:jmap:core`` is pre-declared by
+  ## ``initRequestBuilder`` (RFC 8620 §3.2), so the resulting set carries
+  ## both core and mail.
   let b0 = initRequestBuilder()
   let (b1, _) = addGet[thread.Thread](b0, makeAccountId())
   let (b2, _) = addGet[thread.Thread](b1, makeAccountId())
   let caps = b2.capabilities
-  assertLen caps, 1
-  assertEq caps[0], "urn:ietf:params:jmap:mail"
+  assertLen caps, 2
+  doAssert "urn:ietf:params:jmap:core" in caps
+  doAssert "urn:ietf:params:jmap:mail" in caps
 
 block multipleEntityCapabilities:
-  ## addGet[thread.Thread] + addGet[Identity] produces both capability URIs.
+  ## addGet[thread.Thread] + addGet[Identity] produces both entity
+  ## capability URIs alongside the pre-declared core URI.
   let b0 = initRequestBuilder()
   let (b1, _) = addGet[thread.Thread](b0, makeAccountId())
   let (b2, _) = addGet[Identity](b1, makeAccountId())
   let caps = b2.capabilities
-  assertLen caps, 2
+  assertLen caps, 3
+  doAssert "urn:ietf:params:jmap:core" in caps
   doAssert "urn:ietf:params:jmap:mail" in caps
   doAssert "urn:ietf:params:jmap:submission" in caps
 
@@ -217,13 +223,15 @@ block addQueryChangesMailboxSingleParam:
 
 block mailboxCapabilityDedup:
   ## Thread + Mailbox both register "urn:ietf:params:jmap:mail"; verify
-  ## the builder deduplicates to exactly one entry.
+  ## the builder deduplicates to exactly one mail entry, while the
+  ## pre-declared core URI remains alongside it.
   let b0 = initRequestBuilder()
   let (b1, _) = addGet[thread.Thread](b0, makeAccountId())
   let (b2, _) = addGet[Mailbox](b1, makeAccountId())
   let caps = b2.capabilities
-  assertLen caps, 1
-  assertEq caps[0], "urn:ietf:params:jmap:mail"
+  assertLen caps, 2
+  doAssert "urn:ietf:params:jmap:core" in caps
+  doAssert "urn:ietf:params:jmap:mail" in caps
 
 # ===========================================================================
 # I. Email registration tests
@@ -301,13 +309,15 @@ block addQueryChangesEmailSingleParam:
 
 block emailThreadCapabilityDedup:
   ## Thread + Email both register "urn:ietf:params:jmap:mail"; verify
-  ## the builder deduplicates to exactly one entry.
+  ## the builder deduplicates to exactly one mail entry, with core
+  ## pre-declared alongside.
   let b0 = initRequestBuilder()
   let (b1, _) = addGet[thread.Thread](b0, makeAccountId())
   let (b2, _) = addGet[Email](b1, makeAccountId())
   let caps = b2.capabilities
-  assertLen caps, 1
-  assertEq caps[0], "urn:ietf:params:jmap:mail"
+  assertLen caps, 2
+  doAssert "urn:ietf:params:jmap:core" in caps
+  doAssert "urn:ietf:params:jmap:mail" in caps
 
 # ===========================================================================
 # M. EmailSubmission entity registration (G2 §8.4)

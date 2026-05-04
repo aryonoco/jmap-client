@@ -23,24 +23,30 @@ import ./mconfig
 import ./mlive
 
 block tEmailSubmissionMultiRecipientLive:
-  let cfgRes = loadLiveTestConfig()
-  if cfgRes.isOk:
-    let cfg = cfgRes.get()
+  forEachLiveTarget(target):
+    # James 3.9 compatibility: skipped on James.
+    # Reason: Observation requires EmailSubmission/get, which James 3.9 does not implement.
+    # When James adds support, remove this guard.
+    if target.kind == ltkJames:
+      continue
     var client = initJmapClient(
-        sessionUrl = cfg.sessionUrl,
-        bearerToken = cfg.aliceToken,
-        authScheme = cfg.authScheme,
+        sessionUrl = target.sessionUrl,
+        bearerToken = target.aliceToken,
+        authScheme = target.authScheme,
       )
-      .expect("initJmapClient")
-    let session = client.fetchSession().expect("fetchSession")
-    let mailAccountId = resolveMailAccountId(session).expect("resolveMailAccountId")
-    let submissionAccountId =
-      resolveSubmissionAccountId(session).expect("resolveSubmissionAccountId")
+      .expect("initJmapClient[" & $target.kind & "]")
+    let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
+    let mailAccountId =
+      resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
+    let submissionAccountId = resolveSubmissionAccountId(session).expect(
+        "resolveSubmissionAccountId[" & $target.kind & "]"
+      )
     let identityId = resolveOrCreateAliceIdentity(client, submissionAccountId).expect(
         "resolveOrCreateAliceIdentity"
       )
-    let draftsId =
-      resolveOrCreateDrafts(client, mailAccountId).expect("resolveOrCreateDrafts")
+    let draftsId = resolveOrCreateDrafts(client, mailAccountId).expect(
+        "resolveOrCreateDrafts[" & $target.kind & "]"
+      )
 
     # --- Seed multi-recipient draft -------------------------------------
     let aliceAddr = buildAliceAddr()
@@ -57,32 +63,35 @@ block tEmailSubmissionMultiRecipientLive:
         "Phase G Step 40 — multi-recipient submission.",
         "draft40",
       )
-      .expect("seedMultiRecipientDraft")
+      .expect("seedMultiRecipientDraft[" & $target.kind & "]")
 
     # --- Build multi-rcpt envelope and submit ---------------------------
     let envelope = buildEnvelopeMulti(
         "alice@example.com", @["bob@example.com", "alice@example.com"]
       )
-      .expect("buildEnvelopeMulti")
+      .expect("buildEnvelopeMulti[" & $target.kind & "]")
     let blueprint = parseEmailSubmissionBlueprint(
         identityId = identityId, emailId = draftId, envelope = Opt.some(envelope)
       )
-      .expect("parseEmailSubmissionBlueprint")
-    let subCid = parseCreationId("sub40").expect("parseCreationId")
+      .expect("parseEmailSubmissionBlueprint[" & $target.kind & "]")
+    let subCid =
+      parseCreationId("sub40").expect("parseCreationId[" & $target.kind & "]")
     var subTbl = initTable[CreationId, EmailSubmissionBlueprint]()
     subTbl[subCid] = blueprint
     let (b3, subHandle) = addEmailSubmissionSet(
       initRequestBuilder(), submissionAccountId, create = Opt.some(subTbl)
     )
-    let resp3 = client.send(b3).expect("send EmailSubmission/set")
-    let subSetResp = resp3.get(subHandle).expect("EmailSubmission/set extract")
+    let resp3 = client.send(b3).expect("send EmailSubmission/set[" & $target.kind & "]")
+    let subSetResp =
+      resp3.get(subHandle).expect("EmailSubmission/set extract[" & $target.kind & "]")
     var submissionId: Id
     subSetResp.createResults.withValue(subCid, outcome):
-      doAssert outcome.isOk,
+      assertOn target,
+        outcome.isOk,
         "EmailSubmission/set create must succeed: " & outcome.error.rawType
       submissionId = outcome.unsafeValue.id
     do:
-      doAssert false, "EmailSubmission/set must report a create outcome"
+      assertOn target, false, "EmailSubmission/set must report a create outcome"
 
     # --- Poll until usFinal then re-fetch with capture ------------------
     discard pollSubmissionDelivery(client, submissionAccountId, submissionId).expect(
@@ -91,41 +100,54 @@ block tEmailSubmissionMultiRecipientLive:
     let (b4, getHandle) = addEmailSubmissionGet(
       initRequestBuilder(), submissionAccountId, ids = directIds(@[submissionId])
     )
-    let resp4 = client.send(b4).expect("send EmailSubmission/get")
-    captureIfRequested(client, "email-submission-multi-recipient-delivery-stalwart")
-      .expect("captureIfRequested")
-    let getResp = resp4.get(getHandle).expect("EmailSubmission/get extract")
-    doAssert getResp.list.len == 1,
+    let resp4 = client.send(b4).expect("send EmailSubmission/get[" & $target.kind & "]")
+    captureIfRequested(
+      client, "email-submission-multi-recipient-delivery-" & $target.kind
+    )
+      .expect("captureIfRequested[" & $target.kind & "]")
+    let getResp =
+      resp4.get(getHandle).expect("EmailSubmission/get extract[" & $target.kind & "]")
+    assertOn target,
+      getResp.list.len == 1,
       "EmailSubmission/get must return exactly one entry (got " & $getResp.list.len & ")"
-    let any =
-      AnyEmailSubmission.fromJson(getResp.list[0]).expect("AnyEmailSubmission.fromJson")
+    let any = AnyEmailSubmission.fromJson(getResp.list[0]).expect(
+        "AnyEmailSubmission.fromJson[" & $target.kind & "]"
+      )
     let finalOpt = any.asFinal()
-    doAssert finalOpt.isSome,
+    assertOn target,
+      finalOpt.isSome,
       "polled submission resolved to usFinal; entity must project as final"
     let sub = finalOpt.unsafeGet
 
-    doAssert sub.deliveryStatus.isSome,
+    assertOn target,
+      sub.deliveryStatus.isSome,
       "Stalwart must populate deliveryStatus once delivery is final"
     let dsMap = (Table[RFC5321Mailbox, DeliveryStatus])(sub.deliveryStatus.unsafeGet)
-    doAssert dsMap.len == 2,
+    assertOn target,
+      dsMap.len == 2,
       "two-recipient envelope (bob, alice-self) must produce two deliveryStatus " &
         "entries (got " & $dsMap.len & ")"
 
-    let bobMailbox =
-      parseRFC5321Mailbox("bob@example.com").expect("parseRFC5321Mailbox bob")
-    let aliceMailbox =
-      parseRFC5321Mailbox("alice@example.com").expect("parseRFC5321Mailbox alice")
-    doAssert bobMailbox in dsMap,
-      "deliveryStatus must carry an entry keyed by bob@example.com"
-    doAssert aliceMailbox in dsMap,
+    let bobMailbox = parseRFC5321Mailbox("bob@example.com").expect(
+        "parseRFC5321Mailbox bob[" & $target.kind & "]"
+      )
+    let aliceMailbox = parseRFC5321Mailbox("alice@example.com").expect(
+        "parseRFC5321Mailbox alice[" & $target.kind & "]"
+      )
+    assertOn target,
+      bobMailbox in dsMap, "deliveryStatus must carry an entry keyed by bob@example.com"
+    assertOn target,
+      aliceMailbox in dsMap,
       "deliveryStatus must carry an entry keyed by alice@example.com"
 
     let bobEntry = dsMap[bobMailbox]
-    doAssert bobEntry.smtpReply.replyCode == ReplyCode(250),
+    assertOn target,
+      bobEntry.smtpReply.replyCode == ReplyCode(250),
       "bob's local-queue SMTP reply must carry code 250 (got " &
         $bobEntry.smtpReply.replyCode & ")"
     let aliceEntry = dsMap[aliceMailbox]
-    doAssert aliceEntry.smtpReply.replyCode == ReplyCode(250),
+    assertOn target,
+      aliceEntry.smtpReply.replyCode == ReplyCode(250),
       "alice-self's local-queue SMTP reply must carry code 250 (got " &
         $aliceEntry.smtpReply.replyCode & ")"
     client.close()

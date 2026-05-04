@@ -26,18 +26,17 @@ import ./mconfig
 import ./mlive
 
 block tpreflightValidationLive:
-  let cfgRes = loadLiveTestConfig()
-  if cfgRes.isOk:
-    let cfg = cfgRes.get()
+  forEachLiveTarget(target):
     var client = initJmapClient(
-        sessionUrl = cfg.sessionUrl,
-        bearerToken = cfg.aliceToken,
-        authScheme = cfg.authScheme,
+        sessionUrl = target.sessionUrl,
+        bearerToken = target.aliceToken,
+        authScheme = target.authScheme,
       )
-      .expect("initJmapClient")
-    let session = client.fetchSession().expect("fetchSession")
+      .expect("initJmapClient[" & $target.kind & "]")
+    let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let caps = session.coreCapabilities()
-    let mailAccountId = resolveMailAccountId(session).expect("resolveMailAccountId")
+    let mailAccountId =
+      resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
 
     # Each sub-test captures lastRawResponseBody.len immediately
     # before the failing send and asserts the length is unchanged
@@ -55,10 +54,12 @@ block tpreflightValidationLive:
       let req = buildOversizedRequest(mailAccountId, idCount)
       let bufBefore = client.lastRawResponseBody.len
       let res = client.send(req)
-      doAssert res.isErr, "validateLimits must reject oversize Mailbox/get ids"
-      doAssert "maxObjectsInGet" in res.error.message,
+      assertOn target, res.isErr, "validateLimits must reject oversize Mailbox/get ids"
+      assertOn target,
+        "maxObjectsInGet" in res.error.message,
         "diagnostic must name the breached cap, got " & res.error.message
-      doAssert client.lastRawResponseBody.len == bufBefore,
+      assertOn target,
+        client.lastRawResponseBody.len == bufBefore,
         "no HTTP must fire — response body buffer length must be unchanged"
 
     # Sub-test 2: maxCallsInRequest — N+1 Core/echo invocations
@@ -73,10 +74,12 @@ block tpreflightValidationLive:
       let req = b.build()
       let bufBefore = client.lastRawResponseBody.len
       let res = client.send(req)
-      doAssert res.isErr, "validateLimits must reject oversize methodCalls list"
-      doAssert "maxCallsInRequest" in res.error.message,
+      assertOn target, res.isErr, "validateLimits must reject oversize methodCalls list"
+      assertOn target,
+        "maxCallsInRequest" in res.error.message,
         "diagnostic must name the breached cap, got " & res.error.message
-      doAssert client.lastRawResponseBody.len == bufBefore,
+      assertOn target,
+        client.lastRawResponseBody.len == bufBefore,
         "no HTTP must fire — response body buffer length must be unchanged"
 
     # Sub-test 3: maxObjectsInSet — Email/set carrying N+1 create
@@ -85,9 +88,12 @@ block tpreflightValidationLive:
     # NonEmptyEmailBlueprintMap which is gated to ``<= caps`` at
     # construction; bypass via constructing the create map directly.
     block maxObjectsInSetCase:
-      let inbox = resolveInboxId(client, mailAccountId).expect("resolveInboxId")
-      let mailboxIds =
-        parseNonEmptyMailboxIdSet(@[inbox]).expect("parseNonEmptyMailboxIdSet")
+      let inbox = resolveInboxId(client, mailAccountId).expect(
+          "resolveInboxId[" & $target.kind & "]"
+        )
+      let mailboxIds = parseNonEmptyMailboxIdSet(@[inbox]).expect(
+          "parseNonEmptyMailboxIdSet[" & $target.kind & "]"
+        )
       let aliceAddr = buildAliceAddr()
       let textPart = makeLeafPart(
         LeafPartSpec(
@@ -109,18 +115,23 @@ block tpreflightValidationLive:
             to = Opt.some(@[aliceAddr]),
             subject = Opt.some("phase-j-64 oversize " & $i),
           )
-          .expect("parseEmailBlueprint")
-        let cid = parseCreationId("phaseJ64-" & $i).expect("parseCreationId")
+          .expect("parseEmailBlueprint[" & $target.kind & "]")
+        let cid = parseCreationId("phaseJ64-" & $i).expect(
+            "parseCreationId[" & $target.kind & "]"
+          )
         createTbl[cid] = blueprint
       let (b, _) =
         addEmailSet(initRequestBuilder(), mailAccountId, create = Opt.some(createTbl))
       let req = b.build()
       let bufBefore = client.lastRawResponseBody.len
       let res = client.send(req)
-      doAssert res.isErr, "validateLimits must reject oversize Email/set creates"
-      doAssert "maxObjectsInSet" in res.error.message,
+      assertOn target,
+        res.isErr, "validateLimits must reject oversize Email/set creates"
+      assertOn target,
+        "maxObjectsInSet" in res.error.message,
         "diagnostic must name the breached cap, got " & res.error.message
-      doAssert client.lastRawResponseBody.len == bufBefore,
+      assertOn target,
+        client.lastRawResponseBody.len == bufBefore,
         "no HTTP must fire — response body buffer length must be unchanged"
 
     # Sub-test 4: maxSizeRequest — single Email/set create whose
@@ -128,9 +139,12 @@ block tpreflightValidationLive:
     # post-serialisation Step-4 check in send (``client.nim:657``),
     # not validateLimits — the diagnostic still names the cap.
     block maxSizeRequestCase:
-      let inbox = resolveInboxId(client, mailAccountId).expect("resolveInboxId")
-      let mailboxIds =
-        parseNonEmptyMailboxIdSet(@[inbox]).expect("parseNonEmptyMailboxIdSet")
+      let inbox = resolveInboxId(client, mailAccountId).expect(
+          "resolveInboxId[" & $target.kind & "]"
+        )
+      let mailboxIds = parseNonEmptyMailboxIdSet(@[inbox]).expect(
+          "parseNonEmptyMailboxIdSet[" & $target.kind & "]"
+        )
       let aliceAddr = buildAliceAddr()
       let oversizeSubject = "x".repeat(int(caps.maxSizeRequest) + 1024)
       let textPart = makeLeafPart(
@@ -150,8 +164,9 @@ block tpreflightValidationLive:
           to = Opt.some(@[aliceAddr]),
           subject = Opt.some(oversizeSubject),
         )
-        .expect("parseEmailBlueprint")
-      let cid = parseCreationId("phaseJ64size").expect("parseCreationId")
+        .expect("parseEmailBlueprint[" & $target.kind & "]")
+      let cid =
+        parseCreationId("phaseJ64size").expect("parseCreationId[" & $target.kind & "]")
       var createTbl = initTable[CreationId, EmailBlueprint]()
       createTbl[cid] = blueprint
       let (b, _) =
@@ -159,10 +174,13 @@ block tpreflightValidationLive:
       let req = b.build()
       let bufBefore = client.lastRawResponseBody.len
       let res = client.send(req)
-      doAssert res.isErr, "Step-4 size check must reject oversize serialised body"
-      doAssert "maxSizeRequest" in res.error.message,
+      assertOn target,
+        res.isErr, "Step-4 size check must reject oversize serialised body"
+      assertOn target,
+        "maxSizeRequest" in res.error.message,
         "diagnostic must name the breached cap, got " & res.error.message
-      doAssert client.lastRawResponseBody.len == bufBefore,
+      assertOn target,
+        client.lastRawResponseBody.len == bufBefore,
         "no HTTP must fire — response body buffer length must be unchanged"
 
     client.close()

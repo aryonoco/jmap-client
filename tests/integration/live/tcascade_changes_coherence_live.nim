@@ -72,23 +72,28 @@ import ./mconfig
 import ./mlive
 
 block tcascadeChangesCoherenceLive:
-  let cfgRes = loadLiveTestConfig()
-  if cfgRes.isOk:
-    let cfg = cfgRes.get()
+  forEachLiveTarget(target):
+    # James 3.9 compatibility: skipped on James.
+    # Reason: exercises Thread/changes convergence after Email/set; James 3.9's Thread/changes is documented as partially implemented (`doc/specs/spec/mail/thread.mdown`: "Naive implementation") and does not advance Thread state when emails are created — `oldState == newState` and `created/updated/destroyed` stay empty. Re-fetch loop times out. Stalwart's threading pipeline is async and exercises the full RFC 8621 §3.2 contract, so the wire shape is preserved via the captured `-stalwart` fixture.
+    # Replay coverage for the Stalwart wire shape is preserved via
+    # captured ``-stalwart`` fixtures.
+    if target.kind == ltkJames:
+      continue
     var client = initJmapClient(
-        sessionUrl = cfg.sessionUrl,
-        bearerToken = cfg.aliceToken,
-        authScheme = cfg.authScheme,
+        sessionUrl = target.sessionUrl,
+        bearerToken = target.aliceToken,
+        authScheme = target.authScheme,
       )
-      .expect("initJmapClient")
-    let session = client.fetchSession().expect("fetchSession")
-    let mailAccountId = resolveMailAccountId(session).expect("resolveMailAccountId")
+      .expect("initJmapClient[" & $target.kind & "]")
+    let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
+    let mailAccountId =
+      resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
 
     # --- Resolve cascade mailbox + seed three threads (six emails) ------
     let cascadeId = resolveOrCreateMailbox(
         client, mailAccountId, "phase-h step-48 cascade"
       )
-      .expect("resolveOrCreateMailbox cascade")
+      .expect("resolveOrCreateMailbox cascade[" & $target.kind & "]")
     var seededEmailIds: seq[Id] = @[]
     for n in 1 .. 3:
       let subjects =
@@ -98,19 +103,21 @@ block tcascadeChangesCoherenceLive:
           client, mailAccountId, cascadeId, subjects, rootMessageId = rootMessageId
         )
         .expect("seedThreadedEmails t" & $n)
-      doAssert ids.len == 2, "seedThreadedEmails t" & $n & " must return two ids"
+      assertOn target,
+        ids.len == 2, "seedThreadedEmails t" & $n & " must return two ids"
       seededEmailIds.add(ids[0])
       seededEmailIds.add(ids[1])
-    doAssert seededEmailIds.len == 6,
+    assertOn target,
+      seededEmailIds.len == 6,
       "six seeded email ids expected (three threads × two emails)"
 
     # --- Capture three baselines (post-seed) ----------------------------
     let baselineMailboxState = captureBaselineState[Mailbox](client, mailAccountId)
-      .expect("captureBaselineState[Mailbox]")
+      .expect("captureBaselineState[Mailbox][" & $target.kind & "]")
     let baselineThreadState = captureBaselineState[jmap_client.Thread](
         client, mailAccountId
       )
-      .expect("captureBaselineState[Thread]")
+      .expect("captureBaselineState[Thread][" & $target.kind & "]")
     let baselineEmailState = captureBaselineState[Email](client, mailAccountId).expect(
         "captureBaselineState[Email]"
       )
@@ -134,16 +141,23 @@ block tcascadeChangesCoherenceLive:
         ids = directIds(@[sid]),
         properties = Opt.some(@["id", "threadId"]),
       )
-      let resp = client.send(b).expect("send Email/get threadId resolve")
-      let getResp = resp.get(getHandle).expect("Email/get threadId extract")
-      doAssert getResp.list.len == 1,
+      let resp =
+        client.send(b).expect("send Email/get threadId resolve[" & $target.kind & "]")
+      let getResp =
+        resp.get(getHandle).expect("Email/get threadId extract[" & $target.kind & "]")
+      assertOn target,
+        getResp.list.len == 1,
         "Email/get must return exactly one record for the seeded id (got " &
           $getResp.list.len & ")"
-      let email = Email.fromJson(getResp.list[0]).expect("parse Email threadId")
-      doAssert email.threadId.isSome,
+      let email = Email.fromJson(getResp.list[0]).expect(
+          "parse Email threadId[" & $target.kind & "]"
+        )
+      assertOn target,
+        email.threadId.isSome,
         "every seeded email must carry a threadId; Email/set sets it synchronously"
       observedThreadIds.incl(email.threadId.unsafeGet)
-    doAssert observedThreadIds.len >= 1,
+    assertOn target,
+      observedThreadIds.len >= 1,
       "at least one threadId must be observed across six seeded emails"
 
     # --- Cascade destroy ------------------------------------------------
@@ -153,17 +167,21 @@ block tcascadeChangesCoherenceLive:
       destroy = directIds(@[cascadeId]),
       onDestroyRemoveEmails = true,
     )
-    let respCascade = client.send(bCascade).expect("send Mailbox/set cascade destroy")
-    let cascadeResp =
-      respCascade.get(cascadeHandle).expect("Mailbox/set cascade destroy extract")
+    let respCascade = client.send(bCascade).expect(
+        "send Mailbox/set cascade destroy[" & $target.kind & "]"
+      )
+    let cascadeResp = respCascade.get(cascadeHandle).expect(
+        "Mailbox/set cascade destroy extract[" & $target.kind & "]"
+      )
     var cascadeOk = false
     cascadeResp.destroyResults.withValue(cascadeId, outcome):
-      doAssert outcome.isOk,
+      assertOn target,
+        outcome.isOk,
         "Mailbox/set destroy with cascade must succeed: " & outcome.error.rawType
       cascadeOk = true
     do:
-      doAssert false, "Mailbox/set must report a destroy outcome for cascadeId"
-    doAssert cascadeOk
+      assertOn target, false, "Mailbox/set must report a destroy outcome for cascadeId"
+    assertOn target, cascadeOk
 
     # --- Combined three-changes Request inside re-fetch loop ------------
     let seededEmailSet = seededEmailIds.toHashSet
@@ -180,10 +198,13 @@ block tcascadeChangesCoherenceLive:
       let (b3, threadH) = addChanges[jmap_client.Thread](
         b2, mailAccountId, sinceState = baselineThreadState
       )
-      let resp = client.send(b3).expect("send cascade */changes")
-      let mailboxCr = resp.get(mailboxH).expect("Mailbox/changes extract")
-      let emailCr = resp.get(emailH).expect("Email/changes extract")
-      let threadCr = resp.get(threadH).expect("Thread/changes extract")
+      let resp = client.send(b3).expect("send cascade */changes[" & $target.kind & "]")
+      let mailboxCr =
+        resp.get(mailboxH).expect("Mailbox/changes extract[" & $target.kind & "]")
+      let emailCr =
+        resp.get(emailH).expect("Email/changes extract[" & $target.kind & "]")
+      let threadCr =
+        resp.get(threadH).expect("Thread/changes extract[" & $target.kind & "]")
       let allEmailDelta =
         emailCr.created.toHashSet + emailCr.updated.toHashSet +
         emailCr.destroyed.toHashSet
@@ -196,36 +217,43 @@ block tcascadeChangesCoherenceLive:
         captureIfRequested(
           client, "cascade-changes-mailbox-email-thread-coherence-stalwart"
         )
-          .expect("captureIfRequested")
+          .expect("captureIfRequested[" & $target.kind & "]")
         capturedMailboxCr = mailboxCr
         capturedEmailCr = emailCr
         capturedThreadCr = threadCr
         converged = true
         break
       sleep(200)
-    doAssert converged,
+    assertOn target,
+      converged,
       "cascade */changes did not converge within 1 s — extend re-fetch budget " &
         "or investigate Stalwart 0.15.5 threading pipeline"
 
     # --- Coherence assertions ------------------------------------------
-    doAssert cascadeId in capturedMailboxCr.destroyed,
+    assertOn target,
+      cascadeId in capturedMailboxCr.destroyed,
       "cascade mailbox id must surface in Mailbox/changes destroyed"
-    doAssert capturedMailboxCr.hasMoreChanges == false,
+    assertOn target,
+      capturedMailboxCr.hasMoreChanges == false,
       "Mailbox/changes hasMoreChanges must be false"
     let allEmailDelta =
       capturedEmailCr.created.toHashSet + capturedEmailCr.updated.toHashSet +
       capturedEmailCr.destroyed.toHashSet
     for sid in seededEmailIds:
-      doAssert sid in allEmailDelta,
+      assertOn target,
+        sid in allEmailDelta,
         "seeded email " & string(sid) & " must appear in Email/changes delta"
-    doAssert capturedEmailCr.hasMoreChanges == false,
+    assertOn target,
+      capturedEmailCr.hasMoreChanges == false,
       "Email/changes hasMoreChanges must be false"
     let allThreadDelta =
       capturedThreadCr.created.toHashSet + capturedThreadCr.updated.toHashSet +
       capturedThreadCr.destroyed.toHashSet
     for tid in observedThreadIds:
-      doAssert tid in allThreadDelta,
+      assertOn target,
+        tid in allThreadDelta,
         "observed thread " & string(tid) & " must appear in Thread/changes delta"
-    doAssert capturedThreadCr.hasMoreChanges == false,
+    assertOn target,
+      capturedThreadCr.hasMoreChanges == false,
       "Thread/changes hasMoreChanges must be false"
     client.close()

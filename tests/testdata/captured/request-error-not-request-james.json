@@ -1,0 +1,1 @@
+{"type":"urn:ietf:params:jmap:error:notRequest","status":400,"detail":"The request was successfully parsed as JSON but did not match the type signature of the Request object: {\"errors\":[{\"path\":\"obj\",\"messages\":[\"error.expected.jsobject\"]}]}"}

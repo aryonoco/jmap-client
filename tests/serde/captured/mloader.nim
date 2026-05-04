@@ -25,3 +25,17 @@ template loadCapturedFixture*(name: static string): JsonNode =
   const path = "../../testdata/captured/" & name & ".json"
   const data = staticRead(path)
   parseJson(data)
+
+template forEachCapturedServer*(baseName: static string, fixture, body: untyped) =
+  ## Loads ``<baseName>-stalwart.json`` and ``<baseName>-james.json`` in
+  ## sequence and runs ``body`` once per server. Two static-read paths
+  ## are emitted at compile time — missing fixtures fail at build, not
+  ## at runtime. Use ``loadCapturedFixture`` directly for replay tests
+  ## whose live counterpart is skipped on James (no James fixture
+  ## exists).
+  block:
+    let fixture {.inject.} = loadCapturedFixture(baseName & "-stalwart")
+    body
+  block:
+    let fixture {.inject.} = loadCapturedFixture(baseName & "-james")
+    body

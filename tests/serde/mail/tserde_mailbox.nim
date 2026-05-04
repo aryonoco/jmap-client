@@ -458,10 +458,18 @@ block toJsonMailboxCreateNoServerFields: # scenario 54
   doAssert node{"myRights"} == nil, "myRights must not be present"
 
 block toJsonMailboxCreateNullOpts: # scenario 55
+  ## ``parentId`` is emitted as ``null`` to make "top-level mailbox"
+  ## explicit on the wire (RFC 8621 §2.5 distinguishes a missing
+  ## parent from an absent field). ``role`` and ``sortOrder`` are
+  ## omitted when the caller did not supply a value because James 3.9
+  ## treats either as a server-set property and rejects creation
+  ## otherwise; Stalwart accepts the omitted form too.
   let mc = parseMailboxCreate("Inbox").get()
   let node = mc.toJson()
   assertJsonFieldEq node, "parentId", newJNull()
-  assertJsonFieldEq node, "role", newJNull()
+  doAssert node{"role"} == nil, "role must be omitted when caller did not set it"
+  doAssert node{"sortOrder"} == nil,
+    "sortOrder must be omitted when caller did not set it"
 
 # ============= F. MailboxUpdate serde =============
 

@@ -1,0 +1,1 @@
+{"type":"urn:ietf:params:jmap:error:unknownCapability","status":400,"detail":"The request used unsupported capabilities: Set(urn:test:phase-j:bogus)"}

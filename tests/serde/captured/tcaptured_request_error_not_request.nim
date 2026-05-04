@@ -15,14 +15,14 @@ import jmap_client
 import ./mloader
 
 block tcapturedRequestErrorNotRequest:
-  let j = loadCapturedFixture("request-error-not-request-stalwart")
-  let re = RequestError.fromJson(j).expect("RequestError.fromJson")
-  doAssert re.rawType == "urn:ietf:params:jmap:error:notRequest",
-    "Stalwart returns notRequest for top-level non-Request JSON; got " & re.rawType
-  doAssert re.errorType == retNotRequest,
-    "errorType must match parseRequestErrorType(rawType); got " & $re.errorType
-  doAssert re.errorType == parseRequestErrorType(re.rawType),
-    "errorType / rawType must be derived consistently"
-  doAssert re.status.isSome and re.status.unsafeGet == 400,
-    "Stalwart pins the HTTP status field to 400"
-  doAssert re.detail.isSome, "Stalwart populates the RFC 7807 detail field"
+  forEachCapturedServer("request-error-not-request", j):
+    let re = RequestError.fromJson(j).expect("RequestError.fromJson")
+    doAssert re.rawType == "urn:ietf:params:jmap:error:notRequest",
+      "Stalwart returns notRequest for top-level non-Request JSON; got " & re.rawType
+    doAssert re.errorType == retNotRequest,
+      "errorType must match parseRequestErrorType(rawType); got " & $re.errorType
+    doAssert re.errorType == parseRequestErrorType(re.rawType),
+      "errorType / rawType must be derived consistently"
+    doAssert re.status.isSome and re.status.unsafeGet == 400,
+      "Stalwart pins the HTTP status field to 400"
+    doAssert re.detail.isSome, "Stalwart populates the RFC 7807 detail field"

@@ -184,8 +184,9 @@ block addMailboxChangesCapability:
   let b0 = initRequestBuilder()
   let (b1, _) = b0.addMailboxChanges(makeAccountId("a1"), makeState("s0"))
   let req = b1.build()
-  assertLen req.`using`, 1
-  assertEq req.`using`[0], "urn:ietf:params:jmap:mail"
+  assertLen req.`using`, 2
+  doAssert "urn:ietf:params:jmap:core" in req.`using`
+  doAssert "urn:ietf:params:jmap:mail" in req.`using`
 
 # ===========================================================================
 # D. addMailboxQuery builder tests (scenarios 72-74)
@@ -445,8 +446,9 @@ block addEmailSetFullInvocation:
   let req = b1.build()
   assertLen req.methodCalls, 1
   assertEq req.methodCalls[0].name, mnEmailSet
-  assertLen req.`using`, 1
-  assertEq req.`using`[0], "urn:ietf:params:jmap:mail"
+  assertLen req.`using`, 2
+  doAssert "urn:ietf:params:jmap:core" in req.`using`
+  doAssert "urn:ietf:params:jmap:mail" in req.`using`
   let args = req.methodCalls[0].arguments
   doAssert args{"create"}.kind == JObject
   doAssert args{"update"}.kind == JObject

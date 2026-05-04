@@ -316,6 +316,11 @@ coverage.xml
 docker-compose.override.yml
 docker-compose.override.yaml
 
+# Self-signed PKCS12 keystore generated on demand by
+# .devcontainer/scripts/ensure-james-keystore.sh — regenerated whenever
+# missing, so the binary is not committed to the repo.
+.devcontainer/james-conf/keystore
+
 # -----------------------------------------------------------------------------
 # Miscellaneous
 # -----------------------------------------------------------------------------

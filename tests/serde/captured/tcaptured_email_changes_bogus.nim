@@ -16,13 +16,13 @@ import jmap_client
 import ./mloader
 
 block tcapturedEmailChangesBogus:
-  let j = loadCapturedFixture("email-changes-bogus-state-stalwart")
-  let resp = envelope.Response.fromJson(j).expect("envelope.Response.fromJson")
-  doAssert resp.methodResponses.len == 1
-  let inv = resp.methodResponses[0]
-  doAssert inv.rawName == "error",
-    "method-level errors arrive under the literal rawName 'error'"
-  let me = MethodError.fromJson(inv.arguments).expect("MethodError.fromJson")
-  doAssert me.errorType in {metCannotCalculateChanges, metInvalidArguments},
-    "errorType must project as one of cannotCalculateChanges / invalidArguments " &
-      "(got " & $me.errorType & ", rawType=" & me.rawType & ")"
+  forEachCapturedServer("email-changes-bogus-state", j):
+    let resp = envelope.Response.fromJson(j).expect("envelope.Response.fromJson")
+    doAssert resp.methodResponses.len == 1
+    let inv = resp.methodResponses[0]
+    doAssert inv.rawName == "error",
+      "method-level errors arrive under the literal rawName 'error'"
+    let me = MethodError.fromJson(inv.arguments).expect("MethodError.fromJson")
+    doAssert me.errorType in {metCannotCalculateChanges, metInvalidArguments},
+      "errorType must project as one of cannotCalculateChanges / invalidArguments " &
+        "(got " & $me.errorType & ", rawType=" & me.rawType & ")"

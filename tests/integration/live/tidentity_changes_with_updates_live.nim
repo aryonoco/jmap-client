@@ -46,28 +46,32 @@ import ./mconfig
 import ./mlive
 
 block tidentityChangesWithUpdatesLive:
-  let cfgRes = loadLiveTestConfig()
-  if cfgRes.isOk:
-    let cfg = cfgRes.get()
+  forEachLiveTarget(target):
+    # James 3.9 compatibility: skipped on James.
+    # Reason: Same — Identity/changes is documented as not implemented on James 3.9.
+    # When James adds support, remove this guard.
+    if target.kind == ltkJames:
+      continue
     var client = initJmapClient(
-        sessionUrl = cfg.sessionUrl,
-        bearerToken = cfg.aliceToken,
-        authScheme = cfg.authScheme,
+        sessionUrl = target.sessionUrl,
+        bearerToken = target.aliceToken,
+        authScheme = target.authScheme,
       )
-      .expect("initJmapClient")
-    let session = client.fetchSession().expect("fetchSession")
-    let submissionAccountId =
-      resolveSubmissionAccountId(session).expect("resolveSubmissionAccountId")
+      .expect("initJmapClient[" & $target.kind & "]")
+    let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
+    let submissionAccountId = resolveSubmissionAccountId(session).expect(
+        "resolveSubmissionAccountId[" & $target.kind & "]"
+      )
 
     let identityId = resolveOrCreateAliceIdentity(client, submissionAccountId).expect(
         "resolveOrCreateAliceIdentity"
       )
 
     let baselineState = captureBaselineState[Identity](client, submissionAccountId)
-      .expect("captureBaselineState[Identity]")
+      .expect("captureBaselineState[Identity][" & $target.kind & "]")
 
     let replyAddr = parseEmailAddress("alice+reply@example.com", Opt.none(string))
-      .expect("parseEmailAddress reply")
+      .expect("parseEmailAddress reply[" & $target.kind & "]")
     let bccAddr = parseEmailAddress("alice+bcc@example.com", Opt.none(string)).expect(
         "parseEmailAddress bcc"
       )
@@ -84,56 +88,72 @@ block tidentityChangesWithUpdatesLive:
           setHtmlSignature(htmlSig),
         ]
       )
-      .expect("initIdentityUpdateSet five arms")
+      .expect("initIdentityUpdateSet five arms[" & $target.kind & "]")
     let updates = parseNonEmptyIdentityUpdates(@[(identityId, updateSet)]).expect(
         "parseNonEmptyIdentityUpdates"
       )
     let (bU, updateHandle) = addIdentitySet(
       initRequestBuilder(), submissionAccountId, update = Opt.some(updates)
     )
-    let respU = client.send(bU).expect("send Identity/set five-arm update")
-    captureIfRequested(client, "identity-changes-with-updates-stalwart").expect(
+    let respU =
+      client.send(bU).expect("send Identity/set five-arm update[" & $target.kind & "]")
+    captureIfRequested(client, "identity-changes-with-updates-" & $target.kind).expect(
       "captureIfRequested"
     )
-    let setRespU = respU.get(updateHandle).expect("Identity/set five-arm extract")
+    let setRespU = respU.get(updateHandle).expect(
+        "Identity/set five-arm extract[" & $target.kind & "]"
+      )
     var updateOk = false
     setRespU.updateResults.withValue(identityId, outcome):
-      doAssert outcome.isOk,
+      assertOn target,
+        outcome.isOk,
         "Identity/set five-arm update must succeed: " & outcome.error.rawType
       updateOk = true
     do:
-      doAssert false, "Identity/set must report an update outcome"
-    doAssert updateOk
+      assertOn target, false, "Identity/set must report an update outcome"
+    assertOn target, updateOk
 
     # Identity/changes from the baseline state.
     let (bC, changesHandle) = addIdentityChanges(
       initRequestBuilder(), submissionAccountId, sinceState = baselineState
     )
-    let respC = client.send(bC).expect("send Identity/changes")
-    let cr = respC.get(changesHandle).expect("Identity/changes extract")
+    let respC = client.send(bC).expect("send Identity/changes[" & $target.kind & "]")
+    let cr =
+      respC.get(changesHandle).expect("Identity/changes extract[" & $target.kind & "]")
     let allDelta = cr.created.toHashSet + cr.updated.toHashSet
-    doAssert identityId in allDelta,
+    assertOn target,
+      identityId in allDelta,
       "identity id must surface in created ∪ updated of the changes delta"
 
     # Read-back via Identity/get — verify all five fields.
     let (bG, getHandle) = addIdentityGet(
       initRequestBuilder(), submissionAccountId, ids = directIds(@[identityId])
     )
-    let respG = client.send(bG).expect("send Identity/get round-trip")
-    let getResp = respG.get(getHandle).expect("Identity/get round-trip extract")
-    doAssert getResp.list.len == 1, "Identity/get must return exactly one record"
-    let updated = Identity.fromJson(getResp.list[0]).expect("parse Identity")
-    doAssert updated.name == renamedName,
+    let respG =
+      client.send(bG).expect("send Identity/get round-trip[" & $target.kind & "]")
+    let getResp = respG.get(getHandle).expect(
+        "Identity/get round-trip extract[" & $target.kind & "]"
+      )
+    assertOn target,
+      getResp.list.len == 1, "Identity/get must return exactly one record"
+    let updated =
+      Identity.fromJson(getResp.list[0]).expect("parse Identity[" & $target.kind & "]")
+    assertOn target,
+      updated.name == renamedName,
       "name must reflect setName update (got " & updated.name & ")"
-    doAssert updated.replyTo.isSome and updated.replyTo.unsafeGet.len == 1 and
-      updated.replyTo.unsafeGet[0].email == "alice+reply@example.com",
+    assertOn target,
+      updated.replyTo.isSome and updated.replyTo.unsafeGet.len == 1 and
+        updated.replyTo.unsafeGet[0].email == "alice+reply@example.com",
       "replyTo must round-trip the supplied address"
-    doAssert updated.bcc.isSome and updated.bcc.unsafeGet.len == 1 and
-      updated.bcc.unsafeGet[0].email == "alice+bcc@example.com",
+    assertOn target,
+      updated.bcc.isSome and updated.bcc.unsafeGet.len == 1 and
+        updated.bcc.unsafeGet[0].email == "alice+bcc@example.com",
       "bcc must round-trip the supplied address"
-    doAssert updated.textSignature == textSig,
+    assertOn target,
+      updated.textSignature == textSig,
       "textSignature must reflect setTextSignature update"
-    doAssert updated.htmlSignature == htmlSig,
+    assertOn target,
+      updated.htmlSignature == htmlSig,
       "htmlSignature must reflect setHtmlSignature update"
 
     # Cleanup — revert name + clear the other four arms.
@@ -146,11 +166,11 @@ block tidentityChangesWithUpdatesLive:
           setHtmlSignature(""),
         ]
       )
-      .expect("initIdentityUpdateSet cleanup")
+      .expect("initIdentityUpdateSet cleanup[" & $target.kind & "]")
     let cleanupUpdates = parseNonEmptyIdentityUpdates(@[(identityId, cleanupSet)])
-      .expect("parseNonEmptyIdentityUpdates cleanup")
+      .expect("parseNonEmptyIdentityUpdates cleanup[" & $target.kind & "]")
     let (bX, _) = addIdentitySet(
       initRequestBuilder(), submissionAccountId, update = Opt.some(cleanupUpdates)
     )
-    discard client.send(bX).expect("send Identity/set cleanup")
+    discard client.send(bX).expect("send Identity/set cleanup[" & $target.kind & "]")
     client.close()

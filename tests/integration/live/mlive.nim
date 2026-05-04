@@ -789,9 +789,12 @@ proc pollSubmissionDelivery*(
     )
   # K1 barrier: wait for Stalwart's SMTP queue to drain so the
   # helper's contract is genuine SMTP completion, not just JMAP-side
-  # commit lock. Reading env keeps every existing call site unchanged.
-  let adminBasic = getEnv("JMAP_TEST_ADMIN_BASIC")
-  let sessionUrl = getEnv("JMAP_TEST_SESSION_URL")
+  # commit lock. Reads the Stalwart-prefixed env vars directly so the
+  # barrier remains a no-op on the James leg of any Cat-D iteration
+  # (James's drain semantics are observed via inbox arrival in
+  # ``pollEmailDeliveryToInbox``, not Stalwart's admin queue API).
+  let adminBasic = getEnv("JMAP_TEST_STALWART_ADMIN_BASIC")
+  let sessionUrl = getEnv("JMAP_TEST_STALWART_SESSION_URL")
   if adminBasic.len > 0 and sessionUrl.len > 0:
     ?awaitSmtpQueueDrain(adminBasic, sessionUrl)
   ok(finalSub)
@@ -800,7 +803,7 @@ proc pollSubmissionDelivery*(
 # Phase G — multi-principal + cancel-pending helpers
 # ---------------------------------------------------------------------------
 
-proc initBobClient*(cfg: LiveTestConfig): Result[JmapClient, ValidationError] =
+proc initBobClient*(cfg: LiveTestTarget): Result[JmapClient, ValidationError] =
   ## Sibling of the alice-flavoured ``initJmapClient`` idiom each Phase A–F
   ## test inlines. Constructs a ``JmapClient`` authenticating as bob via
   ## ``cfg.bobToken``. The Result rail mirrors ``initJmapClient`` directly —
@@ -960,6 +963,54 @@ proc findEmailBySubjectInMailbox*(
     "findEmailBySubjectInMailbox: no match after " & $attempts & " attempts (subject=" &
       subject & ")"
   )
+
+proc pollEmailDeliveryToInbox*(
+    client: var JmapClient,
+    mailAccountId: AccountId,
+    inbox: Id,
+    subject: string,
+    budgetMs: int = 5000,
+): Result[Id, string] =
+  ## Polls ``Email/query`` on ``inbox`` filtered by ``subject`` until a
+  ## match surfaces or the budget elapses. Used by Category D submission
+  ## tests on James because James 3.9 has no ``EmailSubmission/get`` and
+  ## delivery is verified by inbox arrival instead.
+  ##
+  ## RFC 8621 §4.4 ``EmailFilterCondition.subject`` is server-tokenised
+  ## in both Stalwart 0.15.5 and James 3.9; callers must pass a single-
+  ## token discriminator subject (the ``seedDraftEmail`` callers in
+  ## Category D tests already do).
+  const PollMs = 100
+  let maxIters = max(1, budgetMs div PollMs)
+  let filter = filterCondition(
+    EmailFilterCondition(inMailbox: Opt.some(inbox), subject: Opt.some(subject))
+  )
+  for _ in 0 ..< maxIters:
+    let (b, queryHandle) =
+      addEmailQuery(initRequestBuilder(), mailAccountId, filter = Opt.some(filter))
+    let resp = client.send(b).valueOr:
+      return err("Email/query send failed: " & error.message)
+    let qr = resp.get(queryHandle).valueOr:
+      return err("Email/query extract failed: " & error.rawType)
+    if qr.ids.len > 0:
+      return ok(qr.ids[0])
+    sleep(PollMs)
+  err(
+    "pollEmailDeliveryToInbox: " & $budgetMs &
+      "ms budget exhausted without arrival (subject=" & subject & ")"
+  )
+
+template assertOn*(target: LiveTestTarget, cond: bool, msg: string) =
+  ## Suffixes the bracketed target kind to every assertion message so
+  ## test failures from a single ``forEachLiveTarget`` iteration are
+  ## attributable to a specific server. Pure expansion, no helpers.
+  doAssert cond, msg & " [" & $target.kind & "]"
+
+template assertOn*(target: LiveTestTarget, cond: bool) =
+  ## Two-argument variant of ``assertOn`` for boolean post-conditions
+  ## that don't need a custom message — the bracketed target kind is
+  ## still surfaced so failures attribute to a specific server.
+  doAssert cond, "[" & $target.kind & "]"
 
 proc seedMultiRecipientDraft*(
     client: var JmapClient,

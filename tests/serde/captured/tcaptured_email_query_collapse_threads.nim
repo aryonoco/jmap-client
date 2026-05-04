@@ -14,17 +14,18 @@ import jmap_client
 import ./mloader
 
 block tcapturedEmailQueryCollapseThreads:
-  let j = loadCapturedFixture("email-query-collapse-threads-stalwart")
-  let resp = envelope.Response.fromJson(j).expect("envelope.Response.fromJson")
-  doAssert resp.methodResponses.len == 1
-  let inv = resp.methodResponses[0]
-  doAssert inv.rawName == "Email/query"
+  forEachCapturedServer("email-query-collapse-threads", j):
+    let resp = envelope.Response.fromJson(j).expect("envelope.Response.fromJson")
+    doAssert resp.methodResponses.len == 1
+    let inv = resp.methodResponses[0]
+    doAssert inv.rawName == "Email/query"
 
-  let qr =
-    QueryResponse[Email].fromJson(inv.arguments).expect("QueryResponse[Email].fromJson")
-  doAssert ($qr.queryState).len > 0, "queryState must be non-empty"
-  doAssert qr.ids.len >= 2,
-    "collapseThreads=true must surface at least one entry per thread (got " & $qr.ids.len &
-      ")"
-  for id in qr.ids:
-    doAssert string(id).len > 0, "every returned id must be non-empty"
+    let qr = QueryResponse[Email].fromJson(inv.arguments).expect(
+        "QueryResponse[Email].fromJson"
+      )
+    doAssert ($qr.queryState).len > 0, "queryState must be non-empty"
+    doAssert qr.ids.len >= 2,
+      "collapseThreads=true must surface at least one entry per thread (got " &
+        $qr.ids.len & ")"
+    for id in qr.ids:
+      doAssert string(id).len > 0, "every returned id must be non-empty"

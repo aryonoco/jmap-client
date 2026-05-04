@@ -15,20 +15,20 @@ import jmap_client
 import ./mloader
 
 block tcapturedEmailChangesMaxChanges:
-  let j = loadCapturedFixture("email-changes-max-changes-stalwart")
-  let resp = envelope.Response.fromJson(j).expect("envelope.Response.fromJson")
-  doAssert resp.methodResponses.len == 1
-  let inv = resp.methodResponses[0]
-  doAssert inv.rawName == "Email/changes"
+  forEachCapturedServer("email-changes-max-changes", j):
+    let resp = envelope.Response.fromJson(j).expect("envelope.Response.fromJson")
+    doAssert resp.methodResponses.len == 1
+    let inv = resp.methodResponses[0]
+    doAssert inv.rawName == "Email/changes"
 
-  let cr = ChangesResponse[Email].fromJson(inv.arguments).expect(
-      "ChangesResponse[Email].fromJson"
-    )
-  doAssert ($cr.oldState).len > 0, "oldState must be non-empty"
-  doAssert ($cr.newState).len > 0, "newState must be non-empty"
-  doAssert string(cr.oldState) != string(cr.newState),
-    "first paginated page must advance newState past oldState"
-  doAssert cr.hasMoreChanges,
-    "the captured page is the first of multiple — hasMoreChanges must be true"
-  for id in cr.created:
-    doAssert string(id).len > 0, "every created.id must be non-empty"
+    let cr = ChangesResponse[Email].fromJson(inv.arguments).expect(
+        "ChangesResponse[Email].fromJson"
+      )
+    doAssert ($cr.oldState).len > 0, "oldState must be non-empty"
+    doAssert ($cr.newState).len > 0, "newState must be non-empty"
+    doAssert string(cr.oldState) != string(cr.newState),
+      "first paginated page must advance newState past oldState"
+    doAssert cr.hasMoreChanges,
+      "the captured page is the first of multiple — hasMoreChanges must be true"
+    for id in cr.created:
+      doAssert string(id).len > 0, "every created.id must be non-empty"

@@ -13,21 +13,22 @@ import jmap_client
 import ./mloader
 
 block tcapturedMailboxGet:
-  let j = loadCapturedFixture("mailbox-get-all-stalwart")
-  let resp = envelope.Response.fromJson(j).expect("envelope.Response.fromJson")
-  doAssert resp.methodResponses.len == 1, "one Mailbox/get invocation expected"
-  let inv = resp.methodResponses[0]
-  doAssert inv.rawName == "Mailbox/get"
+  forEachCapturedServer("mailbox-get-all", j):
+    let resp = envelope.Response.fromJson(j).expect("envelope.Response.fromJson")
+    doAssert resp.methodResponses.len == 1, "one Mailbox/get invocation expected"
+    let inv = resp.methodResponses[0]
+    doAssert inv.rawName == "Mailbox/get"
 
-  let getResp =
-    GetResponse[Mailbox].fromJson(inv.arguments).expect("GetResponse[Mailbox].fromJson")
-  doAssert getResp.list.len >= 1, "Stalwart's seeded account has at least one mailbox"
-  for node in getResp.list:
-    let mb = Mailbox.fromJson(node).expect("Mailbox.fromJson per entry")
-    doAssert mb.name.len > 0, "every mailbox must have a non-empty name"
-    doAssert mb.myRights.mayReadItems,
-      "alice must have read rights on her own mailboxes"
-    let rt = Mailbox.fromJson(mb.toJson()).expect("Mailbox round-trip")
-    doAssert rt.id == mb.id, "id must round-trip"
-    doAssert rt.name == mb.name, "name must round-trip"
-    doAssert rt.role == mb.role, "role must round-trip"
+    let getResp = GetResponse[Mailbox].fromJson(inv.arguments).expect(
+        "GetResponse[Mailbox].fromJson"
+      )
+    doAssert getResp.list.len >= 1, "Stalwart's seeded account has at least one mailbox"
+    for node in getResp.list:
+      let mb = Mailbox.fromJson(node).expect("Mailbox.fromJson per entry")
+      doAssert mb.name.len > 0, "every mailbox must have a non-empty name"
+      doAssert mb.myRights.mayReadItems,
+        "alice must have read rights on her own mailboxes"
+      let rt = Mailbox.fromJson(mb.toJson()).expect("Mailbox round-trip")
+      doAssert rt.id == mb.id, "id must round-trip"
+      doAssert rt.name == mb.name, "name must round-trip"
+      doAssert rt.role == mb.role, "role must round-trip"

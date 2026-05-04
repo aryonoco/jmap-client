@@ -17,25 +17,25 @@ import jmap_client
 import ./mloader
 
 block tcapturedBobInboxAfterDelivery:
-  let j = loadCapturedFixture("bob-inbox-after-alice-delivery-stalwart")
-  let resp = envelope.Response.fromJson(j).expect("envelope.Response.fromJson")
-  doAssert resp.methodResponses.len == 1
-  let inv = resp.methodResponses[0]
-  doAssert inv.rawName == "Email/get", "expected Email/get, got " & inv.rawName
+  forEachCapturedServer("bob-inbox-after-alice-delivery", j):
+    let resp = envelope.Response.fromJson(j).expect("envelope.Response.fromJson")
+    doAssert resp.methodResponses.len == 1
+    let inv = resp.methodResponses[0]
+    doAssert inv.rawName == "Email/get", "expected Email/get, got " & inv.rawName
 
-  let getResp =
-    GetResponse[Email].fromJson(inv.arguments).expect("GetResponse[Email].fromJson")
-  doAssert getResp.list.len == 1,
-    "exactly one delivered email expected (got " & $getResp.list.len & ")"
+    let getResp =
+      GetResponse[Email].fromJson(inv.arguments).expect("GetResponse[Email].fromJson")
+    doAssert getResp.list.len == 1,
+      "exactly one delivered email expected (got " & $getResp.list.len & ")"
 
-  let email = Email.fromJson(getResp.list[0]).expect("Email.fromJson")
-  doAssert email.subject.isSome and email.subject.unsafeGet.len > 0,
-    "captured delivery must surface a non-empty subject"
-  doAssert email.fromAddr.isSome and email.fromAddr.unsafeGet.len > 0,
-    "captured delivery must include a non-empty from list"
-  doAssert email.fromAddr.unsafeGet[0].email == "alice@example.com",
-    "delivered from[0].email must be alice@example.com (got " &
-      email.fromAddr.unsafeGet[0].email & ")"
-  doAssert email.mailboxIds.isSome, "captured delivery must include mailboxIds"
-  doAssert HashSet[Id](email.mailboxIds.unsafeGet).len >= 1,
-    "delivered email must reside in at least one mailbox"
+    let email = Email.fromJson(getResp.list[0]).expect("Email.fromJson")
+    doAssert email.subject.isSome and email.subject.unsafeGet.len > 0,
+      "captured delivery must surface a non-empty subject"
+    doAssert email.fromAddr.isSome and email.fromAddr.unsafeGet.len > 0,
+      "captured delivery must include a non-empty from list"
+    doAssert email.fromAddr.unsafeGet[0].email == "alice@example.com",
+      "delivered from[0].email must be alice@example.com (got " &
+        email.fromAddr.unsafeGet[0].email & ")"
+    doAssert email.mailboxIds.isSome, "captured delivery must include mailboxIds"
+    doAssert HashSet[Id](email.mailboxIds.unsafeGet).len >= 1,
+      "delivered email must reside in at least one mailbox"

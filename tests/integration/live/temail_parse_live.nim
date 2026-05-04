@@ -44,19 +44,26 @@ import ./mconfig
 import ./mlive
 
 block temailParseLive:
-  let cfgRes = loadLiveTestConfig()
-  if cfgRes.isOk:
-    let cfg = cfgRes.get()
+  forEachLiveTarget(target):
+    # James 3.9 compatibility: skipped on James.
+    # Reason: exercises inline-bodyValues attachments (partId-referenced bodyValues per RFC 8621 §4.6); James 3.9 requires blob-uploaded attachments (`attachments[].blobId`) and rejects inline ones with invalidArguments. The library does not yet expose the JMAP `/upload` endpoint (RFC 8620 §6.1) — that is a deliberately deferred library scope (no blob/push). Tests revisit James once `uploadBlob` lands.
+    # Replay coverage for the Stalwart wire shape is preserved via
+    # captured ``-stalwart`` fixtures.
+    if target.kind == ltkJames:
+      continue
     var client = initJmapClient(
-        sessionUrl = cfg.sessionUrl,
-        bearerToken = cfg.aliceToken,
-        authScheme = cfg.authScheme,
+        sessionUrl = target.sessionUrl,
+        bearerToken = target.aliceToken,
+        authScheme = target.authScheme,
       )
-      .expect("initJmapClient")
-    let session = client.fetchSession().expect("fetchSession")
-    let mailAccountId = resolveMailAccountId(session).expect("resolveMailAccountId")
+      .expect("initJmapClient[" & $target.kind & "]")
+    let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
+    let mailAccountId =
+      resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
 
-    let inbox = resolveInboxId(client, mailAccountId).expect("resolveInboxId")
+    let inbox = resolveInboxId(client, mailAccountId).expect(
+        "resolveInboxId[" & $target.kind & "]"
+      )
     const innerSubject = "phase-d step-24 inner subject"
     const innerEmail = "bob@example.com"
     const innerName = "Bob"
@@ -68,7 +75,7 @@ block temailParseLive:
         client, mailAccountId, inbox, "phase-d step-24 forward", innerSubject,
         innerFrom, innerBody, "seedForward",
       )
-      .expect("seedForwardedEmail")
+      .expect("seedForwardedEmail[" & $target.kind & "]")
 
     let (bGet, getHandle) = addEmailGet(
       initRequestBuilder(),
@@ -76,17 +83,22 @@ block temailParseLive:
       ids = directIds(@[outerId]),
       properties = Opt.some(@["id", "attachments"]),
     )
-    let getRespOuter = client.send(bGet).expect("send Email/get attachments")
-    let getResp = getRespOuter.get(getHandle).expect("Email/get attachments extract")
-    doAssert getResp.list.len == 1, "Email/get must return the seeded message"
+    let getRespOuter =
+      client.send(bGet).expect("send Email/get attachments[" & $target.kind & "]")
+    let getResp = getRespOuter.get(getHandle).expect(
+        "Email/get attachments extract[" & $target.kind & "]"
+      )
+    assertOn target, getResp.list.len == 1, "Email/get must return the seeded message"
 
-    let email = Email.fromJson(getResp.list[0]).expect("Email.fromJson")
-    doAssert email.attachments.len == 1, "expected exactly one attachment"
+    let email =
+      Email.fromJson(getResp.list[0]).expect("Email.fromJson[" & $target.kind & "]")
+    assertOn target, email.attachments.len == 1, "expected exactly one attachment"
     let attachment = email.attachments[0]
-    doAssert attachment.contentType == "message/rfc822",
+    assertOn target,
+      attachment.contentType == "message/rfc822",
       "attachment must be message/rfc822 (got " & attachment.contentType & ")"
     let blobId = attachment.blobId
-    doAssert string(blobId).len > 0, "attachment blobId must be non-empty"
+    assertOn target, string(blobId).len > 0, "attachment blobId must be non-empty"
 
     let (bParse, parseHandle) = addEmailParse(
       initRequestBuilder(),
@@ -94,25 +106,32 @@ block temailParseLive:
       blobIds = @[blobId],
       properties = Opt.some(@["bodyStructure", "subject", "from"]),
     )
-    let parseRespOuter = client.send(bParse).expect("send Email/parse")
-    captureIfRequested(client, "email-parse-rfc822-stalwart").expect(
+    let parseRespOuter =
+      client.send(bParse).expect("send Email/parse[" & $target.kind & "]")
+    captureIfRequested(client, "email-parse-rfc822-" & $target.kind).expect(
       "captureIfRequested"
     )
-    let parseResp = parseRespOuter.get(parseHandle).expect("Email/parse extract")
-    doAssert parseResp.parsed.len == 1,
+    let parseResp = parseRespOuter.get(parseHandle).expect(
+        "Email/parse extract[" & $target.kind & "]"
+      )
+    assertOn target,
+      parseResp.parsed.len == 1,
       "Email/parse must return one parsed entry (got " & $parseResp.parsed.len & ")"
     parseResp.parsed.withValue(blobId, parsed):
-      doAssert parsed.subject.isSome,
-        "parsed inner email must carry the inner Subject header"
-      doAssert parsed.subject.unsafeGet == innerSubject,
+      assertOn target,
+        parsed.subject.isSome, "parsed inner email must carry the inner Subject header"
+      assertOn target,
+        parsed.subject.unsafeGet == innerSubject,
         "parsed.subject must equal innerSubject (got " & parsed.subject.unsafeGet & ")"
-      doAssert parsed.fromAddr.isSome,
-        "parsed inner email must carry the inner From header"
+      assertOn target,
+        parsed.fromAddr.isSome, "parsed inner email must carry the inner From header"
       let fromList = parsed.fromAddr.unsafeGet
-      doAssert fromList.len == 1,
+      assertOn target,
+        fromList.len == 1,
         "parsed.fromAddr must contain one entry (got " & $fromList.len & ")"
-      doAssert fromList[0].email == innerEmail,
+      assertOn target,
+        fromList[0].email == innerEmail,
         "parsed.fromAddr[0].email must equal innerEmail (got " & fromList[0].email & ")"
     do:
-      doAssert false, "parsed map must contain entry for the requested blobId"
+      assertOn target, false, "parsed map must contain entry for the requested blobId"
     client.close()

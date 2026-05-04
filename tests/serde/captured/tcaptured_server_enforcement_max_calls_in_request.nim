@@ -15,15 +15,15 @@ import jmap_client
 import ./mloader
 
 block tcapturedServerEnforcementMaxCallsInRequest:
-  let j = loadCapturedFixture("server-enforcement-max-calls-in-request-stalwart")
-  let re = RequestError.fromJson(j).expect("RequestError.fromJson")
-  doAssert re.rawType == "urn:ietf:params:jmap:error:limit",
-    "Stalwart returns canonical 'limit' URI; got " & re.rawType
-  doAssert re.errorType == retLimit,
-    "errorType must project to retLimit, got " & $re.errorType
-  doAssert re.errorType == parseRequestErrorType(re.rawType),
-    "errorType / rawType must be derived consistently"
-  doAssert re.status.isSome and re.status.unsafeGet == 400,
-    "Stalwart pins HTTP 400 on the request-layer limit rail"
-  doAssert re.limit.isSome and re.limit.unsafeGet == "maxCallsInRequest",
-    "Stalwart names the breached cap; got " & $re.limit
+  forEachCapturedServer("server-enforcement-max-calls-in-request", j):
+    let re = RequestError.fromJson(j).expect("RequestError.fromJson")
+    doAssert re.rawType == "urn:ietf:params:jmap:error:limit",
+      "Stalwart returns canonical 'limit' URI; got " & re.rawType
+    doAssert re.errorType == retLimit,
+      "errorType must project to retLimit, got " & $re.errorType
+    doAssert re.errorType == parseRequestErrorType(re.rawType),
+      "errorType / rawType must be derived consistently"
+    doAssert re.status.isSome and re.status.unsafeGet == 400,
+      "Stalwart pins HTTP 400 on the request-layer limit rail"
+    doAssert re.limit.isSome and re.limit.unsafeGet == "maxCallsInRequest",
+      "Stalwart names the breached cap; got " & $re.limit

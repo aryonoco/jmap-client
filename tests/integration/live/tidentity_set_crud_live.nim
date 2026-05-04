@@ -26,46 +26,48 @@ import ./mconfig
 import ./mlive
 
 block tIdentitySetCrudLive:
-  let cfgRes = loadLiveTestConfig()
-  if cfgRes.isOk:
-    let cfg = cfgRes.get()
+  forEachLiveTarget(target):
     var client = initJmapClient(
-        sessionUrl = cfg.sessionUrl,
-        bearerToken = cfg.aliceToken,
-        authScheme = cfg.authScheme,
+        sessionUrl = target.sessionUrl,
+        bearerToken = target.aliceToken,
+        authScheme = target.authScheme,
       )
-      .expect("initJmapClient")
-    let session = client.fetchSession().expect("fetchSession")
-    let submissionAccountId =
-      resolveSubmissionAccountId(session).expect("resolveSubmissionAccountId")
+      .expect("initJmapClient[" & $target.kind & "]")
+    let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
+    let submissionAccountId = resolveSubmissionAccountId(session).expect(
+        "resolveSubmissionAccountId[" & $target.kind & "]"
+      )
 
     # --- Step 1: create -------------------------------------------------
-    let createCid = parseCreationId("phaseFIdent").expect("parseCreationId")
+    let createCid =
+      parseCreationId("phaseFIdent").expect("parseCreationId[" & $target.kind & "]")
     let createIdent = parseIdentityCreate(
         email = "alice@example.com", name = "phase-f step-31 initial"
       )
-      .expect("parseIdentityCreate")
+      .expect("parseIdentityCreate[" & $target.kind & "]")
     var createTbl = initTable[CreationId, IdentityCreate]()
     createTbl[createCid] = createIdent
     let (b1, createHandle) = addIdentitySet(
       initRequestBuilder(), submissionAccountId, create = Opt.some(createTbl)
     )
-    let resp1 = client.send(b1).expect("send Identity/set create")
-    let setResp1 = resp1.get(createHandle).expect("Identity/set create extract")
+    let resp1 = client.send(b1).expect("send Identity/set create[" & $target.kind & "]")
+    let setResp1 = resp1.get(createHandle).expect(
+        "Identity/set create extract[" & $target.kind & "]"
+      )
     var identityId: Id
     var createOk = false
     setResp1.createResults.withValue(createCid, outcome):
-      doAssert outcome.isOk,
-        "Identity/set create must succeed: " & outcome.error.rawType
+      assertOn target,
+        outcome.isOk, "Identity/set create must succeed: " & outcome.error.rawType
       identityId = outcome.unsafeValue.id
       createOk = true
     do:
-      doAssert false, "Identity/set must report a create result"
-    doAssert createOk
+      assertOn target, false, "Identity/set must report a create result"
+    assertOn target, createOk
 
     # --- Step 2: update — three arms in one IdentityUpdateSet -----------
     let replyAddr = parseEmailAddress("alice+reply@example.com", Opt.none(string))
-      .expect("parseEmailAddress reply-to")
+      .expect("parseEmailAddress reply-to[" & $target.kind & "]")
     let updateSet = initIdentityUpdateSet(
         @[
           jidentity.setName("phase-f step-31 renamed"),
@@ -73,60 +75,72 @@ block tIdentitySetCrudLive:
           setTextSignature("phase-f sig"),
         ]
       )
-      .expect("initIdentityUpdateSet")
+      .expect("initIdentityUpdateSet[" & $target.kind & "]")
     let updates = parseNonEmptyIdentityUpdates(@[(identityId, updateSet)]).expect(
         "parseNonEmptyIdentityUpdates"
       )
     let (b2, updateHandle) = addIdentitySet(
       initRequestBuilder(), submissionAccountId, update = Opt.some(updates)
     )
-    let resp2 = client.send(b2).expect("send Identity/set update")
-    captureIfRequested(client, "identity-set-update-stalwart").expect(
+    let resp2 = client.send(b2).expect("send Identity/set update[" & $target.kind & "]")
+    captureIfRequested(client, "identity-set-update-" & $target.kind).expect(
       "captureIfRequested"
     )
-    let setResp2 = resp2.get(updateHandle).expect("Identity/set update extract")
+    let setResp2 = resp2.get(updateHandle).expect(
+        "Identity/set update extract[" & $target.kind & "]"
+      )
     var updateOk = false
     setResp2.updateResults.withValue(identityId, outcome):
-      doAssert outcome.isOk,
-        "Identity/set update must succeed: " & outcome.error.rawType
+      assertOn target,
+        outcome.isOk, "Identity/set update must succeed: " & outcome.error.rawType
       updateOk = true
     do:
-      doAssert false, "Identity/set must report an update outcome"
-    doAssert updateOk
+      assertOn target, false, "Identity/set must report an update outcome"
+    assertOn target, updateOk
 
     # --- Step 3: read-back via Identity/get -----------------------------
     let (b3, getHandle) = addIdentityGet(
       initRequestBuilder(), submissionAccountId, ids = directIds(@[identityId])
     )
-    let resp3 = client.send(b3).expect("send Identity/get")
-    let getResp = resp3.get(getHandle).expect("Identity/get extract")
-    doAssert getResp.list.len == 1,
+    let resp3 = client.send(b3).expect("send Identity/get[" & $target.kind & "]")
+    let getResp =
+      resp3.get(getHandle).expect("Identity/get extract[" & $target.kind & "]")
+    assertOn target,
+      getResp.list.len == 1,
       "Identity/get must return exactly one entry for the updated id (got " &
         $getResp.list.len & ")"
-    let updated = Identity.fromJson(getResp.list[0]).expect("parse Identity")
-    doAssert updated.name == "phase-f step-31 renamed",
+    let updated =
+      Identity.fromJson(getResp.list[0]).expect("parse Identity[" & $target.kind & "]")
+    assertOn target,
+      updated.name == "phase-f step-31 renamed",
       "name must reflect the setName update (got " & updated.name & ")"
-    doAssert updated.replyTo.isSome, "replyTo must be present after setReplyTo"
+    assertOn target, updated.replyTo.isSome, "replyTo must be present after setReplyTo"
     let replyList = updated.replyTo.unsafeGet
-    doAssert replyList.len == 1,
+    assertOn target,
+      replyList.len == 1,
       "replyTo must carry exactly one address (got " & $replyList.len & ")"
-    doAssert replyList[0].email == "alice+reply@example.com",
+    assertOn target,
+      replyList[0].email == "alice+reply@example.com",
       "replyTo[0].email must round-trip the supplied address"
-    doAssert updated.textSignature == "phase-f sig",
+    assertOn target,
+      updated.textSignature == "phase-f sig",
       "textSignature must reflect the setTextSignature update"
 
     # --- Step 4: destroy ------------------------------------------------
     let (b4, destroyHandle) = addIdentitySet(
       initRequestBuilder(), submissionAccountId, destroy = directIds(@[identityId])
     )
-    let resp4 = client.send(b4).expect("send Identity/set destroy")
-    let setResp4 = resp4.get(destroyHandle).expect("Identity/set destroy extract")
+    let resp4 =
+      client.send(b4).expect("send Identity/set destroy[" & $target.kind & "]")
+    let setResp4 = resp4.get(destroyHandle).expect(
+        "Identity/set destroy extract[" & $target.kind & "]"
+      )
     var destroyOk = false
     setResp4.destroyResults.withValue(identityId, outcome):
-      doAssert outcome.isOk,
-        "Identity/set destroy must succeed: " & outcome.error.rawType
+      assertOn target,
+        outcome.isOk, "Identity/set destroy must succeed: " & outcome.error.rawType
       destroyOk = true
     do:
-      doAssert false, "Identity/set must report a destroy outcome"
-    doAssert destroyOk
+      assertOn target, false, "Identity/set must report a destroy outcome"
+    assertOn target, destroyOk
     client.close()

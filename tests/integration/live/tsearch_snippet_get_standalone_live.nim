@@ -38,20 +38,21 @@ import ./mconfig
 import ./mlive
 
 block tsearchSnippetGetStandaloneLive:
-  let cfgRes = loadLiveTestConfig()
-  if cfgRes.isOk:
-    let cfg = cfgRes.get()
+  forEachLiveTarget(target):
     var client = initJmapClient(
-        sessionUrl = cfg.sessionUrl,
-        bearerToken = cfg.aliceToken,
-        authScheme = cfg.authScheme,
+        sessionUrl = target.sessionUrl,
+        bearerToken = target.aliceToken,
+        authScheme = target.authScheme,
       )
-      .expect("initJmapClient")
-    let session = client.fetchSession().expect("fetchSession")
-    let mailAccountId = resolveMailAccountId(session).expect("resolveMailAccountId")
+      .expect("initJmapClient[" & $target.kind & "]")
+    let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
+    let mailAccountId =
+      resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
 
     # --- Resolve inbox + seed corpus ------------------------------------
-    let inbox = resolveInboxId(client, mailAccountId).expect("resolveInboxId")
+    let inbox = resolveInboxId(client, mailAccountId).expect(
+        "resolveInboxId[" & $target.kind & "]"
+      )
     let ids = seedEmailsWithSubjects(
         client,
         mailAccountId,
@@ -61,8 +62,8 @@ block tsearchSnippetGetStandaloneLive:
           "phase-c-16 stepsixteen bravoSixteen",
         ],
       )
-      .expect("seedEmailsWithSubjects")
-    doAssert ids.len == 2, "seedEmailsWithSubjects must return two ids"
+      .expect("seedEmailsWithSubjects[" & $target.kind & "]")
+    assertOn target, ids.len == 2, "seedEmailsWithSubjects must return two ids"
     let id1 = ids[0]
     let id2 = ids[1]
     let corpus = ids.toHashSet
@@ -76,22 +77,28 @@ block tsearchSnippetGetStandaloneLive:
       firstEmailId = id1,
       restEmailIds = @[id2],
     )
-    let resp = client.send(b).expect("send SearchSnippet/get")
-    let snippetResp = resp.get(snippetHandle).expect("SearchSnippet/get extract")
-    doAssert snippetResp.list.len == 2,
+    let resp = client.send(b).expect("send SearchSnippet/get[" & $target.kind & "]")
+    let snippetResp =
+      resp.get(snippetHandle).expect("SearchSnippet/get extract[" & $target.kind & "]")
+    assertOn target,
+      snippetResp.list.len == 2,
       "SearchSnippet/get must return one snippet per requested id (got " &
         $snippetResp.list.len & ")"
     var seenIds = initHashSet[Id]()
     for snippet in snippetResp.list:
-      doAssert snippet.emailId in corpus,
+      assertOn target,
+        snippet.emailId in corpus,
         "every snippet's emailId must be one of the seeded ids; got " &
           string(snippet.emailId)
       seenIds.incl(snippet.emailId)
       let subjectPresent = snippet.subject.isSome and snippet.subject.get().len > 0
       let previewPresent = snippet.preview.isSome and snippet.preview.get().len > 0
-      doAssert subjectPresent or previewPresent,
+      assertOn target,
+        subjectPresent or previewPresent,
         "every snippet must populate at least one of subject/preview; got emailId=" &
           string(snippet.emailId)
-    doAssert id1 in seenIds, "snippet list must include the first seeded emailId"
-    doAssert id2 in seenIds, "snippet list must include the second seeded emailId"
+    assertOn target,
+      id1 in seenIds, "snippet list must include the first seeded emailId"
+    assertOn target,
+      id2 in seenIds, "snippet list must include the second seeded emailId"
     client.close()

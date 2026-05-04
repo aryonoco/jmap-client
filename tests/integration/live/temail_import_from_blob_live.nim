@@ -36,36 +36,47 @@ import ./mconfig
 import ./mlive
 
 block temailImportFromBlobLive:
-  let cfgRes = loadLiveTestConfig()
-  if cfgRes.isOk:
-    let cfg = cfgRes.get()
+  forEachLiveTarget(target):
+    # James 3.9 compatibility: skipped on James.
+    # Reason: exercises Email/import using a blobId obtained from a seeded multipart email (`mlive.seedMixedEmail`); the seed step uses inline-bodyValues attachments which James 3.9 rejects. Until the library exposes `/upload` (RFC 8620 §6.1, currently out of scope), the seed cannot run on James.
+    # Replay coverage for the Stalwart wire shape is preserved via
+    # captured ``-stalwart`` fixtures.
+    if target.kind == ltkJames:
+      continue
     var client = initJmapClient(
-        sessionUrl = cfg.sessionUrl,
-        bearerToken = cfg.aliceToken,
-        authScheme = cfg.authScheme,
+        sessionUrl = target.sessionUrl,
+        bearerToken = target.aliceToken,
+        authScheme = target.authScheme,
       )
-      .expect("initJmapClient")
-    let session = client.fetchSession().expect("fetchSession")
-    let mailAccountId = resolveMailAccountId(session).expect("resolveMailAccountId")
+      .expect("initJmapClient[" & $target.kind & "]")
+    let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
+    let mailAccountId =
+      resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
 
     # --- 1-2. Seed mixed email + capture attachment blobId -----------------
-    let inbox = resolveInboxId(client, mailAccountId).expect("resolveInboxId")
+    let inbox = resolveInboxId(client, mailAccountId).expect(
+        "resolveInboxId[" & $target.kind & "]"
+      )
     const attachmentBytes = "phase-e step-27 attachment 32-b!"
       ## 32 ASCII octets — clean JSON round-trip (Phase D Step 21 precedent).
-    doAssert attachmentBytes.len == 32, "attachment sentinel must be exactly 32 bytes"
+    assertOn target,
+      attachmentBytes.len == 32, "attachment sentinel must be exactly 32 bytes"
     let sourceId = seedMixedEmail(
         client, mailAccountId, inbox, "phase-e step-27 source",
         "Body precedes the attachment.", "phase-e-source.txt", "text/plain",
         attachmentBytes, "seed27src",
       )
-      .expect("seedMixedEmail source")
+      .expect("seedMixedEmail source[" & $target.kind & "]")
     let attachmentBlobId = getFirstAttachmentBlobId(client, mailAccountId, sourceId)
-      .expect("getFirstAttachmentBlobId")
+      .expect("getFirstAttachmentBlobId[" & $target.kind & "]")
 
     # --- 3-4. Email/import ------------------------------------------------
-    let importCid = parseCreationId("import27").expect("parseCreationId import27")
-    let inboxSet =
-      parseNonEmptyMailboxIdSet(@[inbox]).expect("parseNonEmptyMailboxIdSet inbox")
+    let importCid = parseCreationId("import27").expect(
+        "parseCreationId import27[" & $target.kind & "]"
+      )
+    let inboxSet = parseNonEmptyMailboxIdSet(@[inbox]).expect(
+        "parseNonEmptyMailboxIdSet inbox[" & $target.kind & "]"
+      )
     let importItem =
       initEmailImportItem(blobId = attachmentBlobId, mailboxIds = inboxSet)
     let importMap = initNonEmptyEmailImportMap(@[(importCid, importItem)]).expect(
@@ -73,20 +84,23 @@ block temailImportFromBlobLive:
       )
     let (bImport, importHandle) =
       addEmailImport(initRequestBuilder(), mailAccountId, emails = importMap)
-    let respImport = client.send(bImport).expect("send Email/import")
-    captureIfRequested(client, "email-import-from-blob-stalwart").expect(
+    let respImport =
+      client.send(bImport).expect("send Email/import[" & $target.kind & "]")
+    captureIfRequested(client, "email-import-from-blob-" & $target.kind).expect(
       "captureIfRequested"
     )
-    let importResp = respImport.get(importHandle).expect("Email/import extract")
+    let importResp =
+      respImport.get(importHandle).expect("Email/import extract[" & $target.kind & "]")
     var importedId: Id
     var importOk = false
     importResp.createResults.withValue(importCid, outcome):
-      doAssert outcome.isOk, "Email/import must succeed: " & outcome.error.rawType
+      assertOn target,
+        outcome.isOk, "Email/import must succeed: " & outcome.error.rawType
       importedId = outcome.unsafeValue.id
       importOk = true
     do:
-      doAssert false, "Email/import must report an outcome for import27"
-    doAssert importOk
+      assertOn target, false, "Email/import must report an outcome for import27"
+    assertOn target, importOk
 
     # --- 5. Verify imported email exists -----------------------------------
     let (bGet, getHandle) = addEmailGet(
@@ -95,27 +109,33 @@ block temailImportFromBlobLive:
       ids = directIds(@[importedId]),
       properties = Opt.some(@["id", "blobId"]),
     )
-    let respGet = client.send(bGet).expect("send Email/get imported")
-    let getResp = respGet.get(getHandle).expect("Email/get imported extract")
-    doAssert getResp.list.len == 1, "imported email must be retrievable via Email/get"
+    let respGet =
+      client.send(bGet).expect("send Email/get imported[" & $target.kind & "]")
+    let getResp =
+      respGet.get(getHandle).expect("Email/get imported extract[" & $target.kind & "]")
+    assertOn target,
+      getResp.list.len == 1, "imported email must be retrievable via Email/get"
 
     # --- 6. Cleanup: destroy [seed, imported] ------------------------------
     let (bClean, cleanHandle) = addEmailSet(
       initRequestBuilder(), mailAccountId, destroy = directIds(@[sourceId, importedId])
     )
-    let respClean = client.send(bClean).expect("send Email/set cleanup")
-    let cleanResp = respClean.get(cleanHandle).expect("Email/set cleanup extract")
+    let respClean =
+      client.send(bClean).expect("send Email/set cleanup[" & $target.kind & "]")
+    let cleanResp = respClean.get(cleanHandle).expect(
+        "Email/set cleanup extract[" & $target.kind & "]"
+      )
     var seedDestroyed = false
     var importedDestroyed = false
     cleanResp.destroyResults.withValue(sourceId, outcome):
-      doAssert outcome.isOk, "cleanup destroy of seed must succeed"
+      assertOn target, outcome.isOk, "cleanup destroy of seed must succeed"
       seedDestroyed = true
     do:
-      doAssert false, "cleanup must report an outcome for seedId"
+      assertOn target, false, "cleanup must report an outcome for seedId"
     cleanResp.destroyResults.withValue(importedId, outcome):
-      doAssert outcome.isOk, "cleanup destroy of imported must succeed"
+      assertOn target, outcome.isOk, "cleanup destroy of imported must succeed"
       importedDestroyed = true
     do:
-      doAssert false, "cleanup must report an outcome for importedId"
-    doAssert seedDestroyed and importedDestroyed
+      assertOn target, false, "cleanup must report an outcome for importedId"
+    assertOn target, seedDestroyed and importedDestroyed
     client.close()

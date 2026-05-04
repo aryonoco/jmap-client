@@ -18,23 +18,23 @@ import jmap_client
 import ./mloader
 
 block tcapturedNotfoundRailGet:
-  let j = loadCapturedFixture("notfound-rail-get-stalwart")
-  let resp = envelope.Response.fromJson(j).expect("envelope.Response.fromJson")
-  doAssert resp.methodResponses.len == 1
-  let inv = resp.methodResponses[0]
-  doAssert inv.rawName == "Email/get",
-    "successful Email/get must surface as Email/get; got " & inv.rawName
-  let getResp =
-    GetResponse[Email].fromJson(inv.arguments).expect("GetResponse[Email].fromJson")
-  doAssert getResp.list.len == 1,
-    "fixture carries one real Email; got " & $getResp.list.len
-  doAssert getResp.notFound.len == 1,
-    "fixture carries one synthetic id in notFound; got " & $getResp.notFound.len
-  doAssert getResp.notFound[0] == Id("zzzzzz"),
-    "notFound id must round-trip byte-for-byte; got " & $getResp.notFound
+  forEachCapturedServer("notfound-rail-get", j):
+    let resp = envelope.Response.fromJson(j).expect("envelope.Response.fromJson")
+    doAssert resp.methodResponses.len == 1
+    let inv = resp.methodResponses[0]
+    doAssert inv.rawName == "Email/get",
+      "successful Email/get must surface as Email/get; got " & inv.rawName
+    let getResp =
+      GetResponse[Email].fromJson(inv.arguments).expect("GetResponse[Email].fromJson")
+    doAssert getResp.list.len == 1,
+      "fixture carries one real Email; got " & $getResp.list.len
+    doAssert getResp.notFound.len == 1,
+      "fixture carries one synthetic id in notFound; got " & $getResp.notFound.len
+    doAssert getResp.notFound[0] == Id("zzzzzz"),
+      "notFound id must round-trip byte-for-byte; got " & $getResp.notFound
 
-  let email = Email.fromJson(getResp.list[0]).expect("Email.fromJson")
-  doAssert email.subject.isSome,
-    "the real Email's subject must round-trip through Email.fromJson"
-  doAssert email.subject.unsafeGet == "phase-j 66 notFound",
-    "fixture's seed subject must round-trip; got " & email.subject.unsafeGet
+    let email = Email.fromJson(getResp.list[0]).expect("Email.fromJson")
+    doAssert email.subject.isSome,
+      "the real Email's subject must round-trip through Email.fromJson"
+    doAssert email.subject.unsafeGet == "phase-j 66 notFound",
+      "fixture's seed subject must round-trip; got " & email.subject.unsafeGet

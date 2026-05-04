@@ -40,25 +40,26 @@ import ./mconfig
 import ./mlive
 
 block temailQueryGetChainLive:
-  let cfgRes = loadLiveTestConfig()
-  if cfgRes.isOk:
-    let cfg = cfgRes.get()
+  forEachLiveTarget(target):
     var client = initJmapClient(
-        sessionUrl = cfg.sessionUrl,
-        bearerToken = cfg.aliceToken,
-        authScheme = cfg.authScheme,
+        sessionUrl = target.sessionUrl,
+        bearerToken = target.aliceToken,
+        authScheme = target.authScheme,
       )
-      .expect("initJmapClient")
-    let session = client.fetchSession().expect("fetchSession")
-    let mailAccountId = resolveMailAccountId(session).expect("resolveMailAccountId")
+      .expect("initJmapClient[" & $target.kind & "]")
+    let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
+    let mailAccountId =
+      resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
 
     # --- Step 1: resolve inbox id (mlive helper) -------------------------
-    let inbox = resolveInboxId(client, mailAccountId).expect("resolveInboxId")
+    let inbox = resolveInboxId(client, mailAccountId).expect(
+        "resolveInboxId[" & $target.kind & "]"
+      )
 
     # --- Step 2: seed one email (mlive helper) ---------------------------
     const seedSubject = "phase-1 step-6 chainquery6 seed"
     let seedId = seedSimpleEmail(client, mailAccountId, inbox, seedSubject, "seedMail")
-      .expect("seedSimpleEmail")
+      .expect("seedSimpleEmail[" & $target.kind & "]")
 
     # --- Step 3: Email/query → Email/get via #ids back-reference ---------
     # Filter on the byte-disjoint token ``chainquery6`` so the query
@@ -82,30 +83,37 @@ block temailQueryGetChainLive:
       ids = Opt.some(queryHandle.idsRef()),
       properties = Opt.some(@["id", "subject", "from", "receivedAt"]),
     )
-    let resp3 = client.send(b3b).expect("send Email/query+get")
-    let queryResp = resp3.get(queryHandle).expect("Email/query extract")
-    doAssert queryResp.ids.len >= 1, "Email/query must return the seeded message"
-    let getResp = resp3.get(getHandle).expect("Email/get extract")
-    doAssert getResp.list.len == queryResp.ids.len,
+    let resp3 = client.send(b3b).expect("send Email/query+get[" & $target.kind & "]")
+    let queryResp =
+      resp3.get(queryHandle).expect("Email/query extract[" & $target.kind & "]")
+    assertOn target,
+      queryResp.ids.len >= 1, "Email/query must return the seeded message"
+    let getResp = resp3.get(getHandle).expect("Email/get extract[" & $target.kind & "]")
+    assertOn target,
+      getResp.list.len == queryResp.ids.len,
       "Email/get list count must match Email/query ids count"
     var sawSeed = false
     for node in getResp.list:
-      doAssert not node{"id"}.isNil, "every Email/get entry must have an id"
-      doAssert not node{"subject"}.isNil, "every Email/get entry must have a subject"
+      assertOn target, not node{"id"}.isNil, "every Email/get entry must have an id"
+      assertOn target,
+        not node{"subject"}.isNil, "every Email/get entry must have a subject"
       if node{"subject"}.getStr("") == seedSubject:
         sawSeed = true
-    doAssert sawSeed, "Email/get list must include the seeded subject"
+    assertOn target, sawSeed, "Email/get list must include the seeded subject"
 
     # --- Step 4: cleanup — destroy the seed so re-runs stay bounded ------
     let (b4, cleanHandle) =
       addEmailSet(initRequestBuilder(), mailAccountId, destroy = directIds(@[seedId]))
-    let respClean = client.send(b4).expect("send Email/set cleanup")
-    let cleanResp = respClean.get(cleanHandle).expect("Email/set cleanup extract")
+    let respClean =
+      client.send(b4).expect("send Email/set cleanup[" & $target.kind & "]")
+    let cleanResp = respClean.get(cleanHandle).expect(
+        "Email/set cleanup extract[" & $target.kind & "]"
+      )
     var cleaned = false
     cleanResp.destroyResults.withValue(seedId, outcome):
-      doAssert outcome.isOk, "cleanup destroy of seed must succeed"
+      assertOn target, outcome.isOk, "cleanup destroy of seed must succeed"
       cleaned = true
     do:
-      doAssert false, "cleanup must report an outcome for seedId"
-    doAssert cleaned
+      assertOn target, false, "cleanup must report an outcome for seedId"
+    assertOn target, cleaned
     client.close()

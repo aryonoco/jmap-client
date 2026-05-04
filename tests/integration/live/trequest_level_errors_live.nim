@@ -42,18 +42,17 @@ import jmap_client
 import jmap_client/client
 import ./mcapture
 import ./mconfig
+import ./mlive
 
 block trequestLevelErrorsLive:
-  let cfgRes = loadLiveTestConfig()
-  if cfgRes.isOk:
-    let cfg = cfgRes.get()
+  forEachLiveTarget(target):
     var client = initJmapClient(
-        sessionUrl = cfg.sessionUrl,
-        bearerToken = cfg.aliceToken,
-        authScheme = cfg.authScheme,
+        sessionUrl = target.sessionUrl,
+        bearerToken = target.aliceToken,
+        authScheme = target.authScheme,
       )
-      .expect("initJmapClient")
-    discard client.fetchSession().expect("fetchSession")
+      .expect("initJmapClient[" & $target.kind & "]")
+    discard client.fetchSession().expect("fetchSession[" & $target.kind & "]")
 
     # Sub-test 1: non-JSON input.  Strict library-contract assertions:
     # the response must arrive on the cekRequest arm; rawType must be
@@ -66,19 +65,22 @@ block trequestLevelErrorsLive:
     # choice; the replay test asserts it byte-for-byte.
     block notJsonCase:
       let res = client.sendRawHttpForTesting("this is not JSON")
-      captureIfRequested(client, "request-error-not-json-stalwart").expect(
+      captureIfRequested(client, "request-error-not-json-" & $target.kind).expect(
         "captureIfRequested notJSON"
       )
-      doAssert res.isErr, "expected RequestError on non-JSON body"
+      assertOn target, res.isErr, "expected RequestError on non-JSON body"
       let ce = res.error
-      doAssert ce.kind == cekRequest,
+      assertOn target,
+        ce.kind == cekRequest,
         "expected cekRequest, got " & $ce.kind & ": " & ce.message
-      doAssert ce.request.rawType.len > 0,
-        "rawType must be losslessly preserved (non-empty)"
-      doAssert ce.request.rawType.startsWith("urn:ietf:params:jmap:error:"),
+      assertOn target,
+        ce.request.rawType.len > 0, "rawType must be losslessly preserved (non-empty)"
+      assertOn target,
+        ce.request.rawType.startsWith("urn:ietf:params:jmap:error:"),
         "rawType must be a JMAP error URI, got " & ce.request.rawType
-      doAssert ce.request.errorType in
-        {retUnknownCapability, retNotJson, retNotRequest, retLimit, retUnknown},
+      assertOn target,
+        ce.request.errorType in
+          {retUnknownCapability, retNotJson, retNotRequest, retLimit, retUnknown},
         "errorType must project into the closed RequestErrorType enum, got " &
           $ce.request.errorType
 
@@ -94,19 +96,22 @@ block trequestLevelErrorsLive:
     # losslessly preserved + URI-shaped; errorType in closed enum.
     block notRequestCase:
       let res = client.sendRawHttpForTesting("[1,2,3]")
-      captureIfRequested(client, "request-error-not-request-stalwart").expect(
+      captureIfRequested(client, "request-error-not-request-" & $target.kind).expect(
         "captureIfRequested notRequest"
       )
-      doAssert res.isErr, "expected RequestError on top-level-array body"
+      assertOn target, res.isErr, "expected RequestError on top-level-array body"
       let ce = res.error
-      doAssert ce.kind == cekRequest,
+      assertOn target,
+        ce.kind == cekRequest,
         "expected cekRequest, got " & $ce.kind & ": " & ce.message
-      doAssert ce.request.rawType.len > 0,
-        "rawType must be losslessly preserved (non-empty)"
-      doAssert ce.request.rawType.startsWith("urn:ietf:params:jmap:error:"),
+      assertOn target,
+        ce.request.rawType.len > 0, "rawType must be losslessly preserved (non-empty)"
+      assertOn target,
+        ce.request.rawType.startsWith("urn:ietf:params:jmap:error:"),
         "rawType must be a JMAP error URI, got " & ce.request.rawType
-      doAssert ce.request.errorType in
-        {retUnknownCapability, retNotJson, retNotRequest, retLimit, retUnknown},
+      assertOn target,
+        ce.request.errorType in
+          {retUnknownCapability, retNotJson, retNotRequest, retLimit, retUnknown},
         "errorType must project into the closed RequestErrorType enum, got " &
           $ce.request.errorType
 
@@ -121,19 +126,21 @@ block trequestLevelErrorsLive:
     block unknownCapabilityCase:
       const body = """{"using":["urn:test:phase-j:bogus"],"methodCalls":[]}"""
       let res = client.sendRawHttpForTesting(body)
-      captureIfRequested(client, "request-error-unknown-capability-stalwart").expect(
-        "captureIfRequested unknownCapability"
-      )
-      doAssert res.isErr, "expected RequestError on unknown capability URI"
+      captureIfRequested(client, "request-error-unknown-capability-" & $target.kind)
+        .expect("captureIfRequested unknownCapability")
+      assertOn target, res.isErr, "expected RequestError on unknown capability URI"
       let ce = res.error
-      doAssert ce.kind == cekRequest,
+      assertOn target,
+        ce.kind == cekRequest,
         "expected cekRequest, got " & $ce.kind & ": " & ce.message
-      doAssert ce.request.rawType.len > 0,
-        "rawType must be losslessly preserved (non-empty)"
-      doAssert ce.request.rawType.startsWith("urn:ietf:params:jmap:error:"),
+      assertOn target,
+        ce.request.rawType.len > 0, "rawType must be losslessly preserved (non-empty)"
+      assertOn target,
+        ce.request.rawType.startsWith("urn:ietf:params:jmap:error:"),
         "rawType must be a JMAP error URI, got " & ce.request.rawType
-      doAssert ce.request.errorType in
-        {retUnknownCapability, retNotJson, retNotRequest, retLimit, retUnknown},
+      assertOn target,
+        ce.request.errorType in
+          {retUnknownCapability, retNotJson, retNotRequest, retLimit, retUnknown},
         "errorType must project into the closed RequestErrorType enum, got " &
           $ce.request.errorType
 
@@ -150,19 +157,22 @@ block trequestLevelErrorsLive:
       const suffix = """"},"c0"]]}"""
       let body = prefix & blob & suffix
       let res = client.sendRawHttpForTesting(body)
-      captureIfRequested(client, "request-error-limit-stalwart").expect(
+      captureIfRequested(client, "request-error-limit-" & $target.kind).expect(
         "captureIfRequested limit"
       )
-      doAssert res.isErr, "expected RequestError on over-limit body"
+      assertOn target, res.isErr, "expected RequestError on over-limit body"
       let ce = res.error
-      doAssert ce.kind == cekRequest,
+      assertOn target,
+        ce.kind == cekRequest,
         "expected cekRequest on over-limit, got " & $ce.kind & ": " & ce.message
-      doAssert ce.request.rawType.len > 0,
-        "rawType must be losslessly preserved (non-empty)"
-      doAssert ce.request.rawType.startsWith("urn:ietf:params:jmap:error:"),
+      assertOn target,
+        ce.request.rawType.len > 0, "rawType must be losslessly preserved (non-empty)"
+      assertOn target,
+        ce.request.rawType.startsWith("urn:ietf:params:jmap:error:"),
         "rawType must be a JMAP error URI, got " & ce.request.rawType
-      doAssert ce.request.errorType in
-        {retUnknownCapability, retNotJson, retNotRequest, retLimit, retUnknown},
+      assertOn target,
+        ce.request.errorType in
+          {retUnknownCapability, retNotJson, retNotRequest, retLimit, retUnknown},
         "errorType must project into the closed RequestErrorType enum, got " &
           $ce.request.errorType
 

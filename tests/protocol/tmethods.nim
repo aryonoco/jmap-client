@@ -328,7 +328,8 @@ block copyRequestOnSuccessTrue:
 
 block queryRequestMinimal:
   ## addQuery with only required fields emits accountId and nothing else
-  ## for the optional query window.
+  ## for the optional query window. ``anchorOffset`` is omitted when
+  ## ``anchor`` is absent (see ``assembleQueryArgs`` for the rationale).
   let b0 = initRequestBuilder()
   let (b1, _) = addQuery[MockQueryable, MockFilter, Comparator](b0, makeAccountId("a1"))
   let args = b1.build().methodCalls[0].arguments
@@ -336,7 +337,8 @@ block queryRequestMinimal:
   doAssert args{"filter"}.isNil
   doAssert args{"sort"}.isNil
   doAssert args{"position"}.getBiggestInt(-1) == 0
-  doAssert args{"anchorOffset"}.getBiggestInt(-1) == 0
+  doAssert args{"anchor"}.isNil
+  doAssert args{"anchorOffset"}.isNil
   doAssert args{"calculateTotal"}.getBool(true) == false
 
 block queryRequestWithFilter:
@@ -953,7 +955,10 @@ block serializeFilterRequired:
   doAssert node{"mock"}.getBool(false) == true
 
 block assembleQueryArgsMinimal:
-  ## assembleQueryArgs with default QueryParams — minimal JSON.
+  ## assembleQueryArgs with default QueryParams — minimal JSON. The
+  ## ``anchorOffset`` field is meaningful only when ``anchor`` is set
+  ## (RFC 8620 §5.5), so it is omitted from the wire when anchor is
+  ## absent — strict servers (Apache James 3.9) reject it otherwise.
   let j = assembleQueryArgs(
     makeAccountId("a1"),
     Opt.none(SerializedFilter),
@@ -964,7 +969,8 @@ block assembleQueryArgsMinimal:
   doAssert j{"filter"}.isNil
   doAssert j{"sort"}.isNil
   doAssert j{"position"}.getBiggestInt(-1) == 0
-  doAssert j{"anchorOffset"}.getBiggestInt(-1) == 0
+  doAssert j{"anchor"}.isNil
+  doAssert j{"anchorOffset"}.isNil
   doAssert j{"calculateTotal"}.getBool(true) == false
 
 block assembleQueryArgsAllFields:

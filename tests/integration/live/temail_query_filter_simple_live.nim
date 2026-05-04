@@ -37,28 +37,29 @@ import ./mconfig
 import ./mlive
 
 block temailQueryFilterSimpleLive:
-  let cfgRes = loadLiveTestConfig()
-  if cfgRes.isOk:
-    let cfg = cfgRes.get()
+  forEachLiveTarget(target):
     var client = initJmapClient(
-        sessionUrl = cfg.sessionUrl,
-        bearerToken = cfg.aliceToken,
-        authScheme = cfg.authScheme,
+        sessionUrl = target.sessionUrl,
+        bearerToken = target.aliceToken,
+        authScheme = target.authScheme,
       )
-      .expect("initJmapClient")
-    let session = client.fetchSession().expect("fetchSession")
-    let mailAccountId = resolveMailAccountId(session).expect("resolveMailAccountId")
+      .expect("initJmapClient[" & $target.kind & "]")
+    let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
+    let mailAccountId =
+      resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
 
     # --- Resolve inbox + seed corpus ------------------------------------
-    let inbox = resolveInboxId(client, mailAccountId).expect("resolveInboxId")
+    let inbox = resolveInboxId(client, mailAccountId).expect(
+        "resolveInboxId[" & $target.kind & "]"
+      )
     let ids = seedEmailsWithSubjects(
         client,
         mailAccountId,
         inbox,
         @["phase-c-13 aardvark", "phase-c-13 bravo", "phase-c-13 charlie"],
       )
-      .expect("seedEmailsWithSubjects")
-    doAssert ids.len == 3, "seedEmailsWithSubjects must return three ids"
+      .expect("seedEmailsWithSubjects[" & $target.kind & "]")
+    assertOn target, ids.len == 3, "seedEmailsWithSubjects must return three ids"
     let matchId = ids[0]
     let bravoId = ids[1]
     let charlieId = ids[2]
@@ -67,13 +68,17 @@ block temailQueryFilterSimpleLive:
     let filter = filterCondition(EmailFilterCondition(subject: Opt.some("aardvark")))
     let (b, queryHandle) =
       addEmailQuery(initRequestBuilder(), mailAccountId, filter = Opt.some(filter))
-    let resp = client.send(b).expect("send Email/query")
-    let queryResp = resp.get(queryHandle).expect("Email/query extract")
+    let resp = client.send(b).expect("send Email/query[" & $target.kind & "]")
+    let queryResp =
+      resp.get(queryHandle).expect("Email/query extract[" & $target.kind & "]")
     let hits = queryResp.ids.toHashSet
-    doAssert matchId in hits,
+    assertOn target,
+      matchId in hits,
       "Email/query subject==\"aardvark\" must include the seeded aardvark id"
-    doAssert bravoId notin hits,
+    assertOn target,
+      bravoId notin hits,
       "Email/query subject==\"aardvark\" must NOT include the seeded bravo id"
-    doAssert charlieId notin hits,
+    assertOn target,
+      charlieId notin hits,
       "Email/query subject==\"aardvark\" must NOT include the seeded charlie id"
     client.close()

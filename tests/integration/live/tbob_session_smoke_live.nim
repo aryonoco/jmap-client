@@ -24,37 +24,42 @@ import ./mconfig
 import ./mlive
 
 block tBobSessionSmokeLive:
-  let cfgRes = loadLiveTestConfig()
-  if cfgRes.isOk:
-    let cfg = cfgRes.get()
-    var bobClient = initBobClient(cfg).expect("initBobClient")
-    let session = bobClient.fetchSession().expect("fetchSession")
-    captureIfRequested(bobClient, "bob-session-stalwart").expect("captureIfRequested")
-    doAssert session.accounts.len >= 1,
+  forEachLiveTarget(target):
+    var bobClient = initBobClient(target).expect("initBobClient[" & $target.kind & "]")
+    let session = bobClient.fetchSession().expect("fetchSession[" & $target.kind & "]")
+    captureIfRequested(bobClient, "bob-session-" & $target.kind).expect(
+      "captureIfRequested[" & $target.kind & "]"
+    )
+    assertOn target,
+      session.accounts.len >= 1,
       "bob's session must advertise at least one account (got " & $session.accounts.len &
         ")"
 
-    let bobMailAccountId =
-      resolveMailAccountId(session).expect("resolveMailAccountId bob")
+    let bobMailAccountId = resolveMailAccountId(session).expect(
+        "resolveMailAccountId bob[" & $target.kind & "]"
+      )
 
     let bobAccount = session.findAccount(bobMailAccountId)
-    doAssert bobAccount.isSome,
-      "bob's primary mail accountId must resolve in session.accounts"
+    assertOn target,
+      bobAccount.isSome, "bob's primary mail accountId must resolve in session.accounts"
     let acc = bobAccount.unsafeGet
-    doAssert acc.isPersonal, "bob's primary mail account must be marked isPersonal=true"
-    doAssert not acc.isReadOnly,
+    assertOn target,
+      acc.isPersonal, "bob's primary mail account must be marked isPersonal=true"
+    assertOn target,
+      not acc.isReadOnly,
       "bob's primary mail account must not be read-only (got isReadOnly=true)"
 
     let (b1, mbHandle) = addGet[Mailbox](initRequestBuilder(), bobMailAccountId)
-    let resp = bobClient.send(b1).expect("send Mailbox/get")
-    let gr = resp.get(mbHandle).expect("Mailbox/get extract")
-    doAssert gr.list.len >= 1,
+    let resp = bobClient.send(b1).expect("send Mailbox/get[" & $target.kind & "]")
+    let gr = resp.get(mbHandle).expect("Mailbox/get extract[" & $target.kind & "]")
+    assertOn target,
+      gr.list.len >= 1,
       "bob's account must have at least one mailbox (got " & $gr.list.len & ")"
     var sawInbox = false
     for node in gr.list:
-      let mb = Mailbox.fromJson(node).expect("parse Mailbox")
+      let mb = Mailbox.fromJson(node).expect("parse Mailbox[" & $target.kind & "]")
       for role in mb.role:
         if role == roleInbox:
           sawInbox = true
-    doAssert sawInbox, "bob's account must include an inbox-role mailbox"
+    assertOn target, sawInbox, "bob's account must include an inbox-role mailbox"
     bobClient.close()

@@ -49,34 +49,42 @@ import ./mconfig
 import ./mlive
 
 block temailQueryChangesFilterMismatchLive:
-  let cfgRes = loadLiveTestConfig()
-  if cfgRes.isOk:
-    let cfg = cfgRes.get()
+  forEachLiveTarget(target):
+    # James 3.9 compatibility: skipped on James.
+    # Reason: Same — Email/queryChanges is unimplemented on James 3.9.
+    # When James adds support, remove this guard.
+    if target.kind == ltkJames:
+      continue
     var client = initJmapClient(
-        sessionUrl = cfg.sessionUrl,
-        bearerToken = cfg.aliceToken,
-        authScheme = cfg.authScheme,
+        sessionUrl = target.sessionUrl,
+        bearerToken = target.aliceToken,
+        authScheme = target.authScheme,
       )
-      .expect("initJmapClient")
-    let session = client.fetchSession().expect("fetchSession")
-    let mailAccountId = resolveMailAccountId(session).expect("resolveMailAccountId")
+      .expect("initJmapClient[" & $target.kind & "]")
+    let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
+    let mailAccountId =
+      resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
 
-    let inbox = resolveInboxId(client, mailAccountId).expect("resolveInboxId")
+    let inbox = resolveInboxId(client, mailAccountId).expect(
+        "resolveInboxId[" & $target.kind & "]"
+      )
     let seededIds = seedEmailsWithSubjects(
         client,
         mailAccountId,
         inbox,
         @["phase-i 51 alpha", "phase-i 51 bravo", "phase-i 51 charlie"],
       )
-      .expect("seedEmailsWithSubjects")
-    doAssert seededIds.len == 3,
-      "three seeded ids expected (got " & $seededIds.len & ")"
+      .expect("seedEmailsWithSubjects[" & $target.kind & "]")
+    assertOn target,
+      seededIds.len == 3, "three seeded ids expected (got " & $seededIds.len & ")"
 
     let filterA = filterCondition(EmailFilterCondition(subject: Opt.some("phase-i 51")))
     let (b1, h1) =
       addEmailQuery(initRequestBuilder(), mailAccountId, filter = Opt.some(filterA))
-    let resp1 = client.send(b1).expect("send Email/query baseline")
-    let qResp1 = resp1.get(h1).expect("Email/query baseline extract")
+    let resp1 =
+      client.send(b1).expect("send Email/query baseline[" & $target.kind & "]")
+    let qResp1 =
+      resp1.get(h1).expect("Email/query baseline extract[" & $target.kind & "]")
     let queryStateA = qResp1.queryState
 
     let filterB =
@@ -87,19 +95,22 @@ block temailQueryChangesFilterMismatchLive:
       sinceQueryState = queryStateA,
       filter = Opt.some(filterB),
     )
-    let resp2 = client.send(b2).expect("send Email/queryChanges mismatched filter")
-    captureIfRequested(client, "email-query-changes-filter-mismatch-stalwart").expect(
-      "captureIfRequested"
-    )
+    let resp2 = client.send(b2).expect(
+        "send Email/queryChanges mismatched filter[" & $target.kind & "]"
+      )
+    captureIfRequested(client, "email-query-changes-filter-mismatch-" & $target.kind)
+      .expect("captureIfRequested")
     let extract = resp2.get(h2)
     case extract.isOk
     of true:
       let qcr = extract.unsafeValue
-      doAssert string(qcr.oldQueryState) == string(queryStateA),
+      assertOn target,
+        string(qcr.oldQueryState) == string(queryStateA),
         "Ok branch: oldQueryState must echo the supplied baseline"
     of false:
       let methodErr = extract.unsafeError
-      doAssert methodErr.errorType in {metCannotCalculateChanges, metInvalidArguments},
+      assertOn target,
+        methodErr.errorType in {metCannotCalculateChanges, metInvalidArguments},
         "Err branch: method error must project as cannotCalculateChanges or " &
           "invalidArguments (got rawType=" & methodErr.rawType & ")"
 

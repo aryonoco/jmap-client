@@ -35,22 +35,28 @@ import ./mconfig
 import ./mlive
 
 block tEmailSubmissionChangesLive:
-  let cfgRes = loadLiveTestConfig()
-  if cfgRes.isOk:
-    let cfg = cfgRes.get()
+  forEachLiveTarget(target):
+    # James 3.9 compatibility: skipped on James.
+    # Reason: James 3.9 does not implement EmailSubmission/changes — no submission record is stored, so there is no change set to enumerate.
+    # When James adds support, remove this guard.
+    if target.kind == ltkJames:
+      continue
     var client = initJmapClient(
-        sessionUrl = cfg.sessionUrl,
-        bearerToken = cfg.aliceToken,
-        authScheme = cfg.authScheme,
+        sessionUrl = target.sessionUrl,
+        bearerToken = target.aliceToken,
+        authScheme = target.authScheme,
       )
-      .expect("initJmapClient")
-    let session = client.fetchSession().expect("fetchSession")
-    let mailAccountId = resolveMailAccountId(session).expect("resolveMailAccountId")
-    let submissionAccountId =
-      resolveSubmissionAccountId(session).expect("resolveSubmissionAccountId")
+      .expect("initJmapClient[" & $target.kind & "]")
+    let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
+    let mailAccountId =
+      resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
+    let submissionAccountId = resolveSubmissionAccountId(session).expect(
+        "resolveSubmissionAccountId[" & $target.kind & "]"
+      )
 
-    let draftsId =
-      resolveOrCreateDrafts(client, mailAccountId).expect("resolveOrCreateDrafts")
+    let draftsId = resolveOrCreateDrafts(client, mailAccountId).expect(
+        "resolveOrCreateDrafts[" & $target.kind & "]"
+      )
 
     let identityId = resolveOrCreateAliceIdentity(client, submissionAccountId).expect(
         "resolveOrCreateAliceIdentity"
@@ -63,12 +69,17 @@ block tEmailSubmissionChangesLive:
     let (b1b, baseQueryHandle) = addEmailSubmissionQuery(
       b1, submissionAccountId, queryParams = QueryParams(calculateTotal: true)
     )
-    let resp1 = client.send(b1b).expect("send baseline EmailSubmission/get+query")
-    let baseGetResp = resp1.get(baseGetHandle).expect("baseline get extract")
-    let baseQueryResp = resp1.get(baseQueryHandle).expect("baseline query extract")
+    let resp1 = client.send(b1b).expect(
+        "send baseline EmailSubmission/get+query[" & $target.kind & "]"
+      )
+    let baseGetResp =
+      resp1.get(baseGetHandle).expect("baseline get extract[" & $target.kind & "]")
+    let baseQueryResp =
+      resp1.get(baseQueryHandle).expect("baseline query extract[" & $target.kind & "]")
     let baselineState = baseGetResp.state
     let baselineQueryState = baseQueryResp.queryState
-    doAssert baseQueryResp.total.isSome,
+    assertOn target,
+      baseQueryResp.total.isSome,
       "baseline query must surface total when calculateTotal=true"
     let baselineTotal = baseQueryResp.total.unsafeGet
 
@@ -77,10 +88,14 @@ block tEmailSubmissionChangesLive:
     let bobAddr = parseEmailAddress("bob@example.com", Opt.some("Bob")).expect(
         "parseEmailAddress bob"
       )
-    let envelope =
-      buildEnvelope("alice@example.com", "bob@example.com").expect("buildEnvelope")
+    let envelope = buildEnvelope("alice@example.com", "bob@example.com").expect(
+        "buildEnvelope[" & $target.kind & "]"
+      )
 
     proc submitOne(subject, label, draftLabel: string): Id =
+      ## Closure: seed-and-submit one email per (subject, label) pair so
+      ## the surrounding test body can drive a corpus of submissions
+      ## without repeating the seed-to-final boilerplate.
       let draftId = seedDraftEmail(
           client, mailAccountId, draftsId, aliceAddr, bobAddr, subject,
           "Phase F Step 36 capstone seed.", draftLabel,
@@ -101,13 +116,15 @@ block tEmailSubmissionChangesLive:
       var submissionId = Id("")
       var subOk = false
       setResp.createResults.withValue(cid, outcome):
-        doAssert outcome.isOk,
+        assertOn target,
+          outcome.isOk,
           "EmailSubmission/set " & label & " must succeed: " & outcome.error.rawType
         submissionId = outcome.unsafeValue.id
         subOk = true
       do:
-        doAssert false, "EmailSubmission/set " & label & " must report an outcome"
-      doAssert subOk
+        assertOn target,
+          false, "EmailSubmission/set " & label & " must report an outcome"
+      assertOn target, subOk
       discard pollSubmissionDelivery(client, submissionAccountId, submissionId).expect(
           "pollSubmissionDelivery " & label
         )
@@ -123,24 +140,33 @@ block tEmailSubmissionChangesLive:
     let (b2b, badHandle) = addEmailSubmissionChanges(
       b2, submissionAccountId, sinceState = JmapState("phase-f-bogus-state")
     )
-    let resp2 = client.send(b2b).expect("send EmailSubmission/changes happy+sad")
-    captureIfRequested(client, "email-submission-changes-stalwart").expect(
+    let resp2 = client.send(b2b).expect(
+        "send EmailSubmission/changes happy+sad[" & $target.kind & "]"
+      )
+    captureIfRequested(client, "email-submission-changes-" & $target.kind).expect(
       "captureIfRequested changes"
     )
-    let cr = resp2.get(okHandle).expect("EmailSubmission/changes happy extract")
-    doAssert string(cr.oldState) == string(baselineState),
+    let cr = resp2.get(okHandle).expect(
+        "EmailSubmission/changes happy extract[" & $target.kind & "]"
+      )
+    assertOn target,
+      string(cr.oldState) == string(baselineState),
       "oldState must echo the supplied baseline"
-    doAssert cr.created.len == 2,
+    assertOn target,
+      cr.created.len == 2,
       "two seeds must surface as two created entries (got " & $cr.created.len & ")"
-    doAssert subId1 in cr.created, "subId1 must appear in created"
-    doAssert subId2 in cr.created, "subId2 must appear in created"
-    doAssert cr.updated.len == 0, "no updates issued — updated must be empty"
-    doAssert cr.destroyed.len == 0, "no destroys issued — destroyed must be empty"
+    assertOn target, subId1 in cr.created, "subId1 must appear in created"
+    assertOn target, subId2 in cr.created, "subId2 must appear in created"
+    assertOn target, cr.updated.len == 0, "no updates issued — updated must be empty"
+    assertOn target,
+      cr.destroyed.len == 0, "no destroys issued — destroyed must be empty"
 
     let badRes = resp2.get(badHandle)
-    doAssert badRes.isErr, "bogus sinceState must surface as a method-level error"
+    assertOn target,
+      badRes.isErr, "bogus sinceState must surface as a method-level error"
     let methodErr = badRes.error
-    doAssert methodErr.errorType in {metCannotCalculateChanges, metInvalidArguments},
+    assertOn target,
+      methodErr.errorType in {metCannotCalculateChanges, metInvalidArguments},
       "method error must project as cannotCalculateChanges or invalidArguments " &
         "(got rawType=" & methodErr.rawType & ")"
 
@@ -151,20 +177,26 @@ block tEmailSubmissionChangesLive:
       sinceQueryState = baselineQueryState,
       calculateTotal = true,
     )
-    let resp3 = client.send(b3).expect("send EmailSubmission/queryChanges")
-    captureIfRequested(client, "email-submission-query-changes-stalwart").expect(
+    let resp3 =
+      client.send(b3).expect("send EmailSubmission/queryChanges[" & $target.kind & "]")
+    captureIfRequested(client, "email-submission-query-changes-" & $target.kind).expect(
       "captureIfRequested queryChanges"
     )
-    let qcr = resp3.get(qcHandle).expect("EmailSubmission/queryChanges extract")
-    doAssert string(qcr.oldQueryState) == string(baselineQueryState),
+    let qcr = resp3.get(qcHandle).expect(
+        "EmailSubmission/queryChanges extract[" & $target.kind & "]"
+      )
+    assertOn target,
+      string(qcr.oldQueryState) == string(baselineQueryState),
       "oldQueryState must echo the supplied baseline"
-    doAssert string(qcr.newQueryState) != string(baselineQueryState),
+    assertOn target,
+      string(qcr.newQueryState) != string(baselineQueryState),
       "newQueryState must differ after two fresh submissions"
-    doAssert qcr.total.isSome,
-      "queryChanges must surface total when calculateTotal=true"
-    doAssert int64(qcr.total.unsafeGet) == int64(baselineTotal) + 2,
+    assertOn target,
+      qcr.total.isSome, "queryChanges must surface total when calculateTotal=true"
+    assertOn target,
+      int64(qcr.total.unsafeGet) == int64(baselineTotal) + 2,
       "total must advance by exactly two (got " & $qcr.total.unsafeGet & ", baseline=" &
         $baselineTotal & ")"
-    doAssert qcr.added.len == 2,
-      "exactly two AddedItems expected (got " & $qcr.added.len & ")"
+    assertOn target,
+      qcr.added.len == 2, "exactly two AddedItems expected (got " & $qcr.added.len & ")"
     client.close()

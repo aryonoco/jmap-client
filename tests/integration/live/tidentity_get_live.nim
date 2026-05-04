@@ -29,44 +29,47 @@ import ./mconfig
 import ./mlive
 
 block tidentityGetLive:
-  let cfgRes = loadLiveTestConfig()
-  if cfgRes.isOk:
-    let cfg = cfgRes.get()
+  forEachLiveTarget(target):
     var client = initJmapClient(
-        sessionUrl = cfg.sessionUrl,
-        bearerToken = cfg.aliceToken,
-        authScheme = cfg.authScheme,
+        sessionUrl = target.sessionUrl,
+        bearerToken = target.aliceToken,
+        authScheme = target.authScheme,
       )
-      .expect("initJmapClient")
-    let session = client.fetchSession().expect("fetchSession")
-    let submissionAccountId =
-      resolveSubmissionAccountId(session).expect("resolveSubmissionAccountId")
+      .expect("initJmapClient[" & $target.kind & "]")
+    let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
+    let submissionAccountId = resolveSubmissionAccountId(session).expect(
+        "resolveSubmissionAccountId[" & $target.kind & "]"
+      )
 
     let create = parseIdentityCreate(email = "alice@example.com", name = "Alice").expect(
         "parseIdentityCreate"
       )
-    let cid = parseCreationId("seedAlice").expect("parseCreationId")
+    let cid =
+      parseCreationId("seedAlice").expect("parseCreationId[" & $target.kind & "]")
     var createTbl = initTable[CreationId, IdentityCreate]()
     createTbl[cid] = create
     let (b1, setHandle) = addIdentitySet(
       initRequestBuilder(), submissionAccountId, create = Opt.some(createTbl)
     )
     let (b2, getHandle) = addIdentityGet(b1, submissionAccountId)
-    let resp = client.send(b2).expect("send")
+    let resp = client.send(b2).expect("send[" & $target.kind & "]")
 
-    let setResp = resp.get(setHandle).expect("Identity/set extract")
-    doAssert setResp.createResults.len == 1, "set must report one create result"
+    let setResp =
+      resp.get(setHandle).expect("Identity/set extract[" & $target.kind & "]")
+    assertOn target, setResp.createResults.len == 1, "set must report one create result"
     let createResult = setResp.createResults[cid]
-    doAssert createResult.isOk, "Identity/set must succeed for seeded address"
+    assertOn target, createResult.isOk, "Identity/set must succeed for seeded address"
 
-    let gr = resp.get(getHandle).expect("Identity/get extract")
-    doAssert gr.list.len >= 1, "alice must own at least one identity after set"
+    let gr = resp.get(getHandle).expect("Identity/get extract[" & $target.kind & "]")
+    assertOn target, gr.list.len >= 1, "alice must own at least one identity after set"
     var sawAliceEmail = false
     for node in gr.list:
-      let ident = Identity.fromJson(node).expect("parse Identity")
-      doAssert ident.email.len > 0, "every identity must have a non-empty email"
-      doAssert ident.id.len > 0, "every identity must carry a server-assigned id"
+      let ident = Identity.fromJson(node).expect("parse Identity[" & $target.kind & "]")
+      assertOn target, ident.email.len > 0, "every identity must have a non-empty email"
+      assertOn target,
+        ident.id.len > 0, "every identity must carry a server-assigned id"
       if ident.email == "alice@example.com":
         sawAliceEmail = true
-    doAssert sawAliceEmail, "alice's seeded address must appear among her identities"
+    assertOn target,
+      sawAliceEmail, "alice's seeded address must appear among her identities"
     client.close()

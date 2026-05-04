@@ -32,10 +32,13 @@ import ../mtest_entity
 
 block builderToRequestJson:
   ## Build a GetRequest for TestWidget and verify Request JSON structure.
+  ## ``initRequestBuilder`` pre-declares ``urn:ietf:params:jmap:core``
+  ## (RFC 8620 §3.2 obligation) so the ``using`` set carries both core
+  ## and the entity-specific URI.
   let b0 = initRequestBuilder()
   let (b1, gh) = addGet[TestWidget](b0, accountId = makeAccountId("A1"))
   let req = b1.build()
-  doAssert req.`using` == @["urn:test:widget"]
+  doAssert req.`using` == @["urn:ietf:params:jmap:core", "urn:test:widget"]
   assertLen req.methodCalls, 1
   doAssert req.methodCalls[0].name == mnMailboxGet
   let args = req.methodCalls[0].arguments

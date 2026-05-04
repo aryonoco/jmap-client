@@ -15,19 +15,19 @@ import jmap_client
 import ./mloader
 
 block tcapturedMailboxSetDestroyWithEmails:
-  let j = loadCapturedFixture("mailbox-set-destroy-with-emails-stalwart")
-  let resp = envelope.Response.fromJson(j).expect("envelope.Response.fromJson")
-  doAssert resp.methodResponses.len == 1
-  let inv = resp.methodResponses[0]
-  doAssert inv.rawName == "Mailbox/set", "expected Mailbox/set, got " & inv.rawName
-  let setResp = SetResponse[MailboxCreatedItem].fromJson(inv.arguments).expect(
-      "SetResponse[MailboxCreatedItem].fromJson"
-    )
-  doAssert setResp.destroyResults.len == 1,
-    "exactly one destroy outcome expected (got " & $setResp.destroyResults.len & ")"
-  for id, outcome in setResp.destroyResults.pairs:
-    doAssert outcome.isOk,
-      "destroy with onDestroyRemoveEmails must succeed (got rawType=" &
-        outcome.error.rawType & ")"
-    doAssert string(id).len > 0, "destroyed id must be non-empty"
-  doAssert setResp.newState.isSome, "newState must be present in this fixture"
+  forEachCapturedServer("mailbox-set-destroy-with-emails", j):
+    let resp = envelope.Response.fromJson(j).expect("envelope.Response.fromJson")
+    doAssert resp.methodResponses.len == 1
+    let inv = resp.methodResponses[0]
+    doAssert inv.rawName == "Mailbox/set", "expected Mailbox/set, got " & inv.rawName
+    let setResp = SetResponse[MailboxCreatedItem].fromJson(inv.arguments).expect(
+        "SetResponse[MailboxCreatedItem].fromJson"
+      )
+    doAssert setResp.destroyResults.len == 1,
+      "exactly one destroy outcome expected (got " & $setResp.destroyResults.len & ")"
+    for id, outcome in setResp.destroyResults.pairs:
+      doAssert outcome.isOk,
+        "destroy with onDestroyRemoveEmails must succeed (got rawType=" &
+          outcome.error.rawType & ")"
+      doAssert string(id).len > 0, "destroyed id must be non-empty"
+    doAssert setResp.newState.isSome, "newState must be present in this fixture"

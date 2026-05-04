@@ -68,11 +68,11 @@ BOB_B64=$(echo -n 'bob:bob123' | base64 -w0)
 ADMIN_B64=$(echo -n "$ADMIN_AUTH" | base64 -w0)
 
 cat > /tmp/stalwart-env.sh <<EOF
-export JMAP_TEST_SESSION_URL="http://stalwart:8080/jmap/session"
-export JMAP_TEST_AUTH_SCHEME="Basic"
-export JMAP_TEST_ALICE_TOKEN="$ALICE_B64"
-export JMAP_TEST_BOB_TOKEN="$BOB_B64"
-export JMAP_TEST_ADMIN_BASIC="$ADMIN_B64"
+export JMAP_TEST_STALWART_SESSION_URL="http://stalwart:8080/jmap/session"
+export JMAP_TEST_STALWART_AUTH_SCHEME="Basic"
+export JMAP_TEST_STALWART_ALICE_TOKEN="$ALICE_B64"
+export JMAP_TEST_STALWART_BOB_TOKEN="$BOB_B64"
+export JMAP_TEST_STALWART_ADMIN_BASIC="$ADMIN_B64"
 EOF
 
 # --- JMAP-level SMTP smoke check ---

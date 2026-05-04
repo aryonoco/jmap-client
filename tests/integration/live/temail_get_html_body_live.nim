@@ -36,26 +36,27 @@ import ./mconfig
 import ./mlive
 
 block temailGetHtmlBodyLive:
-  let cfgRes = loadLiveTestConfig()
-  if cfgRes.isOk:
-    let cfg = cfgRes.get()
+  forEachLiveTarget(target):
     var client = initJmapClient(
-        sessionUrl = cfg.sessionUrl,
-        bearerToken = cfg.aliceToken,
-        authScheme = cfg.authScheme,
+        sessionUrl = target.sessionUrl,
+        bearerToken = target.aliceToken,
+        authScheme = target.authScheme,
       )
-      .expect("initJmapClient")
-    let session = client.fetchSession().expect("fetchSession")
-    let mailAccountId = resolveMailAccountId(session).expect("resolveMailAccountId")
+      .expect("initJmapClient[" & $target.kind & "]")
+    let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
+    let mailAccountId =
+      resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
 
-    let inbox = resolveInboxId(client, mailAccountId).expect("resolveInboxId")
+    let inbox = resolveInboxId(client, mailAccountId).expect(
+        "resolveInboxId[" & $target.kind & "]"
+      )
     const textBody = "phase-d step-20 plain part"
     const htmlBody = "<html><body><p>phase-d step-20 <b>html</b> part</p></body></html>"
     let seededId = seedAlternativeEmail(
         client, mailAccountId, inbox, "phase-d step-20 alternative", textBody, htmlBody,
         "seedAlt",
       )
-      .expect("seedAlternativeEmail")
+      .expect("seedAlternativeEmail[" & $target.kind & "]")
 
     let (b, getHandle) = addEmailGet(
       initRequestBuilder(),
@@ -64,35 +65,43 @@ block temailGetHtmlBodyLive:
       properties = Opt.some(@["id", "textBody", "htmlBody", "bodyValues"]),
       bodyFetchOptions = EmailBodyFetchOptions(fetchBodyValues: bvsTextAndHtml),
     )
-    let resp = client.send(b).expect("send Email/get html body")
-    captureIfRequested(client, "email-multipart-alternative-stalwart").expect(
+    let resp = client.send(b).expect("send Email/get html body[" & $target.kind & "]")
+    captureIfRequested(client, "email-multipart-alternative-" & $target.kind).expect(
       "captureIfRequested"
     )
-    let getResp = resp.get(getHandle).expect("Email/get html body extract")
-    doAssert getResp.list.len == 1, "Email/get must return the seeded message"
+    let getResp =
+      resp.get(getHandle).expect("Email/get html body extract[" & $target.kind & "]")
+    assertOn target, getResp.list.len == 1, "Email/get must return the seeded message"
 
-    let email = Email.fromJson(getResp.list[0]).expect("Email.fromJson")
-    doAssert email.textBody.len == 1, "expected one text/plain leaf in textBody"
+    let email =
+      Email.fromJson(getResp.list[0]).expect("Email.fromJson[" & $target.kind & "]")
+    assertOn target, email.textBody.len == 1, "expected one text/plain leaf in textBody"
     let textLeaf = email.textBody[0]
-    doAssert textLeaf.isLeaf, "textBody[0] must be a leaf"
-    doAssert textLeaf.contentType == "text/plain",
+    assertOn target, textLeaf.isLeaf, "textBody[0] must be a leaf"
+    assertOn target,
+      textLeaf.contentType == "text/plain",
       "textBody[0].contentType must be text/plain (got " & textLeaf.contentType & ")"
 
-    doAssert email.htmlBody.len == 1, "expected one text/html leaf in htmlBody"
+    assertOn target, email.htmlBody.len == 1, "expected one text/html leaf in htmlBody"
     let htmlLeaf = email.htmlBody[0]
-    doAssert htmlLeaf.isLeaf, "htmlBody[0] must be a leaf"
-    doAssert htmlLeaf.contentType == "text/html",
+    assertOn target, htmlLeaf.isLeaf, "htmlBody[0] must be a leaf"
+    assertOn target,
+      htmlLeaf.contentType == "text/html",
       "htmlBody[0].contentType must be text/html (got " & htmlLeaf.contentType & ")"
 
-    doAssert email.bodyValues.len == 2,
+    assertOn target,
+      email.bodyValues.len == 2,
       "bvsTextAndHtml must yield two bodyValues entries (got " & $email.bodyValues.len &
         ")"
-    doAssert textLeaf.partId in email.bodyValues,
+    assertOn target,
+      textLeaf.partId in email.bodyValues,
       "bodyValues missing entry for text partId " & $textLeaf.partId
-    doAssert htmlLeaf.partId in email.bodyValues,
+    assertOn target,
+      htmlLeaf.partId in email.bodyValues,
       "bodyValues missing entry for html partId " & $htmlLeaf.partId
 
     let htmlValue = email.bodyValues[htmlLeaf.partId]
-    doAssert htmlValue.value == htmlBody,
+    assertOn target,
+      htmlValue.value == htmlBody,
       "html bodyValue.value must round-trip the injected string verbatim"
     client.close()

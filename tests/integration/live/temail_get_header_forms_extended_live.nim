@@ -45,19 +45,20 @@ import ./mconfig
 import ./mlive
 
 block temailGetHeaderFormsExtendedLive:
-  let cfgRes = loadLiveTestConfig()
-  if cfgRes.isOk:
-    let cfg = cfgRes.get()
+  forEachLiveTarget(target):
     var client = initJmapClient(
-        sessionUrl = cfg.sessionUrl,
-        bearerToken = cfg.aliceToken,
-        authScheme = cfg.authScheme,
+        sessionUrl = target.sessionUrl,
+        bearerToken = target.aliceToken,
+        authScheme = target.authScheme,
       )
-      .expect("initJmapClient")
-    let session = client.fetchSession().expect("fetchSession")
-    let mailAccountId = resolveMailAccountId(session).expect("resolveMailAccountId")
+      .expect("initJmapClient[" & $target.kind & "]")
+    let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
+    let mailAccountId =
+      resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
 
-    let inbox = resolveInboxId(client, mailAccountId).expect("resolveInboxId")
+    let inbox = resolveInboxId(client, mailAccountId).expect(
+        "resolveInboxId[" & $target.kind & "]"
+      )
     let aliceAddr = buildAliceAddr()
     let commentsName = parseBlueprintEmailHeaderName("Comments").expect(
         "parseBlueprintEmailHeaderName Comments"
@@ -65,12 +66,15 @@ block temailGetHeaderFormsExtendedLive:
     let resentToName = parseBlueprintEmailHeaderName("Resent-To").expect(
         "parseBlueprintEmailHeaderName Resent-To"
       )
-    let resent1 =
-      parseEmailAddress("resent1@example.com", Opt.none(string)).expect("resent1")
-    let resent2 =
-      parseEmailAddress("resent2@example.com", Opt.none(string)).expect("resent2")
-    let resentMulti =
-      addressesMulti(@[@[resent1], @[resent2]]).expect("addressesMulti Resent-To")
+    let resent1 = parseEmailAddress("resent1@example.com", Opt.none(string)).expect(
+        "resent1[" & $target.kind & "]"
+      )
+    let resent2 = parseEmailAddress("resent2@example.com", Opt.none(string)).expect(
+        "resent2[" & $target.kind & "]"
+      )
+    let resentMulti = addressesMulti(@[@[resent1], @[resent2]]).expect(
+        "addressesMulti Resent-To[" & $target.kind & "]"
+      )
     let extraHeaders = @[
       (commentsName, textSingle("phase-i step-53 free text")),
       (resentToName, resentMulti),
@@ -79,7 +83,7 @@ block temailGetHeaderFormsExtendedLive:
         client, mailAccountId, inbox, aliceAddr, aliceAddr, "phase-i 53 header forms",
         "phase-i step-53 body", extraHeaders, "phase-i-53-seed",
       )
-      .expect("seedEmailWithHeaders")
+      .expect("seedEmailWithHeaders[" & $target.kind & "]")
 
     let (b, getHandle) = addEmailGet(
       initRequestBuilder(),
@@ -93,64 +97,79 @@ block temailGetHeaderFormsExtendedLive:
         ]
       ),
     )
-    let resp = client.send(b).expect("send Email/get extended header forms")
-    captureIfRequested(client, "email-get-header-forms-extended-stalwart").expect(
+    let resp = client.send(b).expect(
+        "send Email/get extended header forms[" & $target.kind & "]"
+      )
+    captureIfRequested(client, "email-get-header-forms-extended-" & $target.kind).expect(
       "captureIfRequested"
     )
-    let getResp = resp.get(getHandle).expect("Email/get extended header forms extract")
-    doAssert getResp.list.len == 1, "Email/get must return the seeded message"
-    let email = Email.fromJson(getResp.list[0]).expect("Email.fromJson")
+    let getResp = resp.get(getHandle).expect(
+        "Email/get extended header forms extract[" & $target.kind & "]"
+      )
+    assertOn target, getResp.list.len == 1, "Email/get must return the seeded message"
+    let email =
+      Email.fromJson(getResp.list[0]).expect("Email.fromJson[" & $target.kind & "]")
 
     let messageIdsKey = parseHeaderPropertyName("header:Message-ID:asMessageIds").expect(
         "parseHeaderPropertyName messageIds"
       )
     let messageIdsHv = email.requestedHeaders.getOrDefault(messageIdsKey)
-    doAssert messageIdsKey in email.requestedHeaders,
+    assertOn target,
+      messageIdsKey in email.requestedHeaders,
       "header:Message-ID:asMessageIds must be present"
-    doAssert messageIdsHv.form == hfMessageIds,
+    assertOn target,
+      messageIdsHv.form == hfMessageIds,
       "Message-ID HeaderValue must carry hfMessageIds form"
 
     let commentsTextKey = parseHeaderPropertyName("header:Comments:asText").expect(
         "parseHeaderPropertyName commentsText"
       )
-    doAssert commentsTextKey in email.requestedHeaders,
+    assertOn target,
+      commentsTextKey in email.requestedHeaders,
       "header:Comments:asText must be present"
     let commentsTextHv = email.requestedHeaders.getOrDefault(commentsTextKey)
-    doAssert commentsTextHv.form == hfText,
-      "Comments HeaderValue must carry hfText form"
-    doAssert commentsTextHv.textValue.len > 0,
-      "asText payload must be a non-empty string"
+    assertOn target,
+      commentsTextHv.form == hfText, "Comments HeaderValue must carry hfText form"
+    assertOn target,
+      commentsTextHv.textValue.len > 0, "asText payload must be a non-empty string"
 
     let commentsRawKey = parseHeaderPropertyName("header:Comments:asRaw").expect(
         "parseHeaderPropertyName commentsRaw"
       )
-    doAssert commentsRawKey in email.requestedHeaders,
-      "header:Comments:asRaw must be present"
+    assertOn target,
+      commentsRawKey in email.requestedHeaders, "header:Comments:asRaw must be present"
     let commentsRawHv = email.requestedHeaders.getOrDefault(commentsRawKey)
-    doAssert commentsRawHv.form == hfRaw,
-      "Comments asRaw HeaderValue must carry hfRaw form"
-    doAssert commentsRawHv.rawValue.len > 0,
+    assertOn target,
+      commentsRawHv.form == hfRaw, "Comments asRaw HeaderValue must carry hfRaw form"
+    assertOn target,
+      commentsRawHv.rawValue.len > 0,
       "asRaw payload must be a non-empty byte-passthrough string"
 
     let toGroupedKey = parseHeaderPropertyName("header:To:asGroupedAddresses").expect(
         "parseHeaderPropertyName toGrouped"
       )
-    doAssert toGroupedKey in email.requestedHeaders,
+    assertOn target,
+      toGroupedKey in email.requestedHeaders,
       "header:To:asGroupedAddresses must be present"
     let toGroupedHv = email.requestedHeaders.getOrDefault(toGroupedKey)
-    doAssert toGroupedHv.form == hfGroupedAddresses,
+    assertOn target,
+      toGroupedHv.form == hfGroupedAddresses,
       "To HeaderValue must carry hfGroupedAddresses form"
-    doAssert toGroupedHv.groups.len >= 1,
+    assertOn target,
+      toGroupedHv.groups.len >= 1,
       "asGroupedAddresses must produce at least one group entry"
 
     let resentAllKey = parseHeaderPropertyName("header:Resent-To:asAddresses:all")
-      .expect("parseHeaderPropertyName resentAll")
+      .expect("parseHeaderPropertyName resentAll[" & $target.kind & "]")
     let resentAllHvs = email.requestedHeadersAll.getOrDefault(resentAllKey)
-    doAssert resentAllKey in email.requestedHeadersAll,
+    assertOn target,
+      resentAllKey in email.requestedHeadersAll,
       "header:Resent-To:asAddresses:all must be present in requestedHeadersAll"
-    doAssert resentAllHvs.len >= 1,
+    assertOn target,
+      resentAllHvs.len >= 1,
       "the :all flag must surface at least one Resent-To instance"
     for hv in resentAllHvs:
-      doAssert hv.form == hfAddresses, "every :all instance must carry hfAddresses form"
+      assertOn target,
+        hv.form == hfAddresses, "every :all instance must carry hfAddresses form"
 
     client.close()

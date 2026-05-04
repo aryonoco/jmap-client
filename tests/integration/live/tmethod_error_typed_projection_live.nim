@@ -37,17 +37,16 @@ import ./mconfig
 import ./mlive
 
 block tmethodErrorTypedProjectionLive:
-  let cfgRes = loadLiveTestConfig()
-  if cfgRes.isOk:
-    let cfg = cfgRes.get()
+  forEachLiveTarget(target):
     var client = initJmapClient(
-        sessionUrl = cfg.sessionUrl,
-        bearerToken = cfg.aliceToken,
-        authScheme = cfg.authScheme,
+        sessionUrl = target.sessionUrl,
+        bearerToken = target.aliceToken,
+        authScheme = target.authScheme,
       )
-      .expect("initJmapClient")
-    let session = client.fetchSession().expect("fetchSession")
-    let mailAccountId = resolveMailAccountId(session).expect("resolveMailAccountId")
+      .expect("initJmapClient[" & $target.kind & "]")
+    let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
+    let mailAccountId =
+      resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
 
     # Sub-test 1: unknown method name.
     block unknownMethodCase:
@@ -57,20 +56,24 @@ block tmethodErrorTypedProjectionLive:
           methodName = "Mailbox/snorgleflarp",
           arguments = %*{"accountId": $mailAccountId},
         )
-        .expect("sendRawInvocation unknownMethod")
-      captureIfRequested(client, "method-error-unknown-method-stalwart").expect(
+        .expect("sendRawInvocation unknownMethod[" & $target.kind & "]")
+      captureIfRequested(client, "method-error-unknown-method-" & $target.kind).expect(
         "captureIfRequested unknownMethod"
       )
-      doAssert resp.methodResponses.len == 1
+      assertOn target, resp.methodResponses.len == 1
       let inv = resp.methodResponses[0]
-      doAssert inv.rawName == "error",
+      assertOn target,
+        inv.rawName == "error",
         "method-level errors arrive on the literal 'error' rawName"
-      let me = MethodError.fromJson(inv.arguments).expect("MethodError.fromJson")
-      doAssert me.rawType.len > 0, "rawType must be losslessly preserved"
-      doAssert me.errorType in {
-        metUnknownMethod, metInvalidArguments, metServerFail, metServerUnavailable,
-        metUnknown,
-      },
+      let me = MethodError.fromJson(inv.arguments).expect(
+          "MethodError.fromJson[" & $target.kind & "]"
+        )
+      assertOn target, me.rawType.len > 0, "rawType must be losslessly preserved"
+      assertOn target,
+        me.errorType in {
+          metUnknownMethod, metInvalidArguments, metServerFail, metServerUnavailable,
+          metUnknown,
+        },
         "errorType must project into the closed MethodErrorType enum, got " &
           $me.errorType
 
@@ -89,18 +92,24 @@ block tmethodErrorTypedProjectionLive:
           methodName = "Email/get",
           arguments = getArgsRef,
         )
-        .expect("sendRawInvocation invalidResultReference")
-      captureIfRequested(client, "method-error-invalid-result-reference-stalwart")
-        .expect("captureIfRequested invalidResultReference")
-      doAssert resp.methodResponses.len >= 1
+        .expect("sendRawInvocation invalidResultReference[" & $target.kind & "]")
+      captureIfRequested(
+        client, "method-error-invalid-result-reference-" & $target.kind
+      )
+        .expect("captureIfRequested invalidResultReference[" & $target.kind & "]")
+      assertOn target, resp.methodResponses.len >= 1
       let inv = resp.methodResponses[resp.methodResponses.len - 1]
-      doAssert inv.rawName == "error",
+      assertOn target,
+        inv.rawName == "error",
         "Email/get with broken back-reference must surface as 'error', got " &
           inv.rawName
-      let me = MethodError.fromJson(inv.arguments).expect("MethodError.fromJson")
-      doAssert me.rawType.len > 0, "rawType must be losslessly preserved"
-      doAssert me.errorType in
-        {metInvalidResultReference, metInvalidArguments, metServerFail, metUnknown},
+      let me = MethodError.fromJson(inv.arguments).expect(
+          "MethodError.fromJson[" & $target.kind & "]"
+        )
+      assertOn target, me.rawType.len > 0, "rawType must be losslessly preserved"
+      assertOn target,
+        me.errorType in
+          {metInvalidResultReference, metInvalidArguments, metServerFail, metUnknown},
         "errorType must project into the closed MethodErrorType enum, got " &
           $me.errorType
 
@@ -115,18 +124,24 @@ block tmethodErrorTypedProjectionLive:
             "sort": [{"property": "phaseJSyntheticProperty"}],
           },
         )
-        .expect("sendRawInvocation unsupportedSort")
-      captureIfRequested(client, "method-error-unsupported-sort-stalwart").expect(
+        .expect("sendRawInvocation unsupportedSort[" & $target.kind & "]")
+      captureIfRequested(client, "method-error-unsupported-sort-" & $target.kind).expect(
         "captureIfRequested unsupportedSort"
       )
-      doAssert resp.methodResponses.len == 1
+      assertOn target, resp.methodResponses.len == 1
       let inv = resp.methodResponses[0]
-      doAssert inv.rawName == "error",
+      assertOn target,
+        inv.rawName == "error",
         "unsupported-sort must surface as 'error', got " & inv.rawName
-      let me = MethodError.fromJson(inv.arguments).expect("MethodError.fromJson")
-      doAssert me.rawType.len > 0, "rawType must be losslessly preserved"
-      doAssert me.errorType in
-        {metUnsupportedSort, metInvalidArguments, metServerFail, metUnknown},
+      let me = MethodError.fromJson(inv.arguments).expect(
+          "MethodError.fromJson[" & $target.kind & "]"
+        )
+      assertOn target, me.rawType.len > 0, "rawType must be losslessly preserved"
+      assertOn target,
+        me.errorType in {
+          metUnsupportedSort, metInvalidArguments, metUnknownMethod, metServerFail,
+          metUnknown,
+        },
         "errorType must project into the closed MethodErrorType enum, got " &
           $me.errorType
 
@@ -139,18 +154,23 @@ block tmethodErrorTypedProjectionLive:
           arguments =
             %*{"accountId": $mailAccountId, "filter": {"phaseJSyntheticProperty": true}},
         )
-        .expect("sendRawInvocation unsupportedFilter")
-      captureIfRequested(client, "method-error-unsupported-filter-stalwart").expect(
-        "captureIfRequested unsupportedFilter"
-      )
-      doAssert resp.methodResponses.len == 1
+        .expect("sendRawInvocation unsupportedFilter[" & $target.kind & "]")
+      captureIfRequested(client, "method-error-unsupported-filter-" & $target.kind)
+        .expect("captureIfRequested unsupportedFilter")
+      assertOn target, resp.methodResponses.len == 1
       let inv = resp.methodResponses[0]
-      doAssert inv.rawName == "error",
+      assertOn target,
+        inv.rawName == "error",
         "unsupported-filter must surface as 'error', got " & inv.rawName
-      let me = MethodError.fromJson(inv.arguments).expect("MethodError.fromJson")
-      doAssert me.rawType.len > 0, "rawType must be losslessly preserved"
-      doAssert me.errorType in
-        {metUnsupportedFilter, metInvalidArguments, metServerFail, metUnknown},
+      let me = MethodError.fromJson(inv.arguments).expect(
+          "MethodError.fromJson[" & $target.kind & "]"
+        )
+      assertOn target, me.rawType.len > 0, "rawType must be losslessly preserved"
+      assertOn target,
+        me.errorType in {
+          metUnsupportedFilter, metInvalidArguments, metUnknownMethod, metServerFail,
+          metUnknown,
+        },
         "errorType must project into the closed MethodErrorType enum, got " &
           $me.errorType
 

@@ -55,22 +55,29 @@ import ./mconfig
 import ./mlive
 
 block tthreadChangesLive:
-  let cfgRes = loadLiveTestConfig()
-  if cfgRes.isOk:
-    let cfg = cfgRes.get()
+  forEachLiveTarget(target):
+    # James 3.9 compatibility: skipped on James.
+    # Reason: exercises Thread/changes convergence after Email/set; James 3.9's Thread/changes is documented as partially implemented (`doc/specs/spec/mail/thread.mdown`: "Naive implementation") and does not advance Thread state when emails are created — `oldState == newState` and `created/updated/destroyed` stay empty. Re-fetch loop times out. Stalwart's threading pipeline is async and exercises the full RFC 8621 §3.2 contract, so the wire shape is preserved via the captured `-stalwart` fixture.
+    # Replay coverage for the Stalwart wire shape is preserved via
+    # captured ``-stalwart`` fixtures.
+    if target.kind == ltkJames:
+      continue
     var client = initJmapClient(
-        sessionUrl = cfg.sessionUrl,
-        bearerToken = cfg.aliceToken,
-        authScheme = cfg.authScheme,
+        sessionUrl = target.sessionUrl,
+        bearerToken = target.aliceToken,
+        authScheme = target.authScheme,
       )
-      .expect("initJmapClient")
-    let session = client.fetchSession().expect("fetchSession")
-    let mailAccountId = resolveMailAccountId(session).expect("resolveMailAccountId")
+      .expect("initJmapClient[" & $target.kind & "]")
+    let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
+    let mailAccountId =
+      resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
 
     # --- Resolve inbox + capture baseline ------------------------------
-    let inbox = resolveInboxId(client, mailAccountId).expect("resolveInboxId")
+    let inbox = resolveInboxId(client, mailAccountId).expect(
+        "resolveInboxId[" & $target.kind & "]"
+      )
     let baselineState = captureBaselineState[jmap_client.Thread](client, mailAccountId)
-      .expect("captureBaselineState[Thread]")
+      .expect("captureBaselineState[Thread][" & $target.kind & "]")
 
     # --- Mutate: seed two threaded emails ------------------------------
     let seedIds = seedThreadedEmails(
@@ -80,8 +87,8 @@ block tthreadChangesLive:
         @["phase-h step-45 root", "phase-h step-45 reply"],
         rootMessageId = "<phase-h-step-45-root@example.com>",
       )
-      .expect("seedThreadedEmails")
-    doAssert seedIds.len == 2, "seedThreadedEmails must return two ids"
+      .expect("seedThreadedEmails[" & $target.kind & "]")
+    assertOn target, seedIds.len == 2, "seedThreadedEmails must return two ids"
 
     # --- Happy path: Thread/changes with bounded re-fetch loop ---------
     var converged = false
@@ -90,34 +97,40 @@ block tthreadChangesLive:
       let (b, h) = addChanges[jmap_client.Thread](
         initRequestBuilder(), mailAccountId, sinceState = baselineState
       )
-      let resp = client.send(b).expect("send Thread/changes happy")
-      let cr = resp.get(h).expect("Thread/changes happy extract")
+      let resp =
+        client.send(b).expect("send Thread/changes happy[" & $target.kind & "]")
+      let cr = resp.get(h).expect("Thread/changes happy extract[" & $target.kind & "]")
       if cr.created.len + cr.updated.len >= 1:
         lastCr = cr
         converged = true
         break
       sleep(200)
-    doAssert converged,
+    assertOn target,
+      converged,
       "Stalwart Thread/changes did not converge within 1 s — extend re-fetch budget " &
         "or investigate Stalwart 0.15.5 threading pipeline"
-    doAssert string(lastCr.oldState) == string(baselineState),
+    assertOn target,
+      string(lastCr.oldState) == string(baselineState),
       "oldState must echo the supplied baseline"
-    doAssert lastCr.destroyed.len == 0, "no Thread destroys issued"
-    doAssert lastCr.hasMoreChanges == false, "no further changes pending"
+    assertOn target, lastCr.destroyed.len == 0, "no Thread destroys issued"
+    assertOn target, lastCr.hasMoreChanges == false, "no further changes pending"
 
     # --- Sad path: bogus sinceState ------------------------------------
     let bogusState = JmapState("phase-h-45-bogus-state")
     let (bSad, sadHandle) = addChanges[jmap_client.Thread](
       initRequestBuilder(), mailAccountId, sinceState = bogusState
     )
-    let respSad = client.send(bSad).expect("send Thread/changes bogus")
-    captureIfRequested(client, "thread-changes-bogus-state-stalwart").expect(
+    let respSad =
+      client.send(bSad).expect("send Thread/changes bogus[" & $target.kind & "]")
+    captureIfRequested(client, "thread-changes-bogus-state-" & $target.kind).expect(
       "captureIfRequested"
     )
     let sadExtract = respSad.get(sadHandle)
-    doAssert sadExtract.isErr, "bogus sinceState must surface as a method-level error"
+    assertOn target,
+      sadExtract.isErr, "bogus sinceState must surface as a method-level error"
     let methodErr = sadExtract.error
-    doAssert methodErr.errorType in {metCannotCalculateChanges, metInvalidArguments},
+    assertOn target,
+      methodErr.errorType in {metCannotCalculateChanges, metInvalidArguments},
       "method error must project as cannotCalculateChanges or invalidArguments " &
         "(got rawType=" & methodErr.rawType & ")"
     client.close()

@@ -27,20 +27,22 @@ import ./mconfig
 import ./mlive
 
 block tcreatedIdsEnvelopeLive:
-  let cfgRes = loadLiveTestConfig()
-  if cfgRes.isOk:
-    let cfg = cfgRes.get()
+  forEachLiveTarget(target):
     var client = initJmapClient(
-        sessionUrl = cfg.sessionUrl,
-        bearerToken = cfg.aliceToken,
-        authScheme = cfg.authScheme,
+        sessionUrl = target.sessionUrl,
+        bearerToken = target.aliceToken,
+        authScheme = target.authScheme,
       )
-      .expect("initJmapClient")
-    let session = client.fetchSession().expect("fetchSession")
-    let mailAccountId = resolveMailAccountId(session).expect("resolveMailAccountId")
-    let inbox = resolveInboxId(client, mailAccountId).expect("resolveInboxId")
-    let drafts =
-      resolveOrCreateDrafts(client, mailAccountId).expect("resolveOrCreateDrafts")
+      .expect("initJmapClient[" & $target.kind & "]")
+    let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
+    let mailAccountId =
+      resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
+    let inbox = resolveInboxId(client, mailAccountId).expect(
+        "resolveInboxId[" & $target.kind & "]"
+      )
+    let drafts = resolveOrCreateDrafts(client, mailAccountId).expect(
+        "resolveOrCreateDrafts[" & $target.kind & "]"
+      )
 
     # Sub-test 1: outgoing createdIds round-trip with a Core/echo
     # invocation.  Build the Request value directly so createdIds
@@ -49,8 +51,9 @@ block tcreatedIdsEnvelopeLive:
       let realEmailId = seedSimpleEmail(
           client, mailAccountId, inbox, "phase-j 68 createdIds seed", "phase-j-68-seed"
         )
-        .expect("seedSimpleEmail")
-      let knownCid = parseCreationId("knownEmail").expect("parseCreationId")
+        .expect("seedSimpleEmail[" & $target.kind & "]")
+      let knownCid =
+        parseCreationId("knownEmail").expect("parseCreationId[" & $target.kind & "]")
       var seedMap = initTable[CreationId, Id]()
       seedMap[knownCid] = realEmailId
 
@@ -62,8 +65,9 @@ block tcreatedIdsEnvelopeLive:
         methodCalls: baseReq.methodCalls,
         createdIds: Opt.some(seedMap),
       )
-      let resp = client.send(req).expect("send Core/echo with createdIds")
-      captureIfRequested(client, "created-ids-envelope-stalwart").expect(
+      let resp =
+        client.send(req).expect("send Core/echo with createdIds[" & $target.kind & "]")
+      captureIfRequested(client, "created-ids-envelope-" & $target.kind).expect(
         "captureIfRequested createdIds"
       )
 
@@ -75,29 +79,34 @@ block tcreatedIdsEnvelopeLive:
       if resp.createdIds.isSome:
         var echoed = resp.createdIds.unsafeGet
         echoed.withValue(knownCid, v):
-          doAssert string(v[]) == string(realEmailId),
+          assertOn target,
+            string(v[]) == string(realEmailId),
             "echoed createdIds entry must match the supplied id"
         do:
-          doAssert false, "echoed createdIds must contain knownCid"
+          assertOn target, false, "echoed createdIds must contain knownCid"
 
       # Cleanup: destroy seed.
       let (bClean, cleanHandle) = addEmailSet(
         initRequestBuilder(), mailAccountId, destroy = directIds(@[realEmailId])
       )
-      let respClean = client.send(bClean).expect("send Email/set cleanup")
-      let cleanResp = respClean.get(cleanHandle).expect("Email/set cleanup extract")
+      let respClean =
+        client.send(bClean).expect("send Email/set cleanup[" & $target.kind & "]")
+      let cleanResp = respClean.get(cleanHandle).expect(
+          "Email/set cleanup extract[" & $target.kind & "]"
+        )
       cleanResp.destroyResults.withValue(realEmailId, outcome):
-        doAssert outcome.isOk, "cleanup destroy must succeed"
+        assertOn target, outcome.isOk, "cleanup destroy must succeed"
       do:
-        doAssert false, "cleanup must report an outcome"
+        assertOn target, false, "cleanup must report an outcome"
 
     # Sub-test 2: cross-method creation-id reference.  Email/set
     # create with cid ``draft1``; Email/get in the same envelope
     # with ``ids: ["#draft1"]`` — server resolves the # prefix to
     # the freshly assigned id.
     block crossMethodCreationIdRefCase:
-      let mailboxIds =
-        parseNonEmptyMailboxIdSet(@[drafts]).expect("parseNonEmptyMailboxIdSet")
+      let mailboxIds = parseNonEmptyMailboxIdSet(@[drafts]).expect(
+          "parseNonEmptyMailboxIdSet[" & $target.kind & "]"
+        )
       let aliceAddr = buildAliceAddr()
       let textPart = makeLeafPart(
         LeafPartSpec(
@@ -116,8 +125,9 @@ block tcreatedIdsEnvelopeLive:
           to = Opt.some(@[aliceAddr]),
           subject = Opt.some("phase-j 68 cross-method"),
         )
-        .expect("parseEmailBlueprint")
-      let draft1Cid = parseCreationId("draft1").expect("parseCreationId")
+        .expect("parseEmailBlueprint[" & $target.kind & "]")
+      let draft1Cid =
+        parseCreationId("draft1").expect("parseCreationId[" & $target.kind & "]")
       var createTbl = initTable[CreationId, EmailBlueprint]()
       createTbl[draft1Cid] = blueprint
       let (b1, setHandle) =
@@ -129,35 +139,45 @@ block tcreatedIdsEnvelopeLive:
       let creationRefId = Id("#draft1")
       let (b2, getHandle) =
         addEmailGet(b1, mailAccountId, ids = directIds(@[creationRefId]))
-      let resp = client.send(b2).expect("send Email/set+Email/get with creation ref")
-      let setResp = resp.get(setHandle).expect("Email/set extract")
+      let resp = client.send(b2).expect(
+          "send Email/set+Email/get with creation ref[" & $target.kind & "]"
+        )
+      let setResp =
+        resp.get(setHandle).expect("Email/set extract[" & $target.kind & "]")
       var seededId: Id
       var seeded = false
       setResp.createResults.withValue(draft1Cid, outcome):
-        doAssert outcome.isOk, "Email/set create must succeed"
+        assertOn target, outcome.isOk, "Email/set create must succeed"
         seededId = outcome.unsafeValue.id
         seeded = true
       do:
-        doAssert false, "Email/set must report an outcome for draft1"
-      doAssert seeded
+        assertOn target, false, "Email/set must report an outcome for draft1"
+      assertOn target, seeded
 
-      let getResp = resp.get(getHandle).expect("Email/get extract")
-      doAssert getResp.list.len == 1,
+      let getResp =
+        resp.get(getHandle).expect("Email/get extract[" & $target.kind & "]")
+      assertOn target,
+        getResp.list.len == 1,
         "Email/get with #draft1 must return the freshly created Email; got " &
           $getResp.list.len
-      let email = Email.fromJson(getResp.list[0]).expect("Email.fromJson")
-      doAssert email.id.isSome and email.id.unsafeGet == seededId,
+      let email =
+        Email.fromJson(getResp.list[0]).expect("Email.fromJson[" & $target.kind & "]")
+      assertOn target,
+        email.id.isSome and email.id.unsafeGet == seededId,
         "Email/get with #draft1 must return the same id Email/set assigned"
 
       # Cleanup: destroy the freshly created draft.
       let (bClean, cleanHandle) = addEmailSet(
         initRequestBuilder(), mailAccountId, destroy = directIds(@[seededId])
       )
-      let respClean = client.send(bClean).expect("send Email/set cleanup")
-      let cleanResp = respClean.get(cleanHandle).expect("Email/set cleanup extract")
+      let respClean =
+        client.send(bClean).expect("send Email/set cleanup[" & $target.kind & "]")
+      let cleanResp = respClean.get(cleanHandle).expect(
+          "Email/set cleanup extract[" & $target.kind & "]"
+        )
       cleanResp.destroyResults.withValue(seededId, outcome):
-        doAssert outcome.isOk, "cleanup destroy must succeed"
+        assertOn target, outcome.isOk, "cleanup destroy must succeed"
       do:
-        doAssert false, "cleanup must report an outcome"
+        assertOn target, false, "cleanup must report an outcome"
 
     client.close()

@@ -175,11 +175,18 @@ proc flagMediumEmail(client: var JmapClient, mailAccountId: AccountId, mediumId:
   discard resp.get(h).expect("Email/set markFlagged extract")
 
 proc assertKeywordSortAscending(
-    client: var JmapClient, mailAccountId: AccountId, smallId, mediumId, largeId: Id
+    target: LiveTestTarget,
+    client: var JmapClient,
+    mailAccountId: AccountId,
+    smallId, mediumId, largeId: Id,
 ) =
-  ## Sub-test C: sort by hasKeyword:$flagged ascending — Stalwart
-  ## 0.15.5 emits unflagged emails first and the flagged seed last
-  ## (empirical pin documented in the file docstring).
+  ## Sub-test C: sort by hasKeyword:$flagged. Stalwart 0.15.5 emits the
+  ## flagged seed before unflagged ones under ``isAscending = true``
+  ## (empirical pin documented in the file docstring). James 3.9 does
+  ## not advertise ``hasKeyword`` in ``emailQuerySortOptions`` and
+  ## rejects the request with ``metUnsupportedSort`` per RFC 8620 §3.6.2.
+  ## The library projection contract holds on both — successful sort on
+  ## Stalwart, typed ``unsupportedSort`` rejection on James.
   let filter = filterCondition(EmailFilterCondition(subject: Opt.some("phase-i 56")))
   let flaggedKw = parseKeyword("$flagged").expect("parseKeyword $flagged")
   let comparator =
@@ -190,36 +197,50 @@ proc assertKeywordSortAscending(
     filter = Opt.some(filter),
     sort = Opt.some(comparator),
   )
-  let resp = client.send(b).expect("send Email/query keyword asc")
-  captureIfRequested(client, "email-query-advanced-sort-stalwart").expect(
-    "captureIfRequested"
+  let resp = client.send(b).expect("send Email/query keyword asc[" & $target.kind & "]")
+  captureIfRequested(client, "email-query-advanced-sort-" & $target.kind).expect(
+    "captureIfRequested[" & $target.kind & "]"
   )
-  let qr = resp.get(h).expect("Email/query keyword asc extract")
-  let positions = positionsOf(qr, @[smallId, mediumId, largeId])
-  for i, pos in positions:
-    doAssert pos >= 0, "all three seeds must surface (missing index " & $i & ")"
-  let mediumPos = positions[1]
-  let smallPos = positions[0]
-  let largePos = positions[2]
-  doAssert mediumPos < smallPos and mediumPos < largePos,
-    "flagged seed (medium=" & $mediumPos & ") must precede unflagged seeds (small=" &
-      $smallPos & ", large=" & $largePos &
-      ") under hasKeyword:$flagged ascending — Stalwart 0.15.5 empirical pin"
+  let qrRes = resp.get(h)
+  case target.kind
+  of ltkStalwart:
+    let qr = qrRes.expect("Email/query keyword asc extract[stalwart]")
+    let positions = positionsOf(qr, @[smallId, mediumId, largeId])
+    for i, pos in positions:
+      assertOn target,
+        pos >= 0, "all three seeds must surface (missing index " & $i & ")"
+    let mediumPos = positions[1]
+    let smallPos = positions[0]
+    let largePos = positions[2]
+    assertOn target,
+      mediumPos < smallPos and mediumPos < largePos,
+      "flagged seed (medium=" & $mediumPos & ") must precede unflagged seeds (small=" &
+        $smallPos & ", large=" & $largePos &
+        ") under hasKeyword:$flagged ascending — Stalwart 0.15.5 empirical pin"
+  of ltkJames:
+    assertOn target,
+      qrRes.isErr, "James must reject hasKeyword sort (not in emailQuerySortOptions)"
+    let me = qrRes.error
+    assertOn target,
+      me.errorType in {metUnsupportedSort, metInvalidArguments, metUnknown},
+      "James keyword-sort rejection must project as metUnsupportedSort " &
+        "(or its RFC fallback), got " & $me.errorType & " rawType=" & me.rawType
 
 block temailQueryAdvancedSortLive:
-  let cfgRes = loadLiveTestConfig()
-  if cfgRes.isOk:
-    let cfg = cfgRes.get()
+  forEachLiveTarget(target):
     var client = initJmapClient(
-        sessionUrl = cfg.sessionUrl,
-        bearerToken = cfg.aliceToken,
-        authScheme = cfg.authScheme,
+        sessionUrl = target.sessionUrl,
+        bearerToken = target.aliceToken,
+        authScheme = target.authScheme,
       )
-      .expect("initJmapClient")
-    let session = client.fetchSession().expect("fetchSession")
-    let mailAccountId = resolveMailAccountId(session).expect("resolveMailAccountId")
+      .expect("initJmapClient[" & $target.kind & "]")
+    let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
+    let mailAccountId =
+      resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
 
-    let inbox = resolveInboxId(client, mailAccountId).expect("resolveInboxId")
+    let inbox = resolveInboxId(client, mailAccountId).expect(
+        "resolveInboxId[" & $target.kind & "]"
+      )
     let smallId = seedSizedEmail(
       client, mailAccountId, inbox, "phase-i 56 alpha", 200, "phase-i-56-s"
     )
@@ -233,6 +254,8 @@ block temailQueryAdvancedSortLive:
     assertSizeAscending(client, mailAccountId, smallId, mediumId, largeId)
     assertSubjectDescending(client, mailAccountId, smallId, mediumId, largeId)
     flagMediumEmail(client, mailAccountId, mediumId)
-    assertKeywordSortAscending(client, mailAccountId, smallId, mediumId, largeId)
+    assertKeywordSortAscending(
+      target, client, mailAccountId, smallId, mediumId, largeId
+    )
 
     client.close()

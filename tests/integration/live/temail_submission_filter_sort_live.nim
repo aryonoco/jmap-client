@@ -102,21 +102,27 @@ proc resolveOrCreateSecondaryAliceIdentity(
   ok(createdId)
 
 block temailSubmissionFilterSortLive:
-  let cfgRes = loadLiveTestConfig()
-  if cfgRes.isOk:
-    let cfg = cfgRes.get()
+  forEachLiveTarget(target):
+    # James 3.9 compatibility: skipped on James.
+    # Reason: James 3.9 does not implement EmailSubmission/query or EmailSubmission/queryChanges.
+    # When James adds support, remove this guard.
+    if target.kind == ltkJames:
+      continue
     var client = initJmapClient(
-        sessionUrl = cfg.sessionUrl,
-        bearerToken = cfg.aliceToken,
-        authScheme = cfg.authScheme,
+        sessionUrl = target.sessionUrl,
+        bearerToken = target.aliceToken,
+        authScheme = target.authScheme,
       )
-      .expect("initJmapClient")
-    let session = client.fetchSession().expect("fetchSession")
-    let mailAccountId = resolveMailAccountId(session).expect("resolveMailAccountId")
-    let submissionAccountId =
-      resolveSubmissionAccountId(session).expect("resolveSubmissionAccountId")
-    let drafts =
-      resolveOrCreateDrafts(client, mailAccountId).expect("resolveOrCreateDrafts")
+      .expect("initJmapClient[" & $target.kind & "]")
+    let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
+    let mailAccountId =
+      resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
+    let submissionAccountId = resolveSubmissionAccountId(session).expect(
+        "resolveSubmissionAccountId[" & $target.kind & "]"
+      )
+    let drafts = resolveOrCreateDrafts(client, mailAccountId).expect(
+        "resolveOrCreateDrafts[" & $target.kind & "]"
+      )
 
     let primaryId = resolveOrCreateAliceIdentity(client, submissionAccountId).expect(
         "resolveOrCreateAliceIdentity primary"
@@ -124,13 +130,16 @@ block temailSubmissionFilterSortLive:
     let secondaryId = resolveOrCreateSecondaryAliceIdentity(
         client, submissionAccountId, "phase-i 60 secondary"
       )
-      .expect("resolveOrCreateSecondaryAliceIdentity")
+      .expect("resolveOrCreateSecondaryAliceIdentity[" & $target.kind & "]")
 
     # Baseline EmailSubmission/query queryState (no filter).
     let (bBase, baseHandle) =
       addEmailSubmissionQuery(initRequestBuilder(), submissionAccountId)
-    let respBase = client.send(bBase).expect("send baseline EmailSubmission/query")
-    let qrBase = respBase.get(baseHandle).expect("baseline query extract")
+    let respBase = client.send(bBase).expect(
+        "send baseline EmailSubmission/query[" & $target.kind & "]"
+      )
+    let qrBase =
+      respBase.get(baseHandle).expect("baseline query extract[" & $target.kind & "]")
     let baselineQueryState = qrBase.queryState
 
     let aliceAddr = buildAliceAddr()
@@ -155,35 +164,41 @@ block temailSubmissionFilterSortLive:
         subjects = @["phase-i 60 sub-a", "phase-i 60 sub-b"],
         creationLabelPrefix = "phase-i-60",
       )
-      .expect("seedSubmissionCorpus")
-    doAssert submissionIds.len == 2,
+      .expect("seedSubmissionCorpus[" & $target.kind & "]")
+    assertOn target,
+      submissionIds.len == 2,
       "two submissions expected (got " & $submissionIds.len & ")"
     let primarySubmissions = @[submissionIds[0]]
     let secondarySubmissions = @[submissionIds[1]]
 
     # Sub-test A: filter by identityIds = [primary].
-    let primaryIdSeq =
-      parseNonEmptyIdSeq(@[primaryId]).expect("parseNonEmptyIdSeq primary")
+    let primaryIdSeq = parseNonEmptyIdSeq(@[primaryId]).expect(
+        "parseNonEmptyIdSeq primary[" & $target.kind & "]"
+      )
     let identityFilter = filterCondition(
       EmailSubmissionFilterCondition(identityIds: Opt.some(primaryIdSeq))
     )
     let (bA, hA) = addEmailSubmissionQuery(
       initRequestBuilder(), submissionAccountId, filter = Opt.some(identityFilter)
     )
-    let respA = client.send(bA).expect("send Email Submission/query identity filter")
-    let qrA = respA.get(hA).expect("identity filter extract")
+    let respA = client.send(bA).expect(
+        "send Email Submission/query identity filter[" & $target.kind & "]"
+      )
+    let qrA = respA.get(hA).expect("identity filter extract[" & $target.kind & "]")
     for primSub in primarySubmissions:
       var found = false
       for id in qrA.ids:
         if id == primSub:
           found = true
           break
-      doAssert found,
+      assertOn target,
+        found,
         "primary-identity submission " & string(primSub) &
           " must surface under identityIds=[primary] filter"
     for secSub in secondarySubmissions:
       for id in qrA.ids:
-        doAssert id != secSub,
+        assertOn target,
+          id != secSub,
           "secondary-identity submission " & string(secSub) &
             " must NOT surface under identityIds=[primary] filter"
 
@@ -191,22 +206,24 @@ block temailSubmissionFilterSortLive:
     let comparator = parseEmailSubmissionComparator(
         rawProperty = "sentAt", isAscending = true
       )
-      .expect("parseEmailSubmissionComparator sentAt")
+      .expect("parseEmailSubmissionComparator sentAt[" & $target.kind & "]")
     let (bB, hB) = addEmailSubmissionQuery(
       initRequestBuilder(), submissionAccountId, sort = Opt.some(@[comparator])
     )
-    let respB = client.send(bB).expect("send EmailSubmission/query sort sentAt asc")
-    captureIfRequested(client, "email-submission-query-filter-sort-stalwart").expect(
-      "captureIfRequested filter+sort"
-    )
-    let qrB = respB.get(hB).expect("sort sentAt extract")
+    let respB = client.send(bB).expect(
+        "send EmailSubmission/query sort sentAt asc[" & $target.kind & "]"
+      )
+    captureIfRequested(client, "email-submission-query-filter-sort-" & $target.kind)
+      .expect("captureIfRequested filter+sort")
+    let qrB = respB.get(hB).expect("sort sentAt extract[" & $target.kind & "]")
     for sId in submissionIds:
       var found = false
       for id in qrB.ids:
         if id == sId:
           found = true
           break
-      doAssert found,
+      assertOn target,
+        found,
         "every seeded submission must surface under sentAt-asc sort (missing " &
           string(sId) & ")"
 
@@ -217,14 +234,17 @@ block temailSubmissionFilterSortLive:
       sinceQueryState = baselineQueryState,
       calculateTotal = true,
     )
-    let respC = client.send(bC).expect("send EmailSubmission/queryChanges")
+    let respC =
+      client.send(bC).expect("send EmailSubmission/queryChanges[" & $target.kind & "]")
     captureIfRequested(client, "email-submission-query-changes-with-filter-stalwart")
-      .expect("captureIfRequested queryChanges")
-    let qcr = respC.get(hC).expect("queryChanges extract")
-    doAssert string(qcr.oldQueryState) == string(baselineQueryState),
+      .expect("captureIfRequested queryChanges[" & $target.kind & "]")
+    let qcr = respC.get(hC).expect("queryChanges extract[" & $target.kind & "]")
+    assertOn target,
+      string(qcr.oldQueryState) == string(baselineQueryState),
       "oldQueryState must echo the supplied baseline"
-    doAssert qcr.total.isSome, "calculateTotal=true must surface total"
-    doAssert int64(qcr.total.unsafeGet) >= 2,
+    assertOn target, qcr.total.isSome, "calculateTotal=true must surface total"
+    assertOn target,
+      int64(qcr.total.unsafeGet) >= 2,
       "total must reflect at least the two new submissions (got " & $qcr.total.unsafeGet &
         ")"
 

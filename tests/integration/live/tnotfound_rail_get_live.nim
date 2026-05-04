@@ -29,20 +29,22 @@ import ./mconfig
 import ./mlive
 
 block tnotfoundRailGetLive:
-  let cfgRes = loadLiveTestConfig()
-  if cfgRes.isOk:
-    let cfg = cfgRes.get()
+  forEachLiveTarget(target):
     var client = initJmapClient(
-        sessionUrl = cfg.sessionUrl,
-        bearerToken = cfg.aliceToken,
-        authScheme = cfg.authScheme,
+        sessionUrl = target.sessionUrl,
+        bearerToken = target.aliceToken,
+        authScheme = target.authScheme,
       )
-      .expect("initJmapClient")
-    let session = client.fetchSession().expect("fetchSession")
-    let mailAccountId = resolveMailAccountId(session).expect("resolveMailAccountId")
-    let submissionAccountId =
-      resolveSubmissionAccountId(session).expect("resolveSubmissionAccountId")
-    let inbox = resolveInboxId(client, mailAccountId).expect("resolveInboxId")
+      .expect("initJmapClient[" & $target.kind & "]")
+    let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
+    let mailAccountId =
+      resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
+    let submissionAccountId = resolveSubmissionAccountId(session).expect(
+        "resolveSubmissionAccountId[" & $target.kind & "]"
+      )
+    let inbox = resolveInboxId(client, mailAccountId).expect(
+        "resolveInboxId[" & $target.kind & "]"
+      )
 
     # Sub-test 1: Email/get with mixed existing + synthetic ids.
     # Capture the multi-entity wire shape after this sub-test only —
@@ -52,22 +54,25 @@ block tnotfoundRailGetLive:
       let realEmailId = seedSimpleEmail(
           client, mailAccountId, inbox, "phase-j 66 notFound", "phase-j-66-seed"
         )
-        .expect("seedSimpleEmail")
+        .expect("seedSimpleEmail[" & $target.kind & "]")
       let syntheticId = Id("zzzzzz")
       let (b, getHandle) = addEmailGet(
         initRequestBuilder(),
         mailAccountId,
         ids = directIds(@[realEmailId, syntheticId]),
       )
-      let resp = client.send(b).expect("send Email/get mixed ids")
-      captureIfRequested(client, "notfound-rail-get-stalwart").expect(
+      let resp = client.send(b).expect("send Email/get mixed ids[" & $target.kind & "]")
+      captureIfRequested(client, "notfound-rail-get-" & $target.kind).expect(
         "captureIfRequested notFound rail"
       )
-      let getResp = resp.get(getHandle).expect("Email/get extract")
-      doAssert getResp.list.len == 1,
+      let getResp =
+        resp.get(getHandle).expect("Email/get extract[" & $target.kind & "]")
+      assertOn target,
+        getResp.list.len == 1,
         "Email/get must return exactly one record (the real id), got " &
           $getResp.list.len
-      doAssert getResp.notFound.len >= 1,
+      assertOn target,
+        getResp.notFound.len >= 1,
         "Email/get must report the synthetic id in notFound, got " &
           $getResp.notFound.len
       var foundSynthetic = false
@@ -75,19 +80,22 @@ block tnotfoundRailGetLive:
         if id == syntheticId:
           foundSynthetic = true
           break
-      doAssert foundSynthetic,
-        "synthetic id must appear in notFound; got " & $getResp.notFound
+      assertOn target,
+        foundSynthetic, "synthetic id must appear in notFound; got " & $getResp.notFound
 
       # Cleanup: destroy the seed email so re-runs are idempotent.
       let (bClean, cleanHandle) = addEmailSet(
         initRequestBuilder(), mailAccountId, destroy = directIds(@[realEmailId])
       )
-      let respClean = client.send(bClean).expect("send Email/set cleanup")
-      let cleanResp = respClean.get(cleanHandle).expect("Email/set cleanup extract")
+      let respClean =
+        client.send(bClean).expect("send Email/set cleanup[" & $target.kind & "]")
+      let cleanResp = respClean.get(cleanHandle).expect(
+          "Email/set cleanup extract[" & $target.kind & "]"
+        )
       cleanResp.destroyResults.withValue(realEmailId, outcome):
-        doAssert outcome.isOk, "cleanup destroy must succeed"
+        assertOn target, outcome.isOk, "cleanup destroy must succeed"
       do:
-        doAssert false, "cleanup must report an outcome"
+        assertOn target, false, "cleanup must report an outcome"
 
     # Sub-test 2: Mailbox/get with synthetic id.
     block mailboxGetCase:
@@ -95,14 +103,19 @@ block tnotfoundRailGetLive:
       let (b, getHandle) = addGet[Mailbox](
         initRequestBuilder(), mailAccountId, ids = directIds(@[syntheticId])
       )
-      let resp = client.send(b).expect("send Mailbox/get synthetic")
-      let getResp = resp.get(getHandle).expect("Mailbox/get extract")
-      doAssert getResp.list.len == 0,
+      let resp =
+        client.send(b).expect("send Mailbox/get synthetic[" & $target.kind & "]")
+      let getResp =
+        resp.get(getHandle).expect("Mailbox/get extract[" & $target.kind & "]")
+      assertOn target,
+        getResp.list.len == 0,
         "Mailbox/get must return no records for a synthetic id, got " & $getResp.list.len
-      doAssert getResp.notFound.len == 1,
+      assertOn target,
+        getResp.notFound.len == 1,
         "Mailbox/get must report the synthetic id in notFound, got " &
           $getResp.notFound.len
-      doAssert getResp.notFound[0] == syntheticId,
+      assertOn target,
+        getResp.notFound[0] == syntheticId,
         "synthetic id must appear in notFound; got " & $getResp.notFound
 
     # Sub-test 3: Identity/get on submission account with synthetic id.
@@ -111,15 +124,20 @@ block tnotfoundRailGetLive:
       let (b, getHandle) = addIdentityGet(
         initRequestBuilder(), submissionAccountId, ids = directIds(@[syntheticId])
       )
-      let resp = client.send(b).expect("send Identity/get synthetic")
-      let getResp = resp.get(getHandle).expect("Identity/get extract")
-      doAssert getResp.list.len == 0,
+      let resp =
+        client.send(b).expect("send Identity/get synthetic[" & $target.kind & "]")
+      let getResp =
+        resp.get(getHandle).expect("Identity/get extract[" & $target.kind & "]")
+      assertOn target,
+        getResp.list.len == 0,
         "Identity/get must return no records for a synthetic id, got " &
           $getResp.list.len
-      doAssert getResp.notFound.len == 1,
+      assertOn target,
+        getResp.notFound.len == 1,
         "Identity/get must report the synthetic id in notFound, got " &
           $getResp.notFound.len
-      doAssert getResp.notFound[0] == syntheticId,
+      assertOn target,
+        getResp.notFound[0] == syntheticId,
         "synthetic id must appear in notFound; got " & $getResp.notFound
 
     # Sub-test 4: Thread/get with synthetic threadId.
@@ -128,14 +146,19 @@ block tnotfoundRailGetLive:
       let (b, getHandle) = addGet[jthread.Thread](
         initRequestBuilder(), mailAccountId, ids = directIds(@[syntheticId])
       )
-      let resp = client.send(b).expect("send Thread/get synthetic")
-      let getResp = resp.get(getHandle).expect("Thread/get extract")
-      doAssert getResp.list.len == 0,
+      let resp =
+        client.send(b).expect("send Thread/get synthetic[" & $target.kind & "]")
+      let getResp =
+        resp.get(getHandle).expect("Thread/get extract[" & $target.kind & "]")
+      assertOn target,
+        getResp.list.len == 0,
         "Thread/get must return no records for a synthetic id, got " & $getResp.list.len
-      doAssert getResp.notFound.len == 1,
+      assertOn target,
+        getResp.notFound.len == 1,
         "Thread/get must report the synthetic id in notFound, got " &
           $getResp.notFound.len
-      doAssert getResp.notFound[0] == syntheticId,
+      assertOn target,
+        getResp.notFound[0] == syntheticId,
         "synthetic id must appear in notFound; got " & $getResp.notFound
 
     client.close()

@@ -47,8 +47,9 @@ block vacationGetCapability:
   let b0 = initRequestBuilder()
   let (b1, _) = b0.addVacationResponseGet(makeAccountId("a1"))
   let req = b1.build()
-  assertLen req.`using`, 1
-  assertEq req.`using`[0], "urn:ietf:params:jmap:vacationresponse"
+  assertLen req.`using`, 2
+  doAssert "urn:ietf:params:jmap:core" in req.`using`
+  doAssert "urn:ietf:params:jmap:vacationresponse" in req.`using`
 
 block vacationGetAccountId:
   ## accountId is present in arguments.
@@ -104,8 +105,9 @@ block vacationSetCapability:
   let b0 = initRequestBuilder()
   let (b1, _) = b0.addVacationResponseSet(makeAccountId("a1"), minimalVacUpdate)
   let req = b1.build()
-  assertLen req.`using`, 1
-  assertEq req.`using`[0], "urn:ietf:params:jmap:vacationresponse"
+  assertLen req.`using`, 2
+  doAssert "urn:ietf:params:jmap:core" in req.`using`
+  doAssert "urn:ietf:params:jmap:vacationresponse" in req.`using`
 
 block vacationSetSingletonInUpdate:
   ## Scenario 74: update map has key "singleton" with typed-algebra JSON.
@@ -164,15 +166,21 @@ block vacationGetAndSetInOneRequest:
   assertLen req.methodCalls, 2
   assertEq req.methodCalls[0].name, mnVacationResponseGet
   assertEq req.methodCalls[1].name, mnVacationResponseSet
-  assertLen req.`using`, 1
+  # Two ``addVacationResponse*`` calls dedup to one entity URI plus the
+  # pre-declared ``urn:ietf:params:jmap:core``.
+  assertLen req.`using`, 2
+  doAssert "urn:ietf:params:jmap:core" in req.`using`
+  doAssert "urn:ietf:params:jmap:vacationresponse" in req.`using`
 
 block vacationAndThreadMixedCapabilities:
-  ## VacationResponse + Thread produces both capability URIs.
+  ## VacationResponse + Thread produces both entity URIs alongside the
+  ## pre-declared core URI.
   let b0 = initRequestBuilder()
   let (b1, _) = b0.addVacationResponseGet(makeAccountId("a1"))
   let (b2, _) = addGet[thread.Thread](b1, makeAccountId("a1"))
   let caps = b2.capabilities
-  assertLen caps, 2
+  assertLen caps, 3
+  doAssert "urn:ietf:params:jmap:core" in caps
   doAssert "urn:ietf:params:jmap:vacationresponse" in caps
   doAssert "urn:ietf:params:jmap:mail" in caps
 
@@ -187,8 +195,9 @@ block addEmailParseInvocationName:
   let req = b1.build()
   assertLen req.methodCalls, 1
   assertEq req.methodCalls[0].name, mnEmailParse
-  assertLen req.`using`, 1
-  assertEq req.`using`[0], "urn:ietf:params:jmap:mail"
+  assertLen req.`using`, 2
+  doAssert "urn:ietf:params:jmap:core" in req.`using`
+  doAssert "urn:ietf:params:jmap:mail" in req.`using`
 
 block addEmailParseWithBodyFetchOptions:
   ## Scenario 85: bvsText emits fetchTextBodyValues = true.
@@ -209,8 +218,9 @@ block addSearchSnippetGetInvocationName:
   let req = b1.build()
   assertLen req.methodCalls, 1
   assertEq req.methodCalls[0].name, mnSearchSnippetGet
-  assertLen req.`using`, 1
-  assertEq req.`using`[0], "urn:ietf:params:jmap:mail"
+  assertLen req.`using`, 2
+  doAssert "urn:ietf:params:jmap:core" in req.`using`
+  doAssert "urn:ietf:params:jmap:mail" in req.`using`
 
 block addSearchSnippetGetSingleId:
   ## Scenario 87: emailIds contains exactly the head ID when no tail.
@@ -270,8 +280,9 @@ block addEmailImportInvocationName:
   let req = b1.build()
   assertLen req.methodCalls, 1
   assertEq req.methodCalls[0].name, mnEmailImport
-  assertLen req.`using`, 1
-  assertEq req.`using`[0], "urn:ietf:params:jmap:mail"
+  assertLen req.`using`, 2
+  doAssert "urn:ietf:params:jmap:core" in req.`using`
+  doAssert "urn:ietf:params:jmap:mail" in req.`using`
   assertNotCompiles:
     let badHandle: ResponseHandle[EmailSetResponse] = handle
 

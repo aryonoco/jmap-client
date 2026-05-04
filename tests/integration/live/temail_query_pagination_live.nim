@@ -48,20 +48,21 @@ import ./mconfig
 import ./mlive
 
 block temailQueryPaginationLive:
-  let cfgRes = loadLiveTestConfig()
-  if cfgRes.isOk:
-    let cfg = cfgRes.get()
+  forEachLiveTarget(target):
     var client = initJmapClient(
-        sessionUrl = cfg.sessionUrl,
-        bearerToken = cfg.aliceToken,
-        authScheme = cfg.authScheme,
+        sessionUrl = target.sessionUrl,
+        bearerToken = target.aliceToken,
+        authScheme = target.authScheme,
       )
-      .expect("initJmapClient")
-    let session = client.fetchSession().expect("fetchSession")
-    let mailAccountId = resolveMailAccountId(session).expect("resolveMailAccountId")
+      .expect("initJmapClient[" & $target.kind & "]")
+    let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
+    let mailAccountId =
+      resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
 
     # --- Resolve inbox + seed five emails ---------------------------------
-    let inbox = resolveInboxId(client, mailAccountId).expect("resolveInboxId")
+    let inbox = resolveInboxId(client, mailAccountId).expect(
+        "resolveInboxId[" & $target.kind & "]"
+      )
     discard seedEmailsWithSubjects(
         client,
         mailAccountId,
@@ -72,7 +73,7 @@ block temailQueryPaginationLive:
           "phase-e step-29 fritter29 e",
         ],
       )
-      .expect("seedEmailsWithSubjects fritter29")
+      .expect("seedEmailsWithSubjects fritter29[" & $target.kind & "]")
 
     let filter = filterCondition(EmailFilterCondition(subject: Opt.some("fritter29")))
 
@@ -86,19 +87,37 @@ block temailQueryPaginationLive:
       filter = Opt.some(filter),
       queryParams = qpPos,
     )
-    let resp1 = client.send(b1).expect("send Email/query position+limit")
-    captureIfRequested(client, "email-query-pagination-position-stalwart").expect(
+    let resp1 =
+      client.send(b1).expect("send Email/query position+limit[" & $target.kind & "]")
+    captureIfRequested(client, "email-query-pagination-position-" & $target.kind).expect(
       "captureIfRequested position"
     )
-    let qr1 = resp1.get(h1).expect("Email/query position+limit extract")
-    doAssert qr1.ids.len == 2,
+    let qr1 =
+      resp1.get(h1).expect("Email/query position+limit extract[" & $target.kind & "]")
+    assertOn target,
+      qr1.ids.len == 2,
       "position=2,limit=2 must return exactly two ids (got " & $qr1.ids.len & ")"
-    doAssert qr1.position == UnsignedInt(2),
+    assertOn target,
+      qr1.position == UnsignedInt(2),
       "position must echo the requested 2 (got " & $qr1.position & ")"
-    doAssert qr1.total.isSome,
-      "calculateTotal=true must surface total (got " & $qr1.total & ")"
-    doAssert qr1.total.unsafeGet >= UnsignedInt(5),
-      "total must be at least the seeded 5 (got " & $qr1.total.unsafeGet & ")"
+    case target.kind
+    of ltkStalwart:
+      assertOn target,
+        qr1.total.isSome,
+        "calculateTotal=true must surface total (got " & $qr1.total & ")"
+      assertOn target,
+        qr1.total.unsafeGet >= UnsignedInt(5),
+        "total must be at least the seeded 5 (got " & $qr1.total.unsafeGet & ")"
+    of ltkJames:
+      # James 3.9 documents calculateTotal as unsupported on Email/query
+      # (doc/specs/spec/mail/message.mdown): the field is parsed but the
+      # response carries no ``total``. RFC 8620 §5.5 leaves this to the
+      # server's discretion (`canCalculateTotal` capability), so we
+      # assert only that the field is absent — not present-but-null.
+      assertOn target,
+        qr1.total.isNone,
+        "James does not surface total even with calculateTotal=true (got " & $qr1.total &
+          ")"
 
     # --- Leg 2: anchor baseline (no window) --------------------------------
     let (b2, h2) = addEmailQuery(
@@ -107,14 +126,27 @@ block temailQueryPaginationLive:
       filter = Opt.some(filter),
       queryParams = QueryParams(),
     )
-    let resp2 = client.send(b2).expect("send Email/query anchor baseline")
-    let qr2 = resp2.get(h2).expect("Email/query anchor baseline extract")
+    let resp2 =
+      client.send(b2).expect("send Email/query anchor baseline[" & $target.kind & "]")
+    let qr2 =
+      resp2.get(h2).expect("Email/query anchor baseline extract[" & $target.kind & "]")
     let baselineIds = qr2.ids
-    doAssert baselineIds.len >= 5,
+    assertOn target,
+      baselineIds.len >= 5,
       "anchor baseline must return at least the seeded 5 ids (got " & $baselineIds.len &
         ")"
 
     # --- Leg 3: anchor + anchorOffset (tolerant) ---------------------------
+    # James 3.9 rejects ``anchor`` (and therefore ``anchorOffset``) on
+    # Email/query as ``invalidArguments`` per its strict allow-list of
+    # query parameters: ``EmailQueryMethod.scala`` accepts ``position``
+    # / ``limit`` / ``calculateTotal`` only. Legs 3 and 4 exercise the
+    # anchor leg of RFC 8620 §5.5 and run on Stalwart only; replay
+    # coverage for the wire shape is preserved via the captured
+    # ``-stalwart`` fixture.
+    if target.kind == ltkJames:
+      client.close()
+      continue
     let qpAnchor = QueryParams(
       anchor: Opt.some(baselineIds[2]),
       anchorOffset: JmapInt(-1),
@@ -126,24 +158,30 @@ block temailQueryPaginationLive:
       filter = Opt.some(filter),
       queryParams = qpAnchor,
     )
-    let resp3 = client.send(b3).expect("send Email/query anchor+offset")
-    captureIfRequested(client, "email-query-pagination-anchor-offset-stalwart").expect(
-      "captureIfRequested anchor-offset"
-    )
-    let qr3 = resp3.get(h3).expect("Email/query anchor+offset extract")
-    doAssert qr3.ids.len >= 1,
+    let resp3 =
+      client.send(b3).expect("send Email/query anchor+offset[" & $target.kind & "]")
+    captureIfRequested(client, "email-query-pagination-anchor-offset-" & $target.kind)
+      .expect("captureIfRequested anchor-offset")
+    let qr3 =
+      resp3.get(h3).expect("Email/query anchor+offset extract[" & $target.kind & "]")
+    assertOn target,
+      qr3.ids.len >= 1,
       "anchor+offset query must return at least one id (got " & $qr3.ids.len & ")"
     let baselineSet = baselineIds.toHashSet
     for id in qr3.ids:
-      doAssert id in baselineSet,
+      assertOn target,
+        id in baselineSet,
         "every anchor+offset id must appear in baselineIds (id=" & string(id) & ")"
     let qr3Set = qr3.ids.toHashSet
-    doAssert (baselineIds[1] in qr3Set) or (baselineIds[2] in qr3Set),
+    assertOn target,
+      (baselineIds[1] in qr3Set) or (baselineIds[2] in qr3Set),
       "anchor+offset response must contain the anchor (baselineIds[2]) or the item " &
         "immediately before it (baselineIds[1])"
 
     # --- Leg 4: metAnchorNotFound ------------------------------------------
-    let synthetic = parseId("zzzzzzzzzzzzzzzzzzzzzzzzzzzz").expect("parseId synthetic")
+    let synthetic = parseId("zzzzzzzzzzzzzzzzzzzzzzzzzzzz").expect(
+        "parseId synthetic[" & $target.kind & "]"
+      )
     let qpBadAnchor =
       QueryParams(anchor: Opt.some(synthetic), limit: Opt.some(UnsignedInt(2)))
     let (b4, h4) = addEmailQuery(
@@ -152,16 +190,21 @@ block temailQueryPaginationLive:
       filter = Opt.some(filter),
       queryParams = qpBadAnchor,
     )
-    let resp4 = client.send(b4).expect("send Email/query bad-anchor")
-    captureIfRequested(client, "email-query-pagination-anchor-not-found-stalwart")
-      .expect("captureIfRequested anchor-not-found")
+    let resp4 =
+      client.send(b4).expect("send Email/query bad-anchor[" & $target.kind & "]")
+    captureIfRequested(
+      client, "email-query-pagination-anchor-not-found-" & $target.kind
+    )
+      .expect("captureIfRequested anchor-not-found[" & $target.kind & "]")
     let qr4Result = resp4.get(h4)
-    doAssert qr4Result.isErr,
+    assertOn target,
+      qr4Result.isErr,
       "Email/query with non-existent anchor must surface a method error per RFC 8620 §5.5"
     let methodErr = qr4Result.error
-    doAssert methodErr.errorType == metAnchorNotFound,
+    assertOn target,
+      methodErr.errorType == metAnchorNotFound,
       "errorType must project as metAnchorNotFound (got rawType=" & methodErr.rawType &
         ")"
-    doAssert methodErr.rawType == "anchorNotFound",
-      "rawType must round-trip the wire literal"
+    assertOn target,
+      methodErr.rawType == "anchorNotFound", "rawType must round-trip the wire literal"
     client.close()

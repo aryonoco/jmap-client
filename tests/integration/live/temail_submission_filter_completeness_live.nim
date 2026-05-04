@@ -26,28 +26,35 @@ import ./mconfig
 import ./mlive
 
 block temailSubmissionFilterCompletenessLive:
-  let cfgRes = loadLiveTestConfig()
-  if cfgRes.isOk:
-    let cfg = cfgRes.get()
+  forEachLiveTarget(target):
+    # James 3.9 compatibility: skipped on James.
+    # Reason: James 3.9 does not implement EmailSubmission/query — the ``EmailSubmissionFilterCondition`` surface is unobservable.
+    # When James adds support, remove this guard.
+    if target.kind == ltkJames:
+      continue
     var client = initJmapClient(
-        sessionUrl = cfg.sessionUrl,
-        bearerToken = cfg.aliceToken,
-        authScheme = cfg.authScheme,
+        sessionUrl = target.sessionUrl,
+        bearerToken = target.aliceToken,
+        authScheme = target.authScheme,
       )
-      .expect("initJmapClient")
-    let session = client.fetchSession().expect("fetchSession")
-    let mailAccountId = resolveMailAccountId(session).expect("resolveMailAccountId")
-    let submissionAccountId =
-      resolveSubmissionAccountId(session).expect("resolveSubmissionAccountId")
-    let drafts =
-      resolveOrCreateDrafts(client, mailAccountId).expect("resolveOrCreateDrafts")
+      .expect("initJmapClient[" & $target.kind & "]")
+    let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
+    let mailAccountId =
+      resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
+    let submissionAccountId = resolveSubmissionAccountId(session).expect(
+        "resolveSubmissionAccountId[" & $target.kind & "]"
+      )
+    let drafts = resolveOrCreateDrafts(client, mailAccountId).expect(
+        "resolveOrCreateDrafts[" & $target.kind & "]"
+      )
 
     let primaryId = resolveOrCreateAliceIdentity(client, submissionAccountId).expect(
         "resolveOrCreateAliceIdentity"
       )
     let aliceAddr = buildAliceAddr()
-    let bobAddr =
-      parseEmailAddress("bob@example.com", Opt.some("Bob")).expect("parseEmailAddress")
+    let bobAddr = parseEmailAddress("bob@example.com", Opt.some("Bob")).expect(
+        "parseEmailAddress[" & $target.kind & "]"
+      )
     let submissionIds = seedSubmissionCorpus(
         client,
         mailAccountId,
@@ -59,8 +66,8 @@ block temailSubmissionFilterCompletenessLive:
         subjects = @["phase-j 71 corpus a", "phase-j 71 corpus b"],
         creationLabelPrefix = "phase-j-71",
       )
-      .expect("seedSubmissionCorpus")
-    doAssert submissionIds.len == 2
+      .expect("seedSubmissionCorpus[" & $target.kind & "]")
+    assertOn target, submissionIds.len == 2
 
     # Look up one submission's threadId / emailId for the
     # threadIds / emailIds filter sub-tests.
@@ -68,52 +75,70 @@ block temailSubmissionFilterCompletenessLive:
     let (bSub, subHandle) = addEmailSubmissionGet(
       initRequestBuilder(), submissionAccountId, ids = directIds(@[firstSubId])
     )
-    let respSub = client.send(bSub).expect("send EmailSubmission/get firstSub")
-    let getSub = respSub.get(subHandle).expect("EmailSubmission/get extract")
-    doAssert getSub.list.len == 1
-    let anySub =
-      AnyEmailSubmission.fromJson(getSub.list[0]).expect("AnyEmailSubmission.fromJson")
+    let respSub = client.send(bSub).expect(
+        "send EmailSubmission/get firstSub[" & $target.kind & "]"
+      )
+    let getSub =
+      respSub.get(subHandle).expect("EmailSubmission/get extract[" & $target.kind & "]")
+    assertOn target, getSub.list.len == 1
+    let anySub = AnyEmailSubmission.fromJson(getSub.list[0]).expect(
+        "AnyEmailSubmission.fromJson[" & $target.kind & "]"
+      )
     let firstFinal = anySub.asFinal()
-    doAssert firstFinal.isSome,
+    assertOn target,
+      firstFinal.isSome,
       "corpus submission must have settled to usFinal before filter tests"
     let firstEmailId = firstFinal.unsafeGet.emailId
     # threadId is on Email, not EmailSubmission directly; fetch it.
     let (bEmail, emailHandle) =
       addEmailGet(initRequestBuilder(), mailAccountId, ids = directIds(@[firstEmailId]))
-    let respEmail = client.send(bEmail).expect("send Email/get for threadId")
-    let getEmail = respEmail.get(emailHandle).expect("Email/get extract")
-    doAssert getEmail.list.len == 1
-    let firstEmail = Email.fromJson(getEmail.list[0]).expect("Email.fromJson")
-    doAssert firstEmail.threadId.isSome
+    let respEmail =
+      client.send(bEmail).expect("send Email/get for threadId[" & $target.kind & "]")
+    let getEmail =
+      respEmail.get(emailHandle).expect("Email/get extract[" & $target.kind & "]")
+    assertOn target, getEmail.list.len == 1
+    let firstEmail =
+      Email.fromJson(getEmail.list[0]).expect("Email.fromJson[" & $target.kind & "]")
+    assertOn target, firstEmail.threadId.isSome
     let firstThreadId = firstEmail.threadId.unsafeGet
 
     # Sub-test 1: threadIds filter.
     block threadIdsCase:
       let threadFilter = filterCondition(
         EmailSubmissionFilterCondition(
-          threadIds:
-            Opt.some(parseNonEmptyIdSeq(@[firstThreadId]).expect("parseNonEmptyIdSeq"))
+          threadIds: Opt.some(
+            parseNonEmptyIdSeq(@[firstThreadId]).expect(
+              "parseNonEmptyIdSeq[" & $target.kind & "]"
+            )
+          )
         )
       )
       let (b, qHandle) = addEmailSubmissionQuery(
         initRequestBuilder(), submissionAccountId, filter = Opt.some(threadFilter)
       )
-      let resp = client.send(b).expect("send EmailSubmission/query threadIds")
-      discard resp.get(qHandle).expect("threadIds extract")
+      let resp = client.send(b).expect(
+          "send EmailSubmission/query threadIds[" & $target.kind & "]"
+        )
+      discard resp.get(qHandle).expect("threadIds extract[" & $target.kind & "]")
 
     # Sub-test 2: emailIds filter.
     block emailIdsCase:
       let emailFilter = filterCondition(
         EmailSubmissionFilterCondition(
-          emailIds:
-            Opt.some(parseNonEmptyIdSeq(@[firstEmailId]).expect("parseNonEmptyIdSeq"))
+          emailIds: Opt.some(
+            parseNonEmptyIdSeq(@[firstEmailId]).expect(
+              "parseNonEmptyIdSeq[" & $target.kind & "]"
+            )
+          )
         )
       )
       let (b, qHandle) = addEmailSubmissionQuery(
         initRequestBuilder(), submissionAccountId, filter = Opt.some(emailFilter)
       )
-      let resp = client.send(b).expect("send EmailSubmission/query emailIds")
-      discard resp.get(qHandle).expect("emailIds extract")
+      let resp = client.send(b).expect(
+          "send EmailSubmission/query emailIds[" & $target.kind & "]"
+        )
+      discard resp.get(qHandle).expect("emailIds extract[" & $target.kind & "]")
 
     # Sub-test 3: undoStatus filter — usFinal.
     block undoStatusCase:
@@ -122,14 +147,20 @@ block temailSubmissionFilterCompletenessLive:
       let (b, qHandle) = addEmailSubmissionQuery(
         initRequestBuilder(), submissionAccountId, filter = Opt.some(undoFilter)
       )
-      let resp = client.send(b).expect("send EmailSubmission/query undoStatus")
-      discard resp.get(qHandle).expect("undoStatus extract")
+      let resp = client.send(b).expect(
+          "send EmailSubmission/query undoStatus[" & $target.kind & "]"
+        )
+      discard resp.get(qHandle).expect("undoStatus extract[" & $target.kind & "]")
 
     # Sub-test 4: before / after filters — pair of UTC thresholds.
     block beforeAfterCase:
       # Before: 2099 (well after corpus); After: 1990 (well before).
-      let beforeUtc = parseUTCDate("2099-01-01T00:00:00Z").expect("parseUTCDate before")
-      let afterUtc = parseUTCDate("1990-01-01T00:00:00Z").expect("parseUTCDate after")
+      let beforeUtc = parseUTCDate("2099-01-01T00:00:00Z").expect(
+          "parseUTCDate before[" & $target.kind & "]"
+        )
+      let afterUtc = parseUTCDate("1990-01-01T00:00:00Z").expect(
+          "parseUTCDate after[" & $target.kind & "]"
+        )
       let dateFilter = filterCondition(
         EmailSubmissionFilterCondition(
           before: Opt.some(beforeUtc), after: Opt.some(afterUtc)
@@ -138,9 +169,12 @@ block temailSubmissionFilterCompletenessLive:
       let (b, qHandle) = addEmailSubmissionQuery(
         initRequestBuilder(), submissionAccountId, filter = Opt.some(dateFilter)
       )
-      let resp = client.send(b).expect("send EmailSubmission/query before/after")
-      let qResp = resp.get(qHandle).expect("before/after extract")
-      doAssert qResp.ids.len >= 2,
+      let resp = client.send(b).expect(
+          "send EmailSubmission/query before/after[" & $target.kind & "]"
+        )
+      let qResp = resp.get(qHandle).expect("before/after extract[" & $target.kind & "]")
+      assertOn target,
+        qResp.ids.len >= 2,
         "corpus submissions must surface within 1990–2099 window; got " &
           $qResp.ids.len
 
@@ -149,12 +183,14 @@ block temailSubmissionFilterCompletenessLive:
       let comp = parseEmailSubmissionComparator(
           rawProperty = "emailId", isAscending = true
         )
-        .expect("parseEmailSubmissionComparator emailId")
+        .expect("parseEmailSubmissionComparator emailId[" & $target.kind & "]")
       let (b, qHandle) = addEmailSubmissionQuery(
         initRequestBuilder(), submissionAccountId, sort = Opt.some(@[comp])
       )
-      let resp = client.send(b).expect("send EmailSubmission/query sort emailId")
-      discard resp.get(qHandle).expect("sort emailId extract")
+      let resp = client.send(b).expect(
+          "send EmailSubmission/query sort emailId[" & $target.kind & "]"
+        )
+      discard resp.get(qHandle).expect("sort emailId extract[" & $target.kind & "]")
 
     # Sub-test 6: sort by threadId ascending.  Capture the wire
     # shape after this — covers both the comparator on threadId
@@ -164,14 +200,15 @@ block temailSubmissionFilterCompletenessLive:
       let comp = parseEmailSubmissionComparator(
           rawProperty = "threadId", isAscending = true
         )
-        .expect("parseEmailSubmissionComparator threadId")
+        .expect("parseEmailSubmissionComparator threadId[" & $target.kind & "]")
       let (b, qHandle) = addEmailSubmissionQuery(
         initRequestBuilder(), submissionAccountId, sort = Opt.some(@[comp])
       )
-      let resp = client.send(b).expect("send EmailSubmission/query sort threadId")
-      captureIfRequested(client, "email-submission-filter-completeness-stalwart").expect(
-        "captureIfRequested filter completeness"
-      )
-      discard resp.get(qHandle).expect("sort threadId extract")
+      let resp = client.send(b).expect(
+          "send EmailSubmission/query sort threadId[" & $target.kind & "]"
+        )
+      captureIfRequested(client, "email-submission-filter-completeness-" & $target.kind)
+        .expect("captureIfRequested filter completeness")
+      discard resp.get(qHandle).expect("sort threadId extract[" & $target.kind & "]")
 
     client.close()

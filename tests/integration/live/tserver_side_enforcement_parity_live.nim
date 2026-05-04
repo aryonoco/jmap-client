@@ -33,18 +33,17 @@ import ./mconfig
 import ./mlive
 
 block tserverSideEnforcementParityLive:
-  let cfgRes = loadLiveTestConfig()
-  if cfgRes.isOk:
-    let cfg = cfgRes.get()
+  forEachLiveTarget(target):
     var client = initJmapClient(
-        sessionUrl = cfg.sessionUrl,
-        bearerToken = cfg.aliceToken,
-        authScheme = cfg.authScheme,
+        sessionUrl = target.sessionUrl,
+        bearerToken = target.aliceToken,
+        authScheme = target.authScheme,
       )
-      .expect("initJmapClient")
-    let session = client.fetchSession().expect("fetchSession")
+      .expect("initJmapClient[" & $target.kind & "]")
+    let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let caps = session.coreCapabilities()
-    let mailAccountId = resolveMailAccountId(session).expect("resolveMailAccountId")
+    let mailAccountId =
+      resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
 
     # Sub-test 1: oversized request body — Email/set create with a
     # ``subject`` field padded to ``maxSizeRequest + 1024`` bytes.
@@ -58,17 +57,18 @@ block tserverSideEnforcementParityLive:
       const suffix = """"}}},"c0"]]}"""
       let body = prefix & $mailAccountId & middle & pad & suffix
       let res = client.sendRawHttpForTesting(body)
-      captureIfRequested(client, "server-enforcement-max-size-request-stalwart").expect(
-        "captureIfRequested maxSizeRequest"
-      )
-      doAssert res.isErr, "Stalwart must reject oversize request body"
+      captureIfRequested(client, "server-enforcement-max-size-request-" & $target.kind)
+        .expect("captureIfRequested maxSizeRequest")
+      assertOn target, res.isErr, "Stalwart must reject oversize request body"
       let ce = res.error
-      doAssert ce.kind in {cekRequest, cekTransport},
+      assertOn target,
+        ce.kind in {cekRequest, cekTransport},
         "rejection must surface on a ClientError arm, got " & $ce.kind
       if ce.kind == cekRequest:
-        doAssert ce.request.rawType.len > 0,
-          "rawType must be losslessly preserved (non-empty)"
-        doAssert ce.request.rawType.startsWith("urn:ietf:params:jmap:error:"),
+        assertOn target,
+          ce.request.rawType.len > 0, "rawType must be losslessly preserved (non-empty)"
+        assertOn target,
+          ce.request.rawType.startsWith("urn:ietf:params:jmap:error:"),
           "rawType must be a JMAP error URI, got " & ce.request.rawType
 
     # Sub-test 2: Mailbox/get with N+1 ids — exceeds maxObjectsInGet.
@@ -83,31 +83,37 @@ block tserverSideEnforcementParityLive:
         methodName = "Mailbox/get",
         arguments = %*{"accountId": $mailAccountId, "ids": idsArr},
       )
-      captureIfRequested(client, "server-enforcement-max-objects-in-get-stalwart")
-        .expect("captureIfRequested maxObjectsInGet")
+      captureIfRequested(
+        client, "server-enforcement-max-objects-in-get-" & $target.kind
+      )
+        .expect("captureIfRequested maxObjectsInGet[" & $target.kind & "]")
       # Stalwart can either reject at the request layer (returns
       # Err(ClientError)) or accept the invocation and return a
       # method-level error (returns Ok(Response) carrying an "error"
       # invocation).  Library contract holds across both rails.
       if resp.isErr:
         let ce = resp.error
-        doAssert ce.kind in {cekRequest, cekTransport},
+        assertOn target,
+          ce.kind in {cekRequest, cekTransport},
           "request-layer rejection arm, got " & $ce.kind
         if ce.kind == cekRequest:
-          doAssert ce.request.rawType.len > 0, "rawType must be losslessly preserved"
+          assertOn target,
+            ce.request.rawType.len > 0, "rawType must be losslessly preserved"
       else:
         let env = resp.unsafeValue
-        doAssert env.methodResponses.len == 1
+        assertOn target, env.methodResponses.len == 1
         let inv = env.methodResponses[0]
         if inv.rawName == "error":
-          let me = MethodError.fromJson(inv.arguments).expect("MethodError.fromJson")
-          doAssert me.rawType.len > 0, "rawType must be losslessly preserved"
+          let me = MethodError.fromJson(inv.arguments).expect(
+              "MethodError.fromJson[" & $target.kind & "]"
+            )
+          assertOn target, me.rawType.len > 0, "rawType must be losslessly preserved"
         else:
           # Stalwart silently truncated or accepted the request.  Some
           # servers do this for over-limit ``ids`` arrays.  The wire
           # shape still parses through the typed surface — that is the
           # library contract.
-          doAssert inv.rawName == "Mailbox/get"
+          assertOn target, inv.rawName == "Mailbox/get"
 
     # Sub-test 3: methodCalls list with N+1 entries — exceeds
     # maxCallsInRequest.
@@ -120,18 +126,23 @@ block tserverSideEnforcementParityLive:
       const body2 = """}"""
       let body = body0 & $calls & body2
       let res = client.sendRawHttpForTesting(body)
-      captureIfRequested(client, "server-enforcement-max-calls-in-request-stalwart")
-        .expect("captureIfRequested maxCallsInRequest")
+      captureIfRequested(
+        client, "server-enforcement-max-calls-in-request-" & $target.kind
+      )
+        .expect("captureIfRequested maxCallsInRequest[" & $target.kind & "]")
       # Library contract: whatever rail Stalwart chooses, the wire
       # shape parses through the typed surface.
       if res.isErr:
         let ce = res.error
-        doAssert ce.kind in {cekRequest, cekTransport}, "rejection arm, got " & $ce.kind
+        assertOn target,
+          ce.kind in {cekRequest, cekTransport}, "rejection arm, got " & $ce.kind
         if ce.kind == cekRequest:
-          doAssert ce.request.rawType.len > 0, "rawType must be losslessly preserved"
+          assertOn target,
+            ce.request.rawType.len > 0, "rawType must be losslessly preserved"
       else:
         let env = res.unsafeValue
-        doAssert env.methodResponses.len >= 1,
+        assertOn target,
+          env.methodResponses.len >= 1,
           "Stalwart accepted over-limit methodCalls; library still parsed it"
 
     client.close()

@@ -180,27 +180,33 @@ proc assertQueryChangesWithFilter(
     "calculateTotal=true must surface a total in queryChanges response"
 
 block tmailboxQueryFilterSortLive:
-  let cfgRes = loadLiveTestConfig()
-  if cfgRes.isOk:
-    let cfg = cfgRes.get()
+  forEachLiveTarget(target):
+    # James 3.9 compatibility: skipped on James.
+    # Reason: James 3.9 imposes heavy restrictions on Mailbox/query: only ``role`` filter, no FilterOperator, no sort, no position/anchor/anchorOffset/limit, no calculateTotal, no sortAsTree/filterAsTree (matrix item 2c, item 11).
+    # When James adds support, remove this guard.
+    if target.kind == ltkJames:
+      continue
     var client = initJmapClient(
-        sessionUrl = cfg.sessionUrl,
-        bearerToken = cfg.aliceToken,
-        authScheme = cfg.authScheme,
+        sessionUrl = target.sessionUrl,
+        bearerToken = target.aliceToken,
+        authScheme = target.authScheme,
       )
-      .expect("initJmapClient")
-    let session = client.fetchSession().expect("fetchSession")
-    let mailAccountId = resolveMailAccountId(session).expect("resolveMailAccountId")
+      .expect("initJmapClient[" & $target.kind & "]")
+    let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
+    let mailAccountId =
+      resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
 
-    let inboxId = resolveInboxId(client, mailAccountId).expect("resolveInboxId")
+    let inboxId = resolveInboxId(client, mailAccountId).expect(
+        "resolveInboxId[" & $target.kind & "]"
+      )
     assertRoleFilter(client, mailAccountId, inboxId)
 
     let alphaId = resolveOrCreateMailbox(client, mailAccountId, "phase-i 49 alpha")
-      .expect("resolveOrCreateMailbox alpha")
+      .expect("resolveOrCreateMailbox alpha[" & $target.kind & "]")
     let bravoId = resolveOrCreateMailbox(client, mailAccountId, "phase-i 49 bravo")
-      .expect("resolveOrCreateMailbox bravo")
+      .expect("resolveOrCreateMailbox bravo[" & $target.kind & "]")
     let charlieId = resolveOrCreateMailbox(client, mailAccountId, "phase-i 49 charlie")
-      .expect("resolveOrCreateMailbox charlie")
+      .expect("resolveOrCreateMailbox charlie[" & $target.kind & "]")
     setSortOrders(client, mailAccountId, alphaId, bravoId, charlieId)
 
     let nameFilter =

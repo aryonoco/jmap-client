@@ -38,5 +38,33 @@ services:
     volumes:
       - jmc-stalwart-data:/opt/stalwart
 
+  james:
+    build:
+      context: ./james-conf
+      dockerfile: Dockerfile
+    image: jmap-client/james:test
+    # apache/james ships only linux/amd64 — pin the platform so arm64 hosts
+    # (e.g. Apple Silicon under Orbstack) transparently emulate via QEMU
+    # and amd64 hosts run natively.
+    platform: linux/amd64
+    container_name: james
+    hostname: james
+    profiles:
+      - james
+    networks:
+      - jmap-net
+    environment:
+      - JAVA_TOOL_OPTIONS=-Xmx512m
+    ports:
+      - "8001:80"
+      - "8002:8000"
+      - "2525:25"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/healthcheck"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 30s
+
 volumes:
   jmc-stalwart-data:

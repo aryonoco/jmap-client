@@ -2,8 +2,8 @@
 # Copyright (c) 2026 Aryan Ameri
 
 ## Meta-test: parser-side round-trip integrity over every committed
-## Stalwart fixture.  For each fixture, picks the right parser
-## (``Session.fromJson``, ``RequestError.fromJson``, or
+## fixture (Stalwart and James).  For each fixture, picks the right
+## parser (``Session.fromJson``, ``RequestError.fromJson``, or
 ## ``envelope.Response.fromJson``) and asserts the typed shape
 ## re-emits via ``toJson()`` without raising.
 ##
@@ -13,7 +13,8 @@
 ## structural invariant is what matters.  The contract verified
 ## here is: the parser projects every committed wire shape into
 ## the typed surface AND the typed surface re-emits without
-## raising.  Phase J Step 73 capstone.
+## raising.  Phase J Step 73 capstone, extended in Phase K to cover
+## both Stalwart 0.15.5 and Apache James 3.9 captures.
 
 {.push raises: [].}
 
@@ -136,3 +137,59 @@ block tcapturedRoundTripIntegrity:
   roundtripResponse("thread-keyword-filter-stalwart")
   roundtripResponse("vacation-get-singleton-stalwart")
   roundtripResponse("vacation-set-all-arms-stalwart")
+
+  # ---- James 3.9 captures --------------------------------------------------
+
+  # Session-shape fixtures.
+  roundtripSession("session-james")
+  roundtripSession("bob-session-james")
+
+  # RFC 7807 problem-details fixtures (request-layer rejections).
+  roundtripRequestError("request-error-limit-james")
+  roundtripRequestError("request-error-not-json-james")
+  roundtripRequestError("request-error-not-request-james")
+  roundtripRequestError("request-error-unknown-capability-james")
+  roundtripRequestError("server-enforcement-max-calls-in-request-james")
+  roundtripRequestError("server-enforcement-max-objects-in-get-james")
+  roundtripRequestError("server-enforcement-max-size-request-james")
+
+  # Response envelope fixtures.
+  roundtripResponse("bob-inbox-after-alice-delivery-james")
+  roundtripResponse("combined-adversarial-round-trip-james")
+  roundtripResponse("core-echo-james")
+  roundtripResponse("created-ids-envelope-james")
+  roundtripResponse("email-changes-bogus-state-james")
+  roundtripResponse("email-changes-max-changes-james")
+  roundtripResponse("email-get-cross-account-rejected-james")
+  roundtripResponse("email-get-header-forms-extended-james")
+  roundtripResponse("email-get-max-body-value-bytes-truncated-james")
+  roundtripResponse("email-header-forms-james")
+  roundtripResponse("email-multipart-alternative-james")
+  roundtripResponse("email-query-advanced-sort-james")
+  roundtripResponse("email-query-collapse-threads-james")
+  roundtripResponse("email-query-pagination-position-james")
+  roundtripResponse("email-query-with-snippets-james")
+  roundtripResponse("email-set-state-mismatch-james")
+  roundtripResponse("email-submission-on-success-destroy-james")
+  roundtripResponse("email-submission-on-success-update-james")
+  roundtripResponse("email-submission-set-baseline-james")
+  roundtripResponse("identity-set-update-james")
+  roundtripResponse("mailbox-changes-bogus-state-james")
+  roundtripResponse("mailbox-get-all-james")
+  roundtripResponse("mailbox-set-destroy-with-emails-james")
+  roundtripResponse("mailbox-set-has-child-james")
+  roundtripResponse("method-error-invalid-result-reference-james")
+  roundtripResponse("method-error-unknown-method-james")
+  roundtripResponse("method-error-unsupported-filter-james")
+  roundtripResponse("method-error-unsupported-sort-james")
+  roundtripResponse("multi-instance-envelope-james")
+  roundtripResponse("notfound-rail-get-james")
+  roundtripResponse("patch-object-deep-paths-james")
+  roundtripResponse("result-reference-deep-path-james")
+  roundtripResponse("set-error-blob-not-found-james")
+  roundtripResponse("set-error-invalid-patch-james")
+  roundtripResponse("set-error-invalid-properties-james")
+  roundtripResponse("set-error-not-found-james")
+  roundtripResponse("thread-get-james")
+  roundtripResponse("vacation-get-singleton-james")
+  roundtripResponse("vacation-set-all-arms-james")

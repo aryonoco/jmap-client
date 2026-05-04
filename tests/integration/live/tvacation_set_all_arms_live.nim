@@ -39,28 +39,33 @@ import jmap_client
 import jmap_client/client
 import ./mcapture
 import ./mconfig
+import ./mlive
 
 block tvacationSetAllArmsLive:
-  let cfgRes = loadLiveTestConfig()
-  if cfgRes.isOk:
-    let cfg = cfgRes.get()
+  forEachLiveTarget(target):
     var client = initJmapClient(
-        sessionUrl = cfg.sessionUrl,
-        bearerToken = cfg.aliceToken,
-        authScheme = cfg.authScheme,
+        sessionUrl = target.sessionUrl,
+        bearerToken = target.aliceToken,
+        authScheme = target.authScheme,
       )
-      .expect("initJmapClient")
-    let session = client.fetchSession().expect("fetchSession")
+      .expect("initJmapClient[" & $target.kind & "]")
+    let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     var vacAccountId: AccountId
     session.primaryAccounts.withValue("urn:ietf:params:jmap:vacationresponse", v):
       vacAccountId = v
     do:
-      doAssert false, "session must advertise a primary vacationresponse account"
+      assertOn target,
+        false, "session must advertise a primary vacationresponse account"
 
-    let singletonId = parseIdFromServer("singleton").expect("parseId singleton")
+    let singletonId =
+      parseIdFromServer("singleton").expect("parseId singleton[" & $target.kind & "]")
 
-    let fromDate = parseUtcDate("2026-06-01T00:00:00Z").expect("parseUtcDate fromDate")
-    let toDate = parseUtcDate("2026-06-30T23:59:59Z").expect("parseUtcDate toDate")
+    let fromDate = parseUtcDate("2026-06-01T00:00:00Z").expect(
+        "parseUtcDate fromDate[" & $target.kind & "]"
+      )
+    let toDate = parseUtcDate("2026-06-30T23:59:59Z").expect(
+        "parseUtcDate toDate[" & $target.kind & "]"
+      )
     const subjectText = "phase-i 58 OOO"
     const bodyText = "Plain text auto-reply body."
     const htmlBodyText = "<p>HTML auto-reply body.</p>"
@@ -75,40 +80,55 @@ block tvacationSetAllArmsLive:
           setToDate(Opt.some(toDate)),
         ]
       )
-      .expect("initVacationResponseUpdateSet all arms")
+      .expect("initVacationResponseUpdateSet all arms[" & $target.kind & "]")
     let (b1, setHandle) =
       addVacationResponseSet(initRequestBuilder(), vacAccountId, update = updateSet)
-    let resp1 = client.send(b1).expect("send VacationResponse/set all arms")
-    captureIfRequested(client, "vacation-set-all-arms-stalwart").expect(
+    let resp1 =
+      client.send(b1).expect("send VacationResponse/set all arms[" & $target.kind & "]")
+    captureIfRequested(client, "vacation-set-all-arms-" & $target.kind).expect(
       "captureIfRequested"
     )
-    let setResp1 = resp1.get(setHandle).expect("VacationResponse/set all arms extract")
+    let setResp1 = resp1.get(setHandle).expect(
+        "VacationResponse/set all arms extract[" & $target.kind & "]"
+      )
     var updateOk = false
     setResp1.updateResults.withValue(singletonId, outcome):
-      doAssert outcome.isOk,
+      assertOn target,
+        outcome.isOk,
         "VacationResponse/set update with all arms must succeed for singleton"
       updateOk = true
     do:
-      doAssert false, "VacationResponse/set must report an outcome for singleton"
-    doAssert updateOk
+      assertOn target,
+        false, "VacationResponse/set must report an outcome for singleton"
+    assertOn target, updateOk
 
     # Re-read and verify all six fields.
     let (b2, getHandle) = addVacationResponseGet(initRequestBuilder(), vacAccountId)
-    let resp2 = client.send(b2).expect("send VacationResponse/get post-set")
-    let getResp = resp2.get(getHandle).expect("VacationResponse/get post-set extract")
-    doAssert getResp.list.len == 1,
-      "VacationResponse/get must return the singleton after set"
-    let vr = VacationResponse.fromJson(getResp.list[0]).expect("parse VacationResponse")
-    doAssert vr.isEnabled, "isEnabled must round-trip as true"
-    doAssert vr.subject.isSome and vr.subject.unsafeGet == subjectText,
+    let resp2 =
+      client.send(b2).expect("send VacationResponse/get post-set[" & $target.kind & "]")
+    let getResp = resp2.get(getHandle).expect(
+        "VacationResponse/get post-set extract[" & $target.kind & "]"
+      )
+    assertOn target,
+      getResp.list.len == 1, "VacationResponse/get must return the singleton after set"
+    let vr = VacationResponse.fromJson(getResp.list[0]).expect(
+        "parse VacationResponse[" & $target.kind & "]"
+      )
+    assertOn target, vr.isEnabled, "isEnabled must round-trip as true"
+    assertOn target,
+      vr.subject.isSome and vr.subject.unsafeGet == subjectText,
       "subject must round-trip"
-    doAssert vr.textBody.isSome and vr.textBody.unsafeGet == bodyText,
+    assertOn target,
+      vr.textBody.isSome and vr.textBody.unsafeGet == bodyText,
       "textBody must round-trip"
-    doAssert vr.htmlBody.isSome and vr.htmlBody.unsafeGet == htmlBodyText,
+    assertOn target,
+      vr.htmlBody.isSome and vr.htmlBody.unsafeGet == htmlBodyText,
       "htmlBody must round-trip"
-    doAssert vr.fromDate.isSome and string(vr.fromDate.unsafeGet) == string(fromDate),
+    assertOn target,
+      vr.fromDate.isSome and string(vr.fromDate.unsafeGet) == string(fromDate),
       "fromDate must round-trip as the supplied UTC date"
-    doAssert vr.toDate.isSome and string(vr.toDate.unsafeGet) == string(toDate),
+    assertOn target,
+      vr.toDate.isSome and string(vr.toDate.unsafeGet) == string(toDate),
       "toDate must round-trip as the supplied UTC date"
 
     # Cleanup: disable + clear date / body / subject fields.
@@ -122,8 +142,9 @@ block tvacationSetAllArmsLive:
           setToDate(Opt.none(UTCDate)),
         ]
       )
-      .expect("initVacationResponseUpdateSet cleanup")
+      .expect("initVacationResponseUpdateSet cleanup[" & $target.kind & "]")
     let (b3, _) =
       addVacationResponseSet(initRequestBuilder(), vacAccountId, update = cleanupSet)
-    discard client.send(b3).expect("send VacationResponse/set cleanup")
+    discard
+      client.send(b3).expect("send VacationResponse/set cleanup[" & $target.kind & "]")
     client.close()

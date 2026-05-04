@@ -16,23 +16,24 @@ import jmap_client
 import ./mloader
 
 block tcapturedEmailMultipartAlternative:
-  let j = loadCapturedFixture("email-multipart-alternative-stalwart")
-  let resp = envelope.Response.fromJson(j).expect("envelope.Response.fromJson")
-  doAssert resp.methodResponses.len == 1
-  let inv = resp.methodResponses[0]
-  doAssert inv.rawName == "Email/get"
+  forEachCapturedServer("email-multipart-alternative", j):
+    let resp = envelope.Response.fromJson(j).expect("envelope.Response.fromJson")
+    doAssert resp.methodResponses.len == 1
+    let inv = resp.methodResponses[0]
+    doAssert inv.rawName == "Email/get"
 
-  let getResp =
-    GetResponse[Email].fromJson(inv.arguments).expect("GetResponse[Email].fromJson")
-  doAssert getResp.list.len == 1, "Email/get list must carry exactly one entity"
+    let getResp =
+      GetResponse[Email].fromJson(inv.arguments).expect("GetResponse[Email].fromJson")
+    doAssert getResp.list.len == 1, "Email/get list must carry exactly one entity"
 
-  let email = Email.fromJson(getResp.list[0]).expect("Email.fromJson")
-  doAssert email.textBody.len == 1, "alternative tree exposes one text/plain leaf"
-  doAssert email.textBody[0].contentType == "text/plain"
-  doAssert email.htmlBody.len == 1, "alternative tree exposes one text/html leaf"
-  doAssert email.htmlBody[0].contentType == "text/html"
-  doAssert email.bodyValues.len == 2, "bvsTextAndHtml must yield two bodyValues entries"
-  let textValue = email.bodyValues[email.textBody[0].partId]
-  doAssert textValue.value.len > 0, "text bodyValue must carry decoded content"
-  let htmlValue = email.bodyValues[email.htmlBody[0].partId]
-  doAssert htmlValue.value.len > 0, "html bodyValue must carry decoded content"
+    let email = Email.fromJson(getResp.list[0]).expect("Email.fromJson")
+    doAssert email.textBody.len == 1, "alternative tree exposes one text/plain leaf"
+    doAssert email.textBody[0].contentType == "text/plain"
+    doAssert email.htmlBody.len == 1, "alternative tree exposes one text/html leaf"
+    doAssert email.htmlBody[0].contentType == "text/html"
+    doAssert email.bodyValues.len == 2,
+      "bvsTextAndHtml must yield two bodyValues entries"
+    let textValue = email.bodyValues[email.textBody[0].partId]
+    doAssert textValue.value.len > 0, "text bodyValue must carry decoded content"
+    let htmlValue = email.bodyValues[email.htmlBody[0].partId]
+    doAssert htmlValue.value.len > 0, "html bodyValue must carry decoded content"

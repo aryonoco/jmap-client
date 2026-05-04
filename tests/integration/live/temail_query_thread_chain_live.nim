@@ -81,20 +81,21 @@ proc projectChainResults(all: EmailQueryThreadResults): ChainProjection =
   ChainProjection(displayIds: displayIds, threadEmailIds: threadEmailIds)
 
 block temailQueryThreadChainLive:
-  let cfgRes = loadLiveTestConfig()
-  if cfgRes.isOk:
-    let cfg = cfgRes.get()
+  forEachLiveTarget(target):
     var client = initJmapClient(
-        sessionUrl = cfg.sessionUrl,
-        bearerToken = cfg.aliceToken,
-        authScheme = cfg.authScheme,
+        sessionUrl = target.sessionUrl,
+        bearerToken = target.aliceToken,
+        authScheme = target.authScheme,
       )
-      .expect("initJmapClient")
-    let session = client.fetchSession().expect("fetchSession")
-    let mailAccountId = resolveMailAccountId(session).expect("resolveMailAccountId")
+      .expect("initJmapClient[" & $target.kind & "]")
+    let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
+    let mailAccountId =
+      resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
 
     # --- Resolve inbox + seed threaded corpus ---------------------------
-    let inbox = resolveInboxId(client, mailAccountId).expect("resolveInboxId")
+    let inbox = resolveInboxId(client, mailAccountId).expect(
+        "resolveInboxId[" & $target.kind & "]"
+      )
     let ids = seedThreadedEmails(
         client,
         mailAccountId,
@@ -102,8 +103,8 @@ block temailQueryThreadChainLive:
         @["phase-c-18 stepeighteen root", "phase-c-18 stepeighteen reply"],
         rootMessageId = "<phase-c-18-root@example.com>",
       )
-      .expect("seedThreadedEmails")
-    doAssert ids.len == 2, "seedThreadedEmails must return two ids"
+      .expect("seedThreadedEmails[" & $target.kind & "]")
+    assertOn target, ids.len == 2, "seedThreadedEmails must return two ids"
     let corpus = ids.toHashSet
 
     # --- Email/query → Email/get → Thread/get → Email/get -----------------
@@ -117,22 +118,26 @@ block temailQueryThreadChainLive:
     for attempt in 0 ..< 5:
       let (b, threadHandles) =
         addEmailQueryWithThreads(initRequestBuilder(), mailAccountId, filter = filter)
-      let resp = client.send(b).expect("send Email/query+threads chain")
-      let all = resp.getAll(threadHandles).expect("getAll")
+      let resp =
+        client.send(b).expect("send Email/query+threads chain[" & $target.kind & "]")
+      let all = resp.getAll(threadHandles).expect("getAll[" & $target.kind & "]")
       projection = projectChainResults(all)
       if (corpus <= projection.displayIds) and (corpus <= projection.threadEmailIds):
         converged = true
         break
       sleep(200)
 
-    doAssert converged,
+    assertOn target,
+      converged,
       "Stalwart threading + display projection did not converge within 1 s — extend " &
         "re-fetch budget or investigate Stalwart 0.15.5 threading pipeline. displayIds=" &
         $projection.displayIds & " threadEmailIds=" & $projection.threadEmailIds
-    doAssert (corpus * projection.displayIds).len == 2,
+    assertOn target,
+      (corpus * projection.displayIds).len == 2,
       "display projection must carry both seeded ids (got intersection " &
         $(corpus * projection.displayIds) & ")"
-    doAssert (corpus * projection.threadEmailIds).len == 2,
+    assertOn target,
+      (corpus * projection.threadEmailIds).len == 2,
       "Thread.emailIds across the chained Thread/get must include both seeded ids " &
         "(got intersection " & $(corpus * projection.threadEmailIds) & ")"
     client.close()

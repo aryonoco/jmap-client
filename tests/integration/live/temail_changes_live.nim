@@ -28,17 +28,16 @@ import ./mconfig
 import ./mlive
 
 block temailChangesLive:
-  let cfgRes = loadLiveTestConfig()
-  if cfgRes.isOk:
-    let cfg = cfgRes.get()
+  forEachLiveTarget(target):
     var client = initJmapClient(
-        sessionUrl = cfg.sessionUrl,
-        bearerToken = cfg.aliceToken,
-        authScheme = cfg.authScheme,
+        sessionUrl = target.sessionUrl,
+        bearerToken = target.aliceToken,
+        authScheme = target.authScheme,
       )
-      .expect("initJmapClient")
-    let session = client.fetchSession().expect("fetchSession")
-    let mailAccountId = resolveMailAccountId(session).expect("resolveMailAccountId")
+      .expect("initJmapClient[" & $target.kind & "]")
+    let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
+    let mailAccountId =
+      resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
 
     # --- Capture baseline state via an empty Email/get -------------------
     let (b1, getHandle) = addEmailGet(
@@ -47,47 +46,57 @@ block temailChangesLive:
       ids = directIds(@[]),
       properties = Opt.some(@["id"]),
     )
-    let resp1 = client.send(b1).expect("send Email/get baseline")
-    let getResp = resp1.get(getHandle).expect("Email/get baseline extract")
+    let resp1 = client.send(b1).expect("send Email/get baseline[" & $target.kind & "]")
+    let getResp =
+      resp1.get(getHandle).expect("Email/get baseline extract[" & $target.kind & "]")
     let baselineState = getResp.state
 
     # --- Seed two emails via mlive --------------------------------------
-    let inbox = resolveInboxId(client, mailAccountId).expect("resolveInboxId")
+    let inbox = resolveInboxId(client, mailAccountId).expect(
+        "resolveInboxId[" & $target.kind & "]"
+      )
     let idA = seedSimpleEmail(
         client, mailAccountId, inbox, "phase-b step-11 a", "seedA"
       )
-      .expect("seedSimpleEmail A")
+      .expect("seedSimpleEmail A[" & $target.kind & "]")
     let idB = seedSimpleEmail(
         client, mailAccountId, inbox, "phase-b step-11 b", "seedB"
       )
-      .expect("seedSimpleEmail B")
+      .expect("seedSimpleEmail B[" & $target.kind & "]")
 
     # --- Happy path: Email/changes since baseline -----------------------
     let (b2, changesHandle) =
       addChanges[Email](initRequestBuilder(), mailAccountId, sinceState = baselineState)
-    let resp2 = client.send(b2).expect("send Email/changes happy")
-    let cr = resp2.get(changesHandle).expect("Email/changes happy extract")
-    doAssert string(cr.oldState) == string(baselineState),
+    let resp2 = client.send(b2).expect("send Email/changes happy[" & $target.kind & "]")
+    let cr = resp2.get(changesHandle).expect(
+        "Email/changes happy extract[" & $target.kind & "]"
+      )
+    assertOn target,
+      string(cr.oldState) == string(baselineState),
       "oldState must echo the supplied baseline"
-    doAssert cr.created.len == 2,
+    assertOn target,
+      cr.created.len == 2,
       "two seeds must surface as two created entries (got " & $cr.created.len & ")"
-    doAssert cr.updated.len == 0, "no updates issued — updated must be empty"
-    doAssert cr.destroyed.len == 0, "no destroys issued — destroyed must be empty"
-    doAssert idA in cr.created, "seed A must appear in created"
-    doAssert idB in cr.created, "seed B must appear in created"
+    assertOn target, cr.updated.len == 0, "no updates issued — updated must be empty"
+    assertOn target,
+      cr.destroyed.len == 0, "no destroys issued — destroyed must be empty"
+    assertOn target, idA in cr.created, "seed A must appear in created"
+    assertOn target, idB in cr.created, "seed B must appear in created"
 
     # --- Sad path: bogus sinceState -------------------------------------
     let bogusState = JmapState("phase-b-bogus-state")
     let (b3, sadHandle) =
       addChanges[Email](initRequestBuilder(), mailAccountId, sinceState = bogusState)
-    let resp3 = client.send(b3).expect("send Email/changes bogus")
-    captureIfRequested(client, "email-changes-bogus-state-stalwart").expect(
+    let resp3 = client.send(b3).expect("send Email/changes bogus[" & $target.kind & "]")
+    captureIfRequested(client, "email-changes-bogus-state-" & $target.kind).expect(
       "captureIfRequested"
     )
     let sadExtract = resp3.get(sadHandle)
-    doAssert sadExtract.isErr, "bogus sinceState must surface as a method-level error"
+    assertOn target,
+      sadExtract.isErr, "bogus sinceState must surface as a method-level error"
     let methodErr = sadExtract.error
-    doAssert methodErr.errorType in {metCannotCalculateChanges, metInvalidArguments},
+    assertOn target,
+      methodErr.errorType in {metCannotCalculateChanges, metInvalidArguments},
       "method error must project as cannotCalculateChanges or invalidArguments " &
         "(got rawType=" & methodErr.rawType & ")"
     client.close()

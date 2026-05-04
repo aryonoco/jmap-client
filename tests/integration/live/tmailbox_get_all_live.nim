@@ -18,30 +18,31 @@ import ./mconfig
 import ./mlive
 
 block tmailboxGetAllLive:
-  let cfgRes = loadLiveTestConfig()
-  if cfgRes.isOk:
-    let cfg = cfgRes.get()
+  forEachLiveTarget(target):
     var client = initJmapClient(
-        sessionUrl = cfg.sessionUrl,
-        bearerToken = cfg.aliceToken,
-        authScheme = cfg.authScheme,
+        sessionUrl = target.sessionUrl,
+        bearerToken = target.aliceToken,
+        authScheme = target.authScheme,
       )
-      .expect("initJmapClient")
-    let session = client.fetchSession().expect("fetchSession")
-    let mailAccountId = resolveMailAccountId(session).expect("resolveMailAccountId")
+      .expect("initJmapClient[" & $target.kind & "]")
+    let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
+    let mailAccountId =
+      resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
     let (b1, mbHandle) = addGet[Mailbox](initRequestBuilder(), mailAccountId)
-    let resp = client.send(b1).expect("send")
-    captureIfRequested(client, "mailbox-get-all-stalwart").expect("captureIfRequested")
-    let gr = resp.get(mbHandle).expect("Mailbox/get extract")
-    doAssert gr.list.len >= 1, "alice's account must have at least one mailbox"
+    let resp = client.send(b1).expect("send[" & $target.kind & "]")
+    captureIfRequested(client, "mailbox-get-all-" & $target.kind).expect(
+      "captureIfRequested[" & $target.kind & "]"
+    )
+    let gr = resp.get(mbHandle).expect("Mailbox/get extract[" & $target.kind & "]")
+    assertOn target, gr.list.len >= 1, "alice's account must have at least one mailbox"
     var sawInbox = false
     for node in gr.list:
-      let mb = Mailbox.fromJson(node).expect("parse Mailbox")
-      doAssert mb.name.len > 0, "every mailbox must have a non-empty name"
-      doAssert mb.myRights.mayReadItems,
-        "alice must have read rights on her own mailbox"
+      let mb = Mailbox.fromJson(node).expect("parse Mailbox[" & $target.kind & "]")
+      assertOn target, mb.name.len > 0, "every mailbox must have a non-empty name"
+      assertOn target,
+        mb.myRights.mayReadItems, "alice must have read rights on her own mailbox"
       for role in mb.role:
         if role == roleInbox:
           sawInbox = true
-    doAssert sawInbox, "alice's account must include an inbox-role mailbox"
+    assertOn target, sawInbox, "alice's account must include an inbox-role mailbox"
     client.close()

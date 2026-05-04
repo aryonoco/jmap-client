@@ -95,12 +95,15 @@ block addQueryThenGetHandlesArePhantomTyped:
   doAssert $handles.get == "c1"
 
 block addQueryThenGetAutoCollectsCapability:
-  ## Capability URI is registered once (not duplicated).
+  ## Capability URI is registered once (not duplicated). The pre-declared
+  ## ``urn:ietf:params:jmap:core`` from ``initRequestBuilder`` is also
+  ## present (RFC 8620 §3.2).
   let b0 = initRequestBuilder()
   let (b1, _) = addQueryThenGet[MockQueryable](b0, makeAccountId("a1"))
   let req = b1.build()
-  assertLen req.`using`, 1
-  assertEq req.`using`[0], "urn:test:mockqueryable"
+  assertLen req.`using`, 2
+  doAssert "urn:ietf:params:jmap:core" in req.`using`
+  doAssert "urn:test:mockqueryable" in req.`using`
 
 # ===========================================================================
 # B. addChangesToGet

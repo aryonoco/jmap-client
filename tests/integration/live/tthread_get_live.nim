@@ -31,24 +31,25 @@ import ./mconfig
 import ./mlive
 
 block tthreadGetLive:
-  let cfgRes = loadLiveTestConfig()
-  if cfgRes.isOk:
-    let cfg = cfgRes.get()
+  forEachLiveTarget(target):
     var client = initJmapClient(
-        sessionUrl = cfg.sessionUrl,
-        bearerToken = cfg.aliceToken,
-        authScheme = cfg.authScheme,
+        sessionUrl = target.sessionUrl,
+        bearerToken = target.aliceToken,
+        authScheme = target.authScheme,
       )
-      .expect("initJmapClient")
-    let session = client.fetchSession().expect("fetchSession")
-    let mailAccountId = resolveMailAccountId(session).expect("resolveMailAccountId")
+      .expect("initJmapClient[" & $target.kind & "]")
+    let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
+    let mailAccountId =
+      resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
 
     # --- Seed: resolve inbox + create email ------------------------------
-    let inbox = resolveInboxId(client, mailAccountId).expect("resolveInboxId")
+    let inbox = resolveInboxId(client, mailAccountId).expect(
+        "resolveInboxId[" & $target.kind & "]"
+      )
     let seededId = seedSimpleEmail(
         client, mailAccountId, inbox, "phase-b step-8 seed", "seedThread"
       )
-      .expect("seedSimpleEmail")
+      .expect("seedSimpleEmail[" & $target.kind & "]")
 
     # --- Resolve threadId via Email/get ----------------------------------
     let (b1, emailHandle) = addEmailGet(
@@ -57,14 +58,17 @@ block tthreadGetLive:
       ids = directIds(@[seededId]),
       properties = Opt.some(@["id", "threadId"]),
     )
-    let resp1 = client.send(b1).expect("send Email/get")
-    let emailResp = resp1.get(emailHandle).expect("Email/get extract")
-    doAssert emailResp.list.len == 1, "Email/get must return the seeded message"
+    let resp1 = client.send(b1).expect("send Email/get[" & $target.kind & "]")
+    let emailResp =
+      resp1.get(emailHandle).expect("Email/get extract[" & $target.kind & "]")
+    assertOn target, emailResp.list.len == 1, "Email/get must return the seeded message"
     let threadIdNode = emailResp.list[0]{"threadId"}
-    doAssert not threadIdNode.isNil,
+    assertOn target,
+      not threadIdNode.isNil,
       "Email/get must include threadId when requested in properties"
-    let threadId =
-      parseIdFromServer(threadIdNode.getStr("")).expect("parseIdFromServer threadId")
+    let threadId = parseIdFromServer(threadIdNode.getStr("")).expect(
+        "parseIdFromServer threadId[" & $target.kind & "]"
+      )
 
     # --- Thread/get with bounded retry for async population --------------
     var thread = Opt.none(jthread.Thread)
@@ -72,8 +76,9 @@ block tthreadGetLive:
       let (b2, threadHandle) = addGet[jthread.Thread](
         initRequestBuilder(), mailAccountId, ids = directIds(@[threadId])
       )
-      let resp2 = client.send(b2).expect("send Thread/get")
-      let threadResp = resp2.get(threadHandle).expect("Thread/get extract")
+      let resp2 = client.send(b2).expect("send Thread/get[" & $target.kind & "]")
+      let threadResp =
+        resp2.get(threadHandle).expect("Thread/get extract[" & $target.kind & "]")
       if threadResp.list.len == 1:
         let parsed = jthread.Thread.fromJson(threadResp.list[0])
         if parsed.isOk:
@@ -81,10 +86,15 @@ block tthreadGetLive:
           break
       sleep(100)
 
-    doAssert thread.isSome, "Thread/get must return the seeded thread within 500 ms"
-    captureIfRequested(client, "thread-get-stalwart").expect("captureIfRequested")
+    assertOn target,
+      thread.isSome, "Thread/get must return the seeded thread within 500 ms"
+    captureIfRequested(client, "thread-get-" & $target.kind).expect(
+      "captureIfRequested[" & $target.kind & "]"
+    )
     let t = thread.get()
-    doAssert string(t.id) == string(threadId),
+    assertOn target,
+      string(t.id) == string(threadId),
       "returned Thread.id must match the threadId from Email/get"
-    doAssert seededId in t.emailIds, "seeded EmailId must appear in Thread.emailIds"
+    assertOn target,
+      seededId in t.emailIds, "seeded EmailId must appear in Thread.emailIds"
     client.close()

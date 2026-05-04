@@ -45,19 +45,20 @@ const MaxChangesCap = 2
 const MaxIters = 20
 
 block temailChangesMaxChangesLive:
-  let cfgRes = loadLiveTestConfig()
-  if cfgRes.isOk:
-    let cfg = cfgRes.get()
+  forEachLiveTarget(target):
     var client = initJmapClient(
-        sessionUrl = cfg.sessionUrl,
-        bearerToken = cfg.aliceToken,
-        authScheme = cfg.authScheme,
+        sessionUrl = target.sessionUrl,
+        bearerToken = target.aliceToken,
+        authScheme = target.authScheme,
       )
-      .expect("initJmapClient")
-    let session = client.fetchSession().expect("fetchSession")
-    let mailAccountId = resolveMailAccountId(session).expect("resolveMailAccountId")
+      .expect("initJmapClient[" & $target.kind & "]")
+    let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
+    let mailAccountId =
+      resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
 
-    let inbox = resolveInboxId(client, mailAccountId).expect("resolveInboxId")
+    let inbox = resolveInboxId(client, mailAccountId).expect(
+        "resolveInboxId[" & $target.kind & "]"
+      )
     let baselineState = captureBaselineState[Email](client, mailAccountId).expect(
         "captureBaselineState[Email]"
       )
@@ -66,12 +67,15 @@ block temailChangesMaxChangesLive:
     for i in 0 ..< SeedCount:
       subjects.add("phase-i 50 m" & $i)
     let seededIds = seedEmailsWithSubjects(client, mailAccountId, inbox, subjects)
-      .expect("seedEmailsWithSubjects")
-    doAssert seededIds.len == SeedCount,
-      "ten seeded ids expected (got " & $seededIds.len & ")"
+      .expect("seedEmailsWithSubjects[" & $target.kind & "]")
+    assertOn target,
+      seededIds.len == SeedCount, "ten seeded ids expected (got " & $seededIds.len & ")"
 
-    let maxChangesCap =
-      Opt.some(parseMaxChanges(UnsignedInt(MaxChangesCap)).expect("parseMaxChanges"))
+    let maxChangesCap = Opt.some(
+      parseMaxChanges(UnsignedInt(MaxChangesCap)).expect(
+        "parseMaxChanges[" & $target.kind & "]"
+      )
+    )
 
     # First page — capture against a fresh seed surface so
     # hasMoreChanges is forced true.
@@ -81,14 +85,18 @@ block temailChangesMaxChangesLive:
       sinceState = baselineState,
       maxChanges = maxChangesCap,
     )
-    let resp1 = client.send(b1).expect("send Email/changes first page")
-    captureIfRequested(client, "email-changes-max-changes-stalwart").expect(
+    let resp1 =
+      client.send(b1).expect("send Email/changes first page[" & $target.kind & "]")
+    captureIfRequested(client, "email-changes-max-changes-" & $target.kind).expect(
       "captureIfRequested"
     )
-    let cr1 = resp1.get(h1).expect("Email/changes first page extract")
-    doAssert cr1.hasMoreChanges,
+    let cr1 =
+      resp1.get(h1).expect("Email/changes first page extract[" & $target.kind & "]")
+    assertOn target,
+      cr1.hasMoreChanges,
       "maxChanges=2 against ten seeded emails must force hasMoreChanges=true"
-    doAssert cr1.created.len + cr1.updated.len + cr1.destroyed.len <= MaxChangesCap,
+    assertOn target,
+      cr1.created.len + cr1.updated.len + cr1.destroyed.len <= MaxChangesCap,
       "first page total <= maxChanges (got created=" & $cr1.created.len & " updated=" &
         $cr1.updated.len & " destroyed=" & $cr1.destroyed.len & ")"
 
@@ -108,8 +116,10 @@ block temailChangesMaxChangesLive:
         sinceState = nextState,
         maxChanges = maxChangesCap,
       )
-      let respN = client.send(bN).expect("send Email/changes window-roll")
-      let crN = respN.get(hN).expect("Email/changes window-roll extract")
+      let respN =
+        client.send(bN).expect("send Email/changes window-roll[" & $target.kind & "]")
+      let crN =
+        respN.get(hN).expect("Email/changes window-roll extract[" & $target.kind & "]")
       for id in crN.created:
         seenIds.incl(id)
       for id in crN.updated:
@@ -117,12 +127,14 @@ block temailChangesMaxChangesLive:
       nextState = crN.newState
       hasMore = crN.hasMoreChanges
       iter.inc
-    doAssert not hasMore,
-      "window-roll loop must converge within " & $MaxIters & " iterations"
+    assertOn target,
+      not hasMore, "window-roll loop must converge within " & $MaxIters & " iterations"
     for sid in seededIds:
-      doAssert sid in seenIds,
+      assertOn target,
+        sid in seenIds,
         "seeded id " & string(sid) & " must appear across paginated changes"
-    doAssert string(nextState) != string(baselineState),
+    assertOn target,
+      string(nextState) != string(baselineState),
       "final newState must differ from the original baseline"
 
     client.close()
