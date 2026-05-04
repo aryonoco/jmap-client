@@ -677,12 +677,14 @@ proc pollSubmissionDelivery*(
     client: var JmapClient,
     submissionAccountId: AccountId,
     submissionId: Id,
-    budgetMs: int = 10000,
+    budgetMs: int = 50000,
 ): Result[EmailSubmission[usFinal], string] =
   ## Polls EmailSubmission/get every 200 ms until ``undoStatus ==
   ## final``, returning the phantom-narrowed ``EmailSubmission[usFinal]``.
   ## ``Err`` on budget elapse — the bound is iterations of (sleep + poll),
-  ## so the function is decoupled from wall-clock drift.
+  ## so the function is decoupled from wall-clock drift. Default budget
+  ## widened 5× on 2026-05-04 to absorb cumulative SMTP-queue load under
+  ## the full integration suite (Phase K0).
   const PollMs = 200
   let maxIters = max(1, budgetMs div PollMs)
   for _ in 0 ..< maxIters:
@@ -810,13 +812,15 @@ proc pollSubmissionPending*(
     client: var JmapClient,
     submissionAccountId: AccountId,
     submissionId: Id,
-    budgetMs: int = 5000,
+    budgetMs: int = 25000,
 ): Result[EmailSubmission[usPending], string] =
   ## Structural mirror of ``pollSubmissionDelivery`` on the opposite
   ## phantom narrowing. Polls ``EmailSubmission/get`` every 200 ms until
   ## ``undoStatus == pending``, returning the phantom-narrowed
   ## ``EmailSubmission[usPending]`` so ``cancelUpdate`` is callable at the
-  ## type level. Used by Phase G Steps 41 and 42.
+  ## type level. Used by Phase G Steps 41 and 42. Default budget widened
+  ## 5× on 2026-05-04 to absorb cumulative SMTP-queue load under the full
+  ## integration suite (Phase K0).
   const PollMs = 200
   let maxIters = max(1, budgetMs div PollMs)
   for _ in 0 ..< maxIters:
@@ -844,14 +848,16 @@ proc findEmailBySubjectInMailbox*(
     mailAccountId: AccountId,
     mailbox: Id,
     subject: string,
-    attempts: int = 10,
+    attempts: int = 50,
     intervalMs: int = 200,
 ): Result[Id, string] =
   ## Polls ``Email/query`` filtered by ``inMailbox`` + ``subject`` until
   ## a matching email surfaces or the attempt budget elapses. Returns the
   ## first matching id; ``Err`` on absence after ``attempts`` empty
   ## results. Absorbs SMTP delivery asynchrony at the test layer per the
-  ## Phase C Step 18 precedent. Used by Phase G Step 38.
+  ## Phase C Step 18 precedent. Used by Phase G Step 38. Default budget
+  ## widened 5× on 2026-05-04 to absorb cumulative SMTP-queue load under
+  ## the full integration suite (Phase K0).
   let filter = filterCondition(
     EmailFilterCondition(inMailbox: Opt.some(mailbox), subject: Opt.some(subject))
   )
