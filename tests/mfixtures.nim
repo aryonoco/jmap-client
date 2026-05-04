@@ -1831,7 +1831,7 @@ proc makeNonEmptyEmailImportMap*(
 proc makeEmailSetResponse*(
     accountId: AccountId = makeAccountId(),
     oldState: Opt[JmapState] = Opt.none(JmapState),
-    newState: JmapState = makeState("s1"),
+    newState: Opt[JmapState] = Opt.some(makeState("s1")),
     createResults: Table[CreationId, Result[EmailCreatedItem, SetError]] =
       initTable[CreationId, Result[EmailCreatedItem, SetError]](),
     updateResults: Table[Id, Result[Opt[JsonNode], SetError]] =
@@ -1857,7 +1857,7 @@ proc makeEmailCopyResponse*(
     fromAccountId: AccountId = makeAccountId("src"),
     accountId: AccountId = makeAccountId("dst"),
     oldState: Opt[JmapState] = Opt.none(JmapState),
-    newState: JmapState = makeState("s1"),
+    newState: Opt[JmapState] = Opt.some(makeState("s1")),
     createResults: Table[CreationId, Result[EmailCreatedItem, SetError]] =
       initTable[CreationId, Result[EmailCreatedItem, SetError]](),
 ): CopyResponse[EmailCreatedItem] =
@@ -1875,7 +1875,7 @@ proc makeEmailCopyResponse*(
 proc makeEmailImportResponse*(
     accountId: AccountId = makeAccountId(),
     oldState: Opt[JmapState] = Opt.none(JmapState),
-    newState: JmapState = makeState("s1"),
+    newState: Opt[JmapState] = Opt.some(makeState("s1")),
     createResults: Table[CreationId, Result[EmailCreatedItem, SetError]] =
       initTable[CreationId, Result[EmailCreatedItem, SetError]](),
 ): EmailImportResponse =

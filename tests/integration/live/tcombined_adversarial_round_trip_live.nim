@@ -122,30 +122,20 @@ block tcombinedAdversarialRoundTripLive:
       {metInvalidResultReference, metInvalidArguments, metServerFail, metUnknown},
       "c2 errorType must project into the closed enum, got " & $me.errorType
 
-    # c3: Email/set with immutable property must surface in
-    # notCreated.  Stalwart may omit newState here (same deviation
-    # as Step 70), so we drop down to raw notCreated when the
-    # typed parser rejects the response shape.
+    # c3: Email/set with immutable property must surface in notCreated.
     let c3 = resp.methodResponses[3]
     doAssert c3.rawName == "Email/set",
       "c3 expected Email/set with notCreated, got " & c3.rawName
-    let setRes = SetResponse[EmailCreatedItem].fromJson(c3.arguments)
-    if setRes.isOk:
-      let setResp = setRes.unsafeValue
-      let cidLabel = parseCreationId("newDraft").expect("parseCreationId")
-      setResp.createResults.withValue(cidLabel, outcome):
-        doAssert outcome.isErr, "create with immutable property must Err"
-        doAssert outcome.error.errorType in
-          {setInvalidProperties, setForbidden, setUnknown}
-      do:
-        doAssert false, "Email/set must report an outcome for the create label"
-    else:
-      let notCreated = c3.arguments{"notCreated"}
-      doAssert not notCreated.isNil and notCreated.kind == JObject
-      doAssert notCreated.hasKey("newDraft")
-      let entry = notCreated{"newDraft"}
-      let se = SetError.fromJson(entry).expect("SetError.fromJson c3")
-      doAssert se.errorType in {setInvalidProperties, setForbidden, setUnknown}
+    let setResp = SetResponse[EmailCreatedItem].fromJson(c3.arguments).expect(
+        "SetResponse[EmailCreatedItem].fromJson c3"
+      )
+    let cidLabel = parseCreationId("newDraft").expect("parseCreationId")
+    setResp.createResults.withValue(cidLabel, outcome):
+      doAssert outcome.isErr, "create with immutable property must Err"
+      doAssert outcome.error.errorType in
+        {setInvalidProperties, setForbidden, setUnknown}
+    do:
+      doAssert false, "Email/set must report an outcome for the create label"
 
     # c4: Identity/get success.
     let c4 = resp.methodResponses[4]

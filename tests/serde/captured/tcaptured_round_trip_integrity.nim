@@ -124,21 +124,12 @@ block tcapturedRoundTripIntegrity:
   roundtripResponse("combined-adversarial-round-trip-stalwart")
   roundtripResponse("multi-instance-envelope-stalwart")
   roundtripResponse("notfound-rail-get-stalwart")
-  # patch-object-deep-paths-stalwart — Stalwart omits newState in
-  # the failed-only /set response, so envelope.Response.fromJson
-  # rejects it (correctly, per RFC 8620 §5.3).  The dedicated
-  # tcaptured_patch_object_deep_paths replay parses the rejection
-  # at the SetError level instead.
+  roundtripResponse("patch-object-deep-paths-stalwart")
   roundtripResponse("postels-law-receive-adversarial-mime-stalwart")
   roundtripResponse("result-reference-deep-path-stalwart")
-  # Set-error fixtures: same Stalwart-newState-omission as
-  # patch-object-deep-paths above for the cases where only
-  # notDestroyed / notCreated / notUpdated populate the response.
-  # The dedicated set-error replays parse via SetError.fromJson on
-  # the rejection rail.  Round-trip integrity for those cases is
-  # therefore covered at the SetError level, not the envelope.
-  # set-error-not-found-stalwart includes newState; the others do
-  # not.  Conservatively roundtrip only the safe one here.
+  roundtripResponse("set-error-blob-not-found-stalwart")
+  roundtripResponse("set-error-invalid-patch-stalwart")
+  roundtripResponse("set-error-invalid-properties-stalwart")
   roundtripResponse("set-error-not-found-stalwart")
   roundtripResponse("thread-changes-bogus-state-stalwart")
   roundtripResponse("thread-get-stalwart")

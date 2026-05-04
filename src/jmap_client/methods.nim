@@ -200,7 +200,13 @@ type SetResponse*[T] = object
   oldState*: Opt[JmapState]
     ## The state before making the requested changes, or none if the server
     ## does not know the previous state.
-  newState*: JmapState ## The state that will now be returned by Foo/get.
+  newState*: Opt[JmapState]
+    ## Server state after the call. ``Opt.none`` when the server omits the
+    ## field — Stalwart 0.15.5 empirically omits ``newState`` for /set
+    ## responses with only failure rails populated. RFC 8620 §5.3 mandates
+    ## the field; the library is lenient on receive per Postel's law.
+    ## Consumers needing the post-call state fall back to ``oldState`` or
+    ## to a fresh ``Foo/get``.
   createResults*: Table[CreationId, Result[T, SetError]]
     ## Merged create outcomes. Wire ``created`` entries become
     ## ``Result.ok(entity)`` via ``T.fromJson``; wire ``notCreated`` entries
@@ -224,9 +230,11 @@ type CopyResponse*[T] = object
   fromAccountId*: AccountId ## The identifier of the account records were copied from.
   accountId*: AccountId ## The identifier of the account records were copied to.
   oldState*: Opt[JmapState] ## The state of the destination account before the copy.
-  newState*: JmapState
-    ## The state that will now be returned by Foo/get on the destination
-    ## account.
+  newState*: Opt[JmapState]
+    ## Server state after the call. ``Opt.none`` when the server omits the
+    ## field — Stalwart 0.15.5 empirically omits ``newState`` for /copy
+    ## responses with only failure rails populated. RFC 8620 §5.4 mandates
+    ## the field; the library is lenient on receive per Postel's law.
   createResults*: Table[CreationId, Result[T, SetError]]
     ## Merged copy outcomes. Same merging semantics as SetResponse
     ## create branch (Decision 3.9B).
@@ -544,7 +552,8 @@ func toJson*[T](resp: SetResponse[T]): JsonNode =
   node["accountId"] = resp.accountId.toJson()
   for s in resp.oldState:
     node["oldState"] = s.toJson()
-  node["newState"] = resp.newState.toJson()
+  for s in resp.newState:
+    node["newState"] = s.toJson()
   emitSplitCreateResults(resp.createResults, node)
   emitSplitUpdateResults(resp.updateResults, node)
   emitSplitDestroyResults(resp.destroyResults, node)
@@ -559,7 +568,8 @@ func toJson*[T](resp: CopyResponse[T]): JsonNode =
   node["accountId"] = resp.accountId.toJson()
   for s in resp.oldState:
     node["oldState"] = s.toJson()
-  node["newState"] = resp.newState.toJson()
+  for s in resp.newState:
+    node["newState"] = s.toJson()
   emitSplitCreateResults(resp.createResults, node)
   return node
 
@@ -713,8 +723,7 @@ func fromJson*[T](
   let accountIdNode = ?fieldJString(node, "accountId", path)
   let accountId =
     ?wrapInner(parseAccountId(accountIdNode.getStr("")), path / "accountId")
-  let newStateNode = ?fieldJString(node, "newState", path)
-  let newState = ?wrapInner(parseJmapState(newStateNode.getStr("")), path / "newState")
+  let newState = optState(node, "newState")
   let oldState = optState(node, "oldState")
   let createResults = ?mergeCreateResults[T](node, path)
   let updateResults = ?mergeUpdateResults(node, path)
@@ -746,8 +755,7 @@ func fromJson*[T](
   let accountIdNode = ?fieldJString(node, "accountId", path)
   let accountId =
     ?wrapInner(parseAccountId(accountIdNode.getStr("")), path / "accountId")
-  let newStateNode = ?fieldJString(node, "newState", path)
-  let newState = ?wrapInner(parseJmapState(newStateNode.getStr("")), path / "newState")
+  let newState = optState(node, "newState")
   let oldState = optState(node, "oldState")
   let createResults = ?mergeCreateResults[T](node, path)
   return ok(

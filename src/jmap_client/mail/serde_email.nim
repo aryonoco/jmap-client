@@ -829,7 +829,8 @@ func toJson*(resp: EmailImportResponse): JsonNode =
   node["accountId"] = resp.accountId.toJson()
   for s in resp.oldState:
     node["oldState"] = s.toJson()
-  node["newState"] = resp.newState.toJson()
+  for s in resp.newState:
+    node["newState"] = s.toJson()
   emitCreateResults(resp.createResults, node)
   return node
 
@@ -841,8 +842,7 @@ func fromJson*(
   ?expectKind(node, JObject, path)
   let accountIdNode = ?fieldJString(node, "accountId", path)
   let accountId = ?AccountId.fromJson(accountIdNode, path / "accountId")
-  let newStateNode = ?fieldJString(node, "newState", path)
-  let newState = ?JmapState.fromJson(newStateNode, path / "newState")
+  let newState = ?parseOptJmapStateField(node, "newState", path)
   let oldState = ?parseOptJmapStateField(node, "oldState", path)
   let createResults = ?mergeCreatedResults(node, path)
   return ok(

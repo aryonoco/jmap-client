@@ -103,3 +103,11 @@ block importResponseMalformedSurfacesError:
   ## the wrong kind. The parser must refuse rather than coerce.
   let node = %*{"accountId": nil, "newState": "s1"}
   assertErr EmailImportResponse.fromJson(node)
+
+block importResponseMissingNewStateLenient:
+  ## Stalwart 0.15.5 empirically omits newState on import
+  ## responses with only the failure rail populated. Library is
+  ## lenient on receive per Postel's law (Phase K0).
+  let node = %*{"accountId": "acct1"}
+  let r = EmailImportResponse.fromJson(node).get()
+  doAssert r.newState.isNone

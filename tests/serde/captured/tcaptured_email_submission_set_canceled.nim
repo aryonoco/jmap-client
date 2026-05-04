@@ -31,4 +31,4 @@ block tcapturedEmailSubmissionSetCanceled:
     doAssert outcome.isOk,
       "cancel update must be Ok (got rawType=" & outcome.error.rawType & ")"
     doAssert string(id).len > 0, "updated submission id must be non-empty"
-  doAssert ($setResp.newState).len > 0, "newState must be non-empty"
+  doAssert setResp.newState.isSome, "newState must be present in this fixture"

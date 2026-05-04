@@ -33,4 +33,4 @@ block tcapturedEmailImportFromBlob:
   do:
     doAssert false, "Email/import must report an outcome for creation id import27"
   doAssert sawOk
-  doAssert ($importResp.newState).len > 0, "newState must be non-empty"
+  doAssert importResp.newState.isSome, "newState must be present in this fixture"

@@ -14,10 +14,10 @@
 | **J1 Step 67 — `tresult_reference_deep_paths_live`** | Done | Three sub-tests covering simple, deep (`rpListThreadId`), and broken-back-reference cases. Captured 1 fixture + 1 replay. Stalwart RFC-conforms. |
 | **J1 Step 68 — `tcreated_ids_envelope_live`** | Done | Two sub-tests over outgoing `createdIds` round-trip and cross-method `#cid` reference. Captured 1 fixture + 1 replay. Stalwart RFC-conforms. |
 | **J1 Step 69 — `tmulti_instance_envelope_live`** | Done | Three `addGet[Mailbox]` invocations with distinct `properties` subsets. Captured 1 fixture + 1 replay. Stalwart RFC-conforms on order preservation and `properties` filtering. Library scope: typed `Mailbox.fromJson` parses full records; sparse projections verified at JsonNode level. |
-| **J1 Step 70 — `tpatch_object_deep_paths_live`** | Done | Four sub-tests over typed flat patches (Identity + Mailbox) and raw-JSON deep paths. Captured 1 fixture + 1 replay. Stalwart deviations: deep-path `replyTo/0/name` projects as `invalidProperties` (RFC mandates `invalidPatch` for unknown-property paths); /set responses with only `notUpdated` omit `newState` (RFC mandates required). |
+| **J1 Step 70 — `tpatch_object_deep_paths_live`** | Done | Four sub-tests over typed flat patches (Identity + Mailbox) and raw-JSON deep paths. Captured 1 fixture + 1 replay. Stalwart deviations: deep-path `replyTo/0/name` projects as `invalidProperties` (RFC mandates `invalidPatch` for unknown-property paths). The newState-omission deviation is now tolerated natively by `SetResponse.fromJson` (Phase K0). |
 | **J1 Step 71 — `temail_submission_filter_completeness_live`** | Done | Six sub-tests covering all unexercised `EmailSubmissionFilterCondition` variants and `EmailSubmissionComparator` arms. Captured 1 fixture + 1 replay. Stalwart RFC-conforms across all six. |
 | **J1 Step 72 — `tthread_keyword_filter_and_upto_id_live`** | Done | Five sub-tests over thread-keyword `EmailFilterCondition` variants and `Email/queryChanges.upToId`. Captured 2 fixtures + 2 replays. Stalwart RFC-conforms. |
-| **J1 Step 73 — `tpostels_law_receive_live` + meta-test** | Done | Lenient-receive parser test via seed-via-forward + import. Captured 1 fixture + 1 replay + the round-trip integrity meta-test (78 fixtures categorised across Response / Session / RequestError parsers). |
+| **J1 Step 73 — `tpostels_law_receive_live` + meta-test** | Done | Lenient-receive parser test via seed-via-forward + import. Captured 1 fixture + 1 replay + the round-trip integrity meta-test (82 fixtures categorised across Response / Session / RequestError parsers — Phase K0 added the four set-error / patch-object-deep-paths fixtures previously excluded under the newState-omission rationale). |
 | **J1 Step 74 — `tcombined_adversarial_round_trip_live` (capstone)** | Done | Five-invocation adversarial envelope mixing successes (Mailbox/get, Email/query, Identity/get) and failures (broken back-reference; immutable-property create). Captured 1 fixture + 1 replay. All prior J1 contracts hold simultaneously. |
 
 Final tallies (2026-05-04):
@@ -1256,10 +1256,12 @@ corresponding parser-only replay test under
    70, sub-test C; Step 74).  RFC 8620 §5.3 mandates `newState`
    as required.  When a /set response carries only `notUpdated`
    / `notCreated` (no successful state change), Stalwart omits
-   `newState`.  The library's strict ``SetResponse.fromJson``
-   correctly rejects the malformed shape; Phase J tests drop
-   down to ``SetError.fromJson`` on the rejection rail when
-   needed.
+   `newState`.  Phase K0 made `SetResponse[T].newState`,
+   `CopyResponse[T].newState`, and `EmailImportResponse.newState`
+   `Opt[JmapState]` to match Postel's law on receive — the
+   library now surfaces the actual `SetError` rail directly
+   instead of synthesising a `serverFail` `MethodError` at the
+   parser boundary.
 8. **Lenient JSON-Pointer escape acceptance** (Step 70, observed
    during Step 63 development).  Stalwart accepts malformed RFC
    6901 escape sequences (`~7invalid`) as no-ops rather than
@@ -1307,27 +1309,21 @@ hatch.  Empirical findings during execution:
 Zero library bugs surfaced during Phase J.  The audit's
 prediction held.
 
-### Pre-existing test-suite flakiness (carried forward)
+### Pre-existing test-suite flakiness (resolved by Phase K0)
 
-The full ``just test-integration`` suite shows 8–10
-intermittent failures in pre-existing submission tests
-(``temail_submission_*_live``, ``temail_bob_receives_alice_delivery_live``).
-Failures are SMTP-queue-load related, surface as
-``pollSubmissionDelivery: budget exhausted`` or as a Stalwart
-deviation in `EmailSubmissionSetResponse` shape (Stalwart
-omits ``newState`` under the same failed-only condition Step 70
-documents).
+The full ``just test-integration`` suite previously showed 8–10
+intermittent failures in submission tests
+(``temail_submission_*_live``, ``temail_bob_receives_alice_delivery_live``)
+with two failure modes:
 
-These failures are NOT caused by Phase J — Step 61's late-
-alphabetical position means it cannot impact earlier-running
-submission tests; the J0 commit added only `{.used.}`-gated
-unused symbols.  Phase I retrospective commit `30bf779`
-already documented submission-suite stability concerns and
-adopted corpus-size reductions as a workaround.
+- **SMTP-queue timeout**: ``pollSubmissionDelivery`` /
+  ``pollSubmissionPending`` / ``findEmailBySubjectInMailbox``
+  budgets too tight for cumulative SMTP load. Phase K0 widens
+  each by 5x in `mlive.nim`.
+- **Synthetic-`serverFail` mask**: Stalwart's missing-newState
+  deviation rejected at `SetResponse.fromJson` and lifted to a
+  synthetic `serverFail` `MethodError`. Phase K0 makes the
+  affected fields `Opt[JmapState]` so the actual `SetError`
+  surfaces unmasked.
 
-A separate Phase K hardening pass should address this either
-by widening ``pollSubmissionDelivery`` budgets or by reframing
-the affected submission tests to handle Stalwart's
-intermittent ``newState`` omission — same library-contract /
-server-compliance separation Phase J established for /set
-responses elsewhere.
+After Phase K0 both failure modes are resolved.

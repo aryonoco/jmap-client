@@ -19,7 +19,6 @@
 
 {.push raises: [].}
 
-import std/json
 import std/tables
 
 import jmap_client
@@ -55,26 +54,15 @@ block tcapturedCombinedAdversarialRoundTrip:
     {metInvalidResultReference, metInvalidArguments, metServerFail, metUnknown}
 
   # c3 — Stalwart returns notCreated with newDraft → invalidProperties.
-  # The full /set response shape may omit newState (Stalwart deviation
-  # under failed-only conditions); parse the rejection rail directly.
-  let c3Args = resp.methodResponses[3].arguments
-  let setRes = SetResponse[EmailCreatedItem].fromJson(c3Args)
-  if setRes.isOk:
-    let setResp = setRes.unsafeValue
-    let cidLabel = parseCreationId("newDraft").expect("parseCreationId")
-    setResp.createResults.withValue(cidLabel, outcome):
-      doAssert outcome.isErr
-      doAssert outcome.error.errorType in
-        {setInvalidProperties, setForbidden, setUnknown}
-    do:
-      doAssert false, "createResults must report newDraft outcome"
-  else:
-    let notCreated = c3Args{"notCreated"}
-    doAssert not notCreated.isNil and notCreated.kind == JObject
-    doAssert notCreated.hasKey("newDraft")
-    let entry = notCreated{"newDraft"}
-    let se = SetError.fromJson(entry).expect("SetError.fromJson c3")
-    doAssert se.errorType in {setInvalidProperties, setForbidden, setUnknown}
+  let setResp = SetResponse[EmailCreatedItem]
+    .fromJson(resp.methodResponses[3].arguments)
+    .expect("SetResponse[EmailCreatedItem].fromJson c3")
+  let cidLabel = parseCreationId("newDraft").expect("parseCreationId")
+  setResp.createResults.withValue(cidLabel, outcome):
+    doAssert outcome.isErr
+    doAssert outcome.error.errorType in {setInvalidProperties, setForbidden, setUnknown}
+  do:
+    doAssert false, "createResults must report newDraft outcome"
 
   let identResp = GetResponse[Identity]
     .fromJson(resp.methodResponses[4].arguments)

@@ -35,26 +35,6 @@ import ./mcapture
 import ./mconfig
 import ./mlive
 
-proc assertRawNotUpdatedRejection(args: JsonNode, idStr: string) =
-  ## Stalwart 0.15.5 occasionally omits ``newState`` from /set
-  ## responses when only ``notUpdated`` is populated.  When that
-  ## happens, ``SetResponse.fromJson`` correctly rejects the
-  ## malformed wire shape (RFC 8620 §5.3 mandates newState
-  ## present).  This helper extracts the rejection at the raw-JSON
-  ## level — drilling down to ``SetError.fromJson`` directly so the
-  ## library contract still gets verified on the rejection rail.
-  let notUpdated = args{"notUpdated"}
-  doAssert not notUpdated.isNil and notUpdated.kind == JObject,
-    "deep-path rejection must surface via notUpdated"
-  doAssert notUpdated.hasKey(idStr),
-    "notUpdated must name the offending id; got " & $notUpdated
-  let entry = notUpdated{idStr}
-  let se = SetError.fromJson(entry).expect("SetError.fromJson")
-  doAssert se.rawType.len > 0
-  doAssert se.errorType in
-    {setInvalidPatch, setInvalidProperties, setForbidden, setUnknown},
-    "errorType must project into the closed enum, got " & $se.errorType
-
 block tpatchObjectDeepPathsLive:
   let cfgRes = loadLiveTestConfig()
   if cfgRes.isOk:
@@ -181,7 +161,19 @@ block tpatchObjectDeepPathsLive:
       doAssert inv.rawName == "Identity/set" or inv.rawName == "error",
         "expected Identity/set or error, got " & inv.rawName
       if inv.rawName == "Identity/set":
-        assertRawNotUpdatedRejection(inv.arguments, $identityId)
+        let setResp = SetResponse[IdentityCreatedItem].fromJson(inv.arguments).expect(
+            "SetResponse[IdentityCreatedItem].fromJson"
+          )
+        setResp.updateResults.withValue(identityId, outcome):
+          doAssert outcome.isErr,
+            "deep-path patch must surface as Err on updateResults rail"
+          let se = outcome.error
+          doAssert se.rawType.len > 0
+          doAssert se.errorType in
+            {setInvalidPatch, setInvalidProperties, setForbidden, setUnknown},
+            "errorType must project into the closed enum, got " & $se.errorType
+        do:
+          doAssert false, "Identity/set must report an outcome for the patched id"
 
     # Sub-test D: JSON-Pointer escape ``~1`` for ``/`` in keyword
     # name.  Same set-membership contract as sub-test C.

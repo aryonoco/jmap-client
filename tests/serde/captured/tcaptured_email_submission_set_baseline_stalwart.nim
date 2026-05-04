@@ -35,4 +35,4 @@ block tcapturedEmailSubmissionSetBaselineStalwart:
     let item = outcome.unsafeValue
     doAssert string(item.id).len > 0, "created id must be non-empty"
     doAssert string(cid).len > 0, "creationId must be non-empty"
-  doAssert ($setResp.newState).len > 0, "newState must be non-empty"
+  doAssert setResp.newState.isSome, "newState must be present in this fixture"

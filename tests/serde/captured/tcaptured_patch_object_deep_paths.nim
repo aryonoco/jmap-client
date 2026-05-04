@@ -3,28 +3,19 @@
 
 ## Parser-only replay test for the captured deep-path PatchObject
 ## rejection (``tests/testdata/captured/
-## patch-object-deep-paths-stalwart.json``).
-##
-## **Stalwart 0.15.5 deviation pin (combined).**  Two related
-## empirical findings recorded in this fixture:
-##
-## 1. Stalwart classifies a deep-path PatchObject expression
-##    (``replyTo/0/name``) as ``invalidProperties`` rather than
-##    accepting the deep update.  Stalwart's PatchObject support
-##    appears to flatten paths and treat the whole key as a property
-##    name; ``replyTo/0/name`` is then unknown and rejected.
-##
-## 2. When the response carries only ``notUpdated`` (no successful
-##    state change), Stalwart omits the ``newState`` field — RFC
-##    8620 §5.3 mandates this field as required.  The library's
-##    typed ``SetResponse.fromJson`` therefore correctly rejects the
-##    response shape; this replay test instead parses the rejection
-##    rail at the raw JSON level via ``SetError.fromJson``, which is
-##    structurally complete in the captured wire shape.
+## patch-object-deep-paths-stalwart.json``).  Stalwart 0.15.5
+## collapses deep-path PatchObject expressions
+## (``replyTo/0/name``) onto ``invalidProperties`` rather than
+## ``invalidPatch`` (RFC 8620 §5.3 mandates ``invalidPatch`` for
+## unknown-property paths).  After Phase K0 made
+## ``SetResponse.newState`` ``Opt[JmapState]``, the typed parser
+## projects the rejection rail directly via
+## ``SetResponse[IdentityCreatedItem].fromJson`` →
+## ``updateResults``.
 
 {.push raises: [].}
 
-import std/json
+import std/tables
 
 import jmap_client
 import ./mloader
@@ -36,16 +27,15 @@ block tcapturedPatchObjectDeepPaths:
   let inv = resp.methodResponses[0]
   doAssert inv.rawName == "Identity/set",
     "deep-path patch must surface as Identity/set with notUpdated; got " & inv.rawName
-
-  # Stalwart-deviation: SetResponse.fromJson would fail because
-  # ``newState`` is absent.  Parse the rejection rail directly.
-  let notUpdated = inv.arguments{"notUpdated"}
-  doAssert not notUpdated.isNil and notUpdated.kind == JObject,
-    "deep-path response must carry notUpdated"
-  doAssert notUpdated.len == 1, "notUpdated must contain exactly one entry"
-
-  for id, entry in notUpdated.pairs:
-    let se = SetError.fromJson(entry).expect("SetError.fromJson")
+  let setResp = SetResponse[IdentityCreatedItem].fromJson(inv.arguments).expect(
+      "SetResponse[IdentityCreatedItem].fromJson"
+    )
+  doAssert setResp.newState.isNone,
+    "fixture pins Stalwart's missing-newState wire shape"
+  doAssert setResp.updateResults.len == 1, "exactly one notUpdated entry expected"
+  for id, outcome in setResp.updateResults.pairs:
+    doAssert outcome.isErr, "deep-path entry must be Err(SetError)"
+    let se = outcome.error
     doAssert se.rawType == "invalidProperties",
       "Stalwart projects deep-path rejection as invalidProperties; got " & se.rawType
     doAssert se.errorType == setInvalidProperties,

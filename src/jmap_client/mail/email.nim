@@ -262,7 +262,11 @@ type EmailImportResponse* {.ruleOff: "objects".} = object
   ## ``destroyed`` (import creates only).
   accountId*: AccountId ## Account the /import targeted.
   oldState*: Opt[JmapState] ## Server state before the call, or none.
-  newState*: JmapState ## Server state after the call.
+  newState*: Opt[JmapState]
+    ## Server state after the call. ``Opt.none`` when the server omits
+    ## the field — Stalwart 0.15.5 empirically omits ``newState`` for
+    ## /import responses with only failure rails populated. RFC 8621 §4.8
+    ## mandates the field; library is lenient on receive per Postel's law.
   createResults*: Table[CreationId, Result[EmailCreatedItem, SetError]]
     ## Per-CreationId success/error for imported entries.
 

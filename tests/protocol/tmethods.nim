@@ -159,7 +159,7 @@ block goldenSetResponseMerging:
   doAssert sr.accountId == makeAccountId("A13824")
   doAssert sr.oldState.isSome
   doAssert sr.oldState.get() == makeState("state1")
-  doAssert sr.newState == makeState("state2")
+  assertSomeEq sr.newState, makeState("state2")
   # createResults: k1 ok, k2 err (Decision 3.9B unified Result maps)
   assertLen sr.createResults, 2
   doAssert sr.createResults[makeCreationId("k1")].isOk
@@ -543,6 +543,20 @@ block setResponseBothNull:
   assertLen sr.createResults, 0
   assertLen sr.updateResults, 0
   assertLen sr.destroyResults, 0
+
+block setResponseMissingNewStateLenient:
+  ## RFC 8620 §5.3 mandates newState; Stalwart 0.15.5 omits it
+  ## for failed-only /set responses. Library is lenient on receive
+  ## per Postel's law (Phase K0).
+  let j = %*{"accountId": "a1"}
+  let sr = SetResponse[MockFoo].fromJson(j).get()
+  doAssert sr.newState.isNone
+
+block copyResponseMissingNewStateLenient:
+  ## Same lenience contract for CopyResponse.
+  let j = %*{"fromAccountId": "from1", "accountId": "to1"}
+  let cr = CopyResponse[MockFoo].fromJson(j).get()
+  doAssert cr.newState.isNone
 
 block setResponseCreatedOnly:
   ## Created entries only — all ok in unified Result map.

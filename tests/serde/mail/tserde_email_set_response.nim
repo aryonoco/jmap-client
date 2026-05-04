@@ -46,7 +46,7 @@ block setResponseEmailEnvelopeShape:
   let r = res.get()
   assertEq r.accountId, makeAccountId("acct1")
   assertSomeEq r.oldState, makeState("s0")
-  assertEq r.newState, makeState("s1")
+  assertSomeEq r.newState, makeState("s1")
   assertLen r.createResults, 2
   # updateResults merges wire updated + notUpdated.
   assertLen r.updateResults, 2
@@ -165,7 +165,7 @@ block setResponseEmailRoundTrip:
   let original = makeEmailSetResponse(
     accountId = makeAccountId("acct1"),
     oldState = Opt.some(makeState("s0")),
-    newState = makeState("s1"),
+    newState = Opt.some(makeState("s1")),
     createResults = cr,
   )
   let node = original.toJson()

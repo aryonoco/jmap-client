@@ -25,7 +25,7 @@ block tcapturedIdentityChangesWithUpdates:
   let setResp = SetResponse[IdentityCreatedItem].fromJson(inv.arguments).expect(
       "SetResponse[IdentityCreatedItem].fromJson"
     )
-  doAssert ($setResp.newState).len > 0, "newState must be non-empty"
+  doAssert setResp.newState.isSome, "newState must be present in this fixture"
   doAssert setResp.updateResults.len >= 1,
     "Identity/set must report at least one update outcome (got " &
       $setResp.updateResults.len & ")"

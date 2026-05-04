@@ -27,7 +27,7 @@ block tcapturedVacationSetAllArms:
   let setResp = SetResponse[VacationResponse].fromJson(inv.arguments).expect(
       "SetResponse[VacationResponse].fromJson"
     )
-  doAssert ($setResp.newState).len > 0, "newState must be non-empty"
+  doAssert setResp.newState.isSome, "newState must be present in this fixture"
   let singletonId = parseIdFromServer("singleton").expect("parseIdFromServer singleton")
   doAssert singletonId in setResp.updateResults,
     "VacationResponse/set must report a singleton update outcome"

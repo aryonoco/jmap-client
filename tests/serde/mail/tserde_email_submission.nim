@@ -328,7 +328,7 @@ block emailSubmissionSetResponseEntityRoundTrip:
   let r = res.get()
   assertEq r.accountId, makeAccountId("acct1")
   assertSomeEq r.oldState, makeState("s0")
-  assertEq r.newState, makeState("s1")
+  assertSomeEq r.newState, makeState("s1")
 
   # createResults merges wire created + notCreated (RFC 8620 §5.3 per
   # Decision L3-C): one Ok via EmailSubmissionCreatedItem.fromJson, one

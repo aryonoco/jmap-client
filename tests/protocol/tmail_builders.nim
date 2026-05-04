@@ -617,10 +617,11 @@ block getBothCopyAndDestroyHappyPath:
   let copyResp = makeEmailCopyResponse(
     fromAccountId = makeAccountId("src"),
     accountId = makeAccountId("dst"),
-    newState = makeState("ns1"),
+    newState = Opt.some(makeState("ns1")),
   )
-  let setResp =
-    makeEmailSetResponse(accountId = makeAccountId("dst"), newState = makeState("ns2"))
+  let setResp = makeEmailSetResponse(
+    accountId = makeAccountId("dst"), newState = Opt.some(makeState("ns2"))
+  )
   let resp = Response(
     methodResponses: @[
       initInvocation(mnEmailCopy, copyResp.toJson(), cid),
@@ -784,8 +785,9 @@ block getBothBothSucceed:
     "created":
       {"s1": {"id": "es1", "threadId": "thr1", "sendAt": "2026-01-15T09:00:00Z"}},
   }
-  let setResp =
-    makeEmailSetResponse(accountId = makeAccountId("a1"), newState = makeState("em1"))
+  let setResp = makeEmailSetResponse(
+    accountId = makeAccountId("a1"), newState = Opt.some(makeState("em1"))
+  )
   let resp = Response(
     methodResponses: @[
       initInvocation(mnEmailSubmissionSet, subJson, cid),
@@ -799,7 +801,7 @@ block getBothBothSucceed:
   let r = results.get()
   assertLen r.primary.createResults, 1
   doAssert r.primary.createResults[makeCreationId("s1")].isOk
-  assertEq r.implicit.newState, makeState("em1")
+  assertSomeEq r.implicit.newState, makeState("em1")
 
 block getBothInnerMethodError:
   ## O.3 — G2 §8.6 row 2: well-formed submission + an ``"error"``-tagged
@@ -858,8 +860,9 @@ block getBothInnerMcIdMismatch:
   let innerCid = makeMcid("c1")
   let handles = makeEmailSubmissionHandles(outerCid, outerCid)
   let subJson = %*{"accountId": "a1", "newState": "sub1"}
-  let setResp =
-    makeEmailSetResponse(accountId = makeAccountId("a1"), newState = makeState("em1"))
+  let setResp = makeEmailSetResponse(
+    accountId = makeAccountId("a1"), newState = Opt.some(makeState("em1"))
+  )
   let resp = Response(
     methodResponses: @[
       initInvocation(mnEmailSubmissionSet, subJson, outerCid),
@@ -901,8 +904,9 @@ block getBothOuterNotCreatedSole:
     "newState": "sub1",
     "notCreated": {"s1": {"type": "invalidProperties"}},
   }
-  let setResp =
-    makeEmailSetResponse(accountId = makeAccountId("a1"), newState = makeState("em1"))
+  let setResp = makeEmailSetResponse(
+    accountId = makeAccountId("a1"), newState = Opt.some(makeState("em1"))
+  )
   let resp = Response(
     methodResponses: @[
       initInvocation(mnEmailSubmissionSet, subJson, cid),
