@@ -121,6 +121,7 @@ block tcapturedRoundTripIntegrity:
   roundtripResponse("method-error-unknown-method-stalwart")
   roundtripResponse("method-error-unsupported-filter-stalwart")
   roundtripResponse("method-error-unsupported-sort-stalwart")
+  roundtripResponse("combined-adversarial-round-trip-stalwart")
   roundtripResponse("multi-instance-envelope-stalwart")
   roundtripResponse("notfound-rail-get-stalwart")
   # patch-object-deep-paths-stalwart — Stalwart omits newState in
