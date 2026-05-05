@@ -1,1 +1,1 @@
-{"methodResponses":[["Mailbox/queryChanges",{"accountId":"c","oldQueryState":"sae","newQueryState":"sau","removed":["a"],"added":[{"id":"a","index":0},{"id":"h","index":5}]},"c0"]],"sessionState":"3e25b2a0"}
+{"methodResponses":[["Mailbox/queryChanges",{"accountId":"c","oldQueryState":"st2vq","newQueryState":"st2vq","removed":[],"added":[]},"c0"]],"sessionState":"3e25b2a0"}

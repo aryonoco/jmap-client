@@ -48,19 +48,44 @@ curl -u "$ADMIN_AUTH" -X POST -H "Content-Type: application/json" \
 # SMTP 452, leaving the EmailSubmission stuck at 'pending' indefinitely
 # and breaking sequential test runs. The dev container topology (private
 # Docker network, two test users) has no abuse vector, so disable both.
-echo "Disabling SMTP rate limiters for test traffic..."
+#
+# We additionally collapse queue.schedule.local.retry.0 from its 2 m default
+# down to 1 s. When the queue layer defers a local-delivery attempt for any
+# reason (residual rate-limit state surviving the disable, scheduler
+# back-pressure, transient lock contention) the message's first retry is
+# stored on the row itself; only the *next* attempt picks up the new
+# schedule. A 1 s retry interval means even a deferred message drains
+# within a couple of seconds — keeping the smoke check, integration tests,
+# and ``awaitSmtpQueueDrain`` barriers all under their existing 60 s
+# budgets instead of stalling for 5+ minutes on the original retry.1.
+echo "Disabling SMTP rate limiters and shrinking local-queue retries..."
 curl -u "$ADMIN_AUTH" -X POST -H "Content-Type: application/json" \
-  -d '[{"type":"insert","prefix":null,"values":[["queue.limiter.inbound.sender.enable","false"],["queue.limiter.inbound.ip.enable","false"]],"assert_empty":false}]' \
+  -d '[{"type":"insert","prefix":null,"values":[["queue.limiter.inbound.sender.enable","false"],["queue.limiter.inbound.ip.enable","false"],["queue.schedule.local.retry.0","1s"],["queue.schedule.local.retry.1","5s"],["queue.schedule.local.retry.2","30s"]],"assert_empty":false}]' \
   -o /dev/null -s -w "  HTTP %{http_code}\n" \
   "$STALWART_URL/api/settings" || true
 
-# Stalwart caches the rate-limiter config at startup; the admin-API
-# override above only takes effect after GET /api/reload re-evaluates
-# the queue layer.
+# Stalwart caches the rate-limiter and schedule config at startup; the
+# admin-API override above only takes effect after GET /api/reload
+# re-evaluates the queue layer.
 echo "Reloading Stalwart config..."
 curl -u "$ADMIN_AUTH" \
   -o /dev/null -s -w "  HTTP %{http_code}\n" \
   "$STALWART_URL/api/reload" || true
+
+# --- Force-retry any leftover queue messages from prior runs ---
+# Messages queued before the rate-limit disable carry their next_retry
+# timestamp on the row itself (typically created+5 min when a previous
+# run tripped the limiter). The disable+reload above does not retro-
+# actively reschedule those rows, so a re-run of seed-stalwart.sh on a
+# data volume with stale queue entries still sees ``total>0`` for
+# minutes. The bulk PATCH ``/api/queue/messages?at=<now>`` reschedules
+# every queued message to retry immediately, draining residual entries
+# before the smoke check runs.
+echo "Force-retrying any stale queue messages..."
+NOW_TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+curl -u "$ADMIN_AUTH" -X PATCH \
+  -o /dev/null -s -w "  HTTP %{http_code}\n" \
+  "$STALWART_URL/api/queue/messages?at=$NOW_TS" || true
 
 # --- Write env file for integration tests ---
 ALICE_B64=$(echo -n 'alice:alice123' | base64 -w0)
@@ -270,7 +295,11 @@ fi
 # Drain the outgoing SMTP queue before declaring smoke-check success.
 # Mirrors mlive.awaitSmtpQueueDrain so the env file is written only
 # after Stalwart has genuinely delivered the smoke message — the very
-# first integration test then starts with an empty queue.
+# first integration test then starts with an empty queue. Every fifth
+# poll re-issues the bulk retry-now PATCH so a row that the scheduler
+# has just re-deferred (e.g. lock contention, throttle counter still
+# warming through reload) gets nudged again instead of waiting out a
+# fresh retry interval.
 DRAIN_REACHED=0
 TOTAL=-1
 for i in $(seq 1 60); do
@@ -278,6 +307,12 @@ for i in $(seq 1 60); do
     "$STALWART_URL/api/queue/messages?values=true" \
     | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("data",{}).get("total",-1))')
   if [ "$TOTAL" = "0" ]; then DRAIN_REACHED=1; break; fi
+  if [ $((i % 5)) -eq 0 ]; then
+    NUDGE_TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    curl -u "$ADMIN_AUTH" -X PATCH \
+      -o /dev/null -s \
+      "$STALWART_URL/api/queue/messages?at=$NUDGE_TS" || true
+  fi
   sleep 0.5
 done
 if [ "$DRAIN_REACHED" -ne 1 ]; then

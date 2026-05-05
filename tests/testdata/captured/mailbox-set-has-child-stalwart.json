@@ -1,1 +1,1 @@
-{"methodResponses":[["Mailbox/set",{"accountId":"c","oldState":"sei","newState":"sei","notDestroyed":{"h":{"type":"mailboxHasChild","description":"Mailbox has at least one children."}}},"c0"]],"sessionState":"3e25b2a0"}
+{"methodResponses":[["Mailbox/set",{"accountId":"c","oldState":"suivq","newState":"suivq","notDestroyed":{"h1":{"type":"mailboxHasChild","description":"Mailbox has at least one children."}}},"c0"]],"sessionState":"3e25b2a0"}
