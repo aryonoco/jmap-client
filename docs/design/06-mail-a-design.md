@@ -1,14 +1,14 @@
 # RFC 8621 JMAP Mail — Design A: Thread, Identity, VacationResponse
 
 This document is the detailed specification for three RFC 8621 entity types —
-Thread, Identity, and VacationResponse — plus their supporting types. It covers
-all layers (L1 types, L2 serde, L3 entity registration and builder functions)
-for each entity, cutting vertically through the architecture.
+Thread, Identity, and VacationResponse — plus their supporting types. It
+covers all layers (L1 types, L2 serde, L3 entity registration and builder
+functions) for each entity, cutting vertically through the architecture.
 
-Builds on the cross-cutting architecture design (`05-mail-design.md`) and the
-existing RFC 8620 infrastructure (`00-architecture.md` through
-`04-layer-4-design.md`). Decisions from the cross-cutting doc are referenced by
-section number.
+Builds on the cross-cutting architecture design (`05-mail-architecture.md`)
+and the existing RFC 8620 infrastructure (`00-architecture.md` through
+`04-layer-4-design.md`). Decisions from the cross-cutting doc are referenced
+by section number.
 
 ---
 
@@ -20,7 +20,7 @@ section number.
 4. [Identity — identity.nim](#4-identity--identitynim)
 5. [VacationResponse — vacation.nim](#5-vacationresponse--vacationnim)
 6. [Capability Types — mail_capabilities.nim](#6-capability-types--mail_capabilitiesnim)
-7. [Mail Set Error Types — mail_errors.nim](#7-mail-set-error-types--mail_errorsnim)
+7. [Mail Set Error Accessors — mail_errors.nim](#7-mail-set-error-accessors--mail_errorsnim)
 8. [Test Specification](#8-test-specification)
 9. [Decision Traceability Matrix](#9-decision-traceability-matrix)
 
@@ -30,51 +30,52 @@ section number.
 
 ### 1.1. Entities Covered
 
-| Entity           | RFC 8621 Section | Capability URI                           | Complexity |
-|------------------|-----------------|------------------------------------------|------------|
-| Thread           | §3              | `urn:ietf:params:jmap:mail`              | Simple     |
-| Identity         | §6              | `urn:ietf:params:jmap:submission`        | Simple     |
-| VacationResponse | §8              | `urn:ietf:params:jmap:vacationresponse`  | Simple     |
+| Entity           | RFC 8621 Section | Capability URI                          | Complexity |
+|------------------|------------------|-----------------------------------------|------------|
+| Thread           | §3               | `urn:ietf:params:jmap:mail`             | Simple     |
+| Identity         | §6               | `urn:ietf:params:jmap:submission`       | Simple     |
+| VacationResponse | §8               | `urn:ietf:params:jmap:vacationresponse` | Simple     |
 
 ### 1.2. Supporting Types Covered
 
 | Type | Module | Rationale |
 |------|--------|-----------|
-| `EmailAddress`, `EmailAddressGroup` | `addresses.nim` | Shared sub-type required by Identity; used by Email and EmailSubmission in future design docs |
-| `MailCapabilities` | `mail_capabilities.nim` | Complete typed parsing of `urn:ietf:params:jmap:mail` capability |
-| `SubmissionCapabilities` | `mail_capabilities.nim` | Complete typed parsing of `urn:ietf:params:jmap:submission` capability |
-| `MailSetErrorType` | `mail_errors.nim` | Complete enum for RFC 8621 set error classification |
+| `EmailAddress`, `EmailAddressGroup` | `addresses.nim` | Shared sub-type required by Identity; also consumed by Email and EmailSubmission |
+| `MailCapabilities` | `mail_capabilities.nim` | Typed parsing of the `urn:ietf:params:jmap:mail` capability |
+| `SubmissionCapabilities` | `mail_capabilities.nim` | Typed parsing of the `urn:ietf:params:jmap:submission` capability |
+| `SubmissionExtensionMap` | `mail_capabilities.nim` | RFC 5321 EHLO-keyword → args map keyed by validated `RFC5321Keyword` |
+| Mail set error accessors | `mail_errors.nim` | Mail-specific predicate vocabulary over the central `SetError` ADT |
 
-### 1.3. Deferred
+### 1.3. Module Summary
 
-Mailbox, Email, SearchSnippet, EmailSubmission, and all their sub-types
-(Keyword, HeaderValue, EmailBodyPart, etc.) are deferred to Design B and
-Design C documents.
-
-### 1.4. Relationship to Cross-Cutting Design
-
-This document refines `05-mail-design.md` into implementation-ready
-specifications.
-
-### 1.5. Module Summary
-
-All modules live under `src/jmap_client/mail/` per cross-cutting doc §3.3.
+All modules live under `src/jmap_client/mail/`.
 
 | Module | Layer | Contents |
 |--------|-------|----------|
-| `addresses.nim` | L1 | `EmailAddress`, `EmailAddressGroup` |
-| `thread.nim` | L1 | `Thread` (sealed, Pattern A) |
-| `identity.nim` | L1 | `Identity`, `IdentityCreate` |
-| `vacation.nim` | L1 | `VacationResponse` (no id field) |
-| `mail_capabilities.nim` | L1 | `MailCapabilities`, `SubmissionCapabilities` |
-| `mail_errors.nim` | L1 | `MailSetErrorType`, `parseMailSetErrorType` |
-| `serde_addresses.nim` | L2 | `toJson`/`fromJson` for address types |
-| `serde_thread.nim` | L2 | `toJson`/`fromJson` for Thread |
-| `serde_identity.nim` | L2 | `toJson`/`fromJson` for Identity, IdentityCreate |
-| `serde_vacation.nim` | L2 | `toJson`/`fromJson` for VacationResponse |
+| `addresses.nim` | L1 | `EmailAddress`, `EmailAddressGroup`, `parseEmailAddress` |
+| `thread.nim` | L1 | `Thread` (sealed-fields), `parseThread`, `id`/`emailIds` accessors |
+| `identity.nim` | L1 | `Identity`, `IdentityCreate`, `IdentityCreatedItem`, `IdentityUpdate`, `IdentityUpdateSet`, `NonEmptyIdentityUpdates` |
+| `vacation.nim` | L1 | `VacationResponse`, `VacationResponseUpdate`, `VacationResponseUpdateSet`, `VacationResponseSingletonId` |
+| `mail_capabilities.nim` | L1 | `MailCapabilities`, `SubmissionCapabilities`, `SubmissionExtensionMap` |
+| `mail_errors.nim` | L1 | Mail-specific typed accessors over `SetError` |
+| `serde_addresses.nim` | L2 | `toJson`/`fromJson` for `EmailAddress` and `EmailAddressGroup` |
+| `serde_thread.nim` | L2 | `toJson`/`fromJson` for `Thread` |
+| `serde_identity.nim` | L2 | `toJson`/`fromJson` for `Identity` and `IdentityCreatedItem`; `toJson` only for `IdentityCreate` |
+| `serde_identity_update.nim` | L2 | `toJson` for `IdentityUpdate`/`IdentityUpdateSet`/`NonEmptyIdentityUpdates` |
+| `serde_vacation.nim` | L2 | `toJson`/`fromJson` for `VacationResponse`; `toJson` for `VacationResponseUpdate`/`VacationResponseUpdateSet` |
 | `serde_mail_capabilities.nim` | L2 | `parseMailCapabilities`, `parseSubmissionCapabilities` |
-| `mail_entities.nim` | L3 | Entity registration for Thread, Identity |
-| `mail_methods.nim` | L3 | `addVacationResponseGet`, `addVacationResponseSet` |
+| `mail_entities.nim` | L3 | Per-verb method-name resolvers, `capabilityUri`, `registerJmapEntity`/`registerSettableEntity` |
+| `identity_builders.nim` | L3 | Thin wrappers `addIdentityGet`/`addIdentityChanges`/`addIdentitySet` |
+| `mail_methods.nim` | L3 | `addVacationResponseGet`, `addVacationResponseSet` (and the SearchSnippet/Email-parse/Email-import builders) |
+
+### 1.4. Relationship to Cross-Cutting Design
+
+This document specifies the per-entity layout for the simplest three RFC 8621
+entities. Full RFC 8621 coverage spans the companion design documents
+(`07-mail-b-design.md` through `13-mail-H1-design.md`); the patterns
+introduced here (sealed-field invariants, typed creation models, typed update
+algebras, custom builder functions for non-standard entities, capability
+parsing) recur throughout.
 
 ---
 
@@ -83,129 +84,102 @@ All modules live under `src/jmap_client/mail/` per cross-cutting doc §3.3.
 **Module:** `src/jmap_client/mail/addresses.nim`
 
 `EmailAddress` and `EmailAddressGroup` are shared sub-types used by multiple
-entities. They are specified here as a prerequisite section — a shared bounded
-context, not subordinated to any single entity.
+entities — Identity, Email, and EmailSubmission. They are specified here as
+a prerequisite section because Identity consumes them.
 
 **Principles:** DDD (addresses are their own bounded context), DRY (one
-specification, referenced by three future consumers), Parse-don't-validate
-(full parsing boundary defined now, no forward references).
+specification, three consumers), Parse-don't-validate (full parsing
+boundary defined now).
 
 ### 2.1. EmailAddress
 
 **RFC reference:** §4.1.2.3.
 
 An `EmailAddress` represents a single email address with an optional display
-name. Used by Identity (`replyTo`, `bcc`), Email (convenience header fields),
-and EmailSubmission (envelope addresses).
-
-**Type definition:**
+name. Used by Identity (`replyTo`, `bcc`), Email (convenience header
+fields), and EmailSubmission (envelope addresses).
 
 ```nim
-type EmailAddress* = object
-  name*: Opt[string]    ## Display name, or none if absent
-  email*: string        ## RFC 5322 addr-spec
+type EmailAddress* {.ruleOff: "objects".} = object
+  name*: Opt[string]   ## Display name, or none if absent.
+  email*: string       ## RFC 5322 addr-spec (non-empty, not format-validated).
 ```
 
-Plain public fields. The `email` non-empty invariant is enforced by the smart
-constructor, but `EmailAddress` is a simple value object used extensively —
-Pattern A sealing would add accessor ceremony disproportionate to the risk.
-Consistent with the simpler value object pattern used throughout the codebase.
+Plain public fields. The `email` non-empty invariant is enforced by the
+smart constructor `parseEmailAddress`. `EmailAddress` is a value object
+used extensively — sealed-field accessor ceremony is disproportionate to
+the risk.
 
 **Smart constructor:**
 
 ```nim
 func parseEmailAddress*(
-    email: string,
-    name: Opt[string] = Opt.none(string),
+    email: string, name: Opt[string] = Opt.none(string),
 ): Result[EmailAddress, ValidationError]
 ```
 
-Validates: `email` non-empty. No format validation beyond non-empty — the
-server provides arbitrary addresses, and clients send whatever the server
-accepts. The `forbiddenFrom` set error handles invalid addresses at the
-protocol level. Post-construction `doAssert` verifies the invariant on the
-constructed value (`email.len > 0`), catching logic errors in the
-validation code itself. Follows the `parseId`/`parseUnsignedInt` pattern
-in `primitives.nim`.
-
-**Principles:**
-- **Parse, don't validate** — Smart constructor enforces non-empty email at
-  the construction boundary. After construction, all downstream code can rely
-  on the invariant.
-- **Total functions** — Maps every input to `ok(EmailAddress)` or
-  `err(ValidationError)`.
+Validates: `email.len > 0`. No format validation beyond non-empty — JMAP
+servers deliver clean JSON with pre-parsed addresses, and the
+`forbiddenFrom` set error handles invalid sender addresses at the protocol
+level.
 
 ### 2.2. EmailAddressGroup
 
 **RFC reference:** §4.1.2.4.
 
-An `EmailAddressGroup` represents a named group of email addresses, or an
-ungrouped list (when `name` is none). Used by Email's `GroupedAddresses`
-header parsed form.
-
-**Type definition:**
-
 ```nim
-type EmailAddressGroup* = object
-  name*: Opt[string]            ## Group name, or none if not a group
-  addresses*: seq[EmailAddress]  ## Members of the group (may be empty)
+type EmailAddressGroup* {.ruleOff: "objects".} = object
+  name*: Opt[string]              ## Group name, or none if not a named group.
+  addresses*: seq[EmailAddress]   ## Members of the group (may be empty).
 ```
 
-No smart constructor needed — all invariants are captured by field types.
+No smart constructor — all invariants are captured by the field types.
 `addresses` may be empty (a group with no members is valid per RFC).
 
 ### 2.3. Serde — serde_addresses.nim
 
 **Module:** `src/jmap_client/mail/serde_addresses.nim`
 
-Follows established core serde patterns (`checkJsonKind`, `optJsonField`,
-`parseError`). A dedicated serde module for addresses rather than embedding
-in `serde_identity.nim`, since Email and EmailSubmission also need address
-serde (cross-cutting doc §3.5: "No serde module imports another serde
-module except through re-export hubs").
+`fromJson` returns `Result[T, SerdeViolation]` — the structured serde-error
+ADT used at every wire boundary. L1 smart-constructor failures bridge into
+the serde rail via `wrapInner` (which wraps a `Result[T, ValidationError]`
+inside `SerdeViolation.svkFieldParserFailed`).
 
-**EmailAddress serialisation:**
-
-Wire format:
+**EmailAddress wire format:**
 
 ```json
 {"name": "Joe Bloggs", "email": "joe@example.com"}
 {"name": null, "email": "joe@example.com"}
 ```
 
-`toJson`:
-- Emits `name` as string or `null` (for `Opt.none`).
+**`toJson(ea: EmailAddress)`**
+- Emits `name` as string or `null` (from `Opt.none`).
 - Always emits `email`.
 
-`fromJson`:
-- Validates JObject.
-- Extracts `email` (required string, rejects absent/null/non-string).
-- Extracts `name` — absent or null → `Opt.none(string)`, string →
-  `Opt.some(value)`.
-- Delegates to `parseEmailAddress` for construction (enforces non-empty
-  email).
-- Returns `Result[EmailAddress, ValidationError]`.
+**`EmailAddress.fromJson`**
+- Validates JObject via `expectKind`.
+- Extracts required `email` field via `fieldJString`.
+- Extracts optional `name` via `optJsonField` — absent or null → `Opt.none`,
+  string → `Opt.some(value)`.
+- Delegates to `parseEmailAddress`, bridged through `wrapInner`.
 
-**EmailAddressGroup serialisation:**
-
-Wire format:
+**EmailAddressGroup wire format:**
 
 ```json
 {"name": "Engineering", "addresses": [{"name": null, "email": "eng@example.com"}]}
 {"name": null, "addresses": []}
 ```
 
-`toJson`:
+**`toJson(group: EmailAddressGroup)`**
 - Emits `name` as string or `null`.
 - Always emits `addresses` array.
 
-`fromJson`:
+**`EmailAddressGroup.fromJson`**
 - Validates JObject.
-- Extracts `name` (same null handling as EmailAddress).
-- Extracts `addresses` as JArray, parses each element via
+- Extracts `name` (same null handling as `EmailAddress`).
+- Extracts `addresses` as required JArray; parses each element via
   `EmailAddress.fromJson`. Short-circuits on first element error via `?`.
-- Constructs `EmailAddressGroup` directly (no smart constructor).
-- Returns `Result[EmailAddressGroup, ValidationError]`.
+- Constructs `EmailAddressGroup` directly — no smart constructor.
 
 ---
 
@@ -214,70 +188,55 @@ Wire format:
 **RFC reference:** §3.
 
 A Thread groups related Emails into a flat list sorted by `receivedAt`.
-Every Email belongs to exactly one Thread. Thread is the simplest entity in
-RFC 8621 — two properties, two methods, no query, no set.
+Every Email belongs to exactly one Thread. Thread is the simplest entity
+in RFC 8621 — two properties, two methods, no `/query`, no `/set`.
 
 **Module:** `src/jmap_client/mail/thread.nim`
 
 ### 3.1. Type Definition
 
-**Pattern A (sealed fields)** — Thread has one invariant that `seq[Id]`
-cannot express: `emailIds` must be non-empty (every Thread contains at least
-one Email per RFC §3). Sealing prevents construction of a Thread with empty
-`emailIds` outside the smart constructor.
+Thread uses **sealed (module-private) fields** to enforce the non-empty
+`emailIds` invariant that `seq[Id]` cannot express on its own — every
+Thread contains at least one Email per RFC §3.
 
 ```nim
-type Thread* = object
+type Thread* {.ruleOff: "objects".} = object
   rawId: Id              ## module-private
   rawEmailIds: seq[Id]   ## module-private, guaranteed non-empty
 ```
 
-Sealed fields alone prevent external construction with invalid state.
-The consumer cannot name any fields in the constructor (they are
-module-private), so the only external constructor syntax is `Thread()` —
-which produces a zero-initialised value with `rawEmailIds = @[]`. While
-this compiles, the result is meaningless: no field values can be specified,
-and all legitimate construction paths go through `parseThread` (which
-enforces non-empty `emailIds`) or `Thread.fromJson`.
+Sealed fields prevent external construction with arbitrary state — the
+consumer cannot name any field in a `Thread(...)` literal outside
+`thread.nim`. The only legitimate construction paths are `parseThread`
+(which enforces non-empty `emailIds`) and `Thread.fromJson` (which
+delegates to `parseThread`).
 
-The project's `config.nims` promotes `ProveInit` to an error, which
-prevents *using* an uninitialised variable:
-- `var t: Thread` without provable initialisation is a compile error
-  (`ProveInit`).
+The project's `config.nims` promotes `ProveInit` to an error, so a `var t:
+Thread` without provable initialisation is a compile error.
 
-Note: The original design specified `{.requiresInit.}` to additionally
-reject `Thread()` zero-initialisation. This pragma was dropped during
-implementation because it is incompatible with `seq[Thread]` under the
-project's `UnsafeSetLen` error promotion — Nim's internal `seq` hooks
-(`=destroy`, `=copy`) instantiate `setLen` code paths, causing compile
-errors even on `seq[Thread].add()`. This would block `GetResponse[Thread]`
-and any collection usage. The Session type follows the same sealed-fields-
-only pattern without `{.requiresInit.}`.
+**No `{.requiresInit.}` pragma.** That pragma is incompatible with
+`seq[Thread]` under the project's `UnsafeSetLen` error promotion — Nim's
+internal `seq` hooks (`=destroy`, `=copy`) instantiate `setLen` code
+paths, which would block `GetResponse[Thread]` and any collection usage.
+Sealed fields alone provide the practical guarantee.
 
 **Principles:**
-- **Make illegal states unrepresentable** — Module-private fields + smart
-  constructor guarantee non-empty `emailIds`. Direct construction of
-  `Thread(rawId: x, rawEmailIds: @[])` is prevented outside `thread.nim`
-  by sealed fields.
-- **Parse, don't validate** — The smart constructor enforces the invariant
-  once at the construction boundary.
+- **Make illegal states unrepresentable** — Module-private fields plus
+  the smart constructor guarantee non-empty `emailIds`.
+- **Parse, don't validate** — The smart constructor enforces the
+  invariant once at the construction boundary.
 
 ### 3.2. Smart Constructor
 
 ```nim
-func parseThread*(id: Id, emailIds: seq[Id]): Result[Thread, ValidationError]
+func parseThread*(id: Id, emailIds: seq[Id]):
+    Result[Thread, ValidationError]
 ```
 
 Validates: `emailIds.len > 0`. Returns
-`err(validationError("Thread", "emailIds must contain at least one Id"))`
-on violation. Post-construction `doAssert` verifies `rawEmailIds.len > 0`
-(same pattern as §2.1).
-
-A Thread with zero emails has no domain meaning — it should not exist in the
-model. Invalid server data belongs on the error rail.
-
-**Principle:** Total functions — maps every input to `ok(Thread)` or
-`err(ValidationError)`.
+`err(validationError("Thread", "emailIds must contain at least one Id", ""))`
+on violation. A Thread with zero emails has no domain meaning — invalid
+server data belongs on the error rail.
 
 ### 3.3. Accessors
 
@@ -286,8 +245,8 @@ func id*(t: Thread): Id
 func emailIds*(t: Thread): seq[Id]
 ```
 
-UFCS accessors for sealed fields. `emailIds` returns a copy of the internal
-`seq[Id]` (value semantics under ARC).
+UFCS accessors for the sealed fields. `emailIds` returns a copy of the
+internal `seq[Id]` (value semantics under ARC).
 
 ### 3.4. Serde — serde_thread.nim
 
@@ -302,36 +261,53 @@ UFCS accessors for sealed fields. `emailIds` returns a copy of the internal
 }
 ```
 
-**toJson:**
+**`toJson(t: Thread)`**
 - Emits `id` and `emailIds` fields.
-- Uses accessor functions to read sealed fields.
+- Reads sealed fields through the public accessors.
 
-**fromJson:**
+**`Thread.fromJson`**
 - Validates JObject.
-- Extracts `id` via `Id.fromJson` (required).
-- Extracts `emailIds` as JArray, parses each element via `Id.fromJson`.
-  Short-circuits on first element error via `?`.
-- Delegates to `parseThread` for construction (enforces non-empty).
-- Returns `Result[Thread, ValidationError]`.
+- Extracts `id` via `fieldJString` + `Id.fromJson`.
+- Extracts `emailIds` as a required JArray; parses each element via
+  `Id.fromJson`, short-circuiting on the first element error via `?`.
+- Delegates to `parseThread`, bridged through `wrapInner` (so the
+  non-empty rejection surfaces as `svkFieldParserFailed`).
 
 ### 3.5. Entity Registration
 
 **Module:** `src/jmap_client/mail/mail_entities.nim`
 
+Thread supports `/get` (§3.1) and `/changes` (§3.2). It has no `/query`,
+`/set`, `/copy`, `/queryChanges`, or `/parse` overload — the corresponding
+per-verb resolvers are deliberately absent, so `addSet[Thread]` (etc.)
+fails at the call site with an undeclared-identifier compile error.
+
 ```nim
-func methodNamespace*(T: typedesc[Thread]): string = "Thread"
-func capabilityUri*(T: typedesc[Thread]): string = "urn:ietf:params:jmap:mail"
-registerJmapEntity(Thread)
+func methodEntity*(T: typedesc[thread.Thread]): MethodEntity = meThread
+func getMethodName*(T: typedesc[thread.Thread]): MethodName = mnThreadGet
+func changesMethodName*(T: typedesc[thread.Thread]): MethodName = mnThreadChanges
+func capabilityUri*(T: typedesc[thread.Thread]): string = "urn:ietf:params:jmap:mail"
+
+template changesResponseType*(T: typedesc[thread.Thread]): typedesc =
+  ChangesResponse[thread.Thread]
+
+registerJmapEntity(thread.Thread)
 ```
 
-**Valid methods:** `/get` (§3.1), `/changes` (§3.2). No `/query`, `/set`, or
-`/copy`. Invalid method calls (e.g. `addSet[Thread]`) compile but produce
-server errors — a client programming error, not a type-safety concern. Thread
-supports exactly the two most common read-only methods; the generic builder
-handles both perfectly.
+`registerJmapEntity` emits a static check that `methodEntity` and
+`capabilityUri` exist for `Thread`; missing overloads produce a
+domain-specific compile error rather than a cryptic failure at a
+generic call site. Per-verb method-name resolvers are not part of that
+check by design — they fail at the consumer's `addX[Thread]` call site
+with a precise undeclared-identifier error.
 
-**Builder usage:** Generic `addGet[Thread]`, `addChanges[Thread]` — no
-entity-specific extensions (cross-cutting doc §9.4).
+`Thread` participates in chained methods: `GetResponse[Thread]` is
+registered via `registerChainableMethod` so that `Thread/get` may chain
+out to `Email/get` via `rpListEmailIds` (RFC 8621 §4.10 first-login
+workflow).
+
+**Builder usage:** Generic `addGet[Thread]` and `addChanges[Thread]` —
+no entity-specific extensions.
 
 ---
 
@@ -339,72 +315,71 @@ entity-specific extensions (cross-cutting doc §9.4).
 
 **RFC reference:** §6.
 
-An Identity stores information about an email address or domain the user may
-send from. Seven properties, three standard methods (`/get`, `/changes`,
-`/set`). Simple entity with one noteworthy constraint: `email` is immutable
-after creation.
+An Identity stores information about an email address or domain the user
+may send from. Eight properties, three standard methods (`/get`,
+`/changes`, `/set`). The defining constraints: `email` is immutable after
+creation, and the `/set` `created[cid]` payload is a server-set subset
+(not the full Identity record).
 
 **Module:** `src/jmap_client/mail/identity.nim`
 
 ### 4.1. Identity (Read Model)
 
-**Plain public fields** — no Pattern A. All field-level invariants are
-captured by the types themselves (`Id`, `Opt[seq[EmailAddress]]`, `bool`,
-`string`). No cross-field invariants. Consistent with `Account` and
-`CoreCapabilities` in core.
+Plain public fields. All field-level invariants are captured by the field
+types themselves (`Id`, `Opt[seq[EmailAddress]]`, `bool`, `string`); no
+cross-field invariants.
 
 ```nim
-type Identity* = object
-  id*: Id
-  name*: string                     ## default: ""
-  email*: string                    ## immutable after creation
-  replyTo*: Opt[seq[EmailAddress]]  ## default: null
-  bcc*: Opt[seq[EmailAddress]]      ## default: null
-  textSignature*: string            ## default: ""
-  htmlSignature*: string            ## default: ""
-  mayDelete*: bool                  ## server-set
+type Identity* {.ruleOff: "objects".} = object
+  id*: Id                              ## Server-assigned identifier.
+  name*: string                        ## Display name; default "".
+  email*: string                       ## Email address; immutable after creation.
+  replyTo*: Opt[seq[EmailAddress]]     ## Default Reply-To addresses, or none.
+  bcc*: Opt[seq[EmailAddress]]         ## Default Bcc addresses, or none.
+  textSignature*: string               ## Plain-text signature; default "".
+  htmlSignature*: string               ## HTML signature; default "".
+  mayDelete*: bool                     ## Server-set; whether the client may delete.
 ```
 
-**String fields use `string`, not `Opt[string]`** — the RFC specifies
+**String fields use `string`, not `Opt[string]`.** The RFC specifies
 `name`, `textSignature`, and `htmlSignature` as `String` (never null) with
-default `""`. The `fromJson` deserialiser treats absent keys as `""` (the
-RFC-defined default). This eliminates a meaningless `Opt.none` state
-(Identity's name is never "absent", it's just empty) and keeps the
-`Opt`-means-nullable convention clean across the codebase.
+default `""`. `Identity.fromJson` treats absent keys as `""` (the
+RFC-defined default). This eliminates a meaningless `Opt.none` state and
+keeps the `Opt`-means-nullable convention clean across the codebase.
 
-Using `Opt[string]` would overload `Opt`'s meaning on a single type:
-`Opt.none` on `replyTo` means "nullable", while `Opt.none` on `name` would
-mean "maybe not requested". Two different semantics sharing one type-level
-encoding violates Make illegal states unrepresentable.
+**`email` immutability** is server-enforced. Attempting to update `email`
+via `/set` returns a `SetError`. The type-level "email required on
+create" lives on `IdentityCreate` (§4.2).
 
-**`email` immutability** — a server-enforced constraint. Attempting to
-update `email` via `/set` returns a `SetError`. The type-level enforcement
-of "email required on create" is in `IdentityCreate` (§4.2).
+**`email` lenient-on-receive.** RFC 8621 §6.1 specifies `email` as a
+plain `String` with no MUST-non-empty constraint. Cyrus 3.12.2 emits an
+empty `email` for server-default identities (config-derived, no explicit
+address); Stalwart and James populate it with the user's primary
+address. `Identity.fromJson` accepts whatever string the server sends —
+client-construction validation lives in `parseIdentityCreate`, not on
+the receive path.
 
-**`email` format** — the RFC permits wildcard addresses (e.g.
-`*@example.com`). No format validation beyond non-empty in `IdentityCreate`.
-The server decides what's valid; `forbiddenFrom` handles rejection.
-
-**`mayDelete`** — server-set boolean. Attempting to destroy an Identity with
-`mayDelete == false` returns standard `SetError(forbidden)`.
+**`mayDelete`** is a server-set boolean. Attempting to destroy an
+Identity with `mayDelete == false` surfaces as a per-id `SetError` inside
+`destroyResults` — there is no client-side pre-check.
 
 No smart constructor for the read model — `fromJson` extracts fields,
 validates JSON structure, and constructs directly.
 
 ### 4.2. IdentityCreate (Creation Model)
 
-The Identity read model and creation model have different valid field sets:
-creates require `email` and exclude `id`/`mayDelete`. A distinct type makes
-"create without email" unrepresentable.
+The Identity read model and creation model have different valid field
+sets: creates require `email` and exclude `id`/`mayDelete`. A distinct
+type makes "create without email" unrepresentable.
 
 ```nim
-type IdentityCreate* = object
-  email*: string                     ## required, immutable after creation
-  name*: string                      ## default: ""
-  replyTo*: Opt[seq[EmailAddress]]   ## default: null
-  bcc*: Opt[seq[EmailAddress]]       ## default: null
-  textSignature*: string             ## default: ""
-  htmlSignature*: string             ## default: ""
+type IdentityCreate* {.ruleOff: "objects".} = object
+  email*: string                       ## Required, non-empty.
+  name*: string                        ## Default "".
+  replyTo*: Opt[seq[EmailAddress]]     ## Default Opt.none.
+  bcc*: Opt[seq[EmailAddress]]         ## Default Opt.none.
+  textSignature*: string               ## Default "".
+  htmlSignature*: string               ## Default "".
 ```
 
 **Smart constructor:**
@@ -420,74 +395,154 @@ func parseIdentityCreate*(
 ): Result[IdentityCreate, ValidationError]
 ```
 
-Validates: `email` non-empty. Post-construction `doAssert` verifies
-`email.len > 0` (same pattern as §2.1). Default parameter values match
-RFC-specified defaults for ergonomic construction:
+Validates: `email.len > 0`. Default parameter values match RFC-specified
+defaults for ergonomic construction:
 
 ```nim
-let ic = ?parseIdentityCreate(email = "joe@example.com")  # all defaults
+let ic = ?parseIdentityCreate(email = "joe@example.com")
 let ic2 = ?parseIdentityCreate(email = "joe@example.com", name = "Joe")
 ```
 
-**Principles:**
-- **Make illegal states unrepresentable** — `email` is required by
-  construction. `id` and `mayDelete` don't exist on this type.
-- **DDD** — Create and read are different domain operations with different
-  valid shapes (same rationale as `EmailBlueprint` in cross-cutting doc
-  §8.6: "different domain operations deserve different types").
-- **Total functions** — `parseIdentityCreate()` →
-  `Result[IdentityCreate, ValidationError]`.
-- **Railway-Oriented Programming** — Construction railway via `Result`. The
-  `?` operator composes with the consumer's existing railway.
+**Layer separation:** `IdentityCreate` is a Layer 1 type. Its `toJson` is
+in `serde_identity.nim`. `addIdentitySet` accepts
+`Opt[Table[CreationId, IdentityCreate]]` directly — `addSet[Identity, ...]`
+resolves `IdentityCreate.toJson` via `mixin` at the instantiation site.
 
-**Layer separation:** `IdentityCreate` is a Layer 1 type. Its `toJson` is a
-Layer 2 function. The generic `addSet[Identity]` builder (Layer 3) accepts
-`Table[CreationId, JsonNode]` — the consumer calls `identityCreate.toJson()`
-to produce the `JsonNode`. No Layer 3 extensions needed for Identity.
+### 4.3. IdentityCreatedItem (Server-Set Subset)
 
-**Updates** use `PatchObject` via the generic `addSet[Identity]` builder. The
-`email` immutability constraint is server-enforced on updates.
+The wire payload for `/set`'s `created[cid]` table is *not* the full
+`Identity` record. RFC 8620 §5.3 says the server MUST return the new
+`id` plus any server-set or server-modified properties; for Identity
+the only such property is `mayDelete`. The client already sent every
+other field in `create`.
 
-### 4.3. Serde — serde_identity.nim
+```nim
+type IdentityCreatedItem* {.ruleOff: "objects".} = object
+  id*: Id
+  mayDelete*: Opt[bool]
+```
+
+**`mayDelete: Opt[bool]`** — Stalwart 0.15.5 omits `mayDelete` from this
+payload (a strict-RFC §5.3 minor divergence): the create acknowledgement
+is just `{"id": "<id>"}`. Postel-receive accommodation; mirrors the
+`EmailCreatedItem` design.
+
+`SetResponse[IdentityCreatedItem]` is the typed response carried by the
+`addIdentitySet` handle (§4.6), keyed by `CreationId` in
+`createResults`.
+
+### 4.4. Identity Update Algebra
+
+The settable Identity properties (RFC 8621 §6) are five: `name`, `replyTo`,
+`bcc`, `textSignature`, `htmlSignature`. A typed sum-type ADT with one
+variant per settable property makes "exactly one target per update" a
+type-level fact — no empty patches and no multi-property patches in a
+single `IdentityUpdate`. Shape mirrors `MailboxUpdate` and
+`VacationResponseUpdate`.
+
+```nim
+type IdentityUpdateVariantKind* = enum
+  iuSetName
+  iuSetReplyTo
+  iuSetBcc
+  iuSetTextSignature
+  iuSetHtmlSignature
+
+type IdentityUpdate* {.ruleOff: "objects".} = object
+  case kind*: IdentityUpdateVariantKind
+  of iuSetName:           name*: string
+  of iuSetReplyTo:        replyTo*: Opt[seq[EmailAddress]]
+  of iuSetBcc:            bcc*: Opt[seq[EmailAddress]]
+  of iuSetTextSignature:  textSignature*: string
+  of iuSetHtmlSignature:  htmlSignature*: string
+```
+
+`Opt.none` on `replyTo` / `bcc` clears the default list, per RFC 8621 §6.
+
+**Builder helpers** (one per variant) construct the case object with the
+correct literal discriminator:
+
+```nim
+func setName*(name: string): IdentityUpdate
+func setReplyTo*(replyTo: Opt[seq[EmailAddress]]): IdentityUpdate
+func setBcc*(bcc: Opt[seq[EmailAddress]]): IdentityUpdate
+func setTextSignature*(textSignature: string): IdentityUpdate
+func setHtmlSignature*(htmlSignature: string): IdentityUpdate
+```
+
+#### IdentityUpdateSet — per-id batch
+
+A single `/set` update on an Identity may touch several properties at
+once. `IdentityUpdateSet` is a validated, conflict-free batch of
+`IdentityUpdate` operations targeting one Identity:
+
+```nim
+type IdentityUpdateSet* = distinct seq[IdentityUpdate]
+
+func initIdentityUpdateSet*(updates: openArray[IdentityUpdate]):
+    Result[IdentityUpdateSet, seq[ValidationError]]
+```
+
+`initIdentityUpdateSet` is an accumulating smart constructor
+(`validateUniqueByIt` from `validation.nim`). It rejects:
+
+- empty input — the `/set` builder's "no updates for this id"
+  representation is to omit the entry from the outer table, not pass an
+  empty set;
+- duplicate target property — two updates with the same `kind` would
+  produce a JSON patch object with duplicate keys.
+
+All violations surface in a single `Err` pass; each repeated kind is
+reported exactly once regardless of occurrence count.
+
+#### NonEmptyIdentityUpdates — whole-container update algebra
+
+```nim
+type NonEmptyIdentityUpdates* = distinct Table[Id, IdentityUpdateSet]
+
+func parseNonEmptyIdentityUpdates*(
+    items: openArray[(Id, IdentityUpdateSet)]
+): Result[NonEmptyIdentityUpdates, seq[ValidationError]]
+```
+
+`parseNonEmptyIdentityUpdates` rejects:
+
+- empty input — the `/set` builder's `update:` field has exactly one "no
+  updates" representation (omit the parameter via `Opt.none`);
+- duplicate `Id` keys — silent last-wins shadowing at `Table`
+  construction would swallow caller data, so `openArray` (not `Table`)
+  is the input shape and duplicates are detected before construction.
+
+### 4.5. Serde — serde_identity.nim and serde_identity_update.nim
 
 **Module:** `src/jmap_client/mail/serde_identity.nim`
 
-Imports `serde_addresses` for `EmailAddress` serde. Follows core serde
-patterns.
+Imports `serde_addresses` for `EmailAddress` serde. `fromJson` returns
+`Result[T, SerdeViolation]`.
 
-**Identity wire format (example from RFC §6.4):**
-
-```json
-{
-  "id": "XD-3301-222-11_22AAz",
-  "name": "Joe Bloggs",
-  "email": "joe@example.com",
-  "replyTo": null,
-  "bcc": [{"name": null, "email": "joe+archive@example.com"}],
-  "textSignature": "-- \nJoe Bloggs\nMaster of Email",
-  "htmlSignature": "<div><b>Joe Bloggs</b></div><div>Master of Email</div>",
-  "mayDelete": false
-}
-```
-
-**Identity.fromJson:**
+**`Identity.fromJson`**
 - Validates JObject.
-- Extracts `id` via `Id.fromJson` (required).
-- Extracts `email` as string (required, rejects absent/null/non-string/empty).
-- Extracts `name`, `textSignature`, `htmlSignature` as string — **absent
-  key → `""` (RFC default)**. Present non-string → `err(ValidationError)`.
-- Extracts `replyTo`, `bcc` as `Opt[seq[EmailAddress]]` — absent or null →
-  `Opt.none`, present JArray → parse each element via `EmailAddress.fromJson`.
-- Extracts `mayDelete` as bool (required).
-- Constructs `Identity` directly (no smart constructor).
-- Returns `Result[Identity, ValidationError]`.
+- Extracts `id` via `fieldJString` + `Id.fromJson`.
+- Extracts `email` as a required JString — no non-empty check on receive
+  (Cyrus accommodation; see §4.1).
+- Extracts `name`, `textSignature`, `htmlSignature` via the local helper
+  `parseDefaultingString`: absent or null → `""`; present non-string →
+  `svkWrongKind`.
+- Extracts `replyTo`, `bcc` via the local helper `parseOptEmailAddresses`:
+  absent or null → `Opt.none`; JArray → `Opt.some` with each element
+  parsed by `EmailAddress.fromJson`; other kinds → `svkWrongKind`.
+- Extracts `mayDelete` as a required JBool.
+- Constructs `Identity` directly.
 
-**Identity.toJson:**
-- Emits all fields. `replyTo`/`bcc` emit as `null` or array.
-  `name`/`textSignature`/`htmlSignature` emit as string (even if `""`).
+**`Identity.toJson`**
+- Emits all eight fields. `replyTo`/`bcc` emit as JSON `null` (for
+  `Opt.none`) or array. `name`/`textSignature`/`htmlSignature` emit as
+  string (even when `""`).
 
-**IdentityCreate.toJson:**
-- Emits all fields including defaults. No `id` or `mayDelete` fields.
+**`IdentityCreate.toJson`**
+- Emits all six fields including defaults (`""` for the strings,
+  `null` for `replyTo`/`bcc` when `Opt.none`). No `id` or `mayDelete`
+  fields.
 - All fields always present — explicit is safer than relying on server
   defaults.
 
@@ -502,28 +557,112 @@ patterns.
 }
 ```
 
-No `IdentityCreate.fromJson` — creation types are constructed by the
-consumer, not parsed from server responses.
+There is no `IdentityCreate.fromJson` — creation types flow client→server,
+and the server never sends them back.
 
-### 4.4. Entity Registration
+**`IdentityCreatedItem.fromJson`**
+- Validates JObject.
+- Extracts required `id`.
+- Extracts optional `mayDelete` — absent or null → `Opt.none(bool)`;
+  JBool → `Opt.some`. Stalwart's elision is round-tripped symmetrically
+  by `IdentityCreatedItem.toJson` (emit `mayDelete` only when
+  `Opt.some`).
+
+**Module:** `src/jmap_client/mail/serde_identity_update.nim`
+
+Send-side only. `IdentityUpdate` patches flatten to RFC 8620 §5.3 wire
+patches; the property names match Identity field names verbatim. There
+is no `fromJson` — the server never echoes update objects.
+
+```nim
+func toJson*(u: IdentityUpdate): (string, JsonNode)
+func toJson*(us: IdentityUpdateSet): JsonNode
+func toJson*(upd: NonEmptyIdentityUpdates): JsonNode
+```
+
+`IdentityUpdate.toJson` returns one `(wireKey, wireValue)` pair per
+variant — e.g. `iuSetReplyTo` → `("replyTo", emitOptEmailAddresses(...))`
+where `emitOptEmailAddresses` projects `Opt.none` to JSON `null` (the
+"clear the default list" signal) and `Opt.some` to a JSON array.
+`IdentityUpdateSet.toJson` aggregates the pairs into one patch object
+(no shadowing risk because `initIdentityUpdateSet` already rejected
+duplicates). `NonEmptyIdentityUpdates.toJson` flattens to the wire
+`update:` value `{identityId: patchObj, ...}`.
+
+### 4.6. Entity Registration and Builders
 
 **Module:** `src/jmap_client/mail/mail_entities.nim`
 
+Identity supports `/get` (§6.1), `/changes` (§6.2), `/set` (§6.3). It has
+no `/query`, `/queryChanges`, or `/copy` — the corresponding per-verb
+resolvers are deliberately absent.
+
 ```nim
-func methodNamespace*(T: typedesc[Identity]): string = "Identity"
+func methodEntity*(T: typedesc[Identity]): MethodEntity = meIdentity
+func getMethodName*(T: typedesc[Identity]): MethodName = mnIdentityGet
+func changesMethodName*(T: typedesc[Identity]): MethodName = mnIdentityChanges
+func setMethodName*(T: typedesc[Identity]): MethodName = mnIdentitySet
 func capabilityUri*(T: typedesc[Identity]): string = "urn:ietf:params:jmap:submission"
+
+template changesResponseType*(T: typedesc[Identity]): typedesc =
+  ChangesResponse[Identity]
+template createType*(T: typedesc[Identity]): typedesc       = IdentityCreate
+template updateType*(T: typedesc[Identity]): typedesc       = NonEmptyIdentityUpdates
+template setResponseType*(T: typedesc[Identity]): typedesc  =
+  SetResponse[IdentityCreatedItem]
+
 registerJmapEntity(Identity)
+registerSettableEntity(Identity)
 ```
 
-**Valid methods:** `/get` (§6.1), `/changes` (§6.2), `/set` (§6.3). No
-`/query`, `/queryChanges`, or `/copy`. Invalid method calls compile but
-produce server errors.
+`registerSettableEntity` emits static checks that `setMethodName`,
+`createType`, `updateType`, and `setResponseType` exist for `Identity`;
+missing overloads produce domain-specific compile errors.
 
-**Builder usage:** Generic `addGet[Identity]`, `addChanges[Identity]`,
-`addSet[Identity]` — no entity-specific extensions (cross-cutting doc §9.4).
+**Module:** `src/jmap_client/mail/identity_builders.nim`
 
-**Set error:** `forbiddenFrom` on create (§6.3) — classified by
-`MailSetErrorType` (§7).
+Thin wrappers over the generic builders, so consumers can call
+`addIdentityGet(...)` instead of `addGet[Identity](...)`. Builders return
+`(RequestBuilder, ResponseHandle[T])` tuples — the builder is
+functional, not a `var` parameter.
+
+```nim
+func addIdentityGet*(
+    b: RequestBuilder,
+    accountId: AccountId,
+    ids: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]),
+    properties: Opt[seq[string]] = Opt.none(seq[string]),
+): (RequestBuilder, ResponseHandle[GetResponse[Identity]])
+
+func addIdentityChanges*(
+    b: RequestBuilder,
+    accountId: AccountId,
+    sinceState: JmapState,
+    maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges),
+): (RequestBuilder, ResponseHandle[ChangesResponse[Identity]])
+
+func addIdentitySet*(
+    b: RequestBuilder,
+    accountId: AccountId,
+    ifInState: Opt[JmapState] = Opt.none(JmapState),
+    create: Opt[Table[CreationId, IdentityCreate]] =
+      Opt.none(Table[CreationId, IdentityCreate]),
+    update: Opt[NonEmptyIdentityUpdates] = Opt.none(NonEmptyIdentityUpdates),
+    destroy: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]),
+): (RequestBuilder, ResponseHandle[SetResponse[IdentityCreatedItem]])
+```
+
+The module re-exports `serde_identity` and `serde_identity_update` so
+that consumers who import `identity_builders` get the relevant
+`toJson` overloads in scope automatically (`mixin`-resolved at the
+generic builder's instantiation site).
+
+`createResults` is keyed by `CreationId` and carries
+`IdentityCreatedItem` (`id` plus the optional server-set `mayDelete`),
+not full `Identity` records — the wire payload is the server-set subset
+per RFC 8620 §5.3. Destroying an Identity whose `mayDelete` is false
+surfaces as a per-id `SetError` inside `destroyResults`; no client-side
+pre-check.
 
 ---
 
@@ -539,46 +678,89 @@ Singleton pattern — exactly one per account, id always `"singleton"`. Only
 
 ### 5.1. Type Definition
 
-**No `id` field** — the `"singleton"` id has zero degrees of freedom. It
-carries no information. Omitting it entirely eliminates the illegal state
-(a VacationResponse with a wrong id) more strongly than any runtime check.
+The Nim type has **no `id` field** — the `"singleton"` id has zero
+degrees of freedom and carries no information. Omitting it eliminates the
+illegal state "VacationResponse with a wrong id" by construction.
 
 ```nim
 const VacationResponseSingletonId* = "singleton"
-  ## The protocol-level id for the VacationResponse singleton.
-  ## Used by serde (validation on deserialise, emission on serialise)
-  ## and builder functions (hardcoded in update map).
+  ## The fixed identifier for the sole VacationResponse object (RFC 8621 §7).
+  ## Imported by serde (validation on deserialise, emission on serialise)
+  ## and by the /set builder (hardcoded in the update map).
 
-type VacationResponse* = object
-  isEnabled*: bool
-  fromDate*: Opt[UTCDate]    ## null = effective immediately
-  toDate*: Opt[UTCDate]      ## null = effective indefinitely
-  subject*: Opt[string]      ## null = server chooses
-  textBody*: Opt[string]     ## null = generated from htmlBody
-  htmlBody*: Opt[string]     ## null = generated from textBody
+type VacationResponse* {.ruleOff: "objects".} = object
+  isEnabled*: bool          ## Whether the vacation response is active.
+  fromDate*: Opt[UTCDate]   ## Start of the vacation window, or none.
+  toDate*: Opt[UTCDate]     ## End of the vacation window, or none.
+  subject*: Opt[string]     ## Subject line for the auto-reply, or none.
+  textBody*: Opt[string]    ## Plain-text body, or none.
+  htmlBody*: Opt[string]    ## HTML body, or none.
 ```
 
-No smart constructor needed — all invariants captured by field types. The
-`fromDate`/`toDate` relationship (if both present, `fromDate` should precede
-`toDate`) is a business rule, not a structural invariant; validation is the
-server's responsibility.
+No smart constructor — all invariants are captured by field types. The
+`fromDate`/`toDate` business rule (if both present, `fromDate` should
+precede `toDate`) is the server's responsibility to enforce.
 
-**Principles:**
-- **Make illegal states unrepresentable** — A constant is not state. The
-  type only carries fields with actual degrees of freedom. You cannot have a
-  VacationResponse with a wrong id because there is no id to be wrong.
-- **DDD** — The domain concept is "vacation response settings for an
-  account." The `"singleton"` id is a protocol addressing mechanism, not
-  domain knowledge. The type models what the vacation response is (enabled,
-  dates, body), not how the protocol addresses it.
-- **DRY** — The `VacationResponseSingletonId` constant lives once in
-  `vacation.nim` (domain layer), imported by both the serde module and
-  builder functions. No string literal duplication.
+**No creation or destruction** — RFC 8621 §8 forbids both. The singleton
+always exists. Updates use the typed update algebra (§5.2) via
+`addVacationResponseSet` (§5.3).
 
-**No creation or destruction** — the RFC forbids both. The singleton always
-exists. Updates use `PatchObject` via `addVacationResponseSet` (§5.3).
+### 5.2. VacationResponse Update Algebra
 
-### 5.2. Serde — serde_vacation.nim
+Six settable properties, one variant each. Same shape as `IdentityUpdate`
+and `MailboxUpdate` — case object enforces "exactly one target per
+update" at the type level.
+
+```nim
+type VacationResponseUpdateVariantKind* = enum
+  vruSetIsEnabled
+  vruSetFromDate
+  vruSetToDate
+  vruSetSubject
+  vruSetTextBody
+  vruSetHtmlBody
+
+type VacationResponseUpdate* {.ruleOff: "objects".} = object
+  case kind*: VacationResponseUpdateVariantKind
+  of vruSetIsEnabled:  isEnabled*: bool
+  of vruSetFromDate:   fromDate*: Opt[UTCDate]
+  of vruSetToDate:     toDate*: Opt[UTCDate]
+  of vruSetSubject:    subject*: Opt[string]
+  of vruSetTextBody:   textBody*: Opt[string]
+  of vruSetHtmlBody:   htmlBody*: Opt[string]
+```
+
+`Opt.none` on `fromDate` / `toDate` / `subject` / `textBody` / `htmlBody`
+clears that property per RFC 8621 §8.
+
+**Builder helpers** (one per variant) construct the case object with the
+correct literal discriminator:
+
+```nim
+func setIsEnabled*(isEnabled: bool): VacationResponseUpdate
+func setFromDate*(fromDate: Opt[UTCDate]): VacationResponseUpdate
+func setToDate*(toDate: Opt[UTCDate]): VacationResponseUpdate
+func setSubject*(subject: Opt[string]): VacationResponseUpdate
+func setTextBody*(textBody: Opt[string]): VacationResponseUpdate
+func setHtmlBody*(htmlBody: Opt[string]): VacationResponseUpdate
+```
+
+**Validated batch:**
+
+```nim
+type VacationResponseUpdateSet* = distinct seq[VacationResponseUpdate]
+
+func initVacationResponseUpdateSet*(
+    updates: openArray[VacationResponseUpdate]
+): Result[VacationResponseUpdateSet, seq[ValidationError]]
+```
+
+`initVacationResponseUpdateSet` rejects empty input and duplicate target
+properties (`validateUniqueByIt` over `kind`). Because VacationResponse
+is a singleton, there is no whole-container `NonEmptyXxxUpdates` shape —
+the `/set` builder takes a single `VacationResponseUpdateSet` directly.
+
+### 5.3. Serde — serde_vacation.nim
 
 **Module:** `src/jmap_client/mail/serde_vacation.nim`
 
@@ -596,96 +778,87 @@ exists. Updates use `PatchObject` via `addVacationResponseSet` (§5.3).
 }
 ```
 
-**fromJson:**
+**`VacationResponse.fromJson`**
 - Validates JObject.
-- Extracts `id` as string and validates
-  `id == VacationResponseSingletonId`. Returns
-  `err(validationError("VacationResponse", "id must be \"singleton\""))`
-  on mismatch. The validated id is **discarded** after verification — it has
-  served its purpose at the parsing boundary.
-- Extracts `isEnabled` as bool (required).
-- Extracts `fromDate`, `toDate` as `Opt[UTCDate]` — absent or null →
-  `Opt.none`, present string → parse via `UTCDate.fromJson`.
-- Extracts `subject`, `textBody`, `htmlBody` as `Opt[string]` — absent or
-  null → `Opt.none`.
+- Extracts required `id` as JString and verifies
+  `id == VacationResponseSingletonId`. Mismatch → `svkEnumNotRecognised`
+  with `enumTypeLabel = "VacationResponse id"`. The validated id is
+  discarded after verification — it has served its purpose at the parsing
+  boundary.
+- Extracts required `isEnabled` as JBool.
+- Extracts optional `fromDate`/`toDate` via the local helper
+  `parseOptUtcDate` (absent or null → `Opt.none`; JString →
+  `UTCDate.fromJson`).
+- Extracts optional `subject`/`textBody`/`htmlBody` via the local helper
+  `parseOptString` (absent, null, or non-string → `Opt.none`).
 - Constructs `VacationResponse` directly.
-- Returns `Result[VacationResponse, ValidationError]`.
 
-**toJson:**
-- Emits `"id": VacationResponseSingletonId` (the protocol requires it, the
-  type does not carry it).
+**`VacationResponse.toJson`**
+- Emits `"id": VacationResponseSingletonId` (the protocol requires it,
+  the type does not carry it).
 - Emits `isEnabled` as bool.
-- Emits `fromDate`, `toDate`, `subject`, `textBody`, `htmlBody` — `Opt.none`
-  emits as `null`, `Opt.some` emits the value.
+- Emits the four `Opt[...]` fields via the `emitOptUtcDate`/
+  `emitOptString` helpers — `Opt.none` projects to JSON `null`,
+  `Opt.some` to the value.
 
-### 5.3. Builder Functions
+**`VacationResponseUpdate.toJson`** returns one `(wireKey, wireValue)`
+pair per variant. `vruSetFromDate` / `vruSetToDate` use the shared
+`optToJsonOrNull` helper from core serde (`Opt.none` → JSON `null`); the
+three string-bodied variants use `optStringToJsonOrNull`.
 
-**No entity registration** — VacationResponse is NOT registered with
-`registerJmapEntity`. It has only two valid methods (`/get` and `/set`,
-update-only), neither of which are standard enough for the generic builder:
-`/get` always fetches the singleton (no ids parameter needed), and `/set`
-only supports update (no create/destroy). Custom builder functions make
-invalid method calls uncompilable.
+**`VacationResponseUpdateSet.toJson`** aggregates the pairs into one
+patch object — `initVacationResponseUpdateSet` already rejected
+duplicates, so blind aggregation cannot shadow.
 
-This follows the same pattern as `addSearchSnippetGet` in `mail_methods.nim`
-— a non-standard entity that gets custom builder functions rather than using
-the generic machinery.
+### 5.4. Builder Functions
+
+**No entity registration.** VacationResponse is NOT registered with
+`registerJmapEntity`. It has only two valid methods (`/get` always
+fetching the singleton with no `ids`; `/set` update-only with no
+create/destroy), neither of which fits the generic builder shape.
+Custom builder functions make invalid method calls uncompilable.
 
 **Module:** `src/jmap_client/mail/mail_methods.nim`
 
-**addVacationResponseGet:**
-
 ```nim
-func addVacationResponseGet*(b: var RequestBuilder,
+func addVacationResponseGet*(
+    b: RequestBuilder,
     accountId: AccountId,
-    properties: Opt[seq[PropertyName]] = Opt.none(seq[PropertyName]),
-): ResponseHandle[GetResponse[VacationResponse]]
+    properties: Opt[seq[string]] = Opt.none(seq[string]),
+): (RequestBuilder, ResponseHandle[GetResponse[VacationResponse]])
 ```
 
-- Adds `"urn:ietf:params:jmap:vacationresponse"` capability to the request.
-- Creates invocation with name `"VacationResponse/get"`.
-- Omits `ids` — always fetches all, which is just the singleton. No `ids`
-  parameter in the function signature because the only valid id is
-  `"singleton"`, and omitting ids achieves the same result.
-- Returns `ResponseHandle[GetResponse[VacationResponse]]`.
-
-**addVacationResponseSet:**
+- Adds `"urn:ietf:params:jmap:vacationresponse"` capability to the
+  request.
+- Emits invocation name `mnVacationResponseGet` (`"VacationResponse/get"`).
+- Always fetches the singleton — no `ids` parameter in the function
+  signature because the only valid id is `"singleton"`, and omitting
+  `ids` achieves the same result.
+- Internally constructs `GetRequest[VacationResponse]` with
+  `ids = Opt.none` and the optional `properties`.
 
 ```nim
-func addVacationResponseSet*(b: var RequestBuilder,
+func addVacationResponseSet*(
+    b: RequestBuilder,
     accountId: AccountId,
-    update: PatchObject,
+    update: VacationResponseUpdateSet,
     ifInState: Opt[JmapState] = Opt.none(JmapState),
-): ResponseHandle[SetResponse[VacationResponse]]
+): (RequestBuilder, ResponseHandle[SetResponse[VacationResponse]])
 ```
 
-- Adds `"urn:ietf:params:jmap:vacationresponse"` capability to the request.
-- Creates invocation with name `"VacationResponse/set"`.
-- Internally constructs the update map as
+- Adds `"urn:ietf:params:jmap:vacationresponse"` capability.
+- Emits invocation name `mnVacationResponseSet` (`"VacationResponse/set"`).
+- Builds the update map as
   `{VacationResponseSingletonId: update.toJson()}` — the singleton id is
   referenced from the domain constant, not caller-specified.
-- No `create` or `destroy` parameters — prevented at the function signature
-  level.
-- Takes `PatchObject` directly, not `Table[Id, PatchObject]` — eliminates
-  the possibility of a wrong id.
-- Returns `ResponseHandle[SetResponse[VacationResponse]]`.
-
-**Principles:**
-- **Make illegal states unrepresentable** — `addChanges[VacationResponse]`
-  will not compile (no `methodNamespace`/`capabilityUri` overloads exist).
-  `addVacationResponseSet` prevents create/destroy by omitting those
-  parameters. The `"singleton"` id is hardcoded, not caller-specified.
-- **DDD** — VacationResponse is a genuinely different kind of entity
-  (singleton, no change tracking, restricted mutation). It deserves its own
-  entry points rather than being forced through a generic framework designed
-  for standard entities.
-- **Total functions** — The API surface is exactly two functions, both total.
+- Takes a single `VacationResponseUpdateSet` directly, not a
+  `Table[Id, VacationResponseUpdateSet]` — eliminates the possibility of
+  a wrong id at the type level.
+- No `create` or `destroy` parameters — RFC 8621 §8 forbids them; the
+  signature simply omits them.
 
 **Response dispatch:** Uses standard `GetResponse[VacationResponse]` and
-`SetResponse[VacationResponse]` response types. The phantom-typed
-`ResponseHandle[T]` dispatch works unchanged — the builder hardcodes the
-method name strings (`"VacationResponse/get"`, `"VacationResponse/set"`),
-and `get[T]` extraction matches by method name. No core modifications
+`SetResponse[VacationResponse]` response types. No core modifications
 needed.
 
 ---
@@ -695,351 +868,325 @@ needed.
 **Module:** `src/jmap_client/mail/mail_capabilities.nim` (Layer 1 types),
 `src/jmap_client/mail/serde_mail_capabilities.nim` (Layer 2 parsing).
 
-All three RFC 8621 capabilities are defined completely. The parsing functions
-take `ServerCapability` (core Layer 1) and produce typed values. After a
-single `parseMailCapabilities` call post-session-fetch, all capability data
-is typed and validated.
+The two RFC 8621 capabilities with payload — `urn:ietf:params:jmap:mail`
+and `urn:ietf:params:jmap:submission` — are defined in full. The parsing
+functions take a core `ServerCapability` (whose `rawData` carries the
+JSON payload) and produce typed values. After a single
+`parseMailCapabilities` / `parseSubmissionCapabilities` call
+post-session-fetch, all capability data is typed and validated.
 
-Defining complete types now rather than deferring fields to later design docs
-is driven by three principles:
+Defining complete types upfront (rather than deferring fields to later
+design docs) is driven by:
 
-- **Parse, don't validate** — `parseMailCapabilities` transforms raw JSON
-  into a fully-typed value. You cannot "partially parse" — that would leave
-  unparsed JSON leaking into the domain model.
-- **DRY** — Nim enums and object types cannot be extended after definition.
-  Define once, completely.
-- **Total functions** — `parseMailCapabilities` must map every valid
-  capability JSON to a typed result. Partial types silently discard data.
+- **Parse, don't validate** — the parse function transforms raw JSON
+  into a fully-typed value. Partial parsing leaves unparsed JSON leaking
+  into the domain model.
+- **DRY** — Nim object types cannot be extended after definition; one
+  pass is enough.
+- **Total functions** — partial types silently discard fields.
 
 ### 6.1. MailCapabilities
 
 **RFC reference:** §1.3.1.
 
-Typed parsing of the `urn:ietf:params:jmap:mail` account capability.
-
 ```nim
-type MailCapabilities* = object
-  maxMailboxesPerEmail*: Opt[UnsignedInt]   ## null = no limit; >= 1 when present
-  maxMailboxDepth*: Opt[UnsignedInt]        ## null = no limit
-  maxSizeMailboxName*: UnsignedInt           ## >= 100 (RFC mandates)
-  maxSizeAttachmentsPerEmail*: UnsignedInt
-  emailQuerySortOptions*: HashSet[string]
+type MailCapabilities* {.ruleOff: "objects".} = object
+  maxMailboxesPerEmail*: Opt[UnsignedInt]   ## Null = no limit; >= 1 when present.
+  maxMailboxDepth*: Opt[UnsignedInt]        ## Null = no limit.
+  maxSizeMailboxName*: Opt[UnsignedInt]
+    ## Octets; >= 100 when present per RFC 8621 §1.3.1. Optional —
+    ## informational hint, not MUST. Cyrus 3.12.2 omits this field;
+    ## the Postel-receive parser surfaces absence as Opt.none rather
+    ## than synthesising a default.
+  maxSizeAttachmentsPerEmail*: UnsignedInt  ## Octets.
+  emailQuerySortOptions*: HashSet[string]   ## Supported sort properties.
   mayCreateTopLevelMailbox*: bool
 ```
 
-Plain public fields, no smart constructor — follows the `CoreCapabilities`
-pattern in core. Validation happens in the serde layer's
-`parseMailCapabilities`.
+Plain public fields. Validation happens in `parseMailCapabilities`.
 
 **Field notes:**
 
 | Field | RFC Constraint | Validation | Consumed By |
-|-------|---------------|------------|-------------|
-| `maxMailboxesPerEmail` | `>= 1` when present, null for no limit | Serde validates `>= 1` | Mailbox validation (Design B) |
-| `maxMailboxDepth` | null for no limit | None beyond `UnsignedInt` | Mailbox validation (Design B) |
-| `maxSizeMailboxName` | `>= 100` | Serde validates `>= 100` | Mailbox name validation (Design B) |
-| `maxSizeAttachmentsPerEmail` | none specified | None beyond `UnsignedInt` | Email creation (Design C) |
+|-------|----------------|------------|-------------|
+| `maxMailboxesPerEmail` | `>= 1` when present, null = no limit | Serde validates `>= 1` | Mailbox set validation |
+| `maxMailboxDepth` | null = no limit | None beyond `UnsignedInt` | Mailbox set validation |
+| `maxSizeMailboxName` | `>= 100` when present (informational) | Serde validates `>= 100` when present | Mailbox name validation |
+| `maxSizeAttachmentsPerEmail` | none specified | None beyond `UnsignedInt` | Email creation |
 | `emailQuerySortOptions` | server-advertised sort properties | None | Consumer reference |
-| `mayCreateTopLevelMailbox` | boolean | None | Mailbox set validation (Design B) |
+| `mayCreateTopLevelMailbox` | boolean | None | Mailbox set validation |
 
-`emailQuerySortOptions` is typed as `HashSet[string]` (not
-`seq[PropertyName]`) because the primary domain operation is membership
-testing ("does the server support sorting by `receivedAt`?"), which
-`HashSet` serves in O(1). This follows the `collationAlgorithms:
-HashSet[string]` precedent in `CoreCapabilities` (`capabilities.nim`),
-which serves an identical purpose. The values are opaque
-server-advertised strings that may include vendor extensions; the consumer
-converts to `PropertyName` when constructing a `Comparator` for a query.
+**`maxSizeMailboxName: Opt[UnsignedInt]`** — RFC 8621 §1.3.1 lists the
+field as informational rather than MUST. Cyrus 3.12.2 omits it. The
+Postel-receive parser surfaces absence as `Opt.none` rather than
+synthesising a default; the `>= 100` invariant only applies when the
+field is present.
 
-### 6.2. SubmissionCapabilities
+**`emailQuerySortOptions: HashSet[string]`** — The primary domain
+operation is membership testing ("does the server support sorting by
+`receivedAt`?"), which `HashSet` serves in O(1). The values are opaque
+server-advertised strings that may include vendor extensions. When the
+canonical field is absent (Cyrus 3.12.2 emits a divergent label
+`emailsListSortOptions`, accepted as absence), the parser surfaces an
+empty `HashSet[string]`. Mirrors the `collationAlgorithms: HashSet[string]`
+precedent in `CoreCapabilities`.
+
+### 6.2. SubmissionCapabilities and SubmissionExtensionMap
 
 **RFC reference:** §1.3.2.
 
-Typed parsing of the `urn:ietf:params:jmap:submission` account capability.
-
 ```nim
-type SubmissionCapabilities* = object
-  maxDelayedSend*: UnsignedInt                       ## 0 = not supported
-  submissionExtensions*: OrderedTable[string, seq[string]]  ## EHLO name → args
+type SubmissionExtensionMap* =
+  distinct OrderedTable[RFC5321Keyword, seq[string]]
+  ## RFC 5321 §2.2.1 EHLO-name → args map for the
+  ## urn:ietf:params:jmap:submission capability's submissionExtensions
+  ## field (RFC 8621 §1.3.2). Keys are validated ESMTP keywords with
+  ## case-insensitive equality and hash; the underlying OrderedTable
+  ## therefore gives structural uniqueness and wire-order fidelity
+  ## automatically.
+
+func `==`*(a, b: SubmissionExtensionMap): bool {.borrow.}
+func `$`*(a: SubmissionExtensionMap): string {.borrow.}
+
+type SubmissionCapabilities* {.ruleOff: "objects".} = object
+  maxDelayedSend*: UnsignedInt          ## Seconds; 0 = not supported.
+  submissionExtensions*: SubmissionExtensionMap
 ```
 
-Plain public fields, no smart constructor.
+**`RFC5321Keyword`** (defined in `submission_atoms.nim`) is a `distinct
+string` validated to RFC 5321 §4.1.1.1 grammar — `(ALPHA / DIGIT)
+*(ALPHA / DIGIT / "-")` bounded to 1..64 octets. Its `==` and `hash` are
+ASCII case-insensitive (RFC 5321 §2.4); `$` preserves the original
+casing for diagnostic round-trip. Wrapping the keys in this validated
+type means duplicate-or-conflicting EHLO names (`PIPELINING` vs
+`pipelining`) collapse to a single entry by the table's natural
+uniqueness, with no parallel normalisation pass.
 
-**Field notes:**
-
-| Field | RFC Constraint | Validation | Consumed By |
-|-------|---------------|------------|-------------|
-| `maxDelayedSend` | `0` = not supported | None beyond `UnsignedInt` | EmailSubmission creation (Design B) |
-| `submissionExtensions` | EHLO name → arg list | None | EmailSubmission creation (Design B) |
-
-`submissionExtensions` is `OrderedTable[string, seq[string]]` — keys are
-SMTP EHLO extension names (e.g. `"FUTURERELEASE"`, `"SIZE"`), values are
-argument lists (possibly empty). `OrderedTable` preserves insertion order
-from the server response JSON, consistent with JSON round-trip fidelity
-principles (both `std/tables` and `std/json` use `OrderedTable` for
-objects).
+**`OrderedTable`** preserves insertion order from the server response
+JSON, consistent with JSON round-trip fidelity (both `std/tables` and
+`std/json` use `OrderedTable` for objects).
 
 ### 6.3. VacationResponse Capability
 
 **RFC reference:** §1.3.3.
 
-The `urn:ietf:params:jmap:vacationresponse` capability has an empty object
-as its value in both session and account capabilities. **No type is needed.**
-The serde layer validates that the capability exists on the session (the
-`rawData` is a JObject) but does not extract any fields.
-
-The `addVacationResponseGet` and `addVacationResponseSet` builder functions
-(§5.3) add this capability URI to the request. The consumer may optionally
-verify the capability exists on the session before calling, but no typed
-parsing step is required.
+The `urn:ietf:params:jmap:vacationresponse` capability has an empty
+object as its value in both session and account capabilities. **No type
+is defined** — the consumer may verify the capability exists on the
+session before calling `addVacationResponseGet` /
+`addVacationResponseSet`, but no typed parsing step is required, and
+the builders add the URI to the request `using` array unconditionally.
 
 ### 6.4. Serde — serde_mail_capabilities.nim
 
 **Module:** `src/jmap_client/mail/serde_mail_capabilities.nim`
 
-**parseMailCapabilities:**
+Both functions return `Result[T, SerdeViolation]`.
 
 ```nim
-func parseMailCapabilities*(cap: ServerCapability): Result[MailCapabilities, ValidationError]
+func parseMailCapabilities*(
+    cap: ServerCapability, path: JsonPath = emptyJsonPath()
+): Result[MailCapabilities, SerdeViolation]
 ```
 
-- Validates `cap.kind == ckMail`. Returns
-  `err(validationError("MailCapabilities", "expected ckMail capability"))`
-  if wrong kind.
-- Extracts `rawData: JsonNode` from the `ServerCapability`.
+- Validates `cap.kind == ckMail`. Other kinds → `svkEnumNotRecognised`
+  with `enumTypeLabel = "capability kind"`. Under `strictCaseObjects`,
+  `rawData` (declared in the `else:` branch of `ServerCapability`) is
+  only accessible when the use-site case also goes through `else:` — so
+  the function dispatches `of ckCore: <error>; else: <if kind != ckMail
+  then error else parse>`.
 - Validates `rawData` is JObject.
-- Parses each field with appropriate type conversions:
-  - `maxMailboxesPerEmail`: JInt or JNull. When JInt, parses as
-    `UnsignedInt`, then validates `>= 1`.
-  - `maxMailboxDepth`: JInt or JNull. When JInt, parses as `UnsignedInt`.
-  - `maxSizeMailboxName`: JInt (required). Parses as `UnsignedInt`, then
-    validates `>= 100`.
-  - `maxSizeAttachmentsPerEmail`: JInt (required). Parses as `UnsignedInt`.
-  - `emailQuerySortOptions`: JArray of JString (required). Collects
-    elements into `HashSet[string]`.
-  - `mayCreateTopLevelMailbox`: JBool (required).
-- Returns `ok(MailCapabilities)` or `err(ValidationError)`.
-
-**parseSubmissionCapabilities:**
+- `maxMailboxesPerEmail`: JNull or absent → `Opt.none`; JInt parsed as
+  `UnsignedInt`, then validates `>= 1` (`svkEmptyRequired` with label
+  `"maxMailboxesPerEmail (must be >= 1)"`).
+- `maxMailboxDepth`: JNull or absent → `Opt.none`; JInt parsed as
+  `UnsignedInt`.
+- `maxSizeMailboxName`: JNull or absent → `Opt.none`; JInt parsed as
+  `UnsignedInt`, then validates `>= 100`.
+- `maxSizeAttachmentsPerEmail`: required JInt parsed as `UnsignedInt`.
+- `emailQuerySortOptions`: optional JArray of JString (Cyrus emits a
+  divergent label that surfaces as absence here); collected into
+  `HashSet[string]`. Absent or null → empty set.
+- `mayCreateTopLevelMailbox`: required JBool.
 
 ```nim
-func parseSubmissionCapabilities*(cap: ServerCapability): Result[SubmissionCapabilities, ValidationError]
+func parseSubmissionCapabilities*(
+    cap: ServerCapability, path: JsonPath = emptyJsonPath()
+): Result[SubmissionCapabilities, SerdeViolation]
 ```
 
-- Validates `cap.kind == ckSubmission`. Returns `err` if wrong kind.
-- Extracts and validates `rawData` as JObject.
-- Parses `maxDelayedSend` as `UnsignedInt` (required JInt).
-- Parses `submissionExtensions` as JObject. Iterates key-value pairs in
-  order, collecting into `OrderedTable`. Each key maps to a JArray of
-  JString values. Malformed entries (non-array values, non-string array
-  elements) produce `err(ValidationError)`.
-- Returns `ok(SubmissionCapabilities)` or `err(ValidationError)`.
-
-**Principles:**
-- **Parse, don't validate** — Both functions transform raw JSON into fully
-  typed values. After the call, you hold validated data.
-- **Total functions** — Wrong capability kind, missing fields, invalid
-  values, malformed JSON all map to `err(ValidationError)`.
-- **DDD** — Core doesn't know what `maxMailboxDepth` means. Mail owns that
-  knowledge. The parsing functions live in the mail module.
-- **Open-Closed** — Core's `ServerCapability` is unchanged. Mail extends
-  through composition (parsing `rawData`).
+- Validates `cap.kind == ckSubmission` (same `else:`-branch dispatch
+  pattern as `parseMailCapabilities`).
+- Validates `rawData` is JObject.
+- `maxDelayedSend`: required JInt parsed as `UnsignedInt` (0 is valid —
+  the RFC's "not supported" sentinel).
+- `submissionExtensions`: required JObject. Iterates key/value pairs in
+  order; each key parsed via `parseRFC5321Keyword` (bridged through
+  `wrapInner`); each value validated as JArray of JString and collected
+  into `seq[string]`. Builds an `OrderedTable[RFC5321Keyword, seq[string]]`,
+  then wraps it in `SubmissionExtensionMap`.
 
 **Strictness rationale:** Structural invalidity (wrong JSON kind, missing
-MUST fields) always rejects because the data is uninterpretable. RFC MUST
-constraints (`>= 1`, `>= 100`) reject because the constraint is a domain
-invariant — `maxMailboxesPerEmail = 0` has no valid domain interpretation.
-Accepting it would push a contradiction into the typed model. Unknown/extra
-fields are preserved via the underlying `ServerCapability.rawData` for
-forward compatibility. The consumer's recourse for a non-conformant server
-is to fall back to `rawData` parsing, which is always available on the
-`ServerCapability`.
+MUST fields) always rejects. RFC MUST constraints (`>= 1`, `>= 100`)
+reject because the constraint is a domain invariant —
+`maxMailboxesPerEmail = 0` has no valid domain interpretation. Unknown
+or extra fields are preserved through `ServerCapability.rawData` for
+forward compatibility; the consumer's recourse for a non-conformant
+server is to fall back to `rawData` parsing.
 
 ---
 
-## 7. Mail Set Error Types — mail_errors.nim
+## 7. Mail Set Error Accessors — mail_errors.nim
 
 **Module:** `src/jmap_client/mail/mail_errors.nim`
 
 **RFC reference:** §§2.3, 4.6, 6.3, 7.5.
 
-The complete RFC 8621 set error vocabulary, defined upfront. The enum
-represents the RFC's error domain, not "errors relevant to entities
-implemented so far" — following the same pattern as `CapabilityKind` in core,
-which defines all known capabilities upfront regardless of implementation
-progress.
-
-### 7.1. MailSetErrorType Enum
+The full RFC 8621 SetError vocabulary lives on the **central
+`SetErrorType` enum** in `src/jmap_client/errors.nim`, alongside the RFC
+8620 §5.3 / §5.4 core variants:
 
 ```nim
-type MailSetErrorType* = enum
-  msetMailboxHasChild   = "mailboxHasChild"    ## Mailbox/set destroy
-  msetMailboxHasEmail   = "mailboxHasEmail"    ## Mailbox/set destroy
-  msetBlobNotFound      = "blobNotFound"       ## Email/import
-  msetTooManyKeywords   = "tooManyKeywords"    ## Email/set
-  msetTooManyMailboxes  = "tooManyMailboxes"   ## Email/set
-  msetInvalidEmail      = "invalidEmail"       ## Email/set create, Email/import
-  msetTooManyRecipients = "tooManyRecipients"  ## EmailSubmission/set
-  msetNoRecipients      = "noRecipients"       ## EmailSubmission/set
-  msetInvalidRecipients = "invalidRecipients"  ## EmailSubmission/set
-  msetForbiddenMailFrom = "forbiddenMailFrom"  ## EmailSubmission/set
-  msetForbiddenFrom     = "forbiddenFrom"      ## Identity/set create, EmailSubmission/set
-  msetForbiddenToSend   = "forbiddenToSend"    ## EmailSubmission/set (§7.5)
-  msetCannotUnsend      = "cannotUnsend"       ## EmailSubmission/set
-  msetUnknown                                  ## catch-all for forward compatibility
+# RFC 8620 §5.3 / §5.4 — core
+setForbidden, setOverQuota, setTooLarge, setRateLimit, setNotFound,
+setInvalidPatch, setWillDestroy, setInvalidProperties, setAlreadyExists,
+setSingleton,
+# RFC 8621 §2.3 — Mailbox/set
+setMailboxHasChild, setMailboxHasEmail,
+# RFC 8621 §4.6 — Email/set
+setBlobNotFound, setTooManyKeywords, setTooManyMailboxes,
+# RFC 8621 §7.5 — EmailSubmission/set (and §6 Identity/set)
+setInvalidEmail, setTooManyRecipients, setNoRecipients,
+setInvalidRecipients, setForbiddenMailFrom, setForbiddenFrom,
+setForbiddenToSend, setCannotUnsend,
+setUnknown
 ```
 
-String-backed enum for JSON serialisation. `msetUnknown` has no string
-backing — it is the total-function catch-all for unrecognised error types.
+The wire string `"forbiddenFrom"` is shared between Identity/set (§6)
+and EmailSubmission/set (§7.5); a single enum variant `setForbiddenFrom`
+covers both contexts — the calling method determines which
+SHOULD-semantic applies.
 
-**Principles:**
-- **DRY** — Nim enums cannot be extended after definition. Defining the
-  complete vocabulary upfront avoids rewriting the enum in later design docs.
-- **Total functions** — `parseMailSetErrorType` maps every possible
-  `rawType` to a variant. With the full enum, this function is complete and
-  correct from day one. A partial enum would classify known types as
-  `msetUnknown` — knowingly imprecise.
-- **Make illegal states unrepresentable** — Closed enum with exhaustive
-  pattern matching. No stringly-typed comparisons leak into consumer code.
+`SetError` is a case object with public discriminator `errorType*:
+SetErrorType`. Seven variants carry typed payload fields:
 
-### 7.2. parseMailSetErrorType
+| `errorType` | Payload field | RFC | Field type |
+|-------------|---------------|-----|------------|
+| `setInvalidProperties` | `properties` | RFC 8620 §5.3 | `seq[string]` |
+| `setAlreadyExists` | `existingId` | RFC 8620 §5.4 | `Id` |
+| `setBlobNotFound` | `notFound` | RFC 8621 §4.6 | `seq[BlobId]` |
+| `setInvalidEmail` | `invalidEmailPropertyNames` | RFC 8621 §7.5 | `seq[string]` |
+| `setTooManyRecipients` | `maxRecipientCount` | RFC 8621 §7.5 | `UnsignedInt` |
+| `setInvalidRecipients` | `invalidRecipients` | RFC 8621 §7.5 | `seq[string]` |
+| `setTooLarge` | `maxSizeOctets` | RFC 8621 §7.5 SHOULD | `Opt[UnsignedInt]` |
+
+All other variants share a payload-less `else: discard` arm.
+
+### 7.1. Mail-specific Accessors
+
+`mail_errors.nim` provides five typed accessor functions over `SetError`.
+Each is a one-line case-branch read off the central ADT — no JSON walk
+through `extras`.
 
 ```nim
-func parseMailSetErrorType*(rawType: string): MailSetErrorType
+func notFoundBlobIds*(se: SetError): Opt[seq[BlobId]]
+func maxSize*(se: SetError): Opt[UnsignedInt]
+func maxRecipients*(se: SetError): Opt[UnsignedInt]
+func invalidRecipientAddresses*(se: SetError): Opt[seq[string]]
+func invalidEmailProperties*(se: SetError): Opt[seq[string]]
 ```
 
-Uses `strutils.parseEnum` with `msetUnknown` as the fallback. Total over
-all inputs. Identical signature pattern to `parseRequestErrorType`,
-`parseMethodErrorType`, `parseSetErrorType` in core — all take a raw
-string and return the typed enum.
+| Accessor | Returns `Opt.some` for | RFC requirement |
+|----------|------------------------|-----------------|
+| `notFoundBlobIds` | `setBlobNotFound` | MUST (§4.6) |
+| `maxSize` | `setTooLarge` (when `maxSizeOctets` is `Opt.some`) | SHOULD (§7.5) |
+| `maxRecipients` | `setTooManyRecipients` | MUST (§7.5) |
+| `invalidRecipientAddresses` | `setInvalidRecipients` | MUST (§7.5) |
+| `invalidEmailProperties` | `setInvalidEmail` | SHOULD (§7.5) |
 
-Consumer pattern:
+All other `errorType` variants return `Opt.none`. The accessors live in
+the mail layer so that mail-specific predicate vocabulary stays next to
+the mail domain even though the underlying ADT is in core.
+
+**Field-name disambiguation.** The `SetError` payload field names
+deliberately differ from the mail-layer accessor names (e.g.
+`maxSizeOctets` vs `maxSize`, `maxRecipientCount` vs `maxRecipients`,
+`invalidEmailPropertyNames` vs `invalidEmailProperties`) so that a `case
+se.errorType of setTooLarge: se.maxSizeOctets` in core code does not
+shadow `mail_errors.maxSize(se)` at the call site.
+
+### 7.2. Consumer Dispatch
+
+The full SetError vocabulary is one closed enum, so consumer dispatch is
+a single exhaustive `case`:
 
 ```nim
-case parseMailSetErrorType(setError.rawType)
-of msetForbiddenFrom:
-  # handle forbidden sender address
-of msetMailboxHasChild, msetMailboxHasEmail:
-  # handle mailbox deletion constraints
-of msetUnknown:
-  # forward-compatible catch-all
-# ... (exhaustive matching enforced by compiler)
+case se.errorType
+of setBlobNotFound:
+  for ids in se.notFoundBlobIds():
+    # handle unresolved blobs
+of setTooManyRecipients:
+  let cap = se.maxRecipientCount   # direct field access
+of setForbiddenFrom:
+  # handle forbidden sender (Identity/set or EmailSubmission/set)
+of setUnknown:
+  # forward-compatible catch-all — log se.rawType
+else:
+  discard
 ```
 
-### 7.3. Typed Error Accessors
-
-Several RFC 8621 errors carry MUST-level extra properties beyond `type`
-and `description`. These fields land in `SetError.extras: Opt[JsonNode]`
-as raw JSON — core's `SetError` cannot be extended (Open-Closed
-Principle).
-
-The mail layer provides typed extraction via accessor functions in
-`mail_errors.nim`:
-
-| Error Type | Accessor | Return Type | RFC Requirement |
-|------------|----------|-------------|-----------------|
-| `blobNotFound` | `notFoundBlobIds*(se: SetError)` | `Opt[seq[Id]]` | MUST (§4.6) |
-| `tooLarge` | `maxSize*(se: SetError)` | `Opt[UnsignedInt]` | MUST (§7.5) |
-| `tooManyRecipients` | `maxRecipients*(se: SetError)` | `Opt[UnsignedInt]` | MUST (§7.5) |
-| `invalidRecipients` | `invalidRecipientAddresses*(se: SetError)` | `Opt[seq[string]]` | MUST (§7.5) |
-| `invalidEmail` | `invalidEmailProperties*(se: SetError)` | `Opt[seq[string]]` | SHOULD (§7.5) |
-
-All return `Opt[T]` (not `Result`) because the server may omit a MUST
-field — the accessor is typed extraction, not a parsing boundary.
-
-These error types apply to entities in Design B/C. The accessors are
-specified here because the enum is defined upfront per Decision A8, and
-the accessor functions belong alongside the enum in `mail_errors.nim`.
-
-**Principles:**
-- **Parse, don't validate** — Typed extraction from raw JSON, not
-  stringly-typed field access.
-- **Open-Closed** — Core's `SetError` is unchanged. Mail extends through
-  composition (accessor functions on the existing type).
-- **DDD** — Mail-specific error semantics belong in the mail module.
-
-### 7.4. Consumer Dispatch Pattern
-
-`MailSetErrorType` is a classification overlay on `SetError.rawType`. The
-two enums (`MailSetErrorType` and core `SetErrorType`) are disjoint by
-design — no string values overlap. Consumers compose them via a two-step
-dispatch:
-
-```nim
-## Recommended consumer pattern for mail /set errors:
-let mailType = parseMailSetErrorType(setError.rawType)
-case mailType
-of msetForbiddenFrom, msetForbiddenToSend:
-  # Handle mail-specific errors with typed classification
-of msetTooManyRecipients:
-  for maxR in setError.maxRecipients:  # typed accessor (§7.3)
-    # Handle with typed value
-of msetUnknown:
-  # Not a mail-specific error — fall through to core classification
-  case setError.errorType
-  of setInvalidProperties:
-    # Handle core error with typed variant fields
-    let props = setError.properties
-  of setForbidden, setOverQuota, setTooLarge:
-    # Handle other core errors
-  of setUnknown:
-    # Genuinely unknown — log setError.rawType
-  else: discard
-else: discard
-```
-
-The outer `case` on `MailSetErrorType` handles mail-specific errors. When
-`msetUnknown`, the inner `case` on `SetErrorType` handles core errors.
-This pattern extends naturally as future design docs add domain-specific
-error enums for other RFC extensions.
+Adding a variant to `SetErrorType` forces a compile error at every
+non-`else` case site — the design's safety guarantee.
 
 ---
 
 ## 8. Test Specification
 
-Numbered test scenarios for implementation plan reference. Unit tests verify
-smart constructors and type invariants. Serde tests verify round-trip and
-structural JSON correctness.
+Scenario numbers track the labels embedded in the source test files
+(`# scenario N` markers). Numbered tables list the cases each test
+file pins; the trailing prose subsections cover material whose tests
+do not carry explicit scenario markers (update algebras,
+`IdentityCreatedItem`, builder wire anchors).
 
-### 8.1. EmailAddress (scenarios 1–8)
+### 8.1. EmailAddress (`taddresses.nim` + `tserde_addresses.nim`)
 
 | # | Scenario | Expected |
 |---|----------|----------|
 | 1 | `parseEmailAddress("joe@example.com")` | `ok`, name = `Opt.none` |
 | 2 | `parseEmailAddress("joe@example.com", some("Joe"))` | `ok`, name = `Opt.some("Joe")` |
 | 3 | `parseEmailAddress("")` | `err(ValidationError)` |
-| 4 | `toJson` with name | `{"name": "Joe", "email": "joe@example.com"}` |
-| 5 | `toJson` without name | `{"name": null, "email": "joe@example.com"}` |
+| 4 | `toJson` with name | `{"name": "Joe", "email": "..."}` |
+| 5 | `toJson` without name | `{"name": null, "email": "..."}` |
 | 6 | `fromJson` valid with name | `ok(EmailAddress)` |
-| 7 | `fromJson` missing `email` field | `err(ValidationError)` |
-| 8 | `fromJson` null `email` field | `err(ValidationError)` |
+| 7 | `fromJson` missing `email` | `err(SerdeViolation, svkMissingField)` |
+| 8 | `fromJson` null `email` | `err(SerdeViolation, svkWrongKind)` |
 
-### 8.2. EmailAddressGroup (scenarios 9–12)
+### 8.2. EmailAddressGroup (`taddresses.nim` + `tserde_addresses.nim`)
 
 | # | Scenario | Expected |
 |---|----------|----------|
 | 9 | Construction with name and addresses | valid |
 | 10 | Construction with null name | valid |
 | 11 | Construction with empty addresses | valid |
-| 12 | `toJson`/`fromJson` round-trip | identity |
+| 12 | `toJson` / `fromJson` round-trip | identity |
 
-### 8.3. Thread (scenarios 13–23)
+### 8.3. Thread (`tthread.nim` + `tserde_thread.nim`)
 
 | # | Scenario | Expected |
 |---|----------|----------|
 | 13 | `parseThread(id, @[emailId])` — single email | `ok`, `emailIds.len == 1` |
 | 14 | `parseThread(id, @[e1, e2, e3])` — multiple emails | `ok`, `emailIds.len == 3` |
 | 15 | `parseThread(id, @[])` — empty | `err(ValidationError)` |
-| 16 | `id` accessor returns correct `Id` | pass |
-| 17 | `emailIds` accessor returns correct `seq` | pass |
+| 16 | `id` accessor returns the constructed `Id` | pass |
+| 17 | `emailIds` accessor returns the constructed `seq` | pass |
 | 18 | `toJson` produces `{"id": "...", "emailIds": ["..."]}` | structural match |
 | 19 | `fromJson` valid single email | `ok` |
 | 20 | `fromJson` valid multiple emails | `ok`, order preserved |
-| 21 | `fromJson` empty `emailIds` array | `err(ValidationError)` |
-| 22 | `default(Thread)` | compile error (`UnsafeDefault`) |
-| 23 | `var s: seq[Thread]; s.setLen(1)` | compile error (`UnsafeSetLen`) |
+| 21 | `fromJson` empty `emailIds` array | `err(SerdeViolation, svkFieldParserFailed)` |
+| 22 | External code naming `rawId` / `rawEmailIds` in a constructor literal | compile error (sealed fields) |
+| 23 | External code reading `t.rawId` / `t.rawEmailIds` directly | compile error (sealed fields) |
 
-### 8.4. Identity (scenarios 24–32)
+### 8.4. Identity (`tserde_identity.nim`)
 
 | # | Scenario | Expected |
 |---|----------|----------|
@@ -1050,104 +1197,207 @@ structural JSON correctness.
 | 28 | `fromJson` `htmlSignature` absent → `""` | pass |
 | 29 | `fromJson` `replyTo` null → `Opt.none` | pass |
 | 30 | `fromJson` `replyTo` with addresses → `Opt.some(seq)` | pass |
-| 31 | `toJson`/`fromJson` round-trip | identity |
-| 32 | `fromJson` with `"email": ""` | `err(ValidationError)` |
+| 31 | `toJson` / `fromJson` round-trip | identity |
+| 32 | `fromJson` `email` empty (Cyrus accommodation) | `ok` (lenient receive) |
 
-### 8.5. IdentityCreate (scenarios 33–37)
+### 8.5. IdentityCreate (`tidentity.nim` + `tserde_identity.nim`)
 
 | # | Scenario | Expected |
 |---|----------|----------|
 | 33 | `parseIdentityCreate("joe@example.com", ...)` all fields | `ok` |
 | 34 | `parseIdentityCreate("joe@example.com")` defaults only | `ok`, name = `""`, sigs = `""` |
 | 35 | `parseIdentityCreate("")` | `err(ValidationError)` |
-| 36 | `toJson` includes all fields | structural match |
+| 36 | `toJson` includes all 6 fields | structural match |
 | 37 | `toJson` does not emit `id` or `mayDelete` | verified absent |
 
-### 8.6. VacationResponse (scenarios 38–44)
+### 8.6. VacationResponse (`tserde_vacation.nim`)
 
 | # | Scenario | Expected |
 |---|----------|----------|
 | 38 | `fromJson` valid, id = `"singleton"`, all fields | `ok` |
 | 39 | `fromJson` optional fields null | `ok`, `Opt.none` for each |
-| 40 | `fromJson` id = `"wrong"` | `err(ValidationError)` |
-| 41 | `fromJson` id absent | `err(ValidationError)` |
+| 40 | `fromJson` id = `"wrong"` | `err(SerdeViolation, svkEnumNotRecognised)` |
+| 41 | `fromJson` id absent | `err(SerdeViolation, svkMissingField)` |
 | 42 | `toJson` emits `"id": "singleton"` | structural match |
-| 43 | `toJson`/`fromJson` round-trip | identity |
-| 44 | No `id` field on type | compile-time: `v.id` does not compile |
+| 43 | `toJson` / `fromJson` round-trip | identity |
+| 44 | No `id` field on `VacationResponse` type | compile-time: `vr.id` does not compile |
 
-### 8.7. MailCapabilities (scenarios 45–51)
+### 8.7. MailCapabilities (`tserde_mail_capabilities.nim`)
 
 | # | Scenario | Expected |
 |---|----------|----------|
 | 45 | `parseMailCapabilities` valid, all fields present | `ok` |
-| 46 | `parseMailCapabilities` wrong capability kind | `err(ValidationError)` |
-| 47 | `maxMailboxesPerEmail = 1` | `ok` |
-| 48 | `maxMailboxesPerEmail = 0` | `err(ValidationError)` |
+| 46 | `parseMailCapabilities` wrong capability kind | `err(SerdeViolation, svkEnumNotRecognised)` |
+| 47 | `maxMailboxesPerEmail = 1` (boundary) | `ok` |
+| 48 | `maxMailboxesPerEmail = 0` | `err(SerdeViolation, svkEmptyRequired)` |
 | 49 | `maxMailboxesPerEmail` null → `Opt.none` | `ok` |
-| 50 | `maxSizeMailboxName = 99` | `err(ValidationError)` |
-| 51 | `maxSizeMailboxName = 100` | `ok` |
+| 50 | `maxSizeMailboxName = 99` | `err(SerdeViolation, svkEmptyRequired)` |
+| 51 | `maxSizeMailboxName = 100` (boundary) | `ok` |
 
-### 8.8. SubmissionCapabilities (scenarios 52–55)
+Edge-case blocks beyond scenarios 45–51 cover Cyrus accommodations
+(`maxSizeMailboxName` absent → `Opt.none`; absent
+`emailQuerySortOptions` → empty `HashSet`), `maxMailboxDepth = null`,
+non-object `rawData`, the `ckCore` rejection arm, and explicit
+`maxMailboxesPerEmail` / `maxMailboxDepth` absent paths.
+
+### 8.8. SubmissionCapabilities (`tserde_mail_capabilities.nim`)
 
 | # | Scenario | Expected |
 |---|----------|----------|
 | 52 | `parseSubmissionCapabilities` valid | `ok` |
-| 53 | `parseSubmissionCapabilities` wrong kind | `err(ValidationError)` |
-| 54 | `maxDelayedSend = 0` (valid, means not supported) | `ok` |
-| 55 | `submissionExtensions` with multiple EHLO entries | `ok`, parsed correctly |
+| 53 | `parseSubmissionCapabilities` wrong kind | `err(SerdeViolation, svkEnumNotRecognised)` |
+| 54 | `maxDelayedSend = 0` (RFC sentinel for "not supported") | `ok` |
+| 55 | `submissionExtensions` with multiple EHLO entries, mixed casing | `ok`, parsed; case-insensitive equality |
 
-### 8.9. MailSetErrorType (scenarios 56–69)
+Edge-case blocks beyond scenarios 52–55 cover non-array values,
+invalid RFC 5321 keywords (`svkFieldParserFailed`), empty keywords,
+case-insensitive collapse of `PIPELINING` vs `pipelining`, and
+`OrderedTable` insertion-order preservation.
 
-| # | Scenario | Expected |
-|---|----------|----------|
-| 56 | `parseMailSetErrorType` for each known type (13 cases) | correct variant |
-| 57 | `parseMailSetErrorType` unknown `rawType` | `msetUnknown` |
-| 58 | `parseMailSetErrorType` style-insensitive matching via `nimIdentNormalize` (first character case-sensitive, rest case-insensitive with underscores stripped; consistent with `parseSetErrorType` in core) | correct variant |
-| 59 | Exhaustive pattern match compiles without missing branches | pass |
-| 60 | `maxRecipients` on `tooManyRecipients` SetError with valid `extras` | `Opt.some(UnsignedInt)` |
-| 61 | `maxRecipients` on SetError with absent/malformed `extras` | `Opt.none` |
-| 62 | `invalidRecipientAddresses` on `invalidRecipients` SetError with valid `extras` | `Opt.some(seq[string])` |
-| 63 | `invalidRecipientAddresses` on SetError with absent/malformed `extras` | `Opt.none` |
-| 64 | `notFoundBlobIds` on `blobNotFound` SetError with valid `extras` | `Opt.some(seq[Id])` |
-| 65 | `notFoundBlobIds` on SetError with absent/malformed `extras` | `Opt.none` |
-| 66 | `maxSize` on `tooLarge` SetError with valid `extras` | `Opt.some(UnsignedInt)` |
-| 67 | `maxSize` on SetError with absent/malformed `extras` | `Opt.none` |
-| 68 | `invalidEmailProperties` on `invalidEmail` SetError with valid `extras` | `Opt.some(seq[string])` |
-| 69 | `invalidEmailProperties` on SetError with absent/malformed `extras` | `Opt.none` |
-
-### 8.10. Entity Registration and Builder (scenarios 70–75)
+### 8.9. Mail SetError parsing and accessors (`tmail_errors.nim`)
 
 | # | Scenario | Expected |
 |---|----------|----------|
-| 70 | `registerJmapEntity(Thread)` compiles | pass |
-| 71 | `registerJmapEntity(Identity)` compiles | pass |
-| 72 | `addVacationResponseGet` produces invocation name `"VacationResponse/get"` | pass |
-| 73 | `addVacationResponseGet` adds vacationresponse capability | pass |
-| 74 | `addVacationResponseSet` produces invocation with `"singleton"` in update map | pass |
-| 75 | `addVacationResponseSet` omits create and destroy from invocation args | pass |
+| 56 | `parseSetErrorType` exhaustive table over the thirteen RFC 8621 wire strings | each maps to its expected `SetErrorType` variant |
+| 57 | `parseSetErrorType("someVendorError")` / `parseSetErrorType("")` | `setUnknown` |
+| 58 | `parseSetErrorType` Nim ident-normalisation behaviour | `"mailboxHas_Child"` → `setMailboxHasChild`; `"MailboxHasChild"` → `setUnknown` |
+| 60 | `maxRecipients` on `setTooManyRecipients` | `Opt.some(UnsignedInt)` |
+| 61 | `maxRecipients` when payload absent (defensive `setUnknown`) | `Opt.none` |
+| 62 | `invalidRecipientAddresses` on `setInvalidRecipients` | `Opt.some(seq[string])` |
+| 63 | `invalidRecipientAddresses` on malformed payload (defensive `setUnknown`) | `Opt.none` |
+| 64 | `notFoundBlobIds` on `setBlobNotFound` | `Opt.some(seq[BlobId])` |
+| 65 | `notFoundBlobIds` on malformed payload | `Opt.none` |
+| 66 | `maxSize` on `setTooLarge` with `maxSizeOctets = Opt.some(...)` | `Opt.some(UnsignedInt)` |
+| 67 | `maxSize` on `setTooLarge` with `maxSizeOctets = Opt.none` | `Opt.none` |
+| 68 | `invalidEmailProperties` on `setInvalidEmail` | `Opt.some(seq[string])` |
+| 69 | `invalidEmailProperties` on malformed payload | `Opt.none` |
+
+Scenario 59 is reserved across the wider design suite (filter/header
+tests) and is intentionally absent from `tmail_errors.nim`. Edge-case
+blocks also assert that every accessor returns `Opt.none` on
+unrelated `errorType` variants, and that `setErrorInvalidEmail` with
+an empty array round-trips as `Opt.some(@[])`.
+
+### 8.10. IdentityCreatedItem (`tserde_identity.nim` + captured fixtures)
+
+Scenarios are not numbered in source. Verified:
+
+- `fromJson` of `{"id": "..."}` (Stalwart 0.15.5 elision) → `ok`,
+  `mayDelete = Opt.none(bool)`.
+- `fromJson` of `{"id": "...", "mayDelete": false}` → `ok`,
+  `mayDelete = Opt.some(false)`.
+- `toJson` round-trips Stalwart's elision symmetrically — the wire
+  output contains `"id"` only and omits the `"mayDelete"` key when
+  `mayDelete.isNone`.
+- Captured cross-server fixtures
+  (`tcaptured_identity_set_update_stalwart.nim`,
+  `tcaptured_identity_changes_with_updates.nim`) decode the create
+  payload through `IdentityCreatedItem` end-to-end.
+
+### 8.11. Identity Update Algebra (`tidentity_update.nim`)
+
+Scenarios are not numbered in source. Verified:
+
+- Each builder helper (`setName`, `setReplyTo`, `setBcc`,
+  `setTextSignature`, `setHtmlSignature`) constructs an
+  `IdentityUpdate` whose `kind` matches the builder name.
+- `setReplyTo(Opt.none(seq[EmailAddress]))` produces an
+  `iuSetReplyTo` carrying the cleared list.
+- `initIdentityUpdateSet(@[])` errs with `"must contain at least one
+  update"`.
+- `initIdentityUpdateSet` over duplicate-kind input errs once per
+  distinct repeated kind, regardless of occurrence count (e.g. three
+  copies of `setName(...)` → exactly one `"duplicate target
+  property"` error naming `iuSetName`).
+- `initIdentityUpdateSet` accepts mixed-kind batches.
+- `parseNonEmptyIdentityUpdates(@[])` errs with the empty-input
+  message.
+- `parseNonEmptyIdentityUpdates` over duplicate `Id` keys errs once
+  per distinct repeated id (`"duplicate identity id"`).
+- `IdentityUpdate.toJson` for `iuSetReplyTo(Opt.none)` →
+  `("replyTo", null)`.
+- `IdentityUpdateSet.toJson` aggregates each `(key, value)` pair into
+  one patch object.
+- `NonEmptyIdentityUpdates.toJson` flattens to the wire shape
+  `{identityId: patchObj, ...}`.
+
+### 8.12. VacationResponse Update Algebra (`tvacation.nim` + `tserde_vacation.nim`)
+
+Scenarios are not numbered in source. Verified:
+
+- Each builder helper (`setIsEnabled`, `setFromDate`, `setToDate`,
+  `setSubject`, `setTextBody`, `setHtmlBody`) constructs a
+  `VacationResponseUpdate` whose `kind` matches the builder name.
+- `Opt.none` arguments to `setSubject` / `setTextBody` /
+  `setHtmlBody` / `setFromDate` / `setToDate` produce variants with
+  cleared payloads.
+- `initVacationResponseUpdateSet(@[])` errs with `"must contain at
+  least one update"`.
+- `initVacationResponseUpdateSet` rejects duplicate `kind` (single
+  error per distinct repeated kind).
+- `VacationResponseUpdate.toJson` per variant emits the expected
+  `(wireKey, wireValue)` pair, with `Opt.none` projecting to JSON
+  `null` for date and string-bodied variants.
+- `VacationResponseUpdateSet.toJson` aggregates pairs into a single
+  patch object.
+
+### 8.13. Builder wire anchors (`tidentity_builders.nim`, integration tests)
+
+Scenarios are not numbered in source. Verified:
+
+- `addIdentityGet` routes to method name `mnIdentityGet` and adds
+  capability `urn:ietf:params:jmap:submission`.
+- `addIdentityChanges` routes to `mnIdentityChanges`.
+- `addIdentitySet` create-only emits the six-field `IdentityCreate`
+  payload at `args.create["<creationId>"]` and routes to
+  `mnIdentitySet` with the submission capability; `id` and
+  `mayDelete` are absent.
+- `addIdentitySet` update-only emits per-id patches keyed by the
+  Identity `Id` in `args.update`, with neither `create` nor
+  `destroy` keys.
+- `addIdentitySet` destroy-only emits `args.destroy` as a JSON array
+  of ids.
+- `addVacationResponseGet` routes to `mnVacationResponseGet` and
+  adds capability `urn:ietf:params:jmap:vacationresponse`.
+- `addVacationResponseSet` builds `args.update["singleton"]` from
+  the supplied `VacationResponseUpdateSet` and routes to
+  `mnVacationResponseSet`. The signature has no `create` / `destroy`
+  parameters by construction.
+- Compile-time: `setMethodName(typedesc[thread.Thread])` — fails
+  with an undeclared-identifier error at the call site.
+- Compile-time: `addIdentitySet` `createResults` is typed as
+  `SetResponse[IdentityCreatedItem]` (resolved through
+  `setResponseType`).
 
 ---
 
 ## 9. Decision Traceability Matrix
 
-| # | Decision | Options Considered | Chosen | Primary Principles |
-|---|----------|--------------------|--------|-------------------|
-| A1 | EmailAddress in this doc vs deferred | A) Here as shared sub-type section, B) Defer to Design C, C) Separate doc | Modified A (shared section preceding entities) | DDD, Parse-don't-validate, DRY |
-| A2 | Capability types scope | A) Complete now, B) Defer to consuming entities, C) Define all, document consumers | A (complete, all-or-nothing parsing) | Parse-don't-validate, DRY, Total functions |
-| A3 | Identity creation model | A) PatchObject only, B) IdentityBlueprint, Modified B) Lightweight IdentityCreate | Modified B (`IdentityCreate` with email-required) | Make illegal states unrepresentable, DDD, Total functions |
-| A4 | Thread field sealing | A) All public, B) Pattern A | B (non-empty `emailIds` invariant) | Make illegal states unrepresentable, Parse-don't-validate |
-| A5 | Identity field sealing | A) All public, B) Pattern A | A (no invariants beyond field types) | Consistency with Account/CoreCapabilities |
-| A6 | VacationResponse id field | A) `id: Id` validated, B) No `id` field, C) `id: Id` unvalidated | B (omit id — constant is not state) | Make illegal states unrepresentable, DDD, DRY |
-| A7 | VacationResponse entity registration | A) Register + custom set, B) Don't register + custom get/set | B (compile-time prevention of invalid methods) | Make illegal states unrepresentable, DDD, Total functions |
-| A8 | MailSetErrorType scope | A) Full enum now, B) Partial, extend later | A (complete vocabulary upfront) | DRY, Total functions, Parse-don't-validate |
-| A9 | Identity string field types | A) `string` with default `""`, B) `Opt[string]` | A (RFC types are `String`, not `String\|null`) | Parse-don't-validate, Make illegal states unrepresentable, DDD |
-| A10 | Thread emailIds non-empty | A) Enforce non-empty, B) Accept empty leniently | A (rejection at parsing boundary) | Parse-don't-validate, Make illegal states unrepresentable, Total functions |
-| A11 | Serde module split for addresses | A) In `serde_identity.nim`, B) Separate `serde_addresses.nim` | B (shared bounded context, dependency flow) | DDD, DRY |
-| A12 | VacationResponse set signature | A) `Table[Id, PatchObject]`, B) `PatchObject` (singleton hardcoded) | B (eliminate caller-specified id) | Make illegal states unrepresentable |
-| A13 | `emailQuerySortOptions` collection type | A) `seq[string]`, B) `HashSet[string]` | B (O(1) membership testing, `collationAlgorithms` precedent) | DDD, DRY |
-| A14 | Thread `{.requiresInit.}` pragma | A) Plain object, B) `{.requiresInit.}` | Originally B, dropped during implementation — `{.requiresInit.}` is incompatible with `seq[Thread]` under `UnsafeSetLen` error promotion. Sealed fields only (Session pattern). | Make illegal states unrepresentable |
-| A15 | VacationResponse singleton id location | A) String literal in serde + builder, B) Shared `const` in `vacation.nim` | B (single source of truth, importable by serde and builder) | DRY |
-| A16 | `submissionExtensions` table type | A) `Table`, B) `OrderedTable` | B (preserves JSON key order, consistent with `std/json` internals) | DDD |
-| A17 | Mail error typed accessors | A) Extend core SetError, B) Parallel MailSetError case object, C) Typed accessor functions | C (extraction from extras) | Parse-don't-validate, Open-Closed, DDD |
-| A18 | Identity.fromJson email validation | A) Accept empty (lenient), B) Reject empty (strict) | B (consistent with IdentityCreate) | Parse-don't-validate, DDD |
-| A19 | `parseMailSetErrorType` signature | A) `(error: SetError)`, B) `(rawType: string)` | B (consistency with core parse functions) | DRY, DDD |
+| # | Decision | Chosen | Primary Principles |
+|---|----------|--------|--------------------|
+| A1 | `EmailAddress` placement | Shared §2 section preceding the entities that consume it | DDD, Parse-don't-validate, DRY |
+| A2 | Capability types scope | Complete typed `MailCapabilities` and `SubmissionCapabilities` upfront | Parse-don't-validate, DRY, Total functions |
+| A3 | Identity creation model | Lightweight `IdentityCreate` with email-required smart constructor | Make illegal states unrepresentable, DDD |
+| A4 | Thread field sealing | Sealed (module-private) fields with `parseThread` smart constructor | Make illegal states unrepresentable |
+| A5 | Identity field sealing | Plain public fields (no cross-field invariants) | Consistency with Account/CoreCapabilities |
+| A6 | VacationResponse `id` field | Omit — singleton id is a constant, not state | Make illegal states unrepresentable, DDD, DRY |
+| A7 | VacationResponse entity registration | Do not register; custom `addVacationResponseGet` / `addVacationResponseSet` builders | Make illegal states unrepresentable, DDD |
+| A8 | Mail set-error vocabulary | Single central `SetErrorType` covering RFC 8620 + RFC 8621 variants; mail layer provides typed accessors only | DRY, Total functions, Open-Closed |
+| A9 | Identity string field types | `string` with default `""` (RFC types are `String`, not `String\|null`) | Parse-don't-validate, Make illegal states unrepresentable |
+| A10 | Thread `emailIds` non-empty | Reject empty at the parsing boundary | Parse-don't-validate, Make illegal states unrepresentable |
+| A11 | Serde module split for addresses | Separate `serde_addresses.nim` (shared bounded context) | DDD, DRY |
+| A12 | VacationResponse set signature | `update: VacationResponseUpdateSet` (singleton id hardcoded) | Make illegal states unrepresentable |
+| A13 | `emailQuerySortOptions` collection type | `HashSet[string]` (O(1) membership; mirrors `collationAlgorithms`) | DDD, DRY |
+| A14 | Thread initialisation pragma | Sealed fields without `{.requiresInit.}` (compatible with `seq[Thread]` under `UnsafeSetLen`) | Make illegal states unrepresentable, build correctness |
+| A15 | VacationResponse singleton id location | Shared `const VacationResponseSingletonId` in `vacation.nim`, imported by serde and builder | DRY |
+| A16 | `submissionExtensions` table type | `distinct OrderedTable[RFC5321Keyword, seq[string]]` | DDD, Make illegal states unrepresentable |
+| A17 | RFC 5321 keyword key type | `RFC5321Keyword` with case-insensitive equality and hash | DDD, Total functions |
+| A18 | Mail SetError typed access | One-line accessors over the case object's variant fields (no JSON re-parse) | Parse-don't-validate, DDD |
+| A19 | Identity `email` lenient on receive | Accept any string from the server (Cyrus compatibility); strictness lives in `parseIdentityCreate` | Postel's law, Parse-don't-validate |
+| A20 | `maxSizeMailboxName` cardinality | `Opt[UnsignedInt]` — informational, Cyrus-omitted | Parse-don't-validate, Postel's law |
+| A21 | Identity update model | Closed sum-type `IdentityUpdate` + validated `IdentityUpdateSet` + `NonEmptyIdentityUpdates` | Make illegal states unrepresentable, Total functions |
+| A22 | VacationResponse update model | Closed sum-type `VacationResponseUpdate` + validated `VacationResponseUpdateSet` | Make illegal states unrepresentable, Total functions |
+| A23 | Identity `/set` `created[cid]` payload | Distinct `IdentityCreatedItem` with `Opt[bool] mayDelete` (Stalwart elision) | RFC 8620 §5.3, Postel's law |
+| A24 | Builder return shape | `(RequestBuilder, ResponseHandle[T])` tuples (functional) | Immutability by default |
+| A25 | Identity entity-specific builders | Thin wrappers `addIdentityGet` / `addIdentityChanges` / `addIdentitySet` over the generic builders | API ergonomics |
+| A26 | Serde error rail | `Result[T, SerdeViolation]` at every `fromJson`; bridged from L1 `ValidationError` via `wrapInner` | Errors are part of the API |

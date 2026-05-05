@@ -8,16 +8,15 @@ methods) for each type, cutting horizontally through the architecture.
 Email is the most property-rich entity in the spec (~30 properties across
 metadata, headers, and body, plus dynamic `header:*` properties). The
 horizontal layout — all types first, then all serde, then all builders — is
-chosen over the vertical slices of Designs A–C because the Email serde layer
-has significant cross-cutting concerns (shared helpers between Email and
-ParsedEmail) that would be awkward to present within a single type section.
+chosen because the Email serde layer has significant cross-cutting concerns
+(shared helpers between Email and ParsedEmail) that would be awkward to
+present within a single type section.
 
 Builds on the cross-cutting architecture design (`05-mail-architecture.md`),
 the existing RFC 8620 infrastructure (`00-architecture.md` through
 `04-layer-4-design.md`), Design A (`06-mail-a-design.md`), Design B
-(`07-mail-b-design.md`), and Design C (`08-mail-c-design.md`). Architecture
-decisions are referenced by section number; Part A–C decisions by their
-identifiers (A14, B11, B16, C1, etc.).
+(`07-mail-b-design.md`), and Design C (`08-mail-c-design.md`). Decisions
+specific to this part are tagged D1–D20 in the traceability matrix (§13).
 
 ---
 
@@ -32,7 +31,7 @@ identifiers (A14, B11, B16, C1, etc.).
 7.  [SearchSnippet — snippet.nim](#7-searchsnippet--snippetnim)
 8.  [Serialisation](#8-serialisation)
 9.  [Builders](#9-builders)
-10. [Custom Methods](#10-custom-methods)
+10. [Custom Methods and Compound Chains](#10-custom-methods-and-compound-chains)
 11. [Module Organisation](#11-module-organisation)
 12. [Test Specification](#12-test-specification)
 13. [Decision Traceability Matrix](#13-decision-traceability-matrix)
@@ -52,8 +51,8 @@ identifiers (A14, B11, B16, C1, etc.).
 
 | Type | Module | Rationale |
 |------|--------|-----------|
-| `Email` | `email.nim` | Store-backed read model — ~28 fields across metadata, headers, body, and dynamic header properties |
-| `ParsedEmail` | `email.nim` | Blob-backed read model for Email/parse — structurally distinct from Email (missing 6 metadata fields) |
+| `Email` | `email.nim` | Server-shaped read model — every field `Opt` to admit property-filter responses |
+| `ParsedEmail` | `email.nim` | Blob-backed read model for Email/parse — six metadata fields structurally absent |
 | `PlainSortProperty` | `email.nim` | Enum of non-keyword Email sort properties |
 | `KeywordSortProperty` | `email.nim` | Enum of keyword-bearing Email sort properties |
 | `EmailComparator` | `email.nim` | Case object — compile-time enforcement that keyword sorts carry a `Keyword` |
@@ -62,59 +61,65 @@ identifiers (A14, B11, B16, C1, etc.).
 | `EmailFilterCondition` | `mail_filters.nim` | 20-field query specification for Email/query (extends existing module) |
 | `EmailHeaderFilter` | `mail_filters.nim` | Sub-type for the `header` filter field (sealed `name`, smart constructor) |
 | `SearchSnippet` | `snippet.nim` | Search highlight data carrier — no id property |
-| `EmailParseResponse` | `mail_methods.nim` | Typed response for Email/parse with `Table[Id, ParsedEmail]` |
+| `EmailParseResponse` | `mail_methods.nim` | Typed response for Email/parse with `Table[BlobId, ParsedEmail]` |
 | `SearchSnippetGetResponse` | `mail_methods.nim` | Typed response for SearchSnippet/get |
+| `EmailQueryThreadChain` / `EmailQueryThreadResults` | `mail_builders.nim` | Compound dispatch handles + results for the RFC 8621 §4.10 first-login workflow |
+| `EmailQuerySnippetChain` | `mail_methods.nim` | Compound chain alias for Email/query + SearchSnippet/get |
 
-### 1.3. Deferred
+### 1.3. Deferred to Other Parts
 
-**Part E (Email write path):** `EmailBlueprint` creation model, `Email/set`,
-`Email/import`, `Email/copy` builders.
-
-**Part F (submission):** `EmailSubmission` and all submission types.
+- **Part E (Email write path):** `EmailBlueprint`, `EmailUpdate`,
+  `addEmailSet`, `addEmailCopy`, `addEmailImport`, and the corresponding
+  response/created-item types. These types live in `email.nim` and
+  `email_blueprint.nim` / `email_update.nim` for module cohesion but
+  belong to Part E.
+- **Part F (submission):** `EmailSubmission` and all submission types.
 
 ### 1.4. Relationship to Cross-Cutting Design
 
-This document refines `05-mail-architecture.md` into implementation-ready
-specifications. The architecture doc locks in the three-type split (Email,
-ParsedEmail, EmailBlueprint — Decision 13), `fromAddr` naming convention,
-`MailboxIdSet`/`KeywordSet` as distinct types (Decision 12), and the
-`requestedHeaders`/`requestedHeadersAll` table pattern (Decision 6).
+This document refines `05-mail-architecture.md`. The architecture doc locks
+in the three-type split (Email, ParsedEmail, EmailBlueprint), the
+`fromAddr` naming convention, `MailboxIdSet`/`KeywordSet` as distinct
+types, and the `requestedHeaders`/`requestedHeadersAll` table pattern.
 
-**Refinement from architecture doc:** The architecture doc specified body
-fields (`bodyStructure`, `bodyValues`, `textBody`, `htmlBody`, `attachments`)
-as `Opt[T]` on the Email type. Decision D2 refines this: a typed `Email` is a
-complete domain object with ALL properties present. Body fields use non-Opt
-types with natural "empty" values (`Table` for bodyValues, `seq` for lists,
-`bool` for hasAttachment, `string` for preview). Partial-property responses
-use raw `GetResponse.list: seq[JsonNode]` (architecture Decision D3.6). This
-eliminates the ambiguity of `Opt.none` meaning both "not requested" and
-"absent" — on a typed Email, every `Opt` has exactly one meaning.
+The Email type is server-shaped: every property the wire admits absence on
+is `Opt[T]`. `Email/get` supports property filtering, so any property may
+be absent in a sparse response. The default-properties fetch (`properties =
+Opt.none`) populates each `Opt` with `Opt.some`; property-filtered fetches
+populate only the requested properties (D2).
 
 ### 1.5. General Conventions Applied
 
 All conventions established in prior designs apply:
 
-1. **Lenient fromJson convention** (B15) — `*FromServer` parser variants for
-   all server-received distinct types.
+1. **Lenient fromJson convention** (B15) — `*FromServer` parser variants
+   for all server-received distinct types.
 2. **Filter conditions are toJson-only** (B11) — no `fromJson`.
-3. **Strict/lenient parser pairs are principled** (B20) — pair exists only
-   when a meaningful gap between spec-specific and structural constraints.
-4. **Entity-specific builders accept typed parameters** (B21).
+3. **Strict/lenient parser pairs are principled** (B20) — pair exists
+   only when there is a meaningful gap between spec-specific and
+   structural constraints.
+4. **JSON path tracking** — Every serde function takes a `path: JsonPath
+   = emptyJsonPath()` argument; errors carry the path of the failing
+   node, returned as `SerdeViolation` on the `Result` error rail.
+5. **Typedesc-overload `fromJson`** — Each public read type provides a
+   `fromJson*(T: typedesc[X], node: JsonNode, path: JsonPath = ...)`
+   wrapper so the dispatch layer's `mixin fromJson` resolves uniformly.
 
 ### 1.6. Module Summary
 
-All modules live under `src/jmap_client/mail/` per cross-cutting doc §3.3.
+All modules live under `src/jmap_client/mail/`.
 
-| Module | Layer | Contents |
-|--------|-------|----------|
-| `email.nim` | L1 | `Email`, `ParsedEmail`, `PlainSortProperty`, `KeywordSortProperty`, `EmailComparator`, `BodyValueScope`, `EmailBodyFetchOptions` |
+| Module | Layer | Read-path contents |
+|--------|-------|--------------------|
+| `email.nim` | L1 | `Email`, `ParsedEmail`, `PlainSortProperty`, `KeywordSortProperty`, `EmailComparator`, `BodyValueScope`, `EmailBodyFetchOptions`, `isLeaf` |
 | `snippet.nim` | L1 | `SearchSnippet` |
-| `mail_filters.nim` | L1 | `EmailFilterCondition`, `EmailHeaderFilter` (extends existing module with Mailbox filters) |
-| `serde_email.nim` | L2 | `toJson`/`fromJson` for Email, ParsedEmail, EmailComparator, EmailBodyFetchOptions; shared serde helpers |
-| `serde_snippet.nim` | L2 | `fromJson`/`toJson` for SearchSnippet |
-| `mail_entities.nim` | L3 | Entity registration for Email (extends existing module) |
-| `mail_builders.nim` | L3 | `addEmailGet`, `addEmailQuery`, `addEmailQueryChanges` |
-| `mail_methods.nim` | L3 | `addEmailParse`, `addSearchSnippetGet`, `EmailParseResponse`, `SearchSnippetGetResponse` (extends existing module) |
+| `mail_filters.nim` | L1 | `EmailFilterCondition`, `EmailHeaderFilter` (also hosts `MailboxFilterCondition`) |
+| `serde_email.nim` | L2 | `emailFromJson`, `parsedEmailFromJson`, `Email.toJson`, `ParsedEmail.toJson`, `emailComparatorFromJson`, `EmailComparator.toJson`, `EmailBodyFetchOptions.toExtras`, `EmailBodyFetchOptions.toJson`, shared helpers |
+| `serde_snippet.nim` | L2 | `searchSnippetFromJson`, `SearchSnippet.toJson` |
+| `serde_mail_filters.nim` | L2 | `EmailFilterCondition.toJson`, `EmailHeaderFilter.toJson`, extracted emit helpers |
+| `mail_entities.nim` | L3 | Per-verb method-name resolvers, capability URIs, response/filter typedesc templates, registration calls for Email |
+| `mail_builders.nim` | L3 | `addEmailGet`, `addEmailGetByRef`, `addThreadGetByRef`, `addEmailQuery`, `addEmailQueryChanges`, `addEmailQueryWithThreads`, compound chain types |
+| `mail_methods.nim` | L3 | `addEmailParse`, `addSearchSnippetGet`, `addSearchSnippetGetByRef`, `addEmailQueryWithSnippets`, `EmailParseResponse`, `SearchSnippetGetResponse`, `EmailQuerySnippetChain`, typedesc-overload `fromJson` wrappers |
 
 ---
 
@@ -124,37 +129,36 @@ All modules live under `src/jmap_client/mail/` per cross-cutting doc §3.3.
 
 **RFC reference:** §4.1 (properties), §4.2 (Email/get).
 
-The Email type is the store-backed read model — a complete representation of
-a message as returned by `Email/get`. A typed `Email` is a complete domain
-object: every property is present, every `Opt` has exactly one meaning
-(Decision D2). Callers who need partial-property responses use raw
-`GetResponse.list: seq[JsonNode]` and parse selectively.
+The Email type is the server-shaped read model — a representation of a
+message as returned by `Email/get`. Every field the wire admits absence on
+is `Opt[T]`. `Email/get` supports property filtering, so any property may
+be absent in a sparse response. The default-properties fetch
+(`properties = Opt.none`) populates each `Opt` with `Opt.some`;
+property-filtered fetches populate only the requested properties (D2).
 
 **Principles:**
 - **Code reads like the spec** — Fields map 1:1 to RFC §4.1 properties.
-- **One meaning per Opt** — `Opt.none` on convenience headers means
-  exclusively "header absent in message" (D3). No "not requested" semantics.
-- **Parse, don't validate** — Construction via `parseEmail` validates
-  non-empty `mailboxIds` (D1).
+- **One type, two shapes** — The same `Email` value carries both the
+  default-properties shape (every `Opt` populated) and the sparse shape
+  (only requested properties populated). The wire grammar admits both;
+  the type accommodates both without a phantom wrapper.
 
 ### 2.1. Type Definition
 
 ```nim
 type Email* {.ruleOff: "objects".} = object
-  ## Store-backed Email read model (RFC 8621 §4.1).
-  ## A typed Email is a complete domain object — every property present.
-  ## Partial-property access uses raw ``GetResponse.list: seq[JsonNode]``.
+  ## Server-shaped Email read model (RFC 8621 §4.1).
 
-  # ── Metadata (§4.1.1) ── server-set, immutable except mailboxIds/keywords
-  id*: Id                                        ## JMAP object id (not Message-ID header).
-  blobId*: Id                                    ## Raw RFC 5322 octets.
-  threadId*: Id                                  ## Thread this Email belongs to.
-  mailboxIds*: MailboxIdSet                      ## ≥1 Mailbox at all times (RFC invariant).
-  keywords*: KeywordSet                          ## Default: empty set.
-  size*: UnsignedInt                             ## Raw message size in octets.
-  receivedAt*: UTCDate                           ## IMAP internal date.
+  # -- Metadata (§4.1.1) -- server-set; absent under property filter
+  id*: Opt[Id]                                   ## JMAP object id.
+  blobId*: Opt[BlobId]                           ## Raw RFC 5322 octets.
+  threadId*: Opt[Id]                             ## Thread this Email belongs to.
+  mailboxIds*: Opt[MailboxIdSet]                 ## ≥1 Mailbox at all times when present (RFC §4.1.1 server invariant).
+  keywords*: Opt[KeywordSet]                     ## Default-shape: ``Opt.some(empty set)``.
+  size*: Opt[UnsignedInt]                        ## Raw message size in octets.
+  receivedAt*: Opt[UTCDate]                      ## IMAP internal date.
 
-  # ── Convenience headers (§4.1.2–4.1.3) ── Opt.none = header absent in message
+  # -- Convenience headers (§4.1.2-4.1.3) -- Opt.none = header absent in message
   messageId*: Opt[seq[string]]                   ## header:Message-ID:asMessageIds
   inReplyTo*: Opt[seq[string]]                   ## header:In-Reply-To:asMessageIds
   references*: Opt[seq[string]]                  ## header:References:asMessageIds
@@ -167,102 +171,79 @@ type Email* {.ruleOff: "objects".} = object
   subject*: Opt[string]                          ## header:Subject:asText
   sentAt*: Opt[Date]                             ## header:Date:asDate
 
-  # ── Raw headers (§4.1.3) ──
+  # -- Raw headers (§4.1.3) --
   headers*: seq[EmailHeader]                     ## All header fields in message order; @[] if absent.
 
-  # ── Dynamic header properties (§4.1.3) ──
+  # -- Dynamic header properties (§4.1.3) --
   requestedHeaders*: Table[HeaderPropertyKey, HeaderValue]
     ## Parsed headers requested via ``header:Name:asForm`` (last instance).
   requestedHeadersAll*: Table[HeaderPropertyKey, seq[HeaderValue]]
     ## Parsed headers requested via ``header:Name:asForm:all`` (all instances).
 
-  # ── Body (§4.1.4) ──
-  bodyStructure*: EmailBodyPart                  ## Full MIME tree.
+  # -- Body (§4.1.4) --
+  bodyStructure*: Opt[EmailBodyPart]             ## Full MIME tree; ``Opt.none`` under property filter.
   bodyValues*: Table[PartId, EmailBodyValue]     ## Text part contents; empty if none fetched.
   textBody*: seq[EmailBodyPart]                  ## Leaf parts — text/plain preference.
   htmlBody*: seq[EmailBodyPart]                  ## Leaf parts — text/html preference.
   attachments*: seq[EmailBodyPart]               ## Leaf parts — non-body content.
   hasAttachment*: bool                           ## Server heuristic.
-  preview*: string                               ## ≤256 characters plaintext fragment.
+  preview*: string                               ## Up to 256 characters plaintext fragment.
 ```
 
-**28 fields total:** 7 metadata + 11 convenience headers + 1 raw headers +
-2 dynamic header tables + 7 body.
-
-**`fromAddr` naming:** `from` is a Nim reserved keyword. The architecture doc
-(Decision 12.4) mandates `fromAddr` consistently across Email, ParsedEmail,
+**`fromAddr` naming:** `from` is a Nim reserved keyword. The architecture
+doc mandates `fromAddr` consistently across Email, ParsedEmail,
 EmailBlueprint, and EmailFilterCondition. The serde layer maps to/from the
 RFC's `"from"` key transparently.
 
+**`blobId` is `Opt[BlobId]`, not `Opt[Id]`:** `BlobId` is a distinct
+opaque-token string defined in `identifiers.nim` (`==`/`$`/`hash` borrowed,
+no `len`). Using the typed `BlobId` here parallels the use of `MailboxIdSet`
+and `KeywordSet` over raw containers — newtype everything that has meaning.
+
 **Field grouping rationale:**
-- **Metadata** — Server-managed store properties. All non-Opt (typed Email =
-  complete object). `mailboxIds` and `keywords` are the only mutable fields
-  (mutated via `Email/set` with `PatchObject`, not on the read type).
-- **Convenience headers** — Parsed forms of common header fields. `Opt.none`
-  means exclusively "this header field does not exist in the message" (D3).
+- **Metadata** — Server-managed store properties. `Opt` because property
+  filter can omit any of them; the default fetch populates all seven.
+- **Convenience headers** — Parsed forms of common header fields.
+  `Opt.none` means exclusively "this header field does not exist in the
+  message" when the property was requested (D3).
 - **Raw headers** — The `headers` escape hatch for full header access.
-  `seq[EmailHeader]` — empty seq means no headers (extremely unlikely in
-  practice).
+  `seq[EmailHeader]` — empty seq means no headers were returned (under a
+  property filter, or no header fields exist).
 - **Dynamic headers** — Caller-requested `header:Name:asForm` properties.
-  Tables are empty when no dynamic headers were requested. `fromJson` routes
-  these via prefix matching (D4).
-- **Body** — Message body structure and content. Non-Opt types with natural
-  "empty" values (empty Table, empty seq, `false`, `""`).
+  Tables are empty when no dynamic headers were requested. `fromJson`
+  routes these via prefix matching (D4).
+- **Body** — `bodyStructure` is `Opt` because the property filter may
+  omit it. The leaf-part lists, `bodyValues`, `hasAttachment`, and
+  `preview` use natural-empty types (empty seq/Table, `false`, `""`)
+  rather than `Opt`.
 
-### 2.2. Smart Constructor
+### 2.2. Construction
 
-```nim
-func parseEmail*(e: Email): Result[Email, ValidationError] =
-  ## Validates the single domain invariant: mailboxIds must not be empty.
-  ## RFC 8621 §4.1.1: "An Email in the mail store MUST belong to one or more
-  ## Mailboxes at all times."
-  if e.mailboxIds.len == 0:
-    return err(validationError("Email", "mailboxIds must not be empty", ""))
-  ok(e)
-```
+There is no smart constructor for `Email`. Construction paths are:
 
-**Why accept-and-validate, not 28-parameter constructor?** Email has 28
-fields. A positional constructor with 28 parameters would be unwieldy and
-fragile. Instead, `parseEmail` accepts a constructed `Email` object and
-validates the single domain invariant. The primary construction path is
-`fromJson` (which calls `parseEmail` internally). Client code that constructs
-an Email directly (unlikely — this is a read model) uses field syntax and
-then validates:
+1. **Server JSON via `emailFromJson` / `Email.fromJson`** — the primary
+   construction path. Lenient at the boundary (D15): trusts the RFC
+   contract that `mailboxIds`, when present, is non-empty. No client-side
+   validation re-check.
+2. **Direct field construction** — for tests and synthetic Emails. Every
+   `Opt` field can be `Opt.none`; field-syntax construction is unconstrained.
 
-```nim
-let email = Email(id: myId, blobId: myBlobId, ...).parseEmail.expect("valid")
-```
+The RFC §4.1.1 invariant "an Email in the mail store MUST belong to one
+or more Mailboxes" is a server contract, not an enforceable client
+invariant on the read model — under a property filter the field can be
+absent entirely. Write-path types (`EmailBlueprint`, `EmailCopyItem`,
+`EmailImportItem` in Part E) use `NonEmptyMailboxIdSet` to encode the
+invariant where it is enforceable.
 
-**Plain public fields (D1):** Fields are public for reading ergonomics.
-Construction is gated by `parseEmail` as a convention, not enforced by the
-type system (unlike Pattern A, which seals fields behind module-private
-access). With 28 fields, the cost of Pattern A (28 accessor functions, no
-field syntax for construction) outweighs the benefit. ProveInit prevents
-uninitialised use. Same pattern as Thread after Decision A14.
+### 2.3. Leaf-Only Body Lists
 
-**mailboxIds validation only (D15):** `fromJson` is lenient (Postel's law) —
-it accepts empty `mailboxIds` from the server without failing. The server's
-contract (RFC §4.1.1) guarantees non-empty; the client trusts that contract.
-`parseEmail` is for client-side construction where the boundary is different.
-"Boundary" is context-dependent: server→client = trust the server's contract;
-client→server = validate at our construction boundary.
+`textBody`, `htmlBody`, and `attachments` are guaranteed by the RFC to
+contain only leaf parts (no `multipart/*` entries). The typed Email does
+**not** enforce this invariant via a smart constructor (D6). It trusts
+the server's contract — same reasoning as the lenient `mailboxIds`
+behaviour.
 
-**Principles:**
-- **Parse, don't validate** — `parseEmail` returns `Result`, not a bare
-  object.
-- **Constructors that can fail return Result** — Non-empty `mailboxIds` can
-  fail.
-- **Postel's law** — `fromJson` accepts server data leniently; `parseEmail`
-  validates client construction strictly.
-
-### 2.3. Leaf-Only Body Lists (D6)
-
-`textBody`, `htmlBody`, and `attachments` are guaranteed by the RFC to contain
-only leaf parts (no multipart/* entries). The typed Email does **not** enforce
-this invariant via smart constructor validation. Instead, it trusts the
-server's contract (Postel's law) — same reasoning as D15 for `mailboxIds`.
-
-A convenience predicate may be provided for callers who wish to assert:
+A convenience predicate is provided for callers who wish to assert:
 
 ```nim
 func isLeaf*(part: EmailBodyPart): bool =
@@ -279,29 +260,21 @@ func isLeaf*(part: EmailBodyPart): bool =
 **RFC reference:** §4.9 (Email/parse).
 
 `ParsedEmail` is the blob-backed read model returned by `Email/parse`. It
-represents a parsed message blob without store metadata. Structurally distinct
-from `Email` — six metadata fields are physically absent (not `Opt.none`),
-and `threadId` is `Opt[Id]` (the server may not be able to determine thread
-assignment for a blob).
+represents a parsed message blob without store metadata. Structurally
+distinct from `Email` — six metadata fields are physically absent (not
+`Opt.none`), and `threadId` is `Opt[Id]` (the server may not be able to
+determine thread assignment for a blob).
 
-**Decision D7:** Full field duplication — both `Email` and `ParsedEmail` are
-independent flat object types with all fields declared directly. No shared
-sub-object types (no `EmailSharedHeaders` or similar). Shared serde helper
-procs for common field groups (convenience headers, body fields, dynamic
-header routing) keep parsing logic DRY without sacrificing type clarity.
+**Decision D7:** Full field duplication — both `Email` and `ParsedEmail`
+are independent flat object types with all fields declared directly. No
+shared sub-object types. Shared serde helper procs for common field
+groups (convenience headers, body fields, dynamic header routing) keep
+parsing logic DRY without sacrificing type clarity.
 
 "DRY — but duplicated appearance is not duplicated knowledge." The field
 declarations look similar but belong to different domain aggregates with
-different invariants. Factoring them into a shared sub-object would create a
-type that lacks domain meaning.
-
-**Principles:**
-- **DDD** — Different aggregates with different invariants get different types
-  (architecture doc Decision 13). "Structurally absent" ≠ "null."
-- **Code reads like the spec** — Both types read as flat field lists matching
-  the RFC property tables.
-- **DRY where it matters** — Serde helpers (boundary code) are shared;
-  declarations (domain code) are duplicated.
+different invariants. Factoring them into a shared sub-object would
+create a type that lacks domain meaning.
 
 ### 3.1. Type Definition
 
@@ -309,12 +282,12 @@ type that lacks domain meaning.
 type ParsedEmail* {.ruleOff: "objects".} = object
   ## Blob-backed Email for Email/parse responses (RFC 8621 §4.9).
   ## Missing id, blobId, mailboxIds, keywords, size, receivedAt —
-  ## structurally absent, not ``Opt.none``.
+  ## structurally absent, not ``Opt.none`` (D7, D20).
 
-  # ── Metadata ── only threadId survives
+  # -- Metadata -- only threadId survives
   threadId*: Opt[Id]                             ## Server MAY provide if determinable; else none.
 
-  # ── Convenience headers ── identical structure to Email
+  # -- Convenience headers -- identical structure to Email
   messageId*: Opt[seq[string]]
   inReplyTo*: Opt[seq[string]]
   references*: Opt[seq[string]]
@@ -327,15 +300,15 @@ type ParsedEmail* {.ruleOff: "objects".} = object
   subject*: Opt[string]
   sentAt*: Opt[Date]
 
-  # ── Raw headers ──
+  # -- Raw headers --
   headers*: seq[EmailHeader]
 
-  # ── Dynamic header properties ──
+  # -- Dynamic header properties --
   requestedHeaders*: Table[HeaderPropertyKey, HeaderValue]
   requestedHeadersAll*: Table[HeaderPropertyKey, seq[HeaderValue]]
 
-  # ── Body ──
-  bodyStructure*: EmailBodyPart
+  # -- Body --
+  bodyStructure*: Opt[EmailBodyPart]
   bodyValues*: Table[PartId, EmailBodyValue]
   textBody*: seq[EmailBodyPart]
   htmlBody*: seq[EmailBodyPart]
@@ -344,19 +317,11 @@ type ParsedEmail* {.ruleOff: "objects".} = object
   preview*: string
 ```
 
-**22 fields total:** 1 metadata + 11 convenience headers + 1 raw headers +
-2 dynamic header tables + 7 body.
-
-**No smart constructor beyond fromJson.** ParsedEmail is a read-only result
-from `Email/parse`. The only "construction" is parsing from server JSON. No
-client-side construction path exists, so no validation beyond what `fromJson`
-provides.
-
 ### 3.2. Field Comparison with Email
 
 | Property Group | Email | ParsedEmail | Difference |
 |----------------|-------|-------------|------------|
-| Metadata | `id`, `blobId`, `threadId`, `mailboxIds`, `keywords`, `size`, `receivedAt` (7 fields) | `threadId: Opt[Id]` (1 field) | 6 fields absent; `threadId` becomes `Opt` (D20) |
+| Metadata | 7 fields, all `Opt` | `threadId: Opt[Id]` | 6 fields structurally absent |
 | Convenience headers | 11 fields, all `Opt` | Identical | None |
 | Raw headers | `headers: seq[EmailHeader]` | Identical | None |
 | Dynamic headers | 2 tables | Identical | None |
@@ -365,14 +330,16 @@ provides.
 **`blobId` and `size` exclusion (D20):** RFC §4.9 lists four metadata
 properties as null on parsed emails: `id`, `mailboxIds`, `keywords`,
 `receivedAt`. It does not list `blobId` or `size` — they are technically
-available if explicitly requested. ParsedEmail omits them for three reasons:
-(1) `blobId` is redundant — the `EmailParseResponse.parsed` table is keyed by
-blob id, so the caller already has it; (2) `size` is derivable from the blob
-itself; (3) blob infrastructure is deferred (architecture doc §4.6 — "Binary
-data out of scope for initial release"). When `BlobId` is promoted from
-generic `Id` to a distinct type, ParsedEmail metadata should be revisited.
-This follows the architecture doc's Decision 13 (§8.3): ParsedEmail models
-"what a parsed blob IS" rather than mirroring the full Email type with holes.
+available if explicitly requested. ParsedEmail omits them for two reasons:
+(1) `blobId` is redundant — the `EmailParseResponse.parsed` table is keyed
+by `BlobId`, so the caller already has it; (2) `size` is derivable from the
+blob itself. ParsedEmail models "what a parsed blob IS" rather than
+mirroring the full Email type with holes.
+
+**No smart constructor.** ParsedEmail is a read-only result from
+`Email/parse`. The only "construction" is parsing from server JSON. No
+client-side construction path exists, so no validation beyond what
+`fromJson` provides.
 
 ---
 
@@ -384,15 +351,14 @@ This follows the architecture doc's Decision 13 (§8.3): ParsedEmail models
 
 RFC 8621 extends the standard Comparator (RFC 8620 §5.5) for Email/query
 with a `keyword` property: three sort properties (`hasKeyword`,
-`allInThreadHaveKeyword`, `someInThreadHaveKeyword`) require an accompanying
-`Keyword` value. The remaining six (`receivedAt`, `size`, `from`, `to`,
-`subject`, `sentAt`) do not.
+`allInThreadHaveKeyword`, `someInThreadHaveKeyword`) require an
+accompanying `Keyword` value. The remaining six (`receivedAt`, `size`,
+`from`, `to`, `subject`, `sentAt`) do not.
 
-The generic `Comparator` type (sealed via Pattern A in `framework.nim`) cannot
-carry the extra `keyword` field. Rather than bolt an `Opt[Keyword]` onto the
-generic type or erase the keyword into a `JsonNode`, Decision D8 models this
-as a case object with split enums — making illegal states (keyword sort
-without a keyword, plain sort with a keyword) unrepresentable at compile time.
+The generic `Comparator` type in `framework.nim` cannot carry the extra
+`keyword` field. Decision D8 models this as a case object with split
+enums — making illegal states (keyword sort without a keyword, plain sort
+with a keyword) unrepresentable at compile time.
 
 ### 4.1. Sort Property Enums
 
@@ -409,15 +375,15 @@ type
 
   KeywordSortProperty* = enum
     ## Sort properties that require an accompanying Keyword (RFC 8621 §4.4.2).
-    kspHasKeyword                  = "hasKeyword"
-    kspAllInThreadHaveKeyword      = "allInThreadHaveKeyword"
-    kspSomeInThreadHaveKeyword     = "someInThreadHaveKeyword"
+    kspHasKeyword              = "hasKeyword"
+    kspAllInThreadHaveKeyword  = "allInThreadHaveKeyword"
+    kspSomeInThreadHaveKeyword = "someInThreadHaveKeyword"
 ```
 
-**Two enums, not one:** The split encodes the structural difference. A single
-`EmailSortProperty` enum with 9 variants would still require runtime checking
-of whether the keyword field is present for keyword sorts. Split enums push
-this check to the type system.
+**Two enums, not one:** The split encodes the structural difference. A
+single `EmailSortProperty` enum with 9 variants would still require
+runtime checking of whether the keyword field is present for keyword
+sorts. Split enums push this check to the type system.
 
 ### 4.2. Case Object
 
@@ -428,27 +394,29 @@ type
     eckKeyword
 
   EmailComparator* {.ruleOff: "objects".} = object
-    ## Email-specific sort criterion (RFC 8621 §4.4.2). Extends the standard
-    ## Comparator with keyword-bearing sort properties.
-    isAscending*: Opt[bool]          ## Absent = server default (RFC: true).
-    collation*: Opt[string]          ## RFC 4790 collation identifier.
+    isAscending*: Opt[bool]                     ## Absent = server default (RFC: true).
+    collation*: Opt[CollationAlgorithm]         ## RFC 4790 collation identifier.
     case kind*: EmailComparatorKind
     of eckPlain:
       property*: PlainSortProperty
     of eckKeyword:
       keywordProperty*: KeywordSortProperty
-      keyword*: Keyword              ## Required for keyword sorts.
+      keyword*: Keyword                         ## Required for keyword sorts.
 ```
 
-**Shared fields before `case`:** `isAscending` and `collation` apply to both
-branches — accessible without matching `kind`.
+**Shared fields before `case`:** `isAscending` and `collation` apply to
+both branches — accessible without matching `kind`.
 
-**`isAscending` is `Opt[bool]`:** Unlike the core `Comparator` (which
-defaults `isAscending` to `true`), `EmailComparator` uses `Opt[bool]` so that
-the serde layer can distinguish "client explicitly set ascending" from "use
-server default." The RFC default is `true`, but some servers may interpret
-absence differently. `Opt.none` → omit from JSON; `Opt.some(true)` → emit
-`true`.
+**`isAscending` is `Opt[bool]`:** So the serde layer can distinguish
+"client explicitly set ascending" from "use server default." The RFC
+default is `true`, but some servers may interpret absence differently.
+`Opt.none` → omit from JSON; `Opt.some(true)` → emit `true`.
+
+**`collation` is `Opt[CollationAlgorithm]`:** Typed sealed sum of the
+four IANA-registered algorithms (`caAsciiCasemap`, `caOctet`,
+`caAsciiNumeric`, `caUnicodeCasemap`) plus `caOther` for vendor
+extensions, defined in `collation.nim`. Empty-string wire values are
+treated as `Opt.none` (RFC-default sentinel).
 
 ### 4.3. Total Constructors
 
@@ -459,41 +427,25 @@ combination produces a valid `EmailComparator`.
 func plainComparator*(
     property: PlainSortProperty,
     isAscending: Opt[bool] = Opt.none(bool),
-    collation: Opt[string] = Opt.none(string),
-): EmailComparator =
-  EmailComparator(
-    kind: eckPlain,
-    property: property,
-    isAscending: isAscending,
-    collation: collation,
-  )
+    collation: Opt[CollationAlgorithm] = Opt.none(CollationAlgorithm),
+): EmailComparator
 
 func keywordComparator*(
     keywordProperty: KeywordSortProperty,
     keyword: Keyword,
     isAscending: Opt[bool] = Opt.none(bool),
-    collation: Opt[string] = Opt.none(string),
-): EmailComparator =
-  EmailComparator(
-    kind: eckKeyword,
-    keywordProperty: keywordProperty,
-    keyword: keyword,
-    isAscending: isAscending,
-    collation: collation,
-  )
+    collation: Opt[CollationAlgorithm] = Opt.none(CollationAlgorithm),
+): EmailComparator
 ```
 
 **Principles:**
 - **Make illegal states unrepresentable** — Keyword sort without keyword
-  is a compile error (the `keyword` field only exists on the `eckKeyword`
-  branch). Plain sort with keyword is a compile error (no `keyword` field
-  on `eckPlain`).
-- **Constructors that can't fail, don't** — Both constructors are infallible.
-  All validation is pushed into the enum types (`PlainSortProperty` and
-  `KeywordSortProperty` constrain the value set) and `Keyword` (validated at
-  construction time).
-- **Total functions** — Every input of the declared type produces a valid
-  output.
+  is a compile error (the `keyword` field only exists on the
+  `eckKeyword` branch).
+- **Constructors that can't fail, don't** — Both constructors are
+  infallible. All validation is delegated to the field types
+  (`PlainSortProperty`/`KeywordSortProperty` as enums; `Keyword`
+  validated at construction; `CollationAlgorithm` smart-constructed).
 
 ---
 
@@ -503,18 +455,18 @@ func keywordComparator*(
 
 **RFC reference:** §4.2 (Email/get), §4.9 (Email/parse).
 
-Both `Email/get` and `Email/parse` accept the same four body-related
-parameters: `bodyProperties`, `fetchTextBodyValues`, `fetchHTMLBodyValues`,
+Both `Email/get` and `Email/parse` accept the same body-related parameters:
+`bodyProperties`, `fetchTextBodyValues`, `fetchHTMLBodyValues`,
 `fetchAllBodyValues`, and `maxBodyValueBytes`. The three `fetch*BodyValues`
-booleans are mutually overlapping — "booleans are a code smell" (CLAUDE.md).
-Decision D9 replaces them with a domain-meaningful enum.
+booleans are mutually overlapping — "booleans are a code smell." Decision
+D9 replaces them with a domain-meaningful enum.
 
 ### 5.1. BodyValueScope Enum
 
 ```nim
 type BodyValueScope* = enum
-  ## Which body value parts to include in ``bodyValues``.
-  ## Replaces three RFC booleans with a single domain-meaningful choice.
+  ## ``bvsNone`` must remain first (ordinal 0) so ``default()``
+  ## produces correct RFC defaults.
   bvsNone           ## No body values fetched (all three bools false).
   bvsText           ## fetchTextBodyValues = true.
   bvsHtml           ## fetchHTMLBodyValues = true.
@@ -532,128 +484,101 @@ type BodyValueScope* = enum
 | `bvsTextAndHtml` | true | true | false |
 | `bvsAll` | false | false | true |
 
-The serde layer maps the enum back to the three RFC booleans at the boundary.
-Every valid combination is a distinct enum variant — no impossible states.
+The serde layer maps the enum back to the three RFC booleans at the
+boundary. Every valid combination is a distinct enum variant — no
+impossible states.
 
 ### 5.2. Type Definition
 
 ```nim
 type EmailBodyFetchOptions* {.ruleOff: "objects".} = object
-  ## Shared parameters for Email/get and Email/parse body value fetching.
-  ## Default value via ``default(EmailBodyFetchOptions)`` produces correct
-  ## RFC defaults (no body properties override, no body values, no truncation).
+  ## ``default(EmailBodyFetchOptions)`` produces correct RFC defaults
+  ## (no body properties override, no body values, no truncation).
   bodyProperties*: Opt[seq[PropertyName]]   ## Override default body part properties.
   fetchBodyValues*: BodyValueScope          ## Default: bvsNone.
-  maxBodyValueBytes*: Opt[UnsignedInt]      ## Absent = no truncation. 0 = no truncation.
+  maxBodyValueBytes*: Opt[UnsignedInt]      ## Absent = no truncation.
 ```
 
 **No smart constructor.** All field combinations are valid. `default(
-EmailBodyFetchOptions)` produces correct RFC defaults (Nim zero-initialises:
-`Opt.none`, `bvsNone`, `Opt.none`).
-
-**Principles:**
-- **Booleans are a code smell** — The enum replaces three booleans whose
-  interaction is non-obvious (e.g., does `fetchAllBodyValues` override
-  `fetchTextBodyValues`? The enum eliminates the question).
-- **Make the right thing easy** — `default(EmailBodyFetchOptions)` is
-  correct. Callers only specify what they want to change.
-- **DRY** — One type shared by both `addEmailGet` and `addEmailParse`.
+EmailBodyFetchOptions)` produces correct RFC defaults via Nim
+zero-initialisation: `Opt.none`, `bvsNone`, `Opt.none`.
 
 ---
 
 ## 6. EmailFilterCondition — mail_filters.nim
 
-**Module:** `src/jmap_client/mail/mail_filters.nim` (extends existing module
-alongside `MailboxFilterCondition`).
+**Module:** `src/jmap_client/mail/mail_filters.nim` (shared with
+`MailboxFilterCondition`).
 
 **RFC reference:** §4.4.1 (filtering).
 
-`EmailFilterCondition` is a query specification — a value object that
-describes filter criteria for `Email/query`. Like `MailboxFilterCondition`
-(Design B §5), it is toJson-only (B11), has no smart constructor (B16), and
-all field combinations are valid.
+`EmailFilterCondition` is a query specification — a value object
+describing filter criteria for `Email/query`. Like
+`MailboxFilterCondition` (Design B §5), it is toJson-only (B11), has no
+smart constructor (B16), and all field combinations are valid. Unlike
+`MailboxFilterCondition`, no field needs `Opt[Opt[T]]` three-state
+semantics — no Email filter field has a meaningful "filter for null"
+state.
 
 ### 6.1. EmailHeaderFilter
 
-The RFC `header` filter field is a 1–2 element array: the first element is
-the header name (required, non-empty), the second is the value to match
-(optional). This structural constraint (non-empty name) is enforced via a
-smart constructor — unlike the filter condition itself, where all combinations
-are valid, an `EmailHeaderFilter` with an empty name is structurally invalid.
+The RFC `header` filter field is a 1–2 element array: the first element
+is the header name (required, non-empty), the second is the value to
+match (optional). This structural constraint (non-empty name) is enforced
+via a smart constructor.
 
 ```nim
 type EmailHeaderFilter* {.ruleOff: "objects".} = object
-  ## Filter sub-type for the ``header`` property of EmailFilterCondition
-  ## (RFC 8621 §4.4.1). The ``name`` field is sealed (Pattern A) to enforce
-  ## the non-empty invariant.
-  name: string              ## Module-private, non-empty.
-  value*: Opt[string]       ## Text to match in header value, or none = existence check.
-```
+  ## Pattern A: ``name`` is module-private to enforce non-empty invariant.
+  name: string              ## Module-private — non-empty.
+  value*: Opt[string]       ## Match text, or none = existence check only.
 
-**Accessor:**
+func name*(f: EmailHeaderFilter): string =
+  ## Read-only accessor for the sealed header name.
+  f.name
 
-```nim
-func name*(f: EmailHeaderFilter): string = f.name
-```
-
-**Smart constructor:**
-
-```nim
 func parseEmailHeaderFilter*(
-    name: string,
-    value: Opt[string] = Opt.none(string),
+    name: string, value: Opt[string] = Opt.none(string)
 ): Result[EmailHeaderFilter, ValidationError] =
-  ## Validates that name is non-empty.
   if name.len == 0:
     return err(validationError(
       "EmailHeaderFilter", "header name must not be empty", name))
-  let ehf = EmailHeaderFilter(name: name, value: value)
-  doAssert ehf.name.len > 0
-  return ok(ehf)
+  return ok(EmailHeaderFilter(name: name, value: value))
 ```
-
-**`doAssert` post-condition:** The implementation includes a `doAssert` after
-construction to verify the invariant holds through the module-private field.
-This is a defensive measure — the check is redundant given the guard above
-but documents the contract.
 
 **Principles:**
 - **Parse, don't validate** — Non-empty name enforced at construction time.
-- **Pattern A where warranted** — One sealed field with one invariant. Unlike
-  Email (28 fields, one invariant — Pattern A too costly), EmailHeaderFilter
-  has the right ratio.
+- **Pattern A where warranted** — One sealed field with one invariant.
+  Email itself (28 fields, no fully-enforceable invariants) is unsealed;
+  `EmailHeaderFilter` has the right ratio for Pattern A.
 
 ### 6.2. Type Definition
 
 ```nim
 type EmailFilterCondition* {.ruleOff: "objects".} = object
-  ## Filter condition for Email/query (RFC 8621 §4.4.1). No smart constructor —
-  ## all field combinations are valid (B16). toJson only — the server never
-  ## sends this back (B11).
-
-  # ── Mailbox membership ──
+  # -- Mailbox membership --
   inMailbox*: Opt[Id]                              ## Email must be in this Mailbox.
-  inMailboxOtherThan*: Opt[seq[Id]]                ## Email must be in a Mailbox not in this list.
+  inMailboxOtherThan*: Opt[seq[Id]]                ## Email must not be in these Mailboxes.
 
-  # ── Date/size ──
+  # -- Date/size --
   before*: Opt[UTCDate]                            ## receivedAt < this date.
   after*: Opt[UTCDate]                             ## receivedAt ≥ this date.
   minSize*: Opt[UnsignedInt]                       ## size ≥ this value.
   maxSize*: Opt[UnsignedInt]                       ## size < this value.
 
-  # ── Thread keyword filters ──
-  allInThreadHaveKeyword*: Opt[Keyword]            ## All thread emails have this keyword.
-  someInThreadHaveKeyword*: Opt[Keyword]           ## At least one thread email has this keyword.
-  noneInThreadHaveKeyword*: Opt[Keyword]           ## No thread emails have this keyword.
+  # -- Thread keyword filters --
+  allInThreadHaveKeyword*: Opt[Keyword]
+  someInThreadHaveKeyword*: Opt[Keyword]
+  noneInThreadHaveKeyword*: Opt[Keyword]
 
-  # ── Per-email keyword filters ──
-  hasKeyword*: Opt[Keyword]                        ## This email has the keyword.
-  notKeyword*: Opt[Keyword]                        ## This email does not have the keyword.
+  # -- Per-email keyword filters --
+  hasKeyword*: Opt[Keyword]
+  notKeyword*: Opt[Keyword]
 
-  # ── Boolean filter ──
-  hasAttachment*: Opt[bool]                        ## Match on hasAttachment value.
+  # -- Boolean filter --
+  hasAttachment*: Opt[bool]
 
-  # ── Text search ──
+  # -- Text search --
   text*: Opt[string]                               ## Search From, To, Cc, Bcc, Subject, body.
   fromAddr*: Opt[string]                           ## Search From header (``from`` is a Nim keyword).
   to*: Opt[string]                                 ## Search To header.
@@ -662,29 +587,21 @@ type EmailFilterCondition* {.ruleOff: "objects".} = object
   subject*: Opt[string]                            ## Search Subject header.
   body*: Opt[string]                               ## Search body parts.
 
-  # ── Header filter ──
+  # -- Header filter --
   header*: Opt[EmailHeaderFilter]                  ## Match header by name (and optionally value).
 ```
 
-**20 fields total.** Keyword filter fields use typed `Keyword` (not `string`)
-— consequence of the newtype-everything principle. The RFC specifies these as
-`String`, but semantically they are keywords.
-
-**No `Opt[Opt[T]]` pattern.** Unlike `MailboxFilterCondition` (which needs
-three-state semantics for `parentId` and `role`), no Email filter field has a
-meaningful "filter for null" state. `Opt.none` = not filtering on this
-property (omit from JSON).
+**20 fields total.** Keyword filter fields use typed `Keyword`, not
+`string` — newtype-everything-that-has-meaning.
 
 **`inMailboxOtherThan` non-empty enforcement (D16):** No enforcement. An
-empty list is vacuous (matches everything) but not illegal — the RFC does not
-prohibit it. "Make illegal states unrepresentable" targets domain invariant
-violations, not usage quality.
+empty list is vacuous (matches everything) but not illegal — the RFC
+does not prohibit it.
 
 **Principles:**
 - **Newtype everything that has meaning** — Keyword filter fields use
-  `Keyword`, not `string`. `inMailbox` uses `Id`, not `string`.
+  `Keyword`; `inMailbox` uses `Id`.
 - **DDD** — Value object, not entity. Construction is infallible.
-- **Make the right thing easy** — All-none produces `{}` (match everything).
 
 ---
 
@@ -694,67 +611,62 @@ violations, not usage quality.
 
 **RFC reference:** §5 (SearchSnippet).
 
-A `SearchSnippet` provides highlighted search result fragments for an Email.
-Unlike most data types, SearchSnippet has no `id` property — it is keyed by
-`emailId`.
+A `SearchSnippet` provides highlighted search result fragments for an
+Email. Unlike most data types, SearchSnippet has no `id` property — it is
+keyed by `emailId`.
 
 ### 7.1. Type Definition
 
 ```nim
 type SearchSnippet* {.ruleOff: "objects".} = object
-  ## Search result highlight for an Email (RFC 8621 §5).
-  ## No ``id`` property — keyed by ``emailId``.
+  ## Pure data carrier — no domain invariant, no smart constructor.
   emailId*: Id                    ## The Email this snippet describes.
-  subject*: Opt[string]           ## Highlighted subject fragment with ``<mark>`` tags, or none.
-  preview*: Opt[string]           ## Highlighted body fragment with ``<mark>`` tags, or none.
+  subject*: Opt[string]           ## Highlighted subject with <mark> tags, or none.
+  preview*: Opt[string]           ## Highlighted body fragment with <mark> tags, or none.
 ```
 
-**No smart constructor.** Pure data carrier — all field combinations valid.
-Server provides both `subject` and `preview` as null when unable to determine
-search snippets.
-
-**`Opt` semantics:** `Opt.none` means "no matching content to highlight"
-(domain-level). Both fields null = server could not determine snippets.
-
-**Principles:**
-- **Code reads like the spec** — Three fields mapping directly to RFC §5.
-- **Constructors that can't fail, don't** — No invariants to enforce.
+**No smart constructor.** All field combinations valid. `Opt.none` means
+"no matching content to highlight"; both fields null = server could not
+determine snippets.
 
 ### 7.2. SearchSnippetGetResponse
 
+Defined in `mail_methods.nim` alongside the `SearchSnippet/get` builder.
+
 ```nim
-type SearchSnippetGetResponse* {.ruleOff: "objects".} = object
-  ## Response for SearchSnippet/get (RFC 8621 §5.1).
+type SearchSnippetGetResponse* = object
   accountId*: AccountId
   list*: seq[SearchSnippet]       ## Snippets for requested Email ids.
   notFound*: seq[Id]              ## Email ids that could not be found.
 ```
 
 **`notFound` is `seq[Id]`, not `Opt[seq[Id]]`** (D13). The RFC specifies
-`Id[]|null`, but `fromJson` collapses both null and `[]` into an empty seq.
-The wire distinction (null vs empty array) is noise; the domain fact is a
-possibly-empty list. "Parse once at the boundary."
+`Id[]|null`, but `fromJson` collapses both null and `[]` into an empty
+seq via the shared `collapseNullToEmptySeq` helper. The wire distinction
+is noise; the domain fact is a possibly-empty list.
 
 ### 7.3. EmailParseResponse
 
+Defined in `mail_methods.nim` alongside the `Email/parse` builder.
+
 ```nim
-type EmailParseResponse* {.ruleOff: "objects".} = object
-  ## Response for Email/parse (RFC 8621 §4.9).
+type EmailParseResponse* = object
   accountId*: AccountId
-  parsed*: Table[Id, ParsedEmail]   ## Blob id → parsed Email, for successfully parsed blobs.
-  notParseable*: seq[Id]            ## Blob ids that could not be parsed as Emails.
-  notFound*: seq[Id]                ## Blob ids that could not be found.
+  parsed*: Table[BlobId, ParsedEmail]   ## Blob id → parsed Email.
+  notParseable*: seq[BlobId]            ## Blob ids that could not be parsed.
+  notFound*: seq[BlobId]                ## Blob ids that could not be found.
 ```
 
-**Dedicated response type with typed `ParsedEmail`** (D11). `fromJson` parses
-`ParsedEmail` at the boundary — "parse once, trust forever." Callers receive
-typed values with no second parsing step. `notParseable` and `notFound` use
-the same `seq[Id]` null-collapsing pattern as `SearchSnippetGetResponse`.
+**Typed `BlobId` keys and elements (D11).** Both the `parsed` table
+keys and the failure lists use the typed `BlobId`. The wire JSON uses
+plain strings; the serde layer parses them through `parseBlobId` (lenient
+server-side parser).
 
-**Principles:**
-- **Parse once at the boundary** — `ParsedEmail` is fully typed in the
-  response. No raw `JsonNode` for the caller to re-parse.
-- **Code reads like the spec** — Fields map 1:1 to RFC §4.9 response.
+**`notParseable` field name vs `"notParsable"` wire key:** The RFC spells
+the wire field `"notParsable"` (one 'e'). The Nim field is
+`notParseable` (British English, per coding conventions). The serde
+layer reads from and writes to the RFC key `"notParsable"` only; the
+Nim spelling is not accepted as an alias.
 
 ---
 
@@ -766,141 +678,114 @@ the same `seq[Id]` null-collapsing pattern as `SearchSnippetGetResponse`.
 
 **RFC reference:** §4.1 (properties), §4.2.1 (example).
 
-Email `fromJson` is the most complex deserialiser in the library. It uses a
-two-phase strategy (D4):
+Email `fromJson` uses a two-phase strategy (D4):
 
 **Phase 1 — Structured extraction:** Direct key lookups (`node{"id"}`,
-`node{"from"}`, etc.) for all known standard properties. O(1) hash lookups on
-`JsonNode`'s `OrderedTable`. Code mirrors the RFC property table — one
-extraction per field.
+`node{"from"}`, etc.) for all known standard properties, all routed
+through optional-field helpers (`parseOptId`, `parseOptBlobId`,
+`parseOptUnsignedInt`, `parseOptUTCDate`, `parseOptMailboxIdSet`,
+`parseOptKeywordSet`, etc.). Every field is `Opt`, so absent or null
+keys yield `Opt.none` rather than an error — admitting sparse
+property-filtered responses.
 
-**Phase 2 — Dynamic discovery:** Single iteration over all keys in the JSON
-object. Keys starting with `"header:"` are parsed via
-`parseHeaderPropertyName` and routed to `requestedHeaders` (single instance)
-or `requestedHeadersAll` (`:all` suffix) based on `isAll`. Keys not matching
-the `"header:"` prefix are silently ignored (forward compatibility with
-future RFC extensions).
+**Phase 2 — Dynamic discovery:** Single iteration over all keys in the
+JSON object. Keys starting with `"header:"` are parsed via
+`parseHeaderPropertyName` and routed to `requestedHeaders` (single
+instance) or `requestedHeadersAll` (`:all` suffix) based on `isAll`. Keys
+not matching the `"header:"` prefix are silently ignored (forward
+compatibility with future RFC extensions).
 
 ```nim
-func emailFromJson*(node: JsonNode): Result[Email, ValidationError] =
-  ## Parses a complete Email object from server JSON.
-  ## Does NOT call ``parseEmail`` — constructs Email directly (D15: lenient
-  ## at server-to-client boundary, trust RFC contract).
-  const typeName = "Email"
-  ?checkJsonKind(node, JObject, typeName)
+func emailFromJson*(
+    node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[Email, SerdeViolation] =
+  ?expectKind(node, JObject, path)
 
-  # ── Phase 1: Structured extraction ──
+  # == Phase 1: Structured extraction ==
+  let id          = ?parseOptId(node, "id", path)
+  let blobId      = ?parseOptBlobId(node, "blobId", path)
+  let threadId    = ?parseOptId(node, "threadId", path)
+  let mailboxIds  = ?parseOptMailboxIdSet(node, "mailboxIds", path)
+  let keywords    = ?parseOptKeywordSet(node, "keywords", path)
+  let size        = ?parseOptUnsignedInt(node, "size", path)
+  let receivedAt  = ?parseOptUTCDate(node, "receivedAt", path)
+  let convHeaders = ?parseConvenienceHeaders(node, path)
+  let hdrs        = ?parseRawHeaders(node, path)
+  let bf          = ?parseBodyFields(node, path)
 
-  # Metadata — single-argument Id.fromJson with {} safe accessor
-  let id = ? Id.fromJson(node{"id"})
-  let blobId = ? Id.fromJson(node{"blobId"})
-  let threadId = ? Id.fromJson(node{"threadId"})
-  let mailboxIds = ? MailboxIdSet.fromJson(node{"mailboxIds"})
-  let keywords = block:                       # defaults to empty KeywordSet if absent
-    let kwNode = node{"keywords"}
-    if kwNode.isNil or kwNode.kind == JNull:
-      initKeywordSet(newSeq[Keyword]())
-    else:
-      ? KeywordSet.fromJson(kwNode)
-  let size = ? UnsignedInt.fromJson(node{"size"})
-  let receivedAt = ? UTCDate.fromJson(node{"receivedAt"})
-
-  # Convenience headers — shared helper
-  let convHeaders = ? parseConvenienceHeaders(node)
-
-  # Raw headers
-  let hdrs = ? parseRawHeaders(node)
-
-  # Body — shared helper
-  let bf = ? parseBodyFields(node)
-
-  # ── Phase 2: Dynamic header discovery ──
+  # == Phase 2: Dynamic header discovery ==
   var reqHeaders = initTable[HeaderPropertyKey, HeaderValue]()
   var reqHeadersAll = initTable[HeaderPropertyKey, seq[HeaderValue]]()
   for key, val in node.pairs:
     if key.startsWith("header:"):
-      let hpk = ? parseHeaderPropertyName(key)
+      let hpk = ?wrapInner(parseHeaderPropertyName(key), path / key)
       if hpk.isAll:
-        reqHeadersAll[hpk] = ? parseHeaderValueArray(val, hpk.form)
+        reqHeadersAll[hpk] = ?parseHeaderValueArray(val, hpk.form, path / key)
       else:
-        reqHeaders[hpk] = ? parseHeaderValue(hpk.form, val)
+        reqHeaders[hpk] = ?parseHeaderValue(hpk.form, val, path / key)
 
-  return ok(Email(
-    id: id, blobId: blobId, threadId: threadId,
-    mailboxIds: mailboxIds, keywords: keywords,
-    size: size, receivedAt: receivedAt,
-    messageId: convHeaders.messageId,
-    inReplyTo: convHeaders.inReplyTo,
-    # ... (all convenience header fields from shared helper)
-    headers: hdrs,
-    requestedHeaders: reqHeaders,
-    requestedHeadersAll: reqHeadersAll,
-    bodyStructure: bf.bodyStructure,
-    bodyValues: bf.bodyValues,
-    # ... (all body fields from shared helper)
-  ))
+  return ok(Email(id: id, blobId: blobId, ...))
+
+func fromJson*(
+    T: typedesc[Email], node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[Email, SerdeViolation] =
+  ## Typedesc-overload wrapper for the dispatch layer's ``mixin fromJson``.
+  discard $T
+  return emailFromJson(node, path)
 ```
 
-**`keywords` default:** RFC §4.1.1 specifies `keywords` with `default: {}`.
-If the key is absent from the JSON, `fromJson` defaults to an empty
-`KeywordSet` rather than failing. This is the only metadata field with a
-default value. The default is handled inline via a block expression (no
-separate `keywordsOrDefault` helper).
+**Optional-field helpers:** `serde_email.nim` defines a family of
+internal helpers — `parseOptStringSeq`, `parseOptAddresses`,
+`parseOptString`, `parseOptDate`, `parseOptId`, `parseOptBlobId`,
+`parseOptUnsignedInt`, `parseOptUTCDate`, `parseOptMailboxIdSet`,
+`parseOptKeywordSet`, `parseOptBodyPart`. Each takes
+`(node, key, path)` and returns `Result[Opt[T], SerdeViolation]`,
+collapsing absent/null to `Opt.none` and dispatching the typed
+`fromJson` only when a value is present.
 
-**`checkJsonKind` + `parseError`:** Serde routines use `checkJsonKind` (a
-shared helper returning `Result`) for type validation and `parseError` (a
-convenience wrapper around `validationError` with an empty `value` field)
-for serde-specific error construction.
+**`expectKind` + `wrapInner`:** Serde routines use `expectKind` for
+JSON-kind validation and `wrapInner` to lift `ValidationError`-bearing
+results from smart-constructor parsers (e.g. `parseHeaderPropertyName`)
+into `SerdeViolation` at a specific path.
 
-**Single-argument `fromJson` with `{}` accessor:** All metadata extraction
-uses `Id.fromJson(node{"key"})` — the `{}` safe accessor returns `nil` for
-absent keys, which the downstream `fromJson` detects and converts to an
-error. This is the project-wide pattern, not the two-argument
-`fromJson(node, "key")` form.
-
-**`parseHeaderValue` argument order:** The implementation takes `(form, val)`
-— form first, value second — matching the convention that the discriminating
-type parameter precedes the data.
-
-**No parallel set of known property names.** Phase 2 does not maintain a set
-of "known properties" to skip. Phase 1 extracts known properties by direct
-key lookup; Phase 2 discovers unknown `header:*` keys by iteration. Keys that
-are neither known standard properties nor `header:*` prefixed are silently
-ignored. This mirrors the RFC structure: fixed properties by name, dynamic
-extension by prefix.
+**No parallel set of known property names.** Phase 2 does not maintain a
+set of "known properties" to skip. Phase 1 extracts known properties by
+direct key lookup; Phase 2 discovers `header:*` keys by iteration. Keys
+that are neither known standard properties nor `header:*` prefixed are
+silently ignored. This mirrors the RFC structure: fixed properties by
+name, dynamic extension by prefix.
 
 ### 8.2. ParsedEmail fromJson
 
 Same two-phase strategy as Email, but Phase 1 extracts only `threadId`
-(as `Opt[Id]`) instead of the full metadata group. The convenience header
-and body phases are identical — delegating to the same shared helper procs.
+(as `Opt[Id]`) instead of the full metadata group. The convenience
+header, raw header, and body phases are identical — delegating to the
+same shared helper procs.
 
 ```nim
-func parsedEmailFromJson*(node: JsonNode): Result[ParsedEmail, ValidationError] =
-  const typeName = "ParsedEmail"
-  ?checkJsonKind(node, JObject, typeName)
-
-  let threadId = ? parseOptId(node, "threadId")   # Opt[Id], null → Opt.none
-  let convHeaders = ? parseConvenienceHeaders(node)
-  let hdrs = ? parseRawHeaders(node)
-  let bf = ? parseBodyFields(node)
+func parsedEmailFromJson*(
+    node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[ParsedEmail, SerdeViolation] =
+  ?expectKind(node, JObject, path)
+  let threadId    = ?parseOptId(node, "threadId", path)
+  let convHeaders = ?parseConvenienceHeaders(node, path)
+  let hdrs        = ?parseRawHeaders(node, path)
+  let bf          = ?parseBodyFields(node, path)
   # Phase 2: dynamic header discovery — identical to Email
-  # ...
+  ...
   return ok(ParsedEmail(threadId: threadId, ...))
 ```
 
 ### 8.3. Shared Serde Helpers (D7)
 
-Three shared helper procs extract common field groups for both `Email` and
-`ParsedEmail`. Field declarations are duplicated (different types); parsing
-logic is not (DRY where it matters most — boundary code).
+Three shared helper procs extract common field groups for both `Email`
+and `ParsedEmail`. Field declarations are duplicated; parsing logic is
+not. The helpers are non-exported — internal to `serde_email.nim`.
 
 **`parseConvenienceHeaders`:**
 
 ```nim
 type ConvenienceHeaders {.ruleOff: "objects".} = object
-  ## Internal helper — not exported. Groups convenience header extraction
-  ## results for both Email and ParsedEmail fromJson.
   messageId: Opt[seq[string]]
   inReplyTo: Opt[seq[string]]
   references: Opt[seq[string]]
@@ -913,28 +798,16 @@ type ConvenienceHeaders {.ruleOff: "objects".} = object
   subject: Opt[string]
   sentAt: Opt[Date]
 
-func parseConvenienceHeaders(node: JsonNode): Result[ConvenienceHeaders, ValidationError] =
-  ## Extracts the 11 convenience header fields from a JSON object.
-  ## Shared by emailFromJson and parsedEmailFromJson.
-  ## Uses internal helpers: parseOptStringSeq (messageId, inReplyTo, references),
-  ## parseOptAddresses (sender, from, to, cc, bcc, replyTo),
-  ## parseOptString (subject), parseOptDate (sentAt).
-  ## JSON "from" key → fromAddr field.
+func parseConvenienceHeaders(node: JsonNode, path: JsonPath):
+    Result[ConvenienceHeaders, SerdeViolation]
+  ## JSON ``"from"`` key → ``fromAddr`` field (``from`` is a Nim keyword).
 ```
-
-**Internal parsing helpers:** `serde_email.nim` defines several non-exported
-helpers used by `parseConvenienceHeaders`: `parseOptStringSeq` (optional
-string arrays), `parseOptAddresses` (optional address arrays),
-`parseOptString` (optional strings via `optJsonField`), `parseOptDate`
-(optional dates), `parseOptId` (optional ids). These compose the
-`checkJsonKind` and domain `fromJson` functions at finer granularity than
-shown in §8.1.
 
 **`parseBodyFields`:**
 
 ```nim
 type BodyFields {.ruleOff: "objects".} = object
-  bodyStructure: EmailBodyPart
+  bodyStructure: Opt[EmailBodyPart]
   bodyValues: Table[PartId, EmailBodyValue]
   textBody: seq[EmailBodyPart]
   htmlBody: seq[EmailBodyPart]
@@ -942,21 +815,35 @@ type BodyFields {.ruleOff: "objects".} = object
   hasAttachment: bool
   preview: string
 
-func parseBodyFields(node: JsonNode): Result[BodyFields, ValidationError] =
-  ## Extracts the 7 body fields from a JSON object.
-  ## bodyValues keys parsed via parsePartIdFromServer (D19 — typed PartId key).
-  ## Uses internal helpers: parseBodyValues (Table with PartId keys),
-  ## parseBodyPartArray (optional array of EmailBodyPart defaulting to @[]).
-  ## hasAttachment defaults to false if absent/null.
-  ## preview defaults to "" if absent/null.
+func parseBodyFields(node: JsonNode, path: JsonPath):
+    Result[BodyFields, SerdeViolation]
+  ## bodyStructure: optional, absent/null → ``Opt.none``.
+  ## bodyValues keys parsed via parsePartIdFromServer (D19 — typed PartId).
+  ## hasAttachment: absent/null → false; non-bool rejected.
+  ## preview: absent/null/non-string → "".
 ```
+
+`parseBodyFields` delegates to two further helpers: `parseBodyValues`
+(builds `Table[PartId, EmailBodyValue]` keyed via `parsePartIdFromServer`;
+absent/non-object → empty table) and `parseBodyPartArray` (parses any
+`Opt[seq[EmailBodyPart]]` field by name; absent/non-array → empty seq).
+Both are reused for `textBody`, `htmlBody`, and `attachments` extraction.
 
 **`parseRawHeaders`:**
 
 ```nim
-func parseRawHeaders(node: JsonNode): Result[seq[EmailHeader], ValidationError] =
-  ## Extracts the ``headers`` field (seq[EmailHeader]) from a JSON object.
-  ## Absent key → empty seq (not an error).
+func parseRawHeaders(node: JsonNode, path: JsonPath):
+    Result[seq[EmailHeader], SerdeViolation]
+  ## Absent/non-array key → empty seq (not an error).
+```
+
+**`parseHeaderValueArray`:**
+
+```nim
+func parseHeaderValueArray(node: JsonNode, form: HeaderForm, path: JsonPath):
+    Result[seq[HeaderValue], SerdeViolation]
+  ## Parses the JSON array for ``:all`` dynamic header properties.
+  ## Each element parsed via parseHeaderValue with the given form.
 ```
 
 ### 8.4. Email toJson / ParsedEmail toJson (D5)
@@ -974,24 +861,23 @@ Emit all domain fields always:
 func toJson*(e: Email): JsonNode =
   var node = newJObject()
 
-  # Metadata
-  node["id"] = e.id.toJson()
-  node["blobId"] = e.blobId.toJson()
-  node["threadId"] = e.threadId.toJson()
-  node["mailboxIds"] = e.mailboxIds.toJson()
-  node["keywords"] = e.keywords.toJson()
-  node["size"] = e.size.toJson()
-  node["receivedAt"] = e.receivedAt.toJson()
+  # Metadata — every field is Opt; absent emits null.
+  node["id"]         = e.id.optToJsonOrNull()
+  node["blobId"]     = e.blobId.optToJsonOrNull()
+  node["threadId"]   = e.threadId.optToJsonOrNull()
+  node["mailboxIds"] = e.mailboxIds.optToJsonOrNull()
+  node["keywords"]   = e.keywords.optToJsonOrNull()
+  node["size"]       = e.size.optToJsonOrNull()
+  node["receivedAt"] = e.receivedAt.optToJsonOrNull()
 
-  # Convenience headers — Opt.none → null (via emitOptStringSeqOrNull / emitOptAddressesOrNull)
+  # Convenience headers — Opt.none → null
   emitOptStringSeqOrNull(node, "messageId", e.messageId)
-  emitOptAddressesOrNull(node, "from", e.fromAddr)    # fromAddr → "from" key
-  # ... (remaining headers)
+  emitOptAddressesOrNull(node, "from",      e.fromAddr)    # fromAddr → "from" key
+  ...
 
   # Body
-  node["bodyStructure"] = e.bodyStructure.toJson()
-  node["bodyValues"] = e.bodyValues.toJson()  # Table[PartId, EmailBodyValue]
-  # ...
+  node["bodyStructure"] = e.bodyStructure.optToJsonOrNull()
+  ...
 
   # Dynamic headers — N top-level keys
   for hpk, val in e.requestedHeaders:
@@ -1004,28 +890,28 @@ func toJson*(e: Email): JsonNode =
   return node
 ```
 
-**Emit helpers:** `emitOptStringSeqOrNull` and `emitOptAddressesOrNull` are
-internal UFCS helpers in `serde_email.nim` that emit `Opt` fields as JSON
-array (present) or null (absent). `emitOptStringOrNull` and `emitOptOrNull`
-(from the shared `serde.nim` module) handle scalar optional fields.
+`ParsedEmail.toJson` is structurally identical except that it emits only
+`threadId` from the metadata group; the six absent metadata fields are
+not emitted.
 
-**Dynamic header `:all` emission:** The `requestedHeadersAll` table values
-are `seq[HeaderValue]`, serialised by building a `JArray` element-by-element
-(not via `vals.toJson()` as a single call).
+**Emit helpers:** `emitOptStringSeqOrNull` and `emitOptAddressesOrNull`
+are internal helpers in `serde_email.nim` for `Opt[seq[X]]` fields.
+Scalar `Opt` fields use `optToJsonOrNull` (from the shared `serde.nim`
+module) and `optStringToJsonOrNull` (for `Opt[string]`).
 
-**Domain state vs view state:** Dynamic headers are N top-level keys in JSON,
-not a single `"requestedHeaders"` field. The `Table` is a domain-side
-grouping; the wire format is flat.
+**Dynamic header `:all` emission:** The `requestedHeadersAll` table
+values are `seq[HeaderValue]`, serialised by building a `JArray`
+element-by-element.
 
 ### 8.5. bodyValues Table Key — PartId (D19)
 
-`bodyValues` uses `Table[PartId, EmailBodyValue]` — typed key. "Newtype
-everything that has meaning." `PartId` already has `hash` borrowed via
-`defineStringDistinctOps`, so it works as a `Table` key. Consistent with
-`MailboxIdSet` (`HashSet[Id]`, not `HashSet[string]`).
+`bodyValues` uses `Table[PartId, EmailBodyValue]` — typed key. `PartId`
+has `hash` borrowed via `defineStringDistinctOps`, so it works as a
+`Table` key. Consistent with `MailboxIdSet` (`HashSet[Id]`, not
+`HashSet[string]`).
 
-`fromJson` parses table keys via `parsePartIdFromServer` (lenient, per B15
-convention). `toJson` emits keys via `$partId` (string conversion).
+`fromJson` parses table keys via `parsePartIdFromServer` (lenient, per
+B15 convention). `toJson` emits keys via `$partId` (string conversion).
 
 ### 8.6. EmailComparator Serde (D8)
 
@@ -1039,69 +925,76 @@ func toJson*(c: EmailComparator): JsonNode =
     node["property"] = %($c.property)
   of eckKeyword:
     node["property"] = %($c.keywordProperty)
-    node["keyword"] = %($c.keyword)
-  for v in c.isAscending:
-    node["isAscending"] = %v
-  for v in c.collation:
-    node["collation"] = %v
+    node["keyword"]  = %($c.keyword)
+  for v in c.isAscending: node["isAscending"] = %v
+  for v in c.collation:   node["collation"]   = %($v)   # CollationAlgorithm.identifier
   return node
 ```
 
 **fromJson:**
 
-Synthesises the discriminant by inspecting the `property` name at the parse
-boundary. If the property matches a `KeywordSortProperty` value, constructs
-`eckKeyword` (requiring a `keyword` field). Otherwise, matches against
-`PlainSortProperty`.
+Synthesises the discriminant by inspecting the `property` name at the
+parse boundary. If the property string matches a `KeywordSortProperty`
+backing string, constructs `eckKeyword` (requiring a `keyword` field).
+Otherwise, matches against `PlainSortProperty`.
 
 ```nim
-func emailComparatorFromJson*(node: JsonNode): Result[EmailComparator, ValidationError] =
-  const typeName = "EmailComparator"
-  ?checkJsonKind(node, JObject, typeName)
+func emailComparatorFromJson*(
+    node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[EmailComparator, SerdeViolation] =
+  ?expectKind(node, JObject, path)
 
-  # Required property string via {} accessor + checkJsonKind
-  let propNode = node{"property"}
-  ?checkJsonKind(propNode, JString, typeName, "missing or invalid property")
-  let propStr = propNode.getStr("")
+  # Required property string
+  let propNode = ?fieldJString(node, "property", path)
+  let propStr  = propNode.getStr("")
 
-  # Optional shared fields via optJsonField
-  let isAscending = block:
-    let f = optJsonField(node, "isAscending", JBool)
-    if f.isSome: Opt.some(f.get().getBool(true)) else: Opt.none(bool)
+  # Optional shared fields
+  let isAscending = ...  # via optJsonField + JBool
   let collation = block:
+    # Empty string is the RFC-default sentinel; treat as Opt.none.
     let f = optJsonField(node, "collation", JString)
-    if f.isSome: Opt.some(f.get().getStr("")) else: Opt.none(string)
+    if f.isSome:
+      let raw = f.get().getStr("")
+      if raw.len > 0:
+        let alg = ?wrapInner(parseCollationAlgorithm(raw), path / "collation")
+        Opt.some(alg)
+      else:
+        Opt.none(CollationAlgorithm)
+    else:
+      Opt.none(CollationAlgorithm)
 
-  # Try keyword sort properties first (exact string match via $enum)
   for ksp in KeywordSortProperty:
     if $ksp == propStr:
-      let kw = ? Keyword.fromJson(node{"keyword"})
+      let kwNode = ?fieldJString(node, "keyword", path)
+      let kw = ?Keyword.fromJson(kwNode, path / "keyword")
       return ok(keywordComparator(ksp, kw, isAscending, collation))
-  # Try plain sort properties
+
   for psp in PlainSortProperty:
     if $psp == propStr:
       return ok(plainComparator(psp, isAscending, collation))
-  return err(parseError(typeName, "unknown sort property: " & propStr))
+
+  return err(SerdeViolation(
+    kind: svkEnumNotRecognised, path: path / "property",
+    enumTypeLabel: "sort property", rawValue: propStr))
 ```
 
 ### 8.7. EmailFilterCondition toJson
 
-toJson only — no fromJson (B11 convention). Same pattern as
-`MailboxFilterCondition.toJson` (Design B §5.2).
-
-The implementation extracts field-group serialisation into internal UFCS
-helpers to keep each function under the nimalyzer complexity limit:
+toJson only — no fromJson (B11 convention). The implementation extracts
+field-group serialisation into internal UFCS helpers to keep each function
+under the nimalyzer complexity limit:
 
 - `emitDateSizeFilters(node, fc)` — 4 date/size fields
 - `emitKeywordFilters(node, fc)` — 5 keyword fields (thread + per-email)
-- `emitTextSearchFilters(node, fc)` — 7 text search fields
+- `emitTextSearchFilters(node, fc)` — 7 text search fields, including
+  `fromAddr` → `"from"` mapping
 
-`EmailHeaderFilter` also has its own `toJson` function (serialises as a 1-or-2
-element JSON array) rather than being inlined into `EmailFilterCondition.toJson`.
+`EmailHeaderFilter` has its own `toJson` function (serialises as a 1-or-2
+element JSON array) rather than being inlined into
+`EmailFilterCondition.toJson`.
 
 ```nim
 func toJson*(ehf: EmailHeaderFilter): JsonNode =
-  ## Serialise EmailHeaderFilter as a 1-or-2 element JSON array.
   var arr = newJArray()
   arr.add(%ehf.name)
   for val in ehf.value: arr.add(%val)
@@ -1109,7 +1002,6 @@ func toJson*(ehf: EmailHeaderFilter): JsonNode =
 
 func toJson*(fc: EmailFilterCondition): JsonNode =
   var node = newJObject()
-  # Mailbox membership
   for v in fc.inMailbox: node["inMailbox"] = v.toJson()
   for v in fc.inMailboxOtherThan:
     var arr = newJArray()
@@ -1119,120 +1011,133 @@ func toJson*(fc: EmailFilterCondition): JsonNode =
   node.emitKeywordFilters(fc)
   for v in fc.hasAttachment: node["hasAttachment"] = %v
   node.emitTextSearchFilters(fc)
-  # Header filter — delegates to EmailHeaderFilter.toJson
   for v in fc.header: node["header"] = v.toJson()
   return node
 ```
 
+Keyword filter fields serialise via `$keyword` (distinct-string `$`
+borrow); the resulting JSON value is a plain string.
+
 ### 8.8. EmailBodyFetchOptions Serde
 
-Two serialisation functions: `emitInto` for direct key injection into an
-existing `JsonNode` (used by builders), and `toJson` as a standalone wrapper.
+Two serialisation functions: `toExtras` returns a `seq[(string, JsonNode)]`
+of body-fetch keys for direct merging into builder argument objects, and
+`toJson` builds a standalone `JsonNode` from the same `toExtras` output
+(byte-identical).
 
 ```nim
-func emitInto*(opts: EmailBodyFetchOptions, node: var JsonNode) =
-  ## Emit body fetch option keys directly into target node.
-  ## Shared by addEmailGet and addEmailParse — avoids toJson + merge loop.
-  ## Maps BodyValueScope enum back to the three RFC booleans (D9).
+func toExtras*(opts: EmailBodyFetchOptions): seq[(string, JsonNode)] =
+  ## Insertion order: bodyProperties, fetchTextBodyValues?,
+  ## fetchHTMLBodyValues?, fetchAllBodyValues?, maxBodyValueBytes.
+  result = @[]
   for props in opts.bodyProperties:
     var arr = newJArray()
-    for p in props:
-      arr.add(p.toJson())
-    node["bodyProperties"] = arr
+    for p in props: arr.add(p.toJson())
+    result.add(("bodyProperties", arr))
   case opts.fetchBodyValues
-  of bvsNone: discard                                  # all false — omit
-  of bvsText: node["fetchTextBodyValues"] = %true
-  of bvsHtml: node["fetchHTMLBodyValues"] = %true
+  of bvsNone: discard
+  of bvsText: result.add(("fetchTextBodyValues", %true))
+  of bvsHtml: result.add(("fetchHTMLBodyValues", %true))
   of bvsTextAndHtml:
-    node["fetchTextBodyValues"] = %true
-    node["fetchHTMLBodyValues"] = %true
-  of bvsAll: node["fetchAllBodyValues"] = %true
+    result.add(("fetchTextBodyValues", %true))
+    result.add(("fetchHTMLBodyValues", %true))
+  of bvsAll: result.add(("fetchAllBodyValues", %true))
   for v in opts.maxBodyValueBytes:
-    node["maxBodyValueBytes"] = v.toJson()
+    result.add(("maxBodyValueBytes", v.toJson()))
 
 func toJson*(opts: EmailBodyFetchOptions): JsonNode =
-  ## Standalone serialisation — delegates to emitInto.
   var node = newJObject()
-  opts.emitInto(node)
+  for (k, v) in opts.toExtras(): node[k] = v
   return node
 ```
 
-**`emitInto` vs `toJson`:** Builders call `emitInto` directly to inject
-body-fetch keys into the invocation arguments node, avoiding a second
-`JsonNode` allocation and merge loop. `toJson` exists for standalone use
-(e.g., tests, diagnostics).
+**`toExtras` vs `toJson`:** Builders (`addEmailGet`, `addEmailParse`,
+`addEmailQueryWithThreads`) feed `toExtras` directly into the generic
+builder's `extras: seq[(string, JsonNode)]` parameter — no second
+`JsonNode` allocation. `toJson` exists for standalone use (tests,
+diagnostics).
 
-No `fromJson` — body fetch options are request parameters, never returned by
-the server.
+No `fromJson` — body fetch options are request parameters, never
+returned by the server.
 
 ### 8.9. SearchSnippet fromJson
 
 ```nim
-func searchSnippetFromJson*(node: JsonNode): Result[SearchSnippet, ValidationError] =
-  const typeName = "SearchSnippet"
-  ?checkJsonKind(node, JObject, typeName)
-  let emailId = ? Id.fromJson(node{"emailId"})
-  let subject = block:
-    let f = optJsonField(node, "subject", JString)
-    if f.isSome: Opt.some(f.get().getStr("")) else: Opt.none(string)
-  let preview = block:
-    let f = optJsonField(node, "preview", JString)
-    if f.isSome: Opt.some(f.get().getStr("")) else: Opt.none(string)
+func searchSnippetFromJson*(
+    node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[SearchSnippet, SerdeViolation] =
+  ?expectKind(node, JObject, path)
+  let emailIdNode = ?fieldJString(node, "emailId", path)
+  let emailId = ?Id.fromJson(emailIdNode, path / "emailId")
+  let subject = ...  # via optJsonField + JString → Opt[string]
+  let preview = ...  # via optJsonField + JString → Opt[string]
   ok(SearchSnippet(emailId: emailId, subject: subject, preview: preview))
 ```
+
+`toJson` emits all three fields always (D5): `emailId` as a string,
+`subject`/`preview` via `optStringToJsonOrNull`.
 
 ### 8.10. SearchSnippetGetResponse fromJson
 
 ```nim
-func searchSnippetGetResponseFromJson*(node: JsonNode):
-    Result[SearchSnippetGetResponse, ValidationError] =
-  const typeName = "SearchSnippetGetResponse"
-  ?checkJsonKind(node, JObject, typeName)
-  let accountId = ? AccountId.fromJson(node{"accountId"})
+func searchSnippetGetResponseFromJson*(
+    node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[SearchSnippetGetResponse, SerdeViolation] =
+  ?expectKind(node, JObject, path)
+  let accountIdNode = ?fieldJString(node, "accountId", path)
+  let accountId = ?AccountId.fromJson(accountIdNode, path / "accountId")
+  let listNode = node{"list"}
   let list =
-    if node{"list"}.isNil or node{"list"}.kind != JArray:
+    if listNode.isNil or listNode.kind != JArray:
       newSeq[SearchSnippet]()
     else:
       var snippets: seq[SearchSnippet] = @[]
-      for elem in node{"list"}.getElems(@[]):
-        snippets.add(? searchSnippetFromJson(elem))
+      for i, elem in listNode.getElems(@[]):
+        snippets.add(?searchSnippetFromJson(elem, path / "list" / i))
       snippets
-  let notFound = ? collapseNullToEmptySeq(node, "notFound", parseIdFromServer)
+  let notFound = ?collapseNullToEmptySeq(node, "notFound", parseIdFromServer, path)
   ok(SearchSnippetGetResponse(accountId: accountId, list: list, notFound: notFound))
+
+func fromJson*(T: typedesc[SearchSnippetGetResponse], ...) ## typedesc-overload wrapper
 ```
 
-**Lenient `list` handling:** `list` defaults to an empty seq when absent or
-not a JArray (including null). This follows Postel's law — the implementation
-is lenient rather than erroring on a null `list`. In practice, the server
-always returns a list, but a lenient deserialiser is more robust.
+**Lenient `list` handling:** `list` defaults to an empty seq when absent
+or not a `JArray` (including null). Postel's law — the implementation is
+lenient rather than erroring on a null `list`.
 
-**`collapseNullToEmptySeq`:** Helper that parses `Id[]|null` — null or absent
-→ `@[]`, present → parse each element. Returns `Result` (requires `?`).
-Shared by `SearchSnippetGetResponse` and `EmailParseResponse`.
+**`collapseNullToEmptySeq`:** Shared helper from `serde.nim` parsing
+`T[]|null` — null or absent → `@[]`, present → parse each element via
+the supplied per-element parser. Generic over `T` so both `Id` and
+`BlobId` arrays share it.
 
 ### 8.11. EmailParseResponse fromJson
 
 ```nim
-func emailParseResponseFromJson*(node: JsonNode):
-    Result[EmailParseResponse, ValidationError] =
-  const typeName = "EmailParseResponse"
-  ?checkJsonKind(node, JObject, typeName)
-  let accountId = ? AccountId.fromJson(node{"accountId"})
-  let parsed = ? parseIdKeyedTable[ParsedEmail](node{"parsed"}, parsedEmailFromJson)
-  let notParseable = ? collapseNullToEmptySeq(node, "notParsable", parseIdFromServer)
-  let notFound = ? collapseNullToEmptySeq(node, "notFound", parseIdFromServer)
+func emailParseResponseFromJson*(
+    node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[EmailParseResponse, SerdeViolation] =
+  ?expectKind(node, JObject, path)
+  let accountIdNode = ?fieldJString(node, "accountId", path)
+  let accountId = ?AccountId.fromJson(accountIdNode, path / "accountId")
+  let parsed = ?parseKeyedTable[BlobId, ParsedEmail](
+    node{"parsed"}, parseBlobId, parsedEmailFromJson, path / "parsed")
+  let notParseable = ?collapseNullToEmptySeq(node, "notParsable", parseBlobId, path)
+  let notFound     = ?collapseNullToEmptySeq(node, "notFound",    parseBlobId, path)
   ok(EmailParseResponse(
     accountId: accountId, parsed: parsed,
     notParseable: notParseable, notFound: notFound))
+
+func fromJson*(T: typedesc[EmailParseResponse], ...) ## typedesc-overload wrapper
 ```
 
-**`parseIdKeyedTable` handles null internally:** The function accepts a
-possibly-nil `JsonNode` (via `{}` accessor) and returns an empty table for
-absent or null input. No inline null check needed at the call site.
+**`parseKeyedTable`:** Shared helper from `serde.nim` parsing a JSON
+object into `Table[K, T]`. Keys parsed via `parseBlobId`; values via
+`parsedEmailFromJson`. Nil or non-object input yields an empty table.
 
-**Note:** The RFC spells the field `"notParsable"` (one 'e'). The Nim field
-uses `notParseable` (British English, per coding conventions), but the serde
-layer reads from the RFC key `"notParsable"`.
+**RFC spelling mismatch:** The wire field is `"notParsable"` (one 'e');
+the Nim field is `notParseable` (British English). The serde layer reads
+exclusively from `"notParsable"` — the Nim spelling is not accepted as
+an alias.
 
 ---
 
@@ -1240,156 +1145,210 @@ layer reads from the RFC key `"notParsable"`.
 
 ### 9.1. Entity Registration
 
-**Module:** `src/jmap_client/mail/mail_entities.nim` (extends existing
-module from Designs A and B).
+**Module:** `src/jmap_client/mail/mail_entities.nim`
+
+Email is registered with full method support — `/get`, `/changes`,
+`/set`, `/query`, `/queryChanges`, `/copy`, `/import`. The registration
+provides per-verb method-name resolvers and template-typed associations
+for the generic dispatch layer.
 
 ```nim
-func methodNamespace*(T: typedesc[Email]): string = "Email"
+# Per-verb method name resolvers — read path
+func methodEntity*(T: typedesc[Email]): MethodEntity = meEmail
+func getMethodName*(T: typedesc[Email]): MethodName = mnEmailGet
+func changesMethodName*(T: typedesc[Email]): MethodName = mnEmailChanges
+func queryMethodName*(T: typedesc[Email]): MethodName = mnEmailQuery
+func queryChangesMethodName*(T: typedesc[Email]): MethodName = mnEmailQueryChanges
+
 func capabilityUri*(T: typedesc[Email]): string = "urn:ietf:params:jmap:mail"
+
+# Type associations consumed by generic builders
+template changesResponseType*(T: typedesc[Email]): typedesc = ChangesResponse[Email]
+template filterType*(T: typedesc[Email]): typedesc = EmailFilterCondition
+
 registerJmapEntity(Email)
 registerQueryableEntity(Email)
+registerSettableEntity(Email)        # Part E — listed for completeness
+
+# Chainable-method participation gates (RFC 8620 §3.7 back-reference chains)
+registerChainableMethod(QueryResponse[Email])
+registerChainableMethod(GetResponse[Email])         # chains OUT to Thread/get via rpListThreadId
+registerChainableMethod(GetResponse[thread.Thread]) # chains OUT to Email/get via rpListEmailIds
 ```
 
-Email is registered with both `registerJmapEntity` and
-`registerQueryableEntity`. The generic builders compile (`addGet[Email]`,
-`addChanges[Email]`, `addQuery[Email]`), but consumers use the custom
-overloads for methods with extra parameters.
+Set/copy/import resolvers (`setMethodName`, `copyMethodName`,
+`importMethodName`, `createType`, `updateType`, `setResponseType`,
+`copyItemType`, `copyResponseType`) are also registered in this module
+alongside `registerSettableEntity(Email)` but belong to Part E.
+
+The three `registerChainableMethod` calls gate the §4.10 first-login
+workflow at compile time: any builder that consumes a `ResultReference`
+sourced from a non-registered method shape fails to compile. The
+`Thread` qualifier (`thread.Thread`) disambiguates the local module
+import — `mail_entities.nim` re-imports the unqualified `Thread` from
+the entity registry alongside the JMAP `Thread` entity.
+
+`SearchSnippet` and `VacationResponse` are deliberately **not**
+registered (Decision A7) — they use custom builder functions in
+`mail_methods.nim` instead, keyed directly on the relevant `MethodName`
+enum variants.
 
 ### 9.2. addEmailGet
 
 **Module:** `src/jmap_client/mail/mail_builders.nim`
 
 ```nim
-func addEmailGet*(b: RequestBuilder,
+func addEmailGet*(
+    b: RequestBuilder,
     accountId: AccountId,
     ids: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]),
+    properties: Opt[seq[string]] = Opt.none(seq[string]),
+    bodyFetchOptions: EmailBodyFetchOptions = default(EmailBodyFetchOptions),
+): (RequestBuilder, ResponseHandle[GetResponse[Email]]) =
+  addGet[Email](b, accountId, ids, properties, extras = bodyFetchOptions.toExtras())
+```
+
+- Thin wrapper over the generic `addGet[Email]` (`builder.nim`) with
+  body-fetch options merged via the generic's `extras: seq[(string,
+  JsonNode)]` parameter.
+- `default(EmailBodyFetchOptions).toExtras()` yields an empty seq — no
+  extra keys, correct RFC default.
+- `addGet[Email]` resolves `getMethodName(Email)`, `capabilityUri(Email)`
+  via `mixin` from `mail_entities.nim`.
+- Returns `(RequestBuilder, ResponseHandle[GetResponse[Email]])` — the
+  immutable builder pattern (new builder + typed response handle).
+
+### 9.3. addEmailGetByRef
+
+**Module:** `src/jmap_client/mail/mail_builders.nim`
+
+Sibling for RFC 8620 §3.7 back-reference chains.
+
+```nim
+func addEmailGetByRef*(
+    b: RequestBuilder,
+    accountId: AccountId,
+    idsRef: ResultReference,
     properties: Opt[seq[string]] = Opt.none(seq[string]),
     bodyFetchOptions: EmailBodyFetchOptions = default(EmailBodyFetchOptions),
 ): (RequestBuilder, ResponseHandle[GetResponse[Email]])
 ```
 
-- Adds `"urn:ietf:params:jmap:mail"` capability.
-- Creates invocation with name `"Email/get"`.
-- Standard `/get` parameters (`ids`, `properties`) plus body fetch options.
-- `bodyFetchOptions` injected via `emitInto` directly into the invocation
-  arguments node (§8.8). `default(EmailBodyFetchOptions)` omits all
-  body-fetch keys (correct RFC default).
-- Returns `(RequestBuilder, ResponseHandle[GetResponse[Email]])` — the
-  immutable builder pattern (new builder + typed response handle). Callers
-  who need typed `Email` objects parse individual `JsonNode` entries from
-  `GetResponse.list` via `emailFromJson`.
+Wraps `addEmailGet` with a `referenceTo[seq[Id]](idsRef)`-bound
+`Referencable`; the generic `addGet[T]` routes `rkReference` variants to
+the `#ids` wire key.
 
-**Immutable builder pattern:** All builders take an immutable
-`RequestBuilder` and return a new `(RequestBuilder, ResponseHandle[T])`
-tuple — no `var` mutation. This follows the project-wide functional
-convention established in the RFC 8620 builder infrastructure.
-
-### 9.3. Email/changes — Generic Builder (D17)
-
-No custom builder. Email/changes is "a standard /changes method" (RFC §4.3)
-with no extensions. Callers use `addChanges[Email]` directly.
-
-Precedent: only entities with extensions get custom builders (Mailbox/changes
-has `updatedProperties`). Thread uses generic `addChanges[Thread]` directly.
-No wrapper for naming consistency — that would be ceremony without value.
-
-### 9.4. addEmailQuery (D10)
+### 9.4. addThreadGetByRef
 
 **Module:** `src/jmap_client/mail/mail_builders.nim`
 
-Email/query has three extensions beyond generic `/query`: (1) sort uses
-`seq[EmailComparator]` instead of `seq[Comparator]`, (2) `collapseThreads:
-bool`, and (3) the `collapseThreads` parameter affects query semantics. The
-generic `addQuery` takes `Opt[seq[Comparator]]` — `EmailComparator` is a
-different type, so generic `addQuery` cannot carry it without type erasure.
+Sibling of generic `addGet[Thread]` for back-reference chains. `Thread`
+is read-only, so only `properties` is forwarded.
 
 ```nim
-func addEmailQuery*(b: RequestBuilder,
+func addThreadGetByRef*(
+    b: RequestBuilder,
     accountId: AccountId,
-    filterConditionToJson:
-      proc(c: EmailFilterCondition): JsonNode {.noSideEffect, raises: [].},
-    filter: Opt[Filter[EmailFilterCondition]] =
-      Opt.none(Filter[EmailFilterCondition]),
+    idsRef: ResultReference,
+    properties: Opt[seq[string]] = Opt.none(seq[string]),
+): (RequestBuilder, ResponseHandle[GetResponse[Thread]])
+```
+
+### 9.5. Email/changes — Generic Builder (D17)
+
+No custom builder. Email/changes is "a standard /changes method" (RFC
+§4.3) with no extensions. Callers use `addChanges[Email]` directly,
+which template-resolves `changesResponseType(Email) =
+ChangesResponse[Email]` via the `mail_entities.nim` association.
+
+Precedent: only entities with extensions get custom builders (Mailbox
+has `addMailboxChanges` because the response carries
+`updatedProperties`).
+
+### 9.6. addEmailQuery (D10)
+
+**Module:** `src/jmap_client/mail/mail_builders.nim`
+
+Email/query has two extensions beyond generic `/query`: typed
+`EmailComparator` sort, and `collapseThreads: bool`. The generic
+`addQuery[T, C, SortT]` is parameterised over the sort element type, so
+no custom builder is needed for the sort plumbing — only for emitting
+`collapseThreads`.
+
+```nim
+func addEmailQuery*(
+    b: RequestBuilder,
+    accountId: AccountId,
+    filter: Opt[Filter[EmailFilterCondition]] = Opt.none(Filter[EmailFilterCondition]),
     sort: Opt[seq[EmailComparator]] = Opt.none(seq[EmailComparator]),
     queryParams: QueryParams = QueryParams(),
     collapseThreads: bool = false,
-): (RequestBuilder, ResponseHandle[QueryResponse[Email]])
+): (RequestBuilder, ResponseHandle[QueryResponse[Email]]) =
+  addQuery[Email, EmailFilterCondition, EmailComparator](
+    b, accountId, filter, sort, queryParams,
+    extras = @[("collapseThreads", %collapseThreads)],
+  )
 ```
 
-- Adds `"urn:ietf:params:jmap:mail"` capability.
-- Creates invocation with name `"Email/query"`.
-- Serialises `collapseThreads` into request arguments alongside standard
-  query parameters.
-- `sort` serialised via `EmailComparator.toJson` (not `Comparator.toJson`).
-  Uses the serialise-then-assemble pattern: `serializeOptSort(sort)` resolves
-  `EmailComparator.toJson` via `mixin` at the call site, producing a
-  `SerializedSort` wrapper. `assembleQueryArgs` builds the complete protocol
-  frame from pre-serialised parts — no false intermediate, no post-hoc patching.
-- `func` not `proc` — callback parameters with `{.noSideEffect, raises: [].}`
-  pragma are compatible with `func` under the module's
-  `{.push raises: [], noSideEffect.}`. All L1–L3 builders in this project use
-  `func`.
-- Returns `(RequestBuilder, ResponseHandle[QueryResponse[Email]])` — immutable
-  builder tuple.
+- Three-parameter generic instantiation:
+  `addQuery[Email, EmailFilterCondition, EmailComparator]`. The generic
+  resolves `EmailComparator.toJson` and `EmailFilterCondition.toJson`
+  via `mixin` at the instantiation site.
+- `collapseThreads` is emitted unconditionally as an extra arg
+  (`true`/`false`) — the wire shape is stable for round-trip testing.
 
-### 9.5. addEmailQueryChanges (D18)
+### 9.7. addEmailQueryChanges (D18)
 
 **Module:** `src/jmap_client/mail/mail_builders.nim`
 
 Parallel to D10. Email/queryChanges (RFC §4.5) extends standard
-`/queryChanges` with `collapseThreads: bool`. Same structural incompatibility
-as D10 — generic `addQueryChanges` cannot carry `EmailComparator`.
+`/queryChanges` with `collapseThreads: bool`.
 
 ```nim
-func addEmailQueryChanges*(b: RequestBuilder,
+func addEmailQueryChanges*(
+    b: RequestBuilder,
     accountId: AccountId,
     sinceQueryState: JmapState,
-    filterConditionToJson:
-      proc(c: EmailFilterCondition): JsonNode {.noSideEffect, raises: [].},
-    filter: Opt[Filter[EmailFilterCondition]] =
-      Opt.none(Filter[EmailFilterCondition]),
+    filter: Opt[Filter[EmailFilterCondition]] = Opt.none(Filter[EmailFilterCondition]),
     sort: Opt[seq[EmailComparator]] = Opt.none(seq[EmailComparator]),
     maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges),
     upToId: Opt[Id] = Opt.none(Id),
     calculateTotal: bool = false,
     collapseThreads: bool = false,
-): (RequestBuilder, ResponseHandle[QueryChangesResponse[Email]])
+): (RequestBuilder, ResponseHandle[QueryChangesResponse[Email]]) =
+  addQueryChanges[Email, EmailFilterCondition, EmailComparator](
+    b, accountId, sinceQueryState, filter, sort, maxChanges, upToId, calculateTotal,
+    extras = @[("collapseThreads", %collapseThreads)],
+  )
 ```
-
-- Adds `"urn:ietf:params:jmap:mail"` capability.
-- Creates invocation with name `"Email/queryChanges"`.
-- Follows the same serialise-then-assemble pattern as `addEmailQuery`.
-- `func` — same rationale as `addEmailQuery` (callback with `noSideEffect`
-  pragma is compatible with `func` under the module push pragma).
 
 ---
 
-## 10. Custom Methods
+## 10. Custom Methods and Compound Chains
 
 ### 10.1. addEmailParse (D11)
 
-**Module:** `src/jmap_client/mail/mail_methods.nim` (extends existing module).
+**Module:** `src/jmap_client/mail/mail_methods.nim`
 
 **RFC reference:** §4.9.
 
 ```nim
-func addEmailParse*(b: RequestBuilder,
+func addEmailParse*(
+    b: RequestBuilder,
     accountId: AccountId,
-    blobIds: seq[Id],
+    blobIds: seq[BlobId],
     properties: Opt[seq[string]] = Opt.none(seq[string]),
     bodyFetchOptions: EmailBodyFetchOptions = default(EmailBodyFetchOptions),
 ): (RequestBuilder, ResponseHandle[EmailParseResponse])
 ```
 
-- Adds `"urn:ietf:params:jmap:mail"` capability.
-- Creates invocation with name `"Email/parse"`.
-- `blobIds` is `seq[Id]` (not `Referencable` — Email/parse does not support
-  result references on `blobIds`).
-- `bodyFetchOptions` injected via `emitInto` (§8.8), shared pattern with
-  `addEmailGet` (D9).
-- Returns `(RequestBuilder, ResponseHandle[EmailParseResponse])` — immutable
-  builder tuple with dedicated typed response (D11). Callers receive
-  `Table[Id, ParsedEmail]` — fully typed, no second parsing step.
+- Custom builder — Email/parse has no generic counterpart.
+- `blobIds: seq[BlobId]` (typed) — Email/parse does not support result
+  references on `blobIds`.
+- `bodyFetchOptions.toExtras()` keys merged into request args after the
+  standard frame (insertion order preserved).
+- Returns `EmailParseResponse` handle. Callers receive `Table[BlobId,
+  ParsedEmail]` — fully typed, no second parsing step.
 
 ### 10.2. addSearchSnippetGet (D12)
 
@@ -1398,33 +1357,132 @@ func addEmailParse*(b: RequestBuilder,
 **RFC reference:** §5.1.
 
 ```nim
-func addSearchSnippetGet*(b: RequestBuilder,
+func addSearchSnippetGet*(
+    b: RequestBuilder,
     accountId: AccountId,
-    filterConditionToJson:
-      proc(c: EmailFilterCondition): JsonNode {.noSideEffect, raises: [].},
     filter: Filter[EmailFilterCondition],
     firstEmailId: Id,
     restEmailIds: seq[Id] = @[],
 ): (RequestBuilder, ResponseHandle[SearchSnippetGetResponse])
 ```
 
-- Adds `"urn:ietf:params:jmap:mail"` capability.
-- Creates invocation with name `"SearchSnippet/get"`.
-- `filter` is **required** (not `Opt`) per architecture doc — search snippets
-  are meaningless without a search filter.
-- `emailIds` non-emptiness enforced structurally via the cons-cell pattern:
-  `firstEmailId: Id, restEmailIds: seq[Id] = @[]`. Every call provides at
-  least one email id. The builder concatenates `@[firstEmailId] &
-  restEmailIds` internally.
-- Builder is total: no `Result`, no validation. Every input combination valid.
-- `func` — callback with `{.noSideEffect, raises: [].}` pragma is compatible
-  with `func` under the module push pragma (same as `addEmailQuery`).
+- `filter` is **required** (not `Opt`) — search snippets are meaningless
+  without a search filter.
+- `emailIds` non-emptiness enforced structurally via the **cons-cell
+  pattern**: `firstEmailId: Id, restEmailIds: seq[Id] = @[]`. Every call
+  provides at least one email id. The builder concatenates `[firstEmailId]
+  & restEmailIds` internally.
+- Filter serialised via `serializeFilter(filter).toJsonNode()`; the
+  `Filter[C].toJson` cascade resolves `EmailFilterCondition.toJson` via
+  `mixin`.
+- Builder is total: no `Result`, no validation. Every input combination
+  valid by construction.
 
-**Cons-cell pattern (D12):** Encodes `NonEmpty` without a wrapper type.
-Appropriate when the constraint is local to one call site. The caller writes
-`addSearchSnippetGet(b, acct, toJson, filter, emailId)` for a single id, or
-`addSearchSnippetGet(b, acct, toJson, filter, firstId, @[id2, id3])` for
-multiple. Both are valid by construction.
+### 10.3. addSearchSnippetGetByRef
+
+**Module:** `src/jmap_client/mail/mail_methods.nim`
+
+Sibling for RFC 8620 §3.7 back-reference chains — `emailIds` sourced from
+a previous invocation's response.
+
+```nim
+func addSearchSnippetGetByRef*(
+    b: RequestBuilder,
+    accountId: AccountId,
+    filter: Filter[EmailFilterCondition],
+    emailIdsRef: ResultReference,
+): (RequestBuilder, ResponseHandle[SearchSnippetGetResponse])
+```
+
+`filter` remains mandatory. The cons-cell non-emptiness discipline of
+the literal-ids overload does not propagate — a back-reference always
+resolves to whatever the referenced response contains, including possibly
+an empty list.
+
+### 10.4. addEmailQueryWithThreads — RFC 8621 §4.10 Chain
+
+**Module:** `src/jmap_client/mail/mail_builders.nim`
+
+Encodes the RFC 8621 §4.10 first-login workflow as a typed compound
+chain: 4 invocations with back-references.
+
+```nim
+const DefaultDisplayProperties*: seq[string] = @[
+  "threadId", "mailboxIds", "keywords", "hasAttachment", "from", "subject",
+  "receivedAt", "size", "preview",
+]
+
+type EmailQueryThreadChain* {.ruleOff: "objects".} = object
+  queryH*: ResponseHandle[QueryResponse[Email]]
+  threadIdFetchH*: ResponseHandle[GetResponse[Email]]
+  threadsH*: ResponseHandle[GetResponse[Thread]]
+  displayH*: ResponseHandle[GetResponse[Email]]
+
+type EmailQueryThreadResults* {.ruleOff: "objects".} = object
+  query*: QueryResponse[Email]
+  threadIdFetch*: GetResponse[Email]
+  threads*: GetResponse[Thread]
+  display*: GetResponse[Email]
+
+func addEmailQueryWithThreads*(
+    b: RequestBuilder,
+    accountId: AccountId,
+    filter: Filter[EmailFilterCondition],
+    sort: seq[EmailComparator] = @[],
+    queryParams: QueryParams = QueryParams(),
+    collapseThreads: bool = true,
+    displayProperties: seq[string] = DefaultDisplayProperties,
+    displayBodyFetchOptions: EmailBodyFetchOptions = EmailBodyFetchOptions(
+      fetchBodyValues: bvsAll, maxBodyValueBytes: Opt.some(UnsignedInt(256))),
+): (RequestBuilder, EmailQueryThreadChain)
+
+func getAll*(
+    resp: Response, handles: EmailQueryThreadChain
+): Result[EmailQueryThreadResults, MethodError]
+```
+
+- `filter` is mandatory (RFC §4.10 ¶1 — first-login always filters to a
+  user-visible mailbox scope).
+- `collapseThreads` defaults to `true` per RFC §4.10 example.
+- Emits the exact 4-invocation back-reference chain from the RFC,
+  byte-for-byte: `Email/query` → `Email/get(threadId only)` →
+  `Thread/get` → `Email/get(display properties + body values)`.
+- `ResultReference` paths sourced from `RefPath` constants (`rpIds`,
+  `rpListThreadId`, `rpListEmailIds`) — no stringly-typed JSON Pointers.
+- `getAll` is monomorphic over `EmailQueryThreadChain` — co-located with
+  the builder rather than placed in `dispatch.nim` because there is no
+  parametric shape to share with the dispatch layer.
+
+### 10.5. addEmailQueryWithSnippets
+
+**Module:** `src/jmap_client/mail/mail_methods.nim`
+
+Compound Email/query + SearchSnippet/get chain (RFC 8621 §4.10 + §5.1).
+Two invocations with a back-reference from the snippet request's
+`emailIds` to the query's `/ids`.
+
+```nim
+type EmailQuerySnippetChain* =
+  ChainedHandles[QueryResponse[Email], SearchSnippetGetResponse]
+
+func addEmailQueryWithSnippets*(
+    b: RequestBuilder,
+    accountId: AccountId,
+    filter: Filter[EmailFilterCondition],
+    sort: Opt[seq[EmailComparator]] = Opt.none(seq[EmailComparator]),
+    queryParams: QueryParams = QueryParams(),
+    collapseThreads: bool = false,
+): (RequestBuilder, EmailQuerySnippetChain)
+```
+
+- `filter` is mandatory — snippets are meaningless without a query
+  context.
+- The filter is duplicated literally on the wire to both invocations
+  rather than shared via a second back-reference (simplicity over
+  wire-clever).
+- `EmailQuerySnippetChain` is a domain-named alias of
+  `ChainedHandles[A, B]` from `dispatch.nim`. Fields `first` / `second`
+  inherit from the generic.
 
 ---
 
@@ -1432,514 +1490,91 @@ multiple. Both are valid by construction.
 
 ### 11.1. File Layout (D14)
 
-All new files live under `src/jmap_client/mail/`. Organisation follows domain
-cohesion: entity + its method parameter types together (parallels
-`mailbox.nim` which co-locates Mailbox + MailboxCreate + MailboxRights).
+All read-path files live under `src/jmap_client/mail/`. Organisation
+follows domain cohesion: entity + its method parameter types together
+(parallels `mailbox.nim`).
 
-| File | Types | Rationale |
-|------|-------|-----------|
-| `email.nim` | `Email`, `ParsedEmail`, `PlainSortProperty`, `KeywordSortProperty`, `EmailComparator`, `BodyValueScope`, `EmailBodyFetchOptions` | Entity + method parameter types, parallels `mailbox.nim` |
-| `snippet.nim` | `SearchSnippet` | Standalone per RFC §5 |
-| `mail_filters.nim` | `EmailFilterCondition`, `EmailHeaderFilter` (adds to existing) | Filter conditions grouped by concern, parallels existing `MailboxFilterCondition` |
-| `serde_email.nim` | `emailFromJson`, `parsedEmailFromJson`, `Email.toJson`, `ParsedEmail.toJson`, `emailComparatorFromJson`, `EmailComparator.toJson`, `EmailBodyFetchOptions.emitInto`, `EmailBodyFetchOptions.toJson`, shared helpers (`ConvenienceHeaders`, `BodyFields`, `parseConvenienceHeaders`, `parseBodyFields`, `parseRawHeaders`, `parseHeaderValueArray`, `emitOptStringSeqOrNull`, `emitOptAddressesOrNull`) | All Email/ParsedEmail/EmailComparator/EmailBodyFetchOptions serde + shared helpers (D7) |
-| `serde_snippet.nim` | `searchSnippetFromJson`, `SearchSnippet.toJson` | SearchSnippet serde |
-| `serde_mail_filters.nim` | `EmailHeaderFilter.toJson`, `EmailFilterCondition.toJson` + extracted helpers (`emitDateSizeFilters`, `emitKeywordFilters`, `emitTextSearchFilters`) (adds to existing) | Filter serde grouped with existing `MailboxFilterCondition.toJson` |
-| `mail_entities.nim` | Entity registration for Email (adds to existing) | Extends existing module |
-| `mail_builders.nim` | `addEmailGet`, `addEmailQuery`, `addEmailQueryChanges` (adds to existing) | Standard method builders, parallels existing Mailbox builders |
-| `mail_methods.nim` | `addEmailParse`, `addSearchSnippetGet`, `EmailParseResponse`, `SearchSnippetGetResponse` (adds to existing) | Custom methods + bespoke response types |
+| File | Read-path types and functions |
+|------|-------------------------------|
+| `email.nim` | `Email`, `ParsedEmail`, `PlainSortProperty`, `KeywordSortProperty`, `EmailComparatorKind`, `EmailComparator`, `BodyValueScope`, `EmailBodyFetchOptions`, `plainComparator`, `keywordComparator`, `isLeaf` |
+| `snippet.nim` | `SearchSnippet` |
+| `mail_filters.nim` | `EmailFilterCondition`, `EmailHeaderFilter` (also hosts `MailboxFilterCondition`) |
+| `serde_email.nim` | `emailFromJson`, `parsedEmailFromJson`, `Email.toJson`, `ParsedEmail.toJson`, `emailComparatorFromJson`, `EmailComparator.toJson`, `EmailBodyFetchOptions.toExtras`, `EmailBodyFetchOptions.toJson`, internal helpers (`ConvenienceHeaders`, `BodyFields`, `parseConvenienceHeaders`, `parseBodyFields`, `parseBodyValues`, `parseBodyPartArray`, `parseRawHeaders`, `parseHeaderValueArray`, `parseOpt*` family, `emitOptStringSeqOrNull`, `emitOptAddressesOrNull`) |
+| `serde_snippet.nim` | `searchSnippetFromJson`, `SearchSnippet.toJson` |
+| `serde_mail_filters.nim` | `EmailFilterCondition.toJson`, `EmailHeaderFilter.toJson`, extracted helpers (`emitDateSizeFilters`, `emitKeywordFilters`, `emitTextSearchFilters`); also hosts `MailboxFilterCondition.toJson` |
+| `mail_entities.nim` | Per-verb method-name resolvers, `capabilityUri`, type-association templates, `registerJmapEntity(Email)`, `registerQueryableEntity(Email)`, `registerChainableMethod(QueryResponse[Email])`, `registerChainableMethod(GetResponse[Email])`, `registerChainableMethod(GetResponse[thread.Thread])` |
+| `mail_builders.nim` | `addEmailGet`, `addEmailGetByRef`, `addThreadGetByRef`, `addEmailQuery`, `addEmailQueryChanges`, `EmailQueryThreadChain`, `EmailQueryThreadResults`, `addEmailQueryWithThreads`, `getAll` |
+| `mail_methods.nim` | `addEmailParse`, `addSearchSnippetGet`, `addSearchSnippetGetByRef`, `EmailParseResponse`, `SearchSnippetGetResponse`, typedesc-overload `fromJson` wrappers, `EmailQuerySnippetChain`, `addEmailQueryWithSnippets` |
 
-### 11.2. Dependency Flow
+`email.nim` also hosts the Part E write-path types (`EmailCreatedItem`,
+`EmailImportResponse`, `EmailCopyItem`, `EmailImportItem`,
+`NonEmptyEmailImportMap`) for module cohesion; their specifications live
+in Part E. Similarly, `mail_builders.nim` hosts the Mailbox builders
+(Part B) and Email write-path builders (Part E).
 
-```
-email.nim ──→ validation.nim (ValidationError)
-          ──→ primitives.nim (Id, UnsignedInt, UTCDate, Date, Opt)
-          ──→ framework.nim (PropertyName)
-          ──→ keyword.nim (Keyword, KeywordSet)
-          ──→ addresses.nim (EmailAddress)
-          ──→ headers.nim (HeaderPropertyKey, HeaderValue, EmailHeader)
-          ──→ body.nim (EmailBodyPart, EmailBodyValue, PartId)
-          ──→ mailbox.nim (MailboxIdSet)
+### 11.2. Re-Export Hubs
 
-snippet.nim ──→ validation.nim, primitives.nim (Id, Opt, ValidationError)
+**`mail/types.nim`** re-exports `email`, `snippet`, `mail_filters`
+alongside all other Layer 1 mail modules.
 
-mail_filters.nim ──→ keyword.nim (Keyword)
-                 ──→ (core types — Id, UnsignedInt, UTCDate)
+**`mail/serialisation.nim`** re-exports `serde_email`, `serde_snippet`,
+`serde_mail_filters` alongside all other Layer 2 mail serde modules.
 
-serde_email.nim ──→ email.nim
-                ──→ serde_addresses.nim (EmailAddress fromJson)
-                ──→ serde_headers.nim (HeaderValue fromJson)
-                ──→ serde_body.nim (EmailBodyPart/EmailBodyValue fromJson)
-                ──→ serde_keyword.nim (KeywordSet fromJson)
-                ──→ serde_mailbox.nim (MailboxIdSet fromJson)
-
-serde_snippet.nim ──→ snippet.nim
-
-mail_builders.nim ──→ email.nim (EmailComparator, EmailBodyFetchOptions)
-                  ──→ mail_filters.nim (EmailFilterCondition)
-                  ──→ serde_email.nim (EmailComparator.toJson, EmailBodyFetchOptions.toJson)
-                  ──→ builder.nim (internal helper, RequestBuilder)
-
-mail_methods.nim ──→ email.nim (ParsedEmail)
-                 ──→ snippet.nim (SearchSnippet)
-                 ──→ serde_email.nim (parsedEmailFromJson)
-                 ──→ serde_snippet.nim (searchSnippetFromJson)
-```
-
-### 11.3. Re-Export Hub Updates
-
-**`types.nim`** — add:
-
-```nim
-import ./email
-import ./snippet
-export email
-export snippet
-```
-
-**`serialisation.nim`** — add:
-
-```nim
-import ./serde_email
-import ./serde_snippet
-export serde_email
-export serde_snippet
-```
+`mail_builders.nim` and `mail_methods.nim` re-export the relevant serde
+modules whose `fromJson` overloads are needed at the dispatch call site
+(generic responses resolve `T.fromJson` via `mixin` at the outer
+instantiation site).
 
 ---
 
 ## 12. Test Specification
 
-**136 scenarios** across 14 subsections: example-based unit and serde tests
-(§12.1–12.10), adversarial/red-team tests (§12.11), property-based tests
-(§12.12), integration tests (§12.13), and test infrastructure (§12.14).
-
-**Design principles applied to the test spec itself:**
-
-- **Remove trivia.** Total constructors are correct by construction — the type
-  system guarantees them. Old scenarios 23–25 (trivially testing that
-  `plainComparator(pspReceivedAt)` produces `eckPlain`) are removed; the
-  toJson/fromJson tests exercise constructors implicitly.
-- **Merge overlap.** Scenarios that test the same code path with only cosmetic
-  differences are consolidated (e.g., convenience header null and present in
-  one scenario; `addEmailGet` name + capability + default body options in one).
-- **Test routing, not parsing.** Lower-level parsers (`HeaderPropertyKey`,
-  `EmailBodyValue`, `PartId`, `Keyword`) are exhaustively tested in Part C
-  tests. Email/ParsedEmail tests verify only that Phase 1 and Phase 2 *route*
-  correctly to those parsers.
-- **Adversarial coverage.** Boundary exploitation, injection, type confusion,
-  and spelling mismatch tests — absent from the original spec.
-- **Property-based coverage.** Round-trip, structural invariant, and totality
-  properties that subsume groups of example tests.
-- **Integration coverage.** Cross-component tests verifying shared helper
-  parity, builder–serde chains, and round-trip preservation.
-
-### 12.1. Email Smart Constructor (scenarios 1–2)
-
-| # | Scenario | Expected |
-|---|----------|----------|
-| 1 | `parseEmail` with non-empty `mailboxIds` | `ok(Email)` |
-| 2 | `parseEmail` with empty `mailboxIds` | `err(ValidationError)` with `typeName = "Email"` |
-
-### 12.2. Email fromJson (scenarios 3–17)
-
-| # | Scenario | Expected |
-|---|----------|----------|
-| 3 | `emailFromJson` non-JObject input (JArray, JString, JNull) | `err` referencing "expected JObject" |
-| 4 | `emailFromJson` complete valid JSON (all 28 fields populated) | `ok(Email)`, all fields correct — golden path |
-| 5 | `emailFromJson` with absent `keywords` key | `ok`, `keywords` = empty `KeywordSet` (RFC default) |
-| 6 | `emailFromJson` convenience headers: null → `Opt.none`, present → `Opt.some(...)` (combined) | both cases pass in single test |
-| 7 | `emailFromJson` `"from"` JSON key → `fromAddr` field | `ok`, `fromAddr = Opt.some(...)` |
-| 8 | `emailFromJson` with `header:Subject:asText` dynamic property | routed to `requestedHeaders` table |
-| 9 | `emailFromJson` with `header:From:asAddresses:all` dynamic property | routed to `requestedHeadersAll` table |
-| 10 | `emailFromJson` with both non-`:all` and `:all` dynamic headers in same JSON | both tables populated simultaneously |
-| 11 | `emailFromJson` with unknown non-`header:` key → silently ignored | pass (Postel's law) |
-| 12 | `emailFromJson` with `bodyValues` keyed by `PartId` | `Table[PartId, EmailBodyValue]` correctly populated |
-| 13 | `emailFromJson` missing required metadata field (each of id, blobId, threadId, mailboxIds, size, receivedAt individually) | `err` for each |
-| 14 | `emailFromJson` convenience header with wrong JSON type (e.g. `"from": 42`) | `err` from `parseConvenienceHeaders` |
-| 15 | `emailFromJson` malformed dynamic header key (`"header:"`, `"header:From:asUnknown"`, too many segments) | `err` propagated from `parseHeaderPropertyName` |
-| 16 | `emailFromJson` `mailboxIds` as JNull (unlike `keywords`, no default) | `err` from `MailboxIdSet.fromJson` |
-| 17 | `emailFromJson` `keywords` present but wrong JSON type (JArray instead of JObject) | `err` from `KeywordSet.fromJson` |
-
-**Rationale for scenario 13 expansion:** The original spec tested "a missing
-metadata field" without specifying which. Each of the 6 non-defaultable
-metadata fields exercises a different direct-lookup error path. `keywords` is
-excluded because it defaults to empty (scenario 5).
-
-### 12.3. Email toJson (scenarios 18–23)
-
-| # | Scenario | Expected |
-|---|----------|----------|
-| 18 | `Email.toJson` `Opt.none` convenience headers → `null` | pass |
-| 19 | `Email.toJson` `fromAddr` field → `"from"` key in JSON | pass |
-| 20 | `Email.toJson` `requestedHeaders` entries emitted as top-level keys | `"header:Subject:asText": "..."` |
-| 21 | `Email.toJson` `requestedHeadersAll` entries emitted as top-level keys with `:all` suffix | `"header:From:asAddresses:all": [...]` |
-| 22 | `Email.toJson` empty `requestedHeaders` + empty `requestedHeadersAll` → no extra keys | JSON key count = standard fields only |
-| 23 | `Email.toJson` empty `seq` → `[]`, empty `Table` → `{}` (D5 contract) | `textBody: []`, `bodyValues: {}` |
-
-**Rationale for scenario 23:** Decision D5 specifies "emit all domain fields
-always." This test verifies the three empty-value emission paths: `Opt.none` →
-null (scenario 18), empty seq → `[]`, and empty Table → `{}`.
-
-### 12.4. ParsedEmail (scenarios 24–33)
-
-| # | Scenario | Expected |
-|---|----------|----------|
-| 24 | `parsedEmailFromJson` valid JSON with `threadId: null` | `ok`, `threadId = Opt.none` |
-| 25 | `parsedEmailFromJson` valid JSON with `threadId` present | `ok`, `threadId = Opt.some(id)` |
-| 26 | `parsedEmailFromJson` absent metadata fields (id, blobId, mailboxIds, keywords, size, receivedAt) in JSON | `ok` — ParsedEmail does not require them |
-| 27 | `parsedEmailFromJson` `"from"` JSON key → `fromAddr` field | `ok`, shared `parseConvenienceHeaders` applies same mapping |
-| 28 | `parsedEmailFromJson` with dynamic headers | correctly routed to both tables |
-| 29 | `parsedEmailFromJson` `threadId` as JInt (wrong type) | `err(ValidationError)` |
-| 30 | `parsedEmailFromJson` server sends absent-by-design metadata fields (id, blobId, mailboxIds, etc.) present in JSON | `ok`, extra fields silently ignored (Postel's law) |
-| 31 | `ParsedEmail.toJson` does not emit id, blobId, mailboxIds, keywords, size, receivedAt; DOES emit threadId | verified absent/present |
-| 32 | `ParsedEmail.toJson` `fromAddr` field → `"from"` key | pass |
-| 33 | `ParsedEmail` round-trip: `parsedEmailFromJson(pe.toJson()) == pe` for all fields including dynamic headers | identity preserved |
-
-**Rationale for scenarios 26 vs 30:** These test opposite conditions. Scenario
-26 verifies that ParsedEmail works without metadata (expected case — the type
-does not require them). Scenario 30 verifies that ParsedEmail works with
-unexpected metadata (Postel's law — a server may return full Email properties
-for a parse result).
-
-### 12.5. EmailComparator (scenarios 34–45)
-
-Trivial constructor tests (old 23–25) removed. Total constructors are correct
-by construction — `PlainSortProperty` constrains the value set, `Keyword` is
-validated at construction time. The toJson and fromJson tests exercise
-constructors implicitly.
-
-| # | Scenario | Expected |
-|---|----------|----------|
-| 34 | `toJson` plain comparator → `{"property": "receivedAt"}` | pass |
-| 35 | `toJson` keyword comparator → `{"property": "hasKeyword", "keyword": "$flagged"}` | pass |
-| 36 | `toJson` omits `isAscending` and `collation` when `Opt.none` | neither key present |
-| 37 | `toJson` keyword comparator with `isAscending` and `collation` both set | all four keys present |
-| 38 | `emailComparatorFromJson` plain property → `ok(eckPlain)` | pass |
-| 39 | `emailComparatorFromJson` `hasKeyword` with valid keyword → `ok(eckKeyword)` | pass |
-| 40 | `emailComparatorFromJson` `allInThreadHaveKeyword` with valid keyword → `ok(eckKeyword)` | pass |
-| 41 | `emailComparatorFromJson` `someInThreadHaveKeyword` with valid keyword → `ok(eckKeyword)` | pass |
-| 42 | `emailComparatorFromJson` keyword property without `keyword` field | `err` |
-| 43 | `emailComparatorFromJson` unknown property string | `err` |
-| 44 | `emailComparatorFromJson` extracts `isAscending` correctly | `Opt.some(false)` round-trips |
-| 45 | `emailComparatorFromJson` extracts `collation` correctly | `Opt.some("i;unicode-casemap")` round-trips |
-
-**Rationale for scenarios 39–41:** The serde layer (§8.6) iterates over all
-`KeywordSortProperty` variants to match the `property` string. Testing only
-one variant leaves iteration bugs undetected. All three keyword sort variants
-are explicitly tested for regression detection.
-
-### 12.6. EmailBodyFetchOptions (scenarios 46–52)
-
-| # | Scenario | Expected |
-|---|----------|----------|
-| 46 | `default(EmailBodyFetchOptions).toJson` → `{}` (all defaults) | pass |
-| 47 | `bvsText` → `{"fetchTextBodyValues": true}` | pass |
-| 48 | `bvsHtml` → `{"fetchHTMLBodyValues": true}` | pass |
-| 49 | `bvsTextAndHtml` → both `fetchTextBodyValues` and `fetchHTMLBodyValues` true | pass |
-| 50 | `bvsAll` → `{"fetchAllBodyValues": true}` | pass |
-| 51 | `maxBodyValueBytes` present → emitted | pass |
-| 52 | `bodyProperties = Opt.some(@[...])` → emitted as JSON array | pass |
-
-### 12.7. EmailHeaderFilter (scenarios 53–54)
-
-| # | Scenario | Expected |
-|---|----------|----------|
-| 53 | `parseEmailHeaderFilter("Subject")` | `ok`, `name == "Subject"` |
-| 54 | `parseEmailHeaderFilter("")` | `err(ValidationError)` "header name must not be empty" |
-
-### 12.8. EmailFilterCondition (scenarios 55–63)
-
-| # | Scenario | Expected |
-|---|----------|----------|
-| 55 | `toJson` all fields none → `{}` | pass |
-| 56 | `toJson` `inMailbox = Opt.some(id)` → `{"inMailbox": "..."}` | pass |
-| 57 | `toJson` `hasKeyword = Opt.some(kwSeen)` → `{"hasKeyword": "$seen"}` | pass |
-| 58 | `toJson` all 5 keyword fields (`hasKeyword`, `notKeyword`, `allInThreadHaveKeyword`, `someInThreadHaveKeyword`, `noneInThreadHaveKeyword`) with explicit `$keyword` value verification | all 5 keys present with correct `$keyword` string values |
-| 59 | `toJson` `fromAddr` → `"from"` key in JSON | pass |
-| 60 | `toJson` `header` name only → `["Name"]`; name + value → `["Name", "value"]` | both forms correct |
-| 61 | `toJson` mixed filter (multiple fields from different groups) | structural match — correct keys, correct types |
-| 62 | `toJson` `inMailboxOtherThan` with empty seq → `{"inMailboxOtherThan": []}` | pass (vacuous but not illegal) |
-| 63 | `toJson` all 20 fields populated simultaneously | JSON object with 20 keys, all correct types |
-
-**Rationale for scenario 58:** Keyword filter fields use typed `Keyword`
-serialised via `$`. Testing all five fields simultaneously verifies the
-`$keyword` string conversion for each — catching name/key transposition bugs
-that scenario 63 (all 20 fields) checks structurally but not by value.
-
-**Rationale for scenario 63:** With 20 fields, a key-name typo or wrong
-serialisation for a single field is easy to introduce. The complete-population
-test catches regressions that single-field tests miss.
-
-### 12.9. SearchSnippet and Response Types (scenarios 64–74)
-
-| # | Scenario | Expected |
-|---|----------|----------|
-| 64 | `searchSnippetFromJson` valid | `ok(SearchSnippet)`, all fields populated |
-| 65 | `searchSnippetFromJson` `subject`/`preview` null | `ok`, both `Opt.none` |
-| 66 | `searchSnippetGetResponseFromJson` with `notFound: null` | `ok`, `notFound` = empty seq |
-| 67 | `searchSnippetGetResponseFromJson` with `notFound: [...]` | `ok`, `notFound` = parsed seq |
-| 68 | `searchSnippetGetResponseFromJson` `notFound` key absent (not null, absent) | `ok`, `notFound` = empty seq |
-| 69 | `emailParseResponseFromJson` with `parsed: null` | `ok`, `parsed` = empty `Table` |
-| 70 | `emailParseResponseFromJson` with parsed entries | `ok`, `Table[Id, ParsedEmail]` populated |
-| 71 | `emailParseResponseFromJson` `parsed` key absent (not null, absent) | `ok`, `parsed` = empty `Table` |
-| 72 | `emailParseResponseFromJson` reads `"notParsable"` key (RFC spelling) | `notParseable` field populated |
-| 73 | `emailParseResponseFromJson` `"notParseable"` key (Nim spelling) NOT accepted as alias | `notParseable` field stays empty — only RFC key `"notParsable"` is read |
-| 74 | `searchSnippetGetResponseFromJson` / `emailParseResponseFromJson` non-JObject input | `err` referencing "expected JObject" |
-
-**Rationale for scenario 73:** The design document (§8.11) explicitly documents
-the spelling mismatch between the RFC key `"notParsable"` and the Nim field
-`notParseable`. This test verifies that the serde layer reads ONLY the RFC key,
-preventing silent data loss if the wrong key is used.
-
-### 12.10. Builders (scenarios 75–90)
-
-| # | Scenario | Expected |
-|---|----------|----------|
-| 75 | `addEmailGet` produces `"Email/get"`, adds `urn:ietf:params:jmap:mail` capability, default body options omits body keys | all three checks pass |
-| 76 | `addEmailGet` with non-default body fetch options includes body keys in args | body keys present |
-| 77 | `addChanges[Email]` produces `"Email/changes"` | pass |
-| 78 | `addEmailQuery` produces `"Email/query"` | pass |
-| 79 | `addEmailQuery` with `collapseThreads = true` includes parameter in args | pass |
-| 80 | `addEmailQuery` with `collapseThreads = false` (default) — verify emission/omission behaviour | consistent with RFC expectation |
-| 81 | `addEmailQuery` with `EmailComparator` sort serialises correctly | `sort` array in args matches `EmailComparator.toJson` |
-| 82 | `addEmailQueryChanges` produces `"Email/queryChanges"` | pass |
-| 83 | `addEmailQueryChanges` with `collapseThreads` and `EmailComparator` sort parameters | both serialised in args |
-| 84 | `addEmailParse` produces `"Email/parse"`, adds mail capability | pass |
-| 85 | `addEmailParse` with body fetch options includes body keys in args | body keys present, matching `addEmailGet` pattern |
-| 86 | `addSearchSnippetGet` produces `"SearchSnippet/get"` | pass |
-| 87 | `addSearchSnippetGet` with single email id → `emailIds: [id]` | pass |
-| 88 | `addSearchSnippetGet` with cons-cell ids → `emailIds: [first, rest...]` | pass |
-| 89 | `addSearchSnippetGet` `filter` required (not Opt) — `assertNotCompiles` | compile-time check |
-| 90 | `addSearchSnippetGet` serialises `filter` in request args | filter structure present in args |
-
-**Rationale for scenarios 75, 84 merges:** Builder basics (invocation name +
-capability + default behaviour) are low-information tests. Consolidating them
-into single test blocks reduces noise while preserving coverage.
-
-### 12.11. Adversarial Tests (scenarios 91–123)
-
-Red-team scenarios targeting boundary exploitation, injection, type confusion,
-semantic ambiguity, and cross-field contradiction. These test the defence of
-the serde boundary against malformed, ambiguous, or adversarial server
-responses and client inputs.
-
-**Two-phase parsing boundary (emailFromJson Phase 1 vs Phase 2):**
-
-| # | Scenario | Expected |
-|---|----------|----------|
-| 91 | Both `"from"` (populated and as JNull) and `"header:From:asAddresses"` keys present in JSON | `ok` — Phase 1 routes `"from"` to `fromAddr` (populated or `Opt.none`); Phase 2 routes `"header:From:asAddresses"` to `requestedHeaders` — no interference between phases regardless of null state |
-| 92 | 100 dynamic `header:*` keys in single JSON object | `ok` — all routed to correct tables — stress test Phase 2 iteration |
-
-**Dynamic header injection:**
-
-| # | Scenario | Expected |
-|---|----------|----------|
-| 93 | `"header:"` key (empty header name after colon) | `err` from `parseHeaderPropertyName` — empty name |
-| 94 | `"header:From:asAddresses:all:extra"` (5 colon-separated segments) | `err` — too many segments |
-| 95 | `"header:From:asUnknown"` (invalid form name) | `err` from `parseHeaderPropertyName` — unknown form |
-| 96 | `"header"` key (no trailing colon — not `"header:"`) | silently ignored — `startsWith("header:")` does not match |
-
-**EmailComparator discriminant synthesis:**
-
-| # | Scenario | Expected |
-|---|----------|----------|
-| 97 | `emailComparatorFromJson` with `property: "received_At"` (underscore) | `err` — `$enum` comparison is NOT `nimIdentNormalize` |
-| 98 | `emailComparatorFromJson` with `property: "RECEIVERAT"` (wrong case) | `err` — exact string match, case-sensitive |
-| 99 | `emailComparatorFromJson` with `property: " receivedAt"` (leading whitespace) | `err` — no whitespace stripping |
-| 100 | `emailComparatorFromJson` with `property: "hasKeyword"` and `keyword: ""` (empty string) | `err` from `Keyword.fromJson` — empty keyword |
-| 101 | `emailComparatorFromJson` with `property: "receivedAt"` and spurious `keyword` field present | `ok(eckPlain)` — `keyword` field silently ignored on plain branch |
-| 102 | `emailComparatorFromJson` with `property` field entirely missing | `err` — missing discriminant |
-| 103 | `emailComparatorFromJson` with `property: null` (JNull instead of JString) | `err` from `checkJsonKind` |
-
-**EmailHeaderFilter adversarial:**
-
-| # | Scenario | Expected |
-|---|----------|----------|
-| 104 | `parseEmailHeaderFilter` name containing `":"` (colon) | `ok` — smart constructor validates only non-empty, not character set; RFC 5322 §2.2 and RFC 8621 §4.1.3 exclude colon from header field names, but character-set validation is delegated to the server |
-| 105 | `parseEmailHeaderFilter` name containing `\x00` (NUL byte) | `ok` — only empty string is rejected; documents FFI truncation risk |
-| 106 | `EmailFilterCondition.toJson` header filter with value `""` (empty string) | `["Name", ""]` — 2-element array, distinct from absent value (1-element) |
-
-**Table[PartId, EmailBodyValue] adversarial:**
-
-| # | Scenario | Expected |
-|---|----------|----------|
-| 107 | `emailFromJson` `bodyValues` with duplicate PartId keys in raw JSON | `ok` — last-wins semantics (std/json `OrderedTable` behaviour) |
-| 108 | `emailFromJson` `bodyValues` with empty-string PartId key `""` | `err` from `parsePartIdFromServer` — empty string rejection |
-
-**EmailFilterCondition structural edge cases:**
-
-| # | Scenario | Expected |
-|---|----------|----------|
-| 109 | `toJson` with `minSize = Opt.some(0)` and `maxSize = Opt.some(0)` (contradictory) | both keys emitted — filter does not validate temporal/size consistency |
-| 110 | `toJson` header filter with name containing `":"` | `["Na:me"]` — colon preserved in first array element |
-
-**Response type adversarial:**
-
-| # | Scenario | Expected |
-|---|----------|----------|
-| 111 | `searchSnippetGetResponseFromJson` with `list: null` (JNull for required field) | `ok` — `list` defaults to empty seq (Postel's law — lenient on receive) |
-| 112 | `searchSnippetFromJson` with `subject: "<mark>XSS</mark><script>alert(1)</script>"` | `ok` — HTML content preserved verbatim; library does not sanitise |
-| 113 | `searchSnippetFromJson` with extra unknown field in JSON | `ok` — extra field silently ignored (Postel's law, forward compatibility) |
-| 114 | `emailFromJson` with all 28 fields present as wrong JSON types (JInt for every string field) | `err` on first failing field — never panics, never crashes |
-
-**Recursive structure and resource stress:**
-
-| # | Scenario | Expected |
-|---|----------|----------|
-| 115 | `emailFromJson` with 50-level nested multipart `bodyStructure` (recursive MIME tree) | `ok(Email)` — parser handles recursive depth gracefully; never stack overflow |
-| 116 | Dynamic header key with Cyrillic homoglyph prefix (`"һeader:Subject:asText"` with U+04BB) alongside real `"header:Subject:asText"` | `ok` — Cyrillic key silently ignored (`startsWith("header:")` byte-level match fails); real key routed to `requestedHeaders` |
-| 117 | `emailFromJson` with `size` at `2^53-1` (max safe JSON integer / `UnsignedInt` max) | `ok(Email)` with `size` value preserved exactly — no overflow or truncation |
-
-**Cross-field semantic contradictions:**
-
-| # | Scenario | Expected |
-|---|----------|----------|
-| 118 | Both `"header:From:asText"` and `"header:From:asAddresses"` (same header name, different form) in single JSON | `ok` — both routed to `requestedHeaders` under distinct `HeaderPropertyKey` keys (form is part of key identity) |
-| 119 | `emailFromJson` with `bodyValues` entry having `isTruncated: true` AND `isEncodingProblem: true` AND `value: ""` | `ok(Email)` — all flag combinations valid; no mutual exclusivity validation |
-| 120 | `emailFromJson` with `keywords: {"$Draft": true}` but `mailboxIds` pointing to non-Draft mailbox | `ok(Email)` — keyword/mailbox consistency not validated at serde layer (Postel's law) |
-| 121 | `emailFromJson` with non-empty `attachments` list but `hasAttachment: false` | `ok(Email)` — semantic contradiction preserved; no cross-field validation |
-| 122 | `EmailFilterCondition.toJson` with `before` date earlier than `after` date (logically impossible range) | both keys emitted — filter does not validate temporal consistency |
-| 123 | `searchSnippetGetResponseFromJson` with snippet referencing `emailId` not in any Email result set | `ok(SearchSnippetGetResponse)` — referential integrity not validated at serde layer |
-
-### 12.12. Property-Based Tests (scenarios 124–131)
-
-Property-based tests use fixed-seed generators (`mproperty.nim` infrastructure)
-with edge-biased early trials. They supplement, not replace, example-based
-tests — the example tests serve as documentation, the property tests probe the
-input space.
-
-| # | Property | Generator | Trials |
-|---|----------|-----------|--------|
-| 124 | **EmailComparator round-trip:** `emailComparatorFromJson(ec.toJson()) == ec` for any valid `EmailComparator` | `genEmailComparator` — uniform over `eckPlain`/`eckKeyword` branches, random optional fields | `DefaultTrials` (500) |
-| 125 | **EmailBodyFetchOptions structural:** `BodyValueScope` variant determines exactly which `fetch*BodyValues` keys appear in `toJson` output | `genEmailBodyFetchOptions` — uniform over 5 `BodyValueScope` variants, random optional fields | `QuickTrials` (200) |
-| 126 | **EmailFilterCondition field-count:** `fc.toJson().len == count of Opt.some fields in fc` | `genEmailFilterCondition` — early-biased: trial 0 = all-none, trial 1 = all-some, remaining trials each of 20 fields independently 30% some / 70% none | `DefaultTrials` (500) |
-| 127 | **Totality — emailFromJson:** never crashes (returns `ok` or `err`) on arbitrary `JsonNode` input | `genArbitraryJsonNode(rng, maxDepth=3)` | `DefaultTrials` (500) |
-| 128 | **Totality — parsedEmailFromJson:** never crashes on arbitrary `JsonNode` input | `genArbitraryJsonNode(rng, maxDepth=3)` | `DefaultTrials` (500) |
-| 129 | **Totality — emailComparatorFromJson:** never crashes on arbitrary `JsonNode` input | `genArbitraryJsonNode(rng, maxDepth=2)` | `DefaultTrials` (500) |
-| 130 | **Email round-trip:** `emailFromJson(e.toJson()) == e` for any valid `Email` including dynamic headers in both tables | `genEmail` — composes `genConvenienceHeaders`, `genBodyFields`, `genMailboxIdSet`, `genKeywordSet`, existing generators | `ThoroughTrials` (2000) |
-| 131 | **ParsedEmail round-trip:** `parsedEmailFromJson(pe.toJson()) == pe` for any valid `ParsedEmail` | `genParsedEmail` — composes shared helpers from `genEmail` minus 6 metadata fields, `threadId` 50/50 some/none | `ThoroughTrials` (2000) |
-
-**Rationale:** The totality properties (127–129) are the highest-value property
-tests. They guarantee that no server response — no matter how malformed — can
-crash the client's parsing layer. Arbitrary `JsonNode` generators include
-wrong types, deep nesting, empty objects, null values, and numeric edge cases.
-The round-trip properties (130–131) verify that no field is silently lost or
-corrupted through the serialisation boundary for the two most complex types.
-
-**Rationale for scenario 126 early-bias:** With 20 independent binary fields at
-30% `some` rate, 500 random trials cover ~0.05% of the 2^20 combination space.
-Edge cases (all-none producing `{}`, all-some producing all 20 keys) have
-probabilities < 0.1% per trial. Early-biasing trials 0 and 1 guarantees
-these critical extremes are always tested.
-
-### 12.13. Integration Tests (scenarios 132–136)
-
-Cross-component tests that verify interactions between types, shared helpers,
-and the builder–serde chain.
-
-| # | Scenario | Scope |
-|---|----------|-------|
-| 132 | **Shared helper parity:** identical JSON (convenience headers + body + dynamic headers) fed to both `emailFromJson` and `parsedEmailFromJson` → shared fields produce identical results | serde helpers: `parseConvenienceHeaders`, `parseBodyFields`, Phase 2 routing |
-| 133 | **Email round-trip:** `emailFromJson(email.toJson()) == email` for a fully-populated Email including dynamic headers in both tables | full `emailFromJson` + `Email.toJson` |
-| 134 | **Dynamic header Phase 2 round-trip:** JSON with both `:all` and non-`:all` `header:*` keys → `emailFromJson` → `Email.toJson` → dynamic header keys preserved with correct names and values | Phase 2 routing → toJson dynamic header emission |
-| 135 | **Builder body fetch options parity:** `addEmailGet` and `addEmailParse` with identical non-default `EmailBodyFetchOptions` → produce identical body-related keys in request args | builder serde consistency |
-| 136 | **Builder–filter chain:** `addEmailQuery` with non-trivial `EmailFilterCondition` → serialised filter in request args matches `EmailFilterCondition.toJson` output | builder → filter serde chain |
-
-### 12.14. Test Infrastructure
-
-**Test file organisation:** All new files under `tests/` following established
-naming conventions (t-prefix, domain-cohesive grouping).
-
-| File | Scenarios | Rationale |
-|------|-----------|-----------|
-| `tests/unit/mail/temail.nim` | 1–2 | Smart constructor tests. Parallels `tmailbox.nim`. |
-| `tests/serde/mail/tserde_email.nim` | 3–45 | Email, ParsedEmail, EmailComparator serde. All source in `serde_email.nim`. |
-| `tests/serde/mail/tserde_snippet.nim` | 64–74 | SearchSnippet + response types. Parallels `tserde_vacation.nim`. |
-| `tests/serde/mail/tserde_mail_filters.nim` (extend) | 53–63 | EmailFilterCondition + EmailHeaderFilter. Appended after existing `MailboxFilterCondition` tests. |
-| `tests/protocol/tmail_builders.nim` (extend) | 75–83 | `addEmailGet`, `addEmailQuery`, `addEmailQueryChanges`. Appended after existing Mailbox builders. |
-| `tests/protocol/tmail_methods.nim` (extend) | 84–90 | `addEmailParse`, `addSearchSnippetGet`. Appended after existing VacationResponse tests. |
-| `tests/protocol/tmail_entities.nim` (extend) | — | Entity registration: `methodNamespace(Email) == "Email"`, `registerQueryableEntity` compiles. |
-| `tests/serde/mail/tserde_email_adversarial.nim` | 91–123 | Adversarial tests. Parallels `tserde_adversarial.nim` for core types. |
-| `tests/property/tprop_mail_d.nim` | 124–131 | Property tests. Parallels `tprop_mail_c.nim`. |
-| `tests/serde/mail/tserde_email_integration.nim` | 132–136 | Integration tests. Cross-component verification. |
-
-**New fixture factories** (add to `tests/mfixtures.nim`):
-
-| Function | Returns | Purpose |
-|----------|---------|---------|
-| `makeEmail()` | `Email` | Minimal valid Email (non-empty `mailboxIds`, empty keywords, default body). Satisfies `parseEmail`. |
-| `makeParsedEmail()` | `ParsedEmail` | Minimal ParsedEmail (`threadId = Opt.none`). |
-| `makeEmailComparator()` | `EmailComparator` | Plain comparator for builder tests. |
-| `makeKeywordComparator()` | `EmailComparator` | Keyword comparator for builder tests. |
-| `makeEmailBodyFetchOptions()` | `EmailBodyFetchOptions` | Default body fetch options. |
-| `makeEmailFilterCondition()` | `EmailFilterCondition` | All-none filter for toJson baseline. |
-| `makeSearchSnippet()` | `SearchSnippet` | Minimal valid SearchSnippet. |
-| `makeEmailJson()` | `JsonNode` | Golden Email JSON with all 28 fields. Derived from `makeEmail().toJson()`. Round-trip reference. |
-| `makeParsedEmailJson()` | `JsonNode` | Valid ParsedEmail JSON without metadata. Derived from `makeParsedEmail().toJson()`. |
-| `makeSearchSnippetJson()` | `JsonNode` | Valid SearchSnippet JSON. |
-| `makeSearchSnippetGetResponseJson()` | `JsonNode` | Valid `SearchSnippetGetResponse` JSON. |
-| `makeEmailParseResponseJson()` | `JsonNode` | Valid `EmailParseResponse` JSON. |
-
-JSON fixtures for typed objects (`makeEmailJson`, `makeParsedEmailJson`) are
-derived from type factories via `toJson()` rather than hand-crafted JSON
-literals. This ensures the golden JSON always reflects the current type
-definition. Hand-crafted JSON is reserved for adversarial tests requiring
-specific malformations (wrong types, missing fields, injection payloads).
-
-**Equality helpers** (add to `tests/mfixtures.nim`):
-
-| Function | Purpose |
-|----------|---------|
-| `emailEq(a, b: Email): bool` | Field-by-field equality. Handles `Table`, `seq`, case-object `HeaderValue`. Follows `sessionEq` pattern. |
-| `parsedEmailEq(a, b: ParsedEmail): bool` | Same pattern as `emailEq`. Delegates to common field comparisons for shared groups. |
-| `emailComparatorEq(a, b: EmailComparator): bool` | Case-object equality. Follows `setErrorEq` pattern. |
-
-**New generators** (add to `tests/mproperty.nim`):
-
-| Generator | Composes | Trials |
-|-----------|----------|--------|
-| `genKeyword(rng)` | Pool of standard keywords + random valid flag names | — |
-| `genKeywordSet(rng)` | 0–5 keywords from `genKeyword` | — |
-| `genMailboxIdSet(rng)` | 1–5 Ids from `makeId` (non-empty for Email invariant) | — |
-| `genEmailComparator(rng)` | 50/50 plain/keyword, random optional `isAscending`/`collation` | — |
-| `genEmailBodyFetchOptions(rng)` | Uniform `BodyValueScope`, optional `bodyProperties`/`maxBodyValueBytes` | — |
-| `genEmailFilterCondition(rng)` | Early-biased: trial 0 = all-none, trial 1 = all-some, remaining trials each of 20 fields independently 30% some / 70% none | — |
-| `genSearchSnippet(rng)` | Random `emailId`, optional `subject`/`preview` | — |
-| `genConvenienceHeaders(rng)` | Shared helper: 11 convenience header fields. Composes `genEmailAddress`, `genValidDate`, `genArbitraryString`. Used by both `genEmail` and `genParsedEmail`. | — |
-| `genBodyFields(rng)` | Shared helper: 7 body fields. Composes `genEmailBodyPart`, `genPartId`, `genEmailBodyValue`. Used by both `genEmail` and `genParsedEmail`. | — |
-| `genDeepBodyStructure(rng, depth)` | Recursively nested multipart structure for adversarial stress tests (scenario 115) | — |
-| `genEmail(rng)` | Composes: `makeId`, `genMailboxIdSet`, `genKeywordSet`, `genConvenienceHeaders`, `genBodyFields`, `genEmailHeader`, `genHeaderPropertyKey` + `genHeaderValue` | `ThoroughTrials` (2000) |
-| `genParsedEmail(rng)` | Like `genEmail` minus metadata, `threadId` 50/50 some/none. Composes same shared helpers as `genEmail`. | `ThoroughTrials` (2000) |
-
-Both `genEmail` and `genParsedEmail` compose shared helpers
-`genConvenienceHeaders` and `genBodyFields` to ensure parity — mirroring the
-serde layer's `parseConvenienceHeaders` and `parseBodyFields` helper
-extraction (D7). This prevents divergence between the two generators' shared
-field groups.
+Test files live under `tests/` following the established naming
+convention (t-prefix, domain-cohesive grouping).
+
+| File | Coverage |
+|------|----------|
+| `tests/unit/mail/temail.nim` | `isLeaf` predicate; smart constructors for Part E types co-located in `email.nim` (`initNonEmptyEmailImportMap`) |
+| `tests/serde/mail/tserde_email.nim` | `Email`, `ParsedEmail`, `EmailComparator`, `EmailBodyFetchOptions` serde — golden path, sparse property-filter shapes, dynamic header routing, missing/wrong-type fields, comparator discriminant synthesis |
+| `tests/serde/mail/tserde_snippet.nim` | `SearchSnippet` and `SearchSnippetGetResponse` / `EmailParseResponse` fromJson; `notParsable` wire spelling |
+| `tests/serde/mail/tserde_mail_filters.nim` | `EmailFilterCondition` + `EmailHeaderFilter` toJson (extends Mailbox filter tests) |
+| `tests/serde/mail/tserde_email_adversarial.nim` | Boundary exploitation: two-phase parsing interference, dynamic header injection (empty name, too many segments, unknown form), comparator discriminant edge cases (case, whitespace, missing keyword), header filter character set, duplicate `bodyValues` keys, recursive multipart depth, Cyrillic homoglyph keys, large `size`, cross-field semantic contradictions |
+| `tests/property/tprop_mail_d.nim` | Round-trip properties (Email, ParsedEmail, EmailComparator), totality on arbitrary `JsonNode`, filter-condition field-count, body-fetch-options structural correspondence |
+| `tests/serde/mail/tserde_email_integration.nim` | Cross-component: shared helper parity between Email and ParsedEmail, full-Email round-trip, dynamic-header Phase 2 round-trip, builder body-fetch-options parity, builder–filter chain |
+| `tests/protocol/tmail_builders.nim` | `addEmailGet`, `addEmailQuery`, `addEmailQueryChanges`, by-ref siblings, `addEmailQueryWithThreads` (extends Mailbox builders) |
+| `tests/protocol/tmail_methods.nim` | `addEmailParse`, `addSearchSnippetGet`, `addSearchSnippetGetByRef`, `addEmailQueryWithSnippets` (extends VacationResponse tests) |
+
+Tests use the shared `mfixtures` factories (`makeEmail`, `makeParsedEmail`,
+`makeEmailComparator`, `makeKeywordComparator`, `makeEmailBodyFetchOptions`,
+`makeEmailFilterCondition`, `makeSearchSnippet`, plus JSON variants) and
+the shared `mproperty` generators (`genEmail`, `genParsedEmail`,
+`genEmailComparator`, `genEmailBodyFetchOptions`,
+`genEmailFilterCondition`, `genSearchSnippet`, plus shared composers
+`genConvenienceHeaders`, `genBodyFields`).
 
 ---
 
 ## 13. Decision Traceability Matrix
 
-| # | Decision | Options Considered | Chosen | Primary Principles |
-|---|----------|--------------------|--------|-------------------|
-| D1 | Email field sealing | A) Plain public fields, B) Pattern A (sealed), C) Partial sealing | A (28 fields too costly to seal; ProveInit prevents uninitialised use; same as Thread A14) | Code reads like the spec, Parse-don't-validate |
-| D2 | Email fromJson required vs optional fields | A) All Opt, B) All required, C) Split by group | B refined (typed Email = complete domain object; Opt = header absent only; body fields non-Opt with empty defaults) | One meaning per Opt, Make illegal states unrepresentable, One source of truth |
-| D3 | Convenience header Opt semantics | A) Opt = not requested or absent, B) Opt = absent only | B (subsumed by D2; one meaning per Opt) | One source of truth, Code reads like the spec |
-| D4 | Dynamic header fromJson routing | A) Two-phase (structured + discovery), B) Single iteration, C) Known-property set | A (O(1) lookups for standard properties; single iteration for dynamic `header:*` discovery) | Code reads like the spec, Parse once at the boundary |
-| D5 | Email toJson Opt body handling | A) Omit absent, B) Emit all (Opt→null, empty→[], Table→{}) | B (all domain fields always emitted; dynamic headers as N top-level keys) | One source of truth, Code reads like the spec |
-| D6 | textBody/htmlBody/attachments leaf-only validation | A) Validate in smart constructor, B) Accept (Postel's law) | B (trust server's contract; provide convenience `isLeaf` predicate) | Postel's law, DDD |
-| D7 | ParsedEmail code sharing with Email | A) Full duplication, B) Shared sub-objects, C) Inheritance, D) Generic, E) Shared serde helpers | A + E (types duplicated; serde helpers shared) | DRY — duplicated appearance is not duplicated knowledge, DDD |
-| D8 | EmailComparator structure | A) Opt[Keyword] on Comparator, B) Flat enum, C) Single split enum, D) Case object with split enums | D (case object + PlainSortProperty + KeywordSortProperty; both constructors total) | Make illegal states unrepresentable, Constructors that can't fail don't, Total functions |
-| D9 | EmailBodyFetchOptions | A) Inline 3 bools, B) Shared type with enum, C) Shared type with bools | Modified B (BodyValueScope enum; shared by Email/get and Email/parse; `emitInto` for direct key injection into builder args, `toJson` as standalone wrapper) | Booleans are a code smell, DRY, Make the right thing easy |
-| D10 | addEmailQuery sort type | A) Custom builder, B) Type erasure, C) Internal helper extraction | A (custom builder with EmailComparator; serialise-then-assemble pattern — `serializeOptSort` resolves `EmailComparator.toJson` via `mixin`, `assembleQueryArgs` builds complete protocol frame from `SerializedSort`/`SerializedFilter` wrappers) | Make illegal states unrepresentable, Make the right thing easy |
-| D11 | Email/parse response structure | A) Raw JsonNode in response, B) Typed ParsedEmail | B (dedicated EmailParseResponse with Table[Id, ParsedEmail]) | Parse once at the boundary, Code reads like the spec |
-| D12 | SearchSnippet/get filter + emailIds | A) Both Opt, B) Both required, C) Required filter + required non-empty emailIds | Modified C (cons-cell: firstEmailId + restEmailIds; filter required not Opt) | Total functions, Make the right thing easy |
-| D13 | SearchSnippet response structure | A) Plain fields, B) Smart constructor, C) notFound as Opt | Modified A (plain fields; notFound as seq[Id] collapsing null/[] to empty seq) | Parse once at the boundary, Code reads like the spec |
-| D14 | Module organisation | A) One file per type, B) By layer, C) Domain cohesion | Modified C (email.nim = entity + param types; mail_filters.nim += EmailFilterCondition; mail_builders.nim += Email builders; mail_methods.nim += custom methods) | DDD, DRY |
-| D15 | Email fromJson mailboxIds non-empty validation | A) Validate in fromJson, B) Lenient (Postel's law) | B (subsumed by D1 + D6; fromJson lenient, parseEmail strict; boundary is context-dependent) | Postel's law, Parse once at the boundary |
-| D16 | EmailFilterCondition inMailboxOtherThan non-empty | A) No enforcement, B) Smart constructor | A (subsumed by B16 + B11; empty list vacuous but not illegal; filter = toJson-only value object) | Make illegal states unrepresentable targets invariant violations not usage quality |
-| D17 | Email/changes builder | A) Generic addChanges[Email], B) Custom wrapper | A (standard /changes, no extensions; no wrapper for naming consistency) | Code reads like the spec |
-| D18 | Email/queryChanges builder | A) Custom addEmailQueryChanges, B) Generic addQueryChanges | A (parallel to D10; collapseThreads + EmailComparator sort) | Make illegal states unrepresentable, DRY |
-| D19 | bodyValues Table key type | A) Table[PartId, EmailBodyValue], B) Table[string, EmailBodyValue] | A (typed key; PartId has hash; consistent with MailboxIdSet pattern) | Newtype everything that has meaning |
-| D20 | ParsedEmail blobId/size exclusion | A) Include as Opt (RFC-faithful), B) Exclude (redundant + blob deferred) | B (blobId redundant — it is the response table key; size derivable from blob; blob infrastructure deferred per architecture §4.6; revisit when BlobId becomes distinct type) | DDD, Deferred scope alignment |
+| # | Decision | Chosen | Primary Principles |
+|---|----------|--------|-------------------|
+| D1 | Email field sealing | Plain public fields (Pattern A's 28-accessor cost outweighs the benefit; ProveInit prevents uninitialised use) | Code reads like the spec |
+| D2 | Email field optionality | Every server-shaped field `Opt[T]`; default-properties shape populates each `Opt`, sparse property-filter shape populates only requested fields | Code reads like the spec, Postel's law, One type, two shapes |
+| D3 | Convenience header `Opt` semantics | `Opt.none` = header absent in message (when the property was requested); requestor-side absence reflected by upstream `Email.{field}` being `Opt.none` because the property was filtered out | One source of truth, Code reads like the spec |
+| D4 | Dynamic header fromJson routing | Two-phase: structured extraction by direct key lookup, then single iteration for `header:*` discovery | Code reads like the spec, Parse once at the boundary |
+| D5 | Email toJson Opt body handling | Emit all domain fields always (`Opt.none` → null, empty seq → `[]`, empty Table → `{}`); dynamic headers as N top-level keys | One source of truth, Code reads like the spec |
+| D6 | textBody/htmlBody/attachments leaf-only validation | Trust server (Postel's law); provide `isLeaf` convenience predicate | Postel's law, DDD |
+| D7 | ParsedEmail code sharing with Email | Full field duplication (different domain aggregates); shared serde helper procs (`ConvenienceHeaders`, `BodyFields`, `parseConvenienceHeaders`, `parseBodyFields`, `parseRawHeaders`, `parseHeaderValueArray`) | DRY — duplicated appearance is not duplicated knowledge, DDD |
+| D8 | EmailComparator structure | Case object + split enums (`PlainSortProperty`, `KeywordSortProperty`); both constructors total | Make illegal states unrepresentable, Total functions |
+| D9 | EmailBodyFetchOptions | `BodyValueScope` enum (5 variants) replaces three RFC booleans; serde via `toExtras` (returns `seq[(string, JsonNode)]`) and standalone `toJson` | Booleans are a code smell, DRY, Make the right thing easy |
+| D10 | addEmailQuery sort type | Custom builder around generic `addQuery[Email, EmailFilterCondition, EmailComparator]`; `mixin toJson` resolves both filter and sort serialisation; `collapseThreads` via `extras` | Make illegal states unrepresentable |
+| D11 | Email/parse response structure | Dedicated `EmailParseResponse` with `Table[BlobId, ParsedEmail]`; typed `BlobId` keys and failure lists | Parse once at the boundary, Newtype everything that has meaning |
+| D12 | SearchSnippet/get filter + emailIds | Required `filter` (not Opt); cons-cell `firstEmailId + restEmailIds` for non-empty enforcement on the literal-ids overload | Total functions, Make the right thing easy |
+| D13 | SearchSnippet response structure | `notFound: seq[Id]` collapsing null/`[]` to empty seq via `collapseNullToEmptySeq` | Parse once at the boundary, Code reads like the spec |
+| D14 | Module organisation | Domain cohesion: `email.nim` co-locates entity + read-path param types + write-path Part E types; `mail_filters.nim` co-locates Email and Mailbox filter conditions; `mail_builders.nim` and `mail_methods.nim` extend across parts | DDD, DRY |
+| D15 | Email fromJson lenient behaviour | Lenient at server-to-client boundary — `Opt[MailboxIdSet]` admits null/absent; trust server contract that present values satisfy RFC §4.1.1 non-empty | Postel's law, Parse once at the boundary |
+| D16 | EmailFilterCondition `inMailboxOtherThan` non-empty | No enforcement; empty list vacuous but not illegal | Filter = toJson-only value object |
+| D17 | Email/changes builder | Generic `addChanges[Email]`; `changesResponseType(Email) = ChangesResponse[Email]` template-resolved | Code reads like the spec |
+| D18 | Email/queryChanges builder | Custom `addEmailQueryChanges` parallel to D10 (`collapseThreads` extra + typed `EmailComparator` sort) | DRY |
+| D19 | bodyValues Table key type | `Table[PartId, EmailBodyValue]` (typed `PartId` key with borrowed `hash`) | Newtype everything that has meaning |
+| D20 | ParsedEmail blobId/size exclusion | Excluded — `blobId` redundant (response keyed by `BlobId`); `size` derivable from blob | DDD |

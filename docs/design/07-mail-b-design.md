@@ -1,14 +1,13 @@
 # RFC 8621 JMAP Mail — Design B: Keyword, Mailbox
 
-This document is the detailed specification for the Keyword shared sub-type
-and the Mailbox entity — plus their supporting types. It covers all layers
-(L1 types, L2 serde, L3 entity registration and builder functions) for each
-type, cutting vertically through the architecture.
+This document is the detailed specification for the `Keyword` shared
+sub-type, the `Mailbox` entity, and their supporting types. It covers all
+layers (L1 types, L2 serde, L3 entity registration and builder
+functions) for each type, cutting vertically through the architecture.
 
-Builds on the cross-cutting architecture design (`05-mail-design.md`), the
-existing RFC 8620 infrastructure (`00-architecture.md` through
-`04-layer-4-design.md`), and Design A (`06-mail-a-design.md`). Decisions
-from the cross-cutting doc are referenced by section number.
+Builds on the cross-cutting architecture design (`05-mail-design.md`),
+the existing RFC 8620 infrastructure (`00-architecture.md` through
+`04-layer-4-design.md`), and Design A (`06-mail-a-design.md`).
 
 ---
 
@@ -21,7 +20,6 @@ from the cross-cutting doc are referenced by section number.
 5. [MailboxFilterCondition — mail_filters.nim](#5-mailboxfiltercondition--mail_filtersnim)
 6. [Entity Registration and Builders](#6-entity-registration-and-builders)
 7. [Test Specification](#7-test-specification)
-8. [Decision Traceability Matrix](#8-decision-traceability-matrix)
 
 ---
 
@@ -37,141 +35,162 @@ from the cross-cutting doc are referenced by section number.
 
 | Type | Module | Rationale |
 |------|--------|-----------|
-| `Keyword`, `KeywordSet` | `keyword.nim` | Shared sub-type required by Email (keywords field) and EmailSubmission; used by filter conditions in future design docs |
-| `MailboxRole` | `mailbox.nim` | Distinct type for IANA-registered mailbox roles |
-| `MailboxIdSet` | `mailbox.nim` | Distinct `HashSet[Id]` for the `mailboxIds` map pattern; used by Email in future design docs |
-| `MailboxRights` | `mailbox.nim` | ACL rights sub-type for Mailbox |
-| `MailboxCreate` | `mailbox.nim` | Creation model for Mailbox/set |
-| `MailboxFilterCondition` | `mail_filters.nim` | Query specification for Mailbox/query |
-| `MailboxChangesResponse` | `mail_builders.nim` | Non-standard response type for Mailbox/changes |
-| `QueryParams` | `framework.nim` (core) | Shared value object for query parameters (core prerequisite) |
+| `Keyword`, `KeywordSet` | `keyword.nim` | Shared sub-type used by Email (`keywords` field), `EmailFilterCondition`, and EmailSubmission |
+| `MailboxRoleKind`, `MailboxRole` | `mailbox.nim` | Validated case-object role with closed enum + `mrOther` vendor-extension capture |
+| `MailboxIdSet` | `mailbox.nim` | Read-model `distinct HashSet[Id]` for the `mailboxIds` map pattern |
+| `NonEmptyMailboxIdSet` | `mailbox.nim` | Creation-context `distinct HashSet[Id]` with at-least-one invariant |
+| `MailboxRights` | `mailbox.nim` | ACL flags sub-type for Mailbox |
+| `Mailbox` | `mailbox.nim` | Read model |
+| `MailboxCreatedItem` | `mailbox.nim` | Partial read model returned in `Mailbox/set` `created[cid]` |
+| `MailboxCreate` | `mailbox.nim` | Creation model for `Mailbox/set` |
+| `MailboxUpdate`, `MailboxUpdateSet`, `NonEmptyMailboxUpdates` | `mailbox.nim` | Typed update algebra for `Mailbox/set` `update` |
+| `MailboxFilterCondition` | `mail_filters.nim` | Query specification for `Mailbox/query` |
+| `MailboxChangesResponse` | `mailbox_changes_response.nim` | Extended `/changes` response carrying `updatedProperties` |
+| `QueryParams` | `framework.nim` (core) | Shared value object for the five RFC 8620 §5.5 query parameters |
 
 ### 1.3. Deferred
 
-Email, SearchSnippet, EmailSubmission, and all their sub-types (HeaderValue,
-EmailBodyPart, etc.) are deferred to Design C and Design D documents.
+`Email`, `SearchSnippet`, `EmailSubmission`, and their sub-types
+(`HeaderValue`, `EmailBodyPart`, etc.) are deferred to Design C and
+Design D documents. `EmailHeaderFilter` and `EmailFilterCondition` live
+alongside `MailboxFilterCondition` in `mail_filters.nim` but are
+specified in Design D — only `MailboxFilterCondition` is in scope here.
 
-### 1.4. Relationship to Cross-Cutting Design
+### 1.4. General Conventions Established
 
-This document refines `05-mail-design.md` into implementation-ready
-specifications. It also specifies two additive core extensions as
-prerequisites (§2).
+This document establishes four general conventions that apply to all
+mail design docs:
 
-### 1.5. General Conventions Established
+1. **Lenient `fromJson` convention.** All `fromJson` for distinct token
+   types delegate to the lenient `*FromServer` parser variant. Strict
+   parsers are for client-constructed values.
 
-This document establishes four general conventions that apply to all future
-design docs:
+2. **Filter conditions are `toJson`-only.** Filter conditions encode
+   query criteria with unidirectional client→server flow. The server
+   never sends filter conditions back, so no `fromJson` is defined.
+   Same directional pattern as creation types (e.g., `IdentityCreate`,
+   `MailboxCreate`).
 
-1. **Lenient fromJson convention** — All `fromJson` for distinct types use
-   the lenient `*FromServer` parser variant. Strict parsers are for
-   client-constructed values. (Already implicit in Design A; made explicit
-   here.)
+3. **Strict/lenient parser pairs are principled, not mechanical.** A
+   single parser suffices when no meaningful gap exists between
+   spec-specific and structural constraints. The pair exists only when
+   the strict parser enforces additional spec-specific constraints
+   (e.g., IMAP-forbidden chars on `parseKeyword`) that should be
+   relaxed for server data.
 
-2. **Filter conditions are toJson-only** — Filter conditions are "query
-   creation types" with unidirectional flow: client constructs, serialises,
-   server consumes. No `fromJson`. Same directional pattern as creation
-   types (e.g., `IdentityCreate`).
+4. **Entity-specific builders accept typed creation and update
+   models.** Custom builder functions accept `Table[CreationId,
+   MailboxCreate]` and `NonEmptyMailboxUpdates` rather than raw
+   `JsonNode`. Generic builders accept `JsonNode` because they must be
+   entity-agnostic; entity-specific builders compose typed values atop
+   the generic surface.
 
-3. **Strict/lenient parser pairs are principled, not mechanical** — A single
-   parser suffices when no meaningful gap exists between spec-specific and
-   structural constraints. The pair exists only when there are additional
-   spec-specific constraints to relax for server data.
+### 1.5. Module Summary
 
-4. **Entity-specific builders accept typed creation models** — Custom
-   builder functions that exist for other reasons (extra parameters) should
-   accept typed creation models when available, rather than raw `JsonNode`.
-   Generic builders accept `JsonNode` because they must be entity-agnostic.
-
-### 1.6. Module Summary
-
-All modules live under `src/jmap_client/mail/` per cross-cutting doc §3.3,
-except for two core prerequisite additions.
+All mail modules live under `src/jmap_client/mail/` per cross-cutting
+doc §3.3, except for two core prerequisite additions.
 
 | Module | Layer | Contents |
 |--------|-------|----------|
-| `keyword.nim` | L1 | `Keyword`, `KeywordSet`, `parseKeyword`, `parseKeywordFromServer`, system constants |
-| `mailbox.nim` | L1 | `MailboxRole`, `MailboxIdSet`, `MailboxRights`, `Mailbox`, `MailboxCreate` |
-| `mail_filters.nim` | L1 | `MailboxFilterCondition` |
-| `serde_keyword.nim` | L2 | `toJson`/`fromJson` for Keyword, KeywordSet |
-| `serde_mailbox.nim` | L2 | `toJson`/`fromJson` for Mailbox, MailboxCreate, MailboxRights, MailboxRole, MailboxIdSet |
-| `serde_mail_filters.nim` | L2 | `toJson` for MailboxFilterCondition |
-| `mail_entities.nim` | L3 | Entity registration for Mailbox (extends existing module) |
-| `mail_builders.nim` | L3 | `MailboxChangesResponse`, `addMailboxChanges`, `addMailboxQuery`, `addMailboxQueryChanges`, `addMailboxSet` |
+| `keyword.nim` | L1 | `Keyword`, `KeywordSet`, `parseKeyword`, `parseKeywordFromServer`, `KeywordForbiddenChars`, system constants |
+| `mailbox.nim` | L1 | `MailboxRoleKind`, `MailboxRole`, `parseMailboxRole`, role constants, `MailboxIdSet`, `NonEmptyMailboxIdSet`, `parseNonEmptyMailboxIdSet`, `MailboxRights`, `Mailbox`, `MailboxCreatedItem`, `MailboxCreate`, `parseMailboxCreate`, `MailboxUpdate*`, `MailboxUpdateSet`, `NonEmptyMailboxUpdates` |
+| `mail_filters.nim` | L1 | `MailboxFilterCondition` (and the deferred Email filter types) |
+| `serde_keyword.nim` | L2 | `toJson`/`fromJson` for `Keyword`, `KeywordSet` |
+| `serde_mailbox.nim` | L2 | `toJson`/`fromJson` for `MailboxRole`, `MailboxIdSet`, `NonEmptyMailboxIdSet` (toJson only), `MailboxRights`, `Mailbox`, `MailboxCreatedItem`, `MailboxCreate` (toJson only), `MailboxUpdate*`, `NonEmptyMailboxUpdates` (toJson only) |
+| `serde_mail_filters.nim` | L2 | `toJson` for `MailboxFilterCondition` |
+| `mailbox_changes_response.nim` | L1+L2 | `MailboxChangesResponse` type, forwarding accessors, and `fromJson` (separate leaf module to break the import cycle that would form between `mail_entities.nim` and `mail_builders.nim`) |
+| `mail_entities.nim` | L3 | Entity registration for Mailbox |
+| `mail_builders.nim` | L3 | `addMailboxChanges`, `addMailboxQuery`, `addMailboxQueryChanges`, `addMailboxSet` |
 
 **Core prerequisites** (additive extensions, not mail modules):
 
 | Module | Layer | Addition |
 |--------|-------|----------|
-| `validation.nim` | Core | `defineHashSetDistinctOps` template |
+| `validation.nim` | Core | `defineHashSetDistinctOps`, `defineNonEmptyHashSetDistinctOps`, `validateUniqueByIt` |
 | `framework.nim` | Core | `QueryParams` value object |
 
 ---
 
 ## 2. Core Prerequisites
 
-This section specifies two additive core extensions required by this design.
-Both are infrastructure — general-purpose templates and value objects that
-happen to be first needed by mail types. Neither carries mail-domain
-knowledge.
-
-**Principles:** Open-Closed (core extended through addition, not
-modification of existing types), DRY (shared infrastructure defined once).
+This section specifies core extensions consumed by the Mailbox
+implementation. They are infrastructure — general-purpose templates
+and value objects that happen to be first needed by mail types.
 
 ### 2.1. defineHashSetDistinctOps — validation.nim
 
-**Module:** `src/jmap_client/validation.nim`
-
-A new template alongside the existing `defineStringDistinctOps` and
-`defineIntDistinctOps`. Provides read-only operations for `distinct
-HashSet[T]` types.
+Read-only operations for a `distinct HashSet[T]` type. Two parameters
+— the distinct type `T` and the element type `E`:
 
 ```nim
 template defineHashSetDistinctOps*(T: typedesc, E: typedesc) =
-  ## Read-only operations for a ``distinct HashSet`` type.
-  ## T is the distinct type, E is the element type.
   func len*(s: T): int {.borrow.}
   func contains*(s: T, e: E): bool =
     sets.contains(HashSet[E](s), e)
   func card*(s: T): int {.borrow.}
 ```
 
-`len` and `card` use `{.borrow.}` (single-parameter, only the set type is
-unwrapped). `contains` requires a manual implementation because Nim's
-`{.borrow.}` unwraps *both* distinct type parameters independently — it
-peels `T → HashSet[E]` (correct) but also `E → base-of-E` (incorrect),
-producing a type mismatch when `E` is itself distinct (e.g.,
-`Keyword = distinct string` causes lookup for
-`contains(HashSet[Keyword], string)` which does not exist). The manual
-implementation converts only the set type and delegates to `sets.contains`.
+`len` and `card` use `{.borrow.}` (single-parameter, only the set type
+is unwrapped). `contains` requires a manual implementation because
+Nim's `{.borrow.}` would unwrap *both* distinct type parameters
+independently, peeling `E → base-of-E` and producing a type mismatch
+when `E` is itself distinct (e.g., `Keyword = distinct string`). The
+manual implementation converts only the set type and delegates to
+`sets.contains`.
 
 The template requires `std/sets` to be imported at the definition site
-(`validation.nim`), because Nim resolves non-parameter identifiers in
+(`validation.nim`) because Nim resolves non-parameter identifiers in
 template bodies at the definition site, not the expansion site.
 
-**Minimal read-only operations only.** No mutation ops (`incl`, `excl`),
-no functional builders (`with`, `without`). These are read models —
-constructed once via infallible constructors or serde, never modified.
-Mutation is a domain mismatch: you never `incl` a keyword on a
-server-received set; updates go through `/set` with `PatchObject`.
+**Read-only operations only.** No `==`, no `hash`, no mutation
+(`incl`, `excl`), no functional builders. These are read-model sets:
+constructed once via infallible constructors or serde, queried, never
+compared as whole sets, never used as table keys. Mutation goes
+through `/set` with `PatchObject`, not local mutation. Each consuming
+module manually defines its own `init*Set` constructor and `items`
+iterator — these are domain-specific.
 
-Each consuming module manually defines its own `initXxxSet` constructor
-and `items` iterator — these are domain-specific (different element types,
-different construction contexts) and do not belong in the generic template.
-This follows the precedent of `defineStringDistinctOps`, which borrows
-operations but does not generate constructors.
+### 2.2. defineNonEmptyHashSetDistinctOps — validation.nim
 
-**Principles:**
-- **DRY** — One template for all distinct `HashSet` types (KeywordSet,
-  MailboxIdSet, and future types in contacts/calendars extensions).
-- **Immutability by default** — No mutation operations exposed. The right
-  thing (immutable read access) is easy; the wrong thing (mutation) is hard.
+Creation-context companion template. Composes `defineHashSetDistinctOps`
+and adds the operations legitimate when the set is client-constructed
+and carries a non-empty invariant:
 
-### 2.2. QueryParams — framework.nim
+```nim
+template defineNonEmptyHashSetDistinctOps*(T, E: typedesc) =
+  defineHashSetDistinctOps(T, E)        # inherits len, contains, card
+  func `==`*(a, b: T): bool {.borrow.}
+  func `$`*(a: T): string {.borrow.}
+  iterator items*(s: T): E = ...
+  iterator pairs*(s: T): (int, E) = ...
+```
 
-**Module:** `src/jmap_client/framework.nim`
+Kept distinct from `defineHashSetDistinctOps` so the read-model
+prohibition on whole-set equality is preserved for the base case;
+creation-context types opt in to the richer op set explicitly.
 
-A value object grouping the five standard query parameters defined by
-RFC 8620 §5.5. These parameters appear identically on every `/query` and
+`hash` is deliberately absent — stdlib `HashSet.hash` reads `result`
+before initialising it, which fails `strictDefs` + `Uninit`-as-error
+under `{.borrow.}`. The domain has no use for a non-empty mailbox-id
+set as a Table key.
+
+### 2.3. validateUniqueByIt — validation.nim
+
+Accumulating uniqueness validator for smart constructors. Returns a
+`seq[ValidationError]` that is empty iff the input is non-empty and
+all keys are distinct. Otherwise: one error for empty input, plus one
+error per distinct repeated key (three occurrences yield exactly one
+error, naming the key once). Single translation site from the
+"empty / duplicate" classification to the wire `ValidationError`
+shape; callers supply the three wire strings.
+
+Consumed by `initMailboxUpdateSet` (uniqueness over `MailboxUpdate.kind`)
+and `parseNonEmptyMailboxUpdates` (uniqueness over mailbox `Id`).
+
+### 2.4. QueryParams — framework.nim
+
+Value object grouping the five query parameters defined by RFC 8620
+§5.5. These parameters appear identically on every `/query` and
 `/queryChanges` method across all entities.
 
 ```nim
@@ -179,126 +198,93 @@ type QueryParams* = object
   position*: JmapInt             ## default 0
   anchor*: Opt[Id]               ## default: absent
   anchorOffset*: JmapInt         ## default 0
-  limit*: Opt[UnsignedInt]       ## default: server-determined
+  limit*: Opt[UnsignedInt]       ## default: absent
   calculateTotal*: bool          ## default false
 ```
 
-Plain public fields, no smart constructor — all field combinations are
-valid per RFC. Default values match RFC 8620 §5.5.
+Plain public fields, no smart constructor — all field combinations
+are valid per RFC. RFC defaults match Nim zero-initialisation, so
+`QueryParams()` produces an RFC-default value. `limit = Opt.none`
+means the field is absent on the wire and the server picks the
+window size.
 
-**Core refactor:** The existing `addQuery[T, C]` and
-`addQueryChanges[T, C]` procs in `builder.nim` currently accept these five
-parameters individually. They are refactored to accept `QueryParams`
-instead. This is a mechanical signature change — the builder unpacks
-`QueryParams` fields when constructing the request object. The
-single-type-parameter template overloads (`addQuery[T]`,
-`addQueryChanges[T]`) are unchanged — Nim cannot evaluate `QueryParams()`
-(which contains case-object `Opt[T]` fields) as a template default value.
-For custom `QueryParams`, callers use the two-parameter proc overloads
-directly.
-
-**Principles:**
-- **DRY** — Five parameters defined once, not duplicated across every
-  query builder overload (Mailbox, Email, EmailSubmission).
-- **DDD** — QueryParams is RFC 8620 protocol knowledge. Core owns it.
-- **One source of truth** — The parameters are defined once, accepted
-  once, and entity-specific builders compose on top.
+The generic `addQuery[T, C, SortT]` and entity-specific
+`addMailboxQuery` / `addEmailQuery` builders accept `QueryParams`.
 
 ---
 
 ## 3. Keyword — keyword.nim
 
-**Module:** `src/jmap_client/mail/keyword.nim`
-
-`Keyword` and `KeywordSet` are shared sub-types used by multiple entities.
-They are specified here as a prerequisite section — a shared bounded
-context, not subordinated to any single entity. `Keyword` is used by
-Email (`keywords` field), EmailSubmission, filter conditions, and sort
-properties.
-
-**Principles:** DDD (keywords are their own bounded context), DRY (one
-specification, referenced by multiple future consumers), Parse-don't-validate
-(full parsing boundary defined now).
+`Keyword` and `KeywordSet` are shared sub-types used by multiple
+entities. They are specified here as a prerequisite section — a
+shared bounded context, not subordinated to any single entity.
+`Keyword` is used by Email (`keywords` field), `EmailFilterCondition`,
+and EmailSubmission.
 
 ### 3.1. Keyword Type Definition
 
-**RFC reference:** §4.1.1 (keywords property).
+**RFC reference:** §4.1.1 (`keywords` property).
 
 A keyword is an IMAP flag atom — a case-insensitive ASCII string with
 specific character restrictions. The `Keyword` distinct type enforces
-validity at construction time and normalises to lowercase as the canonical
-form.
+validity at construction time and normalises to lowercase as the
+canonical form.
 
 ```nim
 type Keyword* = distinct string
+
+defineStringDistinctOps(Keyword)        # ==, $, hash, len
 ```
-
-Borrowed operations via `defineStringDistinctOps(Keyword)`: `==`, `$`,
-`hash`, `len`.
-
-**Principles:**
-- **Newtype everything that has meaning** — A keyword is not an arbitrary
-  string. The distinct type prevents accidentally using a random string
-  where a keyword is expected.
-- **Parse, don't validate** — The smart constructor transforms input into
-  canonical form (lowercase), not just checks it.
 
 ### 3.2. Smart Constructors
 
-**parseKeyword (strict):**
+Both parsers compose detector primitives from `validation.nim` and
+fold any `TokenViolation` to `ValidationError` via `toValidationError`.
+
+**`parseKeyword` (strict):**
 
 ```nim
-func parseKeyword*(raw: string): Result[Keyword, ValidationError]
+func parseKeyword*(raw: string): Result[Keyword, ValidationError] =
+  detectStrictPrintableToken(raw, KeywordForbiddenChars).isOkOr:
+    return err(toValidationError(error, "Keyword", raw))
+  return ok(Keyword(raw.toLowerAscii()))
 ```
 
-Validates:
-- Length: 1–255 bytes
-- Character range: ASCII `%x21`–`%x7E` (printable, no space)
-- Rejects forbidden characters: `( ) { ] % * " \`
-- **Normalises to lowercase** during construction
+`detectStrictPrintableToken` enforces:
 
-Post-construction `doAssert` verifies `len >= 1` and `len <= 255` (same
-pattern as `parseId` in `primitives.nim`).
+- Length 1–255 octets
+- Printable ASCII (`%x21`..`%x7E`)
+- No characters from `KeywordForbiddenChars`
 
-**parseKeywordFromServer (lenient):**
+After detection, the value is lowercase-normalised.
+
+**`parseKeywordFromServer` (lenient):**
 
 ```nim
-func parseKeywordFromServer*(raw: string): Result[Keyword, ValidationError]
+func parseKeywordFromServer*(raw: string): Result[Keyword, ValidationError] =
+  detectLenientToken(raw).isOkOr:
+    return err(toValidationError(error, "Keyword", raw))
+  return ok(Keyword(raw.toLowerAscii()))
 ```
 
-Validates:
-- Length: 1–255 bytes
-- No control characters (same `validateServerAssignedToken` pattern as
-  `parseIdFromServer`)
-- **Normalises to lowercase** during construction
+`detectLenientToken` enforces:
 
-The strict/lenient gap is exactly the IMAP-specific forbidden character
-set. Structural constraints (non-empty, bounded length, no control
-characters, lowercase normalisation) are shared. This follows the
-established `parseId`/`parseIdFromServer` pattern — strict enforces the
-spec charset, lenient enforces only the structural minimum.
+- Length 1–255 octets
+- No control characters
 
-**Principles:**
-- **Parse, don't validate** — Both constructors transform input into
-  canonical lowercase form. After construction, `Keyword` is always
-  lowercase, always valid.
-- **Total functions** — Both map every input to `ok(Keyword)` or
-  `err(ValidationError)`.
-- **Postel's law** — Strict for client-constructed keywords, lenient for
-  server data. Accept the widest reasonable input from servers.
-- **DRY** — The leniency boundary is defined by the same principle across
-  all server-facing parsers (B15 convention), not ad-hoc per type.
+Tolerates IMAP-forbidden bytes that strict rejects. The structural
+constraints (non-empty, bounded length, no control characters,
+lowercase normalisation) are shared; the gap is exactly the
+IMAP-specific forbidden-character set.
 
 ### 3.3. Forbidden Characters Constant
 
 ```nim
-const KeywordForbiddenChars*: set[char] = {'(', ')', '{', ']', '%', '*', '"', '\\'}
+const KeywordForbiddenChars* =
+  {'(', ')', '{', ']', '%', '*', '"', '\\'}
 ```
 
-Defined once, used by `parseKeyword`. Same pattern as `Base64UrlChars` in
-`primitives.nim`.
-
-**Principle:** DRY — single source of truth for the forbidden character set.
+Defined once; consumed by `parseKeyword`.
 
 ### 3.4. System Keyword Constants
 
@@ -314,87 +300,62 @@ const
   kwNotJunk*   = Keyword("$notjunk")
 ```
 
-Module-level `const` construction is the one permitted bypass of the smart
-constructor, justified by compile-time provability — these are literals that
-are provably valid and already lowercase.
-
-**Principles:**
-- **DRY** — Define once, use everywhere.
-- **Make illegal states unrepresentable** — Pre-validated at compile time.
-  The common case is ergonomic.
+Module-level `const` construction is the one permitted bypass of the
+smart constructor — these are literals that are provably valid and
+already lowercase.
 
 ### 3.5. KeywordSet
 
 **RFC reference:** §4.1.1.
 
-`KeywordSet` is a distinct `HashSet[Keyword]` — not `Table[Keyword, bool]`.
-
-The RFC mandates that all values in the `keywords` map MUST be `true`. The
-`bool` carries no information. A `HashSet[Keyword]` makes the "value is
-always true" invariant unrepresentable rather than validated. The serde
-layer parses `{"$seen": true, "$flagged": true}` into `KeywordSet`,
-rejecting any entry with `false`.
+`KeywordSet` is a `distinct HashSet[Keyword]`. The RFC mandates that
+all values in the wire `keywords` map MUST be `true`; the `bool`
+carries no information. A `HashSet[Keyword]` makes the "value is
+always true" invariant unrepresentable rather than validated. The
+serde layer parses `{"$seen": true, "$flagged": true}` into
+`KeywordSet`, rejecting any entry with `false`.
 
 ```nim
 type KeywordSet* = distinct HashSet[Keyword]
-```
 
-Borrowed operations via `defineHashSetDistinctOps(KeywordSet, Keyword)`:
-`len`, `contains`, `card`.
+defineHashSetDistinctOps(KeywordSet, Keyword)   # len, contains, card
+```
 
 **Constructor:**
 
 ```nim
-func initKeywordSet*(keywords: openArray[Keyword]): KeywordSet
+func initKeywordSet*(keywords: openArray[Keyword]): KeywordSet =
+  KeywordSet(keywords.toHashSet)
 ```
 
-Infallible — construction cannot fail because:
-- Every `Keyword` in the input is already validated (the type guarantees it)
-- An empty set is valid (an email with no keywords is a normal domain state;
-  the RFC default for `keywords` is `{}`)
-
-The non-empty invariant, when needed, belongs to the consumer (e.g.,
-`EmailBlueprint` may require at least one mailbox, not at least one
-keyword), not to the collection type itself.
-
-**Principle:** Constructors that can't fail, don't.
+Infallible: every `Keyword` in the input is already validated, and
+the empty set is a valid domain state (an email with no keywords;
+the RFC default for `keywords` is `{}`). The non-empty invariant,
+when needed, belongs to the consumer (e.g., `EmailBlueprint` may
+require at least one mailbox), not to the collection type itself.
 
 **Items iterator:**
 
 ```nim
-iterator items*(ks: KeywordSet): Keyword
+iterator items*(ks: KeywordSet): Keyword =
+  for kw in HashSet[Keyword](ks):
+    yield kw
 ```
 
-Enables `for kw in keywordSet:` syntax.
-
-**Principles:**
-- **Make illegal states unrepresentable** — Eliminates an entire class of
-  invalid state (a keyword mapped to `false`) at the type level.
-- **DDD** — The domain model doesn't mirror the wire format. The serde
-  layer handles the `Table[Keyword, bool]` JSON representation.
-- **Immutability by default** — `KeywordSet` is an immutable value type.
-  No mutation operations exposed.
+Enables `for kw in keywordSet:` syntax. Defined manually because
+`defineHashSetDistinctOps` is read-only and intentionally does not
+emit an `items` iterator.
 
 ### 3.6. Serde — serde_keyword.nim
 
-**Module:** `src/jmap_client/mail/serde_keyword.nim`
-
-Follows established core serde patterns (`checkJsonKind`, `parseError`).
-
 **Keyword serialisation:**
 
-`toJson`:
-- Emits the underlying string value: `%($kw)`.
-- Uses `defineDistinctStringToJson(Keyword)` template.
+```nim
+defineDistinctStringToJson(Keyword)
+defineDistinctStringFromJson(Keyword, parseKeywordFromServer)
+```
 
-`fromJson`:
-- Validates JString.
-- Delegates to `parseKeywordFromServer` for construction (lenient — per
-  B15 convention: all `fromJson` for distinct types use the lenient
-  `*FromServer` parser variant).
-- Uses `defineDistinctStringFromJson(Keyword, parseKeywordFromServer)`
-  template.
-- Returns `Result[Keyword, ValidationError]`.
+`fromJson` delegates to the lenient `parseKeywordFromServer`.
 
 **KeywordSet serialisation:**
 
@@ -405,29 +366,19 @@ Wire format:
 {}
 ```
 
-`toJson`:
-- Iterates `KeywordSet` via `items`, emits each keyword as a key with
-  `true` as value.
-- Empty set emits `{}`.
-
-```nim
-func toJson*(ks: KeywordSet): JsonNode =
-  var node = newJObject()
-  for kw in ks:
-    node[$kw] = newJBool(true)
-  return node
-```
+`toJson` iterates via `items`, emitting each keyword as a key with
+`true` as value. Empty set emits `{}`.
 
 `fromJson`:
-- Validates JObject.
+
+- Validates `JObject`.
 - Iterates key-value pairs. For each:
-  - Validates value is JBool with value `true`. Rejects `false` with
-    `err(validationError("KeywordSet", "all keyword values must be true",
-    key))`.
-  - Parses key via `parseKeywordFromServer` (lenient). Short-circuits on
-    first element error via `?`.
-- Constructs `KeywordSet` directly from the accumulated `HashSet[Keyword]`.
-- Returns `Result[KeywordSet, ValidationError]`.
+  - Validates value is `JBool`. Non-bool → `svkWrongKind`.
+  - Rejects `false` with `svkEnumNotRecognised` (`enumTypeLabel = "keyword value"`,
+    `rawValue = "false"`).
+  - Parses key via `parseKeywordFromServer`, wrapping any
+    `ValidationError` as `svkFieldParserFailed` via `wrapInner`.
+- Constructs `KeywordSet` from the accumulated `HashSet[Keyword]`.
 
 ---
 
@@ -435,185 +386,192 @@ func toJson*(ks: KeywordSet): JsonNode =
 
 **RFC reference:** §2.
 
-A Mailbox represents a named, stretchable mailbox that contains Emails.
-Mailboxes form a tree (via `parentId`), have access rights, and support
-rich query/filter operations including tree-aware sorting.
-
-**Module:** `src/jmap_client/mail/mailbox.nim`
-
-This section covers all sub-types and both models (read and create) as a
-single vertical slice of the Mailbox bounded context. Sub-types
-(`MailboxRole`, `MailboxIdSet`, `MailboxRights`) are nested here because
-they belong to the Mailbox domain, unlike `Keyword` which is shared across
-entities.
+A Mailbox represents a named, stretchable mailbox that contains
+Emails. Mailboxes form a tree (via `parentId`), have access rights,
+and support rich query/filter operations including tree-aware sorting.
 
 ### 4.1. MailboxRole
 
-**RFC reference:** §2 (role property), IANA "IMAP Mailbox Name Attributes"
-registry.
+**RFC reference:** §2 (`role` property), IANA "IMAP Mailbox Name
+Attributes" registry.
 
-A mailbox role is a lowercase string from the IANA registry. The registry
-is open-ended (servers may define custom roles), but has been stable since
-2019 (10 registered values, no additions in 7 years). A distinct type
-provides type safety; compile-time constants provide ergonomics for the
-well-known set.
-
-**Type definition:**
+`MailboxRole` is a sealed case object discriminated by `MailboxRoleKind`.
+Ten enum variants name the RFC 8621 §2 well-known roles plus an
+`mrOther` catch-all that captures the wire identifier of any
+vendor-extension role:
 
 ```nim
-type MailboxRole* = distinct string
+type MailboxRoleKind* = enum
+  mrInbox = "inbox"
+  mrDrafts = "drafts"
+  mrSent = "sent"
+  mrTrash = "trash"
+  mrJunk = "junk"
+  mrArchive = "archive"
+  mrImportant = "important"
+  mrAll = "all"
+  mrFlagged = "flagged"
+  mrSubscriptions = "subscriptions"
+  mrOther                                ## no backing string
+
+type MailboxRole* = object
+  case rawKind: MailboxRoleKind          ## module-private discriminator
+  of mrOther:
+    rawIdentifier: string                ## vendor-extension wire identifier
+  of mrInbox, mrDrafts, mrSent, mrTrash, mrJunk, mrArchive,
+      mrImportant, mrAll, mrFlagged, mrSubscriptions:
+    discard
 ```
 
-Borrowed operations via `defineStringDistinctOps(MailboxRole)`: `==`, `$`,
-`hash`, `len`.
+**Construction is sealed.** `rawKind` and `rawIdentifier` are
+module-private, so direct literal construction from outside this
+module is rejected. Use `parseMailboxRole` for untrusted input, or
+the named role constants (`roleInbox`, `roleDrafts`, …) for the ten
+well-known values.
+
+**Public surface:**
+
+```nim
+func kind*(r: MailboxRole): MailboxRoleKind
+func identifier*(r: MailboxRole): string
+func `$`*(r: MailboxRole): string         # equivalent to identifier
+func `==`*(a, b: MailboxRole): bool
+func hash*(r: MailboxRole): Hash
+```
+
+`identifier` is the wire form: the enum's backing string for the ten
+well-known kinds, the captured `rawIdentifier` for `mrOther`. Equality
+and hash are nested-case dispatch; under `strictCaseObjects` both
+operands' discriminators must be matched literally before any
+variant-only field is read (see `nim-type-safety.md` "Rule 4").
 
 **Smart constructor:**
 
 ```nim
-func parseMailboxRole*(raw: string): Result[MailboxRole, ValidationError]
+func parseMailboxRole*(raw: string): Result[MailboxRole, ValidationError] =
+  detectNonControlString(raw).isOkOr:
+    return err(toValidationError(error, "MailboxRole", raw))
+  let normalised = raw.toLowerAscii()
+  let parsed = parseEnum[MailboxRoleKind](normalised, mrOther)
+  case parsed
+  of mrInbox: return ok(roleInbox)
+  ...
+  of mrOther: return ok(MailboxRole(rawKind: mrOther, rawIdentifier: normalised))
 ```
 
-Validates: `raw` non-empty. Normalises to lowercase during construction
-(`raw.toLowerAscii()`). Post-construction `doAssert` verifies `len > 0`.
+`detectNonControlString` rejects empty input and control characters;
+after lowercase normalisation, `parseEnum` classifies against the
+ten well-known backing strings, falling back to `mrOther` for vendor
+extensions. Lossless wire round-trip:
+`$(parseMailboxRole(x).get) == x.toLowerAscii` for every `x` that
+survives detection.
 
-**Single parser, no strict/lenient pair.** `MailboxRole`'s only constraints
-beyond non-empty are lowercase normalisation. Unlike `Keyword` (which has
-IMAP-specific forbidden chars to relax), there is no meaningful gap between
-spec-specific and structural constraints. A single parser that validates
-non-empty and normalises to lowercase serves both client construction and
-server data parsing. This is not an exception to the B15 convention — it
-is the principled application: the strict/lenient pair exists only when
-there are additional spec-specific constraints to enforce on
-client-constructed values (B20).
+**Single parser, no strict/lenient pair.** `MailboxRole`'s only
+constraints beyond non-empty + no-control-chars are lowercase
+normalisation. Unlike `Keyword` (which has IMAP-specific forbidden
+chars to relax), there is no meaningful gap between spec and
+structural constraints — a single parser serves both client
+construction and server-data parsing.
 
 **Well-known role constants:**
 
 ```nim
 const
-  roleInbox*         = MailboxRole("inbox")
-  roleDrafts*        = MailboxRole("drafts")
-  roleSent*          = MailboxRole("sent")
-  roleTrash*         = MailboxRole("trash")
-  roleJunk*          = MailboxRole("junk")
-  roleArchive*       = MailboxRole("archive")
-  roleImportant*     = MailboxRole("important")
-  roleAll*           = MailboxRole("all")
-  roleFlagged*       = MailboxRole("flagged")
-  roleSubscriptions* = MailboxRole("subscriptions")
+  roleInbox*         = MailboxRole(rawKind: mrInbox)
+  roleDrafts*        = MailboxRole(rawKind: mrDrafts)
+  roleSent*          = MailboxRole(rawKind: mrSent)
+  roleTrash*         = MailboxRole(rawKind: mrTrash)
+  roleJunk*          = MailboxRole(rawKind: mrJunk)
+  roleArchive*       = MailboxRole(rawKind: mrArchive)
+  roleImportant*     = MailboxRole(rawKind: mrImportant)
+  roleAll*           = MailboxRole(rawKind: mrAll)
+  roleFlagged*       = MailboxRole(rawKind: mrFlagged)
+  roleSubscriptions* = MailboxRole(rawKind: mrSubscriptions)
 ```
 
-Same pattern as `kwDraft`/`kwSeen` keyword constants — known-valid literals
-as named constants, while the type stays open for server-specific values.
+Constructed inside `mailbox.nim`, so the sealed `rawKind` field is
+accessible. Outside the module, the constants are the only way to
+obtain a `MailboxRole` value without going through `parseMailboxRole`.
 
-**Principles:**
-- **Newtype everything that has meaning** — A mailbox role is not an
-  arbitrary string. The distinct type prevents mixing roles with other
-  strings.
-- **Parse, don't validate** — `parseMailboxRole` normalises to lowercase
-  canonical form. After construction, all downstream code can compare
-  against constants without case concerns.
-- **DRY** — Constants defined once, used everywhere. Prevents typos.
-- **Total functions** — Maps every input to `ok(MailboxRole)` or
-  `err(ValidationError)`.
+### 4.2. Mailbox ID Collections
 
-### 4.2. MailboxIdSet
+Two parallel `distinct HashSet[Id]` types with different invariants,
+kept side-by-side so the "same shape, different contract"
+relationship is structurally visible.
 
-**RFC reference:** §4.1.1 (mailboxIds property on Email).
-
-`MailboxIdSet` is a distinct `HashSet[Id]` — not `Table[Id, bool]`. Same
-design rationale as `KeywordSet` (§3.5): the RFC mandates all values are
-`true`, so the `bool` carries no information. The serde layer parses
-`{"mbx1": true, "mbx2": true}` into `MailboxIdSet`, rejecting any entry
-with `false`.
+**MailboxIdSet (read-model, empty allowed):**
 
 ```nim
 type MailboxIdSet* = distinct HashSet[Id]
-```
 
-Borrowed operations via `defineHashSetDistinctOps(MailboxIdSet, Id)`:
-`len`, `contains`, `card`.
+defineHashSetDistinctOps(MailboxIdSet, Id)   # len, contains, card
 
-**Constructor:**
-
-```nim
 func initMailboxIdSet*(ids: openArray[Id]): MailboxIdSet
-```
-
-Infallible — same reasoning as `initKeywordSet`. An empty set is valid for
-the collection type itself. The "at least one mailbox" invariant on
-`EmailBlueprint` is enforced by `EmailBlueprint`'s smart constructor, not
-by `MailboxIdSet`.
-
-**Items iterator:**
-
-```nim
 iterator items*(ms: MailboxIdSet): Id
 ```
 
-**Principles:**
-- **Make illegal states unrepresentable** — Eliminates `false` values at
-  the type level.
-- **DDD** — `MailboxIdSet` lives in `mailbox.nim` (its domain), not in
-  `keyword.nim`. The shared `defineHashSetDistinctOps` template lives in
-  `validation.nim` (infrastructure).
+Construction is infallible. Empty set is valid. Used wherever the
+domain represents "a possibly-empty collection of mailbox ids" —
+e.g., `Email.mailboxIds` reads.
+
+**NonEmptyMailboxIdSet (creation-context, at-least-one):**
+
+```nim
+type NonEmptyMailboxIdSet* = distinct HashSet[Id]
+
+defineNonEmptyHashSetDistinctOps(NonEmptyMailboxIdSet, Id)
+                                              # len, contains, card,
+                                              # ==, $, items, pairs
+
+func parseNonEmptyMailboxIdSet*(
+    ids: openArray[Id]
+): Result[NonEmptyMailboxIdSet, ValidationError]
+```
+
+`parseNonEmptyMailboxIdSet` returns `err` on empty input and dedupes
+via the underlying `HashSet`. Mutating ops (`incl`, `excl`) are
+deliberately not borrowed — they would violate the at-least-one
+invariant. Consumed by `EmailBlueprint` (Design D) as the typed
+`mailboxIds` parameter.
 
 ### 4.3. MailboxRights
 
 **RFC reference:** §2.4.
 
-`MailboxRights` represents the current user's permissions on a mailbox.
-Nine boolean fields, each describing a specific capability.
-
-**Type definition:**
+Plain object with nine independent boolean flags:
 
 ```nim
 type MailboxRights* = object
-  mayReadItems*: bool      ## Can the user read emails in this mailbox?
-  mayAddItems*: bool       ## Can the user add emails to this mailbox?
-  mayRemoveItems*: bool    ## Can the user remove emails from this mailbox?
-  maySetSeen*: bool        ## Can the user modify the $seen keyword?
-  maySetKeywords*: bool    ## Can the user modify keywords (other than $seen)?
-  mayCreateChild*: bool    ## Can the user create child mailboxes?
-  mayRename*: bool         ## Can the user rename or move this mailbox?
-  mayDelete*: bool         ## Can the user delete this mailbox?
-  maySubmit*: bool         ## Can the user submit emails from this mailbox?
+  mayReadItems*: bool
+  mayAddItems*: bool
+  mayRemoveItems*: bool
+  maySetSeen*: bool
+  maySetKeywords*: bool
+  mayCreateChild*: bool
+  mayRename*: bool
+  mayDelete*: bool
+  maySubmit*: bool
 ```
 
-Plain public fields, no smart constructor. All boolean combinations are
-valid — there are no cross-field invariants. Every combination of nine
-booleans has a meaningful domain interpretation (a user with different
-permission levels).
+Plain public fields, no smart constructor. Every combination of
+nine booleans has a meaningful domain interpretation (a user with
+different permission levels). The `may*` naming is self-documenting
+(`mayDelete: true` means "may delete"); the RFC also literally
+models these as `Boolean`. This is the documented exception to the
+"booleans are a code smell" guideline (see
+`nim-functional-core.md` "Named two-case enum replaces bool").
 
-**Boolean exception (documented):** The "booleans are a code smell"
-principle targets cases where `bool` hides what the two states mean
-(e.g., `isActive` where `false` could mean disabled, deleted, or pending).
-`MailboxRights` is an exception because the `may*` naming is
-self-documenting — `mayDelete: true` means "may delete", `mayDelete:
-false` means "may not delete". The RFC also literally models these as
-`Boolean`. Code reads like the spec.
+`MailboxRights` is server-set and immutable from the client's
+perspective — it represents the current user's rights, not a rights
+assignment. It is excluded from `MailboxCreate` (§4.6).
 
-**Read-only.** `MailboxRights` is server-set and immutable — it represents
-the current user's rights, not a rights assignment. It is excluded from
-`MailboxCreate` (§4.5).
+### 4.4. Mailbox
 
-**Principles:**
-- **Constructors that can't fail, don't** — Infallible construction.
-- **Code reads like the spec** — Nine RFC-defined boolean properties,
-  named identically.
-- **DDD** — ACL rights are a Mailbox domain concept.
-
-### 4.4. Mailbox Type Definition
-
-**Plain public fields** — no Pattern A. All field-level invariants are
-captured by the types themselves (`Id`, `Opt[MailboxRole]`, `UnsignedInt`,
-`MailboxRights`, `bool`). No cross-field invariants. Consistent with
-`Identity` and `Account` in core.
-
-The typed `Mailbox` represents a **complete** RFC domain object — all
-properties present. Partial property responses (when the client requests
-only specific properties via `addGet`) use `GetResponse[Mailbox].list:
-seq[JsonNode]` for raw access. No `Opt` wrapping for "was this property
-requested?".
+The typed `Mailbox` represents a **complete** RFC domain object —
+all properties present. Partial property responses (when the client
+requests only specific properties via `addGet`) use
+`GetResponse[Mailbox].list: seq[JsonNode]` for raw access. No `Opt`
+wrapping for "was this property requested?".
 
 ```nim
 type Mailbox* = object
@@ -621,50 +579,75 @@ type Mailbox* = object
   name*: string                    ## non-empty (fromJson enforced)
   parentId*: Opt[Id]               ## null = root-level mailbox
   role*: Opt[MailboxRole]          ## null = no assigned role
-  sortOrder*: UnsignedInt          ## default 0; lower = more prominent
-  totalEmails*: UnsignedInt        ## count of emails in this mailbox
-  unreadEmails*: UnsignedInt       ## count of unread emails
-  totalThreads*: UnsignedInt       ## count of threads with emails in this mailbox
-  unreadThreads*: UnsignedInt      ## count of threads with unread emails
-  myRights*: MailboxRights         ## current user's permissions
-  isSubscribed*: bool              ## whether user has subscribed to this mailbox
+  sortOrder*: UnsignedInt          ## default 0
+  totalEmails*: UnsignedInt
+  unreadEmails*: UnsignedInt
+  totalThreads*: UnsignedInt
+  unreadThreads*: UnsignedInt
+  myRights*: MailboxRights
+  isSubscribed*: bool
 ```
 
-**String field uses `string`, not `Opt[string]`** for `name` — the RFC
-specifies `name` as `String` (never null) and it is required on every
-Mailbox. `fromJson` rejects absent or empty `name` at the parsing boundary
-(same pattern as Identity rejecting empty `email` in Design A, Decision
-A18).
+Plain public fields. All field-level invariants are captured by the
+types themselves (`Id`, `Opt[MailboxRole]`, `UnsignedInt`,
+`MailboxRights`, `bool`). No cross-field invariants. Consistent with
+`Identity` and `Account` in core.
 
-**`parentId: Opt[Id]`** — null means this is a root-level (top-level)
-mailbox. This is domain-level optionality (the RFC says `parentId` can be
-null), not "was this property requested?" optionality.
+`name` uses `string` (not `Opt[string]`) — the RFC specifies `name`
+as `String` (never null) and it is required on every Mailbox.
+`fromJson` rejects absent or empty `name` at the parsing boundary.
 
-**`role: Opt[MailboxRole]`** — null means no role assigned. Uses the
-distinct `MailboxRole` type (§4.1). Domain-level optionality.
+`parentId: Opt[Id]` and `role: Opt[MailboxRole]` are domain-level
+optionals (the RFC says these can be null), not "was this property
+requested?" optionality.
 
 No smart constructor for the read model — `fromJson` extracts fields,
 validates JSON structure, and constructs directly.
 
-**Principles:**
-- **Code reads like the spec** — Every RFC §2 property is a field.
-- **Parse, don't validate** — Non-empty `name` enforced at the parsing
-  boundary. After construction, all downstream code trusts the invariant.
-- **One source of truth per fact** — Each field has one meaning (its
-  domain meaning). No overloaded "absent" semantics.
+### 4.5. MailboxCreatedItem
 
-### 4.5. MailboxCreate (Creation Model)
+**RFC reference:** RFC 8620 §5.3 (the `created[cid]` payload returned
+by `Foo/set`), RFC 8621 §2.1 (server-set Mailbox properties).
 
-The Mailbox read model and creation model have different valid field sets:
-creates require `name` and exclude server-set fields (`id`, `totalEmails`,
-`unreadEmails`, `totalThreads`, `unreadThreads`, `myRights`). A distinct
-type makes "create without name" unrepresentable.
+The server-authoritative subset returned in `Mailbox/set` `created[cid]`:
+the server MUST return `id` plus any server-set or server-modified
+properties. For Mailbox the server-set properties per RFC 8621 §2.1
+are the four count fields and `myRights`. The full `Mailbox` record
+is NOT returned — the client already knows the other fields (it
+sent them in `create`).
+
+```nim
+type MailboxCreatedItem* = object
+  id*: Id
+  totalEmails*: Opt[UnsignedInt]
+  unreadEmails*: Opt[UnsignedInt]
+  totalThreads*: Opt[UnsignedInt]
+  unreadThreads*: Opt[UnsignedInt]
+  myRights*: Opt[MailboxRights]
+```
+
+All five server-set fields are `Opt[T]` because Stalwart 0.15.5 omits
+them from this payload (a strict-RFC §5.3 minor divergence): the
+create acknowledgement is just `{"id": "<id>"}`. Postel's-law
+accommodation: be lenient on receive. Mirrors the `IdentityCreatedItem`
+shape in `identity.nim`.
+
+`MailboxCreatedItem` is the typed `createResults` payload of
+`SetResponse[MailboxCreatedItem]` — the response handle returned by
+`addMailboxSet`.
+
+### 4.6. MailboxCreate
+
+The Mailbox read model and creation model have different valid field
+sets: creates require `name` and exclude all server-set fields
+(`id`, the four counts, `myRights`). A distinct type makes "create
+without name" unrepresentable.
 
 ```nim
 type MailboxCreate* = object
   name*: string                    ## required, non-empty
-  parentId*: Opt[Id]               ## default: null (top-level)
-  role*: Opt[MailboxRole]          ## default: null (no role)
+  parentId*: Opt[Id]               ## default: none (top-level)
+  role*: Opt[MailboxRole]          ## default: none (no role)
   sortOrder*: UnsignedInt          ## default: 0
   isSubscribed*: bool              ## default: false
 ```
@@ -681,57 +664,128 @@ func parseMailboxCreate*(
 ): Result[MailboxCreate, ValidationError]
 ```
 
-Validates: `name` non-empty. Post-construction `doAssert` verifies
-`name.len > 0` (same pattern as `parseIdentityCreate` in Design A §4.2).
-Default parameter values match RFC-specified defaults for ergonomic
-construction:
+Validates: `name` non-empty (returns
+`validationError("MailboxCreate", "name must not be empty", "")` on
+empty input). Default parameter values match RFC-specified defaults
+for ergonomic construction:
 
 ```nim
-let mc = ?parseMailboxCreate(name = "Archive")          # all defaults
+let mc  = ?parseMailboxCreate(name = "Archive")          # all defaults
 let mc2 = ?parseMailboxCreate(name = "Inbox",
-    role = Opt.some(roleInbox))                          # with role
+    role = Opt.some(roleInbox))
 ```
 
-**`role: Opt[MailboxRole]`** — the RFC allows setting role on create. The
-server may reject certain role assignments via `SetError` (e.g., a server
-that reserves `inbox` role). Server rejection is handled at the protocol
-level, not the type level — the creation type allows the client to try.
+`role` is included on the creation type — the RFC allows setting role
+on create. Server rejection (e.g., a server that reserves `inbox`
+role) is handled via `SetError`, not at the type level.
 
-No `MailboxCreate.fromJson` — creation types are constructed by the
-consumer, not parsed from server responses (same as `IdentityCreate`).
+No `MailboxCreate.fromJson` — creation types flow client→server only.
 
-**Principles:**
-- **Make illegal states unrepresentable** — `name` is required by
-  construction. Server-set fields (`id`, counts, `myRights`) don't exist
-  on this type.
-- **DDD** — Create and read are different domain operations with different
-  valid shapes (same rationale as `IdentityCreate` in Design A §4.2).
-- **Total functions** — `parseMailboxCreate()` →
-  `Result[MailboxCreate, ValidationError]`.
-- **Railway-Oriented Programming** — Construction railway via `Result`.
+### 4.7. Mailbox Update Algebra
 
-### 4.6. Serde — serde_mailbox.nim
+`MailboxUpdate` is a typed sum-type ADT for `Mailbox/set` `update`
+operations. One variant per RFC 8621 §2 settable property.
+Whole-value replace semantics — no sub-path targeting (contrast
+`EmailUpdate`, which targets keyword/mailbox sub-paths).
 
-**Module:** `src/jmap_client/mail/serde_mailbox.nim`
+```nim
+type MailboxUpdateVariantKind* = enum
+  muSetName
+  muSetParentId
+  muSetRole
+  muSetSortOrder
+  muSetIsSubscribed
 
-Imports `serde_keyword.nim` for `KeywordSet` serde (used by
-`MailboxIdSet`'s parallel pattern). Follows established core serde patterns.
+type MailboxUpdate* = object
+  case kind*: MailboxUpdateVariantKind
+  of muSetName:         name*: string
+  of muSetParentId:     parentId*: Opt[Id]              ## null reparents to top-level
+  of muSetRole:         role*: Opt[MailboxRole]         ## null clears the role
+  of muSetSortOrder:    sortOrder*: UnsignedInt
+  of muSetIsSubscribed: isSubscribed*: bool
+```
 
-#### MailboxRole serialisation
+The case object makes "exactly one target per update" a type-level
+fact, closing the empty-update and multi-property-update holes that
+a flat five-`Opt[T]` record would leave open.
 
-`toJson`:
-- Emits the underlying string value: `%($role)`.
-- Uses `defineDistinctStringToJson(MailboxRole)` template.
+**Smart constructors** — one per variant:
+
+```nim
+func setName*(name: string): MailboxUpdate
+func setParentId*(parentId: Opt[Id]): MailboxUpdate
+func setRole*(role: Opt[MailboxRole]): MailboxUpdate
+func setSortOrder*(sortOrder: UnsignedInt): MailboxUpdate
+func setIsSubscribed*(isSubscribed: bool): MailboxUpdate
+```
+
+Total — `setName("")` is permitted at the type level because an
+empty `name` would surface as an RFC 8621 §2 server-side `SetError`,
+not a client-side validation error.
+
+**MailboxUpdateSet** — validated, conflict-free batch targeting a
+single mailbox `Id`:
+
+```nim
+type MailboxUpdateSet* = distinct seq[MailboxUpdate]
+
+func initMailboxUpdateSet*(
+    updates: openArray[MailboxUpdate]
+): Result[MailboxUpdateSet, seq[ValidationError]]
+```
+
+Accumulating smart constructor (uses `validateUniqueByIt` from
+`validation.nim`). Rejects:
+
+- empty input — the wire `update` table has exactly one
+  "no updates for this id" representation: omit the entry.
+- duplicate target property — two updates with the same `kind` would
+  produce a JSON patch object with duplicate keys.
+
+All violations surface in a single `Err` pass; each repeated kind
+is reported exactly once.
+
+**NonEmptyMailboxUpdates** — whole-container `update` algebra for
+`Mailbox/set`:
+
+```nim
+type NonEmptyMailboxUpdates* = distinct Table[Id, MailboxUpdateSet]
+
+func parseNonEmptyMailboxUpdates*(
+    items: openArray[(Id, MailboxUpdateSet)]
+): Result[NonEmptyMailboxUpdates, seq[ValidationError]]
+```
+
+Accumulating smart constructor. Rejects:
+
+- empty input — the `/set` builder's `update` field has exactly one
+  "no updates" representation: omit it via `Opt.none`.
+- duplicate `Id` keys — silent last-wins shadowing at `Table`
+  construction would swallow caller data; the `openArray` input
+  preserves duplicates for inspection.
+
+The shape mirrors `NonEmptyEmailSubmissionUpdates` (in
+`email_submission.nim`). `addMailboxSet` accepts
+`Opt[NonEmptyMailboxUpdates]` and the generic `SetRequest[T, C, U].toJson`
+serialises the container via its own `toJson` (§4.8 below) rather
+than assembling the wire patch per-caller.
+
+### 4.8. Serde — serde_mailbox.nim
+
+#### MailboxRole
+
+`toJson` emits `r.identifier` as a JSON string (the enum's backing
+string for the ten well-known kinds, the captured `rawIdentifier`
+for `mrOther`).
 
 `fromJson`:
-- Validates JString.
-- Delegates to `parseMailboxRole` for construction (single parser — per
-  B20, no strict/lenient pair needed).
-- Uses `defineDistinctStringFromJson(MailboxRole, parseMailboxRole)`
-  template.
-- Returns `Result[MailboxRole, ValidationError]`.
 
-#### MailboxIdSet serialisation
+- Validates `JString`.
+- Delegates to `parseMailboxRole`. Rejects non-string with
+  `svkWrongKind`; wraps any parser violation (empty, control chars)
+  via `wrapInner` as `svkFieldParserFailed`.
+
+#### MailboxIdSet / NonEmptyMailboxIdSet
 
 Wire format:
 
@@ -739,119 +793,128 @@ Wire format:
 {"mbx123": true, "mbx456": true}
 ```
 
-`toJson`:
-- Iterates `MailboxIdSet` via `items`, emits each `Id` as a key with
-  `true` as value. Same structure as `KeywordSet.toJson`.
+`MailboxIdSet.toJson` and `NonEmptyMailboxIdSet.toJson` share the
+same wire shape (the non-empty invariant is enforced at construction,
+not in serialisation). `MailboxIdSet.fromJson` validates `JObject`,
+rejects non-bool values (`svkWrongKind`), rejects `false`
+(`svkEnumNotRecognised`, `enumTypeLabel = "mailbox id value"`), and
+parses each key via `parseIdFromServer`.
 
-`fromJson`:
-- Validates JObject.
-- Iterates key-value pairs. Validates each value is `JBool(true)`.
-- Parses each key via `parseIdFromServer` (lenient, per B15 convention).
-- Short-circuits on first element error via `?`.
-- Returns `Result[MailboxIdSet, ValidationError]`.
+`NonEmptyMailboxIdSet` is `toJson`-only — it is a creation-context
+type that flows client→server.
 
-#### MailboxRights serialisation
+#### MailboxRights
 
 Wire format:
 
 ```json
 {
-  "mayReadItems": true,
-  "mayAddItems": true,
-  "mayRemoveItems": false,
-  "maySetSeen": true,
-  "maySetKeywords": true,
-  "mayCreateChild": false,
-  "mayRename": false,
-  "mayDelete": false,
-  "maySubmit": true
+  "mayReadItems": true, "mayAddItems": true, "mayRemoveItems": false,
+  "maySetSeen": true, "maySetKeywords": true, "mayCreateChild": false,
+  "mayRename": false, "mayDelete": false, "maySubmit": true
 }
 ```
 
-`fromJson`:
-- Validates JObject.
-- Extracts all 9 fields as bool (required). Absent or non-bool →
-  `err(ValidationError)`.
-- Constructs `MailboxRights` directly.
-- Returns `Result[MailboxRights, ValidationError]`.
+`fromJson` validates `JObject`, extracts all 9 fields as required
+booleans (absent or non-bool → `svkWrongKind`), and constructs
+directly. `toJson` always emits all 9 fields.
 
-`toJson`:
-- Emits all 9 fields as bools. Always emits all fields (explicit is safer
-  than relying on defaults).
+#### Mailbox
 
-#### Mailbox serialisation
+`fromJson` validates `JObject`, extracts:
 
-Wire format (example):
-
-```json
-{
-  "id": "mbx123",
-  "name": "Inbox",
-  "parentId": null,
-  "role": "inbox",
-  "sortOrder": 10,
-  "totalEmails": 1432,
-  "unreadEmails": 5,
-  "totalThreads": 820,
-  "unreadThreads": 3,
-  "myRights": { "mayReadItems": true, ... },
-  "isSubscribed": true
-}
-```
-
-**Mailbox.fromJson:**
-- Validates JObject.
-- Extracts `id` via `Id.fromJson` (required).
-- Extracts `name` as string (required, rejects absent/null/non-string/empty).
-- Extracts `parentId` — absent or null → `Opt.none(Id)`, present string →
-  parse via `Id.fromJson`.
-- Extracts `role` — absent or null → `Opt.none(MailboxRole)`, present
-  string → parse via `MailboxRole.fromJson`.
-- Extracts `sortOrder`, `totalEmails`, `unreadEmails`, `totalThreads`,
+- `id` via `Id.fromJson` (required `JString`).
+- `name` as required `JString`, then `nonEmptyStr` enforces non-empty
+  at the parsing boundary.
+- `parentId` via `parseOptId` — absent or null → `Opt.none(Id)`,
+  present `JString` → `Id.fromJson`.
+- `role` via `parseOptMailboxRole` — same null/absent semantics.
+- `sortOrder`, `totalEmails`, `unreadEmails`, `totalThreads`,
   `unreadThreads` via `UnsignedInt.fromJson` (all required).
-- Extracts `myRights` via `MailboxRights.fromJson` (required).
-- Extracts `isSubscribed` as bool (required).
-- Constructs `Mailbox` directly (no smart constructor).
-- Returns `Result[Mailbox, ValidationError]`.
+- `myRights` via `MailboxRights.fromJson` (required `JObject`).
+- `isSubscribed` as required boolean.
 
-**Mailbox.toJson:**
-- Emits all fields. `parentId`/`role` emit as `null` or value.
-  All other fields always present.
+`toJson` emits all fields. `parentId` and `role` emit as their value
+or `null`; all other fields are unconditional.
 
-#### MailboxCreate serialisation
+#### MailboxCreatedItem
 
-**MailboxCreate.toJson:**
-- Emits all fields including defaults. No `id`, `totalEmails`,
-  `unreadEmails`, `totalThreads`, `unreadThreads`, or `myRights` fields.
-- `parentId`/`role` emit as `null` or value.
-- All fields always present — explicit is safer than relying on server
-  defaults.
+`fromJson` validates `JObject`, requires `id`, and treats the four
+count fields plus `myRights` as `Opt` (Stalwart 0.15.5 omits them).
+`toJson` emits `id` always and the five server-set fields only when
+present (round-trips Stalwart's elision symmetrically — Postel's
+law on send too).
 
-```json
-{
-  "name": "Archive",
-  "parentId": null,
-  "role": null,
-  "sortOrder": 0,
-  "isSubscribed": false
-}
+#### MailboxCreate
+
+`toJson` only — creation models flow client→server.
+
+```nim
+func toJson*(mc: MailboxCreate): JsonNode
 ```
 
-No `MailboxCreate.fromJson` — creation types are constructed by the
-consumer, not parsed from server responses.
+Wire-shape rules:
+
+- `name` always emitted.
+- `parentId` always emitted (value or `null`) — the wire shape
+  distinguishes "top-level mailbox" (null) from "nested under X"
+  (value).
+- `role` emitted only when `Opt.some` — Stalwart accepts both
+  omitted and explicit-null forms, but James 3.9 treats `role` as a
+  server-set property and rejects creation with
+  `invalidArguments` whenever it appears in the payload
+  (`MailboxSetMethod.scala` allow-list). RFC 8621 §2.5 leaves `role`
+  as an optional client suggestion, so omitting it when the caller
+  did not supply a value is RFC-conformant on both targets.
+- `sortOrder` emitted only when non-zero — same James 3.9
+  compatibility reason. Zero is the RFC default.
+- `isSubscribed` always emitted.
+
+#### MailboxUpdate / MailboxUpdateSet / NonEmptyMailboxUpdates
+
+`toJson` only.
+
+```nim
+func toJson*(u: MailboxUpdate): (string, JsonNode)
+func toJson*(us: MailboxUpdateSet): JsonNode
+func toJson*(upd: NonEmptyMailboxUpdates): JsonNode
+```
+
+`MailboxUpdate.toJson` emits the `(wire-key, wire-value)` pair —
+RFC 8621 §2 settable Mailbox properties are whole-value replace,
+each variant maps to exactly one top-level property:
+
+| Variant | Wire key | Wire value |
+|---------|----------|------------|
+| `muSetName` | `"name"` | `%u.name` |
+| `muSetParentId` | `"parentId"` | `u.parentId.optToJsonOrNull()` |
+| `muSetRole` | `"role"` | `u.role.optToJsonOrNull()` |
+| `muSetSortOrder` | `"sortOrder"` | `u.sortOrder.toJson()` |
+| `muSetIsSubscribed` | `"isSubscribed"` | `%u.isSubscribed` |
+
+`MailboxUpdateSet.toJson` flattens to an RFC 8620 §5.3 patch object
+`{"name": ..., "role": ..., ...}`. `initMailboxUpdateSet` has
+already rejected duplicate target properties, so blind aggregation
+cannot shadow a prior entry.
+
+`NonEmptyMailboxUpdates.toJson` flattens to the RFC 8620 §5.3 wire
+`update` value `{"<mailboxId>": <patchObj>, ...}`.
+`parseNonEmptyMailboxUpdates` has already enforced non-empty input
+and distinct ids.
 
 ---
 
 ## 5. MailboxFilterCondition — mail_filters.nim
 
-**Module:** `src/jmap_client/mail/mail_filters.nim`
-
 **RFC reference:** §2.3.
 
-`MailboxFilterCondition` is a query specification — a value object that
-describes filter criteria for `Mailbox/query`. It is not a domain entity;
-it has no identity, no smart constructor (beyond what types enforce), and
-is equal by structure.
+`MailboxFilterCondition` is a query specification — a value object
+describing filter criteria for `Mailbox/query`. It is not a domain
+entity; it has no identity, no smart constructor, and is equal by
+structure.
+
+The module also hosts `EmailHeaderFilter` and `EmailFilterCondition`
+(deferred to Design D).
 
 ### 5.1. Type Definition
 
@@ -864,123 +927,118 @@ type MailboxFilterCondition* = object
   isSubscribed*: Opt[bool]
 ```
 
-**The `Opt[Opt[T]]` pattern:** RFC 8621 distinguishes between "this filter
-property is not specified" (omit from JSON) and "this filter property
-matches null" (include as `null` in JSON). For `parentId` and `role`,
-`null` is a meaningful filter value (top-level mailboxes, no-role
-mailboxes):
+Plain public fields, no smart constructor. All field combinations
+are valid.
+
+**The `Opt[Opt[T]]` pattern.** RFC 8621 distinguishes between "this
+filter property is not specified" (omit from JSON) and "this filter
+property matches null" (include as `null` in JSON). For `parentId`
+and `role`, `null` is a meaningful filter value (top-level mailboxes,
+no-role mailboxes):
 
 - `Opt.none` = not filtering on this property (omit from JSON)
 - `Opt.some(Opt.none)` = filtering for null (emit `null`)
 - `Opt.some(Opt.some(value))` = filtering for specific value
 
-The double-wrapping looks unusual but encodes a real three-state domain.
+`role` uses `Opt[Opt[MailboxRole]]` — once `MailboxRole` is the
+typed concept, it propagates to every place that references roles.
+One type for the concept everywhere.
 
-**`role` uses `Opt[Opt[MailboxRole]]`** — a consequence of Decision B8.
-Once `MailboxRole` is a distinct type, it propagates to every place that
-references roles. One type for the concept everywhere.
+### 5.2. Serde — toJson only
 
-**Principles:**
-- **Make illegal states unrepresentable** — `Opt[Opt[T]]` encodes the
-  three-state domain explicitly. No sentinel values, no stringly-typed
-  dispatch.
-- **DDD** — Value object, not entity. Construction is infallible (all
-  fields are `Opt`).
-- **Newtype everything that has meaning** — `role` uses `MailboxRole`,
-  not `string`.
-
-### 5.2. Serde (toJson only)
-
-**toJson only — no fromJson.** Filter conditions are "query creation
-types" with unidirectional flow: client constructs, serialises to JSON,
-server consumes. The server never sends filter conditions back. Same
-directional pattern as `IdentityCreate` and `MailboxCreate` (B11
-convention).
-
-**Opt[Opt[T]] three-way dispatch:**
+`toJson` only — filter conditions flow client→server. The server
+never sends filter conditions back.
 
 ```nim
+func emitThreeState[T](node: JsonNode, key: string, opt: Opt[Opt[T]]) =
+  for outer in opt:                       # Opt.none → skip (omit key)
+    if outer.isNone:
+      node[key] = newJNull()               # Opt.some(Opt.none) → null
+    else:
+      for inner in outer:
+        node[key] = inner.toJson()         # Opt.some(Opt.some(v)) → value
+
 func toJson*(fc: MailboxFilterCondition): JsonNode =
   var node = newJObject()
-  # parentId: three-way dispatch
-  for outer in fc.parentId:           # Opt.none → skip (omit key)
-    if outer.isNone:
-      node["parentId"] = newJNull()   # Opt.some(Opt.none) → null
-    else:
-      for inner in outer:
-        node["parentId"] = inner.toJson()  # Opt.some(Opt.some(v)) → value
-  # role: same three-way dispatch with MailboxRole
-  for outer in fc.role:
-    if outer.isNone:
-      node["role"] = newJNull()
-    else:
-      for inner in outer:
-        node["role"] = %($inner)
-  # Simple Opt fields
-  for v in fc.name:
-    node["name"] = %v
-  for v in fc.hasAnyRole:
-    node["hasAnyRole"] = %v
-  for v in fc.isSubscribed:
-    node["isSubscribed"] = %v
+  node.emitThreeState("parentId", fc.parentId)
+  for v in fc.name:        node["name"]         = %v
+  node.emitThreeState("role", fc.role)
+  for v in fc.hasAnyRole:  node["hasAnyRole"]   = %v
+  for v in fc.isSubscribed: node["isSubscribed"] = %v
   return node
 ```
 
-**Principles:**
-- **Total functions** — Every `MailboxFilterCondition` maps to a valid
-  JSON object. All-none fields produce `{}` (match everything).
-- **Parse, don't validate** — The three-way dispatch is deterministic:
-  the type guarantees which branch to take.
+`emitThreeState` is reusable across any `Opt[Opt[T]]` filter field.
+Both `parentId` and `role` use it; the `MailboxRole` overload of
+`toJson` (in `serde_mailbox.nim`) handles the inner serialisation
+in the third branch.
 
 ---
 
 ## 6. Entity Registration and Builders
 
-### 6.1. Entity Registration
+### 6.1. Entity Registration — mail_entities.nim
 
-**Module:** `src/jmap_client/mail/mail_entities.nim` (extends existing
-module from Design A).
+Mailbox is registered alongside `Thread`, `Identity`, `Email`, and
+`AnyEmailSubmission` in `mail_entities.nim`. Three registration
+templates verify required overloads at definition time:
 
 ```nim
-func methodNamespace*(T: typedesc[Mailbox]): string = "Mailbox"
-func capabilityUri*(T: typedesc[Mailbox]): string = "urn:ietf:params:jmap:mail"
 registerJmapEntity(Mailbox)
 registerQueryableEntity(Mailbox)
+registerSettableEntity(Mailbox)
 ```
 
-Mailbox is registered with **both** `registerJmapEntity` (provides
-`methodNamespace`, `capabilityUri`, enables result references) and
-`registerQueryableEntity` (provides `filterType`, enables `addQuery`
-dispatch).
+Required overloads provided in this module:
 
-**Registration is infrastructure, not API surface.** The generic builder
-instantiations (`addGet[Mailbox]`, `addChanges[Mailbox]`, `addSet[Mailbox]`,
-`addQuery[Mailbox]`) all compile, but consumers should use the custom
-overloads for methods with extra parameters. The mail re-export hub
-exports:
+```nim
+func methodEntity*(T: typedesc[Mailbox]): MethodEntity = meMailbox
+func capabilityUri*(T: typedesc[Mailbox]): string = "urn:ietf:params:jmap:mail"
 
-- `addGet[Mailbox]` — generic, no extensions needed (re-exported as-is)
-- `addMailboxChanges` — custom (extra `updatedProperties` in response)
-- `addMailboxQuery` — custom (extra `sortAsTree`, `filterAsTree`)
-- `addMailboxQueryChanges` — custom (extra `sortAsTree`, `filterAsTree`)
-- `addMailboxSet` — custom (extra `onDestroyRemoveEmails`, typed create)
+# Per-verb method-name resolvers — invalid (entity, verb) pairs fail
+# at the call site with an undeclared-identifier compile error.
+func getMethodName*(T: typedesc[Mailbox]): MethodName = mnMailboxGet
+func changesMethodName*(T: typedesc[Mailbox]): MethodName = mnMailboxChanges
+func setMethodName*(T: typedesc[Mailbox]): MethodName = mnMailboxSet
+func queryMethodName*(T: typedesc[Mailbox]): MethodName = mnMailboxQuery
+func queryChangesMethodName*(T: typedesc[Mailbox]): MethodName = mnMailboxQueryChanges
 
-**Principles:**
-- **DDD** — Registration says "Mailbox is a JMAP entity." Custom builders
-  say "here's how you interact with it."
-- **Make the right thing easy** — The standard import path gives you only
-  the custom builders.
-- **DRY** — Infrastructure (methodNamespace, capabilityUri, result
-  references) is written once via registration, not duplicated in custom
-  builders.
+# Associated type templates — return typedesc, resolved at the
+# generic builder's instantiation site via mixin.
+template changesResponseType*(T: typedesc[Mailbox]): typedesc = MailboxChangesResponse
+template filterType*(T: typedesc[Mailbox]): typedesc = MailboxFilterCondition
+template createType*(T: typedesc[Mailbox]): typedesc = MailboxCreate
+template updateType*(T: typedesc[Mailbox]): typedesc = NonEmptyMailboxUpdates
+template setResponseType*(T: typedesc[Mailbox]): typedesc = SetResponse[MailboxCreatedItem]
+```
 
-### 6.2. MailboxChangesResponse
+`registerJmapEntity` checks that `methodEntity` and `capabilityUri`
+exist; per-verb resolvers are intentionally NOT checked at
+registration — they fail at the call site with an error that names
+the offending `(entity, verb)` pair, which is more precise than a
+generic registration check could be.
 
-**Module:** `src/jmap_client/mail/mail_builders.nim`
+`registerQueryableEntity` checks `filterType` and the existence of
+a `toJson` overload on the filter condition.
+`registerSettableEntity` checks `setMethodName`, `createType`,
+`updateType`, and `setResponseType`.
+
+The generic builder instantiations (`addGet[Mailbox]`,
+`addChanges[Mailbox]`, `addSet[Mailbox]`, `addQuery[Mailbox]`,
+`addQueryChanges[Mailbox]`) all compile via the registered
+infrastructure. Consumers should use the entity-specific overloads
+in `mail_builders.nim` for methods that carry extra parameters.
+
+### 6.2. MailboxChangesResponse — mailbox_changes_response.nim
 
 RFC 8621 §2.2 extends the standard `/changes` response with an extra
 `updatedProperties` field. A custom response type models this via
 composition with the standard `ChangesResponse[Mailbox]`.
+
+The type lives in its own leaf module so `mail_entities.nim` can
+declare `changesResponseType(Mailbox) = MailboxChangesResponse`
+without creating an import cycle with `mail_builders.nim` (which
+imports this leaf for its `addMailboxChanges` wrapper).
 
 ```nim
 type MailboxChangesResponse* = object
@@ -992,140 +1050,160 @@ type MailboxChangesResponse* = object
 
 ```nim
 template forwardChangesFields(T: typedesc) =
-  func accountId*(r: T): AccountId = r.base.accountId
-  func oldState*(r: T): JmapState = r.base.oldState
-  func newState*(r: T): JmapState = r.base.newState
-  func hasMoreChanges*(r: T): bool = r.base.hasMoreChanges
-  func created*(r: T): seq[Id] = r.base.created
-  func updated*(r: T): seq[Id] = r.base.updated
-  func destroyed*(r: T): seq[Id] = r.base.destroyed
+  func accountId*(r: T): AccountId        = r.base.accountId
+  func oldState*(r: T): JmapState         = r.base.oldState
+  func newState*(r: T): JmapState         = r.base.newState
+  func hasMoreChanges*(r: T): bool        = r.base.hasMoreChanges
+  func created*(r: T): seq[Id]            = r.base.created
+  func updated*(r: T): seq[Id]            = r.base.updated
+  func destroyed*(r: T): seq[Id]          = r.base.destroyed
 
 forwardChangesFields(MailboxChangesResponse)
 ```
 
 UFCS forwarding funcs for all base fields. Consumer writes
-`resp.accountId`, `resp.created` — same API as if it were a flat type.
+`resp.accountId`, `resp.created` — same API as if it were a flat
+type.
 
 **fromJson:**
-- Parses the standard changes fields via `ChangesResponse[Mailbox].fromJson`
-  for the base.
-- Extracts `updatedProperties` — absent or null → `Opt.none`,
-  present JArray → `Opt.some(seq[string])` with each element validated
-  as JString.
-- Returns `Result[MailboxChangesResponse, ValidationError]`.
 
-**Principles:**
-- **DRY** — One source of truth for the base fields (in
-  `ChangesResponse[T]`), one template for forwarding.
-- **Code reads like the spec** — "standard /changes + extra field" =
-  composition.
-- **Open-Closed** — Core's `ChangesResponse[T]` is unchanged. Mail
-  extends through composition.
+- Validates `JObject`.
+- Reuses `ChangesResponse[Mailbox].fromJson` for the seven standard
+  fields (assigned to `base`).
+- Extracts `updatedProperties` — absent or null → `Opt.none`,
+  present `JArray` → `Opt.some(seq[string])` with each element
+  validated as `JString`. Non-array → `svkWrongKind`.
 
 ### 6.3. addMailboxChanges
 
 ```nim
-func addMailboxChanges*(b: var RequestBuilder,
+func addMailboxChanges*(
+    b: RequestBuilder,
     accountId: AccountId,
     sinceState: JmapState,
     maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges),
-): ResponseHandle[MailboxChangesResponse]
+): (RequestBuilder, ResponseHandle[MailboxChangesResponse]) =
+  addChanges[Mailbox, MailboxChangesResponse](
+    b, accountId, sinceState, maxChanges
+  )
 ```
 
-- Adds `"urn:ietf:params:jmap:mail"` capability to the request.
-- Creates invocation with name `"Mailbox/changes"`.
-- Returns `ResponseHandle[MailboxChangesResponse]` (not
-  `ResponseHandle[ChangesResponse[Mailbox]]` — the phantom type ensures
-  the caller uses the correct response type with `updatedProperties`).
+Thin alias over the two-parameter `addChanges[T, RespT]`. The
+extended response type `MailboxChangesResponse` is fixed at the
+phantom type so the caller cannot accidentally use the bare
+`ChangesResponse[Mailbox]`.
+
+Builders are functional — they take `RequestBuilder` (not `var`) and
+return a tuple `(RequestBuilder, ResponseHandle[T])`. The mail
+capability URI is added to the request via the generic builder's
+`mixin capabilityUri` resolution.
 
 ### 6.4. addMailboxQuery
 
 ```nim
-proc addMailboxQuery*(b: var RequestBuilder,
+func addMailboxQuery*(
+    b: RequestBuilder,
     accountId: AccountId,
-    filterConditionToJson: proc(c: MailboxFilterCondition): JsonNode {.noSideEffect, raises: [].},
-    filter: Opt[Filter[MailboxFilterCondition]] = Opt.none(Filter[MailboxFilterCondition]),
+    filter: Opt[Filter[MailboxFilterCondition]] =
+      Opt.none(Filter[MailboxFilterCondition]),
     sort: Opt[seq[Comparator]] = Opt.none(seq[Comparator]),
     queryParams: QueryParams = QueryParams(),
     sortAsTree: bool = false,
     filterAsTree: bool = false,
-): ResponseHandle[QueryResponse[Mailbox]]
+): (RequestBuilder, ResponseHandle[QueryResponse[Mailbox]]) =
+  addQuery[Mailbox, MailboxFilterCondition, Comparator](
+    b, accountId, filter, sort, queryParams,
+    extras = @[("sortAsTree",   %sortAsTree),
+               ("filterAsTree", %filterAsTree)],
+  )
 ```
 
-- Adds `"urn:ietf:params:jmap:mail"` capability.
-- Creates invocation with name `"Mailbox/query"`.
-- Serialises `sortAsTree` and `filterAsTree` into the invocation
-  arguments alongside standard query parameters.
-- `proc` not `func` due to callback parameter — inherited constraint from
-  core's `addQuery`.
+Mailbox uses the protocol-level `Comparator`; the RFC defines no
+typed Mailbox comparator. Tree extension args are emitted
+unconditionally — `sortAsTree: false` and `filterAsTree: false` are
+the RFC defaults but appear on the wire regardless. This is a
+documented boolean exception (same reasoning as `MailboxRights`):
+the `*AsTree` naming is self-documenting and the RFC models these
+as `Boolean`.
 
-**`sortAsTree` and `filterAsTree`** are inline boolean parameters (not
-wrapped in a value object). Two booleans across two functions do not
-justify a type. The `*AsTree` naming is self-documenting, and the RFC
-models these as `Boolean`. This is a documented boolean exception (same
-reasoning as `MailboxRights` §4.3).
+`MailboxFilterCondition.toJson` resolves at the caller's
+instantiation site via the `mixin` cascade through
+`Filter[C].toJson`.
 
 ### 6.5. addMailboxQueryChanges
 
 ```nim
-proc addMailboxQueryChanges*(b: var RequestBuilder,
+func addMailboxQueryChanges*(
+    b: RequestBuilder,
     accountId: AccountId,
     sinceQueryState: JmapState,
-    filterConditionToJson: proc(c: MailboxFilterCondition): JsonNode {.noSideEffect, raises: [].},
-    filter: Opt[Filter[MailboxFilterCondition]] = Opt.none(Filter[MailboxFilterCondition]),
+    filter: Opt[Filter[MailboxFilterCondition]] =
+      Opt.none(Filter[MailboxFilterCondition]),
     sort: Opt[seq[Comparator]] = Opt.none(seq[Comparator]),
     maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges),
     upToId: Opt[Id] = Opt.none(Id),
     calculateTotal: bool = false,
-): ResponseHandle[QueryChangesResponse[Mailbox]]
+): (RequestBuilder, ResponseHandle[QueryChangesResponse[Mailbox]]) =
+  addQueryChanges[Mailbox, MailboxFilterCondition, Comparator](
+    b, accountId, sinceQueryState, filter, sort,
+    maxChanges, upToId, calculateTotal,
+  )
 ```
 
-- Adds `"urn:ietf:params:jmap:mail"` capability.
-- Creates invocation with name `"Mailbox/queryChanges"`.
-- Standard parameters only — RFC 8621 §2.4 specifies this as a standard
-  /queryChanges method with no additional request arguments. The tree
-  parameters (`sortAsTree`, `filterAsTree`) apply only to Mailbox/query
-  (§2.3), not to Mailbox/queryChanges.
+No extension args — RFC 8621 §2.4 specifies `Mailbox/queryChanges`
+as a standard `/queryChanges` method with no additional request
+arguments. The tree parameters apply only to `Mailbox/query` (§2.3).
 
 ### 6.6. addMailboxSet
 
 ```nim
-func addMailboxSet*(b: var RequestBuilder,
+func addMailboxSet*(
+    b: RequestBuilder,
     accountId: AccountId,
     ifInState: Opt[JmapState] = Opt.none(JmapState),
-    create: Opt[Table[CreationId, MailboxCreate]] = Opt.none(Table[CreationId, MailboxCreate]),
-    update: Opt[Table[Id, PatchObject]] = Opt.none(Table[Id, PatchObject]),
-    destroy: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]),
+    create: Opt[Table[CreationId, MailboxCreate]] =
+      Opt.none(Table[CreationId, MailboxCreate]),
+    update: Opt[NonEmptyMailboxUpdates] =
+      Opt.none(NonEmptyMailboxUpdates),
+    destroy: Opt[Referencable[seq[Id]]] =
+      Opt.none(Referencable[seq[Id]]),
     onDestroyRemoveEmails: bool = false,
-): ResponseHandle[SetResponse[Mailbox]]
+): (RequestBuilder, ResponseHandle[SetResponse[MailboxCreatedItem]]) =
+  addSet[
+    Mailbox, MailboxCreate, NonEmptyMailboxUpdates,
+    SetResponse[MailboxCreatedItem]
+  ](
+    b, accountId, ifInState, create, update, destroy,
+    extras = @[("onDestroyRemoveEmails", %onDestroyRemoveEmails)],
+  )
 ```
 
-- Adds `"urn:ietf:params:jmap:mail"` capability.
-- Creates invocation with name `"Mailbox/set"`.
-- Serialises `onDestroyRemoveEmails` into the invocation arguments.
-- **Accepts `Table[CreationId, MailboxCreate]`** — typed, not `JsonNode`.
-  The builder calls `toJson` on each `MailboxCreate` internally. This is
-  the general principle (B21): entity-specific builders that exist for
-  other reasons should accept typed creation models when available.
-- `func` not `proc` — no callback parameter.
+Thin wrapper over the four-parameter generic `addSet[T, C, U, R]`
+with the Mailbox-specific `onDestroyRemoveEmails` extension emitted
+via `extras`. `create` arrives as `Table[CreationId, MailboxCreate]`
+and `update` as `NonEmptyMailboxUpdates`; the generic
+`SetRequest[T, C, U].toJson` serialises both through the `mixin
+toJson` cascade.
 
-**`onDestroyRemoveEmails`** (RFC 8621 §2.5): when `true`, emails solely
-in a destroyed mailbox are also destroyed. When `false` (default), the
-server returns a `mailboxHasEmail` `SetError` for non-empty mailboxes.
+The response handle carries `SetResponse[MailboxCreatedItem]`, not
+`SetResponse[Mailbox]`, because RFC 8620 §5.3's `created[cid]`
+carries only the server-set subset (id + counts + myRights), and
+Stalwart further trims to `{"id": "..."}`. The partial type lets the
+parser succeed without forcing a full-entity reconstruction.
 
-**Principles:**
-- **Make illegal states unrepresentable** — Typed `MailboxCreate` prevents
-  malformed creation JSON and accidental inclusion of server-set fields.
-- **DDD** — `onDestroyRemoveEmails` is mailbox-domain knowledge that
-  the generic builder cannot express.
+`onDestroyRemoveEmails` (RFC 8621 §2.5): when `true`, emails solely
+in a destroyed mailbox are also destroyed. When `false` (default),
+the server returns a `mailboxHasEmail` `SetError` for non-empty
+mailboxes. Boolean exception: the name is self-documenting, the
+RFC models it as `Boolean`.
 
 ---
 
 ## 7. Test Specification
 
-Numbered test scenarios for implementation plan reference. Unit tests
-verify smart constructors and type invariants. Serde tests verify
-round-trip and structural JSON correctness.
+Numbered test scenarios for implementation plan reference. Unit
+tests verify smart constructors and type invariants. Serde tests
+verify round-trip and structural JSON correctness.
 
 ### 7.1. Keyword (scenarios 1–14)
 
@@ -1142,7 +1220,7 @@ round-trip and structural JSON correctness.
 | 9 | `parseKeywordFromServer` with control char `\x01` | `err(ValidationError)` |
 | 10 | `parseKeywordFromServer("")` | `err(ValidationError)` |
 | 11 | System constants (`kwDraft`, `kwSeen`, etc.) are valid Keywords | pass |
-| 12 | `Keyword` equality is case-normalised: both constructed from same input compare equal | pass |
+| 12 | `Keyword` equality is case-normalised: same-input parses compare equal | pass |
 | 13 | `Keyword` `hash` is consistent with `==` | pass |
 | 14 | `Keyword` `len` returns underlying string length | pass |
 
@@ -1156,130 +1234,139 @@ round-trip and structural JSON correctness.
 | 18 | `toJson` with keywords | `{"$seen": true, "$flagged": true}` |
 | 19 | `toJson` empty set | `{}` |
 | 20 | `fromJson` valid `{"$seen": true}` | `ok`, `len == 1` |
-| 21 | `fromJson` with `false` value `{"$seen": false}` | `err(ValidationError)` |
+| 21 | `fromJson` with `false` value `{"$seen": false}` | `err(SerdeViolation)` (`svkEnumNotRecognised`) |
 | 22 | `fromJson`/`toJson` round-trip | identity |
 
-### 7.3. MailboxRole (scenarios 23–29)
+### 7.3. MailboxRole (scenarios 23–32)
 
 | # | Scenario | Expected |
 |---|----------|----------|
-| 23 | `parseMailboxRole("inbox")` | `ok`, value = `roleInbox` |
-| 24 | `parseMailboxRole("INBOX")` — uppercase normalised | `ok`, value = `roleInbox` |
-| 25 | `parseMailboxRole("CustomRole")` — custom role | `ok`, lowercase |
+| 23 | `parseMailboxRole("inbox")` | `ok`, `kind == mrInbox`, equals `roleInbox` |
+| 24 | `parseMailboxRole("INBOX")` — uppercase normalised | `ok`, equals `roleInbox` |
+| 25 | `parseMailboxRole("CustomRole")` — vendor extension | `ok`, `kind == mrOther`, `identifier == "customrole"` |
 | 26 | `parseMailboxRole("")` | `err(ValidationError)` |
-| 27 | Well-known constants equal their parsed equivalents | pass |
-| 28 | `toJson(roleInbox)` | `"inbox"` |
-| 29 | `fromJson` valid role string | `ok` |
+| 27 | `parseMailboxRole` with control char `\x01` | `err(ValidationError)` |
+| 28 | Well-known constants equal their parsed equivalents | pass |
+| 29 | `toJson(roleInbox)` | `"inbox"` |
+| 30 | `toJson` of vendor `mrOther` emits captured `rawIdentifier` | pass |
+| 31 | `fromJson` valid role string round-trips through `$` | pass |
+| 32 | `==` and `hash` distinguish two distinct `mrOther` identifiers | pass |
 
-### 7.4. MailboxIdSet (scenarios 30–35)
-
-| # | Scenario | Expected |
-|---|----------|----------|
-| 30 | `initMailboxIdSet(@[id1, id2])` | `len == 2`, contains both |
-| 31 | `initMailboxIdSet(@[])` — empty set | `len == 0` |
-| 32 | `toJson` with ids | `{"id1": true, "id2": true}` |
-| 33 | `fromJson` valid `{"id1": true}` | `ok`, `len == 1` |
-| 34 | `fromJson` with `false` value | `err(ValidationError)` |
-| 35 | `fromJson`/`toJson` round-trip | identity |
-
-### 7.5. MailboxRights (scenarios 36–39)
+### 7.4. MailboxIdSet (scenarios 33–38)
 
 | # | Scenario | Expected |
 |---|----------|----------|
-| 36 | `fromJson` all 9 fields present | `ok`, all fields populated |
-| 37 | `fromJson` missing field | `err(ValidationError)` |
-| 38 | `fromJson` non-bool field | `err(ValidationError)` |
-| 39 | `toJson`/`fromJson` round-trip | identity |
+| 33 | `initMailboxIdSet(@[id1, id2])` | `len == 2`, contains both |
+| 34 | `initMailboxIdSet(@[])` — empty set | `len == 0` |
+| 35 | `toJson` with ids | `{"id1": true, "id2": true}` |
+| 36 | `fromJson` valid `{"id1": true}` | `ok`, `len == 1` |
+| 37 | `fromJson` with `false` value | `err(SerdeViolation)` |
+| 38 | `fromJson`/`toJson` round-trip | identity |
 
-### 7.6. Mailbox (scenarios 40–49)
-
-| # | Scenario | Expected |
-|---|----------|----------|
-| 40 | `fromJson` all fields present | `ok`, all fields populated |
-| 41 | `fromJson` `name` absent | `err(ValidationError)` |
-| 42 | `fromJson` `name` empty `""` | `err(ValidationError)` |
-| 43 | `fromJson` `parentId` null → `Opt.none` | pass |
-| 44 | `fromJson` `parentId` present → `Opt.some(Id)` | pass |
-| 45 | `fromJson` `role` null → `Opt.none(MailboxRole)` | pass |
-| 46 | `fromJson` `role` present → `Opt.some(MailboxRole)`, lowercase normalised | pass |
-| 47 | `fromJson` `role` present uppercase → normalised to lowercase | pass |
-| 48 | `toJson`/`fromJson` round-trip | identity |
-| 49 | `fromJson` missing required field (e.g. `isSubscribed`) | `err(ValidationError)` |
-
-### 7.7. MailboxCreate (scenarios 50–55)
+### 7.5. NonEmptyMailboxIdSet (scenarios 39–43)
 
 | # | Scenario | Expected |
 |---|----------|----------|
-| 50 | `parseMailboxCreate("Archive")` defaults only | `ok`, parentId = none, role = none, sortOrder = 0, isSubscribed = false |
-| 51 | `parseMailboxCreate("Inbox", role = some(roleInbox))` all fields | `ok` |
-| 52 | `parseMailboxCreate("")` | `err(ValidationError)` |
-| 53 | `toJson` includes all fields | structural match |
-| 54 | `toJson` does not emit `id`, `totalEmails`, `unreadEmails`, `totalThreads`, `unreadThreads`, `myRights` | verified absent |
-| 55 | `toJson` emits `parentId`/`role` as `null` when none | pass |
+| 39 | `parseNonEmptyMailboxIdSet(@[id1, id2])` | `ok`, `len == 2` |
+| 40 | `parseNonEmptyMailboxIdSet(@[])` | `err(ValidationError)` |
+| 41 | `parseNonEmptyMailboxIdSet` with duplicates | `ok`, deduplicated |
+| 42 | `toJson` with ids | `{"id1": true, "id2": true}` |
+| 43 | `==` between equal sets is `true` | pass |
 
-### 7.8. MailboxFilterCondition (scenarios 56–62)
-
-| # | Scenario | Expected |
-|---|----------|----------|
-| 56 | `toJson` all fields none → `{}` | pass |
-| 57 | `toJson` `parentId = Opt.some(Opt.none)` → `{"parentId": null}` | pass |
-| 58 | `toJson` `parentId = Opt.some(Opt.some(id))` → `{"parentId": "id"}` | pass |
-| 59 | `toJson` `role = Opt.some(Opt.none)` → `{"role": null}` | pass |
-| 60 | `toJson` `role = Opt.some(Opt.some(roleInbox))` → `{"role": "inbox"}` | pass |
-| 61 | `toJson` `name = Opt.some("test")` → `{"name": "test"}` | pass |
-| 62 | `toJson` mixed filter (parentId null + hasAnyRole true) | structural match |
-
-### 7.9. MailboxChangesResponse (scenarios 63–67)
+### 7.6. MailboxRights (scenarios 44–47)
 
 | # | Scenario | Expected |
 |---|----------|----------|
-| 63 | `fromJson` valid with `updatedProperties` present | `ok`, `updatedProperties = Opt.some(seq)` |
-| 64 | `fromJson` valid with `updatedProperties` absent | `ok`, `updatedProperties = Opt.none` |
-| 65 | `fromJson` valid with `updatedProperties` null | `ok`, `updatedProperties = Opt.none` |
-| 66 | Forwarding accessors (`accountId`, `oldState`, `newState`, etc.) return base values | pass |
-| 67 | `fromJson` missing required base field (e.g. `newState`) | `err(ValidationError)` |
+| 44 | `fromJson` all 9 fields present | `ok`, all fields populated |
+| 45 | `fromJson` missing field | `err(SerdeViolation)` |
+| 46 | `fromJson` non-bool field | `err(SerdeViolation)` |
+| 47 | `toJson`/`fromJson` round-trip | identity |
 
-### 7.10. Entity Registration and Builder (scenarios 68–79)
+### 7.7. Mailbox (scenarios 48–57)
 
 | # | Scenario | Expected |
 |---|----------|----------|
-| 68 | `registerJmapEntity(Mailbox)` compiles | pass |
-| 69 | `registerQueryableEntity(Mailbox)` compiles | pass |
-| 70 | `addMailboxChanges` produces invocation name `"Mailbox/changes"` | pass |
-| 71 | `addMailboxChanges` adds mail capability | pass |
-| 72 | `addMailboxQuery` produces invocation name `"Mailbox/query"` | pass |
-| 73 | `addMailboxQuery` with `sortAsTree = true` includes parameter in args | pass |
-| 74 | `addMailboxQuery` with `filterAsTree = true` includes parameter in args | pass |
-| 75 | `addMailboxQueryChanges` produces invocation name `"Mailbox/queryChanges"` | pass |
-| 76 | `addMailboxQueryChanges` does NOT include sortAsTree/filterAsTree | pass |
-| 77 | `addMailboxSet` produces invocation name `"Mailbox/set"` | pass |
-| 78 | `addMailboxSet` with `onDestroyRemoveEmails = true` includes parameter | pass |
-| 79 | `addMailboxSet` with typed `MailboxCreate` serialises correctly in create map | pass |
+| 48 | `fromJson` all fields present | `ok`, all fields populated |
+| 49 | `fromJson` `name` absent | `err(SerdeViolation)` |
+| 50 | `fromJson` `name` empty `""` | `err(SerdeViolation)` (`nonEmptyStr`) |
+| 51 | `fromJson` `parentId` null → `Opt.none` | pass |
+| 52 | `fromJson` `parentId` present → `Opt.some(Id)` | pass |
+| 53 | `fromJson` `role` null → `Opt.none(MailboxRole)` | pass |
+| 54 | `fromJson` `role` present → `Opt.some(MailboxRole)`, lowercase normalised | pass |
+| 55 | `fromJson` `role` present uppercase → normalised to lowercase | pass |
+| 56 | `toJson`/`fromJson` round-trip | identity |
+| 57 | `fromJson` missing required field (e.g. `isSubscribed`) | `err(SerdeViolation)` |
 
----
+### 7.8. MailboxCreatedItem (scenarios 58–62)
 
-## 8. Decision Traceability Matrix
+| # | Scenario | Expected |
+|---|----------|----------|
+| 58 | `fromJson` `{"id": "x"}` (Stalwart trim) | `ok`, all five `Opt` fields = `Opt.none` |
+| 59 | `fromJson` with all server-set fields | `ok`, all `Opt.some(...)` |
+| 60 | `fromJson` missing `id` | `err(SerdeViolation)` |
+| 61 | `toJson` of trim-only payload | `{"id": "x"}` |
+| 62 | `toJson`/`fromJson` round-trip | identity |
 
-| # | Decision | Options Considered | Chosen | Primary Principles |
-|---|----------|--------------------|--------|-------------------|
-| B1 | `parseKeywordFromServer` leniency | A) Accept forbidden chars, B) Accept wider ASCII, C) Only skip forbidden chars, D) Accept non-ASCII | C refined (same `validateServerAssignedToken` as `parseIdFromServer`) | Parse-don't-validate, Postel's law, DRY |
-| B2 | KeywordSet empty validity | A) Empty valid, B) Must be non-empty | A (empty = valid domain state "no keywords") | Constructors that can't fail don't, DDD, One source of truth |
-| B3 | Distinct HashSet operations | A) Minimal read-only, B) Read + functional builders, C) Read + mutable incl/excl | A (len, contains, card only) | Immutability by default, DDD, Make the right thing easy |
-| B4 | MailboxIdSet location | A) In keyword.nim, B) Dedicated sets.nim, C) Each in own module, template in validation.nim | C (KeywordSet in keyword.nim, MailboxIdSet in mailbox.nim, template in validation.nim) | DDD, DRY |
-| B5 | Mailbox field sealing | A) Plain public fields, B) Sealed Pattern A, C) Partial sealing | A (read model, no invariants beyond field types) | Code reads like the spec, Parse-don't-validate |
-| B6 | MailboxRights smart constructor | A) Plain object, B) Smart constructor with validation | A (all bool combinations valid) | Constructors that can't fail don't, Code reads like the spec |
-| B7 | Mailbox creation model | A) MailboxCreate with smart constructor, B) PatchObject only, C) MailboxCreate without smart constructor | A (IdentityCreate pattern, RFC-matching defaults) | Make illegal states unrepresentable, DDD, Total functions |
-| B8 | Mailbox role type | A) Distinct MailboxRole, B) String + constants, C) Just string constants | A (newtype with parseMailboxRole + 10 constants) | Newtype everything that has meaning, Parse-don't-validate, DRY |
-| B9 | MailboxChangesResponse modelling | A) Custom flat type, B) Composition, C) Composition + forwarding template | C (composition + forwardChangesFields template) | DRY, Code reads like the spec, Open-Closed |
-| B10 | QueryParams location | A) mail_builders.nim, B) framework.nim, C) Skip entirely | B + core addQuery refactor (core prerequisite) | DRY, DDD, One source of truth |
-| B11 | Filter condition serde direction | A) toJson only, B) Both toJson and fromJson | A (general convention: filter conditions are query creation types) | Parse-don't-validate, DDD |
-| B12 | Mailbox/queryChanges builder | A) Custom with sortAsTree/filterAsTree, B) Use core generic | B (RFC 8621 §2.4: standard /queryChanges, no extensions) | Code reads like the spec |
-| B13 | Tree option parameter style | A) MailboxTreeOptions type, B) Inline booleans | B (2 params across 2 functions — premature abstraction) | Booleans exception (may*/AsTree naming self-documenting, RFC models as Boolean) |
-| B14 | Mailbox entity registration | A) Register + custom overloads, B) Register + hide generics, C) All custom | Modified A (register for infrastructure, custom overloads as API, re-export customs from hub) | DDD, Make the right thing easy, DRY |
-| B15 | fromJson parser convention | A) Lenient per-type, B) General convention | B (general rule: all fromJson use lenient *FromServer parser) | DRY, Postel's law |
-| B16 | Filter role type | A) Opt[Opt[MailboxRole]], B) Opt[Opt[string]] | A (consequence of B8 — one type for the concept everywhere) | Newtype everything that has meaning, One source of truth |
-| B17 | Document structure | A) Keyword first then Mailbox, B) Interleaved by module | Refined A (core prerequisites → shared sub-types → entity → filter → builders) | Parse once at the boundary (dependencies top-down) |
-| B18 | MailboxCreate role field | A) Include as Opt[MailboxRole], B) Exclude | A (RFC allows, server rejection via SetError) | Postel's law, DDD |
-| B19 | Mailbox partial response handling | A) All fields Opt, B) All fields required, C) Split required/Opt | B (typed Mailbox = complete domain object, partial via raw JSON) | Code reads like the spec, Make illegal states unrepresentable, One source of truth |
-| B20 | MailboxRole parser pair | A) Single parseMailboxRole, B) Strict/lenient pair | A (no meaningful gap between spec and structural constraints) | DRY, Constructors that can't fail don't |
-| B21 | addMailboxSet create type | A) Consumer calls toJson, B) Builder accepts MailboxCreate | B (typed creation model on entity-specific builder) | Make the right thing easy, Make illegal states unrepresentable, Parse once at the boundary |
+### 7.9. MailboxCreate (scenarios 63–68)
+
+| # | Scenario | Expected |
+|---|----------|----------|
+| 63 | `parseMailboxCreate("Archive")` defaults only | `ok`, all defaults |
+| 64 | `parseMailboxCreate("Inbox", role = some(roleInbox))` | `ok` |
+| 65 | `parseMailboxCreate("")` | `err(ValidationError)` |
+| 66 | `toJson` always emits `name`, `parentId`, `isSubscribed` | structural match |
+| 67 | `toJson` omits `role` when `Opt.none` (James 3.9 compatibility) | verified absent |
+| 68 | `toJson` omits `sortOrder` when zero (James 3.9 compatibility) | verified absent |
+
+### 7.10. MailboxUpdate / MailboxUpdateSet / NonEmptyMailboxUpdates (scenarios 69–78)
+
+| # | Scenario | Expected |
+|---|----------|----------|
+| 69 | `setName("New")` | `MailboxUpdate(kind: muSetName, name: "New")` |
+| 70 | `setRole(Opt.some(roleInbox)).toJson` | `("role", "inbox")` |
+| 71 | `setRole(Opt.none(MailboxRole)).toJson` | `("role", null)` |
+| 72 | `setParentId(Opt.none(Id)).toJson` | `("parentId", null)` |
+| 73 | `initMailboxUpdateSet(@[])` | `err(seq[ValidationError])` (empty) |
+| 74 | `initMailboxUpdateSet(@[setName("A"), setName("B")])` | `err(seq[ValidationError])` (duplicate kind) |
+| 75 | `initMailboxUpdateSet(@[setName("A"), setRole(Opt.none)])` | `ok`, two-key patch |
+| 76 | `parseNonEmptyMailboxUpdates(@[])` | `err(seq[ValidationError])` (empty) |
+| 77 | `parseNonEmptyMailboxUpdates` with duplicate `Id` keys | `err(seq[ValidationError])` |
+| 78 | `NonEmptyMailboxUpdates.toJson` | `{"<id>": {"name": "A", ...}}` |
+
+### 7.11. MailboxFilterCondition (scenarios 79–85)
+
+| # | Scenario | Expected |
+|---|----------|----------|
+| 79 | `toJson` all fields none → `{}` | pass |
+| 80 | `toJson` `parentId = Opt.some(Opt.none)` → `{"parentId": null}` | pass |
+| 81 | `toJson` `parentId = Opt.some(Opt.some(id))` → `{"parentId": "id"}` | pass |
+| 82 | `toJson` `role = Opt.some(Opt.none)` → `{"role": null}` | pass |
+| 83 | `toJson` `role = Opt.some(Opt.some(roleInbox))` → `{"role": "inbox"}` | pass |
+| 84 | `toJson` `name = Opt.some("test")` → `{"name": "test"}` | pass |
+| 85 | `toJson` mixed filter (parentId null + hasAnyRole true) | structural match |
+
+### 7.12. MailboxChangesResponse (scenarios 86–90)
+
+| # | Scenario | Expected |
+|---|----------|----------|
+| 86 | `fromJson` valid with `updatedProperties` present | `ok`, `updatedProperties = Opt.some(seq)` |
+| 87 | `fromJson` valid with `updatedProperties` absent | `ok`, `updatedProperties = Opt.none` |
+| 88 | `fromJson` valid with `updatedProperties` null | `ok`, `updatedProperties = Opt.none` |
+| 89 | Forwarding accessors (`accountId`, `oldState`, `newState`, …) return base values | pass |
+| 90 | `fromJson` missing required base field (e.g. `newState`) | `err(SerdeViolation)` |
+
+### 7.13. Entity Registration and Builders (scenarios 91–101)
+
+| # | Scenario | Expected |
+|---|----------|----------|
+| 91 | `registerJmapEntity(Mailbox)` compiles | pass |
+| 92 | `registerQueryableEntity(Mailbox)` compiles | pass |
+| 93 | `registerSettableEntity(Mailbox)` compiles | pass |
+| 94 | `addMailboxChanges` produces invocation name `"Mailbox/changes"` | pass |
+| 95 | `addMailboxQuery` produces invocation name `"Mailbox/query"` and includes `sortAsTree`/`filterAsTree` in args | pass |
+| 96 | `addMailboxQueryChanges` produces invocation name `"Mailbox/queryChanges"` | pass |
+| 97 | `addMailboxQueryChanges` does NOT include `sortAsTree`/`filterAsTree` | pass |
+| 98 | `addMailboxSet` produces invocation name `"Mailbox/set"` and includes `onDestroyRemoveEmails` | pass |
+| 99 | `addMailboxSet` with typed `MailboxCreate` serialises through `mixin toJson` | pass |
+| 100 | `addMailboxSet` with `NonEmptyMailboxUpdates` produces correct `update` patch wire shape | pass |
+| 101 | `addMailboxSet` response handle is typed `SetResponse[MailboxCreatedItem]` (not `SetResponse[Mailbox]`) | pass |

@@ -56,23 +56,30 @@ boundary where IO occurs. The six governing principles apply as follows:
 
 - **Functional Core, Imperative Shell** — Layer 4 IS the imperative
   shell. Within Layer 4, the design maximises the pure surface: pure
-  funcs (`validateLimits`, `checkGetLimit`, `checkSetLimit`,
-  `isSessionStale`, `classifyException`, `enforceBodySizeLimit`,
-  `sizeLimitExceeded`, `validationToClientError`,
-  `validationToClientErrorCtx`) are separated from the IO procs (`fetchSession`,
-  `send`, `refreshSessionIfStale`, `close`). `classifyHttpResponse`
-  composes pure classification rules around a single impure step
-  (`httpResp.body` lazy stream read) — it is impure but thin. The IO
-  procs are thin wrappers that compose pure transforms around a single
-  impure step (the HTTP request). Layers 1-3 below are pure by
+  funcs (`validateLimits`, `detectGetLimit`, `detectSetLimit`,
+  `detectMaxCalls`, `detectRequestLimits`, `detectClientConfig`,
+  `detectDomain`, `isSessionStale`, `resolveAgainstSession`,
+  `classifyException`, `enforceBodySizeLimit`, `sizeLimitExceeded`,
+  `validationToClientError`, `validationToClientErrorCtx`,
+  `serdeToMethodError`) are separated from the IO procs
+  (`fetchSession`, `send`, `refreshSessionIfStale`,
+  `sendRawHttpForTesting`, `close`). `classifyHttpResponse` composes
+  pure classification rules around a single impure step
+  (`httpResp.body` lazy stream read) plus a `var string` write-out
+  for raw-bytes capture — it is impure but thin. The IO procs are
+  thin wrappers that compose pure transforms around a single impure
+  step (the HTTP request). Layers 1-3 below are pure by
   convention — no IO, no global state mutation.
 - **Immutability by default** — `let` bindings throughout. `var` is used
   only for: (a) the `JmapClient` parameter in IO procs (`fetchSession`,
-  `send`, `refreshSessionIfStale`, `close`) and mutators
-  (`setBearerToken`, `setSessionForTest`); (b) local accumulators inside
-  pure funcs (e.g., `var count: int64 = 0` in `checkSetLimit`). No
-  module-level mutable state in Layer 4 — all mutable state lives inside
-  `JmapClient` objects owned by the caller.
+  `send`, `sendRawHttpForTesting`, `refreshSessionIfStale`, `close`)
+  and mutators (`setBearerToken`, `setSessionForTest`); (b) local
+  accumulators inside pure funcs (e.g., `var count: int64 = 0` in
+  `detectSetLimit`); (c) the `capturedBody: var string` parameter on
+  `classifyHttpResponse` that routes raw response bytes into
+  `client.lastRawResponseBody`. No module-level mutable state in
+  Layer 4 — all mutable state lives inside `JmapClient` objects owned
+  by the caller.
 - **DRY** — HTTP response classification logic (status codes, Content-Type
   checks, problem details detection, body size enforcement) is written
   once in shared helpers (`classifyHttpResponse`, `classifyException`,
@@ -156,8 +163,9 @@ compiler constraints and architectural decisions.
 | Module | What is used | Where | Rationale |
 |--------|-------------|-------|-----------|
 | `std/httpclient` | `HttpClient`, `newHttpClient`, `request`, `close`, `HttpMethod`, `newHttpHeaders` | `client.nim` | Decision 4.1A. Synchronous HTTP. The sole network IO dependency. |
-| `std/json` | `parseJson`, `$` (serialise `JsonNode` to string), `JsonNode`, `JObject`, `JArray`, `hasKey`, `{}` (nil-safe key access) | `client.nim` | JSON string parsing (`string -> JsonNode`) is the Layer 4 boundary that Layers 1-3 delegate upward. `$` serialises `Request.toJson()` to the HTTP body. `parseJson` is the reverse for responses. `JArray` used in `checkGetLimit` for ids array detection. `{}` used in `checkGetLimit`/`checkSetLimit` for nil-safe access to optional method arguments. |
-| `std/strutils` | `toLowerAscii`, `startsWith`, `endsWith`, `replace`, `contains`, `Whitespace` | `client.nim`, `errors.nim` | Content-Type case-insensitive matching, method name suffix detection in `validateLimits`, domain validation in `discoverJmapClient`, URI template expansion, TLS message heuristic. |
+| `std/json` | `parseJson`, `$` (serialise `JsonNode` to string), `JsonNode`, `JObject`, `JArray`, `hasKey`, `{}` (nil-safe key access) | `client.nim` | JSON string parsing (`string -> JsonNode`) is the Layer 4 boundary that Layers 1-3 delegate upward. `$` serialises `Request.toJson()` to the HTTP body. `parseJson` is the reverse for responses. `JArray` used in `detectGetLimit` for ids array detection. `{}` used in `detectGetLimit`/`detectSetLimit` for nil-safe access to optional method arguments. |
+| `std/uri` | `parseUri`, `combine` | `client.nim` | RFC 3986 §5 reference resolution in `resolveAgainstSession` — relative `apiUrl` values (e.g., Cyrus's `"/jmap/"`) are resolved against the absolute session URL. Absolute `apiUrl` values bypass `combine` entirely. |
+| `std/strutils` | `toLowerAscii`, `startsWith`, `endsWith`, `contains`, `Whitespace` | `client.nim`, `errors.nim` | Content-Type case-insensitive matching, method name suffix detection on `inv.rawName` in `detectRequestLimits`, domain validation in `detectDomain`, embedded-newline check in `detectSessionUrl`, TLS message heuristic. URI template expansion folds parsed parts (§7). |
 | `std/net` | `TimeoutError`, `SslError` (selective imports) | `errors.nim` | `TimeoutError` for timeout classification in `classifyException`. `SslError` (guarded by `when defined(ssl)`) for direct TLS error classification — `SslError` inherits `CatchableError` directly, not `OSError`, so it requires its own branch. |
 
 ### Modules evaluated and rejected
@@ -221,10 +229,16 @@ type JmapClient* = object
   ## ``close()`` on any copy closes it for all copies.
   httpClient: HttpClient          ## std/httpclient handle (ref, ARC-managed)
   sessionUrl: string              ## URL for the JMAP Session resource
-  bearerToken: string             ## Bearer token for Authorisation header
+  bearerToken: string             ## token attached to the Authorisation header
+  authScheme: string              ## auth scheme prefix (e.g. ``"Bearer"``, ``"Basic"``)
   session: Opt[Session]           ## Cached Session; populated on first fetch
   maxResponseBytes: int           ## Response body size cap (R9). 0 = no limit.
   userAgent: string               ## User-Agent header value
+  lastRawResponseBody: string     ## Raw bytes of the most recent HTTP
+                                  ## response body. Populated unconditionally
+                                  ## by ``send`` and ``fetchSession``;
+                                  ## consumed only by the test-only
+                                  ## ``mcapture.captureIfRequested`` helper.
 
 {.pop.}
 ```
@@ -255,6 +269,7 @@ no "partially constructed" state.
 proc initJmapClient*(
     sessionUrl: string,
     bearerToken: string,
+    authScheme: string = "Bearer",
     timeout: int = 30_000,
     maxRedirects: int = 5,
     maxResponseBytes: int = 50_000_000,
@@ -265,9 +280,13 @@ proc initJmapClient*(
   ## ``sessionUrl``: the JMAP Session resource URL. Must be non-empty,
   ##   start with "https://" or "http://", and contain no newline
   ##   characters (header injection prevention).
-  ## ``bearerToken``: the Bearer token for HTTP Authorisation. Must be
-  ##   non-empty. Attached as "Authorization: Bearer {token}" on every
-  ##   HTTP request.
+  ## ``bearerToken``: the credential attached to the Authorization header.
+  ##   Must be non-empty. Attached as ``"<authScheme> <bearerToken>"`` on
+  ##   every HTTP request.
+  ## ``authScheme``: the auth scheme prefix. Default ``"Bearer"`` per
+  ##   RFC 8620 §1.7. Set to ``"Basic"`` for legacy Cyrus deployments
+  ##   (or any other RFC 7235 scheme name) without rebuilding the
+  ##   credential header by hand.
   ## ``timeout``: per-socket-operation timeout in milliseconds. Default
   ##   30 000 (30 seconds). -1 disables the timeout. Must be >= -1.
   ## ``maxRedirects``: maximum HTTP redirects to follow automatically.
@@ -283,39 +302,104 @@ proc initJmapClient*(
   ## Returns err(ValidationError) if any parameter is invalid.
 ```
 
-**Validation rules:**
-
-1. `sessionUrl` must be non-empty.
-2. `sessionUrl` must start with `"https://"` or `"http://"`.
-3. `sessionUrl` must not contain newline characters (`\c`, `\L`) —
-   prevents header injection via `std/httpclient` which would trigger a
-   fatal `doAssert` crash.
-4. `bearerToken` must be non-empty.
-5. `timeout` must be >= -1.
-6. `maxRedirects` must be >= 0. (Safety-critical: `HttpClientBase.maxRedirects`
-   is typed `Natural` (`range[0..high(int)]`). Assigning a negative value
-   triggers `RangeDefect`, which under `--panics:on` aborts the process
-   immediately. This validation converts a fatal Defect into a recoverable
-   `ValidationError` on the error rail.)
-7. `maxResponseBytes` must be >= 0.
-
-On violation, returns `err(validationError("JmapClient", ...))`.
-
-**HttpClient construction:** The constructor creates the internal
-`HttpClient` via `{.cast(raises: [CatchableError]).}` + `try/except` to
-remain compatible with `{.push raises: [].}`:
+**Validation as a sum-type ADT.** Parameter checks are expressed as a
+private sum type `JmapClientViolation` (functional-core pattern 1 — sum
+type for internal classification). Detection lives in single-purpose
+`detect*` funcs returning `Result[void, JmapClientViolation]`; a single
+boundary function `toValidationError(JmapClientViolation)` translates
+to the wire `ValidationError` shape (functional-core pattern 5 —
+translation at the boundary). Adding a new failure mode is a compile
+error in exactly one place.
 
 ```nim
+type JmapClientViolationKind = enum
+  jcvEmptySessionUrl
+  jcvSessionUrlBadScheme
+  jcvSessionUrlControlChar
+  jcvEmptyBearerToken
+  jcvTimeoutTooLow
+  jcvMaxRedirectsNegative
+  jcvMaxResponseBytesNegative
+  jcvHttpHeadersInitFailed
+  jcvHttpClientInitFailed
+  jcvEmptyDomain
+  jcvDomainWhitespace
+  jcvDomainSlash
+
+type JmapClientViolation {.ruleOff: "objects".} = object
+  case kind: JmapClientViolationKind
+  of jcvEmptySessionUrl, jcvEmptyBearerToken, jcvEmptyDomain,
+      jcvHttpHeadersInitFailed, jcvHttpClientInitFailed:
+    discard
+  of jcvSessionUrlBadScheme, jcvSessionUrlControlChar:
+    sessionUrl: string
+  of jcvTimeoutTooLow:
+    timeout: int
+  of jcvMaxRedirectsNegative:
+    maxRedirects: int
+  of jcvMaxResponseBytesNegative:
+    maxResponseBytes: int
+  of jcvDomainWhitespace, jcvDomainSlash:
+    domain: string
+
+func toValidationError(v: JmapClientViolation): ValidationError
+```
+
+The detector composition `detectClientConfig` chains the five config
+detectors with `?` for first-error short-circuit reporting:
+
+```nim
+func detectClientConfig(
+    sessionUrl, bearerToken: string,
+    timeout, maxRedirects, maxResponseBytes: int,
+): Result[void, JmapClientViolation] =
+  ?detectSessionUrl(sessionUrl)
+  ?detectBearerToken(bearerToken)
+  ?detectTimeout(timeout)
+  ?detectMaxRedirects(maxRedirects)
+  ?detectMaxResponseBytes(maxResponseBytes)
+  ok()
+```
+
+**Validation rules** (one detector per rule):
+
+1. `detectSessionUrl` — non-empty; starts with `"https://"` or
+   `"http://"`; no embedded `\c`/`\L` (preventing header injection that
+   would trip a fatal `doAssert` inside `std/httpclient`).
+2. `detectBearerToken` — non-empty.
+3. `detectTimeout` — must be ≥ -1.
+4. `detectMaxRedirects` — must be ≥ 0. Safety-critical:
+   `HttpClientBase.maxRedirects` is typed `Natural`
+   (`range[0..high(int)]`); assigning a negative value triggers
+   `RangeDefect`, which under `--panics:on` aborts the process
+   immediately. This detector converts a fatal Defect into a
+   recoverable `ValidationError`.
+5. `detectMaxResponseBytes` — must be ≥ 0.
+
+`detectDomain` (used by `discoverJmapClient`, see §1.3) covers the
+remaining three `jcvDomain*` variants. Stdlib-construction failures
+(`jcvHttpHeadersInitFailed`, `jcvHttpClientInitFailed`) are emitted by
+the constructor itself when `newHttpHeaders` / `newHttpClient` raise.
+
+**Constructor body.** Detection runs first; on any violation the
+single boundary translator produces the `ValidationError`.
+`HttpClient` construction is wrapped in `{.cast(raises:
+[CatchableError]).}` + `try/except` for `{.push raises: [].}`
+compatibility.
+
+```nim
+detectClientConfig(sessionUrl, bearerToken, timeout, maxRedirects, maxResponseBytes).isOkOr:
+  return err(toValidationError(error))
 let headers =
   try:
     {.cast(raises: [CatchableError]).}:
       newHttpHeaders({
-        "Authorization": "Bearer " & bearerToken,
+        "Authorization": authScheme & " " & bearerToken,
         "Content-Type": "application/json",
         "Accept": "application/json",
       })
   except CatchableError:
-    return err(validationError("JmapClient", "failed to create HTTP headers", ""))
+    return err(toValidationError(JmapClientViolation(kind: jcvHttpHeadersInitFailed)))
 let httpClient =
   try:
     {.cast(raises: [CatchableError]).}:
@@ -326,14 +410,16 @@ let httpClient =
         headers = headers,
       )
   except CatchableError:
-    return err(validationError("JmapClient", "failed to create HTTP client", ""))
+    return err(toValidationError(JmapClientViolation(kind: jcvHttpClientInitFailed)))
 ok(JmapClient(
   httpClient: httpClient,
   sessionUrl: sessionUrl,
   bearerToken: bearerToken,
+  authScheme: authScheme,
   session: Opt.none(Session),
   maxResponseBytes: maxResponseBytes,
   userAgent: userAgent,
+  lastRawResponseBody: "",
 ))
 ```
 
@@ -351,6 +437,7 @@ lazily on the first `send()` call, or eagerly via explicit
 proc discoverJmapClient*(
     domain: string,
     bearerToken: string,
+    authScheme: string = "Bearer",
     timeout: int = 30_000,
     maxRedirects: int = 5,
     maxResponseBytes: int = 50_000_000,
@@ -367,16 +454,30 @@ proc discoverJmapClient*(
   ## Returns err(ValidationError) if domain or bearerToken are invalid.
 ```
 
-**Domain validation (parse, don't validate):**
+**Domain validation.** A single detector `detectDomain` covers the
+three domain-shape failure modes via the same `JmapClientViolation`
+ADT (§1.2). Each rule maps to a distinct `jcvDomain*` variant:
 
-1. `domain` must be non-empty.
-2. `domain` must not contain whitespace (prevents header injection).
-   Checked character-by-character against `strutils.Whitespace`.
-3. `domain` must not contain `"/"` (prevents path injection).
+1. Empty domain → `jcvEmptyDomain`.
+2. Domain contains a `strutils.Whitespace` character (prevents header
+   injection) → `jcvDomainWhitespace`.
+3. Domain contains `'/'` (prevents path injection) → `jcvDomainSlash`.
 
-On passing validation, constructs
+```nim
+func detectDomain(domain: string): Result[void, JmapClientViolation] =
+  if domain.len == 0:
+    return err(JmapClientViolation(kind: jcvEmptyDomain))
+  for c in domain:
+    if c in Whitespace:
+      return err(JmapClientViolation(kind: jcvDomainWhitespace, domain: domain))
+  if '/' in domain:
+    return err(JmapClientViolation(kind: jcvDomainSlash, domain: domain))
+  ok()
+```
+
+On passing validation, the constructor synthesises
 `"https://" & domain & "/.well-known/jmap"` and delegates to
-`initJmapClient`.
+`initJmapClient` — the rest of the parameter validation runs there.
 
 **Decision D4.3: No DNS SRV.** Per architecture §4.2. No reference
 JMAP client implements DNS SRV. `.well-known` covers all practical
@@ -388,10 +489,15 @@ deployments.
 func session*(client: JmapClient): Opt[Session]
 func sessionUrl*(client: JmapClient): string
 func bearerToken*(client: JmapClient): string
+func authScheme*(client: JmapClient): string
+func lastRawResponseBody*(client: JmapClient): string
 ```
 
 These return immutable copies. The caller cannot mutate the client's
-internal state through these accessors.
+internal state through these accessors. `lastRawResponseBody` is the
+test-only reach-in for `mcapture.captureIfRequested` — production
+callers should consume the typed `Response` returned by `send`. It is
+empty before the first `send` or `fetchSession` call.
 
 ### 1.5 Mutators
 
@@ -400,7 +506,9 @@ proc setBearerToken*(
     client: var JmapClient, token: string
 ): Result[void, ValidationError] =
   ## Updates the bearer token. Subsequent requests use the new token.
-  ## Also updates the Authorization header on the underlying HttpClient.
+  ## Also updates the Authorization header on the underlying HttpClient
+  ## using the client's stored ``authScheme`` (so the scheme prefix
+  ## chosen at construction is preserved verbatim across rotations).
   ##
   ## Returns err(ValidationError) if token is empty.
 
@@ -417,12 +525,29 @@ proc close*(client: var JmapClient) =
   ## from ``HttpClient.close()``'s missing raises annotation.
 ```
 
-### 1.6 Test Helper
+### 1.6 Test-Only Surface
+
+Two procs exist solely to support live integration tests:
 
 ```nim
 proc setSessionForTest*(client: var JmapClient, session: Session) =
   ## Injects a cached session for testing purposes. Enables pure tests
   ## of ``isSessionStale`` without requiring network IO.
+
+proc sendRawHttpForTesting*(
+    client: var JmapClient, body: string
+): JmapResult[envelope.Response] {.used.}
+  ## Test-only escape hatch — POSTs ``body`` verbatim to the cached
+  ## session's ``apiUrl``. Bypasses ``Request.toJson`` and the
+  ## pre-flight ``validateLimits`` check so adversarial wire shapes
+  ## (oversized bodies, hand-crafted invocations, malformed JSON)
+  ## reach the server without being rejected client-side. The
+  ## response still flows through ``classifyHttpResponse`` so HTTP-
+  ## error classification, RFC 7807 problem-details detection, and
+  ## ``lastRawResponseBody`` capture are identical to ``send``. The
+  ## ``ForTesting`` suffix and ``{.used.}`` pragma make the test-only
+  ## intent visible at every call site and silence nimalyzer's
+  ## unused-export rule when no test file references it yet.
 ```
 
 ---
@@ -477,21 +602,22 @@ func classifyException*(e: ref CatchableError): ClientError =
   ##                            HttpRequestError, redirect exhaustion)
   ## - ValueError             -> tekNetwork (e.g., unparseable URL)
   ## - Other CatchableError   -> tekNetwork (defensive catch-all)
-  var te: TransportError
-  if e of ref TimeoutError:
-    te = transportError(tekTimeout, e.msg)
-  elif (when defined(ssl): e of ref SslError else: false):
-    te = transportError(tekTls, e.msg)
-  elif e of ref OSError:
-    te =
-      if isTlsRelatedMsg(e.msg): transportError(tekTls, e.msg)
-      else: transportError(tekNetwork, e.msg)
-  elif e of ref IOError:
-    te = transportError(tekNetwork, e.msg)
-  elif e of ref ValueError:
-    te = transportError(tekNetwork, "protocol error: " & e.msg)
-  else:
-    te = transportError(tekNetwork, "unexpected error: " & e.msg)
+  let te =
+    if e of ref TimeoutError:
+      transportError(tekTimeout, e.msg)
+    elif (when defined(ssl): e of ref SslError else: false):
+      transportError(tekTls, e.msg)
+    elif e of ref OSError:
+      if isTlsRelatedMsg(e.msg):
+        transportError(tekTls, e.msg)
+      else:
+        transportError(tekNetwork, e.msg)
+    elif e of ref IOError:
+      transportError(tekNetwork, e.msg)
+    elif e of ref ValueError:
+      transportError(tekNetwork, "protocol error: " & e.msg)
+    else:
+      transportError(tekNetwork, "unexpected error: " & e.msg)
   clientError(te)
 ```
 
@@ -617,21 +743,29 @@ proc tryParseProblemDetails(body: string): Opt[ClientError] =
 ### 2.7 HTTP Response Classification (client.nim)
 
 The classification logic for HTTP responses. The IO procs
-(`fetchSession`, `send`) call `std/httpclient.request` and pass the
-result to this proc. Note: this proc is NOT pure — `httpResp.body`
-lazily reads from `bodyStream` on first access.
+(`fetchSession`, `send`, `sendRawHttpForTesting`) call
+`std/httpclient.request` and pass the result to this proc, along with
+a `var string` slot into which the raw body bytes are written so that
+fixture-capture tests can persist them without losing byte fidelity.
+This proc is NOT pure — `httpResp.body` lazily reads from
+`bodyStream` on first access.
 
 ```nim
 proc classifyHttpResponse(
     maxResponseBytes: int,
     httpResp: httpclient.Response,
     context: RequestContext,
+    capturedBody: var string,
 ): JmapResult[JsonNode] =
   ## Classifies an HTTP response and parses the JSON body. Returns the
   ## parsed ``JsonNode`` on the ok rail on 2xx with correct Content-Type.
   ## Returns err otherwise.
   ##
   ## ``context``: ``rcSession`` or ``rcApi`` — used in error messages.
+  ## ``capturedBody``: write-only sink for the raw body bytes. Populated
+  ##   immediately after ``httpResp.body`` is read (before any 4xx/5xx
+  ##   classification), so any subsequent return path leaves the bytes
+  ##   intact for ``mcapture.captureIfRequested`` to persist.
   ##
   ## Classification table (total — every status code range handled):
   ##   2xx + application/json       -> ok(JsonNode)
@@ -640,10 +774,9 @@ proc classifyHttpResponse(
   ##   4xx/5xx + no problem details -> err(tekHttpStatus)
   ##   Other non-2xx (1xx/3xx)      -> err(tekHttpStatus)
   ##
-  ## Note: despite operating on an already-received ``httpclient.Response``,
-  ## this proc is NOT pure. ``httpResp.body`` lazily reads from
-  ## ``bodyStream.readAll()`` on first access (IO), and ``httpResp.code``
-  ## parses the status string and can raise.
+  ## Note: ``httpResp.body`` lazily reads from ``bodyStream.readAll()``
+  ## on first access (IO), and ``httpResp.code`` parses the status
+  ## string and can raise.
   let code =
     try:
       {.cast(raises: [CatchableError]).}:
@@ -662,6 +795,7 @@ proc classifyHttpResponse(
         httpResp.body  # lazy: reads bodyStream on first access
     except CatchableError:
       return err(clientError(transportError(tekNetwork, "failed to read body")))
+  capturedBody = body
 
   # Phase 2 body size enforcement (R9) — reject after reading body
   ?enforceBodySizeLimit(maxResponseBytes, body, context)
@@ -726,8 +860,10 @@ proc parseJsonBody(
 ### 2.9 Validation-to-Client Error Bridge (errors.nim, Pure)
 
 DRY helpers that map `ValidationError` (the construction railway) to
-`ClientError` (the outer railway). Used by `fetchSession` and `send`
-via `mapErr` when Layer 2 deserialisation returns `err(ValidationError)`.
+`ClientError` (the outer railway). Used by `validateLimits` (which
+returns `Result[void, ValidationError]`), and by `fetchSession`/`send`
+after `toValidationError(sv, ...)` has collapsed a Layer 2
+`SerdeViolation` to the wire `ValidationError` shape.
 
 ```nim
 func validationToClientError*(ve: ValidationError): ClientError =
@@ -741,8 +877,6 @@ func validationToClientErrorCtx*(ve: ValidationError, context: string): ClientEr
   clientError(transportError(tekNetwork, context & ve.message))
 ```
 
-`validationToClientError` replaces inline closures like
-`proc(ve: ValidationError): ClientError = clientError(transportError(tekNetwork, ve.message))`.
 `validationToClientErrorCtx` adds a prefix (e.g., `"invalid session: "`,
 `"invalid response: "`) for contextual error messages.
 
@@ -761,10 +895,13 @@ proc fetchSession*(client: var JmapClient): JmapResult[Session] =
   ##
   ## This is the sole IO proc for session management. It composes:
   ## 1. IO: HTTP GET to sessionUrl (impure — the shell).
-  ## 2. Classify: classifyHttpResponse (status, content-type, body size).
+  ## 2. Classify: classifyHttpResponse (status, content-type, body size;
+  ##    raw bytes captured into client.lastRawResponseBody).
   ## 3. Parse: parseJsonBody embedded in classifyHttpResponse.
-  ## 4. Deserialise: Session.fromJson (JsonNode -> Session via Layer 2).
-  ## 5. Map err: ValidationError mapped to ClientError via mapErr.
+  ## 4. Deserialise: Session.fromJson -> Result[Session, SerdeViolation].
+  ## 5. Map err: SerdeViolation -> ValidationError -> ClientError via
+  ##    a two-stage mapErr (toValidationError(sv, "Session") then
+  ##    validationToClientErrorCtx(_, "invalid session: ")).
   ## 6. Cache: store the Session on the client.
   ##
   ## Re-fetching: calling fetchSession() replaces the cached session.
@@ -774,14 +911,18 @@ proc fetchSession*(client: var JmapClient): JmapResult[Session] =
   ## problem details, or structurally invalid session JSON.
 ```
 
-**Decision D4.6: ValidationError mapping.** When `Session.fromJson`
-returns `err(ValidationError)` (e.g., missing `ckCore`, invalid
-`apiUrl`), the error is mapped to `ClientError` via `mapErr` — wrapping
-it in a `TransportError(tekNetwork)` with the validation message. This
-keeps the outer railway uniform: `JmapResult[Session]` always carries
-`ClientError` on the error rail. The HTTP round-trip succeeded but the
-server's response content violates the Session schema — classified as a
-transport-level protocol error.
+**Decision D4.6: Serde violation mapping.** Layer 2 deserialisation
+returns `Result[T, SerdeViolation]` — the structured serde error type
+(`serde.SerdeViolation`) carries an RFC 6901 path plus a kind-tagged
+payload. `fetchSession` chains two translators via `mapErr`:
+`toValidationError(sv, "Session")` collapses the `SerdeViolation` to a
+wire `ValidationError` (sole serde→validation boundary), then
+`validationToClientErrorCtx(ve, "invalid session: ")` lifts it onto
+the outer railway with the context prefix. The HTTP round-trip
+succeeded but the server's response content violates the Session
+schema — classified as `tekNetwork` (transport-level protocol error).
+This keeps `JmapResult[Session]` uniform: `ClientError` is always the
+error rail at Layer 4.
 
 ### 3.2 fetchSession Algorithm
 
@@ -796,14 +937,17 @@ proc fetchSession*(client: var JmapClient): JmapResult[Session] =
     except CatchableError as e:
       return err(classifyException(e))
 
-  # Step 2-3: Classification + JSON parse (§2.7, §2.8)
+  # Step 2-3: Classification + JSON parse (§2.7, §2.8). The raw bytes
+  # land in client.lastRawResponseBody for fixture capture.
   let jsonNode = ?classifyHttpResponse(
-    client.maxResponseBytes, httpResp, rcSession)
+    client.maxResponseBytes, httpResp, rcSession, client.lastRawResponseBody)
 
-  # Step 4-5: Deserialisation + error mapping
+  # Step 4-5: Deserialisation + two-stage error mapping
   let session = Session.fromJson(jsonNode).mapErr(
-      proc(ve: ValidationError): ClientError =
-        validationToClientErrorCtx(ve, "invalid session: ")
+      proc(sv: SerdeViolation): ClientError =
+        validationToClientErrorCtx(
+          toValidationError(sv, "Session"), "invalid session: "
+        )
     )
   let s = ?session
 
@@ -844,11 +988,19 @@ proc send*(client: var JmapClient, request: Request): JmapResult[envelope.Respon
 ```nim
 if client.session.isNone:
   discard ?client.fetchSession()
-let session = client.session.get()
+let sessionOpt = client.session
+let session = sessionOpt.valueOr:
+  return err(clientError(transportError(
+    tekNetwork, "session unavailable after fetchSession succeeded")))
 let coreCaps = session.coreCapabilities()
 ```
 
-If `fetchSession` returns err, the `?` operator propagates it.
+If `fetchSession` returns err, the `?` operator propagates it. The
+let-bind into an immutable `sessionOpt` picks the non-`var` `valueOr`
+overload; under `--mm:arc`/`--panics:on`, `.get()` on an `Opt` would
+route through `withAssertOk`, raising `ResultDefect` and triggering
+`rawQuit(1)` with no unwinding — catastrophic at the FFI boundary. The
+`valueOr:` block produces a defined error path instead.
 
 **Step 2: Pre-flight validation (R13).**
 
@@ -878,13 +1030,15 @@ the API endpoint."
 which is only available after `Request.toJson()` is converted to bytes.
 This is a Layer 4 concern."
 
+The check uses the `RequestLimitViolation` ADT (§5) so the wire message
+shape matches the in-process `validateLimits` violations:
+
 ```nim
 let maxSize = int64(coreCaps.maxSizeRequest)
 if body.len > int(maxSize):
-  let ve = validationError("Request",
-    "serialised request size " & $body.len &
-    " octets exceeds server maxSizeRequest " & $maxSize, "")
-  return err(clientError(transportError(tekNetwork, ve.message)))
+  let ve = toValidationError(RequestLimitViolation(
+    kind: rlvMaxSizeRequest, actualSize: body.len, maxSize: maxSize))
+  return err(validationToClientError(ve))
 ```
 
 **Step 5: IO boundary — HTTP POST.**
@@ -895,7 +1049,7 @@ let httpResp =
     {.warning[Uninit]: off.}
     {.cast(raises: [CatchableError]).}:
       client.httpClient.request(
-        session.apiUrl,
+        resolveAgainstSession(client.sessionUrl, session.apiUrl),
         httpMethod = HttpPost,
         body = body)
   except CatchableError as e:
@@ -903,15 +1057,23 @@ let httpResp =
 ```
 
 Headers are set on `client.httpClient.headers` from construction.
+`resolveAgainstSession` (a private helper) performs RFC 3986 §5
+resolution of `session.apiUrl` against `client.sessionUrl`: when
+`apiUrl` carries a scheme it is returned unchanged, otherwise
+`std/uri.combine(parseUri(sessionUrl), parseUri(apiUrl))` resolves the
+relative reference. Cyrus 3.12.2 (`imap/jmap_api.c`) emits relative
+references like `"/jmap/"`; RFC 8620 §2 does not explicitly mandate
+absolute form, so the client is Postel-tolerant on receive.
 
 **Step 6: Classify HTTP response and parse JSON.**
 
 ```nim
 let respJson = ?classifyHttpResponse(
-  client.maxResponseBytes, httpResp, rcApi)
+  client.maxResponseBytes, httpResp, rcApi, client.lastRawResponseBody)
 ```
 
-Reuses the shared helper from §2.7 (DRY). Returns `JmapResult[JsonNode]`.
+Reuses the shared helper from §2.7 (DRY). Raw body bytes are written
+to `client.lastRawResponseBody` for fixture-capture tests.
 
 **Decision D4.7: `JsonParsingError` classification.** Classified as
 `tekNetwork`, not `tekHttpStatus`. The HTTP transport succeeded but the
@@ -931,7 +1093,7 @@ if respJson.kind == JObject and respJson.hasKey("type") and
     return err(clientError(reqErr))
 ```
 
-Uses `optValue` to bridge `Result[RequestError, ValidationError]` to
+Uses `optValue` to bridge `Result[RequestError, _]` to
 `Opt[RequestError]` (discards error details), then the `for val in opt:`
 idiom for conditional consumption.
 
@@ -943,22 +1105,25 @@ required). Alternative considered: check Content-Type for
 `application/problem+json` — rejected because many servers return
 problem details with `application/json` Content-Type.
 
-**Note:** Step 7 is intentionally unassigned. The implementation
-comment numbering skips from step 6 to step 8 — an artefact of an
-intermediate revision that removed a step. The numbering is preserved
-to avoid churn in cross-references.
+**Note:** The step numbering deliberately skips step 7 — Steps 1-6
+cover everything from session resolution through HTTP classification;
+Step 8 picks up at the first transformation of the parsed JSON.
 
 **Step 9: Deserialise as JMAP Response.**
 
 ```nim
 envelope.Response.fromJson(respJson).mapErr(
-  proc(ve: ValidationError): ClientError =
-    validationToClientErrorCtx(ve, "invalid response: ")
+  proc(sv: SerdeViolation): ClientError =
+    validationToClientErrorCtx(
+      toValidationError(sv, "Response"), "invalid response: "
+    )
 )
 ```
 
-`ValidationError` from Layer 2 is mapped to `ClientError` via
-`mapErr` using the DRY bridge function (§2.9).
+`SerdeViolation` from Layer 2 is collapsed to a wire `ValidationError`
+via `toValidationError(sv, "Response")`, then lifted onto the outer
+railway via the DRY bridge function (§2.9) — mirroring the
+`fetchSession` two-stage mapping.
 
 ### 4.3 Convenience Overloads
 
@@ -991,8 +1156,11 @@ core API surface in `builder.nim` and `dispatch.nim` frozen while
 providing ergonomic patterns for common JMAP workflows (Decision D4.14).
 
 **Naming convention.** Pipeline combinators use the `add*` prefix
-(following the builder mutation convention). Paired extraction uses
-`getBoth` (always exactly two handles).
+(following the builder threading convention) and return
+`(RequestBuilder, <Handles>)` tuples — mirroring the per-method
+`addQuery`/`addGet`/`addChanges` shape from `builder.nim`. The builder
+flows through the combinator immutably; no `var` mutation. Paired
+extraction uses `getBoth` (always exactly two handles).
 
 Types and combinators:
 
@@ -1003,16 +1171,21 @@ type QueryGetHandles*[T] = object
   get*: ResponseHandle[GetResponse[T]]
 
 template addQueryThenGet*[T](
-    b: var RequestBuilder, accountId: AccountId
-): QueryGetHandles[T]
+    b: RequestBuilder, accountId: AccountId
+): (RequestBuilder, QueryGetHandles[T])
   ## Adds Foo/query + Foo/get with automatic result reference wiring.
   ## The get's ``ids`` parameter references the query's ``/ids`` path.
   ##
+  ## Implemented as a template so filter and sort type defaults
+  ## resolve at the caller's instantiation site (the underlying
+  ## ``addQuery[T]`` template performs that resolution via
+  ## ``filterType(T)`` and ``Comparator``).
+  ##
   ## Implicit decisions:
-  ## - Reference path is always ``/ids`` (RefPathIds)
+  ## - Reference path is always ``/ids`` (``rpIds``)
   ## - Both calls use the same ``accountId`` (no cross-account)
   ## - No filter, sort, or properties constraints applied
-  ## - Response method name derived from ``methodNamespace(T)``
+  ## - Response method name derived from ``queryMethodName(T)``
 
 type ChangesGetHandles*[T] = object
   ## Paired phantom-typed handles from a changes-then-get pipeline.
@@ -1020,22 +1193,26 @@ type ChangesGetHandles*[T] = object
   get*: ResponseHandle[GetResponse[T]]
 
 func addChangesToGet*[T](
-    b: var RequestBuilder,
+    b: RequestBuilder,
     accountId: AccountId,
     sinceState: JmapState,
     maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges),
     properties: Opt[seq[string]] = Opt.none(seq[string]),
-): ChangesGetHandles[T]
+): (RequestBuilder, ChangesGetHandles[T])
   ## Adds Foo/changes + Foo/get with automatic result reference from
   ## ``/created``. Only newly created IDs are fetched — for updated IDs,
-  ## use the core API with ``updatedRef``.
+  ## use the core API with ``updatedRef``. Internally calls
+  ## ``addChanges[T, ChangesResponse[T]]`` rather than
+  ## ``changesResponseType(T)``: ``createdRef`` is defined only over
+  ## ``ResponseHandle[ChangesResponse[T]]`` because its contract is the
+  ## RFC 8620 §5.2 ``/created`` field, not any entity-specific extension.
 
 type QueryGetResults*[T] = object
   ## Paired extraction results from a query-then-get pipeline.
   query*: QueryResponse[T]
   get*: GetResponse[T]
 
-proc getBoth*[T](
+func getBoth*[T](
     resp: Response, handles: QueryGetHandles[T]
 ): Result[QueryGetResults[T], MethodError]
   ## Extracts both query and get responses, failing on the first error.
@@ -1046,37 +1223,78 @@ type ChangesGetResults*[T] = object
   changes*: ChangesResponse[T]
   get*: GetResponse[T]
 
-proc getBoth*[T](
+func getBoth*[T](
     resp: Response, handles: ChangesGetHandles[T]
 ): Result[ChangesGetResults[T], MethodError]
   ## Extracts both changes and get responses, failing on the first error.
 ```
 
 For queries with filters, sorting, or properties constraints, use the
-core builder API directly (`addQuery[T, C]` + `idsRef` + `addGet[T]`).
+core builder API directly (`addQuery[T, C, S]` + `idsRef` + `addGet[T]`).
 
 ---
 
-## 5. Pre-Flight Validation (Deferred Decision R13)
+## 5. Pre-Flight Validation
 
-**L3 reference:** §16 — "Session Limit Pre-Flight Validation". Status
-changed from "deferred" to "resolved" by this document.
+**L3 reference:** §16 — "Session Limit Pre-Flight Validation".
 
 **RFC reference:** §2 (CoreCapabilities), §3.6.1 (limit error), §5.1
 (`requestTooLarge` for /get), §5.3 (`requestTooLarge` for /set).
 
 **Principle: total function.** `validateLimits` handles all inputs —
 unknown method names are silently skipped (only `/get` and `/set`
-suffixes are checked). Reference arguments are documented as
+suffixes are checked, dispatched on the wire-form `inv.rawName`).
+Reference arguments (`{"resultOf": ...}`-shaped values) are
 uncountable and explicitly skipped.
 
-### 5.1 Per-Invocation Helpers (Pure)
+### 5.1 Limit Violation ADT
 
-Extracted to keep `validateLimits` within the nimalyzer complexity
-limit and improve testability.
+Limit checks share a private sum type — functional-core pattern 1
+(named ADT for internal classification) plus pattern 5 (single
+boundary translator to the wire shape). Adding a new limit kind is a
+compile error in exactly one place.
 
 ```nim
-func checkGetLimit(inv: Invocation, maxGet: int64): Result[void, ValidationError] =
+type RequestLimitViolationKind = enum
+  rlvMaxCallsInRequest
+  rlvMaxObjectsInGet
+  rlvMaxObjectsInSet
+  rlvMaxSizeRequest
+
+type RequestLimitViolation {.ruleOff: "objects".} = object
+  case kind: RequestLimitViolationKind
+  of rlvMaxCallsInRequest:
+    actualCalls: int64
+    maxCalls: int64
+  of rlvMaxObjectsInGet:
+    getMethodName: string
+    actualGetIds: int
+    maxGet: int64
+  of rlvMaxObjectsInSet:
+    setMethodName: string
+    actualSetObjects: int64
+    maxSet: int64
+  of rlvMaxSizeRequest:
+    actualSize: int
+    maxSize: int64
+
+func toValidationError(v: RequestLimitViolation): ValidationError
+  ## Sole domain-to-wire translator for ``RequestLimitViolation``.
+```
+
+`rlvMaxSizeRequest` is the same ADT variant used by `send` step 4
+(§4.2) for the post-serialisation size check — keeping the wire
+message shape uniform across the in-process and serialised checks.
+
+### 5.2 Per-Invocation Detectors (Pure)
+
+Three single-purpose detectors, each returning `Result[void,
+RequestLimitViolation]`:
+
+```nim
+func detectGetLimit(
+    inv: Invocation, maxGet: int64
+): Result[void, RequestLimitViolation] =
   ## Checks a /get invocation's direct ids count against maxObjectsInGet.
   ## Reference ids (JObject) and absent/null ids are silently skipped.
   if inv.arguments.isNil:
@@ -1084,43 +1302,59 @@ func checkGetLimit(inv: Invocation, maxGet: int64): Result[void, ValidationError
   let idsNode = inv.arguments{"ids"}
   if not idsNode.isNil and idsNode.kind == JArray:
     if int64(idsNode.len) > maxGet:
-      return err(validationError("Request",
-        inv.name & ": ids count " & $idsNode.len &
-        " exceeds maxObjectsInGet " & $maxGet, ""))
+      return err(RequestLimitViolation(
+        kind: rlvMaxObjectsInGet,
+        getMethodName: inv.rawName,
+        actualGetIds: idsNode.len,
+        maxGet: maxGet))
   ok()
 
-func checkSetLimit(inv: Invocation, maxSet: int64): Result[void, ValidationError] =
+func detectSetLimit(
+    inv: Invocation, maxSet: int64
+): Result[void, RequestLimitViolation] =
   ## Checks a /set invocation's combined create + update + destroy count
-  ## against maxObjectsInSet. Reference destroy (JObject) is silently skipped.
-  if inv.arguments.isNil:
-    return ok()
-  var count: int64 = 0
-  let createNode = inv.arguments{"create"}
-  if not createNode.isNil and createNode.kind == JObject:
-    count += int64(createNode.len)
-  let updateNode = inv.arguments{"update"}
-  if not updateNode.isNil and updateNode.kind == JObject:
-    count += int64(updateNode.len)
-  let destroyNode = inv.arguments{"destroy"}
-  if not destroyNode.isNil and destroyNode.kind == JArray:
-    count += int64(destroyNode.len)
-  if count > maxSet:
-    return err(validationError("Request",
-      inv.name & ": object count " & $count &
-      " exceeds maxObjectsInSet " & $maxSet, ""))
+  ## against maxObjectsInSet. Reference destroy (JObject) is silently
+  ## skipped.
+  ## (counts create JObject, update JObject, destroy JArray entries)
+
+func detectMaxCalls(
+    request: Request, maxCalls: int64
+): Result[void, RequestLimitViolation] =
+  ## Total method-call count (top-level only — batching across HTTP
+  ## requests is a separate concern) against maxCallsInRequest.
+```
+
+The composition `detectRequestLimits` chains the three detectors with
+`?` for first-error short-circuit reporting. Per-invocation dispatch
+matches the wire-form name (`inv.rawName`) — `inv.name` returns the
+parsed `MethodName` enum, which has no `endsWith` and would lose
+unrecognised method names to `mnUnknown`.
+
+```nim
+func detectRequestLimits(
+    request: Request, caps: CoreCapabilities
+): Result[void, RequestLimitViolation] =
+  ?detectMaxCalls(request, int64(caps.maxCallsInRequest))
+  let maxGet = int64(caps.maxObjectsInGet)
+  let maxSet = int64(caps.maxObjectsInSet)
+  for inv in request.methodCalls:
+    if inv.rawName.endsWith("/get"):
+      ?detectGetLimit(inv, maxGet)
+    elif inv.rawName.endsWith("/set"):
+      ?detectSetLimit(inv, maxSet)
   ok()
 ```
 
-### 5.2 validateLimits Procedure Signature
+### 5.3 validateLimits Public Surface
 
 ```nim
 func validateLimits*(
     request: Request, caps: CoreCapabilities
 ): Result[void, ValidationError] =
   ## Pre-flight validation of a built Request against server-advertised
-  ## CoreCapabilities limits. Pure — no IO, no mutation.
-  ##
-  ## Returns err describing the first violation.
+  ## CoreCapabilities limits. Pure — no IO, no mutation. Returns err
+  ## describing the first violation, projected to the wire
+  ## ``ValidationError`` shape.
   ##
   ## Checks:
   ## - len(request.methodCalls) <= maxCallsInRequest
@@ -1129,39 +1363,22 @@ func validateLimits*(
   ## - Per /set call: create + update + direct destroy <= maxObjectsInSet
   ##   (skipped for reference destroy, absent arguments)
   ##
-  ## NOT checked (handled separately):
-  ## - maxSizeRequest (requires serialised bytes — ``send`` step 4)
+  ## NOT checked here (handled separately):
+  ## - maxSizeRequest (requires serialised bytes — ``send`` step 4
+  ##   uses ``rlvMaxSizeRequest`` from the same ADT)
   ## - maxConcurrentRequests (transport-level concurrency)
   ## - Read-only account prevention (requires Session context)
-```
-
-**Decision D4.9: Module placement.** `validateLimits` lives in
-`client.nim` alongside `send`. Called exclusively by `send`. No circular
-dependency (depends only on `Request` and `CoreCapabilities`, both
-Layer 1 types).
-
-### 5.3 Algorithm
-
-```nim
-func validateLimits*(
-    request: Request, caps: CoreCapabilities
-): Result[void, ValidationError] =
-  let maxCalls = int64(caps.maxCallsInRequest)
-  if int64(request.methodCalls.len) > maxCalls:
-    return err(validationError("Request",
-      "method call count " & $request.methodCalls.len &
-      " exceeds maxCallsInRequest " & $maxCalls, ""))
-
-  let maxGet = int64(caps.maxObjectsInGet)
-  let maxSet = int64(caps.maxObjectsInSet)
-
-  for inv in request.methodCalls:
-    if inv.name.endsWith("/get"):
-      ?checkGetLimit(inv, maxGet)
-    elif inv.name.endsWith("/set"):
-      ?checkSetLimit(inv, maxSet)
+  detectRequestLimits(request, caps).isOkOr:
+    return err(toValidationError(error))
   ok()
 ```
+
+**Decision D4.9: Module placement.** The `RequestLimitViolation` ADT,
+its detectors, and `validateLimits` live in `client.nim` alongside
+`send`. Called exclusively by `send` (and the post-serialisation
+size check, which constructs an `rlvMaxSizeRequest` directly). No
+circular dependency (depends only on `Request` and
+`CoreCapabilities`, both Layer 1 types).
 
 ---
 
@@ -1214,33 +1431,68 @@ composable tools (`isSessionStale`, `refreshSessionIfStale`).
 
 **RFC reference:** §2 (lines 679-700), RFC 6570 Level 1.
 
+`UriTemplate` is parsed once at construction (`parseUriTemplate`) into
+an alternating sequence of `UriPart` literals and variable references:
+
+```nim
+type UriPartKind* = enum
+  upLiteral
+  upVariable
+
+type UriPart* {.ruleOff: "objects".} = object
+  case kind*: UriPartKind
+  of upLiteral:
+    text*: string
+  of upVariable:
+    name*: string
+```
+
+Expansion folds the parsed parts into a string — no scanning of the
+raw template, no per-variable string replacement pass:
+
 ```nim
 func expandUriTemplate*(
     tmpl: UriTemplate,
     variables: openArray[(string, string)],
 ): string =
-  ## Expands an RFC 6570 Level 1 URI template by replacing {name} with
-  ## the corresponding value. Pure — no IO, no mutation.
+  ## Folds the parsed parts into a string. Variables not found in
+  ## ``variables`` are emitted unexpanded as ``{name}``. Caller is
+  ## responsible for percent-encoding values that require it
+  ## (``std/uri.encodeUrl(value, usePlus=false)``). Pure.
   ##
-  ## Level 1 only: simple string substitution. For values requiring
-  ## percent-encoding (e.g., filenames in download URL ``name``),
-  ## use ``std/uri.encodeUrl(value, usePlus=false)``.
-  ##
-  ## Variables not found in ``variables`` are left unexpanded.
+  ## Level 1 only: simple string substitution. Common identifiers
+  ## (``AccountId``, ``Id``) are base64url-safe — no encoding needed.
   ##
   ## Example:
   ##   expandUriTemplate(session.downloadUrl,
   ##     {"accountId": string(acctId), "blobId": string(blobId),
   ##      "name": "report.pdf", "type": "application/pdf"})
-  result = string(tmpl)
-  for (name, value) in variables:
-    result = result.replace("{" & name & "}", value)
+  result = ""
+  for part in tmpl.parts:
+    case part.kind
+    of upLiteral:
+      result.add(part.text)
+    of upVariable:
+      var found = false
+      for i in 0 ..< variables.len:
+        if variables[i][0] == part.name:
+          result.add(variables[i][1])
+          found = true
+          break
+      if not found:
+        result.add("{")
+        result.add(part.name)
+        result.add("}")
 ```
 
-Lives in `session.nim` alongside the `UriTemplate` type and `Session`
-type (which owns the `downloadUrl`, `uploadUrl`, and `eventSourceUrl`
-template fields). This collocates the expansion logic with the types
-it operates on.
+Lives in `session.nim` alongside the `UriTemplate`, `UriPart`, and
+`Session` types (which owns the `downloadUrl`, `uploadUrl`, and
+`eventSourceUrl` template fields). This collocates the expansion logic
+with the types it operates on. The parsed-parts shape lets
+`Session.fromJson` reject malformed templates (unmatched `{`, empty
+`{}`, missing required variables) at deserialisation time as a
+`SerdeViolation`, so by the time `expandUriTemplate` runs the template
+is structurally sound.
 
 **Decision D4.11: Percent-encoding responsibility.** Caller encodes.
 `std/uri.encodeUrl(value, usePlus=false)` provides RFC 3986
@@ -1333,31 +1585,52 @@ See Deferred Decision R16.
 src/jmap_client/
   errors.nim          — TransportError, RequestError, ClientError,
                          MethodError, SetError types + constructors;
+                         variant-specific SetError smart constructors
+                         (setErrorInvalidProperties, setErrorAlreadyExists,
+                         setErrorBlobNotFound, setErrorInvalidEmail,
+                         setErrorTooManyRecipients,
+                         setErrorInvalidRecipients, setErrorTooLarge);
                          RequestContext enum; classifyException;
                          sizeLimitExceeded; enforceBodySizeLimit;
                          validationToClientError;
                          validationToClientErrorCtx;
                          isTlsRelatedMsg (private)
-  session.nim         — expandUriTemplate (collocated with UriTemplate
-                         and Session types)
+  session.nim         — UriPart, UriTemplate, parseUriTemplate,
+                         expandUriTemplate, hasVariable (collocated
+                         with the UriTemplate and Session types)
   client.nim          — JmapClient type, initJmapClient,
-                         discoverJmapClient, accessors, setBearerToken,
-                         close, setSessionForTest, fetchSession, send
+                         discoverJmapClient, accessors (session,
+                         sessionUrl, bearerToken, authScheme,
+                         lastRawResponseBody), setBearerToken,
+                         close, setSessionForTest,
+                         sendRawHttpForTesting, fetchSession, send
                          (Request + RequestBuilder overloads),
-                         validateLimits, checkGetLimit (private),
-                         checkSetLimit (private), isSessionStale,
-                         refreshSessionIfStale,
+                         validateLimits, isSessionStale,
+                         refreshSessionIfStale;
+                         JmapClientViolation ADT + detect* helpers
+                         (private), RequestLimitViolation ADT +
+                         detect* helpers (private),
+                         resolveAgainstSession (private),
                          enforceContentLengthLimit (private),
                          readContentType (private),
                          tryParseProblemDetails (private),
                          classifyHttpResponse (private),
                          parseJsonBody (private)
   dispatch.nim        — ResponseHandle[T] (phantom-typed handle),
-                         callId, get[T] (mixin + callback overloads),
-                         validationToMethodError, reference,
+                         NameBoundHandle[T] (RFC 8620 §5.4 compound
+                         dispatch), CompoundHandles[A, B] +
+                         CompoundResults[A, B] +
+                         registerCompoundMethod, ChainedHandles[A, B] +
+                         ChainedResults[A, B] + registerChainableMethod
+                         (RFC 8620 §3.7 back-reference chains);
+                         callId, get[T] (mixin, callback, and
+                         NameBoundHandle overloads), getBoth (two
+                         overloads), serdeToMethodError, reference,
                          idsRef, listIdsRef, addedIdsRef, createdRef,
                          updatedRef; findInvocation (private),
-                         extractInvocation (private).
+                         extractInvocation (private),
+                         findInvocationByName (private),
+                         extractInvocationByName (private).
                          Layer 3 module, re-exported via protocol.nim.
   convenience.nim     — Pipeline combinators: QueryGetHandles[T],
                          addQueryThenGet, ChangesGetHandles[T],
@@ -1376,24 +1649,30 @@ exception type matching. The validation bridge functions
 (`validationToClientError`, `validationToClientErrorCtx`) also live
 in `errors.nim` because they construct `ClientError` values — they
 import `ValidationError` from `./validation` via `from` import.
-`expandUriTemplate` lives in `session.nim` alongside the
-`UriTemplate` type. `client.nim` contains the `JmapClient` type and
+`expandUriTemplate` lives in `session.nim` alongside the `UriTemplate`
+and `UriPart` types. `client.nim` contains the `JmapClient` type and
 all procs that operate on it. Internal helpers
 (`enforceContentLengthLimit`, `readContentType`,
 `tryParseProblemDetails`, `classifyHttpResponse`, `parseJsonBody`,
-`checkGetLimit`, `checkSetLimit`) are module-private.
-`dispatch.nim` contains the phantom-typed response handle and typed
-extraction logic — it is a Layer 3 module re-exported via
-`protocol.nim`, but documented here because it operates on the
-`Response` value returned by `client.send`. `convenience.nim` composes
-builder and dispatch functions into multi-method pipeline combinators
-and is deliberately excluded from all re-export hubs (Decision D4.14).
+`resolveAgainstSession`, the `JmapClientViolation` and
+`RequestLimitViolation` ADTs and their `detect*` helpers) are
+module-private. `dispatch.nim` contains the phantom-typed response
+handles, dispatch extraction logic, and the compile-time registration
+templates for §5.4 compound and §3.7 back-reference patterns — it is
+a Layer 3 module re-exported via `protocol.nim`, but documented here
+because it operates on the `Response` value returned by `client.send`.
+`convenience.nim` composes builder and dispatch functions into
+multi-method pipeline combinators and is deliberately excluded from
+all re-export hubs (Decision D4.14).
 
 **Nimalyzer `objects` rule suppression.** The `JmapClient` type has all
 private fields by design (§1.1: make illegal states unrepresentable).
 The nimalyzer `objects publicfields` rule flags exported types without
 public fields. The type definition is wrapped in
 `{.push ruleOff: "objects".}` / `{.pop.}` to suppress this diagnostic.
+The same `{.ruleOff: "objects".}` annotation applies to the private
+`JmapClientViolation` and `RequestLimitViolation` ADTs (case objects
+without public fields).
 
 ### 10.2 Import DAG
 
@@ -1407,7 +1686,8 @@ errors.nim imports:
                          `when defined(ssl)`)
   ./validation         — ValidationError (via `from` import; used
                          by validationToClientError/Ctx bridge funcs)
-  ./primitives         — Id (for SetError.existingId)
+  ./primitives         — Id, UnsignedInt (for SetError variant fields)
+  ./identifiers        — BlobId (for setErrorBlobNotFound)
 
 client.nim imports:
   std/httpclient       — HttpClient, newHttpClient, request, close,
@@ -1415,18 +1695,24 @@ client.nim imports:
   std/json             — parseJson, $, JsonNode, JObject, JArray, hasKey,
                          {} (nil-safe access)
   std/strutils         — startsWith, endsWith, contains, Whitespace
+  std/uri              — parseUri, combine ($-stringification of the
+                         combined URI; used by resolveAgainstSession)
   ./types              — Layer 1 re-export hub (also re-exports results,
                          Opt, all error types, RequestContext)
-  ./serialisation      — Layer 2 re-export hub
+  ./serialisation      — Layer 2 re-export hub (SerdeViolation,
+                         toValidationError translator)
   ./builder            — RequestBuilder, build
 
 dispatch.nim imports:
-  std/hashes           — Hash (for ResponseHandle hash)
+  std/hashes           — Hash (for ResponseHandle and NameBoundHandle)
   std/json             — JsonNode
   ./types              — Layer 1 re-export hub
-  ./serialisation      — Layer 2 re-export hub
+  ./serialisation      — Layer 2 re-export hub (SerdeViolation,
+                         toValidationError translator)
   ./methods            — QueryResponse, GetResponse, ChangesResponse,
-                         QueryChangesResponse, methodNamespace (mixin)
+                         QueryChangesResponse, queryMethodName,
+                         getMethodName, changesMethodName,
+                         queryChangesMethodName (mixins)
 
 convenience.nim imports:
   ./types              — Layer 1 re-export hub
@@ -1445,6 +1731,8 @@ convenience.nim imports:
 - `std/net` is imported only in `errors.nim` (selective import via
   `from std/net import TimeoutError` and `SslError` under
   `when defined(ssl)`), not in `client.nim`.
+- `std/uri` is imported in `client.nim` for `resolveAgainstSession`
+  (RFC 3986 §5 reference resolution of relative ``apiUrl`` values).
 - `./validation` is imported only in `errors.nim` (selective import via
   `from ./validation import ValidationError`) for the validation bridge
   functions (`validationToClientError`, `validationToClientErrorCtx`).
@@ -1463,18 +1751,22 @@ type is qualified as `envelope.Response` for clarity.
 ### 10.3 Re-Export Hub
 
 `src/jmap_client.nim` re-exports the complete type vocabulary, Layer 2
-serialisation, Layer 3 protocol logic, and Layer 4 client:
+serialisation, Layer 3 protocol logic, Layer 4 client, and the mail
+sub-library (Layer 1.5 — RFC 8621 entities, separately documented in
+`05-mail-architecture.md` onward):
 
 ```nim
 import jmap_client/types
 import jmap_client/serialisation
 import jmap_client/protocol
 import jmap_client/client
+import jmap_client/mail
 
 export types
 export serialisation
 export protocol
 export client
+export mail
 ```
 
 `protocol.nim` (Layer 3 hub) re-exports `entity`, `methods`,
@@ -1509,15 +1801,20 @@ default (Decision D4.14).
 | D4.3 | No DNS SRV — `.well-known/jmap` only | Full RFC 8620 §2.2 | No reference implementation uses DNS SRV. |
 | D4.4 | Two-phase body size check: Phase 1 via `contentLength` before body read, Phase 2 via `body.len` after read | Streaming check | Phase 1 prevents OOM on oversized responses. Phase 2 catches absent/inaccurate Content-Length. Streaming check requires replacing `std/httpclient`. |
 | D4.5 | TLS detection — two-tier: `SslError` type match + `OSError` substring heuristic | Single heuristic only | `SslError` (from `std/net`) inherits `CatchableError` directly, not `OSError`, requiring its own branch. `OSError` heuristic retained as fallback for OpenSSL errors that surface as `OSError`. |
-| D4.6 | `ValidationError` from session/response JSON mapped to `ClientError` via `mapErr` | Propagate as-is | Keeps the outer railway uniform: `JmapResult[T]` always carries `ClientError`. Session validation failure is classified as `tekNetwork` (protocol error). |
+| D4.6 | Two-stage mapping for Layer 2 deserialisation failures: `SerdeViolation` -> `ValidationError` (via `toValidationError(sv, rootType)`) -> `ClientError` (via `validationToClientErrorCtx`) | Propagate `SerdeViolation` directly | Keeps the outer railway uniform: `JmapResult[T]` always carries `ClientError`. The `toValidationError` translator is the sole serde→validation boundary; the bridge then lifts onto the outer railway. Session/response validation failures are classified as `tekNetwork` (protocol error). |
 | D4.7 | `JsonParsingError` classified as `tekNetwork` | `tekHttpStatus` with 200 | HTTP succeeded, body is invalid JSON. Protocol violation, not an HTTP status error. |
 | D4.8 | Problem details on HTTP 200 via `"type"` + missing `"methodResponses"` heuristic; uses `optValue` + `for val in opt:` idiom | Content-Type check only | Servers often use `application/json` for problem details. `Response` always has `methodResponses`. |
-| D4.9 | `validateLimits` in `client.nim`; `checkGetLimit`/`checkSetLimit` extracted as private helpers | Single monolithic proc | Extracted helpers keep each func within nimalyzer complexity limits and improve readability. |
+| D4.9 | `validateLimits` in `client.nim`; `RequestLimitViolation` ADT + `detectGetLimit`/`detectSetLimit`/`detectMaxCalls`/`detectRequestLimits` as private helpers; `rlvMaxSizeRequest` shared with `send`'s post-serialisation size check | Single monolithic proc with inline `validationError` calls | ADT decouples in-process classification from wire serialisation (functional-core patterns 1 + 5); single-purpose detectors keep each func within nimalyzer complexity limits; shared variant for `maxSizeRequest` keeps the wire message shape uniform. |
 | D4.10 | Manual session staleness (not auto-refresh in `send`) | Auto-refresh | Hidden network request, unpredictable latency. RFC uses SHOULD. Composable tools provided. |
 | D4.11 | URI template: caller percent-encodes values (`std/uri.encodeUrl` available) | Library encodes | Common identifiers are base64url-safe. Full RFC 6570 disproportionate. |
-| D4.12 | Compile-time hint (`{.hint:}`) for missing `-d:ssl` | `{.warning:}` (blocked by `warningAsError: User`); compile error | `{.hint:}` is informational and non-blocking. `{.warning:}` was the original design but `config.nims` promotes User warnings to errors. |
+| D4.12 | Compile-time hint (`{.hint:}`) for missing `-d:ssl` | `{.warning:}` (blocked by `warningAsError: User`); compile error | `{.hint:}` is informational and non-blocking. `{.warning:}` is rejected because `config.nims` promotes User warnings to errors. |
 | D4.13 | Error types, classifiers, and validation bridge functions in `errors.nim`; `expandUriTemplate` in `session.nim`; `JmapClient` and IO in `client.nim` | Single file | Error types require `std/net` imports; validation bridge functions construct `ClientError` values; collocating `expandUriTemplate` with `UriTemplate` type is natural; `client.nim` contains all JmapClient-related code. |
 | D4.14 | `convenience.nim` is opt-in (not re-exported by any hub) | Auto-export via `protocol.nim` | Pipeline combinators encode opinionated choices (reference paths, same-account assumption). The core API in `builder.nim` + `dispatch.nim` provides full control. Lessons from OpenSSL/libgit2: freezing the core API surface while providing opt-in ergonomics reduces breaking changes. |
+| D4.15 | Configurable `authScheme` parameter on `initJmapClient`/`discoverJmapClient` (default `"Bearer"`) | Hard-coded `"Bearer"` prefix | RFC 8620 §1.7 specifies Bearer, but legacy Cyrus deployments accept Basic auth at the JMAP endpoint. Storing the scheme on the client lets `setBearerToken` re-emit the same scheme on rotation without rebuilding the header by hand. |
+| D4.16 | Raw response body captured into `client.lastRawResponseBody` via a `var string` parameter on `classifyHttpResponse` | Re-read the body in tests; or expose a separate capture proc | Capture happens immediately after `httpResp.body` is read, before any 4xx/5xx classification, so byte fidelity is preserved on every code path. The `mcapture.captureIfRequested` test helper consults a runtime env var to decide whether to persist; production callers ignore the field. |
+| D4.17 | `resolveAgainstSession` resolves `apiUrl` against the session URL via RFC 3986 §5 (`std/uri.combine`) when `apiUrl` is a relative reference | Reject relative `apiUrl` as invalid wire data | RFC 8620 §2 does not explicitly mandate absolute form. Cyrus 3.12.2 (`imap/jmap_api.c`) emits `"/jmap/"`. Postel-tolerant on receive — the resolution is deterministic against the known-absolute session URL. Absolute `apiUrl` values pass through unchanged. |
+| D4.18 | `send` uses `valueOr:` (with `return err(...)`) when unwrapping `client.session` after a successful `fetchSession`; never `.get()` | `.get()` on the cached `Opt[Session]` | Under `--mm:arc`/`--panics:on`, `.get()` on a `none` `Opt` routes through `withAssertOk` and triggers `rawQuit(1)` with no unwinding — catastrophic at the FFI boundary. The `valueOr:` block flows through the Result railway as a defined `tekNetwork` error. |
+| D4.19 | Limit dispatch keys on `inv.rawName.endsWith("/get")`/`"/set"`, not `inv.name.endsWith` | Use the parsed `MethodName` enum | `inv.name` returns the parsed `MethodName` enum (no `endsWith`); unrecognised names parse to a catch-all variant, losing suffix dispatch. The wire-form `rawName` is the lossless string. |
 
 ### Deferred Decisions
 
@@ -1668,44 +1965,79 @@ default (Decision D4.14).
 
 0. Verified error types and constructors in
    `src/jmap_client/errors.nim` — `TransportError`, `RequestError`,
-   `ClientError` (plain objects), `classifyException`, `enforceBodySizeLimit`,
-   `sizeLimitExceeded`, `RequestContext`.
-1. Created `src/jmap_client/client.nim` — copyright header, imports,
-   `{.push raises: [].}`, `-d:ssl` hint.
-2. Defined `JmapClient` type with private fields (wrapped in
+   `ClientError` (plain objects), `MethodError`, `SetError` plus
+   variant-specific smart constructors (RFC 8620 §5.3/§5.4 and
+   RFC 8621 §4.6/§7.5 payloads), `classifyException`,
+   `enforceBodySizeLimit`, `sizeLimitExceeded`,
+   `validationToClientError`, `validationToClientErrorCtx`,
+   `RequestContext`.
+1. Created `src/jmap_client/client.nim` — copyright header, imports
+   (including `std/uri` for `resolveAgainstSession`),
+   `{.push raises: [].}`, `{.experimental: "strictCaseObjects".}`,
+   `-d:ssl` hint.
+2. Defined `JmapClient` type with private fields including
+   `authScheme` and `lastRawResponseBody` (wrapped in
    `{.push ruleOff: "objects".}` / `{.pop.}`).
-3. Implemented `initJmapClient` — parameter validation (including newline
-   check), `HttpClient` construction with `{.cast(raises: []).}`,
-   return `Result[JmapClient, ValidationError]`.
-4. Implemented `discoverJmapClient` — domain validation, URL construction,
+3. Defined the private `JmapClientViolation` ADT and per-rule
+   `detect*` helpers (`detectSessionUrl`, `detectBearerToken`,
+   `detectTimeout`, `detectMaxRedirects`, `detectMaxResponseBytes`,
+   `detectClientConfig`, `detectDomain`) plus the sole boundary
+   translator `toValidationError(JmapClientViolation)`.
+4. Implemented `initJmapClient` — composed config detection,
+   `HttpClient` construction with `{.cast(raises: []).}`, returning
+   `Result[JmapClient, ValidationError]`.
+5. Implemented `discoverJmapClient` — `detectDomain`, URL synthesis,
    delegation to `initJmapClient`.
-5. Implemented read-only accessors (`func`) and mutators (`setBearerToken`
-   returning `Result[void, ValidationError]`, `close` with
+6. Implemented read-only accessors (`session`, `sessionUrl`,
+   `bearerToken`, `authScheme`, `lastRawResponseBody`) and mutators
+   (`setBearerToken` returning `Result[void, ValidationError]` and
+   re-emitting the stored auth scheme; `close` with
    `{.cast(raises: []).}`).
-6. Implemented `setSessionForTest` for test injection.
-7. Implemented helpers: `enforceContentLengthLimit`, `readContentType`,
-   `tryParseProblemDetails`, `classifyHttpResponse`, `parseJsonBody`.
-8. Implemented `fetchSession` — composes IO + classification + Layer 2
-   deserialisation + `mapErr`.
-9. Implemented `checkGetLimit`, `checkSetLimit`, `validateLimits` — pure
-   pre-flight checks returning `Result`.
-10. Implemented `send(Request)` — composes all of the above.
-11. Implemented `send(RequestBuilder)` — convenience overload.
-12. Implemented `isSessionStale` and `refreshSessionIfStale`.
-13. Implemented `dispatch.nim` — `ResponseHandle[T]`, `get[T]` (mixin
-    and callback overloads), `validationToMethodError`, type-safe
-    reference convenience functions (`idsRef`, `listIdsRef`,
-    `addedIdsRef`, `createdRef`, `updatedRef`).
-14. Implemented `convenience.nim` — pipeline combinators
-    (`addQueryThenGet`, `addChangesToGet`, `getBoth`).
-15. Updated `src/jmap_client.nim` to import and re-export `types`,
+7. Implemented `setSessionForTest` and `sendRawHttpForTesting` for
+   test injection and adversarial wire-shape exercises.
+8. Implemented helpers: `enforceContentLengthLimit`,
+   `readContentType`, `tryParseProblemDetails`, `classifyHttpResponse`
+   (with `capturedBody: var string`), `parseJsonBody`,
+   `resolveAgainstSession`.
+9. Implemented `fetchSession` — composes IO + classification +
+   Layer 2 deserialisation + the two-stage
+   `SerdeViolation`→`ValidationError`→`ClientError` mapping; raw
+   bytes routed into `client.lastRawResponseBody`.
+10. Defined the private `RequestLimitViolation` ADT and per-rule
+    `detect*` helpers (`detectGetLimit`, `detectSetLimit`,
+    `detectMaxCalls`, `detectRequestLimits`) plus the sole boundary
+    translator `toValidationError(RequestLimitViolation)`. Public
+    `validateLimits` projects via `isOkOr:`.
+11. Implemented `send(Request)` — defensive `valueOr:` session
+    unwrap, pre-flight validation, serialisation, post-serialisation
+    `rlvMaxSizeRequest` check, IO POST through
+    `resolveAgainstSession`, classification, problem-details
+    detection, response deserialisation with the same two-stage
+    error mapping.
+12. Implemented `send(RequestBuilder)` — convenience overload over
+    `send(builder.build())`.
+13. Implemented `isSessionStale` and `refreshSessionIfStale`.
+14. Implemented `dispatch.nim` — `ResponseHandle[T]`,
+    `NameBoundHandle[T]`, the three `get[T]` overloads
+    (mixin/callback/`NameBoundHandle`), `serdeToMethodError`,
+    `CompoundHandles`/`CompoundResults` with
+    `registerCompoundMethod` (RFC 8620 §5.4),
+    `ChainedHandles`/`ChainedResults` with
+    `registerChainableMethod` (RFC 8620 §3.7), `getBoth` overloads,
+    `reference`, and the type-safe convenience refs (`idsRef`,
+    `listIdsRef`, `addedIdsRef`, `createdRef`, `updatedRef`).
+15. Implemented `convenience.nim` — pipeline combinators
+    (`addQueryThenGet` template, `addChangesToGet`, two `getBoth`
+    overloads), all returning `(RequestBuilder, <Handles>)` tuples.
+    Deliberately omitted from all re-export hubs.
+16. Updated `src/jmap_client.nim` to import and re-export `types`,
     `serialisation`, `protocol`, and `client`. Updated `protocol.nim`
     to re-export `entity`, `methods`, `dispatch`, `builder`.
-16. Wrote unit tests — `tests/unit/tclient.nim` covering scenarios 1-47
-    (including 13a, 13b, 13c, 44a, 46a) plus additional edge cases.
-    Scenarios 48-50 (Content-Length Phase 1 enforcement) require
-    `httpclient.Response` and are covered by integration tests.
-17. Ran `just ci`.
+17. Wrote unit tests — `tests/unit/tclient.nim` covering pure
+    scenarios; integration tests under `tests/integration/live/`
+    cover Content-Length Phase 1 enforcement and the
+    Stalwart / Apache James / Cyrus cross-server matrix.
+18. Ran `just ci`.
 
 ---
 
@@ -1726,19 +2058,31 @@ default (Decision D4.14).
 | `addChangesToGet` | §5.2 (Foo/changes), §5.1 (Foo/get), §3.7 (result references) | Sync pipeline with `/created` reference wiring (in `convenience.nim`) |
 | `classifyHttpResponse` | §3.6.1 (lines 1079-1136) | Request-level errors |
 | `tryParseProblemDetails` | §3.6.1 (lines 1079-1136) | RFC 7807 problem details extraction |
-| `validateLimits` | §2 (CoreCapabilities), §3.6.1, §5.1, §5.3 | Pre-flight validation |
-| `checkGetLimit` | §5.1 | Per-/get invocation ids count check |
-| `checkSetLimit` | §5.3 | Per-/set invocation object count check |
+| `validateLimits` | §2 (CoreCapabilities), §3.6.1, §5.1, §5.3 | Pre-flight validation, public surface over `RequestLimitViolation` |
+| `RequestLimitViolation` (ADT) | §2 (CoreCapabilities), §3.6.1 | Private sum type with `rlvMaxCallsInRequest`, `rlvMaxObjectsInGet`, `rlvMaxObjectsInSet`, `rlvMaxSizeRequest` (shared with `send`'s post-serialisation size check) |
+| `detectGetLimit` | §5.1 | Per-/get invocation ids count check |
+| `detectSetLimit` | §5.3 | Per-/set invocation object count check |
+| `detectMaxCalls` | §3.6.1, §2 (CoreCapabilities) | Top-level method-call count check |
+| `detectRequestLimits` | §2, §5.1, §5.3 | Composition of the three per-rule detectors |
 | `isSessionStale` | §3.4 (lines 995-999) | Session state comparison |
-| `expandUriTemplate` | §2 (lines 679-700), RFC 6570 | URI template expansion (in `session.nim`) |
+| `expandUriTemplate` | §2 (lines 679-700), RFC 6570 | URI template expansion over parsed `UriPart` parts (in `session.nim`) |
+| `resolveAgainstSession` | §2; RFC 3986 §5 | Resolves relative `apiUrl` against the session URL; absolute URLs pass through |
 | `enforceContentLengthLimit` | Client-side (R9); not RFC-specified | Phase 1 response body size cap — pre-read via Content-Length header |
 | `enforceBodySizeLimit` | Client-side (R9); not RFC-specified | Phase 2 response body size cap — post-read via actual body length |
 | `classifyException` | N/A — maps stdlib exceptions | In `errors.nim`; maps `std/httpclient` exceptions to `ClientError` |
 | `sizeLimitExceeded` | Client-side (R9) | In `errors.nim`; shared error constructor |
 | `validationToClientError` | N/A — railway bridge | In `errors.nim`; DRY bridge from `ValidationError` to `ClientError` |
 | `validationToClientErrorCtx` | N/A — railway bridge | In `errors.nim`; DRY bridge with context prefix |
+| `serdeToMethodError` | N/A — railway bridge | In `dispatch.nim`; closure factory mapping `SerdeViolation` to `MethodError(serverFail)` with extras-preserved diagnostics |
 | `RequestContext` | N/A — internal enum | In `errors.nim`; `rcSession` / `rcApi` for error messages |
-| Bearer token auth | §1.7 (line 429), §8.2 | `Authorization: Bearer {token}` |
+| `JmapClientViolation` (ADT) | N/A — internal classification | Private sum type covering the eleven `JmapClient` construction failure modes |
+| `lastRawResponseBody` | N/A — test capture | Test-only accessor exposing the most recent raw HTTP response body |
+| `sendRawHttpForTesting` | N/A — test escape hatch | Test-only POST helper that bypasses `Request.toJson` and `validateLimits` |
+| `NameBoundHandle[T]` | §5.4 (lines 1359-1429) | In `dispatch.nim`; binds method-name + call-id for compound implicit-call dispatch |
+| `CompoundHandles`/`CompoundResults`/`getBoth` | §5.4 | In `dispatch.nim`; paired primary + implicit dispatch for §5.4 compounds |
+| `ChainedHandles`/`ChainedResults`/`getBoth` | §3.7 (lines 1144-1238) | In `dispatch.nim`; paired dispatch for §3.7 back-reference chains with distinct call-ids |
+| `registerCompoundMethod` / `registerChainableMethod` | §5.4, §3.7 | In `dispatch.nim`; compile-time registration templates checking the typedesc parametrises the right handle |
+| Bearer token auth | §1.7 (line 429), §8.2 | `Authorization: <authScheme> {bearerToken}` — scheme defaults to ``"Bearer"``; configurable for legacy deployments |
 | Content-Type: `application/json` | §3.1 (lines 860-862) | Required on request; expected on response |
 | HTTPS requirement | §1.7 (line 429) | `-d:ssl` compile flag |
 | Single-threaded | §3.10 (lines 1535-1539) | Sequential method processing |

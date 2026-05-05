@@ -1,22 +1,19 @@
-# RFC 8621 JMAP Mail — Design G1: EmailSubmission — Specification
+# RFC 8621 JMAP Mail — Design G1: EmailSubmission
 
-Part G opens the submission lifecycle. Parts A–F1 delivered Mailbox, Thread,
+Part G covers the submission lifecycle. Parts A–F2 deliver Mailbox, Thread,
 Email (read path, query, creation, copy, import), Identity, VacationResponse,
-and the typed update algebra that replaced `PatchObject`. Part G wires those
-foundations into the final major RFC 8621 entity: **EmailSubmission** (§7) —
-the object that represents "a message has been submitted for delivery."
+and the typed update algebra. Part G wires those foundations into the final
+major RFC 8621 entity: **EmailSubmission** (§7) — the object that represents
+"a message has been submitted for delivery."
 
-This document (G1) is the type-level specification. Part G2 (test
-specification) is deferred to a separate companion document.
-
-Part G also introduces the library's first use of **GADT-style phantom state
-indexing** adapted to Nim's type system: `EmailSubmission[S: static UndoStatus]`
-with an `AnyEmailSubmission` existential wrapper at the serde boundary. This
-lets the type system enforce that cancellation is only attempted on pending
-submissions — moving the invariant from runtime checks into the type. The
-design extends the compound-handle pattern from F1's `EmailCopyHandles` into
-the cross-entity form `EmailSubmissionHandles`, where the two handles span
-`EmailSubmission/set` and an implicit `Email/set`.
+Part G also exercises the library's **GADT-style phantom state indexing**:
+`EmailSubmission[S: static UndoStatus]` with an `AnyEmailSubmission`
+existential wrapper at the serde boundary. This lets the type system enforce
+that cancellation is only attempted on pending submissions — moving the
+invariant from runtime checks into the type. The cross-entity compound-handle
+pair (`EmailSubmissionHandles` / `EmailSubmissionResults`) reuses the generic
+`CompoundHandles[A, B]` / `CompoundResults[A, B]` from `dispatch.nim`,
+spanning `EmailSubmission/set` and an implicit `Email/set`.
 
 ## Table of Contents
 
@@ -67,43 +64,42 @@ the cross-entity form `EmailSubmissionHandles`, where the two handles span
 | `UndoStatus` | `submission_status.nim` | 3-variant string-backed enum: `usPending`, `usFinal`, `usCanceled`. Also serves as the phantom type parameter for `EmailSubmission` (G3). |
 | `DeliveredState` | `submission_status.nim` | 5-variant enum (4 RFC-defined + `dsOther` catch-all) with `ParsedDeliveredState` wrapper (G10). |
 | `DisplayedState` | `submission_status.nim` | 3-variant enum (2 RFC-defined + `dpOther` catch-all) with `ParsedDisplayedState` wrapper (G11). |
-| `SmtpReply` | `submission_status.nim` | Distinct string; smart constructor validates surface shape (G12). |
-| `DeliveryStatus` | `submission_status.nim` | `smtpReply: SmtpReply` + `delivered: ParsedDeliveredState` + `displayed: ParsedDisplayedState`. |
+| `ReplyCode` | `submission_status.nim` | `distinct uint16` — RFC 5321 §4.2.3 three-digit Reply-code, validated at parse time (G12, H19). |
+| `StatusCodeClass` | `submission_status.nim` | RFC 3463 §3.1 class digit, string-backed (`"2"`, `"4"`, `"5"`). |
+| `SubjectCode` / `DetailCode` | `submission_status.nim` | `distinct uint16` for RFC 3463 §4 sub-codes, bounded 0..999. |
+| `EnhancedStatusCode` | `submission_status.nim` | RFC 3463 §2 `class.subject.detail` triple. |
+| `ParsedSmtpReply` | `submission_status.nim` | RFC 5321 §4.2 multi-line Reply parsed once with optional RFC 3463 §2 enhanced-status-code triple from the final line; `raw` preserves ingress bytes for canonicalisation round-trip (G12, H23). |
+| `DeliveryStatus` | `submission_status.nim` | `smtpReply: ParsedSmtpReply` + `delivered: ParsedDeliveredState` + `displayed: ParsedDisplayedState`. |
 | `DeliveryStatusMap` | `submission_status.nim` | `distinct Table[RFC5321Mailbox, DeliveryStatus]` (G9). |
 | `EmailSubmission[S: static UndoStatus]` | `email_submission.nim` | GADT-style phantom-parameterised read model (G2, G3). |
-| `AnyEmailSubmission` | `email_submission.nim` | Existential wrapper: case object discriminated on `UndoStatus`, carrying phantom-indexed branches (G2). |
-| `EmailSubmissionBlueprint` | `email_submission.nim` | Creation model: `identityId` + `emailId` + `Opt[Envelope]`. Accumulating-error smart constructor (G13, G14, G15). |
+| `AnyEmailSubmission` | `email_submission.nim` | Existential wrapper: case object discriminated on `UndoStatus`, carrying private phantom-indexed branches with same-name `asPending`/`asFinal`/`asCanceled` accessors (G2, G38). |
+| `EmailSubmissionBlueprint` | `email_submission.nim` | Creation model: `identityId` + `emailId` + `Opt[Envelope]`. Pattern-A sealed (G13, G14, G15, G38). |
 | `EmailSubmissionUpdate` | `email_submission.nim` | Single-variant case object (`esuSetUndoStatusToCanceled`) with protocol-primitive + phantom-typed domain-named constructors (G16). |
 | `NonEmptyEmailSubmissionUpdates` | `email_submission.nim` | `distinct Table[Id, EmailSubmissionUpdate]` (G17). |
 | `EmailSubmissionFilterCondition` | `email_submission.nim` | Typed filter with `Opt[NonEmptyIdSeq]` list fields + `Opt[UndoStatus]` (G18). |
 | `NonEmptyIdSeq` | `email_submission.nim` | `distinct seq[Id]` with non-empty smart constructor (G18). |
 | `EmailSubmissionSortProperty` | `email_submission.nim` | 4-variant enum (3 RFC-mandated + `esspOther` catch-all) with `EmailSubmissionComparator` (G19). |
-| `EmailSubmissionCreatedItem` | `email_submission.nim` | RFC 8621 §7.5 ¶2 server-set subset returned in the `/set` `created` map: `id`, `threadId`, `sendAt`. Instantiated into `SetResponse[T]` (G39). |
+| `EmailSubmissionCreatedItem` | `email_submission.nim` | Server-set subset returned in the `/set` `created` map: `id` (always) plus `Opt[Id]` `threadId`, `Opt[UTCDate]` `sendAt`, `Opt[UndoStatus]` `undoStatus` — Postel's-law accommodation across server divergence (G39). |
 | `EmailSubmissionSetResponse` | `email_submission.nim` | Type alias `SetResponse[EmailSubmissionCreatedItem]` — response for `EmailSubmission/set` (G39). |
-| `EmailSubmissionHandles` | `email_submission.nim` | Compound-handle record: `submission: ResponseHandle[...]` + `emailSet: NameBoundHandle[...]` (G21). |
-| `EmailSubmissionResults` | `email_submission.nim` | Extraction target of `getBoth(EmailSubmissionHandles)` (G21). |
 | `IdOrCreationRef` | `email_submission.nim` | Two-variant sum: existing `Id` or `CreationId` reference. Models RFC 8620 §5.3 creation references in `onSuccess*` keys — distinct from `Referencable[T]` which models §3.7 result references (G35). |
-| `SubmissionExtensionMap` | `mail_capabilities.nim` (amended) | `distinct OrderedTable[RFC5321Keyword, seq[string]]`. Tightens existing `SubmissionCapabilities` (G25). |
+| `NonEmptyOnSuccessUpdateEmail` | `email_submission.nim` | `distinct Table[IdOrCreationRef, EmailUpdateSet]` — empty and duplicate-key shapes are unrepresentable; `Opt.none` is the sole "no extras" encoding (G22). |
+| `NonEmptyOnSuccessDestroyEmail` | `email_submission.nim` | `distinct seq[IdOrCreationRef]` — non-empty, dup-free (G22). |
+| `EmailSubmissionHandles` | `email_submission.nim` | Alias of `CompoundHandles[EmailSubmissionSetResponse, SetResponse[EmailCreatedItem]]` — fields `primary`/`implicit` (G21). |
+| `EmailSubmissionResults` | `email_submission.nim` | Alias of `CompoundResults[EmailSubmissionSetResponse, SetResponse[EmailCreatedItem]]` — extraction target of the generic `getBoth[A, B]` (G21). |
+| `SubmissionExtensionMap` | `mail_capabilities.nim` | `distinct OrderedTable[RFC5321Keyword, seq[string]]` (G25). |
 
 Supporting enums and distinct newtypes for SMTP parameter payloads:
 `BodyEncoding`, `DsnRetType`, `DsnNotifyFlag`, `DeliveryByMode`,
 `HoldForSeconds`, `MtPriority` — all in `submission_param.nim` (G8b, G8c).
 `OrcptAddrType` lives in `submission_atoms.nim` because it shares the
-RFC 5321 `esmtp-keyword` lexical shape with `RFC5321Keyword` (row above).
+RFC 5321 `esmtp-keyword` lexical shape with `RFC5321Keyword`.
 
 ### 1.3. Deferred
 
 - **Part G2 (Test Specification):** Companion document for EmailSubmission
-  unit, serde, property, and compliance tests. Scoped out of G1 by user
-  request.
-- **Generic `CompoundHandles[A, B]`:** F1's Rule-of-Three (F3) still
-  holds — two compound-handle sites (`EmailCopyHandles`,
-  `EmailSubmissionHandles`) is under threshold. Part H or later may promote
-  to generic once a third instance materialises (G21).
-- **`SmtpReply` structured parser:** G12 adopted a distinct-string approach
-  with Reply-code range validation. A future refinement may add
-  `parseSmtpReplyStructured` returning a
-  `(ReplyCode, Opt[EnhancedStatusCode], String)` tuple per RFC 3463.
+  unit, serde, property, and compliance tests — scoped out of G1.
+- **Generic `CompoundHandles[A, B]`** is already implemented at
+  `dispatch.nim`; `EmailSubmissionHandles` is a type alias over it.
 
 ### 1.4. RFC §7 Constraint Table
 
@@ -123,39 +119,39 @@ RFC 5321 `esmtp-keyword` lexical shape with `RFC5321Keyword` (row above).
 | §7 ¶8 | `deliveryStatus` is per-recipient, keyed on email address | `DeliveryStatusMap` (distinct Table keyed on `RFC5321Mailbox`) (G9) |
 | §7 ¶8 | `delivered` values: "queued", "yes", "no", "unknown" | `DeliveredState` enum + `dsOther` catch-all (G10) |
 | §7 ¶8 | `displayed` values: "unknown", "yes" | `DisplayedState` enum + `dpOther` catch-all (G11) |
-| §7 ¶8 | `smtpReply` is structured SMTP reply text | `SmtpReply` (distinct string, validated) (G12) |
+| §7 ¶8 | `smtpReply` is structured SMTP reply text | `ParsedSmtpReply` (RFC 5321 §4.2 + RFC 3463 §2 enhanced status code) (G12, H23) |
 | §7 ¶9 | `dsnBlobIds`, `mdnBlobIds` are server-set arrays | `seq[BlobId]` on read model only |
 | §7.5 ¶1 | Only `undoStatus` updatable post-create | `EmailSubmissionUpdate` single variant (G16) |
-| §7.5 ¶3 | `onSuccessUpdateEmail` applies PatchObject to Email on success | `Table[IdOrCreationRef, EmailUpdateSet]` (G22, G35) |
-| §7.5 ¶3 | `onSuccessDestroyEmail` destroys Email on success | `seq[IdOrCreationRef]` (G22, G35) |
-| §7.5 ¶5 | SetError `invalidEmail` includes problematic property names | Existing `setInvalidEmail` + `invalidEmailPropertyNames*: seq[string]` (G23) |
-| §7.5 ¶5 | SetError `tooManyRecipients` includes max count | Existing `setTooManyRecipients` + `maxRecipientCount*: UnsignedInt` (G23) |
-| §7.5 ¶5 | SetError `noRecipients` when rcptTo empty | Existing `setNoRecipients` (G23) |
-| §7.5 ¶5 | SetError `invalidRecipients` includes bad addresses | Existing `setInvalidRecipients` + `invalidRecipients*: seq[string]` (G23) |
-| §7.5 ¶5 | SetError `forbiddenMailFrom` when SMTP MAIL FROM disallowed | Existing `setForbiddenMailFrom` (G23) |
-| §7.5 ¶5 | SetError `forbiddenFrom` when RFC 5322 From disallowed | Existing `setForbiddenFrom` (G23) |
-| §7.5 ¶5 | SetError `forbiddenToSend` when user lacks send permission | Existing `setForbiddenToSend` (G23) |
-| §7.5 ¶6 | SetError `cannotUnsend` when cancel fails | Existing `setCannotUnsend` (G23) |
-| §1.3.2 | Capability `maxDelayedSend` is `UnsignedInt` seconds | Existing `SubmissionCapabilities.maxDelayedSend` |
+| §7.5 ¶3 | `onSuccessUpdateEmail` applies PatchObject to Email on success | `NonEmptyOnSuccessUpdateEmail` = `distinct Table[IdOrCreationRef, EmailUpdateSet]` (G22, G35) |
+| §7.5 ¶3 | `onSuccessDestroyEmail` destroys Email on success | `NonEmptyOnSuccessDestroyEmail` = `distinct seq[IdOrCreationRef]` (G22, G35) |
+| §7.5 ¶5 | SetError `invalidEmail` includes problematic property names | `setInvalidEmail` + `invalidEmailPropertyNames*: seq[string]` (G23) |
+| §7.5 ¶5 | SetError `tooManyRecipients` includes max count | `setTooManyRecipients` + `maxRecipientCount*: UnsignedInt` (G23) |
+| §7.5 ¶5 | SetError `noRecipients` when rcptTo empty | `setNoRecipients` (G23) |
+| §7.5 ¶5 | SetError `invalidRecipients` includes bad addresses | `setInvalidRecipients` + `invalidRecipients*: seq[string]` (G23) |
+| §7.5 ¶5 | SetError `forbiddenMailFrom` when SMTP MAIL FROM disallowed | `setForbiddenMailFrom` (G23) |
+| §7.5 ¶5 | SetError `forbiddenFrom` when RFC 5322 From disallowed | `setForbiddenFrom` (G23) |
+| §7.5 ¶5 | SetError `forbiddenToSend` when user lacks send permission | `setForbiddenToSend` (G23) |
+| §7.5 ¶6 | SetError `cannotUnsend` when cancel fails | `setCannotUnsend` (G23) |
+| §1.3.2 | Capability `maxDelayedSend` is `UnsignedInt` seconds | `SubmissionCapabilities.maxDelayedSend` |
 | §1.3.2 | Capability `submissionExtensions` is EHLO-name → args map | `SubmissionExtensionMap` (distinct OrderedTable) (G25) |
 
 ### 1.5. Module Summary
 
-| Module | Layer | Status | Contents |
-|--------|-------|--------|----------|
-| `submission_atoms.nim` | L1 | **New** | `RFC5321Keyword`, `OrcptAddrType` — distinct strings sharing the RFC 5321 `esmtp-keyword` lexical shape. Case-insensitive equality for `RFC5321Keyword`; byte-equal for `OrcptAddrType`. |
-| `submission_mailbox.nim` | L1 | **New** | `RFC5321Mailbox` — distinct string + strict/lenient parser pair for the full RFC 5321 §4.1.2 `Mailbox` grammar (`Local-part "@" ( Domain / address-literal )`, IPv4/IPv6/General-address-literal covered). |
-| `submission_param.nim` | L1 | **New** | `BodyEncoding`, `DsnRetType`, `DsnNotifyFlag`, `DeliveryByMode`, `HoldForSeconds`, `MtPriority`, `SubmissionParamKind`, `SubmissionParam`, `SubmissionParamKey`, `SubmissionParams`, and all parameter smart constructors (`bodyParam`, `notifyParam`, `orcptParam`, etc.). |
-| `submission_envelope.nim` | L1 | **New** | `SubmissionAddress`, `ReversePathKind`, `ReversePath`, `NonEmptyRcptList`, `Envelope`, reverse-path smart constructors. Re-exports `submission_atoms`, `submission_mailbox`, and `submission_param` so a single `import ./submission_envelope` surfaces every public name in the envelope L1 family. |
-| `submission_status.nim` | L1 | **New** | `UndoStatus`, `DeliveredState`, `ParsedDeliveredState`, `DisplayedState`, `ParsedDisplayedState`, `SmtpReply`, `DeliveryStatus`, `DeliveryStatusMap`. |
-| `email_submission.nim` | L1 | **New** | `EmailSubmission[S: static UndoStatus]`, `AnyEmailSubmission`, `IdOrCreationRef`, `EmailSubmissionBlueprint`, `EmailSubmissionUpdate`, `NonEmptyEmailSubmissionUpdates`, `EmailSubmissionFilterCondition`, `NonEmptyIdSeq`, `EmailSubmissionSortProperty`, `EmailSubmissionComparator`, `EmailSubmissionCreatedItem`, `EmailSubmissionSetResponse`, `EmailSubmissionHandles`, `EmailSubmissionResults`. |
-| `serde_submission_envelope.nim` | L2 | **New** | Serde for `SubmissionAddress`, `ReversePath`, `Envelope`, `NonEmptyRcptList`, and the `SubmissionParam` / `SubmissionParamKey` / `SubmissionParams` family. `SerdeViolation` + `JsonPath`. |
-| `serde_submission_status.nim` | L2 | **New** | Serde for `UndoStatus`, `DeliveredState`, `DisplayedState`, `SmtpReply`, `DeliveryStatus`, `DeliveryStatusMap`. |
-| `serde_email_submission.nim` | L2 | **New** | Serde for `EmailSubmission[S]` + `AnyEmailSubmission` (existential dispatch), `EmailSubmissionBlueprint`, `EmailSubmissionUpdate`, `EmailSubmissionFilterCondition`, `EmailSubmissionComparator`, `EmailSubmissionCreatedItem`, `IdOrCreationRef`, and shared helpers. |
-| `submission_builders.nim` | L3 | **New** | Builders for all 5 methods + compound `addEmailSubmissionAndEmailSet` + `getBoth`. |
-| `mail_capabilities.nim` | L1 | **Amended** | `SubmissionCapabilities.submissionExtensions` tightened from `OrderedTable[string, seq[string]]` to `SubmissionExtensionMap` (G25). |
-| `mail_entities.nim` | L3 | **Extended** | EmailSubmission entity registration (capability URI, method namespace). |
-| `serialisation.nim` | — | **Extended** | Re-export of the three new serde modules. |
+| Module | Layer | Contents |
+|--------|-------|----------|
+| `submission_atoms.nim` | L1 | `RFC5321Keyword`, `OrcptAddrType` — distinct strings sharing the RFC 5321 `esmtp-keyword` lexical shape. Case-insensitive equality for `RFC5321Keyword`; byte-equal for `OrcptAddrType`. |
+| `submission_mailbox.nim` | L1 | `RFC5321Mailbox` — distinct string + strict/lenient parser pair for the full RFC 5321 §4.1.2 `Mailbox` grammar (`Local-part "@" ( Domain / address-literal )`, IPv4/IPv6/General-address-literal covered). |
+| `submission_param.nim` | L1 | `BodyEncoding`, `DsnRetType`, `DsnNotifyFlag`, `DeliveryByMode`, `HoldForSeconds`, `MtPriority`, `SubmissionParamKind`, `SubmissionParam`, `SubmissionParamKey`, `SubmissionParams`, and the parameter smart constructors (`bodyParam`, `notifyParam`, `orcptParam`, etc.). |
+| `submission_envelope.nim` | L1 | `SubmissionAddress`, `ReversePathKind`, `ReversePath`, `NonEmptyRcptList`, `Envelope`, reverse-path smart constructors. Re-exports `submission_atoms`, `submission_mailbox`, and `submission_param` so a single `import ./submission_envelope` surfaces every public name in the envelope L1 family. |
+| `submission_status.nim` | L1 | `UndoStatus`, `DeliveredState`, `ParsedDeliveredState`, `DisplayedState`, `ParsedDisplayedState`, `ReplyCode`, `StatusCodeClass`, `SubjectCode`, `DetailCode`, `EnhancedStatusCode`, `SmtpReplyViolation`, `ParsedSmtpReply`, `parseSmtpReply`, `renderSmtpReply`, `DeliveryStatus`, `DeliveryStatusMap`. |
+| `email_submission.nim` | L1 | `EmailSubmission[S: static UndoStatus]`, `AnyEmailSubmission`, `IdOrCreationRef`, `EmailSubmissionBlueprint`, `EmailSubmissionUpdate`, `NonEmptyEmailSubmissionUpdates`, `EmailSubmissionFilterCondition`, `NonEmptyIdSeq`, `EmailSubmissionSortProperty`, `EmailSubmissionComparator`, `EmailSubmissionCreatedItem`, `EmailSubmissionSetResponse`, `NonEmptyOnSuccessUpdateEmail`, `NonEmptyOnSuccessDestroyEmail`, `EmailSubmissionHandles`, `EmailSubmissionResults`. |
+| `serde_submission_envelope.nim` | L2 | Serde for `SubmissionAddress`, `ReversePath`, `Envelope`, `NonEmptyRcptList`, and the `SubmissionParam` / `SubmissionParamKey` / `SubmissionParams` family. `SerdeViolation` + `JsonPath`. |
+| `serde_submission_status.nim` | L2 | Serde for `UndoStatus`, `ParsedDeliveredState`, `ParsedDisplayedState`, `DeliveryStatus`, `DeliveryStatusMap` (and exported `parseUndoStatus`). |
+| `serde_email_submission.nim` | L2 | Serde for `AnyEmailSubmission` (existential dispatch via `fromJsonShared[S]`), `EmailSubmissionCreatedItem`, `EmailSubmissionBlueprint`, `EmailSubmissionUpdate`, `NonEmptyEmailSubmissionUpdates`, `EmailSubmissionFilterCondition`, `EmailSubmissionComparator`, `IdOrCreationRef`, and the two `NonEmptyOnSuccess*` containers. |
+| `submission_builders.nim` | L3 | Builders for all 5 methods + compound `addEmailSubmissionAndEmailSet`. |
+| `mail_capabilities.nim` | L1 | `SubmissionCapabilities.submissionExtensions: SubmissionExtensionMap` — distinct wrapper keyed on `RFC5321Keyword` (G25). |
+| `mail_entities.nim` | L3 | EmailSubmission entity registration: `methodEntity`, `getMethodName`, `changesMethodName`, `setMethodName`, `queryMethodName`, `queryChangesMethodName`, `capabilityUri`, plus the typed associated-type templates (`changesResponseType`, `filterType`, `createType`, `updateType`, `setResponseType`) and the entity registrations (`registerJmapEntity`, `registerQueryableEntity`, `registerSettableEntity`, `registerCompoundMethod`). |
+| `serialisation.nim` | — | Re-export of the three new serde modules. |
 
 ---
 
@@ -177,9 +173,7 @@ distinct newtype prevents cross-use at the type level (G6).
 ```nim
 type RFC5321Mailbox* = distinct string
 
-func `==`*(a, b: RFC5321Mailbox): bool {.borrow.}
-func `$`*(a: RFC5321Mailbox): string {.borrow.}
-func hash*(a: RFC5321Mailbox): Hash {.borrow.}
+defineStringDistinctOps(RFC5321Mailbox)
 
 func parseRFC5321Mailbox*(raw: string): Result[RFC5321Mailbox, ValidationError]
 func parseRFC5321MailboxFromServer*(raw: string): Result[RFC5321Mailbox, ValidationError]
@@ -187,16 +181,18 @@ func parseRFC5321MailboxFromServer*(raw: string): Result[RFC5321Mailbox, Validat
 
 The strict parser validates the full RFC 5321 `Mailbox` grammar at
 client-construction time: `Dot-string` and `Quoted-string` local-parts,
-`Domain` and `address-literal` (IPv4, IPv6, General-address-literal) domain
-forms. The lenient parser validates structural shape only (non-empty, no
-control characters, contains `@`) for server-received data — Postel's law.
-Neither parser handles the enclosing `Path` production (`"<" [ A-d-l ":" ]
-Mailbox ">"`); source routes are part of `Path`, not `Mailbox`, and are
-irrelevant at the JMAP layer.
+`Domain` and `address-literal` (IPv4, all four IPv6 forms — `IPv6-full`,
+`IPv6-comp`, `IPv6v4-full`, `IPv6v4-comp` — and General-address-literal)
+domain forms. RFC §4.5.3.1.1 / §4.5.3.1.2 length caps are enforced
+(local-part ≤ 64, domain ≤ 255). The lenient parser validates structural
+shape only (1..255 octets, no control characters, contains `@`) for
+server-received data — Postel's law. Neither parser handles the enclosing
+`Path` production (`"<" [ A-d-l ":" ] Mailbox ">"`); source routes are part
+of `Path`, not `Mailbox`, and are irrelevant at the JMAP layer.
 
 ### 2.2. RFC5321Keyword + OrcptAddrType (`submission_atoms.nim`)
 
-SMTP extension keywords (`esmtp-keyword` per RFC 5321 §4.1.2:
+SMTP extension keywords (`esmtp-keyword` per RFC 5321 §4.1.1.1:
 `(ALPHA / DIGIT) *(ALPHA / DIGIT / "-")`). Used as parameter names in
 `SubmissionParam.spkExtension` and as capability keys in
 `SubmissionExtensionMap` (G8, G25).
@@ -204,28 +200,44 @@ SMTP extension keywords (`esmtp-keyword` per RFC 5321 §4.1.2:
 ```nim
 type RFC5321Keyword* = distinct string
 
-func `==`*(a, b: RFC5321Keyword): bool
-func `$`*(a: RFC5321Keyword): string {.borrow.}
-func hash*(a: RFC5321Keyword): Hash
+func `==`*(a, b: RFC5321Keyword): bool       # case-insensitive (RFC 5321 §2.4)
+func `$`*(a: RFC5321Keyword): string {.borrow.}  # preserves original casing
+func hash*(a: RFC5321Keyword): Hash          # case-fold hash
+func len*(a: RFC5321Keyword): int {.borrow.}
 
 func parseRFC5321Keyword*(raw: string): Result[RFC5321Keyword, ValidationError]
 ```
 
 Validates: starts with ASCII letter or digit, followed by
-letters/digits/hyphens, length >= 1. Single parser — no strict/lenient pair
-(the grammar is unambiguous; server-sent and client-sent values share the
-same constraints). Note: `esmtp-keyword`'s trailing `*(ALPHA / DIGIT / "-")`
-permits trailing hyphens, unlike `Ldh-str` (`*( ALPHA / DIGIT / "-" )
-Let-dig`) which must end with a letter or digit. The `RFC5321Mailbox` parser
-must enforce the stricter `Ldh-str` rule for `Standardized-tag` inside
-`General-address-literal`, while `RFC5321Keyword` uses the more permissive
-`esmtp-keyword` production.
+letters/digits/hyphens, length 1..64 octets (defensive cap — the RFC is
+silent on an explicit maximum). Single parser — no strict/lenient pair (the
+grammar is unambiguous; server-sent and client-sent values share the same
+constraints).
 
 `==` and `hash` are case-insensitive (ASCII case-fold), matching RFC 5321
 §2.4 ("extension name keywords are not case sensitive") and §4.1.1.1 ("EHLO
 keywords… MUST always be recognized and processed in a case-insensitive
 manner"). This ensures correct Table lookups in `SubmissionExtensionMap` and
-`SubmissionParamKey` regardless of server casing.
+`SubmissionParamKey` regardless of server casing. `$` preserves the original
+casing for diagnostic round-trip.
+
+`OrcptAddrType` shares the same lexical grammar but is byte-equal — RFC 3461
+does not mandate case-folding for the addr-type atom of `ORCPT=`, so
+`==`/`hash`/`$` come through `defineStringDistinctOps`.
+
+```nim
+type OrcptAddrType* = distinct string
+
+defineStringDistinctOps(OrcptAddrType)
+
+func parseOrcptAddrType*(raw: string): Result[OrcptAddrType, ValidationError]
+```
+
+Each parser routes its structural failures through a module-private
+`*Violation` enum (`KeywordViolation` for `RFC5321Keyword`,
+`OrcptAddrTypeViolation` for `OrcptAddrType`) and a dedicated
+`toValidationError` translator overload (functional-core Pattern 5 —
+translation at the boundary).
 
 ### 2.3. SubmissionParam — Typed Sealed Sum + Extension Arm (`submission_param.nim`)
 
@@ -249,8 +261,6 @@ type
     dnfSuccess  = "SUCCESS"
     dnfFailure  = "FAILURE"
     dnfDelay    = "DELAY"
-
-  OrcptAddrType* = distinct string
 
   DeliveryByMode* = enum
     dbmReturn      = "R"
@@ -300,13 +310,30 @@ invalid input rather than returning a `Result`.
 
 ```nim
 func parseHoldForSeconds*(raw: UnsignedInt): Result[HoldForSeconds, ValidationError]
-func parseMtPriority*(raw: int): Result[MtPriority, ValidationError]
+func parseMtPriority*(raw: int):              Result[MtPriority, ValidationError]
 ```
 
+`parseHoldForSeconds` is total — `UnsignedInt` already enforces the JSON-
+safe `0..2^53-1` bound at its own smart constructor, so the wrapper has
+nothing to reject. The `Result`-returning signature is uniform with the
+other `parse*` functions so callers compose with `?`/`valueOr:`.
+`parseMtPriority` enforces the inclusive `-9..9` bound of RFC 6710 §2.
+
 NOTIFY mutual exclusion: `dnfNever` is mutually exclusive with
-`{dnfSuccess, dnfFailure, dnfDelay}`. Enforced in the `spkNotify` smart
+`{dnfSuccess, dnfFailure, dnfDelay}`. Enforced in the `notifyParam` smart
 constructor, not structurally split into a case object. The invariant is
 narrow (one rule) and a structural split would add ceremony without payoff.
+
+```nim
+func notifyParam*(flags: set[DsnNotifyFlag]): Result[SubmissionParam, ValidationError]
+```
+
+Twelve smart constructors (one per variant) live alongside in alphabetical
+order: `bodyParam`, `byParam`, `envidParam`, `extensionParam`,
+`holdForParam`, `holdUntilParam`, `mtPriorityParam`, `notifyParam`,
+`orcptParam`, `retParam`, `sizeParam`, `smtpUtf8Param`. An arm-dispatched
+`==` lives on `SubmissionParam` because Nim's auto-derived `==` rejects
+case objects (parallel-fields-iterator compile error).
 
 ### 2.4. SubmissionParams — ADT-Keyed Table (`submission_param.nim`)
 
@@ -326,34 +353,15 @@ type
 
   SubmissionParams* = distinct OrderedTable[SubmissionParamKey, SubmissionParam]
 
-func hash*(k: SubmissionParamKey): Hash =
-  case k.kind
-  of spkExtension:
-    var h: Hash = 0
-    h = h !& hash(spkExtension.ord)
-    h = h !& hash(k.extName)
-    !$h
-  of spkBody, spkSmtpUtf8, spkSize, spkEnvid, spkRet, spkNotify, spkOrcpt,
-      spkHoldFor, spkHoldUntil, spkBy, spkMtPriority:
-    hash(k.kind.ord)
+func `==`*(a, b: SubmissionParamKey): bool   # arm-dispatched; spkExtension
+                                             # compares extName case-insensitively
+func hash*(k: SubmissionParamKey): Hash      # arm-dispatched; mixes kind ord
+                                             # into spkExtension hash
+func paramKey*(p: SubmissionParam): SubmissionParamKey   # derived-not-stored
+                                                          # (Pattern 6)
 
-func `==`*(a, b: SubmissionParamKey): bool =
-  if a.kind != b.kind:
-    return false
-  case a.kind
-  of spkExtension:
-    a.extName == b.extName
-  of spkBody, spkSmtpUtf8, spkSize, spkEnvid, spkRet, spkNotify, spkOrcpt,
-      spkHoldFor, spkHoldUntil, spkBy, spkMtPriority:
-    true
-
-func paramKey*(p: SubmissionParam): SubmissionParamKey =
-  case p.kind
-  of spkExtension:
-    SubmissionParamKey(kind: spkExtension, extName: p.extName)
-  of spkBody, spkSmtpUtf8, spkSize, spkEnvid, spkRet, spkNotify, spkOrcpt,
-      spkHoldFor, spkHoldUntil, spkBy, spkMtPriority:
-    SubmissionParamKey(kind: p.kind)
+func `==`*(a, b: SubmissionParams): bool {.borrow.}
+func `$`*(a: SubmissionParams): string {.borrow.}
 
 func parseSubmissionParams*(
     items: openArray[SubmissionParam]
@@ -361,13 +369,14 @@ func parseSubmissionParams*(
 ```
 
 Non-extension arms are enumerated explicitly rather than collapsed to
-`else: discard` — the codebase's `nim-functional-core.md` rule "never a
-`case` with catch-all `else` when variants are finite" applies throughout
-L1–L3.
+`else: discard` — `nim-functional-core.md`'s "never a `case` with catch-all
+`else` when variants are finite" rule applies throughout L1–L3.
 
-The key is derived from the value via `paramKey` — "derived-not-stored"
-(Pattern 6). The Table indexes by derived identity; the value carries the
-full payload.
+The key is derived from the value via `paramKey` (functional-core
+Pattern 6 — "derived-not-stored"). The Table indexes by derived identity;
+the value carries the full payload. `parseSubmissionParams` accumulates
+duplicate-key violations via a two-`HashSet` kernel (`seen` /
+`reported`) so each repeated key is reported exactly once.
 
 `SubmissionAddress.parameters` is `Opt[SubmissionParams]` (G34), matching
 the RFC's `Object|null`. `Opt.none` represents absent/null parameters;
@@ -384,16 +393,14 @@ type
     parameters*: Opt[SubmissionParams]
 
   ReversePathKind* = enum
-    rpkNullPath      ## SMTP null reverse path <>; wire: empty string; may carry Mail-parameters
+    rpkNullPath      ## SMTP null reverse path <>; wire: empty string;
+                     ## may carry Mail-parameters
     rpkMailbox       ## Valid RFC 5321 Mailbox with optional parameters
 
   ReversePath* {.ruleOff: "objects".} = object
-    ## Models SMTP Reverse-path = Path / "<>" (RFC 5321 §4.1.2).
-    ## Distinguished from SubmissionAddress so rcptTo (Forward-path only)
-    ## cannot admit empty addresses (G32).
     case kind*: ReversePathKind
     of rpkNullPath: nullPathParams*: Opt[SubmissionParams]
-    of rpkMailbox:  sender*: SubmissionAddress
+    of rpkMailbox:  sender*:         SubmissionAddress
 
   NonEmptyRcptList* = distinct seq[SubmissionAddress]
 
@@ -407,16 +414,19 @@ Smart constructors for `ReversePath`:
 ```nim
 func nullReversePath*(
     params: Opt[SubmissionParams] = Opt.none(SubmissionParams)
-): ReversePath =
+): ReversePath
   ## Infallible constructor for the SMTP null reverse path <>.
-  ReversePath(kind: rpkNullPath, nullPathParams: params)
 
-func reversePath*(address: SubmissionAddress): ReversePath =
+func reversePath*(address: SubmissionAddress): ReversePath
   ## Infallible wrapper: lifts a validated SubmissionAddress into ReversePath.
-  ReversePath(kind: rpkMailbox, sender: address)
 ```
 
-`NonEmptyRcptList` has a strict/lenient parser pair (G7):
+Arm-dispatched `==` lives on `ReversePath` (auto-derived `==` fails for
+case objects).
+
+`NonEmptyRcptList` exposes `==` / `$` / `len` as borrowed templates plus
+explicit `[]` (int-indexed) and `items` / `pairs` iterators; the strict /
+lenient parser pair (G7) covers client and server sides:
 
 ```nim
 func parseNonEmptyRcptList*(
@@ -429,8 +439,8 @@ func parseNonEmptyRcptListFromServer*(
 ```
 
 The strict parser (client construction) rejects empty AND duplicate
-recipients via `validateUniqueByIt`. The lenient parser (server receipt)
-rejects only empty — Postel's law.
+recipients keyed on `RFC5321Mailbox` via `validateUniqueByIt`. The lenient
+parser (server receipt) rejects only empty — Postel's law.
 
 ---
 
@@ -453,7 +463,10 @@ type UndoStatus* = enum
 
 State transitions: `usPending` → `usFinal` (server-initiated, unrecallable),
 `usPending` → `usCanceled` (client-initiated via update). Both `usFinal`
-and `usCanceled` are terminal.
+and `usCanceled` are terminal. The string ↔ variant mapping lives in the
+serde layer (`parseUndoStatus`); `UndoStatus` itself has no L1 smart
+constructor — duplicating one would create two sources of truth with no L1
+consumer.
 
 ### 3.2. DeliveredState + DisplayedState
 
@@ -480,26 +493,73 @@ type DisplayedState* = enum
 type ParsedDisplayedState* {.ruleOff: "objects".} = object
   state*:      DisplayedState
   rawBacking*: string
+
+func parseDeliveredState*(raw: string): ParsedDeliveredState   # total
+func parseDisplayedState*(raw: string): ParsedDisplayedState   # total
 ```
 
-### 3.3. SmtpReply
+Both parsers are total: case-sensitive match against the RFC-defined
+backing strings; unrecognised input falls through to `dsOther` / `dpOther`
+with `rawBacking` preserving the original token.
 
-Distinct string; smart constructor validates Reply-code per RFC 5321 §4.2
-(`Reply-code = %x32-35 %x30-35 %x30-39`; first digit 2–5, second digit
-0–5, third digit 0–9), optionally followed by SP or hyphen and text.
-Multiline replies (continuation lines with hyphen separator) are accepted.
-Deeper structural parsing (enhanced status code decomposition per RFC 3463)
-deferred (G12).
+### 3.3. SmtpReply — Reply-line + Enhanced Status Code
+
+The wire `smtpReply` field is parsed once at the serde boundary into a
+fully-decomposed structure: RFC 5321 §4.2 multi-line Reply lines plus an
+optional RFC 3463 §2 enhanced-status-code triple from the final line. The
+`raw` field preserves the ingress bytes (for diagnostic fidelity); the
+structured fields support equality and rendering (G12, H23).
 
 ```nim
-type SmtpReply* = distinct string
+type
+  ReplyCode*       = distinct uint16   ## RFC 5321 §4.2.3 three-digit code
+  StatusCodeClass* = enum               ## RFC 3463 §3.1 class digit
+    sccSuccess           = "2"
+    sccTransientFailure  = "4"
+    sccPermanentFailure  = "5"
+  SubjectCode*     = distinct uint16   ## RFC 3463 §4 subject sub-code (0..999)
+  DetailCode*      = distinct uint16   ## RFC 3463 §4 detail sub-code (0..999)
 
-func `==`*(a, b: SmtpReply): bool {.borrow.}
-func `$`*(a: SmtpReply): string {.borrow.}
-func hash*(a: SmtpReply): Hash {.borrow.}
+  EnhancedStatusCode* {.ruleOff: "objects".} = object
+    klass*:   StatusCodeClass
+    subject*: SubjectCode
+    detail*:  DetailCode
 
-func parseSmtpReply*(raw: string): Result[SmtpReply, ValidationError]
+  ParsedSmtpReply* {.ruleOff: "objects".} = object
+    replyCode*: ReplyCode
+    enhanced*:  Opt[EnhancedStatusCode]
+    text*:      string
+    raw*:       string
 ```
+
+A module-public `SmtpReplyViolation` enum names every structural and
+enhanced-grammar failure mode (10 surface variants from G1, plus 5
+enhanced-status-code variants from H1). The translator
+`toValidationError(v: SmtpReplyViolation, raw: string): ValidationError`
+is the sole domain-to-wire bridge (Pattern 5 — adding a violation forces
+a compile error there and nowhere else).
+
+```nim
+func parseSmtpReply*(raw: string):  Result[ParsedSmtpReply, ValidationError]
+func renderSmtpReply*(p: ParsedSmtpReply): string
+```
+
+`parseSmtpReply` runs the layered pipeline: emptiness, global byte-set
+(`textstring` per §4.2.1 plus CR/LF), CRLF→LF normalisation, line splitting,
+per-line surface grammar (`Reply-code` digit ranges, separator dispatch),
+Reply-code consistency across lines, optional enhanced-triple per line,
+enhanced-code consistency, and final assembly. Each phase is an L1 helper
+(`detectReplyCodeGrammar`, `detectSeparator`, `detectClassDigit`,
+`detectSubjectInRange`, `detectDetailInRange`, `detectConsistentItems`,
+`detectEnhancedTriple`, etc.) so the composer reads as the RFC's layered
+pipeline and `detectConsistentItems` is reused for both Reply-code and
+enhanced-code consistency (one helper, two call sites).
+
+`renderSmtpReply` emits the canonical LF form (H24): single-line reply as
+`"<code> [<enhanced> ]<text>"`; multi-line as `"<code>-<line>\n…\n<code>
+[<enhanced> ]<final>"`. Not equal to `p.raw` in general — `raw` preserves
+ingress bytes (including CRLF); `renderSmtpReply` emits LF-only with no
+trailing whitespace.
 
 ### 3.4. DeliveryStatus + DeliveryStatusMap
 
@@ -508,19 +568,24 @@ the envelope `rcptTo` addresses (G9).
 
 ```nim
 type DeliveryStatus* {.ruleOff: "objects".} = object
-  smtpReply*: SmtpReply
+  smtpReply*: ParsedSmtpReply
   delivered*: ParsedDeliveredState
   displayed*: ParsedDisplayedState
 
 type DeliveryStatusMap* = distinct Table[RFC5321Mailbox, DeliveryStatus]
-```
 
-Domain-specific operations attach to the distinct type:
+func `==`*(a, b: DeliveryStatusMap): bool {.borrow.}
+func `$`*(a: DeliveryStatusMap):     string {.borrow.}
 
-```nim
 func countDelivered*(m: DeliveryStatusMap): int
-func anyFailed*(m: DeliveryStatusMap): bool
+func anyFailed*(m: DeliveryStatusMap):     bool
 ```
+
+`countDelivered` returns the number of recipients with
+`delivered.state == dsYes`; `anyFailed` short-circuits true on the first
+recipient with `delivered.state == dsNo`. Both iterate the underlying
+`Table` via an explicit unwrap-cast (mutable stdlib containers don't borrow
+subscripts cleanly, so domain operations stay on the distinct type).
 
 ---
 
@@ -532,12 +597,10 @@ All types in this section live in `email_submission.nim` under
 ### 4.1. GADT-Style Phantom State Indexing
 
 RFC §7's `undoStatus` determines which operations are valid on a submission.
-The flat-record approach pushes that invariant into documentation and runtime
+A flat-record approach pushes that invariant into documentation and runtime
 checks. The phantom-typed approach (G2, G3) lifts it into the type system:
 `cancel` only accepts `EmailSubmission[usPending]`; the compiler rejects
 attempts to cancel a final or already-canceled submission.
-
-The Nim adaptation of Haskell's GADT + DataKinds idiom:
 
 ```nim
 type EmailSubmission*[S: static UndoStatus] {.ruleOff: "objects".} = object
@@ -557,31 +620,53 @@ enum IS the type parameter. One source of truth — adding a hypothetical
 `usScheduled` variant forces compile errors at every `case` site for
 `AnyEmailSubmission.state` and every typed transition function.
 
-### 4.2. AnyEmailSubmission — Existential Wrapper
+### 4.2. AnyEmailSubmission — Existential Wrapper (Pattern A Sealed)
 
-The Nim analogue of Haskell's `SomeEmailSubmission`. Runtime dispatch happens
-once at the serde boundary; consumers pattern-match once at the use site.
+`AnyEmailSubmission` is the runtime existential: pattern-match on `.state`
+once, recover the phantom-indexed branch via the `as*` accessor.
 
 ```nim
 type AnyEmailSubmission* {.ruleOff: "objects".} = object
   case state*: UndoStatus
-  of usPending:  pending*:  EmailSubmission[usPending]
-  of usFinal:    final*:    EmailSubmission[usFinal]
-  of usCanceled: canceled*: EmailSubmission[usCanceled]
+  of usPending:  rawPending:  EmailSubmission[usPending]
+  of usFinal:    rawFinal:    EmailSubmission[usFinal]
+  of usCanceled: rawCanceled: EmailSubmission[usCanceled]
+
+func toAny*(s: EmailSubmission[usPending]):  AnyEmailSubmission
+func toAny*(s: EmailSubmission[usFinal]):    AnyEmailSubmission
+func toAny*(s: EmailSubmission[usCanceled]): AnyEmailSubmission
+
+func asPending*(s:  AnyEmailSubmission): Opt[EmailSubmission[usPending]]
+func asFinal*(s:    AnyEmailSubmission): Opt[EmailSubmission[usFinal]]
+func asCanceled*(s: AnyEmailSubmission): Opt[EmailSubmission[usCanceled]]
+
+func `==`*(a, b: AnyEmailSubmission): bool   # arm-dispatched
 ```
 
+Branch fields are module-private (`rawPending` etc.); construction is gated
+by the `toAny` overload family (one per phantom instantiation), and read
+access is via `asPending` / `asFinal` / `asCanceled`. The discriminator
+`state` stays exported because callers `case` on it before projecting
+through an accessor. Pattern A sealing mirrors `EmailSubmissionBlueprint` —
+a wrong-branch read cannot be written. Under `--panics:on` the alternative
+(a runtime `FieldDefect`) would be fatal and uncatchable across the FFI
+boundary.
+
 **Boundary pattern.** `fromJson` produces `AnyEmailSubmission`. Consumers
-pattern-match:
+case once and project:
 
 ```nim
 case sub.state
 of usPending:
-  let upd = cancelUpdate(sub.pending)
-  # ...
+  for s in sub.asPending:
+    let upd = cancelUpdate(s)
+    # ...
 of usFinal:
-  # render as sent
+  for s in sub.asFinal:
+    discard s   # render as sent
 of usCanceled:
-  # render as canceled
+  for s in sub.asCanceled:
+    discard s   # render as canceled
 ```
 
 ### 4.3. Typed Transition Functions
@@ -592,8 +677,14 @@ output.
 
 ```nim
 func cancelUpdate*(s: EmailSubmission[usPending]): EmailSubmissionUpdate =
+  discard s
   setUndoStatusToCanceled()
 ```
+
+The `s` parameter is unused at runtime — the phantom binds at the call
+site to carry the compile-time guarantee.
+`cancelUpdate(EmailSubmission[usFinal])` and
+`cancelUpdate(EmailSubmission[usCanceled])` are compile errors.
 
 ---
 
@@ -611,8 +702,8 @@ type EmailSubmissionBlueprint* {.ruleOff: "objects".} = object
   rawEmailId:    Id
   rawEnvelope:   Opt[Envelope]
 
-func identityId*(bp: EmailSubmissionBlueprint): Id = bp.rawIdentityId
-func emailId*(bp:    EmailSubmissionBlueprint): Id = bp.rawEmailId
+func identityId*(bp: EmailSubmissionBlueprint): Id           = bp.rawIdentityId
+func emailId*(bp:    EmailSubmissionBlueprint): Id           = bp.rawEmailId
 func envelope*(bp:   EmailSubmissionBlueprint): Opt[Envelope] = bp.rawEnvelope
 ```
 
@@ -623,7 +714,7 @@ cannot construct a record literal-wise and sidestep
 `EmailCreate`.
 
 `envelope: Opt[Envelope]` — `None` means "defer to server synthesis per
-RFC §7.5" (G14). No client-side synthesis helper; the server is the
+RFC §7.5 ¶4" (G14). No client-side synthesis helper; the server is the
 authoritative envelope computer.
 
 ### 5.2. Smart Constructor
@@ -638,10 +729,11 @@ func parseEmailSubmissionBlueprint*(
 ): Result[EmailSubmissionBlueprint, seq[ValidationError]]
 ```
 
-Validates: `identityId` and `emailId` are structurally valid `Id` values.
-If `envelope` is provided, its inner `SubmissionAddress` / `NonEmptyRcptList`
-/ `SubmissionParams` invariants are already enforced by their own smart
-constructors — the Blueprint constructor need not re-check them.
+`identityId`, `emailId`, and the inner `Envelope` invariants are already
+enforced by their own smart constructors (`parseId`, `parseRFC5321Mailbox`,
+`parseSubmissionParams`, `parseNonEmptyRcptList`); the Blueprint constructor
+has nothing left to reject. The `Result[T, seq[ValidationError]]` signature
+is uniform with `EmailBlueprint` so callers compose identically.
 
 ---
 
@@ -661,12 +753,15 @@ type EmailSubmissionUpdate* {.ruleOff: "objects".} = object
   case kind*: EmailSubmissionUpdateVariantKind
   of esuSetUndoStatusToCanceled: discard
 
-func setUndoStatusToCanceled*(): EmailSubmissionUpdate =
-  EmailSubmissionUpdate(kind: esuSetUndoStatusToCanceled)
-
-func cancelUpdate*(s: EmailSubmission[usPending]): EmailSubmissionUpdate =
-  setUndoStatusToCanceled()
+func setUndoStatusToCanceled*(): EmailSubmissionUpdate
+func cancelUpdate*(s: EmailSubmission[usPending]): EmailSubmissionUpdate
 ```
+
+The sealed-sum shape exists for forwards compatibility. The serde
+`toJson(EmailSubmissionUpdate)` carries a module-scope `when` guard that
+fails the build the moment a second `EmailSubmissionUpdateVariantKind`
+variant is introduced — that is the signal to rewrite the body as a `case`
+dispatch.
 
 ### 6.2. NonEmptyEmailSubmissionUpdates
 
@@ -682,81 +777,94 @@ func parseNonEmptyEmailSubmissionUpdates*(
 ): Result[NonEmptyEmailSubmissionUpdates, seq[ValidationError]]
 ```
 
-Accumulating error rail: every violation surfaces in a single Err pass,
-and each repeated `Id` key is reported exactly once regardless of its
-occurrence count. The pair (empty-input rejection, duplicate-key detection)
-flows through `validateUniqueByIt` — the same helper used by
-`parseEmailBlueprint` for consistency with F1.
+Accumulating error rail through `validateUniqueByIt`: every empty/duplicate
+violation surfaces in a single `Err` pass, and each repeated `Id` key is
+reported exactly once regardless of occurrence count.
 
 ---
 
 ## 7. Serde (SerdeViolation + JsonPath)
 
-All serde follows the `c8f45b3` pattern (G26): every `fromJson` signature
-carries `path: JsonPath = emptyJsonPath()` and returns
+All serde follows the codebase-wide pattern (G26): every `fromJson`
+signature carries `path: JsonPath = emptyJsonPath()` and returns
 `Result[T, SerdeViolation]`. Single `toValidationError(sv, rootType)`
 translator at the L2/L3 boundary.
 
 Serde is split into three L2 files — `serde_submission_envelope.nim`
-(envelope, addresses, params), `serde_submission_status.nim` (status
-enums + `DeliveryStatus`), and `serde_email_submission.nim` (entity +
-existential dispatch + blueprint + update + filter + comparator +
-`EmailSubmissionCreatedItem` + `IdOrCreationRef`). One serde module per
-L1 concern, symmetric with mail's existing `serde_*` layout.
+(envelope, addresses, params), `serde_submission_status.nim` (status enums
++ `DeliveryStatus`), and `serde_email_submission.nim` (entity + existential
+dispatch + blueprint + update + filter + comparator +
+`EmailSubmissionCreatedItem` + `IdOrCreationRef` + the `NonEmptyOnSuccess*`
+containers). One serde module per L1 concern, symmetric with mail's
+existing `serde_*` layout.
 
 ### 7.1. AnyEmailSubmission Deserialisation
 
-`fromJson` dispatches once on `undoStatus` at the serde boundary, then
-constructs the appropriate phantom-indexed branch:
+`fromJson` peeks at `undoStatus` once at the serde boundary, picks the
+phantom branch, then delegates the shared field list to a private generic
+helper:
 
 ```nim
 func fromJson*(
-    _: typedesc[AnyEmailSubmission],
+    T:    typedesc[AnyEmailSubmission],
     node: JsonNode,
-    path: JsonPath = emptyJsonPath()
+    path: JsonPath = emptyJsonPath(),
 ): Result[AnyEmailSubmission, SerdeViolation] =
-  let statusNode = ? fieldJString(node, "undoStatus", path)
-  let status = ? parseUndoStatus(statusNode.getStr, path / "undoStatus")
+  ?expectKind(node, JObject, path)
+  let statusNode = ?fieldJString(node, "undoStatus", path)
+  let status     = ?parseUndoStatus(statusNode.getStr(""), path / "undoStatus")
   case status
   of usPending:
-    let s = ? fromJsonShared[usPending](node, path)
-    ok(AnyEmailSubmission(state: usPending, pending: s))
+    let s = ?fromJsonShared[usPending](node, path)
+    return ok(toAny(s))
   of usFinal:
-    let s = ? fromJsonShared[usFinal](node, path)
-    ok(AnyEmailSubmission(state: usFinal, final: s))
+    let s = ?fromJsonShared[usFinal](node, path)
+    return ok(toAny(s))
   of usCanceled:
-    let s = ? fromJsonShared[usCanceled](node, path)
-    ok(AnyEmailSubmission(state: usCanceled, canceled: s))
+    let s = ?fromJsonShared[usCanceled](node, path)
+    return ok(toAny(s))
 ```
 
-`fromJsonShared` is a generic helper parameterised on `S: static UndoStatus`
-that parses the shared fields into `EmailSubmission[S]`.
+`fromJsonShared[S: static UndoStatus]` parses the shared field list once,
+monomorphising at dispatch. The phantom erases at runtime, so the three
+instantiations compile to effectively the same body differing only in
+return-type metadata. Construction flows through the `toAny` overload
+family — the canonical gateway for the sealed `AnyEmailSubmission`.
+
+`parseUndoStatus(raw, path)` is exported from `serde_submission_status.nim`
+so the entity dispatcher and `fromJson(UndoStatus)` share the same
+closed-enum recogniser without a double `JString` kind check. Unknown
+values surface as `svkEnumNotRecognised` — `UndoStatus` is RFC-closed, so
+this is a protocol violation, not a forwards-compatibility concern.
 
 ### 7.2. Envelope + Parameters Serde
 
-`toJson` for `SubmissionParams` iterates the `OrderedTable`, emitting each
-parameter as a key-value pair in a JSON object. The key is the
+`SubmissionParams.toJson` iterates the `OrderedTable`, emitting each
+parameter as a key-value pair in a JSON object. The wire key is the
 string-backed `SubmissionParamKind` for known variants, or `extName` for
 extensions.
 
-`fromJson` for `SubmissionParams` must reverse: parse each key into a
-`SubmissionParamKind` (falling back to `spkExtension` for unrecognised
-keys), then parse the value according to the variant.
+`SubmissionParams.fromJson` reverses: each `(key, value)` pair is dispatched
+to the matching variant parser via case-insensitive match against `$kind`,
+falling back to `parseParamExtension` for unrecognised keys. The resulting
+list is funnelled through `parseSubmissionParams` so the L1 invariants (no
+duplicate keys) hold for the returned value.
 
-xtext-encoded wire strings (ENVID, ORCPT recipient) are decoded at the serde
-boundary (G27/G8c); interior holds plain unicode.
+`paramValueToJson` emits the wire value side of one parameter. RFC 8621
+§7.3.2 constrains values to `String|null`; numeric parameters (SIZE,
+HOLDFOR, BY deadline, MT-PRIORITY) ride as JSON strings of decimal digits,
+never JSON ints. NOTIFY flag sets join via `notifyFlagsToWire`; ORCPT and
+BY use the `<addr-type>;<orig-recipient>` and `<deadline>;<mode>` shapes
+respectively. Reverse parsers mirror these splits.
 
-> **Resolved at Step 10 planning (2026-04-17): no xtext helpers.**
-> RFC 8621 §7.3.2 (lines 4207–4210) explicitly says *"any xtext or
-> unitext encodings are removed (see [RFC3461] and [RFC6533]) and JSON
-> string encoding is applied"* for JMAP `Address` parameters. The server
-> handles the SMTP-side xtext / unitext translation; the JMAP wire
-> already carries plain UTF-8 JSON strings on both ingress and egress.
-> Consequently `ENVID`, `ORCPT.orig-recipient`, and every other parameter
-> string in the L1 model carry plain UTF-8 bytes, and `serde_submission_envelope.nim`
-> ships **without** `xtextEncode` / `xtextDecode` helpers. Earlier Step 10
-> notes calling for those helpers (e.g. G27/G8c "xtext-at-serde-boundary"
-> framing) are superseded by this confirmation.
+> **xtext / unitext at the JMAP boundary.** RFC 8621 §7.3.2 (lines
+> 4207–4210) explicitly says *"any xtext or unitext encodings are removed
+> (see [RFC3461] and [RFC6533]) and JSON string encoding is applied"* for
+> JMAP `Address` parameters. The server handles the SMTP-side translation;
+> the JMAP wire already carries plain UTF-8 JSON strings on both ingress
+> and egress. Consequently `ENVID`, `ORCPT.orig-recipient`, and every
+> other parameter string in the L1 model carry plain UTF-8 bytes, and
+> `serde_submission_envelope.nim` ships **without** xtext/unitext helpers.
 
 `toJson`/`fromJson` for `ReversePath`: the wire format is the RFC §7
 `Address` object in both cases. `rpkNullPath` serialises with `email` set
@@ -765,22 +873,62 @@ to `SubmissionAddress` serde. `fromJson` dispatches on the `email` field:
 empty string → `rpkNullPath` (with optional parameters parsed from the same
 object), non-empty → parse as `RFC5321Mailbox` → `rpkMailbox`.
 
-### 7.3. Creation and Filter Serialisation
+### 7.3. Creation, Update, Filter, and IdOrCreationRef Serialisation
 
 `EmailSubmissionBlueprint`, `EmailSubmissionFilterCondition`, and
 `EmailSubmissionComparator` are `toJson`-only — they flow client → server
 and the server never sends them back.
 
-`NonEmptyEmailSubmissionUpdates` serialises to `Table[Id, PatchObject]` on
-the wire — the `toJson` translates the single variant
-`esuSetUndoStatusToCanceled` into the PatchObject
-`{ "undoStatus": "canceled" }`.
+`NonEmptyEmailSubmissionUpdates.toJson` emits the wire shape
+`{subId: {patchKey: patchVal, ...}, ...}`. The L1 container maps one
+`EmailSubmissionUpdate` per id, so each inner PatchObject has exactly one
+key — today `"undoStatus": "canceled"`.
 
-`toJson`-only for `IdOrCreationRef` (map-key serialisation in the compound
-builder's `onSuccessUpdateEmail` / `onSuccessDestroyEmail`): `icrDirect`
-serialises as the `Id` string value; `icrCreation` serialises as
-`"#" & string(creationId)` per RFC 8620 §5.3. No `fromJson` — the server
-never sends these keys back.
+`IdOrCreationRef` exports two serde helpers: `idOrCreationRefWireKey` (raw
+string form: the `Id` verbatim or `"#"` + `CreationId`) for Table-key
+stringification, and `toJson` (JSON string form of the wire key) for use
+when an `IdOrCreationRef` appears as a list element rather than a map key.
+No `fromJson` — the server never sends these keys back.
+
+`NonEmptyOnSuccessUpdateEmail.toJson` flattens to RFC 8621 §7.5 ¶3 wire
+shape `{idOrCreationRefKey: patchObj, ...}` via `idOrCreationRefWireKey` +
+`EmailUpdateSet.toJson`; `NonEmptyOnSuccessDestroyEmail.toJson` emits the
+JSON array shape `[idOrCreationRefKey, ...]`.
+
+### 7.4. EmailSubmissionCreatedItem — Postel's Law on the Create Response
+
+`EmailSubmission/set` returns a `created` map whose values are the
+server-authoritative subset of `EmailSubmission` fields. The shape models
+real-world server divergence:
+
+```nim
+type EmailSubmissionCreatedItem* {.ruleOff: "objects".} = object
+  id*:         Id
+  threadId*:   Opt[Id]
+  sendAt*:     Opt[UTCDate]
+  undoStatus*: Opt[UndoStatus]
+```
+
+`fromJson` for `EmailSubmissionCreatedItem` requires only `id`; `threadId`,
+`sendAt`, and `undoStatus` are `Opt[T]` because servers diverge on what
+they include in the create acknowledgement:
+
+- **Stalwart 0.15.5** emits only `{"id": "<id>"}` — strict-RFC §7.5 ¶2
+  minimum.
+- **Cyrus 3.12.2** emits `{"id", "undoStatus", "sendAt"}` —
+  `imap/jmap_mail_submission.c` returns the full server-set state inline
+  because Cyrus's submission lifecycle is fire-and-forget: the server may
+  have already finalised and discarded the record by the time the client
+  could call `/get`, so the create response must carry the live state to
+  be useful.
+- **James 3.9** TBD — defers to live `/get`.
+
+Capturing `undoStatus` from the create response lets callers avoid a
+futile `/get` poll on Cyrus while gracefully accepting a sparse response
+on Stalwart. Postel's-law accommodation per `nim-conventions.md`'s
+"Serde Conventions" — be lenient on receive. The `mixin`-resolved
+`SetResponse[EmailSubmissionCreatedItem].fromJson` drives this at the
+generic dispatch site.
 
 ---
 
@@ -794,38 +942,38 @@ All builders live in `submission_builders.nim`.
 func addEmailSubmissionGet*(
     b: RequestBuilder,
     accountId: AccountId,
-    ids: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]),
-    properties: Opt[seq[string]] = Opt.none(seq[string]),
+    ids:        Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]),
+    properties: Opt[seq[string]]           = Opt.none(seq[string]),
 ): (RequestBuilder, ResponseHandle[GetResponse[AnyEmailSubmission]])
 
 func addEmailSubmissionChanges*(
     b: RequestBuilder,
-    accountId: AccountId,
+    accountId:  AccountId,
     sinceState: JmapState,
     maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges),
 ): (RequestBuilder, ResponseHandle[ChangesResponse[AnyEmailSubmission]])
 
 func addEmailSubmissionQuery*(
     b: RequestBuilder,
-    accountId: AccountId,
-    filter: Opt[Filter[EmailSubmissionFilterCondition]] =
-      Opt.none(Filter[EmailSubmissionFilterCondition]),
-    sort: Opt[seq[EmailSubmissionComparator]] =
-      Opt.none(seq[EmailSubmissionComparator]),
+    accountId:   AccountId,
+    filter:      Opt[Filter[EmailSubmissionFilterCondition]] =
+                   Opt.none(Filter[EmailSubmissionFilterCondition]),
+    sort:        Opt[seq[EmailSubmissionComparator]] =
+                   Opt.none(seq[EmailSubmissionComparator]),
     queryParams: QueryParams = QueryParams(),
 ): (RequestBuilder, ResponseHandle[QueryResponse[AnyEmailSubmission]])
 
 func addEmailSubmissionQueryChanges*(
     b: RequestBuilder,
-    accountId: AccountId,
+    accountId:       AccountId,
     sinceQueryState: JmapState,
-    filter: Opt[Filter[EmailSubmissionFilterCondition]] =
-      Opt.none(Filter[EmailSubmissionFilterCondition]),
-    sort: Opt[seq[EmailSubmissionComparator]] =
-      Opt.none(seq[EmailSubmissionComparator]),
-    maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges),
-    upToId: Opt[Id] = Opt.none(Id),
-    calculateTotal: bool = false,
+    filter:          Opt[Filter[EmailSubmissionFilterCondition]] =
+                       Opt.none(Filter[EmailSubmissionFilterCondition]),
+    sort:            Opt[seq[EmailSubmissionComparator]] =
+                       Opt.none(seq[EmailSubmissionComparator]),
+    maxChanges:      Opt[MaxChanges] = Opt.none(MaxChanges),
+    upToId:          Opt[Id]         = Opt.none(Id),
+    calculateTotal:  bool            = false,
 ): (RequestBuilder, ResponseHandle[QueryChangesResponse[AnyEmailSubmission]])
 ```
 
@@ -849,13 +997,18 @@ func addEmailSubmissionSet*(
     b: RequestBuilder,
     accountId: AccountId,
     ifInState: Opt[JmapState] = Opt.none(JmapState),
-    create: Opt[Table[CreationId, EmailSubmissionBlueprint]] =
-      Opt.none(Table[CreationId, EmailSubmissionBlueprint]),
-    update: Opt[NonEmptyEmailSubmissionUpdates] =
-      Opt.none(NonEmptyEmailSubmissionUpdates),
-    destroy: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]),
+    create:    Opt[Table[CreationId, EmailSubmissionBlueprint]] =
+                 Opt.none(Table[CreationId, EmailSubmissionBlueprint]),
+    update:    Opt[NonEmptyEmailSubmissionUpdates] =
+                 Opt.none(NonEmptyEmailSubmissionUpdates),
+    destroy:   Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]),
 ): (RequestBuilder, ResponseHandle[EmailSubmissionSetResponse])
 ```
+
+Thin wrapper over `addSet[AnyEmailSubmission, EmailSubmissionBlueprint,
+NonEmptyEmailSubmissionUpdates, EmailSubmissionSetResponse]`. For the
+`onSuccessUpdateEmail` / `onSuccessDestroyEmail` extensions, use
+`addEmailSubmissionAndEmailSet` (§9.1).
 
 ### 8.3. EmailSubmissionFilterCondition
 
@@ -874,6 +1027,14 @@ type EmailSubmissionFilterCondition* {.ruleOff: "objects".} = object
   after*:       Opt[UTCDate]
 ```
 
+`NonEmptyIdSeq` exposes `==`, `$`, `len`, and an `Idx`-typed `[]` plus a
+semantic `head` accessor and an `items` iterator. The `Idx` parameter on
+`[]` lifts the non-negative precondition to the type system.
+
+`parseNonEmptyIdSeq` rejects empty input only — RFC 8621 §7.3 filter list
+semantics permit any combination of duplicates, so the constructor matches
+`parseNonEmptySeq` (single `ValidationError`, non-empty check only).
+
 **Strictness note (G37):** The RFC allows empty arrays for `identityIds`,
 `emailIds`, and `threadIds`. This design wraps them in
 `Opt[NonEmptyIdSeq]` — an intentional "make the wrong thing hard" choice.
@@ -881,8 +1042,8 @@ An empty filter list matches nothing, which is almost certainly a caller
 error. `Opt.none` provides the "no constraint on this property" case.
 
 `undoStatus` is typed against the `UndoStatus` enum. Since this field is
-client-sent, the `dsOther`/`dpOther` catch-all pattern from G10/G11 does not
-apply (G18).
+client-sent, the `dsOther`/`dpOther` catch-all pattern from G10/G11 does
+not apply (G18).
 
 ### 8.4. EmailSubmissionComparator
 
@@ -898,7 +1059,19 @@ type EmailSubmissionComparator* {.ruleOff: "objects".} = object
   rawProperty*: string
   isAscending*: bool
   collation*:   Opt[CollationAlgorithm]
+
+func parseEmailSubmissionComparator*(
+    rawProperty: string,
+    isAscending: bool                    = true,
+    collation:   Opt[CollationAlgorithm] = Opt.none(CollationAlgorithm),
+): Result[EmailSubmissionComparator, ValidationError]
 ```
+
+The smart constructor resolves the wire token to a known
+`EmailSubmissionSortProperty` variant, falling back to `esspOther` with the
+raw token preserved on `rawProperty`. The wire token is always emitted
+verbatim from `rawProperty` — for known properties it equals
+`$property`; for `esspOther` it is the only authoritative value.
 
 Note: the RFC's sort property literal is `sentAt`, even though the entity
 property is named `sendAt`. The wire token is authoritative (G19).
@@ -931,22 +1104,49 @@ type
     icrCreation    ## Creation reference (wire: "#" + creationId)
 
   IdOrCreationRef* {.ruleOff: "objects".} = object
-    ## Either an existing EmailSubmission Id or a creation-id reference
-    ## to a submission being created in the same /set call. Wire format:
-    ## direct ids serialise as their string value; creation references
-    ## serialise as "#" & string(creationId).
     case kind*: IdOrCreationRefKind
-    of icrDirect:   id*: Id
+    of icrDirect:   id*:         Id
     of icrCreation: creationId*: CreationId
 
-func directRef*(id: Id): IdOrCreationRef =
-  IdOrCreationRef(kind: icrDirect, id: id)
+func directRef*(id: Id):           IdOrCreationRef
+func creationRef*(cid: CreationId): IdOrCreationRef
 
-func creationRef*(cid: CreationId): IdOrCreationRef =
-  IdOrCreationRef(kind: icrCreation, creationId: cid)
+func `==`*(a, b: IdOrCreationRef): bool   # arm-dispatched
+func hash*(k: IdOrCreationRef):    Hash   # arm-dispatched, mixes kind ord
 ```
 
-### 9.1. addEmailSubmissionAndEmailSet
+Arm-dispatched `==` and `hash` are required: cross-arm values compare
+unequal even on coincident payload strings (an `icrDirect` with `Id("abc")`
+and an `icrCreation` with `CreationId("abc")` are not the same key). The
+`hash` mixes the discriminator ordinal into the payload hash so coincident
+payload strings land in different buckets — without it,
+`Table[IdOrCreationRef, _]` lookups in the compound builder would silently
+break.
+
+### 9.1. NonEmptyOnSuccessUpdateEmail / NonEmptyOnSuccessDestroyEmail
+
+The two compound extras carry their own non-empty + dup-free type. Empty
+and duplicate-key shapes are unrepresentable; `Opt.none` is the sole
+"no extras" encoding (G22).
+
+```nim
+type NonEmptyOnSuccessUpdateEmail*  = distinct Table[IdOrCreationRef, EmailUpdateSet]
+type NonEmptyOnSuccessDestroyEmail* = distinct seq[IdOrCreationRef]
+
+func parseNonEmptyOnSuccessUpdateEmail*(
+    items: openArray[(IdOrCreationRef, EmailUpdateSet)]
+): Result[NonEmptyOnSuccessUpdateEmail, seq[ValidationError]]
+
+func parseNonEmptyOnSuccessDestroyEmail*(
+    items: openArray[IdOrCreationRef]
+): Result[NonEmptyOnSuccessDestroyEmail, seq[ValidationError]]
+```
+
+Both constructors run `validateUniqueByIt` so empty input AND duplicate
+keys/elements accumulate into a single `Err` pass — silent last-wins
+shadowing at Table construction would swallow caller data.
+
+### 9.2. addEmailSubmissionAndEmailSet
 
 Named per F1's AND-connector convention (`addEmailCopyAndDestroy`) (G20).
 Triggers an implicit `Email/set` after `EmailSubmission/set` succeeds,
@@ -956,23 +1156,24 @@ driven by `onSuccessUpdateEmail` and/or `onSuccessDestroyEmail`.
 func addEmailSubmissionAndEmailSet*(
     b: RequestBuilder,
     accountId: AccountId,
-    create: Opt[Table[CreationId, EmailSubmissionBlueprint]] =
-      Opt.none(Table[CreationId, EmailSubmissionBlueprint]),
-    update: Opt[NonEmptyEmailSubmissionUpdates] =
-      Opt.none(NonEmptyEmailSubmissionUpdates),
-    destroy: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]),
-    onSuccessUpdateEmail: Opt[Table[IdOrCreationRef, EmailUpdateSet]] =
-      Opt.none(Table[IdOrCreationRef, EmailUpdateSet]),
-    onSuccessDestroyEmail: Opt[seq[IdOrCreationRef]] =
-      Opt.none(seq[IdOrCreationRef]),
-    ifInState: Opt[JmapState] = Opt.none(JmapState),
+    create:                 Opt[Table[CreationId, EmailSubmissionBlueprint]] =
+                              Opt.none(Table[CreationId, EmailSubmissionBlueprint]),
+    update:                 Opt[NonEmptyEmailSubmissionUpdates] =
+                              Opt.none(NonEmptyEmailSubmissionUpdates),
+    destroy:                Opt[Referencable[seq[Id]]] =
+                              Opt.none(Referencable[seq[Id]]),
+    onSuccessUpdateEmail:   Opt[NonEmptyOnSuccessUpdateEmail] =
+                              Opt.none(NonEmptyOnSuccessUpdateEmail),
+    onSuccessDestroyEmail:  Opt[NonEmptyOnSuccessDestroyEmail] =
+                              Opt.none(NonEmptyOnSuccessDestroyEmail),
+    ifInState:              Opt[JmapState] = Opt.none(JmapState),
 ): (RequestBuilder, EmailSubmissionHandles)
 ```
 
-`onSuccessUpdateEmail` values are typed `EmailUpdateSet` — F1's typed update
-algebra reused directly (G22). The typical flow — send a message, remove
-`$draft`, move from Drafts to Sent — composes from existing `EmailUpdate`
-constructors:
+The two compound extras arrive as `NonEmpty*` wrappers, each toJson-mapped
+through `idOrCreationRefWireKey` for keys and `EmailUpdateSet.toJson` for
+patch values. The typical flow — send a message, remove `$draft`, move from
+Drafts to Sent — composes from existing `EmailUpdate` constructors:
 
 ```nim
 let updates = initEmailUpdateSet(@[
@@ -981,54 +1182,62 @@ let updates = initEmailUpdateSet(@[
   addToMailbox(sentId),
 ]).get()
 
+let onUpdate = parseNonEmptyOnSuccessUpdateEmail(@[
+  (creationRef(submissionCid), updates),
+]).get()
+
 let (req, handles) = b.addEmailSubmissionAndEmailSet(
-  accountId = acc,
-  create = { creationRef: blueprint }.toTable,
-  onSuccessUpdateEmail = { creationRef(submissionCid): updates }.toTable,
+  accountId            = acc,
+  create               = { creationRef: blueprint }.toTable,
+  onSuccessUpdateEmail = Opt.some(onUpdate),
 )
 ```
 
-### 9.2. EmailSubmissionCreatedItem + EmailSubmissionHandles + getBoth
+### 9.3. EmailSubmissionCreatedItem + EmailSubmissionHandles + getBoth
 
-`EmailSubmission/set` returns a `created` map whose values are the
-server-authoritative subset of `EmailSubmission` fields: `id`, `threadId`,
-`sendAt`. The caller couldn't have known any of these at submit time
-(G39).
+`EmailSubmission/set` returns a `created` map keyed by `CreationId` with
+`EmailSubmissionCreatedItem` payloads. The shape and Postel's-law rationale
+are described in §7.4.
 
-```nim
-type EmailSubmissionCreatedItem* {.ruleOff: "objects".} = object
-  id*:       Id
-  threadId*: Id
-  sendAt*:   UTCDate
+`undoStatus` IS carried on `EmailSubmissionCreatedItem` as
+`Opt[UndoStatus]`: a delay-send-disabled server may flip the value to
+`final` or `canceled` immediately, and a server like Cyrus may discard the
+record before any subsequent `/get`. Capturing the live state at create
+time (when present) lets callers avoid a futile poll while gracefully
+accepting absence.
 
-type EmailSubmissionSetResponse* = SetResponse[EmailSubmissionCreatedItem]
-```
-
-`undoStatus` is deliberately **not** carried on
-`EmailSubmissionCreatedItem`: on delay-send-disabled servers, the value
-may flip to `final` or `canceled` immediately on return, so a stale
-create-response value would mislead callers. The contract is "to read
-live state, issue `/get`."
-
-Specific compound-handle record; F1's Rule-of-Three (F3) holds — two
-compound-handle sites is under the generic-promotion threshold (G21). No
-`EmailSetResponse` alias exists in the codebase; the `emailSet` field
-spells out the full `SetResponse[EmailCreatedItem]` inline, mirroring F1's
-`EmailCopyResults.destroy`.
+The compound handle pair aliases the generic from `dispatch.nim` (RFC 8620
+§5.4 implicit-call dispatch):
 
 ```nim
-type EmailSubmissionHandles* {.ruleOff: "objects".} = object
-  submission*: ResponseHandle[EmailSubmissionSetResponse]
-  emailSet*:   NameBoundHandle[SetResponse[EmailCreatedItem]]
+type EmailSubmissionHandles* =
+  CompoundHandles[EmailSubmissionSetResponse, SetResponse[EmailCreatedItem]]
 
-type EmailSubmissionResults* {.ruleOff: "objects".} = object
-  submission*: EmailSubmissionSetResponse
-  emailSet*:   SetResponse[EmailCreatedItem]
-
-func getBoth*(
-    resp: Response, handles: EmailSubmissionHandles
-): Result[EmailSubmissionResults, MethodError]
+type EmailSubmissionResults* =
+  CompoundResults[EmailSubmissionSetResponse, SetResponse[EmailCreatedItem]]
 ```
+
+Field access is `handles.primary` (the declared `EmailSubmission/set`
+response) and `handles.implicit` (the server-emitted `Email/set` follow-up,
+sharing the parent call-id with a method-name filter per RFC 8620 §5.4).
+The `mnEmailSet` filter is set on construction so the extractor needs no
+call-site argument.
+
+The generic extractor lives in `dispatch.nim`:
+
+```nim
+func getBoth*[A, B](
+    resp: Response, handles: CompoundHandles[A, B]
+): Result[CompoundResults[A, B], MethodError]
+```
+
+`mixin fromJson` defers serde lookup until call-site instantiation, where
+`SetResponse[EmailCreatedItem].fromJson` and
+`EmailSubmissionSetResponse.fromJson` are in scope (the two are re-exported
+from `submission_builders.nim` so consumers get them through a single
+import). `registerCompoundMethod(EmailSubmissionSetResponse,
+SetResponse[EmailCreatedItem])` in `mail_entities.nim` compile-checks the
+participation gate at module load.
 
 ---
 
@@ -1036,11 +1245,11 @@ func getBoth*(
 
 All 8 EmailSubmission-specific `SetErrorType` variants plus the standard
 `tooLarge` (reused with submission-specific `maxSize` payload per RFC 8621
-§7.5) already exist in `errors.nim` from commit `a23f39a` (G23). No new
-variants or accessors needed (G24).
+§7.5) live in `errors.nim`. Mail-layer typed accessors are in
+`mail_errors.nim` (G23). No new variants or accessors are needed (G24).
 
-| Method | RFC-listed error | Existing enum variant | Payload accessor |
-|--------|-----------------|----------------------|-----------------|
+| Method | RFC-listed error | Enum variant | Payload accessor |
+|--------|-----------------|---------------|-----------------|
 | `/set` create | `invalidEmail` | `setInvalidEmail` | `invalidEmailProperties(se)` |
 | `/set` create | `tooManyRecipients` | `setTooManyRecipients` | `maxRecipients(se)` |
 | `/set` create | `noRecipients` | `setNoRecipients` | *(none — payload-less)* |
@@ -1057,19 +1266,25 @@ variants or accessors needed (G24).
 
 ### 11.1. SubmissionExtensionMap
 
-Existing `SubmissionCapabilities.submissionExtensions` tightened from
-`OrderedTable[string, seq[string]]` to a distinct wrapper keyed on
-`RFC5321Keyword` (G25). This is a retroactive refinement to the Part A
-capability model, consistent with the codebase's directional shift toward
-validated newtypes.
+`SubmissionCapabilities.submissionExtensions` is a distinct wrapper keyed
+on `RFC5321Keyword` (G25). `RFC5321Keyword`'s case-insensitive `==` and
+`hash` give the underlying `OrderedTable` structural uniqueness and
+wire-order fidelity automatically.
 
 ```nim
 type SubmissionExtensionMap* = distinct OrderedTable[RFC5321Keyword, seq[string]]
+
+func `==`*(a, b: SubmissionExtensionMap): bool   {.borrow.}
+func `$`*(a:    SubmissionExtensionMap): string {.borrow.}
 
 type SubmissionCapabilities* {.ruleOff: "objects".} = object
   maxDelayedSend*:       UnsignedInt
   submissionExtensions*: SubmissionExtensionMap
 ```
+
+`parseSubmissionCapabilities` (in `serde_mail_capabilities.nim`) is the
+construction gateway: keys are validated via `parseRFC5321Keyword`, values
+are JSON arrays of strings.
 
 ---
 
@@ -1094,7 +1309,7 @@ EmailSubmission implementation.
 | # | Decision | Options Considered | Chosen | Primary Principles |
 |---|----------|-------------------|--------|-------------------|
 | G1 | Module organisation | (A) single file, (B) small L1 split by concern, (C) large L1 split with serde mirror | **C** — five L1 files (`submission_atoms.nim`, `submission_mailbox.nim`, `submission_param.nim`, `submission_envelope.nim`, `submission_status.nim`) plus `email_submission.nim`; three serde files mirroring the envelope / status / entity split (`serde_submission_envelope.nim`, `serde_submission_status.nim`, `serde_email_submission.nim`) | Single responsibility; mirrors Email's multi-file family; splits heavy RFC 5321 Mailbox parser from lightweight esmtp-keyword atoms |
-| G2 | Entity shape | (A) flat record, (B) case object on UndoStatus, (C) GADT-style phantom + AnyEmailSubmission wrapper | **C** — phantom-typed `EmailSubmission[S: static UndoStatus]` + existential wrapper | Make state transitions explicit in the type; types tell the truth |
+| G2 | Entity shape | (A) flat record, (B) case object on UndoStatus, (C) GADT-style phantom + AnyEmailSubmission wrapper | **C** — phantom-typed `EmailSubmission[S: static UndoStatus]` + Pattern-A-sealed existential wrapper | Make state transitions explicit in the type; types tell the truth |
 | G3 | UndoStatus + phantom encoding | (A) empty-object markers unbound, (B) union-constrained, (C) `static UndoStatus` generic (DataKinds) | **C** — `[S: static UndoStatus]`; enum IS the phantom | One source of truth per fact |
 | G4 | Transition API surface | (A) L1 typed helper only, (B) L3 typed builder, (C) both, (D) none | **A** — `cancelUpdate(s: EmailSubmission[usPending])` at L1 | Functional core, imperative shell |
 | G6 | Address type | (A) reuse EmailAddress, (B) new SubmissionAddress plain string, (C) new + distinct RFC5321Mailbox | **C** — distinct `RFC5321Mailbox` + `SubmissionAddress` | Newtype everything; parse don't validate |
@@ -1102,11 +1317,11 @@ EmailSubmission implementation.
 | G8 | Parameters map (high-level) | (A) raw table, (B) distinct table + validated keys, (C) distinct + key newtype | **Typed sealed sum + extension arm** (beyond A/B/C) | Maximal type safety for known; open-world for unknown |
 | G8a | Params container | (i) distinct seq, (ii) split table, (iii) single Table keyed on ADT | **(iii)** — `distinct OrderedTable[SubmissionParamKey, SubmissionParam]` | Make illegal states unrepresentable (structural uniqueness) |
 | G8b | Known-parameter set | (A) RFC 8621 strict, (B) + BODY + SMTPUTF8, (C) narrow | **B** — 11 typed variants + extension arm | Practical coverage |
-| G8c | Per-param payloads | Full draft: enums, distinct newtypes, flat composites, xtext-decoded | **Accept as drafted** | Parse don't validate; avoid range[T] |
+| G8c | Per-param payloads | Full draft: enums, distinct newtypes, flat composites, plain UTF-8 strings | **Accept as drafted** | Parse don't validate; avoid range[T] |
 | G9 | DeliveryStatus map key | (A) string, (B) RFC5321Mailbox, (C) distinct DeliveryStatusMap | **C** — `distinct Table[RFC5321Mailbox, DeliveryStatus]` | Newtype everything |
 | G10 | `delivered` enum | (A) closed, (B) + dsOther catch-all, (C) sealed sum empty branches | **B** — 4 RFC-defined + `dsOther` + `ParsedDeliveredState` | Postel's law; MethodError/SetError precedent |
 | G11 | `displayed` enum | (A) closed, (B) + dpOther catch-all | **B** — symmetric with G10 | Consistency |
-| G12 | smtpReply type | (A) plain string, (B) distinct + smart ctor, (C) fully parsed | **B** — `distinct SmtpReply` | Newtype everything; defer speculative parsing |
+| G12 | smtpReply type | (A) plain string, (B) distinct + smart ctor, (C) fully parsed (RFC 5321 §4.2 + RFC 3463 §2 enhanced status code) | **C** — `ParsedSmtpReply` with `replyCode`, `enhanced`, `text`, `raw`; `parseSmtpReply` / `renderSmtpReply` round-trip | Parse once at the boundary; preserve ingress for diagnostics |
 | G13 | Creation model naming | (A) EmailSubmissionCreate, (B) EmailSubmissionBlueprint, (C) NewEmailSubmission | **B** — Blueprint | Signals construction-with-rules |
 | G14 | Envelope default-synthesis | (A) pass-through Opt, (B) require client-side, (C) + helper | **A** — `Opt[Envelope]`; None = server synthesises | Postel's law; DRY; one source of truth |
 | G15 | Blueprint error mode | (A) accumulating, (B) fail-fast | **A** — `seq[ValidationError]` | EmailBlueprint F1 precedent |
@@ -1115,8 +1330,8 @@ EmailSubmission implementation.
 | G18 | Filter condition typing | (A) plain, (B) typed undoStatus, (C) + NonEmptyIdSeq | **C** — typed undoStatus + `NonEmptyIdSeq` | Make the wrong thing hard |
 | G19 | Sort comparator typing | (A) string, (B) enum + catch-all, (C) closed enum | **B** — `EmailSubmissionSortProperty` + `esspOther` | Forward compatibility |
 | G20 | Compound builder naming | (A) addEmailSubmissionAndEmailSet, (B) Send, (C) verbose, (D) SendAndFile | **A** — AND-connector | F1 naming convention |
-| G21 | Compound handle shape | (A) specific EmailSubmissionHandles, (B) generic CompoundHandles | **A** — specific | F1 Rule-of-Three (F3) |
-| G22 | onSuccess* value args | (A) typed EmailUpdateSet, (B) raw JsonNode, (C) domain helpers | **A** — typed `EmailUpdateSet` values with `IdOrCreationRef` map keys (RFC 8620 §5.3 creation references) | DRY; type safety |
+| G21 | Compound handle shape | (A) bespoke EmailSubmissionHandles record, (B) generic `CompoundHandles[A, B]` alias | **B** — type alias of `CompoundHandles[EmailSubmissionSetResponse, SetResponse[EmailCreatedItem]]`; fields `primary` / `implicit` | One generic dispatch path; no per-entity duplication; `getBoth[A, B]` is generic in `dispatch.nim` |
+| G22 | onSuccess* value args | (A) typed EmailUpdateSet, (B) raw JsonNode, (C) NonEmpty wrappers around typed values with IdOrCreationRef keys | **C** — `NonEmptyOnSuccessUpdateEmail` (`distinct Table[IdOrCreationRef, EmailUpdateSet]`) and `NonEmptyOnSuccessDestroyEmail` (`distinct seq[IdOrCreationRef]`) | DRY; type safety; empty/duplicate shapes unrepresentable |
 | G23 | New SetError variants | Yes / No | **No** — all 8 EmailSubmission-specific variants plus standard `tooLarge` already live in `errors.nim` with payload accessors in `mail_errors.nim` | Reuse existing surface |
 | G24 | Payload-less accessors | Yes / No | **No** — nothing to extract | — |
 | G25 | SubmissionExtensions typing | (A) keep raw, (B) upgrade + distinct, (C) upgrade keys only | **B** — `SubmissionExtensionMap` | One type for one concept |
@@ -1128,5 +1343,5 @@ EmailSubmission implementation.
 | G35 | onSuccess* key type | (A) Referencable[Id] (result-ref shape), (B) plain string, (C) IdOrCreationRef sum | **C** — `IdOrCreationRef(icrDirect \| icrCreation)` | RFC 8620 §5.3 vs §3.7 are distinct mechanisms |
 | G36 | IdOrCreationRef vs Referencable | (A) Extend Referencable with third arm, (B) Separate type | **B** — different wire format, different semantics | One type for one concept |
 | G37 | Filter list empty-rejection | (A) Opt[seq[Id]] (permits empty), (B) Opt[NonEmptyIdSeq] (rejects empty) | **B** — intentional strictness | Make the wrong thing hard |
-| G38 | `EmailSubmissionBlueprint` field access | (A) public fields, (B) Pattern A sealing (private `raw*` fields + UFCS accessors) | **B** — private backing fields with same-name UFCS accessors | Smart constructor `parseEmailSubmissionBlueprint` cannot be sidestepped by a record literal; parity with `EmailBlueprint` / `EmailCreate` |
-| G39 | `/set` response payload typing | (A) bespoke `EmailSubmissionSetResponse` record, (B) generic `SetResponse[EmailSubmissionCreatedItem]` type alias | **B** — `SetResponse[T]` generic instantiated with the RFC 8621 §7.5 ¶2 server-set subset (`id`, `threadId`, `sendAt`) | One generic response envelope across all `/set` methods; `EmailSubmissionCreatedItem` names what the server authoritatively populates on create |
+| G38 | Sealed-record field access | (A) public fields, (B) Pattern A sealing (private `raw*` fields + UFCS / projection accessors) | **B** — applied to both `EmailSubmissionBlueprint` (UFCS accessors) and `AnyEmailSubmission` (`asPending` / `asFinal` / `asCanceled` returning `Opt[EmailSubmission[S]]`) | Smart constructors cannot be sidestepped by a record literal; safe variant projection without `FieldDefect` panics |
+| G39 | `/set` response payload typing | (A) bespoke `EmailSubmissionSetResponse` record, (B) generic `SetResponse[EmailSubmissionCreatedItem]` type alias with `Opt`-wrapped server-divergent fields | **B** — `SetResponse[T]` generic instantiated with `EmailSubmissionCreatedItem` (`id` plus `Opt[Id]` `threadId`, `Opt[UTCDate]` `sendAt`, `Opt[UndoStatus]` `undoStatus`) | One generic response envelope across all `/set` methods; Postel's law accommodates Stalwart-minimum vs Cyrus-fire-and-forget vs James acknowledgement shapes |
