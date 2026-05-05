@@ -66,5 +66,35 @@ services:
       retries: 12
       start_period: 30s
 
+  cyrus:
+    # Cyrus 3.12.2 test image — amd64 manifest digest pinned 2026-05-04
+    # via GHCR registry HTTP API; the `latest` OCI index points to
+    # this manifest plus an attestation manifest. Re-pinning a newer
+    # upstream is a follow-up commit, not part of Phase L.
+    image: ghcr.io/cyrusimap/cyrus-docker-test-server@sha256:466dca4a7228ac28e239d926ae108291fdf8e940feae66d25c30e1b350967320
+    platform: linux/amd64
+    container_name: cyrus
+    hostname: cyrus
+    profiles:
+      - cyrus
+    networks:
+      - jmap-net
+    environment:
+      - SKIP_CREATE_USERS=1
+    ports:
+      - "9080:8080"
+      - "9001:8001"
+    healthcheck:
+      # The Cyrus test image ships no curl/wget; use the in-image
+      # Perl to probe the Mojolicious admin server's TCP socket.
+      # Healthy once the WebSocket port accepts connections — full
+      # HTTP probing is left to the seed-cyrus.sh script which uses
+      # the host's curl over the Docker network.
+      test: ["CMD", "perl", "-MIO::Socket::INET", "-e", "IO::Socket::INET->new(PeerAddr => 'localhost:8001', Timeout => 2) or exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 24
+      start_period: 30s
+
 volumes:
   jmc-stalwart-data:

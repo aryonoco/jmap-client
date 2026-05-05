@@ -1,0 +1,13 @@
+{
+  "methodResponses": [
+    [
+      "error",
+      {
+        "type": "cannotCalculateChanges",
+        "description": "invalid sinceState"
+      },
+      "c0"
+    ]
+  ],
+  "sessionState": "0"
+}

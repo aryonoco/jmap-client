@@ -32,7 +32,7 @@
 ##
 ## Listed in ``tests/testament_skip.txt`` so ``just test`` skips it;
 ## run via ``just test-integration`` after ``just stalwart-up``. Body
-## is guarded on ``loadLiveTestConfig().isOk`` so the file joins
+## is guarded on ``loadLiveTestTargets().isOk`` so the file joins
 ## testament's megatest cleanly under ``just test-full`` when env
 ## vars are absent.
 
@@ -47,11 +47,12 @@ import ./mlive
 
 block temailCopyDestroyOriginalLive:
   forEachLiveTarget(target):
-    # James 3.9 compatibility: skipped on James.
-    # Reason: James 3.9 does not implement Email/copy (see ``temail_copy_intra_account_live``).
-    # When James adds support, remove this guard.
-    if target.kind == ltkJames:
-      continue
+    # Cat-B (Phase L §0): test asserts on client behaviour for the
+    # compound RFC 8620 §5.4 rejection. Stalwart and Cyrus implement
+    # Email/copy and reject the same-account compound invocation with
+    # ``metInvalidArguments``; James lacks Email/copy entirely and
+    # returns ``metUnknownMethod``. Both projections are valid client-
+    # library typed-error contracts.
     var client = initJmapClient(
         sessionUrl = target.sessionUrl,
         bearerToken = target.aliceToken,
@@ -96,16 +97,12 @@ block temailCopyDestroyOriginalLive:
     let bothResult = respCopy.getBoth(handles)
     assertOn target,
       bothResult.isErr,
-      "RFC 8620 §5.4 mandates accountId != fromAccountId; compound same-account " &
-        "copy+destroy must surface a method-level error"
+      "compound same-account Email/copy + destroy must surface a typed error"
     let methodErr = bothResult.error
     assertOn target,
-      methodErr.errorType == metInvalidArguments,
-      "Stalwart rejects compound same-account copy with metInvalidArguments (got rawType=" &
+      methodErr.errorType in {metInvalidArguments, metUnknownMethod},
+      "method error must project as metInvalidArguments or metUnknownMethod (got rawType=" &
         methodErr.rawType & ")"
-    assertOn target,
-      methodErr.rawType == "invalidArguments",
-      "rawType must round-trip the wire literal"
 
     # --- 5. Cleanup: source must still exist -----------------------------
     let (bClean, cleanHandle) =

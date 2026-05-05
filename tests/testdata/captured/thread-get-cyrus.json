@@ -1,0 +1,22 @@
+{
+  "methodResponses": [
+    [
+      "Thread/get",
+      {
+        "state": "1016",
+        "list": [
+          {
+            "id": "Td537fb644ffbfe0b",
+            "emailIds": [
+              "M44c422854492f519c0d96a86"
+            ]
+          }
+        ],
+        "notFound": [],
+        "accountId": "alice"
+      },
+      "c0"
+    ]
+  ],
+  "sessionState": "0"
+}

@@ -1,0 +1,29 @@
+{
+  "methodResponses": [
+    [
+      "Email/get",
+      {
+        "state": "902",
+        "list": [
+          {
+            "id": "M3840dfcb5ecdefc2481b4a2f",
+            "header:List-Post:asURLs": [
+              "mailto:list@example.com"
+            ],
+            "header:Date:asDate": "2026-05-01T12:00:00Z",
+            "header:From:asAddresses": [
+              {
+                "name": "Alice",
+                "email": "alice@example.com"
+              }
+            ]
+          }
+        ],
+        "notFound": [],
+        "accountId": "alice"
+      },
+      "c0"
+    ]
+  ],
+  "sessionState": "0"
+}

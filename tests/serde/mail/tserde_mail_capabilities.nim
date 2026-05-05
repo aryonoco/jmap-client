@@ -54,7 +54,8 @@ block parseMailCapabilitiesValid: # scenario 45
   assertEq int64(mc.maxMailboxesPerEmail.get()), 10'i64
   assertSome mc.maxMailboxDepth
   assertEq int64(mc.maxMailboxDepth.get()), 5'i64
-  assertEq int64(mc.maxSizeMailboxName), 200'i64
+  assertSome mc.maxSizeMailboxName
+  assertEq int64(mc.maxSizeMailboxName.get()), 200'i64
   assertEq int64(mc.maxSizeAttachmentsPerEmail), 50000000'i64
   doAssert "receivedAt" in mc.emailQuerySortOptions
   doAssert "from" in mc.emailQuerySortOptions
@@ -124,7 +125,8 @@ block maxSizeMailboxNameBoundaryOk: # scenario 51
     ServerCapability(rawUri: "urn:ietf:params:jmap:mail", kind: ckMail, rawData: j)
   let res = parseMailCapabilities(cap)
   assertOk res
-  assertEq int64(res.get().maxSizeMailboxName), 100'i64
+  assertSome res.get().maxSizeMailboxName
+  assertEq int64(res.get().maxSizeMailboxName.get()), 100'i64
 
 # =============================================================================
 # E. SubmissionCapabilities — valid parsing
@@ -217,15 +219,35 @@ block maxMailboxDepthNull:
   assertNone res.get().maxMailboxDepth
 
 # =============================================================================
-# J. MailCapabilities — missing required field
+# J. MailCapabilities — maxSizeMailboxName is optional (Cyrus omits it)
 # =============================================================================
 
-block missingRequiredField:
+block missingMaxSizeMailboxName_isOptional:
+  ## RFC 8621 §1.3.1 lists ``maxSizeMailboxName`` as informational, not
+  ## MUST. Cyrus 3.12.2 omits it from the mail capability object
+  ## (`imap/jmap_mail.c:340-347`); the Postel-receive parser surfaces
+  ## absence as ``Opt.none`` rather than rejecting the response.
   var j = validMailCapJson()
   j.delete("maxSizeMailboxName")
   let cap =
     ServerCapability(rawUri: "urn:ietf:params:jmap:mail", kind: ckMail, rawData: j)
-  assertErr parseMailCapabilities(cap)
+  let res = parseMailCapabilities(cap)
+  assertOk res
+  assertNone res.get().maxSizeMailboxName
+
+block missingEmailQuerySortOptions_defaultsEmpty:
+  ## Cyrus 3.12.2 emits a divergent label (``emailsListSortOptions``)
+  ## rather than the RFC-canonical ``emailQuerySortOptions``. The
+  ## parser accepts absence of the canonical name as an empty option
+  ## set, never dispatching by alternative-name (which would be a
+  ## compatibility shim).
+  var j = validMailCapJson()
+  j.delete("emailQuerySortOptions")
+  let cap =
+    ServerCapability(rawUri: "urn:ietf:params:jmap:mail", kind: ckMail, rawData: j)
+  let res = parseMailCapabilities(cap)
+  assertOk res
+  assertEq res.get().emailQuerySortOptions.len, 0
 
 # =============================================================================
 # K. Non-object rawData

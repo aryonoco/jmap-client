@@ -1,0 +1,33 @@
+{
+  "methodResponses": [
+    [
+      "Email/get",
+      {
+        "state": "899",
+        "list": [
+          {
+            "id": "Ma4830859e65d86e14f60553d",
+            "attachments": [
+              {
+                "partId": "2",
+                "blobId": "Gfe9434d7cded43d292a5147966321db337a1ca04",
+                "size": 32,
+                "name": "sentinel.dat",
+                "type": "application/octet-stream",
+                "charset": null,
+                "disposition": "attachment",
+                "cid": null,
+                "language": null,
+                "location": null
+              }
+            ]
+          }
+        ],
+        "notFound": [],
+        "accountId": "alice"
+      },
+      "c0"
+    ]
+  ],
+  "sessionState": "0"
+}

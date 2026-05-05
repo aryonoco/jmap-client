@@ -1,0 +1,39 @@
+{
+  "methodResponses": [
+    [
+      "Mailbox/changes",
+      {
+        "oldState": "874",
+        "newState": "876",
+        "hasMoreChanges": false,
+        "created": [],
+        "updated": [
+          "39BEB498-4843-11F1-83DD-CDCAAF3DE503"
+        ],
+        "destroyed": [
+          "b104b6e9-2d0d-45d4-a414-8b99193e4bbd"
+        ],
+        "updatedProperties": null,
+        "accountId": "alice"
+      },
+      "c0"
+    ],
+    [
+      "error",
+      {
+        "type": "cannotCalculateChanges",
+        "description": "outdated sinceState"
+      },
+      "c1"
+    ],
+    [
+      "error",
+      {
+        "type": "cannotCalculateChanges",
+        "description": "outdated sinceState"
+      },
+      "c2"
+    ]
+  ],
+  "sessionState": "0"
+}

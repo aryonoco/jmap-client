@@ -1,0 +1,37 @@
+{
+  "methodResponses": [
+    [
+      "Email/parse",
+      {
+        "parsed": {
+          "G10e1758e806e18f8ccef2ad21151e17c36205611": {
+            "from": [
+              {
+                "name": "Bob",
+                "email": "bob@example.com"
+              }
+            ],
+            "subject": "phase-d step-24 inner subject",
+            "bodyStructure": {
+              "partId": "2.1",
+              "blobId": "G7217a93239d0da8365a653a4027c942061c297c6",
+              "size": 32,
+              "name": null,
+              "type": "text/plain",
+              "charset": "utf-8",
+              "disposition": null,
+              "cid": null,
+              "language": null,
+              "location": null
+            }
+          }
+        },
+        "notParsable": null,
+        "notFound": null,
+        "accountId": "alice"
+      },
+      "c0"
+    ]
+  ],
+  "sessionState": "0"
+}

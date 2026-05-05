@@ -1,0 +1,12 @@
+{
+  "methodResponses": [
+    [
+      "error",
+      {
+        "type": "unknownMethod"
+      },
+      "c0"
+    ]
+  ],
+  "sessionState": "0"
+}

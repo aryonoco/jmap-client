@@ -1,0 +1,105 @@
+{
+  "methodResponses": [
+    [
+      "Email/query",
+      {
+        "filter": {
+          "subject": "stepseventeen"
+        },
+        "queryState": "949:0",
+        "canCalculateChanges": true,
+        "position": 0,
+        "total": 10,
+        "ids": [
+          "Mce6200729a73219177f691b3",
+          "Mc14c005d31d15513ad8dac71",
+          "Maed7c8e753b3e36f381224a6",
+          "M5f50c935e075f9de9ab1a22c",
+          "M9582d35cad5b259e5069c1d9",
+          "M4be4301fc2f05ef6d01a5e01",
+          "Mb16b06dbbda7281b85974461",
+          "M82d8472726fd2724be76693d",
+          "M8ef3491a1725b17daac3fc19",
+          "M5041868766eadb96fa1a9888"
+        ],
+        "collapseThreads": false,
+        "accountId": "alice"
+      },
+      "c0"
+    ],
+    [
+      "SearchSnippet/get",
+      {
+        "list": [
+          {
+            "emailId": "Mce6200729a73219177f691b3",
+            "subject": "phase-c-17 <mark>stepseventeen</mark> alphaSeventeen",
+            "preview": null,
+            "attachments": null
+          },
+          {
+            "emailId": "Mc14c005d31d15513ad8dac71",
+            "subject": "phase-c-17 <mark>stepseventeen</mark> bravoSeventeen",
+            "preview": null,
+            "attachments": null
+          },
+          {
+            "emailId": "Maed7c8e753b3e36f381224a6",
+            "subject": "phase-c-17 <mark>stepseventeen</mark> alphaSeventeen",
+            "preview": null,
+            "attachments": null
+          },
+          {
+            "emailId": "M5f50c935e075f9de9ab1a22c",
+            "subject": "phase-c-17 <mark>stepseventeen</mark> bravoSeventeen",
+            "preview": null,
+            "attachments": null
+          },
+          {
+            "emailId": "M9582d35cad5b259e5069c1d9",
+            "subject": "phase-c-17 <mark>stepseventeen</mark> bravoSeventeen",
+            "preview": null,
+            "attachments": null
+          },
+          {
+            "emailId": "M4be4301fc2f05ef6d01a5e01",
+            "subject": "phase-c-17 <mark>stepseventeen</mark> alphaSeventeen",
+            "preview": null,
+            "attachments": null
+          },
+          {
+            "emailId": "Mb16b06dbbda7281b85974461",
+            "subject": "phase-c-17 <mark>stepseventeen</mark> alphaSeventeen",
+            "preview": null,
+            "attachments": null
+          },
+          {
+            "emailId": "M82d8472726fd2724be76693d",
+            "subject": "phase-c-17 <mark>stepseventeen</mark> bravoSeventeen",
+            "preview": null,
+            "attachments": null
+          },
+          {
+            "emailId": "M8ef3491a1725b17daac3fc19",
+            "subject": "phase-c-17 <mark>stepseventeen</mark> bravoSeventeen",
+            "preview": null,
+            "attachments": null
+          },
+          {
+            "emailId": "M5041868766eadb96fa1a9888",
+            "subject": "phase-c-17 <mark>stepseventeen</mark> alphaSeventeen",
+            "preview": null,
+            "attachments": null
+          }
+        ],
+        "notFound": null,
+        "filter": {
+          "subject": "stepseventeen"
+        },
+        "accountId": "alice"
+      },
+      "c1"
+    ]
+  ],
+  "sessionState": "0"
+}

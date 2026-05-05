@@ -1,0 +1,26 @@
+{
+  "methodResponses": [
+    [
+      "Email/queryChanges",
+      {
+        "oldQueryState": "923:0",
+        "newQueryState": "924:0",
+        "upToId": null,
+        "removed": [
+          "M3e0cf31bb677ec6cf4de9873"
+        ],
+        "added": [
+          {
+            "id": "M3e0cf31bb677ec6cf4de9873",
+            "index": 3
+          }
+        ],
+        "total": 505,
+        "collapseThreads": false,
+        "accountId": "alice"
+      },
+      "c0"
+    ]
+  ],
+  "sessionState": "0"
+}

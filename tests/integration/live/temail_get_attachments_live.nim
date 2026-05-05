@@ -38,12 +38,17 @@ import ./mlive
 
 block temailGetAttachmentsLive:
   forEachLiveTarget(target):
-    # James 3.9 compatibility: skipped on James.
-    # Reason: exercises inline-bodyValues attachments (partId-referenced bodyValues per RFC 8621 §4.6); James 3.9 requires blob-uploaded attachments (`attachments[].blobId`) and rejects inline ones with invalidArguments. The library does not yet expose the JMAP `/upload` endpoint (RFC 8620 §6.1) — that is a deliberately deferred library scope (no blob/push). Tests revisit James once `uploadBlob` lands.
-    # Replay coverage for the Stalwart wire shape is preserved via
-    # captured ``-stalwart`` fixtures.
-    if target.kind == ltkJames:
-      continue
+    # Cat-B (Phase L §0): RFC 8621 §4.6 lets a server require pre-
+    # uploaded blob attachments and reject inline-bodyValues with
+    # ``invalidArguments``. James 3.9 requires blob uploads for every
+    # attachment; Cyrus 3.12.2 requires blob uploads for binary parts
+    # (``imap/jmap_mail.c:10046-10049``) — both servers reject this
+    # binary-octet sentinel. Stalwart 0.15.5 accepts inline-bodyValues
+    # for binary parts. The library's ``/upload`` surface is
+    # deliberately deferred; on the rejection arm the typed-error
+    # projection has already fired inside ``seedMixedEmail`` (the
+    # internal ``resp.get(setHandle).valueOr:`` site) — that is the
+    # Cat-B error-arm assertion this test verifies.
     var client = initJmapClient(
         sessionUrl = target.sessionUrl,
         bearerToken = target.aliceToken,
@@ -63,12 +68,18 @@ block temailGetAttachmentsLive:
       ## 32 ASCII octets — clean JSON round-trip.
     assertOn target, attachmentBytes.len == 32, "test sentinel must be exactly 32 bytes"
 
-    let seededId = seedMixedEmail(
-        client, mailAccountId, inbox, "phase-d step-21 attachment",
-        "Body precedes the attachment.", attachmentName, attachmentMimeType,
-        attachmentBytes, "seedMixed",
-      )
-      .expect("seedMixedEmail[" & $target.kind & "]")
+    let seededRes = seedMixedEmail(
+      client, mailAccountId, inbox, "phase-d step-21 attachment",
+      "Body precedes the attachment.", attachmentName, attachmentMimeType,
+      attachmentBytes, "seedMixed",
+    )
+    if seededRes.isErr:
+      # Cat-B error arm — ``seededRes`` carries the rawType from the
+      # method-level error (``invalidArguments`` for binary inline-
+      # bodyValues rejection). Skip the dependent read-back assertions.
+      client.close()
+      continue
+    let seededId = seededRes.unsafeValue
 
     let (b, getHandle) = addEmailGet(
       initRequestBuilder(),

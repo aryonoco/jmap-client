@@ -1,0 +1,24 @@
+{
+  "methodResponses": [
+    [
+      "EmailSubmission/set",
+      {
+        "oldState": "965",
+        "newState": "965",
+        "created": null,
+        "updated": null,
+        "destroyed": null,
+        "notCreated": null,
+        "notUpdated": null,
+        "notDestroyed": {
+          "S45": {
+            "type": "notFound"
+          }
+        },
+        "accountId": "alice"
+      },
+      "c0"
+    ]
+  ],
+  "sessionState": "0"
+}

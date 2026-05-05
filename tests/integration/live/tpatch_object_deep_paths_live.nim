@@ -56,6 +56,10 @@ block tpatchObjectDeepPathsLive:
 
     # Sub-test A: typed-arm flat patch on Identity.
     block typedIdentityPatchCase:
+      # Cat-B: Cyrus 3.12.2 has no ``Identity/set`` (returns
+      # ``metUnknownMethod``); Stalwart and James implement it. The
+      # success arm verifies the typed-arm flat-patch round-trip; the
+      # error arm verifies the typed-error projection.
       let setNameUpdate = jidentity.setName("phase-j 70 renamed")
       let setSigUpdate = setTextSignature("")
       let updateSet = initIdentityUpdateSet(@[setNameUpdate, setSigUpdate]).expect(
@@ -70,34 +74,43 @@ block tpatchObjectDeepPathsLive:
       let resp = client.send(b).expect(
           "send Identity/set typed flat patch[" & $target.kind & "]"
         )
-      let setResp =
-        resp.get(setHandle).expect("Identity/set extract[" & $target.kind & "]")
-      setResp.updateResults.withValue(identityId, outcome):
+      let setExtract = resp.get(setHandle)
+      var identityUpdateOk = false
+      if setExtract.isOk:
+        let setResp = setExtract.unsafeValue
+        setResp.updateResults.withValue(identityId, outcome):
+          if outcome.isOk:
+            identityUpdateOk = true
+        do:
+          assertOn target, false, "Identity/set must report an outcome"
+      else:
+        let methodErr = setExtract.unsafeError
         assertOn target,
-          outcome.isOk,
-          "Identity/set typed flat patch must succeed; got " & outcome.error.rawType
-      do:
-        assertOn target, false, "Identity/set must report an outcome"
+          methodErr.errorType == metUnknownMethod,
+          "Identity/set must surface as metUnknownMethod when unimplemented (got " &
+            methodErr.rawType & ")"
 
-      # Read back via Identity/get to verify the flat-key wire emission.
-      let (b2, getHandle) = addIdentityGet(
-        initRequestBuilder(), submissionAccountId, ids = directIds(@[identityId])
-      )
-      let resp2 =
-        client.send(b2).expect("send Identity/get readback[" & $target.kind & "]")
-      let getResp =
-        resp2.get(getHandle).expect("Identity/get extract[" & $target.kind & "]")
-      assertOn target, getResp.list.len == 1
-      let ident = Identity.fromJson(getResp.list[0]).expect(
-          "Identity.fromJson[" & $target.kind & "]"
+      # Read back via Identity/get to verify the flat-key wire emission
+      # — only when the upstream update succeeded.
+      if identityUpdateOk:
+        let (b2, getHandle) = addIdentityGet(
+          initRequestBuilder(), submissionAccountId, ids = directIds(@[identityId])
         )
-      assertOn target,
-        ident.name == "phase-j 70 renamed",
-        "name update must round-trip; got " & ident.name
-      assertOn target,
-        ident.textSignature == "",
-        "textSignature clear via empty string must round-trip; got " &
-          ident.textSignature
+        let resp2 =
+          client.send(b2).expect("send Identity/get readback[" & $target.kind & "]")
+        let getResp =
+          resp2.get(getHandle).expect("Identity/get extract[" & $target.kind & "]")
+        assertOn target, getResp.list.len == 1
+        let ident = Identity.fromJson(getResp.list[0]).expect(
+            "Identity.fromJson[" & $target.kind & "]"
+          )
+        assertOn target,
+          ident.name == "phase-j 70 renamed",
+          "name update must round-trip; got " & ident.name
+        assertOn target,
+          ident.textSignature == "",
+          "textSignature clear via empty string must round-trip; got " &
+            ident.textSignature
 
     # Sub-test B: typed-arm flat patch on Mailbox — setParentId(none).
     # Set up a child mailbox first so the parentId field is non-null

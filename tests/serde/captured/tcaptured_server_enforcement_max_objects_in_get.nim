@@ -29,7 +29,13 @@ block tcapturedServerEnforcementMaxObjectsInGet:
       "errorType must project to retLimit, got " & $re.errorType
     doAssert re.errorType == parseRequestErrorType(re.rawType),
       "errorType / rawType must be derived consistently"
-    doAssert re.status.isSome and re.status.unsafeGet == 400,
-      "Stalwart pins HTTP 400 on the request-layer limit rail"
-    doAssert re.limit.isSome,
-      "Stalwart populates the limit field on the request-layer rail"
+    # ``status`` mandated by RFC 7807 §3.1; the specific 4xx code is
+    # server-discretionary. Stalwart and James use 400; Cyrus uses 413
+    # for size-class limit rejections — both conformant.
+    doAssert re.status.isSome,
+      "RFC 7807 §3.1 mandates a status field on the problem-details shape"
+    let statusCode = re.status.unsafeGet
+    doAssert statusCode >= 400 and statusCode < 500,
+      "request-layer limit rejection must surface as a 4xx HTTP status; got " &
+        $statusCode
+    doAssert re.limit.isSome, "RFC 8620 §3.6.1: limit field must name the breached cap"

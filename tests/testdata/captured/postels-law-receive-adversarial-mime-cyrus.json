@@ -1,0 +1,31 @@
+{
+  "methodResponses": [
+    [
+      "Email/get",
+      {
+        "state": "1000",
+        "list": [
+          {
+            "id": "Ma2b7eee66d023cd8c70e6f85",
+            "mailboxIds": {
+              "39BEB498-4843-11F1-83DD-CDCAAF3DE503": true
+            },
+            "keywords": {},
+            "receivedAt": "2026-05-05T11:18:53Z",
+            "from": [
+              {
+                "name": "Alice",
+                "email": "alice@example.com"
+              }
+            ],
+            "subject": "phase-j 73 inner"
+          }
+        ],
+        "notFound": [],
+        "accountId": "alice"
+      },
+      "c0"
+    ]
+  ],
+  "sessionState": "0"
+}

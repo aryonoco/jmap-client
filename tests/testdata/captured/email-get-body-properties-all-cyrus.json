@@ -1,0 +1,54 @@
+{
+  "methodResponses": [
+    [
+      "Email/get",
+      {
+        "state": "900",
+        "list": [
+          {
+            "id": "Mc38fb3d2f2cda14e240eb15c",
+            "bodyStructure": {
+              "partId": null,
+              "blobId": null,
+              "size": 0,
+              "name": null,
+              "type": "multipart/mixed",
+              "subParts": [
+                {
+                  "partId": "1",
+                  "blobId": "G0bd1cf2f7c006ebea2acd02a236ecce5e74adae0",
+                  "size": 20,
+                  "name": null,
+                  "type": "text/plain"
+                },
+                {
+                  "partId": "2",
+                  "blobId": "Gaf495e6ecf0ca73ce9d3a4d3759a4f5c24997c7a",
+                  "size": 44,
+                  "name": "phase-i-54.txt",
+                  "type": "text/plain"
+                }
+              ]
+            },
+            "bodyValues": {
+              "1": {
+                "value": "phase-i 54 text body",
+                "isEncodingProblem": false,
+                "isTruncated": false
+              },
+              "2": {
+                "value": "phase-i 54 attachment payload (32B sentinel)",
+                "isEncodingProblem": false,
+                "isTruncated": false
+              }
+            }
+          }
+        ],
+        "notFound": [],
+        "accountId": "alice"
+      },
+      "c0"
+    ]
+  ],
+  "sessionState": "0"
+}

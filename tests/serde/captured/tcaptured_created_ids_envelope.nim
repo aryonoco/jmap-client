@@ -30,9 +30,14 @@ block tcapturedCreatedIdsEnvelope:
   doAssert echoed.len == 1, "fixture carries one createdIds entry"
   let knownCid = parseCreationId("knownEmail").expect("parseCreationId")
   echoed.withValue(knownCid, v):
-    doAssert string(v[]) == "iaaaaac",
-      "echoed createdIds entry must match Stalwart's empirical id pin; got " &
-        string(v[])
+    # The specific Id value is Stalwart-state-dependent (it counts
+    # email creations from server start) and drifts whenever the
+    # fixture is re-captured. The RFC 8620 §3.3 contract is that the
+    # cid resolves to *some* Id structurally; pinning the empirical
+    # value would make the test fail on every re-capture without
+    # gaining any contract coverage.
+    doAssert string(v[]).len > 0,
+      "echoed createdIds entry must resolve to a non-empty Id; got '" & string(v[]) & "'"
   do:
     doAssert false, "echoed createdIds must contain the knownEmail cid"
 

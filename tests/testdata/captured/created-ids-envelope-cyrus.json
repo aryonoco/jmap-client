@@ -1,0 +1,15 @@
+{
+  "methodResponses": [
+    [
+      "Core/echo",
+      {
+        "phase-j-68": "createdIds-roundtrip"
+      },
+      "c0"
+    ]
+  ],
+  "createdIds": {
+    "knownEmail": "M7f6e68ec1d29b0119a8cbb3b"
+  },
+  "sessionState": "0"
+}

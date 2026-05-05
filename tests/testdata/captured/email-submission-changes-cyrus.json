@@ -1,0 +1,29 @@
+{
+  "methodResponses": [
+    [
+      "EmailSubmission/changes",
+      {
+        "oldState": "954",
+        "newState": "958",
+        "hasMoreChanges": false,
+        "created": [
+          "S42",
+          "S43"
+        ],
+        "updated": [],
+        "destroyed": [],
+        "accountId": "alice"
+      },
+      "c0"
+    ],
+    [
+      "error",
+      {
+        "type": "cannotCalculateChanges",
+        "description": "invalid sinceState"
+      },
+      "c1"
+    ]
+  ],
+  "sessionState": "0"
+}

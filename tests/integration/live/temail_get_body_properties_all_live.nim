@@ -30,7 +30,7 @@
 ##
 ## Listed in ``tests/testament_skip.txt`` so ``just test`` skips it;
 ## run via ``just test-integration`` after ``just stalwart-up``.
-## Body is guarded on ``loadLiveTestConfig().isOk`` so the file
+## Body is guarded on ``loadLiveTestTargets().isOk`` so the file
 ## joins testament's megatest cleanly under ``just test-full`` when
 ## env vars are absent.
 
@@ -45,12 +45,13 @@ import ./mlive
 
 block temailGetBodyPropertiesAllLive:
   forEachLiveTarget(target):
-    # James 3.9 compatibility: skipped on James.
-    # Reason: exercises inline-bodyValues attachments (partId-referenced bodyValues per RFC 8621 §4.6); James 3.9 requires blob-uploaded attachments (`attachments[].blobId`) and rejects inline ones with invalidArguments. The library does not yet expose the JMAP `/upload` endpoint (RFC 8620 §6.1) — that is a deliberately deferred library scope (no blob/push). Tests revisit James once `uploadBlob` lands.
-    # Replay coverage for the Stalwart wire shape is preserved via
-    # captured ``-stalwart`` fixtures.
-    if target.kind == ltkJames:
-      continue
+    # Cat-B (Phase L §0): RFC 8621 §4.6 lets a server require pre-
+    # uploaded blob attachments. James 3.9 rejects every inline-
+    # bodyValues attachment with ``invalidArguments``; Stalwart 0.15.5
+    # and Cyrus 3.12.2 (``imap/jmap_mail.c:10038-10041``) accept inline
+    # text/* parts. The library's ``/upload`` surface is deliberately
+    # deferred; the seed-rejection arm exercises the typed-error
+    # projection.
     var client = initJmapClient(
         sessionUrl = target.sessionUrl,
         bearerToken = target.aliceToken,
@@ -64,12 +65,15 @@ block temailGetBodyPropertiesAllLive:
     let inbox = resolveInboxId(client, mailAccountId).expect(
         "resolveInboxId[" & $target.kind & "]"
       )
-    let seededId = seedMixedEmail(
-        client, mailAccountId, inbox, "phase-i 54 mixed", "phase-i 54 text body",
-        "phase-i-54.txt", "text/plain", "phase-i 54 attachment payload (32B sentinel)",
-        "phase-i-54-seed",
-      )
-      .expect("seedMixedEmail[" & $target.kind & "]")
+    let seededRes = seedMixedEmail(
+      client, mailAccountId, inbox, "phase-i 54 mixed", "phase-i 54 text body",
+      "phase-i-54.txt", "text/plain", "phase-i 54 attachment payload (32B sentinel)",
+      "phase-i-54-seed",
+    )
+    if seededRes.isErr:
+      client.close()
+      continue
+    let seededId = seededRes.unsafeValue
 
     let bodyProperties = @[
       parsePropertyName("partId").expect("partId[" & $target.kind & "]"),

@@ -13,7 +13,7 @@
 ##
 ## Listed in ``tests/testament_skip.txt`` so ``just test`` skips it; run
 ## via ``just test-integration`` after ``just stalwart-up``. Body is
-## guarded on ``loadLiveTestConfig().isOk`` so the file joins testament's
+## guarded on ``loadLiveTestTargets().isOk`` so the file joins testament's
 ## megatest cleanly under ``just test-full`` when env vars are absent.
 
 import std/tables
@@ -91,50 +91,75 @@ block tEmailSubmissionOnSuccessDestroyLive:
       )
     captureIfRequested(client, "email-submission-on-success-destroy-" & $target.kind)
       .expect("captureIfRequested")
-    let pair = resp3.getBoth(handles).expect(
-        "getBoth(EmailSubmissionHandles)[" & $target.kind & "]"
-      )
+    let pairExtract = resp3.getBoth(handles)
+    # Cat-B: Cyrus 3.12.2 rejects ``onSuccessDestroyEmail`` with
+    # ``invalidArguments``. Stalwart and James implement the
+    # compound submit-and-destroy. The success arm verifies the
+    # round-trip; the error arm verifies the typed-error projection.
     var submissionId: Id
-    pair.primary.createResults.withValue(subCid, outcome):
+    var compoundOk = false
+    if pairExtract.isOk:
+      let pair = pairExtract.unsafeValue
+      pair.primary.createResults.withValue(subCid, outcome):
+        if outcome.isOk:
+          submissionId = outcome.unsafeValue.id
+          compoundOk = true
+      do:
+        assertOn target, false, "EmailSubmission/set must report a create outcome"
+      pair.implicit.destroyResults.withValue(draftId, outcome):
+        assertOn target,
+          outcome.isOk,
+          "implicit Email/set destroy must succeed: " & outcome.error.rawType
+      do:
+        assertOn target,
+          false, "implicit Email/set must report a destroy outcome for draftId"
+    else:
+      let methodErr = pairExtract.unsafeError
       assertOn target,
-        outcome.isOk,
-        "EmailSubmission/set create must succeed: " & outcome.error.rawType
-      submissionId = outcome.unsafeValue.id
-    do:
-      assertOn target, false, "EmailSubmission/set must report a create outcome"
-    pair.implicit.destroyResults.withValue(draftId, outcome):
-      assertOn target,
-        outcome.isOk,
-        "implicit Email/set destroy must succeed: " & outcome.error.rawType
-    do:
-      assertOn target,
-        false, "implicit Email/set must report a destroy outcome for draftId"
+        methodErr.errorType in {metInvalidArguments, metUnknownMethod},
+        "compound EmailSubmission/set + onSuccessDestroyEmail must surface " &
+          "metInvalidArguments or metUnknownMethod when unimplemented (got " &
+          methodErr.rawType & ")"
+      client.close()
+      continue
+    if not compoundOk:
+      client.close()
+      continue
 
-    # --- Verification leg: divergent on target -------------------------
+    # --- Verification leg: divergent observation surface --------------
     case target.kind
     of ltkStalwart:
+      # Discards the polled ``Opt[EmailSubmission[usFinal]]`` — the
+      # caller only needs the SMTP-queue-drain barrier this helper
+      # blocks on.
       discard pollSubmissionDelivery(client, submissionAccountId, submissionId).expect(
           "pollSubmissionDelivery[stalwart]"
         )
-    of ltkJames:
-      # James has no ``EmailSubmission/get``; verify delivery via inbox
-      # arrival on bob. ``onSuccessDestroyEmail`` is processed
-      # synchronously per RFC 8621 §7.5 ¶3, so the draft destroy is
-      # already observable via Email/get at this point.
-      var bobClient = initBobClient(target).expect("initBobClient[james]")
-      let bobSession = bobClient.fetchSession().expect("fetchSession bob[james]")
-      let bobMailAccountId =
-        resolveMailAccountId(bobSession).expect("resolveMailAccountId bob[james]")
-      let bobInbox =
-        resolveInboxId(bobClient, bobMailAccountId).expect("resolveInboxId bob[james]")
+    of ltkJames, ltkCyrus:
+      # James has no ``EmailSubmission/get``; Cyrus's ``deliveryStatus``
+      # is hardcoded null. Both verify delivery via inbox arrival on
+      # bob. ``onSuccessDestroyEmail`` is processed synchronously per
+      # RFC 8621 §7.5 ¶3, so the draft destroy is already observable
+      # via Email/get at this point.
+      var bobClient =
+        initBobClient(target).expect("initBobClient[" & $target.kind & "]")
+      let bobSession =
+        bobClient.fetchSession().expect("fetchSession bob[" & $target.kind & "]")
+      let bobMailAccountId = resolveMailAccountId(bobSession).expect(
+          "resolveMailAccountId bob[" & $target.kind & "]"
+        )
+      let bobInbox = resolveInboxId(bobClient, bobMailAccountId).expect(
+          "resolveInboxId bob[" & $target.kind & "]"
+        )
+      let budget = if target.kind == ltkCyrus: 30000 else: 5000
       discard pollEmailDeliveryToInbox(
           bobClient,
           bobMailAccountId,
           bobInbox,
           subject = "phase-f step-35",
-          budgetMs = 5000,
+          budgetMs = budget,
         )
-        .expect("pollEmailDeliveryToInbox bob[james]")
+        .expect("pollEmailDeliveryToInbox bob[" & $target.kind & "]")
       bobClient.close()
 
     # --- Read-back: Email/get must surface the draft as notFound ---------

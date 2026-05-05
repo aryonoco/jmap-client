@@ -1,0 +1,26 @@
+{
+  "methodResponses": [
+    [
+      "EmailSubmission/set",
+      {
+        "oldState": "969",
+        "newState": "974",
+        "created": {
+          "sub32": {
+            "id": "S48",
+            "undoStatus": "final",
+            "sendAt": "2026-05-05T11:18:20Z"
+          }
+        },
+        "updated": null,
+        "destroyed": null,
+        "notCreated": null,
+        "notUpdated": null,
+        "notDestroyed": null,
+        "accountId": "alice"
+      },
+      "c0"
+    ]
+  ],
+  "sessionState": "0"
+}

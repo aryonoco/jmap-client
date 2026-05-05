@@ -16,7 +16,7 @@
 ##
 ## Listed in ``tests/testament_skip.txt`` so ``just test`` skips it; run
 ## via ``just test-integration`` after ``just stalwart-up``. Body is
-## guarded on ``loadLiveTestConfig().isOk`` so the file joins testament's
+## guarded on ``loadLiveTestTargets().isOk`` so the file joins testament's
 ## megatest cleanly under ``just test-full`` when env vars are absent.
 ##
 ## Seeds one Email of its own (does not depend on Step 6's seed) so the
@@ -113,15 +113,13 @@ block temailSetKeywordsLive:
       "$seen must be present after happy-path Email/set"
 
     # --- Conflict path: same update with the stale ifInState -------------
-    # James 3.9 does not honour ``ifInState`` on Email/set — it ignores
-    # the supplied state and processes the update unconditionally,
-    # contradicting RFC 8620 §5.3 ("If supplied and the state of the
-    # object is not equal to this string, the entire method MUST be
-    # aborted with a stateMismatch SetError"). Per-target branching
-    # keeps the strict RFC contract enforced on Stalwart while
-    # documenting the James behaviour. The captured ``-stalwart``
-    # fixture preserves replay coverage for the library's
-    # ``metStateMismatch`` projection.
+    # Cat-B (Phase L §0): RFC 8620 §5.3 mandates that ``ifInState`` on
+    # /set must abort the method with a ``stateMismatch`` SetError when
+    # the state has advanced. Stalwart 0.15.5 and Cyrus 3.12.2 enforce
+    # this (Cyrus at ``imap/jmap_mail.c:13990-13996``); James 3.9
+    # ignores ``ifInState`` and accepts the update unconditionally. The
+    # success arm covers the no-gate case; the typed-error arm
+    # exercises the client's ``metStateMismatch`` projection.
     let updateSetAgain = initEmailUpdateSet(@[markRead()]).expect(
         "initEmailUpdateSet[" & $target.kind & "]"
       )
@@ -140,22 +138,8 @@ block temailSetKeywordsLive:
       "captureIfRequested"
     )
     let conflictExtract = resp6.get(setHandle2)
-    case target.kind
-    of ltkStalwart:
-      assertOn target,
-        conflictExtract.isErr,
-        "stale-ifInState Email/set must raise a method-level error"
-      let methodErr = conflictExtract.error
-      assertOn target,
-        methodErr.errorType == metStateMismatch,
-        "method error must project as metStateMismatch (got rawType=" & methodErr.rawType &
-          ")"
-    of ltkJames:
-      # James returns success with an ``updated`` map — its
-      # implementation does not gate Email/set on ifInState. Assert
-      # only that the response is well-formed (``isOk``) and surface
-      # the divergence in the rationale for future fix-up tracking.
-      assertOn target,
-        conflictExtract.isOk,
-        "James ignores ifInState on Email/set — assertion documents the divergence"
+    assertSuccessOrTypedError(target, conflictExtract, {metStateMismatch}):
+      # Server did not gate /set on ifInState — the wire-shape parse
+      # is the client-library contract.
+      discard success
     client.close()

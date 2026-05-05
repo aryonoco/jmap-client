@@ -22,6 +22,7 @@
 ##    with a hand-rolled JSON-Pointer path that does not resolve.
 
 import std/json
+import std/sets
 import std/tables
 
 import results
@@ -54,6 +55,17 @@ block tresultReferenceDeepPathsLive:
       )
       .expect("seedEmailsWithSubjects[" & $target.kind & "]")
     assertOn target, seedIds.len == 3
+
+    # Wait for every seed to surface in the index so the chained
+    # Email/query → Email/get back-reference resolves on every
+    # server. Cyrus 3.12.2's Xapian rolling indexer settles
+    # asynchronously; ``pollEmailQueryIndexed`` opens a fresh client
+    # per iteration to bypass Cyrus's per-session index cache.
+    let preFilter =
+      filterCondition(EmailFilterCondition(subject: Opt.some("phasej67refdeep")))
+    discard pollEmailQueryIndexed(target, mailAccountId, preFilter, seedIds.toHashSet)
+      .expect("pollEmailQueryIndexed[" & $target.kind & "]")
+    reconnectClient(target, client)
 
     # Sub-test 1: simple two-leg chain — Email/query → Email/get.
     # Regression-only.

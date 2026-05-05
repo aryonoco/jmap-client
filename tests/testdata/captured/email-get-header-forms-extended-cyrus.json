@@ -1,0 +1,49 @@
+{
+  "methodResponses": [
+    [
+      "Email/get",
+      {
+        "state": "901",
+        "list": [
+          {
+            "id": "M6c6f02bcd47c55a5b960c64f",
+            "header:Message-ID:asMessageIds": [
+              "03184c00-a4aa-467c-8b49-82770cfb8941@cyrus-docker-test-server"
+            ],
+            "header:Comments:asText": "phase-i step-53 free text",
+            "header:Comments:asRaw": " phase-i step-53 free text",
+            "header:To:asGroupedAddresses": [
+              {
+                "name": null,
+                "addresses": [
+                  {
+                    "name": "Alice",
+                    "email": "alice@example.com"
+                  }
+                ]
+              }
+            ],
+            "header:Resent-To:asAddresses:all": [
+              [
+                {
+                  "name": null,
+                  "email": "resent1@example.com"
+                }
+              ],
+              [
+                {
+                  "name": null,
+                  "email": "resent2@example.com"
+                }
+              ]
+            ]
+          }
+        ],
+        "notFound": [],
+        "accountId": "alice"
+      },
+      "c0"
+    ]
+  ],
+  "sessionState": "0"
+}

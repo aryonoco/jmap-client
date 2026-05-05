@@ -1,0 +1,12 @@
+{
+  "methodResponses": [
+    [
+      "error",
+      {
+        "type": "invalidResultReference"
+      },
+      "c0"
+    ]
+  ],
+  "sessionState": "0"
+}

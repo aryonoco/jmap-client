@@ -12,7 +12,7 @@
 ##
 ## Listed in ``tests/testament_skip.txt`` so ``just test`` skips it; run
 ## via ``just test-integration`` after ``just stalwart-up``. Body is
-## guarded on ``loadLiveTestConfig().isOk`` so the file joins testament's
+## guarded on ``loadLiveTestTargets().isOk`` so the file joins testament's
 ## megatest cleanly under ``just test-full`` when env vars are absent.
 
 import std/tables
@@ -91,39 +91,49 @@ block tEmailSubmissionSetBaselineLive:
       assertOn target, false, "EmailSubmission/set must report a create outcome"
     assertOn target, subOk
 
-    # --- Verification leg: divergent on target -------------------------
+    # --- Verification leg: divergent observation surface --------------
     case target.kind
     of ltkStalwart:
       # Stalwart implements EmailSubmission/get; poll the typed
       # phantom-narrowed ``EmailSubmission[usFinal]`` to confirm the
       # JMAP-side submission record reached ``final`` and the SMTP
       # queue drained.
-      let final = pollSubmissionDelivery(client, submissionAccountId, submissionId)
+      let pollRes = pollSubmissionDelivery(client, submissionAccountId, submissionId)
         .expect("pollSubmissionDelivery[stalwart]")
+      # Stalwart retains submission records; the polled
+      # ``EmailSubmission[usFinal]`` is observable. (Eviction-on-final
+      # is the Cyrus path, which never reaches this branch.)
+      assertOn target, pollRes.isSome, "Stalwart must retain the submission record"
+      let final = pollRes.unsafeGet
       assertOn target,
         string(final.id) == string(submissionId),
         "polled submission id must match the created id"
-    of ltkJames:
-      # James 3.9 has no ``EmailSubmission/get`` (only ``set/create``
-      # is implemented; the rest of the surface returns ``invalidArguments``
-      # "storage for EmailSubmission is not yet implemented"). Verify
-      # the actual delivery contract via inbox arrival on bob —
-      # James's local-domain auto-routing dispatches alice->bob via
-      # the in-process spool queue + LocalDelivery mailet within
-      # 50–500 ms (per James 3.9's ``EmailSubmissionSetMethodFutureReleaseContract``).
-      var bobClient = initBobClient(target).expect("initBobClient[james]")
-      let bobSession = bobClient.fetchSession().expect("fetchSession bob[james]")
-      let bobMailAccountId =
-        resolveMailAccountId(bobSession).expect("resolveMailAccountId bob[james]")
-      let bobInbox =
-        resolveInboxId(bobClient, bobMailAccountId).expect("resolveInboxId bob[james]")
+    of ltkJames, ltkCyrus:
+      # James 3.9 has no ``EmailSubmission/get``; Cyrus 3.12.2's
+      # ``deliveryStatus`` is hardcoded null
+      # (``imap/jmap_mail_submission.c:1200-1201``). Both verify
+      # delivery via inbox arrival on bob — local-domain auto-routing
+      # delivers the message synchronously to bob's inbox. Per-target
+      # arm64-QEMU budget guidance: Stalwart 5000 ms (not used here),
+      # James 5000 ms, Cyrus 10000 ms.
+      var bobClient =
+        initBobClient(target).expect("initBobClient[" & $target.kind & "]")
+      let bobSession =
+        bobClient.fetchSession().expect("fetchSession bob[" & $target.kind & "]")
+      let bobMailAccountId = resolveMailAccountId(bobSession).expect(
+          "resolveMailAccountId bob[" & $target.kind & "]"
+        )
+      let bobInbox = resolveInboxId(bobClient, bobMailAccountId).expect(
+          "resolveInboxId bob[" & $target.kind & "]"
+        )
+      let budget = if target.kind == ltkCyrus: 30000 else: 5000
       discard pollEmailDeliveryToInbox(
           bobClient,
           bobMailAccountId,
           bobInbox,
           subject = "phase-f step-32",
-          budgetMs = 5000,
+          budgetMs = budget,
         )
-        .expect("pollEmailDeliveryToInbox bob[james]")
+        .expect("pollEmailDeliveryToInbox bob[" & $target.kind & "]")
       bobClient.close()
     client.close()

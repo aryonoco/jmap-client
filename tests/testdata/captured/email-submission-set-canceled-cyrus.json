@@ -1,0 +1,24 @@
+{
+  "methodResponses": [
+    [
+      "EmailSubmission/set",
+      {
+        "oldState": "953",
+        "newState": "954",
+        "created": null,
+        "updated": {
+          "S41": {
+            "id": "S41"
+          }
+        },
+        "destroyed": null,
+        "notCreated": null,
+        "notUpdated": null,
+        "notDestroyed": null,
+        "accountId": "alice"
+      },
+      "c0"
+    ]
+  ],
+  "sessionState": "0"
+}

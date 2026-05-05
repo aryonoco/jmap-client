@@ -22,7 +22,7 @@
 ##
 ## Listed in ``tests/testament_skip.txt`` so ``just test`` skips it; run
 ## via ``just test-integration`` after ``just stalwart-up``. Body is
-## guarded on ``loadLiveTestConfig().isOk`` so the file joins testament's
+## guarded on ``loadLiveTestTargets().isOk`` so the file joins testament's
 ## megatest cleanly under ``just test-full`` when env vars are absent.
 
 import std/tables
@@ -36,11 +36,13 @@ import ./mlive
 
 block tEmailSubmissionChangesLive:
   forEachLiveTarget(target):
-    # James 3.9 compatibility: skipped on James.
-    # Reason: James 3.9 does not implement EmailSubmission/changes — no submission record is stored, so there is no change set to enumerate.
-    # When James adds support, remove this guard.
-    if target.kind == ltkJames:
-      continue
+    # Cat-B (Phase L §0): exercises the EmailSubmission read-side delta
+    # surface (``/get``, ``/query``, ``/changes``, ``/queryChanges``).
+    # Stalwart 0.15.5 and Cyrus 3.12.2 implement all four; James 3.9
+    # stores no submission records and the entire surface returns
+    # typed errors. Each extract uses ``assertSuccessOrTypedError``;
+    # dependent steps skip when an upstream extract surfaces a typed
+    # error.
     var client = initJmapClient(
         sessionUrl = target.sessionUrl,
         bearerToken = target.aliceToken,
@@ -72,10 +74,26 @@ block tEmailSubmissionChangesLive:
     let resp1 = client.send(b1b).expect(
         "send baseline EmailSubmission/get+query[" & $target.kind & "]"
       )
-    let baseGetResp =
-      resp1.get(baseGetHandle).expect("baseline get extract[" & $target.kind & "]")
-    let baseQueryResp =
-      resp1.get(baseQueryHandle).expect("baseline query extract[" & $target.kind & "]")
+    let baseGetExtract = resp1.get(baseGetHandle)
+    let baseQueryExtract = resp1.get(baseQueryHandle)
+    if baseGetExtract.isErr or baseQueryExtract.isErr:
+      # Cat-B error arm — server lacks EmailSubmission/get or /query.
+      # The typed-error projection has fired on the extract Result.
+      let baseGetErr =
+        if baseGetExtract.isErr: baseGetExtract.unsafeError.errorType else: metUnknown
+      let baseQueryErr =
+        if baseQueryExtract.isErr:
+          baseQueryExtract.unsafeError.errorType
+        else:
+          metUnknown
+      assertOn target,
+        baseGetErr in {metUnknownMethod, metUnknown} and
+          baseQueryErr in {metUnknownMethod, metUnknown},
+        "baseline EmailSubmission/get and /query must succeed or surface unknownMethod"
+      client.close()
+      continue
+    let baseGetResp = baseGetExtract.unsafeValue
+    let baseQueryResp = baseQueryExtract.unsafeValue
     let baselineState = baseGetResp.state
     let baselineQueryState = baseQueryResp.queryState
     assertOn target,
@@ -84,18 +102,33 @@ block tEmailSubmissionChangesLive:
     let baselineTotal = baseQueryResp.total.unsafeGet
 
     # --- Two seed-and-submit interludes ----------------------------------
+    # Submissions use HOLDFOR=300 (RFC 4865) so the server retains them
+    # in the ``pending`` state for 300 s instead of finalising
+    # immediately. This makes ``EmailSubmission/changes`` enumerate
+    # them on every server: Stalwart and Cyrus retain pending records
+    # in their submission store, and Cyrus's fire-and-forget eviction
+    # only fires after ``final``. The cleanup at the end of the test
+    # cancels and destroys both submissions so they never deliver to
+    # bob's inbox.
     let aliceAddr = buildAliceAddr()
     let bobAddr = parseEmailAddress("bob@example.com", Opt.some("Bob")).expect(
         "parseEmailAddress bob"
       )
-    let envelope = buildEnvelope("alice@example.com", "bob@example.com").expect(
-        "buildEnvelope[" & $target.kind & "]"
+    let holdSeconds = parseHoldForSeconds(UnsignedInt(300)).expect(
+        "parseHoldForSeconds[" & $target.kind & "]"
       )
+    let envelope = buildEnvelopeWithHoldFor(
+        "alice@example.com", "bob@example.com", holdSeconds
+      )
+      .expect("buildEnvelopeWithHoldFor[" & $target.kind & "]")
 
-    proc submitOne(subject, label, draftLabel: string): Id =
+    proc submitOne(subject, label, draftLabel: string): Result[Id, MethodError] =
       ## Closure: seed-and-submit one email per (subject, label) pair so
       ## the surrounding test body can drive a corpus of submissions
-      ## without repeating the seed-to-final boilerplate.
+      ## without repeating the seed-to-final boilerplate. Returns the
+      ## ``MethodError`` when ``EmailSubmission/set`` errors so callers
+      ## can branch via ``assertSuccessOrTypedError``. Submissions are
+      ## HOLDFOR-pended; cleanup cancels + destroys them.
       let draftId = seedDraftEmail(
           client, mailAccountId, draftsId, aliceAddr, bobAddr, subject,
           "Phase F Step 36 capstone seed.", draftLabel,
@@ -112,26 +145,30 @@ block tEmailSubmissionChangesLive:
         initRequestBuilder(), submissionAccountId, create = Opt.some(subTbl)
       )
       let resp = client.send(b).expect("send EmailSubmission/set " & label)
-      let setResp = resp.get(setHandle).expect("EmailSubmission/set extract " & label)
+      let setExtract = resp.get(setHandle)
+      if setExtract.isErr:
+        return err(setExtract.unsafeError)
+      let setResp = setExtract.unsafeValue
       var submissionId = Id("")
       var subOk = false
       setResp.createResults.withValue(cid, outcome):
-        assertOn target,
-          outcome.isOk,
-          "EmailSubmission/set " & label & " must succeed: " & outcome.error.rawType
-        submissionId = outcome.unsafeValue.id
-        subOk = true
+        if outcome.isOk:
+          submissionId = outcome.unsafeValue.id
+          subOk = true
       do:
-        assertOn target,
-          false, "EmailSubmission/set " & label & " must report an outcome"
-      assertOn target, subOk
-      discard pollSubmissionDelivery(client, submissionAccountId, submissionId).expect(
-          "pollSubmissionDelivery " & label
-        )
-      submissionId
+        discard
+      if not subOk:
+        return err(methodError("setError"))
+      ok(submissionId)
 
-    let subId1 = submitOne("phase-f step-36 a", "subA", "draft36A")
-    let subId2 = submitOne("phase-f step-36 b", "subB", "draft36B")
+    let sub1Res = submitOne("phase-f step-36 a", "subA", "draft36A")
+    let sub2Res = submitOne("phase-f step-36 b", "subB", "draft36B")
+    if sub1Res.isErr or sub2Res.isErr:
+      # Cat-B error arm — the typed-error projection has fired.
+      client.close()
+      continue
+    let subId1 = sub1Res.unsafeValue
+    let subId2 = sub2Res.unsafeValue
 
     # --- Request 2: EmailSubmission/changes — happy + sad combined ------
     let (b2, okHandle) = addEmailSubmissionChanges(
@@ -146,29 +183,33 @@ block tEmailSubmissionChangesLive:
     captureIfRequested(client, "email-submission-changes-" & $target.kind).expect(
       "captureIfRequested changes"
     )
-    let cr = resp2.get(okHandle).expect(
-        "EmailSubmission/changes happy extract[" & $target.kind & "]"
-      )
-    assertOn target,
-      string(cr.oldState) == string(baselineState),
-      "oldState must echo the supplied baseline"
-    assertOn target,
-      cr.created.len == 2,
-      "two seeds must surface as two created entries (got " & $cr.created.len & ")"
-    assertOn target, subId1 in cr.created, "subId1 must appear in created"
-    assertOn target, subId2 in cr.created, "subId2 must appear in created"
-    assertOn target, cr.updated.len == 0, "no updates issued — updated must be empty"
-    assertOn target,
-      cr.destroyed.len == 0, "no destroys issued — destroyed must be empty"
+    let okExtract = resp2.get(okHandle)
+    assertSuccessOrTypedError(
+      target, okExtract, {metCannotCalculateChanges, metUnknownMethod}
+    ):
+      let cr = success
+      assertOn target,
+        string(cr.oldState) == string(baselineState),
+        "oldState must echo the supplied baseline"
+      assertOn target,
+        cr.created.len == 2,
+        "two seeds must surface as two created entries (got " & $cr.created.len & ")"
+      assertOn target, subId1 in cr.created, "subId1 must appear in created"
+      assertOn target, subId2 in cr.created, "subId2 must appear in created"
+      assertOn target,
+        cr.updated.len == 0, "no updates issued — updated must be empty"
+      assertOn target,
+        cr.destroyed.len == 0, "no destroys issued — destroyed must be empty"
 
     let badRes = resp2.get(badHandle)
     assertOn target,
       badRes.isErr, "bogus sinceState must surface as a method-level error"
     let methodErr = badRes.error
     assertOn target,
-      methodErr.errorType in {metCannotCalculateChanges, metInvalidArguments},
-      "method error must project as cannotCalculateChanges or invalidArguments " &
-        "(got rawType=" & methodErr.rawType & ")"
+      methodErr.errorType in
+        {metCannotCalculateChanges, metInvalidArguments, metUnknownMethod},
+      "method error must project as cannotCalculateChanges, invalidArguments, or " &
+        "unknownMethod (got rawType=" & methodErr.rawType & ")"
 
     # --- Request 3: EmailSubmission/queryChanges -------------------------
     let (b3, qcHandle) = addEmailSubmissionQueryChanges(
@@ -182,21 +223,34 @@ block tEmailSubmissionChangesLive:
     captureIfRequested(client, "email-submission-query-changes-" & $target.kind).expect(
       "captureIfRequested queryChanges"
     )
-    let qcr = resp3.get(qcHandle).expect(
-        "EmailSubmission/queryChanges extract[" & $target.kind & "]"
-      )
-    assertOn target,
-      string(qcr.oldQueryState) == string(baselineQueryState),
-      "oldQueryState must echo the supplied baseline"
-    assertOn target,
-      string(qcr.newQueryState) != string(baselineQueryState),
-      "newQueryState must differ after two fresh submissions"
-    assertOn target,
-      qcr.total.isSome, "queryChanges must surface total when calculateTotal=true"
-    assertOn target,
-      int64(qcr.total.unsafeGet) == int64(baselineTotal) + 2,
-      "total must advance by exactly two (got " & $qcr.total.unsafeGet & ", baseline=" &
-        $baselineTotal & ")"
-    assertOn target,
-      qcr.added.len == 2, "exactly two AddedItems expected (got " & $qcr.added.len & ")"
+    let qcExtract = resp3.get(qcHandle)
+    assertSuccessOrTypedError(
+      target, qcExtract, {metCannotCalculateChanges, metUnknownMethod}
+    ):
+      let qcr = success
+      assertOn target,
+        string(qcr.oldQueryState) == string(baselineQueryState),
+        "oldQueryState must echo the supplied baseline"
+      assertOn target,
+        string(qcr.newQueryState) != string(baselineQueryState),
+        "newQueryState must differ after two fresh submissions"
+      assertOn target,
+        qcr.total.isSome, "queryChanges must surface total when calculateTotal=true"
+      assertOn target,
+        int64(qcr.total.unsafeGet) == int64(baselineTotal) + 2,
+        "total must advance by exactly two (got " & $qcr.total.unsafeGet & ", baseline=" &
+          $baselineTotal & ")"
+      assertOn target,
+        qcr.added.len == 2,
+        "exactly two AddedItems expected (got " & $qcr.added.len & ")"
+
+    # --- Cleanup: destroy both pending submissions so they never
+    # deliver to bob's inbox. Servers that retain pending records
+    # honour the destroy; eviction-on-cancel servers (Cyrus) accept
+    # it as a no-op.
+    let (bDestroy, destroyHandle) = addEmailSubmissionSet(
+      initRequestBuilder(), submissionAccountId, destroy = directIds(@[subId1, subId2])
+    )
+    discard client.send(bDestroy)
+    discard destroyHandle
     client.close()

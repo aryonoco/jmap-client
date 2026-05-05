@@ -23,6 +23,15 @@ block tcapturedRequestErrorNotRequest:
       "errorType must match parseRequestErrorType(rawType); got " & $re.errorType
     doAssert re.errorType == parseRequestErrorType(re.rawType),
       "errorType / rawType must be derived consistently"
-    doAssert re.status.isSome and re.status.unsafeGet == 400,
-      "Stalwart pins the HTTP status field to 400"
-    doAssert re.detail.isSome, "Stalwart populates the RFC 7807 detail field"
+    # ``status`` mandated by RFC 7807 §3.1; the specific 4xx code is
+    # server-discretionary. ``detail`` is RFC 7807 §3.1 optional —
+    # Stalwart and James populate it; Cyrus omits it for this
+    # rejection. Both shapes are conformant.
+    doAssert re.status.isSome,
+      "RFC 7807 §3.1 mandates a status field on the problem-details shape"
+    let statusCode = re.status.unsafeGet
+    doAssert statusCode >= 400 and statusCode < 500,
+      "notRequest must surface as a 4xx HTTP status; got " & $statusCode
+    for d in re.detail:
+      doAssert d.len > 0,
+        "when detail is provided, it must be a non-empty human-readable string"

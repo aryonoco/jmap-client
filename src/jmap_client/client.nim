@@ -12,6 +12,7 @@
 import std/httpclient
 import std/json
 import std/strutils
+import std/uri
 
 import ./types
 import ./serialisation
@@ -594,6 +595,23 @@ func lastRawResponseBody*(client: JmapClient): string =
 # IO procs (§3, §4, §6)
 # ---------------------------------------------------------------------------
 
+func resolveAgainstSession(sessionUrl, urlOrPath: string): string =
+  ## Resolves ``urlOrPath`` against the session URL per RFC 3986 §5.
+  ##
+  ## RFC 8620 §2 defines the session document URLs (apiUrl,
+  ## downloadUrl, uploadUrl, eventSourceUrl) as URLs without
+  ## explicitly mandating absolute form. Some conformant servers
+  ## (Cyrus 3.12.2, ``imap/jmap_api.c``) emit relative references
+  ## (``"/jmap/"``) so the client resolves any reference against the
+  ## known-absolute session URL — Postel-tolerant on receive.
+  ##
+  ## When ``urlOrPath`` already carries a scheme, it is returned
+  ## unchanged. When it is relative, ``std/uri.combine`` performs the
+  ## RFC 3986 §5 resolution against ``sessionUrl``.
+  if urlOrPath.startsWith("http://") or urlOrPath.startsWith("https://"):
+    return urlOrPath
+  $combine(parseUri(sessionUrl), parseUri(urlOrPath))
+
 proc fetchSession*(client: var JmapClient): JmapResult[Session] =
   ## Fetches the JMAP Session resource from the server and caches it.
   ## Re-fetching replaces the cached session.
@@ -669,7 +687,11 @@ proc send*(client: var JmapClient, request: Request): JmapResult[envelope.Respon
     try:
       {.warning[Uninit]: off.}
       {.cast(raises: [CatchableError]).}:
-        client.httpClient.request(session.apiUrl, httpMethod = HttpPost, body = body)
+        client.httpClient.request(
+          resolveAgainstSession(client.sessionUrl, session.apiUrl),
+          httpMethod = HttpPost,
+          body = body,
+        )
     except CatchableError as e:
       return err(classifyException(e))
 
@@ -749,7 +771,11 @@ proc sendRawHttpForTesting*(
     try:
       {.warning[Uninit]: off.}
       {.cast(raises: [CatchableError]).}:
-        client.httpClient.request(session.apiUrl, httpMethod = HttpPost, body = body)
+        client.httpClient.request(
+          resolveAgainstSession(client.sessionUrl, session.apiUrl),
+          httpMethod = HttpPost,
+          body = body,
+        )
     except CatchableError as e:
       return err(classifyException(e))
   let respJson = ?classifyHttpResponse(

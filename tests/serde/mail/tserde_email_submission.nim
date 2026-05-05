@@ -307,16 +307,24 @@ block emailSubmissionSetResponseEntityRoundTrip:
   ## compile time. The contract-check grep (design-doc §8.14 / Step 22)
   ## pins this asymmetry explicitly.
   ##
-  ## Server-sent entity subset per RFC 8621 §7.5 ¶2: ``id``, ``threadId``,
-  ## ``sendAt``. ``undoStatus`` is deliberately absent on
-  ## ``EmailSubmissionCreatedItem`` — delay-send-disabled servers may
-  ## flip it immediately, so callers read live state via ``/get``.
+  ## Server-sent entity subset per RFC 8621 §7.5 ¶2: ``id``,
+  ## ``threadId``, ``sendAt``, ``undoStatus``. The Postel-receive parser
+  ## projects ``undoStatus`` from the create response when the server
+  ## emits it (Cyrus 3.12.2's fire-and-forget submissions) and to
+  ## ``Opt.none`` when the server omits it (Stalwart 0.15.5's strict-RFC
+  ## minimum).
   let node = %*{
     "accountId": "acct1",
     "oldState": "s0",
     "newState": "s1",
-    "created":
-      {"k0": {"id": "sub1", "threadId": "thr1", "sendAt": "2026-04-01T12:00:00Z"}},
+    "created": {
+      "k0": {
+        "id": "sub1",
+        "threadId": "thr1",
+        "sendAt": "2026-04-01T12:00:00Z",
+        "undoStatus": "final",
+      }
+    },
     "notCreated": {"k1": {"type": "invalidProperties"}},
     "updated": {"sub2": nil},
     "notUpdated": {"sub3": {"type": "serverFail"}},
@@ -345,6 +353,8 @@ block emailSubmissionSetResponseEntityRoundTrip:
   doAssert okItem.threadId.isSome and okItem.threadId.unsafeGet == makeId("thr1")
   doAssert okItem.sendAt.isSome and
     okItem.sendAt.unsafeGet == parseUtcDate("2026-04-01T12:00:00Z").get()
+  doAssert okItem.undoStatus.isSome and okItem.undoStatus.unsafeGet == usFinal,
+    "Cyrus-shape create response with undoStatus must surface as Opt.some"
 
   # updateResults merges wire updated + notUpdated. Null-valued updated
   # entries become ok(Opt.none(JsonNode)); notUpdated entries become
@@ -358,3 +368,25 @@ block emailSubmissionSetResponseEntityRoundTrip:
   assertLen r.destroyResults, 2
   doAssert r.destroyResults[makeId("sub4")].isOk
   doAssert r.destroyResults[makeId("sub5")].isErr
+
+block emailSubmissionCreatedItemUndoStatusAbsent:
+  ## Stalwart-shape create response: ``{"id": "<id>"}`` only.
+  ## ``undoStatus`` is absent → must project as ``Opt.none(UndoStatus)``.
+  let node = %*{"id": "sub1"}
+  let res = EmailSubmissionCreatedItem.fromJson(node)
+  assertOk res
+  let item = res.get()
+  assertEq item.id, makeId("sub1")
+  doAssert item.threadId.isNone
+  doAssert item.sendAt.isNone
+  doAssert item.undoStatus.isNone,
+    "absent undoStatus must surface as Opt.none for Stalwart wire shape"
+
+block emailSubmissionCreatedItemUndoStatusPending:
+  ## HOLDFOR-style submissions return ``undoStatus: pending`` in the
+  ## create response. The parser captures it.
+  let node = %*{"id": "sub2", "sendAt": "2026-04-01T12:00:00Z", "undoStatus": "pending"}
+  let res = EmailSubmissionCreatedItem.fromJson(node)
+  assertOk res
+  let item = res.get()
+  doAssert item.undoStatus.isSome and item.undoStatus.unsafeGet == usPending

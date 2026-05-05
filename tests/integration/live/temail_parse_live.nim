@@ -45,12 +45,12 @@ import ./mlive
 
 block temailParseLive:
   forEachLiveTarget(target):
-    # James 3.9 compatibility: skipped on James.
-    # Reason: exercises inline-bodyValues attachments (partId-referenced bodyValues per RFC 8621 §4.6); James 3.9 requires blob-uploaded attachments (`attachments[].blobId`) and rejects inline ones with invalidArguments. The library does not yet expose the JMAP `/upload` endpoint (RFC 8620 §6.1) — that is a deliberately deferred library scope (no blob/push). Tests revisit James once `uploadBlob` lands.
-    # Replay coverage for the Stalwart wire shape is preserved via
-    # captured ``-stalwart`` fixtures.
-    if target.kind == ltkJames:
-      continue
+    # Cat-B (Phase L §0): the seed step uses inline-bodyValues for the
+    # message/rfc822 attachment that James 3.9 rejects with
+    # ``invalidArguments``; Stalwart 0.15.5 and Cyrus 3.12.2 (text/*
+    # parts) accept them. The library's ``/upload`` surface is
+    # deliberately deferred; the seed-rejection arm exercises the
+    # typed-error projection.
     var client = initJmapClient(
         sessionUrl = target.sessionUrl,
         bearerToken = target.aliceToken,
@@ -71,11 +71,14 @@ block temailParseLive:
     let innerFrom = parseEmailAddress(innerEmail, Opt.some(innerName)).expect(
         "parseEmailAddress innerFrom"
       )
-    let outerId = seedForwardedEmail(
-        client, mailAccountId, inbox, "phase-d step-24 forward", innerSubject,
-        innerFrom, innerBody, "seedForward",
-      )
-      .expect("seedForwardedEmail[" & $target.kind & "]")
+    let outerRes = seedForwardedEmail(
+      client, mailAccountId, inbox, "phase-d step-24 forward", innerSubject, innerFrom,
+      innerBody, "seedForward",
+    )
+    if outerRes.isErr:
+      client.close()
+      continue
+    let outerId = outerRes.unsafeValue
 
     let (bGet, getHandle) = addEmailGet(
       initRequestBuilder(),

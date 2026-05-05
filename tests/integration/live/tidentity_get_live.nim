@@ -8,7 +8,7 @@
 ##
 ## Listed in ``tests/testament_skip.txt`` so ``just test`` skips it; run
 ## via ``just test-integration`` after ``just stalwart-up``. Body is
-## guarded on ``loadLiveTestConfig().isOk`` so the file joins testament's
+## guarded on ``loadLiveTestTargets().isOk`` so the file joins testament's
 ## megatest cleanly under ``just test-full`` when env vars are absent.
 ##
 ## Re-runs against the same Stalwart instance simply pile up additional
@@ -54,22 +54,39 @@ block tidentityGetLive:
     let (b2, getHandle) = addIdentityGet(b1, submissionAccountId)
     let resp = client.send(b2).expect("send[" & $target.kind & "]")
 
-    let setResp =
-      resp.get(setHandle).expect("Identity/set extract[" & $target.kind & "]")
-    assertOn target, setResp.createResults.len == 1, "set must report one create result"
-    let createResult = setResp.createResults[cid]
-    assertOn target, createResult.isOk, "Identity/set must succeed for seeded address"
+    let setExtract = resp.get(setHandle)
+    # Cat-B (Phase L §0): Cyrus 3.12.2 has no ``Identity/set`` and
+    # returns ``metUnknownMethod``; Stalwart and James implement it.
+    # The Identity/get arm runs on every target (Identity/get is
+    # implemented everywhere — Cyrus exposes config-derived
+    # identities).
+    if setExtract.isOk:
+      let setResp = setExtract.unsafeValue
+      assertOn target,
+        setResp.createResults.len == 1, "set must report one create result"
+      let createResult = setResp.createResults[cid]
+      assertOn target, createResult.isOk, "Identity/set must succeed for seeded address"
+    else:
+      let methodErr = setExtract.unsafeError
+      assertOn target,
+        methodErr.errorType == metUnknownMethod,
+        "Identity/set must surface as metUnknownMethod when unimplemented (got " &
+          methodErr.rawType & ")"
 
     let gr = resp.get(getHandle).expect("Identity/get extract[" & $target.kind & "]")
-    assertOn target, gr.list.len >= 1, "alice must own at least one identity after set"
+    assertOn target, gr.list.len >= 1, "alice must own at least one identity"
+    # ``email`` is RFC 8621 §6.1 ``String`` — Cyrus emits empty for
+    # config-derived identities; Stalwart/James populate. Identity/get
+    # parses both shapes (see ``serde_identity.nim``); the wire-shape
+    # parse is the universal client-library contract.
     var sawAliceEmail = false
     for node in gr.list:
       let ident = Identity.fromJson(node).expect("parse Identity[" & $target.kind & "]")
-      assertOn target, ident.email.len > 0, "every identity must have a non-empty email"
       assertOn target,
         ident.id.len > 0, "every identity must carry a server-assigned id"
       if ident.email == "alice@example.com":
         sawAliceEmail = true
-    assertOn target,
-      sawAliceEmail, "alice's seeded address must appear among her identities"
+    if setExtract.isOk:
+      assertOn target,
+        sawAliceEmail, "alice's seeded address must appear among her identities"
     client.close()

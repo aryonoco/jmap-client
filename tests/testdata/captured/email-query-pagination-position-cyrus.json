@@ -1,0 +1,24 @@
+{
+  "methodResponses": [
+    [
+      "Email/query",
+      {
+        "filter": {
+          "subject": "fritter29"
+        },
+        "queryState": "942:0",
+        "canCalculateChanges": true,
+        "position": 2,
+        "total": 29,
+        "ids": [
+          "M6c6449c01ef0e4e072585d8c",
+          "M3f3005e9fa007f1ec29dcdda"
+        ],
+        "collapseThreads": false,
+        "accountId": "alice"
+      },
+      "c0"
+    ]
+  ],
+  "sessionState": "0"
+}

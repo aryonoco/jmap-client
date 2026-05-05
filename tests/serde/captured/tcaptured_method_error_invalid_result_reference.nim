@@ -30,5 +30,11 @@ block tcapturedMethodErrorInvalidResultReference:
       "errorType must project to metInvalidResultReference, got " & $me.errorType
     doAssert me.errorType == parseMethodErrorType(me.rawType),
       "errorType / rawType must be derived consistently"
-    doAssert me.description.isSome,
-      "Stalwart populates the description with the unresolvable reference"
+    # ``description`` is RFC 8620 §3.6 optional ("MAY include").
+    # Stalwart and James populate it with a human-readable resolution
+    # failure; Cyrus 3.12.2 omits it. Both shapes are conformant; the
+    # client-library contract is that when present it's a non-empty
+    # string and when absent it projects to ``Opt.none``.
+    for desc in me.description:
+      doAssert desc.len > 0,
+        "when description is provided, it must be a non-empty string"

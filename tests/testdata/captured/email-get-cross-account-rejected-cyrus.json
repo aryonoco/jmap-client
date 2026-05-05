@@ -1,0 +1,12 @@
+{
+  "methodResponses": [
+    [
+      "error",
+      {
+        "type": "accountNotFound"
+      },
+      "c0"
+    ]
+  ],
+  "sessionState": "0"
+}

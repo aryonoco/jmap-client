@@ -37,7 +37,7 @@
 ##
 ## Listed in ``tests/testament_skip.txt`` so ``just test`` skips it;
 ## run via ``just test-integration`` after ``just stalwart-up``.
-## Body is guarded on ``loadLiveTestConfig().isOk`` so the file
+## Body is guarded on ``loadLiveTestTargets().isOk`` so the file
 ## joins testament's megatest cleanly under ``just test-full`` when
 ## env vars are absent.
 
@@ -50,11 +50,12 @@ import ./mlive
 
 block temailQueryChangesFilterMismatchLive:
   forEachLiveTarget(target):
-    # James 3.9 compatibility: skipped on James.
-    # Reason: Same — Email/queryChanges is unimplemented on James 3.9.
-    # When James adds support, remove this guard.
-    if target.kind == ltkJames:
-      continue
+    # Cat-B (Phase L §0): test asserts on client behaviour, not on
+    # specific server implementations. Stalwart 0.15.5 and Cyrus 3.12.2
+    # implement Email/queryChanges; James 3.9 emits a typed JMAP error
+    # (Email/queryChanges unregistered). The success arm verifies the
+    # RFC 8620 §5.6 set-membership outcome; the error arm verifies the
+    # client's typed-error projection across configured targets.
     var client = initJmapClient(
         sessionUrl = target.sessionUrl,
         bearerToken = target.aliceToken,
@@ -101,17 +102,14 @@ block temailQueryChangesFilterMismatchLive:
     captureIfRequested(client, "email-query-changes-filter-mismatch-" & $target.kind)
       .expect("captureIfRequested")
     let extract = resp2.get(h2)
-    case extract.isOk
-    of true:
-      let qcr = extract.unsafeValue
+    assertSuccessOrTypedError(
+      target,
+      extract,
+      {metCannotCalculateChanges, metInvalidArguments, metUnknownMethod},
+    ):
+      let qcr = success
       assertOn target,
         string(qcr.oldQueryState) == string(queryStateA),
-        "Ok branch: oldQueryState must echo the supplied baseline"
-    of false:
-      let methodErr = extract.unsafeError
-      assertOn target,
-        methodErr.errorType in {metCannotCalculateChanges, metInvalidArguments},
-        "Err branch: method error must project as cannotCalculateChanges or " &
-          "invalidArguments (got rawType=" & methodErr.rawType & ")"
+        "success arm: oldQueryState must echo the supplied baseline"
 
     client.close()

@@ -1,0 +1,53 @@
+{
+  "methodResponses": [
+    [
+      "Email/query",
+      {
+        "filter": {
+          "subject": "phase-i 56"
+        },
+        "sort": [
+          {
+            "property": "hasKeyword",
+            "keyword": "$flagged",
+            "isAscending": true
+          }
+        ],
+        "queryState": "917:0",
+        "canCalculateChanges": true,
+        "position": 0,
+        "total": 24,
+        "ids": [
+          "M3452803dd6479fbd369318e7",
+          "M1aa9c47b01be22d6157b586e",
+          "M89cc8807c42b6eb8e9533122",
+          "M513e947a9549b6e205d30a79",
+          "M70a334de1c148a883ca6cf44",
+          "M564cd948278a863426589d97",
+          "M7ea14be19ee0708d30e63dd7",
+          "M1522ff982c5d8d2446927105",
+          "M709a087fb1fa7c08cbcd9f67",
+          "M67b466f57e9382e5092dfcb3",
+          "M61f23049ec393e1b24945c74",
+          "M496374caeaefc0e2b8c8c664",
+          "M4b95e7ddc51fc2811de7b186",
+          "M061a049d87b2e4262cc88994",
+          "Mfdf649cca1a3b265e183e8f8",
+          "Mb23895f84dd0606616467bf6",
+          "Mfa4f3fb836d951b4c69a5142",
+          "Me3e9d5f27842c7cdfffa9a0a",
+          "M92149d72f6ed9cae48b7e41f",
+          "Me9c00599006a7783096b058a",
+          "M1162972a75b1e1b9f799ee18",
+          "Me132d3d6dd6ae3eff8d1a109",
+          "M8aad6e9fb8578d059c624896",
+          "Mcd8b4f24cfd91c095cd9971a"
+        ],
+        "collapseThreads": false,
+        "accountId": "alice"
+      },
+      "c0"
+    ]
+  ],
+  "sessionState": "0"
+}

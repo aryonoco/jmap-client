@@ -34,7 +34,7 @@
 ## Capture: ``mailbox-set-destroy-with-emails-stalwart`` after leg A's
 ## Mailbox/set send. Listed in ``tests/testament_skip.txt`` so
 ## ``just test`` skips it; run via ``just test-integration`` after
-## ``just stalwart-up``. Body is guarded on ``loadLiveTestConfig().isOk``
+## ``just stalwart-up``. Body is guarded on ``loadLiveTestTargets().isOk``
 ## so the file joins testament's megatest cleanly under
 ## ``just test-full`` when env vars are absent.
 

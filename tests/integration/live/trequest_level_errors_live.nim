@@ -151,7 +151,16 @@ block trequestLevelErrorsLive:
     # variants is captured but not asserted live; the replay test
     # pins it byte-for-byte.
     block limitCase:
-      let blob = "x".repeat(12 * 1024 * 1024)
+      # Derive the over-limit body from the server's advertised
+      # ``maxSizeRequest`` so every server is exercised at its own
+      # boundary. Stalwart and James advertise 10 MB; Cyrus 3.12.2
+      # advertises 50 MB. Hardcoding e.g. 12 MB would slip past
+      # Cyrus's limit and miss the rejection path.
+      let sessionOpt = client.session()
+      assertOn target, sessionOpt.isSome, "session must be cached after fetchSession"
+      let maxSize = int(sessionOpt.unsafeGet.coreCapabilities().maxSizeRequest)
+      let oversize = maxSize + 1024
+      let blob = "x".repeat(oversize)
       const prefix =
         """{"using":["urn:ietf:params:jmap:core"],"methodCalls":[["Core/echo",{"blob":""""
       const suffix = """"},"c0"]]}"""

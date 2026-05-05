@@ -1,0 +1,16 @@
+{
+  "methodResponses": [
+    [
+      "error",
+      {
+        "type": "invalidArguments",
+        "arguments": [
+          "accountId",
+          "fromAccountId"
+        ]
+      },
+      "c0"
+    ]
+  ],
+  "sessionState": "0"
+}

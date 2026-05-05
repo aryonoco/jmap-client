@@ -5,10 +5,13 @@
 ## emitted by .devcontainer/scripts/seed-<server>.sh and returns every
 ## configured target. Each ``t*_live.nim`` wraps its body in
 ## ``forEachLiveTarget(target):`` so a single testament invocation
-## iterates over both servers in deterministic order (Stalwart, James).
+## iterates over the configured targets in enum order.
 ##
-## Categories A–E are documented in
-## ``docs/plan/11-integration-testing-K-james.md``.
+## Categorisation post-Phase-L is documented in
+## ``docs/plan/12-integration-testing-L-cyrus.md`` (37 Cat-A + 31 Cat-B
+## + 5 Cat-D + 0 Cat-E = 73). Cat-B sites use
+## ``assertSuccessOrTypedError`` (mlive.nim) to assert client behaviour
+## uniformly across every target's RFC-conformant response shape.
 
 {.push raises: [].}
 
@@ -19,17 +22,19 @@ type LiveTargetKind* = enum
   ## Typed identifier of the JMAP server under test. The string value
   ## backs ``$kind`` for capture filenames and assertion-message
   ## prefixing, while the enum kind itself enables exhaustive ``case``
-  ## branching in Categories C/D/E (no ``else: doAssert false`` fallback
-  ## required — adding a third server is a compile error at every branch
-  ## site).
+  ## branching in Cat-D verification-path sites (no ``else: doAssert
+  ## false`` fallback required — adding a fourth server is a compile
+  ## error at every branch site).
   ltkStalwart = "stalwart"
   ltkJames = "james"
+  ltkCyrus = "cyrus"
 
 type LiveTestTarget* = object
   ## A configured JMAP server. ``kind`` flows into capture filenames
   ## (via its backing string) and into typed ``case`` branches in
-  ## Categories C/D. ``sessionUrl`` is the JMAP session-document
-  ## endpoint; ``authScheme`` is ``Basic`` for both Stalwart and James.
+  ## Cat-D verification-path sites. ``sessionUrl`` is the JMAP
+  ## session-document endpoint; ``authScheme`` is ``Basic`` for every
+  ## currently-configured target.
   kind*: LiveTargetKind
   sessionUrl*: string
   authScheme*: string
@@ -54,17 +59,21 @@ proc loadTarget(kind: LiveTargetKind, prefix: string): Opt[LiveTestTarget] =
   )
 
 proc loadLiveTestTargets*(): Result[seq[LiveTestTarget], string] =
-  ## Returns Stalwart, then James. Errs only when no target is
-  ## configured. Live tests guard their bodies on ``.isOk`` so files
-  ## join testament's megatest cleanly when no env vars are set.
+  ## Returns the configured targets in enum order (Stalwart, James,
+  ## Cyrus). Errs only when no target is configured. Live tests guard
+  ## their bodies on ``.isOk`` so files join testament's megatest
+  ## cleanly when no env vars are set.
   var targets: seq[LiveTestTarget] = @[]
   for tgt in loadTarget(ltkStalwart, "JMAP_TEST_STALWART"):
     targets.add(tgt)
   for tgt in loadTarget(ltkJames, "JMAP_TEST_JAMES"):
     targets.add(tgt)
+  for tgt in loadTarget(ltkCyrus, "JMAP_TEST_CYRUS"):
+    targets.add(tgt)
   if targets.len == 0:
     return err(
-      "no live targets configured — set JMAP_TEST_STALWART_* and/or JMAP_TEST_JAMES_*"
+      "no live targets configured — set JMAP_TEST_STALWART_*, JMAP_TEST_JAMES_*, " &
+        "and/or JMAP_TEST_CYRUS_*"
     )
   ok(targets)
 

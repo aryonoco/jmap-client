@@ -1,0 +1,27 @@
+{
+  "methodResponses": [
+    [
+      "Mailbox/queryChanges",
+      {
+        "oldQueryState": "526",
+        "newQueryState": "526",
+        "upToId": null,
+        "removed": [
+          "3e1fdd6f-9d7b-46c4-99f8-2f704c3fc7a8",
+          "564ef46a-ef1e-40c8-a7ed-a3b1b0657440",
+          "85b85df4-9258-49af-8858-6000e07a8cda",
+          "b104b6e9-2d0d-45d4-a414-8b99193e4bbd",
+          "313a919f-c27e-4831-9294-e988b72f0b78",
+          "bd37e1a2-0304-4595-99f3-e05905499871",
+          "f556fd23-67ef-425a-9c14-6c889a964c59",
+          "6b8eff34-b434-4146-933e-5dc035168189"
+        ],
+        "added": [],
+        "total": 0,
+        "accountId": "alice"
+      },
+      "c0"
+    ]
+  ],
+  "sessionState": "0"
+}

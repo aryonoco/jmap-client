@@ -141,12 +141,15 @@ block roundTripMinimal:
 # ============= C. Identity fromJson — validation =============
 
 block fromJsonEmptyEmail: # scenario 32
+  ## RFC 8621 §6.1 ``Identity.email`` is a ``String`` — no MUST-non-empty
+  ## constraint. Cyrus 3.12.2 emits an empty ``email`` for server-default
+  ## identities (config-derived); the Postel-receive parser accepts it.
+  ## Client-construction validation lives in ``parseIdentityCreate``,
+  ## not in the receive parser.
   let node = %*{"id": "id1", "email": "", "mayDelete": false}
   let res = Identity.fromJson(node)
-  doAssert res.isErr
-  doAssert res.error.kind == svkEmptyRequired
-  doAssert res.error.emptyFieldLabel == "email"
-  doAssert $res.error.path == "/email"
+  assertOk res
+  assertEq res.get().email, ""
 
 block fromJsonNullEmail:
   let node = %*{"id": "id1", "email": nil, "mayDelete": false}

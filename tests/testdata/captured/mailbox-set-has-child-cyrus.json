@@ -1,0 +1,24 @@
+{
+  "methodResponses": [
+    [
+      "Mailbox/set",
+      {
+        "oldState": "987",
+        "newState": "987",
+        "created": null,
+        "updated": null,
+        "destroyed": null,
+        "notCreated": null,
+        "notUpdated": null,
+        "notDestroyed": {
+          "40f0081c-14fe-453c-9b55-31399058cf2b": {
+            "type": "mailboxHasChild"
+          }
+        },
+        "accountId": "alice"
+      },
+      "c0"
+    ]
+  ],
+  "sessionState": "0"
+}

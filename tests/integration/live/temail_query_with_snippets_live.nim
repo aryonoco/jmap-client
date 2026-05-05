@@ -26,7 +26,7 @@
 ##
 ## Listed in ``tests/testament_skip.txt`` so ``just test`` skips it; run
 ## via ``just test-integration`` after ``just stalwart-up``. Body is
-## guarded on ``loadLiveTestConfig().isOk`` so the file joins testament's
+## guarded on ``loadLiveTestTargets().isOk`` so the file joins testament's
 ## megatest cleanly under ``just test-full`` when env vars are absent.
 
 import std/sets
@@ -68,6 +68,16 @@ block temailQueryWithSnippetsLive:
     let id1 = ids[0]
     let id2 = ids[1]
     let corpus = ids.toHashSet
+
+    # --- Wait for the index to settle so both seeds are observable.
+    # Cyrus 3.12.2's Xapian rolling indexer lags Email/set by ~300 ms;
+    # Stalwart and James index synchronously and return on the first
+    # poll iteration.
+    let preFilter =
+      filterCondition(EmailFilterCondition(subject: Opt.some("stepseventeen")))
+    discard pollEmailQueryIndexed(target, mailAccountId, preFilter, corpus).expect(
+        "pollEmailQueryIndexed[" & $target.kind & "]"
+      )
 
     # --- Email/query → SearchSnippet/get chained via ChainedHandles -----
     let filter =

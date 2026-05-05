@@ -22,12 +22,64 @@ import ./submission_atoms
 # MailCapabilities
 # =============================================================================
 
+func parseOptUnsignedIntField(
+    node: JsonNode, fieldName: string, path: JsonPath, minValue: int64
+): Result[Opt[UnsignedInt], SerdeViolation] =
+  ## Parses an optional ``UnsignedInt`` field with a minimum-value
+  ## constraint applied only when present. Used by the optional
+  ## informational fields in RFC 8621 §1.3.1 (``maxMailboxesPerEmail``
+  ## must be >= 1 when present; ``maxSizeMailboxName`` must be >= 100
+  ## when present). Absent or null projects to ``Opt.none``.
+  let fld = node{fieldName}
+  if fld.isNil or fld.kind == JNull:
+    return ok(Opt.none(UnsignedInt))
+  ?expectKind(fld, JInt, path / fieldName)
+  let val = ?UnsignedInt.fromJson(fld, path / fieldName)
+  if int64(val) < minValue:
+    return err(
+      SerdeViolation(
+        kind: svkEmptyRequired,
+        path: path / fieldName,
+        emptyFieldLabel: fieldName & " (must be >= " & $minValue & ")",
+      )
+    )
+  ok(Opt.some(val))
+
+func parseOptUnsignedIntFieldUnconstrained(
+    node: JsonNode, fieldName: string, path: JsonPath
+): Result[Opt[UnsignedInt], SerdeViolation] =
+  ## Parses an optional ``UnsignedInt`` field without a value
+  ## constraint (RFC 8621 §1.3.1 ``maxMailboxDepth``).
+  let fld = node{fieldName}
+  if fld.isNil or fld.kind == JNull:
+    return ok(Opt.none(UnsignedInt))
+  ?expectKind(fld, JInt, path / fieldName)
+  let val = ?UnsignedInt.fromJson(fld, path / fieldName)
+  ok(Opt.some(val))
+
+func parseOptStringSetField(
+    node: JsonNode, fieldName: string, path: JsonPath
+): Result[HashSet[string], SerdeViolation] =
+  ## Parses an optional JArray-of-JString into a ``HashSet[string]``.
+  ## Absent or null projects to an empty set (RFC 8621 §1.3.1 lists
+  ## ``emailQuerySortOptions`` as informational; Cyrus 3.12.2 emits a
+  ## divergent label, accepted here as absence).
+  let fld = node{fieldName}
+  if fld.isNil or fld.kind == JNull:
+    return ok(initHashSet[string]())
+  ?expectKind(fld, JArray, path / fieldName)
+  var opts: seq[string] = @[]
+  for i, elem in fld.getElems(@[]):
+    ?expectKind(elem, JString, path / fieldName / i)
+    opts.add(elem.getStr(""))
+  ok(toHashSet(opts))
+
 func parseMailCapabilities*(
     cap: ServerCapability, path: JsonPath = emptyJsonPath()
 ): Result[MailCapabilities, SerdeViolation] =
   ## Parses mail capability data from a ServerCapability with kind ckMail.
   ## Validates RFC constraints: maxMailboxesPerEmail >= 1 (when present),
-  ## maxSizeMailboxName >= 100.
+  ## maxSizeMailboxName >= 100 (when present).
   ##
   ## Under strictCaseObjects, `rawData` (declared in the else: branch of
   ## ServerCapability) is only accessible when the use-site case also goes
@@ -56,58 +108,20 @@ func parseMailCapabilities*(
       )
     ?expectKind(cap.rawData, JObject, path)
 
-    # maxMailboxesPerEmail: nullable UnsignedInt, >= 1 when present
-    let mmpeFld = cap.rawData{"maxMailboxesPerEmail"}
     let maxMailboxesPerEmail =
-      if mmpeFld.isNil or mmpeFld.kind == JNull:
-        Opt.none(UnsignedInt)
-      else:
-        ?expectKind(mmpeFld, JInt, path / "maxMailboxesPerEmail")
-        let val = ?UnsignedInt.fromJson(mmpeFld, path / "maxMailboxesPerEmail")
-        if int64(val) < 1:
-          return err(
-            SerdeViolation(
-              kind: svkEmptyRequired,
-              path: path / "maxMailboxesPerEmail",
-              emptyFieldLabel: "maxMailboxesPerEmail (must be >= 1)",
-            )
-          )
-        Opt.some(val)
-
-    # maxMailboxDepth: nullable UnsignedInt, no minimum constraint
-    let mmdFld = cap.rawData{"maxMailboxDepth"}
+      ?parseOptUnsignedIntField(cap.rawData, "maxMailboxesPerEmail", path, 1)
     let maxMailboxDepth =
-      if mmdFld.isNil or mmdFld.kind == JNull:
-        Opt.none(UnsignedInt)
-      else:
-        ?expectKind(mmdFld, JInt, path / "maxMailboxDepth")
-        let val = ?UnsignedInt.fromJson(mmdFld, path / "maxMailboxDepth")
-        Opt.some(val)
-
-    # maxSizeMailboxName: required UnsignedInt, >= 100
-    let msmnFld = ?fieldJInt(cap.rawData, "maxSizeMailboxName", path)
-    let maxSizeMailboxName = ?UnsignedInt.fromJson(msmnFld, path / "maxSizeMailboxName")
-    if int64(maxSizeMailboxName) < 100:
-      return err(
-        SerdeViolation(
-          kind: svkEmptyRequired,
-          path: path / "maxSizeMailboxName",
-          emptyFieldLabel: "maxSizeMailboxName (must be >= 100)",
-        )
-      )
+      ?parseOptUnsignedIntFieldUnconstrained(cap.rawData, "maxMailboxDepth", path)
+    let maxSizeMailboxName =
+      ?parseOptUnsignedIntField(cap.rawData, "maxSizeMailboxName", path, 100)
 
     # maxSizeAttachmentsPerEmail: required UnsignedInt
     let msapeFld = ?fieldJInt(cap.rawData, "maxSizeAttachmentsPerEmail", path)
     let maxSizeAttachmentsPerEmail =
       ?UnsignedInt.fromJson(msapeFld, path / "maxSizeAttachmentsPerEmail")
 
-    # emailQuerySortOptions: required JArray of JString
-    let eqsoNode = ?fieldJArray(cap.rawData, "emailQuerySortOptions", path)
-    var opts: seq[string] = @[]
-    for i, elem in eqsoNode.getElems(@[]):
-      ?expectKind(elem, JString, path / "emailQuerySortOptions" / i)
-      opts.add(elem.getStr(""))
-    let emailQuerySortOptions = toHashSet(opts)
+    let emailQuerySortOptions =
+      ?parseOptStringSetField(cap.rawData, "emailQuerySortOptions", path)
 
     # mayCreateTopLevelMailbox: required JBool
     let mctlmFld = ?fieldJBool(cap.rawData, "mayCreateTopLevelMailbox", path)

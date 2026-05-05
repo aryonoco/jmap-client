@@ -28,12 +28,13 @@ import ./mlive
 
 block tpostelsLawReceiveLive:
   forEachLiveTarget(target):
-    # James 3.9 compatibility: skipped on James.
-    # Reason: exercises inline-bodyValues attachments (partId-referenced bodyValues per RFC 8621 §4.6); James 3.9 requires blob-uploaded attachments (`attachments[].blobId`) and rejects inline ones with invalidArguments. The library does not yet expose the JMAP `/upload` endpoint (RFC 8620 §6.1) — that is a deliberately deferred library scope (no blob/push). Tests revisit James once `uploadBlob` lands.
-    # Replay coverage for the Stalwart wire shape is preserved via
-    # captured ``-stalwart`` fixtures.
-    if target.kind == ltkJames:
-      continue
+    # Cat-B (Phase L §0): RFC 8621 §4.6 lets a server require pre-
+    # uploaded blob attachments and reject inline-bodyValues with
+    # ``invalidArguments``. James 3.9 rejects inline message/rfc822
+    # parts. Stalwart and Cyrus accept text/* inline-bodyValues. On
+    # the rejection arm the typed-error projection has fired inside
+    # ``seedForwardedEmail``; on the success arm the lenient-receive
+    # parsers run end-to-end.
     var client = initJmapClient(
         sessionUrl = target.sessionUrl,
         bearerToken = target.aliceToken,
@@ -48,20 +49,23 @@ block tpostelsLawReceiveLive:
       )
 
     # Step 1: seed an outer email with a message/rfc822 attachment.
-    # The inner message exercises lenient parsing through Stalwart's
+    # The inner message exercises lenient parsing through the target's
     # MIME parser path.
     let aliceAddr = buildAliceAddr()
-    let outerId = seedForwardedEmail(
-        client,
-        mailAccountId,
-        inbox,
-        outerSubject = "phase-j 73 outer carrier",
-        innerSubject = "phase-j 73 inner",
-        innerFrom = aliceAddr,
-        innerBody = "Phase J 73 lenient-receive test body.",
-        creationLabel = "phase-j-73-outer",
-      )
-      .expect("seedForwardedEmail[" & $target.kind & "]")
+    let outerRes = seedForwardedEmail(
+      client,
+      mailAccountId,
+      inbox,
+      outerSubject = "phase-j 73 outer carrier",
+      innerSubject = "phase-j 73 inner",
+      innerFrom = aliceAddr,
+      innerBody = "Phase J 73 lenient-receive test body.",
+      creationLabel = "phase-j-73-outer",
+    )
+    if outerRes.isErr:
+      client.close()
+      continue
+    let outerId = outerRes.unsafeValue
 
     # Step 2: extract the attached message's BlobId.
     let attachmentBlobId = getFirstAttachmentBlobId(client, mailAccountId, outerId)

@@ -1,0 +1,29 @@
+{
+  "methodResponses": [
+    [
+      "Email/get",
+      {
+        "state": "61",
+        "list": [
+          {
+            "id": "Mbaeb4af86f2165bfd7c603d6",
+            "mailboxIds": {
+              "6B3C9288-47E4-11F1-8777-C8E29D01EA36": true
+            },
+            "from": [
+              {
+                "name": "Alice",
+                "email": "alice@example.com"
+              }
+            ],
+            "subject": "phase-g step-38 marker 1777939913.5094354"
+          }
+        ],
+        "notFound": [],
+        "accountId": "bob"
+      },
+      "c0"
+    ]
+  ],
+  "sessionState": "0"
+}

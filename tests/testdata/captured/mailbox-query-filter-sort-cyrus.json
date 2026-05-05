@@ -1,0 +1,31 @@
+{
+  "methodResponses": [
+    [
+      "Mailbox/query",
+      {
+        "filter": {
+          "name": "phase-i 49"
+        },
+        "sort": [
+          {
+            "property": "sortOrder",
+            "isAscending": true
+          }
+        ],
+        "queryState": "526",
+        "canCalculateChanges": true,
+        "position": 0,
+        "total": 4,
+        "ids": [
+          "11d159a0-c3c9-4623-a166-36aa999a7de9",
+          "26869402-ad3d-4da5-8522-31dc579959eb",
+          "b8ec28b7-27bf-44dc-b03e-77b13a4d917e",
+          "0e2ecfdb-252b-4113-b890-daab5480a8a1"
+        ],
+        "accountId": "alice"
+      },
+      "c0"
+    ]
+  ],
+  "sessionState": "0"
+}

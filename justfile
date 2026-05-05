@@ -102,8 +102,8 @@ test-verbose:
 
 # Run specific test file
 test-file file:
-    @echo "Running test: {{file}}"
-    testament pat {{file}}
+    @echo "Running test: {{ file }}"
+    testament pat {{ file }}
 
 # Run unit tests only
 test-unit:
@@ -153,15 +153,17 @@ test-report:
     testament html
     @echo "Test report: testresults.html"
 
-# Run every test including slow ones from tests/testament_skip.txt and the
-# live integration suite. Requires at least one of Stalwart/James up.
+# Run every test including slow ones from tests/testament_skip.txt and
+# the live integration suite. Requires at least one of Stalwart, James,
+
+# or Cyrus to be up.
 test-full:
     #!/usr/bin/env bash
     set -euo pipefail
     shopt -s inherit_errexit
-    if [ ! -f /tmp/stalwart-env.sh ] && [ ! -f /tmp/james-env.sh ]; then
-        echo "ERROR: at least one of /tmp/stalwart-env.sh or /tmp/james-env.sh required" >&2
-        echo "       run 'just jmap-up' (or 'just stalwart-up' / 'just james-up') first" >&2
+    if [ ! -f /tmp/stalwart-env.sh ] && [ ! -f /tmp/james-env.sh ] && [ ! -f /tmp/cyrus-env.sh ]; then
+        echo "ERROR: at least one of /tmp/stalwart-env.sh, /tmp/james-env.sh, or /tmp/cyrus-env.sh required" >&2
+        echo "       run 'just jmap-up' (or 'just stalwart-up' / 'just james-up' / 'just cyrus-up') first" >&2
         exit 1
     fi
     cleanup() { find tests/ -name 'megatest' -type f -delete; find tests/ -name 'megatest.nim' -type f -delete; }
@@ -169,7 +171,8 @@ test-full:
     echo "Running FULL test suite (including slow + live integration tests)..."
     if [ -f /tmp/stalwart-env.sh ]; then . /tmp/stalwart-env.sh; fi
     if [ -f /tmp/james-env.sh ]; then . /tmp/james-env.sh; fi
-    testament --backendLogging:off all
+    if [ -f /tmp/cyrus-env.sh ]; then . /tmp/cyrus-env.sh; fi
+    stdbuf -oL -eL testament --backendLogging:off all
     echo "Full test suite passed"
 
 # =============================================================================
@@ -202,6 +205,7 @@ lint:
 # Lint every src/ module as its own entry point — catches effect-analysis
 # failures in modules not yet transitively reachable from src/jmap_client.nim
 # (e.g. a new module awaiting a re-export). Complements `lint`, which only
+
 # sees the transitive closure from the library entry point.
 lint-isolated:
     #!/usr/bin/env bash
@@ -226,6 +230,7 @@ lint-isolated:
 # not control); vendor/ diagnostics are filtered out and any src/-scoped
 # style error fails the recipe. Tests are deliberately excluded — testament
 # specs use underscored block names (rfc8620_S1_2_... / regression_2026_03_...)
+
 # by convention.
 lint-style:
     #!/usr/bin/env bash
@@ -322,9 +327,8 @@ watch-test:
     @watchexec --exts nim --watch src/ --watch tests/ -- just test
 
 # =============================================================================
-# JMAP TEST SERVERS (Stalwart 0.15.5, Apache James 3.9)
+# JMAP TEST SERVERS (Stalwart 0.15.5, Apache James 3.9, Cyrus IMAP 3.12.2)
 # =============================================================================
-
 # --- Stalwart -----------------------------------------------------------------
 
 # Start Stalwart JMAP server and seed test accounts
@@ -363,6 +367,7 @@ james-up:
 # Stop James (memory image is ephemeral; data dies with the container).
 # Anonymous volumes from the parent image survive ``rm -fs`` and would
 # carry leftover state across re-creates — ``-v`` removes them too, so
+
 # every ``james-up`` starts on a guaranteed-clean slate.
 james-down:
     docker compose -f .devcontainer/docker-compose.yml rm -fsv james
@@ -379,61 +384,92 @@ james-status:
 james-logs:
     docker compose -f .devcontainer/docker-compose.yml --profile james logs -f james
 
-# --- Universal compositions (both servers) ------------------------------------
+# --- Cyrus IMAP ---------------------------------------------------------------
 
-# Start both Stalwart and James
-jmap-up: stalwart-up james-up
+# Start Cyrus JMAP server and seed test accounts
+cyrus-up:
+    docker compose -f .devcontainer/docker-compose.yml --profile cyrus up cyrus -d
+    .devcontainer/scripts/seed-cyrus.sh
 
-# Stop both Stalwart and James
-jmap-down: stalwart-down james-down
+# Stop Cyrus JMAP server. Anonymous volumes from the parent image
+# survive ``rm -fs`` and would carry leftover state across re-creates;
 
-# Tear down and recreate both servers with fresh data
+# ``-v`` removes them so every ``cyrus-up`` starts on a clean slate.
+cyrus-down:
+    docker compose -f .devcontainer/docker-compose.yml rm -fsv cyrus
+    rm -f /tmp/cyrus-env.sh
+
+# Tear down and recreate Cyrus with fresh data
+cyrus-reset: cyrus-down cyrus-up
+
+# Show Cyrus container status
+cyrus-status:
+    docker compose -f .devcontainer/docker-compose.yml --profile cyrus ps
+
+# Follow Cyrus container logs
+cyrus-logs:
+    docker compose -f .devcontainer/docker-compose.yml --profile cyrus logs -f cyrus
+
+# --- Universal compositions (configured targets) ------------------------------
+
+# Start every configured JMAP target (Stalwart, James, Cyrus)
+jmap-up: stalwart-up james-up cyrus-up
+
+# Stop every configured JMAP target
+jmap-down: stalwart-down james-down cyrus-down
+
+# Tear down and recreate every configured target with fresh data
 jmap-reset: jmap-down jmap-up
 
-# Show status of both Stalwart and James
+# Show status of every configured target
 jmap-status:
-    docker compose -f .devcontainer/docker-compose.yml --profile stalwart --profile james ps
+    docker compose -f .devcontainer/docker-compose.yml --profile stalwart --profile james --profile cyrus ps
 
-# Follow logs from both Stalwart and James
+# Follow logs from every configured target
 jmap-logs:
-    docker compose -f .devcontainer/docker-compose.yml --profile stalwart --profile james logs -f
+    docker compose -f .devcontainer/docker-compose.yml --profile stalwart --profile james --profile cyrus logs -f
 
 # --- Test recipes -------------------------------------------------------------
-
-# Run live integration tests against EVERY configured JMAP server
-# (Stalwart and/or James). Requires 'just jmap-up' (or per-server
+# Run live integration tests against every configured JMAP target
+# (Stalwart, James, Cyrus). Requires 'just jmap-up' (or per-server
 # variants). Each test iterates ``forEachLiveTarget(target):`` so a
-# single testament invocation exercises both servers; failures attribute
-# to a specific server via the ``[stalwart]`` / ``[james]`` suffix that
-# ``mlive.assertOn`` injects into every assertion message.
+# single testament invocation exercises every configured target;
+# failures attribute to a specific server via the ``[stalwart]`` /
+# ``[james]`` / ``[cyrus]`` suffix that ``mlive.assertOn`` injects
+
+# into every assertion message.
 test-integration:
     #!/usr/bin/env bash
     set -euo pipefail
-    if [ ! -f /tmp/stalwart-env.sh ] && [ ! -f /tmp/james-env.sh ]; then
-        echo "ERROR: at least one of /tmp/stalwart-env.sh or /tmp/james-env.sh required" >&2
-        echo "       run 'just jmap-up' (or 'just stalwart-up' / 'just james-up') first" >&2
+    if [ ! -f /tmp/stalwart-env.sh ] && [ ! -f /tmp/james-env.sh ] && [ ! -f /tmp/cyrus-env.sh ]; then
+        echo "ERROR: at least one of /tmp/stalwart-env.sh, /tmp/james-env.sh, or /tmp/cyrus-env.sh required" >&2
+        echo "       run 'just jmap-up' (or 'just stalwart-up' / 'just james-up' / 'just cyrus-up') first" >&2
         exit 1
     fi
     if [ -f /tmp/stalwart-env.sh ]; then . /tmp/stalwart-env.sh; fi
     if [ -f /tmp/james-env.sh ]; then . /tmp/james-env.sh; fi
+    if [ -f /tmp/cyrus-env.sh ]; then . /tmp/cyrus-env.sh; fi
     testament pat "tests/integration/live/*_live.nim"
 
-# Capture wire-payload fixtures from every configured JMAP server into
+# Capture wire-payload fixtures from every configured JMAP target into
 # ``tests/testdata/captured/``. Each test's ``captureIfRequested(client,
-# "<name>-" & $target.kind)`` call writes ``<name>-stalwart.json`` and/or
-# ``<name>-james.json`` depending on which servers are configured.
-# Existing fixtures are preserved (``mcapture.nim``'s skip-if-exists guard);
-# set ``JMAP_TEST_CAPTURE_FORCE=1`` to overwrite after a deliberate change.
+# "<name>-" & $target.kind)`` call writes
+# ``<name>-stalwart.json`` / ``<name>-james.json`` / ``<name>-cyrus.json``
+# depending on which targets are configured. Existing fixtures are
+# preserved (``mcapture.nim``'s skip-if-exists guard); set
+
+# ``JMAP_TEST_CAPTURE_FORCE=1`` to overwrite after a deliberate change.
 capture-fixtures:
     #!/usr/bin/env bash
     set -euo pipefail
-    if [ ! -f /tmp/stalwart-env.sh ] && [ ! -f /tmp/james-env.sh ]; then
-        echo "ERROR: at least one of /tmp/stalwart-env.sh or /tmp/james-env.sh required" >&2
-        echo "       run 'just jmap-up' (or 'just stalwart-up' / 'just james-up') first" >&2
+    if [ ! -f /tmp/stalwart-env.sh ] && [ ! -f /tmp/james-env.sh ] && [ ! -f /tmp/cyrus-env.sh ]; then
+        echo "ERROR: at least one of /tmp/stalwart-env.sh, /tmp/james-env.sh, or /tmp/cyrus-env.sh required" >&2
+        echo "       run 'just jmap-up' (or 'just stalwart-up' / 'just james-up' / 'just cyrus-up') first" >&2
         exit 1
     fi
     if [ -f /tmp/stalwart-env.sh ]; then . /tmp/stalwart-env.sh; fi
     if [ -f /tmp/james-env.sh ]; then . /tmp/james-env.sh; fi
+    if [ -f /tmp/cyrus-env.sh ]; then . /tmp/cyrus-env.sh; fi
     JMAP_TEST_CAPTURE=1 testament pat "tests/integration/live/*_live.nim"
     @echo "Captures written to tests/testdata/captured/"
     @echo "Review with 'git status' and stage with 'git add' before committing."
@@ -454,7 +490,7 @@ fetch-nim-ref:
     shopt -s inherit_errexit
 
     readonly version="${NIM_VERSION:?NIM_VERSION not set — check mise.toml}"
-    readonly dest="{{ref_dir}}"
+    readonly dest="{{ ref_dir }}"
     readonly marker="${dest}/.version"
     readonly repo="https://github.com/nim-lang/Nim.git"
 
@@ -481,7 +517,7 @@ fetch-nim-ref:
 clean-refs: clean-jmap-refs
     #!/usr/bin/env bash
     set -euo pipefail
-    readonly dest="{{ref_dir}}"
+    readonly dest="{{ ref_dir }}"
     if [[ -d "${dest}" ]]; then
         rm -rf "${dest}"
         echo "Reference sources removed"

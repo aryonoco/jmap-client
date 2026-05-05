@@ -1,0 +1,40 @@
+{
+  "methodResponses": [
+    [
+      "Email/get",
+      {
+        "state": "904",
+        "list": [
+          {
+            "id": "Mefe1765a31e399219f6d272c",
+            "bodyValues": {
+              "1": {
+                "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "isEncodingProblem": false,
+                "isTruncated": true
+              }
+            },
+            "textBody": [
+              {
+                "partId": "1",
+                "blobId": "Gdc28591e574d1eac79ad07b7a4d01d5026a02428",
+                "size": 2048,
+                "name": null,
+                "type": "text/plain",
+                "charset": "us-ascii",
+                "disposition": null,
+                "cid": null,
+                "language": null,
+                "location": null
+              }
+            ]
+          }
+        ],
+        "notFound": [],
+        "accountId": "alice"
+      },
+      "c0"
+    ]
+  ],
+  "sessionState": "0"
+}

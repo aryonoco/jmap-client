@@ -1,0 +1,19 @@
+{
+  "methodResponses": [
+    [
+      "Email/queryChanges",
+      {
+        "oldQueryState": "1019:0",
+        "newQueryState": "1019:0",
+        "upToId": "Mb2f8445001d00149b8171d07",
+        "removed": [],
+        "added": [],
+        "total": 547,
+        "collapseThreads": false,
+        "accountId": "alice"
+      },
+      "c0"
+    ]
+  ],
+  "sessionState": "0"
+}

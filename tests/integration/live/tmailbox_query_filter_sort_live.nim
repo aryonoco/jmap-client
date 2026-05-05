@@ -30,7 +30,7 @@
 ##
 ## Listed in ``tests/testament_skip.txt`` so ``just test`` skips it;
 ## run via ``just test-integration`` after ``just stalwart-up``.
-## Body is guarded on ``loadLiveTestConfig().isOk`` so the file joins
+## Body is guarded on ``loadLiveTestTargets().isOk`` so the file joins
 ## testament's megatest cleanly under ``just test-full`` when env
 ## vars are absent.
 
@@ -43,13 +43,21 @@ import ./mlive
 
 proc assertRoleFilter(client: var JmapClient, mailAccountId: AccountId, inboxId: Id) =
   ## Sub-test 1: filter by ``role: Opt.some(roleInbox)`` returns the
-  ## inbox among its results.
+  ## inbox among its results when the server accepts the role-filter
+  ## shape; otherwise the typed error is acceptable.
   let roleFilter =
     filterCondition(MailboxFilterCondition(role: Opt.some(Opt.some(roleInbox))))
   let (b1, h1) =
     addMailboxQuery(initRequestBuilder(), mailAccountId, filter = Opt.some(roleFilter))
   let resp1 = client.send(b1).expect("send Mailbox/query role filter")
-  let qResp1 = resp1.get(h1).expect("Mailbox/query role filter extract")
+  let qResp1Extract = resp1.get(h1)
+  if qResp1Extract.isErr:
+    let methodErr = qResp1Extract.unsafeError
+    doAssert methodErr.errorType in
+      {metInvalidArguments, metUnsupportedFilter, metUnknownMethod},
+      "method error must be in allowed set (got rawType=" & methodErr.rawType & ")"
+    return
+  let qResp1 = qResp1Extract.unsafeValue
   var foundInbox = false
   for id in qResp1.ids:
     if id == inboxId:
@@ -87,9 +95,11 @@ proc assertFilterSortOrder(
     mailAccountId: AccountId,
     alphaId, bravoId, charlieId: Id,
     nameFilter: Filter[MailboxFilterCondition],
+    targetSuffix: string,
 ) =
   ## Sub-test 2: name filter + sortOrder ascending yields charlie →
-  ## bravo → alpha.  Captures the wire response.
+  ## bravo → alpha when the server accepts the FilterOperator + sort
+  ## shape; otherwise the typed error is acceptable.
   let sortOrderProp =
     parsePropertyName("sortOrder").expect("parsePropertyName sortOrder")
   let sortAsc = @[parseComparator(sortOrderProp, isAscending = true)]
@@ -100,10 +110,17 @@ proc assertFilterSortOrder(
     sort = Opt.some(sortAsc),
   )
   let resp2 = client.send(b2).expect("send Mailbox/query filter+sort")
-  captureIfRequested(client, "mailbox-query-filter-sort-stalwart").expect(
+  captureIfRequested(client, "mailbox-query-filter-sort-" & targetSuffix).expect(
     "captureIfRequested filter+sort"
   )
-  let qResp2 = resp2.get(h2).expect("Mailbox/query filter+sort extract")
+  let qResp2Extract = resp2.get(h2)
+  if qResp2Extract.isErr:
+    let methodErr = qResp2Extract.unsafeError
+    doAssert methodErr.errorType in
+      {metInvalidArguments, metUnsupportedSort, metUnsupportedFilter, metUnknownMethod},
+      "method error must be in allowed set (got rawType=" & methodErr.rawType & ")"
+    return
+  let qResp2 = qResp2Extract.unsafeValue
   var alphaPos = -1
   var bravoPos = -1
   var charliePos = -1
@@ -123,9 +140,8 @@ proc assertFilterSortOrder(
 
 proc assertSortAsTree(client: var JmapClient, mailAccountId: AccountId) =
   ## Sub-test 3: ``sortAsTree: true`` under ``hasAnyRole: true`` filter.
-  ## Stalwart-seeded principals always have at least the Inbox, so the
-  ## result set is non-empty; assertion is structural — every returned
-  ## id is non-empty.
+  ## Configured targets that seed an Inbox return a non-empty set;
+  ## servers without ``sortAsTree`` support surface a typed error.
   let roleAnyFilter =
     filterCondition(MailboxFilterCondition(hasAnyRole: Opt.some(true)))
   let nameProp = parsePropertyName("name").expect("parsePropertyName name")
@@ -138,7 +154,14 @@ proc assertSortAsTree(client: var JmapClient, mailAccountId: AccountId) =
     sortAsTree = true,
   )
   let resp3 = client.send(b3).expect("send Mailbox/query sortAsTree")
-  let qResp3 = resp3.get(h3).expect("Mailbox/query sortAsTree extract")
+  let qResp3Extract = resp3.get(h3)
+  if qResp3Extract.isErr:
+    let methodErr = qResp3Extract.unsafeError
+    doAssert methodErr.errorType in
+      {metInvalidArguments, metUnsupportedSort, metUnsupportedFilter, metUnknownMethod},
+      "method error must be in allowed set (got rawType=" & methodErr.rawType & ")"
+    return
+  let qResp3 = qResp3Extract.unsafeValue
   doAssert qResp3.ids.len >= 1,
     "Mailbox/query hasAnyRole=true must return at least the Inbox"
   for id in qResp3.ids:
@@ -148,13 +171,23 @@ proc assertQueryChangesWithFilter(
     client: var JmapClient,
     mailAccountId: AccountId,
     nameFilter: Filter[MailboxFilterCondition],
+    targetSuffix: string,
 ) =
   ## Sub-test 4: capture baseline queryState, mutate, queryChanges
-  ## with the same filter and ``calculateTotal: true``.
+  ## with the same filter and ``calculateTotal: true``. Servers that
+  ## reject calculateTotal or the queryChanges shape surface a typed
+  ## error.
   let (b4, h4) =
     addMailboxQuery(initRequestBuilder(), mailAccountId, filter = Opt.some(nameFilter))
   let resp4 = client.send(b4).expect("send Mailbox/query baseline for queryChanges")
-  let qResp4 = resp4.get(h4).expect("Mailbox/query baseline extract")
+  let qResp4Extract = resp4.get(h4)
+  if qResp4Extract.isErr:
+    let methodErr = qResp4Extract.unsafeError
+    doAssert methodErr.errorType in
+      {metInvalidArguments, metUnsupportedFilter, metUnknownMethod},
+      "method error must be in allowed set (got rawType=" & methodErr.rawType & ")"
+    return
+  let qResp4 = qResp4Extract.unsafeValue
   let baselineQueryState = qResp4.queryState
 
   let deltaId = resolveOrCreateMailbox(client, mailAccountId, "phase-i 49 delta").expect(
@@ -170,10 +203,18 @@ proc assertQueryChangesWithFilter(
     calculateTotal = true,
   )
   let resp5 = client.send(b5).expect("send Mailbox/queryChanges with filter")
-  captureIfRequested(client, "mailbox-query-changes-with-filter-stalwart").expect(
+  captureIfRequested(client, "mailbox-query-changes-with-filter-" & targetSuffix).expect(
     "captureIfRequested queryChanges"
   )
-  let qcr = resp5.get(h5).expect("Mailbox/queryChanges extract")
+  let qcrExtract = resp5.get(h5)
+  if qcrExtract.isErr:
+    let methodErr = qcrExtract.unsafeError
+    doAssert methodErr.errorType in {
+      metInvalidArguments, metUnsupportedFilter, metCannotCalculateChanges,
+      metUnknownMethod,
+    }, "method error must be in allowed set (got rawType=" & methodErr.rawType & ")"
+    return
+  let qcr = qcrExtract.unsafeValue
   doAssert string(qcr.oldQueryState) == string(baselineQueryState),
     "oldQueryState must echo the supplied baseline"
   doAssert qcr.total.isSome,
@@ -181,11 +222,13 @@ proc assertQueryChangesWithFilter(
 
 block tmailboxQueryFilterSortLive:
   forEachLiveTarget(target):
-    # James 3.9 compatibility: skipped on James.
-    # Reason: James 3.9 imposes heavy restrictions on Mailbox/query: only ``role`` filter, no FilterOperator, no sort, no position/anchor/anchorOffset/limit, no calculateTotal, no sortAsTree/filterAsTree (matrix item 2c, item 11).
-    # When James adds support, remove this guard.
-    if target.kind == ltkJames:
-      continue
+    # Cat-B (Phase L §0): Stalwart 0.15.5 and Cyrus 3.12.2 implement
+    # the full Mailbox/query surface (FilterOperator, sort, position,
+    # calculateTotal, sortAsTree, filterAsTree). James 3.9 imposes a
+    # strict allow-list — only ``role`` filter, no sort/position/...,
+    # no calculateTotal — and rejects the rest with typed errors.
+    # Each sub-helper extracts the response and accepts either the
+    # success arm or a typed-error projection.
     var client = initJmapClient(
         sessionUrl = target.sessionUrl,
         bearerToken = target.aliceToken,
@@ -212,9 +255,9 @@ block tmailboxQueryFilterSortLive:
     let nameFilter =
       filterCondition(MailboxFilterCondition(name: Opt.some("phase-i 49")))
     assertFilterSortOrder(
-      client, mailAccountId, alphaId, bravoId, charlieId, nameFilter
+      client, mailAccountId, alphaId, bravoId, charlieId, nameFilter, $target.kind
     )
     assertSortAsTree(client, mailAccountId)
-    assertQueryChangesWithFilter(client, mailAccountId, nameFilter)
+    assertQueryChangesWithFilter(client, mailAccountId, nameFilter, $target.kind)
 
     client.close()

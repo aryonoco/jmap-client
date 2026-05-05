@@ -1,0 +1,12 @@
+{
+  "methodResponses": [
+    [
+      "error",
+      {
+        "type": "anchorNotFound"
+      },
+      "c0"
+    ]
+  ],
+  "sessionState": "0"
+}

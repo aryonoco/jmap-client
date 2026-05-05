@@ -398,20 +398,31 @@ type EmailSubmissionCreatedItem* {.ruleOff: "objects".} = object
   ## RFC 8621 §7.5 ¶2 server-set subset returned in the
   ## ``EmailSubmission/set`` ``created`` map: ``id`` (always
   ## server-assigned), ``threadId`` (derived from the referenced Email),
-  ## ``sendAt`` (server stamp). ``undoStatus`` deliberately omitted —
-  ## delay-send-disabled servers may flip it to ``final`` or ``canceled``
-  ## immediately, so callers must read live state via ``/get`` rather than
-  ## trust a stale value carried on the create response.
+  ## ``sendAt`` (server stamp), ``undoStatus`` (server-set live state).
   ##
-  ## ``threadId`` and ``sendAt`` are ``Opt[T]`` because Stalwart 0.15.5
-  ## omits them from this payload (a strict-RFC §7.5 ¶2 minor
-  ## divergence): the create acknowledgement is just ``{"id": "<id>"}``.
-  ## Postel's-law accommodation per ``.claude/rules/nim-conventions.md``
-  ## §"Serde Conventions": be lenient on receive. Mirrors the
-  ## ``IdentityCreatedItem`` / ``MailboxCreatedItem`` design.
+  ## All four optional fields are ``Opt[T]`` because servers diverge on
+  ## what they include in the create acknowledgement:
+  ##
+  ## - **Stalwart 0.15.5** emits only ``{"id": "<id>"}`` — strict-RFC
+  ##   §7.5 ¶2 minimum.
+  ## - **Cyrus 3.12.2** emits ``{"id", "undoStatus", "sendAt"}`` —
+  ##   `imap/jmap_mail_submission.c` returns the full server-set state
+  ##   inline because Cyrus's submission lifecycle is fire-and-forget:
+  ##   the server may have already finalised and discarded the record
+  ##   by the time the client could call ``/get``, so the create
+  ##   response must carry the live state to be useful.
+  ## - **James 3.9** TBD — defers to live ``/get``.
+  ##
+  ## Capturing ``undoStatus`` from the create response lets callers
+  ## avoid a futile poll on Cyrus and gives them the live state on
+  ## any server that includes it. Postel's-law accommodation per
+  ## ``.claude/rules/nim-conventions.md`` §"Serde Conventions": be
+  ## lenient on receive. Mirrors the ``IdentityCreatedItem`` /
+  ## ``MailboxCreatedItem`` design.
   id*: Id
   threadId*: Opt[Id]
   sendAt*: Opt[UTCDate]
+  undoStatus*: Opt[UndoStatus]
 
 # -----------------------------------------------------------------------------
 # EmailSubmissionSetResponse — /set response alias (RFC 8621 §7.5)

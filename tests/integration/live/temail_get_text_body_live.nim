@@ -84,9 +84,14 @@ block temailGetTextBodyLive:
       "textBody[0].size must be > 0 (got " & $textLeaf.size & ")"
     assertOn target,
       textLeaf.charset.isSome, "textBody[0].charset must be present for a text/* leaf"
+    # The seeded body is pure 7-bit ASCII. RFC 2046 §4.1.2 permits
+    # ``us-ascii`` (Cyrus 3.12.2) and ``utf-8`` (Stalwart, James) to
+    # describe the same payload. The library's contract is that the
+    # ``charset`` parses to a non-empty ``Opt.some(string)``; the
+    # specific charset label is server-discretionary.
     assertOn target,
-      textLeaf.charset.unsafeGet.toLowerAscii == "utf-8",
-      "textBody[0].charset must be utf-8 case-insensitive (got " &
+      textLeaf.charset.unsafeGet.toLowerAscii in ["utf-8", "us-ascii"],
+      "textBody[0].charset must be utf-8 or us-ascii case-insensitive (got " &
         textLeaf.charset.unsafeGet & ")"
 
     assertOn target,

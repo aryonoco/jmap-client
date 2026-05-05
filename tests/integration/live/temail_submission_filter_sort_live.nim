@@ -44,7 +44,7 @@
 ##
 ## Listed in ``tests/testament_skip.txt`` so ``just test`` skips it;
 ## run via ``just test-integration`` after ``just stalwart-up``.
-## Body is guarded on ``loadLiveTestConfig().isOk`` so the file
+## Body is guarded on ``loadLiveTestTargets().isOk`` so the file
 ## joins testament's megatest cleanly under ``just test-full`` when
 ## env vars are absent.
 
@@ -103,11 +103,12 @@ proc resolveOrCreateSecondaryAliceIdentity(
 
 block temailSubmissionFilterSortLive:
   forEachLiveTarget(target):
-    # James 3.9 compatibility: skipped on James.
-    # Reason: James 3.9 does not implement EmailSubmission/query or EmailSubmission/queryChanges.
-    # When James adds support, remove this guard.
-    if target.kind == ltkJames:
-      continue
+    # Cat-B (Phase L §0): exercises EmailSubmission/{query,queryChanges}
+    # filter + sort. Stalwart 0.15.5 and Cyrus 3.12.2 implement both;
+    # James 3.9 stores no submission records and the surface returns
+    # typed errors. Each extract uses ``assertSuccessOrTypedError``;
+    # dependent steps skip when an upstream extract surfaces a typed
+    # error.
     var client = initJmapClient(
         sessionUrl = target.sessionUrl,
         bearerToken = target.aliceToken,
@@ -127,10 +128,18 @@ block temailSubmissionFilterSortLive:
     let primaryId = resolveOrCreateAliceIdentity(client, submissionAccountId).expect(
         "resolveOrCreateAliceIdentity primary"
       )
-    let secondaryId = resolveOrCreateSecondaryAliceIdentity(
-        client, submissionAccountId, "phase-i 60 secondary"
-      )
-      .expect("resolveOrCreateSecondaryAliceIdentity[" & $target.kind & "]")
+    # Cyrus 3.12.2 has no ``Identity/set`` (``imap/jmap_mail.c:122-123``)
+    # so the secondary identity cannot be provisioned. Skip the
+    # dependent corpus seed when the secondary lookup errs; the wire-
+    # shape parsing of the primary EmailSubmission/query baseline above
+    # is the universal client-library contract.
+    let secondaryRes = resolveOrCreateSecondaryAliceIdentity(
+      client, submissionAccountId, "phase-i 60 secondary"
+    )
+    if secondaryRes.isErr:
+      client.close()
+      continue
+    let secondaryId = secondaryRes.unsafeValue
 
     # Baseline EmailSubmission/query queryState (no filter).
     let (bBase, baseHandle) =
@@ -138,8 +147,11 @@ block temailSubmissionFilterSortLive:
     let respBase = client.send(bBase).expect(
         "send baseline EmailSubmission/query[" & $target.kind & "]"
       )
-    let qrBase =
-      respBase.get(baseHandle).expect("baseline query extract[" & $target.kind & "]")
+    let baseExtract = respBase.get(baseHandle)
+    if baseExtract.isErr:
+      client.close()
+      continue
+    let qrBase = baseExtract.unsafeValue
     let baselineQueryState = qrBase.queryState
 
     let aliceAddr = buildAliceAddr()
@@ -153,18 +165,21 @@ block temailSubmissionFilterSortLive:
     # submission suite ran back-to-back and surfaced
     # pollSubmissionDelivery budget timeouts in unrelated tests
     # downstream of this capstone's seeds.
-    let submissionIds = seedSubmissionCorpus(
-        client,
-        mailAccountId,
-        submissionAccountId,
-        drafts,
-        aliceAddr,
-        identities = @[primaryId, secondaryId],
-        recipients = @[bobAddr],
-        subjects = @["phase-i 60 sub-a", "phase-i 60 sub-b"],
-        creationLabelPrefix = "phase-i-60",
-      )
-      .expect("seedSubmissionCorpus[" & $target.kind & "]")
+    let submissionIdsRes = seedSubmissionCorpus(
+      client,
+      mailAccountId,
+      submissionAccountId,
+      drafts,
+      aliceAddr,
+      identities = @[primaryId, secondaryId],
+      recipients = @[bobAddr],
+      subjects = @["phase-i 60 sub-a", "phase-i 60 sub-b"],
+      creationLabelPrefix = "phase-i-60",
+    )
+    if submissionIdsRes.isErr:
+      client.close()
+      continue
+    let submissionIds = submissionIdsRes.unsafeValue
     assertOn target,
       submissionIds.len == 2,
       "two submissions expected (got " & $submissionIds.len & ")"
@@ -236,7 +251,9 @@ block temailSubmissionFilterSortLive:
     )
     let respC =
       client.send(bC).expect("send EmailSubmission/queryChanges[" & $target.kind & "]")
-    captureIfRequested(client, "email-submission-query-changes-with-filter-stalwart")
+    captureIfRequested(
+      client, "email-submission-query-changes-with-filter-" & $target.kind
+    )
       .expect("captureIfRequested queryChanges[" & $target.kind & "]")
     let qcr = respC.get(hC).expect("queryChanges extract[" & $target.kind & "]")
     assertOn target,

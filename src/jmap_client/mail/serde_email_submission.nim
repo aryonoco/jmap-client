@@ -137,12 +137,17 @@ func fromJson*(
 ): Result[EmailSubmissionCreatedItem, SerdeViolation] =
   ## Deserialise the partial EmailSubmission payload sent in
   ## EmailSubmission/set ``created[cid]``. ``id`` is required (RFC 8620
-  ## §5.3); ``threadId`` and ``sendAt`` are ``Opt`` because Stalwart
-  ## 0.15.5 omits them (strict-RFC §7.5 ¶2 minor divergence, accommodated
-  ## here per Postel's law — mirrors ``IdentityCreatedItem.mayDelete``
-  ## and the ``MailboxCreatedItem`` count fields). The
-  ## ``mixin``-resolved ``SetResponse[EmailSubmissionCreatedItem].fromJson``
-  ## drives this at the dispatch site.
+  ## §5.3); ``threadId``, ``sendAt``, and ``undoStatus`` are ``Opt``
+  ## because servers diverge on what they include in the
+  ## acknowledgement.  Stalwart 0.15.5 emits only ``{"id": "<id>"}``;
+  ## Cyrus 3.12.2 emits ``{"id", "undoStatus", "sendAt"}`` because its
+  ## submission lifecycle is fire-and-forget (the server may have
+  ## finalised and discarded the record by the time the client could
+  ## call ``/get``, so the create response carries the live state).
+  ## Postel's-law accommodation per ``.claude/rules/nim-conventions.md``
+  ## §"Serde Conventions". The ``mixin``-resolved
+  ## ``SetResponse[EmailSubmissionCreatedItem].fromJson`` drives this
+  ## at the dispatch site.
   discard $T # consumed for nimalyzer params rule
   ?expectKind(node, JObject, path)
   let idNode = ?fieldJString(node, "id", path)
@@ -159,7 +164,17 @@ func fromJson*(
     ?expectKind(sendAtField, JString, path / "sendAt")
     let parsed = ?UTCDate.fromJson(sendAtField, path / "sendAt")
     sendAt = Opt.some(parsed)
-  return ok(EmailSubmissionCreatedItem(id: id, threadId: threadId, sendAt: sendAt))
+  let undoField = node{"undoStatus"}
+  var undoStatus = Opt.none(UndoStatus)
+  if not undoField.isNil and undoField.kind != JNull:
+    ?expectKind(undoField, JString, path / "undoStatus")
+    let parsed = ?parseUndoStatus(undoField.getStr(""), path / "undoStatus")
+    undoStatus = Opt.some(parsed)
+  return ok(
+    EmailSubmissionCreatedItem(
+      id: id, threadId: threadId, sendAt: sendAt, undoStatus: undoStatus
+    )
+  )
 
 # =============================================================================
 # EmailSubmissionBlueprint — /set create value

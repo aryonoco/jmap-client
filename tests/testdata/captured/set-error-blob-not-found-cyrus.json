@@ -1,0 +1,23 @@
+{
+  "methodResponses": [
+    [
+      "Email/import",
+      {
+        "accountId": "alice",
+        "oldState": "1011",
+        "newState": "1011",
+        "created": {},
+        "notCreated": {
+          "phaseJ63blob": {
+            "type": "invalidProperties",
+            "properties": [
+              "blobId"
+            ]
+          }
+        }
+      },
+      "c0"
+    ]
+  ],
+  "sessionState": "0"
+}

@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: BSD-2-Clause
 # Copyright (c) 2026 Aryan Ameri
 
-## Parser-only replay test for the captured Stalwart session
-## (``tests/testdata/captured/session-stalwart.json``).  Verifies the
-## session shape Stalwart 0.15.5 emits — capability set,
-## ``coreCapabilities`` ranges, account map, and round-trip through
-## ``Session.toJson``.
+## Parser-only replay test for the captured session document from
+## every configured target (``tests/testdata/captured/session-<server>
+## .json``). Verifies the session shape each target emits — capability
+## set, ``coreCapabilities`` ranges, account map, and round-trip
+## through ``Session.toJson``.
 
 {.push raises: [].}
 
@@ -18,19 +18,27 @@ import ./mloader
 block tcapturedSession:
   forEachCapturedServer("session", j):
     let sessRes = Session.fromJson(j)
-    doAssert sessRes.isOk, "Session.fromJson must succeed on Stalwart capture"
+    doAssert sessRes.isOk, "Session.fromJson must succeed on captured fixture"
     let s = sessRes.unsafeValue
 
     doAssert s.capabilities.len >= 4,
-      "Stalwart advertises >=4 capabilities (got " & $s.capabilities.len & ")"
+      "configured targets advertise >=4 capabilities (got " & $s.capabilities.len & ")"
     let core = s.coreCapabilities()
-    doAssert int64(core.maxSizeUpload) > 0, "maxSizeUpload must be positive"
+    # ``maxSizeUpload`` may be 0 to signal "no enforced limit" — Cyrus
+    # 3.12.2 reports 0; Stalwart and James both advertise non-zero
+    # caps. UnsignedInt is non-negative by construction, so the parse
+    # itself is the structural assertion.
+    discard int64(core.maxSizeUpload)
     doAssert int64(core.maxSizeRequest) > 0, "maxSizeRequest must be positive"
     doAssert int64(core.maxCallsInRequest) > 0, "maxCallsInRequest must be positive"
     doAssert int64(core.maxObjectsInGet) > 0, "maxObjectsInGet must be positive"
     doAssert int64(core.maxObjectsInSet) > 0, "maxObjectsInSet must be positive"
-    doAssert core.collationAlgorithms.card >= 1,
-      "at least one collation algorithm must be advertised"
+    # ``collationAlgorithms`` is mandated by RFC 8620 §2 to list the
+    # algorithms the server supports — but Cyrus 3.12.2 ships an empty
+    # array, expecting the client to default to ``i;ascii-casemap``.
+    # Stalwart and James populate it; Cyrus omits. The universal
+    # structural contract is that the field parses as a HashSet.
+    discard core.collationAlgorithms.card
 
     doAssert s.accounts.len >= 1, "session must advertise at least one account"
     doAssert s.primaryAccounts.len >= 1, "primaryAccounts must include at least one URI"

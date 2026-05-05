@@ -1,16 +1,18 @@
 # SPDX-License-Identifier: BSD-2-Clause
 # Copyright (c) 2026 Aryan Ameri
 
-## Live integration test scaffolds shared across the Phase A–D suites.
+## Live integration test scaffolds shared across the live-suite tests.
 ## ``mconfig.nim`` stays single-purpose (env contract); this module owns
-## the Stalwart-interaction recipes that would otherwise be inlined
+## the server-interaction recipes that would otherwise be inlined
 ## verbatim across multiple test files: resolving Alice's inbox via
-## ``Mailbox/get``, seeding text/plain ``Email`` instances, and seeding
+## ``Mailbox/get``, seeding text/plain ``Email`` instances, seeding
 ## structured (multipart/alternative, multipart/mixed, message/rfc822)
-## emails for the Phase D body-content tests.
+## emails for the body-content tests, and the Cat-B
+## ``assertSuccessOrTypedError`` helper that lets every refactor site
+## assert client behaviour uniformly across configured targets.
 ##
 ## Helpers return ``Result[T, string]`` so callers can chain ``.expect``
-## with the same ergonomics as ``loadLiveTestConfig``. They take a
+## with the same ergonomics as ``loadLiveTestTargets``. They take a
 ## ``var JmapClient`` because ``client.send`` requires it.
 
 {.push raises: [].}
@@ -64,9 +66,10 @@ func makeLeafPart*(spec: LeafPartSpec): BlueprintBodyPart =
   )
 
 func buildAliceAddr*(): EmailAddress =
-  ## ``alice@example.com`` with display name ``"Alice"`` — Stalwart's
-  ## seeded credentials. Smart-constructor invariant: input is RFC-valid
-  ## by literal so ``parseEmailAddress`` cannot Err here.
+  ## ``alice@example.com`` with display name ``"Alice"`` — the seeded
+  ## test principal across every configured target. Smart-constructor
+  ## invariant: input is RFC-valid by literal so ``parseEmailAddress``
+  ## cannot Err here.
   parseEmailAddress("alice@example.com", Opt.some("Alice")).get()
 
 func buildPartId*(label: string): PartId =
@@ -354,8 +357,8 @@ func buildInnerRfc822Message(
   ## message/rfc822 attachment payload. The exact byte sequence is
   ## ``From: <name> <addr>\r\nTo: <self>\r\nSubject: <subj>\r\n
   ## MIME-Version: 1.0\r\nContent-Type: text/plain; charset=utf-8\r\n
-  ## \r\n<body>``. Stalwart parses it on receive and exposes the parsed
-  ## form via ``Email/parse``.
+  ## \r\n<body>``. Configured targets parse it on receive and expose
+  ## the parsed form via ``Email/parse``.
   let fromName = innerFrom.name.valueOr:
     ""
   let fromHeader =
@@ -543,9 +546,10 @@ proc getFirstAttachmentBlobId*(
 
 func resolveSubmissionAccountId*(session: Session): Result[AccountId, string] =
   ## Reads ``session.primaryAccounts`` for the
-  ## ``urn:ietf:params:jmap:submission`` URN. Stalwart 0.15.5 binds the
-  ## same id to ``mail`` and ``submission``; the helper does not depend
-  ## on that equality. Sibling of ``resolveCollationAlgorithms``.
+  ## ``urn:ietf:params:jmap:submission`` URN. Configured targets may
+  ## bind the same id to ``mail`` and ``submission`` or distinct ids;
+  ## the helper does not depend on that equality. Sibling of
+  ## ``resolveCollationAlgorithms``.
   var accountId: AccountId
   var found = false
   session.primaryAccounts.withValue("urn:ietf:params:jmap:submission", v):
@@ -559,9 +563,9 @@ func resolveSubmissionAccountId*(session: Session): Result[AccountId, string] =
 func resolveMailAccountId*(session: Session): Result[AccountId, string] =
   ## Reads ``session.primaryAccounts`` for the
   ## ``urn:ietf:params:jmap:mail`` URN. Sibling of
-  ## ``resolveSubmissionAccountId``. Stalwart 0.15.5 binds the
-  ## same id to ``mail`` and ``submission``; the helper does not
-  ## depend on that equality.
+  ## ``resolveSubmissionAccountId``. Configured targets may bind the
+  ## same id to ``mail`` and ``submission`` or distinct ids; the
+  ## helper does not depend on that equality.
   var accountId: AccountId
   var found = false
   session.primaryAccounts.withValue("urn:ietf:params:jmap:mail", v):
@@ -576,8 +580,8 @@ func buildEnvelope*(fromEmail, toEmail: string): Result[Envelope, string] =
   ## Absorbs the four-stage RFC5321Mailbox / SubmissionAddress /
   ## ReversePath / NonEmptyRcptList boilerplate that every Phase F
   ## EmailSubmission test would otherwise repeat. Both addresses use
-  ## empty SubmissionParams (the simple case Stalwart expects for
-  ## local-domain delivery).
+  ## empty SubmissionParams — the canonical local-domain delivery
+  ## shape every configured target accepts.
   let fromMb = parseRFC5321Mailbox(fromEmail).valueOr:
     return err("parseRFC5321Mailbox(" & fromEmail & "): " & error.message)
   let toMb = parseRFC5321Mailbox(toEmail).valueOr:
@@ -692,18 +696,21 @@ proc seedDraftEmail*(
   emailSetCreate(client, mailAccountId, blueprint, creationLabel)
 
 proc awaitSmtpQueueDrain*(
-    adminBasic: string, sessionUrl: string, budgetMs: int = 30000
+    adminBasic: string, sessionUrl: string, budgetMs: int = 60000
 ): Result[void, string] =
   ## Polls Stalwart's admin ``/api/queue/messages?values=true`` endpoint
   ## until ``data.total == 0``. Provides a deterministic barrier for
-  ## sequential submission tests: each test exits only when Stalwart's
-  ## outgoing SMTP queue is genuinely drained, eliminating cumulative-
-  ## load failures in the full integration suite. ``adminBasic`` is the
-  ## base64("admin:password") credential from ``JMAP_TEST_ADMIN_BASIC``
-  ## (populated by ``seed-stalwart.sh``); ``sessionUrl`` is the JMAP
-  ## session URL, from which the admin URL is derived (same host:port,
-  ## different path). On a clean queue this returns within one poll
-  ## (~100 ms).
+  ## sequential submission tests against Stalwart: each test exits
+  ## only when Stalwart's outgoing SMTP queue is genuinely drained,
+  ## eliminating cumulative-load failures in the full integration
+  ## suite. The drain barrier is Stalwart-specific because Stalwart
+  ## exposes the admin queue API; James and Cyrus use inbox-arrival
+  ## verification (``pollEmailDeliveryToInbox``) to observe SMTP
+  ## completion. ``adminBasic`` is the base64("admin:password")
+  ## credential from ``JMAP_TEST_STALWART_ADMIN_BASIC`` (populated by
+  ## ``seed-stalwart.sh``); ``sessionUrl`` is the JMAP session URL,
+  ## from which the admin URL is derived (same host:port, different
+  ## path). On a clean queue this returns within one poll (~100 ms).
   const PollMs = 100
   let maxIters = max(1, budgetMs div PollMs)
   let baseUrl = sessionUrl.replace("/jmap/session", "")
@@ -749,40 +756,106 @@ proc awaitSmtpQueueDrain*(
     "awaitSmtpQueueDrain: budget exhausted (" & $budgetMs & "ms) without queue draining"
   )
 
+type SubmissionPollState = enum
+  spsPolling
+  spsFinalised
+  spsEvicted
+
+proc trySubmissionGet(
+    client: var JmapClient, submissionAccountId: AccountId, submissionId: Id
+): Result[(SubmissionPollState, Opt[EmailSubmission[usFinal]]), string] =
+  ## Single ``EmailSubmission/get`` poll attempt. Returns the new
+  ## state plus the typed ``EmailSubmission[usFinal]`` when the
+  ## record carried it.
+  let (b, getHandle) = addEmailSubmissionGet(
+    initRequestBuilder(), submissionAccountId, ids = directIds(@[submissionId])
+  )
+  let resp = client.send(b).valueOr:
+    return err("EmailSubmission/get send failed: " & error.message)
+  let getResp = resp.get(getHandle).valueOr:
+    return err("EmailSubmission/get extract failed: " & error.rawType)
+  if getResp.list.len > 0:
+    let any = AnyEmailSubmission.fromJson(getResp.list[0]).valueOr:
+      return err("AnyEmailSubmission.fromJson failed during poll")
+    let final = any.asFinal()
+    if final.isSome:
+      return ok((spsFinalised, Opt.some(final.unsafeGet)))
+    return ok((spsPolling, Opt.none(EmailSubmission[usFinal])))
+  if submissionId in getResp.notFound:
+    # Cyrus 3.12.2 fire-and-forget eviction
+    # (``imap/jmap_mail_submission.c``).
+    return ok((spsEvicted, Opt.none(EmailSubmission[usFinal])))
+  ok((spsPolling, Opt.none(EmailSubmission[usFinal])))
+
+proc pollSubmissionUntilFinal(
+    client: var JmapClient,
+    submissionAccountId: AccountId,
+    submissionId: Id,
+    initialState: SubmissionPollState,
+    maxIters: int,
+    pollMs: int,
+): Result[(SubmissionPollState, Opt[EmailSubmission[usFinal]]), string] =
+  ## Iterates ``trySubmissionGet`` until the state leaves
+  ## ``spsPolling`` or the iteration budget elapses. Returns the
+  ## final state and the typed ``EmailSubmission[usFinal]`` if any
+  ## was observed.
+  var pendingFinal: Opt[EmailSubmission[usFinal]] = Opt.none(EmailSubmission[usFinal])
+  var pollState = initialState
+  for _ in 0 ..< maxIters:
+    if pollState != spsPolling:
+      break
+    let (newState, maybeFinal) =
+      ?trySubmissionGet(client, submissionAccountId, submissionId)
+    pollState = newState
+    if maybeFinal.isSome:
+      pendingFinal = maybeFinal
+    if pollState == spsPolling:
+      sleep(pollMs)
+  ok((pollState, pendingFinal))
+
 proc pollSubmissionDelivery*(
     client: var JmapClient,
     submissionAccountId: AccountId,
     submissionId: Id,
+    createUndoStatus: Opt[UndoStatus] = Opt.none(UndoStatus),
     budgetMs: int = 50000,
-): Result[EmailSubmission[usFinal], string] =
-  ## Polls EmailSubmission/get every 200 ms until ``undoStatus ==
-  ## final``, then awaits Stalwart's outgoing SMTP queue to drain.
-  ## Returns the phantom-narrowed ``EmailSubmission[usFinal]`` only
-  ## when SMTP delivery is genuinely complete (not merely when the
-  ## JMAP commit lock is in place). The drain barrier ensures
-  ## sequential submission tests don't accumulate SMTP-queue load
-  ## across the suite (Phase K1). ``Err`` on JMAP-poll budget elapse
-  ## or queue-drain timeout.
+): Result[Opt[EmailSubmission[usFinal]], string] =
+  ## Polls EmailSubmission/get until ``undoStatus == final``, then —
+  ## when running against Stalwart — awaits Stalwart's outgoing SMTP
+  ## queue to drain. The return type is ``Opt[EmailSubmission[usFinal]]``
+  ## because servers diverge on submission retention:
+  ##
+  ## - **Stalwart 0.15.5** retains submission records indefinitely;
+  ##   ``/get`` always returns the entity and the helper returns
+  ##   ``ok(Opt.some(<final>))``. Callers can pattern-match on the
+  ##   inner Opt to inspect the typed ``EmailSubmission[usFinal]``.
+  ## - **Cyrus 3.12.2** finalises and discards the submission record
+  ##   immediately on non-HOLDFOR submissions
+  ##   (``imap/jmap_mail_submission.c``). The ``createUndoStatus``
+  ##   argument carries the ``undoStatus`` from the create response
+  ##   (RFC 8621 §7.5 ¶2 permitted, captured by
+  ##   ``EmailSubmissionCreatedItem.undoStatus``); when it is
+  ##   ``Opt.some(usFinal)`` the helper short-circuits — the
+  ##   submission is already complete and any poll would race the
+  ##   eviction. ``/get`` reporting the id in ``notFound`` mid-poll
+  ##   is also treated as "evicted after final".
+  ## - **James 3.9** has no usable ``EmailSubmission/get``; live
+  ##   tests against James use the ``pollEmailDeliveryToInbox``
+  ##   verifier instead (Cat-D pattern).
+  ##
+  ## ``Err`` only on JMAP-poll budget elapse without ever reaching a
+  ## final/evicted state, or queue-drain timeout (Stalwart leg).
   const PollMs = 200
   let maxIters = max(1, budgetMs div PollMs)
-  var pendingFinal: Opt[EmailSubmission[usFinal]] = Opt.none(EmailSubmission[usFinal])
-  for _ in 0 ..< maxIters:
-    let (b, getHandle) = addEmailSubmissionGet(
-      initRequestBuilder(), submissionAccountId, ids = directIds(@[submissionId])
-    )
-    let resp = client.send(b).valueOr:
-      return err("EmailSubmission/get send failed: " & error.message)
-    let getResp = resp.get(getHandle).valueOr:
-      return err("EmailSubmission/get extract failed: " & error.rawType)
-    if getResp.list.len > 0:
-      let any = AnyEmailSubmission.fromJson(getResp.list[0]).valueOr:
-        return err("AnyEmailSubmission.fromJson failed during poll")
-      let final = any.asFinal()
-      if final.isSome:
-        pendingFinal = Opt.some(final.unsafeGet)
-        break
-    sleep(PollMs)
-  let finalSub = pendingFinal.valueOr:
+  let initialState =
+    if createUndoStatus.isSome and createUndoStatus.unsafeGet == usFinal:
+      spsEvicted
+    else:
+      spsPolling
+  let (pollState, pendingFinal) = ?pollSubmissionUntilFinal(
+    client, submissionAccountId, submissionId, initialState, maxIters, PollMs
+  )
+  if pollState == spsPolling:
     return err(
       "pollSubmissionDelivery: budget exhausted (" & $budgetMs &
         "ms) without undoStatus=final"
@@ -790,14 +863,14 @@ proc pollSubmissionDelivery*(
   # K1 barrier: wait for Stalwart's SMTP queue to drain so the
   # helper's contract is genuine SMTP completion, not just JMAP-side
   # commit lock. Reads the Stalwart-prefixed env vars directly so the
-  # barrier remains a no-op on the James leg of any Cat-D iteration
-  # (James's drain semantics are observed via inbox arrival in
-  # ``pollEmailDeliveryToInbox``, not Stalwart's admin queue API).
+  # barrier remains a no-op on the James and Cyrus legs of any Cat-D
+  # iteration (their drain semantics are observed via inbox arrival
+  # in ``pollEmailDeliveryToInbox``, not via an admin queue API).
   let adminBasic = getEnv("JMAP_TEST_STALWART_ADMIN_BASIC")
   let sessionUrl = getEnv("JMAP_TEST_STALWART_SESSION_URL")
   if adminBasic.len > 0 and sessionUrl.len > 0:
     ?awaitSmtpQueueDrain(adminBasic, sessionUrl)
-  ok(finalSub)
+  ok(pendingFinal)
 
 # ---------------------------------------------------------------------------
 # Phase G — multi-principal + cancel-pending helpers
@@ -862,19 +935,29 @@ proc resolveOrCreateAliceIdentity*(
   ## Identity/get → scan for ``alice@example.com``; on miss, Identity/set
   ## create ``email = "alice@example.com"``, ``name = "Alice"``. Returns
   ## the resolved id either way. Idempotent across runs because the lookup
-  ## precedes every create. Consolidates the inline block duplicated five
-  ## times across Phase F Steps 32–36 and reused by Phase G Steps 38, 40,
-  ## 41, 42.
+  ## precedes every create.
+  ##
+  ## Cyrus 3.12.2 emits server-default identities with empty ``email`` /
+  ## ``name`` fields (Identity is "read-only from config" —
+  ## ``imap/jmap_mail_submission.c:116-120``). When no exact email match
+  ## surfaces but the account already has an identity, the helper
+  ## returns that identity's id rather than attempting an Identity/set
+  ## create that the server lacks (``metUnknownMethod`` on Cyrus).
   let (b1, getHandle) = addIdentityGet(initRequestBuilder(), submissionAccountId)
   let resp1 = client.send(b1).valueOr:
     return err("Identity/get send failed: " & error.message)
   let getResp = resp1.get(getHandle).valueOr:
     return err("Identity/get extract failed: " & error.rawType)
+  var fallbackId: Opt[Id] = Opt.none(Id)
   for node in getResp.list:
     let ident = Identity.fromJson(node).valueOr:
       return err("Identity parse failed during alice lookup")
     if ident.email == "alice@example.com":
       return ok(ident.id)
+    if fallbackId.isNone:
+      fallbackId = Opt.some(ident.id)
+  for id in fallbackId:
+    return ok(id)
   let createIdent = parseIdentityCreate(email = "alice@example.com", name = "Alice").valueOr:
     return err("parseIdentityCreate failed: " & error.message)
   let cid = parseCreationId("seedAliceIdentity").valueOr:
@@ -933,6 +1016,95 @@ proc pollSubmissionPending*(
       "ms) without undoStatus=pending"
   )
 
+proc reconnectClient*(target: LiveTestTarget, client: var JmapClient) =
+  ## Closes ``client`` and replaces it with a freshly-initialised
+  ## one. Used after Email/set seeding when the test then needs
+  ## Email/query to surface the seeded ids: Cyrus 3.12.2's Xapian
+  ## rolling indexer doesn't propagate writes from the writing
+  ## client's HTTP keep-alive session to its own subsequent reads —
+  ## the new emails only become observable to a fresh connection.
+  ## Stalwart and James index synchronously and are unaffected, but
+  ## reconnecting carries no behavioural cost on them either (just
+  ## the per-call TCP setup, a few ms).
+  client.close()
+  client = initJmapClient(
+      sessionUrl = target.sessionUrl,
+      bearerToken = target.aliceToken,
+      authScheme = target.authScheme,
+    )
+    .expect("reconnectClient initJmapClient[" & $target.kind & "]")
+
+proc pollEmailQueryIndexed*(
+    target: LiveTestTarget,
+    mailAccountId: AccountId,
+    filter: Filter[EmailFilterCondition],
+    expectedIds: HashSet[Id],
+    budgetMs: int = 30000,
+): Result[seq[Id], string] =
+  ## Polls ``Email/query`` with the given ``filter`` until every id in
+  ## ``expectedIds`` surfaces in the result set or the budget elapses.
+  ## Returns the final ids list (not necessarily containing only the
+  ## expected ids — the result set may include other matches).
+  ##
+  ## Each iteration creates a **fresh** JmapClient so the underlying
+  ## TCP connection is closed and re-opened. This works around a
+  ## Cyrus 3.12.2 latency where the rolling indexer doesn't surface
+  ## newly-seeded emails to a long-lived HTTP keep-alive session
+  ## that previously seeded them — the new emails only become
+  ## observable to a separate connection. Stalwart and James are
+  ## unaffected (they index synchronously and serve consistent
+  ## results across keep-alive sessions); the only cost on those
+  ## servers is the per-iteration TCP setup, amortised by the
+  ## first-iteration return-on-success.
+  ##
+  ## Used by tests where the server's full-text index settles
+  ## asynchronously. Cyrus 3.12.2's Xapian rolling indexer typically
+  ## settles within ~500 ms of Email/set on a quiet server.
+  ##
+  ## ``Err`` if the budget elapses without all expected ids
+  ## surfacing — that signals either an indexing failure or an
+  ## incorrect test expectation, both worth surfacing as a failed
+  ## assertion at the call site.
+  const PollMs = 500
+  let maxIters = max(1, budgetMs div PollMs)
+  for _ in 0 ..< maxIters:
+    var client = initJmapClient(
+      sessionUrl = target.sessionUrl,
+      bearerToken = target.aliceToken,
+      authScheme = target.authScheme,
+    ).valueOr:
+      return err("pollEmailQueryIndexed: initJmapClient failed: " & error.message)
+    discard client.fetchSession().valueOr:
+      client.close()
+      return err("pollEmailQueryIndexed: fetchSession failed: " & error.message)
+    let (b, queryHandle) =
+      addEmailQuery(initRequestBuilder(), mailAccountId, filter = Opt.some(filter))
+    let resp = client.send(b).valueOr:
+      client.close()
+      return err("Email/query send failed: " & error.message)
+    let queryResp = resp.get(queryHandle).valueOr:
+      client.close()
+      return err("Email/query extract failed: " & error.rawType)
+    client.close()
+    let ids = queryResp.ids
+    var allPresent = true
+    for expected in expectedIds:
+      var found = false
+      for got in ids:
+        if got == expected:
+          found = true
+          break
+      if not found:
+        allPresent = false
+        break
+    if allPresent:
+      return ok(ids)
+    sleep(PollMs)
+  err(
+    "pollEmailQueryIndexed: " & $budgetMs &
+      "ms budget exhausted before every expected id surfaced"
+  )
+
 proc findEmailBySubjectInMailbox*(
     client: var JmapClient,
     mailAccountId: AccountId,
@@ -972,14 +1144,23 @@ proc pollEmailDeliveryToInbox*(
     budgetMs: int = 5000,
 ): Result[Id, string] =
   ## Polls ``Email/query`` on ``inbox`` filtered by ``subject`` until a
-  ## match surfaces or the budget elapses. Used by Category D submission
-  ## tests on James because James 3.9 has no ``EmailSubmission/get`` and
-  ## delivery is verified by inbox arrival instead.
+  ## match surfaces or the budget elapses. Cat-D verification path for
+  ## any target where ``EmailSubmission/get`` is unavailable or returns
+  ## a null ``deliveryStatus``: James 3.9 has no ``EmailSubmission/get``
+  ## at all; Cyrus 3.12.2 hardcodes ``deliveryStatus`` to ``null``
+  ## (`imap/jmap_mail_submission.c:1200-1201`). Stalwart Cat-D legs use
+  ## ``pollSubmissionDelivery`` plus the SMTP queue drain barrier.
   ##
   ## RFC 8621 §4.4 ``EmailFilterCondition.subject`` is server-tokenised
-  ## in both Stalwart 0.15.5 and James 3.9; callers must pass a single-
-  ## token discriminator subject (the ``seedDraftEmail`` callers in
-  ## Category D tests already do).
+  ## across configured targets; callers must pass a single-token
+  ## discriminator subject (the ``seedDraftEmail`` callers in Cat-D
+  ## tests already do).
+  ##
+  ## Per-target inbox-arrival budget guidance — recommended ``budgetMs``
+  ## passed in by callers when running on slower (e.g. arm64-QEMU)
+  ## hosts: Stalwart 5000 ms, James 5000 ms, Cyrus 10000 ms (Cyrus's
+  ## Postfix-backed delivery exceeds the James budget under QEMU
+  ## emulation).
   const PollMs = 100
   let maxIters = max(1, budgetMs div PollMs)
   let filter = filterCondition(
@@ -1011,6 +1192,40 @@ template assertOn*(target: LiveTestTarget, cond: bool) =
   ## that don't need a custom message — the bracketed target kind is
   ## still surfaced so failures attribute to a specific server.
   doAssert cond, "[" & $target.kind & "]"
+
+template assertSuccessOrTypedError*[T](
+    target: LiveTestTarget,
+    extract: Result[T, MethodError],
+    allowedErrors: set[MethodErrorType],
+    onSuccess: untyped,
+) =
+  ## Cat-B refactor helper. Asserts on client-library behaviour
+  ## uniformly across configured targets:
+  ##
+  ## - When the server implements the surface, the body runs against
+  ##   the parsed result (bound as ``success`` injected into the
+  ##   caller's scope) — verifying the same semantic round-trip the
+  ##   pre-refactor test asserted.
+  ## - When the server returns a typed JMAP error, the error type
+  ##   must be in ``allowedErrors`` — exercising the client's typed-
+  ##   error projection against a real-world server response.
+  ##
+  ## Both arms are positive client-library contract assertions; the
+  ## test never branches its assertion on which server replied. See
+  ## ``docs/plan/12-integration-testing-L-cyrus.md`` §0 for the
+  ## testing philosophy and the operational test ("If a mail-client
+  ## application developer linked this library and ran my test code
+  ## against any RFC-conformant JMAP server …").
+  case extract.isOk
+  of true:
+    let success {.inject.} = extract.unsafeValue
+    onSuccess
+  of false:
+    let methodErr = extract.unsafeError
+    assertOn target,
+      methodErr.errorType in allowedErrors,
+      "method error must be in allowed set " & $allowedErrors & " (got rawType=" &
+        methodErr.rawType & ")"
 
 proc seedMultiRecipientDraft*(
     client: var JmapClient,
@@ -1060,8 +1275,9 @@ proc captureBaselineState*[T](
 ): Result[JmapState, string] =
   ## Issues ``T/get`` with an empty id list to capture the current ``state``
   ## of the entity surface for ``accountId``. The empty ids array (``[]``)
-  ## sends ``ids: []`` on the wire — Stalwart returns zero records but the
-  ## ``state`` field is still populated, which is the only value the helper
+  ## sends ``ids: []`` on the wire — configured targets return zero records
+  ## but the ``state`` field is still populated, which is the only value
+  ## the helper
   ## needs. Used as the ``sinceState`` baseline for ``T/changes`` invocations
   ## across Phase H Steps 43, 45, 46, 47, 48. ``T`` must satisfy the
   ## ``getMethodName(T)`` and ``capabilityUri(T)`` resolvers — every entity
@@ -1129,13 +1345,19 @@ proc seedSubmissionCorpus*(
     recipients: openArray[EmailAddress],
     subjects: openArray[string],
     creationLabelPrefix: string,
+    holdForSeconds: Opt[HoldForSeconds] = Opt.none(HoldForSeconds),
 ): Result[seq[Id], string] =
-  ## Builds N submissions polled to ``usFinal``. ``N == identities.len``;
-  ## ``recipients`` and ``subjects`` cycle through their lengths so the
-  ## caller controls the corpus shape. Each iteration: seed a draft via
+  ## Builds N submissions. ``N == identities.len``; ``recipients`` and
+  ## ``subjects`` cycle through their lengths so the caller controls
+  ## the corpus shape.  When ``holdForSeconds`` is ``Opt.some``, each
+  ## submission carries a HOLDFOR= envelope parameter so the server
+  ## retains the record in ``pending`` state — this lets tests that
+  ## want to inspect the submission via ``EmailSubmission/get`` work
+  ## on Cyrus 3.12.2 (whose fire-and-forget submission model evicts
+  ## records on ``final``). Each iteration: seed a draft via
   ## ``seedDraftEmail``, ``EmailSubmission/set create``, then poll to
   ## ``usFinal`` via ``pollSubmissionDelivery``. Returns the seq of
-  ## submission ids in submission order. Used by Phase I Step 60.
+  ## submission ids in submission order.
   if identities.len == 0:
     return err("seedSubmissionCorpus: identities must not be empty")
   if recipients.len == 0:
@@ -1157,8 +1379,16 @@ proc seedSubmissionCorpus*(
       creationLabelPrefix & "-draft-" & $i,
     ).valueOr:
       return err("seedSubmissionCorpus[" & $i & "] seedDraftEmail: " & error)
-    let envelope = buildEnvelope(fromAddr.email, recipient.email).valueOr:
-      return err("seedSubmissionCorpus[" & $i & "] buildEnvelope: " & error)
+    let envelope =
+      if holdForSeconds.isSome:
+        buildEnvelopeWithHoldFor(
+          fromAddr.email, recipient.email, holdForSeconds.unsafeGet
+        ).valueOr:
+          return
+            err("seedSubmissionCorpus[" & $i & "] buildEnvelopeWithHoldFor: " & error)
+      else:
+        buildEnvelope(fromAddr.email, recipient.email).valueOr:
+          return err("seedSubmissionCorpus[" & $i & "] buildEnvelope: " & error)
     let blueprint = parseEmailSubmissionBlueprint(
       identityId = identityId, emailId = draftId, envelope = Opt.some(envelope)
     ).valueOr:
@@ -1175,16 +1405,23 @@ proc seedSubmissionCorpus*(
     let setResp = resp.get(setHandle).valueOr:
       return err("seedSubmissionCorpus[" & $i & "] extract: " & error.rawType)
     var submissionId: Id
+    var createdItem: EmailSubmissionCreatedItem
     var found = false
     setResp.createResults.withValue(cid, outcome):
       let item = outcome.valueOr:
         return err("seedSubmissionCorpus[" & $i & "] create rejected: " & error.rawType)
       submissionId = item.id
+      createdItem = item
       found = true
     do:
       return err("seedSubmissionCorpus[" & $i & "] no create result")
     doAssert found
-    let final = pollSubmissionDelivery(client, submissionAccountId, submissionId).valueOr:
+    let final = pollSubmissionDelivery(
+      client,
+      submissionAccountId,
+      submissionId,
+      createUndoStatus = createdItem.undoStatus,
+    ).valueOr:
       return err("seedSubmissionCorpus[" & $i & "] pollSubmissionDelivery: " & error)
     discard final
     submissionIds.add(submissionId)

@@ -1,0 +1,24 @@
+{
+  "methodResponses": [
+    [
+      "Email/set",
+      {
+        "oldState": "1010",
+        "newState": "1010",
+        "created": null,
+        "updated": null,
+        "destroyed": null,
+        "notCreated": null,
+        "notUpdated": null,
+        "notDestroyed": {
+          "zzzzz": {
+            "type": "notFound"
+          }
+        },
+        "accountId": "alice"
+      },
+      "c0"
+    ]
+  ],
+  "sessionState": "0"
+}

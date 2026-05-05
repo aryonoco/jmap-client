@@ -40,11 +40,12 @@
 ##
 ## Listed in ``tests/testament_skip.txt`` so ``just test`` skips it;
 ## run via ``just test-integration`` after ``just stalwart-up``.
-## Body is guarded on ``loadLiveTestConfig().isOk`` so the file
+## Body is guarded on ``loadLiveTestTargets().isOk`` so the file
 ## joins testament's megatest cleanly under ``just test-full`` when
 ## env vars are absent.
 
 import std/os
+import std/sets
 
 import results
 import jmap_client
@@ -87,6 +88,16 @@ block temailQueryCollapseThreadsLive:
     discard standaloneId
 
     let filter = filterCondition(EmailFilterCondition(subject: Opt.some("phase-i 57")))
+
+    # Wait for the full-text index to surface every seeded id.
+    # Cyrus 3.12.2's Xapian rolling indexer settles asynchronously
+    # after Email/set; ``pollEmailQueryIndexed`` opens a fresh
+    # client per iteration to bypass Cyrus's per-session index
+    # cache. Stalwart and James are unaffected (synchronous index).
+    let seedSet = (threadedIds & @[standaloneId]).toHashSet
+    discard pollEmailQueryIndexed(target, mailAccountId, filter, seedSet).expect(
+        "pollEmailQueryIndexed[" & $target.kind & "]"
+      )
 
     # Sub-test A: collapseThreads default false.  The exact count
     # may vary across runs (re-running the test seeds additional

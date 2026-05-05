@@ -1,0 +1,6 @@
+{
+  "type": "urn:ietf:params:jmap:error:limit",
+  "title": "JMAP request exceeds a server limit",
+  "status": 400,
+  "limit": "maxCallsInRequest"
+}

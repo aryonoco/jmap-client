@@ -27,15 +27,19 @@ template loadCapturedFixture*(name: static string): JsonNode =
   parseJson(data)
 
 template forEachCapturedServer*(baseName: static string, fixture, body: untyped) =
-  ## Loads ``<baseName>-stalwart.json`` and ``<baseName>-james.json`` in
-  ## sequence and runs ``body`` once per server. Two static-read paths
-  ## are emitted at compile time — missing fixtures fail at build, not
-  ## at runtime. Use ``loadCapturedFixture`` directly for replay tests
-  ## whose live counterpart is skipped on James (no James fixture
-  ## exists).
+  ## Loads ``<baseName>-stalwart.json``, ``<baseName>-james.json``, and
+  ## ``<baseName>-cyrus.json`` in sequence and runs ``body`` once per
+  ## server. Three static-read paths are emitted at compile time —
+  ## missing fixtures fail at build, not at runtime. Post-Phase-L every
+  ## live test produces a fixture per configured target (Cat-B success
+  ## arms and typed-error arms both emit a wire response that mcapture
+  ## records), so every captured-replay site has all three arms.
   block:
     let fixture {.inject.} = loadCapturedFixture(baseName & "-stalwart")
     body
   block:
     let fixture {.inject.} = loadCapturedFixture(baseName & "-james")
+    body
+  block:
+    let fixture {.inject.} = loadCapturedFixture(baseName & "-cyrus")
     body

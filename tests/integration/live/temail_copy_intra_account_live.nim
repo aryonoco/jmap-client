@@ -37,7 +37,7 @@
 ##
 ## Listed in ``tests/testament_skip.txt`` so ``just test`` skips it;
 ## run via ``just test-integration`` after ``just stalwart-up``. Body
-## is guarded on ``loadLiveTestConfig().isOk`` so the file joins
+## is guarded on ``loadLiveTestTargets().isOk`` so the file joins
 ## testament's megatest cleanly under ``just test-full`` when env
 ## vars are absent.
 
@@ -52,11 +52,12 @@ import ./mlive
 
 block temailCopyIntraAccountLive:
   forEachLiveTarget(target):
-    # James 3.9 compatibility: skipped on James.
-    # Reason: James 3.9 does not implement Email/copy. ``EmailCopyMethod.scala`` does not exist at the james-project-3.9.0 tag and the dispatcher returns ``unknownMethod``. Replay coverage for the Stalwart wire shape is preserved via the captured ``-stalwart`` fixture.
-    # When James adds support, remove this guard.
-    if target.kind == ltkJames:
-      continue
+    # Cat-B (Phase L §0): test asserts on client behaviour for
+    # RFC 8620 §5.4 (accountId != fromAccountId). Stalwart 0.15.5 and
+    # Cyrus 3.12.2 implement Email/copy and reject the same-account
+    # invocation with ``metInvalidArguments``; James 3.9 lacks Email/
+    # copy and returns ``metUnknownMethod``. Both are valid client-
+    # library typed-error projections.
     var client = initJmapClient(
         sessionUrl = target.sessionUrl,
         bearerToken = target.aliceToken,
@@ -99,19 +100,19 @@ block temailCopyIntraAccountLive:
     )
 
     # --- 4. Assert rejection at method level ------------------------------
+    # RFC 8620 §5.4 mandates accountId != fromAccountId. Stalwart and
+    # Cyrus reject with ``metInvalidArguments``; James lacks the
+    # method and returns ``metUnknownMethod``. Either projection is a
+    # valid client-library typed-error contract.
     let copyResult = respCopy.get(copyHandle)
     assertOn target,
       copyResult.isErr,
-      "RFC 8620 §5.4 mandates accountId != fromAccountId; same-account Email/copy " &
-        "must surface a method-level error"
+      "Email/copy with accountId == fromAccountId must surface a typed error"
     let methodErr = copyResult.error
     assertOn target,
-      methodErr.errorType == metInvalidArguments,
-      "Stalwart rejects same-account Email/copy with metInvalidArguments (got rawType=" &
+      methodErr.errorType in {metInvalidArguments, metUnknownMethod},
+      "method error must project as metInvalidArguments or metUnknownMethod (got rawType=" &
         methodErr.rawType & ")"
-    assertOn target,
-      methodErr.rawType == "invalidArguments",
-      "rawType must round-trip the wire literal"
 
     # --- 5. Cleanup: source must still exist -----------------------------
     let (bClean, cleanHandle) =

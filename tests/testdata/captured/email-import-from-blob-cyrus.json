@@ -1,0 +1,21 @@
+{
+  "methodResponses": [
+    [
+      "Email/import",
+      {
+        "accountId": "alice",
+        "oldState": "908",
+        "newState": "908",
+        "created": {},
+        "notCreated": {
+          "import27": {
+            "type": "invalidEmail",
+            "description": "Message contains invalid header"
+          }
+        }
+      },
+      "c0"
+    ]
+  ],
+  "sessionState": "0"
+}

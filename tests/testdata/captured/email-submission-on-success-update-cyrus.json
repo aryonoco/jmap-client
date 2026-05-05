@@ -1,0 +1,15 @@
+{
+  "methodResponses": [
+    [
+      "error",
+      {
+        "type": "invalidArguments",
+        "arguments": [
+          "onSuccessUpdateEmail"
+        ]
+      },
+      "c0"
+    ]
+  ],
+  "sessionState": "0"
+}

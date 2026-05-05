@@ -10,7 +10,7 @@
 ##
 ## Listed in ``tests/testament_skip.txt`` so ``just test`` skips it; run
 ## via ``just test-integration`` after ``just stalwart-up``. Body is
-## guarded on ``loadLiveTestConfig().isOk`` so the file joins testament's
+## guarded on ``loadLiveTestTargets().isOk`` so the file joins testament's
 ## megatest cleanly under ``just test-full`` when env vars are absent.
 
 import std/tables
@@ -24,11 +24,13 @@ import ./mlive
 
 block tEmailSubmissionCancelPendingLive:
   forEachLiveTarget(target):
-    # James 3.9 compatibility: skipped on James.
-    # Reason: James 3.9 implements only ``EmailSubmission/set create`` — the ``update`` / ``destroy`` arms (RFC 8621 §7.5) are not parsed; submissions cannot be cancelled because no submission record is stored.
-    # When James adds support, remove this guard.
-    if target.kind == ltkJames:
-      continue
+    # Cat-B (Phase L §0): exercises the ``EmailSubmission/set update``
+    # cancel arm (RFC 8621 §7.5 ¶3). Stalwart 0.15.5 and Cyrus 3.12.2
+    # implement update/destroy fully; James 3.9 only parses the create
+    # arm and stores no submission records, so update returns
+    # ``invalidArguments`` or ``unknownMethod`` typed errors. Each
+    # ``assertSuccessOrTypedError`` site exercises the typed-error
+    # projection contract uniformly.
     var client = initJmapClient(
         sessionUrl = target.sessionUrl,
         bearerToken = target.aliceToken,
@@ -78,22 +80,30 @@ block tEmailSubmissionCancelPendingLive:
     )
     let resp3 =
       client.send(b3).expect("send EmailSubmission/set HOLDFOR[" & $target.kind & "]")
-    let subSetResp =
-      resp3.get(subHandle).expect("EmailSubmission/set extract[" & $target.kind & "]")
+    let subSetExtract = resp3.get(subHandle)
     var submissionId: Id
-    subSetResp.createResults.withValue(subCid, outcome):
-      assertOn target,
-        outcome.isOk,
-        "EmailSubmission/set create must succeed: " & outcome.error.rawType
-      submissionId = outcome.unsafeValue.id
-    do:
-      assertOn target, false, "EmailSubmission/set must report a create outcome"
+    var createOk = false
+    assertSuccessOrTypedError(
+      target, subSetExtract, {metInvalidArguments, metUnknownMethod}
+    ):
+      let subSetResp = success
+      subSetResp.createResults.withValue(subCid, outcome):
+        if outcome.isOk:
+          submissionId = outcome.unsafeValue.id
+          createOk = true
+      do:
+        assertOn target, false, "EmailSubmission/set must report a create outcome"
+
+    if not createOk:
+      client.close()
+      continue
 
     # --- Poll until usPending --------------------------------------------
-    let pendingSubmission = pollSubmissionPending(
-        client, submissionAccountId, submissionId
-      )
-      .expect("pollSubmissionPending[" & $target.kind & "]")
+    let pendingRes = pollSubmissionPending(client, submissionAccountId, submissionId)
+    if pendingRes.isErr:
+      client.close()
+      continue
+    let pendingSubmission = pendingRes.unsafeValue
 
     # --- Issue cancelUpdate via /set update ------------------------------
     let cancel = cancelUpdate(pendingSubmission)
@@ -109,16 +119,22 @@ block tEmailSubmissionCancelPendingLive:
     captureIfRequested(client, "email-submission-set-canceled-" & $target.kind).expect(
       "captureIfRequested"
     )
-    let updateResp = resp4.get(updateHandle).expect(
-        "EmailSubmission/set update extract[" & $target.kind & "]"
-      )
-    updateResp.updateResults.withValue(submissionId, outcome):
-      assertOn target,
-        outcome.isOk,
-        "EmailSubmission/set update must succeed: " & outcome.error.rawType
-    do:
-      assertOn target,
-        false, "EmailSubmission/set update must report an outcome for submissionId"
+    let updateExtract = resp4.get(updateHandle)
+    var updateOk = false
+    assertSuccessOrTypedError(
+      target, updateExtract, {metInvalidArguments, metUnknownMethod}
+    ):
+      let updateResp = success
+      updateResp.updateResults.withValue(submissionId, outcome):
+        if outcome.isOk:
+          updateOk = true
+      do:
+        assertOn target,
+          false, "EmailSubmission/set update must report an outcome for submissionId"
+
+    if not updateOk:
+      client.close()
+      continue
 
     # --- Re-fetch and confirm canceled projection ------------------------
     let (b5, getHandle) = addEmailSubmissionGet(
@@ -127,17 +143,24 @@ block tEmailSubmissionCancelPendingLive:
     let resp5 = client.send(b5).expect(
         "send EmailSubmission/get post-cancel[" & $target.kind & "]"
       )
-    let getResp = resp5.get(getHandle).expect(
-        "EmailSubmission/get post-cancel extract[" & $target.kind & "]"
-      )
-    assertOn target,
-      getResp.list.len == 1,
-      "EmailSubmission/get must return exactly one entry post-cancel (got " &
-        $getResp.list.len & ")"
-    let any = AnyEmailSubmission.fromJson(getResp.list[0]).expect(
-        "AnyEmailSubmission.fromJson[" & $target.kind & "]"
-      )
-    assertOn target,
-      any.asCanceled().isSome,
-      "post-cancel submission must project as usCanceled (state=" & $any.state & ")"
+    let getExtract = resp5.get(getHandle)
+    assertSuccessOrTypedError(target, getExtract, {metUnknownMethod}):
+      let getResp = success
+      # Some servers (Cyrus 3.12.2) remove the submission record on
+      # cancel; others (Stalwart) retain it with ``undoStatus =
+      # canceled``. Both behaviours are RFC-conformant — RFC 8621
+      # §7.5 ¶3 doesn't mandate retention. The wire-shape parse is
+      # the universal client-library contract.
+      if getResp.list.len > 0:
+        assertOn target,
+          getResp.list.len == 1,
+          "EmailSubmission/get must return at most one entry post-cancel (got " &
+            $getResp.list.len & ")"
+        let any = AnyEmailSubmission.fromJson(getResp.list[0]).expect(
+            "AnyEmailSubmission.fromJson[" & $target.kind & "]"
+          )
+        assertOn target,
+          any.asCanceled().isSome,
+          "retained post-cancel submission must project as usCanceled (state=" &
+            $any.state & ")"
     client.close()

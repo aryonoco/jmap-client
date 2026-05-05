@@ -2,12 +2,13 @@
 # Copyright (c) 2026 Aryan Ameri
 
 ## Capture helper for the live integration suite. Persists the raw bytes
-## of a Stalwart wire response into ``tests/testdata/captured/<name>.json``
-## when the operator opts in via env var. The captured fixtures feed the
-## always-on parser-only replay tests under ``tests/serde/captured/``.
-## ``testdata`` is hardcoded into testament's category skip-list, so the
-## directory is silently ignored when ``just test`` enumerates test
-## categories — fixtures may sit there as bare ``.json`` files.
+## of a wire response from any configured target into
+## ``tests/testdata/captured/<name>-<server>.json`` when the operator opts
+## in via env var. The captured fixtures feed the always-on parser-only
+## replay tests under ``tests/serde/captured/``. ``testdata`` is
+## hardcoded into testament's category skip-list, so the directory is
+## silently ignored when ``just test`` enumerates test categories —
+## fixtures may sit there as bare ``.json`` files.
 ##
 ## Behaviour:
 ##   - When ``JMAP_TEST_CAPTURE`` is unset (or any value other than "1"),
@@ -19,7 +20,7 @@
 ##   - When ``JMAP_TEST_CAPTURE == "1"`` and the destination file DOES
 ##     exist, the write is skipped — the committed fixture is the source
 ##     of truth. Set ``JMAP_TEST_CAPTURE_FORCE == "1"`` to force overwrite
-##     after a deliberate Stalwart change.
+##     after a deliberate server-shape change on any configured target.
 ##
 ## ``proc`` (not ``func``) because every operation in the body — env
 ## lookup, ``createDir``, ``fileExists``, ``writeFile`` — is IO. Lives
@@ -35,9 +36,10 @@ import results
 import jmap_client/client
 
 const capturedFixturesDir* = "tests/testdata/captured"
-  ## Workspace-relative directory holding the committed Stalwart wire
-  ## payloads. Both ``captureIfRequested`` (write side) and
-  ## ``mloader.loadCapturedFixture`` (read side) anchor on this path.
+  ## Workspace-relative directory holding the committed wire payloads
+  ## from every configured target. Both ``captureIfRequested`` (write
+  ## side) and ``mloader.loadCapturedFixture`` (read side) anchor on
+  ## this path.
 
 proc captureIfRequested*(client: JmapClient, name: string): Result[void, string] =
   ## Writes ``client.lastRawResponseBody`` to

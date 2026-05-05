@@ -83,9 +83,14 @@ func fromJson*(
   ?expectKind(node, JObject, path)
   let idNode = ?fieldJString(node, "id", path)
   let id = ?Id.fromJson(idNode, path / "id")
+  # RFC 8621 §6.1 ``Identity.email`` is a ``String`` — no MUST-non-empty
+  # constraint. Cyrus 3.12.2 emits an empty ``email`` for server-default
+  # identities (config-derived, no explicit address); Stalwart and James
+  # populate it with the user's primary address. Postel-receive: accept
+  # any string the server sends. Client-construction validation lives in
+  # ``parseIdentityCreate`` (smart constructor), not here.
   let emailNode = ?fieldJString(node, "email", path)
   let email = emailNode.getStr("")
-  ?nonEmptyStr(email, "email", path / "email")
   let name = ?parseDefaultingString(node, "name", path)
   let replyTo = ?parseOptEmailAddresses(node, "replyTo", path)
   let bcc = ?parseOptEmailAddresses(node, "bcc", path)

@@ -35,7 +35,7 @@
 ##
 ## Listed in ``tests/testament_skip.txt`` so ``just test`` skips it; run
 ## via ``just test-integration`` after ``just stalwart-up``. Body is
-## guarded on ``loadLiveTestConfig().isOk`` so the file joins testament's
+## guarded on ``loadLiveTestTargets().isOk`` so the file joins testament's
 ## megatest cleanly under ``just test-full`` when env vars are absent.
 
 import std/json
@@ -108,11 +108,20 @@ block temailQueryThreadChainLive:
     let corpus = ids.toHashSet
 
     # --- Email/query → Email/get → Thread/get → Email/get -----------------
-    # Bounded re-fetch loop. Stalwart's threading pipeline is asynchronous
+    # Bounded re-fetch loop. Stalwart's threading pipeline is async
     # (catalogued divergence #4); the synchronous threadId is set at
     # Email/set time, but the Thread record's emailIds list may lag.
+    # Cyrus 3.12.2's Xapian rolling indexer also lags Email/set for
+    # the writing client's HTTP session (the seeds only become
+    # visible to a fresh connection); pre-poll with a fresh client to
+    # let the index settle, then close+reopen the test client so the
+    # subsequent chained request sees the indexed seeds.
     let filter =
       filterCondition(EmailFilterCondition(subject: Opt.some("stepeighteen")))
+    discard pollEmailQueryIndexed(target, mailAccountId, filter, corpus).expect(
+        "pollEmailQueryIndexed[" & $target.kind & "]"
+      )
+    reconnectClient(target, client)
     var projection = ChainProjection()
     var converged = false
     for attempt in 0 ..< 5:

@@ -29,11 +29,12 @@ import ./mlive
 
 block tthreadKeywordFilterAndUpToIdLive:
   forEachLiveTarget(target):
-    # James 3.9 compatibility: skipped on James.
-    # Reason: Thread-keyword filter conditions (allInThreadHaveKeyword/someInThreadHaveKeyword/noneInThreadHaveKeyword) are unimplemented on James 3.9, AND Email/queryChanges (and therefore upToId) is unimplemented altogether.
-    # When James adds support, remove this guard.
-    if target.kind == ltkJames:
-      continue
+    # Cat-B (Phase L §0): exercises thread-keyword EmailFilterCondition
+    # variants and ``upToId`` on Email/queryChanges. Stalwart 0.15.5
+    # and Cyrus 3.12.2 implement all four filter variants and
+    # queryChanges fully (`imap/jmap_mail_query.c:1071-1140`); James
+    # 3.9 does not advertise them. Each ``Email/query`` and
+    # ``Email/queryChanges`` extract uses Cat-B Result-branching.
     var client = initJmapClient(
         sessionUrl = target.sessionUrl,
         bearerToken = target.aliceToken,
@@ -98,8 +99,11 @@ block tthreadKeywordFilterAndUpToIdLive:
       let resp = client.send(b).expect(
           "send Email/query someInThreadHaveKeyword[" & $target.kind & "]"
         )
-      discard
-        resp.get(h).expect("someInThreadHaveKeyword extract[" & $target.kind & "]")
+      let extract = resp.get(h)
+      assertSuccessOrTypedError(
+        target, extract, {metUnsupportedFilter, metUnknownMethod}
+      ):
+        discard success
 
     # Sub-test 2: allInThreadHaveKeyword filter.
     block allCase:
@@ -111,7 +115,11 @@ block tthreadKeywordFilterAndUpToIdLive:
       let resp = client.send(b).expect(
           "send Email/query allInThreadHaveKeyword[" & $target.kind & "]"
         )
-      discard resp.get(h).expect("allInThreadHaveKeyword extract[" & $target.kind & "]")
+      let extract = resp.get(h)
+      assertSuccessOrTypedError(
+        target, extract, {metUnsupportedFilter, metUnknownMethod}
+      ):
+        discard success
 
     # Sub-test 3: noneInThreadHaveKeyword filter — capture.
     block noneCase:
@@ -126,10 +134,13 @@ block tthreadKeywordFilterAndUpToIdLive:
       captureIfRequested(client, "thread-keyword-filter-" & $target.kind).expect(
         "captureIfRequested noneInThreadHaveKeyword"
       )
-      discard
-        resp.get(h).expect("noneInThreadHaveKeyword extract[" & $target.kind & "]")
+      let extract = resp.get(h)
+      assertSuccessOrTypedError(
+        target, extract, {metUnsupportedFilter, metUnknownMethod}
+      ):
+        discard success
 
-    # Sub-test 4: upToId parameter on Email/queryChanges.  Capture.
+    # Sub-test 4: upToId parameter on Email/queryChanges. Capture.
     block upToIdCase:
       let (b, h) = addEmailQueryChanges(
         initRequestBuilder(),
@@ -142,7 +153,11 @@ block tthreadKeywordFilterAndUpToIdLive:
       captureIfRequested(client, "email-querychanges-up-to-id-" & $target.kind).expect(
         "captureIfRequested upToId"
       )
-      discard resp.get(h).expect("upToId extract[" & $target.kind & "]")
+      let extract = resp.get(h)
+      assertSuccessOrTypedError(
+        target, extract, {metCannotCalculateChanges, metUnknownMethod}
+      ):
+        discard success
 
     # Cleanup: destroy the seed emails so re-runs are idempotent.
     let (bClean, cleanHandle) =

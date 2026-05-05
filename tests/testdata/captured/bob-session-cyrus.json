@@ -1,0 +1,282 @@
+{
+  "username": "bob",
+  "apiUrl": "/jmap/",
+  "downloadUrl": "/jmap/download/{accountId}/{blobId}/{name}?accept={type}",
+  "uploadUrl": "/jmap/upload/{accountId}/",
+  "eventSourceUrl": "/jmap/eventsource/?types={types}&closeafter={closeafter}&ping={ping}",
+  "state": "0",
+  "capabilities": {
+    "urn:ietf:params:jmap:core": {
+      "maxSizeUpload": 0,
+      "maxConcurrentUpload": 5,
+      "maxSizeRequest": 52428800,
+      "maxConcurrentRequests": 5,
+      "maxCallsInRequest": 256,
+      "maxObjectsInGet": 4096,
+      "maxObjectsInSet": 4096,
+      "collationAlgorithms": []
+    },
+    "https://cyrusimap.org/ns/jmap/core": {
+      "maxCreatedIdsInRequest": 1048576
+    },
+    "urn:ietf:params:jmap:core:backendInfo": {
+      "product": {
+        "name": "Cyrus JMAP",
+        "version": "3.13.3-61-ga8521537b"
+      },
+      "backend": null,
+      "environment": {
+        "name": "Linux",
+        "version": "6.19.13-orbstack-gbd1dc07b8cf4"
+      },
+      "capabilitiesOverrides": null
+    },
+    "https://cyrusimap.org/ns/jmap/performance": {},
+    "https://cyrusimap.org/ns/jmap/debug": {},
+    "https://cyrusimap.org/ns/jmap/usercounters": {},
+    "urn:ietf:params:jmap:blob": {},
+    "urn:ietf:params:jmap:quota": {},
+    "https://cyrusimap.org/ns/jmap/quota": {},
+    "urn:ietf:params:jmap:mail": {},
+    "https://cyrusimap.org/ns/jmap/mail": {},
+    "urn:ietf:params:jmap:submission": {},
+    "urn:ietf:params:jmap:mdn": {},
+    "urn:ietf:params:jmap:contacts": {},
+    "https://cyrusimap.org/ns/jmap/contacts": {},
+    "urn:ietf:params:jmap:calendars": {},
+    "urn:ietf:params:jmap:principals": {},
+    "urn:ietf:params:jmap:calendars:preferences": {},
+    "https://cyrusimap.org/ns/jmap/calendars": {
+      "isRFC": true
+    },
+    "https://cyrusimap.org/ns/jmap/backup": {},
+    "urn:ietf:params:jmap:sieve": {
+      "implementation": "Cyrus JMAP 3.13.3-61-ga8521537b"
+    },
+    "https://cyrusimap.org/ns/jmap/sieve": {},
+    "https://cyrusimap.org/ns/jmap/admin": {},
+    "urn:ietf:params:jmap:websocket": {
+      "url": "wss:/jmap/ws/",
+      "supportsPush": true
+    }
+  },
+  "accounts": {
+    "bob": {
+      "name": "bob",
+      "isPrimary": true,
+      "isPersonal": true,
+      "isReadOnly": false,
+      "accountCapabilities": {
+        "urn:ietf:params:jmap:core": {},
+        "https://cyrusimap.org/ns/jmap/performance": {},
+        "https://cyrusimap.org/ns/jmap/debug": {},
+        "https://cyrusimap.org/ns/jmap/usercounters": {},
+        "urn:ietf:params:jmap:blob": {
+          "maxSizeBlobSet": 4096,
+          "maxdataSources": 100,
+          "supportedTypeNames": [
+            "Mailbox",
+            "Thread",
+            "Email"
+          ],
+          "supportedDigestAlgorithms": [
+            "md5",
+            "sha",
+            "sha-256"
+          ]
+        },
+        "urn:ietf:params:jmap:quota": {},
+        "https://cyrusimap.org/ns/jmap/quota": {},
+        "urn:ietf:params:jmap:mail": {
+          "maxMailboxesPerEmail": 20,
+          "maxSizeAttachmentsPerEmail": 10485760,
+          "emailQuerySortOptions": [
+            "receivedAt",
+            "sentAt",
+            "from",
+            "id",
+            "emailstate",
+            "size",
+            "subject",
+            "to",
+            "hasKeyword",
+            "someInThreadHaveKeyword",
+            "addedDates",
+            "threadSize",
+            "spamScore",
+            "snoozedUntil"
+          ],
+          "maxMailboxDepth": null,
+          "maxSizeMailboxName": 255,
+          "mayCreateTopLevelMailbox": true
+        },
+        "https://cyrusimap.org/ns/jmap/mail": {
+          "maxKeywordsPerEmail": 100,
+          "hasCompactIds": false
+        },
+        "urn:ietf:params:jmap:submission": {
+          "maxDelayedSend": 44236800,
+          "submissionExtensions": {
+            "size": [
+              "10240000"
+            ],
+            "dsn": []
+          }
+        },
+        "urn:ietf:params:jmap:mdn": {},
+        "urn:ietf:params:jmap:contacts": {
+          "maxAddressBooksPerCard": 1,
+          "mayCreateAddressBook": true
+        },
+        "https://cyrusimap.org/ns/jmap/contacts": {},
+        "urn:ietf:params:jmap:calendars": {
+          "minDateTime": "1970-01-01T00:00:01Z",
+          "maxDateTime": "2038-01-19T03:14:06Z",
+          "maxExpandedQueryDuration": "P365D",
+          "maxParticipantsPerEvent": null,
+          "mayCreateCalendar": true,
+          "shareesActAs": "self",
+          "maxCalendarsPerEvent": 1
+        },
+        "https://cyrusimap.org/ns/jmap/calendars": {},
+        "urn:ietf:params:jmap:principals": {
+          "currentUserPrincipalId": "bob",
+          "urn:ietf:params:jmap:calendars": {
+            "accountId": "bob",
+            "account": null,
+            "mayGetAvailability": true,
+            "sendTo": {
+              "imip": "mailto:bob@example.com"
+            }
+          }
+        },
+        "urn:ietf:params:jmap:principals:owner": {
+          "accountIdForPrincipal": "bob",
+          "principalId": "bob"
+        },
+        "urn:ietf:params:jmap:calendars:preferences": {},
+        "https://cyrusimap.org/ns/jmap/backup": {},
+        "urn:ietf:params:jmap:sieve": {
+          "maxRedirects": null,
+          "maxNumberScripts": 5,
+          "maxSizeScriptName": 1013,
+          "maxSizeScript": 32768,
+          "sieveExtensions": [
+            "encoded-character",
+            "comparator-i;ascii-numeric",
+            "comparator-i;unicode-casemap",
+            "fileinto",
+            "reject",
+            "ereject",
+            "vacation",
+            "vacation-seconds",
+            "notify",
+            "enotify",
+            "include",
+            "editheader",
+            "vnd.cyrus.snooze",
+            "processcalendar",
+            "vnd.cyrus.implicit_keep_target",
+            "vnd.cyrus.redirect-multiple",
+            "envelope",
+            "environment",
+            "body",
+            "imap4flags",
+            "date",
+            "ihave",
+            "mailbox",
+            "mboxmetadata",
+            "servermetadata",
+            "duplicate",
+            "vnd.cyrus.jmapquery",
+            "relational",
+            "regex",
+            "extlists",
+            "subaddress",
+            "copy",
+            "index",
+            "variables",
+            "redirect-deliverby",
+            "redirect-dsn",
+            "special-use",
+            "fcc",
+            "mailboxid"
+          ],
+          "notificationMethods": [
+            "mailto"
+          ],
+          "externalLists": [
+            "urn:ietf:params:sieve:addrbook"
+          ]
+        },
+        "https://cyrusimap.org/ns/jmap/sieve": {
+          "maxRedirects": null,
+          "maxNumberScripts": 5,
+          "maxSizeScriptName": 1013,
+          "maxSizeScript": 32768,
+          "sieveExtensions": [
+            "encoded-character",
+            "comparator-i;ascii-numeric",
+            "comparator-i;unicode-casemap",
+            "fileinto",
+            "reject",
+            "ereject",
+            "vacation",
+            "vacation-seconds",
+            "notify",
+            "enotify",
+            "include",
+            "editheader",
+            "vnd.cyrus.snooze",
+            "processcalendar",
+            "vnd.cyrus.implicit_keep_target",
+            "vnd.cyrus.redirect-multiple",
+            "envelope",
+            "environment",
+            "body",
+            "imap4flags",
+            "date",
+            "ihave",
+            "mailbox",
+            "mboxmetadata",
+            "servermetadata",
+            "duplicate",
+            "vnd.cyrus.jmapquery",
+            "relational",
+            "regex",
+            "extlists",
+            "subaddress",
+            "copy",
+            "index",
+            "variables",
+            "redirect-deliverby",
+            "redirect-dsn",
+            "special-use",
+            "fcc",
+            "mailboxid"
+          ],
+          "notificationMethods": [
+            "mailto"
+          ],
+          "externalLists": [
+            "urn:ietf:params:sieve:addrbook"
+          ]
+        }
+      }
+    }
+  },
+  "primaryAccounts": {
+    "urn:ietf:params:jmap:blob": "bob",
+    "urn:ietf:params:jmap:mail": "bob",
+    "urn:ietf:params:jmap:submission": "bob",
+    "urn:ietf:params:jmap:vacationresponse": "bob",
+    "urn:ietf:params:jmap:contacts": "bob",
+    "urn:ietf:params:jmap:calendars": "bob",
+    "https://cyrusimap.org/ns/jmap/contacts": "bob",
+    "https://cyrusimap.org/ns/jmap/calendars": "bob",
+    "https://cyrusimap.org/ns/jmap/backup": "bob",
+    "urn:ietf:params:jmap:sieve": "bob",
+    "https://cyrusimap.org/ns/jmap/sieve": "bob",
+    "urn:ietf:params:jmap:principals": "bob"
+  }
+}

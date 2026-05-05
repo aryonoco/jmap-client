@@ -1,0 +1,28 @@
+{
+  "methodResponses": [
+    [
+      "Email/query",
+      {
+        "filter": {
+          "inMailbox": "39BEB498-4843-11F1-83DD-CDCAAF3DE503",
+          "subject": "phase-g-step-40-multirecipient"
+        },
+        "queryState": "970:0",
+        "canCalculateChanges": true,
+        "position": 0,
+        "total": 5,
+        "ids": [
+          "Me50047db33d1a801827d822f",
+          "M7d1add48c57f59cf48de109e",
+          "M5fe637ce5f1b20051aeddf57",
+          "M1eb8e72f9ad6a94c136d34c8",
+          "M402c3988a77bada2f4c5e194"
+        ],
+        "collapseThreads": false,
+        "accountId": "alice"
+      },
+      "c0"
+    ]
+  ],
+  "sessionState": "0"
+}

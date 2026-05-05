@@ -1,0 +1,17 @@
+{
+  "methodResponses": [
+    [
+      "EmailSubmission/get",
+      {
+        "state": "967",
+        "list": [],
+        "notFound": [
+          "S46"
+        ],
+        "accountId": "alice"
+      },
+      "c0"
+    ]
+  ],
+  "sessionState": "0"
+}

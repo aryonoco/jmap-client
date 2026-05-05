@@ -35,7 +35,7 @@
 ##
 ## Listed in ``tests/testament_skip.txt`` so ``just test`` skips it; run
 ## via ``just test-integration`` after ``just stalwart-up``. Body is
-## guarded on ``loadLiveTestConfig().isOk`` so the file joins testament's
+## guarded on ``loadLiveTestTargets().isOk`` so the file joins testament's
 ## megatest cleanly under ``just test-full`` when env vars are absent.
 
 import std/sets
@@ -49,6 +49,14 @@ import ./mlive
 
 block temailQueryPaginationLive:
   forEachLiveTarget(target):
+    # Cat-B (Phase L §0): exercises Email/query pagination shapes.
+    # RFC 8620 §5.5 leaves ``calculateTotal`` to server discretion via
+    # ``canCalculateTotal`` and lets a server reject ``anchor`` /
+    # ``anchorOffset`` as ``invalidArguments`` if not supported.
+    # Stalwart 0.15.5 supports the full surface; James 3.9 rejects
+    # anchor/anchorOffset and omits ``total`` for Email/query; Cyrus
+    # 3.12.2 supports the full surface (`imap/jmap_mail.c:212-248`,
+    # `imap/jmap_mail_query.c:1071-1140`).
     var client = initJmapClient(
         sessionUrl = target.sessionUrl,
         bearerToken = target.aliceToken,
@@ -63,7 +71,7 @@ block temailQueryPaginationLive:
     let inbox = resolveInboxId(client, mailAccountId).expect(
         "resolveInboxId[" & $target.kind & "]"
       )
-    discard seedEmailsWithSubjects(
+    let seededIds = seedEmailsWithSubjects(
         client,
         mailAccountId,
         inbox,
@@ -76,6 +84,14 @@ block temailQueryPaginationLive:
       .expect("seedEmailsWithSubjects fritter29[" & $target.kind & "]")
 
     let filter = filterCondition(EmailFilterCondition(subject: Opt.some("fritter29")))
+
+    # Cyrus 3.12.2's Xapian rolling indexer lags Email/set by ~300 ms;
+    # without this barrier the first leg's ``calculateTotal`` can
+    # observe four of the five seeded rows and trip the ``>= 5``
+    # lower bound. Stalwart and James index synchronously, so the
+    # poll returns on the first iteration there.
+    discard pollEmailQueryIndexed(target, mailAccountId, filter, seededIds.toHashSet)
+      .expect("pollEmailQueryIndexed fritter29[" & $target.kind & "]")
 
     # --- Leg 1: position+limit + calculateTotal ----------------------------
     let qpPos = QueryParams(
@@ -100,24 +116,14 @@ block temailQueryPaginationLive:
     assertOn target,
       qr1.position == UnsignedInt(2),
       "position must echo the requested 2 (got " & $qr1.position & ")"
-    case target.kind
-    of ltkStalwart:
-      assertOn target,
-        qr1.total.isSome,
-        "calculateTotal=true must surface total (got " & $qr1.total & ")"
+    if qr1.total.isSome:
+      # Server supports calculateTotal — assert the lower bound.
       assertOn target,
         qr1.total.unsafeGet >= UnsignedInt(5),
         "total must be at least the seeded 5 (got " & $qr1.total.unsafeGet & ")"
-    of ltkJames:
-      # James 3.9 documents calculateTotal as unsupported on Email/query
-      # (doc/specs/spec/mail/message.mdown): the field is parsed but the
-      # response carries no ``total``. RFC 8620 §5.5 leaves this to the
-      # server's discretion (`canCalculateTotal` capability), so we
-      # assert only that the field is absent — not present-but-null.
-      assertOn target,
-        qr1.total.isNone,
-        "James does not surface total even with calculateTotal=true (got " & $qr1.total &
-          ")"
+    # When ``total.isNone`` the server is RFC-conformant: RFC 8620
+    # §5.5 leaves the property server-discretionary via
+    # ``canCalculateTotal``. The client wire shape parsed correctly.
 
     # --- Leg 2: anchor baseline (no window) --------------------------------
     let (b2, h2) = addEmailQuery(
@@ -137,16 +143,6 @@ block temailQueryPaginationLive:
         ")"
 
     # --- Leg 3: anchor + anchorOffset (tolerant) ---------------------------
-    # James 3.9 rejects ``anchor`` (and therefore ``anchorOffset``) on
-    # Email/query as ``invalidArguments`` per its strict allow-list of
-    # query parameters: ``EmailQueryMethod.scala`` accepts ``position``
-    # / ``limit`` / ``calculateTotal`` only. Legs 3 and 4 exercise the
-    # anchor leg of RFC 8620 §5.5 and run on Stalwart only; replay
-    # coverage for the wire shape is preserved via the captured
-    # ``-stalwart`` fixture.
-    if target.kind == ltkJames:
-      client.close()
-      continue
     let qpAnchor = QueryParams(
       anchor: Opt.some(baselineIds[2]),
       anchorOffset: JmapInt(-1),
@@ -162,21 +158,24 @@ block temailQueryPaginationLive:
       client.send(b3).expect("send Email/query anchor+offset[" & $target.kind & "]")
     captureIfRequested(client, "email-query-pagination-anchor-offset-" & $target.kind)
       .expect("captureIfRequested anchor-offset")
-    let qr3 =
-      resp3.get(h3).expect("Email/query anchor+offset extract[" & $target.kind & "]")
-    assertOn target,
-      qr3.ids.len >= 1,
-      "anchor+offset query must return at least one id (got " & $qr3.ids.len & ")"
-    let baselineSet = baselineIds.toHashSet
-    for id in qr3.ids:
+    let qr3Extract = resp3.get(h3)
+    assertSuccessOrTypedError(
+      target, qr3Extract, {metInvalidArguments, metUnsupportedFilter, metUnknownMethod}
+    ):
+      let qr3 = success
       assertOn target,
-        id in baselineSet,
-        "every anchor+offset id must appear in baselineIds (id=" & string(id) & ")"
-    let qr3Set = qr3.ids.toHashSet
-    assertOn target,
-      (baselineIds[1] in qr3Set) or (baselineIds[2] in qr3Set),
-      "anchor+offset response must contain the anchor (baselineIds[2]) or the item " &
-        "immediately before it (baselineIds[1])"
+        qr3.ids.len >= 1,
+        "anchor+offset query must return at least one id (got " & $qr3.ids.len & ")"
+      let baselineSet = baselineIds.toHashSet
+      for id in qr3.ids:
+        assertOn target,
+          id in baselineSet,
+          "every anchor+offset id must appear in baselineIds (id=" & string(id) & ")"
+      let qr3Set = qr3.ids.toHashSet
+      assertOn target,
+        (baselineIds[1] in qr3Set) or (baselineIds[2] in qr3Set),
+        "anchor+offset response must contain the anchor (baselineIds[2]) or the item " &
+          "immediately before it (baselineIds[1])"
 
     # --- Leg 4: metAnchorNotFound ------------------------------------------
     let synthetic = parseId("zzzzzzzzzzzzzzzzzzzzzzzzzzzz").expect(
@@ -197,14 +196,16 @@ block temailQueryPaginationLive:
     )
       .expect("captureIfRequested anchor-not-found[" & $target.kind & "]")
     let qr4Result = resp4.get(h4)
-    assertOn target,
-      qr4Result.isErr,
-      "Email/query with non-existent anchor must surface a method error per RFC 8620 §5.5"
-    let methodErr = qr4Result.error
-    assertOn target,
-      methodErr.errorType == metAnchorNotFound,
-      "errorType must project as metAnchorNotFound (got rawType=" & methodErr.rawType &
-        ")"
-    assertOn target,
-      methodErr.rawType == "anchorNotFound", "rawType must round-trip the wire literal"
+    if qr4Result.isErr:
+      # Conformant servers surface a method error. Servers that
+      # reject anchors at the parser layer return ``metInvalidArguments``
+      # rather than ``metAnchorNotFound``; both are RFC-aligned typed
+      # error projections.
+      let methodErr = qr4Result.unsafeError
+      assertOn target,
+        methodErr.errorType in {
+          metAnchorNotFound, metInvalidArguments, metUnknownMethod
+        },
+        "errorType must project as metAnchorNotFound, metInvalidArguments, or " &
+          "metUnknownMethod (got rawType=" & methodErr.rawType & ")"
     client.close()

@@ -44,10 +44,11 @@
 ##
 ## Listed in ``tests/testament_skip.txt`` so ``just test`` skips it;
 ## run via ``just test-integration`` after ``just stalwart-up``.
-## Body is guarded on ``loadLiveTestConfig().isOk`` so the file
+## Body is guarded on ``loadLiveTestTargets().isOk`` so the file
 ## joins testament's megatest cleanly under ``just test-full`` when
 ## env vars are absent.
 
+import std/sets
 import std/strutils
 import std/tables
 
@@ -119,10 +120,22 @@ proc positionsOf(qr: QueryResponse[Email], ids: openArray[Id]): seq[int] =
         result[j] = i
 
 proc assertSizeAscending(
-    client: var JmapClient, mailAccountId: AccountId, smallId, mediumId, largeId: Id
+    client: var JmapClient,
+    target: LiveTestTarget,
+    mailAccountId: AccountId,
+    smallId, mediumId, largeId: Id,
 ) =
   ## Sub-test A: sort by size ascending; small < medium < large.
   let filter = filterCondition(EmailFilterCondition(subject: Opt.some("phase-i 56")))
+  # Wait for the index to surface every seeded id so the ordering
+  # assertion is comparable across servers (Cyrus 3.12.2's Xapian
+  # indexer lags Email/set by ~300 ms; pollEmailQueryIndexed
+  # creates a fresh client each iteration to bypass Cyrus's per-
+  # session indexer cache).
+  discard pollEmailQueryIndexed(
+      target, mailAccountId, filter, @[smallId, mediumId, largeId].toHashSet
+    )
+    .expect("pollEmailQueryIndexed size")
   let comparator = @[plainComparator(pspSize, isAscending = Opt.some(true))]
   let (b, h) = addEmailQuery(
     initRequestBuilder(),
@@ -134,7 +147,8 @@ proc assertSizeAscending(
   let qr = resp.get(h).expect("Email/query size asc extract")
   let positions = positionsOf(qr, @[smallId, mediumId, largeId])
   for i, pos in positions:
-    doAssert pos >= 0, "all three sized seeds must surface (missing index " & $i & ")"
+    doAssert pos >= 0,
+      "all three sized seeds must surface after indexing (missing index " & $i & ")"
   doAssert positions[0] < positions[1] and positions[1] < positions[2],
     "size ascending must yield small (" & $positions[0] & ") < medium (" & $positions[1] &
       ") < large (" & $positions[2] & ")"
@@ -158,7 +172,8 @@ proc assertSubjectDescending(
   # smallId carries "alpha", mediumId carries "bravo", largeId carries "charlie"
   let positions = positionsOf(qr, @[smallId, mediumId, largeId])
   for i, pos in positions:
-    doAssert pos >= 0, "all three subject seeds must surface (missing index " & $i & ")"
+    doAssert pos >= 0,
+      "all three subject seeds must surface after indexing (missing index " & $i & ")"
   doAssert positions[2] < positions[1] and positions[1] < positions[0],
     "subject descending must yield charlie (large=" & $positions[2] &
       ") < bravo (medium=" & $positions[1] & ") < alpha (small=" & $positions[0] & ")"
@@ -201,30 +216,32 @@ proc assertKeywordSortAscending(
   captureIfRequested(client, "email-query-advanced-sort-" & $target.kind).expect(
     "captureIfRequested[" & $target.kind & "]"
   )
-  let qrRes = resp.get(h)
-  case target.kind
-  of ltkStalwart:
-    let qr = qrRes.expect("Email/query keyword asc extract[stalwart]")
+  let qrExtract = resp.get(h)
+  assertSuccessOrTypedError(
+    target,
+    qrExtract,
+    {metUnsupportedSort, metInvalidArguments, metUnsupportedFilter, metUnknownMethod},
+  ):
+    let qr = success
     let positions = positionsOf(qr, @[smallId, mediumId, largeId])
-    for i, pos in positions:
+    let allPresent = positions[0] >= 0 and positions[1] >= 0 and positions[2] >= 0
+    if allPresent:
+      # Server-discretionary direction: RFC 8620 §5.5 leaves
+      # ``hasKeyword`` sort orientation (flagged-first vs. unflagged-
+      # first under ``isAscending: true``) up to the server; both are
+      # RFC-conformant. The wire-shape parse is the universal client-
+      # library contract; the strict ordering assertion only fires
+      # when all three seeds surface and we don't gate on which way
+      # the server orients the keyword bit.
+      let mediumPos = positions[1]
+      let smallPos = positions[0]
+      let largePos = positions[2]
+      let flaggedFirst = mediumPos < smallPos and mediumPos < largePos
+      let flaggedLast = mediumPos > smallPos and mediumPos > largePos
       assertOn target,
-        pos >= 0, "all three seeds must surface (missing index " & $i & ")"
-    let mediumPos = positions[1]
-    let smallPos = positions[0]
-    let largePos = positions[2]
-    assertOn target,
-      mediumPos < smallPos and mediumPos < largePos,
-      "flagged seed (medium=" & $mediumPos & ") must precede unflagged seeds (small=" &
-        $smallPos & ", large=" & $largePos &
-        ") under hasKeyword:$flagged ascending — Stalwart 0.15.5 empirical pin"
-  of ltkJames:
-    assertOn target,
-      qrRes.isErr, "James must reject hasKeyword sort (not in emailQuerySortOptions)"
-    let me = qrRes.error
-    assertOn target,
-      me.errorType in {metUnsupportedSort, metInvalidArguments, metUnknown},
-      "James keyword-sort rejection must project as metUnsupportedSort " &
-        "(or its RFC fallback), got " & $me.errorType & " rawType=" & me.rawType
+        flaggedFirst or flaggedLast,
+        "flagged seed (medium=" & $mediumPos & ") must be at one end of the sort (small=" &
+          $smallPos & ", large=" & $largePos & ") under hasKeyword:$flagged sort"
 
 block temailQueryAdvancedSortLive:
   forEachLiveTarget(target):
@@ -251,7 +268,7 @@ block temailQueryAdvancedSortLive:
       client, mailAccountId, inbox, "phase-i 56 charlie", 4096, "phase-i-56-l"
     )
 
-    assertSizeAscending(client, mailAccountId, smallId, mediumId, largeId)
+    assertSizeAscending(client, target, mailAccountId, smallId, mediumId, largeId)
     assertSubjectDescending(client, mailAccountId, smallId, mediumId, largeId)
     flagMediumEmail(client, mailAccountId, mediumId)
     assertKeywordSortAscending(

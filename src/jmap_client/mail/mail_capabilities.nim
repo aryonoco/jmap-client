@@ -39,7 +39,11 @@ type MailCapabilities* {.ruleOff: "objects".} = object
   ## (RFC 8621 section 2).
   maxMailboxesPerEmail*: Opt[UnsignedInt] ## Null means no limit; >= 1 when present.
   maxMailboxDepth*: Opt[UnsignedInt] ## Null means no limit.
-  maxSizeMailboxName*: UnsignedInt ## Octets; >= 100 per RFC.
+  maxSizeMailboxName*: Opt[UnsignedInt]
+    ## Octets; >= 100 when present per RFC 8621 §1.3.1. Optional —
+    ## informational hint, not MUST. Cyrus 3.12.2 omits this field
+    ## (`imap/jmap_mail.c:340-347`); the Postel-receive parser surfaces
+    ## absence as ``Opt.none`` rather than synthesising a default.
   maxSizeAttachmentsPerEmail*: UnsignedInt ## Octets.
   emailQuerySortOptions*: HashSet[string] ## Supported sort properties.
   mayCreateTopLevelMailbox*: bool ## Whether the client may create top-level mailboxes.

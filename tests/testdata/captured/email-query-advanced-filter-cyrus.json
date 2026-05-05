@@ -1,0 +1,22 @@
+{
+  "methodResponses": [
+    [
+      "Email/query",
+      {
+        "filter": {
+          "before": "2099-01-01T00:00:00Z",
+          "hasAttachment": true
+        },
+        "queryState": "84:0",
+        "canCalculateChanges": false,
+        "position": 0,
+        "total": 0,
+        "ids": [],
+        "collapseThreads": false,
+        "accountId": "alice"
+      },
+      "c0"
+    ]
+  ],
+  "sessionState": "0"
+}

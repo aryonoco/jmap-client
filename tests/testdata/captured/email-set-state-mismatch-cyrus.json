@@ -1,0 +1,12 @@
+{
+  "methodResponses": [
+    [
+      "error",
+      {
+        "type": "stateMismatch"
+      },
+      "c0"
+    ]
+  ],
+  "sessionState": "0"
+}

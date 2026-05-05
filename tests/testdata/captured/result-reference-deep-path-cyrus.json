@@ -1,0 +1,110 @@
+{
+  "methodResponses": [
+    [
+      "Email/query",
+      {
+        "filter": {
+          "subject": "phasej67refdeep"
+        },
+        "queryState": "1005:0",
+        "canCalculateChanges": true,
+        "position": 0,
+        "total": 6,
+        "ids": [
+          "Md9215b6e8446fc7dd28460d2",
+          "M83be988d5b1e6e14c0ee20c8",
+          "M4f1469aa7bad39ff8f03bb0d",
+          "M952a528da5f98e6b79ba774e",
+          "M107f5652c0211d78a88d1e3f",
+          "M0a5ff10496cba20023e6d812"
+        ],
+        "collapseThreads": false,
+        "accountId": "alice"
+      },
+      "c0"
+    ],
+    [
+      "Email/get",
+      {
+        "state": "1005",
+        "list": [
+          {
+            "id": "Md9215b6e8446fc7dd28460d2",
+            "threadId": "T48d2828f8f2ff76f"
+          },
+          {
+            "id": "M83be988d5b1e6e14c0ee20c8",
+            "threadId": "T124d416c50776506"
+          },
+          {
+            "id": "M4f1469aa7bad39ff8f03bb0d",
+            "threadId": "Tdee7b04b70c432ed"
+          },
+          {
+            "id": "M952a528da5f98e6b79ba774e",
+            "threadId": "T04d98b6cae908579"
+          },
+          {
+            "id": "M107f5652c0211d78a88d1e3f",
+            "threadId": "T818c8fb3cb48166a"
+          },
+          {
+            "id": "M0a5ff10496cba20023e6d812",
+            "threadId": "T9bac28e59da2a912"
+          }
+        ],
+        "notFound": [],
+        "accountId": "alice"
+      },
+      "c1"
+    ],
+    [
+      "Thread/get",
+      {
+        "state": "1005",
+        "list": [
+          {
+            "id": "T48d2828f8f2ff76f",
+            "emailIds": [
+              "Md9215b6e8446fc7dd28460d2"
+            ]
+          },
+          {
+            "id": "T124d416c50776506",
+            "emailIds": [
+              "M83be988d5b1e6e14c0ee20c8"
+            ]
+          },
+          {
+            "id": "Tdee7b04b70c432ed",
+            "emailIds": [
+              "M4f1469aa7bad39ff8f03bb0d"
+            ]
+          },
+          {
+            "id": "T04d98b6cae908579",
+            "emailIds": [
+              "M952a528da5f98e6b79ba774e"
+            ]
+          },
+          {
+            "id": "T818c8fb3cb48166a",
+            "emailIds": [
+              "M107f5652c0211d78a88d1e3f"
+            ]
+          },
+          {
+            "id": "T9bac28e59da2a912",
+            "emailIds": [
+              "M0a5ff10496cba20023e6d812"
+            ]
+          }
+        ],
+        "notFound": [],
+        "accountId": "alice"
+      },
+      "c2"
+    ]
+  ],
+  "sessionState": "0"
+}

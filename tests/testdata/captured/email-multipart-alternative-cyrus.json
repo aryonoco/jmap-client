@@ -1,0 +1,59 @@
+{
+  "methodResponses": [
+    [
+      "Email/get",
+      {
+        "state": "903",
+        "list": [
+          {
+            "id": "Me59b9220c84ff3fbc4661d70",
+            "bodyValues": {
+              "1": {
+                "value": "phase-d step-20 plain part",
+                "isEncodingProblem": false,
+                "isTruncated": false
+              },
+              "2": {
+                "value": "<html><body><p>phase-d step-20 <b>html</b> part</p></body></html>",
+                "isEncodingProblem": false,
+                "isTruncated": false
+              }
+            },
+            "textBody": [
+              {
+                "partId": "1",
+                "blobId": "G91d72a2e4cb293972580177c3e05b52dc9912ef4",
+                "size": 26,
+                "name": null,
+                "type": "text/plain",
+                "charset": "us-ascii",
+                "disposition": null,
+                "cid": null,
+                "language": null,
+                "location": null
+              }
+            ],
+            "htmlBody": [
+              {
+                "partId": "2",
+                "blobId": "Gc58d3065c10dea07a41ca2f61a2193128e97d7b3",
+                "size": 65,
+                "name": null,
+                "type": "text/html",
+                "charset": "us-ascii",
+                "disposition": null,
+                "cid": null,
+                "language": null,
+                "location": null
+              }
+            ]
+          }
+        ],
+        "notFound": [],
+        "accountId": "alice"
+      },
+      "c0"
+    ]
+  ],
+  "sessionState": "0"
+}

@@ -27,7 +27,7 @@
 ##
 ## Listed in ``tests/testament_skip.txt`` so ``just test`` skips it; run
 ## via ``just test-integration`` after ``just stalwart-up``. Body is
-## guarded on ``loadLiveTestConfig().isOk`` so the file joins testament's
+## guarded on ``loadLiveTestTargets().isOk`` so the file joins testament's
 ## megatest cleanly under ``just test-full`` when env vars are absent.
 
 import std/algorithm
@@ -83,6 +83,13 @@ block temailQuerySortLive:
       filter = Opt.some(filter),
       sort = Opt.some(ascSort),
     )
+    # Wait for the full-text index to surface every seeded id so the
+    # ordering assertion is comparable across servers (Cyrus 3.12.2's
+    # Xapian indexer lags Email/set by ~300 ms; Stalwart/James are
+    # synchronous).
+    discard pollEmailQueryIndexed(target, mailAccountId, filter, corpus).expect(
+        "pollEmailQueryIndexed asc[" & $target.kind & "]"
+      )
     let respA = client.send(ba).expect("send Email/query asc[" & $target.kind & "]")
     let ascResp =
       respA.get(ascHandle).expect("Email/query asc extract[" & $target.kind & "]")
@@ -92,7 +99,8 @@ block temailQuerySortLive:
         ascSeeded.add(id)
     assertOn target,
       ascSeeded.len == 3,
-      "ascending sort must surface all three seeded ids; got " & $ascSeeded.len
+      "ascending sort must surface all three seeded ids after indexing; got " &
+        $ascSeeded.len
     assertOn target,
       ascSeeded == @[alphaId, mikeId, zuluId],
       "ascending pspSubject must order alpha → mike → zulu (got order " & $ascSeeded &

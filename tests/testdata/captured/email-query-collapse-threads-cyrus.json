@@ -1,0 +1,33 @@
+{
+  "methodResponses": [
+    [
+      "Email/query",
+      {
+        "filter": {
+          "subject": "phase-i 57"
+        },
+        "queryState": "927:0",
+        "canCalculateChanges": true,
+        "position": 0,
+        "total": 11,
+        "ids": [
+          "M4f013bbcf06fbd3b709a27a2",
+          "M4e8a4cf2fd2b5d36a4335cc9",
+          "M40c8143e973d9ed07b7a0793",
+          "M1ec87c7f5aa298c2d62b0a92",
+          "M1d64ef8b1c972a3a8b4d3d3b",
+          "M1298e0ab6480b136a2d30f06",
+          "M5e53000d784285aa19a97c30",
+          "Mf5a935d69499060bde7a8e1f",
+          "Mda365747ad4da023176e45f7",
+          "Mbe0afb60f110bb5472f468ee",
+          "Mf49413a32564a28bf6f316af"
+        ],
+        "collapseThreads": true,
+        "accountId": "alice"
+      },
+      "c0"
+    ]
+  ],
+  "sessionState": "0"
+}

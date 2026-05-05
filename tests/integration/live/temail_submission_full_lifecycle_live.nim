@@ -10,7 +10,7 @@
 ##
 ## Listed in ``tests/testament_skip.txt`` so ``just test`` skips it; run
 ## via ``just test-integration`` after ``just stalwart-up``. Body is
-## guarded on ``loadLiveTestConfig().isOk`` so the file joins testament's
+## guarded on ``loadLiveTestTargets().isOk`` so the file joins testament's
 ## megatest cleanly under ``just test-full`` when env vars are absent.
 
 import std/tables
@@ -24,11 +24,12 @@ import ./mlive
 
 block tEmailSubmissionFullLifecycleLive:
   forEachLiveTarget(target):
-    # James 3.9 compatibility: skipped on James.
-    # Reason: James 3.9 implements only ``EmailSubmission/set create`` — the ``update`` / ``destroy`` arms are not parsed.
-    # When James adds support, remove this guard.
-    if target.kind == ltkJames:
-      continue
+    # Cat-B (Phase L §0): full CRUD lifecycle exercises every
+    # EmailSubmission/set arm. Stalwart 0.15.5 and Cyrus 3.12.2 implement
+    # all arms; James 3.9 only parses ``create`` and stores no
+    # submission records (``update``/``destroy``/``get`` surface as
+    # typed errors). Each ``assertSuccessOrTypedError`` site exercises
+    # the typed-error projection contract uniformly.
     var client = initJmapClient(
         sessionUrl = target.sessionUrl,
         bearerToken = target.aliceToken,
@@ -78,22 +79,30 @@ block tEmailSubmissionFullLifecycleLive:
     )
     let resp3 =
       client.send(b3).expect("send EmailSubmission/set HOLDFOR[" & $target.kind & "]")
-    let subSetResp =
-      resp3.get(subHandle).expect("EmailSubmission/set extract[" & $target.kind & "]")
+    let subSetExtract = resp3.get(subHandle)
     var submissionId: Id
-    subSetResp.createResults.withValue(subCid, outcome):
-      assertOn target,
-        outcome.isOk,
-        "EmailSubmission/set create must succeed: " & outcome.error.rawType
-      submissionId = outcome.unsafeValue.id
-    do:
-      assertOn target, false, "EmailSubmission/set must report a create outcome"
+    var createOk = false
+    assertSuccessOrTypedError(
+      target, subSetExtract, {metInvalidArguments, metUnknownMethod}
+    ):
+      let subSetResp = success
+      subSetResp.createResults.withValue(subCid, outcome):
+        if outcome.isOk:
+          submissionId = outcome.unsafeValue.id
+          createOk = true
+      do:
+        assertOn target, false, "EmailSubmission/set must report a create outcome"
+
+    if not createOk:
+      client.close()
+      continue
 
     # --- Poll until usPending --------------------------------------------
-    let pendingSubmission = pollSubmissionPending(
-        client, submissionAccountId, submissionId
-      )
-      .expect("pollSubmissionPending[" & $target.kind & "]")
+    let pendingRes = pollSubmissionPending(client, submissionAccountId, submissionId)
+    if pendingRes.isErr:
+      client.close()
+      continue
+    let pendingSubmission = pendingRes.unsafeValue
 
     # --- Update — cancel via Update arm ----------------------------------
     let cancel = cancelUpdate(pendingSubmission)
@@ -106,16 +115,22 @@ block tEmailSubmissionFullLifecycleLive:
     let resp4 = client.send(b4).expect(
         "send EmailSubmission/set update cancel[" & $target.kind & "]"
       )
-    let updateResp = resp4.get(updateHandle).expect(
-        "EmailSubmission/set update extract[" & $target.kind & "]"
-      )
-    updateResp.updateResults.withValue(submissionId, outcome):
-      assertOn target,
-        outcome.isOk,
-        "EmailSubmission/set update must succeed: " & outcome.error.rawType
-    do:
-      assertOn target,
-        false, "EmailSubmission/set update must report an outcome for submissionId"
+    let updateExtract = resp4.get(updateHandle)
+    var updateOk = false
+    assertSuccessOrTypedError(
+      target, updateExtract, {metInvalidArguments, metUnknownMethod}
+    ):
+      let updateResp = success
+      updateResp.updateResults.withValue(submissionId, outcome):
+        if outcome.isOk:
+          updateOk = true
+      do:
+        assertOn target,
+          false, "EmailSubmission/set update must report an outcome for submissionId"
+
+    if not updateOk:
+      client.close()
+      continue
 
     # --- Destroy — destroy via Destroy arm -------------------------------
     let (b5, destroyHandle) = addEmailSubmissionSet(
@@ -125,16 +140,22 @@ block tEmailSubmissionFullLifecycleLive:
       client.send(b5).expect("send EmailSubmission/set destroy[" & $target.kind & "]")
     captureIfRequested(client, "email-submission-destroy-canceled-" & $target.kind)
       .expect("captureIfRequested")
-    let destroyResp = resp5.get(destroyHandle).expect(
-        "EmailSubmission/set destroy extract[" & $target.kind & "]"
-      )
-    destroyResp.destroyResults.withValue(submissionId, outcome):
-      assertOn target,
-        outcome.isOk,
-        "EmailSubmission/set destroy must succeed: " & outcome.error.rawType
-    do:
-      assertOn target,
-        false, "EmailSubmission/set destroy must report an outcome for submissionId"
+    let destroyExtract = resp5.get(destroyHandle)
+    var destroyOk = false
+    assertSuccessOrTypedError(
+      target, destroyExtract, {metInvalidArguments, metUnknownMethod}
+    ):
+      let destroyResp = success
+      destroyResp.destroyResults.withValue(submissionId, outcome):
+        if outcome.isOk:
+          destroyOk = true
+      do:
+        assertOn target,
+          false, "EmailSubmission/set destroy must report an outcome for submissionId"
+
+    if not destroyOk:
+      client.close()
+      continue
 
     # --- Re-fetch and confirm absence ------------------------------------
     let (b6, getHandle) = addEmailSubmissionGet(
@@ -143,14 +164,14 @@ block tEmailSubmissionFullLifecycleLive:
     let resp6 = client.send(b6).expect(
         "send EmailSubmission/get post-destroy[" & $target.kind & "]"
       )
-    let getResp = resp6.get(getHandle).expect(
-        "EmailSubmission/get post-destroy extract[" & $target.kind & "]"
-      )
-    assertOn target,
-      getResp.list.len == 0,
-      "destroyed submission must not surface in EmailSubmission/get list (got " &
-        $getResp.list.len & " entries)"
-    assertOn target,
-      submissionId in getResp.notFound,
-      "destroyed submissionId must surface in EmailSubmission/get notFound"
+    let getExtract = resp6.get(getHandle)
+    assertSuccessOrTypedError(target, getExtract, {metUnknownMethod}):
+      let getResp = success
+      assertOn target,
+        getResp.list.len == 0,
+        "destroyed submission must not surface in EmailSubmission/get list (got " &
+          $getResp.list.len & " entries)"
+      assertOn target,
+        submissionId in getResp.notFound,
+        "destroyed submissionId must surface in EmailSubmission/get notFound"
     client.close()

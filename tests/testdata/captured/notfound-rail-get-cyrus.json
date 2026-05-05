@@ -1,0 +1,84 @@
+{
+  "methodResponses": [
+    [
+      "Email/get",
+      {
+        "state": "991",
+        "list": [
+          {
+            "id": "M1b301f4e7fa338000077de1a",
+            "blobId": "G1b301f4e7fa338000077de1ae49b41aa84055c9c",
+            "threadId": "T8ac3c6af74ca3312",
+            "mailboxIds": {
+              "39BEB498-4843-11F1-83DD-CDCAAF3DE503": true
+            },
+            "keywords": {},
+            "size": 310,
+            "receivedAt": "2026-05-05T11:18:47Z",
+            "references": null,
+            "sender": null,
+            "replyTo": null,
+            "messageId": [
+              "18ae1d02-044f-401f-aab0-65802c427327@cyrus-docker-test-server"
+            ],
+            "inReplyTo": null,
+            "from": [
+              {
+                "name": "Alice",
+                "email": "alice@example.com"
+              }
+            ],
+            "to": [
+              {
+                "name": "Alice",
+                "email": "alice@example.com"
+              }
+            ],
+            "cc": null,
+            "bcc": null,
+            "subject": "phase-j 66 notFound",
+            "sentAt": "2026-05-05T11:18:47Z",
+            "bodyValues": {},
+            "textBody": [
+              {
+                "partId": "1",
+                "blobId": "G0a175dbf3bb4bc1327ba379b24a1eafa65036b65",
+                "size": 20,
+                "name": null,
+                "type": "text/plain",
+                "charset": "us-ascii",
+                "disposition": null,
+                "cid": null,
+                "language": null,
+                "location": null
+              }
+            ],
+            "htmlBody": [
+              {
+                "partId": "1",
+                "blobId": "G0a175dbf3bb4bc1327ba379b24a1eafa65036b65",
+                "size": 20,
+                "name": null,
+                "type": "text/plain",
+                "charset": "us-ascii",
+                "disposition": null,
+                "cid": null,
+                "language": null,
+                "location": null
+              }
+            ],
+            "attachments": [],
+            "hasAttachment": false,
+            "preview": ""
+          }
+        ],
+        "notFound": [
+          "zzzzzz"
+        ],
+        "accountId": "alice"
+      },
+      "c0"
+    ]
+  ],
+  "sessionState": "0"
+}

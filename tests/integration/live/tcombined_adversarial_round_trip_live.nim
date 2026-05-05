@@ -16,6 +16,7 @@
 ##   c4: legitimate Identity/get     → success
 
 import std/json
+import std/sets
 import std/tables
 
 import results
@@ -50,6 +51,19 @@ block tcombinedAdversarialRoundTripLive:
         "phase-j-74-seed",
       )
       .expect("seedSimpleEmail[" & $target.kind & "]")
+
+    # Wait for the server's full-text index to surface the seeded
+    # email under the same filter the envelope's c1 uses. Cyrus
+    # 3.12.2's Xapian rolling indexer settles asynchronously after
+    # Email/set; without this barrier the c1 sub-test sees an empty
+    # result-set even though the seed succeeded. Stalwart and James
+    # index synchronously and the poll returns on the first
+    # iteration. ``pollEmailQueryIndexed`` opens a fresh client per
+    # iteration to bypass Cyrus's per-session index cache.
+    let preFilter =
+      filterCondition(EmailFilterCondition(subject: Opt.some("phase-j-74-corpus")))
+    discard pollEmailQueryIndexed(target, mailAccountId, preFilter, [seedId].toHashSet)
+      .expect("pollEmailQueryIndexed[" & $target.kind & "]")
 
     # Construct the five-invocation envelope.
     let body = %*{

@@ -1,0 +1,27 @@
+{
+  "methodResponses": [
+    [
+      "Email/set",
+      {
+        "oldState": "1011",
+        "newState": "1011",
+        "created": null,
+        "updated": null,
+        "destroyed": null,
+        "notCreated": null,
+        "notUpdated": {
+          "M4407118a535675f0386056a2": {
+            "type": "invalidProperties",
+            "properties": [
+              "phaseJSyntheticProperty"
+            ]
+          }
+        },
+        "notDestroyed": null,
+        "accountId": "alice"
+      },
+      "c0"
+    ]
+  ],
+  "sessionState": "0"
+}

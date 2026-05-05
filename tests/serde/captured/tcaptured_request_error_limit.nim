@@ -25,8 +25,22 @@ block tcapturedRequestErrorLimit:
       "errorType must match parseRequestErrorType(rawType); got " & $re.errorType
     doAssert re.errorType == parseRequestErrorType(re.rawType),
       "errorType / rawType must be derived consistently"
-    doAssert re.status.isSome and re.status.unsafeGet == 400,
-      "Stalwart pins the HTTP status field to 400"
-    doAssert re.detail.isSome, "Stalwart populates the RFC 7807 detail field"
+    # RFC 7807 §3.1 mandates ``status`` reflects the HTTP status, but
+    # the specific 4xx code is server-discretionary. Stalwart and James
+    # use 400 (Bad Request); Cyrus uses 413 (Payload Too Large). Both
+    # are RFC-conformant; the universal client-library contract is
+    # ``status`` projects to ``Opt.some`` of a 4xx integer.
+    doAssert re.status.isSome,
+      "RFC 7807 §3.1 mandates a status field on the problem-details shape"
+    let statusCode = re.status.unsafeGet
+    doAssert statusCode >= 400 and statusCode < 500,
+      "request-level limit rejection must surface as a 4xx HTTP status; got " &
+        $statusCode
+    # ``detail`` is RFC 7807 §3.1 optional. Stalwart, James, and Cyrus
+    # all populate it for this rejection, but the universal contract
+    # is non-empty when present.
+    for d in re.detail:
+      doAssert d.len > 0,
+        "when detail is provided, it must be a non-empty human-readable string"
     doAssert re.limit.isSome and re.limit.unsafeGet == "maxSizeRequest",
-      "Stalwart names the breached limit per RFC 8620 §3.6.1; got " & $re.limit
+      "RFC 8620 §3.6.1 mandates the breached limit name; got " & $re.limit

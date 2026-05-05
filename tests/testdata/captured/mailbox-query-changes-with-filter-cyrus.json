@@ -1,0 +1,21 @@
+{
+  "methodResponses": [
+    [
+      "Mailbox/queryChanges",
+      {
+        "filter": {
+          "name": "phase-i 49"
+        },
+        "oldQueryState": "526",
+        "newQueryState": "526",
+        "upToId": null,
+        "removed": [],
+        "added": [],
+        "total": 0,
+        "accountId": "alice"
+      },
+      "c0"
+    ]
+  ],
+  "sessionState": "0"
+}

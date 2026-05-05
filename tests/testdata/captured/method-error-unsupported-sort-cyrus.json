@@ -1,0 +1,15 @@
+{
+  "methodResponses": [
+    [
+      "error",
+      {
+        "type": "unsupportedSort",
+        "sort": [
+          "sort[0]"
+        ]
+      },
+      "c0"
+    ]
+  ],
+  "sessionState": "0"
+}

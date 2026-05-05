@@ -1,0 +1,22 @@
+{
+  "methodResponses": [
+    [
+      "Email/queryChanges",
+      {
+        "filter": {
+          "subject": "phase-i 51 alpha"
+        },
+        "oldQueryState": "920:0",
+        "newQueryState": "920:0",
+        "upToId": null,
+        "removed": [],
+        "added": [],
+        "total": 8,
+        "collapseThreads": false,
+        "accountId": "alice"
+      },
+      "c0"
+    ]
+  ],
+  "sessionState": "0"
+}

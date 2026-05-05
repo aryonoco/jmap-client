@@ -27,11 +27,15 @@ import ./mlive
 
 block temailSubmissionFilterCompletenessLive:
   forEachLiveTarget(target):
-    # James 3.9 compatibility: skipped on James.
-    # Reason: James 3.9 does not implement EmailSubmission/query — the ``EmailSubmissionFilterCondition`` surface is unobservable.
-    # When James adds support, remove this guard.
-    if target.kind == ltkJames:
-      continue
+    # Cat-B (Phase L §0): exercises every EmailSubmissionFilterCondition
+    # variant and EmailSubmissionComparator arm. Stalwart 0.15.5 and
+    # Cyrus 3.12.2 implement EmailSubmission/{set,get,query}; James 3.9
+    # stores no submission records, so the entire surface (including
+    # the seedSubmissionCorpus helper that depends on /get for
+    # pollSubmissionDelivery) returns typed errors. The corpus-seed and
+    # each ``EmailSubmission/query`` extract use Cat-B Result-branching;
+    # dependent steps skip when an upstream extract surfaces a typed
+    # error.
     var client = initJmapClient(
         sessionUrl = target.sessionUrl,
         bearerToken = target.aliceToken,
@@ -55,18 +59,34 @@ block temailSubmissionFilterCompletenessLive:
     let bobAddr = parseEmailAddress("bob@example.com", Opt.some("Bob")).expect(
         "parseEmailAddress[" & $target.kind & "]"
       )
-    let submissionIds = seedSubmissionCorpus(
-        client,
-        mailAccountId,
-        submissionAccountId,
-        drafts,
-        aliceAddr,
-        identities = @[primaryId, primaryId],
-        recipients = @[bobAddr],
-        subjects = @["phase-j 71 corpus a", "phase-j 71 corpus b"],
-        creationLabelPrefix = "phase-j-71",
+    # HOLDFOR=300: the test inspects each submission via ``/get`` to
+    # extract emailId and threadId for the filter sub-tests below.
+    # Cyrus 3.12.2's fire-and-forget submissions evict on ``final``,
+    # so without HOLDFOR the /get would return notFound. Pending
+    # submissions are retained on every configured target. Cleanup
+    # at the end of the test cancels and destroys both submissions.
+    let holdSeconds = parseHoldForSeconds(UnsignedInt(300)).expect(
+        "parseHoldForSeconds[" & $target.kind & "]"
       )
-      .expect("seedSubmissionCorpus[" & $target.kind & "]")
+    let submissionIdsRes = seedSubmissionCorpus(
+      client,
+      mailAccountId,
+      submissionAccountId,
+      drafts,
+      aliceAddr,
+      identities = @[primaryId, primaryId],
+      recipients = @[bobAddr],
+      subjects = @["phase-j 71 corpus a", "phase-j 71 corpus b"],
+      creationLabelPrefix = "phase-j-71",
+      holdForSeconds = Opt.some(holdSeconds),
+    )
+    if submissionIdsRes.isErr:
+      # Cat-B error arm — the helper's typed-error projection has fired
+      # inside ``seedSubmissionCorpus`` (server lacks the EmailSubmission
+      # surface). Skip the dependent filter sub-tests.
+      client.close()
+      continue
+    let submissionIds = submissionIdsRes.unsafeValue
     assertOn target, submissionIds.len == 2
 
     # Look up one submission's threadId / emailId for the
@@ -84,11 +104,15 @@ block temailSubmissionFilterCompletenessLive:
     let anySub = AnyEmailSubmission.fromJson(getSub.list[0]).expect(
         "AnyEmailSubmission.fromJson[" & $target.kind & "]"
       )
-    let firstFinal = anySub.asFinal()
+    # The HOLDFOR=300 seed retains the submission as ``pending`` so
+    # every server's ``/get`` returns the record. The submission's
+    # emailId field is on every state-variant.
+    let firstPending = anySub.asPending()
     assertOn target,
-      firstFinal.isSome,
-      "corpus submission must have settled to usFinal before filter tests"
-    let firstEmailId = firstFinal.unsafeGet.emailId
+      firstPending.isSome,
+      "corpus submission with HOLDFOR=300 must surface as pending (got state " &
+        $anySub.state & ")"
+    let firstEmailId = firstPending.unsafeGet.emailId
     # threadId is on Email, not EmailSubmission directly; fetch it.
     let (bEmail, emailHandle) =
       addEmailGet(initRequestBuilder(), mailAccountId, ids = directIds(@[firstEmailId]))
@@ -211,4 +235,11 @@ block temailSubmissionFilterCompletenessLive:
         .expect("captureIfRequested filter completeness")
       discard resp.get(qHandle).expect("sort threadId extract[" & $target.kind & "]")
 
+    # Cleanup: destroy the HOLDFOR-pended submissions so they never
+    # deliver to bob's inbox.
+    let (bDestroy, destroyHandle) = addEmailSubmissionSet(
+      initRequestBuilder(), submissionAccountId, destroy = directIds(submissionIds)
+    )
+    discard client.send(bDestroy)
+    discard destroyHandle
     client.close()

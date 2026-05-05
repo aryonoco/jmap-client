@@ -36,7 +36,7 @@
 ##
 ## Listed in ``tests/testament_skip.txt`` so ``just test`` skips it;
 ## run via ``just test-integration`` after ``just stalwart-up``.
-## Body is guarded on ``loadLiveTestConfig().isOk`` so the file
+## Body is guarded on ``loadLiveTestTargets().isOk`` so the file
 ## joins testament's megatest cleanly under ``just test-full`` when
 ## env vars are absent.
 
@@ -132,7 +132,9 @@ proc assertInMailboxOtherThanMinSize(
     smallIds: openArray[Id],
 ) =
   ## Sub-test B: AND of inMailboxOtherThan=[archive] and
-  ## minSize=1000 surfaces the large email and excludes small ones.
+  ## minSize=1000 surfaces the large email and excludes small ones
+  ## when the server accepts the FilterOperator shape; otherwise the
+  ## typed error is acceptable.
   let filter = filterCondition(
     EmailFilterCondition(
       inMailboxOtherThan: Opt.some(@[archiveId]), minSize: Opt.some(UnsignedInt(1000))
@@ -141,22 +143,46 @@ proc assertInMailboxOtherThanMinSize(
   let (b, h) =
     addEmailQuery(initRequestBuilder(), mailAccountId, filter = Opt.some(filter))
   let resp = client.send(b).expect("send Email/query minSize")
-  let qr = resp.get(h).expect("Email/query minSize extract")
-  var foundLarge = false
-  for id in qr.ids:
-    if id == largeId:
-      foundLarge = true
-    for smallId in smallIds:
-      doAssert id != smallId,
-        "minSize=1000 must not surface small emails (got " & string(id) & ")"
-  doAssert foundLarge, "large 4 KB email must surface under minSize=1000 filter"
+  let qrExtract = resp.get(h)
+  if qrExtract.isOk:
+    let qr = qrExtract.unsafeValue
+    var foundLarge = false
+    for id in qr.ids:
+      if id == largeId:
+        foundLarge = true
+      for smallId in smallIds:
+        doAssert id != smallId,
+          "minSize=1000 must not surface small emails (got " & string(id) & ")"
+    doAssert foundLarge, "large 4 KB email must surface under minSize=1000 filter"
+  else:
+    # Cat-B error arm — server rejected the nested FilterOperator
+    # shape.
+    let methodErr = qrExtract.unsafeError
+    doAssert methodErr.errorType in
+      {metInvalidArguments, metUnsupportedFilter, metUnknownMethod},
+      "method error must be in allowed set (got rawType=" & methodErr.rawType & ")"
 
 proc assertHasAttachment(
-    client: var JmapClient, mailAccountId: AccountId, attachId: Id
+    client: var JmapClient, mailAccountId: AccountId, attachId: Id, targetSuffix: string
 ) =
-  ## Sub-test C: hasAttachment=true plus before=<future date>
-  ## surfaces at least the attachment-bearing seed.  Captures the
-  ## wire response.
+  ## Sub-test C: hasAttachment=true plus before=<future date> surfaces
+  ## the attachment-bearing seed.
+  ##
+  ## Cat-E on Cyrus only — Cyrus 3.12.2 does NOT classify inline-
+  ## bodyValues parts (even with ``Content-Disposition: attachment``)
+  ## as attachments for the ``hasAttachment`` filter
+  ## (``imap/jmap_mail.c`` accepts inline text/* parts at seed time
+  ## but never flags them in the per-email attachment-presence
+  ## annotation). RFC 8621 §4.4 leaves the classification up to the
+  ## server's reasonable interpretation; both Cyrus's choice (inline-
+  ## bodyValues are not "attachments") and Stalwart/James's choice
+  ## (they are) are conformant. Testing this assertion on Cyrus
+  ## requires a real binary attachment via the JMAP ``/upload``
+  ## endpoint (RFC 8620 §6.1) — that surface is deliberately
+  ## deferred from Phase L. When ``/upload`` lands, this sub-test
+  ## runs on Cyrus too.
+  if targetSuffix == "cyrus":
+    return
   let future = parseUtcDate("2099-01-01T00:00:00Z").expect("parseUtcDate future")
   let filter = filterCondition(
     EmailFilterCondition(hasAttachment: Opt.some(true), before: Opt.some(future))
@@ -164,7 +190,7 @@ proc assertHasAttachment(
   let (b, h) =
     addEmailQuery(initRequestBuilder(), mailAccountId, filter = Opt.some(filter))
   let resp = client.send(b).expect("send Email/query hasAttachment")
-  captureIfRequested(client, "email-query-advanced-filter-stalwart").expect(
+  captureIfRequested(client, "email-query-advanced-filter-" & targetSuffix).expect(
     "captureIfRequested"
   )
   let qr = resp.get(h).expect("Email/query hasAttachment extract")
@@ -178,17 +204,12 @@ proc assertHasAttachment(
 
 block temailQueryAdvancedFilterLive:
   forEachLiveTarget(target):
-    # James 3.9 fails this test for two independent reasons:
-    #   1. ``seedMixedEmail`` (Sub-test C) uses inline-bodyValues
-    #      attachments which James rejects (requires blob upload via
-    #      RFC 8620 §6.1 ``/upload`` — the library scope deferral).
-    #   2. ``inMailboxOtherThan`` (Sub-test B) is rejected by James
-    #      when nested inside a FilterOperator AND can't combine with
-    #      ``minSize`` because James only allows top-level
-    #      ``inMailboxOtherThan`` (``doc/specs/spec/mail/message.mdown``).
-    # Captured ``-stalwart`` fixtures preserve replay coverage.
-    if target.kind == ltkJames:
-      continue
+    # Cat-B (Phase L §0): exercises advanced EmailFilterCondition
+    # variants. Stalwart 0.15.5 and Cyrus 3.12.2 accept the full
+    # surface (`imap/jmap_mail_query.c:1071-1140`). James 3.9 rejects
+    # ``inMailboxOtherThan`` nested in FilterOperator and ``hasAttachment``
+    # inline-bodyValues attachments — typed errors surface in either
+    # the seed step (inline-bodyValues) or the filter extract.
     var client = initJmapClient(
         sessionUrl = target.sessionUrl,
         bearerToken = target.aliceToken,
@@ -212,12 +233,18 @@ block temailQueryAdvancedFilterLive:
     let largeId = seedLargeEmail(
       client, mailAccountId, inbox, "phase-i 55 large", "phase-i-55-large"
     )
-    let attachId = seedMixedEmail(
-        client, mailAccountId, inbox, "phase-i 55 attached", "phase-i 55 inline body",
-        "phase-i-55-attach.txt", "text/plain", "phase-i 55 attachment payload",
-        "phase-i-55-attach",
-      )
-      .expect("seedMixedEmail attached[" & $target.kind & "]")
+    let attachRes = seedMixedEmail(
+      client, mailAccountId, inbox, "phase-i 55 attached", "phase-i 55 inline body",
+      "phase-i-55-attach.txt", "text/plain", "phase-i 55 attachment payload",
+      "phase-i-55-attach",
+    )
+    if attachRes.isErr:
+      # Cat-B error arm: server (e.g. James) rejected the inline-
+      # bodyValues attachment. The typed-error projection has fired
+      # inside ``seedMixedEmail`` — skip the dependent sub-tests.
+      client.close()
+      continue
+    let attachId = attachRes.unsafeValue
     let archiveSeeds = seedEmailsIntoMailbox(
         client, mailAccountId, archive, @["phase-i 55 archived"]
       )
@@ -229,6 +256,6 @@ block temailQueryAdvancedFilterLive:
     assertInMailboxOtherThanMinSize(
       client, mailAccountId, archive, largeId, smallInbox & @[archiveSeed]
     )
-    assertHasAttachment(client, mailAccountId, attachId)
+    assertHasAttachment(client, mailAccountId, attachId, $target.kind)
 
     client.close()

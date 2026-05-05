@@ -17,7 +17,7 @@
 ##
 ## Listed in ``tests/testament_skip.txt`` so ``just test`` skips it; run
 ## via ``just test-integration`` after ``just stalwart-up``. Body is
-## guarded on ``loadLiveTestConfig().isOk`` so the file joins testament's
+## guarded on ``loadLiveTestTargets().isOk`` so the file joins testament's
 ## megatest cleanly under ``just test-full`` when env vars are absent.
 ##
 ## Five sequential requests:
@@ -31,6 +31,7 @@
 ##     baseline for this discriminator.
 
 import std/json
+import std/sets
 import std/tables
 
 import results
@@ -70,6 +71,12 @@ block temailQueryGetChainLive:
     # if a future test reuses the token, the chain stays under
     # Stalwart's per-method-call ``Email/get`` cap.
     let filter = filterCondition(EmailFilterCondition(subject: Opt.some("chainquery6")))
+    # Wait for the seeded id to surface in the index so the chained
+    # Email/query → Email/get resolves on every server. Cyrus
+    # 3.12.2's Xapian rolling indexer settles asynchronously; a
+    # fresh-client poll bypasses Cyrus's per-session index cache.
+    discard pollEmailQueryIndexed(target, mailAccountId, filter, [seedId].toHashSet)
+      .expect("pollEmailQueryIndexed[" & $target.kind & "]")
     let queryParams = QueryParams(limit: Opt.some(UnsignedInt(50)))
     let (b3a, queryHandle) = addEmailQuery(
       initRequestBuilder(),
