@@ -11,10 +11,10 @@
 
 import std/tables
 
-import jmap_client/mail/addresses
-import jmap_client/mail/identity
-import jmap_client/validation
-import jmap_client/primitives
+import jmap_client/internal/mail/addresses
+import jmap_client/internal/mail/identity
+import jmap_client/internal/types/validation
+import jmap_client/internal/types/primitives
 
 import ../../massertions
 

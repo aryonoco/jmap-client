@@ -16,31 +16,31 @@ import std/random
 import std/sets
 import std/strutils
 
-import jmap_client/capabilities
-import jmap_client/envelope
-import jmap_client/errors
-import jmap_client/framework
-import jmap_client/identifiers
-import jmap_client/methods_enum
-import jmap_client/primitives
-import jmap_client/session
-import jmap_client/validation
-import jmap_client/mail/addresses
-import jmap_client/mail/headers
-import jmap_client/mail/body
-import jmap_client/mail/email
-import jmap_client/mail/email_blueprint
-import jmap_client/mail/email_update
-import jmap_client/mail/keyword
-import jmap_client/mail/mailbox
-import jmap_client/mail/mail_filters
-import jmap_client/mail/snippet
-import jmap_client/mail/submission_atoms
-import jmap_client/mail/submission_mailbox
-import jmap_client/mail/submission_param
-import jmap_client/mail/submission_envelope
-import jmap_client/mail/submission_status
-import jmap_client/mail/email_submission
+import jmap_client/internal/types/capabilities
+import jmap_client/internal/types/envelope
+import jmap_client/internal/types/errors
+import jmap_client/internal/types/framework
+import jmap_client/internal/types/identifiers
+import jmap_client/internal/types/methods_enum
+import jmap_client/internal/types/primitives
+import jmap_client/internal/types/session
+import jmap_client/internal/types/validation
+import jmap_client/internal/mail/addresses
+import jmap_client/internal/mail/headers
+import jmap_client/internal/mail/body
+import jmap_client/internal/mail/email
+import jmap_client/internal/mail/email_blueprint
+import jmap_client/internal/mail/email_update
+import jmap_client/internal/mail/keyword
+import jmap_client/internal/mail/mailbox
+import jmap_client/internal/mail/mail_filters
+import jmap_client/internal/mail/snippet
+import jmap_client/internal/mail/submission_atoms
+import jmap_client/internal/mail/submission_mailbox
+import jmap_client/internal/mail/submission_param
+import jmap_client/internal/mail/submission_envelope
+import jmap_client/internal/mail/submission_status
+import jmap_client/internal/mail/email_submission
 
 {.push ruleOff: "hasDoc".}
 {.push ruleOff: "params".}

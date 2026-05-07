@@ -7,11 +7,11 @@
 
 {.push raises: [].}
 
-import jmap_client/mail/email
-import jmap_client/mail/mailbox
-import jmap_client/mail/keyword
-import jmap_client/validation
-import jmap_client/primitives
+import jmap_client/internal/mail/email
+import jmap_client/internal/mail/mailbox
+import jmap_client/internal/mail/keyword
+import jmap_client/internal/types/validation
+import jmap_client/internal/types/primitives
 
 import ../../massertions
 

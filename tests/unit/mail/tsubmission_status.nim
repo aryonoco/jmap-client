@@ -15,8 +15,8 @@
 
 {.push raises: [].}
 
-import jmap_client/validation
-import jmap_client/mail/submission_status
+import jmap_client/internal/types/validation
+import jmap_client/internal/mail/submission_status
 
 import ../../massertions
 import ../../mfixtures

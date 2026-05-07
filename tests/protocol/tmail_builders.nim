@@ -14,17 +14,17 @@ import std/tables
 
 import jmap_client/types
 import jmap_client/serialisation
-import jmap_client/methods
-import jmap_client/dispatch
-import jmap_client/builder
-import jmap_client/mail/mailbox
-import jmap_client/mail/email
-import jmap_client/mail/email_blueprint
-import jmap_client/mail/email_update
-import jmap_client/mail/email_submission
-import jmap_client/mail/mail_builders
-import jmap_client/mail/submission_builders
-import jmap_client/mail/serde_email
+import jmap_client/internal/protocol/methods
+import jmap_client/internal/protocol/dispatch
+import jmap_client/internal/protocol/builder
+import jmap_client/internal/mail/mailbox
+import jmap_client/internal/mail/email
+import jmap_client/internal/mail/email_blueprint
+import jmap_client/internal/mail/email_update
+import jmap_client/internal/mail/email_submission
+import jmap_client/internal/mail/mail_builders
+import jmap_client/internal/mail/submission_builders
+import jmap_client/internal/mail/serde_email
 
 import ../massertions
 import ../mfixtures

@@ -34,22 +34,22 @@ import std/times
 
 import results
 
-import jmap_client/dispatch
-import jmap_client/envelope
-import jmap_client/errors
-import jmap_client/identifiers
-import jmap_client/mail/email
-import jmap_client/mail/email_update
-import jmap_client/mail/keyword
-import jmap_client/mail/mail_builders
-import jmap_client/mail/mailbox
-import jmap_client/methods
-import jmap_client/methods_enum
-import jmap_client/mail/serde_email
-import jmap_client/mail/serde_email_update
-import jmap_client/primitives
-import jmap_client/serde
-import jmap_client/serde_envelope
+import jmap_client/internal/protocol/dispatch
+import jmap_client/internal/types/envelope
+import jmap_client/internal/types/errors
+import jmap_client/internal/types/identifiers
+import jmap_client/internal/mail/email
+import jmap_client/internal/mail/email_update
+import jmap_client/internal/mail/keyword
+import jmap_client/internal/mail/mail_builders
+import jmap_client/internal/mail/mailbox
+import jmap_client/internal/protocol/methods
+import jmap_client/internal/types/methods_enum
+import jmap_client/internal/mail/serde_email
+import jmap_client/internal/mail/serde_email_update
+import jmap_client/internal/types/primitives
+import jmap_client/internal/serialisation/serde
+import jmap_client/internal/serialisation/serde_envelope
 
 import ../massertions
 import ../mfixtures

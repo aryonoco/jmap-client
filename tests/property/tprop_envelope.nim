@@ -8,11 +8,11 @@ import std/json
 import std/random
 import std/tables
 
-import jmap_client/primitives
-import jmap_client/identifiers
-import jmap_client/envelope
-import jmap_client/methods_enum
-import jmap_client/validation
+import jmap_client/internal/types/primitives
+import jmap_client/internal/types/identifiers
+import jmap_client/internal/types/envelope
+import jmap_client/internal/types/methods_enum
+import jmap_client/internal/types/validation
 
 import ../mproperty
 

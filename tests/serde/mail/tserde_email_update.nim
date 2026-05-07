@@ -11,12 +11,12 @@
 
 import std/json
 
-import jmap_client/mail/keyword
-import jmap_client/mail/serde_email_update
-import jmap_client/mail/serde_keyword
-import jmap_client/mail/serde_mailbox
-import jmap_client/primitives
-import jmap_client/validation
+import jmap_client/internal/mail/keyword
+import jmap_client/internal/mail/serde_email_update
+import jmap_client/internal/mail/serde_keyword
+import jmap_client/internal/mail/serde_mailbox
+import jmap_client/internal/types/primitives
+import jmap_client/internal/types/validation
 
 import ../../massertions
 import ../../mfixtures

@@ -10,11 +10,11 @@
 
 import std/tables
 
-import jmap_client/mail/body
-import jmap_client/mail/email_blueprint
-import jmap_client/mail/headers
-import jmap_client/identifiers
-import jmap_client/validation
+import jmap_client/internal/mail/body
+import jmap_client/internal/mail/email_blueprint
+import jmap_client/internal/mail/headers
+import jmap_client/internal/types/identifiers
+import jmap_client/internal/types/validation
 
 import ../../massertions
 import ../../mfixtures

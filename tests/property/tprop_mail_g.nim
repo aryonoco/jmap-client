@@ -33,15 +33,15 @@ import std/tables
 
 import results
 
-import jmap_client/identifiers
-import jmap_client/mail/email_submission
-import jmap_client/mail/serde_email_submission
-import jmap_client/mail/serde_submission_envelope
-import jmap_client/mail/submission_atoms
-import jmap_client/mail/submission_mailbox
-import jmap_client/mail/submission_param
-import jmap_client/mail/submission_status
-import jmap_client/primitives
+import jmap_client/internal/types/identifiers
+import jmap_client/internal/mail/email_submission
+import jmap_client/internal/mail/serde_email_submission
+import jmap_client/internal/mail/serde_submission_envelope
+import jmap_client/internal/mail/submission_atoms
+import jmap_client/internal/mail/submission_mailbox
+import jmap_client/internal/mail/submission_param
+import jmap_client/internal/mail/submission_status
+import jmap_client/internal/types/primitives
 
 import ../massertions
 import ../mfixtures

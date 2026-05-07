@@ -6,9 +6,9 @@
 
 import std/json
 
-import jmap_client/validation
-import jmap_client/primitives
-import jmap_client/framework
+import jmap_client/internal/types/validation
+import jmap_client/internal/types/primitives
+import jmap_client/internal/types/framework
 
 import ../massertions
 

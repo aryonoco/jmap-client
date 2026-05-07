@@ -13,13 +13,13 @@
 
 import std/json
 
-import jmap_client/envelope
-import jmap_client/identifiers
-import jmap_client/primitives
-import jmap_client/validation
-import jmap_client/mail/email_submission
-import jmap_client/mail/email_update
-import jmap_client/mail/serde_email_submission
+import jmap_client/internal/types/envelope
+import jmap_client/internal/types/identifiers
+import jmap_client/internal/types/primitives
+import jmap_client/internal/types/validation
+import jmap_client/internal/mail/email_submission
+import jmap_client/internal/mail/email_update
+import jmap_client/internal/mail/serde_email_submission
 
 import ../../massertions
 

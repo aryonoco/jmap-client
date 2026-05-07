@@ -9,11 +9,11 @@
 import std/json
 import std/tables
 
-import jmap_client/mail/snippet
-import jmap_client/mail/serde_snippet
-import jmap_client/mail/mail_methods
-import jmap_client/validation
-import jmap_client/primitives
+import jmap_client/internal/mail/snippet
+import jmap_client/internal/mail/serde_snippet
+import jmap_client/internal/mail/mail_methods
+import jmap_client/internal/types/validation
+import jmap_client/internal/types/primitives
 
 import ../../massertions
 import ../../mfixtures

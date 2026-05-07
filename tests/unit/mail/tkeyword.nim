@@ -8,8 +8,8 @@
 import std/hashes
 import std/strutils
 
-import jmap_client/mail/keyword
-import jmap_client/validation
+import jmap_client/internal/mail/keyword
+import jmap_client/internal/types/validation
 
 import ../../massertions
 

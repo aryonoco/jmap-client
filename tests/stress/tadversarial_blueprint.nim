@@ -36,12 +36,12 @@ import std/typedthreads
 
 import results
 
-import jmap_client/primitives
-import jmap_client/mail/body
-import jmap_client/mail/email_blueprint
-import jmap_client/mail/headers
-import jmap_client/mail/mailbox
-import jmap_client/mail/serde_email_blueprint
+import jmap_client/internal/types/primitives
+import jmap_client/internal/mail/body
+import jmap_client/internal/mail/email_blueprint
+import jmap_client/internal/mail/headers
+import jmap_client/internal/mail/mailbox
+import jmap_client/internal/mail/serde_email_blueprint
 
 import ../massertions
 import ../mfixtures

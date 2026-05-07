@@ -6,8 +6,8 @@
 
 import std/json
 
-import jmap_client/serde
-import jmap_client/validation
+import jmap_client/internal/serialisation/serde
+import jmap_client/internal/types/validation
 
 proc intToJson*(c: int): JsonNode =
   ## Serialise an int condition to a JSON object for Filter[int] tests.

@@ -14,9 +14,9 @@
 
 import std/tables
 
-import jmap_client/primitives
-import jmap_client/validation
-import jmap_client/mail/email_submission
+import jmap_client/internal/types/primitives
+import jmap_client/internal/types/validation
+import jmap_client/internal/mail/email_submission
 
 import ../../massertions
 import ../../mfixtures

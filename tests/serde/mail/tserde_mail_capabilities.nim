@@ -7,13 +7,13 @@ import std/json
 import std/sets
 import std/tables
 
-import jmap_client/mail/mail_capabilities
-import jmap_client/mail/serde_mail_capabilities
-import jmap_client/mail/submission_atoms
-import jmap_client/validation
-import jmap_client/primitives
-import jmap_client/capabilities
-import jmap_client/serde
+import jmap_client/internal/mail/mail_capabilities
+import jmap_client/internal/mail/serde_mail_capabilities
+import jmap_client/internal/mail/submission_atoms
+import jmap_client/internal/types/validation
+import jmap_client/internal/types/primitives
+import jmap_client/internal/types/capabilities
+import jmap_client/internal/serialisation/serde
 
 import ../../massertions
 

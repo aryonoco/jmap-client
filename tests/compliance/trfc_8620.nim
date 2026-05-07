@@ -10,20 +10,20 @@ import std/sets
 import std/strutils
 import std/tables
 
-import jmap_client/validation
-import jmap_client/primitives
-import jmap_client/identifiers
-import jmap_client/capabilities
-import jmap_client/session
-import jmap_client/envelope
-import jmap_client/methods_enum
-import jmap_client/framework
-import jmap_client/errors
-import jmap_client/serde
-import jmap_client/serde_envelope
-import jmap_client/serde_errors
-import jmap_client/serde_framework
-import jmap_client/serde_session
+import jmap_client/internal/types/validation
+import jmap_client/internal/types/primitives
+import jmap_client/internal/types/identifiers
+import jmap_client/internal/types/capabilities
+import jmap_client/internal/types/session
+import jmap_client/internal/types/envelope
+import jmap_client/internal/types/methods_enum
+import jmap_client/internal/types/framework
+import jmap_client/internal/types/errors
+import jmap_client/internal/serialisation/serde
+import jmap_client/internal/serialisation/serde_envelope
+import jmap_client/internal/serialisation/serde_errors
+import jmap_client/internal/serialisation/serde_framework
+import jmap_client/internal/serialisation/serde_session
 
 import jmap_client
 

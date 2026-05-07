@@ -9,12 +9,12 @@
 import std/json
 import std/random
 
-import jmap_client/validation
-import jmap_client/primitives
-import jmap_client/mail/email
-import jmap_client/mail/mail_filters
-import jmap_client/mail/serde_email
-import jmap_client/mail/serde_mail_filters
+import jmap_client/internal/types/validation
+import jmap_client/internal/types/primitives
+import jmap_client/internal/mail/email
+import jmap_client/internal/mail/mail_filters
+import jmap_client/internal/mail/serde_email
+import jmap_client/internal/mail/serde_mail_filters
 
 import ../mproperty
 import ../mfixtures

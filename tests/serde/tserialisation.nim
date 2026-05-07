@@ -8,7 +8,7 @@ import std/json
 
 import jmap_client/serialisation
 import jmap_client/types
-import jmap_client/framework
+import jmap_client/internal/types/framework
 
 import ../massertions
 import ../mfixtures

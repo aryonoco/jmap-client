@@ -28,13 +28,13 @@ import std/strutils
 
 import results
 
-import jmap_client/identifiers
-import jmap_client/mail/email
-import jmap_client/mail/email_update
-import jmap_client/mail/mailbox
-import jmap_client/mail/serde_email_update
-import jmap_client/primitives
-import jmap_client/serde
+import jmap_client/internal/types/identifiers
+import jmap_client/internal/mail/email
+import jmap_client/internal/mail/email_update
+import jmap_client/internal/mail/mailbox
+import jmap_client/internal/mail/serde_email_update
+import jmap_client/internal/types/primitives
+import jmap_client/internal/serialisation/serde
 
 import ../massertions
 import ../mproperty

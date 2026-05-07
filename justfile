@@ -249,6 +249,14 @@ lint-style:
         ' --
     echo "Style check passed (vendor/ diagnostics tolerated)"
 
+# Enforce the public/internal boundary (A1, P5). Fails CI on any
+# `import jmap_client/internal/...` outside src/jmap_client/** or
+# tests/**.
+lint-internal-boundary:
+    @echo "Running H10 internal-boundary lint..."
+    nim r --hints:off --warnings:off tests/lint/th10_internal_boundary.nim
+    @echo "H10 internal-boundary lint passed"
+
 # Static analysis with nimalyzer
 analyse:
     @echo "Running static analysis..."
@@ -259,7 +267,7 @@ analyse:
 analyze: analyse
 
 # Run all code quality checks
-check: fmt-check lint lint-isolated lint-style analyse
+check: fmt-check lint lint-isolated lint-style lint-internal-boundary analyse
     @echo "All quality checks passed"
 
 # =============================================================================
@@ -273,7 +281,7 @@ reuse:
     @echo "REUSE compliance check passed"
 
 # Run full CI pipeline locally (mirrors .github/workflows/ci.yml)
-ci: reuse fmt-check lint lint-isolated lint-style analyse test
+ci: reuse fmt-check lint lint-isolated lint-style lint-internal-boundary analyse test
     @echo ""
     @echo "============================================"
     @echo "All CI checks passed!"

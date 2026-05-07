@@ -13,11 +13,11 @@ when defined(ssl):
   from std/net import SslError
 
 import jmap_client/client
-import jmap_client/envelope
-import jmap_client/errors
-import jmap_client/methods_enum
-import jmap_client/session
-import jmap_client/validation
+import jmap_client/internal/types/envelope
+import jmap_client/internal/types/errors
+import jmap_client/internal/types/methods_enum
+import jmap_client/internal/types/session
+import jmap_client/internal/types/validation
 
 import ../massertions
 import ../mfixtures

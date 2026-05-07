@@ -14,10 +14,10 @@ import std/json
 import std/tables
 
 import jmap_client/types
-import jmap_client/builder
-import jmap_client/methods_enum
-import jmap_client/mail/identity
-import jmap_client/mail/identity_builders
+import jmap_client/internal/protocol/builder
+import jmap_client/internal/types/methods_enum
+import jmap_client/internal/mail/identity
+import jmap_client/internal/mail/identity_builders
 
 import ../massertions
 import ../mfixtures

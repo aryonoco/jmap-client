@@ -3,11 +3,12 @@
 
 ## Pipeline combinators for common JMAP multi-method patterns.
 ##
-## This module should **NOT** be re-exported by ``protocol.nim``. Users who want
-## pipeline combinators must explicitly ``import jmap_client/convenience``.
-## This physical separation
-## keeps the core API surface in ``builder.nim`` and ``dispatch.nim`` frozen
-## while providing opt-in ergonomics (lessons from analysing OpenSSL/libgit2 )
+## This module is publicly importable as ``jmap_client/convenience`` but
+## is NOT re-exported by the root ``jmap_client`` module. Consumers who
+## want pipeline combinators must ``import jmap_client/convenience``
+## explicitly. This physical separation keeps the core API surface in
+## ``builder.nim`` and ``dispatch.nim`` frozen while providing opt-in
+## ergonomics (P6 quarantine; lessons from analysing OpenSSL/libgit2).
 ##
 ## **Naming convention.** Pipeline combinators **MUST** use the ``add*`` prefix because
 ## they thread the ``RequestBuilder`` state (following the builder naming convention).
@@ -22,9 +23,7 @@
 {.experimental: "strictCaseObjects".}
 
 import ./types
-import ./methods
-import ./dispatch
-import ./builder
+import ./protocol
 
 # =============================================================================
 # QueryGetHandles — paired handles from addQueryThenGet

@@ -16,7 +16,7 @@ import std/uri
 
 import ./types
 import ./serialisation
-import ./builder
+import ./internal/protocol/builder
 
 # Design §9.1 (D4.12): compile-time hint when -d:ssl is missing.
 # Uses {.hint:} rather than {.warning:} because config.nims promotes

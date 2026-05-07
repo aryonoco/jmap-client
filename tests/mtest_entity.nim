@@ -23,8 +23,8 @@
 import std/json
 
 import jmap_client/types
-import jmap_client/serde
-import jmap_client/entity
+import jmap_client/internal/serialisation/serde
+import jmap_client/internal/protocol/entity
 
 # =============================================================================
 # Entity type

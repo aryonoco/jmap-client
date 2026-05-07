@@ -6,9 +6,9 @@
 import std/sets
 import std/json
 
-import jmap_client/primitives
-import jmap_client/capabilities
-import jmap_client/validation
+import jmap_client/internal/types/primitives
+import jmap_client/internal/types/capabilities
+import jmap_client/internal/types/validation
 
 import ../massertions
 import ../mfixtures

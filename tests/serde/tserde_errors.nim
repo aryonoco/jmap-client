@@ -8,9 +8,9 @@ import std/json
 import std/random
 import std/strutils
 
-import jmap_client/serde_errors
-import jmap_client/errors
-import jmap_client/validation
+import jmap_client/internal/serialisation/serde_errors
+import jmap_client/internal/types/errors
+import jmap_client/internal/types/validation
 
 import ../massertions
 import ../mfixtures

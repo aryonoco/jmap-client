@@ -9,9 +9,9 @@
 
 import std/json
 
-import jmap_client/methods_enum
-import jmap_client/validation
-import jmap_client/entity
+import jmap_client/internal/types/methods_enum
+import jmap_client/internal/types/validation
+import jmap_client/internal/protocol/entity
 
 import ../massertions
 

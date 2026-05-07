@@ -10,7 +10,7 @@
 {.push raises: [].}
 
 import jmap_client
-import jmap_client/mail/thread as jthread
+import jmap_client/internal/mail/thread as jthread
 import ./mloader
 
 block tcapturedThreadGet:

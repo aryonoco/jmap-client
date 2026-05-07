@@ -5,7 +5,7 @@
 
 import std/hashes
 
-import jmap_client/validation
+import jmap_client/internal/types/validation
 
 # Test distinct types — must be at top level for export markers in borrow templates
 type TestStr = distinct string

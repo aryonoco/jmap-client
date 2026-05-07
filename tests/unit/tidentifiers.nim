@@ -5,9 +5,9 @@
 
 import std/strutils
 
-import jmap_client/identifiers
-import jmap_client/primitives
-import jmap_client/validation
+import jmap_client/internal/types/identifiers
+import jmap_client/internal/types/primitives
+import jmap_client/internal/types/validation
 
 import ../massertions
 

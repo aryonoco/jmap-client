@@ -33,10 +33,10 @@ import std/tables
 
 import results
 
-import jmap_client/mail/body
-import jmap_client/mail/email_blueprint
-import jmap_client/mail/headers
-import jmap_client/mail/serde_email_blueprint
+import jmap_client/internal/mail/body
+import jmap_client/internal/mail/email_blueprint
+import jmap_client/internal/mail/headers
+import jmap_client/internal/mail/serde_email_blueprint
 
 import ../mproperty
 import ../mfixtures

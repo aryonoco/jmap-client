@@ -8,13 +8,13 @@
 {.push raises: [], noSideEffect.}
 {.experimental: "strictCaseObjects".}
 
-import jmap_client/mail/types
-import jmap_client/mail/serialisation
-import jmap_client/mail/mail_entities
-import jmap_client/mail/mail_methods
-import jmap_client/mail/mail_builders
-import jmap_client/mail/identity_builders
-import jmap_client/mail/submission_builders
+import ./internal/mail/types
+import ./internal/mail/serialisation
+import ./internal/mail/mail_entities
+import ./internal/mail/mail_methods
+import ./internal/mail/mail_builders
+import ./internal/mail/identity_builders
+import ./internal/mail/submission_builders
 
 export types
 export serialisation

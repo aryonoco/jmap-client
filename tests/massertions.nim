@@ -8,16 +8,16 @@ import std/strutils
 import std/json
 import std/times
 
-import jmap_client/validation
-import jmap_client/errors
-import jmap_client/capabilities
-import jmap_client/serde
-import jmap_client/mail/email_blueprint
-import jmap_client/mail/headers
-import jmap_client/mail/submission_param
-import jmap_client/mail/submission_status
-import jmap_client/mail/email_submission
-import jmap_client/mail/serde_email_submission
+import jmap_client/internal/types/validation
+import jmap_client/internal/types/errors
+import jmap_client/internal/types/capabilities
+import jmap_client/internal/serialisation/serde
+import jmap_client/internal/mail/email_blueprint
+import jmap_client/internal/mail/headers
+import jmap_client/internal/mail/submission_param
+import jmap_client/internal/mail/submission_status
+import jmap_client/internal/mail/email_submission
+import jmap_client/internal/mail/serde_email_submission
 
 import ./mfixtures
 

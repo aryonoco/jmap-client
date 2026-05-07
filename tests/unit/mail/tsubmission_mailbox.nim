@@ -21,9 +21,9 @@
 
 {.push raises: [].}
 
-import jmap_client/validation
-import jmap_client/mail/submission_atoms
-import jmap_client/mail/submission_mailbox
+import jmap_client/internal/types/validation
+import jmap_client/internal/mail/submission_atoms
+import jmap_client/internal/mail/submission_mailbox
 
 import ../../massertions
 

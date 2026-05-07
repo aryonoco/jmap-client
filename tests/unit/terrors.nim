@@ -6,9 +6,9 @@
 import std/json
 import std/strutils
 
-import jmap_client/primitives
-import jmap_client/errors
-import jmap_client/validation
+import jmap_client/internal/types/primitives
+import jmap_client/internal/types/errors
+import jmap_client/internal/types/validation
 
 import ../massertions
 

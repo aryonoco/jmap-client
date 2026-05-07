@@ -83,7 +83,10 @@ this" API; mark the other private.
 
 **Resolution.** L3 builder + dispatch is the headline. Root
 `import jmap_client` re-exports `types`, `serialisation`, `protocol`,
-`client`, `mail`, `convenience`. **Nothing else is a public path.**
+`client`, `mail`. `jmap_client/convenience` is publicly importable but
+opt-in (must be imported explicitly; not re-exported by the root).
+Everything else relocates under `jmap_client/internal/` and is
+excluded from the public contract.
 
 **Action.**
 
@@ -1847,6 +1850,25 @@ variants (`MethodName`, `CapabilityKind`, `RequestErrorType`,
 catch-all path; require an inline `# catch-all by design` comment
 on the `else:` arm.
 
+### H10. Internal-boundary lint *(P5)* — backs A1
+
+The principles doc's P5 "single public layer" rule must be enforceable
+by CI, not by review-discipline. Without a mechanical gate, downstream
+or in-repo example code can drift back to importing private
+implementation modules and re-couple consumers to internal churn.
+
+**Implementation path.** Both `tests/lint/th10_internal_boundary.nim`
+(a runnable Nim program walking the repo) AND `lint-internal-boundary:`
+recipe in `justfile`. Wired to `just check`, `just ci`. Logic: scan
+every `.nim` file under the repo (excluding `vendor/` and
+`.nim-reference/`); fail on any line beginning with `import
+jmap_client/internal/` or `from jmap_client/internal/` unless the file
+sits under `src/jmap_client/` (the package itself) or `tests/` (which
+are permitted to reach private helpers). Error message names the
+public hubs and points at A1.
+
+**Current-state assertion.** Zero violations under the post-A1 layout.
+
 ## Coverage trace — every principle to at least one item
 
 Every principle has at least one TODO item that, if executed, brings
@@ -1868,7 +1890,7 @@ Status legend:
 | P2 (tests) | A25, A28b, D2, D3, F1, F5 | Property tests (F1); wire-byte fixtures (D3) | 🟡 |
 | P3 (overloads not `_v2`) | C2, C3, D1.5 (no-suffix rule) | H5 lint; review | 🟡 |
 | P4 (scope) | D11, D11.5, D12, H4 | H4 non-JMAP-import lint | 🟡 |
-| P5 (single layer) | A1, A1b, A9, A10, A14, F2, F6 | H5; F6 snapshot | 🟡 |
+| P5 (single layer) | A1, A1b, A9, A10, A14, F2, F6 | H5; H10; F6 snapshot | 🟡 |
 | P6 (convenience quarantine) | C7, C9, F3, D16, H7 | H7 charter lint | 🟡 |
 | P7 (wrap rate) | A12, A12b, B5, C1, C1.1, C2–C5, C8, F4 | F4 CLI smoke test | 🟡 |
 | P8 (opaque handles) | A9, A13, A27, A28, A28b | F2 audit; H1 | 🟡 |

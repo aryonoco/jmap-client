@@ -7,13 +7,13 @@
 import std/json
 import std/tables
 
-import jmap_client/primitives
-import jmap_client/identifiers
-import jmap_client/capabilities
-import jmap_client/session
-import jmap_client/envelope
-import jmap_client/framework
-import jmap_client/errors
+import jmap_client/internal/types/primitives
+import jmap_client/internal/types/identifiers
+import jmap_client/internal/types/capabilities
+import jmap_client/internal/types/session
+import jmap_client/internal/types/envelope
+import jmap_client/internal/types/framework
+import jmap_client/internal/types/errors
 import jmap_client/types
 
 import ../massertions

@@ -8,11 +8,11 @@
 
 import results
 
-import jmap_client/mail/email
-import jmap_client/mail/body
-import jmap_client/mail/mailbox
-import jmap_client/primitives
-import jmap_client/identifiers
+import jmap_client/internal/mail/email
+import jmap_client/internal/mail/body
+import jmap_client/internal/mail/mailbox
+import jmap_client/internal/types/primitives
+import jmap_client/internal/types/identifiers
 
 import ../../massertions
 import ../../mfixtures

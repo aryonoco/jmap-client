@@ -28,11 +28,11 @@ import std/json
 import std/sugar
 import std/tables
 
-import jmap_client/primitives
-import jmap_client/validation
-import jmap_client/mail/submission_atoms
-import jmap_client/mail/submission_param
-import jmap_client/mail/serde_submission_envelope
+import jmap_client/internal/types/primitives
+import jmap_client/internal/types/validation
+import jmap_client/internal/mail/submission_atoms
+import jmap_client/internal/mail/submission_param
+import jmap_client/internal/mail/serde_submission_envelope
 
 import ../../massertions
 import ../../mfixtures

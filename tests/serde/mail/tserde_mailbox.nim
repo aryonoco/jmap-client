@@ -7,11 +7,11 @@
 
 import std/json
 
-import jmap_client/mail/mailbox
-import jmap_client/mail/serde_mailbox
-import jmap_client/serde
-import jmap_client/validation
-import jmap_client/primitives
+import jmap_client/internal/mail/mailbox
+import jmap_client/internal/mail/serde_mailbox
+import jmap_client/internal/serialisation/serde
+import jmap_client/internal/types/validation
+import jmap_client/internal/types/primitives
 
 import ../../massertions
 import ../../mfixtures

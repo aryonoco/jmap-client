@@ -8,11 +8,11 @@
 
 import std/json
 
-import jmap_client/mail/mail_errors
-import jmap_client/validation
-import jmap_client/primitives
-import jmap_client/identifiers
-import jmap_client/errors
+import jmap_client/internal/mail/mail_errors
+import jmap_client/internal/types/validation
+import jmap_client/internal/types/primitives
+import jmap_client/internal/types/identifiers
+import jmap_client/internal/types/errors
 
 import ../../massertions
 

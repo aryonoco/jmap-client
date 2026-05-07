@@ -10,8 +10,8 @@ import std/hashes
 import std/sets
 import std/strutils
 
-import jmap_client/collation
-import jmap_client/validation
+import jmap_client/internal/types/collation
+import jmap_client/internal/types/validation
 
 # --- round-trip identity for the four IANA-registered constants ---
 

@@ -25,7 +25,7 @@ import std/os
 import results
 import jmap_client
 import jmap_client/client
-import jmap_client/mail/thread as jthread
+import jmap_client/internal/mail/thread as jthread
 import ./mcapture
 import ./mconfig
 import ./mlive

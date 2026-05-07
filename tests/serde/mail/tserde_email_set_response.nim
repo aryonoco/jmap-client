@@ -13,14 +13,14 @@
 import std/json
 import std/tables
 
-import jmap_client/mail/email
-import jmap_client/mail/serde_email
-import jmap_client/methods
-import jmap_client/errors
-import jmap_client/identifiers
-import jmap_client/primitives
-import jmap_client/serde
-import jmap_client/validation
+import jmap_client/internal/mail/email
+import jmap_client/internal/mail/serde_email
+import jmap_client/internal/protocol/methods
+import jmap_client/internal/types/errors
+import jmap_client/internal/types/identifiers
+import jmap_client/internal/types/primitives
+import jmap_client/internal/serialisation/serde
+import jmap_client/internal/types/validation
 
 import ../../massertions
 import ../../mfixtures

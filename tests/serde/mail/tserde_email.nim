@@ -13,15 +13,15 @@ import std/json
 import std/tables
 import std/strutils
 
-import jmap_client/mail/email
-import jmap_client/mail/headers
-import jmap_client/mail/body
-import jmap_client/mail/keyword
-import jmap_client/mail/addresses
-import jmap_client/mail/serde_email
-import jmap_client/collation
-import jmap_client/serde
-import jmap_client/validation
+import jmap_client/internal/mail/email
+import jmap_client/internal/mail/headers
+import jmap_client/internal/mail/body
+import jmap_client/internal/mail/keyword
+import jmap_client/internal/mail/addresses
+import jmap_client/internal/mail/serde_email
+import jmap_client/internal/types/collation
+import jmap_client/internal/serialisation/serde
+import jmap_client/internal/types/validation
 
 import ../../massertions
 import ../../mfixtures

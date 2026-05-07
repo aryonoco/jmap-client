@@ -9,13 +9,13 @@ import std/json
 import std/tables
 
 import jmap_client/types
-import jmap_client/framework
+import jmap_client/internal/types/framework
 import jmap_client/serialisation
-import jmap_client/serde_envelope
-import jmap_client/entity
-import jmap_client/methods
-import jmap_client/dispatch
-import jmap_client/builder
+import jmap_client/internal/serialisation/serde_envelope
+import jmap_client/internal/protocol/entity
+import jmap_client/internal/protocol/methods
+import jmap_client/internal/protocol/dispatch
+import jmap_client/internal/protocol/builder
 
 import ../massertions
 import ../mfixtures

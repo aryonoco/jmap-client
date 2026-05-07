@@ -4,9 +4,16 @@
 {.push raises: [].}
 {.experimental: "strictCaseObjects".}
 
-## JMAP client library entry point. Re-exports all Layer 1 types, Layer 2
-## serialisation, and Layer 3 protocol logic; will host C ABI exports
-## (Layer 5) when the FFI boundary is built.
+## JMAP client library entry point. Re-exports the five public hubs:
+## ``types`` (L1 domain vocabulary), ``serialisation`` (L2 wire format),
+## ``protocol`` (L3 builders + dispatch — the headline API), ``client``
+## (L4 transport), and ``mail`` (RFC 8621 hub). Modules under
+## ``jmap_client/internal/`` are implementation details and not part of
+## the public API contract — see H10 internal-boundary lint.
+##
+## ``jmap_client/convenience`` is publicly importable but opt-in: it is
+## NOT re-exported here. Consumers who want pipeline combinators must
+## ``import jmap_client/convenience`` explicitly (P6 quarantine).
 
 import jmap_client/types
 import jmap_client/serialisation

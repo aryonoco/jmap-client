@@ -8,12 +8,12 @@ import std/json
 import std/sets
 import std/tables
 
-import jmap_client/serde
-import jmap_client/serde_session
-import jmap_client/primitives
-import jmap_client/capabilities
-import jmap_client/validation
-import jmap_client/session
+import jmap_client/internal/serialisation/serde
+import jmap_client/internal/serialisation/serde_session
+import jmap_client/internal/types/primitives
+import jmap_client/internal/types/capabilities
+import jmap_client/internal/types/validation
+import jmap_client/internal/types/session
 
 import ../massertions
 import ../mfixtures

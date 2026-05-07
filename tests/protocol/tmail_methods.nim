@@ -10,15 +10,15 @@ import std/json
 
 import jmap_client/types
 import jmap_client/serialisation
-import jmap_client/methods
-import jmap_client/dispatch
-import jmap_client/builder
-import jmap_client/mail/thread
-import jmap_client/mail/email
-import jmap_client/mail/mail_entities
-import jmap_client/mail/mail_builders
-import jmap_client/mail/mail_methods
-import jmap_client/mail/vacation
+import jmap_client/internal/protocol/methods
+import jmap_client/internal/protocol/dispatch
+import jmap_client/internal/protocol/builder
+import jmap_client/internal/mail/thread
+import jmap_client/internal/mail/email
+import jmap_client/internal/mail/mail_entities
+import jmap_client/internal/mail/mail_builders
+import jmap_client/internal/mail/mail_methods
+import jmap_client/internal/mail/vacation
 
 import ../massertions
 import ../mfixtures

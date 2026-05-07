@@ -5,10 +5,10 @@
 
 import std/json
 
-import jmap_client/mail/thread
-import jmap_client/mail/serde_thread
-import jmap_client/validation
-import jmap_client/primitives
+import jmap_client/internal/mail/thread
+import jmap_client/internal/mail/serde_thread
+import jmap_client/internal/types/validation
+import jmap_client/internal/types/primitives
 
 import ../../massertions
 

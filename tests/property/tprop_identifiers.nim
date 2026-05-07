@@ -6,8 +6,8 @@
 import std/random
 import std/sequtils
 
-import jmap_client/identifiers
-import jmap_client/validation
+import jmap_client/internal/types/identifiers
+import jmap_client/internal/types/validation
 import ../mproperty
 
 block propParseAccountIdTotality:

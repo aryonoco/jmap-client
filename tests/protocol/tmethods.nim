@@ -9,19 +9,19 @@
 import std/json
 import std/tables
 
-import jmap_client/validation
-import jmap_client/primitives
-import jmap_client/identifiers
-import jmap_client/envelope
-import jmap_client/framework
-import jmap_client/errors
-import jmap_client/methods_enum
-import jmap_client/serde
-import jmap_client/serde_envelope
-import jmap_client/serde_framework
-import jmap_client/entity
-import jmap_client/methods
-import jmap_client/builder
+import jmap_client/internal/types/validation
+import jmap_client/internal/types/primitives
+import jmap_client/internal/types/identifiers
+import jmap_client/internal/types/envelope
+import jmap_client/internal/types/framework
+import jmap_client/internal/types/errors
+import jmap_client/internal/types/methods_enum
+import jmap_client/internal/serialisation/serde
+import jmap_client/internal/serialisation/serde_envelope
+import jmap_client/internal/serialisation/serde_framework
+import jmap_client/internal/protocol/entity
+import jmap_client/internal/protocol/methods
+import jmap_client/internal/protocol/builder
 
 import ../massertions
 import ../mfixtures
