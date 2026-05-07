@@ -489,7 +489,9 @@ thread-safe. Hold one per thread."
 mainstream Debian for years; the eventual Apache-2.0 relicence in 2008
 came too late to win back the wave of consumers who had already
 written their own. *Nim translation.* The current licence (visible in
+<!-- REUSE-IgnoreStart -->
 `LICENSE` and source-file `# SPDX-License-Identifier:` headers) is
+<!-- REUSE-IgnoreEnd -->
 `BSD-2-Clause`. *Application.* Confirm consistency across all source
 files. Standard licence; keep it.
 
