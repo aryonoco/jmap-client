@@ -867,51 +867,6 @@ block queryChangesResponseAddedInvalidIndex:
   assertErr QueryChangesResponse[MockFoo].fromJson(j)
 
 # ===========================================================================
-# I. Lenient Option helper tests
-# ===========================================================================
-
-block optStateLeniency:
-  ## Test optState helper with multiple inputs.
-  ## nil, JNull, wrong kind, empty string (invalid), valid string.
-  # nil node -- absent key
-  let absent = %*{"other": "val"}
-  doAssert optState(absent, "oldState").isNone
-  # JNull
-  let jnull = %*{"oldState": nil}
-  doAssert optState(jnull, "oldState").isNone
-  # Wrong kind (JInt)
-  let wrongKind = %*{"oldState": 42}
-  doAssert optState(wrongKind, "oldState").isNone
-  # Empty string (invalid for JmapState)
-  let emptyStr = %*{"oldState": ""}
-  doAssert optState(emptyStr, "oldState").isNone
-  # Valid string
-  let valid = %*{"oldState": "state1"}
-  let result = optState(valid, "oldState")
-  doAssert result.isSome
-  doAssert result.get() == makeState("state1")
-
-block optUnsignedIntLeniency:
-  ## Test optUnsignedInt helper with multiple inputs.
-  ## nil, JNull, wrong kind, negative (invalid), valid int.
-  # nil node -- absent key
-  let absent = %*{"other": "val"}
-  doAssert optUnsignedInt(absent, "total").isNone
-  # JNull
-  let jnull = %*{"total": nil}
-  doAssert optUnsignedInt(jnull, "total").isNone
-  # Wrong kind (JString)
-  let wrongKind = %*{"total": "42"}
-  doAssert optUnsignedInt(wrongKind, "total").isNone
-  # Negative (invalid for UnsignedInt)
-  let negative = %*{"total": -1}
-  doAssert optUnsignedInt(negative, "total").isNone
-  # Valid int
-  let valid = %*{"total": 100}
-  let result = optUnsignedInt(valid, "total")
-  doAssert result.isSome
-
-# ===========================================================================
 # J. SerializedSort / SerializedFilter distinct types
 # ===========================================================================
 

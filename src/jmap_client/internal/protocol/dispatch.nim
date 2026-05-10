@@ -87,7 +87,7 @@ func hash*[T](h: NameBoundHandle[T]): Hash =
 # Railway bridge: serde (SerdeViolation) → per-invocation (MethodError)
 # =============================================================================
 
-func serdeToMethodError*(
+func serdeToMethodError(
     rootType: string
 ): proc(sv: SerdeViolation): MethodError {.noSideEffect, raises: [].} =
   ## Returns a closure that translates a ``SerdeViolation`` into a

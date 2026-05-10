@@ -24,12 +24,12 @@ import ../../serialisation
 # Lenient Option helpers (internal, not exported)
 # =============================================================================
 
-func optState*(node: JsonNode, key: string): Opt[JmapState] =
+func optState(node: JsonNode, key: string): Opt[JmapState] =
   ## Lenient optional JmapState extraction (section 5a.5 leniency).
   ## Absent, null, wrong kind, or invalid content all produce none.
   return parseJmapState((?optJsonField(node, key, JString)).getStr("")).optValue
 
-func optUnsignedInt*(node: JsonNode, key: string): Opt[UnsignedInt] =
+func optUnsignedInt(node: JsonNode, key: string): Opt[UnsignedInt] =
   ## Lenient optional UnsignedInt extraction (section 5a.5 leniency).
   ## Absent, null, wrong kind, or invalid content all produce none.
   return parseUnsignedInt((?optJsonField(node, key, JInt)).getBiggestInt(0)).optValue
@@ -584,7 +584,7 @@ func toJson*[T](resp: CopyResponse[T]): JsonNode =
 # SetResponse merging helpers (section 8)
 # =============================================================================
 
-func mergeCreateResults*[T](
+func mergeCreateResults[T](
     node: JsonNode, path: JsonPath
 ): Result[Table[CreationId, Result[T, SetError]], SerdeViolation] =
   ## Merge wire ``created``/``notCreated`` maps into a unified Result table

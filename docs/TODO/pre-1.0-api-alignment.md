@@ -107,28 +107,79 @@ excluded from the public contract.
   reserved for implementation churn.
 - Update `jmap_client.nim`'s re-export tree to match.
 
-### A1b. Per-symbol audit of `protocol.nim` re-exports *(P5)*
+### A1b. Per-symbol audit of `protocol.nim` re-exports *(P5)* — **DONE**
 
-`protocol.nim` re-exports `entity`, `methods`, `dispatch`, `builder` as
-a single hub. A flatter "everything in protocol" exposes registration
-plumbing as a public commitment. Audit per module:
+`protocol.nim` previously did blanket `export entity, methods, dispatch,
+builder`, which made every `*` declaration anywhere under
+`internal/protocol/` an automatic 1.0 commitment. A1b narrows the
+re-export list to exactly the user-facing surface using Nim's
+`export module except sym1, sym2, …` form. Registration plumbing,
+pre-serialisation helpers, internal merge functions, and the
+stringly-typed `addInvocation` escape hatch (P19) are now hub-private
+without disturbing the `import jmap_client` symbol-resolution graph
+that selective `export module.symbol` re-exports were observed to
+break (the captured-fixture replay tests use `envelope.Response.fromJson(j)`
+to disambiguate from per-method response types — `envelope` collides
+with the `EmailSubmissionBlueprint.envelope*` UFCS accessor, and the
+resolver's outcome is sensitive to the export form).
 
-- `entity.nim` — `register*Entity` templates **public**;
-  `methodEntity`, `getMethodName`, `setMethodName`, `capabilityUri`,
-  and other typedesc-dispatch plumbing **internal** (strip `*`).
-- `methods.nim` — `GetRequest[T]`, `GetResponse[T]`, `SetRequest`,
-  `SetResponse`, `ChangesRequest`, `ChangesResponse`, `QueryRequest`,
-  `QueryResponse`, `CopyRequest`, `CopyResponse`, `QueryChangesRequest`,
-  `QueryChangesResponse` **public** (these are user-visible result
-  types). `serializeFilter`, `serializeSort`, `optState`,
-  `optUnsignedInt`, `applyXFromJson` and other helpers **internal**.
-- `dispatch.nim` — `ResponseHandle[T]`, `NameBoundHandle[T]`, `get[T]`,
-  `getAt`, `getByName` **public** (with sealing per A27); rest
-  internal.
-- `builder.nim` — `RequestBuilder`, `BuiltRequest` (per A7), `addGet`,
-  `addSet`, `addChanges`, `addQuery`, `addQueryChanges`, `addCopy`,
-  per-entity overloads **public**; `addInvocation*` **internal** (see
-  A14).
+**Final public surface per module**:
+
+- `entity.nim` — `registerJmapEntity`, `registerQueryableEntity`,
+  `registerSettableEntity` (3 templates). Per-entity overloads
+  (`methodEntity`, `getMethodName`, `setMethodName`, `capabilityUri`,
+  `filterType`, etc.) live in `internal/mail/mail_entities.nim` and
+  reach user code via `mail.nim`'s re-export chain because `mixin`
+  requires call-site visibility — out of scope for A1b's protocol-hub
+  audit.
+- `methods.nim` — request types `GetRequest`, `ChangesRequest`,
+  `SetRequest`, `CopyRequest`; response types `GetResponse`,
+  `ChangesResponse`, `SetResponse`, `CopyResponse`, `QueryResponse`,
+  `QueryChangesResponse`; copy disposition `CopyDestroyModeKind`,
+  `CopyDestroyMode`, `keepOriginals`, `destroyAfterSuccess`; serde
+  `toJson`, `fromJson`. Hub-private (stripped of `*`): `optState`,
+  `optUnsignedInt`, `mergeCreateResults`. Hub-private (`*` retained
+  for cross-internal use, filtered via `except`): `SerializedSort`,
+  `SerializedFilter`, `toJsonNode`, `serializeOptSort`,
+  `serializeOptFilter`, `serializeFilter`, `assembleQueryArgs`,
+  `assembleQueryChangesArgs`.
+- `dispatch.nim` — handle types `ResponseHandle`, `NameBoundHandle`,
+  `CompoundHandles`, `CompoundResults`, `ChainedHandles`,
+  `ChainedResults`; extraction `callId`, `get`, `getBoth`; references
+  `reference`, `idsRef`, `listIdsRef`, `addedIdsRef`, `createdRef`,
+  `updatedRef`; registration `registerCompoundMethod`,
+  `registerChainableMethod`; operators `==`, `$`, `hash`. Hub-private
+  (stripped of `*`): `serdeToMethodError`.
+- `builder.nim` — `RequestBuilder`, `initRequestBuilder`,
+  `methodCallCount`, `isEmpty`, `capabilities`, `build`, `addEcho`,
+  `addGet`, `addChanges`, `addSet`, `addCopy`, `addQuery`,
+  `addQueryChanges`, `directIds`, `initCreates`. Hub-private (`*`
+  retained for `mail_methods.nim` cross-internal callers, filtered
+  via `except`): `addInvocation` (the typed `add*` family is the
+  user surface; `addInvocation` would re-introduce the P19
+  stringly-typed escape hatch). A typed `BuiltRequest` wrapper
+  around `Request` is deferred to A7.
+
+**Audit mechanism** — three layers of enforcement:
+
+1. **`*`-stripping** — for symbols with no cross-module callers,
+   strip `*` so they are file-private. Tests that exercised them
+   directly relocate to whitebox files using Nim's `include`
+   directive (`tests/protocol/tmethods_whitebox.nim`,
+   `tests/protocol/tdispatch_whitebox.nim`). Tests are not a design
+   input — they follow the public/private boundary, they don't shape it.
+2. **`export module except sym, …`** — for symbols that retain `*`
+   because sibling `internal/...` modules need them, the hub
+   `protocol.nim` filters them out with `except`. Cross-internal
+   callers reach the symbol through direct internal imports;
+   `import jmap_client` does not.
+3. **Compile-time audit test** — `tests/compile/tcompile_a1b_protocol_hub_surface.nim`
+   asserts both presence and absence of every symbol via
+   `static: doAssert declared(...)` and `static: doAssert not
+   declared(...)`. Compilation success is the canonical signal that
+   the hub matches the agreed contract per P2.
+
+Future A1c, A1d, ... hub audits follow the same pattern.
 
 ### A2. Privatise `Invocation.arguments*` *(P19)*
 
