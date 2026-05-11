@@ -5,7 +5,7 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends \
        build-essential gcc fzf fd-find jq curl wget xz-utils tree libssl-dev \
        ripgrep bat shellcheck shfmt git-delta python3 sd \
-       eza du-dust hyperfine tokei bubblewrap socat \
+       eza du-dust hyperfine tokei bubblewrap socat ccache \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
