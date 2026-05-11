@@ -40,9 +40,11 @@ system.switch("experimental", "strictEffects")
 # =============================================================================
 
 # --- Correctness ---
-when not defined(nimMegatest):
-  # UnusedImport guarded: testament's auto-generated megatest.nim (-d:nimMegatest)
-  # imports split modules that trigger false-positive UnusedImport errors.
+when not (defined(nimMegatest) or defined(jmapLiveShard)):
+  # UnusedImport guarded: testament's auto-generated megatest.nim
+  # (-d:nimMegatest) and `just test-full`'s parallel live shards
+  # (-d:jmapLiveShard) both aggregate split test modules whose individual
+  # files trigger false-positive UnusedImport errors.
   system.switch("warningAsError", "UnusedImport")
 system.switch("warningAsError", "Deprecated")
 system.switch("warningAsError", "XIsNeverRead")
@@ -284,3 +286,18 @@ system.switch("assertions", "on")
 #   dynamicBindSym — enables runtime symbol lookup in macros via bindSym
 #     with a non-literal argument. Not needed; the project does not use
 #     dynamic macro symbol resolution.
+
+# =============================================================================
+# ccache acceleration — Debian ships /usr/lib/ccache/{gcc,g++,clang,...}
+# symlinks that re-exec ccache with the compiler name. Prepending this
+# directory to PATH routes Nim's unmodified `gcc.exe = "gcc"` invocation
+# through ccache transparently. Diagnostic-neutral: ccache replays
+# stdout/stderr verbatim on hit. Gated on directory presence so the
+# config is a no-op when ccache isn't installed.
+# =============================================================================
+
+import std/os
+
+const ccacheDir = "/usr/lib/ccache"
+if dirExists(ccacheDir):
+  putEnv("PATH", ccacheDir & ":" & getEnv("PATH"))
