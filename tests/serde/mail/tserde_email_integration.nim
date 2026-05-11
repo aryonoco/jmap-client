@@ -25,6 +25,7 @@ import jmap_client/internal/protocol/builder
 import jmap_client/internal/types/framework
 import jmap_client/internal/types/primitives
 import jmap_client/internal/types/validation
+import jmap_client/internal/types/envelope
 
 import ../../massertions
 import ../../mfixtures

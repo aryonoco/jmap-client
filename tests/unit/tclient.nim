@@ -15,9 +15,15 @@ when defined(ssl):
 import jmap_client/client
 import jmap_client/internal/types/envelope
 import jmap_client/internal/types/errors
+import jmap_client/internal/types/identifiers
 import jmap_client/internal/types/methods_enum
+import jmap_client/internal/types/primitives
 import jmap_client/internal/types/session
 import jmap_client/internal/types/validation
+import jmap_client/internal/protocol/builder
+import jmap_client/internal/protocol/call_meta
+import jmap_client/internal/mail/email
+import jmap_client/internal/mail/mail_entities
 
 import ../massertions
 import ../mfixtures
@@ -409,99 +415,82 @@ block validateLimitsExceedsCallLimit:
 block validateLimitsGetWithinLimit:
   ## Scenario 24: /get with 5 direct ids, maxObjectsInGet = 10 — within limit.
   let caps = makeCoreCapsWithLimits(maxObjectsInGet = 10)
-  var args = newJObject()
-  var ids = newJArray()
+  var ids = newSeq[Id](5)
   for i in 0 ..< 5:
-    ids.add(%("id" & $i))
-  args["ids"] = ids
-  let inv = initInvocation(mnEmailGet, args, makeMcid("c0"))
-  let req = makeRequest(methodCalls = @[inv])
-  validateLimits(req, caps).get()
+    ids[i] = Id("id" & $i)
+  let (b, _) = addGet[Email](
+    initRequestBuilder(), accountId = AccountId("a1"), ids = directIds(ids)
+  )
+  validateLimits(b, caps).get()
 
 block validateLimitsGetExceedsLimit:
   ## Scenario 25: /get with 11 direct ids, maxObjectsInGet = 10 — exceeds limit.
   let caps = makeCoreCapsWithLimits(maxObjectsInGet = 10)
-  var args = newJObject()
-  var ids = newJArray()
+  var ids = newSeq[Id](11)
   for i in 0 ..< 11:
-    ids.add(%("id" & $i))
-  args["ids"] = ids
-  let inv = initInvocation(mnEmailGet, args, makeMcid("c0"))
-  let req = makeRequest(methodCalls = @[inv])
-  let limR2 = validateLimits(req, caps)
+    ids[i] = Id("id" & $i)
+  let (b, _) = addGet[Email](
+    initRequestBuilder(), accountId = AccountId("a1"), ids = directIds(ids)
+  )
+  let limR2 = validateLimits(b, caps)
   doAssert limR2.isErr, "expected Err for exceeding maxObjectsInGet"
   doAssert limR2.error.typeName == "Request"
   doAssert "maxObjectsInGet" in limR2.error.message
 
 block validateLimitsGetReferenceIds:
-  ## Scenario 26: /get with reference ids (JObject, not JArray) — skipped.
+  ## Scenario 26: /get with reference ids — count unknown, skipped.
   let caps = makeCoreCapsWithLimits(maxObjectsInGet = 1)
-  var args = newJObject()
-  args["ids"] = newJObject() # JObject = result reference, not direct array
-  let inv = initInvocation(mnEmailGet, args, makeMcid("c0"))
-  let req = makeRequest(methodCalls = @[inv])
-  validateLimits(req, caps).get()
+  let rr = initResultReference(
+    resultOf = parseMethodCallId("c0").get(), name = mnEmailQuery, path = rpIds
+  )
+  let (b, _) = addGet[Email](
+    initRequestBuilder(),
+    accountId = AccountId("a1"),
+    ids = Opt.some(referenceTo[seq[Id]](rr)),
+  )
+  validateLimits(b, caps).get()
 
 block validateLimitsGetNullIds:
-  ## Scenario 27: /get with null ids — server decides; no limit check.
+  ## Scenario 27: /get with no ids parameter — idCount = 0.
   let caps = makeCoreCapsWithLimits(maxObjectsInGet = 1)
-  var args = newJObject()
-  args["ids"] = newJNull()
-  let inv = initInvocation(mnEmailGet, args, makeMcid("c0"))
-  let req = makeRequest(methodCalls = @[inv])
-  validateLimits(req, caps).get()
+  let (b, _) = addGet[Email](initRequestBuilder(), accountId = AccountId("a1"))
+  validateLimits(b, caps).get()
 
 block validateLimitsSetWithinLimit:
-  ## Scenario 28: /set with 3 create + 3 update + 3 destroy = 9, limit 10.
+  ## Scenario 28: /set with combined object count 9, limit 10 — within.
   let caps = makeCoreCapsWithLimits(maxObjectsInSet = 10)
-  var args = newJObject()
-  var create = newJObject()
-  for i in 0 ..< 3:
-    create["k" & $i] = newJObject()
-  args["create"] = create
-  var update = newJObject()
-  for i in 0 ..< 3:
-    update["id" & $i] = newJObject()
-  args["update"] = update
-  var destroy = newJArray()
-  for i in 0 ..< 3:
-    destroy.add(%("id" & $i))
-  args["destroy"] = destroy
-  let inv = initInvocation(mnMailboxSet, args, makeMcid("c0"))
-  let req = makeRequest(methodCalls = @[inv])
-  validateLimits(req, caps).get()
+  let (b, _) = initRequestBuilder().addInvocation(
+      mnMailboxSet,
+      newJObject(),
+      "urn:ietf:params:jmap:mail",
+      CallLimitMeta(kind: clmSet, objectCount: Opt.some(9)),
+    )
+  validateLimits(b, caps).get()
 
 block validateLimitsSetExceedsLimit:
-  ## Scenario 29: /set with 4 create + 4 update + 3 destroy = 11, limit 10.
+  ## Scenario 29: /set with combined object count 11, limit 10 — exceeds.
   let caps = makeCoreCapsWithLimits(maxObjectsInSet = 10)
-  var args = newJObject()
-  var create = newJObject()
-  for i in 0 ..< 4:
-    create["k" & $i] = newJObject()
-  args["create"] = create
-  var update = newJObject()
-  for i in 0 ..< 4:
-    update["id" & $i] = newJObject()
-  args["update"] = update
-  var destroy = newJArray()
-  for i in 0 ..< 3:
-    destroy.add(%("id" & $i))
-  args["destroy"] = destroy
-  let inv = initInvocation(mnMailboxSet, args, makeMcid("c0"))
-  let req = makeRequest(methodCalls = @[inv])
-  let limR3 = validateLimits(req, caps)
+  let (b, _) = initRequestBuilder().addInvocation(
+      mnMailboxSet,
+      newJObject(),
+      "urn:ietf:params:jmap:mail",
+      CallLimitMeta(kind: clmSet, objectCount: Opt.some(11)),
+    )
+  let limR3 = validateLimits(b, caps)
   doAssert limR3.isErr, "expected Err for exceeding maxObjectsInSet"
   doAssert limR3.error.typeName == "Request"
   doAssert "maxObjectsInSet" in limR3.error.message
 
 block validateLimitsSetReferenceDestroy:
-  ## Scenario 30: /set with reference destroy (JObject) — count excludes refs.
+  ## Scenario 30: /set with reference destroy — objectCount = Opt.none, skipped.
   let caps = makeCoreCapsWithLimits(maxObjectsInSet = 1)
-  var args = newJObject()
-  args["destroy"] = newJObject() # JObject = result reference, not direct array
-  let inv = initInvocation(mnMailboxSet, args, makeMcid("c0"))
-  let req = makeRequest(methodCalls = @[inv])
-  validateLimits(req, caps).get()
+  let (b, _) = initRequestBuilder().addInvocation(
+      mnMailboxSet,
+      newJObject(),
+      "urn:ietf:params:jmap:mail",
+      CallLimitMeta(kind: clmSet, objectCount: Opt.none(int)),
+    )
+  validateLimits(b, caps).get()
 
 block validateLimitsEmptyRequest:
   ## Scenario 31: empty Request with no method calls — trivially valid.
@@ -514,37 +503,33 @@ block validateLimitsMixedWithinLimits:
   let caps = makeCoreCapsWithLimits(
     maxCallsInRequest = 3, maxObjectsInGet = 10, maxObjectsInSet = 10
   )
-  var getArgs = newJObject()
-  var ids = newJArray()
+  var ids = newSeq[Id](5)
   for i in 0 ..< 5:
-    ids.add(%("id" & $i))
-  getArgs["ids"] = ids
-  var setArgs = newJObject()
-  var create = newJObject()
-  for i in 0 ..< 3:
-    create["k" & $i] = newJObject()
-  setArgs["create"] = create
-  let req = makeRequest(
-    methodCalls = @[
-      initInvocation(mnMailboxGet, getArgs, makeMcid("c0")),
-      initInvocation(mnEmailSet, setArgs, makeMcid("c1")),
-    ]
+    ids[i] = Id("id" & $i)
+  let (b1, _) = addGet[Email](
+    initRequestBuilder(), accountId = AccountId("a1"), ids = directIds(ids)
   )
-  validateLimits(req, caps).get()
+  let (b2, _) = b1.addInvocation(
+    mnEmailSet,
+    newJObject(),
+    "urn:ietf:params:jmap:mail",
+    CallLimitMeta(kind: clmSet, objectCount: Opt.some(3)),
+  )
+  validateLimits(b2, caps).get()
 
 block validateLimitsNonStandardMethod:
-  ## Scenario 33: non-standard method name — no per-invocation check applied.
+  ## Scenario 33: non-standard method name carries clmOther meta;
+  ## no per-call /get or /set check applied.
   let caps = makeCoreCapsWithLimits(
     maxCallsInRequest = 10, maxObjectsInGet = 1, maxObjectsInSet = 1
   )
-  var args = newJObject()
-  var ids = newJArray()
-  for i in 0 ..< 100:
-    ids.add(%("id" & $i))
-  args["ids"] = ids
-  let inv = parseInvocation("Vendor/customMethod", args, makeMcid("c0")).get()
-  let req = makeRequest(methodCalls = @[inv])
-  validateLimits(req, caps).get()
+  let (b, _) = initRequestBuilder().addInvocation(
+      mnUnknown,
+      newJObject(),
+      "urn:ietf:params:jmap:core",
+      CallLimitMeta(kind: clmOther),
+    )
+  validateLimits(b, caps).get()
 
 # ---------------------------------------------------------------------------
 # validateLimits — additional boundary and edge-case tests
@@ -553,75 +538,67 @@ block validateLimitsNonStandardMethod:
 block validateLimitsGetAtLimit:
   ## Boundary: /get with exactly 10 direct ids, maxObjectsInGet = 10 — at limit.
   let caps = makeCoreCapsWithLimits(maxObjectsInGet = 10)
-  var args = newJObject()
-  var ids = newJArray()
+  var ids = newSeq[Id](10)
   for i in 0 ..< 10:
-    ids.add(%("id" & $i))
-  args["ids"] = ids
-  let inv = initInvocation(mnEmailGet, args, makeMcid("c0"))
-  let req = makeRequest(methodCalls = @[inv])
-  validateLimits(req, caps).get()
+    ids[i] = Id("id" & $i)
+  let (b, _) = addGet[Email](
+    initRequestBuilder(), accountId = AccountId("a1"), ids = directIds(ids)
+  )
+  validateLimits(b, caps).get()
 
 block validateLimitsSetAtLimit:
-  ## Boundary: /set with 4 create + 3 update + 3 destroy = 10, limit 10 — at limit.
+  ## Boundary: /set with combined object count exactly 10, limit 10 — at limit.
   let caps = makeCoreCapsWithLimits(maxObjectsInSet = 10)
-  var args = newJObject()
-  var create = newJObject()
-  for i in 0 ..< 4:
-    create["k" & $i] = newJObject()
-  args["create"] = create
-  var update = newJObject()
-  for i in 0 ..< 3:
-    update["id" & $i] = newJObject()
-  args["update"] = update
-  var destroy = newJArray()
-  for i in 0 ..< 3:
-    destroy.add(%("id" & $i))
-  args["destroy"] = destroy
-  let inv = initInvocation(mnMailboxSet, args, makeMcid("c0"))
-  let req = makeRequest(methodCalls = @[inv])
-  validateLimits(req, caps).get()
+  let (b, _) = initRequestBuilder().addInvocation(
+      mnMailboxSet,
+      newJObject(),
+      "urn:ietf:params:jmap:mail",
+      CallLimitMeta(kind: clmSet, objectCount: Opt.some(10)),
+    )
+  validateLimits(b, caps).get()
 
 block validateLimitsGetEmptyIds:
-  ## Edge case: /get with empty ids array (0 ids) — within any limit.
+  ## Edge case: /get with empty ids array — idCount = 0.
   let caps = makeCoreCapsWithLimits(maxObjectsInGet = 1)
-  var args = newJObject()
-  args["ids"] = newJArray()
-  let inv = initInvocation(mnEmailGet, args, makeMcid("c0"))
-  let req = makeRequest(methodCalls = @[inv])
-  validateLimits(req, caps).get()
+  let (b, _) = addGet[Email](
+    initRequestBuilder(), accountId = AccountId("a1"), ids = directIds(newSeq[Id]())
+  )
+  validateLimits(b, caps).get()
 
 block validateLimitsSetEmptyArguments:
-  ## Edge case: /set with empty arguments — count = 0, within any limit.
+  ## Edge case: /set with object count 0 — within any limit.
   let caps = makeCoreCapsWithLimits(maxObjectsInSet = 1)
-  let inv = initInvocation(mnMailboxSet, newJObject(), makeMcid("c0"))
-  let req = makeRequest(methodCalls = @[inv])
-  validateLimits(req, caps).get()
+  let (b, _) = initRequestBuilder().addInvocation(
+      mnMailboxSet,
+      newJObject(),
+      "urn:ietf:params:jmap:mail",
+      CallLimitMeta(kind: clmSet, objectCount: Opt.some(0)),
+    )
+  validateLimits(b, caps).get()
 
 block validateLimitsSetOnlyDestroy:
-  ## Edge case: /set with only a destroy array (no create/update) — count = 3.
+  ## Edge case: /set with only destroy entries — count = 3.
   let caps = makeCoreCapsWithLimits(maxObjectsInSet = 5)
-  var args = newJObject()
-  var destroy = newJArray()
-  for i in 0 ..< 3:
-    destroy.add(%("id" & $i))
-  args["destroy"] = destroy
-  let inv = initInvocation(mnMailboxSet, args, makeMcid("c0"))
-  let req = makeRequest(methodCalls = @[inv])
-  validateLimits(req, caps).get()
+  let (b, _) = initRequestBuilder().addInvocation(
+      mnMailboxSet,
+      newJObject(),
+      "urn:ietf:params:jmap:mail",
+      CallLimitMeta(kind: clmSet, objectCount: Opt.some(3)),
+    )
+  validateLimits(b, caps).get()
 
 block validateLimitsMethodPartialMatch:
-  ## Edge case: method name contains "/get" but does not end with it.
-  ## endsWith("/get") must not match "Email/getter".
+  ## Edge case: a non-standard method name carrying clmOther meta is
+  ## not subject to per-call /get or /set enforcement, regardless of
+  ## the wire-name shape.
   let caps = makeCoreCapsWithLimits(maxObjectsInGet = 1, maxObjectsInSet = 1)
-  var args = newJObject()
-  var ids = newJArray()
-  for i in 0 ..< 100:
-    ids.add(%("id" & $i))
-  args["ids"] = ids
-  let inv = parseInvocation("Email/getter", args, makeMcid("c0")).get()
-  let req = makeRequest(methodCalls = @[inv])
-  validateLimits(req, caps).get()
+  let (b, _) = initRequestBuilder().addInvocation(
+      mnUnknown,
+      newJObject(),
+      "urn:ietf:params:jmap:core",
+      CallLimitMeta(kind: clmOther),
+    )
+  validateLimits(b, caps).get()
 
 # --- setSessionForTest ---
 

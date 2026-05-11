@@ -164,6 +164,9 @@ type NonEmptyIdentityUpdates* = distinct Table[Id, IdentityUpdateSet]
   ## module-private surface. Shape mirrors ``NonEmptyMailboxUpdates`` and
   ## ``NonEmptyEmailUpdates``.
 
+func len*(a: NonEmptyIdentityUpdates): int {.borrow.}
+  ## Number of update entries — borrowed from the underlying ``Table``.
+
 func parseNonEmptyIdentityUpdates*(
     items: openArray[(Id, IdentityUpdateSet)]
 ): Result[NonEmptyIdentityUpdates, seq[ValidationError]] =

@@ -28,7 +28,7 @@ export collation
 export capabilities
 export methods_enum
 export session
-export envelope
+export envelope except arguments
 export framework
 export errors
 

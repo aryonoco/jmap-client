@@ -228,6 +228,9 @@ type NonEmptyEmailSubmissionUpdates* = distinct Table[Id, EmailSubmissionUpdate]
   ## through ``IdOrCreationRef`` — this L1 type stays focused on
   ## resolved ``Id`` keys.
 
+func len*(a: NonEmptyEmailSubmissionUpdates): int {.borrow.}
+  ## Number of update entries — borrowed from the underlying ``Table``.
+
 func parseNonEmptyEmailSubmissionUpdates*(
     items: openArray[(Id, EmailSubmissionUpdate)]
 ): Result[NonEmptyEmailSubmissionUpdates, seq[ValidationError]] =

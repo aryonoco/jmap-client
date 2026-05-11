@@ -17,6 +17,7 @@ import std/uri
 import ./types
 import ./serialisation
 import ./internal/protocol/builder
+import ./internal/protocol/call_meta
 
 # Design §9.1 (D4.12): compile-time hint when -d:ssl is missing.
 # Uses {.hint:} rather than {.warning:} because config.nims promotes
@@ -407,52 +408,51 @@ func toValidationError(v: RequestLimitViolation): ValidationError =
     )
 
 func detectGetLimit(
-    inv: Invocation, maxGet: int64
+    meta: CallLimitMeta, methodName: string, maxGet: int64
 ): Result[void, RequestLimitViolation] =
-  ## Checks a /get invocation's direct ids count against maxObjectsInGet.
-  ## Reference ids (JObject) and absent/null ids are silently skipped.
-  if inv.arguments.isNil:
-    return ok()
-  let idsNode = inv.arguments{"ids"}
-  if not idsNode.isNil and idsNode.kind == JArray:
-    if int64(idsNode.len) > maxGet:
+  ## Enforces ``maxObjectsInGet`` from the typed ``idCount`` carried by
+  ## the builder. Reference-resolved ids (``Opt.none``) are silently
+  ## skipped — actual count is unknown until the server resolves the
+  ## back-reference, matching pre-A2c behaviour.
+  case meta.kind
+  of clmGet:
+    let n = meta.idCount.valueOr:
+      return ok()
+    if int64(n) > maxGet:
       return err(
         RequestLimitViolation(
           kind: rlvMaxObjectsInGet,
-          getMethodName: inv.rawName,
-          actualGetIds: idsNode.len,
+          getMethodName: methodName,
+          actualGetIds: n,
           maxGet: maxGet,
         )
       )
-  ok()
+    ok()
+  of clmSet, clmOther:
+    ok()
 
 func detectSetLimit(
-    inv: Invocation, maxSet: int64
+    meta: CallLimitMeta, methodName: string, maxSet: int64
 ): Result[void, RequestLimitViolation] =
-  ## Checks a /set invocation's combined create + update + destroy count
-  ## against maxObjectsInSet. Reference destroy (JObject) is silently skipped.
-  if inv.arguments.isNil:
-    return ok()
-  var count: int64 = 0
-  let createNode = inv.arguments{"create"}
-  if not createNode.isNil and createNode.kind == JObject:
-    count += int64(createNode.len)
-  let updateNode = inv.arguments{"update"}
-  if not updateNode.isNil and updateNode.kind == JObject:
-    count += int64(updateNode.len)
-  let destroyNode = inv.arguments{"destroy"}
-  if not destroyNode.isNil and destroyNode.kind == JArray:
-    count += int64(destroyNode.len)
-  if count > maxSet:
-    return err(
-      RequestLimitViolation(
-        kind: rlvMaxObjectsInSet,
-        setMethodName: inv.rawName,
-        actualSetObjects: count,
-        maxSet: maxSet,
+  ## Enforces ``maxObjectsInSet`` from the typed ``objectCount`` carried
+  ## by the builder. Reference-resolved destroy (``Opt.none``) is
+  ## silently skipped, matching pre-A2c behaviour.
+  case meta.kind
+  of clmSet:
+    let n = meta.objectCount.valueOr:
+      return ok()
+    if int64(n) > maxSet:
+      return err(
+        RequestLimitViolation(
+          kind: rlvMaxObjectsInSet,
+          setMethodName: methodName,
+          actualSetObjects: int64(n),
+          maxSet: maxSet,
+        )
       )
-    )
-  ok()
+    ok()
+  of clmGet, clmOther:
+    ok()
 
 func detectMaxCalls(
     request: Request, maxCalls: int64
@@ -469,28 +469,60 @@ func detectMaxCalls(
     )
   ok()
 
-func detectRequestLimits(
-    request: Request, caps: CoreCapabilities
+func detectRequestLimitsTyped(
+    request: Request, callLimits: seq[CallLimitMeta], caps: CoreCapabilities
 ): Result[void, RequestLimitViolation] =
-  ## Pre-flight composition: max-calls then per-invocation /get and /set
-  ## limits. Preserves pre-refactor traversal order.
+  ## Pre-flight composition for typed-builder callers: max-calls then
+  ## per-invocation /get and /set limits from typed ``CallLimitMeta``.
+  ## The parallel invariant ``request.methodCalls.len == callLimits.len``
+  ## is maintained by ``addInvocation*`` — the only function that
+  ## extends either field — so the loop indexes both safely.
   ?detectMaxCalls(request, int64(caps.maxCallsInRequest))
   let maxGet = int64(caps.maxObjectsInGet)
   let maxSet = int64(caps.maxObjectsInSet)
-  for inv in request.methodCalls:
-    if inv.rawName.endsWith("/get"):
-      ?detectGetLimit(inv, maxGet)
-    elif inv.rawName.endsWith("/set"):
-      ?detectSetLimit(inv, maxSet)
+  for i in 0 ..< callLimits.len:
+    let meta = callLimits[i]
+    let methodName = request.methodCalls[i].rawName
+    case meta.kind
+    of clmGet:
+      ?detectGetLimit(meta, methodName, maxGet)
+    of clmSet:
+      ?detectSetLimit(meta, methodName, maxSet)
+    of clmOther:
+      discard
+  ok()
+
+func detectRequestLimitsRaw(
+    request: Request, caps: CoreCapabilities
+): Result[void, RequestLimitViolation] =
+  ## Narrow pre-flight for raw-Request senders who do not have typed
+  ## ``CallLimitMeta`` available. Enforces ``maxCallsInRequest`` only;
+  ## per-call ``maxObjectsInGet`` / ``maxObjectsInSet`` cannot be
+  ## enforced from a raw ``Request`` because typed per-call counts are
+  ## not available — the typed builder is required for full validation.
+  detectMaxCalls(request, int64(caps.maxCallsInRequest))
+
+func validateLimits*(
+    builder: RequestBuilder, caps: CoreCapabilities
+): Result[void, ValidationError] =
+  ## Full pre-flight validation for a typed builder: enforces
+  ## ``maxCallsInRequest`` and per-call ``maxObjectsInGet`` /
+  ## ``maxObjectsInSet`` from typed ``CallLimitMeta``. Pure — no IO,
+  ## no mutation.
+  detectRequestLimitsTyped(builder.build(), builder.callLimits, caps).isOkOr:
+    return err(toValidationError(error))
   ok()
 
 func validateLimits*(
     request: Request, caps: CoreCapabilities
 ): Result[void, ValidationError] =
-  ## Pre-flight validation of a built Request against server-advertised
-  ## CoreCapabilities limits. Pure — no IO, no mutation.
-  ## Returns err describing the first violation.
-  detectRequestLimits(request, caps).isOkOr:
+  ## Narrow pre-flight validation for raw-Request senders: enforces
+  ## ``maxCallsInRequest`` only. Per-call ``maxObjectsInGet`` and
+  ## ``maxObjectsInSet`` cannot be enforced from a raw ``Request``
+  ## because typed per-call counts are not available; for full
+  ## pre-flight validation pass the typed ``RequestBuilder`` instead.
+  ## Pure — no IO, no mutation.
+  detectRequestLimitsRaw(request, caps).isOkOr:
     return err(toValidationError(error))
   ok()
 
@@ -638,35 +670,15 @@ proc fetchSession*(client: var JmapClient): JmapResult[Session] =
   client.session = Opt.some(s)
   return ok(s)
 
-proc send*(client: var JmapClient, request: Request): JmapResult[envelope.Response] =
-  ## Serialises a JMAP Request, POSTs to the server's apiUrl, and
-  ## deserialises the Response.
-  ##
-  ## Lazily fetches the session on first call if not yet cached.
-  ## Does NOT automatically refresh a stale session (D4.10).
-  ##
-  ## Returns err for transport/request failures, limit violations,
-  ## or invalid response JSON.
-
-  # Step 1: Ensure session available (may trigger IO)
-  if client.session.isNone:
-    discard ?client.fetchSession()
-  # Let-bind client.session into an immutable Opt so overload resolution
-  # picks the non-var `get` template (strict-safe). The `valueOr:` block
-  # produces a defined error path instead of the Defect that `.get()` would
-  # raise if the invariant were violated — critical for the FFI boundary
-  # (--panics:on would rawQuit(1) the host process on a Defect).
-  let sessionOpt = client.session
-  let session = sessionOpt.valueOr:
-    return err(
-      clientError(
-        transportError(tekNetwork, "session unavailable after fetchSession succeeded")
-      )
-    )
+proc performSend(
+    client: var JmapClient, request: Request, session: Session
+): JmapResult[envelope.Response] =
+  ## Internal: serialise + post-serialisation maxSizeRequest check +
+  ## HTTP POST + response classification + JSON parse + Response
+  ## decoding. Pre-flight validation (``validateLimits``) MUST happen
+  ## in the calling overload before invoking this; this proc does NOT
+  ## re-validate.
   let coreCaps = session.coreCapabilities()
-
-  # Step 2: Pre-flight validation
-  ?validateLimits(request, coreCaps).mapErr(validationToClientError)
 
   # Step 3: Serialise
   let jsonNode = request.toJson()
@@ -714,6 +726,25 @@ proc send*(client: var JmapClient, request: Request): JmapResult[envelope.Respon
         )
     )
 
+proc ensureSession(client: var JmapClient): JmapResult[Session] =
+  ## Internal: fetch the session lazily on first call, then return the
+  ## cached value. The let-bound ``Opt`` ensures the non-var ``get``
+  ## template is selected at the use site (strict-safe per
+  ## ``nim-type-safety.md`` Rule R-var). The ``valueOr:`` return path
+  ## produces a defined error path instead of the Defect that ``.get()``
+  ## would raise — critical for the FFI boundary (``--panics:on`` would
+  ## ``rawQuit(1)`` the host process on a Defect).
+  if client.session.isNone:
+    discard ?client.fetchSession()
+  let sessionOpt = client.session
+  let session = sessionOpt.valueOr:
+    return err(
+      clientError(
+        transportError(tekNetwork, "session unavailable after fetchSession succeeded")
+      )
+    )
+  ok(session)
+
 func isSessionStale*(client: JmapClient, response: envelope.Response): bool =
   ## Compares ``response.sessionState`` with the cached ``Session.state``.
   ## Returns ``true`` if they differ (session should be re-fetched).
@@ -735,14 +766,41 @@ proc refreshSessionIfStale*(
     return ok(true)
   return ok(false)
 
+proc send*(client: var JmapClient, request: Request): JmapResult[envelope.Response] =
+  ## Serialises a JMAP Request, POSTs to the server's apiUrl, and
+  ## deserialises the Response.
+  ##
+  ## Lazily fetches the session on first call if not yet cached.
+  ## Does NOT automatically refresh a stale session (D4.10).
+  ##
+  ## **Pre-flight validation is narrow.** Only ``maxCallsInRequest``
+  ## and ``maxSizeRequest`` are enforced from a raw ``Request`` —
+  ## per-call ``maxObjectsInGet`` / ``maxObjectsInSet`` cannot be
+  ## derived without typed ``CallLimitMeta``. Pass a ``RequestBuilder``
+  ## to the sibling overload for full per-call enforcement.
+  ##
+  ## Returns err for transport/request failures, limit violations,
+  ## or invalid response JSON.
+  let session = ?ensureSession(client)
+  let coreCaps = session.coreCapabilities()
+  ?validateLimits(request, coreCaps).mapErr(validationToClientError)
+  return performSend(client, request, session)
+
 proc send*(
     client: var JmapClient, builder: RequestBuilder
 ): JmapResult[envelope.Response] =
-  ## Convenience: builds the request and sends it in one step.
-  ## Equivalent to ``client.send(builder.build())``.
+  ## Builds the request, performs full pre-flight (including per-call
+  ## ``maxObjectsInGet`` / ``maxObjectsInSet`` from typed
+  ## ``CallLimitMeta``), then POSTs to the server's apiUrl and
+  ## deserialises the Response.
+  ##
+  ## Lazily fetches the session on first call if not yet cached.
   ## This is the imperative shell boundary where the functional core
   ## (builder) meets IO.
-  return client.send(builder.build())
+  let session = ?ensureSession(client)
+  let coreCaps = session.coreCapabilities()
+  ?validateLimits(builder, coreCaps).mapErr(validationToClientError)
+  return performSend(client, builder.build(), session)
 
 proc sendRawHttpForTesting*(
     client: var JmapClient, body: string

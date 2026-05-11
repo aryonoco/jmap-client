@@ -96,14 +96,11 @@ Access the Nim source code at /.nim-reference
 
 - `src/jmap_client.nim` — Library entry point (C ABI exports, Layer 5)
 - `src/jmap_client/types.nim` — Re-exports all Layer 1 modules
-- `src/jmap_client/validation.nim` — `ValidationError` (plain object for Result error rail), borrow templates, charset constants
-- `src/jmap_client/primitives.nim` — `Id`, `UnsignedInt`, `JmapInt`, `Date`, `UTCDate`, `MaxChanges`
-- `src/jmap_client/identifiers.nim` — `AccountId`, `JmapState`, `MethodCallId`, `CreationId`
-- `src/jmap_client/capabilities.nim` — `CapabilityKind`, `CoreCapabilities`, `ServerCapability`
-- `src/jmap_client/session.nim` — `AccountCapabilityEntry`, `Account`, `UriTemplate`, `Session`
-- `src/jmap_client/envelope.nim` — `Invocation`, `Request`, `Response`, `ResultReference`, `Referencable[T]`
-- `src/jmap_client/framework.nim` — `PropertyName`, `FilterOperator`, `Filter[C]`, `Comparator`, `AddedItem`
-- `src/jmap_client/errors.nim` — `TransportError`, `RequestError`, `ClientError`, `MethodError`, `SetError`
+- L1 modules under `src/jmap_client/internal/types/` (`validation`,
+  `primitives`, `identifiers`, `capabilities`, `session`, `envelope`,
+  `framework`, `errors`) — re-exported via `src/jmap_client/types.nim`.
+  See `docs/design/01-layer-1-design.md` for per-module symbol
+  inventory.
 - `src/jmap_client/client.nim` — HTTP client wrapper (Only Layer 4 file)
 - `src/jmap_client/mail` — RFC8621 JMAP Mail implementation
 - `tests/` — Test modules (categories: `unit/`, `serde/`, `property/`, `compliance/`, `stress/`)

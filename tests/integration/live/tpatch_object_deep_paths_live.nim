@@ -31,6 +31,7 @@ import jmap_client
 import jmap_client/client
 import jmap_client/internal/mail/identity as jidentity
 import jmap_client/internal/mail/mailbox as jmailbox
+import jmap_client/internal/types/envelope
 import ./mcapture
 import ./mconfig
 import ./mlive

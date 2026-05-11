@@ -13,6 +13,7 @@
 {.push raises: [].}
 
 import jmap_client
+import jmap_client/internal/types/envelope
 import ./mloader
 
 block tcapturedMethodErrorInvalidResultReference:

@@ -19,6 +19,7 @@ import jmap_client/internal/mail/mail_entities
 import jmap_client/internal/mail/mail_builders
 import jmap_client/internal/mail/mail_methods
 import jmap_client/internal/mail/vacation
+import jmap_client/internal/types/envelope
 
 import ../massertions
 import ../mfixtures

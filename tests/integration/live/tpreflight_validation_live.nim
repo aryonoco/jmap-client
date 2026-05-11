@@ -51,9 +51,9 @@ block tpreflightValidationLive:
     # ``addGet[Mailbox]``.
     block maxObjectsInGetCase:
       let idCount = int(caps.maxObjectsInGet) + 1
-      let req = buildOversizedRequest(mailAccountId, idCount)
+      let builder = buildOversizedRequest(mailAccountId, idCount)
       let bufBefore = client.lastRawResponseBody.len
-      let res = client.send(req)
+      let res = client.send(builder)
       assertOn target, res.isErr, "validateLimits must reject oversize Mailbox/get ids"
       assertOn target,
         "maxObjectsInGet" in res.error.message,
@@ -122,9 +122,8 @@ block tpreflightValidationLive:
         createTbl[cid] = blueprint
       let (b, _) =
         addEmailSet(initRequestBuilder(), mailAccountId, create = Opt.some(createTbl))
-      let req = b.build()
       let bufBefore = client.lastRawResponseBody.len
-      let res = client.send(req)
+      let res = client.send(b)
       assertOn target,
         res.isErr, "validateLimits must reject oversize Email/set creates"
       assertOn target,

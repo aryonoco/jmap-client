@@ -19,14 +19,20 @@ import ./primitives
 import ./validation
 
 # nimalyzer: Invocation intentionally has no public fields.
-# rawName / rawMethodCallId are module-private so construction flows
-# through ``initInvocation`` (typed, infallible) or ``parseInvocation``
-# (string-taking, fallible at the wire). Public accessor funcs below
-# provide read access; UFCS keeps the ``inv.name`` spelling unchanged.
+# arguments / rawName / rawMethodCallId are module-private so construction
+# flows through ``initInvocation`` (typed, infallible) or ``parseInvocation``
+# (string-taking, fallible at the wire). Public accessor funcs below provide
+# read access; UFCS keeps the ``inv.name`` spelling unchanged. The
+# ``arguments`` accessor is exported from this module so internal consumers
+# (``internal/serialisation/serde_envelope.nim``, ``internal/protocol/dispatch.nim``,
+# ``internal/protocol/builder.nim``) can reach the JsonNode payload, but the
+# hub (``src/jmap_client/types.nim``) re-exports ``envelope except arguments``
+# per P19 — application developers must not reach raw JsonNode args via
+# ``import jmap_client``; ``inv.toJson`` is the supported diagnostic path.
 type Invocation* {.ruleOff: "objects".} = object
   ## A method call or response tuple (RFC 8620 section 3.2). Serialised as a
   ## 3-element JSON array by Layer 2.
-  arguments*: JsonNode ## named arguments — always a JObject at the wire level
+  arguments: JsonNode ## module-private; named arguments — always a JObject
   rawMethodCallId: string ## module-private; always a validated MethodCallId
   rawName: string ## module-private; always a non-empty wire-format name
 
@@ -39,6 +45,17 @@ func name*(inv: Invocation): MethodName =
   ## library doesn't recognise (forward compatibility — ``rawName`` preserves
   ## the verbatim string for lossless round-trip).
   return parseMethodName(inv.rawName)
+
+func arguments*(inv: Invocation): JsonNode =
+  ## Returns the named arguments JsonNode for this invocation (always
+  ## a JObject per RFC 8620 §3.2). Exported from this module for the
+  ## dispatcher, serde, and builder internals; the hub re-export
+  ## (``src/jmap_client/types.nim``) excludes this symbol so application
+  ## developers cannot reach raw JsonNode args via ``import jmap_client``.
+  ## Application developers consume typed responses through the
+  ## dispatcher and ``RequestBuilder``; for diagnostic emission of the
+  ## wire shape, use ``inv.toJson``.
+  return inv.arguments
 
 func rawName*(inv: Invocation): string =
   ## Verbatim wire name. Always non-empty (enforced at construction).

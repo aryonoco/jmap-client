@@ -17,6 +17,7 @@ import ../../serialisation
 import ../protocol/methods
 import ../protocol/dispatch
 import ../protocol/builder
+import ../protocol/call_meta
 import ./vacation
 import ./snippet
 import ./email
@@ -53,8 +54,12 @@ func addVacationResponseGet*(
     accountId: accountId, ids: Opt.none(Referencable[seq[Id]]), properties: properties
   )
   let args = req.toJson()
-  let (newBuilder, callId) =
-    b.addInvocation(mnVacationResponseGet, args, VacationResponseCapUri)
+  let (newBuilder, callId) = b.addInvocation(
+    mnVacationResponseGet,
+    args,
+    VacationResponseCapUri,
+    CallLimitMeta(kind: clmGet, idCount: Opt.some(1)),
+  )
   return (newBuilder, ResponseHandle[GetResponse[VacationResponse]](callId))
 
 # =============================================================================
@@ -77,8 +82,12 @@ func addVacationResponseSet*(
   var updateMap = newJObject()
   updateMap[VacationResponseSingletonId] = update.toJson()
   args["update"] = updateMap
-  let (newBuilder, callId) =
-    b.addInvocation(mnVacationResponseSet, args, VacationResponseCapUri)
+  let (newBuilder, callId) = b.addInvocation(
+    mnVacationResponseSet,
+    args,
+    VacationResponseCapUri,
+    CallLimitMeta(kind: clmSet, objectCount: Opt.some(1)),
+  )
   return (newBuilder, ResponseHandle[SetResponse[VacationResponse]](callId))
 
 # =============================================================================

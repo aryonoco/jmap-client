@@ -27,6 +27,7 @@ import ../../types
 import ../../serialisation
 import ./methods
 import ./dispatch
+import ./call_meta
 
 # =============================================================================
 # RequestBuilder type
@@ -39,6 +40,8 @@ type RequestBuilder* = object
   ## section 3.3).
   nextCallId: int ## monotonic counter for "c0", "c1", ...
   invocations: seq[Invocation] ## accumulated method calls
+  callLimits: seq[CallLimitMeta]
+    ## per-call object-count metadata, parallel to invocations
   capabilityUris: seq[string] ## deduplicated capability URIs
 
 {.pop.}
@@ -54,7 +57,10 @@ func initRequestBuilder*(): RequestBuilder =
   ## ``unknownMethod (Missing capability(ies): urn:ietf:params:jmap:core)``.
   ## Pre-declaring it makes the client portable across both.
   return RequestBuilder(
-    nextCallId: 0, invocations: @[], capabilityUris: @["urn:ietf:params:jmap:core"]
+    nextCallId: 0,
+    invocations: @[],
+    callLimits: @[],
+    capabilityUris: @["urn:ietf:params:jmap:core"],
   )
 
 # =============================================================================
@@ -72,6 +78,15 @@ func isEmpty*(b: RequestBuilder): bool =
 func capabilities*(b: RequestBuilder): seq[string] =
   ## Snapshot of the deduplicated capability URIs registered so far.
   return b.capabilityUris
+
+func callLimits*(b: RequestBuilder): seq[CallLimitMeta] =
+  ## Per-call limit metadata, parallel to ``b.build().methodCalls``.
+  ## Internal-only API — used by ``client.validateLimits(builder, caps)``
+  ## to enforce server-declared ``maxObjectsInGet`` and
+  ## ``maxObjectsInSet`` from typed counts rather than raw JSON
+  ## traversal of ``inv.arguments``. Excluded from the hub re-export
+  ## (``protocol.nim``); reachable only via direct internal import.
+  return b.callLimits
 
 # =============================================================================
 # Build — pure snapshot
@@ -105,16 +120,24 @@ func withCapability(caps: seq[string], cap: string): seq[string] =
     caps & @[cap]
 
 func addInvocation*(
-    b: RequestBuilder, name: MethodName, args: JsonNode, capability: string
+    b: RequestBuilder,
+    name: MethodName,
+    args: JsonNode,
+    capability: string,
+    meta: CallLimitMeta = CallLimitMeta(kind: clmOther),
 ): (RequestBuilder, MethodCallId) =
   ## Constructs an Invocation and returns a new builder with it accumulated.
   ## ``name`` is typed — illegal (empty) names are structurally impossible.
+  ## ``meta`` records the per-call object-count signature for
+  ## ``client.validateLimits``; defaults to ``clmOther`` (no per-call
+  ## object-count limit applies).
   let callId = b.nextId()
   let inv = initInvocation(name, args, callId)
   return (
     RequestBuilder(
       nextCallId: b.nextCallId + 1,
       invocations: b.invocations & @[inv],
+      callLimits: b.callLimits & @[meta],
       capabilityUris: withCapability(b.capabilityUris, capability),
     ),
     callId,
@@ -175,7 +198,16 @@ func addGet*[T](
   var args = req.toJson()
   for (k, v) in extras:
     args[k] = v
-  let (newBuilder, callId) = addInvocation(b, getMethodName(T), args, capabilityUri(T))
+  var idCount = Opt.some(0)
+  for r in ids:
+    case r.kind
+    of rkDirect:
+      idCount = Opt.some(r.value.len)
+    of rkReference:
+      idCount = Opt.none(int)
+  let meta = CallLimitMeta(kind: clmGet, idCount: idCount)
+  let (newBuilder, callId) =
+    addInvocation(b, getMethodName(T), args, capabilityUri(T), meta)
   (newBuilder, ResponseHandle[GetResponse[T]](callId))
 
 # =============================================================================
@@ -230,9 +262,10 @@ func addSet*[T, C, U, R](
   ## value, ``U`` = whole-container update algebra, ``R`` = response type.
   ## Entity-specific extension keys are supplied via ``extras`` and
   ## appended to the args after the standard frame (insertion order
-  ## preserved). ``setMethodName``, ``capabilityUri``, ``C.toJson``, and
-  ## ``U.toJson`` all resolve at instantiation via ``mixin``.
-  mixin setMethodName, capabilityUri, toJson
+  ## preserved). ``setMethodName``, ``capabilityUri``, ``C.toJson``,
+  ## ``U.toJson``, and ``U.len`` all resolve at instantiation via
+  ## ``mixin``.
+  mixin setMethodName, capabilityUri, toJson, len
   let req = SetRequest[T, C, U](
     accountId: accountId,
     ifInState: ifInState,
@@ -243,7 +276,26 @@ func addSet*[T, C, U, R](
   var args = req.toJson()
   for (k, v) in extras:
     args[k] = v
-  let (newBuilder, callId) = addInvocation(b, setMethodName(T), args, capabilityUri(T))
+  var n = 0
+  var anyReference = false
+  for c in create:
+    n += c.len
+  for u in update:
+    n += u.len
+  for d in destroy:
+    case d.kind
+    of rkDirect:
+      n += d.value.len
+    of rkReference:
+      anyReference = true
+  let objectCount: Opt[int] =
+    if anyReference:
+      Opt.none(int)
+    else:
+      Opt.some(n)
+  let meta = CallLimitMeta(kind: clmSet, objectCount: objectCount)
+  let (newBuilder, callId) =
+    addInvocation(b, setMethodName(T), args, capabilityUri(T), meta)
   (newBuilder, ResponseHandle[R](callId))
 
 # =============================================================================
@@ -266,6 +318,8 @@ func addCopy*[T, CopyItem, R](
   ## ``extras`` and are appended to the args after the standard frame
   ## (insertion order preserved). ``copyMethodName``, ``capabilityUri``,
   ## and ``CopyItem.toJson`` resolve at instantiation via ``mixin``.
+  ## Per RFC 8620 §5.4, /copy is a /set-class operation; the meta carries
+  ## ``objectCount = Opt.some(create.len)``.
   mixin copyMethodName, capabilityUri, toJson
   let req = CopyRequest[T, CopyItem](
     fromAccountId: fromAccountId,
@@ -278,7 +332,9 @@ func addCopy*[T, CopyItem, R](
   var args = req.toJson()
   for (k, v) in extras:
     args[k] = v
-  let (newBuilder, callId) = addInvocation(b, copyMethodName(T), args, capabilityUri(T))
+  let meta = CallLimitMeta(kind: clmSet, objectCount: Opt.some(create.len))
+  let (newBuilder, callId) =
+    addInvocation(b, copyMethodName(T), args, capabilityUri(T), meta)
   (newBuilder, ResponseHandle[R](callId))
 
 # =============================================================================

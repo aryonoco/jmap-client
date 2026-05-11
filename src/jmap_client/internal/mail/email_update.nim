@@ -287,6 +287,9 @@ type NonEmptyEmailUpdates* = distinct Table[Id, EmailUpdateSet]
   ## the container via its own ``toJson`` rather than assembling the wire
   ## patch per-caller.
 
+func len*(a: NonEmptyEmailUpdates): int {.borrow.}
+  ## Number of update entries — borrowed from the underlying ``Table``.
+
 func parseNonEmptyEmailUpdates*(
     items: openArray[(Id, EmailUpdateSet)]
 ): Result[NonEmptyEmailUpdates, seq[ValidationError]] =

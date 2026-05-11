@@ -21,6 +21,7 @@ import jmap_client/internal/protocol/builder
 import jmap_client/client
 import jmap_client/internal/mail/mail_builders
 import jmap_client/internal/mail/mailbox
+import jmap_client/internal/types/envelope
 
 import ../massertions
 import ../mfixtures

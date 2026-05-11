@@ -396,6 +396,9 @@ type NonEmptyMailboxUpdates* = distinct Table[Id, MailboxUpdateSet]
   ## ``addSet[Mailbox, ...]`` serialises the container via its own
   ## ``toJson`` rather than assembling the wire patch per-caller.
 
+func len*(a: NonEmptyMailboxUpdates): int {.borrow.}
+  ## Number of update entries — borrowed from the underlying ``Table``.
+
 func parseNonEmptyMailboxUpdates*(
     items: openArray[(Id, MailboxUpdateSet)]
 ): Result[NonEmptyMailboxUpdates, seq[ValidationError]] =

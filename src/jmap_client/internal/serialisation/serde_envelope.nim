@@ -12,6 +12,7 @@ import std/tables
 
 import ./serde
 import ../../types
+import ../types/envelope
 
 # =============================================================================
 # Invocation

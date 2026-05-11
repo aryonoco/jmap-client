@@ -19,6 +19,7 @@ import jmap_client/internal/protocol/dispatch
 import jmap_client/internal/protocol/builder
 import jmap_client/internal/protocol/entity
 import jmap_client/convenience
+import jmap_client/internal/types/envelope
 
 import ../massertions
 import ../mfixtures

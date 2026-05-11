@@ -18,6 +18,7 @@ import jmap_client/internal/protocol/builder
 import jmap_client/internal/types/methods_enum
 import jmap_client/internal/mail/identity
 import jmap_client/internal/mail/identity_builders
+import jmap_client/internal/types/envelope
 
 import ../massertions
 import ../mfixtures

@@ -181,14 +181,63 @@ resolver's outcome is sensitive to the export form).
 
 Future A1c, A1d, ... hub audits follow the same pattern.
 
-### A2. Privatise `Invocation.arguments*` *(P19)*
+### A2. Privatise `Invocation.arguments*` *(P19, P5, P8, P25)* — **DONE**
 
-`src/jmap_client/envelope.nim:29`. The `arguments*: JsonNode` field is
-public and mutable — a stringly-typed back door that locks every future
-`toJson` change against a 2.0. The `rawName` and `rawMethodCallId`
-fields are already module-private; mirror that for `arguments`. Provide
-an accessor + a typed `withArguments(...)` setter for the rare
-diagnostic case.
+`src/jmap_client/internal/types/envelope.nim:29`. Mirrors the
+already-private `rawName` / `rawMethodCallId` siblings: the
+`arguments` field is module-private, with a `func arguments*(inv:
+Invocation): JsonNode` accessor exported from envelope.nim for
+internal consumers (`internal/serialisation/serde_envelope.nim`,
+`internal/protocol/dispatch.nim`, `internal/protocol/builder.nim`).
+The hub re-export (`src/jmap_client/types.nim`) excludes the
+accessor via `export envelope except arguments`, so application
+developers doing `import jmap_client` cannot reach raw JsonNode
+args; typed accessors (`name`, `methodCallId`, `toJson`) are the
+only public surface. **No `withArguments` setter was added** — the
+original sketch's "diagnostic / replay" framing was the libdbus
+stringly-typed back door; replay flows through `parseInvocation`
+from captured wire bytes, construction flows through
+`RequestBuilder`, and there is no JsonNode-shaped mutation API on
+`Invocation`. The seal is verified in both directions by
+`tests/compile/tcompile_a2_invocation_hub_surface.nim` (sealed from
+`import jmap_client`) and
+`tests/compile/tcompile_a2_invocation_internal_access.nim`
+(reachable via direct internal import).
+
+**Scope expanded during planning.** The same commit also closed
+two related smells whose deferral would have left A2's anti-pattern
+alive in adjacent code:
+
+- *L1-relocation drift in CLAUDE.md.* A1 moved L1 modules to
+  `internal/types/` but CLAUDE.md still listed pre-relocation paths.
+  Updated the "Important Directories" section so the agent-facing
+  instruction file no longer misdirects.
+- *L4 raw-args reads in `src/jmap_client/client.nim:409–455`.*
+  `detectGetLimit` / `detectSetLimit` walked `inv.arguments`
+  JsonNode keys to count ids / create / update / destroy and enforce
+  `maxObjectsInGet` / `maxObjectsInSet`. Replaced with typed
+  `CallLimitMeta` threaded through `RequestBuilder` (private
+  `callLimits` field + `callLimits*` accessor; new internal-only
+  module `internal/protocol/call_meta.nim`). Each `add*` builder
+  constructs the typed metadata from its typed inputs. The 4
+  NonEmpty*Updates wrappers (`NonEmptyIdentityUpdates`,
+  `NonEmptyEmailUpdates`, `NonEmptyEmailSubmissionUpdates`,
+  `NonEmptyMailboxUpdates`) gained a borrowed `len*` so the generic
+  `addSet[T, C, U, R]` resolves `u.len` at instantiation via
+  `mixin len`.
+  Post-condition: `rg 'inv\.arguments' src/` matches only
+  `internal/serialisation/serde_envelope.nim` (L2 wire boundary)
+  and `internal/protocol/dispatch.nim` (L3 typed-decoding boundary).
+
+The two `validateLimits*` overloads in `client.nim` are now
+asymmetric by design: `validateLimits(builder, caps)` performs full
+pre-flight (max-calls + per-call /get + per-call /set);
+`validateLimits(request, caps)` (the lower-level escape hatch used
+by raw-Request senders) enforces only `maxCallsInRequest`.
+Documented in both docstrings — the asymmetry is the visible cost
+of refusing to walk wire shape for type-derivable information.
+`send(client, builder)` routes through the builder-aware overload;
+`send(client, request)` routes through the narrow overload.
 
 ### A3. Type `GetResponse[T].list` *(P19)*
 

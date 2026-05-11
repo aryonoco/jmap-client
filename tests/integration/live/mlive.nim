@@ -1460,16 +1460,21 @@ proc sendRawInvocation*(
   )
   client.send(req)
 
-proc buildOversizedRequest*(accountId: AccountId, idCount: int): Request {.used.} =
-  ## Builds a ``Mailbox/get`` Request carrying ``idCount`` synthetic ids,
-  ## suitable for driving ``validateLimits`` past ``maxObjectsInGet``.
-  ## The synthetic ids are valid ``Id`` shapes (1–255 octets, no control
-  ## chars) so construction never fails. Used by Phase J Step 64.
+proc buildOversizedRequest*(
+    accountId: AccountId, idCount: int
+): RequestBuilder {.used.} =
+  ## Builds a ``Mailbox/get`` ``RequestBuilder`` carrying ``idCount``
+  ## synthetic ids, suitable for driving ``validateLimits(builder,
+  ## caps)`` past ``maxObjectsInGet``. The synthetic ids are valid
+  ## ``Id`` shapes (1–255 octets, no control chars) so construction
+  ## never fails. Returns the builder so callers reach the typed
+  ## per-call validation path via ``client.send(builder)``. Used by
+  ## Phase J Step 64.
   var ids = newSeq[Id](idCount)
   for i in 0 ..< idCount:
     ids[i] = Id("phaseJsynth" & $i)
   let (b, _) = addGet[Mailbox](initRequestBuilder(), accountId, ids = directIds(ids))
-  b.build()
+  b
 
 func injectBrokenBackReference*(
     arguments: JsonNode,

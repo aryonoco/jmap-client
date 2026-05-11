@@ -26,6 +26,7 @@ import std/json
 
 import ../../types
 import ../../serialisation
+import ../types/envelope
 import ./methods
 
 # =============================================================================
