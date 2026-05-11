@@ -101,8 +101,7 @@ block temailGetBodyPropertiesAllLive:
         "Email/get bodyProperties+bvsAll extract[" & $target.kind & "]"
       )
     assertOn target, getResp.list.len == 1, "Email/get must return the seeded message"
-    let email =
-      Email.fromJson(getResp.list[0]).expect("Email.fromJson[" & $target.kind & "]")
+    let email = getResp.list[0]
     assertOn target,
       email.bodyStructure.isSome,
       "bodyStructure must be present when explicitly requested"

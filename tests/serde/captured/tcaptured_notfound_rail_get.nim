@@ -34,7 +34,7 @@ block tcapturedNotfoundRailGet:
     doAssert getResp.notFound[0] == Id("zzzzzz"),
       "notFound id must round-trip byte-for-byte; got " & $getResp.notFound
 
-    let email = Email.fromJson(getResp.list[0]).expect("Email.fromJson")
+    let email = getResp.list[0]
     doAssert email.subject.isSome,
       "the real Email's subject must round-trip through Email.fromJson"
     doAssert email.subject.unsafeGet == "phase-j 66 notFound",

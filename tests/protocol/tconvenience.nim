@@ -53,6 +53,13 @@ template filterType*(T: typedesc[MockQueryable]): typedesc =
 proc toJson(c: MockFilter): JsonNode {.noSideEffect, raises: [].} =
   %*{"mock": true}
 
+func fromJson*(
+    T: typedesc[MockQueryable], node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[MockQueryable, SerdeViolation] =
+  discard $T
+  ?expectKind(node, JObject, path)
+  ok(MockQueryable())
+
 registerJmapEntity(MockQueryable)
 registerQueryableEntity(MockQueryable)
 

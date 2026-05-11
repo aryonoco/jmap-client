@@ -17,6 +17,7 @@ import std/json
 import results
 import jmap_client
 import jmap_client/client
+import jmap_client/internal/types/envelope
 import ./mcapture
 import ./mconfig
 import ./mlive
@@ -38,9 +39,9 @@ block tmultiInstanceEnvelopeLive:
     # - call 1: minimal sparse subset
     # - call 2: counts subset
     let (b1, fullHandle) = addGet[Mailbox](initRequestBuilder(), mailAccountId)
-    let (b2, sparseHandle) =
+    let (b2, _) =
       addGet[Mailbox](b1, mailAccountId, properties = Opt.some(@["id", "name"]))
-    let (b3, countsHandle) = addGet[Mailbox](
+    let (b3, _) = addGet[Mailbox](
       b2, mailAccountId, properties = Opt.some(@["id", "role", "totalEmails"])
     )
     let resp =
@@ -58,43 +59,41 @@ block tmultiInstanceEnvelopeLive:
     assertOn target, resp.methodResponses[1].rawName == "Mailbox/get"
     assertOn target, resp.methodResponses[2].rawName == "Mailbox/get"
 
-    # Each handle resolves its own response, even though all three
-    # invocations share the same method name.
+    # Full record uses the public typed entry point. Sparse + counts
+    # are sparse projections, which have no public application-API
+    # path until A3.6 ships PartialT types; this test inspects the
+    # server's wire shape directly via the internal envelope module
+    # (A2 seal — not part of the public surface, reachable only
+    # through ``jmap_client/internal/types/envelope`` imported above).
     let fullResp =
       resp.get(fullHandle).expect("Mailbox/get full extract[" & $target.kind & "]")
-    let sparseResp =
-      resp.get(sparseHandle).expect("Mailbox/get sparse extract[" & $target.kind & "]")
-    let countsResp =
-      resp.get(countsHandle).expect("Mailbox/get counts extract[" & $target.kind & "]")
+    let sparseInv = resp.methodResponses[1]
+    let countsInv = resp.methodResponses[2]
+    let sparseList = sparseInv.arguments{"list"}.getElems(@[])
+    let countsList = countsInv.arguments{"list"}.getElems(@[])
 
     assertOn target, fullResp.list.len >= 1, "full Mailbox/get must surface mailboxes"
+    assertOn target, sparseList.len >= 1, "sparse Mailbox/get must surface mailboxes"
+    assertOn target, countsList.len >= 1, "counts Mailbox/get must surface mailboxes"
     assertOn target,
-      sparseResp.list.len >= 1, "sparse Mailbox/get must surface mailboxes"
-    assertOn target,
-      countsResp.list.len >= 1, "counts Mailbox/get must surface mailboxes"
-    assertOn target,
-      fullResp.list.len == sparseResp.list.len,
+      fullResp.list.len == sparseList.len,
       "all three /get calls target the same account, list lengths must match"
     assertOn target,
-      sparseResp.list.len == countsResp.list.len,
+      sparseList.len == countsList.len,
       "all three /get calls target the same account, list lengths must match"
 
-    # Library contract: full records parse through Mailbox.fromJson.
-    # Sparse responses (RFC 8621 §2.1 ``properties`` filter) carry
-    # only the requested properties plus ``id`` — Stalwart 0.15.5
-    # respects this strictly, returning ``{id, name}`` for call 1
-    # and ``{id, role, totalEmails}`` for call 2.  Mailbox.fromJson
-    # is a full-record parser (most fields non-Opt per RFC 8621
-    # §2.1), so sparse projection is verified at the JsonNode level
-    # — fields requested are present, fields not requested are
-    # absent.  The library's typed surface targets full records;
-    # consumers that need sparse support extract fields directly.
-    for node in fullResp.list:
-      discard Mailbox.fromJson(node).expect(
-          "Mailbox.fromJson full record[" & $target.kind & "]"
-        )
-    assertOn target, sparseResp.list.len > 0
-    for node in sparseResp.list:
+    # Library contract: full records flow through Mailbox.fromJson on
+    # the public typed entry point. Sparse responses (RFC 8621 §2.1
+    # ``properties`` filter) carry only the requested properties plus
+    # ``id``. Mailbox.fromJson is a full-record parser (most fields
+    # non-Opt per RFC 8621 §2.1), so sparse projections are verified
+    # here via diagnostic access to the internal envelope module —
+    # fields requested are present, fields not requested are absent.
+    # Application code has no public path to this assertion; future
+    # PartialMailbox (A3.6) closes the public-surface gap additively.
+    for mb in fullResp.list:
+      assertOn target, mb.name.len > 0, "full Mailbox.fromJson must populate name"
+    for node in sparseList:
       assertOn target, node.kind == JObject, "sparse Mailbox record must be JObject"
       assertOn target, node.hasKey("id"), "sparse record must carry id"
       assertOn target,
@@ -102,8 +101,7 @@ block tmultiInstanceEnvelopeLive:
       assertOn target,
         not node.hasKey("myRights"),
         "sparse record must NOT carry myRights (not requested)"
-    assertOn target, countsResp.list.len > 0
-    for node in countsResp.list:
+    for node in countsList:
       assertOn target, node.kind == JObject, "counts Mailbox record must be JObject"
       assertOn target, node.hasKey("id"), "counts record must carry id"
       assertOn target,

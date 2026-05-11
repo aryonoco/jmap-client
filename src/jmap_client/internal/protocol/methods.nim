@@ -8,8 +8,20 @@
 ## ``fromJson`` (Pattern L3-B). Serialisation is unidirectional (Decision D3.7).
 ## ``SetResponse`` and ``CopyResponse`` merging follows Pattern L3-C (section 8).
 ##
-## Entity data is raw ``JsonNode`` (Decision D3.6) -- entity-specific parsing
-## is the caller's responsibility.
+## ``GetResponse[T].list`` is typed via per-entry ``T.fromJson``
+## (mixin-resolved at instantiation; Decision D3.6 post-A3).
+## ``SetResponse[T].updateResults`` remains ``Opt[JsonNode]``
+## pending A4 (per-entity partial-update types).
+## Sparse-property ``/get`` responses (consumer-requested elision
+## of required fields) surface ``MethodError(metServerFail)`` on
+## the typed entry point because ``T.fromJson`` is full-record
+## strict; a future ``PartialT`` family closes that gap
+## additively under A3.6. There is no parallel public raw-JSON
+## path -- ``Invocation.arguments`` is module-private per A2 and
+## reachable only via direct ``import jmap_client/internal/...``
+## for library-internal diagnostics. Serialisation direction stays
+## governed by D3.7: response types are ``fromJson``-only with the
+## ``SetResponse.toJson`` and ``CopyResponse.toJson`` exceptions.
 
 {.push raises: [], noSideEffect.}
 {.experimental: "strictCaseObjects".}
@@ -159,16 +171,35 @@ type CopyRequest*[T, CopyItem] = object
 # =============================================================================
 
 type GetResponse*[T] = object
-  ## Response arguments for Foo/get (RFC 8620 section 5.1).
-  ## Contains the requested objects and any identifiers not found.
-  accountId*: AccountId ## The identifier of the account used for the call.
+  ## Response arguments for Foo/get (RFC 8620 section 5.1). Contains the
+  ## requested objects and any identifiers not found.
+  ##
+  ## ``T`` is the entity payload type. ``T.fromJson`` is resolved at
+  ## instantiation via ``mixin`` and runs once per wire ``list`` entry
+  ## inside ``GetResponse[T].fromJson``. Every ``T`` parameterising
+  ## ``GetResponse[T]`` MUST define ``fromJson(_: typedesc[T], JsonNode,
+  ## JsonPath): Result[T, SerdeViolation]`` visible at the caller's
+  ## instantiation scope.
+  ##
+  ## The typed ``list`` assumes every wire entry is a full record;
+  ## ``T.fromJson`` is full-record strict by design (Mailbox.fromJson,
+  ## Email.fromJson, etc. require every RFC-mandated field). Consumers
+  ## who deliberately request sparse projections via ``properties =
+  ## Opt.some(@[...])`` and receive a wire payload that elides required
+  ## fields receive a ``MethodError`` at this -- the only public --
+  ## entry point. A future ``PartialT`` family (tracked under A3.6)
+  ## closes the gap additively (P20). There is no parallel public
+  ## raw-JSON path; ``Invocation.arguments`` is module-private per A2
+  ## and reachable only via direct ``import jmap_client/internal/...``
+  ## for library-internal diagnostics.
+  accountId*: AccountId ## Identifier of the account used for the call.
   state*: JmapState
     ## A string representing the state on the server for ALL data of this
     ## type in the account. If the data changes, this string must change.
-  list*: seq[JsonNode]
-    ## The Foo objects requested. Raw JsonNode entities -- entity-specific
-    ## parsing is the caller's responsibility (Decision D3.6).
-  notFound*: seq[Id] ## Identifiers passed to the method for records that do not exist.
+  list*: seq[T]
+    ## The Foo objects requested, parsed per-entry via ``T.fromJson`` at
+    ## the dispatch site.
+  notFound*: seq[Id] ## Identifiers passed for records that do not exist.
 
 type ChangesResponse*[T] = object
   ## Response arguments for Foo/changes (RFC 8620 section 5.2).
@@ -671,9 +702,10 @@ func fromJson*[T](
     R: typedesc[GetResponse[T]], node: JsonNode, path: JsonPath = emptyJsonPath()
 ): Result[GetResponse[T], SerdeViolation] =
   ## Deserialise JSON arguments to GetResponse (RFC 8620 section 5.1).
-  ## Uses lenient constructors for server-assigned identifiers. ``list``
-  ## contains raw JsonNode entities -- entity-specific parsing is the
-  ## caller's responsibility.
+  ## Each wire ``list`` entry is parsed via ``T.fromJson`` resolved at
+  ## instantiation via ``mixin``. Uses lenient constructors for
+  ## server-assigned identifiers.
+  mixin fromJson
   discard $R # consumed for nimalyzer params rule
   ?expectKind(node, JObject, path)
   let accountIdNode = ?fieldJString(node, "accountId", path)
@@ -682,7 +714,10 @@ func fromJson*[T](
   let stateNode = ?fieldJString(node, "state", path)
   let state = ?wrapInner(parseJmapState(stateNode.getStr("")), path / "state")
   let listNode = ?fieldJArray(node, "list", path)
-  let list = listNode.getElems(@[])
+  var list: seq[T] = @[]
+  for i, elem in listNode.getElems(@[]):
+    let item = ?T.fromJson(elem, path / "list" / i)
+    list.add(item)
   let notFound = ?parseOptIdArray(node{"notFound"}, path / "notFound")
   return ok(
     GetResponse[T](accountId: accountId, state: state, list: list, notFound: notFound)

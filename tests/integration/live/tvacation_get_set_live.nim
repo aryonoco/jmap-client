@@ -135,9 +135,7 @@ block tvacationGetSetLive:
         assertOn target,
           getResp2.list.len == 1,
           "VacationResponse/get must still return exactly one singleton entry"
-        let vr = VacationResponse.fromJson(getResp2.list[0]).expect(
-            "parse updated VacationResponse"
-          )
+        let vr = getResp2.list[0]
         assertOn target, vr.isEnabled, "isEnabled must round-trip as true after set"
         assertOn target,
           vr.subject.isSome and vr.subject.get() == "phase-b step-9 OOO",

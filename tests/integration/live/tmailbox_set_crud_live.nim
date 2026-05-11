@@ -48,8 +48,7 @@ block tmailboxSetCrudLive:
     let resp1 = client.send(b1).expect("send Mailbox/get[" & $target.kind & "]")
     let mbResp = resp1.get(mbHandle).expect("Mailbox/get extract[" & $target.kind & "]")
     var inboxId = Opt.none(Id)
-    for node in mbResp.list:
-      let mb = Mailbox.fromJson(node).expect("parse Mailbox[" & $target.kind & "]")
+    for mb in mbResp.list:
       for role in mb.role:
         if role == roleInbox:
           inboxId = Opt.some(mb.id)

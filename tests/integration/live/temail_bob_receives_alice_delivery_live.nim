@@ -150,8 +150,7 @@ block tEmailBobReceivesAliceDeliveryLive:
       getResp.list.len == 1,
       "bob's Email/get must return exactly one entry for the delivered id (got " &
         $getResp.list.len & ")"
-    let email =
-      Email.fromJson(getResp.list[0]).expect("Email.fromJson[" & $target.kind & "]")
+    let email = getResp.list[0]
 
     assertOn target, email.subject.isSome, "Email/get must include a subject"
     assertOn target,

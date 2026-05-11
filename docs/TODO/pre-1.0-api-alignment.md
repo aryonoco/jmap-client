@@ -239,21 +239,39 @@ of refusing to walk wire shape for type-derivable information.
 `send(client, builder)` routes through the builder-aware overload;
 `send(client, request)` routes through the narrow overload.
 
-### A3. Type `GetResponse[T].list` *(P19)*
+### A3. Type `GetResponse[T].list` *(P19)* — **DONE**
 
-`src/jmap_client/methods.nim:168`. Currently
-`list*: seq[JsonNode]` — Decision D3.6 deferred typing the entity
-payloads. Verbatim from a real test
-(`tests/integration/live/temail_set_keywords_live.nim:107`):
+`GetResponse[T].list` is now `seq[T]`, parsed per-entry via `mixin
+T.fromJson` inside `GetResponse[T].fromJson`
+(`src/jmap_client/internal/protocol/methods.nim`). The wrapper-trigger
+`Entity.fromJson(getResp.list[0]).expect(...)` is removed from the
+test corpus (51 files mechanically rewritten across Patterns
+F/G/H/I/J/K/E). Implementation mirrors `mergeCreateResults[T]` and
+`QueryChangesResponse[T].added`.
 
-```nim
-Email.fromJson(getResp2.list[0]).expect(...)
-```
+Scope:
+- Receive path only. Serialisation direction stays governed by
+  D3.7 — A3 does NOT add `GetResponse[T].toJson`. Future need for
+  typed emission can land additively (P20) without breaking A3's
+  contract.
+- Full-record receive only. Sparse-property `/get` responses
+  (consumer-requested elision of required fields) have no public
+  application-API path until A3.6 ships `PartialT` types — they
+  surface `MethodError(metServerFail)` on the public typed entry
+  point because `T.fromJson` is full-record strict. A2's seal on
+  `Invocation.arguments` is preserved; `internal/` access stays
+  library-internal-only.
 
-That manual per-entry parse is the wrapper trigger. Replace with
-`seq[T]` parsed via `mixin fromJson` per-entry inside
-`dispatch.get[GetResponse[T]]`. The machinery already exists for the
-outer envelope; extend it inward.
+Adjacent items still tracked: A3.6 (NEW; partial-entity types for
+sparse `/get`), A4 + A3.5 (`updateResults` typing + decision), A29
+(`parseGetResponse[T]` coherence invariant), F1 (property test
+wiring), D10 (L5 FFI design).
+
+Doc updates landed in this commit: `03-layer-3-design.md`,
+`00-architecture.md`, `07-mail-b-design.md` (D3.6 narrative —
+get-side full-record half retired; update-side half stays pending
+A4; sparse half documented under A3.6). New TODO entry A3.6
+inserted in this commit.
 
 ### A4. Type `SetResponse[T].updateResults` *(P19)*
 
@@ -754,6 +772,45 @@ that lands post-1.0 is a 2.0 break.
 - Document the upgrade path in `docs/policy/01-semver-and-deprecation.md`
   (D1.5) so the eventual `Opt[void] → Opt[T]` migration ships as a
   parallel overload, not a renaming break.
+
+### A3.6. Partial-entity types for sparse `/get` responses *(P5, P7, P19)*
+
+A3 typed ``GetResponse[T].list: seq[T]`` via mixin ``T.fromJson``.
+The typed entry point assumes every wire ``list`` entry is a full
+record because ``T.fromJson`` (``Mailbox.fromJson``,
+``Email.fromJson``, ``Identity.fromJson``, etc.) is full-record
+strict — every RFC-mandated field must be present.
+
+Consumers who deliberately request sparse projections via
+``properties = Opt.some(@["id", "name"])`` receive a wire payload
+that elides those required fields. The typed entry point then
+surfaces a ``MethodError`` (the ``SerdeViolation`` from
+``T.fromJson`` projects to ``metServerFail`` per D3.16). Until
+A3.6 ships, **sparse projection has no public application-API
+path**. ``Invocation.arguments`` is module-private per A2 and
+reachable only via direct ``import jmap_client/internal/...``
+for library-internal diagnostics; an application developer doing
+``import jmap_client`` cannot reach it (P5 + P19, validated by
+``tcompile_a2_invocation_hub_surface.nim``).
+
+**Action.** Introduce per-entity partial types
+(``PartialMailbox``, ``PartialEmail``, ``PartialIdentity``, …)
+where every field is ``Opt[T]`` and ``Partial*.fromJson`` is
+lenient on missing required fields. Add parallel builders
+``addPartialMailboxGet`` / ``addPartialEmailGet`` / etc. that
+return ``GetResponse[PartialMailbox]`` etc. Additive (P20); no
+break to A3's contract.
+
+**Freeze-blocking status.** A3.6 is *not* mechanically required
+for 1.0 because the request-side ``properties`` parameter is
+already part of the JMAP spec surface and stays on the builders.
+Whether application code can usefully consume a sparse response
+before A3.6 ships is a separate question — without ``PartialT``
+types the consumer just receives ``MethodError`` and cannot read
+the elided fields. If application-grade sparse consumption is
+required at 1.0, A3.6 lands inside the freeze; if it can wait,
+A3.6 ships in a 1.x minor as an additive feature. Either way,
+A2's seal stays — no raw-JSON application path is added, ever.
 
 ### A6.5. Stub `BuiltRequest` and `DispatchedRequest` types *(P21, P23)*
 

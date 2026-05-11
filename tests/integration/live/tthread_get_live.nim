@@ -62,13 +62,10 @@ block tthreadGetLive:
     let emailResp =
       resp1.get(emailHandle).expect("Email/get extract[" & $target.kind & "]")
     assertOn target, emailResp.list.len == 1, "Email/get must return the seeded message"
-    let threadIdNode = emailResp.list[0]{"threadId"}
+    let threadIdOpt = emailResp.list[0].threadId
     assertOn target,
-      not threadIdNode.isNil,
-      "Email/get must include threadId when requested in properties"
-    let threadId = parseIdFromServer(threadIdNode.getStr("")).expect(
-        "parseIdFromServer threadId[" & $target.kind & "]"
-      )
+      threadIdOpt.isSome, "Email/get must include threadId when requested in properties"
+    let threadId = threadIdOpt.unsafeGet
 
     # --- Thread/get with bounded retry for async population --------------
     var thread = Opt.none(jthread.Thread)
@@ -80,10 +77,8 @@ block tthreadGetLive:
       let threadResp =
         resp2.get(threadHandle).expect("Thread/get extract[" & $target.kind & "]")
       if threadResp.list.len == 1:
-        let parsed = jthread.Thread.fromJson(threadResp.list[0])
-        if parsed.isOk:
-          thread = Opt.some(parsed.get())
-          break
+        thread = Opt.some(threadResp.list[0])
+        break
       sleep(100)
 
     assertOn target,

@@ -146,9 +146,7 @@ block tvacationSetAllArmsLive:
         assertOn target,
           getResp.list.len == 1,
           "VacationResponse/get must return the singleton after set"
-        let vr = VacationResponse.fromJson(getResp.list[0]).expect(
-            "parse VacationResponse[" & $target.kind & "]"
-          )
+        let vr = getResp.list[0]
         assertOn target, vr.isEnabled, "isEnabled must round-trip as true"
         assertOn target,
           vr.subject.isSome and vr.subject.unsafeGet == subjectText,

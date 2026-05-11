@@ -101,9 +101,7 @@ block temailSubmissionFilterCompletenessLive:
     let getSub =
       respSub.get(subHandle).expect("EmailSubmission/get extract[" & $target.kind & "]")
     assertOn target, getSub.list.len == 1
-    let anySub = AnyEmailSubmission.fromJson(getSub.list[0]).expect(
-        "AnyEmailSubmission.fromJson[" & $target.kind & "]"
-      )
+    let anySub = getSub.list[0]
     # The HOLDFOR=300 seed retains the submission as ``pending`` so
     # every server's ``/get`` returns the record. The submission's
     # emailId field is on every state-variant.
@@ -121,8 +119,7 @@ block temailSubmissionFilterCompletenessLive:
     let getEmail =
       respEmail.get(emailHandle).expect("Email/get extract[" & $target.kind & "]")
     assertOn target, getEmail.list.len == 1
-    let firstEmail =
-      Email.fromJson(getEmail.list[0]).expect("Email.fromJson[" & $target.kind & "]")
+    let firstEmail = getEmail.list[0]
     assertOn target, firstEmail.threadId.isSome
     let firstThreadId = firstEmail.threadId.unsafeGet
 

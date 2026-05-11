@@ -25,7 +25,7 @@ block tcapturedEmailHeaderForms:
     let getResp =
       GetResponse[Email].fromJson(inv.arguments).expect("GetResponse[Email].fromJson")
     doAssert getResp.list.len == 1
-    let email = Email.fromJson(getResp.list[0]).expect("Email.fromJson")
+    let email = getResp.list[0]
 
     let listPostKey =
       parseHeaderPropertyName("header:List-Post:asURLs").expect("listPostKey")

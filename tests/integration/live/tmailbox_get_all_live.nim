@@ -36,8 +36,7 @@ block tmailboxGetAllLive:
     let gr = resp.get(mbHandle).expect("Mailbox/get extract[" & $target.kind & "]")
     assertOn target, gr.list.len >= 1, "alice's account must have at least one mailbox"
     var sawInbox = false
-    for node in gr.list:
-      let mb = Mailbox.fromJson(node).expect("parse Mailbox[" & $target.kind & "]")
+    for mb in gr.list:
       assertOn target, mb.name.len > 0, "every mailbox must have a non-empty name"
       assertOn target,
         mb.myRights.mayReadItems, "alice must have read rights on her own mailbox"

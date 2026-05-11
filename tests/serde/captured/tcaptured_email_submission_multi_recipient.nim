@@ -32,8 +32,7 @@ block tcapturedEmailSubmissionMultiRecipient:
   doAssert getResp.list.len == 1,
     "exactly one EmailSubmission expected (got " & $getResp.list.len & ")"
 
-  let any =
-    AnyEmailSubmission.fromJson(getResp.list[0]).expect("AnyEmailSubmission.fromJson")
+  let any = getResp.list[0]
   let finalOpt = any.asFinal()
   doAssert finalOpt.isSome,
     "captured submission has undoStatus==final; entity must project as usFinal"

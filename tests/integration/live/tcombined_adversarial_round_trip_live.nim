@@ -177,18 +177,18 @@ block tcombinedAdversarialRoundTripLive:
 
     # Round-trip integrity: re-emit individual records and re-parse
     # — structural identity (not byte equality), but the parser
-    # must accept its own output.  ``GetResponse[T].toJson`` is not
-    # defined (responses are read-only); per-record re-emission via
+    # must accept its own output. ``GetResponse[T].toJson`` is not
+    # defined per D3.7 (response types are ``fromJson``-only with the
+    # ``SetResponse.toJson`` / ``CopyResponse.toJson`` exceptions; see
+    # ``methods.nim:7-9``). Per-record re-emission via
     # ``Mailbox.toJson`` / ``Email.toJson`` / ``Identity.toJson``
-    # exercises the equivalent contract.
+    # exercises the equivalent contract for read-back records that
+    # A3 typed end-to-end on the receive path.
     if mb.list.len > 0:
-      let mailboxRec =
-        Mailbox.fromJson(mb.list[0]).expect("Mailbox round-trip[" & $target.kind & "]")
+      let mailboxRec = mb.list[0]
       discard mailboxRec.toJson()
     if identResp.list.len > 0:
-      let identRec = Identity.fromJson(identResp.list[0]).expect(
-          "Identity round-trip[" & $target.kind & "]"
-        )
+      let identRec = identResp.list[0]
       discard identRec.toJson()
 
     # Cleanup: destroy the seed email.

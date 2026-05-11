@@ -109,8 +109,7 @@ block tmailboxDestroyRemoveEmailsLive:
         "Mailbox/get post-A extract[" & $target.kind & "]"
       )
     var sawChildA = false
-    for node in mbResp.list:
-      let mb = Mailbox.fromJson(node).expect("parse Mailbox[" & $target.kind & "]")
+    for mb in mbResp.list:
       if mb.id == childAId:
         sawChildA = true
     assertOn target,

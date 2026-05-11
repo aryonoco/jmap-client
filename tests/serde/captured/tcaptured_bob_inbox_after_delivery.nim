@@ -29,7 +29,7 @@ block tcapturedBobInboxAfterDelivery:
     doAssert getResp.list.len == 1,
       "exactly one delivered email expected (got " & $getResp.list.len & ")"
 
-    let email = Email.fromJson(getResp.list[0]).expect("Email.fromJson")
+    let email = getResp.list[0]
     doAssert email.subject.isSome and email.subject.unsafeGet.len > 0,
       "captured delivery must surface a non-empty subject"
     doAssert email.fromAddr.isSome and email.fromAddr.unsafeGet.len > 0,

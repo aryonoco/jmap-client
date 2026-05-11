@@ -41,8 +41,7 @@ block tcapturedVacationGet:
         )
       doAssert getResp.list.len == 1,
         "VacationResponse is a singleton — exactly one entry expected"
-      let vr =
-        VacationResponse.fromJson(getResp.list[0]).expect("VacationResponse.fromJson")
+      let vr = getResp.list[0]
       doAssert vr.isEnabled, "captured fixture corresponds to enabled state"
       doAssert vr.subject.isSome, "captured fixture sets a subject"
       doAssert vr.textBody.isSome, "captured fixture sets a textBody"

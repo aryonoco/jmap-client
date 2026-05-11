@@ -27,7 +27,7 @@ block tcapturedEmailGetBodyPropertiesAll:
   let getResp =
     GetResponse[Email].fromJson(inv.arguments).expect("GetResponse[Email].fromJson")
   doAssert getResp.list.len == 1, "captured Email/get must carry one record"
-  let email = Email.fromJson(getResp.list[0]).expect("Email.fromJson")
+  let email = getResp.list[0]
   doAssert email.bodyStructure.isSome,
     "bodyStructure must be present when explicitly requested"
   let bs = email.bodyStructure.unsafeGet

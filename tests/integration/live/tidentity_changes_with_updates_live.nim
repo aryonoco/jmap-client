@@ -148,9 +148,7 @@ block tidentityChangesWithUpdatesLive:
         )
       assertOn target,
         getResp.list.len == 1, "Identity/get must return exactly one record"
-      let updated = Identity.fromJson(getResp.list[0]).expect(
-          "parse Identity[" & $target.kind & "]"
-        )
+      let updated = getResp.list[0]
       assertOn target,
         updated.name == renamedName,
         "name must reflect setName update (got " & updated.name & ")"

@@ -103,8 +103,7 @@ block temailSetKeywordsLive:
         "Email/get post-update extract[" & $target.kind & "]"
       )
     assertOn target, getResp2.list.len == 1, "Email/get must return the seeded message"
-    let email =
-      Email.fromJson(getResp2.list[0]).expect("Email.fromJson[" & $target.kind & "]")
+    let email = getResp2.list[0]
     assertOn target,
       email.keywords.isSome,
       "Email/get with properties=[id, keywords] must populate keywords"

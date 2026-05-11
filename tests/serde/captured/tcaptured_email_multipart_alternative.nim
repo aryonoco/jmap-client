@@ -27,7 +27,7 @@ block tcapturedEmailMultipartAlternative:
       GetResponse[Email].fromJson(inv.arguments).expect("GetResponse[Email].fromJson")
     doAssert getResp.list.len == 1, "Email/get list must carry exactly one entity"
 
-    let email = Email.fromJson(getResp.list[0]).expect("Email.fromJson")
+    let email = getResp.list[0]
     doAssert email.textBody.len == 1, "alternative tree exposes one text/plain leaf"
     doAssert email.textBody[0].contentType == "text/plain"
     doAssert email.htmlBody.len == 1, "alternative tree exposes one text/html leaf"

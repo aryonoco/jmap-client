@@ -64,19 +64,12 @@ proc projectChainResults(all: EmailQueryThreadResults): ChainProjection =
   ## Thread records that fail to parse — the convergence loop then
   ## decides whether the projection is complete.
   var displayIds = initHashSet[Id]()
-  for node in all.display.list:
-    let idNode = node{"id"}
-    if idNode.isNil:
-      continue
-    let parsed = parseIdFromServer(idNode.getStr(""))
-    if parsed.isOk:
-      displayIds.incl(parsed.get())
+  for email in all.display.list:
+    for id in email.id:
+      displayIds.incl(id)
   var threadEmailIds = initHashSet[Id]()
-  for node in all.threads.list:
-    let parsed = jmap_client.Thread.fromJson(node)
-    if parsed.isErr:
-      continue
-    for eid in parsed.get().emailIds:
+  for thr in all.threads.list:
+    for eid in thr.emailIds:
       threadEmailIds.incl(eid)
   ChainProjection(displayIds: displayIds, threadEmailIds: threadEmailIds)
 

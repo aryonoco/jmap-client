@@ -25,7 +25,7 @@ block tcapturedEmailMultipartMixedAttachment:
   let getResp =
     GetResponse[Email].fromJson(inv.arguments).expect("GetResponse[Email].fromJson")
   doAssert getResp.list.len == 1
-  let email = Email.fromJson(getResp.list[0]).expect("Email.fromJson")
+  let email = getResp.list[0]
   doAssert email.attachments.len == 1,
     "multipart/mixed seed exposes one attachment leaf"
 

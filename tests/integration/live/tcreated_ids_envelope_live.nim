@@ -160,8 +160,7 @@ block tcreatedIdsEnvelopeLive:
         getResp.list.len == 1,
         "Email/get with #draft1 must return the freshly created Email; got " &
           $getResp.list.len
-      let email =
-        Email.fromJson(getResp.list[0]).expect("Email.fromJson[" & $target.kind & "]")
+      let email = getResp.list[0]
       assertOn target,
         email.id.isSome and email.id.unsafeGet == seededId,
         "Email/get with #draft1 must return the same id Email/set assigned"

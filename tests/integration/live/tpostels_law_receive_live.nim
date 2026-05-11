@@ -22,6 +22,7 @@ import std/tables
 import results
 import jmap_client
 import jmap_client/client
+import jmap_client/internal/types/envelope
 import ./mcapture
 import ./mconfig
 import ./mlive
@@ -113,9 +114,7 @@ block tpostelsLawReceiveLive:
     let getResp =
       respGet.get(getHandle).expect("Email/get extract[" & $target.kind & "]")
     assertOn target, getResp.list.len == 1
-    let email = Email.fromJson(getResp.list[0]).expect(
-        "Email.fromJson lenient[" & $target.kind & "]"
-      )
+    let email = getResp.list[0]
 
     # The lenient parser must surface every requested field as
     # populated even when the underlying MIME has unusual encoding.
@@ -144,17 +143,25 @@ block tpostelsLawReceiveLive:
     let getResp2 =
       respGet2.get(getHandle2).expect("Email/get extract[" & $target.kind & "]")
     assertOn target, getResp2.list.len == 2
-    for node in getResp2.list:
-      # Wire shape may be {} or null for empty keywords; the parser
-      # tolerates both per Postel's law.
-      let kwNode = node{"keywords"}
+    # Wire-shape Postel diagnostic via the internal envelope module
+    # (A2 seal — not part of the public application API; reachable
+    # only through ``jmap_client/internal/types/envelope`` imported
+    # above). The typed parse already succeeded (getResp2.list is
+    # seq[Email]); this additionally pins the on-wire shape Stalwart
+    # emits for empty keywords (RFC 8621 §4 Table[Keyword, bool]
+    # projection).
+    let listArr = respGet2.methodResponses[0].arguments{"list"}
+    assertOn target,
+      not listArr.isNil and listArr.kind == JArray and listArr.getElems().len == 2,
+      "wire arguments must carry the two-entry list"
+    for elem in listArr.getElems():
+      let kwNode = elem{"keywords"}
       if not kwNode.isNil:
         assertOn target,
           kwNode.kind in {JObject, JNull},
           "keywords wire shape must be JObject or JNull; got " & $kwNode.kind
-      let parsed =
-        Email.fromJson(node).expect("Email.fromJson tolerant[" & $target.kind & "]")
-      assertOn target, parsed.id.isSome
+    for email in getResp2.list:
+      assertOn target, email.id.isSome
 
     # Cleanup: destroy outer + imported emails so re-runs are
     # idempotent.

@@ -94,8 +94,7 @@ block temailGetAttachmentsLive:
       resp.get(getHandle).expect("Email/get attachments extract[" & $target.kind & "]")
     assertOn target, getResp.list.len == 1, "Email/get must return the seeded message"
 
-    let email =
-      Email.fromJson(getResp.list[0]).expect("Email.fromJson[" & $target.kind & "]")
+    let email = getResp.list[0]
     assertOn target,
       email.attachments.len == 1,
       "expected one attachment, got " & $email.attachments.len

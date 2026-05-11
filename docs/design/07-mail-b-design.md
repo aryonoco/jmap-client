@@ -568,10 +568,18 @@ assignment. It is excluded from `MailboxCreate` (§4.6).
 ### 4.4. Mailbox
 
 The typed `Mailbox` represents a **complete** RFC domain object —
-all properties present. Partial property responses (when the client
-requests only specific properties via `addGet`) use
-`GetResponse[Mailbox].list: seq[JsonNode]` for raw access. No `Opt`
-wrapping for "was this property requested?".
+all properties present. `GetResponse[Mailbox].list: seq[Mailbox]`
+requires every wire entry to satisfy `Mailbox.fromJson`'s
+full-record contract (A3). Partial property responses (when the
+client deliberately requests only specific properties via
+`addMailboxGet(properties = …)`) surface
+`MethodError(metServerFail)` on the public typed entry point
+because elided fields fail full-record parsing; a future
+`PartialMailbox` type (A3.6) closes the public-surface gap
+additively. Raw `Invocation.arguments` is sealed inside the
+`internal/` namespace per A2 — not an application escape hatch.
+No `Opt` wrapping on `Mailbox` itself for "was this property
+requested?".
 
 ```nim
 type Mailbox* = object

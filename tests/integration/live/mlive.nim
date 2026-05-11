@@ -95,9 +95,7 @@ proc resolveInboxId*(
     return err("Mailbox/get send failed: " & error.message)
   let mbResp = resp.get(mbHandle).valueOr:
     return err("Mailbox/get extract failed: " & error.rawType)
-  for node in mbResp.list:
-    let mb = Mailbox.fromJson(node).valueOr:
-      return err("Mailbox parse failed during inbox lookup")
+  for mb in mbResp.list:
     for role in mb.role:
       if role == roleInbox:
         return ok(mb.id)
@@ -445,9 +443,7 @@ proc resolveOrCreateMailbox*(
     return err("Mailbox/get send failed: " & error.message)
   let mbResp = resp1.get(mbHandle).valueOr:
     return err("Mailbox/get extract failed: " & error.rawType)
-  for node in mbResp.list:
-    let mb = Mailbox.fromJson(node).valueOr:
-      return err("Mailbox parse failed during resolveOrCreateMailbox")
+  for mb in mbResp.list:
     if mb.name == name:
       return ok(mb.id)
   let inbox = ?resolveInboxId(client, mailAccountId)
@@ -534,8 +530,7 @@ proc getFirstAttachmentBlobId*(
     return err("Email/get extract failed: " & error.rawType)
   if getResp.list.len == 0:
     return err("Email/get returned empty list for " & string(emailId))
-  let email = Email.fromJson(getResp.list[0]).valueOr:
-    return err("Email.fromJson failed in getFirstAttachmentBlobId")
+  let email = getResp.list[0]
   if email.attachments.len == 0:
     return err("Email/get returned no attachments for " & string(emailId))
   ok(email.attachments[0].blobId)
@@ -609,9 +604,7 @@ proc resolveOrCreateRoleMailbox(
     return err("Mailbox/get send failed: " & error.message)
   let mbResp = resp1.get(mbHandle).valueOr:
     return err("Mailbox/get extract failed: " & error.rawType)
-  for node in mbResp.list:
-    let mb = Mailbox.fromJson(node).valueOr:
-      return err("Mailbox parse failed during " & narrativeName & " lookup")
+  for mb in mbResp.list:
     for r in mb.role:
       if r == role:
         return ok(mb.id)
@@ -775,8 +768,7 @@ proc trySubmissionGet(
   let getResp = resp.get(getHandle).valueOr:
     return err("EmailSubmission/get extract failed: " & error.rawType)
   if getResp.list.len > 0:
-    let any = AnyEmailSubmission.fromJson(getResp.list[0]).valueOr:
-      return err("AnyEmailSubmission.fromJson failed during poll")
+    let any = getResp.list[0]
     let final = any.asFinal()
     if final.isSome:
       return ok((spsFinalised, Opt.some(final.unsafeGet)))
@@ -949,9 +941,7 @@ proc resolveOrCreateAliceIdentity*(
   let getResp = resp1.get(getHandle).valueOr:
     return err("Identity/get extract failed: " & error.rawType)
   var fallbackId: Opt[Id] = Opt.none(Id)
-  for node in getResp.list:
-    let ident = Identity.fromJson(node).valueOr:
-      return err("Identity parse failed during alice lookup")
+  for ident in getResp.list:
     if ident.email == "alice@example.com":
       return ok(ident.id)
     if fallbackId.isNone:
@@ -1005,8 +995,7 @@ proc pollSubmissionPending*(
     let getResp = resp.get(getHandle).valueOr:
       return err("EmailSubmission/get extract failed: " & error.rawType)
     if getResp.list.len > 0:
-      let any = AnyEmailSubmission.fromJson(getResp.list[0]).valueOr:
-        return err("AnyEmailSubmission.fromJson failed during poll")
+      let any = getResp.list[0]
       let pending = any.asPending()
       if pending.isSome:
         return ok(pending.unsafeGet)

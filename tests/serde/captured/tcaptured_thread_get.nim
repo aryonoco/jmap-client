@@ -25,7 +25,7 @@ block tcapturedThreadGet:
       )
     doAssert getResp.list.len == 1,
       "expected one Thread record (got " & $getResp.list.len & ")"
-    let t = jthread.Thread.fromJson(getResp.list[0]).expect("Thread.fromJson")
+    let t = getResp.list[0]
     doAssert string(t.id).len > 0, "Thread.id must be non-empty"
     doAssert t.emailIds.len >= 1,
       "RFC 8621 §3 invariant — Thread.emailIds must carry at least one entry"

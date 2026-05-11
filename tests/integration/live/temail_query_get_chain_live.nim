@@ -100,11 +100,10 @@ block temailQueryGetChainLive:
       getResp.list.len == queryResp.ids.len,
       "Email/get list count must match Email/query ids count"
     var sawSeed = false
-    for node in getResp.list:
-      assertOn target, not node{"id"}.isNil, "every Email/get entry must have an id"
-      assertOn target,
-        not node{"subject"}.isNil, "every Email/get entry must have a subject"
-      if node{"subject"}.getStr("") == seedSubject:
+    for email in getResp.list:
+      assertOn target, email.id.isSome, "every Email/get entry must have an id"
+      assertOn target, email.subject.isSome, "every Email/get entry must have a subject"
+      if email.subject.unsafeGet == seedSubject:
         sawSeed = true
     assertOn target, sawSeed, "Email/get list must include the seeded subject"
 

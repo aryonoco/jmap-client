@@ -80,8 +80,7 @@ block tidentityGetLive:
     # parses both shapes (see ``serde_identity.nim``); the wire-shape
     # parse is the universal client-library contract.
     var sawAliceEmail = false
-    for node in gr.list:
-      let ident = Identity.fromJson(node).expect("parse Identity[" & $target.kind & "]")
+    for ident in gr.list:
       assertOn target,
         ident.id.len > 0, "every identity must carry a server-assigned id"
       if ident.email == "alice@example.com":

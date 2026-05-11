@@ -130,9 +130,7 @@ block tIdentitySetCrudLive:
         getResp.list.len == 1,
         "Identity/get must return exactly one entry for the updated id (got " &
           $getResp.list.len & ")"
-      let updated = Identity.fromJson(getResp.list[0]).expect(
-          "parse Identity[" & $target.kind & "]"
-        )
+      let updated = getResp.list[0]
       assertOn target,
         updated.name == "phase-f step-31 renamed",
         "name must reflect the setName update (got " & updated.name & ")"

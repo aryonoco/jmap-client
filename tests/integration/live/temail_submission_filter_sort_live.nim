@@ -71,9 +71,7 @@ proc resolveOrCreateSecondaryAliceIdentity(
     return err("Identity/get send failed: " & error.message)
   let getResp = resp1.get(getHandle).valueOr:
     return err("Identity/get extract failed: " & error.rawType)
-  for node in getResp.list:
-    let ident = jidentity.Identity.fromJson(node).valueOr:
-      return err("Identity parse failed during secondary lookup")
+  for ident in getResp.list:
     if ident.email == "alice@example.com" and ident.name == displayName:
       return ok(ident.id)
   let createIdent = parseIdentityCreate(email = "alice@example.com", name = displayName).valueOr:

@@ -56,7 +56,10 @@ block tCrossAccountEmailGetRejectionLive:
       getResult.isErr,
       "RFC 8620 §3.6.2 — alice probing bob's accountId without sharing must " &
         "surface a method-level error"
-    let methodErr = getResult.error
+    # ``unsafeError`` bypasses ``withAssertOk`` — the ``$`` chain on the typed
+    # ``GetResponse[Email]`` Ok value carries enough downstream side effects to
+    # poison ``raiseResultDefect``'s inference. ``isErr`` is already asserted.
+    let methodErr = getResult.unsafeError
     assertOn target,
       methodErr.errorType in {metForbidden, metAccountNotFound},
       "RFC 8620 §3.6.2 admits both metForbidden and metAccountNotFound for cross-account " &

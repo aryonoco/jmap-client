@@ -194,8 +194,7 @@ block tEmailSubmissionOnSuccessUpdateLive:
       )
     assertOn target,
       getResp.list.len == 1, "Email/get must return one entry for the patched draft"
-    let email =
-      Email.fromJson(getResp.list[0]).expect("Email.fromJson[" & $target.kind & "]")
+    let email = getResp.list[0]
     assertOn target, email.mailboxIds.isSome, "Email/get must include mailboxIds"
     let mbIds = HashSet[Id](email.mailboxIds.unsafeGet)
     assertOn target,

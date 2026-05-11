@@ -31,7 +31,7 @@ block tcapturedPostelsLawReceive:
   let getResp =
     GetResponse[Email].fromJson(inv.arguments).expect("GetResponse[Email].fromJson")
   doAssert getResp.list.len == 1
-  let email = Email.fromJson(getResp.list[0]).expect("Email.fromJson lenient")
+  let email = getResp.list[0]
   doAssert email.id.isSome
   doAssert email.fromAddr.isSome and email.fromAddr.unsafeGet.len >= 1
   doAssert email.subject.isSome
@@ -40,7 +40,10 @@ block tcapturedPostelsLawReceive:
   # Empty-vs-null parser tolerance — keywords on an imported
   # message may be empty.  Whatever shape Stalwart emits, the
   # parser projects keywords into ``Table[Keyword, bool]``.
-  let kwNode = getResp.list[0]{"keywords"}
+  let listArr = inv.arguments{"list"}
+  doAssert not listArr.isNil and listArr.kind == JArray and listArr.getElems().len >= 1,
+    "wire arguments must carry a non-empty list"
+  let kwNode = listArr.getElems()[0]{"keywords"}
   if not kwNode.isNil:
     doAssert kwNode.kind in {JObject, JNull},
       "keywords wire shape must be JObject or JNull; got " & $kwNode.kind

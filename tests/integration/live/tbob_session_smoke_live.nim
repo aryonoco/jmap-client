@@ -56,8 +56,7 @@ block tBobSessionSmokeLive:
       gr.list.len >= 1,
       "bob's account must have at least one mailbox (got " & $gr.list.len & ")"
     var sawInbox = false
-    for node in gr.list:
-      let mb = Mailbox.fromJson(node).expect("parse Mailbox[" & $target.kind & "]")
+    for mb in gr.list:
       for role in mb.role:
         if role == roleInbox:
           sawInbox = true

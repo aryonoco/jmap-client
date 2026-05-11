@@ -1387,16 +1387,24 @@ canonical result-reference targets: `/ids` from a preceding query and
 other fields are direct values. Wrapping all fields in `Referencable`
 is verbose and rarely used.
 
-**Decision D3.6: Typed create/update/copy values, JsonNode for raw
-slots.** Create entries (`SetRequest.create`, `CopyRequest.create`)
-are typed: `MailboxCreate`, `EmailBlueprint`, `EmailCopyItem`, etc.
-Each provides its own `toJson`. The whole-container update algebra
-`U` is typed similarly. Response list slots remain `seq[JsonNode]` in
-`GetResponse`, where entity-specific parsing happens at the caller.
-The wire `"updated"[id]` server-set delta in `SetResponse.updateResults`
-remains `Opt[JsonNode]` because update payloads are open-ended partial
-entities — the entity-specific partial type is out of scope at this
-layer; consumers parse it themselves.
+**Decision D3.6 (post-A3): Typed create/update/copy values; typed
+`GetResponse[T].list` via mixin `T.fromJson`; JsonNode for
+update-side partial echoes (pending A4).** Create entries
+(`SetRequest.create`, `CopyRequest.create`) are typed:
+`MailboxCreate`, `EmailBlueprint`, `EmailCopyItem`, etc. Each
+provides its own `toJson`. The whole-container update algebra
+`U` is typed similarly. `GetResponse[T].list: seq[T]` parses
+each wire entry through the entity's lenient `T.fromJson` at
+the dispatch site (A3). Sparse-property `/get` responses
+(consumer-requested elision of required fields) surface
+`MethodError(metServerFail)` on the public typed entry point;
+there is no parallel public raw-JSON path because A2 keeps
+`Invocation.arguments` internal-only. A future `PartialT`
+family (A3.6) closes the gap additively. The wire
+`"updated"[id]` server-set delta in `SetResponse.updateResults`
+remains `Opt[JsonNode]` because update payloads are
+open-ended partial entities — the entity-specific partial
+type is tracked under A4 + A3.5.
 
 **Module:** `methods.nim`
 
@@ -1565,10 +1573,10 @@ state fall back to `oldState` or to a fresh `Foo/get`. Same applies
 to `CopyResponse.newState`.
 
 **Exception — structurally critical required fields:** Required
-fields that are structurally critical (e.g. `list: seq[JsonNode]` in
-`GetResponse`) use strict `fieldJArray` — wrong kind returns
-`err(svkWrongKind)`. A response without a `list` array is not a valid
-`/get` response.
+fields that are structurally critical (e.g. `list: seq[T]` in
+`GetResponse`, parsed per-entry via `T.fromJson`) use strict
+`fieldJArray` — wrong kind returns `err(svkWrongKind)`. A
+response without a `list` array is not a valid `/get` response.
 
 ### 7.7 Layer 2 Infrastructure Imports
 
@@ -1740,9 +1748,11 @@ returning `Result[T, SerdeViolation]`.
 type GetResponse*[T] = object
   accountId*: AccountId
   state*: JmapState
-  list*: seq[JsonNode]
-    ## Raw JsonNode entities; entity-specific parsing is the caller's
-    ## responsibility (Decision D3.6).
+  list*: seq[T]
+    ## Per-entry typed via T.fromJson at the dispatch site (A3).
+    ## Sparse-property responses surface MethodError on this entry
+    ## point until A3.6 ships PartialT types; raw arguments are
+    ## sealed inside ``internal/`` per A2.
   notFound*: seq[Id]
 ```
 
@@ -2500,7 +2510,7 @@ rails), `newState.isNone`.
 | D3.3 | Response dispatch returns `Result[T, MethodError]` | Unified `ClientError` for all failures | Method errors are data within a successful HTTP 200 response. Per-invocation, not per-request. |
 | D3.4 | No concepts; plain overloaded `typedesc` `func`s + `registerJmapEntity` / `registerQueryableEntity` / `registerSettableEntity` compile-time checks; per-verb resolver overloads (`getMethodName`, `setMethodName`, …) | Concepts | Plain overloads + static registration give earlier error detection than concepts with zero compiler risk. Per-verb resolvers make invalid `(entity, verb)` combinations a compile error. |
 | D3.5 | Only `GetRequest.ids` and `SetRequest.destroy` get `Referencable[T]` | All fields `Referencable` | Wrapping all fields is verbose and rarely used. Two wrapped fields cover canonical patterns. |
-| D3.6 | Typed `C`, `U`, `CopyItem` create/update/copy values; `seq[JsonNode]` for `GetResponse.list`; `Opt[JsonNode]` for `SetResponse.updateResults` | Either fully typed or fully `JsonNode` | Typed creates close the illegal-state hole at the boundary; raw `JsonNode` for response lists preserves entity-agnostic layering; raw `JsonNode` for update payloads matches RFC's open-ended PatchObject shape. |
+| D3.6 | Typed `C`, `U`, `CopyItem` create/update/copy values; `seq[T]` for `GetResponse.list` via mixin `T.fromJson` (A3); `Opt[JsonNode]` for `SetResponse.updateResults` pending A4; sparse-`/get` returns `MethodError` on the public surface — `PartialT` types tracked under A3.6 (raw arguments sealed inside `internal/` per A2). | Either fully typed or fully `JsonNode` | Typed creates close the illegal-state hole at the boundary; typed `GetResponse[T].list` removes the wrapper-trigger glue (P7); update-side `JsonNode` matches RFC's open-ended PatchObject shape pending A4. |
 | D3.7 | Unidirectional serde for request types (`toJson` only) and response types (`fromJson` only); bidirectional for `SetResponse`/`CopyResponse` to support round-trip serde tests | Full bidirectional serde for all types | Client builds requests and parses responses — never the reverse. The `SetResponse`/`CopyResponse` `toJson` exists exclusively for fixture round-trip. |
 | D3.8 | Immutable `RequestBuilder`; each `add*` returns `(RequestBuilder, ResponseHandle[T])` | `var RequestBuilder` mutation | Pure functional composition; no observable side effects; trivially threads through `for`-comprehensions and pipelines. |
 | D3.9 | `nextId` uses `MethodCallId(s)` directly (bypassing validation); `initInvocation` is the typed (infallible) constructor | Validating constructors at every step | The builder controls the format entirely; typed `MethodName` makes empty wire names unrepresentable. |

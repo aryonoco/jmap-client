@@ -154,9 +154,7 @@ block tcascadeChangesCoherenceLive:
         getResp.list.len == 1,
         "Email/get must return exactly one record for the seeded id (got " &
           $getResp.list.len & ")"
-      let email = Email.fromJson(getResp.list[0]).expect(
-          "parse Email threadId[" & $target.kind & "]"
-        )
+      let email = getResp.list[0]
       assertOn target,
         email.threadId.isSome,
         "every seeded email must carry a threadId; Email/set sets it synchronously"

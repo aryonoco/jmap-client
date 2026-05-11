@@ -109,8 +109,7 @@ block temailGetUnicodeNameLive:
       resp.get(getHandle).expect("Email/get unicode name extract[" & $target.kind & "]")
     assertOn target, getResp.list.len == 1, "Email/get must return the seeded message"
 
-    let email =
-      Email.fromJson(getResp.list[0]).expect("Email.fromJson[" & $target.kind & "]")
+    let email = getResp.list[0]
     assertOn target,
       email.fromAddr.isSome and email.fromAddr.unsafeGet.len == 1,
       "from must be a one-element list"

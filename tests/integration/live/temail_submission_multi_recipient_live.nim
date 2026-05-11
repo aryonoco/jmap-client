@@ -123,9 +123,7 @@ block tEmailSubmissionMultiRecipientLive:
         getResp.list.len == 1,
         "EmailSubmission/get must return exactly one entry (got " & $getResp.list.len &
           ")"
-      let any = AnyEmailSubmission.fromJson(getResp.list[0]).expect(
-          "AnyEmailSubmission.fromJson[" & $target.kind & "]"
-        )
+      let any = getResp.list[0]
       let finalOpt = any.asFinal()
       assertOn target,
         finalOpt.isSome,

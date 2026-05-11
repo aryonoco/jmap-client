@@ -43,6 +43,13 @@ proc getMethodName*(T: typedesc[MockFoo]): MethodName =
 proc changesMethodName*(T: typedesc[MockFoo]): MethodName =
   mnMailboxChanges
 
+func fromJson*(
+    T: typedesc[MockFoo], node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[MockFoo, SerdeViolation] =
+  discard $T
+  ?expectKind(node, JObject, path)
+  ok(MockFoo())
+
 registerJmapEntity(MockFoo)
 
 type MockFilter = object

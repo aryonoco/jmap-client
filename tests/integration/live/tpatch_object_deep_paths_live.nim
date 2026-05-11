@@ -102,9 +102,7 @@ block tpatchObjectDeepPathsLive:
         let getResp =
           resp2.get(getHandle).expect("Identity/get extract[" & $target.kind & "]")
         assertOn target, getResp.list.len == 1
-        let ident = Identity.fromJson(getResp.list[0]).expect(
-            "Identity.fromJson[" & $target.kind & "]"
-          )
+        let ident = getResp.list[0]
         assertOn target,
           ident.name == "phase-j 70 renamed",
           "name update must round-trip; got " & ident.name
@@ -153,9 +151,7 @@ block tpatchObjectDeepPathsLive:
       let getResp =
         resp2.get(getHandle).expect("Mailbox/get extract[" & $target.kind & "]")
       assertOn target, getResp.list.len == 1
-      let mb = Mailbox.fromJson(getResp.list[0]).expect(
-          "Mailbox.fromJson[" & $target.kind & "]"
-        )
+      let mb = getResp.list[0]
       assertOn target,
         mb.parentId.isNone, "parentId set-to-null must round-trip as Opt.none"
 

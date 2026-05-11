@@ -24,8 +24,7 @@ block tcapturedMailboxGet:
         "GetResponse[Mailbox].fromJson"
       )
     doAssert getResp.list.len >= 1, "Stalwart's seeded account has at least one mailbox"
-    for node in getResp.list:
-      let mb = Mailbox.fromJson(node).expect("Mailbox.fromJson per entry")
+    for mb in getResp.list:
       doAssert mb.name.len > 0, "every mailbox must have a non-empty name"
       doAssert mb.myRights.mayReadItems,
         "alice must have read rights on her own mailboxes"

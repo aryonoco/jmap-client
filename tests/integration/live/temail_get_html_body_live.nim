@@ -73,8 +73,7 @@ block temailGetHtmlBodyLive:
       resp.get(getHandle).expect("Email/get html body extract[" & $target.kind & "]")
     assertOn target, getResp.list.len == 1, "Email/get must return the seeded message"
 
-    let email =
-      Email.fromJson(getResp.list[0]).expect("Email.fromJson[" & $target.kind & "]")
+    let email = getResp.list[0]
     assertOn target, email.textBody.len == 1, "expected one text/plain leaf in textBody"
     let textLeaf = email.textBody[0]
     assertOn target, textLeaf.isLeaf, "textBody[0] must be a leaf"
