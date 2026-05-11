@@ -19,7 +19,6 @@
 ## preserved per RFC 8621 §3 — the retry loop accommodates server
 ## asynchrony, not a parser limitation.
 
-import std/json
 import std/os
 
 import results
@@ -70,9 +69,8 @@ block tthreadGetLive:
     # --- Thread/get with bounded retry for async population --------------
     var thread = Opt.none(jthread.Thread)
     for attempt in 0 ..< 5:
-      let (b2, threadHandle) = addGet[jthread.Thread](
-        initRequestBuilder(), mailAccountId, ids = directIds(@[threadId])
-      )
+      let (b2, threadHandle) =
+        addThreadGet(initRequestBuilder(), mailAccountId, ids = directIds(@[threadId]))
       let resp2 = client.send(b2).expect("send Thread/get[" & $target.kind & "]")
       let threadResp =
         resp2.get(threadHandle).expect("Thread/get extract[" & $target.kind & "]")

@@ -49,7 +49,7 @@ block tBobSessionSmokeLive:
       not acc.isReadOnly,
       "bob's primary mail account must not be read-only (got isReadOnly=true)"
 
-    let (b1, mbHandle) = addGet[Mailbox](initRequestBuilder(), bobMailAccountId)
+    let (b1, mbHandle) = addMailboxGet(initRequestBuilder(), bobMailAccountId)
     let resp = bobClient.send(b1).expect("send Mailbox/get[" & $target.kind & "]")
     let gr = resp.get(mbHandle).expect("Mailbox/get extract[" & $target.kind & "]")
     assertOn target,

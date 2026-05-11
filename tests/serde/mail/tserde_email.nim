@@ -469,50 +469,38 @@ block comparatorFromJsonCollation: # scenario 45
   assertOk res
   assertSomeEq res.get().collation, CollationUnicodeCasemap
 
-# ============= F. toExtras tests =============
+# ============= F. EmailBodyFetchOptions.toJson tests =============
 
-block toExtrasDefault:
-  ## toExtras on default(EmailBodyFetchOptions) produces an empty seq.
-  doAssert default(EmailBodyFetchOptions).toExtras().len == 0
+block toJsonDefault:
+  ## toJson on default(EmailBodyFetchOptions) produces an empty JObject.
+  doAssert default(EmailBodyFetchOptions).toJson().len == 0
 
-block toExtrasText:
-  ## toExtras with bvsText produces a single entry: fetchTextBodyValues=true.
+block toJsonText:
+  ## toJson with bvsText emits a single fetchTextBodyValues=true key.
   let opts = EmailBodyFetchOptions(fetchBodyValues: bvsText)
-  let extras = opts.toExtras()
-  doAssert extras.len == 1
-  doAssert extras[0][0] == "fetchTextBodyValues"
-  doAssert extras[0][1].getBool(false) == true
+  let node = opts.toJson()
+  doAssert node.len == 1
+  doAssert node{"fetchTextBodyValues"}.getBool(false) == true
 
-block toExtrasHtml:
-  ## toExtras with bvsHtml produces a single entry: fetchHTMLBodyValues=true.
+block toJsonHtml:
+  ## toJson with bvsHtml emits a single fetchHTMLBodyValues=true key.
   let opts = EmailBodyFetchOptions(fetchBodyValues: bvsHtml)
-  let extras = opts.toExtras()
-  doAssert extras.len == 1
-  doAssert extras[0][0] == "fetchHTMLBodyValues"
-  doAssert extras[0][1].getBool(false) == true
+  let node = opts.toJson()
+  doAssert node.len == 1
+  doAssert node{"fetchHTMLBodyValues"}.getBool(false) == true
 
-block toExtrasTextAndHtml:
-  ## toExtras with bvsTextAndHtml emits two entries in text-then-HTML order.
+block toJsonTextAndHtml:
+  ## toJson with bvsTextAndHtml emits both fetchTextBodyValues and
+  ## fetchHTMLBodyValues in text-then-HTML insertion order.
   let opts = EmailBodyFetchOptions(fetchBodyValues: bvsTextAndHtml)
-  let extras = opts.toExtras()
-  doAssert extras.len == 2
-  doAssert extras[0][0] == "fetchTextBodyValues"
-  doAssert extras[1][0] == "fetchHTMLBodyValues"
+  let node = opts.toJson()
+  doAssert node.len == 2
+  doAssert node{"fetchTextBodyValues"}.getBool(false) == true
+  doAssert node{"fetchHTMLBodyValues"}.getBool(false) == true
 
-block toExtrasAll:
-  ## toExtras with bvsAll emits a single fetchAllBodyValues=true entry.
+block toJsonAll:
+  ## toJson with bvsAll emits a single fetchAllBodyValues=true key.
   let opts = EmailBodyFetchOptions(fetchBodyValues: bvsAll)
-  let extras = opts.toExtras()
-  doAssert extras.len == 1
-  doAssert extras[0][0] == "fetchAllBodyValues"
-  doAssert extras[0][1].getBool(false) == true
-
-block toExtrasParityWithToJson:
-  ## Folding toExtras into a JObject must equal the toJson output —
-  ## toJson is defined as "fold toExtras", so this pins the contract.
-  let opts = EmailBodyFetchOptions(fetchBodyValues: bvsText)
-  var foldedNode = newJObject()
-  for (k, v) in opts.toExtras():
-    foldedNode[k] = v
-  let toJsonNode = opts.toJson()
-  doAssert $foldedNode == $toJsonNode
+  let node = opts.toJson()
+  doAssert node.len == 1
+  doAssert node{"fetchAllBodyValues"}.getBool(false) == true

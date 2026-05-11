@@ -135,11 +135,10 @@ block tcombinedChangesLive:
       let (b1, mailboxH) = addMailboxChanges(
         initRequestBuilder(), mailAccountId, sinceState = baselineMailboxState
       )
-      let (b2, threadH) = addChanges[jmap_client.Thread](
-        b1, mailAccountId, sinceState = baselineThreadState
-      )
+      let (b2, threadH) =
+        addThreadChanges(b1, mailAccountId, sinceState = baselineThreadState)
       let (b3, emailH) =
-        addChanges[Email](b2, mailAccountId, sinceState = baselineEmailState)
+        addEmailChanges(b2, mailAccountId, sinceState = baselineEmailState)
       let resp = client.send(b3).expect("send combined */changes[" & $target.kind & "]")
       # Cat-B: any extract may surface a typed error
       # (``cannotCalculateChanges`` on a state-history-windowed server

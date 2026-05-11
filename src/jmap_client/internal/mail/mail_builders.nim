@@ -20,6 +20,7 @@ import ../../serialisation
 import ../protocol/methods
 import ../protocol/dispatch
 import ../protocol/builder
+import ../protocol/call_meta
 import ./mailbox
 import ./mailbox_changes_response
 import ./thread
@@ -61,6 +62,21 @@ func addMailboxChanges*(
   addChanges[Mailbox, MailboxChangesResponse](b, accountId, sinceState, maxChanges)
 
 # =============================================================================
+# addMailboxGet — Mailbox/get (RFC 8621 §2.1)
+# =============================================================================
+
+func addMailboxGet*(
+    b: RequestBuilder,
+    accountId: AccountId,
+    ids: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]),
+    properties: Opt[seq[string]] = Opt.none(seq[string]),
+): (RequestBuilder, ResponseHandle[GetResponse[Mailbox]]) =
+  ## Mailbox/get (RFC 8621 §2.1). Thin delegate to ``addGet[Mailbox]``.
+  ## Exists so the typed per-entity surface is complete: no caller need
+  ## spell ``addGet[Mailbox]`` directly.
+  addGet[Mailbox](b, accountId, ids, properties)
+
+# =============================================================================
 # addMailboxQuery — Mailbox/query (RFC 8621 §2.3)
 # =============================================================================
 
@@ -74,17 +90,15 @@ func addMailboxQuery*(
     sortAsTree: bool = false,
     filterAsTree: bool = false,
 ): (RequestBuilder, ResponseHandle[QueryResponse[Mailbox]]) =
-  ## Mailbox/query (RFC 8621 §2.3). Mailbox uses the protocol-level
-  ## ``Comparator``; the RFC defines no typed Mailbox comparator. Tree
-  ## extension args (Decision B13) are emitted unconditionally.
-  addQuery[Mailbox, MailboxFilterCondition, Comparator](
-    b,
-    accountId,
-    filter,
-    sort,
-    queryParams,
-    extras = @[("sortAsTree", %sortAsTree), ("filterAsTree", %filterAsTree)],
+  ## Mailbox/query (RFC 8621 §2.3). Tree extension args (Decision B13)
+  ## are emitted unconditionally.
+  var args = assembleQueryArgs(
+    accountId, serializeOptFilter(filter), serializeOptSort(sort), queryParams
   )
+  args["sortAsTree"] = %sortAsTree
+  args["filterAsTree"] = %filterAsTree
+  let (b1, callId) = addInvocation(b, mnMailboxQuery, args, capabilityUri(Mailbox))
+  (b1, ResponseHandle[QueryResponse[Mailbox]](callId))
 
 # =============================================================================
 # addMailboxQueryChanges — Mailbox/queryChanges (RFC 8621 §2.4)
@@ -120,33 +134,27 @@ func addMailboxSet*(
     destroy: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]),
     onDestroyRemoveEmails: bool = false,
 ): (RequestBuilder, ResponseHandle[SetResponse[MailboxCreatedItem, PartialMailbox]]) =
-  ## Mailbox/set (RFC 8621 §2.5). Thin wrapper over
-  ## ``addSet[Mailbox, MailboxCreate, NonEmptyMailboxUpdates,
-  ## SetResponse[MailboxCreatedItem, PartialMailbox]]`` with the
-  ## Mailbox-specific ``onDestroyRemoveEmails`` extension emitted via
-  ## ``extras``. ``create`` and ``update`` arrive typed; the generic
-  ## ``SetRequest[T, C, U].toJson`` serialises both through the ``mixin
-  ## toJson`` cascade. The ``createResults`` payload is
-  ## ``MailboxCreatedItem`` rather than the full ``Mailbox`` because
-  ## RFC 8620 §5.3's ``created[cid]`` carries only the server-set
-  ## subset (id + counts + myRights), and Stalwart further trims to
-  ## ``{"id": "..."}``. ``updateResults`` carries ``PartialMailbox`` per
-  ## A4 D2 — RFC 8620 §5.3 admits the four outer states (absent /
-  ## confirmed-without-echo / echoed-partial / rejected).
-  addSet[
-    Mailbox,
-    MailboxCreate,
-    NonEmptyMailboxUpdates,
-    SetResponse[MailboxCreatedItem, PartialMailbox],
-  ](
-    b,
-    accountId,
-    ifInState,
-    create,
-    update,
-    destroy,
-    extras = @[("onDestroyRemoveEmails", %onDestroyRemoveEmails)],
+  ## Mailbox/set (RFC 8621 §2.5). Typed ``MailboxCreate`` and
+  ## ``NonEmptyMailboxUpdates``; ``onDestroyRemoveEmails`` is the
+  ## Mailbox-specific extension key (RFC 8621 §2.5.5). The
+  ## ``createResults`` payload is ``MailboxCreatedItem`` rather than the
+  ## full ``Mailbox`` because RFC 8620 §5.3's ``created[cid]`` carries
+  ## only the server-set subset (id + counts + myRights), and Stalwart
+  ## further trims to ``{"id": "..."}``. ``updateResults`` carries
+  ## ``PartialMailbox`` per A4 D2.
+  let req = SetRequest[Mailbox, MailboxCreate, NonEmptyMailboxUpdates](
+    accountId: accountId,
+    ifInState: ifInState,
+    create: create,
+    update: update,
+    destroy: destroy,
   )
+  var args = req.toJson()
+  args["onDestroyRemoveEmails"] = %onDestroyRemoveEmails
+  let (b1, callId) = addInvocation(
+    b, mnMailboxSet, args, capabilityUri(Mailbox), setMeta(create, update, destroy)
+  )
+  (b1, ResponseHandle[SetResponse[MailboxCreatedItem, PartialMailbox]](callId))
 
 # =============================================================================
 # addEmailGet — Email/get (RFC 8621 §4.2)
@@ -159,12 +167,28 @@ func addEmailGet*(
     properties: Opt[seq[string]] = Opt.none(seq[string]),
     bodyFetchOptions: EmailBodyFetchOptions = default(EmailBodyFetchOptions),
 ): (RequestBuilder, ResponseHandle[GetResponse[Email]]) =
-  ## Adds an Email/get invocation with Email-specific body fetch options
-  ## (RFC 8621 §4.2, Decision D9). ``bodyFetchOptions.toExtras()`` supplies
-  ## the RFC-specific keys; ``default(EmailBodyFetchOptions)`` yields an
-  ## empty seq (no extra keys). Thin wrapper over ``addGet[Email]``'s
-  ## ``extras`` parameter.
-  addGet[Email](b, accountId, ids, properties, extras = bodyFetchOptions.toExtras())
+  ## Email/get (RFC 8621 §4.2) with Email-specific body fetch options
+  ## (Decision D9).
+  let req = GetRequest[Email](accountId: accountId, ids: ids, properties: properties)
+  var args = req.toJson()
+  emitBodyFetchOptions(args, bodyFetchOptions)
+  let (b1, callId) =
+    addInvocation(b, mnEmailGet, args, capabilityUri(Email), getMeta(ids))
+  (b1, ResponseHandle[GetResponse[Email]](callId))
+
+# =============================================================================
+# addEmailChanges — Email/changes (RFC 8621 §4.3)
+# =============================================================================
+
+func addEmailChanges*(
+    b: RequestBuilder,
+    accountId: AccountId,
+    sinceState: JmapState,
+    maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges),
+): (RequestBuilder, ResponseHandle[ChangesResponse[Email]]) =
+  ## Email/changes (RFC 8621 §4.3). Thin delegate to
+  ## ``addChanges[Email, ChangesResponse[Email]]``.
+  addChanges[Email, ChangesResponse[Email]](b, accountId, sinceState, maxChanges)
 
 # =============================================================================
 # addEmailGetByRef — Email/get by back-reference (RFC 8620 §3.7 / H1 §4.3)
@@ -203,14 +227,16 @@ func addPartialEmailGet*(
     properties: Opt[seq[string]] = Opt.none(seq[string]),
     bodyFetchOptions: EmailBodyFetchOptions = default(EmailBodyFetchOptions),
 ): (RequestBuilder, ResponseHandle[GetResponse[PartialEmail]]) =
-  ## Sparse Email/get returning a typed ``PartialEmail`` (RFC 8621 §4.2
-  ## + A3.6 D7). Mirrors ``addEmailGet`` shape; the partial parser
-  ## tolerates any subset of properties the server returns, so an
-  ## explicit ``properties`` projection no longer surfaces
-  ## ``MethodError(metServerFail)`` on the typed entry point.
-  addGet[PartialEmail](
-    b, accountId, ids, properties, extras = bodyFetchOptions.toExtras()
-  )
+  ## Sparse Email/get returning typed ``PartialEmail`` (RFC 8621 §4.2 +
+  ## A3.6 D7). Same wire method ``Email/get``; the typed response
+  ## differs.
+  let req =
+    GetRequest[PartialEmail](accountId: accountId, ids: ids, properties: properties)
+  var args = req.toJson()
+  emitBodyFetchOptions(args, bodyFetchOptions)
+  let (b1, callId) =
+    addInvocation(b, mnEmailGet, args, capabilityUri(PartialEmail), getMeta(ids))
+  (b1, ResponseHandle[GetResponse[PartialEmail]](callId))
 
 # =============================================================================
 # addPartialEmailGetByRef — sparse Email/get via RFC 8620 §3.7 back-reference
@@ -255,6 +281,36 @@ func addThreadGetByRef*(
   )
 
 # =============================================================================
+# addThreadGet — Thread/get (RFC 8621 §3.1)
+# =============================================================================
+
+func addThreadGet*(
+    b: RequestBuilder,
+    accountId: AccountId,
+    ids: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]),
+    properties: Opt[seq[string]] = Opt.none(seq[string]),
+): (RequestBuilder, ResponseHandle[GetResponse[thread.Thread]]) =
+  ## Thread/get (RFC 8621 §3.1). Thin delegate to
+  ## ``addGet[thread.Thread]``.
+  addGet[thread.Thread](b, accountId, ids, properties)
+
+# =============================================================================
+# addThreadChanges — Thread/changes (RFC 8621 §3.2)
+# =============================================================================
+
+func addThreadChanges*(
+    b: RequestBuilder,
+    accountId: AccountId,
+    sinceState: JmapState,
+    maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges),
+): (RequestBuilder, ResponseHandle[ChangesResponse[thread.Thread]]) =
+  ## Thread/changes (RFC 8621 §3.2). Thin delegate to
+  ## ``addChanges[thread.Thread, ChangesResponse[thread.Thread]]``.
+  addChanges[thread.Thread, ChangesResponse[thread.Thread]](
+    b, accountId, sinceState, maxChanges
+  )
+
+# =============================================================================
 # addEmailQuery — Email/query (RFC 8621 §4.4)
 # =============================================================================
 
@@ -266,16 +322,13 @@ func addEmailQuery*(
     queryParams: QueryParams = QueryParams(),
     collapseThreads: bool = false,
 ): (RequestBuilder, ResponseHandle[QueryResponse[Email]]) =
-  ## Email/query (RFC 8621 §4.4). Typed ``EmailComparator`` flows through
-  ## the generic. ``collapseThreads`` (Decision D11) is emitted unconditionally.
-  addQuery[Email, EmailFilterCondition, EmailComparator](
-    b,
-    accountId,
-    filter,
-    sort,
-    queryParams,
-    extras = @[("collapseThreads", %collapseThreads)],
+  ## Email/query (RFC 8621 §4.4). ``collapseThreads`` per Decision D11.
+  var args = assembleQueryArgs(
+    accountId, serializeOptFilter(filter), serializeOptSort(sort), queryParams
   )
+  args["collapseThreads"] = %collapseThreads
+  let (b1, callId) = addInvocation(b, mnEmailQuery, args, capabilityUri(Email))
+  (b1, ResponseHandle[QueryResponse[Email]](callId))
 
 # =============================================================================
 # addEmailQueryChanges — Email/queryChanges (RFC 8621 §4.5)
@@ -293,17 +346,18 @@ func addEmailQueryChanges*(
     collapseThreads: bool = false,
 ): (RequestBuilder, ResponseHandle[QueryChangesResponse[Email]]) =
   ## Email/queryChanges (RFC 8621 §4.5).
-  addQueryChanges[Email, EmailFilterCondition, EmailComparator](
-    b,
+  var args = assembleQueryChangesArgs(
     accountId,
     sinceQueryState,
-    filter,
-    sort,
+    serializeOptFilter(filter),
+    serializeOptSort(sort),
     maxChanges,
     upToId,
     calculateTotal,
-    extras = @[("collapseThreads", %collapseThreads)],
   )
+  args["collapseThreads"] = %collapseThreads
+  let (b1, callId) = addInvocation(b, mnEmailQueryChanges, args, capabilityUri(Email))
+  (b1, ResponseHandle[QueryChangesResponse[Email]](callId))
 
 # =============================================================================
 # addEmailSet — Email/set (RFC 8621 §4.6)

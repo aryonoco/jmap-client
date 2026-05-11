@@ -377,6 +377,15 @@ lint-internal-boundary:
     nim r --hints:off --warnings:off tests/lint/th10_internal_boundary.nim
     @echo "H10 internal-boundary lint passed"
 
+# Enforce the typed-builder JsonNode prohibition (A5, P19). Fails CI
+# on any `add<Entity><Method>*` proc that acquires a JsonNode
+# parameter outside the documented allowlist (addEcho,
+# addCapabilityInvocation, addInvocation).
+lint-typed-builder-jsonnode:
+    @echo "Running H11 typed-builder JsonNode lint..."
+    nim r --hints:off --warnings:off tests/lint/h11_typed_builder_no_jsonnode.nim
+    @echo "H11 typed-builder JsonNode lint passed"
+
 # Static analysis with nimalyzer
 analyse:
     @echo "Running static analysis..."
@@ -387,7 +396,7 @@ analyse:
 analyze: analyse
 
 # Run all code quality checks
-check: fmt-check lint lint-isolated lint-style lint-internal-boundary analyse
+check: fmt-check lint lint-isolated lint-style lint-internal-boundary lint-typed-builder-jsonnode analyse
     @echo "All quality checks passed"
 
 # =============================================================================
@@ -401,7 +410,7 @@ reuse:
     @echo "REUSE compliance check passed"
 
 # Run full CI pipeline locally (mirrors .github/workflows/ci.yml)
-ci: reuse fmt-check lint lint-isolated lint-style lint-internal-boundary analyse test
+ci: reuse fmt-check lint lint-isolated lint-style lint-internal-boundary lint-typed-builder-jsonnode analyse test
     @echo ""
     @echo "============================================"
     @echo "All CI checks passed!"

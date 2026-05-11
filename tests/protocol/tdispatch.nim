@@ -31,8 +31,8 @@ type MockFoo = object
 proc methodEntity*(T: typedesc[MockFoo]): MethodEntity =
   meTest
 
-proc capabilityUri*(T: typedesc[MockFoo]): string =
-  "urn:test:mockfoo"
+proc capabilityUri*(T: typedesc[MockFoo]): CapabilityUri =
+  parseCapabilityUri("urn:test:mockfoo").get()
 
 proc getMethodName*(T: typedesc[MockFoo]): MethodName =
   ## Aliased to mnMailboxGet; the dispatch tests exercise handle-type
@@ -59,8 +59,8 @@ type MockQueryable = object
 proc methodEntity*(T: typedesc[MockQueryable]): MethodEntity =
   meTest
 
-proc capabilityUri*(T: typedesc[MockQueryable]): string =
-  "urn:test:mockqueryable"
+proc capabilityUri*(T: typedesc[MockQueryable]): CapabilityUri =
+  parseCapabilityUri("urn:test:mockqueryable").get()
 
 proc queryMethodName*(T: typedesc[MockQueryable]): MethodName =
   mnEmailQuery

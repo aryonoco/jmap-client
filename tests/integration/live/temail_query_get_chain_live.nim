@@ -30,7 +30,6 @@
 ##  4. Email/set destroy — cleanup leg so subsequent runs see a clean
 ##     baseline for this discriminator.
 
-import std/json
 import std/sets
 import std/tables
 

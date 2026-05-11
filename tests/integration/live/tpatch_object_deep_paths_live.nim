@@ -143,9 +143,8 @@ block tpatchObjectDeepPathsLive:
         assertOn target, false, "Mailbox/set must report an outcome"
 
       # Read back to verify parentId is now null.
-      let (b2, getHandle) = addGet[Mailbox](
-        initRequestBuilder(), mailAccountId, ids = directIds(@[childId])
-      )
+      let (b2, getHandle) =
+        addMailboxGet(initRequestBuilder(), mailAccountId, ids = directIds(@[childId]))
       let resp2 =
         client.send(b2).expect("send Mailbox/get readback[" & $target.kind & "]")
       let getResp =

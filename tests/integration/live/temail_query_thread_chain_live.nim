@@ -38,7 +38,6 @@
 ## guarded on ``loadLiveTestTargets().isOk`` so the file joins testament's
 ## megatest cleanly under ``just test-full`` when env vars are absent.
 
-import std/json
 import std/os
 import std/sets
 

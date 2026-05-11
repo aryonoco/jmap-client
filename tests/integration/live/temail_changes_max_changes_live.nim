@@ -79,7 +79,7 @@ block temailChangesMaxChangesLive:
 
     # First page — capture against a fresh seed surface so
     # hasMoreChanges is forced true.
-    let (b1, h1) = addChanges[Email](
+    let (b1, h1) = addEmailChanges(
       initRequestBuilder(),
       mailAccountId,
       sinceState = baselineState,
@@ -110,7 +110,7 @@ block temailChangesMaxChangesLive:
     var hasMore = cr1.hasMoreChanges
     var iter = 0
     while hasMore and iter < MaxIters:
-      let (bN, hN) = addChanges[Email](
+      let (bN, hN) = addEmailChanges(
         initRequestBuilder(),
         mailAccountId,
         sinceState = nextState,

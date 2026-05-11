@@ -44,7 +44,7 @@ block tmailboxSetCrudLive:
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
 
     # --- Step 1: resolve Inbox id ---------------------------------------
-    let (b1, mbHandle) = addGet[Mailbox](initRequestBuilder(), mailAccountId)
+    let (b1, mbHandle) = addMailboxGet(initRequestBuilder(), mailAccountId)
     let resp1 = client.send(b1).expect("send Mailbox/get[" & $target.kind & "]")
     let mbResp = resp1.get(mbHandle).expect("Mailbox/get extract[" & $target.kind & "]")
     var inboxId = Opt.none(Id)

@@ -197,10 +197,9 @@ block tcascadeChangesCoherenceLive:
         initRequestBuilder(), mailAccountId, sinceState = baselineMailboxState
       )
       let (b2, emailH) =
-        addChanges[Email](b1, mailAccountId, sinceState = baselineEmailState)
-      let (b3, threadH) = addChanges[jmap_client.Thread](
-        b2, mailAccountId, sinceState = baselineThreadState
-      )
+        addEmailChanges(b1, mailAccountId, sinceState = baselineEmailState)
+      let (b3, threadH) =
+        addThreadChanges(b2, mailAccountId, sinceState = baselineThreadState)
       let resp = client.send(b3).expect("send cascade */changes[" & $target.kind & "]")
       # Cat-B: any of the three /changes extracts may surface a typed
       # error (e.g. Cyrus 3.12.2's ``cannotCalculateChanges`` when the

@@ -12,6 +12,10 @@
 {.push raises: [], noSideEffect.}
 {.experimental: "strictCaseObjects".}
 
+import std/hashes
+
+import ./validation
+
 type MethodName* = enum
   ## Every JMAP method the library emits on the wire, plus a catch-all
   ## ``mnUnknown`` for receive-side forward compatibility (Postel's law).
@@ -88,3 +92,29 @@ func parseMethodName*(raw: string): MethodName =
     if m != mnUnknown and $m == raw:
       return m
   mnUnknown
+
+type MethodNameLiteral* = distinct string
+  ## Validated wire-format method name carrier for
+  ## ``addCapabilityInvocation`` — distinct from the typed ``MethodName``
+  ## enum because vendor methods cannot be enumerated. Parses any
+  ## 1..255-octet, control-free, slash-containing string; rendered
+  ## verbatim on the wire via ``parseInvocation``. Raw constructor
+  ## ``MethodNameLiteral(s)`` is module-private (P15); external consumers
+  ## go through ``parseMethodNameLiteral``.
+
+defineStringDistinctOps(MethodNameLiteral)
+
+func parseMethodNameLiteral*(raw: string): Result[MethodNameLiteral, ValidationError] =
+  ## Validates the wire shape RFC 8620 §3.2 requires: 1..255 octets, no
+  ## control characters, contains at least one ``/`` separator. The
+  ## library cannot enumerate vendor ``Entity/verb`` pairs, so the
+  ## structural check is the only construction-time gate.
+  detectLenientToken(raw).isOkOr:
+    return err(toValidationError(error, "MethodNameLiteral", raw))
+  if '/' notin raw:
+    return err(
+      validationError(
+        "MethodNameLiteral", "must contain '/' (RFC 8620 §3.2 Entity/verb)", raw
+      )
+    )
+  ok(MethodNameLiteral(raw))

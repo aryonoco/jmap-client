@@ -7,12 +7,14 @@
 {.push raises: [], noSideEffect.}
 {.experimental: "strictCaseObjects".}
 
+import std/hashes
 import std/strutils
 import std/sets
 from std/json import JsonNode
 
 import results
 
+import ./validation
 import ./primitives
 import ./collation
 export collation
@@ -76,3 +78,30 @@ func capabilityUri*(kind: CapabilityKind): Opt[string] =
 func hasCollation*(caps: CoreCapabilities, algorithm: CollationAlgorithm): bool =
   ## Checks whether the server supports a given RFC 4790 collation algorithm.
   return algorithm in caps.collationAlgorithms
+
+type CapabilityUri* = distinct string
+  ## RFC 8620 §2 capability URI carrier. Used internally by every typed
+  ## ``add<Entity><Method>`` builder to tag the request's ``using`` field,
+  ## and publicly as the ``capability`` parameter on
+  ## ``addCapabilityInvocation`` for vendor URN escapes. Raw constructor
+  ## ``CapabilityUri(s)`` is module-private (P15); external consumers go
+  ## through ``parseCapabilityUri``.
+
+defineStringDistinctOps(CapabilityUri)
+
+func parseCapabilityUri*(raw: string): Result[CapabilityUri, ValidationError] =
+  ## Validates the URN envelope per RFC 8141: lenient-token shape (1..255
+  ## octets, no control characters), ``urn:`` prefix, and a non-empty NID
+  ## segment after the first colon. Vendor URNs (``urn:com:vendor:*``,
+  ## ``urn:io:vendor:*``) and IETF URNs (``urn:ietf:params:jmap:*``) are
+  ## both accepted. The convention "IETF capabilities go through the typed
+  ## ``add<Entity><Method>`` family" is enforced by docstring + H11 lint,
+  ## not by construction-time rejection.
+  detectLenientToken(raw).isOkOr:
+    return err(toValidationError(error, "CapabilityUri", raw))
+  if not raw.startsWith("urn:"):
+    return err(validationError("CapabilityUri", "must be a URN", raw))
+  let colon2 = raw.find(':', start = 4)
+  if colon2 < 5:
+    return err(validationError("CapabilityUri", "malformed urn: missing NID", raw))
+  ok(CapabilityUri(raw))

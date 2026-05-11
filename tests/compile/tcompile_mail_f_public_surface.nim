@@ -69,12 +69,13 @@ static:
   doAssert declared(parseNonEmptyMailboxUpdates)
   doAssert declared(parseNonEmptyEmailUpdates)
 
-  # --- /set widening: associated-type templates + registration helper (5) ---
+  # --- /set widening: associated-type templates + registration helper (4) ---
   doAssert declared(createType)
   doAssert declared(updateType)
   doAssert declared(setResponseType)
   doAssert declared(registerSettableEntity)
-  doAssert declared(addSet)
+  # ``addSet`` is hub-private under A5 — exposed via per-entity wrappers
+  doAssert not declared(addSet)
 
   # --- /changes widening: associated-type template + extracted leaf (2) ---
   doAssert declared(changesResponseType)
@@ -84,8 +85,8 @@ static:
   doAssert declared(copyItemType)
   doAssert declared(copyResponseType)
 
-  # --- /get extras: EmailBodyFetchOptions → seq[(string, JsonNode)] (1) ---
-  doAssert declared(toExtras)
+  # --- A5: toExtras removed; EmailBodyFetchOptions flows via toJson ---
+  doAssert not declared(toExtras)
 
   # --- Mailbox update ctors (5) ---
   doAssert declared(setName)

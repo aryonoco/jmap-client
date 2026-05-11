@@ -898,43 +898,56 @@ func toJson*(c: EmailComparator): JsonNode =
 # EmailBodyFetchOptions
 # =============================================================================
 
-func toExtras*(opts: EmailBodyFetchOptions): seq[(string, JsonNode)] =
-  ## Emit body fetch option keys as a ``(key, value)`` seq. Consumed by
-  ## ``addEmailGet`` via its ``extras`` parameter and by ``addEmailParse``
-  ## via direct iteration. Maps ``BodyValueScope`` enum back to the three
-  ## RFC booleans (D9). Insertion order: ``bodyProperties``,
-  ## ``fetchTextBodyValues?``, ``fetchHTMLBodyValues?``,
-  ## ``fetchAllBodyValues?``, ``maxBodyValueBytes``.
-  result = @[]
-  for props in opts.bodyProperties:
+func emitBodyProperties(node: var JsonNode, opt: Opt[seq[PropertyName]]) =
+  ## Emit ``bodyProperties`` as a JArray when present. ``Opt.none`` →
+  ## omit. Mirrors the address-list / string-list emitters in
+  ## ``serde_email_blueprint.nim``.
+  for props in opt:
     var arr = newJArray()
     for p in props:
       arr.add(p.toJson())
-    result.add(("bodyProperties", arr))
-  case opts.fetchBodyValues
+    node["bodyProperties"] = arr
+
+func emitFetchScope(node: var JsonNode, scope: BodyValueScope) =
+  ## Map ``BodyValueScope`` back to the RFC 8621 §4.2 booleans (D9).
+  ## ``bvsNone`` omits all fetch keys; ``bvsTextAndHtml`` emits two
+  ## keys atomically.
+  case scope
   of bvsNone:
     discard
   of bvsText:
-    result.add(("fetchTextBodyValues", %true))
+    node["fetchTextBodyValues"] = %true
   of bvsHtml:
-    result.add(("fetchHTMLBodyValues", %true))
+    node["fetchHTMLBodyValues"] = %true
   of bvsTextAndHtml:
-    result.add(("fetchTextBodyValues", %true))
-    result.add(("fetchHTMLBodyValues", %true))
+    node["fetchTextBodyValues"] = %true
+    node["fetchHTMLBodyValues"] = %true
   of bvsAll:
-    result.add(("fetchAllBodyValues", %true))
-  for v in opts.maxBodyValueBytes:
-    result.add(("maxBodyValueBytes", v.toJson()))
+    node["fetchAllBodyValues"] = %true
+
+func emitMaxBodyValueBytes(node: var JsonNode, opt: Opt[UnsignedInt]) =
+  ## Emit ``maxBodyValueBytes`` when present. ``Opt.none`` → omit.
+  for v in opt:
+    node["maxBodyValueBytes"] = v.toJson()
+
+func emitBodyFetchOptions*(node: var JsonNode, opts: EmailBodyFetchOptions) =
+  ## Emit body fetch option keys directly into ``node``. Consumed by
+  ## the ``addEmailGet`` / ``addPartialEmailGet`` / ``addEmailParse``
+  ## wrappers — mirrors the ``emitOptAddrSeq`` / ``emitOptStringSeq``
+  ## helpers in ``serde_email_blueprint.nim``. Insertion order:
+  ## ``bodyProperties``, ``fetchTextBodyValues?``,
+  ## ``fetchHTMLBodyValues?``, ``fetchAllBodyValues?``,
+  ## ``maxBodyValueBytes``.
+  emitBodyProperties(node, opts.bodyProperties)
+  emitFetchScope(node, opts.fetchBodyValues)
+  emitMaxBodyValueBytes(node, opts.maxBodyValueBytes)
 
 func toJson*(opts: EmailBodyFetchOptions): JsonNode =
   ## Serialise EmailBodyFetchOptions to request JSON arguments.
   ## ``bvsNone`` omits all fetch keys; ``default(EmailBodyFetchOptions).toJson``
-  ## produces ``{}``. Builds a JObject from ``toExtras`` so both paths
-  ## produce byte-identical output.
-  var node = newJObject()
-  for (k, v) in opts.toExtras():
-    node[k] = v
-  return node
+  ## produces ``{}``.
+  result = newJObject()
+  emitBodyFetchOptions(result, opts)
 
 # =============================================================================
 # EmailCreatedItem

@@ -96,7 +96,7 @@ block tthreadChangesLive:
     var converged = false
     var lastCr: ChangesResponse[jmap_client.Thread]
     for attempt in 0 ..< 5:
-      let (b, h) = addChanges[jmap_client.Thread](
+      let (b, h) = addThreadChanges(
         initRequestBuilder(), mailAccountId, sinceState = baselineState
       )
       let resp =
@@ -122,9 +122,8 @@ block tthreadChangesLive:
 
     # --- Sad path: bogus sinceState ------------------------------------
     let bogusState = JmapState("phase-h-45-bogus-state")
-    let (bSad, sadHandle) = addChanges[jmap_client.Thread](
-      initRequestBuilder(), mailAccountId, sinceState = bogusState
-    )
+    let (bSad, sadHandle) =
+      addThreadChanges(initRequestBuilder(), mailAccountId, sinceState = bogusState)
     let respSad =
       client.send(bSad).expect("send Thread/changes bogus[" & $target.kind & "]")
     captureIfRequested(client, "thread-changes-bogus-state-" & $target.kind).expect(

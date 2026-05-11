@@ -21,6 +21,7 @@
 {.experimental: "strictCaseObjects".}
 
 import std/json
+import std/sequtils
 import std/tables
 
 import ../../types
@@ -42,7 +43,7 @@ type RequestBuilder* = object
   invocations: seq[Invocation] ## accumulated method calls
   callLimits: seq[CallLimitMeta]
     ## per-call object-count metadata, parallel to invocations
-  capabilityUris: seq[string] ## deduplicated capability URIs
+  capabilityUris: seq[CapabilityUri] ## deduplicated capability URIs
 
 {.pop.}
 
@@ -60,7 +61,8 @@ func initRequestBuilder*(): RequestBuilder =
     nextCallId: 0,
     invocations: @[],
     callLimits: @[],
-    capabilityUris: @["urn:ietf:params:jmap:core"],
+    # literal IETF URN, always parses Ok
+    capabilityUris: @[parseCapabilityUri("urn:ietf:params:jmap:core").get()],
   )
 
 # =============================================================================
@@ -77,7 +79,9 @@ func isEmpty*(b: RequestBuilder): bool =
 
 func capabilities*(b: RequestBuilder): seq[string] =
   ## Snapshot of the deduplicated capability URIs registered so far.
-  return b.capabilityUris
+  ## Returned as ``seq[string]`` for API parity with ``Request.using``
+  ## (RFC 8620 §3.3 wire format).
+  return b.capabilityUris.mapIt(string(it))
 
 func callLimits*(b: RequestBuilder): seq[CallLimitMeta] =
   ## Per-call limit metadata, parallel to ``b.build().methodCalls``.
@@ -98,7 +102,7 @@ func build*(b: RequestBuilder): Request =
   ## The builder can continue accumulating after ``build()`` for sequential
   ## requests.
   return Request(
-    `using`: b.capabilityUris,
+    `using`: b.capabilityUris.mapIt(string(it)),
     methodCalls: b.invocations,
     createdIds: Opt.none(Table[CreationId, Id]),
   )
@@ -112,7 +116,7 @@ func nextId(b: RequestBuilder): MethodCallId =
   ## Bypasses parseMethodCallId because the format is provably valid (D3.9).
   MethodCallId("c" & $b.nextCallId)
 
-func withCapability(caps: seq[string], cap: string): seq[string] =
+func withCapability(caps: seq[CapabilityUri], cap: CapabilityUri): seq[CapabilityUri] =
   ## Returns a new capability list with ``cap`` added if not already present.
   if cap in caps:
     caps
@@ -123,7 +127,7 @@ func addInvocation*(
     b: RequestBuilder,
     name: MethodName,
     args: JsonNode,
-    capability: string,
+    capability: CapabilityUri,
     meta: CallLimitMeta = CallLimitMeta(kind: clmOther),
 ): (RequestBuilder, MethodCallId) =
   ## Constructs an Invocation and returns a new builder with it accumulated.
@@ -174,9 +178,83 @@ func addEcho*(
 ): (RequestBuilder, ResponseHandle[JsonNode]) =
   ## Adds a Core/echo invocation (RFC 8620 section 4). The server echoes
   ## the arguments back unchanged. Useful for connectivity testing.
-  let (newBuilder, callId) =
-    b.addInvocation(mnCoreEcho, args, "urn:ietf:params:jmap:core")
+  let (newBuilder, callId) = b.addInvocation(
+    mnCoreEcho,
+    args,
+    # literal IETF URN, always parses Ok
+    parseCapabilityUri("urn:ietf:params:jmap:core").get(),
+  )
   return (newBuilder, ResponseHandle[JsonNode](callId))
+
+# =============================================================================
+# addCapabilityInvocation — RFC 8620 §2.5 vendor capability escape
+# =============================================================================
+
+func addRawInvocation(
+    b: RequestBuilder,
+    rawName: string,
+    args: JsonNode,
+    capability: CapabilityUri,
+    meta: CallLimitMeta = CallLimitMeta(kind: clmOther),
+): Result[(RequestBuilder, MethodCallId), ValidationError] =
+  ## Module-private helper. Constructs an ``Invocation`` via
+  ## ``parseInvocation`` so the verbatim wire name is preserved (the
+  ## typed-enum ``addInvocation`` writes ``$name``, which is symbol-
+  ## valued for ``mnUnknown`` and therefore lossy for vendor methods).
+  ## Returns Result because ``parseInvocation`` validates non-empty
+  ## rawName; the sole caller ``addCapabilityInvocation`` pre-validates
+  ## via the ``MethodNameLiteral`` smart constructor, so the err arm is
+  ## unreachable in practice.
+  let callId = b.nextId()
+  let inv = ?parseInvocation(rawName, args, callId)
+  ok(
+    (
+      RequestBuilder(
+        nextCallId: b.nextCallId + 1,
+        invocations: b.invocations & @[inv],
+        callLimits: b.callLimits & @[meta],
+        capabilityUris: withCapability(b.capabilityUris, capability),
+      ),
+      callId,
+    )
+  )
+
+func addCapabilityInvocation*(
+    b: RequestBuilder,
+    capability: CapabilityUri,
+    methodName: MethodNameLiteral,
+    args: JsonNode,
+): Result[(RequestBuilder, ResponseHandle[JsonNode]), ValidationError] =
+  ## RFC 8620 §2.5 vendor-capability escape — 2nd documented send-side
+  ## P19 exception (alongside ``addEcho``).
+  ##
+  ## **Vendor capabilities only.** Vendor URN namespaces
+  ## (``urn:com:vendor:*``, ``urn:io:vendor:*``, …) are reserved per
+  ## RFC 8620 §2.5 for capabilities the library cannot enumerate.
+  ##
+  ## **Standard IETF capabilities** (``urn:ietf:params:jmap:*``) MUST
+  ## use the typed ``add<Entity><Method>`` family. That family is fully
+  ## ``JsonNode``-free; this proc is the only public send-side
+  ## ``JsonNode`` escape (other than ``addEcho``). H11 lint
+  ## mechanically blocks the typed family from re-acquiring
+  ## ``JsonNode`` parameters.
+  ##
+  ## ``capability`` auto-threads into ``Request.using[]`` via the
+  ## linear-scan dedup shared with the typed family. ``methodName``
+  ## arrives as a typed ``MethodNameLiteral`` — the wire-shape check
+  ## (1..255 octets, no control chars, contains ``/``) lives in
+  ## ``parseMethodNameLiteral`` (P15). ``args`` must be a non-nil
+  ## JObject (RFC 8620 §3.2); a nil or non-JObject node fails on the
+  ## Result rail before reaching ``parseInvocation`` (which does not
+  ## validate ``arguments``). Returns ``ResponseHandle[JsonNode]``
+  ## because the response shape is vendor-defined.
+  if args.isNil:
+    return err(validationError("VendorInvocation", "args must be a JSON object", "nil"))
+  if args.kind != JObject:
+    return
+      err(validationError("VendorInvocation", "args must be a JSON object", $args.kind))
+  let (b1, callId) = ?addRawInvocation(b, string(methodName), args, capability)
+  ok((b1, ResponseHandle[JsonNode](callId)))
 
 # =============================================================================
 # addGet — Foo/get (RFC 8620 section 5.1)
@@ -187,25 +265,14 @@ func addGet*[T](
     accountId: AccountId,
     ids: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]),
     properties: Opt[seq[string]] = Opt.none(seq[string]),
-    extras: seq[(string, JsonNode)] = @[],
 ): (RequestBuilder, ResponseHandle[GetResponse[T]]) =
   ## Adds a Foo/get invocation. Fetches objects by identifiers, optionally
-  ## returning only a subset of properties. Entity-specific extension keys
-  ## (e.g. Email/get's body-fetch options) are supplied via ``extras`` and
-  ## appended to the args after the standard frame (insertion order preserved).
+  ## returning only a subset of properties. Hub-private — exposed via
+  ## per-entity wrappers in ``mail_builders.nim``.
   mixin getMethodName, capabilityUri
   let req = GetRequest[T](accountId: accountId, ids: ids, properties: properties)
-  var args = req.toJson()
-  for (k, v) in extras:
-    args[k] = v
-  var idCount = Opt.some(0)
-  for r in ids:
-    case r.kind
-    of rkDirect:
-      idCount = Opt.some(r.value.len)
-    of rkReference:
-      idCount = Opt.none(int)
-  let meta = CallLimitMeta(kind: clmGet, idCount: idCount)
+  let args = req.toJson()
+  let meta = getMeta(ids)
   let (newBuilder, callId) =
     addInvocation(b, getMethodName(T), args, capabilityUri(T), meta)
   (newBuilder, ResponseHandle[GetResponse[T]](callId))
@@ -256,16 +323,13 @@ func addSet*[T, C, U, R](
     create: Opt[Table[CreationId, C]] = Opt.none(Table[CreationId, C]),
     update: Opt[U] = Opt.none(U),
     destroy: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]),
-    extras: seq[(string, JsonNode)] = @[],
 ): (RequestBuilder, ResponseHandle[R]) =
   ## Foo/set (RFC 8620 section 5.3). ``T`` = entity, ``C`` = typed create
   ## value, ``U`` = whole-container update algebra, ``R`` = response type.
-  ## Entity-specific extension keys are supplied via ``extras`` and
-  ## appended to the args after the standard frame (insertion order
-  ## preserved). ``setMethodName``, ``capabilityUri``, ``C.toJson``,
-  ## ``U.toJson``, and ``U.len`` all resolve at instantiation via
-  ## ``mixin``.
-  mixin setMethodName, capabilityUri, toJson, len
+  ## Hub-private — exposed via per-entity wrappers in ``mail_builders.nim``.
+  ## ``setMethodName``, ``capabilityUri``, ``C.toJson``, and ``U.toJson``
+  ## all resolve at instantiation via ``mixin``.
+  mixin setMethodName, capabilityUri, toJson
   let req = SetRequest[T, C, U](
     accountId: accountId,
     ifInState: ifInState,
@@ -273,27 +337,8 @@ func addSet*[T, C, U, R](
     update: update,
     destroy: destroy,
   )
-  var args = req.toJson()
-  for (k, v) in extras:
-    args[k] = v
-  var n = 0
-  var anyReference = false
-  for c in create:
-    n += c.len
-  for u in update:
-    n += u.len
-  for d in destroy:
-    case d.kind
-    of rkDirect:
-      n += d.value.len
-    of rkReference:
-      anyReference = true
-  let objectCount: Opt[int] =
-    if anyReference:
-      Opt.none(int)
-    else:
-      Opt.some(n)
-  let meta = CallLimitMeta(kind: clmSet, objectCount: objectCount)
+  let args = req.toJson()
+  let meta = setMeta(create, update, destroy)
   let (newBuilder, callId) =
     addInvocation(b, setMethodName(T), args, capabilityUri(T), meta)
   (newBuilder, ResponseHandle[R](callId))
@@ -310,15 +355,13 @@ func addCopy*[T, CopyItem, R](
     ifFromInState: Opt[JmapState] = Opt.none(JmapState),
     ifInState: Opt[JmapState] = Opt.none(JmapState),
     destroyMode: CopyDestroyMode = keepOriginals(),
-    extras: seq[(string, JsonNode)] = @[],
 ): (RequestBuilder, ResponseHandle[R]) =
   ## Foo/copy (RFC 8620 section 5.4). ``T`` = entity, ``CopyItem`` = typed
   ## per-entry create-value, ``R`` = response type. ``destroyMode`` defaults
-  ## to ``keepOriginals()``; entity-specific extension keys arrive via
-  ## ``extras`` and are appended to the args after the standard frame
-  ## (insertion order preserved). ``copyMethodName``, ``capabilityUri``,
-  ## and ``CopyItem.toJson`` resolve at instantiation via ``mixin``.
-  ## Per RFC 8620 §5.4, /copy is a /set-class operation; the meta carries
+  ## to ``keepOriginals()``. Hub-private — exposed via per-entity wrappers
+  ## in ``mail_builders.nim``. ``copyMethodName``, ``capabilityUri``, and
+  ## ``CopyItem.toJson`` resolve at instantiation via ``mixin``. Per RFC
+  ## 8620 §5.4, /copy is a /set-class operation; the meta carries
   ## ``objectCount = Opt.some(create.len)``.
   mixin copyMethodName, capabilityUri, toJson
   let req = CopyRequest[T, CopyItem](
@@ -329,9 +372,7 @@ func addCopy*[T, CopyItem, R](
     create: create,
     destroyMode: destroyMode,
   )
-  var args = req.toJson()
-  for (k, v) in extras:
-    args[k] = v
+  let args = req.toJson()
   let meta = CallLimitMeta(kind: clmSet, objectCount: Opt.some(create.len))
   let (newBuilder, callId) =
     addInvocation(b, copyMethodName(T), args, capabilityUri(T), meta)
@@ -347,20 +388,16 @@ func addQuery*[T, C, SortT](
     filter: Opt[Filter[C]] = default(Opt[Filter[C]]),
     sort: Opt[seq[SortT]] = default(Opt[seq[SortT]]),
     queryParams: QueryParams = QueryParams(),
-    extras: seq[(string, JsonNode)] = @[],
 ): (RequestBuilder, ResponseHandle[QueryResponse[T]]) =
   ## Foo/query. ``T`` = entity, ``C`` = filter-condition type, ``SortT`` =
-  ## sort-element type. Entity-specific extension keys are supplied via
-  ## ``extras`` and merged into the args after the standard frame
-  ## (insertion order preserved). ``C.toJson`` resolves via ``mixin`` at
-  ## the caller's instantiation scope through the
-  ## ``serializeOptFilter`` → ``Filter[C].toJson`` cascade.
+  ## sort-element type. Hub-private — exposed via per-entity wrappers in
+  ## ``mail_builders.nim``. ``C.toJson`` resolves via ``mixin`` at the
+  ## caller's instantiation scope through the ``serializeOptFilter`` →
+  ## ``Filter[C].toJson`` cascade.
   mixin queryMethodName, capabilityUri, toJson
-  var args = assembleQueryArgs(
+  let args = assembleQueryArgs(
     accountId, serializeOptFilter(filter), serializeOptSort(sort), queryParams
   )
-  for (k, v) in extras:
-    args[k] = v
   let (newBuilder, callId) =
     addInvocation(b, queryMethodName(T), args, capabilityUri(T))
   (newBuilder, ResponseHandle[QueryResponse[T]](callId))
@@ -378,13 +415,14 @@ func addQueryChanges*[T, C, SortT](
     maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges),
     upToId: Opt[Id] = Opt.none(Id),
     calculateTotal: bool = false,
-    extras: seq[(string, JsonNode)] = @[],
 ): (RequestBuilder, ResponseHandle[QueryChangesResponse[T]]) =
   ## Foo/queryChanges. Takes ``calculateTotal`` directly — RFC 8620
-  ## section 5.6 defines no window fields for /queryChanges. ``C.toJson``
-  ## resolves via ``mixin`` at the caller's instantiation scope.
+  ## section 5.6 defines no window fields for /queryChanges. Hub-private
+  ## — exposed via per-entity wrappers in ``mail_builders.nim``.
+  ## ``C.toJson`` resolves via ``mixin`` at the caller's instantiation
+  ## scope.
   mixin queryChangesMethodName, capabilityUri, toJson
-  var args = assembleQueryChangesArgs(
+  let args = assembleQueryChangesArgs(
     accountId,
     sinceQueryState,
     serializeOptFilter(filter),
@@ -393,8 +431,6 @@ func addQueryChanges*[T, C, SortT](
     upToId,
     calculateTotal,
   )
-  for (k, v) in extras:
-    args[k] = v
   let (newBuilder, callId) =
     addInvocation(b, queryChangesMethodName(T), args, capabilityUri(T))
   (newBuilder, ResponseHandle[QueryChangesResponse[T]](callId))
@@ -427,8 +463,8 @@ template addSet*[T](b: RequestBuilder, accountId: AccountId): untyped =
   ## ``updateType(T)``, and ``setResponseType(T)`` at the call site via
   ## template expansion; delegates to the four-parameter
   ## ``addSet[T, C, U, R]``. For calls that supply ``create`` / ``update``
-  ## / ``destroy`` / ``extras`` (the common case), invoke the four-parameter
-  ## form directly — the template deliberately takes only ``b`` and
+  ## / ``destroy`` (the common case), invoke the four-parameter form
+  ## directly — the template deliberately takes only ``b`` and
   ## ``accountId`` to avoid referencing template-returning-typedesc calls
   ## inside a template's own parameter-list default expressions (Nim limitation).
   addSet[T, createType(T), updateType(T), setResponseType(T)](b, accountId)
@@ -440,7 +476,7 @@ template addCopy*[T](
   ## and ``copyResponseType(T)`` at the call site via template expansion;
   ## delegates to the three-parameter ``addCopy[T, CopyItem, R]``.
   ## For calls that override ``ifFromInState`` / ``ifInState`` /
-  ## ``destroyMode`` / ``extras``, invoke the three-parameter form directly.
+  ## ``destroyMode``, invoke the three-parameter form directly.
   addCopy[T, copyItemType(T), copyResponseType(T)](b, fromAccountId, accountId, create)
 
 # =============================================================================

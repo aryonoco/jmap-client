@@ -35,8 +35,12 @@ export serde_vacation
 export serde_email
 export serde_snippet
 
-const VacationResponseCapUri = "urn:ietf:params:jmap:vacationresponse"
-const MailCapUri = "urn:ietf:params:jmap:mail"
+const VacationResponseCapUri =
+  # literal IETF URN, always parses Ok
+  parseCapabilityUri("urn:ietf:params:jmap:vacationresponse").get()
+const MailCapUri =
+  # literal IETF URN, always parses Ok
+  parseCapabilityUri("urn:ietf:params:jmap:mail").get()
 
 # =============================================================================
 # VacationResponse/get
@@ -211,8 +215,8 @@ func addEmailParse*(
 ): (RequestBuilder, ResponseHandle[EmailParseResponse]) =
   ## Adds an Email/parse invocation. ``blobIds`` is a plain seq (no result
   ## references — Email/parse doesn't support them).
-  ## ``bodyFetchOptions.toExtras()`` supplies the RFC 8621 §4.9 body-fetch
-  ## keys, merged into the args after the standard frame (insertion order
+  ## ``bodyFetchOptions.toJson`` supplies the RFC 8621 §4.9 body-fetch keys,
+  ## merged into the args after the standard frame (insertion order
   ## preserved).
   var args = newJObject()
   args["accountId"] = accountId.toJson()
@@ -225,8 +229,7 @@ func addEmailParse*(
     for p in props:
       propsArr.add(%p)
     args["properties"] = propsArr
-  for (k, v) in bodyFetchOptions.toExtras():
-    args[k] = v
+  emitBodyFetchOptions(args, bodyFetchOptions)
   let (newBuilder, callId) = b.addInvocation(mnEmailParse, args, MailCapUri)
   (newBuilder, ResponseHandle[EmailParseResponse](callId))
 

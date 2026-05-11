@@ -17,8 +17,9 @@
 ##   (``getMethodName(T)`` / ``setMethodName(T)`` / ...) live alongside this
 ##   overload; invalid verbs (e.g. ``setMethodName(typedesc[Thread])``)
 ##   fail at the call site with an undeclared-identifier compile error.
-## - ``func capabilityUri*(T: typedesc[Entity]): string`` — returns the
-##   capability URI for the ``using`` array (e.g. "urn:ietf:params:jmap:mail").
+## - ``func capabilityUri*(T: typedesc[Entity]): CapabilityUri`` — returns
+##   the capability URI for the ``using`` array (e.g.
+##   "urn:ietf:params:jmap:mail").
 ##
 ## **No concept constraint** (Decision D3.4). Generic ``add*`` functions leave
 ## ``T`` unconstrained. Concepts are rejected due to experimental status,
@@ -47,7 +48,7 @@
 ## 2. ``func methodEntity*(T: typedesc[Entity]): MethodEntity``.
 ## 3. Per-verb method-name resolvers for every supported verb — e.g.
 ##    ``func getMethodName*(T: typedesc[Entity]): MethodName``.
-## 4. ``func capabilityUri*(T: typedesc[Entity]): string``.
+## 4. ``func capabilityUri*(T: typedesc[Entity]): CapabilityUri``.
 ## 5. ``template filterType*(T: typedesc[Entity]): typedesc`` (if supports
 ##    ``/query``).
 ## 6. ``func toJson*(c: filterType(Entity)): JsonNode`` (if supports
@@ -100,7 +101,7 @@ template registerJmapEntity*(T: typedesc) =
       {.
         error:
           "registerJmapEntity: " & $T & " is missing `func capabilityUri*(T: typedesc[" &
-          $T & "]): string`"
+          $T & "]): CapabilityUri`"
       .}
 
 template registerQueryableEntity*(T: typedesc) =

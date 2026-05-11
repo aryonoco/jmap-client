@@ -35,6 +35,7 @@ const liveBudgetMul* = when defined(jmapLiveShard): 3 else: 1
 import results
 import jmap_client
 import jmap_client/client
+import jmap_client/internal/protocol/builder
 import ./mconfig
 
 # ---------------------------------------------------------------------------
@@ -98,7 +99,7 @@ proc resolveInboxId*(
   ## ``role == roleInbox``. Errors out narratively when the request
   ## fails, the response cannot be extracted, or no inbox-role mailbox
   ## is present.
-  let (b, mbHandle) = addGet[Mailbox](initRequestBuilder(), mailAccountId)
+  let (b, mbHandle) = addMailboxGet(initRequestBuilder(), mailAccountId)
   let resp = client.send(b).valueOr:
     return err("Mailbox/get send failed: " & error.message)
   let mbResp = resp.get(mbHandle).valueOr:
@@ -446,7 +447,7 @@ proc resolveOrCreateMailbox*(
   ## a child of the inbox-role mailbox via ``Mailbox/set create`` and
   ## returns the newly assigned id. Phase E supports re-runnability: on a
   ## second run the same name resolves to the previously created mailbox.
-  let (b1, mbHandle) = addGet[Mailbox](initRequestBuilder(), mailAccountId)
+  let (b1, mbHandle) = addMailboxGet(initRequestBuilder(), mailAccountId)
   let resp1 = client.send(b1).valueOr:
     return err("Mailbox/get send failed: " & error.message)
   let mbResp = resp1.get(mbHandle).valueOr:
@@ -607,7 +608,7 @@ proc resolveOrCreateRoleMailbox(
   ## Internal — exposed via the ``resolveOrCreateDrafts`` /
   ## ``resolveOrCreateSent`` named wrappers below so call sites read as
   ## the role they want.
-  let (b1, mbHandle) = addGet[Mailbox](initRequestBuilder(), mailAccountId)
+  let (b1, mbHandle) = addMailboxGet(initRequestBuilder(), mailAccountId)
   let resp1 = client.send(b1).valueOr:
     return err("Mailbox/get send failed: " & error.message)
   let mbResp = resp1.get(mbHandle).valueOr:
@@ -1487,7 +1488,7 @@ proc buildOversizedRequest*(
   var ids = newSeq[Id](idCount)
   for i in 0 ..< idCount:
     ids[i] = Id("phaseJsynth" & $i)
-  let (b, _) = addGet[Mailbox](initRequestBuilder(), accountId, ids = directIds(ids))
+  let (b, _) = addMailboxGet(initRequestBuilder(), accountId, ids = directIds(ids))
   b
 
 func injectBrokenBackReference*(

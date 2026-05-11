@@ -48,8 +48,9 @@ type TestWidgetFilter* = object ## Filter condition for TestWidget/query.
 func methodEntity*(T: typedesc[TestWidget]): MethodEntity =
   meTest
 
-func capabilityUri*(T: typedesc[TestWidget]): string =
-  "urn:test:widget"
+func capabilityUri*(T: typedesc[TestWidget]): CapabilityUri =
+  # synthesised test URN, always parses Ok
+  parseCapabilityUri("urn:test:widget").get()
 
 func getMethodName*(T: typedesc[TestWidget]): MethodName =
   mnMailboxGet

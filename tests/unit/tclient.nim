@@ -13,6 +13,7 @@ when defined(ssl):
   from std/net import SslError
 
 import jmap_client/client
+import jmap_client/internal/types/capabilities
 import jmap_client/internal/types/envelope
 import jmap_client/internal/types/errors
 import jmap_client/internal/types/identifiers
@@ -462,7 +463,7 @@ block validateLimitsSetWithinLimit:
   let (b, _) = initRequestBuilder().addInvocation(
       mnMailboxSet,
       newJObject(),
-      "urn:ietf:params:jmap:mail",
+      parseCapabilityUri("urn:ietf:params:jmap:mail").get(),
       CallLimitMeta(kind: clmSet, objectCount: Opt.some(9)),
     )
   validateLimits(b, caps).get()
@@ -473,7 +474,7 @@ block validateLimitsSetExceedsLimit:
   let (b, _) = initRequestBuilder().addInvocation(
       mnMailboxSet,
       newJObject(),
-      "urn:ietf:params:jmap:mail",
+      parseCapabilityUri("urn:ietf:params:jmap:mail").get(),
       CallLimitMeta(kind: clmSet, objectCount: Opt.some(11)),
     )
   let limR3 = validateLimits(b, caps)
@@ -487,7 +488,7 @@ block validateLimitsSetReferenceDestroy:
   let (b, _) = initRequestBuilder().addInvocation(
       mnMailboxSet,
       newJObject(),
-      "urn:ietf:params:jmap:mail",
+      parseCapabilityUri("urn:ietf:params:jmap:mail").get(),
       CallLimitMeta(kind: clmSet, objectCount: Opt.none(int)),
     )
   validateLimits(b, caps).get()
@@ -512,7 +513,7 @@ block validateLimitsMixedWithinLimits:
   let (b2, _) = b1.addInvocation(
     mnEmailSet,
     newJObject(),
-    "urn:ietf:params:jmap:mail",
+    parseCapabilityUri("urn:ietf:params:jmap:mail").get(),
     CallLimitMeta(kind: clmSet, objectCount: Opt.some(3)),
   )
   validateLimits(b2, caps).get()
@@ -526,7 +527,7 @@ block validateLimitsNonStandardMethod:
   let (b, _) = initRequestBuilder().addInvocation(
       mnUnknown,
       newJObject(),
-      "urn:ietf:params:jmap:core",
+      parseCapabilityUri("urn:ietf:params:jmap:core").get(),
       CallLimitMeta(kind: clmOther),
     )
   validateLimits(b, caps).get()
@@ -552,7 +553,7 @@ block validateLimitsSetAtLimit:
   let (b, _) = initRequestBuilder().addInvocation(
       mnMailboxSet,
       newJObject(),
-      "urn:ietf:params:jmap:mail",
+      parseCapabilityUri("urn:ietf:params:jmap:mail").get(),
       CallLimitMeta(kind: clmSet, objectCount: Opt.some(10)),
     )
   validateLimits(b, caps).get()
@@ -571,7 +572,7 @@ block validateLimitsSetEmptyArguments:
   let (b, _) = initRequestBuilder().addInvocation(
       mnMailboxSet,
       newJObject(),
-      "urn:ietf:params:jmap:mail",
+      parseCapabilityUri("urn:ietf:params:jmap:mail").get(),
       CallLimitMeta(kind: clmSet, objectCount: Opt.some(0)),
     )
   validateLimits(b, caps).get()
@@ -582,7 +583,7 @@ block validateLimitsSetOnlyDestroy:
   let (b, _) = initRequestBuilder().addInvocation(
       mnMailboxSet,
       newJObject(),
-      "urn:ietf:params:jmap:mail",
+      parseCapabilityUri("urn:ietf:params:jmap:mail").get(),
       CallLimitMeta(kind: clmSet, objectCount: Opt.some(3)),
     )
   validateLimits(b, caps).get()
@@ -595,7 +596,7 @@ block validateLimitsMethodPartialMatch:
   let (b, _) = initRequestBuilder().addInvocation(
       mnUnknown,
       newJObject(),
-      "urn:ietf:params:jmap:core",
+      parseCapabilityUri("urn:ietf:params:jmap:core").get(),
       CallLimitMeta(kind: clmOther),
     )
   validateLimits(b, caps).get()

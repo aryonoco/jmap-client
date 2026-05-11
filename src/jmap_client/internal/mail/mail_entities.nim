@@ -17,9 +17,9 @@
 
 import std/json
 
+import ../../types
 import ../protocol/entity
 import ../protocol/methods
-import ../types/methods_enum
 import ./thread
 import ./identity
 import ./mailbox
@@ -53,10 +53,11 @@ func changesMethodName*(T: typedesc[thread.Thread]): MethodName =
   discard $T
   mnThreadChanges
 
-func capabilityUri*(T: typedesc[thread.Thread]): string =
+func capabilityUri*(T: typedesc[thread.Thread]): CapabilityUri =
   ## Capability URI for Thread methods.
   discard $T
-  "urn:ietf:params:jmap:mail"
+  # literal IETF URN, always parses Ok
+  parseCapabilityUri("urn:ietf:params:jmap:mail").get()
 
 template changesResponseType*(T: typedesc[thread.Thread]): typedesc =
   ## Associated /changes response type for Thread — the standard
@@ -90,10 +91,11 @@ func setMethodName*(T: typedesc[Identity]): MethodName =
   discard $T
   mnIdentitySet
 
-func capabilityUri*(T: typedesc[Identity]): string =
+func capabilityUri*(T: typedesc[Identity]): CapabilityUri =
   ## Capability URI for Identity methods.
   discard $T
-  "urn:ietf:params:jmap:submission"
+  # literal IETF URN, always parses Ok
+  parseCapabilityUri("urn:ietf:params:jmap:submission").get()
 
 template changesResponseType*(T: typedesc[Identity]): typedesc =
   ## Associated /changes response type for Identity — the standard
@@ -159,10 +161,11 @@ func queryChangesMethodName*(T: typedesc[Mailbox]): MethodName =
   discard $T
   mnMailboxQueryChanges
 
-func capabilityUri*(T: typedesc[Mailbox]): string =
+func capabilityUri*(T: typedesc[Mailbox]): CapabilityUri =
   ## Capability URI for Mailbox methods.
   discard $T
-  "urn:ietf:params:jmap:mail"
+  # literal IETF URN, always parses Ok
+  parseCapabilityUri("urn:ietf:params:jmap:mail").get()
 
 template changesResponseType*(T: typedesc[Mailbox]): typedesc =
   ## Associated /changes response type for Mailbox. Uses the extended
@@ -246,10 +249,11 @@ func importMethodName*(T: typedesc[Email]): MethodName =
   discard $T
   mnEmailImport
 
-func capabilityUri*(T: typedesc[Email]): string =
+func capabilityUri*(T: typedesc[Email]): CapabilityUri =
   ## Capability URI for Email methods.
   discard $T
-  "urn:ietf:params:jmap:mail"
+  # literal IETF URN, always parses Ok
+  parseCapabilityUri("urn:ietf:params:jmap:mail").get()
 
 template changesResponseType*(T: typedesc[Email]): typedesc =
   ## Associated /changes response type for Email — the standard generic
@@ -331,11 +335,12 @@ func queryChangesMethodName*(T: typedesc[AnyEmailSubmission]): MethodName =
   discard $T
   mnEmailSubmissionQueryChanges
 
-func capabilityUri*(T: typedesc[AnyEmailSubmission]): string =
+func capabilityUri*(T: typedesc[AnyEmailSubmission]): CapabilityUri =
   ## RFC 8621 §1.3 — EmailSubmission methods are covered by the JMAP
   ## Submission capability (same URI as Identity).
   discard $T
-  "urn:ietf:params:jmap:submission"
+  # literal IETF URN, always parses Ok
+  parseCapabilityUri("urn:ietf:params:jmap:submission").get()
 
 template changesResponseType*(T: typedesc[AnyEmailSubmission]): typedesc =
   ## Associated /changes response type for EmailSubmission — the standard
@@ -410,10 +415,11 @@ func getMethodName*(T: typedesc[PartialThread]): MethodName =
   discard $T
   mnThreadGet
 
-func capabilityUri*(T: typedesc[PartialThread]): string =
+func capabilityUri*(T: typedesc[PartialThread]): CapabilityUri =
   ## Capability URI inherited from ``Thread``.
   discard $T
-  "urn:ietf:params:jmap:mail"
+  # literal IETF URN, always parses Ok
+  parseCapabilityUri("urn:ietf:params:jmap:mail").get()
 
 registerJmapEntity(PartialThread)
 
@@ -428,10 +434,11 @@ func getMethodName*(T: typedesc[PartialIdentity]): MethodName =
   discard $T
   mnIdentityGet
 
-func capabilityUri*(T: typedesc[PartialIdentity]): string =
+func capabilityUri*(T: typedesc[PartialIdentity]): CapabilityUri =
   ## Capability URI inherited from ``Identity``.
   discard $T
-  "urn:ietf:params:jmap:submission"
+  # literal IETF URN, always parses Ok
+  parseCapabilityUri("urn:ietf:params:jmap:submission").get()
 
 registerJmapEntity(PartialIdentity)
 
@@ -446,10 +453,11 @@ func getMethodName*(T: typedesc[PartialMailbox]): MethodName =
   discard $T
   mnMailboxGet
 
-func capabilityUri*(T: typedesc[PartialMailbox]): string =
+func capabilityUri*(T: typedesc[PartialMailbox]): CapabilityUri =
   ## Capability URI inherited from ``Mailbox``.
   discard $T
-  "urn:ietf:params:jmap:mail"
+  # literal IETF URN, always parses Ok
+  parseCapabilityUri("urn:ietf:params:jmap:mail").get()
 
 registerJmapEntity(PartialMailbox)
 
@@ -464,10 +472,11 @@ func getMethodName*(T: typedesc[PartialEmail]): MethodName =
   discard $T
   mnEmailGet
 
-func capabilityUri*(T: typedesc[PartialEmail]): string =
+func capabilityUri*(T: typedesc[PartialEmail]): CapabilityUri =
   ## Capability URI inherited from ``Email``.
   discard $T
-  "urn:ietf:params:jmap:mail"
+  # literal IETF URN, always parses Ok
+  parseCapabilityUri("urn:ietf:params:jmap:mail").get()
 
 registerJmapEntity(PartialEmail)
 
@@ -483,10 +492,11 @@ func getMethodName*(T: typedesc[PartialEmailSubmission]): MethodName =
   discard $T
   mnEmailSubmissionGet
 
-func capabilityUri*(T: typedesc[PartialEmailSubmission]): string =
+func capabilityUri*(T: typedesc[PartialEmailSubmission]): CapabilityUri =
   ## Capability URI inherited from ``AnyEmailSubmission``.
   discard $T
-  "urn:ietf:params:jmap:submission"
+  # literal IETF URN, always parses Ok
+  parseCapabilityUri("urn:ietf:params:jmap:submission").get()
 
 registerJmapEntity(PartialEmailSubmission)
 
@@ -504,10 +514,11 @@ func getMethodName*(T: typedesc[PartialVacationResponse]): MethodName =
   discard $T
   mnVacationResponseGet
 
-func capabilityUri*(T: typedesc[PartialVacationResponse]): string =
+func capabilityUri*(T: typedesc[PartialVacationResponse]): CapabilityUri =
   ## RFC 8621 §7 — VacationResponse methods are covered by the JMAP
   ## VacationResponse capability.
   discard $T
-  "urn:ietf:params:jmap:vacationresponse"
+  # literal IETF URN, always parses Ok
+  parseCapabilityUri("urn:ietf:params:jmap:vacationresponse").get()
 
 registerJmapEntity(PartialVacationResponse)

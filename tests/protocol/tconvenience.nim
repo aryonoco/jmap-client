@@ -35,8 +35,8 @@ type MockQueryable = object
 proc methodEntity*(T: typedesc[MockQueryable]): MethodEntity =
   meTest
 
-proc capabilityUri*(T: typedesc[MockQueryable]): string =
-  "urn:test:mockqueryable"
+proc capabilityUri*(T: typedesc[MockQueryable]): CapabilityUri =
+  parseCapabilityUri("urn:test:mockqueryable").get()
 
 proc getMethodName*(T: typedesc[MockQueryable]): MethodName =
   mnMailboxGet

@@ -66,7 +66,7 @@ block temailChangesLive:
 
     # --- Happy path: Email/changes since baseline -----------------------
     let (b2, changesHandle) =
-      addChanges[Email](initRequestBuilder(), mailAccountId, sinceState = baselineState)
+      addEmailChanges(initRequestBuilder(), mailAccountId, sinceState = baselineState)
     let resp2 = client.send(b2).expect("send Email/changes happy[" & $target.kind & "]")
     let cr = resp2.get(changesHandle).expect(
         "Email/changes happy extract[" & $target.kind & "]"
@@ -86,7 +86,7 @@ block temailChangesLive:
     # --- Sad path: bogus sinceState -------------------------------------
     let bogusState = JmapState("phase-b-bogus-state")
     let (b3, sadHandle) =
-      addChanges[Email](initRequestBuilder(), mailAccountId, sinceState = bogusState)
+      addEmailChanges(initRequestBuilder(), mailAccountId, sinceState = bogusState)
     let resp3 = client.send(b3).expect("send Email/changes bogus[" & $target.kind & "]")
     captureIfRequested(client, "email-changes-bogus-state-" & $target.kind).expect(
       "captureIfRequested"

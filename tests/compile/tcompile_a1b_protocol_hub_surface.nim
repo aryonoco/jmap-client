@@ -75,14 +75,9 @@ static:
   doAssert declared(capabilities)
   # builder.nim — build
   doAssert declared(build)
-  # builder.nim — add* family
+  # builder.nim — public add* family (A5: per-entity wrappers + P19 escapes)
   doAssert declared(addEcho)
-  doAssert declared(addGet)
-  doAssert declared(addChanges)
-  doAssert declared(addSet)
-  doAssert declared(addCopy)
-  doAssert declared(addQuery)
-  doAssert declared(addQueryChanges)
+  doAssert declared(addCapabilityInvocation)
   # builder.nim — argument helpers
   doAssert declared(directIds)
   doAssert declared(initCreates)
@@ -109,3 +104,10 @@ static:
   doAssert not declared(toJsonNode)
   # builder.nim — retain `*` for cross-internal use, hub-private
   doAssert not declared(addInvocation)
+  # builder.nim — A5: generic builders hub-private
+  doAssert not declared(addGet)
+  doAssert not declared(addChanges)
+  doAssert not declared(addSet)
+  doAssert not declared(addCopy)
+  doAssert not declared(addQuery)
+  doAssert not declared(addQueryChanges)

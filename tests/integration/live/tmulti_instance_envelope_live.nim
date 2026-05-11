@@ -38,10 +38,10 @@ block tmultiInstanceEnvelopeLive:
     # - call 0: full record (no properties filter)
     # - call 1: minimal sparse subset
     # - call 2: counts subset
-    let (b1, fullHandle) = addGet[Mailbox](initRequestBuilder(), mailAccountId)
+    let (b1, fullHandle) = addMailboxGet(initRequestBuilder(), mailAccountId)
     let (b2, _) =
-      addGet[Mailbox](b1, mailAccountId, properties = Opt.some(@["id", "name"]))
-    let (b3, _) = addGet[Mailbox](
+      addMailboxGet(b1, mailAccountId, properties = Opt.some(@["id", "name"]))
+    let (b3, _) = addMailboxGet(
       b2, mailAccountId, properties = Opt.some(@["id", "role", "totalEmails"])
     )
     let resp =

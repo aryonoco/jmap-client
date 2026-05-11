@@ -49,12 +49,12 @@ block identityRegistrationCompiles:
 block threadOverloadValues:
   ## methodEntity and capabilityUri return expected values for Thread.
   assertEq methodEntity(thread.Thread), meThread
-  assertEq capabilityUri(thread.Thread), "urn:ietf:params:jmap:mail"
+  assertEq $capabilityUri(thread.Thread), "urn:ietf:params:jmap:mail"
 
 block identityOverloadValues:
   ## methodEntity and capabilityUri return expected values for Identity.
   assertEq methodEntity(Identity), meIdentity
-  assertEq capabilityUri(Identity), "urn:ietf:params:jmap:submission"
+  assertEq $capabilityUri(Identity), "urn:ietf:params:jmap:submission"
 
 # ===========================================================================
 # B. Negative compile-time tests (Decision A7)
@@ -161,7 +161,7 @@ block mailboxQueryableRegistrationCompiles:
 block mailboxOverloadValues:
   ## methodEntity and capabilityUri return expected values for Mailbox.
   assertEq methodEntity(Mailbox), meMailbox
-  assertEq capabilityUri(Mailbox), "urn:ietf:params:jmap:mail"
+  assertEq $capabilityUri(Mailbox), "urn:ietf:params:jmap:mail"
 
 # ===========================================================================
 # F. Mailbox generic builder integration
@@ -249,7 +249,7 @@ block emailQueryableRegistrationCompiles:
 block emailOverloadValues:
   ## methodEntity and capabilityUri return expected values for Email.
   assertEq methodEntity(Email), meEmail
-  assertEq capabilityUri(Email), "urn:ietf:params:jmap:mail"
+  assertEq $capabilityUri(Email), "urn:ietf:params:jmap:mail"
 
 # ===========================================================================
 # J. Email generic builder integration
@@ -333,7 +333,7 @@ block emailSubmissionEntityRegisteredWithSubmissionCapability:
   ## cannot serve as a typedesc argument (G2/G3), so registration is keyed on
   ## the existential wrapper ``AnyEmailSubmission`` per mail_entities.nim:291.
   assertEq methodEntity(AnyEmailSubmission), meEmailSubmission
-  assertEq capabilityUri(AnyEmailSubmission), "urn:ietf:params:jmap:submission"
+  assertEq $capabilityUri(AnyEmailSubmission), "urn:ietf:params:jmap:submission"
   assertEq getMethodName(AnyEmailSubmission), mnEmailSubmissionGet
   assertEq changesMethodName(AnyEmailSubmission), mnEmailSubmissionChanges
   assertEq setMethodName(AnyEmailSubmission), mnEmailSubmissionSet

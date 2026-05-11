@@ -9,6 +9,7 @@
 
 import std/json
 
+import jmap_client/internal/types/capabilities
 import jmap_client/internal/types/methods_enum
 import jmap_client/internal/types/validation
 import jmap_client/internal/protocol/entity
@@ -28,8 +29,8 @@ type MockFoo = object
 func methodEntity*(T: typedesc[MockFoo]): MethodEntity =
   meTest
 
-func capabilityUri*(T: typedesc[MockFoo]): string =
-  "urn:test:mockfoo"
+func capabilityUri*(T: typedesc[MockFoo]): CapabilityUri =
+  parseCapabilityUri("urn:test:mockfoo").get()
 
 registerJmapEntity(MockFoo)
 
@@ -40,8 +41,8 @@ type MockQueryable = object
 func methodEntity*(T: typedesc[MockQueryable]): MethodEntity =
   meTest
 
-func capabilityUri*(T: typedesc[MockQueryable]): string =
-  "urn:test:mockqueryable"
+func capabilityUri*(T: typedesc[MockQueryable]): CapabilityUri =
+  parseCapabilityUri("urn:test:mockqueryable").get()
 
 registerJmapEntity(MockQueryable)
 
@@ -64,16 +65,16 @@ func methodEntity*(T: typedesc[NoCapUri]): MethodEntity =
 
 type NoMethodNs = object
 
-func capabilityUri*(T: typedesc[NoMethodNs]): string =
-  "urn:test:nomethodns"
+func capabilityUri*(T: typedesc[NoMethodNs]): CapabilityUri =
+  parseCapabilityUri("urn:test:nomethodns").get()
 
 type NoFilterToJson = object
 
 func methodEntity*(T: typedesc[NoFilterToJson]): MethodEntity =
   meTest
 
-func capabilityUri*(T: typedesc[NoFilterToJson]): string =
-  "urn:test:nofj"
+func capabilityUri*(T: typedesc[NoFilterToJson]): CapabilityUri =
+  parseCapabilityUri("urn:test:nofj").get()
 
 type NoFilterToJsonFilter = object
 
@@ -106,9 +107,9 @@ block overloadValuesCorrect:
   ## resolves per typedesc to the test sentinel; capabilityUri yields the
   ## distinct URI registered for each mock.
   doAssert methodEntity(MockFoo) == meTest
-  doAssert capabilityUri(MockFoo) == "urn:test:mockfoo"
+  doAssert $capabilityUri(MockFoo) == "urn:test:mockfoo"
   doAssert methodEntity(MockQueryable) == meTest
-  doAssert capabilityUri(MockQueryable) == "urn:test:mockqueryable"
+  doAssert $capabilityUri(MockQueryable) == "urn:test:mockqueryable"
 
 # ---------------------------------------------------------------------------
 # B. Negative registration tests (compile-time error detection)

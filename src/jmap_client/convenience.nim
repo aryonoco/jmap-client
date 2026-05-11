@@ -24,6 +24,7 @@
 
 import ./types
 import ./protocol
+import ./internal/protocol/builder
 
 # =============================================================================
 # QueryGetHandles — paired handles from addQueryThenGet

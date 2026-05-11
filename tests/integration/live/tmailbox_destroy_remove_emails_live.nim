@@ -102,7 +102,7 @@ block tmailboxDestroyRemoveEmailsLive:
     assertOn target, childADestroyed
 
     # Mailbox absence: enumerate all and assert child-a is gone.
-    let (bGetA, getAHandle) = addGet[Mailbox](initRequestBuilder(), mailAccountId)
+    let (bGetA, getAHandle) = addMailboxGet(initRequestBuilder(), mailAccountId)
     let respGetA =
       client.send(bGetA).expect("send Mailbox/get post-A[" & $target.kind & "]")
     let mbResp = respGetA.get(getAHandle).expect(

@@ -35,4 +35,6 @@ export methods except
   SerializedSort, SerializedFilter, toJsonNode, serializeOptSort, serializeOptFilter,
   serializeFilter, assembleQueryArgs, assembleQueryChangesArgs
 export dispatch
-export builder except addInvocation, callLimits
+export builder except
+  addInvocation, callLimits, addGet, addChanges, addSet, addCopy, addQuery,
+  addQueryChanges

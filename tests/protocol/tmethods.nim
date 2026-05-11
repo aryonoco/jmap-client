@@ -12,6 +12,7 @@ import std/tables
 import jmap_client/internal/types/validation
 import jmap_client/internal/types/primitives
 import jmap_client/internal/types/identifiers
+import jmap_client/internal/types/capabilities
 import jmap_client/internal/types/envelope
 import jmap_client/internal/types/framework
 import jmap_client/internal/types/errors
@@ -39,8 +40,8 @@ type MockFoo = object
 proc methodEntity*(T: typedesc[MockFoo]): MethodEntity =
   meTest
 
-proc capabilityUri*(T: typedesc[MockFoo]): string =
-  "urn:test:mockfoo"
+proc capabilityUri*(T: typedesc[MockFoo]): CapabilityUri =
+  parseCapabilityUri("urn:test:mockfoo").get()
 
 proc getMethodName*(T: typedesc[MockFoo]): MethodName =
   mnMailboxGet
@@ -82,8 +83,8 @@ type MockQueryable = object
 proc methodEntity*(T: typedesc[MockQueryable]): MethodEntity =
   meTest
 
-proc capabilityUri*(T: typedesc[MockQueryable]): string =
-  "urn:test:mockqueryable"
+proc capabilityUri*(T: typedesc[MockQueryable]): CapabilityUri =
+  parseCapabilityUri("urn:test:mockqueryable").get()
 
 proc getMethodName*(T: typedesc[MockQueryable]): MethodName =
   mnMailboxGet

@@ -23,7 +23,6 @@ import std/tables
 import results
 import jmap_client
 import jmap_client/client
-import jmap_client/internal/mail/thread as jthread
 import ./mcapture
 import ./mconfig
 import ./mlive
@@ -100,7 +99,7 @@ block tnotfoundRailGetLive:
     # Sub-test 2: Mailbox/get with synthetic id.
     block mailboxGetCase:
       let syntheticId = Id("zzzzzm")
-      let (b, getHandle) = addGet[Mailbox](
+      let (b, getHandle) = addMailboxGet(
         initRequestBuilder(), mailAccountId, ids = directIds(@[syntheticId])
       )
       let resp =
@@ -143,7 +142,7 @@ block tnotfoundRailGetLive:
     # Sub-test 4: Thread/get with synthetic threadId.
     block threadGetCase:
       let syntheticId = Id("zzzzzt")
-      let (b, getHandle) = addGet[jthread.Thread](
+      let (b, getHandle) = addThreadGet(
         initRequestBuilder(), mailAccountId, ids = directIds(@[syntheticId])
       )
       let resp =

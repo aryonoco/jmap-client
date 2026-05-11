@@ -23,6 +23,7 @@ import ../../serialisation
 import ../protocol/methods
 import ../protocol/dispatch
 import ../protocol/builder
+import ../protocol/call_meta
 import ./email_submission
 import ./email
 import ./mail_entities
@@ -149,21 +150,31 @@ func addEmailSubmissionAndEmailSet*(
   ## ``onSuccessDestroyEmail``) arrive as ``NonEmpty*`` wrappers — empty
   ## and duplicate-key shapes are unrepresentable at the type level, so
   ## ``Opt.none`` is the sole "no extras" encoding.
-  let extras = block:
-    var e: seq[(string, JsonNode)] = @[]
-    for v in onSuccessUpdateEmail:
-      e.add(("onSuccessUpdateEmail", v.toJson()))
-    for v in onSuccessDestroyEmail:
-      e.add(("onSuccessDestroyEmail", v.toJson()))
-    e
-  let (b1, sh) = addSet[
-    AnyEmailSubmission, EmailSubmissionBlueprint, NonEmptyEmailSubmissionUpdates,
-    EmailSubmissionSetResponse,
-  ](b, accountId, ifInState, create, update, destroy, extras = extras)
+  let req = SetRequest[
+    AnyEmailSubmission, EmailSubmissionBlueprint, NonEmptyEmailSubmissionUpdates
+  ](
+    accountId: accountId,
+    ifInState: ifInState,
+    create: create,
+    update: update,
+    destroy: destroy,
+  )
+  var args = req.toJson()
+  for v in onSuccessUpdateEmail:
+    args["onSuccessUpdateEmail"] = v.toJson()
+  for v in onSuccessDestroyEmail:
+    args["onSuccessDestroyEmail"] = v.toJson()
+  let (b1, callId) = addInvocation(
+    b,
+    mnEmailSubmissionSet,
+    args,
+    capabilityUri(AnyEmailSubmission),
+    setMeta(create, update, destroy),
+  )
   let handles = EmailSubmissionHandles(
-    primary: sh,
+    primary: ResponseHandle[EmailSubmissionSetResponse](callId),
     implicit: NameBoundHandle[SetResponse[EmailCreatedItem, PartialEmail]](
-      callId: MethodCallId(sh), methodName: mnEmailSet
+      callId: callId, methodName: mnEmailSet
     ),
   )
   (b1, handles)
