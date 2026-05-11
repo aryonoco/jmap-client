@@ -182,6 +182,22 @@ test-full:
     mkdir -p testresults/test-full
     rm -f testresults/test-full/*.log
 
+    # Pre-clean stale build artefacts that would defeat testament. A
+    # tests/<cat>/ directory containing zero .nim files trips
+    # categories.nim:752's "Invalid category" assertion in 'all' mode --
+    # this is the failure mode after a branch switch where one branch
+    # added a test category the other never had, but the compiled
+    # binary lingers as an untracked file. Skip testdata which holds
+    # captured JSON fixtures and is whitelisted by testament itself.
+    for d in tests/*/; do
+        name=$(basename "$d")
+        [ "$name" = "testdata" ] && continue
+        if [ -z "$(find "$d" -name '*.nim' -type f -print -quit 2>/dev/null)" ]; then
+            echo "test-full: pruning stale category dir with no .nim sources: $d"
+            rm -rf "$d"
+        fi
+    done
+
     # Phase 1 — every test except live execution. Live tests are in the
     # megatest binary but their bodies short-circuit via
     # loadLiveTestTargets().isOk when no JMAP_TEST_* env vars are sourced.

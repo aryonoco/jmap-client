@@ -172,7 +172,7 @@ block tEmailSubmissionMultiRecipientLive:
       let inbox = resolveInboxId(client, mailAccountId).expect(
           "resolveInboxId[" & $target.kind & "]"
         )
-      let budget = if target.kind == ltkCyrus: 30000 else: 5000
+      let budget = (if target.kind == ltkCyrus: 30000 else: 5000) * liveBudgetMul
       discard pollEmailDeliveryToInbox(
           client, mailAccountId, inbox, subjectKey, budgetMs = budget
         )
