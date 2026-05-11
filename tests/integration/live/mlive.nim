@@ -1140,38 +1140,55 @@ proc pollEmailDeliveryToInbox*(
     subject: string,
     budgetMs: int = 5000 * liveBudgetMul,
 ): Result[Id, string] =
-  ## Polls ``Email/query`` on ``inbox`` filtered by ``subject`` until a
-  ## match surfaces or the budget elapses. Cat-D verification path for
-  ## any target where ``EmailSubmission/get`` is unavailable or returns
-  ## a null ``deliveryStatus``: James 3.9 has no ``EmailSubmission/get``
-  ## at all; Cyrus 3.12.2 hardcodes ``deliveryStatus`` to ``null``
+  ## Polls for an email with the given ``subject`` to appear in
+  ## ``inbox``. Cat-D verification path for any target where
+  ## ``EmailSubmission/get`` is unavailable or returns a null
+  ## ``deliveryStatus``: James 3.9 has no ``EmailSubmission/get`` at
+  ## all; Cyrus 3.12.2 hardcodes ``deliveryStatus`` to ``null``
   ## (`imap/jmap_mail_submission.c:1200-1201`). Stalwart Cat-D legs use
   ## ``pollSubmissionDelivery`` plus the SMTP queue drain barrier.
   ##
-  ## RFC 8621 §4.4 ``EmailFilterCondition.subject`` is server-tokenised
-  ## across configured targets; callers must pass a single-token
-  ## discriminator subject (the ``seedDraftEmail`` callers in Cat-D
-  ## tests already do).
+  ## **Implementation: search-index-free.** The naive
+  ## ``Email/query`` with ``subject`` filter has unbounded indexing lag
+  ## on Cyrus under sustained parallel-shard load — the email is
+  ## delivered to the mailbox within milliseconds (visible via LMTP +
+  ## ``Mailbox/get`` counts), but Cyrus's search index can take minutes
+  ## to surface the subject. ``search_index_headers: no`` in
+  ## ``imapd.conf`` skips Xapian for headers, but the indexer still
+  ## lags. ``Email/query`` with only the ``inMailbox`` filter reads the
+  ## mailbox state directly and is consistent the moment LMTP completes;
+  ## ``Email/get`` likewise reads the cache without touching the search
+  ## index. So we use those two and filter by subject client-side.
   ##
-  ## Per-target inbox-arrival budget guidance — recommended ``budgetMs``
-  ## passed in by callers when running on slower (e.g. arm64-QEMU)
-  ## hosts: Stalwart 5000 ms, James 5000 ms, Cyrus 10000 ms (Cyrus's
-  ## Postfix-backed delivery exceeds the James budget under QEMU
-  ## emulation).
+  ## Cost: O(mailbox-size) per poll iteration on the wire. Test
+  ## mailboxes stay small (each test cleans up after itself), so this is
+  ## bounded.
   const PollMs = 100
   let maxIters = max(1, budgetMs div PollMs)
-  let filter = filterCondition(
-    EmailFilterCondition(inMailbox: Opt.some(inbox), subject: Opt.some(subject))
-  )
+  let filter = filterCondition(EmailFilterCondition(inMailbox: Opt.some(inbox)))
   for _ in 0 ..< maxIters:
-    let (b, queryHandle) =
+    let (b1, queryHandle) =
       addEmailQuery(initRequestBuilder(), mailAccountId, filter = Opt.some(filter))
-    let resp = client.send(b).valueOr:
+    let resp1 = client.send(b1).valueOr:
       return err("Email/query send failed: " & error.message)
-    let qr = resp.get(queryHandle).valueOr:
+    let qr = resp1.get(queryHandle).valueOr:
       return err("Email/query extract failed: " & error.rawType)
     if qr.ids.len > 0:
-      return ok(qr.ids[0])
+      let (b2, getHandle) = addEmailGet(
+        initRequestBuilder(),
+        mailAccountId,
+        ids = directIds(qr.ids),
+        properties = Opt.some(@["id", "subject"]),
+      )
+      let resp2 = client.send(b2).valueOr:
+        return err("Email/get send failed: " & error.message)
+      let gr = resp2.get(getHandle).valueOr:
+        return err("Email/get extract failed: " & error.rawType)
+      for emailRec in gr.list:
+        for actualSubject in emailRec.subject:
+          if actualSubject == subject:
+            for id in emailRec.id:
+              return ok(id)
     sleep(PollMs)
   err(
     "pollEmailDeliveryToInbox: " & $budgetMs &

@@ -126,7 +126,7 @@ block tEmailSubmissionSetBaselineLive:
       let bobInbox = resolveInboxId(bobClient, bobMailAccountId).expect(
           "resolveInboxId bob[" & $target.kind & "]"
         )
-      let budget = (if target.kind == ltkCyrus: 30000 else: 5000) * liveBudgetMul
+      let budget = (if target.kind == ltkCyrus: 60000 else: 5000) * liveBudgetMul
       discard pollEmailDeliveryToInbox(
           bobClient,
           bobMailAccountId,
