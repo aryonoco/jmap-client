@@ -291,6 +291,12 @@ tests/megatest.nim
 tests/*/megatest
 tests/*/megatest.nim
 
+# Per-shard hardlink trees created by `just test-full` parallel sharding.
+# The recipe's EXIT trap removes them after a clean run; this entry hides
+# the residue from interrupted runs (Ctrl+C, container restart) so they
+# don't appear as untracked in editors.
+tests/integration/live-*/
+
 # Compiled binaries (nim c produces extensionless executables next to .nim files)
 src/jmap_client/[a-z]*
 !src/jmap_client/*.nim
