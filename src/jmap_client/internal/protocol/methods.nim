@@ -27,6 +27,7 @@
 {.experimental: "strictCaseObjects".}
 
 import std/json
+import std/sugar
 import std/tables
 
 import ../../types
@@ -714,10 +715,9 @@ func fromJson*[T](
   let stateNode = ?fieldJString(node, "state", path)
   let state = ?wrapInner(parseJmapState(stateNode.getStr("")), path / "state")
   let listNode = ?fieldJArray(node, "list", path)
-  var list: seq[T] = @[]
-  for i, elem in listNode.getElems(@[]):
-    let item = ?T.fromJson(elem, path / "list" / i)
-    list.add(item)
+  let list = collect(newSeq):
+    for i, elem in listNode.getElems(@[]):
+      ?T.fromJson(elem, path / "list" / i)
   let notFound = ?parseOptIdArray(node{"notFound"}, path / "notFound")
   return ok(
     GetResponse[T](accountId: accountId, state: state, list: list, notFound: notFound)
@@ -865,10 +865,9 @@ func fromJson*[T](
   let total = optUnsignedInt(node, "total")
   let removed = ?parseIdArrayField(node, "removed", path)
   let addedNode = ?fieldJArray(node, "added", path)
-  var added: seq[AddedItem] = @[]
-  for i, elem in addedNode.getElems(@[]):
-    let item = ?AddedItem.fromJson(elem, path / "added" / i)
-    added.add(item)
+  let added = collect(newSeq):
+    for i, elem in addedNode.getElems(@[]):
+      ?AddedItem.fromJson(elem, path / "added" / i)
   return ok(
     QueryChangesResponse[T](
       accountId: accountId,
