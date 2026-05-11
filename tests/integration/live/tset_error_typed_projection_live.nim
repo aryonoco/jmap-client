@@ -119,9 +119,9 @@ block tsetErrorTypedProjectionLive:
         inv.rawName == "Email/set" or inv.rawName == "error",
         "expected Email/set or error, got " & inv.rawName
       if inv.rawName == "Email/set":
-        let setResp = SetResponse[EmailCreatedItem].fromJson(inv.arguments).expect(
-            "SetResponse.fromJson"
-          )
+        let setResp = SetResponse[EmailCreatedItem, PartialEmail]
+          .fromJson(inv.arguments)
+          .expect("SetResponse.fromJson")
         var rejected = false
         setResp.updateResults.withValue(seedId, outcome):
           assertOn target, outcome.isErr, "update with unknown property must Err"
@@ -181,9 +181,9 @@ block tsetErrorTypedProjectionLive:
       # method-level ``invalidArguments``. Both paths are RFC-conformant
       # — the library projection contract is what's under test.
       if inv.rawName == "Email/set":
-        let setResp = SetResponse[EmailCreatedItem].fromJson(inv.arguments).expect(
-            "SetResponse.fromJson"
-          )
+        let setResp = SetResponse[EmailCreatedItem, PartialEmail]
+          .fromJson(inv.arguments)
+          .expect("SetResponse.fromJson")
         let cidLabel =
           parseCreationId("phaseJ63").expect("parseCreationId[" & $target.kind & "]")
         var rejected = false

@@ -11,6 +11,7 @@
 
 import ../types/validation
 import ../types/primitives
+import ../types/field_echo
 
 const VacationResponseSingletonId* = "singleton"
   ## The fixed identifier for the sole VacationResponse object (RFC 8621 §7).
@@ -24,6 +25,23 @@ type VacationResponse* {.ruleOff: "objects".} = object
   subject*: Opt[string] ## Subject line for the auto-reply, or none.
   textBody*: Opt[string] ## Plain-text body of the auto-reply, or none.
   htmlBody*: Opt[string] ## HTML body of the auto-reply, or none.
+
+# =============================================================================
+# PartialVacationResponse
+# =============================================================================
+
+type PartialVacationResponse* {.ruleOff: "objects".} = object
+  ## RFC 8621 §7 partial VacationResponse. Receive-only; produced by the
+  ## library via ``SetResponse[NoCreate,
+  ## PartialVacationResponse].updateResults`` (D6 — singleton-only ``/set``
+  ## has no create rail) and ``GetResponse[PartialVacationResponse].list``
+  ## (A4 + A3.6).
+  isEnabled*: Opt[bool]
+  fromDate*: FieldEcho[UTCDate] ## Wire admits null (clears start date per RFC 8621 §7).
+  toDate*: FieldEcho[UTCDate] ## Wire admits null (clears end date).
+  subject*: FieldEcho[string] ## Wire admits null (clears subject).
+  textBody*: FieldEcho[string] ## Wire admits null (clears text body).
+  htmlBody*: FieldEcho[string] ## Wire admits null (clears HTML body).
 
 # =============================================================================
 # VacationResponse Update Algebra

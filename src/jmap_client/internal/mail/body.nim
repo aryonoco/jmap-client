@@ -49,6 +49,16 @@ func parsePartIdFromServer*(raw: string): Result[PartId, ValidationError] =
     return err(validationError("PartId", "contains control characters", raw))
   return ok(PartId(raw))
 
+func parseFromString*(
+    T: typedesc[PartId], raw: string
+): Result[PartId, ValidationError] =
+  ## ``parseFromString`` typedesc-overload adapter consumed by the generic
+  ## ``Table[K, V].fromJson`` in ``serialisation/serde.nim``. Delegates to
+  ## ``parsePartIdFromServer`` — server-emitted ``PartId`` keys take the
+  ## lenient path on the receive side (Postel's law).
+  discard $T
+  return parsePartIdFromServer(raw)
+
 # =============================================================================
 # ContentDisposition
 # =============================================================================

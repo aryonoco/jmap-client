@@ -427,7 +427,7 @@ payload (a strict-RFC §5.3 minor divergence): the create acknowledgement
 is just `{"id": "<id>"}`. Postel-receive accommodation; mirrors the
 `EmailCreatedItem` design.
 
-`SetResponse[IdentityCreatedItem]` is the typed response carried by the
+`SetResponse[IdentityCreatedItem, PartialIdentity]` is the typed response carried by the
 `addIdentitySet` handle (§4.6), keyed by `CreationId` in
 `createResults`.
 
@@ -609,7 +609,7 @@ template changesResponseType*(T: typedesc[Identity]): typedesc =
 template createType*(T: typedesc[Identity]): typedesc       = IdentityCreate
 template updateType*(T: typedesc[Identity]): typedesc       = NonEmptyIdentityUpdates
 template setResponseType*(T: typedesc[Identity]): typedesc  =
-  SetResponse[IdentityCreatedItem]
+  SetResponse[IdentityCreatedItem, PartialIdentity]
 
 registerJmapEntity(Identity)
 registerSettableEntity(Identity)
@@ -649,7 +649,7 @@ func addIdentitySet*(
       Opt.none(Table[CreationId, IdentityCreate]),
     update: Opt[NonEmptyIdentityUpdates] = Opt.none(NonEmptyIdentityUpdates),
     destroy: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]),
-): (RequestBuilder, ResponseHandle[SetResponse[IdentityCreatedItem]])
+): (RequestBuilder, ResponseHandle[SetResponse[IdentityCreatedItem, PartialIdentity]])
 ```
 
 The module re-exports `serde_identity` and `serde_identity_update` so
@@ -843,7 +843,7 @@ func addVacationResponseSet*(
     accountId: AccountId,
     update: VacationResponseUpdateSet,
     ifInState: Opt[JmapState] = Opt.none(JmapState),
-): (RequestBuilder, ResponseHandle[SetResponse[VacationResponse]])
+): (RequestBuilder, ResponseHandle[SetResponse[NoCreate, PartialVacationResponse]])
 ```
 
 - Adds `"urn:ietf:params:jmap:vacationresponse"` capability.
@@ -858,7 +858,7 @@ func addVacationResponseSet*(
   signature simply omits them.
 
 **Response dispatch:** Uses standard `GetResponse[VacationResponse]` and
-`SetResponse[VacationResponse]` response types. No core modifications
+`SetResponse[NoCreate, PartialVacationResponse]` response types. No core modifications
 needed.
 
 ---
@@ -1366,7 +1366,7 @@ Scenarios are not numbered in source. Verified:
 - Compile-time: `setMethodName(typedesc[thread.Thread])` — fails
   with an undeclared-identifier error at the call site.
 - Compile-time: `addIdentitySet` `createResults` is typed as
-  `SetResponse[IdentityCreatedItem]` (resolved through
+  `SetResponse[IdentityCreatedItem, PartialIdentity]` (resolved through
   `setResponseType`).
 
 ---

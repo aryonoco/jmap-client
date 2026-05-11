@@ -55,9 +55,9 @@ block tcapturedCombinedAdversarialRoundTrip:
       {metInvalidResultReference, metInvalidArguments, metServerFail, metUnknown}
 
     # c3 — Stalwart returns notCreated with newDraft → invalidProperties.
-    let setResp = SetResponse[EmailCreatedItem]
+    let setResp = SetResponse[EmailCreatedItem, PartialEmail]
       .fromJson(resp.methodResponses[3].arguments)
-      .expect("SetResponse[EmailCreatedItem].fromJson c3")
+      .expect("SetResponse[EmailCreatedItem, PartialEmail].fromJson c3")
     let cidLabel = parseCreationId("newDraft").expect("parseCreationId")
     setResp.createResults.withValue(cidLabel, outcome):
       doAssert outcome.isErr

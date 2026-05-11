@@ -152,9 +152,9 @@ block tcombinedAdversarialRoundTripLive:
     assertOn target,
       c3.rawName == "Email/set",
       "c3 expected Email/set with notCreated, got " & c3.rawName
-    let setResp = SetResponse[EmailCreatedItem].fromJson(c3.arguments).expect(
-        "SetResponse[EmailCreatedItem].fromJson c3"
-      )
+    let setResp = SetResponse[EmailCreatedItem, PartialEmail]
+      .fromJson(c3.arguments)
+      .expect("SetResponse[EmailCreatedItem, PartialEmail].fromJson c3")
     let cidLabel =
       parseCreationId("newDraft").expect("parseCreationId[" & $target.kind & "]")
     setResp.createResults.withValue(cidLabel, outcome):

@@ -193,9 +193,9 @@ block tpatchObjectDeepPathsLive:
         inv.rawName == "Identity/set" or inv.rawName == "error",
         "expected Identity/set or error, got " & inv.rawName
       if inv.rawName == "Identity/set":
-        let setResp = SetResponse[IdentityCreatedItem].fromJson(inv.arguments).expect(
-            "SetResponse[IdentityCreatedItem].fromJson"
-          )
+        let setResp = SetResponse[IdentityCreatedItem, PartialIdentity]
+          .fromJson(inv.arguments)
+          .expect("SetResponse[IdentityCreatedItem, PartialIdentity].fromJson")
         setResp.updateResults.withValue(identityId, outcome):
           assertOn target,
             outcome.isErr, "deep-path patch must surface as Err on updateResults rail"

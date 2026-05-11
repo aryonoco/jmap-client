@@ -12,6 +12,7 @@ import std/sets
 import std/tables
 
 import ../serialisation/serde
+import ../serialisation/serde_field_echo
 import ../../types
 import ./mailbox
 
@@ -383,3 +384,78 @@ func toJson*(upd: NonEmptyMailboxUpdates): JsonNode =
   for id, patchSet in Table[Id, MailboxUpdateSet](upd):
     node[string(id)] = patchSet.toJson()
   return node
+
+# =============================================================================
+# PartialMailbox (A4 + A3.6)
+# =============================================================================
+
+func fromJson*(
+    T: typedesc[PartialMailbox], node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[PartialMailbox, SerdeViolation] =
+  ## Deserialise a partial Mailbox echo (RFC 8621 §2). Lenient on missing
+  ## fields; strict on wrong-kind present fields and strict-on-wire-token
+  ## for closed-enum fields (D4).
+  discard $T
+  ?expectKind(node, JObject, path)
+  let id = ?parsePartialOptField[Id](node, "id", path)
+  let name = ?parsePartialOptField[string](node, "name", path)
+  let parentId = ?parsePartialFieldEcho[Id](node, "parentId", path)
+  let role = ?parsePartialFieldEcho[MailboxRole](node, "role", path)
+  let sortOrder = ?parsePartialOptField[UnsignedInt](node, "sortOrder", path)
+  let totalEmails = ?parsePartialOptField[UnsignedInt](node, "totalEmails", path)
+  let unreadEmails = ?parsePartialOptField[UnsignedInt](node, "unreadEmails", path)
+  let totalThreads = ?parsePartialOptField[UnsignedInt](node, "totalThreads", path)
+  let unreadThreads = ?parsePartialOptField[UnsignedInt](node, "unreadThreads", path)
+  let myRights = ?parsePartialOptField[MailboxRights](node, "myRights", path)
+  let isSubscribed = ?parsePartialOptField[bool](node, "isSubscribed", path)
+  return ok(
+    PartialMailbox(
+      id: id,
+      name: name,
+      parentId: parentId,
+      role: role,
+      sortOrder: sortOrder,
+      totalEmails: totalEmails,
+      unreadEmails: unreadEmails,
+      totalThreads: totalThreads,
+      unreadThreads: unreadThreads,
+      myRights: myRights,
+      isSubscribed: isSubscribed,
+    )
+  )
+
+func emitPartialMailboxCore(node: JsonNode, p: PartialMailbox) =
+  ## Identity + classification fields of ``PartialMailbox`` for ``toJson``.
+  ## Extracted so the public ``toJson`` stays under the cyclomatic
+  ## complexity ceiling.
+  for v in p.id:
+    node["id"] = v.toJson()
+  for v in p.name:
+    node["name"] = v.toJson()
+  emitPartialFieldEcho[Id](node, "parentId", p.parentId)
+  emitPartialFieldEcho[MailboxRole](node, "role", p.role)
+  for v in p.sortOrder:
+    node["sortOrder"] = v.toJson()
+  for v in p.isSubscribed:
+    node["isSubscribed"] = v.toJson()
+  for v in p.myRights:
+    node["myRights"] = v.toJson()
+
+func emitPartialMailboxCounts(node: JsonNode, p: PartialMailbox) =
+  ## Count fields of ``PartialMailbox`` for ``toJson``.
+  for v in p.totalEmails:
+    node["totalEmails"] = v.toJson()
+  for v in p.unreadEmails:
+    node["unreadEmails"] = v.toJson()
+  for v in p.totalThreads:
+    node["totalThreads"] = v.toJson()
+  for v in p.unreadThreads:
+    node["unreadThreads"] = v.toJson()
+
+func toJson*(p: PartialMailbox): JsonNode =
+  ## Emit a partial Mailbox echo — only the fields whose ``Opt`` is
+  ## ``Some`` or whose ``FieldEcho`` is ``fekValue`` / ``fekNull``.
+  ## ``fekAbsent`` and ``Opt.none`` omit the key entirely (D5/D3.7).
+  result = newJObject()
+  emitPartialMailboxCore(result, p)
+  emitPartialMailboxCounts(result, p)

@@ -13,7 +13,7 @@
 ##     name ``sendAt`` (G19).
 ##   * ``IdOrCreationRef`` toJson: direct → bare id string, creation →
 ##     ``"#" & creationId`` per RFC 8620 §5.3 / RFC 8621 §7.5 ¶3 (G35).
-##   * ``SetResponse[EmailSubmissionCreatedItem]`` fromJson envelope —
+##   * ``SetResponse[EmailSubmissionCreatedItem, PartialEmailSubmission]`` fromJson envelope —
 ##     fromJson-only because ``EmailSubmissionCreatedItem`` carries no
 ##     ``toJson`` counterpart (G39).
 
@@ -292,7 +292,7 @@ block idOrCreationRefCreationWire:
   let r = makeIdOrCreationRefCreation(makeCreationId("k0"))
   assertIdOrCreationRefWire r, "#k0"
 
-# ============= F. SetResponse[EmailSubmissionCreatedItem] envelope ==========
+# ============= F. SetResponse[EmailSubmissionCreatedItem, PartialEmailSubmission] envelope ==========
 
 block emailSubmissionSetResponseEntityRoundTrip:
   ## G39: full wire envelope for ``EmailSubmission/set``. Mirrors
@@ -331,7 +331,8 @@ block emailSubmissionSetResponseEntityRoundTrip:
     "destroyed": ["sub4"],
     "notDestroyed": {"sub5": {"type": "serverFail"}},
   }
-  let res = SetResponse[EmailSubmissionCreatedItem].fromJson(node)
+  let res =
+    SetResponse[EmailSubmissionCreatedItem, PartialEmailSubmission].fromJson(node)
   assertOk res
   let r = res.get()
   assertEq r.accountId, makeAccountId("acct1")

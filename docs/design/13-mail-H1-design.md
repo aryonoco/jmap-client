@@ -189,20 +189,20 @@ In `src/jmap_client/mail/mail_builders.nim:304-314`:
 
 ```nim
 type EmailCopyHandles* =
-  CompoundHandles[CopyResponse[EmailCreatedItem], SetResponse[EmailCreatedItem]]
+  CompoundHandles[CopyResponse[EmailCreatedItem], SetResponse[EmailCreatedItem, PartialEmail]]
 
 type EmailCopyResults* =
-  CompoundResults[CopyResponse[EmailCreatedItem], SetResponse[EmailCreatedItem]]
+  CompoundResults[CopyResponse[EmailCreatedItem], SetResponse[EmailCreatedItem, PartialEmail]]
 ```
 
 In `src/jmap_client/mail/email_submission.nim:605-615`:
 
 ```nim
 type EmailSubmissionHandles* =
-  CompoundHandles[EmailSubmissionSetResponse, SetResponse[EmailCreatedItem]]
+  CompoundHandles[EmailSubmissionSetResponse, SetResponse[EmailCreatedItem, PartialEmail]]
 
 type EmailSubmissionResults* =
-  CompoundResults[EmailSubmissionSetResponse, SetResponse[EmailCreatedItem]]
+  CompoundResults[EmailSubmissionSetResponse, SetResponse[EmailCreatedItem, PartialEmail]]
 ```
 
 Field access at consumer sites uses the spec-verbatim names:
@@ -233,8 +233,8 @@ template registerCompoundMethod*(Primary, Implicit: typedesc) =
 Applied in `src/jmap_client/mail/mail_entities.nim:371-372`:
 
 ```nim
-registerCompoundMethod(CopyResponse[EmailCreatedItem], SetResponse[EmailCreatedItem])
-registerCompoundMethod(EmailSubmissionSetResponse, SetResponse[EmailCreatedItem])
+registerCompoundMethod(CopyResponse[EmailCreatedItem], SetResponse[EmailCreatedItem, PartialEmail])
+registerCompoundMethod(EmailSubmissionSetResponse, SetResponse[EmailCreatedItem, PartialEmail])
 ```
 
 Adding a new §5.4 compound method requires a matching

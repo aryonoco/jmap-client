@@ -162,7 +162,7 @@ func addEmailSubmissionAndEmailSet*(
   ](b, accountId, ifInState, create, update, destroy, extras = extras)
   let handles = EmailSubmissionHandles(
     primary: sh,
-    implicit: NameBoundHandle[SetResponse[EmailCreatedItem]](
+    implicit: NameBoundHandle[SetResponse[EmailCreatedItem, PartialEmail]](
       callId: MethodCallId(sh), methodName: mnEmailSet
     ),
   )

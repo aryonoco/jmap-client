@@ -1834,17 +1834,17 @@ proc makeEmailSetResponse*(
     newState: Opt[JmapState] = Opt.some(makeState("s1")),
     createResults: Table[CreationId, Result[EmailCreatedItem, SetError]] =
       initTable[CreationId, Result[EmailCreatedItem, SetError]](),
-    updateResults: Table[Id, Result[Opt[JsonNode], SetError]] =
-      initTable[Id, Result[Opt[JsonNode], SetError]](),
+    updateResults: Table[Id, Result[Opt[PartialEmail], SetError]] =
+      initTable[Id, Result[Opt[PartialEmail], SetError]](),
     destroyResults: Table[Id, Result[void, SetError]] =
       initTable[Id, Result[void, SetError]](),
-): SetResponse[EmailCreatedItem] =
+): SetResponse[EmailCreatedItem, PartialEmail] =
   ## Email/set response fixture — the bespoke ``EmailSetResponse`` was
-  ## deleted; ``SetResponse[EmailCreatedItem]`` is the generic instantiation.
+  ## deleted; ``SetResponse[EmailCreatedItem, PartialEmail]`` is the generic instantiation.
   ## The split ``updated``/``notUpdated`` and ``destroyed``/``notDestroyed``
   ## fields collapse into the unified ``updateResults`` / ``destroyResults``
   ## tables (RFC 8620 §5.3 Decision 3.9B).
-  SetResponse[EmailCreatedItem](
+  SetResponse[EmailCreatedItem, PartialEmail](
     accountId: accountId,
     oldState: oldState,
     newState: newState,
@@ -1899,7 +1899,7 @@ proc makeEmailCopyHandles*(
   ## distinct-MCID overload later if the mismatch case needs exercising.
   EmailCopyHandles(
     primary: ResponseHandle[CopyResponse[EmailCreatedItem]](sharedCallId),
-    implicit: NameBoundHandle[SetResponse[EmailCreatedItem]](
+    implicit: NameBoundHandle[SetResponse[EmailCreatedItem, PartialEmail]](
       callId: sharedCallId, methodName: mnEmailSet
     ),
   )
@@ -2267,7 +2267,7 @@ proc makeEmailSubmissionHandles*(
   ## pass divergent ids to exercise the dispatch mismatch branch.
   EmailSubmissionHandles(
     primary: ResponseHandle[EmailSubmissionSetResponse](submissionMcid),
-    implicit: NameBoundHandle[SetResponse[EmailCreatedItem]](
+    implicit: NameBoundHandle[SetResponse[EmailCreatedItem, PartialEmail]](
       callId: emailSetMcid, methodName: mnEmailSet
     ),
   )

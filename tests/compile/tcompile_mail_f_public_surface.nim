@@ -19,7 +19,7 @@ static:
   # --- Types (16) ---
   # EmailSetResponse/EmailCopyResponse/UpdatedEntry/UpdatedEntryKind were
   # deleted when Email/set migrated to the promoted generic
-  # SetResponse[EmailCreatedItem] / CopyResponse[EmailCreatedItem] in
+  # SetResponse[EmailCreatedItem, PartialEmail] / CopyResponse[EmailCreatedItem] in
   # methods.nim (Decision X2/X3).
   doAssert declared(EmailUpdate)
   doAssert declared(EmailUpdateVariantKind)

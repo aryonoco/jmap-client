@@ -1729,7 +1729,7 @@ func addMailboxSet*(
     update: Opt[NonEmptyMailboxUpdates] = …,
     destroy: Opt[Referencable[seq[Id]]] = …,
     onDestroyRemoveEmails: bool = false,
-): (RequestBuilder, ResponseHandle[SetResponse[MailboxCreatedItem]])
+): (RequestBuilder, ResponseHandle[SetResponse[MailboxCreatedItem, PartialMailbox]])
 ```
 
 The `create` map takes `MailboxCreate` (typed creation model — see
@@ -1751,7 +1751,7 @@ func addEmailSet*(
     create: Opt[Table[CreationId, EmailBlueprint]] = …,
     update: Opt[NonEmptyEmailUpdates] = …,
     destroy: Opt[Referencable[seq[Id]]] = …,
-): (RequestBuilder, ResponseHandle[SetResponse[EmailCreatedItem]])
+): (RequestBuilder, ResponseHandle[SetResponse[EmailCreatedItem, PartialEmail]])
 ```
 
 `create` takes `EmailBlueprint`; `update` takes `NonEmptyEmailUpdates`
@@ -1775,7 +1775,7 @@ func addVacationResponseSet*(
     accountId: AccountId,
     update: VacationResponseUpdateSet,
     ifInState: Opt[JmapState] = Opt.none(JmapState),
-): (RequestBuilder, ResponseHandle[SetResponse[VacationResponse]])
+): (RequestBuilder, ResponseHandle[SetResponse[NoCreate, PartialVacationResponse]])
 ```
 
 Takes `VacationResponseUpdateSet` (the typed update algebra — see
@@ -1796,7 +1796,7 @@ func addIdentitySet*(
     create: Opt[Table[CreationId, IdentityCreate]] = …,
     update: Opt[NonEmptyIdentityUpdates] = …,
     destroy: Opt[Referencable[seq[Id]]] = …,
-): (RequestBuilder, ResponseHandle[SetResponse[IdentityCreatedItem]])
+): (RequestBuilder, ResponseHandle[SetResponse[IdentityCreatedItem, PartialIdentity]])
 ```
 
 **Principle:** Make illegal states unrepresentable — every typed
@@ -1898,7 +1898,7 @@ type EmailCreatedItem* = object
   size*: UnsignedInt
 ```
 
-Used identically for `Email/set` create (`SetResponse[EmailCreatedItem]`),
+Used identically for `Email/set` create (`SetResponse[EmailCreatedItem, PartialEmail]`),
 `Email/copy` create (`CopyResponse[EmailCreatedItem]`), and
 `Email/import` create (`EmailImportResponse.createResults`). The shape
 is small and uniform enough that typing it pays back across the three
@@ -2073,7 +2073,7 @@ Compound vs chained:
 templates that participate in entity-framework type checking.
 
 Mail uses these generic types via domain-named aliases (e.g.
-`EmailCopyHandles = CompoundHandles[CopyResponse[EmailCreatedItem], SetResponse[EmailCreatedItem]]`).
+`EmailCopyHandles = CompoundHandles[CopyResponse[EmailCreatedItem], SetResponse[EmailCreatedItem, PartialEmail]]`).
 The aliases preserve readability at the call site; the generics own
 the dispatch logic.
 
@@ -2098,7 +2098,7 @@ parent call ID; the wire protocol treats them as one bundled method.
 **Type alias** (in `submission_builders.nim`):
 ```nim
 type EmailSubmissionHandles* =
-  CompoundHandles[EmailSubmissionSetResponse, SetResponse[EmailCreatedItem]]
+  CompoundHandles[EmailSubmissionSetResponse, SetResponse[EmailCreatedItem, PartialEmail]]
 ```
 
 **Simple overload:**
@@ -2153,9 +2153,9 @@ sharing the parent call ID.
 **Type aliases** (in `mail_builders.nim`):
 ```nim
 type EmailCopyHandles* =
-  CompoundHandles[CopyResponse[EmailCreatedItem], SetResponse[EmailCreatedItem]]
+  CompoundHandles[CopyResponse[EmailCreatedItem], SetResponse[EmailCreatedItem, PartialEmail]]
 type EmailCopyResults* =
-  CompoundResults[CopyResponse[EmailCreatedItem], SetResponse[EmailCreatedItem]]
+  CompoundResults[CopyResponse[EmailCreatedItem], SetResponse[EmailCreatedItem, PartialEmail]]
 ```
 
 **Simple overload:**
@@ -2278,10 +2278,10 @@ mail-specific `getBoth` overloads; callers use the core generic.
 | Mail-side type             | Definition                                                                                                       |
 |----------------------------|------------------------------------------------------------------------------------------------------------------|
 | `QueryGetHandles[T]`       | Lives in core's `convenience.nim` — generic over the queried entity.                                             |
-| `EmailCopyHandles`         | `CompoundHandles[CopyResponse[EmailCreatedItem], SetResponse[EmailCreatedItem]]`                                 |
-| `EmailCopyResults`         | `CompoundResults[CopyResponse[EmailCreatedItem], SetResponse[EmailCreatedItem]]`                                 |
-| `EmailSubmissionHandles`   | `CompoundHandles[EmailSubmissionSetResponse, SetResponse[EmailCreatedItem]]`                                     |
-| `EmailSubmissionResults`   | `CompoundResults[EmailSubmissionSetResponse, SetResponse[EmailCreatedItem]]`                                     |
+| `EmailCopyHandles`         | `CompoundHandles[CopyResponse[EmailCreatedItem], SetResponse[EmailCreatedItem, PartialEmail]]`                                 |
+| `EmailCopyResults`         | `CompoundResults[CopyResponse[EmailCreatedItem], SetResponse[EmailCreatedItem, PartialEmail]]`                                 |
+| `EmailSubmissionHandles`   | `CompoundHandles[EmailSubmissionSetResponse, SetResponse[EmailCreatedItem, PartialEmail]]`                                     |
+| `EmailSubmissionResults`   | `CompoundResults[EmailSubmissionSetResponse, SetResponse[EmailCreatedItem, PartialEmail]]`                                     |
 | `EmailQuerySnippetChain`   | `ChainedHandles[QueryResponse[Email], SearchSnippetGetResponse]`                                                 |
 
 `getBoth` is one generic implementation in core. New compound
@@ -2757,7 +2757,7 @@ NonEmptyRcptList` (non-empty by type — sealed via
 | 7 | Body structure | A) All optional, B) Case object by multipart, C) Separate types | B | Make illegal states unrepresentable, Parse-don't-validate, Total functions |
 | 8 | Email creation type | A) Plain record with `Opt[T]` everywhere, B) Sealed Pattern A aggregate built via `parseEmailBlueprint` accumulating constraint errors, with body XOR encoded in a separate `EmailBlueprintBody` case object | **B** — `EmailBlueprint` (sealed L1) + `EmailBlueprintBody` (`ebkStructured` / `ebkFlat`) + `EmailBlueprintConstraint` / `EmailBlueprintError` / sealed `EmailBlueprintErrors` accumulator | Make illegal states unrepresentable, Total functions, Parse-don't-validate |
 | 9 | Non-standard methods | A) Custom builder functions, B) Extend core builder | A | DDD, Make illegal states unrepresentable, ROP |
-| 10 | EmailSubmission chaining | A) Explicit helper, B) Per-method paired type, Modified B) Aliases over generic `CompoundHandles[A, B]` | **Modified B** — `addEmailSubmissionAndEmailSet` returns `EmailSubmissionHandles`, an alias for `CompoundHandles[EmailSubmissionSetResponse, SetResponse[EmailCreatedItem]]` | DDD, Make illegal states unrepresentable, DRY |
+| 10 | EmailSubmission chaining | A) Explicit helper, B) Per-method paired type, Modified B) Aliases over generic `CompoundHandles[A, B]` | **Modified B** — `addEmailSubmissionAndEmailSet` returns `EmailSubmissionHandles`, an alias for `CompoundHandles[EmailSubmissionSetResponse, SetResponse[EmailCreatedItem, PartialEmail]]` | DDD, Make illegal states unrepresentable, DRY |
 | 11 | Keyword type | Distinct type with lowercase normalisation + system constants | `Keyword = distinct string` | Parse-don't-validate, Make illegal states unrepresentable, DRY |
 | 12 | Email read model sets | `Table[K, bool]` vs `HashSet[K]` | `MailboxIdSet`, `KeywordSet` (distinct HashSet) | Make illegal states unrepresentable, DDD |
 | 13 | ParsedEmail vs Email | Shared type with Opt.none vs distinct type | Distinct `ParsedEmail` | Parse-don't-validate, DDD |
@@ -2771,7 +2771,7 @@ NonEmptyRcptList` (non-empty by type — sealed via
 | 21 | Filter conditions as smart-constructed | Smart constructors vs plain construction | Plain construction (value objects). Exception: `EmailHeaderFilter` | DDD (value objects), ROP |
 | 22 | Opt[Opt[T]] for null-filterable fields | Opt[T] vs Opt[Opt[T]] vs sentinel | `Opt[Opt[T]]` | Make illegal states unrepresentable |
 | 23 | Mailbox/set builder overload | Generic /set vs entity-specific with onDestroyRemoveEmails | `addMailboxSet` with extra param | DDD, Make illegal states unrepresentable |
-| 24 | Email/copy compound handle | A) Single builder accepting a destroy flag, B) Two builders (simple + compound) with paired handle for the compound | **B** — `addEmailCopy` returns `ResponseHandle[CopyResponse[EmailCreatedItem]]`; `addEmailCopyAndDestroy` returns `EmailCopyHandles = CompoundHandles[CopyResponse[EmailCreatedItem], SetResponse[EmailCreatedItem]]` | DDD, Make illegal states unrepresentable, DRY |
+| 24 | Email/copy compound handle | A) Single builder accepting a destroy flag, B) Two builders (simple + compound) with paired handle for the compound | **B** — `addEmailCopy` returns `ResponseHandle[CopyResponse[EmailCreatedItem]]`; `addEmailCopyAndDestroy` returns `EmailCopyHandles = CompoundHandles[CopyResponse[EmailCreatedItem], SetResponse[EmailCreatedItem, PartialEmail]]` | DDD, Make illegal states unrepresentable, DRY |
 | 25 | `size` unconditional on `EmailBodyPart` | A) Leaf-only, B) Shared | B (RFC §4.1.4 unconditional) | Total functions |
 | 26 | RFC 8621 SetError integration | A) Mail enum + parser, B) Variants on core `SetErrorType` with payload-bearing case branches | **B** — same decision as #4; mail-side accessors in `mail_errors.nim` provide domain-named projection | Make illegal states unrepresentable, ROP, DRY |
 | 27 | Inline body values placement on `EmailBlueprint` | A) Top-level `bodyValues` table; B) Per-leaf `value` field, harvested at serde | B — leaf carries `BlueprintBodyValue`; serde produces top-level wire `bodyValues` | Make illegal states unrepresentable |

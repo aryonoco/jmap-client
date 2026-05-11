@@ -12,9 +12,11 @@ import ./internal/serialisation/serde_session
 import ./internal/serialisation/serde_envelope
 import ./internal/serialisation/serde_framework
 import ./internal/serialisation/serde_errors
+import ./internal/serialisation/serde_field_echo
 
 export serde
 export serde_session
 export serde_envelope
 export serde_framework
 export serde_errors
+export serde_field_echo

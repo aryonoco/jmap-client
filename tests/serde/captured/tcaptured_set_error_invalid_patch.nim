@@ -26,8 +26,9 @@ block tcapturedSetErrorInvalidPatch:
   let inv = resp.methodResponses[0]
   doAssert inv.rawName == "Email/set",
     "Email/set with notUpdated must surface as Email/set, got " & inv.rawName
-  let setResp =
-    SetResponse[EmailCreatedItem].fromJson(inv.arguments).expect("SetResponse.fromJson")
+  let setResp = SetResponse[EmailCreatedItem, PartialEmail]
+    .fromJson(inv.arguments)
+    .expect("SetResponse.fromJson")
   doAssert setResp.updateResults.len == 1
   for id, outcome in setResp.updateResults.pairs:
     doAssert outcome.isErr, "update outcome must be Err(SetError)"

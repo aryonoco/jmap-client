@@ -28,9 +28,9 @@ import ./serde_snippet
 import ./serde_vacation
 
 # Re-export the serde modules whose ``fromJson`` overloads are required at
-# the dispatch call-site (``get(handle)``): the generic ``SetResponse[T]``
-# resolves ``T.fromJson`` via ``mixin`` at the outer instantiation site, so
-# the caller must have these in scope.
+# the dispatch call-site (``get(handle)``): the generic ``SetResponse[T, U]``
+# resolves ``T.fromJson`` and ``U.fromJson`` via ``mixin`` at the outer
+# instantiation site, so the caller must have these in scope.
 export serde_vacation
 export serde_email
 export serde_snippet
@@ -71,10 +71,16 @@ func addVacationResponseSet*(
     accountId: AccountId,
     update: VacationResponseUpdateSet,
     ifInState: Opt[JmapState] = Opt.none(JmapState),
-): (RequestBuilder, ResponseHandle[SetResponse[VacationResponse]]) =
+): (RequestBuilder, ResponseHandle[SetResponse[NoCreate, PartialVacationResponse]]) =
   ## Adds a VacationResponse/set invocation (RFC 8621 section 7). Typed
   ## ``VacationResponseUpdateSet`` per Design §4.1 (Part F migration).
   ## Singleton id remains hardcoded from ``VacationResponseSingletonId``.
+  ##
+  ## VacationResponse/set is singleton-only per RFC 8621 §7 — no create
+  ## rail. ``T`` is ``NoCreate`` per A4 D6: a server emitting a
+  ## ``created[cid]`` entry on this method is tolerated leniently (the
+  ## entry parses to ``NoCreate()`` and carries no payload). ``U`` is
+  ## ``PartialVacationResponse`` (A4 D2 typed three-state echo).
   var args = newJObject()
   args["accountId"] = accountId.toJson()
   for state in ifInState:
@@ -88,7 +94,8 @@ func addVacationResponseSet*(
     VacationResponseCapUri,
     CallLimitMeta(kind: clmSet, objectCount: Opt.some(1)),
   )
-  return (newBuilder, ResponseHandle[SetResponse[VacationResponse]](callId))
+  return
+    (newBuilder, ResponseHandle[SetResponse[NoCreate, PartialVacationResponse]](callId))
 
 # =============================================================================
 # EmailParseResponse (RFC 8621 §4.9)

@@ -302,7 +302,7 @@ block createdRefRejectsQueryHandle:
 
 block updatedRefRejectsSetHandle:
   ## A SetResponse handle cannot call updatedRef (type-safe rejection).
-  let handle = ResponseHandle[SetResponse[MockFoo]](makeMcid("c0"))
+  let handle = ResponseHandle[SetResponse[MockFoo, MockFoo]](makeMcid("c0"))
   assertNotCompiles updatedRef(handle)
 
 # ===========================================================================

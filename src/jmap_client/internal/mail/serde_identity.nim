@@ -9,6 +9,7 @@
 import std/json
 
 import ../serialisation/serde
+import ../serialisation/serde_field_echo
 import ../../types
 import ./addresses
 import ./identity
@@ -169,3 +170,55 @@ func fromJson*(
     ?expectKind(mayDeleteField, JBool, path / "mayDelete")
     mayDelete = Opt.some(mayDeleteField.getBool(false))
   return ok(IdentityCreatedItem(id: id, mayDelete: mayDelete))
+
+# =============================================================================
+# PartialIdentity (A4 + A3.6)
+# =============================================================================
+
+func fromJson*(
+    T: typedesc[PartialIdentity], node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[PartialIdentity, SerdeViolation] =
+  ## Deserialise a partial Identity echo (RFC 8621 §6). Lenient on
+  ## missing fields; strict on wrong-kind present fields (D4).
+  discard $T
+  ?expectKind(node, JObject, path)
+  let id = ?parsePartialOptField[Id](node, "id", path)
+  let name = ?parsePartialOptField[string](node, "name", path)
+  let email = ?parsePartialOptField[string](node, "email", path)
+  let replyTo = ?parsePartialFieldEcho[seq[EmailAddress]](node, "replyTo", path)
+  let bcc = ?parsePartialFieldEcho[seq[EmailAddress]](node, "bcc", path)
+  let textSignature = ?parsePartialOptField[string](node, "textSignature", path)
+  let htmlSignature = ?parsePartialOptField[string](node, "htmlSignature", path)
+  let mayDelete = ?parsePartialOptField[bool](node, "mayDelete", path)
+  return ok(
+    PartialIdentity(
+      id: id,
+      name: name,
+      email: email,
+      replyTo: replyTo,
+      bcc: bcc,
+      textSignature: textSignature,
+      htmlSignature: htmlSignature,
+      mayDelete: mayDelete,
+    )
+  )
+
+func toJson*(p: PartialIdentity): JsonNode =
+  ## Emit a partial Identity echo — D5/D3.7 unidirectional serde
+  ## symmetry. ``fekAbsent`` and ``Opt.none`` omit the key.
+  var node = newJObject()
+  for v in p.id:
+    node["id"] = v.toJson()
+  for v in p.name:
+    node["name"] = v.toJson()
+  for v in p.email:
+    node["email"] = v.toJson()
+  emitPartialFieldEcho[seq[EmailAddress]](node, "replyTo", p.replyTo)
+  emitPartialFieldEcho[seq[EmailAddress]](node, "bcc", p.bcc)
+  for v in p.textSignature:
+    node["textSignature"] = v.toJson()
+  for v in p.htmlSignature:
+    node["htmlSignature"] = v.toJson()
+  for v in p.mayDelete:
+    node["mayDelete"] = v.toJson()
+  return node

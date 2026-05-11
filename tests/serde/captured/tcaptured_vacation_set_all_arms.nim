@@ -5,7 +5,7 @@
 ## response covering all three new update arms (``setHtmlBody``,
 ## ``setFromDate``, ``setToDate``) plus the three from Phase B9
 ## (``tests/testdata/captured/vacation-set-all-arms-stalwart.json``).
-## Verifies that ``SetResponse[VacationResponse]`` parses the
+## Verifies that ``SetResponse[NoCreate, PartialVacationResponse]`` parses the
 ## ``updated`` table where the singleton key maps to ``null``
 ## (RFC 8620 §5.3 — server-defined fields unchanged from the
 ## client's submission).
@@ -37,9 +37,9 @@ block tcapturedVacationSetAllArms:
       let inv = resp.methodResponses[0]
       doAssert inv.rawName == "VacationResponse/set"
 
-      let setResp = SetResponse[VacationResponse].fromJson(inv.arguments).expect(
-          "SetResponse[VacationResponse].fromJson"
-        )
+      let setResp = SetResponse[NoCreate, PartialVacationResponse]
+        .fromJson(inv.arguments)
+        .expect("SetResponse[NoCreate, PartialVacationResponse].fromJson")
       doAssert setResp.newState.isSome, "newState must be present in this fixture"
       let singletonId =
         parseIdFromServer("singleton").expect("parseIdFromServer singleton")

@@ -11,11 +11,18 @@
 ## phantom branch.
 ##
 ## Surface:
-##   * ``fromJson``-only: ``AnyEmailSubmission``, ``EmailSubmissionCreatedItem``
-##     (the generic ``SetResponse[T]`` serde picks the latter up via ``mixin``).
-##   * ``toJson``-only: ``EmailSubmissionBlueprint``, ``EmailSubmissionUpdate``,
-##     ``NonEmptyEmailSubmissionUpdates``, ``EmailSubmissionFilterCondition``,
-##     ``EmailSubmissionComparator``, ``IdOrCreationRef``.
+##   * ``fromJson``-only: ``AnyEmailSubmission``,
+##     ``EmailSubmissionCreatedItem`` (the generic ``SetResponse[T, U]``
+##     serde picks the latter up via ``mixin`` — ``T`` resolves the
+##     create rail, ``U`` resolves the partial-update rail per A4
+##     D1/D2; ``U = PartialEmailSubmission`` for EmailSubmission/set).
+##   * ``fromJson`` + ``toJson``: ``PartialEmailSubmission`` (A4 + A3.6
+##     D7 — receive-only at the public surface; ``toJson`` exists for
+##     D3.7 round-trip symmetry).
+##   * ``toJson``-only: ``EmailSubmissionBlueprint``,
+##     ``EmailSubmissionUpdate``, ``NonEmptyEmailSubmissionUpdates``,
+##     ``EmailSubmissionFilterCondition``, ``EmailSubmissionComparator``,
+##     ``IdOrCreationRef``.
 
 {.push raises: [], noSideEffect.}
 {.experimental: "strictCaseObjects".}
@@ -24,6 +31,7 @@ import std/json
 import std/tables
 
 import ../serialisation/serde
+import ../serialisation/serde_field_echo
 import ../../types
 import ./email_submission
 import ./email_update
@@ -32,6 +40,17 @@ import ./submission_status
 import ./serde_email_update
 import ./serde_submission_envelope
 import ./serde_submission_status
+
+# Re-export the L2 serde foundation and sibling serde modules so that
+# ``PartialEmailSubmission.fromJson`` resolves transitively through
+# ``BlobId.fromJson`` / ``UTCDate.fromJson`` (L2 hub) and
+# ``Envelope.fromJson`` / ``DeliveryStatusMap.fromJson`` /
+# ``UndoStatus.fromJson`` at every callsite (including the mixin chain
+# through ``SetResponse[T, U].fromJson`` and ``seq[BlobId].fromJson``).
+export serde
+export serde_field_echo
+export serde_submission_envelope
+export serde_submission_status
 
 # =============================================================================
 # Field helpers — nullable composites
@@ -145,9 +164,9 @@ func fromJson*(
   ## finalised and discarded the record by the time the client could
   ## call ``/get``, so the create response carries the live state).
   ## Postel's-law accommodation per ``.claude/rules/nim-conventions.md``
-  ## §"Serde Conventions". The ``mixin``-resolved
-  ## ``SetResponse[EmailSubmissionCreatedItem].fromJson`` drives this
-  ## at the dispatch site.
+  ## §"Serde Conventions". The ``mixin``-resolved ``SetResponse[
+  ## EmailSubmissionCreatedItem, PartialEmailSubmission].fromJson``
+  ## drives this at the dispatch site.
   discard $T # consumed for nimalyzer params rule
   ?expectKind(node, JObject, path)
   let idNode = ?fieldJString(node, "id", path)
@@ -314,4 +333,68 @@ func toJson*(c: EmailSubmissionComparator): JsonNode =
   node["isAscending"] = %c.isAscending
   for col in c.collation:
     node["collation"] = %($col)
+  return node
+
+# =============================================================================
+# PartialEmailSubmission (A4 + A3.6)
+# =============================================================================
+
+func fromJson*(
+    T: typedesc[PartialEmailSubmission],
+    node: JsonNode,
+    path: JsonPath = emptyJsonPath(),
+): Result[PartialEmailSubmission, SerdeViolation] =
+  ## Deserialise a partial EmailSubmission echo (RFC 8621 §7). Lenient
+  ## on missing fields; strict on wrong-kind present fields and strict-
+  ## on-wire-token for closed-enum ``undoStatus`` (D4).
+  discard $T
+  ?expectKind(node, JObject, path)
+  let id = ?parsePartialOptField[Id](node, "id", path)
+  let identityId = ?parsePartialOptField[Id](node, "identityId", path)
+  let emailId = ?parsePartialOptField[Id](node, "emailId", path)
+  let threadId = ?parsePartialOptField[Id](node, "threadId", path)
+  let envelope = ?parsePartialFieldEcho[Envelope](node, "envelope", path)
+  let sendAt = ?parsePartialOptField[UTCDate](node, "sendAt", path)
+  let undoStatus = ?parsePartialOptField[UndoStatus](node, "undoStatus", path)
+  let deliveryStatus =
+    ?parsePartialFieldEcho[DeliveryStatusMap](node, "deliveryStatus", path)
+  let dsnBlobIds = ?parsePartialOptField[seq[BlobId]](node, "dsnBlobIds", path)
+  let mdnBlobIds = ?parsePartialOptField[seq[BlobId]](node, "mdnBlobIds", path)
+  return ok(
+    PartialEmailSubmission(
+      id: id,
+      identityId: identityId,
+      emailId: emailId,
+      threadId: threadId,
+      envelope: envelope,
+      sendAt: sendAt,
+      undoStatus: undoStatus,
+      deliveryStatus: deliveryStatus,
+      dsnBlobIds: dsnBlobIds,
+      mdnBlobIds: mdnBlobIds,
+    )
+  )
+
+func toJson*(p: PartialEmailSubmission): JsonNode =
+  ## Emit a partial EmailSubmission echo — D5/D3.7 unidirectional serde
+  ## symmetry. ``fekAbsent`` and ``Opt.none`` omit the key.
+  var node = newJObject()
+  for v in p.id:
+    node["id"] = v.toJson()
+  for v in p.identityId:
+    node["identityId"] = v.toJson()
+  for v in p.emailId:
+    node["emailId"] = v.toJson()
+  for v in p.threadId:
+    node["threadId"] = v.toJson()
+  emitPartialFieldEcho[Envelope](node, "envelope", p.envelope)
+  for v in p.sendAt:
+    node["sendAt"] = v.toJson()
+  for v in p.undoStatus:
+    node["undoStatus"] = v.toJson()
+  emitPartialFieldEcho[DeliveryStatusMap](node, "deliveryStatus", p.deliveryStatus)
+  for v in p.dsnBlobIds:
+    node["dsnBlobIds"] = v.toJson()
+  for v in p.mdnBlobIds:
+    node["mdnBlobIds"] = v.toJson()
   return node

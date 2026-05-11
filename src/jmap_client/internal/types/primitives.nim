@@ -85,6 +85,14 @@ func parseIdFromServer*(raw: string): Result[Id, ValidationError] =
     return err(toValidationError(error, "Id", raw))
   return ok(Id(raw))
 
+func parseFromString*(T: typedesc[Id], raw: string): Result[Id, ValidationError] =
+  ## ``parseFromString`` typedesc-overload adapter consumed by the generic
+  ## ``Table[K, V].fromJson`` in ``serialisation/serde.nim``. Delegates to
+  ## ``parseIdFromServer`` — server-assigned ``Id`` keys take the lenient
+  ## path on the receive side (Postel's law).
+  discard $T
+  return parseIdFromServer(raw)
+
 func parseUnsignedInt*(value: int64): Result[UnsignedInt, ValidationError] =
   ## Must be 0..2^53-1. Prevents negative values and integers outside JSON's
   ## safe range.

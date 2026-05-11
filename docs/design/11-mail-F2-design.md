@@ -44,20 +44,21 @@ Part F mirrors Part E's test category shape:
    re-export chain.
 
 **Generic /set response surface.** `Email/set` and `Email/copy`
-responses use the generic `SetResponse[EmailCreatedItem]` and
+responses use the generic `SetResponse[EmailCreatedItem, PartialEmail]` and
 `CopyResponse[EmailCreatedItem]` from `src/jmap_client/methods.nim`,
 not bespoke per-entity records. The merged
 `createResults: Table[CreationId, Result[EmailCreatedItem, SetError]]`,
-`updateResults: Table[Id, Result[Opt[JsonNode], SetError]]`, and
+`updateResults: Table[Id, Result[Opt[PartialEmail], SetError]]`, and
 `destroyResults: Table[Id, Result[void, SetError]]` collapse the wire's
 parallel `created`/`notCreated`, `updated`/`notUpdated`, and
 `destroyed`/`notDestroyed` maps into single `Result`-typed tables. The
-inner `Opt[JsonNode]` on `updateResults` preserves the RFC 8620 §5.3
-`PatchObject|null` distinction: `Opt.none(JsonNode)` ↔ wire `null`
-(server made no observable changes), `Opt.some(node)` ↔ wire object
-(changed-property map). `EmailImportResponse` stays bespoke — RFC 8621
-§4.8 imports have no `update`/`destroy` branches and there is no
-generic `ImportResponse[T]`.
+inner `Opt[PartialEmail]` on `updateResults` preserves the RFC 8620
+§5.3 outer distinction: `Opt.none(PartialEmail)` ↔ wire `null` (server
+confirmed without echo), `Opt.some(partial)` ↔ wire object (server-
+echoed partial state parsed via `PartialEmail.fromJson` per A4 D2).
+`EmailImportResponse` stays bespoke — RFC 8621 §4.8 imports have no
+`update`/`destroy` branches and there is no generic
+`ImportResponse[T]`.
 
 **File-naming.** Property and adversarial files follow the per-part
 naming `tprop_mail_f.nim` / `tadversarial_mail_f.nim`. The compile
@@ -150,7 +151,7 @@ which is exactly the re-export invariant under test.
 **Symbols deliberately not asserted:** `EmailSetResponse` /
 `EmailCopyResponse` / `UpdatedEntry` / `UpdatedEntryKind` are not
 declared types — `Email/set` and `Email/copy` route through the
-generic `SetResponse[EmailCreatedItem]` and
+generic `SetResponse[EmailCreatedItem, PartialEmail]` and
 `CopyResponse[EmailCreatedItem]` instantiations from
 `methods.nim`. Variant-kind exhaustiveness is witnessed by the
 production `case` sites (`shape`, `classify`, `toValidationError` in
@@ -175,11 +176,13 @@ lenient where the return is a passthrough.
   `mergeUpdateResults` / `mergeDestroyResults`) silently drop
   wrong-kind values — Postel on receive yields Ok with an empty
   merged table.
-- Inner success-rail values whose return type is `Opt[JsonNode]`
-  (`updateResults`) are lenient; the raw node passes through verbatim
-  as `ok(Opt.some(v))` regardless of JSON kind. RFC 8620 §5.3
-  specifies `PatchObject|null` for this slot, but the library defers
-  the structural check to callers who know their entity.
+- Inner success-rail values on `updateResults` are typed (post-A4):
+  `ok(Opt.none(PartialEmail))` for wire `null`,
+  `ok(Opt.some(?PartialEmail.fromJson(v, path)))` for wire object.
+  `PartialEmail.fromJson` is lenient on missing fields, strict on
+  wrong-kind-present fields per A4 D4; a present field of the wrong
+  JSON kind propagates `Err` via `?` rather than producing an empty-
+  echo `Opt.some`.
 - Inner error-rail values are strict — `SetError.fromJson` must
   produce a typed sum, so non-object / missing-`type` entries
   propagate `Err` via `?`.
@@ -559,8 +562,8 @@ above are unreachable in practice.
 | Section E — `EmailCopyItem` | `makeEmailCopyItem(id = makeId("src1"), mailboxIds = Opt.none, …)`, `makeFullEmailCopyItem(...)` (every override populated). |
 | Section F — `EmailImportItem` | `makeEmailImportItem(blobId = makeBlobId("blob1"), mailboxIds = makeNonEmptyMailboxIdSet(), …)`, `makeFullEmailImportItem`. |
 | Section G — `NonEmptyEmailImportMap` | `makeNonEmptyEmailImportMap(items)` — `init…(items).get()`. |
-| Section H — write responses | `makeEmailSetResponse(...)` returns `SetResponse[EmailCreatedItem]`; `makeEmailCopyResponse(...)` returns `CopyResponse[EmailCreatedItem]`; `makeEmailImportResponse(...)` returns `EmailImportResponse`. Each takes typed records (default args produce a minimal happy-path response) — not `JsonNode`. |
-| Section I — `EmailCopyHandles` | `makeEmailCopyHandles(sharedCallId = makeMcid("c0"))` — both handles share one `MethodCallId` per RFC 8620 §5.4. The `implicit` field is a `NameBoundHandle[SetResponse[EmailCreatedItem]]` carrying `methodName: mnEmailSet`. |
+| Section H — write responses | `makeEmailSetResponse(...)` returns `SetResponse[EmailCreatedItem, PartialEmail]`; `makeEmailCopyResponse(...)` returns `CopyResponse[EmailCreatedItem]`; `makeEmailImportResponse(...)` returns `EmailImportResponse`. Each takes typed records (default args produce a minimal happy-path response) — not `JsonNode`. |
+| Section I — `EmailCopyHandles` | `makeEmailCopyHandles(sharedCallId = makeMcid("c0"))` — both handles share one `MethodCallId` per RFC 8620 §5.4. The `implicit` field is a `NameBoundHandle[SetResponse[EmailCreatedItem, PartialEmail]]` carrying `methodName: mnEmailSet`. |
 | Section J — whole-container update wrappers | `makeNonEmptyMailboxUpdates(items: varargs[(Id, MailboxUpdateSet)])` and `makeNonEmptyEmailUpdates(items: varargs[(Id, EmailUpdateSet)])` — both `parse…(@items).get()`. |
 
 #### 8.6.2. Equality helpers — `tests/mfixtures.nim`
@@ -638,7 +641,7 @@ review of the literal set elements alongside the test).
 ### 8.7. Adversarial response-decode matrix
 
 `tests/stress/tadversarial_mail_f.nim` Block 1 pins per-field attacks
-for `SetResponse[EmailCreatedItem].fromJson`,
+for `SetResponse[EmailCreatedItem, PartialEmail].fromJson`,
 `CopyResponse[EmailCreatedItem].fromJson`, and
 `EmailImportResponse.fromJson`. Each row is one named block.
 

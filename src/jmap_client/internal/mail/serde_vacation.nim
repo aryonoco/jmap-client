@@ -9,6 +9,7 @@
 import std/json
 
 import ../serialisation/serde
+import ../serialisation/serde_field_echo
 import ../../types
 import ./vacation
 
@@ -135,4 +136,47 @@ func toJson*(us: VacationResponseUpdateSet): JsonNode =
   for u in seq[VacationResponseUpdate](us):
     let (key, value) = u.toJson()
     node[key] = value
+  return node
+
+# =============================================================================
+# PartialVacationResponse (A4 + A3.6)
+# =============================================================================
+
+func fromJson*(
+    T: typedesc[PartialVacationResponse],
+    node: JsonNode,
+    path: JsonPath = emptyJsonPath(),
+): Result[PartialVacationResponse, SerdeViolation] =
+  ## Deserialise a partial VacationResponse echo (RFC 8621 §7). Lenient
+  ## on missing fields; strict on wrong-kind present fields (D4).
+  discard $T
+  ?expectKind(node, JObject, path)
+  let isEnabled = ?parsePartialOptField[bool](node, "isEnabled", path)
+  let fromDate = ?parsePartialFieldEcho[UTCDate](node, "fromDate", path)
+  let toDate = ?parsePartialFieldEcho[UTCDate](node, "toDate", path)
+  let subject = ?parsePartialFieldEcho[string](node, "subject", path)
+  let textBody = ?parsePartialFieldEcho[string](node, "textBody", path)
+  let htmlBody = ?parsePartialFieldEcho[string](node, "htmlBody", path)
+  return ok(
+    PartialVacationResponse(
+      isEnabled: isEnabled,
+      fromDate: fromDate,
+      toDate: toDate,
+      subject: subject,
+      textBody: textBody,
+      htmlBody: htmlBody,
+    )
+  )
+
+func toJson*(p: PartialVacationResponse): JsonNode =
+  ## Emit a partial VacationResponse echo — ``fekAbsent`` and
+  ## ``Opt.none`` omit the key entirely.
+  var node = newJObject()
+  for v in p.isEnabled:
+    node["isEnabled"] = v.toJson()
+  emitPartialFieldEcho[UTCDate](node, "fromDate", p.fromDate)
+  emitPartialFieldEcho[UTCDate](node, "toDate", p.toDate)
+  emitPartialFieldEcho[string](node, "subject", p.subject)
+  emitPartialFieldEcho[string](node, "textBody", p.textBody)
+  emitPartialFieldEcho[string](node, "htmlBody", p.htmlBody)
   return node

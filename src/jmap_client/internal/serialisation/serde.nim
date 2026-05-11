@@ -399,6 +399,105 @@ func parseKeyedTable*[K, T](
     tbl[k] = parsed
   return ok(tbl)
 
+# =============================================================================
+# Primitive ``string``/``bool`` toJson/fromJson — feed the mixin-uniform
+# helpers in ``serde_field_echo.nim`` for ``Opt[string]`` / ``Opt[bool]`` /
+# ``FieldEcho[string]`` partial fields. Existing serde sites continue to use
+# ``fieldJString`` / ``node.getStr()`` directly; these overloads are
+# additive.
+# =============================================================================
+
+func fromJson*(
+    T: typedesc[string], node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[string, SerdeViolation] =
+  ## Deserialise a JSON string node to ``string``. Strict on wrong kind.
+  discard $T
+  ?expectKind(node, JString, path)
+  return ok(node.getStr(""))
+
+func toJson*(s: string): JsonNode =
+  ## Serialise ``string`` to a JSON string node.
+  return newJString(s)
+
+func fromJson*(
+    T: typedesc[bool], node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[bool, SerdeViolation] =
+  ## Deserialise a JSON boolean node to ``bool``. Strict on wrong kind.
+  discard $T
+  ?expectKind(node, JBool, path)
+  return ok(node.getBool(false))
+
+func toJson*(b: bool): JsonNode =
+  ## Serialise ``bool`` to a JSON boolean node.
+  return newJBool(b)
+
+# =============================================================================
+# Generic ``seq[T]`` toJson/fromJson — element type resolves via ``mixin``
+# =============================================================================
+
+func fromJson*[T](
+    S: typedesc[seq[T]], node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[seq[T], SerdeViolation] =
+  ## Parse a JSON array into ``seq[T]``. Each element resolves via
+  ## ``mixin T.fromJson`` at instantiation. Nil node parses to the empty
+  ## seq (lenient — Postel on receive); non-array kind surfaces a
+  ## ``svkWrongKind`` SerdeViolation. Absence-as-empty keeps semantics
+  ## aligned with the existing bespoke helpers (``parseBodyPartArray``,
+  ## ``parseRawHeaders``); partial parsers add an outer ``hasKey``/``Opt``
+  ## wrap before calling this.
+  mixin fromJson
+  discard $S
+  if node.isNil:
+    return ok(newSeq[T]())
+  ?expectKind(node, JArray, path)
+  var out0 = newSeqOfCap[T](node.elems.len)
+  for i, child in node.getElems(@[]):
+    out0.add(?T.fromJson(child, path / i))
+  return ok(out0)
+
+func toJson*[T](xs: seq[T]): JsonNode =
+  ## Emit a ``seq[T]`` as a JSON array via ``mixin T.toJson``. Empty seq
+  ## emits ``[]``.
+  mixin toJson
+  result = newJArray()
+  for x in xs:
+    result.add(x.toJson())
+
+# =============================================================================
+# Generic ``Table[K, V]`` toJson/fromJson — keys resolve via
+# ``mixin parseFromString(K, raw)``, values via ``mixin V.fromJson``
+# =============================================================================
+
+func fromJson*[K, V](
+    T: typedesc[Table[K, V]], node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[Table[K, V], SerdeViolation] =
+  ## Parse a JSON object into ``Table[K, V]``. Each wire key resolves
+  ## via ``mixin parseFromString(K, raw)`` (returning
+  ## ``Result[K, ValidationError]``, bridged via ``wrapInner``); each
+  ## value resolves via ``mixin V.fromJson``. Nil/non-object nodes parse
+  ## to the empty table (lenient — consistent with ``parseKeyedTable``).
+  mixin parseFromString
+  mixin fromJson
+  discard $T
+  var out0 = initTable[K, V]()
+  if node.isNil or node.kind != JObject:
+    return ok(out0)
+  for key, child in node.pairs:
+    let k = ?wrapInner(parseFromString(K, key), path / key)
+    let v = ?V.fromJson(child, path / key)
+    out0[k] = v
+  return ok(out0)
+
+func toJson*[K, V](tbl: Table[K, V]): JsonNode =
+  ## Emit a ``Table[K, V]`` as a JSON object. Keys serialise via ``$``
+  ## (``K`` is ``Id``/``PartId``/``HeaderPropertyKey`` — all carry a
+  ## ``$`` yielding the wire token); values via ``mixin V.toJson``. Empty
+  ## table emits ``{}``.
+  mixin toJson
+  result = newJObject()
+  for k, v in tbl.pairs:
+    result[$k] = v.toJson()
+
 func optJsonField*(node: JsonNode, key: string, kind: JsonNodeKind): Opt[JsonNode] =
   ## Lenient typed-optional field access: absent, null, or wrong kind →
   ## ``Opt.none``. Companion to ``fieldOfKind`` (strict: returns a Result

@@ -10,16 +10,11 @@
 ##
 ## ``GetResponse[T].list`` is typed via per-entry ``T.fromJson``
 ## (mixin-resolved at instantiation; Decision D3.6 post-A3).
-## ``SetResponse[T].updateResults`` remains ``Opt[JsonNode]``
-## pending A4 (per-entity partial-update types).
-## Sparse-property ``/get`` responses (consumer-requested elision
-## of required fields) surface ``MethodError(metServerFail)`` on
-## the typed entry point because ``T.fromJson`` is full-record
-## strict; a future ``PartialT`` family closes that gap
-## additively under A3.6. There is no parallel public raw-JSON
-## path -- ``Invocation.arguments`` is module-private per A2 and
-## reachable only via direct ``import jmap_client/internal/...``
-## for library-internal diagnostics. Serialisation direction stays
+## ``SetResponse[T, U].updateResults`` is typed via per-entry
+## ``U.fromJson`` (mixin-resolved at instantiation; Decision D3.6
+## post-A4). Sparse ``/get`` responses are typed via the
+## ``Partial*`` family registered as getter-only JMAP entities
+## (Decision D3.6 post-A3.6). Serialisation direction stays
 ## governed by D3.7: response types are ``fromJson``-only with the
 ## ``SetResponse.toJson`` and ``CopyResponse.toJson`` exceptions.
 
@@ -182,17 +177,13 @@ type GetResponse*[T] = object
   ## JsonPath): Result[T, SerdeViolation]`` visible at the caller's
   ## instantiation scope.
   ##
-  ## The typed ``list`` assumes every wire entry is a full record;
-  ## ``T.fromJson`` is full-record strict by design (Mailbox.fromJson,
-  ## Email.fromJson, etc. require every RFC-mandated field). Consumers
-  ## who deliberately request sparse projections via ``properties =
-  ## Opt.some(@[...])`` and receive a wire payload that elides required
-  ## fields receive a ``MethodError`` at this -- the only public --
-  ## entry point. A future ``PartialT`` family (tracked under A3.6)
-  ## closes the gap additively (P20). There is no parallel public
-  ## raw-JSON path; ``Invocation.arguments`` is module-private per A2
-  ## and reachable only via direct ``import jmap_client/internal/...``
-  ## for library-internal diagnostics.
+  ## The typed ``list`` assumes every wire entry matches the ``T``
+  ## record shape. For full-record fetches use ``T = Email`` /
+  ## ``Mailbox`` / etc.; for sparse projections use ``T = PartialEmail``
+  ## / ``PartialMailbox`` / etc. (A3.6 D7 — every ``PartialT`` is
+  ## registered as a getter-only JMAP entity). The full record's
+  ## ``fromJson`` is strict on required fields; the partial parser is
+  ## lenient on missing fields and strict on wrong-kind present fields.
   accountId*: AccountId ## Identifier of the account used for the call.
   state*: JmapState
     ## A string representing the state on the server for ALL data of this
@@ -216,18 +207,23 @@ type ChangesResponse*[T] = object
   updated*: seq[Id] ## Identifiers for records updated since the old state.
   destroyed*: seq[Id] ## Identifiers for records destroyed since the old state.
 
-type SetResponse*[T] = object
+type SetResponse*[T, U] = object
   ## Response arguments for Foo/set (RFC 8620 section 5.3).
-  ## Wire format uses parallel maps (created/notCreated, etc.); the internal
-  ## representation merges these into unified Result maps (Decision 3.9B).
-  ## Each identifier has exactly one outcome — impossible for an ID to
-  ## appear in both success and failure branches.
+  ## Wire format uses parallel maps (created/notCreated, etc.); the
+  ## internal representation merges these into unified Result maps
+  ## (Decision 3.9B). Each identifier has exactly one outcome.
   ##
-  ## ``T`` is the typed ``created`` entry payload: the generic ``fromJson``
-  ## resolves ``T.fromJson`` via ``mixin`` at instantiation to parse wire
-  ## ``created[cid]`` into ``T``. ``updateResults`` stays ``Opt[JsonNode]``
-  ## because update payloads are open-ended partial entities; typing them
-  ## needs per-entity partial types which are out of scope for this pass.
+  ## ``T`` is the typed ``created[cid]`` payload; ``U`` is the typed
+  ## ``updated[id]`` payload (per-entity ``PartialT``). Both resolve at
+  ## instantiation via ``mixin`` — every ``T``/``U`` ending up here MUST
+  ## define ``fromJson`` and ``toJson`` overloads visible at the
+  ## caller's instantiation site.
+  ##
+  ## ``updateResults[id]`` discriminates between server-confirmed-
+  ## without-echo (``ok(Opt.none(U))`` — wire ``updated[id] = null``)
+  ## and server-echoed-partial-state (``ok(Opt.some(partial))`` — wire
+  ## ``updated[id] = {...}``); both are legitimate ``/set`` outcomes per
+  ## RFC 8620 §5.3.
   accountId*: AccountId ## The identifier of the account used for the call.
   oldState*: Opt[JmapState]
     ## The state before making the requested changes, or none if the server
@@ -243,11 +239,13 @@ type SetResponse*[T] = object
     ## Merged create outcomes. Wire ``created`` entries become
     ## ``Result.ok(entity)`` via ``T.fromJson``; wire ``notCreated`` entries
     ## become ``Result.err(setError)``. Last-writer-wins on duplicate keys.
-  updateResults*: Table[Id, Result[Opt[JsonNode], SetError]]
-    ## Merged update outcomes. Wire ``updated`` entries with null value
-    ## become ``ok(Opt.none(JsonNode))``; non-null values become
-    ## ``ok(Opt.some(entityJson))``. Wire ``notUpdated`` entries become
-    ## ``Result.err(setError)``.
+  updateResults*: Table[Id, Result[Opt[U], SetError]]
+    ## Merged update outcomes (RFC 8620 §5.3). Wire ``updated[id] = null``
+    ## becomes ``ok(Opt.none(U))``; wire ``updated[id] = {...}`` becomes
+    ## ``ok(Opt.some(?U.fromJson(v, path)))``. Wire ``notUpdated[id]``
+    ## becomes ``Result.err(setError)``. ``U`` is the per-entity
+    ## ``PartialT`` (typed three-state echo via ``FieldEcho`` per
+    ## wire-nullable field).
   destroyResults*: Table[Id, Result[void, SetError]]
     ## Merged destroy outcomes. Wire ``destroyed`` entries become
     ## ``Result.ok()``; wire ``notDestroyed`` entries become
@@ -255,9 +253,10 @@ type SetResponse*[T] = object
 
 type CopyResponse*[T] = object
   ## Response arguments for Foo/copy (RFC 8620 section 5.4).
-  ## Structurally similar to SetResponse but only has create results.
-  ## Uses unified Result maps (Decision 3.9B). Shares the typed-``T``
-  ## semantics of ``SetResponse[T]`` — ``T.fromJson`` resolves at
+  ## Structurally similar to SetResponse but only has create results
+  ## (RFC 8620 §5.4 has no update branch for /copy). Uses unified
+  ## Result maps (Decision 3.9B). Shares the typed-``T`` semantics of
+  ## ``SetResponse[T, U]``'s create rail — ``T.fromJson`` resolves at
   ## instantiation via ``mixin``.
   fromAccountId*: AccountId ## The identifier of the account records were copied from.
   accountId*: AccountId ## The identifier of the account records were copied to.
@@ -542,12 +541,14 @@ func emitSplitCreateResults[T](
   if notCreated.len > 0:
     node["notCreated"] = notCreated
 
-func emitSplitUpdateResults(
-    updateResults: Table[Id, Result[Opt[JsonNode], SetError]], node: JsonNode
+func emitSplitUpdateResults[U](
+    updateResults: Table[Id, Result[Opt[U], SetError]], node: JsonNode
 ) =
   ## Splits a merged ``updateResults`` table into ``updated`` and
-  ## ``notUpdated`` wire maps. ``Opt.none`` projects to JSON null;
-  ## ``Opt.some(n)`` projects to the inner node verbatim.
+  ## ``notUpdated`` wire maps. ``Opt.none(U)`` → JSON null;
+  ## ``Opt.some(u)`` → ``u.toJson()`` (RFC 8620 §5.3). ``U.toJson``
+  ## resolves at instantiation via ``mixin``.
+  mixin toJson
   var updated = newJObject()
   var notUpdated = newJObject()
   for id, r in updateResults:
@@ -555,7 +556,7 @@ func emitSplitUpdateResults(
       let inner = r.get()
       updated[string(id)] =
         if inner.isSome:
-          inner.get()
+          inner.get().toJson()
         else:
           newJNull()
     else:
@@ -582,10 +583,11 @@ func emitSplitDestroyResults(
   if notDestroyed.len > 0:
     node["notDestroyed"] = notDestroyed
 
-func toJson*[T](resp: SetResponse[T]): JsonNode =
-  ## Serialise SetResponse[T] back to the RFC 8620 §5.3 wire shape:
+func toJson*[T, U](resp: SetResponse[T, U]): JsonNode =
+  ## Serialise SetResponse[T, U] back to the RFC 8620 §5.3 wire shape:
   ## merged Result tables split into parallel created/notCreated,
-  ## updated/notUpdated, destroyed/notDestroyed maps.
+  ## updated/notUpdated, destroyed/notDestroyed maps. ``T.toJson`` and
+  ## ``U.toJson`` resolve at instantiation via ``mixin``.
   mixin toJson
   var node = newJObject()
   node["accountId"] = resp.accountId.toJson()
@@ -594,7 +596,7 @@ func toJson*[T](resp: SetResponse[T]): JsonNode =
   for s in resp.newState:
     node["newState"] = s.toJson()
   emitSplitCreateResults(resp.createResults, node)
-  emitSplitUpdateResults(resp.updateResults, node)
+  emitSplitUpdateResults[U](resp.updateResults, node)
   emitSplitDestroyResults(resp.destroyResults, node)
   return node
 
@@ -623,10 +625,10 @@ func mergeCreateResults[T](
   ## (RFC 8620 section 5.3, Decision 3.9B). Used by both SetResponse and
   ## CopyResponse. Last-writer-wins for duplicate keys (section 8.5).
   ##
-  ## ``T.fromJson`` resolves at instantiation via ``mixin`` — every ``T``
-  ## that ends up in ``SetResponse[T]`` / ``CopyResponse[T]`` MUST define
-  ## ``fromJson(_: typedesc[T], JsonNode, JsonPath): Result[T,
-  ## SerdeViolation]``.
+  ## ``T.fromJson`` resolves at instantiation via ``mixin`` — every
+  ## ``T`` that ends up in ``SetResponse[T, U]`` / ``CopyResponse[T]``
+  ## MUST define ``fromJson(_: typedesc[T], JsonNode, JsonPath): Result[
+  ## T, SerdeViolation]``.
   mixin fromJson
   var tbl = initTable[CreationId, Result[T, SetError]]()
   let createdNode = node{"created"}
@@ -643,35 +645,33 @@ func mergeCreateResults[T](
       tbl[cid] = Result[T, SetError].err(se)
   return ok(tbl)
 
-func mergeUpdateResults(
+func mergeUpdateResults[U](
     node: JsonNode, path: JsonPath
-): Result[Table[Id, Result[Opt[JsonNode], SetError]], SerdeViolation] =
-  ## Merge wire ``updated``/``notUpdated`` maps into a unified Result table
-  ## (RFC 8620 section 5.3, Decision 3.9B). Null value in ``updated`` maps
-  ## to ``ok(Opt.none)`` (server made no property changes the client
-  ## doesn't already know); any non-null value maps to ``ok(Opt.some(v))``
-  ## verbatim — RFC 8620 specifies ``PatchObject`` for this slot, but the
-  ## library intentionally passes the raw node through because the entity-
-  ## specific PatchObject shape is unknown at this layer. Postel on
-  ## receive: defer the structural check to callers who know their
-  ## entity. ``notUpdated`` entries go through ``SetError.fromJson`` and
-  ## are therefore strict — a typed sum must parse. Last-writer-wins for
-  ## duplicate keys (section 8.5).
-  var tbl = initTable[Id, Result[Opt[JsonNode], SetError]]()
+): Result[Table[Id, Result[Opt[U], SetError]], SerdeViolation] =
+  ## Merge wire ``updated``/``notUpdated`` maps into a unified Result
+  ## table (RFC 8620 section 5.3, Decision 3.9B). Wire ``updated[id] =
+  ## null`` → ``ok(Opt.none(U))``; non-null → ``ok(Opt.some(?U.fromJson(
+  ## v, path)))``; ``notUpdated[id]`` → ``err(?SetError.fromJson(v,
+  ## path))``. Last-writer-wins on duplicate keys (section 8.5).
+  ##
+  ## ``U.fromJson`` resolves at instantiation via ``mixin``.
+  mixin fromJson
+  var tbl = initTable[Id, Result[Opt[U], SetError]]()
   let updatedNode = node{"updated"}
   if not updatedNode.isNil and updatedNode.kind == JObject:
     for k, v in updatedNode.pairs:
       let id = ?wrapInner(parseIdFromServer(k), path / "updated" / k)
       if v.isNil or v.kind == JNull:
-        tbl[id] = Result[Opt[JsonNode], SetError].ok(Opt.none(JsonNode))
+        tbl[id] = Result[Opt[U], SetError].ok(Opt.none(U))
       else:
-        tbl[id] = Result[Opt[JsonNode], SetError].ok(Opt.some(v))
+        let parsed = ?U.fromJson(v, path / "updated" / k)
+        tbl[id] = Result[Opt[U], SetError].ok(Opt.some(parsed))
   let notUpdatedNode = node{"notUpdated"}
   if not notUpdatedNode.isNil and notUpdatedNode.kind == JObject:
     for k, v in notUpdatedNode.pairs:
       let id = ?wrapInner(parseIdFromServer(k), path / "notUpdated" / k)
       let se = ?SetError.fromJson(v, path / "notUpdated" / k)
-      tbl[id] = Result[Opt[JsonNode], SetError].err(se)
+      tbl[id] = Result[Opt[U], SetError].err(se)
   return ok(tbl)
 
 func mergeDestroyResults(
@@ -753,12 +753,13 @@ func fromJson*[T](
     )
   )
 
-func fromJson*[T](
-    R: typedesc[SetResponse[T]], node: JsonNode, path: JsonPath = emptyJsonPath()
-): Result[SetResponse[T], SerdeViolation] =
-  ## Deserialise JSON arguments to SetResponse (RFC 8620 section 5.3).
-  ## Merges parallel wire maps into separate success/failure tables (section 8).
-  ## ``T.fromJson`` is resolved at instantiation via ``mixin``.
+func fromJson*[T, U](
+    R: typedesc[SetResponse[T, U]], node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[SetResponse[T, U], SerdeViolation] =
+  ## Deserialise JSON arguments to SetResponse[T, U] (RFC 8620 §5.3).
+  ## Merges parallel wire maps into separate success/failure tables
+  ## (section 8). ``T.fromJson`` and ``U.fromJson`` resolve at
+  ## instantiation via ``mixin``.
   mixin fromJson
   discard $R # consumed for nimalyzer params rule
   ?expectKind(node, JObject, path)
@@ -768,10 +769,10 @@ func fromJson*[T](
   let newState = optState(node, "newState")
   let oldState = optState(node, "oldState")
   let createResults = ?mergeCreateResults[T](node, path)
-  let updateResults = ?mergeUpdateResults(node, path)
+  let updateResults = ?mergeUpdateResults[U](node, path)
   let destroyResults = ?mergeDestroyResults(node, path)
   return ok(
-    SetResponse[T](
+    SetResponse[T, U](
       accountId: accountId,
       newState: newState,
       oldState: oldState,

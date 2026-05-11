@@ -9,6 +9,7 @@
 import std/json
 
 import ../serialisation/serde
+import ../serialisation/serde_field_echo
 import ../../types
 import ./thread
 
@@ -41,3 +42,31 @@ func fromJson*(
     let eid = ?Id.fromJson(elem, path / "emailIds" / i)
     emailIds.add(eid)
   return wrapInner(parseThread(id, emailIds), path)
+
+# =============================================================================
+# PartialThread (A3.6) — Thread has no /set per RFC 8621 §3, partial is
+# sparse /get only. PartialThread mirrors Thread's private-fields-plus-
+# accessors shape (D8) for structural symmetry.
+# =============================================================================
+
+func fromJson*(
+    T: typedesc[PartialThread], node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[PartialThread, SerdeViolation] =
+  ## Deserialise a partial Thread echo (RFC 8621 §3). Lenient on missing
+  ## fields. ``rawId`` and ``rawEmailIds`` are module-private — accessor
+  ## funcs ``id`` and ``emailIds`` provide read access (D8).
+  discard $T
+  ?expectKind(node, JObject, path)
+  let id = ?parsePartialOptField[Id](node, "id", path)
+  let emailIds = ?parsePartialOptField[seq[Id]](node, "emailIds", path)
+  return ok(initPartialThread(id, emailIds))
+
+func toJson*(p: PartialThread): JsonNode =
+  ## Emit a partial Thread echo — D3.7 unidirectional serde symmetry.
+  ## ``Opt.none`` omits the key entirely.
+  var node = newJObject()
+  for v in p.id:
+    node["id"] = v.toJson()
+  for v in p.emailIds:
+    node["emailIds"] = v.toJson()
+  return node

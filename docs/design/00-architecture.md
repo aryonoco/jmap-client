@@ -532,7 +532,7 @@ src/jmap_client/
                         (GetRequest[T], ChangesRequest[T],
                         SetRequest[T, C, U], CopyRequest[T, CopyItem]) and
                         response types (GetResponse[T], ChangesResponse[T],
-                        SetResponse[T], CopyResponse[T], QueryResponse[T],
+                        SetResponse[T, U], CopyResponse[T], QueryResponse[T],
                         QueryChangesResponse[T]). Defines CopyDestroyMode
                         (case object expressing keep / destroyAfterSuccess),
                         SerializedSort and SerializedFilter (distinct
@@ -541,7 +541,7 @@ src/jmap_client/
                         serializeOptSort, and the assembleQueryArgs /
                         assembleQueryChangesArgs helpers. Request `toJson`
                         and response `fromJson` live alongside the types
-                        per Decision D3.7. SetResponse[T] and
+                        per Decision D3.7. SetResponse[T, U] and
                         CopyResponse[T] additionally carry `toJson` (with
                         internal split-emitters) for round-trip fixture
                         helpers used by tests; this is the documented
@@ -2095,34 +2095,42 @@ There are four `getBoth` overloads in total: two in `dispatch.nim`
 `convenience.nim` (over `QueryGetHandles[T]` and
 `ChangesGetHandles[T]`).
 
-**Entity-data typing (D3.6, post-A3).** The phantom type `T` in
-`ResponseHandle[T]` controls which response envelope type is
+**Entity-data typing (D3.6, post-A3 + A4 + A3.6).** The phantom type
+`T` in `ResponseHandle[T]` controls which response envelope type is
 extracted (e.g., `GetResponse[Mailbox]` vs
-`SetResponse[Mailbox]`). After A3, entity data inside
-`GetResponse[T]` is typed end-to-end via mixin `T.fromJson`:
+`SetResponse[Mailbox]`). Entity data inside response envelopes is
+typed end-to-end via mixin `T.fromJson` / `U.fromJson`:
 
 - `GetResponse[T].list` is `seq[T]` — each wire entry parsed
   at the dispatch site through the entity's lenient
-  `T.fromJson`. Sparse-property responses (consumer-requested
-  elision of required fields) surface
-  `MethodError(metServerFail)` on the public typed entry
-  point — `T.fromJson` is full-record strict. Public
-  application-API access to sparse projections is tracked
-  under A3.6 (`PartialT` types). Raw `Invocation.arguments`
-  remains sealed inside `internal/` per A2.
-- `SetResponse[T].updateResults` remains `Table[Id,
-  Result[Opt[JsonNode], SetError]]` pending A4 (per-entity
-  partial-update types).
-- `SetResponse[T].createResults` is `Table[CreationId,
+  `T.fromJson`. Sparse `/get` is consumable on the typed public
+  surface (A3.6 D7): `T = PartialMailbox` / `PartialEmail` /
+  etc. — each `PartialT` registers as a getter-only entity, so
+  `addGet[PartialT]` works the same as `addGet[FullT]`. For
+  full-record fetches, `T.fromJson` stays full-record strict;
+  consumers who want sparse projections use the `PartialT`
+  family. Raw `Invocation.arguments` remains sealed inside
+  `internal/` per A2.
+- `SetResponse[T, U].updateResults` is `Table[Id,
+  Result[Opt[U], SetError]]` (A4 D2) — `U` is the per-entity
+  `PartialT`. Wire `updated[id] = null` →
+  `ok(Opt.none(U))` (confirmed without echo); wire
+  `updated[id] = {...}` →
+  `ok(Opt.some(?U.fromJson(v, path)))`; wire
+  `notUpdated[id]` → `err(setError)`.
+- `SetResponse[T, U].createResults` is `Table[CreationId,
   Result[T, SetError]]`. RFC 8621 entity modules supply
   specific `T` (e.g. `EmailCreatedItem`,
   `IdentityCreatedItem`, `MailboxCreatedItem`,
   `EmailSubmissionCreatedItem` — the server-set-subset
   companions to the entity's full type), parsed end-to-end
-  through `mixin fromJson`.
+  through `mixin fromJson`. For singleton-only entities with
+  no create rail (`VacationResponse`), `T = NoCreate` (D6).
 - `CopyResponse[T].createResults` is `Table[CreationId,
   Result[T, SetError]]` — typed because `Foo/copy` echoes
   the created object as the entity's server-set-fields shape.
+  `/copy` has no update branch per RFC 8620 §5.4, so
+  `CopyResponse` stays single-parameter.
 
 The mixed pattern reflects the RFC: `/get` returns full
 entity objects (typed end-to-end after A3; sparse projection
@@ -2394,12 +2402,12 @@ SetResponse[T] = object
 #### Option 3.9B: Unified result map (per-item Result pattern)
 
 ```nim
-SetResponse[T] = object
+SetResponse[T, U] = object
   accountId: AccountId
   oldState: Opt[JmapState]
   newState: Opt[JmapState]
   createResults: Table[CreationId, Result[T, SetError]]
-  updateResults: Table[Id, Result[Opt[JsonNode], SetError]]
+  updateResults: Table[Id, Result[Opt[U], SetError]]
   destroyResults: Table[Id, Result[void, SetError]]
 ```
 
@@ -2418,18 +2426,24 @@ Deserialise from the RFC format (parallel maps). Immediately merge into
 gives users the clean per-item Result pattern while respecting the
 wire format.
 
-**Type asymmetry between create and update outcomes.** `createResults`
+**Typed create and update outcomes (post-A4 D1/D2).** `createResults`
 is `Table[CreationId, Result[T, SetError]]` because RFC 8620 §5.3
 echoes the server-set fields of the created object, which entity
 modules type as `EmailCreatedItem`, `MailboxCreatedItem`,
 `IdentityCreatedItem`, `EmailSubmissionCreatedItem` (the server-set
-subset of the entity, parsed end-to-end via `mixin fromJson`).
-`updateResults` is `Table[Id, Result[Opt[JsonNode], SetError]]` because
-the RFC permits the server to echo a property subset under `updated[id]`
-whose shape is non-uniform — typed parsing belongs at the call site
-rather than the protocol layer. `destroyResults` carries
-`Result[void, SetError]` because a successful destroy reports only the
-ID.
+subset of the entity, parsed end-to-end via `mixin fromJson`). For
+singleton-only entities with no create rail (`VacationResponse`),
+`T = NoCreate` per D6. `updateResults` is
+`Table[Id, Result[Opt[U], SetError]]` where `U` is the per-entity
+`PartialT` — `PartialEmail`, `PartialMailbox`, etc. Each `PartialT`
+mirrors the full read model with wire-nullable fields typed as
+`FieldEcho[T]` (three states: absent / null / value) and wire-non-
+nullable fields typed as `Opt[T]` (two states: absent / value). Wire
+`updated[id] = null` → `ok(Opt.none(U))` (server confirmed without
+echo); wire `updated[id] = {...}` → `ok(Opt.some(partial))` parsed
+via `U.fromJson` (resolved via mixin at instantiation).
+`destroyResults` carries `Result[void, SetError]` because a successful
+destroy reports only the ID.
 
 `CopyResponse[T].createResults` is
 `Table[CreationId, Result[T, SetError]]`, mirroring `/set`'s create
@@ -2537,46 +2551,50 @@ layer.
   types. Forces a circular dependency: protocol layer (Layer 3) must
   know entity serialisation. Impractical for a Core-only library.
 
-#### Option 3.11B: Raw `JsonNode` entity data with selectively typed echoes (D3.6)
+#### Option 3.11B: Typed entity data end-to-end via mixin dispatch (D3.6)
 
-Entity data in the *generic* protocol-level types is `JsonNode`. The
-phantom type parameter `T` controls method dispatch (method name,
-capability URI, handle constraints) but does not participate in entity
-body parsing for `/get` `list` items.
+Entity data in protocol-level response types is typed via mixin
+resolution at instantiation. The phantom type parameter(s) on each
+envelope control method dispatch (method name, capability URI, handle
+constraints) AND drive entity body parsing.
 
 ```
 GetResponse[T].list:               seq[T]             # typed via mixin T.fromJson (A3)
-SetRequest[T].create:              Opt[Table[CreationId, C]]
-SetResponse[T].createResults:      Table[CreationId, Result[T, SetError]]   # typed via mixin
-SetResponse[T].updateResults:      Table[Id, Result[Opt[JsonNode], SetError]]   # pending A4
+SetRequest[T, C, U].create:        Opt[Table[CreationId, C]]
+SetResponse[T, U].createResults:   Table[CreationId, Result[T, SetError]]   # typed via mixin T.fromJson
+SetResponse[T, U].updateResults:   Table[Id, Result[Opt[U], SetError]]      # typed via mixin U.fromJson (A4)
 CopyResponse[T].createResults:     Table[CreationId, Result[T, SetError]]   # typed via mixin
 ```
 
+Full-record fetches use the entity type (`T = Email`, etc.); sparse
+projections use the partial (`T = PartialEmail`, etc., A3.6 D7). For
+singleton-only entities with no create rail, `T = NoCreate` (D6).
+
 - **Pros:**
-  - RFC 8620 Core is self-contained — no entity-specific knowledge
-    needed for `/get` `list` items.
-  - Extension modules (RFC 8621) can add typed parsing independently for
-    `createResults` via the entity's `*CreatedItem` type.
-  - Matches the Rust `jmap-client` crate's approach (`serde_json::Value`
-    for entity data in generic response types).
-  - No data loss — unknown entity properties are preserved.
+  - Typed end-to-end on the consumer rail — no `JsonNode` exposed
+    on the public API.
+  - Each `PartialT` faithfully preserves the RFC 8620 §5.3
+    three-state per-field echo (absent / null / value) via
+    `FieldEcho[T]`.
+  - RFC 8620 Core stays self-contained — mixin defers entity-
+    specific knowledge to the entity module's `fromJson`/`toJson`
+    overloads, resolved at the dispatch site.
+  - Sparse `/get` is consumable through `addGet[PartialT]` (or
+    Email's `addPartialEmailGet` wrapper).
 - **Cons:**
-  - Sparse-property `/get` responses (consumer-requested
-    elision of required fields) have no public application-API
-    path until A3.6 ships `PartialT` types — the typed
-    `GetResponse[T].list` surfaces `MethodError` because
-    `T.fromJson` is full-record strict. Raw `Invocation.arguments`
-    is sealed inside `internal/` per A2 and is not an
-    application escape hatch.
+  - Mixin chains require every entity-specific `fromJson` to be
+    reachable at the outermost instantiation site. Mitigated by
+    re-exporting transitive serde dependencies from each entity's
+    serde module.
 
 #### Decision: 3.11B
 
-Raw `JsonNode` for `/get` entity data; typed `T` for create-item echoes
-(`/set` and `/copy` `createResults`). RFC 8620 Core genuinely has no
-entity types to parse. The phantom type `T` provides substantial value —
-method name resolution, capability auto-registration, handle type
-constraints, type-safe reference functions, typed create-item echoes —
-without requiring entity body parsing for `/get` lists.
+Typed end-to-end via mixin dispatch — `T` and `U` parameters on
+response envelopes drive both method dispatch and entity body
+parsing. The phantom parameters provide method name resolution,
+capability auto-registration, handle type constraints, type-safe
+reference functions, and typed create/update entity echoes — all
+without forcing entity-specific dependencies into the Core layer.
 
 **Extension point.** When adding typed entity support, the expected
 pattern is:
@@ -2613,9 +2631,9 @@ are received from the server and parsed by the client.
 
 - **Request types** (`GetRequest[T]`, `SetRequest[T]`, etc.) receive
   only `toJson`. The client never parses its own requests.
-- **Response types** (`GetResponse[T]`, `SetResponse[T]`, etc.) receive
-  only `fromJson` for the production code path. The client never
-  serialises server responses.
+- **Response types** (`GetResponse[T]`, `SetResponse[T, U]`, etc.)
+  receive only `fromJson` for the production code path. The client
+  never serialises server responses.
 
 This eliminates unused serialisation functions and avoids maintaining
 code paths that can never be exercised. Layer 2 types (Invocation,
@@ -2623,10 +2641,11 @@ Session, errors, etc.) retain bidirectional serialisation because they
 participate in both directions (e.g., Invocation appears in both
 Request and Response).
 
-**Round-trip exception.** `SetResponse[T]` and `CopyResponse[T]` have
-`toJson` (with internal split-emitters that explode the unified Result
-maps back into the wire's parallel `created`/`notCreated`/… maps) for
-fixture round-tripping in tests. These are documented in-source as
+**Round-trip exception.** `SetResponse[T, U]` and `CopyResponse[T]`
+have `toJson` (with internal split-emitters that explode the unified
+Result maps back into the wire's parallel `created`/`notCreated`/…
+maps) for fixture round-tripping in tests. Each `PartialT` also has a
+`toJson` for the same reason. These are documented in-source as
 test-only and are not consumed by production code.
 
 ### 3.13 Pipeline Combinators
@@ -3006,9 +3025,9 @@ only, only valid against an existing query result).
 Mail-layer compound and chainable participation gates are registered in
 `mail_entities.nim`:
 
-- `registerCompoundMethod(CopyResponse[EmailCreatedItem], SetResponse[EmailCreatedItem])`
+- `registerCompoundMethod(CopyResponse[EmailCreatedItem], SetResponse[EmailCreatedItem, PartialEmail])`
   — for `Email/copy onSuccessDestroyOriginal`.
-- `registerCompoundMethod(EmailSubmissionSetResponse, SetResponse[EmailCreatedItem])`
+- `registerCompoundMethod(EmailSubmissionSetResponse, SetResponse[EmailCreatedItem, PartialEmail])`
   — for `EmailSubmission/set` with `onSuccessUpdateEmail`.
 - `registerChainableMethod(QueryResponse[Email])` — `Email/query` →
   downstream `Email/get` via `/ids`.
@@ -3093,7 +3112,7 @@ is the type-gated cancel operation.
 
 `EmailSubmissionCreatedItem` is the `*CreatedItem` projection (server-
 set subset of an EmailSubmission).
-`EmailSubmissionSetResponse = SetResponse[EmailSubmissionCreatedItem]`
+`EmailSubmissionSetResponse = SetResponse[EmailSubmissionCreatedItem, PartialEmailSubmission]`
 is the typed response alias.
 
 **RFC 5321 atoms (`submission_atoms.nim`,
@@ -3358,6 +3377,7 @@ option in §1.3).
 | 1. Types+Errors | `QueryParams` aggregate (§1.5.5) | Window + calculateTotal in one value type; default-constructible to RFC defaults. |
 | 1. Types+Errors | `NonEmptySeq[T]` newtype in primitives (§1.5.6) | Used wherever RFC mandates "at least one" semantics. |
 | 1. Types+Errors | `JmapResult[T] = Result[T, ClientError]` defined in `types.nim` (Layer 1 hub) | Outer railway alias; importing the hub brings it into scope. |
+| 1. Types+Errors | `field_echo.nim`: `FieldEcho[T]` three-state case object + `NoCreate` marker (A4 + A3.6 D2/D3/D6) | `FieldEcho[T]` preserves the RFC 8620 §5.3 per-field echo's three states (absent / null / value) for wire-nullable properties; `NoCreate` fills the `T` slot of `SetResponse[T, U]` for entities whose `/set` has no create rail. |
 | 2. Serialisation | `std/json` manual ser/de, no external deps (2.1A) | Total parsing, `raises: []` via boundary catch. |
 | 2. Serialisation | camelCase in Nim source (2.2A) | Zero conversion, leverages style insensitivity. |
 | 2. Serialisation | `SerdeViolation` structured error type with 9 variant kinds (§2.4) | JSON Pointer paths and rich kind discriminator; bridged to `ValidationError` via `toValidationError(v, rootType)`; bridged to `MethodError` via `serdeToMethodError` closure factory. |
@@ -3371,9 +3391,9 @@ option in §1.3).
 | 3. Protocol | Plain overloaded `func`s + three registration templates: `registerJmapEntity`, `registerQueryableEntity`, `registerSettableEntity` (3.5B) | `methodEntity` + per-verb `MethodName` resolvers replace string-based dispatch; missing overloads produce domain-specific compile errors. `Email` adds `importMethodName`. |
 | 3. Protocol | Three-parameter `addQuery[T, C, SortT]` builders + single-type-parameter template aliases (3.7B) | `filterType(T)` resolved at call site via `mixin` for `addQuery[T]`; explicit form available for entity-typed sort. |
 | 3. Protocol | Entity-specific typed update algebras (§3.8) | Sum-type ADT per entity replaces a generic patch builder; whole-container `NonEmptyXxxUpdates` enforces non-emptiness and prefix-conflict invariants. |
-| 3. Protocol | SetResponse as unified Result maps with mixed typing (3.9B) | `createResults: Result[T, SetError]` (typed via mixin fromJson on entity created-item types); `updateResults: Result[Opt[JsonNode], SetError]` (post-update echo shape varies by server); `destroyResults: Result[void, SetError]`. |
+| 3. Protocol | SetResponse as unified Result maps, fully typed (3.9B + A4) | `createResults: Result[T, SetError]` (typed via mixin `T.fromJson` on entity created-item types; `T = NoCreate` for singleton entities per D6); `updateResults: Result[Opt[U], SetError]` (typed via mixin `U.fromJson` on per-entity `PartialT`); `destroyResults: Result[void, SetError]`. |
 | 3. Protocol | Typed `RefPath` enum + constrained convenience constructors (§3.10) | `idsRef`, `listIdsRef`, `addedIdsRef`, `createdRef`, `updatedRef` only compile on the correct phantom handle; lenient parser preserves vendor paths verbatim. |
-| 3. Protocol | Mixed entity-data typing (3.11B / D3.6) | `GetResponse[T].list` is `seq[T]` typed via mixin `T.fromJson` (A3); `SetResponse[T].createResults` / `CopyResponse[T].createResults` are `Result[T, SetError]` (typed); `updateResults` keeps `JsonNode` pending A4; sparse-`/get` surfaces `MethodError` on the public API — `PartialT` types tracked under A3.6, raw arguments sealed inside `internal/` per A2. |
+| 3. Protocol | Entity-data typing end-to-end via mixin (3.11B / D3.6) | `GetResponse[T].list` is `seq[T]` typed via mixin `T.fromJson` (A3); `SetResponse[T, U].createResults` / `CopyResponse[T].createResults` are `Result[T, SetError]` (typed); `SetResponse[T, U].updateResults` is `Result[Opt[U], SetError]` typed via mixin `U.fromJson` on per-entity `PartialT` (A4); sparse `/get` typed via getter-only `PartialT` entity registration (A3.6 D7); raw `Invocation.arguments` sealed inside `internal/` per A2. |
 | 3. Protocol | Unidirectional serialisation: request `toJson` only, response `fromJson` only, with documented `SetResponse`/`CopyResponse` round-trip exception (D3.7) | Eliminates unused code paths; L2 types retain bidirectional serialisation; round-trip exception serves test fixtures. |
 | 3. Protocol | Pipeline combinators in opt-in `convenience.nim` (§3.13) | Reduces result-reference wiring boilerplate; not re-exported by `protocol.nim`. |
 | 3. Protocol | `assembleQueryArgs` emits `anchorOffset` only when `anchor.isSome` (§3.7) | Apache James 3.9 rejects bare `anchorOffset`; this preserves portability. |

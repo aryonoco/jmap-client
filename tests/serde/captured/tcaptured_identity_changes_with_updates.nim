@@ -4,7 +4,7 @@
 ## Parser-only replay test for the captured ``Identity/set`` response
 ## with all five update arms applied in one batch
 ## (``tests/testdata/captured/identity-changes-with-updates-stalwart.json``).
-## Verifies that ``SetResponse[IdentityCreatedItem]`` parses the
+## Verifies that ``SetResponse[IdentityCreatedItem, PartialIdentity]`` parses the
 ## ``updated`` table where the identity id maps to ``null``
 ## (RFC 8620 §5.3 — server-defined fields unchanged).
 
@@ -23,9 +23,9 @@ block tcapturedIdentityChangesWithUpdates:
   let inv = resp.methodResponses[0]
   doAssert inv.rawName == "Identity/set"
 
-  let setResp = SetResponse[IdentityCreatedItem].fromJson(inv.arguments).expect(
-      "SetResponse[IdentityCreatedItem].fromJson"
-    )
+  let setResp = SetResponse[IdentityCreatedItem, PartialIdentity]
+    .fromJson(inv.arguments)
+    .expect("SetResponse[IdentityCreatedItem, PartialIdentity].fromJson")
   doAssert setResp.newState.isSome, "newState must be present in this fixture"
   doAssert setResp.updateResults.len >= 1,
     "Identity/set must report at least one update outcome (got " &

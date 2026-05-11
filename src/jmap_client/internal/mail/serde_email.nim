@@ -12,6 +12,7 @@ import std/strutils
 import std/tables
 
 import ../serialisation/serde
+import ../serialisation/serde_field_echo
 import ../serialisation/serde_errors
 import ../../types
 import ./addresses
@@ -25,6 +26,24 @@ import ./serde_keyword
 import ./serde_mailbox
 import ./serde_headers
 import ./serde_body
+
+# Re-export the sibling serde modules and the L1 ``body`` adapter so that
+# ``PartialEmail.fromJson`` resolves transitively through
+# ``MailboxIdSet.fromJson``, ``KeywordSet.fromJson``,
+# ``EmailHeader.fromJson``, ``EmailBodyPart.fromJson``,
+# ``parseFromString*(typedesc[PartId], string)`` at every callsite — the
+# generic ``mixin``-driven chain via ``SetResponse[T, U].fromJson`` and
+# the generic ``Table[K, V].fromJson`` / ``seq[T].fromJson`` helpers
+# resolves at the outermost instantiation site, so every dependency must
+# be reachable there.
+export serde
+export serde_field_echo
+export serde_addresses
+export serde_keyword
+export serde_mailbox
+export serde_headers
+export serde_body
+export body
 
 # =============================================================================
 # Internal Helper Types
@@ -389,6 +408,192 @@ func fromJson*(
   ## ``MailboxIdSet.fromJson``.
   discard $T # consumed for nimalyzer params rule
   return emailFromJson(node, path)
+
+# =============================================================================
+# PartialEmail (A4 + A3.6)
+# =============================================================================
+
+func fromJson*(
+    T: typedesc[PartialEmail], node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[PartialEmail, SerdeViolation] =
+  ## Deserialise a partial Email echo (RFC 8621 §4). Lenient on missing
+  ## fields; strict on wrong-kind present fields and strict-on-wire-token
+  ## for closed-enum fields (D4). Dynamic ``header:`` keys share a single
+  ## top-level scan (lifted from ``emailFromJson``); other Table/seq
+  ## fields delegate to the generic ``seq[T].fromJson`` /
+  ## ``Table[K, V].fromJson`` helpers in ``serialisation/serde.nim``.
+  discard $T
+  ?expectKind(node, JObject, path)
+
+  # Metadata (wire-non-nullable → Opt[T])
+  let id = ?parsePartialOptField[Id](node, "id", path)
+  let blobId = ?parsePartialOptField[BlobId](node, "blobId", path)
+  let threadId = ?parsePartialOptField[Id](node, "threadId", path)
+  let mailboxIds = ?parsePartialOptField[MailboxIdSet](node, "mailboxIds", path)
+  let keywords = ?parsePartialOptField[KeywordSet](node, "keywords", path)
+  let size = ?parsePartialOptField[UnsignedInt](node, "size", path)
+  let receivedAt = ?parsePartialOptField[UTCDate](node, "receivedAt", path)
+
+  # Convenience headers (wire-nullable → FieldEcho[T]). JSON ``"from"``
+  # key maps to the Nim ``fromAddr`` field (``from`` is a Nim keyword).
+  let messageId = ?parsePartialFieldEcho[seq[string]](node, "messageId", path)
+  let inReplyTo = ?parsePartialFieldEcho[seq[string]](node, "inReplyTo", path)
+  let references = ?parsePartialFieldEcho[seq[string]](node, "references", path)
+  let sender = ?parsePartialFieldEcho[seq[EmailAddress]](node, "sender", path)
+  let fromAddr = ?parsePartialFieldEcho[seq[EmailAddress]](node, "from", path)
+  let to = ?parsePartialFieldEcho[seq[EmailAddress]](node, "to", path)
+  let cc = ?parsePartialFieldEcho[seq[EmailAddress]](node, "cc", path)
+  let bcc = ?parsePartialFieldEcho[seq[EmailAddress]](node, "bcc", path)
+  let replyTo = ?parsePartialFieldEcho[seq[EmailAddress]](node, "replyTo", path)
+  let subject = ?parsePartialFieldEcho[string](node, "subject", path)
+  let sentAt = ?parsePartialFieldEcho[Date](node, "sentAt", path)
+
+  # Raw headers (wire-non-nullable → Opt[T])
+  let headers = ?parsePartialOptField[seq[EmailHeader]](node, "headers", path)
+
+  # Dynamic ``header:`` discovery — lifted from ``emailFromJson`` §4.1.3.
+  # Promote each accumulator to ``Opt.some(tbl)`` when non-empty, else
+  # ``Opt.none``: the partial parser distinguishes "no dynamic headers
+  # requested" from "requested but the server omitted them".
+  var reqHeaders = initTable[HeaderPropertyKey, HeaderValue]()
+  var reqHeadersAll = initTable[HeaderPropertyKey, seq[HeaderValue]]()
+  for key, val in node.pairs:
+    if key.startsWith("header:"):
+      let hpk = ?wrapInner(parseHeaderPropertyName(key), path / key)
+      if hpk.isAll:
+        reqHeadersAll[hpk] = ?parseHeaderValueArray(val, hpk.form, path / key)
+      else:
+        reqHeaders[hpk] = ?parseHeaderValue(hpk.form, val, path / key)
+  let requestedHeaders =
+    if reqHeaders.len == 0:
+      Opt.none(Table[HeaderPropertyKey, HeaderValue])
+    else:
+      Opt.some(reqHeaders)
+  let requestedHeadersAll =
+    if reqHeadersAll.len == 0:
+      Opt.none(Table[HeaderPropertyKey, seq[HeaderValue]])
+    else:
+      Opt.some(reqHeadersAll)
+
+  # Body (bodyStructure wire-nullable; others wire-non-nullable)
+  let bodyStructure = ?parsePartialFieldEcho[EmailBodyPart](node, "bodyStructure", path)
+  let bodyValues =
+    ?parsePartialOptField[Table[PartId, EmailBodyValue]](node, "bodyValues", path)
+  let textBody = ?parsePartialOptField[seq[EmailBodyPart]](node, "textBody", path)
+  let htmlBody = ?parsePartialOptField[seq[EmailBodyPart]](node, "htmlBody", path)
+  let attachments = ?parsePartialOptField[seq[EmailBodyPart]](node, "attachments", path)
+  let hasAttachment = ?parsePartialOptField[bool](node, "hasAttachment", path)
+  let preview = ?parsePartialOptField[string](node, "preview", path)
+
+  return ok(
+    PartialEmail(
+      id: id,
+      blobId: blobId,
+      threadId: threadId,
+      mailboxIds: mailboxIds,
+      keywords: keywords,
+      size: size,
+      receivedAt: receivedAt,
+      messageId: messageId,
+      inReplyTo: inReplyTo,
+      references: references,
+      sender: sender,
+      fromAddr: fromAddr,
+      to: to,
+      cc: cc,
+      bcc: bcc,
+      replyTo: replyTo,
+      subject: subject,
+      sentAt: sentAt,
+      headers: headers,
+      requestedHeaders: requestedHeaders,
+      requestedHeadersAll: requestedHeadersAll,
+      bodyStructure: bodyStructure,
+      bodyValues: bodyValues,
+      textBody: textBody,
+      htmlBody: htmlBody,
+      attachments: attachments,
+      hasAttachment: hasAttachment,
+      preview: preview,
+    )
+  )
+
+func emitPartialEmailMetadata(node: JsonNode, p: PartialEmail) =
+  ## Metadata-block emission for ``PartialEmail.toJson``. Extracted so
+  ## the public ``toJson`` stays under the cyclomatic complexity ceiling.
+  for v in p.id:
+    node["id"] = v.toJson()
+  for v in p.blobId:
+    node["blobId"] = v.toJson()
+  for v in p.threadId:
+    node["threadId"] = v.toJson()
+  for v in p.mailboxIds:
+    node["mailboxIds"] = v.toJson()
+  for v in p.keywords:
+    node["keywords"] = v.toJson()
+  for v in p.size:
+    node["size"] = v.toJson()
+  for v in p.receivedAt:
+    node["receivedAt"] = v.toJson()
+
+func emitPartialEmailConvenienceHeaders(node: JsonNode, p: PartialEmail) =
+  ## Convenience-header block emission for ``PartialEmail.toJson``. The
+  ## Nim field ``fromAddr`` maps to JSON key ``"from"`` (``from`` is a
+  ## Nim keyword).
+  emitPartialFieldEcho[seq[string]](node, "messageId", p.messageId)
+  emitPartialFieldEcho[seq[string]](node, "inReplyTo", p.inReplyTo)
+  emitPartialFieldEcho[seq[string]](node, "references", p.references)
+  emitPartialFieldEcho[seq[EmailAddress]](node, "sender", p.sender)
+  emitPartialFieldEcho[seq[EmailAddress]](node, "from", p.fromAddr)
+  emitPartialFieldEcho[seq[EmailAddress]](node, "to", p.to)
+  emitPartialFieldEcho[seq[EmailAddress]](node, "cc", p.cc)
+  emitPartialFieldEcho[seq[EmailAddress]](node, "bcc", p.bcc)
+  emitPartialFieldEcho[seq[EmailAddress]](node, "replyTo", p.replyTo)
+  emitPartialFieldEcho[string](node, "subject", p.subject)
+  emitPartialFieldEcho[Date](node, "sentAt", p.sentAt)
+
+func emitPartialEmailRawHeaders(node: JsonNode, p: PartialEmail) =
+  ## Raw headers and dynamic header projection for ``PartialEmail.toJson``.
+  ## Dynamic ``header:`` keys expand inline as top-level keys when
+  ## ``Opt.some``.
+  for v in p.headers:
+    node["headers"] = v.toJson()
+  for tbl in p.requestedHeaders:
+    for hpk, hval in tbl:
+      node[hpk.toPropertyString()] = hval.toJson()
+  for tbl in p.requestedHeadersAll:
+    for hpk, hvals in tbl:
+      var arr = newJArray()
+      for v in hvals:
+        arr.add(v.toJson())
+      node[hpk.toPropertyString()] = arr
+
+func emitPartialEmailBody(node: JsonNode, p: PartialEmail) =
+  ## Body block emission for ``PartialEmail.toJson``.
+  emitPartialFieldEcho[EmailBodyPart](node, "bodyStructure", p.bodyStructure)
+  for v in p.bodyValues:
+    node["bodyValues"] = v.toJson()
+  for v in p.textBody:
+    node["textBody"] = v.toJson()
+  for v in p.htmlBody:
+    node["htmlBody"] = v.toJson()
+  for v in p.attachments:
+    node["attachments"] = v.toJson()
+  for v in p.hasAttachment:
+    node["hasAttachment"] = v.toJson()
+  for v in p.preview:
+    node["preview"] = v.toJson()
+
+func toJson*(p: PartialEmail): JsonNode =
+  ## Emit a partial Email echo — D5/D3.7 unidirectional serde symmetry.
+  ## ``fekAbsent`` and ``Opt.none`` omit the key entirely. Body is
+  ## broken into four sub-emitters (metadata, convenience headers, raw +
+  ## dynamic headers, body) to stay under the cyclomatic ceiling.
+  result = newJObject()
+  emitPartialEmailMetadata(result, p)
+  emitPartialEmailConvenienceHeaders(result, p)
+  emitPartialEmailRawHeaders(result, p)
+  emitPartialEmailBody(result, p)
 
 # =============================================================================
 # parsedEmailFromJson
@@ -767,10 +972,11 @@ func fromJson*(
 # EmailImportResponse-only helpers
 # =============================================================================
 # Email/set and Email/copy now route through the generic
-# ``SetResponse[EmailCreatedItem]`` / ``CopyResponse[EmailCreatedItem]``
-# serde in ``methods.nim``. ``EmailImportResponse`` stays bespoke (no
-# generic ``ImportResponse[T]`` exists), so the envelope-extraction and
-# create-merge helpers below remain for its single caller.
+# ``SetResponse[EmailCreatedItem, PartialEmail]`` /
+# ``CopyResponse[EmailCreatedItem]`` serde in ``methods.nim``.
+# ``EmailImportResponse`` stays bespoke (no generic ``ImportResponse[T]``
+# exists), so the envelope-extraction and create-merge helpers below
+# remain for its single caller.
 
 func parseOptJmapStateField(
     node: JsonNode, key: string, path: JsonPath

@@ -80,12 +80,12 @@ spanning `EmailSubmission/set` and an implicit `Email/set`.
 | `NonEmptyIdSeq` | `email_submission.nim` | `distinct seq[Id]` with non-empty smart constructor (G18). |
 | `EmailSubmissionSortProperty` | `email_submission.nim` | 4-variant enum (3 RFC-mandated + `esspOther` catch-all) with `EmailSubmissionComparator` (G19). |
 | `EmailSubmissionCreatedItem` | `email_submission.nim` | Server-set subset returned in the `/set` `created` map: `id` (always) plus `Opt[Id]` `threadId`, `Opt[UTCDate]` `sendAt`, `Opt[UndoStatus]` `undoStatus` — Postel's-law accommodation across server divergence (G39). |
-| `EmailSubmissionSetResponse` | `email_submission.nim` | Type alias `SetResponse[EmailSubmissionCreatedItem]` — response for `EmailSubmission/set` (G39). |
+| `EmailSubmissionSetResponse` | `email_submission.nim` | Type alias `SetResponse[EmailSubmissionCreatedItem, PartialEmailSubmission]` — response for `EmailSubmission/set` (G39). |
 | `IdOrCreationRef` | `email_submission.nim` | Two-variant sum: existing `Id` or `CreationId` reference. Models RFC 8620 §5.3 creation references in `onSuccess*` keys — distinct from `Referencable[T]` which models §3.7 result references (G35). |
 | `NonEmptyOnSuccessUpdateEmail` | `email_submission.nim` | `distinct Table[IdOrCreationRef, EmailUpdateSet]` — empty and duplicate-key shapes are unrepresentable; `Opt.none` is the sole "no extras" encoding (G22). |
 | `NonEmptyOnSuccessDestroyEmail` | `email_submission.nim` | `distinct seq[IdOrCreationRef]` — non-empty, dup-free (G22). |
-| `EmailSubmissionHandles` | `email_submission.nim` | Alias of `CompoundHandles[EmailSubmissionSetResponse, SetResponse[EmailCreatedItem]]` — fields `primary`/`implicit` (G21). |
-| `EmailSubmissionResults` | `email_submission.nim` | Alias of `CompoundResults[EmailSubmissionSetResponse, SetResponse[EmailCreatedItem]]` — extraction target of the generic `getBoth[A, B]` (G21). |
+| `EmailSubmissionHandles` | `email_submission.nim` | Alias of `CompoundHandles[EmailSubmissionSetResponse, SetResponse[EmailCreatedItem, PartialEmail]]` — fields `primary`/`implicit` (G21). |
+| `EmailSubmissionResults` | `email_submission.nim` | Alias of `CompoundResults[EmailSubmissionSetResponse, SetResponse[EmailCreatedItem, PartialEmail]]` — extraction target of the generic `getBoth[A, B]` (G21). |
 | `SubmissionExtensionMap` | `mail_capabilities.nim` | `distinct OrderedTable[RFC5321Keyword, seq[string]]` (G25). |
 
 Supporting enums and distinct newtypes for SMTP parameter payloads:
@@ -927,7 +927,7 @@ Capturing `undoStatus` from the create response lets callers avoid a
 futile `/get` poll on Cyrus while gracefully accepting a sparse response
 on Stalwart. Postel's-law accommodation per `nim-conventions.md`'s
 "Serde Conventions" — be lenient on receive. The `mixin`-resolved
-`SetResponse[EmailSubmissionCreatedItem].fromJson` drives this at the
+`SetResponse[EmailSubmissionCreatedItem, PartialEmailSubmission].fromJson` drives this at the
 generic dispatch site.
 
 ---
@@ -1211,10 +1211,10 @@ The compound handle pair aliases the generic from `dispatch.nim` (RFC 8620
 
 ```nim
 type EmailSubmissionHandles* =
-  CompoundHandles[EmailSubmissionSetResponse, SetResponse[EmailCreatedItem]]
+  CompoundHandles[EmailSubmissionSetResponse, SetResponse[EmailCreatedItem, PartialEmail]]
 
 type EmailSubmissionResults* =
-  CompoundResults[EmailSubmissionSetResponse, SetResponse[EmailCreatedItem]]
+  CompoundResults[EmailSubmissionSetResponse, SetResponse[EmailCreatedItem, PartialEmail]]
 ```
 
 Field access is `handles.primary` (the declared `EmailSubmission/set`
@@ -1232,11 +1232,11 @@ func getBoth*[A, B](
 ```
 
 `mixin fromJson` defers serde lookup until call-site instantiation, where
-`SetResponse[EmailCreatedItem].fromJson` and
+`SetResponse[EmailCreatedItem, PartialEmail].fromJson` and
 `EmailSubmissionSetResponse.fromJson` are in scope (the two are re-exported
 from `submission_builders.nim` so consumers get them through a single
 import). `registerCompoundMethod(EmailSubmissionSetResponse,
-SetResponse[EmailCreatedItem])` in `mail_entities.nim` compile-checks the
+SetResponse[EmailCreatedItem, PartialEmail])` in `mail_entities.nim` compile-checks the
 participation gate at module load.
 
 ---
@@ -1330,7 +1330,7 @@ EmailSubmission implementation.
 | G18 | Filter condition typing | (A) plain, (B) typed undoStatus, (C) + NonEmptyIdSeq | **C** — typed undoStatus + `NonEmptyIdSeq` | Make the wrong thing hard |
 | G19 | Sort comparator typing | (A) string, (B) enum + catch-all, (C) closed enum | **B** — `EmailSubmissionSortProperty` + `esspOther` | Forward compatibility |
 | G20 | Compound builder naming | (A) addEmailSubmissionAndEmailSet, (B) Send, (C) verbose, (D) SendAndFile | **A** — AND-connector | F1 naming convention |
-| G21 | Compound handle shape | (A) bespoke EmailSubmissionHandles record, (B) generic `CompoundHandles[A, B]` alias | **B** — type alias of `CompoundHandles[EmailSubmissionSetResponse, SetResponse[EmailCreatedItem]]`; fields `primary` / `implicit` | One generic dispatch path; no per-entity duplication; `getBoth[A, B]` is generic in `dispatch.nim` |
+| G21 | Compound handle shape | (A) bespoke EmailSubmissionHandles record, (B) generic `CompoundHandles[A, B]` alias | **B** — type alias of `CompoundHandles[EmailSubmissionSetResponse, SetResponse[EmailCreatedItem, PartialEmail]]`; fields `primary` / `implicit` | One generic dispatch path; no per-entity duplication; `getBoth[A, B]` is generic in `dispatch.nim` |
 | G22 | onSuccess* value args | (A) typed EmailUpdateSet, (B) raw JsonNode, (C) NonEmpty wrappers around typed values with IdOrCreationRef keys | **C** — `NonEmptyOnSuccessUpdateEmail` (`distinct Table[IdOrCreationRef, EmailUpdateSet]`) and `NonEmptyOnSuccessDestroyEmail` (`distinct seq[IdOrCreationRef]`) | DRY; type safety; empty/duplicate shapes unrepresentable |
 | G23 | New SetError variants | Yes / No | **No** — all 8 EmailSubmission-specific variants plus standard `tooLarge` already live in `errors.nim` with payload accessors in `mail_errors.nim` | Reuse existing surface |
 | G24 | Payload-less accessors | Yes / No | **No** — nothing to extract | — |
@@ -1344,4 +1344,4 @@ EmailSubmission implementation.
 | G36 | IdOrCreationRef vs Referencable | (A) Extend Referencable with third arm, (B) Separate type | **B** — different wire format, different semantics | One type for one concept |
 | G37 | Filter list empty-rejection | (A) Opt[seq[Id]] (permits empty), (B) Opt[NonEmptyIdSeq] (rejects empty) | **B** — intentional strictness | Make the wrong thing hard |
 | G38 | Sealed-record field access | (A) public fields, (B) Pattern A sealing (private `raw*` fields + UFCS / projection accessors) | **B** — applied to both `EmailSubmissionBlueprint` (UFCS accessors) and `AnyEmailSubmission` (`asPending` / `asFinal` / `asCanceled` returning `Opt[EmailSubmission[S]]`) | Smart constructors cannot be sidestepped by a record literal; safe variant projection without `FieldDefect` panics |
-| G39 | `/set` response payload typing | (A) bespoke `EmailSubmissionSetResponse` record, (B) generic `SetResponse[EmailSubmissionCreatedItem]` type alias with `Opt`-wrapped server-divergent fields | **B** — `SetResponse[T]` generic instantiated with `EmailSubmissionCreatedItem` (`id` plus `Opt[Id]` `threadId`, `Opt[UTCDate]` `sendAt`, `Opt[UndoStatus]` `undoStatus`) | One generic response envelope across all `/set` methods; Postel's law accommodates Stalwart-minimum vs Cyrus-fire-and-forget vs James acknowledgement shapes |
+| G39 | `/set` response payload typing | (A) bespoke `EmailSubmissionSetResponse` record, (B) generic `SetResponse[EmailSubmissionCreatedItem, PartialEmailSubmission]` type alias with `Opt`-wrapped server-divergent fields | **B** — `SetResponse[T, U]` generic instantiated with `T = EmailSubmissionCreatedItem` (`id` plus `Opt[Id]` `threadId`, `Opt[UTCDate]` `sendAt`, `Opt[UndoStatus]` `undoStatus`) and `U = PartialEmailSubmission` per A4 D2 | One generic response envelope across all `/set` methods; Postel's law accommodates Stalwart-minimum vs Cyrus-fire-and-forget vs James acknowledgement shapes; A4 D2 typed `updateResults` echoes |

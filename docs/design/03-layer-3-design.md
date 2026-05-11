@@ -938,10 +938,10 @@ template registerCompoundMethod*(Primary, Implicit: typedesc) =
 Canonical participants (registered in `mail/mail_entities.nim`):
 
 - `CopyResponse[EmailCreatedItem]` (primary) +
-  `SetResponse[EmailCreatedItem]` (implicit) — `Email/copy` with
+  `SetResponse[EmailCreatedItem, PartialEmail]` (implicit) — `Email/copy` with
   `onSuccessDestroyOriginal=true`.
 - `EmailSubmissionSetResponse` (primary) +
-  `SetResponse[EmailCreatedItem]` (implicit) — `EmailSubmission/set`
+  `SetResponse[EmailCreatedItem, PartialEmail]` (implicit) — `EmailSubmission/set`
   with `onSuccessUpdateEmail` / `onSuccessDestroyEmail`.
 
 ### 4.7 Chained Method Dispatch (RFC 8620 §3.7)
@@ -1387,24 +1387,45 @@ canonical result-reference targets: `/ids` from a preceding query and
 other fields are direct values. Wrapping all fields in `Referencable`
 is verbose and rarely used.
 
-**Decision D3.6 (post-A3): Typed create/update/copy values; typed
-`GetResponse[T].list` via mixin `T.fromJson`; JsonNode for
-update-side partial echoes (pending A4).** Create entries
-(`SetRequest.create`, `CopyRequest.create`) are typed:
-`MailboxCreate`, `EmailBlueprint`, `EmailCopyItem`, etc. Each
-provides its own `toJson`. The whole-container update algebra
-`U` is typed similarly. `GetResponse[T].list: seq[T]` parses
-each wire entry through the entity's lenient `T.fromJson` at
-the dispatch site (A3). Sparse-property `/get` responses
-(consumer-requested elision of required fields) surface
-`MethodError(metServerFail)` on the public typed entry point;
-there is no parallel public raw-JSON path because A2 keeps
-`Invocation.arguments` internal-only. A future `PartialT`
-family (A3.6) closes the gap additively. The wire
-`"updated"[id]` server-set delta in `SetResponse.updateResults`
-remains `Opt[JsonNode]` because update payloads are
-open-ended partial entities — the entity-specific partial
-type is tracked under A4 + A3.5.
+**Decision D3.6 (post-A3 + A4 + A3.6): Typed create/update/copy values;
+typed `GetResponse[T].list` via mixin `T.fromJson`; typed
+`SetResponse[T, U].updateResults` via per-entity `PartialT`; typed
+sparse `/get` via getter-only `PartialT` entity registration.** Create
+entries (`SetRequest.create`, `CopyRequest.create`) are typed:
+`MailboxCreate`, `EmailBlueprint`, `EmailCopyItem`, etc. Each provides
+its own `toJson`. The whole-container update algebra `U` is typed
+similarly. `GetResponse[T].list: seq[T]` parses each wire entry through
+the entity's lenient `T.fromJson` at the dispatch site (A3).
+
+`SetResponse[T]` widens to `SetResponse[T, U]` post-A4: `T` is the
+typed `created[cid]` payload (e.g. `EmailCreatedItem`); `U` is the
+typed `updated[id]` payload, a per-entity `PartialT`
+(`PartialEmail`, `PartialMailbox`, `PartialIdentity`,
+`PartialEmailSubmission`, `PartialVacationResponse`,
+`PartialThread`). Each `PartialT` mirrors the full read model with
+wire-nullable fields typed as `FieldEcho[T]` (three states: absent
+/ null / value) and wire-non-nullable fields typed as `Opt[T]`
+(two states: absent / value). `updateResults` is now
+`Table[Id, Result[Opt[U], SetError]]`: wire `updated[id] = null`
+→ `ok(Opt.none(U))` (server confirmed without echo); wire
+`updated[id] = {...}` → `ok(Opt.some(?U.fromJson(v, path)))`;
+wire `notUpdated[id]` → `err(setError)`.
+
+Sparse `/get` is now consumable on the typed public surface (A3.6
+post-D7): each `PartialT` registers as a getter-only JMAP entity
+(reusing the full record's `MethodEntity` tag, capability URI, and
+`getMethodName`; no setter/queryer/changes/copy/import overloads —
+those fail at the call site with an undeclared-identifier compile
+error). The generic `addGet[PartialT]` works for every partial via
+this registration; Email gets two wrappers (`addPartialEmailGet`,
+`addPartialEmailGetByRef`) carrying the `EmailBodyFetchOptions`
+parameter parallel to `addEmailGet` / `addEmailGetByRef`.
+
+`NoCreate` marker fills the `T` slot of `SetResponse[T, U]` for
+entities whose `/set` has no create rail — currently
+`VacationResponse` only (D6). `NoCreate.fromJson` is lenient — a
+server emitting a `created[cid]` entry on the singleton-only `/set`
+parses to `ok(NoCreate())` rather than failing.
 
 **Module:** `methods.nim`
 
@@ -1418,10 +1439,12 @@ own type-specific patterns.
 **Decision D3.7:** Unidirectional serialisation: request types receive
 `toJson` only; response types receive `fromJson` only. The client
 builds requests (serialises) and parses responses (deserialises) —
-never the reverse. `SetResponse[T]` and `CopyResponse[T]` additionally
-expose `toJson` for round-trip testing of the wire-shape projection
-(splitting merged Result tables back to parallel maps); production
-code does not call these.
+never the reverse. `SetResponse[T, U]` and `CopyResponse[T]`
+additionally expose `toJson` for round-trip testing of the wire-shape
+projection (splitting merged Result tables back to parallel maps);
+production code does not call these. Every `PartialT` also receives a
+`toJson` (alongside its receive-only `fromJson`) for the same round-
+trip symmetry — the library never produces a `PartialT` on the wire.
 
 ### 7.1 Pattern L3-A: Request `toJson` (Object Construction)
 
@@ -1550,7 +1573,7 @@ distinct validation mechanisms are used:
 |---------------|------|--------------------------|
 | `GetResponse[T]` | `JObject` | `accountId`, `state`: `JString` (smart-ctor); `list`: `JArray` (strict); `notFound`: lenient |
 | `ChangesResponse[T]` | `JObject` | `accountId`, `oldState`, `newState`: `JString` (smart-ctor); `hasMoreChanges`: `JBool` (strict); `created`/`updated`/`destroyed`: `JArray` (strict) |
-| `SetResponse[T]` | `JObject` | `accountId`: `JString` (smart-ctor); `oldState`/`newState`: lenient `Opt[JmapState]`; parallel maps: lenient (null/absent treated as empty) |
+| `SetResponse[T, U]` | `JObject` | `accountId`: `JString` (smart-ctor); `oldState`/`newState`: lenient `Opt[JmapState]`; parallel maps: lenient (null/absent treated as empty); `updateResults` typed via mixin `U.fromJson` (per-entity `PartialT`) |
 | `CopyResponse[T]` | `JObject` | Same shape as `SetResponse` for `created`/`notCreated` |
 | `QueryResponse[T]` | `JObject` | `accountId`, `queryState`: smart-ctor; `canCalculateChanges`: `JBool`; `position`: `JInt` (smart-ctor); `ids`: `JArray`; `total`/`limit`: lenient |
 | `QueryChangesResponse[T]` | `JObject` | `accountId`, `oldQueryState`/`newQueryState`: smart-ctor; `removed`: `JArray`; `added`: `JArray` (each elem via `AddedItem.fromJson`); `total`: lenient |
@@ -1714,7 +1737,7 @@ recorded per-operation and processing continues.
 
 **§5.4 /copy.** `destroyMode = destroyAfterSuccess(...)` triggers an
 implicit `Foo/set` after successful copies. Dispatch via
-`CompoundHandles[CopyResponse[T], SetResponse[T]]` (§4.6). `/copy` is
+`CompoundHandles[CopyResponse[T], SetResponse[T, U]]` (§4.6). `/copy` is
 NOT atomic with the implicit `/set`. `alreadyExists` `SetError`
 carries `existingId`.
 
@@ -1776,18 +1799,18 @@ type ChangesResponse*[T] = object
 `updatedProperties` field. The two-parameter `addChanges[T, RespT]`
 dispatches by entity through `changesResponseType(T)`.
 
-### 9.3 SetResponse[T]
+### 9.3 SetResponse[T, U]
 
 **RFC reference:** §5.3 (lines 2009–2082)
 
 ```nim
-type SetResponse*[T] = object
+type SetResponse*[T, U] = object
   ## Wire format uses parallel maps; internal representation merges
   ## into unified Result maps (Decision 3.9B).
   ##
-  ## ``T`` is the typed ``created`` entry payload. ``T.fromJson``
-  ## resolves at instantiation via mixin to parse wire ``created[cid]``
-  ## into ``T``.
+  ## ``T`` is the typed ``created[cid]`` payload (e.g. ``EmailCreatedItem``);
+  ## ``U`` is the typed ``updated[id]`` payload (per-entity ``PartialT``).
+  ## Both resolve at instantiation via mixin.
   accountId*: AccountId
   oldState*: Opt[JmapState]
   newState*: Opt[JmapState]
@@ -1798,21 +1821,28 @@ type SetResponse*[T] = object
     ## Wire ``created`` entries become ``Result.ok(entity)`` via
     ## ``T.fromJson``; wire ``notCreated`` entries become
     ## ``Result.err(setError)``. Last-writer-wins on duplicate keys.
-  updateResults*: Table[Id, Result[Opt[JsonNode], SetError]]
-    ## Wire ``updated`` entries with null value become
-    ## ``ok(Opt.none(JsonNode))``; non-null become ``ok(Opt.some(...))``.
-    ## Wire ``notUpdated`` become ``err(setError)``. Update payloads
-    ## are open-ended partial entities — the entity-specific PatchObject
-    ## shape is unknown at this layer; consumers parse it themselves.
+  updateResults*: Table[Id, Result[Opt[U], SetError]]
+    ## Wire ``updated[id] = null`` → ``ok(Opt.none(U))`` (server confirmed
+    ## without echo); wire ``updated[id] = {...}`` →
+    ## ``ok(Opt.some(?U.fromJson(v, path)))``. Wire ``notUpdated[id]`` →
+    ## ``err(setError)``. ``U`` is the per-entity ``PartialT`` —
+    ## wire-nullable fields typed as ``FieldEcho[T]``, wire-non-nullable
+    ## fields typed as ``Opt[T]`` (A4 D2).
   destroyResults*: Table[Id, Result[void, SetError]]
 ```
 
-The typed-`T` semantics is materialised by entity modules: e.g.
-`SetResponse[MailboxCreatedItem]`, `SetResponse[EmailCreatedItem]`,
-`SetResponse[IdentityCreatedItem]`. Each `*CreatedItem` type carries
-the RFC 8620 §5.3 server-set subset (`id` plus server-set fields like
-`mayDelete`, `myRights`, count fields) and provides its own
-`fromJson` resolved through `mixin` inside `mergeCreateResults`.
+The typed-`T`/`U` semantics is materialised by entity modules: e.g.
+`SetResponse[MailboxCreatedItem, PartialMailbox]`,
+`SetResponse[EmailCreatedItem, PartialEmail]`,
+`SetResponse[IdentityCreatedItem, PartialIdentity]`,
+`SetResponse[EmailSubmissionCreatedItem, PartialEmailSubmission]`,
+`SetResponse[NoCreate, PartialVacationResponse]` (VacationResponse is
+singleton-only — `NoCreate` fills the unused create slot per D6).
+Each `*CreatedItem` type carries the RFC 8620 §5.3 server-set subset
+(`id` plus server-set fields like `mayDelete`, `myRights`, count
+fields); each `PartialT` mirrors the full read model with every field
+optional. Both `fromJson`s resolve through `mixin` inside
+`mergeCreateResults[T]` / `mergeUpdateResults[U]`.
 
 **Decision 3.9B: Unified Result maps.** The wire's parallel maps are
 merged into unified `Table[K, Result[V, SetError]]`. Each key maps to
@@ -1832,7 +1862,8 @@ type CopyResponse*[T] = object
   createResults*: Table[CreationId, Result[T, SetError]]
 ```
 
-Shares the typed-`T` semantics of `SetResponse[T]`.
+Shares the typed-`T` semantics of `SetResponse[T, U]`'s create rail
+(`/copy` has no update branch per RFC 8620 §5.4).
 `CopyResponse[EmailCreatedItem]` is the canonical instantiation.
 
 ### 9.5 QueryResponse[T]
@@ -1882,7 +1913,7 @@ func mergeCreateResults*[T](
 ): Result[Table[CreationId, Result[T, SetError]], SerdeViolation] =
   ## Used by both SetResponse and CopyResponse. ``T.fromJson`` resolves
   ## at instantiation via mixin — every T appearing in
-  ## SetResponse[T]/CopyResponse[T] MUST define
+  ## SetResponse[T, U]/CopyResponse[T] MUST define
   ## ``fromJson(_: typedesc[T], JsonNode, JsonPath): Result[T, SerdeViolation]``.
   mixin fromJson
   var tbl = initTable[CreationId, Result[T, SetError]]()
@@ -1904,17 +1935,18 @@ func mergeCreateResults*[T](
 ### 10.2 Update Merging
 
 ```nim
-func mergeUpdateResults(
+func mergeUpdateResults[U](
     node: JsonNode, path: JsonPath
-): Result[Table[Id, Result[Opt[JsonNode], SetError]], SerdeViolation]
+): Result[Table[Id, Result[Opt[U], SetError]], SerdeViolation]
 ```
 
-Null value in `updated` maps to `ok(Opt.none(JsonNode))` (server made
-no changes the client doesn't already know); non-null maps to
-`ok(Opt.some(v))` verbatim. The library passes the raw node through
-because the entity-specific `PatchObject` shape is unknown at this
-layer; consumers parse it themselves. `notUpdated` entries go through
-`SetError.fromJson` and are strict.
+Wire `updated[id] = null` maps to `ok(Opt.none(U))` (server confirmed
+without echo); wire `updated[id] = {...}` maps to
+`ok(Opt.some(?U.fromJson(v, path)))` — `U.fromJson` resolves at
+instantiation via `mixin`. `U` is the per-entity `PartialT`, whose
+parser is lenient on missing fields and strict on wrong-kind-present
+fields (A4 D4). `notUpdated` entries go through `SetError.fromJson`
+and are strict.
 
 ### 10.3 Destroy Merging
 
@@ -1928,11 +1960,11 @@ func mergeDestroyResults(
 
 ### 10.4 Wire Round-Trip Helpers
 
-`SetResponse[T]` and `CopyResponse[T]` additionally expose `toJson`
+`SetResponse[T, U]` and `CopyResponse[T]` additionally expose `toJson`
 that splits the merged Result tables back to the parallel wire shape:
 
 ```nim
-func toJson*[T](resp: SetResponse[T]): JsonNode
+func toJson*[T, U](resp: SetResponse[T, U]): JsonNode
 func toJson*[T](resp: CopyResponse[T]): JsonNode
 ```
 
@@ -1940,8 +1972,10 @@ Internal helpers:
 
 - `emitSplitCreateResults` — splits `createResults` into `created` and
   `notCreated`. `T.toJson` resolves via mixin.
-- `emitSplitUpdateResults` — splits `updateResults` into `updated` and
-  `notUpdated`. `Opt.none` projects to JSON null.
+- `emitSplitUpdateResults[U]` — splits `updateResults` into `updated`
+  and `notUpdated`. `Opt.none(U)` projects to JSON null;
+  `Opt.some(u)` projects to `u.toJson()` (`U.toJson` resolves via
+  mixin).
 - `emitSplitDestroyResults` — splits `destroyResults` into `destroyed`
   and `notDestroyed`. Empty buckets omit their key.
 
@@ -2169,7 +2203,7 @@ hold:
    match the JSON content. Invalid JSON returns `err(SerdeViolation)`.
    Same applies to all six response types.
 
-3. **SetResponse round-trip.** `SetResponse[T].toJson(SetResponse[T].fromJson(j).get())`
+3. **SetResponse round-trip.** `SetResponse[T, U].toJson(SetResponse[T, U].fromJson(j).get())`
    produces JSON structurally equal to the original wire shape after
    merging-and-splitting. Same for `CopyResponse[T]`.
 
@@ -2220,7 +2254,7 @@ src/jmap_client/
                      object + ``keepOriginals`` / ``destroyAfterSuccess``
                      smart constructors;
                      6 response types (GetResponse[T]/ChangesResponse[T]/
-                     SetResponse[T]/CopyResponse[T]/QueryResponse[T]/
+                     SetResponse[T, U]/CopyResponse[T]/QueryResponse[T]/
                      QueryChangesResponse[T]);
                      SerializedSort/SerializedFilter pre-serialised
                      distinct wrappers + ``toJsonNode`` accessors;
@@ -2427,7 +2461,7 @@ The wire-key order matches `SetRequest[T, C, U].toJson`: `accountId`,
 ### 17.3 Golden Test 3: SetResponse Merging
 
 Wire-format JSON with mixed success and failure entries, parsed as
-`SetResponse[MailboxCreatedItem]`:
+`SetResponse[MailboxCreatedItem, PartialMailbox]`:
 
 ```json
 {
@@ -2458,8 +2492,10 @@ Wire-format JSON with mixed success and failure entries, parsed as
 
 - `createResults[k1]` is `Result.ok(MailboxCreatedItem(...))`,
   `createResults[k2]` is `Result.err(SetError(setForbidden, ...))`.
-- `updateResults[id1]` is `Result.ok(Opt.none(JsonNode))`,
-  `updateResults[id2]` is `Result.ok(Opt.some(JsonNode))`,
+- `updateResults[id1]` is `Result.ok(Opt.none(PartialMailbox))` (server
+  confirmed without echo), `updateResults[id2]` is
+  `Result.ok(Opt.some(PartialMailbox(...)))` (server echoed partial
+  state — typed `PartialMailbox` parsed via `PartialMailbox.fromJson`),
   `updateResults[id3]` is `Result.err(SetError(setNotFound, ...))`.
 - `destroyResults[id4]` is `Result.ok()`,
   `destroyResults[id5]` is `Result.err(SetError(setForbidden, ...))`.
@@ -2510,7 +2546,7 @@ rails), `newState.isNone`.
 | D3.3 | Response dispatch returns `Result[T, MethodError]` | Unified `ClientError` for all failures | Method errors are data within a successful HTTP 200 response. Per-invocation, not per-request. |
 | D3.4 | No concepts; plain overloaded `typedesc` `func`s + `registerJmapEntity` / `registerQueryableEntity` / `registerSettableEntity` compile-time checks; per-verb resolver overloads (`getMethodName`, `setMethodName`, …) | Concepts | Plain overloads + static registration give earlier error detection than concepts with zero compiler risk. Per-verb resolvers make invalid `(entity, verb)` combinations a compile error. |
 | D3.5 | Only `GetRequest.ids` and `SetRequest.destroy` get `Referencable[T]` | All fields `Referencable` | Wrapping all fields is verbose and rarely used. Two wrapped fields cover canonical patterns. |
-| D3.6 | Typed `C`, `U`, `CopyItem` create/update/copy values; `seq[T]` for `GetResponse.list` via mixin `T.fromJson` (A3); `Opt[JsonNode]` for `SetResponse.updateResults` pending A4; sparse-`/get` returns `MethodError` on the public surface — `PartialT` types tracked under A3.6 (raw arguments sealed inside `internal/` per A2). | Either fully typed or fully `JsonNode` | Typed creates close the illegal-state hole at the boundary; typed `GetResponse[T].list` removes the wrapper-trigger glue (P7); update-side `JsonNode` matches RFC's open-ended PatchObject shape pending A4. |
+| D3.6 | Typed `C`, `U`, `CopyItem` create/update/copy values; `seq[T]` for `GetResponse.list` via mixin `T.fromJson` (A3); `Opt[U]` for `SetResponse[T, U].updateResults` via mixin `U.fromJson` where `U` = per-entity `PartialT` (A4); sparse `/get` typed via getter-only `PartialT` entity registration (A3.6 D7). | Either fully typed or fully `JsonNode` | Typed creates close the illegal-state hole at the boundary; typed `GetResponse[T].list` removes the wrapper-trigger glue (P7); typed update echo + sparse `/get` close the last `JsonNode`-on-the-public-rail gaps (A4 + A3.6). |
 | D3.7 | Unidirectional serde for request types (`toJson` only) and response types (`fromJson` only); bidirectional for `SetResponse`/`CopyResponse` to support round-trip serde tests | Full bidirectional serde for all types | Client builds requests and parses responses — never the reverse. The `SetResponse`/`CopyResponse` `toJson` exists exclusively for fixture round-trip. |
 | D3.8 | Immutable `RequestBuilder`; each `add*` returns `(RequestBuilder, ResponseHandle[T])` | `var RequestBuilder` mutation | Pure functional composition; no observable side effects; trivially threads through `for`-comprehensions and pipelines. |
 | D3.9 | `nextId` uses `MethodCallId(s)` directly (bypassing validation); `initInvocation` is the typed (infallible) constructor | Validating constructors at every step | The builder controls the format entirely; typed `MethodName` makes empty wire names unrepresentable. |

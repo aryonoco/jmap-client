@@ -19,6 +19,7 @@ import ./internal/types/session
 import ./internal/types/envelope
 import ./internal/types/framework
 import ./internal/types/errors
+import ./internal/types/field_echo
 
 export results
 export validation
@@ -31,6 +32,7 @@ export session
 export envelope except arguments
 export framework
 export errors
+export field_echo
 
 type JmapResult*[T] = Result[T, ClientError]
   ## Outer railway: transport/request failure or typed success.

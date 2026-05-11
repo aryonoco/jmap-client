@@ -17,6 +17,7 @@ import std/tables
 
 import ../types/validation
 import ../types/primitives
+import ../types/field_echo
 
 # =============================================================================
 # MailboxRole
@@ -241,6 +242,27 @@ type Mailbox* {.ruleOff: "objects".} = object
   unreadThreads*: UnsignedInt ## Unread threads in this mailbox.
   myRights*: MailboxRights ## ACL flags for the authenticated user.
   isSubscribed*: bool ## Whether the user has subscribed to this mailbox.
+
+# =============================================================================
+# PartialMailbox
+# =============================================================================
+
+type PartialMailbox* {.ruleOff: "objects".} = object
+  ## RFC 8621 §2 partial Mailbox. Receive-only; produced by the library
+  ## via ``SetResponse[MailboxCreatedItem, PartialMailbox].updateResults``
+  ## and ``GetResponse[PartialMailbox].list`` (A4 + A3.6).
+  id*: Opt[Id]
+  name*: Opt[string]
+  parentId*: FieldEcho[Id] ## Wire admits null (top-level mailbox per RFC 8621 §2).
+  role*: FieldEcho[MailboxRole]
+    ## Wire admits null (no well-known role per RFC 8621 §2).
+  sortOrder*: Opt[UnsignedInt]
+  totalEmails*: Opt[UnsignedInt]
+  unreadEmails*: Opt[UnsignedInt]
+  totalThreads*: Opt[UnsignedInt]
+  unreadThreads*: Opt[UnsignedInt]
+  myRights*: Opt[MailboxRights]
+  isSubscribed*: Opt[bool]
 
 # =============================================================================
 # MailboxCreatedItem — Mailbox/set ``created[cid]`` payload (RFC 8620 §5.3)

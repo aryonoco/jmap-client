@@ -27,8 +27,9 @@ block tcapturedSetErrorNotFound:
   doAssert inv.rawName == "Email/set",
     "successful Email/set with notDestroyed must surface as Email/set, got " &
       inv.rawName
-  let setResp =
-    SetResponse[EmailCreatedItem].fromJson(inv.arguments).expect("SetResponse.fromJson")
+  let setResp = SetResponse[EmailCreatedItem, PartialEmail]
+    .fromJson(inv.arguments)
+    .expect("SetResponse.fromJson")
   let syntheticId = Id("zzzzz")
   var found = false
   setResp.destroyResults.withValue(syntheticId, outcome):

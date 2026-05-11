@@ -34,3 +34,33 @@ func parseThread*(id: Id, emailIds: seq[Id]): Result[Thread, ValidationError] =
   if emailIds.len == 0:
     return err(validationError("Thread", "emailIds must contain at least one Id", ""))
   return ok(Thread(rawId: id, rawEmailIds: emailIds))
+
+# =============================================================================
+# PartialThread
+# =============================================================================
+
+type PartialThread* {.ruleOff: "objects".} = object
+  ## RFC 8621 §3 partial Thread. Sparse ``/get`` only — Thread has no
+  ## ``/set`` (RFC 8621 §3 defines only ``/get`` and ``/changes``;
+  ## threads are server-derived from Email composition, not server-
+  ## stored). Private-fields-plus-accessor shape mirrors ``Thread`` (D8)
+  ## for structural symmetry — no invariant to enforce on the partial
+  ## side.
+  rawId: Opt[Id]
+  rawEmailIds: Opt[seq[Id]]
+
+func id*(p: PartialThread): Opt[Id] =
+  ## UFCS accessor — ``partial.id`` reads as a field access.
+  return p.rawId
+
+func emailIds*(p: PartialThread): Opt[seq[Id]] =
+  ## UFCS accessor — ``partial.emailIds`` reads as a field access.
+  return p.rawEmailIds
+
+func initPartialThread*(id: Opt[Id], emailIds: Opt[seq[Id]]): PartialThread =
+  ## Module-public constructor exposed for the serde layer. ``PartialThread``
+  ## carries no validation invariants (D8 — privacy is consistency, not
+  ## safety), so this is a trivial wrapper. Direct case-object literal
+  ## construction is the alternative but is rejected outside this module
+  ## because the raw fields are unexported.
+  return PartialThread(rawId: id, rawEmailIds: emailIds)

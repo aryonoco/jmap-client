@@ -36,9 +36,10 @@ import ./serde_email_update
 import ./serde_mail_filters
 
 # Re-export the serde modules whose ``fromJson`` overloads are required at
-# the dispatch call-site (``get(handle)``): the generic ``SetResponse[T]``
-# and ``CopyResponse[T]`` resolve ``T.fromJson`` via ``mixin`` at the outer
-# instantiation site, so the caller must have these in scope.
+# the dispatch call-site (``get(handle)``): the generic ``SetResponse[T,
+# U]`` and ``CopyResponse[T]`` resolve ``T.fromJson`` / ``U.fromJson`` via
+# ``mixin`` at the outer instantiation site, so the caller must have these
+# in scope.
 export serde_mailbox
 export serde_thread
 export serde_email
@@ -118,20 +119,25 @@ func addMailboxSet*(
     update: Opt[NonEmptyMailboxUpdates] = Opt.none(NonEmptyMailboxUpdates),
     destroy: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]),
     onDestroyRemoveEmails: bool = false,
-): (RequestBuilder, ResponseHandle[SetResponse[MailboxCreatedItem]]) =
+): (RequestBuilder, ResponseHandle[SetResponse[MailboxCreatedItem, PartialMailbox]]) =
   ## Mailbox/set (RFC 8621 §2.5). Thin wrapper over
   ## ``addSet[Mailbox, MailboxCreate, NonEmptyMailboxUpdates,
-  ## SetResponse[MailboxCreatedItem]]`` with the Mailbox-specific
-  ## ``onDestroyRemoveEmails`` extension emitted via ``extras``. ``create``
-  ## and ``update`` arrive typed; the generic ``SetRequest[T, C, U].toJson``
-  ## serialises both through the ``mixin toJson`` cascade. The
-  ## ``createResults`` payload is ``MailboxCreatedItem`` rather than the
-  ## full ``Mailbox`` because RFC 8620 §5.3's ``created[cid]`` carries
-  ## only the server-set subset (id + counts + myRights), and Stalwart
-  ## further trims to ``{"id": "..."}`` — the partial type lets the
-  ## parser succeed without forcing a full-entity reconstruction.
+  ## SetResponse[MailboxCreatedItem, PartialMailbox]]`` with the
+  ## Mailbox-specific ``onDestroyRemoveEmails`` extension emitted via
+  ## ``extras``. ``create`` and ``update`` arrive typed; the generic
+  ## ``SetRequest[T, C, U].toJson`` serialises both through the ``mixin
+  ## toJson`` cascade. The ``createResults`` payload is
+  ## ``MailboxCreatedItem`` rather than the full ``Mailbox`` because
+  ## RFC 8620 §5.3's ``created[cid]`` carries only the server-set
+  ## subset (id + counts + myRights), and Stalwart further trims to
+  ## ``{"id": "..."}``. ``updateResults`` carries ``PartialMailbox`` per
+  ## A4 D2 — RFC 8620 §5.3 admits the four outer states (absent /
+  ## confirmed-without-echo / echoed-partial / rejected).
   addSet[
-    Mailbox, MailboxCreate, NonEmptyMailboxUpdates, SetResponse[MailboxCreatedItem]
+    Mailbox,
+    MailboxCreate,
+    NonEmptyMailboxUpdates,
+    SetResponse[MailboxCreatedItem, PartialMailbox],
   ](
     b,
     accountId,
@@ -178,6 +184,50 @@ func addEmailGetByRef*(
   ## ``addGet[T]`` routes ``rkReference`` variants to the ``#ids`` wire
   ## key.
   addEmailGet(
+    b,
+    accountId,
+    ids = Opt.some(referenceTo[seq[Id]](idsRef)),
+    properties = properties,
+    bodyFetchOptions = bodyFetchOptions,
+  )
+
+# =============================================================================
+# addPartialEmailGet — sparse Email/get returning typed ``PartialEmail``
+# (A3.6 D7)
+# =============================================================================
+
+func addPartialEmailGet*(
+    b: RequestBuilder,
+    accountId: AccountId,
+    ids: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]),
+    properties: Opt[seq[string]] = Opt.none(seq[string]),
+    bodyFetchOptions: EmailBodyFetchOptions = default(EmailBodyFetchOptions),
+): (RequestBuilder, ResponseHandle[GetResponse[PartialEmail]]) =
+  ## Sparse Email/get returning a typed ``PartialEmail`` (RFC 8621 §4.2
+  ## + A3.6 D7). Mirrors ``addEmailGet`` shape; the partial parser
+  ## tolerates any subset of properties the server returns, so an
+  ## explicit ``properties`` projection no longer surfaces
+  ## ``MethodError(metServerFail)`` on the typed entry point.
+  addGet[PartialEmail](
+    b, accountId, ids, properties, extras = bodyFetchOptions.toExtras()
+  )
+
+# =============================================================================
+# addPartialEmailGetByRef — sparse Email/get via RFC 8620 §3.7 back-reference
+# (A3.6 D7)
+# =============================================================================
+
+func addPartialEmailGetByRef*(
+    b: RequestBuilder,
+    accountId: AccountId,
+    idsRef: ResultReference,
+    properties: Opt[seq[string]] = Opt.none(seq[string]),
+    bodyFetchOptions: EmailBodyFetchOptions = default(EmailBodyFetchOptions),
+): (RequestBuilder, ResponseHandle[GetResponse[PartialEmail]]) =
+  ## Sibling of ``addPartialEmailGet`` for RFC 8620 §3.7 back-reference
+  ## chains (A3.6 D7). ``ids`` is sourced from a previous invocation's
+  ## response rather than supplied as literal IDs.
+  addPartialEmailGet(
     b,
     accountId,
     ids = Opt.some(referenceTo[seq[Id]](idsRef)),
@@ -267,15 +317,20 @@ func addEmailSet*(
       Opt.none(Table[CreationId, EmailBlueprint]),
     update: Opt[NonEmptyEmailUpdates] = Opt.none(NonEmptyEmailUpdates),
     destroy: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]),
-): (RequestBuilder, ResponseHandle[SetResponse[EmailCreatedItem]]) =
+): (RequestBuilder, ResponseHandle[SetResponse[EmailCreatedItem, PartialEmail]]) =
   ## Email/set (RFC 8621 §4.6). Thin wrapper over
-  ## ``addSet[Email, EmailBlueprint, NonEmptyEmailUpdates, SetResponse[EmailCreatedItem]]``
-  ## with no entity-specific extras. The ``SetResponse[EmailCreatedItem]``
+  ## ``addSet[Email, EmailBlueprint, NonEmptyEmailUpdates,
+  ## SetResponse[EmailCreatedItem, PartialEmail]]`` with no entity-
+  ## specific extras. The ``SetResponse[EmailCreatedItem, PartialEmail]``
   ## handle carries typed ``createResults`` via ``mixin``-resolved
-  ## ``EmailCreatedItem.fromJson`` at the dispatch site.
-  addSet[Email, EmailBlueprint, NonEmptyEmailUpdates, SetResponse[EmailCreatedItem]](
-    b, accountId, ifInState, create, update, destroy
-  )
+  ## ``EmailCreatedItem.fromJson`` and typed ``updateResults`` via
+  ## ``PartialEmail.fromJson`` (A4 D2).
+  addSet[
+    Email,
+    EmailBlueprint,
+    NonEmptyEmailUpdates,
+    SetResponse[EmailCreatedItem, PartialEmail],
+  ](b, accountId, ifInState, create, update, destroy)
 
 # =============================================================================
 # addEmailCopy — Email/copy (RFC 8621 §4.7)
@@ -301,15 +356,19 @@ func addEmailCopy*(
 # EmailCopyHandles / EmailCopyResults — compound dispatch (RFC 8620 §5.4)
 # =============================================================================
 
-type EmailCopyHandles* =
-  CompoundHandles[CopyResponse[EmailCreatedItem], SetResponse[EmailCreatedItem]]
+type EmailCopyHandles* = CompoundHandles[
+  CopyResponse[EmailCreatedItem], SetResponse[EmailCreatedItem, PartialEmail]
+]
   ## Domain-named specialisation of ``CompoundHandles[A, B]`` for
   ## ``addEmailCopyAndDestroy`` (Email/copy + implicit Email/set destroy
   ## per RFC 8620 §5.4). Fields ``primary`` / ``implicit`` inherit from
-  ## the generic at ``dispatch.nim``.
+  ## the generic at ``dispatch.nim``. The implicit handle's
+  ## ``SetResponse`` carries typed ``PartialEmail`` echoes for any
+  ## successfully-destroyed source records (A4 D2).
 
-type EmailCopyResults* =
-  CompoundResults[CopyResponse[EmailCreatedItem], SetResponse[EmailCreatedItem]]
+type EmailCopyResults* = CompoundResults[
+  CopyResponse[EmailCreatedItem], SetResponse[EmailCreatedItem, PartialEmail]
+]
   ## Paired extraction target for ``getBoth(EmailCopyHandles)`` — the
   ## generic overload in ``dispatch.nim`` handles the dispatch.
 
@@ -344,7 +403,7 @@ func addEmailCopyAndDestroy*(
   )
   let handles = EmailCopyHandles(
     primary: copyHandle,
-    implicit: NameBoundHandle[SetResponse[EmailCreatedItem]](
+    implicit: NameBoundHandle[SetResponse[EmailCreatedItem, PartialEmail]](
       callId: MethodCallId(copyHandle), methodName: mnEmailSet
     ),
   )

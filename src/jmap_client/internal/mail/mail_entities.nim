@@ -31,6 +31,7 @@ import ./email_submission
 import ./serde_email_submission
 import ./mail_filters
 import ./serde_mail_filters
+import ./vacation
 import ../protocol/dispatch
 
 # ---------------------------------------------------------------------------
@@ -115,9 +116,10 @@ template setResponseType*(T: typedesc[Identity]): typedesc =
   ## payload is ``IdentityCreatedItem`` (RFC 8620 §5.3 server-set subset:
   ## ``id`` plus the server-set ``mayDelete``). Stalwart 0.15.5 omits
   ## ``mayDelete`` from this payload, so ``IdentityCreatedItem.mayDelete``
-  ## is ``Opt[bool]``. Mirrors the ``EmailCreatedItem`` pattern.
+  ## is ``Opt[bool]``. The wire ``updated[id]`` payload is
+  ## ``PartialIdentity`` per A4 D2.
   discard $T
-  SetResponse[IdentityCreatedItem]
+  SetResponse[IdentityCreatedItem, PartialIdentity]
 
 registerJmapEntity(Identity)
 registerSettableEntity(Identity)
@@ -190,10 +192,10 @@ template setResponseType*(T: typedesc[Mailbox]): typedesc =
   ## payload is ``MailboxCreatedItem`` (RFC 8620 §5.3 server-set subset:
   ## ``id`` plus the four count fields and ``myRights``). Stalwart 0.15.5
   ## omits the additional fields from this payload, so all five non-id
-  ## fields are ``Opt[T]``. Mirrors the ``IdentityCreatedItem`` and
-  ## ``EmailCreatedItem`` patterns.
+  ## fields are ``Opt[T]``. The wire ``updated[id]`` payload is
+  ## ``PartialMailbox`` per A4 D2.
   discard $T
-  SetResponse[MailboxCreatedItem]
+  SetResponse[MailboxCreatedItem, PartialMailbox]
 
 registerJmapEntity(Mailbox)
 registerQueryableEntity(Mailbox)
@@ -272,9 +274,10 @@ template updateType*(T: typedesc[Email]): typedesc =
 
 template setResponseType*(T: typedesc[Email]): typedesc =
   ## Associated /set response type for Email. The typed ``createResults``
-  ## payload is ``EmailCreatedItem`` (server-set fields post-create).
+  ## payload is ``EmailCreatedItem`` (server-set fields post-create); the
+  ## typed ``updateResults`` payload is ``PartialEmail`` per A4 D2.
   discard $T
-  SetResponse[EmailCreatedItem]
+  SetResponse[EmailCreatedItem, PartialEmail]
 
 template copyItemType*(T: typedesc[Email]): typedesc =
   ## Associated typed copy-item type for Email/copy.
@@ -368,8 +371,12 @@ registerSettableEntity(AnyEmailSubmission)
 # Compound-method participation gates (RFC 8620 §5.4)
 # ---------------------------------------------------------------------------
 
-registerCompoundMethod(CopyResponse[EmailCreatedItem], SetResponse[EmailCreatedItem])
-registerCompoundMethod(EmailSubmissionSetResponse, SetResponse[EmailCreatedItem])
+registerCompoundMethod(
+  CopyResponse[EmailCreatedItem], SetResponse[EmailCreatedItem, PartialEmail]
+)
+registerCompoundMethod(
+  EmailSubmissionSetResponse, SetResponse[EmailCreatedItem, PartialEmail]
+)
 
 # ---------------------------------------------------------------------------
 # Chainable-method participation gates (RFC 8620 §3.7 back-reference chains)
@@ -382,3 +389,125 @@ registerChainableMethod(GetResponse[Email])
 # ``GetResponse[Thread]`` chains OUT to ``Email/get`` in the RFC 8621
 # §4.10 first-login workflow via ``rpListEmailIds``.
 registerChainableMethod(GetResponse[thread.Thread])
+
+# ---------------------------------------------------------------------------
+# Partial entities (A3.6 D7) — getter-only registration for typed sparse
+# ``/get``. Reuse the same ``MethodEntity`` tag, capability URI, and
+# ``getMethodName`` as the full record. No setter/queryer/changes/copy/
+# import overloads — partial entities are read-only at the wire level.
+# Attempting ``addSet[PartialT]`` / ``addQuery[PartialT]`` fails at the
+# call site with an undeclared-identifier compile error.
+# ---------------------------------------------------------------------------
+
+# PartialThread
+func methodEntity*(T: typedesc[PartialThread]): MethodEntity =
+  ## Entity tag for PartialThread (same as ``Thread`` per A3.6 D7).
+  discard $T
+  meThread
+
+func getMethodName*(T: typedesc[PartialThread]): MethodName =
+  ## Thread/get method name for sparse projection.
+  discard $T
+  mnThreadGet
+
+func capabilityUri*(T: typedesc[PartialThread]): string =
+  ## Capability URI inherited from ``Thread``.
+  discard $T
+  "urn:ietf:params:jmap:mail"
+
+registerJmapEntity(PartialThread)
+
+# PartialIdentity
+func methodEntity*(T: typedesc[PartialIdentity]): MethodEntity =
+  ## Entity tag for PartialIdentity (same as ``Identity`` per A3.6 D7).
+  discard $T
+  meIdentity
+
+func getMethodName*(T: typedesc[PartialIdentity]): MethodName =
+  ## Identity/get method name for sparse projection.
+  discard $T
+  mnIdentityGet
+
+func capabilityUri*(T: typedesc[PartialIdentity]): string =
+  ## Capability URI inherited from ``Identity``.
+  discard $T
+  "urn:ietf:params:jmap:submission"
+
+registerJmapEntity(PartialIdentity)
+
+# PartialMailbox
+func methodEntity*(T: typedesc[PartialMailbox]): MethodEntity =
+  ## Entity tag for PartialMailbox (same as ``Mailbox`` per A3.6 D7).
+  discard $T
+  meMailbox
+
+func getMethodName*(T: typedesc[PartialMailbox]): MethodName =
+  ## Mailbox/get method name for sparse projection.
+  discard $T
+  mnMailboxGet
+
+func capabilityUri*(T: typedesc[PartialMailbox]): string =
+  ## Capability URI inherited from ``Mailbox``.
+  discard $T
+  "urn:ietf:params:jmap:mail"
+
+registerJmapEntity(PartialMailbox)
+
+# PartialEmail
+func methodEntity*(T: typedesc[PartialEmail]): MethodEntity =
+  ## Entity tag for PartialEmail (same as ``Email`` per A3.6 D7).
+  discard $T
+  meEmail
+
+func getMethodName*(T: typedesc[PartialEmail]): MethodName =
+  ## Email/get method name for sparse projection.
+  discard $T
+  mnEmailGet
+
+func capabilityUri*(T: typedesc[PartialEmail]): string =
+  ## Capability URI inherited from ``Email``.
+  discard $T
+  "urn:ietf:params:jmap:mail"
+
+registerJmapEntity(PartialEmail)
+
+# PartialEmailSubmission
+func methodEntity*(T: typedesc[PartialEmailSubmission]): MethodEntity =
+  ## Entity tag for PartialEmailSubmission (same as ``AnyEmailSubmission``
+  ## per A3.6 D7).
+  discard $T
+  meEmailSubmission
+
+func getMethodName*(T: typedesc[PartialEmailSubmission]): MethodName =
+  ## EmailSubmission/get method name for sparse projection.
+  discard $T
+  mnEmailSubmissionGet
+
+func capabilityUri*(T: typedesc[PartialEmailSubmission]): string =
+  ## Capability URI inherited from ``AnyEmailSubmission``.
+  discard $T
+  "urn:ietf:params:jmap:submission"
+
+registerJmapEntity(PartialEmailSubmission)
+
+# PartialVacationResponse
+func methodEntity*(T: typedesc[PartialVacationResponse]): MethodEntity =
+  ## Entity tag for PartialVacationResponse (A3.6 D7 — VacationResponse
+  ## is unregistered per Decision A7 of the parent entity, but the
+  ## partial gets registered here to enable typed sparse ``/get`` via
+  ## the generic ``addGet[PartialT]`` path).
+  discard $T
+  meVacationResponse
+
+func getMethodName*(T: typedesc[PartialVacationResponse]): MethodName =
+  ## VacationResponse/get method name for sparse projection.
+  discard $T
+  mnVacationResponseGet
+
+func capabilityUri*(T: typedesc[PartialVacationResponse]): string =
+  ## RFC 8621 §7 — VacationResponse methods are covered by the JMAP
+  ## VacationResponse capability.
+  discard $T
+  "urn:ietf:params:jmap:vacationresponse"
+
+registerJmapEntity(PartialVacationResponse)

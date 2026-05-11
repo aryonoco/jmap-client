@@ -19,6 +19,7 @@ import ../types/framework
 import ../types/identifiers
 import ../types/errors
 import ../types/collation
+import ../types/field_echo
 
 import ./keyword
 import ./mailbox
@@ -187,6 +188,60 @@ func isLeaf*(part: EmailBodyPart): bool =
   not part.isMultipart
 
 # =============================================================================
+# PartialEmail
+# =============================================================================
+
+type PartialEmail* {.ruleOff: "objects".} = object
+  ## RFC 8621 §4 partial Email — every field elided when the server
+  ## does not echo it (sparse ``/get`` or ``/set`` update-echo).
+  ##
+  ## Field shape rule (A4 + A3.6 D4): wire-nullable fields use
+  ## ``FieldEcho[T]`` (three states: absent / null / value); wire-non-
+  ## nullable fields use ``Opt[T]`` (two states: absent / value).
+  ##
+  ## The library is the sole producer; consumers consume these values
+  ## via ``SetResponse[EmailCreatedItem, PartialEmail].updateResults``
+  ## and ``GetResponse[PartialEmail].list``. No public builder accepts
+  ## a consumer-constructed ``PartialEmail`` (D5).
+
+  # -- Metadata (non-nullable on the wire) --
+  id*: Opt[Id]
+  blobId*: Opt[BlobId]
+  threadId*: Opt[Id]
+  mailboxIds*: Opt[MailboxIdSet]
+  keywords*: Opt[KeywordSet]
+  size*: Opt[UnsignedInt]
+  receivedAt*: Opt[UTCDate]
+
+  # -- Convenience headers (nullable on the wire — null when source message
+  # lacks the header per RFC 8621 §4.1.2-4.1.3) --
+  messageId*: FieldEcho[seq[string]]
+  inReplyTo*: FieldEcho[seq[string]]
+  references*: FieldEcho[seq[string]]
+  sender*: FieldEcho[seq[EmailAddress]]
+  fromAddr*: FieldEcho[seq[EmailAddress]]
+  to*: FieldEcho[seq[EmailAddress]]
+  cc*: FieldEcho[seq[EmailAddress]]
+  bcc*: FieldEcho[seq[EmailAddress]]
+  replyTo*: FieldEcho[seq[EmailAddress]]
+  subject*: FieldEcho[string]
+  sentAt*: FieldEcho[Date]
+
+  # -- Raw headers (non-nullable on the wire — array always present when fetched) --
+  headers*: Opt[seq[EmailHeader]]
+  requestedHeaders*: Opt[Table[HeaderPropertyKey, HeaderValue]]
+  requestedHeadersAll*: Opt[Table[HeaderPropertyKey, seq[HeaderValue]]]
+
+  # -- Body (bodyStructure nullable when not requested; others non-nullable) --
+  bodyStructure*: FieldEcho[EmailBodyPart]
+  bodyValues*: Opt[Table[PartId, EmailBodyValue]]
+  textBody*: Opt[seq[EmailBodyPart]]
+  htmlBody*: Opt[seq[EmailBodyPart]]
+  attachments*: Opt[seq[EmailBodyPart]]
+  hasAttachment*: Opt[bool]
+  preview*: Opt[string]
+
+# =============================================================================
 # ParsedEmail
 # =============================================================================
 
@@ -250,12 +305,14 @@ type EmailCreatedItem* {.ruleOff: "objects".} = object
 # =============================================================================
 # Email Write Responses
 # =============================================================================
-# Email/set and Email/copy now reuse the promoted generic ``SetResponse[T]``
-# and ``CopyResponse[T]`` from ``methods.nim`` with ``T = EmailCreatedItem``
-# (design decision X1/X2/X3). The RFC 8620 §5.3 ``Foo|null`` inner split on
-# ``updated`` is preserved by the generic's ``Opt[JsonNode]``: ``Opt.none``
-# = wire null; ``Opt.some(node)`` = wire object. ``EmailImportResponse``
-# stays bespoke — import has no /set counterpart in the generic family.
+# Email/set and Email/copy reuse the promoted generic ``SetResponse[T, U]``
+# and ``CopyResponse[T]`` from ``methods.nim``. ``SetResponse[
+# EmailCreatedItem, PartialEmail]`` carries typed ``createResults`` and
+# typed ``updateResults`` (A4 D1/D2). The RFC 8620 §5.3 ``Foo|null``
+# inner split on ``updated`` projects to ``Opt[PartialEmail]``
+# (``Opt.none`` = wire null; ``Opt.some(p)`` = wire object parsed via
+# ``PartialEmail.fromJson``). ``EmailImportResponse`` stays bespoke —
+# import has no /set counterpart in the generic family.
 
 type EmailImportResponse* {.ruleOff: "objects".} = object
   ## Email/import response (RFC 8621 §4.8). Minimal — no ``updated`` or

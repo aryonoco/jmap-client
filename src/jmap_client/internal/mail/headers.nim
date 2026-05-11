@@ -213,6 +213,15 @@ func parseHeaderPropertyName*(raw: string): Result[HeaderPropertyKey, Validation
     return err(toValidationError(error, raw))
   ok(key)
 
+func parseFromString*(
+    T: typedesc[HeaderPropertyKey], raw: string
+): Result[HeaderPropertyKey, ValidationError] =
+  ## ``parseFromString`` typedesc-overload adapter consumed by the generic
+  ## ``Table[K, V].fromJson`` in ``serialisation/serde.nim``. Delegates to
+  ## ``parseHeaderPropertyName`` (already lenient).
+  discard $T
+  return parseHeaderPropertyName(raw)
+
 func toPropertyString*(k: HeaderPropertyKey): string =
   ## Reconstructs the wire-format property string from component fields.
   ## Omits the form suffix when ``hfRaw`` (the default).

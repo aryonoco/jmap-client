@@ -19,6 +19,7 @@ import ../types/primitives
 import ../types/identifiers
 import ../types/validation
 import ../types/framework
+import ../types/field_echo
 import ../protocol/methods
 import ../protocol/dispatch
 import ./submission_envelope
@@ -427,23 +428,47 @@ type EmailSubmissionCreatedItem* {.ruleOff: "objects".} = object
   sendAt*: Opt[UTCDate]
   undoStatus*: Opt[UndoStatus]
 
+# =============================================================================
+# PartialEmailSubmission
+# =============================================================================
+
+type PartialEmailSubmission* {.ruleOff: "objects".} = object
+  ## RFC 8621 §7 partial EmailSubmission. Non-generic — the
+  ## ``EmailSubmission[S: static UndoStatus]`` phantom cannot promise a
+  ## lifecycle state on a partial echo. ``undoStatus`` is
+  ## ``Opt[UndoStatus]`` (typed closed enum from ``submission_status.nim``);
+  ## a present wire token outside the closed set surfaces as a
+  ## SerdeViolation per A4 D4.
+  id*: Opt[Id]
+  identityId*: Opt[Id]
+  emailId*: Opt[Id]
+  threadId*: Opt[Id]
+  envelope*: FieldEcho[Envelope]
+    ## Wire admits null (server synthesises from message per RFC 8621 §7.5).
+  sendAt*: Opt[UTCDate]
+  undoStatus*: Opt[UndoStatus]
+  deliveryStatus*: FieldEcho[DeliveryStatusMap]
+    ## Wire admits null (no delivery info yet per RFC 8621 §7).
+  dsnBlobIds*: Opt[seq[BlobId]]
+  mdnBlobIds*: Opt[seq[BlobId]]
+
 # -----------------------------------------------------------------------------
 # EmailSubmissionSetResponse — /set response alias (RFC 8621 §7.5)
 #
-# Typed instantiation of the generic SetResponse[T] (methods.nim). After
-# Phase A's promotion, T drives createResults' typed payload via T.fromJson
-# resolved at instantiation through ``mixin``.
+# Typed instantiation of the generic SetResponse[T, U] (methods.nim). ``T``
+# drives ``createResults`` typed payload via ``T.fromJson`` resolved at
+# instantiation through ``mixin``; ``U`` drives ``updateResults`` typed
+# payload via ``U.fromJson`` (A4 D1/D2).
 # -----------------------------------------------------------------------------
 
-type EmailSubmissionSetResponse* = SetResponse[EmailSubmissionCreatedItem]
+type EmailSubmissionSetResponse* =
+  SetResponse[EmailSubmissionCreatedItem, PartialEmailSubmission]
   ## Typed alias for the EmailSubmission/set response (RFC 8621 §7.5).
   ## ``createResults`` carries ``EmailSubmissionCreatedItem`` payloads via
   ## ``mergeCreateResults[EmailSubmissionCreatedItem]`` (methods.nim);
-  ## ``updateResults`` and ``destroyResults`` follow the standard merged
-  ## ``Result``-table shape. The
-  ## per-entity ``fromJson`` for
-  ## ``EmailSubmissionCreatedItem`` lands in the L2 serde module — until
-  ## then this alias is callable as a typed handle but cannot be parsed.
+  ## ``updateResults`` carries ``PartialEmailSubmission`` payloads via
+  ## ``mergeUpdateResults[PartialEmailSubmission]`` (A4); ``destroyResults``
+  ## follows the standard merged ``Result``-table shape.
 
 # -----------------------------------------------------------------------------
 # IdOrCreationRef — creation-reference key for onSuccess* maps (RFC 8620 §5.3)
@@ -605,14 +630,18 @@ func parseNonEmptyOnSuccessDestroyEmail*(
 # ``EmailSubmissionSetResponse.fromJson`` are in scope).
 # -----------------------------------------------------------------------------
 
-type EmailSubmissionHandles* =
-  CompoundHandles[EmailSubmissionSetResponse, SetResponse[EmailCreatedItem]]
+type EmailSubmissionHandles* = CompoundHandles[
+  EmailSubmissionSetResponse, SetResponse[EmailCreatedItem, PartialEmail]
+]
   ## Domain-named specialisation of ``CompoundHandles[A, B]`` for
   ## ``addEmailSubmissionAndEmailSet`` (EmailSubmission/set + implicit
   ## Email/set per RFC 8620 §5.4 + RFC 8621 §7.5 ¶3). Fields ``primary``
-  ## / ``implicit`` inherit from the generic at ``dispatch.nim``.
+  ## / ``implicit`` inherit from the generic at ``dispatch.nim``. The
+  ## implicit handle's ``SetResponse`` carries typed ``PartialEmail``
+  ## echoes for the implicit Email/set (A4 D2).
 
-type EmailSubmissionResults* =
-  CompoundResults[EmailSubmissionSetResponse, SetResponse[EmailCreatedItem]]
+type EmailSubmissionResults* = CompoundResults[
+  EmailSubmissionSetResponse, SetResponse[EmailCreatedItem, PartialEmail]
+]
   ## Paired extraction target for ``getBoth(EmailSubmissionHandles)`` —
   ## the generic overload in ``dispatch.nim`` handles the dispatch.

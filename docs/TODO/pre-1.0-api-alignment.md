@@ -273,18 +273,27 @@ get-side full-record half retired; update-side half stays pending
 A4; sparse half documented under A3.6). New TODO entry A3.6
 inserted in this commit.
 
-### A4. Type `SetResponse[T].updateResults` *(P19)*
+### A4. Type `SetResponse[T].updateResults` *(P19)* — **DONE**
 
-`src/jmap_client/methods.nim:214`. Currently
-`updateResults*: Table[Id, Result[Opt[JsonNode], SetError]]`. The
-docstring acknowledges this needs per-entity partial-update types and
-was "out of scope for this pass". Every non-trivial mutation flow
-funnels through this type; consumers calling `addEmailSet(update=...)`
-to verify post-state get `JsonNode`, not `Email`. This is the single
-largest consumer-pain gap. Type as `Opt[T]` per entity (partial
-entity), or as `Opt[void]` if the partial-type story is not ready —
-the asymmetry between typed `createResults` and stringly-typed
-`updateResults` will be louder than typing only the create side.
+`SetResponse[T]` widened to `SetResponse[T, U]` where `U` is the
+per-entity `PartialT` (D1). `updateResults` is now `Table[Id, Result[
+Opt[U], SetError]]` (D2): wire `updated[id] = null` → `ok(Opt.none(U))`
+(server confirmed without echo); wire `updated[id] = {...}` →
+`ok(Opt.some(partial))` (server echoed partial state); wire
+`notUpdated[id]` → `err(setError)`. Every non-trivial mutation flow
+now sees typed `PartialT` echoes on the consumer rail, closing the
+asymmetry with the typed `createResults` rail.
+
+`PartialT` family (six types): `PartialEmail`, `PartialMailbox`,
+`PartialIdentity`, `PartialEmailSubmission`, `PartialVacationResponse`,
+`PartialThread`. Each mirrors the full read model with wire-nullable
+fields typed as `FieldEcho[T]` (three states: absent / null / value)
+and wire-non-nullable fields typed as `Opt[T]` (two states: absent /
+value). Receive-side parsers lenient on missing, strict on
+wrong-kind-present (D4).
+
+`NoCreate` marker fills the `T` slot for entities whose `/set` has no
+create rail — currently `VacationResponse` only (D6).
 
 ### A5. Decision on `extras: seq[(string, JsonNode)]` *(P19)*
 
@@ -757,60 +766,38 @@ to `Invocation.toJson` that drops a key silently passes A2's
 
 Wire to `just test-wire-contract` (F1).
 
-### A3.5. Decide `SetResponse[T].updateResults` payload shape *(P19)*
+### A3.5. Decide `SetResponse[T].updateResults` payload shape *(P19)* — **RESOLVED**
 
-A4 lists two options — typed `Opt[T]` (full partial entity) or
-`Opt[void]` (asymmetric: typed creates, untyped updates) — and does
-not pick. The decision is freeze-blocking: typed `updateResults`
-that lands post-1.0 is a 2.0 break.
+Resolved by A4 D2 — typed `Opt[U]` chosen, with `U` = per-entity
+`PartialT`. The `Opt[void]` fallback option was not needed because
+the `PartialT` family shipped together with A4 (integrated cut). No
+semver-upgrade path required.
 
-**Action.** Pick one before 1.0; record rationale in A3.5 itself.
+### A3.6. Partial-entity types for sparse `/get` responses *(P5, P7, P19)* — **DONE**
 
-- Default recommendation: `Opt[void]` for 1.0 (asymmetric),
-  upgraded to `Opt[T]` when per-entity partial-entity types ship
-  in a 1.x minor. Asymmetric is a smaller commitment than typed.
-- Document the upgrade path in `docs/policy/01-semver-and-deprecation.md`
-  (D1.5) so the eventual `Opt[void] → Opt[T]` migration ships as a
-  parallel overload, not a renaming break.
+Six `PartialT` types shipped: `PartialEmail`, `PartialMailbox`,
+`PartialIdentity`, `PartialEmailSubmission`, `PartialVacationResponse`,
+`PartialThread`. Each mirrors the full read model — wire-nullable
+fields typed as `FieldEcho[T]` (three-state: absent / null / value);
+wire-non-nullable fields typed as `Opt[T]` (two-state: absent /
+value). Receive-side parsers lenient on missing, strict on
+wrong-kind-present (D4). Closed-enum wire tokens
+(`PartialEmailSubmission.undoStatus: Opt[UndoStatus]`) stay typed —
+unknown tokens surface as SerdeViolation.
 
-### A3.6. Partial-entity types for sparse `/get` responses *(P5, P7, P19)*
+Each `PartialT` registers as a getter-only JMAP entity (D7) — same
+`MethodEntity` tag, capability URI, and `getMethodName` as the full
+record; no setter / queryer / changes / copy / import overloads.
+Generic `addGet[PartialT]` works for every partial via this
+registration. For Email specifically, two wrappers
+(`addPartialEmailGet`, `addPartialEmailGetByRef`) carry the
+`EmailBodyFetchOptions` parameter parallel to existing `addEmailGet`
+/ `addEmailGetByRef`.
 
-A3 typed ``GetResponse[T].list: seq[T]`` via mixin ``T.fromJson``.
-The typed entry point assumes every wire ``list`` entry is a full
-record because ``T.fromJson`` (``Mailbox.fromJson``,
-``Email.fromJson``, ``Identity.fromJson``, etc.) is full-record
-strict — every RFC-mandated field must be present.
-
-Consumers who deliberately request sparse projections via
-``properties = Opt.some(@["id", "name"])`` receive a wire payload
-that elides those required fields. The typed entry point then
-surfaces a ``MethodError`` (the ``SerdeViolation`` from
-``T.fromJson`` projects to ``metServerFail`` per D3.16). Until
-A3.6 ships, **sparse projection has no public application-API
-path**. ``Invocation.arguments`` is module-private per A2 and
-reachable only via direct ``import jmap_client/internal/...``
-for library-internal diagnostics; an application developer doing
-``import jmap_client`` cannot reach it (P5 + P19, validated by
-``tcompile_a2_invocation_hub_surface.nim``).
-
-**Action.** Introduce per-entity partial types
-(``PartialMailbox``, ``PartialEmail``, ``PartialIdentity``, …)
-where every field is ``Opt[T]`` and ``Partial*.fromJson`` is
-lenient on missing required fields. Add parallel builders
-``addPartialMailboxGet`` / ``addPartialEmailGet`` / etc. that
-return ``GetResponse[PartialMailbox]`` etc. Additive (P20); no
-break to A3's contract.
-
-**Freeze-blocking status.** A3.6 is *not* mechanically required
-for 1.0 because the request-side ``properties`` parameter is
-already part of the JMAP spec surface and stays on the builders.
-Whether application code can usefully consume a sparse response
-before A3.6 ships is a separate question — without ``PartialT``
-types the consumer just receives ``MethodError`` and cannot read
-the elided fields. If application-grade sparse consumption is
-required at 1.0, A3.6 lands inside the freeze; if it can wait,
-A3.6 ships in a 1.x minor as an additive feature. Either way,
-A2's seal stays — no raw-JSON application path is added, ever.
+Closes both the A3.6 sparse-`/get` gap (receive-side typed partial)
+and the A4 typed-`updateResults` gap (same `PartialT` family is the
+`U` slot of `SetResponse[T, U]`). Receive-side parsers AND
+request-side typed builders ship together — no P5 amputation.
 
 ### A6.5. Stub `BuiltRequest` and `DispatchedRequest` types *(P21, P23)*
 

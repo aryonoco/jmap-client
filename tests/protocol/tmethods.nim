@@ -155,7 +155,7 @@ block goldenSetResponseMerging:
     "destroyed": ["id4"],
     "notDestroyed": {"id5": {"type": "forbidden"}},
   }
-  let sr = SetResponse[MockFoo].fromJson(j).get()
+  let sr = SetResponse[MockFoo, MockFoo].fromJson(j).get()
   doAssert sr.accountId == makeAccountId("A13824")
   doAssert sr.oldState.isSome
   doAssert sr.oldState.get() == makeState("state1")
@@ -541,7 +541,7 @@ block changesResponseEmptyArrays:
 block setResponseBothNull:
   ## Both created and notCreated null produces empty Result tables.
   let j = %*{"accountId": "a1", "newState": "s1"}
-  let sr = SetResponse[MockFoo].fromJson(j).get()
+  let sr = SetResponse[MockFoo, MockFoo].fromJson(j).get()
   assertLen sr.createResults, 0
   assertLen sr.updateResults, 0
   assertLen sr.destroyResults, 0
@@ -551,7 +551,7 @@ block setResponseMissingNewStateLenient:
   ## for failed-only /set responses. Library is lenient on receive
   ## per Postel's law (Phase K0).
   let j = %*{"accountId": "a1"}
-  let sr = SetResponse[MockFoo].fromJson(j).get()
+  let sr = SetResponse[MockFoo, MockFoo].fromJson(j).get()
   doAssert sr.newState.isNone
 
 block copyResponseMissingNewStateLenient:
@@ -563,7 +563,7 @@ block copyResponseMissingNewStateLenient:
 block setResponseCreatedOnly:
   ## Created entries only — all ok in unified Result map.
   let j = %*{"accountId": "a1", "newState": "s1", "created": {"k1": {"id": "id1"}}}
-  let sr = SetResponse[MockFoo].fromJson(j).get()
+  let sr = SetResponse[MockFoo, MockFoo].fromJson(j).get()
   assertLen sr.createResults, 1
   doAssert sr.createResults[makeCreationId("k1")].isOk
 
@@ -571,7 +571,7 @@ block setResponseNotCreatedOnly:
   ## NotCreated entries only — all err in unified Result map.
   let j =
     %*{"accountId": "a1", "newState": "s1", "notCreated": {"k1": {"type": "forbidden"}}}
-  let sr = SetResponse[MockFoo].fromJson(j).get()
+  let sr = SetResponse[MockFoo, MockFoo].fromJson(j).get()
   assertLen sr.createResults, 1
   doAssert sr.createResults[makeCreationId("k1")].isErr
 
@@ -583,7 +583,7 @@ block setResponseMixedCreateResults:
     "created": {"k1": {"id": "id1"}},
     "notCreated": {"k2": {"type": "forbidden"}},
   }
-  let sr = SetResponse[MockFoo].fromJson(j).get()
+  let sr = SetResponse[MockFoo, MockFoo].fromJson(j).get()
   assertLen sr.createResults, 2
   doAssert sr.createResults[makeCreationId("k1")].isOk
   doAssert sr.createResults[makeCreationId("k2")].isErr
@@ -591,27 +591,27 @@ block setResponseMixedCreateResults:
 block setResponseUpdatedNull:
   ## Updated entry with null value produces ok(none) in unified Result map.
   let j = %*{"accountId": "a1", "newState": "s1", "updated": {"id1": nil}}
-  let sr = SetResponse[MockFoo].fromJson(j).get()
+  let sr = SetResponse[MockFoo, MockFoo].fromJson(j).get()
   doAssert sr.updateResults[makeId("id1")].isOk
   doAssert sr.updateResults[makeId("id1")].get().isNone
 
 block setResponseUpdatedObject:
   ## Updated entry with object value produces ok(some) in unified Result map.
   let j = %*{"accountId": "a1", "newState": "s1", "updated": {"id1": {"prop": "val"}}}
-  let sr = SetResponse[MockFoo].fromJson(j).get()
+  let sr = SetResponse[MockFoo, MockFoo].fromJson(j).get()
   doAssert sr.updateResults[makeId("id1")].isOk
   doAssert sr.updateResults[makeId("id1")].get().isSome
 
 block setResponseDestroyedEmpty:
   ## Destroyed empty array produces empty destroyResults.
   let j = %*{"accountId": "a1", "newState": "s1", "destroyed": []}
-  let sr = SetResponse[MockFoo].fromJson(j).get()
+  let sr = SetResponse[MockFoo, MockFoo].fromJson(j).get()
   assertLen sr.destroyResults, 0
 
 block setResponseOldStateAbsent:
   ## OldState absent produces none.
   let j = %*{"accountId": "a1", "newState": "s1"}
-  let sr = SetResponse[MockFoo].fromJson(j).get()
+  let sr = SetResponse[MockFoo, MockFoo].fromJson(j).get()
   doAssert sr.oldState.isNone
 
 block setResponseNotCreatedMissingType:
@@ -619,14 +619,14 @@ block setResponseNotCreatedMissingType:
   let j = %*{
     "accountId": "a1", "newState": "s1", "notCreated": {"k1": {"description": "oops"}}
   }
-  assertErr SetResponse[MockFoo].fromJson(j)
+  assertErr SetResponse[MockFoo, MockFoo].fromJson(j)
 
 block setResponseNotCreatedUnknownType:
   ## NotCreated unknown type produces err with setUnknown, rawType preserved.
   let j = %*{
     "accountId": "a1", "newState": "s1", "notCreated": {"k1": {"type": "futureError"}}
   }
-  let sr = SetResponse[MockFoo].fromJson(j).get()
+  let sr = SetResponse[MockFoo, MockFoo].fromJson(j).get()
   doAssert sr.createResults[makeCreationId("k1")].isErr
   let se = sr.createResults[makeCreationId("k1")].error()
   doAssert se.errorType == setUnknown
@@ -641,7 +641,7 @@ block setResponseDuplicateIdLastWriterWins:
     "created": {"k1": {"id": "id1"}},
     "notCreated": {"k1": {"type": "forbidden"}},
   }
-  let sr = SetResponse[MockFoo].fromJson(j).get()
+  let sr = SetResponse[MockFoo, MockFoo].fromJson(j).get()
   assertLen sr.createResults, 1
   doAssert sr.createResults[makeCreationId("k1")].isErr
 
@@ -649,7 +649,7 @@ block setResponseMalformedNotCreatedEntry:
   ## Malformed notCreated entry (non-object) aborts entire merge with err.
   ## Documents strict abort behaviour under parse-don't-validate.
   let j = %*{"accountId": "a1", "newState": "s1", "notCreated": {"k1": 123}}
-  assertErr SetResponse[MockFoo].fromJson(j)
+  assertErr SetResponse[MockFoo, MockFoo].fromJson(j)
 
 # ===========================================================================
 # F. CopyResponse fromJson tests

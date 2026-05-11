@@ -4,7 +4,7 @@
 ## Parser-only replay test for the captured ``Identity/set update``
 ## response (RFC 8621 §6.3,
 ## ``tests/testdata/captured/identity-set-update-stalwart.json``).
-## Verifies that ``SetResponse[IdentityCreatedItem].fromJson`` lifts
+## Verifies that ``SetResponse[IdentityCreatedItem, PartialIdentity].fromJson`` lifts
 ## Stalwart's wire-shape ``updated[id] = null`` into a single
 ## ``ok(Opt.none(JsonNode))`` outcome — the merged-Result map shape
 ## documented in ``methods.nim``.
@@ -31,9 +31,9 @@ block tcapturedIdentitySetUpdateStalwart:
     #     — the universal client-library contract here is the typed-
     #     error projection.
     if inv.rawName == "Identity/set":
-      let setResp = SetResponse[IdentityCreatedItem].fromJson(inv.arguments).expect(
-          "SetResponse[IdentityCreatedItem].fromJson"
-        )
+      let setResp = SetResponse[IdentityCreatedItem, PartialIdentity]
+        .fromJson(inv.arguments)
+        .expect("SetResponse[IdentityCreatedItem, PartialIdentity].fromJson")
       doAssert setResp.updateResults.len == 1,
         "exactly one update outcome expected (got " & $setResp.updateResults.len & ")"
       for id, outcome in setResp.updateResults.pairs:

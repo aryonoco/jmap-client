@@ -26,8 +26,9 @@ block tcapturedSetErrorInvalidProperties:
   let inv = resp.methodResponses[0]
   doAssert inv.rawName == "Email/set",
     "Email/set with notCreated must surface as Email/set, got " & inv.rawName
-  let setResp =
-    SetResponse[EmailCreatedItem].fromJson(inv.arguments).expect("SetResponse.fromJson")
+  let setResp = SetResponse[EmailCreatedItem, PartialEmail]
+    .fromJson(inv.arguments)
+    .expect("SetResponse.fromJson")
   let cidLabel = parseCreationId("phaseJ63").expect("parseCreationId")
   var found = false
   setResp.createResults.withValue(cidLabel, outcome):

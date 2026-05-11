@@ -10,7 +10,7 @@
 ## unknown-property paths).  After Phase K0 made
 ## ``SetResponse.newState`` ``Opt[JmapState]``, the typed parser
 ## projects the rejection rail directly via
-## ``SetResponse[IdentityCreatedItem].fromJson`` →
+## ``SetResponse[IdentityCreatedItem, PartialIdentity].fromJson`` →
 ## ``updateResults``.
 
 {.push raises: [].}
@@ -28,9 +28,9 @@ block tcapturedPatchObjectDeepPaths:
   let inv = resp.methodResponses[0]
   doAssert inv.rawName == "Identity/set",
     "deep-path patch must surface as Identity/set with notUpdated; got " & inv.rawName
-  let setResp = SetResponse[IdentityCreatedItem].fromJson(inv.arguments).expect(
-      "SetResponse[IdentityCreatedItem].fromJson"
-    )
+  let setResp = SetResponse[IdentityCreatedItem, PartialIdentity]
+    .fromJson(inv.arguments)
+    .expect("SetResponse[IdentityCreatedItem, PartialIdentity].fromJson")
   doAssert setResp.newState.isNone,
     "fixture pins Stalwart's missing-newState wire shape"
   doAssert setResp.updateResults.len == 1, "exactly one notUpdated entry expected"

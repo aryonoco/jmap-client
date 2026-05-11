@@ -13,6 +13,7 @@ import std/tables
 
 import ../types/validation
 import ../types/primitives
+import ../types/field_echo
 import ./addresses
 
 type Identity* {.ruleOff: "objects".} = object
@@ -50,6 +51,25 @@ type IdentityCreatedItem* {.ruleOff: "objects".} = object
   ## §"Serde Conventions": be lenient on receive. Mirrors the
   ## ``EmailCreatedItem`` design (``email.nim``).
   id*: Id
+  mayDelete*: Opt[bool]
+
+# =============================================================================
+# PartialIdentity
+# =============================================================================
+
+type PartialIdentity* {.ruleOff: "objects".} = object
+  ## RFC 8621 §6 partial Identity. Receive-only; produced by the library
+  ## via ``SetResponse[IdentityCreatedItem, PartialIdentity].updateResults``
+  ## and ``GetResponse[PartialIdentity].list`` (A4 + A3.6).
+  id*: Opt[Id]
+  name*: Opt[string]
+  email*: Opt[string]
+  replyTo*: FieldEcho[seq[EmailAddress]]
+    ## Wire admits null (clears default Reply-To per RFC 8621 §6).
+  bcc*: FieldEcho[seq[EmailAddress]]
+    ## Wire admits null (clears default Bcc per RFC 8621 §6).
+  textSignature*: Opt[string]
+  htmlSignature*: Opt[string]
   mayDelete*: Opt[bool]
 
 func parseIdentityCreate*(

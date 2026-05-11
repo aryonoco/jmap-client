@@ -48,9 +48,9 @@ block tcapturedEmailSubmissionOnSuccessDestroyStalwart:
             doAssert string(cid).len > 0, "primary creationId must be non-empty"
           primaryFound = true
         elif inv.rawName == "Email/set":
-          let setResp = SetResponse[EmailCreatedItem].fromJson(inv.arguments).expect(
-              "SetResponse[EmailCreatedItem].fromJson"
-            )
+          let setResp = SetResponse[EmailCreatedItem, PartialEmail]
+            .fromJson(inv.arguments)
+            .expect("SetResponse[EmailCreatedItem, PartialEmail].fromJson")
           doAssert setResp.destroyResults.len == 1,
             "implicit Email/set rail must carry exactly one destroy outcome"
           for id, outcome in setResp.destroyResults.pairs:
