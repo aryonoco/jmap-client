@@ -16,7 +16,7 @@ once the item is executed. Items without a gate are advisory and
 flagged as such. The three permissible gate types:
 
 - **Mechanical gate** (preferred). A CI lint, property test, or
-  unit test fails on regression. H1–H9 are mechanical gates.
+  unit test fails on regression. H1–H11 are mechanical gates.
 - **Snapshot gate**. A frozen file under `tests/wire_contract/`
   whose diff requires explicit `[API-CHANGE]`, `[WIRE-CHANGE]`, or
   `[TYPE-SHAPE-CHANGE]` PR labelling. A25, A26, F6 are snapshot
@@ -35,7 +35,7 @@ principle without CI catching it.
 
 ## Documented exceptions to the principles
 
-Three patterns in `src/` are intentional violations of P19
+Four patterns in `src/` are intentional violations of P19
 ("schema-driven types") justified by the RFC or by Postel's law.
 Reviewers must not re-litigate these — the exception is permanent
 and recorded here so future contributors do not waste cycles
@@ -48,9 +48,20 @@ attempting to retype them.
   See Decision B6 documented on the type. **Exception scope.** P18
   ("sum types over flag soup") explicitly carves this out.
 - **`addEcho(args: JsonNode)`**
-  (`src/jmap_client/builder.nim`). RFC 8620 §4 makes `Core/echo`
-  return its input verbatim — the method is structurally
-  JSON-typed. A22 documents this as the explicit exception to P19.
+  (`src/jmap_client/internal/protocol/builder.nim`). RFC 8620 §4
+  makes `Core/echo` return its input verbatim — the method is
+  structurally JSON-typed. A22 documents this as the explicit
+  exception to P19.
+- **`addCapabilityInvocation(b, capability, methodName, args:
+  JsonNode)`**
+  (`src/jmap_client/internal/protocol/builder.nim`). RFC 8620 §2.5
+  reserves vendor URN namespaces (`urn:com:vendor:*`,
+  `urn:io:vendor:*`) for capabilities the library cannot enumerate;
+  their method args are structurally vendor-defined. Standard IETF
+  capabilities (`urn:ietf:params:jmap:*`) MUST go through the typed
+  `add<Entity><Method>` family — H11 lint enforces this. The
+  `capability: CapabilityUri` and `methodName: MethodNameLiteral`
+  parameters are typed; only `args` is the JsonNode escape.
 - **`*.rawData` and `*.extras` `JsonNode` fields** for unknown
   server extensions. Three sites:
   - `ServerCapability.rawData` — unknown capability payloads.
@@ -63,9 +74,10 @@ attempting to retype them.
   cite this exception (A22b).
 
 Any new public `JsonNode` field, parameter, or return type added
-after 1.0 is a P19 violation unless it falls under one of the three
+after 1.0 is a P19 violation unless it falls under one of the four
 patterns above. Reviewers can grep for `JsonNode` under `src/` to
-spot new occurrences.
+spot new occurrences; the typed-builder family is additionally
+guarded by the H11 lint.
 
 ## Section A — Must FREEZE before 1.0
 
@@ -295,27 +307,82 @@ wrong-kind-present (D4).
 `NoCreate` marker fills the `T` slot for entities whose `/set` has no
 create rail — currently `VacationResponse` only (D6).
 
-### A5. Decision on `extras: seq[(string, JsonNode)]` *(P19)*
+### A5. Typed extension wrappers; one JsonNode escape for vendor URNs *(P19)* — **DONE**
 
-`src/jmap_client/builder.nim:167, 227, 261, 294, 325`. Every public
-`add*` builder takes
-`extras: seq[(string, JsonNode)] = @[]` for entity-specific extension
-keys. Once shipped, every server-extension key flows through this seq
-forever; later typing those keys is a major-version break.
+The public typed-builder family carries no `extras: seq[(string,
+JsonNode)]` parameter. Locked structure:
 
-**Two options. Pick one.**
+- The five generic builders (`addGet[T]`, `addSet[T, …]`,
+  `addCopy[T, …]`, `addQuery[T, …]`, `addQueryChanges[T, …]`), their
+  single-type-parameter templates, and the two-parameter
+  `addChanges[T, RespT]` are hub-private. They retain `*` in
+  `src/jmap_client/internal/protocol/builder.nim` so in-tree
+  per-entity wrappers and `convenience.nim` reach them via direct
+  internal import, but are filtered from `protocol.nim`'s
+  `export builder except …` clause — `import jmap_client` does not
+  see them.
 
-- **(a)** Replace with typed extension records per known extension
-  capability — e.g. typed `EmailBodyFetchOptions` for Email/get's
-  body-fetch options instead of
-  `extras = @[("fetchTextBodyValues", %true)]`. Keep `extras` for
-  *unknown* extensions only and document its forward-compat semantics.
-- **(b)** Keep `extras` as the sole documented escape hatch, with a
-  written commitment that the library never types extension keys
-  retroactively.
+- Per-IETF-method, the user-facing surface is a typed wrapper:
+  `addMailboxGet`, `addMailboxChanges`, `addMailboxQuery`,
+  `addMailboxQueryChanges`, `addMailboxSet`; `addEmailGet`,
+  `addEmailGetByRef`, `addPartialEmailGet`, `addPartialEmailGetByRef`,
+  `addEmailChanges`, `addEmailQuery`, `addEmailQueryChanges`,
+  `addEmailSet`, `addEmailCopy`, `addEmailCopyAndDestroy`,
+  `addEmailParse`, `addEmailImport`; `addThreadGet`,
+  `addThreadGetByRef`, `addThreadChanges`; `addEmailSubmissionGet`,
+  `addEmailSubmissionChanges`, `addEmailSubmissionQuery`,
+  `addEmailSubmissionQueryChanges`, `addEmailSubmissionSet`,
+  `addEmailSubmissionAndEmailSet`; `addVacationResponseGet`,
+  `addVacationResponseSet`; `addSearchSnippetGet`,
+  `addSearchSnippetGetByRef`. Entity-specific extension keys are
+  typed parameters (e.g. `EmailBodyFetchOptions` on `addEmailGet` /
+  `addPartialEmailGet` / `addEmailParse`).
 
-Either is defensible; the absence of a written commitment is what
-becomes a libdbus-style trap.
+- For vendor URN capabilities the library cannot enumerate, the
+  sole typed escape is
+  `addCapabilityInvocation(b: RequestBuilder, capability:
+  CapabilityUri, methodName: MethodNameLiteral, args: JsonNode):
+  Result[(RequestBuilder, ResponseHandle[JsonNode]),
+  ValidationError]`. Vendor URN namespaces (`urn:com:vendor:*`,
+  `urn:io:vendor:*`) are the only legitimate values for
+  `capability`; standard IETF capabilities (`urn:ietf:params:jmap:*`)
+  flow through the typed wrapper family.
+
+- `CapabilityUri = distinct string`
+  (`src/jmap_client/internal/types/capabilities.nim:82`) carries
+  RFC 8620 §2 capability URIs end-to-end. Raw constructor
+  module-private (P15); `parseCapabilityUri` validates the RFC 8141
+  URN envelope. `RequestBuilder.capabilityUris` holds
+  `seq[CapabilityUri]`; `build()` / `capabilities()` unwrap to
+  `seq[string]` for the RFC 8620 §3.3 wire shape.
+
+- `MethodNameLiteral = distinct string`
+  (`src/jmap_client/internal/types/methods_enum.nim:96`) is the
+  validated wire-name carrier for `addCapabilityInvocation`.
+  Distinct from the `MethodName` enum because vendor methods cannot
+  be enumerated; `parseMethodNameLiteral` enforces 1..255 octets, no
+  control chars, contains `/`.
+
+- Per-call typed metadata lives in
+  `src/jmap_client/internal/protocol/call_meta.nim` — `setMeta` /
+  `getMeta` helpers fold typed create/update/destroy/ids inputs into
+  `CallLimitMeta` once; the stripped generic builders delegate.
+
+- `EmailBodyFetchOptions` is consumed via
+  `emitBodyFetchOptions(node, opts)`
+  (`src/jmap_client/internal/mail/serde_email.nim:933`). Three
+  Email body-fetching wrappers consume it: `addEmailGet`,
+  `addPartialEmailGet`, `addEmailParse`.
+
+**Mechanical gate.** H11 typed-builder JsonNode lint
+(`tests/lint/h11_typed_builder_no_jsonnode.nim`) walks
+`src/jmap_client/internal/{protocol,mail}/`, `src/jmap_client.nim`,
+and `src/jmap_client/convenience.nim`; CI fails on any exported
+`add<Entity><Method>*` declaration whose parameter list contains
+`JsonNode`. Allowlist: `addEcho`, `addCapabilityInvocation`,
+`addInvocation` (the latter is hub-private; the lint exempts it so
+it remains internally callable for the typed wrappers). Wired into
+`just check`, `just ci`, and `just lint-typed-builder-jsonnode`.
 
 ### A6. Phantom-tag handles to a `BuiltRequest` *(P16, P21)*
 
@@ -773,31 +840,48 @@ Resolved by A4 D2 — typed `Opt[U]` chosen, with `U` = per-entity
 the `PartialT` family shipped together with A4 (integrated cut). No
 semver-upgrade path required.
 
-### A3.6. Partial-entity types for sparse `/get` responses *(P5, P7, P19)* — **DONE**
+### A3.6. Partial-entity types for sparse `/get` responses *(P5, P7, P19)* — **DONE for types; PARTIAL on public surface**
 
-Six `PartialT` types shipped: `PartialEmail`, `PartialMailbox`,
+Six `PartialT` types are in place: `PartialEmail`, `PartialMailbox`,
 `PartialIdentity`, `PartialEmailSubmission`, `PartialVacationResponse`,
 `PartialThread`. Each mirrors the full read model — wire-nullable
 fields typed as `FieldEcho[T]` (three-state: absent / null / value);
 wire-non-nullable fields typed as `Opt[T]` (two-state: absent /
-value). Receive-side parsers lenient on missing, strict on
+value). Receive-side parsers are lenient on missing, strict on
 wrong-kind-present (D4). Closed-enum wire tokens
 (`PartialEmailSubmission.undoStatus: Opt[UndoStatus]`) stay typed —
-unknown tokens surface as SerdeViolation.
+unknown tokens surface as `SerdeViolation`.
 
 Each `PartialT` registers as a getter-only JMAP entity (D7) — same
 `MethodEntity` tag, capability URI, and `getMethodName` as the full
 record; no setter / queryer / changes / copy / import overloads.
-Generic `addGet[PartialT]` works for every partial via this
-registration. For Email specifically, two wrappers
-(`addPartialEmailGet`, `addPartialEmailGetByRef`) carry the
-`EmailBodyFetchOptions` parameter parallel to existing `addEmailGet`
-/ `addEmailGetByRef`.
+Each is also the typed `U` slot of `SetResponse[T, U].updateResults`
+(A4), so every `/set` echo path is `PartialT`-typed even where no
+typed `/get` wrapper exists.
 
-Closes both the A3.6 sparse-`/get` gap (receive-side typed partial)
-and the A4 typed-`updateResults` gap (same `PartialT` family is the
-`U` slot of `SetResponse[T, U]`). Receive-side parsers AND
-request-side typed builders ship together — no P5 amputation.
+**Public sparse-`/get` surface.** Email only. Two wrappers —
+`addPartialEmailGet` and `addPartialEmailGetByRef` — carry the
+typed `EmailBodyFetchOptions` parameter and route through the
+hub-private `addGet[PartialEmail]`. For Mailbox, Identity, Thread,
+EmailSubmission, VacationResponse the typed builders for full-record
+`/get` exist (`addMailboxGet`, …) but their `PartialT` siblings
+(`addPartialMailboxGet`, …) do not — A5 made the generic
+`addGet[PartialT]` hub-private, so consumers of `import jmap_client`
+have no public typed path to sparse `/get` for those five entities.
+
+**Left to do.**
+
+- Decision (freeze-blocking if "ship the wrappers"): either land
+  per-entity Partial-`/get` wrappers for the remaining five entities
+  (`addPartialMailboxGet`, `addPartialIdentityGet`,
+  `addPartialThreadGet`, `addPartialEmailSubmissionGet`,
+  `addPartialVacationResponseGet`) parallel to their full-record
+  siblings, OR record an explicit pre-1.0 decision to ship Email-
+  only sparse `/get` and document the rationale (sparse `/get`
+  matters most where records are large; the other five entities are
+  small enough that full `/get` suffices). Whichever path is taken,
+  the typed-`updateResults` rail (A4) is unaffected — the `PartialT`
+  family is already in place there.
 
 ### A6.5. Stub `BuiltRequest` and `DispatchedRequest` types *(P21, P23)*
 
@@ -1165,17 +1249,16 @@ over an `Opt` of a `Result`). Each finding may not be deferred to
 
 Tied to F4 (CI smoke test reads from AUDIT.md).
 
-### C2. Per-entity flatten of four-param `addSet` *(P7)*
+### C2. Per-entity flatten of four-param `addSet` *(P7)* — **DONE**
 
-`src/jmap_client/mail/mail_builders.nim:276`. Currently the
-single-type-param template form `addSet[T]` only takes
-`(b, accountId)` — so any user with `create=` / `update=` /
-`destroy=` / `extras=` falls through to the four-parameter form
-`addSet[Email, EmailBlueprint, NonEmptyEmailUpdates,
-SetResponse[EmailCreatedItem]]`. The codebase apologises for this in
-`builder.nim:374–378`. Generate per-entity overloads
-(`addEmailSet(b, accountId, create=…, update=…)`) so the four-param
-chain stays internal.
+The four-parameter generic `addSet[T, C, U, R]` is hub-private (A5;
+filtered via `protocol.nim`'s `export builder except …` clause).
+Public callers see only per-entity wrappers — `addEmailSet`,
+`addMailboxSet`, `addEmailSubmissionSet`,
+`addEmailSubmissionAndEmailSet`, `addVacationResponseSet` — each
+taking `(b, accountId, ifInState?, create?, update?, destroy?)` with
+typed creation models, typed update sets, and no `extras=`
+parameter.
 
 ### C3. `byIds` per-entity helpers *(P7)*
 
@@ -1700,7 +1783,7 @@ Categories:
 
 - **Existence gates** — files that must exist before 1.0 (C1.1,
   D1.5, D9, D10, D11.5, D13.5, D15, D16, D17).
-- **Mechanical gates** — CI lints that must pass (H1–H9).
+- **Mechanical gates** — CI lints that must pass (H1–H11).
 - **Snapshot gates** — frozen files committed (A25, A26, F6).
 - **Decision gates** — open choices that must be resolved (A3.5,
   B9, B11, B12, D4 devendor).
@@ -2013,6 +2096,24 @@ public hubs and points at A1.
 
 **Current-state assertion.** Zero violations under the post-A1 layout.
 
+### H11. Typed-builder JsonNode lint *(P19)* — backs A5
+
+Every exported `add<Entity><Method>*` declaration must be free of
+`JsonNode` in its parameter list. The closed allowlist of public
+JsonNode-accepting builders is `addEcho` (RFC 8620 §4 Core/echo is
+structurally JSON-typed — A22) and `addCapabilityInvocation` (RFC
+8620 §2.5 vendor URN escape — A5). `addInvocation` is hub-private
+(filtered via `protocol.nim`'s `except` clause) and exempted so the
+typed wrappers can route through it internally.
+
+**Implementation path.** `tests/lint/h11_typed_builder_no_jsonnode.nim`
+walks `src/jmap_client/internal/{protocol,mail}/`,
+`src/jmap_client.nim`, and `src/jmap_client/convenience.nim`. Wired
+to `just check`, `just ci`, and the standalone
+`just lint-typed-builder-jsonnode` recipe.
+
+**Current-state assertion.** Zero violations.
+
 ## Coverage trace — every principle to at least one item
 
 Every principle has at least one TODO item that, if executed, brings
@@ -2048,7 +2149,7 @@ Status legend:
 | P16 (preconditions in types) | A6, A6.5, A7b, A29, B3, B4, B6, B11, B12 | H9; B11/B12 resolution | 🔴 (B11, B12 open) |
 | P17 (one config surface) | A14, A20, A21 | review; F6 snapshot | 🟡 |
 | P18 (sum types over flag soup) | B1, B2, B7, B8, H9 | H9 catch-all lint | 🟡 |
-| P19 (schema-driven types) | A2, A2b, A3, A3.5, A4, A5, A14, A15, A16, A17, A18, A21, A22, A22b, A28, A28b | A22b inline docstrings; F1 | 🔴 (A3.5 open) |
+| P19 (schema-driven types) | A2, A2b, A3, A3.5, A4, A5, A14, A15, A16, A17, A18, A21, A22, A22b, A28, A28b | H11 typed-builder lint (A5); A22b inline docstrings; F1 | 🟡 |
 | P20 (additive variants) | A11, A23, A24, D7, D13, D13.5, H5 | H5 lint | 🟡 |
 | P21 (lifecycle types) | A6, A6.5, A7, A7b, A23, A24 | type-shape snapshot (A25) | 🟡 |
 | P22 (sync first, async via interface) | A19, E1 | review; transport interface lands first | 🟡 |
@@ -2072,7 +2173,7 @@ must fail CI, not depend on reviewer attention.
 | Global mutable state | D1.5 (no-globals rule), H2 | H2 lint |
 | Global callbacks | D1.5 (no-callbacks rule), D10 | future H10 once L5 lands |
 | Two-channel configuration | A14, A20, A21 | F6 snapshot diff (catches future drift) |
-| Stringly-typed APIs | A2, A2b, A3, A3.5, A4, A5, A14, A15, A17, A18, A21, A22b | H7 (convenience charter); reviewer grep on `JsonNode` outside Documented exceptions |
+| Stringly-typed APIs | A2, A2b, A3, A3.5, A4, A5, A14, A15, A17, A18, A21, A22b | H11 typed-builder lint; H7 (convenience charter); reviewer grep on `JsonNode` outside Documented exceptions |
 | Multiple coexisting public layers | A1, A1b, A9, A10 | F6 snapshot |
 | Convenience layer leaking | C7, C9, F3, H7 | H7 lint |
 | Catch-all `else` on finite enums | A11, H9 | H9 lint |
