@@ -348,3 +348,8 @@ core.*
 *.su
 *.idb
 *.pdb
+
+# -----------------------------------------------------------------------------
+# Script outputs — scripts/strip_comments.nims writes generated copies here
+# -----------------------------------------------------------------------------
+scripts/output/
