@@ -154,26 +154,130 @@ test-report:
     @echo "Test report: testresults.html"
 
 # Run every test including slow ones from tests/testament_skip.txt and
-# the live integration suite. Requires at least one of Stalwart, James,
-
-# or Cyrus to be up.
+# the live integration suite, sharded by server for parallelism. Each
+# shard logs to testresults/test-full/<shard>.log; live output is
+# prefixed [stalwart] / [james] / [cyrus] / [joinable] per line for
+# attribution. Fail-fast: first failing shard SIGTERMs siblings.
+# Requires at least one of Stalwart, James, or Cyrus to be up.
 test-full:
     #!/usr/bin/env bash
-    set -euo pipefail
-    shopt -s inherit_errexit
+    set -m
+    set -uo pipefail
     if [ ! -f /tmp/stalwart-env.sh ] && [ ! -f /tmp/james-env.sh ] && [ ! -f /tmp/cyrus-env.sh ]; then
         echo "ERROR: at least one of /tmp/stalwart-env.sh, /tmp/james-env.sh, or /tmp/cyrus-env.sh required" >&2
         echo "       run 'just jmap-up' (or 'just stalwart-up' / 'just james-up' / 'just cyrus-up') first" >&2
         exit 1
     fi
-    cleanup() { find tests/ -name 'megatest' -type f -delete; find tests/ -name 'megatest.nim' -type f -delete; }
+    declare -A shard_pids=()
+    declare -A shard_logs=()
+    cleanup() {
+        for pid in "${shard_pids[@]:-}"; do
+            kill -TERM -- "-${pid}" 2>/dev/null || true
+        done
+        rm -rf tests/integration/live-stalwart tests/integration/live-james tests/integration/live-cyrus
+        find tests/ -name 'megatest' -type f -delete
+        find tests/ -name 'megatest.nim' -type f -delete
+    }
     trap cleanup EXIT
-    echo "Running FULL test suite (including slow + live integration tests)..."
-    if [ -f /tmp/stalwart-env.sh ]; then . /tmp/stalwart-env.sh; fi
-    if [ -f /tmp/james-env.sh ]; then . /tmp/james-env.sh; fi
-    if [ -f /tmp/cyrus-env.sh ]; then . /tmp/cyrus-env.sh; fi
-    stdbuf -oL -eL testament --backendLogging:off all
-    echo "Full test suite passed"
+    mkdir -p testresults/test-full
+    rm -f testresults/test-full/*.log
+
+    # Phase 1 — every test except live execution. Live tests are in the
+    # megatest binary but their bodies short-circuit via
+    # loadLiveTestTargets().isOk when no JMAP_TEST_* env vars are sourced.
+    run_joinable_shard() {
+        local name="joinable"
+        local log="testresults/test-full/${name}.log"
+        shard_logs[$name]="$log"
+        (
+            stdbuf -oL -eL testament --backendLogging:off --colors:off all 2>&1 \
+                | awk -v prefix="[${name}] " '{ gsub(/\033\[[0-9;]*m/, ""); print prefix $0; fflush(); }' \
+                | tee "${log}"
+            exit "${PIPESTATUS[0]}"
+        ) &
+        shard_pids[$name]=$!
+    }
+
+    # Phase 2 — one shard per server. Each shard hardlinks every .nim in
+    # tests/integration/live/ into tests/integration/live-<name>/ so the
+    # three concurrent compiles write their per-test binary outputs to
+    # disjoint paths (Nim emits the binary next to the source file;
+    # without per-shard source dirs we get "Text file busy" races on
+    # the shared output path).
+    run_live_shard() {
+        local name="$1" envfile="$2"
+        local log="testresults/test-full/${name}.log"
+        local shard_dir="tests/integration/live-${name}"
+        shard_logs[$name]="$log"
+        rm -rf "$shard_dir"
+        mkdir -p "$shard_dir"
+        cp -al tests/integration/live/*.nim "$shard_dir/"
+        (
+            . "${envfile}"
+            stdbuf -oL -eL testament --backendLogging:off --colors:off \
+                pat "${shard_dir}/*_live.nim" -- -d:jmapLiveShard 2>&1 \
+                | awk -v prefix="[${name}] " '{ gsub(/\033\[[0-9;]*m/, ""); print prefix $0; fflush(); }' \
+                | tee "${log}"
+            exit "${PIPESTATUS[0]}"
+        ) &
+        shard_pids[$name]=$!
+    }
+
+    echo "=== test-full: spawning shards ==="
+    run_joinable_shard
+
+    if [ -f /tmp/stalwart-env.sh ]; then
+        run_live_shard stalwart /tmp/stalwart-env.sh
+    fi
+    if [ -f /tmp/james-env.sh ]; then
+        run_live_shard james /tmp/james-env.sh
+    fi
+    if [ -f /tmp/cyrus-env.sh ]; then
+        run_live_shard cyrus /tmp/cyrus-env.sh
+    fi
+
+    failed_shards=()
+    remaining=${#shard_pids[@]}
+    while [ "$remaining" -gt 0 ]; do
+        finished_pid=""
+        rc=0
+        wait -n -p finished_pid || rc=$?
+        if [ -z "$finished_pid" ] || [ "$rc" -eq 127 ]; then
+            break
+        fi
+        for name in "${!shard_pids[@]}"; do
+            if [ "${shard_pids[$name]}" = "$finished_pid" ]; then
+                unset 'shard_pids[$name]'
+                if [ "$rc" -ne 0 ]; then
+                    failed_shards+=("$name")
+                fi
+                break
+            fi
+        done
+        remaining=$((remaining - 1))
+        if [ "$rc" -ne 0 ]; then
+            for nm in "${!shard_pids[@]}"; do
+                kill -TERM -- "-${shard_pids[$nm]}" 2>/dev/null || true
+            done
+            wait 2>/dev/null || true
+            break
+        fi
+    done
+
+    echo ""
+    echo "=== test-full: summary ==="
+    if [ ${#failed_shards[@]} -eq 0 ]; then
+        echo "All shards passed. Logs in testresults/test-full/."
+        exit 0
+    fi
+    echo "FAILED: ${failed_shards[*]}"
+    for name in "${failed_shards[@]}"; do
+        echo ""
+        echo "================== [${name}] FAILURE LOG ================="
+        cat "${shard_logs[$name]}" 2>/dev/null || echo "(no log captured)"
+        echo "============== [${name}] END FAILURE LOG ================="
+    done
+    exit 1
 
 # =============================================================================
 # CODE QUALITY

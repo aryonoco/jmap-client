@@ -24,6 +24,14 @@ import std/sets
 import std/strutils
 import std/tables
 
+const liveBudgetMul* = when defined(jmapLiveShard): 3 else: 1
+  ## Polling-budget multiplier. ``just test-full`` runs the Stalwart,
+  ## James, and Cyrus live shards concurrently under ``-d:jmapLiveShard``;
+  ## three parallel testament + Nim compile + JMAP-call pipelines on the
+  ## same host stretch SMTP queue-drain and delivery times well past the
+  ## defaults tuned for serial execution. The serial path
+  ## (``just test-integration``) leaves the multiplier at 1.
+
 import results
 import jmap_client
 import jmap_client/client
@@ -696,7 +704,7 @@ proc seedDraftEmail*(
   emailSetCreate(client, mailAccountId, blueprint, creationLabel)
 
 proc awaitSmtpQueueDrain*(
-    adminBasic: string, sessionUrl: string, budgetMs: int = 60000
+    adminBasic: string, sessionUrl: string, budgetMs: int = 60000 * liveBudgetMul
 ): Result[void, string] =
   ## Polls Stalwart's admin ``/api/queue/messages?values=true`` endpoint
   ## until ``data.total == 0``. Provides a deterministic barrier for
@@ -818,7 +826,7 @@ proc pollSubmissionDelivery*(
     submissionAccountId: AccountId,
     submissionId: Id,
     createUndoStatus: Opt[UndoStatus] = Opt.none(UndoStatus),
-    budgetMs: int = 50000,
+    budgetMs: int = 50000 * liveBudgetMul,
 ): Result[Opt[EmailSubmission[usFinal]], string] =
   ## Polls EmailSubmission/get until ``undoStatus == final``, then —
   ## when running against Stalwart — awaits Stalwart's outgoing SMTP
@@ -987,7 +995,7 @@ proc pollSubmissionPending*(
     client: var JmapClient,
     submissionAccountId: AccountId,
     submissionId: Id,
-    budgetMs: int = 25000,
+    budgetMs: int = 25000 * liveBudgetMul,
 ): Result[EmailSubmission[usPending], string] =
   ## Structural mirror of ``pollSubmissionDelivery`` on the opposite
   ## phantom narrowing. Polls ``EmailSubmission/get`` every 200 ms until
@@ -1039,7 +1047,7 @@ proc pollEmailQueryIndexed*(
     mailAccountId: AccountId,
     filter: Filter[EmailFilterCondition],
     expectedIds: HashSet[Id],
-    budgetMs: int = 30000,
+    budgetMs: int = 30000 * liveBudgetMul,
 ): Result[seq[Id], string] =
   ## Polls ``Email/query`` with the given ``filter`` until every id in
   ## ``expectedIds`` surfaces in the result set or the budget elapses.
@@ -1141,7 +1149,7 @@ proc pollEmailDeliveryToInbox*(
     mailAccountId: AccountId,
     inbox: Id,
     subject: string,
-    budgetMs: int = 5000,
+    budgetMs: int = 5000 * liveBudgetMul,
 ): Result[Id, string] =
   ## Polls ``Email/query`` on ``inbox`` filtered by ``subject`` until a
   ## match surfaces or the budget elapses. Cat-D verification path for
