@@ -23,12 +23,13 @@ import jmap_client/internal/types/validation
 
 import ../../massertions
 import ../../mfixtures
+import ../../mtestblock
 
 # =============================================================================
 # A. Body header-name NUL and non-ASCII rejection (§6.4.1)
 # =============================================================================
 
-block bodyHeaderNameTrailingNul: # scenario 98
+testCase bodyHeaderNameTrailingNul: # scenario 98
   ## Trailing NUL byte must be rejected by the printable-ASCII rule,
   ## not the exact-name match — pins rule order so a reserved-name
   ## side-channel cannot leak via the error message.
@@ -36,7 +37,7 @@ block bodyHeaderNameTrailingNul: # scenario 98
   assertErr res
   assertErrContains res, "non-printable byte"
 
-block bodyHeaderNameNulPositionMirror: # scenario 98a
+testCase bodyHeaderNameNulPositionMirror: # scenario 98a
   ## NUL byte at three different positions (start, middle, end) must each
   ## be rejected by the printable-ASCII rule — proves the check is
   ## position-agnostic, not an endpoint-only test.
@@ -47,7 +48,7 @@ block bodyHeaderNameNulPositionMirror: # scenario 98a
     assertErr res
     assertErrContains res, "non-printable byte"
 
-block bodyHeaderNameOverlongUtf8Colon: # scenario 98b
+testCase bodyHeaderNameOverlongUtf8Colon: # scenario 98b
   ## Overlong-UTF-8 encoding of U+003A (colon) as \xC0\xBA must be
   ## rejected by the printable-ASCII rule — both bytes 0xC0 and 0xBA
   ## sit outside 0x21..0x7E, so rejection happens before any name
@@ -60,7 +61,7 @@ block bodyHeaderNameOverlongUtf8Colon: # scenario 98b
 # B. Email header-name NUL/DEL/locale/homoglyph (§6.4.1)
 # =============================================================================
 
-block emailHeaderNameTurkishDotlessI: # scenario 98c
+testCase emailHeaderNameTurkishDotlessI: # scenario 98c
   ## U+012C LATIN CAPITAL LETTER I WITH BREVE (UTF-8: \xC4\xAC) cannot
   ## smuggle a Content-* look-alike past the printable-ASCII gate.
   ## The embedded ``doAssert`` pins that ``toLowerAscii`` is byte-level
@@ -70,7 +71,7 @@ block emailHeaderNameTurkishDotlessI: # scenario 98c
   assertErrContains res, "non-printable byte"
   doAssert "\xC4\xAC".toLowerAscii == "\xC4\xAC"
 
-block emailHeaderNameNulDelPositionMirror: # scenario 98d
+testCase emailHeaderNameNulDelPositionMirror: # scenario 98d
   ## NUL at three positions plus DEL (0x7F) at the tail. All four must
   ## be rejected by the character-check rule — not the ``content-``
   ## prefix predicate — so the error message cannot leak whether the
@@ -81,7 +82,7 @@ block emailHeaderNameNulDelPositionMirror: # scenario 98d
     assertErr res
     assertErrContains res, "non-printable byte"
 
-block turkishLocaleInvariance: # scenario 98e
+testCase turkishLocaleInvariance: # scenario 98e
   ## Under LC_CTYPE=tr_TR.UTF-8 the parser's ``toLowerAscii`` must
   ## continue to behave byte-identically. Regression gate — fires if
   ## the implementation ever reaches for ``std/unicode.toLower``.
@@ -125,7 +126,7 @@ block turkishLocaleInvariance: # scenario 98e
       doAssert bPair == bodyBaseline[i],
         "locale altered body-name parse of '" & raw & "'"
 
-block emailHeaderNameHomoglyphPrefixBypass: # scenario 98f
+testCase emailHeaderNameHomoglyphPrefixBypass: # scenario 98f
   ## Three homoglyph attacks against the ``from`` prefix — ZERO WIDTH
   ## SPACE, LATIN SMALL LETTER F WITH HOOK, LATIN SMALL LETTER I WITH
   ## TILDE. Each carries at least one byte outside 0x21..0x7E, so the
@@ -141,7 +142,7 @@ block emailHeaderNameHomoglyphPrefixBypass: # scenario 98f
 # C. Structural-boundary serde survival (§6.4.5)
 # =============================================================================
 
-block spineDepth128Stable: # scenario 103
+testCase spineDepth128Stable: # scenario 103
   ## A depth-128 multipart spine (``MaxBodyPartDepth``) must serialise
   ## to a byte-stable JSON under repeated invocation. Pins the
   ## recursion bound declared in ``serde_body.nim:29`` and guards
@@ -155,7 +156,7 @@ block spineDepth128Stable: # scenario 103
   let b = bp.toJson()
   doAssert $a == $b, "depth-128 spine toJson is not byte-stable"
 
-block bodyValuesBreadthDepthHarvest: # scenario 103a
+testCase bodyValuesBreadthDepthHarvest: # scenario 103a
   ## A 5-level multipart spine with 128 distributed inline leaves.
   ## 124 leaves populate the innermost multipart; four outer levels
   ## each contribute one additional leaf. Pins the ``bodyValues``
@@ -201,7 +202,7 @@ block bodyValuesBreadthDepthHarvest: # scenario 103a
 # D. Serde coverage and dedup safety (§6.4.5)
 # =============================================================================
 
-block fullBlueprintConvenienceKeys: # scenario 104
+testCase fullBlueprintConvenienceKeys: # scenario 104
   ## ``makeFullEmailBlueprint`` populates every convenience field and
   ## one ``extraHeaders`` entry. Pins the full wire surface: the
   ## eleven RFC 5322 convenience keys, plus ``keywords``,
@@ -215,7 +216,7 @@ block fullBlueprintConvenienceKeys: # scenario 104
     doAssert obj{key} != nil, "expected '" & key & "' key present"
   assertJsonHasHeaderKey(obj, "x-marker", hfText)
 
-block serdeInjectivity: # scenario 104a
+testCase serdeInjectivity: # scenario 104a
   ## Two blueprints identical except for ONE additional ``extraHeaders``
   ## entry must produce byte-distinct JSON. Pinned example of property
   ## 91 (ThoroughTrials) — serialisation is injective on aggregate
@@ -236,7 +237,7 @@ block serdeInjectivity: # scenario 104a
   doAssert $bpA.toJson() != $bpB.toJson(),
     "blueprints differing by one header must serialise distinctly"
 
-block intraTableDedupLastWriteWins: # scenario 104b
+testCase intraTableDedupLastWriteWins: # scenario 104b
   ## Insert ``"From"`` then ``"from"`` into the same Table. Smart
   ## constructor lowercases both, so the keys are byte-equal and V2
   ## overwrites V1. The emitted JSON must carry exactly one ``from``
@@ -266,7 +267,7 @@ block intraTableDedupLastWriteWins: # scenario 104b
 # E. JSON-injection resistance (§6.4.5)
 # =============================================================================
 
-block jsonInjectionViaSubject: # scenario 104c
+testCase jsonInjectionViaSubject: # scenario 104c
   ## A crafted subject that would break out of the JSON string context
   ## if naive concatenation were used must be safely escaped by
   ## ``std/json``. Pins that ``%`` delegates to the stdlib escape

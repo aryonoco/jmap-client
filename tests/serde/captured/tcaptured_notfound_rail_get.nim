@@ -17,8 +17,9 @@
 import jmap_client
 import jmap_client/internal/types/envelope
 import ./mloader
+import ../../mtestblock
 
-block tcapturedNotfoundRailGet:
+testCase tcapturedNotfoundRailGet:
   forEachCapturedServer("notfound-rail-get", j):
     let resp = envelope.Response.fromJson(j).expect("envelope.Response.fromJson")
     doAssert resp.methodResponses.len == 1

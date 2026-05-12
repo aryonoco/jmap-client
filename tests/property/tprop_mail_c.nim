@@ -19,6 +19,7 @@ import jmap_client/internal/mail/serde_headers
 import jmap_client/internal/mail/serde_body
 
 import ../mproperty
+import ../mtestblock
 
 # =============================================================================
 # Helpers — custom equality for case objects (doAssert uses $ which triggers
@@ -52,7 +53,7 @@ proc bodyPartEq(a, b: EmailBodyPart): bool =
 # A. Round-trip identity properties (DefaultTrials = 500)
 # =============================================================================
 
-block propRoundTripEmailHeader:
+testCase propRoundTripEmailHeader:
   checkProperty "EmailHeader round-trip: fromJson(toJson(h)) == h":
     let eh = rng.genEmailHeader(trial)
     lastInput = eh.name & ": " & eh.value
@@ -61,7 +62,7 @@ block propRoundTripEmailHeader:
     doAssert rt.name == eh.name, "EmailHeader name mismatch"
     doAssert rt.value == eh.value, "EmailHeader value mismatch"
 
-block propRoundTripPartId:
+testCase propRoundTripPartId:
   checkProperty "PartId round-trip: fromJson(toJson(pid)) == pid":
     let pid = rng.genPartId(trial)
     lastInput = $pid
@@ -69,7 +70,7 @@ block propRoundTripPartId:
     let rt = PartId.fromJson(j).get()
     doAssert rt == pid, "PartId round-trip identity violated"
 
-block propRoundTripEmailBodyValue:
+testCase propRoundTripEmailBodyValue:
   checkProperty "EmailBodyValue round-trip: fromJson(toJson(bv)) == bv":
     let bv = rng.genEmailBodyValue()
     lastInput = bv.value
@@ -80,7 +81,7 @@ block propRoundTripEmailBodyValue:
       "EmailBodyValue isEncodingProblem mismatch"
     doAssert rt.isTruncated == bv.isTruncated, "EmailBodyValue isTruncated mismatch"
 
-block propRoundTripHeaderValue:
+testCase propRoundTripHeaderValue:
   checkProperty "HeaderValue round-trip: parseHeaderValue(form, toJson(v)) == v":
     let form = rng.genHeaderForm()
     let v = rng.genHeaderValue(form)
@@ -110,7 +111,7 @@ block propRoundTripHeaderValue:
     of hfUrls:
       doAssert rt.urls == v.urls, "HeaderValue urls mismatch"
 
-block propRoundTripEmailBodyPart:
+testCase propRoundTripEmailBodyPart:
   checkProperty "EmailBodyPart round-trip: fromJson(toJson(part)) == part":
     let part = rng.genEmailBodyPart(3)
     lastInput = part.contentType & " multipart=" & $part.isMultipart
@@ -122,28 +123,28 @@ block propRoundTripEmailBodyPart:
 # B. Totality — never crashes (ThoroughTrials = 2000)
 # =============================================================================
 
-block propParseHeaderPropertyNameTotality:
+testCase propParseHeaderPropertyNameTotality:
   checkPropertyN "parseHeaderPropertyName never crashes on arbitrary strings",
     ThoroughTrials:
     let s = genArbitraryString(rng)
     lastInput = s
     discard parseHeaderPropertyName(s)
 
-block propParseHeaderPropertyNameMaliciousTotality:
+testCase propParseHeaderPropertyNameMaliciousTotality:
   checkPropertyN "parseHeaderPropertyName never crashes on malicious input",
     ThoroughTrials:
     let s = genMaliciousString(rng, trial)
     lastInput = s
     discard parseHeaderPropertyName(s)
 
-block propParseHeaderPropertyNameArbitraryTotality:
+testCase propParseHeaderPropertyNameArbitraryTotality:
   checkPropertyN "parseHeaderPropertyName never crashes on header-like strings",
     ThoroughTrials:
     let s = genArbitraryHeaderPropertyString(rng, trial)
     lastInput = s
     discard parseHeaderPropertyName(s)
 
-block propParseHeaderValueTotality:
+testCase propParseHeaderValueTotality:
   checkPropertyN "parseHeaderValue never crashes on arbitrary (form, JSON) pairs",
     ThoroughTrials:
     let form = rng.genHeaderForm()
@@ -151,34 +152,34 @@ block propParseHeaderValueTotality:
     lastInput = $form & " " & $node.kind
     discard parseHeaderValue(form, node)
 
-block propEmailBodyPartFromJsonTotality:
+testCase propEmailBodyPartFromJsonTotality:
   checkPropertyN "EmailBodyPart.fromJson never crashes on arbitrary JSON",
     ThoroughTrials:
     let j = rng.genArbitraryJsonNode(3)
     lastInput = $j.kind
     discard EmailBodyPart.fromJson(j)
 
-block propEmailBodyPartFromJsonDeepTotality:
+testCase propEmailBodyPartFromJsonDeepTotality:
   checkPropertyN "EmailBodyPart.fromJson never crashes on deep arbitrary JSON",
     QuickTrials:
     let j = rng.genArbitraryJsonObject(5)
     lastInput = $j.kind
     discard EmailBodyPart.fromJson(j)
 
-block propEmailHeaderFromJsonTotality:
+testCase propEmailHeaderFromJsonTotality:
   checkPropertyN "EmailHeader.fromJson never crashes on arbitrary JSON", ThoroughTrials:
     let j = rng.genArbitraryJsonNode(2)
     lastInput = $j.kind
     discard EmailHeader.fromJson(j)
 
-block propEmailBodyValueFromJsonTotality:
+testCase propEmailBodyValueFromJsonTotality:
   checkPropertyN "EmailBodyValue.fromJson never crashes on arbitrary JSON",
     ThoroughTrials:
     let j = rng.genArbitraryJsonNode(2)
     lastInput = $j.kind
     discard EmailBodyValue.fromJson(j)
 
-block propParsePartIdFromServerTotality:
+testCase propParsePartIdFromServerTotality:
   checkPropertyN "parsePartIdFromServer never crashes on arbitrary strings",
     ThoroughTrials:
     let s = genArbitraryString(rng)
@@ -189,7 +190,7 @@ block propParsePartIdFromServerTotality:
 # C. Idempotence — toJson(fromJson(toJson(x))) == toJson(x)
 # =============================================================================
 
-block propIdempotenceEmailBodyPart:
+testCase propIdempotenceEmailBodyPart:
   checkProperty "EmailBodyPart idempotence: toJson(fromJson(toJson(x))) == toJson(x)":
     let part = rng.genEmailBodyPart(3)
     lastInput = part.contentType
@@ -198,7 +199,7 @@ block propIdempotenceEmailBodyPart:
     let j2 = rt.toJson()
     doAssert j1 == j2, "EmailBodyPart idempotence violated"
 
-block propIdempotenceHeaderValue:
+testCase propIdempotenceHeaderValue:
   checkProperty "HeaderValue idempotence: toJson(parseHeaderValue(form, toJson(v))) == toJson(v)":
     let form = rng.genHeaderForm()
     let v = rng.genHeaderValue(form)
@@ -208,7 +209,7 @@ block propIdempotenceHeaderValue:
     let j2 = rt.toJson()
     doAssert j1 == j2, "HeaderValue idempotence violated"
 
-block propIdempotenceEmailHeader:
+testCase propIdempotenceEmailHeader:
   checkProperty "EmailHeader idempotence: toJson(fromJson(toJson(h))) == toJson(h)":
     let eh = rng.genEmailHeader(trial)
     lastInput = eh.name
@@ -221,14 +222,14 @@ block propIdempotenceEmailHeader:
 # D. Invariant properties
 # =============================================================================
 
-block propHeaderPropertyKeyNormalisesName:
+testCase propHeaderPropertyKeyNormalisesName:
   checkProperty "HeaderPropertyKey always normalises name to lowercase":
     let key = rng.genHeaderPropertyKey(trial)
     lastInput = $key
     doAssert key.name == key.name.toLowerAscii(),
       "HeaderPropertyKey name not lowercase: " & key.name
 
-block propHeaderPropertyKeyRoundTripToPropertyString:
+testCase propHeaderPropertyKeyRoundTripToPropertyString:
   checkProperty "HeaderPropertyKey round-trips through toPropertyString/parse":
     let key = rng.genHeaderPropertyKey(trial)
     let wire = key.toPropertyString()
@@ -238,7 +239,7 @@ block propHeaderPropertyKeyRoundTripToPropertyString:
     doAssert rt.form == key.form, "form mismatch"
     doAssert rt.isAll == key.isAll, "isAll mismatch"
 
-block propAllowedFormsAlwaysIncludesRaw:
+testCase propAllowedFormsAlwaysIncludesRaw:
   checkProperty "allowedForms always includes hfRaw for any header name":
     const headerPool = [
       "from", "to", "subject", "date", "message-id", "return-path", "received",
@@ -248,7 +249,7 @@ block propAllowedFormsAlwaysIncludesRaw:
     lastInput = name
     doAssert hfRaw in allowedForms(name), "hfRaw not in allowedForms for " & name
 
-block propValidateHeaderFormRespectsAllowedForms:
+testCase propValidateHeaderFormRespectsAllowedForms:
   checkProperty "validateHeaderForm is consistent with allowedForms":
     let key = rng.genHeaderPropertyKey(trial)
     lastInput = $key
@@ -259,7 +260,7 @@ block propValidateHeaderFormRespectsAllowedForms:
     else:
       doAssert result.isErr, "validateHeaderForm accepted disallowed form"
 
-block propEmailBodyPartCharsetDefault:
+testCase propEmailBodyPartCharsetDefault:
   checkProperty "EmailBodyPart text/* parts always have charset after round-trip":
     let part = rng.genEmailBodyPart(1)
     lastInput = part.contentType

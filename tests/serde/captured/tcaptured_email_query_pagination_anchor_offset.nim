@@ -14,8 +14,9 @@
 import jmap_client
 import jmap_client/internal/types/envelope
 import ./mloader
+import ../../mtestblock
 
-block tcapturedEmailQueryPaginationAnchorOffset:
+testCase tcapturedEmailQueryPaginationAnchorOffset:
   let j = loadCapturedFixture("email-query-pagination-anchor-offset-stalwart")
   let resp = envelope.Response.fromJson(j).expect("envelope.Response.fromJson")
   doAssert resp.methodResponses.len == 1

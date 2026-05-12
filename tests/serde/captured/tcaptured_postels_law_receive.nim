@@ -21,8 +21,9 @@ import std/tables
 import jmap_client
 import jmap_client/internal/types/envelope
 import ./mloader
+import ../../mtestblock
 
-block tcapturedPostelsLawReceive:
+testCase tcapturedPostelsLawReceive:
   let j = loadCapturedFixture("postels-law-receive-adversarial-mime-stalwart")
   let resp = envelope.Response.fromJson(j).expect("envelope.Response.fromJson")
   doAssert resp.methodResponses.len == 1

@@ -17,8 +17,9 @@ import std/tables
 import jmap_client
 import jmap_client/internal/types/envelope
 import ./mloader
+import ../../mtestblock
 
-block tcapturedEmailImportNoDedup:
+testCase tcapturedEmailImportNoDedup:
   let j = loadCapturedFixture("email-import-no-dedup-stalwart")
   let resp = envelope.Response.fromJson(j).expect("envelope.Response.fromJson")
   doAssert resp.methodResponses.len == 1

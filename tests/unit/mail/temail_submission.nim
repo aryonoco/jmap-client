@@ -20,8 +20,9 @@ import jmap_client/internal/types/validation
 
 import ../../massertions
 import ../../mfixtures
+import ../../mtestblock
 
-block toAnyPendingBranchPreserved:
+testCase toAnyPendingBranchPreserved:
   # ``toAny(EmailSubmission[usPending])`` must set ``state == usPending``
   # and populate only the ``usPending`` branch — ``asPending`` returns
   # ``Opt.some`` with the input value; ``asFinal`` and ``asCanceled``
@@ -36,7 +37,7 @@ block toAnyPendingBranchPreserved:
   doAssert a.asFinal().isNone
   doAssert a.asCanceled().isNone
 
-block toAnyFinalBranchPreserved:
+testCase toAnyFinalBranchPreserved:
   # Symmetric to ``toAnyPendingBranchPreserved`` for the ``usFinal``
   # phantom instantiation.
   let s = makeEmailSubmission[usFinal](id = makeId("es-final"))
@@ -48,7 +49,7 @@ block toAnyFinalBranchPreserved:
   doAssert a.asPending().isNone
   doAssert a.asCanceled().isNone
 
-block toAnyCanceledBranchPreserved:
+testCase toAnyCanceledBranchPreserved:
   # Symmetric to ``toAnyPendingBranchPreserved`` for the ``usCanceled``
   # phantom instantiation.
   let s = makeEmailSubmission[usCanceled](id = makeId("es-canceled"))
@@ -60,7 +61,7 @@ block toAnyCanceledBranchPreserved:
   doAssert a.asPending().isNone
   doAssert a.asFinal().isNone
 
-block cancelUpdateProducesSetUndoStatusToCanceled:
+testCase cancelUpdateProducesSetUndoStatusToCanceled:
   # Value-level shape: cancelUpdate returns the nullary
   # ``esuSetUndoStatusToCanceled`` variant. Delegation equivalence
   # (cancelUpdate == setUndoStatusToCanceled) is documented in the
@@ -75,7 +76,7 @@ block cancelUpdateProducesSetUndoStatusToCanceled:
   doAssert u.kind == esuSetUndoStatusToCanceled
   doAssert u.kind == setUndoStatusToCanceled().kind
 
-block phantomArrowStaticRejectsFinalAndCanceled:
+testCase phantomArrowStaticRejectsFinalAndCanceled:
   # THE LOAD-BEARING CHECK for the phantom-typed transition arrow.
   # ``cancelUpdate`` is declared as ``cancelUpdate(s: EmailSubmission[
   # usPending])``. The two wrong-state instantiations MUST fail at
@@ -90,7 +91,7 @@ block phantomArrowStaticRejectsFinalAndCanceled:
     doAssert not compiles(cancelUpdate(default(EmailSubmission[usFinal])))
     doAssert not compiles(cancelUpdate(default(EmailSubmission[usCanceled])))
 
-block existentialBranchAccessorContract:
+testCase existentialBranchAccessorContract:
   # §8.5 matrix row 5 (post-sealing): wrong-branch access on
   # AnyEmailSubmission is UNREPRESENTABLE. Pattern A sealing renames
   # the branch fields to module-private ``rawPending`` / ``rawFinal`` /

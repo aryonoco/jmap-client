@@ -35,8 +35,9 @@ import jmap_client/client
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block temailGetAttachmentsLive:
+testCase temailGetAttachmentsLive:
   forEachLiveTarget(target):
     # Cat-B (Phase L §0): RFC 8621 §4.6 lets a server require pre-
     # uploaded blob attachments and reject inline-bodyValues with

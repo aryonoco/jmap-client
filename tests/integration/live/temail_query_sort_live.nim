@@ -38,8 +38,9 @@ import jmap_client
 import jmap_client/client
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block temailQuerySortLive:
+testCase temailQuerySortLive:
   forEachLiveTarget(target):
     var client = initJmapClient(
         sessionUrl = target.sessionUrl,

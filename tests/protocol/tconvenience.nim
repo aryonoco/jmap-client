@@ -23,6 +23,7 @@ import jmap_client/internal/types/envelope
 
 import ../massertions
 import ../mfixtures
+import ../mtestblock
 
 # ---------------------------------------------------------------------------
 # Mock entity (same pattern as tbuilder.nim)
@@ -71,7 +72,7 @@ registerQueryableEntity(MockQueryable)
 # A. addQueryThenGet
 # ===========================================================================
 
-block addQueryThenGetProducesTwoInvocations:
+testCase addQueryThenGetProducesTwoInvocations:
   ## addQueryThenGet adds both query and get with result reference wiring.
   let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = addQueryThenGet[MockQueryable](b0, makeAccountId("a1"))
@@ -80,7 +81,7 @@ block addQueryThenGetProducesTwoInvocations:
   assertEq req.methodCalls[0].name, mnEmailQuery
   assertEq req.methodCalls[1].name, mnMailboxGet
 
-block addQueryThenGetWiresResultReference:
+testCase addQueryThenGetWiresResultReference:
   ## The get invocation references the query's /ids path.
   let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = addQueryThenGet[MockQueryable](b0, makeAccountId("a1"))
@@ -93,7 +94,7 @@ block addQueryThenGetWiresResultReference:
   assertEq refNode{"name"}.getStr(""), "Email/query"
   assertEq refNode{"path"}.getStr(""), "/ids"
 
-block addQueryThenGetHandlesArePhantomTyped:
+testCase addQueryThenGetHandlesArePhantomTyped:
   ## The returned handles have correct phantom types.
   let b0 = initRequestBuilder(makeBuilderId())
   let (_, handles) = addQueryThenGet[MockQueryable](b0, makeAccountId("a1"))
@@ -102,7 +103,7 @@ block addQueryThenGetHandlesArePhantomTyped:
   # get handle is ResponseHandle[GetResponse[MockQueryable]]
   doAssert $handles.get == "c1"
 
-block addQueryThenGetAutoCollectsCapability:
+testCase addQueryThenGetAutoCollectsCapability:
   ## Capability URI is registered once (not duplicated). The pre-declared
   ## ``urn:ietf:params:jmap:core`` from ``initRequestBuilder`` is also
   ## present (RFC 8620 §3.2).
@@ -117,7 +118,7 @@ block addQueryThenGetAutoCollectsCapability:
 # B. addChangesToGet
 # ===========================================================================
 
-block addChangesToGetProducesTwoInvocations:
+testCase addChangesToGetProducesTwoInvocations:
   ## addChangesToGet adds changes + get with /created reference.
   let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = addChangesToGet[MockQueryable](b0, makeAccountId("a1"), makeState("s0"))
@@ -126,7 +127,7 @@ block addChangesToGetProducesTwoInvocations:
   assertEq req.methodCalls[0].name, mnMailboxChanges
   assertEq req.methodCalls[1].name, mnMailboxGet
 
-block addChangesToGetWiresCreatedRef:
+testCase addChangesToGetWiresCreatedRef:
   ## The get invocation references the changes' /created path.
   let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = addChangesToGet[MockQueryable](b0, makeAccountId("a1"), makeState("s0"))
@@ -141,9 +142,10 @@ block addChangesToGetWiresCreatedRef:
 # C. getBoth for QueryGetHandles
 # ===========================================================================
 
-block getBothQueryGetSuccess:
+testCase getBothQueryGetSuccess:
   ## getBoth extracts both query and get results from a synthetic response.
   let b0 = initRequestBuilder(makeBuilderId())
+  let bid = b0.builderId
   let (_, handles) = addQueryThenGet[MockQueryable](b0, makeAccountId("a1"))
   let queryJson = makeQueryResponseJson(accountId = "a1", queryState = "qs1")
   let getJson = makeGetResponseJson(accountId = "a1", state = "s1")
@@ -155,16 +157,17 @@ block getBothQueryGetSuccess:
     createdIds: Opt.none(Table[CreationId, Id]),
     sessionState: makeState("rs1"),
   )
-  let dr = makeDispatchedResponse(resp, b0.builderId)
+  let dr = makeDispatchedResponse(resp, bid)
   let results = dr.getBoth(handles)
   assertOk results
   let r = results.get()
   doAssert r.query.accountId == makeAccountId("a1")
   doAssert r.get.accountId == makeAccountId("a1")
 
-block getBothQueryGetMethodError:
+testCase getBothQueryGetMethodError:
   ## getBoth fails on the first MethodError (query error = get not attempted).
   let b0 = initRequestBuilder(makeBuilderId())
+  let bid = b0.builderId
   let (_, handles) = addQueryThenGet[MockQueryable](b0, makeAccountId("a1"))
   let errorJson = %*{"type": "serverFail"}
   let getJson = makeGetResponseJson(accountId = "a1", state = "s1")
@@ -176,6 +179,6 @@ block getBothQueryGetMethodError:
     createdIds: Opt.none(Table[CreationId, Id]),
     sessionState: makeState("rs1"),
   )
-  let dr = makeDispatchedResponse(resp, b0.builderId)
+  let dr = makeDispatchedResponse(resp, bid)
   let results = dr.getBoth(handles)
   doAssert results.isErr

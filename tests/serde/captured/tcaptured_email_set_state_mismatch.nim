@@ -12,8 +12,9 @@
 import jmap_client
 import jmap_client/internal/types/envelope
 import ./mloader
+import ../../mtestblock
 
-block tcapturedEmailSetStateMismatch:
+testCase tcapturedEmailSetStateMismatch:
   let j = loadCapturedFixture("email-set-state-mismatch-stalwart")
   let resp = envelope.Response.fromJson(j).expect("envelope.Response.fromJson")
   doAssert resp.methodResponses.len == 1

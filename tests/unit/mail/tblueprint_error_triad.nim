@@ -18,8 +18,9 @@ import jmap_client/internal/types/validation
 
 import ../../massertions
 import ../../mfixtures
+import ../../mtestblock
 
-block discriminantDistinguishesSameBytes: # §6.1.5c scenario 37p
+testCase discriminantDistinguishesSameBytes: # §6.1.5c scenario 37p
   # BodyPartLocation's discriminant is load-bearing — two locations
   # whose payload bytes happen to coincide (partId "p" vs blobId "p")
   # remain distinct because the kind differs. K-3 equality enforces
@@ -33,7 +34,7 @@ block discriminantDistinguishesSameBytes: # §6.1.5c scenario 37p
   doAssert bodyPartLocationEq(inline, inline)
   doAssert bodyPartLocationEq(blob, blob)
 
-block depthFivePathEncoding: # §6.1.5c scenario 37q
+testCase depthFivePathEncoding: # §6.1.5c scenario 37q
   # Build a spine with a multipart at depth 5 (path @[0,0,0,0,0]) that
   # carries a ``content-type`` extraHeaders entry colliding with its
   # own domain-field header set. ``walkBodyPartDuplicates`` emits the
@@ -66,7 +67,7 @@ block depthFivePathEncoding: # §6.1.5c scenario 37q
       hit = true
   doAssert hit, "expected a single bplMultipart duplicate at depth 5"
 
-block depthCouplingInvariantSampled: # §6.1.5c scenario 37r
+testCase depthCouplingInvariantSampled: # §6.1.5c scenario 37r
   # Spot-check the property 97d invariant (``where.path.len <=
   # MaxBodyPartDepth``) against three independent triggers: 37q's
   # depth-5 case reconstructed here, a 7g-style depth-2 case, and

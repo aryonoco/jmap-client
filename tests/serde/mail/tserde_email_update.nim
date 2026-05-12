@@ -20,38 +20,39 @@ import jmap_client/internal/types/validation
 
 import ../../massertions
 import ../../mfixtures
+import ../../mtestblock
 
 # ============= A. toJson(EmailUpdate) per-variant tuple =============
 
-block addKeywordEmitsTuple:
+testCase addKeywordEmitsTuple:
   let (key, value) = makeAddKeyword(kwSeen).toJson()
   assertEq key, "keywords/$seen"
   assertEq value, newJBool(true)
 
-block removeKeywordEmitsTuple:
+testCase removeKeywordEmitsTuple:
   let (key, value) = makeRemoveKeyword(kwSeen).toJson()
   assertEq key, "keywords/$seen"
   assertEq value, newJNull()
 
-block setKeywordsEmitsTuple:
+testCase setKeywordsEmitsTuple:
   let ks = initKeywordSet(@[kwSeen, kwFlagged])
   let (key, value) = makeSetKeywords(ks).toJson()
   assertEq key, "keywords"
   assertEq value, ks.toJson()
 
-block addToMailboxEmitsTuple:
+testCase addToMailboxEmitsTuple:
   let id = makeId("mbx1")
   let (key, value) = makeAddToMailbox(id).toJson()
   assertEq key, "mailboxIds/" & $id
   assertEq value, newJBool(true)
 
-block removeFromMailboxEmitsTuple:
+testCase removeFromMailboxEmitsTuple:
   let id = makeId("mbx1")
   let (key, value) = makeRemoveFromMailbox(id).toJson()
   assertEq key, "mailboxIds/" & $id
   assertEq value, newJNull()
 
-block setMailboxIdsEmitsTuple:
+testCase setMailboxIdsEmitsTuple:
   let ids = makeNonEmptyMailboxIdSet(@[makeId("mbx1"), makeId("mbx2")])
   let (key, value) = makeSetMailboxIds(ids).toJson()
   assertEq key, "mailboxIds"
@@ -59,7 +60,7 @@ block setMailboxIdsEmitsTuple:
 
 # ============= B. toJson(EmailUpdateSet) flatten =============
 
-block emailUpdateSetFlattensTuple:
+testCase emailUpdateSetFlattensTuple:
   let ids = makeNonEmptyMailboxIdSet(@[makeId("mbx1")])
   let us = makeEmailUpdateSet(@[makeAddKeyword(kwSeen), makeSetMailboxIds(ids)])
   let node = us.toJson()
@@ -70,7 +71,7 @@ block emailUpdateSetFlattensTuple:
 
 # ============= C. moveToMailbox wire semantics (F21 pin) =============
 
-block moveToMailboxWireIsSetMailboxIds:
+testCase moveToMailboxWireIsSetMailboxIds:
   let id = makeId("mbx9")
   let (key, value) = makeMoveToMailbox(id).toJson()
   assertEq key, "mailboxIds"
@@ -78,7 +79,7 @@ block moveToMailboxWireIsSetMailboxIds:
   doAssert value{$id} != nil, "expected $id key in mailboxIds object"
   assertEq value{$id}, newJBool(true)
 
-block moveToMailboxNotAddToMailbox:
+testCase moveToMailboxNotAddToMailbox:
   let id = makeId("mbx9")
   let (key, _) = makeMoveToMailbox(id).toJson()
   doAssert key != "mailboxIds/" & $id,
@@ -91,37 +92,37 @@ block moveToMailboxNotAddToMailbox:
 # wire contract. The ``escUtf8Keyword`` block uses ``parseKeywordFromServer``
 # because ``parseKeyword`` restricts the charset to ASCII 0x21-0x7E.
 
-block escNoMetachars:
+testCase escNoMetachars:
   let kw = parseKeyword("$seen").get()
   let (key, value) = makeAddKeyword(kw).toJson()
   assertEq key, "keywords/$seen"
   assertEq value, newJBool(true)
 
-block escTildeOnly:
+testCase escTildeOnly:
   let kw = parseKeyword("a~b").get()
   let (key, value) = makeAddKeyword(kw).toJson()
   assertEq key, "keywords/a~0b"
   assertEq value, newJBool(true)
 
-block escSlashOnly:
+testCase escSlashOnly:
   let kw = parseKeyword("a/b").get()
   let (key, value) = makeAddKeyword(kw).toJson()
   assertEq key, "keywords/a~1b"
   assertEq value, newJBool(true)
 
-block escTildeAndSlash:
+testCase escTildeAndSlash:
   let kw = parseKeyword("a~/b").get()
   let (key, value) = makeAddKeyword(kw).toJson()
   assertEq key, "keywords/a~0~1b"
   assertEq value, newJBool(true)
 
-block escAllMeta:
+testCase escAllMeta:
   let kw = parseKeyword("~/~/").get()
   let (key, value) = makeAddKeyword(kw).toJson()
   assertEq key, "keywords/~0~1~0~1"
   assertEq value, newJBool(true)
 
-block escOrderMatters:
+testCase escOrderMatters:
   ## Pins the RFC 6901 §3 escape order: ``~ → ~0`` MUST run BEFORE
   ## ``/ → ~1``. Swapping the order would yield ``~01`` (a corrupted
   ## token), not ``~0~1``. See jsonPointerEscape in serde.nim.
@@ -132,19 +133,19 @@ block escOrderMatters:
     "escape order regression: / was escaped before ~, corrupting the token"
   assertEq value, newJBool(true)
 
-block escSingleTilde:
+testCase escSingleTilde:
   let kw = parseKeyword("~").get()
   let (key, value) = makeAddKeyword(kw).toJson()
   assertEq key, "keywords/~0"
   assertEq value, newJBool(true)
 
-block escSingleSlash:
+testCase escSingleSlash:
   let kw = parseKeyword("/").get()
   let (key, value) = makeAddKeyword(kw).toJson()
   assertEq key, "keywords/~1"
   assertEq value, newJBool(true)
 
-block escEmbeddedTildeZero:
+testCase escEmbeddedTildeZero:
   ## Literal ``~0`` in the input must round-trip as ``~00`` — the escape
   ## is byte-oriented, not RFC-6901-aware; the escaper does not treat
   ## an existing ``~0`` as already-escaped.
@@ -153,37 +154,37 @@ block escEmbeddedTildeZero:
   assertEq key, "keywords/a~00b"
   assertEq value, newJBool(true)
 
-block escEmbeddedTildeOne:
+testCase escEmbeddedTildeOne:
   let kw = parseKeyword("a~1b").get()
   let (key, value) = makeAddKeyword(kw).toJson()
   assertEq key, "keywords/a~01b"
   assertEq value, newJBool(true)
 
-block escDoubleTilde:
+testCase escDoubleTilde:
   let kw = parseKeyword("~~").get()
   let (key, value) = makeAddKeyword(kw).toJson()
   assertEq key, "keywords/~0~0"
   assertEq value, newJBool(true)
 
-block escDoubleSlash:
+testCase escDoubleSlash:
   let kw = parseKeyword("//").get()
   let (key, value) = makeAddKeyword(kw).toJson()
   assertEq key, "keywords/~1~1"
   assertEq value, newJBool(true)
 
-block escTrailingTilde:
+testCase escTrailingTilde:
   let kw = parseKeyword("abc~").get()
   let (key, value) = makeAddKeyword(kw).toJson()
   assertEq key, "keywords/abc~0"
   assertEq value, newJBool(true)
 
-block escLeadingTilde:
+testCase escLeadingTilde:
   let kw = parseKeyword("~abc").get()
   let (key, value) = makeAddKeyword(kw).toJson()
   assertEq key, "keywords/~0abc"
   assertEq value, newJBool(true)
 
-block escUtf8Keyword:
+testCase escUtf8Keyword:
   ## Byte-oriented escape: multi-byte UTF-8 runes pass through unchanged
   ## because their bytes do not overlap with ``~`` (0x7E) or ``/`` (0x2F).
   ## ``parseKeyword`` strict rejects non-ASCII; drive via

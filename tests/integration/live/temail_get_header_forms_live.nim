@@ -40,8 +40,9 @@ import jmap_client/client
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block temailGetHeaderFormsLive:
+testCase temailGetHeaderFormsLive:
   forEachLiveTarget(target):
     var client = initJmapClient(
         sessionUrl = target.sessionUrl,

@@ -54,6 +54,7 @@ import jmap_client/internal/serialisation/serde_envelope
 
 import ../massertions
 import ../mfixtures
+import ../mtestblock
 
 # =============================================================================
 # Block 1 — Response-decode adversarial (F2 §8.9)
@@ -87,7 +88,7 @@ import ../mfixtures
 # * ``destroyed`` element strictness comes from ``parseIdFromServer``'s
 #   non-empty / no-control-characters invariants, not a kind check.
 
-block emailSetResponseAdversarialGroup:
+testCase emailSetResponseAdversarialGroup:
   block createdAsJArray:
     # mergeCreatedResults ignores non-JObject created; Ok with empty.
     let payload = parseJson("""{"accountId": "a1", "newState": "s1", "created": []}""")
@@ -410,7 +411,7 @@ block emailSetResponseAdversarialGroup:
     )
     assertOk SetResponse[EmailCreatedItem, PartialEmail].fromJson(payload)
 
-block emailCopyResponseAdversarialGroup:
+testCase emailCopyResponseAdversarialGroup:
   block copyFromAccountIdMissing:
     # fromAccountId is required; absent => Err.
     let payload = parseJson("""{"accountId": "dst", "newState": "s1"}""")
@@ -568,7 +569,7 @@ block emailCopyResponseAdversarialGroup:
     assertOk res
     doAssert res.get().oldState.isNone
 
-block emailImportResponseAdversarialGroup:
+testCase emailImportResponseAdversarialGroup:
   block emailImportResponseAccountIdMissing:
     let payload = parseJson("""{"newState": "s1"}""")
     assertErr EmailImportResponse.fromJson(payload)
@@ -647,7 +648,7 @@ block emailImportResponseAdversarialGroup:
 # * duplicate array entries preserved (std/json accepts duplicates);
 # * rawType lossless even when errorType falls back to ``setUnknown``.
 
-block setErrorExtrasIntegrationGroup:
+testCase setErrorExtrasIntegrationGroup:
   block emailSetExtrasReachableFromCreateResults:
     let longString = "very-long-" & repeat("x", 4_000)
     let adversarial =
@@ -750,7 +751,7 @@ block setErrorExtrasIntegrationGroup:
 # keyword fold covers the five RFC 8621 §4.6.2 keywords plus two custom
 # keywords exercising the pointer-escape critical pair (``~``, ``/``).
 
-block conflictAlgebraCornerCasesGroup:
+testCase conflictAlgebraCornerCasesGroup:
   block class3PayloadIrrelevantEmptySetKeywords:
     # Empty set + sub-path add on same parent (``keywords``) — Class 3.
     let k = parseKeyword("foo").get()
@@ -821,7 +822,7 @@ func setOkArgs(): JsonNode =
   ## Minimal valid Email/set response payload (``SetResponse`` wire shape).
   %*{"accountId": "dst", "newState": "s1"}
 
-block getBothAdversarialGroup:
+testCase getBothAdversarialGroup:
   block getBothImplicitDestroyMethodCallIdMismatch:
     # Build a Response where the destroy invocation shares a DIFFERENT
     # call-id from the handles'. getBoth's NameBoundHandle lookup filters
@@ -899,7 +900,7 @@ block getBothAdversarialGroup:
 # are all wire-acceptable; detection is the caller's responsibility.
 # These tests pin that hands-off stance.
 
-block crossResponseCoherenceGroup:
+testCase crossResponseCoherenceGroup:
   block coherenceOldStateNewStateEqual:
     let payload = parseJson(
       """{"accountId": "a1", "oldState": "s1", "newState": "s1",
@@ -989,7 +990,7 @@ block crossResponseCoherenceGroup:
 # empty keys, deep nesting) parse normally and then exercise the typed
 # decoder.
 
-block jsonStructuralAttackGroup:
+testCase jsonStructuralAttackGroup:
   block structuralBomPrefix:
     # UTF-8 BOM (``EF BB BF``) prefix: std/json tolerates it as whitespace
     # and parses the body. Pin that it does NOT panic, and that the
@@ -1075,7 +1076,7 @@ block jsonStructuralAttackGroup:
 # library's silent acceptance of cast-constructed malformed sets — they
 # are negative pins, not contracts.
 
-block castBypassGroup:
+testCase castBypassGroup:
   block castBypassDocumentsNoPostHocValidation:
     # Class 1 violation: two identical addKeyword updates. Cast bypass
     # constructs the malformed set without touching ``initEmailUpdateSet``;
@@ -1116,7 +1117,7 @@ block castBypassGroup:
 # ``assertLe elapsed, 5.0`` on the 100k test. A regression on either
 # signals a real O(n²) cliff; do NOT relax the budget, investigate.
 
-block scaleInvariantsGroup:
+testCase scaleInvariantsGroup:
   block emailUpdateSet10kClass1Anchored:
     # 10_001 addKeyword(k) entries — same target path.
     # Entry 0 is the unique anchor; entries 1..10_000 each conflict with 0.

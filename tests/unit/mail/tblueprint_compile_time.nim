@@ -21,20 +21,21 @@ import jmap_client/internal/types/validation
 
 import ../../massertions
 import ../../mfixtures
+import ../../mtestblock
 
-block blueprintBodyValueFlagFieldsStripped: # §6.1.6 scenario 38
+testCase blueprintBodyValueFlagFieldsStripped: # §6.1.6 scenario 38
   # ``isEncodingProblem`` / ``isTruncated`` on ``EmailBodyValue`` are
   # mandated false on creation — stripped from ``BlueprintBodyValue``
   # so the illegal state is structurally unrepresentable.
   assertNotCompiles BlueprintBodyValue(value: "x", isEncodingProblem: false)
   assertNotCompiles BlueprintBodyValue(value: "x", isTruncated: false)
 
-block emailBlueprintDirectConstructionSealed: # §6.1.6 scenario 40
+testCase emailBlueprintDirectConstructionSealed: # §6.1.6 scenario 40
   # ``rawMailboxIds`` is module-private (Pattern A). External brace
   # construction is rejected because the field name isn't visible.
   assertNotCompiles EmailBlueprint(rawMailboxIds: makeNonEmptyMailboxIdSet())
 
-block blueprintBodyPartInlineRequiresValue: # §6.1.6 scenario 41
+testCase blueprintBodyPartInlineRequiresValue: # §6.1.6 scenario 41
   # ``value`` lives on the ``bpsInline`` branch — pairing it with
   # ``source: bpsBlobRef`` is a compile error (R3-3 co-location).
   # (Nim brace construction with defaults means the absence form of
@@ -49,7 +50,7 @@ block blueprintBodyPartInlineRequiresValue: # §6.1.6 scenario 41
     ),
   )
 
-block headerKeyCrossContextRejected: # §6.1.6 scenario 42
+testCase headerKeyCrossContextRejected: # §6.1.6 scenario 42
   # Creation-vocabulary header-name types are context-specific:
   # ``BlueprintEmailHeaderName`` for Email top level,
   # ``BlueprintBodyHeaderName`` for body parts. Cross-insertion into a
@@ -78,13 +79,13 @@ block headerKeyCrossContextRejected: # §6.1.6 scenario 42
       t[hpk] = makeBhmvTextSingle()
   )
 
-block rawFieldWriteSealedExternally: # §6.1.6 scenario 45
+testCase rawFieldWriteSealedExternally: # §6.1.6 scenario 45
   # Pattern A: external writers to private ``raw*`` fields are
   # refused. The accessor gates read-only public access.
   let bp = makeEmailBlueprint()
   assertNotCompiles (bp.rawMailboxIds = makeNonEmptyMailboxIdSet())
 
-block caseObjectFieldDefectPair: # §6.1.6 scenario 46
+testCase caseObjectFieldDefectPair: # §6.1.6 scenario 46
   # Under ``--panics:on`` (project default per jmap_client.nimble),
   # ``FieldDefect`` is fatal and cannot be caught — it rawQuits the
   # process. So this scenario reduces to attesting to the shape:
@@ -111,7 +112,7 @@ block caseObjectFieldDefectPair: # §6.1.6 scenario 46
   of ebkFlat:
     discard
 
-block internalNonEmptyInvariantDocumented: # §6.1.6 scenario 48
+testCase internalNonEmptyInvariantDocumented: # §6.1.6 scenario 48
   # The internal ``doAssert errs.len > 0`` inside ``parseEmailBlueprint``
   # cannot be triggered from outside the module. The external
   # counterpart (sc 48l) pins that ``EmailBlueprintErrors`` cannot be
@@ -120,14 +121,14 @@ block internalNonEmptyInvariantDocumented: # §6.1.6 scenario 48
   static:
     doAssert compiles(parseEmailBlueprint(mailboxIds = makeNonEmptyMailboxIdSet()))
 
-block parseSignatureRejectsBareSeq: # §6.1.6 scenario 48a
+testCase parseSignatureRejectsBareSeq: # §6.1.6 scenario 48a
   # ``mailboxIds`` takes ``NonEmptyMailboxIdSet``, not ``seq[Id]``.
   # The typed boundary forces callers through
   # ``parseNonEmptyMailboxIdSet`` so the at-least-one invariant is
   # proved at the type level.
   assertNotCompiles parseEmailBlueprint(mailboxIds = @[makeId("m1")])
 
-block structuredBodyRejectsFlatField: # §6.1.6 scenario 48b
+testCase structuredBodyRejectsFlatField: # §6.1.6 scenario 48b
   # ``textBody`` lives on the ``ebkFlat`` branch only — brace
   # construction with ``kind: ebkStructured`` and ``textBody`` is a
   # compile error (case-object branch tracking).
@@ -137,7 +138,7 @@ block structuredBodyRejectsFlatField: # §6.1.6 scenario 48b
     textBody: Opt.some(makeBlueprintBodyPartInline()),
   )
 
-block flatBodyRejectsStructuredField: # §6.1.6 scenario 48c
+testCase flatBodyRejectsStructuredField: # §6.1.6 scenario 48c
   # Symmetric to 48b: ``bodyStructure`` lives on ``ebkStructured``
   # only.
   assertNotCompiles EmailBlueprintBody(
@@ -146,13 +147,13 @@ block flatBodyRejectsStructuredField: # §6.1.6 scenario 48c
     bodyStructure: makeBlueprintBodyPartInline(),
   )
 
-block multiValueFormDiscriminantGuard: # §6.1.6 scenario 48d
+testCase multiValueFormDiscriminantGuard: # §6.1.6 scenario 48d
   # ``rawValues`` is on the ``hfRaw`` branch only — pairing with
   # ``form: hfText`` must be a compile error.
   let ne = parseNonEmptySeq(@["v"]).get()
   assertNotCompiles BlueprintHeaderMultiValue(form: hfText, rawValues: ne)
 
-block intraTableDedupRuntime: # §6.1.6 scenario 48e
+testCase intraTableDedupRuntime: # §6.1.6 scenario 48e
   # Runtime check colocated here because its structural invariant
   # (byte-distinct names that normalise equal produce ONE key, not
   # two) is adjacent to the type-level sealing on either side. Case
@@ -163,18 +164,18 @@ block intraTableDedupRuntime: # §6.1.6 scenario 48e
   t[makeBlueprintEmailHeaderName("x-marker")] = makeBhmvTextSingle("second")
   assertLen t, 1
 
-block parseNonEmptySeqEmptyRefused: # §6.1.6 scenario 48f
+testCase parseNonEmptySeqEmptyRefused: # §6.1.6 scenario 48f
   # Runtime: empty input on the smart constructor yields err. The
   # type's at-least-one invariant is enforced at the boundary.
   let res = parseNonEmptySeq[string](@[])
   assertErr res
 
-block multiValueFieldRejectsBareSeq: # §6.1.6 scenario 48g
+testCase multiValueFieldRejectsBareSeq: # §6.1.6 scenario 48g
   # ``rawValues`` is ``NonEmptySeq[string]`` — passing a bare
   # ``seq[string]`` fails type matching (distinct-type refusal).
   assertNotCompiles BlueprintHeaderMultiValue(form: hfRaw, rawValues: @[])
 
-block parseSignatureRejectsBareBodyPart: # §6.1.6 scenario 48h
+testCase parseSignatureRejectsBareBodyPart: # §6.1.6 scenario 48h
   # The ``body`` parameter takes ``EmailBlueprintBody`` (the
   # body-shape case object), not the inner ``BlueprintBodyPart``.
   # Clients must route through ``flatBody`` / ``structuredBody``.
@@ -183,7 +184,7 @@ block parseSignatureRejectsBareBodyPart: # §6.1.6 scenario 48h
     mailboxIds = makeNonEmptyMailboxIdSet(), body = part
   )
 
-block crossBranchFieldAssignmentAttestation: # §6.1.6 scenario 48i
+testCase crossBranchFieldAssignmentAttestation: # §6.1.6 scenario 48i
   # CLAUDE.md-marked regression guard reduced to an attestation:
   # the structural guarantee lives on sc 48b and sc 48c, which
   # verify that CONSTRUCTION with a wrong-branch field is a
@@ -204,7 +205,7 @@ block crossBranchFieldAssignmentAttestation: # §6.1.6 scenario 48i
   doAssert compiles(flatBody())
   doAssert compiles(structuredBody(makeBlueprintBodyPartInline()))
 
-block publicExportSurfaceStable: # §6.1.6 scenario 48j
+testCase publicExportSurfaceStable: # §6.1.6 scenario 48j
   # The 15 symbols enumerated in design §3.5 (and exercised across
   # Steps 15/16) must remain publicly accessible. ``compiles`` against
   # direct references is sufficient — the imports at module scope
@@ -227,14 +228,14 @@ block publicExportSurfaceStable: # §6.1.6 scenario 48j
   doAssert compiles(bp.fromAddr)
   doAssert compiles(bp.subject)
 
-block dropVariantEbcNoBodyContent: # §6.1.6 scenario 48k
+testCase dropVariantEbcNoBodyContent: # §6.1.6 scenario 48k
   # ``ebcNoBodyContent`` was considered during design but dropped —
   # every accepted ``EmailBlueprintBody`` is well-formed by
   # construction, so "no body content" is not a runtime state the
   # aggregate needs to describe (R3-2b / E11).
   assertNotCompiles EmailBlueprintError(constraint: ebcNoBodyContent)
 
-block errorsConstructorSealedExternally: # §6.1.6 scenario 48l
+testCase errorsConstructorSealedExternally: # §6.1.6 scenario 48l
   # ``EmailBlueprintErrors.errors`` is module-private: external brace
   # construction by named field is refused. The only path to a
   # non-empty ``EmailBlueprintErrors`` value is ``parseEmailBlueprint``,

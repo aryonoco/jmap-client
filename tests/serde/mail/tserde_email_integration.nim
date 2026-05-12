@@ -29,12 +29,13 @@ import jmap_client/internal/types/envelope
 
 import ../../massertions
 import ../../mfixtures
+import ../../mtestblock
 
 # =============================================================================
 # A. Shared Helper Parity (scenario 132)
 # =============================================================================
 
-block sharedHelperParity: # scenario 132
+testCase sharedHelperParity: # scenario 132
   ## Identical JSON fed to emailFromJson and parsedEmailFromJson — shared
   ## field groups (convenience headers, body, dynamic headers) must produce
   ## identical results.
@@ -95,7 +96,7 @@ block sharedHelperParity: # scenario 132
 # B. Email Round-Trip with Dynamic Headers (scenario 133)
 # =============================================================================
 
-block emailRoundTripWithDynamicHeaders: # scenario 133
+testCase emailRoundTripWithDynamicHeaders: # scenario 133
   ## emailFromJson(email.toJson()) == email for a fully-populated Email
   ## including entries in both requestedHeaders and requestedHeadersAll.
   var e = makeEmail()
@@ -141,7 +142,7 @@ block emailRoundTripWithDynamicHeaders: # scenario 133
 # C. Dynamic Header Phase 2 Round-Trip (scenario 134)
 # =============================================================================
 
-block dynamicHeaderPhase2RoundTrip: # scenario 134
+testCase dynamicHeaderPhase2RoundTrip: # scenario 134
   ## JSON with both :all and non-:all header:* keys -> emailFromJson ->
   ## Email.toJson -> keys preserved with correct (lowercase) names and values.
   var j = makeEmailJson()
@@ -173,7 +174,7 @@ block dynamicHeaderPhase2RoundTrip: # scenario 134
 # D. Builder Body Fetch Options Parity (scenario 135)
 # =============================================================================
 
-block builderBodyFetchOptionsParity: # scenario 135
+testCase builderBodyFetchOptionsParity: # scenario 135
   ## addEmailGet and addEmailParse with identical non-default
   ## EmailBodyFetchOptions produce identical body-related keys in request args.
   let opts = EmailBodyFetchOptions(
@@ -217,7 +218,7 @@ block builderBodyFetchOptionsParity: # scenario 135
 # E. Builder–Filter Chain (scenario 136)
 # =============================================================================
 
-block builderFilterChain: # scenario 136
+testCase builderFilterChain: # scenario 136
   ## addEmailQuery with non-trivial EmailFilterCondition -> serialised filter
   ## in request args matches EmailFilterCondition.toJson output.
   var fc = makeEmailFilterCondition()

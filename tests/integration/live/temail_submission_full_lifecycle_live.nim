@@ -21,8 +21,9 @@ import jmap_client/client
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block tEmailSubmissionFullLifecycleLive:
+testCase tEmailSubmissionFullLifecycleLive:
   forEachLiveTarget(target):
     # Cat-B (Phase L §0): full CRUD lifecycle exercises every
     # EmailSubmission/set arm. Stalwart 0.15.5 and Cyrus 3.12.2 implement

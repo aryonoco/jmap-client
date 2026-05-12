@@ -17,45 +17,46 @@ import jmap_client/internal/types/validation
 import jmap_client/internal/types/primitives
 
 import ../../massertions
+import ../../mtestblock
 
 # ============= A. IdentityUpdate setters =============
 
-block setNameConstructsCorrectKind:
+testCase setNameConstructsCorrectKind:
   let u = setName("Alice")
   assertEq u.kind, iuSetName
   assertEq u.name, "Alice"
 
-block setReplyToSomeConstructsCorrectKind:
+testCase setReplyToSomeConstructsCorrectKind:
   let ea = parseEmailAddress("a@example.com", Opt.none(string)).get()
   let u = setReplyTo(Opt.some(@[ea]))
   assertEq u.kind, iuSetReplyTo
   assertSome u.replyTo
   assertEq u.replyTo.get().len, 1
 
-block setReplyToClearsWhenNone:
+testCase setReplyToClearsWhenNone:
   let u = setReplyTo(Opt.none(seq[EmailAddress]))
   assertEq u.kind, iuSetReplyTo
   assertNone u.replyTo
 
-block setBccSomeConstructsCorrectKind:
+testCase setBccSomeConstructsCorrectKind:
   let ea = parseEmailAddress("b@example.com", Opt.none(string)).get()
   let u = setBcc(Opt.some(@[ea]))
   assertEq u.kind, iuSetBcc
   assertSome u.bcc
 
-block setTextSignatureConstructsCorrectKind:
+testCase setTextSignatureConstructsCorrectKind:
   let u = setTextSignature("-- \nAlice")
   assertEq u.kind, iuSetTextSignature
   assertEq u.textSignature, "-- \nAlice"
 
-block setHtmlSignatureConstructsCorrectKind:
+testCase setHtmlSignatureConstructsCorrectKind:
   let u = setHtmlSignature("<p>Alice</p>")
   assertEq u.kind, iuSetHtmlSignature
   assertEq u.htmlSignature, "<p>Alice</p>"
 
 # ============= B. initIdentityUpdateSet =============
 
-block initIdentityUpdateSetEmpty:
+testCase initIdentityUpdateSetEmpty:
   let res = initIdentityUpdateSet(@[])
   assertErr res
   assertLen res.error, 1
@@ -63,10 +64,10 @@ block initIdentityUpdateSetEmpty:
   assertEq res.error[0].message, "must contain at least one update"
   assertEq res.error[0].value, ""
 
-block initIdentityUpdateSetSingleValid:
+testCase initIdentityUpdateSetSingleValid:
   assertOk initIdentityUpdateSet(@[setName("Alice")])
 
-block initIdentityUpdateSetTwoSameKind:
+testCase initIdentityUpdateSetTwoSameKind:
   let res = initIdentityUpdateSet(@[setName("Alice"), setName("Bob")])
   assertErr res
   assertLen res.error, 1
@@ -74,7 +75,7 @@ block initIdentityUpdateSetTwoSameKind:
   assertEq res.error[0].message, "duplicate target property"
   assertEq res.error[0].value, "iuSetName"
 
-block initIdentityUpdateSetThreeSameKind:
+testCase initIdentityUpdateSetThreeSameKind:
   ## Three occurrences of the same kind still yield ONE error —
   ## the "each repeated key reported once" contract.
   let res = initIdentityUpdateSet(@[setName("A"), setName("B"), setName("C")])
@@ -82,7 +83,7 @@ block initIdentityUpdateSetThreeSameKind:
   assertLen res.error, 1
   assertEq res.error[0].value, "iuSetName"
 
-block initIdentityUpdateSetTwoDistinctRepeated:
+testCase initIdentityUpdateSetTwoDistinctRepeated:
   ## Two distinct repeated kinds → TWO errors, one per distinct
   ## duplicate key.
   let res = initIdentityUpdateSet(
@@ -103,14 +104,14 @@ block initIdentityUpdateSetTwoDistinctRepeated:
 
 # ============= C. parseNonEmptyIdentityUpdates =============
 
-block parseNonEmptyIdentityUpdatesEmpty:
+testCase parseNonEmptyIdentityUpdatesEmpty:
   let res = parseNonEmptyIdentityUpdates(newSeq[(Id, IdentityUpdateSet)]())
   assertErr res
   assertLen res.error, 1
   assertEq res.error[0].typeName, "NonEmptyIdentityUpdates"
   assertEq res.error[0].message, "must contain at least one entry"
 
-block parseNonEmptyIdentityUpdatesDuplicateId:
+testCase parseNonEmptyIdentityUpdatesDuplicateId:
   let id1 = parseId("idt1").get()
   let us1 = initIdentityUpdateSet(@[setName("A")]).get()
   let us2 = initIdentityUpdateSet(@[setName("B")]).get()
@@ -119,7 +120,7 @@ block parseNonEmptyIdentityUpdatesDuplicateId:
   assertLen res.error, 1
   assertEq res.error[0].message, "duplicate identity id"
 
-block parseNonEmptyIdentityUpdatesTwoDistinctIds:
+testCase parseNonEmptyIdentityUpdatesTwoDistinctIds:
   let id1 = parseId("idt1").get()
   let id2 = parseId("idt2").get()
   let us1 = initIdentityUpdateSet(@[setName("A")]).get()

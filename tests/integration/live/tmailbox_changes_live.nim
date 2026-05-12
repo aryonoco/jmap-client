@@ -47,8 +47,9 @@ import jmap_client/client
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block tmailboxChangesLive:
+testCase tmailboxChangesLive:
   forEachLiveTarget(target):
     var client = initJmapClient(
         sessionUrl = target.sessionUrl,

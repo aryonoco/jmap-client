@@ -40,8 +40,9 @@ import jmap_client/client
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block tvacationSetAllArmsLive:
+testCase tvacationSetAllArmsLive:
   forEachLiveTarget(target):
     # Cat-B (Phase L §0): Stalwart 0.15.5 and James 3.9 implement
     # VacationResponse/set's full update-arm surface. Cyrus 3.12.2

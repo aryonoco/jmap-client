@@ -15,8 +15,9 @@
 
 import jmap_client
 import ./mloader
+import ../../mtestblock
 
-block tcapturedRequestErrorLimit:
+testCase tcapturedRequestErrorLimit:
   forEachCapturedServer("request-error-limit", j):
     let re = RequestError.fromJson(j).expect("RequestError.fromJson")
     doAssert re.rawType == "urn:ietf:params:jmap:error:limit",

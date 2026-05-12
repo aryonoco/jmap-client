@@ -24,8 +24,9 @@ import jmap_client/client
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block temailSubmissionFilterCompletenessLive:
+testCase temailSubmissionFilterCompletenessLive:
   forEachLiveTarget(target):
     # Cat-B (Phase L §0): exercises every EmailSubmissionFilterCondition
     # variant and EmailSubmissionComparator arm. Stalwart 0.15.5 and

@@ -46,8 +46,9 @@ import jmap_client/client
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block temailQueryPaginationLive:
+testCase temailQueryPaginationLive:
   forEachLiveTarget(target):
     # Cat-B (Phase L §0): exercises Email/query pagination shapes.
     # RFC 8620 §5.5 leaves ``calculateTotal`` to server discretion via

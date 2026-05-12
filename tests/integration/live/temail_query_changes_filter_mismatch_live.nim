@@ -47,8 +47,9 @@ import jmap_client/client
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block temailQueryChangesFilterMismatchLive:
+testCase temailQueryChangesFilterMismatchLive:
   forEachLiveTarget(target):
     # Cat-B (Phase L §0): test asserts on client behaviour, not on
     # specific server implementations. Stalwart 0.15.5 and Cyrus 3.12.2

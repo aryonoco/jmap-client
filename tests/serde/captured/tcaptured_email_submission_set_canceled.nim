@@ -14,8 +14,9 @@ import std/tables
 import jmap_client
 import jmap_client/internal/types/envelope
 import ./mloader
+import ../../mtestblock
 
-block tcapturedEmailSubmissionSetCanceled:
+testCase tcapturedEmailSubmissionSetCanceled:
   let j = loadCapturedFixture("email-submission-set-canceled-stalwart")
   let resp = envelope.Response.fromJson(j).expect("envelope.Response.fromJson")
   doAssert resp.methodResponses.len == 1

@@ -16,6 +16,7 @@ import jmap_client/internal/types/capabilities
 import jmap_client/internal/serialisation/serde
 
 import ../../massertions
+import ../../mtestblock
 
 # =============================================================================
 # Helper: valid JSON templates
@@ -43,7 +44,7 @@ func validSubmissionCapJson(): JsonNode =
 # A. MailCapabilities — valid parsing
 # =============================================================================
 
-block parseMailCapabilitiesValid: # scenario 45
+testCase parseMailCapabilitiesValid: # scenario 45
   let cap = ServerCapability(
     rawUri: "urn:ietf:params:jmap:mail", kind: ckMail, rawData: validMailCapJson()
   )
@@ -69,7 +70,7 @@ block parseMailCapabilitiesValid: # scenario 45
 # B. MailCapabilities — wrong kind
 # =============================================================================
 
-block parseMailCapabilitiesWrongKind: # scenario 46
+testCase parseMailCapabilitiesWrongKind: # scenario 46
   let cap = ServerCapability(
     rawUri: "urn:ietf:params:jmap:submission",
     kind: ckSubmission,
@@ -81,7 +82,7 @@ block parseMailCapabilitiesWrongKind: # scenario 46
 # C. MailCapabilities — maxMailboxesPerEmail boundaries
 # =============================================================================
 
-block maxMailboxesPerEmailBoundaryOk: # scenario 47
+testCase maxMailboxesPerEmailBoundaryOk: # scenario 47
   var j = validMailCapJson()
   j["maxMailboxesPerEmail"] = %1
   let cap =
@@ -91,14 +92,14 @@ block maxMailboxesPerEmailBoundaryOk: # scenario 47
   assertSome res.get().maxMailboxesPerEmail
   assertEq int64(res.get().maxMailboxesPerEmail.get()), 1'i64
 
-block maxMailboxesPerEmailZero: # scenario 48
+testCase maxMailboxesPerEmailZero: # scenario 48
   var j = validMailCapJson()
   j["maxMailboxesPerEmail"] = %0
   let cap =
     ServerCapability(rawUri: "urn:ietf:params:jmap:mail", kind: ckMail, rawData: j)
   assertErr parseMailCapabilities(cap)
 
-block maxMailboxesPerEmailNull: # scenario 49
+testCase maxMailboxesPerEmailNull: # scenario 49
   var j = validMailCapJson()
   j["maxMailboxesPerEmail"] = newJNull()
   let cap =
@@ -111,14 +112,14 @@ block maxMailboxesPerEmailNull: # scenario 49
 # D. MailCapabilities — maxSizeMailboxName boundaries
 # =============================================================================
 
-block maxSizeMailboxNameTooLow: # scenario 50
+testCase maxSizeMailboxNameTooLow: # scenario 50
   var j = validMailCapJson()
   j["maxSizeMailboxName"] = %99
   let cap =
     ServerCapability(rawUri: "urn:ietf:params:jmap:mail", kind: ckMail, rawData: j)
   assertErr parseMailCapabilities(cap)
 
-block maxSizeMailboxNameBoundaryOk: # scenario 51
+testCase maxSizeMailboxNameBoundaryOk: # scenario 51
   var j = validMailCapJson()
   j["maxSizeMailboxName"] = %100
   let cap =
@@ -132,7 +133,7 @@ block maxSizeMailboxNameBoundaryOk: # scenario 51
 # E. SubmissionCapabilities — valid parsing
 # =============================================================================
 
-block parseSubmissionCapabilitiesValid: # scenario 52
+testCase parseSubmissionCapabilitiesValid: # scenario 52
   let cap = ServerCapability(
     rawUri: "urn:ietf:params:jmap:submission",
     kind: ckSubmission,
@@ -153,7 +154,7 @@ block parseSubmissionCapabilitiesValid: # scenario 52
 # F. SubmissionCapabilities — wrong kind
 # =============================================================================
 
-block parseSubmissionCapabilitiesWrongKind: # scenario 53
+testCase parseSubmissionCapabilitiesWrongKind: # scenario 53
   let cap = ServerCapability(
     rawUri: "urn:ietf:params:jmap:mail", kind: ckMail, rawData: validSubmissionCapJson()
   )
@@ -163,7 +164,7 @@ block parseSubmissionCapabilitiesWrongKind: # scenario 53
 # G. SubmissionCapabilities — maxDelayedSend zero
 # =============================================================================
 
-block maxDelayedSendZero: # scenario 54
+testCase maxDelayedSendZero: # scenario 54
   var j = validSubmissionCapJson()
   j["maxDelayedSend"] = %0
   let cap = ServerCapability(
@@ -177,7 +178,7 @@ block maxDelayedSendZero: # scenario 54
 # H. SubmissionCapabilities — multiple extensions with empty args
 # =============================================================================
 
-block submissionExtensionsMultiple: # scenario 55
+testCase submissionExtensionsMultiple: # scenario 55
   var j = validSubmissionCapJson()
   j["submissionExtensions"] =
     %*{"DELIVERBY": ["240"], "SIZE": ["50000000"], "8BITMIME": []}
@@ -200,7 +201,7 @@ block submissionExtensionsMultiple: # scenario 55
 # I. MailCapabilities — absent field yields Opt.none
 # =============================================================================
 
-block maxMailboxesPerEmailAbsent:
+testCase maxMailboxesPerEmailAbsent:
   var j = validMailCapJson()
   j.delete("maxMailboxesPerEmail")
   let cap =
@@ -209,7 +210,7 @@ block maxMailboxesPerEmailAbsent:
   assertOk res
   assertNone res.get().maxMailboxesPerEmail
 
-block maxMailboxDepthNull:
+testCase maxMailboxDepthNull:
   var j = validMailCapJson()
   j["maxMailboxDepth"] = newJNull()
   let cap =
@@ -222,7 +223,7 @@ block maxMailboxDepthNull:
 # J. MailCapabilities — maxSizeMailboxName is optional (Cyrus omits it)
 # =============================================================================
 
-block missingMaxSizeMailboxName_isOptional:
+testCase missingMaxSizeMailboxName_isOptional:
   ## RFC 8621 §1.3.1 lists ``maxSizeMailboxName`` as informational, not
   ## MUST. Cyrus 3.12.2 omits it from the mail capability object
   ## (`imap/jmap_mail.c:340-347`); the Postel-receive parser surfaces
@@ -235,7 +236,7 @@ block missingMaxSizeMailboxName_isOptional:
   assertOk res
   assertNone res.get().maxSizeMailboxName
 
-block missingEmailQuerySortOptions_defaultsEmpty:
+testCase missingEmailQuerySortOptions_defaultsEmpty:
   ## Cyrus 3.12.2 emits a divergent label (``emailsListSortOptions``)
   ## rather than the RFC-canonical ``emailQuerySortOptions``. The
   ## parser accepts absence of the canonical name as an empty option
@@ -253,7 +254,7 @@ block missingEmailQuerySortOptions_defaultsEmpty:
 # K. Non-object rawData
 # =============================================================================
 
-block nonObjectRawData:
+testCase nonObjectRawData:
   let cap = ServerCapability(
     rawUri: "urn:ietf:params:jmap:mail", kind: ckMail, rawData: newJArray()
   )
@@ -263,7 +264,7 @@ block nonObjectRawData:
 # L. Empty emailQuerySortOptions
 # =============================================================================
 
-block emptyEmailQuerySortOptions:
+testCase emptyEmailQuerySortOptions:
   var j = validMailCapJson()
   j["emailQuerySortOptions"] = newJArray()
   let cap =
@@ -276,7 +277,7 @@ block emptyEmailQuerySortOptions:
 # M. SubmissionCapabilities — non-array extension value
 # =============================================================================
 
-block submissionExtensionsNonArray:
+testCase submissionExtensionsNonArray:
   var j = validSubmissionCapJson()
   j["submissionExtensions"] = %*{"DELIVERBY": "not-array"}
   let cap = ServerCapability(
@@ -288,7 +289,7 @@ block submissionExtensionsNonArray:
 # M2. SubmissionCapabilities — invalid RFC5321Keyword in extension key
 # =============================================================================
 
-block submissionExtensionsInvalidKeyword:
+testCase submissionExtensionsInvalidKeyword:
   var j = validSubmissionCapJson()
   j["submissionExtensions"] = %*{"bad!key": ["x"]}
   let cap = ServerCapability(
@@ -303,7 +304,7 @@ block submissionExtensionsInvalidKeyword:
 # M3. SubmissionCapabilities — empty RFC5321Keyword in extension key
 # =============================================================================
 
-block submissionExtensionsEmptyKeyword:
+testCase submissionExtensionsEmptyKeyword:
   var j = validSubmissionCapJson()
   j["submissionExtensions"] = %*{"": []}
   let cap = ServerCapability(
@@ -317,7 +318,7 @@ block submissionExtensionsEmptyKeyword:
 # N. ckCore kind rejected for both parse functions
 # =============================================================================
 
-block coreKindRejected:
+testCase coreKindRejected:
   let coreCap = ServerCapability(
     rawUri: "urn:ietf:params:jmap:core",
     kind: ckCore,
@@ -339,7 +340,7 @@ block coreKindRejected:
 # W. SubmissionExtensionMap — insertion order preserved through parse
 # =============================================================================
 
-block submissionExtensionMapRoundTripPreservesOrder:
+testCase submissionExtensionMapRoundTripPreservesOrder:
   ## G25 (§1.3.2): SubmissionExtensionMap is a distinct OrderedTable;
   ## capabilities are server-advertised only (no toJson), so the
   ## round-trip observable is parse-order fidelity — iterating the
@@ -363,7 +364,7 @@ block submissionExtensionMapRoundTripPreservesOrder:
 # X. SubmissionExtensionMap — case-differing keys collapse to one slot
 # =============================================================================
 
-block submissionExtensionMapCaseInsensitiveKey:
+testCase submissionExtensionMapCaseInsensitiveKey:
   ## G8a: RFC5321Keyword has case-fold ``==``/``hash`` per RFC 5321
   ## §2.4, so inserting two case-differing keys into the backing
   ## OrderedTable collapses them to a single slot. The pre-parse
@@ -393,7 +394,7 @@ block submissionExtensionMapCaseInsensitiveKey:
 # Y. SubmissionExtensionMap — all three RFC value-list shapes parse
 # =============================================================================
 
-block submissionExtensionMapParsesLegacyWireShape:
+testCase submissionExtensionMapParsesLegacyWireShape:
   ## G25 migration pin: the wire is unchanged by the distinct-wrapper
   ## introduction. Exercises the three value-list shapes permitted by
   ## RFC 5321 §4.1.1.1 ESMTP-parameter syntax in one payload — empty

@@ -28,8 +28,9 @@ import jmap_client/internal/mail/thread as jthread
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block tthreadGetLive:
+testCase tthreadGetLive:
   forEachLiveTarget(target):
     var client = initJmapClient(
         sessionUrl = target.sessionUrl,

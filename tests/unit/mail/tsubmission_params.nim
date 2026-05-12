@@ -36,6 +36,7 @@ import jmap_client/internal/mail/serde_submission_envelope
 
 import ../../massertions
 import ../../mfixtures
+import ../../mtestblock
 
 proc keysOf(j: JsonNode): seq[string] =
   ## Extracts JSON object field names in insertion order. ``JObject.fields``
@@ -52,7 +53,7 @@ proc keysOf(j: JsonNode): seq[string] =
 # §A. Per-variant matrix — one block per SubmissionParamKind
 # ===========================================================================
 
-block submissionParamBodyValidEncodings:
+testCase submissionParamBodyValidEncodings:
   # G2 §8.7 row spkBody. ``BodyEncoding`` is a closed enum
   # (submission_param.nim:33-39) — the param constructor is
   # unconditional (line 168) and there is no value-level invalid path.
@@ -63,14 +64,14 @@ block submissionParamBodyValidEncodings:
     doAssert p.kind == spkBody
     doAssert p.bodyEncoding == e
 
-block submissionParamSmtpUtf8Nullary:
+testCase submissionParamSmtpUtf8Nullary:
   # G2 §8.7 row spkSmtpUtf8. Nullary variant (case object arm at
   # submission_param.nim:138-139 is ``discard``); the discriminator IS
   # the entire payload. ``smtpUtf8Param()`` is unconditional.
   let p = smtpUtf8Param()
   doAssert p.kind == spkSmtpUtf8
 
-block submissionParamSizeAcceptsZeroAndUpperBound:
+testCase submissionParamSizeAcceptsZeroAndUpperBound:
   # G2 §8.7 row spkSize. ``sizeParam`` is unconditional; payload bounds
   # are enforced by upstream ``parseUnsignedInt`` (primitives.nim:88-91).
   # Boundary literal: ``"must be non-negative"`` at primitives.nim:89
@@ -91,7 +92,7 @@ block submissionParamSizeAcceptsZeroAndUpperBound:
   assertEq bad.error.typeName, "UnsignedInt"
   assertEq bad.error.message, "must be non-negative"
 
-block submissionParamEnvidStoresInputBytesUnchanged:
+testCase submissionParamEnvidStoresInputBytesUnchanged:
   # G2 §8.7 row spkEnvid. ``envidParam`` is unconditional and stores
   # decoded bytes verbatim (submission_param.nim:176-180 — xtext wire
   # encoding belongs to serde, design §7.2 / G27). No value-level
@@ -100,7 +101,7 @@ block submissionParamEnvidStoresInputBytesUnchanged:
   doAssert p.kind == spkEnvid
   assertEq p.envid, "envid-1"
 
-block submissionParamRetFullAndHdrs:
+testCase submissionParamRetFullAndHdrs:
   # G2 §8.7 row spkRet. ``DsnRetType`` is a closed enum
   # (submission_param.nim:41-46) — ``retParam`` is unconditional. No
   # value-level invalid path; wire-side rejection of unknown tokens
@@ -110,7 +111,7 @@ block submissionParamRetFullAndHdrs:
     doAssert p.kind == spkRet
     doAssert p.retType == t
 
-block submissionParamNotifyValidShapes:
+testCase submissionParamNotifyValidShapes:
   # G2 §8.7 row spkNotify (valid representatives only — mutex and
   # empty-set rejection live in §B). Three RFC 3461 §4.1 wire-legal
   # combinations: any non-empty subset of SUCCESS/FAILURE/DELAY, and
@@ -126,7 +127,7 @@ block submissionParamNotifyValidShapes:
   assertOk r3
   doAssert r3.get().notifyFlags == {dnfNever}
 
-block submissionParamOrcptParserPath:
+testCase submissionParamOrcptParserPath:
   # G2 §8.7 row spkOrcpt. ``orcptParam`` is unconditional; the
   # addr-type atom is gated by upstream ``parseOrcptAddrType``
   # (submission_atoms.nim:149-153). Boundary literal: ``"must not be
@@ -142,7 +143,7 @@ block submissionParamOrcptParserPath:
   assertEq bad.error.typeName, "OrcptAddrType"
   assertEq bad.error.message, "must not be empty"
 
-block submissionParamHoldForInfallibleWrap:
+testCase submissionParamHoldForInfallibleWrap:
   # G2 §8.7 row spkHoldFor. ``parseHoldForSeconds`` is infallible by
   # design (submission_param.nim:78-84 docstring) — ``UnsignedInt``
   # already enforces the JSON-safe bound at its own constructor, so
@@ -154,7 +155,7 @@ block submissionParamHoldForInfallibleWrap:
   doAssert p.kind == spkHoldFor
   assertEq int64(UnsignedInt(p.holdFor)), 600'i64
 
-block submissionParamHoldUntilParserPath:
+testCase submissionParamHoldUntilParserPath:
   # G2 §8.7 row spkHoldUntil. ``holdUntilParam`` is unconditional;
   # the absolute-time payload is gated by upstream ``parseUtcDate``
   # (primitives.nim:271-278). Empty input triggers ``dvTooShort``
@@ -170,7 +171,7 @@ block submissionParamHoldUntilParserPath:
   assertEq bad.error.typeName, "UTCDate"
   assertEq bad.error.message, "too short for RFC 3339 date-time"
 
-block submissionParamByDeadlineAndMode:
+testCase submissionParamByDeadlineAndMode:
   # G2 §8.7 row spkBy. ``byParam`` is unconditional. ``DeliveryByMode``
   # (submission_param.nim:57-64) is a closed enum — wire-side rejection
   # of unknown mode suffixes is owned by Step 12. Cover all four valid
@@ -183,7 +184,7 @@ block submissionParamByDeadlineAndMode:
     doAssert p.byMode == m
     assertEq int64(p.byDeadline), 123'i64
 
-block submissionParamMtPriorityRangeBoundary:
+testCase submissionParamMtPriorityRangeBoundary:
   # G2 §8.7 row spkMtPriority. Validation lives in upstream
   # ``parseMtPriority`` (submission_param.nim:99-103); the param
   # constructor ``mtPriorityParam`` is unconditional. Boundary literal:
@@ -201,7 +202,7 @@ block submissionParamMtPriorityRangeBoundary:
     assertEq res.error.message, "must be in range -9..9"
     assertEq res.error.value, $raw
 
-block submissionParamExtensionWithKeywordAndOptValue:
+testCase submissionParamExtensionWithKeywordAndOptValue:
   # G2 §8.7 row spkExtension. ``extensionParam`` is unconditional; the
   # keyword name is gated by upstream ``parseRFC5321Keyword``
   # (submission_atoms.nim:95-101). Empty input triggers
@@ -227,7 +228,7 @@ block submissionParamExtensionWithKeywordAndOptValue:
 # §B. NOTIFY mutual-exclusion and empty-set rejection
 # ===========================================================================
 
-block submissionParamNotifyMutualExclusionAndEmptyRejection:
+testCase submissionParamNotifyMutualExclusionAndEmptyRejection:
   # Grep-locked literals from submission_param.nim:201-214 (notifyParam):
   #   typeName = "SubmissionParam"
   #   emptyMsg = "NOTIFY flags must not be empty"   (line 206)
@@ -264,7 +265,7 @@ block submissionParamNotifyMutualExclusionAndEmptyRejection:
 # §C. SubmissionParamKey identity enumeration
 # ===========================================================================
 
-block submissionParamKeyIdentityDiscriminatorMatrix:
+testCase submissionParamKeyIdentityDiscriminatorMatrix:
   # 144-cell enumeration of SubmissionParamKind × SubmissionParamKind.
   # Native enum fold per G2 §8.8 mandatory note (precedent
   # tests/unit/terrors.nim — ``for kind in SetErrorType:``). paramKey
@@ -284,7 +285,7 @@ block submissionParamKeyIdentityDiscriminatorMatrix:
         doAssert key1 != key2,
           "expected distinct keys for distinct kinds: " & $k1 & " vs " & $k2
 
-block submissionParamKeyExtensionNamePartitions:
+testCase submissionParamKeyExtensionNamePartitions:
   # Within spkExtension, distinct keyword names ⇒ distinct keys; the
   # case-folded equality on RFC5321Keyword (submission_atoms.nim:51-54)
   # ⇒ "X-FOO" and "x-foo" yield the same key. The carried Opt[string]
@@ -306,7 +307,7 @@ block submissionParamKeyExtensionNamePartitions:
 # §D. paramKey derivation totality
 # ===========================================================================
 
-block paramKeyDerivationTotality:
+testCase paramKeyDerivationTotality:
   # For every SubmissionParamKind, paramKey returns a key whose
   # discriminator matches the input. Pattern 6 derived-not-stored:
   # paramKey is the single source of truth for parameter identity
@@ -321,7 +322,7 @@ block paramKeyDerivationTotality:
 # §E. SubmissionParams.toJson preserves insertion order
 # ===========================================================================
 
-block submissionParamsToJsonPreservesDeclarationOrder:
+testCase submissionParamsToJsonPreservesDeclarationOrder:
   # Sequence 1: all 11 well-known variants in SubmissionParamKind
   # declaration order (BODY → MT-PRIORITY).
   # toJson(SubmissionParams) iterates the underlying OrderedTable
@@ -341,7 +342,7 @@ block submissionParamsToJsonPreservesDeclarationOrder:
       "HOLDUNTIL", "BY", "MT-PRIORITY",
     ]
 
-block submissionParamsToJsonPreservesReverseOrder:
+testCase submissionParamsToJsonPreservesReverseOrder:
   # Sequence 2: reverse declaration order (MT-PRIORITY → BODY).
   # Build forward via the native enum iterator (avoids the
   # ``SubmissionParamKind(int)`` round-trip that --warningAsError:
@@ -360,7 +361,7 @@ block submissionParamsToJsonPreservesReverseOrder:
       "SIZE", "SMTPUTF8", "BODY",
     ]
 
-block submissionParamsToJsonPreservesShuffledOrderWithExtension:
+testCase submissionParamsToJsonPreservesShuffledOrderWithExtension:
   # Sequence 3: interleaved with the open-world variant at a known
   # position. Verifies that spkExtension renders as its keyword name
   # ("X-VENDOR-FOO") rather than the discriminator label "EXTENSION"

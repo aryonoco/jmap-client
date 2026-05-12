@@ -49,6 +49,7 @@ import jmap_client/client
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
 const LargeBodyLen = 4096
 
@@ -209,7 +210,7 @@ proc assertHasAttachment(
   doAssert foundAttach,
     "attachment-bearing email must surface under hasAttachment=true + before=future"
 
-block temailQueryAdvancedFilterLive:
+testCase temailQueryAdvancedFilterLive:
   forEachLiveTarget(target):
     # Cat-B (Phase L §0): exercises advanced EmailFilterCondition
     # variants. Stalwart 0.15.5 and Cyrus 3.12.2 accept the full

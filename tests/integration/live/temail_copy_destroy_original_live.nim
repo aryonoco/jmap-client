@@ -44,8 +44,9 @@ import jmap_client/client
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block temailCopyDestroyOriginalLive:
+testCase temailCopyDestroyOriginalLive:
   forEachLiveTarget(target):
     # Cat-B (Phase L §0): test asserts on client behaviour for the
     # compound RFC 8620 §5.4 rejection. Stalwart and Cyrus implement

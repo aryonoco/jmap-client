@@ -13,8 +13,9 @@
 
 import jmap_client
 import ./mloader
+import ../../mtestblock
 
-block tcapturedServerEnforcementMaxSizeRequest:
+testCase tcapturedServerEnforcementMaxSizeRequest:
   forEachCapturedServer("server-enforcement-max-size-request", j):
     let re = RequestError.fromJson(j).expect("RequestError.fromJson")
     doAssert re.rawType == "urn:ietf:params:jmap:error:limit",

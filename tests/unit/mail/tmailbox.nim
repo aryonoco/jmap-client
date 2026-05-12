@@ -11,26 +11,27 @@ import jmap_client/internal/types/validation
 import jmap_client/internal/types/primitives
 
 import ../../massertions
+import ../../mtestblock
 
 # ============= A. parseMailboxRole =============
 
-block parseMailboxRoleValid: # scenario 23
+testCase parseMailboxRoleValid: # scenario 23
   assertOkEq parseMailboxRole("inbox"), roleInbox
 
-block parseMailboxRoleUppercase: # scenario 24
+testCase parseMailboxRoleUppercase: # scenario 24
   assertOkEq parseMailboxRole("INBOX"), roleInbox
 
-block parseMailboxRoleCustom: # scenario 25
+testCase parseMailboxRoleCustom: # scenario 25
   let res = parseMailboxRole("CustomRole")
   assertOk res
   let role = res.get()
   assertEq role.kind, mrOther
   assertEq role.identifier, "customrole"
 
-block parseMailboxRoleEmpty: # scenario 26
+testCase parseMailboxRoleEmpty: # scenario 26
   assertErrFields parseMailboxRole(""), "MailboxRole", "must not be empty", ""
 
-block mailboxRoleConstants: # scenario 27
+testCase mailboxRoleConstants: # scenario 27
   assertOkEq parseMailboxRole("inbox"), roleInbox
   assertOkEq parseMailboxRole("drafts"), roleDrafts
   assertOkEq parseMailboxRole("sent"), roleSent
@@ -44,7 +45,7 @@ block mailboxRoleConstants: # scenario 27
 
 # ============= B. MailboxIdSet =============
 
-block initMailboxIdSetWithIds: # scenario 30
+testCase initMailboxIdSetWithIds: # scenario 30
   let id1 = parseId("mbx1").get()
   let id2 = parseId("mbx2").get()
   let ms = initMailboxIdSet(@[id1, id2])
@@ -52,13 +53,13 @@ block initMailboxIdSetWithIds: # scenario 30
   doAssert id1 in ms
   doAssert id2 in ms
 
-block initMailboxIdSetEmpty: # scenario 31
+testCase initMailboxIdSetEmpty: # scenario 31
   let ms = initMailboxIdSet(@[])
   assertLen ms, 0
 
 # ============= C. MailboxCreate =============
 
-block parseMailboxCreateDefaults: # scenario 50
+testCase parseMailboxCreateDefaults: # scenario 50
   let res = parseMailboxCreate("Inbox")
   assertOk res
   let mc = res.get()
@@ -68,7 +69,7 @@ block parseMailboxCreateDefaults: # scenario 50
   assertEq mc.sortOrder, UnsignedInt(0)
   assertEq mc.isSubscribed, false
 
-block parseMailboxCreateAllFields: # scenario 51
+testCase parseMailboxCreateAllFields: # scenario 51
   let pid = parseId("parent1").get()
   let res = parseMailboxCreate(
     "Work",
@@ -85,35 +86,35 @@ block parseMailboxCreateAllFields: # scenario 51
   assertEq mc.sortOrder, UnsignedInt(10)
   assertEq mc.isSubscribed, true
 
-block parseMailboxCreateEmptyName: # scenario 52
+testCase parseMailboxCreateEmptyName: # scenario 52
   assertErrFields parseMailboxCreate(""), "MailboxCreate", "name must not be empty", ""
 
 # ============= D. NonEmptyMailboxIdSet (Part E §6.1.3 scenarios 24–27a) =============
 
-block parseNonEmptyMailboxIdSetSingle: # §6.1.3 scenario 24
+testCase parseNonEmptyMailboxIdSetSingle: # §6.1.3 scenario 24
   let id1 = parseId("mbx1").get()
   let res = parseNonEmptyMailboxIdSet(@[id1])
   assertOk res
   assertLen res.get(), 1
 
-block parseNonEmptyMailboxIdSetEmptyRejected: # §6.1.3 scenario 25
+testCase parseNonEmptyMailboxIdSetEmptyRejected: # §6.1.3 scenario 25
   assertErrType parseNonEmptyMailboxIdSet(@[]), "NonEmptyMailboxIdSet"
 
-block parseNonEmptyMailboxIdSetDedup: # §6.1.3 scenario 26
+testCase parseNonEmptyMailboxIdSetDedup: # §6.1.3 scenario 26
   let id1 = parseId("mbx1").get()
   let id2 = parseId("mbx2").get()
   let res = parseNonEmptyMailboxIdSet(@[id1, id2, id1])
   assertOk res
   assertLen res.get(), 2
 
-block parseNonEmptyMailboxIdSetEqualityAndHash: # §6.1.3 scenario 27
+testCase parseNonEmptyMailboxIdSetEqualityAndHash: # §6.1.3 scenario 27
   let id1 = parseId("mbx1").get()
   let id2 = parseId("mbx2").get()
   let a = parseNonEmptyMailboxIdSet(@[id1, id2]).get()
   let b = parseNonEmptyMailboxIdSet(@[id2, id1]).get()
   assertEq a, b
 
-block parseNonEmptyMailboxIdSetMutabilityGuard: # §6.1.3 scenario 27a
+testCase parseNonEmptyMailboxIdSetMutabilityGuard: # §6.1.3 scenario 27a
   let id1 = parseId("mbx1").get()
   let s = parseNonEmptyMailboxIdSet(@[id1]).get()
   # Any Id value suffices to probe whether `incl` / `excl` / `clear` are
@@ -129,7 +130,7 @@ block parseNonEmptyMailboxIdSetMutabilityGuard: # §6.1.3 scenario 27a
 # exactly one error regardless of how many times it occurs. N
 # duplicates of the same kind therefore produce ONE error, not N-1.
 
-block initMailboxUpdateSetEmpty:
+testCase initMailboxUpdateSetEmpty:
   let res = initMailboxUpdateSet(@[])
   assertErr res
   assertLen res.error, 1
@@ -137,10 +138,10 @@ block initMailboxUpdateSetEmpty:
   assertEq res.error[0].message, "must contain at least one update"
   assertEq res.error[0].value, ""
 
-block initMailboxUpdateSetSingleValid:
+testCase initMailboxUpdateSetSingleValid:
   assertOk initMailboxUpdateSet(@[setName("Inbox")])
 
-block initMailboxUpdateSetTwoSameKind:
+testCase initMailboxUpdateSetTwoSameKind:
   let res = initMailboxUpdateSet(@[setName("A"), setName("B")])
   assertErr res
   assertLen res.error, 1
@@ -148,7 +149,7 @@ block initMailboxUpdateSetTwoSameKind:
   assertEq res.error[0].message, "duplicate target property"
   assertEq res.error[0].value, "muSetName"
 
-block initMailboxUpdateSetThreeSameKind:
+testCase initMailboxUpdateSetThreeSameKind:
   ## Three occurrences of the same kind still yield ONE error —
   ## the Haskell-style "each repeated key reported once" contract.
   let res = initMailboxUpdateSet(@[setName("A"), setName("B"), setName("C")])
@@ -156,7 +157,7 @@ block initMailboxUpdateSetThreeSameKind:
   assertLen res.error, 1
   assertEq res.error[0].value, "muSetName"
 
-block initMailboxUpdateSetTwoDistinctRepeated:
+testCase initMailboxUpdateSetTwoDistinctRepeated:
   ## Two distinct repeated kinds → TWO errors, one per distinct
   ## duplicate key. Verifies the output set via set-membership so the
   ## test does not depend on error ordering.
@@ -179,40 +180,40 @@ block initMailboxUpdateSetTwoDistinctRepeated:
 
 # ============= F. MailboxUpdate setter-shape =============
 
-block setNameConstructsCorrectKind:
+testCase setNameConstructsCorrectKind:
   let u = setName("Inbox")
   assertEq u.kind, muSetName
   assertEq u.name, "Inbox"
 
-block setParentIdNoneConstructsCorrectKind:
+testCase setParentIdNoneConstructsCorrectKind:
   let u = setParentId(Opt.none(Id))
   assertEq u.kind, muSetParentId
   assertNone u.parentId
 
-block setParentIdSomeConstructsCorrectKind:
+testCase setParentIdSomeConstructsCorrectKind:
   let pid = parseId("parent1").get()
   let u = setParentId(Opt.some(pid))
   assertEq u.kind, muSetParentId
   assertSomeEq u.parentId, pid
 
-block setRoleConstructsCorrectKind:
+testCase setRoleConstructsCorrectKind:
   let u = setRole(Opt.some(roleInbox))
   assertEq u.kind, muSetRole
   assertSomeEq u.role, roleInbox
 
-block setSortOrderConstructsCorrectKind:
+testCase setSortOrderConstructsCorrectKind:
   let u = setSortOrder(UnsignedInt(5))
   assertEq u.kind, muSetSortOrder
   assertEq u.sortOrder, UnsignedInt(5)
 
-block setIsSubscribedConstructsCorrectKind:
+testCase setIsSubscribedConstructsCorrectKind:
   let u = setIsSubscribed(true)
   assertEq u.kind, muSetIsSubscribed
   assertEq u.isSubscribed, true
 
 # ============= F. parseNonEmptyMailboxUpdates =============
 
-block parseNonEmptyMailboxUpdatesRejectsEmpty:
+testCase parseNonEmptyMailboxUpdatesRejectsEmpty:
   ## Empty input is explicitly rejected — the /set builder has exactly
   ## one "no updates" representation (``Opt.none``), so an empty wrapper
   ## is structurally forbidden.
@@ -222,7 +223,7 @@ block parseNonEmptyMailboxUpdatesRejectsEmpty:
   assertEq res.error[0].typeName, "NonEmptyMailboxUpdates"
   assertEq res.error[0].message, "must contain at least one entry"
 
-block parseNonEmptyMailboxUpdatesRejectsDuplicateId:
+testCase parseNonEmptyMailboxUpdatesRejectsDuplicateId:
   ## Duplicate ``Id`` keys are rejected — silent last-wins shadowing at
   ## Table construction would swallow caller data. The ``openArray`` input
   ## preserves duplicates for inspection.

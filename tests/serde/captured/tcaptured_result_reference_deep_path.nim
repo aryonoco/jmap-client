@@ -19,8 +19,9 @@ import jmap_client
 import jmap_client/internal/mail/thread as jthread
 import jmap_client/internal/types/envelope
 import ./mloader
+import ../../mtestblock
 
-block tcapturedResultReferenceDeepPath:
+testCase tcapturedResultReferenceDeepPath:
   forEachCapturedServer("result-reference-deep-path", j):
     let resp = envelope.Response.fromJson(j).expect("envelope.Response.fromJson")
     doAssert resp.methodResponses.len == 3,

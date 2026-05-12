@@ -35,8 +35,9 @@ import jmap_client/internal/types/envelope
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block tpatchObjectDeepPathsLive:
+testCase tpatchObjectDeepPathsLive:
   forEachLiveTarget(target):
     var client = initJmapClient(
         sessionUrl = target.sessionUrl,

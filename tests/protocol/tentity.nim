@@ -15,6 +15,7 @@ import jmap_client/internal/types/validation
 import jmap_client/internal/protocol/entity
 
 import ../massertions
+import ../mtestblock
 
 # ---------------------------------------------------------------------------
 # Mock entity types (local — compile-time verification only)
@@ -92,17 +93,17 @@ registerJmapEntity(NoFilterToJson)
 # A. Positive registration tests
 # ---------------------------------------------------------------------------
 
-block registerBasicEntity:
+testCase registerBasicEntity:
   ## MockFoo registered at module scope with both required overloads.
   ## If this module compiles, registration succeeded.
   doAssert true
 
-block registerQueryableEntity:
+testCase registerQueryableEntity:
   ## MockQueryable registered with filterType template.
   ## Both registerJmapEntity and registerQueryableEntity succeeded.
   doAssert true
 
-block overloadValuesCorrect:
+testCase overloadValuesCorrect:
   ## Overloads return the expected values. Typed dispatch: methodEntity
   ## resolves per typedesc to the test sentinel; capabilityUri yields the
   ## distinct URI registered for each mock.
@@ -115,23 +116,23 @@ block overloadValuesCorrect:
 # B. Negative registration tests (compile-time error detection)
 # ---------------------------------------------------------------------------
 
-block missingBothOverloads:
+testCase missingBothOverloads:
   ## Type with no overloads — registerJmapEntity must fail.
   assertNotCompiles(registerJmapEntity(NoBoth))
 
-block missingCapabilityUri:
+testCase missingCapabilityUri:
   ## Type with only methodEntity — registerJmapEntity must fail.
   assertNotCompiles(registerJmapEntity(NoCapUri))
 
-block missingMethodEntity:
+testCase missingMethodEntity:
   ## Type with only capabilityUri — registerJmapEntity must fail.
   assertNotCompiles(registerJmapEntity(NoMethodNs))
 
-block missingFilterType:
+testCase missingFilterType:
   ## MockFoo has no filterType — registerQueryableEntity must fail.
   assertNotCompiles(registerQueryableEntity(MockFoo))
 
-block missingFilterToJson:
+testCase missingFilterToJson:
   ## Type with filterType but no ``toJson`` on the filter must fail.
   ## ``NoFilterToJson`` (defined at module level) has ``filterType`` but
   ## deliberately omits ``toJson(NoFilterToJsonFilter)``.

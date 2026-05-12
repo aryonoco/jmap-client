@@ -21,8 +21,9 @@ import jmap_client/client
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block tEmailSubmissionMultiRecipientLive:
+testCase tEmailSubmissionMultiRecipientLive:
   forEachLiveTarget(target):
     # Cat-D (Phase L §0): asymmetric verification of the same client-
     # side outcome (the multi-recipient submission delivered) using

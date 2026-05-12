@@ -21,10 +21,11 @@ import jmap_client/internal/types/framework
 
 import ../../massertions
 import ../../mfixtures
+import ../../mtestblock
 
 # ============= A. MailboxFilterCondition toJson =============
 
-block toJsonAllNone: # scenario 56
+testCase toJsonAllNone: # scenario 56
   let fc = MailboxFilterCondition(
     parentId: Opt.none(Opt[Id]),
     name: Opt.none(string),
@@ -36,7 +37,7 @@ block toJsonAllNone: # scenario 56
   doAssert node.kind == JObject
   assertLen node, 0
 
-block toJsonParentIdNull: # scenario 57
+testCase toJsonParentIdNull: # scenario 57
   let fc = MailboxFilterCondition(
     parentId: Opt.some(Opt.none(Id)),
     name: Opt.none(string),
@@ -48,7 +49,7 @@ block toJsonParentIdNull: # scenario 57
   assertLen node, 1
   assertJsonFieldEq node, "parentId", newJNull()
 
-block toJsonParentIdValue: # scenario 58
+testCase toJsonParentIdValue: # scenario 58
   let id1 = parseId("id1").get()
   let fc = MailboxFilterCondition(
     parentId: Opt.some(Opt.some(id1)),
@@ -61,7 +62,7 @@ block toJsonParentIdValue: # scenario 58
   assertLen node, 1
   assertJsonFieldEq node, "parentId", newJString("id1")
 
-block toJsonRoleNull: # scenario 59
+testCase toJsonRoleNull: # scenario 59
   let fc = MailboxFilterCondition(
     parentId: Opt.none(Opt[Id]),
     name: Opt.none(string),
@@ -73,7 +74,7 @@ block toJsonRoleNull: # scenario 59
   assertLen node, 1
   assertJsonFieldEq node, "role", newJNull()
 
-block toJsonRoleValue: # scenario 60
+testCase toJsonRoleValue: # scenario 60
   let fc = MailboxFilterCondition(
     parentId: Opt.none(Opt[Id]),
     name: Opt.none(string),
@@ -85,7 +86,7 @@ block toJsonRoleValue: # scenario 60
   assertLen node, 1
   assertJsonFieldEq node, "role", newJString("inbox")
 
-block toJsonName: # scenario 61
+testCase toJsonName: # scenario 61
   let fc = MailboxFilterCondition(
     parentId: Opt.none(Opt[Id]),
     name: Opt.some("test"),
@@ -97,7 +98,7 @@ block toJsonName: # scenario 61
   assertLen node, 1
   assertJsonFieldEq node, "name", %"test"
 
-block toJsonMixed: # scenario 62
+testCase toJsonMixed: # scenario 62
   let fc = MailboxFilterCondition(
     parentId: Opt.some(Opt.none(Id)),
     name: Opt.none(string),
@@ -112,13 +113,13 @@ block toJsonMixed: # scenario 62
 
 # ============= B. EmailBodyFetchOptions toJson =============
 
-block bodyFetchDefaultEmpty: # scenario 46
+testCase bodyFetchDefaultEmpty: # scenario 46
   let opts = default(EmailBodyFetchOptions)
   let node = opts.toJson()
   doAssert node.kind == JObject
   assertLen node, 0
 
-block bodyFetchText: # scenario 47
+testCase bodyFetchText: # scenario 47
   let opts = EmailBodyFetchOptions(
     bodyProperties: Opt.none(seq[PropertyName]),
     fetchBodyValues: bvsText,
@@ -128,7 +129,7 @@ block bodyFetchText: # scenario 47
   assertLen node, 1
   assertJsonFieldEq node, "fetchTextBodyValues", %true
 
-block bodyFetchHtml: # scenario 48
+testCase bodyFetchHtml: # scenario 48
   let opts = EmailBodyFetchOptions(
     bodyProperties: Opt.none(seq[PropertyName]),
     fetchBodyValues: bvsHtml,
@@ -138,7 +139,7 @@ block bodyFetchHtml: # scenario 48
   assertLen node, 1
   assertJsonFieldEq node, "fetchHTMLBodyValues", %true
 
-block bodyFetchTextAndHtml: # scenario 49
+testCase bodyFetchTextAndHtml: # scenario 49
   let opts = EmailBodyFetchOptions(
     bodyProperties: Opt.none(seq[PropertyName]),
     fetchBodyValues: bvsTextAndHtml,
@@ -149,7 +150,7 @@ block bodyFetchTextAndHtml: # scenario 49
   assertJsonFieldEq node, "fetchTextBodyValues", %true
   assertJsonFieldEq node, "fetchHTMLBodyValues", %true
 
-block bodyFetchAll: # scenario 50
+testCase bodyFetchAll: # scenario 50
   let opts = EmailBodyFetchOptions(
     bodyProperties: Opt.none(seq[PropertyName]),
     fetchBodyValues: bvsAll,
@@ -159,7 +160,7 @@ block bodyFetchAll: # scenario 50
   assertLen node, 1
   assertJsonFieldEq node, "fetchAllBodyValues", %true
 
-block bodyFetchMaxBytes: # scenario 51
+testCase bodyFetchMaxBytes: # scenario 51
   let opts = EmailBodyFetchOptions(
     bodyProperties: Opt.none(seq[PropertyName]),
     fetchBodyValues: bvsNone,
@@ -169,7 +170,7 @@ block bodyFetchMaxBytes: # scenario 51
   assertLen node, 1
   doAssert node{"maxBodyValueBytes"} != nil, "maxBodyValueBytes must be present"
 
-block bodyFetchProperties: # scenario 52
+testCase bodyFetchProperties: # scenario 52
   let pn = parsePropertyName("partId").get()
   let opts = EmailBodyFetchOptions(
     bodyProperties: Opt.some(@[pn]),
@@ -185,22 +186,22 @@ block bodyFetchProperties: # scenario 52
 
 # ============= C. EmailHeaderFilter =============
 
-block headerFilterValid: # scenario 53
+testCase headerFilterValid: # scenario 53
   let res = parseEmailHeaderFilter("Subject")
   assertOk res
   assertEq res.get().name, "Subject"
 
-block headerFilterEmpty: # scenario 54
+testCase headerFilterEmpty: # scenario 54
   assertErrContains parseEmailHeaderFilter(""), "header name must not be empty"
 
-block headerFilterToJsonNameOnly:
+testCase headerFilterToJsonNameOnly:
   let ehf = makeEmailHeaderFilter("Subject")
   let node = ehf.toJson()
   doAssert node.kind == JArray, "EmailHeaderFilter.toJson must be JArray"
   assertLen node.getElems(@[]), 1
   assertEq node.getElems(@[])[0].getStr(""), "Subject"
 
-block headerFilterToJsonNameAndValue:
+testCase headerFilterToJsonNameAndValue:
   let ehf = makeEmailHeaderFilter("Subject", Opt.some("test"))
   let node = ehf.toJson()
   doAssert node.kind == JArray, "EmailHeaderFilter.toJson must be JArray"
@@ -210,25 +211,25 @@ block headerFilterToJsonNameAndValue:
 
 # ============= D. EmailFilterCondition toJson =============
 
-block filterAllNone: # scenario 55
+testCase filterAllNone: # scenario 55
   let fc = makeEmailFilterCondition()
   let node = fc.toJson()
   doAssert node.kind == JObject
   assertLen node, 0
 
-block filterInMailbox: # scenario 56
+testCase filterInMailbox: # scenario 56
   let fc = EmailFilterCondition(inMailbox: Opt.some(makeId("mbx1")))
   let node = fc.toJson()
   assertLen node, 1
   assertJsonFieldEq node, "inMailbox", %"mbx1"
 
-block filterHasKeyword: # scenario 57
+testCase filterHasKeyword: # scenario 57
   let fc = EmailFilterCondition(hasKeyword: Opt.some(kwSeen))
   let node = fc.toJson()
   assertLen node, 1
   assertJsonFieldEq node, "hasKeyword", %"$seen"
 
-block filterAllKeywords: # scenario 58
+testCase filterAllKeywords: # scenario 58
   let fc = EmailFilterCondition(
     hasKeyword: Opt.some(kwSeen),
     notKeyword: Opt.some(kwFlagged),
@@ -244,14 +245,14 @@ block filterAllKeywords: # scenario 58
   assertJsonFieldEq node, "someInThreadHaveKeyword", %"$draft"
   assertJsonFieldEq node, "noneInThreadHaveKeyword", %"$forwarded"
 
-block filterFromAddr: # scenario 59
+testCase filterFromAddr: # scenario 59
   let fc = EmailFilterCondition(fromAddr: Opt.some("alice"))
   let node = fc.toJson()
   assertLen node, 1
   assertJsonFieldEq node, "from", %"alice"
   doAssert node{"fromAddr"}.isNil, "fromAddr key must not appear"
 
-block filterHeaderBothForms: # scenario 60
+testCase filterHeaderBothForms: # scenario 60
   # Name only
   let ehfNameOnly = makeEmailHeaderFilter("X-Custom")
   let fc1 = EmailFilterCondition(header: Opt.some(ehfNameOnly))
@@ -271,7 +272,7 @@ block filterHeaderBothForms: # scenario 60
   assertLen arr2.getElems(@[]), 2
   assertEq arr2.getElems(@[])[1].getStr(""), "val"
 
-block filterMixed: # scenario 61
+testCase filterMixed: # scenario 61
   let fc = EmailFilterCondition(
     inMailbox: Opt.some(makeId("mbx1")),
     hasKeyword: Opt.some(kwSeen),
@@ -285,7 +286,7 @@ block filterMixed: # scenario 61
   assertJsonFieldEq node, "subject", %"hello"
   assertJsonFieldEq node, "hasAttachment", %true
 
-block filterEmptyMailboxOtherThan: # scenario 62
+testCase filterEmptyMailboxOtherThan: # scenario 62
   let fc = EmailFilterCondition(inMailboxOtherThan: Opt.some(newSeq[Id]()))
   let node = fc.toJson()
   assertLen node, 1
@@ -293,7 +294,7 @@ block filterEmptyMailboxOtherThan: # scenario 62
   doAssert arr != nil and arr.kind == JArray
   assertLen arr.getElems(@[]), 0
 
-block filterAll20Fields: # scenario 63
+testCase filterAll20Fields: # scenario 63
   let fc = EmailFilterCondition(
     inMailbox: Opt.some(makeId("mbx1")),
     inMailboxOtherThan: Opt.some(@[makeId("mbx2")]),

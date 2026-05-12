@@ -26,6 +26,7 @@ import jmap_client/internal/protocol/builder
 
 import ../massertions
 import ../mfixtures
+import ../mtestblock
 
 # ---------------------------------------------------------------------------
 # Mock entity types (local -- compile-time verification only)
@@ -115,7 +116,7 @@ registerQueryableEntity(MockQueryable)
 # A. Golden tests (sections 14.2, 14.4)
 # ===========================================================================
 
-block goldenSetRequestToJson:
+testCase goldenSetRequestToJson:
   ## Golden test section 14.2: SetRequest with create/destroy (common fields).
   ## ``SetRequest[T, C, U]`` carries ``update: Opt[U]`` — ``Opt.none`` emits
   ## no ``update`` key on the wire, keeping the wire shape byte-identical
@@ -143,7 +144,7 @@ block goldenSetRequestToJson:
   doAssert j{"destroy"}.kind == JArray
   assertLen j{"destroy"}.getElems(@[]), 2
 
-block goldenSetResponseMerging:
+testCase goldenSetResponseMerging:
   ## Golden test section 14.4: SetResponse merging with mixed success/failure.
   let j = %*{
     "accountId": "A13824",
@@ -184,7 +185,7 @@ block goldenSetResponseMerging:
 # B. Request toJson tests
 # ===========================================================================
 
-block getRequestAllDefaults:
+testCase getRequestAllDefaults:
   ## GetRequest with all none produces only accountId.
   let req = GetRequest[MockFoo](
     accountId: makeAccountId("a1"),
@@ -196,7 +197,7 @@ block getRequestAllDefaults:
   doAssert j{"ids"}.isNil
   doAssert j{"properties"}.isNil
 
-block getRequestDirectIds:
+testCase getRequestDirectIds:
   ## GetRequest with direct ids produces "ids" array.
   let req = GetRequest[MockFoo](
     accountId: makeAccountId("a1"),
@@ -208,7 +209,7 @@ block getRequestDirectIds:
   assertLen j{"ids"}.getElems(@[]), 2
   doAssert j{"#ids"}.isNil
 
-block getRequestReferenceIds:
+testCase getRequestReferenceIds:
   ## GetRequest with reference ids produces "#ids" with ResultReference.
   let rr =
     initResultReference(resultOf = makeMcid("c0"), name = mnEmailQuery, path = rpIds)
@@ -222,7 +223,7 @@ block getRequestReferenceIds:
   doAssert j{"#ids"}.kind == JObject
   doAssert j{"#ids"}{"resultOf"}.getStr("") == "c0"
 
-block getRequestWithProperties:
+testCase getRequestWithProperties:
   ## GetRequest with properties produces "properties" array.
   let req = GetRequest[MockFoo](
     accountId: makeAccountId("a1"),
@@ -233,7 +234,7 @@ block getRequestWithProperties:
   doAssert j{"properties"}.kind == JArray
   assertLen j{"properties"}.getElems(@[]), 2
 
-block changesRequestMinimal:
+testCase changesRequestMinimal:
   ## ChangesRequest with only required fields.
   let req = ChangesRequest[MockFoo](
     accountId: makeAccountId("a1"),
@@ -245,7 +246,7 @@ block changesRequestMinimal:
   doAssert j{"sinceState"}.getStr("") == "s0"
   doAssert j{"maxChanges"}.isNil
 
-block changesRequestWithMaxChanges:
+testCase changesRequestWithMaxChanges:
   ## ChangesRequest with maxChanges emitted.
   let req = ChangesRequest[MockFoo](
     accountId: makeAccountId("a1"),
@@ -255,7 +256,7 @@ block changesRequestWithMaxChanges:
   let j = req.toJson()
   doAssert j{"maxChanges"}.getBiggestInt(0) == 50
 
-block setRequestMinimal:
+testCase setRequestMinimal:
   ## SetRequest with only accountId. ``SetRequest[T, C, U]`` with all
   ## optional fields ``Opt.none`` emits only ``accountId``; every other
   ## key (``ifInState``, ``create``, ``destroy``, ``update``) is absent.
@@ -273,7 +274,7 @@ block setRequestMinimal:
   doAssert j{"update"}.isNil
   doAssert j{"destroy"}.isNil
 
-block setRequestWithReferencableDestroy:
+testCase setRequestWithReferencableDestroy:
   ## SetRequest destroy with result reference produces "#destroy".
   let rr =
     initResultReference(resultOf = makeMcid("c0"), name = mnEmailQuery, path = rpIds)
@@ -289,7 +290,7 @@ block setRequestWithReferencableDestroy:
   doAssert j{"#destroy"}.kind == JObject
   doAssert j{"#destroy"}{"resultOf"}.getStr("") == "c0"
 
-block copyRequestMinimal:
+testCase copyRequestMinimal:
   ## CopyRequest with required fields and ``keepOriginals()`` mode. Per
   ## RFC 8620 §5.4 spec default, ``onSuccessDestroyOriginal`` is OMITTED
   ## from the wire when the value would be ``false`` — the key is not
@@ -310,7 +311,7 @@ block copyRequestMinimal:
   doAssert j{"create"}.kind == JObject
   doAssert j{"onSuccessDestroyOriginal"}.isNil
 
-block copyRequestOnSuccessTrue:
+testCase copyRequestOnSuccessTrue:
   ## CopyRequest with destroy-after-success mode emits
   ## ``onSuccessDestroyOriginal: true`` — the non-default case, where the
   ## server must take a side effect, is the only case the wire carries.
@@ -327,7 +328,7 @@ block copyRequestOnSuccessTrue:
   let j = req.toJson()
   doAssert j{"onSuccessDestroyOriginal"}.getBool(false) == true
 
-block queryRequestMinimal:
+testCase queryRequestMinimal:
   ## addQuery with only required fields emits accountId and nothing else
   ## for the optional query window. ``anchorOffset`` is omitted when
   ## ``anchor`` is absent (see ``assembleQueryArgs`` for the rationale).
@@ -342,7 +343,7 @@ block queryRequestMinimal:
   doAssert args{"anchorOffset"}.isNil
   doAssert args{"calculateTotal"}.getBool(true) == false
 
-block queryRequestWithFilter:
+testCase queryRequestWithFilter:
   ## addQuery with a filter condition emits ``filter`` in the invocation args.
   let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = addQuery[MockQueryable, MockFilter, Comparator](
@@ -352,7 +353,7 @@ block queryRequestWithFilter:
   doAssert args{"filter"}.kind == JObject
   doAssert args{"filter"}{"mock"}.getBool(false) == true
 
-block queryChangesRequestMinimal:
+testCase queryChangesRequestMinimal:
   ## addQueryChanges with only required fields emits accountId +
   ## sinceQueryState; all other optional fields are absent (filter) or
   ## carry their default (calculateTotal: false).
@@ -365,7 +366,7 @@ block queryChangesRequestMinimal:
   doAssert args{"calculateTotal"}.getBool(true) == false
   doAssert args{"filter"}.isNil
 
-block queryChangesRequestAllFields:
+testCase queryChangesRequestAllFields:
   ## addQueryChanges with every optional field populated emits each one
   ## and preserves sort-array ordering.
   let comp =
@@ -388,7 +389,7 @@ block queryChangesRequestAllFields:
   doAssert args{"upToId"}.getStr("") == "upTo1"
   doAssert args{"calculateTotal"}.getBool(false) == true
 
-block changesRequestMinimalToJson:
+testCase changesRequestMinimalToJson:
   ## Section 14.6: ChangesRequest minimal produces accountId + sinceState only.
   let req = ChangesRequest[MockFoo](
     accountId: makeAccountId("a1"),
@@ -402,7 +403,7 @@ block changesRequestMinimalToJson:
 # C. GetResponse fromJson tests
 # ===========================================================================
 
-block getResponseHappyPath:
+testCase getResponseHappyPath:
   ## Valid GetResponse JSON with all fields.
   let j =
     %*{"accountId": "a1", "state": "s1", "list": [{"id": "x1"}], "notFound": ["x2"]}
@@ -413,38 +414,38 @@ block getResponseHappyPath:
   assertLen gr.notFound, 1
   doAssert gr.notFound[0] == makeId("x2")
 
-block getResponseMissingState:
+testCase getResponseMissingState:
   ## Missing state field produces err.
   let j = %*{"accountId": "a1", "list": [], "notFound": []}
   assertErr GetResponse[MockFoo].fromJson(j)
 
-block getResponseStateWrongKind:
+testCase getResponseStateWrongKind:
   ## State is JInt instead of JString produces err.
   let j = %*{"accountId": "a1", "state": 42, "list": [], "notFound": []}
   assertErr GetResponse[MockFoo].fromJson(j)
 
-block getResponseListWrongKind:
+testCase getResponseListWrongKind:
   ## List is JString instead of JArray produces err.
   let j = %*{"accountId": "a1", "state": "s1", "list": "wrong"}
   assertErr GetResponse[MockFoo].fromJson(j)
 
-block getResponseNotFoundAbsent:
+testCase getResponseNotFoundAbsent:
   ## NotFound absent produces ok with empty notFound.
   let j = %*{"accountId": "a1", "state": "s1", "list": []}
   let gr = GetResponse[MockFoo].fromJson(j).get()
   assertLen gr.notFound, 0
 
-block getResponseListEmpty:
+testCase getResponseListEmpty:
   ## Empty list is valid.
   let j = %*{"accountId": "a1", "state": "s1", "list": []}
   assertOk GetResponse[MockFoo].fromJson(j)
 
-block getResponseExtraFields:
+testCase getResponseExtraFields:
   ## Extra unknown fields are ignored.
   let j = %*{"accountId": "a1", "state": "s1", "list": [], "unknown": "ignored"}
   assertOk GetResponse[MockFoo].fromJson(j)
 
-block getResponseAccountIdEmpty:
+testCase getResponseAccountIdEmpty:
   ## Empty accountId string produces err.
   let j = %*{"accountId": "", "state": "s1", "list": []}
   assertErr GetResponse[MockFoo].fromJson(j)
@@ -453,7 +454,7 @@ block getResponseAccountIdEmpty:
 # D. ChangesResponse fromJson tests
 # ===========================================================================
 
-block changesResponseHappyPath:
+testCase changesResponseHappyPath:
   ## Valid ChangesResponse JSON.
   let j = %*{
     "accountId": "a1",
@@ -470,7 +471,7 @@ block changesResponseHappyPath:
   assertLen cr.destroyed, 1
   doAssert not cr.hasMoreChanges
 
-block changesResponseHasMoreTrue:
+testCase changesResponseHasMoreTrue:
   ## hasMoreChanges true is preserved.
   let j = %*{
     "accountId": "a1",
@@ -484,7 +485,7 @@ block changesResponseHasMoreTrue:
   let cr = ChangesResponse[MockFoo].fromJson(j).get()
   doAssert cr.hasMoreChanges
 
-block changesResponseHasMoreWrongKind:
+testCase changesResponseHasMoreWrongKind:
   ## hasMoreChanges is JString produces err.
   let j = %*{
     "accountId": "a1",
@@ -497,7 +498,7 @@ block changesResponseHasMoreWrongKind:
   }
   assertErr ChangesResponse[MockFoo].fromJson(j)
 
-block changesResponseHasMoreAbsent:
+testCase changesResponseHasMoreAbsent:
   ## hasMoreChanges absent produces err.
   let j = %*{
     "accountId": "a1",
@@ -509,7 +510,7 @@ block changesResponseHasMoreAbsent:
   }
   assertErr ChangesResponse[MockFoo].fromJson(j)
 
-block changesResponseMissingNewState:
+testCase changesResponseMissingNewState:
   ## Missing newState produces err.
   let j = %*{
     "accountId": "a1",
@@ -521,7 +522,7 @@ block changesResponseMissingNewState:
   }
   assertErr ChangesResponse[MockFoo].fromJson(j)
 
-block changesResponseEmptyArrays:
+testCase changesResponseEmptyArrays:
   ## Empty created/updated/destroyed arrays are valid.
   let j = %*{
     "accountId": "a1",
@@ -539,7 +540,7 @@ block changesResponseEmptyArrays:
 # E. SetResponse fromJson tests
 # ===========================================================================
 
-block setResponseBothNull:
+testCase setResponseBothNull:
   ## Both created and notCreated null produces empty Result tables.
   let j = %*{"accountId": "a1", "newState": "s1"}
   let sr = SetResponse[MockFoo, MockFoo].fromJson(j).get()
@@ -547,7 +548,7 @@ block setResponseBothNull:
   assertLen sr.updateResults, 0
   assertLen sr.destroyResults, 0
 
-block setResponseMissingNewStateLenient:
+testCase setResponseMissingNewStateLenient:
   ## RFC 8620 §5.3 mandates newState; Stalwart 0.15.5 omits it
   ## for failed-only /set responses. Library is lenient on receive
   ## per Postel's law (Phase K0).
@@ -555,20 +556,20 @@ block setResponseMissingNewStateLenient:
   let sr = SetResponse[MockFoo, MockFoo].fromJson(j).get()
   doAssert sr.newState.isNone
 
-block copyResponseMissingNewStateLenient:
+testCase copyResponseMissingNewStateLenient:
   ## Same lenience contract for CopyResponse.
   let j = %*{"fromAccountId": "from1", "accountId": "to1"}
   let cr = CopyResponse[MockFoo].fromJson(j).get()
   doAssert cr.newState.isNone
 
-block setResponseCreatedOnly:
+testCase setResponseCreatedOnly:
   ## Created entries only — all ok in unified Result map.
   let j = %*{"accountId": "a1", "newState": "s1", "created": {"k1": {"id": "id1"}}}
   let sr = SetResponse[MockFoo, MockFoo].fromJson(j).get()
   assertLen sr.createResults, 1
   doAssert sr.createResults[makeCreationId("k1")].isOk
 
-block setResponseNotCreatedOnly:
+testCase setResponseNotCreatedOnly:
   ## NotCreated entries only — all err in unified Result map.
   let j =
     %*{"accountId": "a1", "newState": "s1", "notCreated": {"k1": {"type": "forbidden"}}}
@@ -576,7 +577,7 @@ block setResponseNotCreatedOnly:
   assertLen sr.createResults, 1
   doAssert sr.createResults[makeCreationId("k1")].isErr
 
-block setResponseMixedCreateResults:
+testCase setResponseMixedCreateResults:
   ## Mixed created and notCreated in unified Result map.
   let j = %*{
     "accountId": "a1",
@@ -589,40 +590,40 @@ block setResponseMixedCreateResults:
   doAssert sr.createResults[makeCreationId("k1")].isOk
   doAssert sr.createResults[makeCreationId("k2")].isErr
 
-block setResponseUpdatedNull:
+testCase setResponseUpdatedNull:
   ## Updated entry with null value produces ok(none) in unified Result map.
   let j = %*{"accountId": "a1", "newState": "s1", "updated": {"id1": nil}}
   let sr = SetResponse[MockFoo, MockFoo].fromJson(j).get()
   doAssert sr.updateResults[makeId("id1")].isOk
   doAssert sr.updateResults[makeId("id1")].get().isNone
 
-block setResponseUpdatedObject:
+testCase setResponseUpdatedObject:
   ## Updated entry with object value produces ok(some) in unified Result map.
   let j = %*{"accountId": "a1", "newState": "s1", "updated": {"id1": {"prop": "val"}}}
   let sr = SetResponse[MockFoo, MockFoo].fromJson(j).get()
   doAssert sr.updateResults[makeId("id1")].isOk
   doAssert sr.updateResults[makeId("id1")].get().isSome
 
-block setResponseDestroyedEmpty:
+testCase setResponseDestroyedEmpty:
   ## Destroyed empty array produces empty destroyResults.
   let j = %*{"accountId": "a1", "newState": "s1", "destroyed": []}
   let sr = SetResponse[MockFoo, MockFoo].fromJson(j).get()
   assertLen sr.destroyResults, 0
 
-block setResponseOldStateAbsent:
+testCase setResponseOldStateAbsent:
   ## OldState absent produces none.
   let j = %*{"accountId": "a1", "newState": "s1"}
   let sr = SetResponse[MockFoo, MockFoo].fromJson(j).get()
   doAssert sr.oldState.isNone
 
-block setResponseNotCreatedMissingType:
+testCase setResponseNotCreatedMissingType:
   ## NotCreated value missing "type" field produces err.
   let j = %*{
     "accountId": "a1", "newState": "s1", "notCreated": {"k1": {"description": "oops"}}
   }
   assertErr SetResponse[MockFoo, MockFoo].fromJson(j)
 
-block setResponseNotCreatedUnknownType:
+testCase setResponseNotCreatedUnknownType:
   ## NotCreated unknown type produces err with setUnknown, rawType preserved.
   let j = %*{
     "accountId": "a1", "newState": "s1", "notCreated": {"k1": {"type": "futureError"}}
@@ -633,7 +634,7 @@ block setResponseNotCreatedUnknownType:
   doAssert se.errorType == setUnknown
   doAssert se.rawType == "futureError"
 
-block setResponseDuplicateIdLastWriterWins:
+testCase setResponseDuplicateIdLastWriterWins:
   ## Same id in created and notCreated — last writer (notCreated) wins.
   ## Unified Result map: single entry, err (not two separate entries).
   let j = %*{
@@ -646,7 +647,7 @@ block setResponseDuplicateIdLastWriterWins:
   assertLen sr.createResults, 1
   doAssert sr.createResults[makeCreationId("k1")].isErr
 
-block setResponseMalformedNotCreatedEntry:
+testCase setResponseMalformedNotCreatedEntry:
   ## Malformed notCreated entry (non-object) aborts entire merge with err.
   ## Documents strict abort behaviour under parse-don't-validate.
   let j = %*{"accountId": "a1", "newState": "s1", "notCreated": {"k1": 123}}
@@ -656,7 +657,7 @@ block setResponseMalformedNotCreatedEntry:
 # F. CopyResponse fromJson tests
 # ===========================================================================
 
-block copyResponseAlreadyExists:
+testCase copyResponseAlreadyExists:
   ## All notCreated with alreadyExists — unified Result map err branch.
   let j = %*{
     "fromAccountId": "from1",
@@ -669,7 +670,7 @@ block copyResponseAlreadyExists:
   let se = cr.createResults[makeCreationId("k1")].error()
   doAssert se.errorType == setAlreadyExists
 
-block copyResponseMalformedExistingId:
+testCase copyResponseMalformedExistingId:
   ## Malformed existingId degrades to setUnknown with rawType preserved.
   let j = %*{
     "fromAccountId": "from1",
@@ -682,7 +683,7 @@ block copyResponseMalformedExistingId:
   let se = cr.createResults[makeCreationId("k1")].error()
   doAssert se.rawType == "alreadyExists"
 
-block copyResponseAllFailed:
+testCase copyResponseAllFailed:
   ## Created null, notCreated has entries — all copies failed (unified err).
   let j = %*{
     "fromAccountId": "from1",
@@ -694,7 +695,7 @@ block copyResponseAllFailed:
   assertLen cr.createResults, 1
   doAssert cr.createResults[makeCreationId("k1")].isErr
 
-block copyResponseValidCreated:
+testCase copyResponseValidCreated:
   ## Valid created entry with server-set id — unified ok branch.
   let j = %*{
     "fromAccountId": "from1",
@@ -705,7 +706,7 @@ block copyResponseValidCreated:
   let cr = CopyResponse[MockFoo].fromJson(j).get()
   doAssert cr.createResults[makeCreationId("k1")].isOk
 
-block copyResponseCreatedNullNotCreatedPresent:
+testCase copyResponseCreatedNullNotCreatedPresent:
   ## Created null + notCreated entries — all err in unified map.
   let j = %*{
     "fromAccountId": "from1",
@@ -722,7 +723,7 @@ block copyResponseCreatedNullNotCreatedPresent:
 # G. QueryResponse fromJson tests
 # ===========================================================================
 
-block queryResponseHappyPath:
+testCase queryResponseHappyPath:
   ## Valid QueryResponse JSON.
   let j = %*{
     "accountId": "a1",
@@ -739,7 +740,7 @@ block queryResponseHappyPath:
   doAssert qr.total.isSome
   doAssert qr.limit.isSome
 
-block queryResponseTotalAbsent:
+testCase queryResponseTotalAbsent:
   ## Total absent produces none.
   let j = %*{
     "accountId": "a1",
@@ -751,7 +752,7 @@ block queryResponseTotalAbsent:
   let qr = QueryResponse[MockFoo].fromJson(j).get()
   doAssert qr.total.isNone
 
-block queryResponseLimitAbsent:
+testCase queryResponseLimitAbsent:
   ## Limit absent produces none.
   let j = %*{
     "accountId": "a1",
@@ -763,7 +764,7 @@ block queryResponseLimitAbsent:
   let qr = QueryResponse[MockFoo].fromJson(j).get()
   doAssert qr.limit.isNone
 
-block queryResponseIdsEmpty:
+testCase queryResponseIdsEmpty:
   ## Empty ids array is valid (position >= total).
   let j = %*{
     "accountId": "a1",
@@ -774,7 +775,7 @@ block queryResponseIdsEmpty:
   }
   assertOk QueryResponse[MockFoo].fromJson(j)
 
-block queryResponsePositionWrongKind:
+testCase queryResponsePositionWrongKind:
   ## Position is JString produces err.
   let j = %*{
     "accountId": "a1",
@@ -785,12 +786,12 @@ block queryResponsePositionWrongKind:
   }
   assertErr QueryResponse[MockFoo].fromJson(j)
 
-block queryResponseCanCalculateChangesMissing:
+testCase queryResponseCanCalculateChangesMissing:
   ## canCalculateChanges missing produces err.
   let j = %*{"accountId": "a1", "queryState": "qs1", "position": 0, "ids": []}
   assertErr QueryResponse[MockFoo].fromJson(j)
 
-block queryResponseCanCalculateChangesWrongKind:
+testCase queryResponseCanCalculateChangesWrongKind:
   ## canCalculateChanges is JInt produces err.
   let j = %*{
     "accountId": "a1",
@@ -805,7 +806,7 @@ block queryResponseCanCalculateChangesWrongKind:
 # H. QueryChangesResponse fromJson tests
 # ===========================================================================
 
-block queryChangesResponseHappyPath:
+testCase queryChangesResponseHappyPath:
   ## Valid QueryChangesResponse with removed + added.
   let j = %*{
     "accountId": "a1",
@@ -818,7 +819,7 @@ block queryChangesResponseHappyPath:
   assertLen qcr.removed, 1
   assertLen qcr.added, 1
 
-block queryChangesResponseEmptyRemovedNonEmptyAdded:
+testCase queryChangesResponseEmptyRemovedNonEmptyAdded:
   ## Empty removed with non-empty added is valid.
   let j = %*{
     "accountId": "a1",
@@ -831,7 +832,7 @@ block queryChangesResponseEmptyRemovedNonEmptyAdded:
   assertLen qcr.removed, 0
   assertLen qcr.added, 1
 
-block queryChangesResponseTotalAbsent:
+testCase queryChangesResponseTotalAbsent:
   ## Total absent produces none.
   let j = %*{
     "accountId": "a1",
@@ -843,7 +844,7 @@ block queryChangesResponseTotalAbsent:
   let qcr = QueryChangesResponse[MockFoo].fromJson(j).get()
   doAssert qcr.total.isNone
 
-block queryChangesResponseTotalPresent:
+testCase queryChangesResponseTotalPresent:
   ## Total present with valid value.
   let j = %*{
     "accountId": "a1",
@@ -856,7 +857,7 @@ block queryChangesResponseTotalPresent:
   let qcr = QueryChangesResponse[MockFoo].fromJson(j).get()
   doAssert qcr.total.isSome
 
-block queryChangesResponseAddedInvalidIndex:
+testCase queryChangesResponseAddedInvalidIndex:
   ## Added with invalid index propagates err from AddedItem.fromJson.
   let j = %*{
     "accountId": "a1",
@@ -871,12 +872,12 @@ block queryChangesResponseAddedInvalidIndex:
 # J. SerializedSort / SerializedFilter distinct types
 # ===========================================================================
 
-block serializeOptSortNone:
+testCase serializeOptSortNone:
   ## serializeOptSort with Opt.none produces Opt.none(SerializedSort).
   let result = serializeOptSort(Opt.none(seq[Comparator]))
   doAssert result.isNone
 
-block serializeOptSortSome:
+testCase serializeOptSortSome:
   ## serializeOptSort with a Comparator seq produces Opt.some(SerializedSort)
   ## containing a JArray with the expected shape.
   let comp =
@@ -889,12 +890,12 @@ block serializeOptSortSome:
   doAssert arr[0]{"property"}.getStr("") == "name"
   doAssert arr[0]{"isAscending"}.getBool(false) == true
 
-block serializeOptFilterNone:
+testCase serializeOptFilterNone:
   ## serializeOptFilter with Opt.none produces Opt.none(SerializedFilter).
   let result = serializeOptFilter(Opt.none(Filter[MockFilter]))
   doAssert result.isNone
 
-block serializeOptFilterSome:
+testCase serializeOptFilterSome:
   ## serializeOptFilter with a filter tree produces serialised JSON.
   ## ``MockFilter.toJson`` resolves via the ``mixin toJson`` cascade.
   let f = filterCondition(MockFilter())
@@ -903,14 +904,14 @@ block serializeOptFilterSome:
   let node = result.get().toJsonNode()
   doAssert node{"mock"}.getBool(false) == true
 
-block serializeFilterRequired:
+testCase serializeFilterRequired:
   ## serializeFilter (non-Opt) wraps the filter JSON in SerializedFilter.
   let f = filterCondition(MockFilter())
   let result = serializeFilter(f)
   let node = result.toJsonNode()
   doAssert node{"mock"}.getBool(false) == true
 
-block assembleQueryArgsMinimal:
+testCase assembleQueryArgsMinimal:
   ## assembleQueryArgs with default QueryParams — minimal JSON. The
   ## ``anchorOffset`` field is meaningful only when ``anchor`` is set
   ## (RFC 8620 §5.5), so it is omitted from the wire when anchor is
@@ -929,7 +930,7 @@ block assembleQueryArgsMinimal:
   doAssert j{"anchorOffset"}.isNil
   doAssert j{"calculateTotal"}.getBool(true) == false
 
-block assembleQueryArgsAllFields:
+testCase assembleQueryArgsAllFields:
   ## assembleQueryArgs with all fields populated.
   let comp =
     parseComparator(makePropertyName("name"), true, Opt.none(CollationAlgorithm))
@@ -957,7 +958,7 @@ block assembleQueryArgsAllFields:
   doAssert j{"limit"}.getBiggestInt(0) == 25
   doAssert j{"calculateTotal"}.getBool(false) == true
 
-block assembleQueryChangesArgsMinimal:
+testCase assembleQueryChangesArgsMinimal:
   ## assembleQueryChangesArgs with only required fields.
   let j = assembleQueryChangesArgs(
     makeAccountId("a1"),
@@ -976,7 +977,7 @@ block assembleQueryChangesArgsMinimal:
   doAssert j{"upToId"}.isNil
   doAssert j{"calculateTotal"}.getBool(true) == false
 
-block assembleQueryChangesArgsAllFields:
+testCase assembleQueryChangesArgsAllFields:
   ## assembleQueryChangesArgs with all fields populated.
   let comp =
     parseComparator(makePropertyName("name"), true, Opt.none(CollationAlgorithm))
@@ -997,7 +998,7 @@ block assembleQueryChangesArgsAllFields:
   doAssert j{"upToId"}.getStr("") == "upTo1"
   doAssert j{"calculateTotal"}.getBool(false) == true
 
-block serializedSortFilterTypeSafety:
+testCase serializedSortFilterTypeSafety:
   ## SerializedSort and SerializedFilter are distinct — cannot assign between them.
   assertNotCompiles:
     let s = SerializedSort(newJArray())

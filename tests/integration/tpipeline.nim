@@ -26,12 +26,13 @@ import jmap_client/internal/types/envelope
 import ../massertions
 import ../mfixtures
 import ../mtest_entity
+import ../mtestblock
 
 # ===========================================================================
 # A. Builder -> build -> Request JSON
 # ===========================================================================
 
-block builderToRequestJson:
+testCase builderToRequestJson:
   ## Build a GetRequest for TestWidget and verify Request JSON structure.
   ## ``initRequestBuilder`` pre-declares ``urn:ietf:params:jmap:core``
   ## (RFC 8620 §3.2 obligation) so the ``using`` set carries both core
@@ -50,9 +51,10 @@ block builderToRequestJson:
 # B. Builder -> build -> Response -> get[T] (full round-trip)
 # ===========================================================================
 
-block fullRoundTrip:
+testCase fullRoundTrip:
   ## Build request, construct synthetic response, extract typed result.
   let b0 = initRequestBuilder(makeBuilderId())
+  let bid = b0.builderId
   let (_, gh) = addGet[TestWidget](b0, accountId = makeAccountId("A1"))
   # Synthetic response with a GetResponse containing a TestWidget
   let getJson = %*{
@@ -62,7 +64,7 @@ block fullRoundTrip:
     "notFound": [],
   }
   let resp = makeTypedResponse("TestWidget/get", getJson, makeMcid("c0"))
-  let dr = makeDispatchedResponse(resp, b0.builderId)
+  let dr = makeDispatchedResponse(resp, bid)
   let result = dr.get(gh)
   assertOk result
   let gr = result.get()
@@ -74,9 +76,10 @@ block fullRoundTrip:
 # C. Multi-method pipeline with result references
 # ===========================================================================
 
-block multiMethodWithResultReference:
+testCase multiMethodWithResultReference:
   ## addQuery -> idsRef -> addGet with referenced ids.
   let b0 = initRequestBuilder(makeBuilderId())
+  let bid = b0.builderId
   let (b1, qh) = addQuery[TestWidget, TestWidgetFilter, Comparator](
     b0, accountId = makeAccountId("A1")
   )
@@ -107,7 +110,7 @@ block multiMethodWithResultReference:
     createdIds: Opt.none(Table[CreationId, Id]),
     sessionState: makeState("rs1"),
   )
-  let dr = makeDispatchedResponse(resp, b0.builderId)
+  let dr = makeDispatchedResponse(resp, bid)
   assertOk dr.get(qh)
   assertOk dr.get(gh)
 
@@ -115,12 +118,13 @@ block multiMethodWithResultReference:
 # D. Error pipeline
 # ===========================================================================
 
-block errorPipeline:
+testCase errorPipeline:
   ## Method error detection through the pipeline.
   let b0 = initRequestBuilder(makeBuilderId())
+  let bid = b0.builderId
   let (_, gh) = addGet[TestWidget](b0, accountId = makeAccountId("A1"))
   let resp = makeErrorResponse("unknownMethod", makeMcid("c0"))
-  let dr = makeDispatchedResponse(resp, b0.builderId)
+  let dr = makeDispatchedResponse(resp, bid)
   let result = dr.get(gh)
   assertErr result
   let ge = result.error()
@@ -131,9 +135,10 @@ block errorPipeline:
 # E. Mixed success/error pipeline
 # ===========================================================================
 
-block mixedSuccessError:
+testCase mixedSuccessError:
   ## Two method calls: first succeeds, second returns error.
   let b0 = initRequestBuilder(makeBuilderId())
+  let bid = b0.builderId
   let (b1, gh) = addGet[TestWidget](b0, accountId = makeAccountId("A1"))
   let (_, sh) = addMailboxSet(b1, accountId = makeAccountId("A1"))
   let getJson = makeGetResponseJson(accountId = "A1", state = "s1")
@@ -145,7 +150,7 @@ block mixedSuccessError:
     createdIds: Opt.none(Table[CreationId, Id]),
     sessionState: makeState("rs1"),
   )
-  let dr = makeDispatchedResponse(resp, b0.builderId)
+  let dr = makeDispatchedResponse(resp, bid)
   assertOk dr.get(gh) # first succeeds
   assertErr dr.get(sh) # second is error
   let err2 = dr.get(sh).error()
@@ -156,7 +161,7 @@ block mixedSuccessError:
 # F. Builder -> send convenience (Layer 4 integration)
 # ===========================================================================
 
-block builderSendConvenience:
+testCase builderSendConvenience:
   ## Verify client.send(builder.freeze()) compiles and exercises pre-flight validation.
   ## Uses setSessionForTest to inject a session with limits.
   var client = initJmapClient(
@@ -181,9 +186,10 @@ block builderSendConvenience:
 # G. Query with filter (TestWidget)
 # ===========================================================================
 
-block queryWithFilter:
+testCase queryWithFilter:
   ## Build a query with TestWidgetFilter and verify filter serialisation.
   let b0 = initRequestBuilder(makeBuilderId())
+  let bid = b0.builderId
   let f = TestWidgetFilter(name: Opt.some("test"))
   let (b1, qh) = addQuery[TestWidget, TestWidgetFilter, Comparator](
     b0, accountId = makeAccountId("A1"), filter = Opt.some(filterCondition(f))
@@ -196,16 +202,17 @@ block queryWithFilter:
   # Extract from synthetic response
   let queryJson = makeQueryResponseJson(accountId = "A1", queryState = "qs1")
   let resp = makeTypedResponse("TestWidget/query", queryJson, makeMcid("c0"))
-  let dr = makeDispatchedResponse(resp, b0.builderId)
+  let dr = makeDispatchedResponse(resp, bid)
   assertOk dr.get(qh)
 
 # ===========================================================================
 # H. SetResponse with unified Result maps (Decision 3.9B)
 # ===========================================================================
 
-block setResponseUnifiedMaps:
+testCase setResponseUnifiedMaps:
   ## Build a set request and verify unified Result map extraction.
   let b0 = initRequestBuilder(makeBuilderId())
+  let bid = b0.builderId
   let (_, sh) = addMailboxSet(b0, accountId = makeAccountId("A1"))
   # Synthetic SetResponse with mixed success/failure. The ``created``
   # entry is a complete Mailbox wire object — typed ``SetResponse[Mailbox]``
@@ -245,7 +252,7 @@ block setResponseUnifiedMaps:
     "notDestroyed": {"w-keep": {"type": "notFound"}},
   }
   let resp = makeTypedResponse("Mailbox/set", setJson, makeMcid("c0"))
-  let dr = makeDispatchedResponse(resp, b0.builderId)
+  let dr = makeDispatchedResponse(resp, bid)
   let result = dr.get(sh)
   assertOk result
   let sr = result.get()

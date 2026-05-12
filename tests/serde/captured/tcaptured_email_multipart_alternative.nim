@@ -15,8 +15,9 @@ import std/tables
 import jmap_client
 import jmap_client/internal/types/envelope
 import ./mloader
+import ../../mtestblock
 
-block tcapturedEmailMultipartAlternative:
+testCase tcapturedEmailMultipartAlternative:
   forEachCapturedServer("email-multipart-alternative", j):
     let resp = envelope.Response.fromJson(j).expect("envelope.Response.fromJson")
     doAssert resp.methodResponses.len == 1

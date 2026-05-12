@@ -27,8 +27,9 @@ import jmap_client
 import jmap_client/client
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block tidentityGetLive:
+testCase tidentityGetLive:
   forEachLiveTarget(target):
     var client = initJmapClient(
         sessionUrl = target.sessionUrl,

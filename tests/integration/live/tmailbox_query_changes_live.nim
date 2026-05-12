@@ -40,8 +40,9 @@ import jmap_client/client
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block tmailboxQueryChangesLive:
+testCase tmailboxQueryChangesLive:
   forEachLiveTarget(target):
     # Cat-B (Phase L §0): exercises Mailbox/query and
     # Mailbox/queryChanges. RFC 8620 §5.5 / §5.6 make most properties

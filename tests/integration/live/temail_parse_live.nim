@@ -42,8 +42,9 @@ import jmap_client/client
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block temailParseLive:
+testCase temailParseLive:
   forEachLiveTarget(target):
     # Cat-B (Phase L §0): the seed step uses inline-bodyValues for the
     # message/rfc822 attachment that James 3.9 rejects with

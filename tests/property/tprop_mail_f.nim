@@ -38,12 +38,13 @@ import jmap_client/internal/serialisation/serde
 
 import ../massertions
 import ../mproperty
+import ../mtestblock
 
 # =============================================================================
 # B — initEmailUpdateSet totality
 # =============================================================================
 
-block propTotalityInitEmailUpdateSet: # B
+testCase propTotalityInitEmailUpdateSet: # B
   ## Property: ``initEmailUpdateSet`` is total — for every
   ## ``openArray[EmailUpdate]`` the ctor returns ``Ok`` xor ``Err``,
   ## never panicking. ``Result[_, _]``'s type already encodes the
@@ -88,7 +89,7 @@ func hasDuplicateCreationId(entries: openArray[(CreationId, EmailImportItem)]): 
     seen.incl cid
   return false
 
-block propNonEmptyEmailImportMapDuplicateKey: # C
+testCase propNonEmptyEmailImportMapDuplicateKey: # C
   ## Property: if the input has ≥ 1 duplicated ``CreationId``, then
   ## ``initNonEmptyEmailImportMap`` rejects with ≥ 1 accumulated
   ## violation.
@@ -116,7 +117,7 @@ block propNonEmptyEmailImportMapDuplicateKey: # C
 # D — RFC 6901 escape bijectivity
 # =============================================================================
 
-block propEscapeBijectivity: # D
+testCase propEscapeBijectivity: # D
   ## Property: ``jsonPointerEscape`` is injective — distinct inputs
   ## produce distinct outputs, so the RFC 6901 wire form round-trips
   ## adversarial keyword pairs without collision.
@@ -162,7 +163,7 @@ func isValidSection53Value(key: string, value: JsonNode): bool =
     return value.kind == JBool or value.kind == JNull
   false
 
-block propToJsonEmailUpdateSetShape: # E
+testCase propToJsonEmailUpdateSetShape: # E
   ## Property: ``toJson(EmailUpdateSet)`` produces a ``JObject`` whose
   ## key count equals the input's update count (all-distinct keys,
   ## preserving ``initEmailUpdateSet``'s Class 1 conflict rejection
@@ -192,7 +193,7 @@ block propToJsonEmailUpdateSetShape: # E
 # F — moveToMailbox ≡ setMailboxIds over full Id charset
 # =============================================================================
 
-block propMoveToMailboxEquivSetMailboxIds: # F
+testCase propMoveToMailboxEquivSetMailboxIds: # F
   ## Property: ``moveToMailbox(id)`` and
   ## ``setMailboxIds(parseNonEmptyMailboxIdSet(@[id]).get())`` produce
   ## structurally-equal ``EmailUpdate`` values for every ``id`` in the

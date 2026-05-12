@@ -18,12 +18,13 @@ import jmap_client/types
 
 import ../massertions
 import ../mfixtures
+import ../mtestblock
 
 # =============================================================================
 # Happy path workflows
 # =============================================================================
 
-block scenarioSessionToRequest:
+testCase scenarioSessionToRequest:
   ## Parse a Session, extract the primary account for mail, verify capabilities,
   ## then construct a Mailbox/get Request with the correct AccountId.
   let args = makeFastmailSession()
@@ -58,7 +59,7 @@ block scenarioSessionToRequest:
   doAssert req.methodCalls.len == 1
   doAssert req.methodCalls[0].methodCallId == mcid
 
-block scenarioMultiMethodWithReferences:
+testCase scenarioMultiMethodWithReferences:
   ## Three-invocation request: query, get with ResultReference, set.
   let mcid0 = makeMcid("c0")
   let mcid1 = makeMcid("c1")
@@ -88,7 +89,7 @@ block scenarioMultiMethodWithReferences:
   doAssert req.methodCalls[1].methodCallId == mcid1
   doAssert req.methodCalls[2].methodCallId == mcid2
 
-block scenarioCreatedIdsRoundTrip:
+testCase scenarioCreatedIdsRoundTrip:
   ## Request with createdIds table echoed back in Response.
   var cids = initTable[CreationId, Id]()
   cids[makeCreationId("k0")] = makeId("serverId1")
@@ -111,7 +112,7 @@ block scenarioCreatedIdsRoundTrip:
   doAssert resp.createdIds.isSome
   doAssert resp.createdIds.get()[makeCreationId("k0")] == makeId("serverId1")
 
-block scenarioResponseCorrelation:
+testCase scenarioResponseCorrelation:
   ## Response invocations correlate to request invocations via methodCallId.
   let mcid0 = makeMcid("c0")
   let mcid1 = makeMcid("c1")
@@ -138,7 +139,7 @@ block scenarioResponseCorrelation:
 # Error railway cascades
 # =============================================================================
 
-block scenarioTransportFailureCascade:
+testCase scenarioTransportFailureCascade:
   ## Track 1: Transport failure -> ClientError -> message().
   let te = transportError(tekNetwork, "connection refused")
   let ce = clientError(te)
@@ -148,7 +149,7 @@ block scenarioTransportFailureCascade:
   # ClientError message accessible directly
   doAssert message(ce) == "connection refused"
 
-block scenarioRequestRejectionCascade:
+testCase scenarioRequestRejectionCascade:
   ## Track 1: Request rejection with limit error -> message prefers detail.
   let re = requestError(
     "urn:ietf:params:jmap:error:limit",
@@ -159,7 +160,7 @@ block scenarioRequestRejectionCascade:
   doAssert ce.kind == cekRequest
   doAssert ce.request.detail.get() == "Too many method calls"
 
-block scenarioMessageCascadePriority:
+testCase scenarioMessageCascadePriority:
   ## ClientError.message cascade: detail > title > rawType.
   # detail present
   let re1 = requestError(
@@ -178,7 +179,7 @@ block scenarioMessageCascadePriority:
   let re3 = requestError("urn:ietf:params:jmap:error:notJSON")
   doAssert errors.message(clientError(re3)) == "urn:ietf:params:jmap:error:notJSON"
 
-block scenarioMethodErrorInResponse:
+testCase scenarioMethodErrorInResponse:
   ## Track 2: Method error within a successful response.
   let errInv = parseInvocation(
       "error",
@@ -191,7 +192,7 @@ block scenarioMethodErrorInResponse:
   doAssert me.errorType == metInvalidArguments
   doAssert me.description.get() == "missing accountId"
 
-block scenarioSetErrorVariants:
+testCase scenarioSetErrorVariants:
   ## Data-level: Per-item SetError with variant-specific fields.
   # invalidProperties variant
   let se1 = setErrorInvalidProperties("invalidProperties", @["subject", "from"])
@@ -208,20 +209,20 @@ block scenarioSetErrorVariants:
   let se3 = setError("forbidden")
   doAssert se3.errorType == setForbidden
 
-block scenarioTlsError:
+testCase scenarioTlsError:
   ## Transport TLS failure path.
   let te = transportError(tekTls, "certificate verification failed")
   let ce = clientError(te)
   doAssert ce.kind == cekTransport
   doAssert ce.transport.kind == tekTls
 
-block scenarioTimeoutError:
+testCase scenarioTimeoutError:
   ## Transport timeout failure path.
   let te = transportError(tekTimeout, "request timed out after 30s")
   let ce = clientError(te)
   doAssert ce.message == "request timed out after 30s"
 
-block scenarioHttpStatusError:
+testCase scenarioHttpStatusError:
   ## Transport HTTP status error with status code.
   let te = httpStatusError(503, "Service Unavailable")
   let ce = clientError(te)
@@ -233,7 +234,7 @@ block scenarioHttpStatusError:
 # Real-world server fixtures
 # =============================================================================
 
-block scenarioFastmailSession:
+testCase scenarioFastmailSession:
   ## Fastmail-style session: multiple capabilities including vendor extensions.
   let args = makeFastmailSession()
   let session = parseSession(
@@ -254,7 +255,7 @@ block scenarioFastmailSession:
   # Verify username
   doAssert session.username == "user@fastmail.com"
 
-block scenarioCyrusStyleIdentifiers:
+testCase scenarioCyrusStyleIdentifiers:
   ## Cyrus-style IDs contain characters outside base64url.
   assertOk parseIdFromServer("user.folder.12345")
   assertOk parseIdFromServer("msg+draft/1")
@@ -262,7 +263,7 @@ block scenarioCyrusStyleIdentifiers:
   assertErr parseId("msg+draft/1")
   assertOk parseAccountId("user@example.com")
 
-block scenarioMinimalSession:
+testCase scenarioMinimalSession:
   ## Bare minimum session: ckCore only, no accounts, no primary accounts.
   let args = makeMinimalSession()
   let session = parseSession(
@@ -276,7 +277,7 @@ block scenarioMinimalSession:
   let core = session.coreCapabilities()
   doAssert core.maxSizeUpload == parseUnsignedInt(0).get()
 
-block scenarioMultiTenantAccounts:
+testCase scenarioMultiTenantAccounts:
   ## Session with multiple accounts, different capability subsets.
   let args = makeSessionArgs()
   var accounts = initTable[AccountId, Account]()
@@ -311,7 +312,7 @@ block scenarioMultiTenantAccounts:
 # Cross-module composition
 # =============================================================================
 
-block scenarioSessionAccountCapabilityChain:
+testCase scenarioSessionAccountCapabilityChain:
   ## Accessor chain: Session -> Account -> findCapability -> AccountCapabilityEntry.
   let args = makeFastmailSession()
   let session = parseSession(
@@ -325,21 +326,21 @@ block scenarioSessionAccountCapabilityChain:
   assertSome mailCap
   doAssert mailCap.get().rawUri == "urn:ietf:params:jmap:mail"
 
-block scenarioResultReferenceCorrelation:
+testCase scenarioResultReferenceCorrelation:
   ## ResultReference.resultOf matches a previous Invocation's MethodCallId.
   let mcid = makeMcid("query-0")
   let queryInv = makeInvocation(mnEmailQuery, mcid)
   let rr = initResultReference(resultOf = mcid, name = mnEmailQuery, path = rpIds)
   doAssert rr.resultOf == queryInv.methodCallId
 
-block scenarioSetErrorWithIdFromPrimitives:
+testCase scenarioSetErrorWithIdFromPrimitives:
   ## SetError alreadyExists variant uses Id from primitives module.
   let existingId = makeId("existing42")
   let se = setErrorAlreadyExists("alreadyExists", existingId)
   doAssert se.existingId == existingId
   doAssert $se.existingId == "existing42"
 
-block scenarioReferencableBothForms:
+testCase scenarioReferencableBothForms:
   ## Referencable[seq[Id]] in both direct and reference forms.
   let ids = @[makeId("id1"), makeId("id2")]
   let directForm = direct(ids)
@@ -356,7 +357,7 @@ block scenarioReferencableBothForms:
 # Data preservation
 # =============================================================================
 
-block scenarioRawTypePreservation:
+testCase scenarioRawTypePreservation:
   ## All error constructors preserve rawType for lossless round-trip.
   let me = methodError("vendorCustomError")
   doAssert me.rawType == "vendorCustomError"
@@ -370,7 +371,7 @@ block scenarioRawTypePreservation:
   doAssert se.rawType == "vendorSetError"
   doAssert se.errorType == setUnknown
 
-block scenarioServerCapabilityRawDataPreservation:
+testCase scenarioServerCapabilityRawDataPreservation:
   ## Non-core ServerCapability preserves raw JSON data.
   let data = %*{"maxContacts": 10000, "vendor-flag": true}
   let sc = ServerCapability(
@@ -379,7 +380,7 @@ block scenarioServerCapabilityRawDataPreservation:
   doAssert sc.rawData["maxContacts"].getInt() == 10000
   doAssert sc.rawData["vendor-flag"].getBool() == true
 
-block scenarioRequestErrorExtrasPreservation:
+testCase scenarioRequestErrorExtrasPreservation:
   ## Non-standard fields in RequestError are preserved in extras.
   let extras = %*{"requestId": "req-123", "retryAfter": 30}
   let re = requestError("urn:ietf:params:jmap:error:limit", extras = Opt.some(extras))
@@ -387,7 +388,7 @@ block scenarioRequestErrorExtrasPreservation:
   doAssert re.extras.get()["requestId"].getStr() == "req-123"
   doAssert re.extras.get()["retryAfter"].getInt() == 30
 
-block scenarioMethodErrorExtrasPreservation:
+testCase scenarioMethodErrorExtrasPreservation:
   ## Non-standard fields in MethodError are preserved in extras.
   let extras = %*{"serverMessage": "database overloaded"}
   let me = methodError("serverFail", extras = Opt.some(extras))
@@ -398,7 +399,7 @@ block scenarioMethodErrorExtrasPreservation:
 # Cross-module interaction tests
 # =============================================================================
 
-block scenarioPrimaryAccountCkUnknownReturnsNone:
+testCase scenarioPrimaryAccountCkUnknownReturnsNone:
   ## primaryAccount(session, ckUnknown) returns none because capabilityUri
   ## returns err for ckUnknown — the early return via ? propagates.
   let args = makeSessionArgs()
@@ -406,7 +407,7 @@ block scenarioPrimaryAccountCkUnknownReturnsNone:
   doAssert primaryAccount(session, ckUnknown).isNone,
     "primaryAccount for ckUnknown should return None"
 
-block scenarioEmptyUsingAndMethodCalls:
+testCase scenarioEmptyUsingAndMethodCalls:
   ## Request with empty using and empty methodCalls is valid at Layer 1.
   ## Layer 3 protocol logic may reject this, but Layer 1 holds the data.
   let req =
@@ -414,7 +415,7 @@ block scenarioEmptyUsingAndMethodCalls:
   doAssert req.`using`.len == 0
   doAssert req.methodCalls.len == 0
 
-block scenarioDuplicateMethodCallIdsInRequest:
+testCase scenarioDuplicateMethodCallIdsInRequest:
   ## Request with duplicate MethodCallIds is valid at Layer 1. The protocol
   ## uses MethodCallId for correlation; uniqueness is a Layer 3 concern.
   let mcid = makeMcid("shared")
@@ -428,7 +429,7 @@ block scenarioDuplicateMethodCallIdsInRequest:
   doAssert req.methodCalls.len == 2
   doAssert req.methodCalls[0].methodCallId == req.methodCalls[1].methodCallId
 
-block scenarioResponseWithErrorInvocation:
+testCase scenarioResponseWithErrorInvocation:
   ## Response containing an Invocation with name="error" is valid.
   let errInv = parseInvocation("error", %*{"type": "serverFail"}, makeMcid("c0")).get()
   let resp = Response(
@@ -438,13 +439,13 @@ block scenarioResponseWithErrorInvocation:
   )
   doAssert resp.methodResponses[0].rawName == "error"
 
-block scenarioHasVariableEmptyString:
+testCase scenarioHasVariableEmptyString:
   ## hasVariable with empty name searches for "{}" — not present in typical
   ## templates, so returns false. Documents the wrapping semantics.
   let tmpl = parseUriTemplate("https://example.com/{accountId}").get()
   doAssert not tmpl.hasVariable(""), "empty variable name searches for '{}'"
 
-block scenarioFindAccountEmptyTable:
+testCase scenarioFindAccountEmptyTable:
   ## findAccount returns None when accounts table is empty.
   let args = makeMinimalSession()
   let session = parseSessionFromArgs(args)
@@ -454,7 +455,7 @@ block scenarioFindAccountEmptyTable:
 # Phase 8: Cross-module integration tests
 # =============================================================================
 
-block filterWithPropertyNameType:
+testCase filterWithPropertyNameType:
   ## Filter parameterised with a validated domain type (PropertyName) as string.
   ## Note: PropertyName has {.requiresInit.}, so Filter[PropertyName] cannot be
   ## used directly (seq requires a default value). We verify the name round-trips.
@@ -464,7 +465,7 @@ block filterWithPropertyNameType:
   doAssert f.kind == fkCondition
   doAssert f.condition == pnStr
 
-block filterWithAccountIdType:
+testCase filterWithAccountIdType:
   ## Filter parameterised with string — using AccountId string representations
   ## to verify Filter composition across module boundaries. Direct use of
   ## requiresInit distinct types as Filter[C] triggers seq default-value issues.
@@ -476,13 +477,13 @@ block filterWithAccountIdType:
   doAssert combined.kind == fkOperator
   doAssert combined.conditions.len == 2
 
-block errorCascadeAllNoneFields:
+testCase errorCascadeAllNoneFields:
   ## Transport error -> ClientError -> message extraction with no optional fields.
   let te = transportError(tekNetwork, "connection refused")
   let ce = clientError(te)
   doAssert message(ce) == "connection refused"
 
-block errorCascadeDetailPriority:
+testCase errorCascadeDetailPriority:
   ## Request error with detail, title, and rawType — detail takes priority.
   let re = requestError(
     "urn:ietf:params:jmap:error:limit",
@@ -492,7 +493,7 @@ block errorCascadeDetailPriority:
   let ce = clientError(re)
   doAssert message(ce) == "Too many requests per second"
 
-block sessionToRequestIntegration:
+testCase sessionToRequestIntegration:
   ## Construct Session -> extract capabilities -> build Request with those URIs.
   let args = makeFastmailSession()
   let session = parseSessionFromArgs(args)
@@ -507,7 +508,7 @@ block sessionToRequestIntegration:
   )
   doAssert req.`using`.len == capUris.len
 
-block resultReferenceWithPriorInvocation:
+testCase resultReferenceWithPriorInvocation:
   ## Build a ResultReference that references a prior Invocation's MethodCallId.
   let mcid1 = parseMethodCallId("c1").get()
   let inv1 = initInvocation(mnEmailQuery, newJObject(), mcid1)

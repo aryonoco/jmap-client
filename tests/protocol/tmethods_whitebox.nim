@@ -13,8 +13,9 @@ include jmap_client/internal/protocol/methods
 {.pop.}
 
 import ../mfixtures
+import ../mtestblock
 
-block optStateLeniency:
+testCase optStateLeniency:
   ## Lenient optState: absent, null, wrong kind, empty string all yield none.
   let absent = %*{"other": "val"}
   doAssert optState(absent, "oldState").isNone
@@ -29,7 +30,7 @@ block optStateLeniency:
   doAssert result.isSome
   doAssert result.get() == makeState("state1")
 
-block optUnsignedIntLeniency:
+testCase optUnsignedIntLeniency:
   ## Lenient optUnsignedInt: absent, null, wrong kind, negative all yield none.
   let absent = %*{"other": "val"}
   doAssert optUnsignedInt(absent, "total").isNone

@@ -20,10 +20,11 @@ import jmap_client/internal/types/validation
 
 import ../../massertions
 import ../../mfixtures
+import ../../mtestblock
 
 # ============= A. RFC §4.6 top-level prohibitions (75–77) =============
 
-block noContentStarTopLevelKeys: # scenario 75
+testCase noContentStarTopLevelKeys: # scenario 75
   # The creation-model vocabulary forbids ``Content-*`` at the top level
   # via ``BlueprintEmailHeaderName``'s parser; we additionally pin that
   # no such key accidentally leaks through ``toJson`` for a maximally
@@ -33,7 +34,7 @@ block noContentStarTopLevelKeys: # scenario 75
   for key in obj.keys:
     doAssert not key.startsWith("Content-"), "unexpected Content-* key: " & key
 
-block bodyPartNoHeadersArrayKey: # scenario 76
+testCase bodyPartNoHeadersArrayKey: # scenario 76
   # RFC §4.6 creation input forbids a ``headers`` array on body parts —
   # only discrete ``"header:<name>:as<Form>"`` keys. Walk the structured
   # body to confirm.
@@ -51,7 +52,7 @@ block bodyPartNoHeadersArrayKey: # scenario 76
   doAssert tb != nil
   doAssert tb[0]{"headers"} == nil
 
-block ebkStructuredPresenceAndExclusions: # scenario 77
+testCase ebkStructuredPresenceAndExclusions: # scenario 77
   # ``bodyStructure`` must coexist with no flat-list keys on the same
   # aggregate — the XOR is a type invariant, and the serialiser respects
   # it at the wire boundary too.
@@ -68,7 +69,7 @@ block ebkStructuredPresenceAndExclusions: # scenario 77
 
 # ============= B. Leaf discriminant wire shape (78–79) =============
 
-block inlineLeafHasPartIdNoBlobIdChartsetSize: # scenario 78
+testCase inlineLeafHasPartIdNoBlobIdChartsetSize: # scenario 78
   # Inline leaves carry ``partId`` on the wire and omit ``blobId`` /
   # ``charset`` / ``size`` — the latter three belong to ``bpsBlobRef``.
   let leaf = makeBlueprintBodyPartInline(
@@ -87,7 +88,7 @@ block inlineLeafHasPartIdNoBlobIdChartsetSize: # scenario 78
   doAssert tb0{"charset"} == nil
   doAssert tb0{"size"} == nil
 
-block blobRefLeafHasBlobIdNoPartId: # scenario 79
+testCase blobRefLeafHasBlobIdNoPartId: # scenario 79
   # Dual to 78 — blob-ref leaves expose ``blobId`` and elide ``partId``.
   let leaf =
     makeBlueprintBodyPartBlobRef(blobId = makeBlobId("B"), contentType = "image/png")
@@ -101,7 +102,7 @@ block blobRefLeafHasBlobIdNoPartId: # scenario 79
 
 # ============= C. Header-key lowercase normalisation (81) =============
 
-block headerKeysLowercaseRegardlessOfInput: # scenario 81
+testCase headerKeysLowercaseRegardlessOfInput: # scenario 81
   # ``parseBlueprintEmailHeaderName`` lower-cases the backing string at
   # construction; the serialiser reads the distinct string as-is. Slice
   # the wire key between ``"header:"`` and the next ``:`` to extract the
@@ -128,7 +129,7 @@ block headerKeysLowercaseRegardlessOfInput: # scenario 81
 
 # ============= D. Form-specific wire shape (82–84) =============
 
-block asAddressesAllEmitsNestedArrays: # scenario 82
+testCase asAddressesAllEmitsNestedArrays: # scenario 82
   # Cardinality > 1 for ``hfAddresses`` forces the ``:all`` suffix and
   # the value is a JArray of JArrays — the outer axis is cardinality,
   # the inner axis is the address list per occurrence.
@@ -147,7 +148,7 @@ block asAddressesAllEmitsNestedArrays: # scenario 82
   assertLen arr.getElems(), 2
   doAssert arr[0].kind == JArray and arr[1].kind == JArray
 
-block asGroupedAddressesWireShape: # scenario 83
+testCase asGroupedAddressesWireShape: # scenario 83
   let name = parseBlueprintEmailHeaderName("x-groups").get()
   let alice = makeEmailAddress("alice@x", "Alice")
   let grp = EmailAddressGroup(name: Opt.some("team"), addresses: @[alice])
@@ -165,7 +166,7 @@ block asGroupedAddressesWireShape: # scenario 83
   doAssert g0{"name"} != nil
   doAssert g0{"addresses"} != nil
 
-block asUrlsWireShape: # scenario 84a
+testCase asUrlsWireShape: # scenario 84a
   let name = parseBlueprintEmailHeaderName("x-url").get()
   var extra = initTable[BlueprintEmailHeaderName, BlueprintHeaderMultiValue]()
   extra[name] = makeBhmvUrlsSingle(@["https://a", "https://b"])
@@ -179,7 +180,7 @@ block asUrlsWireShape: # scenario 84a
   assertLen arr.getElems(), 2
   doAssert arr[0].kind == JString
 
-block asMessageIdsWireShape: # scenario 84b
+testCase asMessageIdsWireShape: # scenario 84b
   let name = parseBlueprintEmailHeaderName("x-mid").get()
   var extra = initTable[BlueprintEmailHeaderName, BlueprintHeaderMultiValue]()
   extra[name] = makeBhmvMessageIdsSingle(@["<id1@host>", "<id2@host>"])
@@ -193,7 +194,7 @@ block asMessageIdsWireShape: # scenario 84b
   assertLen arr.getElems(), 2
   doAssert arr[0].kind == JString
 
-block asDateWireShape: # scenario 84c
+testCase asDateWireShape: # scenario 84c
   # Cardinality = 1 for ``hfDate`` — the dispatcher emits a JString (the
   # RFC 3339 text), NOT a JArray. The ``assertJsonStringEquals`` helper
   # pins both kind and byte content.

@@ -26,12 +26,13 @@ import jmap_client/internal/mail/submission_atoms
 import jmap_client/internal/mail/submission_mailbox
 
 import ../../massertions
+import ../../mtestblock
 
 # ===========================================================================
 # Section A — Dot-string local-part × four domain forms
 # ===========================================================================
 
-block mailboxDotStringPlainDomain:
+testCase mailboxDotStringPlainDomain:
   ## Cell (Dot-string × Domain): the canonical well-formed Mailbox. Pins
   ## byte-level round-trip through ``$`` — the distinct wrapper must not
   ## rewrite or normalise on construction.
@@ -40,7 +41,7 @@ block mailboxDotStringPlainDomain:
   assertOk res
   assertEq $res.get(), raw
 
-block mailboxDotStringIPv4Literal:
+testCase mailboxDotStringIPv4Literal:
   ## Cell (Dot-string × IPv4-address-literal). Negative boundary: an
   ## octet value above the 0..255 range pins that ``parseSnum`` enforces
   ## the decoded-value bound, not merely the lexical ``1*3DIGIT`` shape.
@@ -55,7 +56,7 @@ block mailboxDotStringIPv4Literal:
   assertErrFields parseRFC5321Mailbox(bad),
     "RFC5321Mailbox", "address-literal has invalid IPv4 form", bad
 
-block mailboxDotStringIPv6Literal:
+testCase mailboxDotStringIPv6Literal:
   ## Cell (Dot-string × IPv6-address-literal). Negative boundary: two
   ## ``"::"`` compressions in the body. ``classifyIPv6`` splits on
   ## ``"::"`` and rejects when ``compParts.len > 2`` — removing that
@@ -70,7 +71,7 @@ block mailboxDotStringIPv6Literal:
   assertErrFields parseRFC5321Mailbox(bad),
     "RFC5321Mailbox", "address-literal has invalid IPv6 form", bad
 
-block mailboxDotStringGeneralLiteral:
+testCase mailboxDotStringGeneralLiteral:
   ## Cell (Dot-string × General-address-literal). Pins that a
   ## well-formed Standardized-tag (``X-NewTag``) + non-empty dcontent
   ## succeeds. Negative boundary: a leading hyphen on the tag violates
@@ -92,7 +93,7 @@ block mailboxDotStringGeneralLiteral:
 # Section B — Quoted-string local-part × two domain forms
 # ===========================================================================
 
-block mailboxQuotedPlainDomain:
+testCase mailboxQuotedPlainDomain:
   ## Cell (Quoted-string × Domain). Positive: SP and ``.`` inside
   ## qtextSMTP are legal. Negative boundary pins the error-priority
   ## ordering: ``detectMailboxNoControlChars`` runs BEFORE
@@ -109,7 +110,7 @@ block mailboxQuotedPlainDomain:
   assertErrFields parseRFC5321Mailbox(bad),
     "RFC5321Mailbox", "contains control characters", bad
 
-block mailboxQuotedIPv6Literal:
+testCase mailboxQuotedIPv6Literal:
   ## Cell (Quoted-string × IPv6-address-literal). The domain path reuses
   ## ``checkAddressLiteral`` verified in Block 3; this block's value is
   ## pinning that the ``'@'`` inside the quoted part does NOT split
@@ -124,7 +125,7 @@ block mailboxQuotedIPv6Literal:
 # Section C — Strict / lenient parser divergence (Postel's law)
 # ===========================================================================
 
-block mailboxStrictLenientSupersetOnPlainDomain:
+testCase mailboxStrictLenientSupersetOnPlainDomain:
   ## Both parsers accept a well-formed input; pins that the lenient
   ## parser does NOT rewrite or canonicalise. The two ``$`` round-trips
   ## must be byte-equal to the original ``raw`` — a lenient parser that
@@ -138,7 +139,7 @@ block mailboxStrictLenientSupersetOnPlainDomain:
   assertEq $strict.get(), raw
   assertEq $lenient.get(), raw
 
-block mailboxStrictLenientSupersetOnMalformedLocalPart:
+testCase mailboxStrictLenientSupersetOnMalformedLocalPart:
   ## An interior space in an unquoted local-part isolates the
   ## strict/lenient divergence. Strict rejects at
   ## ``mvLocalPartBadDotString`` because ``' '`` is not in
@@ -160,7 +161,7 @@ block mailboxStrictLenientSupersetOnMalformedLocalPart:
 # Section D — RFC5321Keyword case-insensitive equality (G6 half 1)
 # ===========================================================================
 
-block rfc5321KeywordCaseInsensitive:
+testCase rfc5321KeywordCaseInsensitive:
   ## RFC 5321 §4.1.1.1 mandates case-insensitive recognition of
   ## esmtp-keyword values. The type preserves server casing in ``$``
   ## for diagnostic round-trip but case-folds on equality AND hash —
@@ -185,7 +186,7 @@ block rfc5321KeywordCaseInsensitive:
 # Section E — OrcptAddrType byte-equal (G6 half 2)
 # ===========================================================================
 
-block orcptAddrTypeByteEqual:
+testCase orcptAddrTypeByteEqual:
   ## RFC 3461 §4.2 addr-type atom shares the esmtp-keyword grammar but
   ## is silent on case-folding. The G6 decision keeps ``OrcptAddrType``
   ## byte-equal: IANA-registered addr-types (``rfc822``, ``utf-8``,

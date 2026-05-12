@@ -15,8 +15,9 @@
 import jmap_client
 import jmap_client/internal/types/envelope
 import ./mloader
+import ../../mtestblock
 
-block tcapturedEmailGetCrossAccountRejected:
+testCase tcapturedEmailGetCrossAccountRejected:
   let j = loadCapturedFixture("email-get-cross-account-rejected-stalwart")
   let resp = envelope.Response.fromJson(j).expect("envelope.Response.fromJson")
   doAssert resp.methodResponses.len == 1

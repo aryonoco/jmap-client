@@ -13,28 +13,29 @@ import jmap_client/internal/types/validation
 import jmap_client/internal/types/primitives
 
 import ../../massertions
+import ../../mtestblock
 
 # ============= A. VacationResponseUpdate setters =============
 
-block setIsEnabledConstructsCorrectKind:
+testCase setIsEnabledConstructsCorrectKind:
   let u = setIsEnabled(true)
   assertEq u.kind, vruSetIsEnabled
   assertEq u.isEnabled, true
 
-block setFromDateConstructsCorrectKind:
+testCase setFromDateConstructsCorrectKind:
   let d = parseUtcDate("2026-04-15T12:00:00Z").get()
   let u = setFromDate(Opt.some(d))
   assertEq u.kind, vruSetFromDate
   assertSomeEq u.fromDate, d
 
-block setSubjectClearsWhenNone:
+testCase setSubjectClearsWhenNone:
   let u = setSubject(Opt.none(string))
   assertEq u.kind, vruSetSubject
   assertNone u.subject
 
 # ============= B. initVacationResponseUpdateSet =============
 
-block initVacationResponseUpdateSetEmpty:
+testCase initVacationResponseUpdateSetEmpty:
   let res = initVacationResponseUpdateSet(@[])
   assertErr res
   assertLen res.error, 1
@@ -42,10 +43,10 @@ block initVacationResponseUpdateSetEmpty:
   assertEq res.error[0].message, "must contain at least one update"
   assertEq res.error[0].value, ""
 
-block initVacationResponseUpdateSetSingleValid:
+testCase initVacationResponseUpdateSetSingleValid:
   assertOk initVacationResponseUpdateSet(@[setIsEnabled(true)])
 
-block initVacationResponseUpdateSetTwoSameKind:
+testCase initVacationResponseUpdateSetTwoSameKind:
   let res = initVacationResponseUpdateSet(@[setIsEnabled(true), setIsEnabled(false)])
   assertErr res
   assertLen res.error, 1
@@ -53,7 +54,7 @@ block initVacationResponseUpdateSetTwoSameKind:
   assertEq res.error[0].message, "duplicate target property"
   assertEq res.error[0].value, "vruSetIsEnabled"
 
-block initVacationResponseUpdateSetThreeSameKind:
+testCase initVacationResponseUpdateSetThreeSameKind:
   ## Three occurrences of the same kind still yield ONE error —
   ## the Haskell-style "each repeated key reported once" contract.
   let res = initVacationResponseUpdateSet(
@@ -63,7 +64,7 @@ block initVacationResponseUpdateSetThreeSameKind:
   assertLen res.error, 1
   assertEq res.error[0].value, "vruSetIsEnabled"
 
-block initVacationResponseUpdateSetTwoDistinctRepeated:
+testCase initVacationResponseUpdateSetTwoDistinctRepeated:
   ## Two distinct repeated kinds → TWO errors, one per distinct
   ## duplicate key.
   let res = initVacationResponseUpdateSet(
@@ -89,18 +90,18 @@ block initVacationResponseUpdateSetTwoDistinctRepeated:
 
 # ============= C. Remaining VacationResponseUpdate setters =============
 
-block setToDateConstructsCorrectKind:
+testCase setToDateConstructsCorrectKind:
   let d = parseUtcDate("2026-04-15T12:00:00Z").get()
   let u = setToDate(Opt.some(d))
   assertEq u.kind, vruSetToDate
   assertSomeEq u.toDate, d
 
-block setTextBodyClearsWhenNone:
+testCase setTextBodyClearsWhenNone:
   let u = setTextBody(Opt.none(string))
   assertEq u.kind, vruSetTextBody
   assertNone u.textBody
 
-block setHtmlBodyConstructsCorrectKind:
+testCase setHtmlBodyConstructsCorrectKind:
   let u = setHtmlBody(Opt.some("<p>away</p>"))
   assertEq u.kind, vruSetHtmlBody
   assertSomeEq u.htmlBody, "<p>away</p>"

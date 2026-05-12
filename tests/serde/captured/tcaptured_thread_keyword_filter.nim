@@ -17,8 +17,9 @@
 import jmap_client
 import jmap_client/internal/types/envelope
 import ./mloader
+import ../../mtestblock
 
-block tcapturedThreadKeywordFilter:
+testCase tcapturedThreadKeywordFilter:
   let j = loadCapturedFixture("thread-keyword-filter-stalwart")
   let resp = envelope.Response.fromJson(j).expect("envelope.Response.fromJson")
   doAssert resp.methodResponses.len == 1

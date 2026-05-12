@@ -11,6 +11,7 @@ import jmap_client/internal/types/validation
 import jmap_client/internal/types/primitives
 
 import ../../massertions
+import ../../mtestblock
 
 let id = parseId("t1").get()
 let e1 = parseId("e1").get()
@@ -19,7 +20,7 @@ let e3 = parseId("e3").get()
 
 # ============= A. toJson =============
 
-block toJsonStructure: # scenario 18
+testCase toJsonStructure: # scenario 18
   let t = parseThread(id, @[e1, e2]).get()
   let node = t.toJson()
   assertJsonFieldEq node, "id", %"t1"
@@ -32,7 +33,7 @@ block toJsonStructure: # scenario 18
 
 # ============= B. fromJson =============
 
-block fromJsonValidSingle: # scenario 19
+testCase fromJsonValidSingle: # scenario 19
   let node = %*{"id": "t1", "emailIds": ["e1"]}
   let res = thread.Thread.fromJson(node)
   assertOk res
@@ -40,25 +41,25 @@ block fromJsonValidSingle: # scenario 19
   assertLen res.get().emailIds, 1
   assertEq res.get().emailIds[0], e1
 
-block fromJsonValidMultipleOrder: # scenario 20
+testCase fromJsonValidMultipleOrder: # scenario 20
   let node = %*{"id": "t1", "emailIds": ["e1", "e2", "e3"]}
   let res = thread.Thread.fromJson(node)
   assertOk res
   assertEq res.get().emailIds, @[e1, e2, e3]
 
-block fromJsonEmptyEmailIds: # scenario 21
+testCase fromJsonEmptyEmailIds: # scenario 21
   let node = %*{"id": "t1", "emailIds": []}
   assertErr thread.Thread.fromJson(node)
 
 # ============= C. Round-trip =============
 
-block roundTripSingle:
+testCase roundTripSingle:
   let original = parseThread(id, @[e1]).get()
   let roundTripped = thread.Thread.fromJson(original.toJson()).get()
   assertEq roundTripped.id, original.id
   assertEq roundTripped.emailIds, original.emailIds
 
-block roundTripMultiple:
+testCase roundTripMultiple:
   let original = parseThread(id, @[e1, e2, e3]).get()
   let roundTripped = thread.Thread.fromJson(original.toJson()).get()
   assertEq roundTripped.id, original.id
@@ -66,30 +67,30 @@ block roundTripMultiple:
 
 # ============= D. fromJson edge cases =============
 
-block fromJsonNotObject:
+testCase fromJsonNotObject:
   let node = %"string"
   assertErr thread.Thread.fromJson(node)
 
-block fromJsonMissingId:
+testCase fromJsonMissingId:
   let node = %*{"emailIds": ["e1"]}
   assertErr thread.Thread.fromJson(node)
 
-block fromJsonMissingEmailIds:
+testCase fromJsonMissingEmailIds:
   let node = %*{"id": "t1"}
   assertErr thread.Thread.fromJson(node)
 
-block fromJsonEmailIdsNotArray:
+testCase fromJsonEmailIdsNotArray:
   let node = %*{"id": "t1", "emailIds": "x"}
   assertErr thread.Thread.fromJson(node)
 
-block fromJsonInvalidElement:
+testCase fromJsonInvalidElement:
   let node = %*{"id": "t1", "emailIds": [42]}
   assertErr thread.Thread.fromJson(node)
 
-block fromJsonNullId:
+testCase fromJsonNullId:
   let node = %*{"id": nil, "emailIds": ["e1"]}
   assertErr thread.Thread.fromJson(node)
 
-block fromJsonNullEmailIds:
+testCase fromJsonNullEmailIds:
   let node = %*{"id": "t1", "emailIds": nil}
   assertErr thread.Thread.fromJson(node)

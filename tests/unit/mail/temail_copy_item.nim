@@ -14,10 +14,11 @@ import jmap_client/internal/types/validation
 import jmap_client/internal/types/primitives
 
 import ../../massertions
+import ../../mtestblock
 
 # ============= A. Type-level rejection =============
 
-block copyItemTypeRejectsEmptyMailboxIdSet: # F1 §6.1
+testCase copyItemTypeRejectsEmptyMailboxIdSet: # F1 §6.1
   ## initMailboxIdSet returns MailboxIdSet; override slot is
   ## Opt[NonEmptyMailboxIdSet]. An empty MailboxIdSet literal fails
   ## at the distinct-type gate, not at a runtime check.
@@ -27,7 +28,7 @@ block copyItemTypeRejectsEmptyMailboxIdSet: # F1 §6.1
     initEmailCopyItem(id = id1, mailboxIds = Opt.some(initMailboxIdSet(@[])))
   )
 
-block copyItemTypeRejectsNonEmptyMailboxIdSetWrongDistinct: # F1 §6.1
+testCase copyItemTypeRejectsNonEmptyMailboxIdSetWrongDistinct: # F1 §6.1
   ## Populated MailboxIdSet is STILL the wrong distinct — the slot
   ## demands NonEmptyMailboxIdSet. Separates the empty-rejection
   ## axis from the distinct-type axis.
@@ -38,7 +39,7 @@ block copyItemTypeRejectsNonEmptyMailboxIdSetWrongDistinct: # F1 §6.1
 
 # ============= B. Structural readback =============
 
-block copyItemIdOnlyRoundTrip:
+testCase copyItemIdOnlyRoundTrip:
   let id = parseId("e1").get()
   let ci = initEmailCopyItem(id = id)
   assertEq ci.id, id
@@ -46,7 +47,7 @@ block copyItemIdOnlyRoundTrip:
   assertNone ci.keywords
   assertNone ci.receivedAt
 
-block copyItemAllOverridesPopulated:
+testCase copyItemAllOverridesPopulated:
   let id = parseId("e1").get()
   let mbx = parseId("m1").get()
   let ids = parseNonEmptyMailboxIdSet(@[mbx]).get()

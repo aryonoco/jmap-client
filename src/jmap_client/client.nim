@@ -790,12 +790,19 @@ proc refreshSessionIfStale*(
     return ok(true)
   return ok(false)
 
-proc send*(client: var JmapClient, req: BuiltRequest): JmapResult[DispatchedResponse] =
+proc send*(
+    client: var JmapClient, req: sink BuiltRequest
+): JmapResult[DispatchedResponse] =
   ## Validates limits, fetches the session lazily, POSTs the serialised
   ## request, parses the wire ``Response``, and returns a
-  ## ``DispatchedResponse`` branded with the builder's ``id``. Single
-  ## blessed send path — raw-Request and unfrozen-builder sends are
-  ## gone; ``RequestBuilder.freeze()`` is the obligatory transition.
+  ## ``DispatchedResponse`` branded with the builder's ``id``.
+  ##
+  ## **Consumes ``req``**. ``BuiltRequest`` is uncopyable (``=copy`` and
+  ## ``=dup`` are ``{.error.}``), so the ``sink`` contract is
+  ## structural: double-``send`` of the same ``req`` is a compile
+  ## error of the form *"requires a copy because it's not the last
+  ## read of '<name>'"*. To dispatch the same request twice (e.g.,
+  ## retry), call ``freeze`` again on a freshly constructed builder.
   ##
   ## Lazily fetches the session on first call if not yet cached.
   ## Does NOT automatically refresh a stale session (D4.10).

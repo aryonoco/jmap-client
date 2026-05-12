@@ -46,12 +46,13 @@ import jmap_client/internal/types/primitives
 import ../massertions
 import ../mfixtures
 import ../mproperty
+import ../mtestblock
 
 # =============================================================================
 # A — parseRFC5321Mailbox totality
 # =============================================================================
 
-block propRFC5321MailboxTotality: # A
+testCase propRFC5321MailboxTotality: # A
   ## Property: ``parseRFC5321Mailbox`` is total — every ``string`` input
   ## returns ``Ok`` xor ``Err``, never panicking. ``Result[_, _]`` encodes
   ## the disjunction at the type level; the assertion is operational —
@@ -80,7 +81,7 @@ block propRFC5321MailboxTotality: # A
 # B — parseRFC5321Mailbox strict/lenient superset
 # =============================================================================
 
-block propRFC5321MailboxStrictLenientSuperset: # B
+testCase propRFC5321MailboxStrictLenientSuperset: # B
   ## Property: bounded strict ⊆ lenient (Postel's law, G7). For inputs
   ## within the common length ceiling (``raw.len <= 255``), every
   ## strict-accepted input is also lenient-accepted:
@@ -127,7 +128,7 @@ func wireKeyOf(key: SubmissionParamKey): string =
       spkHoldUntil, spkBy, spkMtPriority:
     $key.kind
 
-block propSubmissionParamsInsertionOrderRoundTrip: # C
+testCase propSubmissionParamsInsertionOrderRoundTrip: # C
   ## Property: ``toJson(SubmissionParams)`` emits wire keys in the
   ## OrderedTable's insertion order — the backing structure's contract
   ## (``OrderedTable`` preserves insertion order) must survive
@@ -151,7 +152,7 @@ block propSubmissionParamsInsertionOrderRoundTrip: # C
 # D — SubmissionParamKey identity algebra (biconditional)
 # =============================================================================
 
-block propSubmissionParamKeyIdentity: # D
+testCase propSubmissionParamKeyIdentity: # D
   ## Property: ``paramKey(p1) == paramKey(p2)`` iff ``p1.kind == p2.kind``
   ## and — for the ``spkExtension`` arm — ``p1.extName == p2.extName``.
   ## Biconditional: both forward (equal keys imply shared discriminants)
@@ -182,7 +183,7 @@ block propSubmissionParamKeyIdentity: # D
 # E — AnyEmailSubmission.fromJson state dispatch (pivoted from round-trip)
 # =============================================================================
 
-block propAnyEmailSubmissionStateDispatch: # E
+testCase propAnyEmailSubmissionStateDispatch: # E
   ## Property: ``AnyEmailSubmission.fromJson(wire)`` dispatches to the
   ## phantom branch named by the wire ``undoStatus`` token, and the
   ## three Pattern-A sealed accessors (``asPending``, ``asFinal``,
@@ -236,7 +237,7 @@ block propAnyEmailSubmissionStateDispatch: # E
 # F — cancelUpdate(EmailSubmission[usPending]).kind is esuSetUndoStatusToCanceled
 # =============================================================================
 
-block propCancelUpdateKindInvariant: # F
+testCase propCancelUpdateKindInvariant: # F
   ## Property: ``cancelUpdate`` applied to any ``EmailSubmission[usPending]``
   ## produces an ``EmailSubmissionUpdate`` with
   ## ``kind == esuSetUndoStatusToCanceled``. Value-level companion to the
@@ -256,7 +257,7 @@ block propCancelUpdateKindInvariant: # F
 # G — NonEmptyEmailSubmissionUpdates rejects duplicate Id keys
 # =============================================================================
 
-block propNonEmptyEmailSubmissionUpdatesDuplicateId: # G
+testCase propNonEmptyEmailSubmissionUpdatesDuplicateId: # G
   ## Property: if the input ``openArray`` contains a duplicate ``Id`` key,
   ## ``parseNonEmptyEmailSubmissionUpdates`` returns ``Err`` with at least
   ## one accumulated ``ValidationError``. Pins the G17 decision that the
@@ -303,7 +304,7 @@ block propNonEmptyEmailSubmissionUpdatesDuplicateId: # G
 # H — ParsedDeliveredState / ParsedDisplayedState rawBacking byte-equality
 # =============================================================================
 
-block propParsedDeliveredStateRawBackingRoundTrip: # H
+testCase propParsedDeliveredStateRawBackingRoundTrip: # H
   ## Property: for every input ``raw``, ``parseDeliveredState(raw).rawBacking``
   ## and ``parseDisplayedState(raw).rawBacking`` are byte-exactly equal to
   ## ``raw``. Pins the G10/G11 decision that the ``dsOther``/``dpOther``
@@ -355,7 +356,7 @@ block propParsedDeliveredStateRawBackingRoundTrip: # H
 # I — parseSmtpReply digit-boundary scan (RFC 5321 §4.2 grammar)
 # =============================================================================
 
-block propParseSmtpReplyDigitBoundary: # I
+testCase propParseSmtpReplyDigitBoundary: # I
   ## Property: ``parseSmtpReply`` accepts iff the Reply-code obeys
   ## RFC 5321 §4.2 digit ranges (``d1 in 2..5``, ``d2 in 0..5``,
   ## ``d3 in 0..9``) AND the separator/multi-line structure is

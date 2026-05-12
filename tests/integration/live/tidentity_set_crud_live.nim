@@ -24,8 +24,9 @@ import jmap_client/internal/mail/identity as jidentity
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block tIdentitySetCrudLive:
+testCase tIdentitySetCrudLive:
   forEachLiveTarget(target):
     # Cat-B (Phase L §0): Stalwart 0.15.5 and James 3.9 implement the
     # full Identity/set surface. Cyrus 3.12.2 omits Identity/set

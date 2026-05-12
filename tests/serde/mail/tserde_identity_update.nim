@@ -19,15 +19,16 @@ import jmap_client/internal/types/primitives
 import jmap_client/internal/types/validation
 
 import ../../massertions
+import ../../mtestblock
 
 # ============= A. toJson(IdentityUpdate) per-variant tuple =============
 
-block setNameEmitsTuple:
+testCase setNameEmitsTuple:
   let (key, value) = setName("Alice").toJson()
   assertEq key, "name"
   assertEq value, %"Alice"
 
-block setReplyToSomeEmitsArray:
+testCase setReplyToSomeEmitsArray:
   let ea = parseEmailAddress("a@example.com", Opt.none(string)).get()
   let (key, value) = setReplyTo(Opt.some(@[ea])).toJson()
   assertEq key, "replyTo"
@@ -35,32 +36,32 @@ block setReplyToSomeEmitsArray:
   assertEq value.len, 1
   assertEq value[0], ea.toJson()
 
-block setReplyToNoneEmitsNull:
+testCase setReplyToNoneEmitsNull:
   ## RFC 8621 §6 clear-to-null contract: ``Opt.none`` projects to JSON
   ## null, which the server interprets as "reset to the default".
   let (key, value) = setReplyTo(Opt.none(seq[EmailAddress])).toJson()
   assertEq key, "replyTo"
   assertEq value, newJNull()
 
-block setBccSomeEmitsArray:
+testCase setBccSomeEmitsArray:
   let ea = parseEmailAddress("b@example.com", Opt.none(string)).get()
   let (key, value) = setBcc(Opt.some(@[ea])).toJson()
   assertEq key, "bcc"
   doAssert value.kind == JArray
 
-block setTextSignatureEmitsTuple:
+testCase setTextSignatureEmitsTuple:
   let (key, value) = setTextSignature("-- Alice").toJson()
   assertEq key, "textSignature"
   assertEq value, %"-- Alice"
 
-block setHtmlSignatureEmitsTuple:
+testCase setHtmlSignatureEmitsTuple:
   let (key, value) = setHtmlSignature("<p>Alice</p>").toJson()
   assertEq key, "htmlSignature"
   assertEq value, %"<p>Alice</p>"
 
 # ============= B. toJson(IdentityUpdateSet) flatten =============
 
-block identityUpdateSetFlattensTuple:
+testCase identityUpdateSetFlattensTuple:
   let us = initIdentityUpdateSet(@[setName("Alice"), setTextSignature("sig")]).get()
   let node = us.toJson()
   doAssert node.kind == JObject
@@ -70,7 +71,7 @@ block identityUpdateSetFlattensTuple:
 
 # ============= C. toJson(NonEmptyIdentityUpdates) envelope =============
 
-block nonEmptyIdentityUpdatesEmitsPerIdObject:
+testCase nonEmptyIdentityUpdatesEmitsPerIdObject:
   let id1 = parseId("idt1").get()
   let id2 = parseId("idt2").get()
   let us1 = initIdentityUpdateSet(@[setName("Alice")]).get()

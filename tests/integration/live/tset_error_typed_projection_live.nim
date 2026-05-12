@@ -36,8 +36,9 @@ import jmap_client/internal/types/envelope
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block tsetErrorTypedProjectionLive:
+testCase tsetErrorTypedProjectionLive:
   forEachLiveTarget(target):
     var client = initJmapClient(
         sessionUrl = target.sessionUrl,

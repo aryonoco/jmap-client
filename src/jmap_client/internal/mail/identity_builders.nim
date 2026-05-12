@@ -34,7 +34,7 @@ export serde_identity_update
 # =============================================================================
 
 func addIdentityGet*(
-    b: RequestBuilder,
+    b: sink RequestBuilder,
     accountId: AccountId,
     ids: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]),
     properties: Opt[seq[string]] = Opt.none(seq[string]),
@@ -47,7 +47,7 @@ func addIdentityGet*(
 # =============================================================================
 
 func addIdentityChanges*(
-    b: RequestBuilder,
+    b: sink RequestBuilder,
     accountId: AccountId,
     sinceState: JmapState,
     maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges),
@@ -61,7 +61,7 @@ func addIdentityChanges*(
 # =============================================================================
 
 func addIdentitySet*(
-    b: RequestBuilder,
+    b: sink RequestBuilder,
     accountId: AccountId,
     ifInState: Opt[JmapState] = Opt.none(JmapState),
     create: Opt[Table[CreationId, IdentityCreate]] =

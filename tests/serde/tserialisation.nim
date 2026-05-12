@@ -12,12 +12,13 @@ import jmap_client/internal/types/framework
 
 import ../massertions
 import ../mfixtures
+import ../mtestblock
 
 # =============================================================================
 # A. Shared helpers (from serde)
 # =============================================================================
 
-block sharedHelpers:
+testCase sharedHelpers:
   ## Verifies that the ``SerdeViolation`` translator and ``collectExtras``
   ## flow through the ``serialisation`` re-export. Construction of a
   ## ``svkMissingField`` violation mirrors the old ``parseError`` shape
@@ -35,7 +36,7 @@ block sharedHelpers:
 # B. Primitive and identifier round-trips (from serde)
 # =============================================================================
 
-block primitiveRoundTrips:
+testCase primitiveRoundTrips:
   let id = makeId()
   assertOkEq Id.fromJson(id.toJson()), id
 
@@ -73,7 +74,7 @@ block primitiveRoundTrips:
 # C. Session types (from serde_session)
 # =============================================================================
 
-block sessionTypes:
+testCase sessionTypes:
   let caps = zeroCoreCaps()
   let rtCaps = CoreCapabilities.fromJson(caps.toJson()).get()
   doAssert coreCapEq(rtCaps, caps), "CoreCapabilities round-trip values differ"
@@ -86,7 +87,7 @@ block sessionTypes:
 # D. Envelope types (from serde_envelope)
 # =============================================================================
 
-block envelopeTypes:
+testCase envelopeTypes:
   let inv = makeInvocation()
   assertOkEq Invocation.fromJson(inv.toJson()), inv
 
@@ -106,7 +107,7 @@ block envelopeTypes:
 # E. Framework types (from serde_framework)
 # =============================================================================
 
-block frameworkTypes:
+testCase frameworkTypes:
   assertOkEq FilterOperator.fromJson(foAnd.toJson()), foAnd
 
   let comp = makeComparator()
@@ -119,7 +120,7 @@ block frameworkTypes:
 # F. Error types (from serde_errors)
 # =============================================================================
 
-block errorTypes:
+testCase errorTypes:
   let re = makeRequestError()
   assertOkEq RequestError.fromJson(re.toJson()), re
 
@@ -133,7 +134,7 @@ block errorTypes:
 # G. All type pairs accessible — comprehensive verification
 # =============================================================================
 
-block allTypePairsAccessible:
+testCase allTypePairsAccessible:
   ## Every toJson/fromJson pair callable through the serialisation re-export.
   # ServerCapability (requires uri parameter)
   let capData = newJObject()

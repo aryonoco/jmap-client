@@ -40,7 +40,7 @@ export serde_email
 # =============================================================================
 
 func addEmailSubmissionGet*(
-    b: RequestBuilder,
+    b: sink RequestBuilder,
     accountId: AccountId,
     ids: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]),
     properties: Opt[seq[string]] = Opt.none(seq[string]),
@@ -55,7 +55,7 @@ func addEmailSubmissionGet*(
 # =============================================================================
 
 func addEmailSubmissionChanges*(
-    b: RequestBuilder,
+    b: sink RequestBuilder,
     accountId: AccountId,
     sinceState: JmapState,
     maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges),
@@ -68,7 +68,7 @@ func addEmailSubmissionChanges*(
 # =============================================================================
 
 func addEmailSubmissionQuery*(
-    b: RequestBuilder,
+    b: sink RequestBuilder,
     accountId: AccountId,
     filter: Opt[Filter[EmailSubmissionFilterCondition]] =
       Opt.none(Filter[EmailSubmissionFilterCondition]),
@@ -85,7 +85,7 @@ func addEmailSubmissionQuery*(
 # =============================================================================
 
 func addEmailSubmissionQueryChanges*(
-    b: RequestBuilder,
+    b: sink RequestBuilder,
     accountId: AccountId,
     sinceQueryState: JmapState,
     filter: Opt[Filter[EmailSubmissionFilterCondition]] =
@@ -105,7 +105,7 @@ func addEmailSubmissionQueryChanges*(
 # =============================================================================
 
 func addEmailSubmissionSet*(
-    b: RequestBuilder,
+    b: sink RequestBuilder,
     accountId: AccountId,
     ifInState: Opt[JmapState] = Opt.none(JmapState),
     create: Opt[Table[CreationId, EmailSubmissionBlueprint]] =
@@ -173,7 +173,7 @@ func validateOnSuccessCids(
   ok()
 
 func addEmailSubmissionAndEmailSet*(
-    b: RequestBuilder,
+    b: sink RequestBuilder,
     accountId: AccountId,
     create: Opt[Table[CreationId, EmailSubmissionBlueprint]] =
       Opt.none(Table[CreationId, EmailSubmissionBlueprint]),
@@ -225,10 +225,11 @@ func addEmailSubmissionAndEmailSet*(
     capabilityUri(AnyEmailSubmission),
     setMeta(create, update, destroy),
   )
+  let brand = b1.builderId
   let handles = EmailSubmissionHandles(
-    primary: initResponseHandle[EmailSubmissionSetResponse](callId, b.builderId),
+    primary: initResponseHandle[EmailSubmissionSetResponse](callId, brand),
     implicit: initNameBoundHandle[SetResponse[EmailCreatedItem, PartialEmail]](
-      callId, mnEmailSet, b.builderId
+      callId, mnEmailSet, brand
     ),
   )
   ok((b1, handles))

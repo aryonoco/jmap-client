@@ -22,8 +22,9 @@ import jmap_client/internal/protocol/dispatch
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block tmultiInstanceEnvelopeLive:
+testCase tmultiInstanceEnvelopeLive:
   forEachLiveTarget(target):
     var client = initJmapClient(
         sessionUrl = target.sessionUrl,

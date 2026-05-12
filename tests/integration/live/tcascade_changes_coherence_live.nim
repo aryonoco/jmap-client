@@ -70,8 +70,9 @@ import jmap_client/client
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block tcascadeChangesCoherenceLive:
+testCase tcascadeChangesCoherenceLive:
   forEachLiveTarget(target):
     # Cat-B (Phase L §0): the client-library contract is that every
     # Mailbox/changes, Email/changes, and Thread/changes wire shape

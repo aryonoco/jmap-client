@@ -32,8 +32,9 @@ import jmap_client/client
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block tvacationGetSetLive:
+testCase tvacationGetSetLive:
   forEachLiveTarget(target):
     # Cat-B (Phase L §0): Stalwart 0.15.5 and James 3.9 implement
     # VacationResponse/{get,set}. Cyrus 3.12.2 ships the implementation

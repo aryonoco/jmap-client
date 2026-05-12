@@ -15,23 +15,24 @@ import jmap_client/internal/serialisation/serde
 import jmap_client/internal/serialisation/serde_field_echo
 
 import ../../massertions
+import ../../mtestblock
 
 # ============= A. fromJson (lenient) =============
 
-block fromJsonEmpty:
+testCase fromJsonEmpty:
   ## Empty object parses to NoCreate() successfully.
   let node = %*{}
   let res = NoCreate.fromJson(node)
   assertOk res
 
-block fromJsonArbitraryObject:
+testCase fromJsonArbitraryObject:
   ## Any wire payload parses successfully — NoCreate ignores the body
   ## per D6 (tolerate-gracefully for singleton-only entities).
   let node = %*{"unexpectedField": "value", "anotherField": 42}
   let res = NoCreate.fromJson(node)
   assertOk res
 
-block fromJsonNull:
+testCase fromJsonNull:
   ## Even a null node parses successfully.
   let node = newJNull()
   let res = NoCreate.fromJson(node)
@@ -39,7 +40,7 @@ block fromJsonNull:
 
 # ============= B. toJson =============
 
-block toJsonProducesEmptyObject:
+testCase toJsonProducesEmptyObject:
   ## NoCreate.toJson emits an empty JSON object — symmetric round-trip
   ## anchor (D3.7).
   let n = NoCreate()
@@ -49,7 +50,7 @@ block toJsonProducesEmptyObject:
 
 # ============= C. Round-trip =============
 
-block roundTripPreservesShape:
+testCase roundTripPreservesShape:
   ## fromJson(toJson(NoCreate())) → ok(NoCreate()).
   let original = NoCreate()
   let res = NoCreate.fromJson(original.toJson())

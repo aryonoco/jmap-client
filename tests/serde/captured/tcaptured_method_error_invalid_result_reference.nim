@@ -15,8 +15,9 @@
 import jmap_client
 import jmap_client/internal/types/envelope
 import ./mloader
+import ../../mtestblock
 
-block tcapturedMethodErrorInvalidResultReference:
+testCase tcapturedMethodErrorInvalidResultReference:
   forEachCapturedServer("method-error-invalid-result-reference", j):
     let resp = envelope.Response.fromJson(j).expect("envelope.Response.fromJson")
     doAssert resp.methodResponses.len >= 1

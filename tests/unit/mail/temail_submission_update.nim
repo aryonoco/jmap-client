@@ -20,8 +20,9 @@ import jmap_client/internal/mail/email_submission
 
 import ../../massertions
 import ../../mfixtures
+import ../../mtestblock
 
-block setUndoStatusToCanceledValueShape:
+testCase setUndoStatusToCanceledValueShape:
   # The nullary ``setUndoStatusToCanceled()`` constructor returns an
   # ``EmailSubmissionUpdate`` whose discriminator is
   # ``esuSetUndoStatusToCanceled``. Since the variant carries no fields
@@ -35,7 +36,7 @@ block setUndoStatusToCanceledValueShape:
   let u = setUndoStatusToCanceled()
   doAssert u.kind == esuSetUndoStatusToCanceled
 
-block parseUpdatesRejectsEmpty:
+testCase parseUpdatesRejectsEmpty:
   # Grep-locked literals from ``email_submission.nim:230-231``:
   #   typeName = "NonEmptyEmailSubmissionUpdates"
   #   emptyMsg = "must contain at least one entry"
@@ -46,7 +47,7 @@ block parseUpdatesRejectsEmpty:
   assertEq res.error[0].typeName, "NonEmptyEmailSubmissionUpdates"
   assertEq res.error[0].message, "must contain at least one entry"
 
-block parseUpdatesRejectsDuplicateId:
+testCase parseUpdatesRejectsDuplicateId:
   # Grep-locked literal from ``email_submission.nim:232``:
   #   dupMsg = "duplicate submission id"
   # A pair of entries sharing the same ``Id`` key surfaces exactly ONE
@@ -60,7 +61,7 @@ block parseUpdatesRejectsDuplicateId:
   assertEq res.error[0].typeName, "NonEmptyEmailSubmissionUpdates"
   assertEq res.error[0].message, "duplicate submission id"
 
-block parseUpdatesHappyPathSingleEntry:
+testCase parseUpdatesHappyPathSingleEntry:
   # Happy path: one valid ``(Id, EmailSubmissionUpdate)`` pair parses
   # to a ``NonEmptyEmailSubmissionUpdates`` whose inner table contains
   # exactly the input entry. Distinct-wrap unwrap via

@@ -30,12 +30,13 @@ import jmap_client/internal/types/primitives
 
 import ../../massertions
 import ../../mfixtures
+import ../../mtestblock
 
 # =============================================================================
 # A. Two-Phase Boundary (scenarios 91–92)
 # =============================================================================
 
-block twoPhaseFromCoexist: # scenario 91
+testCase twoPhaseFromCoexist: # scenario 91
   ## Phase 1 routes "from" to fromAddr; Phase 2 routes "header:From:asAddresses"
   ## to requestedHeaders. Both coexist.
   var j = makeEmailJson()
@@ -48,7 +49,7 @@ block twoPhaseFromCoexist: # scenario 91
   assertEq e.fromAddr.get()[0].email, "alice@test.com"
   assertEq e.requestedHeaders.len, 1
 
-block twoPhaseStress100Headers: # scenario 92
+testCase twoPhaseStress100Headers: # scenario 92
   ## 100 dynamic header keys all routed via Phase 2 iteration.
   var j = makeEmailJson()
   for i in 0 ..< 100:
@@ -61,7 +62,7 @@ block twoPhaseStress100Headers: # scenario 92
 # B. Dynamic Header Injection (scenarios 93–96)
 # =============================================================================
 
-block headerEmptyName: # scenario 93
+testCase headerEmptyName: # scenario 93
   ## "header:" with empty name after prefix -> err. ``parseHeaderPropertyName``
   ## (L1 smart constructor) raises the underlying ValidationError; serde
   ## wraps it in ``svkFieldParserFailed``.
@@ -73,7 +74,7 @@ block headerEmptyName: # scenario 93
   doAssert res.unsafeError.inner.message.contains("empty header name"),
     "inner error must mention empty header name"
 
-block headerTooManySegments: # scenario 94
+testCase headerTooManySegments: # scenario 94
   ## 5 colon-separated segments -> err.
   var j = makeEmailJson()
   j["header:From:asAddresses:all:extra"] = %"test"
@@ -83,7 +84,7 @@ block headerTooManySegments: # scenario 94
   doAssert res.unsafeError.inner.message.contains("too many segments"),
     "inner error must mention too many segments"
 
-block headerInvalidForm: # scenario 95
+testCase headerInvalidForm: # scenario 95
   ## Unknown form suffix -> err.
   var j = makeEmailJson()
   j["header:From:asUnknown"] = %"test"
@@ -93,7 +94,7 @@ block headerInvalidForm: # scenario 95
   doAssert res.unsafeError.inner.message.contains("unknown header form suffix"),
     "inner error must mention unknown header form suffix"
 
-block headerKeyWithoutColon: # scenario 96
+testCase headerKeyWithoutColon: # scenario 96
   ## Key "header" (no colon) does not start with "header:" — ignored.
   var j = makeEmailJson()
   j["header"] = %"test"
@@ -104,19 +105,19 @@ block headerKeyWithoutColon: # scenario 96
 # C. EmailComparator Discriminant (scenarios 97–103)
 # =============================================================================
 
-block comparatorUnderscoreProperty: # scenario 97
+testCase comparatorUnderscoreProperty: # scenario 97
   ## Underscore variant "received_At" does not match "receivedAt".
   assertErr emailComparatorFromJson(%*{"property": "received_At"})
 
-block comparatorWrongCase: # scenario 98
+testCase comparatorWrongCase: # scenario 98
   ## All-caps "RECEIVERAT" does not match "receivedAt".
   assertErr emailComparatorFromJson(%*{"property": "RECEIVERAT"})
 
-block comparatorLeadingSpace: # scenario 99
+testCase comparatorLeadingSpace: # scenario 99
   ## Leading space " receivedAt" does not match "receivedAt".
   assertErr emailComparatorFromJson(%*{"property": " receivedAt"})
 
-block comparatorEmptyKeyword: # scenario 100
+testCase comparatorEmptyKeyword: # scenario 100
   ## Empty keyword string fails server-assigned token validation — inner
   ## smart-constructor error propagates as ``svkFieldParserFailed``.
   let res = emailComparatorFromJson(%*{"property": "hasKeyword", "keyword": ""})
@@ -124,18 +125,18 @@ block comparatorEmptyKeyword: # scenario 100
   doAssert res.unsafeError.kind == svkFieldParserFailed
   doAssert res.unsafeError.inner.message.contains("length must be 1-255")
 
-block comparatorPlainSpuriousKeyword: # scenario 101
+testCase comparatorPlainSpuriousKeyword: # scenario 101
   ## Keyword field ignored when property is a plain sort property.
   let res = emailComparatorFromJson(%*{"property": "receivedAt", "keyword": "$seen"})
   assertOk res
   assertEq res.get().kind, eckPlain
   assertEq res.get().property, pspReceivedAt
 
-block comparatorMissingProperty: # scenario 102
+testCase comparatorMissingProperty: # scenario 102
   ## No property key at all -> err.
   assertErr emailComparatorFromJson(%*{"isAscending": true})
 
-block comparatorPropertyNull: # scenario 103
+testCase comparatorPropertyNull: # scenario 103
   ## property: null (JNull != JString) -> err.
   assertErr emailComparatorFromJson(%*{"property": nil})
 
@@ -143,19 +144,19 @@ block comparatorPropertyNull: # scenario 103
 # D. EmailHeaderFilter (scenarios 104–106)
 # =============================================================================
 
-block headerFilterColonInName: # scenario 104
+testCase headerFilterColonInName: # scenario 104
   ## Colon within header name is accepted (only empty rejected).
   let res = parseEmailHeaderFilter("Sub:ject")
   assertOk res
   assertEq res.get().name, "Sub:ject"
 
-block headerFilterNulByte: # scenario 105
+testCase headerFilterNulByte: # scenario 105
   ## NUL byte in header name is accepted (only empty rejected).
   let res = parseEmailHeaderFilter("Sub\x00ject")
   assertOk res
   assertEq res.get().name, "Sub\x00ject"
 
-block filterHeaderEmptyValue: # scenario 106
+testCase filterHeaderEmptyValue: # scenario 106
   ## Empty value string emits 2-element array ["Name", ""], distinct from
   ## 1-element ["Name"] (value absent).
   let withValue = parseEmailHeaderFilter("Subject", Opt.some("")).get()
@@ -170,7 +171,7 @@ block filterHeaderEmptyValue: # scenario 106
 # E. Table[PartId, EmailBodyValue] (scenarios 107–108)
 # =============================================================================
 
-block bodyValuesDuplicatePartId: # scenario 107
+testCase bodyValuesDuplicatePartId: # scenario 107
   ## Duplicate key "1" in bodyValues JSON — last-wins (std/json OrderedTable).
   var j = makeEmailJson()
   let bv = parseJson(
@@ -182,7 +183,7 @@ block bodyValuesDuplicatePartId: # scenario 107
   let pid = parsePartIdFromServer("1").get()
   assertEq res.get().bodyValues[pid].value, "second"
 
-block bodyValuesEmptyPartId: # scenario 108
+testCase bodyValuesEmptyPartId: # scenario 108
   ## Empty string as PartId key -> err (parsePartIdFromServer rejects). The
   ## L1 validation error surfaces as ``svkFieldParserFailed``.
   var j = makeEmailJson()
@@ -198,7 +199,7 @@ block bodyValuesEmptyPartId: # scenario 108
 # F. EmailFilterCondition Structural (scenarios 109–110)
 # =============================================================================
 
-block filterContradictorySize: # scenario 109
+testCase filterContradictorySize: # scenario 109
   ## minSize=0 and maxSize=0 both emitted — no semantic validation.
   var fc = makeEmailFilterCondition()
   fc.minSize = Opt.some(parseUnsignedInt(0).get())
@@ -209,7 +210,7 @@ block filterContradictorySize: # scenario 109
   assertJsonFieldEq node, "minSize", %0
   assertJsonFieldEq node, "maxSize", %0
 
-block filterHeaderColonPreserved: # scenario 110
+testCase filterHeaderColonPreserved: # scenario 110
   ## Colon within header name preserved verbatim in serialised JSON array.
   let ehf = parseEmailHeaderFilter("Content:Type").get()
   var fc = makeEmailFilterCondition()
@@ -222,27 +223,27 @@ block filterHeaderColonPreserved: # scenario 110
 # G. Response Types (scenarios 111–114)
 # =============================================================================
 
-block snippetGetResponseListNull: # scenario 111
+testCase snippetGetResponseListNull: # scenario 111
   ## list: null — implementation is lenient (ok with empty list), not err.
   let j = %*{"accountId": "acct1", "list": nil, "notFound": []}
   let res = searchSnippetGetResponseFromJson(j)
   assertOk res
   assertLen res.get().list, 0
 
-block snippetXssInSubject: # scenario 112
+testCase snippetXssInSubject: # scenario 112
   ## HTML in subject preserved verbatim — no sanitisation at serde layer.
   let j = %*{"emailId": "e1", "subject": "<script>alert(1)</script>", "preview": nil}
   let res = searchSnippetFromJson(j)
   assertOk res
   assertSomeEq res.get().subject, "<script>alert(1)</script>"
 
-block snippetExtraFieldIgnored: # scenario 113
+testCase snippetExtraFieldIgnored: # scenario 113
   ## Extra unknown field preserved under Postel's law.
   let j = %*{"emailId": "e1", "subject": nil, "preview": nil, "unknownField": 42}
   let res = searchSnippetFromJson(j)
   assertOk res
 
-block emailAllWrongTypes: # scenario 114
+testCase emailAllWrongTypes: # scenario 114
   ## All required metadata fields set to wrong JSON types — err on first failure.
   let j = %*{
     "id": 42,
@@ -279,7 +280,7 @@ block emailAllWrongTypes: # scenario 114
 # H. Recursive/Resource (scenarios 115–117)
 # =============================================================================
 
-block deepNestedBody50: # scenario 115
+testCase deepNestedBody50: # scenario 115
   ## 50-level nested multipart body — within MaxBodyPartDepth=128.
   var j = makeEmailJson()
   var body =
@@ -290,7 +291,7 @@ block deepNestedBody50: # scenario 115
   let res = emailFromJson(j)
   assertOk res
 
-block cyrillicHomoglyphHeader: # scenario 116
+testCase cyrillicHomoglyphHeader: # scenario 116
   ## U+04BB (Cyrillic SHHA, UTF-8: \xD2\xBB) looks like 'h' but fails
   ## byte-level startsWith("header:"). Only the real key is routed.
   var j = makeEmailJson()
@@ -300,7 +301,7 @@ block cyrillicHomoglyphHeader: # scenario 116
   assertOk res
   assertEq res.get().requestedHeaders.len, 1
 
-block maxUnsignedIntSize: # scenario 117
+testCase maxUnsignedIntSize: # scenario 117
   ## size = 2^53-1 (max safe JSON integer) — parses successfully.
   var j = makeEmailJson()
   j["size"] = newJInt(9007199254740991'i64)
@@ -313,7 +314,7 @@ block maxUnsignedIntSize: # scenario 117
 # I. Cross-Field Semantic (scenarios 118–123)
 # =============================================================================
 
-block sameHeaderDifferentForms: # scenario 118
+testCase sameHeaderDifferentForms: # scenario 118
   ## Same header name with different forms — both routed as separate entries
   ## because form is part of HeaderPropertyKey identity.
   var j = makeEmailJson()
@@ -323,7 +324,7 @@ block sameHeaderDifferentForms: # scenario 118
   assertOk res
   assertEq res.get().requestedHeaders.len, 2
 
-block bodyValueAllFlagsTrue: # scenario 119
+testCase bodyValueAllFlagsTrue: # scenario 119
   ## isTruncated=true and isEncodingProblem=true are not mutually exclusive.
   var j = makeEmailJson()
   j["bodyValues"] =
@@ -335,7 +336,7 @@ block bodyValueAllFlagsTrue: # scenario 119
   doAssert bv.isTruncated, "isTruncated must be true"
   doAssert bv.isEncodingProblem, "isEncodingProblem must be true"
 
-block keywordDraftNonDraftMailbox: # scenario 120
+testCase keywordDraftNonDraftMailbox: # scenario 120
   ## $draft keyword with non-Draft mailbox — no cross-field validation.
   var j = makeEmailJson()
   j["keywords"] = %*{"$draft": true}
@@ -345,7 +346,7 @@ block keywordDraftNonDraftMailbox: # scenario 120
   assertSome res.get().keywords
   doAssert kwDraft in res.get().keywords.unsafeGet, "$draft must be in keywords"
 
-block hasAttachmentFalseWithAttachments: # scenario 121
+testCase hasAttachmentFalseWithAttachments: # scenario 121
   ## hasAttachment=false with non-empty attachments — contradiction preserved.
   var j = makeEmailJson()
   j["hasAttachment"] = %false
@@ -358,7 +359,7 @@ block hasAttachmentFalseWithAttachments: # scenario 121
   doAssert not e.hasAttachment, "hasAttachment must be false"
   assertGe e.attachments.len, 1
 
-block filterBeforeAfterContradiction: # scenario 122
+testCase filterBeforeAfterContradiction: # scenario 122
   ## before < after (impossible range) — both emitted, no temporal validation.
   var fc = makeEmailFilterCondition()
   let early = parseUtcDate("2020-01-01T00:00:00Z").get()
@@ -369,7 +370,7 @@ block filterBeforeAfterContradiction: # scenario 122
   doAssert node{"before"} != nil, "before must be present"
   doAssert node{"after"} != nil, "after must be present"
 
-block snippetDanglingEmailId: # scenario 123
+testCase snippetDanglingEmailId: # scenario 123
   ## Snippet with emailId not in any result set — no referential integrity check.
   let j = %*{"emailId": "nonExistentEmailId999", "subject": "orphan", "preview": nil}
   let res = searchSnippetFromJson(j)

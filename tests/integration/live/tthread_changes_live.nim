@@ -53,8 +53,9 @@ import jmap_client/client
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block tthreadChangesLive:
+testCase tthreadChangesLive:
   forEachLiveTarget(target):
     # Cat-B (Phase L §0): RFC 8621 §3 leaves Thread/changes propagation
     # discretionary. Stalwart 0.15.5 and Cyrus 3.12.2 surface the

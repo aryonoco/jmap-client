@@ -19,10 +19,11 @@ import jmap_client/internal/types/primitives
 import jmap_client/internal/types/validation
 
 import ../../massertions
+import ../../mtestblock
 
 # ============= A. Empty object =============
 
-block emptyObject:
+testCase emptyObject:
   ## Every field absent — ``Opt.none`` for the two-state fields,
   ## ``fekAbsent`` for the three-state fields.
   let node = %*{}
@@ -41,17 +42,17 @@ block emptyObject:
 
 # ============= B. Wire-nullable absent vs null vs value =============
 
-block subjectAbsent:
+testCase subjectAbsent:
   let node = %*{}
   let p = PartialEmail.fromJson(node).get()
   doAssert p.subject.kind == fekAbsent
 
-block subjectNull:
+testCase subjectNull:
   let node = %*{"subject": nil}
   let p = PartialEmail.fromJson(node).get()
   doAssert p.subject.kind == fekNull
 
-block subjectValue:
+testCase subjectValue:
   let node = %*{"subject": "Hello"}
   let p = PartialEmail.fromJson(node).get()
   doAssert p.subject.kind == fekValue
@@ -59,12 +60,12 @@ block subjectValue:
 
 # ============= C. Wire-non-nullable absent vs value =============
 
-block idAbsent:
+testCase idAbsent:
   let node = %*{}
   let p = PartialEmail.fromJson(node).get()
   doAssert p.id.isNone
 
-block idValue:
+testCase idValue:
   let node = %*{"id": "e1"}
   let p = PartialEmail.fromJson(node).get()
   doAssert p.id.isSome
@@ -72,14 +73,14 @@ block idValue:
 
 # ============= D. Strict-on-wrong-kind for present fields =============
 
-block idWrongKindRejected:
+testCase idWrongKindRejected:
   ## A present ``id`` of the wrong kind (here: integer) surfaces as a
   ## SerdeViolation per A4 D4.
   let node = %*{"id": 42}
   let res = PartialEmail.fromJson(node)
   doAssert res.isErr
 
-block subjectWrongKindRejected:
+testCase subjectWrongKindRejected:
   ## A present ``subject`` of the wrong kind (here: integer) surfaces
   ## as a SerdeViolation.
   let node = %*{"subject": 42}
@@ -88,7 +89,7 @@ block subjectWrongKindRejected:
 
 # ============= E. Round-trip =============
 
-block roundTripEmpty:
+testCase roundTripEmpty:
   let original = %*{}
   let p1 = PartialEmail.fromJson(original).get()
   let emitted = p1.toJson()
@@ -97,7 +98,7 @@ block roundTripEmpty:
   doAssert p1.id.isNone == p2.id.isNone
   doAssert p1.subject.kind == p2.subject.kind
 
-block roundTripMixed:
+testCase roundTripMixed:
   let original =
     %*{"id": "e1", "subject": nil, "size": 1024, "from": [{"email": "a@example.com"}]}
   let p1 = PartialEmail.fromJson(original).get()

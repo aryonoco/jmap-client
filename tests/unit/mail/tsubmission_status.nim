@@ -20,12 +20,13 @@ import jmap_client/internal/mail/submission_status
 
 import ../../massertions
 import ../../mfixtures
+import ../../mtestblock
 
 # ===========================================================================
 # Section A — DeliveredState round-trip across all five arms
 # ===========================================================================
 
-block deliveredStateQueuedRoundTrip:
+testCase deliveredStateQueuedRoundTrip:
   ## RFC 8621 §7 ``"queued"`` → ``dsQueued``. Pins the
   ## ``strutils.parseEnum`` mapping for the in-flight state. Confusing
   ## queued for delivered would silently break "N of M delivered"
@@ -35,7 +36,7 @@ block deliveredStateQueuedRoundTrip:
   doAssert p.state == dsQueued
   assertEq p.rawBacking, raw
 
-block deliveredStateYesRoundTrip:
+testCase deliveredStateYesRoundTrip:
   ## RFC 8621 §7 ``"yes"`` → ``dsYes``. The success arm and the only
   ## variant ``countDelivered`` increments on, so the parser→counter
   ## chain is gated here.
@@ -44,7 +45,7 @@ block deliveredStateYesRoundTrip:
   doAssert p.state == dsYes
   assertEq p.rawBacking, raw
 
-block deliveredStateNoRoundTrip:
+testCase deliveredStateNoRoundTrip:
   ## RFC 8621 §7 ``"no"`` → ``dsNo``. The failure arm gating
   ## ``anyFailed``. Distinct from ``dsUnknown`` (transport-uncertain)
   ## and ``dsOther`` (server-extension): a regression collapsing them
@@ -54,7 +55,7 @@ block deliveredStateNoRoundTrip:
   doAssert p.state == dsNo
   assertEq p.rawBacking, raw
 
-block deliveredStateUnknownRoundTrip:
+testCase deliveredStateUnknownRoundTrip:
   ## RFC 8621 §7 ``"unknown"`` → ``dsUnknown``. Distinct token from
   ## the sentinel ``dsOther`` arm — preserving this distinction lets a
   ## consumer surface "delivery status not yet observed" without
@@ -64,7 +65,7 @@ block deliveredStateUnknownRoundTrip:
   doAssert p.state == dsUnknown
   assertEq p.rawBacking, raw
 
-block deliveredStateOtherPreservesRawBacking:
+testCase deliveredStateOtherPreservesRawBacking:
   ## RFC 8621 §7 + G10 (open-world parser): an unrecognised token
   ## falls through to ``dsOther`` with the original byte sequence
   ## preserved on ``rawBacking`` — NOT a ``$`` round-trip, since the
@@ -80,7 +81,7 @@ block deliveredStateOtherPreservesRawBacking:
 # Section B — DisplayedState round-trip across all three arms
 # ===========================================================================
 
-block displayedStateYesRoundTrip:
+testCase displayedStateYesRoundTrip:
   ## RFC 8621 §7 MDN ``"yes"`` → ``dpYes``. Symmetric with Section A;
   ## pins the ``parseDisplayedState`` mapping for the only
   ## affirmatively-displayed arm.
@@ -89,7 +90,7 @@ block displayedStateYesRoundTrip:
   doAssert p.state == dpYes
   assertEq p.rawBacking, raw
 
-block displayedStateUnknownRoundTrip:
+testCase displayedStateUnknownRoundTrip:
   ## RFC 8621 §7 MDN ``"unknown"`` → ``dpUnknown``. The default arm
   ## when no MDN has been observed.
   const raw = "unknown"
@@ -97,7 +98,7 @@ block displayedStateUnknownRoundTrip:
   doAssert p.state == dpUnknown
   assertEq p.rawBacking, raw
 
-block displayedStateOtherPreservesRawBacking:
+testCase displayedStateOtherPreservesRawBacking:
   ## G11 mirror of block 5: the open-world parser falls through to
   ## ``dpOther`` with raw preserved. Token ``"x-truncated"`` uses the
   ## RFC 6648 reserved-experimental ``x-`` prefix, so future MDN
@@ -112,7 +113,7 @@ block displayedStateOtherPreservesRawBacking:
 # Section C — SmtpReply happy-path Reply-line surface (G12)
 # ===========================================================================
 
-block smtpReplyHappy200:
+testCase smtpReplyHappy200:
   ## RFC 5321 §4.2 success Reply-line: 3-digit code (2xx), SP, free
   ## textstring. Round-trip through ``$`` (borrowed via
   ## ``defineStringDistinctOps``) must be byte-equal — the parser
@@ -122,7 +123,7 @@ block smtpReplyHappy200:
   assertOk res
   assertEq res.get().raw, raw
 
-block smtpReplyHappy550:
+testCase smtpReplyHappy550:
   ## RFC 5321 §4.2 permanent-failure Reply-line. Pins that the parser
   ## does NOT gate acceptance on the success class — a 5xx Reply is
   ## structurally well-formed and ``parseSmtpReply`` must accept it.
@@ -132,7 +133,7 @@ block smtpReplyHappy550:
   assertOk res
   assertEq res.get().raw, raw
 
-block smtpReplyMultilineHappy:
+testCase smtpReplyMultilineHappy:
   ## RFC 5321 §4.2.1 multi-line continuation: each non-final line
   ## uses ``'-'`` between the Reply-code and the textstring; the
   ## final line uses SP. Both lines MUST share the 3-digit
@@ -144,7 +145,7 @@ block smtpReplyMultilineHappy:
   assertOk res
   assertEq res.get().raw, raw
 
-block smtpReplyEnhancedCodeHappy:
+testCase smtpReplyEnhancedCodeHappy:
   ## RFC 3463 §2 triple on the final line. ``ParsedSmtpReply.enhanced``
   ## carries the structured triple; ``raw`` preserves ingress bytes.
   const raw = "250 2.1.5 Destination address valid"
@@ -159,13 +160,13 @@ block smtpReplyEnhancedCodeHappy:
   assertEq uint16(e.detail), 5'u16
   assertEq p.raw, raw
 
-block renderCanonicalReplyIsIdempotent:
+testCase renderCanonicalReplyIsIdempotent:
   ## Canonical LF input must render back byte-identical (H24).
   const raw = "250 OK"
   let p = parseSmtpReply(raw).get()
   assertEq renderSmtpReply(p), raw
 
-block renderCrlfInputCanonicalisesToLf:
+testCase renderCrlfInputCanonicalisesToLf:
   ## Non-canonical CRLF input: ``raw`` preserves ingress bytes; the
   ## canonical renderer emits LF terminators only (H24, sole documented
   ## normalisation).
@@ -178,7 +179,7 @@ block renderCrlfInputCanonicalisesToLf:
 # Section D — DeliveryStatus composite construction
 # ===========================================================================
 
-block deliveryStatusComposite:
+testCase deliveryStatusComposite:
   ## All three sub-fields preserved structurally through the
   ## ``makeDeliveryStatus`` fixture. Passes each field explicitly (no
   ## defaulting): a regression that drops or rewrites any of the three
@@ -198,7 +199,7 @@ block deliveryStatusComposite:
 # Section E — DeliveryStatusMap domain operations (G9)
 # ===========================================================================
 
-block deliveryStatusMapCountDelivered:
+testCase deliveryStatusMapCountDelivered:
   ## ``countDelivered`` counts entries with
   ## ``delivered.state == dsYes``. All-yes map: count == 3. Mixed map
   ## (yes/no/queued): count == 1 — load-bearing, since it pins that
@@ -218,7 +219,7 @@ block deliveryStatusMapCountDelivered:
   let mixed = makeDeliveryStatusMap(@[(alice, dYes), (bob, dNo), (carol, dQueued)])
   assertEq mixed.countDelivered, 1
 
-block deliveryStatusMapAnyFailedFalseWhenAllDelivered:
+testCase deliveryStatusMapAnyFailedFalseWhenAllDelivered:
   ## ``anyFailed`` short-circuits on ``delivered.state == dsNo``. An
   ## all-yes map MUST report ``not anyFailed`` — a regression treating
   ## ``dsQueued`` or ``dsUnknown`` as failure would surface here.
@@ -230,7 +231,7 @@ block deliveryStatusMapAnyFailedFalseWhenAllDelivered:
   let allYes = makeDeliveryStatusMap(@[(alice, dYes), (bob, dYes), (carol, dYes)])
   doAssert not anyFailed(allYes)
 
-block deliveryStatusMapAnyFailedTrueWhenOneFailed:
+testCase deliveryStatusMapAnyFailedTrueWhenOneFailed:
   ## All-no map: ``anyFailed == true`` AND ``countDelivered == 0``.
   ## The coupled ``countDelivered`` assertion pins that the all-failed
   ## map isn't accidentally counting failures as deliveries — a

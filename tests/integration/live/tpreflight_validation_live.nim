@@ -24,8 +24,9 @@ import jmap_client
 import jmap_client/client
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block tpreflightValidationLive:
+testCase tpreflightValidationLive:
   forEachLiveTarget(target):
     var client = initJmapClient(
         sessionUrl = target.sessionUrl,

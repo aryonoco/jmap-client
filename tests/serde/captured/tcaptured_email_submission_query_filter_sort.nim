@@ -13,8 +13,9 @@
 import jmap_client
 import jmap_client/internal/types/envelope
 import ./mloader
+import ../../mtestblock
 
-block tcapturedEmailSubmissionQueryFilterSort:
+testCase tcapturedEmailSubmissionQueryFilterSort:
   let j = loadCapturedFixture("email-submission-query-filter-sort-stalwart")
   let resp = envelope.Response.fromJson(j).expect("envelope.Response.fromJson")
   doAssert resp.methodResponses.len == 1

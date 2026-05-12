@@ -23,6 +23,7 @@ import jmap_client/internal/types/errors
 import ../massertions
 import ../mfixtures
 import ../mserde_fixtures
+import ../mtestblock
 
 const nilNode: JsonNode = nil
 
@@ -32,209 +33,209 @@ const nilNode: JsonNode = nil
 
 # --- Id ---
 
-block idWrongKindNil:
+testCase idWrongKindNil:
   assertErr Id.fromJson(nilNode)
 
-block idWrongKindJNull:
+testCase idWrongKindJNull:
   assertErr Id.fromJson(newJNull())
 
-block idWrongKindJBool:
+testCase idWrongKindJBool:
   assertErr Id.fromJson(newJBool(true))
 
-block idWrongKindJInt:
+testCase idWrongKindJInt:
   assertErr Id.fromJson(%42)
 
-block idWrongKindJFloat:
+testCase idWrongKindJFloat:
   assertErr Id.fromJson(newJFloat(3.14))
 
-block idWrongKindJArray:
+testCase idWrongKindJArray:
   assertErr Id.fromJson(%*[1, 2])
 
-block idWrongKindJObject:
+testCase idWrongKindJObject:
   assertErr Id.fromJson(%*{"x": 1})
 
 # --- AccountId ---
 
-block accountIdWrongKindNil:
+testCase accountIdWrongKindNil:
   assertErr AccountId.fromJson(nilNode)
 
-block accountIdWrongKindJNull:
+testCase accountIdWrongKindJNull:
   assertErr AccountId.fromJson(newJNull())
 
-block accountIdWrongKindJBool:
+testCase accountIdWrongKindJBool:
   assertErr AccountId.fromJson(newJBool(true))
 
-block accountIdWrongKindJInt:
+testCase accountIdWrongKindJInt:
   assertErr AccountId.fromJson(%42)
 
-block accountIdWrongKindJFloat:
+testCase accountIdWrongKindJFloat:
   assertErr AccountId.fromJson(newJFloat(3.14))
 
-block accountIdWrongKindJArray:
+testCase accountIdWrongKindJArray:
   assertErr AccountId.fromJson(%*[1, 2])
 
-block accountIdWrongKindJObject:
+testCase accountIdWrongKindJObject:
   assertErr AccountId.fromJson(%*{"x": 1})
 
 # --- JmapState ---
 
-block jmapStateWrongKindNil:
+testCase jmapStateWrongKindNil:
   assertErr JmapState.fromJson(nilNode)
 
-block jmapStateWrongKindJNull:
+testCase jmapStateWrongKindJNull:
   assertErr JmapState.fromJson(newJNull())
 
-block jmapStateWrongKindJBool:
+testCase jmapStateWrongKindJBool:
   assertErr JmapState.fromJson(newJBool(true))
 
-block jmapStateWrongKindJInt:
+testCase jmapStateWrongKindJInt:
   assertErr JmapState.fromJson(%42)
 
-block jmapStateWrongKindJFloat:
+testCase jmapStateWrongKindJFloat:
   assertErr JmapState.fromJson(newJFloat(3.14))
 
-block jmapStateWrongKindJArray:
+testCase jmapStateWrongKindJArray:
   assertErr JmapState.fromJson(%*[1, 2])
 
-block jmapStateWrongKindJObject:
+testCase jmapStateWrongKindJObject:
   assertErr JmapState.fromJson(%*{"x": 1})
 
 # --- MethodCallId ---
 
-block methodCallIdWrongKindNil:
+testCase methodCallIdWrongKindNil:
   assertErr MethodCallId.fromJson(nilNode)
 
-block methodCallIdWrongKindJNull:
+testCase methodCallIdWrongKindJNull:
   assertErr MethodCallId.fromJson(newJNull())
 
-block methodCallIdWrongKindJBool:
+testCase methodCallIdWrongKindJBool:
   assertErr MethodCallId.fromJson(newJBool(true))
 
-block methodCallIdWrongKindJInt:
+testCase methodCallIdWrongKindJInt:
   assertErr MethodCallId.fromJson(%42)
 
-block methodCallIdWrongKindJFloat:
+testCase methodCallIdWrongKindJFloat:
   assertErr MethodCallId.fromJson(newJFloat(3.14))
 
-block methodCallIdWrongKindJArray:
+testCase methodCallIdWrongKindJArray:
   assertErr MethodCallId.fromJson(%*[1, 2])
 
-block methodCallIdWrongKindJObject:
+testCase methodCallIdWrongKindJObject:
   assertErr MethodCallId.fromJson(%*{"x": 1})
 
 # --- CreationId ---
 
-block creationIdWrongKindNil:
+testCase creationIdWrongKindNil:
   assertErr CreationId.fromJson(nilNode)
 
-block creationIdWrongKindJNull:
+testCase creationIdWrongKindJNull:
   assertErr CreationId.fromJson(newJNull())
 
-block creationIdWrongKindJBool:
+testCase creationIdWrongKindJBool:
   assertErr CreationId.fromJson(newJBool(true))
 
-block creationIdWrongKindJInt:
+testCase creationIdWrongKindJInt:
   assertErr CreationId.fromJson(%42)
 
-block creationIdWrongKindJFloat:
+testCase creationIdWrongKindJFloat:
   assertErr CreationId.fromJson(newJFloat(3.14))
 
-block creationIdWrongKindJArray:
+testCase creationIdWrongKindJArray:
   assertErr CreationId.fromJson(%*[1, 2])
 
-block creationIdWrongKindJObject:
+testCase creationIdWrongKindJObject:
   assertErr CreationId.fromJson(%*{"x": 1})
 
 # --- UriTemplate ---
 
-block uriTemplateWrongKindNil:
+testCase uriTemplateWrongKindNil:
   assertErr UriTemplate.fromJson(nilNode)
 
-block uriTemplateWrongKindJNull:
+testCase uriTemplateWrongKindJNull:
   assertErr UriTemplate.fromJson(newJNull())
 
-block uriTemplateWrongKindJBool:
+testCase uriTemplateWrongKindJBool:
   assertErr UriTemplate.fromJson(newJBool(true))
 
-block uriTemplateWrongKindJInt:
+testCase uriTemplateWrongKindJInt:
   assertErr UriTemplate.fromJson(%42)
 
-block uriTemplateWrongKindJFloat:
+testCase uriTemplateWrongKindJFloat:
   assertErr UriTemplate.fromJson(newJFloat(3.14))
 
-block uriTemplateWrongKindJArray:
+testCase uriTemplateWrongKindJArray:
   assertErr UriTemplate.fromJson(%*[1, 2])
 
-block uriTemplateWrongKindJObject:
+testCase uriTemplateWrongKindJObject:
   assertErr UriTemplate.fromJson(%*{"x": 1})
 
 # --- PropertyName ---
 
-block propertyNameWrongKindNil:
+testCase propertyNameWrongKindNil:
   assertErr PropertyName.fromJson(nilNode)
 
-block propertyNameWrongKindJNull:
+testCase propertyNameWrongKindJNull:
   assertErr PropertyName.fromJson(newJNull())
 
-block propertyNameWrongKindJBool:
+testCase propertyNameWrongKindJBool:
   assertErr PropertyName.fromJson(newJBool(true))
 
-block propertyNameWrongKindJInt:
+testCase propertyNameWrongKindJInt:
   assertErr PropertyName.fromJson(%42)
 
-block propertyNameWrongKindJFloat:
+testCase propertyNameWrongKindJFloat:
   assertErr PropertyName.fromJson(newJFloat(3.14))
 
-block propertyNameWrongKindJArray:
+testCase propertyNameWrongKindJArray:
   assertErr PropertyName.fromJson(%*[1, 2])
 
-block propertyNameWrongKindJObject:
+testCase propertyNameWrongKindJObject:
   assertErr PropertyName.fromJson(%*{"x": 1})
 
 # --- Date ---
 
-block dateWrongKindNil:
+testCase dateWrongKindNil:
   assertErr Date.fromJson(nilNode)
 
-block dateWrongKindJNull:
+testCase dateWrongKindJNull:
   assertErr Date.fromJson(newJNull())
 
-block dateWrongKindJBool:
+testCase dateWrongKindJBool:
   assertErr Date.fromJson(newJBool(true))
 
-block dateWrongKindJInt:
+testCase dateWrongKindJInt:
   assertErr Date.fromJson(%42)
 
-block dateWrongKindJFloat:
+testCase dateWrongKindJFloat:
   assertErr Date.fromJson(newJFloat(3.14))
 
-block dateWrongKindJArray:
+testCase dateWrongKindJArray:
   assertErr Date.fromJson(%*[1, 2])
 
-block dateWrongKindJObject:
+testCase dateWrongKindJObject:
   assertErr Date.fromJson(%*{"x": 1})
 
 # --- UTCDate ---
 
-block utcDateWrongKindNil:
+testCase utcDateWrongKindNil:
   assertErr UTCDate.fromJson(nilNode)
 
-block utcDateWrongKindJNull:
+testCase utcDateWrongKindJNull:
   assertErr UTCDate.fromJson(newJNull())
 
-block utcDateWrongKindJBool:
+testCase utcDateWrongKindJBool:
   assertErr UTCDate.fromJson(newJBool(true))
 
-block utcDateWrongKindJInt:
+testCase utcDateWrongKindJInt:
   assertErr UTCDate.fromJson(%42)
 
-block utcDateWrongKindJFloat:
+testCase utcDateWrongKindJFloat:
   assertErr UTCDate.fromJson(newJFloat(3.14))
 
-block utcDateWrongKindJArray:
+testCase utcDateWrongKindJArray:
   assertErr UTCDate.fromJson(%*[1, 2])
 
-block utcDateWrongKindJObject:
+testCase utcDateWrongKindJObject:
   assertErr UTCDate.fromJson(%*{"x": 1})
 
 # =============================================================================
@@ -243,48 +244,48 @@ block utcDateWrongKindJObject:
 
 # --- UnsignedInt ---
 
-block unsignedIntWrongKindNil:
+testCase unsignedIntWrongKindNil:
   assertErr UnsignedInt.fromJson(nilNode)
 
-block unsignedIntWrongKindJNull:
+testCase unsignedIntWrongKindJNull:
   assertErr UnsignedInt.fromJson(newJNull())
 
-block unsignedIntWrongKindJBool:
+testCase unsignedIntWrongKindJBool:
   assertErr UnsignedInt.fromJson(newJBool(true))
 
-block unsignedIntWrongKindJString:
+testCase unsignedIntWrongKindJString:
   assertErr UnsignedInt.fromJson(%"42")
 
-block unsignedIntWrongKindJFloat:
+testCase unsignedIntWrongKindJFloat:
   assertErr UnsignedInt.fromJson(newJFloat(3.14))
 
-block unsignedIntWrongKindJArray:
+testCase unsignedIntWrongKindJArray:
   assertErr UnsignedInt.fromJson(%*[1, 2])
 
-block unsignedIntWrongKindJObject:
+testCase unsignedIntWrongKindJObject:
   assertErr UnsignedInt.fromJson(%*{"x": 1})
 
 # --- JmapInt ---
 
-block jmapIntWrongKindNil:
+testCase jmapIntWrongKindNil:
   assertErr JmapInt.fromJson(nilNode)
 
-block jmapIntWrongKindJNull:
+testCase jmapIntWrongKindJNull:
   assertErr JmapInt.fromJson(newJNull())
 
-block jmapIntWrongKindJBool:
+testCase jmapIntWrongKindJBool:
   assertErr JmapInt.fromJson(newJBool(true))
 
-block jmapIntWrongKindJString:
+testCase jmapIntWrongKindJString:
   assertErr JmapInt.fromJson(%"42")
 
-block jmapIntWrongKindJFloat:
+testCase jmapIntWrongKindJFloat:
   assertErr JmapInt.fromJson(newJFloat(3.14))
 
-block jmapIntWrongKindJArray:
+testCase jmapIntWrongKindJArray:
   assertErr JmapInt.fromJson(%*[1, 2])
 
-block jmapIntWrongKindJObject:
+testCase jmapIntWrongKindJObject:
   assertErr JmapInt.fromJson(%*{"x": 1})
 
 # =============================================================================
@@ -293,353 +294,353 @@ block jmapIntWrongKindJObject:
 
 # --- CoreCapabilities ---
 
-block coreCapsWrongKindNil:
+testCase coreCapsWrongKindNil:
   assertErr CoreCapabilities.fromJson(nilNode)
 
-block coreCapsWrongKindJNull:
+testCase coreCapsWrongKindJNull:
   assertErr CoreCapabilities.fromJson(newJNull())
 
-block coreCapsWrongKindJBool:
+testCase coreCapsWrongKindJBool:
   assertErr CoreCapabilities.fromJson(newJBool(true))
 
-block coreCapsWrongKindJInt:
+testCase coreCapsWrongKindJInt:
   assertErr CoreCapabilities.fromJson(%42)
 
-block coreCapsWrongKindJFloat:
+testCase coreCapsWrongKindJFloat:
   assertErr CoreCapabilities.fromJson(newJFloat(3.14))
 
-block coreCapsWrongKindJString:
+testCase coreCapsWrongKindJString:
   assertErr CoreCapabilities.fromJson(%"hello")
 
-block coreCapsWrongKindJArray:
+testCase coreCapsWrongKindJArray:
   assertErr CoreCapabilities.fromJson(%*[1, 2])
 
 # --- Account ---
 
-block accountWrongKindNil:
+testCase accountWrongKindNil:
   assertErr Account.fromJson(nilNode)
 
-block accountWrongKindJNull:
+testCase accountWrongKindJNull:
   assertErr Account.fromJson(newJNull())
 
-block accountWrongKindJBool:
+testCase accountWrongKindJBool:
   assertErr Account.fromJson(newJBool(true))
 
-block accountWrongKindJInt:
+testCase accountWrongKindJInt:
   assertErr Account.fromJson(%42)
 
-block accountWrongKindJFloat:
+testCase accountWrongKindJFloat:
   assertErr Account.fromJson(newJFloat(3.14))
 
-block accountWrongKindJString:
+testCase accountWrongKindJString:
   assertErr Account.fromJson(%"hello")
 
-block accountWrongKindJArray:
+testCase accountWrongKindJArray:
   assertErr Account.fromJson(%*[1, 2])
 
 # --- Request ---
 
-block requestWrongKindNil:
+testCase requestWrongKindNil:
   assertErr Request.fromJson(nilNode)
 
-block requestWrongKindJNull:
+testCase requestWrongKindJNull:
   assertErr Request.fromJson(newJNull())
 
-block requestWrongKindJBool:
+testCase requestWrongKindJBool:
   assertErr Request.fromJson(newJBool(true))
 
-block requestWrongKindJInt:
+testCase requestWrongKindJInt:
   assertErr Request.fromJson(%42)
 
-block requestWrongKindJFloat:
+testCase requestWrongKindJFloat:
   assertErr Request.fromJson(newJFloat(3.14))
 
-block requestWrongKindJString:
+testCase requestWrongKindJString:
   assertErr Request.fromJson(%"hello")
 
-block requestWrongKindJArray:
+testCase requestWrongKindJArray:
   assertErr Request.fromJson(%*[1, 2])
 
 # --- Response ---
 
-block responseWrongKindNil:
+testCase responseWrongKindNil:
   assertErr Response.fromJson(nilNode)
 
-block responseWrongKindJNull:
+testCase responseWrongKindJNull:
   assertErr Response.fromJson(newJNull())
 
-block responseWrongKindJBool:
+testCase responseWrongKindJBool:
   assertErr Response.fromJson(newJBool(true))
 
-block responseWrongKindJInt:
+testCase responseWrongKindJInt:
   assertErr Response.fromJson(%42)
 
-block responseWrongKindJFloat:
+testCase responseWrongKindJFloat:
   assertErr Response.fromJson(newJFloat(3.14))
 
-block responseWrongKindJString:
+testCase responseWrongKindJString:
   assertErr Response.fromJson(%"hello")
 
-block responseWrongKindJArray:
+testCase responseWrongKindJArray:
   assertErr Response.fromJson(%*[1, 2])
 
 # --- ResultReference ---
 
-block resultRefWrongKindNil:
+testCase resultRefWrongKindNil:
   assertErr ResultReference.fromJson(nilNode)
 
-block resultRefWrongKindJNull:
+testCase resultRefWrongKindJNull:
   assertErr ResultReference.fromJson(newJNull())
 
-block resultRefWrongKindJBool:
+testCase resultRefWrongKindJBool:
   assertErr ResultReference.fromJson(newJBool(true))
 
-block resultRefWrongKindJInt:
+testCase resultRefWrongKindJInt:
   assertErr ResultReference.fromJson(%42)
 
-block resultRefWrongKindJFloat:
+testCase resultRefWrongKindJFloat:
   assertErr ResultReference.fromJson(newJFloat(3.14))
 
-block resultRefWrongKindJString:
+testCase resultRefWrongKindJString:
   assertErr ResultReference.fromJson(%"hello")
 
-block resultRefWrongKindJArray:
+testCase resultRefWrongKindJArray:
   assertErr ResultReference.fromJson(%*[1, 2])
 
 # --- Comparator ---
 
-block comparatorWrongKindNil:
+testCase comparatorWrongKindNil:
   assertErr Comparator.fromJson(nilNode)
 
-block comparatorWrongKindJNull:
+testCase comparatorWrongKindJNull:
   assertErr Comparator.fromJson(newJNull())
 
-block comparatorWrongKindJBool:
+testCase comparatorWrongKindJBool:
   assertErr Comparator.fromJson(newJBool(true))
 
-block comparatorWrongKindJInt:
+testCase comparatorWrongKindJInt:
   assertErr Comparator.fromJson(%42)
 
-block comparatorWrongKindJFloat:
+testCase comparatorWrongKindJFloat:
   assertErr Comparator.fromJson(newJFloat(3.14))
 
-block comparatorWrongKindJString:
+testCase comparatorWrongKindJString:
   assertErr Comparator.fromJson(%"hello")
 
-block comparatorWrongKindJArray:
+testCase comparatorWrongKindJArray:
   assertErr Comparator.fromJson(%*[1, 2])
 
 # --- AddedItem ---
 
-block addedItemWrongKindNil:
+testCase addedItemWrongKindNil:
   assertErr AddedItem.fromJson(nilNode)
 
-block addedItemWrongKindJNull:
+testCase addedItemWrongKindJNull:
   assertErr AddedItem.fromJson(newJNull())
 
-block addedItemWrongKindJBool:
+testCase addedItemWrongKindJBool:
   assertErr AddedItem.fromJson(newJBool(true))
 
-block addedItemWrongKindJInt:
+testCase addedItemWrongKindJInt:
   assertErr AddedItem.fromJson(%42)
 
-block addedItemWrongKindJFloat:
+testCase addedItemWrongKindJFloat:
   assertErr AddedItem.fromJson(newJFloat(3.14))
 
-block addedItemWrongKindJString:
+testCase addedItemWrongKindJString:
   assertErr AddedItem.fromJson(%"hello")
 
-block addedItemWrongKindJArray:
+testCase addedItemWrongKindJArray:
   assertErr AddedItem.fromJson(%*[1, 2])
 
 # --- RequestError ---
 
-block requestErrorWrongKindNil:
+testCase requestErrorWrongKindNil:
   assertErr RequestError.fromJson(nilNode)
 
-block requestErrorWrongKindJNull:
+testCase requestErrorWrongKindJNull:
   assertErr RequestError.fromJson(newJNull())
 
-block requestErrorWrongKindJBool:
+testCase requestErrorWrongKindJBool:
   assertErr RequestError.fromJson(newJBool(true))
 
-block requestErrorWrongKindJInt:
+testCase requestErrorWrongKindJInt:
   assertErr RequestError.fromJson(%42)
 
-block requestErrorWrongKindJFloat:
+testCase requestErrorWrongKindJFloat:
   assertErr RequestError.fromJson(newJFloat(3.14))
 
-block requestErrorWrongKindJString:
+testCase requestErrorWrongKindJString:
   assertErr RequestError.fromJson(%"hello")
 
-block requestErrorWrongKindJArray:
+testCase requestErrorWrongKindJArray:
   assertErr RequestError.fromJson(%*[1, 2])
 
 # --- MethodError ---
 
-block methodErrorWrongKindNil:
+testCase methodErrorWrongKindNil:
   assertErr MethodError.fromJson(nilNode)
 
-block methodErrorWrongKindJNull:
+testCase methodErrorWrongKindJNull:
   assertErr MethodError.fromJson(newJNull())
 
-block methodErrorWrongKindJBool:
+testCase methodErrorWrongKindJBool:
   assertErr MethodError.fromJson(newJBool(true))
 
-block methodErrorWrongKindJInt:
+testCase methodErrorWrongKindJInt:
   assertErr MethodError.fromJson(%42)
 
-block methodErrorWrongKindJFloat:
+testCase methodErrorWrongKindJFloat:
   assertErr MethodError.fromJson(newJFloat(3.14))
 
-block methodErrorWrongKindJString:
+testCase methodErrorWrongKindJString:
   assertErr MethodError.fromJson(%"hello")
 
-block methodErrorWrongKindJArray:
+testCase methodErrorWrongKindJArray:
   assertErr MethodError.fromJson(%*[1, 2])
 
 # --- SetError ---
 
-block setErrorWrongKindNil:
+testCase setErrorWrongKindNil:
   assertErr SetError.fromJson(nilNode)
 
-block setErrorWrongKindJNull:
+testCase setErrorWrongKindJNull:
   assertErr SetError.fromJson(newJNull())
 
-block setErrorWrongKindJBool:
+testCase setErrorWrongKindJBool:
   assertErr SetError.fromJson(newJBool(true))
 
-block setErrorWrongKindJInt:
+testCase setErrorWrongKindJInt:
   assertErr SetError.fromJson(%42)
 
-block setErrorWrongKindJFloat:
+testCase setErrorWrongKindJFloat:
   assertErr SetError.fromJson(newJFloat(3.14))
 
-block setErrorWrongKindJString:
+testCase setErrorWrongKindJString:
   assertErr SetError.fromJson(%"hello")
 
-block setErrorWrongKindJArray:
+testCase setErrorWrongKindJArray:
   assertErr SetError.fromJson(%*[1, 2])
 
 # --- Filter[int] ---
 
-block filterWrongKindNil:
+testCase filterWrongKindNil:
   assertErr Filter[int].fromJson(nilNode, fromIntCondition)
 
-block filterWrongKindJNull:
+testCase filterWrongKindJNull:
   assertErr Filter[int].fromJson(newJNull(), fromIntCondition)
 
-block filterWrongKindJBool:
+testCase filterWrongKindJBool:
   assertErr Filter[int].fromJson(newJBool(true), fromIntCondition)
 
-block filterWrongKindJInt:
+testCase filterWrongKindJInt:
   assertErr Filter[int].fromJson(%42, fromIntCondition)
 
-block filterWrongKindJFloat:
+testCase filterWrongKindJFloat:
   assertErr Filter[int].fromJson(newJFloat(3.14), fromIntCondition)
 
-block filterWrongKindJString:
+testCase filterWrongKindJString:
   assertErr Filter[int].fromJson(%"hello", fromIntCondition)
 
-block filterWrongKindJArray:
+testCase filterWrongKindJArray:
   assertErr Filter[int].fromJson(%*[1, 2], fromIntCondition)
 
 # =============================================================================
 # D. Array-backed type mismatch (Invocation expects JArray)
 # =============================================================================
 
-block invocationWrongKindNil:
+testCase invocationWrongKindNil:
   assertErr Invocation.fromJson(nilNode)
 
-block invocationWrongKindJNull:
+testCase invocationWrongKindJNull:
   assertErr Invocation.fromJson(newJNull())
 
-block invocationWrongKindJBool:
+testCase invocationWrongKindJBool:
   assertErr Invocation.fromJson(newJBool(true))
 
-block invocationWrongKindJInt:
+testCase invocationWrongKindJInt:
   assertErr Invocation.fromJson(%42)
 
-block invocationWrongKindJFloat:
+testCase invocationWrongKindJFloat:
   assertErr Invocation.fromJson(newJFloat(3.14))
 
-block invocationWrongKindJString:
+testCase invocationWrongKindJString:
   assertErr Invocation.fromJson(%"hello")
 
-block invocationWrongKindJObject:
+testCase invocationWrongKindJObject:
   assertErr Invocation.fromJson(%*{"x": 1})
 
 # =============================================================================
 # E. Enum type mismatch (FilterOperator expects JString)
 # =============================================================================
 
-block filterOperatorWrongKindNil:
+testCase filterOperatorWrongKindNil:
   assertErr FilterOperator.fromJson(nilNode)
 
-block filterOperatorWrongKindJNull:
+testCase filterOperatorWrongKindJNull:
   assertErr FilterOperator.fromJson(newJNull())
 
-block filterOperatorWrongKindJBool:
+testCase filterOperatorWrongKindJBool:
   assertErr FilterOperator.fromJson(newJBool(true))
 
-block filterOperatorWrongKindJInt:
+testCase filterOperatorWrongKindJInt:
   assertErr FilterOperator.fromJson(%42)
 
-block filterOperatorWrongKindJFloat:
+testCase filterOperatorWrongKindJFloat:
   assertErr FilterOperator.fromJson(newJFloat(3.14))
 
-block filterOperatorWrongKindJArray:
+testCase filterOperatorWrongKindJArray:
   assertErr FilterOperator.fromJson(%*[1, 2])
 
-block filterOperatorWrongKindJObject:
+testCase filterOperatorWrongKindJObject:
   assertErr FilterOperator.fromJson(%*{"x": 1})
 
 # =============================================================================
 # F. ServerCapability type mismatch (core URI expects JObject for data)
 # =============================================================================
 
-block serverCapCoreWrongKindNil:
+testCase serverCapCoreWrongKindNil:
   assertErr ServerCapability.fromJson("urn:ietf:params:jmap:core", nilNode)
 
-block serverCapCoreWrongKindJNull:
+testCase serverCapCoreWrongKindJNull:
   assertErr ServerCapability.fromJson("urn:ietf:params:jmap:core", newJNull())
 
-block serverCapCoreWrongKindJBool:
+testCase serverCapCoreWrongKindJBool:
   assertErr ServerCapability.fromJson("urn:ietf:params:jmap:core", newJBool(true))
 
-block serverCapCoreWrongKindJInt:
+testCase serverCapCoreWrongKindJInt:
   assertErr ServerCapability.fromJson("urn:ietf:params:jmap:core", %42)
 
-block serverCapCoreWrongKindJFloat:
+testCase serverCapCoreWrongKindJFloat:
   assertErr ServerCapability.fromJson("urn:ietf:params:jmap:core", newJFloat(3.14))
 
-block serverCapCoreWrongKindJString:
+testCase serverCapCoreWrongKindJString:
   assertErr ServerCapability.fromJson("urn:ietf:params:jmap:core", %"hello")
 
-block serverCapCoreWrongKindJArray:
+testCase serverCapCoreWrongKindJArray:
   assertErr ServerCapability.fromJson("urn:ietf:params:jmap:core", %*[1, 2])
 
 # Non-core capability URIs accept any kind for rawData (pass-through).
 
-block serverCapMailAcceptsNil:
+testCase serverCapMailAcceptsNil:
   assertOk ServerCapability.fromJson("urn:ietf:params:jmap:mail", nilNode)
 
-block serverCapMailAcceptsJNull:
+testCase serverCapMailAcceptsJNull:
   assertOk ServerCapability.fromJson("urn:ietf:params:jmap:mail", newJNull())
 
-block serverCapMailAcceptsJBool:
+testCase serverCapMailAcceptsJBool:
   assertOk ServerCapability.fromJson("urn:ietf:params:jmap:mail", newJBool(true))
 
-block serverCapMailAcceptsJInt:
+testCase serverCapMailAcceptsJInt:
   assertOk ServerCapability.fromJson("urn:ietf:params:jmap:mail", %42)
 
-block serverCapMailAcceptsJString:
+testCase serverCapMailAcceptsJString:
   assertOk ServerCapability.fromJson("urn:ietf:params:jmap:mail", %"hello")
 
-block serverCapMailAcceptsJArray:
+testCase serverCapMailAcceptsJArray:
   assertOk ServerCapability.fromJson("urn:ietf:params:jmap:mail", %*[1, 2])
 
-block serverCapMailAcceptsJObject:
+testCase serverCapMailAcceptsJObject:
   assertOk ServerCapability.fromJson("urn:ietf:params:jmap:mail", %*{"x": 1})
 
 # =============================================================================
@@ -664,37 +665,37 @@ proc coreCapsWithField(field: string, value: JsonNode): JsonNode =
   result = validCoreCapsJson()
   result[field] = value
 
-block coreCapsFieldMaxSizeUploadWrongKind:
+testCase coreCapsFieldMaxSizeUploadWrongKind:
   assertErr CoreCapabilities.fromJson(coreCapsWithField("maxSizeUpload", %"bad"))
 
-block coreCapsFieldMaxConcurrentUploadWrongKind:
+testCase coreCapsFieldMaxConcurrentUploadWrongKind:
   assertErr CoreCapabilities.fromJson(coreCapsWithField("maxConcurrentUpload", %"bad"))
 
-block coreCapsFieldMaxSizeRequestWrongKind:
+testCase coreCapsFieldMaxSizeRequestWrongKind:
   assertErr CoreCapabilities.fromJson(coreCapsWithField("maxSizeRequest", %"bad"))
 
-block coreCapsFieldMaxConcurrentRequestsWrongKind:
+testCase coreCapsFieldMaxConcurrentRequestsWrongKind:
   assertErr CoreCapabilities.fromJson(
     coreCapsWithField("maxConcurrentRequests", %"bad")
   )
 
-block coreCapsFieldMaxCallsInRequestWrongKind:
+testCase coreCapsFieldMaxCallsInRequestWrongKind:
   assertErr CoreCapabilities.fromJson(coreCapsWithField("maxCallsInRequest", %"bad"))
 
-block coreCapsFieldMaxObjectsInGetWrongKind:
+testCase coreCapsFieldMaxObjectsInGetWrongKind:
   assertErr CoreCapabilities.fromJson(coreCapsWithField("maxObjectsInGet", %"bad"))
 
-block coreCapsFieldMaxObjectsInSetWrongKind:
+testCase coreCapsFieldMaxObjectsInSetWrongKind:
   assertErr CoreCapabilities.fromJson(coreCapsWithField("maxObjectsInSet", %"bad"))
 
-block coreCapsFieldCollationAlgorithmsWrongKind:
+testCase coreCapsFieldCollationAlgorithmsWrongKind:
   assertErr CoreCapabilities.fromJson(coreCapsWithField("collationAlgorithms", %"bad"))
 
 # =============================================================================
 # F. Cross-type confusion tests
 # =============================================================================
 
-block crossTypeIdAndAccountIdSameJson:
+testCase crossTypeIdAndAccountIdSameJson:
   ## Id.toJson and AccountId.toJson produce identical JSON for the same string,
   ## but both fromJson validate correctly through their respective constructors.
   let idVal = makeId("testval")
@@ -707,7 +708,7 @@ block crossTypeIdAndAccountIdSameJson:
   assertOk Id.fromJson(idJson)
   assertOk AccountId.fromJson(aidJson)
 
-block distinctTypeRoundTripIsolation:
+testCase distinctTypeRoundTripIsolation:
   ## Distinct types serialise identically but remain type-safe in Nim.
   ## This test verifies the serde layer preserves type semantics.
   let mcid = makeMcid("c0")

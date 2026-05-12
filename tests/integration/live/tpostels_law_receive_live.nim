@@ -27,8 +27,9 @@ import jmap_client/internal/protocol/dispatch
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block tpostelsLawReceiveLive:
+testCase tpostelsLawReceiveLive:
   forEachLiveTarget(target):
     # Cat-B (Phase L §0): RFC 8621 §4.6 lets a server require pre-
     # uploaded blob attachments and reject inline-bodyValues with

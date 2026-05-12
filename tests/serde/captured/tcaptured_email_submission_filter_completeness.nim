@@ -18,8 +18,9 @@
 import jmap_client
 import jmap_client/internal/types/envelope
 import ./mloader
+import ../../mtestblock
 
-block tcapturedEmailSubmissionFilterCompleteness:
+testCase tcapturedEmailSubmissionFilterCompleteness:
   let j = loadCapturedFixture("email-submission-filter-completeness-stalwart")
   let resp = envelope.Response.fromJson(j).expect("envelope.Response.fromJson")
   doAssert resp.methodResponses.len == 1

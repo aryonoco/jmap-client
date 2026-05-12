@@ -12,10 +12,11 @@ import jmap_client/internal/types/validation
 import jmap_client/internal/types/primitives
 
 import ../../massertions
+import ../../mtestblock
 
 # ============= A. EmailHeader toJson (scenario 8) =============
 
-block emailHeaderToJson: # scenario 8
+testCase emailHeaderToJson: # scenario 8
   let eh = parseEmailHeader("From", "joe@example.com").get()
   let node = eh.toJson()
   assertJsonFieldEq node, "name", %"From"
@@ -23,7 +24,7 @@ block emailHeaderToJson: # scenario 8
 
 # ============= B. EmailHeader round-trip (scenario 9) =============
 
-block emailHeaderRoundTrip: # scenario 9
+testCase emailHeaderRoundTrip: # scenario 9
   let original = parseEmailHeader("From", "joe@example.com").get()
   let roundTripped = EmailHeader.fromJson(original.toJson()).get()
   assertEq roundTripped.name, original.name
@@ -31,44 +32,44 @@ block emailHeaderRoundTrip: # scenario 9
 
 # ============= C. EmailHeader fromJson edge cases (scenarios 11a–11f) =============
 
-block fromJsonNonObject: # scenario 11a
+testCase fromJsonNonObject: # scenario 11a
   assertErr EmailHeader.fromJson(%*[1, 2, 3])
 
-block fromJsonAbsentName: # scenario 11b
+testCase fromJsonAbsentName: # scenario 11b
   assertErr EmailHeader.fromJson(%*{"value": "test"})
 
-block fromJsonNullName: # scenario 11c
+testCase fromJsonNullName: # scenario 11c
   assertErr EmailHeader.fromJson(%*{"name": nil, "value": "test"})
 
-block fromJsonWrongKindName: # scenario 11d
+testCase fromJsonWrongKindName: # scenario 11d
   assertErr EmailHeader.fromJson(%*{"name": 42, "value": "test"})
 
-block fromJsonAbsentValue: # scenario 11e
+testCase fromJsonAbsentValue: # scenario 11e
   assertErr EmailHeader.fromJson(%*{"name": "From"})
 
-block fromJsonNullValue: # scenario 11f
+testCase fromJsonNullValue: # scenario 11f
   assertErr EmailHeader.fromJson(%*{"name": "From", "value": nil})
 
 # ============= D. parseHeaderValue — all forms (scenarios 30–39) =============
 
-block parseHfRaw: # scenario 30
+testCase parseHfRaw: # scenario 30
   let res = parseHeaderValue(hfRaw, %"raw header content")
   assertOk res
   assertEq res.get().rawValue, "raw header content"
 
-block parseHfText: # scenario 31
+testCase parseHfText: # scenario 31
   let res = parseHeaderValue(hfText, %"text header content")
   assertOk res
   assertEq res.get().textValue, "text header content"
 
-block parseHfAddresses: # scenario 32
+testCase parseHfAddresses: # scenario 32
   let node = %*[{"name": "Joe", "email": "joe@example.com"}]
   let res = parseHeaderValue(hfAddresses, node)
   assertOk res
   assertLen res.get().addresses, 1
   assertEq res.get().addresses[0].email, "joe@example.com"
 
-block parseHfGroupedAddresses: # scenario 33
+testCase parseHfGroupedAddresses: # scenario 33
   let node =
     %*[{"name": "Team", "addresses": [{"name": "Joe", "email": "joe@example.com"}]}]
   let res = parseHeaderValue(hfGroupedAddresses, node)
@@ -76,61 +77,61 @@ block parseHfGroupedAddresses: # scenario 33
   assertLen res.get().groups, 1
   assertSomeEq res.get().groups[0].name, "Team"
 
-block parseHfMessageIds: # scenario 34
+testCase parseHfMessageIds: # scenario 34
   let node = %*["<msg1@example.com>", "<msg2@example.com>"]
   let res = parseHeaderValue(hfMessageIds, node)
   assertOk res
   assertSome res.get().messageIds
   assertLen res.get().messageIds.get(), 2
 
-block parseHfMessageIdsNull: # scenario 35
+testCase parseHfMessageIdsNull: # scenario 35
   let res = parseHeaderValue(hfMessageIds, newJNull())
   assertOk res
   assertNone res.get().messageIds
 
-block parseHfDate: # scenario 36
+testCase parseHfDate: # scenario 36
   let res = parseHeaderValue(hfDate, %"2023-01-15T12:00:00Z")
   assertOk res
   assertSome res.get().date
 
-block parseHfDateNull: # scenario 37
+testCase parseHfDateNull: # scenario 37
   let res = parseHeaderValue(hfDate, newJNull())
   assertOk res
   assertNone res.get().date
 
-block parseHfUrls: # scenario 38
+testCase parseHfUrls: # scenario 38
   let node = %*["https://example.com/unsub", "https://example.com/help"]
   let res = parseHeaderValue(hfUrls, node)
   assertOk res
   assertSome res.get().urls
   assertLen res.get().urls.get(), 2
 
-block parseHfUrlsNull: # scenario 39
+testCase parseHfUrlsNull: # scenario 39
   let res = parseHeaderValue(hfUrls, newJNull())
   assertOk res
   assertNone res.get().urls
 
 # ============= E. Wrong JSON kinds (scenarios 40–41, 51–52) =============
 
-block wrongKindHfRaw: # scenario 40
+testCase wrongKindHfRaw: # scenario 40
   assertErr parseHeaderValue(hfRaw, %42)
 
-block wrongKindHfAddresses: # scenario 41
+testCase wrongKindHfAddresses: # scenario 41
   assertErr parseHeaderValue(hfAddresses, %"not an array")
 
-block wrongKindRemainingForms: # scenario 51
+testCase wrongKindRemainingForms: # scenario 51
   assertErr parseHeaderValue(hfText, %42)
   assertErr parseHeaderValue(hfGroupedAddresses, %"not an array")
   assertErr parseHeaderValue(hfMessageIds, %*{"not": "array"})
   assertErr parseHeaderValue(hfDate, %*[1, 2])
   assertErr parseHeaderValue(hfUrls, %*{"not": "array"})
 
-block nullForNonNullableForm: # scenario 52
+testCase nullForNonNullableForm: # scenario 52
   assertErr parseHeaderValue(hfAddresses, newJNull())
 
 # ============= F. HeaderValue toJson (scenario 42) =============
 
-block headerValueToJsonAllForms: # scenario 42
+testCase headerValueToJsonAllForms: # scenario 42
   # hfRaw
   let rawVal = HeaderValue(form: hfRaw, rawValue: "raw content")
   assertEq rawVal.toJson(), %"raw content"
@@ -174,7 +175,7 @@ block headerValueToJsonAllForms: # scenario 42
 
 # ============= G. Round-trips (scenarios 43–44) =============
 
-block headerValueRoundTrip: # scenario 43
+testCase headerValueRoundTrip: # scenario 43
   # hfRaw
   let rawOrig = HeaderValue(form: hfRaw, rawValue: "test")
   let rawRT = parseHeaderValue(hfRaw, rawOrig.toJson()).get()
@@ -224,53 +225,53 @@ block headerValueRoundTrip: # scenario 43
   let urlNoneRT = parseHeaderValue(hfUrls, urlNone.toJson()).get()
   assertNone urlNoneRT.urls
 
-block headerValueDateNoneToJson: # scenario 44
+testCase headerValueDateNoneToJson: # scenario 44
   let dateNone = HeaderValue(form: hfDate, date: Opt.none(Date))
   let node = dateNone.toJson()
   doAssert node.kind == JNull
 
 # ============= H. Empty arrays (scenarios 45–48) =============
 
-block emptyAddressesArray: # scenario 45
+testCase emptyAddressesArray: # scenario 45
   let res = parseHeaderValue(hfAddresses, %*[])
   assertOk res
   assertLen res.get().addresses, 0
 
-block emptyGroupsArray: # scenario 46
+testCase emptyGroupsArray: # scenario 46
   let res = parseHeaderValue(hfGroupedAddresses, %*[])
   assertOk res
   assertLen res.get().groups, 0
 
-block emptyMessageIdsArray: # scenario 47
+testCase emptyMessageIdsArray: # scenario 47
   let res = parseHeaderValue(hfMessageIds, %*[])
   assertOk res
   assertSomeEq res.get().messageIds, newSeq[string]()
 
-block emptyUrlsArray: # scenario 48
+testCase emptyUrlsArray: # scenario 48
   let res = parseHeaderValue(hfUrls, %*[])
   assertOk res
   assertSomeEq res.get().urls, newSeq[string]()
 
 # ============= I. Malformed elements (scenarios 49–50) =============
 
-block malformedAddressElement: # scenario 49
+testCase malformedAddressElement: # scenario 49
   let node = %*[{"name": "Joe"}] # missing email field
   assertErr parseHeaderValue(hfAddresses, node)
 
-block malformedDateString: # scenario 50
+testCase malformedDateString: # scenario 50
   assertErr parseHeaderValue(hfDate, %"not-a-date")
 
 # ============= J. Edge cases (scenarios 52a–52c) =============
 
-block emptyRawString: # scenario 52a
+testCase emptyRawString: # scenario 52a
   let res = parseHeaderValue(hfRaw, %"")
   assertOk res
   assertEq res.get().rawValue, ""
 
-block mixedKindArray: # scenario 52b
+testCase mixedKindArray: # scenario 52b
   let node = %*[42, "not-an-object"]
   assertErr parseHeaderValue(hfAddresses, node)
 
-block nonStringInMessageIdArray: # scenario 52c
+testCase nonStringInMessageIdArray: # scenario 52c
   let node = %*["valid", 42]
   assertErr parseHeaderValue(hfMessageIds, node)

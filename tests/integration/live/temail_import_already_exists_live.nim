@@ -53,8 +53,9 @@ import jmap_client/client
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block temailImportAlreadyExistsLive:
+testCase temailImportAlreadyExistsLive:
   forEachLiveTarget(target):
     # Cat-B (Phase L §0): the seed step uses inline-bodyValues that
     # James 3.9 rejects with ``invalidArguments``; Stalwart 0.15.5 and

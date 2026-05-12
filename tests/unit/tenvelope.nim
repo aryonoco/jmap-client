@@ -11,10 +11,11 @@ import jmap_client/internal/types/primitives
 import jmap_client/internal/types/envelope
 import jmap_client/internal/types/methods_enum
 import jmap_client/internal/types/validation
+import ../mtestblock
 
 # --- Invocation ---
 
-block invocationConstruction:
+testCase invocationConstruction:
   let mcid = parseMethodCallId("c1").get()
   let inv = initInvocation(mnMailboxGet, %*{"accountId": "A1"}, mcid)
   doAssert inv.name == mnMailboxGet
@@ -24,7 +25,7 @@ block invocationConstruction:
 
 # --- Request ---
 
-block requestRfcExample:
+testCase requestRfcExample:
   let c1 = parseMethodCallId("c1").get()
   let c2 = parseMethodCallId("c2").get()
   let c3 = parseMethodCallId("c3").get()
@@ -47,7 +48,7 @@ block requestRfcExample:
   doAssert req.methodCalls[2].methodCallId == c3
   doAssert req.createdIds.isNone
 
-block requestWithCreatedIds:
+testCase requestWithCreatedIds:
   let cid = parseCreationId("k1").get()
   let id = parseId("abc").get()
   var tbl = initTable[CreationId, Id]()
@@ -58,7 +59,7 @@ block requestWithCreatedIds:
   doAssert extracted.len == 1
   doAssert extracted[cid] == id
 
-block requestEmptyMethodCalls:
+testCase requestEmptyMethodCalls:
   let req = Request(`using`: @[], methodCalls: @[])
   doAssert req.`using`.len == 0
   doAssert req.methodCalls.len == 0
@@ -66,7 +67,7 @@ block requestEmptyMethodCalls:
 
 # --- Response ---
 
-block responseConstruction:
+testCase responseConstruction:
   let mcid = parseMethodCallId("c1").get()
   let state = parseJmapState("state1").get()
   let resp = Response(
@@ -79,7 +80,7 @@ block responseConstruction:
   doAssert resp.sessionState == state
   doAssert resp.createdIds.isNone
 
-block responseRfcExample:
+testCase responseRfcExample:
   let c1 = parseMethodCallId("c1").get()
   let c2 = parseMethodCallId("c2").get()
   let c3 = parseMethodCallId("c3").get()
@@ -105,7 +106,7 @@ block responseRfcExample:
   doAssert resp.sessionState == state
   doAssert resp.createdIds.isNone
 
-block responseWithCreatedIds:
+testCase responseWithCreatedIds:
   let cid = parseCreationId("k1").get()
   let id = parseId("abc").get()
   let state = parseJmapState("state2").get()
@@ -120,7 +121,7 @@ block responseWithCreatedIds:
 
 # --- ResultReference ---
 
-block resultReferenceConstruction:
+testCase resultReferenceConstruction:
   let mcid = parseMethodCallId("c1").get()
   let rref = initResultReference(resultOf = mcid, name = mnMailboxQuery, path = rpIds)
   doAssert rref.resultOf == mcid
@@ -131,7 +132,7 @@ block resultReferenceConstruction:
 
 # --- Path Constants ---
 
-block pathConstantValues:
+testCase pathConstantValues:
   doAssert $rpIds == "/ids"
   doAssert $rpListIds == "/list/*/id"
   doAssert $rpAddedIds == "/added/*/id"
@@ -141,12 +142,12 @@ block pathConstantValues:
 
 # --- Referencable[T] ---
 
-block directReferencableInt:
+testCase directReferencableInt:
   let r = direct(42)
   doAssert r.kind == rkDirect
   doAssert r.value == 42
 
-block referenceReferencableSeqId:
+testCase referenceReferencableSeqId:
   let mcid = parseMethodCallId("c1").get()
   let rref = initResultReference(resultOf = mcid, name = mnMailboxQuery, path = rpIds)
   let r = referenceTo[seq[Id]](rref)
@@ -155,7 +156,7 @@ block referenceReferencableSeqId:
   doAssert r.reference.name == mnMailboxQuery
   doAssert r.reference.path == rpIds
 
-block referencableConcreteTypes:
+testCase referencableConcreteTypes:
   let strRef = direct("hello")
   doAssert strRef.kind == rkDirect
   doAssert strRef.value == "hello"
@@ -171,7 +172,7 @@ block referencableConcreteTypes:
 
 # --- Referencable compile-time safety ---
 
-block referencableVariantDiscrimination:
+testCase referencableVariantDiscrimination:
   # Direct and reference variants are distinguished by kind discriminator
   let id = parseId("test").get()
   let mcid = parseMethodCallId("c0").get()
@@ -187,7 +188,7 @@ block referencableVariantDiscrimination:
 
 # --- Request.using duplicate entries ---
 
-block requestDuplicateUsing:
+testCase requestDuplicateUsing:
   ## Duplicate entries in Request.using are preserved (seq, not set).
   let req = Request(
     `using`: @["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:core"],

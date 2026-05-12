@@ -25,10 +25,11 @@ import jmap_client/internal/types/validation
 
 import ../../massertions
 import ../../mfixtures
+import ../../mtestblock
 
 # ============= A. SetResponse[EmailCreatedItem, PartialEmail].fromJson envelope shape =====
 
-block setResponseEmailEnvelopeShape:
+testCase setResponseEmailEnvelopeShape:
   ## Wire envelope merges to a six-field record: accountId, oldState,
   ## newState, createResults, updateResults, destroyResults.
   let node = %*{
@@ -58,7 +59,7 @@ block setResponseEmailEnvelopeShape:
   doAssert r.destroyResults[makeId("e3")].isOk
   doAssert r.destroyResults[makeId("e5")].isErr
 
-block setResponseEmailMergeCreateResults:
+testCase setResponseEmailMergeCreateResults:
   ## ``mergeCreateResults[EmailCreatedItem]`` (methods.nim) fans the wire's
   ## separate ``created`` and ``notCreated`` maps into a single
   ## ``Table[CreationId, Result[EmailCreatedItem, SetError]]``: one Ok per
@@ -82,7 +83,7 @@ block setResponseEmailMergeCreateResults:
 
 # ============= B. EmailCreatedItem.fromJson =================================
 
-block emailCreatedItemMinimalConstruction:
+testCase emailCreatedItemMinimalConstruction:
   let node = %*{"id": "e1", "blobId": "b1", "threadId": "t1", "size": 42}
   let res = EmailCreatedItem.fromJson(node)
   assertOk res
@@ -92,7 +93,7 @@ block emailCreatedItemMinimalConstruction:
   assertEq item.threadId, makeId("t1")
   assertEq item.size, parseUnsignedInt(42).get()
 
-block emailCreatedItemMissingSizeRejected:
+testCase emailCreatedItemMissingSizeRejected:
   ## Per RFC 8621 §§4.6/4.7/4.8 the server MUST emit all four fields on a
   ## successful create; a server omitting ``size`` has produced a malformed
   ## response and we reject at the parser rather than defaulting silently.
@@ -101,13 +102,13 @@ block emailCreatedItemMissingSizeRejected:
 
 # ============= C. ``updated`` three-state inside the merged map =============
 
-block updatedTopLevelAbsentProducesEmpty:
+testCase updatedTopLevelAbsentProducesEmpty:
   ## Wire ``updated`` absent → empty ``updateResults`` table.
   let node = %*{"accountId": "acct1", "newState": "s1"}
   let r = SetResponse[EmailCreatedItem, PartialEmail].fromJson(node).get()
   assertLen r.updateResults, 0
 
-block updatedTopLevelEmptyObjectProducesEmpty:
+testCase updatedTopLevelEmptyObjectProducesEmpty:
   ## Wire ``updated: {}`` → empty ``updateResults`` table; the merged
   ## representation does not distinguish absent from empty-object at the
   ## map level (RFC 8620 §5.3 ``Id[Foo|null]|null`` outer Opt).
@@ -115,7 +116,7 @@ block updatedTopLevelEmptyObjectProducesEmpty:
   let r = SetResponse[EmailCreatedItem, PartialEmail].fromJson(node).get()
   assertLen r.updateResults, 0
 
-block updatedEntryNullVsEmptyObjectDistinct:
+testCase updatedEntryNullVsEmptyObjectDistinct:
   ## RFC 8620 §5.3 ``Foo|null`` inner split survives the merge:
   ## wire ``{id: null}`` → ``ok(Opt.none(JsonNode))`` (server made no
   ## changes the client doesn't already know);
@@ -139,17 +140,17 @@ block updatedEntryNullVsEmptyObjectDistinct:
 
 # ============= D. ``destroyed`` three-state inside the merged map ===========
 
-block destroyedAbsentProducesEmpty:
+testCase destroyedAbsentProducesEmpty:
   let node = %*{"accountId": "acct1", "newState": "s1"}
   let r = SetResponse[EmailCreatedItem, PartialEmail].fromJson(node).get()
   assertLen r.destroyResults, 0
 
-block destroyedEmptyArrayProducesEmpty:
+testCase destroyedEmptyArrayProducesEmpty:
   let node = %*{"accountId": "acct1", "newState": "s1", "destroyed": []}
   let r = SetResponse[EmailCreatedItem, PartialEmail].fromJson(node).get()
   assertLen r.destroyResults, 0
 
-block destroyedTwoElementProducesTwoOks:
+testCase destroyedTwoElementProducesTwoOks:
   let node = %*{"accountId": "acct1", "newState": "s1", "destroyed": ["id1", "id2"]}
   let r = SetResponse[EmailCreatedItem, PartialEmail].fromJson(node).get()
   assertLen r.destroyResults, 2
@@ -158,7 +159,7 @@ block destroyedTwoElementProducesTwoOks:
 
 # ============= E. Round-trip =================================================
 
-block setResponseEmailRoundTrip:
+testCase setResponseEmailRoundTrip:
   var cr = initTable[CreationId, Result[EmailCreatedItem, SetError]]()
   let item = EmailCreatedItem(
     id: makeId("e1"), blobId: makeBlobId("b1"), threadId: makeId("t1"), size: zeroUint()

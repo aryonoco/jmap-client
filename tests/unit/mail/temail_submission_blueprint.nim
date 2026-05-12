@@ -15,12 +15,13 @@ import jmap_client/internal/types/primitives
 import jmap_client/internal/types/validation
 
 import ../../massertions
+import ../../mtestblock
 
-block symbolsExported:
+testCase symbolsExported:
   doAssert compiles(EmailSubmissionBlueprint)
   doAssert compiles(parseEmailSubmissionBlueprint)
 
-block minimalBlueprint:
+testCase minimalBlueprint:
   let idI = parseId("identity-123").get()
   let idE = parseId("email-456").get()
   let res = parseEmailSubmissionBlueprint(idI, idE)
@@ -31,7 +32,7 @@ block minimalBlueprint:
   assertEq bp.emailId, idE
   doAssert bp.envelope.isNone, "envelope should default to Opt.none"
 
-block accessorContract:
+testCase accessorContract:
   # Pins that the UFCS accessors are exported and read-identical to
   # field access. The three ``compiles`` probes succeed iff the accessor
   # funcs are visible from this module.
@@ -42,7 +43,7 @@ block accessorContract:
   doAssert compiles(bp.emailId)
   doAssert compiles(bp.envelope)
 
-block sealingContract:
+testCase sealingContract:
   # Pins Pattern A sealing: brace construction with the raw* field names
   # fails from outside the module. This is the contract that forces
   # callers through parseEmailSubmissionBlueprint, which is the point of
@@ -64,7 +65,7 @@ block sealingContract:
     )
   ), "public fields would bypass the smart constructor"
 
-block blueprintWithEnvelope:
+testCase blueprintWithEnvelope:
   let idI = parseId("i2").get()
   let idE = parseId("e2").get()
   let mbox = parseRFC5321Mailbox("rcpt@example.com").get()
@@ -77,13 +78,13 @@ block blueprintWithEnvelope:
   doAssert bp.envelope.isSome, "envelope Opt.some should round-trip"
   assertEq bp.envelope.get(), env
 
-block defaultEnvelopeIsNone:
+testCase defaultEnvelopeIsNone:
   let idI = parseId("i3").get()
   let idE = parseId("e3").get()
   let bp = parseEmailSubmissionBlueprint(idI, idE).get()
   doAssert bp.envelope.isNone
 
-block inequalityOnIdentity:
+testCase inequalityOnIdentity:
   let idI1 = parseId("iA").get()
   let idI2 = parseId("iB").get()
   let idE = parseId("e5").get()
@@ -91,7 +92,7 @@ block inequalityOnIdentity:
   let bp2 = parseEmailSubmissionBlueprint(idI2, idE).get()
   doAssert bp1 != bp2
 
-block blueprintInvalidIdentityId:
+testCase blueprintInvalidIdentityId:
   # Pins rejection of a malformed identityId at the upstream parseId
   # boundary. parseEmailSubmissionBlueprint (email_submission.nim:152)
   # accepts pre-parsed Id values, so the Id-layer message is the one any
@@ -102,7 +103,7 @@ block blueprintInvalidIdentityId:
   assertEq res.error.message, "contains characters outside base64url alphabet"
   assertEq res.error.value, "bad@identity"
 
-block blueprintInvalidEmailId:
+testCase blueprintInvalidEmailId:
   # Symmetric Id-layer rejection for the emailId field.
   let res = parseId("bad@email")
   assertErr res
@@ -110,7 +111,7 @@ block blueprintInvalidEmailId:
   assertEq res.error.message, "contains characters outside base64url alphabet"
   assertEq res.error.value, "bad@email"
 
-block blueprintAccumulatesBothIdErrors:
+testCase blueprintAccumulatesBothIdErrors:
   # G2 §8.3 row 555 says "both malformed id inputs must accumulate".
   # G1's parseEmailSubmissionBlueprint accepts pre-parsed Ids, so the
   # accumulation architecturally lives in the caller's two parseId calls.
@@ -139,7 +140,7 @@ block blueprintAccumulatesBothIdErrors:
   doAssert compiles(okRes.error.len),
     "blueprint error rail must remain seq[ValidationError] for accumulation forward-compat"
 
-block blueprintPatternASealExplicitRawField:
+testCase blueprintPatternASealExplicitRawField:
   # G38 Pattern A per-field seal probes using the standardised
   # assertNotCompiles template (massertions.nim:150). Complements the
   # shipped sealingContract block (lines 46-64) which uses raw

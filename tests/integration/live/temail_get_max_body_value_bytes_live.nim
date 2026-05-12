@@ -36,11 +36,12 @@ import jmap_client/client
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
 const SeedBodyLen = 2048
 const TruncationCap = 64
 
-block temailGetMaxBodyValueBytesLive:
+testCase temailGetMaxBodyValueBytesLive:
   forEachLiveTarget(target):
     var client = initJmapClient(
         sessionUrl = target.sessionUrl,

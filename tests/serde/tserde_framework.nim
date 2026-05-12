@@ -17,28 +17,29 @@ import ../massertions
 import ../mfixtures
 import ../mproperty
 import ../mserde_fixtures
+import ../mtestblock
 
 # =============================================================================
 # A. Round-trip tests
 # =============================================================================
 
-block roundTripFilterOperatorAnd:
+testCase roundTripFilterOperatorAnd:
   assertOkEq FilterOperator.fromJson(foAnd.toJson()), foAnd
 
-block roundTripFilterOperatorOr:
+testCase roundTripFilterOperatorOr:
   assertOkEq FilterOperator.fromJson(foOr.toJson()), foOr
 
-block roundTripFilterOperatorNot:
+testCase roundTripFilterOperatorNot:
   assertOkEq FilterOperator.fromJson(foNot.toJson()), foNot
 
-block roundTripComparatorBasic:
+testCase roundTripComparatorBasic:
   let original = makeComparator()
   let v = Comparator.fromJson(original.toJson()).get()
   doAssert v.property == original.property
   doAssert v.isAscending == original.isAscending
   doAssert v.collation.isNone == original.collation.isNone
 
-block roundTripComparatorWithCollation:
+testCase roundTripComparatorWithCollation:
   let original = makeComparatorWithCollation()
   let v = Comparator.fromJson(original.toJson()).get()
   doAssert v.property == original.property
@@ -46,28 +47,28 @@ block roundTripComparatorWithCollation:
   doAssert v.collation.isSome
   assertEq v.collation.get(), original.collation.get()
 
-block roundTripComparatorDescending:
+testCase roundTripComparatorDescending:
   let original = makeComparator(isAscending = false)
   let v = Comparator.fromJson(original.toJson()).get()
   doAssert not v.isAscending
 
-block roundTripFilterCondition:
+testCase roundTripFilterCondition:
   let original = makeFilterCondition(42)
   let v = Filter[int].fromJson(original.toJson(), fromIntCondition).get()
   doAssert filterEq(v, original)
 
-block roundTripFilterOperatorSingle:
+testCase roundTripFilterOperatorSingle:
   let original = makeFilterAnd(@[makeFilterCondition(1), makeFilterCondition(2)])
   let v = Filter[int].fromJson(original.toJson(), fromIntCondition).get()
   doAssert filterEq(v, original)
 
-block roundTripFilterNestedDepth2:
+testCase roundTripFilterNestedDepth2:
   let inner = makeFilterOr(@[makeFilterCondition(10), makeFilterCondition(20)])
   let original = makeFilterAnd(@[makeFilterCondition(1), inner, makeFilterCondition(3)])
   let v = Filter[int].fromJson(original.toJson(), fromIntCondition).get()
   doAssert filterEq(v, original)
 
-block roundTripAddedItem:
+testCase roundTripAddedItem:
   let original = makeAddedItem()
   let v = AddedItem.fromJson(original.toJson()).get()
   doAssert v.id == original.id
@@ -77,22 +78,22 @@ block roundTripAddedItem:
 # B. toJson structural correctness
 # =============================================================================
 
-block filterOperatorToJsonAnd:
+testCase filterOperatorToJsonAnd:
   let j = foAnd.toJson()
   doAssert j.kind == JString
   assertEq j.getStr(""), "AND"
 
-block filterOperatorToJsonOr:
+testCase filterOperatorToJsonOr:
   let j = foOr.toJson()
   doAssert j.kind == JString
   assertEq j.getStr(""), "OR"
 
-block filterOperatorToJsonNot:
+testCase filterOperatorToJsonNot:
   let j = foNot.toJson()
   doAssert j.kind == JString
   assertEq j.getStr(""), "NOT"
 
-block comparatorToJsonFieldNames:
+testCase comparatorToJsonFieldNames:
   let c = makeComparator()
   let j = c.toJson()
   doAssert j.kind == JObject
@@ -102,25 +103,25 @@ block comparatorToJsonFieldNames:
   doAssert j{"isAscending"}.kind == JBool
   doAssert j{"collation"}.isNil
 
-block comparatorToJsonCollationAbsent:
+testCase comparatorToJsonCollationAbsent:
   let c = parseComparator(makePropertyName(), true, Opt.none(CollationAlgorithm))
   let j = c.toJson()
   doAssert j{"collation"}.isNil, "collation key must be absent when none"
 
-block comparatorToJsonCollationPresent:
+testCase comparatorToJsonCollationPresent:
   let c = makeComparatorWithCollation(collation = CollationUnicodeCasemap)
   let j = c.toJson()
   doAssert j{"collation"} != nil
   assertEq j{"collation"}.getStr(""), "i;unicode-casemap"
 
-block filterToJsonCondition:
+testCase filterToJsonCondition:
   let f = makeFilterCondition(99)
   let j = f.toJson()
   doAssert j.kind == JObject
   doAssert j{"value"} != nil
   assertEq j{"value"}.getInt(0), 99
 
-block filterToJsonOperator:
+testCase filterToJsonOperator:
   let f = makeFilterAnd(@[makeFilterCondition(1)])
   let j = f.toJson()
   doAssert j.kind == JObject
@@ -130,7 +131,7 @@ block filterToJsonOperator:
   doAssert j{"conditions"}.kind == JArray
   assertEq j{"conditions"}.len, 1
 
-block addedItemToJsonFieldNames:
+testCase addedItemToJsonFieldNames:
   let item = makeAddedItem()
   let j = item.toJson()
   doAssert j.kind == JObject
@@ -145,36 +146,36 @@ block addedItemToJsonFieldNames:
 
 # --- FilterOperator ---
 
-block filterOperatorDeserCustom:
+testCase filterOperatorDeserCustom:
   assertErrContains FilterOperator.fromJson(%"CUSTOM"), "unknown FilterOperator"
 
-block filterOperatorDeserEmpty:
+testCase filterOperatorDeserEmpty:
   assertErrContains FilterOperator.fromJson(%""), "unknown FilterOperator"
 
-block filterOperatorDeserCaseSensitiveLower:
+testCase filterOperatorDeserCaseSensitiveLower:
   assertErr FilterOperator.fromJson(%"and")
 
-block filterOperatorDeserCaseSensitiveMixed:
+testCase filterOperatorDeserCaseSensitiveMixed:
   assertErr FilterOperator.fromJson(%"And")
 
-block filterOperatorDeserNil:
+testCase filterOperatorDeserNil:
   const nilNode: JsonNode = nil
   assertErr FilterOperator.fromJson(nilNode)
 
-block filterOperatorDeserJNull:
+testCase filterOperatorDeserJNull:
   assertErr FilterOperator.fromJson(newJNull())
 
-block filterOperatorDeserWrongKind:
+testCase filterOperatorDeserWrongKind:
   assertErr FilterOperator.fromJson(%42)
 
-block filterOperatorDeserEmptyString:
+testCase filterOperatorDeserEmptyString:
   ## Empty string falls into the else branch of the case statement,
   ## raising ValidationError with "unknown FilterOperator".
   assertErrContains FilterOperator.fromJson(%""), "unknown FilterOperator"
 
 # --- Comparator ---
 
-block comparatorDeserAllFieldsPresent:
+testCase comparatorDeserAllFieldsPresent:
   let j =
     %*{"property": "subject", "isAscending": false, "collation": "i;unicode-casemap"}
   let v = Comparator.fromJson(j).get()
@@ -183,36 +184,36 @@ block comparatorDeserAllFieldsPresent:
   doAssert v.collation.isSome
   assertEq v.collation.get(), CollationUnicodeCasemap
 
-block comparatorDeserMissingIsAscending:
+testCase comparatorDeserMissingIsAscending:
   let j = %*{"property": "subject"}
   let v = Comparator.fromJson(j).get()
   doAssert v.isAscending, "isAscending must default to true"
 
-block comparatorDeserMissingProperty:
+testCase comparatorDeserMissingProperty:
   let j = %*{"isAscending": true}
   assertErrContains Comparator.fromJson(j), "property"
 
-block comparatorDeserPropertyWrongKind:
+testCase comparatorDeserPropertyWrongKind:
   let j = %*{"property": 42, "isAscending": true}
   assertErr Comparator.fromJson(j)
 
-block comparatorDeserIsAscendingWrongKind:
+testCase comparatorDeserIsAscendingWrongKind:
   let j = %*{"property": "subject", "isAscending": "yes"}
   assertErrContains Comparator.fromJson(j), "at /isAscending"
 
-block comparatorDeserNotObject:
+testCase comparatorDeserNotObject:
   assertErr Comparator.fromJson(%*[1, 2, 3])
 
-block comparatorDeserNil:
+testCase comparatorDeserNil:
   const nilNode: JsonNode = nil
   assertErr Comparator.fromJson(nilNode)
 
-block comparatorDeserCollationWrongKindLenient:
+testCase comparatorDeserCollationWrongKindLenient:
   let j = %*{"property": "subject", "collation": 42}
   let v = Comparator.fromJson(j).get()
   doAssert v.collation.isNone, "wrong kind collation should be treated as none"
 
-block comparatorRoundTripNoCollation:
+testCase comparatorRoundTripNoCollation:
   let j = %*{"property": "subject", "isAscending": true}
   let c1 = Comparator.fromJson(j).get()
   doAssert c1.collation.isNone
@@ -221,24 +222,24 @@ block comparatorRoundTripNoCollation:
 
 # --- Filter ---
 
-block filterDeserCondition:
+testCase filterDeserCondition:
   # A JObject without "operator" key is a condition leaf
   let j = %*{"value": 42}
   let v = Filter[int].fromJson(j, fromIntCondition).get()
   doAssert v.kind == fkCondition
 
-block filterDeserConditionNotObject:
+testCase filterDeserConditionNotObject:
   # Non-JObject input rejected by expectKind
   assertErr Filter[int].fromJson(%42, fromIntCondition)
 
-block filterDeserOperatorWithConditions:
+testCase filterDeserOperatorWithConditions:
   let j = %*{"operator": "AND", "conditions": [{"value": 42}, {"value": 99}]}
   let v = Filter[int].fromJson(j, fromIntCondition).get()
   doAssert v.kind == fkOperator
   doAssert v.operator == foAnd
   assertEq v.conditions.len, 2
 
-block filterDeserNestedDepth2:
+testCase filterDeserNestedDepth2:
   let j = %*{
     "operator": "OR",
     "conditions": [
@@ -251,67 +252,67 @@ block filterDeserNestedDepth2:
   doAssert v.operator == foOr
   assertEq v.conditions.len, 2
 
-block filterDeserEmptyConditions:
+testCase filterDeserEmptyConditions:
   let j = %*{"operator": "AND", "conditions": []}
   let v = Filter[int].fromJson(j, fromIntCondition).get()
   assertEq v.conditions.len, 0
 
-block filterDeserMissingConditions:
+testCase filterDeserMissingConditions:
   let j = %*{"operator": "AND"}
   assertErr Filter[int].fromJson(j, fromIntCondition)
 
-block filterOperatorMissingConditionsArray:
+testCase filterOperatorMissingConditionsArray:
   ## JSON with "operator" present but no "conditions" key must return err.
   ## Exercises the ``fieldJArray`` guard on the conditions array.
   let j = %*{"operator": "AND"}
   assertErr Filter[int].fromJson(j, fromIntCondition)
 
-block filterDeserCallbackError:
+testCase filterDeserCallbackError:
   # Callback receives a string (not JObject), should propagate error
   let j = %*{"operator": "AND", "conditions": ["not-an-object"]}
   assertErr Filter[int].fromJson(j, fromIntCondition)
 
-block filterDeserNotObject:
+testCase filterDeserNotObject:
   assertErr Filter[int].fromJson(%*[1, 2, 3], fromIntCondition)
 
-block filterDeserNil:
+testCase filterDeserNil:
   const nilNode: JsonNode = nil
   assertErr Filter[int].fromJson(nilNode, fromIntCondition)
 
 # --- AddedItem ---
 
-block addedItemDeserValid:
+testCase addedItemDeserValid:
   let v = AddedItem.fromJson(%*{"id": "x", "index": 5}).get()
   assertEq string(v.id), "x"
 
-block addedItemDeserIndexZero:
+testCase addedItemDeserIndexZero:
   let j = %*{"id": "x", "index": 0}
   discard AddedItem.fromJson(j)
 
-block addedItemDeserIndexMax:
+testCase addedItemDeserIndexMax:
   let j = %*{"id": "x", "index": 9007199254740991}
   discard AddedItem.fromJson(j)
 
-block addedItemDeserIndexNegative:
+testCase addedItemDeserIndexNegative:
   let j = %*{"id": "x", "index": -1}
   assertErr AddedItem.fromJson(j)
 
-block addedItemDeserInvalidId:
+testCase addedItemDeserInvalidId:
   let j = %*{"id": "", "index": 5}
   assertErr AddedItem.fromJson(j)
 
-block addedItemDeserMissingId:
+testCase addedItemDeserMissingId:
   let j = %*{"index": 5}
   assertErr AddedItem.fromJson(j)
 
-block addedItemDeserMissingIndex:
+testCase addedItemDeserMissingIndex:
   let j = %*{"id": "x"}
   assertErr AddedItem.fromJson(j)
 
-block addedItemDeserNotObject:
+testCase addedItemDeserNotObject:
   assertErr AddedItem.fromJson(%*[1, 2, 3])
 
-block addedItemDeserNil:
+testCase addedItemDeserNil:
   const nilNode: JsonNode = nil
   assertErr AddedItem.fromJson(nilNode)
 
@@ -319,7 +320,7 @@ block addedItemDeserNil:
 # C2. Additional edge-case and boundary tests
 # =============================================================================
 
-block filterDeserNestedDepth3:
+testCase filterDeserNestedDepth3:
   ## AND(OR(NOT(condition))) — verifies recursive parse at depth 3.
   let j = %*{
     "operator": "AND",
@@ -343,7 +344,7 @@ block filterDeserNestedDepth3:
   doAssert f.conditions[0].conditions[0].conditions[0].kind == fkCondition
   doAssert f.conditions[0].conditions[0].conditions[0].condition == 42
 
-block comparatorAllFieldsRoundTrip:
+testCase comparatorAllFieldsRoundTrip:
   ## Comparator with property + isAscending=false + collation round-trips.
   let c = parseComparator(
     makePropertyName("receivedAt"), false, Opt.some(CollationUnicodeCasemap)
@@ -353,24 +354,24 @@ block comparatorAllFieldsRoundTrip:
   doAssert v.isAscending == false
   assertSomeEq v.collation, CollationUnicodeCasemap
 
-block addedItemDeserIndexZeroBoundary:
+testCase addedItemDeserIndexZeroBoundary:
   ## Boundary: index = 0 is valid.
   let j = %*{"id": "item1", "index": 0}
   let v = AddedItem.fromJson(j).get()
   assertEq int64(v.index), 0'i64
 
-block addedItemDeserIndexMaxBoundary:
+testCase addedItemDeserIndexMaxBoundary:
   ## Boundary: index = 2^53-1 is valid.
   let j = %*{"id": "item1", "index": 9007199254740991}
   let v = AddedItem.fromJson(j).get()
   assertEq int64(v.index), 9007199254740991'i64
 
-block filterOperatorDeserLowercaseRejected:
+testCase filterOperatorDeserLowercaseRejected:
   ## "and" (lowercase) must return error — operators are case-sensitive.
   let j = %"and"
   assertErr FilterOperator.fromJson(j)
 
-block filterDeserDepth3RoundTrip:
+testCase filterDeserDepth3RoundTrip:
   ## Round-trip test for depth-3 Filter tree.
   let leaf = filterCondition(99)
   let level2 = filterOperator(foNot, @[leaf])
@@ -411,13 +412,13 @@ checkProperty "AddedItem round-trip":
 # Phase 3D: Comparator edge cases
 # =============================================================================
 
-block comparatorCollationAbsentIsNone:
+testCase comparatorCollationAbsentIsNone:
   ## Comparator JSON without collation field: collation must be none.
   let j = %*{"property": "subject", "isAscending": true}
   let v = Comparator.fromJson(j).get()
   assertNone v.collation
 
-block comparatorCollationNullIsNone:
+testCase comparatorCollationNullIsNone:
   ## Comparator JSON with "collation": null: collation must be none.
   var j = %*{"property": "subject", "isAscending": true}
   j["collation"] = newJNull()

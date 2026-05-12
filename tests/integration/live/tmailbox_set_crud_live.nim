@@ -30,8 +30,9 @@ import jmap_client/internal/mail/mailbox as jmailbox
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block tmailboxSetCrudLive:
+testCase tmailboxSetCrudLive:
   forEachLiveTarget(target):
     var client = initJmapClient(
         sessionUrl = target.sessionUrl,

@@ -10,64 +10,65 @@ import jmap_client/internal/types/primitives
 import jmap_client/internal/types/validation
 
 import ../massertions
+import ../mtestblock
 
 # --- parseAccountId ---
 
-block parseAccountIdEmpty:
+testCase parseAccountIdEmpty:
   assertErrFields parseAccountId(""), "AccountId", "length must be 1-255 octets", ""
 
-block parseAccountIdValid:
+testCase parseAccountIdValid:
   assertOk parseAccountId("A13824")
 
-block parseAccountIdTooLong:
+testCase parseAccountIdTooLong:
   assertErrFields parseAccountId('a'.repeat(256)),
     "AccountId", "length must be 1-255 octets", 'a'.repeat(256)
 
-block parseAccountIdMaxLength:
+testCase parseAccountIdMaxLength:
   assertOk parseAccountId('a'.repeat(255))
 
-block parseAccountIdMinLength:
+testCase parseAccountIdMinLength:
   assertOk parseAccountId("x")
 
-block parseAccountIdControlChar:
+testCase parseAccountIdControlChar:
   assertErrFields parseAccountId("abc\x00def"),
     "AccountId", "contains control characters", "abc\x00def"
 
 # --- parseJmapState ---
 
-block parseJmapStateEmpty:
+testCase parseJmapStateEmpty:
   assertErrFields parseJmapState(""), "JmapState", "must not be empty", ""
 
-block parseJmapStateValid:
+testCase parseJmapStateValid:
   assertOk parseJmapState("75128aab4b1b")
 
-block parseJmapStateControlChar:
+testCase parseJmapStateControlChar:
   assertErrFields parseJmapState("abc\x00def"),
     "JmapState", "contains control characters", "abc\x00def"
 
 # --- parseMethodCallId ---
 
-block parseMethodCallIdEmpty:
+testCase parseMethodCallIdEmpty:
   assertErrFields parseMethodCallId(""), "MethodCallId", "must not be empty", ""
 
-block parseMethodCallIdValid:
+testCase parseMethodCallIdValid:
   assertOk parseMethodCallId("c1")
 
 # --- parseCreationId ---
 
-block parseCreationIdEmpty:
+testCase parseCreationIdEmpty:
   assertErrFields parseCreationId(""), "CreationId", "must not be empty", ""
 
-block parseCreationIdHashPrefix:
+testCase parseCreationIdHashPrefix:
   assertErrFields parseCreationId("#abc"),
     "CreationId", "must not include '#' prefix", "#abc"
 
-block parseCreationIdValid:
+testCase parseCreationIdValid:
   assertOk parseCreationId("abc")
 
 # --- Borrowed ops: AccountId ---
 
-block accountIdBorrowedOps:
+testCase accountIdBorrowedOps:
   let a = parseAccountId("A13824").get()
   let b = parseAccountId("A13824").get()
   let c = parseAccountId("B99921").get()
@@ -80,7 +81,7 @@ block accountIdBorrowedOps:
 
 # --- Borrowed ops: JmapState, MethodCallId, CreationId ---
 
-block jmapStateBorrowedOps:
+testCase jmapStateBorrowedOps:
   let a = parseJmapState("75128aab4b1b").get()
   let b = parseJmapState("75128aab4b1b").get()
   let c = parseJmapState("different").get()
@@ -91,7 +92,7 @@ block jmapStateBorrowedOps:
   doAssert hash(a) == hash(b)
   doAssert not compiles(a.len)
 
-block methodCallIdBorrowedOps:
+testCase methodCallIdBorrowedOps:
   let a = parseMethodCallId("c1").get()
   let b = parseMethodCallId("c1").get()
   let c = parseMethodCallId("c2").get()
@@ -102,7 +103,7 @@ block methodCallIdBorrowedOps:
   doAssert hash(a) == hash(b)
   doAssert not compiles(a.len)
 
-block creationIdBorrowedOps:
+testCase creationIdBorrowedOps:
   let a = parseCreationId("abc").get()
   let b = parseCreationId("abc").get()
   let c = parseCreationId("xyz").get()
@@ -115,69 +116,69 @@ block creationIdBorrowedOps:
 
 # --- Adversarial edge cases ---
 
-block parseAccountIdBom:
+testCase parseAccountIdBom:
   assertOk parseAccountId("\xEF\xBB\xBFabc")
 
-block parseIdFromServerHighUnicode:
+testCase parseIdFromServerHighUnicode:
   let result = parseIdFromServer("\xF0\x9F\x98\x80").get()
   doAssert result.len == 4
 
 # --- Missing boundaries ---
 
-block parseAccountIdDelChar:
+testCase parseAccountIdDelChar:
   assertErrFields parseAccountId("abc\x7Fdef"),
     "AccountId", "contains control characters", "abc\x7Fdef"
 
-block parseAccountIdSpaceAccepted:
+testCase parseAccountIdSpaceAccepted:
   assertOk parseAccountId("abc def")
 
-block parseJmapStateDelChar:
+testCase parseJmapStateDelChar:
   assertErrFields parseJmapState("abc\x7Fdef"),
     "JmapState", "contains control characters", "abc\x7Fdef"
 
-block parseCreationIdHashMiddle:
+testCase parseCreationIdHashMiddle:
   assertOk parseCreationId("ab#cd")
 
-block parseMethodCallIdControlAccepted:
+testCase parseMethodCallIdControlAccepted:
   assertOk parseMethodCallId("\x01abc")
 
-block parseCreationIdLongString:
+testCase parseCreationIdLongString:
   assertOk parseCreationId('a'.repeat(1000))
 
 # --- Phase 4: Identifier mutation resistance ---
 
-block accountIdControlBoundaryReject:
+testCase accountIdControlBoundaryReject:
   ## 0x1F (unit separator) is < 0x20, must be rejected.
   assertErr parseAccountId("\x1F")
 
-block accountIdControlBoundaryAccept:
+testCase accountIdControlBoundaryAccept:
   ## 0x20 (space) is at boundary — must be accepted.
   assertOk parseAccountId(" ")
 
-block accountIdDelRejected:
+testCase accountIdDelRejected:
   ## DEL (0x7F) explicitly rejected by lenient validators.
   assertErr parseAccountId("\x7F")
 
-block accountIdHighBytesAccepted:
+testCase accountIdHighBytesAccepted:
   ## Bytes >= 0x80 are accepted by lenient validators.
   assertOk parseAccountId("\x80")
   assertOk parseAccountId("\xFF")
 
-block jmapStateSingleChar:
+testCase jmapStateSingleChar:
   ## Single character is minimum valid length.
   assertOk parseJmapState("a")
 
-block jmapStateControlBoundary:
+testCase jmapStateControlBoundary:
   ## 0x1F rejected, space accepted.
   assertErr parseJmapState("\x1F")
   assertOk parseJmapState(" ")
 
-block creationIdHashInMiddle:
+testCase creationIdHashInMiddle:
   ## Hash at position != 0 is accepted.
   assertOk parseCreationId("a#b")
   assertOk parseCreationId("abc#def#ghi")
 
-block methodCallIdAllBytesAccepted:
+testCase methodCallIdAllBytesAccepted:
   ## MethodCallId has no charset restriction; all 256 byte values accepted.
   var s = newString(256)
   for i in 0 ..< 256:
@@ -186,10 +187,10 @@ block methodCallIdAllBytesAccepted:
 
 # --- Phase 3: Boundary value tests ---
 
-block parseAccountIdLen2:
+testCase parseAccountIdLen2:
   ## parseAccountId accepts a 2-character string (boundary above minimum).
   assertOk parseAccountId("AB")
 
-block parseCreationIdHashAtEnd:
+testCase parseCreationIdHashAtEnd:
   ## parseCreationId accepts a hash at the end (only position 0 is rejected).
   assertOk parseCreationId("a#")

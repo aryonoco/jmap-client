@@ -49,8 +49,9 @@ import jmap_client/client
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block temailCopyIntraAccountLive:
+testCase temailCopyIntraAccountLive:
   forEachLiveTarget(target):
     # Cat-B (Phase L §0): test asserts on client behaviour for
     # RFC 8620 §5.4 (accountId != fromAccountId). Stalwart 0.15.5 and

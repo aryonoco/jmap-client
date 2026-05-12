@@ -26,8 +26,9 @@ import jmap_client/client
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block tthreadKeywordFilterAndUpToIdLive:
+testCase tthreadKeywordFilterAndUpToIdLive:
   forEachLiveTarget(target):
     # Cat-B (Phase L §0): exercises thread-keyword EmailFilterCondition
     # variants and ``upToId`` on Email/queryChanges. Stalwart 0.15.5

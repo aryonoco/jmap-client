@@ -74,7 +74,7 @@ type ChangesGetHandles*[T] = object
 # =============================================================================
 
 func addChangesToGet*[T](
-    b: RequestBuilder,
+    b: sink RequestBuilder,
     accountId: AccountId,
     sinceState: JmapState,
     maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges),

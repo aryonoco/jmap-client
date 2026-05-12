@@ -34,8 +34,9 @@ import jmap_client/client
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block temailImportFromBlobLive:
+testCase temailImportFromBlobLive:
   forEachLiveTarget(target):
     # Cat-B (Phase L §0): the seed step uses inline-bodyValues for the
     # attachment that James 3.9 rejects with ``invalidArguments``;

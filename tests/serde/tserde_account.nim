@@ -13,25 +13,26 @@ import jmap_client/internal/types/validation
 
 import ../massertions
 import ../mproperty
+import ../mtestblock
 
 # =============================================================================
 # A. AccountCapabilityEntry
 # =============================================================================
 
-block roundTripAccountCapabilityEntry:
+testCase roundTripAccountCapabilityEntry:
   let data = %*{"limit": 100}
   let entry = AccountCapabilityEntry.fromJson("urn:ietf:params:jmap:mail", data).get()
   doAssert entry.kind == ckMail
   assertEq entry.rawUri, "urn:ietf:params:jmap:mail"
   doAssert entry.toJson() == data
 
-block accountCapabilityEntryDeserUnknownUri:
+testCase accountCapabilityEntryDeserUnknownUri:
   let r =
     AccountCapabilityEntry.fromJson("https://vendor.example/ext", newJObject()).get()
   doAssert r.kind == ckUnknown
   assertEq r.rawUri, "https://vendor.example/ext"
 
-block accountCapabilityEntryNilData:
+testCase accountCapabilityEntryNilData:
   const nilData: JsonNode = nil
   let r = AccountCapabilityEntry.fromJson("urn:ietf:params:jmap:mail", nilData).get()
   doAssert r.data != nil
@@ -40,11 +41,11 @@ block accountCapabilityEntryNilData:
     AccountCapabilityEntry(kind: ckMail, rawUri: "urn:ietf:params:jmap:mail", data: nil)
   doAssert entry.toJson().kind == JObject
 
-block accountCapabilityEntryDeserEmptyUri:
+testCase accountCapabilityEntryDeserEmptyUri:
   ## Empty URI string must be rejected by AccountCapabilityEntry.fromJson.
   assertErrContains AccountCapabilityEntry.fromJson("", newJObject()), "empty"
 
-block accountCapabilityEntryNestedDataRoundTrip:
+testCase accountCapabilityEntryNestedDataRoundTrip:
   let data = %*{"nested": {"deep": [1, "two", newJNull(), {"four": false}]}}
   let entry = AccountCapabilityEntry.fromJson("urn:ietf:params:jmap:mail", data).get()
   doAssert entry.toJson() == data
@@ -53,7 +54,7 @@ block accountCapabilityEntryNestedDataRoundTrip:
 # B. Account
 # =============================================================================
 
-block roundTripAccount:
+testCase roundTripAccount:
   let original = Account(
     name: "test@example.com",
     isPersonal: true,
@@ -70,7 +71,7 @@ block roundTripAccount:
 
   assertOkEq Account.fromJson(original.toJson()), original
 
-block accountToJsonStructure:
+testCase accountToJsonStructure:
   let acct = Account(
     name: "test",
     isPersonal: true,
@@ -89,41 +90,41 @@ block accountToJsonStructure:
   # Key must be the rawUri, not $kind
   doAssert j{"accountCapabilities"}{"https://vendor.example/ext"} != nil
 
-block accountDeserNotObjectOrNil:
+testCase accountDeserNotObjectOrNil:
   assertErr Account.fromJson(%*[1, 2])
   const nilNode: JsonNode = nil
   assertErr Account.fromJson(nilNode)
 
-block accountDeserMissingName:
+testCase accountDeserMissingName:
   let j = %*{"isPersonal": true, "isReadOnly": false, "accountCapabilities": {}}
   assertErrContains Account.fromJson(j), "name"
 
-block accountDeserMissingIsPersonal:
+testCase accountDeserMissingIsPersonal:
   ## Phase 3B: missing isPersonal field must return err.
   let j = %*{"name": "test", "isReadOnly": false, "accountCapabilities": {}}
   assertErrContains Account.fromJson(j), "isPersonal"
 
-block accountDeserMissingIsReadOnly:
+testCase accountDeserMissingIsReadOnly:
   ## Phase 3B: missing isReadOnly field must return err.
   let j = %*{"name": "test", "isPersonal": true, "accountCapabilities": {}}
   assertErrContains Account.fromJson(j), "isReadOnly"
 
-block accountDeserWrongKindIsPersonal:
+testCase accountDeserWrongKindIsPersonal:
   let j = %*{
     "name": "test", "isPersonal": "true", "isReadOnly": false, "accountCapabilities": {}
   }
   assertErrContains Account.fromJson(j), "at /isPersonal"
 
-block accountDeserWrongKindIsReadOnly:
+testCase accountDeserWrongKindIsReadOnly:
   let j =
     %*{"name": "test", "isPersonal": true, "isReadOnly": 1, "accountCapabilities": {}}
   assertErrContains Account.fromJson(j), "at /isReadOnly"
 
-block accountDeserMissingAccountCapabilities:
+testCase accountDeserMissingAccountCapabilities:
   let j = %*{"name": "test", "isPersonal": true, "isReadOnly": false}
   assertErrContains Account.fromJson(j), "accountCapabilities"
 
-block accountDeserEmptyAccountCapabilities:
+testCase accountDeserEmptyAccountCapabilities:
   let j = %*{
     "name": "test", "isPersonal": true, "isReadOnly": false, "accountCapabilities": {}
   }

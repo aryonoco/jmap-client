@@ -36,8 +36,9 @@ import jmap_client
 import jmap_client/client
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block temailGetTextBodyLive:
+testCase temailGetTextBodyLive:
   forEachLiveTarget(target):
     var client = initJmapClient(
         sessionUrl = target.sessionUrl,

@@ -46,12 +46,13 @@ import jmap_client/internal/mail/submission_status
 
 import ../massertions
 import ../mfixtures
+import ../mtestblock
 
 # =============================================================================
 # Block 1 — RFC 5321 Mailbox adversarial (§8.2.3 Block 1, 8 named cases)
 # =============================================================================
 
-block rfc5321MailboxAdversarialGroup:
+testCase rfc5321MailboxAdversarialGroup:
   block mailboxTrailingDotLocal:
     # RFC 5321 §4.1.2 Dot-string: local-part MUST NOT end with a bare dot.
     let res = parseRFC5321Mailbox("user.@example.com")
@@ -101,7 +102,7 @@ block rfc5321MailboxAdversarialGroup:
 # Block 2 — SubmissionParam wire adversarial (§8.2.3 Block 2, 10 named cases)
 # =============================================================================
 
-block submissionParamAdversarialGroup:
+testCase submissionParamAdversarialGroup:
   block paramRetUnknownValue:
     # DsnRetType is a closed enum; "BOTH" is not a variant.
     let wire = parseJson("""{"RET": "BOTH"}""")
@@ -172,7 +173,7 @@ block submissionParamAdversarialGroup:
 # Block 3 — Envelope serde coherence (§8.2.3 Block 3, 7 named cases)
 # =============================================================================
 
-block envelopeCoherenceGroup:
+testCase envelopeCoherenceGroup:
   block envelopeNullMailFromWithParams:
     # G32: null reverse-path (mailFrom.email == "") MAY carry parameters.
     let wire = parseJson(
@@ -259,7 +260,7 @@ block envelopeCoherenceGroup:
 # Block 4 — AnyEmailSubmission dispatch adversarial (§8.2.3 Block 4, 6 cases)
 # =============================================================================
 
-block anyEmailSubmissionDispatchGroup:
+testCase anyEmailSubmissionDispatchGroup:
   block anyMissingUndoStatus:
     let wire = parseJson(
       """
@@ -347,7 +348,7 @@ block anyEmailSubmissionDispatchGroup:
 # Block 5 — SmtpReply grammar adversarial (§8.2.3 Block 5, 14 named cases)
 # =============================================================================
 
-block smtpReplyGrammarGroup:
+testCase smtpReplyGrammarGroup:
   block smtpReplyEmpty:
     let res = parseSmtpReply("")
     assertErr res
@@ -443,7 +444,7 @@ func emailSetOkArgs(): JsonNode =
   ## with the outer helper — both resolve through ``SetResponse[T].fromJson``).
   %*{"accountId": "a1", "newState": "s1"}
 
-block getBothSubmissionAdversarialGroup:
+testCase getBothSubmissionAdversarialGroup:
   block getBothBothSucceed:
     let handles = makeEmailSubmissionHandles()
     let resp = Response(
@@ -560,7 +561,7 @@ block getBothSubmissionAdversarialGroup:
 # §8.12 scale invariants — 3 named blocks
 # =============================================================================
 
-block scaleInvariantsGroup:
+testCase scaleInvariantsGroup:
   block nonEmptyEmailSubmissionUpdates10kWithDupAtEnd:
     # Mirrors tadversarial_mail_f.nim:1188-1197 pattern.
     # 10 000 entries with a duplicate Id at position 9999. The single-

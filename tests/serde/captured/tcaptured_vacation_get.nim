@@ -16,8 +16,9 @@ import std/json
 import jmap_client
 import jmap_client/internal/types/envelope
 import ./mloader
+import ../../mtestblock
 
-block tcapturedVacationGet:
+testCase tcapturedVacationGet:
   forEachCapturedServer("vacation-get-singleton", j):
     # Two server-specific shapes are RFC-conformant here:
     #   * Stalwart and James implement VacationResponse and emit an

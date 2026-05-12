@@ -39,12 +39,13 @@ import jmap_client/client
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
 const SeedCount = 10
 const MaxChangesCap = 2
 const MaxIters = 20
 
-block temailChangesMaxChangesLive:
+testCase temailChangesMaxChangesLive:
   forEachLiveTarget(target):
     var client = initJmapClient(
         sessionUrl = target.sessionUrl,

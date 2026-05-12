@@ -40,6 +40,7 @@ import jmap_client/client
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
 proc assertRoleFilter(client: var JmapClient, mailAccountId: AccountId, inboxId: Id) =
   ## Sub-test 1: filter by ``role: Opt.some(roleInbox)`` returns the
@@ -234,7 +235,7 @@ proc assertQueryChangesWithFilter(
   doAssert qcr.total.isSome,
     "calculateTotal=true must surface a total in queryChanges response"
 
-block tmailboxQueryFilterSortLive:
+testCase tmailboxQueryFilterSortLive:
   forEachLiveTarget(target):
     # Cat-B (Phase L §0): Stalwart 0.15.5 and Cyrus 3.12.2 implement
     # the full Mailbox/query surface (FilterOperator, sort, position,

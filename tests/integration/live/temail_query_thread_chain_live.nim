@@ -46,6 +46,7 @@ import jmap_client
 import jmap_client/client
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
 type ChainProjection = object
   ## Distilled view of an ``EmailQueryThreadResults`` extraction —
@@ -72,7 +73,7 @@ proc projectChainResults(all: EmailQueryThreadResults): ChainProjection =
       threadEmailIds.incl(eid)
   ChainProjection(displayIds: displayIds, threadEmailIds: threadEmailIds)
 
-block temailQueryThreadChainLive:
+testCase temailQueryThreadChainLive:
   forEachLiveTarget(target):
     var client = initJmapClient(
         sessionUrl = target.sessionUrl,

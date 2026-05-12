@@ -13,10 +13,11 @@ import jmap_client/internal/types/primitives
 import jmap_client/internal/types/validation
 
 import ../../massertions
+import ../../mtestblock
 
 # ============= A. BlueprintEmailHeaderName (§6.1.4 scenarios 28a–32c) =============
 
-block blueprintEmailHeaderNameCaseVariants: # §6.1.4 scenario 28a
+testCase blueprintEmailHeaderNameCaseVariants: # §6.1.4 scenario 28a
   let upper = parseBlueprintEmailHeaderName("X-Custom").get()
   let lower = parseBlueprintEmailHeaderName("x-custom").get()
   let shout = parseBlueprintEmailHeaderName("X-CUSTOM").get()
@@ -31,19 +32,19 @@ block blueprintEmailHeaderNameCaseVariants: # §6.1.4 scenario 28a
   assertEq hash(upper), hash(lower)
   assertEq hash(lower), hash(shout)
 
-block blueprintEmailHeaderNameContentTypeRejected: # §6.1.4 scenario 29
+testCase blueprintEmailHeaderNameContentTypeRejected: # §6.1.4 scenario 29
   assertErr parseBlueprintEmailHeaderName("Content-Type")
 
-block blueprintEmailHeaderNameForbiddenPrefixTable: # §6.1.4 scenario 29a
+testCase blueprintEmailHeaderNameForbiddenPrefixTable: # §6.1.4 scenario 29a
   assertErr parseBlueprintEmailHeaderName("Content-Disposition")
   assertErr parseBlueprintEmailHeaderName("CONTENT-TYPE")
   assertErr parseBlueprintEmailHeaderName("content-type")
 
-block blueprintEmailHeaderNameColonRejected: # §6.1.4 scenario 30
+testCase blueprintEmailHeaderNameColonRejected: # §6.1.4 scenario 30
   assertErr parseBlueprintEmailHeaderName("header:X-Custom:asText")
   assertErr parseBlueprintEmailHeaderName("X:Custom")
 
-block blueprintEmailHeaderNameCharacterRejectionTable: # §6.1.4 scenario 31
+testCase blueprintEmailHeaderNameCharacterRejectionTable: # §6.1.4 scenario 31
   assertErr parseBlueprintEmailHeaderName("")
   assertErr parseBlueprintEmailHeaderName("X-Has Space")
   assertErr parseBlueprintEmailHeaderName("X-Has\tTab")
@@ -51,13 +52,13 @@ block blueprintEmailHeaderNameCharacterRejectionTable: # §6.1.4 scenario 31
   assertErr parseBlueprintEmailHeaderName("X-\x00NUL")
   assertErr parseBlueprintEmailHeaderName("X-UTF8-\xC3\xA9")
 
-block blueprintEmailHeaderNamePrefixBoundary: # §6.1.4 scenario 32
+testCase blueprintEmailHeaderNamePrefixBoundary: # §6.1.4 scenario 32
   assertOk parseBlueprintEmailHeaderName("Content") # no hyphen — allowed
   assertOk parseBlueprintEmailHeaderName("contents")
     # no hyphen after "content" — allowed
   assertErr parseBlueprintEmailHeaderName("content-") # minimum forbidden value
 
-block blueprintEmailHeaderNamePrintableAsciiBoundary: # §6.1.4 scenario 32a
+testCase blueprintEmailHeaderNamePrintableAsciiBoundary: # §6.1.4 scenario 32a
   # The 256 possible bytes partition into 93 accepted (printable ASCII
   # minus the colon) and 163 rejected (the 162 non-printable bytes plus
   # colon, which fails the separate no-colon rule). The design doc at
@@ -84,7 +85,7 @@ block blueprintEmailHeaderNamePrintableAsciiBoundary: # §6.1.4 scenario 32a
   assertEq acceptedPosMid, 93
   assertEq rejectedPosMid, 163
 
-block blueprintEmailHeaderNameStrictOnlyCommitment: # §6.1.4 scenario 32c
+testCase blueprintEmailHeaderNameStrictOnlyCommitment: # §6.1.4 scenario 32c
   # Accidentally adding a lenient server-side sibling would open a second
   # construction path through the creation aggregate and violate the
   # unidirectional creation-vocabulary rule (R1-3).
@@ -93,34 +94,34 @@ block blueprintEmailHeaderNameStrictOnlyCommitment: # §6.1.4 scenario 32c
 
 # ============= B. BlueprintBodyHeaderName (§6.1.5 scenarios 33–37b) =============
 
-block blueprintBodyHeaderNameAllowedTable: # §6.1.5 scenario 33
+testCase blueprintBodyHeaderNameAllowedTable: # §6.1.5 scenario 33
   assertOk parseBlueprintBodyHeaderName("Content-Type")
   assertOk parseBlueprintBodyHeaderName("Content-Disposition")
   assertOk parseBlueprintBodyHeaderName("Content-Language")
   assertOk parseBlueprintBodyHeaderName("X-Custom")
 
-block blueprintBodyHeaderNameCteExactNameRejected: # §6.1.5 scenario 35
+testCase blueprintBodyHeaderNameCteExactNameRejected: # §6.1.5 scenario 35
   assertErr parseBlueprintBodyHeaderName("Content-Transfer-Encoding")
   assertErr parseBlueprintBodyHeaderName("CONTENT-TRANSFER-ENCODING")
   assertErr parseBlueprintBodyHeaderName("content-transfer-encoding")
   assertErr parseBlueprintBodyHeaderName("Content-transfer-Encoding")
 
-block blueprintBodyHeaderNameCteSuffixBoundary: # §6.1.5 scenario 35c
+testCase blueprintBodyHeaderNameCteSuffixBoundary: # §6.1.5 scenario 35c
   # "Content-Transfer-Encoding-X" is not an exact-name match — allowed.
   assertOk parseBlueprintBodyHeaderName("Content-Transfer-Encoding-X")
 
-block blueprintBodyHeaderNameUtf8HomoglyphRejected: # §6.1.5 scenario 35d
+testCase blueprintBodyHeaderNameUtf8HomoglyphRejected: # §6.1.5 scenario 35d
   # UTF-8 bytes visually approximating "Content-Type"; the printable-ASCII
   # check fires before the exact-name check.
   assertErr parseBlueprintBodyHeaderName("\xC3\x83\xC2\xA7ontent-Type")
 
-block blueprintBodyHeaderNameCharacterRejectionTable: # §6.1.5 scenario 36
+testCase blueprintBodyHeaderNameCharacterRejectionTable: # §6.1.5 scenario 36
   assertErr parseBlueprintBodyHeaderName("")
   assertErr parseBlueprintBodyHeaderName("X-Has Space")
   assertErr parseBlueprintBodyHeaderName("X-Has\tTab")
   assertErr parseBlueprintBodyHeaderName("header:X-Custom:asText")
 
-block blueprintBodyHeaderNameCaseEquivalence: # §6.1.5 scenario 37b
+testCase blueprintBodyHeaderNameCaseEquivalence: # §6.1.5 scenario 37b
   let upper = parseBlueprintBodyHeaderName("X-Custom").get()
   let lower = parseBlueprintBodyHeaderName("x-custom").get()
   assertEq upper, lower
@@ -128,23 +129,23 @@ block blueprintBodyHeaderNameCaseEquivalence: # §6.1.5 scenario 37b
 
 # ============= C. BlueprintHeaderMultiValue (§6.1.5a scenarios 37c–37h) =============
 
-block blueprintHeaderMultiValueRawSingle: # §6.1.5a scenario 37c
+testCase blueprintHeaderMultiValueRawSingle: # §6.1.5a scenario 37c
   let res = rawMulti(@["v1"])
   assertOk res
   let mv = res.get()
   assertEq mv.form, hfRaw
   assertLen mv.rawValues, 1
 
-block blueprintHeaderMultiValueRawMulti: # §6.1.5a scenario 37d
+testCase blueprintHeaderMultiValueRawMulti: # §6.1.5a scenario 37d
   let res = rawMulti(@["v1", "v2"])
   assertOk res
   assertLen res.get().rawValues, 2
 
-block blueprintHeaderMultiValueEmptyRejected: # §6.1.5a scenario 37e
+testCase blueprintHeaderMultiValueEmptyRejected: # §6.1.5a scenario 37e
   # Delegates to parseNonEmptySeq — empty input rejected.
   assertErr rawMulti(@[])
 
-block blueprintHeaderMultiValuePerFormHelpers: # §6.1.5a scenario 37f
+testCase blueprintHeaderMultiValuePerFormHelpers: # §6.1.5a scenario 37f
   # textMulti
   let tm = textMulti(@["t"])
   assertOk tm
@@ -179,13 +180,13 @@ block blueprintHeaderMultiValuePerFormHelpers: # §6.1.5a scenario 37f
   assertEq um.get().form, hfUrls
   assertLen um.get().urlLists, 1
 
-block blueprintHeaderMultiValueRawSingleConvenience: # §6.1.5a scenario 37g
+testCase blueprintHeaderMultiValueRawSingleConvenience: # §6.1.5a scenario 37g
   # rawSingle returns BlueprintHeaderMultiValue directly, no Result.
   let mv = rawSingle("value")
   assertEq mv.form, hfRaw
   assertLen mv.rawValues, 1
 
-block blueprintHeaderMultiValueDirectCaseObjectEquality: # §6.1.5a scenario 37h
+testCase blueprintHeaderMultiValueDirectCaseObjectEquality: # §6.1.5a scenario 37h
   let ne = parseNonEmptySeq(@["v"]).get()
   let direct = BlueprintHeaderMultiValue(form: hfRaw, rawValues: ne)
   let viaHelper = rawMulti(@["v"]).get()

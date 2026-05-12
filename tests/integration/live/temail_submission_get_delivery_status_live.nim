@@ -26,8 +26,9 @@ import jmap_client/client
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block tEmailSubmissionGetDeliveryStatusLive:
+testCase tEmailSubmissionGetDeliveryStatusLive:
   forEachLiveTarget(target):
     # Cat-B (Phase L §0): exercises EmailSubmission/get's
     # ``deliveryStatus`` parse path (RFC 8621 §7 ¶8). Stalwart 0.15.5

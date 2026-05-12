@@ -13,8 +13,9 @@
 
 import jmap_client
 import ./mloader
+import ../../mtestblock
 
-block tcapturedRequestErrorNotRequest:
+testCase tcapturedRequestErrorNotRequest:
   forEachCapturedServer("request-error-not-request", j):
     let re = RequestError.fromJson(j).expect("RequestError.fromJson")
     doAssert re.rawType == "urn:ietf:params:jmap:error:notRequest",

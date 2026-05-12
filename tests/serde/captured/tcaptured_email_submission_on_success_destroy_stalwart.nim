@@ -17,8 +17,9 @@ import std/tables
 import jmap_client
 import jmap_client/internal/types/envelope
 import ./mloader
+import ../../mtestblock
 
-block tcapturedEmailSubmissionOnSuccessDestroyStalwart:
+testCase tcapturedEmailSubmissionOnSuccessDestroyStalwart:
   forEachCapturedServer("email-submission-on-success-destroy", j):
     let resp = envelope.Response.fromJson(j).expect("envelope.Response.fromJson")
     # Two server-specific shapes are RFC-conformant here:

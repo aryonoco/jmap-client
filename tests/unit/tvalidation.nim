@@ -6,6 +6,7 @@
 import std/hashes
 
 import jmap_client/internal/types/validation
+import ../mtestblock
 
 # Test distinct types — must be at top level for export markers in borrow templates
 type TestStr = distinct string
@@ -18,13 +19,13 @@ defineIntDistinctOps(TestInt)
 
 # --- validationError constructor ---
 
-block validationErrorConstructor:
+testCase validationErrorConstructor:
   let ve = validationError("Id", "length must be 1-255", "")
   doAssert ve.typeName == "Id"
   doAssert ve.message == "length must be 1-255"
   doAssert ve.value == ""
 
-block validationErrorAllFields:
+testCase validationErrorAllFields:
   let ve = validationError("UnsignedInt", "must be non-negative", "-1")
   doAssert ve.typeName == "UnsignedInt"
   doAssert ve.message == "must be non-negative"
@@ -32,7 +33,7 @@ block validationErrorAllFields:
 
 # --- defineStringDistinctOps ---
 
-block stringDistinctOps:
+testCase stringDistinctOps:
   let a = TestStr("hello")
   let b = TestStr("hello")
   let c = TestStr("world")
@@ -53,7 +54,7 @@ block stringDistinctOps:
 
 # --- defineIntDistinctOps ---
 
-block intDistinctOps:
+testCase intDistinctOps:
   let x = TestInt(10)
   let y = TestInt(10)
   let z = TestInt(20)
@@ -80,7 +81,7 @@ block intDistinctOps:
 
 # --- Base64UrlChars ---
 
-block base64UrlChars:
+testCase base64UrlChars:
   # Uppercase letters
   doAssert 'A' in Base64UrlChars
   doAssert 'Z' in Base64UrlChars

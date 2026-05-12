@@ -19,8 +19,9 @@
 
 import jmap_client
 import ./mloader
+import ../../mtestblock
 
-block tcapturedServerEnforcementMaxObjectsInGet:
+testCase tcapturedServerEnforcementMaxObjectsInGet:
   forEachCapturedServer("server-enforcement-max-objects-in-get", j):
     let re = RequestError.fromJson(j).expect("RequestError.fromJson")
     doAssert re.rawType == "urn:ietf:params:jmap:error:limit",

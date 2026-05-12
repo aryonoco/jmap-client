@@ -30,6 +30,7 @@ import jmap_client/internal/types/validation
 
 import ../../massertions
 import ../../mfixtures
+import ../../mtestblock
 
 proc makeBlueprint(): EmailSubmissionBlueprint =
   ## Minimal valid blueprint — identityId + emailId are enough; envelope
@@ -41,7 +42,7 @@ proc makeUpdateSet(): EmailUpdateSet =
   ## Minimal valid update — a single markRead operation.
   initEmailUpdateSet(@[markRead()]).get()
 
-block cidInvariantMismatchReturnsValidationError:
+testCase cidInvariantMismatchReturnsValidationError:
   ## Branch 1: onSuccessUpdateEmail keyed by ``icrCreation(CreationId("Z"))``
   ## with ``create`` ``Opt.none`` (or matching no "Z" key) returns
   ## ``err(ValidationError)`` whose ``value`` field equals ``"Z"``.
@@ -59,7 +60,7 @@ block cidInvariantMismatchReturnsValidationError:
   doAssert ve.typeName == "addEmailSubmissionAndEmailSet"
   doAssert ve.value == "Z"
 
-block cidInvariantMatchingCreateReturnsOk:
+testCase cidInvariantMatchingCreateReturnsOk:
   ## Branch 2: onSuccessUpdateEmail keyed by ``icrCreation(CreationId("Z"))``
   ## with ``create`` carrying a "Z" key returns ``ok``.
   let zCid = parseCreationId("Z").get()
@@ -75,7 +76,7 @@ block cidInvariantMatchingCreateReturnsOk:
   )
   assertOk res
 
-block cidInvariantDirectRefExempt:
+testCase cidInvariantDirectRefExempt:
   ## Branch 3: onSuccessUpdateEmail keyed by ``icrDirect(Id("X"))`` with
   ## ``create`` ``Opt.none`` returns ``ok`` — direct references are
   ## server-persisted ids and exempt from the sibling-cid check (the
@@ -91,7 +92,7 @@ block cidInvariantDirectRefExempt:
   )
   assertOk res
 
-block cidInvariantMismatchInDestroyEmail:
+testCase cidInvariantMismatchInDestroyEmail:
   ## Symmetric coverage: the cid invariant must also reject mismatched
   ## creation refs in ``onSuccessDestroyEmail`` (the seq-shaped extra),
   ## not only in ``onSuccessUpdateEmail`` (the map-shaped extra).

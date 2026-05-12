@@ -58,8 +58,9 @@ import jmap_client/client
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block tcombinedChangesLive:
+testCase tcombinedChangesLive:
   forEachLiveTarget(target):
     # Cat-B (Phase L §0): exercises the dispatch-layer demux of three
     # heterogeneous typed handles in one Request envelope. Convergence

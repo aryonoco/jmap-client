@@ -20,6 +20,7 @@
 
 import jmap_client
 import ./mloader
+import ../../mtestblock
 
 template roundtripResponse(name: static string) =
   ## Round-trip a Response-shape fixture.
@@ -43,7 +44,7 @@ template roundtripRequestError(name: static string) =
     let parsed = RequestError.fromJson(j).expect("RequestError.fromJson " & name)
     discard parsed.toJson()
 
-block tcapturedRoundTripIntegrity:
+testCase tcapturedRoundTripIntegrity:
   # Session-shape fixtures.
   roundtripSession("session-stalwart")
   roundtripSession("bob-session-stalwart")

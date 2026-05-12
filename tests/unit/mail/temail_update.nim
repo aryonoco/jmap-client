@@ -20,22 +20,23 @@ import jmap_client/internal/types/validation
 import jmap_client/internal/types/primitives
 
 import ../../massertions
+import ../../mtestblock
 
 # ============= A. Protocol-primitive constructor shape =============
 
-block addKeywordConstructsCorrectKind:
+testCase addKeywordConstructsCorrectKind:
   let k = parseKeyword("$flagged").get()
   let u = addKeyword(k)
   assertEq u.kind, euAddKeyword
   assertEq u.keyword, k
 
-block removeKeywordConstructsCorrectKind:
+testCase removeKeywordConstructsCorrectKind:
   let k = parseKeyword("$flagged").get()
   let u = removeKeyword(k)
   assertEq u.kind, euRemoveKeyword
   assertEq u.keyword, k
 
-block setKeywordsConstructsCorrectKind:
+testCase setKeywordsConstructsCorrectKind:
   let ks = initKeywordSet(@[kwSeen, kwFlagged])
   let u = setKeywords(ks)
   assertEq u.kind, euSetKeywords
@@ -43,19 +44,19 @@ block setKeywordsConstructsCorrectKind:
   doAssert kwSeen in u.keywords, "expected kwSeen in keywords payload"
   doAssert kwFlagged in u.keywords, "expected kwFlagged in keywords payload"
 
-block addToMailboxConstructsCorrectKind:
+testCase addToMailboxConstructsCorrectKind:
   let id = parseId("m1").get()
   let u = addToMailbox(id)
   assertEq u.kind, euAddToMailbox
   assertEq u.mailboxId, id
 
-block removeFromMailboxConstructsCorrectKind:
+testCase removeFromMailboxConstructsCorrectKind:
   let id = parseId("m1").get()
   let u = removeFromMailbox(id)
   assertEq u.kind, euRemoveFromMailbox
   assertEq u.mailboxId, id
 
-block setMailboxIdsConstructsCorrectKind:
+testCase setMailboxIdsConstructsCorrectKind:
   let id = parseId("m1").get()
   let ids = parseNonEmptyMailboxIdSet(@[id]).get()
   let u = setMailboxIds(ids)
@@ -64,27 +65,27 @@ block setMailboxIdsConstructsCorrectKind:
 
 # ============= B. Convenience-equivalence =============
 
-block markReadEqualsAddKeywordSeen:
+testCase markReadEqualsAddKeywordSeen:
   let r = markRead()
   assertEq r.kind, euAddKeyword
   assertEq r.keyword, kwSeen
 
-block markUnreadEqualsRemoveKeywordSeen:
+testCase markUnreadEqualsRemoveKeywordSeen:
   let r = markUnread()
   assertEq r.kind, euRemoveKeyword
   assertEq r.keyword, kwSeen
 
-block markFlaggedEqualsAddKeywordFlagged:
+testCase markFlaggedEqualsAddKeywordFlagged:
   let r = markFlagged()
   assertEq r.kind, euAddKeyword
   assertEq r.keyword, kwFlagged
 
-block markUnflaggedEqualsRemoveKeywordFlagged:
+testCase markUnflaggedEqualsRemoveKeywordFlagged:
   let r = markUnflagged()
   assertEq r.kind, euRemoveKeyword
   assertEq r.keyword, kwFlagged
 
-block moveToMailboxEqualsSetMailboxIdsSingleton: # F21 pin
+testCase moveToMailboxEqualsSetMailboxIdsSingleton: # F21 pin
   let id = parseId("m1").get()
   let expected = parseNonEmptyMailboxIdSet(@[id]).get()
   let u = moveToMailbox(id)
@@ -93,7 +94,7 @@ block moveToMailboxEqualsSetMailboxIdsSingleton: # F21 pin
 
 # ============= C. Negative discrimination =============
 
-block moveToMailboxDistinctIds:
+testCase moveToMailboxDistinctIds:
   let id1 = parseId("m1").get()
   let id2 = parseId("m2").get()
   let u1 = moveToMailbox(id1)
@@ -103,7 +104,7 @@ block moveToMailboxDistinctIds:
   doAssert u1.mailboxes != u2.mailboxes,
     "distinct ids must produce distinct mailboxes payloads"
 
-block addKeywordDistinctKeywords:
+testCase addKeywordDistinctKeywords:
   let k1 = parseKeyword("$flag1").get()
   let k2 = parseKeyword("$flag2").get()
   let u1 = addKeyword(k1)

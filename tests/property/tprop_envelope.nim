@@ -15,8 +15,9 @@ import jmap_client/internal/types/methods_enum
 import jmap_client/internal/types/validation
 
 import ../mproperty
+import ../mtestblock
 
-block propRequestPreservesMethodCallOrder:
+testCase propRequestPreservesMethodCallOrder:
   checkProperty "propRequestPreservesMethodCallOrder":
     ## Request.methodCalls preserves insertion order and count.
     let n = rng.rand(1 .. 10)
@@ -33,7 +34,7 @@ block propRequestPreservesMethodCallOrder:
     for i in 0 ..< n:
       doAssert req.methodCalls[i].name == calls[i].name
 
-block propResponsePreservesInvocationOrder:
+testCase propResponsePreservesInvocationOrder:
   checkProperty "propResponsePreservesInvocationOrder":
     ## Response.methodResponses preserves insertion order and count.
     let n = rng.rand(1 .. 10)
@@ -51,7 +52,7 @@ block propResponsePreservesInvocationOrder:
     for i in 0 ..< n:
       doAssert resp.methodResponses[i].name == responses[i].name
 
-block propReferencableDirectPreservesValue:
+testCase propReferencableDirectPreservesValue:
   checkProperty "propReferencableDirectPreservesValue":
     ## direct(v).value == v for random Id sequences.
     let ids = @[parseId("id" & $trial).get()]
@@ -60,7 +61,7 @@ block propReferencableDirectPreservesValue:
     doAssert d.kind == rkDirect
     doAssert d.value.len == ids.len
 
-block propReferencableReferencePreservesRef:
+testCase propReferencableReferencePreservesRef:
   checkProperty "propReferencableReferencePreservesRef":
     ## referenceTo preserves the ResultReference.
     let mcid = parseMethodCallId("c" & $trial).get()
@@ -71,7 +72,7 @@ block propReferencableReferencePreservesRef:
     doAssert r.reference.resultOf == mcid
     doAssert r.reference.path == rpIds
 
-block propReferencableExclusivity:
+testCase propReferencableExclusivity:
   checkProperty "propReferencableExclusivity":
     ## A Referencable is either direct or reference, never ambiguous.
     let ids = @[parseId("id" & $trial).get()]
@@ -86,7 +87,7 @@ block propReferencableExclusivity:
     doAssert r.kind == rkReference
     doAssert not (r.kind == rkDirect)
 
-block propInvocationPreservesFields:
+testCase propInvocationPreservesFields:
   checkProperty "propInvocationPreservesFields":
     ## Invocation construction preserves all three fields.
     let inv = genInvocation(rng)
@@ -95,7 +96,7 @@ block propInvocationPreservesFields:
     doAssert inv.arguments.kind == JObject
     # methodCallId was set by genInvocation
 
-block propRequestCreatedIdsTablePreserved:
+testCase propRequestCreatedIdsTablePreserved:
   checkPropertyN "propRequestCreatedIdsTablePreserved", QuickTrials:
     ## When createdIds is present, the table mapping is preserved.
     let n = rng.rand(1 .. 5)
@@ -114,7 +115,7 @@ block propRequestCreatedIdsTablePreserved:
 
 # --- Referencable properties ---
 
-block propReferencableDirectInjectivity:
+testCase propReferencableDirectInjectivity:
   checkProperty "propReferencableDirectInjectivity":
     ## direct(v1) == direct(v2) implies v1 == v2 for comparable types.
     let v1 = rng.rand(int)
@@ -127,7 +128,7 @@ block propReferencableDirectInjectivity:
     if d1.kind == d2.kind and d1.value == d2.value:
       doAssert v1 == v2
 
-block propReferencableKindDisjointness:
+testCase propReferencableKindDisjointness:
   checkProperty "propReferencableKindDisjointness":
     ## direct(v).kind != referenceTo(r).kind for any v and r.
     let v = rng.rand(int)

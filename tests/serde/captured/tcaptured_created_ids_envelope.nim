@@ -18,8 +18,9 @@ import std/tables
 
 import jmap_client
 import ./mloader
+import ../../mtestblock
 
-block tcapturedCreatedIdsEnvelope:
+testCase tcapturedCreatedIdsEnvelope:
   let j = loadCapturedFixture("created-ids-envelope-stalwart")
   let resp = envelope.Response.fromJson(j).expect("envelope.Response.fromJson")
   doAssert resp.methodResponses.len == 1

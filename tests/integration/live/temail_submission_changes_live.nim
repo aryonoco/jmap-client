@@ -33,8 +33,9 @@ import jmap_client/client
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block tEmailSubmissionChangesLive:
+testCase tEmailSubmissionChangesLive:
   forEachLiveTarget(target):
     # Cat-B (Phase L §0): exercises the EmailSubmission read-side delta
     # surface (``/get``, ``/query``, ``/changes``, ``/queryChanges``).

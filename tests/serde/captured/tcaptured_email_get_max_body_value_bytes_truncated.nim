@@ -14,10 +14,11 @@ import std/tables
 import jmap_client
 import jmap_client/internal/types/envelope
 import ./mloader
+import ../../mtestblock
 
 const TruncationCap = 64
 
-block tcapturedEmailGetMaxBodyValueBytesTruncated:
+testCase tcapturedEmailGetMaxBodyValueBytesTruncated:
   forEachCapturedServer("email-get-max-body-value-bytes-truncated", j):
     let resp = envelope.Response.fromJson(j).expect("envelope.Response.fromJson")
     doAssert resp.methodResponses.len == 1

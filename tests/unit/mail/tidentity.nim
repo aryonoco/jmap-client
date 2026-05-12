@@ -9,13 +9,14 @@ import jmap_client/internal/types/validation
 import jmap_client/internal/types/primitives
 
 import ../../massertions
+import ../../mtestblock
 
 let ea1 = parseEmailAddress("alice@example.com", Opt.some("Alice")).get()
 let ea2 = parseEmailAddress("bob@example.com").get()
 
 # ============= A. parseIdentityCreate =============
 
-block parseIdentityCreateAllFields: # scenario 33
+testCase parseIdentityCreateAllFields: # scenario 33
   let res = parseIdentityCreate(
     email = "joe@example.com",
     name = "Joe Bloggs",
@@ -35,7 +36,7 @@ block parseIdentityCreateAllFields: # scenario 33
   assertEq ic.textSignature, "-- Joe"
   assertEq ic.htmlSignature, "<p>Joe</p>"
 
-block parseIdentityCreateDefaults: # scenario 34
+testCase parseIdentityCreateDefaults: # scenario 34
   let res = parseIdentityCreate("joe@example.com")
   assertOk res
   let ic = res.get()
@@ -46,13 +47,13 @@ block parseIdentityCreateDefaults: # scenario 34
   assertEq ic.textSignature, ""
   assertEq ic.htmlSignature, ""
 
-block parseIdentityCreateEmptyEmail: # scenario 35
+testCase parseIdentityCreateEmptyEmail: # scenario 35
   assertErrFields parseIdentityCreate(""),
     "IdentityCreate", "email must not be empty", ""
 
 # ============= B. IdentityCreate field access =============
 
-block identityCreateFieldAccess:
+testCase identityCreateFieldAccess:
   let ic = parseIdentityCreate("x@y.z").get()
   assertEq ic.email, "x@y.z"
   assertEq ic.name, ""

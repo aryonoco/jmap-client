@@ -16,14 +16,15 @@ import jmap_client/internal/types/identifiers
 
 import ../../massertions
 import ../../mfixtures
+import ../../mtestblock
 
 # ============= B. isLeaf =============
 
-block isLeafTrue:
+testCase isLeafTrue:
   let leaf = makeLeafBodyPart()
   doAssert isLeaf(leaf) == true
 
-block isLeafFalseForMultipart:
+testCase isLeafFalseForMultipart:
   let multipart = EmailBodyPart(
     isMultipart: true,
     subParts: @[],
@@ -44,7 +45,7 @@ block isLeafFalseForMultipart:
 # Uniqueness-by-CreationId contract: each distinct repeated key yields
 # exactly one error regardless of occurrence count.
 
-block initNonEmptyEmailImportMapEmpty:
+testCase initNonEmptyEmailImportMapEmpty:
   let res = initNonEmptyEmailImportMap(@[])
   assertErr res
   assertLen res.error, 1
@@ -52,14 +53,14 @@ block initNonEmptyEmailImportMapEmpty:
   assertEq res.error[0].message, "must contain at least one entry"
   assertEq res.error[0].value, ""
 
-block initNonEmptyEmailImportMapSingleValid:
+testCase initNonEmptyEmailImportMapSingleValid:
   let cid = parseCreationId("c1").get()
   let blob = parseBlobId("blob1").get()
   let mbxs = parseNonEmptyMailboxIdSet(@[parseId("m1").get()]).get()
   let item = initEmailImportItem(blob, mbxs)
   assertOk initNonEmptyEmailImportMap(@[(cid, item)])
 
-block initNonEmptyEmailImportMapTwoSameCreationId:
+testCase initNonEmptyEmailImportMapTwoSameCreationId:
   let cid = parseCreationId("c1").get()
   let blob = parseBlobId("blob1").get()
   let mbxs = parseNonEmptyMailboxIdSet(@[parseId("m1").get()]).get()
@@ -71,7 +72,7 @@ block initNonEmptyEmailImportMapTwoSameCreationId:
   assertEq res.error[0].message, "duplicate CreationId"
   assertEq res.error[0].value, "c1"
 
-block initNonEmptyEmailImportMapThreeSameCreationId:
+testCase initNonEmptyEmailImportMapThreeSameCreationId:
   ## Three occurrences of the same CreationId still yield ONE error.
   let cid = parseCreationId("c1").get()
   let blob = parseBlobId("blob1").get()
@@ -82,7 +83,7 @@ block initNonEmptyEmailImportMapThreeSameCreationId:
   assertLen res.error, 1
   assertEq res.error[0].value, "c1"
 
-block initNonEmptyEmailImportMapTwoDistinctRepeated:
+testCase initNonEmptyEmailImportMapTwoDistinctRepeated:
   ## Two distinct repeated CreationIds → TWO errors, one per distinct
   ## duplicate key.
   let cid1 = parseCreationId("c1").get()

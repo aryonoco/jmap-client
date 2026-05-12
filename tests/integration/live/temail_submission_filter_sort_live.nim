@@ -57,6 +57,7 @@ import jmap_client/internal/mail/identity as jidentity
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
 proc resolveOrCreateSecondaryAliceIdentity(
     client: var JmapClient, submissionAccountId: AccountId, displayName: string
@@ -102,7 +103,7 @@ proc resolveOrCreateSecondaryAliceIdentity(
   doAssert found
   ok(createdId)
 
-block temailSubmissionFilterSortLive:
+testCase temailSubmissionFilterSortLive:
   forEachLiveTarget(target):
     # Cat-B (Phase L §0): exercises EmailSubmission/{query,queryChanges}
     # filter + sort. Stalwart 0.15.5 and Cyrus 3.12.2 implement both;

@@ -19,10 +19,11 @@ import jmap_client/internal/types/primitives
 import jmap_client/internal/types/identifiers
 
 import ../../massertions
+import ../../mtestblock
 
 # ============= A. EmailBodyPart.fromJson basic (scenarios 77–82) =============
 
-block fromJsonLeafPart: # scenario 77
+testCase fromJsonLeafPart: # scenario 77
   let node = %*{
     "type": "text/plain",
     "partId": "1",
@@ -39,7 +40,7 @@ block fromJsonLeafPart: # scenario 77
   assertEq part.blobId, BlobId("abc123")
   assertSomeEq part.charset, "utf-8"
 
-block fromJsonMultipart: # scenario 78
+testCase fromJsonMultipart: # scenario 78
   let node = %*{
     "type": "multipart/mixed",
     "subParts": [{"type": "text/plain", "partId": "1", "blobId": "abc", "size": 100}],
@@ -49,19 +50,19 @@ block fromJsonMultipart: # scenario 78
   assertEq res.get().isMultipart, true
   assertLen res.get().subParts, 1
 
-block fromJsonMultipartAbsentSubParts: # scenario 79
+testCase fromJsonMultipartAbsentSubParts: # scenario 79
   let node = %*{"type": "multipart/mixed"}
   let res = EmailBodyPart.fromJson(node)
   assertOk res
   assertLen res.get().subParts, 0
 
-block fromJsonLeafAbsentPartId: # scenario 80
+testCase fromJsonLeafAbsentPartId: # scenario 80
   assertErr EmailBodyPart.fromJson(%*{"type": "text/plain", "blobId": "abc", "size": 1})
 
-block fromJsonLeafAbsentBlobId: # scenario 81
+testCase fromJsonLeafAbsentBlobId: # scenario 81
   assertErr EmailBodyPart.fromJson(%*{"type": "text/plain", "partId": "1", "size": 1})
 
-block isMultipartFromContentType: # scenario 82
+testCase isMultipartFromContentType: # scenario 82
   # text/plain with subParts key present is still a leaf
   let node = %*{
     "type": "text/plain",
@@ -76,42 +77,42 @@ block isMultipartFromContentType: # scenario 82
 
 # ============= B. Size handling (scenarios 83–84) =============
 
-block sizeRequiredOnLeaf: # scenario 83
+testCase sizeRequiredOnLeaf: # scenario 83
   assertErr EmailBodyPart.fromJson(
     %*{"type": "text/plain", "partId": "1", "blobId": "abc"}
   )
 
-block sizeDefaultOnMultipart: # scenario 84
+testCase sizeDefaultOnMultipart: # scenario 84
   let res = EmailBodyPart.fromJson(%*{"type": "multipart/mixed"})
   assertOk res
   assertEq res.get().size, UnsignedInt(0)
 
 # ============= C. Charset defaults (scenarios 85–90) =============
 
-block charsetAbsentTextPlain: # scenario 85
+testCase charsetAbsentTextPlain: # scenario 85
   let node = %*{"type": "text/plain", "partId": "1", "blobId": "abc", "size": 1}
   assertSomeEq EmailBodyPart.fromJson(node).get().charset, "us-ascii"
 
-block charsetPresentTextPlain: # scenario 86
+testCase charsetPresentTextPlain: # scenario 86
   let node = %*{
     "type": "text/plain", "partId": "1", "blobId": "abc", "size": 1, "charset": "utf-8"
   }
   assertSomeEq EmailBodyPart.fromJson(node).get().charset, "utf-8"
 
-block charsetNullTextHtml: # scenario 87
+testCase charsetNullTextHtml: # scenario 87
   let node =
     %*{"type": "text/html", "partId": "1", "blobId": "abc", "size": 1, "charset": nil}
   assertSomeEq EmailBodyPart.fromJson(node).get().charset, "us-ascii"
 
-block charsetAbsentImagePng: # scenario 88
+testCase charsetAbsentImagePng: # scenario 88
   let node = %*{"type": "image/png", "partId": "1", "blobId": "abc", "size": 1}
   assertNone EmailBodyPart.fromJson(node).get().charset
 
-block charsetAbsentMultipart: # scenario 89
+testCase charsetAbsentMultipart: # scenario 89
   let node = %*{"type": "multipart/mixed"}
   assertNone EmailBodyPart.fromJson(node).get().charset
 
-block charsetPresentImagePng: # scenario 90
+testCase charsetPresentImagePng: # scenario 90
   let node = %*{
     "type": "image/png", "partId": "1", "blobId": "abc", "size": 1, "charset": "binary"
   }
@@ -119,11 +120,11 @@ block charsetPresentImagePng: # scenario 90
 
 # ============= D. Headers (scenarios 91–92) =============
 
-block headersAbsent: # scenario 91
+testCase headersAbsent: # scenario 91
   let node = %*{"type": "text/plain", "partId": "1", "blobId": "abc", "size": 1}
   assertLen EmailBodyPart.fromJson(node).get().headers, 0
 
-block headersPresent: # scenario 92
+testCase headersPresent: # scenario 92
   let node = %*{
     "type": "text/plain",
     "partId": "1",
@@ -137,14 +138,14 @@ block headersPresent: # scenario 92
 
 # ============= E. Depth limit (scenarios 93, 104) =============
 
-block depthLimit129: # scenario 93
+testCase depthLimit129: # scenario 93
   # 128 multipart wrappers + 1 leaf = 129 parse calls → err
   var node = %*{"type": "text/plain", "partId": "1", "blobId": "abc", "size": 1}
   for i in 0 ..< 128:
     node = %*{"type": "multipart/mixed", "subParts": [node]}
   assertErr EmailBodyPart.fromJson(node)
 
-block depthLimitExact128: # scenario 104
+testCase depthLimitExact128: # scenario 104
   # 127 multipart wrappers + 1 leaf = 128 parse calls → ok
   var node = %*{"type": "text/plain", "partId": "1", "blobId": "abc", "size": 1}
   for i in 0 ..< 127:
@@ -153,7 +154,7 @@ block depthLimitExact128: # scenario 104
 
 # ============= F. Round-trips (scenarios 94–95) =============
 
-block roundTripLeaf: # scenario 94
+testCase roundTripLeaf: # scenario 94
   let node = %*{
     "type": "text/plain",
     "partId": "1",
@@ -184,7 +185,7 @@ block roundTripLeaf: # scenario 94
   assertSome rt.language
   assertSomeEq rt.location, "https://example.com"
 
-block roundTripMultipart: # scenario 95
+testCase roundTripMultipart: # scenario 95
   let node = %*{
     "type": "multipart/mixed",
     "size": 5000,
@@ -202,7 +203,7 @@ block roundTripMultipart: # scenario 95
 
 # ============= G. toJson depth (scenarios 96, 108) =============
 
-block toJsonDepthStress: # scenario 96
+testCase toJsonDepthStress: # scenario 96
   # Build a deeply nested structure and verify toJson doesn't crash
   var part = EmailBodyPart(
     headers: @[],
@@ -235,7 +236,7 @@ block toJsonDepthStress: # scenario 96
   let node = part.toJson()
   doAssert node.kind == JObject
 
-block toJsonDepthExact128: # scenario 108
+testCase toJsonDepthExact128: # scenario 108
   var part = EmailBodyPart(
     headers: @[],
     name: Opt.none(string),
@@ -273,20 +274,20 @@ block toJsonDepthExact128: # scenario 108
 
 # ============= H. ContentType edge cases (scenarios 97, 97a–97b, 98–99, 99a–99d, 108c) =============
 
-block absentContentType: # scenario 97
+testCase absentContentType: # scenario 97
   assertErr EmailBodyPart.fromJson(%*{"partId": "1", "blobId": "abc", "size": 1})
 
-block nonObjectInput: # scenario 97a
+testCase nonObjectInput: # scenario 97a
   assertErr EmailBodyPart.fromJson(%*[1, 2, 3])
   assertErr EmailBodyPart.fromJson(newJNull())
   assertErr EmailBodyPart.fromJson(%"string")
 
-block typeWrongKind: # scenario 97b
+testCase typeWrongKind: # scenario 97b
   assertErr EmailBodyPart.fromJson(
     %*{"type": 42, "partId": "1", "blobId": "abc", "size": 1}
   )
 
-block uppercaseMultipart: # scenario 98
+testCase uppercaseMultipart: # scenario 98
   let node = %*{
     "type": "MULTIPART/MIXED",
     "subParts": [{"type": "text/plain", "partId": "1", "blobId": "abc", "size": 1}],
@@ -295,34 +296,34 @@ block uppercaseMultipart: # scenario 98
   assertOk res
   assertEq res.get().isMultipart, true
 
-block charsetDefaultUppercaseText: # scenario 98a
+testCase charsetDefaultUppercaseText: # scenario 98a
   let node = %*{"type": "TEXT/PLAIN", "partId": "1", "blobId": "abc", "size": 1}
   assertSomeEq EmailBodyPart.fromJson(node).get().charset, "us-ascii"
 
-block multipartSlashOnly: # scenario 99
+testCase multipartSlashOnly: # scenario 99
   let res = EmailBodyPart.fromJson(%*{"type": "multipart/"})
   assertOk res
   assertEq res.get().isMultipart, true
 
-block textSlashCharsetDefault: # scenario 99a
+testCase textSlashCharsetDefault: # scenario 99a
   let node = %*{"type": "text/", "partId": "1", "blobId": "abc", "size": 1}
   assertSomeEq EmailBodyPart.fromJson(node).get().charset, "us-ascii"
 
-block textplainNoSlash: # scenario 99b
+testCase textplainNoSlash: # scenario 99b
   # "textplain" does not start with "multipart/" → leaf
   assertErr EmailBodyPart.fromJson(%*{"type": "textplain"})
   # Requires partId/blobId since it's a leaf
 
-block multipartNoTrailingSlash: # scenario 99c
+testCase multipartNoTrailingSlash: # scenario 99c
   # "multipart" does not start with "multipart/" → not multipart
   assertErr EmailBodyPart.fromJson(%*{"type": "multipart"})
 
-block emptyContentType: # scenario 99d
+testCase emptyContentType: # scenario 99d
   # Empty string: not multipart, not text/* → leaf
   assertErr EmailBodyPart.fromJson(%*{"type": ""})
   # Requires partId/blobId since it's a leaf
 
-block duplicateTypeKey: # scenario 108c
+testCase duplicateTypeKey: # scenario 108c
   # std/json last-wins: second "type" value overrides first
   const raw = """{"type": "text/plain", "type": "multipart/mixed"}"""
   let node = parseJson(raw)
@@ -333,7 +334,7 @@ block duplicateTypeKey: # scenario 108c
 
 # ============= I. Field validation edge cases (scenarios 100–107) =============
 
-block leafWithSubPartsIgnored: # scenario 100
+testCase leafWithSubPartsIgnored: # scenario 100
   let node = %*{
     "type": "text/plain",
     "partId": "1",
@@ -345,7 +346,7 @@ block leafWithSubPartsIgnored: # scenario 100
   assertOk res
   assertEq res.get().isMultipart, false
 
-block multipartWithPartIdBlobIdIgnored: # scenario 101
+testCase multipartWithPartIdBlobIdIgnored: # scenario 101
   let node = %*{
     "type": "multipart/mixed",
     "partId": "1",
@@ -356,39 +357,39 @@ block multipartWithPartIdBlobIdIgnored: # scenario 101
   assertOk res
   assertEq res.get().isMultipart, true
 
-block nullInHeadersArray: # scenario 102
+testCase nullInHeadersArray: # scenario 102
   let node = %*{
     "type": "text/plain", "partId": "1", "blobId": "abc", "size": 1, "headers": [nil]
   }
   assertErr EmailBodyPart.fromJson(node)
 
-block nonStringInLanguageArray: # scenario 102a
+testCase nonStringInLanguageArray: # scenario 102a
   let node = %*{
     "type": "text/plain", "partId": "1", "blobId": "abc", "size": 1, "language": [42]
   }
   assertErr EmailBodyPart.fromJson(node)
 
-block nullInSubPartsArray: # scenario 103
+testCase nullInSubPartsArray: # scenario 103
   let node = %*{"type": "multipart/mixed", "subParts": [nil]}
   assertErr EmailBodyPart.fromJson(node)
 
-block emptyCharsetString: # scenario 105
+testCase emptyCharsetString: # scenario 105
   let node =
     %*{"type": "text/plain", "partId": "1", "blobId": "abc", "size": 1, "charset": ""}
   assertSomeEq EmailBodyPart.fromJson(node).get().charset, ""
 
-block sizeNegative: # scenario 106
+testCase sizeNegative: # scenario 106
   let node = %*{"type": "text/plain", "partId": "1", "blobId": "abc", "size": -1}
   assertErr EmailBodyPart.fromJson(node)
 
-block sizeExceeding: # scenario 107
+testCase sizeExceeding: # scenario 107
   let node =
     %*{"type": "text/plain", "partId": "1", "blobId": "abc", "size": 9007199254740992}
   assertErr EmailBodyPart.fromJson(node)
 
 # ============= J. EmailBodyValue serde (scenarios 109–118, 115a, 118a–118b) =============
 
-block bodyValueAllFields: # scenario 109
+testCase bodyValueAllFields: # scenario 109
   let node = %*{"value": "Hello", "isEncodingProblem": false, "isTruncated": false}
   let res = EmailBodyValue.fromJson(node)
   assertOk res
@@ -397,27 +398,27 @@ block bodyValueAllFields: # scenario 109
   assertEq bv.isEncodingProblem, false
   assertEq bv.isTruncated, false
 
-block bodyValueEncodingProblem: # scenario 110
+testCase bodyValueEncodingProblem: # scenario 110
   let node = %*{"value": "Hello", "isEncodingProblem": true}
   assertEq EmailBodyValue.fromJson(node).get().isEncodingProblem, true
 
-block bodyValueTruncated: # scenario 111
+testCase bodyValueTruncated: # scenario 111
   let node = %*{"value": "Hello", "isTruncated": true}
   assertEq EmailBodyValue.fromJson(node).get().isTruncated, true
 
-block bodyValueBothFlags: # scenario 112
+testCase bodyValueBothFlags: # scenario 112
   let node = %*{"value": "Hello", "isEncodingProblem": true, "isTruncated": true}
   let bv = EmailBodyValue.fromJson(node).get()
   assertEq bv.isEncodingProblem, true
   assertEq bv.isTruncated, true
 
-block bodyValueFlagsDefault: # scenario 113
+testCase bodyValueFlagsDefault: # scenario 113
   let node = %*{"value": "Hello"}
   let bv = EmailBodyValue.fromJson(node).get()
   assertEq bv.isEncodingProblem, false
   assertEq bv.isTruncated, false
 
-block bodyValueRoundTrip: # scenario 114
+testCase bodyValueRoundTrip: # scenario 114
   let original =
     EmailBodyValue(value: "Hello", isEncodingProblem: true, isTruncated: false)
   let rt = EmailBodyValue.fromJson(original.toJson()).get()
@@ -425,28 +426,28 @@ block bodyValueRoundTrip: # scenario 114
   assertEq rt.isEncodingProblem, original.isEncodingProblem
   assertEq rt.isTruncated, original.isTruncated
 
-block bodyValueAbsentValue: # scenario 115
+testCase bodyValueAbsentValue: # scenario 115
   assertErr EmailBodyValue.fromJson(%*{"isEncodingProblem": false})
 
-block bodyValueNonObject: # scenario 115a
+testCase bodyValueNonObject: # scenario 115a
   assertErr EmailBodyValue.fromJson(%*[1, 2])
   assertErr EmailBodyValue.fromJson(newJNull())
 
-block bodyValueNullValue: # scenario 116
+testCase bodyValueNullValue: # scenario 116
   assertErr EmailBodyValue.fromJson(%*{"value": nil})
 
-block bodyValueWrongKindValue: # scenario 117
+testCase bodyValueWrongKindValue: # scenario 117
   assertErr EmailBodyValue.fromJson(%*{"value": 42})
 
-block bodyValueWrongKindFlags: # scenario 118
+testCase bodyValueWrongKindFlags: # scenario 118
   assertErr EmailBodyValue.fromJson(%*{"value": "Hi", "isEncodingProblem": "true"})
   assertErr EmailBodyValue.fromJson(%*{"value": "Hi", "isTruncated": "true"})
 
-block bodyValueEmptyValue: # scenario 118a
+testCase bodyValueEmptyValue: # scenario 118a
   let bv = EmailBodyValue.fromJson(%*{"value": ""}).get()
   assertEq bv.value, ""
 
-block bodyValueNullFlag: # scenario 118b
+testCase bodyValueNullFlag: # scenario 118b
   # null for bool flag treated as absent → default false
   let node = %*{"value": "Hi", "isEncodingProblem": nil}
   let bv = EmailBodyValue.fromJson(node).get()
@@ -454,7 +455,7 @@ block bodyValueNullFlag: # scenario 118b
 
 # ============= K. BlueprintBodyPart.toJson (scenarios 119–131, 125, 127a, 130a–130b) =============
 
-block bpInlineLeaf: # scenario 119
+testCase bpInlineLeaf: # scenario 119
   let bp = BlueprintBodyPart(
     contentType: "text/plain",
     extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
@@ -471,7 +472,7 @@ block bpInlineLeaf: # scenario 119
   doAssert node{"charset"} == nil, "charset should be absent on inline leaf"
   doAssert node{"size"} == nil, "size should be absent on inline leaf"
 
-block bpBlobRefLeaf: # scenario 120
+testCase bpBlobRefLeaf: # scenario 120
   let bp = BlueprintBodyPart(
     contentType: "image/png",
     extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
@@ -487,7 +488,7 @@ block bpBlobRefLeaf: # scenario 120
   assertJsonFieldEq node, "type", %"image/png"
   assertJsonFieldEq node, "blobId", %"abc123"
 
-block bpBlobRefBothPresent: # scenario 121
+testCase bpBlobRefBothPresent: # scenario 121
   let bp = BlueprintBodyPart(
     contentType: "image/png",
     extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
@@ -503,7 +504,7 @@ block bpBlobRefBothPresent: # scenario 121
   doAssert node{"charset"} != nil
   doAssert node{"size"} != nil
 
-block bpBlobRefBothAbsent: # scenario 122
+testCase bpBlobRefBothAbsent: # scenario 122
   let bp = BlueprintBodyPart(
     contentType: "image/png",
     extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
@@ -519,7 +520,7 @@ block bpBlobRefBothAbsent: # scenario 122
   doAssert node{"charset"} == nil, "charset should be absent"
   doAssert node{"size"} == nil, "size should be absent"
 
-block bpMultipart: # scenario 123
+testCase bpMultipart: # scenario 123
   let child = BlueprintBodyPart(
     contentType: "text/plain",
     extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
@@ -540,7 +541,7 @@ block bpMultipart: # scenario 123
   doAssert node{"subParts"}.kind == JArray
   assertLen node{"subParts"}.getElems(@[]), 1
 
-block bpDepthLimit: # scenario 124
+testCase bpDepthLimit: # scenario 124
   var bp = BlueprintBodyPart(
     contentType: "text/plain",
     extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
@@ -559,10 +560,10 @@ block bpDepthLimit: # scenario 124
   let node = bp.toJson()
   doAssert node.kind == JObject
 
-block bpNoFromJson: # scenario 125
+testCase bpNoFromJson: # scenario 125
   assertNotCompiles(BlueprintBodyPart.fromJson(%*{}))
 
-block bpInlineKeyAbsence: # scenario 126
+testCase bpInlineKeyAbsence: # scenario 126
   let bp = BlueprintBodyPart(
     contentType: "text/plain",
     extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
@@ -577,7 +578,7 @@ block bpInlineKeyAbsence: # scenario 126
   doAssert "charset" notin node
   doAssert "size" notin node
 
-block bpExtraHeaders: # scenario 127
+testCase bpExtraHeaders: # scenario 127
   let name = parseBlueprintBodyHeaderName("x-custom").get()
   var headers = initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue]()
   headers[name] = textSingle("custom value")
@@ -593,7 +594,7 @@ block bpExtraHeaders: # scenario 127
   doAssert node{"header:x-custom:asText"} != nil
   assertEq node{"header:x-custom:asText"}, %"custom value"
 
-block bpExtraHeadersHfRaw: # scenario 127a
+testCase bpExtraHeadersHfRaw: # scenario 127a
   # hfRaw form suffix is omitted by composeHeaderKey.
   let name = parseBlueprintBodyHeaderName("x-custom").get()
   var headers = initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue]()
@@ -611,7 +612,7 @@ block bpExtraHeadersHfRaw: # scenario 127a
   doAssert node{"header:x-custom"} != nil
   assertEq node{"header:x-custom"}, %"raw value"
 
-block bpEmptyExtraHeaders: # scenario 128
+testCase bpEmptyExtraHeaders: # scenario 128
   let bp = BlueprintBodyPart(
     contentType: "text/plain",
     extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
@@ -625,7 +626,7 @@ block bpEmptyExtraHeaders: # scenario 128
   for key, _ in node.pairs:
     doAssert key.startsWith("header:") == false, "no header properties expected"
 
-block bpMultipartEmptySubParts: # scenario 129
+testCase bpMultipartEmptySubParts: # scenario 129
   let bp = BlueprintBodyPart(
     contentType: "multipart/mixed",
     extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
@@ -636,7 +637,7 @@ block bpMultipartEmptySubParts: # scenario 129
   doAssert node{"subParts"} != nil
   assertLen node{"subParts"}.getElems(@[]), 0
 
-block bpNestedMultipart: # scenario 130
+testCase bpNestedMultipart: # scenario 130
   let leaf = BlueprintBodyPart(
     contentType: "text/plain",
     extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
@@ -665,7 +666,7 @@ block bpNestedMultipart: # scenario 130
   doAssert leafNode != nil
   assertJsonFieldEq leafNode, "type", %"text/plain"
 
-block bpMixedChildren: # scenario 130a
+testCase bpMixedChildren: # scenario 130a
   let inline = BlueprintBodyPart(
     contentType: "text/plain",
     extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
@@ -698,7 +699,7 @@ block bpMixedChildren: # scenario 130a
   # Second child: blob-ref with blobId
   doAssert node{"subParts"}{1}{"blobId"} != nil
 
-block bpBlobRefBothOptAbsent: # scenario 131
+testCase bpBlobRefBothOptAbsent: # scenario 131
   let bp = BlueprintBodyPart(
     contentType: "image/png",
     extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
@@ -716,7 +717,7 @@ block bpBlobRefBothOptAbsent: # scenario 131
 
 # ============= L. Adversarial (scenarios A1–A6) =============
 
-block adversarialNulInHeaderName: # scenario A1
+testCase adversarialNulInHeaderName: # scenario A1
   # NUL byte in header name portion — NUL is not 0x3A (colon), so it does
   # not trigger delimiter splits. The name includes raw bytes.
   let res = parseHeaderPropertyName("header:From\x00Evil:asAddresses")
@@ -725,14 +726,14 @@ block adversarialNulInHeaderName: # scenario A1
   # The colon splits produce ["From\x00Evil", "asAddresses"] since NUL ≠ ':'.
   assertOk res
 
-block adversarialOverlongUtf8Colon: # scenario A2
+testCase adversarialOverlongUtf8Colon: # scenario A2
   # Overlong encoding of ':' (0x3A) as \xC0\xBA — NOT literal 0x3A bytes.
   # Byte-level split on ':' (0x3A) does not trigger on these bytes.
   let res = parseHeaderPropertyName("header:From\xC0\xBA:asAddresses")
   # Split produces ["From\xC0\xBA", "asAddresses"] — name contains raw bytes.
   assertOk res
 
-block adversarialNulInContentType: # scenario A3
+testCase adversarialNulInContentType: # scenario A3
   let node = %*{
     "type": "text/plain\x00multipart/mixed", "partId": "1", "blobId": "abc", "size": 1
   }
@@ -741,7 +742,7 @@ block adversarialNulInContentType: # scenario A3
   # startsWith("multipart/") on full byte sequence → false (NUL ≠ '/')
   assertEq res.get().isMultipart, false
 
-block adversarial10kChildren: # scenario A4
+testCase adversarial10kChildren: # scenario A4
   var children = newJArray()
   for i in 0 ..< 10_000:
     children.add(%*{"type": "text/plain", "partId": "1", "blobId": "abc", "size": 1})
@@ -750,7 +751,7 @@ block adversarial10kChildren: # scenario A4
   assertOk res
   assertLen res.get().subParts, 10_000
 
-block adversarialFloatSize: # scenario A6
+testCase adversarialFloatSize: # scenario A6
   const raw = """{"type": "text/plain", "partId": "1", "blobId": "abc", "size": 3.14}"""
   let node = parseJson(raw)
   assertErr EmailBodyPart.fromJson(node)

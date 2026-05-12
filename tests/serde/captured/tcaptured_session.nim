@@ -14,8 +14,9 @@ import std/tables
 
 import jmap_client
 import ./mloader
+import ../../mtestblock
 
-block tcapturedSession:
+testCase tcapturedSession:
   forEachCapturedServer("session", j):
     let sessRes = Session.fromJson(j)
     doAssert sessRes.isOk, "Session.fromJson must succeed on captured fixture"

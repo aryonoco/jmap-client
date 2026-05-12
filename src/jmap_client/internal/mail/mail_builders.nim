@@ -51,7 +51,7 @@ export mailbox_changes_response
 # =============================================================================
 
 func addMailboxChanges*(
-    b: RequestBuilder,
+    b: sink RequestBuilder,
     accountId: AccountId,
     sinceState: JmapState,
     maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges),
@@ -66,7 +66,7 @@ func addMailboxChanges*(
 # =============================================================================
 
 func addMailboxGet*(
-    b: RequestBuilder,
+    b: sink RequestBuilder,
     accountId: AccountId,
     ids: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]),
     properties: Opt[seq[string]] = Opt.none(seq[string]),
@@ -81,7 +81,7 @@ func addMailboxGet*(
 # =============================================================================
 
 func addMailboxQuery*(
-    b: RequestBuilder,
+    b: sink RequestBuilder,
     accountId: AccountId,
     filter: Opt[Filter[MailboxFilterCondition]] =
       Opt.none(Filter[MailboxFilterCondition]),
@@ -98,14 +98,15 @@ func addMailboxQuery*(
   args["sortAsTree"] = %sortAsTree
   args["filterAsTree"] = %filterAsTree
   let (b1, callId) = addInvocation(b, mnMailboxQuery, args, capabilityUri(Mailbox))
-  (b1, initResponseHandle[QueryResponse[Mailbox]](callId, b.builderId))
+  let brand = b1.builderId
+  (b1, initResponseHandle[QueryResponse[Mailbox]](callId, brand))
 
 # =============================================================================
 # addMailboxQueryChanges — Mailbox/queryChanges (RFC 8621 §2.4)
 # =============================================================================
 
 func addMailboxQueryChanges*(
-    b: RequestBuilder,
+    b: sink RequestBuilder,
     accountId: AccountId,
     sinceQueryState: JmapState,
     filter: Opt[Filter[MailboxFilterCondition]] =
@@ -125,7 +126,7 @@ func addMailboxQueryChanges*(
 # =============================================================================
 
 func addMailboxSet*(
-    b: RequestBuilder,
+    b: sink RequestBuilder,
     accountId: AccountId,
     ifInState: Opt[JmapState] = Opt.none(JmapState),
     create: Opt[Table[CreationId, MailboxCreate]] =
@@ -154,11 +155,10 @@ func addMailboxSet*(
   let (b1, callId) = addInvocation(
     b, mnMailboxSet, args, capabilityUri(Mailbox), setMeta(create, update, destroy)
   )
+  let brand = b1.builderId
   (
     b1,
-    initResponseHandle[SetResponse[MailboxCreatedItem, PartialMailbox]](
-      callId, b.builderId
-    ),
+    initResponseHandle[SetResponse[MailboxCreatedItem, PartialMailbox]](callId, brand),
   )
 
 # =============================================================================
@@ -166,7 +166,7 @@ func addMailboxSet*(
 # =============================================================================
 
 func addEmailGet*(
-    b: RequestBuilder,
+    b: sink RequestBuilder,
     accountId: AccountId,
     ids: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]),
     properties: Opt[seq[string]] = Opt.none(seq[string]),
@@ -179,14 +179,15 @@ func addEmailGet*(
   emitBodyFetchOptions(args, bodyFetchOptions)
   let (b1, callId) =
     addInvocation(b, mnEmailGet, args, capabilityUri(Email), getMeta(ids))
-  (b1, initResponseHandle[GetResponse[Email]](callId, b.builderId))
+  let brand = b1.builderId
+  (b1, initResponseHandle[GetResponse[Email]](callId, brand))
 
 # =============================================================================
 # addEmailChanges — Email/changes (RFC 8621 §4.3)
 # =============================================================================
 
 func addEmailChanges*(
-    b: RequestBuilder,
+    b: sink RequestBuilder,
     accountId: AccountId,
     sinceState: JmapState,
     maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges),
@@ -200,7 +201,7 @@ func addEmailChanges*(
 # =============================================================================
 
 func addEmailGetByRef*(
-    b: RequestBuilder,
+    b: sink RequestBuilder,
     accountId: AccountId,
     idsRef: ResultReference,
     properties: Opt[seq[string]] = Opt.none(seq[string]),
@@ -226,7 +227,7 @@ func addEmailGetByRef*(
 # =============================================================================
 
 func addPartialEmailGet*(
-    b: RequestBuilder,
+    b: sink RequestBuilder,
     accountId: AccountId,
     ids: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]),
     properties: Opt[seq[string]] = Opt.none(seq[string]),
@@ -241,7 +242,8 @@ func addPartialEmailGet*(
   emitBodyFetchOptions(args, bodyFetchOptions)
   let (b1, callId) =
     addInvocation(b, mnEmailGet, args, capabilityUri(PartialEmail), getMeta(ids))
-  (b1, initResponseHandle[GetResponse[PartialEmail]](callId, b.builderId))
+  let brand = b1.builderId
+  (b1, initResponseHandle[GetResponse[PartialEmail]](callId, brand))
 
 # =============================================================================
 # addPartialEmailGetByRef — sparse Email/get via RFC 8620 §3.7 back-reference
@@ -249,7 +251,7 @@ func addPartialEmailGet*(
 # =============================================================================
 
 func addPartialEmailGetByRef*(
-    b: RequestBuilder,
+    b: sink RequestBuilder,
     accountId: AccountId,
     idsRef: ResultReference,
     properties: Opt[seq[string]] = Opt.none(seq[string]),
@@ -271,7 +273,7 @@ func addPartialEmailGetByRef*(
 # =============================================================================
 
 func addThreadGetByRef*(
-    b: RequestBuilder,
+    b: sink RequestBuilder,
     accountId: AccountId,
     idsRef: ResultReference,
     properties: Opt[seq[string]] = Opt.none(seq[string]),
@@ -290,7 +292,7 @@ func addThreadGetByRef*(
 # =============================================================================
 
 func addThreadGet*(
-    b: RequestBuilder,
+    b: sink RequestBuilder,
     accountId: AccountId,
     ids: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]),
     properties: Opt[seq[string]] = Opt.none(seq[string]),
@@ -304,7 +306,7 @@ func addThreadGet*(
 # =============================================================================
 
 func addThreadChanges*(
-    b: RequestBuilder,
+    b: sink RequestBuilder,
     accountId: AccountId,
     sinceState: JmapState,
     maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges),
@@ -320,7 +322,7 @@ func addThreadChanges*(
 # =============================================================================
 
 func addEmailQuery*(
-    b: RequestBuilder,
+    b: sink RequestBuilder,
     accountId: AccountId,
     filter: Opt[Filter[EmailFilterCondition]] = Opt.none(Filter[EmailFilterCondition]),
     sort: Opt[seq[EmailComparator]] = Opt.none(seq[EmailComparator]),
@@ -333,14 +335,15 @@ func addEmailQuery*(
   )
   args["collapseThreads"] = %collapseThreads
   let (b1, callId) = addInvocation(b, mnEmailQuery, args, capabilityUri(Email))
-  (b1, initResponseHandle[QueryResponse[Email]](callId, b.builderId))
+  let brand = b1.builderId
+  (b1, initResponseHandle[QueryResponse[Email]](callId, brand))
 
 # =============================================================================
 # addEmailQueryChanges — Email/queryChanges (RFC 8621 §4.5)
 # =============================================================================
 
 func addEmailQueryChanges*(
-    b: RequestBuilder,
+    b: sink RequestBuilder,
     accountId: AccountId,
     sinceQueryState: JmapState,
     filter: Opt[Filter[EmailFilterCondition]] = Opt.none(Filter[EmailFilterCondition]),
@@ -362,14 +365,15 @@ func addEmailQueryChanges*(
   )
   args["collapseThreads"] = %collapseThreads
   let (b1, callId) = addInvocation(b, mnEmailQueryChanges, args, capabilityUri(Email))
-  (b1, initResponseHandle[QueryChangesResponse[Email]](callId, b.builderId))
+  let brand = b1.builderId
+  (b1, initResponseHandle[QueryChangesResponse[Email]](callId, brand))
 
 # =============================================================================
 # addEmailSet — Email/set (RFC 8621 §4.6)
 # =============================================================================
 
 func addEmailSet*(
-    b: RequestBuilder,
+    b: sink RequestBuilder,
     accountId: AccountId,
     ifInState: Opt[JmapState] = Opt.none(JmapState),
     create: Opt[Table[CreationId, EmailBlueprint]] =
@@ -396,7 +400,7 @@ func addEmailSet*(
 # =============================================================================
 
 func addEmailCopy*(
-    b: RequestBuilder,
+    b: sink RequestBuilder,
     fromAccountId: AccountId,
     accountId: AccountId,
     create: Table[CreationId, EmailCopyItem],
@@ -436,7 +440,7 @@ type EmailCopyResults* = CompoundResults[
 # =============================================================================
 
 func addEmailCopyAndDestroy*(
-    b: RequestBuilder,
+    b: sink RequestBuilder,
     fromAccountId: AccountId,
     accountId: AccountId,
     create: Table[CreationId, EmailCopyItem],
@@ -460,10 +464,11 @@ func addEmailCopyAndDestroy*(
     ifInState,
     destroyMode = destroyAfterSuccess(destroyFromIfInState),
   )
+  let brand = b1.builderId
   let handles = EmailCopyHandles(
     primary: copyHandle,
     implicit: initNameBoundHandle[SetResponse[EmailCreatedItem, PartialEmail]](
-      callId(copyHandle), mnEmailSet, b.builderId
+      callId(copyHandle), mnEmailSet, brand
     ),
   )
   (b1, handles)
@@ -521,7 +526,7 @@ func getAll*(
   )
 
 func addEmailQueryWithThreads*(
-    b: RequestBuilder,
+    b: sink RequestBuilder,
     accountId: AccountId,
     filter: Filter[EmailFilterCondition],
     sort: seq[EmailComparator] = @[],

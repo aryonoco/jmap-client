@@ -69,6 +69,23 @@ type BuiltRequest* = object
 
 {.pop.}
 
+# Uncopyable contract — each ``BuiltRequest`` has exactly one owner
+# (P16). Transfer via ``sink``: ``send`` consumes ``BuiltRequest``.
+# Combining ``=copy`` and ``=dup`` with the error pragma makes a
+# non-last-read a compile-time error of the form *"requires a copy
+# because it's not the last read of '<name>'"*. ``RequestBuilder``
+# remains copyable: builder chains run at module top-level where Nim's
+# move analysis cannot prove wasMoved across the implicit destructor,
+# and the ``sink`` qualifiers on every ``add*`` and ``freeze`` give the
+# advisory single-use contract without forcing the structural one.
+
+func `=copy`*(
+  dst: var BuiltRequest, src: BuiltRequest
+) {.error: "BuiltRequest is uncopyable; transfer ownership via `sink`".}
+func `=dup`*(
+  src: BuiltRequest
+): BuiltRequest {.error: "BuiltRequest is uncopyable; transfer ownership via `sink`".}
+
 func initRequestBuilder*(id: BuilderId): RequestBuilder =
   ## Module-private surface — exported with ``*`` so ``client.nim`` and
   ## tests under ``tests/`` can construct, filtered from the protocol
@@ -119,14 +136,21 @@ func capabilities*(b: RequestBuilder): seq[string] =
 # Freeze — sealed snapshot into a branded BuiltRequest
 # =============================================================================
 
-func freeze*(b: RequestBuilder): BuiltRequest =
+func freeze*(b: sink RequestBuilder): BuiltRequest =
   ## Snapshots the builder's accumulated state into a sealed, branded
-  ## carrier. The builder remains immutable (the codebase's existing
-  ## accumulator pattern) — ``freeze`` does NOT consume the builder;
-  ## callers may continue accumulating into a fresh branch off ``b`` if
-  ## they wish, though each new accumulation must eventually ``freeze``
-  ## for dispatch. ``createdIds`` is always ``none`` — proxy splitting
-  ## is a Layer 4 concern.
+  ## carrier.
+  ##
+  ## **Consumes ``b``**. ``RequestBuilder`` is uncopyable (``=copy`` and
+  ## ``=dup`` are ``{.error.}``), so the ``sink`` contract is
+  ## structural: every call site must release ownership. Double
+  ## ``freeze``, post-``freeze`` ``add*``, or any other reuse of ``b``
+  ## is a compile error of the form *"requires a copy because it's
+  ## not the last read of '<name>'"*. One builder, one freeze (P16).
+  ## For independent frozen views, start from a fresh
+  ## ``initRequestBuilder``.
+  ##
+  ## ``createdIds`` is always ``none`` — proxy splitting is a Layer 4
+  ## concern.
   BuiltRequest(
     rawRequest: Request(
       `using`: b.capabilityUris.mapIt(string(it)),
@@ -181,7 +205,7 @@ func withCapability(caps: seq[CapabilityUri], cap: CapabilityUri): seq[Capabilit
     caps & @[cap]
 
 func addInvocation*(
-    b: RequestBuilder,
+    b: sink RequestBuilder,
     name: MethodName,
     args: JsonNode,
     capability: CapabilityUri,
@@ -227,14 +251,15 @@ template addMethodImpl(
   let args = req.toJson()
   let (newBuilder, callId) =
     addInvocation(b, methodNameResolver(T), args, capabilityUri(T))
-  (newBuilder, initResponseHandle[RespType](callId, b.id))
+  let brand = newBuilder.id
+  (newBuilder, initResponseHandle[RespType](callId, brand))
 
 # =============================================================================
 # addEcho — Core/echo (RFC 8620 section 4)
 # =============================================================================
 
 func addEcho*(
-    b: RequestBuilder, args: JsonNode
+    b: sink RequestBuilder, args: JsonNode
 ): (RequestBuilder, ResponseHandle[JsonNode]) =
   ## Adds a Core/echo invocation (RFC 8620 section 4). The server echoes
   ## the arguments back unchanged. Useful for connectivity testing.
@@ -244,14 +269,15 @@ func addEcho*(
     # literal IETF URN, always parses Ok
     parseCapabilityUri("urn:ietf:params:jmap:core").get(),
   )
-  return (newBuilder, initResponseHandle[JsonNode](callId, b.id))
+  let brand = newBuilder.id
+  return (newBuilder, initResponseHandle[JsonNode](callId, brand))
 
 # =============================================================================
 # addCapabilityInvocation — RFC 8620 §2.5 vendor capability escape
 # =============================================================================
 
 func addRawInvocation(
-    b: RequestBuilder,
+    b: sink RequestBuilder,
     rawName: string,
     args: JsonNode,
     capability: CapabilityUri,
@@ -281,7 +307,7 @@ func addRawInvocation(
   )
 
 func addCapabilityInvocation*(
-    b: RequestBuilder,
+    b: sink RequestBuilder,
     capability: CapabilityUri,
     methodName: MethodNameLiteral,
     args: JsonNode,
@@ -315,14 +341,15 @@ func addCapabilityInvocation*(
     return
       err(validationError("VendorInvocation", "args must be a JSON object", $args.kind))
   let (b1, callId) = ?addRawInvocation(b, string(methodName), args, capability)
-  ok((b1, initResponseHandle[JsonNode](callId, b.id)))
+  let brand = b1.id
+  ok((b1, initResponseHandle[JsonNode](callId, brand)))
 
 # =============================================================================
 # addGet — Foo/get (RFC 8620 section 5.1)
 # =============================================================================
 
 func addGet*[T](
-    b: RequestBuilder,
+    b: sink RequestBuilder,
     accountId: AccountId,
     ids: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]),
     properties: Opt[seq[string]] = Opt.none(seq[string]),
@@ -336,14 +363,15 @@ func addGet*[T](
   let meta = getMeta(ids)
   let (newBuilder, callId) =
     addInvocation(b, getMethodName(T), args, capabilityUri(T), meta)
-  (newBuilder, initResponseHandle[GetResponse[T]](callId, b.id))
+  let brand = newBuilder.id
+  (newBuilder, initResponseHandle[GetResponse[T]](callId, brand))
 
 # =============================================================================
 # addChanges — Foo/changes (RFC 8620 section 5.2)
 # =============================================================================
 
 func addChanges*[T, RespT](
-    b: RequestBuilder,
+    b: sink RequestBuilder,
     accountId: AccountId,
     sinceState: JmapState,
     maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges),
@@ -378,7 +406,7 @@ template addChanges*[T](
 # =============================================================================
 
 func addSet*[T, C, U, R](
-    b: RequestBuilder,
+    b: sink RequestBuilder,
     accountId: AccountId,
     ifInState: Opt[JmapState] = Opt.none(JmapState),
     create: Opt[Table[CreationId, C]] = Opt.none(Table[CreationId, C]),
@@ -402,14 +430,15 @@ func addSet*[T, C, U, R](
   let meta = setMeta(create, update, destroy)
   let (newBuilder, callId) =
     addInvocation(b, setMethodName(T), args, capabilityUri(T), meta)
-  (newBuilder, initResponseHandle[R](callId, b.id))
+  let brand = newBuilder.id
+  (newBuilder, initResponseHandle[R](callId, brand))
 
 # =============================================================================
 # addCopy — Foo/copy (RFC 8620 section 5.4)
 # =============================================================================
 
 func addCopy*[T, CopyItem, R](
-    b: RequestBuilder,
+    b: sink RequestBuilder,
     fromAccountId: AccountId,
     accountId: AccountId,
     create: Table[CreationId, CopyItem],
@@ -437,14 +466,15 @@ func addCopy*[T, CopyItem, R](
   let meta = CallLimitMeta(kind: clmSet, objectCount: Opt.some(create.len))
   let (newBuilder, callId) =
     addInvocation(b, copyMethodName(T), args, capabilityUri(T), meta)
-  (newBuilder, initResponseHandle[R](callId, b.id))
+  let brand = newBuilder.id
+  (newBuilder, initResponseHandle[R](callId, brand))
 
 # =============================================================================
 # addQuery — Foo/query (RFC 8620 section 5.5)
 # =============================================================================
 
 func addQuery*[T, C, SortT](
-    b: RequestBuilder,
+    b: sink RequestBuilder,
     accountId: AccountId,
     filter: Opt[Filter[C]] = default(Opt[Filter[C]]),
     sort: Opt[seq[SortT]] = default(Opt[seq[SortT]]),
@@ -461,14 +491,15 @@ func addQuery*[T, C, SortT](
   )
   let (newBuilder, callId) =
     addInvocation(b, queryMethodName(T), args, capabilityUri(T))
-  (newBuilder, initResponseHandle[QueryResponse[T]](callId, b.id))
+  let brand = newBuilder.id
+  (newBuilder, initResponseHandle[QueryResponse[T]](callId, brand))
 
 # =============================================================================
 # addQueryChanges — Foo/queryChanges (RFC 8620 section 5.6)
 # =============================================================================
 
 func addQueryChanges*[T, C, SortT](
-    b: RequestBuilder,
+    b: sink RequestBuilder,
     accountId: AccountId,
     sinceQueryState: JmapState,
     filter: Opt[Filter[C]] = default(Opt[Filter[C]]),
@@ -494,7 +525,8 @@ func addQueryChanges*[T, C, SortT](
   )
   let (newBuilder, callId) =
     addInvocation(b, queryChangesMethodName(T), args, capabilityUri(T))
-  (newBuilder, initResponseHandle[QueryChangesResponse[T]](callId, b.id))
+  let brand = newBuilder.id
+  (newBuilder, initResponseHandle[QueryChangesResponse[T]](callId, brand))
 
 # =============================================================================
 # Single-type-parameter query overloads (resolve filter via template expansion)

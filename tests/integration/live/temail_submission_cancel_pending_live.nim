@@ -21,8 +21,9 @@ import jmap_client/client
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block tEmailSubmissionCancelPendingLive:
+testCase tEmailSubmissionCancelPendingLive:
   forEachLiveTarget(target):
     # Cat-B (Phase L §0): exercises the ``EmailSubmission/set update``
     # cancel arm (RFC 8621 §7.5 ¶3). Stalwart 0.15.5 and Cyrus 3.12.2

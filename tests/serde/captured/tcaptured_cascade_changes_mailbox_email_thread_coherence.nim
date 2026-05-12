@@ -29,8 +29,9 @@
 import jmap_client
 import jmap_client/internal/types/envelope
 import ./mloader
+import ../../mtestblock
 
-block tcapturedCascadeChangesMailboxEmailThreadCoherence:
+testCase tcapturedCascadeChangesMailboxEmailThreadCoherence:
   let j = loadCapturedFixture("cascade-changes-mailbox-email-thread-coherence-stalwart")
   let resp = envelope.Response.fromJson(j).expect("envelope.Response.fromJson")
   doAssert resp.methodResponses.len == 3

@@ -40,6 +40,7 @@ import jmap_client/internal/mail/serde_email_blueprint
 
 import ../mproperty
 import ../mfixtures
+import ../mtestblock
 
 # =============================================================================
 # Property 97a child-spawn sentinel
@@ -61,7 +62,7 @@ if existsEnv("JMAP_E_97A_CHILD"):
 # A — Foundational (85-91)
 # =============================================================================
 
-block propTotalityParseEmailBlueprint: # 85
+testCase propTotalityParseEmailBlueprint: # 85
   ## Uses ``QuickTrials`` because each trial walks an adversarial body tree
   ## (up to ``MaxBodyPartDepth``-nested parts) through every validator in
   ## ``parseEmailBlueprint`` — ~25 ms/trial in release. Totality is a
@@ -91,13 +92,13 @@ block propTotalityParseEmailBlueprint: # 85
       extraHeaders = args.extraHeaders,
     )
 
-block propTotalityToJson: # 86
+testCase propTotalityToJson: # 86
   checkProperty "toJson totality on random EmailBlueprint":
     let bp = rng.genEmailBlueprint(trial)
     lastInput = "trial " & $trial
     discard bp.toJson()
 
-block propDeterminism: # 87
+testCase propDeterminism: # 87
   ## Uses ``QuickTrials`` because each trial calls ``parseEmailBlueprint``
   ## *twice* on adversarial inputs — ~50 ms/trial in release. Purity is a
   ## structural invariant of the function (no global state, no RNG,
@@ -127,7 +128,7 @@ block propDeterminism: # 87
       doAssert emailBlueprintErrorsOrderedEq(r1.unsafeError, r2.unsafeError),
         "Err rail diverged (non-determinism in accumulated ordering)"
 
-block propErrorAccumulation: # 88
+testCase propErrorAccumulation: # 88
   checkProperty "parseEmailBlueprint accumulates every triggered variant":
     let trig = rng.genBlueprintErrorTrigger(trial)
     lastInput = "expected=" & $trig.expected
@@ -146,7 +147,7 @@ block propErrorAccumulation: # 88
     doAssert missing == {},
       "expected variants " & $trig.expected & " missing " & $missing
 
-block propToJsonShapeInvariants: # 89
+testCase propToJsonShapeInvariants: # 89
   checkProperty "toJson emits only known keys and respects body XOR":
     let bp = rng.genEmailBlueprint(trial)
     lastInput = "trial " & $trial
@@ -171,7 +172,7 @@ block propToJsonShapeInvariants: # 89
     doAssert not (hasStructured and hasFlat),
       "bodyStructure XOR flat-list violated (both present)"
 
-block propToJsonKeyOmission: # 90
+testCase propToJsonKeyOmission: # 90
   checkProperty "toJson omits keys for Opt.none / empty convenience fields":
     # Minimal blueprint — only ``mailboxIds`` is non-empty. Every other
     # convenience key should be absent from the rendered object.
@@ -189,7 +190,7 @@ block propToJsonKeyOmission: # 90
     for key, _ in obj.pairs:
       doAssert not key.startsWith("header:"), "unexpected header:* on minimal blueprint"
 
-block propToJsonInjectivity: # 91
+testCase propToJsonInjectivity: # 91
   checkPropertyN "distinct blueprints produce distinct $toJson wire strings",
     ThoroughTrials:
     let pair = rng.genEmailBlueprintDelta(trial)
@@ -239,7 +240,7 @@ proc harvestInlinePartIds(bp: EmailBlueprint): seq[PartId] =
     for att in bp.body.attachments:
       result.add collectInlineLeafPartIds(att)
 
-block propBodyValuesCorrespondence: # 92
+testCase propBodyValuesCorrespondence: # 92
   checkProperty "bodyValues keys are exactly the inline-leaf partIds":
     let bp = rng.genEmailBlueprint(trial)
     lastInput = "trial " & $trial
@@ -256,7 +257,7 @@ block propBodyValuesCorrespondence: # 92
     doAssert walkedSet == accessorSet,
       "bodyValues key-set diverged from inline-leaf walk"
 
-block propHeaderNameNormalisationIdempotence: # 93
+testCase propHeaderNameNormalisationIdempotence: # 93
   checkProperty "blueprint header-name parsers fold case and round-trip":
     let raw = rng.genBlueprintEmailHeaderName(trial)
     lastInput = string(raw)
@@ -275,7 +276,7 @@ block propHeaderNameNormalisationIdempotence: # 93
     doAssert canon.isOk and canon.unsafeValue == mixed.unsafeValue,
       "parser not idempotent under re-parse of canonical form"
 
-block propErrorOrderingDeterminism: # 94
+testCase propErrorOrderingDeterminism: # 94
   checkProperty "error rail emission order is deterministic across runs":
     let trig = rng.genBlueprintErrorTrigger(trial)
     lastInput = "expected=" & $trig.expected
@@ -301,7 +302,7 @@ block propErrorOrderingDeterminism: # 94
 # C — Adversarial (95-97)
 # =============================================================================
 
-block propAdversarialTotality: # 95
+testCase propAdversarialTotality: # 95
   ## Uses ``DefaultTrials`` rather than ``ThoroughTrials`` because each
   ## trial runs the full ``parseEmailBlueprint`` + ``toJson`` pipeline on
   ## a ``genAdversarialBlueprintArgs`` payload — ~70 ms/trial in release
@@ -334,7 +335,7 @@ block propAdversarialTotality: # 95
     if res.isOk:
       discard res.unsafeValue.toJson()
 
-block propMessagePurity: # 96
+testCase propMessagePurity: # 96
   checkProperty "message(e) is byte-identical across two invocations":
     let e = rng.genEmailBlueprintError(trial)
     lastInput = "constraint=" & $e.constraint
@@ -342,7 +343,7 @@ block propMessagePurity: # 96
     let m2 = message(e)
     doAssert m1 == m2, "message() is not a pure function: two invocations diverged"
 
-block propHarvestCorrectness: # 97
+testCase propHarvestCorrectness: # 97
   checkProperty "toJson bodyValues matches the inline-leaf walk":
     let bp = rng.genEmailBlueprint(trial)
     lastInput = "trial " & $trial
@@ -368,7 +369,7 @@ block propHarvestCorrectness: # 97
 # D — Second-audit (97a-97e)
 # =============================================================================
 
-block propCrossProcessStructuralEquality: # 97a
+testCase propCrossProcessStructuralEquality: # 97a
   ## Reframed from design §6.3.4's byte-equality wording to structural
   ## equality (``parseJson(child) == parseJson(parent)``). The serialiser
   ## does not currently sort Table keys, so byte-equality across processes
@@ -405,7 +406,7 @@ block propCrossProcessStructuralEquality: # 97a
       "cross-process structural mismatch\nparent: " & parentJson & "\nchild:  " &
         childStdout
 
-block propMessageBoundedLength: # 97b
+testCase propMessageBoundedLength: # 97b
   ## ``message(e)`` composes at most six ``clipForMessage``-512 slots plus
   ## fixed-size scaffolding, so every rendering is well under 8 KiB even
   ## when every payload slot is a 64 KiB adversarial string.
@@ -415,7 +416,7 @@ block propMessageBoundedLength: # 97b
     let m = message(e)
     doAssert m.len <= 8 * 1024, "message() exceeded 8 KiB budget: " & $m.len & " bytes"
 
-block propToJsonReParseable: # 97c
+testCase propToJsonReParseable: # 97c
   ## ``toJson`` output must be a JSON value ``std/json.parseJson`` accepts
   ## and re-serialises to the structurally-equal JsonNode. Guards against
   ## the emission of NaN, bare control bytes, or other non-JSON shapes.
@@ -427,7 +428,7 @@ block propToJsonReParseable: # 97c
     doAssert reparsed == j1,
       "re-parse of toJson wire string did not round-trip to the original JsonNode"
 
-block propBodyPartPathDepthCoupling: # 97d
+testCase propBodyPartPathDepthCoupling: # 97d
   checkProperty "BodyPartPath stays bounded by MaxBodyPartDepth":
     let path = rng.genBodyPartPath(trial)
     lastInput = $path
@@ -436,7 +437,7 @@ block propBodyPartPathDepthCoupling: # 97d
     for idx in path.items:
       doAssert idx >= 0, "path contains negative index: " & $idx
 
-block propEqInsertionOrderInsensitive: # 97e
+testCase propEqInsertionOrderInsensitive: # 97e
   checkProperty "emailBlueprintEq ignores extraHeaders insertion order":
     let pair = rng.genBlueprintInsertionPermutation(trial)
     lastInput = "trial " & $trial

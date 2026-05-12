@@ -10,16 +10,17 @@ import jmap_client/internal/mail/serde_addresses
 import jmap_client/internal/types/validation
 
 import ../../massertions
+import ../../mtestblock
 
 # ============= A. EmailAddress toJson =============
 
-block toJsonEmailAddressWithName: # scenario 4
+testCase toJsonEmailAddressWithName: # scenario 4
   let ea = parseEmailAddress("joe@example.com", Opt.some("Joe")).get()
   let node = ea.toJson()
   assertJsonFieldEq node, "email", %"joe@example.com"
   assertJsonFieldEq node, "name", %"Joe"
 
-block toJsonEmailAddressWithoutName: # scenario 5
+testCase toJsonEmailAddressWithoutName: # scenario 5
   let ea = parseEmailAddress("joe@example.com").get()
   let node = ea.toJson()
   assertJsonFieldEq node, "email", %"joe@example.com"
@@ -29,7 +30,7 @@ block toJsonEmailAddressWithoutName: # scenario 5
 
 # ============= B. EmailAddress fromJson =============
 
-block fromJsonEmailAddressValidWithName: # scenario 6
+testCase fromJsonEmailAddressValidWithName: # scenario 6
   let node = %*{"name": "Joe", "email": "joe@example.com"}
   let res = EmailAddress.fromJson(node)
   assertOk res
@@ -37,23 +38,23 @@ block fromJsonEmailAddressValidWithName: # scenario 6
   assertEq ea.email, "joe@example.com"
   assertSomeEq ea.name, "Joe"
 
-block fromJsonEmailAddressMissingEmail: # scenario 7
+testCase fromJsonEmailAddressMissingEmail: # scenario 7
   let node = %*{"name": "Joe"}
   assertErr EmailAddress.fromJson(node)
 
-block fromJsonEmailAddressNullEmail: # scenario 8
+testCase fromJsonEmailAddressNullEmail: # scenario 8
   let node = %*{"name": "Joe", "email": nil}
   assertErr EmailAddress.fromJson(node)
 
 # ============= C. EmailAddress round-trip =============
 
-block roundTripEmailAddressWithName:
+testCase roundTripEmailAddressWithName:
   let original = parseEmailAddress("joe@example.com", Opt.some("Joe")).get()
   let roundTripped = EmailAddress.fromJson(original.toJson()).get()
   assertEq roundTripped.email, original.email
   assertSomeEq roundTripped.name, "Joe"
 
-block roundTripEmailAddressWithoutName:
+testCase roundTripEmailAddressWithoutName:
   let original = parseEmailAddress("joe@example.com").get()
   let roundTripped = EmailAddress.fromJson(original.toJson()).get()
   assertEq roundTripped.email, original.email
@@ -61,29 +62,29 @@ block roundTripEmailAddressWithoutName:
 
 # ============= D. EmailAddress fromJson edge cases =============
 
-block fromJsonEmailAddressNameAbsent:
+testCase fromJsonEmailAddressNameAbsent:
   let node = %*{"email": "joe@example.com"}
   let res = EmailAddress.fromJson(node)
   assertOk res
   assertNone res.get().name
 
-block fromJsonEmailAddressNameNull:
+testCase fromJsonEmailAddressNameNull:
   let node = %*{"name": nil, "email": "joe@example.com"}
   let res = EmailAddress.fromJson(node)
   assertOk res
   assertNone res.get().name
 
-block fromJsonEmailAddressNotObject:
+testCase fromJsonEmailAddressNotObject:
   let node = %"just a string"
   assertErr EmailAddress.fromJson(node)
 
-block fromJsonEmailAddressEmptyEmail:
+testCase fromJsonEmailAddressEmptyEmail:
   let node = %*{"email": ""}
   assertErr EmailAddress.fromJson(node)
 
 # ============= E. EmailAddressGroup serde =============
 
-block roundTripEmailAddressGroupFull: # scenario 12
+testCase roundTripEmailAddressGroupFull: # scenario 12
   let ea1 = parseEmailAddress("joe@example.com", Opt.some("Joe")).get()
   let ea2 = parseEmailAddress("jane@example.com", Opt.some("Jane")).get()
   let group = EmailAddressGroup(name: Opt.some("Team"), addresses: @[ea1, ea2])
@@ -93,23 +94,23 @@ block roundTripEmailAddressGroupFull: # scenario 12
   assertEq roundTripped.addresses[0].email, "joe@example.com"
   assertEq roundTripped.addresses[1].email, "jane@example.com"
 
-block roundTripEmailAddressGroupNullName:
+testCase roundTripEmailAddressGroupNullName:
   let ea = parseEmailAddress("joe@example.com").get()
   let group = EmailAddressGroup(name: Opt.none(string), addresses: @[ea])
   let roundTripped = EmailAddressGroup.fromJson(group.toJson()).get()
   assertNone roundTripped.name
   assertLen roundTripped.addresses, 1
 
-block roundTripEmailAddressGroupEmptyAddresses:
+testCase roundTripEmailAddressGroupEmptyAddresses:
   let group = EmailAddressGroup(name: Opt.some("Empty"), addresses: @[])
   let roundTripped = EmailAddressGroup.fromJson(group.toJson()).get()
   assertSomeEq roundTripped.name, "Empty"
   assertLen roundTripped.addresses, 0
 
-block fromJsonEmailAddressGroupMissingAddresses:
+testCase fromJsonEmailAddressGroupMissingAddresses:
   let node = %*{"name": "Team"}
   assertErr EmailAddressGroup.fromJson(node)
 
-block fromJsonEmailAddressGroupBadElement:
+testCase fromJsonEmailAddressGroupBadElement:
   let node = %*{"name": "Team", "addresses": [{"email": ""}]}
   assertErr EmailAddressGroup.fromJson(node)

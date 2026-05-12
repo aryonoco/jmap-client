@@ -15,10 +15,11 @@ import jmap_client/internal/types/validation
 import jmap_client/internal/types/primitives
 
 import ../../massertions
+import ../../mtestblock
 
 # ============= A. Empty input =============
 
-block emailUpdateSetEmpty: # F22
+testCase emailUpdateSetEmpty: # F22
   let res = initEmailUpdateSet(@[])
   assertErr res
   assertLen res.error, 1
@@ -28,7 +29,7 @@ block emailUpdateSetEmpty: # F22
 
 # ============= B. Class 1 — duplicate target path (6 shapes) =============
 
-block class1TwoAddKeyword: # §8.7.1 row 1
+testCase class1TwoAddKeyword: # §8.7.1 row 1
   let k = parseKeyword("$seen").get()
   let res = initEmailUpdateSet(@[addKeyword(k), addKeyword(k)])
   assertErr res
@@ -37,7 +38,7 @@ block class1TwoAddKeyword: # §8.7.1 row 1
   assertEq res.error[0].message, "duplicate target path"
   assertEq res.error[0].value, "keywords/$seen"
 
-block class1TwoRemoveKeyword: # §8.7.1 row 2
+testCase class1TwoRemoveKeyword: # §8.7.1 row 2
   let k = parseKeyword("$seen").get()
   let res = initEmailUpdateSet(@[removeKeyword(k), removeKeyword(k)])
   assertErr res
@@ -45,7 +46,7 @@ block class1TwoRemoveKeyword: # §8.7.1 row 2
   assertEq res.error[0].message, "duplicate target path"
   assertEq res.error[0].value, "keywords/$seen"
 
-block class1TwoSetKeywords: # §8.7.1 row 3
+testCase class1TwoSetKeywords: # §8.7.1 row 3
   let ks1 = initKeywordSet(@[kwSeen])
   let ks2 = initKeywordSet(@[kwFlagged])
   let res = initEmailUpdateSet(@[setKeywords(ks1), setKeywords(ks2)])
@@ -54,7 +55,7 @@ block class1TwoSetKeywords: # §8.7.1 row 3
   assertEq res.error[0].message, "duplicate target path"
   assertEq res.error[0].value, "keywords"
 
-block class1TwoAddToMailbox: # §8.7.1 row 4
+testCase class1TwoAddToMailbox: # §8.7.1 row 4
   let id = parseId("m1").get()
   let res = initEmailUpdateSet(@[addToMailbox(id), addToMailbox(id)])
   assertErr res
@@ -62,7 +63,7 @@ block class1TwoAddToMailbox: # §8.7.1 row 4
   assertEq res.error[0].message, "duplicate target path"
   assertEq res.error[0].value, "mailboxIds/m1"
 
-block class1TwoRemoveFromMailbox: # §8.7.1 row 5
+testCase class1TwoRemoveFromMailbox: # §8.7.1 row 5
   let id = parseId("m1").get()
   let res = initEmailUpdateSet(@[removeFromMailbox(id), removeFromMailbox(id)])
   assertErr res
@@ -70,7 +71,7 @@ block class1TwoRemoveFromMailbox: # §8.7.1 row 5
   assertEq res.error[0].message, "duplicate target path"
   assertEq res.error[0].value, "mailboxIds/m1"
 
-block class1TwoSetMailboxIds: # §8.7.1 row 6
+testCase class1TwoSetMailboxIds: # §8.7.1 row 6
   let id1 = parseId("m1").get()
   let id2 = parseId("m2").get()
   let ids1 = parseNonEmptyMailboxIdSet(@[id1]).get()
@@ -83,7 +84,7 @@ block class1TwoSetMailboxIds: # §8.7.1 row 6
 
 # ============= C. Class 2 — opposite operations (2 shapes) =============
 
-block class2KeywordOpposite: # §8.7.2 row 1
+testCase class2KeywordOpposite: # §8.7.2 row 1
   let k = parseKeyword("$seen").get()
   let res = initEmailUpdateSet(@[addKeyword(k), removeKeyword(k)])
   assertErr res
@@ -92,7 +93,7 @@ block class2KeywordOpposite: # §8.7.2 row 1
   assertEq res.error[0].message, "opposite operations on same sub-path"
   assertEq res.error[0].value, "keywords/$seen"
 
-block class2MailboxOpposite: # §8.7.2 row 2
+testCase class2MailboxOpposite: # §8.7.2 row 2
   let id = parseId("m1").get()
   let res = initEmailUpdateSet(@[addToMailbox(id), removeFromMailbox(id)])
   assertErr res
@@ -102,7 +103,7 @@ block class2MailboxOpposite: # §8.7.2 row 2
 
 # ============= D. Class 3 — sub-path alongside full-replace (4 shapes) =============
 
-block class3AddKeywordSetKeywords: # §8.7.3 row 1
+testCase class3AddKeywordSetKeywords: # §8.7.3 row 1
   let k = parseKeyword("$seen").get()
   let ks = initKeywordSet(@[kwFlagged])
   let res = initEmailUpdateSet(@[addKeyword(k), setKeywords(ks)])
@@ -113,7 +114,7 @@ block class3AddKeywordSetKeywords: # §8.7.3 row 1
     "sub-path operation alongside full-replace on same parent"
   assertEq res.error[0].value, "keywords"
 
-block class3RemoveKeywordSetKeywords: # §8.7.3 row 2
+testCase class3RemoveKeywordSetKeywords: # §8.7.3 row 2
   let k = parseKeyword("$seen").get()
   let ks = initKeywordSet(@[kwFlagged])
   let res = initEmailUpdateSet(@[removeKeyword(k), setKeywords(ks)])
@@ -123,7 +124,7 @@ block class3RemoveKeywordSetKeywords: # §8.7.3 row 2
     "sub-path operation alongside full-replace on same parent"
   assertEq res.error[0].value, "keywords"
 
-block class3AddToMailboxSetMailboxIds: # §8.7.3 row 3
+testCase class3AddToMailboxSetMailboxIds: # §8.7.3 row 3
   let id1 = parseId("m1").get()
   let id2 = parseId("m2").get()
   let ids = parseNonEmptyMailboxIdSet(@[id2]).get()
@@ -134,7 +135,7 @@ block class3AddToMailboxSetMailboxIds: # §8.7.3 row 3
     "sub-path operation alongside full-replace on same parent"
   assertEq res.error[0].value, "mailboxIds"
 
-block class3RemoveFromMailboxSetMailboxIds: # §8.7.3 row 4
+testCase class3RemoveFromMailboxSetMailboxIds: # §8.7.3 row 4
   let id1 = parseId("m1").get()
   let id2 = parseId("m2").get()
   let ids = parseNonEmptyMailboxIdSet(@[id2]).get()
@@ -147,7 +148,7 @@ block class3RemoveFromMailboxSetMailboxIds: # §8.7.3 row 4
 
 # ============= E. Class 1 + 2 overlap (Class 2 wins) =============
 
-block class1And2Overlap: # F2 §8.12 policy row
+testCase class1And2Overlap: # F2 §8.12 policy row
   ## Same sub-path + opposite kinds. The shipped samePathConflicts
   ## emits ckOppositeOps (not ckDuplicatePath) when kinds differ —
   ## Class 2 strictly dominates Class 1 here.
@@ -161,30 +162,30 @@ block class1And2Overlap: # F2 §8.12 policy row
 
 # ============= F. Independent — positive §8.7.4 (4 shapes) =============
 
-block independentSetKeywordsSetMailboxIds: # §8.7.4 row 1
+testCase independentSetKeywordsSetMailboxIds: # §8.7.4 row 1
   let ks = initKeywordSet(@[kwSeen])
   let id = parseId("m1").get()
   let ids = parseNonEmptyMailboxIdSet(@[id]).get()
   assertOk initEmailUpdateSet(@[setKeywords(ks), setMailboxIds(ids)])
 
-block independentDistinctAddKeywords: # §8.7.4 row 2
+testCase independentDistinctAddKeywords: # §8.7.4 row 2
   let k1 = parseKeyword("$a").get()
   let k2 = parseKeyword("$b").get()
   assertOk initEmailUpdateSet(@[addKeyword(k1), addKeyword(k2)])
 
-block independentAddKeywordAddToMailbox: # §8.7.4 row 3
+testCase independentAddKeywordAddToMailbox: # §8.7.4 row 3
   let k = parseKeyword("$seen").get()
   let id = parseId("m1").get()
   assertOk initEmailUpdateSet(@[addKeyword(k), addToMailbox(id)])
 
-block independentDistinctMailboxOpposite: # §8.7.4 row 4 (diagonal closure)
+testCase independentDistinctMailboxOpposite: # §8.7.4 row 4 (diagonal closure)
   let id1 = parseId("m1").get()
   let id2 = parseId("m2").get()
   assertOk initEmailUpdateSet(@[addToMailbox(id1), removeFromMailbox(id2)])
 
 # ============= G. Accumulation =============
 
-block accumulateMixedClasses:
+testCase accumulateMixedClasses:
   ## One Class 1 + one Class 2 + one Class 3 = 3 errors.
   ## Classes are constructed on independent parents so they don't
   ## further collide with each other.
@@ -205,7 +206,7 @@ block accumulateMixedClasses:
   assertErr res
   assertLen res.error, 3
 
-block accumulateClass3TwoDistinctParents:
+testCase accumulateClass3TwoDistinctParents:
   ## Two distinct Class 3 violations, one per parent. ``parentPrefixConflicts``
   ## emits per-parent in the (replaced ∩ sub-pathed) intersection — the
   ## number of sub-path ops sharing a parent with a full-replace does NOT
@@ -232,7 +233,7 @@ block accumulateClass3TwoDistinctParents:
 
 # ============= F. parseNonEmptyEmailUpdates =============
 
-block parseNonEmptyEmailUpdatesRejectsEmpty:
+testCase parseNonEmptyEmailUpdatesRejectsEmpty:
   ## Empty input is rejected — the /set builder's ``update`` slot has
   ## exactly one "no updates" representation (``Opt.none``).
   let res = parseNonEmptyEmailUpdates(newSeq[(Id, EmailUpdateSet)]())
@@ -241,7 +242,7 @@ block parseNonEmptyEmailUpdatesRejectsEmpty:
   assertEq res.error[0].typeName, "NonEmptyEmailUpdates"
   assertEq res.error[0].message, "must contain at least one entry"
 
-block parseNonEmptyEmailUpdatesRejectsDuplicateId:
+testCase parseNonEmptyEmailUpdatesRejectsDuplicateId:
   ## Duplicate ``Id`` keys are rejected — silent last-wins shadowing at
   ## Table construction would swallow caller data.
   let id1 = parseId("e1").get()

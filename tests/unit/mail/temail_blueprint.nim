@@ -27,16 +27,17 @@ import jmap_client/internal/types/validation
 
 import ../../massertions
 import ../../mfixtures
+import ../../mtestblock
 
 # =============================================================================
 # A. Smart-constructor, accessors, accumulated errors (§6.1.1, §6.1.2)
 # =============================================================================
 
-block minimalBlueprintDefaults: # §6.1.1 scenario 1
+testCase minimalBlueprintDefaults: # §6.1.1 scenario 1
   let res = parseEmailBlueprint(mailboxIds = makeNonEmptyMailboxIdSet())
   assertBlueprintOkEq res, makeEmailBlueprint()
 
-block publicNamingContract: # §6.1.1 scenario 1a
+testCase publicNamingContract: # §6.1.1 scenario 1a
   let bp = makeEmailBlueprint()
   doAssert compiles(bp.fromAddr), "expected bp.fromAddr to compile"
   doAssert compiles(bp.mailboxIds), "expected bp.mailboxIds to compile"
@@ -45,7 +46,7 @@ block publicNamingContract: # §6.1.1 scenario 1a
   assertNotCompiles bp.`from`
   assertNotCompiles bp.rawFromAddr
 
-block structuredBodyAccepted: # §6.1.1 scenario 3
+testCase structuredBodyAccepted: # §6.1.1 scenario 3
   let inline = makeBlueprintBodyPartInline()
   let root = makeBlueprintBodyPartMultipart(subParts = @[inline])
   let res = parseEmailBlueprint(
@@ -56,39 +57,39 @@ block structuredBodyAccepted: # §6.1.1 scenario 3
   doAssert bp.bodyKind == ebkStructured
   doAssert blueprintBodyPartEq(bp.body.bodyStructure, root)
 
-block textBodyTypeMismatch: # §6.1.1 scenario 5
+testCase textBodyTypeMismatch: # §6.1.1 scenario 5
   let htmlLeaf = makeBlueprintBodyPartInline(contentType = "text/html")
   let body = flatBody(textBody = Opt.some(htmlLeaf))
   let res = parseEmailBlueprint(mailboxIds = makeNonEmptyMailboxIdSet(), body = body)
   assertBlueprintErrContains res, ebcTextBodyNotTextPlain, actualTextType, "text/html"
 
-block htmlBodyTypeMismatch: # §6.1.1 scenario 6
+testCase htmlBodyTypeMismatch: # §6.1.1 scenario 6
   let textLeaf = makeBlueprintBodyPartInline(contentType = "text/plain")
   let body = flatBody(htmlBody = Opt.some(textLeaf))
   let res = parseEmailBlueprint(mailboxIds = makeNonEmptyMailboxIdSet(), body = body)
   assertBlueprintErrContains res, ebcHtmlBodyNotTextHtml, actualHtmlType, "text/plain"
 
-block topLevelFromDuplicate: # §6.1.1 scenario 7
+testCase topLevelFromDuplicate: # §6.1.1 scenario 7
   let res = makeBlueprintWithDuplicateAt(
     dupName = "from", dupKind = ebcEmailTopLevelHeaderDuplicate
   )
   assertBlueprintErrContains res, ebcEmailTopLevelHeaderDuplicate, dupName, "from"
 
-block bodyStructureSubjectDuplicate: # §6.1.1 scenario 7a
+testCase bodyStructureSubjectDuplicate: # §6.1.1 scenario 7a
   let res = makeBlueprintWithDuplicateAt(
     dupName = "subject", dupKind = ebcBodyStructureHeaderDuplicate
   )
   assertBlueprintErrContains res,
     ebcBodyStructureHeaderDuplicate, bodyStructureDupName, "subject"
 
-block bodyStructureFromSameInBoth: # §6.1.1 scenario 7b
+testCase bodyStructureFromSameInBoth: # §6.1.1 scenario 7b
   let res = makeBlueprintWithDuplicateAt(
     dupName = "from", dupKind = ebcBodyStructureHeaderDuplicate
   )
   assertBlueprintErrContains res,
     ebcBodyStructureHeaderDuplicate, bodyStructureDupName, "from"
 
-block bodyStructureRootUniqueCustom: # §6.1.1 scenario 7c
+testCase bodyStructureRootUniqueCustom: # §6.1.1 scenario 7c
   # Root extraHeaders carries a name with no top-level counterpart —
   # constraint 3b must NOT fire.
   var rootExtra = initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue]()
@@ -101,7 +102,7 @@ block bodyStructureRootUniqueCustom: # §6.1.1 scenario 7c
   )
   assertOk res
 
-block bodyStructureSubPartOutOfScope: # §6.1.1 scenario 7d
+testCase bodyStructureSubPartOutOfScope: # §6.1.1 scenario 7d
   # Sub-part of the root carries the colliding header — scope is ROOT
   # only (design §3.3), so constraint 3b does not fire.
   var subExtra = initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue]()
@@ -117,14 +118,14 @@ block bodyStructureSubPartOutOfScope: # §6.1.1 scenario 7d
   )
   assertOk res
 
-block bodyPartContentTypeDuplicate: # §6.1.1 scenario 7e
+testCase bodyPartContentTypeDuplicate: # §6.1.1 scenario 7e
   let res = makeBlueprintWithDuplicateAt(
     dupName = "content-type", dupKind = ebcBodyPartHeaderDuplicate
   )
   assertBlueprintErrContains res,
     ebcBodyPartHeaderDuplicate, bodyPartDupName, "content-type"
 
-block bodyPartContentDispositionDuplicate: # §6.1.1 scenario 7f
+testCase bodyPartContentDispositionDuplicate: # §6.1.1 scenario 7f
   # Inline leaf with both ``disposition`` domain field AND a
   # ``content-disposition`` extraHeaders entry — domain-field set is
   # ``{content-type, content-disposition}``, so collision fires.
@@ -151,7 +152,7 @@ block bodyPartContentDispositionDuplicate: # §6.1.1 scenario 7f
   assertBlueprintErrContains res,
     ebcBodyPartHeaderDuplicate, bodyPartDupName, "content-disposition"
 
-block bodyPartMultipartPathDepthTwo: # §6.1.1 scenario 7g
+testCase bodyPartMultipartPathDepthTwo: # §6.1.1 scenario 7g
   # Build root -> child0(multipart) -> child2(multipart with dup). The
   # colliding header on the inner multipart yields ``where.path ==
   # @[0, 2]``. The multipart's domain-field set always includes
@@ -183,7 +184,7 @@ block bodyPartMultipartPathDepthTwo: # §6.1.1 scenario 7g
       break
   doAssert found, "expected multipart-at-depth-2 duplicate, got " & $errs
 
-block bodyPartBlobRefAtDepthTwo: # §6.1.1 scenario 7h
+testCase bodyPartBlobRefAtDepthTwo: # §6.1.1 scenario 7h
   # Blob-ref leaf at @[0, 0] with a colliding header. ``locationOf``
   # routes to ``bplBlobRef`` (leaf), so ``where`` carries the blobId.
   var leafExtra = initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue]()
@@ -205,7 +206,7 @@ block bodyPartBlobRefAtDepthTwo: # §6.1.1 scenario 7h
       break
   doAssert found, "expected blob-ref duplicate at depth 2, got " & $res.unsafeError
 
-block accumulatedDuplicatesCount: # §6.1.1 scenario 7i
+testCase accumulatedDuplicatesCount: # §6.1.1 scenario 7i
   # Two independent collisions in one parse: "from" top-level dup plus
   # "content-type" body-part dup. The accumulating rail returns both,
   # not the first.
@@ -226,7 +227,7 @@ block accumulatedDuplicatesCount: # §6.1.1 scenario 7i
   assertBlueprintErrAny res,
     {ebcEmailTopLevelHeaderDuplicate, ebcBodyPartHeaderDuplicate}
 
-block sentAtDateAliasCollision: # §6.1.1 scenario 7j
+testCase sentAtDateAliasCollision: # §6.1.1 scenario 7j
   # ``sentAt`` convenience field implies header name ``date``.
   var topExtra = initTable[BlueprintEmailHeaderName, BlueprintHeaderMultiValue]()
   topExtra[makeBlueprintEmailHeaderName("date")] = makeBhmvDateSingle()
@@ -237,7 +238,7 @@ block sentAtDateAliasCollision: # §6.1.1 scenario 7j
   )
   assertBlueprintErrContains res, ebcEmailTopLevelHeaderDuplicate, dupName, "date"
 
-block flatAttachmentsNestedPathEncoding: # §6.1.1 scenario 7k
+testCase flatAttachmentsNestedPathEncoding: # §6.1.1 scenario 7k
   # Flat body with 3 attachments: attachments[2] is a multipart with a
   # colliding ``content-type`` extraHeaders entry on its own root.
   # Per §3.4, flat-body path encoding for attachments[i] starts at
@@ -260,7 +261,7 @@ block flatAttachmentsNestedPathEncoding: # §6.1.1 scenario 7k
       break
   doAssert found, "expected attachments[2] path @[4], got " & $res.unsafeError
 
-block bodyPartLocationRoundTrip: # §6.1.1 scenario 7l
+testCase bodyPartLocationRoundTrip: # §6.1.1 scenario 7l
   let inline = makeBodyPartLocationInline(parsePartIdFromServer("3").get())
   let blob = makeBodyPartLocationBlobRef(makeBlobId("blobZ"))
   let mp = makeBodyPartLocationMultipart(makeBodyPartPath(@[1, 2, 3]))
@@ -271,7 +272,7 @@ block bodyPartLocationRoundTrip: # §6.1.1 scenario 7l
   doAssert not bodyPartLocationEq(blob, mp)
   doAssert not bodyPartLocationEq(inline, mp)
 
-block allowedFormRejected: # §6.1.1 scenario 9
+testCase allowedFormRejected: # §6.1.1 scenario 9
   # "subject" allows {hfText, hfRaw}; hfAddresses is rejected.
   var extra = initTable[BlueprintEmailHeaderName, BlueprintHeaderMultiValue]()
   extra[makeBlueprintEmailHeaderName("subject")] =
@@ -281,7 +282,7 @@ block allowedFormRejected: # §6.1.1 scenario 9
   assertBlueprintErrContains res, ebcAllowedFormRejected, rejectedName, "subject"
   assertBlueprintErrContains res, ebcAllowedFormRejected, rejectedForm, hfAddresses
 
-block messageRenderingSixVariants: # §6.1.1 scenario 11a
+testCase messageRenderingSixVariants: # §6.1.1 scenario 11a
   # Six distinct variants → six distinct human-readable renderings.
   let path0 = makeBodyPartPath(@[0])
   let errs = @[
@@ -311,7 +312,7 @@ block messageRenderingSixVariants: # §6.1.1 scenario 11a
     rendered.incl message(e)
   doAssert rendered.len == 6, "expected six distinct messages, got " & $rendered.len
 
-block messageBoundedAndPure: # §6.1.1 scenario 11b
+testCase messageBoundedAndPure: # §6.1.1 scenario 11b
   # Adversarial payload: NUL, CRLF, and 100 KB. message() must be
   # bounded (≤ 8 KiB), NUL-stripped, and deterministic across calls.
   let adversarial = "\x00\r\n" & "x".repeat(100_000)
@@ -324,7 +325,7 @@ block messageBoundedAndPure: # §6.1.1 scenario 11b
   assertLe m1.len, 8192
   doAssert not m1.contains('\x00'), "NUL must be stripped from rendered message"
 
-block fullAccessorMarkerTuple: # §6.1.1 scenario 12
+testCase fullAccessorMarkerTuple: # §6.1.1 scenario 12
   let bp = makeFullEmailBlueprint()
   let alice = makeEmailAddress("alice@example.com", "Alice")
   let bob = makeEmailAddress("bob@example.com", "Bob")
@@ -340,7 +341,7 @@ block fullAccessorMarkerTuple: # §6.1.1 scenario 12
   assertEq bp.inReplyTo, Opt.some(@["<id0@host>"])
   assertEq bp.references, Opt.some(@["<id0@host>"])
 
-block flatAttachmentsOnly: # §6.1.1 scenario 17
+testCase flatAttachmentsOnly: # §6.1.1 scenario 17
   let att1 = makeBlueprintBodyPartBlobRef(blobId = makeBlobId("a1"))
   let att2 = makeBlueprintBodyPartBlobRef(blobId = makeBlobId("a2"))
   let res = parseEmailBlueprint(
@@ -352,7 +353,7 @@ block flatAttachmentsOnly: # §6.1.1 scenario 17
   doAssert bp.bodyKind == ebkFlat
   assertLen bp.body.attachments, 2
 
-block flatFullyEmpty: # §6.1.1 scenario 18
+testCase flatFullyEmpty: # §6.1.1 scenario 18
   # Empty flat body: no textBody, no htmlBody, no attachments. The
   # smart constructor must accept this (it's the default). Serde-side
   # omit-on-None assertions land in Phase 4 Step 18 alongside
@@ -369,7 +370,7 @@ block flatFullyEmpty: # §6.1.1 scenario 18
 # B. BlueprintBodyValue single-field serde (§6.1.2 scenario 21)
 # =============================================================================
 
-block blueprintBodyValueToJsonShape: # §6.1.2 scenario 21
+testCase blueprintBodyValueToJsonShape: # §6.1.2 scenario 21
   # RFC 8621 §4.1.4 / Design §4.1.3 — creation body value emits exactly
   # one field ``{"value": "..."}``; the isEncodingProblem/isTruncated
   # flags are stripped at the type level (sc 38 pairs here).
@@ -383,7 +384,7 @@ block blueprintBodyValueToJsonShape: # §6.1.2 scenario 21
 # C. Derived bodyValues accessor (§6.1.7 scenarios 49–50b)
 # =============================================================================
 
-block bodyValuesHarvestsInlineLeaves: # §6.1.7 scenario 49
+testCase bodyValuesHarvestsInlineLeaves: # §6.1.7 scenario 49
   let p1 = parsePartIdFromServer("1").get()
   let p2 = parsePartIdFromServer("2").get()
   let leaf1 =
@@ -403,7 +404,7 @@ block bodyValuesHarvestsInlineLeaves: # §6.1.7 scenario 49
   assertEq values[p1].value, "first"
   assertEq values[p2].value, "second"
 
-block bodyValuesEmptyOnAllBlobRef: # §6.1.7 scenario 50
+testCase bodyValuesEmptyOnAllBlobRef: # §6.1.7 scenario 50
   # All leaves blob-referenced — no inline partIds to harvest. Serde
   # omit-on-empty assertion lands in Phase 4 Step 18 alongside
   # ``EmailBlueprint.toJson``.
@@ -416,7 +417,7 @@ block bodyValuesEmptyOnAllBlobRef: # §6.1.7 scenario 50
     .get()
   assertLen bp.bodyValues, 0
 
-block bodyValuesIsDerivedNotCached: # §6.1.7 scenario 50a
+testCase bodyValuesIsDerivedNotCached: # §6.1.7 scenario 50a
   # Two blueprints with different inline-leaf payloads: each reports
   # its own body tree, confirming the accessor recomputes from the
   # tree rather than reading a cached copy written at construction.
@@ -438,7 +439,7 @@ block bodyValuesIsDerivedNotCached: # §6.1.7 scenario 50a
   assertEq bpA.bodyValues[p1].value, "A"
   assertEq bpB.bodyValues[p1].value, "B"
 
-block bodyValuesCorrespondence: # §6.1.7 scenario 50b
+testCase bodyValuesCorrespondence: # §6.1.7 scenario 50b
   # Manual walk produces identical (partId, value) pairs as the
   # derived accessor — the set-level equality is the correspondence.
   let p1 = parsePartIdFromServer("1").get()
@@ -470,7 +471,7 @@ block bodyValuesCorrespondence: # §6.1.7 scenario 50b
 # D. FFI value-type non-aliasing (§6.4.4 scenarios 102b, 102d)
 # =============================================================================
 
-block idValueTypeNonAliasing: # §6.4.4 scenario 102b
+testCase idValueTypeNonAliasing: # §6.4.4 scenario 102b
   # ``NonEmptyMailboxIdSet`` stores Ids by value (Id = distinct string,
   # seq passed by value into the set constructor). Rebinding a source
   # variable after construction must not mutate the set's contents.
@@ -480,7 +481,7 @@ block idValueTypeNonAliasing: # §6.4.4 scenario 102b
   doAssert makeId("mbox-one") in s, "set must retain original id by value"
   doAssert not (makeId("mbox-two") in s), "rebind must not leak into the set"
 
-block nonEmptySeqDistinctCopySemantics: # §6.4.4 scenario 102d
+testCase nonEmptySeqDistinctCopySemantics: # §6.4.4 scenario 102d
   # Unwrapping a ``distinct seq[T]`` to ``seq[T]`` copies; mutating the
   # unwrapped copy must not affect the original. The non-empty
   # invariant is structural, not just documented.

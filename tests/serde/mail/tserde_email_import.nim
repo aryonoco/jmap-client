@@ -22,44 +22,45 @@ import jmap_client/internal/types/validation
 
 import ../../massertions
 import ../../mfixtures
+import ../../mtestblock
 
 # ============= A. toJson(EmailImportItem) =============
 
-block importItemBlobIdAlwaysEmitted:
+testCase importItemBlobIdAlwaysEmitted:
   let item = makeEmailImportItem(blobId = makeBlobId("blob1"))
   let node = item.toJson()
   assertJsonFieldEq node, "blobId", makeBlobId("blob1").toJson()
 
-block importItemMailboxIdsAlwaysEmitted:
+testCase importItemMailboxIdsAlwaysEmitted:
   let item = makeEmailImportItem()
   let node = item.toJson()
   let mids = node{"mailboxIds"}
   doAssert mids != nil, "expected mailboxIds present"
   doAssert mids.kind == JObject, "expected mailboxIds to serialise as JObject"
 
-block importItemKeywordsOmittedWhenNone:
+testCase importItemKeywordsOmittedWhenNone:
   ## ``Opt.none`` → key-absent (server applies its default of empty).
   let item = makeEmailImportItem(keywords = Opt.none(KeywordSet))
   assertJsonKeyAbsent item.toJson(), "keywords"
 
-block importItemKeywordsEmittedWhenSome:
+testCase importItemKeywordsEmittedWhenSome:
   ## ``Opt.some(non-empty)`` → wire object ``{keyword: true, ...}``.
   let ks = initKeywordSet(@[kwSeen])
   let item = makeEmailImportItem(keywords = Opt.some(ks))
   assertJsonFieldEq item.toJson(), "keywords", ks.toJson()
 
-block importItemReceivedAtOmittedWhenNone:
+testCase importItemReceivedAtOmittedWhenNone:
   let item = makeEmailImportItem(receivedAt = Opt.none(UTCDate))
   assertJsonKeyAbsent item.toJson(), "receivedAt"
 
-block importItemReceivedAtEmittedWhenSome:
+testCase importItemReceivedAtEmittedWhenSome:
   let d = parseUtcDate("2026-01-01T00:00:00Z").get()
   let item = makeEmailImportItem(receivedAt = Opt.some(d))
   assertJsonFieldEq item.toJson(), "receivedAt", d.toJson()
 
 # ============= B. toJson(NonEmptyEmailImportMap) =============
 
-block nonEmptyEmailImportMapEmitsCreationIdKeys:
+testCase nonEmptyEmailImportMapEmitsCreationIdKeys:
   let cid1 = makeCreationId("k0")
   let cid2 = makeCreationId("k1")
   let m = makeNonEmptyEmailImportMap(
@@ -73,7 +74,7 @@ block nonEmptyEmailImportMapEmitsCreationIdKeys:
 
 # ============= C. EmailImportResponse.fromJson =============
 
-block importResponseCreatedObject:
+testCase importResponseCreatedObject:
   let node = %*{
     "accountId": "acct1",
     "newState": "s1",
@@ -86,25 +87,25 @@ block importResponseCreatedObject:
   doAssert makeCreationId("k0") in r.createResults
   doAssert r.createResults[makeCreationId("k0")].isOk
 
-block importResponseCreatedNull:
+testCase importResponseCreatedNull:
   ## RFC 8620 §5.3 tolerates ``null`` on map-valued fields as equivalent to
   ## absent. ``mergeCreatedResults`` treats non-object ``created`` as empty.
   let node = %*{"accountId": "acct1", "newState": "s1", "created": nil}
   let r = EmailImportResponse.fromJson(node).get()
   assertLen r.createResults, 0
 
-block importResponseCreatedEmpty:
+testCase importResponseCreatedEmpty:
   let node = %*{"accountId": "acct1", "newState": "s1", "created": {}}
   let r = EmailImportResponse.fromJson(node).get()
   assertLen r.createResults, 0
 
-block importResponseMalformedSurfacesError:
+testCase importResponseMalformedSurfacesError:
   ## ``accountId: null`` is type-malformed: the wire-mandatory field has
   ## the wrong kind. The parser must refuse rather than coerce.
   let node = %*{"accountId": nil, "newState": "s1"}
   assertErr EmailImportResponse.fromJson(node)
 
-block importResponseMissingNewStateLenient:
+testCase importResponseMissingNewStateLenient:
   ## Stalwart 0.15.5 empirically omits newState on import
   ## responses with only the failure rail populated. Library is
   ## lenient on receive per Postel's law (Phase K0).

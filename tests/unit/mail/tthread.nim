@@ -8,6 +8,7 @@ import jmap_client/internal/types/validation
 import jmap_client/internal/types/primitives
 
 import ../../massertions
+import ../../mtestblock
 
 let id = parseId("t1").get()
 let e1 = parseId("e1").get()
@@ -16,41 +17,41 @@ let e3 = parseId("e3").get()
 
 # ============= A. parseThread =============
 
-block parseThreadSingleEmailId: # scenario 13
+testCase parseThreadSingleEmailId: # scenario 13
   let res = parseThread(id, @[e1])
   assertOk res
   assertLen res.get().emailIds, 1
 
-block parseThreadMultipleEmailIds: # scenario 14
+testCase parseThreadMultipleEmailIds: # scenario 14
   let res = parseThread(id, @[e1, e2, e3])
   assertOk res
   assertLen res.get().emailIds, 3
 
-block parseThreadEmptyEmailIds: # scenario 15
+testCase parseThreadEmptyEmailIds: # scenario 15
   assertErrFields parseThread(id, @[]),
     "Thread", "emailIds must contain at least one Id", ""
 
 # ============= B. Accessors =============
 
-block idAccessor: # scenario 16
+testCase idAccessor: # scenario 16
   let t = parseThread(id, @[e1, e2]).get()
   assertEq t.id, id
 
-block emailIdsAccessor: # scenario 17
+testCase emailIdsAccessor: # scenario 17
   let t = parseThread(id, @[e1, e2, e3]).get()
   assertEq t.emailIds, @[e1, e2, e3]
 
 # ============= C. Sealed field safety =============
 
-block sealedFieldsRejectNamedConstruction: # replaces scenario 22
+testCase sealedFieldsRejectNamedConstruction: # replaces scenario 22
   assertNotCompiles(thread.Thread(rawId: id, rawEmailIds: @[e1]))
 
-block sealedFieldsRejectDirectAccess: # replaces scenario 23
+testCase sealedFieldsRejectDirectAccess: # replaces scenario 23
   let t = parseThread(id, @[e1]).get()
   assertNotCompiles(t.rawId)
   assertNotCompiles(t.rawEmailIds)
 
-block seqThreadOperationsWork: # validates requiresInit drop
+testCase seqThreadOperationsWork: # validates requiresInit drop
   var ts: seq[thread.Thread] = @[]
   let t = parseThread(id, @[e1]).get()
   ts.add(t)

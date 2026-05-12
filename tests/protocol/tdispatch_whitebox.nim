@@ -10,8 +10,9 @@ include jmap_client/internal/protocol/dispatch
 
 import ../mfixtures
 import ../massertions
+import ../mtestblock
 
-block serdeToMethodErrorPreservation:
+testCase serdeToMethodErrorPreservation:
   ## Verify errorType is metServerFail, description is the translated
   ## message, and extras is a JObject containing typeName and value keys.
   ## An ``svkFieldParserFailed`` wrapping an inner ValidationError preserves

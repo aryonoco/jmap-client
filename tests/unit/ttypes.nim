@@ -8,10 +8,11 @@ import std/tables
 
 import jmap_client/types
 import jmap_client/internal/types/framework
+import ../mtestblock
 
 # --- Re-export accessibility ---
 
-block reExportAccessibility:
+testCase reExportAccessibility:
   # validation
   let ve = validationError("Test", "msg", "raw")
   doAssert ve.typeName == "Test"

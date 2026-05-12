@@ -23,8 +23,9 @@ import std/tables
 import jmap_client
 import jmap_client/internal/types/envelope
 import ./mloader
+import ../../mtestblock
 
-block tcapturedSetErrorBlobNotFound:
+testCase tcapturedSetErrorBlobNotFound:
   let j = loadCapturedFixture("set-error-blob-not-found-stalwart")
   let resp = envelope.Response.fromJson(j).expect("envelope.Response.fromJson")
   doAssert resp.methodResponses.len == 1

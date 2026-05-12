@@ -16,8 +16,9 @@ import std/sets
 import jmap_client
 import jmap_client/internal/types/envelope
 import ./mloader
+import ../../mtestblock
 
-block tcapturedBobInboxAfterDelivery:
+testCase tcapturedBobInboxAfterDelivery:
   forEachCapturedServer("bob-inbox-after-alice-delivery", j):
     let resp = envelope.Response.fromJson(j).expect("envelope.Response.fromJson")
     doAssert resp.methodResponses.len == 1

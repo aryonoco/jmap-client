@@ -12,8 +12,9 @@
 import jmap_client
 import jmap_client/internal/types/envelope
 import ./mloader
+import ../../mtestblock
 
-block tcapturedMailboxGet:
+testCase tcapturedMailboxGet:
   forEachCapturedServer("mailbox-get-all", j):
     let resp = envelope.Response.fromJson(j).expect("envelope.Response.fromJson")
     doAssert resp.methodResponses.len == 1, "one Mailbox/get invocation expected"

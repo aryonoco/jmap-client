@@ -36,8 +36,9 @@ import jmap_client
 import jmap_client/client
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block tsearchSnippetGetStandaloneLive:
+testCase tsearchSnippetGetStandaloneLive:
   forEachLiveTarget(target):
     var client = initJmapClient(
         sessionUrl = target.sessionUrl,

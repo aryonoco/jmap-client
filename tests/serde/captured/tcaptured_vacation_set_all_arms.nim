@@ -18,8 +18,9 @@ import std/tables
 import jmap_client
 import jmap_client/internal/types/envelope
 import ./mloader
+import ../../mtestblock
 
-block tcapturedVacationSetAllArms:
+testCase tcapturedVacationSetAllArms:
   forEachCapturedServer("vacation-set-all-arms", j):
     # Two server-specific shapes are RFC-conformant here:
     #   * Stalwart and James implement VacationResponse/set and emit

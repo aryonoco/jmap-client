@@ -58,6 +58,7 @@ import jmap_client/client
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
 proc seedSizedEmail(
     client: var JmapClient,
@@ -246,7 +247,7 @@ proc assertKeywordSortAscending(
         "flagged seed (medium=" & $mediumPos & ") must be at one end of the sort (small=" &
           $smallPos & ", large=" & $largePos & ") under hasKeyword:$flagged sort"
 
-block temailQueryAdvancedSortLive:
+testCase temailQueryAdvancedSortLive:
   forEachLiveTarget(target):
     var client = initJmapClient(
         sessionUrl = target.sessionUrl,

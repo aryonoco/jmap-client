@@ -15,8 +15,9 @@ import std/json
 import jmap_client
 import jmap_client/internal/types/envelope
 import ./mloader
+import ../../mtestblock
 
-block tcapturedCoreEcho:
+testCase tcapturedCoreEcho:
   forEachCapturedServer("core-echo", j):
     let respRes = envelope.Response.fromJson(j)
     doAssert respRes.isOk, "envelope.Response.fromJson must succeed"

@@ -21,8 +21,9 @@ import std/strutils
 
 import jmap_client
 import ./mloader
+import ../../mtestblock
 
-block tcapturedRequestErrorUnknownCapability:
+testCase tcapturedRequestErrorUnknownCapability:
   let j = loadCapturedFixture("request-error-unknown-capability-stalwart")
   let re = RequestError.fromJson(j).expect("RequestError.fromJson")
   doAssert re.rawType == "urn:ietf:params:jmap:error:notRequest",

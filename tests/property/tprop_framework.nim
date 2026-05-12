@@ -17,14 +17,15 @@ import jmap_client/internal/serialisation/serde_framework
 import jmap_client/internal/types/session
 import ../mproperty
 import ../massertions
+import ../mtestblock
 
-block propParsePropertyNameTotality:
+testCase propParsePropertyNameTotality:
   checkProperty "parsePropertyName never crashes":
     let s = genArbitraryString(rng)
     lastInput = s
     discard parsePropertyName(s)
 
-block propPropertyNameNonEmpty:
+testCase propPropertyNameNonEmpty:
   checkProperty "valid PropertyName has len > 0":
     let s = genValidIdStrict(rng)
     lastInput = s
@@ -32,7 +33,7 @@ block propPropertyNameNonEmpty:
     if r.isOk:
       doAssert r.get().len > 0
 
-block propFilterConditionLaw:
+testCase propFilterConditionLaw:
   checkProperty "filterCondition preserves condition":
     let c = rng.rand(int)
     lastInput = $c
@@ -40,7 +41,7 @@ block propFilterConditionLaw:
     doAssert f.kind == fkCondition
     doAssert f.condition == c
 
-block propFilterOperatorLaw:
+testCase propFilterOperatorLaw:
   checkProperty "filterOperator preserves operator and children":
     let c1 = filterCondition(rng.rand(int))
     let c2 = filterCondition(rng.rand(int))
@@ -51,7 +52,7 @@ block propFilterOperatorLaw:
     doAssert f.operator == foAnd
     doAssert f.conditions.len == 2
 
-block propReferencableDirectLaw:
+testCase propReferencableDirectLaw:
   checkProperty "direct preserves value":
     let v = rng.rand(int)
     lastInput = $v
@@ -59,14 +60,14 @@ block propReferencableDirectLaw:
     doAssert r.kind == rkDirect
     doAssert r.value == v
 
-block propReferencableRefLaw:
+testCase propReferencableRefLaw:
   let mcid = parseMethodCallId("c0").get()
   let rref = initResultReference(resultOf = mcid, name = mnEmailGet, path = rpIds)
   let r = referenceTo[int](rref)
   doAssert r.kind == rkReference
   doAssert r.reference.resultOf == mcid
 
-block propComparatorDefaults:
+testCase propComparatorDefaults:
   let pn = parsePropertyName("name").get()
   let c = parseComparator(pn)
   doAssert c.isAscending == true
@@ -74,14 +75,14 @@ block propComparatorDefaults:
 
 # --- Additional properties ---
 
-block propPropertyNameRoundTrip:
+testCase propPropertyNameRoundTrip:
   checkProperty "$(parsePropertyName(s).get()) == s for valid s":
     let s = genValidPropertyName(rng)
     lastInput = s
     let r = parsePropertyName(s).get()
     doAssert $r == s
 
-block propPropertyNameEqImpliesHashEq:
+testCase propPropertyNameEqImpliesHashEq:
   checkProperty "propPropertyNameEqImpliesHashEq":
     let s = genValidPropertyName(rng)
     lastInput = s
@@ -89,7 +90,7 @@ block propPropertyNameEqImpliesHashEq:
     let b = parsePropertyName(s).get()
     doAssert hash(a) == hash(b)
 
-block propPropertyNameDoubleRoundTrip:
+testCase propPropertyNameDoubleRoundTrip:
   checkProperty "propPropertyNameDoubleRoundTrip":
     let s = genValidPropertyName(rng)
     lastInput = s
@@ -99,7 +100,7 @@ block propPropertyNameDoubleRoundTrip:
 
 # --- Filter tree properties ---
 
-block propFilterStructuralRecursion:
+testCase propFilterStructuralRecursion:
   checkPropertyN "propFilterStructuralRecursion", QuickTrials:
     ## Every node is either a leaf or an operator.
     let f = genFilter(rng, 3)
@@ -117,7 +118,7 @@ block propFilterStructuralRecursion:
 
 # --- AddedItem property tests ---
 
-block propAddedItemFieldPreservation:
+testCase propAddedItemFieldPreservation:
   checkProperty "AddedItem preserves id and index through construction":
     let idStr = genValidIdStrict(rng, minLen = 1, maxLen = 20)
     lastInput = idStr
@@ -130,7 +131,7 @@ block propAddedItemFieldPreservation:
 
 # --- Filter totality ---
 
-block propFilterConstructionTotality:
+testCase propFilterConstructionTotality:
   checkPropertyN "genFilter never produces crashing trees", QuickTrials:
     let f = genFilter(rng, rng.rand(0 .. 6))
     ## Walk the tree to verify all nodes are accessible.
@@ -148,7 +149,7 @@ block propFilterConstructionTotality:
 
 # --- Comparator infallibility ---
 
-block propComparatorAlwaysOk:
+testCase propComparatorAlwaysOk:
   checkProperty "parseComparator always returns Ok for valid PropertyName":
     let s = genValidPropertyName(rng, trial)
     lastInput = s
@@ -158,7 +159,7 @@ block propComparatorAlwaysOk:
 
 # --- Filter operator arity ---
 
-block propFilterNotWithMultipleChildren:
+testCase propFilterNotWithMultipleChildren:
   ## Layer 1 does not validate NOT arity; accepts any child count.
   let c1 = filterCondition(1)
   let c2 = filterCondition(2)
@@ -166,7 +167,7 @@ block propFilterNotWithMultipleChildren:
   doAssert f.kind == fkOperator
   doAssert f.conditions.len == 2
 
-block propFilterEmptyConditions:
+testCase propFilterEmptyConditions:
   ## Layer 1 accepts empty conditions for any operator.
   let f = filterOperator[int](foAnd, @[])
   doAssert f.kind == fkOperator
@@ -174,7 +175,7 @@ block propFilterEmptyConditions:
 
 # --- Filter well-formedness ---
 
-block propFilterWellFormed:
+testCase propFilterWellFormed:
   ## Any generated filter tree is structurally well-formed.
   checkPropertyN "propFilterWellFormed", 200:
     let f = genFilter(rng, 4)
@@ -188,7 +189,7 @@ block propFilterWellFormed:
 
     doAssert check(f)
 
-block propFilterOperatorPreserved:
+testCase propFilterOperatorPreserved:
   ## Operator enum value survives construction.
   checkProperty "propFilterOperatorPreserved":
     let op = [foAnd, foOr, foNot][rng.rand(0 .. 2)]
@@ -197,7 +198,7 @@ block propFilterOperatorPreserved:
     let f = filterOperator[int](op, @[c])
     doAssert f.operator == op
 
-block propUriTemplatePostConstructionLen:
+testCase propUriTemplatePostConstructionLen:
   ## After successful parseUriTemplate, the template has non-zero length.
   ## ``UriTemplate`` is a parsed case object with no ``len`` (its parts
   ## count differs from its source length); round-trip via ``$`` for the
@@ -207,7 +208,7 @@ block propUriTemplatePostConstructionLen:
     lastInput = s
     let t = parseUriTemplate(s).get()
     doAssert ($t).len > 0
-block propPropertyNamePostConstructionLen:
+testCase propPropertyNamePostConstructionLen:
   ## After successful parsePropertyName, the name has non-zero length.
   checkProperty "propPropertyNamePostConstructionLen":
     let s = genArbitraryString(rng, trial)
@@ -217,13 +218,13 @@ block propPropertyNamePostConstructionLen:
       doAssert r.get().len > 0
 # --- Comparator and AddedItem generator properties ---
 
-block propComparatorTotality:
+testCase propComparatorTotality:
   checkProperty "genComparator never crashes":
     let c = genComparator(rng)
     lastInput = $c.property
     discard c
 
-block propComparatorFieldPreservation:
+testCase propComparatorFieldPreservation:
   checkProperty "genComparator property non-empty and collation valid":
     let c = genComparator(rng)
     lastInput = $c.property
@@ -231,7 +232,7 @@ block propComparatorFieldPreservation:
     if c.collation.isSome:
       doAssert ($c.collation.get()).len > 0
 
-block propAddedItemTotality:
+testCase propAddedItemTotality:
   checkProperty "genAddedItem id in bounds and index non-negative":
     let ai = genAddedItem(rng)
     lastInput = $ai.id
@@ -240,7 +241,7 @@ block propAddedItemTotality:
 
 # --- Filter algebraic laws ---
 
-block propFilterNotInvolution:
+testCase propFilterNotInvolution:
   checkPropertyN "NOT(NOT(f)) is structurally a double-NOT wrapping f", QuickTrials:
     let f = genFilter(rng, 3)
     let doubleNot = filterOperator[int](foNot, @[filterOperator[int](foNot, @[f])])

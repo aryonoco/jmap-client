@@ -12,32 +12,33 @@ import jmap_client/internal/types/errors
 import jmap_client/internal/serialisation/serde_errors
 import jmap_client/internal/types/validation
 import ../mproperty
+import ../mtestblock
 
-block propParseCapabilityKindTotality:
+testCase propParseCapabilityKindTotality:
   checkProperty "parseCapabilityKind never crashes":
     let s = genArbitraryString(rng)
     lastInput = s
     discard parseCapabilityKind(s)
 
-block propParseRequestErrorTypeTotality:
+testCase propParseRequestErrorTypeTotality:
   checkProperty "parseRequestErrorType never crashes":
     let s = genArbitraryString(rng)
     lastInput = s
     discard parseRequestErrorType(s)
 
-block propParseMethodErrorTypeTotality:
+testCase propParseMethodErrorTypeTotality:
   checkProperty "parseMethodErrorType never crashes":
     let s = genArbitraryString(rng)
     lastInput = s
     discard parseMethodErrorType(s)
 
-block propParseSetErrorTypeTotality:
+testCase propParseSetErrorTypeTotality:
   checkProperty "parseSetErrorType never crashes":
     let s = genArbitraryString(rng)
     lastInput = s
     discard parseSetErrorType(s)
 
-block propCapabilityKindKnownRoundTrip:
+testCase propCapabilityKindKnownRoundTrip:
   for kind in [
     ckCore, ckMail, ckSubmission, ckVacationResponse, ckWebsocket, ckMdn, ckSmimeVerify,
     ckBlob, ckQuota, ckContacts, ckCalendars, ckSieve,
@@ -45,11 +46,11 @@ block propCapabilityKindKnownRoundTrip:
     let uri = capabilityUri(kind).get()
     doAssert parseCapabilityKind(uri) == kind
 
-block propRequestErrorTypeKnownRoundTrip:
+testCase propRequestErrorTypeKnownRoundTrip:
   for v in [retUnknownCapability, retNotJson, retNotRequest, retLimit]:
     doAssert parseRequestErrorType($v) == v
 
-block propMethodErrorTypeKnownRoundTrip:
+testCase propMethodErrorTypeKnownRoundTrip:
   for v in [
     metServerUnavailable, metServerFail, metServerPartialFail, metUnknownMethod,
     metInvalidArguments, metInvalidResultReference, metForbidden, metAccountNotFound,
@@ -60,14 +61,14 @@ block propMethodErrorTypeKnownRoundTrip:
   ]:
     doAssert parseMethodErrorType($v) == v
 
-block propSetErrorTypeKnownRoundTrip:
+testCase propSetErrorTypeKnownRoundTrip:
   for v in [
     setForbidden, setOverQuota, setTooLarge, setRateLimit, setNotFound, setInvalidPatch,
     setWillDestroy, setInvalidProperties, setAlreadyExists, setSingleton,
   ]:
     doAssert parseSetErrorType($v) == v
 
-block propUnknownStringsMaptoCatchAll:
+testCase propUnknownStringsMaptoCatchAll:
   checkProperty "arbitrary strings map to catch-all":
     let s = genArbitraryString(rng)
     lastInput = s
@@ -75,97 +76,97 @@ block propUnknownStringsMaptoCatchAll:
     if ck != ckUnknown:
       doAssert capabilityUri(ck).get() == s
 
-block propRequestErrorRawTypePreserved:
+testCase propRequestErrorRawTypePreserved:
   checkProperty "requestError preserves rawType":
     let s = genArbitraryString(rng)
     lastInput = s
     doAssert requestError(s).rawType == s
 
-block propMethodErrorRawTypePreserved:
+testCase propMethodErrorRawTypePreserved:
   checkProperty "methodError preserves rawType":
     let s = genArbitraryString(rng)
     lastInput = s
     doAssert methodError(s).rawType == s
 
-block propSetErrorRawTypePreserved:
+testCase propSetErrorRawTypePreserved:
   checkProperty "setError preserves rawType":
     let s = genArbitraryString(rng)
     lastInput = s
     doAssert setError(s).rawType == s
 
-block propClientErrorMessageNonEmpty:
+testCase propClientErrorMessageNonEmpty:
   let te = clientError(transportError(tekNetwork, "msg"))
   doAssert te.message.len > 0
   let re = clientError(requestError("urn:ietf:params:jmap:error:limit"))
   doAssert re.message.len > 0
 
-block propSetErrorDefensiveFallback:
+testCase propSetErrorDefensiveFallback:
   doAssert setError("invalidProperties").errorType == setUnknown
   doAssert setError("alreadyExists").errorType == setUnknown
 
-block propCapabilityUriUnknownIsErr:
+testCase propCapabilityUriUnknownIsErr:
   doAssert capabilityUri(ckUnknown).isNone
 
 # --- Error type partition properties ---
 
-block propMethodErrorTypeBackingStringInjective:
+testCase propMethodErrorTypeBackingStringInjective:
   ## Distinct known variants have distinct $ values.
   for v1 in MethodErrorType:
     for v2 in MethodErrorType:
       if v1 != v2 and v1 != metUnknown and v2 != metUnknown:
         doAssert $v1 != $v2
 
-block propSetErrorTypeBackingStringInjective:
+testCase propSetErrorTypeBackingStringInjective:
   ## Distinct known variants have distinct $ values.
   for v1 in SetErrorType:
     for v2 in SetErrorType:
       if v1 != v2 and v1 != setUnknown and v2 != setUnknown:
         doAssert $v1 != $v2
 
-block propMethodErrorTypeParseDeterministic:
+testCase propMethodErrorTypeParseDeterministic:
   checkProperty "propMethodErrorTypeParseDeterministic":
     ## Same input always produces same output.
     let s = genArbitraryString(rng, trial)
     lastInput = s
     doAssert parseMethodErrorType(s) == parseMethodErrorType(s)
 
-block propSetErrorTypeParseDeterministic:
+testCase propSetErrorTypeParseDeterministic:
   checkProperty "propSetErrorTypeParseDeterministic":
     let s = genArbitraryString(rng, trial)
     lastInput = s
     doAssert parseSetErrorType(s) == parseSetErrorType(s)
 
-block propExhaustiveMethodErrorRoundTrip:
+testCase propExhaustiveMethodErrorRoundTrip:
   ## Every non-Unknown variant round-trips through parse.
   for v in MethodErrorType:
     if v != metUnknown:
       doAssert parseMethodErrorType($v) == v
 
-block propExhaustiveSetErrorRoundTrip:
+testCase propExhaustiveSetErrorRoundTrip:
   for v in SetErrorType:
     if v != setUnknown:
       doAssert parseSetErrorType($v) == v
 
-block propExhaustiveRequestErrorRoundTrip:
+testCase propExhaustiveRequestErrorRoundTrip:
   for v in RequestErrorType:
     if v != retUnknown:
       doAssert parseRequestErrorType($v) == v
 
 # --- Error constructor auto-parse coherence ---
 
-block propRequestErrorAutoParseCoherence:
+testCase propRequestErrorAutoParseCoherence:
   checkProperty "requestError(s).errorType == parseRequestErrorType(s)":
     let s = genArbitraryString(rng, trial)
     lastInput = s
     doAssert requestError(s).errorType == parseRequestErrorType(s)
 
-block propMethodErrorAutoParseCoherence:
+testCase propMethodErrorAutoParseCoherence:
   checkProperty "methodError(s).errorType == parseMethodErrorType(s)":
     let s = genArbitraryString(rng, trial)
     lastInput = s
     doAssert methodError(s).errorType == parseMethodErrorType(s)
 
-block propSetErrorRawTypePreservation:
+testCase propSetErrorRawTypePreservation:
   checkProperty "setError(s).rawType == s for non-variant strings":
     let s = genArbitraryString(rng, trial)
     lastInput = s
@@ -174,7 +175,7 @@ block propSetErrorRawTypePreservation:
 
 # --- ClientError lift preservation ---
 
-block propClientErrorLiftTransport:
+testCase propClientErrorLiftTransport:
   checkProperty "clientError(te).kind == cekTransport and transport preserved":
     let te = genTransportError(rng)
     let ce = clientError(te)
@@ -184,7 +185,7 @@ block propClientErrorLiftTransport:
     if te.kind == tekHttpStatus:
       doAssert ce.transport.httpStatus == te.httpStatus
 
-block propClientErrorLiftRequest:
+testCase propClientErrorLiftRequest:
   checkProperty "clientError(re).kind == cekRequest and request preserved":
     let re = genRequestError(rng)
     let ce = clientError(re)
@@ -197,7 +198,7 @@ block propClientErrorLiftRequest:
 
 # --- SetError variant field preservation ---
 
-block propSetErrorInvalidPropertiesFieldPreservation:
+testCase propSetErrorInvalidPropertiesFieldPreservation:
   checkProperty "invalidProperties variant preserves properties field":
     let propCount = rng.rand(0 .. 5)
     var props: seq[string] = @[]
@@ -213,7 +214,7 @@ block propSetErrorInvalidPropertiesFieldPreservation:
     doAssert se.properties == props
     doAssert se.description == desc
 
-block propSetErrorAlreadyExistsFieldPreservation:
+testCase propSetErrorAlreadyExistsFieldPreservation:
   checkProperty "alreadyExists variant preserves existingId field":
     let idStr = genValidIdStrict(rng, minLen = 1, maxLen = 20)
     let id = parseId(idStr).get()
@@ -229,14 +230,14 @@ block propSetErrorAlreadyExistsFieldPreservation:
 
 # --- Generated error totality and field preservation ---
 
-block propGenMethodErrorFieldPreservation:
+testCase propGenMethodErrorFieldPreservation:
   checkProperty "genMethodError preserves rawType and auto-parse coherence":
     let me = genMethodError(rng)
     lastInput = me.rawType
     doAssert me.rawType.len > 0
     doAssert me.errorType == parseMethodErrorType(me.rawType)
 
-block propGenSetErrorFieldPreservation:
+testCase propGenSetErrorFieldPreservation:
   checkProperty "genSetError preserves rawType and variant fields":
     let se = genSetError(rng)
     lastInput = se.rawType
@@ -246,7 +247,7 @@ block propGenSetErrorFieldPreservation:
     of setAlreadyExists: discard se.existingId
     else: discard
 
-block propGenClientErrorFieldPreservation:
+testCase propGenClientErrorFieldPreservation:
   checkProperty "genClientError message always non-empty and kind disjoint":
     let ce = genClientError(rng)
     lastInput = ce.message
@@ -257,7 +258,7 @@ block propGenClientErrorFieldPreservation:
 # Phase 4B: Extras preservation through round-trip
 # =============================================================================
 
-block propRequestErrorExtrasPreservation:
+testCase propRequestErrorExtrasPreservation:
   ## Extras survive fromJson(toJson(err)) round-trip for RequestError.
   checkPropertyN "RequestError extras preserved through round-trip", ThoroughTrials:
     let re = genRequestError(rng)
@@ -273,7 +274,7 @@ block propRequestErrorExtrasPreservation:
     # If limit was set, verify it survived.
     doAssert rt.limit == re.limit, "limit field not preserved"
 
-block propMethodErrorExtrasPreservation:
+testCase propMethodErrorExtrasPreservation:
   ## Extras survive fromJson(toJson(err)) round-trip for MethodError.
   checkPropertyN "MethodError extras preserved through round-trip", ThoroughTrials:
     let me = genMethodError(rng)
@@ -286,7 +287,7 @@ block propMethodErrorExtrasPreservation:
         doAssert rt.extras.get().hasKey(key),
           "extras key '" & key & "' lost in round-trip"
 
-block propSetErrorExtrasPreservation:
+testCase propSetErrorExtrasPreservation:
   ## Extras survive fromJson(toJson(err)) round-trip for SetError.
   checkPropertyN "SetError extras preserved through round-trip", ThoroughTrials:
     let se = genSetError(rng)

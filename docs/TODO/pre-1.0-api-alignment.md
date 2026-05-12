@@ -202,60 +202,53 @@ The hub re-export (`src/jmap_client/types.nim`) excludes the
 accessor via `export envelope except arguments`, so application
 developers doing `import jmap_client` cannot reach raw JsonNode
 args; typed accessors (`name`, `methodCallId`, `toJson`) are the
-only public surface. **No `withArguments` setter was added** — the
-original sketch's "diagnostic / replay" framing was the libdbus
-stringly-typed back door; replay flows through `parseInvocation`
-from captured wire bytes, construction flows through
-`RequestBuilder`, and there is no JsonNode-shaped mutation API on
-`Invocation`. The seal is verified in both directions by
+only public surface. No JsonNode-shaped mutation API exists on
+`Invocation`: replay flows through `parseInvocation` from captured
+wire bytes, construction flows through `RequestBuilder`. A
+`withArguments` setter would re-introduce the libdbus stringly-
+typed back door (P19). The seal is verified in both directions by
 `tests/compile/tcompile_a2_invocation_hub_surface.nim` (sealed from
 `import jmap_client`) and
 `tests/compile/tcompile_a2_invocation_internal_access.nim`
 (reachable via direct internal import).
 
-**Scope expanded during planning.** The same commit also closed
-two related smells whose deferral would have left A2's anti-pattern
-alive in adjacent code:
+**Adjacent invariants the seal depends on.**
 
-- *L1-relocation drift in CLAUDE.md.* A1 moved L1 modules to
-  `internal/types/` but CLAUDE.md still listed pre-relocation paths.
-  Updated the "Important Directories" section so the agent-facing
-  instruction file no longer misdirects.
-- *L4 raw-args reads in `src/jmap_client/client.nim:409–455`.*
-  `detectGetLimit` / `detectSetLimit` walked `inv.arguments`
-  JsonNode keys to count ids / create / update / destroy and enforce
-  `maxObjectsInGet` / `maxObjectsInSet`. Replaced with typed
-  `CallLimitMeta` threaded through `RequestBuilder` (private
-  `callLimits` field + `callLimits*` accessor; new internal-only
-  module `internal/protocol/call_meta.nim`). Each `add*` builder
-  constructs the typed metadata from its typed inputs. The 4
-  NonEmpty*Updates wrappers (`NonEmptyIdentityUpdates`,
-  `NonEmptyEmailUpdates`, `NonEmptyEmailSubmissionUpdates`,
-  `NonEmptyMailboxUpdates`) gained a borrowed `len*` so the generic
-  `addSet[T, C, U, R]` resolves `u.len` at instantiation via
-  `mixin len`.
-  Post-condition: `rg 'inv\.arguments' src/` matches only
+- *CLAUDE.md L1 paths.* The "Important Directories" section in
+  `CLAUDE.md` lists the L1 modules under `internal/types/`,
+  matching the post-A1 layout the seal assumes.
+- *Typed limit metadata.* `validateLimits` enforces
+  `maxObjectsInGet` and `maxObjectsInSet` from typed `CallLimitMeta`
+  on `RequestBuilder`, not by walking `inv.arguments` JsonNode keys.
+  `CallLimitMeta` lives in `internal/protocol/call_meta.nim`; each
+  `add*` builder constructs the typed metadata from its typed
+  inputs. The four `NonEmpty*Updates` wrappers
+  (`NonEmptyIdentityUpdates`, `NonEmptyEmailUpdates`,
+  `NonEmptyEmailSubmissionUpdates`, `NonEmptyMailboxUpdates`)
+  borrow `len*` so the generic `addSet[T, C, U, R]` resolves
+  `u.len` at instantiation via `mixin len`. Post-condition:
+  `rg 'inv\.arguments' src/` matches only
   `internal/serialisation/serde_envelope.nim` (L2 wire boundary)
   and `internal/protocol/dispatch.nim` (L3 typed-decoding boundary).
 
-The two `validateLimits*` overloads in `client.nim` are now
-asymmetric by design: `validateLimits(builder, caps)` performs full
-pre-flight (max-calls + per-call /get + per-call /set);
+The two `validateLimits*` overloads in `client.nim` are asymmetric
+by design: `validateLimits(builder, caps)` performs full pre-flight
+(max-calls + per-call /get + per-call /set);
 `validateLimits(request, caps)` (the lower-level escape hatch used
-by raw-Request senders) enforces only `maxCallsInRequest`.
-Documented in both docstrings — the asymmetry is the visible cost
-of refusing to walk wire shape for type-derivable information.
+by raw-`Request` senders) enforces only `maxCallsInRequest`. The
+asymmetry is the visible cost of refusing to walk wire shape for
+type-derivable information; both docstrings state it explicitly.
 `send(client, builder)` routes through the builder-aware overload;
 `send(client, request)` routes through the narrow overload.
 
 ### A3. Type `GetResponse[T].list` *(P19)* — **DONE**
 
-`GetResponse[T].list` is now `seq[T]`, parsed per-entry via `mixin
+`GetResponse[T].list` is `seq[T]`, parsed per-entry via `mixin
 T.fromJson` inside `GetResponse[T].fromJson`
-(`src/jmap_client/internal/protocol/methods.nim`). The wrapper-trigger
-`Entity.fromJson(getResp.list[0]).expect(...)` is removed from the
-test corpus (51 files mechanically rewritten across Patterns
-F/G/H/I/J/K/E). Implementation mirrors `mergeCreateResults[T]` and
+(`src/jmap_client/internal/protocol/methods.nim`). Consumers read
+`getResp.list[i]` as a typed `T`; the wrapper-trigger pattern
+`Entity.fromJson(getResp.list[0]).expect(...)` has no place in the
+public API. Implementation mirrors `mergeCreateResults[T]` and
 `QueryChangesResponse[T].added`.
 
 Scope:
@@ -271,15 +264,15 @@ Scope:
   `Invocation.arguments` is preserved; `internal/` access stays
   library-internal-only.
 
-Adjacent items still tracked: A3.6 (NEW; partial-entity types for
-sparse `/get`), A4 + A3.5 (`updateResults` typing + decision), A29
+Related items: A3.6 (partial-entity types for sparse `/get`),
+A4 + A3.5 (`updateResults` typing + decision), A29
 (`parseGetResponse[T]` coherence invariant), F1 (property test
 wiring), D10 (L5 FFI design).
 
 Doc references: `03-layer-3-design.md`, `00-architecture.md`,
-`07-mail-b-design.md` (D3.6 narrative — get-side full-record half
-retired; update-side half stays pending A4; sparse half documented
-under A3.6).
+`07-mail-b-design.md` (D3.6 narrative spans three halves: get-side
+full-record under A3; update-side under A4; sparse-property under
+A3.6).
 
 ### A4. Type `SetResponse[T].updateResults` *(P19)* — **DONE**
 
@@ -408,24 +401,59 @@ surfaces as `jcvEntropyUnavailable` `ValidationError`), plus
 - `tests/protocol/tdispatch.nim` — cross-builder and cross-client
   mismatch blocks exercise the brand check.
 
-### A7. Lifecycle types *(P21, P23)*
+### A7. Lifecycle types *(P21, P16, P22, P23)* — ✅ DONE (sync chain, uncopyable BuiltRequest, sink propagation through builder chain); 🟡 pending (A7d structural escalation, A7e)
 
-Separate four lifecycle phases as distinct types; transitions are
-functions:
+The synchronous dispatch chain is the entire 1.0 lifecycle: each
+phase is a distinct sealed type and transitions are functions
+returning the next type.
 
-`RequestBuilder` (mutable accumulator) → `BuiltRequest` (frozen,
-dispatch-ready) → `DispatchedRequest` (sent, awaiting) → `Response`
-(received).
+`RequestBuilder` (immutable value-accumulator) → `BuiltRequest`
+(frozen, branded, dispatch-ready) → `DispatchedResponse` (received,
+branded, handle-extractable).
 
-`JmapClient.send` takes `BuiltRequest` and returns
-`Result[Response, ClientError]` (or `DispatchedRequest` on the async
-path once the Transport interface lands — A19). Each phase has a
-distinct invariant. The compiler enforces that you cannot dispatch a
-`RequestBuilder` directly, cannot re-bind a `DispatchedRequest`, etc.
+Three types, three phase invariants, two transitions (`freeze` /
+`send`). Both transitions consume their input (`sink`), so any
+post-transition use of the predecessor is a compile error: a
+builder feeds exactly one `freeze`, a `BuiltRequest` feeds exactly
+one `send`. Wire-data carriers `Request` and `Response` sit off
+the dispatch chain — they belong to the fixture/replay path (A28),
+not the live dispatch path.
 
-**`DispatchedRequest` may be a stub today** — its shape locks the
-position before async/push lands (P23 alignment). Removing or renaming
-it post-1.0 is a major break. Naturally clusters with A6.
+A6 carries the `BuilderId` brand through every transition so
+cross-builder / cross-client misuse fails at handle extraction with
+`gekHandleMismatch`. The brand is the type-level encoding of
+"handle was issued by this dispatch's builder" (P16). The
+`sink`-on-`freeze` and `sink`-on-`send` signatures (A7c, A7d) close
+the residual brand-aliasing hazard the runtime check could not
+detect: two `BuiltRequest`s from one builder or two
+`DispatchedResponse`s from one `BuiltRequest` would share a
+`BuilderId`, and a single handle set would validate against either.
+
+Umbrella sub-items:
+
+- **A6.5** seals `BuiltRequest` and `DispatchedResponse` (done).
+- **A7b** wires `freeze` and `send` (done).
+- **A7c** consumes `BuiltRequest` on `send` via `sink` (done).
+- **A7d** consumes `RequestBuilder` on `freeze` via `sink` (done).
+- **A7e** is the outstanding tightening: the async-surface name
+  reservation in the RFC-extension policy.
+
+The asynchronous chain extends the same `BuiltRequest` additively
+post-A19; that contract is named in A7e, never stubbed onto the
+sync surface (P23: async is a different type with a different
+lifecycle, not a flag on the existing one).
+
+**Pointers.**
+- `src/jmap_client/internal/protocol/builder.nim:47, 60, 122` —
+  `RequestBuilder`, `BuiltRequest`, `freeze` (`sink RequestBuilder`).
+- `src/jmap_client/internal/protocol/dispatch.nim:237` —
+  `DispatchedResponse`.
+- `src/jmap_client/client.nim:793` — `send(sink BuiltRequest)`.
+- `tests/compile/tcompile_a7c_send_consumes_builtrequest.nim` —
+  compile-reject anchor for double-`send`.
+- `tests/compile/tcompile_a7d_freeze_consumes_builder.nim` —
+  compile-reject anchor for double-`freeze` and post-freeze
+  accumulation.
 
 ### A8. Privatise raw distinct-type constructors *(P15)*
 
@@ -832,10 +860,9 @@ Wire to `just test-wire-contract` (F1).
 
 ### A3.5. Decide `SetResponse[T].updateResults` payload shape *(P19)* — **RESOLVED**
 
-Resolved by A4 D2 — typed `Opt[U]` chosen, with `U` = per-entity
-`PartialT`. The `Opt[void]` fallback option was not needed because
-the `PartialT` family shipped together with A4 (integrated cut). No
-semver-upgrade path required.
+Resolved by A4 D2 — `updateResults` carries typed `Opt[U]`, with
+`U` the per-entity `PartialT`. No semver-upgrade path is required:
+the `PartialT` family is part of A4's surface.
 
 ### A3.6. Partial-entity types for sparse `/get` responses *(P5, P7, P19)* — **DONE for types; PARTIAL on public surface**
 
@@ -880,19 +907,27 @@ have no public typed path to sparse `/get` for those five entities.
   the typed-`updateResults` rail (A4) is unaffected — the `PartialT`
   family is already in place there.
 
-### A6.5. Stub `BuiltRequest` and `DispatchedRequest` types *(P21, P23)* — ✅ DONE (`BuiltRequest`); 🟡 deferred (`DispatchedRequest`)
+### A6.5. Sealed `BuiltRequest` and `DispatchedResponse` types *(P8, P21)* — ✅ DONE
 
 `BuiltRequest` is the sealed, branded carrier produced by
 `RequestBuilder.freeze()` and consumed by `JmapClient.send`.
 `DispatchedResponse` is the sibling sealed type returned by
-`send`, carrying the wire `Response` plus the brand.
+`send`, carrying the wire `Response` plus the brand. Both have
+private fields; the only public producers are the lifecycle
+transitions (`freeze`, `send`) plus the hub-private test escapes
+(`builtRequestForTest`, `initDispatchedResponse`).
 
-`DispatchedRequest` is reserved as the future async carrier for
-when A19 + E1 land — the async overload of `send` will return
-`JmapResult[DispatchedRequest]` and `DispatchedRequest.await` will
-yield `JmapResult[DispatchedResponse]`. **Not introduced today**
-because no async path exists; the sync `send` completes
-synchronously and returns the `DispatchedResponse` directly.
+The asynchronous-path `DispatchedRequest` is reserved by name in
+`docs/policy/03-rfc-extension-policy.md` (A7e), not by stub. Its
+shape depends on the `Transport` interface (A19) and lands
+post-A19 as additive surface (P20).
+
+**Pointers.**
+- `src/jmap_client/internal/protocol/builder.nim:60, 157` —
+  `BuiltRequest` declaration and `builtRequestForTest` escape.
+- `src/jmap_client/internal/protocol/dispatch.nim:237, 249` —
+  `DispatchedResponse` declaration and `initDispatchedResponse`
+  escape.
 
 ### A6.6. Sibling-creation cid invariant on `addEmailSubmissionAndEmailSet` *(P16)* — ✅ DONE
 
@@ -928,14 +963,155 @@ ergonomic tradeoff.
 branded carrier. `JmapClient.send(BuiltRequest) →
 JmapResult[DispatchedResponse]` is the sole blessed send path —
 neither raw `Request` nor unfrozen `RequestBuilder` is accepted.
-Future async-path overload (A19 + E1) returns
-`JmapResult[DispatchedRequest]` additively.
+Future async-path overload (A19 + E1) extends the chain
+additively per A7e.
 
 **Pointers.**
-- `src/jmap_client/internal/protocol/builder.nim` — `freeze` and
+- `src/jmap_client/internal/protocol/builder.nim:122` — `freeze`.
+- `src/jmap_client/internal/protocol/builder.nim:60` —
   `BuiltRequest`.
-- `src/jmap_client/client.nim` — `send(BuiltRequest)`;
-  `validateLimits` operates on `BuiltRequest`.
+- `src/jmap_client/client.nim:793` — `send(BuiltRequest)`;
+  `validateLimits` (`client.nim:543`) operates on `BuiltRequest`.
+
+### A7c. Consume `BuiltRequest` on `send` *(P16, P21)* — ✅ DONE
+
+`src/jmap_client/client.nim` — `proc send*(client: var JmapClient,
+req: sink BuiltRequest): JmapResult[DispatchedResponse]`.
+`BuiltRequest` is uncopyable: its `=copy` and `=dup` hooks
+(`src/jmap_client/internal/protocol/builder.nim`, just after the
+type definitions) are declared with `{.error: "BuiltRequest is
+uncopyable; transfer ownership via `sink`".}`. The canonical Nim
+idiom — used verbatim in `lib/std/tasks.nim`, `lib/std/isolation.nim`,
+`lib/std/private/threadtypes.nim`, and `lib/std/widestrs.nim` —
+converts `sink` from an optimisation hint into a structural
+single-use contract.
+
+Without the hooks, `sink` only requests a move at the last use and
+silently inserts a copy at any non-last use (Nim `destructors.md`
+§"Sink parameters"). With them, every non-last use of a
+`BuiltRequest` is a compile error of the form *"requires a copy
+because it's not the last read of '<name>'"*. A re-dispatch of the
+same value cannot compile; the brand-alias hazard between two
+`DispatchedResponse`s from one `BuiltRequest` is closed at the
+type level. A retry replays `freeze` from a freshly constructed
+builder.
+
+Read-only accessors on `BuiltRequest` (`request`, `builderId`,
+`callLimits`) take `lent BuiltRequest`, so an accessor read does
+not trigger the copy machinery; the same applies to
+`validateLimits(req: lent BuiltRequest, …)`, which `send` invokes
+once before consuming `req`.
+
+The hub-private test escape `builtRequestForTest`
+(`builder.nim`) is retained for whitebox fixture scaffolding under
+`tests/`; production code routes through `RequestBuilder.freeze()`.
+
+**Compile-reject anchor.**
+`tests/compile/treject_a7c_send_consumes_builtrequest.nim` is a
+testament `action: "reject"` file: it asserts the compiler emits
+*"requires a copy because it's not the last read of"* against a
+double-`send`. The substring is sourced from
+`compiler/injectdestructors.nim:207` and stable across Nim 2.2.x.
+
+### A7d. Consume `RequestBuilder` on `freeze` *(P16, P21)* — 🟡 PARTIAL (advisory `sink` only; uncopyable hook deferred)
+
+`src/jmap_client/internal/protocol/builder.nim` — `func freeze*(b:
+sink RequestBuilder): BuiltRequest`. The `sink` qualifier is
+**advisory only**: the standard Nim sink semantics insert a silent
+copy at a non-last use rather than failing. To upgrade `sink` to a
+structural single-use contract, `RequestBuilder` would need
+`=copy` + `=dup` `{.error.}` hooks (the A7c mechanism).
+
+The hook upgrade is deferred because:
+
+- The full builder chain runs at module top-level in every
+  `block <name>:` integration and protocol test (~80 sites). Nim
+  2.2.x's move analysis at module top-level treats the implicit
+  `=destroy` at module exit as a non-last "read", so even a single
+  `b.freeze()` after `let b = …` fails compilation with the
+  *"requires a copy because it's not the last read"* diagnostic.
+  Wrapping each test body in `tests/mtestblock.testCase` works for
+  `BuiltRequest`-binding sites (the A7c path) but cascades into
+  pre-existing latent issues (`Uninit`, `UnusedImport` warnings
+  surfacing under proc-wrap that were silent at module top-level)
+  in many of the 80 affected files.
+- `Result[(RequestBuilder, …), ValidationError]` returns
+  (`addCapabilityInvocation`, `addEmailSubmissionAndEmailSet`) cannot
+  be unwrapped via `.get()` for uncopyable `T`. nim-results' `value`
+  proc body assigns `result = self.vResultPrivate` (a copy);
+  callers would have to switch to `unsafeValue` after explicit
+  `isOk` checks.
+
+Every `add*` function that takes a builder still consumes via
+`sink`: the 10 builders in `protocol/builder.nim`
+(`addInvocation`, `addEcho`, `addRawInvocation`,
+`addCapabilityInvocation`, `addGet`, `addChanges`, `addSet`,
+`addCopy`, `addQuery`, `addQueryChanges`) and the 35 mail-domain
+builders across
+`internal/mail/{mail_builders,mail_methods,submission_builders,identity_builders}.nim`
+plus `convenience.addChangesToGet`. Template aliases
+(`addChanges[T]`, `addQuery[T]`, `addQueryChanges[T]`, `addSet[T]`,
+`addCopy[T]`, `addQueryThenGet[T]`) carry the advisory contract
+through to the underlying procs. A second `freeze` or
+post-`freeze` `add*` on the same builder will silently copy
+(advisory only) — the brand-alias hazard is documented but not
+type-enforced.
+
+Body fixups (`let brand = newBuilder.builderId` before the tuple
+return) preserve correct brand propagation even if the underlying
+type were upgraded to uncopyable, so the structural escalation is
+a one-line type-level change (re-add the `=copy` + `=dup` hooks)
+once the test-suite issues are addressed.
+
+No `clone(b: RequestBuilder)` helper is needed: the audit surfaced
+zero dual-derivation patterns that would motivate it.
+
+**Compile-reject anchors:** none yet — see deferred escalation
+above. The reject tests
+`tests/compile/treject_a7d_freeze_consumes_builder.nim` and
+`tests/compile/treject_a7d_post_freeze_add.nim` are absent
+intentionally; reinstating them is bundled with the uncopyable-hook
+escalation work.
+
+### A7e. Async surface name reservation *(P20, P22, P23)*
+
+The asynchronous chain extends the sync chain additively:
+
+`RequestBuilder` → `BuiltRequest` → `DispatchedRequest` (in-flight
+token) → `DispatchedResponse` (received).
+
+`DispatchedRequest` and its companion procedure `sendAsync` are
+reserved by policy, not by type stub. Their shapes depend on the
+`Transport` interface (A19); committing a stub before A19 fixes
+the transport contract is the libdbus failure P23 cites — retrofit
+a shape that does not fit the runtime. Reservation suffices
+because no public API claims either name pre-1.0, so adding them
+post-A19 is purely additive (P20). Unlike `PushChannel` (A23) and
+`WebSocketChannel` (A24), `DispatchedRequest` has no consumer-
+facing calling site on the sync path; an `unimplemented()` stub
+would have no caller and serve no diagnostic purpose.
+
+**Action.** Add to `docs/policy/03-rfc-extension-policy.md`
+(D13.5):
+
+> **Async dispatch (lands with A19 + E1).** The async overload is
+> a separate procedure `sendAsync` — never an overload of `send`,
+> never a runtime flag (P22). Signature: `proc sendAsync(client:
+> var JmapClient, req: sink BuiltRequest):
+> JmapResult[DispatchedRequest]`. `proc await(dr: sink
+> DispatchedRequest): JmapResult[DispatchedResponse]` consumes the
+> in-flight token and yields the same `DispatchedResponse` the
+> sync path produces. The names `sendAsync` and
+> `DispatchedRequest` are reserved for this contract; no public
+> API claims them pre-1.0.
+
+Add a one-line forward-pointer on the `RequestBuilder` and
+`BuiltRequest` docstrings: `## Async dispatch (post-1.0) returns
+DispatchedRequest from sendAsync; see
+docs/policy/03-rfc-extension-policy.md.`
+
+**Mechanical gate.** F6's re-export hub snapshot fails CI if any
+public module exports `sendAsync` or `DispatchedRequest` pre-1.0.
 
 ### A12b. Implement `message()` and `$` for every error type *(P7, P13)*
 
@@ -2148,14 +2324,14 @@ Status legend:
 | P13 (one error rail) | A6, A12, A12b | H8 `.get()` invariant lint | 🟡 |
 | P14 (no thread-local errors) | D10, H3 | H3 lint | 🟡 |
 | P15 (smart constructors) | A8, A15 (SerializedSort/Filter), H1 | H1 lint | 🟡 |
-| P16 (preconditions in types) | A6, A6.5, A6.6, A7b, A29, B3, B4, B6, B11, B12 | H9; B11/B12 resolution | 🔴 (B11, B12 open) |
+| P16 (preconditions in types) | A6, A6.5, A6.6, A7b, A7c, A7d, A29, B3, B4, B6, B11, B12 | H9; B11/B12 resolution; A7c testament `action: reject` test | 🔴 (B11, B12 open) |
 | P17 (one config surface) | A14, A20, A21 | review; F6 snapshot | 🟡 |
 | P18 (sum types over flag soup) | A6, B1, B2, B7, B8, H9 | H9 catch-all lint | 🟡 |
 | P19 (schema-driven types) | A2, A2b, A3, A3.5, A4, A5, A14, A15, A16, A17, A18, A21, A22, A22b, A28, A28b | H11 typed-builder lint (A5); A22b inline docstrings; F1 | 🟡 |
 | P20 (additive variants) | A11, A23, A24, D7, D13, D13.5, H5 | H5 lint | 🟡 |
-| P21 (lifecycle types) | A6, A6.5, A6.6, A7, A7b, A23, A24, A27, A28 | type-shape snapshot (A25) | 🟡 |
-| P22 (sync first, async via interface) | A6, A19, E1 | review; transport interface lands first | 🟡 |
-| P23 (push as separate type) | A23, A24, D13.5 | existence gate (A23, A24, D13.5 files) | 🟡 |
+| P21 (lifecycle types) | A6, A6.5, A6.6, A7, A7b, A7c, A7d, A23, A24, A27, A28 | type-shape snapshot (A25); A7c testament `action: reject` test | 🟡 |
+| P22 (sync first, async via interface) | A6, A7e, A19, E1 | A7e policy entry; F6 snapshot blocks pre-1.0 export of reserved names | 🟡 |
+| P23 (push as separate type) | A7e, A23, A24, D13.5 | existence gate (A7e in D13.5 file; A23, A24 type files) | 🟡 |
 | P24 (threading invariant) | A6, A13, D8 | D8 docstring footer; review | 🟡 |
 | P25 (license) | D1.5, H6 | `reuse lint`; H6 freeze gate | 🟡 |
 | P26 (build) | current `mise.toml`/`justfile`/`.nimble`; D1.5 documents the single `when defined(ssl)` concession in `errors.nim:18` | review | 🟢 |

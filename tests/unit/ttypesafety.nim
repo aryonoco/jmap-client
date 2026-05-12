@@ -7,23 +7,24 @@ from std/json import JsonNode
 import std/sets
 
 import jmap_client/types
+import ../mtestblock
 
 # --- Distinct type isolation ---
 
-block distinctTypeIsolation:
+testCase distinctTypeIsolation:
   doAssert not compiles(parseId("abc").get() == parseAccountId("abc").get())
   doAssert not compiles(parseId("abc").get() == parseJmapState("abc").get())
   doAssert not compiles(parseAccountId("abc").get() == parseJmapState("abc").get())
 
-block distinctTypeNoConcatenation:
+testCase distinctTypeNoConcatenation:
   doAssert not compiles(parseId("abc").get() & parseId("def").get())
 
-block unsignedIntNoArithmetic:
+testCase unsignedIntNoArithmetic:
   doAssert not compiles(parseUnsignedInt(1).get() + parseUnsignedInt(2).get())
   doAssert not compiles(parseUnsignedInt(1).get() - parseUnsignedInt(2).get())
   doAssert not compiles(parseUnsignedInt(1).get() * parseUnsignedInt(2).get())
 
-block jmapIntNoArithmetic:
+testCase jmapIntNoArithmetic:
   doAssert not compiles(parseJmapInt(1).get() + parseJmapInt(2).get())
   doAssert not compiles(parseJmapInt(1).get() - parseJmapInt(2).get())
   doAssert not compiles(parseJmapInt(1).get() * parseJmapInt(2).get())
@@ -31,10 +32,10 @@ block jmapIntNoArithmetic:
 
 # --- Case object construction type safety ---
 
-block transportErrorWrongVariantConstruction:
+testCase transportErrorWrongVariantConstruction:
   doAssert not compiles(TransportError(kind: tekNetwork, httpStatus: 404, msg: "fail"))
 
-block clientErrorWrongVariantConstruction:
+testCase clientErrorWrongVariantConstruction:
   doAssert not compiles(
     ClientError(
       kind: cekTransport,
@@ -50,7 +51,7 @@ block clientErrorWrongVariantConstruction:
     )
   )
 
-block referencableWrongVariantConstruction:
+testCase referencableWrongVariantConstruction:
   doAssert not compiles(
     Referencable[int](
       kind: rkDirect,
@@ -60,27 +61,27 @@ block referencableWrongVariantConstruction:
     )
   )
 
-block filterWrongVariantConstruction:
+testCase filterWrongVariantConstruction:
   doAssert not compiles(
     Filter[int](kind: fkCondition, operator: foAnd, conditions: @[])
   )
 
 # --- Hash divergence (non-degenerate hash smoke test) ---
 
-block hashDivergenceId:
+testCase hashDivergenceId:
   doAssert hash(parseId("abc").get()) != hash(parseId("xyz").get())
 
-block hashDivergenceAccountId:
+testCase hashDivergenceAccountId:
   doAssert hash(parseAccountId("abc").get()) != hash(parseAccountId("xyz").get())
 
-block hashDivergenceJmapState:
+testCase hashDivergenceJmapState:
   doAssert hash(parseJmapState("abc").get()) != hash(parseJmapState("xyz").get())
 
-block hashDivergenceUriTemplate:
+testCase hashDivergenceUriTemplate:
   doAssert hash(parseUriTemplate("https://a.com").get()) !=
     hash(parseUriTemplate("https://b.com").get())
 
-block hashDivergencePropertyName:
+testCase hashDivergencePropertyName:
   doAssert hash(parsePropertyName("name").get()) !=
     hash(parsePropertyName("other").get())
 
@@ -88,62 +89,62 @@ block hashDivergencePropertyName:
 # Additional distinct type isolation
 # =============================================================================
 
-block methodCallIdVsCreationIdIsolation:
+testCase methodCallIdVsCreationIdIsolation:
   doAssert not compiles(parseMethodCallId("a").get() == parseCreationId("a").get())
 
-block jmapStateVsMethodCallIdIsolation:
+testCase jmapStateVsMethodCallIdIsolation:
   doAssert not compiles(parseJmapState("a").get() == parseMethodCallId("a").get())
 
-block jmapStateVsPropertyNameIsolation:
+testCase jmapStateVsPropertyNameIsolation:
   doAssert not compiles(parseJmapState("a").get() == parsePropertyName("a").get())
 
-block uriTemplateVsPropertyNameIsolation:
+testCase uriTemplateVsPropertyNameIsolation:
   doAssert not compiles(parseUriTemplate("a").get() == parsePropertyName("a").get())
 
-block creationIdVsJmapStateIsolation:
+testCase creationIdVsJmapStateIsolation:
   doAssert not compiles(parseCreationId("a").get() == parseJmapState("a").get())
 
-block dateVsUtcDateIsolation:
+testCase dateVsUtcDateIsolation:
   doAssert not compiles(
     parseDate("2024-01-01T12:00:00Z").get() == parseUtcDate("2024-01-01T12:00:00Z").get()
   )
 
-block uriTemplateVsAccountIdIsolation:
+testCase uriTemplateVsAccountIdIsolation:
   doAssert not compiles(parseUriTemplate("a").get() == parseAccountId("a").get())
 
-block creationIdVsPropertyNameIsolation:
+testCase creationIdVsPropertyNameIsolation:
   doAssert not compiles(parseCreationId("a").get() == parsePropertyName("a").get())
 
 # =============================================================================
 # Operator restriction verification
 # =============================================================================
 
-block unsignedIntNoNegation:
+testCase unsignedIntNoNegation:
   ## UnsignedInt does not borrow unary negation (only JmapInt does).
   doAssert not compiles(-parseUnsignedInt(0).get())
 
-block idNoConcatenation:
+testCase idNoConcatenation:
   ## No string concatenation on Id.
   doAssert not compiles(parseId("a").get() & parseId("b").get())
 
-block accountIdNoConcatenation:
+testCase accountIdNoConcatenation:
   doAssert not compiles(parseAccountId("a").get() & parseAccountId("b").get())
 
-block jmapStateNoLen:
+testCase jmapStateNoLen:
   ## JmapState deliberately does not borrow len (semantically meaningless).
   doAssert not compiles(parseJmapState("abc").get().len)
 
-block methodCallIdNoLen:
+testCase methodCallIdNoLen:
   doAssert not compiles(parseMethodCallId("abc").get().len)
 
-block creationIdNoLen:
+testCase creationIdNoLen:
   doAssert not compiles(parseCreationId("abc").get().len)
 
 # =============================================================================
 # Case object construction completeness
 # =============================================================================
 
-block transportErrorMissingHttpStatus:
+testCase transportErrorMissingHttpStatus:
   ## SetError(setInvalidProperties) must not accept existingId (wrong variant).
   doAssert not compiles(
     SetError(
@@ -159,7 +160,7 @@ block transportErrorMissingHttpStatus:
 # Case object wrong-variant construction rejection
 # =============================================================================
 
-block serverCapabilityWrongVariantCoreOnMail:
+testCase serverCapabilityWrongVariantCoreOnMail:
   ## Constructing a ckMail ServerCapability with the ckCore-branch core field
   ## is rejected by {.strictCaseObjects.}.
   doAssert not compiles(
@@ -179,7 +180,7 @@ block serverCapabilityWrongVariantCoreOnMail:
     )
   )
 
-block setErrorPropertiesOnNonInvalidProperties:
+testCase setErrorPropertiesOnNonInvalidProperties:
   ## Constructing a setForbidden SetError with the setInvalidProperties-branch
   ## properties field is rejected by {.strictCaseObjects.}.
   doAssert not compiles(
@@ -192,7 +193,7 @@ block setErrorPropertiesOnNonInvalidProperties:
     )
   )
 
-block setErrorExistingIdOnNonAlreadyExists:
+testCase setErrorExistingIdOnNonAlreadyExists:
   ## Constructing a setForbidden SetError with the setAlreadyExists-branch
   ## existingId field is rejected by {.strictCaseObjects.}.
   doAssert not compiles(
@@ -205,7 +206,7 @@ block setErrorExistingIdOnNonAlreadyExists:
     )
   )
 
-block referencableReferenceOnDirect:
+testCase referencableReferenceOnDirect:
   ## Constructing an rkDirect Referencable with the rkReference-branch
   ## reference field is rejected by {.strictCaseObjects.}.
   doAssert not compiles(
@@ -217,7 +218,7 @@ block referencableReferenceOnDirect:
     )
   )
 
-block referencableValueOnReference:
+testCase referencableValueOnReference:
   ## Constructing an rkReference Referencable with the rkDirect-branch
   ## value field is rejected by {.strictCaseObjects.}.
   doAssert not compiles(Referencable[int](kind: rkReference, value: 42))

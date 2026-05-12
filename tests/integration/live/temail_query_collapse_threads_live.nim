@@ -53,11 +53,12 @@ import jmap_client/client
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
 const ThreadConvergeAttempts = 60
 const ThreadConvergeIntervalMs = 250
 
-block temailQueryCollapseThreadsLive:
+testCase temailQueryCollapseThreadsLive:
   forEachLiveTarget(target):
     var client = initJmapClient(
         sessionUrl = target.sessionUrl,

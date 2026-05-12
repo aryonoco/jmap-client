@@ -22,8 +22,9 @@ import jmap_client/client
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block tBobSessionSmokeLive:
+testCase tBobSessionSmokeLive:
   forEachLiveTarget(target):
     var bobClient = initBobClient(target).expect("initBobClient[" & $target.kind & "]")
     let session = bobClient.fetchSession().expect("fetchSession[" & $target.kind & "]")

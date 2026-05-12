@@ -32,8 +32,9 @@ import jmap_client/internal/types/envelope
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block tserverSideEnforcementParityLive:
+testCase tserverSideEnforcementParityLive:
   forEachLiveTarget(target):
     var client = initJmapClient(
         sessionUrl = target.sessionUrl,

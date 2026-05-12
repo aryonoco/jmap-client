@@ -22,6 +22,7 @@ import jmap_client/internal/types/validation
 import ../massertions
 import ../mfixtures
 import ../mproperty
+import ../mtestblock
 
 # ---------------------------------------------------------------------------
 # Helper definitions
@@ -39,11 +40,11 @@ proc fromDirectInt(n: JsonNode): int {.raises: [].} =
 # A. Round-trip tests
 # =============================================================================
 
-block roundTripInvocation:
+testCase roundTripInvocation:
   let original = makeInvocation()
   assertOkEq Invocation.fromJson(original.toJson()), original
 
-block roundTripInvocationComplexArguments:
+testCase roundTripInvocationComplexArguments:
   let args =
     %*{"accountId": "A1", "list": [1, 2, 3], "filter": {"nested": {"deep": newJNull()}}}
   let original = initInvocation(mnEmailGet, args, makeMcid("c1"))
@@ -52,14 +53,14 @@ block roundTripInvocationComplexArguments:
   doAssert v.arguments == original.arguments
   doAssert v.methodCallId == original.methodCallId
 
-block roundTripRequest:
+testCase roundTripRequest:
   let original = makeRequest()
   let v = Request.fromJson(original.toJson()).get()
   assertEq v.`using`, original.`using`
   assertEq v.methodCalls.len, original.methodCalls.len
   doAssert v.createdIds.isNone == original.createdIds.isNone
 
-block roundTripRequestWithCreatedIds:
+testCase roundTripRequestWithCreatedIds:
   var tbl = initTable[CreationId, Id]()
   tbl[makeCreationId("k1")] = makeId("id1")
   tbl[makeCreationId("k2")] = makeId("id2")
@@ -69,14 +70,14 @@ block roundTripRequestWithCreatedIds:
   doAssert v.createdIds.isSome
   assertEq v.createdIds.get().len, 3
 
-block roundTripResponse:
+testCase roundTripResponse:
   let original = makeResponse()
   let v = Response.fromJson(original.toJson()).get()
   assertEq v.methodResponses.len, original.methodResponses.len
   assertEq v.sessionState, original.sessionState
   doAssert v.createdIds.isNone == original.createdIds.isNone
 
-block roundTripResponseWithCreatedIds:
+testCase roundTripResponseWithCreatedIds:
   var tbl = initTable[CreationId, Id]()
   tbl[makeCreationId("k1")] = makeId("id1")
   tbl[makeCreationId("k2")] = makeId("id2")
@@ -86,11 +87,11 @@ block roundTripResponseWithCreatedIds:
   doAssert v.createdIds.isSome
   assertEq v.createdIds.get().len, 3
 
-block roundTripResultReference:
+testCase roundTripResultReference:
   let original = makeResultReference()
   assertOkEq ResultReference.fromJson(original.toJson()), original
 
-block roundTripResultReferenceAllPaths:
+testCase roundTripResultReferenceAllPaths:
   let paths = [rpIds, rpListIds, rpAddedIds, rpCreated, rpUpdated, rpUpdatedProperties]
   for path in paths:
     let rref =
@@ -101,7 +102,7 @@ block roundTripResultReferenceAllPaths:
 # B. toJson structural correctness
 # =============================================================================
 
-block invocationToJsonIsArray:
+testCase invocationToJsonIsArray:
   let inv = makeInvocation()
   let j = inv.toJson()
   doAssert j.kind == JArray
@@ -110,14 +111,14 @@ block invocationToJsonIsArray:
   doAssert j.getElems(@[])[1].kind == JObject
   doAssert j.getElems(@[])[2].kind == JString
 
-block invocationToJsonElementValues:
+testCase invocationToJsonElementValues:
   let inv = makeInvocation("Email/get", makeMcid("c5"))
   let j = inv.toJson()
   let elems = j.getElems(@[])
   assertEq elems[0].getStr(""), "Email/get"
   assertEq elems[2].getStr(""), "c5"
 
-block requestToJsonFieldNames:
+testCase requestToJsonFieldNames:
   let req = makeRequest()
   let j = req.toJson()
   doAssert j{"using"} != nil
@@ -126,7 +127,7 @@ block requestToJsonFieldNames:
   doAssert j{"methodCalls"}.kind == JArray
   doAssert j{"createdIds"}.isNil
 
-block requestToJsonCreatedIdsPresent:
+testCase requestToJsonCreatedIdsPresent:
   var tbl = initTable[CreationId, Id]()
   tbl[makeCreationId("k1")] = makeId("id1")
   let req = makeRequest(createdIds = Opt.some(tbl))
@@ -134,7 +135,7 @@ block requestToJsonCreatedIdsPresent:
   doAssert j{"createdIds"} != nil
   doAssert j{"createdIds"}.kind == JObject
 
-block responseToJsonFieldNames:
+testCase responseToJsonFieldNames:
   let resp = makeResponse()
   let j = resp.toJson()
   doAssert j{"methodResponses"} != nil
@@ -143,7 +144,7 @@ block responseToJsonFieldNames:
   doAssert j{"sessionState"}.kind == JString
   doAssert j{"createdIds"}.isNil
 
-block resultReferenceToJsonFieldNames:
+testCase resultReferenceToJsonFieldNames:
   let rref = makeResultReference()
   let j = rref.toJson()
   doAssert j{"resultOf"} != nil
@@ -157,7 +158,7 @@ block resultReferenceToJsonFieldNames:
 # C. Golden tests (RFC examples)
 # =============================================================================
 
-block requestDeserGoldenRfc:
+testCase requestDeserGoldenRfc:
   let j = goldenRequestJson()
   let req = Request.fromJson(j).get()
   assertEq req.`using`.len, 2
@@ -171,7 +172,7 @@ block requestDeserGoldenRfc:
   assertEq req.methodCalls[2].rawName, "method3"
   doAssert req.createdIds.isNone
 
-block requestGoldenRoundTrip:
+testCase requestGoldenRoundTrip:
   let j = goldenRequestJson()
   let first = Request.fromJson(j).get()
   let v = Request.fromJson(first.toJson()).get()
@@ -181,7 +182,7 @@ block requestGoldenRoundTrip:
     assertEq v.methodCalls[i].rawName, first.methodCalls[i].rawName
     assertEq v.methodCalls[i].methodCallId, first.methodCalls[i].methodCallId
 
-block responseDeserGoldenRfc:
+testCase responseDeserGoldenRfc:
   let j = goldenResponseJson()
   let resp = Response.fromJson(j).get()
   assertEq resp.methodResponses.len, 4
@@ -196,7 +197,7 @@ block responseDeserGoldenRfc:
   assertEq resp.sessionState, parseJmapState("75128aab4b1b").get()
   doAssert resp.createdIds.isNone
 
-block responseGoldenRoundTrip:
+testCase responseGoldenRoundTrip:
   let j = goldenResponseJson()
   let first = Response.fromJson(j).get()
   let v = Response.fromJson(first.toJson()).get()
@@ -212,209 +213,209 @@ block responseGoldenRoundTrip:
 
 # --- Invocation ---
 
-block invocationDeserObjectInsteadOfArray:
+testCase invocationDeserObjectInsteadOfArray:
   assertErr Invocation.fromJson(%*{"name": "x", "args": {}, "id": "c1"})
 
-block invocationDeserTwoElements:
+testCase invocationDeserTwoElements:
   assertErr Invocation.fromJson(%*["Mailbox/get", {}])
 
-block invocationDeserFourElements:
+testCase invocationDeserFourElements:
   assertErr Invocation.fromJson(%*["Mailbox/get", {}, "c1", "extra"])
 
-block invocationDeserIntMethodName:
+testCase invocationDeserIntMethodName:
   assertErr Invocation.fromJson(%*[42, {}, "c1"])
 
-block invocationDeserStringArguments:
+testCase invocationDeserStringArguments:
   assertErr Invocation.fromJson(%*["Mailbox/get", "notobject", "c1"])
 
-block invocationDeserIntCallId:
+testCase invocationDeserIntCallId:
   assertErr Invocation.fromJson(%*["Mailbox/get", {}, 42])
 
-block invocationDeserEmptyMethodName:
+testCase invocationDeserEmptyMethodName:
   assertErrContains Invocation.fromJson(%*["", {}, "c1"]), "must not be empty"
 
-block invocationDeserEmptyCallId:
+testCase invocationDeserEmptyCallId:
   assertErrContains Invocation.fromJson(%*["Mailbox/get", {}, ""]), "must not be empty"
 
-block invocationDeserNil:
+testCase invocationDeserNil:
   const nilNode: JsonNode = nil
   assertErr Invocation.fromJson(nilNode)
 
-block invocationDeserJNull:
+testCase invocationDeserJNull:
   assertErr Invocation.fromJson(newJNull())
 
 # --- Request ---
 
-block requestDeserMissingUsing:
+testCase requestDeserMissingUsing:
   let j = %*{"methodCalls": [["Mailbox/get", {}, "c0"]]}
   assertErrContains Request.fromJson(j), "using"
 
-block requestDeserMissingMethodCalls:
+testCase requestDeserMissingMethodCalls:
   let j = %*{"using": ["urn:ietf:params:jmap:core"]}
   assertErrContains Request.fromJson(j), "methodCalls"
 
-block requestDeserUsingNotArray:
+testCase requestDeserUsingNotArray:
   let j =
     %*{"using": "urn:ietf:params:jmap:core", "methodCalls": [["Mailbox/get", {}, "c0"]]}
   assertErr Request.fromJson(j)
 
-block requestDeserMethodCallsNotArray:
+testCase requestDeserMethodCallsNotArray:
   let j = %*{"using": ["urn:ietf:params:jmap:core"], "methodCalls": {}}
   assertErr Request.fromJson(j)
 
-block requestDeserUsingElementNotString:
+testCase requestDeserUsingElementNotString:
   let j = %*{"using": [42], "methodCalls": [["Mailbox/get", {}, "c0"]]}
   assertErrContains Request.fromJson(j), "at /using/"
 
-block requestDeserNotObject:
+testCase requestDeserNotObject:
   assertErr Request.fromJson(%*[1, 2, 3])
 
-block requestDeserNil:
+testCase requestDeserNil:
   const nilNode: JsonNode = nil
   assertErr Request.fromJson(nilNode)
 
-block requestDeserEmptyMethodCalls:
+testCase requestDeserEmptyMethodCalls:
   let j = %*{"using": ["urn:ietf:params:jmap:core"], "methodCalls": []}
   let r = Request.fromJson(j).get()
   assertEq r.methodCalls.len, 0
 
-block requestDeserEmptyUsing:
+testCase requestDeserEmptyUsing:
   let j = %*{"using": [], "methodCalls": [["Mailbox/get", {}, "c0"]]}
   let r = Request.fromJson(j).get()
   assertEq r.`using`.len, 0
 
-block requestDeserDeepInvalidInvocation:
+testCase requestDeserDeepInvalidInvocation:
   let j = %*{"using": ["urn:ietf:params:jmap:core"], "methodCalls": [["", {}, "c0"]]}
   assertErrContains Request.fromJson(j), "must not be empty"
 
 # --- Response ---
 
-block responseDeserMissingMethodResponses:
+testCase responseDeserMissingMethodResponses:
   let j = %*{"sessionState": "s1"}
   assertErrContains Response.fromJson(j), "methodResponses"
 
-block responseDeserMissingSessionState:
+testCase responseDeserMissingSessionState:
   let j = %*{"methodResponses": [["Mailbox/get", {}, "c0"]]}
   assertErrContains Response.fromJson(j), "sessionState"
 
-block responseDeserMethodResponsesNotArray:
+testCase responseDeserMethodResponsesNotArray:
   let j = %*{"methodResponses": {}, "sessionState": "s1"}
   assertErr Response.fromJson(j)
 
-block responseDeserSessionStateNotString:
+testCase responseDeserSessionStateNotString:
   let j = %*{"methodResponses": [["Mailbox/get", {}, "c0"]], "sessionState": 42}
   assertErr Response.fromJson(j)
 
-block responseDeserNotObject:
+testCase responseDeserNotObject:
   assertErr Response.fromJson(%*[1, 2, 3])
 
-block responseDeserNil:
+testCase responseDeserNil:
   const nilNode: JsonNode = nil
   assertErr Response.fromJson(nilNode)
 
-block responseDeserEmptyMethodResponses:
+testCase responseDeserEmptyMethodResponses:
   let j = %*{"methodResponses": [], "sessionState": "s1"}
   let r = Response.fromJson(j).get()
   assertEq r.methodResponses.len, 0
 
-block responseDeserDeepInvalidInvocation:
+testCase responseDeserDeepInvalidInvocation:
   let j = %*{"methodResponses": [["", {}, "c0"]], "sessionState": "s1"}
   assertErrContains Response.fromJson(j), "must not be empty"
 
 # --- ResultReference ---
 
-block resultReferenceDeserMissingResultOf:
+testCase resultReferenceDeserMissingResultOf:
   let j = %*{"name": "Mailbox/get", "path": "/ids"}
   assertErrContains ResultReference.fromJson(j), "resultOf"
 
-block resultReferenceDeserMissingName:
+testCase resultReferenceDeserMissingName:
   let j = %*{"resultOf": "c0", "path": "/ids"}
   assertErrContains ResultReference.fromJson(j), "name"
 
-block resultReferenceDeserMissingPath:
+testCase resultReferenceDeserMissingPath:
   let j = %*{"resultOf": "c0", "name": "Mailbox/get"}
   assertErrContains ResultReference.fromJson(j), "path"
 
-block resultReferenceDeserEmptyName:
+testCase resultReferenceDeserEmptyName:
   let j = %*{"resultOf": "c0", "name": "", "path": "/ids"}
   assertErrContains ResultReference.fromJson(j), "must not be empty"
 
-block resultReferenceDeserEmptyPath:
+testCase resultReferenceDeserEmptyPath:
   let j = %*{"resultOf": "c0", "name": "Mailbox/get", "path": ""}
   assertErrContains ResultReference.fromJson(j), "must not be empty"
 
-block resultReferenceDeserNotObject:
+testCase resultReferenceDeserNotObject:
   assertErr ResultReference.fromJson(%*[1, 2, 3])
 
-block resultReferenceDeserNil:
+testCase resultReferenceDeserNil:
   const nilNode: JsonNode = nil
   assertErr ResultReference.fromJson(nilNode)
 
 # --- createdIds (tested on Request) ---
 
-block createdIdsAbsentKey:
+testCase createdIdsAbsentKey:
   let j = %*{"using": ["urn:ietf:params:jmap:core"], "methodCalls": []}
   let r = Request.fromJson(j).get()
   doAssert r.createdIds.isNone
 
-block createdIdsJNull:
+testCase createdIdsJNull:
   var j = validRequestJson()
   j["createdIds"] = newJNull()
   let r = Request.fromJson(j).get()
   doAssert r.createdIds.isNone
 
-block createdIdsEmptyObject:
+testCase createdIdsEmptyObject:
   var j = validRequestJson()
   j["createdIds"] = newJObject()
   let r = Request.fromJson(j).get()
   doAssert r.createdIds.isSome
   assertEq r.createdIds.get().len, 0
 
-block createdIdsPopulatedObject:
+testCase createdIdsPopulatedObject:
   var j = validRequestJson()
   j["createdIds"] = %*{"k1": "id1", "k2": "id2", "k3": "id3"}
   let r = Request.fromJson(j).get()
   doAssert r.createdIds.isSome
   assertEq r.createdIds.get().len, 3
 
-block createdIdsWrongKindArray:
+testCase createdIdsWrongKindArray:
   var j = validRequestJson()
   j["createdIds"] = %*[1, 2]
   assertErrContains Request.fromJson(j), "at /createdIds"
 
-block createdIdsWrongKindString:
+testCase createdIdsWrongKindString:
   var j = validRequestJson()
   j["createdIds"] = %"not-an-object"
   assertErr Request.fromJson(j)
 
-block createdIdsValueNotString:
+testCase createdIdsValueNotString:
   var j = validRequestJson()
   j["createdIds"] = %*{"k1": 42}
   assertErrContains Request.fromJson(j), "/createdIds/k1"
 
-block createdIdsKeyStartsWithHash:
+testCase createdIdsKeyStartsWithHash:
   var j = validRequestJson()
   j["createdIds"] = %*{"#k1": "id1"}
   assertErr Request.fromJson(j)
 
-block createdIdsCreationIdHashPrefixInRequest:
+testCase createdIdsCreationIdHashPrefixInRequest:
   ## CreationId keys starting with '#' must be rejected by parseCreationId.
   ## Verifies the error propagates through parseCreatedIds up to Request.fromJson.
   var j = validRequestJson()
   j["createdIds"] = %*{"#invalid": "id1"}
   assertErr Request.fromJson(j)
 
-block createdIdsKeyEmpty:
+testCase createdIdsKeyEmpty:
   var j = validRequestJson()
   j["createdIds"] = %*{"": "id1"}
   assertErr Request.fromJson(j)
 
-block createdIdsValueEmpty:
+testCase createdIdsValueEmpty:
   var j = validRequestJson()
   j["createdIds"] = %*{"k1": ""}
   assertErr Request.fromJson(j)
 
-block responseCreatedIdsSameSemantics:
+testCase responseCreatedIdsSameSemantics:
   var j = validResponseJson()
   j["createdIds"] = %*{"k1": "id1"}
   let r = Response.fromJson(j).get()
@@ -425,13 +426,13 @@ block responseCreatedIdsSameSemantics:
 # E. Referencable[T] dispatch tests
 # =============================================================================
 
-block referencableDirectValue:
+testCase referencableDirectValue:
   let node = %*{"ids": 42}
   let v = fromJsonField[int]("ids", node, fromDirectInt).get()
   doAssert v.kind == rkDirect
   assertEq v.value, 42
 
-block referencableReferenceValue:
+testCase referencableReferenceValue:
   let node = %*{"#ids": {"resultOf": "c0", "name": "Mailbox/query", "path": "/ids"}}
   let v = fromJsonField[int]("ids", node, fromDirectInt).get()
   doAssert v.kind == rkReference
@@ -439,31 +440,31 @@ block referencableReferenceValue:
   assertEq v.reference.path, rpIds
   assertEq v.reference.resultOf, parseMethodCallId("c0").get()
 
-block referencableBothPresentConflictRejected:
+testCase referencableBothPresentConflictRejected:
   ## RFC 8620 section 3.7: both direct and referenced forms present must be rejected.
   let node =
     %*{"ids": 42, "#ids": {"resultOf": "c0", "name": "Mailbox/query", "path": "/ids"}}
   assertErrContains fromJsonField[int]("ids", node, fromDirectInt),
     "cannot specify both"
 
-block referencableMissingBothKeys:
+testCase referencableMissingBothKeys:
   let node = %*{"other": 99}
   assertErrContains fromJsonField[int]("ids", node, fromDirectInt), "missing field"
 
-block referencableHashKeyWrongKind:
+testCase referencableHashKeyWrongKind:
   let nodeStr = %*{"#ids": "x"}
   assertErr fromJsonField[int]("ids", nodeStr, fromDirectInt)
   let nodeInt = %*{"#ids": 42}
   assertErr fromJsonField[int]("ids", nodeInt, fromDirectInt)
 
-block referencableHashKeyMissingResultOf:
+testCase referencableHashKeyMissingResultOf:
   let node = %*{"#ids": {"name": "Mailbox/query", "path": "/ids"}}
   assertErr fromJsonField[int]("ids", node, fromDirectInt)
 
-block referencableKeyDirect:
+testCase referencableKeyDirect:
   assertEq referencableKey("ids", direct(42)), "ids"
 
-block referencableKeyReference:
+testCase referencableKeyReference:
   let rref = makeResultReference()
   assertEq referencableKey("ids", referenceTo[int](rref)), "#ids"
 
@@ -516,7 +517,7 @@ checkProperty "Response round-trip":
 # G. Additional edge-case and round-trip tests
 # =============================================================================
 
-block invocationComplexNestedArgsRoundTrip:
+testCase invocationComplexNestedArgsRoundTrip:
   ## Deep nesting (3+ levels), arrays of objects, null values in arguments.
   let args = %*{
     "filter": {
@@ -536,7 +537,7 @@ block invocationComplexNestedArgsRoundTrip:
   doAssert v.arguments{"nullField"} != nil
   doAssert v.arguments{"nullField"}.kind == JNull
 
-block requestRoundTripWithCreatedIds:
+testCase requestRoundTripWithCreatedIds:
   ## Verify CreationId keys and Id values survive toJson/fromJson cycle.
   var tbl = initTable[CreationId, Id]()
   tbl[makeCreationId("k1")] = makeId("id1")
@@ -551,7 +552,7 @@ block requestRoundTripWithCreatedIds:
   let rtTbl = v.createdIds.get()
   assertEq rtTbl.len, 2
 
-block responseRoundTripAllFields:
+testCase responseRoundTripAllFields:
   ## methodResponses + sessionState + createdIds all present.
   var tbl = initTable[CreationId, Id]()
   tbl[makeCreationId("new0")] = makeId("created0")
@@ -565,25 +566,25 @@ block responseRoundTripAllFields:
   assertEq v.sessionState, makeState("s42")
   assertSome v.createdIds
 
-block fromJsonFieldRefInvalidResultOf:
+testCase fromJsonFieldRefInvalidResultOf:
   ## #ids key present but resultOf is empty — error must propagate.
   let node = %*{"#ids": {"resultOf": "", "name": "Mailbox/get", "path": "/ids"}}
   assertErr fromJsonField[int]("ids", node, fromDirectInt)
 
-block referencableFromJsonFieldMalformedReference:
+testCase referencableFromJsonFieldMalformedReference:
   ## When a '#'-prefixed key contains a malformed ResultReference (non-string
   ## resultOf), the error must propagate through fromJsonField.
   let node = %*{"#ids": {"resultOf": 42, "name": "Mailbox/get", "path": "/ids"}}
   assertErrContains fromJsonField[int]("ids", node, fromDirectInt), "resultOf"
 
-block requestEmptyMethodCalls:
+testCase requestEmptyMethodCalls:
   ## Empty methodCalls array round-trips correctly.
   let j = %*{"using": ["urn:ietf:params:jmap:core"], "methodCalls": []}
   let r = Request.fromJson(j).get()
   assertLen r.methodCalls, 0
   assertLen r.`using`, 1
 
-block requestEmptyUsingArray:
+testCase requestEmptyUsingArray:
   ## Empty using array is valid per JSON schema.
   let j = %*{"using": [], "methodCalls": []}
   let r = Request.fromJson(j).get()
@@ -593,7 +594,7 @@ block requestEmptyUsingArray:
 # H. Phase 3E: Error invocation wire format
 # =============================================================================
 
-block errorInvocationWireFormat:
+testCase errorInvocationWireFormat:
   ## Construct an Invocation with name="error" and MethodError arguments,
   ## serialise it, and verify the ["error", {"type": ...}, "c0"] wire format.
   let me = methodError("unknownMethod", Opt.some("No such method"))
@@ -616,7 +617,7 @@ block errorInvocationWireFormat:
   doAssert meRt.errorType == metUnknownMethod
   assertSomeEq meRt.description, "No such method"
 
-block errorInvocationServerFailWireFormat:
+testCase errorInvocationServerFailWireFormat:
   ## Error invocation with serverFail type and extras.
   let extras = newJObject()
   extras["retryAfter"] = %30
@@ -633,7 +634,7 @@ block errorInvocationServerFailWireFormat:
 # I. Phase 3F: Back-reference #-prefix integration test
 # =============================================================================
 
-block backReferenceHashPrefixRoundTrip:
+testCase backReferenceHashPrefixRoundTrip:
   ## Construct a Request-like JSON with #-prefixed argument keys (Referencable
   ## fields), verify the # prefix appears in serialised JSON, and deserialise
   ## back to verify rkReference variant.
@@ -674,7 +675,7 @@ block backReferenceHashPrefixRoundTrip:
 # Phase 2C: Wire format golden tests (serialise then compare literal JSON)
 # =============================================================================
 
-block requestGoldenWireFormat:
+testCase requestGoldenWireFormat:
   ## Construct a Request matching the RFC 8620 section 3.3.1 example, serialise
   ## it, and verify the output fields match the expected JSON structure.
   let args1 = %*{"arg1": "arg1data", "arg2": "arg2data"}
@@ -708,7 +709,7 @@ block requestGoldenWireFormat:
   assertEq call2.getElems(@[])[2].getStr(""), "c3"
   doAssert j{"createdIds"}.isNil
 
-block responseGoldenWireFormat:
+testCase responseGoldenWireFormat:
   ## Construct a Response matching the RFC 8620 section 3.4.1 example, serialise
   ## it, and verify the output fields match the expected JSON structure.
   let args1 = %*{"arg1": 3, "arg2": "foo"}

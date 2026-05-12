@@ -12,8 +12,9 @@
 import jmap_client
 import jmap_client/internal/types/envelope
 import ./mloader
+import ../../mtestblock
 
-block tcapturedEmailQueryChangesWithTotal:
+testCase tcapturedEmailQueryChangesWithTotal:
   let j = loadCapturedFixture("email-query-changes-with-total-stalwart")
   let resp = envelope.Response.fromJson(j).expect("envelope.Response.fromJson")
   doAssert resp.methodResponses.len == 1

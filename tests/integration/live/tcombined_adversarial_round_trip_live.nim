@@ -26,8 +26,9 @@ import jmap_client/internal/types/envelope
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block tcombinedAdversarialRoundTripLive:
+testCase tcombinedAdversarialRoundTripLive:
   forEachLiveTarget(target):
     var client = initJmapClient(
         sessionUrl = target.sessionUrl,

@@ -39,8 +39,9 @@ import jmap_client/client
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block tidentityChangesLive:
+testCase tidentityChangesLive:
   forEachLiveTarget(target):
     # Cat-B (Phase L §0): Stalwart 0.15.5 implements Identity/{set,
     # changes} fully. James 3.9 binds Identity/changes but

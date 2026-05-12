@@ -47,7 +47,7 @@ const MailCapUri =
 # =============================================================================
 
 func addVacationResponseGet*(
-    b: RequestBuilder,
+    b: sink RequestBuilder,
     accountId: AccountId,
     properties: Opt[seq[string]] = Opt.none(seq[string]),
 ): (RequestBuilder, ResponseHandle[GetResponse[VacationResponse]]) =
@@ -64,15 +64,15 @@ func addVacationResponseGet*(
     VacationResponseCapUri,
     CallLimitMeta(kind: clmGet, idCount: Opt.some(1)),
   )
-  return
-    (newBuilder, initResponseHandle[GetResponse[VacationResponse]](callId, b.builderId))
+  let brand = newBuilder.builderId
+  return (newBuilder, initResponseHandle[GetResponse[VacationResponse]](callId, brand))
 
 # =============================================================================
 # VacationResponse/set
 # =============================================================================
 
 func addVacationResponseSet*(
-    b: RequestBuilder,
+    b: sink RequestBuilder,
     accountId: AccountId,
     update: VacationResponseUpdateSet,
     ifInState: Opt[JmapState] = Opt.none(JmapState),
@@ -99,11 +99,10 @@ func addVacationResponseSet*(
     VacationResponseCapUri,
     CallLimitMeta(kind: clmSet, objectCount: Opt.some(1)),
   )
+  let brand = newBuilder.builderId
   return (
     newBuilder,
-    initResponseHandle[SetResponse[NoCreate, PartialVacationResponse]](
-      callId, b.builderId
-    ),
+    initResponseHandle[SetResponse[NoCreate, PartialVacationResponse]](callId, brand),
   )
 
 # =============================================================================
@@ -212,7 +211,7 @@ func fromJson*(
 # =============================================================================
 
 func addEmailParse*(
-    b: RequestBuilder,
+    b: sink RequestBuilder,
     accountId: AccountId,
     blobIds: seq[BlobId],
     properties: Opt[seq[string]] = Opt.none(seq[string]),
@@ -236,14 +235,15 @@ func addEmailParse*(
     args["properties"] = propsArr
   emitBodyFetchOptions(args, bodyFetchOptions)
   let (newBuilder, callId) = b.addInvocation(mnEmailParse, args, MailCapUri)
-  (newBuilder, initResponseHandle[EmailParseResponse](callId, b.builderId))
+  let brand = newBuilder.builderId
+  (newBuilder, initResponseHandle[EmailParseResponse](callId, brand))
 
 # =============================================================================
 # addSearchSnippetGet — SearchSnippet/get (RFC 8621 §5.1)
 # =============================================================================
 
 func addSearchSnippetGet*(
-    b: RequestBuilder,
+    b: sink RequestBuilder,
     accountId: AccountId,
     filter: Filter[EmailFilterCondition],
     firstEmailId: Id,
@@ -262,7 +262,8 @@ func addSearchSnippetGet*(
     emailIds.add(id.toJson())
   args["emailIds"] = emailIds
   let (newBuilder, callId) = b.addInvocation(mnSearchSnippetGet, args, MailCapUri)
-  (newBuilder, initResponseHandle[SearchSnippetGetResponse](callId, b.builderId))
+  let brand = newBuilder.builderId
+  (newBuilder, initResponseHandle[SearchSnippetGetResponse](callId, brand))
 
 # =============================================================================
 # addSearchSnippetGetByRef + addEmailQueryWithSnippets
@@ -270,7 +271,7 @@ func addSearchSnippetGet*(
 # =============================================================================
 
 func addSearchSnippetGetByRef*(
-    b: RequestBuilder,
+    b: sink RequestBuilder,
     accountId: AccountId,
     filter: Filter[EmailFilterCondition],
     emailIdsRef: ResultReference,
@@ -286,7 +287,8 @@ func addSearchSnippetGetByRef*(
   args["filter"] = serializeFilter(filter).toJsonNode()
   args["#emailIds"] = emailIdsRef.toJson()
   let (newBuilder, callId) = b.addInvocation(mnSearchSnippetGet, args, MailCapUri)
-  (newBuilder, initResponseHandle[SearchSnippetGetResponse](callId, b.builderId))
+  let brand = newBuilder.builderId
+  (newBuilder, initResponseHandle[SearchSnippetGetResponse](callId, brand))
 
 type EmailQuerySnippetChain* =
   ChainedHandles[QueryResponse[Email], SearchSnippetGetResponse]
@@ -297,7 +299,7 @@ type EmailQuerySnippetChain* =
   ## ``dispatch.nim``.
 
 func addEmailQueryWithSnippets*(
-    b: RequestBuilder,
+    b: sink RequestBuilder,
     accountId: AccountId,
     filter: Filter[EmailFilterCondition],
     sort: Opt[seq[EmailComparator]] = Opt.none(seq[EmailComparator]),
@@ -325,7 +327,7 @@ func addEmailQueryWithSnippets*(
 # =============================================================================
 
 func addEmailImport*(
-    b: RequestBuilder,
+    b: sink RequestBuilder,
     accountId: AccountId,
     emails: NonEmptyEmailImportMap,
     ifInState: Opt[JmapState] = Opt.none(JmapState),
@@ -339,4 +341,5 @@ func addEmailImport*(
   for state in ifInState:
     args["ifInState"] = state.toJson()
   let (newBuilder, callId) = b.addInvocation(mnEmailImport, args, MailCapUri)
-  (newBuilder, initResponseHandle[EmailImportResponse](callId, b.builderId))
+  let brand = newBuilder.builderId
+  (newBuilder, initResponseHandle[EmailImportResponse](callId, brand))

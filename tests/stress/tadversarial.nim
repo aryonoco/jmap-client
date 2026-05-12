@@ -25,6 +25,7 @@ import jmap_client/internal/serialisation/serde_session
 
 import ../massertions
 import ../mfixtures
+import ../mtestblock
 
 # =============================================================================
 # a) Multi-byte UTF-8 at 255-byte boundary
@@ -32,25 +33,25 @@ import ../mfixtures
 # Validates byte-not-character semantics: the length check counts octets, not
 # Unicode code points.
 
-block idFromServerTwoByteCharsAt255Bytes:
+testCase idFromServerTwoByteCharsAt255Bytes:
   ## 127 x \xC3\xA9 (2 bytes each) + 1 ASCII char = 255 bytes: ACCEPTED.
   let input = "\xC3\xA9".repeat(127) & "a"
   doAssert input.len == 255
   assertOk parseIdFromServer(input)
 
-block accountIdTwoByteCharsAt255Bytes:
+testCase accountIdTwoByteCharsAt255Bytes:
   ## Same 255-byte string accepted by parseAccountId.
   let input = "\xC3\xA9".repeat(127) & "a"
   doAssert input.len == 255
   assertOk parseAccountId(input)
 
-block idFromServerTwoByteCharsAt256Bytes:
+testCase idFromServerTwoByteCharsAt256Bytes:
   ## 128 x \xC3\xA9 = 256 bytes: REJECTED (byte-not-character semantics).
   let input = "\xC3\xA9".repeat(128)
   doAssert input.len == 256
   assertErr parseIdFromServer(input)
 
-block accountIdTwoByteCharsAt256Bytes:
+testCase accountIdTwoByteCharsAt256Bytes:
   ## 128 x \xC3\xA9 = 256 bytes: REJECTED.
   let input = "\xC3\xA9".repeat(128)
   doAssert input.len == 256
@@ -62,29 +63,29 @@ block accountIdTwoByteCharsAt256Bytes:
 # These document intentional behaviour: the validators check byte values
 # against control-character ranges, not Unicode well-formedness.
 
-block idFromServerOverlongNul:
+testCase idFromServerOverlongNul:
   ## Overlong NUL encoding \xC0\x80: ACCEPTED by lenient parser.
   ## Both bytes are >= 0x20 so they pass the control-character check.
   const input = "abc\xC0\x80def"
   assertOk parseIdFromServer(input)
 
-block accountIdOverlongNul:
+testCase accountIdOverlongNul:
   ## Overlong NUL encoding \xC0\x80: ACCEPTED by parseAccountId.
   const input = "abc\xC0\x80def"
   assertOk parseAccountId(input)
 
-block idFromServerUtf16Surrogate:
+testCase idFromServerUtf16Surrogate:
   ## UTF-16 surrogate \xED\xA0\x80: ACCEPTED (all bytes >= 0x20, none == 0x7F).
   const input = "abc\xED\xA0\x80def"
   assertOk parseIdFromServer(input)
 
-block idFromServerTruncatedMultibyte:
+testCase idFromServerTruncatedMultibyte:
   ## Truncated multi-byte sequence "abc\xC3": ACCEPTED by lenient parser.
   ## 0xC3 is >= 0x20 and not 0x7F.
   const input = "abc\xC3"
   assertOk parseIdFromServer(input)
 
-block accountIdTruncatedMultibyte:
+testCase accountIdTruncatedMultibyte:
   ## Truncated multi-byte sequence: ACCEPTED by parseAccountId.
   const input = "abc\xC3"
   assertOk parseAccountId(input)
@@ -95,24 +96,24 @@ block accountIdTruncatedMultibyte:
 # These are Unicode control characters (C1 block) but at byte level they are
 # >= 0x20 and not 0x7F, so the validators accept them.
 
-block idFromServerC1NextLine:
+testCase idFromServerC1NextLine:
   ## NEL (U+0085) encoded as \xC2\x85: ACCEPTED.
   ## Both 0xC2 and 0x85 are >= 0x20 and not 0x7F.
   const input = "abc\xC2\x85def"
   assertOk parseIdFromServer(input)
 
-block accountIdC1Byte9F:
+testCase accountIdC1Byte9F:
   ## Raw byte 0x9F: ACCEPTED (>= 0x20, not 0x7F).
   ## This is the APC control character in Unicode, but the check is byte-level.
   const input = "abc\x9Fdef"
   assertOk parseAccountId(input)
 
-block idFromServerC1Byte80:
+testCase idFromServerC1Byte80:
   ## Raw byte 0x80: ACCEPTED (>= 0x20, not 0x7F).
   const input = "abc\x80def"
   assertOk parseIdFromServer(input)
 
-block jmapStateC1Byte85:
+testCase jmapStateC1Byte85:
   ## Raw byte 0x85 in JmapState: ACCEPTED.
   const input = "abc\x85def"
   assertOk parseJmapState(input)
@@ -121,24 +122,24 @@ block jmapStateC1Byte85:
 # d) Unicode special characters
 # =============================================================================
 
-block idStrictRejectsBom:
+testCase idStrictRejectsBom:
   ## BOM \xEF\xBB\xBF contains bytes outside Base64UrlChars: REJECTED by strict.
   const input = "\xEF\xBB\xBFabc"
   assertErr parseId(input)
 
-block idFromServerAcceptsBom:
+testCase idFromServerAcceptsBom:
   ## BOM bytes are all >= 0x20: ACCEPTED by lenient parser.
   const input = "\xEF\xBB\xBFabc"
   assertOk parseIdFromServer(input)
 
-block idFromServerZeroWidthSpace:
+testCase idFromServerZeroWidthSpace:
   ## Zero-width space U+200B encoded as \xE2\x80\x8B: ACCEPTED.
   ## All 3 bytes are >= 0x20 and not 0x7F.
   const input = "\xE2\x80\x8B"
   doAssert input.len == 3
   assertOk parseIdFromServer(input)
 
-block accountIdAcceptsBom:
+testCase accountIdAcceptsBom:
   ## BOM accepted by parseAccountId (bytes >= 0x20, not 0x7F).
   const input = "\xEF\xBB\xBFabc"
   assertOk parseAccountId(input)
@@ -149,27 +150,27 @@ block accountIdAcceptsBom:
 # parseMethodCallId and parsePropertyName only check non-empty. parseCreationId
 # checks non-empty and first char != '#'. None perform control-character checks.
 
-block methodCallIdNulByte:
+testCase methodCallIdNulByte:
   ## parseMethodCallId("\x00").get(): ACCEPTED (only checks non-empty).
   assertOk parseMethodCallId("\x00")
 
-block creationIdNulFirstChar:
+testCase creationIdNulFirstChar:
   ## parseCreationId("\x00abc").get(): ACCEPTED (first char is \x00, not '#').
   assertOk parseCreationId("\x00abc")
 
-block propertyNameNulByte:
+testCase propertyNameNulByte:
   ## parsePropertyName("\x00").get(): ACCEPTED (only checks non-empty).
   assertOk parsePropertyName("\x00")
 
-block methodCallIdEmbeddedNul:
+testCase methodCallIdEmbeddedNul:
   ## "c1\x00hidden": ACCEPTED (no control-character check in MethodCallId).
   assertOk parseMethodCallId("c1\x00hidden")
 
-block creationIdEmbeddedNul:
+testCase creationIdEmbeddedNul:
   ## "abc\x00def": ACCEPTED (only first char is checked against '#').
   assertOk parseCreationId("abc\x00def")
 
-block propertyNameEmbeddedNul:
+testCase propertyNameEmbeddedNul:
   ## "foo\x00bar": ACCEPTED (only non-empty check).
   assertOk parsePropertyName("foo\x00bar")
 
@@ -180,54 +181,54 @@ block propertyNameEmbeddedNul:
 # leading) and lowercases everything except the first character. This produces
 # surprising matches when underscores appear in input strings.
 
-block methodErrorTypeUnderscoreStripped:
+testCase methodErrorTypeUnderscoreStripped:
   ## "server_Fail" normalises to "serverfail", matching "serverFail" -> metServerFail.
   doAssert parseMethodErrorType("server_Fail") == metServerFail
 
-block methodErrorTypeCaseInsensitiveAfterFirst:
+testCase methodErrorTypeCaseInsensitiveAfterFirst:
   ## "serverfail" normalises same as "serverFail": both become "serverfail".
   doAssert parseMethodErrorType("serverfail") == metServerFail
 
-block methodErrorTypeFirstCharCaseSensitive:
+testCase methodErrorTypeFirstCharCaseSensitive:
   ## "SERVERFAIL": first char 'S' differs from 's' in "serverFail" -> metUnknown.
   doAssert parseMethodErrorType("SERVERFAIL") == metUnknown
 
-block setErrorTypeUnderscoreStripped:
+testCase setErrorTypeUnderscoreStripped:
   ## "over_Quota" normalises to "overquota", matching "overQuota" -> setOverQuota.
   doAssert parseSetErrorType("over_Quota") == setOverQuota
 
-block setErrorTypeMixedCaseAndUnderscore:
+testCase setErrorTypeMixedCaseAndUnderscore:
   ## "too_large" normalises to "toolarge", matching "tooLarge" -> setTooLarge.
   doAssert parseSetErrorType("too_large") == setTooLarge
 
-block capabilityKindUnderscoreFalseMatch:
+testCase capabilityKindUnderscoreFalseMatch:
   ## "urn:ietf:params:jmap:co_re" normalises to "urn:ietf:params:jmap:core",
   ## matching ckCore's backing string. This is a nimIdentNormalize artefact.
   doAssert parseCapabilityKind("urn:ietf:params:jmap:co_re") == ckCore
 
-block requestErrorTypeUnderscoreFalseMatch:
+testCase requestErrorTypeUnderscoreFalseMatch:
   ## "urn:ietf:params:jmap:error:not_JSON" normalises to
   ## "urn:ietf:params:jmap:error:notjson", matching retNotJson's backing.
   doAssert parseRequestErrorType("urn:ietf:params:jmap:error:not_JSON") == retNotJson
 
-block requestErrorTypeUnderscoreInLimit:
+testCase requestErrorTypeUnderscoreInLimit:
   ## "urn:ietf:params:jmap:error:li_mit" normalises to
   ## "urn:ietf:params:jmap:error:limit", matching retLimit.
   doAssert parseRequestErrorType("urn:ietf:params:jmap:error:li_mit") == retLimit
 
-block methodErrorTypeMultipleUnderscores:
+testCase methodErrorTypeMultipleUnderscores:
   ## "invalid__Arguments" -> "invalidarguments" matches metInvalidArguments.
   doAssert parseMethodErrorType("invalid__Arguments") == metInvalidArguments
 
-block methodErrorTypeTrailingUnderscore:
+testCase methodErrorTypeTrailingUnderscore:
   ## "forbidden_" -> "forbidden" matches metForbidden.
   doAssert parseMethodErrorType("forbidden_") == metForbidden
 
-block setErrorTypeFirstCharMismatch:
+testCase setErrorTypeFirstCharMismatch:
   ## "Forbidden" -> first char 'F' differs from 'f' in "forbidden" -> setUnknown.
   doAssert parseSetErrorType("Forbidden") == setUnknown
 
-block capabilityKindFirstCharMismatch:
+testCase capabilityKindFirstCharMismatch:
   ## "URN:..." first char 'U' differs from 'u' in "urn:..." -> ckUnknown.
   doAssert parseCapabilityKind("URN:IETF:PARAMS:JMAP:CORE") == ckUnknown
 
@@ -235,11 +236,11 @@ block capabilityKindFirstCharMismatch:
 # g) CreationId edge case: bare '#'
 # =============================================================================
 
-block creationIdBareHash:
+testCase creationIdBareHash:
   ## Bare "#" is rejected: starts with '#'.
   assertErrFields parseCreationId("#"), "CreationId", "must not include '#' prefix", "#"
 
-block creationIdHashOnly:
+testCase creationIdHashOnly:
   ## Multiple hashes: first char is '#', so rejected.
   assertErr parseCreationId("###")
 
@@ -250,20 +251,20 @@ block creationIdHashOnly:
 # NUL bytes. When these strings cross FFI to C, strlen() truncates at the NUL,
 # making the C side see a different (shorter) string than the Nim side.
 
-block uriTemplateAcceptsNul:
+testCase uriTemplateAcceptsNul:
   ## parseUriTemplate only checks non-empty; NUL bytes pass validation.
   assertOk parseUriTemplate("https://evil.com\x00/{accountId}")
 
-block uriTemplateNulAtStart:
+testCase uriTemplateNulAtStart:
   ## NUL as the first character: non-empty, so accepted.
   assertOk parseUriTemplate("\x00valid")
 
-block invocationNameAcceptsNul:
+testCase invocationNameAcceptsNul:
   ## Invocation.rawName is a bare string with no validation (wire boundary).
   let inv = parseInvocation("Email/get\x00Evil/set", newJObject(), makeMcid("c0")).get()
   doAssert inv.rawName.len == 18
 
-block resultReferencePathAcceptsNul:
+testCase resultReferencePathAcceptsNul:
   ## ResultReference.rawPath is a bare string; NUL bytes are preserved.
   let rr = parseResultReference(
       resultOf = makeMcid("c0"), name = "Email/get", path = "/ids\x00/evil"
@@ -271,7 +272,7 @@ block resultReferencePathAcceptsNul:
     .get()
   doAssert rr.rawPath.len == 10
 
-block resultReferenceNameAcceptsNul:
+testCase resultReferenceNameAcceptsNul:
   ## ResultReference.rawName is a bare string; NUL bytes are preserved.
   let rr = parseResultReference(
       resultOf = makeMcid("c0"), name = "Email/get\x00hidden", path = "/ids"
@@ -279,7 +280,7 @@ block resultReferenceNameAcceptsNul:
     .get()
   doAssert rr.rawName.len == 16
 
-block requestUsingAcceptsNul:
+testCase requestUsingAcceptsNul:
   ## Request.using elements are bare strings; NUL bytes are not checked.
   let req = Request(
     `using`: @["urn:ietf:params:jmap:core\x00evil"],
@@ -288,12 +289,12 @@ block requestUsingAcceptsNul:
   )
   doAssert req.`using`[0].len == 30
 
-block transportErrorMessageAcceptsNul:
+testCase transportErrorMessageAcceptsNul:
   ## TransportError.message is a bare string; NUL bytes are preserved.
   let te = transportError(tekNetwork, "connection\x00refused")
   doAssert te.message.len == 18
 
-block accountNameAcceptsNul:
+testCase accountNameAcceptsNul:
   ## Account.name is a bare string; NUL bytes are preserved.
   let acct = Account(
     name: "admin\x00@evil.com",
@@ -310,23 +311,23 @@ block accountNameAcceptsNul:
 # well-formedness. Overlong encodings of control characters have high bytes
 # that pass this check.
 
-block idFromServerOverlongNewline:
+testCase idFromServerOverlongNewline:
   ## Overlong encoding of newline (0x0A): \xC0\x8A. Both bytes >= 0x20.
   assertOk parseIdFromServer("abc\xC0\x8Adef")
 
-block idFromServerOverlongCarriageReturn:
+testCase idFromServerOverlongCarriageReturn:
   ## Overlong encoding of CR (0x0D): \xC0\x8D. Both bytes >= 0x20.
   assertOk parseIdFromServer("abc\xC0\x8Ddef")
 
-block idFromServerOverlongTab:
+testCase idFromServerOverlongTab:
   ## Overlong encoding of tab (0x09): \xC0\x89. Both bytes >= 0x20.
   assertOk parseIdFromServer("abc\xC0\x89def")
 
-block idFromServerThreeByteOverlongNul:
+testCase idFromServerThreeByteOverlongNul:
   ## 3-byte overlong NUL \xE0\x80\x80: all bytes >= 0x80, accepted.
   assertOk parseIdFromServer("abc\xE0\x80\x80def")
 
-block idFromServerFourByteOverlongNul:
+testCase idFromServerFourByteOverlongNul:
   ## 4-byte overlong NUL \xF0\x80\x80\x80: all bytes >= 0x80, accepted.
   assertOk parseIdFromServer("abc\xF0\x80\x80\x80def")
 
@@ -334,35 +335,35 @@ block idFromServerFourByteOverlongNul:
 # j) UTF-8 truncation and continuation byte edge cases
 # =============================================================================
 
-block idFromServerTruncated3Byte1:
+testCase idFromServerTruncated3Byte1:
   ## Truncated 3-byte sequence: 1 of 3 bytes. 0xE2 >= 0x20, accepted.
   assertOk parseIdFromServer("abc\xE2")
 
-block idFromServerTruncated3Byte2:
+testCase idFromServerTruncated3Byte2:
   ## Truncated 3-byte sequence: 2 of 3 bytes. Both >= 0x80, accepted.
   assertOk parseIdFromServer("abc\xE2\x80")
 
-block idFromServerTruncated4Byte1:
+testCase idFromServerTruncated4Byte1:
   ## Truncated 4-byte sequence: 1 of 4 bytes.
   assertOk parseIdFromServer("abc\xF0")
 
-block idFromServerTruncated4Byte2:
+testCase idFromServerTruncated4Byte2:
   ## Truncated 4-byte sequence: 2 of 4 bytes.
   assertOk parseIdFromServer("abc\xF0\x9F")
 
-block idFromServerTruncated4Byte3:
+testCase idFromServerTruncated4Byte3:
   ## Truncated 4-byte sequence: 3 of 4 bytes.
   assertOk parseIdFromServer("abc\xF0\x9F\x98")
 
-block idFromServerLoneLowSurrogate:
+testCase idFromServerLoneLowSurrogate:
   ## Lone low surrogate \xED\xB0\x80: all bytes >= 0x80, accepted.
   assertOk parseIdFromServer("abc\xED\xB0\x80def")
 
-block idFromServerInvalid5ByteSequence:
+testCase idFromServerInvalid5ByteSequence:
   ## 5-byte sequence \xF8\x80\x80\x80\x80: never valid UTF-8, but all >= 0x80.
   assertOk parseIdFromServer("\xF8\x80\x80\x80\x80")
 
-block idFromServerInvalid6ByteSequence:
+testCase idFromServerInvalid6ByteSequence:
   ## 6-byte sequence \xFC\x80\x80\x80\x80\x80: never valid UTF-8, but all >= 0x80.
   assertOk parseIdFromServer("\xFC\x80\x80\x80\x80\x80")
 
@@ -370,28 +371,28 @@ block idFromServerInvalid6ByteSequence:
 # k) Integer boundary precision
 # =============================================================================
 
-block unsignedIntExactly2Pow53:
+testCase unsignedIntExactly2Pow53:
   ## 2^53 = 9007199254740992 is one above the maximum; rejected.
   assertErr parseUnsignedInt(9_007_199_254_740_992'i64)
 
-block jmapIntNegationOfMinEqualsMax:
+testCase jmapIntNegationOfMinEqualsMax:
   ## -MinJmapInt == MaxJmapInt. Since MinJmapInt = -(2^53-1), this is safe.
   let minVal = parseJmapInt(MinJmapInt).get()
   let negated = -minVal
   let maxVal = parseJmapInt(MaxJmapInt).get()
   doAssert negated == maxVal
 
-block unsignedIntNoNegation:
+testCase unsignedIntNoNegation:
   ## UnsignedInt does not borrow unary negation.
   doAssert not compiles(-parseUnsignedInt(0).get())
 
-block httpStatusErrorNegative:
+testCase httpStatusErrorNegative:
   ## httpStatusError accepts any int, including negative values.
   let te = httpStatusError(-1, "negative status")
   doAssert te.kind == tekHttpStatus
   doAssert te.httpStatus == -1
 
-block httpStatusErrorVeryLarge:
+testCase httpStatusErrorVeryLarge:
   ## httpStatusError accepts very large status codes.
   let te = httpStatusError(99999, "huge status")
   doAssert te.httpStatus == 99999
@@ -400,27 +401,27 @@ block httpStatusErrorVeryLarge:
 # l) String length extremes for length-unbounded types
 # =============================================================================
 
-block methodCallIdVeryLong:
+testCase methodCallIdVeryLong:
   ## MethodCallId has no upper length bound; 65536 bytes accepted.
   assertOk parseMethodCallId("a".repeat(65536))
 
-block creationIdVeryLong:
+testCase creationIdVeryLong:
   ## CreationId has no upper length bound; 65536 bytes accepted.
   assertOk parseCreationId("a".repeat(65536))
 
-block propertyNameVeryLong:
+testCase propertyNameVeryLong:
   ## PropertyName has no upper length bound; 65536 bytes accepted.
   assertOk parsePropertyName("a".repeat(65536))
 
-block accountIdAllControlCharsRejected:
+testCase accountIdAllControlCharsRejected:
   ## 255 bytes of \x01 (control chars) rejected by AccountId.
   assertErr parseAccountId("\x01".repeat(255))
 
-block methodCallIdAllControlCharsAccepted:
+testCase methodCallIdAllControlCharsAccepted:
   ## MethodCallId has no control-character restriction; all control chars accepted.
   assertOk parseMethodCallId("\x01".repeat(255))
 
-block allNulBytesForEachType:
+testCase allNulBytesForEachType:
   ## 255 bytes of NUL: accepted by permissive types, rejected by strict types.
   assertErr parseId("\x00".repeat(255))
   assertErr parseIdFromServer("\x00".repeat(255))
@@ -430,7 +431,7 @@ block allNulBytesForEachType:
   assertOk parseCreationId("\x00".repeat(255))
   assertOk parsePropertyName("\x00".repeat(255))
 
-block allSpacesForIdTypes:
+testCase allSpacesForIdTypes:
   ## 255 bytes of space: strict Id rejects, lenient accepts.
   assertErr parseId(" ".repeat(255))
   assertOk parseIdFromServer(" ".repeat(255))
@@ -440,27 +441,27 @@ block allSpacesForIdTypes:
 # m) Date/time adversarial edge cases
 # =============================================================================
 
-block dateYear10000:
+testCase dateYear10000:
   ## 5-digit year: position 4 is '0' not '-', so date portion check fails.
   assertErr parseDate("10000-01-01T12:00:00Z")
 
-block dateFractionalSecondsWithLowercaseZ:
+testCase dateFractionalSecondsWithLowercaseZ:
   ## Fractional seconds followed by lowercase 'z': rejected.
   assertErr parseDate("2024-01-01T12:00:00.123z")
 
-block dateFractionalNoTimezone:
+testCase dateFractionalNoTimezone:
   ## Fractional seconds present but no timezone suffix.
   assertErr parseDate("2024-01-01T12:00:00.123")
 
-block dateDoubleDot:
+testCase dateDoubleDot:
   ## Double decimal point in fractional seconds position.
   assertErr parseDate("2024-01-01T12:00:00..123Z")
 
-block dateNulInDatePortion:
+testCase dateNulInDatePortion:
   ## NUL byte at position 3 in date portion: not a digit, rejected.
   assertErr parseDate("202\x004-01-01T12:00:00Z")
 
-block dateLongFractionalSeconds:
+testCase dateLongFractionalSeconds:
   ## 100000-digit fractional seconds: structurally valid, accepted.
   let frac = "1".repeat(100000)
   let input = "2024-01-01T12:00:00." & frac & "Z"
@@ -470,27 +471,27 @@ block dateLongFractionalSeconds:
 # n) Enum parsing via nimIdentNormalize — additional edge cases
 # =============================================================================
 
-block methodErrorTypeLeadingUnderscore:
+testCase methodErrorTypeLeadingUnderscore:
   ## Leading underscore is preserved by nimIdentNormalize; no match.
   doAssert parseMethodErrorType("_serverFail") == metUnknown
 
-block methodErrorTypeMultipleLeadingUnderscores:
+testCase methodErrorTypeMultipleLeadingUnderscores:
   ## Multiple leading underscores preserved.
   doAssert parseMethodErrorType("__serverFail") == metUnknown
 
-block methodErrorTypeNulTerminated:
+testCase methodErrorTypeNulTerminated:
   ## NUL byte is not an underscore; breaks the match.
   doAssert parseMethodErrorType("serverFail\x00extra") == metUnknown
 
-block methodErrorTypeVeryLong:
+testCase methodErrorTypeVeryLong:
   ## Very long string: parseEnum iterates all variants without crashing.
   doAssert parseMethodErrorType("a".repeat(10000)) == metUnknown
 
-block methodErrorTypeZeroWidthSpace:
+testCase methodErrorTypeZeroWidthSpace:
   ## Zero-width space (UTF-8 bytes) embedded in the string breaks matching.
   doAssert parseMethodErrorType("server\xE2\x80\x8BFail") == metUnknown
 
-block capabilityUriUnderscoreFalseMatch:
+testCase capabilityUriUnderscoreFalseMatch:
   ## Underscore between 'o' and 'w' in "unknownCapability" is stripped.
   doAssert parseRequestErrorType("urn:ietf:params:jmap:error:unkno_wnCapability") ==
     retUnknownCapability
@@ -499,14 +500,14 @@ block capabilityUriUnderscoreFalseMatch:
 # o) Session validation attacks
 # =============================================================================
 
-block uriTemplateVariableSubstringFalseNegative:
+testCase uriTemplateVariableSubstringFalseNegative:
   ## "{accountIdblobId}" does NOT contain "{accountId}" as a variable.
   let tmpl =
     parseUriTemplate("https://e.com/{accountIdblobId}/{name}?accept={type}").get()
   doAssert not tmpl.hasVariable("accountId")
   doAssert tmpl.hasVariable("accountIdblobId")
 
-block uriTemplateEmptyVariableName:
+testCase uriTemplateEmptyVariableName:
   ## Empty ``{}`` is now rejected at parse time — the new tokeniser
   ## surfaces position-bearing errors rather than silently round-tripping
   ## nonsensical templates (was lenient substring search before).
@@ -515,7 +516,7 @@ block uriTemplateEmptyVariableName:
   doAssert res.error.typeName == "UriTemplate"
   doAssert "empty variable" in res.error.message
 
-block sessionCoreCapabilityMismatchedRawUri:
+testCase sessionCoreCapabilityMismatchedRawUri:
   ## ckCore with a non-matching rawUri is accepted (validation checks kind, not URI).
   let args = makeSessionArgs()
   let weirdCore =
@@ -537,23 +538,23 @@ block sessionCoreCapabilityMismatchedRawUri:
 # p) Cross-type safety: additional distinct type isolation
 # =============================================================================
 
-block methodCallIdVsCreationIdIsolation:
+testCase methodCallIdVsCreationIdIsolation:
   ## MethodCallId and CreationId are distinct types; comparison rejected.
   doAssert not compiles(makeMcid("a") == makeCreationId("a"))
 
-block jmapStateVsPropertyNameIsolation:
+testCase jmapStateVsPropertyNameIsolation:
   doAssert not compiles(makeState("a") == makePropertyName("a"))
 
-block uriTemplateVsPropertyNameIsolation:
+testCase uriTemplateVsPropertyNameIsolation:
   doAssert not compiles(makeUriTemplate("a") == makePropertyName("a"))
 
-block dateVsUtcDateIsolation:
+testCase dateVsUtcDateIsolation:
   ## Date and UTCDate are distinct types.
   doAssert not compiles(
     parseDate("2024-01-01T12:00:00Z").get() == parseUtcDate("2024-01-01T12:00:00Z").get()
   )
 
-block directConstructionBypassesSmartConstructor:
+testCase directConstructionBypassesSmartConstructor:
   ## distinct types can be directly constructed, bypassing validation.
   ## This documents the limitation: smart constructors are the only safe path.
   doAssert compiles(Id(""))
@@ -564,20 +565,20 @@ block directConstructionBypassesSmartConstructor:
 # q) Unicode visual confusion characters
 # =============================================================================
 
-block idFromServerRtlOverride:
+testCase idFromServerRtlOverride:
   ## Right-to-left override U+202E: bytes \xE2\x80\xAE, all >= 0x80, accepted.
   assertOk parseIdFromServer("admin\xE2\x80\xAEtoor")
 
-block idFromServerCyrillicHomoglyph:
+testCase idFromServerCyrillicHomoglyph:
   ## Cyrillic 'a' (U+0430): \xD0\xB0, both bytes >= 0x80, accepted.
   ## Visually similar to Latin 'a' but a different byte sequence.
   assertOk parseIdFromServer("\xD0\xB0bc")
 
-block idFromServerZeroWidthJoiner:
+testCase idFromServerZeroWidthJoiner:
   ## Zero-width joiner U+200D: \xE2\x80\x8D, all bytes >= 0x80, accepted.
   assertOk parseIdFromServer("a\xE2\x80\x8Db")
 
-block idFromServerBomInMiddle:
+testCase idFromServerBomInMiddle:
   ## BOM \xEF\xBB\xBF in the middle of a string (not just at the start).
   assertOk parseIdFromServer("abc\xEF\xBB\xBFdef")
 
@@ -589,15 +590,15 @@ block idFromServerBomInMiddle:
 # is 193 (>= 0x20) and byte 0xBF is 191 (>= 0x20, != 0x7F). This is a known
 # Layer 1 limitation; overlong encoding validation is a Layer 2 concern.
 
-block overlongDelBypassIdFromServer:
+testCase overlongDelBypassIdFromServer:
   ## Overlong DEL \xC1\xBF accepted by lenient parser: both bytes pass checks.
   assertOk parseIdFromServer("\xC1\xBF")
 
-block overlongDelBypassAccountId:
+testCase overlongDelBypassAccountId:
   ## Overlong DEL \xC1\xBF accepted by parseAccountId: both bytes pass checks.
   assertOk parseAccountId("\xC1\xBF")
 
-block overlongDelBypassJmapState:
+testCase overlongDelBypassJmapState:
   ## Overlong DEL \xC1\xBF accepted by parseJmapState: both bytes pass checks.
   assertOk parseJmapState("\xC1\xBF")
 
@@ -608,23 +609,23 @@ block overlongDelBypassJmapState:
 # first character and strips all underscores. RFC 8620 expects exact string
 # matching. This conformance risk is addressed at Layer 2 with custom parsing.
 
-block nimIdentNormalizeAllCapsCapability:
+testCase nimIdentNormalizeAllCapsCapability:
   ## All-caps after first char: "urn:IETF:PARAMS:JMAP:CORE" matches ckCore.
   doAssert parseCapabilityKind("urn:IETF:PARAMS:JMAP:CORE") == ckCore
 
-block nimIdentNormalizeUnderscoreCapability:
+testCase nimIdentNormalizeUnderscoreCapability:
   ## Underscores scattered through URI are stripped: matches ckCore.
   doAssert parseCapabilityKind("u___r___n:ietf:params:jmap:core") == ckCore
 
-block nimIdentNormalizeMethodError:
+testCase nimIdentNormalizeMethodError:
   ## "serverFAIL" matches metServerFail (case-insensitive after first char).
   doAssert parseMethodErrorType("serverFAIL") == metServerFail
 
-block nimIdentNormalizeMethodErrorUnderscore:
+testCase nimIdentNormalizeMethodErrorUnderscore:
   ## "server___Fail" with triple underscores matches metServerFail.
   doAssert parseMethodErrorType("server___Fail") == metServerFail
 
-block nimIdentNormalizeSetError:
+testCase nimIdentNormalizeSetError:
   ## "invalidPROPERTIES" matches setInvalidProperties.
   doAssert parseSetErrorType("invalidPROPERTIES") == setInvalidProperties
 
@@ -632,19 +633,19 @@ block nimIdentNormalizeSetError:
 # t) int64 extremes
 # =============================================================================
 
-block int64ExtremeUnsignedIntHigh:
+testCase int64ExtremeUnsignedIntHigh:
   ## int64.high = 9223372036854775807 far exceeds 2^53-1; rejected.
   assertErr parseUnsignedInt(int64.high)
 
-block int64ExtremeUnsignedIntLow:
+testCase int64ExtremeUnsignedIntLow:
   ## int64.low = -9223372036854775808 is negative; rejected.
   assertErr parseUnsignedInt(int64.low)
 
-block int64ExtremeJmapIntHigh:
+testCase int64ExtremeJmapIntHigh:
   ## int64.high exceeds 2^53-1; rejected.
   assertErr parseJmapInt(int64.high)
 
-block int64ExtremeJmapIntLow:
+testCase int64ExtremeJmapIntLow:
   ## int64.low is below -(2^53-1); rejected.
   assertErr parseJmapInt(int64.low)
 
@@ -655,13 +656,13 @@ block int64ExtremeJmapIntLow:
 # yielding a valid-looking shorter string. Layer 5 must strip or reject
 # trailing NULs at the FFI boundary.
 
-block nulLastByteInvocationName:
+testCase nulLastByteInvocationName:
   ## Invocation rawName with trailing NUL: Nim preserves it, C strlen() would not.
   let inv = parseInvocation("Email/get\x00", newJObject(), makeMcid("c0")).get()
   doAssert inv.rawName.len > 9
   doAssert inv.rawName.len == 10
 
-block nulLastByteResultReferencePath:
+testCase nulLastByteResultReferencePath:
   ## ResultReference rawPath with trailing NUL: Nim preserves it.
   let rr = parseResultReference(
       resultOf = makeMcid("c0"), name = "Email/get", path = "/ids\x00"
@@ -670,7 +671,7 @@ block nulLastByteResultReferencePath:
   doAssert rr.rawPath.len > 4
   doAssert rr.rawPath.len == 5
 
-block nulLastByteRequestUsing:
+testCase nulLastByteRequestUsing:
   ## Request.using element with trailing NUL: Nim preserves it.
   let req = Request(
     `using`: @["urn:ietf:params:jmap:core\x00"],
@@ -684,7 +685,7 @@ block nulLastByteRequestUsing:
 # v) Shared JsonNode aliasing
 # =============================================================================
 
-block jsonNodeAliasingInInvocation:
+testCase jsonNodeAliasingInInvocation:
   ## JsonNode is a ref type; aliasing means mutations to the original are
   ## visible through the Invocation's arguments field (ref sharing under ARC).
   let args = newJObject()
@@ -700,12 +701,12 @@ block jsonNodeAliasingInInvocation:
 # w) Additional UTF-8 edge cases
 # =============================================================================
 
-block utf8BomMiddleOfString:
+testCase utf8BomMiddleOfString:
   ## BOM \xEF\xBB\xBF in the middle: 9 bytes total, all bytes >= 0x20, accepted.
   let r = parseIdFromServer("abc\xEF\xBB\xBFdef").get()
   doAssert r.len == 9
 
-block utf8FourByteEmojiAtBoundary:
+testCase utf8FourByteEmojiAtBoundary:
   ## 4-byte emoji at byte position 252 pushing total to 256 bytes.
   ## Strict parser rejects: non-base64url bytes.
   ## Lenient parser rejects: 256 bytes exceeds the 255 limit.
@@ -716,7 +717,7 @@ block utf8FourByteEmojiAtBoundary:
   assertErr parseId(input)
   assertErr parseIdFromServer(input)
 
-block utf8MixedValidInvalid:
+testCase utf8MixedValidInvalid:
   ## \xFF and \xFE are invalid UTF-8 lead bytes but both are >= 0x20, not 0x7F.
   ## The lenient parser accepts them (byte-level validation, not Unicode).
   assertOk parseIdFromServer("abc\xFF\xFEdef")
@@ -727,27 +728,27 @@ block utf8MixedValidInvalid:
 # Documents that Layer 1 preserves CRLF bytes in error strings. Layer 2/4
 # must sanitise before logging or including in HTTP responses.
 
-block crlfInjectionInMethodError:
+testCase crlfInjectionInMethodError:
   ## methodError with CRLF in rawType: Layer 1 preserves the bytes verbatim.
   let me = methodError("serverFail\r\nX-Injected: header")
   doAssert "\r\n" in me.rawType
   doAssert me.rawType == "serverFail\r\nX-Injected: header"
   doAssert me.errorType == metUnknown
 
-block crlfInjectionInTransportError:
+testCase crlfInjectionInTransportError:
   ## transportError with CRLF in message: Layer 1 preserves the bytes verbatim.
   let te = transportError(tekNetwork, "error\r\nX-Injected: header")
   doAssert "\r\n" in te.message
   doAssert te.message == "error\r\nX-Injected: header"
 
-block crlfInjectionInSetError:
+testCase crlfInjectionInSetError:
   ## setError with CRLF in rawType: Layer 1 preserves the bytes verbatim.
   let se = setError("forbidden\r\nX-Injected: header")
   doAssert "\r\n" in se.rawType
   doAssert se.rawType == "forbidden\r\nX-Injected: header"
   doAssert se.errorType == setUnknown
 
-block crlfInjectionInRequestError:
+testCase crlfInjectionInRequestError:
   ## requestError with CRLF in rawType: Layer 1 preserves the bytes verbatim.
   let re = requestError("urn:ietf:params:jmap:error:limit\r\nX-Injected: header")
   doAssert "\r\n" in re.rawType
@@ -760,26 +761,26 @@ block crlfInjectionInRequestError:
 # Validates that parseIdFromServer accepts ID formats known to be used by
 # real JMAP server implementations.
 
-block realWorldIdFastmail:
+testCase realWorldIdFastmail:
   ## Fastmail uses base64url without padding for IDs.
   assertOk parseIdFromServer("SGVsbG8gV29ybGQ")
   assertOk parseIdFromServer("u1f5a6e2c")
 
-block realWorldIdCyrusImap:
+testCase realWorldIdCyrusImap:
   ## Cyrus IMAP uses decimal modseq values as IDs.
   assertOk parseIdFromServer("18446744073709551615")
   assertOk parseIdFromServer("12345678")
 
-block realWorldIdApacheJames:
+testCase realWorldIdApacheJames:
   ## Apache James uses UUID format for IDs.
   assertOk parseIdFromServer("550e8400-e29b-41d4-a716-446655440000")
 
-block realWorldIdStalwart:
+testCase realWorldIdStalwart:
   ## Stalwart uses path-like IDs with colons and hash characters.
   assertOk parseIdFromServer("user/mailbox/msg:12345")
   assertOk parseIdFromServer("INBOX.Draft#123")
 
-block realWorldIdGenericSpecialChars:
+testCase realWorldIdGenericSpecialChars:
   ## Various servers use IDs containing @, +, and dot characters.
   assertOk parseIdFromServer("user@host")
   assertOk parseIdFromServer("msg+tag")
@@ -789,15 +790,15 @@ block realWorldIdGenericSpecialChars:
 # Capability URI edge cases
 # =============================================================================
 
-block capabilityUriTypo:
+testCase capabilityUriTypo:
   ## A typo in the capability URI ("cor" instead of "core") maps to ckUnknown.
   doAssert parseCapabilityKind("urn:ietf:params:jmap:cor") == ckUnknown
 
-block capabilityUriVendorFragment:
+testCase capabilityUriVendorFragment:
   ## A vendor URI with a fragment identifier maps to ckUnknown.
   doAssert parseCapabilityKind("https://vendor.example.com/ext#v2") == ckUnknown
 
-block capabilityUriCaseVariation:
+testCase capabilityUriCaseVariation:
   ## Full-uppercase URI: first character 'U' differs from 'u' in the backing
   ## string "urn:ietf:params:jmap:core", so nimIdentNormalize does not match.
   doAssert parseCapabilityKind("URN:IETF:PARAMS:JMAP:CORE") == ckUnknown
@@ -808,14 +809,14 @@ block capabilityUriCaseVariation:
 # Documents that identical rawType strings map to different enum variants
 # depending on which error context they appear in.
 
-block methodErrorVsSetErrorEnumMapping:
+testCase methodErrorVsSetErrorEnumMapping:
   ## "serverFail" is a valid MethodErrorType but not a SetErrorType.
   let me = methodError("serverFail")
   doAssert me.errorType == metServerFail
   let se = setError("serverFail")
   doAssert se.errorType == setUnknown
 
-block requestErrorVsMethodErrorEnumMapping:
+testCase requestErrorVsMethodErrorEnumMapping:
   ## Full URIs are valid RequestErrorType values but not MethodErrorType values.
   let re = requestError("urn:ietf:params:jmap:error:limit")
   doAssert re.errorType == retLimit
@@ -828,13 +829,13 @@ block requestErrorVsMethodErrorEnumMapping:
 # Documents that some strings pass both strict Id and lenient AccountId
 # validation, which is by design (different type safety at the Nim level).
 
-block idAccountIdValidationOverlap:
+testCase idAccountIdValidationOverlap:
   ## The full base64url alphabet passes both strict Id and lenient AccountId.
   const overlap = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
   assertOk parseId(overlap)
   assertOk parseAccountId(overlap)
 
-block methodCallIdCreationIdOverlap:
+testCase methodCallIdCreationIdOverlap:
   ## A simple alphanumeric string passes both MethodCallId and CreationId.
   const overlap = "ref42"
   assertOk parseMethodCallId(overlap)
@@ -846,7 +847,7 @@ block methodCallIdCreationIdOverlap:
 # Documents that Layer 1 preserves Unicode control sequences in Account.name.
 # UI layers must handle rendering safely.
 
-block accountNameZeroWidthSpace:
+testCase accountNameZeroWidthSpace:
   ## Zero-width space U+200B (\xE2\x80\x8B) embedded in Account.name is preserved.
   let acct = Account(
     name: "admin\xE2\x80\x8Bbackup@co.com",
@@ -857,7 +858,7 @@ block accountNameZeroWidthSpace:
   doAssert acct.name.len == 21
   doAssert "\xE2\x80\x8B" in acct.name
 
-block accountNameRightToLeftOverride:
+testCase accountNameRightToLeftOverride:
   ## Right-to-left override U+202E (\xE2\x80\xAE) in Account.name is preserved.
   let acct = Account(
     name: "admin\xE2\x80\xAErof@co.com",
@@ -868,7 +869,7 @@ block accountNameRightToLeftOverride:
   doAssert acct.name.len == 18
   doAssert "\xE2\x80\xAE" in acct.name
 
-block accountNameBom:
+testCase accountNameBom:
   ## BOM U+FEFF (\xEF\xBB\xBF) at start of Account.name is preserved.
   let acct = Account(
     name: "\xEF\xBB\xBFadmin@co.com",
@@ -883,7 +884,7 @@ block accountNameBom:
 # 6a) Full control character range
 # =============================================================================
 
-block controlCharRangeInLenientValidators:
+testCase controlCharRangeInLenientValidators:
   ## Every byte in 0x00..0x1F and 0x7F must be rejected by lenient validators.
   for i in 0x00 .. 0x1F:
     let ch = char(i)
@@ -897,7 +898,7 @@ block controlCharRangeInLenientValidators:
   assertErr parseAccountId(delStr)
   assertErr parseJmapState(delStr)
 
-block controlCharBoundarySpaceAccepted:
+testCase controlCharBoundarySpaceAccepted:
   ## 0x20 (space) is the boundary — must be accepted by lenient validators.
   assertOk parseIdFromServer(" ")
   assertOk parseAccountId(" ")
@@ -907,21 +908,21 @@ block controlCharBoundarySpaceAccepted:
 # 6b) Multi-position control char injection
 # =============================================================================
 
-block nulAtMultiplePositionsInStrictId:
+testCase nulAtMultiplePositionsInStrictId:
   ## NUL at start, middle, and end of max-length strict Id.
   for pos in [0, 127, 254]:
     var s = "A".repeat(255)
     s[pos] = '\x00'
     assertErr parseId(s)
 
-block delAtMultiplePositionsInLenientId:
+testCase delAtMultiplePositionsInLenientId:
   ## DEL at start, middle, and end of lenient Id.
   for pos in [0, 127, 254]:
     var s = "A".repeat(255)
     s[pos] = '\x7F'
     assertErr parseIdFromServer(s)
 
-block controlCharAtPosition254InAccountId:
+testCase controlCharAtPosition254InAccountId:
   ## Control char at position 254 in max-length AccountId.
   var s = "A".repeat(255)
   s[254] = '\x01'
@@ -931,7 +932,7 @@ block controlCharAtPosition254InAccountId:
 # 6d) Filter tree edge cases
 # =============================================================================
 
-block filterNotWithMultipleChildren:
+testCase filterNotWithMultipleChildren:
   ## NOT with multiple children — semantically wrong per RFC, but Layer 1 allows.
   let a = filterCondition(1)
   let b = filterCondition(2)
@@ -940,13 +941,13 @@ block filterNotWithMultipleChildren:
   doAssert f.operator == foNot
   doAssert f.conditions.len == 2
 
-block filterEmptyConditionsList:
+testCase filterEmptyConditionsList:
   ## Operator with empty conditions list — Layer 1 does not restrict this.
   let f = filterOperator[int](foAnd, @[])
   doAssert f.kind == fkOperator
   doAssert f.conditions.len == 0
 
-block filterMixedOperatorNesting:
+testCase filterMixedOperatorNesting:
   ## (a AND b) OR (NOT c) — complex nesting is valid.
   let a = filterCondition(1)
   let b = filterCondition(2)
@@ -963,20 +964,20 @@ block filterMixedOperatorNesting:
 # 6e) Error type edge cases
 # =============================================================================
 
-block httpStatusErrorLargeAndNegative:
+testCase httpStatusErrorLargeAndNegative:
   ## Unusual HTTP status codes are not validated at Layer 1.
   let te999 = httpStatusError(999, "unusual")
   doAssert te999.httpStatus == 999
   let teNeg = httpStatusError(-1, "negative")
   doAssert teNeg.httpStatus == -1
 
-block setErrorDefensiveFallbackInvalidProperties:
+testCase setErrorDefensiveFallbackInvalidProperties:
   ## Generic setError with rawType="invalidProperties" falls to setUnknown.
   let se = setError("invalidProperties")
   doAssert se.errorType == setUnknown
   doAssert se.rawType == "invalidProperties"
 
-block setErrorDefensiveFallbackAlreadyExists:
+testCase setErrorDefensiveFallbackAlreadyExists:
   ## Generic setError with rawType="alreadyExists" falls to setUnknown.
   let se = setError("alreadyExists")
   doAssert se.errorType == setUnknown
@@ -986,7 +987,7 @@ block setErrorDefensiveFallbackAlreadyExists:
 # SetError variant field confusion
 # =============================================================================
 
-block setErrorAlreadyExistsWithExtrasContainingProperties:
+testCase setErrorAlreadyExistsWithExtrasContainingProperties:
   ## Construct alreadyExists with extras containing a "properties" key.
   ## The extras field holds arbitrary JSON; it does not interfere with the
   ## variant-specific existingId field.
@@ -999,7 +1000,7 @@ block setErrorAlreadyExistsWithExtrasContainingProperties:
   doAssert se.extras.isSome
   doAssert se.extras.get()["properties"].len == 2
 
-block setErrorInvalidPropertiesWithExtrasContainingExistingId:
+testCase setErrorInvalidPropertiesWithExtrasContainingExistingId:
   ## Construct invalidProperties with extras containing an "existingId" key.
   ## The extras field holds arbitrary JSON; it does not interfere with the
   ## variant-specific properties field.
@@ -1020,7 +1021,7 @@ block setErrorInvalidPropertiesWithExtrasContainingExistingId:
 # the original means the mutation is visible through the type. These tests
 # document this behaviour for three ref-holding types.
 
-block jsonNodeAliasingInAccountCapability:
+testCase jsonNodeAliasingInAccountCapability:
   ## AccountCapabilityEntry.data is a JsonNode ref — mutations after
   ## construction are visible. Documented ARC behaviour.
   let data = newJObject()
@@ -1031,7 +1032,7 @@ block jsonNodeAliasingInAccountCapability:
   data["injected"] = newJString("evil")
   doAssert entry.data.hasKey("injected")
 
-block jsonNodeAliasingInServerCapability:
+testCase jsonNodeAliasingInServerCapability:
   ## ServerCapability.rawData (non-ckCore variant) is a JsonNode ref —
   ## mutations after construction are visible. Documented ARC behaviour.
   let rawData = newJObject()
@@ -1042,7 +1043,7 @@ block jsonNodeAliasingInServerCapability:
   rawData["injected"] = newJString("evil")
   doAssert cap.rawData.hasKey("injected")
 
-block jsonNodeAliasingInMethodErrorExtras:
+testCase jsonNodeAliasingInMethodErrorExtras:
   ## MethodError.extras (when Opt.some(jsonNode)) is a JsonNode ref —
   ## mutations after construction are visible. Documented ARC behaviour.
   let extras = newJObject()
@@ -1056,7 +1057,7 @@ block jsonNodeAliasingInMethodErrorExtras:
 # 5.2) Session adversarial scenarios
 # =============================================================================
 
-block sessionDuplicateCkCore:
+testCase sessionDuplicateCkCore:
   ## Duplicate ckCore: parseSession accepts two ckCore ServerCapabilities
   ## with different CoreCapabilities. coreCapabilities() returns the FIRST one.
   let coreCaps1 = CoreCapabilities(
@@ -1101,7 +1102,7 @@ block sessionDuplicateCkCore:
   doAssert cc.maxSizeUpload == parseUnsignedInt(100).get()
   doAssert cc.maxConcurrentUpload == parseUnsignedInt(1).get()
 
-block sessionFindCapabilityCkUnknown:
+testCase sessionFindCapabilityCkUnknown:
   ## findCapability(session, ckUnknown) returns the first ckUnknown entry.
   ## findCapabilityByUri returns the correct specific one.
   let vendor1 = ServerCapability(
@@ -1135,7 +1136,7 @@ block sessionFindCapabilityCkUnknown:
   assertSome specific
   doAssert specific.get().rawUri == "https://vendor.example.com/ext2"
 
-block uriTemplateNestedBracesRejected:
+testCase uriTemplateNestedBracesRejected:
   ## Nested braces ``{{accountId}}`` are rejected at parse time: the
   ## inner ``{`` is an invalid variable-name character. The previous
   ## substring-based ``hasVariable`` silently accepted this edge case;
@@ -1145,7 +1146,7 @@ block uriTemplateNestedBracesRejected:
   doAssert res.error.typeName == "UriTemplate"
   doAssert "invalid variable character" in res.error.message
 
-block uriTemplateNulInFullTemplate:
+testCase uriTemplateNulInFullTemplate:
   ## A template with NUL passes both parseUriTemplate and parseSession because
   ## Nim sees the full string. Documents the FFI boundary implication: C
   ## strlen() would truncate at the NUL.
@@ -1169,7 +1170,7 @@ block uriTemplateNulInFullTemplate:
 # 5.3) Unicode adversarial expansion
 # =============================================================================
 
-block unicodeNfcVsNfdAccountId:
+testCase unicodeNfcVsNfdAccountId:
   ## NFC vs NFD: Latin "e with grave" (\xC3\xA8, 2 bytes NFC) vs "e" +
   ## combining grave accent (\x65\xCC\x80, 3 bytes NFD) produce different
   ## AccountIds. Layer 1 operates at byte level, no Unicode normalisation.
@@ -1177,7 +1178,7 @@ block unicodeNfcVsNfdAccountId:
   let nfd = parseAccountId("\x65\xCC\x80").get()
   doAssert nfc != nfd
 
-block unicodeHomoglyphTablePoisoning:
+testCase unicodeHomoglyphTablePoisoning:
   ## Latin "admin" vs Cyrillic-a "admin" (\xD0\xB0dmin) are distinct Table
   ## keys. Building an accounts table with both produces len == 2.
   let latinId = parseAccountId("admin").get()
@@ -1192,19 +1193,19 @@ block unicodeHomoglyphTablePoisoning:
   )
   doAssert accounts.len == 2
 
-block unicodeZeroWidthSpaceAtStart:
+testCase unicodeZeroWidthSpaceAtStart:
   ## parseAccountId("\xE2\x80\x8Badmin").get() (ZWSP + "admin") is different from
   ## parseAccountId("admin").get(). Byte-level comparison, no normalisation.
   let withZwsp = parseAccountId("\xE2\x80\x8Badmin").get()
   let plain = parseAccountId("admin").get()
   doAssert withZwsp != plain
 
-block unicodeLroCharacterInId:
+testCase unicodeLroCharacterInId:
   ## parseIdFromServer("admin\xE2\x80\xADtest").get() — LRO U+202D (\xE2\x80\xAD),
   ## all bytes >= 0x80, accepted by lenient parser.
   assertOk parseIdFromServer("admin\xE2\x80\xADtest")
 
-block unicodeBidiIsolateInId:
+testCase unicodeBidiIsolateInId:
   ## parseIdFromServer("a\xE2\x81\xA6b").get() — LRI U+2066 (\xE2\x81\xA6),
   ## all bytes >= 0x80, accepted by lenient parser.
   assertOk parseIdFromServer("a\xE2\x81\xA6b")
@@ -1215,32 +1216,32 @@ block unicodeBidiIsolateInId:
 # Layer 1 validates structural RFC 3339 format only — not calendar semantics.
 # These are documented as intentional design decisions.
 
-block dateImpossibleMonth99:
+testCase dateImpossibleMonth99:
   ## Month 99 passes structural validation: Layer 1 does not validate
   ## calendar semantics.
   assertOk parseDate("2024-99-01T12:00:00Z")
 
-block dateImpossibleDay99:
+testCase dateImpossibleDay99:
   ## Day 99 passes structural validation: Layer 1 does not validate
   ## calendar semantics.
   assertOk parseDate("2024-01-99T12:00:00Z")
 
-block dateImpossibleHour99:
+testCase dateImpossibleHour99:
   ## Hour 99 passes structural validation: Layer 1 does not validate
   ## calendar semantics.
   assertOk parseDate("2024-01-01T99:00:00Z")
 
-block dateAllZeros:
+testCase dateAllZeros:
   ## All zeros "0000-00-00T00:00:00Z" passes structural validation: Layer 1
   ## does not validate calendar semantics.
   assertOk parseDate("0000-00-00T00:00:00Z")
 
-block dateFeb30:
+testCase dateFeb30:
   ## February 30 passes structural validation: Layer 1 does not validate
   ## calendar semantics.
   assertOk parseDate("2024-02-30T12:00:00Z")
 
-block dateImpossibleTimezone9999:
+testCase dateImpossibleTimezone9999:
   ## Timezone "+99:99" passes structural validation: Layer 1 does not validate
   ## timezone offset range semantics.
   assertOk parseDate("2024-01-01T12:00:00+99:99")
@@ -1249,14 +1250,14 @@ block dateImpossibleTimezone9999:
 # 5.5) Error information leakage
 # =============================================================================
 
-block validationErrorPreservesFullInput:
+testCase validationErrorPreservesFullInput:
   ## ValidationError.value echoes the complete raw input. Layer 5 FFI must
   ## sanitise before exposing to C callers if input may contain credentials.
   let r = parseId("Bearer eyJhbGciOiJIUzI1NiJ9")
   doAssert r.isErr, "expected Err result"
   doAssert "Bearer" in r.error.value
 
-block crlfInMethodErrorDescription:
+testCase crlfInMethodErrorDescription:
   ## CRLF in description is preserved — no sanitisation at Layer 1.
   let me = methodError("serverFail", description = Opt.some("desc\r\nInjected: yes"))
   doAssert "\r\n" in me.description.get()
@@ -1268,7 +1269,7 @@ block crlfInMethodErrorDescription:
 # without crashing. 100,000 entries exercise memory allocation and iteration
 # paths. The library must return Ok (no artificial limits).
 
-block stressResponseMethodResponses100k:
+testCase stressResponseMethodResponses100k:
   ## Response with 100,000 methodResponses entries -> must succeed.
   ## Documents memory usage implications for large batch responses.
   var methodResponses = newJArray()
@@ -1280,7 +1281,7 @@ block stressResponseMethodResponses100k:
   let r = Response.fromJson(j).get()
   assertEq r.methodResponses.len, 100_000
 
-block stressSessionAccounts100k:
+testCase stressSessionAccounts100k:
   ## Session with 100,000 accounts -> must succeed. Each account has minimal
   ## fields. Documents that the library imposes no artificial account limit.
   var j = validSessionJson()
@@ -1297,7 +1298,7 @@ block stressSessionAccounts100k:
   let r = Session.fromJson(j).get()
   assertEq r.accounts.len, 100_000
 
-block stressRequestCreatedIds100k:
+testCase stressRequestCreatedIds100k:
   ## Request with 100,000 createdIds entries -> must succeed.
   var j = validRequestJson()
   var ids = newJObject()
@@ -1308,7 +1309,7 @@ block stressRequestCreatedIds100k:
   doAssert r.createdIds.isSome
   assertEq r.createdIds.get().len, 100_000
 
-block stressSessionCapabilities100k:
+testCase stressSessionCapabilities100k:
   ## Session with 100,000 vendor capabilities -> must succeed. Documents
   ## that the library imposes no artificial capability count limit.
   var j = validSessionJson()
@@ -1320,7 +1321,7 @@ block stressSessionCapabilities100k:
   let r = Session.fromJson(j).get()
   assertGe r.capabilities.len, 100_001
 
-block stressSessionAccountCapabilities100k:
+testCase stressSessionAccountCapabilities100k:
   ## Single account with 100,000 accountCapabilities -> must succeed.
   var j = validSessionJson()
   var acctCaps = newJObject()
@@ -1346,7 +1347,7 @@ block stressSessionAccountCapabilities100k:
 # tests submit malformed JSON at a specific deep location, then assert the
 # translated ValidationError message ends with the expected pointer.
 
-block responsePointerNestedCallIdFailure:
+testCase responsePointerNestedCallIdFailure:
   ## A malformed methodCallId (integer where string expected) inside the
   ## first Invocation of a Response surfaces with the full path
   ## ``/methodResponses/0/2`` — Response → methodResponses[0] (Invocation)
@@ -1359,7 +1360,7 @@ block responsePointerNestedCallIdFailure:
   doAssert $sv.path == "/methodResponses/0/2",
     "path must compose through all nesting levels: got " & $sv.path
 
-block requestPointerCreatedIdsValue:
+testCase requestPointerCreatedIdsValue:
   ## A non-string value inside Request.createdIds must surface with the
   ## full path ``/createdIds/k1``.
   let j = %*{
@@ -1372,7 +1373,7 @@ block requestPointerCreatedIdsValue:
   doAssert $sv.path == "/createdIds/k1",
     "path must compose through the createdIds descent: got " & $sv.path
 
-block invocationPointerWrongArity:
+testCase invocationPointerWrongArity:
   ## Invocation array with 2 elements (should be 3) surfaces as
   ## ``svkArrayLength`` with a descent-aware path.
   let j = %*{"methodResponses": [["Mailbox/get", {}]], "sessionState": "s1"}

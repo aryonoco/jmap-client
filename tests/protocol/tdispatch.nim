@@ -17,6 +17,7 @@ import jmap_client/internal/protocol/dispatch
 
 import ../massertions
 import ../mfixtures
+import ../mtestblock
 
 # ---------------------------------------------------------------------------
 # Mock entity types (local -- compile-time verification only)
@@ -85,24 +86,24 @@ registerQueryableEntity(MockQueryable)
 # A. Handle operations
 # ===========================================================================
 
-block handleEquality:
+testCase handleEquality:
   ## Two handles with the same call ID and brand are equal.
   let h1 = makeResponseHandle[GetResponse[MockFoo]](makeMcid("c0"))
   let h2 = makeResponseHandle[GetResponse[MockFoo]](makeMcid("c0"))
   doAssert h1 == h2
 
-block handleToString:
+testCase handleToString:
   ## String representation produces the call ID string.
   let h = makeResponseHandle[GetResponse[MockFoo]](makeMcid("c0"))
   doAssert $h == "c0"
 
-block handleHash:
+testCase handleHash:
   ## Hash is consistent with equality.
   let h1 = makeResponseHandle[GetResponse[MockFoo]](makeMcid("c0"))
   let h2 = makeResponseHandle[GetResponse[MockFoo]](makeMcid("c0"))
   doAssert hash(h1) == hash(h2)
 
-block callIdAccessor:
+testCase callIdAccessor:
   ## callId returns the underlying MethodCallId.
   let mcid = makeMcid("c0")
   let h = makeResponseHandle[GetResponse[MockFoo]](mcid)
@@ -112,7 +113,7 @@ block callIdAccessor:
 # B. get[T] happy path (callback overload)
 # ===========================================================================
 
-block getHappyPath:
+testCase getHappyPath:
   ## Response with valid GetResponse JSON at c0, get with callback returns ok.
   let resp = makeTypedResponse("MockFoo/get", makeGetResponseJson(), makeMcid("c0"))
   let dr = makeDispatchedResponse(resp)
@@ -124,7 +125,7 @@ block getHappyPath:
   let result = dr.get(handle, fromGetResponse)
   assertOk result
 
-block getExtractsCorrectInvocation:
+testCase getExtractsCorrectInvocation:
   ## Response with multiple invocations (c0, c1); handle c1 extracts the right one.
   let inv0 =
     initInvocation(mnMailboxGet, makeGetResponseJson("acct0", "s0"), makeMcid("c0"))
@@ -151,7 +152,7 @@ block getExtractsCorrectInvocation:
 # C. get[T] error cases (callback overload)
 # ===========================================================================
 
-block getNotFound:
+testCase getNotFound:
   ## Call ID c99 not in response produces err(gekMethod) with metServerFail.
   let resp = makeTypedResponse("MockFoo/get", makeGetResponseJson(), makeMcid("c0"))
   let dr = makeDispatchedResponse(resp)
@@ -166,7 +167,7 @@ block getNotFound:
   doAssert ge.kind == gekMethod
   doAssert ge.methodErr.errorType == metServerFail
 
-block getMethodError:
+testCase getMethodError:
   ## Invocation name is "error" with type "unknownMethod" produces err(gekMethod)
   ## carrying metUnknownMethod.
   let resp = makeErrorResponse("unknownMethod", makeMcid("c0"))
@@ -183,7 +184,7 @@ block getMethodError:
   doAssert ge.methodErr.errorType == metUnknownMethod
   doAssert ge.methodErr.rawType == "unknownMethod"
 
-block getMalformedErrorResponse:
+testCase getMalformedErrorResponse:
   ## Error invocation with non-object arguments produces err(gekMethod) with metServerFail.
   let malformedInv = parseInvocation("error", newJArray(), makeMcid("c0")).get()
   let resp = Response(
@@ -203,7 +204,7 @@ block getMalformedErrorResponse:
   doAssert ge.kind == gekMethod
   doAssert ge.methodErr.errorType == metServerFail
 
-block getValidationError:
+testCase getValidationError:
   ## fromArgs returns err(ValidationError) which is converted to MethodError with metServerFail,
   ## then lifted to GetError(gekMethod).
   let resp = makeTypedResponse("MockFoo/get", %*{"invalid": true}, makeMcid("c0"))
@@ -225,7 +226,7 @@ block getValidationError:
   doAssert extras{"typeName"} != nil
   doAssert extras{"value"} != nil
 
-block getHandleMismatch:
+testCase getHandleMismatch:
   ## A handle issued by builder A applied to a DispatchedResponse from
   ## builder B returns err(gekHandleMismatch) with the two brands and
   ## the handle's callId in the diagnostic payload.
@@ -246,7 +247,7 @@ block getHandleMismatch:
   doAssert ge.actual == handleBrand
   doAssert ge.callId == makeMcid("c0")
 
-block getHandleMismatchCrossBuilderSameClient:
+testCase getHandleMismatchCrossBuilderSameClient:
   ## A6 — cross-builder within the same JmapClient. Two newBuilder() calls
   ## mint serial=0 and serial=1 sharing the same clientBrand; a handle
   ## from the first builder applied to the second's dispatched response
@@ -274,7 +275,7 @@ block getHandleMismatchCrossBuilderSameClient:
   doAssert ge.expected.serial == 1'u64
   doAssert ge.actual.serial == 0'u64
 
-block getHandleMismatchCrossClient:
+testCase getHandleMismatchCrossClient:
   ## A6 — cross-client across two JmapClient instances. Each client
   ## draws its own random clientBrand at init; a handle from client A's
   ## builder applied to a DispatchedResponse from client B returns
@@ -302,7 +303,7 @@ block getHandleMismatchCrossClient:
 # D. get[T] for Echo (JsonNode) with callback
 # ===========================================================================
 
-block getEchoHappyPath:
+testCase getEchoHappyPath:
   ## Response with Core/echo invocation, trivial fromArgs callback returns ok(JsonNode).
   let echoArgs = %*{"tag": "hello"}
   let resp = makeTypedResponse("Core/echo", echoArgs, makeMcid("c0"))
@@ -320,7 +321,7 @@ block getEchoHappyPath:
 # F. Type-safe reference functions
 # ===========================================================================
 
-block idsRefOnQueryHandle:
+testCase idsRefOnQueryHandle:
   ## ResponseHandle[QueryResponse[MockQueryable]] produces Referencable with
   ## path /ids. The mock's queryMethodName resolves to mnEmailQuery.
   let handle = makeResponseHandle[QueryResponse[MockQueryable]](makeMcid("c0"))
@@ -330,7 +331,7 @@ block idsRefOnQueryHandle:
   doAssert r.reference.name == mnEmailQuery
   doAssert r.reference.resultOf == makeMcid("c0")
 
-block listIdsRefOnGetHandle:
+testCase listIdsRefOnGetHandle:
   ## ResponseHandle[GetResponse[MockFoo]] produces Referencable with
   ## path /list/*/id. The mock's getMethodName resolves to mnMailboxGet.
   let handle = makeResponseHandle[GetResponse[MockFoo]](makeMcid("c0"))
@@ -340,7 +341,7 @@ block listIdsRefOnGetHandle:
   doAssert r.reference.name == mnMailboxGet
   doAssert r.reference.resultOf == makeMcid("c0")
 
-block addedIdsRefOnQueryChangesHandle:
+testCase addedIdsRefOnQueryChangesHandle:
   ## ResponseHandle[QueryChangesResponse[MockQueryable]] produces Referencable
   ## with path /added/*/id. queryChangesMethodName resolves to mnEmailQueryChanges.
   let handle = makeResponseHandle[QueryChangesResponse[MockQueryable]](makeMcid("c0"))
@@ -350,17 +351,17 @@ block addedIdsRefOnQueryChangesHandle:
   doAssert r.reference.name == mnEmailQueryChanges
   doAssert r.reference.resultOf == makeMcid("c0")
 
-block idsRefRejectsGetHandle:
+testCase idsRefRejectsGetHandle:
   ## A GetResponse handle cannot call idsRef (type-safe rejection).
   let handle = makeResponseHandle[GetResponse[MockFoo]](makeMcid("c0"))
   assertNotCompiles idsRef(handle)
 
-block listIdsRefRejectsQueryHandle:
+testCase listIdsRefRejectsQueryHandle:
   ## A QueryResponse handle cannot call listIdsRef (type-safe rejection).
   let handle = makeResponseHandle[QueryResponse[MockQueryable]](makeMcid("c0"))
   assertNotCompiles listIdsRef(handle)
 
-block createdRefOnChangesHandle:
+testCase createdRefOnChangesHandle:
   ## ResponseHandle[ChangesResponse[MockFoo]] produces Referencable with
   ## path /created. changesMethodName resolves to mnMailboxChanges.
   let handle = makeResponseHandle[ChangesResponse[MockFoo]](makeMcid("c0"))
@@ -370,7 +371,7 @@ block createdRefOnChangesHandle:
   doAssert r.reference.name == mnMailboxChanges
   doAssert r.reference.resultOf == makeMcid("c0")
 
-block updatedRefOnChangesHandle:
+testCase updatedRefOnChangesHandle:
   ## ResponseHandle[ChangesResponse[MockFoo]] produces Referencable with
   ## path /updated. changesMethodName resolves to mnMailboxChanges.
   let handle = makeResponseHandle[ChangesResponse[MockFoo]](makeMcid("c0"))
@@ -380,17 +381,17 @@ block updatedRefOnChangesHandle:
   doAssert r.reference.name == mnMailboxChanges
   doAssert r.reference.resultOf == makeMcid("c0")
 
-block createdRefRejectsGetHandle:
+testCase createdRefRejectsGetHandle:
   ## A GetResponse handle cannot call createdRef (type-safe rejection).
   let handle = makeResponseHandle[GetResponse[MockFoo]](makeMcid("c0"))
   assertNotCompiles createdRef(handle)
 
-block createdRefRejectsQueryHandle:
+testCase createdRefRejectsQueryHandle:
   ## A QueryResponse handle cannot call createdRef (type-safe rejection).
   let handle = makeResponseHandle[QueryResponse[MockQueryable]](makeMcid("c0"))
   assertNotCompiles createdRef(handle)
 
-block updatedRefRejectsSetHandle:
+testCase updatedRefRejectsSetHandle:
   ## A SetResponse handle cannot call updatedRef (type-safe rejection).
   let handle = makeResponseHandle[SetResponse[MockFoo, MockFoo]](makeMcid("c0"))
   assertNotCompiles updatedRef(handle)
@@ -399,7 +400,7 @@ block updatedRefRejectsSetHandle:
 # G. Generic reference (escape hatch)
 # ===========================================================================
 
-block referenceConstruction:
+testCase referenceConstruction:
   ## Generic reference produces correct ResultReference with matching fields.
   let handle = makeResponseHandle[GetResponse[MockFoo]](makeMcid("c0"))
   let rr = reference(handle, mnEmailQuery, rpIds)

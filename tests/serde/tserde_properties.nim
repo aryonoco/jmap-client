@@ -29,6 +29,7 @@ import ../massertions
 import ../mfixtures
 import ../mproperty
 import ../mserde_fixtures
+import ../mtestblock
 
 # =============================================================================
 # A. Round-trip properties: fromJson(toJson(x)) == x
@@ -247,7 +248,7 @@ checkProperty "Invocation serialisation idempotence":
 # D. Composition chain error propagation
 # =============================================================================
 
-block compositionSessionNestedError:
+testCase compositionSessionNestedError:
   ## Session -> ServerCapability -> CoreCapabilities -> UnsignedInt:
   ## Invalid UnsignedInt at bottom should propagate to Session.fromJson error.
   var j = validSessionJson()
@@ -255,21 +256,21 @@ block compositionSessionNestedError:
   assertErr Session.fromJson(j)
   assertErrType Session.fromJson(j), "UnsignedInt"
 
-block compositionSessionMissingCoreCaps:
+testCase compositionSessionMissingCoreCaps:
   ## Session without ckCore capability should fail at Session validation.
   var j = validSessionJson()
   j["capabilities"] = %*{"urn:ietf:params:jmap:mail": {}}
   assertErr Session.fromJson(j)
   assertErrContains Session.fromJson(j), "capabilities must include"
 
-block compositionRequestNestedError:
+testCase compositionRequestNestedError:
   ## Request -> Invocation -> MethodCallId: invalid mcid should propagate.
   let j =
     %*{"using": ["urn:ietf:params:jmap:core"], "methodCalls": [["Mailbox/get", {}, ""]]}
   assertErr Request.fromJson(j)
   assertErrContains Request.fromJson(j), "must not be empty"
 
-block compositionSetErrorVariantPreservation:
+testCase compositionSetErrorVariantPreservation:
   ## SetError invalidProperties variant: properties list survives round-trip.
   let original =
     setErrorInvalidProperties("invalidProperties", @["from", "subject", "to"])
@@ -280,7 +281,7 @@ block compositionSetErrorVariantPreservation:
   doAssert "subject" in v.properties
   doAssert "to" in v.properties
 
-block compositionSetErrorAlreadyExistsPreservation:
+testCase compositionSetErrorAlreadyExistsPreservation:
   ## SetError alreadyExists variant: existingId survives round-trip.
   let eid = parseIdFromServer("msg42").get()
   let original = setErrorAlreadyExists("alreadyExists", eid)
@@ -288,7 +289,7 @@ block compositionSetErrorAlreadyExistsPreservation:
   doAssert v.errorType == setAlreadyExists
   assertEq string(v.existingId), "msg42"
 
-block compositionResponseCreatedIdsPreservation:
+testCase compositionResponseCreatedIdsPreservation:
   ## Response createdIds table survives round-trip with correct keys and values.
   var tbl = initTable[CreationId, Id]()
   tbl[makeCreationId("new1")] = makeId("id1")

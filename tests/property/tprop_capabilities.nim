@@ -10,14 +10,15 @@ import std/sets
 import jmap_client/internal/types/capabilities
 import jmap_client/internal/types/validation
 import ../mproperty
+import ../mtestblock
 
-block propCapabilityKindTotality:
+testCase propCapabilityKindTotality:
   checkProperty "parseCapabilityKind never crashes on arbitrary string":
     let s = genArbitraryString(rng)
     lastInput = s
     discard parseCapabilityKind(s)
 
-block propCapabilityKindKnownRoundTrip:
+testCase propCapabilityKindKnownRoundTrip:
   for kind in [
     ckCore, ckMail, ckSubmission, ckVacationResponse, ckWebsocket, ckMdn, ckSmimeVerify,
     ckBlob, ckQuota, ckContacts, ckCalendars, ckSieve,
@@ -25,17 +26,17 @@ block propCapabilityKindKnownRoundTrip:
     let uri = capabilityUri(kind).get()
     doAssert parseCapabilityKind(uri) == kind
 
-block propCapabilityKindUnknownReturnsNone:
+testCase propCapabilityKindUnknownReturnsNone:
   doAssert capabilityUri(ckUnknown).isNone
 
-block propCapabilityKindAllKnownHaveUri:
+testCase propCapabilityKindAllKnownHaveUri:
   for kind in CapabilityKind:
     if kind != ckUnknown:
       doAssert capabilityUri(kind).isSome
 
 # --- CoreCapabilities and ServerCapability generator properties ---
 
-block propCoreCapabilitiesFieldsNonNegative:
+testCase propCoreCapabilitiesFieldsNonNegative:
   checkProperty "genCoreCapabilities fields are non-negative":
     let caps = genCoreCapabilities(rng)
     doAssert int64(caps.maxSizeUpload) >= 0
@@ -46,19 +47,19 @@ block propCoreCapabilitiesFieldsNonNegative:
     doAssert int64(caps.maxObjectsInGet) >= 0
     doAssert int64(caps.maxObjectsInSet) >= 0
 
-block propServerCapabilityRawUriNonEmpty:
+testCase propServerCapabilityRawUriNonEmpty:
   checkProperty "genServerCapability rawUri always non-empty":
     let sc = genServerCapability(rng)
     lastInput = sc.rawUri
     doAssert sc.rawUri.len > 0
 
-block propServerCapabilityKindMatchesUri:
+testCase propServerCapabilityKindMatchesUri:
   checkProperty "genServerCapability kind matches parseCapabilityKind(rawUri)":
     let sc = genServerCapability(rng)
     lastInput = sc.rawUri
     doAssert sc.kind == parseCapabilityKind(sc.rawUri)
 
-block propServerCapabilityCoreHasCoreData:
+testCase propServerCapabilityCoreHasCoreData:
   checkProperty "genServerCapability ckCore variant has accessible core fields":
     let sc = genServerCapability(rng)
     lastInput = sc.rawUri
@@ -68,7 +69,7 @@ block propServerCapabilityCoreHasCoreData:
     else:
       doAssert sc.rawData != nil
 
-block propCoreCapabilitiesHasCollationConsistency:
+testCase propCoreCapabilitiesHasCollationConsistency:
   checkProperty "hasCollation agrees with set membership":
     let caps = genCoreCapabilities(rng)
     for alg in caps.collationAlgorithms:
@@ -79,7 +80,7 @@ block propCoreCapabilitiesHasCollationConsistency:
       caps, parseCollationAlgorithm("i;nonexistent-collation-xyz").get()
     )
 
-block propCoreCapabilitiesCollationAlgorithmsValid:
+testCase propCoreCapabilitiesCollationAlgorithmsValid:
   checkProperty "genCoreCapabilities collation identifiers are non-empty":
     let caps = genCoreCapabilities(rng)
     for alg in caps.collationAlgorithms:

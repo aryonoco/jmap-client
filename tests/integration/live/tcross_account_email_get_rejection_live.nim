@@ -19,8 +19,9 @@ import jmap_client/client
 import ./mcapture
 import ./mconfig
 import ./mlive
+import ../../mtestblock
 
-block tCrossAccountEmailGetRejectionLive:
+testCase tCrossAccountEmailGetRejectionLive:
   forEachLiveTarget(target):
     # --- alice setup ----------------------------------------------------
     var aliceClient = initJmapClient(

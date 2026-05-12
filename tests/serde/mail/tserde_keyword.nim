@@ -13,10 +13,11 @@ import jmap_client/internal/serialisation/serde
 import jmap_client/internal/types/validation
 
 import ../../massertions
+import ../../mtestblock
 
 # ============= A. KeywordSet toJson =============
 
-block toJsonWithKeywords: # scenario 18
+testCase toJsonWithKeywords: # scenario 18
   let ks = initKeywordSet(@[kwSeen, kwFlagged])
   let node = ks.toJson()
   doAssert node.kind == JObject
@@ -24,7 +25,7 @@ block toJsonWithKeywords: # scenario 18
   assertJsonFieldEq node, "$flagged", newJBool(true)
   assertLen node, 2
 
-block toJsonEmpty: # scenario 19
+testCase toJsonEmpty: # scenario 19
   let ks = initKeywordSet(@[])
   let node = ks.toJson()
   doAssert node.kind == JObject
@@ -32,14 +33,14 @@ block toJsonEmpty: # scenario 19
 
 # ============= B. KeywordSet fromJson =============
 
-block fromJsonValid: # scenario 20
+testCase fromJsonValid: # scenario 20
   let res = KeywordSet.fromJson(%*{"$seen": true})
   assertOk res
   let ks = res.get()
   assertLen ks, 1
   doAssert kwSeen in ks
 
-block fromJsonFalseValue: # scenario 21
+testCase fromJsonFalseValue: # scenario 21
   ## Explicit ``false`` for any keyword value is rejected structurally via
   ## ``svkEnumNotRecognised`` at the offending path.
   let res = KeywordSet.fromJson(%*{"$seen": false})
@@ -50,7 +51,7 @@ block fromJsonFalseValue: # scenario 21
 
 # ============= C. KeywordSet round-trip =============
 
-block roundTrip: # scenario 22
+testCase roundTrip: # scenario 22
   let original = initKeywordSet(@[kwSeen, kwFlagged, kwDraft])
   let roundTripped = KeywordSet.fromJson(original.toJson()).get()
   assertLen roundTripped, 3
