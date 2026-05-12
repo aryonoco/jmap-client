@@ -59,13 +59,14 @@ block temailGetHtmlBodyLive:
       .expect("seedAlternativeEmail[" & $target.kind & "]")
 
     let (b, getHandle) = addEmailGet(
-      initRequestBuilder(),
+      initRequestBuilder(makeBuilderId()),
       mailAccountId,
       ids = directIds(@[seededId]),
       properties = Opt.some(@["id", "textBody", "htmlBody", "bodyValues"]),
       bodyFetchOptions = EmailBodyFetchOptions(fetchBodyValues: bvsTextAndHtml),
     )
-    let resp = client.send(b).expect("send Email/get html body[" & $target.kind & "]")
+    let resp =
+      client.send(b.freeze()).expect("send Email/get html body[" & $target.kind & "]")
     captureIfRequested(client, "email-multipart-alternative-" & $target.kind).expect(
       "captureIfRequested"
     )

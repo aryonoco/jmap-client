@@ -23,6 +23,7 @@ import results
 import jmap_client
 import jmap_client/client
 import jmap_client/internal/types/envelope
+import jmap_client/internal/protocol/dispatch
 import ./mcapture
 import ./mconfig
 import ./mlive
@@ -83,9 +84,11 @@ block tpostelsLawReceiveLive:
     let importMap = initNonEmptyEmailImportMap(@[(importCid, importItem)]).expect(
         "initNonEmptyEmailImportMap"
       )
-    let (bImp, importHandle) =
-      addEmailImport(initRequestBuilder(), mailAccountId, emails = importMap)
-    let respImp = client.send(bImp).expect("send Email/import[" & $target.kind & "]")
+    let (bImp, importHandle) = addEmailImport(
+      initRequestBuilder(makeBuilderId()), mailAccountId, emails = importMap
+    )
+    let respImp =
+      client.send(bImp.freeze()).expect("send Email/import[" & $target.kind & "]")
     let importResp =
       respImp.get(importHandle).expect("Email/import extract[" & $target.kind & "]")
     var importedEmailId: Id
@@ -101,14 +104,15 @@ block tpostelsLawReceiveLive:
 
     # Step 4: read back via Email/get and capture the wire shape.
     let (bGet, getHandle) = addEmailGet(
-      initRequestBuilder(),
+      initRequestBuilder(makeBuilderId()),
       mailAccountId,
       ids = directIds(@[importedEmailId]),
       properties =
         Opt.some(@["id", "from", "receivedAt", "subject", "keywords", "mailboxIds"]),
     )
-    let respGet =
-      client.send(bGet).expect("send Email/get import readback[" & $target.kind & "]")
+    let respGet = client.send(bGet.freeze()).expect(
+        "send Email/get import readback[" & $target.kind & "]"
+      )
     captureIfRequested(client, "postels-law-receive-adversarial-mime-" & $target.kind)
       .expect("captureIfRequested postel's law")
     let getResp =
@@ -132,12 +136,12 @@ block tpostelsLawReceiveLive:
     # emits for the empty case.  Library contract: empty / null /
     # absent all project to the same empty Table[Keyword, bool].
     let (bGet2, getHandle2) = addEmailGet(
-      initRequestBuilder(),
+      initRequestBuilder(makeBuilderId()),
       mailAccountId,
       ids = directIds(@[outerId, importedEmailId]),
       properties = Opt.some(@["id", "keywords", "mailboxIds"]),
     )
-    let respGet2 = client.send(bGet2).expect(
+    let respGet2 = client.send(bGet2.freeze()).expect(
         "send Email/get keywords readback[" & $target.kind & "]"
       )
     let getResp2 =
@@ -150,7 +154,7 @@ block tpostelsLawReceiveLive:
     # seq[Email]); this additionally pins the on-wire shape Stalwart
     # emits for empty keywords (RFC 8621 §4 Table[Keyword, bool]
     # projection).
-    let listArr = respGet2.methodResponses[0].arguments{"list"}
+    let listArr = respGet2.response.methodResponses[0].arguments{"list"}
     assertOn target,
       not listArr.isNil and listArr.kind == JArray and listArr.getElems().len == 2,
       "wire arguments must carry the two-entry list"
@@ -166,12 +170,13 @@ block tpostelsLawReceiveLive:
     # Cleanup: destroy outer + imported emails so re-runs are
     # idempotent.
     let (bClean, cleanHandle) = addEmailSet(
-      initRequestBuilder(),
+      initRequestBuilder(makeBuilderId()),
       mailAccountId,
       destroy = directIds(@[outerId, importedEmailId]),
     )
-    let respClean =
-      client.send(bClean).expect("send Email/set cleanup[" & $target.kind & "]")
+    let respClean = client.send(bClean.freeze()).expect(
+        "send Email/set cleanup[" & $target.kind & "]"
+      )
     let cleanResp = respClean.get(cleanHandle).expect(
         "Email/set cleanup extract[" & $target.kind & "]"
       )

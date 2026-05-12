@@ -66,12 +66,12 @@ block tEmailSubmissionChangesLive:
 
     # --- Request 1: baselines (no fixture capture) -----------------------
     let (b1, baseGetHandle) = addEmailSubmissionGet(
-      initRequestBuilder(), submissionAccountId, ids = directIds(@[])
+      initRequestBuilder(makeBuilderId()), submissionAccountId, ids = directIds(@[])
     )
     let (b1b, baseQueryHandle) = addEmailSubmissionQuery(
       b1, submissionAccountId, queryParams = QueryParams(calculateTotal: true)
     )
-    let resp1 = client.send(b1b).expect(
+    let resp1 = client.send(b1b.freeze()).expect(
         "send baseline EmailSubmission/get+query[" & $target.kind & "]"
       )
     let baseGetExtract = resp1.get(baseGetHandle)
@@ -79,11 +79,19 @@ block tEmailSubmissionChangesLive:
     if baseGetExtract.isErr or baseQueryExtract.isErr:
       # Cat-B error arm — server lacks EmailSubmission/get or /query.
       # The typed-error projection has fired on the extract Result.
+      # Under A6 the inner railway is ``GetError`` — extract via the
+      # ``gekMethod`` arm; ``gekHandleMismatch`` is a programming bug
+      # and should not be observable here.
       let baseGetErr =
-        if baseGetExtract.isErr: baseGetExtract.unsafeError.errorType else: metUnknown
+        if baseGetExtract.isErr:
+          let ge = baseGetExtract.unsafeError
+          if ge.kind == gekMethod: ge.methodErr.errorType else: metUnknown
+        else:
+          metUnknown
       let baseQueryErr =
         if baseQueryExtract.isErr:
-          baseQueryExtract.unsafeError.errorType
+          let ge = baseQueryExtract.unsafeError
+          if ge.kind == gekMethod: ge.methodErr.errorType else: metUnknown
         else:
           metUnknown
       assertOn target,
@@ -122,7 +130,7 @@ block tEmailSubmissionChangesLive:
       )
       .expect("buildEnvelopeWithHoldFor[" & $target.kind & "]")
 
-    proc submitOne(subject, label, draftLabel: string): Result[Id, MethodError] =
+    proc submitOne(subject, label, draftLabel: string): Result[Id, GetError] =
       ## Closure: seed-and-submit one email per (subject, label) pair so
       ## the surrounding test body can drive a corpus of submissions
       ## without repeating the seed-to-final boilerplate. Returns the
@@ -142,9 +150,11 @@ block tEmailSubmissionChangesLive:
       var subTbl = initTable[CreationId, EmailSubmissionBlueprint]()
       subTbl[cid] = blueprint
       let (b, setHandle) = addEmailSubmissionSet(
-        initRequestBuilder(), submissionAccountId, create = Opt.some(subTbl)
+        initRequestBuilder(makeBuilderId()),
+        submissionAccountId,
+        create = Opt.some(subTbl),
       )
-      let resp = client.send(b).expect("send EmailSubmission/set " & label)
+      let resp = client.send(b.freeze()).expect("send EmailSubmission/set " & label)
       let setExtract = resp.get(setHandle)
       if setExtract.isErr:
         return err(setExtract.unsafeError)
@@ -158,7 +168,7 @@ block tEmailSubmissionChangesLive:
       do:
         discard
       if not subOk:
-        return err(methodError("setError"))
+        return err(getErrorMethod(methodError("setError")))
       ok(submissionId)
 
     let sub1Res = submitOne("phase-f step-36 a", "subA", "draft36A")
@@ -172,12 +182,14 @@ block tEmailSubmissionChangesLive:
 
     # --- Request 2: EmailSubmission/changes — happy + sad combined ------
     let (b2, okHandle) = addEmailSubmissionChanges(
-      initRequestBuilder(), submissionAccountId, sinceState = baselineState
+      initRequestBuilder(makeBuilderId()),
+      submissionAccountId,
+      sinceState = baselineState,
     )
     let (b2b, badHandle) = addEmailSubmissionChanges(
       b2, submissionAccountId, sinceState = JmapState("phase-f-bogus-state")
     )
-    let resp2 = client.send(b2b).expect(
+    let resp2 = client.send(b2b.freeze()).expect(
         "send EmailSubmission/changes happy+sad[" & $target.kind & "]"
       )
     captureIfRequested(client, "email-submission-changes-" & $target.kind).expect(
@@ -204,7 +216,9 @@ block tEmailSubmissionChangesLive:
     let badRes = resp2.get(badHandle)
     assertOn target,
       badRes.isErr, "bogus sinceState must surface as a method-level error"
-    let methodErr = badRes.error
+    let getErr = badRes.error
+    doAssert getErr.kind == gekMethod, "expected gekMethod"
+    let methodErr = getErr.methodErr
     assertOn target,
       methodErr.errorType in
         {metCannotCalculateChanges, metInvalidArguments, metUnknownMethod},
@@ -213,13 +227,14 @@ block tEmailSubmissionChangesLive:
 
     # --- Request 3: EmailSubmission/queryChanges -------------------------
     let (b3, qcHandle) = addEmailSubmissionQueryChanges(
-      initRequestBuilder(),
+      initRequestBuilder(makeBuilderId()),
       submissionAccountId,
       sinceQueryState = baselineQueryState,
       calculateTotal = true,
     )
-    let resp3 =
-      client.send(b3).expect("send EmailSubmission/queryChanges[" & $target.kind & "]")
+    let resp3 = client.send(b3.freeze()).expect(
+        "send EmailSubmission/queryChanges[" & $target.kind & "]"
+      )
     captureIfRequested(client, "email-submission-query-changes-" & $target.kind).expect(
       "captureIfRequested queryChanges"
     )
@@ -249,8 +264,10 @@ block tEmailSubmissionChangesLive:
     # honour the destroy; eviction-on-cancel servers (Cyrus) accept
     # it as a no-op.
     let (bDestroy, destroyHandle) = addEmailSubmissionSet(
-      initRequestBuilder(), submissionAccountId, destroy = directIds(@[subId1, subId2])
+      initRequestBuilder(makeBuilderId()),
+      submissionAccountId,
+      destroy = directIds(@[subId1, subId2]),
     )
-    discard client.send(bDestroy)
+    discard client.send(bDestroy.freeze())
     discard destroyHandle
     client.close()

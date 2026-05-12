@@ -94,9 +94,10 @@ proc seedSizedEmail(
   let cid = parseCreationId(creationLabel).expect("parseCreationId sized")
   var createTbl = initTable[CreationId, EmailBlueprint]()
   createTbl[cid] = blueprint
-  let (b, setHandle) =
-    addEmailSet(initRequestBuilder(), mailAccountId, create = Opt.some(createTbl))
-  let resp = client.send(b).expect("send Email/set sized")
+  let (b, setHandle) = addEmailSet(
+    initRequestBuilder(makeBuilderId()), mailAccountId, create = Opt.some(createTbl)
+  )
+  let resp = client.send(b.freeze()).expect("send Email/set sized")
   let setResp = resp.get(setHandle).expect("Email/set sized extract")
   var seededId = Id("")
   var found = false
@@ -138,12 +139,12 @@ proc assertSizeAscending(
     .expect("pollEmailQueryIndexed size")
   let comparator = @[plainComparator(pspSize, isAscending = Opt.some(true))]
   let (b, h) = addEmailQuery(
-    initRequestBuilder(),
+    initRequestBuilder(makeBuilderId()),
     mailAccountId,
     filter = Opt.some(filter),
     sort = Opt.some(comparator),
   )
-  let resp = client.send(b).expect("send Email/query size asc")
+  let resp = client.send(b.freeze()).expect("send Email/query size asc")
   let qr = resp.get(h).expect("Email/query size asc extract")
   let positions = positionsOf(qr, @[smallId, mediumId, largeId])
   for i, pos in positions:
@@ -162,12 +163,12 @@ proc assertSubjectDescending(
   let filter = filterCondition(EmailFilterCondition(subject: Opt.some("phase-i 56")))
   let comparator = @[plainComparator(pspSubject, isAscending = Opt.some(false))]
   let (b, h) = addEmailQuery(
-    initRequestBuilder(),
+    initRequestBuilder(makeBuilderId()),
     mailAccountId,
     filter = Opt.some(filter),
     sort = Opt.some(comparator),
   )
-  let resp = client.send(b).expect("send Email/query subject desc")
+  let resp = client.send(b.freeze()).expect("send Email/query subject desc")
   let qr = resp.get(h).expect("Email/query subject desc extract")
   # smallId carries "alpha", mediumId carries "bravo", largeId carries "charlie"
   let positions = positionsOf(qr, @[smallId, mediumId, largeId])
@@ -184,9 +185,10 @@ proc flagMediumEmail(client: var JmapClient, mailAccountId: AccountId, mediumId:
   let updates = parseNonEmptyEmailUpdates(@[(mediumId, updateSet)]).expect(
       "parseNonEmptyEmailUpdates"
     )
-  let (b, h) =
-    addEmailSet(initRequestBuilder(), mailAccountId, update = Opt.some(updates))
-  let resp = client.send(b).expect("send Email/set markFlagged")
+  let (b, h) = addEmailSet(
+    initRequestBuilder(makeBuilderId()), mailAccountId, update = Opt.some(updates)
+  )
+  let resp = client.send(b.freeze()).expect("send Email/set markFlagged")
   discard resp.get(h).expect("Email/set markFlagged extract")
 
 proc assertKeywordSortAscending(
@@ -207,12 +209,13 @@ proc assertKeywordSortAscending(
   let comparator =
     @[keywordComparator(kspHasKeyword, flaggedKw, isAscending = Opt.some(true))]
   let (b, h) = addEmailQuery(
-    initRequestBuilder(),
+    initRequestBuilder(makeBuilderId()),
     mailAccountId,
     filter = Opt.some(filter),
     sort = Opt.some(comparator),
   )
-  let resp = client.send(b).expect("send Email/query keyword asc[" & $target.kind & "]")
+  let resp =
+    client.send(b.freeze()).expect("send Email/query keyword asc[" & $target.kind & "]")
   captureIfRequested(client, "email-query-advanced-sort-" & $target.kind).expect(
     "captureIfRequested[" & $target.kind & "]"
   )

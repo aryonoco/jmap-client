@@ -49,10 +49,12 @@ block tidentityGetLive:
     var createTbl = initTable[CreationId, IdentityCreate]()
     createTbl[cid] = create
     let (b1, setHandle) = addIdentitySet(
-      initRequestBuilder(), submissionAccountId, create = Opt.some(createTbl)
+      initRequestBuilder(makeBuilderId()),
+      submissionAccountId,
+      create = Opt.some(createTbl),
     )
     let (b2, getHandle) = addIdentityGet(b1, submissionAccountId)
-    let resp = client.send(b2).expect("send[" & $target.kind & "]")
+    let resp = client.send(b2.freeze()).expect("send[" & $target.kind & "]")
 
     let setExtract = resp.get(setHandle)
     # Cat-B (Phase L §0): Cyrus 3.12.2 has no ``Identity/set`` and
@@ -67,7 +69,9 @@ block tidentityGetLive:
       let createResult = setResp.createResults[cid]
       assertOn target, createResult.isOk, "Identity/set must succeed for seeded address"
     else:
-      let methodErr = setExtract.unsafeError
+      let getErr = setExtract.unsafeError
+      doAssert getErr.kind == gekMethod, "expected gekMethod, got gekHandleMismatch"
+      let methodErr = getErr.methodErr
       assertOn target,
         methodErr.errorType == metUnknownMethod,
         "Identity/set must surface as metUnknownMethod when unimplemented (got " &

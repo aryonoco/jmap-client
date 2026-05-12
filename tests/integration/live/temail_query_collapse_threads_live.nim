@@ -103,10 +103,12 @@ block temailQueryCollapseThreadsLive:
     # may vary across runs (re-running the test seeds additional
     # copies because the seed creates new emails each time), but
     # the no-collapse leg must surface at least the three seeds.
-    let (b1, h1) =
-      addEmailQuery(initRequestBuilder(), mailAccountId, filter = Opt.some(filter))
-    let resp1 =
-      client.send(b1).expect("send Email/query no-collapse[" & $target.kind & "]")
+    let (b1, h1) = addEmailQuery(
+      initRequestBuilder(makeBuilderId()), mailAccountId, filter = Opt.some(filter)
+    )
+    let resp1 = client.send(b1.freeze()).expect(
+        "send Email/query no-collapse[" & $target.kind & "]"
+      )
     let qr1 =
       resp1.get(h1).expect("Email/query no-collapse extract[" & $target.kind & "]")
     let noCollapseCount = qr1.ids.len
@@ -133,13 +135,14 @@ block temailQueryCollapseThreadsLive:
     var lastCollapseCount = noCollapseCount
     for _ in 0 ..< ThreadConvergeAttempts:
       let (b2, h2) = addEmailQuery(
-        initRequestBuilder(),
+        initRequestBuilder(makeBuilderId()),
         mailAccountId,
         filter = Opt.some(filter),
         collapseThreads = true,
       )
-      let resp2 =
-        client.send(b2).expect("send Email/query collapse[" & $target.kind & "]")
+      let resp2 = client.send(b2.freeze()).expect(
+          "send Email/query collapse[" & $target.kind & "]"
+        )
       let qr2 =
         resp2.get(h2).expect("Email/query collapse extract[" & $target.kind & "]")
       lastCollapseCount = qr2.ids.len

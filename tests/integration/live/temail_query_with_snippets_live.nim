@@ -82,10 +82,12 @@ block temailQueryWithSnippetsLive:
     # --- Email/query → SearchSnippet/get chained via ChainedHandles -----
     let filter =
       filterCondition(EmailFilterCondition(subject: Opt.some("stepseventeen")))
-    let (b, chainHandles) =
-      addEmailQueryWithSnippets(initRequestBuilder(), mailAccountId, filter = filter)
-    let resp =
-      client.send(b).expect("send Email/query+SearchSnippet/get[" & $target.kind & "]")
+    let (b, chainHandles) = addEmailQueryWithSnippets(
+      initRequestBuilder(makeBuilderId()), mailAccountId, filter = filter
+    )
+    let resp = client.send(b.freeze()).expect(
+        "send Email/query+SearchSnippet/get[" & $target.kind & "]"
+      )
     captureIfRequested(client, "email-query-with-snippets-" & $target.kind).expect(
       "captureIfRequested"
     )

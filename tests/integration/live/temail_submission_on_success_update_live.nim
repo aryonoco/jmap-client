@@ -99,13 +99,15 @@ block tEmailSubmissionOnSuccessUpdateLive:
     var subTbl = initTable[CreationId, EmailSubmissionBlueprint]()
     subTbl[subCid] = blueprint
     let (b3, handles) = addEmailSubmissionAndEmailSet(
-      initRequestBuilder(),
-      submissionAccountId,
-      create = Opt.some(subTbl),
-      onSuccessUpdateEmail = Opt.some(onSuccess),
-    )
-    let resp3 =
-      client.send(b3).expect("send EmailSubmission/set+Email/set[" & $target.kind & "]")
+        initRequestBuilder(makeBuilderId()),
+        submissionAccountId,
+        create = Opt.some(subTbl),
+        onSuccessUpdateEmail = Opt.some(onSuccess),
+      )
+      .expect("addEmailSubmissionAndEmailSet update[" & $target.kind & "]")
+    let resp3 = client.send(b3.freeze()).expect(
+        "send EmailSubmission/set+Email/set[" & $target.kind & "]"
+      )
     captureIfRequested(client, "email-submission-on-success-update-" & $target.kind)
       .expect("captureIfRequested")
     let pairExtract = resp3.getBoth(handles)
@@ -130,7 +132,11 @@ block tEmailSubmissionOnSuccessUpdateLive:
         assertOn target,
           false, "implicit Email/set must report an update outcome for draftId"
     else:
-      let methodErr = pairExtract.unsafeError
+      let getErr = pairExtract.unsafeError
+      assertOn target,
+        getErr.kind == gekMethod,
+        "compound update must surface as gekMethod, not gekHandleMismatch"
+      let methodErr = getErr.methodErr
       assertOn target,
         methodErr.errorType in {metInvalidArguments, metUnknownMethod},
         "compound EmailSubmission/set + onSuccessUpdateEmail must surface " &
@@ -182,13 +188,14 @@ block tEmailSubmissionOnSuccessUpdateLive:
 
     # --- Read-back via Email/get to verify mailbox + keyword changes -----
     let (b4, emailGetHandle) = addEmailGet(
-      initRequestBuilder(),
+      initRequestBuilder(makeBuilderId()),
       mailAccountId,
       ids = directIds(@[draftId]),
       properties = Opt.some(@["mailboxIds", "keywords"]),
     )
-    let resp4 =
-      client.send(b4).expect("send Email/get post-submit[" & $target.kind & "]")
+    let resp4 = client.send(b4.freeze()).expect(
+        "send Email/get post-submit[" & $target.kind & "]"
+      )
     let getResp = resp4.get(emailGetHandle).expect(
         "Email/get post-submit extract[" & $target.kind & "]"
       )

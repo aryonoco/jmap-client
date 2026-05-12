@@ -71,13 +71,14 @@ block tsearchSnippetGetStandaloneLive:
     # --- SearchSnippet/get with literal email ids -----------------------
     let filter = filterCondition(EmailFilterCondition(subject: Opt.some("stepsixteen")))
     let (b, snippetHandle) = addSearchSnippetGet(
-      initRequestBuilder(),
+      initRequestBuilder(makeBuilderId()),
       mailAccountId,
       filter = filter,
       firstEmailId = id1,
       restEmailIds = @[id2],
     )
-    let resp = client.send(b).expect("send SearchSnippet/get[" & $target.kind & "]")
+    let resp =
+      client.send(b.freeze()).expect("send SearchSnippet/get[" & $target.kind & "]")
     let snippetResp =
       resp.get(snippetHandle).expect("SearchSnippet/get extract[" & $target.kind & "]")
     assertOn target,

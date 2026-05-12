@@ -16,6 +16,7 @@
 {.experimental: "strictCaseObjects".}
 
 import std/json
+import std/sets
 import std/tables
 
 import ../../types
@@ -26,6 +27,7 @@ import ../protocol/builder
 import ../protocol/call_meta
 import ./email_submission
 import ./email
+import ./email_update
 import ./mail_entities
 import ./serde_email_submission
 import ./serde_email
@@ -127,6 +129,49 @@ func addEmailSubmissionSet*(
 # Email/set (RFC 8621 §7.5 ¶3, Design §9.1)
 # =============================================================================
 
+iterator onSuccessRefs(
+    updates: Opt[NonEmptyOnSuccessUpdateEmail],
+    destroys: Opt[NonEmptyOnSuccessDestroyEmail],
+): IdOrCreationRef =
+  ## Yields every ``IdOrCreationRef`` appearing as a key/element in
+  ## either onSuccess parameter. Unwrap-casts the ``distinct`` wrappers
+  ## to iterate the underlying containers.
+  for u in updates:
+    for key in Table[IdOrCreationRef, EmailUpdateSet](u).keys:
+      yield key
+  for d in destroys:
+    for key in seq[IdOrCreationRef](d):
+      yield key
+
+func validateOnSuccessCids(
+    create: Opt[Table[CreationId, EmailSubmissionBlueprint]],
+    onSuccessUpdateEmail: Opt[NonEmptyOnSuccessUpdateEmail],
+    onSuccessDestroyEmail: Opt[NonEmptyOnSuccessDestroyEmail],
+): Result[void, ValidationError] =
+  ## RFC 8620 §5.3: every ``icrCreation(cid)`` in either onSuccess*
+  ## parameter MUST reference a ``CreationId`` present as a key in
+  ## ``create``. ``icrDirect`` references are exempt (those are
+  ## server-persisted ids, validated separately). Runs once at the
+  ## builder boundary; pure (no IO, no mutation visible to caller).
+  var creates = initHashSet[CreationId]()
+  for tab in create:
+    for k in tab.keys:
+      creates.incl k
+  for key in onSuccessRefs(onSuccessUpdateEmail, onSuccessDestroyEmail):
+    case key.kind
+    of icrDirect:
+      discard
+    of icrCreation:
+      if key.creationId notin creates:
+        return err(
+          validationError(
+            "addEmailSubmissionAndEmailSet",
+            "onSuccess* creation reference does not match any create key",
+            $key.creationId,
+          )
+        )
+  ok()
+
 func addEmailSubmissionAndEmailSet*(
     b: RequestBuilder,
     accountId: AccountId,
@@ -140,7 +185,7 @@ func addEmailSubmissionAndEmailSet*(
     onSuccessDestroyEmail: Opt[NonEmptyOnSuccessDestroyEmail] =
       Opt.none(NonEmptyOnSuccessDestroyEmail),
     ifInState: Opt[JmapState] = Opt.none(JmapState),
-): (RequestBuilder, EmailSubmissionHandles) =
+): Result[(RequestBuilder, EmailSubmissionHandles), ValidationError] =
   ## Compound EmailSubmission/set with implicit Email/set on success
   ## (RFC 8621 §7.5 ¶3, Design §9.1). Single wire invocation; the server
   ## emits the implicit Email/set response sharing the parent call ID
@@ -150,6 +195,15 @@ func addEmailSubmissionAndEmailSet*(
   ## ``onSuccessDestroyEmail``) arrive as ``NonEmpty*`` wrappers — empty
   ## and duplicate-key shapes are unrepresentable at the type level, so
   ## ``Opt.none`` is the sole "no extras" encoding.
+  ##
+  ## **Per-call cid invariant (A6.6).** RFC 8620 §5.3 ties every
+  ## ``icrCreation(cid)`` reference in ``onSuccessUpdateEmail`` and
+  ## ``onSuccessDestroyEmail`` to a ``CreationId`` appearing as a key in
+  ## ``create`` on the same call. ``validateOnSuccessCids`` enforces
+  ## this at the builder boundary; failure surfaces as a
+  ## ``ValidationError`` before any wire serialisation, instead of as a
+  ## server-side ``SetError(setNotFound)`` round-trip.
+  ?validateOnSuccessCids(create, onSuccessUpdateEmail, onSuccessDestroyEmail)
   let req = SetRequest[
     AnyEmailSubmission, EmailSubmissionBlueprint, NonEmptyEmailSubmissionUpdates
   ](
@@ -172,9 +226,9 @@ func addEmailSubmissionAndEmailSet*(
     setMeta(create, update, destroy),
   )
   let handles = EmailSubmissionHandles(
-    primary: ResponseHandle[EmailSubmissionSetResponse](callId),
-    implicit: NameBoundHandle[SetResponse[EmailCreatedItem, PartialEmail]](
-      callId: callId, methodName: mnEmailSet
+    primary: initResponseHandle[EmailSubmissionSetResponse](callId, b.builderId),
+    implicit: initNameBoundHandle[SetResponse[EmailCreatedItem, PartialEmail]](
+      callId, mnEmailSet, b.builderId
     ),
   )
-  (b1, handles)
+  ok((b1, handles))

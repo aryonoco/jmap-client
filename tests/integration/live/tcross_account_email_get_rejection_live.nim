@@ -44,10 +44,12 @@ block tCrossAccountEmailGetRejectionLive:
     bobClient.close()
 
     # --- alice probes bob's accountId -----------------------------------
-    let (b, getHandle) =
-      addEmailGet(initRequestBuilder(), bobMailAccountId, ids = directIds(@[]))
-    let resp =
-      aliceClient.send(b).expect("send Email/get cross-account[" & $target.kind & "]")
+    let (b, getHandle) = addEmailGet(
+      initRequestBuilder(makeBuilderId()), bobMailAccountId, ids = directIds(@[])
+    )
+    let resp = aliceClient.send(b.freeze()).expect(
+        "send Email/get cross-account[" & $target.kind & "]"
+      )
     captureIfRequested(aliceClient, "email-get-cross-account-rejected-" & $target.kind)
       .expect("captureIfRequested")
 
@@ -59,7 +61,13 @@ block tCrossAccountEmailGetRejectionLive:
     # ``unsafeError`` bypasses ``withAssertOk`` — the ``$`` chain on the typed
     # ``GetResponse[Email]`` Ok value carries enough downstream side effects to
     # poison ``raiseResultDefect``'s inference. ``isErr`` is already asserted.
-    let methodErr = getResult.unsafeError
+    # Under A6 the inner railway is ``GetError``; the ``gekMethod`` arm
+    # wraps the original ``MethodError`` verbatim.
+    let getErr = getResult.unsafeError
+    assertOn target,
+      getErr.kind == gekMethod,
+      "cross-account rejection must surface as gekMethod, not gekHandleMismatch"
+    let methodErr = getErr.methodErr
     assertOn target,
       methodErr.errorType in {metForbidden, metAccountNotFound},
       "RFC 8620 §3.6.2 admits both metForbidden and metAccountNotFound for cross-account " &

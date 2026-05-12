@@ -52,12 +52,12 @@ block tthreadGetLive:
 
     # --- Resolve threadId via Email/get ----------------------------------
     let (b1, emailHandle) = addEmailGet(
-      initRequestBuilder(),
+      initRequestBuilder(makeBuilderId()),
       mailAccountId,
       ids = directIds(@[seededId]),
       properties = Opt.some(@["id", "threadId"]),
     )
-    let resp1 = client.send(b1).expect("send Email/get[" & $target.kind & "]")
+    let resp1 = client.send(b1.freeze()).expect("send Email/get[" & $target.kind & "]")
     let emailResp =
       resp1.get(emailHandle).expect("Email/get extract[" & $target.kind & "]")
     assertOn target, emailResp.list.len == 1, "Email/get must return the seeded message"
@@ -69,9 +69,11 @@ block tthreadGetLive:
     # --- Thread/get with bounded retry for async population --------------
     var thread = Opt.none(jthread.Thread)
     for attempt in 0 ..< 5:
-      let (b2, threadHandle) =
-        addThreadGet(initRequestBuilder(), mailAccountId, ids = directIds(@[threadId]))
-      let resp2 = client.send(b2).expect("send Thread/get[" & $target.kind & "]")
+      let (b2, threadHandle) = addThreadGet(
+        initRequestBuilder(makeBuilderId()), mailAccountId, ids = directIds(@[threadId])
+      )
+      let resp2 =
+        client.send(b2.freeze()).expect("send Thread/get[" & $target.kind & "]")
       let threadResp =
         resp2.get(threadHandle).expect("Thread/get extract[" & $target.kind & "]")
       if threadResp.list.len == 1:

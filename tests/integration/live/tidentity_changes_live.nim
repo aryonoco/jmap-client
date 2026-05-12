@@ -81,10 +81,13 @@ block tidentityChangesLive:
     var createTbl = initTable[CreationId, IdentityCreate]()
     createTbl[createCid] = createIdent
     let (bCreate, createHandle) = addIdentitySet(
-      initRequestBuilder(), submissionAccountId, create = Opt.some(createTbl)
+      initRequestBuilder(makeBuilderId()),
+      submissionAccountId,
+      create = Opt.some(createTbl),
     )
-    let respCreate =
-      client.send(bCreate).expect("send Identity/set create[" & $target.kind & "]")
+    let respCreate = client.send(bCreate.freeze()).expect(
+        "send Identity/set create[" & $target.kind & "]"
+      )
     let createExtract = respCreate.get(createHandle)
     var identityId: Id
     var createOk = false
@@ -101,10 +104,13 @@ block tidentityChangesLive:
     # --- Happy path: Identity/changes since baseline --------------------
     if createOk:
       let (bHappy, happyHandle) = addIdentityChanges(
-        initRequestBuilder(), submissionAccountId, sinceState = baselineState
+        initRequestBuilder(makeBuilderId()),
+        submissionAccountId,
+        sinceState = baselineState,
       )
-      let respHappy =
-        client.send(bHappy).expect("send Identity/changes happy[" & $target.kind & "]")
+      let respHappy = client.send(bHappy.freeze()).expect(
+          "send Identity/changes happy[" & $target.kind & "]"
+        )
       let happyExtract = respHappy.get(happyHandle)
       assertSuccessOrTypedError(target, happyExtract, {metUnknownMethod}):
         let cr = success
@@ -126,17 +132,20 @@ block tidentityChangesLive:
     # --- Sad path: bogus sinceState -------------------------------------
     let bogusState = JmapState("phase-h-46-bogus-state")
     let (bSad, sadHandle) = addIdentityChanges(
-      initRequestBuilder(), submissionAccountId, sinceState = bogusState
+      initRequestBuilder(makeBuilderId()), submissionAccountId, sinceState = bogusState
     )
-    let respSad =
-      client.send(bSad).expect("send Identity/changes bogus[" & $target.kind & "]")
+    let respSad = client.send(bSad.freeze()).expect(
+        "send Identity/changes bogus[" & $target.kind & "]"
+      )
     captureIfRequested(client, "identity-changes-bogus-state-" & $target.kind).expect(
       "captureIfRequested"
     )
     let sadExtract = respSad.get(sadHandle)
     assertOn target,
       sadExtract.isErr, "bogus sinceState must surface as a method-level error"
-    let methodErr = sadExtract.error
+    let getErr = sadExtract.error
+    doAssert getErr.kind == gekMethod, "expected gekMethod"
+    let methodErr = getErr.methodErr
     assertOn target,
       methodErr.errorType in
         {metCannotCalculateChanges, metInvalidArguments, metUnknownMethod},
@@ -146,8 +155,10 @@ block tidentityChangesLive:
     # --- Cleanup: destroy the test-created Identity ---------------------
     if createOk:
       let (bCleanup, cleanupHandle) = addIdentitySet(
-        initRequestBuilder(), submissionAccountId, destroy = directIds(@[identityId])
+        initRequestBuilder(makeBuilderId()),
+        submissionAccountId,
+        destroy = directIds(@[identityId]),
       )
-      discard client.send(bCleanup)
+      discard client.send(bCleanup.freeze())
       discard cleanupHandle
     client.close()

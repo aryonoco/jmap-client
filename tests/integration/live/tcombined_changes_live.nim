@@ -101,9 +101,11 @@ block tcombinedChangesLive:
 
     # --- Mutate: destroy the step-47 mailbox + seed an email ------------
     let (bDestroy, destroyHandle) = addMailboxSet(
-      initRequestBuilder(), mailAccountId, destroy = directIds(@[tempMailboxId])
+      initRequestBuilder(makeBuilderId()),
+      mailAccountId,
+      destroy = directIds(@[tempMailboxId]),
     )
-    let respDestroy = client.send(bDestroy).expect(
+    let respDestroy = client.send(bDestroy.freeze()).expect(
         "send Mailbox/set destroy step-47 child[" & $target.kind & "]"
       )
     let destroyResp = respDestroy.get(destroyHandle).expect(
@@ -133,13 +135,16 @@ block tcombinedChangesLive:
     var capturedEmailCr: ChangesResponse[Email]
     for attempt in 0 ..< 5:
       let (b1, mailboxH) = addMailboxChanges(
-        initRequestBuilder(), mailAccountId, sinceState = baselineMailboxState
+        initRequestBuilder(makeBuilderId()),
+        mailAccountId,
+        sinceState = baselineMailboxState,
       )
       let (b2, threadH) =
         addThreadChanges(b1, mailAccountId, sinceState = baselineThreadState)
       let (b3, emailH) =
         addEmailChanges(b2, mailAccountId, sinceState = baselineEmailState)
-      let resp = client.send(b3).expect("send combined */changes[" & $target.kind & "]")
+      let resp =
+        client.send(b3.freeze()).expect("send combined */changes[" & $target.kind & "]")
       # Cat-B: any extract may surface a typed error
       # (``cannotCalculateChanges`` on a state-history-windowed server
       # like Cyrus 3.12.2). Skip the iteration on extract failure;

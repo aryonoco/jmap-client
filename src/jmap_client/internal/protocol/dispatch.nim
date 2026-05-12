@@ -3,26 +3,26 @@
 
 ## Phantom-typed response handles and dispatch extraction for JMAP method
 ## responses (RFC 8620 section 3.4). ``ResponseHandle[T]`` ties a method call
-## ID to its expected response type at compile time. ``get[T]`` extracts typed
-## responses from the Response envelope, detecting method errors and converting
-## validation failures losslessly.
+## ID to its expected response type at compile time and carries a
+## ``BuilderId`` that brands it to the issuing ``RequestBuilder``. ``get[T]``
+## extracts typed responses from a sealed ``DispatchedResponse`` returned by
+## ``JmapClient.send``; mismatched brands return ``err(gekHandleMismatch)``,
+## server errors return ``err(gekMethod)``. Serde failures map losslessly
+## through ``serdeToMethodError``.
 ##
 ## **Two-level railway composition.** Layer 4's ``send`` returns
-## ``JmapResult[Response]`` (Track 1: transport/request errors). ``get[T]``
-## returns ``Result[T, MethodError]`` (Track 2: per-invocation errors). These
-## are intentionally separate railways — transport failures and method errors
-## require fundamentally different recovery actions.
-##
-## **Cross-request safety gap.** Call IDs repeat across requests (every
-## request's first method call is "c0"). A handle from Request A, if used
-## with Response B, will silently extract the wrong invocation. Use handles
-## immediately within the scope where the request was built.
+## ``JmapResult[DispatchedResponse]`` (outer railway: transport / request
+## envelope). ``get[T]`` and ``getBoth`` return ``Result[T, GetError]``
+## (inner railway: per-extraction errors). The two railways require
+## different recovery actions — transport failures retry, method errors
+## propagate, handle mismatches are programming bugs.
 
 {.push raises: [], noSideEffect.}
 {.experimental: "strictCaseObjects".}
 
 import std/hashes
 import std/json
+import std/tables
 
 import ../../types
 import ../../serialisation
@@ -30,59 +30,104 @@ import ../types/envelope
 import ./methods
 
 # =============================================================================
-# ResponseHandle[T]
+# ResponseHandle[T] — sealed, brand-carrying (Pattern A)
 # =============================================================================
 
-type ResponseHandle*[T] = distinct MethodCallId
-  ## Phantom-typed handle tying a method call ID to its expected response
-  ## type T. T is unused at runtime — it exists solely for compile-time
-  ## type safety. At runtime, just a MethodCallId.
+type ResponseHandle*[T] {.ruleOff: "objects".} = object
+  ## Phantom-typed dispatch handle tying a compile-time response type
+  ## ``T`` to a runtime ``(callId, builderId)`` pair. Construction is
+  ## gated — ``initResponseHandle`` is module-private surface (exported
+  ## with ``*`` so internal callers can reach it but filtered from the
+  ## hub re-export) so handles can only be minted by the builder.
+  rawCallId: MethodCallId
+  rawBuilderId: BuilderId
+
+func initResponseHandle*[T](
+    callId: MethodCallId, builderId: BuilderId
+): ResponseHandle[T] =
+  ## Sole construction path for ``ResponseHandle[T]``. Exported with
+  ## ``*`` so ``builder.nim`` and mail builder modules can construct
+  ## handles; filtered from the protocol hub.
+  ResponseHandle[T](rawCallId: callId, rawBuilderId: builderId)
+
+func callId*[T](h: ResponseHandle[T]): MethodCallId =
+  ## Public accessor — the underlying ``MethodCallId``. Stays public
+  ## (no hub filter) because back-reference construction
+  ## (``reference``, ``idsRef``, etc.) needs to read the callId
+  ## without exposing the brand.
+  h.rawCallId
+
+func builderId*[T](h: ResponseHandle[T]): BuilderId =
+  ## Hub-private accessor — the brand of the issuing ``RequestBuilder``.
+  ## Internal cross-module reach only (consumed by ``get``/``getBoth``
+  ## for the mismatch check).
+  h.rawBuilderId
 
 func `==`*[T](a, b: ResponseHandle[T]): bool =
-  ## Equality comparison delegated to the underlying MethodCallId.
-  return MethodCallId(a) == MethodCallId(b)
+  ## Structural equality across both components.
+  a.rawCallId == b.rawCallId and a.rawBuilderId == b.rawBuilderId
 
-func `$`*[T](a: ResponseHandle[T]): string =
-  ## String representation delegated to the underlying MethodCallId.
-  return $MethodCallId(a)
+func `$`*[T](h: ResponseHandle[T]): string =
+  ## String form delegates to the underlying ``MethodCallId``.
+  $h.rawCallId
 
-func hash*[T](a: ResponseHandle[T]): Hash =
-  ## Hash delegated to the underlying MethodCallId.
-  return hash(MethodCallId(a))
-
-func callId*[T](handle: ResponseHandle[T]): MethodCallId =
-  ## Extracts the underlying MethodCallId from a ResponseHandle.
-  return MethodCallId(handle)
+func hash*[T](h: ResponseHandle[T]): Hash =
+  ## Hash combining both components via ``std/hashes`` mixer.
+  !$(hash(h.rawCallId) !& hash(h.rawBuilderId))
 
 # =============================================================================
 # NameBoundHandle[T] — dispatch for compound overloads (RFC 8620 §5.4)
 # =============================================================================
 
-type NameBoundHandle*[T] = object
-  ## Response handle whose wire invocation shares its call-id with a sibling
-  ## invocation (RFC 8620 §5.4 compound overloads, e.g. the implicit Email/set
-  ## destroy response accompanying Email/copy with onSuccessDestroyOriginal).
+type NameBoundHandle*[T] {.ruleOff: "objects".} = object
+  ## Response handle whose wire invocation shares its call-id with a
+  ## sibling invocation (RFC 8620 §5.4 compound overloads, e.g. the
+  ## implicit ``Email/set`` destroy response accompanying ``Email/copy``
+  ## with ``onSuccessDestroyOriginal``).
   ##
-  ## The method-name fact travels with the handle — set once at the builder
-  ## construction site, never at the extraction site. Dispatch resolves via
-  ## call-id + method-name simultaneously, so UFCS extraction (resp.get(h))
-  ## needs no filter argument. "Parse once at the boundary, trust forever"
-  ## applied to dispatch: the constraint lives in the type, not in every
-  ## caller's argument list.
-  callId*: MethodCallId
-  methodName*: MethodName
+  ## The method-name fact travels with the handle — set once at the
+  ## builder construction site, never at the extraction site. Dispatch
+  ## resolves via call-id + method-name simultaneously, so UFCS
+  ## extraction (``dr.get(h)``) needs no filter argument. The brand
+  ## (``rawBuilderId``) lets the extraction validate the handle was
+  ## issued by the builder that produced the dispatched response.
+  rawCallId: MethodCallId
+  rawMethodName: MethodName
+  rawBuilderId: BuilderId
+
+func initNameBoundHandle*[T](
+    callId: MethodCallId, methodName: MethodName, builderId: BuilderId
+): NameBoundHandle[T] =
+  ## Sole construction path for ``NameBoundHandle[T]``. Same hub-filter
+  ## shape as ``initResponseHandle``.
+  NameBoundHandle[T](
+    rawCallId: callId, rawMethodName: methodName, rawBuilderId: builderId
+  )
+
+func callId*[T](h: NameBoundHandle[T]): MethodCallId =
+  ## Public accessor — the underlying ``MethodCallId``.
+  h.rawCallId
+
+func methodName*[T](h: NameBoundHandle[T]): MethodName =
+  ## Public accessor — the bound method name.
+  h.rawMethodName
+
+func builderId*[T](h: NameBoundHandle[T]): BuilderId =
+  ## Hub-private accessor — see ``builderId*(ResponseHandle)``.
+  h.rawBuilderId
 
 func `==`*[T](a, b: NameBoundHandle[T]): bool =
-  ## Equality on both components.
-  a.callId == b.callId and a.methodName == b.methodName
+  ## Structural equality across all three components.
+  a.rawCallId == b.rawCallId and a.rawMethodName == b.rawMethodName and
+    a.rawBuilderId == b.rawBuilderId
 
 func `$`*[T](h: NameBoundHandle[T]): string =
-  ## String form: "<callId>@<methodName>".
-  $h.callId & "@" & $h.methodName
+  ## String form: ``"<callId>@<methodName>"``.
+  $h.rawCallId & "@" & $h.rawMethodName
 
 func hash*[T](h: NameBoundHandle[T]): Hash =
-  ## Hash combining both components.
-  !$(h.callId.hash !& h.methodName.hash)
+  ## Hash combining all three components.
+  !$(hash(h.rawCallId) !& hash(h.rawMethodName) !& hash(h.rawBuilderId))
 
 # =============================================================================
 # Railway bridge: serde (SerdeViolation) → per-invocation (MethodError)
@@ -186,53 +231,128 @@ func extractInvocationByName(
   return ok(inv)
 
 # =============================================================================
+# DispatchedResponse — sealed dispatch artifact
+# =============================================================================
+
+type DispatchedResponse* {.ruleOff: "objects".} = object
+  ## Dispatch artifact pairing a wire-data ``Response`` with the
+  ## ``BuilderId`` of the builder that issued the originating request.
+  ## Returned only by ``JmapClient.send``; consumed by ``handle.get`` to
+  ## validate that the handle was issued by the same builder.
+  ##
+  ## Modelled after SQLite's ``sqlite3_stmt*`` (compiled artifact) vs
+  ## row data, and libcurl's ``CURL*`` (easy handle) vs response bytes:
+  ## dispatch artifact and wire data live in separate types.
+  rawResponse: Response
+  rawBuilderId: BuilderId
+
+func initDispatchedResponse*(
+    response: Response, builderId: BuilderId
+): DispatchedResponse =
+  ## Module-private surface — exported with ``*`` for ``client.nim`` to
+  ## call, filtered from the protocol hub. Sole construction path.
+  DispatchedResponse(rawResponse: response, rawBuilderId: builderId)
+
+func response*(dr: DispatchedResponse): Response =
+  ## Hub-private accessor — the underlying wire-data ``Response``.
+  ## Internal callers, tests, and diagnostic code reach this via direct
+  ## ``import jmap_client/internal/protocol/dispatch``. Application
+  ## developers use ``handle.get(dr)`` for typed extraction.
+  dr.rawResponse
+
+func builderId*(dr: DispatchedResponse): BuilderId =
+  ## Hub-private accessor — brand of the builder that issued the
+  ## originating request. Used by ``handle.get`` for the brand check.
+  dr.rawBuilderId
+
+func sessionState*(dr: DispatchedResponse): JmapState =
+  ## Hub-public convenience accessor — the response's
+  ## ``sessionState``. Compare with the cached ``Session.state`` to
+  ## detect a stale session (RFC 8620 §3.4).
+  dr.rawResponse.sessionState
+
+func createdIds*(dr: DispatchedResponse): Opt[Table[CreationId, Id]] =
+  ## Hub-public convenience accessor — server-confirmed creation IDs.
+  dr.rawResponse.createdIds
+
+# =============================================================================
 # get[T] — default extraction via mixin fromJson
 # =============================================================================
 
-func get*[T](resp: Response, handle: ResponseHandle[T]): Result[T, MethodError] =
-  ## Extracts a typed response from the Response envelope using ``mixin
-  ## fromJson`` to resolve ``T.fromJson`` at the caller's scope.
+func get*[T](dr: DispatchedResponse, handle: ResponseHandle[T]): Result[T, GetError] =
+  ## Extracts a typed response from the dispatched response using
+  ## ``mixin fromJson`` to resolve ``T.fromJson`` at the caller's scope.
   ##
   ## Algorithm:
-  ## 1. Scan methodResponses for invocation matching handle's call ID.
-  ## 2. Not found → err(serverFail).
-  ## 3. If name == "error" → parse as MethodError, return err.
-  ## 4. Otherwise → call T.fromJson(arguments) via mixin.
-  ##    ok → return ok. err(SerdeViolation) → convert to MethodError
-  ##    via ``serdeToMethodError($T)`` (translator with ``T``'s name as
-  ##    root context).
+  ## 1. Compare ``handle.builderId`` to ``dr.builderId`` — mismatch
+  ##    returns ``err(gekHandleMismatch)``.
+  ## 2. Scan methodResponses for invocation matching handle's call ID.
+  ## 3. Not found → ``err(gekMethod)`` wrapping ``serverFail``.
+  ## 4. If name == "error" → parse as MethodError, return
+  ##    ``err(gekMethod)``.
+  ## 5. Otherwise → call ``T.fromJson(arguments)`` via mixin.
+  ##    ``ok`` → ``ok``. ``err(SerdeViolation)`` → convert to
+  ##    ``GetError`` via ``serdeToMethodError($T)`` then
+  ##    ``getErrorMethod``.
   mixin fromJson
-  let inv = ?extractInvocation(resp, callId(handle))
-  return T.fromJson(inv.arguments).mapErr(serdeToMethodError($T))
+  if handle.rawBuilderId != dr.rawBuilderId:
+    return err(
+      getErrorHandleMismatch(
+        expected = dr.rawBuilderId,
+        actual = handle.rawBuilderId,
+        callId = handle.rawCallId,
+      )
+    )
+  let inv = extractInvocation(dr.rawResponse, handle.rawCallId).valueOr:
+    return err(getErrorMethod(error))
+  T.fromJson(inv.arguments).mapErr(serdeToMethodError($T)).mapErr(getErrorMethod)
 
 # =============================================================================
 # get[T] — callback overload (escape hatch)
 # =============================================================================
 
 func get*[T](
-    resp: Response,
+    dr: DispatchedResponse,
     handle: ResponseHandle[T],
     fromArgs:
       proc(node: JsonNode): Result[T, SerdeViolation] {.noSideEffect, raises: [].},
-): Result[T, MethodError] =
+): Result[T, GetError] =
   ## Extracts a typed response using a caller-supplied parsing callback.
-  ## For custom parsing where ``T.fromJson`` is not discoverable via mixin
-  ## (e.g., entity-specific extractors or JsonNode for Core/echo).
-  let inv = ?extractInvocation(resp, callId(handle))
-  return fromArgs(inv.arguments).mapErr(serdeToMethodError($T))
+  ## For custom parsing where ``T.fromJson`` is not discoverable via
+  ## mixin (e.g., entity-specific extractors or ``JsonNode`` for
+  ## ``Core/echo``). Brand check applies same as the default overload.
+  if handle.rawBuilderId != dr.rawBuilderId:
+    return err(
+      getErrorHandleMismatch(
+        expected = dr.rawBuilderId,
+        actual = handle.rawBuilderId,
+        callId = handle.rawCallId,
+      )
+    )
+  let inv = extractInvocation(dr.rawResponse, handle.rawCallId).valueOr:
+    return err(getErrorMethod(error))
+  fromArgs(inv.arguments).mapErr(serdeToMethodError($T)).mapErr(getErrorMethod)
 
 # =============================================================================
 # get[T] — NameBoundHandle overload
 # =============================================================================
 
-func get*[T](resp: Response, h: NameBoundHandle[T]): Result[T, MethodError] =
-  ## Extract a typed response using a NameBoundHandle. The method-name
-  ## filter lives in the handle itself — no filter argument at the call
-  ## site. Used by compound overloads where a sibling invocation shares
-  ## the call-id (RFC 8620 §5.4).
+func get*[T](dr: DispatchedResponse, h: NameBoundHandle[T]): Result[T, GetError] =
+  ## Extract a typed response using a ``NameBoundHandle``. The
+  ## method-name filter lives in the handle itself — no filter
+  ## argument at the call site. Used by compound overloads where a
+  ## sibling invocation shares the call-id (RFC 8620 §5.4). Brand
+  ## check applies same as the ``ResponseHandle`` overloads.
   mixin fromJson
-  let inv = ?extractInvocationByName(resp, h.callId, h.methodName)
-  return T.fromJson(inv.arguments).mapErr(serdeToMethodError($T))
+  if h.rawBuilderId != dr.rawBuilderId:
+    return err(
+      getErrorHandleMismatch(
+        expected = dr.rawBuilderId, actual = h.rawBuilderId, callId = h.rawCallId
+      )
+    )
+  let inv = extractInvocationByName(dr.rawResponse, h.rawCallId, h.rawMethodName).valueOr:
+    return err(getErrorMethod(error))
+  T.fromJson(inv.arguments).mapErr(serdeToMethodError($T)).mapErr(getErrorMethod)
 
 # =============================================================================
 # Compound method dispatch (RFC 8620 §5.4)
@@ -253,15 +373,18 @@ type CompoundResults*[A, B] {.ruleOff: "objects".} = object
   implicit*: B
 
 func getBoth*[A, B](
-    resp: Response, handles: CompoundHandles[A, B]
-): Result[CompoundResults[A, B], MethodError] =
+    dr: DispatchedResponse, handles: CompoundHandles[A, B]
+): Result[CompoundResults[A, B], GetError] =
   ## Extract both responses from a §5.4 implicit-call compound. The
   ## ``primary`` handle dispatches through the default ``get[T]``
   ## overload; ``implicit`` dispatches through the ``NameBoundHandle``
   ## overload, which applies the method-name filter from the handle.
+  ## Both calls share the same brand-check semantics — the inner
+  ## handles must have been issued by the builder that produced
+  ## ``dr``.
   mixin fromJson
-  let primary = ?resp.get(handles.primary)
-  let implicit = ?resp.get(handles.implicit)
+  let primary = ?dr.get(handles.primary)
+  let implicit = ?dr.get(handles.implicit)
   ok(CompoundResults[A, B](primary: primary, implicit: implicit))
 
 template registerCompoundMethod*(Primary, Implicit: typedesc) =
@@ -301,16 +424,16 @@ type ChainedResults*[A, B] {.ruleOff: "objects".} = object
   second*: B
 
 func getBoth*[A, B](
-    resp: Response, handles: ChainedHandles[A, B]
-): Result[ChainedResults[A, B], MethodError] =
+    dr: DispatchedResponse, handles: ChainedHandles[A, B]
+): Result[ChainedResults[A, B], GetError] =
   ## Extract both responses from a §3.7 back-reference chain. Both
   ## handles dispatch through the default ``get[T]`` overload because
   ## the call-ids are distinct — no method-name filter needed.
   ## Overloaded with the ``CompoundHandles`` variant at §5.4; the
   ## compiler picks by argument type (no structural overlap).
   mixin fromJson
-  let first = ?resp.get(handles.first)
-  let second = ?resp.get(handles.second)
+  let first = ?dr.get(handles.first)
+  let second = ?dr.get(handles.second)
   ok(ChainedResults[A, B](first: first, second: second))
 
 template registerChainableMethod*(Primary: typedesc) =

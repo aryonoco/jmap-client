@@ -36,7 +36,24 @@ import results
 import jmap_client
 import jmap_client/client
 import jmap_client/internal/protocol/builder
+import jmap_client/internal/types/identifiers
 import ./mconfig
+
+# Live test files import ``./mlive`` for the high-level helpers
+# (``resolveInboxId``, ``seedSimpleEmail``, etc.) — re-exporting
+# ``builder`` and ``identifiers`` here gives them ``initRequestBuilder``,
+# ``BuilderId``, and ``initBuilderId`` transitively so they don't
+# each have to re-import the internal paths.
+export builder, identifiers
+
+proc makeBuilderId*(): BuilderId =
+  ## A6-brand helper for live tests — fixed ``(0, 0)`` brand is
+  ## sufficient because every handle/dispatched-response pair in a
+  ## given test is constructed from the same builder, so the brand
+  ## check at ``handle.get(dr)`` always sees matching values. Exported
+  ## so live tests that ``import ./mlive`` see ``makeBuilderId()``
+  ## without re-importing ``mfixtures``.
+  initBuilderId(0'u64, 0'u64)
 
 # ---------------------------------------------------------------------------
 # Shared blueprint-leaf factory
@@ -99,11 +116,11 @@ proc resolveInboxId*(
   ## ``role == roleInbox``. Errors out narratively when the request
   ## fails, the response cannot be extracted, or no inbox-role mailbox
   ## is present.
-  let (b, mbHandle) = addMailboxGet(initRequestBuilder(), mailAccountId)
-  let resp = client.send(b).valueOr:
+  let (b, mbHandle) = addMailboxGet(initRequestBuilder(makeBuilderId()), mailAccountId)
+  let resp = client.send(b.freeze()).valueOr:
     return err("Mailbox/get send failed: " & error.message)
   let mbResp = resp.get(mbHandle).valueOr:
-    return err("Mailbox/get extract failed: " & error.rawType)
+    return err("Mailbox/get extract failed: " & error.message)
   for mb in mbResp.list:
     for role in mb.role:
       if role == roleInbox:
@@ -124,12 +141,13 @@ proc emailSetCreate(
     return err("parseCreationId failed: " & error.message)
   var createTbl = initTable[CreationId, EmailBlueprint]()
   createTbl[cid] = blueprint
-  let (b, setHandle) =
-    addEmailSet(initRequestBuilder(), mailAccountId, create = Opt.some(createTbl))
-  let resp = client.send(b).valueOr:
+  let (b, setHandle) = addEmailSet(
+    initRequestBuilder(makeBuilderId()), mailAccountId, create = Opt.some(createTbl)
+  )
+  let resp = client.send(b.freeze()).valueOr:
     return err("Email/set send failed: " & error.message)
   let setResp = resp.get(setHandle).valueOr:
-    return err("Email/set extract failed: " & error.rawType)
+    return err("Email/set extract failed: " & error.message)
   var seededId: Id
   var found = false
   setResp.createResults.withValue(cid, outcome):
@@ -447,11 +465,11 @@ proc resolveOrCreateMailbox*(
   ## a child of the inbox-role mailbox via ``Mailbox/set create`` and
   ## returns the newly assigned id. Phase E supports re-runnability: on a
   ## second run the same name resolves to the previously created mailbox.
-  let (b1, mbHandle) = addMailboxGet(initRequestBuilder(), mailAccountId)
-  let resp1 = client.send(b1).valueOr:
+  let (b1, mbHandle) = addMailboxGet(initRequestBuilder(makeBuilderId()), mailAccountId)
+  let resp1 = client.send(b1.freeze()).valueOr:
     return err("Mailbox/get send failed: " & error.message)
   let mbResp = resp1.get(mbHandle).valueOr:
-    return err("Mailbox/get extract failed: " & error.rawType)
+    return err("Mailbox/get extract failed: " & error.message)
   for mb in mbResp.list:
     if mb.name == name:
       return ok(mb.id)
@@ -462,12 +480,13 @@ proc resolveOrCreateMailbox*(
     return err("parseCreationId failed: " & error.message)
   var createTbl = initTable[CreationId, MailboxCreate]()
   createTbl[cid] = create
-  let (b2, setHandle) =
-    addMailboxSet(initRequestBuilder(), mailAccountId, create = Opt.some(createTbl))
-  let resp2 = client.send(b2).valueOr:
+  let (b2, setHandle) = addMailboxSet(
+    initRequestBuilder(makeBuilderId()), mailAccountId, create = Opt.some(createTbl)
+  )
+  let resp2 = client.send(b2.freeze()).valueOr:
     return err("Mailbox/set send failed: " & error.message)
   let setResp = resp2.get(setHandle).valueOr:
-    return err("Mailbox/set extract failed: " & error.rawType)
+    return err("Mailbox/set extract failed: " & error.message)
   var createdId: Id
   var found = false
   setResp.createResults.withValue(cid, outcome):
@@ -528,15 +547,15 @@ proc getFirstAttachmentBlobId*(
   ## to bridge a seeded email to a freshly uploaded-like blob without
   ## going through a separate upload endpoint.
   let (b, getHandle) = addEmailGet(
-    initRequestBuilder(),
+    initRequestBuilder(makeBuilderId()),
     mailAccountId,
     ids = directIds(@[emailId]),
     properties = Opt.some(@["id", "attachments"]),
   )
-  let resp = client.send(b).valueOr:
+  let resp = client.send(b.freeze()).valueOr:
     return err("Email/get send failed: " & error.message)
   let getResp = resp.get(getHandle).valueOr:
-    return err("Email/get extract failed: " & error.rawType)
+    return err("Email/get extract failed: " & error.message)
   if getResp.list.len == 0:
     return err("Email/get returned empty list for " & string(emailId))
   let email = getResp.list[0]
@@ -608,11 +627,11 @@ proc resolveOrCreateRoleMailbox(
   ## Internal — exposed via the ``resolveOrCreateDrafts`` /
   ## ``resolveOrCreateSent`` named wrappers below so call sites read as
   ## the role they want.
-  let (b1, mbHandle) = addMailboxGet(initRequestBuilder(), mailAccountId)
-  let resp1 = client.send(b1).valueOr:
+  let (b1, mbHandle) = addMailboxGet(initRequestBuilder(makeBuilderId()), mailAccountId)
+  let resp1 = client.send(b1.freeze()).valueOr:
     return err("Mailbox/get send failed: " & error.message)
   let mbResp = resp1.get(mbHandle).valueOr:
-    return err("Mailbox/get extract failed: " & error.rawType)
+    return err("Mailbox/get extract failed: " & error.message)
   for mb in mbResp.list:
     for r in mb.role:
       if r == role:
@@ -626,12 +645,13 @@ proc resolveOrCreateRoleMailbox(
     return err("parseCreationId(" & creationLabel & "): " & error.message)
   var createTbl = initTable[CreationId, MailboxCreate]()
   createTbl[cid] = create
-  let (b2, setHandle) =
-    addMailboxSet(initRequestBuilder(), mailAccountId, create = Opt.some(createTbl))
-  let resp2 = client.send(b2).valueOr:
+  let (b2, setHandle) = addMailboxSet(
+    initRequestBuilder(makeBuilderId()), mailAccountId, create = Opt.some(createTbl)
+  )
+  let resp2 = client.send(b2.freeze()).valueOr:
     return err("Mailbox/set send failed: " & error.message)
   let setResp = resp2.get(setHandle).valueOr:
-    return err("Mailbox/set extract failed: " & error.rawType)
+    return err("Mailbox/set extract failed: " & error.message)
   var createdId: Id
   var found = false
   setResp.createResults.withValue(cid, outcome):
@@ -770,12 +790,14 @@ proc trySubmissionGet(
   ## state plus the typed ``EmailSubmission[usFinal]`` when the
   ## record carried it.
   let (b, getHandle) = addEmailSubmissionGet(
-    initRequestBuilder(), submissionAccountId, ids = directIds(@[submissionId])
+    initRequestBuilder(makeBuilderId()),
+    submissionAccountId,
+    ids = directIds(@[submissionId]),
   )
-  let resp = client.send(b).valueOr:
+  let resp = client.send(b.freeze()).valueOr:
     return err("EmailSubmission/get send failed: " & error.message)
   let getResp = resp.get(getHandle).valueOr:
-    return err("EmailSubmission/get extract failed: " & error.rawType)
+    return err("EmailSubmission/get extract failed: " & error.message)
   if getResp.list.len > 0:
     let any = getResp.list[0]
     let final = any.asFinal()
@@ -944,11 +966,12 @@ proc resolveOrCreateAliceIdentity*(
   ## surfaces but the account already has an identity, the helper
   ## returns that identity's id rather than attempting an Identity/set
   ## create that the server lacks (``metUnknownMethod`` on Cyrus).
-  let (b1, getHandle) = addIdentityGet(initRequestBuilder(), submissionAccountId)
-  let resp1 = client.send(b1).valueOr:
+  let (b1, getHandle) =
+    addIdentityGet(initRequestBuilder(makeBuilderId()), submissionAccountId)
+  let resp1 = client.send(b1.freeze()).valueOr:
     return err("Identity/get send failed: " & error.message)
   let getResp = resp1.get(getHandle).valueOr:
-    return err("Identity/get extract failed: " & error.rawType)
+    return err("Identity/get extract failed: " & error.message)
   var fallbackId: Opt[Id] = Opt.none(Id)
   for ident in getResp.list:
     if ident.email == "alice@example.com":
@@ -964,12 +987,14 @@ proc resolveOrCreateAliceIdentity*(
   var createTbl = initTable[CreationId, IdentityCreate]()
   createTbl[cid] = createIdent
   let (b2, setHandle) = addIdentitySet(
-    initRequestBuilder(), submissionAccountId, create = Opt.some(createTbl)
+    initRequestBuilder(makeBuilderId()),
+    submissionAccountId,
+    create = Opt.some(createTbl),
   )
-  let resp2 = client.send(b2).valueOr:
+  let resp2 = client.send(b2.freeze()).valueOr:
     return err("Identity/set send failed: " & error.message)
   let setResp = resp2.get(setHandle).valueOr:
-    return err("Identity/set extract failed: " & error.rawType)
+    return err("Identity/set extract failed: " & error.message)
   var createdId: Id
   var found = false
   setResp.createResults.withValue(cid, outcome):
@@ -997,12 +1022,14 @@ proc pollSubmissionPending*(
   let maxIters = max(1, budgetMs div PollMs)
   for _ in 0 ..< maxIters:
     let (b, getHandle) = addEmailSubmissionGet(
-      initRequestBuilder(), submissionAccountId, ids = directIds(@[submissionId])
+      initRequestBuilder(makeBuilderId()),
+      submissionAccountId,
+      ids = directIds(@[submissionId]),
     )
-    let resp = client.send(b).valueOr:
+    let resp = client.send(b.freeze()).valueOr:
       return err("EmailSubmission/get send failed: " & error.message)
     let getResp = resp.get(getHandle).valueOr:
-      return err("EmailSubmission/get extract failed: " & error.rawType)
+      return err("EmailSubmission/get extract failed: " & error.message)
     if getResp.list.len > 0:
       let any = getResp.list[0]
       let pending = any.asPending()
@@ -1075,14 +1102,15 @@ proc pollEmailQueryIndexed*(
     discard client.fetchSession().valueOr:
       client.close()
       return err("pollEmailQueryIndexed: fetchSession failed: " & error.message)
-    let (b, queryHandle) =
-      addEmailQuery(initRequestBuilder(), mailAccountId, filter = Opt.some(filter))
-    let resp = client.send(b).valueOr:
+    let (b, queryHandle) = addEmailQuery(
+      initRequestBuilder(makeBuilderId()), mailAccountId, filter = Opt.some(filter)
+    )
+    let resp = client.send(b.freeze()).valueOr:
       client.close()
       return err("Email/query send failed: " & error.message)
     let queryResp = resp.get(queryHandle).valueOr:
       client.close()
-      return err("Email/query extract failed: " & error.rawType)
+      return err("Email/query extract failed: " & error.message)
     client.close()
     let ids = queryResp.ids
     var allPresent = true
@@ -1120,12 +1148,13 @@ proc findEmailBySubjectInMailbox*(
     EmailFilterCondition(inMailbox: Opt.some(mailbox), subject: Opt.some(subject))
   )
   for _ in 0 ..< max(1, attempts):
-    let (b, queryHandle) =
-      addEmailQuery(initRequestBuilder(), mailAccountId, filter = Opt.some(filter))
-    let resp = client.send(b).valueOr:
+    let (b, queryHandle) = addEmailQuery(
+      initRequestBuilder(makeBuilderId()), mailAccountId, filter = Opt.some(filter)
+    )
+    let resp = client.send(b.freeze()).valueOr:
       return err("Email/query send failed: " & error.message)
     let queryResp = resp.get(queryHandle).valueOr:
-      return err("Email/query extract failed: " & error.rawType)
+      return err("Email/query extract failed: " & error.message)
     if queryResp.ids.len > 0:
       return ok(queryResp.ids[0])
     sleep(intervalMs)
@@ -1168,23 +1197,24 @@ proc pollEmailDeliveryToInbox*(
   let maxIters = max(1, budgetMs div PollMs)
   let filter = filterCondition(EmailFilterCondition(inMailbox: Opt.some(inbox)))
   for _ in 0 ..< maxIters:
-    let (b1, queryHandle) =
-      addEmailQuery(initRequestBuilder(), mailAccountId, filter = Opt.some(filter))
-    let resp1 = client.send(b1).valueOr:
+    let (b1, queryHandle) = addEmailQuery(
+      initRequestBuilder(makeBuilderId()), mailAccountId, filter = Opt.some(filter)
+    )
+    let resp1 = client.send(b1.freeze()).valueOr:
       return err("Email/query send failed: " & error.message)
     let qr = resp1.get(queryHandle).valueOr:
-      return err("Email/query extract failed: " & error.rawType)
+      return err("Email/query extract failed: " & error.message)
     if qr.ids.len > 0:
       let (b2, getHandle) = addEmailGet(
-        initRequestBuilder(),
+        initRequestBuilder(makeBuilderId()),
         mailAccountId,
         ids = directIds(qr.ids),
         properties = Opt.some(@["id", "subject"]),
       )
-      let resp2 = client.send(b2).valueOr:
+      let resp2 = client.send(b2.freeze()).valueOr:
         return err("Email/get send failed: " & error.message)
       let gr = resp2.get(getHandle).valueOr:
-        return err("Email/get extract failed: " & error.rawType)
+        return err("Email/get extract failed: " & error.message)
       for emailRec in gr.list:
         for actualSubject in emailRec.subject:
           if actualSubject == subject:
@@ -1210,7 +1240,7 @@ template assertOn*(target: LiveTestTarget, cond: bool) =
 
 template assertSuccessOrTypedError*[T](
     target: LiveTestTarget,
-    extract: Result[T, MethodError],
+    extract: Result[T, GetError],
     allowedErrors: set[MethodErrorType],
     onSuccess: untyped,
 ) =
@@ -1225,6 +1255,11 @@ template assertSuccessOrTypedError*[T](
   ##   must be in ``allowedErrors`` — exercising the client's typed-
   ##   error projection against a real-world server response.
   ##
+  ## Under A6 the inner railway is ``GetError``; the ``gekMethod`` arm
+  ## wraps the original ``MethodError`` verbatim, while
+  ## ``gekHandleMismatch`` indicates a programming bug (handle from a
+  ## different builder) and is fatal here.
+  ##
   ## Both arms are positive client-library contract assertions; the
   ## test never branches its assertion on which server replied. See
   ## ``docs/plan/12-integration-testing-L-cyrus.md`` §0 for the
@@ -1236,7 +1271,11 @@ template assertSuccessOrTypedError*[T](
     let success {.inject.} = extract.unsafeValue
     onSuccess
   of false:
-    let methodErr = extract.unsafeError
+    let getErr = extract.unsafeError
+    assertOn target,
+      getErr.kind == gekMethod,
+      "inner-railway error must be gekMethod, not gekHandleMismatch"
+    let methodErr = getErr.methodErr
     assertOn target,
       methodErr.errorType in allowedErrors,
       "method error must be in allowed set " & $allowedErrors & " (got rawType=" &
@@ -1297,11 +1336,12 @@ proc captureBaselineState*[T](
   ## across Phase H Steps 43, 45, 46, 47, 48. ``T`` must satisfy the
   ## ``getMethodName(T)`` and ``capabilityUri(T)`` resolvers — every entity
   ## registered via ``registerJmapEntity`` in ``mail_entities.nim`` qualifies.
-  let (b, getHandle) = addGet[T](initRequestBuilder(), accountId, ids = directIds(@[]))
-  let resp = client.send(b).valueOr:
+  let (b, getHandle) =
+    addGet[T](initRequestBuilder(makeBuilderId()), accountId, ids = directIds(@[]))
+  let resp = client.send(b.freeze()).valueOr:
     return err("captureBaselineState[" & $T & "]: send failed: " & error.message)
   let getResp = resp.get(getHandle).valueOr:
-    return err("captureBaselineState[" & $T & "]: extract failed: " & error.rawType)
+    return err("captureBaselineState[" & $T & "]: extract failed: " & error.message)
   ok(getResp.state)
 
 # ---------------------------------------------------------------------------
@@ -1413,12 +1453,14 @@ proc seedSubmissionCorpus*(
     var createTbl = initTable[CreationId, EmailSubmissionBlueprint]()
     createTbl[cid] = blueprint
     let (b, setHandle) = addEmailSubmissionSet(
-      initRequestBuilder(), submissionAccountId, create = Opt.some(createTbl)
+      initRequestBuilder(makeBuilderId()),
+      submissionAccountId,
+      create = Opt.some(createTbl),
     )
-    let resp = client.send(b).valueOr:
+    let resp = client.send(b.freeze()).valueOr:
       return err("seedSubmissionCorpus[" & $i & "] send: " & error.message)
     let setResp = resp.get(setHandle).valueOr:
-      return err("seedSubmissionCorpus[" & $i & "] extract: " & error.rawType)
+      return err("seedSubmissionCorpus[" & $i & "] extract: " & error.message)
     var submissionId: Id
     var createdItem: EmailSubmissionCreatedItem
     var found = false
@@ -1457,9 +1499,11 @@ proc sendRawInvocation*(
   ## ``Request`` carrying a single hand-rolled invocation. Uses
   ## ``parseInvocation`` so unknown method names (e.g.
   ## ``Mailbox/snorgleflarp``) round-trip losslessly into the
-  ## invocation's ``rawName``. ``client.send(request)`` still runs
-  ## ``validateLimits``; only the request-construction layer is
-  ## bypassed. Used by Phase J Steps 62, 67, 68, 70, 72.
+  ## invocation's ``rawName``. Routes through
+  ## ``sendRawHttpForTesting`` because the public ``send`` accepts
+  ## only ``BuiltRequest`` (P21 sealed); pre-flight validation is
+  ## NOT applied here — adversarial wire shapes are the whole point.
+  ## Used by Phase J Steps 62, 67, 68, 70, 72.
   let mcid = parseMethodCallId(callId).valueOr:
     return err(clientError(transportError(tekNetwork, "invalid callId: " & callId)))
   let invocation = parseInvocation(methodName, arguments, mcid).valueOr:
@@ -1473,7 +1517,7 @@ proc sendRawInvocation*(
     methodCalls: @[invocation],
     createdIds: Opt.none(Table[CreationId, Id]),
   )
-  client.send(req)
+  client.sendRawHttpForTesting($req.toJson())
 
 proc buildOversizedRequest*(
     accountId: AccountId, idCount: int
@@ -1483,12 +1527,13 @@ proc buildOversizedRequest*(
   ## caps)`` past ``maxObjectsInGet``. The synthetic ids are valid
   ## ``Id`` shapes (1–255 octets, no control chars) so construction
   ## never fails. Returns the builder so callers reach the typed
-  ## per-call validation path via ``client.send(builder)``. Used by
+  ## per-call validation path via ``client.send(builder.freeze())``. Used by
   ## Phase J Step 64.
   var ids = newSeq[Id](idCount)
   for i in 0 ..< idCount:
     ids[i] = Id("phaseJsynth" & $i)
-  let (b, _) = addMailboxGet(initRequestBuilder(), accountId, ids = directIds(ids))
+  let (b, _) =
+    addMailboxGet(initRequestBuilder(makeBuilderId()), accountId, ids = directIds(ids))
   b
 
 func injectBrokenBackReference*(

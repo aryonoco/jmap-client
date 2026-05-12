@@ -98,13 +98,14 @@ block temailQueryPaginationLive:
       position: JmapInt(2), limit: Opt.some(UnsignedInt(2)), calculateTotal: true
     )
     let (b1, h1) = addEmailQuery(
-      initRequestBuilder(),
+      initRequestBuilder(makeBuilderId()),
       mailAccountId,
       filter = Opt.some(filter),
       queryParams = qpPos,
     )
-    let resp1 =
-      client.send(b1).expect("send Email/query position+limit[" & $target.kind & "]")
+    let resp1 = client.send(b1.freeze()).expect(
+        "send Email/query position+limit[" & $target.kind & "]"
+      )
     captureIfRequested(client, "email-query-pagination-position-" & $target.kind).expect(
       "captureIfRequested position"
     )
@@ -127,13 +128,14 @@ block temailQueryPaginationLive:
 
     # --- Leg 2: anchor baseline (no window) --------------------------------
     let (b2, h2) = addEmailQuery(
-      initRequestBuilder(),
+      initRequestBuilder(makeBuilderId()),
       mailAccountId,
       filter = Opt.some(filter),
       queryParams = QueryParams(),
     )
-    let resp2 =
-      client.send(b2).expect("send Email/query anchor baseline[" & $target.kind & "]")
+    let resp2 = client.send(b2.freeze()).expect(
+        "send Email/query anchor baseline[" & $target.kind & "]"
+      )
     let qr2 =
       resp2.get(h2).expect("Email/query anchor baseline extract[" & $target.kind & "]")
     let baselineIds = qr2.ids
@@ -149,13 +151,14 @@ block temailQueryPaginationLive:
       limit: Opt.some(UnsignedInt(2)),
     )
     let (b3, h3) = addEmailQuery(
-      initRequestBuilder(),
+      initRequestBuilder(makeBuilderId()),
       mailAccountId,
       filter = Opt.some(filter),
       queryParams = qpAnchor,
     )
-    let resp3 =
-      client.send(b3).expect("send Email/query anchor+offset[" & $target.kind & "]")
+    let resp3 = client.send(b3.freeze()).expect(
+        "send Email/query anchor+offset[" & $target.kind & "]"
+      )
     captureIfRequested(client, "email-query-pagination-anchor-offset-" & $target.kind)
       .expect("captureIfRequested anchor-offset")
     let qr3Extract = resp3.get(h3)
@@ -184,13 +187,14 @@ block temailQueryPaginationLive:
     let qpBadAnchor =
       QueryParams(anchor: Opt.some(synthetic), limit: Opt.some(UnsignedInt(2)))
     let (b4, h4) = addEmailQuery(
-      initRequestBuilder(),
+      initRequestBuilder(makeBuilderId()),
       mailAccountId,
       filter = Opt.some(filter),
       queryParams = qpBadAnchor,
     )
-    let resp4 =
-      client.send(b4).expect("send Email/query bad-anchor[" & $target.kind & "]")
+    let resp4 = client.send(b4.freeze()).expect(
+        "send Email/query bad-anchor[" & $target.kind & "]"
+      )
     captureIfRequested(
       client, "email-query-pagination-anchor-not-found-" & $target.kind
     )
@@ -201,7 +205,11 @@ block temailQueryPaginationLive:
       # reject anchors at the parser layer return ``metInvalidArguments``
       # rather than ``metAnchorNotFound``; both are RFC-aligned typed
       # error projections.
-      let methodErr = qr4Result.unsafeError
+      let getErr = qr4Result.unsafeError
+      assertOn target,
+        getErr.kind == gekMethod,
+        "anchor-not-found must surface as gekMethod, not gekHandleMismatch"
+      let methodErr = getErr.methodErr
       assertOn target,
         methodErr.errorType in {
           metAnchorNotFound, metInvalidArguments, metUnknownMethod

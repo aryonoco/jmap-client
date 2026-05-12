@@ -66,21 +66,38 @@ static:
   doAssert declared(registerCompoundMethod)
   doAssert declared(registerChainableMethod)
 
-  # builder.nim — type + constructor
+  # builder.nim — type only (initRequestBuilder is hub-private under A6)
   doAssert declared(RequestBuilder)
-  doAssert declared(initRequestBuilder)
   # builder.nim — accessors
   doAssert declared(methodCallCount)
   doAssert declared(isEmpty)
   doAssert declared(capabilities)
-  # builder.nim — build
-  doAssert declared(build)
+  # builder.nim — freeze + BuiltRequest (A6 lifecycle types)
+  doAssert declared(freeze)
+  doAssert declared(BuiltRequest)
   # builder.nim — public add* family (A5: per-entity wrappers + P19 escapes)
   doAssert declared(addEcho)
   doAssert declared(addCapabilityInvocation)
   # builder.nim — argument helpers
   doAssert declared(directIds)
   doAssert declared(initCreates)
+  # dispatch.nim / identifiers.nim / errors.nim — A6 surface
+  doAssert declared(BuilderId)
+  doAssert declared(DispatchedResponse)
+  doAssert declared(GetError)
+  doAssert declared(GetErrorKind)
+  doAssert declared(gekMethod)
+  doAssert declared(gekHandleMismatch)
+  doAssert declared(getErrorMethod)
+  doAssert declared(getErrorHandleMismatch)
+  # identifiers.nim — BuilderId accessors stay public
+  doAssert declared(clientBrand)
+  doAssert declared(serial)
+  # dispatch.nim — DispatchedResponse hub-public accessors
+  doAssert declared(sessionState)
+  doAssert declared(createdIds)
+  # client.nim — newBuilder is the single blessed entry point
+  doAssert declared(newBuilder)
 
   # =========================================================================
   # NEGATIVE — must NOT be reachable through `import jmap_client`
@@ -111,3 +128,10 @@ static:
   doAssert not declared(addCopy)
   doAssert not declared(addQuery)
   doAssert not declared(addQueryChanges)
+  # A6 — factories and raw-access accessors are hub-private
+  doAssert not declared(initRequestBuilder)
+  doAssert not declared(initResponseHandle)
+  doAssert not declared(initNameBoundHandle)
+  doAssert not declared(initDispatchedResponse)
+  doAssert not declared(initBuilderId)
+  doAssert not declared(build) # replaced by freeze

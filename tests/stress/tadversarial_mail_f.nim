@@ -838,9 +838,9 @@ block getBothAdversarialGroup:
       createdIds: Opt.none(Table[CreationId, Id]),
       sessionState: parseJmapState("ss1").get(),
     )
-    let res = getBoth(resp, handles)
+    let res = getBoth(makeDispatchedResponse(resp), handles)
     assertErr res
-    assertEq res.error.errorType, metServerFail
+    assertEq res.error.methodErr.errorType, metServerFail
 
   block getBothImplicitDestroyMethodError:
     # The destroy handle is a NameBoundHandle filtering by method-name
@@ -864,11 +864,11 @@ block getBothAdversarialGroup:
       createdIds: Opt.none(Table[CreationId, Id]),
       sessionState: parseJmapState("ss1").get(),
     )
-    let res = getBoth(resp, handles)
+    let res = getBoth(makeDispatchedResponse(resp), handles)
     assertErr res
-    assertEq res.error.errorType, metServerFail
-    doAssert res.error.description.isSome
-    doAssert "Email/set" in res.error.description.get()
+    assertEq res.error.methodErr.errorType, metServerFail
+    doAssert res.error.methodErr.description.isSome
+    doAssert "Email/set" in res.error.methodErr.description.get()
 
   block getBothCopyMethodError:
     # Symmetric half: when the COPY invocation is an ``error`` envelope,
@@ -886,9 +886,9 @@ block getBothAdversarialGroup:
       createdIds: Opt.none(Table[CreationId, Id]),
       sessionState: parseJmapState("ss1").get(),
     )
-    let res = getBoth(resp, handles)
+    let res = getBoth(makeDispatchedResponse(resp), handles)
     assertErr res
-    assertEq res.error.errorType, metFromAccountNotFound
+    assertEq res.error.methodErr.errorType, metFromAccountNotFound
 
 # =============================================================================
 # Block 5 — Cross-response coherence
@@ -1227,7 +1227,7 @@ block scaleInvariantsGroup:
       createdIds: Opt.none(Table[CreationId, Id]),
       sessionState: parseJmapState("ss1").get(),
     )
-    let res = getBoth(resp, handles)
+    let res = getBoth(makeDispatchedResponse(resp), handles)
     assertOk res
     assertLen res.get().primary.createResults, 0
     assertLen res.get().implicit.createResults, 0

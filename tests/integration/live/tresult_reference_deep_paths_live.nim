@@ -81,12 +81,15 @@ block tresultReferenceDeepPathsLive:
       let chainFilter =
         filterCondition(EmailFilterCondition(subject: Opt.some("phasej67refdeep")))
       let (b1, queryHandle) = addEmailQuery(
-        initRequestBuilder(), mailAccountId, filter = Opt.some(chainFilter)
+        initRequestBuilder(makeBuilderId()),
+        mailAccountId,
+        filter = Opt.some(chainFilter),
       )
       let queryRef = initResultReference(callId(queryHandle), mnEmailQuery, rpIds)
       let (b2, getHandle) = addEmailGetByRef(b1, mailAccountId, idsRef = queryRef)
-      let resp =
-        client.send(b2).expect("send Email/query → Email/get[" & $target.kind & "]")
+      let resp = client.send(b2.freeze()).expect(
+          "send Email/query → Email/get[" & $target.kind & "]"
+        )
       let queryResp =
         resp.get(queryHandle).expect("Email/query extract[" & $target.kind & "]")
       let getResp =
@@ -111,7 +114,9 @@ block tresultReferenceDeepPathsLive:
       let chainFilter =
         filterCondition(EmailFilterCondition(subject: Opt.some("phasej67refdeep")))
       let (b1, queryHandle) = addEmailQuery(
-        initRequestBuilder(), mailAccountId, filter = Opt.some(chainFilter)
+        initRequestBuilder(makeBuilderId()),
+        mailAccountId,
+        filter = Opt.some(chainFilter),
       )
       let queryRef = initResultReference(callId(queryHandle), mnEmailQuery, rpIds)
       let (b2, getHandle) = addEmailGetByRef(
@@ -121,7 +126,7 @@ block tresultReferenceDeepPathsLive:
         initResultReference(callId(getHandle), mnEmailGet, rpListThreadId)
       let (b3, threadHandle) =
         addThreadGetByRef(b2, mailAccountId, idsRef = getThreadIdRef)
-      let resp = client.send(b3).expect(
+      let resp = client.send(b3.freeze()).expect(
           "send Email/query → Email/get → Thread/get[" & $target.kind & "]"
         )
       captureIfRequested(client, "result-reference-deep-path-" & $target.kind).expect(
@@ -162,7 +167,9 @@ block tresultReferenceDeepPathsLive:
       let chainFilter =
         filterCondition(EmailFilterCondition(subject: Opt.some("phasej67refdeep")))
       let (b1, queryHandle) = addEmailQuery(
-        initRequestBuilder(), mailAccountId, filter = Opt.some(chainFilter)
+        initRequestBuilder(makeBuilderId()),
+        mailAccountId,
+        filter = Opt.some(chainFilter),
       )
       discard queryHandle
       let getArgs = %*{"accountId": $mailAccountId}
@@ -172,7 +179,7 @@ block tresultReferenceDeepPathsLive:
         refPath = "/list/99/threadId",
         refName = "Email/query",
       )
-      let req1 = b1.build()
+      let req1 = b1.freeze().request
       var combinedCalls = req1.methodCalls
       let mcid = parseMethodCallId("c" & $combinedCalls.len).expect(
           "parseMethodCallId[" & $target.kind & "]"
@@ -186,7 +193,12 @@ block tresultReferenceDeepPathsLive:
         methodCalls: combinedCalls,
         createdIds: Opt.none(Table[CreationId, Id]),
       )
-      let resp = client.send(combined).expect(
+      # The public ``send(BuiltRequest)`` path requires a builder-issued
+      # carrier; this test wants to dispatch a hand-stitched ``Request``
+      # with a deliberately-broken back-reference. Drop into
+      # ``sendRawHttpForTesting`` — same wire path, returns the raw
+      # ``Response`` envelope directly.
+      let resp = client.sendRawHttpForTesting($combined.toJson()).expect(
           "send query+broken-get envelope[" & $target.kind & "]"
         )
       assertOn target,
@@ -206,10 +218,12 @@ block tresultReferenceDeepPathsLive:
         "errorType must project into the closed enum, got " & $me.errorType
 
     # Cleanup: destroy the seed emails so re-runs are idempotent.
-    let (bClean, cleanHandle) =
-      addEmailSet(initRequestBuilder(), mailAccountId, destroy = directIds(seedIds))
-    let respClean =
-      client.send(bClean).expect("send Email/set cleanup[" & $target.kind & "]")
+    let (bClean, cleanHandle) = addEmailSet(
+      initRequestBuilder(makeBuilderId()), mailAccountId, destroy = directIds(seedIds)
+    )
+    let respClean = client.send(bClean.freeze()).expect(
+        "send Email/set cleanup[" & $target.kind & "]"
+      )
     let cleanResp = respClean.get(cleanHandle).expect(
         "Email/set cleanup extract[" & $target.kind & "]"
       )

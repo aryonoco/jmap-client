@@ -516,3 +516,63 @@ func setErrorTooLarge*(
     extras: extras,
     maxSizeOctets: maxSize,
   )
+
+type GetErrorKind* = enum
+  ## Discriminator for ``GetError``. Two arms cover the inner railway:
+  ## server-reported method-level failures, and client-side handle misuse.
+  gekMethod
+  gekHandleMismatch
+
+type GetError* = object
+  ## Inner-railway error returned by ``handle.get(dr)`` and
+  ## ``getBoth(handles, dr)``. Two arms (P13 named variants, no
+  ## string collapsing; P18 sum types over flag bitmaps):
+  ##
+  ## - ``gekMethod`` — server returned an ``"error"`` invocation or the
+  ##   typed parse failed at the dispatch boundary. The original
+  ##   ``MethodError`` is preserved verbatim under ``methodErr``.
+  ## - ``gekHandleMismatch`` — the handle's ``builderId`` did not match
+  ##   the ``DispatchedResponse``'s ``builderId``. The cross-builder /
+  ##   cross-client bug A6 is designed to catch.
+  case kind*: GetErrorKind
+  of gekMethod:
+    methodErr*: MethodError
+  of gekHandleMismatch:
+    expected*: BuilderId ## brand carried by the DispatchedResponse
+    actual*: BuilderId ## brand carried by the handle
+    callId*: MethodCallId ## handle's callId, for diagnostic context
+
+func getErrorMethod*(me: MethodError): GetError =
+  ## Lifts a method-level error into the inner-railway sum.
+  GetError(kind: gekMethod, methodErr: me)
+
+func getErrorHandleMismatch*(
+    expected, actual: BuilderId, callId: MethodCallId
+): GetError =
+  ## Constructs the handle-mismatch variant. Convention: ``expected``
+  ## = the brand carried by the ``DispatchedResponse`` (truth source);
+  ## ``actual`` = the brand carried by the handle being applied. The
+  ## error message reads "expected X, got Y".
+  GetError(kind: gekHandleMismatch, expected: expected, actual: actual, callId: callId)
+
+func message*(ge: GetError): string =
+  ## Human-readable diagnostic message. Exhaustive ``case`` over the
+  ## discriminator — adding a new variant forces a compile error here.
+  case ge.kind
+  of gekMethod:
+    # MethodError.message is not yet a method (tracked by A12); construct
+    # an equivalent string from the lossless rawType + optional description.
+    let desc = ge.methodErr.description.valueOr:
+      ""
+    if desc.len > 0:
+      ge.methodErr.rawType & ": " & desc
+    else:
+      ge.methodErr.rawType
+  of gekHandleMismatch:
+    "handle from a different builder (expected " & $ge.expected & "; got " & $ge.actual &
+      "; callId=" & $ge.callId & ")"
+
+func `$`*(ge: GetError): string =
+  ## String representation — delegates to ``message`` for a
+  ## human-readable diagnostic.
+  ge.message

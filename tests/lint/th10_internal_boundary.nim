@@ -56,7 +56,7 @@ proc main() =
       continue
     if isAllowed(path):
       continue
-    if "vendor" in path or ".nim-reference" in path:
+    if "vendor" in path or ".nim-reference" in path or "scripts/output" in path:
       continue
     violations.add scanFile(path)
   if violations.len > 0:

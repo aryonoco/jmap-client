@@ -66,59 +66,59 @@ proc importNotCreatedJson(errType: string): JsonNode =
 
 block emailSetRequestTooLarge:
   let cid = makeMcid("c0")
-  let handle = ResponseHandle[SetResponse[EmailCreatedItem, PartialEmail]](cid)
+  let handle = makeResponseHandle[SetResponse[EmailCreatedItem, PartialEmail]](cid)
   let resp = makeErrorResponse("requestTooLarge", cid)
-  let res = resp.get(handle)
+  let res = makeDispatchedResponse(resp).get(handle)
   doAssert res.isErr
-  assertEq res.error.errorType, metRequestTooLarge
+  assertEq res.error.methodErr.errorType, metRequestTooLarge
 
 block emailSetStateMismatch:
   let cid = makeMcid("c0")
-  let handle = ResponseHandle[SetResponse[EmailCreatedItem, PartialEmail]](cid)
+  let handle = makeResponseHandle[SetResponse[EmailCreatedItem, PartialEmail]](cid)
   let resp = makeErrorResponse("stateMismatch", cid)
-  let res = resp.get(handle)
+  let res = makeDispatchedResponse(resp).get(handle)
   doAssert res.isErr
-  assertEq res.error.errorType, metStateMismatch
+  assertEq res.error.methodErr.errorType, metStateMismatch
 
 block emailCopyFromAccountNotFound:
   let cid = makeMcid("c0")
-  let handle = ResponseHandle[CopyResponse[EmailCreatedItem]](cid)
+  let handle = makeResponseHandle[CopyResponse[EmailCreatedItem]](cid)
   let resp = makeErrorResponse("fromAccountNotFound", cid)
-  let res = resp.get(handle)
+  let res = makeDispatchedResponse(resp).get(handle)
   doAssert res.isErr
-  assertEq res.error.errorType, metFromAccountNotFound
+  assertEq res.error.methodErr.errorType, metFromAccountNotFound
 
 block emailCopyFromAccountNotSupportedByMethod:
   let cid = makeMcid("c0")
-  let handle = ResponseHandle[CopyResponse[EmailCreatedItem]](cid)
+  let handle = makeResponseHandle[CopyResponse[EmailCreatedItem]](cid)
   let resp = makeErrorResponse("fromAccountNotSupportedByMethod", cid)
-  let res = resp.get(handle)
+  let res = makeDispatchedResponse(resp).get(handle)
   doAssert res.isErr
-  assertEq res.error.errorType, metFromAccountNotSupportedByMethod
+  assertEq res.error.methodErr.errorType, metFromAccountNotSupportedByMethod
 
 block emailCopyStateMismatch:
   let cid = makeMcid("c0")
-  let handle = ResponseHandle[CopyResponse[EmailCreatedItem]](cid)
+  let handle = makeResponseHandle[CopyResponse[EmailCreatedItem]](cid)
   let resp = makeErrorResponse("stateMismatch", cid)
-  let res = resp.get(handle)
+  let res = makeDispatchedResponse(resp).get(handle)
   doAssert res.isErr
-  assertEq res.error.errorType, metStateMismatch
+  assertEq res.error.methodErr.errorType, metStateMismatch
 
 block emailImportStateMismatch:
   let cid = makeMcid("c0")
-  let handle = ResponseHandle[EmailImportResponse](cid)
+  let handle = makeResponseHandle[EmailImportResponse](cid)
   let resp = makeErrorResponse("stateMismatch", cid)
-  let res = resp.get(handle)
+  let res = makeDispatchedResponse(resp).get(handle)
   doAssert res.isErr
-  assertEq res.error.errorType, metStateMismatch
+  assertEq res.error.methodErr.errorType, metStateMismatch
 
 block emailImportRequestTooLarge:
   let cid = makeMcid("c0")
-  let handle = ResponseHandle[EmailImportResponse](cid)
+  let handle = makeResponseHandle[EmailImportResponse](cid)
   let resp = makeErrorResponse("requestTooLarge", cid)
-  let res = resp.get(handle)
+  let res = makeDispatchedResponse(resp).get(handle)
   doAssert res.isErr
-  assertEq res.error.errorType, metRequestTooLarge
+  assertEq res.error.methodErr.errorType, metRequestTooLarge
 
 # ===========================================================================
 # B. SetError applicability matrix — 25 ✓-cell blocks per F2 §8.11
@@ -405,19 +405,19 @@ block setErrorApplicabilityExhaustiveFold:
 
 block emailSubmissionSetMethodErrorSurface:
   let cid = makeMcid("c0")
-  let handle = ResponseHandle[EmailSubmissionSetResponse](cid)
+  let handle = makeResponseHandle[EmailSubmissionSetResponse](cid)
 
   # requestTooLarge — RFC 8620 §3.6.1
   let resp1 = makeErrorResponse("requestTooLarge", cid)
-  let res1 = resp1.get(handle)
+  let res1 = makeDispatchedResponse(resp1).get(handle)
   doAssert res1.isErr
-  assertEq res1.error.errorType, metRequestTooLarge
+  assertEq res1.error.methodErr.errorType, metRequestTooLarge
 
   # stateMismatch — RFC 8620 §5.3 ifInState conflict
   let resp2 = makeErrorResponse("stateMismatch", cid)
-  let res2 = resp2.get(handle)
+  let res2 = makeDispatchedResponse(resp2).get(handle)
   doAssert res2.isErr
-  assertEq res2.error.errorType, metStateMismatch
+  assertEq res2.error.methodErr.errorType, metStateMismatch
 
 # ===========================================================================
 # F. EmailSubmission SetError applicability — 9 ✓-cell blocks per G2 §8.8

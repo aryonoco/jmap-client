@@ -75,10 +75,13 @@ block tEmailSubmissionFullLifecycleLive:
     var subTbl = initTable[CreationId, EmailSubmissionBlueprint]()
     subTbl[subCid] = blueprint
     let (b3, subHandle) = addEmailSubmissionSet(
-      initRequestBuilder(), submissionAccountId, create = Opt.some(subTbl)
+      initRequestBuilder(makeBuilderId()),
+      submissionAccountId,
+      create = Opt.some(subTbl),
     )
-    let resp3 =
-      client.send(b3).expect("send EmailSubmission/set HOLDFOR[" & $target.kind & "]")
+    let resp3 = client.send(b3.freeze()).expect(
+        "send EmailSubmission/set HOLDFOR[" & $target.kind & "]"
+      )
     let subSetExtract = resp3.get(subHandle)
     var submissionId: Id
     var createOk = false
@@ -110,9 +113,11 @@ block tEmailSubmissionFullLifecycleLive:
         "parseNonEmptyEmailSubmissionUpdates"
       )
     let (b4, updateHandle) = addEmailSubmissionSet(
-      initRequestBuilder(), submissionAccountId, update = Opt.some(updates)
+      initRequestBuilder(makeBuilderId()),
+      submissionAccountId,
+      update = Opt.some(updates),
     )
-    let resp4 = client.send(b4).expect(
+    let resp4 = client.send(b4.freeze()).expect(
         "send EmailSubmission/set update cancel[" & $target.kind & "]"
       )
     let updateExtract = resp4.get(updateHandle)
@@ -134,10 +139,13 @@ block tEmailSubmissionFullLifecycleLive:
 
     # --- Destroy — destroy via Destroy arm -------------------------------
     let (b5, destroyHandle) = addEmailSubmissionSet(
-      initRequestBuilder(), submissionAccountId, destroy = directIds(@[submissionId])
+      initRequestBuilder(makeBuilderId()),
+      submissionAccountId,
+      destroy = directIds(@[submissionId]),
     )
-    let resp5 =
-      client.send(b5).expect("send EmailSubmission/set destroy[" & $target.kind & "]")
+    let resp5 = client.send(b5.freeze()).expect(
+        "send EmailSubmission/set destroy[" & $target.kind & "]"
+      )
     captureIfRequested(client, "email-submission-destroy-canceled-" & $target.kind)
       .expect("captureIfRequested")
     let destroyExtract = resp5.get(destroyHandle)
@@ -159,9 +167,11 @@ block tEmailSubmissionFullLifecycleLive:
 
     # --- Re-fetch and confirm absence ------------------------------------
     let (b6, getHandle) = addEmailSubmissionGet(
-      initRequestBuilder(), submissionAccountId, ids = directIds(@[submissionId])
+      initRequestBuilder(makeBuilderId()),
+      submissionAccountId,
+      ids = directIds(@[submissionId]),
     )
-    let resp6 = client.send(b6).expect(
+    let resp6 = client.send(b6.freeze()).expect(
         "send EmailSubmission/get post-destroy[" & $target.kind & "]"
       )
     let getExtract = resp6.get(getHandle)

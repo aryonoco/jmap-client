@@ -73,10 +73,13 @@ block tEmailBobReceivesAliceDeliveryLive:
     var subTbl = initTable[CreationId, EmailSubmissionBlueprint]()
     subTbl[subCid] = blueprint
     let (b3, subHandle) = addEmailSubmissionSet(
-      initRequestBuilder(), aliceSubmissionAccountId, create = Opt.some(subTbl)
+      initRequestBuilder(makeBuilderId()),
+      aliceSubmissionAccountId,
+      create = Opt.some(subTbl),
     )
-    let resp3 =
-      aliceClient.send(b3).expect("send EmailSubmission/set[" & $target.kind & "]")
+    let resp3 = aliceClient.send(b3.freeze()).expect(
+        "send EmailSubmission/set[" & $target.kind & "]"
+      )
     let subSetResp =
       resp3.get(subHandle).expect("EmailSubmission/set extract[" & $target.kind & "]")
     var submissionId: Id
@@ -137,12 +140,13 @@ block tEmailBobReceivesAliceDeliveryLive:
 
     # --- bob full-fetch -------------------------------------------------
     let (b4, getHandle) = addEmailGet(
-      initRequestBuilder(),
+      initRequestBuilder(makeBuilderId()),
       bobMailAccountId,
       ids = directIds(@[bobEmailId]),
       properties = Opt.some(@["id", "subject", "from", "mailboxIds"]),
     )
-    let resp4 = bobClient.send(b4).expect("send Email/get[" & $target.kind & "]")
+    let resp4 =
+      bobClient.send(b4.freeze()).expect("send Email/get[" & $target.kind & "]")
     captureIfRequested(bobClient, "bob-inbox-after-alice-delivery-" & $target.kind)
       .expect("captureIfRequested")
     let getResp = resp4.get(getHandle).expect("Email/get extract[" & $target.kind & "]")

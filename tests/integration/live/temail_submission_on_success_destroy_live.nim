@@ -81,12 +81,13 @@ block tEmailSubmissionOnSuccessDestroyLive:
     var subTbl = initTable[CreationId, EmailSubmissionBlueprint]()
     subTbl[subCid] = blueprint
     let (b3, handles) = addEmailSubmissionAndEmailSet(
-      initRequestBuilder(),
-      submissionAccountId,
-      create = Opt.some(subTbl),
-      onSuccessDestroyEmail = Opt.some(onDestroy),
-    )
-    let resp3 = client.send(b3).expect(
+        initRequestBuilder(makeBuilderId()),
+        submissionAccountId,
+        create = Opt.some(subTbl),
+        onSuccessDestroyEmail = Opt.some(onDestroy),
+      )
+      .expect("addEmailSubmissionAndEmailSet destroy[" & $target.kind & "]")
+    let resp3 = client.send(b3.freeze()).expect(
         "send EmailSubmission/set+Email/set destroy[" & $target.kind & "]"
       )
     captureIfRequested(client, "email-submission-on-success-destroy-" & $target.kind)
@@ -114,7 +115,11 @@ block tEmailSubmissionOnSuccessDestroyLive:
         assertOn target,
           false, "implicit Email/set must report a destroy outcome for draftId"
     else:
-      let methodErr = pairExtract.unsafeError
+      let getErr = pairExtract.unsafeError
+      assertOn target,
+        getErr.kind == gekMethod,
+        "compound destroy must surface as gekMethod, not gekHandleMismatch"
+      let methodErr = getErr.methodErr
       assertOn target,
         methodErr.errorType in {metInvalidArguments, metUnknownMethod},
         "compound EmailSubmission/set + onSuccessDestroyEmail must surface " &
@@ -163,10 +168,12 @@ block tEmailSubmissionOnSuccessDestroyLive:
       bobClient.close()
 
     # --- Read-back: Email/get must surface the draft as notFound ---------
-    let (b4, emailGetHandle) =
-      addEmailGet(initRequestBuilder(), mailAccountId, ids = directIds(@[draftId]))
-    let resp4 =
-      client.send(b4).expect("send Email/get post-destroy[" & $target.kind & "]")
+    let (b4, emailGetHandle) = addEmailGet(
+      initRequestBuilder(makeBuilderId()), mailAccountId, ids = directIds(@[draftId])
+    )
+    let resp4 = client.send(b4.freeze()).expect(
+        "send Email/get post-destroy[" & $target.kind & "]"
+      )
     let getResp = resp4.get(emailGetHandle).expect(
         "Email/get post-destroy extract[" & $target.kind & "]"
       )

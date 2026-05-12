@@ -454,7 +454,7 @@ block getBothSubmissionAdversarialGroup:
       createdIds: Opt.none(Table[CreationId, Id]),
       sessionState: parseJmapState("ss1").get(),
     )
-    let res = getBoth(resp, handles)
+    let res = getBoth(makeDispatchedResponse(resp), handles)
     assertOk res
 
   block getBothInnerMethodError:
@@ -473,7 +473,7 @@ block getBothSubmissionAdversarialGroup:
       createdIds: Opt.none(Table[CreationId, Id]),
       sessionState: parseJmapState("ss1").get(),
     )
-    let res = getBoth(resp, handles)
+    let res = getBoth(makeDispatchedResponse(resp), handles)
     assertErr res
 
   block getBothInnerAbsent:
@@ -487,7 +487,7 @@ block getBothSubmissionAdversarialGroup:
       createdIds: Opt.none(Table[CreationId, Id]),
       sessionState: parseJmapState("ss1").get(),
     )
-    let res = getBoth(resp, handles)
+    let res = getBoth(makeDispatchedResponse(resp), handles)
     assertErr res
 
   block getBothInnerMcIdMismatch:
@@ -504,7 +504,7 @@ block getBothSubmissionAdversarialGroup:
       createdIds: Opt.none(Table[CreationId, Id]),
       sessionState: parseJmapState("ss1").get(),
     )
-    let res = getBoth(resp, handles)
+    let res = getBoth(makeDispatchedResponse(resp), handles)
     assertErr res
 
   block getBothOuterNotCreatedSole:
@@ -521,7 +521,7 @@ block getBothSubmissionAdversarialGroup:
       createdIds: Opt.none(Table[CreationId, Id]),
       sessionState: parseJmapState("ss1").get(),
     )
-    let res = getBoth(resp, handles)
+    let res = getBoth(makeDispatchedResponse(resp), handles)
     assertErr res
 
   block getBothOuterIfInStateMismatch:
@@ -533,7 +533,7 @@ block getBothSubmissionAdversarialGroup:
       createdIds: Opt.none(Table[CreationId, Id]),
       sessionState: parseJmapState("ss1").get(),
     )
-    let res = getBoth(resp, handles)
+    let res = getBoth(makeDispatchedResponse(resp), handles)
     assertErr res
 
   block getBothCreationRefNotInCreateMap:
@@ -553,7 +553,7 @@ block getBothSubmissionAdversarialGroup:
       createdIds: Opt.none(Table[CreationId, Id]),
       sessionState: parseJmapState("ss1").get(),
     )
-    let res = getBoth(resp, handles)
+    let res = getBoth(makeDispatchedResponse(resp), handles)
     assertOk res
 
 # =============================================================================

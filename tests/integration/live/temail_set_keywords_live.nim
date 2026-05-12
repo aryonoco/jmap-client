@@ -56,13 +56,13 @@ block temailSetKeywordsLive:
 
     # --- Capture pre-update state via Email/get --------------------------
     let (b3, getHandle1) = addEmailGet(
-      initRequestBuilder(),
+      initRequestBuilder(makeBuilderId()),
       mailAccountId,
       ids = directIds(@[seededId]),
       properties = Opt.some(@["id", "keywords"]),
     )
     let resp3 =
-      client.send(b3).expect("send Email/get pre-update[" & $target.kind & "]")
+      client.send(b3.freeze()).expect("send Email/get pre-update[" & $target.kind & "]")
     let getResp1 =
       resp3.get(getHandle1).expect("Email/get pre-update extract[" & $target.kind & "]")
     assertOn target, getResp1.list.len == 1, "Email/get must return the seeded message"
@@ -76,13 +76,14 @@ block temailSetKeywordsLive:
         "parseNonEmptyEmailUpdates"
       )
     let (b4, setHandle1) = addEmailSet(
-      initRequestBuilder(),
+      initRequestBuilder(makeBuilderId()),
       mailAccountId,
       ifInState = Opt.some(staleState),
       update = Opt.some(updates),
     )
-    let resp4 =
-      client.send(b4).expect("send Email/set update happy[" & $target.kind & "]")
+    let resp4 = client.send(b4.freeze()).expect(
+        "send Email/set update happy[" & $target.kind & "]"
+      )
     let setResp1 = resp4.get(setHandle1).expect(
         "Email/set update happy extract[" & $target.kind & "]"
       )
@@ -92,13 +93,14 @@ block temailSetKeywordsLive:
 
     # --- Verify $seen keyword is now present -----------------------------
     let (b5, getHandle2) = addEmailGet(
-      initRequestBuilder(),
+      initRequestBuilder(makeBuilderId()),
       mailAccountId,
       ids = directIds(@[seededId]),
       properties = Opt.some(@["id", "keywords"]),
     )
-    let resp5 =
-      client.send(b5).expect("send Email/get post-update[" & $target.kind & "]")
+    let resp5 = client.send(b5.freeze()).expect(
+        "send Email/get post-update[" & $target.kind & "]"
+      )
     let getResp2 = resp5.get(getHandle2).expect(
         "Email/get post-update extract[" & $target.kind & "]"
       )
@@ -126,13 +128,14 @@ block temailSetKeywordsLive:
         "parseNonEmptyEmailUpdates"
       )
     let (b6, setHandle2) = addEmailSet(
-      initRequestBuilder(),
+      initRequestBuilder(makeBuilderId()),
       mailAccountId,
       ifInState = Opt.some(staleState),
       update = Opt.some(updatesAgain),
     )
-    let resp6 =
-      client.send(b6).expect("send Email/set update conflict[" & $target.kind & "]")
+    let resp6 = client.send(b6.freeze()).expect(
+        "send Email/set update conflict[" & $target.kind & "]"
+      )
     captureIfRequested(client, "email-set-state-mismatch-" & $target.kind).expect(
       "captureIfRequested"
     )

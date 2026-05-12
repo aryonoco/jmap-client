@@ -93,9 +93,11 @@ block temailSubmissionFilterCompletenessLive:
     # threadIds / emailIds filter sub-tests.
     let firstSubId = submissionIds[0]
     let (bSub, subHandle) = addEmailSubmissionGet(
-      initRequestBuilder(), submissionAccountId, ids = directIds(@[firstSubId])
+      initRequestBuilder(makeBuilderId()),
+      submissionAccountId,
+      ids = directIds(@[firstSubId]),
     )
-    let respSub = client.send(bSub).expect(
+    let respSub = client.send(bSub.freeze()).expect(
         "send EmailSubmission/get firstSub[" & $target.kind & "]"
       )
     let getSub =
@@ -112,10 +114,14 @@ block temailSubmissionFilterCompletenessLive:
         $anySub.state & ")"
     let firstEmailId = firstPending.unsafeGet.emailId
     # threadId is on Email, not EmailSubmission directly; fetch it.
-    let (bEmail, emailHandle) =
-      addEmailGet(initRequestBuilder(), mailAccountId, ids = directIds(@[firstEmailId]))
-    let respEmail =
-      client.send(bEmail).expect("send Email/get for threadId[" & $target.kind & "]")
+    let (bEmail, emailHandle) = addEmailGet(
+      initRequestBuilder(makeBuilderId()),
+      mailAccountId,
+      ids = directIds(@[firstEmailId]),
+    )
+    let respEmail = client.send(bEmail.freeze()).expect(
+        "send Email/get for threadId[" & $target.kind & "]"
+      )
     let getEmail =
       respEmail.get(emailHandle).expect("Email/get extract[" & $target.kind & "]")
     assertOn target, getEmail.list.len == 1
@@ -135,9 +141,11 @@ block temailSubmissionFilterCompletenessLive:
         )
       )
       let (b, qHandle) = addEmailSubmissionQuery(
-        initRequestBuilder(), submissionAccountId, filter = Opt.some(threadFilter)
+        initRequestBuilder(makeBuilderId()),
+        submissionAccountId,
+        filter = Opt.some(threadFilter),
       )
-      let resp = client.send(b).expect(
+      let resp = client.send(b.freeze()).expect(
           "send EmailSubmission/query threadIds[" & $target.kind & "]"
         )
       discard resp.get(qHandle).expect("threadIds extract[" & $target.kind & "]")
@@ -154,9 +162,11 @@ block temailSubmissionFilterCompletenessLive:
         )
       )
       let (b, qHandle) = addEmailSubmissionQuery(
-        initRequestBuilder(), submissionAccountId, filter = Opt.some(emailFilter)
+        initRequestBuilder(makeBuilderId()),
+        submissionAccountId,
+        filter = Opt.some(emailFilter),
       )
-      let resp = client.send(b).expect(
+      let resp = client.send(b.freeze()).expect(
           "send EmailSubmission/query emailIds[" & $target.kind & "]"
         )
       discard resp.get(qHandle).expect("emailIds extract[" & $target.kind & "]")
@@ -166,9 +176,11 @@ block temailSubmissionFilterCompletenessLive:
       let undoFilter =
         filterCondition(EmailSubmissionFilterCondition(undoStatus: Opt.some(usFinal)))
       let (b, qHandle) = addEmailSubmissionQuery(
-        initRequestBuilder(), submissionAccountId, filter = Opt.some(undoFilter)
+        initRequestBuilder(makeBuilderId()),
+        submissionAccountId,
+        filter = Opt.some(undoFilter),
       )
-      let resp = client.send(b).expect(
+      let resp = client.send(b.freeze()).expect(
           "send EmailSubmission/query undoStatus[" & $target.kind & "]"
         )
       discard resp.get(qHandle).expect("undoStatus extract[" & $target.kind & "]")
@@ -188,9 +200,11 @@ block temailSubmissionFilterCompletenessLive:
         )
       )
       let (b, qHandle) = addEmailSubmissionQuery(
-        initRequestBuilder(), submissionAccountId, filter = Opt.some(dateFilter)
+        initRequestBuilder(makeBuilderId()),
+        submissionAccountId,
+        filter = Opt.some(dateFilter),
       )
-      let resp = client.send(b).expect(
+      let resp = client.send(b.freeze()).expect(
           "send EmailSubmission/query before/after[" & $target.kind & "]"
         )
       let qResp = resp.get(qHandle).expect("before/after extract[" & $target.kind & "]")
@@ -206,9 +220,11 @@ block temailSubmissionFilterCompletenessLive:
         )
         .expect("parseEmailSubmissionComparator emailId[" & $target.kind & "]")
       let (b, qHandle) = addEmailSubmissionQuery(
-        initRequestBuilder(), submissionAccountId, sort = Opt.some(@[comp])
+        initRequestBuilder(makeBuilderId()),
+        submissionAccountId,
+        sort = Opt.some(@[comp]),
       )
-      let resp = client.send(b).expect(
+      let resp = client.send(b.freeze()).expect(
           "send EmailSubmission/query sort emailId[" & $target.kind & "]"
         )
       discard resp.get(qHandle).expect("sort emailId extract[" & $target.kind & "]")
@@ -223,9 +239,11 @@ block temailSubmissionFilterCompletenessLive:
         )
         .expect("parseEmailSubmissionComparator threadId[" & $target.kind & "]")
       let (b, qHandle) = addEmailSubmissionQuery(
-        initRequestBuilder(), submissionAccountId, sort = Opt.some(@[comp])
+        initRequestBuilder(makeBuilderId()),
+        submissionAccountId,
+        sort = Opt.some(@[comp]),
       )
-      let resp = client.send(b).expect(
+      let resp = client.send(b.freeze()).expect(
           "send EmailSubmission/query sort threadId[" & $target.kind & "]"
         )
       captureIfRequested(client, "email-submission-filter-completeness-" & $target.kind)
@@ -235,8 +253,10 @@ block temailSubmissionFilterCompletenessLive:
     # Cleanup: destroy the HOLDFOR-pended submissions so they never
     # deliver to bob's inbox.
     let (bDestroy, destroyHandle) = addEmailSubmissionSet(
-      initRequestBuilder(), submissionAccountId, destroy = directIds(submissionIds)
+      initRequestBuilder(makeBuilderId()),
+      submissionAccountId,
+      destroy = directIds(submissionIds),
     )
-    discard client.send(bDestroy)
+    discard client.send(bDestroy.freeze())
     discard destroyHandle
     client.close()

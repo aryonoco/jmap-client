@@ -24,7 +24,7 @@ import ./internal/types/field_echo
 export results
 export validation
 export primitives
-export identifiers
+export identifiers except initBuilderId
 export collation
 export capabilities
 export methods_enum

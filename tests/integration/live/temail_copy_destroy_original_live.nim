@@ -82,12 +82,12 @@ block temailCopyDestroyOriginalLive:
     createTbl[copyCid] =
       initEmailCopyItem(id = sourceId, mailboxIds = Opt.some(inboxSet))
     let (bCopy, handles) = addEmailCopyAndDestroy(
-      initRequestBuilder(),
+      initRequestBuilder(makeBuilderId()),
       fromAccountId = mailAccountId,
       accountId = mailAccountId,
       create = createTbl,
     )
-    let respCopy = client.send(bCopy).expect(
+    let respCopy = client.send(bCopy.freeze()).expect(
         "send Email/copy + destroy (rejection-bound)[" & $target.kind & "]"
       )
     captureIfRequested(client, "email-copy-destroy-original-rejected-" & $target.kind)
@@ -98,17 +98,23 @@ block temailCopyDestroyOriginalLive:
     assertOn target,
       bothResult.isErr,
       "compound same-account Email/copy + destroy must surface a typed error"
-    let methodErr = bothResult.error
+    let getErr = bothResult.error
+    doAssert getErr.kind == gekMethod, "expected gekMethod"
+    let methodErr = getErr.methodErr
     assertOn target,
       methodErr.errorType in {metInvalidArguments, metUnknownMethod},
       "method error must project as metInvalidArguments or metUnknownMethod (got rawType=" &
         methodErr.rawType & ")"
 
     # --- 5. Cleanup: source must still exist -----------------------------
-    let (bClean, cleanHandle) =
-      addEmailSet(initRequestBuilder(), mailAccountId, destroy = directIds(@[sourceId]))
-    let respClean =
-      client.send(bClean).expect("send Email/set cleanup[" & $target.kind & "]")
+    let (bClean, cleanHandle) = addEmailSet(
+      initRequestBuilder(makeBuilderId()),
+      mailAccountId,
+      destroy = directIds(@[sourceId]),
+    )
+    let respClean = client.send(bClean.freeze()).expect(
+        "send Email/set cleanup[" & $target.kind & "]"
+      )
     let cleanResp = respClean.get(cleanHandle).expect(
         "Email/set cleanup extract[" & $target.kind & "]"
       )

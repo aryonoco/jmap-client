@@ -78,7 +78,7 @@ block temailQueryGetChainLive:
       .expect("pollEmailQueryIndexed[" & $target.kind & "]")
     let queryParams = QueryParams(limit: Opt.some(UnsignedInt(50)))
     let (b3a, queryHandle) = addEmailQuery(
-      initRequestBuilder(),
+      initRequestBuilder(makeBuilderId()),
       mailAccountId,
       filter = Opt.some(filter),
       queryParams = queryParams,
@@ -89,7 +89,8 @@ block temailQueryGetChainLive:
       ids = Opt.some(queryHandle.idsRef()),
       properties = Opt.some(@["id", "subject", "from", "receivedAt"]),
     )
-    let resp3 = client.send(b3b).expect("send Email/query+get[" & $target.kind & "]")
+    let resp3 =
+      client.send(b3b.freeze()).expect("send Email/query+get[" & $target.kind & "]")
     let queryResp =
       resp3.get(queryHandle).expect("Email/query extract[" & $target.kind & "]")
     assertOn target,
@@ -107,10 +108,11 @@ block temailQueryGetChainLive:
     assertOn target, sawSeed, "Email/get list must include the seeded subject"
 
     # --- Step 4: cleanup — destroy the seed so re-runs stay bounded ------
-    let (b4, cleanHandle) =
-      addEmailSet(initRequestBuilder(), mailAccountId, destroy = directIds(@[seedId]))
+    let (b4, cleanHandle) = addEmailSet(
+      initRequestBuilder(makeBuilderId()), mailAccountId, destroy = directIds(@[seedId])
+    )
     let respClean =
-      client.send(b4).expect("send Email/set cleanup[" & $target.kind & "]")
+      client.send(b4.freeze()).expect("send Email/set cleanup[" & $target.kind & "]")
     let cleanResp = respClean.get(cleanHandle).expect(
         "Email/set cleanup extract[" & $target.kind & "]"
       )

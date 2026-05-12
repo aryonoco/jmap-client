@@ -806,15 +806,21 @@ method-name simultaneously, so `resp.get(h)` needs no filter argument.
 ### 4.3 Two-Level Railway Composition
 
 ```
-Track 1 (Outer): JmapResult[Response] = Result[Response, ClientError]
+Track 1 (Outer): JmapResult[DispatchedResponse]
+                 = Result[DispatchedResponse, ClientError]
                  (transport/request errors — Layer 4)
                    ↓
-Track 2 (Inner): Result[T, MethodError]
-                 (per-invocation errors — dispatch boundary)
+Track 2 (Inner): Result[T, GetError]
+                 (per-extraction errors — dispatch boundary)
 ```
 
-These railways are **intentionally separate** — transport failures and
-method errors require fundamentally different recovery actions.
+These railways are **intentionally separate** — transport failures
+and method errors require fundamentally different recovery actions.
+The two arms of `GetError` are `gekMethod` (server method-level
+failure, wrapping the underlying `MethodError`) and
+`gekHandleMismatch` (handle from a different builder — a
+programming bug; the brand carried by the handle did not match the
+brand carried by the `DispatchedResponse`).
 
 ### 4.4 Track 0a → Track 2 Bridge
 
@@ -998,7 +1004,7 @@ let b0 = initRequestBuilder()
 let (b1, gh) = b0.addGet[Widget](accountId)              # Widget/get
 let (b2, sh) = b1.addSet[Widget](accountId,              # Widget/set
     destroy = directIds(@[parseId("id7").get()]))
-let req = b2.build()
+let req = b2.freeze()
 ## req.using == @["urn:ietf:params:jmap:core", "urn:example:widgets"]
 ## req.methodCalls.len == 2
 
@@ -2193,7 +2199,7 @@ bidirectional for the merged-Result response types (`SetResponse`,
 `QueryChangesResponse` are `fromJson`-only. The following invariants
 hold:
 
-1. **Builder identity.** `builder.build().toJson()` produces valid
+1. **Builder identity.** `builder.freeze().toJson()` produces valid
    JMAP request JSON. Parsing it back via `Request.fromJson` (Layer
    2) recovers the envelope structure — method calls, capabilities,
    and creation IDs all round-trip.

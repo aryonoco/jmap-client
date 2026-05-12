@@ -182,17 +182,17 @@ block builderBodyFetchOptionsParity: # scenario 135
   )
 
   # Build Email/get request
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = b0.addEmailGet(makeAccountId("a1"), bodyFetchOptions = opts)
-  let getReq = b1.build()
+  let getReq = b1.freeze().request
   let getArgs = getReq.methodCalls[0].arguments
 
   # Build Email/parse request
-  let b2 = initRequestBuilder()
+  let b2 = initRequestBuilder(makeBuilderId())
   let (b3, _) = b2.addEmailParse(
     makeAccountId("a1"), @[makeBlobId("blob1")], bodyFetchOptions = opts
   )
-  let parseReq = b3.build()
+  let parseReq = b3.freeze().request
   let parseArgs = parseReq.methodCalls[0].arguments
 
   # bvsTextAndHtml -> both fetchTextBodyValues and fetchHTMLBodyValues true
@@ -228,9 +228,9 @@ block builderFilterChain: # scenario 136
   let leafFilter = filterCondition(fc)
 
   # Build request via addEmailQuery
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = b0.addEmailQuery(makeAccountId("a1"), filter = Opt.some(leafFilter))
-  let req = b1.build()
+  let req = b1.freeze().request
   let argsFilter = req.methodCalls[0].arguments{"filter"}
   doAssert argsFilter != nil, "filter must be present in request args"
   doAssert argsFilter.kind == JObject, "filter must be JObject"

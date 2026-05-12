@@ -78,10 +78,11 @@ block temailGetUnicodeNameLive:
       parseCreationId("seedUnicode").expect("parseCreationId[" & $target.kind & "]")
     var createTbl = initTable[CreationId, EmailBlueprint]()
     createTbl[cid] = blueprint.unsafeValue
-    let (bSeed, seedHandle) =
-      addEmailSet(initRequestBuilder(), mailAccountId, create = Opt.some(createTbl))
+    let (bSeed, seedHandle) = addEmailSet(
+      initRequestBuilder(makeBuilderId()), mailAccountId, create = Opt.some(createTbl)
+    )
     let seedResp =
-      client.send(bSeed).expect("send Email/set seed[" & $target.kind & "]")
+      client.send(bSeed.freeze()).expect("send Email/set seed[" & $target.kind & "]")
     let seedSet =
       seedResp.get(seedHandle).expect("Email/set seed extract[" & $target.kind & "]")
     var seededId: Id
@@ -98,13 +99,14 @@ block temailGetUnicodeNameLive:
     assertOn target, found
 
     let (b, getHandle) = addEmailGet(
-      initRequestBuilder(),
+      initRequestBuilder(makeBuilderId()),
       mailAccountId,
       ids = directIds(@[seededId]),
       properties = Opt.some(@["id", "from"]),
     )
-    let resp =
-      client.send(b).expect("send Email/get unicode name[" & $target.kind & "]")
+    let resp = client.send(b.freeze()).expect(
+        "send Email/get unicode name[" & $target.kind & "]"
+      )
     let getResp =
       resp.get(getHandle).expect("Email/get unicode name extract[" & $target.kind & "]")
     assertOn target, getResp.list.len == 1, "Email/get must return the seeded message"

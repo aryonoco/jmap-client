@@ -66,12 +66,12 @@ block vacationResponseNotRegisterable:
 
 block vacationResponseGenericGetBlocked:
   ## Generic addGet must not compile for VacationResponse.
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   assertNotCompiles(addGet[VacationResponse](b0, makeAccountId()))
 
 block vacationResponseGenericChangesBlocked:
   ## Generic addChanges must not compile for VacationResponse.
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   assertNotCompiles(addChanges[VacationResponse](b0, makeAccountId(), makeState()))
 
 # ===========================================================================
@@ -80,9 +80,9 @@ block vacationResponseGenericChangesBlocked:
 
 block addGetThread:
   ## addGet[thread.Thread] produces "Thread/get" with correct capability and accountId.
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = addGet[thread.Thread](b0, makeAccountId("a1"))
-  let req = b1.build()
+  let req = b1.freeze().request
   assertLen req.methodCalls, 1
   let inv = req.methodCalls[0]
   assertEq inv.name, mnThreadGet
@@ -91,9 +91,9 @@ block addGetThread:
 
 block addChangesThread:
   ## addChanges[thread.Thread] produces "Thread/changes" with sinceState in args.
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = addChanges[thread.Thread](b0, makeAccountId("a1"), makeState("s0"))
-  let req = b1.build()
+  let req = b1.freeze().request
   assertLen req.methodCalls, 1
   let inv = req.methodCalls[0]
   assertEq inv.name, mnThreadChanges
@@ -101,9 +101,9 @@ block addChangesThread:
 
 block addGetIdentity:
   ## addGet[Identity] produces "Identity/get" with submission capability.
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = addGet[Identity](b0, makeAccountId("a1"))
-  let req = b1.build()
+  let req = b1.freeze().request
   assertLen req.methodCalls, 1
   let inv = req.methodCalls[0]
   assertEq inv.name, mnIdentityGet
@@ -111,9 +111,9 @@ block addGetIdentity:
 
 block addChangesIdentity:
   ## addChanges[Identity] produces "Identity/changes".
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = addChanges[Identity](b0, makeAccountId("a1"), makeState("s0"))
-  let req = b1.build()
+  let req = b1.freeze().request
   assertLen req.methodCalls, 1
   assertEq req.methodCalls[0].name, mnIdentityChanges
 
@@ -126,7 +126,7 @@ block capabilityDedupThread:
   ## once. ``urn:ietf:params:jmap:core`` is pre-declared by
   ## ``initRequestBuilder`` (RFC 8620 §3.2), so the resulting set carries
   ## both core and mail.
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = addGet[thread.Thread](b0, makeAccountId())
   let (b2, _) = addGet[thread.Thread](b1, makeAccountId())
   let caps = b2.capabilities
@@ -137,7 +137,7 @@ block capabilityDedupThread:
 block multipleEntityCapabilities:
   ## addGet[thread.Thread] + addGet[Identity] produces both entity
   ## capability URIs alongside the pre-declared core URI.
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = addGet[thread.Thread](b0, makeAccountId())
   let (b2, _) = addGet[Identity](b1, makeAccountId())
   let caps = b2.capabilities
@@ -169,9 +169,9 @@ block mailboxOverloadValues:
 
 block addGetMailbox:
   ## addGet[Mailbox] produces "Mailbox/get" with mail capability.
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = addGet[Mailbox](b0, makeAccountId("a1"))
-  let req = b1.build()
+  let req = b1.freeze().request
   assertLen req.methodCalls, 1
   let inv = req.methodCalls[0]
   assertEq inv.name, mnMailboxGet
@@ -180,18 +180,18 @@ block addGetMailbox:
 
 block addChangesMailbox:
   ## addChanges[Mailbox] produces "Mailbox/changes".
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = addChanges[Mailbox](b0, makeAccountId("a1"), makeState("s0"))
-  let req = b1.build()
+  let req = b1.freeze().request
   assertLen req.methodCalls, 1
   assertEq req.methodCalls[0].name, mnMailboxChanges
   assertEq req.methodCalls[0].arguments{"sinceState"}.getStr(""), "s0"
 
 block addMailboxSetMethodName:
   ## addMailboxSet produces "Mailbox/set".
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = addMailboxSet(b0, makeAccountId("a1"))
-  let req = b1.build()
+  let req = b1.freeze().request
   assertLen req.methodCalls, 1
   assertEq req.methodCalls[0].name, mnMailboxSet
 
@@ -204,17 +204,17 @@ block addQueryMailboxSingleParam:
   ## compiling IS the proof that mixin resolution works for ``filterType``
   ## (template returning ``typedesc``) and the leaf condition's ``toJson``
   ## (called via ``Filter[C].toJson``'s own ``mixin toJson``).
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = addQuery[Mailbox](b0, makeAccountId("a1"))
-  let req = b1.build()
+  let req = b1.freeze().request
   assertLen req.methodCalls, 1
   assertEq req.methodCalls[0].name, mnMailboxQuery
 
 block addQueryChangesMailboxSingleParam:
   ## Single-parameter addQueryChanges[Mailbox] resolves via mixin.
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = addQueryChanges[Mailbox](b0, makeAccountId("a1"), makeState("qs0"))
-  let req = b1.build()
+  let req = b1.freeze().request
   assertLen req.methodCalls, 1
   assertEq req.methodCalls[0].name, mnMailboxQueryChanges
 
@@ -226,7 +226,7 @@ block mailboxCapabilityDedup:
   ## Thread + Mailbox both register "urn:ietf:params:jmap:mail"; verify
   ## the builder deduplicates to exactly one mail entry, while the
   ## pre-declared core URI remains alongside it.
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = addGet[thread.Thread](b0, makeAccountId())
   let (b2, _) = addGet[Mailbox](b1, makeAccountId())
   let caps = b2.capabilities
@@ -257,9 +257,9 @@ block emailOverloadValues:
 
 block addGetEmail:
   ## addGet[Email] produces "Email/get" with correct accountId and capability.
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = addGet[Email](b0, makeAccountId("a1"))
-  let req = b1.build()
+  let req = b1.freeze().request
   assertLen req.methodCalls, 1
   let inv = req.methodCalls[0]
   assertEq inv.name, mnEmailGet
@@ -268,9 +268,9 @@ block addGetEmail:
 
 block addChangesEmail:
   ## addChanges[Email] produces "Email/changes" with sinceState (D17).
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = addChanges[Email](b0, makeAccountId("a1"), makeState("s0"))
-  let req = b1.build()
+  let req = b1.freeze().request
   assertLen req.methodCalls, 1
   let inv = req.methodCalls[0]
   assertEq inv.name, mnEmailChanges
@@ -278,9 +278,9 @@ block addChangesEmail:
 
 block addEmailSetMethodName:
   ## addEmailSet produces "Email/set".
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = addEmailSet(b0, makeAccountId("a1"))
-  let req = b1.build()
+  let req = b1.freeze().request
   assertLen req.methodCalls, 1
   assertEq req.methodCalls[0].name, mnEmailSet
 
@@ -290,17 +290,17 @@ block addEmailSetMethodName:
 
 block addQueryEmailSingleParam:
   ## Single-parameter addQuery[Email] resolves via mixin — produces "Email/query".
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = addQuery[Email](b0, makeAccountId("a1"))
-  let req = b1.build()
+  let req = b1.freeze().request
   assertLen req.methodCalls, 1
   assertEq req.methodCalls[0].name, mnEmailQuery
 
 block addQueryChangesEmailSingleParam:
   ## Single-parameter addQueryChanges[Email] resolves via mixin.
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = addQueryChanges[Email](b0, makeAccountId("a1"), makeState("qs0"))
-  let req = b1.build()
+  let req = b1.freeze().request
   assertLen req.methodCalls, 1
   assertEq req.methodCalls[0].name, mnEmailQueryChanges
 
@@ -312,7 +312,7 @@ block emailThreadCapabilityDedup:
   ## Thread + Email both register "urn:ietf:params:jmap:mail"; verify
   ## the builder deduplicates to exactly one mail entry, with core
   ## pre-declared alongside.
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = addGet[thread.Thread](b0, makeAccountId())
   let (b2, _) = addGet[Email](b1, makeAccountId())
   let caps = b2.capabilities

@@ -12,11 +12,14 @@
 import std/httpclient
 import std/json
 import std/strutils
+import std/sysrand
 import std/uri
 
 import ./types
 import ./serialisation
+import ./internal/types/identifiers
 import ./internal/protocol/builder
+import ./internal/protocol/dispatch
 import ./internal/protocol/call_meta
 
 # Design §9.1 (D4.12): compile-time hint when -d:ssl is missing.
@@ -37,6 +40,11 @@ type JmapClient* = object
   ## cached session, and HTTP configuration. Not thread-safe — all calls
   ## must originate from a single thread.
   ##
+  ## A ``JmapClient`` is not thread-safe; hold one per thread. The
+  ## client's ``clientBrand`` and builder serial counter are accessed
+  ## only inside ``newBuilder``, preserving the single-thread
+  ## invariant.
+  ##
   ## Construction: ``initJmapClient()`` or ``discoverJmapClient()``.
   ## Destruction: ``close()`` releases the underlying HTTP connection.
   ##
@@ -53,6 +61,14 @@ type JmapClient* = object
   session: Opt[Session]
   maxResponseBytes: int
   userAgent: string
+  clientBrand: uint64
+    ## Random 64-bit token drawn once at construction via ``std/sysrand``.
+    ## Together with ``nextBuilderSerial`` it forms a ``BuilderId``
+    ## composite that brands every ``RequestBuilder`` produced by
+    ## ``newBuilder``.
+  nextBuilderSerial: uint64
+    ## Monotonic counter — incremented inside ``newBuilder``. Accessed
+    ## only on the owning thread (see threading invariant above).
   lastRawResponseBody: string
     ## Raw bytes of the most recent HTTP response body (Session or
     ## ``/jmap/api``). Populated unconditionally by ``send`` and
@@ -73,6 +89,7 @@ type JmapClientViolationKind = enum
   jcvMaxResponseBytesNegative
   jcvHttpHeadersInitFailed
   jcvHttpClientInitFailed
+  jcvEntropyUnavailable
   jcvEmptyDomain
   jcvDomainWhitespace
   jcvDomainSlash
@@ -80,7 +97,7 @@ type JmapClientViolationKind = enum
 type JmapClientViolation {.ruleOff: "objects".} = object
   case kind: JmapClientViolationKind
   of jcvEmptySessionUrl, jcvEmptyBearerToken, jcvEmptyDomain, jcvHttpHeadersInitFailed,
-      jcvHttpClientInitFailed:
+      jcvHttpClientInitFailed, jcvEntropyUnavailable:
     discard
   of jcvSessionUrlBadScheme, jcvSessionUrlControlChar:
     sessionUrl: string
@@ -122,6 +139,8 @@ func toValidationError(v: JmapClientViolation): ValidationError =
     validationError("JmapClient", "failed to create HTTP headers", "")
   of jcvHttpClientInitFailed:
     validationError("JmapClient", "failed to create HTTP client", "")
+  of jcvEntropyUnavailable:
+    validationError("JmapClient", "OS entropy source unavailable", "")
   of jcvEmptyDomain:
     validationError("JmapClient", "domain must not be empty", "")
   of jcvDomainWhitespace, jcvDomainSlash:
@@ -205,6 +224,19 @@ func detectDomain(domain: string): Result[void, JmapClientViolation] =
     return err(JmapClientViolation(kind: jcvDomainSlash, domain: domain))
   ok()
 
+proc drawClientBrand(): Result[uint64, JmapClientViolation] =
+  ## Reads 8 bytes of OS entropy via ``std/sysrand.urandom``. Returns
+  ## ``err(jcvEntropyUnavailable)`` if the OS entropy source is
+  ## unavailable — a real failure on a misconfigured host (no
+  ## ``/dev/urandom`` under Linux, ``BCryptGenRandom`` denied under
+  ## Windows). Brand uniqueness is the only requirement; unguessability
+  ## is not — but the sysrand path is preferred for isolation across
+  ## cooperating processes.
+  var bytes: array[8, byte] = default(array[8, byte])
+  if not urandom(bytes):
+    return err(JmapClientViolation(kind: jcvEntropyUnavailable))
+  ok(cast[uint64](bytes))
+
 proc initJmapClient*(
     sessionUrl: string,
     bearerToken: string,
@@ -221,6 +253,8 @@ proc initJmapClient*(
   ##
   ## Returns err on invalid parameters.
   detectClientConfig(sessionUrl, bearerToken, timeout, maxRedirects, maxResponseBytes).isOkOr:
+    return err(toValidationError(error))
+  let clientBrand = drawClientBrand().valueOr:
     return err(toValidationError(error))
   let headers =
     try:
@@ -254,6 +288,8 @@ proc initJmapClient*(
       session: Opt.none(Session),
       maxResponseBytes: maxResponseBytes,
       userAgent: userAgent,
+      clientBrand: clientBrand,
+      nextBuilderSerial: 0'u64,
       lastRawResponseBody: "",
     )
   )
@@ -282,6 +318,17 @@ proc discoverJmapClient*(
     maxResponseBytes = maxResponseBytes,
     userAgent = userAgent,
   )
+
+proc newBuilder*(client: var JmapClient): RequestBuilder =
+  ## Single blessed entry point for building a request. Mints a
+  ## ``BuilderId`` from the client's ``clientBrand`` and the next builder
+  ## serial, increments the serial, and constructs an empty
+  ## ``RequestBuilder`` branded with that id. Application developers use
+  ## this to start every request; ``initRequestBuilder`` is hub-private
+  ## and not reachable from ``import jmap_client``.
+  let id = initBuilderId(client.clientBrand, client.nextBuilderSerial)
+  client.nextBuilderSerial += 1
+  initRequestBuilder(id)
 
 func session*(client: JmapClient): Opt[Session] =
   ## Returns the cached Session, or ``none`` if not yet fetched.
@@ -492,37 +539,14 @@ func detectRequestLimitsTyped(
       discard
   ok()
 
-func detectRequestLimitsRaw(
-    request: Request, caps: CoreCapabilities
-): Result[void, RequestLimitViolation] =
-  ## Narrow pre-flight for raw-Request senders who do not have typed
-  ## ``CallLimitMeta`` available. Enforces ``maxCallsInRequest`` only;
-  ## per-call ``maxObjectsInGet`` / ``maxObjectsInSet`` cannot be
-  ## enforced from a raw ``Request`` because typed per-call counts are
-  ## not available — the typed builder is required for full validation.
-  detectMaxCalls(request, int64(caps.maxCallsInRequest))
-
 func validateLimits*(
-    builder: RequestBuilder, caps: CoreCapabilities
+    req: BuiltRequest, caps: CoreCapabilities
 ): Result[void, ValidationError] =
-  ## Full pre-flight validation for a typed builder: enforces
+  ## Full pre-flight validation for a frozen request: enforces
   ## ``maxCallsInRequest`` and per-call ``maxObjectsInGet`` /
   ## ``maxObjectsInSet`` from typed ``CallLimitMeta``. Pure — no IO,
   ## no mutation.
-  detectRequestLimitsTyped(builder.build(), builder.callLimits, caps).isOkOr:
-    return err(toValidationError(error))
-  ok()
-
-func validateLimits*(
-    request: Request, caps: CoreCapabilities
-): Result[void, ValidationError] =
-  ## Narrow pre-flight validation for raw-Request senders: enforces
-  ## ``maxCallsInRequest`` only. Per-call ``maxObjectsInGet`` and
-  ## ``maxObjectsInSet`` cannot be enforced from a raw ``Request``
-  ## because typed per-call counts are not available; for full
-  ## pre-flight validation pass the typed ``RequestBuilder`` instead.
-  ## Pure — no IO, no mutation.
-  detectRequestLimitsRaw(request, caps).isOkOr:
+  detectRequestLimitsTyped(req.request, req.callLimits, caps).isOkOr:
     return err(toValidationError(error))
   ok()
 
@@ -745,62 +769,44 @@ proc ensureSession(client: var JmapClient): JmapResult[Session] =
     )
   ok(session)
 
-func isSessionStale*(client: JmapClient, response: envelope.Response): bool =
-  ## Compares ``response.sessionState`` with the cached ``Session.state``.
+func isSessionStale*(client: JmapClient, dr: DispatchedResponse): bool =
+  ## Compares ``dr.sessionState`` with the cached ``Session.state``.
   ## Returns ``true`` if they differ (session should be re-fetched).
   ## Returns ``false`` if no session is cached (cannot determine staleness).
   ## Pure — no IO, no mutation.
   let s = client.session.valueOr:
     return false
-  return s.state != response.sessionState
+  return s.state != dr.sessionState
 
 proc refreshSessionIfStale*(
-    client: var JmapClient, response: envelope.Response
+    client: var JmapClient, dr: DispatchedResponse
 ): JmapResult[bool] =
-  ## If the response indicates a stale session, re-fetches it.
+  ## If the dispatched response indicates a stale session, re-fetches it.
   ## Returns ok(true) if refreshed, ok(false) otherwise.
   ## Returns err on fetch failure (same as ``fetchSession``).
-  if client.isSessionStale(response):
+  if client.isSessionStale(dr):
     let s = ?client.fetchSession()
     discard s
     return ok(true)
   return ok(false)
 
-proc send*(client: var JmapClient, request: Request): JmapResult[envelope.Response] =
-  ## Serialises a JMAP Request, POSTs to the server's apiUrl, and
-  ## deserialises the Response.
+proc send*(client: var JmapClient, req: BuiltRequest): JmapResult[DispatchedResponse] =
+  ## Validates limits, fetches the session lazily, POSTs the serialised
+  ## request, parses the wire ``Response``, and returns a
+  ## ``DispatchedResponse`` branded with the builder's ``id``. Single
+  ## blessed send path — raw-Request and unfrozen-builder sends are
+  ## gone; ``RequestBuilder.freeze()`` is the obligatory transition.
   ##
   ## Lazily fetches the session on first call if not yet cached.
   ## Does NOT automatically refresh a stale session (D4.10).
-  ##
-  ## **Pre-flight validation is narrow.** Only ``maxCallsInRequest``
-  ## and ``maxSizeRequest`` are enforced from a raw ``Request`` —
-  ## per-call ``maxObjectsInGet`` / ``maxObjectsInSet`` cannot be
-  ## derived without typed ``CallLimitMeta``. Pass a ``RequestBuilder``
-  ## to the sibling overload for full per-call enforcement.
   ##
   ## Returns err for transport/request failures, limit violations,
   ## or invalid response JSON.
   let session = ?ensureSession(client)
   let coreCaps = session.coreCapabilities()
-  ?validateLimits(request, coreCaps).mapErr(validationToClientError)
-  return performSend(client, request, session)
-
-proc send*(
-    client: var JmapClient, builder: RequestBuilder
-): JmapResult[envelope.Response] =
-  ## Builds the request, performs full pre-flight (including per-call
-  ## ``maxObjectsInGet`` / ``maxObjectsInSet`` from typed
-  ## ``CallLimitMeta``), then POSTs to the server's apiUrl and
-  ## deserialises the Response.
-  ##
-  ## Lazily fetches the session on first call if not yet cached.
-  ## This is the imperative shell boundary where the functional core
-  ## (builder) meets IO.
-  let session = ?ensureSession(client)
-  let coreCaps = session.coreCapabilities()
-  ?validateLimits(builder, coreCaps).mapErr(validationToClientError)
-  return performSend(client, builder.build(), session)
+  ?validateLimits(req, coreCaps).mapErr(validationToClientError)
+  let wire = ?performSend(client, req.request, session)
+  ok(initDispatchedResponse(wire, req.builderId))
 
 proc sendRawHttpForTesting*(
     client: var JmapClient, body: string

@@ -333,7 +333,7 @@ transport), and cannot be independently tested in a meaningful way.
 | L1 / L2 | Layer 1 already imports `std/json` selectively for `JsonNode` as a data type; merging would add dependency on parsing *logic* (`parseJson`, `to[T]`, camelCase conversion, `#`-prefix handling). Testing smart constructors would require JSON fixtures. Wire format knowledge would leak into type definitions. |
 | L2 / L3 | Serialisation is stateless, reusable infrastructure. Protocol logic uses accumulation patterns (immutable builder construction, sequential ID generation) that differ structurally from L2's stateless value-to-value transforms. Mixing them conflates different levels of abstraction and prevents swapping JSON libraries without touching builder logic. |
 | L3 / L4 | Protocol logic is pure (`func`); transport is impure (`proc` with IO). Merging them makes the entire protocol layer untestable without network access or mocks. This is the functional core / imperative shell boundary — the most important boundary in the project. |
-| L4 / L5 | Transport returns rich Nim types (`JmapResult[Response]`); the C ABI projects them into opaque handles and error codes. Different audiences, different constraints, different type systems. |
+| L4 / L5 | Transport returns rich Nim types (`JmapResult[DispatchedResponse]`); the C ABI projects them into opaque handles and error codes. Different audiences, different constraints, different type systems. |
 
 **Haskell module analogy:**
 
@@ -1881,24 +1881,29 @@ ResponseHandle[T])` tuples**. The shape is dictated by three forces:
    layer uniformly `func`.
 
 ```nim
-let b0 = initRequestBuilder()
-let (b1, idsHandle) = b0.addQuery[Mailbox](accountId)
-let (b2, getHandle) = b1.addGet[Mailbox](accountId, ids = idsRef(idsHandle))
-let request = b2.build()
+let b0 = client.newBuilder()
+let (b1, idsHandle) = b0.addMailboxQuery(accountId)
+let (b2, getHandle) = b1.addMailboxGet(accountId, ids = idsRef(idsHandle))
+let req = b2.freeze()
+let dr = ?client.send(req)
+let mailboxes = ?getHandle.get(dr)
 ```
 
 Each `add*` returns a fresh `RequestBuilder` with the next call ID,
 the new invocation appended, and the entity's capability URI added
-(deduplicated). `build()` is a pure projection that snapshots the
-current state into a `Request`. The builder remains usable after
-`build()` for sequential requests against the same accumulator.
+(deduplicated). `freeze()` is a pure projection that snapshots the
+current state into a sealed `BuiltRequest`, branded with the
+builder's `BuilderId`. The builder remains usable after `freeze()`
+for sequential requests against the same accumulator; each
+accumulation must `freeze` independently before dispatch.
 
-`initRequestBuilder()` pre-seeds `urn:ietf:params:jmap:core` in the
-`using` array. RFC 8620 §3.2 obliges clients to declare every capability
-they use; lenient servers (Stalwart 0.15.5) accept requests with `core`
-omitted, but strict servers (Apache James 3.9) reject them with
-`unknownMethod`. Pre-declaring core makes the client portable across
-both.
+`newBuilder()` pre-seeds `urn:ietf:params:jmap:core` in the
+`using` array (RFC 8620 §3.2 obliges clients to declare every
+capability they use; lenient servers accept omission, strict ones
+reject it with `unknownMethod`) and mints a fresh `BuilderId`
+brand. The hub-private `initRequestBuilder(id)` is reachable only
+through whitebox imports for tests and internal callers; application
+developers use `client.newBuilder()`.
 
 The accumulation sequence is order-dependent: calling `addGet` twice
 produces call IDs `"c0"` and `"c1"`. Functional core preserved; the
@@ -2772,9 +2777,9 @@ proc discoverJmapClient(...): Result[JmapClient, ValidationError]
 proc setBearerToken(client: var JmapClient, token: string): Result[void, ValidationError]
 proc close(client: var JmapClient)
 proc fetchSession(client: var JmapClient): JmapResult[Session]
-proc send(client: var JmapClient, request: Request): JmapResult[Response]
-proc send(client: var JmapClient, builder: RequestBuilder): JmapResult[Response]
-proc refreshSessionIfStale(client: var JmapClient, response: Response): JmapResult[bool]
+proc newBuilder(client: var JmapClient): RequestBuilder
+proc send(client: var JmapClient, req: BuiltRequest): JmapResult[DispatchedResponse]
+proc refreshSessionIfStale(client: var JmapClient, dr: DispatchedResponse): JmapResult[bool]
 proc setSessionForTest(client: var JmapClient, session: Session)         ## test-only
 proc sendRawHttpForTesting(client: var JmapClient, body: string): JmapResult[Response]  ## test-only
 
@@ -2783,24 +2788,37 @@ func sessionUrl(client: JmapClient): string
 func bearerToken(client: JmapClient): string
 func authScheme(client: JmapClient): string
 func lastRawResponseBody(client: JmapClient): string
-func isSessionStale(client: JmapClient, response: Response): bool
+func isSessionStale(client: JmapClient, dr: DispatchedResponse): bool
 ```
 
-`JmapClient` is an object with eight module-private fields:
-`httpClient: HttpClient`, `sessionUrl: string`, `bearerToken: string`,
-`authScheme: string`, `session: Opt[Session]`, `maxResponseBytes: int`,
-`userAgent: string`, `lastRawResponseBody: string`. Copying a
-`JmapClient` shares the underlying HTTP connection — `close()` on any
-copy closes it for all copies.
+`JmapClient` is an object with module-private fields covering the
+HTTP client, session cache, last raw body buffer, and the
+**`clientBrand`** (random 64-bit token drawn once at construction
+via `std/sysrand.urandom`) plus **`nextBuilderSerial`** (monotonic
+counter for branding builders minted by `newBuilder`). Copying a
+`JmapClient` shares the underlying HTTP connection — `close()` on
+any copy closes it for all copies.
 
 The IO procs take `var JmapClient` because session caching is a
 mutation on the client object. `send()` lazy-fetches the session into
 the cached field; `fetchSession()` populates it explicitly;
 `refreshSessionIfStale()` may replace it.
 
-The `send(Request)` overload is the core IO boundary. The `send(builder)`
-convenience overload calls `builder.build()` and forwards to
-`send(Request)`.
+**Lifecycle — `newBuilder` → `add*` → `freeze` → `send` → `get`.**
+The application developer's path is one closed loop:
+
+1. `client.newBuilder()` returns a fresh `RequestBuilder` branded
+   with the client's `clientBrand` and a fresh `serial`.
+2. `add*` methods accumulate invocations, returning a new
+   `RequestBuilder` plus typed `ResponseHandle[T]` values.
+3. `b.freeze()` returns a sealed `BuiltRequest` (frozen,
+   dispatch-ready, branded).
+4. `client.send(req)` validates limits, POSTs, parses, and returns a
+   sealed `DispatchedResponse` (branded with the originating
+   builder's `BuilderId`).
+5. `handle.get(dr)` extracts the typed value, returning
+   `Result[T, GetError]`. Brand-mismatch handles return
+   `err(gekHandleMismatch)`; server errors return `err(gekMethod)`.
 
 **Lazy session fetch.** `send()` auto-fetches the Session if not yet
 cached. This triggers IO on first use — callers can also call
@@ -3407,7 +3425,7 @@ option in §1.3).
 | 4. Transport | Pre-flight `validateLimits` checks `maxCallsInRequest`, `maxObjectsInGet`, `maxObjectsInSet`; `maxSizeRequest` enforced inline in `send()` after serialisation (§4.3) | Three limits checkable from the typed Request; the size limit needs the serialised body. Both routes project `ValidationError` to `ClientError` via `validationToClientError`. |
 | 4. Transport | Two-phase response body size enforcement (Content-Length pre-check + body-length post-check) (§4.3) | `maxResponseBytes == 0` disables both. |
 | 4. Transport | Session staleness detection: `isSessionStale` (pure func) + `refreshSessionIfStale` (proc) (§4.3) | Caller controls refresh; `send()` does not auto-refresh. |
-| 4. Transport | `send(builder)` convenience overload (§4.3) | Calls `builder.build()` then `send(request)`. |
+| 4. Transport | `send(builder)` convenience overload (§4.3) | Calls `builder.freeze()` then `send(request)`. |
 | 4. Transport | Test-only escape hatches: `sendRawHttpForTesting`, `setSessionForTest`, `lastRawResponseBody` (§4.3) | Adversarial wire fixtures and session injection without exposing private fields. |
 | 4. Transport | `resolveAgainstSession` for relative `apiUrl` (§4.3) | RFC 3986 §5 resolution against the session URL; required for Cyrus's relative `/jmap/` paths. |
 | 4. Transport | `classifyException` order: Timeout → SslError → OSError-with-TLS-msg → IOError → ValueError → catch-all (§4.3) | Maps every `std/httpclient` failure mode to a precise `TransportErrorKind`. |

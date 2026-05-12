@@ -82,10 +82,12 @@ block temailGetMaxBodyValueBytesLive:
       parseCreationId("phase-i-52-seed").expect("parseCreationId[" & $target.kind & "]")
     var createTbl = initTable[CreationId, EmailBlueprint]()
     createTbl[cid] = blueprint
-    let (bSeed, seedHandle) =
-      addEmailSet(initRequestBuilder(), mailAccountId, create = Opt.some(createTbl))
-    let seedResp =
-      client.send(bSeed).expect("send Email/set big body[" & $target.kind & "]")
+    let (bSeed, seedHandle) = addEmailSet(
+      initRequestBuilder(makeBuilderId()), mailAccountId, create = Opt.some(createTbl)
+    )
+    let seedResp = client.send(bSeed.freeze()).expect(
+        "send Email/set big body[" & $target.kind & "]"
+      )
     let seedSet = seedResp.get(seedHandle).expect(
         "Email/set big body extract[" & $target.kind & "]"
       )
@@ -100,7 +102,7 @@ block temailGetMaxBodyValueBytesLive:
     assertOn target, found
 
     let (bGet, getHandle) = addEmailGet(
-      initRequestBuilder(),
+      initRequestBuilder(makeBuilderId()),
       mailAccountId,
       ids = directIds(@[seededId]),
       properties = Opt.some(@["id", "bodyValues", "textBody"]),
@@ -109,8 +111,9 @@ block temailGetMaxBodyValueBytesLive:
         maxBodyValueBytes: Opt.some(UnsignedInt(TruncationCap)),
       ),
     )
-    let resp =
-      client.send(bGet).expect("send Email/get truncation[" & $target.kind & "]")
+    let resp = client.send(bGet.freeze()).expect(
+        "send Email/get truncation[" & $target.kind & "]"
+      )
     captureIfRequested(
       client, "email-get-max-body-value-bytes-truncated-" & $target.kind
     )

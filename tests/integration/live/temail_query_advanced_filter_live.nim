@@ -85,9 +85,10 @@ proc seedLargeEmail(
   let cid = parseCreationId(creationLabel).expect("parseCreationId large")
   var createTbl = initTable[CreationId, EmailBlueprint]()
   createTbl[cid] = blueprint
-  let (b, setHandle) =
-    addEmailSet(initRequestBuilder(), mailAccountId, create = Opt.some(createTbl))
-  let resp = client.send(b).expect("send Email/set large")
+  let (b, setHandle) = addEmailSet(
+    initRequestBuilder(makeBuilderId()), mailAccountId, create = Opt.some(createTbl)
+  )
+  let resp = client.send(b.freeze()).expect("send Email/set large")
   let setResp = resp.get(setHandle).expect("Email/set large extract")
   var seededId = Id("")
   var found = false
@@ -110,9 +111,10 @@ proc assertInMailbox(
   ## Sub-test A: filter inMailbox=archiveId surfaces archive seed
   ## and excludes the inbox seeds.
   let filter = filterCondition(EmailFilterCondition(inMailbox: Opt.some(archiveId)))
-  let (b, h) =
-    addEmailQuery(initRequestBuilder(), mailAccountId, filter = Opt.some(filter))
-  let resp = client.send(b).expect("send Email/query inMailbox")
+  let (b, h) = addEmailQuery(
+    initRequestBuilder(makeBuilderId()), mailAccountId, filter = Opt.some(filter)
+  )
+  let resp = client.send(b.freeze()).expect("send Email/query inMailbox")
   let qr = resp.get(h).expect("Email/query inMailbox extract")
   var foundArchive = false
   for id in qr.ids:
@@ -140,9 +142,10 @@ proc assertInMailboxOtherThanMinSize(
       inMailboxOtherThan: Opt.some(@[archiveId]), minSize: Opt.some(UnsignedInt(1000))
     )
   )
-  let (b, h) =
-    addEmailQuery(initRequestBuilder(), mailAccountId, filter = Opt.some(filter))
-  let resp = client.send(b).expect("send Email/query minSize")
+  let (b, h) = addEmailQuery(
+    initRequestBuilder(makeBuilderId()), mailAccountId, filter = Opt.some(filter)
+  )
+  let resp = client.send(b.freeze()).expect("send Email/query minSize")
   let qrExtract = resp.get(h)
   if qrExtract.isOk:
     let qr = qrExtract.unsafeValue
@@ -157,7 +160,10 @@ proc assertInMailboxOtherThanMinSize(
   else:
     # Cat-B error arm — server rejected the nested FilterOperator
     # shape.
-    let methodErr = qrExtract.unsafeError
+    let getErr = qrExtract.unsafeError
+    doAssert getErr.kind == gekMethod,
+      "filter rejection must surface as gekMethod, not gekHandleMismatch"
+    let methodErr = getErr.methodErr
     doAssert methodErr.errorType in
       {metInvalidArguments, metUnsupportedFilter, metUnknownMethod},
       "method error must be in allowed set (got rawType=" & methodErr.rawType & ")"
@@ -187,9 +193,10 @@ proc assertHasAttachment(
   let filter = filterCondition(
     EmailFilterCondition(hasAttachment: Opt.some(true), before: Opt.some(future))
   )
-  let (b, h) =
-    addEmailQuery(initRequestBuilder(), mailAccountId, filter = Opt.some(filter))
-  let resp = client.send(b).expect("send Email/query hasAttachment")
+  let (b, h) = addEmailQuery(
+    initRequestBuilder(makeBuilderId()), mailAccountId, filter = Opt.some(filter)
+  )
+  let resp = client.send(b.freeze()).expect("send Email/query hasAttachment")
   captureIfRequested(client, "email-query-advanced-filter-" & targetSuffix).expect(
     "captureIfRequested"
   )

@@ -168,11 +168,11 @@ type CompoundResults*[A, B] {.ruleOff: "objects".} = object
   implicit*: B
 
 func getBoth*[A, B](
-    resp: Response, handles: CompoundHandles[A, B]
-): Result[CompoundResults[A, B], MethodError] =
+    dr: DispatchedResponse, handles: CompoundHandles[A, B]
+): Result[CompoundResults[A, B], GetError] =
   mixin fromJson
-  let primary  = ?resp.get(handles.primary)
-  let implicit = ?resp.get(handles.implicit)
+  let primary  = ?dr.get(handles.primary)
+  let implicit = ?dr.get(handles.implicit)
   ok(CompoundResults[A, B](primary: primary, implicit: implicit))
 ```
 
@@ -337,11 +337,11 @@ type ChainedResults*[A, B] {.ruleOff: "objects".} = object
   second*: B
 
 func getBoth*[A, B](
-    resp: Response, handles: ChainedHandles[A, B]
-): Result[ChainedResults[A, B], MethodError] =
+    dr: DispatchedResponse, handles: ChainedHandles[A, B]
+): Result[ChainedResults[A, B], GetError] =
   mixin fromJson
-  let first  = ?resp.get(handles.first)
-  let second = ?resp.get(handles.second)
+  let first  = ?dr.get(handles.first)
+  let second = ?dr.get(handles.second)
   ok(ChainedResults[A, B](first: first, second: second))
 ```
 
@@ -530,17 +530,17 @@ type EmailQueryThreadResults* {.ruleOff: "objects".} = object
   display*:       GetResponse[Email]
 
 func getAll*(
-    resp: Response, handles: EmailQueryThreadChain
-): Result[EmailQueryThreadResults, MethodError] =
+    dr: DispatchedResponse, handles: EmailQueryThreadChain
+): Result[EmailQueryThreadResults, GetError] =
   ## Extract all four responses from the first-login workflow.
   ## Monomorphic over ``EmailQueryThreadChain`` — not a parametric
   ## ``getAll[A, B, C, D]``, because the record it serves is not
   ## parametric either.
   mixin fromJson
-  let query         = ?resp.get(handles.queryH)
-  let threadIdFetch = ?resp.get(handles.threadIdFetchH)
-  let threads       = ?resp.get(handles.threadsH)
-  let display       = ?resp.get(handles.displayH)
+  let query         = ?dr.get(handles.queryH)
+  let threadIdFetch = ?dr.get(handles.threadIdFetchH)
+  let threads       = ?dr.get(handles.threadsH)
+  let display       = ?dr.get(handles.displayH)
   ok(EmailQueryThreadResults(
     query: query, threadIdFetch: threadIdFetch,
     threads: threads, display: display))
@@ -707,7 +707,7 @@ Adding a future back-reference path is a one-line variant addition;
 
 - **H14. `getAll` is one monomorphic function, co-located with the
   builder.** Partial extraction is a user concern —
-  `resp.get(handles.queryH)` is already available via field access.
+  `dr.get(handles.queryH)` is already available via field access.
   `getAll` lives in `mail_builders.nim`, not in `dispatch.nim`,
   because it has no parametric shape to share with `dispatch`-layer
   generics.

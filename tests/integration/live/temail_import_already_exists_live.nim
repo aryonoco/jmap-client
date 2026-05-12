@@ -107,10 +107,12 @@ block temailImportAlreadyExistsLive:
     let firstMap = initNonEmptyEmailImportMap(@[(firstCid, firstItem)]).expect(
         "initNonEmptyEmailImportMap first"
       )
-    let (bFirst, firstHandle) =
-      addEmailImport(initRequestBuilder(), mailAccountId, emails = firstMap)
-    let respFirst =
-      client.send(bFirst).expect("send Email/import first[" & $target.kind & "]")
+    let (bFirst, firstHandle) = addEmailImport(
+      initRequestBuilder(makeBuilderId()), mailAccountId, emails = firstMap
+    )
+    let respFirst = client.send(bFirst.freeze()).expect(
+        "send Email/import first[" & $target.kind & "]"
+      )
     let firstResp = respFirst.get(firstHandle).expect(
         "Email/import first extract[" & $target.kind & "]"
       )
@@ -145,10 +147,12 @@ block temailImportAlreadyExistsLive:
     let secondMap = initNonEmptyEmailImportMap(@[(secondCid, secondItem)]).expect(
         "initNonEmptyEmailImportMap second"
       )
-    let (bSecond, secondHandle) =
-      addEmailImport(initRequestBuilder(), mailAccountId, emails = secondMap)
-    let respSecond =
-      client.send(bSecond).expect("send Email/import second[" & $target.kind & "]")
+    let (bSecond, secondHandle) = addEmailImport(
+      initRequestBuilder(makeBuilderId()), mailAccountId, emails = secondMap
+    )
+    let respSecond = client.send(bSecond.freeze()).expect(
+        "send Email/import second[" & $target.kind & "]"
+      )
     captureIfRequested(client, "email-import-no-dedup-" & $target.kind).expect(
       "captureIfRequested"
     )
@@ -177,12 +181,13 @@ block temailImportAlreadyExistsLive:
 
     # --- 4. Cleanup: destroy [seed, first, second] ------------------------
     let (bClean, cleanHandle) = addEmailSet(
-      initRequestBuilder(),
+      initRequestBuilder(makeBuilderId()),
       mailAccountId,
       destroy = directIds(@[sourceId, firstImportedId, secondImportedId]),
     )
-    let respClean =
-      client.send(bClean).expect("send Email/set cleanup[" & $target.kind & "]")
+    let respClean = client.send(bClean.freeze()).expect(
+        "send Email/set cleanup[" & $target.kind & "]"
+      )
     let cleanResp = respClean.get(cleanHandle).expect(
         "Email/set cleanup extract[" & $target.kind & "]"
       )

@@ -92,8 +92,9 @@ block tvacationSetAllArmsLive:
         ]
       )
       .expect("initVacationResponseUpdateSet all arms[" & $target.kind & "]")
-    let (b1, setHandle) =
-      addVacationResponseSet(initRequestBuilder(), vacAccountId, update = updateSet)
+    let (b1, setHandle) = addVacationResponseSet(
+      initRequestBuilder(makeBuilderId()), vacAccountId, update = updateSet
+    )
     # Cyrus 3.12.2 ships VacationResponse but the test image disables
     # it via ``imapd.conf: jmap_vacation: no``; the URN is absent
     # from the session's ``capabilities`` map and Cyrus rejects the
@@ -105,7 +106,7 @@ block tvacationSetAllArmsLive:
     # Stalwart/James, unknownCapability on Cyrus — and the captured-
     # replay suite round-trips both shapes. mcapture's skip-if-exists
     # preserves existing Stalwart/James fixtures.
-    let resp1Result = client.send(b1)
+    let resp1Result = client.send(b1.freeze())
     captureIfRequested(client, "vacation-set-all-arms-" & $target.kind).expect(
       "captureIfRequested"
     )
@@ -136,8 +137,9 @@ block tvacationSetAllArmsLive:
 
     if updateOk:
       # Re-read and verify all six fields.
-      let (b2, getHandle) = addVacationResponseGet(initRequestBuilder(), vacAccountId)
-      let resp2 = client.send(b2).expect(
+      let (b2, getHandle) =
+        addVacationResponseGet(initRequestBuilder(makeBuilderId()), vacAccountId)
+      let resp2 = client.send(b2.freeze()).expect(
           "send VacationResponse/get post-set[" & $target.kind & "]"
         )
       let getExtract = resp2.get(getHandle)
@@ -176,9 +178,10 @@ block tvacationSetAllArmsLive:
           ]
         )
         .expect("initVacationResponseUpdateSet cleanup[" & $target.kind & "]")
-      let (b3, _) =
-        addVacationResponseSet(initRequestBuilder(), vacAccountId, update = cleanupSet)
-      discard client.send(b3).expect(
+      let (b3, _) = addVacationResponseSet(
+        initRequestBuilder(makeBuilderId()), vacAccountId, update = cleanupSet
+      )
+      discard client.send(b3.freeze()).expect(
           "send VacationResponse/set cleanup[" & $target.kind & "]"
         )
     client.close()

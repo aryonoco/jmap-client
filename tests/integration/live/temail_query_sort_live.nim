@@ -78,7 +78,7 @@ block temailQuerySortLive:
     # --- Ascending sort by pspSubject -----------------------------------
     let ascSort = @[plainComparator(pspSubject, isAscending = Opt.some(true))]
     let (ba, ascHandle) = addEmailQuery(
-      initRequestBuilder(),
+      initRequestBuilder(makeBuilderId()),
       mailAccountId,
       filter = Opt.some(filter),
       sort = Opt.some(ascSort),
@@ -90,7 +90,8 @@ block temailQuerySortLive:
     discard pollEmailQueryIndexed(target, mailAccountId, filter, corpus).expect(
         "pollEmailQueryIndexed asc[" & $target.kind & "]"
       )
-    let respA = client.send(ba).expect("send Email/query asc[" & $target.kind & "]")
+    let respA =
+      client.send(ba.freeze()).expect("send Email/query asc[" & $target.kind & "]")
     let ascResp =
       respA.get(ascHandle).expect("Email/query asc extract[" & $target.kind & "]")
     var ascSeeded: seq[Id] = @[]
@@ -109,12 +110,13 @@ block temailQuerySortLive:
     # --- Descending sort by pspSubject ----------------------------------
     let descSort = @[plainComparator(pspSubject, isAscending = Opt.some(false))]
     let (bd, descHandle) = addEmailQuery(
-      initRequestBuilder(),
+      initRequestBuilder(makeBuilderId()),
       mailAccountId,
       filter = Opt.some(filter),
       sort = Opt.some(descSort),
     )
-    let respD = client.send(bd).expect("send Email/query desc[" & $target.kind & "]")
+    let respD =
+      client.send(bd.freeze()).expect("send Email/query desc[" & $target.kind & "]")
     let descResp =
       respD.get(descHandle).expect("Email/query desc extract[" & $target.kind & "]")
     var descSeeded: seq[Id] = @[]
@@ -144,13 +146,14 @@ block temailQuerySortLive:
         )
       ]
       let (bc, collHandle) = addEmailQuery(
-        initRequestBuilder(),
+        initRequestBuilder(makeBuilderId()),
         mailAccountId,
         filter = Opt.some(filter),
         sort = Opt.some(collSort),
       )
-      let respC =
-        client.send(bc).expect("send Email/query collation[" & $target.kind & "]")
+      let respC = client.send(bc.freeze()).expect(
+          "send Email/query collation[" & $target.kind & "]"
+        )
       let collResp = respC.get(collHandle).expect(
           "Email/query collation extract[" & $target.kind & "]"
         )

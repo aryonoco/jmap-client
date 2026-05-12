@@ -92,10 +92,11 @@ block temailGetHeaderFormsLive:
       parseCreationId("seedHeaders").expect("parseCreationId[" & $target.kind & "]")
     var createTbl = initTable[CreationId, EmailBlueprint]()
     createTbl[cid] = blueprintOk
-    let (bSeed, seedHandle) =
-      addEmailSet(initRequestBuilder(), mailAccountId, create = Opt.some(createTbl))
+    let (bSeed, seedHandle) = addEmailSet(
+      initRequestBuilder(makeBuilderId()), mailAccountId, create = Opt.some(createTbl)
+    )
     let seedResp =
-      client.send(bSeed).expect("send Email/set seed[" & $target.kind & "]")
+      client.send(bSeed.freeze()).expect("send Email/set seed[" & $target.kind & "]")
     let seedSet =
       seedResp.get(seedHandle).expect("Email/set seed extract[" & $target.kind & "]")
     var seededId: Id
@@ -112,7 +113,7 @@ block temailGetHeaderFormsLive:
     assertOn target, found
 
     let (b, getHandle) = addEmailGet(
-      initRequestBuilder(),
+      initRequestBuilder(makeBuilderId()),
       mailAccountId,
       ids = directIds(@[seededId]),
       properties = Opt.some(
@@ -122,8 +123,9 @@ block temailGetHeaderFormsLive:
         ]
       ),
     )
-    let resp =
-      client.send(b).expect("send Email/get header forms[" & $target.kind & "]")
+    let resp = client.send(b.freeze()).expect(
+        "send Email/get header forms[" & $target.kind & "]"
+      )
     captureIfRequested(client, "email-header-forms-" & $target.kind).expect(
       "captureIfRequested"
     )

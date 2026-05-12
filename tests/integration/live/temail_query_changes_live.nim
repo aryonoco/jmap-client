@@ -70,9 +70,10 @@ block temailQueryChangesLive:
       .expect("seedSimpleEmail 3[" & $target.kind & "]")
 
     # --- Email/query: capture queryState_1 + baseline-cardinality -------
-    let (b1, queryHandle) = addEmailQuery(initRequestBuilder(), mailAccountId)
+    let (b1, queryHandle) =
+      addEmailQuery(initRequestBuilder(makeBuilderId()), mailAccountId)
     let resp1 =
-      client.send(b1).expect("send Email/query baseline[" & $target.kind & "]")
+      client.send(b1.freeze()).expect("send Email/query baseline[" & $target.kind & "]")
     let queryResp = resp1.get(queryHandle).expect(
         "Email/query baseline extract[" & $target.kind & "]"
       )
@@ -90,13 +91,14 @@ block temailQueryChangesLive:
 
     # --- Email/queryChanges since queryState_1 --------------------------
     let (b2, qcHandle) = addEmailQueryChanges(
-      initRequestBuilder(),
+      initRequestBuilder(makeBuilderId()),
       mailAccountId,
       sinceQueryState = queryState1,
       calculateTotal = true,
     )
-    let resp2 =
-      client.send(b2).expect("send Email/queryChanges with-total[" & $target.kind & "]")
+    let resp2 = client.send(b2.freeze()).expect(
+        "send Email/queryChanges with-total[" & $target.kind & "]"
+      )
     captureIfRequested(client, "email-query-changes-with-total-" & $target.kind).expect(
       "captureIfRequested"
     )
@@ -141,10 +143,11 @@ block temailQueryChangesLive:
     # explicitly ``Opt.none`` — RFC 8620 §5.6: ``total`` is only present
     # when ``calculateTotal: true`` was sent.
     let (b3, qcNoTotalHandle) = addEmailQueryChanges(
-      initRequestBuilder(), mailAccountId, sinceQueryState = queryState1
+      initRequestBuilder(makeBuilderId()), mailAccountId, sinceQueryState = queryState1
     )
-    let resp3 =
-      client.send(b3).expect("send Email/queryChanges no-total[" & $target.kind & "]")
+    let resp3 = client.send(b3.freeze()).expect(
+        "send Email/queryChanges no-total[" & $target.kind & "]"
+      )
     captureIfRequested(client, "email-query-changes-no-total-" & $target.kind).expect(
       "captureIfRequested"
     )

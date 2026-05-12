@@ -117,10 +117,12 @@ block temailQueryThreadChainLive:
     var projection = ChainProjection()
     var converged = false
     for attempt in 0 ..< 5:
-      let (b, threadHandles) =
-        addEmailQueryWithThreads(initRequestBuilder(), mailAccountId, filter = filter)
-      let resp =
-        client.send(b).expect("send Email/query+threads chain[" & $target.kind & "]")
+      let (b, threadHandles) = addEmailQueryWithThreads(
+        initRequestBuilder(makeBuilderId()), mailAccountId, filter = filter
+      )
+      let resp = client.send(b.freeze()).expect(
+          "send Email/query+threads chain[" & $target.kind & "]"
+        )
       let all = resp.getAll(threadHandles).expect("getAll[" & $target.kind & "]")
       projection = projectChainResults(all)
       if (corpus <= projection.displayIds) and (corpus <= projection.threadEmailIds):

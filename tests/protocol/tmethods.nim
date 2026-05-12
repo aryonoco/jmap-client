@@ -331,9 +331,9 @@ block queryRequestMinimal:
   ## addQuery with only required fields emits accountId and nothing else
   ## for the optional query window. ``anchorOffset`` is omitted when
   ## ``anchor`` is absent (see ``assembleQueryArgs`` for the rationale).
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = addQuery[MockQueryable, MockFilter, Comparator](b0, makeAccountId("a1"))
-  let args = b1.build().methodCalls[0].arguments
+  let args = b1.freeze().request.methodCalls[0].arguments
   doAssert args{"accountId"}.getStr("") == "a1"
   doAssert args{"filter"}.isNil
   doAssert args{"sort"}.isNil
@@ -344,11 +344,11 @@ block queryRequestMinimal:
 
 block queryRequestWithFilter:
   ## addQuery with a filter condition emits ``filter`` in the invocation args.
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = addQuery[MockQueryable, MockFilter, Comparator](
     b0, makeAccountId("a1"), filter = Opt.some(filterCondition(MockFilter()))
   )
-  let args = b1.build().methodCalls[0].arguments
+  let args = b1.freeze().request.methodCalls[0].arguments
   doAssert args{"filter"}.kind == JObject
   doAssert args{"filter"}{"mock"}.getBool(false) == true
 
@@ -356,11 +356,11 @@ block queryChangesRequestMinimal:
   ## addQueryChanges with only required fields emits accountId +
   ## sinceQueryState; all other optional fields are absent (filter) or
   ## carry their default (calculateTotal: false).
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = addQueryChanges[MockQueryable, MockFilter, Comparator](
     b0, makeAccountId("a1"), makeState("qs0")
   )
-  let args = b1.build().methodCalls[0].arguments
+  let args = b1.freeze().request.methodCalls[0].arguments
   doAssert args{"sinceQueryState"}.getStr("") == "qs0"
   doAssert args{"calculateTotal"}.getBool(true) == false
   doAssert args{"filter"}.isNil
@@ -370,7 +370,7 @@ block queryChangesRequestAllFields:
   ## and preserves sort-array ordering.
   let comp =
     parseComparator(makePropertyName("name"), true, Opt.none(CollationAlgorithm))
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = addQueryChanges[MockQueryable, MockFilter, Comparator](
     b0,
     makeAccountId("a1"),
@@ -381,7 +381,7 @@ block queryChangesRequestAllFields:
     upToId = Opt.some(makeId("upTo1")),
     calculateTotal = true,
   )
-  let args = b1.build().methodCalls[0].arguments
+  let args = b1.freeze().request.methodCalls[0].arguments
   doAssert args{"filter"}.kind == JObject
   doAssert args{"sort"}.kind == JArray
   doAssert args{"maxChanges"}.getBiggestInt(0) == 10

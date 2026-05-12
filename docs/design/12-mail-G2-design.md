@@ -498,7 +498,7 @@ blocks) is inside a parallel `scaleInvariantsGroup` block
 (`tadversarial_mail_g.nim:563`).
 
 The generic `getBoth[A, B]` (`dispatch.nim:254-264`) chains `?` on
-`resp.get(handles.implicit)`, so the inner handle's
+`dr.get(handles.implicit)`, so the inner handle's
 `NameBoundHandle.callId` and `methodName` filters drive every
 adversarial outcome. Two consequences are non-obvious from the spec:
 
@@ -704,7 +704,7 @@ method-level response and asserts the `getBoth` outcome).
 |---|----------|-----------------------------|-------------------|------------------|
 | 1 | Both present, both succeed | `ok` + `created` populated | `ok` + corresponding update/destroy | `Ok(EmailSubmissionResults{submission, emailSet})` |
 | 2 | Outer succeeds, inner `MethodError` | `ok` | `Err(accountNotFound)` | `Err(methodError)` — surfaces inner error; the chained `?` propagates through |
-| 3 | Outer succeeds, inner absent from response | `ok` | (no invocation in response) | `Err(serverFail)` — the generic `getBoth[A, B]` chains `?` on `resp.get(handles.implicit)`, so absence surfaces as a `MethodError(metServerFail)` with description `"no Email/set response for call ID …"` |
+| 3 | Outer succeeds, inner absent from response | `ok` | (no invocation in response) | `Err(serverFail)` — the generic `getBoth[A, B]` chains `?` on `dr.get(handles.implicit)`, so absence surfaces as a `MethodError(metServerFail)` with description `"no Email/set response for call ID …"` |
 | 4 | Outer succeeds, inner present but `methodCallId` mismatch | `ok` | `ok` but under wrong `methodCallId` | `Err(serverFail)`-like — surfaces as a server-routing error; documents that `NameBoundHandle.callId` must match |
 | 5 | Outer `notCreated` sole entry | `ok` but `notCreated` non-empty | (server emits an empty `Email/set` invocation at the shared call-id under RFC 8621 §7.5 ¶3 "if any implicit actions attempted" wording) | `Ok` with `r.primary.createResults` carrying an `Err` entry and `r.implicit.createResults` empty — `getBoth` does not synthesise an empty inner; the absent-inner case (no `Email/set` invocation at all) is row 3's shape |
 | 6 | Outer `ifInState` mismatch `stateMismatch` | `Err(stateMismatch)` | (no invocation) | `Err` — inner never reached; the outer error short-circuits the chained `?` |

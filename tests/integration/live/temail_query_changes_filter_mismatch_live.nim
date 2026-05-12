@@ -80,10 +80,11 @@ block temailQueryChangesFilterMismatchLive:
       seededIds.len == 3, "three seeded ids expected (got " & $seededIds.len & ")"
 
     let filterA = filterCondition(EmailFilterCondition(subject: Opt.some("phase-i 51")))
-    let (b1, h1) =
-      addEmailQuery(initRequestBuilder(), mailAccountId, filter = Opt.some(filterA))
+    let (b1, h1) = addEmailQuery(
+      initRequestBuilder(makeBuilderId()), mailAccountId, filter = Opt.some(filterA)
+    )
     let resp1 =
-      client.send(b1).expect("send Email/query baseline[" & $target.kind & "]")
+      client.send(b1.freeze()).expect("send Email/query baseline[" & $target.kind & "]")
     let qResp1 =
       resp1.get(h1).expect("Email/query baseline extract[" & $target.kind & "]")
     let queryStateA = qResp1.queryState
@@ -91,12 +92,12 @@ block temailQueryChangesFilterMismatchLive:
     let filterB =
       filterCondition(EmailFilterCondition(subject: Opt.some("phase-i 51 alpha")))
     let (b2, h2) = addEmailQueryChanges(
-      initRequestBuilder(),
+      initRequestBuilder(makeBuilderId()),
       mailAccountId,
       sinceQueryState = queryStateA,
       filter = Opt.some(filterB),
     )
-    let resp2 = client.send(b2).expect(
+    let resp2 = client.send(b2.freeze()).expect(
         "send Email/queryChanges mismatched filter[" & $target.kind & "]"
       )
     captureIfRequested(client, "email-query-changes-filter-mismatch-" & $target.kind)

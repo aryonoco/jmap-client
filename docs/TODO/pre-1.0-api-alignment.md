@@ -121,19 +121,16 @@ excluded from the public contract.
 
 ### A1b. Per-symbol audit of `protocol.nim` re-exports *(P5)* — **DONE**
 
-`protocol.nim` previously did blanket `export entity, methods, dispatch,
-builder`, which made every `*` declaration anywhere under
-`internal/protocol/` an automatic 1.0 commitment. A1b narrows the
-re-export list to exactly the user-facing surface using Nim's
+`protocol.nim` re-exports the user-facing surface using Nim's
 `export module except sym1, sym2, …` form. Registration plumbing,
 pre-serialisation helpers, internal merge functions, and the
-stringly-typed `addInvocation` escape hatch (P19) are now hub-private
+stringly-typed `addInvocation` escape hatch (P19) are hub-private
 without disturbing the `import jmap_client` symbol-resolution graph
-that selective `export module.symbol` re-exports were observed to
-break (the captured-fixture replay tests use `envelope.Response.fromJson(j)`
+(the captured-fixture replay tests use `envelope.Response.fromJson(j)`
 to disambiguate from per-method response types — `envelope` collides
 with the `EmailSubmissionBlueprint.envelope*` UFCS accessor, and the
-resolver's outcome is sensitive to the export form).
+resolver's outcome is sensitive to the export form, so blanket
+`export module` was avoided in favour of selective filtering).
 
 **Final public surface per module**:
 
@@ -279,22 +276,22 @@ sparse `/get`), A4 + A3.5 (`updateResults` typing + decision), A29
 (`parseGetResponse[T]` coherence invariant), F1 (property test
 wiring), D10 (L5 FFI design).
 
-Doc updates landed in this commit: `03-layer-3-design.md`,
-`00-architecture.md`, `07-mail-b-design.md` (D3.6 narrative —
-get-side full-record half retired; update-side half stays pending
-A4; sparse half documented under A3.6). New TODO entry A3.6
-inserted in this commit.
+Doc references: `03-layer-3-design.md`, `00-architecture.md`,
+`07-mail-b-design.md` (D3.6 narrative — get-side full-record half
+retired; update-side half stays pending A4; sparse half documented
+under A3.6).
 
 ### A4. Type `SetResponse[T].updateResults` *(P19)* — **DONE**
 
-`SetResponse[T]` widened to `SetResponse[T, U]` where `U` is the
-per-entity `PartialT` (D1). `updateResults` is now `Table[Id, Result[
-Opt[U], SetError]]` (D2): wire `updated[id] = null` → `ok(Opt.none(U))`
-(server confirmed without echo); wire `updated[id] = {...}` →
-`ok(Opt.some(partial))` (server echoed partial state); wire
-`notUpdated[id]` → `err(setError)`. Every non-trivial mutation flow
-now sees typed `PartialT` echoes on the consumer rail, closing the
-asymmetry with the typed `createResults` rail.
+`SetResponse[T, U]` widens the response type with a `U`
+parameter — the per-entity `PartialT` (D1). `updateResults` is
+typed `Table[Id, Result[Opt[U], SetError]]` (D2): wire
+`updated[id] = null` → `ok(Opt.none(U))` (server confirmed without
+echo); wire `updated[id] = {...}` → `ok(Opt.some(partial))`
+(server echoed partial state); wire `notUpdated[id]` →
+`err(setError)`. Every non-trivial mutation flow sees typed
+`PartialT` echoes on the consumer rail, symmetric with the typed
+`createResults` rail.
 
 `PartialT` family (six types): `PartialEmail`, `PartialMailbox`,
 `PartialIdentity`, `PartialEmailSubmission`, `PartialVacationResponse`,
@@ -384,26 +381,32 @@ and `src/jmap_client/convenience.nim`; CI fails on any exported
 it remains internally callable for the typed wrappers). Wired into
 `just check`, `just ci`, and `just lint-typed-builder-jsonnode`.
 
-### A6. Phantom-tag handles to a `BuiltRequest` *(P16, P21)*
+### A6. Phantom-tag handles to a `BuiltRequest` *(P16, P21)* — ✅ DONE
 
-`src/jmap_client/dispatch.nim:17–19` documents the gap verbatim:
-*"Cross-request safety gap. Call IDs repeat across requests. A handle
-from Request A, if used with Response B, will silently extract the
-wrong invocation."*
+Every `ResponseHandle[T]`, `NameBoundHandle[T]`, `BuiltRequest`, and
+`DispatchedResponse` carries a `BuilderId` brand. `handle.get(dr)`
+compares the brands and returns `err(gekHandleMismatch)` on
+mismatch with diagnostic payload `(expected, actual, callId)`.
+Catches cross-builder reuse within one client and cross-client
+reuse across `JmapClient` instances (multi-account scenarios).
 
-**Action.** Tag `BuiltRequest`, `ResponseHandle[T]`, **and the
-extracted `Response` carrier** with a shared phantom token (e.g.
-`BuilderId`). The compiler then rejects `respB.get(handleA)` *and*
-within-builder cross-response misuse. Zero runtime cost.
+`BuilderId` is composite: `clientBrand: uint64` drawn via
+`std/sysrand.urandom` once per `JmapClient` (entropy failure
+surfaces as `jcvEntropyUnavailable` `ValidationError`), plus
+`serial: uint64` monotonic per client.
 
-The same phantom-key shape closes the sibling-creation reference hole
-in `NonEmptyOnSuccessUpdateEmail` (`email_submission.nim:455–540`):
-`icrCreation` keys structurally cannot reference creation-ids absent
-from the same `/set` call. Same lifecycle/precondition pattern as the
-cross-request handle problem; fix in one stroke.
-
-Adding `BuilderId` post-1.0 changes every handle's type signature —
-that is a 2.0.
+**Pointers.**
+- `src/jmap_client/internal/types/identifiers.nim` — `BuilderId`
+  + `initBuilderId` + `clientBrand` / `serial` accessors.
+- `src/jmap_client/internal/protocol/dispatch.nim` — sealed
+  handle shape + brand-check at `get` / `getBoth`.
+- `src/jmap_client/internal/protocol/builder.nim` — `BuilderId`
+  threading through every `add*` via the chokepoint
+  `addInvocation`.
+- `src/jmap_client/client.nim` — brand draw via `drawClientBrand`
+  + `newBuilder`.
+- `tests/protocol/tdispatch.nim` — cross-builder and cross-client
+  mismatch blocks exercise the brand check.
 
 ### A7. Lifecycle types *(P21, P23)*
 
@@ -773,37 +776,31 @@ import graph users observe.
 `protocol.nim`, `types.nim`, `serialisation.nim`, `mail.nim`,
 `mail/types.nim`, `mail/serialisation.nim`. CI diffs.
 
-### A27. Seal the handle types *(P8)*
+### A27. Seal the handle types *(P8)* — ✅ DONE
 
-`dispatch.nim:35` `ResponseHandle[T] = distinct MethodCallId` — bare
-distinct exposes its representation through the constructor and
-through `MethodCallId(handle)`. Per P8, primary value-types must be
-sealed objects with private raw fields.
+All handle types are sealed Pattern-A objects with private `raw*`
+fields and explicit accessors:
+`ResponseHandle[T]`, `NameBoundHandle[T]`, `CompoundHandles[A, B]`,
+`ChainedHandles[A, B]`, plus `DispatchedResponse` (the sealed
+wrapper that pairs the wire `Response` with a `BuilderId`).
 
-**Action.** Wrap `ResponseHandle[T]` in a sealed Pattern-A object
-(`rawCallId` private + accessor). Apply same sealing to:
+**Pointer.** `src/jmap_client/internal/protocol/dispatch.nim`.
 
-- `NameBoundHandle[T]` — privatise `callId`/`methodName`; add
-  accessors (dispatch.nim:71–72).
-- `CompoundHandles[A, B]`, `CompoundResults[A, B]`,
-  `ChainedHandles[A, B]`, `ChainedResults[A, B]` (dispatch.nim:240–
-  301) — privatise all fields; add accessors. (Also see B9 for
-  potential consolidation of these four.)
+### A28. `Request` and `Response` opacity decision *(P8, P19)* — ✅ DONE
 
-### A28. `Request` and `Response` opacity decision *(P8, P19)*
+`Request` and `Response` are pure wire-data carriers. Dispatch
+metadata lives on sealed wrappers: `BuiltRequest` on the request
+side, `DispatchedResponse` on the response side. SQLite-style
+opacity (compiled dispatch artifact vs row data); libcurl-style
+ownership (easy handle vs response bytes).
 
-`envelope.nim:75–80` `Request` has fully-public fields `using*`,
-`methodCalls*`, `createdIds*`. `envelope.nim:82–91` `Response` has
-fully-public `methodResponses*`, `createdIds*`, `sessionState*`.
-Both are wire-data carriers; once shipped, the field set is locked.
-
-**Recommended resolution.** Stay public-field for wire-data carriers;
-document the decision explicitly in the type docstrings ("`Request`
-and `Response` are wire-data carriers; their fields are part of the
-1.0 public API"). The opacity argument bites for *handles*, not for
-*envelopes*.
-
-Companion to A2 (which only addresses `Invocation.arguments`).
+**Pointers.**
+- `src/jmap_client/internal/protocol/builder.nim` —
+  `BuiltRequest` sealed; `request` / `builderId` / `callLimits`
+  accessors hub-private.
+- `src/jmap_client/internal/protocol/dispatch.nim` —
+  `DispatchedResponse` sealed; `response` / `builderId`
+  hub-private; `sessionState` / `createdIds` hub-public.
 
 ### A29. `parseGetResponse[T]` smart constructor *(P16)*
 
@@ -883,59 +880,62 @@ have no public typed path to sparse `/get` for those five entities.
   the typed-`updateResults` rail (A4) is unaffected — the `PartialT`
   family is already in place there.
 
-### A6.5. Stub `BuiltRequest` and `DispatchedRequest` types *(P21, P23)*
+### A6.5. Stub `BuiltRequest` and `DispatchedRequest` types *(P21, P23)* — ✅ DONE (`BuiltRequest`); 🟡 deferred (`DispatchedRequest`)
 
-A7 specifies the four-phase lifecycle (`RequestBuilder` →
-`BuiltRequest` → `DispatchedRequest` → `Response`) but `BuiltRequest`
-and `DispatchedRequest` types do not exist today. Without them,
-A6's `BuilderId` phantom token has no carrier; cross-request handle
-misuse remains a runtime hazard.
+`BuiltRequest` is the sealed, branded carrier produced by
+`RequestBuilder.freeze()` and consumed by `JmapClient.send`.
+`DispatchedResponse` is the sibling sealed type returned by
+`send`, carrying the wire `Response` plus the brand.
 
-**Action.** Add the stub types now, even if their internal shape
-remains unchanged from `Request`/`Response` until A19 (Transport
-interface) lands:
+`DispatchedRequest` is reserved as the future async carrier for
+when A19 + E1 land — the async overload of `send` will return
+`JmapResult[DispatchedRequest]` and `DispatchedRequest.await` will
+yield `JmapResult[DispatchedResponse]`. **Not introduced today**
+because no async path exists; the sync `send` completes
+synchronously and returns the `DispatchedResponse` directly.
 
-```nim
-# src/jmap_client/builder.nim
-type BuiltRequest* {.ruleOff: "objects".} = object
-  ## Frozen, dispatch-ready request. Created by ``RequestBuilder.freeze()``;
-  ## consumed by ``JmapClient.send``. Phantom-tagged with ``BuilderId``
-  ## (A6) to prevent cross-request handle reuse.
-  request: Request
-  builderId: BuilderId   # A6 — sealed phantom token
+### A6.6. Sibling-creation cid invariant on `addEmailSubmissionAndEmailSet` *(P16)* — ✅ DONE
 
-# src/jmap_client/dispatch.nim
-type DispatchedRequest* {.ruleOff: "objects".} = object
-  ## Sent, awaiting response. Stub today; will hold the async future
-  ## once A19's Transport interface lands. Locked pre-1.0 so the
-  ## async path can be additive (P23).
-  builderId: BuilderId   # A6 — same phantom carrier
-```
+RFC 8620 §5.3 ties every `icrCreation(cid)` reference in
+`onSuccessUpdateEmail` and `onSuccessDestroyEmail` to a
+`CreationId` appearing as a key in `create` on the same call.
+`addEmailSubmissionAndEmailSet` enforces this at the builder
+boundary via the per-call smart constructor `validateOnSuccessCids`;
+failure surfaces as `ValidationError` before any wire
+serialisation, not as a server-side `SetError(setNotFound)`
+round-trip. `icrDirect` references are exempt (server-persisted
+ids are validated separately by the server).
 
-Both types ship sealed (private fields, no public constructors
-outside their defining modules — backed by H1).
+**Why a smart constructor and not a phantom type.** A phantom-typed
+`OnSuccessUpdateEmail[CreateScope]` would force every consumer to
+thread the scope marker through the call site, multiplying the
+public surface for marginal benefit. The validation is concentrated
+at one boundary (`addEmailSubmissionAndEmailSet`) and the failure
+mode is rare; an informative `ValidationError` is the right
+ergonomic tradeoff.
 
-### A7b. Refactor lifecycle: `RequestBuilder.freeze()` and `JmapClient.send(BuiltRequest)` *(P21, P16)*
+**Pointers.**
+- `src/jmap_client/internal/mail/submission_builders.nim` —
+  `validateOnSuccessCids` + `addEmailSubmissionAndEmailSet` return
+  type `Result[(RequestBuilder, EmailSubmissionHandles), ValidationError]`.
+- `tests/unit/mail/tsubmission_cid_invariant.nim` — exercises the
+  three branches: mismatch returns `ValidationError`; matching
+  `create` returns `ok`; `icrDirect` exempt returns `ok`.
 
-A7 is design intent; A7b is the concrete refactor that enforces it
-in the type system. Today `JmapClient.send(client, request: Request)`
-accepts the wire type directly — there is no compile-time obstacle
-to dispatching an unbuilt accumulator.
+### A7b. Refactor lifecycle: `RequestBuilder.freeze()` and `JmapClient.send(BuiltRequest)` *(P21, P16)* — ✅ DONE
 
-**Action.** Three signature changes:
+`RequestBuilder.freeze() → BuiltRequest` produces the frozen,
+branded carrier. `JmapClient.send(BuiltRequest) →
+JmapResult[DispatchedResponse]` is the sole blessed send path —
+neither raw `Request` nor unfrozen `RequestBuilder` is accepted.
+Future async-path overload (A19 + E1) returns
+`JmapResult[DispatchedRequest]` additively.
 
-1. `src/jmap_client/builder.nim` — rename `build()` to `freeze(): BuiltRequest`.
-   The wire-only `Request.toJson` path is preserved for diagnostic
-   serialisation (A28).
-2. `src/jmap_client/client.nim:641` — change
-   `proc send(client: var JmapClient, request: Request)` to
-   `proc send(client: var JmapClient, req: BuiltRequest): JmapResult[Response]`.
-3. The async-path overload (post-A19) returns
-   `JmapResult[DispatchedRequest]` instead. Lock the signature now
-   so 1.x can add the overload additively.
-
-After this refactor, `let req = builder.freeze(); client.send(req)`
-compiles; `client.send(builder)` does not.
+**Pointers.**
+- `src/jmap_client/internal/protocol/builder.nim` — `freeze` and
+  `BuiltRequest`.
+- `src/jmap_client/client.nim` — `send(BuiltRequest)`;
+  `validateLimits` operates on `BuiltRequest`.
 
 ### A12b. Implement `message()` and `$` for every error type *(P7, P13)*
 
@@ -1648,21 +1648,15 @@ the most-cited URLs by adoption pattern:
 Each recipe ≤ 30 lines of Nim, runnable against any of the three
 target servers.
 
-### D15. Lifecycle types design note *(P27)*
+### D15. Lifecycle types design note *(P27)* — ❌ DROPPED
 
-Write `docs/design/16-Lifecycle-Types.md` as the design note for
-A6 / A7 / A19 / A23 / A24:
-
-- The four-phase lifecycle (`RequestBuilder` → `BuiltRequest` →
-  `DispatchedRequest` → `Response`) and what each phase guarantees.
-- The `BuilderId` phantom (A6) — how cross-request and cross-response
-  misuse fail to compile.
-- The `Transport` interface (A19) — the abstract interface
-  signature; how `HttpClientTransport` adapts `std/httpclient`.
-- The `PushChannel` (A23) and `WebSocketChannel` (A24) reservations.
-
-Author this *before* the type refactor lands, per P27 ("new modules
-get a design note before they're written").
+The lifecycle contract is documented inline at its enforcement
+sites: type docstrings on `RequestBuilder` / `BuiltRequest` /
+`DispatchedResponse` / `ResponseHandle` / `NameBoundHandle` /
+`BuilderId` / `GetError`, plus `docs/design/03-layer-3-design.md`
+§4.3 (two-level railway composition) and
+`docs/design/00-architecture.md` §lifecycle. A standalone design
+doc would duplicate those without adding constraint information.
 
 ### D16. Convenience module design note *(P27)*
 
@@ -2003,8 +1997,16 @@ under `src/`. Same hook as D12.
 **Implementation path.** `tests/lint/h4_no_non_jmap_imports.nim`.
 Wired to `just lint`. Allowlist: `std/[json, httpclient, strutils,
 tables, hashes, sets, sequtils, sugar, options, times, uri,
-nativesockets, net, base64, parseutils]`. Anything else under
-`src/` requires explicit allowlist entry with rationale.
+nativesockets, net, base64, parseutils, sysrand]`. Anything else
+under `src/` requires explicit allowlist entry with rationale.
+
+**Forward-pointer for A6.** A6 introduces `std/sysrand` in
+`src/jmap_client/client.nim` for the `BuilderId.clientBrand`
+draw — the chosen failure mode is loud failure
+(`jcvEntropyUnavailable` `ValidationError`), so `std/monotimes`
+is NOT imported and no fallback path exists. When H4 lands, the
+allowlist must include `std/sysrand`. The H4 lint does not yet
+exist; this is a forward-pointer for whoever lands H4.
 
 ### H5. Forbidden top-level public proc patterns *(P20)* — backs D7
 
@@ -2135,29 +2137,29 @@ Status legend:
 | P2 (tests) | A25, A28b, D2, D3, F1, F5 | Property tests (F1); wire-byte fixtures (D3) | 🟡 |
 | P3 (overloads not `_v2`) | C2, C3, D1.5 (no-suffix rule) | H5 lint; review | 🟡 |
 | P4 (scope) | D11, D11.5, D12, H4 | H4 non-JMAP-import lint | 🟡 |
-| P5 (single layer) | A1, A1b, A9, A10, A14, F2, F6 | H5; H10; F6 snapshot | 🟡 |
+| P5 (single layer) | A1, A1b, A6, A9, A10, A14, F2, F6 | H5; H10; F6 snapshot | 🟡 |
 | P6 (convenience quarantine) | C7, C9, F3, D16, H7 | H7 charter lint | 🟡 |
 | P7 (wrap rate) | A12, A12b, B5, C1, C1.1, C2–C5, C8, F4 | F4 CLI smoke test | 🟡 |
-| P8 (opaque handles) | A9, A13, A27, A28, A28b | F2 audit; H1 | 🟡 |
-| P9 (two contexts max) | A7, A6.5, A7b, B9, C9, D10 | H7; B9 resolution | 🔴 (B9 open) |
+| P8 (opaque handles) | A6, A6.5, A6.6, A7b, A9, A13, A27, A28, A28b | F2 audit; H1 | 🟡 |
+| P9 (two contexts max) | A6.5, A6.6, A7, A7b, B9, C9, D10 | H7; B9 resolution | 🔴 (B9 open) |
 | P10 (no globals) | D1.5 (no-globals rule), H2 | H2 lint | 🟡 |
 | P11 (no global callbacks) | D1.5 (no-callbacks rule), D10 | review; future H10 once L5 lands | 🟡 |
 | P12 (memory ownership in types) | A13, B10 | review | 🟡 |
-| P13 (one error rail) | A12, A12b | H8 `.get()` invariant lint | 🟡 |
+| P13 (one error rail) | A6, A12, A12b | H8 `.get()` invariant lint | 🟡 |
 | P14 (no thread-local errors) | D10, H3 | H3 lint | 🟡 |
 | P15 (smart constructors) | A8, A15 (SerializedSort/Filter), H1 | H1 lint | 🟡 |
-| P16 (preconditions in types) | A6, A6.5, A7b, A29, B3, B4, B6, B11, B12 | H9; B11/B12 resolution | 🔴 (B11, B12 open) |
+| P16 (preconditions in types) | A6, A6.5, A6.6, A7b, A29, B3, B4, B6, B11, B12 | H9; B11/B12 resolution | 🔴 (B11, B12 open) |
 | P17 (one config surface) | A14, A20, A21 | review; F6 snapshot | 🟡 |
-| P18 (sum types over flag soup) | B1, B2, B7, B8, H9 | H9 catch-all lint | 🟡 |
+| P18 (sum types over flag soup) | A6, B1, B2, B7, B8, H9 | H9 catch-all lint | 🟡 |
 | P19 (schema-driven types) | A2, A2b, A3, A3.5, A4, A5, A14, A15, A16, A17, A18, A21, A22, A22b, A28, A28b | H11 typed-builder lint (A5); A22b inline docstrings; F1 | 🟡 |
 | P20 (additive variants) | A11, A23, A24, D7, D13, D13.5, H5 | H5 lint | 🟡 |
-| P21 (lifecycle types) | A6, A6.5, A7, A7b, A23, A24 | type-shape snapshot (A25) | 🟡 |
-| P22 (sync first, async via interface) | A19, E1 | review; transport interface lands first | 🟡 |
+| P21 (lifecycle types) | A6, A6.5, A6.6, A7, A7b, A23, A24, A27, A28 | type-shape snapshot (A25) | 🟡 |
+| P22 (sync first, async via interface) | A6, A19, E1 | review; transport interface lands first | 🟡 |
 | P23 (push as separate type) | A23, A24, D13.5 | existence gate (A23, A24, D13.5 files) | 🟡 |
-| P24 (threading invariant) | A13, D8 | D8 docstring footer; review | 🟡 |
+| P24 (threading invariant) | A6, A13, D8 | D8 docstring footer; review | 🟡 |
 | P25 (license) | D1.5, H6 | `reuse lint`; H6 freeze gate | 🟡 |
 | P26 (build) | current `mise.toml`/`justfile`/`.nimble`; D1.5 documents the single `when defined(ssl)` concession in `errors.nim:18` | review | 🟢 |
-| P27 (architecture docs) | D7, D9, D15, D16 | existence gates | 🟡 |
+| P27 (architecture docs) | D7, D9, D16 | existence gates | 🟡 |
 | P28 (long-form docs) | D9, D10, D14 | existence gates | 🟡 |
 | P29 (sample consumer) | C1, C1.1, F4 | F4 CI smoke + AUDIT.md | 🟡 |
 
@@ -2191,8 +2193,8 @@ if any row is unticked.
 
 | # | Decision | Item | Gate |
 |---|---|---|---|
-| 1 | Choose the public layer | A1, A1b | F6 snapshot |
-| 2 | Public symbol audit | A1, F2 | F6 snapshot |
+| 1 | Choose the public layer | A1, A1b, A6 | F6 snapshot |
+| 2 | Public symbol audit | A1, A6, F2 | F6 snapshot |
 | 3 | Lock the wire contract | F1, A2b, A28b, D3 | property tests + fixture diff |
 | 4 | Name the Push channel type | A23, D13.5 | existence gate |
 | 5 | Threading invariant | D8 | docstring footer audit |

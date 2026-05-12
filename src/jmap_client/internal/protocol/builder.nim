@@ -3,9 +3,16 @@
 
 ## Request builder for constructing JMAP method call batches (RFC 8620
 ## section 3.3). Accumulates typed method invocations and capability URIs,
-## producing a complete Request envelope via ``build()``. Each ``add*``
+## producing a sealed ``BuiltRequest`` via ``freeze()``. Each ``add*``
 ## function returns a phantom-typed ``ResponseHandle[T]`` for type-safe
 ## response extraction via ``dispatch.get[T]``.
+##
+## **Lifecycle.** ``RequestBuilder`` (mutable accumulator) → ``BuiltRequest``
+## (frozen, branded carrier) → ``DispatchedResponse`` (received, branded
+## artifact) → ``T`` (typed value). Each phase is a distinct type; the
+## brand carried on every handle and every dispatched response makes
+## cross-builder and cross-client misuse a programming error caught at
+## extraction time (``gekHandleMismatch``).
 ##
 ## **Pure functional core.** Each ``add*`` returns a new
 ## ``(RequestBuilder, ResponseHandle[T])`` tuple.
@@ -15,7 +22,8 @@
 ## deduplicated.
 ##
 ## **Call ID generation.** Auto-incrementing "c0", "c1", "c2"... (Decision
-## 3.2A). Call IDs are scoped to a single builder instance.
+## 3.2A). Call IDs are scoped to a single builder instance; the
+## ``BuilderId`` brand distinguishes builder instances.
 
 {.push raises: [], noSideEffect.}
 {.experimental: "strictCaseObjects".}
@@ -38,32 +46,56 @@ import ./call_meta
 
 type RequestBuilder* = object
   ## Immutable accumulator for constructing a JMAP Request (RFC 8620
-  ## section 3.3).
+  ## section 3.3). Each builder carries a ``BuilderId`` brand minted at
+  ## construction; that brand travels into every handle the builder
+  ## issues and into the ``BuiltRequest`` produced by ``freeze``, so
+  ## extraction can detect cross-builder / cross-client misuse.
+  id: BuilderId ## per-builder dispatch brand
   nextCallId: int ## monotonic counter for "c0", "c1", ...
   invocations: seq[Invocation] ## accumulated method calls
   callLimits: seq[CallLimitMeta]
     ## per-call object-count metadata, parallel to invocations
   capabilityUris: seq[CapabilityUri] ## deduplicated capability URIs
 
+type BuiltRequest* = object
+  ## Frozen, dispatch-ready request. Produced by ``RequestBuilder.freeze``;
+  ## consumed by ``JmapClient.send``. Carries the builder's brand so the
+  ## ``DispatchedResponse`` returned from ``send`` carries the same
+  ## brand, allowing handles issued by the same builder to match at
+  ## extraction.
+  rawRequest: Request
+  rawBuilderId: BuilderId
+  rawCallLimits: seq[CallLimitMeta]
+
 {.pop.}
 
-func initRequestBuilder*(): RequestBuilder =
-  ## Creates a fresh builder with counter at zero, no invocations, and
-  ## ``urn:ietf:params:jmap:core`` pre-declared in ``using``. RFC 8620
-  ## §3.2 obliges clients to declare every capability they need to use;
-  ## ``core`` is the foundational namespace that every JMAP method
-  ## implicitly relies on (Result-Reference, sessionState, etc.). Lenient
-  ## servers (Stalwart 0.15.5) accept requests with ``core`` omitted;
-  ## strict servers (Apache James 3.9) reject them with
-  ## ``unknownMethod (Missing capability(ies): urn:ietf:params:jmap:core)``.
-  ## Pre-declaring it makes the client portable across both.
+func initRequestBuilder*(id: BuilderId): RequestBuilder =
+  ## Module-private surface — exported with ``*`` so ``client.nim`` and
+  ## tests under ``tests/`` can construct, filtered from the protocol
+  ## hub. Creates a fresh builder branded with ``id``, counter at zero,
+  ## no invocations, and ``urn:ietf:params:jmap:core`` pre-declared in
+  ## ``using``. RFC 8620 §3.2 obliges clients to declare every
+  ## capability they need to use; ``core`` is the foundational namespace
+  ## that every JMAP method implicitly relies on (Result-Reference,
+  ## sessionState, etc.). Lenient servers (Stalwart 0.15.5) accept
+  ## requests with ``core`` omitted; strict servers (Apache James 3.9)
+  ## reject them with ``unknownMethod (Missing capability(ies):
+  ## urn:ietf:params:jmap:core)``. Pre-declaring it makes the client
+  ## portable across both.
   return RequestBuilder(
+    id: id,
     nextCallId: 0,
     invocations: @[],
     callLimits: @[],
     # literal IETF URN, always parses Ok
     capabilityUris: @[parseCapabilityUri("urn:ietf:params:jmap:core").get()],
   )
+
+func builderId*(b: RequestBuilder): BuilderId =
+  ## Hub-private accessor — the builder's brand. Reachable via direct
+  ## ``import jmap_client/internal/protocol/builder``; filtered from
+  ## the protocol hub so application developers never see brands.
+  b.id
 
 # =============================================================================
 # Read-only accessors (immutability by default)
@@ -83,29 +115,54 @@ func capabilities*(b: RequestBuilder): seq[string] =
   ## (RFC 8620 §3.3 wire format).
   return b.capabilityUris.mapIt(string(it))
 
-func callLimits*(b: RequestBuilder): seq[CallLimitMeta] =
-  ## Per-call limit metadata, parallel to ``b.build().methodCalls``.
-  ## Internal-only API — used by ``client.validateLimits(builder, caps)``
-  ## to enforce server-declared ``maxObjectsInGet`` and
-  ## ``maxObjectsInSet`` from typed counts rather than raw JSON
-  ## traversal of ``inv.arguments``. Excluded from the hub re-export
-  ## (``protocol.nim``); reachable only via direct internal import.
-  return b.callLimits
-
 # =============================================================================
-# Build — pure snapshot
+# Freeze — sealed snapshot into a branded BuiltRequest
 # =============================================================================
 
-func build*(b: RequestBuilder): Request =
-  ## Snapshot of the current builder state.
-  ## ``createdIds`` is always none — proxy splitting is a Layer 4 concern.
-  ## The builder can continue accumulating after ``build()`` for sequential
-  ## requests.
-  return Request(
-    `using`: b.capabilityUris.mapIt(string(it)),
-    methodCalls: b.invocations,
-    createdIds: Opt.none(Table[CreationId, Id]),
+func freeze*(b: RequestBuilder): BuiltRequest =
+  ## Snapshots the builder's accumulated state into a sealed, branded
+  ## carrier. The builder remains immutable (the codebase's existing
+  ## accumulator pattern) — ``freeze`` does NOT consume the builder;
+  ## callers may continue accumulating into a fresh branch off ``b`` if
+  ## they wish, though each new accumulation must eventually ``freeze``
+  ## for dispatch. ``createdIds`` is always ``none`` — proxy splitting
+  ## is a Layer 4 concern.
+  BuiltRequest(
+    rawRequest: Request(
+      `using`: b.capabilityUris.mapIt(string(it)),
+      methodCalls: b.invocations,
+      createdIds: Opt.none(Table[CreationId, Id]),
+    ),
+    rawBuilderId: b.id,
+    rawCallLimits: b.callLimits,
   )
+
+func request*(br: BuiltRequest): Request =
+  ## Hub-private accessor (filtered from the protocol hub). Reachable
+  ## via direct ``import jmap_client/internal/protocol/builder``.
+  br.rawRequest
+
+func builderId*(br: BuiltRequest): BuilderId =
+  ## Hub-private accessor — the brand of the issuing builder.
+  br.rawBuilderId
+
+func callLimits*(br: BuiltRequest): seq[CallLimitMeta] =
+  ## Hub-private accessor — per-call object-count metadata, parallel to
+  ## ``br.request.methodCalls``. Used by ``client.validateLimits`` to
+  ## enforce server-declared ``maxObjectsInGet`` and ``maxObjectsInSet``
+  ## from typed counts rather than raw JSON traversal of
+  ## ``inv.arguments``.
+  br.rawCallLimits
+
+func builtRequestForTest*(
+    request: Request, builderId: BuilderId, callLimits: seq[CallLimitMeta] = @[]
+): BuiltRequest =
+  ## Test-only escape hatch — constructs a ``BuiltRequest`` from raw
+  ## components without routing through ``RequestBuilder``. Hub-private
+  ## (filtered out of ``protocol.nim``'s re-export). Reachable only via
+  ## whitebox internal imports under ``tests/``. Production code MUST
+  ## use ``RequestBuilder.freeze()``.
+  BuiltRequest(rawRequest: request, rawBuilderId: builderId, rawCallLimits: callLimits)
 
 # =============================================================================
 # Internal helpers (not exported)
@@ -134,11 +191,14 @@ func addInvocation*(
   ## ``name`` is typed — illegal (empty) names are structurally impossible.
   ## ``meta`` records the per-call object-count signature for
   ## ``client.validateLimits``; defaults to ``clmOther`` (no per-call
-  ## object-count limit applies).
+  ## object-count limit applies). The accumulated builder preserves the
+  ## brand of ``b`` (``b.id``), so every handle minted from this point
+  ## carries the same ``BuilderId``.
   let callId = b.nextId()
   let inv = initInvocation(name, args, callId)
   return (
     RequestBuilder(
+      id: b.id,
       nextCallId: b.nextCallId + 1,
       invocations: b.invocations & @[inv],
       callLimits: b.callLimits & @[meta],
@@ -167,7 +227,7 @@ template addMethodImpl(
   let args = req.toJson()
   let (newBuilder, callId) =
     addInvocation(b, methodNameResolver(T), args, capabilityUri(T))
-  (newBuilder, ResponseHandle[RespType](callId))
+  (newBuilder, initResponseHandle[RespType](callId, b.id))
 
 # =============================================================================
 # addEcho — Core/echo (RFC 8620 section 4)
@@ -184,7 +244,7 @@ func addEcho*(
     # literal IETF URN, always parses Ok
     parseCapabilityUri("urn:ietf:params:jmap:core").get(),
   )
-  return (newBuilder, ResponseHandle[JsonNode](callId))
+  return (newBuilder, initResponseHandle[JsonNode](callId, b.id))
 
 # =============================================================================
 # addCapabilityInvocation — RFC 8620 §2.5 vendor capability escape
@@ -210,6 +270,7 @@ func addRawInvocation(
   ok(
     (
       RequestBuilder(
+        id: b.id,
         nextCallId: b.nextCallId + 1,
         invocations: b.invocations & @[inv],
         callLimits: b.callLimits & @[meta],
@@ -254,7 +315,7 @@ func addCapabilityInvocation*(
     return
       err(validationError("VendorInvocation", "args must be a JSON object", $args.kind))
   let (b1, callId) = ?addRawInvocation(b, string(methodName), args, capability)
-  ok((b1, ResponseHandle[JsonNode](callId)))
+  ok((b1, initResponseHandle[JsonNode](callId, b.id)))
 
 # =============================================================================
 # addGet — Foo/get (RFC 8620 section 5.1)
@@ -275,7 +336,7 @@ func addGet*[T](
   let meta = getMeta(ids)
   let (newBuilder, callId) =
     addInvocation(b, getMethodName(T), args, capabilityUri(T), meta)
-  (newBuilder, ResponseHandle[GetResponse[T]](callId))
+  (newBuilder, initResponseHandle[GetResponse[T]](callId, b.id))
 
 # =============================================================================
 # addChanges — Foo/changes (RFC 8620 section 5.2)
@@ -341,7 +402,7 @@ func addSet*[T, C, U, R](
   let meta = setMeta(create, update, destroy)
   let (newBuilder, callId) =
     addInvocation(b, setMethodName(T), args, capabilityUri(T), meta)
-  (newBuilder, ResponseHandle[R](callId))
+  (newBuilder, initResponseHandle[R](callId, b.id))
 
 # =============================================================================
 # addCopy — Foo/copy (RFC 8620 section 5.4)
@@ -376,7 +437,7 @@ func addCopy*[T, CopyItem, R](
   let meta = CallLimitMeta(kind: clmSet, objectCount: Opt.some(create.len))
   let (newBuilder, callId) =
     addInvocation(b, copyMethodName(T), args, capabilityUri(T), meta)
-  (newBuilder, ResponseHandle[R](callId))
+  (newBuilder, initResponseHandle[R](callId, b.id))
 
 # =============================================================================
 # addQuery — Foo/query (RFC 8620 section 5.5)
@@ -400,7 +461,7 @@ func addQuery*[T, C, SortT](
   )
   let (newBuilder, callId) =
     addInvocation(b, queryMethodName(T), args, capabilityUri(T))
-  (newBuilder, ResponseHandle[QueryResponse[T]](callId))
+  (newBuilder, initResponseHandle[QueryResponse[T]](callId, b.id))
 
 # =============================================================================
 # addQueryChanges — Foo/queryChanges (RFC 8620 section 5.6)
@@ -433,7 +494,7 @@ func addQueryChanges*[T, C, SortT](
   )
   let (newBuilder, callId) =
     addInvocation(b, queryChangesMethodName(T), args, capabilityUri(T))
-  (newBuilder, ResponseHandle[QueryChangesResponse[T]](callId))
+  (newBuilder, initResponseHandle[QueryChangesResponse[T]](callId, b.id))
 
 # =============================================================================
 # Single-type-parameter query overloads (resolve filter via template expansion)

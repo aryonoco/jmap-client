@@ -8,7 +8,7 @@
 ## > If sent, the server MUST include the same map as the value of
 ## > the createdIds property in the response.
 ##
-## ``RequestBuilder.build()`` hardcodes ``createdIds: Opt.none`` at
+## ``RequestBuilder.freeze().request`` hardcodes ``createdIds: Opt.none`` at
 ## ``builder.nim:75-80``, so this contract is exercised only by
 ## constructing a ``Request`` value manually.  Cross-method creation-
 ## id references (``"ids": ["#draft1"]`` resolving to the create-cid
@@ -46,7 +46,7 @@ block tcreatedIdsEnvelopeLive:
 
     # Sub-test 1: outgoing createdIds round-trip with a Core/echo
     # invocation.  Build the Request value directly so createdIds
-    # can be set; ``RequestBuilder.build()`` hardcodes none.
+    # can be set; ``RequestBuilder.freeze().request`` hardcodes none.
     block outgoingCreatedIdsCase:
       let realEmailId = seedSimpleEmail(
           client, mailAccountId, inbox, "phase-j 68 createdIds seed", "phase-j-68-seed"
@@ -58,15 +58,22 @@ block tcreatedIdsEnvelopeLive:
       seedMap[knownCid] = realEmailId
 
       let echoArgs = %*{"phase-j-68": "createdIds-roundtrip"}
-      let (b, _) = initRequestBuilder().addEcho(echoArgs)
-      let baseReq = b.build()
+      let (b, _) = initRequestBuilder(makeBuilderId()).addEcho(echoArgs)
+      let baseReq = b.freeze().request
+      # The public ``send(BuiltRequest)`` path always emits
+      # ``createdIds: none`` (P21: ``BuiltRequest`` is the sealed
+      # frozen carrier; ``createdIds`` is a Layer-4-only proxy
+      # concern). To exercise the RFC 8620 §3.3 server-echo
+      # contract, drop into the ``sendRawHttpForTesting`` escape
+      # hatch which POSTs a custom body verbatim.
       let req = Request(
         `using`: baseReq.`using`,
         methodCalls: baseReq.methodCalls,
         createdIds: Opt.some(seedMap),
       )
-      let resp =
-        client.send(req).expect("send Core/echo with createdIds[" & $target.kind & "]")
+      let resp = client.sendRawHttpForTesting($req.toJson()).expect(
+          "send Core/echo with createdIds[" & $target.kind & "]"
+        )
       captureIfRequested(client, "created-ids-envelope-" & $target.kind).expect(
         "captureIfRequested createdIds"
       )
@@ -87,10 +94,13 @@ block tcreatedIdsEnvelopeLive:
 
       # Cleanup: destroy seed.
       let (bClean, cleanHandle) = addEmailSet(
-        initRequestBuilder(), mailAccountId, destroy = directIds(@[realEmailId])
+        initRequestBuilder(makeBuilderId()),
+        mailAccountId,
+        destroy = directIds(@[realEmailId]),
       )
-      let respClean =
-        client.send(bClean).expect("send Email/set cleanup[" & $target.kind & "]")
+      let respClean = client.send(bClean.freeze()).expect(
+          "send Email/set cleanup[" & $target.kind & "]"
+        )
       let cleanResp = respClean.get(cleanHandle).expect(
           "Email/set cleanup extract[" & $target.kind & "]"
         )
@@ -130,8 +140,9 @@ block tcreatedIdsEnvelopeLive:
         parseCreationId("draft1").expect("parseCreationId[" & $target.kind & "]")
       var createTbl = initTable[CreationId, EmailBlueprint]()
       createTbl[draft1Cid] = blueprint
-      let (b1, setHandle) =
-        addEmailSet(initRequestBuilder(), mailAccountId, create = Opt.some(createTbl))
+      let (b1, setHandle) = addEmailSet(
+        initRequestBuilder(makeBuilderId()), mailAccountId, create = Opt.some(createTbl)
+      )
       # ``Id("#draft1")`` is the wire-shape way to reference a
       # creation id in the same envelope.  parseId accepts any
       # non-empty 1-255 ASCII; the bare ``Id`` cast bypasses the
@@ -139,7 +150,7 @@ block tcreatedIdsEnvelopeLive:
       let creationRefId = Id("#draft1")
       let (b2, getHandle) =
         addEmailGet(b1, mailAccountId, ids = directIds(@[creationRefId]))
-      let resp = client.send(b2).expect(
+      let resp = client.send(b2.freeze()).expect(
           "send Email/set+Email/get with creation ref[" & $target.kind & "]"
         )
       let setResp =
@@ -167,10 +178,13 @@ block tcreatedIdsEnvelopeLive:
 
       # Cleanup: destroy the freshly created draft.
       let (bClean, cleanHandle) = addEmailSet(
-        initRequestBuilder(), mailAccountId, destroy = directIds(@[seededId])
+        initRequestBuilder(makeBuilderId()),
+        mailAccountId,
+        destroy = directIds(@[seededId]),
       )
-      let respClean =
-        client.send(bClean).expect("send Email/set cleanup[" & $target.kind & "]")
+      let respClean = client.send(bClean.freeze()).expect(
+          "send Email/set cleanup[" & $target.kind & "]"
+        )
       let cleanResp = respClean.get(cleanHandle).expect(
           "Email/set cleanup extract[" & $target.kind & "]"
         )

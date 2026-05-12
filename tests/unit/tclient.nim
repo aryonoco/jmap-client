@@ -390,19 +390,19 @@ block enforceBodySizeLimitDisabled:
 block validateLimitsZeroCalls:
   ## Scenario 21: 0 calls with maxCallsInRequest = 1 — within limits.
   let caps = makeCoreCapsWithLimits(maxCallsInRequest = 1)
-  let req = makeRequest(methodCalls = @[])
+  let req = makeBuiltRequest(methodCalls = @[])
   validateLimits(req, caps).get()
 
 block validateLimitsAtCallLimit:
   ## Scenario 22: 1 call with maxCallsInRequest = 1 — exactly at limit.
   let caps = makeCoreCapsWithLimits(maxCallsInRequest = 1)
-  let req = makeRequest(methodCalls = @[makeInvocation()])
+  let req = makeBuiltRequest(methodCalls = @[makeInvocation()])
   validateLimits(req, caps).get()
 
 block validateLimitsExceedsCallLimit:
   ## Scenario 23: 2 calls with maxCallsInRequest = 1 — exceeds limit.
   let caps = makeCoreCapsWithLimits(maxCallsInRequest = 1)
-  let req = makeRequest(
+  let req = makeBuiltRequest(
     methodCalls = @[
       makeInvocation("Mailbox/get", makeMcid("c0")),
       makeInvocation("Email/get", makeMcid("c1")),
@@ -420,9 +420,11 @@ block validateLimitsGetWithinLimit:
   for i in 0 ..< 5:
     ids[i] = Id("id" & $i)
   let (b, _) = addGet[Email](
-    initRequestBuilder(), accountId = AccountId("a1"), ids = directIds(ids)
+    initRequestBuilder(makeBuilderId()),
+    accountId = AccountId("a1"),
+    ids = directIds(ids),
   )
-  validateLimits(b, caps).get()
+  validateLimits(b.freeze(), caps).get()
 
 block validateLimitsGetExceedsLimit:
   ## Scenario 25: /get with 11 direct ids, maxObjectsInGet = 10 — exceeds limit.
@@ -431,9 +433,11 @@ block validateLimitsGetExceedsLimit:
   for i in 0 ..< 11:
     ids[i] = Id("id" & $i)
   let (b, _) = addGet[Email](
-    initRequestBuilder(), accountId = AccountId("a1"), ids = directIds(ids)
+    initRequestBuilder(makeBuilderId()),
+    accountId = AccountId("a1"),
+    ids = directIds(ids),
   )
-  let limR2 = validateLimits(b, caps)
+  let limR2 = validateLimits(b.freeze(), caps)
   doAssert limR2.isErr, "expected Err for exceeding maxObjectsInGet"
   doAssert limR2.error.typeName == "Request"
   doAssert "maxObjectsInGet" in limR2.error.message
@@ -445,39 +449,40 @@ block validateLimitsGetReferenceIds:
     resultOf = parseMethodCallId("c0").get(), name = mnEmailQuery, path = rpIds
   )
   let (b, _) = addGet[Email](
-    initRequestBuilder(),
+    initRequestBuilder(makeBuilderId()),
     accountId = AccountId("a1"),
     ids = Opt.some(referenceTo[seq[Id]](rr)),
   )
-  validateLimits(b, caps).get()
+  validateLimits(b.freeze(), caps).get()
 
 block validateLimitsGetNullIds:
   ## Scenario 27: /get with no ids parameter — idCount = 0.
   let caps = makeCoreCapsWithLimits(maxObjectsInGet = 1)
-  let (b, _) = addGet[Email](initRequestBuilder(), accountId = AccountId("a1"))
-  validateLimits(b, caps).get()
+  let (b, _) =
+    addGet[Email](initRequestBuilder(makeBuilderId()), accountId = AccountId("a1"))
+  validateLimits(b.freeze(), caps).get()
 
 block validateLimitsSetWithinLimit:
   ## Scenario 28: /set with combined object count 9, limit 10 — within.
   let caps = makeCoreCapsWithLimits(maxObjectsInSet = 10)
-  let (b, _) = initRequestBuilder().addInvocation(
+  let (b, _) = initRequestBuilder(makeBuilderId()).addInvocation(
       mnMailboxSet,
       newJObject(),
       parseCapabilityUri("urn:ietf:params:jmap:mail").get(),
       CallLimitMeta(kind: clmSet, objectCount: Opt.some(9)),
     )
-  validateLimits(b, caps).get()
+  validateLimits(b.freeze(), caps).get()
 
 block validateLimitsSetExceedsLimit:
   ## Scenario 29: /set with combined object count 11, limit 10 — exceeds.
   let caps = makeCoreCapsWithLimits(maxObjectsInSet = 10)
-  let (b, _) = initRequestBuilder().addInvocation(
+  let (b, _) = initRequestBuilder(makeBuilderId()).addInvocation(
       mnMailboxSet,
       newJObject(),
       parseCapabilityUri("urn:ietf:params:jmap:mail").get(),
       CallLimitMeta(kind: clmSet, objectCount: Opt.some(11)),
     )
-  let limR3 = validateLimits(b, caps)
+  let limR3 = validateLimits(b.freeze(), caps)
   doAssert limR3.isErr, "expected Err for exceeding maxObjectsInSet"
   doAssert limR3.error.typeName == "Request"
   doAssert "maxObjectsInSet" in limR3.error.message
@@ -485,18 +490,18 @@ block validateLimitsSetExceedsLimit:
 block validateLimitsSetReferenceDestroy:
   ## Scenario 30: /set with reference destroy — objectCount = Opt.none, skipped.
   let caps = makeCoreCapsWithLimits(maxObjectsInSet = 1)
-  let (b, _) = initRequestBuilder().addInvocation(
+  let (b, _) = initRequestBuilder(makeBuilderId()).addInvocation(
       mnMailboxSet,
       newJObject(),
       parseCapabilityUri("urn:ietf:params:jmap:mail").get(),
       CallLimitMeta(kind: clmSet, objectCount: Opt.none(int)),
     )
-  validateLimits(b, caps).get()
+  validateLimits(b.freeze(), caps).get()
 
 block validateLimitsEmptyRequest:
   ## Scenario 31: empty Request with no method calls — trivially valid.
   let caps = realisticCoreCaps()
-  let req = makeRequest(methodCalls = @[])
+  let req = makeBuiltRequest(methodCalls = @[])
   validateLimits(req, caps).get()
 
 block validateLimitsMixedWithinLimits:
@@ -508,7 +513,9 @@ block validateLimitsMixedWithinLimits:
   for i in 0 ..< 5:
     ids[i] = Id("id" & $i)
   let (b1, _) = addGet[Email](
-    initRequestBuilder(), accountId = AccountId("a1"), ids = directIds(ids)
+    initRequestBuilder(makeBuilderId()),
+    accountId = AccountId("a1"),
+    ids = directIds(ids),
   )
   let (b2, _) = b1.addInvocation(
     mnEmailSet,
@@ -516,7 +523,7 @@ block validateLimitsMixedWithinLimits:
     parseCapabilityUri("urn:ietf:params:jmap:mail").get(),
     CallLimitMeta(kind: clmSet, objectCount: Opt.some(3)),
   )
-  validateLimits(b2, caps).get()
+  validateLimits(b2.freeze(), caps).get()
 
 block validateLimitsNonStandardMethod:
   ## Scenario 33: non-standard method name carries clmOther meta;
@@ -524,13 +531,13 @@ block validateLimitsNonStandardMethod:
   let caps = makeCoreCapsWithLimits(
     maxCallsInRequest = 10, maxObjectsInGet = 1, maxObjectsInSet = 1
   )
-  let (b, _) = initRequestBuilder().addInvocation(
+  let (b, _) = initRequestBuilder(makeBuilderId()).addInvocation(
       mnUnknown,
       newJObject(),
       parseCapabilityUri("urn:ietf:params:jmap:core").get(),
       CallLimitMeta(kind: clmOther),
     )
-  validateLimits(b, caps).get()
+  validateLimits(b.freeze(), caps).get()
 
 # ---------------------------------------------------------------------------
 # validateLimits — additional boundary and edge-case tests
@@ -543,63 +550,67 @@ block validateLimitsGetAtLimit:
   for i in 0 ..< 10:
     ids[i] = Id("id" & $i)
   let (b, _) = addGet[Email](
-    initRequestBuilder(), accountId = AccountId("a1"), ids = directIds(ids)
+    initRequestBuilder(makeBuilderId()),
+    accountId = AccountId("a1"),
+    ids = directIds(ids),
   )
-  validateLimits(b, caps).get()
+  validateLimits(b.freeze(), caps).get()
 
 block validateLimitsSetAtLimit:
   ## Boundary: /set with combined object count exactly 10, limit 10 — at limit.
   let caps = makeCoreCapsWithLimits(maxObjectsInSet = 10)
-  let (b, _) = initRequestBuilder().addInvocation(
+  let (b, _) = initRequestBuilder(makeBuilderId()).addInvocation(
       mnMailboxSet,
       newJObject(),
       parseCapabilityUri("urn:ietf:params:jmap:mail").get(),
       CallLimitMeta(kind: clmSet, objectCount: Opt.some(10)),
     )
-  validateLimits(b, caps).get()
+  validateLimits(b.freeze(), caps).get()
 
 block validateLimitsGetEmptyIds:
   ## Edge case: /get with empty ids array — idCount = 0.
   let caps = makeCoreCapsWithLimits(maxObjectsInGet = 1)
   let (b, _) = addGet[Email](
-    initRequestBuilder(), accountId = AccountId("a1"), ids = directIds(newSeq[Id]())
+    initRequestBuilder(makeBuilderId()),
+    accountId = AccountId("a1"),
+    ids = directIds(newSeq[Id]()),
   )
-  validateLimits(b, caps).get()
+  validateLimits(b.freeze(), caps).get()
 
 block validateLimitsSetEmptyArguments:
   ## Edge case: /set with object count 0 — within any limit.
   let caps = makeCoreCapsWithLimits(maxObjectsInSet = 1)
-  let (b, _) = initRequestBuilder().addInvocation(
+  let (b, _) = initRequestBuilder(makeBuilderId()).addInvocation(
       mnMailboxSet,
       newJObject(),
       parseCapabilityUri("urn:ietf:params:jmap:mail").get(),
       CallLimitMeta(kind: clmSet, objectCount: Opt.some(0)),
     )
-  validateLimits(b, caps).get()
+  validateLimits(b.freeze(), caps).get()
 
 block validateLimitsSetOnlyDestroy:
   ## Edge case: /set with only destroy entries — count = 3.
   let caps = makeCoreCapsWithLimits(maxObjectsInSet = 5)
-  let (b, _) = initRequestBuilder().addInvocation(
+  let (b, _) = initRequestBuilder(makeBuilderId()).addInvocation(
       mnMailboxSet,
       newJObject(),
       parseCapabilityUri("urn:ietf:params:jmap:mail").get(),
       CallLimitMeta(kind: clmSet, objectCount: Opt.some(3)),
     )
-  validateLimits(b, caps).get()
+  validateLimits(b.freeze(), caps).get()
 
 block validateLimitsMethodPartialMatch:
   ## Edge case: a non-standard method name carrying clmOther meta is
   ## not subject to per-call /get or /set enforcement, regardless of
   ## the wire-name shape.
   let caps = makeCoreCapsWithLimits(maxObjectsInGet = 1, maxObjectsInSet = 1)
-  let (b, _) = initRequestBuilder().addInvocation(
+  let (b, _) = initRequestBuilder(makeBuilderId()).addInvocation(
       mnUnknown,
       newJObject(),
       parseCapabilityUri("urn:ietf:params:jmap:core").get(),
       CallLimitMeta(kind: clmOther),
     )
-  validateLimits(b, caps).get()
+  validateLimits(b.freeze(), caps).get()
 
 # --- setSessionForTest ---
 
@@ -628,7 +639,7 @@ block isSessionStaleSameState:
     .get()
   c.setSessionForTest(session)
   let resp = makeResponse(state = args.state)
-  assertEq c.isSessionStale(resp), false
+  assertEq c.isSessionStale(makeDispatchedResponse(resp)), false
 
 block isSessionStaleDifferentState:
   ## Scenario 35: different state -> true.
@@ -640,7 +651,7 @@ block isSessionStaleDifferentState:
     .get()
   c.setSessionForTest(session)
   let resp = makeResponse(state = makeState("different-state"))
-  assertEq c.isSessionStale(resp), true
+  assertEq c.isSessionStale(makeDispatchedResponse(resp)), true
 
 block isSessionStaleNoSession:
   ## Scenario 36: no cached session -> false.
@@ -649,4 +660,4 @@ block isSessionStaleNoSession:
     )
     .get()
   let resp = makeResponse(state = makeState("any-state"))
-  assertEq c.isSessionStale(resp), false
+  assertEq c.isSessionStale(makeDispatchedResponse(resp)), false

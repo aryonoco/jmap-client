@@ -64,10 +64,13 @@ block tsetErrorTypedProjectionLive:
       # short Id Stalwart will look up and reject as not-found.
       let syntheticId = Id("zzzzz")
       let (b, setHandle) = addEmailSet(
-        initRequestBuilder(), mailAccountId, destroy = directIds(@[syntheticId])
+        initRequestBuilder(makeBuilderId()),
+        mailAccountId,
+        destroy = directIds(@[syntheticId]),
       )
-      let resp =
-        client.send(b).expect("send Email/set destroy synthetic[" & $target.kind & "]")
+      let resp = client.send(b.freeze()).expect(
+          "send Email/set destroy synthetic[" & $target.kind & "]"
+        )
       captureIfRequested(client, "set-error-not-found-" & $target.kind).expect(
         "captureIfRequested setNotFound"
       )
@@ -293,10 +296,12 @@ block tsetErrorTypedProjectionLive:
           "method-level fallback must project into the closed enum, got " & $me.errorType
 
     # Cleanup: destroy seedId so re-runs are idempotent.
-    let (bClean, cleanHandle) =
-      addEmailSet(initRequestBuilder(), mailAccountId, destroy = directIds(@[seedId]))
-    let respClean =
-      client.send(bClean).expect("send Email/set cleanup[" & $target.kind & "]")
+    let (bClean, cleanHandle) = addEmailSet(
+      initRequestBuilder(makeBuilderId()), mailAccountId, destroy = directIds(@[seedId])
+    )
+    let respClean = client.send(bClean.freeze()).expect(
+        "send Email/set cleanup[" & $target.kind & "]"
+      )
     let cleanResp = respClean.get(cleanHandle).expect(
         "Email/set cleanup extract[" & $target.kind & "]"
       )

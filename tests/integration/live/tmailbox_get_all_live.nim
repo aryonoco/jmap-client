@@ -28,8 +28,9 @@ block tmailboxGetAllLive:
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
-    let (b1, mbHandle) = addMailboxGet(initRequestBuilder(), mailAccountId)
-    let resp = client.send(b1).expect("send[" & $target.kind & "]")
+    let (b1, mbHandle) =
+      addMailboxGet(initRequestBuilder(makeBuilderId()), mailAccountId)
+    let resp = client.send(b1.freeze()).expect("send[" & $target.kind & "]")
     captureIfRequested(client, "mailbox-get-all-" & $target.kind).expect(
       "captureIfRequested[" & $target.kind & "]"
     )

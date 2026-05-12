@@ -65,9 +65,11 @@ block tmailboxQueryChangesLive:
     # The full live suite shares a Stalwart instance. The test asserts on
     # *deltas* — the captured baseline queryState, then the new added
     # entry — not on absolute counts.
-    let (b1, queryHandle) = addMailboxQuery(initRequestBuilder(), mailAccountId)
-    let resp1 =
-      client.send(b1).expect("send Mailbox/query baseline[" & $target.kind & "]")
+    let (b1, queryHandle) =
+      addMailboxQuery(initRequestBuilder(makeBuilderId()), mailAccountId)
+    let resp1 = client.send(b1.freeze()).expect(
+        "send Mailbox/query baseline[" & $target.kind & "]"
+      )
     let queryExtract = resp1.get(queryHandle)
     if queryExtract.isErr:
       # Cat-B error arm — server rejected the no-filter Mailbox/query
@@ -84,12 +86,12 @@ block tmailboxQueryChangesLive:
 
     # --- With-total leg: Mailbox/queryChanges with calculateTotal ------
     let (b2, qcHandle) = addMailboxQueryChanges(
-      initRequestBuilder(),
+      initRequestBuilder(makeBuilderId()),
       mailAccountId,
       sinceQueryState = queryState1,
       calculateTotal = true,
     )
-    let resp2 = client.send(b2).expect(
+    let resp2 = client.send(b2.freeze()).expect(
         "send Mailbox/queryChanges with-total[" & $target.kind & "]"
       )
     captureIfRequested(client, "mailbox-query-changes-with-total-" & $target.kind)
@@ -131,10 +133,11 @@ block tmailboxQueryChangesLive:
     # explicitly ``Opt.none`` — RFC 8620 §5.6: ``total`` is only present
     # when ``calculateTotal: true`` was sent.
     let (b3, qcNoTotalHandle) = addMailboxQueryChanges(
-      initRequestBuilder(), mailAccountId, sinceQueryState = queryState1
+      initRequestBuilder(makeBuilderId()), mailAccountId, sinceQueryState = queryState1
     )
-    let resp3 =
-      client.send(b3).expect("send Mailbox/queryChanges no-total[" & $target.kind & "]")
+    let resp3 = client.send(b3.freeze()).expect(
+        "send Mailbox/queryChanges no-total[" & $target.kind & "]"
+      )
     captureIfRequested(client, "mailbox-query-changes-no-total-" & $target.kind).expect(
       "captureIfRequested no-total"
     )
@@ -145,7 +148,9 @@ block tmailboxQueryChangesLive:
       # acceptable wire shapes.
       discard qcrNoTotalExtract.unsafeValue
     else:
-      let methodErr = qcrNoTotalExtract.unsafeError
+      let getErr = qcrNoTotalExtract.unsafeError
+      doAssert getErr.kind == gekMethod, "expected gekMethod, got gekHandleMismatch"
+      let methodErr = getErr.methodErr
       assertOn target,
         methodErr.errorType in {
           metInvalidArguments, metUnsupportedFilter, metCannotCalculateChanges,

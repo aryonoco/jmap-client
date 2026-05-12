@@ -66,9 +66,10 @@ block temailQueryFilterSimpleLive:
 
     # --- Email/query with single-condition filter ------------------------
     let filter = filterCondition(EmailFilterCondition(subject: Opt.some("aardvark")))
-    let (b, queryHandle) =
-      addEmailQuery(initRequestBuilder(), mailAccountId, filter = Opt.some(filter))
-    let resp = client.send(b).expect("send Email/query[" & $target.kind & "]")
+    let (b, queryHandle) = addEmailQuery(
+      initRequestBuilder(makeBuilderId()), mailAccountId, filter = Opt.some(filter)
+    )
+    let resp = client.send(b.freeze()).expect("send Email/query[" & $target.kind & "]")
     let queryResp =
       resp.get(queryHandle).expect("Email/query extract[" & $target.kind & "]")
     let hits = queryResp.ids.toHashSet

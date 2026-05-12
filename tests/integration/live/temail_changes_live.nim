@@ -41,12 +41,13 @@ block temailChangesLive:
 
     # --- Capture baseline state via an empty Email/get -------------------
     let (b1, getHandle) = addEmailGet(
-      initRequestBuilder(),
+      initRequestBuilder(makeBuilderId()),
       mailAccountId,
       ids = directIds(@[]),
       properties = Opt.some(@["id"]),
     )
-    let resp1 = client.send(b1).expect("send Email/get baseline[" & $target.kind & "]")
+    let resp1 =
+      client.send(b1.freeze()).expect("send Email/get baseline[" & $target.kind & "]")
     let getResp =
       resp1.get(getHandle).expect("Email/get baseline extract[" & $target.kind & "]")
     let baselineState = getResp.state
@@ -65,9 +66,11 @@ block temailChangesLive:
       .expect("seedSimpleEmail B[" & $target.kind & "]")
 
     # --- Happy path: Email/changes since baseline -----------------------
-    let (b2, changesHandle) =
-      addEmailChanges(initRequestBuilder(), mailAccountId, sinceState = baselineState)
-    let resp2 = client.send(b2).expect("send Email/changes happy[" & $target.kind & "]")
+    let (b2, changesHandle) = addEmailChanges(
+      initRequestBuilder(makeBuilderId()), mailAccountId, sinceState = baselineState
+    )
+    let resp2 =
+      client.send(b2.freeze()).expect("send Email/changes happy[" & $target.kind & "]")
     let cr = resp2.get(changesHandle).expect(
         "Email/changes happy extract[" & $target.kind & "]"
       )
@@ -85,16 +88,22 @@ block temailChangesLive:
 
     # --- Sad path: bogus sinceState -------------------------------------
     let bogusState = JmapState("phase-b-bogus-state")
-    let (b3, sadHandle) =
-      addEmailChanges(initRequestBuilder(), mailAccountId, sinceState = bogusState)
-    let resp3 = client.send(b3).expect("send Email/changes bogus[" & $target.kind & "]")
+    let (b3, sadHandle) = addEmailChanges(
+      initRequestBuilder(makeBuilderId()), mailAccountId, sinceState = bogusState
+    )
+    let resp3 =
+      client.send(b3.freeze()).expect("send Email/changes bogus[" & $target.kind & "]")
     captureIfRequested(client, "email-changes-bogus-state-" & $target.kind).expect(
       "captureIfRequested"
     )
     let sadExtract = resp3.get(sadHandle)
     assertOn target,
       sadExtract.isErr, "bogus sinceState must surface as a method-level error"
-    let methodErr = sadExtract.error
+    let getErr = sadExtract.error
+    assertOn target,
+      getErr.kind == gekMethod,
+      "bogus sinceState must surface as gekMethod, not gekHandleMismatch"
+    let methodErr = getErr.methodErr
     assertOn target,
       methodErr.errorType in {metCannotCalculateChanges, metInvalidArguments},
       "method error must project as cannotCalculateChanges or invalidArguments " &

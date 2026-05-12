@@ -70,9 +70,11 @@ block tpatchObjectDeepPathsLive:
           "parseNonEmptyIdentityUpdates"
         )
       let (b, setHandle) = addIdentitySet(
-        initRequestBuilder(), submissionAccountId, update = Opt.some(updates)
+        initRequestBuilder(makeBuilderId()),
+        submissionAccountId,
+        update = Opt.some(updates),
       )
-      let resp = client.send(b).expect(
+      let resp = client.send(b.freeze()).expect(
           "send Identity/set typed flat patch[" & $target.kind & "]"
         )
       let setExtract = resp.get(setHandle)
@@ -85,7 +87,9 @@ block tpatchObjectDeepPathsLive:
         do:
           assertOn target, false, "Identity/set must report an outcome"
       else:
-        let methodErr = setExtract.unsafeError
+        let getErr = setExtract.unsafeError
+        doAssert getErr.kind == gekMethod, "expected gekMethod, got gekHandleMismatch"
+        let methodErr = getErr.methodErr
         assertOn target,
           methodErr.errorType == metUnknownMethod,
           "Identity/set must surface as metUnknownMethod when unimplemented (got " &
@@ -95,10 +99,13 @@ block tpatchObjectDeepPathsLive:
       # — only when the upstream update succeeded.
       if identityUpdateOk:
         let (b2, getHandle) = addIdentityGet(
-          initRequestBuilder(), submissionAccountId, ids = directIds(@[identityId])
+          initRequestBuilder(makeBuilderId()),
+          submissionAccountId,
+          ids = directIds(@[identityId]),
         )
-        let resp2 =
-          client.send(b2).expect("send Identity/get readback[" & $target.kind & "]")
+        let resp2 = client.send(b2.freeze()).expect(
+            "send Identity/get readback[" & $target.kind & "]"
+          )
         let getResp =
           resp2.get(getHandle).expect("Identity/get extract[" & $target.kind & "]")
         assertOn target, getResp.list.len == 1
@@ -129,10 +136,12 @@ block tpatchObjectDeepPathsLive:
       let mUpdates = parseNonEmptyMailboxUpdates(@[(childId, mUpdateSet)]).expect(
           "parseNonEmptyMailboxUpdates"
         )
-      let (b, setHandle) =
-        addMailboxSet(initRequestBuilder(), mailAccountId, update = Opt.some(mUpdates))
-      let resp =
-        client.send(b).expect("send Mailbox/set typed flat patch[" & $target.kind & "]")
+      let (b, setHandle) = addMailboxSet(
+        initRequestBuilder(makeBuilderId()), mailAccountId, update = Opt.some(mUpdates)
+      )
+      let resp = client.send(b.freeze()).expect(
+          "send Mailbox/set typed flat patch[" & $target.kind & "]"
+        )
       let setResp =
         resp.get(setHandle).expect("Mailbox/set extract[" & $target.kind & "]")
       setResp.updateResults.withValue(childId, outcome):
@@ -143,10 +152,12 @@ block tpatchObjectDeepPathsLive:
         assertOn target, false, "Mailbox/set must report an outcome"
 
       # Read back to verify parentId is now null.
-      let (b2, getHandle) =
-        addMailboxGet(initRequestBuilder(), mailAccountId, ids = directIds(@[childId]))
-      let resp2 =
-        client.send(b2).expect("send Mailbox/get readback[" & $target.kind & "]")
+      let (b2, getHandle) = addMailboxGet(
+        initRequestBuilder(makeBuilderId()), mailAccountId, ids = directIds(@[childId])
+      )
+      let resp2 = client.send(b2.freeze()).expect(
+          "send Mailbox/get readback[" & $target.kind & "]"
+        )
       let getResp =
         resp2.get(getHandle).expect("Mailbox/get extract[" & $target.kind & "]")
       assertOn target, getResp.list.len == 1
@@ -156,10 +167,13 @@ block tpatchObjectDeepPathsLive:
 
       # Cleanup: destroy the child mailbox.
       let (bDestroy, destroyHandle) = addMailboxSet(
-        initRequestBuilder(), mailAccountId, destroy = directIds(@[childId])
+        initRequestBuilder(makeBuilderId()),
+        mailAccountId,
+        destroy = directIds(@[childId]),
       )
-      let respDestroy =
-        client.send(bDestroy).expect("send Mailbox/set destroy[" & $target.kind & "]")
+      let respDestroy = client.send(bDestroy.freeze()).expect(
+          "send Mailbox/set destroy[" & $target.kind & "]"
+        )
       let destroyResp = respDestroy.get(destroyHandle).expect(
           "Mailbox/set extract[" & $target.kind & "]"
         )
@@ -245,10 +259,14 @@ block tpatchObjectDeepPathsLive:
           "Stalwart must report some resolution for the patch; got " & $inv.arguments
 
       # Cleanup: destroy the seed email.
-      let (bClean, cleanHandle) =
-        addEmailSet(initRequestBuilder(), mailAccountId, destroy = directIds(@[seedId]))
-      let respClean =
-        client.send(bClean).expect("send Email/set cleanup[" & $target.kind & "]")
+      let (bClean, cleanHandle) = addEmailSet(
+        initRequestBuilder(makeBuilderId()),
+        mailAccountId,
+        destroy = directIds(@[seedId]),
+      )
+      let respClean = client.send(bClean.freeze()).expect(
+          "send Email/set cleanup[" & $target.kind & "]"
+        )
       let cleanResp = respClean.get(cleanHandle).expect(
           "Email/set cleanup extract[" & $target.kind & "]"
         )

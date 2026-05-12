@@ -141,13 +141,14 @@ block tcascadeChangesCoherenceLive:
     var observedThreadIds = initHashSet[Id]()
     for sid in seededEmailIds:
       let (b, getHandle) = addEmailGet(
-        initRequestBuilder(),
+        initRequestBuilder(makeBuilderId()),
         mailAccountId,
         ids = directIds(@[sid]),
         properties = Opt.some(@["id", "threadId"]),
       )
-      let resp =
-        client.send(b).expect("send Email/get threadId resolve[" & $target.kind & "]")
+      let resp = client.send(b.freeze()).expect(
+          "send Email/get threadId resolve[" & $target.kind & "]"
+        )
       let getResp =
         resp.get(getHandle).expect("Email/get threadId extract[" & $target.kind & "]")
       assertOn target,
@@ -165,12 +166,12 @@ block tcascadeChangesCoherenceLive:
 
     # --- Cascade destroy ------------------------------------------------
     let (bCascade, cascadeHandle) = addMailboxSet(
-      initRequestBuilder(),
+      initRequestBuilder(makeBuilderId()),
       mailAccountId,
       destroy = directIds(@[cascadeId]),
       onDestroyRemoveEmails = true,
     )
-    let respCascade = client.send(bCascade).expect(
+    let respCascade = client.send(bCascade.freeze()).expect(
         "send Mailbox/set cascade destroy[" & $target.kind & "]"
       )
     let cascadeResp = respCascade.get(cascadeHandle).expect(
@@ -194,13 +195,16 @@ block tcascadeChangesCoherenceLive:
     var capturedThreadCr: ChangesResponse[jmap_client.Thread]
     for attempt in 0 ..< 5:
       let (b1, mailboxH) = addMailboxChanges(
-        initRequestBuilder(), mailAccountId, sinceState = baselineMailboxState
+        initRequestBuilder(makeBuilderId()),
+        mailAccountId,
+        sinceState = baselineMailboxState,
       )
       let (b2, emailH) =
         addEmailChanges(b1, mailAccountId, sinceState = baselineEmailState)
       let (b3, threadH) =
         addThreadChanges(b2, mailAccountId, sinceState = baselineThreadState)
-      let resp = client.send(b3).expect("send cascade */changes[" & $target.kind & "]")
+      let resp =
+        client.send(b3.freeze()).expect("send cascade */changes[" & $target.kind & "]")
       # Cat-B: any of the three /changes extracts may surface a typed
       # error (e.g. Cyrus 3.12.2's ``cannotCalculateChanges`` when the
       # server's state-history window has rolled past the captured

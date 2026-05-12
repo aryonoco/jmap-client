@@ -84,9 +84,12 @@ block tEmailSubmissionMultiRecipientLive:
     var subTbl = initTable[CreationId, EmailSubmissionBlueprint]()
     subTbl[subCid] = blueprint
     let (b3, subHandle) = addEmailSubmissionSet(
-      initRequestBuilder(), submissionAccountId, create = Opt.some(subTbl)
+      initRequestBuilder(makeBuilderId()),
+      submissionAccountId,
+      create = Opt.some(subTbl),
     )
-    let resp3 = client.send(b3).expect("send EmailSubmission/set[" & $target.kind & "]")
+    let resp3 =
+      client.send(b3.freeze()).expect("send EmailSubmission/set[" & $target.kind & "]")
     let subSetResp =
       resp3.get(subHandle).expect("EmailSubmission/set extract[" & $target.kind & "]")
     var submissionId: Id
@@ -109,10 +112,13 @@ block tEmailSubmissionMultiRecipientLive:
           "pollSubmissionDelivery"
         )
       let (b4, getHandle) = addEmailSubmissionGet(
-        initRequestBuilder(), submissionAccountId, ids = directIds(@[submissionId])
+        initRequestBuilder(makeBuilderId()),
+        submissionAccountId,
+        ids = directIds(@[submissionId]),
       )
-      let resp4 =
-        client.send(b4).expect("send EmailSubmission/get[" & $target.kind & "]")
+      let resp4 = client.send(b4.freeze()).expect(
+          "send EmailSubmission/get[" & $target.kind & "]"
+        )
       captureIfRequested(
         client, "email-submission-multi-recipient-delivery-" & $target.kind
       )

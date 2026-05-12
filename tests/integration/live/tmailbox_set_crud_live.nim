@@ -44,8 +44,10 @@ block tmailboxSetCrudLive:
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
 
     # --- Step 1: resolve Inbox id ---------------------------------------
-    let (b1, mbHandle) = addMailboxGet(initRequestBuilder(), mailAccountId)
-    let resp1 = client.send(b1).expect("send Mailbox/get[" & $target.kind & "]")
+    let (b1, mbHandle) =
+      addMailboxGet(initRequestBuilder(makeBuilderId()), mailAccountId)
+    let resp1 =
+      client.send(b1.freeze()).expect("send Mailbox/get[" & $target.kind & "]")
     let mbResp = resp1.get(mbHandle).expect("Mailbox/get extract[" & $target.kind & "]")
     var inboxId = Opt.none(Id)
     for mb in mbResp.list:
@@ -65,9 +67,11 @@ block tmailboxSetCrudLive:
       )
     var parentTbl = initTable[CreationId, MailboxCreate]()
     parentTbl[parentCid] = parentCreate
-    let (b2, setHandle1) =
-      addMailboxSet(initRequestBuilder(), mailAccountId, create = Opt.some(parentTbl))
-    let resp2 = client.send(b2).expect("send Mailbox/set parent[" & $target.kind & "]")
+    let (b2, setHandle1) = addMailboxSet(
+      initRequestBuilder(makeBuilderId()), mailAccountId, create = Opt.some(parentTbl)
+    )
+    let resp2 =
+      client.send(b2.freeze()).expect("send Mailbox/set parent[" & $target.kind & "]")
     let setResp1 =
       resp2.get(setHandle1).expect("Mailbox/set parent extract[" & $target.kind & "]")
     var parentId: Id
@@ -90,9 +94,11 @@ block tmailboxSetCrudLive:
       parseCreationId("childMb").expect("parseCreationId childMb[" & $target.kind & "]")
     var childTbl = initTable[CreationId, MailboxCreate]()
     childTbl[childCid] = childCreate
-    let (b3, setHandle2) =
-      addMailboxSet(initRequestBuilder(), mailAccountId, create = Opt.some(childTbl))
-    let resp3 = client.send(b3).expect("send Mailbox/set child[" & $target.kind & "]")
+    let (b3, setHandle2) = addMailboxSet(
+      initRequestBuilder(makeBuilderId()), mailAccountId, create = Opt.some(childTbl)
+    )
+    let resp3 =
+      client.send(b3.freeze()).expect("send Mailbox/set child[" & $target.kind & "]")
     let setResp2 =
       resp3.get(setHandle2).expect("Mailbox/set child extract[" & $target.kind & "]")
     var childId: Id
@@ -108,10 +114,13 @@ block tmailboxSetCrudLive:
 
     # --- Step 4: sad-path destroy parent without onDestroyRemoveEmails --
     let (b4, setHandle3) = addMailboxSet(
-      initRequestBuilder(), mailAccountId, destroy = directIds(@[parentId])
+      initRequestBuilder(makeBuilderId()),
+      mailAccountId,
+      destroy = directIds(@[parentId]),
     )
-    let resp4 =
-      client.send(b4).expect("send Mailbox/set destroy parent[" & $target.kind & "]")
+    let resp4 = client.send(b4.freeze()).expect(
+        "send Mailbox/set destroy parent[" & $target.kind & "]"
+      )
     captureIfRequested(client, "mailbox-set-has-child-" & $target.kind).expect(
       "captureIfRequested"
     )
@@ -141,10 +150,13 @@ block tmailboxSetCrudLive:
         "parseNonEmptyMailboxUpdates"
       )
     let (b5, setHandle4) = addMailboxSet(
-      initRequestBuilder(), mailAccountId, update = Opt.some(renameUpdates)
+      initRequestBuilder(makeBuilderId()),
+      mailAccountId,
+      update = Opt.some(renameUpdates),
     )
-    let resp5 =
-      client.send(b5).expect("send Mailbox/set rename child[" & $target.kind & "]")
+    let resp5 = client.send(b5.freeze()).expect(
+        "send Mailbox/set rename child[" & $target.kind & "]"
+      )
     let setResp4 = resp5.get(setHandle4).expect(
         "Mailbox/set rename child extract[" & $target.kind & "]"
       )
@@ -166,10 +178,13 @@ block tmailboxSetCrudLive:
     # both servers — the protocol contract is "child then parent",
     # not "atomic batch".
     let (b6a, setHandleChild) = addMailboxSet(
-      initRequestBuilder(), mailAccountId, destroy = directIds(@[childId])
+      initRequestBuilder(makeBuilderId()),
+      mailAccountId,
+      destroy = directIds(@[childId]),
     )
-    let resp6a =
-      client.send(b6a).expect("send Mailbox/set destroy child[" & $target.kind & "]")
+    let resp6a = client.send(b6a.freeze()).expect(
+        "send Mailbox/set destroy child[" & $target.kind & "]"
+      )
     let setResp6a = resp6a.get(setHandleChild).expect(
         "Mailbox/set destroy child extract[" & $target.kind & "]"
       )
@@ -181,10 +196,13 @@ block tmailboxSetCrudLive:
       assertOn target, false, "cleanup must report an outcome for childId"
 
     let (b6b, setHandleParent) = addMailboxSet(
-      initRequestBuilder(), mailAccountId, destroy = directIds(@[parentId])
+      initRequestBuilder(makeBuilderId()),
+      mailAccountId,
+      destroy = directIds(@[parentId]),
     )
-    let resp6b =
-      client.send(b6b).expect("send Mailbox/set destroy parent[" & $target.kind & "]")
+    let resp6b = client.send(b6b.freeze()).expect(
+        "send Mailbox/set destroy parent[" & $target.kind & "]"
+      )
     let setResp6b = resp6b.get(setHandleParent).expect(
         "Mailbox/set destroy parent extract[" & $target.kind & "]"
       )

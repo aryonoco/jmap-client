@@ -83,7 +83,7 @@ block temailGetBodyPropertiesAllLive:
       parsePropertyName("size").expect("size[" & $target.kind & "]"),
     ]
     let (b, getHandle) = addEmailGet(
-      initRequestBuilder(),
+      initRequestBuilder(makeBuilderId()),
       mailAccountId,
       ids = directIds(@[seededId]),
       properties = Opt.some(@["id", "bodyStructure", "bodyValues"]),
@@ -91,7 +91,7 @@ block temailGetBodyPropertiesAllLive:
         fetchBodyValues: bvsAll, bodyProperties: Opt.some(bodyProperties)
       ),
     )
-    let resp = client.send(b).expect(
+    let resp = client.send(b.freeze()).expect(
         "send Email/get bodyProperties+bvsAll[" & $target.kind & "]"
       )
     captureIfRequested(client, "email-get-body-properties-all-" & $target.kind).expect(

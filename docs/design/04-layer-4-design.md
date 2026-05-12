@@ -970,9 +970,15 @@ the return value is initialised on all paths through the stdlib code.
 (lines 975-1003).
 
 ```nim
-proc send*(client: var JmapClient, request: Request): JmapResult[envelope.Response] =
-  ## Serialises a JMAP Request, POSTs to the server's apiUrl, and
-  ## deserialises the Response.
+proc send*(
+    client: var JmapClient, req: BuiltRequest
+): JmapResult[DispatchedResponse] =
+  ## Validates limits, fetches the session lazily, POSTs the serialised
+  ## request, parses the wire ``Response``, and returns a sealed
+  ## ``DispatchedResponse`` branded with the originating builder's
+  ## ``BuilderId``. Single blessed send path — the application
+  ## developer's lifecycle is
+  ## ``newBuilder → add* → freeze → send → handle.get(dr)``.
   ##
   ## Lazily fetches the session on first call if not yet cached.
   ## Does NOT automatically refresh a stale session (D4.10).
@@ -1134,10 +1140,10 @@ proc send*(
     client: var JmapClient, builder: RequestBuilder
 ): JmapResult[envelope.Response] =
   ## Convenience: builds the request and sends it in one step.
-  ## Equivalent to ``client.send(builder.build())``.
+  ## Equivalent to ``client.send(builder.freeze())``.
   ## This is the imperative shell boundary where the functional core
   ## (builder) meets IO.
-  client.send(builder.build())
+  client.send(builder.freeze())
 ```
 
 This overload bridges the Layer 3 `RequestBuilder` directly to the
@@ -2015,7 +2021,7 @@ default (Decision D4.14).
     detection, response deserialisation with the same two-stage
     error mapping.
 12. Implemented `send(RequestBuilder)` — convenience overload over
-    `send(builder.build())`.
+    `send(builder.freeze())`.
 13. Implemented `isSessionStale` and `refreshSessionIfStale`.
 14. Implemented `dispatch.nim` — `ResponseHandle[T]`,
     `NameBoundHandle[T]`, the three `get[T]` overloads

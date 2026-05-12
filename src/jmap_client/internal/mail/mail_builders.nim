@@ -98,7 +98,7 @@ func addMailboxQuery*(
   args["sortAsTree"] = %sortAsTree
   args["filterAsTree"] = %filterAsTree
   let (b1, callId) = addInvocation(b, mnMailboxQuery, args, capabilityUri(Mailbox))
-  (b1, ResponseHandle[QueryResponse[Mailbox]](callId))
+  (b1, initResponseHandle[QueryResponse[Mailbox]](callId, b.builderId))
 
 # =============================================================================
 # addMailboxQueryChanges — Mailbox/queryChanges (RFC 8621 §2.4)
@@ -154,7 +154,12 @@ func addMailboxSet*(
   let (b1, callId) = addInvocation(
     b, mnMailboxSet, args, capabilityUri(Mailbox), setMeta(create, update, destroy)
   )
-  (b1, ResponseHandle[SetResponse[MailboxCreatedItem, PartialMailbox]](callId))
+  (
+    b1,
+    initResponseHandle[SetResponse[MailboxCreatedItem, PartialMailbox]](
+      callId, b.builderId
+    ),
+  )
 
 # =============================================================================
 # addEmailGet — Email/get (RFC 8621 §4.2)
@@ -174,7 +179,7 @@ func addEmailGet*(
   emitBodyFetchOptions(args, bodyFetchOptions)
   let (b1, callId) =
     addInvocation(b, mnEmailGet, args, capabilityUri(Email), getMeta(ids))
-  (b1, ResponseHandle[GetResponse[Email]](callId))
+  (b1, initResponseHandle[GetResponse[Email]](callId, b.builderId))
 
 # =============================================================================
 # addEmailChanges — Email/changes (RFC 8621 §4.3)
@@ -236,7 +241,7 @@ func addPartialEmailGet*(
   emitBodyFetchOptions(args, bodyFetchOptions)
   let (b1, callId) =
     addInvocation(b, mnEmailGet, args, capabilityUri(PartialEmail), getMeta(ids))
-  (b1, ResponseHandle[GetResponse[PartialEmail]](callId))
+  (b1, initResponseHandle[GetResponse[PartialEmail]](callId, b.builderId))
 
 # =============================================================================
 # addPartialEmailGetByRef — sparse Email/get via RFC 8620 §3.7 back-reference
@@ -328,7 +333,7 @@ func addEmailQuery*(
   )
   args["collapseThreads"] = %collapseThreads
   let (b1, callId) = addInvocation(b, mnEmailQuery, args, capabilityUri(Email))
-  (b1, ResponseHandle[QueryResponse[Email]](callId))
+  (b1, initResponseHandle[QueryResponse[Email]](callId, b.builderId))
 
 # =============================================================================
 # addEmailQueryChanges — Email/queryChanges (RFC 8621 §4.5)
@@ -357,7 +362,7 @@ func addEmailQueryChanges*(
   )
   args["collapseThreads"] = %collapseThreads
   let (b1, callId) = addInvocation(b, mnEmailQueryChanges, args, capabilityUri(Email))
-  (b1, ResponseHandle[QueryChangesResponse[Email]](callId))
+  (b1, initResponseHandle[QueryChangesResponse[Email]](callId, b.builderId))
 
 # =============================================================================
 # addEmailSet — Email/set (RFC 8621 §4.6)
@@ -457,8 +462,8 @@ func addEmailCopyAndDestroy*(
   )
   let handles = EmailCopyHandles(
     primary: copyHandle,
-    implicit: NameBoundHandle[SetResponse[EmailCreatedItem, PartialEmail]](
-      callId: MethodCallId(copyHandle), methodName: mnEmailSet
+    implicit: initNameBoundHandle[SetResponse[EmailCreatedItem, PartialEmail]](
+      callId(copyHandle), mnEmailSet, b.builderId
     ),
   )
   (b1, handles)
@@ -497,18 +502,18 @@ type EmailQueryThreadResults* {.ruleOff: "objects".} = object
   display*: GetResponse[Email]
 
 func getAll*(
-    resp: Response, handles: EmailQueryThreadChain
-): Result[EmailQueryThreadResults, MethodError] =
+    dr: DispatchedResponse, handles: EmailQueryThreadChain
+): Result[EmailQueryThreadResults, GetError] =
   ## Extract all four responses from the first-login workflow. Monomorphic
   ## over ``EmailQueryThreadChain`` — not a parametric ``getAll[A, B, C, D]``
   ## — because the record it serves is not parametric either (H14).
   ## Co-located with the builder rather than placed in ``dispatch.nim``
   ## because there is no parametric shape to share with the dispatch layer.
   mixin fromJson
-  let query = ?resp.get(handles.queryH)
-  let threadIdFetch = ?resp.get(handles.threadIdFetchH)
-  let threads = ?resp.get(handles.threadsH)
-  let display = ?resp.get(handles.displayH)
+  let query = ?dr.get(handles.queryH)
+  let threadIdFetch = ?dr.get(handles.threadIdFetchH)
+  let threads = ?dr.get(handles.threadsH)
+  let display = ?dr.get(handles.displayH)
   ok(
     EmailQueryThreadResults(
       query: query, threadIdFetch: threadIdFetch, threads: threads, display: display

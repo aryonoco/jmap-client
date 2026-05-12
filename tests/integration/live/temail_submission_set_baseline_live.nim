@@ -71,9 +71,12 @@ block tEmailSubmissionSetBaselineLive:
     var subTbl = initTable[CreationId, EmailSubmissionBlueprint]()
     subTbl[subCid] = blueprint
     let (b3, subHandle) = addEmailSubmissionSet(
-      initRequestBuilder(), submissionAccountId, create = Opt.some(subTbl)
+      initRequestBuilder(makeBuilderId()),
+      submissionAccountId,
+      create = Opt.some(subTbl),
     )
-    let resp3 = client.send(b3).expect("send EmailSubmission/set[" & $target.kind & "]")
+    let resp3 =
+      client.send(b3.freeze()).expect("send EmailSubmission/set[" & $target.kind & "]")
     captureIfRequested(client, "email-submission-set-baseline-" & $target.kind).expect(
       "captureIfRequested"
     )

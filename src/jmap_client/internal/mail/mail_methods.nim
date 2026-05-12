@@ -64,7 +64,8 @@ func addVacationResponseGet*(
     VacationResponseCapUri,
     CallLimitMeta(kind: clmGet, idCount: Opt.some(1)),
   )
-  return (newBuilder, ResponseHandle[GetResponse[VacationResponse]](callId))
+  return
+    (newBuilder, initResponseHandle[GetResponse[VacationResponse]](callId, b.builderId))
 
 # =============================================================================
 # VacationResponse/set
@@ -98,8 +99,12 @@ func addVacationResponseSet*(
     VacationResponseCapUri,
     CallLimitMeta(kind: clmSet, objectCount: Opt.some(1)),
   )
-  return
-    (newBuilder, ResponseHandle[SetResponse[NoCreate, PartialVacationResponse]](callId))
+  return (
+    newBuilder,
+    initResponseHandle[SetResponse[NoCreate, PartialVacationResponse]](
+      callId, b.builderId
+    ),
+  )
 
 # =============================================================================
 # EmailParseResponse (RFC 8621 §4.9)
@@ -231,7 +236,7 @@ func addEmailParse*(
     args["properties"] = propsArr
   emitBodyFetchOptions(args, bodyFetchOptions)
   let (newBuilder, callId) = b.addInvocation(mnEmailParse, args, MailCapUri)
-  (newBuilder, ResponseHandle[EmailParseResponse](callId))
+  (newBuilder, initResponseHandle[EmailParseResponse](callId, b.builderId))
 
 # =============================================================================
 # addSearchSnippetGet — SearchSnippet/get (RFC 8621 §5.1)
@@ -257,7 +262,7 @@ func addSearchSnippetGet*(
     emailIds.add(id.toJson())
   args["emailIds"] = emailIds
   let (newBuilder, callId) = b.addInvocation(mnSearchSnippetGet, args, MailCapUri)
-  (newBuilder, ResponseHandle[SearchSnippetGetResponse](callId))
+  (newBuilder, initResponseHandle[SearchSnippetGetResponse](callId, b.builderId))
 
 # =============================================================================
 # addSearchSnippetGetByRef + addEmailQueryWithSnippets
@@ -281,7 +286,7 @@ func addSearchSnippetGetByRef*(
   args["filter"] = serializeFilter(filter).toJsonNode()
   args["#emailIds"] = emailIdsRef.toJson()
   let (newBuilder, callId) = b.addInvocation(mnSearchSnippetGet, args, MailCapUri)
-  (newBuilder, ResponseHandle[SearchSnippetGetResponse](callId))
+  (newBuilder, initResponseHandle[SearchSnippetGetResponse](callId, b.builderId))
 
 type EmailQuerySnippetChain* =
   ChainedHandles[QueryResponse[Email], SearchSnippetGetResponse]
@@ -334,4 +339,4 @@ func addEmailImport*(
   for state in ifInState:
     args["ifInState"] = state.toJson()
   let (newBuilder, callId) = b.addInvocation(mnEmailImport, args, MailCapUri)
-  (newBuilder, ResponseHandle[EmailImportResponse](callId))
+  (newBuilder, initResponseHandle[EmailImportResponse](callId, b.builderId))

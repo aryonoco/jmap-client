@@ -53,7 +53,7 @@ block tpreflightValidationLive:
       let idCount = int(caps.maxObjectsInGet) + 1
       let builder = buildOversizedRequest(mailAccountId, idCount)
       let bufBefore = client.lastRawResponseBody.len
-      let res = client.send(builder)
+      let res = client.send(builder.freeze())
       assertOn target, res.isErr, "validateLimits must reject oversize Mailbox/get ids"
       assertOn target,
         "maxObjectsInGet" in res.error.message,
@@ -65,13 +65,13 @@ block tpreflightValidationLive:
     # Sub-test 2: maxCallsInRequest — N+1 Core/echo invocations
     # assembled via repeated ``addEcho``.
     block maxCallsInRequestCase:
-      var b = initRequestBuilder()
+      var b = initRequestBuilder(makeBuilderId())
       let callCount = int(caps.maxCallsInRequest) + 1
       let echoArgs = %*{"phase-j-64": "preflight"}
       for _ in 0 ..< callCount:
         let (newB, _) = b.addEcho(echoArgs)
         b = newB
-      let req = b.build()
+      let req = b.freeze()
       let bufBefore = client.lastRawResponseBody.len
       let res = client.send(req)
       assertOn target, res.isErr, "validateLimits must reject oversize methodCalls list"
@@ -120,10 +120,11 @@ block tpreflightValidationLive:
             "parseCreationId[" & $target.kind & "]"
           )
         createTbl[cid] = blueprint
-      let (b, _) =
-        addEmailSet(initRequestBuilder(), mailAccountId, create = Opt.some(createTbl))
+      let (b, _) = addEmailSet(
+        initRequestBuilder(makeBuilderId()), mailAccountId, create = Opt.some(createTbl)
+      )
       let bufBefore = client.lastRawResponseBody.len
-      let res = client.send(b)
+      let res = client.send(b.freeze())
       assertOn target,
         res.isErr, "validateLimits must reject oversize Email/set creates"
       assertOn target,
@@ -168,9 +169,10 @@ block tpreflightValidationLive:
         parseCreationId("phaseJ64size").expect("parseCreationId[" & $target.kind & "]")
       var createTbl = initTable[CreationId, EmailBlueprint]()
       createTbl[cid] = blueprint
-      let (b, _) =
-        addEmailSet(initRequestBuilder(), mailAccountId, create = Opt.some(createTbl))
-      let req = b.build()
+      let (b, _) = addEmailSet(
+        initRequestBuilder(makeBuilderId()), mailAccountId, create = Opt.some(createTbl)
+      )
+      let req = b.freeze()
       let bufBefore = client.lastRawResponseBody.len
       let res = client.send(req)
       assertOn target,

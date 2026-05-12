@@ -8,7 +8,7 @@
 {.push raises: [], noSideEffect.}
 {.experimental: "strictCaseObjects".}
 
-import std/hashes
+import std/[hashes, strutils]
 
 import ./validation
 
@@ -59,6 +59,50 @@ func `==`*(a, b: BlobId): bool {.borrow.}
 func `$`*(a: BlobId): string {.borrow.}
   ## String representation delegated to the underlying string.
 func hash*(a: BlobId): Hash {.borrow.} ## Hash delegated to the underlying string.
+
+type BuilderId* {.ruleOff: "objects".} = object
+  ## Per-builder dispatch brand. Minted by ``JmapClient.newBuilder``;
+  ## carried by every handle and by the ``DispatchedResponse`` returned
+  ## from ``send``. Composite:
+  ## - ``clientBrand`` identifies the issuing ``JmapClient`` (random,
+  ##   64-bit; minted once at ``JmapClient`` construction via
+  ##   ``std/sysrand.urandom``).
+  ## - ``serial`` identifies the builder within that client (monotonic
+  ##   ``uint64`` counter incremented inside ``JmapClient.newBuilder``).
+  ## No wire form — internal-only.
+  rawClientBrand: uint64
+  rawSerial: uint64
+
+func initBuilderId*(clientBrand, serial: uint64): BuilderId =
+  ## Sole construction path for ``BuilderId``. Exported with ``*`` so
+  ## internal callers (``client.nim``, builders, dispatch, tests under
+  ## ``tests/``) can construct it, while ``types.nim`` filters this
+  ## symbol from the hub re-export to keep it unreachable through
+  ## ``import jmap_client``.
+  BuilderId(rawClientBrand: clientBrand, rawSerial: serial)
+
+func clientBrand*(b: BuilderId): uint64 =
+  ## Diagnostic accessor — the ``clientBrand`` half of the composite.
+  b.rawClientBrand
+
+func serial*(b: BuilderId): uint64 =
+  ## Diagnostic accessor — the ``serial`` half of the composite.
+  b.rawSerial
+
+func `==`*(a, b: BuilderId): bool =
+  ## Structural equality across both halves.
+  a.rawClientBrand == b.rawClientBrand and a.rawSerial == b.rawSerial
+
+func hash*(a: BuilderId): Hash =
+  ## Hash combining both halves via ``std/hashes`` ``!&`` / ``!$``
+  ## mixer.
+  !$(hash(a.rawClientBrand) !& hash(a.rawSerial))
+
+func `$`*(a: BuilderId): string =
+  ## Diagnostic textual form. Fixed layout — tests assert on the
+  ## prefix.
+  "BuilderId(brand=0x" & toHex(a.rawClientBrand.int64, 16) & ", serial=" & $a.rawSerial &
+    ")"
 
 func parseAccountId*(raw: string): Result[AccountId, ValidationError] =
   ## Lenient: 1-255 octets, no control characters.

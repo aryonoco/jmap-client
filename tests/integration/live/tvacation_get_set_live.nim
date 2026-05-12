@@ -72,8 +72,9 @@ block tvacationGetSetLive:
         ]
       )
       .expect("initVacationResponseUpdateSet[" & $target.kind & "]")
-    let (b1, setHandle1) =
-      addVacationResponseSet(initRequestBuilder(), vacAccountId, update = updateSet)
+    let (b1, setHandle1) = addVacationResponseSet(
+      initRequestBuilder(makeBuilderId()), vacAccountId, update = updateSet
+    )
     # Cyrus 3.12.2 ships VacationResponse but the test image disables
     # it via ``imapd.conf: jmap_vacation: no``; the URN is absent
     # from the session's ``capabilities`` map. ``addVacationResponseSet``
@@ -88,7 +89,7 @@ block tvacationGetSetLive:
     # site below; an unconditional capture here would silently change
     # Stalwart/James fixture content from get-response to set-response
     # on any fresh-fixture re-capture.
-    let resp1Result = client.send(b1)
+    let resp1Result = client.send(b1.freeze())
     case target.kind
     of ltkCyrus:
       captureIfRequested(client, "vacation-get-singleton-" & $target.kind).expect(
@@ -122,8 +123,9 @@ block tvacationGetSetLive:
 
     # --- Step 2: re-read and verify the three fields round-tripped ------
     if updateOk:
-      let (b2, getHandle2) = addVacationResponseGet(initRequestBuilder(), vacAccountId)
-      let resp2 = client.send(b2).expect(
+      let (b2, getHandle2) =
+        addVacationResponseGet(initRequestBuilder(makeBuilderId()), vacAccountId)
+      let resp2 = client.send(b2.freeze()).expect(
           "send VacationResponse/get post-set[" & $target.kind & "]"
         )
       captureIfRequested(client, "vacation-get-singleton-" & $target.kind).expect(
@@ -148,9 +150,10 @@ block tvacationGetSetLive:
       let cleanupSet = initVacationResponseUpdateSet(@[setIsEnabled(false)]).expect(
           "initVacationResponseUpdateSet cleanup"
         )
-      let (b3, _) =
-        addVacationResponseSet(initRequestBuilder(), vacAccountId, update = cleanupSet)
-      discard client.send(b3).expect(
+      let (b3, _) = addVacationResponseSet(
+        initRequestBuilder(makeBuilderId()), vacAccountId, update = cleanupSet
+      )
+      discard client.send(b3.freeze()).expect(
           "send VacationResponse/set cleanup[" & $target.kind & "]"
         )
     client.close()

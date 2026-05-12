@@ -84,10 +84,11 @@ block temailImportFromBlobLive:
     let importMap = initNonEmptyEmailImportMap(@[(importCid, importItem)]).expect(
         "initNonEmptyEmailImportMap"
       )
-    let (bImport, importHandle) =
-      addEmailImport(initRequestBuilder(), mailAccountId, emails = importMap)
+    let (bImport, importHandle) = addEmailImport(
+      initRequestBuilder(makeBuilderId()), mailAccountId, emails = importMap
+    )
     let respImport =
-      client.send(bImport).expect("send Email/import[" & $target.kind & "]")
+      client.send(bImport.freeze()).expect("send Email/import[" & $target.kind & "]")
     captureIfRequested(client, "email-import-from-blob-" & $target.kind).expect(
       "captureIfRequested"
     )
@@ -113,13 +114,13 @@ block temailImportFromBlobLive:
 
     # --- 5. Verify imported email exists -----------------------------------
     let (bGet, getHandle) = addEmailGet(
-      initRequestBuilder(),
+      initRequestBuilder(makeBuilderId()),
       mailAccountId,
       ids = directIds(@[importedId]),
       properties = Opt.some(@["id", "blobId"]),
     )
     let respGet =
-      client.send(bGet).expect("send Email/get imported[" & $target.kind & "]")
+      client.send(bGet.freeze()).expect("send Email/get imported[" & $target.kind & "]")
     let getResp =
       respGet.get(getHandle).expect("Email/get imported extract[" & $target.kind & "]")
     assertOn target,
@@ -127,10 +128,13 @@ block temailImportFromBlobLive:
 
     # --- 6. Cleanup: destroy [seed, imported] ------------------------------
     let (bClean, cleanHandle) = addEmailSet(
-      initRequestBuilder(), mailAccountId, destroy = directIds(@[sourceId, importedId])
+      initRequestBuilder(makeBuilderId()),
+      mailAccountId,
+      destroy = directIds(@[sourceId, importedId]),
     )
-    let respClean =
-      client.send(bClean).expect("send Email/set cleanup[" & $target.kind & "]")
+    let respClean = client.send(bClean.freeze()).expect(
+        "send Email/set cleanup[" & $target.kind & "]"
+      )
     let cleanResp = respClean.get(cleanHandle).expect(
         "Email/set cleanup extract[" & $target.kind & "]"
       )

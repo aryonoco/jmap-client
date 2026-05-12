@@ -81,13 +81,14 @@ block temailParseLive:
     let outerId = outerRes.unsafeValue
 
     let (bGet, getHandle) = addEmailGet(
-      initRequestBuilder(),
+      initRequestBuilder(makeBuilderId()),
       mailAccountId,
       ids = directIds(@[outerId]),
       properties = Opt.some(@["id", "attachments"]),
     )
-    let getRespOuter =
-      client.send(bGet).expect("send Email/get attachments[" & $target.kind & "]")
+    let getRespOuter = client.send(bGet.freeze()).expect(
+        "send Email/get attachments[" & $target.kind & "]"
+      )
     let getResp = getRespOuter.get(getHandle).expect(
         "Email/get attachments extract[" & $target.kind & "]"
       )
@@ -103,13 +104,13 @@ block temailParseLive:
     assertOn target, string(blobId).len > 0, "attachment blobId must be non-empty"
 
     let (bParse, parseHandle) = addEmailParse(
-      initRequestBuilder(),
+      initRequestBuilder(makeBuilderId()),
       mailAccountId,
       blobIds = @[blobId],
       properties = Opt.some(@["bodyStructure", "subject", "from"]),
     )
     let parseRespOuter =
-      client.send(bParse).expect("send Email/parse[" & $target.kind & "]")
+      client.send(bParse.freeze()).expect("send Email/parse[" & $target.kind & "]")
     captureIfRequested(client, "email-parse-rfc822-" & $target.kind).expect(
       "captureIfRequested"
     )

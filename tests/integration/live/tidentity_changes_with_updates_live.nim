@@ -94,10 +94,13 @@ block tidentityChangesWithUpdatesLive:
         "parseNonEmptyIdentityUpdates"
       )
     let (bU, updateHandle) = addIdentitySet(
-      initRequestBuilder(), submissionAccountId, update = Opt.some(updates)
+      initRequestBuilder(makeBuilderId()),
+      submissionAccountId,
+      update = Opt.some(updates),
     )
-    let respU =
-      client.send(bU).expect("send Identity/set five-arm update[" & $target.kind & "]")
+    let respU = client.send(bU.freeze()).expect(
+        "send Identity/set five-arm update[" & $target.kind & "]"
+      )
     captureIfRequested(client, "identity-changes-with-updates-" & $target.kind).expect(
       "captureIfRequested"
     )
@@ -115,9 +118,12 @@ block tidentityChangesWithUpdatesLive:
 
     # Identity/changes from the baseline state.
     let (bC, changesHandle) = addIdentityChanges(
-      initRequestBuilder(), submissionAccountId, sinceState = baselineState
+      initRequestBuilder(makeBuilderId()),
+      submissionAccountId,
+      sinceState = baselineState,
     )
-    let respC = client.send(bC).expect("send Identity/changes[" & $target.kind & "]")
+    let respC =
+      client.send(bC.freeze()).expect("send Identity/changes[" & $target.kind & "]")
     let crExtract = respC.get(changesHandle)
     assertSuccessOrTypedError(target, crExtract, {metUnknownMethod}):
       let cr = success
@@ -139,10 +145,13 @@ block tidentityChangesWithUpdatesLive:
     # configured target.
     if updateOk:
       let (bG, getHandle) = addIdentityGet(
-        initRequestBuilder(), submissionAccountId, ids = directIds(@[identityId])
+        initRequestBuilder(makeBuilderId()),
+        submissionAccountId,
+        ids = directIds(@[identityId]),
       )
-      let respG =
-        client.send(bG).expect("send Identity/get round-trip[" & $target.kind & "]")
+      let respG = client.send(bG.freeze()).expect(
+          "send Identity/get round-trip[" & $target.kind & "]"
+        )
       let getResp = respG.get(getHandle).expect(
           "Identity/get round-trip extract[" & $target.kind & "]"
         )
@@ -181,7 +190,11 @@ block tidentityChangesWithUpdatesLive:
       let cleanupUpdates = parseNonEmptyIdentityUpdates(@[(identityId, cleanupSet)])
         .expect("parseNonEmptyIdentityUpdates cleanup[" & $target.kind & "]")
       let (bX, _) = addIdentitySet(
-        initRequestBuilder(), submissionAccountId, update = Opt.some(cleanupUpdates)
+        initRequestBuilder(makeBuilderId()),
+        submissionAccountId,
+        update = Opt.some(cleanupUpdates),
       )
-      discard client.send(bX).expect("send Identity/set cleanup[" & $target.kind & "]")
+      discard client.send(bX.freeze()).expect(
+          "send Identity/set cleanup[" & $target.kind & "]"
+        )
     client.close()

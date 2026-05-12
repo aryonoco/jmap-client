@@ -18,6 +18,7 @@ import results
 import jmap_client
 import jmap_client/client
 import jmap_client/internal/types/envelope
+import jmap_client/internal/protocol/dispatch
 import ./mcapture
 import ./mconfig
 import ./mlive
@@ -38,26 +39,28 @@ block tmultiInstanceEnvelopeLive:
     # - call 0: full record (no properties filter)
     # - call 1: minimal sparse subset
     # - call 2: counts subset
-    let (b1, fullHandle) = addMailboxGet(initRequestBuilder(), mailAccountId)
+    let (b1, fullHandle) =
+      addMailboxGet(initRequestBuilder(makeBuilderId()), mailAccountId)
     let (b2, _) =
       addMailboxGet(b1, mailAccountId, properties = Opt.some(@["id", "name"]))
     let (b3, _) = addMailboxGet(
       b2, mailAccountId, properties = Opt.some(@["id", "role", "totalEmails"])
     )
-    let resp =
-      client.send(b3).expect("send three-Mailbox/get envelope[" & $target.kind & "]")
+    let resp = client.send(b3.freeze()).expect(
+        "send three-Mailbox/get envelope[" & $target.kind & "]"
+      )
     captureIfRequested(client, "multi-instance-envelope-" & $target.kind).expect(
       "captureIfRequested multi-instance"
     )
 
     assertOn target,
-      resp.methodResponses.len == 3,
-      "envelope must carry three responses, got " & $resp.methodResponses.len
+      resp.response.methodResponses.len == 3,
+      "envelope must carry three responses, got " & $resp.response.methodResponses.len
 
     # Order preservation: methodResponses[i] must match methodCalls[i].
-    assertOn target, resp.methodResponses[0].rawName == "Mailbox/get"
-    assertOn target, resp.methodResponses[1].rawName == "Mailbox/get"
-    assertOn target, resp.methodResponses[2].rawName == "Mailbox/get"
+    assertOn target, resp.response.methodResponses[0].rawName == "Mailbox/get"
+    assertOn target, resp.response.methodResponses[1].rawName == "Mailbox/get"
+    assertOn target, resp.response.methodResponses[2].rawName == "Mailbox/get"
 
     # Full record uses the public typed entry point. Sparse + counts
     # are sparse projections, which have no public application-API
@@ -67,8 +70,8 @@ block tmultiInstanceEnvelopeLive:
     # through ``jmap_client/internal/types/envelope`` imported above).
     let fullResp =
       resp.get(fullHandle).expect("Mailbox/get full extract[" & $target.kind & "]")
-    let sparseInv = resp.methodResponses[1]
-    let countsInv = resp.methodResponses[2]
+    let sparseInv = resp.response.methodResponses[1]
+    let countsInv = resp.response.methodResponses[2]
     let sparseList = sparseInv.arguments{"list"}.getElems(@[])
     let countsList = countsInv.arguments{"list"}.getElems(@[])
 

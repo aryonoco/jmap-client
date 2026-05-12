@@ -66,11 +66,12 @@ proc resolveOrCreateSecondaryAliceIdentity(
   ## needs two identities to make the ``identityIds`` filter
   ## discriminating.  Idempotent across runs: the lookup precedes
   ## every create.
-  let (b1, getHandle) = addIdentityGet(initRequestBuilder(), submissionAccountId)
-  let resp1 = client.send(b1).valueOr:
+  let (b1, getHandle) =
+    addIdentityGet(initRequestBuilder(makeBuilderId()), submissionAccountId)
+  let resp1 = client.send(b1.freeze()).valueOr:
     return err("Identity/get send failed: " & error.message)
   let getResp = resp1.get(getHandle).valueOr:
-    return err("Identity/get extract failed: " & error.rawType)
+    return err("Identity/get extract failed: " & error.message)
   for ident in getResp.list:
     if ident.email == "alice@example.com" and ident.name == displayName:
       return ok(ident.id)
@@ -81,12 +82,14 @@ proc resolveOrCreateSecondaryAliceIdentity(
   var createTbl = initTable[CreationId, IdentityCreate]()
   createTbl[cid] = createIdent
   let (b2, setHandle) = addIdentitySet(
-    initRequestBuilder(), submissionAccountId, create = Opt.some(createTbl)
+    initRequestBuilder(makeBuilderId()),
+    submissionAccountId,
+    create = Opt.some(createTbl),
   )
-  let resp2 = client.send(b2).valueOr:
+  let resp2 = client.send(b2.freeze()).valueOr:
     return err("Identity/set send failed: " & error.message)
   let setResp = resp2.get(setHandle).valueOr:
-    return err("Identity/set extract failed: " & error.rawType)
+    return err("Identity/set extract failed: " & error.message)
   var createdId: Id
   var found = false
   setResp.createResults.withValue(cid, outcome):
@@ -141,8 +144,8 @@ block temailSubmissionFilterSortLive:
 
     # Baseline EmailSubmission/query queryState (no filter).
     let (bBase, baseHandle) =
-      addEmailSubmissionQuery(initRequestBuilder(), submissionAccountId)
-    let respBase = client.send(bBase).expect(
+      addEmailSubmissionQuery(initRequestBuilder(makeBuilderId()), submissionAccountId)
+    let respBase = client.send(bBase.freeze()).expect(
         "send baseline EmailSubmission/query[" & $target.kind & "]"
       )
     let baseExtract = respBase.get(baseHandle)
@@ -192,9 +195,11 @@ block temailSubmissionFilterSortLive:
       EmailSubmissionFilterCondition(identityIds: Opt.some(primaryIdSeq))
     )
     let (bA, hA) = addEmailSubmissionQuery(
-      initRequestBuilder(), submissionAccountId, filter = Opt.some(identityFilter)
+      initRequestBuilder(makeBuilderId()),
+      submissionAccountId,
+      filter = Opt.some(identityFilter),
     )
-    let respA = client.send(bA).expect(
+    let respA = client.send(bA.freeze()).expect(
         "send Email Submission/query identity filter[" & $target.kind & "]"
       )
     let qrA = respA.get(hA).expect("identity filter extract[" & $target.kind & "]")
@@ -221,9 +226,11 @@ block temailSubmissionFilterSortLive:
       )
       .expect("parseEmailSubmissionComparator sentAt[" & $target.kind & "]")
     let (bB, hB) = addEmailSubmissionQuery(
-      initRequestBuilder(), submissionAccountId, sort = Opt.some(@[comparator])
+      initRequestBuilder(makeBuilderId()),
+      submissionAccountId,
+      sort = Opt.some(@[comparator]),
     )
-    let respB = client.send(bB).expect(
+    let respB = client.send(bB.freeze()).expect(
         "send EmailSubmission/query sort sentAt asc[" & $target.kind & "]"
       )
     captureIfRequested(client, "email-submission-query-filter-sort-" & $target.kind)
@@ -242,13 +249,14 @@ block temailSubmissionFilterSortLive:
 
     # Sub-test C: EmailSubmission/queryChanges with calculateTotal.
     let (bC, hC) = addEmailSubmissionQueryChanges(
-      initRequestBuilder(),
+      initRequestBuilder(makeBuilderId()),
       submissionAccountId,
       sinceQueryState = baselineQueryState,
       calculateTotal = true,
     )
-    let respC =
-      client.send(bC).expect("send EmailSubmission/queryChanges[" & $target.kind & "]")
+    let respC = client.send(bC.freeze()).expect(
+        "send EmailSubmission/queryChanges[" & $target.kind & "]"
+      )
     captureIfRequested(
       client, "email-submission-query-changes-with-filter-" & $target.kind
     )

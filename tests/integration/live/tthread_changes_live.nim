@@ -97,10 +97,11 @@ block tthreadChangesLive:
     var lastCr: ChangesResponse[jmap_client.Thread]
     for attempt in 0 ..< 5:
       let (b, h) = addThreadChanges(
-        initRequestBuilder(), mailAccountId, sinceState = baselineState
+        initRequestBuilder(makeBuilderId()), mailAccountId, sinceState = baselineState
       )
-      let resp =
-        client.send(b).expect("send Thread/changes happy[" & $target.kind & "]")
+      let resp = client.send(b.freeze()).expect(
+          "send Thread/changes happy[" & $target.kind & "]"
+        )
       let cr = resp.get(h).expect("Thread/changes happy extract[" & $target.kind & "]")
       if cr.created.len + cr.updated.len >= 1:
         lastCr = cr
@@ -122,17 +123,21 @@ block tthreadChangesLive:
 
     # --- Sad path: bogus sinceState ------------------------------------
     let bogusState = JmapState("phase-h-45-bogus-state")
-    let (bSad, sadHandle) =
-      addThreadChanges(initRequestBuilder(), mailAccountId, sinceState = bogusState)
-    let respSad =
-      client.send(bSad).expect("send Thread/changes bogus[" & $target.kind & "]")
+    let (bSad, sadHandle) = addThreadChanges(
+      initRequestBuilder(makeBuilderId()), mailAccountId, sinceState = bogusState
+    )
+    let respSad = client.send(bSad.freeze()).expect(
+        "send Thread/changes bogus[" & $target.kind & "]"
+      )
     captureIfRequested(client, "thread-changes-bogus-state-" & $target.kind).expect(
       "captureIfRequested"
     )
     let sadExtract = respSad.get(sadHandle)
     assertOn target,
       sadExtract.isErr, "bogus sinceState must surface as a method-level error"
-    let methodErr = sadExtract.error
+    let getErr = sadExtract.error
+    doAssert getErr.kind == gekMethod, "expected gekMethod"
+    let methodErr = getErr.methodErr
     assertOn target,
       methodErr.errorType in
         {metCannotCalculateChanges, metInvalidArguments, metUnknownMethod},

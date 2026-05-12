@@ -86,7 +86,7 @@ block temailGetHeaderFormsExtendedLive:
       .expect("seedEmailWithHeaders[" & $target.kind & "]")
 
     let (b, getHandle) = addEmailGet(
-      initRequestBuilder(),
+      initRequestBuilder(makeBuilderId()),
       mailAccountId,
       ids = directIds(@[seededId]),
       properties = Opt.some(
@@ -97,7 +97,7 @@ block temailGetHeaderFormsExtendedLive:
         ]
       ),
     )
-    let resp = client.send(b).expect(
+    let resp = client.send(b.freeze()).expect(
         "send Email/get extended header forms[" & $target.kind & "]"
       )
     captureIfRequested(client, "email-get-header-forms-extended-" & $target.kind).expect(

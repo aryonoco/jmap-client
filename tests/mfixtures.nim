@@ -46,6 +46,8 @@ import jmap_client/internal/mail/submission_status
 import jmap_client/internal/mail/email_submission
 import jmap_client/internal/protocol/methods
 import jmap_client/internal/protocol/dispatch
+import jmap_client/internal/protocol/builder
+import jmap_client/internal/protocol/call_meta
 
 proc zeroUint*(): UnsignedInt =
   parseUnsignedInt(0).get()
@@ -76,6 +78,24 @@ proc makePropertyName*(s = "subject"): PropertyName =
 
 proc makeUriTemplate*(s = "https://example.com/{accountId}"): UriTemplate =
   parseUriTemplate(s).get()
+
+proc makeBuilderId*(clientBrand: uint64 = 0'u64, serial: uint64 = 0'u64): BuilderId =
+  initBuilderId(clientBrand, serial)
+
+proc makeResponseHandle*[T](
+    callId: MethodCallId, builderId: BuilderId = makeBuilderId()
+): ResponseHandle[T] =
+  initResponseHandle[T](callId, builderId)
+
+proc makeNameBoundHandle*[T](
+    callId: MethodCallId, methodName: MethodName, builderId: BuilderId = makeBuilderId()
+): NameBoundHandle[T] =
+  initNameBoundHandle[T](callId, methodName, builderId)
+
+proc makeDispatchedResponse*(
+    response: Response, builderId: BuilderId = makeBuilderId()
+): DispatchedResponse =
+  initDispatchedResponse(response, builderId)
 
 proc zeroCoreCaps*(): CoreCapabilities =
   let z = zeroUint()
@@ -198,6 +218,21 @@ proc makeRequest*(
     createdIds = Opt.none(Table[CreationId, Id]),
 ): Request =
   Request(`using`: `using`, methodCalls: methodCalls, createdIds: createdIds)
+
+proc makeBuiltRequest*(
+    `using`: seq[string] = @["urn:ietf:params:jmap:core"],
+    methodCalls: seq[Invocation] = @[makeInvocation()],
+    createdIds = Opt.none(Table[CreationId, Id]),
+    builderId: BuilderId = makeBuilderId(),
+    callLimits: seq[CallLimitMeta] = @[],
+): BuiltRequest =
+  ## Test-only factory for ``BuiltRequest``. Wraps ``makeRequest`` then
+  ## routes through ``builtRequestForTest`` (the whitebox-only factory in
+  ## ``internal/protocol/builder.nim``). Use when a test needs a frozen,
+  ## branded carrier without driving the full builder pipeline.
+  let req =
+    makeRequest(`using` = `using`, methodCalls = methodCalls, createdIds = createdIds)
+  builtRequestForTest(req, builderId, callLimits)
 
 proc makeResponse*(
     methodResponses: seq[Invocation] = @[makeInvocation()],
@@ -1891,16 +1926,16 @@ proc makeEmailImportResponse*(
 # ---------------------------------------------------------------------------
 
 proc makeEmailCopyHandles*(
-    sharedCallId: MethodCallId = makeMcid("c0")
+    sharedCallId: MethodCallId = makeMcid("c0"), builderId: BuilderId = makeBuilderId()
 ): EmailCopyHandles =
   ## Both handles share one ``MethodCallId`` per RFC 8620 §5.4 — the
   ## implicit Email/set destroy response shares its call-id with the
   ## parent Email/copy invocation. Phase 4 protocol tests may add a
   ## distinct-MCID overload later if the mismatch case needs exercising.
   EmailCopyHandles(
-    primary: ResponseHandle[CopyResponse[EmailCreatedItem]](sharedCallId),
-    implicit: NameBoundHandle[SetResponse[EmailCreatedItem, PartialEmail]](
-      callId: sharedCallId, methodName: mnEmailSet
+    primary: makeResponseHandle[CopyResponse[EmailCreatedItem]](sharedCallId, builderId),
+    implicit: makeNameBoundHandle[SetResponse[EmailCreatedItem, PartialEmail]](
+      sharedCallId, mnEmailSet, builderId
     ),
   )
 
@@ -2258,6 +2293,7 @@ proc makeFullEmailSubmissionBlueprint*(): EmailSubmissionBlueprint =
 proc makeEmailSubmissionHandles*(
     submissionMcid: MethodCallId = makeMcid("c0"),
     emailSetMcid: MethodCallId = makeMcid("c0"),
+    builderId: BuilderId = makeBuilderId(),
 ): EmailSubmissionHandles =
   ## Both handles share one ``MethodCallId`` by default per RFC 8620 §5.4 —
   ## the implicit ``Email/set`` triggered by ``onSuccessUpdateEmail`` /
@@ -2266,8 +2302,8 @@ proc makeEmailSubmissionHandles*(
   ## adversarial tests (§8.2.3 Block 6 ``getBothInnerMcIdMismatch``) can
   ## pass divergent ids to exercise the dispatch mismatch branch.
   EmailSubmissionHandles(
-    primary: ResponseHandle[EmailSubmissionSetResponse](submissionMcid),
-    implicit: NameBoundHandle[SetResponse[EmailCreatedItem, PartialEmail]](
-      callId: emailSetMcid, methodName: mnEmailSet
+    primary: makeResponseHandle[EmailSubmissionSetResponse](submissionMcid, builderId),
+    implicit: makeNameBoundHandle[SetResponse[EmailCreatedItem, PartialEmail]](
+      emailSetMcid, mnEmailSet, builderId
     ),
   )

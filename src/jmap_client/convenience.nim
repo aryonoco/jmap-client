@@ -107,14 +107,14 @@ type QueryGetResults*[T] = object
   get*: GetResponse[T]
 
 func getBoth*[T](
-    resp: Response, handles: QueryGetHandles[T]
-): Result[QueryGetResults[T], MethodError] =
+    dr: DispatchedResponse, handles: QueryGetHandles[T]
+): Result[QueryGetResults[T], GetError] =
   ## Extracts both query and get responses, failing on the first error.
   ## Composes naturally with the ``?`` operator:
-  ## ``let results = resp.getBoth(handles).?``
+  ## ``let results = dr.getBoth(handles).?``
   mixin fromJson
-  let qr = ?resp.get(handles.query)
-  let gr = ?resp.get(handles.get)
+  let qr = ?dr.get(handles.query)
+  let gr = ?dr.get(handles.get)
   return ok(QueryGetResults[T](query: qr, get: gr))
 
 type ChangesGetResults*[T] = object
@@ -123,10 +123,10 @@ type ChangesGetResults*[T] = object
   get*: GetResponse[T]
 
 func getBoth*[T](
-    resp: Response, handles: ChangesGetHandles[T]
-): Result[ChangesGetResults[T], MethodError] =
+    dr: DispatchedResponse, handles: ChangesGetHandles[T]
+): Result[ChangesGetResults[T], GetError] =
   ## Extracts both changes and get responses, failing on the first error.
   mixin fromJson
-  let cr = ?resp.get(handles.changes)
-  let gr = ?resp.get(handles.get)
+  let cr = ?dr.get(handles.changes)
+  let gr = ?dr.get(handles.get)
   return ok(ChangesGetResults[T](changes: cr, get: gr))

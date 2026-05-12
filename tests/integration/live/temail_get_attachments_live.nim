@@ -82,12 +82,13 @@ block temailGetAttachmentsLive:
     let seededId = seededRes.unsafeValue
 
     let (b, getHandle) = addEmailGet(
-      initRequestBuilder(),
+      initRequestBuilder(makeBuilderId()),
       mailAccountId,
       ids = directIds(@[seededId]),
       properties = Opt.some(@["id", "attachments"]),
     )
-    let resp = client.send(b).expect("send Email/get attachments[" & $target.kind & "]")
+    let resp =
+      client.send(b.freeze()).expect("send Email/get attachments[" & $target.kind & "]")
     captureIfRequested(client, "email-multipart-mixed-attachment-" & $target.kind)
       .expect("captureIfRequested")
     let getResp =

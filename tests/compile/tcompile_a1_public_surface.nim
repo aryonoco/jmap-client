@@ -84,6 +84,28 @@ static:
 
   # --- L4: client transport ---
   doAssert declared(JmapClient)
+  # A6 lifecycle: ``newBuilder`` is the blessed entry point for application
+  # developers; ``freeze`` returns the sealed ``BuiltRequest`` that ``send``
+  # consumes; ``DispatchedResponse`` is the sealed artifact returned by
+  # ``send``; ``GetError`` is the inner-railway error sum returned by
+  # ``get`` / ``getBoth``.
+  doAssert declared(newBuilder)
+  doAssert declared(freeze)
+  doAssert declared(BuiltRequest)
+  doAssert declared(BuilderId)
+  doAssert declared(DispatchedResponse)
+  doAssert declared(GetError)
+  doAssert declared(GetErrorKind)
+  doAssert declared(gekMethod)
+  doAssert declared(gekHandleMismatch)
+  # Factories of the sealed types are hub-private (A6 P5/P8) — application
+  # developers must use the lifecycle, not raw construction.
+  doAssert not declared(initRequestBuilder)
+  doAssert not declared(initResponseHandle)
+  doAssert not declared(initNameBoundHandle)
+  doAssert not declared(initDispatchedResponse)
+  doAssert not declared(initBuilderId)
+  doAssert not declared(build) # replaced by freeze
 
 # Runtime anchor pins the import against UnusedImport warnings.
 doAssert $mnCoreEcho == "Core/echo"

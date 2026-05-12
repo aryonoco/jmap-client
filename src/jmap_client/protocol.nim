@@ -34,7 +34,8 @@ export entity
 export methods except
   SerializedSort, SerializedFilter, toJsonNode, serializeOptSort, serializeOptFilter,
   serializeFilter, assembleQueryArgs, assembleQueryChangesArgs
-export dispatch
+export dispatch except
+  initResponseHandle, initNameBoundHandle, initDispatchedResponse, response, builderId
 export builder except
   addInvocation, callLimits, addGet, addChanges, addSet, addCopy, addQuery,
-  addQueryChanges
+  addQueryChanges, initRequestBuilder, request, builderId, builtRequestForTest

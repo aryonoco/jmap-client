@@ -28,17 +28,17 @@ import ../mfixtures
 # ===========================================================================
 
 block addIdentityGetRoutesToIdentityGet:
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = b0.addIdentityGet(makeAccountId("a1"))
-  let req = b1.build()
+  let req = b1.freeze().request
   assertLen req.methodCalls, 1
   assertEq req.methodCalls[0].name, mnIdentityGet
   doAssert "urn:ietf:params:jmap:submission" in req.`using`
 
 block addIdentityChangesRoutesToIdentityChanges:
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = b0.addIdentityChanges(makeAccountId("a1"), makeState("s0"))
-  let req = b1.build()
+  let req = b1.freeze().request
   assertEq req.methodCalls[0].name, mnIdentityChanges
 
 # ===========================================================================
@@ -52,9 +52,9 @@ block addIdentitySetCreateOnlyEmitsSixFields:
   let ic = parseIdentityCreate("alice@example.com", name = "Alice").get()
   var tbl = initTable[CreationId, IdentityCreate]()
   tbl[makeCreationId("k0")] = ic
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = b0.addIdentitySet(makeAccountId("a1"), create = Opt.some(tbl))
-  let req = b1.build()
+  let req = b1.freeze().request
   assertLen req.methodCalls, 1
   assertEq req.methodCalls[0].name, mnIdentitySet
   doAssert "urn:ietf:params:jmap:submission" in req.`using`
@@ -77,9 +77,9 @@ block addIdentitySetUpdateEmitsPerIdPatches:
   let us1 = initIdentityUpdateSet(@[setName("Alice")]).get()
   let us2 = initIdentityUpdateSet(@[setTextSignature("sig")]).get()
   let wrap = parseNonEmptyIdentityUpdates(@[(id1, us1), (id2, us2)]).get()
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = b0.addIdentitySet(makeAccountId("a1"), update = Opt.some(wrap))
-  let req = b1.build()
+  let req = b1.freeze().request
   let args = req.methodCalls[0].arguments
   let updObj = args{"update"}
   doAssert updObj != nil and updObj.kind == JObject
@@ -96,9 +96,9 @@ block addIdentitySetUpdateEmitsPerIdPatches:
 block addIdentitySetDestroyEmitsIdArray:
   let id1 = parseId("idt1").get()
   let id2 = parseId("idt2").get()
-  let b0 = initRequestBuilder()
+  let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = b0.addIdentitySet(makeAccountId("a1"), destroy = directIds(@[id1, id2]))
-  let req = b1.build()
+  let req = b1.freeze().request
   let args = req.methodCalls[0].arguments
   let destroyArr = args{"destroy"}
   doAssert destroyArr != nil and destroyArr.kind == JArray

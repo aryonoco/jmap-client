@@ -58,13 +58,14 @@ block temailGetTextBodyLive:
       .expect("seedSimpleEmail[" & $target.kind & "]")
 
     let (b, getHandle) = addEmailGet(
-      initRequestBuilder(),
+      initRequestBuilder(makeBuilderId()),
       mailAccountId,
       ids = directIds(@[seededId]),
       properties = Opt.some(@["id", "textBody", "bodyValues"]),
       bodyFetchOptions = EmailBodyFetchOptions(fetchBodyValues: bvsText),
     )
-    let resp = client.send(b).expect("send Email/get text body[" & $target.kind & "]")
+    let resp =
+      client.send(b.freeze()).expect("send Email/get text body[" & $target.kind & "]")
     let getResp =
       resp.get(getHandle).expect("Email/get text body extract[" & $target.kind & "]")
     assertOn target, getResp.list.len == 1, "Email/get must return the seeded message"

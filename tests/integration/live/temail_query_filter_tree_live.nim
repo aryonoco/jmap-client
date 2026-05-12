@@ -74,9 +74,11 @@ block temailQueryFilterTreeLive:
         filterCondition(EmailFilterCondition(subject: Opt.some("uno"))),
       ],
     )
-    let (ba, andHandle) =
-      addEmailQuery(initRequestBuilder(), mailAccountId, filter = Opt.some(andFilter))
-    let respA = client.send(ba).expect("send Email/query AND[" & $target.kind & "]")
+    let (ba, andHandle) = addEmailQuery(
+      initRequestBuilder(makeBuilderId()), mailAccountId, filter = Opt.some(andFilter)
+    )
+    let respA =
+      client.send(ba.freeze()).expect("send Email/query AND[" & $target.kind & "]")
     let andResp =
       respA.get(andHandle).expect("Email/query AND extract[" & $target.kind & "]")
     let andHits = andResp.ids.toHashSet * corpus
@@ -95,9 +97,11 @@ block temailQueryFilterTreeLive:
         filterCondition(EmailFilterCondition(subject: Opt.some("bravo"))),
       ],
     )
-    let (bo, orHandle) =
-      addEmailQuery(initRequestBuilder(), mailAccountId, filter = Opt.some(orFilter))
-    let respO = client.send(bo).expect("send Email/query OR[" & $target.kind & "]")
+    let (bo, orHandle) = addEmailQuery(
+      initRequestBuilder(makeBuilderId()), mailAccountId, filter = Opt.some(orFilter)
+    )
+    let respO =
+      client.send(bo.freeze()).expect("send Email/query OR[" & $target.kind & "]")
     let orResp =
       respO.get(orHandle).expect("Email/query OR extract[" & $target.kind & "]")
     let orHits = orResp.ids.toHashSet * corpus
@@ -120,9 +124,11 @@ block temailQueryFilterTreeLive:
         ),
       ],
     )
-    let (bn, notHandle) =
-      addEmailQuery(initRequestBuilder(), mailAccountId, filter = Opt.some(notFilter))
-    let respN = client.send(bn).expect("send Email/query NOT[" & $target.kind & "]")
+    let (bn, notHandle) = addEmailQuery(
+      initRequestBuilder(makeBuilderId()), mailAccountId, filter = Opt.some(notFilter)
+    )
+    let respN =
+      client.send(bn.freeze()).expect("send Email/query NOT[" & $target.kind & "]")
     let notResp =
       respN.get(notHandle).expect("Email/query NOT extract[" & $target.kind & "]")
     let notHits = notResp.ids.toHashSet * corpus

@@ -80,13 +80,14 @@ block temailChangesMaxChangesLive:
     # First page — capture against a fresh seed surface so
     # hasMoreChanges is forced true.
     let (b1, h1) = addEmailChanges(
-      initRequestBuilder(),
+      initRequestBuilder(makeBuilderId()),
       mailAccountId,
       sinceState = baselineState,
       maxChanges = maxChangesCap,
     )
-    let resp1 =
-      client.send(b1).expect("send Email/changes first page[" & $target.kind & "]")
+    let resp1 = client.send(b1.freeze()).expect(
+        "send Email/changes first page[" & $target.kind & "]"
+      )
     captureIfRequested(client, "email-changes-max-changes-" & $target.kind).expect(
       "captureIfRequested"
     )
@@ -111,13 +112,14 @@ block temailChangesMaxChangesLive:
     var iter = 0
     while hasMore and iter < MaxIters:
       let (bN, hN) = addEmailChanges(
-        initRequestBuilder(),
+        initRequestBuilder(makeBuilderId()),
         mailAccountId,
         sinceState = nextState,
         maxChanges = maxChangesCap,
       )
-      let respN =
-        client.send(bN).expect("send Email/changes window-roll[" & $target.kind & "]")
+      let respN = client.send(bN.freeze()).expect(
+          "send Email/changes window-roll[" & $target.kind & "]"
+        )
       let crN =
         respN.get(hN).expect("Email/changes window-roll extract[" & $target.kind & "]")
       for id in crN.created:

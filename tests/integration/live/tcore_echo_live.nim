@@ -30,8 +30,8 @@ block tcoreEchoLive:
       )
       .expect("initJmapClient[" & $target.kind & "]")
     let args = %*{"hello": true, "n": 42, "msg": "phase-1 step-3"}
-    let (b1, echoHandle) = initRequestBuilder().addEcho(args)
-    let resp = client.send(b1).expect("send[" & $target.kind & "]")
+    let (b1, echoHandle) = initRequestBuilder(makeBuilderId()).addEcho(args)
+    let resp = client.send(b1.freeze()).expect("send[" & $target.kind & "]")
     captureIfRequested(client, "core-echo-" & $target.kind).expect(
       "captureIfRequested[" & $target.kind & "]"
     )
