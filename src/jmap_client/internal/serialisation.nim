@@ -7,12 +7,12 @@
 {.push raises: [], noSideEffect.}
 {.experimental: "strictCaseObjects".}
 
-import ./internal/serialisation/serde
-import ./internal/serialisation/serde_session
-import ./internal/serialisation/serde_envelope
-import ./internal/serialisation/serde_framework
-import ./internal/serialisation/serde_errors
-import ./internal/serialisation/serde_field_echo
+import ./serialisation/serde
+import ./serialisation/serde_session
+import ./serialisation/serde_envelope
+import ./serialisation/serde_framework
+import ./serialisation/serde_errors
+import ./serialisation/serde_field_echo
 
 export serde
 export serde_session

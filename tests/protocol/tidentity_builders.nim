@@ -13,7 +13,7 @@
 import std/json
 import std/tables
 
-import jmap_client/types
+import jmap_client
 import jmap_client/internal/protocol/builder
 import jmap_client/internal/types/methods_enum
 import jmap_client/internal/mail/identity
@@ -75,7 +75,7 @@ testCase addIdentitySetCreateOnlyEmitsSixFields:
 testCase addIdentitySetUpdateEmitsPerIdPatches:
   let id1 = parseIdFromServer("idt1").get()
   let id2 = parseIdFromServer("idt2").get()
-  let us1 = initIdentityUpdateSet(@[setName("Alice")]).get()
+  let us1 = initIdentityUpdateSet(@[identity.setName("Alice")]).get()
   let us2 = initIdentityUpdateSet(@[setTextSignature("sig")]).get()
   let wrap = parseNonEmptyIdentityUpdates(@[(id1, us1), (id2, us2)]).get()
   let b0 = initRequestBuilder(makeBuilderId())

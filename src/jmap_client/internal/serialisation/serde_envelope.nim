@@ -11,7 +11,7 @@ import std/json
 import std/tables
 
 import ./serde
-import ../../types
+import ../types
 import ../types/envelope
 
 # =============================================================================

@@ -20,7 +20,7 @@ import std/strutils
 import std/tables
 
 import ../serialisation/serde
-import ../../types
+import ../types
 import ./submission_envelope
 
 # =============================================================================

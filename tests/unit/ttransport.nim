@@ -7,7 +7,7 @@
 
 import results
 
-import jmap_client/transport
+import jmap_client
 import jmap_client/internal/types/errors
 import jmap_client/internal/types/validation # in-scope ``ruleOff`` pragma
 

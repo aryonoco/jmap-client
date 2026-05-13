@@ -13,8 +13,7 @@ from std/net import TimeoutError
 when defined(ssl):
   from std/net import SslError
 
-import jmap_client/client
-import jmap_client/transport
+import jmap_client
 import jmap_client/internal/types/capabilities
 import jmap_client/internal/types/envelope
 import jmap_client/internal/types/errors

@@ -22,7 +22,7 @@
 
 import std/json
 
-import jmap_client/types
+import jmap_client
 import jmap_client/internal/serialisation/serde
 import jmap_client/internal/protocol/entity
 

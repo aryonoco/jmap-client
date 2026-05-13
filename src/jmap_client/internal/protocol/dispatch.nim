@@ -24,8 +24,8 @@ import std/hashes
 import std/json
 import std/tables
 
-import ../../types
-import ../../serialisation
+import ../types
+import ../serialisation
 import ../types/envelope
 import ./methods
 

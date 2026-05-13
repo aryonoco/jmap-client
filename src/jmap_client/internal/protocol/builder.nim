@@ -32,8 +32,8 @@ import std/json
 import std/sequtils
 import std/tables
 
-import ../../types
-import ../../serialisation
+import ../types
+import ../serialisation
 import ./methods
 import ./dispatch
 import ./call_meta

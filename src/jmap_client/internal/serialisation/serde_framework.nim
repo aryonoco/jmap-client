@@ -10,7 +10,7 @@
 import std/json
 
 import ./serde
-import ../../types
+import ../types
 
 # =============================================================================
 # FilterOperator

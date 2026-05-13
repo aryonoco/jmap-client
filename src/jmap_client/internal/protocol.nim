@@ -25,10 +25,10 @@
 {.push raises: [], noSideEffect.}
 {.experimental: "strictCaseObjects".}
 
-import ./internal/protocol/entity
-import ./internal/protocol/methods
-import ./internal/protocol/dispatch
-import ./internal/protocol/builder
+import ./protocol/entity
+import ./protocol/methods
+import ./protocol/dispatch
+import ./protocol/builder
 
 export entity
 export methods except

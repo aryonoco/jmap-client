@@ -16,7 +16,7 @@ import std/tables
 
 import results
 
-import ../../types
+import ../types
 import ../types/validation
 
 type

@@ -11,7 +11,7 @@
 import std/json
 
 import ./serde
-import ../../types
+import ../types
 
 # =============================================================================
 # Lenient Option field helpers (§1.4b: absent, null, or wrong kind -> none)

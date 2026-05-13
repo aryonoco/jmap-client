@@ -135,3 +135,11 @@ static:
   doAssert not declared(initDispatchedResponse)
   doAssert not declared(initBuilderId)
   doAssert not declared(build) # replaced by freeze
+
+# Runtime anchor — `declared()` in the static block above does not
+# count as "use" for Nim's UnusedImport check. Reference one
+# public-surface symbol from each filtered hub (methods, dispatch,
+# builder) at runtime to pin the import.
+discard sizeof(GetRequest)
+discard sizeof(DispatchedResponse)
+discard sizeof(RequestBuilder)

@@ -17,7 +17,7 @@
 
 import std/json
 
-import ../../types
+import ../types
 import ../protocol/entity
 import ../protocol/methods
 import ./thread

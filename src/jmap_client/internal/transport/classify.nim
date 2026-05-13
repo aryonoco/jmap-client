@@ -21,7 +21,7 @@ import std/strutils
 
 import results
 
-import ../../transport
+import ../transport
 import ../types/errors
 import ../types/envelope as envelope
 import ../serialisation/serde

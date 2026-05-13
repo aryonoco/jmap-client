@@ -94,15 +94,21 @@ Access the Nim source code at /.nim-reference
 - `docs/rfcs/` — Authoritative text of various RFCs related to the project.
   Consult freely to validate your understanding of what an RFC actually stipulates.
 
-- `src/jmap_client.nim` — Library entry point (C ABI exports, Layer 5)
-- `src/jmap_client/types.nim` — Re-exports all Layer 1 modules
+- `src/jmap_client.nim` — Library entry point and sole public re-export hub (C ABI exports land here per A10)
+- `src/jmap_client/convenience.nim` — Opt-in pipeline combinators (P6 quarantine; the ONLY public module path besides root)
+- `src/jmap_client/internal/types.nim` — Re-exports all Layer 1 modules (internal hub; re-exported from `src/jmap_client.nim`)
 - L1 modules under `src/jmap_client/internal/types/` (`validation`,
-  `primitives`, `identifiers`, `capabilities`, `session`, `envelope`,
-  `framework`, `errors`) — re-exported via `src/jmap_client/types.nim`.
-  See `docs/design/01-layer-1-design.md` for per-module symbol
-  inventory.
-- `src/jmap_client/client.nim` — HTTP client wrapper (Only Layer 4 file)
-- `src/jmap_client/mail` — RFC8621 JMAP Mail implementation
+  `primitives`, `identifiers`, `collation`, `capabilities`,
+  `methods_enum`, `session`, `envelope`, `framework`, `errors`,
+  `field_echo`) — re-exported via `src/jmap_client/internal/types.nim`
+  and surfaced to consumers through `src/jmap_client.nim`. See
+  `docs/design/01-layer-1-design.md` for per-module symbol inventory.
+- `src/jmap_client/internal/serialisation.nim` — Re-exports all Layer 2 modules
+- `src/jmap_client/internal/protocol.nim` — Re-exports the Layer 3 protocol surface (builders, dispatch, methods, entity)
+- `src/jmap_client/internal/transport.nim` — Pluggable HTTP transport interface (Layer 4; re-exported from `src/jmap_client.nim`)
+- `src/jmap_client/internal/client.nim` — JMAP client handle (Layer 4; re-exported from `src/jmap_client.nim`)
+- `src/jmap_client/internal/mail/` — RFC 8621 JMAP Mail entities (re-exported from `src/jmap_client.nim`)
+- `src/jmap_client/internal/{push,websocket}.nim` — Type stubs for RFC 8620 §7 Push and RFC 8887 WebSocket; types re-exported from root, no separate public module paths (A10c per P5 + P23)
 - `tests/` — Test modules (categories: `unit/`, `serde/`, `property/`, `compliance/`, `stress/`)
 
 ## Coding Conventions

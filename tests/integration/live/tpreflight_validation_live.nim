@@ -22,8 +22,6 @@ import std/tables
 
 import results
 import jmap_client
-import jmap_client/client
-import jmap_client/transport
 import ./mconfig
 import ./mlive
 import ../../mtestblock

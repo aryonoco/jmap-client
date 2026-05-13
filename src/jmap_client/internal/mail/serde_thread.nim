@@ -10,7 +10,7 @@ import std/json
 
 import ../serialisation/serde
 import ../serialisation/serde_field_echo
-import ../../types
+import ../types
 import ./thread
 
 # =============================================================================

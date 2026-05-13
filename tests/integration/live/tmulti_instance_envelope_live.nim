@@ -16,7 +16,6 @@ import std/json
 
 import results
 import jmap_client
-import jmap_client/client
 import jmap_client/internal/types/envelope
 import jmap_client/internal/protocol/dispatch
 import ./mcapture

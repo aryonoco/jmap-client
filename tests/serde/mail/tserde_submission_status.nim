@@ -17,7 +17,7 @@ import jmap_client/internal/mail/serde_submission_status
 import jmap_client/internal/mail/submission_mailbox
 import jmap_client/internal/mail/submission_status
 import jmap_client/internal/serialisation/serde
-import jmap_client/types
+import jmap_client
 
 import ../../massertions
 import ../../mfixtures

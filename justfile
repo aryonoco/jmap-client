@@ -403,6 +403,28 @@ lint-h12-no-test-backdoors:
     nim r --hints:off --warnings:off tests/lint/h12_no_test_backdoor_symbols.nim
     @echo "H12 test-backdoor-symbol lint passed"
 
+# Regenerate the closed-set module-paths snapshot from the
+# filesystem. Developer convenience for legitimate path changes —
+# review the diff before committing and tag the PR
+# [MODULE-PATH-CHANGE]. CI does not run this recipe.
+freeze-module-paths:
+    @echo "Regenerating tests/wire_contract/module-paths.txt..."
+    @mkdir -p tests/wire_contract
+    @{ echo jmap_client; \
+       ls src/jmap_client/*.nim 2>/dev/null \
+         | sed 's|^src/||; s|\.nim$||'; \
+     } | sort -u > tests/wire_contract/module-paths.txt
+    @echo "Snapshot regenerated. Review the diff before committing."
+
+# H13 module-path lock lint. Backs A10a/A10b (P1, P5, P6, P20,
+# P23). Bidirectional comparison: top-level .nim files under
+# src/jmap_client/ must match tests/wire_contract/module-paths.txt
+# exactly.
+lint-module-paths:
+    @echo "Running H13 module-path lock lint..."
+    nim r --hints:off --warnings:off tests/lint/h13_module_path_lock.nim
+    @echo "H13 module-path lock lint passed"
+
 # Static analysis with nimalyzer
 analyse:
     @echo "Running static analysis..."
@@ -413,7 +435,7 @@ analyse:
 analyze: analyse
 
 # Run all code quality checks
-check: fmt-check lint lint-isolated lint-style lint-internal-boundary lint-typed-builder-jsonnode lint-sealed-distinct lint-h12-no-test-backdoors analyse
+check: fmt-check lint lint-isolated lint-style lint-internal-boundary lint-typed-builder-jsonnode lint-sealed-distinct lint-h12-no-test-backdoors lint-module-paths analyse
     @echo "All quality checks passed"
 
 # =============================================================================
@@ -427,7 +449,7 @@ reuse:
     @echo "REUSE compliance check passed"
 
 # Run full CI pipeline locally (mirrors .github/workflows/ci.yml)
-ci: reuse fmt-check lint lint-isolated lint-style lint-internal-boundary lint-typed-builder-jsonnode lint-sealed-distinct lint-h12-no-test-backdoors analyse test
+ci: reuse fmt-check lint lint-isolated lint-style lint-internal-boundary lint-typed-builder-jsonnode lint-sealed-distinct lint-h12-no-test-backdoors lint-module-paths analyse test
     @echo ""
     @echo "============================================"
     @echo "All CI checks passed!"

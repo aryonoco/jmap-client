@@ -9,7 +9,7 @@
 import std/json
 
 import ../serialisation/serde
-import ../../types
+import ../types
 import ./headers
 import ./addresses
 import ./serde_addresses

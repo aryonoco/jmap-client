@@ -65,8 +65,8 @@ proc main() =
       stderr.writeLine "  " & v
     stderr.writeLine ""
     stderr.writeLine "import jmap_client/internal/* is forbidden outside the"
-    stderr.writeLine "package. Use the public hubs (jmap_client/types,"
-    stderr.writeLine "/serialisation, /protocol, /client, /mail, /convenience)."
+    stderr.writeLine "package. Use ``import jmap_client`` (everything) or"
+    stderr.writeLine "``import jmap_client/convenience`` (opt-in helpers)."
     stderr.writeLine "See P5, A1, H10 in docs/TODO/pre-1.0-api-alignment.md."
     quit(1)
   echo "H10 internal-boundary: 0 violations"

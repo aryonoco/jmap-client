@@ -32,7 +32,7 @@ import std/tables
 
 import ../serialisation/serde
 import ../serialisation/serde_field_echo
-import ../../types
+import ../types
 import ./email_submission
 import ./submission_envelope
 import ./submission_status

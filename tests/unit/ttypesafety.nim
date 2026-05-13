@@ -6,7 +6,7 @@
 from std/json import JsonNode
 import std/sets
 
-import jmap_client/types
+import jmap_client
 import ../mtestblock
 
 # --- Distinct type isolation ---

@@ -14,7 +14,7 @@
 
 import std/json
 
-import ../../types
+import ../types
 import ./serde
 
 # =============================================================================

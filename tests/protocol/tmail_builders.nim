@@ -12,8 +12,7 @@
 import std/json
 import std/tables
 
-import jmap_client/types
-import jmap_client/serialisation
+import jmap_client
 import jmap_client/internal/protocol/methods
 import jmap_client/internal/protocol/dispatch
 import jmap_client/internal/protocol/builder
@@ -716,7 +715,7 @@ testCase addMailboxSetTypedUpdate:
   ## flattens to ``{"name": "Renamed"}`` via ``toJson(MailboxUpdateSet)``
   ## at the builder boundary. Pins the migrated ``addMailboxSet`` signature
   ## routing through the typed algebra (Design §3.3).
-  let updateSet = initMailboxUpdateSet(@[setName("Renamed")]).get()
+  let updateSet = initMailboxUpdateSet(@[mailbox.setName("Renamed")]).get()
   let updateWrapped = parseNonEmptyMailboxUpdates(@[(makeId("mb1"), updateSet)]).get()
   let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = b0.addMailboxSet(makeAccountId("a1"), update = Opt.some(updateWrapped))

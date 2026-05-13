@@ -26,7 +26,7 @@ import std/json
 import std/tables
 
 import ../serialisation/serde
-import ../../types
+import ../types
 import ./submission_envelope
 import ./submission_status
 

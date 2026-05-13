@@ -37,8 +37,6 @@ const liveBudgetMul* = when defined(jmapLiveShard): 3 else: 1
 
 import results
 import jmap_client
-import jmap_client/client
-import jmap_client/transport
 import jmap_client/internal/protocol/builder
 import jmap_client/internal/types/identifiers
 import jmap_client/internal/transport/url_resolution

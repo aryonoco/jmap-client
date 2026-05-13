@@ -13,12 +13,10 @@
 import std/json
 import std/tables
 
-import jmap_client/types
-import jmap_client/serialisation
+import jmap_client
 import jmap_client/internal/protocol/methods
 import jmap_client/internal/protocol/dispatch
 import jmap_client/internal/protocol/builder
-import jmap_client/client
 import jmap_client/internal/mail/mail_builders
 import jmap_client/internal/mail/mailbox
 import jmap_client/internal/types/envelope

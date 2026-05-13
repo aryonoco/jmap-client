@@ -24,8 +24,14 @@ static:
   doAssert declared(builderId)
 
 # Runtime anchor — constructs a BuilderId via the internal factory and
-# pins the import against UnusedImport warnings.
+# pins the imports against UnusedImport warnings. Each direct
+# internal import (identifiers, errors, builder, dispatch) needs at
+# least one symbol referenced at runtime; ``declared()`` in the
+# static block does not count as use.
 let id = initBuilderId(0'u64, 0'u64)
 doAssert id == initBuilderId(0'u64, 0'u64)
 doAssert id.clientBrand == 0'u64
 doAssert id.serial == 0'u64
+discard sizeof(GetError)
+discard sizeof(RequestBuilder)
+discard sizeof(DispatchedResponse)

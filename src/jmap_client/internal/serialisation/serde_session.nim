@@ -13,7 +13,7 @@ import std/sets
 import std/tables
 
 import ./serde
-import ../../types
+import ../types
 
 # =============================================================================
 # CoreCapabilities

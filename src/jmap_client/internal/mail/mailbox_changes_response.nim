@@ -15,8 +15,8 @@
 
 import std/json
 
-import ../../types
-import ../../serialisation
+import ../types
+import ../serialisation
 import ../protocol/methods
 import ./mailbox
 

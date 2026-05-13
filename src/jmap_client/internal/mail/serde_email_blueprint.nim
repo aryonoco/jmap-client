@@ -12,7 +12,7 @@ import std/json
 import std/tables
 
 import ../serialisation/serde
-import ../../types
+import ../types
 import ./addresses
 import ./body
 import ./email_blueprint

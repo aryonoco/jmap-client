@@ -8,13 +8,13 @@
 {.push raises: [], noSideEffect.}
 {.experimental: "strictCaseObjects".}
 
-import ./internal/mail/types
-import ./internal/mail/serialisation
-import ./internal/mail/mail_entities
-import ./internal/mail/mail_methods
-import ./internal/mail/mail_builders
-import ./internal/mail/identity_builders
-import ./internal/mail/submission_builders
+import ./mail/types
+import ./mail/serialisation
+import ./mail/mail_entities
+import ./mail/mail_methods
+import ./mail/mail_builders
+import ./mail/identity_builders
+import ./mail/submission_builders
 
 export types
 export serialisation

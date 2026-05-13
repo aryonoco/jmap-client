@@ -13,7 +13,7 @@ import std/tables
 
 import ../serialisation/serde
 import ../serialisation/serde_field_echo
-import ../../types
+import ../types
 import ./mailbox
 
 # =============================================================================

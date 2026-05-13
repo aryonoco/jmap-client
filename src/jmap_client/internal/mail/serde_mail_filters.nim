@@ -11,7 +11,7 @@
 import std/json
 
 import ../serialisation/serde
-import ../../types
+import ../types
 import ./keyword
 import ./mail_filters
 import ./serde_mailbox

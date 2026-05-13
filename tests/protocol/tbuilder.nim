@@ -8,9 +8,8 @@
 import std/json
 import std/tables
 
-import jmap_client/types
+import jmap_client
 import jmap_client/internal/types/framework
-import jmap_client/serialisation
 import jmap_client/internal/serialisation/serde_envelope
 import jmap_client/internal/protocol/entity
 import jmap_client/internal/protocol/methods

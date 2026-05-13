@@ -25,8 +25,8 @@ import std/json
 import std/sugar
 import std/tables
 
-import ../../types
-import ../../serialisation
+import ../types
+import ../serialisation
 
 # =============================================================================
 # Lenient Option helpers (internal, not exported)

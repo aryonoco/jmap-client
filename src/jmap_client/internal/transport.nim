@@ -30,8 +30,8 @@ import std/strutils
 
 import results
 
-import ./internal/types/validation
-import ./internal/types/errors
+import ./types/validation
+import ./types/errors
 
 type HttpMethodKind* = enum
   ## Subset of HTTP verbs used by JMAP: GET for session discovery, POST

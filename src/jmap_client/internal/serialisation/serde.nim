@@ -22,7 +22,7 @@ import std/json
 import std/strutils
 import std/tables
 
-import ../../types
+import ../types
 
 # =============================================================================
 # JsonPath — structured RFC 6901 JSON Pointer

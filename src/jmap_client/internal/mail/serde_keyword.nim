@@ -12,7 +12,7 @@ import std/json
 import std/sets
 
 import ../serialisation/serde
-import ../../types
+import ../types
 import ./keyword
 
 defineDistinctStringToJson(Keyword)

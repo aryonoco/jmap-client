@@ -11,7 +11,7 @@ import std/strutils
 import std/tables
 
 import ../serialisation/serde
-import ../../types
+import ../types
 import ./body
 import ./headers
 import ./serde_headers

@@ -14,7 +14,7 @@ import std/tables
 import ../serialisation/serde
 import ../serialisation/serde_field_echo
 import ../serialisation/serde_errors
-import ../../types
+import ../types
 import ./addresses
 import ./keyword
 import ./mailbox

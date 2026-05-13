@@ -9,17 +9,17 @@
 
 import results
 
-import ./internal/types/validation
-import ./internal/types/primitives
-import ./internal/types/identifiers
-import ./internal/types/collation
-import ./internal/types/capabilities
-import ./internal/types/methods_enum
-import ./internal/types/session
-import ./internal/types/envelope
-import ./internal/types/framework
-import ./internal/types/errors
-import ./internal/types/field_echo
+import ./types/validation
+import ./types/primitives
+import ./types/identifiers
+import ./types/collation
+import ./types/capabilities
+import ./types/methods_enum
+import ./types/session
+import ./types/envelope
+import ./types/framework
+import ./types/errors
+import ./types/field_echo
 
 export results
 export validation

@@ -12,7 +12,7 @@
 import std/json
 import std/tables
 
-import ../../types
+import ../types
 import ./addresses
 import ./identity
 import ./serde_addresses

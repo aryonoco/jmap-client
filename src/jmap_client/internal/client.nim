@@ -33,12 +33,12 @@ import results
 import ./types
 import ./serialisation
 import ./transport
-import ./internal/types/identifiers
-import ./internal/protocol/builder
-import ./internal/protocol/dispatch
-import ./internal/protocol/call_meta
-import ./internal/transport/url_resolution
-import ./internal/transport/classify
+import ./types/identifiers
+import ./protocol/builder
+import ./protocol/dispatch
+import ./protocol/call_meta
+import ./transport/url_resolution
+import ./transport/classify
 
 # Design §9.1 (D4.12): compile-time hint when -d:ssl is missing.
 # Uses {.hint:} rather than {.warning:} because config.nims promotes

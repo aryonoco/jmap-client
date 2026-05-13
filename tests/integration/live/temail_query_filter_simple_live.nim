@@ -32,7 +32,6 @@ import std/sets
 
 import results
 import jmap_client
-import jmap_client/client
 import ./mconfig
 import ./mlive
 import ../../mtestblock

@@ -22,8 +22,7 @@
 {.push raises: [], noSideEffect.}
 {.experimental: "strictCaseObjects".}
 
-import ./types
-import ./protocol
+import jmap_client
 import ./internal/protocol/builder
 
 # =============================================================================

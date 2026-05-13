@@ -33,7 +33,7 @@ import jmap_client/internal/types/errors
 import jmap_client/internal/types/identifiers
 import jmap_client/internal/types/primitives
 import jmap_client/internal/serialisation/serde
-import jmap_client/types
+import jmap_client
 
 import ../../massertions
 import ../../mfixtures

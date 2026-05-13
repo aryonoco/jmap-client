@@ -19,8 +19,8 @@ import std/json
 import std/sets
 import std/tables
 
-import ../../types
-import ../../serialisation
+import ../types
+import ../serialisation
 import ../protocol/methods
 import ../protocol/dispatch
 import ../protocol/builder
