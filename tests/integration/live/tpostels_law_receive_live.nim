@@ -38,12 +38,7 @@ testCase tpostelsLawReceiveLive:
     # the rejection arm the typed-error projection has fired inside
     # ``seedForwardedEmail``; on the success arm the lenient-receive
     # parsers run end-to-end.
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -66,7 +61,6 @@ testCase tpostelsLawReceiveLive:
       creationLabel = "phase-j-73-outer",
     )
     if outerRes.isErr:
-      client.close()
       continue
     let outerId = outerRes.unsafeValue
 
@@ -114,7 +108,9 @@ testCase tpostelsLawReceiveLive:
     let respGet = client.send(bGet.freeze()).expect(
         "send Email/get import readback[" & $target.kind & "]"
       )
-    captureIfRequested(client, "postels-law-receive-adversarial-mime-" & $target.kind)
+    captureIfRequested(
+      recorder.lastResponseBody, "postels-law-receive-adversarial-mime-" & $target.kind
+    )
       .expect("captureIfRequested postel's law")
     let getResp =
       respGet.get(getHandle).expect("Email/get extract[" & $target.kind & "]")
@@ -186,5 +182,3 @@ testCase tpostelsLawReceiveLive:
         assertOn target, outcome.isOk, "cleanup destroy must succeed"
       do:
         assertOn target, false, "cleanup must report an outcome for each seed"
-
-    client.close()

@@ -53,12 +53,7 @@ testCase temailGetBodyPropertiesAllLive:
     # text/* parts. The library's ``/upload`` surface is deliberately
     # deferred; the seed-rejection arm exercises the typed-error
     # projection.
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -72,7 +67,6 @@ testCase temailGetBodyPropertiesAllLive:
       "phase-i-54-seed",
     )
     if seededRes.isErr:
-      client.close()
       continue
     let seededId = seededRes.unsafeValue
 
@@ -95,9 +89,10 @@ testCase temailGetBodyPropertiesAllLive:
     let resp = client.send(b.freeze()).expect(
         "send Email/get bodyProperties+bvsAll[" & $target.kind & "]"
       )
-    captureIfRequested(client, "email-get-body-properties-all-" & $target.kind).expect(
-      "captureIfRequested"
+    captureIfRequested(
+      recorder.lastResponseBody, "email-get-body-properties-all-" & $target.kind
     )
+      .expect("captureIfRequested")
     let getResp = resp.get(getHandle).expect(
         "Email/get bodyProperties+bvsAll extract[" & $target.kind & "]"
       )
@@ -121,5 +116,3 @@ testCase temailGetBodyPropertiesAllLive:
       assertOn target, ($partId).len > 0, "every bodyValues key must be non-empty"
       assertOn target,
         bv.value.len > 0, "bvsAll-emitted bodyValue must carry decoded content"
-
-    client.close()

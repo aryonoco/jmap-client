@@ -61,7 +61,7 @@ import ./mlive
 import ../../mtestblock
 
 proc seedSizedEmail(
-    client: var JmapClient,
+    client: JmapClient,
     mailAccountId: AccountId,
     inbox: Id,
     subject: string,
@@ -122,7 +122,7 @@ proc positionsOf(qr: QueryResponse[Email], ids: openArray[Id]): seq[int] =
         result[j] = i
 
 proc assertSizeAscending(
-    client: var JmapClient,
+    client: JmapClient,
     target: LiveTestTarget,
     mailAccountId: AccountId,
     smallId, mediumId, largeId: Id,
@@ -156,7 +156,7 @@ proc assertSizeAscending(
       ") < large (" & $positions[2] & ")"
 
 proc assertSubjectDescending(
-    client: var JmapClient, mailAccountId: AccountId, smallId, mediumId, largeId: Id
+    client: JmapClient, mailAccountId: AccountId, smallId, mediumId, largeId: Id
 ) =
   ## Sub-test B: sort by subject descending.  Seed subjects use
   ## suffixes "alpha"/"bravo"/"charlie" so descending yields
@@ -180,7 +180,7 @@ proc assertSubjectDescending(
     "subject descending must yield charlie (large=" & $positions[2] &
       ") < bravo (medium=" & $positions[1] & ") < alpha (small=" & $positions[0] & ")"
 
-proc flagMediumEmail(client: var JmapClient, mailAccountId: AccountId, mediumId: Id) =
+proc flagMediumEmail(client: JmapClient, mailAccountId: AccountId, mediumId: Id) =
   ## Email/set update marking the medium seed with ``$flagged``.
   let updateSet = initEmailUpdateSet(@[markFlagged()]).expect("initEmailUpdateSet")
   let updates = parseNonEmptyEmailUpdates(@[(mediumId, updateSet)]).expect(
@@ -194,7 +194,8 @@ proc flagMediumEmail(client: var JmapClient, mailAccountId: AccountId, mediumId:
 
 proc assertKeywordSortAscending(
     target: LiveTestTarget,
-    client: var JmapClient,
+    client: JmapClient,
+    recorder: RecordingTransportState,
     mailAccountId: AccountId,
     smallId, mediumId, largeId: Id,
 ) =
@@ -217,9 +218,10 @@ proc assertKeywordSortAscending(
   )
   let resp =
     client.send(b.freeze()).expect("send Email/query keyword asc[" & $target.kind & "]")
-  captureIfRequested(client, "email-query-advanced-sort-" & $target.kind).expect(
-    "captureIfRequested[" & $target.kind & "]"
+  captureIfRequested(
+    recorder.lastResponseBody, "email-query-advanced-sort-" & $target.kind
   )
+    .expect("captureIfRequested[" & $target.kind & "]")
   let qrExtract = resp.get(h)
   assertSuccessOrTypedError(
     target,
@@ -249,12 +251,7 @@ proc assertKeywordSortAscending(
 
 testCase temailQueryAdvancedSortLive:
   forEachLiveTarget(target):
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -276,7 +273,5 @@ testCase temailQueryAdvancedSortLive:
     assertSubjectDescending(client, mailAccountId, smallId, mediumId, largeId)
     flagMediumEmail(client, mailAccountId, mediumId)
     assertKeywordSortAscending(
-      target, client, mailAccountId, smallId, mediumId, largeId
+      target, client, recorder, mailAccountId, smallId, mediumId, largeId
     )
-
-    client.close()

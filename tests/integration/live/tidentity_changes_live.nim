@@ -51,12 +51,7 @@ testCase tidentityChangesLive:
     # implemented") and returns ``metUnknownMethod``. Each
     # ``assertSuccessOrTypedError`` site exercises the typed-error
     # projection contract uniformly.
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let submissionAccountId = resolveSubmissionAccountId(session).expect(
         "resolveSubmissionAccountId[" & $target.kind & "]"
@@ -137,9 +132,10 @@ testCase tidentityChangesLive:
     let respSad = client.send(bSad.freeze()).expect(
         "send Identity/changes bogus[" & $target.kind & "]"
       )
-    captureIfRequested(client, "identity-changes-bogus-state-" & $target.kind).expect(
-      "captureIfRequested"
+    captureIfRequested(
+      recorder.lastResponseBody, "identity-changes-bogus-state-" & $target.kind
     )
+      .expect("captureIfRequested")
     let sadExtract = respSad.get(sadHandle)
     assertOn target,
       sadExtract.isErr, "bogus sinceState must surface as a method-level error"
@@ -161,4 +157,3 @@ testCase tidentityChangesLive:
       )
       discard client.send(bCleanup.freeze())
       discard cleanupHandle
-    client.close()

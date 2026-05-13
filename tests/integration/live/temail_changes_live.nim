@@ -30,12 +30,7 @@ import ../../mtestblock
 
 testCase temailChangesLive:
   forEachLiveTarget(target):
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -93,9 +88,10 @@ testCase temailChangesLive:
     )
     let resp3 =
       client.send(b3.freeze()).expect("send Email/changes bogus[" & $target.kind & "]")
-    captureIfRequested(client, "email-changes-bogus-state-" & $target.kind).expect(
-      "captureIfRequested"
+    captureIfRequested(
+      recorder.lastResponseBody, "email-changes-bogus-state-" & $target.kind
     )
+      .expect("captureIfRequested")
     let sadExtract = resp3.get(sadHandle)
     assertOn target,
       sadExtract.isErr, "bogus sinceState must surface as a method-level error"
@@ -108,4 +104,3 @@ testCase temailChangesLive:
       methodErr.errorType in {metCannotCalculateChanges, metInvalidArguments},
       "method error must project as cannotCalculateChanges or invalidArguments " &
         "(got rawType=" & methodErr.rawType & ")"
-    client.close()

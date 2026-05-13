@@ -70,12 +70,7 @@ testCase tcombinedChangesLive:
     # convergence loop is best-effort; the universal client-library
     # contract is the wire-shape demux of three distinct
     # ResponseHandle[T] arms.
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -161,7 +156,8 @@ testCase tcombinedChangesLive:
       let emailCr = emailExtract.unsafeValue
       if threadCr.created.len + threadCr.updated.len >= 1:
         captureIfRequested(
-          client, "combined-changes-mailbox-thread-email-" & $target.kind
+          recorder.lastResponseBody,
+          "combined-changes-mailbox-thread-email-" & $target.kind,
         )
           .expect("captureIfRequested[" & $target.kind & "]")
         capturedMailboxCr = mailboxCr
@@ -204,7 +200,7 @@ testCase tcombinedChangesLive:
       # whichever non-converged response we have so the captured-
       # replay corpus preserves the naive-Thread/changes wire shape.
       captureIfRequested(
-        client, "combined-changes-mailbox-thread-email-" & $target.kind
+        recorder.lastResponseBody,
+        "combined-changes-mailbox-thread-email-" & $target.kind,
       )
         .expect("captureIfRequested[" & $target.kind & "]")
-    client.close()

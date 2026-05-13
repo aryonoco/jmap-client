@@ -93,4 +93,3 @@ testCase tidentityGetLive:
     if setExtract.isOk:
       assertOn target,
         sawAliceEmail, "alice's seeded address must appear among her identities"
-    client.close()

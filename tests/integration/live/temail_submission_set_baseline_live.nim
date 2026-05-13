@@ -27,12 +27,7 @@ import ../../mtestblock
 
 testCase tEmailSubmissionSetBaselineLive:
   forEachLiveTarget(target):
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -78,9 +73,10 @@ testCase tEmailSubmissionSetBaselineLive:
     )
     let resp3 =
       client.send(b3.freeze()).expect("send EmailSubmission/set[" & $target.kind & "]")
-    captureIfRequested(client, "email-submission-set-baseline-" & $target.kind).expect(
-      "captureIfRequested"
+    captureIfRequested(
+      recorder.lastResponseBody, "email-submission-set-baseline-" & $target.kind
     )
+      .expect("captureIfRequested")
     let subSetResp =
       resp3.get(subHandle).expect("EmailSubmission/set extract[" & $target.kind & "]")
     var submissionId: Id
@@ -138,5 +134,3 @@ testCase tEmailSubmissionSetBaselineLive:
           budgetMs = budget,
         )
         .expect("pollEmailDeliveryToInbox bob[" & $target.kind & "]")
-      bobClient.close()
-    client.close()

@@ -83,4 +83,3 @@ testCase temailQueryFilterSimpleLive:
     assertOn target,
       charlieId notin hits,
       "Email/query subject==\"aardvark\" must NOT include the seeded charlie id"
-    client.close()

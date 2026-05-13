@@ -144,4 +144,3 @@ testCase temailQueryThreadChainLive:
       (corpus * projection.threadEmailIds).len == 2,
       "Thread.emailIds across the chained Thread/get must include both seeded ids " &
         "(got intersection " & $(corpus * projection.threadEmailIds) & ")"
-    client.close()

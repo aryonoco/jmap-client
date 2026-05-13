@@ -142,4 +142,3 @@ testCase temailQueryFilterTreeLive:
         ids[i] in notHits,
         "AND(phase-c-14, NOT alpha) must return bravo-1/bravo-2/charlie-1; missing index " &
           $i
-    client.close()

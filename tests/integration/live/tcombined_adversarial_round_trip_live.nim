@@ -7,8 +7,8 @@
 ## one failure contaminating another's parsing; successful method
 ## calls in the same envelope still round-trip cleanly.
 ##
-## Phase J Step 74.  One ``sendRawHttpForTesting`` carrying a
-## hand-crafted five-invocation request body:
+## Phase J Step 74.  One ``postRawJmap`` carrying a hand-crafted
+## five-invocation request body:
 ##   c0: legitimate Mailbox/get      → success
 ##   c1: legitimate Email/query      → success
 ##   c2: Email/get with broken ref   → metInvalidResultReference
@@ -30,7 +30,7 @@ import ../../mtestblock
 
 testCase tcombinedAdversarialRoundTripLive:
   forEachLiveTarget(target):
-    var client = initJmapClient(
+    let client = initJmapClient(
         sessionUrl = target.sessionUrl,
         bearerToken = target.aliceToken,
         authScheme = target.authScheme,
@@ -105,12 +105,11 @@ testCase tcombinedAdversarialRoundTripLive:
       ],
     }
 
-    let resp = client.sendRawHttpForTesting($body).expect(
-        "sendRawHttpForTesting envelope[" & $target.kind & "]"
-      )
-    captureIfRequested(client, "combined-adversarial-round-trip-" & $target.kind).expect(
-      "captureIfRequested combined adversarial"
-    )
+    let (respBody, respResult) =
+      postRawJmap(target, session, $body, target.aliceToken, target.authScheme)
+    captureIfRequested(respBody, "combined-adversarial-round-trip-" & $target.kind)
+      .expect("captureIfRequested combined adversarial")
+    let resp = respResult.expect("postRawJmap envelope[" & $target.kind & "]")
 
     assertOn target,
       resp.methodResponses.len == 5,
@@ -206,5 +205,3 @@ testCase tcombinedAdversarialRoundTripLive:
       assertOn target, outcome.isOk, "cleanup destroy must succeed"
     do:
       assertOn target, false, "cleanup must report an outcome"
-
-    client.close()

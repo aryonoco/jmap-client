@@ -34,12 +34,7 @@ testCase tIdentitySetCrudLive:
     # implemented") and returns ``metUnknownMethod``. Each Identity/
     # set extract uses ``assertSuccessOrTypedError``; dependent steps
     # skip when an upstream extract surfaces a typed error.
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let submissionAccountId = resolveSubmissionAccountId(session).expect(
         "resolveSubmissionAccountId[" & $target.kind & "]"
@@ -70,9 +65,10 @@ testCase tIdentitySetCrudLive:
     # post-b2 site below.
     case target.kind
     of ltkCyrus:
-      captureIfRequested(client, "identity-set-update-" & $target.kind).expect(
-        "captureIfRequested cyrus pre-error"
+      captureIfRequested(
+        recorder.lastResponseBody, "identity-set-update-" & $target.kind
       )
+        .expect("captureIfRequested cyrus pre-error")
     of ltkStalwart, ltkJames:
       discard
     let createExtract = resp1.get(createHandle)
@@ -88,7 +84,6 @@ testCase tIdentitySetCrudLive:
         assertOn target, false, "Identity/set must report a create result"
 
     if not createOk:
-      client.close()
       continue
 
     # --- Step 2: update — three arms in one IdentityUpdateSet -----------
@@ -112,9 +107,8 @@ testCase tIdentitySetCrudLive:
     )
     let resp2 =
       client.send(b2.freeze()).expect("send Identity/set update[" & $target.kind & "]")
-    captureIfRequested(client, "identity-set-update-" & $target.kind).expect(
-      "captureIfRequested"
-    )
+    captureIfRequested(recorder.lastResponseBody, "identity-set-update-" & $target.kind)
+      .expect("captureIfRequested")
     let updateExtract = resp2.get(updateHandle)
     var updateOk = false
     assertSuccessOrTypedError(target, updateExtract, {metUnknownMethod}):
@@ -173,4 +167,3 @@ testCase tIdentitySetCrudLive:
           outcome.isOk, "Identity/set destroy must succeed: " & outcome.error.rawType
       do:
         assertOn target, false, "Identity/set must report a destroy outcome"
-    client.close()

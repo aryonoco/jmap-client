@@ -40,26 +40,25 @@ import ../../mtestblock
 
 testCase tmethodErrorTypedProjectionLive:
   forEachLiveTarget(target):
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, _) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
 
     # Sub-test 1: unknown method name.
     block unknownMethodCase:
-      let resp = sendRawInvocation(
-          client,
-          capabilityUris = @["urn:ietf:params:jmap:mail"],
-          methodName = "Mailbox/snorgleflarp",
-          arguments = %*{"accountId": $mailAccountId},
-        )
-        .expect("sendRawInvocation unknownMethod[" & $target.kind & "]")
-      captureIfRequested(client, "method-error-unknown-method-" & $target.kind).expect(
+      let (respBody, respResult) = postRawSingleInvocation(
+        target,
+        session,
+        target.aliceToken,
+        target.authScheme,
+        capabilityUris = @["urn:ietf:params:jmap:mail"],
+        methodName = "Mailbox/snorgleflarp",
+        arguments = %*{"accountId": $mailAccountId},
+      )
+      let resp =
+        respResult.expect("sendRawInvocation unknownMethod[" & $target.kind & "]")
+      captureIfRequested(respBody, "method-error-unknown-method-" & $target.kind).expect(
         "captureIfRequested unknownMethod"
       )
       assertOn target, resp.methodResponses.len == 1
@@ -88,15 +87,20 @@ testCase tmethodErrorTypedProjectionLive:
         refPath = "/methodResponses/0/notAField/that/exists",
         refName = "Email/query",
       )
-      let resp = sendRawInvocation(
-          client,
-          capabilityUris = @["urn:ietf:params:jmap:mail"],
-          methodName = "Email/get",
-          arguments = getArgsRef,
-        )
-        .expect("sendRawInvocation invalidResultReference[" & $target.kind & "]")
+      let (respBody, respResult) = postRawSingleInvocation(
+        target,
+        session,
+        target.aliceToken,
+        target.authScheme,
+        capabilityUris = @["urn:ietf:params:jmap:mail"],
+        methodName = "Email/get",
+        arguments = getArgsRef,
+      )
+      let resp = respResult.expect(
+        "sendRawInvocation invalidResultReference[" & $target.kind & "]"
+      )
       captureIfRequested(
-        client, "method-error-invalid-result-reference-" & $target.kind
+        respBody, "method-error-invalid-result-reference-" & $target.kind
       )
         .expect("captureIfRequested invalidResultReference[" & $target.kind & "]")
       assertOn target, resp.methodResponses.len >= 1
@@ -117,19 +121,21 @@ testCase tmethodErrorTypedProjectionLive:
 
     # Sub-test 3: unsupported sort property.
     block unsupportedSortCase:
-      let resp = sendRawInvocation(
-          client,
-          capabilityUris = @["urn:ietf:params:jmap:mail"],
-          methodName = "Email/query",
-          arguments = %*{
-            "accountId": $mailAccountId,
-            "sort": [{"property": "phaseJSyntheticProperty"}],
-          },
-        )
-        .expect("sendRawInvocation unsupportedSort[" & $target.kind & "]")
-      captureIfRequested(client, "method-error-unsupported-sort-" & $target.kind).expect(
-        "captureIfRequested unsupportedSort"
+      let (respBody, respResult) = postRawSingleInvocation(
+        target,
+        session,
+        target.aliceToken,
+        target.authScheme,
+        capabilityUris = @["urn:ietf:params:jmap:mail"],
+        methodName = "Email/query",
+        arguments = %*{
+          "accountId": $mailAccountId, "sort": [{"property": "phaseJSyntheticProperty"}]
+        },
       )
+      let resp =
+        respResult.expect("sendRawInvocation unsupportedSort[" & $target.kind & "]")
+      captureIfRequested(respBody, "method-error-unsupported-sort-" & $target.kind)
+        .expect("captureIfRequested unsupportedSort")
       assertOn target, resp.methodResponses.len == 1
       let inv = resp.methodResponses[0]
       assertOn target,
@@ -149,15 +155,19 @@ testCase tmethodErrorTypedProjectionLive:
 
     # Sub-test 4: unsupported filter property.
     block unsupportedFilterCase:
-      let resp = sendRawInvocation(
-          client,
-          capabilityUris = @["urn:ietf:params:jmap:mail"],
-          methodName = "Email/query",
-          arguments =
-            %*{"accountId": $mailAccountId, "filter": {"phaseJSyntheticProperty": true}},
-        )
-        .expect("sendRawInvocation unsupportedFilter[" & $target.kind & "]")
-      captureIfRequested(client, "method-error-unsupported-filter-" & $target.kind)
+      let (respBody, respResult) = postRawSingleInvocation(
+        target,
+        session,
+        target.aliceToken,
+        target.authScheme,
+        capabilityUris = @["urn:ietf:params:jmap:mail"],
+        methodName = "Email/query",
+        arguments =
+          %*{"accountId": $mailAccountId, "filter": {"phaseJSyntheticProperty": true}},
+      )
+      let resp =
+        respResult.expect("sendRawInvocation unsupportedFilter[" & $target.kind & "]")
+      captureIfRequested(respBody, "method-error-unsupported-filter-" & $target.kind)
         .expect("captureIfRequested unsupportedFilter")
       assertOn target, resp.methodResponses.len == 1
       let inv = resp.methodResponses[0]
@@ -175,5 +185,3 @@ testCase tmethodErrorTypedProjectionLive:
         },
         "errorType must project into the closed MethodErrorType enum, got " &
           $me.errorType
-
-    client.close()

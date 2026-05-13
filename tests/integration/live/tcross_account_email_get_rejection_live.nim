@@ -24,25 +24,19 @@ import ../../mtestblock
 testCase tCrossAccountEmailGetRejectionLive:
   forEachLiveTarget(target):
     # --- alice setup ----------------------------------------------------
-    var aliceClient = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient alice[" & $target.kind & "]")
+    let (aliceClient, aliceRecorder) = initRecordingClient(target)
     discard
       aliceClient.fetchSession().expect("fetchSession alice[" & $target.kind & "]")
 
     # --- bob accountId discovery ----------------------------------------
-    # Only bob's accountId is needed; close his client immediately to
-    # avoid coupling the rejection probe to bob's session lifetime.
-    var bobClient = initBobClient(target).expect("initBobClient[" & $target.kind & "]")
+    # Only bob's accountId is needed; the bob client itself is dropped
+    # to ARC at end of testCase scope (no explicit close needed).
+    let bobClient = initBobClient(target).expect("initBobClient[" & $target.kind & "]")
     let bobSession =
       bobClient.fetchSession().expect("fetchSession bob[" & $target.kind & "]")
     let bobMailAccountId = resolveMailAccountId(bobSession).expect(
         "resolveMailAccountId bob[" & $target.kind & "]"
       )
-    bobClient.close()
 
     # --- alice probes bob's accountId -----------------------------------
     let (b, getHandle) = addEmailGet(
@@ -51,7 +45,9 @@ testCase tCrossAccountEmailGetRejectionLive:
     let resp = aliceClient.send(b.freeze()).expect(
         "send Email/get cross-account[" & $target.kind & "]"
       )
-    captureIfRequested(aliceClient, "email-get-cross-account-rejected-" & $target.kind)
+    captureIfRequested(
+      aliceRecorder.lastResponseBody, "email-get-cross-account-rejected-" & $target.kind
+    )
       .expect("captureIfRequested")
 
     let getResult = resp.get(getHandle)
@@ -73,4 +69,3 @@ testCase tCrossAccountEmailGetRejectionLive:
       methodErr.errorType in {metForbidden, metAccountNotFound},
       "RFC 8620 §3.6.2 admits both metForbidden and metAccountNotFound for cross-account " &
         "rejection; got " & $methodErr.errorType & " (rawType=" & methodErr.rawType & ")"
-    aliceClient.close()

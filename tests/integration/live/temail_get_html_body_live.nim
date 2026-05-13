@@ -38,12 +38,7 @@ import ../../mtestblock
 
 testCase temailGetHtmlBodyLive:
   forEachLiveTarget(target):
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -68,9 +63,10 @@ testCase temailGetHtmlBodyLive:
     )
     let resp =
       client.send(b.freeze()).expect("send Email/get html body[" & $target.kind & "]")
-    captureIfRequested(client, "email-multipart-alternative-" & $target.kind).expect(
-      "captureIfRequested"
+    captureIfRequested(
+      recorder.lastResponseBody, "email-multipart-alternative-" & $target.kind
     )
+      .expect("captureIfRequested")
     let getResp =
       resp.get(getHandle).expect("Email/get html body extract[" & $target.kind & "]")
     assertOn target, getResp.list.len == 1, "Email/get must return the seeded message"
@@ -105,4 +101,3 @@ testCase temailGetHtmlBodyLive:
     assertOn target,
       htmlValue.value == htmlBody,
       "html bodyValue.value must round-trip the injected string verbatim"
-    client.close()

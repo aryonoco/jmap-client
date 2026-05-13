@@ -28,12 +28,7 @@ import ../../mtestblock
 
 testCase tEmailSubmissionOnSuccessUpdateLive:
   forEachLiveTarget(target):
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -109,7 +104,9 @@ testCase tEmailSubmissionOnSuccessUpdateLive:
     let resp3 = client.send(b3.freeze()).expect(
         "send EmailSubmission/set+Email/set[" & $target.kind & "]"
       )
-    captureIfRequested(client, "email-submission-on-success-update-" & $target.kind)
+    captureIfRequested(
+      recorder.lastResponseBody, "email-submission-on-success-update-" & $target.kind
+    )
       .expect("captureIfRequested")
     let pairExtract = resp3.getBoth(handles)
     # Cat-B: Cyrus 3.12.2 rejects ``onSuccessUpdateEmail`` with
@@ -143,10 +140,8 @@ testCase tEmailSubmissionOnSuccessUpdateLive:
         "compound EmailSubmission/set + onSuccessUpdateEmail must surface " &
           "metInvalidArguments or metUnknownMethod when unimplemented (got " &
           methodErr.rawType & ")"
-      client.close()
       continue
     if not compoundOk:
-      client.close()
       continue
 
     # --- Verification leg: divergent observation surface --------------
@@ -185,7 +180,6 @@ testCase tEmailSubmissionOnSuccessUpdateLive:
           budgetMs = budget,
         )
         .expect("pollEmailDeliveryToInbox bob[" & $target.kind & "]")
-      bobClient.close()
 
     # --- Read-back via Email/get to verify mailbox + keyword changes -----
     let (b4, emailGetHandle) = addEmailGet(
@@ -215,4 +209,3 @@ testCase tEmailSubmissionOnSuccessUpdateLive:
     let kwSet = email.keywords.unsafeGet.toHashSet
     assertOn target, seenKw in kwSet, "after patch, $seen must be present"
     assertOn target, draftKw notin kwSet, "after patch, $draft must be absent"
-    client.close()

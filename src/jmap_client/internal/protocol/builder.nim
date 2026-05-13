@@ -172,20 +172,20 @@ func builderId*(br: BuiltRequest): BuilderId =
 
 func callLimits*(br: BuiltRequest): seq[CallLimitMeta] =
   ## Hub-private accessor — per-call object-count metadata, parallel to
-  ## ``br.request.methodCalls``. Used by ``client.validateLimits`` to
-  ## enforce server-declared ``maxObjectsInGet`` and ``maxObjectsInSet``
-  ## from typed counts rather than raw JSON traversal of
-  ## ``inv.arguments``.
+  ## ``br.request.methodCalls``. Used by internal validation in
+  ## ``client.send`` to enforce server-declared ``maxObjectsInGet`` and
+  ## ``maxObjectsInSet`` from typed counts rather than raw JSON
+  ## traversal of ``inv.arguments``.
   br.rawCallLimits
 
-func builtRequestForTest*(
+func builtRequestFromParts*(
     request: Request, builderId: BuilderId, callLimits: seq[CallLimitMeta] = @[]
 ): BuiltRequest =
-  ## Test-only escape hatch — constructs a ``BuiltRequest`` from raw
-  ## components without routing through ``RequestBuilder``. Hub-private
-  ## (filtered out of ``protocol.nim``'s re-export). Reachable only via
-  ## whitebox internal imports under ``tests/``. Production code MUST
-  ## use ``RequestBuilder.freeze()``.
+  ## Constructs a ``BuiltRequest`` from already-computed parts, bypassing
+  ## ``RequestBuilder.freeze()``. Hub-private (filtered out of
+  ## ``protocol.nim``'s re-export). Reachable only via whitebox internal
+  ## imports under ``tests/`` (H10-permitted) and by ``RequestBuilder``
+  ## itself. Production code uses ``RequestBuilder.freeze()``.
   BuiltRequest(rawRequest: request, rawBuilderId: builderId, rawCallLimits: callLimits)
 
 # =============================================================================
@@ -214,8 +214,9 @@ func addInvocation*(
 ): (RequestBuilder, MethodCallId) =
   ## Constructs an Invocation and returns a new builder with it accumulated.
   ## ``name`` is typed — illegal (empty) names are structurally impossible.
-  ## ``meta`` records the per-call object-count signature for
-  ## ``client.validateLimits``; defaults to ``clmOther`` (no per-call
+  ## ``meta`` records the per-call object-count signature for the
+  ## internal validation in ``client.send``; defaults to ``clmOther``
+  ## (no per-call
   ## object-count limit applies). The accumulated builder preserves the
   ## brand of ``b`` (``b.id``), so every handle minted from this point
   ## carries the same ``BuilderId``.

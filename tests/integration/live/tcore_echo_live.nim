@@ -24,16 +24,11 @@ import ../../mtestblock
 
 testCase tcoreEchoLive:
   forEachLiveTarget(target):
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let args = %*{"hello": true, "n": 42, "msg": "phase-1 step-3"}
     let (b1, echoHandle) = initRequestBuilder(makeBuilderId()).addEcho(args)
     let resp = client.send(b1.freeze()).expect("send[" & $target.kind & "]")
-    captureIfRequested(client, "core-echo-" & $target.kind).expect(
+    captureIfRequested(recorder.lastResponseBody, "core-echo-" & $target.kind).expect(
       "captureIfRequested[" & $target.kind & "]"
     )
     let echoExtract = proc(
@@ -45,4 +40,3 @@ testCase tcoreEchoLive:
       )
     assertOn target, echoArgs == args, "echo args must round-trip unchanged"
     assertOn target, ($resp.sessionState).len > 0, "response must carry sessionState"
-    client.close()

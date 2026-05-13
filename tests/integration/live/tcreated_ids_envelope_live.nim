@@ -29,7 +29,7 @@ import ../../mtestblock
 
 testCase tcreatedIdsEnvelopeLive:
   forEachLiveTarget(target):
-    var client = initJmapClient(
+    let client = initJmapClient(
         sessionUrl = target.sessionUrl,
         bearerToken = target.aliceToken,
         authScheme = target.authScheme,
@@ -65,19 +65,21 @@ testCase tcreatedIdsEnvelopeLive:
       # ``createdIds: none`` (P21: ``BuiltRequest`` is the sealed
       # frozen carrier; ``createdIds`` is a Layer-4-only proxy
       # concern). To exercise the RFC 8620 §3.3 server-echo
-      # contract, drop into the ``sendRawHttpForTesting`` escape
-      # hatch which POSTs a custom body verbatim.
+      # contract, drop into ``postRawJmap`` which POSTs a custom
+      # body verbatim via a private one-shot Transport.
       let req = Request(
         `using`: baseReq.`using`,
         methodCalls: baseReq.methodCalls,
         createdIds: Opt.some(seedMap),
       )
-      let resp = client.sendRawHttpForTesting($req.toJson()).expect(
-          "send Core/echo with createdIds[" & $target.kind & "]"
-        )
-      captureIfRequested(client, "created-ids-envelope-" & $target.kind).expect(
+      let (respBody, respResult) = postRawJmap(
+        target, session, $req.toJson(), target.aliceToken, target.authScheme
+      )
+      captureIfRequested(respBody, "created-ids-envelope-" & $target.kind).expect(
         "captureIfRequested createdIds"
       )
+      let resp =
+        respResult.expect("send Core/echo with createdIds[" & $target.kind & "]")
 
       # RFC 8620 §3.3 mandates the server MUST echo createdIds when
       # the client sends them.  Set-membership on Stalwart's choice
@@ -192,5 +194,3 @@ testCase tcreatedIdsEnvelopeLive:
         assertOn target, outcome.isOk, "cleanup destroy must succeed"
       do:
         assertOn target, false, "cleanup must report an outcome"
-
-    client.close()

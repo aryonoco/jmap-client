@@ -59,12 +59,7 @@ testCase temailCopyIntraAccountLive:
     # invocation with ``metInvalidArguments``; James 3.9 lacks Email/
     # copy and returns ``metUnknownMethod``. Both are valid client-
     # library typed-error projections.
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -96,9 +91,10 @@ testCase temailCopyIntraAccountLive:
     let respCopy = client.send(bCopy.freeze()).expect(
         "send Email/copy (rejection-bound)[" & $target.kind & "]"
       )
-    captureIfRequested(client, "email-copy-intra-rejected-" & $target.kind).expect(
-      "captureIfRequested"
+    captureIfRequested(
+      recorder.lastResponseBody, "email-copy-intra-rejected-" & $target.kind
     )
+      .expect("captureIfRequested")
 
     # --- 4. Assert rejection at method level ------------------------------
     # RFC 8620 §5.4 mandates accountId != fromAccountId. Stalwart and
@@ -138,4 +134,3 @@ testCase temailCopyIntraAccountLive:
     do:
       assertOn target, false, "cleanup must report an outcome for sourceId"
     assertOn target, sourceDestroyed
-    client.close()

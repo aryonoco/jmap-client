@@ -60,12 +60,7 @@ const ThreadConvergeIntervalMs = 250
 
 testCase temailQueryCollapseThreadsLive:
   forEachLiveTarget(target):
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -155,7 +150,9 @@ testCase temailQueryCollapseThreadsLive:
         lastCollapseCount >= 1,
         "collapseThreads=true must surface at least one entry per thread"
       if lastCollapseCount < noCollapseCount:
-        captureIfRequested(client, "email-query-collapse-threads-" & $target.kind)
+        captureIfRequested(
+          recorder.lastResponseBody, "email-query-collapse-threads-" & $target.kind
+        )
           .expect("captureIfRequested")
         observedConvergence = true
         break
@@ -164,8 +161,7 @@ testCase temailQueryCollapseThreadsLive:
       # Capture the no-merge state so downstream replays still
       # have a fixture to parse.  The wire-shape contract has
       # already been verified by the loop's invariants.
-      captureIfRequested(client, "email-query-collapse-threads-" & $target.kind).expect(
-        "captureIfRequested no-merge"
+      captureIfRequested(
+        recorder.lastResponseBody, "email-query-collapse-threads-" & $target.kind
       )
-
-    client.close()
+        .expect("captureIfRequested no-merge")

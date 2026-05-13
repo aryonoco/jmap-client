@@ -40,12 +40,7 @@ import ../../mtestblock
 
 testCase tsetErrorTypedProjectionLive:
   forEachLiveTarget(target):
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -72,9 +67,10 @@ testCase tsetErrorTypedProjectionLive:
       let resp = client.send(b.freeze()).expect(
           "send Email/set destroy synthetic[" & $target.kind & "]"
         )
-      captureIfRequested(client, "set-error-not-found-" & $target.kind).expect(
-        "captureIfRequested setNotFound"
+      captureIfRequested(
+        recorder.lastResponseBody, "set-error-not-found-" & $target.kind
       )
+        .expect("captureIfRequested setNotFound")
       let setResp =
         resp.get(setHandle).expect("Email/set extract[" & $target.kind & "]")
       var rejected = false
@@ -104,17 +100,21 @@ testCase tsetErrorTypedProjectionLive:
       )
       .expect("seedSimpleEmail[" & $target.kind & "]")
     block setInvalidPatchCase:
-      let resp = sendRawInvocation(
-          client,
-          capabilityUris = @["urn:ietf:params:jmap:mail"],
-          methodName = "Email/set",
-          arguments = %*{
-            "accountId": $mailAccountId,
-            "update": {$seedId: {"phaseJSyntheticProperty": "phase-j 63 patch"}},
-          },
-        )
-        .expect("sendRawInvocation setInvalidPatch[" & $target.kind & "]")
-      captureIfRequested(client, "set-error-invalid-patch-" & $target.kind).expect(
+      let (respBody, respResult) = postRawSingleInvocation(
+        target,
+        session,
+        target.aliceToken,
+        target.authScheme,
+        capabilityUris = @["urn:ietf:params:jmap:mail"],
+        methodName = "Email/set",
+        arguments = %*{
+          "accountId": $mailAccountId,
+          "update": {$seedId: {"phaseJSyntheticProperty": "phase-j 63 patch"}},
+        },
+      )
+      let resp =
+        respResult.expect("sendRawInvocation setInvalidPatch[" & $target.kind & "]")
+      captureIfRequested(respBody, "set-error-invalid-patch-" & $target.kind).expect(
         "captureIfRequested setInvalidPatch"
       )
       assertOn target, resp.methodResponses.len == 1
@@ -155,25 +155,29 @@ testCase tsetErrorTypedProjectionLive:
     # ``setInvalidProperties``; the SetError arm carries the offending
     # property names in ``properties``.
     block setInvalidPropertiesCase:
-      let resp = sendRawInvocation(
-          client,
-          capabilityUris = @["urn:ietf:params:jmap:mail"],
-          methodName = "Email/set",
-          arguments = %*{
-            "accountId": $mailAccountId,
-            "create": {
-              "phaseJ63": {
-                "id": "client-supplied-id",
-                "subject": "phase-j 63 invalidProperties",
-                "mailboxIds": {$inbox: true},
-              }
-            },
+      let (respBody, respResult) = postRawSingleInvocation(
+        target,
+        session,
+        target.aliceToken,
+        target.authScheme,
+        capabilityUris = @["urn:ietf:params:jmap:mail"],
+        methodName = "Email/set",
+        arguments = %*{
+          "accountId": $mailAccountId,
+          "create": {
+            "phaseJ63": {
+              "id": "client-supplied-id",
+              "subject": "phase-j 63 invalidProperties",
+              "mailboxIds": {$inbox: true},
+            }
           },
-        )
-        .expect("sendRawInvocation setInvalidProperties[" & $target.kind & "]")
-      captureIfRequested(client, "set-error-invalid-properties-" & $target.kind).expect(
-        "captureIfRequested setInvalidProperties"
+        },
       )
+      let resp = respResult.expect(
+        "sendRawInvocation setInvalidProperties[" & $target.kind & "]"
+      )
+      captureIfRequested(respBody, "set-error-invalid-properties-" & $target.kind)
+        .expect("captureIfRequested setInvalidProperties")
       assertOn target, resp.methodResponses.len == 1
       let inv = resp.methodResponses[0]
       # RFC 8620 §5.3 lets servers reject an immutable-property create
@@ -234,19 +238,22 @@ testCase tsetErrorTypedProjectionLive:
     # fixture pins Stalwart's specific projection byte-for-byte.
     block setBlobNotFoundCase:
       let syntheticBlobId = "phaseJSyntheticBlob" & "z".repeat(8)
-      let resp = sendRawInvocation(
-          client,
-          capabilityUris = @["urn:ietf:params:jmap:mail"],
-          methodName = "Email/import",
-          arguments = %*{
-            "accountId": $mailAccountId,
-            "emails": {
-              "phaseJ63blob": {"blobId": syntheticBlobId, "mailboxIds": {$inbox: true}}
-            },
-          },
-        )
-        .expect("sendRawInvocation setBlobNotFound[" & $target.kind & "]")
-      captureIfRequested(client, "set-error-blob-not-found-" & $target.kind).expect(
+      let (respBody, respResult) = postRawSingleInvocation(
+        target,
+        session,
+        target.aliceToken,
+        target.authScheme,
+        capabilityUris = @["urn:ietf:params:jmap:mail"],
+        methodName = "Email/import",
+        arguments = %*{
+          "accountId": $mailAccountId,
+          "emails":
+            {"phaseJ63blob": {"blobId": syntheticBlobId, "mailboxIds": {$inbox: true}}},
+        },
+      )
+      let resp =
+        respResult.expect("sendRawInvocation setBlobNotFound[" & $target.kind & "]")
+      captureIfRequested(respBody, "set-error-blob-not-found-" & $target.kind).expect(
         "captureIfRequested setBlobNotFound"
       )
       assertOn target, resp.methodResponses.len == 1
@@ -309,5 +316,3 @@ testCase tsetErrorTypedProjectionLive:
       assertOn target, outcome.isOk, "cleanup destroy of seed must succeed"
     do:
       assertOn target, false, "cleanup must report an outcome for seedId"
-
-    client.close()

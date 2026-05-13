@@ -36,12 +36,7 @@ import ../../mtestblock
 
 testCase temailSetKeywordsLive:
   forEachLiveTarget(target):
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -137,12 +132,12 @@ testCase temailSetKeywordsLive:
     let resp6 = client.send(b6.freeze()).expect(
         "send Email/set update conflict[" & $target.kind & "]"
       )
-    captureIfRequested(client, "email-set-state-mismatch-" & $target.kind).expect(
-      "captureIfRequested"
+    captureIfRequested(
+      recorder.lastResponseBody, "email-set-state-mismatch-" & $target.kind
     )
+      .expect("captureIfRequested")
     let conflictExtract = resp6.get(setHandle2)
     assertSuccessOrTypedError(target, conflictExtract, {metStateMismatch}):
       # Server did not gate /set on ifInState — the wire-shape parse
       # is the client-library contract.
       discard success
-    client.close()

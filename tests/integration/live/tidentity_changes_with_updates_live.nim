@@ -54,12 +54,7 @@ testCase tidentityChangesWithUpdatesLive:
     # entirely (returns ``metUnknownMethod``). Each Cat-B site uses
     # ``assertSuccessOrTypedError`` to assert the typed-error
     # projection contract uniformly across configured targets.
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let submissionAccountId = resolveSubmissionAccountId(session).expect(
         "resolveSubmissionAccountId[" & $target.kind & "]"
@@ -102,9 +97,10 @@ testCase tidentityChangesWithUpdatesLive:
     let respU = client.send(bU.freeze()).expect(
         "send Identity/set five-arm update[" & $target.kind & "]"
       )
-    captureIfRequested(client, "identity-changes-with-updates-" & $target.kind).expect(
-      "captureIfRequested"
+    captureIfRequested(
+      recorder.lastResponseBody, "identity-changes-with-updates-" & $target.kind
     )
+      .expect("captureIfRequested")
     let setRespExtract = respU.get(updateHandle)
     var updateOk = false
     assertSuccessOrTypedError(target, setRespExtract, {metUnknownMethod}):
@@ -198,4 +194,3 @@ testCase tidentityChangesWithUpdatesLive:
       discard client.send(bX.freeze()).expect(
           "send Identity/set cleanup[" & $target.kind & "]"
         )
-    client.close()

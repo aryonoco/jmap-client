@@ -127,4 +127,3 @@ testCase temailGetUnicodeNameLive:
       fromAddr.name.unsafeGet == unicodeName,
       "from[0].name must round-trip the UTF-8 octets verbatim (got " &
         fromAddr.name.unsafeGet & ")"
-    client.close()

@@ -20,21 +20,15 @@ import ../../mtestblock
 
 testCase tmailboxGetAllLive:
   forEachLiveTarget(target):
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
     let (b1, mbHandle) =
       addMailboxGet(initRequestBuilder(makeBuilderId()), mailAccountId)
     let resp = client.send(b1.freeze()).expect("send[" & $target.kind & "]")
-    captureIfRequested(client, "mailbox-get-all-" & $target.kind).expect(
-      "captureIfRequested[" & $target.kind & "]"
-    )
+    captureIfRequested(recorder.lastResponseBody, "mailbox-get-all-" & $target.kind)
+      .expect("captureIfRequested[" & $target.kind & "]")
     let gr = resp.get(mbHandle).expect("Mailbox/get extract[" & $target.kind & "]")
     assertOn target, gr.list.len >= 1, "alice's account must have at least one mailbox"
     var sawInbox = false
@@ -46,4 +40,3 @@ testCase tmailboxGetAllLive:
         if role == roleInbox:
           sawInbox = true
     assertOn target, sawInbox, "alice's account must include an inbox-role mailbox"
-    client.close()

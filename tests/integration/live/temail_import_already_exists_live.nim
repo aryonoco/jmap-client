@@ -61,12 +61,7 @@ testCase temailImportAlreadyExistsLive:
     # James 3.9 rejects with ``invalidArguments``; Stalwart 0.15.5 and
     # Cyrus 3.12.2 (text/* parts) accept them. RFC 8621 §4.8 makes
     # dedup permissive — Stalwart and Cyrus take the MAY-permits path.
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -85,7 +80,6 @@ testCase temailImportAlreadyExistsLive:
       attachmentBytes, "seed28src",
     )
     if sourceRes.isErr:
-      client.close()
       continue
     let sourceId = sourceRes.unsafeValue
     let attachmentBlobId = getFirstAttachmentBlobId(client, mailAccountId, sourceId)
@@ -133,7 +127,6 @@ testCase temailImportAlreadyExistsLive:
     do:
       assertOn target, false, "first Email/import must report an outcome for import28a"
     if not firstOk:
-      client.close()
       continue
 
     # --- 3. Second Email/import with identical dedup tuple ----------------
@@ -154,9 +147,10 @@ testCase temailImportAlreadyExistsLive:
     let respSecond = client.send(bSecond.freeze()).expect(
         "send Email/import second[" & $target.kind & "]"
       )
-    captureIfRequested(client, "email-import-no-dedup-" & $target.kind).expect(
-      "captureIfRequested"
+    captureIfRequested(
+      recorder.lastResponseBody, "email-import-no-dedup-" & $target.kind
     )
+      .expect("captureIfRequested")
     let secondResp = respSecond.get(secondHandle).expect(
         "Email/import second extract[" & $target.kind & "]"
       )
@@ -202,4 +196,3 @@ testCase temailImportAlreadyExistsLive:
       do:
         assertOn target, false, "cleanup must report an outcome for " & $cleanupId
       assertOn target, destroyed
-    client.close()

@@ -29,12 +29,7 @@ import ../../mtestblock
 testCase tEmailBobReceivesAliceDeliveryLive:
   forEachLiveTarget(target):
     # --- alice setup ----------------------------------------------------
-    var aliceClient = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient alice[" & $target.kind & "]")
+    let (aliceClient, _) = initRecordingClient(target)
     let aliceSession =
       aliceClient.fetchSession().expect("fetchSession alice[" & $target.kind & "]")
     let aliceMailAccountId = resolveMailAccountId(aliceSession).expect(
@@ -111,7 +106,7 @@ testCase tEmailBobReceivesAliceDeliveryLive:
       discard
 
     # --- bob setup ------------------------------------------------------
-    var bobClient = initBobClient(target).expect("initBobClient[" & $target.kind & "]")
+    let (bobClient, bobRecorder) = initBobRecordingClient(target)
     let bobSession =
       bobClient.fetchSession().expect("fetchSession bob[" & $target.kind & "]")
     let bobMailAccountId = resolveMailAccountId(bobSession).expect(
@@ -134,8 +129,6 @@ testCase tEmailBobReceivesAliceDeliveryLive:
     let bobEmailIdRes =
       findEmailBySubjectInMailbox(bobClient, bobMailAccountId, bobInboxId, subject)
     if bobEmailIdRes.isErr:
-      aliceClient.close()
-      bobClient.close()
       continue
     let bobEmailId = bobEmailIdRes.unsafeValue
 
@@ -148,7 +141,9 @@ testCase tEmailBobReceivesAliceDeliveryLive:
     )
     let resp4 =
       bobClient.send(b4.freeze()).expect("send Email/get[" & $target.kind & "]")
-    captureIfRequested(bobClient, "bob-inbox-after-alice-delivery-" & $target.kind)
+    captureIfRequested(
+      bobRecorder.lastResponseBody, "bob-inbox-after-alice-delivery-" & $target.kind
+    )
       .expect("captureIfRequested")
     let getResp = resp4.get(getHandle).expect("Email/get extract[" & $target.kind & "]")
     assertOn target,
@@ -175,6 +170,3 @@ testCase tEmailBobReceivesAliceDeliveryLive:
     assertOn target,
       bobInboxId in mbIds,
       "delivered email must reside in bob's inbox mailbox (mailboxIds=" & $mbIds & ")"
-
-    aliceClient.close()
-    bobClient.close()

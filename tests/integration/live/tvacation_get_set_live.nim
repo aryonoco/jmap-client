@@ -43,12 +43,7 @@ testCase tvacationGetSetLive:
     # (``imap/jmap_api.c:713-714``) returns ``metUnknownMethod`` for
     # both methods. Each VacationResponse extract uses
     # ``assertSuccessOrTypedError``.
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     var vacAccountId: AccountId
     var vacAccountFound = false
@@ -58,7 +53,6 @@ testCase tvacationGetSetLive:
     do:
       discard
     if not vacAccountFound:
-      client.close()
       continue
 
     let singletonId =
@@ -93,9 +87,10 @@ testCase tvacationGetSetLive:
     let resp1Result = client.send(b1.freeze())
     case target.kind
     of ltkCyrus:
-      captureIfRequested(client, "vacation-get-singleton-" & $target.kind).expect(
-        "captureIfRequested cyrus pre-error"
+      captureIfRequested(
+        recorder.lastResponseBody, "vacation-get-singleton-" & $target.kind
       )
+        .expect("captureIfRequested cyrus pre-error")
     of ltkStalwart, ltkJames:
       discard
     if resp1Result.isErr:
@@ -108,7 +103,6 @@ testCase tvacationGetSetLive:
             $err.kind & ")"
       of ltkStalwart, ltkJames:
         assertOn target, false, "VacationResponse/set must succeed on " & $target.kind
-      client.close()
       continue
     let resp1 = resp1Result.unsafeValue
     let setExtract = resp1.get(setHandle1)
@@ -129,9 +123,10 @@ testCase tvacationGetSetLive:
       let resp2 = client.send(b2.freeze()).expect(
           "send VacationResponse/get post-set[" & $target.kind & "]"
         )
-      captureIfRequested(client, "vacation-get-singleton-" & $target.kind).expect(
-        "captureIfRequested"
+      captureIfRequested(
+        recorder.lastResponseBody, "vacation-get-singleton-" & $target.kind
       )
+        .expect("captureIfRequested")
       let getExtract2 = resp2.get(getHandle2)
       assertSuccessOrTypedError(target, getExtract2, {metUnknownMethod}):
         let getResp2 = success
@@ -157,4 +152,3 @@ testCase tvacationGetSetLive:
       discard client.send(b3.freeze()).expect(
           "send VacationResponse/set cleanup[" & $target.kind & "]"
         )
-    client.close()

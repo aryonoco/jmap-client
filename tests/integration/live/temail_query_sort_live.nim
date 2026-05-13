@@ -167,4 +167,3 @@ testCase temailQuerySortLive:
         "explicit collation " & $chosen &
           " must round-trip ascending order alpha → mike → zulu (got " & $collSeeded &
           ")"
-    client.close()

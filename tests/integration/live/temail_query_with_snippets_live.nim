@@ -41,12 +41,7 @@ import ../../mtestblock
 
 testCase temailQueryWithSnippetsLive:
   forEachLiveTarget(target):
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -89,9 +84,10 @@ testCase temailQueryWithSnippetsLive:
     let resp = client.send(b.freeze()).expect(
         "send Email/query+SearchSnippet/get[" & $target.kind & "]"
       )
-    captureIfRequested(client, "email-query-with-snippets-" & $target.kind).expect(
-      "captureIfRequested"
+    captureIfRequested(
+      recorder.lastResponseBody, "email-query-with-snippets-" & $target.kind
     )
+      .expect("captureIfRequested")
     let pair = resp.getBoth(chainHandles).expect("getBoth[" & $target.kind & "]")
 
     let queryHits = pair.first.ids.toHashSet
@@ -112,4 +108,3 @@ testCase temailQueryWithSnippetsLive:
       id1 in snippetIds, "snippet list must include the first seeded emailId"
     assertOn target,
       id2 in snippetIds, "snippet list must include the second seeded emailId"
-    client.close()

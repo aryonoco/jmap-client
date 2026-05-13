@@ -47,12 +47,7 @@ const MaxIters = 20
 
 testCase temailChangesMaxChangesLive:
   forEachLiveTarget(target):
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -89,9 +84,10 @@ testCase temailChangesMaxChangesLive:
     let resp1 = client.send(b1.freeze()).expect(
         "send Email/changes first page[" & $target.kind & "]"
       )
-    captureIfRequested(client, "email-changes-max-changes-" & $target.kind).expect(
-      "captureIfRequested"
+    captureIfRequested(
+      recorder.lastResponseBody, "email-changes-max-changes-" & $target.kind
     )
+      .expect("captureIfRequested")
     let cr1 =
       resp1.get(h1).expect("Email/changes first page extract[" & $target.kind & "]")
     assertOn target,
@@ -138,5 +134,3 @@ testCase temailChangesMaxChangesLive:
     assertOn target,
       $nextState != $baselineState,
       "final newState must differ from the original baseline"
-
-    client.close()

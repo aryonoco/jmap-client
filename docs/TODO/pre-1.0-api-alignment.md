@@ -573,23 +573,39 @@ accessible."* on every run.
 - `tests/compile/treject_a8_sealed_external_construction.nim` —
   testament reject anchor.
 
-### A9. Hide test backdoors *(P5, P8)*
+### A9. No test backdoors on the public surface *(P5, P8, P14)* — ✅ DONE
 
-These are `*`-exported on `client.nim` and become permanent public
-commitments at 1.0:
+`src/jmap_client/client.nim` exports only the JMAP-shaped operational
+surface: `initJmapClient`, `discoverJmapClient`, `newBuilder`,
+`setBearerToken`, `fetchSession`, `isSessionStale`,
+`refreshSessionIfStale`, `send`. No accessors, no `close`, no
+`*ForTest*` / `*ForTesting*` / `setSessionFor*` /
+`lastRaw*` / `last*Response*` / `last*Request*` symbols anywhere
+under `src/jmap_client/**`.
 
-- `src/jmap_client/client.nim:582` — `setSessionForTest*`
-- `src/jmap_client/client.nim:587` — `lastRawResponseBody*`
-  (the underlying field privatisation is incomplete — the accessor
-  itself is the leak)
-- `src/jmap_client/client.nim:747` — `sendRawHttpForTesting*`
-- `src/jmap_client/client.nim:487` — `validateLimits*`
-- `src/jmap_client/client.nim:293` — `bearerToken*` (returns a secret;
-  audit whether load-bearing — likely demote)
+- **`setSessionForTest*`** — removed. Tests prime the cached
+  session by issuing a real `fetchSession` against a canned
+  Transport (`tests/mtransport.nim:newClientWithSessionCaps`).
+- **`lastRawResponseBody*` (and underlying field)** — removed.
+  Tests inspect raw response bytes through a `RecordingTransport`
+  wrapper (`tests/mtransport.nim:newRecordingTransport`,
+  `RecordingTransportState.lastResponseBody`).
+- **`sendRawHttpForTesting*`** — removed. Adversarial-POST tests
+  compose the public `newHttpTransport` API with the
+  tests-permitted internal classify helper
+  (`tests/integration/live/mlive.nim:postRawJmap`,
+  `postRawSingleInvocation`).
+- **`validateLimits*`** — module-private inside `client.nim`. The
+  single internal caller is `send`; tests drive limit enforcement
+  through `client.send()` via a canned-session Transport.
+- **`bearerToken*`** — removed. The token is set by
+  `setBearerToken` (write-only mutator) and consumed per-call when
+  the client constructs each request's `Authorization` header.
 
-**Action.** Move to `src/jmap_client/internal/testing.nim` that the
-public API does not re-export, OR gate behind
-`when defined(jmapClientTesting)`.
+**Verification gate.** `tests/lint/h12_no_test_backdoor_symbols.nim`
+(H12 below) — mechanical lint, runs in `just ci`, fails on any
+exported symbol under `src/jmap_client/**` matching the forbidden
+naming shapes. Current state: zero violations.
 
 ### A10. Module-path lock *(P5, P25)*
 
@@ -604,6 +620,7 @@ these are public commitments the moment 1.0 ships.
 - `jmap_client/types`
 - `jmap_client/serialisation`
 - `jmap_client/protocol`
+- `jmap_client/transport`
 - `jmap_client/client`
 - `jmap_client/mail`
 - `jmap_client/convenience`
@@ -657,17 +674,23 @@ include the `description: Opt[string]` payload when present.
 **Property test**: two equal-shape error values produce equal `$`
 output. Document the format in the long-form guide (D9 §4).
 
-### A13. JmapClient destruction semantics *(P8, P12, P24)*
+### A13. JmapClient destruction semantics *(P8, P12, P24)* — ✅ DONE
 
-`src/jmap_client/client.nim:34, 46–47, 314–323`. `JmapClient` is a
-`ref object` with an `=destroy` ARC hook. No `client.close()` ritual
-(P8); the close-on-copy footgun is removed structurally.
+`JmapClient` is a ref-object handle
+(`src/jmap_client/client.nim:65 type JmapClient* = ref
+JmapClientObj`); ARC tears down its fields when the last reference
+drops. The `JmapClient` itself carries no `=destroy` hook — when
+ARC drops the contained `Transport` ref, the Transport's
+`=destroy` cascade (A19) invokes the user-supplied `closeImpl`
+callback. There is no public `close()` proc on `JmapClient`.
 
-**P24 implication.** ARC ref-counting is thread-safe; user-defined
-`=destroy` may not be. Document `{.gcsafe.}` analysis on the
-destructor explicitly. The `=destroy` hook tears down the underlying
-`Transport` (A19); whichever thread releases the last ref runs the
-teardown.
+**P24 implication — documented.** `Transport`'s `=destroy` hook at
+`src/jmap_client/transport.nim:87` runs `closeImpl` inside a
+`{.cast(gcsafe).}` block because user-supplied closures cannot be
+proved gcsafe by ARC; the library's threading invariant (P24) keeps
+the destructor on the owning thread, so the cast is structural and
+does not represent a real escape. The threading invariant is
+restated in both `Transport`'s and `JmapClient`'s type docstrings.
 
 ### A14. Demote `addInvocation*` *(P5, P19)*
 
@@ -732,36 +755,51 @@ for non-`ckCore` arms. Reasonable for unknown capabilities, but
 `ckSieve` all have typed schemas. Add explicit case-object arms;
 preserve `rawData` for unknown only.
 
-### A19. Define the `Transport` interface *(P22)*
+### A19. `Transport` interface *(P11, P12, P15, P22, P24)* — ✅ DONE
 
-`src/jmap_client/client.nim:48` — `httpClient: HttpClient` hard-binds
-`JmapClient` to `std/httpclient`. **Without this freeze item, P22 is
-unrecoverable post-1.0** because the field's *type* on `JmapClient` is
-contractual at 1.0; adding a `Transport` interface in 1.x requires
-either a sum-typed `JmapClient` (breaking), wedging `Transport` into
-the existing `httpClient` field (impossible — different type), or a
-parallel `JmapClientWithTransport` type (the c-client god-handle anti-
-pattern).
+`src/jmap_client/transport.nim` is the public Layer 4 module for
+the pluggable HTTP transport. The shape is a two-closure vtable
+carried by a private value-object (`TransportObj`) wrapped in a
+public ref alias (`Transport*`):
 
-**Action.** Define `Transport` as a Nim concept (or trait):
+- `SendProc* = proc(req: HttpRequest): Result[HttpResponse,
+  TransportError] {.closure, raises: [].}` — `transport.nim:54`.
+- `CloseProc* = proc() {.closure, raises: [].}` — `transport.nim:70`.
+- `newTransport*(sendImpl, closeImpl): Result[Transport,
+  ValidationError]` — `transport.nim:115`. Smart constructor;
+  rejects nil closures.
+- `newHttpTransport*(timeout, maxRedirects, maxResponseBytes,
+  userAgent): Result[Transport, ValidationError]` —
+  `transport.nim:182`. Default backend built on `std/httpclient`.
+  All HTTP-level configuration lives here, not on `initJmapClient`
+  (P17).
+- `send*(t: Transport, req: HttpRequest)` — `transport.nim:130`.
+  Public vtable dispatcher; the JMAP layer calls this once per
+  `fetchSession` / `send`.
+- `=destroy` on `TransportObj` — `transport.nim:87`. ARC hook;
+  invokes the closure-vtable's `closeImpl` exactly once when the
+  last `Transport` reference drops.
 
-```nim
-type Transport* = concept t
-  proc httpRequest(t, url: string, body: Opt[string],
-                   httpMethod: HttpMethod,
-                   headers: openArray[(string, string)]):
-                   Result[HttpResponse, TransportError]
-```
+`JmapClient` carries a `Transport` field; the typed JMAP layer is
+oblivious to which HTTP backend is in use. Application developers
+plug in libcurl, puppy, chronos, recording proxies, or in-process
+mocks by composing the public `newTransport(send, close)` API.
 
-`JmapClient`'s transport field is typed as the abstract interface, not
-the concrete `HttpClient`. The default constructor wires up an
-`HttpClientTransport` adapter (a thin wrapper around `std/httpclient`
-that matches the interface).
+**Two-overload constructor surface** (P3 additive):
 
-This ships *without* a second concrete implementation; the existence
-of the abstraction is what locks framework freedom. Once typed,
-`chronos`-backed and `puppy`-backed transports compose without
-touching `client.nim`.
+- `initJmapClient(transport, sessionUrl, bearerToken, authScheme)`
+  — primary; application developer supplies the transport.
+- `initJmapClient(sessionUrl, bearerToken, authScheme)` —
+  convenience; delegates to `newHttpTransport()`.
+- `discoverJmapClient(transport, domain, bearerToken, authScheme)`
+  / `discoverJmapClient(domain, bearerToken, authScheme)` — same
+  pair for the `.well-known/jmap` URL-construction convenience.
+
+**C-FFI alignment.** The closure-vtable shape projects directly to
+a single C function-pointer-plus-userdata pair at L5. Future C
+consumers bring their own HTTP library via callback (the libcurl
+`CURLOPT_WRITEFUNCTION` / SQLite-VFS model). See D10's forward
+pointer.
 
 ### A20. Collapse session entry points *(P17)*
 
@@ -1827,6 +1865,14 @@ its C-ABI manifestation:
   callbacks land as fields on `JmapClient`, paired with a `pointer`
   userdata that the library threads back unchanged. Never a
   `jmap_register_logger()` top-level proc.
+- **HTTP backend via callback (libcurl model).** A19's
+  `Transport` is a per-handle closure-vtable (`SendProc` +
+  `CloseProc`); the C ABI exposes `jmap_init_transport(send_fn,
+  close_fn, userdata, ...)` mirroring this shape directly. The C
+  consumer brings its own HTTP library via callback (libcurl-style
+  integration is a first-class use case). The `=destroy` hook on
+  Nim's `TransportObj` corresponds to a C-ABI `jmap_client_free`
+  that invokes the user's `close_fn` on the last reference.
 
 ### D11. Scope and non-goals policy *(P4)*
 
@@ -2089,6 +2135,14 @@ High-export files to scrutinise (count of `*`-exported field/proc):
 - `src/jmap_client/mail/body.nim` — 33 exports
 - `src/jmap_client/mail/email_submission.nim` — 28 exports
 - `src/jmap_client/errors.nim` — 26 exports
+- `src/jmap_client/transport.nim` — 10 exports (`HttpMethodKind`,
+  `HttpRequest`, `HttpResponse`, `SendProc`, `CloseProc`,
+  `Transport`, `newTransport`, `newHttpTransport`, `send`,
+  `=destroy`)
+- `src/jmap_client/client.nim` — 10 exports (`JmapClient`,
+  `initJmapClient` ×2 overloads, `discoverJmapClient` ×2
+  overloads, `newBuilder`, `setBearerToken`, `fetchSession`,
+  `isSessionStale`, `refreshSessionIfStale`, `send`)
 
 For each, ask "load-bearing public commitment?". Default to private
 for anything not justified. Run after A1 (so the audit measures the
@@ -2366,6 +2420,27 @@ to `just check`, `just ci`, and the standalone
 
 **Current-state assertion.** Zero violations.
 
+### H12. Test-backdoor-symbol lint *(P5, P8, P14)* — backs A9
+
+No exported symbol on `src/jmap_client/**` carries a `*ForTest` /
+`*ForTesting` / `setSessionFor*` / `lastRaw*` / `last*Response*` /
+`last*Request*` naming shape. These shapes were the historical
+giveaway for test-only escape hatches on the public surface (A9);
+the lint blocks regression mechanically.
+
+**Implementation path.**
+`tests/lint/h12_no_test_backdoor_symbols.nim` walks every `.nim`
+file under `src/jmap_client/`, extracts each exported symbol name
+(`func`, `proc`, `template`, `type`, `iterator`), and fails on any
+name matching the forbidden patterns. Wired to `just check`,
+`just ci`, and the standalone `just lint-h12-no-test-backdoors`
+recipe.
+
+**Allowlist.** None. The naming shapes are sentinel — any new
+occurrence on the public surface is a regression.
+
+**Current-state assertion.** Zero violations.
+
 ## Coverage trace — every principle to at least one item
 
 Every principle has at least one TODO item that, if executed, brings
@@ -2387,26 +2462,26 @@ Status legend:
 | P2 (tests) | A25, A28b, D2, D3, F1, F5 | Property tests (F1); wire-byte fixtures (D3) | 🟡 |
 | P3 (overloads not `_v2`) | C2, C3, D1.5 (no-suffix rule) | H5 lint; review | 🟡 |
 | P4 (scope) | D11, D11.5, D12, H4 | H4 non-JMAP-import lint | 🟡 |
-| P5 (single layer) | A1, A1b, A6, A9, A10, A14, F2, F6 | H5; H10; F6 snapshot | 🟡 |
+| P5 (single layer) | A1, A1b, A6, A9, A10, A14, A19, F2, F6 | H5; H10; H12; F6 snapshot | 🟡 |
 | P6 (convenience quarantine) | C7, C9, F3, D16, H7 | H7 charter lint | 🟡 |
 | P7 (wrap rate) | A12, A12b, B5, C1, C1.1, C2–C5, C8, F4 | F4 CLI smoke test | 🟡 |
-| P8 (opaque handles) | A6, A6.5, A6.6, A7b, A9, A13, A27, A28, A28b | F2 audit; H1 | 🟡 |
+| P8 (opaque handles) | A6, A6.5, A6.6, A7b, A9, A13, A19, A27, A28, A28b | F2 audit; H1; H12 | 🟡 |
 | P9 (two contexts max) | A6.5, A6.6, A7, A7b, B9, C9, D10 | H7; B9 resolution | 🔴 (B9 open) |
 | P10 (no globals) | D1.5 (no-globals rule), H2 | H2 lint | 🟡 |
-| P11 (no global callbacks) | D1.5 (no-callbacks rule), D10 | review; future H10 once L5 lands | 🟡 |
-| P12 (memory ownership in types) | A13, B10 | review | 🟡 |
+| P11 (no global callbacks) | A19 (closure-vtable per-handle), D1.5 (no-callbacks rule), D10 | review; future H10 once L5 lands | 🟢 |
+| P12 (memory ownership in types) | A13, A19, B10 | review | 🟢 |
 | P13 (one error rail) | A6, A12, A12b | H8 `.get()` invariant lint | 🟡 |
-| P14 (no thread-local errors) | D10, H3 | H3 lint | 🟡 |
-| P15 (smart constructors) | A8 (sealed Pattern-A across 47 distincts + `IdOrCreationRef` + 3 internal), A15 (SerializedSort/Filter sealed via A8), H1 | testament reject test `tests/compile/treject_a8_sealed_external_construction.nim`; H1 lint (regression prevention) | 🟢 |
+| P14 (no thread-local errors) | A9 (no `last*` state on handle), A19 (`HttpResponse` returned by value, not stashed on Transport), D10, H3, H12 | H3 lint; H12 lint | 🟡 |
+| P15 (smart constructors) | A8 (sealed Pattern-A across 47 distincts + `IdOrCreationRef` + 3 internal), A15 (SerializedSort/Filter sealed via A8), A19 (`newTransport`, `newHttpTransport` Result-returning), H1 | testament reject test `tests/compile/treject_a8_sealed_external_construction.nim`; H1 lint (regression prevention) | 🟢 |
 | P16 (preconditions in types) | A6, A6.5, A6.6, A7b, A7c, A7d, A29, B3, B4, B6, B11, B12 | H9; B11/B12 resolution; A7c testament `action: reject` test | 🔴 (B11, B12 open) |
-| P17 (one config surface) | A14, A20, A21 | review; F6 snapshot | 🟡 |
+| P17 (one config surface) | A14, A19 (HTTP config on `newHttpTransport` only), A20, A21 | review; F6 snapshot | 🟡 |
 | P18 (sum types over flag soup) | A6, B1, B2, B7, B8, H9 | H9 catch-all lint | 🟡 |
 | P19 (schema-driven types) | A2, A2b, A3, A3.5, A4, A5, A14, A15, A16, A17, A18, A21, A22, A22b, A28, A28b | H11 typed-builder lint (A5); A22b inline docstrings; F1 | 🟡 |
 | P20 (additive variants) | A11, A23, A24, D7, D13, D13.5, H5 | H5 lint | 🟡 |
 | P21 (lifecycle types) | A6, A6.5, A6.6, A7, A7b, A7c, A7d, A23, A24, A27, A28 | type-shape snapshot (A25); A7c testament `action: reject` test | 🟡 |
-| P22 (sync first, async via interface) | A6, A7e, A19, E1 | A7e policy entry; F6 snapshot blocks pre-1.0 export of reserved names | 🟡 |
+| P22 (sync first, async via interface) | A6, A7e, A19, E1 | A7e policy entry; F6 snapshot blocks pre-1.0 export of reserved names | 🟢 |
 | P23 (push as separate type) | A7e, A23, A24, D13.5 | existence gate (A7e in D13.5 file; A23, A24 type files) | 🟡 |
-| P24 (threading invariant) | A6, A13, D8 | D8 docstring footer; review | 🟡 |
+| P24 (threading invariant) | A6, A13, A19 (closure-vtable threading invariant in `Transport` and `JmapClient` docstrings), D8 | D8 docstring footer; review | 🟢 |
 | P25 (license) | D1.5, H6 | `reuse lint`; H6 freeze gate | 🟡 |
 | P26 (build) | current `mise.toml`/`justfile`/`.nimble`; D1.5 documents the single `when defined(ssl)` concession in `errors.nim:18` | review | 🟢 |
 | P27 (architecture docs) | D7, D9, D16 | existence gates | 🟡 |
@@ -2433,6 +2508,7 @@ must fail CI, not depend on reviewer attention.
 | Last-error thread-locals | D10, H3 | H3 lint |
 | Behaviour changes in patch releases | D1.5 (policy) | wire-byte fixture diff (D3) |
 | Renaming after 1.0 | D1.5 (policy), H5 | F6 snapshot diff; H5 lint |
+| Test backdoors / last-operation state on public handle | A9, A13, A19, H12 | H12 lint |
 
 ### Concrete-decisions checklist
 

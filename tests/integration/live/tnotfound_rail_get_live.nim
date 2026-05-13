@@ -30,12 +30,7 @@ import ../../mtestblock
 
 testCase tnotfoundRailGetLive:
   forEachLiveTarget(target):
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -63,9 +58,8 @@ testCase tnotfoundRailGetLive:
       )
       let resp =
         client.send(b.freeze()).expect("send Email/get mixed ids[" & $target.kind & "]")
-      captureIfRequested(client, "notfound-rail-get-" & $target.kind).expect(
-        "captureIfRequested notFound rail"
-      )
+      captureIfRequested(recorder.lastResponseBody, "notfound-rail-get-" & $target.kind)
+        .expect("captureIfRequested notFound rail")
       let getResp =
         resp.get(getHandle).expect("Email/get extract[" & $target.kind & "]")
       assertOn target,
@@ -173,5 +167,3 @@ testCase tnotfoundRailGetLive:
       assertOn target,
         getResp.notFound[0] == syntheticId,
         "synthetic id must appear in notFound; got " & $getResp.notFound
-
-    client.close()

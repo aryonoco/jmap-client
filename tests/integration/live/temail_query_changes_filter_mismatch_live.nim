@@ -57,12 +57,7 @@ testCase temailQueryChangesFilterMismatchLive:
     # (Email/queryChanges unregistered). The success arm verifies the
     # RFC 8620 §5.6 set-membership outcome; the error arm verifies the
     # client's typed-error projection across configured targets.
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -101,7 +96,9 @@ testCase temailQueryChangesFilterMismatchLive:
     let resp2 = client.send(b2.freeze()).expect(
         "send Email/queryChanges mismatched filter[" & $target.kind & "]"
       )
-    captureIfRequested(client, "email-query-changes-filter-mismatch-" & $target.kind)
+    captureIfRequested(
+      recorder.lastResponseBody, "email-query-changes-filter-mismatch-" & $target.kind
+    )
       .expect("captureIfRequested")
     let extract = resp2.get(h2)
     assertSuccessOrTypedError(
@@ -113,5 +110,3 @@ testCase temailQueryChangesFilterMismatchLive:
       assertOn target,
         $qcr.oldQueryState == $queryStateA,
         "success arm: oldQueryState must echo the supplied baseline"
-
-    client.close()

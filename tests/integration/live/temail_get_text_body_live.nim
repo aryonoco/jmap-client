@@ -99,4 +99,3 @@ testCase temailGetTextBodyLive:
       email.bodyValues.len == 1,
       "bvsText must yield exactly one bodyValues entry (got " & $email.bodyValues.len &
         ")"
-    client.close()

@@ -39,12 +39,7 @@ import ../../mtestblock
 
 testCase tpatchObjectDeepPathsLive:
   forEachLiveTarget(target):
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, _) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -188,17 +183,20 @@ testCase tpatchObjectDeepPathsLive:
     # (deep patch applied) OR rejection (setInvalidPatch /
     # setInvalidProperties).  Captured fixture pins the choice.
     block deepPathPatchCase:
-      let resp = sendRawInvocation(
-          client,
-          capabilityUris = @["urn:ietf:params:jmap:submission"],
-          methodName = "Identity/set",
-          arguments = %*{
-            "accountId": $submissionAccountId,
-            "update": {$identityId: {"replyTo/0/name": "phase-j 70 deep"}},
-          },
-        )
-        .expect("sendRawInvocation deepPath[" & $target.kind & "]")
-      captureIfRequested(client, "patch-object-deep-paths-" & $target.kind).expect(
+      let (respBody, respResult) = postRawSingleInvocation(
+        target,
+        session,
+        target.aliceToken,
+        target.authScheme,
+        capabilityUris = @["urn:ietf:params:jmap:submission"],
+        methodName = "Identity/set",
+        arguments = %*{
+          "accountId": $submissionAccountId,
+          "update": {$identityId: {"replyTo/0/name": "phase-j 70 deep"}},
+        },
+      )
+      let resp = respResult.expect("sendRawInvocation deepPath[" & $target.kind & "]")
+      captureIfRequested(respBody, "patch-object-deep-paths-" & $target.kind).expect(
         "captureIfRequested deepPath"
       )
       assertOn target, resp.methodResponses.len == 1
@@ -233,16 +231,20 @@ testCase tpatchObjectDeepPathsLive:
           client, mailAccountId, inbox, "phase-j 70 escape seed", "phase-j-70-escape"
         )
         .expect("seedSimpleEmail[" & $target.kind & "]")
-      let resp = sendRawInvocation(
-          client,
-          capabilityUris = @["urn:ietf:params:jmap:mail"],
-          methodName = "Email/set",
-          arguments = %*{
-            "accountId": $mailAccountId,
-            "update": {$seedId: {"keywords/$tag~1with~1slash": true}},
-          },
-        )
-        .expect("sendRawInvocation jsonPointerEscape[" & $target.kind & "]")
+      let (_, respResult) = postRawSingleInvocation(
+        target,
+        session,
+        target.aliceToken,
+        target.authScheme,
+        capabilityUris = @["urn:ietf:params:jmap:mail"],
+        methodName = "Email/set",
+        arguments = %*{
+          "accountId": $mailAccountId,
+          "update": {$seedId: {"keywords/$tag~1with~1slash": true}},
+        },
+      )
+      let resp =
+        respResult.expect("sendRawInvocation jsonPointerEscape[" & $target.kind & "]")
       assertOn target, resp.methodResponses.len == 1
       let inv = resp.methodResponses[0]
       assertOn target,
@@ -275,5 +277,3 @@ testCase tpatchObjectDeepPathsLive:
         assertOn target, outcome.isOk, "cleanup destroy must succeed"
       do:
         assertOn target, false, "cleanup must report an outcome"
-
-    client.close()

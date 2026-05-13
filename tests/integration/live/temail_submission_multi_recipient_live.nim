@@ -34,12 +34,7 @@ testCase tEmailSubmissionMultiRecipientLive:
     # (`imap/jmap_mail_submission.c:1200-1201`); James 3.9 has no
     # EmailSubmission/get. Both verify delivery via per-recipient
     # inbox arrival.
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -121,7 +116,8 @@ testCase tEmailSubmissionMultiRecipientLive:
           "send EmailSubmission/get[" & $target.kind & "]"
         )
       captureIfRequested(
-        client, "email-submission-multi-recipient-delivery-" & $target.kind
+        recorder.lastResponseBody,
+        "email-submission-multi-recipient-delivery-" & $target.kind,
       )
         .expect("captureIfRequested[" & $target.kind & "]")
       let getResp =
@@ -183,7 +179,7 @@ testCase tEmailSubmissionMultiRecipientLive:
         )
         .expect("pollEmailDeliveryToInbox alice-self[" & $target.kind & "]")
       captureIfRequested(
-        client, "email-submission-multi-recipient-delivery-" & $target.kind
+        recorder.lastResponseBody,
+        "email-submission-multi-recipient-delivery-" & $target.kind,
       )
         .expect("captureIfRequested[" & $target.kind & "]")
-    client.close()

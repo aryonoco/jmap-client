@@ -124,4 +124,3 @@ testCase temailQueryGetChainLive:
     do:
       assertOn target, false, "cleanup must report an outcome for seedId"
     assertOn target, cleaned
-    client.close()

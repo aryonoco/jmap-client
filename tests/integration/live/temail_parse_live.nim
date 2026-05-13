@@ -52,12 +52,7 @@ testCase temailParseLive:
     # parts) accept them. The library's ``/upload`` surface is
     # deliberately deferred; the seed-rejection arm exercises the
     # typed-error projection.
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -77,7 +72,6 @@ testCase temailParseLive:
       innerBody, "seedForward",
     )
     if outerRes.isErr:
-      client.close()
       continue
     let outerId = outerRes.unsafeValue
 
@@ -112,9 +106,8 @@ testCase temailParseLive:
     )
     let parseRespOuter =
       client.send(bParse.freeze()).expect("send Email/parse[" & $target.kind & "]")
-    captureIfRequested(client, "email-parse-rfc822-" & $target.kind).expect(
-      "captureIfRequested"
-    )
+    captureIfRequested(recorder.lastResponseBody, "email-parse-rfc822-" & $target.kind)
+      .expect("captureIfRequested")
     let parseResp = parseRespOuter.get(parseHandle).expect(
         "Email/parse extract[" & $target.kind & "]"
       )
@@ -138,4 +131,3 @@ testCase temailParseLive:
         "parsed.fromAddr[0].email must equal innerEmail (got " & fromList[0].email & ")"
     do:
       assertOn target, false, "parsed map must contain entry for the requested blobId"
-    client.close()

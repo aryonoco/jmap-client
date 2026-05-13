@@ -38,4 +38,4 @@ export dispatch except
   initResponseHandle, initNameBoundHandle, initDispatchedResponse, response, builderId
 export builder except
   addInvocation, callLimits, addGet, addChanges, addSet, addCopy, addQuery,
-  addQueryChanges, initRequestBuilder, request, builderId, builtRequestForTest
+  addQueryChanges, initRequestBuilder, request, builderId, builtRequestFromParts

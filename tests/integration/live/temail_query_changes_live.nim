@@ -39,12 +39,7 @@ testCase temailQueryChangesLive:
     # contract: the success arm verifies the queryChanges round-trip
     # semantic; the error arm verifies the typed-error projection
     # against a real-world server response.
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -100,9 +95,10 @@ testCase temailQueryChangesLive:
     let resp2 = client.send(b2.freeze()).expect(
         "send Email/queryChanges with-total[" & $target.kind & "]"
       )
-    captureIfRequested(client, "email-query-changes-with-total-" & $target.kind).expect(
-      "captureIfRequested"
+    captureIfRequested(
+      recorder.lastResponseBody, "email-query-changes-with-total-" & $target.kind
     )
+      .expect("captureIfRequested")
     let qcExtract = resp2.get(qcHandle)
     assertSuccessOrTypedError(
       target, qcExtract, {metCannotCalculateChanges, metUnknownMethod}
@@ -149,9 +145,10 @@ testCase temailQueryChangesLive:
     let resp3 = client.send(b3.freeze()).expect(
         "send Email/queryChanges no-total[" & $target.kind & "]"
       )
-    captureIfRequested(client, "email-query-changes-no-total-" & $target.kind).expect(
-      "captureIfRequested"
+    captureIfRequested(
+      recorder.lastResponseBody, "email-query-changes-no-total-" & $target.kind
     )
+      .expect("captureIfRequested")
     let qcNoTotalExtract = resp3.get(qcNoTotalHandle)
     assertSuccessOrTypedError(
       target, qcNoTotalExtract, {metCannotCalculateChanges, metUnknownMethod}
@@ -162,4 +159,3 @@ testCase temailQueryChangesLive:
       # absence. The wire-shape parse is the universal client-library
       # contract — both ``isNone`` and ``isSome`` are accepted here.
       discard success
-    client.close()

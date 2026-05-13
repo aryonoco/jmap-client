@@ -36,12 +36,7 @@ testCase tthreadKeywordFilterAndUpToIdLive:
     # queryChanges fully (`imap/jmap_mail_query.c:1071-1140`); James
     # 3.9 does not advertise them. Each ``Email/query`` and
     # ``Email/queryChanges`` extract uses Cat-B Result-branching.
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -139,9 +134,10 @@ testCase tthreadKeywordFilterAndUpToIdLive:
       let resp = client.send(b.freeze()).expect(
           "send Email/query noneInThreadHaveKeyword[" & $target.kind & "]"
         )
-      captureIfRequested(client, "thread-keyword-filter-" & $target.kind).expect(
-        "captureIfRequested noneInThreadHaveKeyword"
+      captureIfRequested(
+        recorder.lastResponseBody, "thread-keyword-filter-" & $target.kind
       )
+        .expect("captureIfRequested noneInThreadHaveKeyword")
       let extract = resp.get(h)
       assertSuccessOrTypedError(
         target, extract, {metUnsupportedFilter, metUnknownMethod}
@@ -159,9 +155,10 @@ testCase tthreadKeywordFilterAndUpToIdLive:
       let resp = client.send(b.freeze()).expect(
           "send Email/queryChanges upToId[" & $target.kind & "]"
         )
-      captureIfRequested(client, "email-querychanges-up-to-id-" & $target.kind).expect(
-        "captureIfRequested upToId"
+      captureIfRequested(
+        recorder.lastResponseBody, "email-querychanges-up-to-id-" & $target.kind
       )
+        .expect("captureIfRequested upToId")
       let extract = resp.get(h)
       assertSuccessOrTypedError(
         target, extract, {metCannotCalculateChanges, metUnknownMethod}
@@ -183,5 +180,3 @@ testCase tthreadKeywordFilterAndUpToIdLive:
         assertOn target, outcome.isOk, "cleanup destroy must succeed"
       do:
         assertOn target, false, "cleanup must report an outcome for each seed id"
-
-    client.close()

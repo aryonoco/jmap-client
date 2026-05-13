@@ -102,4 +102,3 @@ testCase tsearchSnippetGetStandaloneLive:
       id1 in seenIds, "snippet list must include the first seeded emailId"
     assertOn target,
       id2 in seenIds, "snippet list must include the second seeded emailId"
-    client.close()

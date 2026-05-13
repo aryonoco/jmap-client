@@ -395,6 +395,14 @@ lint-sealed-distinct:
     nim r --hints:off --warnings:off tests/lint/h1_sealed_distinct_construction.nim
     @echo "H1 sealed-distinct lint passed"
 
+# Enforce the A9 + A13 + A19 outcome: no exported symbol on
+# src/jmap_client/** carries a *ForTest* / *ForTesting* / setSessionFor* /
+# lastRaw* / last*Response* / last*Request* shape (P5, P8, P14).
+lint-h12-no-test-backdoors:
+    @echo "Running H12 test-backdoor-symbol lint..."
+    nim r --hints:off --warnings:off tests/lint/h12_no_test_backdoor_symbols.nim
+    @echo "H12 test-backdoor-symbol lint passed"
+
 # Static analysis with nimalyzer
 analyse:
     @echo "Running static analysis..."
@@ -405,7 +413,7 @@ analyse:
 analyze: analyse
 
 # Run all code quality checks
-check: fmt-check lint lint-isolated lint-style lint-internal-boundary lint-typed-builder-jsonnode lint-sealed-distinct analyse
+check: fmt-check lint lint-isolated lint-style lint-internal-boundary lint-typed-builder-jsonnode lint-sealed-distinct lint-h12-no-test-backdoors analyse
     @echo "All quality checks passed"
 
 # =============================================================================
@@ -419,7 +427,7 @@ reuse:
     @echo "REUSE compliance check passed"
 
 # Run full CI pipeline locally (mirrors .github/workflows/ci.yml)
-ci: reuse fmt-check lint lint-isolated lint-style lint-internal-boundary lint-typed-builder-jsonnode lint-sealed-distinct analyse test
+ci: reuse fmt-check lint lint-isolated lint-style lint-internal-boundary lint-typed-builder-jsonnode lint-sealed-distinct lint-h12-no-test-backdoors analyse test
     @echo ""
     @echo "============================================"
     @echo "All CI checks passed!"

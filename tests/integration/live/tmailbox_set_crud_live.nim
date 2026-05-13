@@ -34,12 +34,7 @@ import ../../mtestblock
 
 testCase tmailboxSetCrudLive:
   forEachLiveTarget(target):
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -122,9 +117,10 @@ testCase tmailboxSetCrudLive:
     let resp4 = client.send(b4.freeze()).expect(
         "send Mailbox/set destroy parent[" & $target.kind & "]"
       )
-    captureIfRequested(client, "mailbox-set-has-child-" & $target.kind).expect(
-      "captureIfRequested"
+    captureIfRequested(
+      recorder.lastResponseBody, "mailbox-set-has-child-" & $target.kind
     )
+      .expect("captureIfRequested")
     let setResp3 = resp4.get(setHandle3).expect(
         "Mailbox/set destroy parent extract[" & $target.kind & "]"
       )
@@ -215,4 +211,3 @@ testCase tmailboxSetCrudLive:
     do:
       assertOn target, false, "cleanup must report an outcome for parentId"
     assertOn target, childDestroyed and parentDestroyed
-    client.close()

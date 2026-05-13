@@ -38,12 +38,7 @@ testCase tEmailSubmissionGetDeliveryStatusLive:
     # exercises the client's ``Opt.none`` projection; James 3.9 has no
     # EmailSubmission/get and the entire extract surfaces as
     # ``metUnknownMethod``.
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -101,7 +96,6 @@ testCase tEmailSubmissionGetDeliveryStatusLive:
         assertOn target, false, "EmailSubmission/set must report a create outcome"
 
     if not createOk:
-      client.close()
       continue
 
     # --- Poll until usFinal, then fresh /get to read deliveryStatus -----
@@ -110,7 +104,6 @@ testCase tEmailSubmissionGetDeliveryStatusLive:
       # poll uses /get internally; on Cyrus the poll might still settle
       # (deliveryStatus is null but undoStatus advances), but on James
       # the entire surface fails. Skip dependent assertions.
-      client.close()
       continue
     let (b4, getHandle) = addEmailSubmissionGet(
       initRequestBuilder(makeBuilderId()),
@@ -119,7 +112,9 @@ testCase tEmailSubmissionGetDeliveryStatusLive:
     )
     let resp4 =
       client.send(b4.freeze()).expect("send EmailSubmission/get[" & $target.kind & "]")
-    captureIfRequested(client, "email-submission-get-delivery-status-" & $target.kind)
+    captureIfRequested(
+      recorder.lastResponseBody, "email-submission-get-delivery-status-" & $target.kind
+    )
       .expect("captureIfRequested")
     let getExtract = resp4.get(getHandle)
     assertSuccessOrTypedError(target, getExtract, {metUnknownMethod}):
@@ -171,4 +166,3 @@ testCase tEmailSubmissionGetDeliveryStatusLive:
           assertOn target,
             entry.smtpReply.enhanced.isSome,
             "reply carries an RFC 3463 enhanced status code"
-    client.close()

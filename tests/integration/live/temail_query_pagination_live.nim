@@ -58,12 +58,7 @@ testCase temailQueryPaginationLive:
     # anchor/anchorOffset and omits ``total`` for Email/query; Cyrus
     # 3.12.2 supports the full surface (`imap/jmap_mail.c:212-248`,
     # `imap/jmap_mail_query.c:1071-1140`).
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -109,9 +104,10 @@ testCase temailQueryPaginationLive:
     let resp1 = client.send(b1.freeze()).expect(
         "send Email/query position+limit[" & $target.kind & "]"
       )
-    captureIfRequested(client, "email-query-pagination-position-" & $target.kind).expect(
-      "captureIfRequested position"
+    captureIfRequested(
+      recorder.lastResponseBody, "email-query-pagination-position-" & $target.kind
     )
+      .expect("captureIfRequested position")
     let qr1 =
       resp1.get(h1).expect("Email/query position+limit extract[" & $target.kind & "]")
     assertOn target,
@@ -162,7 +158,9 @@ testCase temailQueryPaginationLive:
     let resp3 = client.send(b3.freeze()).expect(
         "send Email/query anchor+offset[" & $target.kind & "]"
       )
-    captureIfRequested(client, "email-query-pagination-anchor-offset-" & $target.kind)
+    captureIfRequested(
+      recorder.lastResponseBody, "email-query-pagination-anchor-offset-" & $target.kind
+    )
       .expect("captureIfRequested anchor-offset")
     let qr3Extract = resp3.get(h3)
     assertSuccessOrTypedError(
@@ -200,7 +198,8 @@ testCase temailQueryPaginationLive:
         "send Email/query bad-anchor[" & $target.kind & "]"
       )
     captureIfRequested(
-      client, "email-query-pagination-anchor-not-found-" & $target.kind
+      recorder.lastResponseBody,
+      "email-query-pagination-anchor-not-found-" & $target.kind,
     )
       .expect("captureIfRequested anchor-not-found[" & $target.kind & "]")
     let qr4Result = resp4.get(h4)
@@ -220,4 +219,3 @@ testCase temailQueryPaginationLive:
         },
         "errorType must project as metAnchorNotFound, metInvalidArguments, or " &
           "metUnknownMethod (got rawType=" & methodErr.rawType & ")"
-    client.close()

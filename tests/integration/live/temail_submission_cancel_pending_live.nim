@@ -32,12 +32,7 @@ testCase tEmailSubmissionCancelPendingLive:
     # ``invalidArguments`` or ``unknownMethod`` typed errors. Each
     # ``assertSuccessOrTypedError`` site exercises the typed-error
     # projection contract uniformly.
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -99,13 +94,11 @@ testCase tEmailSubmissionCancelPendingLive:
         assertOn target, false, "EmailSubmission/set must report a create outcome"
 
     if not createOk:
-      client.close()
       continue
 
     # --- Poll until usPending --------------------------------------------
     let pendingRes = pollSubmissionPending(client, submissionAccountId, submissionId)
     if pendingRes.isErr:
-      client.close()
       continue
     let pendingSubmission = pendingRes.unsafeValue
 
@@ -122,9 +115,10 @@ testCase tEmailSubmissionCancelPendingLive:
     let resp4 = client.send(b4.freeze()).expect(
         "send EmailSubmission/set update cancel[" & $target.kind & "]"
       )
-    captureIfRequested(client, "email-submission-set-canceled-" & $target.kind).expect(
-      "captureIfRequested"
+    captureIfRequested(
+      recorder.lastResponseBody, "email-submission-set-canceled-" & $target.kind
     )
+      .expect("captureIfRequested")
     let updateExtract = resp4.get(updateHandle)
     var updateOk = false
     assertSuccessOrTypedError(
@@ -139,7 +133,6 @@ testCase tEmailSubmissionCancelPendingLive:
           false, "EmailSubmission/set update must report an outcome for submissionId"
 
     if not updateOk:
-      client.close()
       continue
 
     # --- Re-fetch and confirm canceled projection ------------------------
@@ -169,4 +162,3 @@ testCase tEmailSubmissionCancelPendingLive:
           any.asCanceled().isSome,
           "retained post-cancel submission must project as usCanceled (state=" &
             $any.state & ")"
-    client.close()

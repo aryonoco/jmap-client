@@ -54,12 +54,7 @@ testCase temailCopyDestroyOriginalLive:
     # ``metInvalidArguments``; James lacks Email/copy entirely and
     # returns ``metUnknownMethod``. Both projections are valid client-
     # library typed-error contracts.
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -91,7 +86,9 @@ testCase temailCopyDestroyOriginalLive:
     let respCopy = client.send(bCopy.freeze()).expect(
         "send Email/copy + destroy (rejection-bound)[" & $target.kind & "]"
       )
-    captureIfRequested(client, "email-copy-destroy-original-rejected-" & $target.kind)
+    captureIfRequested(
+      recorder.lastResponseBody, "email-copy-destroy-original-rejected-" & $target.kind
+    )
       .expect("captureIfRequested")
 
     # --- 4. Assert compound rejection at method level --------------------
@@ -128,4 +125,3 @@ testCase temailCopyDestroyOriginalLive:
     do:
       assertOn target, false, "cleanup must report an outcome for sourceId"
     assertOn target, sourceDestroyed
-    client.close()

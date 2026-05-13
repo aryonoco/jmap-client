@@ -43,12 +43,7 @@ testCase temailImportFromBlobLive:
     # Stalwart 0.15.5 and Cyrus 3.12.2 (text/* parts) accept them.
     # The library's ``/upload`` surface is deliberately deferred; the
     # seed-rejection arm exercises the typed-error projection.
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -67,7 +62,6 @@ testCase temailImportFromBlobLive:
       attachmentBytes, "seed27src",
     )
     if sourceRes.isErr:
-      client.close()
       continue
     let sourceId = sourceRes.unsafeValue
     let attachmentBlobId = getFirstAttachmentBlobId(client, mailAccountId, sourceId)
@@ -90,9 +84,10 @@ testCase temailImportFromBlobLive:
     )
     let respImport =
       client.send(bImport.freeze()).expect("send Email/import[" & $target.kind & "]")
-    captureIfRequested(client, "email-import-from-blob-" & $target.kind).expect(
-      "captureIfRequested"
+    captureIfRequested(
+      recorder.lastResponseBody, "email-import-from-blob-" & $target.kind
     )
+      .expect("captureIfRequested")
     let importResp =
       respImport.get(importHandle).expect("Email/import extract[" & $target.kind & "]")
     var importedId: Id
@@ -110,7 +105,6 @@ testCase temailImportFromBlobLive:
     do:
       assertOn target, false, "Email/import must report an outcome for import27"
     if not importOk:
-      client.close()
       continue
 
     # --- 5. Verify imported email exists -----------------------------------
@@ -152,4 +146,3 @@ testCase temailImportFromBlobLive:
     do:
       assertOn target, false, "cleanup must report an outcome for importedId"
     assertOn target, seedDestroyed and importedDestroyed
-    client.close()

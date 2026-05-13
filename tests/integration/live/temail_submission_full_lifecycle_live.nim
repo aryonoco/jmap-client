@@ -31,12 +31,7 @@ testCase tEmailSubmissionFullLifecycleLive:
     # submission records (``update``/``destroy``/``get`` surface as
     # typed errors). Each ``assertSuccessOrTypedError`` site exercises
     # the typed-error projection contract uniformly.
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -98,13 +93,11 @@ testCase tEmailSubmissionFullLifecycleLive:
         assertOn target, false, "EmailSubmission/set must report a create outcome"
 
     if not createOk:
-      client.close()
       continue
 
     # --- Poll until usPending --------------------------------------------
     let pendingRes = pollSubmissionPending(client, submissionAccountId, submissionId)
     if pendingRes.isErr:
-      client.close()
       continue
     let pendingSubmission = pendingRes.unsafeValue
 
@@ -135,7 +128,6 @@ testCase tEmailSubmissionFullLifecycleLive:
           false, "EmailSubmission/set update must report an outcome for submissionId"
 
     if not updateOk:
-      client.close()
       continue
 
     # --- Destroy — destroy via Destroy arm -------------------------------
@@ -147,7 +139,9 @@ testCase tEmailSubmissionFullLifecycleLive:
     let resp5 = client.send(b5.freeze()).expect(
         "send EmailSubmission/set destroy[" & $target.kind & "]"
       )
-    captureIfRequested(client, "email-submission-destroy-canceled-" & $target.kind)
+    captureIfRequested(
+      recorder.lastResponseBody, "email-submission-destroy-canceled-" & $target.kind
+    )
       .expect("captureIfRequested")
     let destroyExtract = resp5.get(destroyHandle)
     var destroyOk = false
@@ -163,7 +157,6 @@ testCase tEmailSubmissionFullLifecycleLive:
           false, "EmailSubmission/set destroy must report an outcome for submissionId"
 
     if not destroyOk:
-      client.close()
       continue
 
     # --- Re-fetch and confirm absence ------------------------------------
@@ -185,4 +178,3 @@ testCase tEmailSubmissionFullLifecycleLive:
       assertOn target,
         submissionId in getResp.notFound,
         "destroyed submissionId must surface in EmailSubmission/get notFound"
-    client.close()

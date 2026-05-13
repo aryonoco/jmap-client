@@ -26,12 +26,7 @@ import ../../mtestblock
 
 testCase tmultiInstanceEnvelopeLive:
   forEachLiveTarget(target):
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -50,9 +45,10 @@ testCase tmultiInstanceEnvelopeLive:
     let resp = client.send(b3.freeze()).expect(
         "send three-Mailbox/get envelope[" & $target.kind & "]"
       )
-    captureIfRequested(client, "multi-instance-envelope-" & $target.kind).expect(
-      "captureIfRequested multi-instance"
+    captureIfRequested(
+      recorder.lastResponseBody, "multi-instance-envelope-" & $target.kind
     )
+      .expect("captureIfRequested multi-instance")
 
     assertOn target,
       resp.response.methodResponses.len == 3,
@@ -112,5 +108,3 @@ testCase tmultiInstanceEnvelopeLive:
         node.hasKey("totalEmails"), "counts record must carry the requested totalEmails"
       assertOn target,
         not node.hasKey("name"), "counts record must NOT carry name (not requested)"
-
-    client.close()

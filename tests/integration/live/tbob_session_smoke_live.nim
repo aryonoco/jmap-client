@@ -26,11 +26,10 @@ import ../../mtestblock
 
 testCase tBobSessionSmokeLive:
   forEachLiveTarget(target):
-    var bobClient = initBobClient(target).expect("initBobClient[" & $target.kind & "]")
+    let (bobClient, bobRecorder) = initBobRecordingClient(target)
     let session = bobClient.fetchSession().expect("fetchSession[" & $target.kind & "]")
-    captureIfRequested(bobClient, "bob-session-" & $target.kind).expect(
-      "captureIfRequested[" & $target.kind & "]"
-    )
+    captureIfRequested(bobRecorder.lastResponseBody, "bob-session-" & $target.kind)
+      .expect("captureIfRequested[" & $target.kind & "]")
     assertOn target,
       session.accounts.len >= 1,
       "bob's session must advertise at least one account (got " & $session.accounts.len &
@@ -64,4 +63,3 @@ testCase tBobSessionSmokeLive:
         if role == roleInbox:
           sawInbox = true
     assertOn target, sawInbox, "bob's account must include an inbox-role mailbox"
-    bobClient.close()

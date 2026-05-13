@@ -29,17 +29,11 @@ import ../../mtestblock
 
 testCase jmapSessionDiscoveryLive:
   forEachLiveTarget(target):
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
-    captureIfRequested(client, "session-" & $target.kind).expect(
+    captureIfRequested(recorder.lastResponseBody, "session-" & $target.kind).expect(
       "captureIfRequested[" & $target.kind & "]"
     )
     assertOn target,
       session.accounts.len > 0, "session must advertise at least one account"
     assertOn target, session.apiUrl.len > 0, "session must advertise an apiUrl"
-    client.close()

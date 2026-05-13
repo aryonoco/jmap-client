@@ -85,12 +85,7 @@ testCase tcascadeChangesCoherenceLive:
     # observable, the strict coherence assertions hold; when it is
     # not, the wire-shape parsing assertions still verify the client
     # contract.
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -232,7 +227,8 @@ testCase tcascadeChangesCoherenceLive:
       let threadCovered = observedThreadIds <= allThreadDelta
       if emailCovered and threadCovered:
         captureIfRequested(
-          client, "cascade-changes-mailbox-email-thread-coherence-" & $target.kind
+          recorder.lastResponseBody,
+          "cascade-changes-mailbox-email-thread-coherence-" & $target.kind,
         )
           .expect("captureIfRequested[" & $target.kind & "]")
         capturedMailboxCr = mailboxCr
@@ -277,7 +273,7 @@ testCase tcascadeChangesCoherenceLive:
       # successfully (the ``.expect()`` calls inside the loop body
       # assert that). The client-library contract is satisfied.
       captureIfRequested(
-        client, "cascade-changes-mailbox-email-thread-coherence-" & $target.kind
+        recorder.lastResponseBody,
+        "cascade-changes-mailbox-email-thread-coherence-" & $target.kind,
       )
         .expect("captureIfRequested[" & $target.kind & "]")
-    client.close()

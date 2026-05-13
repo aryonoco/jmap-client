@@ -50,12 +50,7 @@ testCase temailGetAttachmentsLive:
     # projection has already fired inside ``seedMixedEmail`` (the
     # internal ``resp.get(setHandle).valueOr:`` site) — that is the
     # Cat-B error-arm assertion this test verifies.
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -78,7 +73,6 @@ testCase temailGetAttachmentsLive:
       # Cat-B error arm — ``seededRes`` carries the rawType from the
       # method-level error (``invalidArguments`` for binary inline-
       # bodyValues rejection). Skip the dependent read-back assertions.
-      client.close()
       continue
     let seededId = seededRes.unsafeValue
 
@@ -90,7 +84,9 @@ testCase temailGetAttachmentsLive:
     )
     let resp =
       client.send(b.freeze()).expect("send Email/get attachments[" & $target.kind & "]")
-    captureIfRequested(client, "email-multipart-mixed-attachment-" & $target.kind)
+    captureIfRequested(
+      recorder.lastResponseBody, "email-multipart-mixed-attachment-" & $target.kind
+    )
       .expect("captureIfRequested")
     let getResp =
       resp.get(getHandle).expect("Email/get attachments extract[" & $target.kind & "]")
@@ -116,4 +112,3 @@ testCase temailGetAttachmentsLive:
     assertOn target,
       attachment.size == parseUnsignedInt(32).get(),
       "attachments[0].size must be 32 (got " & $attachment.size & ")"
-    client.close()

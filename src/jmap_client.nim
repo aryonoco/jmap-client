@@ -18,11 +18,13 @@
 import jmap_client/types
 import jmap_client/serialisation
 import jmap_client/protocol
+import jmap_client/transport
 import jmap_client/client
 import jmap_client/mail
 
 export types
 export serialisation
 export protocol
+export transport
 export client
 export mail

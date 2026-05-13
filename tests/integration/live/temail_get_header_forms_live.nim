@@ -44,12 +44,7 @@ import ../../mtestblock
 
 testCase temailGetHeaderFormsLive:
   forEachLiveTarget(target):
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -127,9 +122,8 @@ testCase temailGetHeaderFormsLive:
     let resp = client.send(b.freeze()).expect(
         "send Email/get header forms[" & $target.kind & "]"
       )
-    captureIfRequested(client, "email-header-forms-" & $target.kind).expect(
-      "captureIfRequested"
-    )
+    captureIfRequested(recorder.lastResponseBody, "email-header-forms-" & $target.kind)
+      .expect("captureIfRequested")
     let getResp =
       resp.get(getHandle).expect("Email/get header forms extract[" & $target.kind & "]")
     assertOn target, getResp.list.len == 1, "Email/get must return the seeded message"
@@ -175,4 +169,3 @@ testCase temailGetHeaderFormsLive:
     assertOn target,
       fromHv.addresses[0].email == "alice@example.com",
       "From address must be alice@example.com (got " & fromHv.addresses[0].email & ")"
-    client.close()

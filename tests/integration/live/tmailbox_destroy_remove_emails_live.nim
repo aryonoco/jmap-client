@@ -51,12 +51,7 @@ import ../../mtestblock
 
 testCase tmailboxDestroyRemoveEmailsLive:
   forEachLiveTarget(target):
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -87,9 +82,10 @@ testCase tmailboxDestroyRemoveEmailsLive:
     let respDestroyA = client.send(bDestroyA.freeze()).expect(
         "send Mailbox/set destroy A[" & $target.kind & "]"
       )
-    captureIfRequested(client, "mailbox-set-destroy-with-emails-" & $target.kind).expect(
-      "captureIfRequested"
+    captureIfRequested(
+      recorder.lastResponseBody, "mailbox-set-destroy-with-emails-" & $target.kind
     )
+      .expect("captureIfRequested")
     let destroyAResp = respDestroyA.get(destroyAHandle).expect(
         "Mailbox/set destroy A[" & $target.kind & "]"
       )
@@ -205,4 +201,3 @@ testCase tmailboxDestroyRemoveEmailsLive:
     do:
       assertOn target, false, "cleanup must report a destroy outcome for childBId"
     assertOn target, childBCleaned
-    client.close()

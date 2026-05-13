@@ -43,12 +43,7 @@ const TruncationCap = 64
 
 testCase temailGetMaxBodyValueBytesLive:
   forEachLiveTarget(target):
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -116,7 +111,8 @@ testCase temailGetMaxBodyValueBytesLive:
         "send Email/get truncation[" & $target.kind & "]"
       )
     captureIfRequested(
-      client, "email-get-max-body-value-bytes-truncated-" & $target.kind
+      recorder.lastResponseBody,
+      "email-get-max-body-value-bytes-truncated-" & $target.kind,
     )
       .expect("captureIfRequested[" & $target.kind & "]")
     let getResp =
@@ -138,5 +134,3 @@ testCase temailGetMaxBodyValueBytesLive:
       anyTruncated,
       "at least one bodyValue must carry isTruncated=true under a 2 KB body and " &
         "a 64-byte cap"
-
-    client.close()

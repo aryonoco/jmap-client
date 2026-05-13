@@ -51,12 +51,7 @@ testCase tvacationSetAllArmsLive:
     # (``imap/jmap_api.c:713-714``) returns ``metUnknownMethod`` for
     # both methods, so the Cat-B error arm exercises the typed-error
     # projection.
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     var vacAccountId: AccountId
     var vacAccountFound = false
@@ -66,7 +61,6 @@ testCase tvacationSetAllArmsLive:
     do:
       discard
     if not vacAccountFound:
-      client.close()
       continue
 
     let singletonId =
@@ -108,9 +102,10 @@ testCase tvacationSetAllArmsLive:
     # replay suite round-trips both shapes. mcapture's skip-if-exists
     # preserves existing Stalwart/James fixtures.
     let resp1Result = client.send(b1.freeze())
-    captureIfRequested(client, "vacation-set-all-arms-" & $target.kind).expect(
-      "captureIfRequested"
+    captureIfRequested(
+      recorder.lastResponseBody, "vacation-set-all-arms-" & $target.kind
     )
+      .expect("captureIfRequested")
     if resp1Result.isErr:
       case target.kind
       of ltkCyrus:
@@ -122,7 +117,6 @@ testCase tvacationSetAllArmsLive:
       of ltkStalwart, ltkJames:
         assertOn target,
           false, "VacationResponse/set all arms must succeed on " & $target.kind
-      client.close()
       continue
     let resp1 = resp1Result.unsafeValue
     let setExtract = resp1.get(setHandle)
@@ -185,4 +179,3 @@ testCase tvacationSetAllArmsLive:
       discard client.send(b3.freeze()).expect(
           "send VacationResponse/set cleanup[" & $target.kind & "]"
         )
-    client.close()

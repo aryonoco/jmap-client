@@ -27,6 +27,7 @@ import ../massertions
 import ../mfixtures
 import ../mtest_entity
 import ../mtestblock
+import ../mtransport
 
 # ===========================================================================
 # A. Builder -> build -> Request JSON
@@ -162,25 +163,14 @@ testCase mixedSuccessError:
 # ===========================================================================
 
 testCase builderSendConvenience:
-  ## Verify client.send(builder.freeze()) compiles and exercises pre-flight validation.
-  ## Uses setSessionForTest to inject a session with limits.
-  var client = initJmapClient(
-      sessionUrl = "https://example.com/jmap", bearerToken = "test-token"
-    )
-    .get()
-  # Inject a session so send() does not need network for session fetch
-  let sessionArgs = makeSessionArgs()
-  let session = parseSessionFromArgs(sessionArgs)
-  client.setSessionForTest(session)
-  # Build a simple echo request
+  ## Verify client.send(builder.freeze()) compiles and exercises pre-flight
+  ## validation through a canned Transport. The default POST response is
+  ## parser-valid (empty methodResponses), so the send completes Ok.
+  let client = newClientWithSessionCaps(realisticCoreCaps())
   let b0 = client.newBuilder()
   let (b1, _) = b0.addEcho(%*{"test": true})
-  # send(client, builder.freeze()) will fail at HTTP POST (no real server), but
-  # the pre-flight validation and serialisation paths are exercised.
-  # We expect a transport error, not a panic or compile error.
   let result = client.send(b1.freeze())
-  # The result should be an error (network failure), not a panic
-  assertErr result
+  assertOk result
 
 # ===========================================================================
 # G. Query with filter (TestWidget)

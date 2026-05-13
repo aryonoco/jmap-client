@@ -44,12 +44,7 @@ testCase tEmailSubmissionChangesLive:
     # typed errors. Each extract uses ``assertSuccessOrTypedError``;
     # dependent steps skip when an upstream extract surfaces a typed
     # error.
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -99,7 +94,6 @@ testCase tEmailSubmissionChangesLive:
         baseGetErr in {metUnknownMethod, metUnknown} and
           baseQueryErr in {metUnknownMethod, metUnknown},
         "baseline EmailSubmission/get and /query must succeed or surface unknownMethod"
-      client.close()
       continue
     let baseGetResp = baseGetExtract.unsafeValue
     let baseQueryResp = baseQueryExtract.unsafeValue
@@ -176,7 +170,6 @@ testCase tEmailSubmissionChangesLive:
     let sub2Res = submitOne("phase-f step-36 b", "subB", "draft36B")
     if sub1Res.isErr or sub2Res.isErr:
       # Cat-B error arm — the typed-error projection has fired.
-      client.close()
       continue
     let subId1 = sub1Res.unsafeValue
     let subId2 = sub2Res.unsafeValue
@@ -193,9 +186,10 @@ testCase tEmailSubmissionChangesLive:
     let resp2 = client.send(b2b.freeze()).expect(
         "send EmailSubmission/changes happy+sad[" & $target.kind & "]"
       )
-    captureIfRequested(client, "email-submission-changes-" & $target.kind).expect(
-      "captureIfRequested changes"
+    captureIfRequested(
+      recorder.lastResponseBody, "email-submission-changes-" & $target.kind
     )
+      .expect("captureIfRequested changes")
     let okExtract = resp2.get(okHandle)
     assertSuccessOrTypedError(
       target, okExtract, {metCannotCalculateChanges, metUnknownMethod}
@@ -235,9 +229,10 @@ testCase tEmailSubmissionChangesLive:
     let resp3 = client.send(b3.freeze()).expect(
         "send EmailSubmission/queryChanges[" & $target.kind & "]"
       )
-    captureIfRequested(client, "email-submission-query-changes-" & $target.kind).expect(
-      "captureIfRequested queryChanges"
+    captureIfRequested(
+      recorder.lastResponseBody, "email-submission-query-changes-" & $target.kind
     )
+      .expect("captureIfRequested queryChanges")
     let qcExtract = resp3.get(qcHandle)
     assertSuccessOrTypedError(
       target, qcExtract, {metCannotCalculateChanges, metUnknownMethod}
@@ -270,4 +265,3 @@ testCase tEmailSubmissionChangesLive:
     )
     discard client.send(bDestroy.freeze())
     discard destroyHandle
-    client.close()

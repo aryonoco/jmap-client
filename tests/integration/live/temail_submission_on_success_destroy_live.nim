@@ -28,12 +28,7 @@ import ../../mtestblock
 
 testCase tEmailSubmissionOnSuccessDestroyLive:
   forEachLiveTarget(target):
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -91,7 +86,9 @@ testCase tEmailSubmissionOnSuccessDestroyLive:
     let resp3 = client.send(b3.freeze()).expect(
         "send EmailSubmission/set+Email/set destroy[" & $target.kind & "]"
       )
-    captureIfRequested(client, "email-submission-on-success-destroy-" & $target.kind)
+    captureIfRequested(
+      recorder.lastResponseBody, "email-submission-on-success-destroy-" & $target.kind
+    )
       .expect("captureIfRequested")
     let pairExtract = resp3.getBoth(handles)
     # Cat-B: Cyrus 3.12.2 rejects ``onSuccessDestroyEmail`` with
@@ -126,10 +123,8 @@ testCase tEmailSubmissionOnSuccessDestroyLive:
         "compound EmailSubmission/set + onSuccessDestroyEmail must surface " &
           "metInvalidArguments or metUnknownMethod when unimplemented (got " &
           methodErr.rawType & ")"
-      client.close()
       continue
     if not compoundOk:
-      client.close()
       continue
 
     # --- Verification leg: divergent observation surface --------------
@@ -166,7 +161,6 @@ testCase tEmailSubmissionOnSuccessDestroyLive:
           budgetMs = budget,
         )
         .expect("pollEmailDeliveryToInbox bob[" & $target.kind & "]")
-      bobClient.close()
 
     # --- Read-back: Email/get must surface the draft as notFound ---------
     let (b4, emailGetHandle) = addEmailGet(
@@ -185,4 +179,3 @@ testCase tEmailSubmissionOnSuccessDestroyLive:
     assertOn target,
       draftId in getResp.notFound,
       "after onSuccessDestroyEmail, Email/get must surface draftId in notFound"
-    client.close()

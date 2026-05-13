@@ -156,48 +156,50 @@ func isTlsRelatedMsg(msg: string): bool =
   let lower = msg.toLowerAscii
   return "ssl" in lower or "tls" in lower or "certificate" in lower
 
+func classifyTransportException*(e: ref CatchableError): TransportError =
+  ## Maps ``std/httpclient`` exceptions to ``TransportError``. Pure: no
+  ## IO, no side effects. Exhaustive over known exception types. Called
+  ## by the default HTTP transport closure; ``classifyException`` lifts
+  ## the result into the outer railway for JMAP-layer callers.
+  if e of ref TimeoutError:
+    transportError(tekTimeout, e.msg)
+  elif (when defined(ssl): e of ref SslError else: false):
+    transportError(tekTls, e.msg)
+  elif e of ref OSError:
+    if isTlsRelatedMsg(e.msg):
+      transportError(tekTls, e.msg)
+    else:
+      transportError(tekNetwork, e.msg)
+  elif e of ref IOError:
+    transportError(tekNetwork, e.msg)
+  elif e of ref ValueError:
+    transportError(tekNetwork, "protocol error: " & e.msg)
+  else:
+    transportError(tekNetwork, "unexpected error: " & e.msg)
+
 func classifyException*(e: ref CatchableError): ClientError =
   ## Maps ``std/httpclient`` exceptions to ``ClientError(cekTransport)``.
-  ## Pure: no IO, no side effects. Exhaustive over known exception types.
-  let te =
-    if e of ref TimeoutError:
-      transportError(tekTimeout, e.msg)
-    elif (when defined(ssl): e of ref SslError else: false):
-      transportError(tekTls, e.msg)
-    elif e of ref OSError:
-      if isTlsRelatedMsg(e.msg):
-        transportError(tekTls, e.msg)
-      else:
-        transportError(tekNetwork, e.msg)
-    elif e of ref IOError:
-      transportError(tekNetwork, e.msg)
-    elif e of ref ValueError:
-      transportError(tekNetwork, "protocol error: " & e.msg)
-    else:
-      transportError(tekNetwork, "unexpected error: " & e.msg)
-  return clientError(te)
+  ## Pure: no IO, no side effects. Lifts ``classifyTransportException``
+  ## into the outer railway.
+  clientError(classifyTransportException(e))
 
-func sizeLimitExceeded*(
-    context: RequestContext, what: string, actual, limit: int
-): ClientError =
-  ## Constructs a ``ClientError`` for a size-limit violation. Shared by
-  ## body-length and Content-Length enforcement.
-  return clientError(
-    transportError(
-      tekNetwork,
-      $context & " " & what & " exceeds limit: " & $actual & " bytes > " & $limit &
-        " byte limit",
-    )
+func sizeLimitExceeded*(what: string, actual, limit: int): TransportError =
+  ## Constructs a ``TransportError`` for a size-limit violation. Shared
+  ## by body-length and Content-Length enforcement inside the default
+  ## HTTP transport.
+  transportError(
+    tekNetwork,
+    what & " exceeds limit: " & $actual & " bytes > " & $limit & " byte limit",
   )
 
 func enforceBodySizeLimit*(
-    maxResponseBytes: int, body: string, context: RequestContext
-): Result[void, ClientError] =
+    maxResponseBytes: int, body: string
+): Result[void, TransportError] =
   ## Phase 2 body size enforcement: post-read rejection via actual body
   ## length. No-op when ``maxResponseBytes == 0`` (no limit). Pure.
   if maxResponseBytes > 0 and body.len > maxResponseBytes:
-    return err(sizeLimitExceeded(context, "response body", body.len, maxResponseBytes))
-  return ok()
+    return err(sizeLimitExceeded("response body", body.len, maxResponseBytes))
+  ok()
 
 type MethodErrorType* = enum
   ## Per-invocation error types from the inner railway (RFC 8620 §3.6.2).

@@ -60,7 +60,7 @@ import ./mlive
 import ../../mtestblock
 
 proc resolveOrCreateSecondaryAliceIdentity(
-    client: var JmapClient, submissionAccountId: AccountId, displayName: string
+    client: JmapClient, submissionAccountId: AccountId, displayName: string
 ): Result[Id, string] =
   ## Sibling of ``resolveOrCreateAliceIdentity`` that targets a
   ## distinct display name on the same email address — the corpus
@@ -111,12 +111,7 @@ testCase temailSubmissionFilterSortLive:
     # typed errors. Each extract uses ``assertSuccessOrTypedError``;
     # dependent steps skip when an upstream extract surfaces a typed
     # error.
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -139,7 +134,6 @@ testCase temailSubmissionFilterSortLive:
       client, submissionAccountId, "phase-i 60 secondary"
     )
     if secondaryRes.isErr:
-      client.close()
       continue
     let secondaryId = secondaryRes.unsafeValue
 
@@ -151,7 +145,6 @@ testCase temailSubmissionFilterSortLive:
       )
     let baseExtract = respBase.get(baseHandle)
     if baseExtract.isErr:
-      client.close()
       continue
     let qrBase = baseExtract.unsafeValue
     let baselineQueryState = qrBase.queryState
@@ -179,7 +172,6 @@ testCase temailSubmissionFilterSortLive:
       creationLabelPrefix = "phase-i-60",
     )
     if submissionIdsRes.isErr:
-      client.close()
       continue
     let submissionIds = submissionIdsRes.unsafeValue
     assertOn target,
@@ -234,7 +226,9 @@ testCase temailSubmissionFilterSortLive:
     let respB = client.send(bB.freeze()).expect(
         "send EmailSubmission/query sort sentAt asc[" & $target.kind & "]"
       )
-    captureIfRequested(client, "email-submission-query-filter-sort-" & $target.kind)
+    captureIfRequested(
+      recorder.lastResponseBody, "email-submission-query-filter-sort-" & $target.kind
+    )
       .expect("captureIfRequested filter+sort")
     let qrB = respB.get(hB).expect("sort sentAt extract[" & $target.kind & "]")
     for sId in submissionIds:
@@ -259,7 +253,8 @@ testCase temailSubmissionFilterSortLive:
         "send EmailSubmission/queryChanges[" & $target.kind & "]"
       )
     captureIfRequested(
-      client, "email-submission-query-changes-with-filter-" & $target.kind
+      recorder.lastResponseBody,
+      "email-submission-query-changes-with-filter-" & $target.kind,
     )
       .expect("captureIfRequested queryChanges[" & $target.kind & "]")
     let qcr = respC.get(hC).expect("queryChanges extract[" & $target.kind & "]")
@@ -271,5 +266,3 @@ testCase temailSubmissionFilterSortLive:
       qcr.total.unsafeGet.toInt64 >= 2,
       "total must reflect at least the two new submissions (got " & $qcr.total.unsafeGet &
         ")"
-
-    client.close()

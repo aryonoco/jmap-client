@@ -42,7 +42,7 @@ import ./mconfig
 import ./mlive
 import ../../mtestblock
 
-proc assertRoleFilter(client: var JmapClient, mailAccountId: AccountId, inboxId: Id) =
+proc assertRoleFilter(client: JmapClient, mailAccountId: AccountId, inboxId: Id) =
   ## Sub-test 1: filter by ``role: Opt.some(roleInbox)`` returns the
   ## inbox among its results when the server accepts the role-filter
   ## shape; otherwise the typed error is acceptable.
@@ -72,7 +72,7 @@ proc assertRoleFilter(client: var JmapClient, mailAccountId: AccountId, inboxId:
       " ids)"
 
 proc setSortOrders(
-    client: var JmapClient, mailAccountId: AccountId, alphaId, bravoId, charlieId: Id
+    client: JmapClient, mailAccountId: AccountId, alphaId, bravoId, charlieId: Id
 ) =
   ## Mailbox/set update enforces the desired sortOrder regardless of
   ## prior state, so re-runs are idempotent.
@@ -93,7 +93,8 @@ proc setSortOrders(
   discard resp2u.get(h2u).expect("Mailbox/set sortOrder update extract")
 
 proc assertFilterSortOrder(
-    client: var JmapClient,
+    client: JmapClient,
+    recorder: RecordingTransportState,
     mailAccountId: AccountId,
     alphaId, bravoId, charlieId: Id,
     nameFilter: Filter[MailboxFilterCondition],
@@ -112,9 +113,10 @@ proc assertFilterSortOrder(
     sort = Opt.some(sortAsc),
   )
   let resp2 = client.send(b2.freeze()).expect("send Mailbox/query filter+sort")
-  captureIfRequested(client, "mailbox-query-filter-sort-" & targetSuffix).expect(
-    "captureIfRequested filter+sort"
+  captureIfRequested(
+    recorder.lastResponseBody, "mailbox-query-filter-sort-" & targetSuffix
   )
+    .expect("captureIfRequested filter+sort")
   let qResp2Extract = resp2.get(h2)
   if qResp2Extract.isErr:
     let getErr = qResp2Extract.unsafeError
@@ -142,7 +144,7 @@ proc assertFilterSortOrder(
       "alpha (30); got positions charlie=" & $charliePos & " bravo=" & $bravoPos &
       " alpha=" & $alphaPos
 
-proc assertSortAsTree(client: var JmapClient, mailAccountId: AccountId) =
+proc assertSortAsTree(client: JmapClient, mailAccountId: AccountId) =
   ## Sub-test 3: ``sortAsTree: true`` under ``hasAnyRole: true`` filter.
   ## Configured targets that seed an Inbox return a non-empty set;
   ## servers without ``sortAsTree`` support surface a typed error.
@@ -174,7 +176,8 @@ proc assertSortAsTree(client: var JmapClient, mailAccountId: AccountId) =
     doAssert ($id).len > 0, "every returned id must be non-empty"
 
 proc assertQueryChangesWithFilter(
-    client: var JmapClient,
+    client: JmapClient,
+    recorder: RecordingTransportState,
     mailAccountId: AccountId,
     nameFilter: Filter[MailboxFilterCondition],
     targetSuffix: string,
@@ -213,9 +216,10 @@ proc assertQueryChangesWithFilter(
     calculateTotal = true,
   )
   let resp5 = client.send(b5.freeze()).expect("send Mailbox/queryChanges with filter")
-  captureIfRequested(client, "mailbox-query-changes-with-filter-" & targetSuffix).expect(
-    "captureIfRequested queryChanges"
+  captureIfRequested(
+    recorder.lastResponseBody, "mailbox-query-changes-with-filter-" & targetSuffix
   )
+    .expect("captureIfRequested queryChanges")
   let qcrExtract = resp5.get(h5)
   if qcrExtract.isErr:
     let getErr = qcrExtract.unsafeError
@@ -241,12 +245,7 @@ testCase tmailboxQueryFilterSortLive:
     # no calculateTotal — and rejects the rest with typed errors.
     # Each sub-helper extracts the response and accepts either the
     # success arm or a typed-error projection.
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -267,9 +266,16 @@ testCase tmailboxQueryFilterSortLive:
     let nameFilter =
       filterCondition(MailboxFilterCondition(name: Opt.some("phase-i 49")))
     assertFilterSortOrder(
-      client, mailAccountId, alphaId, bravoId, charlieId, nameFilter, $target.kind
+      client,
+      recorder,
+      mailAccountId,
+      alphaId,
+      bravoId,
+      charlieId,
+      nameFilter,
+      $target.kind,
     )
     assertSortAsTree(client, mailAccountId)
-    assertQueryChangesWithFilter(client, mailAccountId, nameFilter, $target.kind)
-
-    client.close()
+    assertQueryChangesWithFilter(
+      client, recorder, mailAccountId, nameFilter, $target.kind
+    )

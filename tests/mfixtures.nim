@@ -126,12 +126,17 @@ proc makeCoreCapsWithLimits*(
     maxCallsInRequest: int64 = 32,
     maxObjectsInGet: int64 = 1000,
     maxObjectsInSet: int64 = 500,
+    maxSizeRequest: int64 = 10_000_000,
 ): CoreCapabilities =
-  ## CoreCapabilities with caller-specified limit fields; zeroes elsewhere.
+  ## CoreCapabilities with caller-specified count limits and a generous
+  ## ``maxSizeRequest`` default (10 MB) so the post-serialisation size
+  ## check in ``client.send`` doesn't fire for the typical small
+  ## fixtures these tests build. Caller can override
+  ## ``maxSizeRequest`` to exercise that specific cap.
   CoreCapabilities(
     maxSizeUpload: zeroUint(),
     maxConcurrentUpload: zeroUint(),
-    maxSizeRequest: zeroUint(),
+    maxSizeRequest: parseUnsignedInt(maxSizeRequest).get(),
     maxConcurrentRequests: zeroUint(),
     maxCallsInRequest: parseUnsignedInt(maxCallsInRequest).get(),
     maxObjectsInGet: parseUnsignedInt(maxObjectsInGet).get(),
@@ -199,6 +204,12 @@ proc makeSessionArgs*(): SessionArgs =
     state: makeState("s1"),
   )
 
+proc makeSessionArgsWithCoreCaps*(caps: CoreCapabilities): SessionArgs =
+  ## Like ``makeSessionArgs`` but the lone server capability advertises
+  ## ``caps`` for the core URN instead of the zero defaults.
+  result = makeSessionArgs()
+  result.capabilities = @[makeCoreServerCap(caps)]
+
 # ---------------------------------------------------------------------------
 # Envelope factories
 # ---------------------------------------------------------------------------
@@ -227,12 +238,12 @@ proc makeBuiltRequest*(
     callLimits: seq[CallLimitMeta] = @[],
 ): BuiltRequest =
   ## Test-only factory for ``BuiltRequest``. Wraps ``makeRequest`` then
-  ## routes through ``builtRequestForTest`` (the whitebox-only factory in
-  ## ``internal/protocol/builder.nim``). Use when a test needs a frozen,
-  ## branded carrier without driving the full builder pipeline.
+  ## routes through ``builtRequestFromParts`` (the whitebox-only factory
+  ## in ``internal/protocol/builder.nim``). Use when a test needs a
+  ## frozen, branded carrier without driving the full builder pipeline.
   let req =
     makeRequest(`using` = `using`, methodCalls = methodCalls, createdIds = createdIds)
-  builtRequestForTest(req, builderId, callLimits)
+  builtRequestFromParts(req, builderId, callLimits)
 
 proc makeResponse*(
     methodResponses: seq[Invocation] = @[makeInvocation()],

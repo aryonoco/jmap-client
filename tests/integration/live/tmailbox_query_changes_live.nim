@@ -52,12 +52,7 @@ testCase tmailboxQueryChangesLive:
     # ``FilterOperator``, ``sort``, ``position``/``anchor``/...,
     # ``calculateTotal``, ``sortAsTree``). Each ``assertSuccessOrTypedError``
     # site exercises the typed-error projection contract uniformly.
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -75,7 +70,6 @@ testCase tmailboxQueryChangesLive:
     if queryExtract.isErr:
       # Cat-B error arm — server rejected the no-filter Mailbox/query
       # shape (e.g. James). The typed-error projection has fired.
-      client.close()
       continue
     let queryResp = queryExtract.unsafeValue
     let queryState1 = queryResp.queryState
@@ -95,7 +89,9 @@ testCase tmailboxQueryChangesLive:
     let resp2 = client.send(b2.freeze()).expect(
         "send Mailbox/queryChanges with-total[" & $target.kind & "]"
       )
-    captureIfRequested(client, "mailbox-query-changes-with-total-" & $target.kind)
+    captureIfRequested(
+      recorder.lastResponseBody, "mailbox-query-changes-with-total-" & $target.kind
+    )
       .expect("captureIfRequested with-total")
     let qcr = resp2.get(qcHandle).expect(
         "Mailbox/queryChanges with-total extract[" & $target.kind & "]"
@@ -139,9 +135,10 @@ testCase tmailboxQueryChangesLive:
     let resp3 = client.send(b3.freeze()).expect(
         "send Mailbox/queryChanges no-total[" & $target.kind & "]"
       )
-    captureIfRequested(client, "mailbox-query-changes-no-total-" & $target.kind).expect(
-      "captureIfRequested no-total"
+    captureIfRequested(
+      recorder.lastResponseBody, "mailbox-query-changes-no-total-" & $target.kind
     )
+      .expect("captureIfRequested no-total")
     let qcrNoTotalExtract = resp3.get(qcNoTotalHandle)
     if qcrNoTotalExtract.isOk:
       # RFC 8620 §5.6: some servers (Cyrus 3.12.2) populate ``total``
@@ -158,4 +155,3 @@ testCase tmailboxQueryChangesLive:
           metUnknownMethod,
         },
         "method error must be in allowed set (got rawType=" & methodErr.rawType & ")"
-    client.close()

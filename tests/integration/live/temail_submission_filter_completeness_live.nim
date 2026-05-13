@@ -37,12 +37,7 @@ testCase temailSubmissionFilterCompletenessLive:
     # each ``EmailSubmission/query`` extract use Cat-B Result-branching;
     # dependent steps skip when an upstream extract surfaces a typed
     # error.
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -85,7 +80,6 @@ testCase temailSubmissionFilterCompletenessLive:
       # Cat-B error arm — the helper's typed-error projection has fired
       # inside ``seedSubmissionCorpus`` (server lacks the EmailSubmission
       # surface). Skip the dependent filter sub-tests.
-      client.close()
       continue
     let submissionIds = submissionIdsRes.unsafeValue
     assertOn target, submissionIds.len == 2
@@ -247,7 +241,10 @@ testCase temailSubmissionFilterCompletenessLive:
       let resp = client.send(b.freeze()).expect(
           "send EmailSubmission/query sort threadId[" & $target.kind & "]"
         )
-      captureIfRequested(client, "email-submission-filter-completeness-" & $target.kind)
+      captureIfRequested(
+        recorder.lastResponseBody,
+        "email-submission-filter-completeness-" & $target.kind,
+      )
         .expect("captureIfRequested filter completeness")
       discard resp.get(qHandle).expect("sort threadId extract[" & $target.kind & "]")
 
@@ -260,4 +257,3 @@ testCase temailSubmissionFilterCompletenessLive:
     )
     discard client.send(bDestroy.freeze())
     discard destroyHandle
-    client.close()

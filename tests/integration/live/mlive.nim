@@ -13,7 +13,10 @@
 ##
 ## Helpers return ``Result[T, string]`` so callers can chain ``.expect``
 ## with the same ergonomics as ``loadLiveTestTargets``. They take a
-## ``var JmapClient`` because ``client.send`` requires it.
+## ``JmapClient`` (no ``var``) — the handle is a ref, so field mutation
+## works through deref. ``reconnectClient`` is the sole exception:
+## it rebinds the variable itself, which still requires ``var T`` even
+## when ``T`` is a ref.
 
 {.push raises: [].}
 
@@ -35,9 +38,14 @@ const liveBudgetMul* = when defined(jmapLiveShard): 3 else: 1
 import results
 import jmap_client
 import jmap_client/client
+import jmap_client/transport
 import jmap_client/internal/protocol/builder
 import jmap_client/internal/types/identifiers
+import jmap_client/internal/transport/url_resolution
+import jmap_client/internal/transport/classify
 import ./mconfig
+import ../../mtransport
+export mtransport
 
 # Live test files import ``./mlive`` for the high-level helpers
 # (``resolveInboxId``, ``seedSimpleEmail``, etc.) — re-exporting
@@ -54,6 +62,28 @@ proc makeBuilderId*(): BuilderId =
   ## so live tests that ``import ./mlive`` see ``makeBuilderId()``
   ## without re-importing ``mfixtures``.
   initBuilderId(0'u64, 0'u64)
+
+proc initRecordingClient*(
+    target: LiveTestTarget
+): (JmapClient, RecordingTransportState) =
+  ## Constructs a JmapClient wrapping the default HTTP transport in a
+  ## ``RecordingTransport`` so the test can inspect the raw HTTP
+  ## response body via ``recorder.lastResponseBody`` (input to
+  ## ``captureIfRequested``) and the sent-request count via
+  ## ``recorder.sendCount`` (for "no HTTP fired" assertions).
+  ## Uses Alice's bearer token by default; tests that need Bob (or
+  ## another principal) build their client directly.
+  let httpTransport =
+    newHttpTransport().expect("newHttpTransport[" & $target.kind & "]")
+  let (recordingTransport, recorder) = newRecordingTransport(httpTransport)
+  let client = initJmapClient(
+      transport = recordingTransport,
+      sessionUrl = target.sessionUrl,
+      bearerToken = target.aliceToken,
+      authScheme = target.authScheme,
+    )
+    .expect("initJmapClient[" & $target.kind & "]")
+  (client, recorder)
 
 # ---------------------------------------------------------------------------
 # Shared blueprint-leaf factory
@@ -109,9 +139,7 @@ func buildPartId*(label: string): PartId =
 # Mailbox / Email helpers
 # ---------------------------------------------------------------------------
 
-proc resolveInboxId*(
-    client: var JmapClient, mailAccountId: AccountId
-): Result[Id, string] =
+proc resolveInboxId*(client: JmapClient, mailAccountId: AccountId): Result[Id, string] =
   ## ``Mailbox/get`` → returns the ``Id`` of the mailbox carrying
   ## ``role == roleInbox``. Errors out narratively when the request
   ## fails, the response cannot be extracted, or no inbox-role mailbox
@@ -128,7 +156,7 @@ proc resolveInboxId*(
   err("no Mailbox with role==Inbox found in account")
 
 proc emailSetCreate(
-    client: var JmapClient,
+    client: JmapClient,
     mailAccountId: AccountId,
     blueprint: EmailBlueprint,
     creationLabel: string,
@@ -161,7 +189,7 @@ proc emailSetCreate(
   ok(seededId)
 
 proc seedSimpleEmail*(
-    client: var JmapClient,
+    client: JmapClient,
     mailAccountId: AccountId,
     inbox: Id,
     subject: string,
@@ -198,10 +226,7 @@ proc seedSimpleEmail*(
   emailSetCreate(client, mailAccountId, blueprint, creationLabel)
 
 proc seedEmailsWithSubjects*(
-    client: var JmapClient,
-    mailAccountId: AccountId,
-    inbox: Id,
-    subjects: openArray[string],
+    client: JmapClient, mailAccountId: AccountId, inbox: Id, subjects: openArray[string]
 ): Result[seq[Id], string] =
   ## Seeds N minimal text/plain emails differentiated only by subject.
   ## Wraps ``seedSimpleEmail`` per element of ``subjects``; returns the
@@ -219,7 +244,7 @@ proc seedEmailsWithSubjects*(
   ok(ids)
 
 proc seedThreadedEmails*(
-    client: var JmapClient,
+    client: JmapClient,
     mailAccountId: AccountId,
     inbox: Id,
     subjects: openArray[string],
@@ -281,7 +306,7 @@ proc seedThreadedEmails*(
 # ---------------------------------------------------------------------------
 
 proc seedAlternativeEmail*(
-    client: var JmapClient,
+    client: JmapClient,
     mailAccountId: AccountId,
     inbox: Id,
     subject: string,
@@ -327,7 +352,7 @@ proc seedAlternativeEmail*(
   emailSetCreate(client, mailAccountId, blueprint, creationLabel)
 
 proc seedMixedEmail*(
-    client: var JmapClient,
+    client: JmapClient,
     mailAccountId: AccountId,
     inbox: Id,
     subject: string,
@@ -396,7 +421,7 @@ func buildInnerRfc822Message(
     "Content-Type: text/plain; charset=utf-8\r\n" & "\r\n" & innerBody
 
 proc seedForwardedEmail*(
-    client: var JmapClient,
+    client: JmapClient,
     mailAccountId: AccountId,
     inbox: Id,
     outerSubject: string,
@@ -458,7 +483,7 @@ func resolveCollationAlgorithms*(session: Session): HashSet[CollationAlgorithm] 
 # ---------------------------------------------------------------------------
 
 proc resolveOrCreateMailbox*(
-    client: var JmapClient, mailAccountId: AccountId, name: string
+    client: JmapClient, mailAccountId: AccountId, name: string
 ): Result[Id, string] =
   ## ``Mailbox/get`` → scan for a mailbox whose ``name`` matches ``name``.
   ## When present, returns its ``Id``. When absent, creates the mailbox as
@@ -500,7 +525,7 @@ proc resolveOrCreateMailbox*(
   ok(createdId)
 
 proc seedEmailsIntoMailbox*(
-    client: var JmapClient,
+    client: JmapClient,
     mailAccountId: AccountId,
     mailbox: Id,
     subjects: openArray[string],
@@ -539,7 +564,7 @@ proc seedEmailsIntoMailbox*(
   ok(ids)
 
 proc getFirstAttachmentBlobId*(
-    client: var JmapClient, mailAccountId: AccountId, emailId: Id
+    client: JmapClient, mailAccountId: AccountId, emailId: Id
 ): Result[BlobId, string] =
   ## Issues ``Email/get`` for ``emailId`` requesting only ``id`` and
   ## ``attachments``, then returns the ``blobId`` of ``attachments[0]``
@@ -617,7 +642,7 @@ func buildEnvelope*(fromEmail, toEmail: string): Result[Envelope, string] =
   ok(Envelope(mailFrom: reversePath(fromAddr), rcptTo: rcpts))
 
 proc resolveOrCreateRoleMailbox(
-    client: var JmapClient,
+    client: JmapClient,
     mailAccountId: AccountId,
     role: MailboxRole,
     creationLabel, narrativeName: string,
@@ -665,7 +690,7 @@ proc resolveOrCreateRoleMailbox(
   ok(createdId)
 
 proc resolveOrCreateDrafts*(
-    client: var JmapClient, mailAccountId: AccountId
+    client: JmapClient, mailAccountId: AccountId
 ): Result[Id, string] =
   ## Returns the ``Drafts``-role mailbox id, creating one under Inbox if
   ## absent. RFC 8621 §2.2 ``Drafts`` role.
@@ -674,14 +699,14 @@ proc resolveOrCreateDrafts*(
   )
 
 proc resolveOrCreateSent*(
-    client: var JmapClient, mailAccountId: AccountId
+    client: JmapClient, mailAccountId: AccountId
 ): Result[Id, string] =
   ## Returns the ``Sent``-role mailbox id, creating one under Inbox if
   ## absent. RFC 8621 §2.2 ``Sent`` role.
   resolveOrCreateRoleMailbox(client, mailAccountId, roleSent, "phaseFSent", "Sent")
 
 proc seedDraftEmail*(
-    client: var JmapClient,
+    client: JmapClient,
     mailAccountId: AccountId,
     drafts: Id,
     fromAddr, toAddr: EmailAddress,
@@ -784,7 +809,7 @@ type SubmissionPollState = enum
   spsEvicted
 
 proc trySubmissionGet(
-    client: var JmapClient, submissionAccountId: AccountId, submissionId: Id
+    client: JmapClient, submissionAccountId: AccountId, submissionId: Id
 ): Result[(SubmissionPollState, Opt[EmailSubmission[usFinal]]), string] =
   ## Single ``EmailSubmission/get`` poll attempt. Returns the new
   ## state plus the typed ``EmailSubmission[usFinal]`` when the
@@ -811,7 +836,7 @@ proc trySubmissionGet(
   ok((spsPolling, Opt.none(EmailSubmission[usFinal])))
 
 proc pollSubmissionUntilFinal(
-    client: var JmapClient,
+    client: JmapClient,
     submissionAccountId: AccountId,
     submissionId: Id,
     initialState: SubmissionPollState,
@@ -837,7 +862,7 @@ proc pollSubmissionUntilFinal(
   ok((pollState, pendingFinal))
 
 proc pollSubmissionDelivery*(
-    client: var JmapClient,
+    client: JmapClient,
     submissionAccountId: AccountId,
     submissionId: Id,
     createUndoStatus: Opt[UndoStatus] = Opt.none(UndoStatus),
@@ -909,6 +934,25 @@ proc initBobClient*(cfg: LiveTestTarget): Result[JmapClient, ValidationError] =
     sessionUrl = cfg.sessionUrl, bearerToken = cfg.bobToken, authScheme = cfg.authScheme
   )
 
+proc initBobRecordingClient*(
+    target: LiveTestTarget
+): (JmapClient, RecordingTransportState) =
+  ## Bob-flavoured sibling of ``initRecordingClient``. Constructs a
+  ## ``JmapClient`` authenticating as bob whose Transport is wrapped in
+  ## a ``RecordingTransport`` so the test can inspect raw response
+  ## bodies via ``recorder.lastResponseBody``.
+  let httpTransport =
+    newHttpTransport().expect("newHttpTransport[" & $target.kind & "]")
+  let (recordingTransport, recorder) = newRecordingTransport(httpTransport)
+  let client = initJmapClient(
+      transport = recordingTransport,
+      sessionUrl = target.sessionUrl,
+      bearerToken = target.bobToken,
+      authScheme = target.authScheme,
+    )
+    .expect("initBobClient[" & $target.kind & "]")
+  (client, recorder)
+
 func buildEnvelopeWithHoldFor*(
     fromEmail, toEmail: string, holdSeconds: HoldForSeconds
 ): Result[Envelope, string] =
@@ -953,7 +997,7 @@ func buildEnvelopeMulti*(
   ok(Envelope(mailFrom: reversePath(fromAddr), rcptTo: rcpts))
 
 proc resolveOrCreateAliceIdentity*(
-    client: var JmapClient, submissionAccountId: AccountId
+    client: JmapClient, submissionAccountId: AccountId
 ): Result[Id, string] =
   ## Identity/get → scan for ``alice@example.com``; on miss, Identity/set
   ## create ``email = "alice@example.com"``, ``name = "Alice"``. Returns
@@ -1008,7 +1052,7 @@ proc resolveOrCreateAliceIdentity*(
   ok(createdId)
 
 proc pollSubmissionPending*(
-    client: var JmapClient,
+    client: JmapClient,
     submissionAccountId: AccountId,
     submissionId: Id,
     budgetMs: int = 25000 * liveBudgetMul,
@@ -1042,16 +1086,17 @@ proc pollSubmissionPending*(
   )
 
 proc reconnectClient*(target: LiveTestTarget, client: var JmapClient) =
-  ## Closes ``client`` and replaces it with a freshly-initialised
-  ## one. Used after Email/set seeding when the test then needs
-  ## Email/query to surface the seeded ids: Cyrus 3.12.2's Xapian
-  ## rolling indexer doesn't propagate writes from the writing
-  ## client's HTTP keep-alive session to its own subsequent reads —
-  ## the new emails only become observable to a fresh connection.
-  ## Stalwart and James index synchronously and are unaffected, but
-  ## reconnecting carries no behavioural cost on them either (just
-  ## the per-call TCP setup, a few ms).
-  client.close()
+  ## Replaces ``client`` with a freshly-initialised one. Used after
+  ## Email/set seeding when the test then needs Email/query to surface
+  ## the seeded ids: Cyrus 3.12.2's Xapian rolling indexer doesn't
+  ## propagate writes from the writing client's HTTP keep-alive
+  ## session to its own subsequent reads — the new emails only become
+  ## observable to a fresh connection. Stalwart and James index
+  ## synchronously and are unaffected, but reconnecting carries no
+  ## behavioural cost on them either (just the per-call TCP setup, a
+  ## few ms). ``var`` is required because the proc rebinds the variable;
+  ## the previous Transport is torn down by ARC when the old ref drops
+  ## at rebind.
   client = initJmapClient(
       sessionUrl = target.sessionUrl,
       bearerToken = target.aliceToken,
@@ -1093,25 +1138,21 @@ proc pollEmailQueryIndexed*(
   const PollMs = 500
   let maxIters = max(1, budgetMs div PollMs)
   for _ in 0 ..< maxIters:
-    var client = initJmapClient(
+    let client = initJmapClient(
       sessionUrl = target.sessionUrl,
       bearerToken = target.aliceToken,
       authScheme = target.authScheme,
     ).valueOr:
       return err("pollEmailQueryIndexed: initJmapClient failed: " & error.message)
     discard client.fetchSession().valueOr:
-      client.close()
       return err("pollEmailQueryIndexed: fetchSession failed: " & error.message)
     let (b, queryHandle) = addEmailQuery(
       initRequestBuilder(makeBuilderId()), mailAccountId, filter = Opt.some(filter)
     )
     let resp = client.send(b.freeze()).valueOr:
-      client.close()
       return err("Email/query send failed: " & error.message)
     let queryResp = resp.get(queryHandle).valueOr:
-      client.close()
       return err("Email/query extract failed: " & error.message)
-    client.close()
     let ids = queryResp.ids
     var allPresent = true
     for expected in expectedIds:
@@ -1132,7 +1173,7 @@ proc pollEmailQueryIndexed*(
   )
 
 proc findEmailBySubjectInMailbox*(
-    client: var JmapClient,
+    client: JmapClient,
     mailAccountId: AccountId,
     mailbox: Id,
     subject: string,
@@ -1164,7 +1205,7 @@ proc findEmailBySubjectInMailbox*(
   )
 
 proc pollEmailDeliveryToInbox*(
-    client: var JmapClient,
+    client: JmapClient,
     mailAccountId: AccountId,
     inbox: Id,
     subject: string,
@@ -1282,7 +1323,7 @@ template assertSuccessOrTypedError*[T](
         methodErr.rawType & ")"
 
 proc seedMultiRecipientDraft*(
-    client: var JmapClient,
+    client: JmapClient,
     mailAccountId: AccountId,
     drafts: Id,
     fromAddr: EmailAddress,
@@ -1325,7 +1366,7 @@ proc seedMultiRecipientDraft*(
 # ---------------------------------------------------------------------------
 
 proc captureBaselineState*[T](
-    client: var JmapClient, accountId: AccountId
+    client: JmapClient, accountId: AccountId
 ): Result[JmapState, string] =
   ## Issues ``T/get`` with an empty id list to capture the current ``state``
   ## of the entity surface for ``accountId``. The empty ids array (``[]``)
@@ -1349,7 +1390,7 @@ proc captureBaselineState*[T](
 # ---------------------------------------------------------------------------
 
 proc seedEmailWithHeaders*(
-    client: var JmapClient,
+    client: JmapClient,
     mailAccountId: AccountId,
     inbox: Id,
     fromAddr: EmailAddress,
@@ -1391,7 +1432,7 @@ proc seedEmailWithHeaders*(
   emailSetCreate(client, mailAccountId, blueprint, creationLabel)
 
 proc seedSubmissionCorpus*(
-    client: var JmapClient,
+    client: JmapClient,
     mailAccountId: AccountId,
     submissionAccountId: AccountId,
     drafts: Id,
@@ -1488,46 +1529,15 @@ proc seedSubmissionCorpus*(
 # Phase J — typed-builder-bypass helpers
 # ---------------------------------------------------------------------------
 
-proc sendRawInvocation*(
-    client: var JmapClient,
-    capabilityUris: openArray[string],
-    methodName: string,
-    arguments: JsonNode,
-    callId: string = "c0",
-): Result[envelope.Response, ClientError] {.used.} =
-  ## Bypasses ``RequestBuilder``'s typed surface to construct a
-  ## ``Request`` carrying a single hand-rolled invocation. Uses
-  ## ``parseInvocation`` so unknown method names (e.g.
-  ## ``Mailbox/snorgleflarp``) round-trip losslessly into the
-  ## invocation's ``rawName``. Routes through
-  ## ``sendRawHttpForTesting`` because the public ``send`` accepts
-  ## only ``BuiltRequest`` (P21 sealed); pre-flight validation is
-  ## NOT applied here — adversarial wire shapes are the whole point.
-  ## Used by Phase J Steps 62, 67, 68, 70, 72.
-  let mcid = parseMethodCallId(callId).valueOr:
-    return err(clientError(transportError(tekNetwork, "invalid callId: " & callId)))
-  let invocation = parseInvocation(methodName, arguments, mcid).valueOr:
-    return
-      err(clientError(transportError(tekNetwork, "invalid methodName: " & methodName)))
-  var caps: seq[string] = @[]
-  for u in capabilityUris:
-    caps.add(u)
-  let req = Request(
-    `using`: caps,
-    methodCalls: @[invocation],
-    createdIds: Opt.none(Table[CreationId, Id]),
-  )
-  client.sendRawHttpForTesting($req.toJson())
-
 proc buildOversizedRequest*(
     accountId: AccountId, idCount: int
 ): RequestBuilder {.used.} =
   ## Builds a ``Mailbox/get`` ``RequestBuilder`` carrying ``idCount``
-  ## synthetic ids, suitable for driving ``validateLimits(builder,
-  ## caps)`` past ``maxObjectsInGet``. The synthetic ids are valid
-  ## ``Id`` shapes (1–255 octets, no control chars) so construction
-  ## never fails. Returns the builder so callers reach the typed
-  ## per-call validation path via ``client.send(builder.freeze())``. Used by
+  ## synthetic ids, suitable for driving ``client.send(builder.freeze())``
+  ## past ``maxObjectsInGet``. The synthetic ids are valid ``Id``
+  ## shapes (1–255 octets, no control chars) so construction never
+  ## fails. Returns the builder so callers reach the typed per-call
+  ## validation path via ``client.send(builder.freeze())``. Used by
   ## Phase J Step 64.
   var ids = newSeq[Id](idCount)
   for i in 0 ..< idCount:
@@ -1552,3 +1562,68 @@ func injectBrokenBackReference*(
     if k != refField:
       result[k] = v
   result["#" & refField] = %*{"resultOf": "c0", "name": refName, "path": refPath}
+
+proc postRawJmap*(
+    target: LiveTestTarget,
+    session: Session,
+    body: string,
+    bearerToken: string,
+    authScheme: string,
+): tuple[respBody: string, envelopeResult: Result[envelope.Response, ClientError]] {.
+    used
+.} =
+  ## Test helper: POSTs ``body`` verbatim to the session's apiUrl via a
+  ## one-shot HttpTransport composed from the public ``newHttpTransport``
+  ## API. Returns ``(respBody, envelopeResult)`` so callers can both
+  ## inspect the projected envelope (or its error) and pass the raw
+  ## bytes to ``captureIfRequested``. Replaces the deleted
+  ## ``client.sendRawHttpForTesting`` backdoor — composes only the
+  ## public Transport API plus the H10-permitted internal classify
+  ## helper. Used by Phase J Steps 61, 62, 67, 68, 70, 72, 74.
+  let transport = newHttpTransport().valueOr:
+    let te = clientError(
+      transportError(tekNetwork, "newHttpTransport failed: " & error.message)
+    )
+    let envR = Result[envelope.Response, ClientError].err(te)
+    return (respBody: "", envelopeResult: envR)
+  let req = HttpRequest(
+    url: resolveAgainstSession(target.sessionUrl, session.apiUrl),
+    httpMethod: hmPost,
+    body: body,
+    authorization: authScheme & " " & bearerToken,
+  )
+  let httpResp = transport.send(req).valueOr:
+    let envR = Result[envelope.Response, ClientError].err(clientError(error))
+    return (respBody: "", envelopeResult: envR)
+  (respBody: httpResp.body, envelopeResult: parseJmapResponse(httpResp, rcApi))
+
+proc postRawSingleInvocation*(
+    target: LiveTestTarget,
+    session: Session,
+    bearerToken: string,
+    authScheme: string,
+    capabilityUris: openArray[string],
+    methodName: string,
+    arguments: JsonNode,
+    callId: string = "c0",
+): tuple[respBody: string, envelopeResult: Result[envelope.Response, ClientError]] {.
+    used
+.} =
+  ## Test helper: builds a one-invocation Request JSON and dispatches
+  ## it via ``postRawJmap``. Mirrors the deleted ``sendRawInvocation``
+  ## with a postRawJmap-based composition — no library backdoor.
+  ## Unknown method names (e.g. ``Mailbox/snorgleflarp``) round-trip
+  ## losslessly into the envelope's ``rawName``.
+  var caps = newJArray()
+  for u in capabilityUris:
+    caps.add(%u)
+  let mc = newJArray()
+  mc.add(%methodName)
+  mc.add(arguments)
+  mc.add(%callId)
+  let calls = newJArray()
+  calls.add(mc)
+  let reqJson = newJObject()
+  reqJson["using"] = caps
+  reqJson["methodCalls"] = calls
+  postRawJmap(target, session, $reqJson, bearerToken, authScheme)

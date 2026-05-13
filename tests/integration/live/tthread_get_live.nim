@@ -32,12 +32,7 @@ import ../../mtestblock
 
 testCase tthreadGetLive:
   forEachLiveTarget(target):
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -84,7 +79,7 @@ testCase tthreadGetLive:
 
     assertOn target,
       thread.isSome, "Thread/get must return the seeded thread within 500 ms"
-    captureIfRequested(client, "thread-get-" & $target.kind).expect(
+    captureIfRequested(recorder.lastResponseBody, "thread-get-" & $target.kind).expect(
       "captureIfRequested[" & $target.kind & "]"
     )
     let t = thread.get()
@@ -92,4 +87,3 @@ testCase tthreadGetLive:
       $t.id == $threadId, "returned Thread.id must match the threadId from Email/get"
     assertOn target,
       seededId in t.emailIds, "seeded EmailId must appear in Thread.emailIds"
-    client.close()

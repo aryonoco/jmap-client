@@ -47,12 +47,7 @@ import ../../mtestblock
 
 testCase temailGetHeaderFormsExtendedLive:
   forEachLiveTarget(target):
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -101,9 +96,10 @@ testCase temailGetHeaderFormsExtendedLive:
     let resp = client.send(b.freeze()).expect(
         "send Email/get extended header forms[" & $target.kind & "]"
       )
-    captureIfRequested(client, "email-get-header-forms-extended-" & $target.kind).expect(
-      "captureIfRequested"
+    captureIfRequested(
+      recorder.lastResponseBody, "email-get-header-forms-extended-" & $target.kind
     )
+      .expect("captureIfRequested")
     let getResp = resp.get(getHandle).expect(
         "Email/get extended header forms extract[" & $target.kind & "]"
       )
@@ -171,5 +167,3 @@ testCase temailGetHeaderFormsExtendedLive:
     for hv in resentAllHvs:
       assertOn target,
         hv.form == hfAddresses, "every :all instance must carry hfAddresses form"
-
-    client.close()

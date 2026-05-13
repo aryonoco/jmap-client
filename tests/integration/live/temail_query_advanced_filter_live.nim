@@ -54,7 +54,7 @@ import ../../mtestblock
 const LargeBodyLen = 4096
 
 proc seedLargeEmail(
-    client: var JmapClient,
+    client: JmapClient,
     mailAccountId: AccountId,
     inbox: Id,
     subject, creationLabel: string,
@@ -103,7 +103,7 @@ proc seedLargeEmail(
   seededId
 
 proc assertInMailbox(
-    client: var JmapClient,
+    client: JmapClient,
     mailAccountId: AccountId,
     archiveId: Id,
     archiveSeed: Id,
@@ -127,7 +127,7 @@ proc assertInMailbox(
   doAssert foundArchive, "archive seed must surface under inMailbox=archiveId"
 
 proc assertInMailboxOtherThanMinSize(
-    client: var JmapClient,
+    client: JmapClient,
     mailAccountId: AccountId,
     archiveId: Id,
     largeId: Id,
@@ -170,7 +170,11 @@ proc assertInMailboxOtherThanMinSize(
       "method error must be in allowed set (got rawType=" & methodErr.rawType & ")"
 
 proc assertHasAttachment(
-    client: var JmapClient, mailAccountId: AccountId, attachId: Id, targetSuffix: string
+    client: JmapClient,
+    recorder: RecordingTransportState,
+    mailAccountId: AccountId,
+    attachId: Id,
+    targetSuffix: string,
 ) =
   ## Sub-test C: hasAttachment=true plus before=<future date> surfaces
   ## the attachment-bearing seed.
@@ -198,9 +202,10 @@ proc assertHasAttachment(
     initRequestBuilder(makeBuilderId()), mailAccountId, filter = Opt.some(filter)
   )
   let resp = client.send(b.freeze()).expect("send Email/query hasAttachment")
-  captureIfRequested(client, "email-query-advanced-filter-" & targetSuffix).expect(
-    "captureIfRequested"
+  captureIfRequested(
+    recorder.lastResponseBody, "email-query-advanced-filter-" & targetSuffix
   )
+    .expect("captureIfRequested")
   let qr = resp.get(h).expect("Email/query hasAttachment extract")
   var foundAttach = false
   for id in qr.ids:
@@ -218,12 +223,7 @@ testCase temailQueryAdvancedFilterLive:
     # ``inMailboxOtherThan`` nested in FilterOperator and ``hasAttachment``
     # inline-bodyValues attachments — typed errors surface in either
     # the seed step (inline-bodyValues) or the filter extract.
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    let (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -250,7 +250,6 @@ testCase temailQueryAdvancedFilterLive:
       # Cat-B error arm: server (e.g. James) rejected the inline-
       # bodyValues attachment. The typed-error projection has fired
       # inside ``seedMixedEmail`` — skip the dependent sub-tests.
-      client.close()
       continue
     let attachId = attachRes.unsafeValue
     let archiveSeeds = seedEmailsIntoMailbox(
@@ -264,6 +263,4 @@ testCase temailQueryAdvancedFilterLive:
     assertInMailboxOtherThanMinSize(
       client, mailAccountId, archive, largeId, smallInbox & @[archiveSeed]
     )
-    assertHasAttachment(client, mailAccountId, attachId, $target.kind)
-
-    client.close()
+    assertHasAttachment(client, recorder, mailAccountId, attachId, $target.kind)

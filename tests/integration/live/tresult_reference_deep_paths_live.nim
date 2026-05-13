@@ -36,12 +36,7 @@ import ../../mtestblock
 
 testCase tresultReferenceDeepPathsLive:
   forEachLiveTarget(target):
-    var client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
-      )
-      .expect("initJmapClient[" & $target.kind & "]")
+    var (client, recorder) = initRecordingClient(target)
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -130,9 +125,10 @@ testCase tresultReferenceDeepPathsLive:
       let resp = client.send(b3.freeze()).expect(
           "send Email/query → Email/get → Thread/get[" & $target.kind & "]"
         )
-      captureIfRequested(client, "result-reference-deep-path-" & $target.kind).expect(
-        "captureIfRequested deep ref"
+      captureIfRequested(
+        recorder.lastResponseBody, "result-reference-deep-path-" & $target.kind
       )
+        .expect("captureIfRequested deep ref")
       let queryResp =
         resp.get(queryHandle).expect("Email/query extract[" & $target.kind & "]")
       let getResp =
@@ -197,11 +193,13 @@ testCase tresultReferenceDeepPathsLive:
       # The public ``send(BuiltRequest)`` path requires a builder-issued
       # carrier; this test wants to dispatch a hand-stitched ``Request``
       # with a deliberately-broken back-reference. Drop into
-      # ``sendRawHttpForTesting`` — same wire path, returns the raw
-      # ``Response`` envelope directly.
-      let resp = client.sendRawHttpForTesting($combined.toJson()).expect(
-          "send query+broken-get envelope[" & $target.kind & "]"
-        )
+      # ``postRawJmap`` — same wire path via a private one-shot
+      # Transport, returns the raw ``Response`` envelope directly.
+      let (_, respResult) = postRawJmap(
+        target, session, $combined.toJson(), target.aliceToken, target.authScheme
+      )
+      let resp =
+        respResult.expect("send query+broken-get envelope[" & $target.kind & "]")
       assertOn target,
         resp.methodResponses.len == 2,
         "envelope must carry two responses, got " & $resp.methodResponses.len
@@ -233,5 +231,3 @@ testCase tresultReferenceDeepPathsLive:
         assertOn target, outcome.isOk, "cleanup destroy must succeed"
       do:
         assertOn target, false, "cleanup must report an outcome for each seed id"
-
-    client.close()
