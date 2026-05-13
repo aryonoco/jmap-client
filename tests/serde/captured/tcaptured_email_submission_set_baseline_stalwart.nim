@@ -35,6 +35,6 @@ testCase tcapturedEmailSubmissionSetBaselineStalwart:
       doAssert outcome.isOk,
         "create outcome must be Ok (got rawType=" & outcome.error.rawType & ")"
       let item = outcome.unsafeValue
-      doAssert string(item.id).len > 0, "created id must be non-empty"
-      doAssert string(cid).len > 0, "creationId must be non-empty"
+      doAssert ($item.id).len > 0, "created id must be non-empty"
+      doAssert ($cid).len > 0, "creationId must be non-empty"
     doAssert setResp.newState.isSome, "newState must be present in this fixture"

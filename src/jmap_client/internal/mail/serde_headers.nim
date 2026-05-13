@@ -186,7 +186,7 @@ func composeHeaderKey*[T: BlueprintEmailHeaderName or BlueprintBodyHeaderName](
   ## Generic over both header-name newtypes because the wire rule is one
   ## fact — the two types share the newtype for context safety, not for
   ## wire-shape divergence.
-  result = "header:" & string(name)
+  result = "header:" & $name
   if form != hfRaw:
     result &= ":" & $form
   if isAll:

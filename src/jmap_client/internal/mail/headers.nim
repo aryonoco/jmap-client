@@ -337,13 +337,15 @@ func validateHeaderForm*(
 # BlueprintEmailHeaderName (Design §4.3)
 # =============================================================================
 
-type BlueprintEmailHeaderName* = distinct string
+type BlueprintEmailHeaderName* {.ruleOff: "objects".} = object
   ## Lowercase-normalised header name for ``EmailBlueprint.extraHeaders``.
   ## Construct via ``parseBlueprintEmailHeaderName``. Forbids names
   ## starting with ``content-`` (RFC 8621 §4.6 constraint 4 — the
   ## Content-* family is managed by JMAP itself). Identity is name-only.
+  ## Sealed Pattern-A object — ``rawValue`` is module-private.
+  rawValue: string
 
-defineStringDistinctOps(BlueprintEmailHeaderName)
+defineSealedStringOps(BlueprintEmailHeaderName)
 
 type BlueprintNameViolation = enum
   ## Structural failure modes for blueprint header-name parsing.
@@ -403,20 +405,22 @@ func parseBlueprintEmailHeaderName*(
   let normalised = name.toLowerAscii()
   if normalised.startsWith("content-"):
     return err(toValidationError(bnvContentPrefix, "BlueprintEmailHeaderName", name))
-  ok(BlueprintEmailHeaderName(normalised))
+  ok(BlueprintEmailHeaderName(rawValue: normalised))
 
 # =============================================================================
 # BlueprintBodyHeaderName (Design §4.4)
 # =============================================================================
 
-type BlueprintBodyHeaderName* = distinct string
+type BlueprintBodyHeaderName* {.ruleOff: "objects".} = object
   ## Lowercase-normalised header name for ``BlueprintBodyPart.extraHeaders``.
   ## Construct via ``parseBlueprintBodyHeaderName``. Forbids only the
   ## exact name ``content-transfer-encoding`` (RFC 8621 §4.6 constraint 9
   ## — JMAP chooses the encoding); other ``Content-*`` headers are
-  ## permitted on body parts. Identity is name-only.
+  ## permitted on body parts. Identity is name-only. Sealed Pattern-A
+  ## object — ``rawValue`` is module-private.
+  rawValue: string
 
-defineStringDistinctOps(BlueprintBodyHeaderName)
+defineSealedStringOps(BlueprintBodyHeaderName)
 
 func parseBlueprintBodyHeaderName*(
     name: string
@@ -432,7 +436,7 @@ func parseBlueprintBodyHeaderName*(
     return err(
       toValidationError(bnvContentTransferEncoding, "BlueprintBodyHeaderName", name)
     )
-  ok(BlueprintBodyHeaderName(normalised))
+  ok(BlueprintBodyHeaderName(rawValue: normalised))
 
 # =============================================================================
 # NonEmptySeq op-template instantiations (Design §4.5.1 / §4.6)
@@ -443,11 +447,11 @@ func parseBlueprintBodyHeaderName*(
 # ``defineNonEmptyHashSetDistinctOps``) to keep the creation vocabulary
 # self-contained.
 
-defineNonEmptySeqOps(string)
-defineNonEmptySeqOps(Date)
-defineNonEmptySeqOps(seq[EmailAddress])
-defineNonEmptySeqOps(seq[EmailAddressGroup])
-defineNonEmptySeqOps(seq[string])
+defineSealedNonEmptySeqOps(string)
+defineSealedNonEmptySeqOps(Date)
+defineSealedNonEmptySeqOps(seq[EmailAddress])
+defineSealedNonEmptySeqOps(seq[EmailAddressGroup])
+defineSealedNonEmptySeqOps(seq[string])
 
 # =============================================================================
 # BlueprintHeaderMultiValue (Design §4.5.1)
@@ -533,35 +537,46 @@ func urlsMulti*(
 # avoiding ``raises:[]``-incompatible ``.tryGet`` ceremony.
 
 func rawSingle*(value: string): BlueprintHeaderMultiValue =
-  ## Constructs a ``hfRaw`` single-value.
-  BlueprintHeaderMultiValue(form: hfRaw, rawValues: NonEmptySeq[string](@[value]))
+  ## Constructs a ``hfRaw`` single-value. ``@[value]`` is statically
+  ## non-empty so the smart constructor cannot Err here.
+  BlueprintHeaderMultiValue(form: hfRaw, rawValues: parseNonEmptySeq(@[value]).get())
 
 func textSingle*(value: string): BlueprintHeaderMultiValue =
-  ## Constructs a ``hfText`` single-value.
-  BlueprintHeaderMultiValue(form: hfText, textValues: NonEmptySeq[string](@[value]))
+  ## Constructs a ``hfText`` single-value. ``@[value]`` is statically
+  ## non-empty so the smart constructor cannot Err here.
+  BlueprintHeaderMultiValue(form: hfText, textValues: parseNonEmptySeq(@[value]).get())
 
 func addressesSingle*(value: seq[EmailAddress]): BlueprintHeaderMultiValue =
   ## Constructs an ``hfAddresses`` single-value carrying one address list.
+  ## ``@[value]`` is statically non-empty so the smart constructor
+  ## cannot Err here.
   BlueprintHeaderMultiValue(
-    form: hfAddresses, addressLists: NonEmptySeq[seq[EmailAddress]](@[value])
+    form: hfAddresses, addressLists: parseNonEmptySeq(@[value]).get()
   )
 
 func groupedAddressesSingle*(value: seq[EmailAddressGroup]): BlueprintHeaderMultiValue =
-  ## Constructs an ``hfGroupedAddresses`` single-value carrying one group list.
+  ## Constructs an ``hfGroupedAddresses`` single-value carrying one
+  ## group list. ``@[value]`` is statically non-empty so the smart
+  ## constructor cannot Err here.
   BlueprintHeaderMultiValue(
-    form: hfGroupedAddresses, groupLists: NonEmptySeq[seq[EmailAddressGroup]](@[value])
+    form: hfGroupedAddresses, groupLists: parseNonEmptySeq(@[value]).get()
   )
 
 func messageIdsSingle*(value: seq[string]): BlueprintHeaderMultiValue =
-  ## Constructs an ``hfMessageIds`` single-value carrying one message-id list.
+  ## Constructs an ``hfMessageIds`` single-value carrying one message-id
+  ## list. ``@[value]`` is statically non-empty so ``parseNonEmptySeq``
+  ## cannot Err here.
   BlueprintHeaderMultiValue(
-    form: hfMessageIds, messageIdLists: NonEmptySeq[seq[string]](@[value])
+    form: hfMessageIds, messageIdLists: parseNonEmptySeq(@[value]).get()
   )
 
 func dateSingle*(value: Date): BlueprintHeaderMultiValue =
-  ## Constructs a ``hfDate`` single-value.
-  BlueprintHeaderMultiValue(form: hfDate, dateValues: NonEmptySeq[Date](@[value]))
+  ## Constructs a ``hfDate`` single-value. ``@[value]`` is statically
+  ## non-empty so ``parseNonEmptySeq`` cannot Err here.
+  BlueprintHeaderMultiValue(form: hfDate, dateValues: parseNonEmptySeq(@[value]).get())
 
 func urlsSingle*(value: seq[string]): BlueprintHeaderMultiValue =
   ## Constructs an ``hfUrls`` single-value carrying one URL list.
-  BlueprintHeaderMultiValue(form: hfUrls, urlLists: NonEmptySeq[seq[string]](@[value]))
+  ## ``@[value]`` is statically non-empty so ``parseNonEmptySeq`` cannot
+  ## Err here.
+  BlueprintHeaderMultiValue(form: hfUrls, urlLists: parseNonEmptySeq(@[value]).get())

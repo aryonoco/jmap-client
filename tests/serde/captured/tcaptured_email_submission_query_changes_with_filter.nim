@@ -32,4 +32,4 @@ testCase tcapturedEmailSubmissionQueryChangesWithFilter:
   doAssert qcr.added.len >= 2,
     "phase-i 60 capstone added at least two submissions (got " & $qcr.added.len & ")"
   for item in qcr.added:
-    doAssert string(item.id).len > 0, "added.id must be non-empty"
+    doAssert ($item.id).len > 0, "added.id must be non-empty"

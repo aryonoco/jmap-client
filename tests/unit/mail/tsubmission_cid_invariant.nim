@@ -43,7 +43,7 @@ proc makeUpdateSet(): EmailUpdateSet =
   initEmailUpdateSet(@[markRead()]).get()
 
 testCase cidInvariantMismatchReturnsValidationError:
-  ## Branch 1: onSuccessUpdateEmail keyed by ``icrCreation(CreationId("Z"))``
+  ## Branch 1: onSuccessUpdateEmail keyed by ``icrCreation(parseCreationId("Z").get())``
   ## with ``create`` ``Opt.none`` (or matching no "Z" key) returns
   ## ``err(ValidationError)`` whose ``value`` field equals ``"Z"``.
   let zCid = parseCreationId("Z").get()
@@ -61,7 +61,7 @@ testCase cidInvariantMismatchReturnsValidationError:
   doAssert ve.value == "Z"
 
 testCase cidInvariantMatchingCreateReturnsOk:
-  ## Branch 2: onSuccessUpdateEmail keyed by ``icrCreation(CreationId("Z"))``
+  ## Branch 2: onSuccessUpdateEmail keyed by ``icrCreation(parseCreationId("Z").get())``
   ## with ``create`` carrying a "Z" key returns ``ok``.
   let zCid = parseCreationId("Z").get()
   let updateSet = makeUpdateSet()
@@ -77,7 +77,7 @@ testCase cidInvariantMatchingCreateReturnsOk:
   assertOk res
 
 testCase cidInvariantDirectRefExempt:
-  ## Branch 3: onSuccessUpdateEmail keyed by ``icrDirect(Id("X"))`` with
+  ## Branch 3: onSuccessUpdateEmail keyed by ``icrDirect(parseIdFromServer("X").get())`` with
   ## ``create`` ``Opt.none`` returns ``ok`` — direct references are
   ## server-persisted ids and exempt from the sibling-cid check (the
   ## constraint applies only to ``icrCreation``).

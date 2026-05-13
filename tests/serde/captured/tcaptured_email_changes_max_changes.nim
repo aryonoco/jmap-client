@@ -28,9 +28,9 @@ testCase tcapturedEmailChangesMaxChanges:
       )
     doAssert ($cr.oldState).len > 0, "oldState must be non-empty"
     doAssert ($cr.newState).len > 0, "newState must be non-empty"
-    doAssert string(cr.oldState) != string(cr.newState),
+    doAssert $cr.oldState != $cr.newState,
       "first paginated page must advance newState past oldState"
     doAssert cr.hasMoreChanges,
       "the captured page is the first of multiple — hasMoreChanges must be true"
     for id in cr.created:
-      doAssert string(id).len > 0, "every created.id must be non-empty"
+      doAssert ($id).len > 0, "every created.id must be non-empty"

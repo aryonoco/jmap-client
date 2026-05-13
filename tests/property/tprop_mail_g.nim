@@ -138,7 +138,7 @@ testCase propSubmissionParamsInsertionOrderRoundTrip: # C
     let sp = rng.genSubmissionParams(trial)
     lastInput = $sp
     var expected: seq[string] = @[]
-    for key in (OrderedTable[SubmissionParamKey, SubmissionParam](sp)).keys:
+    for key in sp.toOrderedTable.keys:
       expected.add(wireKeyOf(key))
     let wire = sp.toJson()
     var actual: seq[string] = @[]
@@ -271,9 +271,9 @@ testCase propNonEmptyEmailSubmissionUpdatesDuplicateId: # G
   ##   * trial 3 — interleaved cluster of two duplicated Ids
   ##   * trial >= 4 — random: 2..8 entries with one planted duplicate
   checkProperty "parseNonEmptyEmailSubmissionUpdates rejects duplicate Ids":
-    let idA = Id("sub-a")
-    let idB = Id("sub-b")
-    let idC = Id("sub-c")
+    let idA = parseIdFromServer("sub-a").get()
+    let idB = parseIdFromServer("sub-b").get()
+    let idC = parseIdFromServer("sub-c").get()
     let u = rng.genEmailSubmissionUpdate(-1)
     var pairs: seq[(Id, EmailSubmissionUpdate)] = @[]
     case trial
@@ -287,10 +287,10 @@ testCase propNonEmptyEmailSubmissionUpdatesDuplicateId: # G
       pairs = @[(idA, u), (idB, u), (idA, u), (idB, u), (idA, u)]
     else:
       let size = rng.rand(2 .. 8)
-      let dupId = Id("dup-" & $rng.rand(0 .. 999))
+      let dupId = parseIdFromServer("dup-" & $rng.rand(0 .. 999)).get()
       pairs = newSeq[(Id, EmailSubmissionUpdate)](size)
       for i in 0 ..< size:
-        pairs[i] = (Id("k-" & $i), u)
+        pairs[i] = (parseIdFromServer("k-" & $i).get(), u)
       let pos = rng.rand(1 ..< size)
       pairs[0] = (dupId, u)
       pairs[pos] = (dupId, u)

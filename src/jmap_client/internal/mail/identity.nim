@@ -147,10 +147,16 @@ func setHtmlSignature*(htmlSignature: string): IdentityUpdate =
   ## Replace the HTML signature.
   IdentityUpdate(kind: iuSetHtmlSignature, htmlSignature: htmlSignature)
 
-type IdentityUpdateSet* = distinct seq[IdentityUpdate]
-  ## Validated, conflict-free batch of IdentityUpdate operations targeting
-  ## a single Identity id. Construction gated by ``initIdentityUpdateSet``
-  ## — the raw distinct constructor is not part of the public surface.
+type IdentityUpdateSet* {.ruleOff: "objects".} = object
+  ## Validated, conflict-free batch of IdentityUpdate operations
+  ## targeting a single Identity id. Sealed Pattern-A object —
+  ## ``rawValue`` is module-private. Construction is gated by
+  ## ``initIdentityUpdateSet``.
+  rawValue: seq[IdentityUpdate]
+
+func toSeq*(s: IdentityUpdateSet): seq[IdentityUpdate] {.inline.} =
+  ## Value-projection accessor — returns a copy of the underlying seq.
+  s.rawValue
 
 func initIdentityUpdateSet*(
     updates: openArray[IdentityUpdate]
@@ -171,21 +177,26 @@ func initIdentityUpdateSet*(
   )
   if errs.len > 0:
     return err(errs)
-  ok(IdentityUpdateSet(@updates))
+  ok(IdentityUpdateSet(rawValue: @updates))
 
 # =============================================================================
 # NonEmptyIdentityUpdates — whole-container /set update algebra (RFC 8621 §6)
 # =============================================================================
 
-type NonEmptyIdentityUpdates* = distinct Table[Id, IdentityUpdateSet]
+type NonEmptyIdentityUpdates* {.ruleOff: "objects".} = object
   ## Non-empty, duplicate-free batch of per-identity update operations
-  ## keyed by existing Identity ``Id``. Construction gated by
-  ## ``parseNonEmptyIdentityUpdates``; the raw distinct constructor is
-  ## module-private surface. Shape mirrors ``NonEmptyMailboxUpdates`` and
-  ## ``NonEmptyEmailUpdates``.
+  ## keyed by existing Identity ``Id``. Sealed Pattern-A object —
+  ## ``rawValue`` is module-private. Construction is gated by
+  ## ``parseNonEmptyIdentityUpdates``.
+  rawValue: Table[Id, IdentityUpdateSet]
 
-func len*(a: NonEmptyIdentityUpdates): int {.borrow.}
-  ## Number of update entries — borrowed from the underlying ``Table``.
+func len*(a: NonEmptyIdentityUpdates): int =
+  ## Number of update entries.
+  a.rawValue.len
+
+func toTable*(s: NonEmptyIdentityUpdates): Table[Id, IdentityUpdateSet] {.inline.} =
+  ## Value-projection accessor — returns a copy of the underlying table.
+  s.rawValue
 
 func parseNonEmptyIdentityUpdates*(
     items: openArray[(Id, IdentityUpdateSet)]
@@ -209,4 +220,4 @@ func parseNonEmptyIdentityUpdates*(
   var t = initTable[Id, IdentityUpdateSet](items.len)
   for (id, updateSet) in items:
     t[id] = updateSet
-  ok(NonEmptyIdentityUpdates(t))
+  ok(NonEmptyIdentityUpdates(rawValue: t))

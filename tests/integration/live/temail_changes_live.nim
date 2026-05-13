@@ -76,8 +76,7 @@ testCase temailChangesLive:
         "Email/changes happy extract[" & $target.kind & "]"
       )
     assertOn target,
-      string(cr.oldState) == string(baselineState),
-      "oldState must echo the supplied baseline"
+      $cr.oldState == $baselineState, "oldState must echo the supplied baseline"
     assertOn target,
       cr.created.len == 2,
       "two seeds must surface as two created entries (got " & $cr.created.len & ")"
@@ -88,7 +87,7 @@ testCase temailChangesLive:
     assertOn target, idB in cr.created, "seed B must appear in created"
 
     # --- Sad path: bogus sinceState -------------------------------------
-    let bogusState = JmapState("phase-b-bogus-state")
+    let bogusState = parseJmapState("phase-b-bogus-state").get()
     let (b3, sadHandle) = addEmailChanges(
       initRequestBuilder(makeBuilderId()), mailAccountId, sinceState = bogusState
     )

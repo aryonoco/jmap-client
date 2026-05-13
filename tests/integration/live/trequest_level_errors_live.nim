@@ -159,7 +159,7 @@ testCase trequestLevelErrorsLive:
       # Cyrus's limit and miss the rejection path.
       let sessionOpt = client.session()
       assertOn target, sessionOpt.isSome, "session must be cached after fetchSession"
-      let maxSize = int(sessionOpt.unsafeGet.coreCapabilities().maxSizeRequest)
+      let maxSize = sessionOpt.unsafeGet.coreCapabilities().maxSizeRequest.toInt64.int
       let oversize = maxSize + 1024
       let blob = "x".repeat(oversize)
       const prefix =

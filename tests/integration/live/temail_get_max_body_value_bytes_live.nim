@@ -14,7 +14,7 @@
 ##     via ``seedSimpleEmail`` so the size knob is explicit.
 ##  2. ``Email/get`` with ``properties = ["id", "bodyValues",
 ##     "textBody"]`` and ``EmailBodyFetchOptions(fetchBodyValues =
-##     bvsText, maxBodyValueBytes = Opt.some(UnsignedInt(64)))``.
+##     bvsText, maxBodyValueBytes = Opt.some(parseUnsignedInt(64).get()))``.
 ##     Capture the wire response.
 ##  3. Assert exactly one bodyValues entry whose ``value.len <= 64``
 ##     AND ``isTruncated == true``.
@@ -109,7 +109,7 @@ testCase temailGetMaxBodyValueBytesLive:
       properties = Opt.some(@["id", "bodyValues", "textBody"]),
       bodyFetchOptions = EmailBodyFetchOptions(
         fetchBodyValues: bvsText,
-        maxBodyValueBytes: Opt.some(UnsignedInt(TruncationCap)),
+        maxBodyValueBytes: Opt.some(parseUnsignedInt(TruncationCap).get()),
       ),
     )
     let resp = client.send(bGet.freeze()).expect(
@@ -131,8 +131,7 @@ testCase temailGetMaxBodyValueBytesLive:
       assertOn target,
         bv.value.len <= TruncationCap,
         "bodyValue under maxBodyValueBytes=" & $TruncationCap & " must satisfy " &
-          "value.len <= cap (got " & $bv.value.len & " for partId=" & string(partId) &
-          ")"
+          "value.len <= cap (got " & $bv.value.len & " for partId=" & $partId & ")"
       if bv.isTruncated:
         anyTruncated = true
     assertOn target,

@@ -936,9 +936,9 @@ testCase assembleQueryArgsAllFields:
     parseComparator(makePropertyName("name"), true, Opt.none(CollationAlgorithm))
   let f = filterCondition(MockFilter())
   let qp = QueryParams(
-    position: JmapInt(5),
+    position: parseJmapInt(5).get(),
     anchor: Opt.some(makeId("anchor1")),
-    anchorOffset: JmapInt(-2),
+    anchorOffset: parseJmapInt(-2).get(),
     limit: Opt.some(parseUnsignedInt(25).get()),
     calculateTotal: true,
   )

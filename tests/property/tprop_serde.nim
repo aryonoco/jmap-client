@@ -61,18 +61,18 @@ testCase propRoundTripServerCapabilityRawData:
 testCase propRoundTripComparator:
   checkPropertyN "Comparator round-trip preserves all fields", ThoroughTrials:
     let c = rng.genComparator()
-    lastInput = string(c.property)
+    lastInput = $c.property
     let j = c.toJson()
     let rt = Comparator.fromJson(j).get()
     let v = rt
-    doAssert string(v.property) == string(c.property)
+    doAssert $v.property == $c.property
     doAssert v.isAscending == c.isAscending
     doAssert v.collation == c.collation
 
 testCase propRoundTripAddedItem:
   checkPropertyN "AddedItem round-trip preserves id and index", ThoroughTrials:
     let item = rng.genAddedItem()
-    lastInput = string(item.id) & " @ " & $int64(item.index)
+    lastInput = $item.id & " @ " & $item.index.toInt64
     let j = item.toJson()
     let rt = AddedItem.fromJson(j).get()
     doAssert rt.id == item.id
@@ -330,7 +330,7 @@ testCase propRoundTripCoreCapabilities:
   ## CoreCapabilities JSON round-trip identity.
   checkPropertyN "CoreCapabilities.fromJson(caps.toJson()) == caps", ThoroughTrials:
     let caps = rng.genCoreCapabilities()
-    lastInput = $int64(caps.maxSizeUpload) & " upload"
+    lastInput = $caps.maxSizeUpload.toInt64 & " upload"
     let j = caps.toJson()
     let rt = CoreCapabilities.fromJson(j).get()
     doAssert coreCapEq(rt, caps), "CoreCapabilities round-trip identity violated"
@@ -512,7 +512,7 @@ testCase propStabilityCoreCapabilities:
   checkPropertyN "CoreCapabilities.toJson() == CoreCapabilities.toJson()",
     ThoroughTrials:
     let caps = rng.genCoreCapabilities()
-    lastInput = $int64(caps.maxSizeUpload)
+    lastInput = $caps.maxSizeUpload.toInt64
     let j1 = caps.toJson()
     let j2 = caps.toJson()
     doAssert j1 == j2, "CoreCapabilities toJson is not stable"

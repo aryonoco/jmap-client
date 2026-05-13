@@ -14,16 +14,19 @@ import ./primitives
 import ./collation
 export collation
 
-type PropertyName* = distinct string
-  ## A non-empty property name identifying a field on an entity type (RFC 8620 §5.5).
+type PropertyName* {.ruleOff: "objects".} = object
+  ## A non-empty property name identifying a field on an entity type
+  ## (RFC 8620 §5.5). Sealed Pattern-A object — ``rawValue`` is
+  ## module-private. Construct via ``parsePropertyName``.
+  rawValue: string
 
-defineStringDistinctOps(PropertyName)
+defineSealedStringOps(PropertyName)
 
 func parsePropertyName*(raw: string): Result[PropertyName, ValidationError] =
   ## Validates and constructs a PropertyName. Rejects empty strings.
   if raw.len == 0:
     return err(validationError("PropertyName", "must not be empty", raw))
-  return ok(PropertyName(raw))
+  return ok(PropertyName(rawValue: raw))
 
 type FilterOperator* = enum
   ## RFC 8620 §5.5 filter composition operators.
@@ -53,20 +56,20 @@ func filterOperator*[C](op: FilterOperator, conditions: seq[Filter[C]]): Filter[
   ## Composes child filters under a boolean operator (AND, OR, NOT).
   return Filter[C](kind: fkOperator, operator: op, conditions: conditions)
 
-type Comparator* = object
-  ## Sort criterion for /query requests (RFC 8620 §5.5). Determines the sort order
-  ## for results returned by a /query method call.
+type Comparator* {.ruleOff: "objects".} = object
+  ## Sort criterion for /query requests (RFC 8620 §5.5). Determines the
+  ## sort order for results returned by a /query method call.
   ##
-  ## Construction sealed via Pattern A (architecture §1.5.2): ``rawProperty`` is
-  ## module-private, blocking direct construction from outside this module.
-  ## Use ``parseComparator`` to construct.
-  rawProperty: string ## module-private; validated PropertyName
+  ## Construction sealed via Pattern A (architecture §1.5.2):
+  ## ``rawProperty`` is module-private, blocking direct construction
+  ## from outside this module. Use ``parseComparator`` to construct.
+  rawProperty: PropertyName ## module-private; validated PropertyName
   isAscending*: bool ## true = ascending (RFC default)
   collation*: Opt[CollationAlgorithm] ## RFC 4790 collation algorithm identifier
 
 func property*(c: Comparator): PropertyName =
   ## Returns the validated property name for this comparator.
-  return PropertyName(c.rawProperty)
+  return c.rawProperty
 
 func parseComparator*(
     property: PropertyName,
@@ -74,26 +77,25 @@ func parseComparator*(
     collation: Opt[CollationAlgorithm] = Opt.none(CollationAlgorithm),
 ): Comparator =
   ## Constructs a Comparator. Infallible given a valid PropertyName.
-  return Comparator(
-    rawProperty: string(property), isAscending: isAscending, collation: collation
-  )
+  return
+    Comparator(rawProperty: property, isAscending: isAscending, collation: collation)
 
-type AddedItem* = object
+type AddedItem* {.ruleOff: "objects".} = object
   ## An item added to query results at a specific position (RFC 8620 §5.6).
   ##
   ## Construction sealed via Pattern A (architecture Limitation 5/6a):
   ## ``rawId`` is module-private, blocking direct construction from outside
   ## this module. Use ``initAddedItem`` to construct.
-  rawId: string ## module-private; validated Id
+  rawId: Id ## module-private; validated Id
   index*: UnsignedInt ## the position index
 
 func id*(item: AddedItem): Id =
   ## Returns the validated item identifier.
-  return Id(item.rawId)
+  return item.rawId
 
 func initAddedItem*(id: Id, index: UnsignedInt): AddedItem =
   ## Constructs an AddedItem. Infallible given validated Id and UnsignedInt.
-  return AddedItem(rawId: string(id), index: index)
+  return AddedItem(rawId: id, index: index)
 
 type QueryParams* = object
   ## Standard query window parameters shared by all ``/query`` methods

@@ -73,8 +73,8 @@ testCase addIdentitySetCreateOnlyEmitsSixFields:
 # ===========================================================================
 
 testCase addIdentitySetUpdateEmitsPerIdPatches:
-  let id1 = parseId("idt1").get()
-  let id2 = parseId("idt2").get()
+  let id1 = parseIdFromServer("idt1").get()
+  let id2 = parseIdFromServer("idt2").get()
   let us1 = initIdentityUpdateSet(@[setName("Alice")]).get()
   let us2 = initIdentityUpdateSet(@[setTextSignature("sig")]).get()
   let wrap = parseNonEmptyIdentityUpdates(@[(id1, us1), (id2, us2)]).get()
@@ -95,8 +95,8 @@ testCase addIdentitySetUpdateEmitsPerIdPatches:
 # ===========================================================================
 
 testCase addIdentitySetDestroyEmitsIdArray:
-  let id1 = parseId("idt1").get()
-  let id2 = parseId("idt2").get()
+  let id1 = parseIdFromServer("idt1").get()
+  let id2 = parseIdFromServer("idt2").get()
   let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = b0.addIdentitySet(makeAccountId("a1"), destroy = directIds(@[id1, id2]))
   let req = b1.freeze().request

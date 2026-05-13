@@ -13,42 +13,71 @@ import std/sequtils
 
 import ./validation
 
-type Id* = distinct string
+type Id* {.ruleOff: "objects".} = object
   ## JMAP identifier: 1-255 octets, base64url charset (RFC 8620 §1.2).
-  ## Requires explicit construction via parseId or parseIdFromServer.
+  ## Sealed Pattern-A object; ``rawValue`` is module-private. Requires
+  ## explicit construction via ``parseId`` or ``parseIdFromServer``.
+  rawValue: string
 
-defineStringDistinctOps(Id)
+defineSealedStringOps(Id)
 
-type UnsignedInt* = distinct int64
+type UnsignedInt* {.ruleOff: "objects".} = object
   ## Non-negative integer bounded to 0..2^53-1 for JSON interoperability
-  ## (RFC 8620 §1.3).
+  ## (RFC 8620 §1.3). Sealed Pattern-A object; ``rawValue`` is
+  ## module-private — use ``parseUnsignedInt`` to construct,
+  ## ``.toInt64`` to project.
+  rawValue: int64
 
-defineIntDistinctOps(UnsignedInt)
+defineSealedIntOps(UnsignedInt)
 
-type JmapInt* = distinct int64
+func toInt64*(u: UnsignedInt): int64 {.inline.} =
+  ## Projection to raw ``int64``. Total, zero-cost.
+  u.rawValue
+
+type JmapInt* {.ruleOff: "objects".} = object
   ## Signed integer bounded to -(2^53-1)..2^53-1 for JSON interoperability
-  ## (RFC 8620 §1.3).
+  ## (RFC 8620 §1.3). Sealed Pattern-A object; ``rawValue`` is
+  ## module-private — use ``parseJmapInt`` to construct, ``.toInt64`` to
+  ## project.
+  rawValue: int64
 
-defineIntDistinctOps(JmapInt)
-func `-`*(a: JmapInt): JmapInt {.borrow.} ## unary negation
+defineSealedIntOps(JmapInt)
 
-type Date* = distinct string
+func `-`*(a: JmapInt): JmapInt =
+  ## Unary negation. Invariant-preserving: any value in the signed
+  ## JSON-safe range negates to a value still in that range.
+  JmapInt(rawValue: -a.rawValue)
+
+func toInt64*(j: JmapInt): int64 {.inline.} =
+  ## Projection to raw ``int64``. Total, zero-cost.
+  j.rawValue
+
+type Date* {.ruleOff: "objects".} = object
   ## RFC 3339 date-time string with structural validation but no calendar
-  ## semantics.
+  ## semantics. Sealed Pattern-A object; construct via ``parseDate``.
+  rawValue: string
 
-defineStringDistinctOps(Date)
+defineSealedStringOps(Date)
 
-type UTCDate* = distinct string
+type UTCDate* {.ruleOff: "objects".} = object
   ## RFC 3339 date-time that must use 'Z' (UTC) as its timezone offset.
+  ## Sealed Pattern-A object; construct via ``parseUtcDate``.
+  rawValue: string
 
-defineStringDistinctOps(UTCDate)
+defineSealedStringOps(UTCDate)
 
-type MaxChanges* = distinct UnsignedInt
+type MaxChanges* {.ruleOff: "objects".} = object
   ## A positive count for maxChanges fields in Foo/changes and
   ## Foo/queryChanges requests. RFC 8620 §5.2 (lines 1694–1702)
-  ## requires the value to be greater than 0.
+  ## requires the value to be greater than 0. Sealed Pattern-A object;
+  ## construct via ``parseMaxChanges``, project with ``.toInt64``.
+  rawValue: UnsignedInt
 
-defineIntDistinctOps(MaxChanges)
+defineSealedIntOps(MaxChanges)
+
+func toInt64*(m: MaxChanges): int64 {.inline.} =
+  ## Projection to raw ``int64`` via the inner ``UnsignedInt``.
+  m.rawValue.rawValue
 
 const MaxUnsignedInt*: int64 = 9_007_199_254_740_991'i64 ## 2^53 - 1
 
@@ -75,7 +104,7 @@ func parseId*(raw: string): Result[Id, ValidationError] =
   ## For client-constructed IDs (e.g., method call IDs used as creation IDs).
   detectStrictBase64UrlToken(raw).isOkOr:
     return err(toValidationError(error, "Id", raw))
-  return ok(Id(raw))
+  return ok(Id(rawValue: raw))
 
 func parseIdFromServer*(raw: string): Result[Id, ValidationError] =
   ## Lenient: 1-255 octets, no control characters.
@@ -83,7 +112,7 @@ func parseIdFromServer*(raw: string): Result[Id, ValidationError] =
   ## from the strict base64url charset (e.g., Cyrus IMAP).
   detectLenientToken(raw).isOkOr:
     return err(toValidationError(error, "Id", raw))
-  return ok(Id(raw))
+  return ok(Id(rawValue: raw))
 
 func parseFromString*(T: typedesc[Id], raw: string): Result[Id, ValidationError] =
   ## ``parseFromString`` typedesc-overload adapter consumed by the generic
@@ -100,20 +129,20 @@ func parseUnsignedInt*(value: int64): Result[UnsignedInt, ValidationError] =
     return err(validationError("UnsignedInt", "must be non-negative", $value))
   if value > MaxUnsignedInt:
     return err(validationError("UnsignedInt", "exceeds 2^53-1", $value))
-  return ok(UnsignedInt(value))
+  return ok(UnsignedInt(rawValue: value))
 
 func parseJmapInt*(value: int64): Result[JmapInt, ValidationError] =
   ## Must be -(2^53-1)..2^53-1. Rejects values outside JSON's safe integer
   ## range.
   if value < MinJmapInt or value > MaxJmapInt:
     return err(validationError("JmapInt", "outside JSON-safe integer range", $value))
-  return ok(JmapInt(value))
+  return ok(JmapInt(rawValue: value))
 
 func parseMaxChanges*(raw: UnsignedInt): Result[MaxChanges, ValidationError] =
   ## Smart constructor: rejects 0, which the RFC forbids.
-  if int64(raw) == 0:
-    return err(validationError("MaxChanges", "must be greater than 0", $int64(raw)))
-  return ok(MaxChanges(raw))
+  if raw.rawValue == 0:
+    return err(validationError("MaxChanges", "must be greater than 0", $raw.rawValue))
+  return ok(MaxChanges(rawValue: raw))
 
 type DateViolation = enum
   ## Structural failures of an RFC 3339 date-time string. Module-private;
@@ -281,7 +310,7 @@ func parseDate*(raw: string): Result[Date, ValidationError] =
   ## validate timezone offset format beyond uppercase checks.
   detectDate(raw).isOkOr:
     return err(toValidationError(error, "Date", raw))
-  return ok(Date(raw))
+  return ok(Date(rawValue: raw))
 
 func parseUtcDate*(raw: string): Result[UTCDate, ValidationError] =
   ## All Date validation rules, plus: must end with 'Z'. Shares
@@ -290,56 +319,19 @@ func parseUtcDate*(raw: string): Result[UTCDate, ValidationError] =
   ## ``Date`` typeName as they did before the ADT refactor.
   detectUtcDate(raw).isOkOr:
     return err(toValidationError(error, "UTCDate", raw))
-  return ok(UTCDate(raw))
+  return ok(UTCDate(rawValue: raw))
 
 # =============================================================================
 # NonEmptySeq[T]
 # =============================================================================
 
-type NonEmptySeq*[T] = distinct seq[T]
-  ## A sequence guaranteed to contain at least one element. Construction is
-  ## gated by parseNonEmptySeq; mutating operations (add, setLen, del) are
-  ## deliberately not borrowed to preserve the non-empty invariant at the
-  ## type level (Part E §4.6).
-
-template defineNonEmptySeqOps*(T: typedesc) =
-  ## Borrows the read-only operations legitimate for NonEmptySeq[T].
-  ## Mirrors defineStringDistinctOps / defineHashSetDistinctOps: each
-  ## element type T invokes this template once. Mutating ops intentionally
-  ## absent — they would violate the non-empty invariant.
-  func `==`*(a, b: NonEmptySeq[T]): bool {.borrow.}
-    ## Equality delegated to the underlying seq.
-  func `$`*(a: NonEmptySeq[T]): string {.borrow.}
-    ## String representation delegated to the underlying seq.
-  func hash*(a: NonEmptySeq[T]): Hash {.borrow.} ## Hash delegated to the underlying seq.
-  func len*(a: NonEmptySeq[T]): int {.borrow.}
-    ## Length delegated to the underlying seq (always at least 1).
-  func `[]`*(a: NonEmptySeq[T], i: Idx): lent T =
-    ## Indexed access via sealed non-negative ``Idx``. Explicit unwrap
-    ## because ``seq[T].[]`` is the compiler magic ``ArrGet`` (system.nim)
-    ## whose declared signature uses ``T`` for the container, which
-    ## ``{.borrow.}`` cannot reconcile with the element-``T`` here.
-    ## Upper-bound violations still panic via the underlying seq's
-    ## ``IndexDefect``; the ``Idx`` invariant statically rules out the
-    ## negative-``i`` case.
-    seq[T](a)[i.toInt]
-  func contains*(a: NonEmptySeq[T], x: T): bool =
-    ## Membership test; explicit body because ``{.borrow.}`` unwraps both
-    ## distinct types — when ``T`` is itself distinct (e.g. ``Date``), the
-    ## borrow's ``x`` collapses to the underlying type and the call no
-    ## longer matches ``seq[T].contains``. Same workaround as
-    ## ``defineHashSetDistinctOps``'s ``contains`` (validation.nim).
-    system.contains(seq[T](a), x)
-  iterator items*(a: NonEmptySeq[T]): T =
-    ## Yields each element. Unwraps the distinct type to iterate the
-    ## underlying seq.
-    for x in seq[T](a):
-      yield x
-
-  iterator pairs*(a: NonEmptySeq[T]): (int, T) =
-    ## Yields (index, element) tuples. Order matches the underlying seq.
-    for p in pairs(seq[T](a)):
-      yield p
+type NonEmptySeq*[T] {.ruleOff: "objects".} = object
+  ## A sequence guaranteed to contain at least one element. Sealed
+  ## Pattern-A object: ``rawValue`` is module-private. Construction is
+  ## gated by ``parseNonEmptySeq``; mutating operations (add, setLen,
+  ## del) are deliberately not exposed to preserve the non-empty
+  ## invariant at the type level (Part E §4.6).
+  rawValue: seq[T]
 
 func parseNonEmptySeq*[T](s: seq[T]): Result[NonEmptySeq[T], ValidationError] =
   ## Strict: rejects empty input on the error rail. The typeName field on
@@ -348,11 +340,23 @@ func parseNonEmptySeq*[T](s: seq[T]): Result[NonEmptySeq[T], ValidationError] =
   ## type family).
   if s.len == 0:
     return err(validationError("NonEmptySeq", "must not be empty", ""))
-  return ok(NonEmptySeq[T](s))
+  return ok(NonEmptySeq[T](rawValue: s))
 
 func head*[T](a: NonEmptySeq[T]): lent T =
   ## First element — guaranteed present by the non-empty invariant.
   ## Semantic accessor that reads cleaner than ``a[idx(0)]``; no
   ## per-``T`` template instantiation required because ``T`` is
   ## inferrable from the argument.
-  seq[T](a)[0]
+  a.rawValue[0]
+
+func asSeq*[T](a: NonEmptySeq[T]): lent seq[T] {.inline.} =
+  ## Borrow-projection accessor — returns a read-only view of the
+  ## underlying seq. ``lent`` keeps consumers (``==``, ``$``, ``hash``,
+  ## ``[]``, iteration) from copying. Mutation is impossible because
+  ## ``lent`` is read-only; the sealed invariant is preserved. Named
+  ## ``asSeq`` rather than ``toSeq`` to avoid clashing with
+  ## ``std/sequtils.toSeq`` (a template over iterables). Consumed by
+  ## ``defineSealedNonEmptySeqOps`` so the generated ops can read the
+  ## underlying seq without naming the module-private ``rawValue``
+  ## field across module boundaries.
+  a.rawValue

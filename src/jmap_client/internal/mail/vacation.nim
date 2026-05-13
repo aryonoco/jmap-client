@@ -103,11 +103,16 @@ func setHtmlBody*(htmlBody: Opt[string]): VacationResponseUpdate =
   ## Replace htmlBody. Opt.none clears the HTML body per RFC 8621 §8.
   VacationResponseUpdate(kind: vruSetHtmlBody, htmlBody: htmlBody)
 
-type VacationResponseUpdateSet* = distinct seq[VacationResponseUpdate]
+type VacationResponseUpdateSet* {.ruleOff: "objects".} = object
   ## Validated, conflict-free batch of VacationResponseUpdate operations
-  ## targeting the singleton VacationResponse. Construction gated by
-  ## initVacationResponseUpdateSet — the raw distinct constructor is
-  ## not part of the public surface.
+  ## targeting the singleton VacationResponse. Sealed Pattern-A object —
+  ## ``rawValue`` is module-private. Construction is gated by
+  ## ``initVacationResponseUpdateSet``.
+  rawValue: seq[VacationResponseUpdate]
+
+func toSeq*(s: VacationResponseUpdateSet): seq[VacationResponseUpdate] {.inline.} =
+  ## Value-projection accessor — returns a copy of the underlying seq.
+  s.rawValue
 
 func initVacationResponseUpdateSet*(
     updates: openArray[VacationResponseUpdate]
@@ -128,4 +133,4 @@ func initVacationResponseUpdateSet*(
   )
   if errs.len > 0:
     return err(errs)
-  ok(VacationResponseUpdateSet(@updates))
+  ok(VacationResponseUpdateSet(rawValue: @updates))

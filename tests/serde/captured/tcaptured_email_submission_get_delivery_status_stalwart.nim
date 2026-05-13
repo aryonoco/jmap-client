@@ -40,14 +40,14 @@ testCase tcapturedEmailSubmissionGetDeliveryStatusStalwart:
   let sub = finalOpt.unsafeGet
 
   doAssert sub.deliveryStatus.isSome, "deliveryStatus must be populated"
-  let dsMap = (Table[RFC5321Mailbox, DeliveryStatus])(sub.deliveryStatus.unsafeGet)
+  let dsMap = sub.deliveryStatus.unsafeGet.toTable
   let bobMailbox =
     parseRFC5321Mailbox("bob@example.com").expect("parseRFC5321Mailbox bob")
   doAssert bobMailbox in dsMap,
     "deliveryStatus must carry an entry keyed by bob@example.com"
 
   let entry = dsMap[bobMailbox]
-  doAssert entry.smtpReply.replyCode == ReplyCode(250),
+  doAssert entry.smtpReply.replyCode.toUint16 == 250'u16,
     "captured Stalwart reply code must round-trip as 250 (got " &
       $entry.smtpReply.replyCode & ")"
   doAssert entry.smtpReply.enhanced.isSome,

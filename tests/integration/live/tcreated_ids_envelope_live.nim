@@ -88,8 +88,7 @@ testCase tcreatedIdsEnvelopeLive:
         var echoed = resp.createdIds.unsafeGet
         echoed.withValue(knownCid, v):
           assertOn target,
-            string(v[]) == string(realEmailId),
-            "echoed createdIds entry must match the supplied id"
+            $v[] == $realEmailId, "echoed createdIds entry must match the supplied id"
         do:
           assertOn target, false, "echoed createdIds must contain knownCid"
 
@@ -144,11 +143,11 @@ testCase tcreatedIdsEnvelopeLive:
       let (b1, setHandle) = addEmailSet(
         initRequestBuilder(makeBuilderId()), mailAccountId, create = Opt.some(createTbl)
       )
-      # ``Id("#draft1")`` is the wire-shape way to reference a
+      # ``parseIdFromServer("#draft1").get()`` is the wire-shape way to reference a
       # creation id in the same envelope.  parseId accepts any
       # non-empty 1-255 ASCII; the bare ``Id`` cast bypasses the
       # smart constructor.
-      let creationRefId = Id("#draft1")
+      let creationRefId = parseIdFromServer("#draft1").get()
       let (b2, getHandle) =
         addEmailGet(b1, mailAccountId, ids = directIds(@[creationRefId]))
       let resp = client.send(b2.freeze()).expect(

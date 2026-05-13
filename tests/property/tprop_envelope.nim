@@ -55,7 +55,7 @@ testCase propResponsePreservesInvocationOrder:
 testCase propReferencableDirectPreservesValue:
   checkProperty "propReferencableDirectPreservesValue":
     ## direct(v).value == v for random Id sequences.
-    let ids = @[parseId("id" & $trial).get()]
+    let ids = @[parseIdFromServer("id" & $trial).get()]
     lastInput = $trial
     let d = direct(ids)
     doAssert d.kind == rkDirect
@@ -75,7 +75,7 @@ testCase propReferencableReferencePreservesRef:
 testCase propReferencableExclusivity:
   checkProperty "propReferencableExclusivity":
     ## A Referencable is either direct or reference, never ambiguous.
-    let ids = @[parseId("id" & $trial).get()]
+    let ids = @[parseIdFromServer("id" & $trial).get()]
     lastInput = $trial
     let d = direct(ids)
     doAssert d.kind == rkDirect
@@ -104,14 +104,14 @@ testCase propRequestCreatedIdsTablePreserved:
     var cids = initTable[CreationId, Id]()
     for i in 0 ..< n:
       let cid = parseCreationId("k" & $i).get()
-      let id = parseId("sid" & $i).get()
+      let id = parseIdFromServer("sid" & $i).get()
       cids[cid] = id
     let req = Request(`using`: @[], methodCalls: @[], createdIds: Opt.some(cids))
     doAssert req.createdIds.isSome
     doAssert req.createdIds.get().len == n
     for i in 0 ..< n:
       let cid = parseCreationId("k" & $i).get()
-      doAssert req.createdIds.get()[cid] == parseId("sid" & $i).get()
+      doAssert req.createdIds.get()[cid] == parseIdFromServer("sid" & $i).get()
 
 # --- Referencable properties ---
 

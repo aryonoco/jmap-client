@@ -86,7 +86,7 @@ testCase rfc5321MailboxAdversarialGroup:
     # diverge here. Confirm both sides of the divergence.
     let mailboxRes = parseRFC5321Mailbox("user@[foo-:bar]")
     assertErr mailboxRes
-    let keywordRes = parseRFC5321Keyword("x-tag-")
+    let keywordRes = parseRFC5321Keyword("x-tag-").get()
     assertOk keywordRes
 
   block mailboxControlChar:
@@ -570,9 +570,9 @@ testCase scaleInvariantsGroup:
     var items: seq[(Id, EmailSubmissionUpdate)] = @[]
     let update = setUndoStatusToCanceled()
     for i in 0 ..< 10_000:
-      items.add((parseId("es-" & $i).get(), update))
+      items.add((parseIdFromServer("es-" & $i).get(), update))
     # Duplicate: reuse "es-0" at final position.
-    items[9_999] = (parseId("es-0").get(), update)
+    items[9_999] = (parseIdFromServer("es-0").get(), update)
     let res = parseNonEmptyEmailSubmissionUpdates(items)
     assertErr res
     assertLen res.error, 1

@@ -80,13 +80,13 @@ testCase submissionParamSizeAcceptsZeroAndUpperBound:
   assertOk zero
   let p0 = sizeParam(zero.get())
   doAssert p0.kind == spkSize
-  assertEq int64(p0.sizeOctets), 0'i64
+  assertEq p0.sizeOctets.toInt64, 0'i64
   # 2^53 - 1 — the JSON-safe upper bound enforced at primitives.nim:91.
   let upper = parseUnsignedInt(9007199254740991'i64)
   assertOk upper
   let pHi = sizeParam(upper.get())
   doAssert pHi.kind == spkSize
-  assertEq int64(pHi.sizeOctets), 9007199254740991'i64
+  assertEq pHi.sizeOctets.toInt64, 9007199254740991'i64
   let bad = parseUnsignedInt(-1)
   assertErr bad
   assertEq bad.error.typeName, "UnsignedInt"
@@ -153,7 +153,7 @@ testCase submissionParamHoldForInfallibleWrap:
   assertOk secs
   let p = holdForParam(secs.get())
   doAssert p.kind == spkHoldFor
-  assertEq int64(UnsignedInt(p.holdFor)), 600'i64
+  assertEq p.holdFor.toInt64, 600'i64
 
 testCase submissionParamHoldUntilParserPath:
   # G2 §8.7 row spkHoldUntil. ``holdUntilParam`` is unconditional;
@@ -182,7 +182,7 @@ testCase submissionParamByDeadlineAndMode:
     let p = byParam(deadline.get(), m)
     doAssert p.kind == spkBy
     doAssert p.byMode == m
-    assertEq int64(p.byDeadline), 123'i64
+    assertEq p.byDeadline.toInt64, 123'i64
 
 testCase submissionParamMtPriorityRangeBoundary:
   # G2 §8.7 row spkMtPriority. Validation lives in upstream
@@ -194,7 +194,7 @@ testCase submissionParamMtPriorityRangeBoundary:
     assertOk mp
     let p = mtPriorityParam(mp.get())
     doAssert p.kind == spkMtPriority
-    assertEq int(p.mtPriority), raw
+    assertEq p.mtPriority.toInt, raw
   for raw in [-10, 10]:
     let res = parseMtPriority(raw)
     assertErr res
@@ -209,14 +209,15 @@ testCase submissionParamExtensionWithKeywordAndOptValue:
   # ``kvLengthOutOfRange`` (length 0 < 1 at submission_atoms.nim:87);
   # boundary literal: ``"length must be 1-64 octets"`` at
   # submission_atoms.nim:78.
-  let kw = parseRFC5321Keyword("X-VENDOR-FOO")
-  assertOk kw
-  let pWith = extensionParam(kw.get(), Opt.some("bar"))
+  let kwRes = parseRFC5321Keyword("X-VENDOR-FOO")
+  assertOk kwRes
+  let kw = kwRes.get()
+  let pWith = extensionParam(kw, Opt.some("bar"))
   doAssert pWith.kind == spkExtension
   assertEq $pWith.extName, "X-VENDOR-FOO"
   doAssert pWith.extValue.isSome
   assertEq pWith.extValue.get(), "bar"
-  let pNone = extensionParam(kw.get(), Opt.none(string))
+  let pNone = extensionParam(kw, Opt.none(string))
   doAssert pNone.kind == spkExtension
   doAssert pNone.extValue.isNone
   let bad = parseRFC5321Keyword("")
@@ -367,12 +368,13 @@ testCase submissionParamsToJsonPreservesShuffledOrderWithExtension:
   # ("X-VENDOR-FOO") rather than the discriminator label "EXTENSION"
   # — the case branch at serde_submission_envelope.nim:377 takes
   # ``$key.extName`` for spkExtension.
-  let extName = parseRFC5321Keyword("X-VENDOR-FOO")
-  assertOk extName
+  let extNameRes = parseRFC5321Keyword("X-VENDOR-FOO")
+  assertOk extNameRes
+  let extName = extNameRes.get()
   let items = @[
     makeSubmissionParam(spkSize),
     makeSubmissionParam(spkBody),
-    extensionParam(extName.get(), Opt.some("bar")),
+    extensionParam(extName, Opt.some("bar")),
     makeSubmissionParam(spkRet),
     makeSubmissionParam(spkNotify),
   ]

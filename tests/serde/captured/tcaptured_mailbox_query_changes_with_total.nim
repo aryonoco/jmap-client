@@ -31,4 +31,4 @@ testCase tcapturedMailboxQueryChangesWithTotal:
   doAssert qcr.total.isSome,
     "total must be present when calculateTotal=true was requested"
   for item in qcr.added:
-    doAssert string(item.id).len > 0, "added.id must be non-empty"
+    doAssert ($item.id).len > 0, "added.id must be non-empty"

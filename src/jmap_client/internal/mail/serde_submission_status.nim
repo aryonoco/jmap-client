@@ -142,7 +142,7 @@ func fromJson*(
     let mbx = ?wrapInner(parseRFC5321MailboxFromServer(rawKey), path / rawKey)
     let ds = ?DeliveryStatus.fromJson(valNode, path / rawKey)
     tbl[mbx] = ds
-  return ok(DeliveryStatusMap(tbl))
+  return ok(initDeliveryStatusMap(tbl))
 
 func toJson*(m: DeliveryStatusMap): JsonNode =
   ## D3.7 unidirectional serde symmetry — required for the
@@ -150,5 +150,5 @@ func toJson*(m: DeliveryStatusMap): JsonNode =
   ## ``DeliveryStatusMap`` in production; this exists so the partial-echo
   ## ``toJson`` over ``FieldEcho[DeliveryStatusMap]`` resolves).
   result = newJObject()
-  for mbx, ds in Table[RFC5321Mailbox, DeliveryStatus](m).pairs:
+  for mbx, ds in m.toTable.pairs:
     result[$mbx] = ds.toJson()

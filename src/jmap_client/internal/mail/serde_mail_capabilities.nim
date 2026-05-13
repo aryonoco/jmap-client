@@ -35,7 +35,7 @@ func parseOptUnsignedIntField(
     return ok(Opt.none(UnsignedInt))
   ?expectKind(fld, JInt, path / fieldName)
   let val = ?UnsignedInt.fromJson(fld, path / fieldName)
-  if int64(val) < minValue:
+  if val.toInt64 < minValue:
     return err(
       SerdeViolation(
         kind: svkEmptyRequired,
@@ -192,6 +192,6 @@ func parseSubmissionCapabilities*(
     ok(
       SubmissionCapabilities(
         maxDelayedSend: maxDelayedSend,
-        submissionExtensions: SubmissionExtensionMap(extensions),
+        submissionExtensions: initSubmissionExtensionMap(extensions),
       )
     )

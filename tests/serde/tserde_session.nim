@@ -13,6 +13,7 @@ import std/tables
 
 import jmap_client/internal/serialisation/serde_session
 import jmap_client/internal/types/identifiers
+import jmap_client/internal/types/primitives
 import jmap_client/internal/types/capabilities
 import jmap_client/internal/types/session
 import jmap_client/internal/types/errors
@@ -35,9 +36,9 @@ testCase sessionDeserGoldenRfcAndRoundTrip:
   let s = Session.fromJson(j).get()
   # Verify all 8 expected parsed values per section 13.1
   assertEq s.capabilities.len, 4
-  assertEq int64(s.coreCapabilities().maxSizeUpload), 50000000'i64
+  assertEq s.coreCapabilities().maxSizeUpload.toInt64, 50000000'i64
   # D2.6: singular maxConcurrentRequest parsed into plural field
-  assertEq int64(s.coreCapabilities().maxConcurrentRequests), 8'i64
+  assertEq s.coreCapabilities().maxConcurrentRequests.toInt64, 8'i64
   assertEq s.coreCapabilities().collationAlgorithms.len, 3
   assertEq s.accounts.len, 2
   doAssert s.accounts[parseAccountId("A13824").get()].isPersonal

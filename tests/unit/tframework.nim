@@ -81,11 +81,11 @@ testCase parseComparatorNotAscending:
 # --- AddedItem ---
 
 testCase addedItemConstruction:
-  let id = parseId("abc").get()
+  let id = parseIdFromServer("abc").get()
   let idx = parseUnsignedInt(0'i64).get()
   let item = initAddedItem(id, idx)
-  doAssert string(item.id) == "abc"
-  doAssert int64(item.index) == 0'i64
+  doAssert $item.id == "abc"
+  doAssert item.index.toInt64 == 0'i64
 
 # --- Filter arity tests ---
 
@@ -110,7 +110,7 @@ testCase filterOperatorAndSingle:
 
 testCase addedItemMaxIndex:
   let maxIdx = parseUnsignedInt(MaxUnsignedInt).get()
-  let id = parseId("test").get()
+  let id = parseIdFromServer("test").get()
   let ai = initAddedItem(id, maxIdx)
   doAssert ai.index == maxIdx
 

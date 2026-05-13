@@ -101,7 +101,7 @@ testCase fromJsonReplyToWithAddresses: # scenario 30
 
 testCase roundTripFull: # scenario 31
   let ident = Identity(
-    id: parseId("id1").get(),
+    id: parseIdFromServer("id1").get(),
     name: "Joe",
     email: "joe@example.com",
     replyTo: Opt.some(@[ea1]),
@@ -122,7 +122,7 @@ testCase roundTripFull: # scenario 31
 
 testCase roundTripMinimal:
   let ident = Identity(
-    id: parseId("id2").get(),
+    id: parseIdFromServer("id2").get(),
     name: "",
     email: "min@e.c",
     replyTo: Opt.none(seq[EmailAddress]),
@@ -216,7 +216,7 @@ testCase fromJsonReplyToAbsent:
 
 testCase toJsonReplyToNull:
   let ident = Identity(
-    id: parseId("id1").get(),
+    id: parseIdFromServer("id1").get(),
     email: "j@e.c",
     replyTo: Opt.none(seq[EmailAddress]),
     bcc: Opt.none(seq[EmailAddress]),
@@ -227,7 +227,7 @@ testCase toJsonReplyToNull:
 
 testCase toJsonReplyToWithAddresses:
   let ident = Identity(
-    id: parseId("id1").get(),
+    id: parseIdFromServer("id1").get(),
     email: "j@e.c",
     replyTo: Opt.some(@[ea1]),
     bcc: Opt.none(seq[EmailAddress]),
@@ -242,7 +242,7 @@ testCase toJsonReplyToWithAddresses:
 
 testCase toJsonBccNull:
   let ident = Identity(
-    id: parseId("id1").get(),
+    id: parseIdFromServer("id1").get(),
     email: "j@e.c",
     replyTo: Opt.none(seq[EmailAddress]),
     bcc: Opt.none(seq[EmailAddress]),
@@ -252,7 +252,7 @@ testCase toJsonBccNull:
 
 testCase toJsonEmptyStringFields:
   let ident = Identity(
-    id: parseId("id1").get(),
+    id: parseIdFromServer("id1").get(),
     name: "",
     email: "j@e.c",
     replyTo: Opt.none(seq[EmailAddress]),

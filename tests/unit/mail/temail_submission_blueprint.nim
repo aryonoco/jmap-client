@@ -22,8 +22,8 @@ testCase symbolsExported:
   doAssert compiles(parseEmailSubmissionBlueprint)
 
 testCase minimalBlueprint:
-  let idI = parseId("identity-123").get()
-  let idE = parseId("email-456").get()
+  let idI = parseIdFromServer("identity-123").get()
+  let idE = parseIdFromServer("email-456").get()
   let res = parseEmailSubmissionBlueprint(idI, idE)
   assertOk res
   let bp = res.get()
@@ -36,8 +36,8 @@ testCase accessorContract:
   # Pins that the UFCS accessors are exported and read-identical to
   # field access. The three ``compiles`` probes succeed iff the accessor
   # funcs are visible from this module.
-  let idI = parseId("i-acc").get()
-  let idE = parseId("e-acc").get()
+  let idI = parseIdFromServer("i-acc").get()
+  let idE = parseIdFromServer("e-acc").get()
   let bp = parseEmailSubmissionBlueprint(idI, idE).get()
   doAssert compiles(bp.identityId)
   doAssert compiles(bp.emailId)
@@ -50,8 +50,8 @@ testCase sealingContract:
   # the hybrid shape. `idI`/`idE` appear only inside `not compiles(...)`,
   # so mark them {.used.} — the speculative-compile macro context doesn't
   # count as a use for the declared-but-not-used analysis.
-  let idI {.used.} = parseId("i-seal").get()
-  let idE {.used.} = parseId("e-seal").get()
+  let idI {.used.} = parseIdFromServer("i-seal").get()
+  let idE {.used.} = parseIdFromServer("e-seal").get()
   doAssert not compiles(
     EmailSubmissionBlueprint(
       rawIdentityId: idI, rawEmailId: idE, rawEnvelope: Opt.none(Envelope)
@@ -66,8 +66,8 @@ testCase sealingContract:
   ), "public fields would bypass the smart constructor"
 
 testCase blueprintWithEnvelope:
-  let idI = parseId("i2").get()
-  let idE = parseId("e2").get()
+  let idI = parseIdFromServer("i2").get()
+  let idE = parseIdFromServer("e2").get()
   let mbox = parseRFC5321Mailbox("rcpt@example.com").get()
   let rcpt = SubmissionAddress(mailbox: mbox, parameters: Opt.none(SubmissionParams))
   let env =
@@ -79,15 +79,15 @@ testCase blueprintWithEnvelope:
   assertEq bp.envelope.get(), env
 
 testCase defaultEnvelopeIsNone:
-  let idI = parseId("i3").get()
-  let idE = parseId("e3").get()
+  let idI = parseIdFromServer("i3").get()
+  let idE = parseIdFromServer("e3").get()
   let bp = parseEmailSubmissionBlueprint(idI, idE).get()
   doAssert bp.envelope.isNone
 
 testCase inequalityOnIdentity:
-  let idI1 = parseId("iA").get()
-  let idI2 = parseId("iB").get()
-  let idE = parseId("e5").get()
+  let idI1 = parseIdFromServer("iA").get()
+  let idI2 = parseIdFromServer("iB").get()
+  let idE = parseIdFromServer("e5").get()
   let bp1 = parseEmailSubmissionBlueprint(idI1, idE).get()
   let bp2 = parseEmailSubmissionBlueprint(idI2, idE).get()
   doAssert bp1 != bp2
@@ -133,8 +133,8 @@ testCase blueprintAccumulatesBothIdErrors:
   # Structural pin — the blueprint's error rail remains a seq. If a
   # future refactor demotes to Result[_, ValidationError], the
   # compiles() probe fails, flagging the regression.
-  let idI = parseId("validA").get()
-  let idE = parseId("validB").get()
+  let idI = parseIdFromServer("validA").get()
+  let idE = parseIdFromServer("validB").get()
   let okRes = parseEmailSubmissionBlueprint(idI, idE)
   assertOk okRes
   doAssert compiles(okRes.error.len),
@@ -151,8 +151,8 @@ testCase blueprintPatternASealExplicitRawField:
   #   (b) read-side coverage (the shipped block only tests write/ctor).
   # G38 (§8.13 row 1038) remains SHIPPED via sealingContract; this
   # block is supplementary diagnostic coverage.
-  let idI = parseId("i-pa").get()
-  let idE = parseId("e-pa").get()
+  let idI = parseIdFromServer("i-pa").get()
+  let idE = parseIdFromServer("e-pa").get()
   # (1) Record-literal construction with raw* field names is sealed:
   assertNotCompiles(
     EmailSubmissionBlueprint(

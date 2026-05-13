@@ -392,11 +392,18 @@ func initEmailImportItem*(
 # NonEmptyEmailImportMap
 # =============================================================================
 
-type NonEmptyEmailImportMap* = distinct Table[CreationId, EmailImportItem]
-  ## Non-empty, duplicate-``CreationId``-free map of Email/import creation
-  ## entries. Construction is gated by ``initNonEmptyEmailImportMap``; the
-  ## raw distinct constructor is not part of the public surface (Design
-  ## §6.2, F13).
+type NonEmptyEmailImportMap* {.ruleOff: "objects".} = object
+  ## Non-empty, duplicate-``CreationId``-free map of Email/import
+  ## creation entries. Sealed Pattern-A object — ``rawValue`` is
+  ## module-private. Construction is gated by
+  ## ``initNonEmptyEmailImportMap`` (Design §6.2, F13).
+  rawValue: Table[CreationId, EmailImportItem]
+
+func toTable*(
+    m: NonEmptyEmailImportMap
+): Table[CreationId, EmailImportItem] {.inline.} =
+  ## Value-projection accessor — returns a copy of the underlying table.
+  m.rawValue
 
 func initNonEmptyEmailImportMap*(
     items: openArray[(CreationId, EmailImportItem)]
@@ -422,4 +429,4 @@ func initNonEmptyEmailImportMap*(
   var t = initTable[CreationId, EmailImportItem](items.len)
   for (cid, item) in items:
     t[cid] = item
-  ok(NonEmptyEmailImportMap(t))
+  ok(NonEmptyEmailImportMap(rawValue: t))

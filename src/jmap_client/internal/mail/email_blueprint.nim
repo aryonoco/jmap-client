@@ -31,38 +31,49 @@ import ./mailbox
 # BodyPartPath
 # =============================================================================
 
-type BodyPartPath* = distinct seq[int]
+type BodyPartPath* {.ruleOff: "objects".} = object
   ## Zero-indexed tree path locating a ``BlueprintBodyPart`` within an
   ## ``EmailBlueprintBody``. For ``ebkStructured`` the path walks the
   ## ``bodyStructure`` subParts tree from the root. For ``ebkFlat`` the
   ## first index is 0 (textBody), 1 (htmlBody), or 2+i (attachments[i]);
-  ## subsequent indices walk sub-parts of that entry.
+  ## subsequent indices walk sub-parts of that entry. Sealed Pattern-A
+  ## object — ``rawValue`` is module-private.
+  rawValue: seq[int]
 
-func `==`*(a, b: BodyPartPath): bool {.borrow.}
+func initBodyPartPath*(path: seq[int]): BodyPartPath =
+  ## Wraps a raw path. Used by the location constructors which accept
+  ## ``seq[int]`` for caller ergonomics. No invariant is enforced
+  ## beyond type identity; the path is trusted at construction.
+  BodyPartPath(rawValue: path)
+
+func `==`*(a, b: BodyPartPath): bool =
   ## Element-wise equality delegated to the underlying seq.
+  a.rawValue == b.rawValue
 
-func `$`*(a: BodyPartPath): string {.borrow.}
+func `$`*(a: BodyPartPath): string =
   ## String representation delegated to the underlying seq.
+  $a.rawValue
 
-func hash*(a: BodyPartPath): Hash {.borrow.} ## Hash delegated to the underlying seq.
+func hash*(a: BodyPartPath): Hash =
+  ## Hash delegated to the underlying seq.
+  hash(a.rawValue)
 
-func len*(a: BodyPartPath): int {.borrow.}
-  ## Length delegated to the underlying seq (may be zero for the root path).
+func len*(a: BodyPartPath): int =
+  ## Length of the underlying path (may be zero for the root path).
+  a.rawValue.len
 
 func `[]`*(a: BodyPartPath, i: Idx): int =
   ## Indexed access into the path via sealed non-negative ``Idx``.
-  ## Explicit unwrap because indexing through ``{.borrow.}`` hits
-  ## ``ArrGet`` (compiler magic).
-  seq[int](a)[i.toInt]
+  a.rawValue[i.toInt]
 
 iterator items*(a: BodyPartPath): int =
   ## Yields each index in the path.
-  for x in seq[int](a):
+  for x in a.rawValue:
     yield x
 
 iterator pairs*(a: BodyPartPath): (int, int) =
   ## Yields (position, index) tuples.
-  for p in pairs(seq[int](a)):
+  for p in pairs(a.rawValue):
     yield p
 
 # =============================================================================
@@ -441,7 +452,7 @@ func topLevelHeaderNames(bp: EmailBlueprint): HashSet[string] =
   addAddressConvenienceNames(bp, result)
   addScalarConvenienceNames(bp, result)
   for k in bp.rawExtraHeaders.keys:
-    result.incl(string(k))
+    result.incl($k)
 
 func domainHeaderNames(part: BlueprintBodyPart): HashSet[string] =
   ## Set of lowercase header names implied by this body part's domain
@@ -507,7 +518,7 @@ func checkEmailTopLevelDuplicates(bp: EmailBlueprint): seq[EmailBlueprintError] 
   result = @[]
   var extraKeys = initHashSet[string]()
   for k in bp.rawExtraHeaders.keys:
-    extraKeys.incl(string(k))
+    extraKeys.incl($k)
   addAddressTopLevelDups(bp, extraKeys, result)
   addScalarTopLevelDups(bp, extraKeys, result)
 
@@ -522,7 +533,7 @@ func checkBodyStructureDuplicates(bp: EmailBlueprint): seq[EmailBlueprintError] 
   of ebkStructured:
     let topNames = topLevelHeaderNames(bp)
     for k in bp.rawBody.bodyStructure.extraHeaders.keys:
-      let name = string(k)
+      let name = $k
       if name in topNames:
         result.add EmailBlueprintError(
           constraint: ebcBodyStructureHeaderDuplicate, bodyStructureDupName: name
@@ -534,7 +545,7 @@ func locationOf(part: BlueprintBodyPart, path: seq[int]): BodyPartLocation =
   ## identifier directly.
   case part.isMultipart
   of true:
-    BodyPartLocation(kind: bplMultipart, path: BodyPartPath(path))
+    BodyPartLocation(kind: bplMultipart, path: initBodyPartPath(path))
   of false:
     case part.leaf.source
     of bpsInline:
@@ -551,7 +562,7 @@ func walkBodyPartDuplicates(
   result = @[]
   let domainNames = domainHeaderNames(part)
   for k in part.extraHeaders.keys:
-    let name = string(k)
+    let name = $k
     if name in domainNames:
       result.add EmailBlueprintError(
         constraint: ebcBodyPartHeaderDuplicate,
@@ -586,7 +597,7 @@ func checkTopLevelAllowedForms(bp: EmailBlueprint): seq[EmailBlueprintError] =
   ## form must be permitted for its header name per ``allowedForms``.
   result = @[]
   for k, v in bp.rawExtraHeaders:
-    let name = string(k)
+    let name = $k
     if v.form notin allowedForms(name):
       result.add EmailBlueprintError(
         constraint: ebcAllowedFormRejected, rejectedName: name, rejectedForm: v.form
@@ -597,7 +608,7 @@ func walkBodyTreeAllowedForms(part: BlueprintBodyPart): seq[EmailBlueprintError]
   ## ``ebcAllowedFormRejected`` per disallowed (name, form) pair.
   result = @[]
   for k, v in part.extraHeaders:
-    let name = string(k)
+    let name = $k
     if v.form notin allowedForms(name):
       result.add EmailBlueprintError(
         constraint: ebcAllowedFormRejected, rejectedName: name, rejectedForm: v.form

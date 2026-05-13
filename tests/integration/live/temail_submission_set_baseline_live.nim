@@ -110,8 +110,7 @@ testCase tEmailSubmissionSetBaselineLive:
       assertOn target, pollRes.isSome, "Stalwart must retain the submission record"
       let final = pollRes.unsafeGet
       assertOn target,
-        string(final.id) == string(submissionId),
-        "polled submission id must match the created id"
+        $final.id == $submissionId, "polled submission id must match the created id"
     of ltkJames, ltkCyrus:
       # James 3.9 has no ``EmailSubmission/get``; Cyrus 3.12.2's
       # ``deliveryStatus`` is hardcoded null

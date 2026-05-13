@@ -17,10 +17,10 @@ import ../../mtestblock
 # ============= A. parseKeyword (strict) =============
 
 testCase parseKeywordValid: # scenario 1
-  assertOkEq parseKeyword("$flagged"), Keyword("$flagged")
+  assertOkEq parseKeyword("$flagged"), parseKeyword("$flagged").get()
 
 testCase parseKeywordUppercase: # scenario 2
-  assertOkEq parseKeyword("MyCustomFlag"), Keyword("mycustomflag")
+  assertOkEq parseKeyword("MyCustomFlag"), parseKeyword("mycustomflag").get()
 
 testCase parseKeywordEmpty: # scenario 3
   assertErrFields parseKeyword(""), "Keyword", "length must be 1-255 octets", ""
@@ -53,7 +53,8 @@ testCase keywordWithBothAccepted: # F2 §8.3 (F1 §3.2.5 charset)
 # ============= B. parseKeywordFromServer (lenient) =============
 
 testCase parseKeywordFromServerForbiddenAccepted: # scenario 8
-  assertOkEq parseKeywordFromServer("$Flag(ed)"), Keyword("$flag(ed)")
+  assertOkEq parseKeywordFromServer("$Flag(ed)"),
+    parseKeywordFromServer("$flag(ed)").get()
 
 testCase parseKeywordFromServerControlChar: # scenario 9
   assertErrFields parseKeywordFromServer("\x01bad"),
@@ -66,14 +67,14 @@ testCase parseKeywordFromServerEmpty: # scenario 10
 # ============= C. System constants =============
 
 testCase systemConstantsValid: # scenario 11
-  doAssert kwDraft == Keyword("$draft")
-  doAssert kwSeen == Keyword("$seen")
-  doAssert kwFlagged == Keyword("$flagged")
-  doAssert kwAnswered == Keyword("$answered")
-  doAssert kwForwarded == Keyword("$forwarded")
-  doAssert kwPhishing == Keyword("$phishing")
-  doAssert kwJunk == Keyword("$junk")
-  doAssert kwNotJunk == Keyword("$notjunk")
+  doAssert kwDraft == parseKeyword("$draft").get()
+  doAssert kwSeen == parseKeyword("$seen").get()
+  doAssert kwFlagged == parseKeyword("$flagged").get()
+  doAssert kwAnswered == parseKeyword("$answered").get()
+  doAssert kwForwarded == parseKeyword("$forwarded").get()
+  doAssert kwPhishing == parseKeyword("$phishing").get()
+  doAssert kwJunk == parseKeyword("$junk").get()
+  doAssert kwNotJunk == parseKeyword("$notjunk").get()
 
 # ============= D. Borrowed operations =============
 

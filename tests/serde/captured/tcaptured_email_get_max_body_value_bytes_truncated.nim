@@ -36,7 +36,7 @@ testCase tcapturedEmailGetMaxBodyValueBytesTruncated:
       doAssert bv.value.len <= TruncationCap,
         "bodyValue under maxBodyValueBytes=" & $TruncationCap &
           " must satisfy value.len <= cap (got " & $bv.value.len & " for partId=" &
-          string(partId) & ")"
+          $partId & ")"
       if bv.isTruncated:
         anyTruncated = true
     doAssert anyTruncated,

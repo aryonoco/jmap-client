@@ -40,7 +40,7 @@ testCase tcapturedEmailSubmissionMultiRecipient:
   let sub = finalOpt.unsafeGet
 
   doAssert sub.deliveryStatus.isSome, "deliveryStatus must be populated"
-  let dsMap = (Table[RFC5321Mailbox, DeliveryStatus])(sub.deliveryStatus.unsafeGet)
+  let dsMap = sub.deliveryStatus.unsafeGet.toTable
   doAssert dsMap.len == 2,
     "two-recipient envelope must produce two deliveryStatus entries (got " & $dsMap.len &
       ")"
@@ -53,8 +53,8 @@ testCase tcapturedEmailSubmissionMultiRecipient:
     "deliveryStatus must carry an entry keyed by bob@example.com"
   doAssert aliceMailbox in dsMap,
     "deliveryStatus must carry an entry keyed by alice@example.com"
-  doAssert dsMap[bobMailbox].smtpReply.replyCode == ReplyCode(250),
+  doAssert dsMap[bobMailbox].smtpReply.replyCode.toUint16 == 250'u16,
     "bob's reply code must be 250 (got " & $dsMap[bobMailbox].smtpReply.replyCode & ")"
-  doAssert dsMap[aliceMailbox].smtpReply.replyCode == ReplyCode(250),
+  doAssert dsMap[aliceMailbox].smtpReply.replyCode.toUint16 == 250'u16,
     "alice-self's reply code must be 250 (got " &
       $dsMap[aliceMailbox].smtpReply.replyCode & ")"

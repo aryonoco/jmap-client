@@ -32,7 +32,7 @@ testCase tcapturedNotfoundRailGet:
       "fixture carries one real Email; got " & $getResp.list.len
     doAssert getResp.notFound.len == 1,
       "fixture carries one synthetic id in notFound; got " & $getResp.notFound.len
-    doAssert getResp.notFound[0] == Id("zzzzzz"),
+    doAssert getResp.notFound[0] == parseIdFromServer("zzzzzz").get(),
       "notFound id must round-trip byte-for-byte; got " & $getResp.notFound
 
     let email = getResp.list[0]

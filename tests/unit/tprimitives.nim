@@ -25,10 +25,10 @@ testCase parseIdMaxLength:
   assertOk parseId('a'.repeat(255))
 
 testCase parseIdMinLength:
-  assertOk parseId("x")
+  assertOk parseIdFromServer("x")
 
 testCase parseIdValidBase64url:
-  assertOk parseId("abc123-_XYZ")
+  assertOk parseIdFromServer("abc123-_XYZ")
 
 testCase parseIdPadChar:
   assertErrFields parseId("abc=def"),
@@ -119,9 +119,9 @@ testCase parseUtcDateNotZ:
 # --- Borrowed ops: string types (Id, Date, UTCDate) ---
 
 testCase idBorrowedOps:
-  let a = parseId("abc").get()
-  let b = parseId("abc").get()
-  let c = parseId("xyz").get()
+  let a = parseIdFromServer("abc").get()
+  let b = parseIdFromServer("abc").get()
+  let c = parseIdFromServer("xyz").get()
 
   doAssert a == b
   doAssert not (a == c)
@@ -527,7 +527,7 @@ testCase jmapIntExactlyMinJmapInt:
 
 testCase parseIdLen2:
   ## parseId accepts a 2-character base64url string (boundary above minimum).
-  assertOk parseId("AB")
+  assertOk parseIdFromServer("AB")
 
 testCase parseIdFromServerLen2:
   ## parseIdFromServer accepts a 2-character string (boundary above minimum).
@@ -545,7 +545,7 @@ testCase parseIdFromServerLen256:
 
 testCase parseIdStrictRejectsDel:
   ## Strict Id rejects DEL character (0x7F).
-  assertErr parseId("abc\x7Fdef")
+  assertErr parseIdFromServer("abc\x7Fdef")
 
 testCase parseIdStrictRejectsHighByte80:
   ## Strict Id rejects high byte 0x80.
@@ -669,7 +669,7 @@ testCase parseMaxChangesBorrowedOps:
 # primitives.nim deliberately leaves op-set instantiation to the consumer, so
 # NonEmptySeq[int] must be opted in here before the scenarios below can
 # exercise `==`, `[]`, `hash`, `len`, and iteration on that element type.
-defineNonEmptySeqOps(int)
+defineSealedNonEmptySeqOps(int)
 
 testCase parseNonEmptySeqBasic: # §6.1.5b scenario 37i
   let res = parseNonEmptySeq(@[1, 2, 3])

@@ -95,7 +95,7 @@ testCase propCreationIdNoLeadingHash:
     let s = genValidCreationId(rng)
     lastInput = s
     let c = parseCreationId(s).get()
-    doAssert string(c)[0] != '#'
+    doAssert ($c)[0] != '#'
 
 testCase propJmapStateNonEmpty:
   checkProperty "valid JmapState is non-empty":

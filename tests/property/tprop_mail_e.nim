@@ -260,8 +260,8 @@ testCase propBodyValuesCorrespondence: # 92
 testCase propHeaderNameNormalisationIdempotence: # 93
   checkProperty "blueprint header-name parsers fold case and round-trip":
     let raw = rng.genBlueprintEmailHeaderName(trial)
-    lastInput = string(raw)
-    let rawStr = string(raw)
+    lastInput = $raw
+    let rawStr = $raw
     let lower = parseBlueprintEmailHeaderName(rawStr.toLowerAscii)
     let upper = parseBlueprintEmailHeaderName(rawStr.toUpperAscii)
     let mixed = parseBlueprintEmailHeaderName(rawStr)
@@ -272,7 +272,7 @@ testCase propHeaderNameNormalisationIdempotence: # 93
     doAssert lower.unsafeValue == mixed.unsafeValue,
       "parser is not case-insensitive: lower != mixed"
     # Round-trip: parsing the canonical form yields the canonical form.
-    let canon = parseBlueprintEmailHeaderName(string(mixed.unsafeValue))
+    let canon = parseBlueprintEmailHeaderName($mixed.unsafeValue)
     doAssert canon.isOk and canon.unsafeValue == mixed.unsafeValue,
       "parser not idempotent under re-parse of canonical form"
 

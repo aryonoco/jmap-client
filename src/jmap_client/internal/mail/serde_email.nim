@@ -1029,9 +1029,9 @@ func emitCreateResults(
   var notCreated = newJObject()
   for cid, r in createResults:
     if r.isOk:
-      created[string(cid)] = r.get().toJson()
+      created[$cid] = r.get().toJson()
     else:
-      notCreated[string(cid)] = r.error.toJson()
+      notCreated[$cid] = r.error.toJson()
   if created.len > 0:
     node["created"] = created
   if notCreated.len > 0:
@@ -1116,8 +1116,8 @@ func toJson*(item: EmailImportItem): JsonNode =
 func toJson*(m: NonEmptyEmailImportMap): JsonNode =
   ## Serialise NonEmptyEmailImportMap. Smart constructor has already
   ## enforced non-empty and unique-CreationId invariants (Design §6.2, F13).
-  let tbl = Table[CreationId, EmailImportItem](m)
+  let tbl = m.toTable
   var node = newJObject()
   for cid, item in tbl:
-    node[string(cid)] = item.toJson()
+    node[$cid] = item.toJson()
   return node

@@ -22,13 +22,13 @@ import ../../types
 func toJson*(caps: CoreCapabilities): JsonNode =
   ## Serialise CoreCapabilities to JSON (RFC 8620 §2).
   var node = %*{
-    "maxSizeUpload": int64(caps.maxSizeUpload),
-    "maxConcurrentUpload": int64(caps.maxConcurrentUpload),
-    "maxSizeRequest": int64(caps.maxSizeRequest),
-    "maxConcurrentRequests": int64(caps.maxConcurrentRequests),
-    "maxCallsInRequest": int64(caps.maxCallsInRequest),
-    "maxObjectsInGet": int64(caps.maxObjectsInGet),
-    "maxObjectsInSet": int64(caps.maxObjectsInSet),
+    "maxSizeUpload": caps.maxSizeUpload.toInt64,
+    "maxConcurrentUpload": caps.maxConcurrentUpload.toInt64,
+    "maxSizeRequest": caps.maxSizeRequest.toInt64,
+    "maxConcurrentRequests": caps.maxConcurrentRequests.toInt64,
+    "maxCallsInRequest": caps.maxCallsInRequest.toInt64,
+    "maxObjectsInGet": caps.maxObjectsInGet.toInt64,
+    "maxObjectsInSet": caps.maxObjectsInSet.toInt64,
   }
   var algArr = newJArray()
   for alg in caps.collationAlgorithms:
@@ -247,7 +247,7 @@ func toJson*(s: Session): JsonNode =
     "downloadUrl": $s.downloadUrl,
     "uploadUrl": $s.uploadUrl,
     "eventSourceUrl": $s.eventSourceUrl,
-    "state": string(s.state),
+    "state": $s.state,
   }
   # capabilities: URI -> capability data
   var caps = newJObject()
@@ -257,12 +257,12 @@ func toJson*(s: Session): JsonNode =
   # accounts: AccountId -> Account
   var accts = newJObject()
   for id, acct in s.accounts:
-    accts[string(id)] = acct.toJson()
+    accts[$id] = acct.toJson()
   node["accounts"] = accts
   # primaryAccounts: capability URI -> AccountId
   var primary = newJObject()
   for uri, id in s.primaryAccounts:
-    primary[uri] = %string(id)
+    primary[uri] = %($id)
   node["primaryAccounts"] = primary
   return node
 

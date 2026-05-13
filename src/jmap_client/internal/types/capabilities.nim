@@ -79,15 +79,16 @@ func hasCollation*(caps: CoreCapabilities, algorithm: CollationAlgorithm): bool 
   ## Checks whether the server supports a given RFC 4790 collation algorithm.
   return algorithm in caps.collationAlgorithms
 
-type CapabilityUri* = distinct string
+type CapabilityUri* {.ruleOff: "objects".} = object
   ## RFC 8620 §2 capability URI carrier. Used internally by every typed
-  ## ``add<Entity><Method>`` builder to tag the request's ``using`` field,
-  ## and publicly as the ``capability`` parameter on
-  ## ``addCapabilityInvocation`` for vendor URN escapes. Raw constructor
-  ## ``CapabilityUri(s)`` is module-private (P15); external consumers go
-  ## through ``parseCapabilityUri``.
+  ## ``add<Entity><Method>`` builder to tag the request's ``using``
+  ## field, and publicly as the ``capability`` parameter on
+  ## ``addCapabilityInvocation`` for vendor URN escapes. Sealed
+  ## Pattern-A object — ``rawValue`` is module-private. External
+  ## consumers must go through ``parseCapabilityUri``.
+  rawValue: string
 
-defineStringDistinctOps(CapabilityUri)
+defineSealedStringOps(CapabilityUri)
 
 func parseCapabilityUri*(raw: string): Result[CapabilityUri, ValidationError] =
   ## Validates the URN envelope per RFC 8141: lenient-token shape (1..255
@@ -104,4 +105,4 @@ func parseCapabilityUri*(raw: string): Result[CapabilityUri, ValidationError] =
   let colon2 = raw.find(':', start = 4)
   if colon2 < 5:
     return err(validationError("CapabilityUri", "malformed urn: missing NID", raw))
-  ok(CapabilityUri(raw))
+  ok(CapabilityUri(rawValue: raw))

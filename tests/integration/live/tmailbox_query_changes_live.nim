@@ -101,14 +101,14 @@ testCase tmailboxQueryChangesLive:
         "Mailbox/queryChanges with-total extract[" & $target.kind & "]"
       )
     assertOn target,
-      string(qcr.oldQueryState) == string(queryState1),
+      $qcr.oldQueryState == $queryState1,
       "oldQueryState must echo the supplied baseline"
     assertOn target,
       qcr.total.isSome,
       "calculateTotal=true must surface a total (got " & $qcr.total & ")"
     let totalVal = qcr.total.get()
     for item in qcr.added:
-      assertOn target, string(item.id).len > 0, "every added.id must be non-empty"
+      assertOn target, ($item.id).len > 0, "every added.id must be non-empty"
       # The ``index < total`` invariant only holds when the server
       # reports an accurate total. Cyrus 3.12.2 returns ``total: 0``
       # for Mailbox/queryChanges with calculateTotal=true even when
@@ -116,7 +116,7 @@ testCase tmailboxQueryChangesLive:
       # not a client-library bug. The wire-shape parse is the
       # universal client contract; the bound check runs only when
       # the server populated total.
-      if totalVal > UnsignedInt(0):
+      if totalVal > parseUnsignedInt(0).get():
         assertOn target,
           item.index < totalVal,
           "added.index must fall within the new query's bounds (got " & $item.index &

@@ -31,7 +31,7 @@ testCase tcapturedSetErrorNotFound:
   let setResp = SetResponse[EmailCreatedItem, PartialEmail]
     .fromJson(inv.arguments)
     .expect("SetResponse.fromJson")
-  let syntheticId = Id("zzzzz")
+  let syntheticId = parseIdFromServer("zzzzz").get()
   var found = false
   setResp.destroyResults.withValue(syntheticId, outcome):
     doAssert outcome.isErr, "synthetic id outcome must be Err(SetError)"

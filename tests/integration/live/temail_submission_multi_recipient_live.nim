@@ -139,7 +139,7 @@ testCase tEmailSubmissionMultiRecipientLive:
       assertOn target,
         sub.deliveryStatus.isSome,
         "Stalwart must populate deliveryStatus once delivery is final"
-      let dsMap = (Table[RFC5321Mailbox, DeliveryStatus])(sub.deliveryStatus.unsafeGet)
+      let dsMap = sub.deliveryStatus.unsafeGet.toTable
       assertOn target,
         dsMap.len == 2,
         "two-recipient envelope (bob, alice-self) must produce two deliveryStatus " &
@@ -158,12 +158,12 @@ testCase tEmailSubmissionMultiRecipientLive:
         "deliveryStatus must carry an entry keyed by alice@example.com"
       let bobEntry = dsMap[bobMailbox]
       assertOn target,
-        bobEntry.smtpReply.replyCode == ReplyCode(250),
+        bobEntry.smtpReply.replyCode.toUint16 == 250'u16,
         "bob's local-queue SMTP reply must carry code 250 (got " &
           $bobEntry.smtpReply.replyCode & ")"
       let aliceEntry = dsMap[aliceMailbox]
       assertOn target,
-        aliceEntry.smtpReply.replyCode == ReplyCode(250),
+        aliceEntry.smtpReply.replyCode.toUint16 == 250'u16,
         "alice-self's local-queue SMTP reply must carry code 250 (got " &
           $aliceEntry.smtpReply.replyCode & ")"
     of ltkJames, ltkCyrus:

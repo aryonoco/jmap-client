@@ -26,8 +26,8 @@ testCase tcapturedMethodErrorUnknownMethod:
   let inv = resp.methodResponses[0]
   doAssert inv.rawName == "error",
     "method-level errors arrive on the literal 'error' rawName, got " & inv.rawName
-  doAssert string(inv.methodCallId) == "c0",
-    "Stalwart echoes the call id from the request, got " & string(inv.methodCallId)
+  doAssert $inv.methodCallId == "c0",
+    "Stalwart echoes the call id from the request, got " & $inv.methodCallId
   let me = MethodError.fromJson(inv.arguments).expect("MethodError.fromJson")
   doAssert me.rawType == "unknownMethod",
     "Stalwart returns the canonical 'unknownMethod' rawType, got " & me.rawType

@@ -419,10 +419,10 @@ testCase validateLimitsGetWithinLimit:
   let caps = makeCoreCapsWithLimits(maxObjectsInGet = 10)
   var ids = newSeq[Id](5)
   for i in 0 ..< 5:
-    ids[i] = Id("id" & $i)
+    ids[i] = parseIdFromServer("id" & $i).get()
   let (b, _) = addGet[Email](
     initRequestBuilder(makeBuilderId()),
-    accountId = AccountId("a1"),
+    accountId = parseAccountId("a1").get(),
     ids = directIds(ids),
   )
   validateLimits(b.freeze(), caps).get()
@@ -432,10 +432,10 @@ testCase validateLimitsGetExceedsLimit:
   let caps = makeCoreCapsWithLimits(maxObjectsInGet = 10)
   var ids = newSeq[Id](11)
   for i in 0 ..< 11:
-    ids[i] = Id("id" & $i)
+    ids[i] = parseIdFromServer("id" & $i).get()
   let (b, _) = addGet[Email](
     initRequestBuilder(makeBuilderId()),
-    accountId = AccountId("a1"),
+    accountId = parseAccountId("a1").get(),
     ids = directIds(ids),
   )
   let limR2 = validateLimits(b.freeze(), caps)
@@ -451,7 +451,7 @@ testCase validateLimitsGetReferenceIds:
   )
   let (b, _) = addGet[Email](
     initRequestBuilder(makeBuilderId()),
-    accountId = AccountId("a1"),
+    accountId = parseAccountId("a1").get(),
     ids = Opt.some(referenceTo[seq[Id]](rr)),
   )
   validateLimits(b.freeze(), caps).get()
@@ -459,8 +459,9 @@ testCase validateLimitsGetReferenceIds:
 testCase validateLimitsGetNullIds:
   ## Scenario 27: /get with no ids parameter — idCount = 0.
   let caps = makeCoreCapsWithLimits(maxObjectsInGet = 1)
-  let (b, _) =
-    addGet[Email](initRequestBuilder(makeBuilderId()), accountId = AccountId("a1"))
+  let (b, _) = addGet[Email](
+    initRequestBuilder(makeBuilderId()), accountId = parseAccountId("a1").get()
+  )
   validateLimits(b.freeze(), caps).get()
 
 testCase validateLimitsSetWithinLimit:
@@ -512,10 +513,10 @@ testCase validateLimitsMixedWithinLimits:
   )
   var ids = newSeq[Id](5)
   for i in 0 ..< 5:
-    ids[i] = Id("id" & $i)
+    ids[i] = parseIdFromServer("id" & $i).get()
   let (b1, _) = addGet[Email](
     initRequestBuilder(makeBuilderId()),
-    accountId = AccountId("a1"),
+    accountId = parseAccountId("a1").get(),
     ids = directIds(ids),
   )
   let (b2, _) = b1.addInvocation(
@@ -549,10 +550,10 @@ testCase validateLimitsGetAtLimit:
   let caps = makeCoreCapsWithLimits(maxObjectsInGet = 10)
   var ids = newSeq[Id](10)
   for i in 0 ..< 10:
-    ids[i] = Id("id" & $i)
+    ids[i] = parseIdFromServer("id" & $i).get()
   let (b, _) = addGet[Email](
     initRequestBuilder(makeBuilderId()),
-    accountId = AccountId("a1"),
+    accountId = parseAccountId("a1").get(),
     ids = directIds(ids),
   )
   validateLimits(b.freeze(), caps).get()
@@ -573,7 +574,7 @@ testCase validateLimitsGetEmptyIds:
   let caps = makeCoreCapsWithLimits(maxObjectsInGet = 1)
   let (b, _) = addGet[Email](
     initRequestBuilder(makeBuilderId()),
-    accountId = AccountId("a1"),
+    accountId = parseAccountId("a1").get(),
     ids = directIds(newSeq[Id]()),
   )
   validateLimits(b.freeze(), caps).get()
@@ -626,7 +627,7 @@ testCase setSessionForTestVerify:
   assertNone c.session()
   c.setSessionForTest(session)
   doAssert c.session().isSome
-  doAssert string(c.session().get().state) == string(args.state)
+  doAssert $c.session().get().state == $args.state
 
 # --- isSessionStale ---
 

@@ -170,33 +170,46 @@ func parseMailboxRole*(raw: string): Result[MailboxRole, ValidationError] =
 
 # 1. MailboxIdSet — general-purpose, empty allowed (read models, Decision B4)
 
-type MailboxIdSet* = distinct HashSet[Id]
-  ## Immutable set of mailbox identifiers. Read-only operations only — no
+type MailboxIdSet* {.ruleOff: "objects".} = object
+  ## Immutable set of mailbox identifiers. Sealed Pattern-A object —
+  ## ``rawValue`` is module-private. Read-only operations only — no
   ## mutation after construction (Decision B4, same pattern as KeywordSet).
+  rawValue: HashSet[Id]
 
-defineHashSetDistinctOps(MailboxIdSet, Id)
+defineSealedHashSetOps(MailboxIdSet, Id)
 
 func initMailboxIdSet*(ids: openArray[Id]): MailboxIdSet =
-  ## Constructs a MailboxIdSet from the given identifiers. Empty set is valid.
-  ## Duplicates are naturally deduplicated by the underlying HashSet.
-  MailboxIdSet(ids.toHashSet)
+  ## Constructs a MailboxIdSet from the given identifiers. Empty set is
+  ## valid. Duplicates are naturally deduplicated by the underlying
+  ## HashSet.
+  MailboxIdSet(rawValue: ids.toHashSet)
+
+func toHashSet*(ms: MailboxIdSet): HashSet[Id] {.inline.} =
+  ## Value-projection accessor — returns a copy of the underlying set.
+  ms.rawValue
 
 iterator items*(ms: MailboxIdSet): Id =
-  ## Yields each identifier in the set. Unwraps the distinct type to iterate
-  ## the underlying HashSet.
-  for id in HashSet[Id](ms):
+  ## Yields each identifier in the set.
+  for id in ms.rawValue:
     yield id
 
 # 2. NonEmptyMailboxIdSet — creation-context, at-least-one enforced (Part E §4.2)
 
-type NonEmptyMailboxIdSet* = distinct HashSet[Id]
+type NonEmptyMailboxIdSet* {.ruleOff: "objects".} = object
   ## Non-empty set of mailbox identifiers for client-constructed email
-  ## creation payloads. Construction is gated by parseNonEmptyMailboxIdSet;
-  ## mutating operations (incl, excl) are deliberately not borrowed — they
-  ## would violate the at-least-one invariant. Consumed by parseEmailBlueprint
-  ## (Phase 3 Step 11) as the typed mailboxIds parameter.
+  ## creation payloads. Sealed Pattern-A object — ``rawValue`` is
+  ## module-private. Construction is gated by
+  ## ``parseNonEmptyMailboxIdSet``; mutating operations (incl, excl) are
+  ## deliberately not exposed — they would violate the at-least-one
+  ## invariant. Consumed by ``parseEmailBlueprint`` (Phase 3 Step 11)
+  ## as the typed mailboxIds parameter.
+  rawValue: HashSet[Id]
 
-defineNonEmptyHashSetDistinctOps(NonEmptyMailboxIdSet, Id)
+defineSealedNonEmptyHashSetOps(NonEmptyMailboxIdSet, Id)
+
+func toHashSet*(ms: NonEmptyMailboxIdSet): HashSet[Id] {.inline.} =
+  ## Value-projection accessor — returns a copy of the underlying set.
+  ms.rawValue
 
 func parseNonEmptyMailboxIdSet*(
     ids: openArray[Id]
@@ -205,7 +218,7 @@ func parseNonEmptyMailboxIdSet*(
   ## by the underlying HashSet. Returns err on empty input.
   if ids.len == 0:
     return err(validationError("NonEmptyMailboxIdSet", "must not be empty", ""))
-  return ok(NonEmptyMailboxIdSet(ids.toHashSet))
+  return ok(NonEmptyMailboxIdSet(rawValue: ids.toHashSet))
 
 # =============================================================================
 # MailboxRights
@@ -306,7 +319,7 @@ func parseMailboxCreate*(
     name: string,
     parentId: Opt[Id] = Opt.none(Id),
     role: Opt[MailboxRole] = Opt.none(MailboxRole),
-    sortOrder: UnsignedInt = UnsignedInt(0),
+    sortOrder: UnsignedInt = parseUnsignedInt(0).get(),
     isSubscribed: bool = false,
 ): Result[MailboxCreate, ValidationError] =
   ## Smart constructor: validates non-empty name, constructs MailboxCreate.
@@ -379,10 +392,16 @@ func setIsSubscribed*(isSubscribed: bool): MailboxUpdate =
   ## Replace the target Mailbox's isSubscribed flag.
   MailboxUpdate(kind: muSetIsSubscribed, isSubscribed: isSubscribed)
 
-type MailboxUpdateSet* = distinct seq[MailboxUpdate]
-  ## Validated, conflict-free batch of MailboxUpdate operations targeting
-  ## a single Mailbox id. Construction gated by initMailboxUpdateSet —
-  ## the raw distinct constructor is not part of the public surface.
+type MailboxUpdateSet* {.ruleOff: "objects".} = object
+  ## Validated, conflict-free batch of MailboxUpdate operations
+  ## targeting a single Mailbox id. Sealed Pattern-A object —
+  ## ``rawValue`` is module-private. Construction is gated by
+  ## ``initMailboxUpdateSet``.
+  rawValue: seq[MailboxUpdate]
+
+func toSeq*(s: MailboxUpdateSet): seq[MailboxUpdate] {.inline.} =
+  ## Value-projection accessor — returns a copy of the underlying seq.
+  s.rawValue
 
 func initMailboxUpdateSet*(
     updates: openArray[MailboxUpdate]
@@ -403,23 +422,26 @@ func initMailboxUpdateSet*(
   )
   if errs.len > 0:
     return err(errs)
-  ok(MailboxUpdateSet(@updates))
+  ok(MailboxUpdateSet(rawValue: @updates))
 
 # =============================================================================
 # NonEmptyMailboxUpdates — whole-container /set update algebra (RFC 8621 §2.5)
 # =============================================================================
 
-type NonEmptyMailboxUpdates* = distinct Table[Id, MailboxUpdateSet]
-  ## Non-empty, duplicate-free batch of per-mailbox update operations keyed
-  ## by existing Mailbox ``Id``. Construction gated by
-  ## ``parseNonEmptyMailboxUpdates``; the raw distinct constructor is
-  ## module-private surface. Shape mirrors
-  ## ``NonEmptyEmailSubmissionUpdates`` (email_submission.nim) —
-  ## ``addSet[Mailbox, ...]`` serialises the container via its own
-  ## ``toJson`` rather than assembling the wire patch per-caller.
+type NonEmptyMailboxUpdates* {.ruleOff: "objects".} = object
+  ## Non-empty, duplicate-free batch of per-mailbox update operations
+  ## keyed by existing Mailbox ``Id``. Sealed Pattern-A object —
+  ## ``rawValue`` is module-private. Construction is gated by
+  ## ``parseNonEmptyMailboxUpdates``.
+  rawValue: Table[Id, MailboxUpdateSet]
 
-func len*(a: NonEmptyMailboxUpdates): int {.borrow.}
-  ## Number of update entries — borrowed from the underlying ``Table``.
+func len*(a: NonEmptyMailboxUpdates): int =
+  ## Number of update entries.
+  a.rawValue.len
+
+func toTable*(s: NonEmptyMailboxUpdates): Table[Id, MailboxUpdateSet] {.inline.} =
+  ## Value-projection accessor — returns a copy of the underlying table.
+  s.rawValue
 
 func parseNonEmptyMailboxUpdates*(
     items: openArray[(Id, MailboxUpdateSet)]
@@ -445,4 +467,4 @@ func parseNonEmptyMailboxUpdates*(
   var t = initTable[Id, MailboxUpdateSet](items.len)
   for (id, updateSet) in items:
     t[id] = updateSet
-  ok(NonEmptyMailboxUpdates(t))
+  ok(NonEmptyMailboxUpdates(rawValue: t))

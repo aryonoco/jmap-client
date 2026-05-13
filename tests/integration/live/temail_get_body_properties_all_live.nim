@@ -118,7 +118,7 @@ testCase temailGetBodyPropertiesAllLive:
       "bvsAll must yield at least the textBody bodyValue (got " & $email.bodyValues.len &
         " — Stalwart 0.15.5 omits attachment bodyValues even for text/* leaves)"
     for partId, bv in email.bodyValues.pairs:
-      assertOn target, string(partId).len > 0, "every bodyValues key must be non-empty"
+      assertOn target, ($partId).len > 0, "every bodyValues key must be non-empty"
       assertOn target,
         bv.value.len > 0, "bvsAll-emitted bodyValue must carry decoded content"
 

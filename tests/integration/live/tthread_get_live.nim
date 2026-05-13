@@ -89,8 +89,7 @@ testCase tthreadGetLive:
     )
     let t = thread.get()
     assertOn target,
-      string(t.id) == string(threadId),
-      "returned Thread.id must match the threadId from Email/get"
+      $t.id == $threadId, "returned Thread.id must match the threadId from Email/get"
     assertOn target,
       seededId in t.emailIds, "seeded EmailId must appear in Thread.emailIds"
     client.close()

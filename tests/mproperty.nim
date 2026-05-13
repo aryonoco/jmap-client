@@ -650,7 +650,7 @@ proc genSetError*(rng: var Rand): SetError =
     setErrorInvalidProperties("invalidProperties", props, desc, extras)
   of 1:
     # alreadyExists variant
-    let id = parseId(rng.genValidIdStrict(minLen = 1, maxLen = 20)).get()
+    let id = parseIdFromServer(rng.genValidIdStrict(minLen = 1, maxLen = 20)).get()
     setErrorAlreadyExists("alreadyExists", id, desc, extras)
   else:
     # Generic variant
@@ -767,7 +767,7 @@ proc genAddedItem*(rng: var Rand): AddedItem =
   ## Generates a random AddedItem with a valid strict Id (1-20 chars base64url)
   ## and a random UnsignedInt index (0-10000).
   ## Does NOT generate: very long Ids, very large indices.
-  let id = parseId(rng.genValidIdStrict(minLen = 1, maxLen = 20)).get()
+  let id = parseIdFromServer(rng.genValidIdStrict(minLen = 1, maxLen = 20)).get()
   let idx = parseUnsignedInt(rng.rand(0'i64 .. 10000'i64)).get()
   initAddedItem(id, idx)
 
@@ -1506,10 +1506,10 @@ proc genEmailBodyPart*(rng: var Rand, maxDepth: int = 3): EmailBodyPart =
       cid: sf.cid,
       language: sf.language,
       location: sf.location,
-      size: UnsignedInt(rng.rand(1'i64 .. 50000'i64)),
+      size: parseUnsignedInt(rng.rand(1'i64 .. 50000'i64)).get(),
       isMultipart: false,
       partId: rng.genPartId(),
-      blobId: BlobId(rng.genValidIdStrict(minLen = 3, maxLen = 20)),
+      blobId: parseBlobId(rng.genValidIdStrict(minLen = 3, maxLen = 20)).get(),
     )
   let ct = rng.oneOf(multipartTypes)
   var children: seq[EmailBodyPart] = @[]
@@ -1524,7 +1524,7 @@ proc genEmailBodyPart*(rng: var Rand, maxDepth: int = 3): EmailBodyPart =
     cid: sf.cid,
     language: sf.language,
     location: sf.location,
-    size: UnsignedInt(0),
+    size: parseUnsignedInt(0).get(),
     isMultipart: true,
     subParts: children,
   )
@@ -1625,12 +1625,12 @@ proc genKeywordSet*(rng: var Rand): KeywordSet =
 proc genMailboxIdSet*(rng: var Rand): MailboxIdSet =
   var ids: seq[Id] = @[]
   for _ in 0 ..< rng.rand(1 .. 5):
-    ids.add(Id(rng.genValidIdStrict()))
+    ids.add(parseIdFromServer(rng.genValidIdStrict()).get())
   initMailboxIdSet(ids)
 
 proc genSearchSnippet*(rng: var Rand): SearchSnippet =
   SearchSnippet(
-    emailId: Id(rng.genValidIdStrict()),
+    emailId: parseIdFromServer(rng.genValidIdStrict()).get(),
     subject:
       if rng.rand(0 .. 1) == 0:
         Opt.some(rng.genPrintableString(80))
@@ -1795,11 +1795,11 @@ proc fillMailboxFilterFields(
     rng: var Rand, fc: var EmailFilterCondition, allSome: bool
 ) =
   if allSome or rng.rand(0 .. 9) < 3:
-    fc.inMailbox = Opt.some(Id(rng.genValidIdStrict()))
+    fc.inMailbox = Opt.some(parseIdFromServer(rng.genValidIdStrict()).get())
   if allSome or rng.rand(0 .. 9) < 3:
     var ids: seq[Id] = @[]
     for _ in 0 ..< rng.rand(1 .. 3):
-      ids.add(Id(rng.genValidIdStrict()))
+      ids.add(parseIdFromServer(rng.genValidIdStrict()).get())
     fc.inMailboxOtherThan = Opt.some(ids)
 
 proc fillDateSizeFilterFields(
@@ -1885,10 +1885,10 @@ proc genDeepBodyStructure*(rng: var Rand, depth: int): EmailBodyPart =
       cid: sf.cid,
       language: sf.language,
       location: sf.location,
-      size: UnsignedInt(rng.rand(1'i64 .. 50000'i64)),
+      size: parseUnsignedInt(rng.rand(1'i64 .. 50000'i64)).get(),
       isMultipart: false,
       partId: rng.genPartId(),
-      blobId: BlobId(rng.genValidIdStrict(minLen = 3, maxLen = 20)),
+      blobId: parseBlobId(rng.genValidIdStrict(minLen = 3, maxLen = 20)).get(),
     )
   var children: seq[EmailBodyPart] = @[]
   children.add(rng.genDeepBodyStructure(depth - 1))
@@ -1903,7 +1903,7 @@ proc genDeepBodyStructure*(rng: var Rand, depth: int): EmailBodyPart =
     cid: sf.cid,
     language: sf.language,
     location: sf.location,
-    size: UnsignedInt(0),
+    size: parseUnsignedInt(0).get(),
     isMultipart: true,
     subParts: children,
   )
@@ -1918,9 +1918,9 @@ proc genEmail*(rng: var Rand): Email =
   for _ in 0 ..< rng.rand(0 .. 3):
     rawHeaders.add(rng.genEmailHeader())
   Email(
-    id: Opt.some(Id(rng.genValidIdStrict())),
-    blobId: Opt.some(BlobId(rng.genValidIdStrict())),
-    threadId: Opt.some(Id(rng.genValidIdStrict())),
+    id: Opt.some(parseIdFromServer(rng.genValidIdStrict()).get()),
+    blobId: Opt.some(parseBlobId(rng.genValidIdStrict()).get()),
+    threadId: Opt.some(parseIdFromServer(rng.genValidIdStrict()).get()),
     mailboxIds: Opt.some(rng.genMailboxIdSet()),
     keywords: Opt.some(rng.genKeywordSet()),
     size: Opt.some(parseUnsignedInt(rng.genValidUnsignedInt()).get()),
@@ -1957,7 +1957,7 @@ proc genParsedEmail*(rng: var Rand): ParsedEmail =
     rawHeaders.add(rng.genEmailHeader())
   let threadId =
     if rng.rand(0 .. 1) == 0:
-      Opt.some(Id(rng.genValidIdStrict()))
+      Opt.some(parseIdFromServer(rng.genValidIdStrict()).get())
     else:
       Opt.none(Id)
   ParsedEmail(
@@ -2222,19 +2222,19 @@ proc genNonEmptyMailboxIdSet*(rng: var Rand, trial: int = -1): NonEmptyMailboxId
   if trial >= 0 and trial < 3:
     case trial
     of 0:
-      return parseNonEmptyMailboxIdSet(@[parseId("mbx-0").get()]).get()
+      return parseNonEmptyMailboxIdSet(@[parseIdFromServer("mbx-0").get()]).get()
     of 1:
-      let id = parseId("mbx-dup").get()
+      let id = parseIdFromServer("mbx-dup").get()
       return parseNonEmptyMailboxIdSet(@[id, id, id]).get()
     else:
       return parseNonEmptyMailboxIdSet(
-          @[parseId("mbx-a").get(), parseId("mbx-b").get()]
+          @[parseIdFromServer("mbx-a").get(), parseIdFromServer("mbx-b").get()]
         )
         .get()
   let count = rng.rand(1 .. 20)
   var ids: seq[Id] = @[]
   for i in 0 ..< count:
-    ids.add(parseId("mbx-" & $i).get())
+    ids.add(parseIdFromServer("mbx-" & $i).get())
   parseNonEmptyMailboxIdSet(ids).get()
 
 # J-7 ------------------------------------------------------------------------
@@ -2346,7 +2346,7 @@ proc genBlueprintBodyPart*(rng: var Rand, maxDepth: int = 4): BlueprintBodyPart 
       isMultipart: false,
       leaf: BlueprintLeafPart(
         source: bpsBlobRef,
-        blobId: BlobId(rng.genValidIdStrict(minLen = 3, maxLen = 20)),
+        blobId: parseBlobId(rng.genValidIdStrict(minLen = 3, maxLen = 20)).get(),
         size: Opt.none(UnsignedInt),
         charset: Opt.none(string),
       ),
@@ -2768,16 +2768,16 @@ proc genBodyPartPath*(rng: var Rand, trial: int = -1): BodyPartPath =
   if trial >= 0 and trial < 3:
     case trial
     of 0:
-      return BodyPartPath(@[])
+      return initBodyPartPath(@[])
     of 1:
-      return BodyPartPath(@[0])
+      return initBodyPartPath(@[0])
     else:
-      return BodyPartPath(@[0, 1, 2])
+      return initBodyPartPath(@[0, 1, 2])
   let length = rng.rand(0 .. 8)
   var s: seq[int] = @[]
   for _ in 0 ..< length:
     s.add(rng.rand(0 .. 16))
-  BodyPartPath(s)
+  initBodyPartPath(s)
 
 proc genBodyPartLocation*(rng: var Rand, trial: int = -1): BodyPartLocation =
   ## Generates ``BodyPartLocation`` values across all three kinds.
@@ -2790,7 +2790,7 @@ proc genBodyPartLocation*(rng: var Rand, trial: int = -1): BodyPartLocation =
       return BodyPartLocation(kind: bplInline, partId: rng.genPartId(trial = 0))
     of 1:
       return BodyPartLocation(
-        kind: bplBlobRef, blobId: BlobId(rng.genValidIdStrict(minLen = 3))
+        kind: bplBlobRef, blobId: parseBlobId(rng.genValidIdStrict(minLen = 3)).get()
       )
     else:
       return BodyPartLocation(kind: bplMultipart, path: rng.genBodyPartPath(trial = 1))
@@ -2798,7 +2798,9 @@ proc genBodyPartLocation*(rng: var Rand, trial: int = -1): BodyPartLocation =
   of 0:
     BodyPartLocation(kind: bplInline, partId: rng.genPartId())
   of 1:
-    BodyPartLocation(kind: bplBlobRef, blobId: BlobId(rng.genValidIdStrict(minLen = 3)))
+    BodyPartLocation(
+      kind: bplBlobRef, blobId: parseBlobId(rng.genValidIdStrict(minLen = 3)).get()
+    )
   else:
     BodyPartLocation(kind: bplMultipart, path: rng.genBodyPartPath())
 
@@ -3115,9 +3117,9 @@ proc genEmailUpdate*(rng: var Rand, trial: int = -1): EmailUpdate =
           of euSetKeywords:
             setKeywords(rng.genKeywordSet())
           of euAddToMailbox:
-            addToMailbox(Id(rng.genValidIdStrict()))
+            addToMailbox(parseIdFromServer(rng.genValidIdStrict()).get())
           of euRemoveFromMailbox:
-            removeFromMailbox(Id(rng.genValidIdStrict()))
+            removeFromMailbox(parseIdFromServer(rng.genValidIdStrict()).get())
           of euSetMailboxIds:
             setMailboxIds(rng.genNonEmptyMailboxIdSet())
       inc idx
@@ -3132,7 +3134,7 @@ proc genEmailUpdate*(rng: var Rand, trial: int = -1): EmailUpdate =
     of 3:
       return markUnflagged()
     of 4:
-      return moveToMailbox(Id(rng.genValidIdStrict()))
+      return moveToMailbox(parseIdFromServer(rng.genValidIdStrict()).get())
     else:
       discard
   if trial == 11:
@@ -3149,9 +3151,9 @@ proc genEmailUpdate*(rng: var Rand, trial: int = -1): EmailUpdate =
   of 2:
     setKeywords(rng.genKeywordSet())
   of 3:
-    addToMailbox(Id(rng.genValidIdStrict()))
+    addToMailbox(parseIdFromServer(rng.genValidIdStrict()).get())
   of 4:
-    removeFromMailbox(Id(rng.genValidIdStrict()))
+    removeFromMailbox(parseIdFromServer(rng.genValidIdStrict()).get())
   of 5:
     setMailboxIds(rng.genNonEmptyMailboxIdSet())
   of 6:
@@ -3163,7 +3165,7 @@ proc genEmailUpdate*(rng: var Rand, trial: int = -1): EmailUpdate =
   of 9:
     markUnflagged()
   else:
-    moveToMailbox(Id(rng.genValidIdStrict()))
+    moveToMailbox(parseIdFromServer(rng.genValidIdStrict()).get())
 
 proc genEmailUpdateSet*(rng: var Rand, trial: int = -1): EmailUpdateSet =
   ## Generates only valid (non-empty, conflict-free) ``EmailUpdateSet``
@@ -3176,7 +3178,10 @@ proc genEmailUpdateSet*(rng: var Rand, trial: int = -1): EmailUpdateSet =
     return initEmailUpdateSet(@[addKeyword(kwSeen)]).get()
   if trial == 1:
     return initEmailUpdateSet(
-        @[addKeyword(kwSeen), addToMailbox(Id(rng.genValidIdStrict()))]
+        @[
+          addKeyword(kwSeen),
+          addToMailbox(parseIdFromServer(rng.genValidIdStrict()).get()),
+        ]
       )
       .get()
   const maxRetries = 16
@@ -3211,7 +3216,7 @@ proc genInvalidEmailUpdateSet*(rng: var Rand, trial: int = -1): seq[EmailUpdate]
   if trial == 3:
     return @[addKeyword(kw), setKeywords(initKeywordSet([kw]))]
   if trial == 4:
-    let mbx = Id(rng.genValidIdStrict())
+    let mbx = parseIdFromServer(rng.genValidIdStrict()).get()
     return @[
       addKeyword(kw),
       addKeyword(kw),
@@ -3234,7 +3239,7 @@ proc genImportItemDefault(rng: var Rand): EmailImportItem =
   ## duplicate-key contract is the subject of the generator, not per-item
   ## field coverage.
   initEmailImportItem(
-    blobId = BlobId(rng.genValidIdStrict()),
+    blobId = parseBlobId(rng.genValidIdStrict()).get(),
     mailboxIds = rng.genNonEmptyMailboxIdSet(),
     keywords = Opt.none(KeywordSet),
     receivedAt = Opt.none(UTCDate),
@@ -3830,15 +3835,15 @@ proc genEmailSubmissionBlueprint*(
     case trial
     of 0:
       return parseEmailSubmissionBlueprint(
-          identityId = parseId("iden1").get(),
-          emailId = parseId("email1").get(),
+          identityId = parseIdFromServer("iden1").get(),
+          emailId = parseIdFromServer("email1").get(),
           envelope = Opt.none(Envelope),
         )
         .get()
     else:
       return parseEmailSubmissionBlueprint(
-          identityId = parseId("idenFull").get(),
-          emailId = parseId("emailFull").get(),
+          identityId = parseIdFromServer("idenFull").get(),
+          emailId = parseIdFromServer("emailFull").get(),
           envelope = Opt.some(genFullEnvelopePin()),
         )
         .get()
@@ -3848,8 +3853,8 @@ proc genEmailSubmissionBlueprint*(
     else:
       Opt.none(Envelope)
   parseEmailSubmissionBlueprint(
-    identityId = parseId(rng.genValidIdStrict(minLen = 1, maxLen = 20)).get(),
-    emailId = parseId(rng.genValidIdStrict(minLen = 1, maxLen = 20)).get(),
+    identityId = parseIdFromServer(rng.genValidIdStrict(minLen = 1, maxLen = 20)).get(),
+    emailId = parseIdFromServer(rng.genValidIdStrict(minLen = 1, maxLen = 20)).get(),
     envelope = envelope,
   )
     .get()
@@ -3873,7 +3878,7 @@ proc genDeliveryStatusMapPopulated(rng: var Rand): DeliveryStatusMap =
   var t = initTable[RFC5321Mailbox, DeliveryStatus](2)
   t[mbxA] = genDeliveryStatusEntry(rng)
   t[mbxB] = genDeliveryStatusEntry(rng)
-  DeliveryStatusMap(t)
+  initDeliveryStatusMap(t)
 
 # G2-11 ----------------------------------------------------------------------
 proc genEmailSubmission*[S: static UndoStatus](
@@ -3893,10 +3898,10 @@ proc genEmailSubmission*[S: static UndoStatus](
     case trial
     of 0:
       return EmailSubmission[S](
-        id: parseId("es1").get(),
-        identityId: parseId("iden1").get(),
-        emailId: parseId("email1").get(),
-        threadId: parseId("thr1").get(),
+        id: parseIdFromServer("es1").get(),
+        identityId: parseIdFromServer("iden1").get(),
+        emailId: parseIdFromServer("email1").get(),
+        threadId: parseIdFromServer("thr1").get(),
         envelope: Opt.none(Envelope),
         sendAt: parseUtcDate("2026-01-15T09:00:00Z").get(),
         deliveryStatus: Opt.none(DeliveryStatusMap),
@@ -3905,15 +3910,15 @@ proc genEmailSubmission*[S: static UndoStatus](
       )
     else:
       return EmailSubmission[S](
-        id: parseId("es2").get(),
-        identityId: parseId("iden2").get(),
-        emailId: parseId("email2").get(),
-        threadId: parseId("thr2").get(),
+        id: parseIdFromServer("es2").get(),
+        identityId: parseIdFromServer("iden2").get(),
+        emailId: parseIdFromServer("email2").get(),
+        threadId: parseIdFromServer("thr2").get(),
         envelope: Opt.some(genFullEnvelopePin()),
         sendAt: parseUtcDate("2026-01-15T09:00:00Z").get(),
         deliveryStatus: Opt.some(genDeliveryStatusMapPopulated(rng)),
-        dsnBlobIds: @[BlobId("bdsn1"), BlobId("bdsn2")],
-        mdnBlobIds: @[BlobId("bmdn1")],
+        dsnBlobIds: @[parseBlobId("bdsn1").get(), parseBlobId("bdsn2").get()],
+        mdnBlobIds: @[parseBlobId("bmdn1").get()],
       )
   let envelope =
     if rng.rand(0 .. 1) == 0:
@@ -3927,15 +3932,15 @@ proc genEmailSubmission*[S: static UndoStatus](
       Opt.none(DeliveryStatusMap)
   var dsns: seq[BlobId] = @[]
   for i in 0 ..< rng.rand(0 .. 3):
-    dsns.add(BlobId(rng.genValidIdStrict(minLen = 3, maxLen = 20)))
+    dsns.add(parseBlobId(rng.genValidIdStrict(minLen = 3, maxLen = 20)).get())
   var mdns: seq[BlobId] = @[]
   for i in 0 ..< rng.rand(0 .. 3):
-    mdns.add(BlobId(rng.genValidIdStrict(minLen = 3, maxLen = 20)))
+    mdns.add(parseBlobId(rng.genValidIdStrict(minLen = 3, maxLen = 20)).get())
   EmailSubmission[S](
-    id: parseId(rng.genValidIdStrict(minLen = 1, maxLen = 20)).get(),
-    identityId: parseId(rng.genValidIdStrict(minLen = 1, maxLen = 20)).get(),
-    emailId: parseId(rng.genValidIdStrict(minLen = 1, maxLen = 20)).get(),
-    threadId: parseId(rng.genValidIdStrict(minLen = 1, maxLen = 20)).get(),
+    id: parseIdFromServer(rng.genValidIdStrict(minLen = 1, maxLen = 20)).get(),
+    identityId: parseIdFromServer(rng.genValidIdStrict(minLen = 1, maxLen = 20)).get(),
+    emailId: parseIdFromServer(rng.genValidIdStrict(minLen = 1, maxLen = 20)).get(),
+    threadId: parseIdFromServer(rng.genValidIdStrict(minLen = 1, maxLen = 20)).get(),
     envelope: envelope,
     sendAt: parseUtcDate(rng.genValidUtcDate()).get(),
     deliveryStatus: dstatus,
@@ -3991,7 +3996,7 @@ proc optNonEmptyIdSeqMaybe(rng: var Rand): Opt[NonEmptyIdSeq] =
   if rng.rand(0 .. 1) == 0:
     Opt.some(
       parseNonEmptyIdSeq(
-        @[parseId(rng.genValidIdStrict(minLen = 1, maxLen = 20)).get()]
+        @[parseIdFromServer(rng.genValidIdStrict(minLen = 1, maxLen = 20)).get()]
       )
         .get()
     )
@@ -4047,7 +4052,7 @@ proc genEmailSubmissionFilterCondition*(
         after: Opt.none(UTCDate),
       )
     else:
-      let ids = parseNonEmptyIdSeq(@[parseId("id1").get()]).get()
+      let ids = parseNonEmptyIdSeq(@[parseIdFromServer("id1").get()]).get()
       return EmailSubmissionFilterCondition(
         identityIds: Opt.some(ids),
         emailIds: Opt.some(ids),

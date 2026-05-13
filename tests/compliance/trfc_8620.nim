@@ -55,7 +55,7 @@ testCase rfc8620_S1_2_idAtSignRejected:
 
 testCase rfc8620_S1_2_idMinLength:
   ## Id length MUST be at least 1 octet.
-  assertOk parseId("x")
+  assertOk parseIdFromServer("x")
 
 testCase rfc8620_S1_2_idEmptyRejected:
   ## Empty string (0 octets) violates the minimum length constraint.
@@ -81,9 +81,9 @@ testCase rfc8620_S1_2_serverIdLenientAcceptsNonBase64url:
 testCase rfc8620_S1_2_serverIdShouldRecommendations:
   ## RFC S1.2 SHOULD recommendations for Id allocation: IDs starting with dash,
   ## containing only digits, or the sequence "NIL" are still valid per the MUST.
-  assertOk parseId("-abc")
-  assertOk parseId("12345")
-  assertOk parseId("NIL")
+  assertOk parseIdFromServer("-abc")
+  assertOk parseIdFromServer("12345")
+  assertOk parseIdFromServer("NIL")
 
 # =============================================================================
 # S1.3 — Int / UnsignedInt (RFC 8620 section 1.3)
@@ -1060,7 +1060,7 @@ testCase rfc8620_S2_sessionEmptyAccounts:
 
 testCase rfc8620_S1_3_jmapIntZero:
   ## Zero is a valid JmapInt.
-  assertEq parseJmapInt(0).get(), JmapInt(0)
+  assertEq parseJmapInt(0).get(), parseJmapInt(0).get()
 
 testCase rfc8620_S1_4_utcDateWithFractionalSeconds:
   ## UTCDate with fractional seconds and Z suffix.

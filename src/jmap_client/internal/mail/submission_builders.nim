@@ -27,7 +27,6 @@ import ../protocol/builder
 import ../protocol/call_meta
 import ./email_submission
 import ./email
-import ./email_update
 import ./mail_entities
 import ./serde_email_submission
 import ./serde_email
@@ -137,10 +136,10 @@ iterator onSuccessRefs(
   ## either onSuccess parameter. Unwrap-casts the ``distinct`` wrappers
   ## to iterate the underlying containers.
   for u in updates:
-    for key in Table[IdOrCreationRef, EmailUpdateSet](u).keys:
+    for key in u.toTable.keys:
       yield key
   for d in destroys:
-    for key in seq[IdOrCreationRef](d):
+    for key in d.toSeq:
       yield key
 
 func validateOnSuccessCids(
@@ -162,12 +161,14 @@ func validateOnSuccessCids(
     of icrDirect:
       discard
     of icrCreation:
-      if key.creationId notin creates:
+      # invariant: kind == icrCreation proves Ok
+      let cid = key.asCreationRef.get()
+      if cid notin creates:
         return err(
           validationError(
             "addEmailSubmissionAndEmailSet",
             "onSuccess* creation reference does not match any create key",
-            $key.creationId,
+            $cid,
           )
         )
   ok()

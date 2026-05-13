@@ -124,7 +124,7 @@ func emitBodyValues(node: var JsonNode, bv: Table[PartId, BlueprintBodyValue]) =
     return
   var values = newJObject()
   for partId, value in bv:
-    values[string(partId)] = value.toJson()
+    values[$partId] = value.toJson()
   node["bodyValues"] = values
 
 # =============================================================================

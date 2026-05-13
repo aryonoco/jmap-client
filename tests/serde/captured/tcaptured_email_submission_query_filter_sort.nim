@@ -29,4 +29,4 @@ testCase tcapturedEmailSubmissionQueryFilterSort:
   doAssert qr.ids.len >= 2,
     "phase-i 60 capstone seeded at least two submissions (got " & $qr.ids.len & ")"
   for id in qr.ids:
-    doAssert string(id).len > 0, "every returned submission id must be non-empty"
+    doAssert ($id).len > 0, "every returned submission id must be non-empty"

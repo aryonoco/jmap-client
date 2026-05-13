@@ -113,8 +113,7 @@ testCase tthreadChangesLive:
       # Strict path — runs on configured targets that propagate the
       # Email/set cascade through Thread/changes.
       assertOn target,
-        string(lastCr.oldState) == string(baselineState),
-        "oldState must echo the supplied baseline"
+        $lastCr.oldState == $baselineState, "oldState must echo the supplied baseline"
       assertOn target, lastCr.destroyed.len == 0, "no Thread destroys issued"
       assertOn target, lastCr.hasMoreChanges == false, "no further changes pending"
     # When ``converged == false`` the server is RFC-conformant with a
@@ -123,7 +122,7 @@ testCase tthreadChangesLive:
     # successfully — the client-library wire-shape contract holds.
 
     # --- Sad path: bogus sinceState ------------------------------------
-    let bogusState = JmapState("phase-h-45-bogus-state")
+    let bogusState = parseJmapState("phase-h-45-bogus-state").get()
     let (bSad, sadHandle) = addThreadChanges(
       initRequestBuilder(makeBuilderId()), mailAccountId, sinceState = bogusState
     )

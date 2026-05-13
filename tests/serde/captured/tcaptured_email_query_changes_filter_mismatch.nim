@@ -32,4 +32,4 @@ testCase tcapturedEmailQueryChangesFilterMismatch:
   doAssert ($qcr.newQueryState).len > 0, "newQueryState must be non-empty"
   doAssert qcr.total.isNone, "calculateTotal was not requested — total must be absent"
   for item in qcr.added:
-    doAssert string(item.id).len > 0, "every added.id must be non-empty"
+    doAssert ($item.id).len > 0, "every added.id must be non-empty"

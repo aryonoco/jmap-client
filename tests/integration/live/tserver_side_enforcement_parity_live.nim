@@ -52,7 +52,7 @@ testCase tserverSideEnforcementParityLive:
     # Distinct from Step 61's ``Core/echo``-based limit test in
     # invocation shape; both target the same cap.
     block maxSizeRequestCase:
-      let pad = "x".repeat(int(caps.maxSizeRequest) + 1024)
+      let pad = "x".repeat(caps.maxSizeRequest.toInt64.int + 1024)
       const prefix =
         """{"using":["urn:ietf:params:jmap:mail"],"methodCalls":[["Email/set",{"accountId":""""
       const middle = """","create":{"phaseJ65":{"subject":""""
@@ -76,7 +76,7 @@ testCase tserverSideEnforcementParityLive:
     # Sub-test 2: Mailbox/get with N+1 ids — exceeds maxObjectsInGet.
     block maxObjectsInGetCase:
       var idsArr = newJArray()
-      let idCount = int(caps.maxObjectsInGet) + 1
+      let idCount = caps.maxObjectsInGet.toInt64.int + 1
       for i in 0 ..< idCount:
         idsArr.add(%("phaseJ65synth" & $i))
       let resp = sendRawInvocation(
@@ -121,7 +121,7 @@ testCase tserverSideEnforcementParityLive:
     # maxCallsInRequest.
     block maxCallsInRequestCase:
       var calls = newJArray()
-      let callCount = int(caps.maxCallsInRequest) + 1
+      let callCount = caps.maxCallsInRequest.toInt64.int + 1
       for i in 0 ..< callCount:
         calls.add(%*["Core/echo", {"i": i}, "c" & $i])
       const body0 = """{"using":["urn:ietf:params:jmap:core"],"methodCalls":"""

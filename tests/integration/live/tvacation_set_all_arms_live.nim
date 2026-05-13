@@ -161,10 +161,10 @@ testCase tvacationSetAllArmsLive:
           vr.htmlBody.isSome and vr.htmlBody.unsafeGet == htmlBodyText,
           "htmlBody must round-trip"
         assertOn target,
-          vr.fromDate.isSome and string(vr.fromDate.unsafeGet) == string(fromDate),
+          vr.fromDate.isSome and $vr.fromDate.unsafeGet == $fromDate,
           "fromDate must round-trip as the supplied UTC date"
         assertOn target,
-          vr.toDate.isSome and string(vr.toDate.unsafeGet) == string(toDate),
+          vr.toDate.isSome and $vr.toDate.unsafeGet == $toDate,
           "toDate must round-trip as the supplied UTC date"
 
       # Cleanup: disable + clear date / body / subject fields.

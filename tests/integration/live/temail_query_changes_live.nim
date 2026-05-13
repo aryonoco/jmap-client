@@ -109,17 +109,17 @@ testCase temailQueryChangesLive:
     ):
       let qcr = success
       assertOn target,
-        string(qcr.oldQueryState) == string(queryState1),
+        $qcr.oldQueryState == $queryState1,
         "oldQueryState must echo the supplied baseline"
       assertOn target,
-        string(qcr.newQueryState) != string(queryState1),
+        $qcr.newQueryState != $queryState1,
         "newQueryState must differ after a fresh seed"
       # RFC 8620 §5.6 permits a server to return ``calculateTotal`` as
       # absent (e.g. James 3.9 doesn't honour the parameter on Email/
       # query). When present it must reflect the latest count.
       if qcr.total.isSome:
         assertOn target,
-          qcr.total.get() >= UnsignedInt(baselineCount + 1),
+          qcr.total.get().toInt64 >= baselineCount + 1,
           "calculateTotal lower bound: at least baselineCount+1 (got " & $qcr.total & ")"
       # RFC 8620 §5.6 permits the same id appearing in both ``removed``
       # and ``added`` to signal a reposition under a sorted query. The
@@ -127,10 +127,10 @@ testCase temailQueryChangesLive:
       # exact cardinality of ``removed``/``added`` is server-specific.
       var foundAdded = false
       for item in qcr.added:
-        if string(item.id) == string(id4):
+        if $item.id == $id4:
           foundAdded = true
           assertOn target,
-            item.index < UnsignedInt(baselineCount + 1),
+            item.index.toInt64 < baselineCount + 1,
             "added.index must fall within the new query's bounds (got " & $item.index &
               ")"
           break

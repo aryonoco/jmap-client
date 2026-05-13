@@ -19,7 +19,7 @@ testCase reExportAccessibility:
   doAssert 'A' in Base64UrlChars
 
   # primitives
-  let id = parseId("abc123").get()
+  let id = parseIdFromServer("abc123").get()
   doAssert $id == "abc123"
 
   # identifiers

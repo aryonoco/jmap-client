@@ -607,8 +607,7 @@ testCase unicodeNormalizationPropertyName:
   let rNfc = parsePropertyName(nfc).get()
   let rNfd = parsePropertyName(nfd).get()
   # They represent the same character visually but are byte-distinct
-  doAssert string(rNfc) != string(rNfd),
-    "NFC and NFD forms must be byte-distinct (no normalisation)"
+  doAssert $rNfc != $rNfd, "NFC and NFD forms must be byte-distinct (no normalisation)"
 
 # =============================================================================
 # Q. Hash collision resilience (Phase 4E)
@@ -825,7 +824,7 @@ testCase extraFieldsIgnoredComparator:
   ## Comparator JSON with an extra unknown field must parse successfully.
   let j = %*{"property": "subject", "isAscending": true, "vendorExtension": "test"}
   let r = Comparator.fromJson(j).get()
-  assertEq string(r.property), "subject"
+  assertEq $r.property, "subject"
 
 testCase extraFieldsIgnoredResultReference:
   ## ResultReference JSON with an extra unknown field must parse successfully.
@@ -839,7 +838,7 @@ testCase extraFieldsIgnoredAddedItem:
   ## AddedItem JSON with an extra unknown field must parse successfully.
   let j = %*{"id": "item1", "index": 0, "vendorExtension": "test"}
   let r = AddedItem.fromJson(j).get()
-  assertEq string(r.id), "item1"
+  assertEq $r.id, "item1"
 
 # =============================================================================
 # W. Phase 3H: Wrong-cased field name rejection tests

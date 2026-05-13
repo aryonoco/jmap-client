@@ -39,5 +39,5 @@ testCase tcapturedBobInboxAfterDelivery:
       "delivered from[0].email must be alice@example.com (got " &
         email.fromAddr.unsafeGet[0].email & ")"
     doAssert email.mailboxIds.isSome, "captured delivery must include mailboxIds"
-    doAssert HashSet[Id](email.mailboxIds.unsafeGet).len >= 1,
+    doAssert email.mailboxIds.unsafeGet.len >= 1,
       "delivered email must reside in at least one mailbox"

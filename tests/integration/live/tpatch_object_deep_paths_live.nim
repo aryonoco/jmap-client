@@ -128,7 +128,7 @@ testCase tpatchObjectDeepPathsLive:
         )
       let childId = resolveOrCreateMailbox(client, mailAccountId, "phase-j-70-child")
         .expect("resolveOrCreateMailbox[" & $target.kind & "]")
-      assertOn target, string(childId) != string(inbox)
+      assertOn target, $childId != $inbox
 
       let setParent = jmailbox.setParentId(Opt.none(Id))
       let mUpdateSet = initMailboxUpdateSet(@[setParent]).expect(
@@ -194,7 +194,7 @@ testCase tpatchObjectDeepPathsLive:
           methodName = "Identity/set",
           arguments = %*{
             "accountId": $submissionAccountId,
-            "update": {string(identityId): {"replyTo/0/name": "phase-j 70 deep"}},
+            "update": {$identityId: {"replyTo/0/name": "phase-j 70 deep"}},
           },
         )
         .expect("sendRawInvocation deepPath[" & $target.kind & "]")
@@ -239,7 +239,7 @@ testCase tpatchObjectDeepPathsLive:
           methodName = "Email/set",
           arguments = %*{
             "accountId": $mailAccountId,
-            "update": {string(seedId): {"keywords/$tag~1with~1slash": true}},
+            "update": {$seedId: {"keywords/$tag~1with~1slash": true}},
           },
         )
         .expect("sendRawInvocation jsonPointerEscape[" & $target.kind & "]")

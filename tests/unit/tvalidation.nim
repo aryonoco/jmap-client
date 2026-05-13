@@ -1,21 +1,23 @@
 # SPDX-License-Identifier: BSD-2-Clause
 # Copyright (c) 2026 Aryan Ameri
 
-## Tests for ValidationError construction and distinct type borrow templates.
+## Tests for ValidationError construction and sealed-object ops templates.
 
 import std/hashes
 
 import jmap_client/internal/types/validation
 import ../mtestblock
 
-# Test distinct types — must be at top level for export markers in borrow templates
-type TestStr = distinct string
+# Test sealed objects — top-level so export markers in op templates apply.
+type TestStr {.ruleOff: "objects".} = object
+  rawValue: string
 
-defineStringDistinctOps(TestStr)
+defineSealedStringOps(TestStr)
 
-type TestInt = distinct int64
+type TestInt {.ruleOff: "objects".} = object
+  rawValue: int64
 
-defineIntDistinctOps(TestInt)
+defineSealedIntOps(TestInt)
 
 # --- validationError constructor ---
 
@@ -31,12 +33,12 @@ testCase validationErrorAllFields:
   doAssert ve.message == "must be non-negative"
   doAssert ve.value == "-1"
 
-# --- defineStringDistinctOps ---
+# --- defineSealedStringOps ---
 
 testCase stringDistinctOps:
-  let a = TestStr("hello")
-  let b = TestStr("hello")
-  let c = TestStr("world")
+  const a = TestStr(rawValue: "hello")
+  const b = TestStr(rawValue: "hello")
+  const c = TestStr(rawValue: "world")
 
   # Equality
   doAssert a == b
@@ -50,14 +52,14 @@ testCase stringDistinctOps:
 
   # Length
   doAssert a.len == 5
-  doAssert TestStr("").len == 0
+  doAssert TestStr(rawValue: "").len == 0
 
-# --- defineIntDistinctOps ---
+# --- defineSealedIntOps ---
 
 testCase intDistinctOps:
-  let x = TestInt(10)
-  let y = TestInt(10)
-  let z = TestInt(20)
+  const x = TestInt(rawValue: 10)
+  const y = TestInt(rawValue: 10)
+  const z = TestInt(rawValue: 20)
 
   # Equality
   doAssert x == y
@@ -74,7 +76,7 @@ testCase intDistinctOps:
 
   # String conversion
   doAssert $x == "10"
-  doAssert $TestInt(-100) == "-100"
+  doAssert $TestInt(rawValue: -100) == "-100"
 
   # Hash — equal values must produce equal hashes
   doAssert hash(x) == hash(y)

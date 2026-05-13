@@ -105,8 +105,7 @@ testCase tmailboxChangesLive:
         "Mailbox/changes happy extract[" & $target.kind & "]"
       )
     assertOn target,
-      string(cr.oldState) == string(baselineState),
-      "oldState must echo the supplied baseline"
+      $cr.oldState == $baselineState, "oldState must echo the supplied baseline"
     assertOn target,
       tempId in cr.destroyed,
       "create-then-destroy id must surface in destroyed (RFC 8620 §5.2 SHOULD)"
@@ -118,7 +117,7 @@ testCase tmailboxChangesLive:
     discard cr.updatedProperties
 
     # --- Sad path: bogus sinceState -------------------------------------
-    let bogusState = JmapState("phase-h-43-bogus-state")
+    let bogusState = parseJmapState("phase-h-43-bogus-state").get()
     let (bSad, sadHandle) = addMailboxChanges(
       initRequestBuilder(makeBuilderId()), mailAccountId, sinceState = bogusState
     )

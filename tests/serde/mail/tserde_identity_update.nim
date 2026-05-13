@@ -72,8 +72,8 @@ testCase identityUpdateSetFlattensTuple:
 # ============= C. toJson(NonEmptyIdentityUpdates) envelope =============
 
 testCase nonEmptyIdentityUpdatesEmitsPerIdObject:
-  let id1 = parseId("idt1").get()
-  let id2 = parseId("idt2").get()
+  let id1 = parseIdFromServer("idt1").get()
+  let id2 = parseIdFromServer("idt2").get()
   let us1 = initIdentityUpdateSet(@[setName("Alice")]).get()
   let us2 = initIdentityUpdateSet(@[setTextSignature("s")]).get()
   let wrap = parseNonEmptyIdentityUpdates(@[(id1, us1), (id2, us2)]).get()

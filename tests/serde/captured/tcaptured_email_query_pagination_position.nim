@@ -21,10 +21,10 @@ testCase tcapturedEmailQueryPaginationPosition:
   doAssert inv.rawName == "Email/query", "expected Email/query, got " & inv.rawName
   let qr =
     QueryResponse[Email].fromJson(inv.arguments).expect("QueryResponse[Email].fromJson")
-  doAssert qr.position == UnsignedInt(2),
+  doAssert qr.position == parseUnsignedInt(2).get(),
     "position must echo requested 2 (got " & $qr.position & ")"
   doAssert qr.ids.len == 2,
     "limit=2 must yield exactly two ids (got " & $qr.ids.len & ")"
   doAssert qr.total.isSome, "calculateTotal=true must surface total"
-  doAssert qr.total.unsafeGet >= UnsignedInt(5),
+  doAssert qr.total.unsafeGet >= parseUnsignedInt(5).get(),
     "total must be at least the seeded 5 (got " & $qr.total.unsafeGet & ")"

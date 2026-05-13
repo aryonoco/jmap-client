@@ -66,7 +66,7 @@ testCase temailSubmissionFilterCompletenessLive:
     # so without HOLDFOR the /get would return notFound. Pending
     # submissions are retained on every configured target. Cleanup
     # at the end of the test cancels and destroys both submissions.
-    let holdSeconds = parseHoldForSeconds(UnsignedInt(300)).expect(
+    let holdSeconds = parseHoldForSeconds(parseUnsignedInt(300).get()).expect(
         "parseHoldForSeconds[" & $target.kind & "]"
       )
     let submissionIdsRes = seedSubmissionCorpus(

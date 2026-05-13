@@ -287,7 +287,7 @@ testCase compositionSetErrorAlreadyExistsPreservation:
   let original = setErrorAlreadyExists("alreadyExists", eid)
   let v = SetError.fromJson(original.toJson()).get()
   doAssert v.errorType == setAlreadyExists
-  assertEq string(v.existingId), "msg42"
+  assertEq $v.existingId, "msg42"
 
 testCase compositionResponseCreatedIdsPreservation:
   ## Response createdIds table survives round-trip with correct keys and values.

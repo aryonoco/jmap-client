@@ -112,16 +112,16 @@ testCase propUnsignedIntRange:
     let n = genValidUnsignedInt(rng)
     lastInput = $n
     let u = parseUnsignedInt(n).get()
-    doAssert int64(u) >= 0
-    doAssert int64(u) <= MaxUnsignedInt
+    doAssert u.toInt64 >= 0
+    doAssert u.toInt64 <= MaxUnsignedInt
 
 testCase propJmapIntRange:
   checkProperty "valid JmapInt in [MinJmapInt, MaxJmapInt]":
     let n = genValidJmapInt(rng)
     lastInput = $n
     let j = parseJmapInt(n).get()
-    doAssert int64(j) >= MinJmapInt
-    doAssert int64(j) <= MaxJmapInt
+    doAssert j.toInt64 >= MinJmapInt
+    doAssert j.toInt64 <= MaxJmapInt
 
 testCase propJmapIntNegationInvolution:
   checkProperty "-(-x) == x":
@@ -236,16 +236,16 @@ testCase propIdDoubleParseIdempotent:
 # --- Missing round-trips ---
 
 testCase propUnsignedIntInt64RoundTrip:
-  checkProperty "int64(parseUnsignedInt(n).get()) == n":
+  checkProperty "parseUnsignedInt(n).get().toInt64 == n":
     let n = genValidUnsignedInt(rng)
     lastInput = $n
-    doAssert int64(parseUnsignedInt(n).get()) == n
+    doAssert parseUnsignedInt(n).get().toInt64 == n
 
 testCase propJmapIntInt64RoundTrip:
-  checkProperty "int64(parseJmapInt(n).get()) == n":
+  checkProperty "parseJmapInt(n).get().toInt64 == n":
     let n = genValidJmapInt(rng)
     lastInput = $n
-    doAssert int64(parseJmapInt(n).get()) == n
+    doAssert parseJmapInt(n).get().toInt64 == n
 
 # --- Lenient Id properties ---
 
@@ -389,7 +389,7 @@ testCase propUnsignedIntDoubleRoundTrip:
     let n = genValidUnsignedInt(rng, trial)
     lastInput = $n
     let first = parseUnsignedInt(n).get()
-    let reparsed = parseUnsignedInt(int64(first)).get()
+    let reparsed = parseUnsignedInt(first.toInt64).get()
     doAssert first == reparsed
 
 testCase propJmapIntDoubleRoundTrip:
@@ -397,7 +397,7 @@ testCase propJmapIntDoubleRoundTrip:
     let n = genValidJmapInt(rng, trial)
     lastInput = $n
     let first = parseJmapInt(n).get()
-    let reparsed = parseJmapInt(int64(first)).get()
+    let reparsed = parseJmapInt(first.toInt64).get()
     doAssert first == reparsed
 
 testCase propDateDoubleRoundTripEquality:

@@ -174,7 +174,7 @@ testCase propToJsonEmailUpdateSetShape: # E
   ## property inherits those via the generator's internal schedule.
   checkProperty "toJson(EmailUpdateSet) emits RFC 8620 §5.3-shaped pairs":
     let updateSet = rng.genEmailUpdateSet(trial)
-    let inputLen = seq[EmailUpdate](updateSet).len
+    let inputLen = updateSet.toSeq.len
     lastInput = "trial=" & $trial & " len=" & $inputLen
     let node = updateSet.toJson()
     doAssert node.kind == JObject,
@@ -212,7 +212,7 @@ testCase propMoveToMailboxEquivSetMailboxIds: # F
   ## ``NonEmptyMailboxIdSet``.
   checkPropertyN "moveToMailbox(id) ≡ setMailboxIds(@[id]-set)", QuickTrials:
     let raw = rng.genValidIdStrict(trial)
-    let id = Id(raw)
+    let id = parseIdFromServer(raw).get()
     lastInput = "id=" & raw
     let viaMove = moveToMailbox(id)
     let viaSet = setMailboxIds(parseNonEmptyMailboxIdSet(@[id]).get())

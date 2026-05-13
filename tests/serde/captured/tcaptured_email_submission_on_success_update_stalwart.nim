@@ -42,9 +42,9 @@ testCase tcapturedEmailSubmissionOnSuccessUpdateStalwart:
           for cid, outcome in setResp.createResults.pairs:
             doAssert outcome.isOk,
               "primary create must be Ok (got rawType=" & outcome.error.rawType & ")"
-            doAssert string(outcome.unsafeValue.id).len > 0,
+            doAssert ($outcome.unsafeValue.id).len > 0,
               "primary create must carry a non-empty id"
-            doAssert string(cid).len > 0, "primary creationId must be non-empty"
+            doAssert ($cid).len > 0, "primary creationId must be non-empty"
           primaryFound = true
         elif inv.rawName == "Email/set":
           let setResp = SetResponse[EmailCreatedItem, PartialEmail]
@@ -55,7 +55,7 @@ testCase tcapturedEmailSubmissionOnSuccessUpdateStalwart:
           for id, outcome in setResp.updateResults.pairs:
             doAssert outcome.isOk,
               "implicit update must be Ok (got rawType=" & outcome.error.rawType & ")"
-            doAssert string(id).len > 0, "updated draft id must be non-empty"
+            doAssert ($id).len > 0, "updated draft id must be non-empty"
           implicitFound = true
       doAssert primaryFound, "captured response must contain EmailSubmission/set"
       doAssert implicitFound, "captured response must contain implicit Email/set"

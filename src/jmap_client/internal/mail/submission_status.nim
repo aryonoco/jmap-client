@@ -97,10 +97,12 @@ type ParsedDisplayedState* {.ruleOff: "objects".} = object
 # SmtpReply — RFC 5321 §4.2 Reply-line + RFC 3463 §2 enhanced status code
 # ===========================================================================
 
-type ReplyCode* = distinct uint16
+type ReplyCode* {.ruleOff: "objects".} = object
   ## RFC 5321 §4.2.3 three-digit Reply-code. Validated via
   ## ``detectReplyCodeGrammar``. First digit ∈ {2,3,4,5}, second ∈
-  ## {0..5}, third ∈ {0..9}.
+  ## {0..5}, third ∈ {0..9}. Sealed Pattern-A object — ``rawValue`` is
+  ## module-private; categorical, not orderable.
+  rawValue: uint16
 
 type StatusCodeClass* = enum
   ## RFC 3463 §3.1 class digit. String-backed for lossless round-trip;
@@ -109,38 +111,31 @@ type StatusCodeClass* = enum
   sccTransientFailure = "4"
   sccPermanentFailure = "5"
 
-type SubjectCode* = distinct uint16
+type SubjectCode* {.ruleOff: "objects".} = object
   ## RFC 3463 §4 subject sub-code. Bounded 0..999 (H19 — lenient within
-  ## the IANA registry's extensibility policy).
+  ## the IANA registry's extensibility policy). Sealed Pattern-A object.
+  rawValue: uint16
 
-type DetailCode* = distinct uint16
+type DetailCode* {.ruleOff: "objects".} = object
   ## RFC 3463 §4 detail sub-code. Bounded 0..999, same rationale.
+  ## Sealed Pattern-A object.
+  rawValue: uint16
 
-func `==`*(a, b: ReplyCode): bool {.borrow.}
-  ## Equality comparison delegated to the underlying ``uint16``.
+defineSealedTagIntOps(ReplyCode)
+defineSealedTagIntOps(SubjectCode)
+defineSealedTagIntOps(DetailCode)
 
-func `$`*(a: ReplyCode): string {.borrow.}
-  ## Decimal stringification delegated to the underlying ``uint16``.
+func toUint16*(r: ReplyCode): uint16 {.inline.} =
+  ## Projection to raw ``uint16``. Total, zero-cost.
+  r.rawValue
 
-func hash*(a: ReplyCode): Hash {.borrow.} ## Hash delegated to the underlying ``uint16``.
+func toUint16*(s: SubjectCode): uint16 {.inline.} =
+  ## Projection to raw ``uint16``. Total, zero-cost.
+  s.rawValue
 
-func `==`*(a, b: SubjectCode): bool {.borrow.}
-  ## Equality comparison delegated to the underlying ``uint16``.
-
-func `$`*(a: SubjectCode): string {.borrow.}
-  ## Decimal stringification delegated to the underlying ``uint16``.
-
-func hash*(a: SubjectCode): Hash {.borrow.}
-  ## Hash delegated to the underlying ``uint16``.
-
-func `==`*(a, b: DetailCode): bool {.borrow.}
-  ## Equality comparison delegated to the underlying ``uint16``.
-
-func `$`*(a: DetailCode): string {.borrow.}
-  ## Decimal stringification delegated to the underlying ``uint16``.
-
-func hash*(a: DetailCode): Hash {.borrow.}
-  ## Hash delegated to the underlying ``uint16``.
+func toUint16*(d: DetailCode): uint16 {.inline.} =
+  ## Projection to raw ``uint16``. Total, zero-cost.
+  d.rawValue
 
 type EnhancedStatusCode* {.ruleOff: "objects".} = object
   ## RFC 3463 §2 triple ``class.subject.detail``. Plain object —
@@ -244,7 +239,7 @@ func detectReplyCodeGrammar*(line: string): Result[ReplyCode, SmtpReplyViolation
   let n =
     uint16(ord(line[0]) - ord('0')) * 100'u16 + uint16(ord(line[1]) - ord('0')) * 10'u16 +
     uint16(ord(line[2]) - ord('0'))
-  ok(ReplyCode(n))
+  ok(ReplyCode(rawValue: n))
 
 func detectSeparator*(line: string, isFinal: bool): Result[void, SmtpReplyViolation] =
   ## Byte after the Reply-code: SP/HT on the final line, ``'-'`` on a
@@ -284,13 +279,13 @@ func detectSubjectInRange*(n: uint16): Result[SubjectCode, SmtpReplyViolation] =
   ## Bounds check for RFC 3463 §4 subject sub-code.
   if n > 999'u16:
     return err(srEnhancedSubjectOverflow)
-  ok(SubjectCode(n))
+  ok(SubjectCode(rawValue: n))
 
 func detectDetailInRange*(n: uint16): Result[DetailCode, SmtpReplyViolation] =
   ## Bounds check for RFC 3463 §4 detail sub-code.
   if n > 999'u16:
     return err(srEnhancedDetailOverflow)
-  ok(DetailCode(n))
+  ok(DetailCode(rawValue: n))
 
 func detectConsistentItems*[T](
     per: openArray[T], violation: SmtpReplyViolation
@@ -516,26 +511,42 @@ type DeliveryStatus* {.ruleOff: "objects".} = object
   delivered*: ParsedDeliveredState
   displayed*: ParsedDisplayedState
 
-type DeliveryStatusMap* = distinct Table[RFC5321Mailbox, DeliveryStatus]
-  ## Recipient-keyed delivery outcome table (G9). Key equality is byte-
+type DeliveryStatusMap* {.ruleOff: "objects".} = object
+  ## Recipient-keyed delivery outcome table (G9). Sealed Pattern-A
+  ## object — ``rawValue`` is module-private. Key equality is byte-
   ## equality on ``RFC5321Mailbox`` — two addresses differing only in
   ## local-part casing are distinct keys, matching the RFC 5321 §2.4
   ## "local-part case is server-defined" semantics. Consumption is via
-  ## the named domain operations (``countDelivered``, ``anyFailed``);
-  ## serde (Step 11) casts to the underlying ``Table`` at its own call
-  ## site.
+  ## the named domain operations (``countDelivered``, ``anyFailed``)
+  ## and the ``toTable`` value-projection accessor.
+  rawValue: Table[RFC5321Mailbox, DeliveryStatus]
 
-func `==`*(a, b: DeliveryStatusMap): bool {.borrow.}
+func initDeliveryStatusMap*(
+    t: Table[RFC5321Mailbox, DeliveryStatus]
+): DeliveryStatusMap =
+  ## Wraps a validated ``Table`` as a ``DeliveryStatusMap``. The wrap
+  ## carries no invariant beyond type identity; validation lives on the
+  ## individual elements. Consumed by serde when constructing
+  ## ``PartialEmailSubmission``.
+  DeliveryStatusMap(rawValue: t)
+
+func toTable*(m: DeliveryStatusMap): Table[RFC5321Mailbox, DeliveryStatus] {.inline.} =
+  ## Value-projection accessor — returns a copy of the underlying table.
+  m.rawValue
+
+func `==`*(a, b: DeliveryStatusMap): bool =
   ## Structural equality delegated to the underlying ``Table``.
+  a.rawValue == b.rawValue
 
-func `$`*(a: DeliveryStatusMap): string {.borrow.}
+func `$`*(a: DeliveryStatusMap): string =
   ## Textual form delegated to the underlying ``Table`` (diagnostic only).
+  $a.rawValue
 
 func countDelivered*(m: DeliveryStatusMap): int =
   ## Number of recipients with ``delivered.state == dsYes``. Useful for
   ## "N of M successfully delivered" diagnostics at the consumer layer.
   result = 0
-  for ds in (Table[RFC5321Mailbox, DeliveryStatus])(m).values:
+  for ds in m.rawValue.values:
     if ds.delivered.state == dsYes:
       inc result
 
@@ -543,7 +554,7 @@ func anyFailed*(m: DeliveryStatusMap): bool =
   ## ``true`` iff any recipient has ``delivered.state == dsNo`` — the
   ## short-circuit predicate for surfacing at-least-one-failure in a
   ## batched submission.
-  for ds in (Table[RFC5321Mailbox, DeliveryStatus])(m).values:
+  for ds in m.rawValue.values:
     if ds.delivered.state == dsNo:
       return true
   false

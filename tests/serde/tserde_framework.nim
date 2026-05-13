@@ -179,7 +179,7 @@ testCase comparatorDeserAllFieldsPresent:
   let j =
     %*{"property": "subject", "isAscending": false, "collation": "i;unicode-casemap"}
   let v = Comparator.fromJson(j).get()
-  assertEq string(v.property), "subject"
+  assertEq $v.property, "subject"
   doAssert not v.isAscending
   doAssert v.collation.isSome
   assertEq v.collation.get(), CollationUnicodeCasemap
@@ -283,7 +283,7 @@ testCase filterDeserNil:
 
 testCase addedItemDeserValid:
   let v = AddedItem.fromJson(%*{"id": "x", "index": 5}).get()
-  assertEq string(v.id), "x"
+  assertEq $v.id, "x"
 
 testCase addedItemDeserIndexZero:
   let j = %*{"id": "x", "index": 0}
@@ -350,7 +350,7 @@ testCase comparatorAllFieldsRoundTrip:
     makePropertyName("receivedAt"), false, Opt.some(CollationUnicodeCasemap)
   )
   let v = Comparator.fromJson(c.toJson()).get()
-  assertEq string(v.property), "receivedAt"
+  assertEq $v.property, "receivedAt"
   doAssert v.isAscending == false
   assertSomeEq v.collation, CollationUnicodeCasemap
 
@@ -358,13 +358,13 @@ testCase addedItemDeserIndexZeroBoundary:
   ## Boundary: index = 0 is valid.
   let j = %*{"id": "item1", "index": 0}
   let v = AddedItem.fromJson(j).get()
-  assertEq int64(v.index), 0'i64
+  assertEq v.index.toInt64, 0'i64
 
 testCase addedItemDeserIndexMaxBoundary:
   ## Boundary: index = 2^53-1 is valid.
   let j = %*{"id": "item1", "index": 9007199254740991}
   let v = AddedItem.fromJson(j).get()
-  assertEq int64(v.index), 9007199254740991'i64
+  assertEq v.index.toInt64, 9007199254740991'i64
 
 testCase filterOperatorDeserLowercaseRejected:
   ## "and" (lowercase) must return error — operators are case-sensitive.

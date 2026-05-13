@@ -12,12 +12,12 @@ import ../mtestblock
 # --- Distinct type isolation ---
 
 testCase distinctTypeIsolation:
-  doAssert not compiles(parseId("abc").get() == parseAccountId("abc").get())
-  doAssert not compiles(parseId("abc").get() == parseJmapState("abc").get())
+  doAssert not compiles(parseIdFromServer("abc").get() == parseAccountId("abc").get())
+  doAssert not compiles(parseIdFromServer("abc").get() == parseJmapState("abc").get())
   doAssert not compiles(parseAccountId("abc").get() == parseJmapState("abc").get())
 
 testCase distinctTypeNoConcatenation:
-  doAssert not compiles(parseId("abc").get() & parseId("def").get())
+  doAssert not compiles(parseIdFromServer("abc").get() & parseIdFromServer("def").get())
 
 testCase unsignedIntNoArithmetic:
   doAssert not compiles(parseUnsignedInt(1).get() + parseUnsignedInt(2).get())
@@ -69,7 +69,7 @@ testCase filterWrongVariantConstruction:
 # --- Hash divergence (non-degenerate hash smoke test) ---
 
 testCase hashDivergenceId:
-  doAssert hash(parseId("abc").get()) != hash(parseId("xyz").get())
+  doAssert hash(parseIdFromServer("abc").get()) != hash(parseIdFromServer("xyz").get())
 
 testCase hashDivergenceAccountId:
   doAssert hash(parseAccountId("abc").get()) != hash(parseAccountId("xyz").get())
@@ -125,7 +125,7 @@ testCase unsignedIntNoNegation:
 
 testCase idNoConcatenation:
   ## No string concatenation on Id.
-  doAssert not compiles(parseId("a").get() & parseId("b").get())
+  doAssert not compiles(parseIdFromServer("a").get() & parseIdFromServer("b").get())
 
 testCase accountIdNoConcatenation:
   doAssert not compiles(parseAccountId("a").get() & parseAccountId("b").get())
@@ -152,7 +152,7 @@ testCase transportErrorMissingHttpStatus:
       rawType: "invalidProperties",
       description: Opt.none(string),
       extras: Opt.none(JsonNode),
-      existingId: parseId("abc").get(),
+      existingId: parseIdFromServer("abc").get(),
     )
   )
 
@@ -202,7 +202,7 @@ testCase setErrorExistingIdOnNonAlreadyExists:
       rawType: "forbidden",
       description: Opt.none(string),
       extras: Opt.none(JsonNode),
-      existingId: parseId("abc").get(),
+      existingId: parseIdFromServer("abc").get(),
     )
   )
 

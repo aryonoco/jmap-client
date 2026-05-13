@@ -126,8 +126,8 @@ testCase propAddedItemFieldPreservation:
     let idxVal = rng.rand(0'i64 .. 10000'i64)
     let idx = parseUnsignedInt(idxVal).get()
     let item = initAddedItem(id, idx)
-    doAssert string(item.id) == idStr
-    doAssert int64(item.index) == idxVal
+    doAssert $item.id == idStr
+    doAssert item.index.toInt64 == idxVal
 
 # --- Filter totality ---
 
@@ -237,7 +237,7 @@ testCase propAddedItemTotality:
     let ai = genAddedItem(rng)
     lastInput = $ai.id
     doAssert ai.id.len >= 1 and ai.id.len <= 255
-    doAssert int64(ai.index) >= 0
+    doAssert ai.index.toInt64 >= 0
 
 # --- Filter algebraic laws ---
 

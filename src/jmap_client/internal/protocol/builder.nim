@@ -130,7 +130,7 @@ func capabilities*(b: RequestBuilder): seq[string] =
   ## Snapshot of the deduplicated capability URIs registered so far.
   ## Returned as ``seq[string]`` for API parity with ``Request.using``
   ## (RFC 8620 §3.3 wire format).
-  return b.capabilityUris.mapIt(string(it))
+  return b.capabilityUris.mapIt($it)
 
 # =============================================================================
 # Freeze — sealed snapshot into a branded BuiltRequest
@@ -153,7 +153,7 @@ func freeze*(b: sink RequestBuilder): BuiltRequest =
   ## concern.
   BuiltRequest(
     rawRequest: Request(
-      `using`: b.capabilityUris.mapIt(string(it)),
+      `using`: b.capabilityUris.mapIt($it),
       methodCalls: b.invocations,
       createdIds: Opt.none(Table[CreationId, Id]),
     ),
@@ -194,8 +194,9 @@ func builtRequestForTest*(
 
 func nextId(b: RequestBuilder): MethodCallId =
   ## Computes the next call ID from the current counter without mutation.
-  ## Bypasses parseMethodCallId because the format is provably valid (D3.9).
-  MethodCallId("c" & $b.nextCallId)
+  ## The ``"c<N>"`` shape is provably non-empty (D3.9) so the smart
+  ## constructor cannot Err here.
+  parseMethodCallId("c" & $b.nextCallId).get()
 
 func withCapability(caps: seq[CapabilityUri], cap: CapabilityUri): seq[CapabilityUri] =
   ## Returns a new capability list with ``cap`` added if not already present.
@@ -340,7 +341,7 @@ func addCapabilityInvocation*(
   if args.kind != JObject:
     return
       err(validationError("VendorInvocation", "args must be a JSON object", $args.kind))
-  let (b1, callId) = ?addRawInvocation(b, string(methodName), args, capability)
+  let (b1, callId) = ?addRawInvocation(b, $methodName, args, capability)
   let brand = b1.id
   ok((b1, initResponseHandle[JsonNode](callId, brand)))
 

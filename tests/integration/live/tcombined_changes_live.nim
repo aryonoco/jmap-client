@@ -174,13 +174,13 @@ testCase tcombinedChangesLive:
       # Strict path — runs on configured targets that propagate the
       # Email/set cascade through Thread/changes.
       assertOn target,
-        string(capturedMailboxCr.oldState) == string(baselineMailboxState),
+        $capturedMailboxCr.oldState == $baselineMailboxState,
         "Mailbox/changes oldState must echo baseline"
       assertOn target,
-        string(capturedThreadCr.oldState) == string(baselineThreadState),
+        $capturedThreadCr.oldState == $baselineThreadState,
         "Thread/changes oldState must echo baseline"
       assertOn target,
-        string(capturedEmailCr.oldState) == string(baselineEmailState),
+        $capturedEmailCr.oldState == $baselineEmailState,
         "Email/changes oldState must echo baseline"
       assertOn target,
         tempMailboxId in capturedMailboxCr.destroyed,

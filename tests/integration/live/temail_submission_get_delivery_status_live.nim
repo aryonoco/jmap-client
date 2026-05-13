@@ -151,7 +151,7 @@ testCase tEmailSubmissionGetDeliveryStatusLive:
         # and the ``isSome == false`` is itself the universal contract
         # assertion.
         for dsMapValue in sub.deliveryStatus:
-          let dsMap = (Table[RFC5321Mailbox, DeliveryStatus])(dsMapValue)
+          let dsMap = dsMapValue.toTable
           let bobMailbox = parseRFC5321Mailbox("bob@example.com").expect(
               "parseRFC5321Mailbox bob[" & $target.kind & "]"
             )
@@ -165,7 +165,7 @@ testCase tEmailSubmissionGetDeliveryStatusLive:
               "must project as dsUnknown (got " & $entry.delivered.state &
               ", rawBacking=" & entry.delivered.rawBacking & ")"
           assertOn target,
-            entry.smtpReply.replyCode == ReplyCode(250),
+            entry.smtpReply.replyCode.toUint16 == 250'u16,
             "local-queue SMTP reply must carry code 250 (got " &
               $entry.smtpReply.replyCode & ")"
           assertOn target,

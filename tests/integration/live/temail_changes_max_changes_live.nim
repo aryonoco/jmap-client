@@ -73,7 +73,7 @@ testCase temailChangesMaxChangesLive:
       seededIds.len == SeedCount, "ten seeded ids expected (got " & $seededIds.len & ")"
 
     let maxChangesCap = Opt.some(
-      parseMaxChanges(UnsignedInt(MaxChangesCap)).expect(
+      parseMaxChanges(parseUnsignedInt(MaxChangesCap).get()).expect(
         "parseMaxChanges[" & $target.kind & "]"
       )
     )
@@ -134,10 +134,9 @@ testCase temailChangesMaxChangesLive:
       not hasMore, "window-roll loop must converge within " & $MaxIters & " iterations"
     for sid in seededIds:
       assertOn target,
-        sid in seenIds,
-        "seeded id " & string(sid) & " must appear across paginated changes"
+        sid in seenIds, "seeded id " & $sid & " must appear across paginated changes"
     assertOn target,
-      string(nextState) != string(baselineState),
+      $nextState != $baselineState,
       "final newState must differ from the original baseline"
 
     client.close()

@@ -76,15 +76,12 @@ proc setSortOrders(
 ) =
   ## Mailbox/set update enforces the desired sortOrder regardless of
   ## prior state, so re-runs are idempotent.
-  let setAlpha = initMailboxUpdateSet(@[setSortOrder(UnsignedInt(30))]).expect(
-      "initMailboxUpdateSet alpha"
-    )
-  let setBravo = initMailboxUpdateSet(@[setSortOrder(UnsignedInt(20))]).expect(
-      "initMailboxUpdateSet bravo"
-    )
-  let setCharlie = initMailboxUpdateSet(@[setSortOrder(UnsignedInt(10))]).expect(
-      "initMailboxUpdateSet charlie"
-    )
+  let setAlpha = initMailboxUpdateSet(@[setSortOrder(parseUnsignedInt(30).get())])
+    .expect("initMailboxUpdateSet alpha")
+  let setBravo = initMailboxUpdateSet(@[setSortOrder(parseUnsignedInt(20).get())])
+    .expect("initMailboxUpdateSet bravo")
+  let setCharlie = initMailboxUpdateSet(@[setSortOrder(parseUnsignedInt(10).get())])
+    .expect("initMailboxUpdateSet charlie")
   let updates = parseNonEmptyMailboxUpdates(
       @[(alphaId, setAlpha), (bravoId, setBravo), (charlieId, setCharlie)]
     )
@@ -174,7 +171,7 @@ proc assertSortAsTree(client: var JmapClient, mailAccountId: AccountId) =
   doAssert qResp3.ids.len >= 1,
     "Mailbox/query hasAnyRole=true must return at least the Inbox"
   for id in qResp3.ids:
-    doAssert string(id).len > 0, "every returned id must be non-empty"
+    doAssert ($id).len > 0, "every returned id must be non-empty"
 
 proc assertQueryChangesWithFilter(
     client: var JmapClient,
@@ -230,7 +227,7 @@ proc assertQueryChangesWithFilter(
     }, "method error must be in allowed set (got rawType=" & methodErr.rawType & ")"
     return
   let qcr = qcrExtract.unsafeValue
-  doAssert string(qcr.oldQueryState) == string(baselineQueryState),
+  doAssert $qcr.oldQueryState == $baselineQueryState,
     "oldQueryState must echo the supplied baseline"
   doAssert qcr.total.isSome,
     "calculateTotal=true must surface a total in queryChanges response"

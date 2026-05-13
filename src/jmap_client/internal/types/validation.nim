@@ -31,72 +31,157 @@ func validationError*(typeName, message, value: string): ValidationError =
   ## Constructs a ValidationError value for use on the error rail.
   return ValidationError(typeName: typeName, message: message, value: value)
 
-template defineStringDistinctOps*(T: typedesc) =
-  ## Borrows standard operations for a ``distinct string`` type: equality,
-  ## stringification, hashing, and length.
-  func `==`*(a, b: T): bool {.borrow.}
-    ## Equality comparison delegated to the underlying string.
-  func `$`*(a: T): string {.borrow.}
-    ## String representation delegated to the underlying string.
-  func hash*(a: T): Hash {.borrow.} ## Hash delegated to the underlying string.
-  func len*(a: T): int {.borrow.} ## Length delegated to the underlying string.
+template defineSealedStringOps*(T: typedesc) =
+  ## Sealed-object string ops: equality, stringification, hashing, length.
+  ## Companion to ``defineSealedOpaqueStringOps`` (no ``len``) — choose
+  ## based on whether the underlying length is a meaningful domain quantity.
+  func `==`*(a, b: T): bool =
+    ## Equality delegated to the underlying string.
+    a.rawValue == b.rawValue
+  func `$`*(a: T): string =
+    ## String representation — the underlying string verbatim.
+    a.rawValue
+  func hash*(a: T): Hash =
+    ## Hash delegated to the underlying string.
+    hash(a.rawValue)
+  func len*(a: T): int =
+    ## Length of the underlying string.
+    a.rawValue.len
 
-template defineIntDistinctOps*(T: typedesc) =
-  ## Borrows standard operations for a ``distinct int`` type: equality,
-  ## ordering, stringification, and hashing.
-  func `==`*(a, b: T): bool {.borrow.}
-    ## Equality comparison delegated to the underlying integer.
-  func `<`*(a, b: T): bool {.borrow.}
-    ## Less-than comparison delegated to the underlying integer.
-  func `<=`*(a, b: T): bool {.borrow.}
-    ## Less-or-equal comparison delegated to the underlying integer.
-  func `$`*(a: T): string {.borrow.}
-    ## String representation delegated to the underlying integer.
-  func hash*(a: T): Hash {.borrow.} ## Hash delegated to the underlying integer.
+template defineSealedOpaqueStringOps*(T: typedesc) =
+  ## Opaque-token string ops — equality, stringification, hashing. No
+  ## ``len`` because the underlying string is a server-assigned token
+  ## whose byte length carries no domain meaning. Used by ``JmapState``,
+  ## ``MethodCallId``, ``CreationId``, ``BlobId``.
+  func `==`*(a, b: T): bool =
+    ## Equality delegated to the underlying string.
+    a.rawValue == b.rawValue
+  func `$`*(a: T): string =
+    ## String representation — the underlying token verbatim.
+    a.rawValue
+  func hash*(a: T): Hash =
+    ## Hash delegated to the underlying string.
+    hash(a.rawValue)
 
-template defineHashSetDistinctOps*(T: typedesc, E: typedesc) =
-  ## Borrows standard read-only operations for a ``distinct HashSet``
-  ## type. ``T`` is the distinct type, ``E`` is the element type.
-  ## No mutation operations — these are immutable read models (Decision B3).
-  ## No ``==`` or ``hash`` — set equality is not a domain operation for
-  ## these types; they are constructed once and queried, never compared
-  ## as whole sets or used as table keys.
-  func len*(s: T): int {.borrow.}
-    ## Number of elements delegated to the underlying HashSet.
+template defineSealedIntOps*(T: typedesc) =
+  ## Orderable integer-backed ops: equality, ``<``, ``<=``,
+  ## stringification, hashing. Companion to ``defineSealedTagIntOps``
+  ## (no ordering).
+  func `==`*(a, b: T): bool =
+    ## Equality delegated to the underlying integer.
+    a.rawValue == b.rawValue
+  func `<`*(a, b: T): bool =
+    ## Less-than delegated to the underlying integer.
+    a.rawValue < b.rawValue
+  func `<=`*(a, b: T): bool =
+    ## Less-or-equal delegated to the underlying integer.
+    a.rawValue <= b.rawValue
+  func `$`*(a: T): string =
+    ## Decimal representation of the underlying integer.
+    $a.rawValue
+  func hash*(a: T): Hash =
+    ## Hash delegated to the underlying integer.
+    hash(a.rawValue)
+
+template defineSealedTagIntOps*(T: typedesc) =
+  ## Tag integer ops — equality, stringification, hashing. No ``<`` /
+  ## ``<=`` because these values are categorical (e.g. RFC 3463 status
+  ## code triples), not orderable. Used by ``ReplyCode``, ``SubjectCode``,
+  ## ``DetailCode``.
+  func `==`*(a, b: T): bool =
+    ## Equality delegated to the underlying integer.
+    a.rawValue == b.rawValue
+  func `$`*(a: T): string =
+    ## Decimal representation of the underlying integer.
+    $a.rawValue
+  func hash*(a: T): Hash =
+    ## Hash delegated to the underlying integer.
+    hash(a.rawValue)
+
+template defineSealedHashSetOps*(T: typedesc, E: typedesc) =
+  ## Read-only HashSet ops: ``len``, ``contains``, ``card``. ``T`` is the
+  ## sealed object wrapping ``HashSet[E]``; the field is ``rawValue``. No
+  ## ``==`` / ``hash`` — set equality is not a domain operation here;
+  ## these sets are constructed once, queried, never compared as wholes.
+  func len*(s: T): int =
+    ## Number of elements in the underlying set.
+    s.rawValue.len
   func contains*(s: T, e: E): bool =
-    ## Membership test delegated to the underlying HashSet.
-    ## Cannot use ``{.borrow.}`` — Nim unwraps both distinct types, causing
-    ## a type mismatch when ``E`` is itself distinct (e.g. Keyword = distinct string).
-    sets.contains(HashSet[E](s), e)
-  func card*(s: T): int {.borrow.} ## Cardinality delegated to the underlying HashSet.
+    ## Membership test. ``sets.contains`` is named explicitly so the
+    ## resolver picks the ``HashSet`` overload when ``E`` is itself a
+    ## sealed object whose ``contains`` would otherwise win by overload
+    ## proximity.
+    sets.contains(s.rawValue, e)
+  func card*(s: T): int =
+    ## Cardinality of the underlying set.
+    s.rawValue.card
 
-template defineNonEmptyHashSetDistinctOps*(T, E: typedesc) =
-  ## Creation-context hashset ops. Composes the read-model base template
-  ## and adds the operations legitimate when the set is client-constructed
-  ## and carries a non-empty invariant. Kept distinct from
-  ## defineHashSetDistinctOps so Decision B3 (no ``==`` on read-model
-  ## sets) is preserved for the base case; creation-context types opt in
-  ## to the richer op set explicitly. ``hash`` is deliberately absent —
-  ## stdlib ``HashSet.hash`` reads ``result`` before initialising it,
-  ## which fails ``strictDefs`` + ``Uninit``-as-error under ``{.borrow.}``.
-  ## The domain has no use for a non-empty mailbox-id set as a Table key.
-  defineHashSetDistinctOps(T, E) # inherits: len, contains, card
-  func `==`*(a, b: T): bool {.borrow.} ## Equality delegated to the underlying HashSet.
-  func `$`*(a: T): string {.borrow.}
-    ## String representation delegated to the underlying HashSet.
+template defineSealedNonEmptyHashSetOps*(T: typedesc, E: typedesc) =
+  ## Creation-context HashSet ops: composes ``defineSealedHashSetOps``
+  ## and adds ``==``, ``$``, ``items``, ``pairs`` for client-constructed
+  ## sets carrying a non-empty invariant. ``hash`` is deliberately
+  ## absent — stdlib ``HashSet.hash`` reads ``result`` before
+  ## initialising it, which fails ``strictDefs`` + ``Uninit``-as-error.
+  defineSealedHashSetOps(T, E)
+  func `==`*(a, b: T): bool =
+    ## Equality delegated to the underlying set.
+    a.rawValue == b.rawValue
+  func `$`*(a: T): string =
+    ## String representation delegated to the underlying set.
+    $a.rawValue
   iterator items*(s: T): E =
-    ## Yields each element. Unwraps the distinct type to iterate the
-    ## underlying HashSet.
-    for e in HashSet[E](s):
+    ## Yields each element. Iteration order matches the underlying
+    ## ``HashSet`` order (which is undefined).
+    for e in s.rawValue:
       yield e
 
   iterator pairs*(s: T): (int, E) =
-    ## Yields (index, element) tuples. HashSet ordering is not defined;
-    ## the index is a monotonic enumeration counter, not a stable position.
+    ## Yields ``(index, element)`` tuples. The index is a monotonic
+    ## enumeration counter, not a stable position — ``HashSet`` has no
+    ## defined order.
     var i = 0
-    for e in HashSet[E](s):
+    for e in s.rawValue:
       yield (i, e)
       inc i
+
+template defineSealedNonEmptySeqOps*(T: typedesc) =
+  ## Sealed-object ops for ``NonEmptySeq[T]``: equality, stringification,
+  ## hashing, length, indexed access, membership, iteration.
+  ## Per-element-type instantiation, mirroring the old
+  ## ``defineNonEmptySeqOps``. Mutating ops are deliberately absent —
+  ## they would violate the non-empty invariant. The underlying seq is
+  ## reached via ``toSeq`` (defined in ``primitives.nim``) so the
+  ## template can expand outside the defining module of ``NonEmptySeq``.
+  func `==`*(a, b: NonEmptySeq[T]): bool =
+    ## Equality delegated to the underlying seq.
+    asSeq(a) == asSeq(b)
+  func `$`*(a: NonEmptySeq[T]): string =
+    ## String representation delegated to the underlying seq.
+    $asSeq(a)
+  func hash*(a: NonEmptySeq[T]): Hash =
+    ## Hash delegated to the underlying seq.
+    hash(asSeq(a))
+  func len*(a: NonEmptySeq[T]): int =
+    ## Length of the underlying seq (always at least 1).
+    asSeq(a).len
+  func `[]`*(a: NonEmptySeq[T], i: Idx): lent T =
+    ## Indexed access via sealed non-negative ``Idx``. Upper-bound
+    ## violations panic via the underlying seq's ``IndexDefect``; the
+    ## ``Idx`` invariant statically rules out the negative-``i`` case.
+    asSeq(a)[i.toInt]
+  func contains*(a: NonEmptySeq[T], x: T): bool =
+    ## Membership test. ``system.contains`` is named explicitly to
+    ## bypass distinct-type unwrapping when ``T`` is itself sealed.
+    system.contains(asSeq(a), x)
+  iterator items*(a: NonEmptySeq[T]): T =
+    ## Yields each element in declaration order.
+    for x in asSeq(a):
+      yield x
+
+  iterator pairs*(a: NonEmptySeq[T]): (int, T) =
+    ## Yields ``(index, element)`` tuples in declaration order.
+    for p in pairs(asSeq(a)):
+      yield p
 
 template duplicatesByIt(s: untyped, keyExpr: untyped): untyped =
   ## Unexported helper. Returns ``seq[K]`` containing every key
@@ -155,9 +240,11 @@ template validateUniqueByIt*(
 # Idx — sealed non-negative index type
 # =============================================================================
 
-type Idx* = distinct int
+type Idx* {.ruleOff: "objects".} = object
   ## Validated non-negative integer, used as an index into strings, seqs,
-  ## and other ordered containers. Construction is sealed:
+  ## and other ordered containers. Sealed Pattern-A object: the raw
+  ## integer is module-private (``rawValue``); external code cannot
+  ## bypass validation. Construction is sealed:
   ##   * ``idx(i: static[int])`` — compile-time, negative literals rejected
   ##     via the ``{.error.}`` pragma (a pragma, not ``doAssert`` — no
   ##     runtime code emitted, no panic path).
@@ -165,75 +252,82 @@ type Idx* = distinct int
   ##     Result error rail (not ``RangeDefect``).
   ## Replaces ``Natural`` at the domain layer per the project rule against
   ## ``range[T]`` for domain constraints (``nim-type-safety.md``).
+  rawValue: int
 
-defineIntDistinctOps(Idx)
+defineSealedIntOps(Idx)
+
+func unsafeMakeIdx(raw: int): Idx {.inline.} =
+  ## Module-private wrap that bypasses validation. Sole producer used by
+  ## ``idx`` (compile-time literals) and ``parseIdx`` (runtime checked).
+  ## Hygienic templates carry symbols bound at definition site, so
+  ## ``idx(static[int])`` can call this from any module without exposing
+  ## the unchecked path.
+  Idx(rawValue: raw)
 
 func toInt*(i: Idx): int {.inline.} =
   ## Projection to raw ``int``. Total, zero-cost.
-  int(i)
+  i.rawValue
 
 func toNatural*(i: Idx): Natural {.inline.} =
   ## Projection to ``Natural`` at stdlib API boundaries that still declare
   ## ``Natural`` (``newStringOfCap``, ``strutils.find(start=...)``). The
-  ## ``Idx`` invariant guarantees ``int(i) >= 0``; the compiler-inserted
+  ## ``Idx`` invariant guarantees ``i.rawValue >= 0``; the compiler-inserted
   ## range check at the conversion is therefore a statically unreachable
   ## backstop, not a correctness-load-bearing check.
-  Natural(int(i))
+  Natural(i.rawValue)
 
 func `+`*(a, b: Idx): Idx {.inline.} =
   ## Invariant-preserving sum. Two non-negative operands ⇒ non-negative
   ## result. Deliberately no ``Idx - Idx`` (could underflow) and no
   ## ``Idx + int`` (right operand unsafe); callers needing those route
   ## through ``parseIdx`` and take the error-rail hit.
-  Idx(int(a) + int(b))
+  unsafeMakeIdx(a.rawValue + b.rawValue)
 
 func succ*(i: Idx): Idx {.inline.} =
   ## Successor — equivalent to ``i + idx(1)``.
-  Idx(int(i) + 1)
+  unsafeMakeIdx(i.rawValue + 1)
 
 func `<`*(a: Idx, b: int): bool {.inline.} =
   ## Read-only mixed comparison. No path smuggles a negative ``int``
   ## into ``Idx``; comparison against a raw ``int`` is one-way.
-  int(a) < b
+  a.rawValue < b
 
 func `<=`*(a: Idx, b: int): bool {.inline.} =
   ## Read-only mixed less-or-equal; see ``<(Idx, int)`` for rationale.
-  int(a) <= b
+  a.rawValue <= b
 
 func `>=`*(a: Idx, b: int): bool {.inline.} =
   ## Read-only mixed greater-or-equal; see ``<(Idx, int)`` for rationale.
-  int(a) >= b
+  a.rawValue >= b
 
 func `>`*(a: Idx, b: int): bool {.inline.} =
   ## Read-only mixed greater-than; see ``<(Idx, int)`` for rationale.
-  int(a) > b
+  a.rawValue > b
 
 func `==`*(a: Idx, b: int): bool {.inline.} =
   ## Read-only mixed equality; see ``<(Idx, int)`` for rationale.
-  int(a) == b
+  a.rawValue == b
 
 func `+=`*(a: var Idx, b: Idx) {.inline.} =
   ## Compound addition. Both operands non-negative ⇒ result
   ## non-negative — invariant preserved by construction.
-  a = Idx(int(a) + int(b))
+  a = unsafeMakeIdx(a.rawValue + b.rawValue)
 
 template idx*(i: static[int]): Idx =
   ## Compile-time smart constructor. Negative literals are rejected at
   ## compilation via ``{.error.}`` — a pragma, not ``doAssert``. No
-  ## runtime code is emitted and no panic path exists. Expansion is
-  ## ``Idx(i)`` (``nkConv``) which does NOT fire
-  ## ``ImplicitRangeConversion`` the way ``Natural(i)`` would.
+  ## runtime code is emitted and no panic path exists.
   when i < 0:
     {.error: "idx requires a non-negative literal; refactor or use parseIdx".}
   else:
-    Idx(i)
+    unsafeMakeIdx(i)
 
 func parseIdx*(raw: int): Result[Idx, ValidationError] =
   ## Runtime smart constructor. Negativity surfaces on the Result error
   ## rail, consistent with ``parseUnsignedInt`` / ``parseJmapInt``.
   if raw < 0:
     return err(validationError("Idx", "must be non-negative", $raw))
-  return ok(Idx(raw))
+  return ok(unsafeMakeIdx(raw))
 
 const Base64UrlChars* = {'A' .. 'Z', 'a' .. 'z', '0' .. '9', '-', '_'}
   ## Characters permitted in RFC 8620 §1.2 entity identifiers.

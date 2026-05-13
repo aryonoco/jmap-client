@@ -51,7 +51,7 @@ func toJson*(us: IdentityUpdateSet): JsonNode =
   ## ``initIdentityUpdateSet`` has already rejected duplicate target
   ## properties, so blind aggregation here cannot shadow a prior entry.
   var node = newJObject()
-  for u in seq[IdentityUpdate](us):
+  for u in us.toSeq:
     let (k, v) = u.toJson()
     node[k] = v
   return node
@@ -62,6 +62,6 @@ func toJson*(upd: NonEmptyIdentityUpdates): JsonNode =
   ## ``parseNonEmptyIdentityUpdates`` has already enforced non-empty
   ## input and distinct ids.
   var node = newJObject()
-  for id, patchSet in Table[Id, IdentityUpdateSet](upd):
-    node[string(id)] = patchSet.toJson()
+  for id, patchSet in upd.toTable:
+    node[$id] = patchSet.toJson()
   return node

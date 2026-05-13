@@ -31,7 +31,7 @@ testCase importItemRejectsOptNoneMailboxIds: # F1 §6.1
 
 testCase importItemMinimalConstruction:
   let b = parseBlobId("blob1").get()
-  let mbx = parseId("m1").get()
+  let mbx = parseIdFromServer("m1").get()
   let ids = parseNonEmptyMailboxIdSet(@[mbx]).get()
   let i = initEmailImportItem(b, ids)
   assertEq i.blobId, b
@@ -46,7 +46,7 @@ testCase importItemKeywordsThreeStates:
   ## distinguishable states at the value layer. Phase 3 serde pins
   ## the first two collapse to "omit the key" on the wire.
   let b = parseBlobId("blob1").get()
-  let mbx = parseId("m1").get()
+  let mbx = parseIdFromServer("m1").get()
   let ids = parseNonEmptyMailboxIdSet(@[mbx]).get()
   let absent = initEmailImportItem(b, ids)
   assertNone absent.keywords

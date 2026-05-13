@@ -76,7 +76,7 @@ func parseSizeField(
   ## Parse size: required on leaf, default 0 on multipart (Decision C16).
   let sizeNode = node{"size"}
   if isMultipart and (sizeNode.isNil or sizeNode.kind != JInt):
-    return ok(UnsignedInt(0))
+    return ok(parseUnsignedInt(0).get())
   return UnsignedInt.fromJson(sizeNode, path / "size")
 
 func parseHeadersField(

@@ -63,7 +63,7 @@ proc minimal102cBlueprint(): EmailBlueprint =
   ## with hash-seed-dependent ordering is either single-element or empty,
   ## so ``$bp.toJson`` is byte-identical across processes under the
   ## current (non-sorting) serde implementation.
-  let ids = parseNonEmptyMailboxIdSet(@[parseId("mbx-det").get()]).get()
+  let ids = parseNonEmptyMailboxIdSet(@[parseIdFromServer("mbx-det").get()]).get()
   parseEmailBlueprint(mailboxIds = ids, subject = Opt.some("fixed subject")).get()
 
 proc multiEntry102eBlueprint(): EmailBlueprint =
@@ -75,7 +75,11 @@ proc multiEntry102eBlueprint(): EmailBlueprint =
   ## structural content. 102e pins the structural contract; byte-equality
   ## is NOT asserted and is not a contract jmap-client offers here.
   let ids = parseNonEmptyMailboxIdSet(
-      @[parseId("mbx-a").get(), parseId("mbx-b").get(), parseId("mbx-c").get()]
+      @[
+        parseIdFromServer("mbx-a").get(),
+        parseIdFromServer("mbx-b").get(),
+        parseIdFromServer("mbx-c").get(),
+      ]
     )
     .get()
   var extra = initTable[BlueprintEmailHeaderName, BlueprintHeaderMultiValue]()
@@ -224,8 +228,11 @@ testCase bodyPartPathMessageTotality: # scenario 99f
   ## and bounded (<4 KiB) regardless of the integer content. Runs under
   ## ``--panics:on`` (config.nims:23), so any ``RangeDefect`` would
   ## ``rawQuit(1)`` the process — implicit via test completion.
-  let adversarialPaths =
-    @[BodyPartPath(@[-1]), BodyPartPath(@[int.high]), BodyPartPath(@[0, int.low, 1])]
+  let adversarialPaths = @[
+    initBodyPartPath(@[-1]),
+    initBodyPartPath(@[int.high]),
+    initBodyPartPath(@[0, int.low, 1]),
+  ]
   for p in adversarialPaths:
     let err = EmailBlueprintError(
       constraint: ebcBodyPartHeaderDuplicate,

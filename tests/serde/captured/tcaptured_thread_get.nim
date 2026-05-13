@@ -27,7 +27,7 @@ testCase tcapturedThreadGet:
     doAssert getResp.list.len == 1,
       "expected one Thread record (got " & $getResp.list.len & ")"
     let t = getResp.list[0]
-    doAssert string(t.id).len > 0, "Thread.id must be non-empty"
+    doAssert ($t.id).len > 0, "Thread.id must be non-empty"
     doAssert t.emailIds.len >= 1,
       "RFC 8621 §3 invariant — Thread.emailIds must carry at least one entry"
     let rt = jthread.Thread.fromJson(t.toJson()).expect("Thread round-trip")

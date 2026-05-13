@@ -150,21 +150,21 @@ func toJson*(se: SetError): JsonNode =
   of setInvalidProperties:
     node["properties"] = %se.properties
   of setAlreadyExists:
-    node["existingId"] = %string(se.existingId)
+    node["existingId"] = %($se.existingId)
   of setBlobNotFound:
     var arr = newJArray()
     for id in se.notFound:
-      arr.add(%string(id))
+      arr.add(%($id))
     node["notFound"] = arr
   of setInvalidEmail:
     node["properties"] = %se.invalidEmailPropertyNames
   of setTooManyRecipients:
-    node["maxRecipients"] = %int64(se.maxRecipientCount)
+    node["maxRecipients"] = %se.maxRecipientCount.toInt64
   of setInvalidRecipients:
     node["invalidRecipients"] = %se.invalidRecipients
   of setTooLarge:
     for v in se.maxSizeOctets:
-      node["maxSize"] = %int64(v)
+      node["maxSize"] = %v.toInt64
   else:
     discard
   for extras in se.extras:

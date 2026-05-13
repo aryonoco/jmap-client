@@ -77,7 +77,7 @@ testCase temailQueryGetChainLive:
     # fresh-client poll bypasses Cyrus's per-session index cache.
     discard pollEmailQueryIndexed(target, mailAccountId, filter, [seedId].toHashSet)
       .expect("pollEmailQueryIndexed[" & $target.kind & "]")
-    let queryParams = QueryParams(limit: Opt.some(UnsignedInt(50)))
+    let queryParams = QueryParams(limit: Opt.some(parseUnsignedInt(50).get()))
     let (b3a, queryHandle) = addEmailQuery(
       initRequestBuilder(makeBuilderId()),
       mailAccountId,

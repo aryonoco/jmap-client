@@ -33,12 +33,12 @@ type Invocation* {.ruleOff: "objects".} = object
   ## A method call or response tuple (RFC 8620 section 3.2). Serialised as a
   ## 3-element JSON array by Layer 2.
   arguments: JsonNode ## module-private; named arguments — always a JObject
-  rawMethodCallId: string ## module-private; always a validated MethodCallId
+  rawMethodCallId: MethodCallId ## module-private; validated MethodCallId
   rawName: string ## module-private; always a non-empty wire-format name
 
 func methodCallId*(inv: Invocation): MethodCallId =
   ## Returns the validated method call ID.
-  return MethodCallId(inv.rawMethodCallId)
+  return inv.rawMethodCallId
 
 func name*(inv: Invocation): MethodName =
   ## Typed method-name accessor. Returns ``mnUnknown`` for wire names the
@@ -71,9 +71,7 @@ func initInvocation*(
   ## the wire name is ``$name`` — empty is structurally unrepresentable.
   ## Stores the backing string verbatim in ``rawName`` so round-trip is
   ## identity-functional.
-  return Invocation(
-    arguments: arguments, rawMethodCallId: string(methodCallId), rawName: $name
-  )
+  return Invocation(arguments: arguments, rawMethodCallId: methodCallId, rawName: $name)
 
 func parseInvocation*(
     rawName: string, arguments: JsonNode, methodCallId: MethodCallId
@@ -84,9 +82,7 @@ func parseInvocation*(
   if rawName.len == 0:
     return err(validationError("Invocation", "name must not be empty", rawName))
   return ok(
-    Invocation(
-      arguments: arguments, rawMethodCallId: string(methodCallId), rawName: rawName
-    )
+    Invocation(arguments: arguments, rawMethodCallId: methodCallId, rawName: rawName)
   )
 
 type Request* = object

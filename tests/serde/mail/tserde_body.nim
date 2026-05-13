@@ -36,8 +36,8 @@ testCase fromJsonLeafPart: # scenario 77
   let part = res.get()
   assertEq part.isMultipart, false
   assertEq part.contentType, "text/plain"
-  assertEq part.partId, PartId("1")
-  assertEq part.blobId, BlobId("abc123")
+  assertEq part.partId, parsePartIdFromServer("1").get()
+  assertEq part.blobId, parseBlobId("abc123").get()
   assertSomeEq part.charset, "utf-8"
 
 testCase fromJsonMultipart: # scenario 78
@@ -85,7 +85,7 @@ testCase sizeRequiredOnLeaf: # scenario 83
 testCase sizeDefaultOnMultipart: # scenario 84
   let res = EmailBodyPart.fromJson(%*{"type": "multipart/mixed"})
   assertOk res
-  assertEq res.get().size, UnsignedInt(0)
+  assertEq res.get().size, parseUnsignedInt(0).get()
 
 # ============= C. Charset defaults (scenarios 85–90) =============
 
@@ -198,8 +198,8 @@ testCase roundTripMultipart: # scenario 95
   let rt = EmailBodyPart.fromJson(part.toJson()).get()
   assertEq rt.isMultipart, true
   assertLen rt.subParts, 2
-  assertEq rt.subParts[0].partId, PartId("1")
-  assertEq rt.subParts[1].partId, PartId("2")
+  assertEq rt.subParts[0].partId, parsePartIdFromServer("1").get()
+  assertEq rt.subParts[1].partId, parsePartIdFromServer("2").get()
 
 # ============= G. toJson depth (scenarios 96, 108) =============
 
@@ -214,10 +214,10 @@ testCase toJsonDepthStress: # scenario 96
     cid: Opt.none(string),
     language: Opt.none(seq[string]),
     location: Opt.none(string),
-    size: UnsignedInt(0),
+    size: parseUnsignedInt(0).get(),
     isMultipart: false,
-    partId: PartId("1"),
-    blobId: BlobId("abc"),
+    partId: parsePartIdFromServer("1").get(),
+    blobId: parseBlobId("abc").get(),
   )
   for i in 0 ..< 200:
     part = EmailBodyPart(
@@ -229,7 +229,7 @@ testCase toJsonDepthStress: # scenario 96
       cid: Opt.none(string),
       language: Opt.none(seq[string]),
       location: Opt.none(string),
-      size: UnsignedInt(0),
+      size: parseUnsignedInt(0).get(),
       isMultipart: true,
       subParts: @[part],
     )
@@ -246,10 +246,10 @@ testCase toJsonDepthExact128: # scenario 108
     cid: Opt.none(string),
     language: Opt.none(seq[string]),
     location: Opt.none(string),
-    size: UnsignedInt(0),
+    size: parseUnsignedInt(0).get(),
     isMultipart: false,
-    partId: PartId("1"),
-    blobId: BlobId("abc"),
+    partId: parsePartIdFromServer("1").get(),
+    blobId: parseBlobId("abc").get(),
   )
   for i in 0 ..< 127:
     part = EmailBodyPart(
@@ -261,7 +261,7 @@ testCase toJsonDepthExact128: # scenario 108
       cid: Opt.none(string),
       language: Opt.none(seq[string]),
       location: Opt.none(string),
-      size: UnsignedInt(0),
+      size: parseUnsignedInt(0).get(),
       isMultipart: true,
       subParts: @[part],
     )
@@ -461,7 +461,9 @@ testCase bpInlineLeaf: # scenario 119
     extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
     isMultipart: false,
     leaf: BlueprintLeafPart(
-      source: bpsInline, partId: PartId("1"), value: BlueprintBodyValue(value: "")
+      source: bpsInline,
+      partId: parsePartIdFromServer("1").get(),
+      value: BlueprintBodyValue(value: ""),
     ),
   )
   let node = bp.toJson()
@@ -479,8 +481,8 @@ testCase bpBlobRefLeaf: # scenario 120
     isMultipart: false,
     leaf: BlueprintLeafPart(
       source: bpsBlobRef,
-      blobId: BlobId("abc123"),
-      size: Opt.some(UnsignedInt(5678)),
+      blobId: parseBlobId("abc123").get(),
+      size: Opt.some(parseUnsignedInt(5678).get()),
       charset: Opt.some("utf-8"),
     ),
   )
@@ -495,8 +497,8 @@ testCase bpBlobRefBothPresent: # scenario 121
     isMultipart: false,
     leaf: BlueprintLeafPart(
       source: bpsBlobRef,
-      blobId: BlobId("abc"),
-      size: Opt.some(UnsignedInt(100)),
+      blobId: parseBlobId("abc").get(),
+      size: Opt.some(parseUnsignedInt(100).get()),
       charset: Opt.some("binary"),
     ),
   )
@@ -511,7 +513,7 @@ testCase bpBlobRefBothAbsent: # scenario 122
     isMultipart: false,
     leaf: BlueprintLeafPart(
       source: bpsBlobRef,
-      blobId: BlobId("abc"),
+      blobId: parseBlobId("abc").get(),
       size: Opt.none(UnsignedInt),
       charset: Opt.none(string),
     ),
@@ -526,7 +528,9 @@ testCase bpMultipart: # scenario 123
     extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
     isMultipart: false,
     leaf: BlueprintLeafPart(
-      source: bpsInline, partId: PartId("1"), value: BlueprintBodyValue(value: "")
+      source: bpsInline,
+      partId: parsePartIdFromServer("1").get(),
+      value: BlueprintBodyValue(value: ""),
     ),
   )
   let bp = BlueprintBodyPart(
@@ -547,7 +551,9 @@ testCase bpDepthLimit: # scenario 124
     extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
     isMultipart: false,
     leaf: BlueprintLeafPart(
-      source: bpsInline, partId: PartId("1"), value: BlueprintBodyValue(value: "")
+      source: bpsInline,
+      partId: parsePartIdFromServer("1").get(),
+      value: BlueprintBodyValue(value: ""),
     ),
   )
   for i in 0 ..< 200:
@@ -569,7 +575,9 @@ testCase bpInlineKeyAbsence: # scenario 126
     extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
     isMultipart: false,
     leaf: BlueprintLeafPart(
-      source: bpsInline, partId: PartId("1"), value: BlueprintBodyValue(value: "")
+      source: bpsInline,
+      partId: parsePartIdFromServer("1").get(),
+      value: BlueprintBodyValue(value: ""),
     ),
   )
   let node = bp.toJson()
@@ -587,7 +595,9 @@ testCase bpExtraHeaders: # scenario 127
     extraHeaders: headers,
     isMultipart: false,
     leaf: BlueprintLeafPart(
-      source: bpsInline, partId: PartId("1"), value: BlueprintBodyValue(value: "")
+      source: bpsInline,
+      partId: parsePartIdFromServer("1").get(),
+      value: BlueprintBodyValue(value: ""),
     ),
   )
   let node = bp.toJson()
@@ -604,7 +614,9 @@ testCase bpExtraHeadersHfRaw: # scenario 127a
     extraHeaders: headers,
     isMultipart: false,
     leaf: BlueprintLeafPart(
-      source: bpsInline, partId: PartId("1"), value: BlueprintBodyValue(value: "")
+      source: bpsInline,
+      partId: parsePartIdFromServer("1").get(),
+      value: BlueprintBodyValue(value: ""),
     ),
   )
   let node = bp.toJson()
@@ -618,7 +630,9 @@ testCase bpEmptyExtraHeaders: # scenario 128
     extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
     isMultipart: false,
     leaf: BlueprintLeafPart(
-      source: bpsInline, partId: PartId("1"), value: BlueprintBodyValue(value: "")
+      source: bpsInline,
+      partId: parsePartIdFromServer("1").get(),
+      value: BlueprintBodyValue(value: ""),
     ),
   )
   let node = bp.toJson()
@@ -643,7 +657,9 @@ testCase bpNestedMultipart: # scenario 130
     extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
     isMultipart: false,
     leaf: BlueprintLeafPart(
-      source: bpsInline, partId: PartId("1"), value: BlueprintBodyValue(value: "")
+      source: bpsInline,
+      partId: parsePartIdFromServer("1").get(),
+      value: BlueprintBodyValue(value: ""),
     ),
   )
   let inner = BlueprintBodyPart(
@@ -672,7 +688,9 @@ testCase bpMixedChildren: # scenario 130a
     extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
     isMultipart: false,
     leaf: BlueprintLeafPart(
-      source: bpsInline, partId: PartId("1"), value: BlueprintBodyValue(value: "")
+      source: bpsInline,
+      partId: parsePartIdFromServer("1").get(),
+      value: BlueprintBodyValue(value: ""),
     ),
   )
   let blobRef = BlueprintBodyPart(
@@ -681,7 +699,7 @@ testCase bpMixedChildren: # scenario 130a
     isMultipart: false,
     leaf: BlueprintLeafPart(
       source: bpsBlobRef,
-      blobId: BlobId("abc"),
+      blobId: parseBlobId("abc").get(),
       size: Opt.none(UnsignedInt),
       charset: Opt.none(string),
     ),
@@ -706,7 +724,7 @@ testCase bpBlobRefBothOptAbsent: # scenario 131
     isMultipart: false,
     leaf: BlueprintLeafPart(
       source: bpsBlobRef,
-      blobId: BlobId("abc"),
+      blobId: parseBlobId("abc").get(),
       size: Opt.none(UnsignedInt),
       charset: Opt.none(string),
     ),

@@ -33,8 +33,7 @@ testCase tcapturedEmailImportNoDedup:
     doAssert outcome.isOk,
       "RFC 8621 §4.8 MAY-permits path: second import succeeds with fresh id " &
         "(got rawType=" & outcome.error.rawType & ")"
-    doAssert string(outcome.unsafeValue.id).len > 0,
-      "imported email id must be non-empty"
+    doAssert ($outcome.unsafeValue.id).len > 0, "imported email id must be non-empty"
     sawOk = true
   do:
     doAssert false, "Email/import must report an outcome for creation id import28b"

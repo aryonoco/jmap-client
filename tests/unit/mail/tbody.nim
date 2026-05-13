@@ -68,10 +68,10 @@ testCase partIdOnMultipart: # scenario 108a
       cid: Opt.none(string),
       language: Opt.none(seq[string]),
       location: Opt.none(string),
-      size: UnsignedInt(0),
+      size: parseUnsignedInt(0).get(),
       isMultipart: true,
       subParts: @[],
-      partId: PartId("1"),
+      partId: parsePartIdFromServer("1").get(),
     )
   )
 
@@ -87,10 +87,10 @@ testCase subPartsOnLeaf: # scenario 108b
       cid: Opt.none(string),
       language: Opt.none(seq[string]),
       location: Opt.none(string),
-      size: UnsignedInt(0),
+      size: parseUnsignedInt(0).get(),
       isMultipart: false,
-      partId: PartId("1"),
-      blobId: BlobId("abc"),
+      partId: parsePartIdFromServer("1").get(),
+      blobId: parseBlobId("abc").get(),
       subParts: @[],
     )
   )
@@ -104,9 +104,11 @@ testCase blobIdOnInline: # scenario 125a
       extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
       isMultipart: false,
       leaf: BlueprintLeafPart(
-        source: bpsInline, partId: PartId("1"), value: BlueprintBodyValue(value: "")
+        source: bpsInline,
+        partId: parsePartIdFromServer("1").get(),
+        value: BlueprintBodyValue(value: ""),
       ),
-      blobId: BlobId("abc"),
+      blobId: parseBlobId("abc").get(),
     )
   )
 
@@ -117,7 +119,9 @@ testCase charsetOnInline: # scenario 125b
       extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
       isMultipart: false,
       leaf: BlueprintLeafPart(
-        source: bpsInline, partId: PartId("1"), value: BlueprintBodyValue(value: "")
+        source: bpsInline,
+        partId: parsePartIdFromServer("1").get(),
+        value: BlueprintBodyValue(value: ""),
       ),
       charset: Opt.some("utf-8"),
     )
@@ -130,7 +134,7 @@ testCase partIdOnMultipartBlueprint: # scenario 125c
       extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
       isMultipart: true,
       subParts: @[],
-      partId: PartId("1"),
+      partId: parsePartIdFromServer("1").get(),
     )
   )
 
@@ -141,7 +145,9 @@ testCase subPartsOnLeafBlueprint: # scenario 125d
       extraHeaders: initTable[BlueprintBodyHeaderName, BlueprintHeaderMultiValue](),
       isMultipart: false,
       leaf: BlueprintLeafPart(
-        source: bpsInline, partId: PartId("1"), value: BlueprintBodyValue(value: "")
+        source: bpsInline,
+        partId: parsePartIdFromServer("1").get(),
+        value: BlueprintBodyValue(value: ""),
       ),
       subParts: @[],
     )

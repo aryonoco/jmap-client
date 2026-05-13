@@ -37,7 +37,7 @@ testCase tcapturedEmailMultipartMixedAttachment:
     "disposition must project as cdAttachment"
   doAssert attachment.name.isSome,
     "attachment must carry a filename in the captured fixture"
-  doAssert string(attachment.blobId).len > 0,
+  doAssert ($attachment.blobId).len > 0,
     "attachment.blobId must be non-empty for Email/parse reuse"
-  doAssert attachment.size == UnsignedInt(32),
+  doAssert attachment.size == parseUnsignedInt(32).get(),
     "captured sentinel is exactly 32 bytes (got " & $attachment.size & ")"

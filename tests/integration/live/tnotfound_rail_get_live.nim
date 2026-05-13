@@ -55,7 +55,7 @@ testCase tnotfoundRailGetLive:
           client, mailAccountId, inbox, "phase-j 66 notFound", "phase-j-66-seed"
         )
         .expect("seedSimpleEmail[" & $target.kind & "]")
-      let syntheticId = Id("zzzzzz")
+      let syntheticId = parseIdFromServer("zzzzzz").get()
       let (b, getHandle) = addEmailGet(
         initRequestBuilder(makeBuilderId()),
         mailAccountId,
@@ -103,7 +103,7 @@ testCase tnotfoundRailGetLive:
 
     # Sub-test 2: Mailbox/get with synthetic id.
     block mailboxGetCase:
-      let syntheticId = Id("zzzzzm")
+      let syntheticId = parseIdFromServer("zzzzzm").get()
       let (b, getHandle) = addMailboxGet(
         initRequestBuilder(makeBuilderId()),
         mailAccountId,
@@ -127,7 +127,7 @@ testCase tnotfoundRailGetLive:
 
     # Sub-test 3: Identity/get on submission account with synthetic id.
     block identityGetCase:
-      let syntheticId = Id("zzzzzi")
+      let syntheticId = parseIdFromServer("zzzzzi").get()
       let (b, getHandle) = addIdentityGet(
         initRequestBuilder(makeBuilderId()),
         submissionAccountId,
@@ -152,7 +152,7 @@ testCase tnotfoundRailGetLive:
 
     # Sub-test 4: Thread/get with synthetic threadId.
     block threadGetCase:
-      let syntheticId = Id("zzzzzt")
+      let syntheticId = parseIdFromServer("zzzzzt").get()
       let (b, getHandle) = addThreadGet(
         initRequestBuilder(makeBuilderId()),
         mailAccountId,

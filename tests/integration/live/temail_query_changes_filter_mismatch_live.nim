@@ -111,7 +111,7 @@ testCase temailQueryChangesFilterMismatchLive:
     ):
       let qcr = success
       assertOn target,
-        string(qcr.oldQueryState) == string(queryStateA),
+        $qcr.oldQueryState == $queryStateA,
         "success arm: oldQueryState must echo the supplied baseline"
 
     client.close()

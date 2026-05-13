@@ -29,11 +29,11 @@ testCase tcapturedSession:
     # 3.12.2 reports 0; Stalwart and James both advertise non-zero
     # caps. UnsignedInt is non-negative by construction, so the parse
     # itself is the structural assertion.
-    discard int64(core.maxSizeUpload)
-    doAssert int64(core.maxSizeRequest) > 0, "maxSizeRequest must be positive"
-    doAssert int64(core.maxCallsInRequest) > 0, "maxCallsInRequest must be positive"
-    doAssert int64(core.maxObjectsInGet) > 0, "maxObjectsInGet must be positive"
-    doAssert int64(core.maxObjectsInSet) > 0, "maxObjectsInSet must be positive"
+    discard core.maxSizeUpload.toInt64
+    doAssert core.maxSizeRequest.toInt64 > 0, "maxSizeRequest must be positive"
+    doAssert core.maxCallsInRequest.toInt64 > 0, "maxCallsInRequest must be positive"
+    doAssert core.maxObjectsInGet.toInt64 > 0, "maxObjectsInGet must be positive"
+    doAssert core.maxObjectsInSet.toInt64 > 0, "maxObjectsInSet must be positive"
     # ``collationAlgorithms`` is mandated by RFC 8620 §2 to list the
     # algorithms the server supports — but Cyrus 3.12.2 ships an empty
     # array, expecting the client to default to ``i;ascii-casemap``.

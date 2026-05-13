@@ -81,7 +81,7 @@ testCase temailGetTextBodyLive:
       textLeaf.contentType == "text/plain",
       "textBody[0].contentType must be text/plain (got " & textLeaf.contentType & ")"
     assertOn target,
-      textLeaf.size > UnsignedInt(0),
+      textLeaf.size > parseUnsignedInt(0).get(),
       "textBody[0].size must be > 0 (got " & $textLeaf.size & ")"
     assertOn target,
       textLeaf.charset.isSome, "textBody[0].charset must be present for a text/* leaf"

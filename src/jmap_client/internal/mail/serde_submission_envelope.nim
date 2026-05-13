@@ -113,7 +113,7 @@ func paramValueToJson(p: SubmissionParam): JsonNode =
   of spkSmtpUtf8:
     newJNull()
   of spkSize:
-    %($int64(p.sizeOctets))
+    %($p.sizeOctets.toInt64)
   of spkEnvid:
     %p.envid
   of spkRet:
@@ -123,13 +123,13 @@ func paramValueToJson(p: SubmissionParam): JsonNode =
   of spkOrcpt:
     %($p.orcptAddrType & ";" & p.orcptOrigRecipient)
   of spkHoldFor:
-    %($int64(UnsignedInt(p.holdFor)))
+    %($p.holdFor.toInt64)
   of spkHoldUntil:
     %($p.holdUntil)
   of spkBy:
-    %($int64(p.byDeadline) & ";" & $p.byMode)
+    %($p.byDeadline.toInt64 & ";" & $p.byMode)
   of spkMtPriority:
-    %($int(p.mtPriority))
+    %($p.mtPriority.toInt)
   of spkExtension:
     # `case .isOk of true: .unsafeValue` — strict-safe (case proves the
     # discriminator) AND panic-free (unsafeValue bypasses withAssertOk,
@@ -378,7 +378,7 @@ func toJson*(params: SubmissionParams): JsonNode =
   ## ``SubmissionParam``, with the wire key from ``SubmissionParamKind``
   ## backing strings (or ``extName`` for the open-world variant).
   var obj = newJObject()
-  for key, param in pairs(OrderedTable[SubmissionParamKey, SubmissionParam](params)):
+  for key, param in pairs(params.toOrderedTable):
     let wireKey =
       case key.kind
       of spkExtension:

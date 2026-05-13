@@ -112,7 +112,7 @@ testCase parseNonEmptyIdentityUpdatesEmpty:
   assertEq res.error[0].message, "must contain at least one entry"
 
 testCase parseNonEmptyIdentityUpdatesDuplicateId:
-  let id1 = parseId("idt1").get()
+  let id1 = parseIdFromServer("idt1").get()
   let us1 = initIdentityUpdateSet(@[setName("A")]).get()
   let us2 = initIdentityUpdateSet(@[setName("B")]).get()
   let res = parseNonEmptyIdentityUpdates(@[(id1, us1), (id1, us2)])
@@ -121,10 +121,10 @@ testCase parseNonEmptyIdentityUpdatesDuplicateId:
   assertEq res.error[0].message, "duplicate identity id"
 
 testCase parseNonEmptyIdentityUpdatesTwoDistinctIds:
-  let id1 = parseId("idt1").get()
-  let id2 = parseId("idt2").get()
+  let id1 = parseIdFromServer("idt1").get()
+  let id2 = parseIdFromServer("idt2").get()
   let us1 = initIdentityUpdateSet(@[setName("A")]).get()
   let us2 = initIdentityUpdateSet(@[setTextSignature("s")]).get()
   let res = parseNonEmptyIdentityUpdates(@[(id1, us1), (id2, us2)])
   assertOk res
-  assertEq Table[Id, IdentityUpdateSet](res.get()).len, 2
+  assertEq res.get().toTable.len, 2

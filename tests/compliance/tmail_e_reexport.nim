@@ -120,13 +120,13 @@ static:
 
 # -----------------------------------------------------------------------------
 # primitives.nim (§4.6) — NonEmptySeq[T], parseNonEmptySeq[T],
-# defineNonEmptySeqOps template.
+# defineSealedNonEmptySeqOps template.
 # -----------------------------------------------------------------------------
 
 static:
   doAssert declared(NonEmptySeq)
   doAssert declared(parseNonEmptySeq)
-  doAssert declared(defineNonEmptySeqOps)
+  doAssert declared(defineSealedNonEmptySeqOps)
 
 proc touchNonEmptySeqInstantiation(xs: NonEmptySeq[string]) {.used.} =
   ## Proves the generic type instantiates through the re-export chain;

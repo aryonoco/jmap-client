@@ -45,19 +45,19 @@ testCase setKeywordsConstructsCorrectKind:
   doAssert kwFlagged in u.keywords, "expected kwFlagged in keywords payload"
 
 testCase addToMailboxConstructsCorrectKind:
-  let id = parseId("m1").get()
+  let id = parseIdFromServer("m1").get()
   let u = addToMailbox(id)
   assertEq u.kind, euAddToMailbox
   assertEq u.mailboxId, id
 
 testCase removeFromMailboxConstructsCorrectKind:
-  let id = parseId("m1").get()
+  let id = parseIdFromServer("m1").get()
   let u = removeFromMailbox(id)
   assertEq u.kind, euRemoveFromMailbox
   assertEq u.mailboxId, id
 
 testCase setMailboxIdsConstructsCorrectKind:
-  let id = parseId("m1").get()
+  let id = parseIdFromServer("m1").get()
   let ids = parseNonEmptyMailboxIdSet(@[id]).get()
   let u = setMailboxIds(ids)
   assertEq u.kind, euSetMailboxIds
@@ -86,7 +86,7 @@ testCase markUnflaggedEqualsRemoveKeywordFlagged:
   assertEq r.keyword, kwFlagged
 
 testCase moveToMailboxEqualsSetMailboxIdsSingleton: # F21 pin
-  let id = parseId("m1").get()
+  let id = parseIdFromServer("m1").get()
   let expected = parseNonEmptyMailboxIdSet(@[id]).get()
   let u = moveToMailbox(id)
   assertEq u.kind, euSetMailboxIds
@@ -95,8 +95,8 @@ testCase moveToMailboxEqualsSetMailboxIdsSingleton: # F21 pin
 # ============= C. Negative discrimination =============
 
 testCase moveToMailboxDistinctIds:
-  let id1 = parseId("m1").get()
-  let id2 = parseId("m2").get()
+  let id1 = parseIdFromServer("m1").get()
+  let id2 = parseIdFromServer("m2").get()
   let u1 = moveToMailbox(id1)
   let u2 = moveToMailbox(id2)
   assertEq u1.kind, euSetMailboxIds

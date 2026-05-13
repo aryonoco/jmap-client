@@ -56,14 +56,14 @@ testCase initNonEmptyEmailImportMapEmpty:
 testCase initNonEmptyEmailImportMapSingleValid:
   let cid = parseCreationId("c1").get()
   let blob = parseBlobId("blob1").get()
-  let mbxs = parseNonEmptyMailboxIdSet(@[parseId("m1").get()]).get()
+  let mbxs = parseNonEmptyMailboxIdSet(@[parseIdFromServer("m1").get()]).get()
   let item = initEmailImportItem(blob, mbxs)
   assertOk initNonEmptyEmailImportMap(@[(cid, item)])
 
 testCase initNonEmptyEmailImportMapTwoSameCreationId:
   let cid = parseCreationId("c1").get()
   let blob = parseBlobId("blob1").get()
-  let mbxs = parseNonEmptyMailboxIdSet(@[parseId("m1").get()]).get()
+  let mbxs = parseNonEmptyMailboxIdSet(@[parseIdFromServer("m1").get()]).get()
   let item = initEmailImportItem(blob, mbxs)
   let res = initNonEmptyEmailImportMap(@[(cid, item), (cid, item)])
   assertErr res
@@ -76,7 +76,7 @@ testCase initNonEmptyEmailImportMapThreeSameCreationId:
   ## Three occurrences of the same CreationId still yield ONE error.
   let cid = parseCreationId("c1").get()
   let blob = parseBlobId("blob1").get()
-  let mbxs = parseNonEmptyMailboxIdSet(@[parseId("m1").get()]).get()
+  let mbxs = parseNonEmptyMailboxIdSet(@[parseIdFromServer("m1").get()]).get()
   let item = initEmailImportItem(blob, mbxs)
   let res = initNonEmptyEmailImportMap(@[(cid, item), (cid, item), (cid, item)])
   assertErr res
@@ -89,7 +89,7 @@ testCase initNonEmptyEmailImportMapTwoDistinctRepeated:
   let cid1 = parseCreationId("c1").get()
   let cid2 = parseCreationId("c2").get()
   let blob = parseBlobId("blob1").get()
-  let mbxs = parseNonEmptyMailboxIdSet(@[parseId("m1").get()]).get()
+  let mbxs = parseNonEmptyMailboxIdSet(@[parseIdFromServer("m1").get()]).get()
   let item = initEmailImportItem(blob, mbxs)
   let res = initNonEmptyEmailImportMap(
     @[(cid1, item), (cid1, item), (cid2, item), (cid2, item)]

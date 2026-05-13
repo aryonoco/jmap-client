@@ -98,14 +98,14 @@ testCase turkishLocaleInvariance: # scenario 98e
       if er.isErr:
         (false, er.error.message)
       else:
-        (true, string(er.get()))
+        (true, $er.get())
     )
     let br = parseBlueprintBodyHeaderName(raw)
     bodyBaseline.add(
       if br.isErr:
         (false, br.error.message)
       else:
-        (true, string(br.get()))
+        (true, $br.get())
     )
   withLocale("tr_TR.UTF-8"):
     for i, raw in inputs:
@@ -114,7 +114,7 @@ testCase turkishLocaleInvariance: # scenario 98e
         if er.isErr:
           (false, er.error.message)
         else:
-          (true, string(er.get()))
+          (true, $er.get())
       doAssert ePair == emailBaseline[i],
         "locale altered email-name parse of '" & raw & "'"
       let br = parseBlueprintBodyHeaderName(raw)
@@ -122,7 +122,7 @@ testCase turkishLocaleInvariance: # scenario 98e
         if br.isErr:
           (false, br.error.message)
         else:
-          (true, string(br.get()))
+          (true, $br.get())
       doAssert bPair == bodyBaseline[i],
         "locale altered body-name parse of '" & raw & "'"
 

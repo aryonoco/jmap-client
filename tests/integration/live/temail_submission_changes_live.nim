@@ -14,7 +14,7 @@
 ##      capture; the values are local-only inputs to the deltas.
 ##   2. **Changes happy + sad** -- two EmailSubmission/changes
 ##      invocations sharing one builder: sinceState=baselineState
-##      (happy) and sinceState=JmapState("phase-f-bogus-state")
+##      (happy) and sinceState=parseJmapState("phase-f-bogus-state").get()
 ##      (sad). Captured as ``email-submission-changes-stalwart``.
 ##   3. **QueryChanges** -- one EmailSubmission/queryChanges with
 ##      sinceQueryState=baselineQueryState. Captured as
@@ -123,7 +123,7 @@ testCase tEmailSubmissionChangesLive:
     let bobAddr = parseEmailAddress("bob@example.com", Opt.some("Bob")).expect(
         "parseEmailAddress bob"
       )
-    let holdSeconds = parseHoldForSeconds(UnsignedInt(300)).expect(
+    let holdSeconds = parseHoldForSeconds(parseUnsignedInt(300).get()).expect(
         "parseHoldForSeconds[" & $target.kind & "]"
       )
     let envelope = buildEnvelopeWithHoldFor(
@@ -160,7 +160,7 @@ testCase tEmailSubmissionChangesLive:
       if setExtract.isErr:
         return err(setExtract.unsafeError)
       let setResp = setExtract.unsafeValue
-      var submissionId = Id("")
+      var submissionId = parseIdFromServer("placeholder").get()
       var subOk = false
       setResp.createResults.withValue(cid, outcome):
         if outcome.isOk:
@@ -188,7 +188,7 @@ testCase tEmailSubmissionChangesLive:
       sinceState = baselineState,
     )
     let (b2b, badHandle) = addEmailSubmissionChanges(
-      b2, submissionAccountId, sinceState = JmapState("phase-f-bogus-state")
+      b2, submissionAccountId, sinceState = parseJmapState("phase-f-bogus-state").get()
     )
     let resp2 = client.send(b2b.freeze()).expect(
         "send EmailSubmission/changes happy+sad[" & $target.kind & "]"
@@ -202,8 +202,7 @@ testCase tEmailSubmissionChangesLive:
     ):
       let cr = success
       assertOn target,
-        string(cr.oldState) == string(baselineState),
-        "oldState must echo the supplied baseline"
+        $cr.oldState == $baselineState, "oldState must echo the supplied baseline"
       assertOn target,
         cr.created.len == 2,
         "two seeds must surface as two created entries (got " & $cr.created.len & ")"
@@ -245,15 +244,15 @@ testCase tEmailSubmissionChangesLive:
     ):
       let qcr = success
       assertOn target,
-        string(qcr.oldQueryState) == string(baselineQueryState),
+        $qcr.oldQueryState == $baselineQueryState,
         "oldQueryState must echo the supplied baseline"
       assertOn target,
-        string(qcr.newQueryState) != string(baselineQueryState),
+        $qcr.newQueryState != $baselineQueryState,
         "newQueryState must differ after two fresh submissions"
       assertOn target,
         qcr.total.isSome, "queryChanges must surface total when calculateTotal=true"
       assertOn target,
-        int64(qcr.total.unsafeGet) == int64(baselineTotal) + 2,
+        qcr.total.unsafeGet.toInt64 == baselineTotal.toInt64 + 2,
         "total must advance by exactly two (got " & $qcr.total.unsafeGet & ", baseline=" &
           $baselineTotal & ")"
       assertOn target,

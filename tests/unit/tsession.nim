@@ -403,7 +403,7 @@ testCase sessionFindCapabilityByUriNotFound:
 testCase primaryAccountMail:
   let result = primaryAccount(goldenSession, ckMail)
   doAssert result.isSome
-  doAssert result.get() == AccountId("A13824")
+  doAssert result.get() == parseAccountId("A13824").get()
 
 testCase primaryAccountUnknown:
   doAssert primaryAccount(goldenSession, ckUnknown).isNone
@@ -412,12 +412,12 @@ testCase primaryAccountBlob:
   doAssert primaryAccount(goldenSession, ckBlob).isNone
 
 testCase findAccountKnown:
-  let result = findAccount(goldenSession, AccountId("A13824"))
+  let result = findAccount(goldenSession, parseAccountId("A13824").get())
   doAssert result.isSome
   doAssert result.get().name == "john@example.com"
 
 testCase findAccountUnknown:
-  doAssert findAccount(goldenSession, AccountId("nonexistent")).isNone
+  doAssert findAccount(goldenSession, parseAccountId("nonexistent").get()).isNone
 
 # =============================================================================
 # E. Invariant violation — tested in tsession_invariant.nim (panics:on)
@@ -620,7 +620,7 @@ testCase primaryAccountContacts:
   ## primaryAccount returns the designated primary for ckContacts.
   let result = primaryAccount(goldenSession, ckContacts)
   assertSome result
-  doAssert result.get() == AccountId("A13824")
+  doAssert result.get() == parseAccountId("A13824").get()
 
 testCase primaryAccountNotDesignated:
   ## primaryAccount returns none when no primary is designated for the kind.
@@ -632,14 +632,14 @@ testCase primaryAccountCkUnknownReturnsNone:
 
 testCase findAccountFoundSecond:
   ## findAccount returns the correct account for the second AccountId.
-  let result = findAccount(goldenSession, AccountId("A97813"))
+  let result = findAccount(goldenSession, parseAccountId("A97813").get())
   assertSome result
   doAssert result.get().name == "jane@example.com"
   doAssert result.get().isReadOnly == true
 
 testCase findAccountNotFound:
   ## findAccount returns none for an unknown AccountId.
-  assertNone findAccount(goldenSession, AccountId("ZZZZZZ"))
+  assertNone findAccount(goldenSession, parseAccountId("ZZZZZZ").get())
 
 # =============================================================================
 # L. Account accessor zero-coverage gaps

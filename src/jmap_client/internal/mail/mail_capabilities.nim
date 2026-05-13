@@ -16,23 +16,40 @@ import ../types/validation
 import ../types/primitives
 import ./submission_atoms
 
-type SubmissionExtensionMap* = distinct OrderedTable[RFC5321Keyword, seq[string]]
+type SubmissionExtensionMap* {.ruleOff: "objects".} = object
   ## RFC 5321 §2.2.1 EHLO-name → args map for the
   ## urn:ietf:params:jmap:submission capability's ``submissionExtensions``
-  ## field (RFC 8621 §1.3.2). Keys are validated ESMTP keywords with the
+  ## field (RFC 8621 §1.3.2). Sealed Pattern-A object — ``rawValue`` is
+  ## module-private. Keys are validated ESMTP keywords with the
   ## case-insensitive equality and hash defined by ``RFC5321Keyword`` —
   ## the underlying ``OrderedTable`` therefore gives structural uniqueness
   ## and wire-order fidelity automatically. Construction is gated by
   ## ``parseSubmissionCapabilities`` serde; direct callers wrap a
-  ## validated ``OrderedTable[RFC5321Keyword, seq[string]]`` via the raw
-  ## distinct constructor.
+  ## validated ``OrderedTable[RFC5321Keyword, seq[string]]`` via
+  ## ``initSubmissionExtensionMap``.
+  rawValue: OrderedTable[RFC5321Keyword, seq[string]]
 
-func `==`*(a, b: SubmissionExtensionMap): bool {.borrow.}
+func initSubmissionExtensionMap*(
+    t: OrderedTable[RFC5321Keyword, seq[string]]
+): SubmissionExtensionMap =
+  ## Wraps a validated ``OrderedTable`` as a ``SubmissionExtensionMap``.
+  ## Carries no invariant beyond type identity.
+  SubmissionExtensionMap(rawValue: t)
+
+func toOrderedTable*(
+    m: SubmissionExtensionMap
+): OrderedTable[RFC5321Keyword, seq[string]] {.inline.} =
+  ## Value-projection accessor — returns a copy of the underlying table.
+  m.rawValue
+
+func `==`*(a, b: SubmissionExtensionMap): bool =
   ## Structural equality via the underlying ``OrderedTable`` — keys
   ## compare case-insensitively through ``RFC5321Keyword.==``.
+  a.rawValue == b.rawValue
 
-func `$`*(a: SubmissionExtensionMap): string {.borrow.}
+func `$`*(a: SubmissionExtensionMap): string =
   ## Table-rendered representation preserving wire order; for diagnostics.
+  $a.rawValue
 
 type MailCapabilities* {.ruleOff: "objects".} = object
   ## Server-advertised limits for the urn:ietf:params:jmap:mail capability

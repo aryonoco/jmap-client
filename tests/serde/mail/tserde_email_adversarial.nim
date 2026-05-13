@@ -308,7 +308,7 @@ testCase maxUnsignedIntSize: # scenario 117
   let res = emailFromJson(j)
   assertOk res
   assertSome res.get().size
-  assertEq int64(res.get().size.unsafeGet), 9007199254740991'i64
+  assertEq res.get().size.unsafeGet.toInt64, 9007199254740991'i64
 
 # =============================================================================
 # I. Cross-Field Semantic (scenarios 118–123)
@@ -375,4 +375,4 @@ testCase snippetDanglingEmailId: # scenario 123
   let j = %*{"emailId": "nonExistentEmailId999", "subject": "orphan", "preview": nil}
   let res = searchSnippetFromJson(j)
   assertOk res
-  assertEq string(res.get().emailId), "nonExistentEmailId999"
+  assertEq $res.get().emailId, "nonExistentEmailId999"

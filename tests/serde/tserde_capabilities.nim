@@ -61,8 +61,8 @@ testCase coreCapabilitiesDeserValid:
     "collationAlgorithms": ["i;ascii-numeric"],
   }
   let caps = CoreCapabilities.fromJson(j).get()
-  assertEq int64(caps.maxSizeUpload), 50000000'i64
-  assertEq int64(caps.maxCallsInRequest), 32'i64
+  assertEq caps.maxSizeUpload.toInt64, 50000000'i64
+  assertEq caps.maxCallsInRequest.toInt64, 32'i64
   doAssert caps.collationAlgorithms.contains(CollationAsciiNumeric)
 
 testCase coreCapabilitiesDeserMissingField:
@@ -160,7 +160,7 @@ testCase coreCapabilitiesDeserSingularOnly:
     "collationAlgorithms": [],
   }
   let r = CoreCapabilities.fromJson(j).get()
-  assertEq int64(r.maxConcurrentRequests), 5'i64
+  assertEq r.maxConcurrentRequests.toInt64, 5'i64
 
 testCase coreCapabilitiesDeserBothDifferentValues:
   let j = %*{
@@ -176,7 +176,7 @@ testCase coreCapabilitiesDeserBothDifferentValues:
   }
   let r = CoreCapabilities.fromJson(j).get()
   # Plural form takes precedence
-  assertEq int64(r.maxConcurrentRequests), 10'i64
+  assertEq r.maxConcurrentRequests.toInt64, 10'i64
 
 testCase coreCapabilitiesDeserNeitherPresent:
   let j = %*{
@@ -317,7 +317,7 @@ testCase coreCapabilitiesDeserMaxUnsignedIntBoundary:
     "collationAlgorithms": [],
   }
   let r = CoreCapabilities.fromJson(j).get()
-  assertEq int64(r.maxSizeUpload), maxVal
+  assertEq r.maxSizeUpload.toInt64, maxVal
 
 testCase coreCapabilitiesCollationDuplicatesDeduplication:
   ## HashSet deduplicates collation algorithms.

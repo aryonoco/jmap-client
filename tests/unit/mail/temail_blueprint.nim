@@ -486,7 +486,7 @@ testCase nonEmptySeqDistinctCopySemantics: # §6.4.4 scenario 102d
   # unwrapped copy must not affect the original. The non-empty
   # invariant is structural, not just documented.
   let ne = parseNonEmptySeq(@["v"]).get()
-  var raw = seq[string](ne)
+  var raw = asSeq(ne)
   raw.setLen(0)
   doAssert ne.len == 1, "NonEmptySeq must retain element after unwrap-mutate"
   doAssert ne.head == "v", "NonEmptySeq element value must be preserved"

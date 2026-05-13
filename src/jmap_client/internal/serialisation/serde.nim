@@ -43,14 +43,16 @@ type JsonPathElement* {.ruleOff: "objects".} = object
   of jpeIndex:
     idx*: int
 
-type JsonPath* = distinct seq[JsonPathElement]
+type JsonPath* {.ruleOff: "objects".} = object
   ## Ordered, immutable path of object keys and array indices — rendered
-  ## as an RFC 6901 JSON Pointer string by ``$``. Composed left-to-right
-  ## via the ``/`` operator as a ``fromJson`` descends the wire tree.
+  ## as an RFC 6901 JSON Pointer string by ``$``. Sealed Pattern-A
+  ## object — ``rawValue`` is module-private. Composed left-to-right via
+  ## the ``/`` operator as a ``fromJson`` descends the wire tree.
+  rawValue: seq[JsonPathElement]
 
 func emptyJsonPath*(): JsonPath =
   ## The empty RFC 6901 pointer — references the root of the document.
-  return JsonPath(@[])
+  return JsonPath(rawValue: @[])
 
 func jsonPointerEscape*(s: string): string =
   ## RFC 6901 §3 reference-token escaping. ``~`` MUST be escaped first:
@@ -61,20 +63,19 @@ func jsonPointerEscape*(s: string): string =
 func `/`*(p: JsonPath, key: string): JsonPath =
   ## Extend the path with a named object key. Produces a fresh path;
   ## ``p`` is unchanged.
-  return JsonPath(seq[JsonPathElement](p) & @[JsonPathElement(kind: jpeKey, key: key)])
+  return JsonPath(rawValue: p.rawValue & @[JsonPathElement(kind: jpeKey, key: key)])
 
 func `/`*(p: JsonPath, idx: int): JsonPath =
   ## Extend the path with a zero-based array index. Produces a fresh
   ## path; ``p`` is unchanged.
-  return
-    JsonPath(seq[JsonPathElement](p) & @[JsonPathElement(kind: jpeIndex, idx: idx)])
+  return JsonPath(rawValue: p.rawValue & @[JsonPathElement(kind: jpeIndex, idx: idx)])
 
 func `$`*(p: JsonPath): string =
   ## Render as an RFC 6901 JSON Pointer string. The empty path renders
   ## as ``""`` (references the whole document); otherwise each segment
   ## contributes a leading ``/`` plus the escaped token or the index.
   result = ""
-  for elem in seq[JsonPathElement](p):
+  for elem in p.rawValue:
     case elem.kind
     of jpeKey:
       result.add("/" & jsonPointerEscape(elem.key))
@@ -531,11 +532,12 @@ func optStringToJsonOrNull*(opt: Opt[string]): JsonNode =
 # parameter (untyped) is the smart constructor name for the target type.
 
 template defineDistinctStringToJson*(T: typedesc) =
-  ## Generates a ``toJson`` overload that serialises a distinct string type
-  ## to a JSON string node.
+  ## Generates a ``toJson`` overload that serialises a string-backed
+  ## sealed type to a JSON string node. The type must expose ``$`` —
+  ## supplied by ``defineSealedStringOps`` / ``defineSealedOpaqueStringOps``.
   func toJson*(x: T): JsonNode =
-    ## Serialise distinct string to JSON string.
-    return %(string(x))
+    ## Serialise sealed string type to JSON string.
+    return %($x)
 
 template defineDistinctStringFromJson*(T: typedesc, parser: untyped) =
   ## Generates a ``fromJson`` overload that deserialises a JSON string node
@@ -548,12 +550,12 @@ template defineDistinctStringFromJson*(T: typedesc, parser: untyped) =
     ?expectKind(node, JString, path)
     return wrapInner(parser(node.getStr("")), path)
 
-template defineDistinctIntToJson*(T: typedesc, Base: typedesc) =
-  ## Generates a ``toJson`` overload that serialises a distinct int type
-  ## to a JSON integer node via the given base integer type.
+template defineDistinctIntToJson*(T: typedesc, asInt: untyped) =
+  ## Generates a ``toJson`` overload that serialises a sealed int type
+  ## to a JSON integer node via the given projection (e.g. ``toInt64``).
   func toJson*(x: T): JsonNode =
-    ## Serialise distinct int to JSON integer.
-    return %(Base(x))
+    ## Serialise sealed int type to JSON integer.
+    return %asInt(x)
 
 template defineDistinctIntFromJson*(T: typedesc, parser: untyped) =
   ## Generates a ``fromJson`` overload that deserialises a JSON integer node
@@ -606,8 +608,8 @@ func fromJson*(
 
 # --- toJson/fromJson: distinct int types ---
 
-defineDistinctIntToJson(UnsignedInt, int64)
-defineDistinctIntToJson(JmapInt, int64)
+defineDistinctIntToJson(UnsignedInt, toInt64)
+defineDistinctIntToJson(JmapInt, toInt64)
 
 defineDistinctIntFromJson(UnsignedInt, parseUnsignedInt)
 defineDistinctIntFromJson(JmapInt, parseJmapInt)
@@ -616,7 +618,7 @@ defineDistinctIntFromJson(JmapInt, parseJmapInt)
 
 func toJson*(x: MaxChanges): JsonNode =
   ## Serialise MaxChanges to JSON integer.
-  return %(int64(UnsignedInt(x)))
+  return %x.toInt64
 
 func fromJson*(
     T: typedesc[MaxChanges], node: JsonNode, path: JsonPath = emptyJsonPath()

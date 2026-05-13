@@ -137,7 +137,7 @@ testCase tmailboxDestroyRemoveEmailsLive:
     for sid in seedAIds:
       assertOn target,
         sid in notFoundSet,
-        "seeded email " & string(sid) & " must surface in Email/get notFound"
+        "seeded email " & $sid & " must surface in Email/get notFound"
 
     # =====================================================================
     # Leg B — sad path (no cascade flag → setMailboxHasEmail)

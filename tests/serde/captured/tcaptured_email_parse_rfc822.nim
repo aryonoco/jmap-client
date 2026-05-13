@@ -30,7 +30,7 @@ testCase tcapturedEmailParseRfc822:
   doAssert parseResp.parsed.len == 1,
     "captured fixture parses one blob (got " & $parseResp.parsed.len & ")"
   for blobId, parsed in parseResp.parsed:
-    doAssert string(blobId).len > 0, "parsed map keys must be non-empty BlobIds"
+    doAssert ($blobId).len > 0, "parsed map keys must be non-empty BlobIds"
     doAssert parsed.subject.isSome,
       "parsed inner email must carry the inner Subject header"
     doAssert parsed.fromAddr.isSome,

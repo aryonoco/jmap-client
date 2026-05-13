@@ -116,8 +116,7 @@ testCase tidentityChangesLive:
       assertSuccessOrTypedError(target, happyExtract, {metUnknownMethod}):
         let cr = success
         assertOn target,
-          string(cr.oldState) == string(baselineState),
-          "oldState must echo the supplied baseline"
+          $cr.oldState == $baselineState, "oldState must echo the supplied baseline"
         # James 3.9 binds Identity/changes but reports it "Not
         # implemented" — the response shape is well-formed but the
         # delta is empty. Stalwart correctly surfaces the newly-
@@ -131,7 +130,7 @@ testCase tidentityChangesLive:
         assertOn target, cr.hasMoreChanges == false, "no further changes pending"
 
     # --- Sad path: bogus sinceState -------------------------------------
-    let bogusState = JmapState("phase-h-46-bogus-state")
+    let bogusState = parseJmapState("phase-h-46-bogus-state").get()
     let (bSad, sadHandle) = addIdentityChanges(
       initRequestBuilder(makeBuilderId()), submissionAccountId, sinceState = bogusState
     )

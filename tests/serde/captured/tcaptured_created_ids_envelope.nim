@@ -37,8 +37,8 @@ testCase tcapturedCreatedIdsEnvelope:
     # cid resolves to *some* Id structurally; pinning the empirical
     # value would make the test fail on every re-capture without
     # gaining any contract coverage.
-    doAssert string(v[]).len > 0,
-      "echoed createdIds entry must resolve to a non-empty Id; got '" & string(v[]) & "'"
+    doAssert v[].len > 0,
+      "echoed createdIds entry must resolve to a non-empty Id; got '" & $v[] & "'"
   do:
     doAssert false, "echoed createdIds must contain the knownEmail cid"
 

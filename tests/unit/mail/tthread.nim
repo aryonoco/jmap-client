@@ -10,10 +10,10 @@ import jmap_client/internal/types/primitives
 import ../../massertions
 import ../../mtestblock
 
-let id = parseId("t1").get()
-let e1 = parseId("e1").get()
-let e2 = parseId("e2").get()
-let e3 = parseId("e3").get()
+let id = parseIdFromServer("t1").get()
+let e1 = parseIdFromServer("e1").get()
+let e2 = parseIdFromServer("e2").get()
+let e3 = parseIdFromServer("e3").get()
 
 # ============= A. parseThread =============
 

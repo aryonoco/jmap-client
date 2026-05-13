@@ -42,28 +42,32 @@ const
 # RFC5321Keyword
 # ===========================================================================
 
-type RFC5321Keyword* = distinct string
+type RFC5321Keyword* {.ruleOff: "objects".} = object
   ## RFC 5321 §4.1.1.1 ``esmtp-keyword``:
   ## ``(ALPHA / DIGIT) *(ALPHA / DIGIT / "-")``, bounded to 64 octets
   ## (defensive cap — the RFC is silent on an explicit maximum). Case-
-  ## insensitive equality and hash per §2.4 and §4.1.1.1; ``$`` preserves
-  ## the original casing for diagnostic round-trip.
+  ## insensitive equality and hash per §2.4 and §4.1.1.1; ``$``
+  ## preserves the original casing for diagnostic round-trip. Sealed
+  ## Pattern-A object — ``rawValue`` is module-private.
+  rawValue: string
 
 func `==`*(a, b: RFC5321Keyword): bool =
   ## ASCII case-insensitive equality per RFC 5321 §4.1.1.1. Server
   ## casing preserved in ``$`` for diagnostic round-trip.
-  cmpIgnoreCase(string(a), string(b)) == 0
+  cmpIgnoreCase(a.rawValue, b.rawValue) == 0
 
-func `$`*(a: RFC5321Keyword): string {.borrow.}
+func `$`*(a: RFC5321Keyword): string =
   ## Preserves the original casing (unchanged from construction).
+  a.rawValue
 
 func hash*(a: RFC5321Keyword): Hash =
   ## Case-fold hash so ``==``-equal values hash identically — required
   ## for correctness of ``Table[RFC5321Keyword, _]`` lookups.
-  hash(toLowerAscii(string(a)))
+  hash(toLowerAscii(a.rawValue))
 
-func len*(a: RFC5321Keyword): int {.borrow.}
+func len*(a: RFC5321Keyword): int =
   ## Length in octets (always 1..64 for constructed values).
+  a.rawValue.len
 
 type KeywordViolation = enum
   ## Structural failures of an esmtp-keyword. Module-private; translated
@@ -99,21 +103,23 @@ func parseRFC5321Keyword*(raw: string): Result[RFC5321Keyword, ValidationError] 
   ## diagnostic round-trip.
   detectKeyword(raw).isOkOr:
     return err(toValidationError(error, "RFC5321Keyword", raw))
-  return ok(RFC5321Keyword(raw))
+  return ok(RFC5321Keyword(rawValue: raw))
 
 # ===========================================================================
 # OrcptAddrType — RFC 3461 §4.2 addr-type atom
 # ===========================================================================
 
-type OrcptAddrType* = distinct string
+type OrcptAddrType* {.ruleOff: "objects".} = object
   ## RFC 3461 §4.2 ``addr-type`` atom of the ``ORCPT=`` parameter value.
   ## Shares esmtp-keyword grammar — ``(ALPHA / DIGIT)
   ## *(ALPHA / DIGIT / "-")`` — but preserves server casing for IANA-
   ## registered addr-types (``rfc822``, ``utf-8``, ``x400``, ``unknown``).
   ## Byte-equality, not case-insensitive — RFC 3461 does not mandate
-  ## case-folding for the addr-type atom.
+  ## case-folding for the addr-type atom. Sealed Pattern-A object —
+  ## ``rawValue`` is module-private.
+  rawValue: string
 
-defineStringDistinctOps(OrcptAddrType)
+defineSealedStringOps(OrcptAddrType)
 
 type OrcptAddrTypeViolation = enum
   ## Structural failures of an ``addr-type`` atom. Module-private;
@@ -151,4 +157,4 @@ func parseOrcptAddrType*(raw: string): Result[OrcptAddrType, ValidationError] =
   ## Strict client-side constructor for the addr-type atom of ``ORCPT=``.
   detectOrcptAddrType(raw).isOkOr:
     return err(toValidationError(error, "OrcptAddrType", raw))
-  return ok(OrcptAddrType(raw))
+  return ok(OrcptAddrType(rawValue: raw))

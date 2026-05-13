@@ -50,7 +50,7 @@ testCase toJsonParentIdNull: # scenario 57
   assertJsonFieldEq node, "parentId", newJNull()
 
 testCase toJsonParentIdValue: # scenario 58
-  let id1 = parseId("id1").get()
+  let id1 = parseIdFromServer("id1").get()
   let fc = MailboxFilterCondition(
     parentId: Opt.some(Opt.some(id1)),
     name: Opt.none(string),

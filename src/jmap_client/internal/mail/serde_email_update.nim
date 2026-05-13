@@ -56,7 +56,7 @@ func toJson*(us: EmailUpdateSet): JsonNode =
   ## and every other conflict class, so blind aggregation here cannot
   ## shadow a prior entry.
   var node = newJObject()
-  for u in seq[EmailUpdate](us):
+  for u in us.toSeq:
     let (key, value) = u.toJson()
     node[key] = value
   return node
@@ -67,6 +67,6 @@ func toJson*(upd: NonEmptyEmailUpdates): JsonNode =
   ## ``parseNonEmptyEmailUpdates`` has already enforced non-empty input
   ## and distinct ids, so blind aggregation cannot shadow a prior entry.
   var node = newJObject()
-  for id, patchSet in Table[Id, EmailUpdateSet](upd):
-    node[string(id)] = patchSet.toJson()
+  for id, patchSet in upd.toTable:
+    node[$id] = patchSet.toJson()
   return node

@@ -52,7 +52,7 @@ func fromJson*(
 
 func toJson*(c: Comparator): JsonNode =
   ## Serialise Comparator to JSON (RFC 8620 section 5.5).
-  var node = %*{"property": string(c.property), "isAscending": c.isAscending}
+  var node = %*{"property": $c.property, "isAscending": c.isAscending}
   for col in c.collation:
     node["collation"] = %($col)
   return node
@@ -163,7 +163,7 @@ func fromJson*[C](
 
 func toJson*(item: AddedItem): JsonNode =
   ## Serialise AddedItem to JSON (RFC 8620 section 5.6).
-  return %*{"id": string(item.id), "index": int64(item.index)}
+  return %*{"id": $item.id, "index": item.index.toInt64}
 
 func fromJson*(
     T: typedesc[AddedItem], node: JsonNode, path: JsonPath = emptyJsonPath()

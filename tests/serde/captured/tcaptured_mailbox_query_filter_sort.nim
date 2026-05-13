@@ -30,4 +30,4 @@ testCase tcapturedMailboxQueryFilterSort:
     "filter name=phase-i 49 must surface at least three mailboxes (got " & $qr.ids.len &
       ")"
   for id in qr.ids:
-    doAssert string(id).len > 0, "every returned id must be non-empty"
+    doAssert ($id).len > 0, "every returned id must be non-empty"

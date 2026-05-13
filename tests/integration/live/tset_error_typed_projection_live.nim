@@ -63,7 +63,7 @@ testCase tsetErrorTypedProjectionLive:
       # destroyResults — Stalwart's Id parser rejects it before it
       # reaches the not-found classifier.  ``zzzz`` is a well-formed
       # short Id Stalwart will look up and reject as not-found.
-      let syntheticId = Id("zzzzz")
+      let syntheticId = parseIdFromServer("zzzzz").get()
       let (b, setHandle) = addEmailSet(
         initRequestBuilder(makeBuilderId()),
         mailAccountId,
@@ -110,7 +110,7 @@ testCase tsetErrorTypedProjectionLive:
           methodName = "Email/set",
           arguments = %*{
             "accountId": $mailAccountId,
-            "update": {string(seedId): {"phaseJSyntheticProperty": "phase-j 63 patch"}},
+            "update": {$seedId: {"phaseJSyntheticProperty": "phase-j 63 patch"}},
           },
         )
         .expect("sendRawInvocation setInvalidPatch[" & $target.kind & "]")
@@ -165,7 +165,7 @@ testCase tsetErrorTypedProjectionLive:
               "phaseJ63": {
                 "id": "client-supplied-id",
                 "subject": "phase-j 63 invalidProperties",
-                "mailboxIds": {string(inbox): true},
+                "mailboxIds": {$inbox: true},
               }
             },
           },
@@ -241,8 +241,7 @@ testCase tsetErrorTypedProjectionLive:
           arguments = %*{
             "accountId": $mailAccountId,
             "emails": {
-              "phaseJ63blob":
-                {"blobId": syntheticBlobId, "mailboxIds": {string(inbox): true}}
+              "phaseJ63blob": {"blobId": syntheticBlobId, "mailboxIds": {$inbox: true}}
             },
           },
         )

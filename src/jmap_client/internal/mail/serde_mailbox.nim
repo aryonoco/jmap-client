@@ -117,7 +117,10 @@ func fromJson*(
       )
     let id = ?wrapInner(parseIdFromServer(key), path / key)
     hs.incl(id)
-  return ok(MailboxIdSet(hs))
+  var idSeq: seq[Id] = @[]
+  for id in sets.items(hs):
+    idSeq.add(id)
+  return ok(initMailboxIdSet(idSeq))
 
 # =============================================================================
 # NonEmptyMailboxIdSet (Part E §4.2)
@@ -339,7 +342,7 @@ func toJson*(mc: MailboxCreate): JsonNode =
     node["parentId"] = newJNull()
   for r in mc.role:
     node["role"] = r.toJson()
-  if mc.sortOrder != UnsignedInt(0):
+  if mc.sortOrder.toInt64 != 0:
     node["sortOrder"] = mc.sortOrder.toJson()
   node["isSubscribed"] = %mc.isSubscribed
   return node
@@ -369,7 +372,7 @@ func toJson*(us: MailboxUpdateSet): JsonNode =
   ## ``initMailboxUpdateSet`` has already rejected duplicate target
   ## properties, so blind aggregation cannot shadow a prior entry.
   var node = newJObject()
-  for u in seq[MailboxUpdate](us):
+  for u in us.toSeq:
     let (key, value) = u.toJson()
     node[key] = value
   return node
@@ -381,8 +384,8 @@ func toJson*(upd: NonEmptyMailboxUpdates): JsonNode =
   ## input and distinct ids, so blind aggregation cannot shadow a
   ## prior entry.
   var node = newJObject()
-  for id, patchSet in Table[Id, MailboxUpdateSet](upd):
-    node[string(id)] = patchSet.toJson()
+  for id, patchSet in upd.toTable:
+    node[$id] = patchSet.toJson()
   return node
 
 # =============================================================================

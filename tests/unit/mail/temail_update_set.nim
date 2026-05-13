@@ -56,7 +56,7 @@ testCase class1TwoSetKeywords: # §8.7.1 row 3
   assertEq res.error[0].value, "keywords"
 
 testCase class1TwoAddToMailbox: # §8.7.1 row 4
-  let id = parseId("m1").get()
+  let id = parseIdFromServer("m1").get()
   let res = initEmailUpdateSet(@[addToMailbox(id), addToMailbox(id)])
   assertErr res
   assertLen res.error, 1
@@ -64,7 +64,7 @@ testCase class1TwoAddToMailbox: # §8.7.1 row 4
   assertEq res.error[0].value, "mailboxIds/m1"
 
 testCase class1TwoRemoveFromMailbox: # §8.7.1 row 5
-  let id = parseId("m1").get()
+  let id = parseIdFromServer("m1").get()
   let res = initEmailUpdateSet(@[removeFromMailbox(id), removeFromMailbox(id)])
   assertErr res
   assertLen res.error, 1
@@ -72,8 +72,8 @@ testCase class1TwoRemoveFromMailbox: # §8.7.1 row 5
   assertEq res.error[0].value, "mailboxIds/m1"
 
 testCase class1TwoSetMailboxIds: # §8.7.1 row 6
-  let id1 = parseId("m1").get()
-  let id2 = parseId("m2").get()
+  let id1 = parseIdFromServer("m1").get()
+  let id2 = parseIdFromServer("m2").get()
   let ids1 = parseNonEmptyMailboxIdSet(@[id1]).get()
   let ids2 = parseNonEmptyMailboxIdSet(@[id2]).get()
   let res = initEmailUpdateSet(@[setMailboxIds(ids1), setMailboxIds(ids2)])
@@ -94,7 +94,7 @@ testCase class2KeywordOpposite: # §8.7.2 row 1
   assertEq res.error[0].value, "keywords/$seen"
 
 testCase class2MailboxOpposite: # §8.7.2 row 2
-  let id = parseId("m1").get()
+  let id = parseIdFromServer("m1").get()
   let res = initEmailUpdateSet(@[addToMailbox(id), removeFromMailbox(id)])
   assertErr res
   assertLen res.error, 1
@@ -125,8 +125,8 @@ testCase class3RemoveKeywordSetKeywords: # §8.7.3 row 2
   assertEq res.error[0].value, "keywords"
 
 testCase class3AddToMailboxSetMailboxIds: # §8.7.3 row 3
-  let id1 = parseId("m1").get()
-  let id2 = parseId("m2").get()
+  let id1 = parseIdFromServer("m1").get()
+  let id2 = parseIdFromServer("m2").get()
   let ids = parseNonEmptyMailboxIdSet(@[id2]).get()
   let res = initEmailUpdateSet(@[addToMailbox(id1), setMailboxIds(ids)])
   assertErr res
@@ -136,8 +136,8 @@ testCase class3AddToMailboxSetMailboxIds: # §8.7.3 row 3
   assertEq res.error[0].value, "mailboxIds"
 
 testCase class3RemoveFromMailboxSetMailboxIds: # §8.7.3 row 4
-  let id1 = parseId("m1").get()
-  let id2 = parseId("m2").get()
+  let id1 = parseIdFromServer("m1").get()
+  let id2 = parseIdFromServer("m2").get()
   let ids = parseNonEmptyMailboxIdSet(@[id2]).get()
   let res = initEmailUpdateSet(@[removeFromMailbox(id1), setMailboxIds(ids)])
   assertErr res
@@ -164,7 +164,7 @@ testCase class1And2Overlap: # F2 §8.12 policy row
 
 testCase independentSetKeywordsSetMailboxIds: # §8.7.4 row 1
   let ks = initKeywordSet(@[kwSeen])
-  let id = parseId("m1").get()
+  let id = parseIdFromServer("m1").get()
   let ids = parseNonEmptyMailboxIdSet(@[id]).get()
   assertOk initEmailUpdateSet(@[setKeywords(ks), setMailboxIds(ids)])
 
@@ -175,12 +175,12 @@ testCase independentDistinctAddKeywords: # §8.7.4 row 2
 
 testCase independentAddKeywordAddToMailbox: # §8.7.4 row 3
   let k = parseKeyword("$seen").get()
-  let id = parseId("m1").get()
+  let id = parseIdFromServer("m1").get()
   assertOk initEmailUpdateSet(@[addKeyword(k), addToMailbox(id)])
 
 testCase independentDistinctMailboxOpposite: # §8.7.4 row 4 (diagonal closure)
-  let id1 = parseId("m1").get()
-  let id2 = parseId("m2").get()
+  let id1 = parseIdFromServer("m1").get()
+  let id2 = parseIdFromServer("m2").get()
   assertOk initEmailUpdateSet(@[addToMailbox(id1), removeFromMailbox(id2)])
 
 # ============= G. Accumulation =============
@@ -191,7 +191,7 @@ testCase accumulateMixedClasses:
   ## further collide with each other.
   let k1 = parseKeyword("$a").get() # Class 1 duplicate target
   let k2 = parseKeyword("$b").get() # Class 2 opposite-op
-  let id = parseId("m1").get() # Class 3 sub-path + full-replace
+  let id = parseIdFromServer("m1").get() # Class 3 sub-path + full-replace
   let ids = parseNonEmptyMailboxIdSet(@[id]).get()
   let res = initEmailUpdateSet(
     @[
@@ -217,7 +217,7 @@ testCase accumulateClass3TwoDistinctParents:
   let k1 = parseKeyword("$a").get()
   let k2 = parseKeyword("$b").get()
   let ks = initKeywordSet(@[kwSeen])
-  let id = parseId("m1").get()
+  let id = parseIdFromServer("m1").get()
   let ids = parseNonEmptyMailboxIdSet(@[id]).get()
   let res = initEmailUpdateSet(
     @[
@@ -245,7 +245,7 @@ testCase parseNonEmptyEmailUpdatesRejectsEmpty:
 testCase parseNonEmptyEmailUpdatesRejectsDuplicateId:
   ## Duplicate ``Id`` keys are rejected — silent last-wins shadowing at
   ## Table construction would swallow caller data.
-  let id1 = parseId("e1").get()
+  let id1 = parseIdFromServer("e1").get()
   let us1 = initEmailUpdateSet(@[markRead()]).get()
   let us2 = initEmailUpdateSet(@[markFlagged()]).get()
   let res = parseNonEmptyEmailUpdates(@[(id1, us1), (id1, us2)])

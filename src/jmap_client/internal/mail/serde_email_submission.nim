@@ -34,7 +34,6 @@ import ../serialisation/serde
 import ../serialisation/serde_field_echo
 import ../../types
 import ./email_submission
-import ./email_update
 import ./submission_envelope
 import ./submission_status
 import ./serde_email_update
@@ -241,7 +240,7 @@ func toJson*(us: NonEmptyEmailSubmissionUpdates): JsonNode =
   ## container maps one ``EmailSubmissionUpdate`` per id, so each inner
   ## PatchObject has exactly one key — today ``undoStatus``.
   var node = newJObject()
-  for id, update in pairs(Table[Id, EmailSubmissionUpdate](us)):
+  for id, update in pairs(us.toTable):
     let (key, value) = update.toJson()
     var patch = newJObject()
     patch[key] = value
@@ -253,15 +252,17 @@ func toJson*(us: NonEmptyEmailSubmissionUpdates): JsonNode =
 # =============================================================================
 
 func idOrCreationRefWireKey*(r: IdOrCreationRef): string =
-  ## Raw wire string form — the ``Id`` verbatim or ``"#"`` + ``CreationId``
-  ## per RFC 8620 §5.3 / RFC 8621 §7.5 ¶3. Exported for Table-key
-  ## stringification by Step 18's compound builder, where the wrapping
-  ## ``JsonNode`` layer is unnecessary.
+  ## Raw wire string form — the ``Id`` verbatim or ``"#"`` +
+  ## ``CreationId`` per RFC 8620 §5.3 / RFC 8621 §7.5 ¶3. Exported for
+  ## Table-key stringification by Step 18's compound builder, where the
+  ## wrapping ``JsonNode`` layer is unnecessary.
   case r.kind
   of icrDirect:
-    $r.id
+    # invariant: kind == icrDirect proves Ok
+    $r.asDirectRef.get()
   of icrCreation:
-    "#" & $r.creationId
+    # invariant: kind == icrCreation proves Ok
+    "#" & $r.asCreationRef.get()
 
 func toJson*(r: IdOrCreationRef): JsonNode =
   ## JSON string form of ``idOrCreationRefWireKey`` — used when
@@ -274,7 +275,7 @@ func toJson*(v: NonEmptyOnSuccessUpdateEmail): JsonNode =
   ## ``{idOrCreationRefKey: patchObj, ...}``. Non-empty + distinct-key
   ## invariants enforced by ``parseNonEmptyOnSuccessUpdateEmail``.
   var node = newJObject()
-  for k, patchSet in Table[IdOrCreationRef, EmailUpdateSet](v):
+  for k, patchSet in v.toTable:
     node[idOrCreationRefWireKey(k)] = patchSet.toJson()
   return node
 
@@ -282,7 +283,7 @@ func toJson*(v: NonEmptyOnSuccessDestroyEmail): JsonNode =
   ## Flatten to RFC 8621 §7.5 ¶3 wire shape
   ## ``[idOrCreationRefKey, ...]``.
   var arr = newJArray()
-  for r in seq[IdOrCreationRef](v):
+  for r in v.toSeq:
     arr.add(%idOrCreationRefWireKey(r))
   return arr
 

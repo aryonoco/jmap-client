@@ -312,20 +312,24 @@ type QueryChangesResponse*[T] = object
 # Pre-serialised wrappers (serialise-then-assemble pattern)
 # =============================================================================
 
-type
-  SerializedSort* = distinct JsonNode
-    ## Pre-serialised sort array. Wraps an already-serialised JArray.
-    ## Distinct from SerializedFilter — newtype prevents accidental swap.
-  SerializedFilter* = distinct JsonNode
-    ## Pre-serialised filter tree. Wraps an already-serialised JObject/JArray.
+type SerializedSort* {.ruleOff: "objects".} = object
+  ## Pre-serialised sort array. Sealed Pattern-A object — ``rawValue``
+  ## is module-private. Distinct from ``SerializedFilter`` — newtype
+  ## prevents accidental swap.
+  rawValue: JsonNode
+
+type SerializedFilter* {.ruleOff: "objects".} = object
+  ## Pre-serialised filter tree. Sealed Pattern-A object — ``rawValue``
+  ## is module-private.
+  rawValue: JsonNode
 
 func toJsonNode*(s: SerializedSort): JsonNode =
   ## Unwrap a pre-serialised sort array to its underlying JsonNode.
-  JsonNode(s)
+  s.rawValue
 
 func toJsonNode*(f: SerializedFilter): JsonNode =
   ## Unwrap a pre-serialised filter tree to its underlying JsonNode.
-  JsonNode(f)
+  f.rawValue
 
 # =============================================================================
 # Serialisers
@@ -340,7 +344,7 @@ func serializeOptSort*[S](sort: Opt[seq[S]]): Opt[SerializedSort] =
     var arr = newJArray()
     for c in sortSeq:
       arr.add(c.toJson())
-    return Opt.some(SerializedSort(arr))
+    return Opt.some(SerializedSort(rawValue: arr))
   Opt.none(SerializedSort)
 
 func serializeOptFilter*[C](filter: Opt[Filter[C]]): Opt[SerializedFilter] =
@@ -350,7 +354,7 @@ func serializeOptFilter*[C](filter: Opt[Filter[C]]): Opt[SerializedFilter] =
   ## a visible ``toJson`` at that scope.
   mixin toJson
   for f in filter:
-    return Opt.some(SerializedFilter(f.toJson()))
+    return Opt.some(SerializedFilter(rawValue: f.toJson()))
   Opt.none(SerializedFilter)
 
 func serializeFilter*[C](filter: Filter[C]): SerializedFilter =
@@ -359,7 +363,7 @@ func serializeFilter*[C](filter: Filter[C]): SerializedFilter =
   ## ``Filter[C].toJson`` resolves the leaf condition's ``toJson`` via
   ## ``mixin`` at the caller's instantiation scope.
   mixin toJson
-  SerializedFilter(filter.toJson())
+  SerializedFilter(rawValue: filter.toJson())
 
 # =============================================================================
 # Assembly functions
@@ -471,7 +475,7 @@ func toJson*[T, C, U](req: SetRequest[T, C, U]): JsonNode =
   for createMap in req.create:
     var createObj = newJObject()
     for k, v in createMap:
-      createObj[string(k)] = v.toJson()
+      createObj[$k] = v.toJson()
     node["create"] = createObj
   for destroyVal in req.destroy:
     let destroyKey = referencableKey("destroy", destroyVal)
@@ -503,7 +507,7 @@ func toJson*[T, CopyItem](req: CopyRequest[T, CopyItem]): JsonNode =
     node["ifInState"] = s.toJson()
   var createObj = newJObject()
   for k, v in req.create:
-    createObj[string(k)] = v.toJson()
+    createObj[$k] = v.toJson()
   node["create"] = createObj
   case req.destroyMode.kind
   of cdmKeep:
@@ -533,9 +537,9 @@ func emitSplitCreateResults[T](
   var notCreated = newJObject()
   for cid, r in createResults:
     if r.isOk:
-      created[string(cid)] = r.get().toJson()
+      created[$cid] = r.get().toJson()
     else:
-      notCreated[string(cid)] = r.error().toJson()
+      notCreated[$cid] = r.error().toJson()
   if created.len > 0:
     node["created"] = created
   if notCreated.len > 0:
@@ -554,13 +558,13 @@ func emitSplitUpdateResults[U](
   for id, r in updateResults:
     if r.isOk:
       let inner = r.get()
-      updated[string(id)] =
+      updated[$id] =
         if inner.isSome:
           inner.get().toJson()
         else:
           newJNull()
     else:
-      notUpdated[string(id)] = r.error().toJson()
+      notUpdated[$id] = r.error().toJson()
   if updated.len > 0:
     node["updated"] = updated
   if notUpdated.len > 0:
@@ -577,7 +581,7 @@ func emitSplitDestroyResults(
     if r.isOk:
       destroyed.add(id.toJson())
     else:
-      notDestroyed[string(id)] = r.error().toJson()
+      notDestroyed[$id] = r.error().toJson()
   if destroyed.len > 0:
     node["destroyed"] = destroyed
   if notDestroyed.len > 0:

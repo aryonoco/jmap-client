@@ -31,4 +31,4 @@ testCase tcapturedEmailQueryChangesWithTotal:
   doAssert qcr.added.len >= 1,
     "at least one AddedItem expected (got " & $qcr.added.len & ")"
   for item in qcr.added:
-    doAssert string(item.id).len > 0, "added.id must be non-empty"
+    doAssert ($item.id).len > 0, "added.id must be non-empty"

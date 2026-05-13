@@ -524,9 +524,9 @@ func detectRequestLimitsTyped(
   ## The parallel invariant ``request.methodCalls.len == callLimits.len``
   ## is maintained by ``addInvocation*`` — the only function that
   ## extends either field — so the loop indexes both safely.
-  ?detectMaxCalls(request, int64(caps.maxCallsInRequest))
-  let maxGet = int64(caps.maxObjectsInGet)
-  let maxSet = int64(caps.maxObjectsInSet)
+  ?detectMaxCalls(request, caps.maxCallsInRequest.toInt64)
+  let maxGet = caps.maxObjectsInGet.toInt64
+  let maxSet = caps.maxObjectsInSet.toInt64
   for i in 0 ..< callLimits.len:
     let meta = callLimits[i]
     let methodName = request.methodCalls[i].rawName
@@ -709,7 +709,7 @@ proc performSend(
   let body = $jsonNode
 
   # Step 4: Check serialised size against maxSizeRequest
-  let maxSize = int64(coreCaps.maxSizeRequest)
+  let maxSize = coreCaps.maxSizeRequest.toInt64
   if body.len > int(maxSize):
     let ve = toValidationError(
       RequestLimitViolation(

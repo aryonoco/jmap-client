@@ -51,7 +51,7 @@ testCase tpreflightValidationLive:
     # the cap.  ``buildOversizedRequest`` from mlive funnels through
     # ``addGet[Mailbox]``.
     block maxObjectsInGetCase:
-      let idCount = int(caps.maxObjectsInGet) + 1
+      let idCount = caps.maxObjectsInGet.toInt64.int + 1
       let builder = buildOversizedRequest(mailAccountId, idCount)
       let bufBefore = client.lastRawResponseBody.len
       let res = client.send(builder.freeze())
@@ -67,7 +67,7 @@ testCase tpreflightValidationLive:
     # assembled via repeated ``addEcho``.
     block maxCallsInRequestCase:
       var b = initRequestBuilder(makeBuilderId())
-      let callCount = int(caps.maxCallsInRequest) + 1
+      let callCount = caps.maxCallsInRequest.toInt64.int + 1
       let echoArgs = %*{"phase-j-64": "preflight"}
       for _ in 0 ..< callCount:
         let (newB, _) = b.addEcho(echoArgs)
@@ -106,7 +106,7 @@ testCase tpreflightValidationLive:
           cid: Opt.none(string),
         )
       )
-      let createCount = int(caps.maxObjectsInSet) + 1
+      let createCount = caps.maxObjectsInSet.toInt64.int + 1
       var createTbl = initTable[CreationId, EmailBlueprint]()
       for i in 0 ..< createCount:
         let blueprint = parseEmailBlueprint(
@@ -147,7 +147,7 @@ testCase tpreflightValidationLive:
           "parseNonEmptyMailboxIdSet[" & $target.kind & "]"
         )
       let aliceAddr = buildAliceAddr()
-      let oversizeSubject = "x".repeat(int(caps.maxSizeRequest) + 1024)
+      let oversizeSubject = "x".repeat(caps.maxSizeRequest.toInt64.int + 1024)
       let textPart = makeLeafPart(
         LeafPartSpec(
           partId: buildPartId("1"),

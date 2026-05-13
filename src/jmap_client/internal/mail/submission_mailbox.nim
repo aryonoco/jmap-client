@@ -71,14 +71,16 @@ const
 # RFC5321Mailbox
 # ===========================================================================
 
-type RFC5321Mailbox* = distinct string
+type RFC5321Mailbox* {.ruleOff: "objects".} = object
   ## RFC 5321 §4.1.2 ``Mailbox``. Distinct from RFC 5322 addr-spec
   ## (``EmailAddress.email``) at the type level. Byte equality; a fully
-  ## §2.4-faithful equality would case-fold only the domain half — callers
-  ## needing semantic equality should lowercase the domain before
-  ## comparing (see design §2.1).
+  ## §2.4-faithful equality would case-fold only the domain half —
+  ## callers needing semantic equality should lowercase the domain
+  ## before comparing (see design §2.1). Sealed Pattern-A object —
+  ## ``rawValue`` is module-private.
+  rawValue: string
 
-defineStringDistinctOps(RFC5321Mailbox)
+defineSealedStringOps(RFC5321Mailbox)
 
 type MailboxViolation = enum
   ## Structural failures of the RFC 5321 §4.1.2 Mailbox grammar. Module-
@@ -541,7 +543,7 @@ func parseRFC5321Mailbox*(raw: string): Result[RFC5321Mailbox, ValidationError] 
   ## on the error rail.
   detectStrictMailbox(raw).isOkOr:
     return err(toValidationError(error, "RFC5321Mailbox", raw))
-  return ok(RFC5321Mailbox(raw))
+  return ok(RFC5321Mailbox(rawValue: raw))
 
 func parseRFC5321MailboxFromServer*(
     raw: string
@@ -553,4 +555,4 @@ func parseRFC5321MailboxFromServer*(
     return err(toValidationError(error, "RFC5321Mailbox", raw))
   if '@' notin raw:
     return err(toValidationError(mvNoAtSign, "RFC5321Mailbox", raw))
-  return ok(RFC5321Mailbox(raw))
+  return ok(RFC5321Mailbox(rawValue: raw))

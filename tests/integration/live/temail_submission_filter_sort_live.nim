@@ -212,13 +212,13 @@ testCase temailSubmissionFilterSortLive:
           break
       assertOn target,
         found,
-        "primary-identity submission " & string(primSub) &
+        "primary-identity submission " & $primSub &
           " must surface under identityIds=[primary] filter"
     for secSub in secondarySubmissions:
       for id in qrA.ids:
         assertOn target,
           id != secSub,
-          "secondary-identity submission " & string(secSub) &
+          "secondary-identity submission " & $secSub &
             " must NOT surface under identityIds=[primary] filter"
 
     # Sub-test B: sort by sentAt ascending.
@@ -245,8 +245,8 @@ testCase temailSubmissionFilterSortLive:
           break
       assertOn target,
         found,
-        "every seeded submission must surface under sentAt-asc sort (missing " &
-          string(sId) & ")"
+        "every seeded submission must surface under sentAt-asc sort (missing " & $sId &
+          ")"
 
     # Sub-test C: EmailSubmission/queryChanges with calculateTotal.
     let (bC, hC) = addEmailSubmissionQueryChanges(
@@ -264,11 +264,11 @@ testCase temailSubmissionFilterSortLive:
       .expect("captureIfRequested queryChanges[" & $target.kind & "]")
     let qcr = respC.get(hC).expect("queryChanges extract[" & $target.kind & "]")
     assertOn target,
-      string(qcr.oldQueryState) == string(baselineQueryState),
+      $qcr.oldQueryState == $baselineQueryState,
       "oldQueryState must echo the supplied baseline"
     assertOn target, qcr.total.isSome, "calculateTotal=true must surface total"
     assertOn target,
-      int64(qcr.total.unsafeGet) >= 2,
+      qcr.total.unsafeGet.toInt64 >= 2,
       "total must reflect at least the two new submissions (got " & $qcr.total.unsafeGet &
         ")"
 

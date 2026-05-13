@@ -216,21 +216,27 @@ func cancelUpdate*(s: EmailSubmission[usPending]): EmailSubmissionUpdate =
 # NonEmptyEmailSubmissionUpdates — non-empty, dup-free batch for /set update
 # -----------------------------------------------------------------------------
 
-type NonEmptyEmailSubmissionUpdates* = distinct Table[Id, EmailSubmissionUpdate]
+type NonEmptyEmailSubmissionUpdates* {.ruleOff: "objects".} = object
   ## Non-empty, duplicate-free batch of per-submission update operations
-  ## keyed by existing EmailSubmission ``Id``. Construction gated by
-  ## ``parseNonEmptyEmailSubmissionUpdates``; the raw distinct
-  ## constructor is module-private surface, matching
-  ## ``NonEmptyEmailImportMap`` (email.nim) and ``DeliveryStatusMap``
-  ## (submission_status.nim) — serde (Step 12) unwrap-casts to iterate.
+  ## keyed by existing EmailSubmission ``Id``. Sealed Pattern-A object —
+  ## ``rawValue`` is module-private. Construction is gated by
+  ## ``parseNonEmptyEmailSubmissionUpdates``.
   ##
   ## Creation-reference keys (``#ref``-style forward references to
   ## sibling create operations) are a Builder-layer concern routed
   ## through ``IdOrCreationRef`` — this L1 type stays focused on
   ## resolved ``Id`` keys.
+  rawValue: Table[Id, EmailSubmissionUpdate]
 
-func len*(a: NonEmptyEmailSubmissionUpdates): int {.borrow.}
-  ## Number of update entries — borrowed from the underlying ``Table``.
+func len*(a: NonEmptyEmailSubmissionUpdates): int =
+  ## Number of update entries.
+  a.rawValue.len
+
+func toTable*(
+    s: NonEmptyEmailSubmissionUpdates
+): Table[Id, EmailSubmissionUpdate] {.inline.} =
+  ## Value-projection accessor — returns a copy of the underlying table.
+  s.rawValue
 
 func parseNonEmptyEmailSubmissionUpdates*(
     items: openArray[(Id, EmailSubmissionUpdate)]
@@ -257,7 +263,7 @@ func parseNonEmptyEmailSubmissionUpdates*(
   var t = initTable[Id, EmailSubmissionUpdate](items.len)
   for (id, update) in items:
     t[id] = update
-  ok(NonEmptyEmailSubmissionUpdates(t))
+  ok(NonEmptyEmailSubmissionUpdates(rawValue: t))
 
 # -----------------------------------------------------------------------------
 # NonEmptyIdSeq — non-empty seq[Id] for EmailSubmissionFilterCondition list
@@ -265,34 +271,41 @@ func parseNonEmptyEmailSubmissionUpdates*(
 # symmetry with NonEmptyRcptList in submission_envelope.nim.
 # -----------------------------------------------------------------------------
 
-type NonEmptyIdSeq* = distinct seq[Id]
-  ## Non-empty seq of ``Id`` for filter list fields. Construction gated by
-  ## ``parseNonEmptyIdSeq``; the raw distinct constructor is module-private
-  ## surface, consistent with ``NonEmptyRcptList``.
+type NonEmptyIdSeq* {.ruleOff: "objects".} = object
+  ## Non-empty seq of ``Id`` for filter list fields. Sealed Pattern-A
+  ## object — ``rawValue`` is module-private. Construction is gated by
+  ## ``parseNonEmptyIdSeq``.
+  rawValue: seq[Id]
 
-func `==`*(a, b: NonEmptyIdSeq): bool {.borrow.}
+func `==`*(a, b: NonEmptyIdSeq): bool =
   ## Element-wise equality delegated to the underlying ``seq[Id]``.
+  a.rawValue == b.rawValue
 
-func `$`*(a: NonEmptyIdSeq): string {.borrow.}
+func `$`*(a: NonEmptyIdSeq): string =
   ## Textual form delegated to the underlying ``seq[Id]`` (diagnostic only).
+  $a.rawValue
 
-func len*(a: NonEmptyIdSeq): int {.borrow.}
+func len*(a: NonEmptyIdSeq): int =
   ## Element count; invariant ``>= 1`` by construction.
+  a.rawValue.len
 
 func `[]`*(a: NonEmptyIdSeq, i: Idx): lent Id =
-  ## Indexed read-only access via sealed non-negative ``Idx``; the
-  ## underlying ``seq[Id]`` retains ownership.
-  seq[Id](a)[i.toInt]
+  ## Indexed read-only access via sealed non-negative ``Idx``.
+  a.rawValue[i.toInt]
 
 func head*(a: NonEmptyIdSeq): lent Id =
   ## First element — guaranteed present by the non-empty invariant.
   ## Semantic accessor that reads cleaner than ``a[idx(0)]``.
-  seq[Id](a)[0]
+  a.rawValue[0]
 
 iterator items*(a: NonEmptyIdSeq): Id =
   ## Iteration over the underlying ``seq[Id]``.
-  for x in seq[Id](a):
+  for x in a.rawValue:
     yield x
+
+func toSeq*(a: NonEmptyIdSeq): seq[Id] {.inline.} =
+  ## Value-projection accessor — returns a copy of the underlying seq.
+  a.rawValue
 
 func parseNonEmptyIdSeq*(items: openArray[Id]): Result[NonEmptyIdSeq, ValidationError] =
   ## Strict: rejects empty input. Duplicate ids permitted (RFC 8621 §7.3
@@ -301,7 +314,7 @@ func parseNonEmptyIdSeq*(items: openArray[Id]): Result[NonEmptyIdSeq, Validation
   ## non-empty check only.
   if items.len == 0:
     return err(validationError("NonEmptyIdSeq", "must not be empty", ""))
-  ok(NonEmptyIdSeq(@items))
+  ok(NonEmptyIdSeq(rawValue: @items))
 
 # -----------------------------------------------------------------------------
 # EmailSubmissionFilterCondition — /query filter condition (RFC 8621 §7.3)
@@ -491,95 +504,128 @@ type IdOrCreationRefKind* = enum
 type IdOrCreationRef* {.ruleOff: "objects".} = object
   ## Either an existing EmailSubmission ``Id`` or a ``CreationId``-shaped
   ## forward reference to a submission being created in the same ``/set``
-  ## call. Used as the map key in ``onSuccessUpdateEmail`` and as the list
-  ## element in ``onSuccessDestroyEmail`` on the compound builder
+  ## call. Used as the map key in ``onSuccessUpdateEmail`` and as the
+  ## list element in ``onSuccessDestroyEmail`` on the compound builder
   ## ``addEmailSubmissionAndEmailSet`` (RFC 8621 §7.5 ¶3).
+  ##
+  ## Sealed Pattern-A object: discriminator (``rawKind``) and payloads
+  ## (``rawId``, ``rawCreationId``) are module-private; external
+  ## consumers go through ``directRef`` / ``creationRef`` to construct
+  ## and ``kind`` / ``asDirectRef`` / ``asCreationRef`` to inspect.
   ##
   ## Wire format (resolved by L2 serde): ``icrDirect`` serialises as the
   ## underlying ``Id`` string; ``icrCreation`` serialises as ``"#"``
   ## concatenated with the underlying ``CreationId`` string.
-  case kind*: IdOrCreationRefKind
+  case rawKind: IdOrCreationRefKind
   of icrDirect:
-    id*: Id
+    rawId: Id
   of icrCreation:
-    creationId*: CreationId
+    rawCreationId: CreationId
+
+func kind*(x: IdOrCreationRef): IdOrCreationRefKind =
+  ## Discriminator accessor. Matches the ``kind`` accessor pattern on
+  ## ``MailboxRole`` / ``ContentDisposition`` / ``CollationAlgorithm``.
+  x.rawKind
+
+func asDirectRef*(x: IdOrCreationRef): Opt[Id] =
+  ## Payload accessor for the ``icrDirect`` arm. ``Opt.some(id)`` for
+  ## ``icrDirect``, ``Opt.none(Id)`` for ``icrCreation``.
+  case x.rawKind
+  of icrDirect:
+    Opt.some(x.rawId)
+  of icrCreation:
+    Opt.none(Id)
+
+func asCreationRef*(x: IdOrCreationRef): Opt[CreationId] =
+  ## Payload accessor for the ``icrCreation`` arm. ``Opt.some(cid)`` for
+  ## ``icrCreation``, ``Opt.none(CreationId)`` for ``icrDirect``.
+  case x.rawKind
+  of icrDirect:
+    Opt.none(CreationId)
+  of icrCreation:
+    Opt.some(x.rawCreationId)
 
 func `==`*(a, b: IdOrCreationRef): bool =
-  ## Arm-dispatched structural equality. Auto-derived ``==`` on a case
-  ## object fails with *parallel 'fields' iterator does not work for
-  ## 'case' objects*; the arm-dispatch pattern mirrors
-  ## ``SubmissionParamKey.==``. Cross-arm values compare unequal even on
-  ## coincident payload strings — an ``icrDirect`` with ``Id("abc")``
-  ## and an ``icrCreation`` with ``CreationId("abc")`` are not the same
-  ## key.
+  ## Arm-dispatched structural equality. Cross-arm values compare
+  ## unequal even on coincident payload strings.
   ##
   ## Nested case on both operands for strictCaseObjects.
-  case a.kind
+  case a.rawKind
   of icrDirect:
-    case b.kind
+    case b.rawKind
     of icrDirect:
-      a.id == b.id
+      a.rawId == b.rawId
     of icrCreation:
       false
   of icrCreation:
-    case b.kind
+    case b.rawKind
     of icrDirect:
       false
     of icrCreation:
-      a.creationId == b.creationId
+      a.rawCreationId == b.rawCreationId
 
 func hash*(k: IdOrCreationRef): Hash =
   ## Arm-dispatched hash honouring the ``a == b ⇒ hash(a) == hash(b)``
   ## contract. Mixes the discriminator ordinal into the payload hash so
-  ## ``directRef(Id("abc"))`` and ``creationRef(CreationId("abc"))`` land
-  ## in different buckets — ``Id.hash`` and ``CreationId.hash`` both
-  ## delegate to ``string.hash``, so without the ordinal mix-in
-  ## coincident payload strings would collide across arms and
-  ## ``Table[IdOrCreationRef, _]`` lookups in the compound builder would
-  ## silently break. Follows ``SubmissionParamKey.hash``.
-  case k.kind
+  ## ``directRef(Id("abc"))`` and ``creationRef(CreationId("abc"))``
+  ## land in different buckets.
+  case k.rawKind
   of icrDirect:
     var h: Hash = 0
     h = h !& hash(icrDirect.ord)
-    h = h !& hash(k.id)
+    h = h !& hash(k.rawId)
     !$h
   of icrCreation:
     var h: Hash = 0
     h = h !& hash(icrCreation.ord)
-    h = h !& hash(k.creationId)
+    h = h !& hash(k.rawCreationId)
     !$h
 
 func directRef*(id: Id): IdOrCreationRef =
   ## Smart constructor for an existing-``Id`` reference. Total — the
   ## ``Id`` has already been validated upstream (``parseId`` or
   ## ``parseIdFromServer``); no further constraint applies.
-  IdOrCreationRef(kind: icrDirect, id: id)
+  IdOrCreationRef(rawKind: icrDirect, rawId: id)
 
 func creationRef*(cid: CreationId): IdOrCreationRef =
   ## Smart constructor for a forward-reference to a sibling create
   ## operation. The ``"#"`` prefix is a wire concern — added at
   ## ``toJson`` time, not stored on the ``CreationId``.
-  IdOrCreationRef(kind: icrCreation, creationId: cid)
+  IdOrCreationRef(rawKind: icrCreation, rawCreationId: cid)
 
 # =============================================================================
 # NonEmptyOnSuccessUpdateEmail / NonEmptyOnSuccessDestroyEmail
 # (RFC 8621 §7.5 ¶3 — compound EmailSubmission/set + implicit Email/set)
 # =============================================================================
 
-type NonEmptyOnSuccessUpdateEmail* = distinct Table[IdOrCreationRef, EmailUpdateSet]
+type NonEmptyOnSuccessUpdateEmail* {.ruleOff: "objects".} = object
   ## Non-empty, duplicate-free map of per-email update patches triggered
-  ## by a successful ``EmailSubmission/set`` (RFC 8621 §7.5 ¶3). Keys may
-  ## be resolved Email ids or creation-references to sibling
-  ## EmailSubmission creates; ``IdOrCreationRef`` ``==`` and ``hash`` are
-  ## arm-dispatched, so ``directRef(Id("x"))`` and
+  ## by a successful ``EmailSubmission/set`` (RFC 8621 §7.5 ¶3). Sealed
+  ## Pattern-A object — ``rawValue`` is module-private. Keys may be
+  ## resolved Email ids or creation-references to sibling
+  ## EmailSubmission creates; ``IdOrCreationRef`` ``==`` and ``hash``
+  ## are arm-dispatched, so ``directRef(Id("x"))`` and
   ## ``creationRef(CreationId("x"))`` hash into distinct buckets even
-  ## when their payload strings coincide. Construction gated by
+  ## when their payload strings coincide. Construction is gated by
   ## ``parseNonEmptyOnSuccessUpdateEmail``.
+  rawValue: Table[IdOrCreationRef, EmailUpdateSet]
 
-type NonEmptyOnSuccessDestroyEmail* = distinct seq[IdOrCreationRef]
+func toTable*(
+    s: NonEmptyOnSuccessUpdateEmail
+): Table[IdOrCreationRef, EmailUpdateSet] {.inline.} =
+  ## Value-projection accessor — returns a copy of the underlying table.
+  s.rawValue
+
+type NonEmptyOnSuccessDestroyEmail* {.ruleOff: "objects".} = object
   ## Non-empty, duplicate-free sequence of Email references triggered
   ## for destroy on a successful ``EmailSubmission/set`` (RFC 8621 §7.5
-  ## ¶3). Construction gated by ``parseNonEmptyOnSuccessDestroyEmail``.
+  ## ¶3). Sealed Pattern-A object — ``rawValue`` is module-private.
+  ## Construction is gated by ``parseNonEmptyOnSuccessDestroyEmail``.
+  rawValue: seq[IdOrCreationRef]
+
+func toSeq*(s: NonEmptyOnSuccessDestroyEmail): seq[IdOrCreationRef] {.inline.} =
+  ## Value-projection accessor — returns a copy of the underlying seq.
+  s.rawValue
 
 func parseNonEmptyOnSuccessUpdateEmail*(
     items: openArray[(IdOrCreationRef, EmailUpdateSet)]
@@ -600,7 +646,7 @@ func parseNonEmptyOnSuccessUpdateEmail*(
   var t = initTable[IdOrCreationRef, EmailUpdateSet](items.len)
   for (k, v) in items:
     t[k] = v
-  ok(NonEmptyOnSuccessUpdateEmail(t))
+  ok(NonEmptyOnSuccessUpdateEmail(rawValue: t))
 
 func parseNonEmptyOnSuccessDestroyEmail*(
     items: openArray[IdOrCreationRef]
@@ -616,7 +662,7 @@ func parseNonEmptyOnSuccessDestroyEmail*(
   )
   if errs.len > 0:
     return err(errs)
-  ok(NonEmptyOnSuccessDestroyEmail(@items))
+  ok(NonEmptyOnSuccessDestroyEmail(rawValue: @items))
 
 # -----------------------------------------------------------------------------
 # EmailSubmissionHandles / EmailSubmissionResults (RFC 8621 §7.5, RFC 8620 §5.4)

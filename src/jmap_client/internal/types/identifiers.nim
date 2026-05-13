@@ -12,53 +12,45 @@ import std/[hashes, strutils]
 
 import ./validation
 
-type AccountId* = distinct string
-  ## Server-assigned account identifier (RFC 8620 §2). Distinct from Id to
+type AccountId* {.ruleOff: "objects".} = object
+  ## Server-assigned account identifier (RFC 8620 §2). Sealed Pattern-A
+  ## object; ``rawValue`` is module-private. Distinct from ``Id`` to
   ## prevent cross-use.
+  rawValue: string
 
-defineStringDistinctOps(AccountId)
+defineSealedStringOps(AccountId)
 
-type JmapState* = distinct string
-  ## Opaque server state token for change tracking (RFC 8620 §5.3). No len
-  ## borrow — length is meaningless.
+type JmapState* {.ruleOff: "objects".} = object
+  ## Opaque server state token for change tracking (RFC 8620 §5.3).
+  ## Sealed Pattern-A object — no ``len`` accessor because the underlying
+  ## byte length carries no domain meaning.
+  rawValue: string
 
-func `==`*(a, b: JmapState): bool {.borrow.}
-  ## Equality comparison delegated to the underlying string.
-func `$`*(a: JmapState): string {.borrow.}
-  ## String representation delegated to the underlying string.
-func hash*(a: JmapState): Hash {.borrow.} ## Hash delegated to the underlying string.
+defineSealedOpaqueStringOps(JmapState)
 
-type MethodCallId* = distinct string
+type MethodCallId* {.ruleOff: "objects".} = object
   ## Client-assigned tag correlating requests with responses in a batch
-  ## (RFC 8620 §3.2).
+  ## (RFC 8620 §3.2). Sealed Pattern-A object — opaque token, no ``len``.
+  rawValue: string
 
-func `==`*(a, b: MethodCallId): bool {.borrow.}
-  ## Equality comparison delegated to the underlying string.
-func `$`*(a: MethodCallId): string {.borrow.}
-  ## String representation delegated to the underlying string.
-func hash*(a: MethodCallId): Hash {.borrow.} ## Hash delegated to the underlying string.
+defineSealedOpaqueStringOps(MethodCallId)
 
-type CreationId* = distinct string
+type CreationId* {.ruleOff: "objects".} = object
   ## Client-assigned temporary ID for back-references within a /set call
-  ## (RFC 8620 §5.3). Wire format prefixes with '#'.
+  ## (RFC 8620 §5.3). Wire format prefixes with '#'. Sealed Pattern-A
+  ## object — opaque token, no ``len``.
+  rawValue: string
 
-func `==`*(a, b: CreationId): bool {.borrow.}
-  ## Equality comparison delegated to the underlying string.
-func `$`*(a: CreationId): string {.borrow.}
-  ## String representation delegated to the underlying string.
-func hash*(a: CreationId): Hash {.borrow.} ## Hash delegated to the underlying string.
+defineSealedOpaqueStringOps(CreationId)
 
-type BlobId* = distinct string
-  ## Server-assigned opaque blob identifier (RFC 8620 §3.2). Follows the
-  ## opaque-token borrow convention (JmapState/MethodCallId/CreationId):
-  ## ==/$/hash only — no len borrow — forcing ``string(blobId).len`` at
-  ## any call site that needs length, making opacity explicit.
+type BlobId* {.ruleOff: "objects".} = object
+  ## Server-assigned opaque blob identifier (RFC 8620 §3.2). Sealed
+  ## Pattern-A object — opaque token, no ``len``. Callers that need
+  ## length must explicitly project the underlying string (e.g.
+  ## ``($blobId).len``), making opacity explicit at the call site.
+  rawValue: string
 
-func `==`*(a, b: BlobId): bool {.borrow.}
-  ## Equality comparison delegated to the underlying string.
-func `$`*(a: BlobId): string {.borrow.}
-  ## String representation delegated to the underlying string.
-func hash*(a: BlobId): Hash {.borrow.} ## Hash delegated to the underlying string.
+defineSealedOpaqueStringOps(BlobId)
 
 type BuilderId* {.ruleOff: "objects".} = object
   ## Per-builder dispatch brand. Minted by ``JmapClient.newBuilder``;
@@ -110,30 +102,30 @@ func parseAccountId*(raw: string): Result[AccountId, ValidationError] =
   ## same lenient rules as parseIdFromServer.
   detectLenientToken(raw).isOkOr:
     return err(toValidationError(error, "AccountId", raw))
-  return ok(AccountId(raw))
+  return ok(AccountId(rawValue: raw))
 
 func parseJmapState*(raw: string): Result[JmapState, ValidationError] =
   ## Non-empty, no control characters. Server-assigned — same defensive
   ## checks as other server-assigned identifiers.
   detectNonControlString(raw).isOkOr:
     return err(toValidationError(error, "JmapState", raw))
-  return ok(JmapState(raw))
+  return ok(JmapState(rawValue: raw))
 
 func parseMethodCallId*(raw: string): Result[MethodCallId, ValidationError] =
   ## Non-empty. Client-generated.
   detectNonEmpty(raw).isOkOr:
     return err(toValidationError(error, "MethodCallId", raw))
-  return ok(MethodCallId(raw))
+  return ok(MethodCallId(rawValue: raw))
 
 func parseCreationId*(raw: string): Result[CreationId, ValidationError] =
   ## Non-empty. Must not start with '#' (the prefix is a wire-format concern).
   detectNonEmptyNoPrefix(raw).isOkOr:
     return err(toValidationError(error, "CreationId", raw))
-  return ok(CreationId(raw))
+  return ok(CreationId(rawValue: raw))
 
 func parseBlobId*(raw: string): Result[BlobId, ValidationError] =
   ## Lenient: 1-255 octets, no control characters.
   ## Server-assigned — same lenient rules as parseIdFromServer.
   detectLenientToken(raw).isOkOr:
     return err(toValidationError(error, "BlobId", raw))
-  return ok(BlobId(raw))
+  return ok(BlobId(rawValue: raw))

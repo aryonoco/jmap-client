@@ -90,15 +90,14 @@ testCase tsearchSnippetGetStandaloneLive:
     for snippet in snippetResp.list:
       assertOn target,
         snippet.emailId in corpus,
-        "every snippet's emailId must be one of the seeded ids; got " &
-          string(snippet.emailId)
+        "every snippet's emailId must be one of the seeded ids; got " & $snippet.emailId
       seenIds.incl(snippet.emailId)
       let subjectPresent = snippet.subject.isSome and snippet.subject.get().len > 0
       let previewPresent = snippet.preview.isSome and snippet.preview.get().len > 0
       assertOn target,
         subjectPresent or previewPresent,
         "every snippet must populate at least one of subject/preview; got emailId=" &
-          string(snippet.emailId)
+          $snippet.emailId
     assertOn target,
       id1 in seenIds, "snippet list must include the first seeded emailId"
     assertOn target,

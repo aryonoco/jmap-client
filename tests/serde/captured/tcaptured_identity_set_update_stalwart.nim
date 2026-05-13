@@ -40,7 +40,7 @@ testCase tcapturedIdentitySetUpdateStalwart:
       for id, outcome in setResp.updateResults.pairs:
         doAssert outcome.isOk,
           "update outcome must be Ok (got rawType=" & outcome.error.rawType & ")"
-        doAssert string(id).len > 0, "updated id must be non-empty"
+        doAssert ($id).len > 0, "updated id must be non-empty"
       doAssert setResp.newState.isSome, "newState must be present in this fixture"
     else:
       doAssert inv.rawName == "error",

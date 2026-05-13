@@ -421,7 +421,7 @@ testCase addQueryWithQueryParams:
   let (b1, _) = addQuery[MockQueryable, MockFilter, Comparator](
     b0,
     makeAccountId("a1"),
-    queryParams = QueryParams(position: JmapInt(10), calculateTotal: true),
+    queryParams = QueryParams(position: parseJmapInt(10).get(), calculateTotal: true),
   )
   let req = b1.freeze().request
   let inv = req.methodCalls[0]
@@ -464,7 +464,7 @@ testCase addQueryChangesRejectsWindowParams:
   assertNotCompiles:
     let b0 = initRequestBuilder(makeBuilderId())
     discard addQueryChanges[MockQueryable, MockFilter, Comparator](
-      b0, makeAccountId("a1"), makeState("qs0"), position = JmapInt(99)
+      b0, makeAccountId("a1"), makeState("qs0"), position = parseJmapInt(99).get()
     )
 
 # ===========================================================================

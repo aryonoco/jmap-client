@@ -175,10 +175,10 @@ testCase temailImportAlreadyExistsLive:
       assertOn target, false, "second Email/import must report an outcome for import28b"
     if secondOk:
       assertOn target,
-        string(firstImportedId) != string(secondImportedId),
+        $firstImportedId != $secondImportedId,
         "RFC 8621 §4.8 mandates separate ids for permitted duplicates: " &
-          "firstImportedId=" & string(firstImportedId) & " == secondImportedId=" &
-          string(secondImportedId)
+          "firstImportedId=" & $firstImportedId & " == secondImportedId=" &
+          $secondImportedId
 
     # --- 4. Cleanup: destroy [seed, first, second] ------------------------
     let (bClean, cleanHandle) = addEmailSet(
@@ -197,11 +197,9 @@ testCase temailImportAlreadyExistsLive:
       cleanResp.destroyResults.withValue(cleanupId, outcome):
         assertOn target,
           outcome.isOk,
-          "cleanup destroy of " & string(cleanupId) & " must succeed: " &
-            outcome.error.rawType
+          "cleanup destroy of " & $cleanupId & " must succeed: " & outcome.error.rawType
         destroyed = true
       do:
-        assertOn target,
-          false, "cleanup must report an outcome for " & string(cleanupId)
+        assertOn target, false, "cleanup must report an outcome for " & $cleanupId
       assertOn target, destroyed
     client.close()

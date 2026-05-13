@@ -22,7 +22,7 @@ testCase copyItemTypeRejectsEmptyMailboxIdSet: # F1 §6.1
   ## initMailboxIdSet returns MailboxIdSet; override slot is
   ## Opt[NonEmptyMailboxIdSet]. An empty MailboxIdSet literal fails
   ## at the distinct-type gate, not at a runtime check.
-  let id1 = parseId("m1").get()
+  let id1 = parseIdFromServer("m1").get()
   discard id1 # reference to keep scope under assertNotCompiles tight
   assertNotCompiles(
     initEmailCopyItem(id = id1, mailboxIds = Opt.some(initMailboxIdSet(@[])))
@@ -32,7 +32,7 @@ testCase copyItemTypeRejectsNonEmptyMailboxIdSetWrongDistinct: # F1 §6.1
   ## Populated MailboxIdSet is STILL the wrong distinct — the slot
   ## demands NonEmptyMailboxIdSet. Separates the empty-rejection
   ## axis from the distinct-type axis.
-  let id1 = parseId("m1").get()
+  let id1 = parseIdFromServer("m1").get()
   assertNotCompiles(
     initEmailCopyItem(id = id1, mailboxIds = Opt.some(initMailboxIdSet(@[id1])))
   )
@@ -40,7 +40,7 @@ testCase copyItemTypeRejectsNonEmptyMailboxIdSetWrongDistinct: # F1 §6.1
 # ============= B. Structural readback =============
 
 testCase copyItemIdOnlyRoundTrip:
-  let id = parseId("e1").get()
+  let id = parseIdFromServer("e1").get()
   let ci = initEmailCopyItem(id = id)
   assertEq ci.id, id
   assertNone ci.mailboxIds
@@ -48,8 +48,8 @@ testCase copyItemIdOnlyRoundTrip:
   assertNone ci.receivedAt
 
 testCase copyItemAllOverridesPopulated:
-  let id = parseId("e1").get()
-  let mbx = parseId("m1").get()
+  let id = parseIdFromServer("e1").get()
+  let mbx = parseIdFromServer("m1").get()
   let ids = parseNonEmptyMailboxIdSet(@[mbx]).get()
   let ks = initKeywordSet(@[kwSeen])
   let dt = parseUtcDate("2026-04-15T12:00:00Z").get()

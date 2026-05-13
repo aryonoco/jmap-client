@@ -60,7 +60,7 @@ testCase tEmailSubmissionFullLifecycleLive:
         "Phase G Step 42 — full CRUD lifecycle.", "draft42",
       )
       .expect("seedDraftEmail[" & $target.kind & "]")
-    let holdSeconds = parseHoldForSeconds(UnsignedInt(300)).expect(
+    let holdSeconds = parseHoldForSeconds(parseUnsignedInt(300).get()).expect(
         "parseHoldForSeconds[" & $target.kind & "]"
       )
     let envelope = buildEnvelopeWithHoldFor(

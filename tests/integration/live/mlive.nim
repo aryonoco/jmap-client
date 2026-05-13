@@ -557,10 +557,10 @@ proc getFirstAttachmentBlobId*(
   let getResp = resp.get(getHandle).valueOr:
     return err("Email/get extract failed: " & error.message)
   if getResp.list.len == 0:
-    return err("Email/get returned empty list for " & string(emailId))
+    return err("Email/get returned empty list for " & $emailId)
   let email = getResp.list[0]
   if email.attachments.len == 0:
-    return err("Email/get returned no attachments for " & string(emailId))
+    return err("Email/get returned no attachments for " & $emailId)
   ok(email.attachments[0].blobId)
 
 # ---------------------------------------------------------------------------
@@ -642,7 +642,7 @@ proc resolveOrCreateRoleMailbox(
   ).valueOr:
     return err("parseMailboxCreate(" & narrativeName & "): " & error.message)
   let cid = parseCreationId(creationLabel).valueOr:
-    return err("parseCreationId(" & creationLabel & "): " & error.message)
+    return err("parseCreationId(" & creationLabel & ").get(): " & error.message)
   var createTbl = initTable[CreationId, MailboxCreate]()
   createTbl[cid] = create
   let (b2, setHandle) = addMailboxSet(
@@ -1531,7 +1531,7 @@ proc buildOversizedRequest*(
   ## Phase J Step 64.
   var ids = newSeq[Id](idCount)
   for i in 0 ..< idCount:
-    ids[i] = Id("phaseJsynth" & $i)
+    ids[i] = parseIdFromServer("phaseJsynth" & $i).get()
   let (b, _) =
     addMailboxGet(initRequestBuilder(makeBuilderId()), accountId, ids = directIds(ids))
   b

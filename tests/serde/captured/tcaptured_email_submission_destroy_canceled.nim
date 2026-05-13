@@ -35,5 +35,5 @@ testCase tcapturedEmailSubmissionDestroyCanceled:
     doAssert outcome.isOk,
       "destroy of canceled submission must be Ok (got rawType=" & outcome.error.rawType &
         ")"
-    doAssert string(id).len > 0, "destroyed submission id must be non-empty"
+    doAssert ($id).len > 0, "destroyed submission id must be non-empty"
   doAssert setResp.newState.isSome, "newState must be present in this fixture"

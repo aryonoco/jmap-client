@@ -32,7 +32,7 @@ testCase roundTripEnvelopeWithRichParameters:
   let senderParams = parseSubmissionParams(
       @[
         bodyParam(beEightBitMime),
-        sizeParam(UnsignedInt(12345)),
+        sizeParam(parseUnsignedInt(12345).get()),
         notify,
         orcptParam(orcptType, "alice@example.com"),
         extensionParam(kw, Opt.some("bar")),
@@ -156,7 +156,7 @@ testCase paramHoldForAndHoldUntilRoundTrip:
   ## reverse-path lift. RFC 4865 FUTURERELEASE (delay + absolute-time).
   ## Numeric parameters ride as JSON strings of decimal digits (RFC 8621
   ## §7.3.2); HOLDUNTIL as raw RFC 3339 Zulu.
-  let secs = parseHoldForSeconds(UnsignedInt(3600)).unsafeGet()
+  let secs = parseHoldForSeconds(parseUnsignedInt(3600).get()).unsafeGet()
   let until = parseUtcDate("2026-12-31T23:59:59Z").unsafeGet()
   let senderParams =
     parseSubmissionParams(@[holdForParam(secs), holdUntilParam(until)]).unsafeGet()
@@ -192,7 +192,11 @@ testCase paramByAndMtPriorityAndSmtpUtf8RoundTrip:
   ## SMTP extension.
   let pri = parseMtPriority(5).unsafeGet()
   let senderParams = parseSubmissionParams(
-      @[byParam(JmapInt(120), dbmReturn), mtPriorityParam(pri), smtpUtf8Param()]
+      @[
+        byParam(parseJmapInt(120).get(), dbmReturn),
+        mtPriorityParam(pri),
+        smtpUtf8Param(),
+      ]
     )
     .unsafeGet()
   let senderMailbox = parseRFC5321Mailbox("sender@example.com").unsafeGet()
@@ -228,7 +232,8 @@ testCase reversePathNullWithParamsRoundTrip:
   ## reverse-path. Wire: ``{"email": "", "parameters": {...}}``;
   ## round-trip preserves both the null-path discriminator and the
   ## parameter bag.
-  let params = parseSubmissionParams(@[sizeParam(UnsignedInt(4096))]).unsafeGet()
+  let params =
+    parseSubmissionParams(@[sizeParam(parseUnsignedInt(4096).get())]).unsafeGet()
   let mailFrom = nullReversePath(Opt.some(params))
 
   let aliceMailbox = parseRFC5321Mailbox("alice@example.com").unsafeGet()

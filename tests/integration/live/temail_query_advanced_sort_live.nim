@@ -100,7 +100,7 @@ proc seedSizedEmail(
   )
   let resp = client.send(b.freeze()).expect("send Email/set sized")
   let setResp = resp.get(setHandle).expect("Email/set sized extract")
-  var seededId = Id("")
+  var seededId = parseIdFromServer("placeholder").get()
   var found = false
   setResp.createResults.withValue(cid, outcome):
     let item = outcome.expect("Email/set create sized")

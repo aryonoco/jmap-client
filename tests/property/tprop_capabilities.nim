@@ -8,6 +8,7 @@ import std/random
 import std/sets
 
 import jmap_client/internal/types/capabilities
+import jmap_client/internal/types/primitives
 import jmap_client/internal/types/validation
 import ../mproperty
 import ../mtestblock
@@ -39,13 +40,13 @@ testCase propCapabilityKindAllKnownHaveUri:
 testCase propCoreCapabilitiesFieldsNonNegative:
   checkProperty "genCoreCapabilities fields are non-negative":
     let caps = genCoreCapabilities(rng)
-    doAssert int64(caps.maxSizeUpload) >= 0
-    doAssert int64(caps.maxConcurrentUpload) >= 0
-    doAssert int64(caps.maxSizeRequest) >= 0
-    doAssert int64(caps.maxConcurrentRequests) >= 0
-    doAssert int64(caps.maxCallsInRequest) >= 0
-    doAssert int64(caps.maxObjectsInGet) >= 0
-    doAssert int64(caps.maxObjectsInSet) >= 0
+    doAssert caps.maxSizeUpload.toInt64 >= 0
+    doAssert caps.maxConcurrentUpload.toInt64 >= 0
+    doAssert caps.maxSizeRequest.toInt64 >= 0
+    doAssert caps.maxConcurrentRequests.toInt64 >= 0
+    doAssert caps.maxCallsInRequest.toInt64 >= 0
+    doAssert caps.maxObjectsInGet.toInt64 >= 0
+    doAssert caps.maxObjectsInSet.toInt64 >= 0
 
 testCase propServerCapabilityRawUriNonEmpty:
   checkProperty "genServerCapability rawUri always non-empty":
@@ -65,7 +66,7 @@ testCase propServerCapabilityCoreHasCoreData:
     lastInput = sc.rawUri
     case sc.kind
     of ckCore:
-      doAssert int64(sc.core.maxSizeUpload) >= 0
+      doAssert sc.core.maxSizeUpload.toInt64 >= 0
     else:
       doAssert sc.rawData != nil
 

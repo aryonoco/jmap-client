@@ -93,16 +93,17 @@ func parseMethodName*(raw: string): MethodName =
       return m
   mnUnknown
 
-type MethodNameLiteral* = distinct string
+type MethodNameLiteral* {.ruleOff: "objects".} = object
   ## Validated wire-format method name carrier for
   ## ``addCapabilityInvocation`` — distinct from the typed ``MethodName``
   ## enum because vendor methods cannot be enumerated. Parses any
   ## 1..255-octet, control-free, slash-containing string; rendered
-  ## verbatim on the wire via ``parseInvocation``. Raw constructor
-  ## ``MethodNameLiteral(s)`` is module-private (P15); external consumers
+  ## verbatim on the wire via ``parseInvocation``. Sealed Pattern-A
+  ## object — ``rawValue`` is module-private. External consumers must
   ## go through ``parseMethodNameLiteral``.
+  rawValue: string
 
-defineStringDistinctOps(MethodNameLiteral)
+defineSealedStringOps(MethodNameLiteral)
 
 func parseMethodNameLiteral*(raw: string): Result[MethodNameLiteral, ValidationError] =
   ## Validates the wire shape RFC 8620 §3.2 requires: 1..255 octets, no
@@ -117,4 +118,4 @@ func parseMethodNameLiteral*(raw: string): Result[MethodNameLiteral, ValidationE
         "MethodNameLiteral", "must contain '/' (RFC 8620 §3.2 Entity/verb)", raw
       )
     )
-  ok(MethodNameLiteral(raw))
+  ok(MethodNameLiteral(rawValue: raw))

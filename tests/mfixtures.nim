@@ -879,16 +879,16 @@ proc bodyFieldsEq[T](a, b: T): bool =
     a.preview == b.preview
 
 proc optMailboxIdSetEq(a, b: Opt[MailboxIdSet]): bool =
-  ## Distinct ``MailboxIdSet`` excludes ``==`` (from ``defineHashSetDistinctOps``);
-  ## unwrap to ``HashSet[Id]`` for comparison when both sides are some.
+  ## Sealed ``MailboxIdSet`` excludes ``==`` (from ``defineSealedHashSetOps``);
+  ## project to ``HashSet[Id]`` for comparison when both sides are some.
   if a.isSome and b.isSome:
-    return HashSet[Id](a.unsafeGet) == HashSet[Id](b.unsafeGet)
+    return a.unsafeGet.toHashSet == b.unsafeGet.toHashSet
   return a.isSome == b.isSome
 
 proc optKeywordSetEq(a, b: Opt[KeywordSet]): bool =
   ## Same shape as ``optMailboxIdSetEq`` for ``KeywordSet``.
   if a.isSome and b.isSome:
-    return HashSet[Keyword](a.unsafeGet) == HashSet[Keyword](b.unsafeGet)
+    return a.unsafeGet.toHashSet == b.unsafeGet.toHashSet
   return a.isSome == b.isSome
 
 proc emailMetadataEq(a, b: Email): bool =
@@ -1337,7 +1337,7 @@ proc makeBodyPartLocationBlobRef*(blobId = makeBlobId("blob1")): BodyPartLocatio
   BodyPartLocation(kind: bplBlobRef, blobId: blobId)
 
 proc makeBodyPartLocationMultipart*(
-    path: BodyPartPath = BodyPartPath(@[])
+    path: BodyPartPath = initBodyPartPath(@[])
 ): BodyPartLocation =
   BodyPartLocation(kind: bplMultipart, path: path)
 
@@ -1360,7 +1360,7 @@ proc makeBlueprintBodyHeaderMap*(
 
 # I-16 -----------------------------------------------------------------------
 proc makeBodyPartPath*(s: seq[int] = @[]): BodyPartPath =
-  BodyPartPath(s)
+  initBodyPartPath(s)
 
 # I-17 -----------------------------------------------------------------------
 proc makeSpineBodyPart*(
@@ -1450,9 +1450,10 @@ proc blueprintHeaderMultiValueEq*(a, b: BlueprintHeaderMultiValue): bool =
 
 # K-8 ------------------------------------------------------------------------
 proc nonEmptyMailboxIdSetEq*(a, b: NonEmptyMailboxIdSet): bool =
-  ## Unwraps the distinct ``HashSet[Id]`` — ``==`` is intentionally not
-  ## borrowed at the type level (``defineHashSetDistinctOps`` omits it).
-  HashSet[Id](a) == HashSet[Id](b)
+  ## Compares via the value-projection accessor — ``==`` IS defined for
+  ## ``NonEmptyMailboxIdSet`` (sealed creation context), but ``toHashSet``
+  ## projection makes the legacy comparison call site explicit.
+  a.toHashSet == b.toHashSet
 
 # K-3 ------------------------------------------------------------------------
 proc bodyPartLocationEq*(a, b: BodyPartLocation): bool =
@@ -1677,9 +1678,8 @@ proc emailBlueprintMetadataEq(a, b: EmailBlueprint): bool =
   ## are module-private to ``email_blueprint.nim``. Keywords compared
   ## via HashSet-unwrap since ``KeywordSet`` has no ``==`` by design.
   nonEmptyMailboxIdSetEq(a.mailboxIds, b.mailboxIds) and
-    HashSet[Keyword](a.keywords) == HashSet[Keyword](b.keywords) and
-    a.receivedAt == b.receivedAt and blueprintAddrFieldsEq(a, b) and
-    blueprintScalarFieldsEq(a, b)
+    a.keywords.toHashSet == b.keywords.toHashSet and a.receivedAt == b.receivedAt and
+    blueprintAddrFieldsEq(a, b) and blueprintScalarFieldsEq(a, b)
 
 # K-7 ------------------------------------------------------------------------
 proc emailBlueprintEq*(a, b: EmailBlueprint): bool =
@@ -2016,7 +2016,7 @@ proc keywordSetEq*(a, b: KeywordSet): bool =
   ## domain). Cast through the underlying ``HashSet`` so its stdlib ``==``
   ## dispatches via the borrowed ``Keyword.==``. Required by
   ## ``emailUpdateEq`` for the ``euSetKeywords`` arm.
-  HashSet[Keyword](a) == HashSet[Keyword](b)
+  a.toHashSet == b.toHashSet
 
 proc emailUpdateEq*(a, b: EmailUpdate): bool =
   ## Arm-dispatched structural equality for the ``EmailUpdate`` case
@@ -2041,8 +2041,8 @@ proc emailUpdateSetEq*(a, b: EmailUpdateSet): bool =
   ## borrowed ``==``; the underlying ``seq[EmailUpdate]`` ``==`` would in
   ## turn require ``EmailUpdate.==``, which the source also omits.
   ## Manual element-wise comparison through ``emailUpdateEq``.
-  let xs = seq[EmailUpdate](a)
-  let ys = seq[EmailUpdate](b)
+  let xs = a.toSeq
+  let ys = b.toSeq
   if xs.len != ys.len:
     return false
   for i in 0 ..< xs.len:
@@ -2058,8 +2058,8 @@ proc nonEmptyOnSuccessUpdateEmailEq*(a, b: NonEmptyOnSuccessUpdateEmail): bool =
   ## ourselves: source-defined ``IdOrCreationRef.==`` /
   ## ``IdOrCreationRef.hash`` (``email_submission.nim:407``) drive key
   ## lookup, ``emailUpdateSetEq`` drives value equality.
-  let aTable = Table[IdOrCreationRef, EmailUpdateSet](a)
-  let bTable = Table[IdOrCreationRef, EmailUpdateSet](b)
+  let aTable = a.toTable
+  let bTable = b.toTable
   if aTable.len != bTable.len:
     return false
   for k, av in aTable:
@@ -2220,7 +2220,7 @@ proc makeDeliveryStatusMap*(
   var t = initTable[RFC5321Mailbox, DeliveryStatus](entries.len)
   for (k, v) in entries:
     t[k] = v
-  DeliveryStatusMap(t)
+  initDeliveryStatusMap(t)
 
 # Group 5 — IdOrCreationRef variant factories
 

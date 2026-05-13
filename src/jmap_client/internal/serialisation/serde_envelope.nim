@@ -23,7 +23,7 @@ func toJson*(inv: Invocation): JsonNode =
   ## Uses ``rawName`` so forward-compatible unknown method names round-trip
   ## losslessly — ``$inv.name`` would collapse them to the ``mnUnknown``
   ## symbol name.
-  return %*[inv.rawName, inv.arguments, string(inv.methodCallId)]
+  return %*[inv.rawName, inv.arguments, $inv.methodCallId]
 
 func fromJson*(
     T: typedesc[Invocation], node: JsonNode, path: JsonPath = emptyJsonPath()
@@ -92,7 +92,7 @@ func toJson*(r: Request): JsonNode =
   for createdIds in r.createdIds:
     var ids = newJObject()
     for k, v in createdIds:
-      ids[string(k)] = %string(v)
+      ids[$k] = %($v)
     node["createdIds"] = ids
   return node
 
@@ -127,11 +127,11 @@ func toJson*(r: Response): JsonNode =
   for _, inv in r.methodResponses:
     responses.add(inv.toJson())
   node["methodResponses"] = responses
-  node["sessionState"] = %string(r.sessionState)
+  node["sessionState"] = %($r.sessionState)
   for createdIds in r.createdIds:
     var ids = newJObject()
     for k, v in createdIds:
-      ids[string(k)] = %string(v)
+      ids[$k] = %($v)
     node["createdIds"] = ids
   return node
 
@@ -166,7 +166,7 @@ func toJson*(r: ResultReference): JsonNode =
   ## Serialise ResultReference to JSON (RFC 8620 section 3.7).
   ## Uses ``rawName`` / ``rawPath`` to preserve verbatim wire strings,
   ## including any forward-compatible unknown variants.
-  return %*{"resultOf": string(r.resultOf), "name": r.rawName, "path": r.rawPath}
+  return %*{"resultOf": $r.resultOf, "name": r.rawName, "path": r.rawPath}
 
 func fromJson*(
     T: typedesc[ResultReference], node: JsonNode, path: JsonPath = emptyJsonPath()

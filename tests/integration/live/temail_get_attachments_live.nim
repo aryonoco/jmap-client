@@ -20,7 +20,7 @@
 ##   4. ``attachments[0].blobId.string.len > 0`` — Stalwart assigns a
 ##      non-empty BlobId on creation, suitable for ``Email/parse`` in
 ##      Step 24.
-##   5. ``attachments[0].size == UnsignedInt(32)`` — the sentinel byte
+##   5. ``attachments[0].size == parseUnsignedInt(32).get()`` — the sentinel byte
 ##      count.
 ##
 ## Captures: ``email-multipart-mixed-attachment-stalwart`` after the
@@ -112,8 +112,8 @@ testCase temailGetAttachmentsLive:
       attachment.name.isSome and attachment.name.unsafeGet == attachmentName,
       "attachments[0].name must be the injected filename"
     assertOn target,
-      string(attachment.blobId).len > 0, "attachments[0].blobId must be non-empty"
+      ($attachment.blobId).len > 0, "attachments[0].blobId must be non-empty"
     assertOn target,
-      attachment.size == UnsignedInt(32),
+      attachment.size == parseUnsignedInt(32).get(),
       "attachments[0].size must be 32 (got " & $attachment.size & ")"
     client.close()

@@ -68,13 +68,18 @@ type DeliveryByMode* = enum
 # HoldForSeconds — RFC 4865 FUTURERELEASE delay form
 # ===========================================================================
 
-type HoldForSeconds* = distinct UnsignedInt
+type HoldForSeconds* {.ruleOff: "objects".} = object
   ## Delay-in-seconds payload for the RFC 4865 ``HOLDFOR=`` extension.
   ## Narrows ``UnsignedInt`` at the type level so mixing an arbitrary
   ## ``UnsignedInt`` with a HOLDFOR value at the call site is a compile
-  ## error.
+  ## error. Sealed Pattern-A object — ``rawValue`` is module-private.
+  rawValue: UnsignedInt
 
-defineIntDistinctOps(HoldForSeconds)
+defineSealedIntOps(HoldForSeconds)
+
+func toInt64*(h: HoldForSeconds): int64 {.inline.} =
+  ## Projection to raw ``int64`` via the inner ``UnsignedInt``.
+  h.rawValue.toInt64
 
 func parseHoldForSeconds*(raw: UnsignedInt): Result[HoldForSeconds, ValidationError] =
   ## Infallible typed wrap — ``UnsignedInt`` already enforces the JSON-
@@ -82,26 +87,32 @@ func parseHoldForSeconds*(raw: UnsignedInt): Result[HoldForSeconds, ValidationEr
   ## is nothing left to reject here. The ``Result``-returning signature
   ## mirrors the other ``parse*`` functions so callers compose uniformly
   ## with ``?`` / ``valueOr:``.
-  return ok(HoldForSeconds(raw))
+  return ok(HoldForSeconds(rawValue: raw))
 
 # ===========================================================================
 # MtPriority — RFC 6710 MT-PRIORITY
 # ===========================================================================
 
-type MtPriority* = distinct int
+type MtPriority* {.ruleOff: "objects".} = object
   ## RFC 6710 §2 ``MT-PRIORITY=`` parameter value, constrained to the
   ## inclusive range ``-9 .. 9``. A raw ``int`` field would let an out-
   ## of-range value slip past construction; ``range[int]`` was rejected
   ## because ``RangeDefect`` is fatal under ``--panics:on``
-  ## (``.claude/rules/nim-type-safety.md``).
+  ## (``.claude/rules/nim-type-safety.md``). Sealed Pattern-A object —
+  ## ``rawValue`` is module-private.
+  rawValue: int
 
-defineIntDistinctOps(MtPriority)
+defineSealedIntOps(MtPriority)
+
+func toInt*(m: MtPriority): int {.inline.} =
+  ## Projection to raw ``int``. Total, zero-cost.
+  m.rawValue
 
 func parseMtPriority*(raw: int): Result[MtPriority, ValidationError] =
   ## Strict: enforces the inclusive ``-9 .. 9`` bound of RFC 6710 §2.
   if raw < -9 or raw > 9:
     return err(validationError("MtPriority", "must be in range -9..9", $raw))
-  return ok(MtPriority(raw))
+  return ok(MtPriority(rawValue: raw))
 
 # ===========================================================================
 # SubmissionParam — typed SMTP parameter algebra (design §2.3)
@@ -387,21 +398,29 @@ func paramKey*(p: SubmissionParam): SubmissionParamKey =
 # SubmissionParams — structural uniqueness with wire-order fidelity
 # ---------------------------------------------------------------------------
 
-type SubmissionParams* = distinct OrderedTable[SubmissionParamKey, SubmissionParam]
+type SubmissionParams* {.ruleOff: "objects".} = object
   ## Validated, duplicate-free collection of ``SubmissionParam`` values
-  ## carrying a single ``Envelope.Address`` parameter bag. Construction
-  ## is gated by ``parseSubmissionParams`` — the raw distinct constructor
-  ## is not part of the public surface. Serde (Step 10) and per-address
-  ## lookups (Step 3) cast back to the underlying ``OrderedTable`` at
-  ## use sites; accessors are intentionally not borrowed because mutable
-  ## stdlib containers don't borrow subscripts cleanly.
+  ## carrying a single ``Envelope.Address`` parameter bag. Sealed
+  ## Pattern-A object — ``rawValue`` is module-private. Construction is
+  ## gated by ``parseSubmissionParams``. Serde (Step 10) and per-address
+  ## lookups (Step 3) reach the underlying ``OrderedTable`` via the
+  ## ``toOrderedTable`` accessor.
+  rawValue: OrderedTable[SubmissionParamKey, SubmissionParam]
 
-func `==`*(a, b: SubmissionParams): bool {.borrow.}
+func toOrderedTable*(
+    s: SubmissionParams
+): OrderedTable[SubmissionParamKey, SubmissionParam] {.inline.} =
+  ## Value-projection accessor — returns a copy of the underlying table.
+  s.rawValue
+
+func `==`*(a, b: SubmissionParams): bool =
   ## Structural equality delegated to the underlying ``OrderedTable``.
+  a.rawValue == b.rawValue
 
-func `$`*(a: SubmissionParams): string {.borrow.}
+func `$`*(a: SubmissionParams): string =
   ## Textual form delegated to the underlying ``OrderedTable`` —
   ## diagnostic only; serde (Step 10) owns the wire form.
+  $a.rawValue
 
 func detectDuplicateParamKeys(items: openArray[SubmissionParam]): seq[ValidationError] =
   ## One ``ValidationError`` per repeated ``SubmissionParamKey``, each
@@ -443,4 +462,4 @@ func parseSubmissionParams*(
   var t = initOrderedTable[SubmissionParamKey, SubmissionParam]()
   for item in items:
     t[paramKey(item)] = item
-  return ok(SubmissionParams(t))
+  return ok(SubmissionParams(rawValue: t))

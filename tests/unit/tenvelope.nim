@@ -50,7 +50,7 @@ testCase requestRfcExample:
 
 testCase requestWithCreatedIds:
   let cid = parseCreationId("k1").get()
-  let id = parseId("abc").get()
+  let id = parseIdFromServer("abc").get()
   var tbl = initTable[CreationId, Id]()
   tbl[cid] = id
   let req = Request(`using`: @[], methodCalls: @[], createdIds: Opt.some(tbl))
@@ -108,7 +108,7 @@ testCase responseRfcExample:
 
 testCase responseWithCreatedIds:
   let cid = parseCreationId("k1").get()
-  let id = parseId("abc").get()
+  let id = parseIdFromServer("abc").get()
   let state = parseJmapState("state2").get()
   var tbl = initTable[CreationId, Id]()
   tbl[cid] = id
@@ -161,7 +161,7 @@ testCase referencableConcreteTypes:
   doAssert strRef.kind == rkDirect
   doAssert strRef.value == "hello"
 
-  let idSeq = direct(@[parseId("abc").get()])
+  let idSeq = direct(@[parseIdFromServer("abc").get()])
   doAssert idSeq.kind == rkDirect
   doAssert idSeq.value.len == 1
 
@@ -174,7 +174,7 @@ testCase referencableConcreteTypes:
 
 testCase referencableVariantDiscrimination:
   # Direct and reference variants are distinguished by kind discriminator
-  let id = parseId("test").get()
+  let id = parseIdFromServer("test").get()
   let mcid = parseMethodCallId("c0").get()
   let d = direct[Id](id)
   let rr = initResultReference(resultOf = mcid, name = mnEmailGet, path = rpIds)

@@ -44,7 +44,7 @@ testCase parseNonEmptyOnSuccessDestroyEmailRejectsEmpty:
 # ============= B. Duplicate rejection =============
 
 testCase parseNonEmptyOnSuccessUpdateEmailRejectsDuplicateKey:
-  let k = directRef(parseId("m-abc").get())
+  let k = directRef(parseIdFromServer("m-abc").get())
   let us = initEmailUpdateSet(@[markRead()]).get()
   let res = parseNonEmptyOnSuccessUpdateEmail(@[(k, us), (k, us)])
   assertErr res
@@ -52,7 +52,7 @@ testCase parseNonEmptyOnSuccessUpdateEmailRejectsDuplicateKey:
   assertEq res.error[0].message, "duplicate id or creation reference"
 
 testCase parseNonEmptyOnSuccessDestroyEmailRejectsDuplicateElement:
-  let r = directRef(parseId("m-abc").get())
+  let r = directRef(parseIdFromServer("m-abc").get())
   let res = parseNonEmptyOnSuccessDestroyEmail(@[r, r])
   assertErr res
   assertLen res.error, 1
@@ -62,19 +62,19 @@ testCase parseNonEmptyOnSuccessDestroyEmailRejectsDuplicateElement:
 
 testCase parseNonEmptyOnSuccessUpdateEmailAcceptsArmDistinctSamePayload:
   ## ``IdOrCreationRef`` ``==`` / ``hash`` mix in the discriminator
-  ## ordinal, so ``directRef(Id("x"))`` and ``creationRef(CreationId("x"))``
+  ## ordinal, so ``directRef(parseIdFromServer("x").get())`` and ``creationRef(parseCreationId("x").get())``
   ## hash into different buckets and compare unequal. This block pins
   ## that contract — regression would make them collide in the Table
   ## and surface as a spurious "duplicate id or creation reference"
   ## error here.
-  let kDirect = directRef(parseId("x").get())
+  let kDirect = directRef(parseIdFromServer("x").get())
   let kCreation = creationRef(parseCreationId("x").get())
   let us = initEmailUpdateSet(@[markRead()]).get()
   let res = parseNonEmptyOnSuccessUpdateEmail(@[(kDirect, us), (kCreation, us)])
   assertOk res
 
 testCase parseNonEmptyOnSuccessDestroyEmailAcceptsArmDistinctSamePayload:
-  let rDirect = directRef(parseId("x").get())
+  let rDirect = directRef(parseIdFromServer("x").get())
   let rCreation = creationRef(parseCreationId("x").get())
   let res = parseNonEmptyOnSuccessDestroyEmail(@[rDirect, rCreation])
   assertOk res
@@ -82,12 +82,12 @@ testCase parseNonEmptyOnSuccessDestroyEmailAcceptsArmDistinctSamePayload:
 # ============= D. Happy path single entry =============
 
 testCase parseNonEmptyOnSuccessUpdateEmailHappyPath:
-  let k = directRef(parseId("m-1").get())
+  let k = directRef(parseIdFromServer("m-1").get())
   let us = initEmailUpdateSet(@[markRead()]).get()
   assertOk parseNonEmptyOnSuccessUpdateEmail(@[(k, us)])
 
 testCase parseNonEmptyOnSuccessDestroyEmailHappyPath:
-  let r = directRef(parseId("m-1").get())
+  let r = directRef(parseIdFromServer("m-1").get())
   assertOk parseNonEmptyOnSuccessDestroyEmail(@[r])
 
 # ============= E. Serde — NonEmptyOnSuccessUpdateEmail wire shape =========
@@ -95,7 +95,7 @@ testCase parseNonEmptyOnSuccessDestroyEmailHappyPath:
 testCase toJsonNonEmptyOnSuccessUpdateEmailDirectKey:
   ## Direct-id key on the wire is the Id verbatim; the patch subtree
   ## matches what ``EmailUpdateSet.toJson`` would emit directly.
-  let k = directRef(parseId("m-1").get())
+  let k = directRef(parseIdFromServer("m-1").get())
   let us = initEmailUpdateSet(@[markRead()]).get()
   let v = parseNonEmptyOnSuccessUpdateEmail(@[(k, us)]).get()
   let node = v.toJson()
@@ -115,7 +115,7 @@ testCase toJsonNonEmptyOnSuccessUpdateEmailCreationKey:
 # ============= F. Serde — NonEmptyOnSuccessDestroyEmail wire shape ========
 
 testCase toJsonNonEmptyOnSuccessDestroyEmailEmitsWireKeyArray:
-  let rDirect = directRef(parseId("m-1").get())
+  let rDirect = directRef(parseIdFromServer("m-1").get())
   let rCreation = creationRef(parseCreationId("c-1").get())
   let v = parseNonEmptyOnSuccessDestroyEmail(@[rDirect, rCreation]).get()
   let node = v.toJson()
@@ -132,7 +132,7 @@ testCase idOrCreationRefWireDirectIsBareString:
   ## the ``icrDirect`` branch via the shared
   ## ``assertIdOrCreationRefWire`` template (``JString`` kind +
   ## byte-equal payload).
-  let v = directRef(parseId("m-1").get())
+  let v = directRef(parseIdFromServer("m-1").get())
   assertIdOrCreationRefWire(v, "m-1")
 
 testCase idOrCreationRefWireCreationHasHashPrefix:
@@ -151,7 +151,7 @@ testCase idOrCreationRefVsReferencableAreDistinctTypes:
   ## contracts and disjoint semantic scope. Compile-time pin guarding
   ## against a refactor that would unify them: neither direction of
   ## cross-assignment may typecheck.
-  let id = parseId("m-1").get()
+  let id = parseIdFromServer("m-1").get()
   assertNotCompiles:
     let forbidden: Referencable[seq[Id]] = directRef(id)
   assertNotCompiles:

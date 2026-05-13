@@ -46,8 +46,8 @@ testCase mailboxRoleConstants: # scenario 27
 # ============= B. MailboxIdSet =============
 
 testCase initMailboxIdSetWithIds: # scenario 30
-  let id1 = parseId("mbx1").get()
-  let id2 = parseId("mbx2").get()
+  let id1 = parseIdFromServer("mbx1").get()
+  let id2 = parseIdFromServer("mbx2").get()
   let ms = initMailboxIdSet(@[id1, id2])
   assertLen ms, 2
   doAssert id1 in ms
@@ -66,16 +66,16 @@ testCase parseMailboxCreateDefaults: # scenario 50
   assertEq mc.name, "Inbox"
   assertNone mc.parentId
   assertNone mc.role
-  assertEq mc.sortOrder, UnsignedInt(0)
+  assertEq mc.sortOrder, parseUnsignedInt(0).get()
   assertEq mc.isSubscribed, false
 
 testCase parseMailboxCreateAllFields: # scenario 51
-  let pid = parseId("parent1").get()
+  let pid = parseIdFromServer("parent1").get()
   let res = parseMailboxCreate(
     "Work",
     parentId = Opt.some(pid),
     role = Opt.some(roleInbox),
-    sortOrder = UnsignedInt(10),
+    sortOrder = parseUnsignedInt(10).get(),
     isSubscribed = true,
   )
   assertOk res
@@ -83,7 +83,7 @@ testCase parseMailboxCreateAllFields: # scenario 51
   assertEq mc.name, "Work"
   assertSomeEq mc.parentId, pid
   assertSomeEq mc.role, roleInbox
-  assertEq mc.sortOrder, UnsignedInt(10)
+  assertEq mc.sortOrder, parseUnsignedInt(10).get()
   assertEq mc.isSubscribed, true
 
 testCase parseMailboxCreateEmptyName: # scenario 52
@@ -92,7 +92,7 @@ testCase parseMailboxCreateEmptyName: # scenario 52
 # ============= D. NonEmptyMailboxIdSet (Part E §6.1.3 scenarios 24–27a) =============
 
 testCase parseNonEmptyMailboxIdSetSingle: # §6.1.3 scenario 24
-  let id1 = parseId("mbx1").get()
+  let id1 = parseIdFromServer("mbx1").get()
   let res = parseNonEmptyMailboxIdSet(@[id1])
   assertOk res
   assertLen res.get(), 1
@@ -101,21 +101,21 @@ testCase parseNonEmptyMailboxIdSetEmptyRejected: # §6.1.3 scenario 25
   assertErrType parseNonEmptyMailboxIdSet(@[]), "NonEmptyMailboxIdSet"
 
 testCase parseNonEmptyMailboxIdSetDedup: # §6.1.3 scenario 26
-  let id1 = parseId("mbx1").get()
-  let id2 = parseId("mbx2").get()
+  let id1 = parseIdFromServer("mbx1").get()
+  let id2 = parseIdFromServer("mbx2").get()
   let res = parseNonEmptyMailboxIdSet(@[id1, id2, id1])
   assertOk res
   assertLen res.get(), 2
 
 testCase parseNonEmptyMailboxIdSetEqualityAndHash: # §6.1.3 scenario 27
-  let id1 = parseId("mbx1").get()
-  let id2 = parseId("mbx2").get()
+  let id1 = parseIdFromServer("mbx1").get()
+  let id2 = parseIdFromServer("mbx2").get()
   let a = parseNonEmptyMailboxIdSet(@[id1, id2]).get()
   let b = parseNonEmptyMailboxIdSet(@[id2, id1]).get()
   assertEq a, b
 
 testCase parseNonEmptyMailboxIdSetMutabilityGuard: # §6.1.3 scenario 27a
-  let id1 = parseId("mbx1").get()
+  let id1 = parseIdFromServer("mbx1").get()
   let s = parseNonEmptyMailboxIdSet(@[id1]).get()
   # Any Id value suffices to probe whether `incl` / `excl` / `clear` are
   # borrowed — the arguments never evaluate at runtime under
@@ -161,7 +161,7 @@ testCase initMailboxUpdateSetTwoDistinctRepeated:
   ## Two distinct repeated kinds → TWO errors, one per distinct
   ## duplicate key. Verifies the output set via set-membership so the
   ## test does not depend on error ordering.
-  let pid = parseId("p1").get()
+  let pid = parseIdFromServer("p1").get()
   let res = initMailboxUpdateSet(
     @[setName("A"), setName("B"), setParentId(Opt.some(pid)), setParentId(Opt.none(Id))]
   )
@@ -191,7 +191,7 @@ testCase setParentIdNoneConstructsCorrectKind:
   assertNone u.parentId
 
 testCase setParentIdSomeConstructsCorrectKind:
-  let pid = parseId("parent1").get()
+  let pid = parseIdFromServer("parent1").get()
   let u = setParentId(Opt.some(pid))
   assertEq u.kind, muSetParentId
   assertSomeEq u.parentId, pid
@@ -202,9 +202,9 @@ testCase setRoleConstructsCorrectKind:
   assertSomeEq u.role, roleInbox
 
 testCase setSortOrderConstructsCorrectKind:
-  let u = setSortOrder(UnsignedInt(5))
+  let u = setSortOrder(parseUnsignedInt(5).get())
   assertEq u.kind, muSetSortOrder
-  assertEq u.sortOrder, UnsignedInt(5)
+  assertEq u.sortOrder, parseUnsignedInt(5).get()
 
 testCase setIsSubscribedConstructsCorrectKind:
   let u = setIsSubscribed(true)
@@ -227,7 +227,7 @@ testCase parseNonEmptyMailboxUpdatesRejectsDuplicateId:
   ## Duplicate ``Id`` keys are rejected — silent last-wins shadowing at
   ## Table construction would swallow caller data. The ``openArray`` input
   ## preserves duplicates for inspection.
-  let id1 = parseId("mb1").get()
+  let id1 = parseIdFromServer("mb1").get()
   let us1 = initMailboxUpdateSet(@[setName("A")]).get()
   let us2 = initMailboxUpdateSet(@[setName("B")]).get()
   let res = parseNonEmptyMailboxUpdates(@[(id1, us1), (id1, us2)])

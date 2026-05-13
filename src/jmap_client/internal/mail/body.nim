@@ -34,11 +34,13 @@ const MaxBodyPartDepth* = 128
 # PartId
 # =============================================================================
 
-type PartId* = distinct string
+type PartId* {.ruleOff: "objects".} = object
   ## Body part identifier, unique within an Email (RFC 8621 §4.1.4).
   ## Typed as ``String`` (not ``Id``), so no length limit applies.
+  ## Sealed Pattern-A object — ``rawValue`` is module-private.
+  rawValue: string
 
-defineStringDistinctOps(PartId)
+defineSealedStringOps(PartId)
 
 func parsePartIdFromServer*(raw: string): Result[PartId, ValidationError] =
   ## Lenient parser for server-provided part identifiers. Validates non-empty
@@ -47,7 +49,7 @@ func parsePartIdFromServer*(raw: string): Result[PartId, ValidationError] =
     return err(validationError("PartId", "must not be empty", raw))
   if raw.anyIt(ord(it) < 0x20):
     return err(validationError("PartId", "contains control characters", raw))
-  return ok(PartId(raw))
+  return ok(PartId(rawValue: raw))
 
 func parseFromString*(
     T: typedesc[PartId], raw: string

@@ -204,7 +204,7 @@ testCase tEmailSubmissionOnSuccessUpdateLive:
       getResp.list.len == 1, "Email/get must return one entry for the patched draft"
     let email = getResp.list[0]
     assertOn target, email.mailboxIds.isSome, "Email/get must include mailboxIds"
-    let mbIds = HashSet[Id](email.mailboxIds.unsafeGet)
+    let mbIds = email.mailboxIds.unsafeGet.toHashSet
     assertOn target,
       sentId in mbIds,
       "after onSuccessUpdateEmail, draft must be in Sent (mailboxIds=" & $mbIds & ")"
@@ -212,7 +212,7 @@ testCase tEmailSubmissionOnSuccessUpdateLive:
       draftsId notin mbIds,
       "after onSuccessUpdateEmail, draft must no longer be in Drafts"
     assertOn target, email.keywords.isSome, "Email/get must include keywords"
-    let kwSet = HashSet[Keyword](email.keywords.unsafeGet)
+    let kwSet = email.keywords.unsafeGet.toHashSet
     assertOn target, seenKw in kwSet, "after patch, $seen must be present"
     assertOn target, draftKw notin kwSet, "after patch, $draft must be absent"
     client.close()

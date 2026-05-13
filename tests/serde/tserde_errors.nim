@@ -10,6 +10,8 @@ import std/strutils
 
 import jmap_client/internal/serialisation/serde_errors
 import jmap_client/internal/types/errors
+import jmap_client/internal/types/identifiers
+import jmap_client/internal/types/primitives
 import jmap_client/internal/types/validation
 
 import ../massertions
@@ -271,7 +273,7 @@ testCase setErrorDeserAlreadyExistsWithId:
   let j = %*{"type": "alreadyExists", "existingId": "msg42"}
   let v = SetError.fromJson(j).get()
   doAssert v.errorType == setAlreadyExists
-  assertEq string(v.existingId), "msg42"
+  assertEq $v.existingId, "msg42"
 
 testCase setErrorDeserAlreadyExistsMissing:
   let j = %*{"type": "alreadyExists"}

@@ -96,7 +96,9 @@ testCase temailQueryPaginationLive:
 
     # --- Leg 1: position+limit + calculateTotal ----------------------------
     let qpPos = QueryParams(
-      position: JmapInt(2), limit: Opt.some(UnsignedInt(2)), calculateTotal: true
+      position: parseJmapInt(2).get(),
+      limit: Opt.some(parseUnsignedInt(2).get()),
+      calculateTotal: true,
     )
     let (b1, h1) = addEmailQuery(
       initRequestBuilder(makeBuilderId()),
@@ -116,12 +118,12 @@ testCase temailQueryPaginationLive:
       qr1.ids.len == 2,
       "position=2,limit=2 must return exactly two ids (got " & $qr1.ids.len & ")"
     assertOn target,
-      qr1.position == UnsignedInt(2),
+      qr1.position == parseUnsignedInt(2).get(),
       "position must echo the requested 2 (got " & $qr1.position & ")"
     if qr1.total.isSome:
       # Server supports calculateTotal — assert the lower bound.
       assertOn target,
-        qr1.total.unsafeGet >= UnsignedInt(5),
+        qr1.total.unsafeGet >= parseUnsignedInt(5).get(),
         "total must be at least the seeded 5 (got " & $qr1.total.unsafeGet & ")"
     # When ``total.isNone`` the server is RFC-conformant: RFC 8620
     # §5.5 leaves the property server-discretionary via
@@ -148,8 +150,8 @@ testCase temailQueryPaginationLive:
     # --- Leg 3: anchor + anchorOffset (tolerant) ---------------------------
     let qpAnchor = QueryParams(
       anchor: Opt.some(baselineIds[2]),
-      anchorOffset: JmapInt(-1),
-      limit: Opt.some(UnsignedInt(2)),
+      anchorOffset: parseJmapInt(-1).get(),
+      limit: Opt.some(parseUnsignedInt(2).get()),
     )
     let (b3, h3) = addEmailQuery(
       initRequestBuilder(makeBuilderId()),
@@ -174,7 +176,7 @@ testCase temailQueryPaginationLive:
       for id in qr3.ids:
         assertOn target,
           id in baselineSet,
-          "every anchor+offset id must appear in baselineIds (id=" & string(id) & ")"
+          "every anchor+offset id must appear in baselineIds (id=" & $id & ")"
       let qr3Set = qr3.ids.toHashSet
       assertOn target,
         (baselineIds[1] in qr3Set) or (baselineIds[2] in qr3Set),
@@ -182,11 +184,12 @@ testCase temailQueryPaginationLive:
           "immediately before it (baselineIds[1])"
 
     # --- Leg 4: metAnchorNotFound ------------------------------------------
-    let synthetic = parseId("zzzzzzzzzzzzzzzzzzzzzzzzzzzz").expect(
+    let synthetic = parseIdFromServer("zzzzzzzzzzzzzzzzzzzzzzzzzzzz").expect(
         "parseId synthetic[" & $target.kind & "]"
       )
-    let qpBadAnchor =
-      QueryParams(anchor: Opt.some(synthetic), limit: Opt.some(UnsignedInt(2)))
+    let qpBadAnchor = QueryParams(
+      anchor: Opt.some(synthetic), limit: Opt.some(parseUnsignedInt(2).get())
+    )
     let (b4, h4) = addEmailQuery(
       initRequestBuilder(makeBuilderId()),
       mailAccountId,

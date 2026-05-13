@@ -54,4 +54,7 @@ func fromJson*(
       )
     let kw = ?wrapInner(parseKeywordFromServer(key), path / key)
     hs.incl(kw)
-  return ok(KeywordSet(hs))
+  var elems: seq[Keyword] = @[]
+  for kw in sets.items(hs):
+    elems.add(kw)
+  return ok(initKeywordSet(elems))

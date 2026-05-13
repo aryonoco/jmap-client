@@ -14,9 +14,10 @@ import std/json
 import jmap_client/internal/types/envelope
 import jmap_client/internal/types/identifiers
 import jmap_client/internal/types/methods_enum
+import jmap_client/internal/types/validation
 
 static:
-  let inv = initInvocation(mnCoreEcho, %*{}, MethodCallId("c0"))
+  let inv = initInvocation(mnCoreEcho, %*{}, parseMethodCallId("c0").get())
 
   # =========================================================================
   # POSITIVE — internal modules retain accessor access via UFCS and

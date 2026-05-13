@@ -105,7 +105,7 @@ testCase temailQueryWithSnippetsLive:
       assertOn target,
         snippet.emailId in queryHitSet,
         "every snippet's emailId must appear in the chained Email/query result; got " &
-          string(snippet.emailId)
+          $snippet.emailId
       if snippet.emailId in corpus:
         snippetIds.incl(snippet.emailId)
     assertOn target,

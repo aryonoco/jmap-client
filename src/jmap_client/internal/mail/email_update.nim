@@ -126,10 +126,15 @@ func moveToMailbox*(id: Id): EmailUpdate =
 # EmailUpdateSet
 # =============================================================================
 
-type EmailUpdateSet* = distinct seq[EmailUpdate]
-  ## Validated, conflict-free batch of EmailUpdate operations targeting a
-  ## single Email id. Construction gated by initEmailUpdateSet — the raw
-  ## distinct constructor is not part of the public surface.
+type EmailUpdateSet* {.ruleOff: "objects".} = object
+  ## Validated, conflict-free batch of EmailUpdate operations targeting
+  ## a single Email id. Sealed Pattern-A object — ``rawValue`` is
+  ## module-private. Construction is gated by ``initEmailUpdateSet``.
+  rawValue: seq[EmailUpdate]
+
+func toSeq*(s: EmailUpdateSet): seq[EmailUpdate] {.inline.} =
+  ## Value-projection accessor — returns a copy of the underlying seq.
+  s.rawValue
 
 # -----------------------------------------------------------------------------
 # Conflict ADT
@@ -272,23 +277,26 @@ func initEmailUpdateSet*(
   let conflicts = samePathConflicts(ops) & parentPrefixConflicts(ops)
   if conflicts.len > 0:
     return err(conflicts.mapIt(toValidationError(it)))
-  ok(EmailUpdateSet(@updates))
+  ok(EmailUpdateSet(rawValue: @updates))
 
 # =============================================================================
 # NonEmptyEmailUpdates — whole-container /set update algebra (RFC 8621 §4.6)
 # =============================================================================
 
-type NonEmptyEmailUpdates* = distinct Table[Id, EmailUpdateSet]
-  ## Non-empty, duplicate-free batch of per-email update operations keyed
-  ## by existing Email ``Id``. Construction gated by
-  ## ``parseNonEmptyEmailUpdates``; the raw distinct constructor is
-  ## module-private surface. Shape mirrors ``NonEmptyMailboxUpdates`` and
-  ## ``NonEmptyEmailSubmissionUpdates`` — ``addSet[Email, ...]`` serialises
-  ## the container via its own ``toJson`` rather than assembling the wire
-  ## patch per-caller.
+type NonEmptyEmailUpdates* {.ruleOff: "objects".} = object
+  ## Non-empty, duplicate-free batch of per-email update operations
+  ## keyed by existing Email ``Id``. Sealed Pattern-A object —
+  ## ``rawValue`` is module-private. Construction is gated by
+  ## ``parseNonEmptyEmailUpdates``.
+  rawValue: Table[Id, EmailUpdateSet]
 
-func len*(a: NonEmptyEmailUpdates): int {.borrow.}
-  ## Number of update entries — borrowed from the underlying ``Table``.
+func len*(a: NonEmptyEmailUpdates): int =
+  ## Number of update entries.
+  a.rawValue.len
+
+func toTable*(s: NonEmptyEmailUpdates): Table[Id, EmailUpdateSet] {.inline.} =
+  ## Value-projection accessor — returns a copy of the underlying table.
+  s.rawValue
 
 func parseNonEmptyEmailUpdates*(
     items: openArray[(Id, EmailUpdateSet)]
@@ -314,4 +322,4 @@ func parseNonEmptyEmailUpdates*(
   var t = initTable[Id, EmailUpdateSet](items.len)
   for (id, updateSet) in items:
     t[id] = updateSet
-  ok(NonEmptyEmailUpdates(t))
+  ok(NonEmptyEmailUpdates(rawValue: t))

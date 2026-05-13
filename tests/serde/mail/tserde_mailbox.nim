@@ -29,8 +29,8 @@ testCase fromJsonMailboxRole: # scenario 29
 # ============= B. MailboxIdSet serde =============
 
 testCase toJsonMailboxIdSet: # scenario 32
-  let id1 = parseId("mbx1").get()
-  let id2 = parseId("mbx2").get()
+  let id1 = parseIdFromServer("mbx1").get()
+  let id2 = parseIdFromServer("mbx2").get()
   let ms = initMailboxIdSet(@[id1, id2])
   let node = ms.toJson()
   doAssert node.kind == JObject
@@ -43,8 +43,8 @@ testCase fromJsonMailboxIdSet: # scenario 33
   assertOk res
   let ms = res.get()
   assertLen ms, 2
-  doAssert parseId("mbx1").get() in ms
-  doAssert parseId("mbx2").get() in ms
+  doAssert parseIdFromServer("mbx1").get() in ms
+  doAssert parseIdFromServer("mbx2").get() in ms
 
 testCase fromJsonMailboxIdSetFalse: # scenario 34
   ## Explicit ``false`` for any mailbox id value is rejected structurally
@@ -56,8 +56,8 @@ testCase fromJsonMailboxIdSetFalse: # scenario 34
   doAssert $res.error.path == "/mbx1"
 
 testCase roundTripMailboxIdSet: # scenario 35
-  let id1 = parseId("mbx1").get()
-  let id2 = parseId("mbx2").get()
+  let id1 = parseIdFromServer("mbx1").get()
+  let id2 = parseIdFromServer("mbx2").get()
   let original = initMailboxIdSet(@[id1, id2])
   let roundTripped = MailboxIdSet.fromJson(original.toJson()).get()
   assertLen roundTripped, 2
@@ -172,13 +172,13 @@ testCase fromJsonMailbox: # scenario 40
   let mbx = res.get()
   assertEq $mbx.id, "mbx1"
   assertEq mbx.name, "Inbox"
-  assertSomeEq mbx.parentId, parseId("parent1").get()
+  assertSomeEq mbx.parentId, parseIdFromServer("parent1").get()
   assertSomeEq mbx.role, roleInbox
-  assertEq mbx.sortOrder, UnsignedInt(0)
-  assertEq mbx.totalEmails, UnsignedInt(100)
-  assertEq mbx.unreadEmails, UnsignedInt(5)
-  assertEq mbx.totalThreads, UnsignedInt(80)
-  assertEq mbx.unreadThreads, UnsignedInt(3)
+  assertEq mbx.sortOrder, parseUnsignedInt(0).get()
+  assertEq mbx.totalEmails, parseUnsignedInt(100).get()
+  assertEq mbx.unreadEmails, parseUnsignedInt(5).get()
+  assertEq mbx.totalThreads, parseUnsignedInt(80).get()
+  assertEq mbx.unreadThreads, parseUnsignedInt(3).get()
   assertEq mbx.myRights.mayReadItems, true
   assertEq mbx.isSubscribed, true
 
@@ -381,15 +381,15 @@ testCase roundTripMailbox: # scenario 48
     maySubmit: false,
   )
   let original = Mailbox(
-    id: parseId("mbx1").get(),
+    id: parseIdFromServer("mbx1").get(),
     name: "Inbox",
     parentId: Opt.none(Id),
     role: Opt.some(roleInbox),
-    sortOrder: UnsignedInt(0),
-    totalEmails: UnsignedInt(100),
-    unreadEmails: UnsignedInt(5),
-    totalThreads: UnsignedInt(80),
-    unreadThreads: UnsignedInt(3),
+    sortOrder: parseUnsignedInt(0).get(),
+    totalEmails: parseUnsignedInt(100).get(),
+    unreadEmails: parseUnsignedInt(5).get(),
+    totalThreads: parseUnsignedInt(80).get(),
+    unreadThreads: parseUnsignedInt(3).get(),
     myRights: rights,
     isSubscribed: true,
   )
@@ -435,9 +435,9 @@ testCase fromJsonMailboxMissingField: # scenario 49
 testCase toJsonMailboxCreate: # scenario 53
   let mc = parseMailboxCreate(
       "Work",
-      parentId = Opt.some(parseId("parent1").get()),
+      parentId = Opt.some(parseIdFromServer("parent1").get()),
       role = Opt.some(roleInbox),
-      sortOrder = UnsignedInt(10),
+      sortOrder = parseUnsignedInt(10).get(),
       isSubscribed = true,
     )
     .get()
@@ -488,7 +488,7 @@ testCase setParentIdNoneEmitsJsonNull:
   assertEq value, newJNull()
 
 testCase setParentIdSomeEmitsString:
-  let id1 = parseId("parent1").get()
+  let id1 = parseIdFromServer("parent1").get()
   let (key, value) = makeSetParentId(Opt.some(id1)).toJson()
   assertEq key, "parentId"
   assertEq value, id1.toJson()
@@ -534,7 +534,7 @@ testCase fromJsonMailboxCreatedItemMinimal:
   let r = MailboxCreatedItem.fromJson(node)
   doAssert r.isOk, $r
   let item = r.get()
-  assertEq string(item.id), "h"
+  assertEq $item.id, "h"
   doAssert item.totalEmails.isNone
   doAssert item.unreadEmails.isNone
   doAssert item.totalThreads.isNone
@@ -553,10 +553,14 @@ testCase fromJsonMailboxCreatedItemFull:
   let r = MailboxCreatedItem.fromJson(node)
   doAssert r.isOk, $r
   let item = r.get()
-  doAssert item.totalEmails.isSome and item.totalEmails.get() == UnsignedInt(3)
-  doAssert item.unreadEmails.isSome and item.unreadEmails.get() == UnsignedInt(1)
-  doAssert item.totalThreads.isSome and item.totalThreads.get() == UnsignedInt(2)
-  doAssert item.unreadThreads.isSome and item.unreadThreads.get() == UnsignedInt(1)
+  doAssert item.totalEmails.isSome and
+    item.totalEmails.get() == parseUnsignedInt(3).get()
+  doAssert item.unreadEmails.isSome and
+    item.unreadEmails.get() == parseUnsignedInt(1).get()
+  doAssert item.totalThreads.isSome and
+    item.totalThreads.get() == parseUnsignedInt(2).get()
+  doAssert item.unreadThreads.isSome and
+    item.unreadThreads.get() == parseUnsignedInt(1).get()
   doAssert item.myRights.isSome
   let reparsed = MailboxCreatedItem.fromJson(item.toJson())
   doAssert reparsed.isOk, $reparsed

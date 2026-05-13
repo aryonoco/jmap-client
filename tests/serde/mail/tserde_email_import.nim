@@ -69,8 +69,8 @@ testCase nonEmptyEmailImportMapEmitsCreationIdKeys:
   let node = m.toJson()
   doAssert node.kind == JObject
   assertLen node, 2
-  doAssert node{string(cid1)} != nil, "expected " & string(cid1) & " key"
-  doAssert node{string(cid2)} != nil, "expected " & string(cid2) & " key"
+  doAssert node{$cid1} != nil, "expected " & $cid1 & " key"
+  doAssert node{$cid2} != nil, "expected " & $cid2 & " key"
 
 # ============= C. EmailImportResponse.fromJson =============
 

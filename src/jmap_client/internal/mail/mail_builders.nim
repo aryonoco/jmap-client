@@ -534,7 +534,7 @@ func addEmailQueryWithThreads*(
     collapseThreads: bool = true,
     displayProperties: seq[string] = DefaultDisplayProperties,
     displayBodyFetchOptions: EmailBodyFetchOptions = EmailBodyFetchOptions(
-      fetchBodyValues: bvsAll, maxBodyValueBytes: Opt.some(UnsignedInt(256))
+      fetchBodyValues: bvsAll, maxBodyValueBytes: Opt.some(parseUnsignedInt(256).get())
     ),
 ): (RequestBuilder, EmailQueryThreadChain) =
   ## RFC 8621 §4.10 first-login workflow encoded in types. Emits the

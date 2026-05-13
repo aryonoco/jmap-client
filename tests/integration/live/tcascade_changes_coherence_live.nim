@@ -256,7 +256,7 @@ testCase tcascadeChangesCoherenceLive:
       for sid in seededEmailIds:
         assertOn target,
           sid in allEmailDelta,
-          "seeded email " & string(sid) & " must appear in Email/changes delta"
+          "seeded email " & $sid & " must appear in Email/changes delta"
       assertOn target,
         capturedEmailCr.hasMoreChanges == false,
         "Email/changes hasMoreChanges must be false"
@@ -266,7 +266,7 @@ testCase tcascadeChangesCoherenceLive:
       for tid in observedThreadIds:
         assertOn target,
           tid in allThreadDelta,
-          "observed thread " & string(tid) & " must appear in Thread/changes delta"
+          "observed thread " & $tid & " must appear in Thread/changes delta"
       assertOn target,
         capturedThreadCr.hasMoreChanges == false,
         "Thread/changes hasMoreChanges must be false"

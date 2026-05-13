@@ -171,7 +171,7 @@ testCase tEmailBobReceivesAliceDeliveryLive:
         email.fromAddr.unsafeGet[0].email & ")"
 
     assertOn target, email.mailboxIds.isSome, "Email/get must include mailboxIds"
-    let mbIds = HashSet[Id](email.mailboxIds.unsafeGet)
+    let mbIds = email.mailboxIds.unsafeGet.toHashSet
     assertOn target,
       bobInboxId in mbIds,
       "delivered email must reside in bob's inbox mailbox (mailboxIds=" & $mbIds & ")"

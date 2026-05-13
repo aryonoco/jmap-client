@@ -102,7 +102,7 @@ testCase temailParseLive:
       attachment.contentType == "message/rfc822",
       "attachment must be message/rfc822 (got " & attachment.contentType & ")"
     let blobId = attachment.blobId
-    assertOn target, string(blobId).len > 0, "attachment blobId must be non-empty"
+    assertOn target, ($blobId).len > 0, "attachment blobId must be non-empty"
 
     let (bParse, parseHandle) = addEmailParse(
       initRequestBuilder(makeBuilderId()),

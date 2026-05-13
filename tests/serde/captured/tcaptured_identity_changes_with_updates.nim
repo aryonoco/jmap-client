@@ -32,6 +32,6 @@ testCase tcapturedIdentityChangesWithUpdates:
     "Identity/set must report at least one update outcome (got " &
       $setResp.updateResults.len & ")"
   for id, outcome in setResp.updateResults.pairs:
-    doAssert string(id).len > 0, "every updated id must be non-empty"
+    doAssert ($id).len > 0, "every updated id must be non-empty"
     doAssert outcome.isOk,
       "Identity/set five-arm update must succeed for the captured identity id"

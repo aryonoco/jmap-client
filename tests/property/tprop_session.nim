@@ -235,4 +235,4 @@ testCase propSessionPrimaryAccountsConsistency:
     ## Every value in primaryAccounts must be a key in accounts.
     for uri, acctId in session.primaryAccounts:
       doAssert session.accounts.hasKey(acctId),
-        "primaryAccounts references unknown AccountId: " & string(acctId)
+        "primaryAccounts references unknown AccountId: " & $acctId

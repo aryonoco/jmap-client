@@ -14,7 +14,7 @@ import std/json
 import jmap_client
 
 static:
-  let inv = initInvocation(mnCoreEcho, %*{}, MethodCallId("c0"))
+  let inv = initInvocation(mnCoreEcho, %*{}, parseMethodCallId("c0").get())
 
   # =========================================================================
   # POSITIVE — the typed public accessors must remain reachable.

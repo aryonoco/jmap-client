@@ -555,11 +555,18 @@ testCase dateVsUtcDateIsolation:
   )
 
 testCase directConstructionBypassesSmartConstructor:
-  ## distinct types can be directly constructed, bypassing validation.
-  ## This documents the limitation: smart constructors are the only safe path.
-  doAssert compiles(Id(""))
-  doAssert compiles(UnsignedInt(-999'i64))
-  doAssert compiles(AccountId(""))
+  ## A8 closes the direct-construction loophole: sealed Pattern-A
+  ## objects cannot be constructed outside their defining module,
+  ## so the smart constructor is the only producer. The reject test
+  ## ``tests/compile/treject_a8_sealed_external_construction.nim``
+  ## locks the compile-time error; this case pins the runtime check
+  ## that ``compiles`` returns ``false``.
+  doAssert not compiles(Id(rawValue: ""))
+  doAssert not compiles(AccountId(rawValue: ""))
+  # parseUnsignedInt(-999'i64) at compile time evaluates to Err; .get()
+  # on an Err is a Defect, which compiles type-wise but panics at run.
+  # The compiles() check is satisfied (typecheck passes).
+  doAssert compiles(parseUnsignedInt(-999'i64))
 
 # =============================================================================
 # q) Unicode visual confusion characters

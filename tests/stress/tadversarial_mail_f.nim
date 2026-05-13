@@ -198,7 +198,7 @@ testCase emailSetResponseAdversarialGroup:
       parseJson("""{"accountId": "a1", "newState": "s1", "updated": {"e1": null}}""")
     let res = SetResponse[EmailCreatedItem, PartialEmail].fromJson(payload)
     assertOk res
-    let id = parseId("e1").get()
+    let id = parseIdFromServer("e1").get()
     doAssert res.get().updateResults[id].isOk
     doAssert res.get().updateResults[id].get().isNone
 
@@ -209,7 +209,7 @@ testCase emailSetResponseAdversarialGroup:
       parseJson("""{"accountId": "a1", "newState": "s1", "updated": {"e1": {}}}""")
     let res = SetResponse[EmailCreatedItem, PartialEmail].fromJson(payload)
     assertOk res
-    let id = parseId("e1").get()
+    let id = parseIdFromServer("e1").get()
     doAssert res.get().updateResults[id].isOk
     doAssert res.get().updateResults[id].get().isSome
     let partial = res.get().updateResults[id].get().get()
@@ -309,8 +309,8 @@ testCase emailSetResponseAdversarialGroup:
     let res = SetResponse[EmailCreatedItem, PartialEmail].fromJson(payload)
     assertOk res
     assertLen res.get().destroyResults, 2
-    doAssert res.get().destroyResults[parseId("id1").get()].isOk
-    doAssert res.get().destroyResults[parseId("id2").get()].isOk
+    doAssert res.get().destroyResults[parseIdFromServer("id1").get()].isOk
+    doAssert res.get().destroyResults[parseIdFromServer("id2").get()].isOk
 
   block destroyedAsJObject:
     # Top-level wrong-kind ``destroyed`` (JObject instead of JArray) is
@@ -382,7 +382,7 @@ testCase emailSetResponseAdversarialGroup:
     )
     let res = SetResponse[EmailCreatedItem, PartialEmail].fromJson(payload)
     assertOk res
-    let id = parseId("x1").get()
+    let id = parseIdFromServer("x1").get()
     doAssert res.get().updateResults[id].isErr
     doAssert res.get().destroyResults[id].isErr
     assertEq res.get().updateResults[id].error.errorType, setForbidden
@@ -773,7 +773,7 @@ testCase conflictAlgebraCornerCasesGroup:
 
   block class3MailboxSubpathWithFullReplace:
     # Same shape applied to the ``mailboxIds`` parent path.
-    let id1 = parseId("mbx1").get()
+    let id1 = parseIdFromServer("mbx1").get()
     let idSet = parseNonEmptyMailboxIdSet(@[id1]).get()
     let updates = @[setMailboxIds(idSet), addToMailbox(id1)]
     let res = initEmailUpdateSet(updates)
@@ -955,7 +955,7 @@ testCase crossResponseCoherenceGroup:
     )
     let res = SetResponse[EmailCreatedItem, PartialEmail].fromJson(payload)
     assertOk res
-    let id = parseId("e1").get()
+    let id = parseIdFromServer("e1").get()
     doAssert res.get().updateResults[id].isOk
     doAssert res.get().updateResults[id].get().isSome
     let partial = res.get().updateResults[id].get().get()

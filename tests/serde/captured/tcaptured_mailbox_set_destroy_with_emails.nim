@@ -31,5 +31,5 @@ testCase tcapturedMailboxSetDestroyWithEmails:
       doAssert outcome.isOk,
         "destroy with onDestroyRemoveEmails must succeed (got rawType=" &
           outcome.error.rawType & ")"
-      doAssert string(id).len > 0, "destroyed id must be non-empty"
+      doAssert ($id).len > 0, "destroyed id must be non-empty"
     doAssert setResp.newState.isSome, "newState must be present in this fixture"

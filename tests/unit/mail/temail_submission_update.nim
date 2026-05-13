@@ -65,7 +65,7 @@ testCase parseUpdatesHappyPathSingleEntry:
   # Happy path: one valid ``(Id, EmailSubmissionUpdate)`` pair parses
   # to a ``NonEmptyEmailSubmissionUpdates`` whose inner table contains
   # exactly the input entry. Distinct-wrap unwrap via
-  # ``Table[Id, EmailSubmissionUpdate](res.get())`` cast — same pattern
+  # ``res.get().toTable`` cast — same pattern
   # used by ``serde_email_submission.nim`` toJson. Iteration (not
   # ``Table.[]`` subscript) keeps this safe under ``raises: []``.
   let id = makeId("sub-1")
@@ -73,7 +73,7 @@ testCase parseUpdatesHappyPathSingleEntry:
   let res = parseNonEmptyEmailSubmissionUpdates(@[(id, u)])
   assertOk res
   var count = 0
-  for (k, v) in Table[Id, EmailSubmissionUpdate](res.get()).pairs:
+  for (k, v) in res.get().toTable.pairs:
     assertEq k, id
     doAssert v.kind == esuSetUndoStatusToCanceled
     inc count

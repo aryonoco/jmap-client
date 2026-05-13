@@ -38,5 +38,5 @@ testCase tcapturedEmailGetBodyPropertiesAll:
     "multipart/mixed seed must carry at least two subParts (text + attachment)"
   doAssert email.bodyValues.len >= 1, "bvsAll must yield at least one bodyValues entry"
   for partId, bv in email.bodyValues.pairs:
-    doAssert string(partId).len > 0, "every bodyValues key must be non-empty"
+    doAssert ($partId).len > 0, "every bodyValues key must be non-empty"
     doAssert bv.value.len > 0, "bvsAll-emitted bodyValue must carry decoded content"

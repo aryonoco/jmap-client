@@ -22,9 +22,9 @@ testCase blueprintEmailHeaderNameCaseVariants: # §6.1.4 scenario 28a
   let lower = parseBlueprintEmailHeaderName("x-custom").get()
   let shout = parseBlueprintEmailHeaderName("X-CUSTOM").get()
   # All three normalise to the lowercase form.
-  assertEq string(upper), "x-custom"
-  assertEq string(lower), "x-custom"
-  assertEq string(shout), "x-custom"
+  assertEq $upper, "x-custom"
+  assertEq $lower, "x-custom"
+  assertEq $shout, "x-custom"
   # Pairwise equality via borrowed `==` from defineStringDistinctOps.
   assertEq upper, lower
   assertEq lower, shout

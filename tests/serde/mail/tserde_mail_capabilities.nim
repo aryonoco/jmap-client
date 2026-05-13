@@ -52,12 +52,12 @@ testCase parseMailCapabilitiesValid: # scenario 45
   assertOk res
   let mc = res.get()
   assertSome mc.maxMailboxesPerEmail
-  assertEq int64(mc.maxMailboxesPerEmail.get()), 10'i64
+  assertEq mc.maxMailboxesPerEmail.get().toInt64, 10'i64
   assertSome mc.maxMailboxDepth
-  assertEq int64(mc.maxMailboxDepth.get()), 5'i64
+  assertEq mc.maxMailboxDepth.get().toInt64, 5'i64
   assertSome mc.maxSizeMailboxName
-  assertEq int64(mc.maxSizeMailboxName.get()), 200'i64
-  assertEq int64(mc.maxSizeAttachmentsPerEmail), 50000000'i64
+  assertEq mc.maxSizeMailboxName.get().toInt64, 200'i64
+  assertEq mc.maxSizeAttachmentsPerEmail.toInt64, 50000000'i64
   doAssert "receivedAt" in mc.emailQuerySortOptions
   doAssert "from" in mc.emailQuerySortOptions
   doAssert "to" in mc.emailQuerySortOptions
@@ -90,7 +90,7 @@ testCase maxMailboxesPerEmailBoundaryOk: # scenario 47
   let res = parseMailCapabilities(cap)
   assertOk res
   assertSome res.get().maxMailboxesPerEmail
-  assertEq int64(res.get().maxMailboxesPerEmail.get()), 1'i64
+  assertEq res.get().maxMailboxesPerEmail.get().toInt64, 1'i64
 
 testCase maxMailboxesPerEmailZero: # scenario 48
   var j = validMailCapJson()
@@ -127,7 +127,7 @@ testCase maxSizeMailboxNameBoundaryOk: # scenario 51
   let res = parseMailCapabilities(cap)
   assertOk res
   assertSome res.get().maxSizeMailboxName
-  assertEq int64(res.get().maxSizeMailboxName.get()), 100'i64
+  assertEq res.get().maxSizeMailboxName.get().toInt64, 100'i64
 
 # =============================================================================
 # E. SubmissionCapabilities — valid parsing
@@ -142,8 +142,8 @@ testCase parseSubmissionCapabilitiesValid: # scenario 52
   let res = parseSubmissionCapabilities(cap)
   assertOk res
   let sc = res.get()
-  assertEq int64(sc.maxDelayedSend), 300'i64
-  let extensions = OrderedTable[RFC5321Keyword, seq[string]](sc.submissionExtensions)
+  assertEq sc.maxDelayedSend.toInt64, 300'i64
+  let extensions = sc.submissionExtensions.toOrderedTable
   let kwDeliverby = parseRFC5321Keyword("DELIVERBY").unsafeGet()
   let kwSize = parseRFC5321Keyword("SIZE").unsafeGet()
   assertEq extensions.len, 2
@@ -172,7 +172,7 @@ testCase maxDelayedSendZero: # scenario 54
   )
   let res = parseSubmissionCapabilities(cap)
   assertOk res
-  assertEq int64(res.get().maxDelayedSend), 0'i64
+  assertEq res.get().maxDelayedSend.toInt64, 0'i64
 
 # =============================================================================
 # H. SubmissionCapabilities — multiple extensions with empty args
@@ -188,7 +188,7 @@ testCase submissionExtensionsMultiple: # scenario 55
   let res = parseSubmissionCapabilities(cap)
   assertOk res
   let sc = res.get()
-  let extensions = OrderedTable[RFC5321Keyword, seq[string]](sc.submissionExtensions)
+  let extensions = sc.submissionExtensions.toOrderedTable
   let kwDeliverby = parseRFC5321Keyword("DELIVERBY").unsafeGet()
   let kwSize = parseRFC5321Keyword("SIZE").unsafeGet()
   let kw8bitmime = parseRFC5321Keyword("8BITMIME").unsafeGet()
@@ -353,8 +353,7 @@ testCase submissionExtensionMapRoundTripPreservesOrder:
   )
   let res = parseSubmissionCapabilities(cap)
   assertOk res
-  let extensions =
-    OrderedTable[RFC5321Keyword, seq[string]](res.get().submissionExtensions)
+  let extensions = res.get().submissionExtensions.toOrderedTable
   var observed: seq[string] = @[]
   for key, _ in extensions.pairs:
     observed.add($key)
@@ -380,8 +379,7 @@ testCase submissionExtensionMapCaseInsensitiveKey:
   )
   let res = parseSubmissionCapabilities(cap)
   assertOk res
-  let extensions =
-    OrderedTable[RFC5321Keyword, seq[string]](res.get().submissionExtensions)
+  let extensions = res.get().submissionExtensions.toOrderedTable
   assertEq extensions.len, 1
   # OrderedTable.[]= updates value in place: last-writer-wins on value,
   # first-writer-wins on the key slot (so $key would still be "X-FOO").
@@ -408,8 +406,7 @@ testCase submissionExtensionMapParsesLegacyWireShape:
   )
   let res = parseSubmissionCapabilities(cap)
   assertOk res
-  let extensions =
-    OrderedTable[RFC5321Keyword, seq[string]](res.get().submissionExtensions)
+  let extensions = res.get().submissionExtensions.toOrderedTable
   let kw8bitmime = parseRFC5321Keyword("8BITMIME").unsafeGet()
   let kwSmtpUtf8 = parseRFC5321Keyword("SMTPUTF8").unsafeGet()
   let kwDeliverby = parseRFC5321Keyword("DELIVERBY").unsafeGet()

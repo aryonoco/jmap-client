@@ -152,12 +152,12 @@ testCase smtpReplyEnhancedCodeHappy:
   let res = parseSmtpReply(raw)
   assertOk res
   let p = res.get()
-  doAssert p.replyCode == ReplyCode(250'u16)
+  doAssert p.replyCode.toUint16 == 250'u16
   doAssert p.enhanced.isSome
   let e = p.enhanced.unsafeGet()
   doAssert e.klass == sccSuccess
-  assertEq uint16(e.subject), 1'u16
-  assertEq uint16(e.detail), 5'u16
+  assertEq e.subject.toUint16, 1'u16
+  assertEq e.detail.toUint16, 5'u16
   assertEq p.raw, raw
 
 testCase renderCanonicalReplyIsIdempotent:

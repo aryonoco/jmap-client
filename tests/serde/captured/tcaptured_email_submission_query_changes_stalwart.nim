@@ -37,4 +37,4 @@ testCase tcapturedEmailSubmissionQueryChangesStalwart:
     "no destroys issued -- removed must be empty (got " & $qcr.removed.len & ")"
   doAssert qcr.added.len == 2, "two AddedItems expected (got " & $qcr.added.len & ")"
   for item in qcr.added:
-    doAssert string(item.id).len > 0, "added.id must be non-empty"
+    doAssert ($item.id).len > 0, "added.id must be non-empty"

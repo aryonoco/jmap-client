@@ -29,4 +29,4 @@ testCase tcapturedEmailQueryAdvancedSort:
     "phase-i 56 keyword-sort capture must surface at least three seeded emails (got " &
       $qr.ids.len & ")"
   for id in qr.ids:
-    doAssert string(id).len > 0, "every returned id must be non-empty"
+    doAssert ($id).len > 0, "every returned id must be non-empty"

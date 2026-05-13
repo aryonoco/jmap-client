@@ -386,6 +386,15 @@ lint-typed-builder-jsonnode:
     nim r --hints:off --warnings:off tests/lint/h11_typed_builder_no_jsonnode.nim
     @echo "H11 typed-builder JsonNode lint passed"
 
+# Enforce the post-A8 invariant: zero public `distinct` types under
+# src/. Sealed Pattern-A objects are the only permitted value-carrier
+# shape (P15). Catches regression on the seal that binds external
+# consumers.
+lint-sealed-distinct:
+    @echo "Running H1 sealed-distinct lint..."
+    nim r --hints:off --warnings:off tests/lint/h1_sealed_distinct_construction.nim
+    @echo "H1 sealed-distinct lint passed"
+
 # Static analysis with nimalyzer
 analyse:
     @echo "Running static analysis..."
@@ -396,7 +405,7 @@ analyse:
 analyze: analyse
 
 # Run all code quality checks
-check: fmt-check lint lint-isolated lint-style lint-internal-boundary lint-typed-builder-jsonnode analyse
+check: fmt-check lint lint-isolated lint-style lint-internal-boundary lint-typed-builder-jsonnode lint-sealed-distinct analyse
     @echo "All quality checks passed"
 
 # =============================================================================
@@ -410,7 +419,7 @@ reuse:
     @echo "REUSE compliance check passed"
 
 # Run full CI pipeline locally (mirrors .github/workflows/ci.yml)
-ci: reuse fmt-check lint lint-isolated lint-style lint-internal-boundary lint-typed-builder-jsonnode analyse test
+ci: reuse fmt-check lint lint-isolated lint-style lint-internal-boundary lint-typed-builder-jsonnode lint-sealed-distinct analyse test
     @echo ""
     @echo "============================================"
     @echo "All CI checks passed!"

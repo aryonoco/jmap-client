@@ -91,7 +91,7 @@ proc seedLargeEmail(
   )
   let resp = client.send(b.freeze()).expect("send Email/set large")
   let setResp = resp.get(setHandle).expect("Email/set large extract")
-  var seededId = Id("")
+  var seededId = parseIdFromServer("placeholder").get()
   var found = false
   setResp.createResults.withValue(cid, outcome):
     let item = outcome.expect("Email/set create large")
@@ -123,8 +123,7 @@ proc assertInMailbox(
       foundArchive = true
     for inboxId in inboxSeeds:
       doAssert id != inboxId,
-        "inMailbox=archive must not surface any inbox-only emails (got " & string(id) &
-          ")"
+        "inMailbox=archive must not surface any inbox-only emails (got " & $id & ")"
   doAssert foundArchive, "archive seed must surface under inMailbox=archiveId"
 
 proc assertInMailboxOtherThanMinSize(
@@ -140,7 +139,8 @@ proc assertInMailboxOtherThanMinSize(
   ## typed error is acceptable.
   let filter = filterCondition(
     EmailFilterCondition(
-      inMailboxOtherThan: Opt.some(@[archiveId]), minSize: Opt.some(UnsignedInt(1000))
+      inMailboxOtherThan: Opt.some(@[archiveId]),
+      minSize: Opt.some(parseUnsignedInt(1000).get()),
     )
   )
   let (b, h) = addEmailQuery(
@@ -156,7 +156,7 @@ proc assertInMailboxOtherThanMinSize(
         foundLarge = true
       for smallId in smallIds:
         doAssert id != smallId,
-          "minSize=1000 must not surface small emails (got " & string(id) & ")"
+          "minSize=1000 must not surface small emails (got " & $id & ")"
     doAssert foundLarge, "large 4 KB email must surface under minSize=1000 filter"
   else:
     # Cat-B error arm — server rejected the nested FilterOperator
