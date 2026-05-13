@@ -18,6 +18,7 @@ import jmap_client/internal/types/framework
 
 import ../massertions
 import ../mfixtures
+import ../mtestblock
 
 testCase stressManyParseIdCalls:
   ## 10000 parseId calls: no crash, no leak under ARC.
@@ -192,7 +193,6 @@ import jmap_client/internal/serialisation/serde
 import jmap_client/internal/serialisation/serde_session
 import jmap_client/internal/serialisation/serde_envelope
 import jmap_client/internal/serialisation/serde_framework
-import ../mtestblock
 
 testCase stressArcSharedRefSessionParse:
   ## Parse 100 sessions where capabilities share a JsonNode ref.
