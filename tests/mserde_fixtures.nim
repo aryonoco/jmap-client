@@ -7,6 +7,8 @@
 import std/json
 
 import jmap_client/internal/serialisation/serde
+import jmap_client/internal/serialisation/serde_diagnostics
+import jmap_client/internal/serialisation/serde_helpers
 import jmap_client/internal/types/validation
 
 proc intToJson*(c: int): JsonNode =

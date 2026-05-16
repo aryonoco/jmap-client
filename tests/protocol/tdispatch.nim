@@ -13,6 +13,14 @@ import jmap_client
 import jmap_client/internal/protocol/entity
 import jmap_client/internal/protocol/methods
 import jmap_client/internal/protocol/dispatch
+import jmap_client/internal/serialisation/serde
+import jmap_client/internal/serialisation/serde_diagnostics
+import jmap_client/internal/serialisation/serde_envelope
+import jmap_client/internal/serialisation/serde_errors
+import jmap_client/internal/serialisation/serde_field_echo
+import jmap_client/internal/serialisation/serde_framework
+import jmap_client/internal/serialisation/serde_helpers
+import jmap_client/internal/serialisation/serde_primitives
 
 import ../massertions
 import ../mfixtures
@@ -117,11 +125,7 @@ testCase getHappyPath:
   let resp = makeTypedResponse("MockFoo/get", makeGetResponseJson(), makeMcid("c0"))
   let dr = makeDispatchedResponse(resp)
   let handle = makeResponseHandle[GetResponse[MockFoo]](makeMcid("c0"))
-  let fromGetResponse = proc(
-      n: JsonNode
-  ): Result[GetResponse[MockFoo], SerdeViolation] {.noSideEffect, raises: [].} =
-    GetResponse[MockFoo].fromJson(n)
-  let result = dr.get(handle, fromGetResponse)
+  let result = dr.get(handle)
   assertOk result
 
 testCase getExtractsCorrectInvocation:
@@ -137,11 +141,7 @@ testCase getExtractsCorrectInvocation:
   )
   let dr = makeDispatchedResponse(resp)
   let handle = makeResponseHandle[GetResponse[MockFoo]](makeMcid("c1"))
-  let fromGetResponse = proc(
-      n: JsonNode
-  ): Result[GetResponse[MockFoo], SerdeViolation] {.noSideEffect, raises: [].} =
-    GetResponse[MockFoo].fromJson(n)
-  let result = dr.get(handle, fromGetResponse)
+  let result = dr.get(handle)
   assertOk result
   let gr = result.get()
   doAssert gr.accountId == makeAccountId("acct1")
@@ -156,11 +156,7 @@ testCase getNotFound:
   let resp = makeTypedResponse("MockFoo/get", makeGetResponseJson(), makeMcid("c0"))
   let dr = makeDispatchedResponse(resp)
   let handle = makeResponseHandle[GetResponse[MockFoo]](makeMcid("c99"))
-  let fromGetResponse = proc(
-      n: JsonNode
-  ): Result[GetResponse[MockFoo], SerdeViolation] {.noSideEffect, raises: [].} =
-    GetResponse[MockFoo].fromJson(n)
-  let result = dr.get(handle, fromGetResponse)
+  let result = dr.get(handle)
   assertErr result
   let ge = result.error()
   doAssert ge.kind == gekMethod
@@ -172,11 +168,7 @@ testCase getMethodError:
   let resp = makeErrorResponse("unknownMethod", makeMcid("c0"))
   let dr = makeDispatchedResponse(resp)
   let handle = makeResponseHandle[GetResponse[MockFoo]](makeMcid("c0"))
-  let fromGetResponse = proc(
-      n: JsonNode
-  ): Result[GetResponse[MockFoo], SerdeViolation] {.noSideEffect, raises: [].} =
-    GetResponse[MockFoo].fromJson(n)
-  let result = dr.get(handle, fromGetResponse)
+  let result = dr.get(handle)
   assertErr result
   let ge = result.error()
   doAssert ge.kind == gekMethod
@@ -193,11 +185,7 @@ testCase getMalformedErrorResponse:
   )
   let dr = makeDispatchedResponse(resp)
   let handle = makeResponseHandle[GetResponse[MockFoo]](makeMcid("c0"))
-  let fromGetResponse = proc(
-      n: JsonNode
-  ): Result[GetResponse[MockFoo], SerdeViolation] {.noSideEffect, raises: [].} =
-    GetResponse[MockFoo].fromJson(n)
-  let result = dr.get(handle, fromGetResponse)
+  let result = dr.get(handle)
   assertErr result
   let ge = result.error()
   doAssert ge.kind == gekMethod
@@ -209,11 +197,7 @@ testCase getValidationError:
   let resp = makeTypedResponse("MockFoo/get", %*{"invalid": true}, makeMcid("c0"))
   let dr = makeDispatchedResponse(resp)
   let handle = makeResponseHandle[GetResponse[MockFoo]](makeMcid("c0"))
-  let fromGetResponse = proc(
-      n: JsonNode
-  ): Result[GetResponse[MockFoo], SerdeViolation] {.noSideEffect, raises: [].} =
-    GetResponse[MockFoo].fromJson(n)
-  let result = dr.get(handle, fromGetResponse)
+  let result = dr.get(handle)
   assertErr result
   let ge = result.error()
   doAssert ge.kind == gekMethod
@@ -234,11 +218,7 @@ testCase getHandleMismatch:
   let handleBrand = makeBuilderId(0x1234'u64, 2'u64) # same client, different serial
   let dr = makeDispatchedResponse(resp, drBrand)
   let handle = makeResponseHandle[GetResponse[MockFoo]](makeMcid("c0"), handleBrand)
-  let fromGetResponse = proc(
-      n: JsonNode
-  ): Result[GetResponse[MockFoo], SerdeViolation] {.noSideEffect, raises: [].} =
-    GetResponse[MockFoo].fromJson(n)
-  let result = dr.get(handle, fromGetResponse)
+  let result = dr.get(handle)
   assertErr result
   let ge = result.error()
   doAssert ge.kind == gekHandleMismatch
@@ -261,11 +241,7 @@ testCase getHandleMismatchCrossBuilderSameClient:
   let resp = makeTypedResponse("MockFoo/get", makeGetResponseJson(), makeMcid("c0"))
   let dr = makeDispatchedResponse(resp, bid1)
   let handle = makeResponseHandle[GetResponse[MockFoo]](makeMcid("c0"), bid0)
-  let fromGetResponse = proc(
-      n: JsonNode
-  ): Result[GetResponse[MockFoo], SerdeViolation] {.noSideEffect, raises: [].} =
-    GetResponse[MockFoo].fromJson(n)
-  let result = dr.get(handle, fromGetResponse)
+  let result = dr.get(handle)
   assertErr result
   let ge = result.error()
   doAssert ge.kind == gekHandleMismatch
@@ -287,11 +263,7 @@ testCase getHandleMismatchCrossClient:
   let resp = makeTypedResponse("MockFoo/get", makeGetResponseJson(), makeMcid("c0"))
   let dr = makeDispatchedResponse(resp, bidB) # response from client B
   let handle = makeResponseHandle[GetResponse[MockFoo]](makeMcid("c0"), bidA)
-  let fromGetResponse = proc(
-      n: JsonNode
-  ): Result[GetResponse[MockFoo], SerdeViolation] {.noSideEffect, raises: [].} =
-    GetResponse[MockFoo].fromJson(n)
-  let result = dr.get(handle, fromGetResponse)
+  let result = dr.get(handle)
   assertErr result
   let ge = result.error()
   doAssert ge.kind == gekHandleMismatch
@@ -303,16 +275,14 @@ testCase getHandleMismatchCrossClient:
 # ===========================================================================
 
 testCase getEchoHappyPath:
-  ## Response with Core/echo invocation, trivial fromArgs callback returns ok(JsonNode).
+  ## Response with Core/echo invocation. ``JsonNode.fromJson`` is the
+  ## pass-through identity shim in ``methods.nim`` so the handle parses
+  ## back the raw arguments unchanged.
   let echoArgs = %*{"tag": "hello"}
   let resp = makeTypedResponse("Core/echo", echoArgs, makeMcid("c0"))
   let dr = makeDispatchedResponse(resp)
   let handle = makeResponseHandle[JsonNode](makeMcid("c0"))
-  let echoParser = proc(
-      n: JsonNode
-  ): Result[JsonNode, SerdeViolation] {.noSideEffect, raises: [].} =
-    ok(n)
-  let result = dr.get(handle, echoParser)
+  let result = dr.get(handle)
   assertOk result
   doAssert result.get(){"tag"}.getStr("") == "hello"
 

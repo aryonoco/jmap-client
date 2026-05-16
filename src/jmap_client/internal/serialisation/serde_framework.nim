@@ -10,6 +10,9 @@
 import std/json
 
 import ./serde
+import ./serde_diagnostics
+import ./serde_helpers
+import ./serde_primitives
 import ../types
 
 # =============================================================================
@@ -108,7 +111,7 @@ func toJson*[C](f: Filter[C]): JsonNode =
       conditions.add(child.toJson())
     return %*{"operator": $f.operator, "conditions": conditions}
 
-const MaxFilterDepth* = 128
+const MaxFilterDepth = 128
   ## Maximum nesting depth for Filter[C].fromJson deserialisation.
   ## Defence-in-depth guard against stack overflow (StackOverflowDefect is
   ## uncatchable). 128 is generous for any realistic JMAP query while

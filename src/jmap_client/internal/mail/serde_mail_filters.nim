@@ -10,7 +10,7 @@
 
 import std/json
 
-import ../serialisation/serde
+import ../serialisation/serde_primitives
 import ../types
 import ./keyword
 import ./mail_filters

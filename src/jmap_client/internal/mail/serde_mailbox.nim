@@ -12,7 +12,10 @@ import std/sets
 import std/tables
 
 import ../serialisation/serde
+import ../serialisation/serde_diagnostics
 import ../serialisation/serde_field_echo
+import ../serialisation/serde_helpers
+import ../serialisation/serde_primitives
 import ../types
 import ./mailbox
 

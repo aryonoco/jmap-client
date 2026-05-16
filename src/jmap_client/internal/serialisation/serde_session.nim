@@ -13,6 +13,9 @@ import std/sets
 import std/tables
 
 import ./serde
+import ./serde_diagnostics
+import ./serde_helpers
+import ./serde_primitives
 import ../types
 
 # =============================================================================
@@ -334,3 +337,21 @@ func fromJson*(
     ),
     path,
   )
+
+# =============================================================================
+# UriTemplate
+# =============================================================================
+
+func toJson*(x: UriTemplate): JsonNode =
+  ## Serialise a parsed URI template to its lossless source string.
+  return %($x)
+
+func fromJson*(
+    t: typedesc[UriTemplate], node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[UriTemplate, SerdeViolation] =
+  ## Deserialise a JSON string through ``parseUriTemplate``. Malformed
+  ## templates (unmatched braces, empty ``{}``, invalid variable chars)
+  ## surface as ``ValidationError`` wrapped by ``wrapInner``.
+  discard $t # consumed for nimalyzer params rule
+  ?expectKind(node, JString, path)
+  return wrapInner(parseUriTemplate(node.getStr("")), path)

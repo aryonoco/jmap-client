@@ -110,8 +110,8 @@ func getBoth*[T](
 ): Result[QueryGetResults[T], GetError] =
   ## Extracts both query and get responses, failing on the first error.
   ## Composes naturally with the ``?`` operator:
-  ## ``let results = dr.getBoth(handles).?``
-  mixin fromJson
+  ## ``let results = dr.getBoth(handles).?``. Resolution uses each
+  ## handle's stored parser closure (no mixin at this site).
   let qr = ?dr.get(handles.query)
   let gr = ?dr.get(handles.get)
   return ok(QueryGetResults[T](query: qr, get: gr))
@@ -125,7 +125,8 @@ func getBoth*[T](
     dr: DispatchedResponse, handles: ChangesGetHandles[T]
 ): Result[ChangesGetResults[T], GetError] =
   ## Extracts both changes and get responses, failing on the first error.
-  mixin fromJson
+  ## Resolution uses each handle's stored parser closure (no mixin at
+  ## this site).
   let cr = ?dr.get(handles.changes)
   let gr = ?dr.get(handles.get)
   return ok(ChangesGetResults[T](changes: cr, get: gr))

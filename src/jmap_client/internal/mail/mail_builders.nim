@@ -16,7 +16,9 @@ import std/json
 import std/tables
 
 import ../types
-import ../serialisation
+import ../serialisation/serde_envelope
+import ../serialisation/serde_framework
+import ../serialisation/serde_primitives
 import ../protocol/methods
 import ../protocol/dispatch
 import ../protocol/builder

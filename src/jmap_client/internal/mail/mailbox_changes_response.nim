@@ -16,7 +16,9 @@
 import std/json
 
 import ../types
-import ../serialisation
+import ../serialisation/serde
+import ../serialisation/serde_diagnostics
+import ../serialisation/serde_helpers
 import ../protocol/methods
 import ./mailbox
 

@@ -13,6 +13,9 @@ import std/sets
 import std/tables
 
 import ../serialisation/serde
+import ../serialisation/serde_diagnostics
+import ../serialisation/serde_helpers
+import ../serialisation/serde_primitives
 import ../types
 import ../types/capabilities
 import ./mail_capabilities

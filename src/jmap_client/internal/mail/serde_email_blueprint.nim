@@ -11,7 +11,7 @@
 import std/json
 import std/tables
 
-import ../serialisation/serde
+import ../serialisation/serde_primitives
 import ../types
 import ./addresses
 import ./body

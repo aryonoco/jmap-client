@@ -25,7 +25,9 @@ import std/json
 import std/tables
 
 import ../types
-import ../serialisation
+import ../serialisation/serde
+import ../serialisation/serde_diagnostics
+import ../serialisation/serde_errors
 import ../types/envelope
 import ./methods
 
@@ -33,22 +35,39 @@ import ./methods
 # ResponseHandle[T] — sealed, brand-carrying (Pattern A)
 # =============================================================================
 
-type ResponseHandle*[T] {.ruleOff: "objects".} = object
-  ## Phantom-typed dispatch handle tying a compile-time response type
-  ## ``T`` to a runtime ``(callId, builderId)`` pair. Construction is
-  ## gated — ``initResponseHandle`` is module-private surface (exported
-  ## with ``*`` so internal callers can reach it but filtered from the
-  ## hub re-export) so handles can only be minted by the builder.
-  rawCallId: MethodCallId
-  rawBuilderId: BuilderId
+type
+  ParseProc*[T] =
+    proc(args: JsonNode): Result[T, SerdeViolation] {.noSideEffect, raises: [].}
+    ## Sole resolver for ``T`` from a JMAP invocation's ``arguments``
+    ## object. Captured at handle-construction time inside the builder
+    ## where ``T.fromJson`` is lexically in scope. ``dispatch.get``
+    ## invokes the captured proc directly — no user-scope mixin chain.
 
-func initResponseHandle*[T](
+  ResponseHandle*[T] {.ruleOff: "objects".} = object
+    ## Phantom-typed dispatch handle tying a compile-time response type
+    ## ``T`` to a runtime ``(callId, builderId)`` pair plus the resolver
+    ## that parses ``T`` from the invocation's ``arguments`` field.
+    ## Construction is gated — ``initResponseHandle`` is hub-private
+    ## surface so handles can only be minted by builder modules where
+    ## the resolver chain is in scope (P5/P19).
+    rawCallId: MethodCallId
+    rawBuilderId: BuilderId
+    rawParseProc: ParseProc[T]
+
+template initResponseHandle*[T](
     callId: MethodCallId, builderId: BuilderId
 ): ResponseHandle[T] =
-  ## Sole construction path for ``ResponseHandle[T]``. Exported with
-  ## ``*`` so ``builder.nim`` and mail builder modules can construct
-  ## handles; filtered from the protocol hub.
-  ResponseHandle[T](rawCallId: callId, rawBuilderId: builderId)
+  ## Sole construction path for ``ResponseHandle[T]``. Expands at the
+  ## builder's call site so ``T.fromJson`` resolves at the builder's
+  ## scope via ``mixin``. The resulting closure is stored on the
+  ## handle and invoked by ``dispatch.get`` without further mixin.
+  mixin fromJson
+  block:
+    proc parse(args: JsonNode): Result[T, SerdeViolation] {.noSideEffect, raises: [].} =
+      ## Captured resolver for ``T`` from the invocation's ``arguments``.
+      T.fromJson(args)
+
+    ResponseHandle[T](rawCallId: callId, rawBuilderId: builderId, rawParseProc: parse)
 
 func callId*[T](h: ResponseHandle[T]): MethodCallId =
   ## Public accessor — the underlying ``MethodCallId``. Stays public
@@ -94,15 +113,26 @@ type NameBoundHandle*[T] {.ruleOff: "objects".} = object
   rawCallId: MethodCallId
   rawMethodName: MethodName
   rawBuilderId: BuilderId
+  rawParseProc: ParseProc[T]
 
-func initNameBoundHandle*[T](
+template initNameBoundHandle*[T](
     callId: MethodCallId, methodName: MethodName, builderId: BuilderId
 ): NameBoundHandle[T] =
-  ## Sole construction path for ``NameBoundHandle[T]``. Same hub-filter
-  ## shape as ``initResponseHandle``.
-  NameBoundHandle[T](
-    rawCallId: callId, rawMethodName: methodName, rawBuilderId: builderId
-  )
+  ## Sole construction path for ``NameBoundHandle[T]``. Template form
+  ## — mirrors ``initResponseHandle``: expands at the builder's call
+  ## site so ``T.fromJson`` resolves at the builder's scope.
+  mixin fromJson
+  block:
+    proc parse(args: JsonNode): Result[T, SerdeViolation] {.noSideEffect, raises: [].} =
+      ## Captured resolver for ``T`` from the invocation's ``arguments``.
+      T.fromJson(args)
+
+    NameBoundHandle[T](
+      rawCallId: callId,
+      rawMethodName: methodName,
+      rawBuilderId: builderId,
+      rawParseProc: parse,
+    )
 
 func callId*[T](h: NameBoundHandle[T]): MethodCallId =
   ## Public accessor — the underlying ``MethodCallId``.
@@ -280,8 +310,10 @@ func createdIds*(dr: DispatchedResponse): Opt[Table[CreationId, Id]] =
 # =============================================================================
 
 func get*[T](dr: DispatchedResponse, handle: ResponseHandle[T]): Result[T, GetError] =
-  ## Extracts a typed response from the dispatched response using
-  ## ``mixin fromJson`` to resolve ``T.fromJson`` at the caller's scope.
+  ## Extracts a typed response from the dispatched response by invoking
+  ## the resolver closure stored on the handle. The closure was bound
+  ## at builder time (see ``initResponseHandle``) so this site does no
+  ## mixin lookup — the entire ``T.fromJson`` chain is fully resolved.
   ##
   ## Algorithm:
   ## 1. Compare ``handle.builderId`` to ``dr.builderId`` — mismatch
@@ -290,11 +322,10 @@ func get*[T](dr: DispatchedResponse, handle: ResponseHandle[T]): Result[T, GetEr
   ## 3. Not found → ``err(gekMethod)`` wrapping ``serverFail``.
   ## 4. If name == "error" → parse as MethodError, return
   ##    ``err(gekMethod)``.
-  ## 5. Otherwise → call ``T.fromJson(arguments)`` via mixin.
+  ## 5. Otherwise → invoke ``handle.rawParseProc(arguments)``.
   ##    ``ok`` → ``ok``. ``err(SerdeViolation)`` → convert to
   ##    ``GetError`` via ``serdeToMethodError($T)`` then
   ##    ``getErrorMethod``.
-  mixin fromJson
   if handle.rawBuilderId != dr.rawBuilderId:
     return err(
       getErrorHandleMismatch(
@@ -305,33 +336,9 @@ func get*[T](dr: DispatchedResponse, handle: ResponseHandle[T]): Result[T, GetEr
     )
   let inv = extractInvocation(dr.rawResponse, handle.rawCallId).valueOr:
     return err(getErrorMethod(error))
-  T.fromJson(inv.arguments).mapErr(serdeToMethodError($T)).mapErr(getErrorMethod)
-
-# =============================================================================
-# get[T] — callback overload (escape hatch)
-# =============================================================================
-
-func get*[T](
-    dr: DispatchedResponse,
-    handle: ResponseHandle[T],
-    fromArgs:
-      proc(node: JsonNode): Result[T, SerdeViolation] {.noSideEffect, raises: [].},
-): Result[T, GetError] =
-  ## Extracts a typed response using a caller-supplied parsing callback.
-  ## For custom parsing where ``T.fromJson`` is not discoverable via
-  ## mixin (e.g., entity-specific extractors or ``JsonNode`` for
-  ## ``Core/echo``). Brand check applies same as the default overload.
-  if handle.rawBuilderId != dr.rawBuilderId:
-    return err(
-      getErrorHandleMismatch(
-        expected = dr.rawBuilderId,
-        actual = handle.rawBuilderId,
-        callId = handle.rawCallId,
-      )
-    )
-  let inv = extractInvocation(dr.rawResponse, handle.rawCallId).valueOr:
-    return err(getErrorMethod(error))
-  fromArgs(inv.arguments).mapErr(serdeToMethodError($T)).mapErr(getErrorMethod)
+  handle.rawParseProc(inv.arguments).mapErr(serdeToMethodError($T)).mapErr(
+    getErrorMethod
+  )
 
 # =============================================================================
 # get[T] — NameBoundHandle overload
@@ -342,8 +349,8 @@ func get*[T](dr: DispatchedResponse, h: NameBoundHandle[T]): Result[T, GetError]
   ## method-name filter lives in the handle itself — no filter
   ## argument at the call site. Used by compound overloads where a
   ## sibling invocation shares the call-id (RFC 8620 §5.4). Brand
-  ## check applies same as the ``ResponseHandle`` overloads.
-  mixin fromJson
+  ## check applies same as the ``ResponseHandle`` overloads. Uses the
+  ## resolver closure stored on the handle (no mixin at this site).
   if h.rawBuilderId != dr.rawBuilderId:
     return err(
       getErrorHandleMismatch(
@@ -352,7 +359,7 @@ func get*[T](dr: DispatchedResponse, h: NameBoundHandle[T]): Result[T, GetError]
     )
   let inv = extractInvocationByName(dr.rawResponse, h.rawCallId, h.rawMethodName).valueOr:
     return err(getErrorMethod(error))
-  T.fromJson(inv.arguments).mapErr(serdeToMethodError($T)).mapErr(getErrorMethod)
+  h.rawParseProc(inv.arguments).mapErr(serdeToMethodError($T)).mapErr(getErrorMethod)
 
 # =============================================================================
 # Compound method dispatch (RFC 8620 §5.4)
@@ -381,8 +388,8 @@ func getBoth*[A, B](
   ## overload, which applies the method-name filter from the handle.
   ## Both calls share the same brand-check semantics — the inner
   ## handles must have been issued by the builder that produced
-  ## ``dr``.
-  mixin fromJson
+  ## ``dr``. Resolution uses the handles' stored parser closures (no
+  ## mixin at this site).
   let primary = ?dr.get(handles.primary)
   let implicit = ?dr.get(handles.implicit)
   ok(CompoundResults[A, B](primary: primary, implicit: implicit))
@@ -430,8 +437,8 @@ func getBoth*[A, B](
   ## handles dispatch through the default ``get[T]`` overload because
   ## the call-ids are distinct — no method-name filter needed.
   ## Overloaded with the ``CompoundHandles`` variant at §5.4; the
-  ## compiler picks by argument type (no structural overlap).
-  mixin fromJson
+  ## compiler picks by argument type (no structural overlap). Uses
+  ## the handles' stored parser closures (no mixin at this site).
   let first = ?dr.get(handles.first)
   let second = ?dr.get(handles.second)
   ok(ChainedResults[A, B](first: first, second: second))

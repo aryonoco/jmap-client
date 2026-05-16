@@ -19,6 +19,7 @@ import jmap_client/internal/types/identifiers
 import jmap_client/internal/types/primitives
 import jmap_client/internal/protocol/methods
 import jmap_client/internal/serialisation/serde
+import jmap_client/internal/serialisation/serde_primitives
 import jmap_client/internal/types/validation
 
 import ../../massertions

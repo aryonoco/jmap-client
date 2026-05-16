@@ -18,7 +18,6 @@
 ## must ``import jmap_client/convenience`` explicitly.
 
 import jmap_client/internal/types
-import jmap_client/internal/serialisation
 import jmap_client/internal/protocol
 import jmap_client/internal/transport
 import jmap_client/internal/client
@@ -27,7 +26,6 @@ import jmap_client/internal/push
 import jmap_client/internal/websocket
 
 export types
-export serialisation
 export protocol
 export transport
 export client

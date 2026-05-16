@@ -52,15 +52,19 @@ a living artefact — markers and bodies update as items land.
 
 Where an item has no marker, treat it as ⬜ TODO until verified.
 
-## Status dashboard (snapshot)
+## Status dashboard
 
-As of the last sweep against the codebase (2026-05-13):
+This dashboard is regenerated mechanically from the per-item status
+markers below. Re-derive the counts with
+`grep -c "— ✅ DONE" docs/TODO/pre-1.0-api-alignment.md` (and the
+sibling marker forms). F7 (Coverage-trace consistency check) is the
+freeze-time gate that catches dashboard drift.
 
 | Status | Count | What it means |
 |---|---|---|
-| ✅ DONE | 28 | Implemented and verified against source / tests. |
+| ✅ DONE | 29 | Implemented and verified against source / tests. |
 | 🟡 PARTIAL | 16 | Some parts implemented; gaps named in the item body. |
-| ⬜ TODO | 63 | Not yet implemented. |
+| ⬜ TODO | 62 | Not yet implemented. |
 | 🟦 DEFERRED | 1 | Explicitly deferred to a post-1.0 release (E1). |
 | ❌ DROPPED | 1 | Superseded or rejected (D15). |
 | **RESOLVED** | 1 | Design decision made (A3.5). |
@@ -70,11 +74,6 @@ C1, C1.1, plus the four ⬜ TODO surfaces that change observable
 behaviour (A17, A20, A21, A26). H2–H9 lint backstops can ship in
 the same window or shortly after; the freeze checklist (D18)
 tracks per-item gate status.
-
-The counts above are a moving snapshot — re-run
-`grep -c "— ✅ DONE" docs/TODO/pre-1.0-api-alignment.md` (and
-sibling forms) to regenerate. F7 (Coverage-trace consistency
-check) will mechanise the regeneration once it lands.
 
 ## Documented exceptions to the principles
 
@@ -140,9 +139,9 @@ transport, client, mail entities, `PushChannel` /
 `jmap_client/internal/` and reach consumers exclusively through
 the root re-export. A10 locks this layout; H13 (A10b) enforces it.
 
-The per-hub per-symbol audits are tracked separately: A1b (protocol
-hub) is done; A1c (serialisation hub) and A1d (mail hub) are
-follow-on items below.
+The per-hub per-symbol audits are tracked separately: A1b
+(protocol hub) and A1c (serialisation hub) are done; A1d (mail
+hub) is open.
 
 ### A1b. Per-symbol audit of `protocol.nim` re-exports *(P5)* — ✅ DONE
 
@@ -150,12 +149,12 @@ follow-on items below.
 `export module except sym1, sym2, …` form. Registration plumbing,
 pre-serialisation helpers, internal merge functions, and the
 stringly-typed `addInvocation` escape hatch (P19) are hub-private
-without disturbing the `import jmap_client` symbol-resolution graph
-(the captured-fixture replay tests use `envelope.Response.fromJson(j)`
-to disambiguate from per-method response types — `envelope` collides
-with the `EmailSubmissionBlueprint.envelope*` UFCS accessor, and the
-resolver's outcome is sensitive to the export form, so blanket
-`export module` was avoided in favour of selective filtering).
+through the `except` filter. Selective filtering (rather than
+blanket `export module`) is structurally required: the
+`envelope` identifier collides with the
+`EmailSubmissionBlueprint.envelope*` UFCS accessor, and
+Nim's symbol-resolution outcome at qualified call sites such as
+`envelope.Response.fromJson(j)` is sensitive to the export form.
 
 **Final public surface per module**:
 
@@ -213,56 +212,140 @@ resolver's outcome is sensitive to the export form, so blanket
    declared(...)`. Compilation success is the canonical signal that
    the hub matches the agreed contract per P2.
 
-A1c (serialisation hub) and A1d (mail hub) audits follow the same
+A1c (serialisation hub) and A1d (mail hub) audit the remaining
+hubs independently. A1c is done; A1d is open. The two hubs use
+different mechanisms because the principled cuts produce different
+shapes: A1c's L2 surface is fully internal, so the L2 hub is
+deleted (no `export … except` filter required); A1d's mail surface
+includes types app developers do touch (`Email`, `Mailbox`,
+`Identity`, etc.), so it lands closer to A1b's selective-export
 pattern.
 
-### A1c. Per-symbol audit of `serialisation.nim` re-exports *(P5)* — ⬜ TODO
+### A1c. Per-symbol audit of `serialisation.nim` re-exports *(P5, P19)* — ✅ DONE
 
-`internal/serialisation.nim` does an unfiltered `export serde`,
-`export serde_session`, etc. for each of the 23 internal serde
-modules (`serde.nim`, `serde_envelope.nim`, `serde_framework.nim`,
-`serde_session.nim`, `serde_errors.nim`, `serde_field_echo.nim`,
-plus the 18 mail `serde_*.nim` leaves: `serde_addresses`,
-`serde_body`, `serde_email`, `serde_email_blueprint`,
-`serde_email_submission`, `serde_email_update`, `serde_headers`,
-`serde_identity`, `serde_identity_update`, `serde_keyword`,
-`serde_mail_capabilities`, `serde_mail_filters`, `serde_mailbox`,
-`serde_snippet`, `serde_submission_envelope`,
-`serde_submission_status`, `serde_thread`, `serde_vacation`).
-Every `*` symbol in those files flows transitively to consumers
-via `import jmap_client`.
+Every L2 serialisation symbol is hub-private. The decisive anchor:
+`SerdeViolation` is not carried on any `ClientError` variant. The
+library projects `SerdeViolation` → `ValidationError` →
+`TransportError(tekNetwork, message: string)` at four boundary
+sites (`internal/client.nim` Session parse path,
+`internal/transport/classify.nim` Response parse path, and two
+sites inside `internal/protocol/dispatch.nim`). By the time an
+application developer inspects an error, every L2 type has been
+collapsed into a string message inside `TransportError`. The same
+P19 logic applies to envelope `fromJson` — typed envelope parsing
+is library plumbing, never application code.
 
-`serde.nim` exports both user-facing `toJson`/`fromJson` pairs AND
-clearly-internal scaffolding for sibling serde modules:
-`expectKind`, `fieldOfKind`, `fieldJObject`, `fieldJString`,
-`fieldJArray`, `fieldJBool`, `fieldJInt`, `optField`,
-`expectLen`, `nonEmptyStr`, `wrapInner`, `collectExtras`,
-`parseIdArray`, `parseIdArrayField`, `parseOptIdArray`,
-`collapseNullToEmptySeq`, `parseKeyedTable`, `optJsonField`,
-`optToJsonOrNull`, `optStringToJsonOrNull`, plus the
-`JsonPath` / `JsonPathElement` / `SerdeViolation` types and
-`emptyJsonPath`, `jsonPointerEscape`, `toValidationError`
-helpers. These are cross-internal callers' tools, not API
-surface. The per-entity `serde_*.nim` leaves are cleaner — most
-expose only `toJson`/`fromJson` plus a few entity-specific
-helpers — but each leaf's export set still needs the same audit
-treatment.
+**Module layout.**
 
-**Action.**
+- `src/jmap_client/internal/serialisation.nim` does not exist. No
+  L2 hub aggregator is needed because no L2 symbol is hub-public.
+  `src/jmap_client.nim` neither imports nor exports it.
+- `serde.nim` carries the diagnostic ADTs only: `SerdeViolation`,
+  `SerdeViolationKind` + 9 ordinals, `JsonPath`, `JsonPathElement`,
+  `JsonPathElementKind` + 2 ordinals, the `/` and `$` operators
+  on `JsonPath`.
+- `serde_diagnostics.nim` carries the diagnostic helpers
+  consumed by every `fromJson` site: `emptyJsonPath`,
+  `jsonPointerEscape`, and the `SerdeViolation` → `ValidationError`
+  translator `toValidationError`.
+- `serde_helpers.nim` carries the 20 scaffolding helpers
+  (`expectKind`, `fieldJ*` family, optional-field extractors,
+  ID-array parsers, `parseKeyedTable`, `optToJsonOrNull`, etc.).
+- `serde_primitives.nim` carries the primitive
+  `string`/`bool`/`seq[T]`/`Table[K,V]` overloads, the
+  `defineDistinct*` templates, the 11 instantiations for L1
+  distinct types (`Id`, `AccountId`, `JmapState`, `MethodCallId`,
+  `CreationId`, `BlobId`, `PropertyName`, `Date`, `UTCDate`,
+  `UnsignedInt`, `JmapInt`), and the `MaxChanges` ser/de.
+- `serde_session.nim` carries the Session-context ser/de plus
+  `UriTemplate.toJson` / `fromJson`.
+- `serde_framework.nim` carries `Filter[C]`, `FilterOperator`,
+  `Comparator`, `AddedItem`. `MaxFilterDepth` is module-private
+  (no `*`).
+- `serde_errors.nim` carries `RequestError`, `MethodError`,
+  `SetError` ser/de.
+- `serde_field_echo.nim` carries `NoCreate` ser/de plus the
+  `parsePartialOptField` / `parsePartialFieldEcho` /
+  `emitPartialFieldEcho` templates used by every `Partial*`
+  parser.
+- `serde_envelope_emit.nim` (user-facing via `protocol.nim`)
+  carries `Invocation.toJson`, `Request.toJson`, `Response.toJson`,
+  `ResultReference.toJson` — diagnostic emission per P19's
+  "Diagnostic emission (`Request.toJson`, `Response.toJson`) is
+  fine".
+- `serde_envelope_parse.nim` (hub-private) carries the matching
+  `fromJson` overloads plus the internal `referencableKey` and
+  `fromJsonField` helpers. P19's "the reverse direction is not"
+  applies: typed envelope parsing has no application-code path.
+- `serde_envelope.nim` is an L2-internal aggregator that imports
+  both halves and re-exports them so existing in-tree callers
+  (`client.nim`, `classify.nim`, `dispatch.nim`, `methods.nim`)
+  reach the full envelope ser/de via a single import path.
 
-1. Audit each of the 23 files; classify every `*` symbol as
-   user-facing (keep) or internal scaffolding (strip `*` if no
-   cross-module callers, or retain `*` and filter at the hub via
-   `export ... except` if cross-internal callers need it).
-2. Update `internal/serialisation.nim` to use the
-   `export module except sym, …` form for each re-export.
-3. Land `tests/compile/tcompile_a1c_serialisation_hub_surface.nim`
-   asserting presence and absence of every classified symbol via
-   `static: doAssert declared(...)` and
-   `static: doAssert not declared(...)` (mirroring A1b's audit).
-4. Relocate whitebox tests that exercised stripped symbols to
-   files using Nim's `include` directive (A1b precedent:
-   `tests/protocol/tmethods_whitebox.nim`).
+**Dispatch resolves typed responses without user-scope mixin.**
+`ResponseHandle[T]` and `NameBoundHandle[T]` carry a
+`rawParseProc: ParseProc[T]` field. The proc is bound at handle
+construction time inside the builder where `T.fromJson` is in
+scope (`initResponseHandle` and `initNameBoundHandle` are
+templates that capture `T.fromJson` via `mixin` at the builder's
+call site). `dispatch.get[T]` invokes `handle.rawParseProc(args)`
+directly — no `mixin` at the extraction site. The same shape
+covers `NameBoundHandle`, `CompoundHandles`, and `ChainedHandles`.
+`convenience.getBoth[T]` likewise delegates to `dr.get(handles.*)`
+without `mixin`. The library never requires the L2 surface to be
+visible at the application's call site to make `dispatched.get(h)`
+compile.
+
+The single application-code path that still touches a wire
+JsonNode is `Core/echo`: `JsonNode.fromJson` is a pass-through
+identity defined in `internal/protocol/methods.nim`, so
+`initResponseHandle[JsonNode]` resolves through the same mixin
+chain as every typed handle.
+
+**Re-export from the protocol hub.** `internal/protocol.nim` is
+the sole module that surfaces L2 to user scope, and only the
+emit half: `export serde_envelope_emit`. `Invocation.toJson`,
+`Request.toJson`, `Response.toJson`, `ResultReference.toJson`
+flow through. Nothing else does.
+
+**Mail-serde leaves and builders import what they need; they
+re-export nothing from L2.** Each mail-serde leaf
+(`serde_addresses`, `serde_body`, `serde_email`,
+`serde_email_submission`, the 14 others) imports the L2 modules
+its body references and exports only its own typed ser/de. The
+mixin chain for `SetResponse[Mailbox, PartialMailbox].fromJson`
+etc. resolves at each builder file's instantiation site
+(`mail_builders.nim`, `identity_builders.nim`,
+`submission_builders.nim`, `mail_methods.nim`), where the
+necessary L2 modules are imported directly. Tests reach the L2
+surface via the H10-permitted test-side aggregator
+`tests/m_l2_serde.nim`.
+
+**Audit gate.**
+`tests/compile/tcompile_a1c_serialisation_hub_surface.nim`
+asserts absence at compile time via `when declared(X):
+{.error.}` and `when compiles(<typed-expression>): {.error.}`.
+Runtime anchors on `Mailbox` and `Session` satisfy
+`UnusedImport`. The audit covers the diagnostic ADTs, the three
+scaffolding modules, every primitive distinct ser/de, the
+`MaxChanges` and `UriTemplate` ser/de, the envelope parse-half
+overloads, and the field-echo and framework helpers.
+The `when declared` check is **not** applied to
+`toValidationError`: the name is also a public L1 helper
+(`validation.nim` for `TokenViolation`, `session.nim` for
+`UriTemplateViolation`, `primitives.nim` for `DateViolation`,
+`collation.nim` for `CollationViolation`), and the L1 overload
+is legitimately surfaced. The L2 overload over `SerdeViolation`
+is hub-private; absence of the other L2 symbols is the
+indirect proof.
+
+**Pattern relationship to A1b.** A1b's `protocol.nim` mixes
+user-facing and internal symbols, so it uses `export module
+except sym, …` to filter per symbol. A1c's L2 modules have no
+user-facing symbols beyond the four envelope `toJson` overloads
+emitted from `serde_envelope_emit`; the hub aggregator is
+absent rather than filtered, and the user-facing surface
+re-exports through `protocol.nim` instead.
 
 ### A1d. Per-symbol audit of `mail.nim` re-exports *(P5)* — ⬜ TODO
 
@@ -471,30 +554,39 @@ it remains internally callable for the typed wrappers). Wired into
 
 ### A6. Phantom-tag handles to a `BuiltRequest` *(P16, P21)* — ✅ DONE
 
-Every `ResponseHandle[T]`, `NameBoundHandle[T]`, `BuiltRequest`, and
-`DispatchedResponse` carries a `BuilderId` brand. `handle.get(dr)`
-compares the brands and returns `err(gekHandleMismatch)` on
-mismatch with diagnostic payload `(expected, actual, callId)`.
-Catches cross-builder reuse within one client and cross-client
-reuse across `JmapClient` instances (multi-account scenarios).
+Every `ResponseHandle[T]`, `NameBoundHandle[T]`, `BuiltRequest`,
+and `DispatchedResponse` carries a `BuilderId` brand.
+`dispatch.get(handle)` compares the brands and returns
+`err(gekHandleMismatch)` on mismatch with diagnostic payload
+`(expected, actual, callId)`. The brand catches cross-builder
+reuse within one client and cross-client reuse across `JmapClient`
+instances (multi-account scenarios).
 
 `BuilderId` is composite: `clientBrand: uint64` drawn via
 `std/sysrand.urandom` once per `JmapClient` (entropy failure
-surfaces as `jcvEntropyUnavailable` `ValidationError`), plus
+surfaces as `jcvEntropyUnavailable` `ValidationError`) plus
 `serial: uint64` monotonic per client.
+
+`ResponseHandle[T]` and `NameBoundHandle[T]` additionally carry
+a `rawParseProc: ParseProc[T]` field captured at handle
+construction; A1c's closure-on-handle dispatch replaces the
+former user-scope `mixin fromJson` chain with a closure invoked
+directly by `dispatch.get`, leaving the brand check as the only
+remaining concern at extraction time.
 
 **Pointers.**
 - `src/jmap_client/internal/types/identifiers.nim` — `BuilderId`
   + `initBuilderId` + `clientBrand` / `serial` accessors.
 - `src/jmap_client/internal/protocol/dispatch.nim` — sealed
-  handle shape + brand-check at `get` / `getBoth`.
+  handle shape (including `rawParseProc`) + brand-check at
+  `get` / `getBoth`.
 - `src/jmap_client/internal/protocol/builder.nim` — `BuilderId`
   threading through every `add*` via the chokepoint
   `addInvocation`.
-- `src/jmap_client/internal/client.nim` — brand draw via `drawClientBrand`
-  + `newBuilder`.
-- `tests/protocol/tdispatch.nim` — cross-builder and cross-client
-  mismatch blocks exercise the brand check.
+- `src/jmap_client/internal/client.nim` — brand draw via
+  `drawClientBrand` + `newBuilder`.
+- `tests/protocol/tdispatch.nim` — cross-builder and
+  cross-client mismatch blocks exercise the brand check.
 
 ### A7. Lifecycle types *(P21, P16, P22, P23)* — 🟡 PARTIAL
 
@@ -787,14 +879,17 @@ coverage:
 **Remaining gap — `RefPath`.**
 `src/jmap_client/internal/types/envelope.nim:125–132` —
 `RefPath.path` silently falls back to `rpIds` for unknown server
-paths. Should preserve via `rawPath` only OR add `rpUnknown`
-variant. Currently coerces unknown paths to `/ids` semantics,
-which is lossy.
+paths, coercing unknown paths to `/ids` semantics (lossy).
+Resolution: preserve via `rawPath` only, OR add an `rpUnknown`
+variant alongside the existing typed paths.
 
 **Remaining gap — `RequestContext` leak.**
-`internal/types/errors.nim:145–148` — `RequestContext` is internal
-but re-exported via `errors → types`; confirm it does not leak as
-a public commitment.
+`internal/types/errors.nim:145` declares `RequestContext` as a
+public enum; it surfaces through `errors → types → root`
+re-export despite being an internal-classification enum. Either
+strip the `*` (and accept that internal error wrapping in
+`types/errors.nim` still resolves it within-module) or rename
+to indicate its public commitment.
 
 **Cross-reference.** `AccountCapabilityEntry.data: JsonNode`
 (`internal/types/session.nim`) audit is subsumed by A17's case-object refactor;
@@ -802,12 +897,13 @@ not duplicated here.
 
 ### A12. Error diagnostic surface *(P13 cohort, P7)* — 🟡 PARTIAL
 
-`message()` exists for `RequestError` and `ClientError`
-(`internal/types/errors.nim:81, 127`). No `message()` exists for
-`MethodError`, `SetError`, or `ValidationError`; no `$` operator
-exists for any of the four error types. SQLite ships
-`sqlite3_errmsg`; libcurl ships `curl_easy_strerror`; this
-library currently ships a partial equivalent.
+`message()` exists for `RequestError`, `ClientError`, and
+`GetError` (`internal/types/errors.nim:81, 127, 560`). No
+`message()` exists for `MethodError`, `SetError`, or
+`ValidationError`; no `$` operator exists for any of the four
+error types. SQLite ships `sqlite3_errmsg`; libcurl ships
+`curl_easy_strerror`; this library's diagnostic surface is
+incomplete relative to that benchmark.
 
 A12b tracks the symbol-level work (deterministic format string
 contract for each error type + property test); A12 is the
@@ -889,7 +985,7 @@ commitment.
 `AccountCapabilityEntry` is a flat object with `data*: JsonNode`.
 The inline comment acknowledges that this *"may evolve to a case
 object when typed account-level capabilities are added (e.g. RFC
-8621)."* RFC 8621 is implemented; this is currently the largest
+8621)."* RFC 8621 is implemented, so this is the largest
 JsonNode-typed escape on the public surface that has a typed
 schema available.
 
@@ -903,13 +999,13 @@ A18.
 
 ### A18. `ServerCapability` typed arms *(P19)* — 🟡 PARTIAL
 
-`src/jmap_client/internal/types/capabilities.nim:52–60` —
+`src/jmap_client/internal/types/capabilities.nim:54–62` —
 `ServerCapability` is a case object with one typed arm
 (`ckCore: core*: CoreCapabilities`) and `else: rawData*: JsonNode`
-for everything else. The standard RFC 8621 capabilities (`ckMail`,
-`ckSubmission`, `ckVacationResponse`, `ckBlob`, `ckQuota`,
-`ckSieve`) all have typed schemas defined elsewhere in the
-codebase but currently fall through to `rawData`.
+for every other variant. The standard RFC 8621 capabilities
+(`ckMail`, `ckSubmission`, `ckVacationResponse`, `ckBlob`,
+`ckQuota`, `ckSieve`) have typed schemas defined elsewhere in the
+codebase but fall through to `rawData` here.
 
 **Remaining gap.** Add explicit case-object arms for the six
 standard capabilities; preserve `rawData` for unknown only.
@@ -992,8 +1088,9 @@ proc initJmapClient*(endpoint: SessionEndpoint, bearerToken: string,
                      ...): Result[JmapClient, ClientError]
 ```
 
-`discoverJmapClient` is removed (its behaviour is now
-`initJmapClient(discoveryEndpoint("example.com").get(), ...)`).
+`discoverJmapClient` does not exist after this change; its
+behaviour is reached via
+`initJmapClient(discoveryEndpoint("example.com").get(), ...)`.
 
 ### A21. Type the auth scheme *(P17, P19)* — ⬜ TODO
 
@@ -1117,7 +1214,10 @@ All handle types are sealed Pattern-A objects with private `raw*`
 fields and explicit accessors:
 `ResponseHandle[T]`, `NameBoundHandle[T]`, `CompoundHandles[A, B]`,
 `ChainedHandles[A, B]`, plus `DispatchedResponse` (the sealed
-wrapper that pairs the wire `Response` with a `BuilderId`).
+wrapper that pairs the wire `Response` with a `BuilderId`). The
+two single-call handles additionally carry a `rawParseProc:
+ParseProc[T]` field — the captured resolver bound at handle
+construction time (A6, A1c).
 
 **Pointer.** `src/jmap_client/internal/protocol/dispatch.nim`.
 
@@ -1223,8 +1323,10 @@ have no public typed path to sparse `/get` for those five entities.
 `DispatchedResponse` is the sibling sealed type returned by
 `send`, carrying the wire `Response` plus the brand. Both have
 private fields; the only public producers are the lifecycle
-transitions (`freeze`, `send`) plus the hub-private test escapes
-(`builtRequestForTest`, `initDispatchedResponse`).
+transitions (`freeze`, `send`) plus the hub-private internal
+escapes (`builtRequestFromParts`, `initDispatchedResponse`)
+filtered from `internal/protocol.nim`'s re-export and reached
+only via direct internal import (H10-permitted in `tests/`).
 
 The asynchronous-path `DispatchedRequest` is reserved by name in
 `docs/policy/03-rfc-extension-policy.md` (A7e), not by stub. Its
@@ -1232,9 +1334,10 @@ shape depends on the `Transport` interface and lands once async
 arrives as additive surface (P20).
 
 **Pointers.**
-- `src/jmap_client/internal/protocol/builder.nim:60, 139` —
-  `BuiltRequest` declaration and `builtRequestForTest` escape.
-- `src/jmap_client/internal/protocol/dispatch.nim:237, 249` —
+- `src/jmap_client/internal/protocol/builder.nim` —
+  `BuiltRequest` declaration plus `builtRequestFromParts`
+  internal escape.
+- `src/jmap_client/internal/protocol/dispatch.nim` —
   `DispatchedResponse` declaration and `initDispatchedResponse`
   escape.
 
@@ -1311,9 +1414,12 @@ not trigger the copy machinery; the same applies to
 `validateLimits(req: lent BuiltRequest, …)`, which `send` invokes
 once before consuming `req`.
 
-The hub-private test escape `builtRequestForTest`
-(`builder.nim`) is retained for whitebox fixture scaffolding under
-`tests/`; production code routes through `RequestBuilder.freeze()`.
+The hub-private internal escape `builtRequestFromParts`
+(`builder.nim`) is filtered out of `internal/protocol.nim`'s
+re-export and reached only via direct internal import; tests
+under H10's `tests/` allowlist use it for whitebox fixture
+scaffolding. Production code routes through
+`RequestBuilder.freeze()`.
 
 **Compile-reject anchor.**
 `tests/compile/treject_a7c_send_consumes_builtrequest.nim` is a
@@ -1366,21 +1472,19 @@ post-`freeze` `add*` on the same builder will silently copy
 (advisory only) — the brand-alias hazard is documented but not
 type-enforced.
 
-Body fixups (`let brand = newBuilder.builderId` before the tuple
-return) preserve correct brand propagation even if the underlying
-type were upgraded to uncopyable, so the structural escalation is
-a one-line type-level change (re-add the `=copy` + `=dup` hooks)
-once the test-suite issues are addressed.
+Builder bodies thread the brand through tuple returns via a
+`let brand = newBuilder.builderId` binding before the return
+expression, so upgrading the type to uncopyable is a localised
+type-level change (add the `=copy` + `=dup` hooks) once the
+test-suite friction above is addressed. No `clone(b:
+RequestBuilder)` helper is needed: zero dual-derivation patterns
+exist that would motivate one.
 
-No `clone(b: RequestBuilder)` helper is needed: the audit surfaced
-zero dual-derivation patterns that would motivate it.
-
-**Compile-reject anchors:** none yet — see deferred escalation
-above. The reject tests
+**Compile-reject anchors.** None present. The reject tests
 `tests/compile/treject_a7d_freeze_consumes_builder.nim` and
-`tests/compile/treject_a7d_post_freeze_add.nim` are absent
-intentionally; reinstating them is bundled with the uncopyable-hook
-escalation work.
+`tests/compile/treject_a7d_post_freeze_add.nim` are intentionally
+absent until the uncopyable-hook escalation lands; both must
+exist before the gate flips to ✅.
 
 ### A7e. Async surface name reservation *(P20, P22, P23)* — ⬜ TODO
 
@@ -1690,11 +1794,11 @@ tagging 1.0.
 
 ### B12. `Account[ReadOnly | ReadWrite]` decision *(P16)* — ⬜ TODO (FREEZE-BLOCKING)
 
-`src/jmap_client/internal/types/session.nim:32`. The B6 sub-bullet flags that
-`Account.isReadOnly: true` and `accountCapabilities` carrying a
-write-implying capability can coexist — structurally allowed but
-RFC-incoherent. Promote to a primary item: this is the same shape
-of P16 violation as B11.
+`src/jmap_client/internal/types/session.nim:32`. The B6 sub-bullet
+flags that `Account.isReadOnly: true` and `accountCapabilities`
+carrying a write-implying capability can coexist — structurally
+allowed but RFC-incoherent. The same shape of P16 violation as
+B11.
 
 **Resolution choice.**
 
@@ -1904,8 +2008,6 @@ nothing under `internal/`.
 returns zero matches. Until then, the file's anti-pattern is
 documented and tolerated under H10's `src/jmap_client/*`
 allow-list.
-
-Status: pending.
 
 ## Section D — Process / policy artefacts
 
@@ -2502,23 +2604,26 @@ The cross-cutting principle that *alignment is upheld by policy + CI,
 not by accident*. Items here back the policy items in Sections A and
 D with mechanical enforcement.
 
-### H1. Distinct-type raw-constructor lint *(P15)* — backs A8 — ✅ DONE
+### H1. Sealed-distinct lint *(P15)* — backs A8 — ✅ DONE
 
-Nimalyzer rule (or grep lint) rejecting `<DistinctTypeName>(`
-invocations outside the defining `.nim` module. Inputs: the canonical
-list of distinct types from enhanced A8 (auto-generated by
-`grep -E "^type \w+\* = distinct" src/jmap_client/**/*.nim` plus the
-manually-listed sealed case-objects).
+`tests/lint/h1_sealed_distinct_construction.nim` enforces the
+post-A8 invariant: zero public `distinct` type declarations under
+`src/`. The seal that binds external consumers (P15) is the
+sealed Pattern-A object pattern — a module-private `rawValue`
+field — not any form of `distinct` wrapping; the lint blocks
+regression by failing on any `type Foo* = distinct ...`
+declaration. The complementary external-construction reject
+(`tests/compile/treject_a8_sealed_external_construction.nim`)
+asserts at compile time that raw `Foo(rawValue: ...)` from
+outside the defining module fails with Nim's *"the field
+'rawValue' is not accessible."* diagnostic.
 
-Failure mode: any external raw construction is a CI error, with the
-message "use `parse<TypeName>` smart constructor instead" and a
-pointer to the principle doc P15.
+**Implementation path.** Both `tests/lint/h1_sealed_distinct_construction.nim`
+and the `lint-sealed-distinct:` recipe in `justfile`. Wired to
+`just check` and `just ci` via `just lint-sealed-distinct`.
 
-**Implementation path.** `tests/lint/h1_distinct_constructors.nim`.
-Wired to `just lint`. The canonical list is regenerated from the
-`type \w+\* = distinct` grep on every CI run; if the regenerated
-list disagrees with a hand-maintained allowlist of constructor
-sites, fail.
+**Current-state assertion.** Zero violations; no public
+`distinct` types declared under `src/`.
 
 ### H2. Module-level `var` lint *(P10)* — backs D1 no-globals rule — ⬜ TODO
 
@@ -2776,7 +2881,7 @@ must fail CI, not depend on reviewer attention.
 | Global callbacks | D1.5 (no-callbacks rule), D10 | future H10 once L5 lands |
 | Two-channel configuration | A14, A20, A21 | F6 snapshot diff (catches future drift) |
 | Stringly-typed APIs | A2, A2b, A3, A3.5, A4, A5, A8 (closes the disguise by sealing the underlying `rawValue` field), A14, A15, A17, A18, A21, A22b | H11 typed-builder lint; H7 (convenience charter); A8 testament reject test; reviewer grep on `JsonNode` outside Documented exceptions |
-| Multiple coexisting public layers | A1, A1b, A9, A10 | H13 lint (A10b); module-paths.txt snapshot (A10a); F6 snapshot (A26) |
+| Multiple coexisting public layers | A1, A1b, A1c, A9, A10 | H13 lint (A10b); module-paths.txt snapshot (A10a); F6 snapshot (A26); A1c compile audit |
 | Convenience layer leaking | C7, C9, F3, H7 | H7 lint |
 | Catch-all `else` on finite enums | A11, H9 | H9 lint |
 | `.get()` without invariant | (rule) + H8 | H8 lint |

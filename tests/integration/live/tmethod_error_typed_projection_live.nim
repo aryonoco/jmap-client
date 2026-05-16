@@ -32,6 +32,7 @@ import std/json
 import results
 import jmap_client
 import jmap_client/internal/types/envelope
+import ../../m_l2_serde
 import ./mcapture
 import ./mconfig
 import ./mlive

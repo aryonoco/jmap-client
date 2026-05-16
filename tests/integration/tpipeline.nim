@@ -17,6 +17,7 @@ import jmap_client
 import jmap_client/internal/protocol/methods
 import jmap_client/internal/protocol/dispatch
 import jmap_client/internal/protocol/builder
+import jmap_client/internal/serialisation/serde_framework
 import jmap_client/internal/mail/mail_builders
 import jmap_client/internal/mail/mailbox
 import jmap_client/internal/types/envelope

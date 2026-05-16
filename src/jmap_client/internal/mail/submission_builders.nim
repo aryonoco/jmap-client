@@ -20,7 +20,12 @@ import std/sets
 import std/tables
 
 import ../types
-import ../serialisation
+import ../serialisation/serde_diagnostics
+import ../serialisation/serde_errors
+import ../serialisation/serde_field_echo
+import ../serialisation/serde_framework
+import ../serialisation/serde_helpers
+import ../serialisation/serde_primitives
 import ../protocol/methods
 import ../protocol/dispatch
 import ../protocol/builder

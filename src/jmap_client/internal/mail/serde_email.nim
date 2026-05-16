@@ -12,8 +12,11 @@ import std/strutils
 import std/tables
 
 import ../serialisation/serde
+import ../serialisation/serde_diagnostics
 import ../serialisation/serde_field_echo
 import ../serialisation/serde_errors
+import ../serialisation/serde_helpers
+import ../serialisation/serde_primitives
 import ../types
 import ./addresses
 import ./keyword
@@ -36,8 +39,6 @@ import ./serde_body
 # the generic ``Table[K, V].fromJson`` / ``seq[T].fromJson`` helpers
 # resolves at the outermost instantiation site, so every dependency must
 # be reachable there.
-export serde
-export serde_field_echo
 export serde_addresses
 export serde_keyword
 export serde_mailbox

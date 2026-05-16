@@ -11,6 +11,8 @@
 import std/json
 
 import ./serde
+import ./serde_diagnostics
+import ./serde_helpers
 import ../types
 
 # =============================================================================

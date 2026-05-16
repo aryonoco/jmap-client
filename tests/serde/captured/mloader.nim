@@ -15,6 +15,13 @@
 
 import std/json
 
+# Captured-payload tests reach the L2 serde surface (Response.fromJson,
+# GetResponse[T].fromJson via mixin chain, etc.) directly. Re-export the
+# shared test-side L2 aggregator so each captured test can stay focused
+# on its fixture-replay assertion.
+import ../../m_l2_serde
+export m_l2_serde
+
 template loadCapturedFixture*(name: static string): JsonNode =
   ## Embeds ``tests/testdata/captured/<name>.json`` at compile time and
   ## returns it as a parsed ``JsonNode``. Missing fixtures fail at

@@ -31,7 +31,10 @@ import std/sysrand
 import results
 
 import ./types
-import ./serialisation
+import ./serialisation/serde
+import ./serialisation/serde_diagnostics
+import ./serialisation/serde_envelope
+import ./serialisation/serde_session
 import ./transport
 import ./types/identifiers
 import ./protocol/builder

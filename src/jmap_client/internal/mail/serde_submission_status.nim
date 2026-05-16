@@ -26,6 +26,8 @@ import std/json
 import std/tables
 
 import ../serialisation/serde
+import ../serialisation/serde_diagnostics
+import ../serialisation/serde_helpers
 import ../types
 import ./submission_envelope
 import ./submission_status

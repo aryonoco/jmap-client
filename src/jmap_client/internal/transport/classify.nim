@@ -25,6 +25,7 @@ import ../transport
 import ../types/errors
 import ../types/envelope as envelope
 import ../serialisation/serde
+import ../serialisation/serde_diagnostics
 import ../serialisation/serde_errors
 import ../serialisation/serde_envelope
 

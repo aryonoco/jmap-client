@@ -10,7 +10,14 @@ import std/tables
 
 import jmap_client
 import jmap_client/internal/types/framework
+import jmap_client/internal/serialisation/serde
 import jmap_client/internal/serialisation/serde_envelope
+import jmap_client/internal/serialisation/serde_diagnostics
+import jmap_client/internal/serialisation/serde_errors
+import jmap_client/internal/serialisation/serde_field_echo
+import jmap_client/internal/serialisation/serde_framework
+import jmap_client/internal/serialisation/serde_helpers
+import jmap_client/internal/serialisation/serde_primitives
 import jmap_client/internal/protocol/entity
 import jmap_client/internal/protocol/methods
 import jmap_client/internal/protocol/dispatch
@@ -65,6 +72,17 @@ func toJson*(f: MockFoo): JsonNode =
   discard f
   newJObject()
 
+func fromJson*(
+    T: typedesc[MockFoo], node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[MockFoo, SerdeViolation] =
+  ## Test stub — ``initResponseHandle`` resolves ``T.fromJson`` at
+  ## handle-construction time via mixin, so every MockFoo handle needs
+  ## a visible ``fromJson``.
+  discard $T
+  discard node
+  discard path
+  ok(MockFoo())
+
 registerJmapEntity(MockFoo)
 
 type MockFilter = object
@@ -100,6 +118,15 @@ template changesResponseType*(T: typedesc[MockQueryable]): typedesc =
 
 func toJson(c: MockFilter): JsonNode =
   %*{"mock": true}
+
+func fromJson*(
+    T: typedesc[MockQueryable], node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[MockQueryable, SerdeViolation] =
+  ## Test stub — same rationale as ``MockFoo.fromJson``.
+  discard $T
+  discard node
+  discard path
+  ok(MockQueryable())
 
 registerJmapEntity(MockQueryable)
 registerQueryableEntity(MockQueryable)

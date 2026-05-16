@@ -31,7 +31,10 @@ import std/json
 import std/tables
 
 import ../serialisation/serde
+import ../serialisation/serde_diagnostics
 import ../serialisation/serde_field_echo
+import ../serialisation/serde_helpers
+import ../serialisation/serde_primitives
 import ../types
 import ./email_submission
 import ./submission_envelope
@@ -46,8 +49,6 @@ import ./serde_submission_status
 # ``Envelope.fromJson`` / ``DeliveryStatusMap.fromJson`` /
 # ``UndoStatus.fromJson`` at every callsite (including the mixin chain
 # through ``SetResponse[T, U].fromJson`` and ``seq[BlobId].fromJson``).
-export serde
-export serde_field_echo
 export serde_submission_envelope
 export serde_submission_status
 

@@ -9,6 +9,8 @@
 import std/json
 
 import ../serialisation/serde
+import ../serialisation/serde_diagnostics
+import ../serialisation/serde_helpers
 import ../types
 import ./addresses
 

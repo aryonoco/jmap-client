@@ -103,7 +103,7 @@ Access the Nim source code at /.nim-reference
   `field_echo`) — re-exported via `src/jmap_client/internal/types.nim`
   and surfaced to consumers through `src/jmap_client.nim`. See
   `docs/design/01-layer-1-design.md` for per-module symbol inventory.
-- `src/jmap_client/internal/serialisation.nim` — Re-exports all Layer 2 modules
+- `src/jmap_client/internal/serialisation/` — Layer 2 serde modules (no public hub; in-tree callers import leaves directly under H10)
 - `src/jmap_client/internal/protocol.nim` — Re-exports the Layer 3 protocol surface (builders, dispatch, methods, entity)
 - `src/jmap_client/internal/transport.nim` — Pluggable HTTP transport interface (Layer 4; re-exported from `src/jmap_client.nim`)
 - `src/jmap_client/internal/client.nim` — JMAP client handle (Layer 4; re-exported from `src/jmap_client.nim`)

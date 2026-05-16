@@ -17,14 +17,21 @@
 import std/tables
 
 import ../types
-import ../serialisation
+import ../serialisation/serde_diagnostics
+import ../serialisation/serde_errors
+import ../serialisation/serde_field_echo
+import ../serialisation/serde_helpers
+import ../serialisation/serde_primitives
 import ../protocol/methods
 import ../protocol/dispatch
 import ../protocol/builder
+import ./addresses
 import ./identity
 import ./mail_entities
+import ./serde_addresses
 import ./serde_identity
 import ./serde_identity_update
+export serde_addresses
 
 export serde_identity
 export serde_identity_update

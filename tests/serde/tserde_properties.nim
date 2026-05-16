@@ -13,6 +13,7 @@ import std/tables
 import jmap_client/internal/types/methods_enum
 import jmap_client/internal/serialisation/serde
 import jmap_client/internal/serialisation/serde_envelope
+import jmap_client/internal/serialisation/serde_primitives
 import jmap_client/internal/serialisation/serde_session
 import jmap_client/internal/serialisation/serde_framework
 import jmap_client/internal/serialisation/serde_errors

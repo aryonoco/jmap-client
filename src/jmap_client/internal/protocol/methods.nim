@@ -26,7 +26,27 @@ import std/sugar
 import std/tables
 
 import ../types
-import ../serialisation
+import ../serialisation/serde
+import ../serialisation/serde_diagnostics
+import ../serialisation/serde_envelope
+import ../serialisation/serde_errors
+import ../serialisation/serde_helpers
+import ../serialisation/serde_primitives
+
+# =============================================================================
+# JsonNode pass-through fromJson — the Core/echo escape hatch
+# =============================================================================
+
+func fromJson*(
+    T: typedesc[JsonNode], node: JsonNode, path: JsonPath = emptyJsonPath()
+): Result[JsonNode, SerdeViolation] =
+  ## Trivial identity resolver for ``Core/echo`` and similar
+  ## raw-argument extractors that hand back the wire object verbatim.
+  ## Lets ``initResponseHandle[JsonNode]`` resolve via the standard
+  ## mixin chain without a callback escape hatch.
+  discard $T # consumed for nimalyzer params rule
+  discard path
+  return ok(node)
 
 # =============================================================================
 # Lenient Option helpers (internal, not exported)

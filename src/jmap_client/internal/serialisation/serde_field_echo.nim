@@ -16,6 +16,7 @@ import std/json
 
 import ../types
 import ./serde
+import ./serde_diagnostics
 
 # =============================================================================
 # NoCreate serde — D6 lenient parse, symmetric emit

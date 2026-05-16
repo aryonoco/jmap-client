@@ -35,6 +35,7 @@ import jmap_client/internal/mail/mailbox
 import jmap_client/internal/mail/serde_email_update
 import jmap_client/internal/types/primitives
 import jmap_client/internal/serialisation/serde
+import jmap_client/internal/serialisation/serde_diagnostics
 
 import ../massertions
 import ../mproperty

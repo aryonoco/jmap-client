@@ -19,6 +19,14 @@ import jmap_client/internal/protocol/builder
 import jmap_client/internal/protocol/entity
 import jmap_client/convenience
 import jmap_client/internal/types/envelope
+import jmap_client/internal/serialisation/serde
+import jmap_client/internal/serialisation/serde_diagnostics
+import jmap_client/internal/serialisation/serde_errors
+import jmap_client/internal/serialisation/serde_envelope
+import jmap_client/internal/serialisation/serde_field_echo
+import jmap_client/internal/serialisation/serde_framework
+import jmap_client/internal/serialisation/serde_helpers
+import jmap_client/internal/serialisation/serde_primitives
 
 import ../massertions
 import ../mfixtures

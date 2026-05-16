@@ -33,7 +33,12 @@ import std/sequtils
 import std/tables
 
 import ../types
-import ../serialisation
+import ../serialisation/serde_envelope
+import ../serialisation/serde_errors
+import ../serialisation/serde_field_echo
+import ../serialisation/serde_framework
+import ../serialisation/serde_primitives
+import ../serialisation/serde_session
 import ./methods
 import ./dispatch
 import ./call_meta

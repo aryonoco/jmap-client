@@ -16,6 +16,7 @@ import std/json
 
 import results
 import jmap_client
+import jmap_client/internal/serialisation/serde
 import ./mcapture
 import ./mconfig
 import ./mlive
@@ -30,12 +31,10 @@ testCase tcoreEchoLive:
     captureIfRequested(recorder.lastResponseBody, "core-echo-" & $target.kind).expect(
       "captureIfRequested[" & $target.kind & "]"
     )
-    let echoExtract = proc(
-        n: JsonNode
-    ): Result[JsonNode, SerdeViolation] {.noSideEffect, raises: [].} =
-      ok(n)
-    let echoArgs = resp.get(echoHandle, echoExtract).expect(
-        "Core/echo extract[" & $target.kind & "]"
-      )
+    # Core/echo handle carries the JsonNode pass-through shim from
+    # ``protocol/methods.nim``; the standard ``get`` returns the
+    # arguments unchanged.
+    let echoArgs =
+      resp.get(echoHandle).expect("Core/echo extract[" & $target.kind & "]")
     assertOn target, echoArgs == args, "echo args must round-trip unchanged"
     assertOn target, ($resp.sessionState).len > 0, "response must carry sessionState"

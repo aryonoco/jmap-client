@@ -10,8 +10,10 @@ import std/strutils
 import std/tables
 
 import jmap_client/internal/serialisation/serde
+import jmap_client/internal/serialisation/serde_diagnostics
 import jmap_client/internal/serialisation/serde_envelope
 import jmap_client/internal/serialisation/serde_errors
+import jmap_client/internal/serialisation/serde_helpers
 import jmap_client/internal/types/primitives
 import jmap_client/internal/types/identifiers
 import jmap_client/internal/types/envelope

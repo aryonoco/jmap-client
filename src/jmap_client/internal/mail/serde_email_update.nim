@@ -15,7 +15,7 @@ import std/json
 import std/tables
 
 import ../types/primitives
-import ../serialisation/serde
+import ../serialisation/serde_diagnostics
 import ./email_update
 import ./keyword
 import ./serde_keyword

@@ -48,6 +48,8 @@ import jmap_client/internal/protocol/methods
 import jmap_client/internal/protocol/dispatch
 import jmap_client/internal/protocol/builder
 import jmap_client/internal/protocol/call_meta
+import ./m_l2_serde
+export m_l2_serde
 
 proc zeroUint*(): UnsignedInt =
   parseUnsignedInt(0).get()
@@ -82,15 +84,30 @@ proc makeUriTemplate*(s = "https://example.com/{accountId}"): UriTemplate =
 proc makeBuilderId*(clientBrand: uint64 = 0'u64, serial: uint64 = 0'u64): BuilderId =
   initBuilderId(clientBrand, serial)
 
-proc makeResponseHandle*[T](
-    callId: MethodCallId, builderId: BuilderId = makeBuilderId()
+template makeResponseHandle*[T](
+    callId: MethodCallId, builderId: BuilderId
 ): ResponseHandle[T] =
+  ## Template so the ``initResponseHandle`` mixin chain resolves at the
+  ## test's call site rather than inside this helper module.
   initResponseHandle[T](callId, builderId)
 
-proc makeNameBoundHandle*[T](
-    callId: MethodCallId, methodName: MethodName, builderId: BuilderId = makeBuilderId()
+template makeResponseHandle*[T](callId: MethodCallId): ResponseHandle[T] =
+  ## Default-builderId overload — equivalent to the original ``proc``
+  ## signature with the default ``builderId = makeBuilderId()``.
+  initResponseHandle[T](callId, makeBuilderId())
+
+template makeNameBoundHandle*[T](
+    callId: MethodCallId, methodName: MethodName, builderId: BuilderId
 ): NameBoundHandle[T] =
+  ## Template so the ``initNameBoundHandle`` mixin chain resolves at
+  ## the test's call site rather than inside this helper module.
   initNameBoundHandle[T](callId, methodName, builderId)
+
+template makeNameBoundHandle*[T](
+    callId: MethodCallId, methodName: MethodName
+): NameBoundHandle[T] =
+  ## Default-builderId overload.
+  initNameBoundHandle[T](callId, methodName, makeBuilderId())
 
 proc makeDispatchedResponse*(
     response: Response, builderId: BuilderId = makeBuilderId()

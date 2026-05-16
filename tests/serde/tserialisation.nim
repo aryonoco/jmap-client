@@ -8,6 +8,12 @@ import std/json
 
 import jmap_client
 import jmap_client/internal/types/framework
+import jmap_client/internal/serialisation/serde
+import jmap_client/internal/serialisation/serde_diagnostics
+import jmap_client/internal/serialisation/serde_envelope
+import jmap_client/internal/serialisation/serde_helpers
+import jmap_client/internal/serialisation/serde_primitives
+import jmap_client/internal/serialisation/serde_session
 
 import ../massertions
 import ../mfixtures
