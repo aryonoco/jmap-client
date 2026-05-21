@@ -6,11 +6,7 @@
 ## the generic ``addGet`` / ``addChanges`` / ``addQuery`` /
 ## ``addQueryChanges``, and ``addEmailSubmissionSet`` adapts the typed
 ## ``NonEmptyEmailSubmissionUpdates`` container to the RFC 8620 §5.3
-## wire shape. ``getBoth`` lives here because ``mixin fromJson`` is
-## a no-op inside a non-generic body — the enclosing module must have
-## ``EmailSubmissionCreatedItem.fromJson`` and ``EmailCreatedItem.fromJson``
-## in scope at definition time, which is why the two serde modules are
-## re-exported below.
+## wire shape.
 
 {.push raises: [], noSideEffect.}
 {.experimental: "strictCaseObjects".}
@@ -34,10 +30,6 @@ import ./email_submission
 import ./email
 import ./mail_entities
 import ./serde_email_submission
-import ./serde_email
-
-export serde_email_submission
-export serde_email
 
 # =============================================================================
 # addEmailSubmissionGet — EmailSubmission/get (RFC 8621 §7.1)

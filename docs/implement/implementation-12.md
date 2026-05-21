@@ -221,8 +221,8 @@ Run `just ci` before committing.
     `getBoth`.
   - From `mail_capabilities.nim` (amended): `SubmissionExtensionMap`.
 
-- **Step 20:** Update `src/jmap_client/mail/serialisation.nim` to
-  re-export new serde module(s).
+- **Step 20:** Add the new Part G serde module(s) — imported directly
+  by the Part G builder modules.
 
 - **Step 21:** Verify Part G public symbols are accessible via
   `import jmap_client` end-to-end. Compile-time smoke reference to

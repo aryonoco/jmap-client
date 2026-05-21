@@ -15,12 +15,7 @@ import jmap_client/internal/protocol/methods
 import jmap_client/internal/protocol/dispatch
 import jmap_client/internal/serialisation/serde
 import jmap_client/internal/serialisation/serde_diagnostics
-import jmap_client/internal/serialisation/serde_envelope
-import jmap_client/internal/serialisation/serde_errors
-import jmap_client/internal/serialisation/serde_field_echo
-import jmap_client/internal/serialisation/serde_framework
 import jmap_client/internal/serialisation/serde_helpers
-import jmap_client/internal/serialisation/serde_primitives
 
 import ../massertions
 import ../mfixtures
@@ -59,31 +54,6 @@ func fromJson*(
   ok(MockFoo())
 
 registerJmapEntity(MockFoo)
-
-type MockFilter = object
-
-type MockQueryable = object
-
-proc methodEntity*(T: typedesc[MockQueryable]): MethodEntity =
-  meTest
-
-proc capabilityUri*(T: typedesc[MockQueryable]): CapabilityUri =
-  parseCapabilityUri("urn:test:mockqueryable").get()
-
-proc queryMethodName*(T: typedesc[MockQueryable]): MethodName =
-  mnEmailQuery
-
-proc queryChangesMethodName*(T: typedesc[MockQueryable]): MethodName =
-  mnEmailQueryChanges
-
-template filterType*(T: typedesc[MockQueryable]): typedesc =
-  MockFilter
-
-func toJson(c: MockFilter): JsonNode =
-  newJObject()
-
-registerJmapEntity(MockQueryable)
-registerQueryableEntity(MockQueryable)
 
 {.pop.} # params
 {.pop.} # objects
@@ -285,85 +255,6 @@ testCase getEchoHappyPath:
   let result = dr.get(handle)
   assertOk result
   doAssert result.get(){"tag"}.getStr("") == "hello"
-
-# ===========================================================================
-# F. Type-safe reference functions
-# ===========================================================================
-
-testCase idsRefOnQueryHandle:
-  ## ResponseHandle[QueryResponse[MockQueryable]] produces Referencable with
-  ## path /ids. The mock's queryMethodName resolves to mnEmailQuery.
-  let handle = makeResponseHandle[QueryResponse[MockQueryable]](makeMcid("c0"))
-  let r = idsRef(handle)
-  doAssert r.kind == rkReference
-  doAssert r.reference.path == rpIds
-  doAssert r.reference.name == mnEmailQuery
-  doAssert r.reference.resultOf == makeMcid("c0")
-
-testCase listIdsRefOnGetHandle:
-  ## ResponseHandle[GetResponse[MockFoo]] produces Referencable with
-  ## path /list/*/id. The mock's getMethodName resolves to mnMailboxGet.
-  let handle = makeResponseHandle[GetResponse[MockFoo]](makeMcid("c0"))
-  let r = listIdsRef(handle)
-  doAssert r.kind == rkReference
-  doAssert r.reference.path == rpListIds
-  doAssert r.reference.name == mnMailboxGet
-  doAssert r.reference.resultOf == makeMcid("c0")
-
-testCase addedIdsRefOnQueryChangesHandle:
-  ## ResponseHandle[QueryChangesResponse[MockQueryable]] produces Referencable
-  ## with path /added/*/id. queryChangesMethodName resolves to mnEmailQueryChanges.
-  let handle = makeResponseHandle[QueryChangesResponse[MockQueryable]](makeMcid("c0"))
-  let r = addedIdsRef(handle)
-  doAssert r.kind == rkReference
-  doAssert r.reference.path == rpAddedIds
-  doAssert r.reference.name == mnEmailQueryChanges
-  doAssert r.reference.resultOf == makeMcid("c0")
-
-testCase idsRefRejectsGetHandle:
-  ## A GetResponse handle cannot call idsRef (type-safe rejection).
-  let handle = makeResponseHandle[GetResponse[MockFoo]](makeMcid("c0"))
-  assertNotCompiles idsRef(handle)
-
-testCase listIdsRefRejectsQueryHandle:
-  ## A QueryResponse handle cannot call listIdsRef (type-safe rejection).
-  let handle = makeResponseHandle[QueryResponse[MockQueryable]](makeMcid("c0"))
-  assertNotCompiles listIdsRef(handle)
-
-testCase createdRefOnChangesHandle:
-  ## ResponseHandle[ChangesResponse[MockFoo]] produces Referencable with
-  ## path /created. changesMethodName resolves to mnMailboxChanges.
-  let handle = makeResponseHandle[ChangesResponse[MockFoo]](makeMcid("c0"))
-  let r = createdRef(handle)
-  doAssert r.kind == rkReference
-  doAssert r.reference.path == rpCreated
-  doAssert r.reference.name == mnMailboxChanges
-  doAssert r.reference.resultOf == makeMcid("c0")
-
-testCase updatedRefOnChangesHandle:
-  ## ResponseHandle[ChangesResponse[MockFoo]] produces Referencable with
-  ## path /updated. changesMethodName resolves to mnMailboxChanges.
-  let handle = makeResponseHandle[ChangesResponse[MockFoo]](makeMcid("c0"))
-  let r = updatedRef(handle)
-  doAssert r.kind == rkReference
-  doAssert r.reference.path == rpUpdated
-  doAssert r.reference.name == mnMailboxChanges
-  doAssert r.reference.resultOf == makeMcid("c0")
-
-testCase createdRefRejectsGetHandle:
-  ## A GetResponse handle cannot call createdRef (type-safe rejection).
-  let handle = makeResponseHandle[GetResponse[MockFoo]](makeMcid("c0"))
-  assertNotCompiles createdRef(handle)
-
-testCase createdRefRejectsQueryHandle:
-  ## A QueryResponse handle cannot call createdRef (type-safe rejection).
-  let handle = makeResponseHandle[QueryResponse[MockQueryable]](makeMcid("c0"))
-  assertNotCompiles createdRef(handle)
-
-testCase updatedRefRejectsSetHandle:
-  ## A SetResponse handle cannot call updatedRef (type-safe rejection).
-  let handle = makeResponseHandle[SetResponse[MockFoo, MockFoo]](makeMcid("c0"))
-  assertNotCompiles updatedRef(handle)
 
 # ===========================================================================
 # G. Generic reference (escape hatch)

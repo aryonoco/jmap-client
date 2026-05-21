@@ -577,13 +577,14 @@ src/jmap_client/
                         Capability auto-collection via withCapability.
                         Argument-construction helpers directIds,
                         initCreates.
-  convenience.nim     — Pipeline combinators (opt-in, not re-exported by
-                        protocol.nim): addQueryThenGet (template),
-                        addChangesToGet (func), paired handle types
-                        QueryGetHandles[T] / ChangesGetHandles[T] and
-                        result types QueryGetResults[T] /
-                        ChangesGetResults[T]; getBoth overloads for the
-                        paired handle types.
+  convenience.nim     — Per-entity pipeline combinators (opt-in, not
+                        re-exported by jmap_client): the
+                        add<Entity>QueryThenGet / add<Entity>ChangesToGet
+                        wrappers, paired handle types QueryGetHandles[T] /
+                        ChangesGetHandles[T] / MailboxChangesGetHandles
+                        and result types QueryGetResults[T] /
+                        ChangesGetResults[T] / MailboxChangesGetResults;
+                        getBoth overloads for the paired handle types.
   protocol.nim        — Re-exports entity, methods, dispatch, builder
                         (Layer 3 hub; excludes convenience.nim).
 ```
@@ -2656,38 +2657,41 @@ test-only and are not consumed by production code.
 ### 3.13 Pipeline Combinators
 
 Common JMAP patterns chain two method calls with a result reference
-between them (e.g., query-then-get, changes-then-get). While the
-builder's `add*` functions and result reference construction are
-sufficient, the boilerplate is repetitive.
+between them (e.g., query-then-get, changes-then-get). While the typed
+per-entity builders and `reference` construction are sufficient, the
+boilerplate is repetitive.
 
-The `convenience.nim` module (not re-exported by `protocol.nim`)
-provides pipeline combinators:
+The `convenience.nim` module (not re-exported by `jmap_client`)
+provides per-entity pipeline combinators:
 
 ```
-addQueryThenGet[T](b, accountId, ...)
-  → QueryGetHandles[T] = (query: ResponseHandle[QueryResponse[T]],
-                           get: ResponseHandle[GetResponse[T]])
+add<Entity>QueryThenGet(b, accountId, ...)
+  → QueryGetHandles[<Entity>] = (query: ResponseHandle[QueryResponse[...]],
+                                 get: ResponseHandle[GetResponse[...]])
 
-addChangesToGet[T](b, accountId, sinceState, ...)
-  → ChangesGetHandles[T] = (changes: ResponseHandle[ChangesResponse[T]],
-                             get: ResponseHandle[GetResponse[T]])
+add<Entity>ChangesToGet(b, accountId, sinceState, ...)
+  → ChangesGetHandles[<Entity>] = (changes: ResponseHandle[ChangesResponse[...]],
+                                   get: ResponseHandle[GetResponse[...]])
 ```
 
-Each combinator adds two method calls to the builder, wires the result
-reference automatically, and returns a paired handle type for type-safe
-extraction of both responses. Paired `getBoth[T]` extraction funcs
-return both results as a named result object (`QueryGetResults[T]`,
-`ChangesGetResults[T]`).
+Eight per-entity wrappers — `addEmailQueryThenGet`,
+`addMailboxQueryThenGet`, `addEmailSubmissionQueryThenGet`,
+`addEmailChangesToGet`, `addIdentityChangesToGet`,
+`addThreadChangesToGet`, `addEmailSubmissionChangesToGet`,
+`addMailboxChangesToGet` — each add two method calls to the builder,
+wire the result reference internally via the public `reference`
+primitive (the `/ids` path for query chains, `/created` for changes
+chains), and return a paired handle type for type-safe extraction of
+both responses. Paired `getBoth` extraction funcs return both results
+as a named result object (`QueryGetResults[T]`, `ChangesGetResults[T]`,
+`MailboxChangesGetResults`).
 
-These are opt-in ergonomics — users who import only `protocol` get the
-full builder API without the convenience layer. `addQueryThenGet` is a
-`template` (to ensure `mixin filterType` resolution at the call site
-for the underlying `addQuery[T]` call). `addChangesToGet` is a `func`
-that hardcodes `addChanges[T, ChangesResponse[T]]` (rather than
-resolving `changesResponseType(T)`) because `createdRef` is only
-defined over `ResponseHandle[ChangesResponse[T]]`. Paired `getBoth`
-extraction is `func` — `mixin fromJson` resolves at the caller's
-instantiation site.
+These are opt-in ergonomics — users who `import jmap_client` get the
+full typed per-entity builder API without the convenience layer. Each
+wrapper is a non-generic `func` over the public typed builders;
+`addMailboxChangesToGet` returns the bespoke `MailboxChangesGetHandles`
+because Mailbox/changes yields the extended `MailboxChangesResponse`,
+which `ChangesGetHandles[Mailbox]` cannot type.
 
 ---
 
@@ -2988,7 +2992,7 @@ what is implemented and the structural choices that shape it.
 | L1 (types)   | `addresses`, `body`, `email`, `email_blueprint`, `email_submission`, `email_update`, `headers`, `identity`, `keyword`, `mail_capabilities`, `mail_errors`, `mail_filters`, `mailbox`, `mailbox_changes_response`, `snippet`, `submission_atoms`, `submission_envelope`, `submission_mailbox`, `submission_param`, `submission_status`, `thread`, `vacation` |
 | L2 (serde)   | `serde_addresses`, `serde_body`, `serde_email`, `serde_email_blueprint`, `serde_email_submission`, `serde_email_update`, `serde_headers`, `serde_identity`, `serde_identity_update`, `serde_keyword`, `serde_mail_capabilities`, `serde_mail_filters`, `serde_mailbox`, `serde_snippet`, `serde_submission_envelope`, `serde_submission_status`, `serde_thread`, `serde_vacation` |
 | L3 (protocol)| `mail_entities`, `mail_methods`, `mail_builders`, `identity_builders`, `submission_builders` |
-| Hubs         | `mail/types.nim` (L1 hub), `mail/serialisation.nim` (L2 hub), top-level `mail.nim` (re-exports L1+L2+L3) |
+| Hubs         | `mail/types.nim` (L1 hub), top-level `mail.nim` (re-exports the public mail surface: entity types + method / builder modules) |
 
 Two structural notes:
 
@@ -2997,10 +3001,11 @@ Two structural notes:
   are not re-exported by the L1 hub; they reach consumers transitively
   through `submission_envelope` (and its serde companion). Direct
   consumers needing those grammar primitives import them explicitly.
-- `mail/serialisation.nim` re-exports the L1 module
-  `mailbox_changes_response` because that file carries both the
-  `MailboxChangesResponse` type *and* its `fromJson` (no separate
-  serde file exists for it).
+- `mailbox_changes_response.nim` is an L1 module carrying both the
+  `MailboxChangesResponse` type *and* its `fromJson` (no separate serde
+  file exists for it). `mail/types.nim` re-exports the type; `mail.nim`
+  applies `export types except fromJson` so the parser stays hub-private
+  (A1d) — `MailboxChangesResponse` arrives through `dr.get(handle)`.
 - `identity_update.nim` does not exist as a separate L1 file — the
   `IdentityUpdate` ADT lives inside `identity.nim`. There IS a
   separate `serde_identity_update.nim`.

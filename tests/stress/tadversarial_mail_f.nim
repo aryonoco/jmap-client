@@ -42,7 +42,6 @@ import jmap_client/internal/types/field_echo
 import jmap_client/internal/mail/email
 import jmap_client/internal/mail/email_update
 import jmap_client/internal/mail/keyword
-import jmap_client/internal/mail/mail_builders
 import jmap_client/internal/mail/mailbox
 import jmap_client/internal/protocol/methods
 import jmap_client/internal/types/methods_enum

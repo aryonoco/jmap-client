@@ -124,7 +124,6 @@ src/jmap_client/mail/
 │
 │  # Re-export hubs (per-layer)
 ├── types.nim                           # Re-export hub for all Layer 1 mail types
-├── serialisation.nim                   # Re-export hub for all Layer 2 mail serde
 │
 │  # Shared sub-types (Layer 1)
 ├── keyword.nim                         # Keyword distinct type, KeywordSet, system constants

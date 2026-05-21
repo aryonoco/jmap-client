@@ -239,8 +239,7 @@ NUL in header name (A1), overlong UTF-8 colon (A2), NUL in contentType
 
 ## Step 3: Re-export hub updates
 
-**Update:** `src/jmap_client/mail/types.nim`,
-`src/jmap_client/mail/serialisation.nim`
+**Update:** `src/jmap_client/mail/types.nim`
 
 **Design doc:** §1.4 (Module Summary), cross-cutting doc §3.3 (module
 layout).
@@ -248,13 +247,13 @@ layout).
 Update `mail/types.nim` to import and re-export Part C Layer 1 modules:
 `headers`, `body`.
 
-Update `mail/serialisation.nim` to import and re-export Part C Layer 2
-modules: `serde_headers`, `serde_body`.
+Add the Part C Layer 2 serde modules `serde_headers`, `serde_body` —
+imported directly by the Part C method / builder modules.
 
 No changes to `mail.nim` or `src/jmap_client.nim` — Part C adds no entity
 registrations or builder functions, and the existing re-export chain
-(`jmap_client.nim` → `mail.nim` → `mail/types.nim` + `mail/serialisation.nim`)
-transitively covers the new modules.
+(`jmap_client.nim` → `mail.nim` → `mail/types.nim`) transitively covers
+the new Layer 1 modules.
 
 Verify all Part C public symbols are accessible through
 `import jmap_client`: `HeaderForm`, `hfRaw` through `hfUrls`,

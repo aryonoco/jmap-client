@@ -33,14 +33,6 @@ import ./serde_email
 import ./serde_snippet
 import ./serde_vacation
 
-# Re-export the serde modules whose ``fromJson`` overloads are required at
-# the dispatch call-site (``get(handle)``): the generic ``SetResponse[T, U]``
-# resolves ``T.fromJson`` and ``U.fromJson`` via ``mixin`` at the outer
-# instantiation site, so the caller must have these in scope.
-export serde_vacation
-export serde_email
-export serde_snippet
-
 const VacationResponseCapUri =
   # literal IETF URN, always parses Ok
   parseCapabilityUri("urn:ietf:params:jmap:vacationresponse").get()
@@ -140,7 +132,7 @@ type
 # EmailParseResponse fromJson
 # =============================================================================
 
-func emailParseResponseFromJson*(
+func emailParseResponseFromJson(
     node: JsonNode, path: JsonPath = emptyJsonPath()
 ): Result[EmailParseResponse, SerdeViolation] =
   ## Deserialise server JSON to ``EmailParseResponse``.
@@ -162,15 +154,15 @@ func emailParseResponseFromJson*(
     )
   )
 
-func fromJson*(
+func fromJson(
     T: typedesc[EmailParseResponse], node: JsonNode, path: JsonPath = emptyJsonPath()
 ): Result[EmailParseResponse, SerdeViolation] =
-  ## Typedesc-overload wrapper so dispatch's ``mixin fromJson`` resolves
-  ## ``EmailParseResponse.fromJson`` at the ``resp.get(handle)`` site
-  ## (RFC 8621 §4.9). Mirrors the ``SearchSnippetGetResponse.fromJson``
-  ## wrapper below — the named function ``emailParseResponseFromJson``
-  ## continues to be the implementation; this wrapper exposes it through
-  ## the ``T.fromJson(node)`` mixin-discovery path.
+  ## Module-private typedesc-overload wrapper. The same-module
+  ## ``addEmailParse`` builder's ``initResponseHandle[EmailParseResponse]``
+  ## resolves ``mixin fromJson`` to this overload and captures it into the
+  ## handle's parser closure at builder-definition scope (RFC 8621 §4.9).
+  ## ``emailParseResponseFromJson`` is the implementation; this wrapper
+  ## exposes it through the ``T.fromJson(node)`` mixin-discovery path.
   discard $T # consumed for nimalyzer params rule
   emailParseResponseFromJson(node, path)
 
@@ -178,7 +170,7 @@ func fromJson*(
 # SearchSnippetGetResponse fromJson
 # =============================================================================
 
-func searchSnippetGetResponseFromJson*(
+func searchSnippetGetResponseFromJson(
     node: JsonNode, path: JsonPath = emptyJsonPath()
 ): Result[SearchSnippetGetResponse, SerdeViolation] =
   ## Deserialise server JSON to ``SearchSnippetGetResponse``.
@@ -197,18 +189,18 @@ func searchSnippetGetResponseFromJson*(
   let notFound = ?collapseNullToEmptySeq(node, "notFound", parseIdFromServer, path)
   ok(SearchSnippetGetResponse(accountId: accountId, list: list, notFound: notFound))
 
-func fromJson*(
+func fromJson(
     T: typedesc[SearchSnippetGetResponse],
     node: JsonNode,
     path: JsonPath = emptyJsonPath(),
 ): Result[SearchSnippetGetResponse, SerdeViolation] =
-  ## Typedesc-overload wrapper so dispatch's ``mixin fromJson`` resolves
-  ## ``SearchSnippetGetResponse.fromJson`` at the ``resp.get(handle)``
-  ## site (RFC 8621 §5.1). Mirrors the typedesc-overload pattern used by
-  ## ``Mailbox.fromJson`` / ``MailboxCreatedItem.fromJson`` / etc. — the
-  ## named function ``searchSnippetGetResponseFromJson`` continues to be
-  ## the implementation; this wrapper only exposes it through the
-  ## ``T.fromJson(node)`` mixin-discovery path.
+  ## Module-private typedesc-overload wrapper. The same-module
+  ## ``addSearchSnippetGet`` / ``addSearchSnippetGetByRef`` builders'
+  ## ``initResponseHandle[SearchSnippetGetResponse]`` resolves ``mixin
+  ## fromJson`` to this overload and captures it into the handle's parser
+  ## closure at builder-definition scope (RFC 8621 §5.1).
+  ## ``searchSnippetGetResponseFromJson`` is the implementation; this
+  ## wrapper exposes it through the ``T.fromJson(node)`` mixin-discovery path.
   discard $T # consumed for nimalyzer params rule
   searchSnippetGetResponseFromJson(node, path)
 

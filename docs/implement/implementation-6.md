@@ -284,8 +284,7 @@ no tree parameters (76). `addMailboxSet` invocation name (77),
 
 ## Step 5: Re-export hub updates
 
-**Update:** `src/jmap_client/mail/types.nim`,
-`src/jmap_client/mail/serialisation.nim`, `src/jmap_client/mail.nim`
+**Update:** `src/jmap_client/mail/types.nim`, `src/jmap_client/mail.nim`
 
 **Design doc:** §1.6 (Module Summary), cross-cutting doc §3.3 (module
 layout).
@@ -293,8 +292,8 @@ layout).
 Update `mail/types.nim` to import and re-export Part B Layer 1 modules:
 `keyword`, `mailbox`, `mail_filters`.
 
-Update `mail/serialisation.nim` to import and re-export Part B Layer 2
-modules: `serde_keyword`, `serde_mailbox`, `serde_mail_filters`.
+Add the Part B Layer 2 serde modules `serde_keyword`, `serde_mailbox`,
+`serde_mail_filters` — imported directly by the Part B builder modules.
 
 Update `mail.nim` to add import and re-export of `mail_builders`. The
 existing `mail_entities` re-export already covers updated registrations.

@@ -39,6 +39,7 @@ import ../types
 import ./email_submission
 import ./submission_envelope
 import ./submission_status
+import ./serde_email
 import ./serde_email_update
 import ./serde_submission_envelope
 import ./serde_submission_status
@@ -49,8 +50,13 @@ import ./serde_submission_status
 # ``Envelope.fromJson`` / ``DeliveryStatusMap.fromJson`` /
 # ``UndoStatus.fromJson`` at every callsite (including the mixin chain
 # through ``SetResponse[T, U].fromJson`` and ``seq[BlobId].fromJson``).
+# ``serde_email`` is re-exported so the implicit-Email/set arm of
+# ``addEmailSubmissionAndEmailSet`` resolves the
+# ``SetResponse[EmailCreatedItem, PartialEmail]`` mixin chain
+# (``EmailCreatedItem.fromJson`` / ``PartialEmail.fromJson``).
 export serde_submission_envelope
 export serde_submission_status
+export serde_email
 
 # =============================================================================
 # Field helpers — nullable composites

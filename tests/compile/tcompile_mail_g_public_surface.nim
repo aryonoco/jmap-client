@@ -6,8 +6,7 @@
 ## through a single ``import jmap_client``. A compile failure here is the
 ## canonical signal that a symbol was omitted from the re-export cascade:
 ## ``jmap_client.nim`` → ``mail.nim`` → ``mail/types.nim`` or
-## ``mail/serialisation.nim`` or ``mail/submission_builders.nim`` →
-## Layer 1/2 module.
+## ``mail/submission_builders.nim`` → Layer 1 module.
 ##
 ## ``declared()`` is used instead of ``compiles()`` because it sidesteps
 ## overload-resolution ambiguity on the three phantom-typed ``toAny``

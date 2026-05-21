@@ -47,6 +47,8 @@ a living artefact — markers and bodies update as items land.
 - **⬜ TODO** — not yet implemented.
 - **🟦 DEFERRED** — explicitly deferred to a post-1.0 release.
 - **❌ DROPPED** — superseded or rejected; the body explains why.
+- **RESOLVED** — a design-decision item rather than an
+  implementation task; the body records the decision reached.
 - **(FREEZE-BLOCKING)** — appended where the gap blocks the 1.0
   tag.
 
@@ -57,14 +59,15 @@ Where an item has no marker, treat it as ⬜ TODO until verified.
 This dashboard is regenerated mechanically from the per-item status
 markers below. Re-derive the counts with
 `grep -c "— ✅ DONE" docs/TODO/pre-1.0-api-alignment.md` (and the
-sibling marker forms). F7 (Coverage-trace consistency check) is the
-freeze-time gate that catches dashboard drift.
+sibling marker forms). F7 (Coverage-trace consistency check) will
+be the freeze-time gate that mechanically catches dashboard drift;
+until it lands, the counts are maintained by hand.
 
 | Status | Count | What it means |
 |---|---|---|
-| ✅ DONE | 29 | Implemented and verified against source / tests. |
+| ✅ DONE | 31 | Implemented and verified against source / tests. |
 | 🟡 PARTIAL | 16 | Some parts implemented; gaps named in the item body. |
-| ⬜ TODO | 62 | Not yet implemented. |
+| ⬜ TODO | 60 | Not yet implemented. |
 | 🟦 DEFERRED | 1 | Explicitly deferred to a post-1.0 release (E1). |
 | ❌ DROPPED | 1 | Superseded or rejected (D15). |
 | **RESOLVED** | 1 | Design decision made (A3.5). |
@@ -140,8 +143,8 @@ transport, client, mail entities, `PushChannel` /
 the root re-export. A10 locks this layout; H13 (A10b) enforces it.
 
 The per-hub per-symbol audits are tracked separately: A1b
-(protocol hub) and A1c (serialisation hub) are done; A1d (mail
-hub) is open.
+(protocol hub), A1c (serialisation hub) and A1d (mail hub) are
+all done.
 
 ### A1b. Per-symbol audit of `protocol.nim` re-exports *(P5)* — ✅ DONE
 
@@ -159,12 +162,11 @@ Nim's symbol-resolution outcome at qualified call sites such as
 **Final public surface per module**:
 
 - `entity.nim` — `registerJmapEntity`, `registerQueryableEntity`,
-  `registerSettableEntity` (3 templates). Per-entity overloads
+  `registerSettableEntity` (3 templates). The per-entity overloads
   (`methodEntity`, `getMethodName`, `setMethodName`, `capabilityUri`,
-  `filterType`, etc.) live in `internal/mail/mail_entities.nim` and
-  reach user code via `mail.nim`'s re-export chain because `mixin`
-  requires call-site visibility — out of scope for A1b's protocol-hub
-  audit.
+  `filterType`, etc.) live in `internal/mail/mail_entities.nim` —
+  hub-private intra-`internal/mail/` `mixin` scaffolding, out of
+  scope for A1b's protocol-hub audit and not public surface (A1d).
 - `methods.nim` — request types `GetRequest`, `ChangesRequest`,
   `SetRequest`, `CopyRequest`; response types `GetResponse`,
   `ChangesResponse`, `SetResponse`, `CopyResponse`, `QueryResponse`,
@@ -178,11 +180,11 @@ Nim's symbol-resolution outcome at qualified call sites such as
   `assembleQueryChangesArgs`.
 - `dispatch.nim` — handle types `ResponseHandle`, `NameBoundHandle`,
   `CompoundHandles`, `CompoundResults`, `ChainedHandles`,
-  `ChainedResults`; extraction `callId`, `get`, `getBoth`; references
-  `reference`, `idsRef`, `listIdsRef`, `addedIdsRef`, `createdRef`,
-  `updatedRef`; registration `registerCompoundMethod`,
-  `registerChainableMethod`; operators `==`, `$`, `hash`. Hub-private
-  (stripped of `*`): `serdeToMethodError`.
+  `ChainedResults`; extraction `callId`, `get`, `getBoth`; reference
+  construction `reference` (the sole back-reference primitive);
+  registration `registerCompoundMethod`, `registerChainableMethod`;
+  operators `==`, `$`, `hash`. Hub-private (stripped of `*`):
+  `serdeToMethodError`.
 - `builder.nim` — `RequestBuilder`, `initRequestBuilder`,
   `methodCallCount`, `isEmpty`, `capabilities`, `build`, `addEcho`,
   `addGet`, `addChanges`, `addSet`, `addCopy`, `addQuery`,
@@ -213,7 +215,7 @@ Nim's symbol-resolution outcome at qualified call sites such as
    the hub matches the agreed contract per P2.
 
 A1c (serialisation hub) and A1d (mail hub) audit the remaining
-hubs independently. A1c is done; A1d is open. The two hubs use
+hubs independently; both are done. The two hubs use
 different mechanisms because the principled cuts produce different
 shapes: A1c's L2 surface is fully internal, so the L2 hub is
 deleted (no `export … except` filter required); A1d's mail surface
@@ -308,18 +310,23 @@ emit half: `export serde_envelope_emit`. `Invocation.toJson`,
 `Request.toJson`, `Response.toJson`, `ResultReference.toJson`
 flow through. Nothing else does.
 
-**Mail-serde leaves and builders import what they need; they
-re-export nothing from L2.** Each mail-serde leaf
+**Mail-serde leaves and builders import what they need; nothing
+from L2 reaches the hub through them.** Each mail-serde leaf
 (`serde_addresses`, `serde_body`, `serde_email`,
-`serde_email_submission`, the 14 others) imports the L2 modules
-its body references and exports only its own typed ser/de. The
-mixin chain for `SetResponse[Mailbox, PartialMailbox].fromJson`
-etc. resolves at each builder file's instantiation site
+`serde_email_submission`, the 14 others) is itself hub-private. A
+leaf imports the L2 modules its body references and re-exports the
+sibling serde of any entity it nests — `serde_email` and
+`serde_identity` re-export `serde_addresses`, `serde_email_submission`
+re-exports `serde_email` — so a builder importing the top-level
+entity serde resolves the full `mixin`-driven `T.fromJson` chain.
+The chain for `SetResponse[Mailbox, PartialMailbox].fromJson` etc.
+resolves at each builder file's instantiation site
 (`mail_builders.nim`, `identity_builders.nim`,
 `submission_builders.nim`, `mail_methods.nim`), where the
-necessary L2 modules are imported directly. Tests reach the L2
-surface via the H10-permitted test-side aggregator
-`tests/m_l2_serde.nim`.
+necessary L2 modules are imported directly. None of these
+re-exports reaches `import jmap_client`: the mail-serde leaves are
+not on the hub. Tests reach the L2 surface via the H10-permitted
+test-side aggregator `tests/m_l2_serde.nim`.
 
 **Audit gate.**
 `tests/compile/tcompile_a1c_serialisation_hub_surface.nim`
@@ -347,26 +354,50 @@ emitted from `serde_envelope_emit`; the hub aggregator is
 absent rather than filtered, and the user-facing surface
 re-exports through `protocol.nim` instead.
 
-### A1d. Per-symbol audit of `mail.nim` re-exports *(P5)* — ⬜ TODO
+### A1d. Per-symbol audit of `mail.nim` re-exports *(P5)* — ✅ DONE
 
-`internal/mail.nim` does an unfiltered `export types`,
-`export serialisation`, `export mail_entities`,
-`export mail_methods`, `export mail_builders`,
-`export identity_builders`, `export submission_builders`.
-`mail/types.nim` in turn re-exports 19 leaf modules (`addresses`,
-`thread`, `identity`, `vacation`, `mail_capabilities`,
-`mail_errors`, `keyword`, `mailbox`, `mailbox_changes_response`,
-`mail_filters`, `headers`, `body`, `email_blueprint`, `email`,
-`email_update`, `snippet`, `submission_envelope`,
-`submission_status`, `email_submission`) and `mail/serialisation.nim`
-re-exports the 18 mail `serde_*.nim` files.
+`internal/mail.nim` re-exports exactly the RFC 8621 (JMAP Mail)
+public surface — mail entity types, smart constructors, and the
+typed per-entity method builders — through five sub-modules
+(`types`, `mail_methods`, `mail_builders`, `identity_builders`,
+`submission_builders`). Wire serialisation and the
+entity-registration scaffolding are hub-private. Three classes of
+symbol an application developer has no call site for stay off the
+`import jmap_client` surface:
 
-Pre-1.0, audit the cumulative export set to classify user-facing
-vs internal-scaffolding symbols. Land
-`tests/compile/tcompile_a1d_mail_hub_surface.nim` (mirroring
-A1b/A1c). Existing `tcompile_mail_f_public_surface.nim` and
-`tcompile_mail_g_public_surface.nim` cover specific RFC-feature
-slices; A1d is the per-symbol audit of the mail hub as a whole.
+1. **Mail-entity ser/de (P5, P19).** No mail-entity `fromJson` /
+   `toJson` is reachable through the hub. There is no mail serde
+   aggregator module; the builder modules import the L2 `serde_*`
+   leaves directly without re-exporting them; the Email/parse and
+   SearchSnippet/get response-serde funcs in `mail_methods.nim` are
+   module-private; and `mail.nim`'s `export types except fromJson`
+   filters `MailboxChangesResponse.fromJson`. Typed entities arrive
+   through `dr.get(handle)` — the parser closure is captured inside
+   the handle at builder-definition scope (A1c).
+
+2. **Entity-registration overloads (P5).** The `typedesc`-keyed
+   overloads in `mail_entities.nim` (`methodEntity`,
+   `queryMethodName`, `filterType`, `createType`, `setResponseType`,
+   …) are L3 `mixin` scaffolding. `mail_entities.nim` is hub-private
+   — `mail.nim` neither imports nor re-exports it; the
+   intra-`internal/mail/` builder modules import it directly for
+   `mixin` resolution.
+
+3. **Back-reference construction (P5, P7, P19).** The sole
+   back-reference primitive on the public surface is the explicit
+   `reference(handle, name, path)` — non-`mixin`, dragging no
+   registration scaffolding into the caller's scope. Common chains
+   are expressed through the per-entity wrappers in `convenience.nim`
+   and the per-entity compound builders; no generic `mixin`-based
+   reference helper is public.
+
+`tests/compile/tcompile_a1d_mail_hub_surface.nim` pins this surface
+— positive `doAssert declared` for the entity records, typed
+builders, and convenience wrappers; negative `when compiles` /
+`when declared` probes for the entity-registration overloads and
+mail serde — mirroring A1b/A1c. `tcompile_mail_f_public_surface.nim`
+and `tcompile_mail_g_public_surface.nim` cover specific RFC-feature
+slices; A1d covers the mail hub as a whole.
 
 ### A2. Privatise `Invocation.arguments*` *(P19, P5, P8, P25)* — ✅ DONE
 
@@ -567,12 +598,11 @@ instances (multi-account scenarios).
 surfaces as `jcvEntropyUnavailable` `ValidationError`) plus
 `serial: uint64` monotonic per client.
 
-`ResponseHandle[T]` and `NameBoundHandle[T]` additionally carry
-a `rawParseProc: ParseProc[T]` field captured at handle
-construction; A1c's closure-on-handle dispatch replaces the
-former user-scope `mixin fromJson` chain with a closure invoked
-directly by `dispatch.get`, leaving the brand check as the only
-remaining concern at extraction time.
+`ResponseHandle[T]` and `NameBoundHandle[T]` additionally carry a
+`rawParseProc: ParseProc[T]` field captured at handle construction
+(A1c). `dispatch.get` invokes that closure directly — no
+user-scope `mixin fromJson` chain — so the brand check is the only
+concern at the extraction site.
 
 **Pointers.**
 - `src/jmap_client/internal/types/identifiers.nim` — `BuilderId`
@@ -627,9 +657,11 @@ Umbrella sub-items:
 - **A6.5** seals `BuiltRequest` and `DispatchedResponse` (done).
 - **A7b** wires `freeze` and `send` (done).
 - **A7c** consumes `BuiltRequest` on `send` via `sink` (done).
-- **A7d** consumes `RequestBuilder` on `freeze` via `sink` (done).
-- **A7e** is the outstanding tightening: the async-surface name
-  reservation in the RFC-extension policy.
+- **A7d** puts the advisory `sink RequestBuilder` on `freeze`
+  (done); escalating `RequestBuilder` to structurally uncopyable
+  is the outstanding part (partial).
+- **A7e** is the other outstanding tightening: the async-surface
+  name reservation in the RFC-extension policy.
 
 The asynchronous chain extends the same `BuiltRequest` additively
 once async lands; that contract is named in A7e, never stubbed
@@ -714,11 +746,11 @@ construction invariant has its discriminator and arm payloads
 private to its defining module: `IdOrCreationRef`
 (`mail/email_submission.nim`) exposes `kind*`, `asDirectRef*`,
 `asCreationRef*` accessors plus `directRef` / `creationRef` smart
-constructors; pre-existing seals preserved: `MailboxRole`
-(`mail/mailbox.nim`), `ContentDisposition` (`mail/body.nim`),
-`CollationAlgorithm` (`internal/types/collation.nim`), `Comparator`,
-`AddedItem` (`framework.nim`), `Thread`, `PartialThread`
-(`mail/thread.nim`).
+constructors; `MailboxRole` (`mail/mailbox.nim`),
+`ContentDisposition` (`mail/body.nim`), `CollationAlgorithm`
+(`internal/types/collation.nim`), `Comparator`, `AddedItem`
+(`framework.nim`), and `Thread`, `PartialThread` (`mail/thread.nim`)
+are likewise sealed.
 
 **Internal-only sealed types** — `JsonPath` (`serialisation/serde.nim`),
 `SerializedSort`, `SerializedFilter` (`protocol/methods.nim`).
@@ -768,37 +800,37 @@ accessible."* on every run.
 
 ### A9. No test backdoors on the public surface *(P5, P8, P14)* — ✅ DONE
 
-`src/jmap_client/internal/client.nim` exports only the JMAP-shaped operational
-surface: `initJmapClient`, `discoverJmapClient`, `newBuilder`,
-`setBearerToken`, `fetchSession`, `isSessionStale`,
-`refreshSessionIfStale`, `send`. No accessors, no `close`, no
-`*ForTest*` / `*ForTesting*` / `setSessionFor*` /
-`lastRaw*` / `last*Response*` / `last*Request*` symbols anywhere
-under `src/jmap_client/**`.
+`src/jmap_client/internal/client.nim` exports only the JMAP-shaped
+operational surface: `initJmapClient`, `discoverJmapClient`,
+`newBuilder`, `setBearerToken`, `fetchSession`, `isSessionStale`,
+`refreshSessionIfStale`, `send`. No accessor, `close`, or
+`*ForTest*` / `*ForTesting*` / `setSessionFor*` / `lastRaw*` /
+`last*Response*` / `last*Request*` symbol exists anywhere under
+`src/jmap_client/**`. Tests obtain what they need through the
+public API and the H10-permitted internal seams:
 
-- **`setSessionForTest*`** — removed. Tests prime the cached
-  session by issuing a real `fetchSession` against a canned
-  Transport (`tests/mtransport.nim:newClientWithSessionCaps`).
-- **`lastRawResponseBody*` (and underlying field)** — removed.
-  Tests inspect raw response bytes through a `RecordingTransport`
-  wrapper (`tests/mtransport.nim:newRecordingTransport`,
-  `RecordingTransportState.lastResponseBody`).
-- **`sendRawHttpForTesting*`** — removed. Adversarial-POST tests
-  compose the public `newHttpTransport` API with the
-  tests-permitted internal classify helper
-  (`tests/integration/live/mlive.nim:postRawJmap`,
+- **Priming a cached session** — tests issue a real `fetchSession`
+  against a canned Transport
+  (`tests/mtransport.nim:newClientWithSessionCaps`).
+- **Inspecting raw response bytes** — a `RecordingTransport`
+  wrapper exposes `RecordingTransportState.lastResponseBody`
+  (`tests/mtransport.nim:newRecordingTransport`).
+- **Adversarial raw POSTs** — composed from the public
+  `newHttpTransport` plus the tests-permitted internal classify
+  helper (`tests/integration/live/mlive.nim:postRawJmap`,
   `postRawSingleInvocation`).
-- **`validateLimits*`** — module-private inside `client.nim`. The
-  single internal caller is `send`; tests drive limit enforcement
-  through `client.send()` via a canned-session Transport.
-- **`bearerToken*`** — removed. The token is set by
-  `setBearerToken` (write-only mutator) and consumed per-call when
-  the client constructs each request's `Authorization` header.
+- **Limit enforcement** — `validateLimits*` is module-private
+  inside `client.nim`; its sole caller is `send`, and tests drive
+  limit checks through `client.send()` against a canned-session
+  Transport.
+- **Bearer token** — `setBearerToken` is a write-only mutator; the
+  token is read per-call when the client builds each request's
+  `Authorization` header. No `bearerToken` getter exists.
 
 **Verification gate.** `tests/lint/h12_no_test_backdoor_symbols.nim`
-(H12 below) — mechanical lint, runs in `just ci`, fails on any
-exported symbol under `src/jmap_client/**` matching the forbidden
-naming shapes. Current state: zero violations.
+(H12) — a mechanical lint, run in `just ci`, fails on any exported
+symbol under `src/jmap_client/**` matching the forbidden naming
+shapes. Zero violations.
 
 ### A10. Module-path lock *(P1, P5, P6, P20, P23)* — ✅ DONE
 
@@ -842,11 +874,12 @@ that cannot be removed (P1).
   `src/jmap_client/internal/websocket.nim`
   (`WebSocketChannel*`); types re-exported from root, no
   separate module paths.
-- **A10d. Document cross-references — DONE.** A1 / A1b / A23
-  / A24 / A26 updates; CLAUDE.md "Important Directories"
-  surgical fixes; D1.5 + D18 outline additions; H10 lint
-  message update; new C10 item (convenience.nim
-  internal-access cleanup, deferred from A10 by design).
+- **A10d. Cross-references — DONE.** A1, A1b, A23, A24, and
+  A26 cite the locked module-path layout; the CLAUDE.md
+  "Important Directories" section and the D1.5 / D18 outlines
+  match it; the H10 lint message names the layout. The
+  `convenience.nim` internal-access cleanup is tracked as its
+  own item, C10.
 
 **Anti-bypass.** Adding a new public module path requires
 either (a) the H13 lint failing because the filesystem adds a
@@ -1464,9 +1497,9 @@ Every `add*` function that takes a builder still consumes via
 `addCopy`, `addQuery`, `addQueryChanges`) and the 35 mail-domain
 builders across
 `internal/mail/{mail_builders,mail_methods,submission_builders,identity_builders}.nim`
-plus `convenience.addChangesToGet`. Template aliases
-(`addChanges[T]`, `addQuery[T]`, `addQueryChanges[T]`, `addSet[T]`,
-`addCopy[T]`, `addQueryThenGet[T]`) carry the advisory contract
+plus the eight `convenience.nim` per-entity wrappers. Template
+aliases (`addChanges[T]`, `addQuery[T]`, `addQueryChanges[T]`,
+`addSet[T]`, `addCopy[T]`) carry the advisory contract
 through to the underlying procs. A second `freeze` or
 post-`freeze` `add*` on the same builder will silently copy
 (advisory only) — the brand-alias hazard is documented but not
@@ -1965,49 +1998,42 @@ a Cn TODO.
 ### C9. Charter clause: convenience.nim exports no new public types *(P6, P9)* — 🟡 PARTIAL
 
 C7 covers the docstring; this item adds the structural restriction.
-`convenience.nim` may export only procs and may return only
-core-API types (`RequestBuilder`, `ResponseHandle[T]`,
-`CompoundHandles[A, B]`, `BuiltRequest`). It must not introduce
-new public types — those belong in core (L3) or user code.
+`convenience.nim`'s public surface is the pipeline-combinator procs
+plus the paired handle/result bundle types those combinators
+return — `QueryGetHandles[T]` and its siblings. It introduces no
+entity or semantic type; those belong in core (L3) or user code.
 
 **Action.** Document in the `convenience.nim` top docstring; back
 mechanically with H7 lint (added in Section H). The lint scans
-`convenience.nim` for `type … * =` declarations and fails CI on
-any match. Existing `QueryGetHandles[T]` is grandfathered if
-documented as the sole exception; otherwise the lint forces it
-into a private alias before 1.0.
+`convenience.nim` for `type … * =` declarations and admits exactly
+the paired handle/result bundle types the combinators return —
+`QueryGetHandles[T]`, `ChangesGetHandles[T]`,
+`MailboxChangesGetHandles`, `QueryGetResults[T]`,
+`ChangesGetResults[T]`, `MailboxChangesGetResults` — failing CI on
+any further `type … * =`. The bundle types are the documented
+exception: a combinator returning a pair of typed handles needs a
+pair type to name (C10).
 
-### C10. `convenience.nim` internal-access cleanup *(P5, P6)* — ⬜ TODO
+### C10. `convenience.nim` internal-access cleanup *(P5, P6)* — ✅ DONE
 
-`convenience.nim` reaches `./internal/protocol/builder`
-directly to call the hub-private generics `addQuery[T]`,
-`addGet[T]`, `addChanges[T]` (the typed builders root's
-`export protocol except ...` filter intentionally hides). H10
-permits this in-tree access (`src/jmap_client/*` is on the
-allow-list), but the spirit of P5 is violated: a public module
-(`jmap_client/convenience` IS a public path) consumes an
-internal helper.
+`convenience.nim` imports only `jmap_client` — it reaches nothing
+under `internal/`. Its public surface is eight per-entity pipeline
+combinators (`addEmailQueryThenGet`, `addMailboxQueryThenGet`,
+`addEmailSubmissionQueryThenGet`, `addEmailChangesToGet`,
+`addIdentityChangesToGet`, `addThreadChangesToGet`,
+`addEmailSubmissionChangesToGet`, `addMailboxChangesToGet`), each a
+non-generic `func` over the public typed per-entity builders that
+wires its back-reference internally with the public `reference`
+primitive. Four generic handle/result bundle types
+(`QueryGetHandles[T]` / `ChangesGetHandles[T]` and the matching
+`*Results` records) plus a bespoke `MailboxChangesGet*` pair name
+the paired handles; the `getBoth` overloads extract both responses.
+A generic record bundling two already-typed handles is honest — it
+is not the libdbus failure, which is a generic *function* needing
+call-site scaffolding.
 
-**Action.** After the rest of the public API is settled, clean
-up `convenience.nim`. Two acceptable end states:
-
-- **(a) Refactor combinators** to use only the public surface
-  (`import jmap_client` and nothing else). This may require
-  promoting the per-generic builders out of the root `except`
-  clause (a separate principled decision; not implied here).
-- **(b) Remove `convenience.nim` entirely** if no combinator
-  can be written cleanly over the public surface. Drop the
-  public path from `tests/wire_contract/module-paths.txt`;
-  the closed set collapses to one path (`jmap_client` only).
-
-Either end state: the post-cleanup convenience module imports
-nothing under `internal/`.
-
-**Verification gate.** Post-cleanup grep:
-`grep -n "internal" src/jmap_client/convenience.nim`
-returns zero matches. Until then, the file's anti-pattern is
-documented and tolerated under H10's `src/jmap_client/*`
-allow-list.
+**Verification gate.** `grep -n "internal" src/jmap_client/convenience.nim`
+returns zero matches.
 
 ## Section D — Process / policy artefacts
 
@@ -2422,10 +2448,9 @@ freeze-gate item, status `[ ]` / `[x]`, link to the TODO item.
 Categories:
 
 - **Existence gates** — files that must exist before 1.0 (C1.1,
-  D1.5, D9, D10, D11.5, D13.5, D15, D16, D17, plus A10c stub
+  D1.5, D9, D10, D11.5, D13.5, D16, D17, plus the A10c stub
   files `src/jmap_client/internal/{push,websocket}.nim`).
-- **Mechanical gates** — CI lints that must pass (H1–H11, plus
-  H13 added by A10b).
+- **Mechanical gates** — CI lints that must pass (H1–H13).
 - **Snapshot gates** — frozen files committed (A25, A26, F6,
   plus A10a `tests/wire_contract/module-paths.txt`).
 - **Decision gates** — open choices that must be resolved (A3.5,
@@ -2498,8 +2523,8 @@ High-export files to scrutinise (count of `*`-exported field/proc):
   `isSessionStale`, `refreshSessionIfStale`, `send`)
 
 For each, ask "load-bearing public commitment?". Default to private
-for anything not justified. Run after A1 (so the audit measures the
-new headline surface, not the current one).
+for anything not justified. The walk measures the headline surface
+A1 locked.
 
 ### F3. Convenience-leak check — bidirectional *(P6)* — ⬜ TODO
 
@@ -2510,7 +2535,7 @@ modules under `src/jmap_client/internal/protocol/` and
 the `convenience.nim` top docstring.)
 
 **Reverse (new).** `grep -rn
-"convenience\|addQueryThenGet\|addChangesToGet\|getBoth"
+"convenience\|QueryThenGet\|ChangesToGet\|getBoth"
 src/jmap_client/internal/` — must return only forward references
 inside `convenience.nim` itself. Any docstring in L1–L3
 mentioning a convenience helper is a leak (CI fail). P6 says
@@ -2556,9 +2581,9 @@ mechanical gate, the snapshot rots silently — committers regenerate
 it without scrutiny on every PR.
 
 **Action.** Add a `just freeze-api` recipe that produces
-`tests/wire_contract/public-api.txt` from the `*` exports of every
-public module (`jmap_client`, `types`, `serialisation`, `protocol`,
-`client`, `mail`, `convenience`, `push`, `websocket`). CI step:
+`tests/wire_contract/public-api.txt` from the symbols reachable
+through the two public module paths — `import jmap_client` and
+`import jmap_client/convenience` (A10). CI step:
 
 ```yaml
 - name: API snapshot diff
@@ -2577,9 +2602,9 @@ A25, or `[WIRE-CHANGE]` for D3) before the diff is allowed to merge.
 ### F7. Coverage-trace consistency check *(P1, P2)* — ⬜ TODO
 
 The Coverage-trace section at the end of this file lists, per
-principle, the items addressing it. Today the trace is hand-
-maintained; Agent A's audit found 13 principles where the trace
-overstates coverage. Without a CI check, the trace rots.
+principle, the items addressing it. The trace is hand-maintained
+and can drift from the item bodies — overstating or understating
+coverage. Without a CI check, it rots.
 
 **Action.** Add `tests/lint/f7_coverage_trace.nim` (or shell script).
 Logic:
@@ -2701,9 +2726,11 @@ not mention convenience helpers (F3 reverse leak check).
 Wired to `just lint`. Two checks:
 
 1. `grep "^type \w\+\* =" src/jmap_client/convenience.nim` returns
-   only the grandfathered allowlist (currently empty post-C9).
-2. `grep -rn "addQueryThenGet\|addChangesToGet\|getBoth" src/jmap_client/{builder,dispatch,methods,entity,framework,envelope,capabilities,session}.nim src/jmap_client/mail/*.nim`
-   returns nothing.
+   only the allowlisted paired handle/result bundle types — the
+   six `*GetHandles` / `*GetResults` types (C9).
+2. `grep -rn "convenience\|QueryThenGet\|ChangesToGet"
+   src/jmap_client/internal/` returns nothing — no L1–L3 module
+   references a convenience combinator (the F3 reverse-leak check).
 
 Either check failing fails CI.
 
@@ -2779,9 +2806,9 @@ to `just check`, `just ci`, and the standalone
 
 No exported symbol on `src/jmap_client/**` carries a `*ForTest` /
 `*ForTesting` / `setSessionFor*` / `lastRaw*` / `last*Response*` /
-`last*Request*` naming shape. These shapes were the historical
-giveaway for test-only escape hatches on the public surface (A9);
-the lint blocks regression mechanically.
+`last*Request*` naming shape. These naming shapes are the giveaway
+for test-only escape hatches on the public surface (A9); the lint
+blocks regression mechanically.
 
 **Implementation path.**
 `tests/lint/h12_no_test_backdoor_symbols.nim` walks every `.nim`
@@ -2826,9 +2853,10 @@ exactly two paths (`jmap_client`, `jmap_client/convenience`).
 Every principle has at least one TODO item that, if executed, brings
 the codebase into alignment. Every row also names the **verification
 gate** locking the alignment in (CI lint, snapshot, property test,
-or existence file). F7 (Coverage-trace consistency check) verifies
-this section against the item bodies on every CI run; do not
-hand-edit the principle annotations without running F7 locally.
+or existence file). F7 (Coverage-trace consistency check) will
+verify this section against the item bodies on every CI run once
+it lands; until then the principle annotations are maintained by
+hand.
 
 Status legend:
 
@@ -2881,8 +2909,8 @@ must fail CI, not depend on reviewer attention.
 | Global callbacks | D1.5 (no-callbacks rule), D10 | future H10 once L5 lands |
 | Two-channel configuration | A14, A20, A21 | F6 snapshot diff (catches future drift) |
 | Stringly-typed APIs | A2, A2b, A3, A3.5, A4, A5, A8 (closes the disguise by sealing the underlying `rawValue` field), A14, A15, A17, A18, A21, A22b | H11 typed-builder lint; H7 (convenience charter); A8 testament reject test; reviewer grep on `JsonNode` outside Documented exceptions |
-| Multiple coexisting public layers | A1, A1b, A1c, A9, A10 | H13 lint (A10b); module-paths.txt snapshot (A10a); F6 snapshot (A26); A1c compile audit |
-| Convenience layer leaking | C7, C9, F3, H7 | H7 lint |
+| Multiple coexisting public layers | A1, A1b, A1c, A1d, A9, A10 | H13 lint (A10b); module-paths.txt snapshot (A10a); F6 snapshot (A26); A1c + A1d compile audits |
+| Convenience layer leaking | C7, C9, C10, F3, H7 | H7 lint |
 | Catch-all `else` on finite enums | A11, H9 | H9 lint |
 | `.get()` without invariant | (rule) + H8 | H8 lint |
 | Last-error thread-locals | D10, H3 | H3 lint |
@@ -2908,4 +2936,4 @@ if any row is unticked.
 | 7 | Long-form guide | D9 | existence gate |
 | 8 | License confirmation | H6 | `reuse lint`; freeze audit |
 | 9 | L5 FFI design note | D10 | existence gate |
-| 10 | Convenience module quarantine | C7, C9, F3, D16, H7 | H7 lint + grep audit |
+| 10 | Convenience module quarantine | C7, C9, C10, F3, D16, H7 | H7 lint + grep audit |

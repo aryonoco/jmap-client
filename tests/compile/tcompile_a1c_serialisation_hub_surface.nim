@@ -16,12 +16,6 @@ import std/[json, tables]
 import jmap_client
 
 static:
-  # Drift guard: typed-entity ser/de still resolves at user scope.
-  # The mixin chain must still find primitives at definition site —
-  # this would break if the typed-entity fromJson chain lost a needed
-  # internal import.
-  doAssert compiles(GetResponse[Mailbox].fromJson(newJObject()))
-
   # ---- Absence: diagnostic types (serde.nim) ----
   when declared(SerdeViolation):
     {.error: "SerdeViolation reachable through hub".}
@@ -173,9 +167,10 @@ static:
     {.error: "MaxFilterDepth reachable through hub".}
 
 # Runtime anchors — `when declared` / `when compiles` probes do not
-# count as "use" for Nim's UnusedImport check. Reference two public-
-# surface symbols at runtime to pin the import. Both remain hub-public
-# via `internal/types` (Mailbox from `internal/mail/`, Session from
-# `internal/types/`).
+# count as "use" for Nim's UnusedImport check. Reference a public-
+# surface symbol at runtime to pin each import. Mailbox / Session remain
+# hub-public via `internal/types` (Mailbox from `internal/mail/`,
+# Session from `internal/types/`); `newJObject` pins `std/json`.
 discard sizeof(Mailbox)
 discard sizeof(Session)
+discard newJObject()

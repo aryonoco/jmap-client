@@ -4,12 +4,9 @@
 ## Builder functions for Identity (RFC 8621 §6). Thin wrappers over the
 ## generic ``addGet`` / ``addChanges`` / ``addSet``;
 ## ``SetResponse[IdentityCreatedItem, PartialIdentity]`` carries typed
-## ``createResults`` via ``mixin``-resolved ``IdentityCreatedItem.fromJson``
-## at the dispatch site (RFC 8620 §5.3 server-set subset, contrast
-## ``Identity`` returned by ``Identity/get``) and typed ``updateResults``
-## via ``PartialIdentity.fromJson`` (A4 D2). The L2 serde modules are
-## re-exported so consumers who import ``identity_builders`` get the
-## update-algebra ``toJson`` overloads in scope automatically.
+## ``createResults`` via ``IdentityCreatedItem.fromJson`` (RFC 8620 §5.3
+## server-set subset, contrast ``Identity`` returned by ``Identity/get``)
+## and typed ``updateResults`` via ``PartialIdentity.fromJson`` (A4 D2).
 
 {.push raises: [], noSideEffect.}
 {.experimental: "strictCaseObjects".}
@@ -28,13 +25,8 @@ import ../protocol/builder
 import ./addresses
 import ./identity
 import ./mail_entities
-import ./serde_addresses
 import ./serde_identity
 import ./serde_identity_update
-export serde_addresses
-
-export serde_identity
-export serde_identity_update
 
 # =============================================================================
 # addIdentityGet — Identity/get (RFC 8621 §6.1)

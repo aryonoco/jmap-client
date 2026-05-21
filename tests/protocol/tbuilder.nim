@@ -498,13 +498,13 @@ testCase addQueryChangesRejectsWindowParams:
 # ===========================================================================
 
 testCase queryToGetWithResultReference:
-  ## Pipeline: addQuery, take idsRef from the query handle, pass to addGet.
-  ## The built Request must have two invocations with the second referencing
-  ## the first via "#ids".
+  ## Pipeline: addQuery, build a /ids back-reference from the query handle
+  ## with ``reference``, pass it to addGet. The built Request must have two
+  ## invocations with the second referencing the first via "#ids".
   let b0 = initRequestBuilder(makeBuilderId())
   let (b1, queryHandle) =
     addQuery[MockQueryable, MockFilter, Comparator](b0, makeAccountId("a1"))
-  let idsReference = queryHandle.idsRef()
+  let idsReference = referenceTo[seq[Id]](reference(queryHandle, mnEmailQuery, rpIds))
   let (b2, _) =
     addGet[MockQueryable](b1, makeAccountId("a1"), ids = Opt.some(idsReference))
   let req = b2.freeze().request
@@ -521,17 +521,6 @@ testCase queryToGetWithResultReference:
   assertEq refObj{"resultOf"}.getStr(""), $queryHandle
   assertEq refObj{"name"}.getStr(""), "Email/query"
   assertEq refObj{"path"}.getStr(""), "/ids"
-
-# ===========================================================================
-# M. Type-safe reference compile-time check
-# ===========================================================================
-
-testCase idsRefRejectsGetHandle:
-  ## idsRef only compiles on ResponseHandle[QueryResponse[T]].
-  ## A GetResponse handle must be rejected at compile time.
-  let b0 = initRequestBuilder(makeBuilderId())
-  let (_, getHandle) = addGet[MockFoo](b0, makeAccountId("a1"))
-  assertNotCompiles(getHandle.idsRef())
 
 # ===========================================================================
 # N. Argument-construction helpers

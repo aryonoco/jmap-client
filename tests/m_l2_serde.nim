@@ -27,6 +27,9 @@ import jmap_client/internal/serialisation/serde_session
 # Mail-serde leaves are also pulled in so tests that construct typed
 # response handles (SetResponse[EmailSubmissionCreatedItem, ...] etc.)
 # can satisfy the mixin chain at handle-construction time.
+# ``mailbox_changes_response`` is the lone L1 mail response leaf that
+# carries its own serde; it is included here so this aggregator is the
+# complete mail-serde surface for tests.
 import jmap_client/internal/mail/serde_addresses
 import jmap_client/internal/mail/serde_body
 import jmap_client/internal/mail/serde_email
@@ -45,6 +48,7 @@ import jmap_client/internal/mail/serde_submission_envelope
 import jmap_client/internal/mail/serde_submission_status
 import jmap_client/internal/mail/serde_thread
 import jmap_client/internal/mail/serde_vacation
+import jmap_client/internal/mail/mailbox_changes_response
 
 export serde
 export serde_diagnostics
@@ -76,3 +80,5 @@ export serde_submission_envelope
 export serde_submission_status
 export serde_thread
 export serde_vacation
+
+export mailbox_changes_response

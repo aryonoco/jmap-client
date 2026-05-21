@@ -520,12 +520,13 @@ Run `just ci` before committing.
 Update `mail/types.nim` to import and re-export Part D Layer 1 modules:
 `email`, `snippet`.
 
-### Step 26: serialisation.nim re-exports
+### Step 26: Part D serde modules
 
-**Update:** `src/jmap_client/mail/serialisation.nim`
+**Create:** `src/jmap_client/mail/serde_email.nim`,
+`src/jmap_client/mail/serde_snippet.nim`
 
-Update `mail/serialisation.nim` to import and re-export Part D Layer 2
-modules: `serde_email`, `serde_snippet`.
+The Part D Layer 2 serde modules `serde_email` and `serde_snippet` are
+imported directly by the Part D method / builder modules.
 
 No changes to `mail.nim` or `src/jmap_client.nim` — the existing
 re-export chain transitively covers the new modules. `mail_entities.nim`,

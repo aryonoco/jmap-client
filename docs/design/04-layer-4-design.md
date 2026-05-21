@@ -1176,67 +1176,69 @@ type QueryGetHandles*[T] = object
   query*: ResponseHandle[QueryResponse[T]]
   get*: ResponseHandle[GetResponse[T]]
 
-template addQueryThenGet*[T](
-    b: RequestBuilder, accountId: AccountId
-): (RequestBuilder, QueryGetHandles[T])
-  ## Adds Foo/query + Foo/get with automatic result reference wiring.
-  ## The get's ``ids`` parameter references the query's ``/ids`` path.
-  ##
-  ## Implemented as a template so filter and sort type defaults
-  ## resolve at the caller's instantiation site (the underlying
-  ## ``addQuery[T]`` template performs that resolution via
-  ## ``filterType(T)`` and ``Comparator``).
-  ##
-  ## Implicit decisions:
-  ## - Reference path is always ``/ids`` (``rpIds``)
-  ## - Both calls use the same ``accountId`` (no cross-account)
-  ## - No filter, sort, or properties constraints applied
-  ## - Response method name derived from ``queryMethodName(T)``
-
 type ChangesGetHandles*[T] = object
   ## Paired phantom-typed handles from a changes-then-get pipeline.
   changes*: ResponseHandle[ChangesResponse[T]]
   get*: ResponseHandle[GetResponse[T]]
 
-func addChangesToGet*[T](
-    b: RequestBuilder,
-    accountId: AccountId,
-    sinceState: JmapState,
-    maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges),
-    properties: Opt[seq[string]] = Opt.none(seq[string]),
-): (RequestBuilder, ChangesGetHandles[T])
-  ## Adds Foo/changes + Foo/get with automatic result reference from
-  ## ``/created``. Only newly created IDs are fetched — for updated IDs,
-  ## use the core API with ``updatedRef``. Internally calls
-  ## ``addChanges[T, ChangesResponse[T]]`` rather than
-  ## ``changesResponseType(T)``: ``createdRef`` is defined only over
-  ## ``ResponseHandle[ChangesResponse[T]]`` because its contract is the
-  ## RFC 8620 §5.2 ``/created`` field, not any entity-specific extension.
+type MailboxChangesGetHandles* = object
+  ## Bespoke pair — Mailbox/changes yields the extended
+  ## ``MailboxChangesResponse``, which ``ChangesGetHandles[Mailbox]``
+  ## cannot type.
+  changes*: ResponseHandle[MailboxChangesResponse]
+  get*: ResponseHandle[GetResponse[Mailbox]]
+
+func addEmailQueryThenGet*(
+    b: sink RequestBuilder, accountId: AccountId, ...
+): (RequestBuilder, QueryGetHandles[Email])
+  ## Email/query + Email/get; the get's ``ids`` back-references the
+  ## query's ``/ids`` path via the public ``reference`` primitive.
+
+func addEmailChangesToGet*(
+    b: sink RequestBuilder, accountId: AccountId, sinceState: JmapState, ...
+): (RequestBuilder, ChangesGetHandles[Email])
+  ## Email/changes + Email/get; the get's ``ids`` back-references the
+  ## changes response's ``/created`` path.
+
+# Eight per-entity wrappers in total: addEmailQueryThenGet,
+# addMailboxQueryThenGet, addEmailSubmissionQueryThenGet,
+# addEmailChangesToGet, addIdentityChangesToGet, addThreadChangesToGet,
+# addEmailSubmissionChangesToGet, addMailboxChangesToGet — each a
+# non-generic func over the public typed per-entity builders.
 
 type QueryGetResults*[T] = object
   ## Paired extraction results from a query-then-get pipeline.
   query*: QueryResponse[T]
   get*: GetResponse[T]
 
-func getBoth*[T](
-    resp: Response, handles: QueryGetHandles[T]
-): Result[QueryGetResults[T], MethodError]
-  ## Extracts both query and get responses, failing on the first error.
-  ## Composes naturally with the ``?`` operator.
-
 type ChangesGetResults*[T] = object
   ## Paired extraction results from a changes-then-get pipeline.
   changes*: ChangesResponse[T]
   get*: GetResponse[T]
 
+type MailboxChangesGetResults* = object
+  changes*: MailboxChangesResponse
+  get*: GetResponse[Mailbox]
+
 func getBoth*[T](
-    resp: Response, handles: ChangesGetHandles[T]
-): Result[ChangesGetResults[T], MethodError]
+    dr: DispatchedResponse, handles: QueryGetHandles[T]
+): Result[QueryGetResults[T], GetError]
+  ## Extracts both query and get responses, failing on the first error.
+  ## Composes naturally with the ``?`` operator.
+
+func getBoth*[T](
+    dr: DispatchedResponse, handles: ChangesGetHandles[T]
+): Result[ChangesGetResults[T], GetError]
+
+func getBoth*(
+    dr: DispatchedResponse, handles: MailboxChangesGetHandles
+): Result[MailboxChangesGetResults, GetError]
   ## Extracts both changes and get responses, failing on the first error.
 ```
 
-For queries with filters, sorting, or properties constraints, use the
-core builder API directly (`addQuery[T, C, S]` + `idsRef` + `addGet[T]`).
+For full control over filters, sorting, or properties, use the typed
+per-entity builders directly (`addEmailQuery` + `reference` +
+`addEmailGet`).
 
 ---
 
@@ -1638,12 +1640,14 @@ src/jmap_client/
                          findInvocationByName (private),
                          extractInvocationByName (private).
                          Layer 3 module, re-exported via protocol.nim.
-  convenience.nim     — Pipeline combinators: QueryGetHandles[T],
-                         addQueryThenGet, ChangesGetHandles[T],
-                         addChangesToGet, QueryGetResults[T],
-                         ChangesGetResults[T], getBoth (two overloads).
-                         NOT re-exported — explicit import required
-                         (Decision D4.14).
+  convenience.nim     — Per-entity pipeline combinators:
+                         QueryGetHandles[T], ChangesGetHandles[T],
+                         MailboxChangesGetHandles; QueryGetResults[T],
+                         ChangesGetResults[T], MailboxChangesGetResults;
+                         the eight add<Entity>QueryThenGet /
+                         add<Entity>ChangesToGet wrappers; getBoth
+                         (three overloads). NOT re-exported — explicit
+                         import required (Decision D4.14).
 ```
 
 **Decision D4.13: Module split.** Error types and pure error-related
@@ -2030,12 +2034,12 @@ default (Decision D4.14).
     `registerCompoundMethod` (RFC 8620 §5.4),
     `ChainedHandles`/`ChainedResults` with
     `registerChainableMethod` (RFC 8620 §3.7), `getBoth` overloads,
-    `reference`, and the type-safe convenience refs (`idsRef`,
-    `listIdsRef`, `addedIdsRef`, `createdRef`, `updatedRef`).
-15. Implemented `convenience.nim` — pipeline combinators
-    (`addQueryThenGet` template, `addChangesToGet`, two `getBoth`
-    overloads), all returning `(RequestBuilder, <Handles>)` tuples.
-    Deliberately omitted from all re-export hubs.
+    and `reference` (the sole back-reference primitive).
+15. Implemented `convenience.nim` — eight per-entity pipeline
+    combinators (`add<Entity>QueryThenGet` / `add<Entity>ChangesToGet`)
+    plus three `getBoth` overloads, all returning
+    `(RequestBuilder, <Handles>)` tuples. Deliberately omitted from
+    all re-export hubs.
 16. Updated `src/jmap_client.nim` to import and re-export `types`,
     `serialisation`, `protocol`, and `client`. Updated `protocol.nim`
     to re-export `entity`, `methods`, `dispatch`, `builder`.
@@ -2060,8 +2064,8 @@ default (Decision D4.14).
 | `ResponseHandle[T]` | §3.4 (lines 975-1003) | Phantom-typed handle for compile-time response dispatch (in `dispatch.nim`) |
 | `callId` | §3.4 (lines 975-1003) | Extracts underlying `MethodCallId` from a `ResponseHandle[T]` (in `dispatch.nim`) |
 | `get[T]` | §3.4 (lines 975-1003), §3.6.2 | Typed extraction from Response envelope, detects method errors (in `dispatch.nim`) |
-| `addQueryThenGet` | §5.1 (Foo/query), §5.1 (Foo/get), §3.7 (result references) | Pipeline combinator with automatic `/ids` reference wiring (in `convenience.nim`) |
-| `addChangesToGet` | §5.2 (Foo/changes), §5.1 (Foo/get), §3.7 (result references) | Sync pipeline with `/created` reference wiring (in `convenience.nim`) |
+| `add<Entity>QueryThenGet` | §5.1 (Foo/query), §5.1 (Foo/get), §3.7 (result references) | Per-entity pipeline combinator with `/ids` reference wiring (in `convenience.nim`) |
+| `add<Entity>ChangesToGet` | §5.2 (Foo/changes), §5.1 (Foo/get), §3.7 (result references) | Per-entity sync pipeline with `/created` reference wiring (in `convenience.nim`) |
 | `classifyHttpResponse` | §3.6.1 (lines 1079-1136) | Request-level errors |
 | `tryParseProblemDetails` | §3.6.1 (lines 1079-1136) | RFC 7807 problem details extraction |
 | `validateLimits` | §2 (CoreCapabilities), §3.6.1, §5.1, §5.3 | Pre-flight validation, public surface over `RequestLimitViolation` |

@@ -77,14 +77,13 @@ testCase fullRoundTrip:
 # ===========================================================================
 
 testCase multiMethodWithResultReference:
-  ## addQuery -> idsRef -> addGet with referenced ids.
+  ## addQuery -> reference -> addGet with referenced ids.
   let b0 = initRequestBuilder(makeBuilderId())
   let bid = b0.builderId
   let (b1, qh) = addQuery[TestWidget, TestWidgetFilter, Comparator](
     b0, accountId = makeAccountId("A1")
   )
-  # Use type-safe idsRef -- auto-derives name "TestWidget/query"
-  let idsRefVal = qh.idsRef()
+  let idsRefVal = referenceTo[seq[Id]](reference(qh, mnEmailQuery, rpIds))
   let (b2, gh) =
     addGet[TestWidget](b1, accountId = makeAccountId("A1"), ids = Opt.some(idsRefVal))
   let req = b2.freeze().request

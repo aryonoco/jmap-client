@@ -186,8 +186,7 @@ absence of create/destroy in set invocation.
 
 ## Step 6: Re-export hubs + entry point
 
-**Create:** `src/jmap_client/mail/types.nim`,
-`src/jmap_client/mail/serialisation.nim`, `src/jmap_client/mail.nim`
+**Create:** `src/jmap_client/mail/types.nim`, `src/jmap_client/mail.nim`
 
 **Update:** `src/jmap_client.nim`
 
@@ -196,11 +195,12 @@ layout).
 
 `mail/types.nim` imports and re-exports all Part A Layer 1 modules:
 `addresses`, `thread`, `identity`, `vacation`, `mail_capabilities`,
-`mail_errors`. `mail/serialisation.nim` imports and re-exports all Part A
-Layer 2 modules: `serde_addresses`, `serde_thread`, `serde_identity`,
-`serde_vacation`, `serde_mail_capabilities`. `mail.nim` (package-level hub)
-imports and re-exports `mail/types`, `mail/serialisation`,
-`mail/mail_entities`, `mail/mail_methods`.
+`mail_errors`. The Part A Layer 2 serde modules (`serde_addresses`,
+`serde_thread`, `serde_identity`, `serde_vacation`,
+`serde_mail_capabilities`) are imported directly by the Part A method
+and builder modules — there is no serde aggregator. `mail.nim`
+(package-level hub) imports and re-exports `mail/types` and the Part A
+method / builder modules.
 
 Update `src/jmap_client.nim` to add `import jmap_client/mail` and
 `export mail`. Verify all Part A public symbols are accessible through

@@ -55,13 +55,8 @@ static:
   doAssert declared(callId)
   doAssert declared(get)
   doAssert declared(getBoth)
-  # dispatch.nim — references
+  # dispatch.nim — reference construction
   doAssert declared(reference)
-  doAssert declared(idsRef)
-  doAssert declared(listIdsRef)
-  doAssert declared(addedIdsRef)
-  doAssert declared(createdRef)
-  doAssert declared(updatedRef)
   # dispatch.nim — registration
   doAssert declared(registerCompoundMethod)
   doAssert declared(registerChainableMethod)
@@ -109,6 +104,15 @@ static:
   doAssert not declared(mergeCreateResults)
   # dispatch.nim — `*`-stripped (truly module-private)
   doAssert not declared(serdeToMethodError)
+
+  # dispatch.nim — generic mixin reference helpers retired; the public
+  # back-reference surface is `reference` plus the per-entity convenience
+  # builders in `convenience.nim`
+  doAssert not declared(idsRef)
+  doAssert not declared(listIdsRef)
+  doAssert not declared(addedIdsRef)
+  doAssert not declared(createdRef)
+  doAssert not declared(updatedRef)
 
   # methods.nim — retain `*` for cross-internal use, hub-private
   doAssert not declared(serializeOptSort)

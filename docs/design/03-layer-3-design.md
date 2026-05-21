@@ -2065,41 +2065,23 @@ func reference*[T](
   initResultReference(resultOf = callId(handle), name = name, path = path)
 ```
 
-### 12.3 Type-Safe Reference Convenience Functions
+### 12.3 Back-Reference Construction — Decision D3.10
 
-These constrain the `ResponseHandle` type parameter to specific
-response types, making illegal states unrepresentable. Each auto-
-derives the response method name from the per-verb resolver via
-`mixin`.
+`reference(handle, name, path)` is the sole back-reference primitive.
+It takes an explicit `MethodName` and `RefPath`: it is non-`mixin`,
+drags no entity-registration scaffolding into the caller's scope, and
+makes no assumption about which method produced the referenced
+response. Common chains (query-then-get, changes-then-get) are
+expressed through the per-entity wrappers in `convenience.nim` (§13);
+bespoke chains call `reference` directly.
 
-```nim
-func idsRef*[T](handle: ResponseHandle[QueryResponse[T]]): Referencable[seq[Id]]
-  ## /ids from a /query response. Resolves queryMethodName(T) via mixin.
-
-func listIdsRef*[T](handle: ResponseHandle[GetResponse[T]]): Referencable[seq[Id]]
-  ## /list/*/id from a /get response.
-
-func addedIdsRef*[T](
-    handle: ResponseHandle[QueryChangesResponse[T]]
-): Referencable[seq[Id]]
-  ## /added/*/id from a /queryChanges response.
-
-func createdRef*[T](
-    handle: ResponseHandle[ChangesResponse[T]]
-): Referencable[seq[Id]]
-  ## /created from a /changes response.
-
-func updatedRef*[T](
-    handle: ResponseHandle[ChangesResponse[T]]
-): Referencable[seq[Id]]
-  ## /updated from a /changes response.
-```
-
-**Decision D3.10:** The generic `reference()` takes an explicit `name`
-parameter. Convenience functions auto-derive the name from the per-
-verb resolver because each is constrained to a specific response type
-where the verb is known. Different methods produce different response
-names — the generic function does not assume.
+**Decision D3.10:** `reference()` takes an explicit `name` rather than
+auto-deriving it from the handle's response type. Auto-derivation would
+require a `mixin`-resolved per-verb resolver (`queryMethodName(T)`,
+`changesMethodName(T)`, …) at the *caller's* instantiation scope —
+dragging the entity-registration overloads into user code (the libdbus
+shape A1d retired). The explicit-`name` primitive keeps the single
+public layer (P5) honest: no hidden type-class glue at the call site.
 
 **Module:** `dispatch.nim`
 
@@ -2107,11 +2089,16 @@ names — the generic function does not assume.
 
 ## 13. Pipeline Combinators (`convenience.nim`)
 
-**Module:** `convenience.nim` — **NOT** re-exported by `protocol.nim`.
+**Module:** `convenience.nim` — **NOT** re-exported by `jmap_client`.
 Users who want pipeline combinators must explicitly
 `import jmap_client/convenience`. This physical separation keeps the
-core API surface in `builder.nim` and `dispatch.nim` frozen while
-providing opt-in ergonomics.
+typed per-entity builder surface the sole always-on API while these
+combinators stay opt-in.
+
+`convenience.nim` imports only `jmap_client` — no `internal/` reach
+(C10). Each combinator is a non-generic `func` over the public typed
+per-entity builders; the back-reference is wired internally with the
+public `reference` primitive.
 
 ### 13.1 Query-then-Get Pipeline
 
@@ -2120,20 +2107,21 @@ type QueryGetHandles*[T] = object
   query*: ResponseHandle[QueryResponse[T]]
   get*: ResponseHandle[GetResponse[T]]
 
-template addQueryThenGet*[T](b: RequestBuilder, accountId: AccountId
-): (RequestBuilder, QueryGetHandles[T]) =
-  ## Adds Foo/query + Foo/get with automatic /ids result reference wiring.
-  ##
-  ## Implicit decisions:
-  ## - Reference path is always /ids (rpIds)
-  ## - Both calls use the same accountId
-  ## - No filter, sort, or properties constraints applied
-  ## - Response method name derived from queryMethodName(T)
-  block:
-    let (b1, qh) = addQuery[T](b, accountId)
-    let (b2, gh) = addGet[T](b1, accountId, ids = Opt.some(qh.idsRef()))
-    (b2, QueryGetHandles[T](query: qh, get: gh))
+func addEmailQueryThenGet*(
+    b: sink RequestBuilder, accountId: AccountId, ...
+): (RequestBuilder, QueryGetHandles[Email]) =
+  ## Email/query + Email/get; the get's `ids` back-references the
+  ## query's `/ids` path via `reference(qh, mnEmailQuery, rpIds)`.
+  let (b1, qh) = addEmailQuery(b, accountId, ...)
+  let idsR = referenceTo[seq[Id]](reference(qh, mnEmailQuery, rpIds))
+  let (b2, gh) = addEmailGet(b1, accountId, ids = Opt.some(idsR), ...)
+  (b2, QueryGetHandles[Email](query: qh, get: gh))
 ```
+
+Three query-then-get wrappers — `addEmailQueryThenGet`,
+`addMailboxQueryThenGet`, `addEmailSubmissionQueryThenGet` — each
+mirrors the underlying `add<Entity>Query` parameters then the
+`add<Entity>Get` extras.
 
 ### 13.2 Changes-then-Get Pipeline
 
@@ -2142,29 +2130,19 @@ type ChangesGetHandles*[T] = object
   changes*: ResponseHandle[ChangesResponse[T]]
   get*: ResponseHandle[GetResponse[T]]
 
-func addChangesToGet*[T](
-    b: RequestBuilder,
-    accountId: AccountId,
-    sinceState: JmapState,
-    maxChanges: Opt[MaxChanges] = Opt.none(MaxChanges),
-    properties: Opt[seq[string]] = Opt.none(seq[string]),
-): (RequestBuilder, ChangesGetHandles[T]) =
-  ## Adds Foo/changes + Foo/get with automatic /created result reference.
-  ## Uses the standard ChangesResponse[T] directly rather than
-  ## changesResponseType(T) because createdRef is defined only over
-  ## ResponseHandle[ChangesResponse[T]] — its contract is the RFC 8620
-  ## §5.2 /created field, not any entity-specific extension.
-  ##
-  ## Implicit decisions:
-  ## - Reference path is /created (rpCreated) — fetches newly created IDs
-  ##   only. For updated IDs, use the core API with updatedRef.
-  ## - Both calls use the same accountId
-  let (b1, ch) = addChanges[T, ChangesResponse[T]](
-    b, accountId, sinceState, maxChanges)
-  let (b2, gh) = addGet[T](
-    b1, accountId, ids = Opt.some(ch.createdRef()), properties = properties)
-  (b2, ChangesGetHandles[T](changes: ch, get: gh))
+type MailboxChangesGetHandles* = object
+  changes*: ResponseHandle[MailboxChangesResponse]
+  get*: ResponseHandle[GetResponse[Mailbox]]
 ```
+
+Five changes-to-get wrappers — `addEmailChangesToGet`,
+`addIdentityChangesToGet`, `addThreadChangesToGet`,
+`addEmailSubmissionChangesToGet`, `addMailboxChangesToGet`. Each emits
+`<Entity>/changes` + `<Entity>/get` and back-references the changes
+response's `/created` path. `addMailboxChangesToGet` returns the
+bespoke `MailboxChangesGetHandles` because Mailbox/changes yields the
+extended `MailboxChangesResponse`, which `ChangesGetHandles[Mailbox]`
+cannot type.
 
 ### 13.3 Paired Extraction
 
@@ -2173,16 +2151,21 @@ type QueryGetResults*[T] = object
   query*: QueryResponse[T]
   get*: GetResponse[T]
 
-func getBoth*[T](resp: Response, handles: QueryGetHandles[T]
-): Result[QueryGetResults[T], MethodError]
-  ## Extracts both query and get responses, failing on the first error.
-
 type ChangesGetResults*[T] = object
   changes*: ChangesResponse[T]
   get*: GetResponse[T]
 
-func getBoth*[T](resp: Response, handles: ChangesGetHandles[T]
-): Result[ChangesGetResults[T], MethodError]
+type MailboxChangesGetResults* = object
+  changes*: MailboxChangesResponse
+  get*: GetResponse[Mailbox]
+
+func getBoth*[T](dr: DispatchedResponse, handles: QueryGetHandles[T]
+): Result[QueryGetResults[T], GetError]
+func getBoth*[T](dr: DispatchedResponse, handles: ChangesGetHandles[T]
+): Result[ChangesGetResults[T], GetError]
+func getBoth*(dr: DispatchedResponse, handles: MailboxChangesGetHandles
+): Result[MailboxChangesGetResults, GetError]
+  ## Extracts both responses, failing on the first error.
 ```
 
 These `getBoth` overloads are distinct from the `dispatch.nim`
@@ -2296,15 +2279,17 @@ src/jmap_client/
                      getBoth + registerCompoundMethod;
                      ChainedHandles[A,B] + ChainedResults[A,B] +
                      getBoth + registerChainableMethod;
-                     reference; idsRef, listIdsRef, addedIdsRef,
-                     createdRef, updatedRef
+                     reference (the sole back-reference primitive)
   protocol.nim     — Re-export hub: imports and re-exports entity,
                      methods, dispatch, builder. methods_enum is
                      transitively exported via types.nim.
-  convenience.nim  — Optional pipeline combinators (NOT re-exported
-                     by protocol.nim): QueryGetHandles, addQueryThenGet,
-                     ChangesGetHandles, addChangesToGet, QueryGetResults,
-                     ChangesGetResults, getBoth (two overloads)
+  convenience.nim  — Optional per-entity pipeline combinators (NOT
+                     re-exported by jmap_client): QueryGetHandles,
+                     ChangesGetHandles, MailboxChangesGetHandles;
+                     QueryGetResults, ChangesGetResults,
+                     MailboxChangesGetResults; the eight
+                     add<Entity>QueryThenGet / add<Entity>ChangesToGet
+                     wrappers; getBoth (three overloads)
 ```
 
 ### 16.2 Import DAG
@@ -2368,9 +2353,10 @@ tests/protocol/
                      mixin and callback get[T] overloads;
                      CompoundHandles + ChainedHandles getBoth;
                      error detection; serdeToMethodError; reference
-                     construction; type-safe convenience functions
-  tconvenience.nim — Pipeline combinator tests: addQueryThenGet,
-                     addChangesToGet, getBoth extraction
+                     construction
+  tconvenience.nim — Pipeline combinator tests: the per-entity
+                     query-then-get / changes-to-get wrappers,
+                     getBoth extraction
 ```
 
 ### 16.4 Module Boilerplate

@@ -54,6 +54,7 @@ import std/tables
 
 import results
 import jmap_client
+import jmap_client/internal/mail/mail_entities
 import ./mcapture
 import ./mconfig
 import ./mlive

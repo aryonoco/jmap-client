@@ -38,16 +38,6 @@ import ./serde_email_blueprint
 import ./serde_email_update
 import ./serde_mail_filters
 
-# Re-export the serde modules whose ``fromJson`` overloads are required at
-# the dispatch call-site (``get(handle)``): the generic ``SetResponse[T,
-# U]`` and ``CopyResponse[T]`` resolve ``T.fromJson`` / ``U.fromJson`` via
-# ``mixin`` at the outer instantiation site, so the caller must have these
-# in scope.
-export serde_mailbox
-export serde_thread
-export serde_email
-export mailbox_changes_response
-
 # =============================================================================
 # addMailboxChanges — Mailbox/changes (RFC 8621 §2.2)
 # =============================================================================

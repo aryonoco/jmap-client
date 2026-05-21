@@ -86,7 +86,7 @@ testCase temailQueryGetChainLive:
     let (b3b, getHandle) = addEmailGet(
       b3a,
       mailAccountId,
-      ids = Opt.some(queryHandle.idsRef()),
+      ids = Opt.some(referenceTo[seq[Id]](reference(queryHandle, mnEmailQuery, rpIds))),
       properties = Opt.some(@["id", "subject", "from", "receivedAt"]),
     )
     let resp3 =

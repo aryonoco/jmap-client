@@ -20,7 +20,6 @@ import jmap_client/internal/mail/keyword
 import jmap_client/internal/mail/addresses
 import jmap_client/internal/mail/snippet
 import jmap_client/internal/mail/mail_filters
-import jmap_client/internal/mail/mail_methods
 import jmap_client/internal/mail/serde_email
 import jmap_client/internal/mail/serde_snippet
 import jmap_client/internal/mail/serde_mail_filters
@@ -220,15 +219,8 @@ testCase filterHeaderColonPreserved: # scenario 110
   assertEq node["header"][0].getStr(""), "Content:Type"
 
 # =============================================================================
-# G. Response Types (scenarios 111–114)
+# G. Snippet and Email Entity Edge Cases (scenarios 112–114)
 # =============================================================================
-
-testCase snippetGetResponseListNull: # scenario 111
-  ## list: null — implementation is lenient (ok with empty list), not err.
-  let j = %*{"accountId": "acct1", "list": nil, "notFound": []}
-  let res = searchSnippetGetResponseFromJson(j)
-  assertOk res
-  assertLen res.get().list, 0
 
 testCase snippetXssInSubject: # scenario 112
   ## HTML in subject preserved verbatim — no sanitisation at serde layer.

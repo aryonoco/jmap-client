@@ -151,7 +151,6 @@ RFC 5321 `esmtp-keyword` lexical shape with `RFC5321Keyword`.
 | `submission_builders.nim` | L3 | Builders for all 5 methods + compound `addEmailSubmissionAndEmailSet`. |
 | `mail_capabilities.nim` | L1 | `SubmissionCapabilities.submissionExtensions: SubmissionExtensionMap` — distinct wrapper keyed on `RFC5321Keyword` (G25). |
 | `mail_entities.nim` | L3 | EmailSubmission entity registration: `methodEntity`, `getMethodName`, `changesMethodName`, `setMethodName`, `queryMethodName`, `queryChangesMethodName`, `capabilityUri`, plus the typed associated-type templates (`changesResponseType`, `filterType`, `createType`, `updateType`, `setResponseType`) and the entity registrations (`registerJmapEntity`, `registerQueryableEntity`, `registerSettableEntity`, `registerCompoundMethod`). |
-| `serialisation.nim` | — | Re-export of the three new serde modules. |
 
 ---
 

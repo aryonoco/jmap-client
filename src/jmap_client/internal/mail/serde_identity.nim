@@ -18,6 +18,13 @@ import ./addresses
 import ./identity
 import ./serde_addresses
 
+# Re-export the sibling address serde so ``Identity.fromJson`` /
+# ``PartialIdentity.fromJson`` resolve ``EmailAddress`` through the mixin
+# chain at every callsite — including ``SetResponse[T, U].fromJson``
+# driven from the typed Identity builders. Mirrors ``serde_email``'s
+# re-export of its nested-type serde.
+export serde_addresses
+
 # =============================================================================
 # Helpers
 # =============================================================================

@@ -71,9 +71,8 @@ template initResponseHandle*[T](
 
 func callId*[T](h: ResponseHandle[T]): MethodCallId =
   ## Public accessor — the underlying ``MethodCallId``. Stays public
-  ## (no hub filter) because back-reference construction
-  ## (``reference``, ``idsRef``, etc.) needs to read the callId
-  ## without exposing the brand.
+  ## (no hub filter) because back-reference construction via
+  ## ``reference`` needs to read the callId without exposing the brand.
   h.rawCallId
 
 func builderId*[T](h: ResponseHandle[T]): BuilderId =
@@ -467,63 +466,3 @@ func reference*[T](
   ## ``RefPath`` whose backing string is the JSON Pointer with optional
   ## JMAP '*' wildcard — see ``methods_enum.RefPath``.
   return initResultReference(resultOf = callId(handle), name = name, path = path)
-
-# =============================================================================
-# Type-safe reference convenience functions (Make Illegal States Unrepresentable)
-# =============================================================================
-
-func idsRef*[T](handle: ResponseHandle[QueryResponse[T]]): Referencable[seq[Id]] =
-  ## Convenience: reference to /ids from a /query response. Only compiles
-  ## on ``ResponseHandle[QueryResponse[T]]`` — the compiler rejects this
-  ## on get/set/changes handles. Auto-derives the response name from T via
-  ## ``mixin queryMethodName``.
-  mixin queryMethodName
-  return referenceTo[seq[Id]](
-    initResultReference(
-      resultOf = callId(handle), name = queryMethodName(T), path = rpIds
-    )
-  )
-
-func listIdsRef*[T](handle: ResponseHandle[GetResponse[T]]): Referencable[seq[Id]] =
-  ## Convenience: reference to /list/*/id from a /get response. Only
-  ## compiles on ``ResponseHandle[GetResponse[T]]``.
-  mixin getMethodName
-  return referenceTo[seq[Id]](
-    initResultReference(
-      resultOf = callId(handle), name = getMethodName(T), path = rpListIds
-    )
-  )
-
-func addedIdsRef*[T](
-    handle: ResponseHandle[QueryChangesResponse[T]]
-): Referencable[seq[Id]] =
-  ## Convenience: reference to /added/*/id from a /queryChanges response.
-  ## Only compiles on ``ResponseHandle[QueryChangesResponse[T]]``.
-  mixin queryChangesMethodName
-  return referenceTo[seq[Id]](
-    initResultReference(
-      resultOf = callId(handle), name = queryChangesMethodName(T), path = rpAddedIds
-    )
-  )
-
-func createdRef*[T](handle: ResponseHandle[ChangesResponse[T]]): Referencable[seq[Id]] =
-  ## Convenience: reference to /created from a /changes response. Only
-  ## compiles on ``ResponseHandle[ChangesResponse[T]]`` — the compiler
-  ## rejects this on get/set/query handles.
-  mixin changesMethodName
-  return referenceTo[seq[Id]](
-    initResultReference(
-      resultOf = callId(handle), name = changesMethodName(T), path = rpCreated
-    )
-  )
-
-func updatedRef*[T](handle: ResponseHandle[ChangesResponse[T]]): Referencable[seq[Id]] =
-  ## Convenience: reference to /updated from a /changes response. Only
-  ## compiles on ``ResponseHandle[ChangesResponse[T]]`` — the compiler
-  ## rejects this on get/set/query handles.
-  mixin changesMethodName
-  return referenceTo[seq[Id]](
-    initResultReference(
-      resultOf = callId(handle), name = changesMethodName(T), path = rpUpdated
-    )
-  )

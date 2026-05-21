@@ -14,7 +14,6 @@ discard """
 ##   jmap_client.nim
 ##     -> jmap_client/mail.nim
 ##         -> jmap_client/mail/types.nim
-##         -> jmap_client/mail/serialisation.nim
 ##
 ## A missing ``export`` at any hop surfaces as a compile error here.
 ##
@@ -34,8 +33,6 @@ discard """
 ## pure compile-check; there is no meaningful runtime behaviour to run.
 
 {.push raises: [].}
-
-import std/json
 
 import jmap_client
 
@@ -80,15 +77,6 @@ proc touchEmailBlueprintAccessors(bp: EmailBlueprint) {.used.} =
   discard bp.bodyValues
   discard bp.sentAt
   discard bp.bodyKind
-
-# -----------------------------------------------------------------------------
-# serde_email_blueprint.nim — ``toJson`` for EmailBlueprint.
-# -----------------------------------------------------------------------------
-
-proc touchEmailBlueprintSerde(bp: EmailBlueprint): JsonNode {.used.} =
-  ## Forces ``toJson(EmailBlueprint)`` to resolve through the
-  ## serde re-export hub.
-  bp.toJson
 
 # -----------------------------------------------------------------------------
 # mailbox.nim (§4.2) — NonEmptyMailboxIdSet.
