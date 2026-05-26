@@ -65,9 +65,9 @@ until it lands, the counts are maintained by hand.
 
 | Status | Count | What it means |
 |---|---|---|
-| ✅ DONE | 31 | Implemented and verified against source / tests. |
-| 🟡 PARTIAL | 16 | Some parts implemented; gaps named in the item body. |
-| ⬜ TODO | 60 | Not yet implemented. |
+| ✅ DONE | 32 | Implemented and verified against source / tests. |
+| 🟡 PARTIAL | 15 | Some parts implemented; gaps named in the item body. |
+| ⬜ TODO | 61 | Not yet implemented. |
 | 🟦 DEFERRED | 1 | Explicitly deferred to a post-1.0 release (E1). |
 | ❌ DROPPED | 1 | Superseded or rejected (D15). |
 | **RESOLVED** | 1 | Design decision made (A3.5). |
@@ -172,18 +172,18 @@ Nim's symbol-resolution outcome at qualified call sites such as
   `ChangesResponse`, `SetResponse`, `CopyResponse`, `QueryResponse`,
   `QueryChangesResponse`; copy disposition `CopyDestroyModeKind`,
   `CopyDestroyMode`, `keepOriginals`, `destroyAfterSuccess`; serde
-  `toJson`, `fromJson`. Hub-private (stripped of `*`): `optState`,
-  `optUnsignedInt`, `mergeCreateResults`. Hub-private (`*` retained
-  for cross-internal use, filtered via `except`): `SerializedSort`,
-  `SerializedFilter`, `toJsonNode`, `serializeOptSort`,
-  `serializeOptFilter`, `serializeFilter`, `assembleQueryArgs`,
-  `assembleQueryChangesArgs`.
+  `toJson`, `fromJson`. Module-private (no `*` qualifier):
+  `optState`, `optUnsignedInt`, `mergeCreateResults`. Hub-private
+  (`*` retained for cross-internal use, filtered via `except`):
+  `SerializedSort`, `SerializedFilter`, `toJsonNode`,
+  `serializeOptSort`, `serializeOptFilter`, `serializeFilter`,
+  `assembleQueryArgs`, `assembleQueryChangesArgs`.
 - `dispatch.nim` — handle types `ResponseHandle`, `NameBoundHandle`,
   `CompoundHandles`, `CompoundResults`, `ChainedHandles`,
   `ChainedResults`; extraction `callId`, `get`, `getBoth`; reference
   construction `reference` (the sole back-reference primitive);
   registration `registerCompoundMethod`, `registerChainableMethod`;
-  operators `==`, `$`, `hash`. Hub-private (stripped of `*`):
+  operators `==`, `$`, `hash`. Module-private (no `*` qualifier):
   `serdeToMethodError`.
 - `builder.nim` — `RequestBuilder`, `initRequestBuilder`,
   `methodCallCount`, `isEmpty`, `capabilities`, `build`, `addEcho`,
@@ -197,10 +197,9 @@ Nim's symbol-resolution outcome at qualified call sites such as
 
 **Audit mechanism** — three layers of enforcement:
 
-1. **`*`-stripping** — for symbols with no cross-module callers,
-   strip `*` so they are file-private. Tests that exercised them
-   directly relocate to whitebox files using Nim's `include`
-   directive (`tests/protocol/tmethods_whitebox.nim`,
+1. **File-private symbols** — symbols with no cross-module callers
+   carry no `*` qualifier. Whitebox test files use Nim's `include`
+   directive to reach them (`tests/protocol/tmethods_whitebox.nim`,
    `tests/protocol/tdispatch_whitebox.nim`). Tests are not a design
    input — they follow the public/private boundary, they don't shape it.
 2. **`export module except sym, …`** — for symbols that retain `*`
@@ -215,13 +214,12 @@ Nim's symbol-resolution outcome at qualified call sites such as
    the hub matches the agreed contract per P2.
 
 A1c (serialisation hub) and A1d (mail hub) audit the remaining
-hubs independently; both are done. The two hubs use
-different mechanisms because the principled cuts produce different
-shapes: A1c's L2 surface is fully internal, so the L2 hub is
-deleted (no `export … except` filter required); A1d's mail surface
-includes types app developers do touch (`Email`, `Mailbox`,
-`Identity`, etc.), so it lands closer to A1b's selective-export
-pattern.
+hubs independently. The two hubs use different mechanisms because
+the principled cuts produce different shapes: A1c's L2 surface is
+fully internal, so no L2 hub aggregator exists (`export … except`
+filtering is not needed); A1d's mail surface includes types app
+developers do touch (`Email`, `Mailbox`, `Identity`, etc.), so it
+uses A1b's selective-export pattern.
 
 ### A1c. Per-symbol audit of `serialisation.nim` re-exports *(P5, P19)* — ✅ DONE
 
@@ -565,7 +563,7 @@ JsonNode)]` parameter. Locked structure:
 - Per-call typed metadata lives in
   `src/jmap_client/internal/protocol/call_meta.nim` — `setMeta` /
   `getMeta` helpers fold typed create/update/destroy/ids inputs into
-  `CallLimitMeta` once; the stripped generic builders delegate.
+  `CallLimitMeta` once; the hub-private generic builders delegate.
 
 - `EmailBodyFetchOptions` is consumed via
   `emitBodyFetchOptions(node, opts)`
@@ -894,44 +892,94 @@ the rationale. Removing or renaming a public path post-1.0 is a
 testament reject tests `tests/compile/treject_a10_path_<X>.nim`
 enforce that each non-closed-set path FAILS to compile.
 
-### A11. Forward-compat enum audit *(P1, P20)* — 🟡 PARTIAL
+### A11. Forward-compat enum audit *(P1, P19, P20)* — ✅ DONE
 
-Every enum that crosses the wire must have a catch-all variant
-AND a `raw…` field for lossless preservation. Confirmed catch-all
-coverage:
+Every **open-world** enum that crosses the JMAP wire carries a
+catch-all variant AND a `raw…` field on its carrier type, plus a
+publicly-reachable parser. Closed-world wire enums (RFC fully
+enumerates; no extensibility) are documented exemptions.
 
-- `MethodName.mnUnknown` (`internal/types/methods_enum.nim`).
-- `CapabilityKind.ckUnknown` (`internal/types/capabilities.nim`).
-- `RequestErrorType.retUnknown` (`internal/types/errors.nim`).
-- `MethodErrorType.metUnknown` (`internal/types/errors.nim`).
-- `SetErrorType.setUnknown` (`internal/types/errors.nim`).
-- `CollationAlgorithm.caOther` (`internal/types/collation.nim`).
-- `MailboxRole.mrOther` with `rawIdentifier`
-  (`internal/mail/mailbox.nim`).
+**Compliance matrix — open-world wire enums (11/11 compliant):**
 
-**Remaining gap — `RefPath`.**
-`src/jmap_client/internal/types/envelope.nim:125–132` —
-`RefPath.path` silently falls back to `rpIds` for unknown server
-paths, coercing unknown paths to `/ids` semantics (lossy).
-Resolution: preserve via `rawPath` only, OR add an `rpUnknown`
-variant alongside the existing typed paths.
+| # | Enum | Catch-all | Carrier `raw…` | Parser | Family |
+|---|---|---|---|---|---|
+| 1 | `MethodName` | `mnUnknown` | `Invocation.rawName` | `parseMethodName` | Total |
+| 2 | `CapabilityKind` | `ckUnknown` | `ServerCapability.rawUri` | `parseCapabilityKind` | Total |
+| 3 | `RequestErrorType` | `retUnknown` | `RequestError.rawType` | `parseRequestErrorType` | Total |
+| 4 | `MethodErrorType` | `metUnknown` | `MethodError.rawType` | `parseMethodErrorType` | Total |
+| 5 | `SetErrorType` | `setUnknown` | `SetError.rawType` | `parseSetErrorType` | Total |
+| 6 | `CollationAlgorithmKind` | `caOther` | `CollationAlgorithm.rawIdentifier` | `parseCollationAlgorithm` | Fallible |
+| 7 | `MailboxRoleKind` | `mrOther` | `MailboxRole.rawIdentifier` | `parseMailboxRole` | Fallible |
+| 8 | `ContentDispositionKind` | `cdExtension` | `ContentDisposition.rawIdentifier` | `parseContentDisposition` | Fallible |
+| 9 | `DeliveredState` | `dsOther` | `ParsedDeliveredState.rawBacking` | `parseDeliveredState` | Total |
+| 10 | `DisplayedState` | `dpOther` | `ParsedDisplayedState.rawBacking` | `parseDisplayedState` | Total |
+| 11 | `RefPath` | `rpUnknown` | `ResultReference.rawPath` | `parseRefPath` | Total |
 
-**Remaining gap — `RequestContext` leak.**
-`internal/types/errors.nim:145` declares `RequestContext` as a
-public enum; it surfaces through `errors → types → root`
-re-export despite being an internal-classification enum. Either
-strip the `*` (and accept that internal error wrapping in
-`types/errors.nim` still resolves it within-module) or rename
-to indicate its public commitment.
+**Parse-function families.** Per P15, Result-returning constructors
+exist where there is a real invariant to fail against; forward-compat
+tolerance is not a failure mode. **Total** (8/11): `func parseT(raw:
+string): T` — catch-all IS the answer for non-matching wire strings.
+**Fallible** (3/11): `func parseT(raw: string): Result[T,
+ValidationError]` — RFC structural constraints validated before
+classification; catch-all is for structurally-valid-but-unknown
+tokens.
 
-**Cross-reference.** `AccountCapabilityEntry.data: JsonNode`
-(`internal/types/session.nim`) audit is subsumed by A17's case-object refactor;
-not duplicated here.
+**Documented closed-world wire enums** (intentionally without
+catch-all; out of scope by RFC stipulation):
+`UndoStatus` (RFC 8621 §7 ¶7),
+`FilterOperator` (RFC 8620 §5.5),
+`HeaderForm` (RFC 8621 §4.1.2),
+`BodyValueScope` (client-only; replaces three RFC booleans per D9),
+`PlainSortProperty`, `KeywordSortProperty`, `EmailComparatorKind`
+(RFC 8621 §4.4.2),
+`EmailSubmissionSortProperty` (RFC 8621 §7.4),
+`BodyEncoding` (RFC 6531),
+`DsnRetType` (RFC 3461),
+`DsnNotifyFlag` (RFC 3461),
+`DeliveryByMode` (RFC 2852).
+
+**Source locations.**
+
+- `RefPath.rpUnknown` sits at ordinal 0 in
+  `src/jmap_client/internal/types/methods_enum.nim`; `parseRefPath`
+  in the same module mirrors `parseMethodName`. `ResultReference.path`
+  in `src/jmap_client/internal/types/envelope.nim` delegates to
+  `parseRefPath(rr.rawPath)`. Both wire emission
+  (`internal/serialisation/serde_envelope_emit.nim`) and wire parsing
+  (`internal/serialisation/serde_envelope_parse.nim`) route through
+  the verbatim `rawPath` string.
+- `RequestContext` (`rcSession` / `rcApi`) lives in
+  `src/jmap_client/internal/transport/classify.nim` alongside its
+  sole L4 consumers. No hub aggregates `transport/classify`, so the
+  symbol is structurally hub-invisible — mirrors the A1c shape where
+  the L2 cut also produces no hub.
+
+**Verification gates.**
+
+- `tests/compile/tcompile_a11_refpath_unknown.nim` — positive
+  audit: `parseRefPath` resolves through `import jmap_client`;
+  vendor paths land on `rpUnknown` while `rawPath` preserves the
+  bytes.
+- `tests/compile/tcompile_a11_request_context_hub_surface.nim` —
+  negative audit: `import jmap_client` does not surface
+  `RequestContext`, `rcSession`, or `rcApi`.
+- `tests/compile/tcompile_a11_request_context_internal_access.nim`
+  — positive internal-access audit: direct import of
+  `jmap_client/internal/transport/classify` resolves the symbol.
+- `tests/compile/tcompile_a11_wire_enum_invariant.nim` —
+  named-list regression defence: every catch-all variant in the
+  matrix above plus the typed parser families resolve through the
+  hub. Removing any catch-all variant fails CI with an exact-string
+  error.
+
+Addition of a new non-compliant open-world wire enum is undetected
+by the named-list gate; the comprehensive AST-walking defence is
+tracked at H14.
 
 ### A12. Error diagnostic surface *(P13 cohort, P7)* — 🟡 PARTIAL
 
 `message()` exists for `RequestError`, `ClientError`, and
-`GetError` (`internal/types/errors.nim:81, 127, 560`). No
+`GetError` (`internal/types/errors.nim:81, 127, 554`). No
 `message()` exists for `MethodError`, `SetError`, or
 `ValidationError`; no `$` operator exists for any of the four
 error types. SQLite ships `sqlite3_errmsg`; libcurl ships
@@ -2505,26 +2553,34 @@ The list at audit time spans (non-exhaustive):
 
 ### F2. Public-symbol audit walk *(P5)* — ⬜ TODO
 
-High-export files to scrutinise (count of `*`-exported field/proc):
+High-export files to scrutinise (count of `*`-exported
+`type`/`proc`/`func`/`template`/`iterator` declarations; rough
+order; re-derive at audit time with `grep -cE '^\s*(proc|func|template|type|iterator)\s+\w+\*'`):
 
-- `src/jmap_client/internal/mail/email.nim` — 75 exports
-- `src/jmap_client/internal/protocol/methods.nim` — 54 exports
-- `src/jmap_client/internal/mail/mailbox.nim` — 37 exports
-- `src/jmap_client/internal/mail/body.nim` — 33 exports
-- `src/jmap_client/internal/mail/email_submission.nim` — 28 exports
-- `src/jmap_client/internal/types/errors.nim` — 26 exports
-- `src/jmap_client/internal/transport.nim` — 10 exports (`HttpMethodKind`,
-  `HttpRequest`, `HttpResponse`, `SendProc`, `CloseProc`,
-  `Transport`, `newTransport`, `newHttpTransport`, `send`,
-  `=destroy`)
-- `src/jmap_client/internal/client.nim` — 10 exports (`JmapClient`,
-  `initJmapClient` ×2 overloads, `discoverJmapClient` ×2
-  overloads, `newBuilder`, `setBearerToken`, `fetchSession`,
-  `isSessionStale`, `refreshSessionIfStale`, `send`)
+- `src/jmap_client/internal/mail/email_submission.nim` — ~50
+- `src/jmap_client/internal/types/errors.nim` — ~42
+- `src/jmap_client/internal/protocol/methods.nim` — ~36
+- `src/jmap_client/internal/mail/mailbox.nim` — ~33
+- `src/jmap_client/internal/mail/email.nim` — ~21
+- `src/jmap_client/internal/mail/body.nim` — ~15
+- `src/jmap_client/internal/client.nim` — 11 exports (`JmapClient`,
+  `initJmapClient` ×2 overloads, `discoverJmapClient` ×2 overloads,
+  `newBuilder`, `setBearerToken`, `fetchSession`, `isSessionStale`,
+  `refreshSessionIfStale`, `send`, plus the C5/C8 capability
+  helpers once they land)
+- `src/jmap_client/internal/transport.nim` — 9 exports
+  (`HttpMethodKind`, `HttpRequest`, `HttpResponse`, `SendProc`,
+  `CloseProc`, `Transport`, `newTransport`, `newHttpTransport`,
+  `send`)
 
 For each, ask "load-bearing public commitment?". Default to private
 for anything not justified. The walk measures the headline surface
-A1 locked.
+A1 locked. The numbers above do not include re-exports the public
+hub filters out — they are raw module-level export counts and
+overstate the public surface accordingly. A1c demonstrates the
+effect: the L2 modules export their `fromJson` / `toJson` overloads
+liberally but only the four envelope `toJson` overloads reach the
+public surface through `protocol.nim`.
 
 ### F3. Convenience-leak check — bidirectional *(P6)* — ⬜ TODO
 
@@ -2848,6 +2904,51 @@ make the public/internal boundary symmetric.
 **Current-state assertion.** Zero violations; snapshot lists
 exactly two paths (`jmap_client`, `jmap_client/convenience`).
 
+### H14. Wire-enum invariant lint *(P1, P19, P20)* — backs A11 — ⬜ TODO
+
+A11's compile-time regression defence
+(`tests/compile/tcompile_a11_wire_enum_invariant.nim`) is a
+hand-maintained named list: removal of a known catch-all variant
+fails CI, but addition of a NEW wire enum without a catch-all
+variant is undetected. The comprehensive defence is an AST-walking
+lint that proves both invariants over the type graph.
+
+**Implementation path.** `tests/lint/h14_wire_enum_invariant.nim`.
+Logic:
+
+1. AST-walk every ``type T* = enum`` declaration under
+   ``src/jmap_client/internal/types/`` and
+   ``src/jmap_client/internal/mail/``.
+2. Detect string-backed enums (any variant uses ``= "literal"``
+   syntax).
+3. Skip the documented closed-world exemption list (UndoStatus,
+   FilterOperator, HeaderForm, BodyValueScope, PlainSortProperty,
+   KeywordSortProperty, EmailComparatorKind,
+   EmailSubmissionSortProperty, BodyEncoding, DsnRetType,
+   DsnNotifyFlag, DeliveryByMode) — sourced from A11's documented
+   list, not hardcoded inside the lint.
+4. For each remaining string-backed enum, assert presence of a
+   catch-all variant (name matches ``*Unknown`` / ``*Other`` /
+   ``*Extension``) AND a ``raw…`` field on the carrier type.
+5. Carrier-type detection: heuristic match on ``<EnumName>`` ↔
+   carrier name (e.g., ``MethodName`` → ``Invocation``,
+   ``RequestErrorType`` → ``RequestError``). Where the heuristic
+   fails, require an inline annotation in the enum's docstring
+   pointing at the carrier type (a ``# carrier: <TypeName>``
+   pragma-style line is sufficient).
+
+Wired to ``just lint``. Failure message names the missing variant
+or field and points at A11.
+
+**Pair.** Companions H9 (catch-all ``else`` lint) and the
+named-list regression defence in
+``tests/compile/tcompile_a11_wire_enum_invariant.nim``.
+
+**Current-state assertion (pre-implementation).** Zero violations
+expected: 11 open-world wire enums all comply (see A11's compliance
+matrix); 12 closed-world wire enums exempt via A11's documented
+list.
+
 ## Coverage trace — every principle to at least one item
 
 Every principle has at least one TODO item that, if executed, brings
@@ -2866,7 +2967,7 @@ Status legend:
 
 | Principle | Items | Gate | Status |
 |---|---|---|---|
-| P1 (lock contract) | A1, A1b, A2, A2b, A4, A6, A10, A11, A13, A16, A25, A25b, A26, D1, D1.5, D4, D5, D17, D18, F6, F7 | API snapshot diff (F6); freeze checklist (D18); H13 lint (A10b); module-paths.txt snapshot (A10a) | 🟡 |
+| P1 (lock contract) | A1, A1b, A2, A2b, A4, A6, A10, A11, A13, A16, A25, A25b, A26, D1, D1.5, D4, D5, D17, D18, F6, F7, H14 | API snapshot diff (F6); freeze checklist (D18); H13 lint (A10b); module-paths.txt snapshot (A10a) | 🟡 |
 | P2 (tests) | A25, A28b, D2, D3, F1, F5 | Property tests (F1); wire-byte fixtures (D3) | 🟡 |
 | P3 (overloads not `_v2`) | C2, C3, D1.5 (no-suffix rule) | H5 lint; review | 🟡 |
 | P4 (scope) | D11, D11.5, D12, H4 | H4 non-JMAP-import lint | 🟡 |
@@ -2884,8 +2985,8 @@ Status legend:
 | P16 (preconditions in types) | A6, A6.5, A6.6, A7b, A7c, A7d, A29, B3, B4, B6, B11, B12 | H9; B11/B12 resolution; A7c testament `action: reject` test | 🔴 (B11, B12 open) |
 | P17 (one config surface) | A14, A19 (HTTP config on `newHttpTransport` only), A20, A21 | review; F6 snapshot | 🟡 |
 | P18 (sum types over flag soup) | A6, B1, B2, B7, B8, H9 | H9 catch-all lint | 🟡 |
-| P19 (schema-driven types) | A2, A2b, A3, A3.5, A4, A5, A14, A15, A16, A17, A18, A21, A22, A22b, A28, A28b | H11 typed-builder lint (A5); A22b inline docstrings; F1 | 🟡 |
-| P20 (additive variants) | A10, A11, A23, A24, D7, D13, D13.5, H5 | H5 lint; H13 lint (A10b); module-paths.txt snapshot (A10a) | 🟡 |
+| P19 (schema-driven types) | A2, A2b, A3, A3.5, A4, A5, A14, A15, A16, A17, A18, A21, A22, A22b, A28, A28b, H14 | H11 typed-builder lint (A5); A22b inline docstrings; F1 | 🟡 |
+| P20 (additive variants) | A10, A11, A23, A24, D7, D13, D13.5, H5, H14 | H5 lint; H13 lint (A10b); module-paths.txt snapshot (A10a) | 🟡 |
 | P21 (lifecycle types) | A6, A6.5, A6.6, A7, A7b, A7c, A7d, A23, A24, A27, A28 | type-shape snapshot (A25); A7c testament `action: reject` test | 🟡 |
 | P22 (sync first, async via interface) | A6, A7e, A19, E1 | A7e policy entry; F6 snapshot blocks pre-1.0 export of reserved names | 🟡 |
 | P23 (push as separate type) | A7e, A10, A23, A24, D13.5 | existence gate (A7e in D13.5 file; A23, A24 type files); H13 lint (A10b); module-paths.txt snapshot (A10a) | 🟡 |
@@ -2912,6 +3013,7 @@ must fail CI, not depend on reviewer attention.
 | Multiple coexisting public layers | A1, A1b, A1c, A1d, A9, A10 | H13 lint (A10b); module-paths.txt snapshot (A10a); F6 snapshot (A26); A1c + A1d compile audits |
 | Convenience layer leaking | C7, C9, C10, F3, H7 | H7 lint |
 | Catch-all `else` on finite enums | A11, H9 | H9 lint |
+| Wire-enum catch-all + raw missing | A11, H14 | named-list compile-time test (A11); AST lint (H14) |
 | `.get()` without invariant | (rule) + H8 | H8 lint |
 | Last-error thread-locals | D10, H3 | H3 lint |
 | Behaviour changes in patch releases | D1.5 (policy) | wire-byte fixture diff (D3) |

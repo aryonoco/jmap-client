@@ -142,12 +142,6 @@ func validationToClientErrorCtx*(ve: ValidationError, context: string): ClientEr
   ## Bridges with a context prefix prepended to the error message.
   return clientError(transportError(tekNetwork, context & ve.message))
 
-type RequestContext* = enum
-  ## Identifies the JMAP endpoint being processed. Used in error messages
-  ## by size-limit and HTTP-response classification functions.
-  rcSession = "session"
-  rcApi = "api"
-
 func isTlsRelatedMsg(msg: string): bool =
   ## Heuristic: checks whether an OSError message indicates a TLS failure.
   ## OpenSSL surfaces TLS errors as OSError with keywords in the message

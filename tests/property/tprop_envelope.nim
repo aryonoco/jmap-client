@@ -138,3 +138,17 @@ testCase propReferencableKindDisjointness:
     let d = direct(v)
     let r = referenceTo[int](rr)
     doAssert d.kind != r.kind
+
+testCase propRefPathUnknownPreservesRaw:
+  checkProperty "propRefPathUnknownPreservesRaw":
+    ## Forward-compat invariant: unknown wire paths surface as
+    ## ``rpUnknown`` while ``rawPath`` preserves the verbatim wire
+    ## bytes (A11 contract).
+    let mcid = parseMethodCallId("c" & $trial).get()
+    lastInput = "/vendor/path/" & $trial
+    let rr = parseResultReference(
+        resultOf = mcid, name = "Mailbox/get", path = "/vendor/path/" & $trial
+      )
+      .get()
+    doAssert rr.path == rpUnknown
+    doAssert rr.rawPath == "/vendor/path/" & $trial

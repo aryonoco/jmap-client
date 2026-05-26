@@ -124,13 +124,10 @@ func rawName*(rr: ResultReference): string =
   return rr.rawName
 
 func path*(rr: ResultReference): RefPath =
-  ## Typed result-reference path. Unknown paths fall back to ``rpIds`` —
-  ## but this never fires in practice because the server only echoes
-  ## paths we sent, which are always drawn from the enum.
-  for p in RefPath:
-    if $p == rr.rawPath:
-      return p
-  return rpIds
+  ## Typed result-reference path. Forward-compatible: unknown wire
+  ## paths surface as ``rpUnknown``; ``rr.rawPath`` preserves the
+  ## verbatim wire bytes for lossless inspection.
+  return parseRefPath(rr.rawPath)
 
 func rawPath*(rr: ResultReference): string =
   ## Verbatim wire path — e.g. ``"/ids"`` or ``"/list/*/id"``.

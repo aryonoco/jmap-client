@@ -484,7 +484,8 @@ checkProperty "Invocation round-trip":
 checkProperty "ResultReference round-trip":
   let mcidStr = "c" & $rng.rand(0 .. 99)
   let mcid = parseMethodCallId(mcidStr).get()
-  const paths = [rpIds, rpListIds, rpAddedIds, rpCreated, rpUpdated]
+  const paths =
+    [rpIds, rpListIds, rpAddedIds, rpCreated, rpUpdated, rpUpdatedProperties]
   const names = [mnMailboxGet, mnEmailQuery, mnThreadGet, mnEmailSet]
   let rref = initResultReference(
     resultOf = mcid, name = rng.oneOf(names), path = rng.oneOf(paths)

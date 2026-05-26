@@ -648,6 +648,8 @@ testCase rfc8620_S3_6_2_setErrorMinimalFields:
 
 testCase rfc8620_S3_7_resultReferencePathConstants:
   ## The spec defines standard JSON Pointer paths for result references.
+  doAssert $rpUnknown == "rpUnknown"
+    # catch-all (no wire backing); $ falls through to symbol name
   doAssert $rpIds == "/ids"
   doAssert $rpListIds == "/list/*/id"
   doAssert $rpAddedIds == "/added/*/id"

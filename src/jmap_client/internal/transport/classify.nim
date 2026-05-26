@@ -29,6 +29,17 @@ import ../serialisation/serde_diagnostics
 import ../serialisation/serde_errors
 import ../serialisation/serde_envelope
 
+type RequestContext* = enum
+  ## Identifies which JMAP endpoint a wire response was read from.
+  ## The classify helpers below embed an endpoint label
+  ## (``"session"`` / ``"api"``) into transport-layer error
+  ## diagnostics. Internal classification only — never reachable
+  ## through any public hub. Cross-module access within
+  ## ``internal/`` is via direct
+  ## ``import jmap_client/internal/transport/classify``.
+  rcSession = "session"
+  rcApi = "api"
+
 proc tryParseProblemDetails(body: string): Opt[ClientError] =
   ## Attempts to parse RFC 7807 problem details from a response body.
   ## Returns ``Opt.some(ClientError)`` on success, ``none`` when the body

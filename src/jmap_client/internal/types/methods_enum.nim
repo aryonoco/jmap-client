@@ -73,7 +73,14 @@ type MethodEntity* = enum
 type RefPath* = enum
   ## JMAP result-reference paths (RFC 8620 §3.7) — the JSON Pointer
   ## fragments a chained method call reads out of a prior invocation's
-  ## response.
+  ## response. The catch-all ``rpUnknown`` covers forward-compat wire
+  ## strings: future RFC extensions and vendor server-echo paths that
+  ## do not match a known variant map to ``rpUnknown``; the verbatim
+  ## wire string is preserved on ``ResultReference.rawPath`` for
+  ## lossless inspection. ``$rpUnknown`` returns the symbol name (no
+  ## backing string), so the variant is never emitted on the wire —
+  ## only ``rr.rawPath`` writes the wire bytes.
+  rpUnknown
   rpIds = "/ids"
   rpListIds = "/list/*/id"
   rpAddedIds = "/added/*/id"
@@ -92,6 +99,15 @@ func parseMethodName*(raw: string): MethodName =
     if m != mnUnknown and $m == raw:
       return m
   mnUnknown
+
+func parseRefPath*(raw: string): RefPath =
+  ## Total — returns ``rpUnknown`` for any wire string that doesn't
+  ## match a known backing literal. Joins the Total parse-function
+  ## family (mirrors ``parseMethodName``).
+  for p in RefPath:
+    if p != rpUnknown and $p == raw:
+      return p
+  rpUnknown
 
 type MethodNameLiteral* {.ruleOff: "objects".} = object
   ## Validated wire-format method name carrier for
