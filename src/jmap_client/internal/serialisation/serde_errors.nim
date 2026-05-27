@@ -14,6 +14,7 @@ import ./serde
 import ./serde_diagnostics
 import ./serde_helpers
 import ../types
+import ../types/errors
 
 # =============================================================================
 # Lenient Option field helpers (§1.4b: absent, null, or wrong kind -> none)
@@ -114,13 +115,13 @@ func fromJson*(
 # SetError
 # =============================================================================
 
-func setErrorKnownKeys(errorType: SetErrorType): seq[string] =
+func setErrorKnownKeys(kind: SetErrorKind): seq[string] =
   ## Returns the set of known JSON keys for a given SetError variant.
   ## Used by both toJson and fromJson to determine which keys belong in
   ## extras. Each payload-bearing variant names its RFC wire field so
   ## parsers on a non-matching variant preserve the field in ``extras``
   ## rather than silently dropping it (Decision 1.7C: lossless).
-  case errorType
+  case kind
   of setInvalidProperties:
     return @["type", "description", "properties"]
   of setAlreadyExists:
@@ -148,7 +149,7 @@ func toJson*(se: SetError): JsonNode =
   node["type"] = %se.rawType
   for v in se.description:
     node["description"] = %v
-  case se.errorType
+  case se.kind
   of setInvalidProperties:
     node["properties"] = %se.properties
   of setAlreadyExists:
@@ -170,7 +171,7 @@ func toJson*(se: SetError): JsonNode =
   else:
     discard
   for extras in se.extras:
-    let knownKeys = setErrorKnownKeys(se.errorType)
+    let knownKeys = setErrorKnownKeys(se.kind)
     for key, val in extras.pairs:
       if key notin knownKeys:
         node[key] = val
@@ -317,10 +318,10 @@ func fromJson*(
   let rawType = typeNode.getStr("")
   ?nonEmptyStr(rawType, "type field", path / "type")
   let description = optString(node, "description")
-  let errorType = parseSetErrorType(rawType)
-  let knownKeys = setErrorKnownKeys(errorType)
+  let kind = parseSetErrorKind(rawType)
+  let knownKeys = setErrorKnownKeys(kind)
   let extras = collectExtras(node, knownKeys)
-  case errorType
+  case kind
   of setInvalidProperties:
     return fromJsonInvalidProperties(rawType, description, extras, node, path)
   of setAlreadyExists:

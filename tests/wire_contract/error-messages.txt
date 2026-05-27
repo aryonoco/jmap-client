@@ -1,0 +1,81 @@
+# H15 error-message snapshot — locked by tests/lint/h15_error_message_snapshot.nim
+# Regenerate with: just freeze-error-messages
+# Update PR label: [ERR-MSG-CHANGE]
+
+## ValidationError
+[validationError("AccountId", "contains control characters", "")]
+  AccountId: contains control characters
+[validationError("Id", "length must be 1-255 octets", "")]
+  Id: length must be 1-255 octets
+[validationError("UnsignedInt", "must be non-negative", "-1")]
+  UnsignedInt: must be non-negative
+[validationError("Keyword", "contains forbidden character", "")]
+  Keyword: contains forbidden character
+
+## TransportError
+[transportError(tekNetwork, "connection refused")]
+  connection refused
+[transportError(tekTls, "certificate verify failed")]
+  certificate verify failed
+[transportError(tekTimeout, "operation timed out")]
+  operation timed out
+[httpStatusError(503, "Service Unavailable")]
+  HTTP 503: Service Unavailable
+
+## RequestError
+[requestError("urn:ietf:params:jmap:error:unknownCapability", detail = Opt.some("missing urn:ietf:params:jmap:contacts"))]
+  missing urn:ietf:params:jmap:contacts
+[requestError("urn:ietf:params:jmap:error:notJSON", title = Opt.some("Not JSON"))]
+  Not JSON
+[requestError("urn:ietf:params:jmap:error:notRequest")]
+  urn:ietf:params:jmap:error:notRequest
+[requestError("urn:ietf:params:jmap:error:limit", title = Opt.some("Limit Exceeded"), detail = Opt.some("maxCallsInRequest=500"))]
+  maxCallsInRequest=500
+[requestError("urn:example:vendor:custom")]
+  urn:example:vendor:custom
+
+## MethodError
+[methodError("serverFail", Opt.some("internal error"))]
+  serverFail: internal error
+[methodError("invalidArguments", Opt.some("missing field 'accountId'"))]
+  invalidArguments: missing field 'accountId'
+[methodError("accountNotFound", Opt.some("no account 'A1'"))]
+  accountNotFound: no account 'A1'
+[methodError("forbidden")]
+  forbidden
+[methodError("stateMismatch")]
+  stateMismatch
+[methodError("serverFail", Opt.some(""))]
+  serverFail
+
+## SetError
+[setErrorInvalidProperties("invalidProperties", @["from", "to"])]
+  invalidProperties: from, to
+[setErrorAlreadyExists("alreadyExists", parseId("abc123").get())]
+  alreadyExists: abc123
+[setErrorBlobNotFound("blobNotFound", @[parseBlobId("blob-1").get(), parseBlobId("blob-2").get()])]
+  blobNotFound: blob-1, blob-2
+[setErrorInvalidEmail("invalidEmail", @["headers", "subject"])]
+  invalidEmail: headers, subject
+[setErrorTooManyRecipients("tooManyRecipients", parseUnsignedInt(100).get())]
+  tooManyRecipients: max=100
+[setErrorInvalidRecipients("invalidRecipients", @["bad@", "@example"])]
+  invalidRecipients: bad@, @example
+[setErrorTooLarge("tooLarge", Opt.some(parseUnsignedInt(1048576).get()))]
+  tooLarge: maxSize=1048576 octets
+[setError("forbidden", Opt.some("not allowed"))]
+  forbidden: not allowed
+[setError("overQuota")]
+  overQuota
+
+## ClientError
+[clientError(httpStatusError(503, "Service Unavailable"))]
+  HTTP 503: Service Unavailable
+[clientError(requestError("urn:ietf:params:jmap:error:limit", title = Opt.some("Limit Exceeded")))]
+  Limit Exceeded
+
+## GetError
+[getErrorMethod(methodError("serverFail", Opt.some("internal")))]
+  serverFail: internal
+[getErrorHandleMismatch(initBuilderId(1'u64, 1'u64), initBuilderId(1'u64, 2'u64), parseMethodCallId("c0").get())]
+  handle from a different builder (expected BuilderId(brand=0x0000000000000001, serial=1); got BuilderId(brand=0x0000000000000001, serial=2); callId=c0)

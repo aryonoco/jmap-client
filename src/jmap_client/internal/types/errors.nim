@@ -20,7 +20,7 @@ when defined(ssl):
 else:
   from std/net import TimeoutError
 
-from ./validation import ValidationError
+from ./validation import ValidationError, message
 import ./primitives
 import ./identifiers
 
@@ -33,22 +33,35 @@ type TransportErrorKind* = enum
 
 type TransportError* = object
   ## Pre-JMAP failure with an HTTP status code when applicable.
-  message*: string ## human-readable error description
+  detail*: string ## wire/exception text; composed with kind into ``message``
   case kind*: TransportErrorKind
   of tekHttpStatus:
     httpStatus*: int
   of tekNetwork, tekTls, tekTimeout:
     discard
 
-func transportError*(kind: TransportErrorKind, message: string): TransportError =
+func transportError*(kind: TransportErrorKind, detail: string): TransportError =
   ## For non-HTTP-status transport errors.
-  return TransportError(kind: kind, message: message)
+  return TransportError(kind: kind, detail: detail)
 
-func httpStatusError*(status: int, message: string): TransportError =
+func httpStatusError*(status: int, detail: string): TransportError =
   ## For HTTP-level failures without a JMAP problem details body.
-  return TransportError(kind: tekHttpStatus, message: message, httpStatus: status)
+  return TransportError(kind: tekHttpStatus, detail: detail, httpStatus: status)
 
-type RequestErrorType* = enum
+func message*(te: TransportError): string =
+  ## Canonical diagnostic: HTTP arm prefixes the status code; the other
+  ## arms surface the detail string verbatim.
+  case te.kind
+  of tekHttpStatus:
+    "HTTP " & $te.httpStatus & ": " & te.detail
+  of tekNetwork, tekTls, tekTimeout:
+    te.detail
+
+func `$`*(te: TransportError): string =
+  ## Delegates to ``message`` for the single canonical projection.
+  te.message
+
+type RequestErrorKind* = enum
   ## Request-level error types from the JMAP problem details response (RFC 8620 §3.6.1).
   retUnknownCapability = "urn:ietf:params:jmap:error:unknownCapability"
   retNotJson = "urn:ietf:params:jmap:error:notJSON"
@@ -56,17 +69,17 @@ type RequestErrorType* = enum
   retLimit = "urn:ietf:params:jmap:error:limit"
   retUnknown
 
-func parseRequestErrorType*(raw: string): RequestErrorType =
+func parseRequestErrorKind*(raw: string): RequestErrorKind =
   ## Total function: always succeeds. Unknown URIs map to retUnknown.
-  return strutils.parseEnum[RequestErrorType](raw, retUnknown)
+  return strutils.parseEnum[RequestErrorKind](raw, retUnknown)
 
 type RequestError* = object
   ## RFC 7807 problem details returned when the entire request is rejected.
   ##
-  ## ``errorType`` is module-private — always derived from ``rawType`` via
-  ## ``parseRequestErrorType``. This seals the consistency invariant:
-  ## ``errorType`` and ``rawType`` cannot diverge.
-  errorType: RequestErrorType ## module-private; derived from rawType
+  ## ``kind`` is module-private — always derived from ``rawType`` via
+  ## ``parseRequestErrorKind``. This seals the consistency invariant:
+  ## ``kind`` and ``rawType`` cannot diverge.
+  kind: RequestErrorKind ## module-private; derived from rawType
   rawType*: string ## always populated — lossless round-trip
   status*: Opt[int] ## RFC 7807 "status" field
   title*: Opt[string] ## RFC 7807 "title" field
@@ -74,15 +87,19 @@ type RequestError* = object
   limit*: Opt[string] ## which limit was exceeded (retLimit only)
   extras*: Opt[JsonNode] ## non-standard fields, lossless preservation
 
-func errorType*(re: RequestError): RequestErrorType =
-  ## Returns the parsed error type variant.
-  return re.errorType
+func kind*(re: RequestError): RequestErrorKind =
+  ## Returns the parsed error kind variant.
+  return re.kind
 
 func message*(re: RequestError): string =
   ## Human-readable message via cascade: detail > title > rawType.
   return re.detail.valueOr:
     re.title.valueOr:
       re.rawType
+
+func `$`*(re: RequestError): string =
+  ## Delegates to ``message`` for the single canonical projection.
+  re.message
 
 func requestError*(
     rawType: string,
@@ -92,9 +109,9 @@ func requestError*(
     limit: Opt[string] = Opt.none(string),
     extras: Opt[JsonNode] = Opt.none(JsonNode),
 ): RequestError =
-  ## Auto-parses rawType string to the corresponding enum variant via parseRequestErrorType.
+  ## Auto-parses rawType string to the corresponding enum variant via parseRequestErrorKind.
   return RequestError(
-    errorType: parseRequestErrorType(rawType),
+    kind: parseRequestErrorKind(rawType),
     rawType: rawType,
     status: status,
     title: title,
@@ -131,6 +148,10 @@ func message*(err: ClientError): string =
     return err.transport.message
   of cekRequest:
     return err.request.message
+
+func `$`*(ce: ClientError): string =
+  ## Delegates to ``message`` for the single canonical projection.
+  ce.message
 
 func validationToClientError*(ve: ValidationError): ClientError =
   ## Bridges the construction railway (ValidationError) to the outer railway
@@ -195,7 +216,7 @@ func enforceBodySizeLimit*(
     return err(sizeLimitExceeded("response body", body.len, maxResponseBytes))
   ok()
 
-type MethodErrorType* = enum
+type MethodErrorKind* = enum
   ## Per-invocation error types from the inner railway (RFC 8620 §3.6.2).
   metServerUnavailable = "serverUnavailable"
   metServerFail = "serverFail"
@@ -218,38 +239,52 @@ type MethodErrorType* = enum
   metFromAccountNotSupportedByMethod = "fromAccountNotSupportedByMethod"
   metUnknown
 
-func parseMethodErrorType*(raw: string): MethodErrorType =
+func parseMethodErrorKind*(raw: string): MethodErrorKind =
   ## Total function: always succeeds. Unknown types map to metUnknown.
-  return strutils.parseEnum[MethodErrorType](raw, metUnknown)
+  return strutils.parseEnum[MethodErrorKind](raw, metUnknown)
 
 type MethodError* = object
   ## Inner railway error for a single method invocation within a batch response.
   ##
-  ## ``errorType`` is module-private — always derived from ``rawType`` via
-  ## ``parseMethodErrorType``. This seals the consistency invariant.
-  errorType: MethodErrorType ## module-private; derived from rawType
+  ## ``kind`` is module-private — always derived from ``rawType`` via
+  ## ``parseMethodErrorKind``. This seals the consistency invariant.
+  kind: MethodErrorKind ## module-private; derived from rawType
   rawType*: string ## always populated — lossless round-trip
   description*: Opt[string] ## RFC "description" field
   extras*: Opt[JsonNode] ## non-standard fields, lossless preservation
 
-func errorType*(me: MethodError): MethodErrorType =
-  ## Returns the parsed error type variant.
-  return me.errorType
+func kind*(me: MethodError): MethodErrorKind =
+  ## Returns the parsed error kind variant.
+  return me.kind
 
 func methodError*(
     rawType: string,
     description: Opt[string] = Opt.none(string),
     extras: Opt[JsonNode] = Opt.none(JsonNode),
 ): MethodError =
-  ## Auto-parses rawType string to the corresponding enum variant via parseMethodErrorType.
+  ## Auto-parses rawType string to the corresponding enum variant via parseMethodErrorKind.
   return MethodError(
-    errorType: parseMethodErrorType(rawType),
+    kind: parseMethodErrorKind(rawType),
     rawType: rawType,
     description: description,
     extras: extras,
   )
 
-type SetErrorType* = enum
+func message*(me: MethodError): string =
+  ## RFC 8620 §3.6.2 composition: ``"<rawType>: <description>"`` when a
+  ## description is present and non-empty, else ``"<rawType>"`` alone.
+  let desc = me.description.valueOr:
+    ""
+  if desc.len > 0:
+    me.rawType & ": " & desc
+  else:
+    me.rawType
+
+func `$`*(me: MethodError): string =
+  ## Delegates to ``message`` for the single canonical projection.
+  me.message
+
+type SetErrorKind* = enum
   ## Per-item error types within a ``/set`` response. Covers RFC 8620 §5.3
   ## core variants plus the RFC 8621 §2.3 / §4.6 / §6 / §7.5 mail-specific
   ## variants. The ``"forbiddenFrom"`` wire string is shared between
@@ -285,9 +320,9 @@ type SetErrorType* = enum
   setCannotUnsend = "cannotUnsend"
   setUnknown
 
-func parseSetErrorType*(raw: string): SetErrorType =
+func parseSetErrorKind*(raw: string): SetErrorKind =
   ## Total function: always succeeds. Unknown types map to setUnknown.
-  return strutils.parseEnum[SetErrorType](raw, setUnknown)
+  return strutils.parseEnum[SetErrorKind](raw, setUnknown)
 
 type SetError* = object
   ## Per-item error from a ``/set`` response. Five payload-bearing arms
@@ -297,12 +332,12 @@ type SetError* = object
   ## ``setInvalidRecipients`` (RFC 8621 §4.6 / §7.5), and ``setTooLarge``
   ## augmented with ``maxSize`` (RFC 8621 §7.5 SHOULD).
   ##
-  ## ``errorType*`` is the public discriminator. Nim's case-object
+  ## ``kind*`` is the public discriminator. Nim's case-object
   ## construction rule already prevents payload-bearing variants from
   ## being constructed without their payloads — strict's flow-analysis
   ## needs direct access to the discriminator field (not an accessor
-  ## func), so exposing it lets external consumers ``case se.errorType
-  ## of setX: se.variantField`` under strictCaseObjects. The variant-
+  ## func), so exposing it lets external consumers ``case se.kind of
+  ## setX: se.variantField`` under strictCaseObjects. The variant-
   ## specific smart constructors (``setErrorInvalidProperties`` etc.)
   ## remain the preferred construction path; generic ``setError`` is
   ## reserved for payload-less variants and defensively maps payload-
@@ -310,7 +345,7 @@ type SetError* = object
   rawType*: string ## always populated — lossless round-trip
   description*: Opt[string] ## optional human-readable description
   extras*: Opt[JsonNode] ## non-standard fields, lossless preservation
-  case errorType*: SetErrorType
+  case kind*: SetErrorKind
   of setInvalidProperties:
     properties*: seq[string] ## RFC 8620 §5.3 SHOULD: invalid property names
   of setAlreadyExists:
@@ -340,7 +375,7 @@ template seFieldsPlain(lit: untyped): SetError =
   ## inline at each ``of X: seFieldsPlain(X)`` call site in ``setError``
   ## below — the literal substitution satisfies Nim's case-object
   ## construction rule (Pattern 4: no runtime discriminator allowed).
-  SetError(errorType: lit, rawType: rawType, description: description, extras: extras)
+  SetError(kind: lit, rawType: rawType, description: description, extras: extras)
 
 func setError*(
     rawType: string,
@@ -354,14 +389,14 @@ func setError*(
   ## ``setErrorXyz`` smart constructors to supply the payload.
   ## ``setTooLarge`` admits an absent ``maxSize`` (RFC 8621 §7.5 SHOULD,
   ## not MUST), so it is constructed with ``Opt.none`` here.
-  let errorType = parseSetErrorType(rawType)
-  case errorType
+  let kind = parseSetErrorKind(rawType)
+  case kind
   of setInvalidProperties, setAlreadyExists, setBlobNotFound, setInvalidEmail,
       setTooManyRecipients, setInvalidRecipients:
     seFieldsPlain(setUnknown)
   of setTooLarge:
     SetError(
-      errorType: setTooLarge,
+      kind: setTooLarge,
       rawType: rawType,
       description: description,
       extras: extras,
@@ -410,7 +445,7 @@ func setErrorInvalidProperties*(
 ): SetError =
   ## Constructor for ``setInvalidProperties`` — carries the invalid property names (RFC 8620 §5.3).
   return SetError(
-    errorType: setInvalidProperties,
+    kind: setInvalidProperties,
     rawType: rawType,
     description: description,
     extras: extras,
@@ -425,7 +460,7 @@ func setErrorAlreadyExists*(
 ): SetError =
   ## Constructor for ``setAlreadyExists`` — carries the existing record's ID (RFC 8620 §5.4).
   return SetError(
-    errorType: setAlreadyExists,
+    kind: setAlreadyExists,
     rawType: rawType,
     description: description,
     extras: extras,
@@ -441,7 +476,7 @@ func setErrorBlobNotFound*(
   ## Constructor for ``setBlobNotFound`` — carries the unresolved blob
   ## IDs (RFC 8621 §4.6 MUST).
   return SetError(
-    errorType: setBlobNotFound,
+    kind: setBlobNotFound,
     rawType: rawType,
     description: description,
     extras: extras,
@@ -457,7 +492,7 @@ func setErrorInvalidEmail*(
   ## Constructor for ``setInvalidEmail`` — carries the names of invalid
   ## Email properties (RFC 8621 §7.5 SHOULD).
   return SetError(
-    errorType: setInvalidEmail,
+    kind: setInvalidEmail,
     rawType: rawType,
     description: description,
     extras: extras,
@@ -473,7 +508,7 @@ func setErrorTooManyRecipients*(
   ## Constructor for ``setTooManyRecipients`` — carries the server's
   ## recipient cap (RFC 8621 §7.5 MUST).
   return SetError(
-    errorType: setTooManyRecipients,
+    kind: setTooManyRecipients,
     rawType: rawType,
     description: description,
     extras: extras,
@@ -489,7 +524,7 @@ func setErrorInvalidRecipients*(
   ## Constructor for ``setInvalidRecipients`` — carries the recipient
   ## addresses that failed validation (RFC 8621 §7.5 MUST).
   return SetError(
-    errorType: setInvalidRecipients,
+    kind: setInvalidRecipients,
     rawType: rawType,
     description: description,
     extras: extras,
@@ -506,12 +541,58 @@ func setErrorTooLarge*(
   ## cap (RFC 8621 §7.5 SHOULD). ``maxSize`` defaults to ``Opt.none`` so
   ## the RFC 8620 §5.3 core use of tooLarge without a cap is expressible.
   return SetError(
-    errorType: setTooLarge,
+    kind: setTooLarge,
     rawType: rawType,
     description: description,
     extras: extras,
     maxSizeOctets: maxSize,
   )
+
+func message*(se: SetError): string =
+  ## RFC-aligned per-variant composition. Exhaustive over ``SetErrorKind``;
+  ## adding a variant forces a compile error here.
+  case se.kind
+  of setInvalidProperties:
+    se.rawType & ": " & se.properties.join(", ")
+  of setAlreadyExists:
+    se.rawType & ": " & $se.existingId
+  of setBlobNotFound:
+    var ids: seq[string] = @[]
+    for b in se.notFound:
+      ids.add($b)
+    se.rawType & ": " & ids.join(", ")
+  of setInvalidEmail:
+    se.rawType & ": " & se.invalidEmailPropertyNames.join(", ")
+  of setTooManyRecipients:
+    se.rawType & ": max=" & $se.maxRecipientCount
+  of setInvalidRecipients:
+    se.rawType & ": " & se.invalidRecipients.join(", ")
+  of setTooLarge:
+    let cap = se.maxSizeOctets
+    case cap.isOk
+    of true:
+      se.rawType & ": maxSize=" & $cap.unsafeValue & " octets"
+    of false:
+      let desc = se.description.valueOr:
+        ""
+      if desc.len > 0:
+        se.rawType & ": " & desc
+      else:
+        se.rawType
+  of setForbidden, setOverQuota, setRateLimit, setNotFound, setInvalidPatch,
+      setWillDestroy, setSingleton, setMailboxHasChild, setMailboxHasEmail,
+      setTooManyKeywords, setTooManyMailboxes, setNoRecipients, setForbiddenMailFrom,
+      setForbiddenFrom, setForbiddenToSend, setCannotUnsend, setUnknown:
+    let desc = se.description.valueOr:
+      ""
+    if desc.len > 0:
+      se.rawType & ": " & desc
+    else:
+      se.rawType
+
+func `$`*(se: SetError): string =
+  ## Delegates to ``message`` for the single canonical projection.
+  se.message
 
 type GetErrorKind* = enum
   ## Discriminator for ``GetError``. Two arms cover the inner railway:
@@ -556,14 +637,7 @@ func message*(ge: GetError): string =
   ## discriminator — adding a new variant forces a compile error here.
   case ge.kind
   of gekMethod:
-    # MethodError.message is not yet a method (tracked by A12); construct
-    # an equivalent string from the lossless rawType + optional description.
-    let desc = ge.methodErr.description.valueOr:
-      ""
-    if desc.len > 0:
-      ge.methodErr.rawType & ": " & desc
-    else:
-      ge.methodErr.rawType
+    ge.methodErr.message
   of gekHandleMismatch:
     "handle from a different builder (expected " & $ge.expected & "; got " & $ge.actual &
       "; callId=" & $ge.callId & ")"

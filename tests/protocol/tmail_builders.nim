@@ -642,13 +642,13 @@ testCase getBothCopyAndDestroyHappyPath:
 testCase getBothShortCircuitOnCopyError:
   ## M.2: copy-side ``MethodError`` short-circuits ``getBoth`` before
   ## destroy is consulted — the typed variant survives round-trip for
-  ## every ``MethodErrorType`` variant applicable to Email/copy per
+  ## every ``MethodErrorKind`` variant applicable to Email/copy per
   ## RFC 8621 §4.7. Mirrors the ``tconvenience.nim:154`` precedent.
   const applicable = {
     metStateMismatch, metFromAccountNotFound, metFromAccountNotSupportedByMethod,
     metServerFail, metForbidden, metAccountNotFound, metAccountReadOnly,
   }
-  for variant in MethodErrorType:
+  for variant in MethodErrorKind:
     if variant notin applicable:
       continue
     let cid = makeMcid("c0")
@@ -662,7 +662,7 @@ testCase getBothShortCircuitOnCopyError:
     )
     let results = makeDispatchedResponse(resp).getBoth(handles)
     doAssert results.isErr, "variant " & $variant & " should short-circuit"
-    assertEq results.error.methodErr.errorType, variant
+    assertEq results.error.methodErr.kind, variant
 
 testCase getBothShortCircuitOnDestroyMissing:
   ## M.3: well-formed copy + NO Email/set invocation at the shared cid
@@ -817,7 +817,7 @@ testCase getBothInnerMethodError:
   ## ``"error"`` != ``"Email/set"``), so ``getBoth`` surfaces the same
   ## ``serverFail`` / "no Email/set response for call ID ..." shape as
   ## O.4 — client-side masking identical to §M.4's destroy-slot precedent.
-  ## Pins that an arbitrary ``MethodErrorType`` at the inner slot never
+  ## Pins that an arbitrary ``MethodErrorKind`` at the inner slot never
   ## leaks through dispatch; the visible error-type fold lives at the
   ## outer slot (see O.7) and in Step 16's ``tmail_method_errors.nim``.
   let cid = makeMcid("c0")
@@ -954,7 +954,7 @@ testCase getBothOuterIfInStateMismatch:
   )
   let results = makeDispatchedResponse(resp).getBoth(handles)
   assertErr results
-  assertEq results.error.methodErr.errorType, metStateMismatch
+  assertEq results.error.methodErr.kind, metStateMismatch
 
 # ===========================================================================
 # P. addEmailSubmissionGet wire shape (RFC 8621 §7.1)

@@ -73,7 +73,7 @@ testCase tidentityGetLive:
       doAssert getErr.kind == gekMethod, "expected gekMethod, got gekHandleMismatch"
       let methodErr = getErr.methodErr
       assertOn target,
-        methodErr.errorType == metUnknownMethod,
+        methodErr.kind == metUnknownMethod,
         "Identity/set must surface as metUnknownMethod when unimplemented (got " &
           methodErr.rawType & ")"
 

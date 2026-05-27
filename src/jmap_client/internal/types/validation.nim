@@ -24,12 +24,22 @@ type ValidationError* = object
   ## Structured error carrying the type name, failure reason, and raw input.
   ## Returned on the error rail by all smart constructors on invalid input.
   typeName*: string ## Which type failed ("Id", "UnsignedInt", etc.)
-  message*: string ## The failure reason
+  reason*: string ## The failure reason
   value*: string ## The raw input that failed validation
 
-func validationError*(typeName, message, value: string): ValidationError =
+func validationError*(typeName, reason, value: string): ValidationError =
   ## Constructs a ValidationError value for use on the error rail.
-  return ValidationError(typeName: typeName, message: message, value: value)
+  return ValidationError(typeName: typeName, reason: reason, value: value)
+
+func message*(ve: ValidationError): string =
+  ## Canonical diagnostic: typeName & ": " & reason. The raw ``value`` is
+  ## intentionally absent — consumers compose it explicitly when redaction
+  ## is safe at the call site.
+  ve.typeName & ": " & ve.reason
+
+func `$`*(ve: ValidationError): string =
+  ## Delegates to ``message`` for the single canonical projection.
+  ve.message
 
 template defineSealedStringOps*(T: typedesc) =
   ## Sealed-object string ops: equality, stringification, hashing, length.

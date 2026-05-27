@@ -5,6 +5,8 @@
 
 import std/json
 import std/random
+import std/sequtils
+import std/strutils
 
 import jmap_client/internal/types/primitives
 import jmap_client/internal/types/capabilities
@@ -20,23 +22,23 @@ testCase propParseCapabilityKindTotality:
     lastInput = s
     discard parseCapabilityKind(s)
 
-testCase propParseRequestErrorTypeTotality:
-  checkProperty "parseRequestErrorType never crashes":
+testCase propParseRequestErrorKindTotality:
+  checkProperty "parseRequestErrorKind never crashes":
     let s = genArbitraryString(rng)
     lastInput = s
-    discard parseRequestErrorType(s)
+    discard parseRequestErrorKind(s)
 
-testCase propParseMethodErrorTypeTotality:
-  checkProperty "parseMethodErrorType never crashes":
+testCase propParseMethodErrorKindTotality:
+  checkProperty "parseMethodErrorKind never crashes":
     let s = genArbitraryString(rng)
     lastInput = s
-    discard parseMethodErrorType(s)
+    discard parseMethodErrorKind(s)
 
-testCase propParseSetErrorTypeTotality:
-  checkProperty "parseSetErrorType never crashes":
+testCase propParseSetErrorKindTotality:
+  checkProperty "parseSetErrorKind never crashes":
     let s = genArbitraryString(rng)
     lastInput = s
-    discard parseSetErrorType(s)
+    discard parseSetErrorKind(s)
 
 testCase propCapabilityKindKnownRoundTrip:
   for kind in [
@@ -46,11 +48,11 @@ testCase propCapabilityKindKnownRoundTrip:
     let uri = capabilityUri(kind).get()
     doAssert parseCapabilityKind(uri) == kind
 
-testCase propRequestErrorTypeKnownRoundTrip:
+testCase propRequestErrorKindKnownRoundTrip:
   for v in [retUnknownCapability, retNotJson, retNotRequest, retLimit]:
-    doAssert parseRequestErrorType($v) == v
+    doAssert parseRequestErrorKind($v) == v
 
-testCase propMethodErrorTypeKnownRoundTrip:
+testCase propMethodErrorKindKnownRoundTrip:
   for v in [
     metServerUnavailable, metServerFail, metServerPartialFail, metUnknownMethod,
     metInvalidArguments, metInvalidResultReference, metForbidden, metAccountNotFound,
@@ -59,14 +61,14 @@ testCase propMethodErrorTypeKnownRoundTrip:
     metTooManyChanges, metRequestTooLarge, metStateMismatch, metFromAccountNotFound,
     metFromAccountNotSupportedByMethod,
   ]:
-    doAssert parseMethodErrorType($v) == v
+    doAssert parseMethodErrorKind($v) == v
 
-testCase propSetErrorTypeKnownRoundTrip:
+testCase propSetErrorKindKnownRoundTrip:
   for v in [
     setForbidden, setOverQuota, setTooLarge, setRateLimit, setNotFound, setInvalidPatch,
     setWillDestroy, setInvalidProperties, setAlreadyExists, setSingleton,
   ]:
-    doAssert parseSetErrorType($v) == v
+    doAssert parseSetErrorKind($v) == v
 
 testCase propUnknownStringsMaptoCatchAll:
   checkProperty "arbitrary strings map to catch-all":
@@ -101,70 +103,70 @@ testCase propClientErrorMessageNonEmpty:
   doAssert re.message.len > 0
 
 testCase propSetErrorDefensiveFallback:
-  doAssert setError("invalidProperties").errorType == setUnknown
-  doAssert setError("alreadyExists").errorType == setUnknown
+  doAssert setError("invalidProperties").kind == setUnknown
+  doAssert setError("alreadyExists").kind == setUnknown
 
 testCase propCapabilityUriUnknownIsErr:
   doAssert capabilityUri(ckUnknown).isNone
 
 # --- Error type partition properties ---
 
-testCase propMethodErrorTypeBackingStringInjective:
+testCase propMethodErrorKindBackingStringInjective:
   ## Distinct known variants have distinct $ values.
-  for v1 in MethodErrorType:
-    for v2 in MethodErrorType:
+  for v1 in MethodErrorKind:
+    for v2 in MethodErrorKind:
       if v1 != v2 and v1 != metUnknown and v2 != metUnknown:
         doAssert $v1 != $v2
 
-testCase propSetErrorTypeBackingStringInjective:
+testCase propSetErrorKindBackingStringInjective:
   ## Distinct known variants have distinct $ values.
-  for v1 in SetErrorType:
-    for v2 in SetErrorType:
+  for v1 in SetErrorKind:
+    for v2 in SetErrorKind:
       if v1 != v2 and v1 != setUnknown and v2 != setUnknown:
         doAssert $v1 != $v2
 
-testCase propMethodErrorTypeParseDeterministic:
-  checkProperty "propMethodErrorTypeParseDeterministic":
+testCase propMethodErrorKindParseDeterministic:
+  checkProperty "propMethodErrorKindParseDeterministic":
     ## Same input always produces same output.
     let s = genArbitraryString(rng, trial)
     lastInput = s
-    doAssert parseMethodErrorType(s) == parseMethodErrorType(s)
+    doAssert parseMethodErrorKind(s) == parseMethodErrorKind(s)
 
-testCase propSetErrorTypeParseDeterministic:
-  checkProperty "propSetErrorTypeParseDeterministic":
+testCase propSetErrorKindParseDeterministic:
+  checkProperty "propSetErrorKindParseDeterministic":
     let s = genArbitraryString(rng, trial)
     lastInput = s
-    doAssert parseSetErrorType(s) == parseSetErrorType(s)
+    doAssert parseSetErrorKind(s) == parseSetErrorKind(s)
 
 testCase propExhaustiveMethodErrorRoundTrip:
   ## Every non-Unknown variant round-trips through parse.
-  for v in MethodErrorType:
+  for v in MethodErrorKind:
     if v != metUnknown:
-      doAssert parseMethodErrorType($v) == v
+      doAssert parseMethodErrorKind($v) == v
 
 testCase propExhaustiveSetErrorRoundTrip:
-  for v in SetErrorType:
+  for v in SetErrorKind:
     if v != setUnknown:
-      doAssert parseSetErrorType($v) == v
+      doAssert parseSetErrorKind($v) == v
 
 testCase propExhaustiveRequestErrorRoundTrip:
-  for v in RequestErrorType:
+  for v in RequestErrorKind:
     if v != retUnknown:
-      doAssert parseRequestErrorType($v) == v
+      doAssert parseRequestErrorKind($v) == v
 
 # --- Error constructor auto-parse coherence ---
 
 testCase propRequestErrorAutoParseCoherence:
-  checkProperty "requestError(s).errorType == parseRequestErrorType(s)":
+  checkProperty "requestError(s).kind == parseRequestErrorKind(s)":
     let s = genArbitraryString(rng, trial)
     lastInput = s
-    doAssert requestError(s).errorType == parseRequestErrorType(s)
+    doAssert requestError(s).kind == parseRequestErrorKind(s)
 
 testCase propMethodErrorAutoParseCoherence:
-  checkProperty "methodError(s).errorType == parseMethodErrorType(s)":
+  checkProperty "methodError(s).kind == parseMethodErrorKind(s)":
     let s = genArbitraryString(rng, trial)
     lastInput = s
-    doAssert methodError(s).errorType == parseMethodErrorType(s)
+    doAssert methodError(s).kind == parseMethodErrorKind(s)
 
 testCase propSetErrorRawTypePreservation:
   checkProperty "setError(s).rawType == s for non-variant strings":
@@ -190,7 +192,7 @@ testCase propClientErrorLiftRequest:
     let re = genRequestError(rng)
     let ce = clientError(re)
     doAssert ce.kind == cekRequest
-    doAssert ce.request.errorType == re.errorType
+    doAssert ce.request.kind == re.kind
     doAssert ce.request.rawType == re.rawType
     doAssert ce.request.status == re.status
     doAssert ce.request.title == re.title
@@ -210,7 +212,7 @@ testCase propSetErrorInvalidPropertiesFieldPreservation:
       else:
         Opt.none(string)
     let se = setErrorInvalidProperties("invalidProperties", props, desc)
-    doAssert se.errorType == setInvalidProperties
+    doAssert se.kind == setInvalidProperties
     doAssert se.properties == props
     doAssert se.description == desc
 
@@ -224,7 +226,7 @@ testCase propSetErrorAlreadyExistsFieldPreservation:
       else:
         Opt.none(string)
     let se = setErrorAlreadyExists("alreadyExists", id, desc)
-    doAssert se.errorType == setAlreadyExists
+    doAssert se.kind == setAlreadyExists
     doAssert se.existingId == id
     doAssert se.description == desc
 
@@ -235,14 +237,14 @@ testCase propGenMethodErrorFieldPreservation:
     let me = genMethodError(rng)
     lastInput = me.rawType
     doAssert me.rawType.len > 0
-    doAssert me.errorType == parseMethodErrorType(me.rawType)
+    doAssert me.kind == parseMethodErrorKind(me.rawType)
 
 testCase propGenSetErrorFieldPreservation:
   checkProperty "genSetError preserves rawType and variant fields":
     let se = genSetError(rng)
     lastInput = se.rawType
     doAssert se.rawType.len > 0
-    case se.errorType
+    case se.kind
     of setInvalidProperties: discard se.properties
     of setAlreadyExists: discard se.existingId
     else: discard
@@ -299,3 +301,93 @@ testCase propSetErrorExtrasPreservation:
       for key, val in se.extras.get().pairs:
         doAssert rt.extras.get().hasKey(key),
           "extras key '" & key & "' lost in round-trip"
+
+# =============================================================================
+# A12: diagnostic projection invariants
+# =============================================================================
+#
+# Five properties locking the ``message()`` contract for every error type:
+# determinism, no control bytes, bounded length, lossless classification,
+# and (for ``ValidationError``) no ``value`` leak.
+
+testCase propMessageDeterminism:
+  ## Two consecutive ``message()`` calls on the same value yield the same
+  ## string. The diagnostic is a pure projection — no hidden state.
+  checkProperty "message() is deterministic across all error types":
+    let ve = genValidationError(rng)
+    doAssert ve.message == ve.message
+    let te = genTransportError(rng)
+    doAssert te.message == te.message
+    let re = genRequestError(rng)
+    doAssert re.message == re.message
+    let me = genMethodError(rng)
+    doAssert me.message == me.message
+    let se = genSetError(rng)
+    doAssert se.message == se.message
+    let ce = genClientError(rng)
+    doAssert ce.message == ce.message
+
+testCase propMessageNoControlBytes:
+  ## ``message()`` never embeds control bytes (below SP, except TAB) —
+  ## diagnostics must be safe to splice into a logger line without escaping.
+  checkProperty "message() contains no control bytes":
+    template noCtl(s: string): bool =
+      ## Predicate: ``s`` contains no control bytes apart from TAB.
+      s.allIt(it >= ' ' or it == '\t')
+
+    let ve = genValidationError(rng)
+    doAssert noCtl(ve.message)
+    let te = genTransportError(rng)
+    doAssert noCtl(te.message)
+    let re = genRequestError(rng)
+    doAssert noCtl(re.message)
+    let me = genMethodError(rng)
+    doAssert noCtl(me.message)
+    let se = genSetError(rng)
+    doAssert noCtl(se.message)
+    let ce = genClientError(rng)
+    doAssert noCtl(ce.message)
+
+testCase propMessageBoundedLength:
+  ## ``message()`` fits inside a 4096-byte ceiling — prerequisite for the
+  ## eventual libcurl ``CURLOPT_ERRORBUFFER``-style FFI surface (D10).
+  checkProperty "message().len <= 4096 across all error types":
+    let ve = genValidationError(rng)
+    doAssert ve.message.len <= 4096
+    let te = genTransportError(rng)
+    doAssert te.message.len <= 4096
+    let re = genRequestError(rng)
+    doAssert re.message.len <= 4096
+    let me = genMethodError(rng)
+    doAssert me.message.len <= 4096
+    let se = genSetError(rng)
+    doAssert se.message.len <= 4096
+    let ce = genClientError(rng)
+    doAssert ce.message.len <= 4096
+
+testCase propMessageLosslessClassification:
+  ## The classification token is always recoverable from the diagnostic:
+  ## ``typeName`` for ValidationError, ``rawType`` for MethodError /
+  ## SetError, ``"HTTP " & $status`` for tekHttpStatus TransportError.
+  checkProperty "message() carries the classification token verbatim":
+    let ve = genValidationError(rng)
+    doAssert ve.typeName in ve.message
+    let me = genMethodError(rng)
+    doAssert me.rawType in me.message
+    let se = genSetError(rng)
+    doAssert se.rawType in se.message
+    let te = genTransportError(rng)
+    if te.kind == tekHttpStatus:
+      doAssert ("HTTP " & $te.httpStatus) in te.message
+
+testCase propValidationErrorMessageNoValueLeak:
+  ## The redaction rule (D4): ``ValidationError.message`` MUST NOT embed
+  ## ``value``. ``value`` is untrusted input — callers compose it
+  ## explicitly when redaction is safe. The generator constrains the
+  ## value's character class to ``'g'..'z'`` and the typeName / reason
+  ## strings to disjoint character classes, so any non-empty substring of
+  ## ``value`` appearing in ``message`` would be a true regression rather
+  ## than a generator-induced false positive.
+  checkProperty "ValidationError.message does not embed value":
+    let ve = genValidationError(rng)
+    doAssert ve.value notin ve.message

@@ -20,9 +20,8 @@ testCase tcapturedServerEnforcementMaxSizeRequest:
     let re = RequestError.fromJson(j).expect("RequestError.fromJson")
     doAssert re.rawType == "urn:ietf:params:jmap:error:limit",
       "Stalwart returns canonical 'limit' URI; got " & re.rawType
-    doAssert re.errorType == retLimit,
-      "errorType must project to retLimit, got " & $re.errorType
-    doAssert re.errorType == parseRequestErrorType(re.rawType),
+    doAssert re.kind == retLimit, "errorType must project to retLimit, got " & $re.kind
+    doAssert re.kind == parseRequestErrorKind(re.rawType),
       "errorType / rawType must be derived consistently"
     # ``status`` mandated by RFC 7807 §3.1; the specific 4xx code is
     # server-discretionary. Stalwart and James use 400; Cyrus uses 413

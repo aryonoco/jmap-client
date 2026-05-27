@@ -31,6 +31,8 @@ import std/sysrand
 import results
 
 import ./types
+import ./types/validation
+import ./types/errors
 import ./serialisation/serde
 import ./serialisation/serde_diagnostics
 import ./serialisation/serde_envelope

@@ -142,7 +142,7 @@ testCase setBearerTokenEmpty:
   let btR = c.setBearerToken("")
   doAssert btR.isErr, "expected Err for empty token"
   doAssert btR.error.typeName == "JmapClient"
-  doAssert btR.error.message == "bearerToken must not be empty"
+  doAssert btR.error.reason == "bearerToken must not be empty"
   doAssert btR.error.value == ""
 
 testCase initJmapClientNewlineInUrl:

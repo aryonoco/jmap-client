@@ -130,7 +130,7 @@ testCase tmailboxSetCrudLive:
         "destroying a parent with a surviving child must fail per RFC 8621 §2.5"
       let setErr = outcome.error
       assertOn target,
-        setErr.errorType == setMailboxHasChild,
+        setErr.kind == setMailboxHasChild,
         "expected mailboxHasChild, got rawType=" & setErr.rawType
       sawHasChild = true
     do:

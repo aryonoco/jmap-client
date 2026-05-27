@@ -108,7 +108,7 @@ testCase temailCopyIntraAccountLive:
     doAssert getErr.kind == gekMethod, "expected gekMethod"
     let methodErr = getErr.methodErr
     assertOn target,
-      methodErr.errorType in {metInvalidArguments, metUnknownMethod},
+      methodErr.kind in {metInvalidArguments, metUnknownMethod},
       "method error must project as metInvalidArguments or metUnknownMethod (got rawType=" &
         methodErr.rawType & ")"
 

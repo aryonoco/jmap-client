@@ -142,7 +142,7 @@ testCase tidentityChangesLive:
     doAssert getErr.kind == gekMethod, "expected gekMethod"
     let methodErr = getErr.methodErr
     assertOn target,
-      methodErr.errorType in
+      methodErr.kind in
         {metCannotCalculateChanges, metInvalidArguments, metUnknownMethod},
       "method error must project as cannotCalculateChanges, invalidArguments, or " &
         "unknownMethod (got rawType=" & methodErr.rawType & ")"

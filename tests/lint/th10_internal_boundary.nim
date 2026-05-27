@@ -4,10 +4,12 @@
 ## H10 internal-boundary lint.
 ##
 ## Enforces that ``import jmap_client/internal/...`` only appears under
-## ``src/jmap_client/`` (the package itself) and ``tests/`` (which are
-## allowed to reach private helpers). Any other location — examples,
-## external consumers, sample apps, downstream code that lands in this
-## repo — fails CI with a pointer to A1 / P5.
+## ``src/jmap_client/`` (the package itself), ``tests/`` (allowed to
+## reach private helpers), and ``scripts/`` (library tooling such as
+## A12's ``freeze_error_messages`` regenerator, which legitimately needs
+## the L1 constructors to build the snapshot corpus). Any other
+## location — examples, external consumers, sample apps, downstream
+## code that lands in this repo — fails CI with a pointer to A1 / P5.
 ##
 ## See ``docs/TODO/pre-1.0-api-alignment.md`` Section H, entry H10.
 
@@ -16,7 +18,7 @@ import std/[os, strutils]
 const
   RepoRoot = currentSourcePath().parentDir.parentDir.parentDir
   ForbiddenPrefixes = ["import jmap_client/internal/", "from jmap_client/internal/"]
-  AllowedRoots = ["src" / "jmap_client", "tests"]
+  AllowedRoots = ["src" / "jmap_client", "tests", "scripts"]
 
 proc isAllowed(path: string): bool =
   ## True when ``path`` lives under one of ``AllowedRoots``. Used to

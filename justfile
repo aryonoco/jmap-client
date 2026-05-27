@@ -425,6 +425,25 @@ lint-module-paths:
     nim r --hints:off --warnings:off tests/lint/h13_module_path_lock.nim
     @echo "H13 module-path lock lint passed"
 
+# Regenerate the H15 error-message snapshot. Developer convenience for
+# legitimate format changes — review the diff before committing and
+# tag the PR [ERR-MSG-CHANGE]. CI does not run this recipe.
+freeze-error-messages:
+    @echo "Regenerating tests/wire_contract/error-messages.txt..."
+    @mkdir -p tests/wire_contract
+    nim r --hints:off --warnings:off scripts/freeze_error_messages.nim \
+      > tests/wire_contract/error-messages.txt.new
+    @mv tests/wire_contract/error-messages.txt.new tests/wire_contract/error-messages.txt
+    @echo "Snapshot regenerated. Review the diff before committing."
+
+# H15 error-message snapshot lock lint. Backs A12 (P1, P5, P13, P18,
+# P20). Bidirectional comparison: live message() projections must
+# match tests/wire_contract/error-messages.txt exactly.
+lint-error-messages:
+    @echo "Running H15 error-message snapshot lint..."
+    nim r --hints:off --warnings:off tests/lint/h15_error_message_snapshot.nim
+    @echo "H15 error-message snapshot lint passed"
+
 # Static analysis with nimalyzer
 analyse:
     @echo "Running static analysis..."
@@ -435,7 +454,7 @@ analyse:
 analyze: analyse
 
 # Run all code quality checks
-check: fmt-check lint lint-isolated lint-style lint-internal-boundary lint-typed-builder-jsonnode lint-sealed-distinct lint-h12-no-test-backdoors lint-module-paths analyse
+check: fmt-check lint lint-isolated lint-style lint-internal-boundary lint-typed-builder-jsonnode lint-sealed-distinct lint-h12-no-test-backdoors lint-module-paths lint-error-messages analyse
     @echo "All quality checks passed"
 
 # =============================================================================
@@ -449,7 +468,7 @@ reuse:
     @echo "REUSE compliance check passed"
 
 # Run full CI pipeline locally (mirrors .github/workflows/ci.yml)
-ci: reuse fmt-check lint lint-isolated lint-style lint-internal-boundary lint-typed-builder-jsonnode lint-sealed-distinct lint-h12-no-test-backdoors lint-module-paths analyse test
+ci: reuse fmt-check lint lint-isolated lint-style lint-internal-boundary lint-typed-builder-jsonnode lint-sealed-distinct lint-h12-no-test-backdoors lint-module-paths lint-error-messages analyse test
     @echo ""
     @echo "============================================"
     @echo "All CI checks passed!"

@@ -65,6 +65,6 @@ testCase tCrossAccountEmailGetRejectionLive:
       "cross-account rejection must surface as gekMethod, not gekHandleMismatch"
     let methodErr = getErr.methodErr
     assertOn target,
-      methodErr.errorType in {metForbidden, metAccountNotFound},
+      methodErr.kind in {metForbidden, metAccountNotFound},
       "RFC 8620 §3.6.2 admits both metForbidden and metAccountNotFound for cross-account " &
-        "rejection; got " & $methodErr.errorType & " (rawType=" & methodErr.rawType & ")"
+        "rejection; got " & $methodErr.kind & " (rawType=" & methodErr.rawType & ")"

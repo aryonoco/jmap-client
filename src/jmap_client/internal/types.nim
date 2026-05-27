@@ -22,7 +22,7 @@ import ./types/errors
 import ./types/field_echo
 
 export results
-export validation
+export validation except validationError, toValidationError
 export primitives
 export identifiers except initBuilderId
 export collation
@@ -31,7 +31,11 @@ export methods_enum
 export session
 export envelope except arguments
 export framework
-export errors
+export errors except
+  requestError, methodError, setError, setErrorInvalidProperties, setErrorAlreadyExists,
+  setErrorBlobNotFound, setErrorInvalidEmail, setErrorTooManyRecipients,
+  setErrorInvalidRecipients, setErrorTooLarge, clientError, validationToClientError,
+  validationToClientErrorCtx, getErrorMethod, getErrorHandleMismatch
 export field_echo
 
 type JmapResult*[T] = Result[T, ClientError]

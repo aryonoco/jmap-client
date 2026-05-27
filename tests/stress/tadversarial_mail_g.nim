@@ -95,7 +95,7 @@ testCase rfc5321MailboxAdversarialGroup:
   block mailboxEmpty:
     let res = parseRFC5321Mailbox("")
     assertErr res
-    doAssert res.error.message.contains("must not be empty")
+    doAssert res.error.reason.contains("must not be empty")
 
 # =============================================================================
 # Block 2 — SubmissionParam wire adversarial (§8.2.3 Block 2, 10 named cases)
@@ -113,13 +113,13 @@ testCase submissionParamAdversarialGroup:
     # SUCCESS/FAILURE/DELAY.
     let res = notifyParam({dnfNever, dnfSuccess})
     assertErr res
-    doAssert res.error.message.contains("NOTIFY=NEVER is mutually exclusive")
+    doAssert res.error.reason.contains("NOTIFY=NEVER is mutually exclusive")
 
   block paramNotifyEmptyFlags:
     # submission_param.nim:207.
     let res = notifyParam({})
     assertErr res
-    doAssert res.error.message.contains("NOTIFY flags must not be empty")
+    doAssert res.error.reason.contains("NOTIFY flags must not be empty")
 
   block paramHoldForNegative:
     # HOLDFOR is UnsignedInt on the JMAP wire — encoded as a decimal
@@ -133,12 +133,12 @@ testCase submissionParamAdversarialGroup:
     # submission_param.nim:103.
     let res = parseMtPriority(-10)
     assertErr res
-    doAssert res.error.message.contains("must be in range -9..9")
+    doAssert res.error.reason.contains("must be in range -9..9")
 
   block paramMtPriorityAboveRange:
     let res = parseMtPriority(10)
     assertErr res
-    doAssert res.error.message.contains("must be in range -9..9")
+    doAssert res.error.reason.contains("must be in range -9..9")
 
   block paramSizeAt2Pow53Boundary:
     # 2^53 - 1 = 9007199254740991 — MaxUnsignedInt per JMAP §1.3. SIZE
@@ -166,7 +166,7 @@ testCase submissionParamAdversarialGroup:
     let two = bodyParam(beEightBitMime)
     let res = parseSubmissionParams(@[one, two])
     assertErr res
-    doAssert res.error[0].message.contains("duplicate parameter key")
+    doAssert res.error[0].reason.contains("duplicate parameter key")
 
 # =============================================================================
 # Block 3 — Envelope serde coherence (§8.2.3 Block 3, 7 named cases)
@@ -239,7 +239,7 @@ testCase envelopeCoherenceGroup:
     let alice = makeSubmissionAddress()
     let res = parseNonEmptyRcptList(@[alice, alice])
     assertErr res
-    doAssert res.error[0].message.contains("duplicate recipient mailbox")
+    doAssert res.error[0].reason.contains("duplicate recipient mailbox")
 
   block envelopeOptNoneVsEmptyParams:
     # G34: Opt.none(SubmissionParams) toJson -> "parameters": null;
@@ -351,42 +351,42 @@ testCase smtpReplyGrammarGroup:
   block smtpReplyEmpty:
     let res = parseSmtpReply("")
     assertErr res
-    doAssert res.error.message.contains("must not be empty")
+    doAssert res.error.reason.contains("must not be empty")
 
   block smtpReplyControlChar:
     let res = parseSmtpReply("250 o\x01k")
     assertErr res
-    doAssert res.error.message.contains("contains disallowed control characters")
+    doAssert res.error.reason.contains("contains disallowed control characters")
 
   block smtpReplyTooShort:
     let res = parseSmtpReply("25")
     assertErr res
-    doAssert res.error.message.contains("line shorter than 3-digit Reply-code")
+    doAssert res.error.reason.contains("line shorter than 3-digit Reply-code")
 
   block smtpReplyFirstDigitZero:
     let res = parseSmtpReply("050 ok")
     assertErr res
-    doAssert res.error.message.contains("first Reply-code digit must be in 2..5")
+    doAssert res.error.reason.contains("first Reply-code digit must be in 2..5")
 
   block smtpReplyFirstDigitOne:
     let res = parseSmtpReply("150 ok")
     assertErr res
-    doAssert res.error.message.contains("first Reply-code digit must be in 2..5")
+    doAssert res.error.reason.contains("first Reply-code digit must be in 2..5")
 
   block smtpReplyFirstDigitSix:
     let res = parseSmtpReply("650 ok")
     assertErr res
-    doAssert res.error.message.contains("first Reply-code digit must be in 2..5")
+    doAssert res.error.reason.contains("first Reply-code digit must be in 2..5")
 
   block smtpReplyFirstDigitNine:
     let res = parseSmtpReply("950 ok")
     assertErr res
-    doAssert res.error.message.contains("first Reply-code digit must be in 2..5")
+    doAssert res.error.reason.contains("first Reply-code digit must be in 2..5")
 
   block smtpReplySecondDigitSix:
     let res = parseSmtpReply("260 ok")
     assertErr res
-    doAssert res.error.message.contains("second Reply-code digit must be in 0..5")
+    doAssert res.error.reason.contains("second Reply-code digit must be in 0..5")
 
   block smtpReplyThirdDigitBoundary:
     # RFC 5321 §4.2: third digit 0..9 — "259 ok" is valid.
@@ -396,28 +396,24 @@ testCase smtpReplyGrammarGroup:
   block smtpReplyBadSeparator:
     let res = parseSmtpReply("250?ok")
     assertErr res
-    doAssert res.error.message.contains(
+    doAssert res.error.reason.contains(
       "character after Reply-code must be SP, HT, or '-'"
     )
 
   block smtpReplyMultilineCodeMismatch:
     let res = parseSmtpReply("250-ok\r\n251 done")
     assertErr res
-    doAssert res.error.message.contains("multi-line reply has inconsistent Reply-codes")
+    doAssert res.error.reason.contains("multi-line reply has inconsistent Reply-codes")
 
   block smtpReplyMultilineFinalHyphen:
     let res = parseSmtpReply("250-ok\r\n250-done")
     assertErr res
-    doAssert res.error.message.contains(
-      "final reply line must not use '-' continuation"
-    )
+    doAssert res.error.reason.contains("final reply line must not use '-' continuation")
 
   block smtpReplyMultilineNonFinalSpace:
     let res = parseSmtpReply("250 ok\r\n250 done")
     assertErr res
-    doAssert res.error.message.contains(
-      "non-final reply line must use '-' continuation"
-    )
+    doAssert res.error.reason.contains("non-final reply line must use '-' continuation")
 
   block smtpReplyBareCodeNoText:
     # Pin deterministic behaviour. Shipped parser may accept or reject
@@ -575,7 +571,7 @@ testCase scaleInvariantsGroup:
     let res = parseNonEmptyEmailSubmissionUpdates(items)
     assertErr res
     assertLen res.error, 1
-    doAssert res.error[0].message.contains("duplicate submission id")
+    doAssert res.error[0].reason.contains("duplicate submission id")
 
   block submissionParams1kExtensionEntries:
     # Linear-scaling pin: 1000 spkExtension entries with distinct names.
@@ -605,7 +601,7 @@ testCase scaleInvariantsGroup:
     let res = parseNonEmptyRcptList(items)
     assertErr res
     assertLen res.error, 1
-    doAssert res.error[0].message.contains("duplicate recipient mailbox")
+    doAssert res.error[0].reason.contains("duplicate recipient mailbox")
 
 # See tests/stress/tadversarial_mail_f.nim for JSON-structural attacks
 # (BOM, NaN/Infinity, deep nesting, duplicate keys, 1 MB strings, cast

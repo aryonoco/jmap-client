@@ -26,7 +26,7 @@ testCase tcapturedEmailCopyDestroyOriginalRejected:
     "method-level errors arrive under the literal rawName 'error' (got " & inv.rawName &
       ")"
   let me = MethodError.fromJson(inv.arguments).expect("MethodError.fromJson")
-  doAssert me.errorType == metInvalidArguments,
-    "errorType must project as metInvalidArguments (got " & $me.errorType & ", rawType=" &
+  doAssert me.kind == metInvalidArguments,
+    "errorType must project as metInvalidArguments (got " & $me.kind & ", rawType=" &
       me.rawType & ")"
   doAssert me.rawType == "invalidArguments", "rawType must round-trip the wire literal"

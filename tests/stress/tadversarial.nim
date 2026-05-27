@@ -183,23 +183,23 @@ testCase propertyNameEmbeddedNul:
 
 testCase methodErrorTypeUnderscoreStripped:
   ## "server_Fail" normalises to "serverfail", matching "serverFail" -> metServerFail.
-  doAssert parseMethodErrorType("server_Fail") == metServerFail
+  doAssert parseMethodErrorKind("server_Fail") == metServerFail
 
 testCase methodErrorTypeCaseInsensitiveAfterFirst:
   ## "serverfail" normalises same as "serverFail": both become "serverfail".
-  doAssert parseMethodErrorType("serverfail") == metServerFail
+  doAssert parseMethodErrorKind("serverfail") == metServerFail
 
 testCase methodErrorTypeFirstCharCaseSensitive:
   ## "SERVERFAIL": first char 'S' differs from 's' in "serverFail" -> metUnknown.
-  doAssert parseMethodErrorType("SERVERFAIL") == metUnknown
+  doAssert parseMethodErrorKind("SERVERFAIL") == metUnknown
 
 testCase setErrorTypeUnderscoreStripped:
   ## "over_Quota" normalises to "overquota", matching "overQuota" -> setOverQuota.
-  doAssert parseSetErrorType("over_Quota") == setOverQuota
+  doAssert parseSetErrorKind("over_Quota") == setOverQuota
 
 testCase setErrorTypeMixedCaseAndUnderscore:
   ## "too_large" normalises to "toolarge", matching "tooLarge" -> setTooLarge.
-  doAssert parseSetErrorType("too_large") == setTooLarge
+  doAssert parseSetErrorKind("too_large") == setTooLarge
 
 testCase capabilityKindUnderscoreFalseMatch:
   ## "urn:ietf:params:jmap:co_re" normalises to "urn:ietf:params:jmap:core",
@@ -209,24 +209,24 @@ testCase capabilityKindUnderscoreFalseMatch:
 testCase requestErrorTypeUnderscoreFalseMatch:
   ## "urn:ietf:params:jmap:error:not_JSON" normalises to
   ## "urn:ietf:params:jmap:error:notjson", matching retNotJson's backing.
-  doAssert parseRequestErrorType("urn:ietf:params:jmap:error:not_JSON") == retNotJson
+  doAssert parseRequestErrorKind("urn:ietf:params:jmap:error:not_JSON") == retNotJson
 
 testCase requestErrorTypeUnderscoreInLimit:
   ## "urn:ietf:params:jmap:error:li_mit" normalises to
   ## "urn:ietf:params:jmap:error:limit", matching retLimit.
-  doAssert parseRequestErrorType("urn:ietf:params:jmap:error:li_mit") == retLimit
+  doAssert parseRequestErrorKind("urn:ietf:params:jmap:error:li_mit") == retLimit
 
 testCase methodErrorTypeMultipleUnderscores:
   ## "invalid__Arguments" -> "invalidarguments" matches metInvalidArguments.
-  doAssert parseMethodErrorType("invalid__Arguments") == metInvalidArguments
+  doAssert parseMethodErrorKind("invalid__Arguments") == metInvalidArguments
 
 testCase methodErrorTypeTrailingUnderscore:
   ## "forbidden_" -> "forbidden" matches metForbidden.
-  doAssert parseMethodErrorType("forbidden_") == metForbidden
+  doAssert parseMethodErrorKind("forbidden_") == metForbidden
 
 testCase setErrorTypeFirstCharMismatch:
   ## "Forbidden" -> first char 'F' differs from 'f' in "forbidden" -> setUnknown.
-  doAssert parseSetErrorType("Forbidden") == setUnknown
+  doAssert parseSetErrorKind("Forbidden") == setUnknown
 
 testCase capabilityKindFirstCharMismatch:
   ## "URN:..." first char 'U' differs from 'u' in "urn:..." -> ckUnknown.
@@ -290,7 +290,7 @@ testCase requestUsingAcceptsNul:
   doAssert req.`using`[0].len == 30
 
 testCase transportErrorMessageAcceptsNul:
-  ## TransportError.message is a bare string; NUL bytes are preserved.
+  ## TransportError.reason is a bare string; NUL bytes are preserved.
   let te = transportError(tekNetwork, "connection\x00refused")
   doAssert te.message.len == 18
 
@@ -473,27 +473,27 @@ testCase dateLongFractionalSeconds:
 
 testCase methodErrorTypeLeadingUnderscore:
   ## Leading underscore is preserved by nimIdentNormalize; no match.
-  doAssert parseMethodErrorType("_serverFail") == metUnknown
+  doAssert parseMethodErrorKind("_serverFail") == metUnknown
 
 testCase methodErrorTypeMultipleLeadingUnderscores:
   ## Multiple leading underscores preserved.
-  doAssert parseMethodErrorType("__serverFail") == metUnknown
+  doAssert parseMethodErrorKind("__serverFail") == metUnknown
 
 testCase methodErrorTypeNulTerminated:
   ## NUL byte is not an underscore; breaks the match.
-  doAssert parseMethodErrorType("serverFail\x00extra") == metUnknown
+  doAssert parseMethodErrorKind("serverFail\x00extra") == metUnknown
 
 testCase methodErrorTypeVeryLong:
   ## Very long string: parseEnum iterates all variants without crashing.
-  doAssert parseMethodErrorType("a".repeat(10000)) == metUnknown
+  doAssert parseMethodErrorKind("a".repeat(10000)) == metUnknown
 
 testCase methodErrorTypeZeroWidthSpace:
   ## Zero-width space (UTF-8 bytes) embedded in the string breaks matching.
-  doAssert parseMethodErrorType("server\xE2\x80\x8BFail") == metUnknown
+  doAssert parseMethodErrorKind("server\xE2\x80\x8BFail") == metUnknown
 
 testCase capabilityUriUnderscoreFalseMatch:
   ## Underscore between 'o' and 'w' in "unknownCapability" is stripped.
-  doAssert parseRequestErrorType("urn:ietf:params:jmap:error:unkno_wnCapability") ==
+  doAssert parseRequestErrorKind("urn:ietf:params:jmap:error:unkno_wnCapability") ==
     retUnknownCapability
 
 # =============================================================================
@@ -514,7 +514,7 @@ testCase uriTemplateEmptyVariableName:
   let res = parseUriTemplate("https://e.com/{}/{name}")
   doAssert res.isErr
   doAssert res.error.typeName == "UriTemplate"
-  doAssert "empty variable" in res.error.message
+  doAssert "empty variable" in res.error.reason
 
 testCase sessionCoreCapabilityMismatchedRawUri:
   ## ckCore with a non-matching rawUri is accepted (validation checks kind, not URI).
@@ -626,15 +626,15 @@ testCase nimIdentNormalizeUnderscoreCapability:
 
 testCase nimIdentNormalizeMethodError:
   ## "serverFAIL" matches metServerFail (case-insensitive after first char).
-  doAssert parseMethodErrorType("serverFAIL") == metServerFail
+  doAssert parseMethodErrorKind("serverFAIL") == metServerFail
 
 testCase nimIdentNormalizeMethodErrorUnderscore:
   ## "server___Fail" with triple underscores matches metServerFail.
-  doAssert parseMethodErrorType("server___Fail") == metServerFail
+  doAssert parseMethodErrorKind("server___Fail") == metServerFail
 
 testCase nimIdentNormalizeSetError:
   ## "invalidPROPERTIES" matches setInvalidProperties.
-  doAssert parseSetErrorType("invalidPROPERTIES") == setInvalidProperties
+  doAssert parseSetErrorKind("invalidPROPERTIES") == setInvalidProperties
 
 # =============================================================================
 # t) int64 extremes
@@ -740,7 +740,7 @@ testCase crlfInjectionInMethodError:
   let me = methodError("serverFail\r\nX-Injected: header")
   doAssert "\r\n" in me.rawType
   doAssert me.rawType == "serverFail\r\nX-Injected: header"
-  doAssert me.errorType == metUnknown
+  doAssert me.kind == metUnknown
 
 testCase crlfInjectionInTransportError:
   ## transportError with CRLF in message: Layer 1 preserves the bytes verbatim.
@@ -753,14 +753,14 @@ testCase crlfInjectionInSetError:
   let se = setError("forbidden\r\nX-Injected: header")
   doAssert "\r\n" in se.rawType
   doAssert se.rawType == "forbidden\r\nX-Injected: header"
-  doAssert se.errorType == setUnknown
+  doAssert se.kind == setUnknown
 
 testCase crlfInjectionInRequestError:
   ## requestError with CRLF in rawType: Layer 1 preserves the bytes verbatim.
   let re = requestError("urn:ietf:params:jmap:error:limit\r\nX-Injected: header")
   doAssert "\r\n" in re.rawType
   doAssert re.rawType == "urn:ietf:params:jmap:error:limit\r\nX-Injected: header"
-  doAssert re.errorType == retUnknown
+  doAssert re.kind == retUnknown
 
 # =============================================================================
 # Real-world server ID formats (interop)
@@ -817,18 +817,18 @@ testCase capabilityUriCaseVariation:
 # depending on which error context they appear in.
 
 testCase methodErrorVsSetErrorEnumMapping:
-  ## "serverFail" is a valid MethodErrorType but not a SetErrorType.
+  ## "serverFail" is a valid MethodErrorKind but not a SetErrorKind.
   let me = methodError("serverFail")
-  doAssert me.errorType == metServerFail
+  doAssert me.kind == metServerFail
   let se = setError("serverFail")
-  doAssert se.errorType == setUnknown
+  doAssert se.kind == setUnknown
 
 testCase requestErrorVsMethodErrorEnumMapping:
-  ## Full URIs are valid RequestErrorType values but not MethodErrorType values.
+  ## Full URIs are valid RequestErrorKind values but not MethodErrorKind values.
   let re = requestError("urn:ietf:params:jmap:error:limit")
-  doAssert re.errorType == retLimit
+  doAssert re.kind == retLimit
   let me = methodError("urn:ietf:params:jmap:error:limit")
-  doAssert me.errorType == metUnknown
+  doAssert me.kind == metUnknown
 
 # =============================================================================
 # Type confusion: Id / AccountId validation overlap
@@ -981,13 +981,13 @@ testCase httpStatusErrorLargeAndNegative:
 testCase setErrorDefensiveFallbackInvalidProperties:
   ## Generic setError with rawType="invalidProperties" falls to setUnknown.
   let se = setError("invalidProperties")
-  doAssert se.errorType == setUnknown
+  doAssert se.kind == setUnknown
   doAssert se.rawType == "invalidProperties"
 
 testCase setErrorDefensiveFallbackAlreadyExists:
   ## Generic setError with rawType="alreadyExists" falls to setUnknown.
   let se = setError("alreadyExists")
-  doAssert se.errorType == setUnknown
+  doAssert se.kind == setUnknown
   doAssert se.rawType == "alreadyExists"
 
 # =============================================================================
@@ -1002,7 +1002,7 @@ testCase setErrorAlreadyExistsWithExtrasContainingProperties:
   extras["properties"] = %*["from", "subject"]
   let se =
     setErrorAlreadyExists("alreadyExists", makeId("exist1"), extras = Opt.some(extras))
-  doAssert se.errorType == setAlreadyExists
+  doAssert se.kind == setAlreadyExists
   doAssert $se.existingId == "exist1"
   doAssert se.extras.isSome
   doAssert se.extras.get()["properties"].len == 2
@@ -1016,7 +1016,7 @@ testCase setErrorInvalidPropertiesWithExtrasContainingExistingId:
   let se = setErrorInvalidProperties(
     "invalidProperties", @["badProp"], extras = Opt.some(extras)
   )
-  doAssert se.errorType == setInvalidProperties
+  doAssert se.kind == setInvalidProperties
   doAssert se.properties == @["badProp"]
   doAssert se.extras.isSome
   doAssert se.extras.get()["existingId"].getStr() == "fake-id"
@@ -1151,7 +1151,7 @@ testCase uriTemplateNestedBracesRejected:
   let res = parseUriTemplate("https://e.com/{{accountId}}")
   doAssert res.isErr
   doAssert res.error.typeName == "UriTemplate"
-  doAssert "invalid variable character" in res.error.message
+  doAssert "invalid variable character" in res.error.reason
 
 testCase uriTemplateNulInFullTemplate:
   ## A template with NUL passes both parseUriTemplate and parseSession because

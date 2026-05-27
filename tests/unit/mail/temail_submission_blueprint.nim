@@ -100,7 +100,7 @@ testCase blueprintInvalidIdentityId:
   let res = parseId("bad@identity")
   assertErr res
   assertEq res.error.typeName, "Id"
-  assertEq res.error.message, "contains characters outside base64url alphabet"
+  assertEq res.error.reason, "contains characters outside base64url alphabet"
   assertEq res.error.value, "bad@identity"
 
 testCase blueprintInvalidEmailId:
@@ -108,7 +108,7 @@ testCase blueprintInvalidEmailId:
   let res = parseId("bad@email")
   assertErr res
   assertEq res.error.typeName, "Id"
-  assertEq res.error.message, "contains characters outside base64url alphabet"
+  assertEq res.error.reason, "contains characters outside base64url alphabet"
   assertEq res.error.value, "bad@email"
 
 testCase blueprintAccumulatesBothIdErrors:
@@ -128,8 +128,8 @@ testCase blueprintAccumulatesBothIdErrors:
   assertEq emailRes.error.value, "bad@email"
   # Same rejection class (non-base64url), but independent ValidationError
   # instances; messages grep-locked from validation.nim:189:
-  assertEq identityRes.error.message, "contains characters outside base64url alphabet"
-  assertEq emailRes.error.message, "contains characters outside base64url alphabet"
+  assertEq identityRes.error.reason, "contains characters outside base64url alphabet"
+  assertEq emailRes.error.reason, "contains characters outside base64url alphabet"
   # Structural pin — the blueprint's error rail remains a seq. If a
   # future refactor demotes to Result[_, ValidationError], the
   # compiles() probe fails, flagging the regression.

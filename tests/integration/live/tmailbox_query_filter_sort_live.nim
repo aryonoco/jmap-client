@@ -56,7 +56,7 @@ proc assertRoleFilter(client: JmapClient, mailAccountId: AccountId, inboxId: Id)
     let getErr = qResp1Extract.unsafeError
     doAssert getErr.kind == gekMethod, "expected gekMethod, got gekHandleMismatch"
     let methodErr = getErr.methodErr
-    doAssert methodErr.errorType in
+    doAssert methodErr.kind in
       {metInvalidArguments, metUnsupportedFilter, metUnknownMethod},
       "method error must be in allowed set (got rawType=" & methodErr.rawType & ")"
     return
@@ -121,7 +121,7 @@ proc assertFilterSortOrder(
     let getErr = qResp2Extract.unsafeError
     doAssert getErr.kind == gekMethod, "expected gekMethod, got gekHandleMismatch"
     let methodErr = getErr.methodErr
-    doAssert methodErr.errorType in
+    doAssert methodErr.kind in
       {metInvalidArguments, metUnsupportedSort, metUnsupportedFilter, metUnknownMethod},
       "method error must be in allowed set (got rawType=" & methodErr.rawType & ")"
     return
@@ -164,7 +164,7 @@ proc assertSortAsTree(client: JmapClient, mailAccountId: AccountId) =
     let getErr = qResp3Extract.unsafeError
     doAssert getErr.kind == gekMethod, "expected gekMethod, got gekHandleMismatch"
     let methodErr = getErr.methodErr
-    doAssert methodErr.errorType in
+    doAssert methodErr.kind in
       {metInvalidArguments, metUnsupportedSort, metUnsupportedFilter, metUnknownMethod},
       "method error must be in allowed set (got rawType=" & methodErr.rawType & ")"
     return
@@ -195,7 +195,7 @@ proc assertQueryChangesWithFilter(
     let getErr = qResp4Extract.unsafeError
     doAssert getErr.kind == gekMethod, "expected gekMethod, got gekHandleMismatch"
     let methodErr = getErr.methodErr
-    doAssert methodErr.errorType in
+    doAssert methodErr.kind in
       {metInvalidArguments, metUnsupportedFilter, metUnknownMethod},
       "method error must be in allowed set (got rawType=" & methodErr.rawType & ")"
     return
@@ -224,7 +224,7 @@ proc assertQueryChangesWithFilter(
     let getErr = qcrExtract.unsafeError
     doAssert getErr.kind == gekMethod, "expected gekMethod, got gekHandleMismatch"
     let methodErr = getErr.methodErr
-    doAssert methodErr.errorType in {
+    doAssert methodErr.kind in {
       metInvalidArguments, metUnsupportedFilter, metCannotCalculateChanges,
       metUnknownMethod,
     }, "method error must be in allowed set (got rawType=" & methodErr.rawType & ")"

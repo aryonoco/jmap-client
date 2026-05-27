@@ -26,7 +26,7 @@ testCase tcapturedMethodErrorUnsupportedSort:
   let me = MethodError.fromJson(inv.arguments).expect("MethodError.fromJson")
   doAssert me.rawType == "unsupportedSort",
     "Stalwart returns the canonical 'unsupportedSort' rawType, got " & me.rawType
-  doAssert me.errorType == metUnsupportedSort,
-    "errorType must project to metUnsupportedSort, got " & $me.errorType
-  doAssert me.errorType == parseMethodErrorType(me.rawType),
+  doAssert me.kind == metUnsupportedSort,
+    "errorType must project to metUnsupportedSort, got " & $me.kind
+  doAssert me.kind == parseMethodErrorKind(me.rawType),
     "errorType / rawType must be derived consistently"

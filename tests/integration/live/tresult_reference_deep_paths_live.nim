@@ -211,9 +211,9 @@ testCase tresultReferenceDeepPathsLive:
         )
       assertOn target, me.rawType.len > 0, "rawType must be losslessly preserved"
       assertOn target,
-        me.errorType in
+        me.kind in
           {metInvalidResultReference, metInvalidArguments, metServerFail, metUnknown},
-        "errorType must project into the closed enum, got " & $me.errorType
+        "errorType must project into the closed enum, got " & $me.kind
 
     # Cleanup: destroy the seed emails so re-runs are idempotent.
     let (bClean, cleanHandle) = addEmailSet(

@@ -65,18 +65,19 @@ until it lands, the counts are maintained by hand.
 
 | Status | Count | What it means |
 |---|---|---|
-| ✅ DONE | 32 | Implemented and verified against source / tests. |
-| 🟡 PARTIAL | 15 | Some parts implemented; gaps named in the item body. |
-| ⬜ TODO | 61 | Not yet implemented. |
+| ✅ DONE | 34 | Implemented and verified against source / tests. |
+| 🟡 PARTIAL | 14 | Some parts implemented; gaps named in the item body. |
+| ⬜ TODO | 60 | Not yet implemented. |
 | 🟦 DEFERRED | 1 | Explicitly deferred to a post-1.0 release (E1). |
 | ❌ DROPPED | 1 | Superseded or rejected (D15). |
 | **RESOLVED** | 1 | Design decision made (A3.5). |
 
 **Freeze-blocking gaps** (must close before 1.0 tag): B9, B11, B12,
 C1, C1.1, plus the four ⬜ TODO surfaces that change observable
-behaviour (A17, A20, A21, A26). H2–H9 lint backstops can ship in
-the same window or shortly after; the freeze checklist (D18)
-tracks per-item gate status.
+behaviour (A17, A20, A21, A26). The outstanding lint backstops
+(H2–H9 plus H14) can ship in the same window or shortly after;
+H1, H10–H13, and H15 are already in place. The freeze checklist
+(D18) tracks per-item gate status.
 
 ## Documented exceptions to the principles
 
@@ -545,20 +546,20 @@ JsonNode)]` parameter. Locked structure:
   `capability`; standard IETF capabilities (`urn:ietf:params:jmap:*`)
   flow through the typed wrapper family.
 
-- `CapabilityUri = distinct string`
-  (`src/jmap_client/internal/types/capabilities.nim:82`) carries
-  RFC 8620 §2 capability URIs end-to-end. Raw constructor
-  module-private (P15); `parseCapabilityUri` validates the RFC 8141
-  URN envelope. `RequestBuilder.capabilityUris` holds
+- `CapabilityUri` (sealed Pattern-A object in
+  `src/jmap_client/internal/types/capabilities.nim`, A8) carries
+  RFC 8620 §2 capability URIs end-to-end. `rawValue` is
+  module-private; `parseCapabilityUri` validates the RFC 8141 URN
+  envelope. `RequestBuilder.capabilityUris` holds
   `seq[CapabilityUri]`; `build()` / `capabilities()` unwrap to
   `seq[string]` for the RFC 8620 §3.3 wire shape.
 
-- `MethodNameLiteral = distinct string`
-  (`src/jmap_client/internal/types/methods_enum.nim:96`) is the
+- `MethodNameLiteral` (sealed Pattern-A object in
+  `src/jmap_client/internal/types/methods_enum.nim`, A8) is the
   validated wire-name carrier for `addCapabilityInvocation`.
-  Distinct from the `MethodName` enum because vendor methods cannot
-  be enumerated; `parseMethodNameLiteral` enforces 1..255 octets, no
-  control chars, contains `/`.
+  Separate from the `MethodName` enum because vendor methods
+  cannot be enumerated; `parseMethodNameLiteral` enforces 1..255
+  octets, no control chars, contains `/`.
 
 - Per-call typed metadata lives in
   `src/jmap_client/internal/protocol/call_meta.nim` — `setMeta` /
@@ -905,9 +906,9 @@ enumerates; no extensibility) are documented exemptions.
 |---|---|---|---|---|---|
 | 1 | `MethodName` | `mnUnknown` | `Invocation.rawName` | `parseMethodName` | Total |
 | 2 | `CapabilityKind` | `ckUnknown` | `ServerCapability.rawUri` | `parseCapabilityKind` | Total |
-| 3 | `RequestErrorType` | `retUnknown` | `RequestError.rawType` | `parseRequestErrorType` | Total |
-| 4 | `MethodErrorType` | `metUnknown` | `MethodError.rawType` | `parseMethodErrorType` | Total |
-| 5 | `SetErrorType` | `setUnknown` | `SetError.rawType` | `parseSetErrorType` | Total |
+| 3 | `RequestErrorKind` | `retUnknown` | `RequestError.rawType` | `parseRequestErrorKind` | Total |
+| 4 | `MethodErrorKind` | `metUnknown` | `MethodError.rawType` | `parseMethodErrorKind` | Total |
+| 5 | `SetErrorKind` | `setUnknown` | `SetError.rawType` | `parseSetErrorKind` | Total |
 | 6 | `CollationAlgorithmKind` | `caOther` | `CollationAlgorithm.rawIdentifier` | `parseCollationAlgorithm` | Fallible |
 | 7 | `MailboxRoleKind` | `mrOther` | `MailboxRole.rawIdentifier` | `parseMailboxRole` | Fallible |
 | 8 | `ContentDispositionKind` | `cdExtension` | `ContentDisposition.rawIdentifier` | `parseContentDisposition` | Fallible |
@@ -976,19 +977,68 @@ Addition of a new non-compliant open-world wire enum is undetected
 by the named-list gate; the comprehensive AST-walking defence is
 tracked at H14.
 
-### A12. Error diagnostic surface *(P13 cohort, P7)* — 🟡 PARTIAL
+### A12. Error surface *(P1, P5, P7, P13, P15, P18, P20, P28)* — ✅ DONE
 
-`message()` exists for `RequestError`, `ClientError`, and
-`GetError` (`internal/types/errors.nim:81, 127, 554`). No
-`message()` exists for `MethodError`, `SetError`, or
-`ValidationError`; no `$` operator exists for any of the four
-error types. SQLite ships `sqlite3_errmsg`; libcurl ships
-`curl_easy_strerror`; this library's diagnostic surface is
-incomplete relative to that benchmark.
+Every error type — `ValidationError`, `TransportError`,
+`RequestError`, `ClientError`, `MethodError`, `SetError`,
+`GetError` — exposes a canonical `message(): string` projection
+and a `$` overload delegating to it. The discriminator is `kind`
+on every type; every classification enum carries the `*Kind`
+suffix (`TransportErrorKind`, `RequestErrorKind`,
+`ClientErrorKind`, `MethodErrorKind`, `SetErrorKind`,
+`GetErrorKind`); the total parsers follow the same suffix
+(`parseRequestErrorKind`, `parseMethodErrorKind`,
+`parseSetErrorKind`). The shape an application developer sees is
+the same across all seven types — `case err.kind of …` with the
+`message()` projection composed deterministically per variant.
 
-A12b tracks the symbol-level work (deterministic format string
-contract for each error type + property test); A12 is the
-umbrella entry naming the surface gap.
+`ValidationError.reason` carries the raw failure reason;
+`TransportError.detail` carries the wire/exception text. Naming
+each field for its semantic role keeps the canonical `message()`
+projection structurally non-collidable — the libcurl trap where
+"the same thing" returns two different strings depending on
+parenthesisation cannot arise.
+
+Library-internal error constructors (`validationError`,
+`toValidationError`, `requestError`, `methodError`, `setError`,
+the seven `setErrorXxx` smart constructors, both `clientError`
+overloads, `validationToClientError`,
+`validationToClientErrorCtx`, `getErrorMethod`,
+`getErrorHandleMismatch`) are filtered off the hub at
+`src/jmap_client/internal/types.nim` via `export … except …` —
+the same mechanism A14 uses for `addInvocation`. Application
+developers receive error values; they do not construct them.
+Custom `Transport` implementations are an exception: the
+Transport-contract producers (`transportError`,
+`httpStatusError`, `sizeLimitExceeded`,
+`classifyTransportException`, `classifyException`,
+`enforceBodySizeLimit`) remain public by A19 because a custom
+`Transport` MUST return a `TransportError` on failure.
+
+Format stability is locked by
+`tests/wire_contract/error-messages.txt` (32 representative
+samples), enforced by `tests/lint/h15_error_message_snapshot.nim`
+(see Section H, H15), and regenerated by
+`scripts/freeze_error_messages.nim` /
+`just freeze-error-messages`. Any format change requires the
+`[ERR-MSG-CHANGE]` PR label (D17 reviewer checklist).
+
+The five mail-specific extractors at
+`src/jmap_client/internal/mail/mail_errors.nim` (`notFoundBlobIds`,
+`maxSize`, `maxRecipients`, `invalidRecipientAddresses`,
+`invalidEmailProperties`) are exhaustive `case se.kind`
+statements with no `else:` arm — adding a `SetErrorKind` variant
+forces a compile error at every mail-specific accessor.
+`SetError.message` and `TransportError.message` are likewise
+exhaustive. The catch-all-`else` anti-pattern lockout matrix
+lists A12 alongside A11 / H9.
+
+`tests/unit/tmessages.nim` pins the per-variant format strings;
+`tests/property/tprop_errors.nim` carries five property
+invariants (determinism, no control bytes, bounded length ≤
+4096, classification token in the message, no
+`ValidationError.value` leak). The narrative contract lives at
+`docs/design/15-error-surface.md`.
 
 ### A13. JmapClient destruction semantics *(P8, P12, P24)* — ✅ DONE
 
@@ -1608,46 +1658,6 @@ docs/policy/03-rfc-extension-policy.md.`
 **Mechanical gate.** F6's re-export hub snapshot fails CI if any
 public module exports `sendAsync` or `DispatchedRequest` pre-1.0.
 
-### A12b. Implement `message()` and `$` for every error type *(P7, P13)* — ⬜ TODO
-
-A12 lists all four error types (`ClientError`, `MethodError`,
-`SetError`, `ValidationError`). `message()` exists only on
-`RequestError` (`internal/types/errors.nim:81`) and `ClientError`
-(`internal/types/errors.nim:127`). `MethodError`, `SetError`, and
-`ValidationError` have no public diagnostic accessor and no `$`
-operator — every consumer hand-formats from raw fields.
-
-**Action.** Add to `src/jmap_client/internal/types/errors.nim` and
-`src/jmap_client/internal/types/validation.nim`:
-
-```nim
-func message*(me: MethodError): string =
-  ## Human-readable: description if present, else rawType.
-  me.description.valueOr: me.rawType
-
-func message*(se: SetError): string =
-  ## Folds variant payload into the message — diagnostic is
-  ## self-contained.
-  case se.errorType
-  of setInvalidProperties:
-    "setInvalidProperties: properties=" & $se.properties
-  of setAlreadyExists:
-    "setAlreadyExists: existingId=" & $se.existingId
-  else:
-    se.description.valueOr: se.rawType
-
-func message*(ve: ValidationError): string =
-  ## ``typeName: message (value=…)`` deterministic format.
-  ve.typeName & ": " & ve.message & " (value=" & ve.value & ")"
-
-func `$`*(me: MethodError): string = me.message
-func `$`*(se: SetError): string = se.message
-func `$`*(ve: ValidationError): string = ve.message
-```
-
-**Property test.** Two structurally equal error values produce
-equal `$` output (deterministic format).
-
 ### A22b. Inline docstrings at every JsonNode-public field declaration *(P19)* — ⬜ TODO
 
 The "Documented exceptions" sub-section at the top of this file
@@ -1961,10 +1971,11 @@ server support Mail?" should be one line.
 
 ### C6. Version surface *(P25, P28)* — ⬜ TODO
 
-`src/jmap_client/internal/client.nim` references
-`userAgent: string = "jmap-client-nim/0.1.0"` as the only version
-literal. C-library convention (curl, OpenSSL) exposes
-`client_version()` for bug reports. Add:
+`src/jmap_client/internal/transport.nim` carries
+`userAgent: string = "jmap-client-nim/0.1.0"` as the default
+HTTP `User-Agent` for the default transport. That is the only
+version literal under `src/`. C-library convention (curl,
+OpenSSL) exposes `client_version()` for bug reports. Add:
 
 ```nim
 const ClientVersion* = "0.1.0"  # synced with .nimble
@@ -2028,7 +2039,7 @@ Day-one wrapper trigger.
 proc requireMail*(client: JmapClient): JmapResult[void]
   ## Returns ok() if Session is cached and declares
   ## ``urn:ietf:params:jmap:mail`` in capabilities; err(...) with
-  ## ``cekRequest`` ``RequestErrorType.retNotJSON`` otherwise.
+  ## ``cekRequest`` ``RequestErrorKind.retNotJson`` otherwise.
   ## Pre-flight check before adding mail-typed invocations to the
   ## builder.
 
@@ -2256,8 +2267,13 @@ API.
 
 ### D10. L5 FFI design note *(P9, P14, future-FFI)* — ⬜ TODO
 
-Write `docs/design/15-L5-FFI-Principles.md` mapping each principle to
+Write `docs/design/16-L5-FFI-Principles.md` mapping each principle to
 its C-ABI manifestation:
+
+A12 shipped the stable `kind` discriminator and the bounded
+diagnostic projection per error type — both prerequisites for the
+`CURLOPT_ERRORBUFFER`-style FFI surface this doc describes.
+
 
 - Opaque handles via `distinct pointer` types.
 - **Errors via per-handle error buffer (libcurl `CURLOPT_ERRORBUFFER`
@@ -2408,7 +2424,8 @@ bullets, expanded into prose):
 7. **Observable-behaviour glossary** — exhaustive list of "what
    counts as observable": exported symbols, type signatures, JSON
    keys emitted, JSON structures accepted, error variant kinds,
-   error message formats (after A12b), wire-byte fixture replay.
+   error message formats (A12 / H15 snapshot lint), wire-byte
+   fixture replay.
    Each row is mapped to its CI gate.
 8. **Closed set of public module paths** — mirrors the
    filesystem-derived snapshot at
@@ -2481,6 +2498,12 @@ contains only `workflows/`.
    - Confirm no new `JsonNode` field outside the documented
      exception list (A22b).
    - Confirm no new `*`-export not justified in the PR body.
+   - Tag the PR `[ERR-MSG-CHANGE]` if the H15 error-message
+     snapshot changed
+     (`tests/wire_contract/error-messages.txt`); reviewer
+     verifies each diff is intentional and the change
+     classification matches the SemVer level (A12 / §7 of
+     `docs/design/15-error-surface.md`).
    - Confirm Coverage-trace section updated if a TODO item ticked
      (F7 verifies).
 
@@ -2503,8 +2526,8 @@ Categories:
   plus A10a `tests/wire_contract/module-paths.txt`).
 - **Decision gates** — open choices that must be resolved (A3.5,
   B9, B11, B12, D4 devendor).
-- **Test gates** — property tests that must exist (F1, A2b, A28b,
-  A12b).
+- **Test gates** — property tests that must exist (F1, A2b,
+  A28b); diagnostic-format snapshot (A12 / H15) already in place.
 
 CI gate (`just check-freeze` or `.github/workflows/release.yml`):
 the 1.0 release tag fails if any `[ ]` row remains. The
@@ -2816,8 +2839,8 @@ finite-enum `case`s with `else: discard` slip through.
 Wired to `just lint`. Logic: AST-walk every `case` whose discriminator
 is an enum type defined under `src/jmap_client/`; flag any `else:
 discard` arm. Whitelisted: enums with explicit `*Unknown` catch-all
-variants (`MethodName`, `CapabilityKind`, `RequestErrorType`,
-`MethodErrorType`, `SetErrorType`) where `else` is the documented
+variants (`MethodName`, `CapabilityKind`, `RequestErrorKind`,
+`MethodErrorKind`, `SetErrorKind`) where `else` is the documented
 catch-all path; require an inline `# catch-all by design` comment
 on the `else:` arm.
 
@@ -2932,7 +2955,7 @@ Logic:
    ``*Extension``) AND a ``raw…`` field on the carrier type.
 5. Carrier-type detection: heuristic match on ``<EnumName>`` ↔
    carrier name (e.g., ``MethodName`` → ``Invocation``,
-   ``RequestErrorType`` → ``RequestError``). Where the heuristic
+   ``RequestErrorKind`` → ``RequestError``). Where the heuristic
    fails, require an inline annotation in the enum's docstring
    pointing at the carrier type (a ``# carrier: <TypeName>``
    pragma-style line is sufficient).
@@ -2948,6 +2971,32 @@ named-list regression defence in
 expected: 11 open-world wire enums all comply (see A11's compliance
 matrix); 12 closed-world wire enums exempt via A11's documented
 list.
+
+### H15. Error-message snapshot lock lint *(P1, P5, P13, P18, P20)* — backs A12 — ✅ DONE
+
+The canonical ``message()`` projection over the 32 representative
+error values matches the locked snapshot committed at
+``tests/wire_contract/error-messages.txt`` exactly. Bidirectional:
+samples missing from the live computation (a label in the snapshot
+with no backing producer), samples extra in the live computation
+(an emitted label not in the snapshot), and changed projections
+(label in both, message differs) all fail CI.
+
+**Implementation path.**
+``tests/lint/h15_error_message_snapshot.nim`` reads
+``tests/wire_contract/error-messages.txt``, inlines the 32 live
+samples in matching declaration order, computes ``message()`` on
+each, and emits a fix-it pointer (``just freeze-error-messages``)
+on divergence. Wired to ``just check``, ``just ci``, and the
+standalone ``just lint-error-messages`` recipe.
+
+**Pair.** Companions H9 (catch-all ``else`` lint, ⬜ TODO) and H14
+(wire-enum invariant lint, ⬜ TODO). H15 is the surface-snapshot
+analogue of H13 — locking the diagnostic-format contract the way
+H13 locks the module-path contract.
+
+**Current-state assertion.** Zero violations; the snapshot enumerates
+exactly 32 samples spanning every variant of every error type.
 
 ## Coverage trace — every principle to at least one item
 
@@ -2967,26 +3016,26 @@ Status legend:
 
 | Principle | Items | Gate | Status |
 |---|---|---|---|
-| P1 (lock contract) | A1, A1b, A2, A2b, A4, A6, A10, A11, A13, A16, A25, A25b, A26, D1, D1.5, D4, D5, D17, D18, F6, F7, H14 | API snapshot diff (F6); freeze checklist (D18); H13 lint (A10b); module-paths.txt snapshot (A10a) | 🟡 |
+| P1 (lock contract) | A1, A1b, A2, A2b, A4, A6, A10, A11, A12, A13, A16, A25, A25b, A26, D1, D1.5, D4, D5, D17, D18, F6, F7, H14, H15 | API snapshot diff (F6); freeze checklist (D18); H13 lint (A10b); module-paths.txt snapshot (A10a); H15 lint (A12); error-messages.txt snapshot (A12) | 🟡 |
 | P2 (tests) | A25, A28b, D2, D3, F1, F5 | Property tests (F1); wire-byte fixtures (D3) | 🟡 |
 | P3 (overloads not `_v2`) | C2, C3, D1.5 (no-suffix rule) | H5 lint; review | 🟡 |
 | P4 (scope) | D11, D11.5, D12, H4 | H4 non-JMAP-import lint | 🟡 |
-| P5 (single layer) | A1, A1b, A1c, A1d, A6, A9, A10, A14, A19, F2, F6 | H5; H10; H12; F6 snapshot; H13 lint (A10b); module-paths.txt snapshot (A10a); A1c + A1d compile audits | 🟡 |
+| P5 (single layer) | A1, A1b, A1c, A1d, A6, A9, A10, A12, A14, A19, F2, F6 | H5; H10; H12; F6 snapshot; H13 lint (A10b); module-paths.txt snapshot (A10a); A1c + A1d compile audits | 🟡 |
 | P6 (convenience quarantine) | A10, C7, C9, C10, F3, D16, H7 | H7 charter lint; H13 lint (A10b); module-paths.txt snapshot (A10a) | 🟡 |
-| P7 (wrap rate) | A12, A12b, B5, C1, C1.1, C2–C5, C8, F4 | F4 CLI smoke test | 🟡 |
+| P7 (wrap rate) | A12, B5, C1, C1.1, C2–C5, C8, F4 | F4 CLI smoke test | 🟡 |
 | P8 (opaque handles) | A6, A6.5, A6.6, A7b, A9, A13, A19, A27, A28, A28b | F2 audit; H1; H12 | 🟡 |
 | P9 (two contexts max) | A6.5, A6.6, A7, A7b, B9, C9, D10 | H7; B9 resolution | 🔴 (B9 open) |
 | P10 (no globals) | D1.5 (no-globals rule), H2 | H2 lint | 🟡 |
 | P11 (no global callbacks) | A19 (closure-vtable per-handle), D1.5 (no-callbacks rule), D10 | review; future H10 once L5 lands | 🟡 |
 | P12 (memory ownership in types) | A13, A19, B10 | review | 🟡 |
-| P13 (one error rail) | A6, A12, A12b | H8 `.get()` invariant lint | 🟡 |
+| P13 (one error rail) | A6, A12 | H8 `.get()` invariant lint; H15 snapshot lint (A12) | 🟡 |
 | P14 (no thread-local errors) | A9 (no `last*` state on handle), A19 (`HttpResponse` returned by value, not stashed on Transport), D10, H3, H12 | H3 lint; H12 lint | 🟡 |
-| P15 (smart constructors) | A8 (sealed Pattern-A across 47 distincts + `IdOrCreationRef` + 3 internal), A15 (SerializedSort/Filter sealed via A8), A19 (`newTransport`, `newHttpTransport` Result-returning), H1 | testament reject test `tests/compile/treject_a8_sealed_external_construction.nim`; H1 lint (regression prevention) | 🟢 |
+| P15 (smart constructors) | A8 (sealed Pattern-A objects across every public value-carrying type + `IdOrCreationRef` + 3 internal), A12 (library-internal error constructors filtered off the hub), A15 (SerializedSort / SerializedFilter sealed via A8), A19 (`newTransport`, `newHttpTransport` Result-returning), H1 | testament reject test `tests/compile/treject_a8_sealed_external_construction.nim`; A12 compile audits; H1 lint (regression prevention) | 🟢 |
 | P16 (preconditions in types) | A6, A6.5, A6.6, A7b, A7c, A7d, A29, B3, B4, B6, B11, B12 | H9; B11/B12 resolution; A7c testament `action: reject` test | 🔴 (B11, B12 open) |
 | P17 (one config surface) | A14, A19 (HTTP config on `newHttpTransport` only), A20, A21 | review; F6 snapshot | 🟡 |
-| P18 (sum types over flag soup) | A6, B1, B2, B7, B8, H9 | H9 catch-all lint | 🟡 |
+| P18 (sum types over flag soup) | A6, A12, B1, B2, B7, B8, H9 | H9 catch-all lint; A12 exhaustive `case` in `SetError.message` / `TransportError.message` / mail extractors | 🟡 |
 | P19 (schema-driven types) | A2, A2b, A3, A3.5, A4, A5, A14, A15, A16, A17, A18, A21, A22, A22b, A28, A28b, H14 | H11 typed-builder lint (A5); A22b inline docstrings; F1 | 🟡 |
-| P20 (additive variants) | A10, A11, A23, A24, D7, D13, D13.5, H5, H14 | H5 lint; H13 lint (A10b); module-paths.txt snapshot (A10a) | 🟡 |
+| P20 (additive variants) | A10, A11, A12, A23, A24, D7, D13, D13.5, H5, H14 | H5 lint; H13 lint (A10b); module-paths.txt snapshot (A10a); H15 lint (A12); error-messages.txt snapshot (A12) | 🟡 |
 | P21 (lifecycle types) | A6, A6.5, A6.6, A7, A7b, A7c, A7d, A23, A24, A27, A28 | type-shape snapshot (A25); A7c testament `action: reject` test | 🟡 |
 | P22 (sync first, async via interface) | A6, A7e, A19, E1 | A7e policy entry; F6 snapshot blocks pre-1.0 export of reserved names | 🟡 |
 | P23 (push as separate type) | A7e, A10, A23, A24, D13.5 | existence gate (A7e in D13.5 file; A23, A24 type files); H13 lint (A10b); module-paths.txt snapshot (A10a) | 🟡 |
@@ -2994,7 +3043,7 @@ Status legend:
 | P25 (license) | D1.5, H6 | `reuse lint`; H6 freeze gate | 🟡 |
 | P26 (build) | current `mise.toml`/`justfile`/`.nimble`; D1.5 documents the single `when defined(ssl)` concession in `internal/client.nim` | review | 🟡 |
 | P27 (architecture docs) | D7, D9, D16 | existence gates | 🟡 |
-| P28 (long-form docs) | D9, D10, D14 | existence gates | 🟡 |
+| P28 (long-form docs) | A12, D9, D10, D14 | existence gates | 🟡 |
 | P29 (sample consumer) | C1, C1.1, F4 | F4 CI smoke + AUDIT.md | 🟡 |
 
 ### Anti-pattern lockout matrix
@@ -3012,7 +3061,7 @@ must fail CI, not depend on reviewer attention.
 | Stringly-typed APIs | A2, A2b, A3, A3.5, A4, A5, A8 (closes the disguise by sealing the underlying `rawValue` field), A14, A15, A17, A18, A21, A22b | H11 typed-builder lint; H7 (convenience charter); A8 testament reject test; reviewer grep on `JsonNode` outside Documented exceptions |
 | Multiple coexisting public layers | A1, A1b, A1c, A1d, A9, A10 | H13 lint (A10b); module-paths.txt snapshot (A10a); F6 snapshot (A26); A1c + A1d compile audits |
 | Convenience layer leaking | C7, C9, C10, F3, H7 | H7 lint |
-| Catch-all `else` on finite enums | A11, H9 | H9 lint |
+| Catch-all `else` on finite enums | A11, A12, H9 | H9 lint; A12 exhaustive `case` in `SetError.message` / `TransportError.message` / 5 `mail_errors.nim` extractors |
 | Wire-enum catch-all + raw missing | A11, H14 | named-list compile-time test (A11); AST lint (H14) |
 | `.get()` without invariant | (rule) + H8 | H8 lint |
 | Last-error thread-locals | D10, H3 | H3 lint |

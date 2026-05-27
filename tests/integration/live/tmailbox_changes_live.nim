@@ -129,6 +129,6 @@ testCase tmailboxChangesLive:
     doAssert getErr.kind == gekMethod, "expected gekMethod"
     let methodErr = getErr.methodErr
     assertOn target,
-      methodErr.errorType in {metCannotCalculateChanges, metInvalidArguments},
+      methodErr.kind in {metCannotCalculateChanges, metInvalidArguments},
       "method error must project as cannotCalculateChanges or invalidArguments " &
         "(got rawType=" & methodErr.rawType & ")"

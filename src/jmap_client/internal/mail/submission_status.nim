@@ -9,7 +9,7 @@
 ##      for ``EmailSubmission[S: static UndoStatus]`` (G3).
 ##   2. ``DeliveredState`` / ``DisplayedState`` — open-world server-sent
 ##      enums with a catch-all arm plus a raw-preserving wrapper per the
-##      ``MethodErrorType`` precedent (G10, G11).
+##      ``MethodErrorKind`` precedent (G10, G11).
 ##   3. ``ParsedSmtpReply`` + ``DeliveryStatus`` + ``DeliveryStatusMap``
 ##      — per-recipient delivery outcome (RFC 8621 §7 ¶8) with
 ##      ``ParsedSmtpReply`` validated against the RFC 5321 §4.2 Reply-
@@ -62,7 +62,7 @@ type UndoStatus* = enum
 type DeliveredState* = enum
   ## RFC 8621 §7 per-recipient delivery outcome. Four RFC-defined arms
   ## plus a catch-all ``dsOther`` for server extensions (G10) — mirrors
-  ## the ``MethodErrorType`` precedent where unknown tokens fall through
+  ## the ``MethodErrorKind`` precedent where unknown tokens fall through
   ## to ``metUnknown`` with ``rawBacking`` preserving the anomaly for
   ## diagnostics.
   dsQueued = "queued"
@@ -567,7 +567,7 @@ func parseDeliveredState*(raw: string): ParsedDeliveredState =
   ## Total function: case-sensitive match against the four RFC-defined
   ## backing strings; unrecognised input falls through to ``dsOther``
   ## with ``rawBacking`` preserving the original token. Mirrors the
-  ## ``parseMethodErrorType`` precedent (``errors.nim``) exactly —
+  ## ``parseMethodErrorKind`` precedent (``errors.nim``) exactly —
   ## case-insensitivity, if ever required, is the caller's job
   ## upstream (``toLowerAscii``), not a single-arg ``parseEnum`` overload
   ## (which would raise ``ValueError`` and break the module's

@@ -617,7 +617,7 @@ testCase errorInvocationWireFormat:
   assertEq rtInv.rawName, "error"
   assertEq rtInv.methodCallId, makeMcid("c0")
   let meRt = MethodError.fromJson(rtInv.arguments).get()
-  doAssert meRt.errorType == metUnknownMethod
+  doAssert meRt.kind == metUnknownMethod
   assertSomeEq meRt.description, "No such method"
 
 testCase errorInvocationServerFailWireFormat:

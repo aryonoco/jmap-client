@@ -130,7 +130,7 @@ testCase getNotFound:
   assertErr result
   let ge = result.error()
   doAssert ge.kind == gekMethod
-  doAssert ge.methodErr.errorType == metServerFail
+  doAssert ge.methodErr.kind == metServerFail
 
 testCase getMethodError:
   ## Invocation name is "error" with type "unknownMethod" produces err(gekMethod)
@@ -142,7 +142,7 @@ testCase getMethodError:
   assertErr result
   let ge = result.error()
   doAssert ge.kind == gekMethod
-  doAssert ge.methodErr.errorType == metUnknownMethod
+  doAssert ge.methodErr.kind == metUnknownMethod
   doAssert ge.methodErr.rawType == "unknownMethod"
 
 testCase getMalformedErrorResponse:
@@ -159,7 +159,7 @@ testCase getMalformedErrorResponse:
   assertErr result
   let ge = result.error()
   doAssert ge.kind == gekMethod
-  doAssert ge.methodErr.errorType == metServerFail
+  doAssert ge.methodErr.kind == metServerFail
 
 testCase getValidationError:
   ## fromArgs returns err(ValidationError) which is converted to MethodError with metServerFail,
@@ -172,7 +172,7 @@ testCase getValidationError:
   let ge = result.error()
   doAssert ge.kind == gekMethod
   let me = ge.methodErr
-  doAssert me.errorType == metServerFail
+  doAssert me.kind == metServerFail
   doAssert me.extras.isSome
   let extras = me.extras.get()
   doAssert extras.kind == JObject

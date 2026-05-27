@@ -23,7 +23,7 @@
 ##     The tolerant assertions hold under both interpretations.
 ##     Capture: ``email-query-pagination-anchor-offset-stalwart``.
 ##  4. **metAnchorNotFound**: synthetic 28-octet ``'z'`` anchor cannot
-##     match any allocated id; assert ``methodErr.errorType ==
+##     match any allocated id; assert ``methodErr.kind ==
 ##     metAnchorNotFound`` AND ``methodErr.rawType == "anchorNotFound"``.
 ##     RFC 8620 §5.5: "If the anchor is not found, the call is
 ##     rejected with an 'anchorNotFound' error." Capture:
@@ -213,8 +213,6 @@ testCase temailQueryPaginationLive:
         "anchor-not-found must surface as gekMethod, not gekHandleMismatch"
       let methodErr = getErr.methodErr
       assertOn target,
-        methodErr.errorType in {
-          metAnchorNotFound, metInvalidArguments, metUnknownMethod
-        },
+        methodErr.kind in {metAnchorNotFound, metInvalidArguments, metUnknownMethod},
         "errorType must project as metAnchorNotFound, metInvalidArguments, or " &
           "metUnknownMethod (got rawType=" & methodErr.rawType & ")"

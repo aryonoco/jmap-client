@@ -45,7 +45,7 @@ testCase parseUpdatesRejectsEmpty:
   assertErr res
   assertLen res.error, 1
   assertEq res.error[0].typeName, "NonEmptyEmailSubmissionUpdates"
-  assertEq res.error[0].message, "must contain at least one entry"
+  assertEq res.error[0].reason, "must contain at least one entry"
 
 testCase parseUpdatesRejectsDuplicateId:
   # Grep-locked literal from ``email_submission.nim:232``:
@@ -59,7 +59,7 @@ testCase parseUpdatesRejectsDuplicateId:
   assertErr res
   assertLen res.error, 1
   assertEq res.error[0].typeName, "NonEmptyEmailSubmissionUpdates"
-  assertEq res.error[0].message, "duplicate submission id"
+  assertEq res.error[0].reason, "duplicate submission id"
 
 testCase parseUpdatesHappyPathSingleEntry:
   # Happy path: one valid ``(Id, EmailSubmissionUpdate)`` pair parses

@@ -12,7 +12,7 @@
 ## 2. **Sad path** — issue Email/changes with a synthetic bogus
 ##    ``sinceState``. RFC 8620 §5.2 permits the server to respond with
 ##    either ``cannotCalculateChanges`` or ``invalidArguments``; the
-##    test accepts both, asserting the projected ``MethodErrorType``
+##    test accepts both, asserting the projected ``MethodErrorKind``
 ##    against that pair.
 ##
 ## Listed in ``tests/testament_skip.txt`` so ``just test`` skips it; run
@@ -100,6 +100,6 @@ testCase temailChangesLive:
       "bogus sinceState must surface as gekMethod, not gekHandleMismatch"
     let methodErr = getErr.methodErr
     assertOn target,
-      methodErr.errorType in {metCannotCalculateChanges, metInvalidArguments},
+      methodErr.kind in {metCannotCalculateChanges, metInvalidArguments},
       "method error must project as cannotCalculateChanges or invalidArguments " &
         "(got rawType=" & methodErr.rawType & ")"

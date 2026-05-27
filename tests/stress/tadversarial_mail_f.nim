@@ -384,8 +384,8 @@ testCase emailSetResponseAdversarialGroup:
     let id = parseIdFromServer("x1").get()
     doAssert res.get().updateResults[id].isErr
     doAssert res.get().destroyResults[id].isErr
-    assertEq res.get().updateResults[id].error.errorType, setForbidden
-    assertEq res.get().destroyResults[id].error.errorType, setForbidden
+    assertEq res.get().updateResults[id].error.kind, setForbidden
+    assertEq res.get().destroyResults[id].error.kind, setForbidden
 
   block topLevelResponseJNull:
     assertErr SetResponse[EmailCreatedItem, PartialEmail].fromJson(parseJson("null"))
@@ -467,7 +467,7 @@ testCase emailCopyResponseAdversarialGroup:
     let cid = parseCreationId("c1").get()
     doAssert res.get().createResults[cid].isErr
     let err = res.get().createResults[cid].error
-    assertEq err.errorType, setForbidden
+    assertEq err.kind, setForbidden
     doAssert err.description.isNone
 
   block copyNotCreatedEntryCustomServerExtension:
@@ -481,7 +481,7 @@ testCase emailCopyResponseAdversarialGroup:
     assertOk res
     let cid = parseCreationId("c1").get()
     let err = res.get().createResults[cid].error
-    assertEq err.errorType, setUnknown
+    assertEq err.kind, setUnknown
     assertEq err.rawType, "customServerExtension"
 
   block copyNotCreatedEntryInvalidPropertiesWrongType:
@@ -499,7 +499,7 @@ testCase emailCopyResponseAdversarialGroup:
     assertOk res
     let cid = parseCreationId("c1").get()
     let err = res.get().createResults[cid].error
-    assertEq err.errorType, setUnknown
+    assertEq err.kind, setUnknown
     assertEq err.rawType, "invalidProperties"
 
   block copyNotCreatedEntryInvalidPropertiesEmptyArray:
@@ -514,7 +514,7 @@ testCase emailCopyResponseAdversarialGroup:
     assertOk res
     let cid = parseCreationId("c1").get()
     let err = res.get().createResults[cid].error
-    assertEq err.errorType, setInvalidProperties
+    assertEq err.kind, setInvalidProperties
 
   block copyNotCreatedEntryDescriptionWithNul:
     # Embedded NUL in description — JSON admits \u0000 string data; pin
@@ -602,7 +602,7 @@ testCase emailImportResponseAdversarialGroup:
     assertOk res
     let cid = parseCreationId("k0").get()
     doAssert res.get().createResults[cid].isErr
-    assertEq res.get().createResults[cid].error.errorType, setOverQuota
+    assertEq res.get().createResults[cid].error.kind, setOverQuota
 
   block emailImportResponseUnknownTopLevelField:
     # Postel at top-level.
@@ -668,7 +668,7 @@ testCase setErrorExtrasIntegrationGroup:
     assertOk res
     let cid = parseCreationId("c1").get()
     let err = res.get().createResults[cid].error
-    assertEq err.errorType, setInvalidProperties
+    assertEq err.kind, setInvalidProperties
     doAssert err.extras.isSome
     let extras = err.extras.get()
     # Unknown-key preservation: vendorExtension isn't in knownKeys.
@@ -704,7 +704,7 @@ testCase setErrorExtrasIntegrationGroup:
     assertOk res
     let cid = parseCreationId("c1").get()
     let err = res.get().createResults[cid].error
-    assertEq err.errorType, setUnknown
+    assertEq err.kind, setUnknown
     assertEq err.rawType, "vendorCustomError"
     doAssert err.extras.isSome
     let extras = err.extras.get()
@@ -730,7 +730,7 @@ testCase setErrorExtrasIntegrationGroup:
     assertOk res
     let cid = parseCreationId("k0").get()
     let err = res.get().createResults[cid].error
-    assertEq err.errorType, setBlobNotFound
+    assertEq err.kind, setBlobNotFound
     # Duplicates preserved in the known-key seq[Id] payload.
     assertEq err.notFound.len, 3
     doAssert err.extras.isSome
@@ -758,7 +758,7 @@ testCase conflictAlgebraCornerCasesGroup:
     let updates = @[setKeywords(empty), addKeyword(k)]
     let res = initEmailUpdateSet(updates)
     assertErr res
-    doAssert res.error[0].message.contains("full-replace on same parent")
+    doAssert res.error[0].reason.contains("full-replace on same parent")
 
   block class3PayloadIrrelevantNonEmptySetKeywords:
     # Non-empty full-replace + sub-path — still Class 3; payload doesn't
@@ -768,7 +768,7 @@ testCase conflictAlgebraCornerCasesGroup:
     let updates = @[setKeywords(nonEmpty), addKeyword(k)]
     let res = initEmailUpdateSet(updates)
     assertErr res
-    doAssert res.error[0].message.contains("full-replace on same parent")
+    doAssert res.error[0].reason.contains("full-replace on same parent")
 
   block class3MailboxSubpathWithFullReplace:
     # Same shape applied to the ``mailboxIds`` parent path.
@@ -777,7 +777,7 @@ testCase conflictAlgebraCornerCasesGroup:
     let updates = @[setMailboxIds(idSet), addToMailbox(id1)]
     let res = initEmailUpdateSet(updates)
     assertErr res
-    doAssert res.error[0].message.contains("full-replace on same parent")
+    doAssert res.error[0].reason.contains("full-replace on same parent")
 
   block class2KeywordsIANAEnumerated:
     # Fold Class 2 (opposite ops at same sub-path) over every IANA keyword
@@ -789,14 +789,14 @@ testCase conflictAlgebraCornerCasesGroup:
       let updates = @[addKeyword(iana), removeKeyword(iana)]
       let res = initEmailUpdateSet(updates)
       assertErr res
-      doAssert res.error[0].message.contains("opposite operations on same sub-path")
+      doAssert res.error[0].reason.contains("opposite operations on same sub-path")
     let slash = parseKeyword("a/b").get()
     let tilde = parseKeyword("a~b").get()
     for custom in [slash, tilde]:
       let updates = @[addKeyword(custom), removeKeyword(custom)]
       let res = initEmailUpdateSet(updates)
       assertErr res
-      doAssert res.error[0].message.contains("opposite operations on same sub-path")
+      doAssert res.error[0].reason.contains("opposite operations on same sub-path")
 
 # =============================================================================
 # Block 4 — getBoth(EmailCopyHandles) adversarial (F2 §5.4)
@@ -840,7 +840,7 @@ testCase getBothAdversarialGroup:
     )
     let res = getBoth(makeDispatchedResponse(resp), handles)
     assertErr res
-    assertEq res.error.methodErr.errorType, metServerFail
+    assertEq res.error.methodErr.kind, metServerFail
 
   block getBothImplicitDestroyMethodError:
     # The destroy handle is a NameBoundHandle filtering by method-name
@@ -866,7 +866,7 @@ testCase getBothAdversarialGroup:
     )
     let res = getBoth(makeDispatchedResponse(resp), handles)
     assertErr res
-    assertEq res.error.methodErr.errorType, metServerFail
+    assertEq res.error.methodErr.kind, metServerFail
     doAssert res.error.methodErr.description.isSome
     doAssert "Email/set" in res.error.methodErr.description.get()
 
@@ -888,7 +888,7 @@ testCase getBothAdversarialGroup:
     )
     let res = getBoth(makeDispatchedResponse(resp), handles)
     assertErr res
-    assertEq res.error.methodErr.errorType, metFromAccountNotFound
+    assertEq res.error.methodErr.kind, metFromAccountNotFound
 
 # =============================================================================
 # Block 5 — Cross-response coherence
@@ -977,7 +977,7 @@ testCase crossResponseCoherenceGroup:
     assertOk res
     let cid = parseCreationId("c1").get()
     doAssert res.get().createResults[cid].isErr
-    assertEq res.get().createResults[cid].error.errorType, setForbidden
+    assertEq res.get().createResults[cid].error.kind, setForbidden
 
 # =============================================================================
 # Block 6 — JSON-structural attack surface
@@ -1205,14 +1205,14 @@ testCase scaleInvariantsGroup:
     # in its own pass.
     let emptyRes = initNonEmptyEmailImportMap(@[])
     assertErr emptyRes
-    doAssert emptyRes.error[0].message.contains("at least one entry")
+    doAssert emptyRes.error[0].reason.contains("at least one entry")
     let dupItems = @[
       (parseCreationId("k0").get(), makeEmailImportItem()),
       (parseCreationId("k0").get(), makeEmailImportItem()),
     ]
     let dupRes = initNonEmptyEmailImportMap(dupItems)
     assertErr dupRes
-    doAssert dupRes.error[0].message.contains("duplicate CreationId")
+    doAssert dupRes.error[0].reason.contains("duplicate CreationId")
 
   block getBothCopyCreateResultsEmpty:
     # Both invocations well-formed; primary and implicit both have empty

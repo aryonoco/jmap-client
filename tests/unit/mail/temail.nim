@@ -50,7 +50,7 @@ testCase initNonEmptyEmailImportMapEmpty:
   assertErr res
   assertLen res.error, 1
   assertEq res.error[0].typeName, "NonEmptyEmailImportMap"
-  assertEq res.error[0].message, "must contain at least one entry"
+  assertEq res.error[0].reason, "must contain at least one entry"
   assertEq res.error[0].value, ""
 
 testCase initNonEmptyEmailImportMapSingleValid:
@@ -69,7 +69,7 @@ testCase initNonEmptyEmailImportMapTwoSameCreationId:
   assertErr res
   assertLen res.error, 1
   assertEq res.error[0].typeName, "NonEmptyEmailImportMap"
-  assertEq res.error[0].message, "duplicate CreationId"
+  assertEq res.error[0].reason, "duplicate CreationId"
   assertEq res.error[0].value, "c1"
 
 testCase initNonEmptyEmailImportMapThreeSameCreationId:
@@ -100,7 +100,7 @@ testCase initNonEmptyEmailImportMapTwoDistinctRepeated:
   var c2Seen = false
   for e in res.error:
     assertEq e.typeName, "NonEmptyEmailImportMap"
-    assertEq e.message, "duplicate CreationId"
+    assertEq e.reason, "duplicate CreationId"
     if e.value == "c1":
       c1Seen = true
     elif e.value == "c2":

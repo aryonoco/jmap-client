@@ -37,6 +37,8 @@ const liveBudgetMul* = when defined(jmapLiveShard): 3 else: 1
 
 import results
 import jmap_client
+import jmap_client/internal/types/errors
+export errors
 import ../../m_l2_serde
 export m_l2_serde
 import jmap_client/internal/protocol/builder
@@ -1283,7 +1285,7 @@ template assertOn*(target: LiveTestTarget, cond: bool) =
 template assertSuccessOrTypedError*[T](
     target: LiveTestTarget,
     extract: Result[T, GetError],
-    allowedErrors: set[MethodErrorType],
+    allowedErrors: set[MethodErrorKind],
     onSuccess: untyped,
 ) =
   ## Cat-B refactor helper. Asserts on client-library behaviour
@@ -1319,7 +1321,7 @@ template assertSuccessOrTypedError*[T](
       "inner-railway error must be gekMethod, not gekHandleMismatch"
     let methodErr = getErr.methodErr
     assertOn target,
-      methodErr.errorType in allowedErrors,
+      methodErr.kind in allowedErrors,
       "method error must be in allowed set " & $allowedErrors & " (got rawType=" &
         methodErr.rawType & ")"
 

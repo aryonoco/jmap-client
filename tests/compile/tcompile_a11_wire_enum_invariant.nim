@@ -17,9 +17,9 @@ static:
   # Enum catch-all variants — must be publicly declared via the hub.
   doAssert declared(mnUnknown) # MethodName
   doAssert declared(ckUnknown) # CapabilityKind
-  doAssert declared(retUnknown) # RequestErrorType
-  doAssert declared(metUnknown) # MethodErrorType
-  doAssert declared(setUnknown) # SetErrorType
+  doAssert declared(retUnknown) # RequestErrorKind
+  doAssert declared(metUnknown) # MethodErrorKind
+  doAssert declared(setUnknown) # SetErrorKind
   doAssert declared(caOther) # CollationAlgorithmKind
   doAssert declared(mrOther) # MailboxRoleKind
   doAssert declared(cdExtension) # ContentDispositionKind

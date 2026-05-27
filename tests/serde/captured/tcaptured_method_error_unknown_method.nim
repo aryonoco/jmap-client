@@ -31,9 +31,9 @@ testCase tcapturedMethodErrorUnknownMethod:
   let me = MethodError.fromJson(inv.arguments).expect("MethodError.fromJson")
   doAssert me.rawType == "unknownMethod",
     "Stalwart returns the canonical 'unknownMethod' rawType, got " & me.rawType
-  doAssert me.errorType == metUnknownMethod,
-    "errorType must project to metUnknownMethod, got " & $me.errorType
-  doAssert me.errorType == parseMethodErrorType(me.rawType),
+  doAssert me.kind == metUnknownMethod,
+    "errorType must project to metUnknownMethod, got " & $me.kind
+  doAssert me.kind == parseMethodErrorKind(me.rawType),
     "errorType / rawType must be derived consistently"
   doAssert me.description.isSome and me.description.unsafeGet == "Mailbox/snorgleflarp",
     "Stalwart echoes the offending method name in the description"

@@ -135,7 +135,7 @@ testCase initMailboxUpdateSetEmpty:
   assertErr res
   assertLen res.error, 1
   assertEq res.error[0].typeName, "MailboxUpdateSet"
-  assertEq res.error[0].message, "must contain at least one update"
+  assertEq res.error[0].reason, "must contain at least one update"
   assertEq res.error[0].value, ""
 
 testCase initMailboxUpdateSetSingleValid:
@@ -146,7 +146,7 @@ testCase initMailboxUpdateSetTwoSameKind:
   assertErr res
   assertLen res.error, 1
   assertEq res.error[0].typeName, "MailboxUpdateSet"
-  assertEq res.error[0].message, "duplicate target property"
+  assertEq res.error[0].reason, "duplicate target property"
   assertEq res.error[0].value, "muSetName"
 
 testCase initMailboxUpdateSetThreeSameKind:
@@ -170,7 +170,7 @@ testCase initMailboxUpdateSetTwoDistinctRepeated:
   var seen: set[MailboxUpdateVariantKind] = {}
   for e in res.error:
     assertEq e.typeName, "MailboxUpdateSet"
-    assertEq e.message, "duplicate target property"
+    assertEq e.reason, "duplicate target property"
     if e.value == "muSetName":
       seen.incl muSetName
     elif e.value == "muSetParentId":
@@ -221,7 +221,7 @@ testCase parseNonEmptyMailboxUpdatesRejectsEmpty:
   assertErr res
   assertLen res.error, 1
   assertEq res.error[0].typeName, "NonEmptyMailboxUpdates"
-  assertEq res.error[0].message, "must contain at least one entry"
+  assertEq res.error[0].reason, "must contain at least one entry"
 
 testCase parseNonEmptyMailboxUpdatesRejectsDuplicateId:
   ## Duplicate ``Id`` keys are rejected — silent last-wins shadowing at
@@ -233,4 +233,4 @@ testCase parseNonEmptyMailboxUpdatesRejectsDuplicateId:
   let res = parseNonEmptyMailboxUpdates(@[(id1, us1), (id1, us2)])
   assertErr res
   assertLen res.error, 1
-  assertEq res.error[0].message, "duplicate mailbox id"
+  assertEq res.error[0].reason, "duplicate mailbox id"

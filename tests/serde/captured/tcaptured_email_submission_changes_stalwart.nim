@@ -44,9 +44,9 @@ testCase tcapturedEmailSubmissionChangesStalwart:
       happyFound = true
     elif inv.rawName == "error":
       let me = MethodError.fromJson(inv.arguments).expect("MethodError.fromJson")
-      doAssert me.errorType in {metCannotCalculateChanges, metInvalidArguments},
+      doAssert me.kind in {metCannotCalculateChanges, metInvalidArguments},
         "method error must project as cannotCalculateChanges or invalidArguments " &
-          "(got " & $me.errorType & ", rawType=" & me.rawType & ")"
+          "(got " & $me.kind & ", rawType=" & me.rawType & ")"
       sadFound = true
   doAssert happyFound,
     "captured response must contain the EmailSubmission/changes happy invocation"

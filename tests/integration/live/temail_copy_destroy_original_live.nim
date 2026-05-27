@@ -25,7 +25,7 @@
 ##     == mailAccountId``. Send. Capture
 ##     ``email-copy-destroy-original-rejected-stalwart``.
 ##  4. Assert ``resp.getBoth(handles).isErr`` AND
-##     ``methodErr.errorType == metInvalidArguments``.
+##     ``methodErr.kind == metInvalidArguments``.
 ##  5. Cleanup: destroy the seed; assert success — the source
 ##     survived because the rejection occurred before any state
 ##     change.
@@ -99,7 +99,7 @@ testCase temailCopyDestroyOriginalLive:
     doAssert getErr.kind == gekMethod, "expected gekMethod"
     let methodErr = getErr.methodErr
     assertOn target,
-      methodErr.errorType in {metInvalidArguments, metUnknownMethod},
+      methodErr.kind in {metInvalidArguments, metUnknownMethod},
       "method error must project as metInvalidArguments or metUnknownMethod (got rawType=" &
         methodErr.rawType & ")"
 

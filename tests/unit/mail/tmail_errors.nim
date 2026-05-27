@@ -3,8 +3,8 @@
 
 ## Unit tests for the RFC 8621 mail-specific SetError variants and the
 ## mail-layer typed accessors (scenarios 56-69 + edge cases).
-## ``MailSetErrorType`` is gone — mail variants live in the central
-## ``SetErrorType`` and are parsed via ``parseSetErrorType``.
+## ``MailSetErrorKind`` is gone — mail variants live in the central
+## ``SetErrorKind`` and are parsed via ``parseSetErrorKind``.
 
 import std/json
 
@@ -17,7 +17,7 @@ import jmap_client/internal/types/errors
 import ../../massertions
 import ../../mtestblock
 
-# --- parseSetErrorType (mail-specific variants) ---
+# --- parseSetErrorKind (mail-specific variants) ---
 
 testCase parseAllKnownTypes: # scenario 56
   ## Table-driven: every known mail set error string maps to its expected variant.
@@ -37,16 +37,16 @@ testCase parseAllKnownTypes: # scenario 56
     ("cannotUnsend", setCannotUnsend),
   ]
   for (raw, expected) in pairs:
-    assertEq parseSetErrorType(raw), expected
+    assertEq parseSetErrorKind(raw), expected
 
 testCase parseUnknownType: # scenario 57
-  assertEq parseSetErrorType("someVendorError"), setUnknown
-  assertEq parseSetErrorType(""), setUnknown
+  assertEq parseSetErrorKind("someVendorError"), setUnknown
+  assertEq parseSetErrorKind(""), setUnknown
 
 testCase parseEnumNormalization: # scenario 58
   ## parseEnum uses nimIdentNormalize: case-insensitive except first char, ignores underscores.
-  assertEq parseSetErrorType("mailboxHas_Child"), setMailboxHasChild
-  assertEq parseSetErrorType("MailboxHasChild"), setUnknown
+  assertEq parseSetErrorKind("mailboxHas_Child"), setMailboxHasChild
+  assertEq parseSetErrorKind("MailboxHasChild"), setUnknown
 
 # --- Accessor tests ---
 

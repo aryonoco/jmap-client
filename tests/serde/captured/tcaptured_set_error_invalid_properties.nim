@@ -37,9 +37,9 @@ testCase tcapturedSetErrorInvalidProperties:
     let se = outcome.error
     doAssert se.rawType == "invalidProperties",
       "Stalwart returns canonical 'invalidProperties' rawType, got " & se.rawType
-    doAssert se.errorType == setInvalidProperties,
-      "errorType must project to setInvalidProperties, got " & $se.errorType
-    doAssert se.errorType == parseSetErrorType(se.rawType),
+    doAssert se.kind == setInvalidProperties,
+      "errorType must project to setInvalidProperties, got " & $se.kind
+    doAssert se.kind == parseSetErrorKind(se.rawType),
       "errorType / rawType must be derived consistently"
     doAssert se.properties == @["id"],
       "Stalwart echoes the offending immutable-property name; got " & $se.properties

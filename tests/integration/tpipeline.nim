@@ -128,7 +128,7 @@ testCase errorPipeline:
   assertErr result
   let ge = result.error()
   doAssert ge.kind == gekMethod
-  doAssert ge.methodErr.errorType == metUnknownMethod
+  doAssert ge.methodErr.kind == metUnknownMethod
 
 # ===========================================================================
 # E. Mixed success/error pipeline
@@ -154,7 +154,7 @@ testCase mixedSuccessError:
   assertErr dr.get(sh) # second is error
   let err2 = dr.get(sh).error()
   doAssert err2.kind == gekMethod
-  doAssert err2.methodErr.errorType == metStateMismatch
+  doAssert err2.methodErr.kind == metStateMismatch
 
 # ===========================================================================
 # F. Builder -> send convenience (Layer 4 integration)
@@ -248,12 +248,12 @@ testCase setResponseUnifiedMaps:
   assertLen sr.createResults, 2
   doAssert sr.createResults[makeCreationId("k1")].isOk
   doAssert sr.createResults[makeCreationId("k2")].isErr
-  doAssert sr.createResults[makeCreationId("k2")].error().errorType == setForbidden
+  doAssert sr.createResults[makeCreationId("k2")].error().kind == setForbidden
   # Unified destroyResults: w-old ok, w-keep err
   assertLen sr.destroyResults, 2
   doAssert sr.destroyResults[makeId("w-old")].isOk
   doAssert sr.destroyResults[makeId("w-keep")].isErr
-  doAssert sr.destroyResults[makeId("w-keep")].error().errorType == setNotFound
+  doAssert sr.destroyResults[makeId("w-keep")].error().kind == setNotFound
 
 {.pop.} # params
 {.pop.} # objects

@@ -70,7 +70,7 @@ testCase headerEmptyName: # scenario 93
   let res = emailFromJson(j)
   doAssert res.isErr, "expected Err for empty header name"
   doAssert res.unsafeError.kind == svkFieldParserFailed
-  doAssert res.unsafeError.inner.message.contains("empty header name"),
+  doAssert res.unsafeError.inner.reason.contains("empty header name"),
     "inner error must mention empty header name"
 
 testCase headerTooManySegments: # scenario 94
@@ -80,7 +80,7 @@ testCase headerTooManySegments: # scenario 94
   let res = emailFromJson(j)
   doAssert res.isErr, "expected Err for too many segments"
   doAssert res.unsafeError.kind == svkFieldParserFailed
-  doAssert res.unsafeError.inner.message.contains("too many segments"),
+  doAssert res.unsafeError.inner.reason.contains("too many segments"),
     "inner error must mention too many segments"
 
 testCase headerInvalidForm: # scenario 95
@@ -90,7 +90,7 @@ testCase headerInvalidForm: # scenario 95
   let res = emailFromJson(j)
   doAssert res.isErr, "expected Err for unknown form"
   doAssert res.unsafeError.kind == svkFieldParserFailed
-  doAssert res.unsafeError.inner.message.contains("unknown header form suffix"),
+  doAssert res.unsafeError.inner.reason.contains("unknown header form suffix"),
     "inner error must mention unknown header form suffix"
 
 testCase headerKeyWithoutColon: # scenario 96
@@ -122,7 +122,7 @@ testCase comparatorEmptyKeyword: # scenario 100
   let res = emailComparatorFromJson(%*{"property": "hasKeyword", "keyword": ""})
   doAssert res.isErr
   doAssert res.unsafeError.kind == svkFieldParserFailed
-  doAssert res.unsafeError.inner.message.contains("length must be 1-255")
+  doAssert res.unsafeError.inner.reason.contains("length must be 1-255")
 
 testCase comparatorPlainSpuriousKeyword: # scenario 101
   ## Keyword field ignored when property is a plain sort property.
@@ -191,7 +191,7 @@ testCase bodyValuesEmptyPartId: # scenario 108
   let res = emailFromJson(j)
   doAssert res.isErr, "expected Err for empty PartId"
   doAssert res.unsafeError.kind == svkFieldParserFailed
-  doAssert res.unsafeError.inner.message.contains("must not be empty"),
+  doAssert res.unsafeError.inner.reason.contains("must not be empty"),
     "inner error must mention empty PartId"
 
 # =============================================================================

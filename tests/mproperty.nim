@@ -531,6 +531,29 @@ proc genValidAccount*(rng: var Rand): Account =
 # Error type generators
 # ---------------------------------------------------------------------------
 
+proc genValidationError*(rng: var Rand): ValidationError =
+  ## Generates a random ValidationError with structurally orthogonal
+  ## typeName / reason / value triples (no substring overlap), so the
+  ## "value leak" property check in ``tprop_errors`` cannot false-positive.
+  ## typeName uses CamelCase ASCII from a fixed pool; reason uses
+  ## lowercase + space + digits; value is drawn from ``'g'..'z'`` only —
+  ## the three spaces are byte-disjoint.
+  const typeNames = [
+    "AccountId", "Id", "UnsignedInt", "JmapState", "BlobId", "CreationId", "Keyword",
+    "Date",
+  ]
+  const reasons = [
+    "must not be empty", "length must be 1-255 octets", "contains control characters",
+    "must be non-negative", "outside JSON-safe integer range",
+  ]
+  let tn = rng.oneOf(typeNames)
+  let r = rng.oneOf(reasons)
+  let valLen = rng.rand(6 .. 10)
+  var v = newStringOfCap(valLen)
+  for i in 0 ..< valLen:
+    v.add char(ord('g') + rng.rand(0 .. 19))
+  validationError(tn, r, v)
+
 proc genTransportError*(rng: var Rand): TransportError =
   ## Generates a random TransportError covering all 4 kind variants
   ## (tekNetwork, tekTls, tekTimeout, tekHttpStatus) with random messages.

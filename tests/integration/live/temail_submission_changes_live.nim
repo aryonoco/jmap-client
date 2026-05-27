@@ -80,13 +80,13 @@ testCase tEmailSubmissionChangesLive:
       let baseGetErr =
         if baseGetExtract.isErr:
           let ge = baseGetExtract.unsafeError
-          if ge.kind == gekMethod: ge.methodErr.errorType else: metUnknown
+          if ge.kind == gekMethod: ge.methodErr.kind else: metUnknown
         else:
           metUnknown
       let baseQueryErr =
         if baseQueryExtract.isErr:
           let ge = baseQueryExtract.unsafeError
-          if ge.kind == gekMethod: ge.methodErr.errorType else: metUnknown
+          if ge.kind == gekMethod: ge.methodErr.kind else: metUnknown
         else:
           metUnknown
       assertOn target,
@@ -213,7 +213,7 @@ testCase tEmailSubmissionChangesLive:
     doAssert getErr.kind == gekMethod, "expected gekMethod"
     let methodErr = getErr.methodErr
     assertOn target,
-      methodErr.errorType in
+      methodErr.kind in
         {metCannotCalculateChanges, metInvalidArguments, metUnknownMethod},
       "method error must project as cannotCalculateChanges, invalidArguments, or " &
         "unknownMethod (got rawType=" & methodErr.rawType & ")"

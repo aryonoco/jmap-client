@@ -7,6 +7,8 @@ import std/json
 import std/tables
 
 import jmap_client
+import jmap_client/internal/types/validation
+import jmap_client/internal/types/errors
 import jmap_client/internal/types/framework
 import ../mtestblock
 
@@ -40,12 +42,12 @@ testCase reExportAccessibility:
   let ce = clientError(te)
   doAssert ce.kind == cekTransport
   let re = requestError("urn:ietf:params:jmap:error:limit")
-  doAssert re.errorType == retLimit
+  doAssert re.kind == retLimit
   let ce2 = clientError(re)
   doAssert ce2.kind == cekRequest
   doAssert ce2.message == "urn:ietf:params:jmap:error:limit"
   let me = methodError("serverFail")
-  doAssert me.errorType == metServerFail
+  doAssert me.kind == metServerFail
   let se = setError("forbidden")
   doAssert se.rawType == "forbidden"
 

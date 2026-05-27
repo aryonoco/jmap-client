@@ -40,7 +40,7 @@ testCase initVacationResponseUpdateSetEmpty:
   assertErr res
   assertLen res.error, 1
   assertEq res.error[0].typeName, "VacationResponseUpdateSet"
-  assertEq res.error[0].message, "must contain at least one update"
+  assertEq res.error[0].reason, "must contain at least one update"
   assertEq res.error[0].value, ""
 
 testCase initVacationResponseUpdateSetSingleValid:
@@ -51,7 +51,7 @@ testCase initVacationResponseUpdateSetTwoSameKind:
   assertErr res
   assertLen res.error, 1
   assertEq res.error[0].typeName, "VacationResponseUpdateSet"
-  assertEq res.error[0].message, "duplicate target property"
+  assertEq res.error[0].reason, "duplicate target property"
   assertEq res.error[0].value, "vruSetIsEnabled"
 
 testCase initVacationResponseUpdateSetThreeSameKind:
@@ -80,7 +80,7 @@ testCase initVacationResponseUpdateSetTwoDistinctRepeated:
   var seen: set[VacationResponseUpdateVariantKind] = {}
   for e in res.error:
     assertEq e.typeName, "VacationResponseUpdateSet"
-    assertEq e.message, "duplicate target property"
+    assertEq e.reason, "duplicate target property"
     if e.value == "vruSetIsEnabled":
       seen.incl vruSetIsEnabled
     elif e.value == "vruSetSubject":

@@ -30,7 +30,7 @@
 ##  3. Mismatched ``Email/queryChanges`` with ``sinceQueryState =
 ##     queryState`` and ``filter = subject "phase-i 51 alpha"``.
 ##     Capture the wire response and assert RFC-conformant outcome
-##     (Err on a permitted MethodErrorType, or Ok carrying a valid
+##     (Err on a permitted MethodErrorKind, or Ok carrying a valid
 ##     QueryChangesResponse).
 ##
 ## Capture: ``email-query-changes-filter-mismatch-stalwart``.

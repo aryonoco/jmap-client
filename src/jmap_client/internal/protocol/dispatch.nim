@@ -25,6 +25,7 @@ import std/json
 import std/tables
 
 import ../types
+import ../types/errors
 import ../serialisation/serde
 import ../serialisation/serde_diagnostics
 import ../serialisation/serde_errors

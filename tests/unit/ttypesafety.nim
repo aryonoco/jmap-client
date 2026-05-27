@@ -40,7 +40,7 @@ testCase clientErrorWrongVariantConstruction:
     ClientError(
       kind: cekTransport,
       request: RequestError(
-        errorType: retUnknown,
+        kind: retUnknown,
         rawType: "x",
         status: Opt.none(int),
         title: Opt.none(string),
@@ -148,7 +148,7 @@ testCase transportErrorMissingHttpStatus:
   ## SetError(setInvalidProperties) must not accept existingId (wrong variant).
   doAssert not compiles(
     SetError(
-      errorType: setInvalidProperties,
+      kind: setInvalidProperties,
       rawType: "invalidProperties",
       description: Opt.none(string),
       extras: Opt.none(JsonNode),
@@ -185,7 +185,7 @@ testCase setErrorPropertiesOnNonInvalidProperties:
   ## properties field is rejected by {.strictCaseObjects.}.
   doAssert not compiles(
     SetError(
-      errorType: setForbidden,
+      kind: setForbidden,
       rawType: "forbidden",
       description: Opt.none(string),
       extras: Opt.none(JsonNode),
@@ -198,7 +198,7 @@ testCase setErrorExistingIdOnNonAlreadyExists:
   ## existingId field is rejected by {.strictCaseObjects.}.
   doAssert not compiles(
     SetError(
-      errorType: setForbidden,
+      kind: setForbidden,
       rawType: "forbidden",
       description: Opt.none(string),
       extras: Opt.none(JsonNode),

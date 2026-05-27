@@ -31,8 +31,8 @@ testCase tcapturedMailboxSetHasChild:
     "exactly one destroy outcome expected (got " & $notDestroyedNode.len & ")"
   for id, errNode in notDestroyedNode.pairs:
     let setErr = SetError.fromJson(errNode).expect("SetError.fromJson")
-    doAssert setErr.errorType == setMailboxHasChild,
-      "errorType must project as setMailboxHasChild (got " & $setErr.errorType &
-        ", rawType=" & setErr.rawType & ")"
+    doAssert setErr.kind == setMailboxHasChild,
+      "errorType must project as setMailboxHasChild (got " & $setErr.kind & ", rawType=" &
+        setErr.rawType & ")"
     doAssert setErr.rawType == "mailboxHasChild",
       "rawType must round-trip the wire literal"

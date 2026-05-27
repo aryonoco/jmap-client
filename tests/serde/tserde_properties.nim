@@ -276,7 +276,7 @@ testCase compositionSetErrorVariantPreservation:
   let original =
     setErrorInvalidProperties("invalidProperties", @["from", "subject", "to"])
   let v = SetError.fromJson(original.toJson()).get()
-  doAssert v.errorType == setInvalidProperties
+  doAssert v.kind == setInvalidProperties
   assertEq v.properties.len, 3
   doAssert "from" in v.properties
   doAssert "subject" in v.properties
@@ -287,7 +287,7 @@ testCase compositionSetErrorAlreadyExistsPreservation:
   let eid = parseIdFromServer("msg42").get()
   let original = setErrorAlreadyExists("alreadyExists", eid)
   let v = SetError.fromJson(original.toJson()).get()
-  doAssert v.errorType == setAlreadyExists
+  doAssert v.kind == setAlreadyExists
   assertEq $v.existingId, "msg42"
 
 testCase compositionResponseCreatedIdsPreservation:

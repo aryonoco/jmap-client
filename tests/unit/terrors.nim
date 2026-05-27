@@ -13,9 +13,9 @@ import jmap_client/internal/types/validation
 import ../massertions
 import ../mtestblock
 
-# --- parseRequestErrorType ---
+# --- parseRequestErrorKind ---
 
-testCase parseRequestErrorTypeAllKnown:
+testCase parseRequestErrorKindAllKnown:
   ## Table-driven: every known request error URI maps to its expected variant.
   const cases = [
     ("urn:ietf:params:jmap:error:unknownCapability", retUnknownCapability),
@@ -24,17 +24,17 @@ testCase parseRequestErrorTypeAllKnown:
     ("urn:ietf:params:jmap:error:limit", retLimit),
   ]
   for (uri, expected) in cases:
-    assertEq parseRequestErrorType(uri), expected
+    assertEq parseRequestErrorKind(uri), expected
 
-testCase parseRequestErrorTypeVendorUri:
-  doAssert parseRequestErrorType("urn:vendor:custom:error") == retUnknown
+testCase parseRequestErrorKindVendorUri:
+  doAssert parseRequestErrorKind("urn:vendor:custom:error") == retUnknown
 
-testCase parseRequestErrorTypeEmpty:
-  doAssert parseRequestErrorType("") == retUnknown
+testCase parseRequestErrorKindEmpty:
+  doAssert parseRequestErrorKind("") == retUnknown
 
-# --- parseMethodErrorType ---
+# --- parseMethodErrorKind ---
 
-testCase parseMethodErrorTypeAllKnown:
+testCase parseMethodErrorKindAllKnown:
   ## Table-driven: every known method error string maps to its expected variant.
   const cases = [
     ("serverUnavailable", metServerUnavailable),
@@ -58,17 +58,17 @@ testCase parseMethodErrorTypeAllKnown:
     ("fromAccountNotSupportedByMethod", metFromAccountNotSupportedByMethod),
   ]
   for (rawType, expected) in cases:
-    assertEq parseMethodErrorType(rawType), expected
+    assertEq parseMethodErrorKind(rawType), expected
 
-testCase parseMethodErrorTypeUnknown:
-  doAssert parseMethodErrorType("customError") == metUnknown
+testCase parseMethodErrorKindUnknown:
+  doAssert parseMethodErrorKind("customError") == metUnknown
 
-testCase parseMethodErrorTypeEmpty:
-  doAssert parseMethodErrorType("") == metUnknown
+testCase parseMethodErrorKindEmpty:
+  doAssert parseMethodErrorKind("") == metUnknown
 
-# --- parseSetErrorType ---
+# --- parseSetErrorKind ---
 
-testCase parseSetErrorTypeAllKnown:
+testCase parseSetErrorKindAllKnown:
   ## Table-driven: every known set error string maps to its expected variant.
   const cases = [
     ("forbidden", setForbidden),
@@ -83,36 +83,40 @@ testCase parseSetErrorTypeAllKnown:
     ("singleton", setSingleton),
   ]
   for (rawType, expected) in cases:
-    assertEq parseSetErrorType(rawType), expected
+    assertEq parseSetErrorKind(rawType), expected
 
-testCase parseSetErrorTypeVendorSpecific:
-  doAssert parseSetErrorType("vendorSpecific") == setUnknown
+testCase parseSetErrorKindVendorSpecific:
+  doAssert parseSetErrorKind("vendorSpecific") == setUnknown
 
-testCase parseSetErrorTypeEmpty:
-  doAssert parseSetErrorType("") == setUnknown
+testCase parseSetErrorKindEmpty:
+  doAssert parseSetErrorKind("") == setUnknown
 
 # --- TransportError constructors ---
 
 testCase transportErrorTimeout:
   let e = transportError(tekTimeout, "timed out")
   doAssert e.kind == tekTimeout
+  doAssert e.detail == "timed out"
   doAssert e.message == "timed out"
 
 testCase transportErrorNetwork:
   let e = transportError(tekNetwork, "refused")
   doAssert e.kind == tekNetwork
+  doAssert e.detail == "refused"
   doAssert e.message == "refused"
 
 testCase transportErrorTls:
   let e = transportError(tekTls, "certificate verify failed")
   doAssert e.kind == tekTls
+  doAssert e.detail == "certificate verify failed"
   doAssert e.message == "certificate verify failed"
 
 testCase httpStatusError502:
   let e = httpStatusError(502, "Bad Gateway")
   doAssert e.kind == tekHttpStatus
   doAssert e.httpStatus == 502
-  doAssert e.message == "Bad Gateway"
+  doAssert e.detail == "Bad Gateway"
+  doAssert e.message == "HTTP 502: Bad Gateway"
 
 # --- RequestError constructor ---
 
@@ -120,7 +124,7 @@ testCase requestErrorLimit:
   let e = requestError(
     "urn:ietf:params:jmap:error:limit", limit = Opt.some("maxCallsInRequest")
   )
-  doAssert e.errorType == retLimit
+  doAssert e.kind == retLimit
   doAssert e.rawType == "urn:ietf:params:jmap:error:limit"
   doAssert e.limit.isSome
   doAssert e.limit.get() == "maxCallsInRequest"
@@ -139,12 +143,12 @@ testCase requestErrorLimitWithExtras:
 
 testCase requestErrorUnknown:
   let e = requestError("urn:vendor:custom")
-  doAssert e.errorType == retUnknown
+  doAssert e.kind == retUnknown
   doAssert e.rawType == "urn:vendor:custom"
 
 testCase requestErrorKnownRawTypePreserved:
   let e = requestError("urn:ietf:params:jmap:error:notJSON")
-  doAssert e.errorType == retNotJson
+  doAssert e.kind == retNotJson
   doAssert e.rawType == "urn:ietf:params:jmap:error:notJSON"
 
 # --- ClientError constructors + message accessor ---
@@ -193,20 +197,20 @@ testCase messageRequestFallbackToRawType:
 
 testCase methodErrorKnown:
   let e = methodError("unknownMethod")
-  doAssert e.errorType == metUnknownMethod
+  doAssert e.kind == metUnknownMethod
   doAssert e.rawType == "unknownMethod"
   doAssert e.description.isNone
   doAssert e.extras.isNone
 
 testCase methodErrorUnknownWithExtras:
   let e = methodError("custom", extras = Opt.some(%*{"hint": "retry"}))
-  doAssert e.errorType == metUnknown
+  doAssert e.kind == metUnknown
   doAssert e.rawType == "custom"
   doAssert e.extras.isSome
 
 testCase methodErrorWithDescription:
   let e = methodError("serverFail", description = Opt.some("internal error"))
-  doAssert e.errorType == metServerFail
+  doAssert e.kind == metServerFail
   doAssert e.description.isSome
   doAssert e.description.get() == "internal error"
 
@@ -214,7 +218,7 @@ testCase methodErrorWithDescription:
 
 testCase setErrorForbidden:
   let e = setError("forbidden")
-  doAssert e.errorType == setForbidden
+  doAssert e.kind == setForbidden
   doAssert e.rawType == "forbidden"
 
 testCase setErrorWithDescriptionAndExtras:
@@ -223,14 +227,14 @@ testCase setErrorWithDescriptionAndExtras:
     description = Opt.some("quota exceeded"),
     extras = Opt.some(%*{"limit": 100}),
   )
-  doAssert e.errorType == setOverQuota
+  doAssert e.kind == setOverQuota
   doAssert e.description.isSome
   doAssert e.description.get() == "quota exceeded"
   doAssert e.extras.isSome
 
 testCase setErrorInvalidPropertiesVariant:
   let e = setErrorInvalidProperties("invalidProperties", @["name"])
-  doAssert e.errorType == setInvalidProperties
+  doAssert e.kind == setInvalidProperties
   doAssert e.properties == @["name"]
   doAssert e.rawType == "invalidProperties"
   doAssert e.description.isNone
@@ -238,19 +242,19 @@ testCase setErrorInvalidPropertiesVariant:
 testCase setErrorAlreadyExistsVariant:
   let someId = parseIdFromServer("existing-123").get()
   let e = setErrorAlreadyExists("alreadyExists", someId)
-  doAssert e.errorType == setAlreadyExists
+  doAssert e.kind == setAlreadyExists
   doAssert e.existingId == someId
   doAssert e.rawType == "alreadyExists"
   doAssert e.description.isNone
 
 testCase setErrorDefensiveFallbackInvalidProperties:
   let e = setError("invalidProperties")
-  doAssert e.errorType == setUnknown
+  doAssert e.kind == setUnknown
   doAssert e.rawType == "invalidProperties"
 
 testCase setErrorDefensiveFallbackAlreadyExists:
   let e = setError("alreadyExists")
-  doAssert e.errorType == setUnknown
+  doAssert e.kind == setUnknown
   doAssert e.rawType == "alreadyExists"
 
 # --- RFC conformance: string backing ---
@@ -295,28 +299,28 @@ testCase setErrorTypeStringBacking:
   doAssert $setSingleton == "singleton"
 
 testCase enumParserCaseSensitivity:
-  doAssert parseMethodErrorType("ServerFail") == metUnknown
-  doAssert parseSetErrorType("Forbidden") == setUnknown
+  doAssert parseMethodErrorKind("ServerFail") == metUnknown
+  doAssert parseSetErrorKind("Forbidden") == setUnknown
   ## parseEnum uses nimIdentNormalize: first-char case-sensitive, rest insensitive.
   ## Same first char ('u') with different case in the rest still resolves.
-  doAssert parseRequestErrorType("urn:ietf:params:jmap:error:notJson") == retNotJson
+  doAssert parseRequestErrorKind("urn:ietf:params:jmap:error:notJson") == retNotJson
 
-testCase parseRequestErrorTypeIdempotent:
-  doAssert parseRequestErrorType($retUnknownCapability) == retUnknownCapability
-  doAssert parseRequestErrorType($retNotJson) == retNotJson
-  doAssert parseRequestErrorType($retNotRequest) == retNotRequest
-  doAssert parseRequestErrorType($retLimit) == retLimit
+testCase parseRequestErrorKindIdempotent:
+  doAssert parseRequestErrorKind($retUnknownCapability) == retUnknownCapability
+  doAssert parseRequestErrorKind($retNotJson) == retNotJson
+  doAssert parseRequestErrorKind($retNotRequest) == retNotRequest
+  doAssert parseRequestErrorKind($retLimit) == retLimit
 
-testCase parseMethodErrorTypeIdempotent:
-  doAssert parseMethodErrorType($metServerFail) == metServerFail
-  doAssert parseMethodErrorType($metInvalidArguments) == metInvalidArguments
-  doAssert parseMethodErrorType($metForbidden) == metForbidden
-  doAssert parseMethodErrorType($metStateMismatch) == metStateMismatch
+testCase parseMethodErrorKindIdempotent:
+  doAssert parseMethodErrorKind($metServerFail) == metServerFail
+  doAssert parseMethodErrorKind($metInvalidArguments) == metInvalidArguments
+  doAssert parseMethodErrorKind($metForbidden) == metForbidden
+  doAssert parseMethodErrorKind($metStateMismatch) == metStateMismatch
 
-testCase parseSetErrorTypeIdempotent:
-  doAssert parseSetErrorType($setForbidden) == setForbidden
-  doAssert parseSetErrorType($setInvalidProperties) == setInvalidProperties
-  doAssert parseSetErrorType($setSingleton) == setSingleton
+testCase parseSetErrorKindIdempotent:
+  doAssert parseSetErrorKind($setForbidden) == setForbidden
+  doAssert parseSetErrorKind($setInvalidProperties) == setInvalidProperties
+  doAssert parseSetErrorKind($setSingleton) == setSingleton
 
 testCase requestErrorRawTypeAllVariants:
   for uri in [
@@ -338,9 +342,9 @@ testCase setErrorRawTypeAllVariants:
     doAssert setError(s).rawType == s
 
 testCase methodErrorRfc8621FallThrough:
-  doAssert parseMethodErrorType("mailboxHasChild") == metUnknown
-  doAssert parseMethodErrorType("mailboxHasEmail") == metUnknown
-  doAssert parseMethodErrorType("tooManyKeywords") == metUnknown
+  doAssert parseMethodErrorKind("mailboxHasChild") == metUnknown
+  doAssert parseMethodErrorKind("mailboxHasEmail") == metUnknown
+  doAssert parseMethodErrorKind("tooManyKeywords") == metUnknown
 
 # --- Missing error paths ---
 
@@ -360,12 +364,12 @@ testCase httpStatusErrorZero:
   doAssert e.httpStatus == 0
 
 testCase setErrorAllElseBranch:
-  doAssert setError("tooLarge").errorType == setTooLarge
-  doAssert setError("rateLimit").errorType == setRateLimit
-  doAssert setError("notFound").errorType == setNotFound
-  doAssert setError("invalidPatch").errorType == setInvalidPatch
-  doAssert setError("willDestroy").errorType == setWillDestroy
-  doAssert setError("singleton").errorType == setSingleton
+  doAssert setError("tooLarge").kind == setTooLarge
+  doAssert setError("rateLimit").kind == setRateLimit
+  doAssert setError("notFound").kind == setNotFound
+  doAssert setError("invalidPatch").kind == setInvalidPatch
+  doAssert setError("willDestroy").kind == setWillDestroy
+  doAssert setError("singleton").kind == setSingleton
 
 testCase requestErrorAllFieldsPopulated:
   let e = requestError(
@@ -385,27 +389,27 @@ testCase requestErrorAllFieldsPopulated:
 
 testCase methodErrorRawTypePreserved:
   doAssert methodError("vendorSpecific").rawType == "vendorSpecific"
-  doAssert methodError("vendorSpecific").errorType == metUnknown
+  doAssert methodError("vendorSpecific").kind == metUnknown
 
 # --- nimIdentNormalize documentation tests ---
 
-testCase parseMethodErrorTypeAllLowercase:
+testCase parseMethodErrorKindAllLowercase:
   # nimIdentNormalize: case-insensitive after first char
   # "serverfail" has same first char 's' as "serverFail" -> matches
-  doAssert parseMethodErrorType("serverfail") == metServerFail
+  doAssert parseMethodErrorKind("serverfail") == metServerFail
 
-testCase parseMethodErrorTypeUnderscore:
+testCase parseMethodErrorKindUnderscore:
   # nimIdentNormalize strips underscores -> "server_Fail" matches "serverFail"
-  doAssert parseMethodErrorType("server_Fail") == metServerFail
+  doAssert parseMethodErrorKind("server_Fail") == metServerFail
 
-testCase parseSetErrorTypeUnderscore:
-  doAssert parseSetErrorType("over_Quota") == setOverQuota
+testCase parseSetErrorKindUnderscore:
+  doAssert parseSetErrorKind("over_Quota") == setOverQuota
 
-testCase parseRequestErrorTypeUnderscore:
+testCase parseRequestErrorKindUnderscore:
   # nimIdentNormalize strips underscores in URI-style error types too.
   # "urn:ietf:params:jmap:error:not_JSON" normalises the same as
   # "urn:ietf:params:jmap:error:notJSON" (underscore removed, case-folded).
-  doAssert parseRequestErrorType("urn:ietf:params:jmap:error:not_JSON") == retNotJson
+  doAssert parseRequestErrorKind("urn:ietf:params:jmap:error:not_JSON") == retNotJson
 
 # --- SetError multi-element properties ---
 
@@ -416,7 +420,7 @@ testCase setErrorInvalidPropertiesMultiple:
     Opt.none(string),
     Opt.none(JsonNode),
   )
-  doAssert se.errorType == setInvalidProperties
+  doAssert se.kind == setInvalidProperties
   doAssert se.properties.len == 3
   doAssert se.properties[0] == "from"
   doAssert se.properties[2] == "subject"
@@ -424,9 +428,9 @@ testCase setErrorInvalidPropertiesMultiple:
 # --- SetError exhaustive variant iteration ---
 
 testCase setErrorAllVariantsThroughGenericConstructor:
-  # Every SetErrorType variant through setError() must not crash
+  # Every SetErrorKind variant through setError() must not crash
   # and must preserve rawType
-  for variant in SetErrorType:
+  for variant in SetErrorKind:
     let rawType = $variant
     let se = setError(rawType, Opt.none(string), Opt.none(JsonNode))
     doAssert se.rawType == rawType
@@ -477,7 +481,7 @@ testCase clientErrorMessageCascadeRawType:
 testCase setErrorInvalidPropertiesEmptyList:
   # Empty property list is structurally valid
   let se = setErrorInvalidProperties("invalidProperties", @[])
-  doAssert se.errorType == setInvalidProperties
+  doAssert se.kind == setInvalidProperties
   doAssert se.properties.len == 0
   doAssert se.rawType == "invalidProperties"
 
@@ -489,7 +493,7 @@ testCase setErrorInvalidPropertiesAllFields:
     description = Opt.some("bad properties"),
     extras = Opt.some(%*{"hint": "check format"}),
   )
-  doAssert se.errorType == setInvalidProperties
+  doAssert se.kind == setInvalidProperties
   doAssert se.properties == @["from", "to"]
   doAssert se.description.isSome
   doAssert se.description.get() == "bad properties"
@@ -504,7 +508,7 @@ testCase setErrorAlreadyExistsAllFields:
     description = Opt.some("duplicate detected"),
     extras = Opt.some(%*{"server": "info"}),
   )
-  doAssert se.errorType == setAlreadyExists
+  doAssert se.kind == setAlreadyExists
   doAssert se.existingId == existId
   doAssert se.description.isSome
   doAssert se.description.get() == "duplicate detected"
@@ -521,14 +525,14 @@ testCase setErrorAlreadyExistsMaxLengthId:
   ## alreadyExists with maximum-length Id (255 bytes).
   let id = parseId("A".repeat(255)).get()
   let se = setErrorAlreadyExists("alreadyExists", id)
-  assertEq se.errorType, setAlreadyExists
+  assertEq se.kind, setAlreadyExists
   assertEq se.existingId, id
 
 testCase requestErrorLimitFieldNonLimitType:
   ## Limit field populated for a non-retLimit error type.
   let re =
     requestError("urn:ietf:params:jmap:error:notJSON", limit = Opt.some("maxSize"))
-  assertEq re.errorType, retNotJson
+  assertEq re.kind, retNotJson
   assertSome re.limit
 
 testCase clientErrorMessageAllNone:
@@ -559,24 +563,27 @@ testCase clientErrorFromRequest:
   let re = requestError("urn:ietf:params:jmap:error:notJSON")
   let ce = clientError(re)
   doAssert ce.kind == cekRequest
-  doAssert ce.request.errorType == retNotJson
+  doAssert ce.request.kind == retNotJson
 
 testCase transportErrorAllKindsNetwork:
   ## transportError with tekNetwork variant.
   let e = transportError(tekNetwork, "host unreachable")
   doAssert e.kind == tekNetwork
+  doAssert e.detail == "host unreachable"
   doAssert e.message == "host unreachable"
 
 testCase transportErrorAllKindsTls:
   ## transportError with tekTls variant.
   let e = transportError(tekTls, "handshake failed")
   doAssert e.kind == tekTls
+  doAssert e.detail == "handshake failed"
   doAssert e.message == "handshake failed"
 
 testCase transportErrorAllKindsTimeout:
   ## transportError with tekTimeout variant.
   let e = transportError(tekTimeout, "request timed out after 30s")
   doAssert e.kind == tekTimeout
+  doAssert e.detail == "request timed out after 30s"
   doAssert e.message == "request timed out after 30s"
 
 testCase transportErrorAllKindsHttpStatus:
@@ -584,14 +591,16 @@ testCase transportErrorAllKindsHttpStatus:
   let e = httpStatusError(503, "Service Unavailable")
   doAssert e.kind == tekHttpStatus
   doAssert e.httpStatus == 503
-  doAssert e.message == "Service Unavailable"
+  doAssert e.detail == "Service Unavailable"
+  doAssert e.message == "HTTP 503: Service Unavailable"
 
 testCase httpStatusErrorFieldAccess:
-  ## httpStatusError provides access to both httpStatus and message.
+  ## httpStatusError provides access to httpStatus, detail, and message().
   let e = httpStatusError(429, "Too Many Requests")
   assertEq e.kind, tekHttpStatus
   assertEq e.httpStatus, 429
-  assertEq e.message, "Too Many Requests"
+  assertEq e.detail, "Too Many Requests"
+  assertEq e.message, "HTTP 429: Too Many Requests"
 
 testCase messageClientErrorTransportPath:
   ## message(ClientError) for cekTransport returns transport.msg.
@@ -628,4 +637,4 @@ testCase setErrorEmptyRawType:
   ## setError with empty rawType — still constructs, rawType preserved.
   let se = setError("")
   doAssert se.rawType == ""
-  doAssert se.errorType == setUnknown
+  doAssert se.kind == setUnknown

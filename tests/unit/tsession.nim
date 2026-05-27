@@ -450,7 +450,7 @@ testCase parseSessionNestedBracesRejectedAtParse:
   let res = parseUriTemplate("https://e.com/{{accountId}}/{blobId}/{type}/{name}")
   doAssert res.isErr
   doAssert res.error.typeName == "UriTemplate"
-  doAssert "invalid variable character" in res.error.message
+  doAssert "invalid variable character" in res.error.reason
 
 # =============================================================================
 # H. Missing session URL variable validations

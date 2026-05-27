@@ -86,7 +86,7 @@ testCase tpatchObjectDeepPathsLive:
         doAssert getErr.kind == gekMethod, "expected gekMethod, got gekHandleMismatch"
         let methodErr = getErr.methodErr
         assertOn target,
-          methodErr.errorType == metUnknownMethod,
+          methodErr.kind == metUnknownMethod,
           "Identity/set must surface as metUnknownMethod when unimplemented (got " &
             methodErr.rawType & ")"
 
@@ -213,9 +213,8 @@ testCase tpatchObjectDeepPathsLive:
           let se = outcome.error
           assertOn target, se.rawType.len > 0
           assertOn target,
-            se.errorType in
-              {setInvalidPatch, setInvalidProperties, setForbidden, setUnknown},
-            "errorType must project into the closed enum, got " & $se.errorType
+            se.kind in {setInvalidPatch, setInvalidProperties, setForbidden, setUnknown},
+            "errorType must project into the closed enum, got " & $se.kind
         do:
           assertOn target,
             false, "Identity/set must report an outcome for the patched id"

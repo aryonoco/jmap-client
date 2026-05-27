@@ -32,14 +32,14 @@ testCase parseNonEmptyOnSuccessUpdateEmailRejectsEmpty:
   assertErr res
   assertLen res.error, 1
   assertEq res.error[0].typeName, "NonEmptyOnSuccessUpdateEmail"
-  assertEq res.error[0].message, "must contain at least one entry"
+  assertEq res.error[0].reason, "must contain at least one entry"
 
 testCase parseNonEmptyOnSuccessDestroyEmailRejectsEmpty:
   let res = parseNonEmptyOnSuccessDestroyEmail(newSeq[IdOrCreationRef]())
   assertErr res
   assertLen res.error, 1
   assertEq res.error[0].typeName, "NonEmptyOnSuccessDestroyEmail"
-  assertEq res.error[0].message, "must contain at least one entry"
+  assertEq res.error[0].reason, "must contain at least one entry"
 
 # ============= B. Duplicate rejection =============
 
@@ -49,14 +49,14 @@ testCase parseNonEmptyOnSuccessUpdateEmailRejectsDuplicateKey:
   let res = parseNonEmptyOnSuccessUpdateEmail(@[(k, us), (k, us)])
   assertErr res
   assertLen res.error, 1
-  assertEq res.error[0].message, "duplicate id or creation reference"
+  assertEq res.error[0].reason, "duplicate id or creation reference"
 
 testCase parseNonEmptyOnSuccessDestroyEmailRejectsDuplicateElement:
   let r = directRef(parseIdFromServer("m-abc").get())
   let res = parseNonEmptyOnSuccessDestroyEmail(@[r, r])
   assertErr res
   assertLen res.error, 1
-  assertEq res.error[0].message, "duplicate id or creation reference"
+  assertEq res.error[0].reason, "duplicate id or creation reference"
 
 # ============= C. Arm-distinctness — directRef vs creationRef =============
 

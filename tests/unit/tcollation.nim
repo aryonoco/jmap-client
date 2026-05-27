@@ -121,7 +121,7 @@ testCase rejectEmptyIdentifier:
   let r = parseCollationAlgorithm("")
   doAssert r.isErr
   doAssert r.error.typeName == "CollationAlgorithm"
-  doAssert "must not be empty" in r.error.message
+  doAssert "must not be empty" in r.error.reason
 
 testCase rejectNonPrintableControlChar:
   ## A byte below 0x20 (here 0x1F, unit separator) is non-printable and is
@@ -131,13 +131,13 @@ testCase rejectNonPrintableControlChar:
   let r = parseCollationAlgorithm(bad)
   doAssert r.isErr
   doAssert r.error.typeName == "CollationAlgorithm"
-  doAssert "0x1F" in r.error.message
+  doAssert "0x1F" in r.error.reason
   doAssert r.error.value == bad
 
 testCase rejectDelByte:
   let r = parseCollationAlgorithm("x;del\x7Fchar")
   doAssert r.isErr
-  doAssert "0x7F" in r.error.message
+  doAssert "0x7F" in r.error.reason
 
 testCase acceptBoundaryPrintable:
   ## Space (0x20) is the lowest printable byte; tilde (0x7E) the highest.

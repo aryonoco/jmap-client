@@ -25,6 +25,6 @@ testCase tcapturedMailboxChangesBogus:
     doAssert inv.rawName == "error",
       "method-level errors arrive under the literal rawName 'error'"
     let me = MethodError.fromJson(inv.arguments).expect("MethodError.fromJson")
-    doAssert me.errorType in {metCannotCalculateChanges, metInvalidArguments},
+    doAssert me.kind in {metCannotCalculateChanges, metInvalidArguments},
       "errorType must project as one of cannotCalculateChanges / invalidArguments " &
-        "(got " & $me.errorType & ", rawType=" & me.rawType & ")"
+        "(got " & $me.kind & ", rawType=" & me.rawType & ")"

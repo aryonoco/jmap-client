@@ -88,7 +88,7 @@ testCase regression_2026_03_setErrorDefensiveFallback:
   ## Root cause: discriminator not safely mapped to else branch.
   ## Fix: defensive constructor maps to setUnknown, preserving rawType.
   let se = setError("invalidProperties")
-  doAssert se.errorType == setUnknown
+  doAssert se.kind == setUnknown
   doAssert se.rawType == "invalidProperties"
 
 testCase regression_2026_03_utcDateNonZOffset:

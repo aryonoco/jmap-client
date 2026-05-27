@@ -76,15 +76,18 @@ static:
   # builder.nim — argument helpers
   doAssert declared(directIds)
   doAssert declared(initCreates)
-  # dispatch.nim / identifiers.nim / errors.nim — A6 surface
+  # dispatch.nim / identifiers.nim / errors.nim — A6 surface.
+  # Note: ``getErrorMethod`` / ``getErrorHandleMismatch`` are filtered out
+  # of the hub by A12 (library-internal constructors are not part of the
+  # application-developer surface). The negative assertion lives further
+  # below; the GetError ADT and its variants remain publicly visible so
+  # callers can ``case ge.kind of gekMethod / gekHandleMismatch``.
   doAssert declared(BuilderId)
   doAssert declared(DispatchedResponse)
   doAssert declared(GetError)
   doAssert declared(GetErrorKind)
   doAssert declared(gekMethod)
   doAssert declared(gekHandleMismatch)
-  doAssert declared(getErrorMethod)
-  doAssert declared(getErrorHandleMismatch)
   # identifiers.nim — BuilderId accessors stay public
   doAssert declared(clientBrand)
   doAssert declared(serial)
@@ -139,6 +142,9 @@ static:
   doAssert not declared(initDispatchedResponse)
   doAssert not declared(initBuilderId)
   doAssert not declared(build) # replaced by freeze
+  # A12 — library-internal GetError producers are hub-private
+  doAssert not declared(getErrorMethod)
+  doAssert not declared(getErrorHandleMismatch)
 
 # Runtime anchor — `declared()` in the static block above does not
 # count as "use" for Nim's UnusedImport check. Reference one

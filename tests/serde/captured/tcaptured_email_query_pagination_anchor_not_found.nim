@@ -24,7 +24,7 @@ testCase tcapturedEmailQueryPaginationAnchorNotFound:
     "method-level errors arrive under the literal rawName 'error' (got " & inv.rawName &
       ")"
   let me = MethodError.fromJson(inv.arguments).expect("MethodError.fromJson")
-  doAssert me.errorType == metAnchorNotFound,
-    "errorType must project as metAnchorNotFound (got " & $me.errorType & ", rawType=" &
+  doAssert me.kind == metAnchorNotFound,
+    "errorType must project as metAnchorNotFound (got " & $me.kind & ", rawType=" &
       me.rawType & ")"
   doAssert me.rawType == "anchorNotFound", "rawType must round-trip the wire literal"

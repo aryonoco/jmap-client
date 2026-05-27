@@ -30,8 +30,6 @@ static:
   doAssert declared(GetErrorKind)
   doAssert declared(gekMethod)
   doAssert declared(gekHandleMismatch)
-  doAssert declared(getErrorMethod)
-  doAssert declared(getErrorHandleMismatch)
   doAssert declared(newBuilder)
   doAssert declared(freeze)
   doAssert declared(clientBrand)
@@ -52,6 +50,9 @@ static:
   doAssert not declared(response)
   doAssert not declared(request)
   doAssert not declared(builderId)
+  # A12 — library-internal GetError producers are hub-private
+  doAssert not declared(getErrorMethod)
+  doAssert not declared(getErrorHandleMismatch)
 
 # Runtime anchor pins the import against UnusedImport warnings.
 doAssert $mnCoreEcho == "Core/echo"

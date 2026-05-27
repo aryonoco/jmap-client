@@ -71,7 +71,7 @@ testCase emailSetRequestTooLarge:
   let resp = makeErrorResponse("requestTooLarge", cid)
   let res = makeDispatchedResponse(resp).get(handle)
   doAssert res.isErr
-  assertEq res.error.methodErr.errorType, metRequestTooLarge
+  assertEq res.error.methodErr.kind, metRequestTooLarge
 
 testCase emailSetStateMismatch:
   let cid = makeMcid("c0")
@@ -79,7 +79,7 @@ testCase emailSetStateMismatch:
   let resp = makeErrorResponse("stateMismatch", cid)
   let res = makeDispatchedResponse(resp).get(handle)
   doAssert res.isErr
-  assertEq res.error.methodErr.errorType, metStateMismatch
+  assertEq res.error.methodErr.kind, metStateMismatch
 
 testCase emailCopyFromAccountNotFound:
   let cid = makeMcid("c0")
@@ -87,7 +87,7 @@ testCase emailCopyFromAccountNotFound:
   let resp = makeErrorResponse("fromAccountNotFound", cid)
   let res = makeDispatchedResponse(resp).get(handle)
   doAssert res.isErr
-  assertEq res.error.methodErr.errorType, metFromAccountNotFound
+  assertEq res.error.methodErr.kind, metFromAccountNotFound
 
 testCase emailCopyFromAccountNotSupportedByMethod:
   let cid = makeMcid("c0")
@@ -95,7 +95,7 @@ testCase emailCopyFromAccountNotSupportedByMethod:
   let resp = makeErrorResponse("fromAccountNotSupportedByMethod", cid)
   let res = makeDispatchedResponse(resp).get(handle)
   doAssert res.isErr
-  assertEq res.error.methodErr.errorType, metFromAccountNotSupportedByMethod
+  assertEq res.error.methodErr.kind, metFromAccountNotSupportedByMethod
 
 testCase emailCopyStateMismatch:
   let cid = makeMcid("c0")
@@ -103,7 +103,7 @@ testCase emailCopyStateMismatch:
   let resp = makeErrorResponse("stateMismatch", cid)
   let res = makeDispatchedResponse(resp).get(handle)
   doAssert res.isErr
-  assertEq res.error.methodErr.errorType, metStateMismatch
+  assertEq res.error.methodErr.kind, metStateMismatch
 
 testCase emailImportStateMismatch:
   let cid = makeMcid("c0")
@@ -111,7 +111,7 @@ testCase emailImportStateMismatch:
   let resp = makeErrorResponse("stateMismatch", cid)
   let res = makeDispatchedResponse(resp).get(handle)
   doAssert res.isErr
-  assertEq res.error.methodErr.errorType, metStateMismatch
+  assertEq res.error.methodErr.kind, metStateMismatch
 
 testCase emailImportRequestTooLarge:
   let cid = makeMcid("c0")
@@ -119,7 +119,7 @@ testCase emailImportRequestTooLarge:
   let resp = makeErrorResponse("requestTooLarge", cid)
   let res = makeDispatchedResponse(resp).get(handle)
   doAssert res.isErr
-  assertEq res.error.methodErr.errorType, metRequestTooLarge
+  assertEq res.error.methodErr.kind, metRequestTooLarge
 
 # ===========================================================================
 # B. SetError applicability matrix — 25 ✓-cell blocks per F2 §8.11
@@ -139,7 +139,7 @@ testCase emailSetForbiddenOnCreate:
   let k = makeCreationId("k1")
   doAssert k in r.createResults
   doAssert r.createResults[k].isErr
-  assertEq r.createResults[k].error.errorType, setForbidden
+  assertEq r.createResults[k].error.kind, setForbidden
 
 testCase emailSetForbiddenOnUpdate:
   let r = SetResponse[EmailCreatedItem, PartialEmail]
@@ -148,7 +148,7 @@ testCase emailSetForbiddenOnUpdate:
   let id = makeId("e1")
   doAssert id in r.updateResults
   doAssert r.updateResults[id].isErr
-  assertEq r.updateResults[id].error.errorType, setForbidden
+  assertEq r.updateResults[id].error.kind, setForbidden
 
 testCase emailSetForbiddenOnDestroy:
   let r = SetResponse[EmailCreatedItem, PartialEmail]
@@ -157,21 +157,21 @@ testCase emailSetForbiddenOnDestroy:
   let id = makeId("e1")
   doAssert id in r.destroyResults
   doAssert r.destroyResults[id].isErr
-  assertEq r.destroyResults[id].error.errorType, setForbidden
+  assertEq r.destroyResults[id].error.kind, setForbidden
 
 testCase emailCopyForbiddenOnCreate:
   let r = CopyResponse[EmailCreatedItem].fromJson(copyNotCreatedJson("forbidden")).get()
   let k = makeCreationId("k1")
   doAssert k in r.createResults
   doAssert r.createResults[k].isErr
-  assertEq r.createResults[k].error.errorType, setForbidden
+  assertEq r.createResults[k].error.kind, setForbidden
 
 testCase emailImportForbiddenOnCreate:
   let r = EmailImportResponse.fromJson(importNotCreatedJson("forbidden")).get()
   let k = makeCreationId("k1")
   doAssert k in r.createResults
   doAssert r.createResults[k].isErr
-  assertEq r.createResults[k].error.errorType, setForbidden
+  assertEq r.createResults[k].error.kind, setForbidden
 
 # --- overQuota (4 cells) ---------------------------------------------------
 
@@ -181,25 +181,25 @@ testCase emailSetOverQuotaOnCreate:
     .get()
   let k = makeCreationId("k1")
   doAssert r.createResults[k].isErr
-  assertEq r.createResults[k].error.errorType, setOverQuota
+  assertEq r.createResults[k].error.kind, setOverQuota
 
 testCase emailSetOverQuotaOnUpdate:
   let r = SetResponse[EmailCreatedItem, PartialEmail]
     .fromJson(setNotUpdatedJson("overQuota"))
     .get()
-  assertEq r.updateResults[makeId("e1")].error.errorType, setOverQuota
+  assertEq r.updateResults[makeId("e1")].error.kind, setOverQuota
 
 testCase emailCopyOverQuotaOnCreate:
   let r = CopyResponse[EmailCreatedItem].fromJson(copyNotCreatedJson("overQuota")).get()
   let k = makeCreationId("k1")
   doAssert r.createResults[k].isErr
-  assertEq r.createResults[k].error.errorType, setOverQuota
+  assertEq r.createResults[k].error.kind, setOverQuota
 
 testCase emailImportOverQuotaOnCreate:
   let r = EmailImportResponse.fromJson(importNotCreatedJson("overQuota")).get()
   let k = makeCreationId("k1")
   doAssert r.createResults[k].isErr
-  assertEq r.createResults[k].error.errorType, setOverQuota
+  assertEq r.createResults[k].error.kind, setOverQuota
 
 # --- tooLarge (4 cells) ----------------------------------------------------
 
@@ -209,25 +209,25 @@ testCase emailSetTooLargeOnCreate:
     .get()
   let k = makeCreationId("k1")
   doAssert r.createResults[k].isErr
-  assertEq r.createResults[k].error.errorType, setTooLarge
+  assertEq r.createResults[k].error.kind, setTooLarge
 
 testCase emailSetTooLargeOnUpdate:
   let r = SetResponse[EmailCreatedItem, PartialEmail]
     .fromJson(setNotUpdatedJson("tooLarge"))
     .get()
-  assertEq r.updateResults[makeId("e1")].error.errorType, setTooLarge
+  assertEq r.updateResults[makeId("e1")].error.kind, setTooLarge
 
 testCase emailCopyTooLargeOnCreate:
   let r = CopyResponse[EmailCreatedItem].fromJson(copyNotCreatedJson("tooLarge")).get()
   let k = makeCreationId("k1")
   doAssert r.createResults[k].isErr
-  assertEq r.createResults[k].error.errorType, setTooLarge
+  assertEq r.createResults[k].error.kind, setTooLarge
 
 testCase emailImportTooLargeOnCreate:
   let r = EmailImportResponse.fromJson(importNotCreatedJson("tooLarge")).get()
   let k = makeCreationId("k1")
   doAssert r.createResults[k].isErr
-  assertEq r.createResults[k].error.errorType, setTooLarge
+  assertEq r.createResults[k].error.kind, setTooLarge
 
 # --- rateLimit (3 cells) ---------------------------------------------------
 
@@ -237,19 +237,19 @@ testCase emailSetRateLimitOnCreate:
     .get()
   let k = makeCreationId("k1")
   doAssert r.createResults[k].isErr
-  assertEq r.createResults[k].error.errorType, setRateLimit
+  assertEq r.createResults[k].error.kind, setRateLimit
 
 testCase emailCopyRateLimitOnCreate:
   let r = CopyResponse[EmailCreatedItem].fromJson(copyNotCreatedJson("rateLimit")).get()
   let k = makeCreationId("k1")
   doAssert r.createResults[k].isErr
-  assertEq r.createResults[k].error.errorType, setRateLimit
+  assertEq r.createResults[k].error.kind, setRateLimit
 
 testCase emailImportRateLimitOnCreate:
   let r = EmailImportResponse.fromJson(importNotCreatedJson("rateLimit")).get()
   let k = makeCreationId("k1")
   doAssert r.createResults[k].isErr
-  assertEq r.createResults[k].error.errorType, setRateLimit
+  assertEq r.createResults[k].error.kind, setRateLimit
 
 # --- notFound (3 cells) ----------------------------------------------------
 
@@ -257,20 +257,20 @@ testCase emailSetNotFoundOnUpdate:
   let r = SetResponse[EmailCreatedItem, PartialEmail]
     .fromJson(setNotUpdatedJson("notFound"))
     .get()
-  assertEq r.updateResults[makeId("e1")].error.errorType, setNotFound
+  assertEq r.updateResults[makeId("e1")].error.kind, setNotFound
 
 testCase emailSetNotFoundOnDestroy:
   let r = SetResponse[EmailCreatedItem, PartialEmail]
     .fromJson(setNotDestroyedJson("notFound"))
     .get()
-  assertEq r.destroyResults[makeId("e1")].error.errorType, setNotFound
+  assertEq r.destroyResults[makeId("e1")].error.kind, setNotFound
 
 testCase emailCopyNotFoundOnCreate:
   ## RFC 8621 §4.7 blobId-not-found path.
   let r = CopyResponse[EmailCreatedItem].fromJson(copyNotCreatedJson("notFound")).get()
   let k = makeCreationId("k1")
   doAssert r.createResults[k].isErr
-  assertEq r.createResults[k].error.errorType, setNotFound
+  assertEq r.createResults[k].error.kind, setNotFound
 
 # --- invalidPatch (1 cell) -------------------------------------------------
 
@@ -278,7 +278,7 @@ testCase emailSetInvalidPatchOnUpdate:
   let r = SetResponse[EmailCreatedItem, PartialEmail]
     .fromJson(setNotUpdatedJson("invalidPatch"))
     .get()
-  assertEq r.updateResults[makeId("e1")].error.errorType, setInvalidPatch
+  assertEq r.updateResults[makeId("e1")].error.kind, setInvalidPatch
 
 # --- willDestroy (1 cell) --------------------------------------------------
 
@@ -286,7 +286,7 @@ testCase emailSetWillDestroyOnUpdate:
   let r = SetResponse[EmailCreatedItem, PartialEmail]
     .fromJson(setNotUpdatedJson("willDestroy"))
     .get()
-  assertEq r.updateResults[makeId("e1")].error.errorType, setWillDestroy
+  assertEq r.updateResults[makeId("e1")].error.kind, setWillDestroy
 
 # --- invalidProperties (4 cells) -------------------------------------------
 
@@ -302,7 +302,7 @@ testCase emailSetInvalidPropertiesOnCreate:
   let r = SetResponse[EmailCreatedItem, PartialEmail].fromJson(node).get()
   let k = makeCreationId("k1")
   doAssert r.createResults[k].isErr
-  assertEq r.createResults[k].error.errorType, setInvalidProperties
+  assertEq r.createResults[k].error.kind, setInvalidProperties
 
 testCase emailSetInvalidPropertiesOnUpdate:
   let node = %*{
@@ -311,7 +311,7 @@ testCase emailSetInvalidPropertiesOnUpdate:
     "notUpdated": {"e1": {"type": "invalidProperties", "properties": ["from"]}},
   }
   let r = SetResponse[EmailCreatedItem, PartialEmail].fromJson(node).get()
-  assertEq r.updateResults[makeId("e1")].error.errorType, setInvalidProperties
+  assertEq r.updateResults[makeId("e1")].error.kind, setInvalidProperties
 
 testCase emailCopyInvalidPropertiesOnCreate:
   let node = %*{
@@ -323,7 +323,7 @@ testCase emailCopyInvalidPropertiesOnCreate:
   let r = CopyResponse[EmailCreatedItem].fromJson(node).get()
   let k = makeCreationId("k1")
   doAssert r.createResults[k].isErr
-  assertEq r.createResults[k].error.errorType, setInvalidProperties
+  assertEq r.createResults[k].error.kind, setInvalidProperties
 
 testCase emailImportInvalidPropertiesOnCreate:
   let node = %*{
@@ -334,7 +334,7 @@ testCase emailImportInvalidPropertiesOnCreate:
   let r = EmailImportResponse.fromJson(node).get()
   let k = makeCreationId("k1")
   doAssert r.createResults[k].isErr
-  assertEq r.createResults[k].error.errorType, setInvalidProperties
+  assertEq r.createResults[k].error.kind, setInvalidProperties
 
 # ===========================================================================
 # C. SetError negative — 3 ✗-cell blocks per F2 §8.11
@@ -352,30 +352,30 @@ testCase emailSetSingletonParsesButNotEmittable:
     .get()
   let k = makeCreationId("k1")
   doAssert r.createResults[k].isErr
-  assertEq r.createResults[k].error.errorType, setSingleton
+  assertEq r.createResults[k].error.kind, setSingleton
 
 testCase emailCopySingletonParsesButNotEmittable:
   let r = CopyResponse[EmailCreatedItem].fromJson(copyNotCreatedJson("singleton")).get()
   let k = makeCreationId("k1")
   doAssert r.createResults[k].isErr
-  assertEq r.createResults[k].error.errorType, setSingleton
+  assertEq r.createResults[k].error.kind, setSingleton
 
 testCase emailImportSingletonParsesButNotEmittable:
   let r = EmailImportResponse.fromJson(importNotCreatedJson("singleton")).get()
   let k = makeCreationId("k1")
   doAssert r.createResults[k].isErr
-  assertEq r.createResults[k].error.errorType, setSingleton
+  assertEq r.createResults[k].error.kind, setSingleton
 
 # ===========================================================================
 # D. Exhaustiveness probe per F2 §8.11 mandatory note
 # ===========================================================================
 
 testCase setErrorApplicabilityExhaustiveFold:
-  ## Every ``SetErrorType`` variant is accounted for: ✓ cells in Section B,
+  ## Every ``SetErrorKind`` variant is accounted for: ✓ cells in Section B,
   ## ✗ negative cells in Section C, out-of-Part-F variants documented
   ## below. Adding a new variant forces a compile error at this ``case``
   ## until its coverage row is added to the above sections.
-  for variant in SetErrorType:
+  for variant in SetErrorKind:
     case variant
     of setForbidden, setOverQuota, setTooLarge, setRateLimit, setNotFound,
         setInvalidPatch, setWillDestroy, setInvalidProperties:
@@ -412,13 +412,13 @@ testCase emailSubmissionSetMethodErrorSurface:
   let resp1 = makeErrorResponse("requestTooLarge", cid)
   let res1 = makeDispatchedResponse(resp1).get(handle)
   doAssert res1.isErr
-  assertEq res1.error.methodErr.errorType, metRequestTooLarge
+  assertEq res1.error.methodErr.kind, metRequestTooLarge
 
   # stateMismatch — RFC 8620 §5.3 ifInState conflict
   let resp2 = makeErrorResponse("stateMismatch", cid)
   let res2 = makeDispatchedResponse(resp2).get(handle)
   doAssert res2.isErr
-  assertEq res2.error.methodErr.errorType, metStateMismatch
+  assertEq res2.error.methodErr.kind, metStateMismatch
 
 # ===========================================================================
 # F. EmailSubmission SetError applicability — 9 ✓-cell blocks per G2 §8.8
@@ -449,7 +449,7 @@ testCase emailSubmissionSetInvalidEmailOnCreate:
     SetResponse[EmailSubmissionCreatedItem, PartialEmailSubmission].fromJson(node).get()
   let k = makeCreationId("k1")
   doAssert r.createResults[k].isErr
-  assertEq r.createResults[k].error.errorType, setInvalidEmail
+  assertEq r.createResults[k].error.kind, setInvalidEmail
 
 testCase emailSubmissionSetTooManyRecipientsOnCreate:
   ## RFC 8621 §7.5: wire field is ``maxRecipients`` (the typed Nim
@@ -463,7 +463,7 @@ testCase emailSubmissionSetTooManyRecipientsOnCreate:
     SetResponse[EmailSubmissionCreatedItem, PartialEmailSubmission].fromJson(node).get()
   let k = makeCreationId("k1")
   doAssert r.createResults[k].isErr
-  assertEq r.createResults[k].error.errorType, setTooManyRecipients
+  assertEq r.createResults[k].error.kind, setTooManyRecipients
 
 testCase emailSubmissionSetNoRecipientsOnCreate:
   let r = SetResponse[EmailSubmissionCreatedItem, PartialEmailSubmission]
@@ -471,7 +471,7 @@ testCase emailSubmissionSetNoRecipientsOnCreate:
     .get()
   let k = makeCreationId("k1")
   doAssert r.createResults[k].isErr
-  assertEq r.createResults[k].error.errorType, setNoRecipients
+  assertEq r.createResults[k].error.kind, setNoRecipients
 
 testCase emailSubmissionSetInvalidRecipientsOnCreate:
   let node = %*{
@@ -483,7 +483,7 @@ testCase emailSubmissionSetInvalidRecipientsOnCreate:
     SetResponse[EmailSubmissionCreatedItem, PartialEmailSubmission].fromJson(node).get()
   let k = makeCreationId("k1")
   doAssert r.createResults[k].isErr
-  assertEq r.createResults[k].error.errorType, setInvalidRecipients
+  assertEq r.createResults[k].error.kind, setInvalidRecipients
 
 testCase emailSubmissionSetForbiddenMailFromOnCreate:
   let r = SetResponse[EmailSubmissionCreatedItem, PartialEmailSubmission]
@@ -491,7 +491,7 @@ testCase emailSubmissionSetForbiddenMailFromOnCreate:
     .get()
   let k = makeCreationId("k1")
   doAssert r.createResults[k].isErr
-  assertEq r.createResults[k].error.errorType, setForbiddenMailFrom
+  assertEq r.createResults[k].error.kind, setForbiddenMailFrom
 
 testCase emailSubmissionSetForbiddenFromOnCreate:
   let r = SetResponse[EmailSubmissionCreatedItem, PartialEmailSubmission]
@@ -499,7 +499,7 @@ testCase emailSubmissionSetForbiddenFromOnCreate:
     .get()
   let k = makeCreationId("k1")
   doAssert r.createResults[k].isErr
-  assertEq r.createResults[k].error.errorType, setForbiddenFrom
+  assertEq r.createResults[k].error.kind, setForbiddenFrom
 
 testCase emailSubmissionSetForbiddenToSendOnCreate:
   let r = SetResponse[EmailSubmissionCreatedItem, PartialEmailSubmission]
@@ -507,7 +507,7 @@ testCase emailSubmissionSetForbiddenToSendOnCreate:
     .get()
   let k = makeCreationId("k1")
   doAssert r.createResults[k].isErr
-  assertEq r.createResults[k].error.errorType, setForbiddenToSend
+  assertEq r.createResults[k].error.kind, setForbiddenToSend
 
 testCase emailSubmissionSetTooLargeOnCreate:
   ## RFC 8621 §7.5 SHOULD: wire field is ``maxSize`` (the typed Nim
@@ -521,7 +521,7 @@ testCase emailSubmissionSetTooLargeOnCreate:
     SetResponse[EmailSubmissionCreatedItem, PartialEmailSubmission].fromJson(node).get()
   let k = makeCreationId("k1")
   doAssert r.createResults[k].isErr
-  assertEq r.createResults[k].error.errorType, setTooLarge
+  assertEq r.createResults[k].error.kind, setTooLarge
 
 # --- /set update ✓ cell (1 variant, net-new) -------------------------------
 
@@ -536,7 +536,7 @@ testCase emailSubmissionSetCannotUnsendOnUpdate:
   let id = makeId("e1") # matches the "e1" key in setNotUpdatedJson
   doAssert id in r.updateResults
   doAssert r.updateResults[id].isErr
-  assertEq r.updateResults[id].error.errorType, setCannotUnsend
+  assertEq r.updateResults[id].error.kind, setCannotUnsend
 
 # ===========================================================================
 # G. EmailSubmission SetError negative — ✗-cell blocks per G2 §8.8
@@ -554,7 +554,7 @@ testCase emailSubmissionSetSingletonParsesButNotEmittableOnCreate:
     .get()
   let k = makeCreationId("k1")
   doAssert r.createResults[k].isErr
-  assertEq r.createResults[k].error.errorType, setSingleton
+  assertEq r.createResults[k].error.kind, setSingleton
 
 testCase emailSubmissionSetSingletonParsesButNotEmittableOnUpdate:
   let r = SetResponse[EmailSubmissionCreatedItem, PartialEmailSubmission]
@@ -563,20 +563,20 @@ testCase emailSubmissionSetSingletonParsesButNotEmittableOnUpdate:
   let id = makeId("e1")
   doAssert id in r.updateResults
   doAssert r.updateResults[id].isErr
-  assertEq r.updateResults[id].error.errorType, setSingleton
+  assertEq r.updateResults[id].error.kind, setSingleton
 
 # ===========================================================================
 # H. Submission SetError exhaustiveness probe per G2 §8.8 mandatory note
 # ===========================================================================
 #
-# ``for kind in SetErrorType:`` iteration is mandatory (§8.8 closing note,
-# precedent terrors.nim:428). Every ``SetErrorType`` variant is routed to
+# ``for kind in SetErrorKind:`` iteration is mandatory (§8.8 closing note,
+# precedent terrors.nim:428). Every ``SetErrorKind`` variant is routed to
 # its submission-specific coverage row above, cross-entity row in Section
 # B/C/D, or documented out-of-scope branch. Adding a new variant forces a
 # compile error here until its submission applicability is classified.
 
 testCase emailSubmissionSetErrorApplicabilityExhaustiveFold:
-  for variant in SetErrorType:
+  for variant in SetErrorKind:
     case variant
     of setInvalidEmail, setTooManyRecipients, setNoRecipients, setInvalidRecipients,
         setForbiddenMailFrom, setForbiddenFrom, setForbiddenToSend, setTooLarge:

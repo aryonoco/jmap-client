@@ -301,7 +301,7 @@ testCase setErrorLargeProperties:
   j["type"] = %"invalidProperties"
   j["properties"] = propsArr
   let r = SetError.fromJson(j).get()
-  doAssert r.errorType == setInvalidProperties
+  doAssert r.kind == setInvalidProperties
   assertEq r.properties.len, 1000
 
 testCase setErrorDeeplyNestedExtras:
@@ -323,7 +323,7 @@ testCase setErrorAlreadyExistsNullId:
   j["type"] = %"alreadyExists"
   j["existingId"] = newJNull()
   let r = SetError.fromJson(j).get()
-  doAssert r.errorType == setUnknown
+  doAssert r.kind == setUnknown
 
 testCase requestErrorFloatStatus:
   ## status as 429.5 (JFloat not JInt) -> lenient: status becomes None.
@@ -343,7 +343,7 @@ testCase setErrorInvalidPropertiesEmptyElement:
   ## Properties array with "" -> assertOk (empty strings allowed in array).
   let j = %*{"type": "invalidProperties", "properties": [""]}
   let r = SetError.fromJson(j).get()
-  doAssert r.errorType == setInvalidProperties
+  doAssert r.kind == setInvalidProperties
   assertEq r.properties[0], ""
 
 # =============================================================================

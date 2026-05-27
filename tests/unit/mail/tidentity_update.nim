@@ -61,7 +61,7 @@ testCase initIdentityUpdateSetEmpty:
   assertErr res
   assertLen res.error, 1
   assertEq res.error[0].typeName, "IdentityUpdateSet"
-  assertEq res.error[0].message, "must contain at least one update"
+  assertEq res.error[0].reason, "must contain at least one update"
   assertEq res.error[0].value, ""
 
 testCase initIdentityUpdateSetSingleValid:
@@ -72,7 +72,7 @@ testCase initIdentityUpdateSetTwoSameKind:
   assertErr res
   assertLen res.error, 1
   assertEq res.error[0].typeName, "IdentityUpdateSet"
-  assertEq res.error[0].message, "duplicate target property"
+  assertEq res.error[0].reason, "duplicate target property"
   assertEq res.error[0].value, "iuSetName"
 
 testCase initIdentityUpdateSetThreeSameKind:
@@ -94,7 +94,7 @@ testCase initIdentityUpdateSetTwoDistinctRepeated:
   var seen: set[IdentityUpdateVariantKind] = {}
   for e in res.error:
     assertEq e.typeName, "IdentityUpdateSet"
-    assertEq e.message, "duplicate target property"
+    assertEq e.reason, "duplicate target property"
     if e.value == "iuSetName":
       seen.incl iuSetName
     elif e.value == "iuSetTextSignature":
@@ -109,7 +109,7 @@ testCase parseNonEmptyIdentityUpdatesEmpty:
   assertErr res
   assertLen res.error, 1
   assertEq res.error[0].typeName, "NonEmptyIdentityUpdates"
-  assertEq res.error[0].message, "must contain at least one entry"
+  assertEq res.error[0].reason, "must contain at least one entry"
 
 testCase parseNonEmptyIdentityUpdatesDuplicateId:
   let id1 = parseIdFromServer("idt1").get()
@@ -118,7 +118,7 @@ testCase parseNonEmptyIdentityUpdatesDuplicateId:
   let res = parseNonEmptyIdentityUpdates(@[(id1, us1), (id1, us2)])
   assertErr res
   assertLen res.error, 1
-  assertEq res.error[0].message, "duplicate identity id"
+  assertEq res.error[0].reason, "duplicate identity id"
 
 testCase parseNonEmptyIdentityUpdatesTwoDistinctIds:
   let id1 = parseIdFromServer("idt1").get()

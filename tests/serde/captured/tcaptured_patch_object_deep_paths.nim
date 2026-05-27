@@ -40,8 +40,8 @@ testCase tcapturedPatchObjectDeepPaths:
     let se = outcome.error
     doAssert se.rawType == "invalidProperties",
       "Stalwart projects deep-path rejection as invalidProperties; got " & se.rawType
-    doAssert se.errorType == setInvalidProperties,
-      "errorType must project to setInvalidProperties; got " & $se.errorType
+    doAssert se.kind == setInvalidProperties,
+      "errorType must project to setInvalidProperties; got " & $se.kind
     doAssert se.properties == @["replyTo/0/name"],
       "Stalwart echoes the offending deep path; got " & $se.properties
     doAssert se.description.isSome,

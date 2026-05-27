@@ -51,5 +51,5 @@ testCase tcapturedVacationSetAllArms:
         "VacationResponse/set update with all six arms must succeed for the singleton"
     else:
       let re = RequestError.fromJson(j).expect("RequestError.fromJson")
-      doAssert re.errorType == retUnknownCapability,
-        "Cyrus rejection must project as retUnknownCapability; got " & $re.errorType
+      doAssert re.kind == retUnknownCapability,
+        "Cyrus rejection must project as retUnknownCapability; got " & $re.kind

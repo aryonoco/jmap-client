@@ -96,14 +96,14 @@ testCase turkishLocaleInvariance: # scenario 98e
     let er = parseBlueprintEmailHeaderName(raw)
     emailBaseline.add(
       if er.isErr:
-        (false, er.error.message)
+        (false, er.error.reason)
       else:
         (true, $er.get())
     )
     let br = parseBlueprintBodyHeaderName(raw)
     bodyBaseline.add(
       if br.isErr:
-        (false, br.error.message)
+        (false, br.error.reason)
       else:
         (true, $br.get())
     )
@@ -112,7 +112,7 @@ testCase turkishLocaleInvariance: # scenario 98e
       let er = parseBlueprintEmailHeaderName(raw)
       let ePair =
         if er.isErr:
-          (false, er.error.message)
+          (false, er.error.reason)
         else:
           (true, $er.get())
       doAssert ePair == emailBaseline[i],
@@ -120,7 +120,7 @@ testCase turkishLocaleInvariance: # scenario 98e
       let br = parseBlueprintBodyHeaderName(raw)
       let bPair =
         if br.isErr:
-          (false, br.error.message)
+          (false, br.error.reason)
         else:
           (true, $br.get())
       doAssert bPair == bodyBaseline[i],

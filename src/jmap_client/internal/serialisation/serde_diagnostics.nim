@@ -13,6 +13,7 @@
 import std/strutils
 
 import ../types
+import ../types/validation
 import ./serde
 
 func emptyJsonPath*(): JsonPath =
@@ -59,7 +60,7 @@ func toValidationError*(v: SerdeViolation, rootType: string): ValidationError =
       "",
     )
   of svkFieldParserFailed:
-    return validationError(v.inner.typeName, v.inner.message & suffix, v.inner.value)
+    return validationError(v.inner.typeName, v.inner.reason & suffix, v.inner.value)
   of svkConflictingFields:
     return validationError(
       rootType,

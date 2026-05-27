@@ -52,7 +52,7 @@ testCase tcapturedCombinedAdversarialRoundTrip:
         "MethodError.fromJson c2"
       )
     doAssert me.rawType.len > 0
-    doAssert me.errorType in
+    doAssert me.kind in
       {metInvalidResultReference, metInvalidArguments, metServerFail, metUnknown}
 
     # c3 — Stalwart returns notCreated with newDraft → invalidProperties.
@@ -62,8 +62,7 @@ testCase tcapturedCombinedAdversarialRoundTrip:
     let cidLabel = parseCreationId("newDraft").expect("parseCreationId")
     setResp.createResults.withValue(cidLabel, outcome):
       doAssert outcome.isErr
-      doAssert outcome.error.errorType in
-        {setInvalidProperties, setForbidden, setUnknown}
+      doAssert outcome.error.kind in {setInvalidProperties, setForbidden, setUnknown}
     do:
       doAssert false, "createResults must report newDraft outcome"
 

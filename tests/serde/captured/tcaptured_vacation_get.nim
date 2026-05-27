@@ -53,5 +53,5 @@ testCase tcapturedVacationGet:
       doAssert rt.textBody == vr.textBody, "textBody must round-trip"
     else:
       let re = RequestError.fromJson(j).expect("RequestError.fromJson")
-      doAssert re.errorType == retUnknownCapability,
-        "Cyrus rejection must project as retUnknownCapability; got " & $re.errorType
+      doAssert re.kind == retUnknownCapability,
+        "Cyrus rejection must project as retUnknownCapability; got " & $re.kind

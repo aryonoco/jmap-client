@@ -3,8 +3,8 @@
 
 ## LIBRARY CONTRACT: ``MethodError.fromJson`` projects every wire
 ## ``type`` URI Stalwart returns for per-method failures into the
-## closed ``MethodErrorType`` enum AND preserves ``rawType``
-## losslessly. ``parseMethodErrorType`` is total: unknown URIs
+## closed ``MethodErrorKind`` enum AND preserves ``rawType``
+## losslessly. ``parseMethodErrorKind`` is total: unknown URIs
 ## project to ``metUnknown``. ``resp.get(handle)`` for a method-
 ## level error invocation routes through ``MethodError.fromJson``
 ## and returns the typed error on the inner railway.
@@ -71,12 +71,11 @@ testCase tmethodErrorTypedProjectionLive:
         )
       assertOn target, me.rawType.len > 0, "rawType must be losslessly preserved"
       assertOn target,
-        me.errorType in {
+        me.kind in {
           metUnknownMethod, metInvalidArguments, metServerFail, metServerUnavailable,
           metUnknown,
         },
-        "errorType must project into the closed MethodErrorType enum, got " &
-          $me.errorType
+        "errorType must project into the closed MethodErrorKind enum, got " & $me.kind
 
     # Sub-test 2: broken result-reference path.
     block invalidResultReferenceCase:
@@ -114,10 +113,9 @@ testCase tmethodErrorTypedProjectionLive:
         )
       assertOn target, me.rawType.len > 0, "rawType must be losslessly preserved"
       assertOn target,
-        me.errorType in
+        me.kind in
           {metInvalidResultReference, metInvalidArguments, metServerFail, metUnknown},
-        "errorType must project into the closed MethodErrorType enum, got " &
-          $me.errorType
+        "errorType must project into the closed MethodErrorKind enum, got " & $me.kind
 
     # Sub-test 3: unsupported sort property.
     block unsupportedSortCase:
@@ -146,12 +144,11 @@ testCase tmethodErrorTypedProjectionLive:
         )
       assertOn target, me.rawType.len > 0, "rawType must be losslessly preserved"
       assertOn target,
-        me.errorType in {
+        me.kind in {
           metUnsupportedSort, metInvalidArguments, metUnknownMethod, metServerFail,
           metUnknown,
         },
-        "errorType must project into the closed MethodErrorType enum, got " &
-          $me.errorType
+        "errorType must project into the closed MethodErrorKind enum, got " & $me.kind
 
     # Sub-test 4: unsupported filter property.
     block unsupportedFilterCase:
@@ -179,9 +176,8 @@ testCase tmethodErrorTypedProjectionLive:
         )
       assertOn target, me.rawType.len > 0, "rawType must be losslessly preserved"
       assertOn target,
-        me.errorType in {
+        me.kind in {
           metUnsupportedFilter, metInvalidArguments, metUnknownMethod, metServerFail,
           metUnknown,
         },
-        "errorType must project into the closed MethodErrorType enum, got " &
-          $me.errorType
+        "errorType must project into the closed MethodErrorKind enum, got " & $me.kind

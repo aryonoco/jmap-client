@@ -38,9 +38,9 @@ testCase tcapturedSetErrorNotFound:
     let se = outcome.error
     doAssert se.rawType == "notFound",
       "Stalwart returns canonical 'notFound' rawType, got " & se.rawType
-    doAssert se.errorType == setNotFound,
-      "errorType must project to setNotFound, got " & $se.errorType
-    doAssert se.errorType == parseSetErrorType(se.rawType),
+    doAssert se.kind == setNotFound,
+      "errorType must project to setNotFound, got " & $se.kind
+    doAssert se.kind == parseSetErrorKind(se.rawType),
       "errorType / rawType must be derived consistently"
     found = true
   do:

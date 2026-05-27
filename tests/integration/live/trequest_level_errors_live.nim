@@ -2,9 +2,9 @@
 # Copyright (c) 2026 Aryan Ameri
 
 ## LIBRARY CONTRACT: ``RequestError.fromJson`` projects every wire
-## URI Stalwart returns into the closed ``RequestErrorType`` enum
+## URI Stalwart returns into the closed ``RequestErrorKind`` enum
 ## AND preserves the URI losslessly in ``rawType``.
-## ``parseRequestErrorType`` is total: unknown URIs project to
+## ``parseRequestErrorKind`` is total: unknown URIs project to
 ## ``retUnknown`` with the URI captured in ``rawType``.
 ## The internal classify pipeline routes request-level JMAP errors
 ## into the ``cekRequest`` arm of ``ClientError``, distinct from
@@ -52,7 +52,7 @@ testCase trequestLevelErrorsLive:
     # Sub-test 1: non-JSON input.  Strict library-contract assertions:
     # the response must arrive on the cekRequest arm; rawType must be
     # losslessly preserved and shaped as a JMAP error URI; errorType
-    # must project into the closed RequestErrorType enum.
+    # must project into the closed RequestErrorKind enum.
     block notJsonCase:
       let (respBody, res) = postRawJmap(
         target, session, "this is not JSON", target.aliceToken, target.authScheme
@@ -71,10 +71,10 @@ testCase trequestLevelErrorsLive:
         ce.request.rawType.startsWith("urn:ietf:params:jmap:error:"),
         "rawType must be a JMAP error URI, got " & ce.request.rawType
       assertOn target,
-        ce.request.errorType in
+        ce.request.kind in
           {retUnknownCapability, retNotJson, retNotRequest, retLimit, retUnknown},
-        "errorType must project into the closed RequestErrorType enum, got " &
-          $ce.request.errorType
+        "errorType must project into the closed RequestErrorKind enum, got " &
+          $ce.request.kind
 
     # Sub-test 2: well-formed JSON that does not match the Request
     # type signature.
@@ -95,10 +95,10 @@ testCase trequestLevelErrorsLive:
         ce.request.rawType.startsWith("urn:ietf:params:jmap:error:"),
         "rawType must be a JMAP error URI, got " & ce.request.rawType
       assertOn target,
-        ce.request.errorType in
+        ce.request.kind in
           {retUnknownCapability, retNotJson, retNotRequest, retLimit, retUnknown},
-        "errorType must project into the closed RequestErrorType enum, got " &
-          $ce.request.errorType
+        "errorType must project into the closed RequestErrorKind enum, got " &
+          $ce.request.kind
 
     # Sub-test 3: request envelope claiming a capability URI the
     # server does not advertise.
@@ -119,10 +119,10 @@ testCase trequestLevelErrorsLive:
         ce.request.rawType.startsWith("urn:ietf:params:jmap:error:"),
         "rawType must be a JMAP error URI, got " & ce.request.rawType
       assertOn target,
-        ce.request.errorType in
+        ce.request.kind in
           {retUnknownCapability, retNotJson, retNotRequest, retLimit, retUnknown},
-        "errorType must project into the closed RequestErrorType enum, got " &
-          $ce.request.errorType
+        "errorType must project into the closed RequestErrorKind enum, got " &
+          $ce.request.kind
 
     # Sub-test 4: oversized request body — exceeds server's advertised
     # ``maxSizeRequest``.
@@ -150,7 +150,7 @@ testCase trequestLevelErrorsLive:
         ce.request.rawType.startsWith("urn:ietf:params:jmap:error:"),
         "rawType must be a JMAP error URI, got " & ce.request.rawType
       assertOn target,
-        ce.request.errorType in
+        ce.request.kind in
           {retUnknownCapability, retNotJson, retNotRequest, retLimit, retUnknown},
-        "errorType must project into the closed RequestErrorType enum, got " &
-          $ce.request.errorType
+        "errorType must project into the closed RequestErrorKind enum, got " &
+          $ce.request.kind

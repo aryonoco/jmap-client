@@ -779,10 +779,10 @@ proc filterEq*(a, b: Filter[int]): bool =
 
 proc setErrorEq*(a, b: SetError): bool =
   ## Deep value equality for SetError (case object), including extras.
-  if a.rawType != b.rawType or a.errorType != b.errorType or
-      a.description != b.description or a.extras != b.extras:
+  if a.rawType != b.rawType or a.kind != b.kind or a.description != b.description or
+      a.extras != b.extras:
     return false
-  case a.errorType
+  case a.kind
   of setInvalidProperties:
     a.properties == b.properties
   of setAlreadyExists:

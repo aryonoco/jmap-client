@@ -164,7 +164,7 @@ proc assertInMailboxOtherThanMinSize(
     doAssert getErr.kind == gekMethod,
       "filter rejection must surface as gekMethod, not gekHandleMismatch"
     let methodErr = getErr.methodErr
-    doAssert methodErr.errorType in
+    doAssert methodErr.kind in
       {metInvalidArguments, metUnsupportedFilter, metUnknownMethod},
       "method error must be in allowed set (got rawType=" & methodErr.rawType & ")"
 

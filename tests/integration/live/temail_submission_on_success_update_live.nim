@@ -135,7 +135,7 @@ testCase tEmailSubmissionOnSuccessUpdateLive:
         "compound update must surface as gekMethod, not gekHandleMismatch"
       let methodErr = getErr.methodErr
       assertOn target,
-        methodErr.errorType in {metInvalidArguments, metUnknownMethod},
+        methodErr.kind in {metInvalidArguments, metUnknownMethod},
         "compound EmailSubmission/set + onSuccessUpdateEmail must surface " &
           "metInvalidArguments or metUnknownMethod when unimplemented (got " &
           methodErr.rawType & ")"

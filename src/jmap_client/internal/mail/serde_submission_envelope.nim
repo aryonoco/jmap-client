@@ -24,6 +24,7 @@ import ../serialisation/serde_diagnostics
 import ../serialisation/serde_helpers
 import ../serialisation/serde_primitives
 import ../types
+import ../types/validation
 import ./submission_envelope
 
 # =============================================================================

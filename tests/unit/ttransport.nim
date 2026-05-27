@@ -23,7 +23,7 @@ testCase newTransportNilSendImpl:
   let res = newTransport(nil, validClose)
   doAssert res.isErr, "expected Err for nil sendImpl"
   doAssert res.error.typeName == "Transport"
-  doAssert res.error.message == "sendImpl must not be nil"
+  doAssert res.error.reason == "sendImpl must not be nil"
 
 testCase newTransportNilCloseImpl:
   ## closeImpl must not be nil.
@@ -35,7 +35,7 @@ testCase newTransportNilCloseImpl:
   let res = newTransport(validSend, nil)
   doAssert res.isErr, "expected Err for nil closeImpl"
   doAssert res.error.typeName == "Transport"
-  doAssert res.error.message == "closeImpl must not be nil"
+  doAssert res.error.reason == "closeImpl must not be nil"
 
 testCase newTransportValid:
   ## Both closures supplied — construction succeeds.

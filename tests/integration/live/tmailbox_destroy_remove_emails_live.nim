@@ -166,7 +166,7 @@ testCase tmailboxDestroyRemoveEmailsLive:
         "destroying a non-empty mailbox without onDestroyRemoveEmails must fail"
       let setErr = outcome.error
       assertOn target,
-        setErr.errorType == setMailboxHasEmail,
+        setErr.kind == setMailboxHasEmail,
         "errorType must be setMailboxHasEmail per RFC 8621 §2.5; got rawType=" &
           setErr.rawType
       assertOn target,

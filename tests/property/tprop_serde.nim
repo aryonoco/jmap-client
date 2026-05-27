@@ -101,7 +101,7 @@ testCase propRoundTripRequestError:
     let j = re.toJson()
     let rt = RequestError.fromJson(j).get()
     doAssert rt.rawType == re.rawType
-    doAssert rt.errorType == re.errorType
+    doAssert rt.kind == re.kind
     doAssert rt.status == re.status
     doAssert rt.title == re.title
     doAssert rt.detail == re.detail
@@ -114,24 +114,24 @@ testCase propRoundTripMethodError:
     let j = me.toJson()
     let rt = MethodError.fromJson(j).get()
     doAssert rt.rawType == me.rawType
-    doAssert rt.errorType == me.errorType
+    doAssert rt.kind == me.kind
     doAssert rt.description == me.description
 
 testCase propRoundTripSetErrorVariants:
   checkPropertyN "SetError variant round-trip preserves errorType and rawType",
     ThoroughTrials:
     let se = rng.genSetError()
-    lastInput = se.rawType & " (" & $se.errorType & ")"
+    lastInput = se.rawType & " (" & $se.kind & ")"
     let j = se.toJson()
     let rt = SetError.fromJson(j).get()
     doAssert rt.rawType == se.rawType
     # Variant-specific fields (defensive fallback may remap)
-    case se.errorType
+    case se.kind
     of setInvalidProperties:
-      if rt.errorType == setInvalidProperties:
+      if rt.kind == setInvalidProperties:
         doAssert rt.properties == se.properties
     of setAlreadyExists:
-      if rt.errorType == setAlreadyExists:
+      if rt.kind == setAlreadyExists:
         doAssert rt.existingId == se.existingId
     else:
       discard
@@ -242,7 +242,7 @@ testCase propSetErrorInvalidPropertiesRoundTrip:
     let se = setErrorInvalidProperties("invalidProperties", props)
     let j = se.toJson()
     let rt = SetError.fromJson(j).get()
-    doAssert rt.errorType == setInvalidProperties
+    doAssert rt.kind == setInvalidProperties
     doAssert rt.properties == props, "properties list not preserved through round-trip"
 
 testCase propSetErrorAlreadyExistsRoundTrip:
@@ -253,7 +253,7 @@ testCase propSetErrorAlreadyExistsRoundTrip:
     let se = setErrorAlreadyExists("alreadyExists", id)
     let j = se.toJson()
     let rt = SetError.fromJson(j).get()
-    doAssert rt.errorType == setAlreadyExists
+    doAssert rt.kind == setAlreadyExists
     doAssert rt.existingId == id, "existingId not preserved through round-trip"
 
 # =============================================================================

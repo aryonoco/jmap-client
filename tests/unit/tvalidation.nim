@@ -24,13 +24,13 @@ defineSealedIntOps(TestInt)
 testCase validationErrorConstructor:
   let ve = validationError("Id", "length must be 1-255", "")
   doAssert ve.typeName == "Id"
-  doAssert ve.message == "length must be 1-255"
+  doAssert ve.reason == "length must be 1-255"
   doAssert ve.value == ""
 
 testCase validationErrorAllFields:
   let ve = validationError("UnsignedInt", "must be non-negative", "-1")
   doAssert ve.typeName == "UnsignedInt"
-  doAssert ve.message == "must be non-negative"
+  doAssert ve.reason == "must be non-negative"
   doAssert ve.value == "-1"
 
 # --- defineSealedStringOps ---

@@ -90,7 +90,7 @@ testCase submissionParamSizeAcceptsZeroAndUpperBound:
   let bad = parseUnsignedInt(-1)
   assertErr bad
   assertEq bad.error.typeName, "UnsignedInt"
-  assertEq bad.error.message, "must be non-negative"
+  assertEq bad.error.reason, "must be non-negative"
 
 testCase submissionParamEnvidStoresInputBytesUnchanged:
   # G2 §8.7 row spkEnvid. ``envidParam`` is unconditional and stores
@@ -141,7 +141,7 @@ testCase submissionParamOrcptParserPath:
   let bad = parseOrcptAddrType("")
   assertErr bad
   assertEq bad.error.typeName, "OrcptAddrType"
-  assertEq bad.error.message, "must not be empty"
+  assertEq bad.error.reason, "must not be empty"
 
 testCase submissionParamHoldForInfallibleWrap:
   # G2 §8.7 row spkHoldFor. ``parseHoldForSeconds`` is infallible by
@@ -169,7 +169,7 @@ testCase submissionParamHoldUntilParserPath:
   let bad = parseUtcDate("")
   assertErr bad
   assertEq bad.error.typeName, "UTCDate"
-  assertEq bad.error.message, "too short for RFC 3339 date-time"
+  assertEq bad.error.reason, "too short for RFC 3339 date-time"
 
 testCase submissionParamByDeadlineAndMode:
   # G2 §8.7 row spkBy. ``byParam`` is unconditional. ``DeliveryByMode``
@@ -199,7 +199,7 @@ testCase submissionParamMtPriorityRangeBoundary:
     let res = parseMtPriority(raw)
     assertErr res
     assertEq res.error.typeName, "MtPriority"
-    assertEq res.error.message, "must be in range -9..9"
+    assertEq res.error.reason, "must be in range -9..9"
     assertEq res.error.value, $raw
 
 testCase submissionParamExtensionWithKeywordAndOptValue:
@@ -223,7 +223,7 @@ testCase submissionParamExtensionWithKeywordAndOptValue:
   let bad = parseRFC5321Keyword("")
   assertErr bad
   assertEq bad.error.typeName, "RFC5321Keyword"
-  assertEq bad.error.message, "length must be 1-64 octets"
+  assertEq bad.error.reason, "length must be 1-64 octets"
 
 # ===========================================================================
 # §B. NOTIFY mutual-exclusion and empty-set rejection
@@ -239,27 +239,27 @@ testCase submissionParamNotifyMutualExclusionAndEmptyRejection:
     let res = notifyParam({})
     assertErr res
     assertEq res.error.typeName, "SubmissionParam"
-    assertEq res.error.message, "NOTIFY flags must not be empty"
+    assertEq res.error.reason, "NOTIFY flags must not be empty"
   block:
     let res = notifyParam({dnfNever, dnfSuccess})
     assertErr res
     assertEq res.error.typeName, "SubmissionParam"
-    assertEq res.error.message,
+    assertEq res.error.reason,
       "NOTIFY=NEVER is mutually exclusive with SUCCESS/FAILURE/DELAY"
   block:
     let res = notifyParam({dnfNever, dnfFailure})
     assertErr res
-    assertEq res.error.message,
+    assertEq res.error.reason,
       "NOTIFY=NEVER is mutually exclusive with SUCCESS/FAILURE/DELAY"
   block:
     let res = notifyParam({dnfNever, dnfDelay})
     assertErr res
-    assertEq res.error.message,
+    assertEq res.error.reason,
       "NOTIFY=NEVER is mutually exclusive with SUCCESS/FAILURE/DELAY"
   block:
     let res = notifyParam({dnfNever, dnfSuccess, dnfFailure, dnfDelay})
     assertErr res
-    assertEq res.error.message,
+    assertEq res.error.reason,
       "NOTIFY=NEVER is mutually exclusive with SUCCESS/FAILURE/DELAY"
 
 # ===========================================================================
@@ -269,7 +269,7 @@ testCase submissionParamNotifyMutualExclusionAndEmptyRejection:
 testCase submissionParamKeyIdentityDiscriminatorMatrix:
   # 144-cell enumeration of SubmissionParamKind × SubmissionParamKind.
   # Native enum fold per G2 §8.8 mandatory note (precedent
-  # tests/unit/terrors.nim — ``for kind in SetErrorType:``). paramKey
+  # tests/unit/terrors.nim — ``for kind in SetErrorKind:``). paramKey
   # collapses 11 nullary arms to a kind-only key; spkExtension carries
   # an RFC5321Keyword name. With makeSubmissionParam returning a fixed
   # default extension name ("X-TEST" per mfixtures.nim:2049) for

@@ -3,10 +3,10 @@
 
 ## LIBRARY CONTRACT: ``SetError.fromJson`` projects every wire
 ## ``type`` URI Stalwart returns for per-item /set failures into the
-## closed ``SetErrorType`` enum AND preserves ``rawType`` losslessly.
+## closed ``SetErrorKind`` enum AND preserves ``rawType`` losslessly.
 ## The case-object payload arms — ``setInvalidProperties.properties``
 ## (RFC 8620 §5.3) and ``setBlobNotFound.notFound`` (RFC 8621 §4.6) —
-## deserialise the wire payload correctly. ``parseSetErrorType`` is
+## deserialise the wire payload correctly. ``parseSetErrorKind`` is
 ## total: unknown URIs project to ``setUnknown``.
 ##
 ## Phase J Step 63.  Four sub-tests drive Stalwart through four
@@ -78,9 +78,8 @@ testCase tsetErrorTypedProjectionLive:
         let se = outcome.error
         assertOn target, se.rawType.len > 0, "rawType must be losslessly preserved"
         assertOn target,
-          se.errorType in {setNotFound, setForbidden, setUnknown},
-          "errorType must project into the closed SetErrorType enum, got " &
-            $se.errorType
+          se.kind in {setNotFound, setForbidden, setUnknown},
+          "errorType must project into the closed SetErrorKind enum, got " & $se.kind
         rejected = true
       do:
         assertOn target, false, "Email/set must report an outcome for the synthetic id"
@@ -131,10 +130,8 @@ testCase tsetErrorTypedProjectionLive:
           let se = outcome.error
           assertOn target, se.rawType.len > 0, "rawType must be losslessly preserved"
           assertOn target,
-            se.errorType in
-              {setInvalidPatch, setInvalidProperties, setForbidden, setUnknown},
-            "errorType must project into the closed SetErrorType enum, got " &
-              $se.errorType
+            se.kind in {setInvalidPatch, setInvalidProperties, setForbidden, setUnknown},
+            "errorType must project into the closed SetErrorKind enum, got " & $se.kind
           rejected = true
         do:
           assertOn target, false, "Email/set must report an outcome for the seeded id"
@@ -145,9 +142,8 @@ testCase tsetErrorTypedProjectionLive:
           )
         assertOn target, me.rawType.len > 0, "rawType must be losslessly preserved"
         assertOn target,
-          me.errorType in
-            {metInvalidArguments, metUnknownMethod, metServerFail, metUnknown},
-          "method-level fallback must project into the closed enum, got " & $me.errorType
+          me.kind in {metInvalidArguments, metUnknownMethod, metServerFail, metUnknown},
+          "method-level fallback must project into the closed enum, got " & $me.kind
 
     # Sub-test 3: Email/set create attempting to set the server-assigned
     # immutable ``id`` field.  RFC 8620 §5.3 mandates rejection with
@@ -199,10 +195,9 @@ testCase tsetErrorTypedProjectionLive:
           let se = outcome.error
           assertOn target, se.rawType.len > 0, "rawType must be losslessly preserved"
           assertOn target,
-            se.errorType in {setInvalidProperties, setForbidden, setUnknown},
-            "errorType must project into the closed SetErrorType enum, got " &
-              $se.errorType
-          if se.errorType == setInvalidProperties:
+            se.kind in {setInvalidProperties, setForbidden, setUnknown},
+            "errorType must project into the closed SetErrorKind enum, got " & $se.kind
+          if se.kind == setInvalidProperties:
             assertOn target,
               se.properties.len >= 1,
               "setInvalidProperties payload arm must carry at least one " &
@@ -221,9 +216,8 @@ testCase tsetErrorTypedProjectionLive:
           )
         assertOn target, me.rawType.len > 0, "rawType must be losslessly preserved"
         assertOn target,
-          me.errorType in
-            {metInvalidArguments, metUnknownMethod, metServerFail, metUnknown},
-          "method-level fallback must project into the closed enum, got " & $me.errorType
+          me.kind in {metInvalidArguments, metUnknownMethod, metServerFail, metUnknown},
+          "method-level fallback must project into the closed enum, got " & $me.kind
 
     # Sub-test 4: Email/import with a synthetic BlobId that does not
     # resolve.  RFC 8621 §4.6 mandates ``setBlobNotFound`` with the
@@ -273,15 +267,13 @@ testCase tsetErrorTypedProjectionLive:
           let se = outcome.error
           assertOn target, se.rawType.len > 0, "rawType must be losslessly preserved"
           assertOn target,
-            se.errorType in
-              {setBlobNotFound, setInvalidProperties, setForbidden, setUnknown},
-            "errorType must project into the closed SetErrorType enum, got " &
-              $se.errorType
-          if se.errorType == setBlobNotFound:
+            se.kind in {setBlobNotFound, setInvalidProperties, setForbidden, setUnknown},
+            "errorType must project into the closed SetErrorKind enum, got " & $se.kind
+          if se.kind == setBlobNotFound:
             assertOn target,
               se.notFound.len >= 1,
               "setBlobNotFound payload arm must carry the unresolved BlobIds"
-          elif se.errorType == setInvalidProperties:
+          elif se.kind == setInvalidProperties:
             assertOn target,
               se.properties.len >= 1,
               "setInvalidProperties payload arm must carry the offending " &
@@ -297,9 +289,8 @@ testCase tsetErrorTypedProjectionLive:
           )
         assertOn target, me.rawType.len > 0, "rawType must be losslessly preserved"
         assertOn target,
-          me.errorType in
-            {metInvalidArguments, metUnknownMethod, metServerFail, metUnknown},
-          "method-level fallback must project into the closed enum, got " & $me.errorType
+          me.kind in {metInvalidArguments, metUnknownMethod, metServerFail, metUnknown},
+          "method-level fallback must project into the closed enum, got " & $me.kind
 
     # Cleanup: destroy seedId so re-runs are idempotent.
     let (bClean, cleanHandle) = addEmailSet(

@@ -143,9 +143,9 @@ testCase tcombinedAdversarialRoundTripLive:
       )
     assertOn target, me.rawType.len > 0, "rawType must be losslessly preserved"
     assertOn target,
-      me.errorType in
+      me.kind in
         {metInvalidResultReference, metInvalidArguments, metServerFail, metUnknown},
-      "c2 errorType must project into the closed enum, got " & $me.errorType
+      "c2 errorType must project into the closed enum, got " & $me.kind
 
     # c3: Email/set with immutable property must surface in notCreated.
     let c3 = resp.methodResponses[3]
@@ -160,7 +160,7 @@ testCase tcombinedAdversarialRoundTripLive:
     setResp.createResults.withValue(cidLabel, outcome):
       assertOn target, outcome.isErr, "create with immutable property must Err"
       assertOn target,
-        outcome.error.errorType in {setInvalidProperties, setForbidden, setUnknown}
+        outcome.error.kind in {setInvalidProperties, setForbidden, setUnknown}
     do:
       assertOn target, false, "Email/set must report an outcome for the create label"
 

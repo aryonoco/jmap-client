@@ -161,7 +161,7 @@ testCase scenarioRequestRejectionCascade:
   doAssert ce.request.detail.get() == "Too many method calls"
 
 testCase scenarioMessageCascadePriority:
-  ## ClientError.message cascade: detail > title > rawType.
+  ## ClientError.reason cascade: detail > title > rawType.
   # detail present
   let re1 = requestError(
     "urn:ietf:params:jmap:error:notJSON",
@@ -189,25 +189,25 @@ testCase scenarioMethodErrorInResponse:
     .get()
   doAssert errInv.rawName == "error"
   let me = methodError("invalidArguments", description = Opt.some("missing accountId"))
-  doAssert me.errorType == metInvalidArguments
+  doAssert me.kind == metInvalidArguments
   doAssert me.description.get() == "missing accountId"
 
 testCase scenarioSetErrorVariants:
   ## Data-level: Per-item SetError with variant-specific fields.
   # invalidProperties variant
   let se1 = setErrorInvalidProperties("invalidProperties", @["subject", "from"])
-  doAssert se1.errorType == setInvalidProperties
+  doAssert se1.kind == setInvalidProperties
   doAssert se1.properties.len == 2
 
   # alreadyExists variant
   let existId = makeId("existing42")
   let se2 = setErrorAlreadyExists("alreadyExists", existId)
-  doAssert se2.errorType == setAlreadyExists
+  doAssert se2.kind == setAlreadyExists
   doAssert se2.existingId == existId
 
   # generic variant
   let se3 = setError("forbidden")
-  doAssert se3.errorType == setForbidden
+  doAssert se3.kind == setForbidden
 
 testCase scenarioTlsError:
   ## Transport TLS failure path.
@@ -361,15 +361,15 @@ testCase scenarioRawTypePreservation:
   ## All error constructors preserve rawType for lossless round-trip.
   let me = methodError("vendorCustomError")
   doAssert me.rawType == "vendorCustomError"
-  doAssert me.errorType == metUnknown
+  doAssert me.kind == metUnknown
 
   let re = requestError("urn:vendor:custom:error")
   doAssert re.rawType == "urn:vendor:custom:error"
-  doAssert re.errorType == retUnknown
+  doAssert re.kind == retUnknown
 
   let se = setError("vendorSetError")
   doAssert se.rawType == "vendorSetError"
-  doAssert se.errorType == setUnknown
+  doAssert se.kind == setUnknown
 
 testCase scenarioServerCapabilityRawDataPreservation:
   ## Non-core ServerCapability preserves raw JSON data.

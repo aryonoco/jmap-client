@@ -168,7 +168,7 @@ testCase goldenSetResponseMerging:
   assertLen sr.createResults, 2
   doAssert sr.createResults[makeCreationId("k1")].isOk
   doAssert sr.createResults[makeCreationId("k2")].isErr
-  doAssert sr.createResults[makeCreationId("k2")].error().errorType == setForbidden
+  doAssert sr.createResults[makeCreationId("k2")].error().kind == setForbidden
   # updateResults: id1 ok(none), id2 ok(some), id3 err
   assertLen sr.updateResults, 3
   doAssert sr.updateResults[makeId("id1")].isOk
@@ -176,12 +176,12 @@ testCase goldenSetResponseMerging:
   doAssert sr.updateResults[makeId("id2")].isOk
   doAssert sr.updateResults[makeId("id2")].get().isSome
   doAssert sr.updateResults[makeId("id3")].isErr
-  doAssert sr.updateResults[makeId("id3")].error().errorType == setNotFound
+  doAssert sr.updateResults[makeId("id3")].error().kind == setNotFound
   # destroyResults: id4 ok, id5 err
   assertLen sr.destroyResults, 2
   doAssert sr.destroyResults[makeId("id4")].isOk
   doAssert sr.destroyResults[makeId("id5")].isErr
-  doAssert sr.destroyResults[makeId("id5")].error().errorType == setForbidden
+  doAssert sr.destroyResults[makeId("id5")].error().kind == setForbidden
 
 # ===========================================================================
 # B. Request toJson tests
@@ -633,7 +633,7 @@ testCase setResponseNotCreatedUnknownType:
   let sr = SetResponse[MockFoo, MockFoo].fromJson(j).get()
   doAssert sr.createResults[makeCreationId("k1")].isErr
   let se = sr.createResults[makeCreationId("k1")].error()
-  doAssert se.errorType == setUnknown
+  doAssert se.kind == setUnknown
   doAssert se.rawType == "futureError"
 
 testCase setResponseDuplicateIdLastWriterWins:
@@ -670,7 +670,7 @@ testCase copyResponseAlreadyExists:
   let cr = CopyResponse[MockFoo].fromJson(j).get()
   doAssert cr.createResults[makeCreationId("k1")].isErr
   let se = cr.createResults[makeCreationId("k1")].error()
-  doAssert se.errorType == setAlreadyExists
+  doAssert se.kind == setAlreadyExists
 
 testCase copyResponseMalformedExistingId:
   ## Malformed existingId degrades to setUnknown with rawType preserved.

@@ -149,7 +149,7 @@ testCase tmailboxQueryChangesLive:
       doAssert getErr.kind == gekMethod, "expected gekMethod, got gekHandleMismatch"
       let methodErr = getErr.methodErr
       assertOn target,
-        methodErr.errorType in {
+        methodErr.kind in {
           metInvalidArguments, metUnsupportedFilter, metCannotCalculateChanges,
           metUnknownMethod,
         },
