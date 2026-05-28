@@ -65,19 +65,19 @@ until it lands, the counts are maintained by hand.
 
 | Status | Count | What it means |
 |---|---|---|
-| ✅ DONE | 39 | Implemented and verified against source / tests. |
-| 🟡 PARTIAL | 12 | Some parts implemented; gaps named in the item body. |
-| ⬜ TODO | 60 | Not yet implemented. |
+| ✅ DONE | 45 | Implemented and verified against source / tests. |
+| 🟡 PARTIAL | 11 | Some parts implemented; gaps named in the item body. |
+| ⬜ TODO | 56 | Not yet implemented. |
 | 🟦 DEFERRED | 1 | Explicitly deferred to a post-1.0 release (E1). |
 | ❌ DROPPED | 1 | Superseded or rejected (D15). |
 | **RESOLVED** | 1 | Design decision made (A3.5). |
 
-**Freeze-blocking gaps** (must close before 1.0 tag): B9, B11, B12,
-C1, C1.1, plus the four ⬜ TODO surfaces that change observable
-behaviour (A17, A20, A21, A26). The outstanding lint backstops
-(H2–H9 plus H14) can ship in the same window or shortly after;
-H1, H10–H13, and H15 are already in place. The freeze checklist
-(D18) tracks per-item gate status.
+**Freeze-blocking gaps** (must close before 1.0 tag): B9, B11, C1,
+C1.1, plus the three ⬜ TODO surfaces that change observable
+behaviour (A20, A21, A26). The outstanding lint backstops (H2–H9
+plus H14) can ship in the same window or shortly after; H1, H10–H13,
+and H15 are already in place. The freeze checklist (D18) tracks
+per-item gate status.
 
 ## Documented exceptions to the principles
 
@@ -109,16 +109,30 @@ retype them.
   `add<Entity><Method>` family — H11 lint enforces this. The
   `capability: CapabilityUri` and `methodName: MethodNameLiteral`
   parameters are typed; only `args` is the JsonNode escape.
-- **`*.rawData` and `*.extras` `JsonNode` fields** for unknown
-  server extensions. Three sites:
-  - `ServerCapability.rawData` — unknown capability payloads.
+- **Per-arm `rawXxxData: JsonNode` payloads on capability case
+  objects, plus `*.extras` fields for unknown server fields.** A22b
+  pins these as the four legitimate `JsonNode` patterns in the
+  library:
+  - `ServerCapability` — 9 `rawXxxData` arms (ckWebsocket, ckMdn,
+    ckSmimeVerify, ckBlob, ckQuota, ckContacts, ckCalendars, ckSieve,
+    ckUnknown). The remaining arms are typed: ckCore carries
+    `CoreCapabilities`; ckMail / ckSubmission / ckVacationResponse are
+    discard arms (RFC 8621 §1.3 declares them empty at session scope).
+  - `AccountCapabilityEntry` — 10 `rawXxxData` arms (ckCore,
+    ckWebsocket, ckMdn, ckSmimeVerify, ckBlob, ckQuota, ckContacts,
+    ckCalendars, ckSieve, ckUnknown). The typed arms are ckMail
+    (`MailAccountCapabilities`, RFC 8621 §1.3.1), ckSubmission
+    (`SubmissionAccountCapabilities`, RFC 8621 §1.3.2), and
+    ckVacationResponse (discard, presence-only per RFC 8621 §1.3.3).
   - `MethodError.extras` — non-standard server fields.
   - `SetError.extras` — non-standard server fields.
 
   These exist for forward compatibility (Postel's law: lenient on
-  receive). Future RFCs that lift fields out of `extras` go through
-  capability negotiation (D7). Inline docstrings at each declaration
-  cite this exception (A22b).
+  receive). Future RFCs lift fields off a `rawXxxData` arm or out of
+  `extras` by typing the arm additively (P20): the arm acquires a
+  typed payload; the URI dispatches to the new typed variant. Inline
+  docstrings at each `JsonNode` declaration cite this exception
+  (A22b).
 
 Any new public `JsonNode` field, parameter, or return type added
 after 1.0 is a P19 violation unless it falls under one of the four
@@ -760,7 +774,15 @@ operation surface each type opts into:
 `VacationResponseUpdateSet` (`mail/vacation.nim`);
 `DeliveryStatusMap` (`mail/submission_status.nim`);
 `SubmissionParams` (`mail/submission_param.nim`);
-`SubmissionExtensionMap` (`mail/mail_capabilities.nim`).
+`SubmissionExtensionMap` (`internal/types/submission_atoms.nim`).
+
+**Multi-field flat sealed records** — multi-field Pattern-A objects
+where each field is module-private and only the smart constructor
+admits external construction: `Session` (`internal/types/session.nim`),
+`Account` (`internal/types/session.nim`), `CoreCapabilities`
+(`internal/types/capabilities.nim`), `MailAccountCapabilities`,
+`SubmissionAccountCapabilities`
+(`internal/types/account_capability_schemas.nim`).
 
 **Generic sealed type** — `NonEmptySeq[T]` (`primitives.nim`),
 plus the standalone `head*[T]` accessor and `asSeq*[T]`
@@ -771,11 +793,16 @@ construction invariant has its discriminator and arm payloads
 private to its defining module: `IdOrCreationRef`
 (`mail/email_submission.nim`) exposes `kind*`, `asDirectRef*`,
 `asCreationRef*` accessors plus `directRef` / `creationRef` smart
-constructors; `MailboxRole` (`mail/mailbox.nim`),
-`ContentDisposition` (`mail/body.nim`), `CollationAlgorithm`
-(`internal/types/collation.nim`), `Comparator`, `AddedItem`
-(`framework.nim`), and `Thread`, `PartialThread` (`mail/thread.nim`)
-are likewise sealed.
+constructors; `ServerCapability` (`internal/types/capabilities.nim`)
+and `AccountCapabilityEntry`
+(`internal/types/account_capability_schemas.nim`) carry per-arm
+payloads and expose `uri*`, `kind*`, and the typed projection
+accessors (`asCoreCapabilities`, `asMailAccountCapabilities`,
+`asSubmissionAccountCapabilities`, `asRawData`); `MailboxRole`
+(`mail/mailbox.nim`), `ContentDisposition` (`mail/body.nim`),
+`CollationAlgorithm` (`internal/types/collation.nim`),
+`Comparator`, `AddedItem` (`framework.nim`), and `Thread`,
+`PartialThread` (`mail/thread.nim`) are likewise sealed.
 
 **Internal-only sealed types** — `JsonPath` (`serialisation/serde.nim`),
 `SerializedSort`, `SerializedFilter` (`protocol/methods.nim`).
@@ -1192,36 +1219,35 @@ Wire-byte order of `BuiltRequest.toJson` is locked by A28b
 - `tests/property/twire_determinism.nim` — A28b byte determinism,
   key order, and round-trip identity properties.
 
-### A17. `AccountCapabilityEntry.data: JsonNode` *(P19)* — ⬜ TODO
+### A17. Typed account-capability surface *(P19)* — ✅ DONE
 
-`src/jmap_client/internal/types/session.nim:21–26` —
-`AccountCapabilityEntry` is a flat object with `data*: JsonNode`.
-The inline comment acknowledges that this *"may evolve to a case
-object when typed account-level capabilities are added (e.g. RFC
-8621)."* RFC 8621 is implemented, so this is the largest
-JsonNode-typed escape on the public surface that has a typed
-schema available.
+`src/jmap_client/internal/types/account_capability_schemas.nim`
+defines `AccountCapabilityEntry` as a sealed Pattern-A case object
+with per-arm payloads: `ckMail` carries `MailAccountCapabilities`
+(RFC 8621 §1.3.1), `ckSubmission` carries
+`SubmissionAccountCapabilities` (RFC 8621 §1.3.2),
+`ckVacationResponse` is discard (RFC 8621 §1.3.3, presence-only).
+Per-arm `rawXxxData: JsonNode` (10 arms) covers the unimplemented
+named RFCs and vendor URNs, each with inline A22b docstring footer.
+`Account` (in `src/jmap_client/internal/types/session.nim`) is sealed
+Pattern-A; `parseAccount` carries the B12 silent-drop. Three
+convenience accessors live on `Account`: `mailCapability`,
+`submissionCapability`, `supportsVacationResponse`.
+`parseAccountCapabilityEntry`, `parseMailAccountCapabilities`, and
+`parseSubmissionAccountCapabilities` are hub-private; the only
+application-visible construction path is `Session.fromJson`.
 
-**Destination shape.** Case object on `CapabilityKind` with
-typed arms `ckMail`, `ckSubmission`, `ckVacationResponse`,
-`ckBlob`, `ckQuota`, `ckSieve`, plus `else: rawData*: JsonNode`
-for unknown. Smart constructor `parseAccountCapabilityEntry`.
-The flat `AccountCapabilityEntry` becomes sealed with private
-discriminator. Mirrors `ServerCapability` (capabilities.nim) per
-A18.
+### A18. `ServerCapability` typed arms *(P19)* — ✅ DONE
 
-### A18. `ServerCapability` typed arms *(P19)* — 🟡 PARTIAL
-
-`src/jmap_client/internal/types/capabilities.nim:54–62` —
-`ServerCapability` is a case object with one typed arm
-(`ckCore: core*: CoreCapabilities`) and `else: rawData*: JsonNode`
-for every other variant. The standard RFC 8621 capabilities
-(`ckMail`, `ckSubmission`, `ckVacationResponse`, `ckBlob`,
-`ckQuota`, `ckSieve`) have typed schemas defined elsewhere in the
-codebase but fall through to `rawData` here.
-
-**Remaining gap.** Add explicit case-object arms for the six
-standard capabilities; preserve `rawData` for unknown only.
+`src/jmap_client/internal/types/capabilities.nim` defines
+`ServerCapability` as a sealed Pattern-A case object with per-arm
+payloads: `ckCore` is typed as `CoreCapabilities`; `ckMail`,
+`ckSubmission`, and `ckVacationResponse` are discard arms (RFC 8621
+§1.3 declares them empty at session scope); the remaining 9 arms
+carry `rawXxxData: JsonNode` with inline A22b docstring footers.
+`CoreCapabilities` is sealed Pattern-A. `parseServerCapability` and
+`parseCoreCapabilities` are hub-private; construction flows through
+`Session.fromJson`.
 
 ### A19. `Transport` interface *(P11, P12, P15, P22, P24)* — ✅ DONE
 
@@ -1341,8 +1367,8 @@ RFC-mandated exception to P19. It is enumerated in the
 document and allowlisted in the H11 lint
 (`tests/lint/h11_typed_builder_no_jsonnode.nim`). Any other
 JsonNode-typed public proc requires a similar written exception
-in the same section. A22b's docstring footer is the remaining
-work on this surface.
+in the same section, plus the A22b docstring footer at the
+declaration site.
 
 ### A23. `PushChannel` type reservation *(P20, P23)* — ✅ DONE
 
@@ -1752,31 +1778,30 @@ docs/policy/03-rfc-extension-policy.md.`
 **Mechanical gate.** F6's re-export hub snapshot fails CI if any
 public module exports `sendAsync` or `DispatchedRequest` pre-1.0.
 
-### A22b. Inline docstrings at every JsonNode-public field declaration *(P19)* — ⬜ TODO
+### A22b. Inline docstrings at every JsonNode-public field declaration *(P19)* — ✅ DONE
 
-The "Documented exceptions" sub-section at the top of this file
-records the justified `JsonNode` patterns. A22b makes the
-exception visible at the declaration site so reviewers reading
-the type don't need to consult this TODO.
+Every public `JsonNode` field, parameter, and `MailboxRights`
+declaration in `src/` carries an inline P19/P18 docstring footer
+citing its exception. The 24 footer-bearing sites are:
 
-**Action.** At each declaration, add a docstring footer citing
-the exception:
+- `MethodError.extras` and `SetError.extras` in
+  `src/jmap_client/internal/types/errors.nim`.
+- `addEcho(args)` and `addCapabilityInvocation(args)` parameters in
+  `src/jmap_client/internal/protocol/builder.nim`.
+- `MailboxRights` in `src/jmap_client/internal/mail/mailbox.nim`
+  (P18 exception, Decision B6).
+- 9 `rawXxxData` arms on `ServerCapability` in
+  `src/jmap_client/internal/types/capabilities.nim` (ckWebsocket,
+  ckMdn, ckSmimeVerify, ckBlob, ckQuota, ckContacts, ckCalendars,
+  ckSieve, ckUnknown).
+- 10 `rawXxxData` arms on `AccountCapabilityEntry` in
+  `src/jmap_client/internal/types/account_capability_schemas.nim`
+  (ckCore, ckWebsocket, ckMdn, ckSmimeVerify, ckBlob, ckQuota,
+  ckContacts, ckCalendars, ckSieve, ckUnknown).
 
-- `internal/types/capabilities.nim` — `ServerCapability.rawData`:
-  `## P19 exception: forward-compatibility for unknown capabilities`.
-- `internal/types/errors.nim` — `MethodError.extras`,
-  `SetError.extras`: same footer.
-- `internal/types/session.nim` — `AccountCapabilityEntry.data`:
-  same footer (until A17 lands; remove footer when A17
-  case-objects the field).
-- `internal/protocol/builder.nim` — `addEcho(args: JsonNode)`:
-  `## P19 exception: RFC 8620 §4 Core/echo is structurally JSON-typed`.
-- `internal/mail/mailbox.nim` — `MailboxRights` field block:
-  `## P18 exception (Decision B6): RFC 8621 §2.4 mandates 9 independent ACL flags`.
-
-CI lint H7 (Section H) verifies that any other public `JsonNode`
-field appearing in `src/` carries the same exception footer or
-fails the build.
+Any additional public `JsonNode` declaration must either fall under
+one of the four documented exception patterns above or carry an
+A22b footer at its declaration site.
 
 ### A25b. Generate the type-shape snapshot mechanically *(P1)* — ⬜ TODO
 
@@ -1896,6 +1921,13 @@ through `reference(handle, name, path)` on a typed handle; the bare
 smart constructors are library plumbing that has no application-
 code call site.
 
+`parseSession` and `parseAccount` are already hub-private (filtered
+via `export session except parseSession, parseAccount`), as are
+`parseServerCapability`, `parseCoreCapabilities`,
+`parseAccountCapabilityEntry`, `parseMailAccountCapabilities`, and
+`parseSubmissionAccountCapabilities`. A30b closes the remaining
+gap on the Invocation / ResultReference pair.
+
 **Action.** Extend `internal/types.nim`'s `except` clause to
 include the four Invocation / ResultReference smart constructors.
 Add `doAssert not declared(initInvocation)`, `doAssert not
@@ -1915,11 +1947,15 @@ constructors retain `*` for cross-internal callers
 Mostly frozen-by-shipping too, but the gaps are correctness/illegal-
 state issues rather than wire/surface decisions.
 
-### B1. `Account.isPersonal` + `isReadOnly` → 4-state enum *(P18)* — ⬜ TODO
+### B1. `Account.isPersonal` + `isReadOnly` → 4-state enum *(P18)* — ✅ DONE
 
-`src/jmap_client/internal/types/session.nim:32–33`. Two independent Bools encoding
-four legal combinations. Replace with
-`enum AccountPolicy { apOwned, apOwnedReadOnly, apShared, apSharedReadOnly }`.
+`Account` (in `src/jmap_client/internal/types/session.nim`) stores
+ownership and write-access as an `AccountPolicy` 4-state enum:
+`apOwned`, `apOwnedReadOnly`, `apShared`, `apSharedReadOnly`. The
+public read surface is the derived `isPersonal*` and `isReadOnly*`
+accessors. The wire form remains the RFC 8620 §2 boolean pair —
+`parseAccount` projects it onto the enum, `Account.toJson` emits both
+booleans from the enum.
 
 ### B2. Sort-direction unification *(P18)* — ⬜ TODO
 
@@ -1977,10 +2013,9 @@ distant and unhelpful.
 
 ### B6. Other illegal-state findings (lower severity) — ⬜ TODO
 
-- `Account` (`internal/types/session.nim`): `isReadOnly: true` and
-  `accountCapabilities` carrying a write-implying capability can
-  coexist. Phantom on `Account[ReadOnly]`/`Account[ReadWrite]` or a
-  smart constructor.
+The Account read-only/write-implying-capability illegal state is
+addressed under B12 (smart-constructor silent-drop). Reserved for
+future low-severity findings; none currently outstanding.
 
 ### B7. `mail_filters.nim` Opt[bool] → three-state enums *(P18)* — ⬜ TODO
 
@@ -2076,29 +2111,27 @@ boundary. Lock the choice; document the parse-time rejection
 behaviour (`MethodError` vs lenient drop) in the B11 body before
 tagging 1.0.
 
-### B12. `Account[ReadOnly | ReadWrite]` decision *(P16)* — ⬜ TODO (FREEZE-BLOCKING)
+### B12. `Account[ReadOnly | ReadWrite]` decision *(P16)* — ✅ DONE
 
-`src/jmap_client/internal/types/session.nim:32`. The B6 sub-bullet
-flags that `Account.isReadOnly: true` and `accountCapabilities`
-carrying a write-implying capability can coexist — structurally
-allowed but RFC-incoherent. The same shape of P16 violation as
-B11.
+`parseAccount` (hub-private smart constructor in
+`src/jmap_client/internal/types/session.nim`) silently drops write-
+implying capabilities when `isReadOnly=true`. The hub-public
+`WriteImplyingAccountCapabilities` const documents the split:
 
-**Resolution choice.**
+- **Write-implying arms** (dropped under read-only): `ckMail`,
+  `ckSubmission`, `ckVacationResponse`, `ckBlob`, `ckContacts`,
+  `ckCalendars`, `ckSieve`, `ckMdn`, `ckSmimeVerify`.
+- **Read-compatible arms** (retained): `ckCore` (RFC 8620 §2 is
+  server-only, never legal at account scope but Postel-tolerated as
+  raw data), `ckWebsocket` (RFC 8887 §2 is session-scope only),
+  `ckQuota` (RFC 8909 §3.1 — `Quota/get` is the only operation,
+  read-only), `ckUnknown` (vendor URNs whose semantics the library
+  cannot inspect).
 
-- **(a)** Phantom-typed states `Account[ReadOnly]` /
-  `Account[ReadWrite]`. `Session.accounts` returns `seq[Account[…]]`
-  via a sum type; consumers branch on the discriminator.
-- **(b)** Smart constructor `parseAccount` rejects accounts whose
-  `isReadOnly` flag contradicts their declared capabilities.
-  Lenient on receive: log + clear the contradicting capability.
-
-**Resolution (freeze gate).** Default recommendation: **(b)**, same
-rationale as B11 — smart constructor concentrates the check at the
-parse boundary without propagating phantoms through downstream
-APIs. Pair with B1 (the `AccountPolicy` 4-state enum) so that the
-same parse pass produces both the discriminator and the
-contradiction check.
+The smart-constructor approach (Postel on receive: drop the
+contradicting entry rather than reject the whole account)
+concentrates the check at the parse boundary without propagating
+phantom-typed states through downstream APIs.
 
 ## Section C — Consumer ergonomics
 
@@ -2402,9 +2435,13 @@ Backed by lint H5.
 
 ### D8. Threading invariants — class-wide rule *(P24)* — 🟡 PARTIAL
 
-`src/jmap_client/internal/client.nim:34` already documents
-"not thread-safe" for `JmapClient`. Replace per-type invariants with
-a class-wide rule applied to every public type:
+`src/jmap_client/internal/client.nim` documents "not thread-safe"
+for `JmapClient`. Six L1 types carry the explicit threading footer
+already (`Account`, `CoreCapabilities`, `MailAccountCapabilities`,
+`SubmissionAccountCapabilities`, `AccountCapabilityEntry`,
+`ServerCapability` plus `SubmissionExtensionMap`). The remaining
+work is the class-wide sweep applying the rule to every other
+public type:
 
 - **L1–L3 types as a class** (everything under
   `src/jmap_client/{validation,primitives,identifiers,collation,
@@ -2421,11 +2458,11 @@ a class-wide rule applied to every public type:
 - **`Transport`** (A19): "implementations are not required to be
   thread-safe; the library takes one transport per `JmapClient`."
 - **`PushChannel`** (A23) / **`WebSocketChannel`** (A24): "per-
-  implementation; will be specified when the implementations land."
+  implementation; specified when the implementations land."
 
-Apply to every public type via a one-line docstring footer (or the
-type's full docstring if longer). One mass edit, not 25 individual
-decisions.
+Apply to every remaining public type via a one-line docstring
+footer (or the type's full docstring if longer). One mass edit, not
+25 individual decisions.
 
 ### D9. Long-form guide *(P28)* — ⬜ TODO
 
@@ -2761,8 +2798,9 @@ file under `tests/property/`. The freeze gate fails if
 
 The list at audit time spans (non-exhaustive):
 - Envelope: `Invocation`, `Request`, `Response`, `ResultReference`
-- Session: `Session`, `Account`, `AccountCapabilityEntry` (after A17),
-  `UriTemplate`, `ServerCapability` (after A18), `CoreCapabilities`
+- Session: `Session`, `Account`, `AccountCapabilityEntry`,
+  `UriTemplate`, `ServerCapability`, `CoreCapabilities`,
+  `MailAccountCapabilities`, `SubmissionAccountCapabilities`
 - Errors: `MethodError`, `SetError`, `RequestError`, `TransportError`,
   `ClientError`, `ValidationError`
 - Methods: every `GetResponse[T]`, `SetResponse[T]`, `ChangesResponse`,

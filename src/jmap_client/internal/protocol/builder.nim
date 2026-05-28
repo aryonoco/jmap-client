@@ -285,6 +285,9 @@ func addEcho*(
 ): (RequestBuilder, ResponseHandle[JsonNode]) =
   ## Adds a Core/echo invocation (RFC 8620 section 4). The server echoes
   ## the arguments back unchanged. Useful for connectivity testing.
+  ##
+  ## ``args`` is ``JsonNode``: P19 exception (A22b): RFC 8620 §4 Core/echo
+  ## returns input verbatim, so no typed schema can constrain the payload.
   let (newBuilder, callId) = b.addInvocation(
     mnCoreEcho,
     args,
@@ -336,6 +339,9 @@ func addCapabilityInvocation*(
 ): Result[(RequestBuilder, ResponseHandle[JsonNode]), ValidationError] =
   ## RFC 8620 §2.5 vendor-capability escape — 2nd documented send-side
   ## P19 exception (alongside ``addEcho``).
+  ##
+  ## ``args`` is ``JsonNode``: P19 exception (A22b): RFC 8620 §2.5 vendor
+  ## URN namespaces carry payloads the library cannot enumerate.
   ##
   ## **Vendor capabilities only.** Vendor URN namespaces
   ## (``urn:com:vendor:*``, ``urn:io:vendor:*``, …) are reserved per

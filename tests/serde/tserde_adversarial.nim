@@ -66,10 +66,15 @@ testCase sessionLongCapabilityUri:
 
 testCase sessionUnicodeAccountName:
   ## Account with Unicode name (Japanese, emoji) -> should succeed.
+  ## ``\u{1F600}`` is Nim's brace-enclosed Unicode escape \u2014 encodes the
+  ## emoji \uD83D\uDE00 as the UTF-8 byte sequence 0xF0 0x9F 0x98 0x80.
+  ## ``\U`` is not a Nim escape; the previous syntax ``\U0001F600``
+  ## parsed as ```` (control char, rejected by parseAccount) plus
+  ## the literal chars "F600".
   var j = validSessionJson()
   j["accounts"] = %*{
     "A1": {
-      "name": "\u65E5\u672C\u8A9E\u30E6\u30FC\u30B6\u30FC \U0001F600",
+      "name": "\u65E5\u672C\u8A9E\u30E6\u30FC\u30B6\u30FC \u{1F600}",
       "isPersonal": true,
       "isReadOnly": false,
       "accountCapabilities": {},
@@ -352,11 +357,15 @@ testCase setErrorInvalidPropertiesEmptyElement:
 
 testCase sessionManyAccounts:
   ## Session with 100 accounts, each with 3 capabilities -> should succeed.
+  ## ckMail account-scope payload must satisfy RFC 8621 §1.3.1 required
+  ## fields under the new typed schema (A17): ``maxSizeAttachmentsPerEmail``
+  ## and ``mayCreateTopLevelMailbox``.
+  let mailCaps = %*{"maxSizeAttachmentsPerEmail": 0, "mayCreateTopLevelMailbox": false}
   var j = validSessionJson()
   var accts = newJObject()
   for i in 0 ..< 100:
     var acctCaps = newJObject()
-    acctCaps["urn:ietf:params:jmap:mail"] = newJObject()
+    acctCaps["urn:ietf:params:jmap:mail"] = mailCaps
     acctCaps["urn:ietf:params:jmap:contacts"] = newJObject()
     acctCaps["https://vendor.example/ext"] = newJObject()
     var acct = newJObject()
@@ -494,12 +503,14 @@ testCase emptyObjectForAllTypes:
 # =============================================================================
 
 testCase arcSharedRefMultipleCapabilities:
-  ## Multiple capabilities referencing the same JsonNode — must not double-free.
+  ## Multiple capabilities referencing the same JsonNode — must not
+  ## double-free. Uses rawXxxData-bearing arms only; ckMail / ckSubmission
+  ## / ckVacationResponse are discard arms (RFC 8621 §1.3) whose toJson
+  ## emits ``{}`` regardless of payload.
   let shared = %*{"limit": 1000, "nested": {"a": [1, 2, 3]}}
-  # Parse 10 capabilities all from the same shared ref
   var caps: seq[ServerCapability] = @[]
   const uris = [
-    "urn:ietf:params:jmap:mail", "urn:ietf:params:jmap:submission",
+    "urn:ietf:params:jmap:websocket", "urn:ietf:params:jmap:mdn",
     "urn:ietf:params:jmap:contacts", "urn:ietf:params:jmap:calendars",
     "urn:ietf:params:jmap:sieve",
   ]
@@ -509,7 +520,7 @@ testCase arcSharedRefMultipleCapabilities:
   # All should be independent copies
   for cap in caps:
     let j = cap.toJson()
-    doAssert j{"limit"} != nil
+    doAssert j{"limit"} != nil, "missing limit field for " & $cap.kind
     assertEq j{"limit"}.getBiggestInt(0), 1000
   # Dropping caps should not cause ARC issues — if we reach here, we are safe
 

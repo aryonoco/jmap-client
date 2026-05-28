@@ -9,29 +9,122 @@
 
 import std/hashes
 import std/parseutils
+import std/sequtils
 import std/sets
 import std/strutils
 import std/tables
-from std/json import JsonNode
+from std/json import JsonNode, newJObject
 
 import ./validation
 import ./identifiers
 import ./capabilities
+import ./account_capability_schemas
+export account_capability_schemas except
+  parseAccountCapabilityEntry, parseMailAccountCapabilities,
+  parseSubmissionAccountCapabilities
 
-type AccountCapabilityEntry* = object
-  ## Per-account capability data. Flat object storing raw JSON; may evolve to a
-  ## case object when typed account-level capabilities are added (e.g. RFC 8621).
-  kind*: CapabilityKind ## parsed from URI
-  rawUri*: string ## original URI string -- lossless
-  data*: JsonNode ## capability-specific properties
+type AccountPolicy* = enum
+  ## Four-state classification of an Account's ownership and write-
+  ## access (RFC 8620 §2 ``isPersonal`` × ``isReadOnly``). One enum,
+  ## one source of truth — replaces the two boolean storage fields
+  ## while preserving the wire JSON shape via derived accessors.
+  apOwned ## isPersonal=true,  isReadOnly=false
+  apOwnedReadOnly ## isPersonal=true,  isReadOnly=true
+  apShared ## isPersonal=false, isReadOnly=false
+  apSharedReadOnly ## isPersonal=false, isReadOnly=true
 
-type Account* = object
-  ## A JMAP account the user has access to (RFC 8620 section 2). Contains a
-  ## display name, access flags, and per-account capability information.
-  name*: string ## user-friendly display name
-  isPersonal*: bool ## true if belongs to authenticated user
-  isReadOnly*: bool ## true if entire account is read-only
-  accountCapabilities*: seq[AccountCapabilityEntry] ## per-account capability data
+const WriteImplyingAccountCapabilities* = {
+  ckMail, ckSubmission, ckVacationResponse, ckBlob, ckContacts, ckCalendars, ckSieve,
+  ckMdn, ckSmimeVerify,
+}
+  ## Per RFC 8620 §2: ckCore is server-only (not legal at account scope —
+  ## emitted by some servers, Postel-tolerated as raw data). RFC 8887 §2:
+  ## ckWebsocket is session-scope only. RFC 8909 §3.1: ``Quota/get`` is
+  ## the only operation, read-only. ckUnknown collapses vendor URNs whose
+  ## semantics we cannot inspect — read-only by default. Every other
+  ## standard arm implies write access.
+
+type Account* {.ruleOff: "objects".} = object
+  ## A JMAP account the user has access to (RFC 8620 §2).
+  ## Threading: value type, immutable after construction, freely
+  ## shareable across threads.
+  rawName: string
+  rawPolicy: AccountPolicy
+  rawAccountCapabilities: seq[AccountCapabilityEntry]
+
+func name*(a: Account): string =
+  ## User-friendly display name (RFC 8620 §2).
+  a.rawName
+
+func policy*(a: Account): AccountPolicy =
+  ## Four-state classification of ``isPersonal`` × ``isReadOnly``.
+  a.rawPolicy
+
+func isPersonal*(a: Account): bool =
+  ## Derived from ``policy``. ``true`` iff the account belongs to the
+  ## authenticated user. Wire surface unchanged.
+  case a.rawPolicy
+  of apOwned, apOwnedReadOnly: true
+  of apShared, apSharedReadOnly: false
+
+func isReadOnly*(a: Account): bool =
+  ## Derived from ``policy``. ``true`` iff the entire account is read-
+  ## only. Wire surface unchanged.
+  case a.rawPolicy
+  of apOwnedReadOnly, apSharedReadOnly: true
+  of apOwned, apShared: false
+
+func accountCapabilities*(a: Account): seq[AccountCapabilityEntry] =
+  ## Per-account capability declarations. RFC 8620 §2.
+  a.rawAccountCapabilities
+
+func mailCapability*(a: Account): Opt[MailAccountCapabilities] =
+  ## First entry whose kind == ckMail; Opt.none otherwise.
+  for entry in a.rawAccountCapabilities:
+    if entry.kind == ckMail:
+      return entry.asMailAccountCapabilities()
+  Opt.none(MailAccountCapabilities)
+
+func submissionCapability*(a: Account): Opt[SubmissionAccountCapabilities] =
+  ## First entry whose kind == ckSubmission; Opt.none otherwise.
+  for entry in a.rawAccountCapabilities:
+    if entry.kind == ckSubmission:
+      return entry.asSubmissionAccountCapabilities()
+  Opt.none(SubmissionAccountCapabilities)
+
+func supportsVacationResponse*(a: Account): bool =
+  ## ``true`` iff the account advertises a ckVacationResponse entry
+  ## (presence-only per RFC 8621 §1.3.3).
+  for entry in a.rawAccountCapabilities:
+    if entry.kind == ckVacationResponse:
+      return true
+  false
+
+func parseAccount*(
+    name: string,
+    isPersonal: bool,
+    isReadOnly: bool,
+    accountCapabilities: seq[AccountCapabilityEntry],
+): Result[Account, ValidationError] =
+  ## RFC 8620 §2: ``name`` is a "user-friendly string"; control characters
+  ## are rejected; empty string accepted (RFC silent on minimum length).
+  ## B12: when ``isReadOnly=true``, write-implying capabilities are
+  ## silently dropped — Postel-receive resolution for server
+  ## contradictions.
+  for ch in name:
+    if ch < ' ' or ch == '\x7F':
+      return err(validationError("Account", "name contains control characters", name))
+  let policy =
+    if isPersonal:
+      if isReadOnly: apOwnedReadOnly else: apOwned
+    else:
+      if isReadOnly: apSharedReadOnly else: apShared
+  let filtered =
+    if policy in {apOwnedReadOnly, apSharedReadOnly}:
+      accountCapabilities.filterIt(it.kind notin WriteImplyingAccountCapabilities)
+    else:
+      accountCapabilities
+  ok(Account(rawName: name, rawPolicy: policy, rawAccountCapabilities: filtered))
 
 type UriPartKind* = enum
   ## Discriminator for ``UriPart``: a literal segment or a variable reference.
@@ -118,8 +211,14 @@ type Session* {.ruleOff: "objects".} = object
 func capabilities*(s: Session): seq[ServerCapability] =
   ## Server-level capabilities, core entry synthesised from ``rawCore``
   ## and prepended so the list is RFC-conformant and byte-identical to
-  ## the wire format.
-  result = @[ServerCapability(rawUri: CoreCapabilityUri, kind: ckCore, core: s.rawCore)]
+  ## the wire format. ``parseServerCapability`` is total when given a
+  ## well-formed core URI plus ``Opt.some(core)``; ``.get()`` cannot Err
+  ## under this invariant.
+  let coreCap = parseServerCapability(
+      CoreCapabilityUri, Opt.some(s.rawCore), Opt.none(JsonNode)
+    )
+    .get()
+  result = @[coreCap]
   for cap in s.rawAdditional:
     result.add(cap)
 
@@ -159,7 +258,7 @@ func findCapability*(
     account: Account, kind: CapabilityKind
 ): Opt[AccountCapabilityEntry] =
   ## Finds the first account capability matching the given kind.
-  for _, entry in account.accountCapabilities:
+  for entry in account.accountCapabilities():
     if entry.kind == kind:
       return Opt.some(entry)
   return Opt.none(AccountCapabilityEntry)
@@ -168,8 +267,8 @@ func findCapabilityByUri*(account: Account, uri: string): Opt[AccountCapabilityE
   ## Looks up an account capability by its raw URI string. Use this instead of
   ## findCapability when looking up vendor extensions (which all map to ckUnknown
   ## and would be ambiguous via findCapability).
-  for _, entry in account.accountCapabilities:
-    if entry.rawUri == uri:
+  for entry in account.accountCapabilities():
+    if entry.uri() == uri:
       return Opt.some(entry)
   return Opt.none(AccountCapabilityEntry)
 
@@ -390,8 +489,10 @@ func partitionCore(
     case cap.kind
     of ckCore:
       if coreOpt.isNone:
-        coreOpt = Opt.some(cap.core)
-    else:
+        # kind == ckCore proved by surrounding case — asCoreCapabilities is Ok.
+        coreOpt = cap.asCoreCapabilities()
+    of ckMail, ckSubmission, ckVacationResponse, ckWebsocket, ckMdn, ckSmimeVerify,
+        ckBlob, ckQuota, ckContacts, ckCalendars, ckSieve, ckUnknown:
       additional.add(cap)
   for core in coreOpt:
     return ok(CorePartition(core: core, additional: additional))
@@ -483,12 +584,16 @@ func coreCapabilities*(session: Session): CoreCapabilities =
 func findCapability*(session: Session, kind: CapabilityKind): Opt[ServerCapability] =
   ## Finds the first server capability matching the given kind. ``ckCore``
   ## short-circuits to the synthesised core arm — ``rawCore`` is stored
-  ## directly, not in ``rawAdditional``.
+  ## directly, not in ``rawAdditional``. ``parseServerCapability`` is
+  ## total when given the canonical core URI plus ``Opt.some(core)``;
+  ## ``.get()`` cannot Err under this invariant.
   if kind == ckCore:
-    return Opt.some(
-      ServerCapability(rawUri: CoreCapabilityUri, kind: ckCore, core: session.rawCore)
-    )
-  for _, cap in session.rawAdditional:
+    let coreCap = parseServerCapability(
+        CoreCapabilityUri, Opt.some(session.rawCore), Opt.none(JsonNode)
+      )
+      .get()
+    return Opt.some(coreCap)
+  for cap in session.rawAdditional:
     if cap.kind == kind:
       return Opt.some(cap)
   return Opt.none(ServerCapability)
@@ -496,13 +601,16 @@ func findCapability*(session: Session, kind: CapabilityKind): Opt[ServerCapabili
 func findCapabilityByUri*(session: Session, uri: string): Opt[ServerCapability] =
   ## Looks up a server capability by its raw URI string. Use this instead of
   ## findCapability when looking up vendor extensions (which all map to ckUnknown
-  ## and would be ambiguous via findCapability).
+  ## and would be ambiguous via findCapability). The core URI invariant
+  ## proves ``parseServerCapability(...).get()`` is total.
   if uri == CoreCapabilityUri:
-    return Opt.some(
-      ServerCapability(rawUri: CoreCapabilityUri, kind: ckCore, core: session.rawCore)
-    )
-  for _, cap in session.rawAdditional:
-    if cap.rawUri == uri:
+    let coreCap = parseServerCapability(
+        CoreCapabilityUri, Opt.some(session.rawCore), Opt.none(JsonNode)
+      )
+      .get()
+    return Opt.some(coreCap)
+  for cap in session.rawAdditional:
+    if cap.uri() == uri:
       return Opt.some(cap)
   return Opt.none(ServerCapability)
 

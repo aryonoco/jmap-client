@@ -11,6 +11,18 @@
   UnsignedInt: must be non-negative
 [validationError("Keyword", "contains forbidden character", "")]
   Keyword: contains forbidden character
+[validationError("Account", "name contains control characters", "bad\x01name")]
+  Account: name contains control characters
+[validationError("ServerCapability", "ckCore requires CoreCapabilities", "urn:ietf:params:jmap:core")]
+  ServerCapability: ckCore requires CoreCapabilities
+[validationError("AccountCapabilityEntry", "ckMail requires MailAccountCapabilities", "urn:ietf:params:jmap:mail")]
+  AccountCapabilityEntry: ckMail requires MailAccountCapabilities
+[validationError("AccountCapabilityEntry", "ckSubmission requires SubmissionAccountCapabilities", "urn:ietf:params:jmap:submission")]
+  AccountCapabilityEntry: ckSubmission requires SubmissionAccountCapabilities
+[validationError("MailAccountCapabilities", "maxMailboxesPerEmail must be >= 1", "0")]
+  MailAccountCapabilities: maxMailboxesPerEmail must be >= 1
+[validationError("MailAccountCapabilities", "maxSizeMailboxName must be >= 100", "99")]
+  MailAccountCapabilities: maxSizeMailboxName must be >= 100
 
 ## TransportError
 [transportError(tekNetwork, "connection refused")]

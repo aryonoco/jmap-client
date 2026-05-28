@@ -265,14 +265,20 @@ testCase sessionMaximalStructureRoundTrip:
         "name": "Personal",
         "isPersonal": true,
         "isReadOnly": false,
-        "accountCapabilities":
-          {"urn:ietf:params:jmap:mail": {}, "urn:ietf:params:jmap:contacts": {}},
+        "accountCapabilities": {
+          "urn:ietf:params:jmap:mail":
+            {"maxSizeAttachmentsPerEmail": 50000000, "mayCreateTopLevelMailbox": true},
+          "urn:ietf:params:jmap:contacts": {},
+        },
       },
       "A002": {
         "name": "Work",
         "isPersonal": false,
         "isReadOnly": false,
-        "accountCapabilities": {"urn:ietf:params:jmap:mail": {}},
+        "accountCapabilities": {
+          "urn:ietf:params:jmap:mail":
+            {"maxSizeAttachmentsPerEmail": 50000000, "mayCreateTopLevelMailbox": true}
+        },
       },
       "A003": {
         "name": "Shared",
@@ -418,46 +424,64 @@ testCase sessionToJsonPreservesAll12StandardCapabilityUris:
   ## as a key in the "capabilities" JSON object.
   let coreCaps = zeroCoreCaps()
   let capabilities = @[
-    ServerCapability(kind: ckCore, rawUri: "urn:ietf:params:jmap:core", core: coreCaps),
-    ServerCapability(
-      kind: ckMail, rawUri: "urn:ietf:params:jmap:mail", rawData: newJObject()
-    ),
-    ServerCapability(
-      kind: ckSubmission,
-      rawUri: "urn:ietf:params:jmap:submission",
-      rawData: newJObject(),
-    ),
-    ServerCapability(
-      kind: ckVacationResponse,
-      rawUri: "urn:ietf:params:jmap:vacationresponse",
-      rawData: newJObject(),
-    ),
-    ServerCapability(
-      kind: ckWebsocket, rawUri: "urn:ietf:params:jmap:websocket", rawData: newJObject()
-    ),
-    ServerCapability(
-      kind: ckMdn, rawUri: "urn:ietf:params:jmap:mdn", rawData: newJObject()
-    ),
-    ServerCapability(
-      kind: ckSmimeVerify,
-      rawUri: "urn:ietf:params:jmap:smimeverify",
-      rawData: newJObject(),
-    ),
-    ServerCapability(
-      kind: ckBlob, rawUri: "urn:ietf:params:jmap:blob", rawData: newJObject()
-    ),
-    ServerCapability(
-      kind: ckQuota, rawUri: "urn:ietf:params:jmap:quota", rawData: newJObject()
-    ),
-    ServerCapability(
-      kind: ckContacts, rawUri: "urn:ietf:params:jmap:contacts", rawData: newJObject()
-    ),
-    ServerCapability(
-      kind: ckCalendars, rawUri: "urn:ietf:params:jmap:calendars", rawData: newJObject()
-    ),
-    ServerCapability(
-      kind: ckSieve, rawUri: "urn:ietf:params:jmap:sieve", rawData: newJObject()
-    ),
+    parseServerCapability(
+      "urn:ietf:params:jmap:core", Opt.some(coreCaps), Opt.none(JsonNode)
+    )
+      .get(),
+    parseServerCapability(
+      "urn:ietf:params:jmap:mail", Opt.none(CoreCapabilities), Opt.none(JsonNode)
+    )
+      .get(),
+    parseServerCapability(
+      "urn:ietf:params:jmap:submission", Opt.none(CoreCapabilities), Opt.none(JsonNode)
+    )
+      .get(),
+    parseServerCapability(
+      "urn:ietf:params:jmap:vacationresponse",
+      Opt.none(CoreCapabilities),
+      Opt.none(JsonNode),
+    )
+      .get(),
+    parseServerCapability(
+      "urn:ietf:params:jmap:websocket",
+      Opt.none(CoreCapabilities),
+      Opt.some(newJObject()),
+    )
+      .get(),
+    parseServerCapability(
+      "urn:ietf:params:jmap:mdn", Opt.none(CoreCapabilities), Opt.some(newJObject())
+    )
+      .get(),
+    parseServerCapability(
+      "urn:ietf:params:jmap:smimeverify",
+      Opt.none(CoreCapabilities),
+      Opt.some(newJObject()),
+    )
+      .get(),
+    parseServerCapability(
+      "urn:ietf:params:jmap:blob", Opt.none(CoreCapabilities), Opt.some(newJObject())
+    )
+      .get(),
+    parseServerCapability(
+      "urn:ietf:params:jmap:quota", Opt.none(CoreCapabilities), Opt.some(newJObject())
+    )
+      .get(),
+    parseServerCapability(
+      "urn:ietf:params:jmap:contacts",
+      Opt.none(CoreCapabilities),
+      Opt.some(newJObject()),
+    )
+      .get(),
+    parseServerCapability(
+      "urn:ietf:params:jmap:calendars",
+      Opt.none(CoreCapabilities),
+      Opt.some(newJObject()),
+    )
+      .get(),
+    parseServerCapability(
+      "urn:ietf:params:jmap:sieve", Opt.none(CoreCapabilities), Opt.some(newJObject())
+    )
+      .get(),
   ]
   let session = parseSession(
       capabilities = capabilities,

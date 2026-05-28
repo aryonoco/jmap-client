@@ -11,6 +11,7 @@ import std/tables
 import jmap_client/internal/types/primitives
 import jmap_client/internal/types/identifiers
 import jmap_client/internal/types/capabilities
+import jmap_client/internal/types/account_capability_schemas
 import jmap_client/internal/types/session
 import jmap_client/internal/types/validation
 
@@ -24,66 +25,91 @@ import ../mtestblock
 
 let zero = parseUnsignedInt(0).get()
 
-let testCoreCaps = CoreCapabilities(
-  maxSizeUpload: zero,
-  maxConcurrentUpload: zero,
-  maxSizeRequest: zero,
-  maxConcurrentRequests: zero,
-  maxCallsInRequest: zero,
-  maxObjectsInGet: zero,
-  maxObjectsInSet: zero,
-  collationAlgorithms: initHashSet[CollationAlgorithm](),
-)
+let testCoreCaps = parseCoreCapabilities(
+    zero, zero, zero, zero, zero, zero, zero, initHashSet[CollationAlgorithm]()
+  )
+  .get()
 
-let testAccount = Account(
-  name: "Test",
-  isPersonal: true,
-  isReadOnly: false,
-  accountCapabilities: @[
-    AccountCapabilityEntry(
-      kind: ckMail, rawUri: "urn:ietf:params:jmap:mail", data: newJNull()
-    ),
-    AccountCapabilityEntry(
-      kind: ckUnknown, rawUri: "https://vendor1.example/ext", data: %*{"v": 1}
-    ),
-    AccountCapabilityEntry(
-      kind: ckUnknown, rawUri: "https://vendor2.example/ext", data: %*{"v": 2}
-    ),
-  ],
-)
+let testAccount = parseAccount(
+    "Test",
+    isPersonal = true,
+    isReadOnly = false,
+    @[
+      parseAccountCapabilityEntry(
+        "urn:ietf:params:jmap:mail",
+        Opt.some(makeMailAccountCapabilities()),
+        Opt.none(SubmissionAccountCapabilities),
+        Opt.none(JsonNode),
+      )
+        .get(),
+      parseAccountCapabilityEntry(
+        "https://vendor1.example/ext",
+        Opt.none(MailAccountCapabilities),
+        Opt.none(SubmissionAccountCapabilities),
+        Opt.some(%*{"v": 1}),
+      )
+        .get(),
+      parseAccountCapabilityEntry(
+        "https://vendor2.example/ext",
+        Opt.none(MailAccountCapabilities),
+        Opt.none(SubmissionAccountCapabilities),
+        Opt.some(%*{"v": 2}),
+      )
+        .get(),
+    ],
+  )
+  .get()
 
 # Golden test session built at module level so accessor tests can reference it.
 
 let acctId1 = parseAccountId("A13824").get()
 let acctId2 = parseAccountId("A97813").get()
 
-let goldenAccount1 = Account(
-  name: "john@example.com",
-  isPersonal: true,
-  isReadOnly: false,
-  accountCapabilities: @[
-    AccountCapabilityEntry(
-      kind: ckMail, rawUri: "urn:ietf:params:jmap:mail", data: %*{}
-    ),
-    AccountCapabilityEntry(
-      kind: ckContacts, rawUri: "urn:ietf:params:jmap:contacts", data: %*{}
-    ),
-    AccountCapabilityEntry(
-      kind: ckUnknown, rawUri: "https://example.com/apis/foobar", data: %*{"maxFoo": 42}
-    ),
-  ],
-)
+let goldenAccount1 = parseAccount(
+    "john@example.com",
+    isPersonal = true,
+    isReadOnly = false,
+    @[
+      parseAccountCapabilityEntry(
+        "urn:ietf:params:jmap:mail",
+        Opt.some(makeMailAccountCapabilities()),
+        Opt.none(SubmissionAccountCapabilities),
+        Opt.none(JsonNode),
+      )
+        .get(),
+      parseAccountCapabilityEntry(
+        "urn:ietf:params:jmap:contacts",
+        Opt.none(MailAccountCapabilities),
+        Opt.none(SubmissionAccountCapabilities),
+        Opt.some(newJObject()),
+      )
+        .get(),
+      parseAccountCapabilityEntry(
+        "https://example.com/apis/foobar",
+        Opt.none(MailAccountCapabilities),
+        Opt.none(SubmissionAccountCapabilities),
+        Opt.some(%*{"maxFoo": 42}),
+      )
+        .get(),
+    ],
+  )
+  .get()
 
-let goldenAccount2 = Account(
-  name: "jane@example.com",
-  isPersonal: false,
-  isReadOnly: true,
-  accountCapabilities: @[
-    AccountCapabilityEntry(
-      kind: ckMail, rawUri: "urn:ietf:params:jmap:mail", data: %*{}
-    )
-  ],
-)
+let goldenAccount2 = parseAccount(
+    "jane@example.com",
+    isPersonal = false,
+    isReadOnly = true,
+    @[
+      parseAccountCapabilityEntry(
+        "urn:ietf:params:jmap:mail",
+        Opt.some(makeMailAccountCapabilities()),
+        Opt.none(SubmissionAccountCapabilities),
+        Opt.none(JsonNode),
+      )
+        .get()
+    ],
+  )
+  .get()
 
 let goldenAccounts = block:
   var t = initTable[AccountId, Account]()
@@ -113,23 +139,28 @@ let goldenEventSourceUrl = parseUriTemplate(
 let goldenState = parseJmapState("75128aab4b1b").get()
 
 let goldenCaps = @[
-  ServerCapability(
-    rawUri: "urn:ietf:params:jmap:core", kind: ckCore, core: testCoreCaps
-  ),
-  ServerCapability(
-    rawUri: "urn:ietf:params:jmap:mail", kind: ckMail, rawData: newJNull()
-  ),
-  ServerCapability(
-    rawUri: "urn:ietf:params:jmap:contacts", kind: ckContacts, rawData: newJNull()
-  ),
-  ServerCapability(
-    rawUri: "https://example.com/apis/foobar",
-    kind: ckUnknown,
-    rawData: %*{"maxFoo": 42},
-  ),
-  ServerCapability(
-    rawUri: "https://vendor2.example/ext", kind: ckUnknown, rawData: %*{"v": 2}
-  ),
+  parseServerCapability(
+    "urn:ietf:params:jmap:core", Opt.some(testCoreCaps), Opt.none(JsonNode)
+  )
+    .get(),
+  parseServerCapability(
+    "urn:ietf:params:jmap:mail", Opt.none(CoreCapabilities), Opt.none(JsonNode)
+  )
+    .get(),
+  parseServerCapability(
+    "urn:ietf:params:jmap:contacts", Opt.none(CoreCapabilities), Opt.some(newJObject())
+  )
+    .get(),
+  parseServerCapability(
+    "https://example.com/apis/foobar",
+    Opt.none(CoreCapabilities),
+    Opt.some(%*{"maxFoo": 42}),
+  )
+    .get(),
+  parseServerCapability(
+    "https://vendor2.example/ext", Opt.none(CoreCapabilities), Opt.some(%*{"v": 2})
+  )
+    .get(),
 ]
 
 let goldenSession = parseSession(
@@ -188,7 +219,7 @@ testCase hasVariablePartialMatch:
 testCase accountFindCapabilityByKind:
   let result = findCapability(testAccount, ckMail)
   doAssert result.isSome
-  doAssert result.get().rawUri == "urn:ietf:params:jmap:mail"
+  doAssert result.get().uri() == "urn:ietf:params:jmap:mail"
 
 testCase accountFindCapabilityNotFound:
   doAssert findCapability(testAccount, ckBlob).isNone
@@ -196,7 +227,7 @@ testCase accountFindCapabilityNotFound:
 testCase accountFindCapabilityFirstCkUnknown:
   let result = findCapability(testAccount, ckUnknown)
   doAssert result.isSome
-  doAssert result.get().rawUri == "https://vendor1.example/ext"
+  doAssert result.get().uri() == "https://vendor1.example/ext"
 
 testCase accountFindCapabilityByUri:
   let result = findCapabilityByUri(testAccount, "urn:ietf:params:jmap:mail")
@@ -217,9 +248,10 @@ testCase accountHasCapability:
 testCase parseSessionMissingCkCore:
   assertErrFields parseSession(
     capabilities = @[
-      ServerCapability(
-        rawUri: "urn:ietf:params:jmap:mail", kind: ckMail, rawData: newJNull()
+      parseServerCapability(
+        "urn:ietf:params:jmap:mail", Opt.none(CoreCapabilities), Opt.none(JsonNode)
       )
+        .get()
     ],
     accounts = goldenAccounts,
     primaryAccounts = goldenPrimaryAccounts,
@@ -382,7 +414,7 @@ testCase coreCapabilitiesAccess:
 testCase sessionFindCapabilityByKind:
   let result = findCapability(goldenSession, ckMail)
   doAssert result.isSome
-  doAssert result.get().rawUri == "urn:ietf:params:jmap:mail"
+  doAssert result.get().uri() == "urn:ietf:params:jmap:mail"
 
 testCase sessionFindCapabilityByKindNotFound:
   doAssert findCapability(goldenSession, ckBlob).isNone
@@ -390,7 +422,7 @@ testCase sessionFindCapabilityByKindNotFound:
 testCase sessionFindCapabilityFirstCkUnknown:
   let result = findCapability(goldenSession, ckUnknown)
   doAssert result.isSome
-  doAssert result.get().rawUri == "https://example.com/apis/foobar"
+  doAssert result.get().uri() == "https://example.com/apis/foobar"
 
 testCase sessionFindCapabilityByUriVendor:
   let result = findCapabilityByUri(goldenSession, "https://example.com/apis/foobar")
@@ -598,7 +630,7 @@ testCase findCapabilitySessionFoundContacts:
   ## findCapability(session, ckContacts) returns when present.
   let result = findCapability(goldenSession, ckContacts)
   assertSome result
-  doAssert result.get().rawUri == "urn:ietf:params:jmap:contacts"
+  doAssert result.get().uri() == "urn:ietf:params:jmap:contacts"
 
 testCase findCapabilityByUriSessionFoundCore:
   ## findCapabilityByUri(session) returns the matching capability.
@@ -634,8 +666,8 @@ testCase findAccountFoundSecond:
   ## findAccount returns the correct account for the second AccountId.
   let result = findAccount(goldenSession, parseAccountId("A97813").get())
   assertSome result
-  doAssert result.get().name == "jane@example.com"
-  doAssert result.get().isReadOnly == true
+  doAssert result.get().name() == "jane@example.com"
+  doAssert result.get().isReadOnly() == true
 
 testCase findAccountNotFound:
   ## findAccount returns none for an unknown AccountId.
@@ -650,7 +682,7 @@ testCase accountFindCapabilityByUriFoundVendor:
   let result = findCapabilityByUri(testAccount, "https://vendor2.example/ext")
   assertSome result
   doAssert result.get().kind == ckUnknown
-  doAssert result.get().data == %*{"v": 2}
+  doAssert result.get().asRawData().get() == %*{"v": 2}
 
 testCase accountFindCapabilityByUriNotFound2:
   ## findCapabilityByUri(account) returns none for absent URI.
@@ -660,10 +692,10 @@ testCase accountFindCapabilityByUriVendorExtension:
   ## findCapabilityByUri(account) disambiguates between multiple ckUnknown entries.
   let result1 = findCapabilityByUri(testAccount, "https://vendor1.example/ext")
   assertSome result1
-  doAssert result1.get().data == %*{"v": 1}
+  doAssert result1.get().asRawData().get() == %*{"v": 1}
   let result2 = findCapabilityByUri(testAccount, "https://vendor2.example/ext")
   assertSome result2
-  doAssert result2.get().data == %*{"v": 2}
+  doAssert result2.get().asRawData().get() == %*{"v": 2}
 
 testCase accountHasCapabilityCkUnknown:
   ## hasCapability returns true for ckUnknown when vendor extensions exist.

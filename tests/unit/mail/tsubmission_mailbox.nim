@@ -22,7 +22,7 @@
 {.push raises: [].}
 
 import jmap_client/internal/types/validation
-import jmap_client/internal/mail/submission_atoms
+import jmap_client/internal/types/submission_atoms
 import jmap_client/internal/mail/submission_mailbox
 
 import ../../massertions

@@ -37,7 +37,7 @@ import jmap_client/internal/types/primitives
 import jmap_client/internal/mail/email_submission
 import jmap_client/internal/mail/serde_email_submission
 import jmap_client/internal/mail/serde_submission_envelope
-import jmap_client/internal/mail/submission_atoms
+import jmap_client/internal/types/submission_atoms
 import jmap_client/internal/mail/submission_envelope
 import jmap_client/internal/mail/submission_mailbox
 import jmap_client/internal/mail/submission_param

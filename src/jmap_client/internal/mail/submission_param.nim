@@ -25,7 +25,7 @@ import std/tables
 import ../types/primitives
 import ../types/validation
 
-import ./submission_atoms
+import ../types/submission_atoms
 
 # ===========================================================================
 # SMTP parameter payload leaves — design §2.3

@@ -38,7 +38,6 @@ import jmap_client/internal/mail/serde_headers
 import jmap_client/internal/mail/serde_identity
 import jmap_client/internal/mail/serde_identity_update
 import jmap_client/internal/mail/serde_keyword
-import jmap_client/internal/mail/serde_mail_capabilities
 import jmap_client/internal/mail/serde_mail_filters
 import jmap_client/internal/mail/serde_mailbox
 import jmap_client/internal/mail/serde_snippet
@@ -68,7 +67,6 @@ export serde_headers
 export serde_identity
 export serde_identity_update
 export serde_keyword
-export serde_mail_capabilities
 export serde_mail_filters
 export serde_mailbox
 export serde_snippet

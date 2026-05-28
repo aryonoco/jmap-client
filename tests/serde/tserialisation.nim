@@ -7,6 +7,7 @@
 import std/json
 
 import jmap_client
+import jmap_client/internal/types/session
 import jmap_client/internal/types/errors
 import jmap_client/internal/types/framework
 import jmap_client/internal/serialisation/serde
@@ -85,8 +86,7 @@ testCase sessionTypes:
   let rtCaps = CoreCapabilities.fromJson(caps.toJson()).get()
   doAssert coreCapEq(rtCaps, caps), "CoreCapabilities round-trip values differ"
 
-  let acct =
-    Account(name: "test", isPersonal: true, isReadOnly: false, accountCapabilities: @[])
+  let acct = parseAccount("test", isPersonal = true, isReadOnly = false, @[]).get()
   assertOkEq Account.fromJson(acct.toJson()), acct
 
 # =============================================================================
@@ -143,9 +143,10 @@ testCase allTypePairsAccessible:
   let capData = newJObject()
   let cap = ServerCapability.fromJson("urn:ietf:params:jmap:mail", capData).get()
   discard cap.toJson()
-  # AccountCapabilityEntry (requires uri parameter)
+  # AccountCapabilityEntry (requires uri parameter). Use a vendor URI
+  # so the typed-payload schemas don't gate construction.
   let entry =
-    AccountCapabilityEntry.fromJson("urn:ietf:params:jmap:mail", newJObject()).get()
+    AccountCapabilityEntry.fromJson("https://vendor.example/ext", newJObject()).get()
   discard entry.toJson()
   # Session (full round-trip via golden JSON)
   let sj = goldenSessionJson()

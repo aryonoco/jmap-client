@@ -149,8 +149,12 @@ testCase regression_2026_03_toJsonAliasedInternalRefs:
   ## deep copies. Mutation through the returned ref no longer propagates.
   let data = newJObject()
   data["original"] = %"value"
-  let cap =
-    ServerCapability(rawUri: "urn:ietf:params:jmap:mail", kind: ckMail, rawData: data)
+  # ckMail is a discard arm — its toJson emits {} regardless of payload.
+  # Use a non-discard arm (ckMdn) to exercise rawXxxData deep-copy semantics.
+  let cap = parseServerCapability(
+      "urn:ietf:params:jmap:mdn", Opt.none(CoreCapabilities), Opt.some(data)
+    )
+    .get()
   let j = cap.toJson()
   j["injected"] = %"corrupted"
   # After fix: injection must NOT be visible through the capability

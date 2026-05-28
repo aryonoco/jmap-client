@@ -43,11 +43,11 @@ checkProperty "CoreCapabilities serde round-trip":
 
 checkProperty "ServerCapability serde round-trip":
   let original = rng.genServerCapability()
-  let rt = ServerCapability.fromJson(original.rawUri, original.toJson()).get()
+  let rt = ServerCapability.fromJson(original.uri(), original.toJson()).get()
   doAssert capEq(rt, original), "ServerCapability round-trip values differ"
 
 checkProperty "Account serde round-trip":
-  let original = rng.genValidAccount()
+  let original = rng.genAccount()
   discard Account.fromJson(original.toJson())
 
 checkPropertyN "Session serde round-trip", ThoroughTrials:
@@ -57,8 +57,8 @@ checkPropertyN "Session serde round-trip", ThoroughTrials:
   doAssert v.username == original.username
   doAssert v.apiUrl == original.apiUrl
   doAssert v.state == original.state
-  doAssert v.capabilities.len == original.capabilities.len
-  doAssert capsEq(v.capabilities, original.capabilities)
+  doAssert v.capabilities().len == original.capabilities().len
+  doAssert capsEq(v.capabilities(), original.capabilities())
 
 checkProperty "Invocation serde round-trip (complex args)":
   let original = rng.genInvocationWithArgs()

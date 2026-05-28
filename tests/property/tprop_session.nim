@@ -3,6 +3,7 @@
 
 ## Property-based tests for Session and UriTemplate.
 
+import std/json
 import std/random
 import std/tables
 
@@ -134,7 +135,7 @@ testCase propSessionPostConstructionInvariants:
 
 testCase propAccountFindCapabilityTotality:
   checkPropertyN "Account.findCapability never crashes", QuickTrials:
-    let account = genValidAccount(rng)
+    let account = genAccount(rng)
     let kind =
       rng.oneOf([ckCore, ckMail, ckSubmission, ckContacts, ckCalendars, ckUnknown])
     lastInput = $kind
@@ -142,14 +143,14 @@ testCase propAccountFindCapabilityTotality:
 
 testCase propAccountFindCapabilityByUriTotality:
   checkPropertyN "Account.findCapabilityByUri never crashes", QuickTrials:
-    let account = genValidAccount(rng)
+    let account = genAccount(rng)
     let uri = genArbitraryString(rng)
     lastInput = uri
     discard account.findCapabilityByUri(uri)
 
 testCase propAccountHasCapabilityTotality:
   checkPropertyN "Account.hasCapability never crashes", QuickTrials:
-    let account = genValidAccount(rng)
+    let account = genAccount(rng)
     let kind =
       rng.oneOf([ckCore, ckMail, ckSubmission, ckContacts, ckCalendars, ckUnknown])
     lastInput = $kind
@@ -167,9 +168,12 @@ testCase propUriTemplateHasVariableTotality:
 
 testCase propSessionWithRandomCapabilities:
   checkPropertyN "parseSession with random capabilities succeeds", QuickTrials:
-    let coreCap = ServerCapability(
-      rawUri: "urn:ietf:params:jmap:core", kind: ckCore, core: genCoreCapabilities(rng)
-    )
+    let coreCap = parseServerCapability(
+        "urn:ietf:params:jmap:core",
+        Opt.some(genCoreCapabilities(rng)),
+        Opt.none(JsonNode),
+      )
+      .get()
     var caps = @[coreCap]
     let extraCount = rng.rand(0 .. 3)
     for _ in 0 ..< extraCount:
@@ -186,16 +190,17 @@ testCase propSessionCoreCapabilitiesPreserved:
     let randomCore = genCoreCapabilities(rng)
     var args = makeSessionArgs()
     args.capabilities = @[
-      ServerCapability(
-        rawUri: "urn:ietf:params:jmap:core", kind: ckCore, core: randomCore
+      parseServerCapability(
+        "urn:ietf:params:jmap:core", Opt.some(randomCore), Opt.none(JsonNode)
       )
+        .get()
     ]
     let session = parseSessionFromArgs(args)
     let extracted = coreCapabilities(session)
-    doAssert extracted.maxSizeUpload == randomCore.maxSizeUpload
-    doAssert extracted.maxConcurrentUpload == randomCore.maxConcurrentUpload
-    doAssert extracted.maxCallsInRequest == randomCore.maxCallsInRequest
-    doAssert extracted.maxObjectsInGet == randomCore.maxObjectsInGet
+    doAssert extracted.maxSizeUpload() == randomCore.maxSizeUpload()
+    doAssert extracted.maxConcurrentUpload() == randomCore.maxConcurrentUpload()
+    doAssert extracted.maxCallsInRequest() == randomCore.maxCallsInRequest()
+    doAssert extracted.maxObjectsInGet() == randomCore.maxObjectsInGet()
 
 testCase propSessionWithRandomAccounts:
   checkPropertyN "findAccount returns added accounts", QuickTrials:
@@ -203,7 +208,7 @@ testCase propSessionWithRandomAccounts:
     let acctCount = rng.rand(1 .. 5)
     for i in 0 ..< acctCount:
       let acctId = parseAccountId("rnd" & $i).get()
-      args.accounts[acctId] = genValidAccount(rng)
+      args.accounts[acctId] = genAccount(rng)
     let session = parseSessionFromArgs(args)
     for acctId in args.accounts.keys:
       doAssert findAccount(session, acctId).isSome

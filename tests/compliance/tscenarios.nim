@@ -274,12 +274,8 @@ testCase scenarioMultiTenantAccounts:
   var accounts = initTable[AccountId, Account]()
   for i in 1 .. 5:
     let id = makeAccountId("acct" & $i)
-    accounts[id] = Account(
-      name: "Account " & $i,
-      isPersonal: i == 1,
-      isReadOnly: i > 3,
-      accountCapabilities: @[],
-    )
+    accounts[id] =
+      parseAccount("Account " & $i, isPersonal = i == 1, isReadOnly = i > 3, @[]).get()
   var primaryAccounts = initTable[string, AccountId]()
   primaryAccounts["urn:ietf:params:jmap:mail"] = makeAccountId("acct1")
 
@@ -292,12 +288,12 @@ testCase scenarioMultiTenantAccounts:
   doAssert session.accounts.len == 5
   let acct3 = session.findAccount(makeAccountId("acct3"))
   assertSome acct3
-  doAssert acct3.get().name == "Account 3"
-  doAssert not acct3.get().isReadOnly
+  doAssert acct3.get().name() == "Account 3"
+  doAssert not acct3.get().isReadOnly()
 
   let acct5 = session.findAccount(makeAccountId("acct5"))
   assertSome acct5
-  doAssert acct5.get().isReadOnly
+  doAssert acct5.get().isReadOnly()
 
 # =============================================================================
 # Cross-module composition
@@ -315,7 +311,7 @@ testCase scenarioSessionAccountCapabilityChain:
   let account = session.findAccount(acctId).get()
   let mailCap = account.findCapability(ckMail)
   assertSome mailCap
-  doAssert mailCap.get().rawUri == "urn:ietf:params:jmap:mail"
+  doAssert mailCap.get().uri() == "urn:ietf:params:jmap:mail"
 
 testCase scenarioResultReferenceCorrelation:
   ## ResultReference.resultOf matches a previous Invocation's MethodCallId.
@@ -365,11 +361,14 @@ testCase scenarioRawTypePreservation:
 testCase scenarioServerCapabilityRawDataPreservation:
   ## Non-core ServerCapability preserves raw JSON data.
   let data = %*{"maxContacts": 10000, "vendor-flag": true}
-  let sc = ServerCapability(
-    rawUri: "https://vendor.example/contacts", kind: ckUnknown, rawData: data
-  )
-  doAssert sc.rawData["maxContacts"].getInt() == 10000
-  doAssert sc.rawData["vendor-flag"].getBool() == true
+  let sc = parseServerCapability(
+      "https://vendor.example/contacts", Opt.none(CoreCapabilities), Opt.some(data)
+    )
+    .get()
+  let raw = sc.asRawData()
+  assertSome raw
+  doAssert raw.get()["maxContacts"].getInt() == 10000
+  doAssert raw.get()["vendor-flag"].getBool() == true
 
 testCase scenarioRequestErrorExtrasPreservation:
   ## Non-standard fields in RequestError are preserved in extras.
@@ -482,8 +481,8 @@ testCase sessionToRequestIntegration:
   let args = makeFastmailSession()
   let session = parseSessionFromArgs(args)
   var capUris: seq[string] = @[]
-  for cap in session.capabilities:
-    capUris.add cap.rawUri
+  for cap in session.capabilities():
+    capUris.add cap.uri()
   let req = initRequest(
     capUris,
     @[initInvocation(mnMailboxGet, newJObject(), parseMethodCallId("c0").get())],

@@ -44,11 +44,11 @@ testCase propRoundTripRequest:
 testCase propRoundTripServerCapabilityRawData:
   checkPropertyN "ServerCapability rawData preserved through round-trip", ThoroughTrials:
     let cap = rng.genServerCapability()
-    lastInput = cap.rawUri
+    lastInput = cap.uri()
     if cap.kind != ckCore:
       let j = cap.toJson()
-      let rt = ServerCapability.fromJson(cap.rawUri, j).get()
-      doAssert capEq(rt, cap), "rawData lost for " & cap.rawUri
+      let rt = ServerCapability.fromJson(cap.uri(), j).get()
+      doAssert capEq(rt, cap), "rawData lost for " & cap.uri()
 
 testCase propRoundTripComparator:
   checkPropertyN "Comparator round-trip preserves all fields", ThoroughTrials:
@@ -334,19 +334,23 @@ testCase propRoundTripCoreCapabilities:
     doAssert coreCapEq(rt, caps), "CoreCapabilities round-trip identity violated"
 
 testCase propRoundTripAccount:
-  ## Account JSON round-trip identity. Uses JSON equality because genValidAccount
-  ## may produce duplicate capability URIs; serialisation to JSON deduplicates
-  ## keys, so the round-tripped seq may have fewer entries than the original.
-  checkPropertyN "Account.fromJson(acct.toJson()) == acct (via JSON)", ThoroughTrials:
-    let acct = rng.genValidAccount()
-    lastInput = acct.name
+  ## Account round-trip identity. The generator may produce duplicate
+  ## capability URIs; JSON object keys deduplicate, so the round-tripped
+  ## account may have fewer entries than the generated one. Verify the
+  ## scalar fields plus that the round-trip is JSON-stable on the second
+  ## pass (parse → emit → parse → emit must converge).
+  checkPropertyN "Account round-trips through fromJson/toJson", ThoroughTrials:
+    let acct = rng.genAccount()
+    lastInput = acct.name()
     let j = acct.toJson()
     let v = Account.fromJson(j).get()
-    doAssert v.name == acct.name, "Account name changed"
-    doAssert v.isPersonal == acct.isPersonal, "Account isPersonal changed"
-    doAssert v.isReadOnly == acct.isReadOnly, "Account isReadOnly changed"
-    # Compare via JSON serialisation to handle URI deduplication.
-    doAssert v.toJson() == j, "Account JSON round-trip identity violated"
+    doAssert v.name() == acct.name(), "Account name changed"
+    doAssert v.isPersonal() == acct.isPersonal(), "Account isPersonal changed"
+    doAssert v.isReadOnly() == acct.isReadOnly(), "Account isReadOnly changed"
+    # Second pass must be JSON-stable: parsing v.toJson() yields the same v.
+    let j2 = v.toJson()
+    let w = Account.fromJson(j2).get()
+    doAssert w == v, "Account round-trip is not idempotent"
 
 testCase propRoundTripDate:
   ## Date JSON round-trip: fromJson(toJson(date)) == date.

@@ -227,6 +227,7 @@ func parseNonEmptyMailboxIdSet*(
 type MailboxRights* {.ruleOff: "objects".} = object
   ## Per-mailbox access control flags (RFC 8621 §2, myRights).
   ## No smart constructor — all boolean combinations are valid (Decision B6).
+  ## P18 exception (A22b): RFC 8621 §2.4 mandates 9 independent ACL flags.
   mayReadItems*: bool ## May fetch email metadata and content.
   mayAddItems*: bool ## May add emails to this mailbox.
   mayRemoveItems*: bool ## May remove emails from this mailbox.

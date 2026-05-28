@@ -39,6 +39,18 @@ proc main() =
   emit("validationError(\"UnsignedInt\", \"must be non-negative\", \"-1\")", ve3.message)
   let ve4 = validationError("Keyword", "contains forbidden character", "")
   emit("validationError(\"Keyword\", \"contains forbidden character\", \"\")", ve4.message)
+  let ve5 = validationError("Account", "name contains control characters", "bad\x01name")
+  emit("validationError(\"Account\", \"name contains control characters\", \"bad\\x01name\")", ve5.message)
+  let ve6 = validationError("ServerCapability", "ckCore requires CoreCapabilities", "urn:ietf:params:jmap:core")
+  emit("validationError(\"ServerCapability\", \"ckCore requires CoreCapabilities\", \"urn:ietf:params:jmap:core\")", ve6.message)
+  let ve7 = validationError("AccountCapabilityEntry", "ckMail requires MailAccountCapabilities", "urn:ietf:params:jmap:mail")
+  emit("validationError(\"AccountCapabilityEntry\", \"ckMail requires MailAccountCapabilities\", \"urn:ietf:params:jmap:mail\")", ve7.message)
+  let ve8 = validationError("AccountCapabilityEntry", "ckSubmission requires SubmissionAccountCapabilities", "urn:ietf:params:jmap:submission")
+  emit("validationError(\"AccountCapabilityEntry\", \"ckSubmission requires SubmissionAccountCapabilities\", \"urn:ietf:params:jmap:submission\")", ve8.message)
+  let ve9 = validationError("MailAccountCapabilities", "maxMailboxesPerEmail must be >= 1", "0")
+  emit("validationError(\"MailAccountCapabilities\", \"maxMailboxesPerEmail must be >= 1\", \"0\")", ve9.message)
+  let ve10 = validationError("MailAccountCapabilities", "maxSizeMailboxName must be >= 100", "99")
+  emit("validationError(\"MailAccountCapabilities\", \"maxSizeMailboxName must be >= 100\", \"99\")", ve10.message)
   echo ""
 
   # --- TransportError -----------------------------------------------------

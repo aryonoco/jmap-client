@@ -25,6 +25,7 @@ import jmap_client/internal/types/validation
 import jmap_client/internal/types/primitives
 import jmap_client/internal/types/identifiers
 import jmap_client/internal/types/capabilities
+import jmap_client/internal/types/account_capability_schemas
 import jmap_client/internal/types/session
 import jmap_client/internal/types/framework
 import jmap_client/internal/types/envelope
@@ -38,7 +39,7 @@ import jmap_client/internal/mail/serde_email
 import jmap_client/internal/mail/serde_snippet
 import jmap_client/internal/mail/email_blueprint
 import jmap_client/internal/mail/mail_builders
-import jmap_client/internal/mail/submission_atoms
+import jmap_client/internal/types/submission_atoms
 import jmap_client/internal/mail/submission_mailbox
 import jmap_client/internal/mail/submission_param
 import jmap_client/internal/mail/submission_envelope
@@ -116,28 +117,20 @@ proc makeDispatchedResponse*(
 
 proc zeroCoreCaps*(): CoreCapabilities =
   let z = zeroUint()
-  CoreCapabilities(
-    maxSizeUpload: z,
-    maxConcurrentUpload: z,
-    maxSizeRequest: z,
-    maxConcurrentRequests: z,
-    maxCallsInRequest: z,
-    maxObjectsInGet: z,
-    maxObjectsInSet: z,
-    collationAlgorithms: initHashSet[CollationAlgorithm](),
-  )
+  parseCoreCapabilities(z, z, z, z, z, z, z, initHashSet[CollationAlgorithm]()).get()
 
 proc realisticCoreCaps*(): CoreCapabilities =
-  CoreCapabilities(
-    maxSizeUpload: parseUnsignedInt(50_000_000).get(),
-    maxConcurrentUpload: parseUnsignedInt(4).get(),
-    maxSizeRequest: parseUnsignedInt(10_000_000).get(),
-    maxConcurrentRequests: parseUnsignedInt(8).get(),
-    maxCallsInRequest: parseUnsignedInt(32).get(),
-    maxObjectsInGet: parseUnsignedInt(1000).get(),
-    maxObjectsInSet: parseUnsignedInt(500).get(),
-    collationAlgorithms: toHashSet([CollationAsciiCasemap, CollationUnicodeCasemap]),
+  parseCoreCapabilities(
+    parseUnsignedInt(50_000_000).get(),
+    parseUnsignedInt(4).get(),
+    parseUnsignedInt(10_000_000).get(),
+    parseUnsignedInt(8).get(),
+    parseUnsignedInt(32).get(),
+    parseUnsignedInt(1000).get(),
+    parseUnsignedInt(500).get(),
+    toHashSet([CollationAsciiCasemap, CollationUnicodeCasemap]),
   )
+    .get()
 
 proc makeCoreCapsWithLimits*(
     maxCallsInRequest: int64 = 32,
@@ -150,19 +143,21 @@ proc makeCoreCapsWithLimits*(
   ## check in ``client.send`` doesn't fire for the typical small
   ## fixtures these tests build. Caller can override
   ## ``maxSizeRequest`` to exercise that specific cap.
-  CoreCapabilities(
-    maxSizeUpload: zeroUint(),
-    maxConcurrentUpload: zeroUint(),
-    maxSizeRequest: parseUnsignedInt(maxSizeRequest).get(),
-    maxConcurrentRequests: zeroUint(),
-    maxCallsInRequest: parseUnsignedInt(maxCallsInRequest).get(),
-    maxObjectsInGet: parseUnsignedInt(maxObjectsInGet).get(),
-    maxObjectsInSet: parseUnsignedInt(maxObjectsInSet).get(),
-    collationAlgorithms: initHashSet[CollationAlgorithm](),
+  parseCoreCapabilities(
+    zeroUint(),
+    zeroUint(),
+    parseUnsignedInt(maxSizeRequest).get(),
+    zeroUint(),
+    parseUnsignedInt(maxCallsInRequest).get(),
+    parseUnsignedInt(maxObjectsInGet).get(),
+    parseUnsignedInt(maxObjectsInSet).get(),
+    initHashSet[CollationAlgorithm](),
   )
+    .get()
 
 proc makeCoreServerCap*(caps = zeroCoreCaps()): ServerCapability =
-  ServerCapability(rawUri: "urn:ietf:params:jmap:core", kind: ckCore, core: caps)
+  parseServerCapability("urn:ietf:params:jmap:core", Opt.some(caps), Opt.none(JsonNode))
+    .get()
 
 proc makeGoldenDownloadUrl*(): UriTemplate =
   parseUriTemplate(
@@ -203,10 +198,85 @@ proc parseSessionFromArgs*(args: SessionArgs): Session =
   ## Convenience wrapper around the 9-argument parseSession.
   tryParseSessionFromArgs(args).get()
 
+proc makeMailAccountCapabilities*(
+    maxMailboxesPerEmail: Opt[UnsignedInt] = Opt.some(parseUnsignedInt(100).get()),
+    maxMailboxDepth: Opt[UnsignedInt] = Opt.none(UnsignedInt),
+    maxSizeMailboxName: Opt[UnsignedInt] = Opt.some(parseUnsignedInt(490).get()),
+    maxSizeAttachmentsPerEmail: UnsignedInt = parseUnsignedInt(50_000_000).get(),
+    emailQuerySortOptions: HashSet[string] = toHashSet(["receivedAt", "from"]),
+    mayCreateTopLevelMailbox: bool = true,
+): MailAccountCapabilities =
+  parseMailAccountCapabilities(
+    maxMailboxesPerEmail, maxMailboxDepth, maxSizeMailboxName,
+    maxSizeAttachmentsPerEmail, emailQuerySortOptions, mayCreateTopLevelMailbox,
+  )
+    .get()
+
+proc makeSubmissionAccountCapabilities*(
+    maxDelayedSend: UnsignedInt = parseUnsignedInt(0).get(),
+    submissionExtensions: SubmissionExtensionMap =
+      initSubmissionExtensionMap(initOrderedTable[RFC5321Keyword, seq[string]]()),
+): SubmissionAccountCapabilities =
+  parseSubmissionAccountCapabilities(maxDelayedSend, submissionExtensions).get()
+
+proc makeMailAccountEntry*(
+    caps: MailAccountCapabilities = makeMailAccountCapabilities()
+): AccountCapabilityEntry =
+  parseAccountCapabilityEntry(
+    "urn:ietf:params:jmap:mail",
+    Opt.some(caps),
+    Opt.none(SubmissionAccountCapabilities),
+    Opt.none(JsonNode),
+  )
+    .get()
+
+proc makeSubmissionAccountEntry*(
+    caps: SubmissionAccountCapabilities = makeSubmissionAccountCapabilities()
+): AccountCapabilityEntry =
+  parseAccountCapabilityEntry(
+    "urn:ietf:params:jmap:submission",
+    Opt.none(MailAccountCapabilities),
+    Opt.some(caps),
+    Opt.none(JsonNode),
+  )
+    .get()
+
+proc makeVacationAccountEntry*(): AccountCapabilityEntry =
+  parseAccountCapabilityEntry(
+    "urn:ietf:params:jmap:vacationresponse",
+    Opt.none(MailAccountCapabilities),
+    Opt.none(SubmissionAccountCapabilities),
+    Opt.none(JsonNode),
+  )
+    .get()
+
+proc makeRawAccountEntry*(
+    uri: string, data: JsonNode = newJObject()
+): AccountCapabilityEntry =
+  parseAccountCapabilityEntry(
+    uri,
+    Opt.none(MailAccountCapabilities),
+    Opt.none(SubmissionAccountCapabilities),
+    Opt.some(data),
+  )
+    .get()
+
+proc makeAccount*(
+    name: string = "test",
+    policy: AccountPolicy = apOwned,
+    accountCapabilities: seq[AccountCapabilityEntry] = @[],
+): Account =
+  parseAccount(
+    name,
+    isPersonal = policy in {apOwned, apOwnedReadOnly},
+    isReadOnly = policy in {apOwnedReadOnly, apSharedReadOnly},
+    accountCapabilities,
+  )
+    .get()
+
 proc makeSessionArgs*(): SessionArgs =
   var accounts = initTable[AccountId, Account]()
-  accounts[makeAccountId("A1")] =
-    Account(name: "test", isPersonal: true, isReadOnly: false, accountCapabilities: @[])
+  accounts[makeAccountId("A1")] = makeAccount()
   var primaryAccounts = initTable[string, AccountId]()
   primaryAccounts["urn:ietf:params:jmap:mail"] = makeAccountId("A1")
   result = (
@@ -294,26 +364,17 @@ proc makeFastmailSession*(): SessionArgs =
   ## Realistic Fastmail-style session with vendor extensions.
   var accounts = initTable[AccountId, Account]()
   let acctId = makeAccountId("u1f5a6e2c")
-  accounts[acctId] = Account(
-    name: "user@fastmail.com",
-    isPersonal: true,
-    isReadOnly: false,
-    accountCapabilities: @[
-      AccountCapabilityEntry(
-        kind: ckMail, rawUri: "urn:ietf:params:jmap:mail", data: newJObject()
-      ),
-      AccountCapabilityEntry(
-        kind: ckSubmission,
-        rawUri: "urn:ietf:params:jmap:submission",
-        data: newJObject(),
-      ),
-      AccountCapabilityEntry(
-        kind: ckUnknown,
-        rawUri: "https://www.fastmail.com/dev/contacts",
-        data: newJObject(),
-      ),
-    ],
-  )
+  accounts[acctId] = parseAccount(
+      "user@fastmail.com",
+      isPersonal = true,
+      isReadOnly = false,
+      @[
+        makeMailAccountEntry(makeMailAccountCapabilities()),
+        makeSubmissionAccountEntry(makeSubmissionAccountCapabilities()),
+        makeRawAccountEntry("https://www.fastmail.com/dev/contacts"),
+      ],
+    )
+    .get()
   var primaryAccounts = initTable[string, AccountId]()
   primaryAccounts["urn:ietf:params:jmap:mail"] = acctId
   primaryAccounts["urn:ietf:params:jmap:submission"] = acctId
@@ -321,29 +382,34 @@ proc makeFastmailSession*(): SessionArgs =
   result = (
     capabilities: @[
       makeCoreServerCap(realisticCoreCaps()),
-      ServerCapability(
-        rawUri: "urn:ietf:params:jmap:mail", kind: ckMail, rawData: newJObject()
-      ),
-      ServerCapability(
-        rawUri: "urn:ietf:params:jmap:submission",
-        kind: ckSubmission,
-        rawData: newJObject(),
-      ),
-      ServerCapability(
-        rawUri: "urn:ietf:params:jmap:vacationresponse",
-        kind: ckVacationResponse,
-        rawData: newJObject(),
-      ),
-      ServerCapability(
-        rawUri: "https://www.fastmail.com/dev/contacts",
-        kind: ckUnknown,
-        rawData: newJObject(),
-      ),
-      ServerCapability(
-        rawUri: "https://www.fastmail.com/dev/blob",
-        kind: ckUnknown,
-        rawData: newJObject(),
-      ),
+      parseServerCapability(
+        "urn:ietf:params:jmap:mail", Opt.none(CoreCapabilities), Opt.none(JsonNode)
+      )
+        .get(),
+      parseServerCapability(
+        "urn:ietf:params:jmap:submission",
+        Opt.none(CoreCapabilities),
+        Opt.none(JsonNode),
+      )
+        .get(),
+      parseServerCapability(
+        "urn:ietf:params:jmap:vacationresponse",
+        Opt.none(CoreCapabilities),
+        Opt.none(JsonNode),
+      )
+        .get(),
+      parseServerCapability(
+        "https://www.fastmail.com/dev/contacts",
+        Opt.none(CoreCapabilities),
+        Opt.none(JsonNode),
+      )
+        .get(),
+      parseServerCapability(
+        "https://www.fastmail.com/dev/blob",
+        Opt.none(CoreCapabilities),
+        Opt.none(JsonNode),
+      )
+        .get(),
     ],
     accounts: accounts,
     primaryAccounts: primaryAccounts,
@@ -424,24 +490,22 @@ proc makeCyrusSession*(): SessionArgs =
   ## Cyrus IMAP style session with lenient account IDs.
   var accounts = initTable[AccountId, Account]()
   let acctId = makeAccountId("uid=12345")
-  accounts[acctId] = Account(
-    name: "admin@cyrus.example.com",
-    isPersonal: true,
-    isReadOnly: false,
-    accountCapabilities: @[
-      AccountCapabilityEntry(
-        kind: ckMail, rawUri: "urn:ietf:params:jmap:mail", data: newJObject()
-      )
-    ],
-  )
+  accounts[acctId] = parseAccount(
+      "admin@cyrus.example.com",
+      isPersonal = true,
+      isReadOnly = false,
+      @[makeMailAccountEntry(makeMailAccountCapabilities())],
+    )
+    .get()
   var primaryAccounts = initTable[string, AccountId]()
   primaryAccounts["urn:ietf:params:jmap:mail"] = acctId
   result = (
     capabilities: @[
       makeCoreServerCap(realisticCoreCaps()),
-      ServerCapability(
-        rawUri: "urn:ietf:params:jmap:mail", kind: ckMail, rawData: newJObject()
-      ),
+      parseServerCapability(
+        "urn:ietf:params:jmap:mail", Opt.none(CoreCapabilities), Opt.none(JsonNode)
+      )
+        .get(),
     ],
     accounts: accounts,
     primaryAccounts: primaryAccounts,
@@ -611,7 +675,11 @@ proc validResponseJson*(): JsonNode =
   %*{"methodResponses": [["Mailbox/get", {}, "c0"]], "sessionState": "s1"}
 
 proc goldenSessionJson*(): JsonNode =
-  ## RFC 8620 section 2.1 golden Session JSON.
+  ## RFC 8620 section 2.1 golden Session JSON. ckMail at account scope
+  ## carries the full RFC 8621 §1.3.1 typed payload — at session scope
+  ## it's the discard empty object.
+  let mailAccountCaps =
+    %*{"maxSizeAttachmentsPerEmail": 50_000_000, "mayCreateTopLevelMailbox": true}
   %*{
     "capabilities": {
       "urn:ietf:params:jmap:core": {
@@ -634,14 +702,16 @@ proc goldenSessionJson*(): JsonNode =
         "name": "john@example.com",
         "isPersonal": true,
         "isReadOnly": false,
-        "accountCapabilities":
-          {"urn:ietf:params:jmap:mail": {}, "urn:ietf:params:jmap:contacts": {}},
+        "accountCapabilities": {
+          "urn:ietf:params:jmap:mail": mailAccountCaps,
+          "urn:ietf:params:jmap:contacts": {},
+        },
       },
       "A97813": {
         "name": "jane@example.com",
         "isPersonal": false,
         "isReadOnly": true,
-        "accountCapabilities": {"urn:ietf:params:jmap:mail": {}},
+        "accountCapabilities": {"urn:ietf:params:jmap:mail": mailAccountCaps},
       },
     },
     "primaryAccounts":
@@ -699,14 +769,9 @@ proc coreCapEq*(a, b: CoreCapabilities): bool =
     a.collationAlgorithms <= b.collationAlgorithms
 
 proc capEq*(a, b: ServerCapability): bool =
-  ## Deep value equality for ServerCapability (case object).
-  if a.kind != b.kind or a.rawUri != b.rawUri:
-    return false
-  case a.kind
-  of ckCore:
-    coreCapEq(a.core, b.core)
-  else:
-    a.rawData == b.rawData
+  ## Deep value equality for ServerCapability (case object). Uses the
+  ## public accessors so it works against the sealed type.
+  a == b
 
 proc capsEq*(a, b: seq[ServerCapability]): bool =
   ## Compares two sequences of ServerCapability by value.

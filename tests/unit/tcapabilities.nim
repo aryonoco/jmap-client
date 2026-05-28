@@ -52,64 +52,60 @@ testCase capabilityUriUnknown:
 
 testCase coreCapabilitiesHasCollation:
   let zero = parseUnsignedInt(0).get()
-  let caps = CoreCapabilities(
-    maxSizeUpload: zero,
-    maxConcurrentUpload: zero,
-    maxSizeRequest: zero,
-    maxConcurrentRequests: zero,
-    maxCallsInRequest: zero,
-    maxObjectsInGet: zero,
-    maxObjectsInSet: zero,
-    collationAlgorithms: toHashSet([CollationAsciiCasemap, CollationUnicodeCasemap]),
-  )
+  let caps = parseCoreCapabilities(
+      zero,
+      zero,
+      zero,
+      zero,
+      zero,
+      zero,
+      zero,
+      toHashSet([CollationAsciiCasemap, CollationUnicodeCasemap]),
+    )
+    .get()
   doAssert caps.hasCollation(CollationAsciiCasemap)
   doAssert not caps.hasCollation(parseCollationAlgorithm("i;nonexistent").get())
 
 testCase hasCollationEmptySet:
   let zero = parseUnsignedInt(0).get()
-  let caps = CoreCapabilities(
-    maxSizeUpload: zero,
-    maxConcurrentUpload: zero,
-    maxSizeRequest: zero,
-    maxConcurrentRequests: zero,
-    maxCallsInRequest: zero,
-    maxObjectsInGet: zero,
-    maxObjectsInSet: zero,
-    collationAlgorithms: initHashSet[CollationAlgorithm](),
-  )
+  let caps = parseCoreCapabilities(
+      zero, zero, zero, zero, zero, zero, zero, initHashSet[CollationAlgorithm]()
+    )
+    .get()
   doAssert not caps.hasCollation(CollationAsciiCasemap)
 
 # --- ServerCapability construction ---
 
 testCase serverCapabilityCore:
   let zero = parseUnsignedInt(0).get()
-  let caps = CoreCapabilities(
-    maxSizeUpload: zero,
-    maxConcurrentUpload: zero,
-    maxSizeRequest: zero,
-    maxConcurrentRequests: zero,
-    maxCallsInRequest: zero,
-    maxObjectsInGet: zero,
-    maxObjectsInSet: zero,
-    collationAlgorithms: initHashSet[CollationAlgorithm](),
-  )
-  let sc =
-    ServerCapability(rawUri: "urn:ietf:params:jmap:core", kind: ckCore, core: caps)
-  doAssert sc.rawUri == "urn:ietf:params:jmap:core"
+  let caps = parseCoreCapabilities(
+      zero, zero, zero, zero, zero, zero, zero, initHashSet[CollationAlgorithm]()
+    )
+    .get()
+  let sc = parseServerCapability(
+      "urn:ietf:params:jmap:core", Opt.some(caps), Opt.none(JsonNode)
+    )
+    .get()
+  doAssert sc.uri() == "urn:ietf:params:jmap:core"
   doAssert sc.kind == ckCore
 
-testCase serverCapabilityElse:
-  let sc = ServerCapability(
-    rawUri: "urn:ietf:params:jmap:mail", kind: ckMail, rawData: newJNull()
-  )
-  doAssert sc.rawUri == "urn:ietf:params:jmap:mail"
+testCase serverCapabilityDiscardArm:
+  ## ckMail is a discard arm at session scope; the L1 smart constructor
+  ## silently drops any provided payload (Postel-receive).
+  let sc = parseServerCapability(
+      "urn:ietf:params:jmap:mail", Opt.none(CoreCapabilities), Opt.some(newJNull())
+    )
+    .get()
+  doAssert sc.uri() == "urn:ietf:params:jmap:mail"
   doAssert sc.kind == ckMail
+  doAssert sc.asRawData().isNone
 
 testCase serverCapabilityUnknown:
-  let sc = ServerCapability(
-    rawUri: "https://vendor.example/ext", kind: ckUnknown, rawData: newJNull()
-  )
-  doAssert sc.rawUri == "https://vendor.example/ext"
+  let sc = parseServerCapability(
+      "https://vendor.example/ext", Opt.none(CoreCapabilities), Opt.some(newJNull())
+    )
+    .get()
+  doAssert sc.uri() == "https://vendor.example/ext"
   doAssert sc.kind == ckUnknown
 
 # --- Missing variant coverage ---
@@ -162,16 +158,17 @@ testCase capabilityUriRoundTrip:
 
 testCase coreCapabilitiesRealisticValues:
   let caps = realisticCoreCaps()
-  doAssert caps.maxSizeUpload == parseUnsignedInt(50_000_000).get()
-  doAssert caps.maxCallsInRequest == parseUnsignedInt(32).get()
+  doAssert caps.maxSizeUpload() == parseUnsignedInt(50_000_000).get()
+  doAssert caps.maxCallsInRequest() == parseUnsignedInt(32).get()
   doAssert caps.hasCollation(CollationAsciiCasemap)
   doAssert caps.hasCollation(CollationUnicodeCasemap)
 
 testCase serverCapabilityRawUriPreserved:
-  let sc = ServerCapability(
-    rawUri: "urn:ietf:params:jmap:core", kind: ckCore, core: zeroCoreCaps()
-  )
-  doAssert sc.rawUri == "urn:ietf:params:jmap:core"
+  let sc = parseServerCapability(
+      "urn:ietf:params:jmap:core", Opt.some(zeroCoreCaps()), Opt.none(JsonNode)
+    )
+    .get()
+  doAssert sc.uri() == "urn:ietf:params:jmap:core"
 
 testCase parseCapabilityKindCaseNormalisation:
   ## nimIdentNormalize: first char is case-sensitive, rest is case-insensitive.
@@ -201,8 +198,9 @@ testCase capabilityKindStringBacking:
 
 testCase serverCapabilityVendorExtension:
   let data = %*{"maxFoo": 42, "version": "1.0"}
-  let sc = ServerCapability(
-    rawUri: "https://vendor.example/ext", kind: ckUnknown, rawData: data
-  )
-  doAssert sc.rawUri == "https://vendor.example/ext"
+  let sc = parseServerCapability(
+      "https://vendor.example/ext", Opt.none(CoreCapabilities), Opt.some(data)
+    )
+    .get()
+  doAssert sc.uri() == "https://vendor.example/ext"
   doAssert sc.kind == ckUnknown

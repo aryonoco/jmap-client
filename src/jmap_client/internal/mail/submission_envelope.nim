@@ -21,7 +21,7 @@ import ../types/validation
 import ./submission_mailbox
 export submission_mailbox
 
-import ./submission_atoms
+import ../types/submission_atoms
 export submission_atoms
 
 import ./submission_param

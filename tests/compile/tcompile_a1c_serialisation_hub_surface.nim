@@ -166,6 +166,29 @@ static:
   when declared(MaxFilterDepth):
     {.error: "MaxFilterDepth reachable through hub".}
 
+  # ---- Absence: L1 smart constructors filtered from hub (A17 + A18 + A30b) ----
+  when declared(parseServerCapability):
+    {.error: "parseServerCapability must NOT be reachable via import jmap_client".}
+  when declared(parseCoreCapabilities):
+    {.error: "parseCoreCapabilities must NOT be reachable via import jmap_client".}
+  when declared(parseAccountCapabilityEntry):
+    {.
+      error: "parseAccountCapabilityEntry must NOT be reachable via import jmap_client"
+    .}
+  when declared(parseMailAccountCapabilities):
+    {.
+      error: "parseMailAccountCapabilities must NOT be reachable via import jmap_client"
+    .}
+  when declared(parseSubmissionAccountCapabilities):
+    {.
+      error:
+        "parseSubmissionAccountCapabilities must NOT be reachable via import jmap_client"
+    .}
+  when declared(parseAccount):
+    {.error: "parseAccount must NOT be reachable via import jmap_client".}
+  when declared(parseSession):
+    {.error: "parseSession must NOT be reachable via import jmap_client".}
+
 # Runtime anchors — `when declared` / `when compiles` probes do not
 # count as "use" for Nim's UnusedImport check. Reference a public-
 # surface symbol at runtime to pin each import. Mailbox / Session remain

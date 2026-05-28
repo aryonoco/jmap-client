@@ -61,6 +61,55 @@ proc samples(): seq[(string, string)] =
   )
   result.add(
     (
+      "validationError(\"Account\", \"name contains control characters\", \"bad\\x01name\")",
+      validationError("Account", "name contains control characters", "bad\x01name").message,
+    )
+  )
+  result.add(
+    (
+      "validationError(\"ServerCapability\", \"ckCore requires CoreCapabilities\", \"urn:ietf:params:jmap:core\")",
+      validationError(
+        "ServerCapability", "ckCore requires CoreCapabilities",
+        "urn:ietf:params:jmap:core",
+      ).message,
+    )
+  )
+  result.add(
+    (
+      "validationError(\"AccountCapabilityEntry\", \"ckMail requires MailAccountCapabilities\", \"urn:ietf:params:jmap:mail\")",
+      validationError(
+        "AccountCapabilityEntry", "ckMail requires MailAccountCapabilities",
+        "urn:ietf:params:jmap:mail",
+      ).message,
+    )
+  )
+  result.add(
+    (
+      "validationError(\"AccountCapabilityEntry\", \"ckSubmission requires SubmissionAccountCapabilities\", \"urn:ietf:params:jmap:submission\")",
+      validationError(
+        "AccountCapabilityEntry", "ckSubmission requires SubmissionAccountCapabilities",
+        "urn:ietf:params:jmap:submission",
+      ).message,
+    )
+  )
+  result.add(
+    (
+      "validationError(\"MailAccountCapabilities\", \"maxMailboxesPerEmail must be >= 1\", \"0\")",
+      validationError(
+        "MailAccountCapabilities", "maxMailboxesPerEmail must be >= 1", "0"
+      ).message,
+    )
+  )
+  result.add(
+    (
+      "validationError(\"MailAccountCapabilities\", \"maxSizeMailboxName must be >= 100\", \"99\")",
+      validationError(
+        "MailAccountCapabilities", "maxSizeMailboxName must be >= 100", "99"
+      ).message,
+    )
+  )
+  result.add(
+    (
       "transportError(tekNetwork, \"connection refused\")",
       transportError(tekNetwork, "connection refused").message,
     )

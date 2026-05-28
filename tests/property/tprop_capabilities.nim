@@ -40,35 +40,42 @@ testCase propCapabilityKindAllKnownHaveUri:
 testCase propCoreCapabilitiesFieldsNonNegative:
   checkProperty "genCoreCapabilities fields are non-negative":
     let caps = genCoreCapabilities(rng)
-    doAssert caps.maxSizeUpload.toInt64 >= 0
-    doAssert caps.maxConcurrentUpload.toInt64 >= 0
-    doAssert caps.maxSizeRequest.toInt64 >= 0
-    doAssert caps.maxConcurrentRequests.toInt64 >= 0
-    doAssert caps.maxCallsInRequest.toInt64 >= 0
-    doAssert caps.maxObjectsInGet.toInt64 >= 0
-    doAssert caps.maxObjectsInSet.toInt64 >= 0
+    doAssert caps.maxSizeUpload().toInt64 >= 0
+    doAssert caps.maxConcurrentUpload().toInt64 >= 0
+    doAssert caps.maxSizeRequest().toInt64 >= 0
+    doAssert caps.maxConcurrentRequests().toInt64 >= 0
+    doAssert caps.maxCallsInRequest().toInt64 >= 0
+    doAssert caps.maxObjectsInGet().toInt64 >= 0
+    doAssert caps.maxObjectsInSet().toInt64 >= 0
 
 testCase propServerCapabilityRawUriNonEmpty:
-  checkProperty "genServerCapability rawUri always non-empty":
+  checkProperty "genServerCapability uri always non-empty":
     let sc = genServerCapability(rng)
-    lastInput = sc.rawUri
-    doAssert sc.rawUri.len > 0
+    lastInput = sc.uri()
+    doAssert sc.uri().len > 0
 
 testCase propServerCapabilityKindMatchesUri:
-  checkProperty "genServerCapability kind matches parseCapabilityKind(rawUri)":
+  checkProperty "genServerCapability kind matches parseCapabilityKind(uri)":
     let sc = genServerCapability(rng)
-    lastInput = sc.rawUri
-    doAssert sc.kind == parseCapabilityKind(sc.rawUri)
+    lastInput = sc.uri()
+    doAssert sc.kind == parseCapabilityKind(sc.uri())
 
 testCase propServerCapabilityCoreHasCoreData:
-  checkProperty "genServerCapability ckCore variant has accessible core fields":
+  checkProperty "genServerCapability ckCore variant has accessible core data":
     let sc = genServerCapability(rng)
-    lastInput = sc.rawUri
+    lastInput = sc.uri()
     case sc.kind
     of ckCore:
-      doAssert sc.core.maxSizeUpload.toInt64 >= 0
-    else:
-      doAssert sc.rawData != nil
+      let coreOpt = sc.asCoreCapabilities()
+      doAssert coreOpt.isSome
+      doAssert coreOpt.get().maxSizeUpload().toInt64 >= 0
+    of ckMail, ckSubmission, ckVacationResponse:
+      # discard arms — asRawData returns none, no payload
+      doAssert sc.asRawData().isNone
+    of ckWebsocket, ckMdn, ckSmimeVerify, ckBlob, ckQuota, ckContacts, ckCalendars,
+        ckSieve, ckUnknown:
+      doAssert sc.asRawData().isSome
+      doAssert sc.asRawData().get() != nil
 
 testCase propCoreCapabilitiesHasCollationConsistency:
   checkProperty "hasCollation agrees with set membership":

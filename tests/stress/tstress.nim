@@ -48,12 +48,8 @@ testCase stressSession100Accounts:
   var accounts = initTable[AccountId, Account]()
   for i in 0 ..< 100:
     let id = makeAccountId("acct" & $i)
-    accounts[id] = Account(
-      name: "Account " & $i,
-      isPersonal: i == 0,
-      isReadOnly: false,
-      accountCapabilities: @[],
-    )
+    accounts[id] =
+      parseAccount("Account " & $i, isPersonal = i == 0, isReadOnly = false, @[]).get()
   let session = parseSession(
       args.capabilities, accounts, args.primaryAccounts, args.username, args.apiUrl,
       args.downloadUrl, args.uploadUrl, args.eventSourceUrl, args.state,
@@ -124,29 +120,33 @@ testCase stressCombinatorialSession:
   for i in 0 ..< 50:
     let idStr = 'A'.repeat(200) & $i # Near-boundary AccountId (200+ chars)
     let aid = parseAccountId(idStr).get()
-    accounts[aid] = Account(
-      name: "account-" & $i,
-      isPersonal: i == 0,
-      isReadOnly: false,
-      accountCapabilities: @[
-        AccountCapabilityEntry(
-          kind: ckMail, rawUri: "urn:ietf:params:jmap:mail", data: newJObject()
-        )
-      ],
-    )
+    accounts[aid] = parseAccount(
+        "account-" & $i,
+        isPersonal = i == 0,
+        isReadOnly = false,
+        @[makeMailAccountEntry(makeMailAccountCapabilities())],
+      )
+      .get()
     if i == 0:
       primaryAccounts["urn:ietf:params:jmap:mail"] = aid
   let caps = @[
     makeCoreServerCap(realisticCoreCaps()),
-    ServerCapability(
-      rawUri: "urn:ietf:params:jmap:mail", kind: ckMail, rawData: newJObject()
-    ),
-    ServerCapability(
-      rawUri: "https://vendor.example.com/ext1", kind: ckUnknown, rawData: newJObject()
-    ),
-    ServerCapability(
-      rawUri: "https://vendor.example.com/ext2", kind: ckUnknown, rawData: newJObject()
-    ),
+    parseServerCapability(
+      "urn:ietf:params:jmap:mail", Opt.none(CoreCapabilities), Opt.none(JsonNode)
+    )
+      .get(),
+    parseServerCapability(
+      "https://vendor.example.com/ext1",
+      Opt.none(CoreCapabilities),
+      Opt.some(newJObject()),
+    )
+      .get(),
+    parseServerCapability(
+      "https://vendor.example.com/ext2",
+      Opt.none(CoreCapabilities),
+      Opt.some(newJObject()),
+    )
+      .get(),
   ]
   let session = parseSession(
       caps,

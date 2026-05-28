@@ -15,8 +15,10 @@ import std/json
 import std/random
 import std/sets
 import std/strutils
+import std/tables
 
 import jmap_client/internal/types/capabilities
+import jmap_client/internal/types/account_capability_schemas
 import jmap_client/internal/types/envelope
 import jmap_client/internal/types/errors
 import jmap_client/internal/types/framework
@@ -35,7 +37,7 @@ import jmap_client/internal/mail/keyword
 import jmap_client/internal/mail/mailbox
 import jmap_client/internal/mail/mail_filters
 import jmap_client/internal/mail/snippet
-import jmap_client/internal/mail/submission_atoms
+import jmap_client/internal/types/submission_atoms
 import jmap_client/internal/mail/submission_mailbox
 import jmap_client/internal/mail/submission_param
 import jmap_client/internal/mail/submission_envelope
@@ -492,41 +494,115 @@ proc genInvocation*(rng: var Rand): Invocation =
   let mcid = parseMethodCallId(mcidStr).get()
   initInvocation(name, newJObject(), mcid)
 
-proc genValidAccount*(rng: var Rand): Account =
-  ## Generates a random Account with realistic structure: random name from a
-  ## fixed set, random isPersonal/isReadOnly flags, 0-3 capabilities from
-  ## mail/submission/contacts/calendars.
-  ## NOTE: may produce duplicate capability URIs (caller must handle).
-  ## Does NOT generate: vendor extensions, custom capability data.
+proc genAccountPolicy*(rng: var Rand): AccountPolicy =
+  ## Uniform sample over the four AccountPolicy variants.
+  case rng.rand(0 .. 3)
+  of 0: apOwned
+  of 1: apOwnedReadOnly
+  of 2: apShared
+  of 3: apSharedReadOnly
+  else: apOwned
+
+proc genMailAccountCapabilities*(rng: var Rand): MailAccountCapabilities =
+  ## Generates a random valid MailAccountCapabilities. ``maxMailboxesPerEmail``
+  ## ≥ 1 and ``maxSizeMailboxName`` ≥ 100 to satisfy the L1 invariants.
+  let maxMb =
+    if rng.rand(0 .. 1) == 0:
+      Opt.some(parseUnsignedInt(rng.rand(1'i64 .. 1000'i64)).get())
+    else:
+      Opt.none(UnsignedInt)
+  let maxDepth =
+    if rng.rand(0 .. 1) == 0:
+      Opt.some(parseUnsignedInt(rng.rand(1'i64 .. 50'i64)).get())
+    else:
+      Opt.none(UnsignedInt)
+  let maxSizeName =
+    if rng.rand(0 .. 1) == 0:
+      Opt.some(parseUnsignedInt(rng.rand(100'i64 .. 1000'i64)).get())
+    else:
+      Opt.none(UnsignedInt)
+  let maxAtt = parseUnsignedInt(rng.rand(0'i64 .. 100_000_000'i64)).get()
+  var sortOpts = initHashSet[string]()
+  if rng.rand(0 .. 1) == 0:
+    sortOpts.incl("receivedAt")
+  if rng.rand(0 .. 1) == 0:
+    sortOpts.incl("from")
+  parseMailAccountCapabilities(
+    maxMb, maxDepth, maxSizeName, maxAtt, sortOpts, rng.rand(0 .. 1) == 0
+  )
+    .get()
+
+proc genSubmissionAccountCapabilities*(rng: var Rand): SubmissionAccountCapabilities =
+  ## Generates a random valid SubmissionAccountCapabilities with an
+  ## empty submissionExtensions map (table generation is overkill here).
+  let maxDelay = parseUnsignedInt(rng.rand(0'i64 .. 86400'i64)).get()
+  parseSubmissionAccountCapabilities(
+    maxDelay,
+    initSubmissionExtensionMap(initOrderedTable[RFC5321Keyword, seq[string]]()),
+  )
+    .get()
+
+proc genAccountCapabilityEntry*(rng: var Rand): AccountCapabilityEntry =
+  ## Uniform sample over the 13 CapabilityKind arms.
+  case rng.rand(0 .. 12)
+  of 0:
+    parseAccountCapabilityEntry(
+      "urn:ietf:params:jmap:mail",
+      Opt.some(genMailAccountCapabilities(rng)),
+      Opt.none(SubmissionAccountCapabilities),
+      Opt.none(JsonNode),
+    )
+      .get()
+  of 1:
+    parseAccountCapabilityEntry(
+      "urn:ietf:params:jmap:submission",
+      Opt.none(MailAccountCapabilities),
+      Opt.some(genSubmissionAccountCapabilities(rng)),
+      Opt.none(JsonNode),
+    )
+      .get()
+  of 2:
+    parseAccountCapabilityEntry(
+      "urn:ietf:params:jmap:vacationresponse",
+      Opt.none(MailAccountCapabilities),
+      Opt.none(SubmissionAccountCapabilities),
+      Opt.none(JsonNode),
+    )
+      .get()
+  else:
+    const uris = [
+      "urn:ietf:params:jmap:core", "urn:ietf:params:jmap:websocket",
+      "urn:ietf:params:jmap:mdn", "urn:ietf:params:jmap:smimeverify",
+      "urn:ietf:params:jmap:blob", "urn:ietf:params:jmap:quota",
+      "urn:ietf:params:jmap:contacts", "urn:ietf:params:jmap:calendars",
+      "urn:ietf:params:jmap:sieve", "urn:com:vendor:custom",
+    ]
+    let uri = rng.oneOf(uris)
+    parseAccountCapabilityEntry(
+      uri,
+      Opt.none(MailAccountCapabilities),
+      Opt.none(SubmissionAccountCapabilities),
+      Opt.some(newJObject()),
+    )
+      .get()
+
+proc genAccount*(rng: var Rand): Account =
+  ## Generates a random Account with realistic structure: random name
+  ## from a fixed set, random policy, 0-3 capabilities.
   const names = ["alice@example.com", "bob@corp.org", "shared-inbox", "admin"]
   let name = rng.oneOf(names)
-  let isPersonal = rng.rand(0 .. 1) == 0
-  let isReadOnly = rng.rand(0 .. 1) == 0
+  let policy = genAccountPolicy(rng)
   let capCount = rng.rand(0 .. 3)
   var caps: seq[AccountCapabilityEntry] = @[]
-  let allCaps = [
-    AccountCapabilityEntry(
-      kind: ckMail, rawUri: "urn:ietf:params:jmap:mail", data: newJObject()
-    ),
-    AccountCapabilityEntry(
-      kind: ckSubmission, rawUri: "urn:ietf:params:jmap:submission", data: newJObject()
-    ),
-    AccountCapabilityEntry(
-      kind: ckContacts, rawUri: "urn:ietf:params:jmap:contacts", data: newJObject()
-    ),
-    AccountCapabilityEntry(
-      kind: ckCalendars, rawUri: "urn:ietf:params:jmap:calendars", data: newJObject()
-    ),
-  ]
   for i in 0 ..< capCount:
-    let idx = rng.rand(0 .. int(allCaps.high))
-    caps.add allCaps[idx]
-  Account(
-    name: name,
-    isPersonal: isPersonal,
-    isReadOnly: isReadOnly,
-    accountCapabilities: caps,
+    caps.add genAccountCapabilityEntry(rng)
+  parseAccount(
+    name,
+    isPersonal = policy in {apOwned, apOwnedReadOnly},
+    isReadOnly = policy in {apOwnedReadOnly, apSharedReadOnly},
+    caps,
   )
+    .get()
 
 # ---------------------------------------------------------------------------
 # Error type generators
@@ -718,16 +794,17 @@ proc genCoreCapabilities*(rng: var Rand): CoreCapabilities =
   ]
   for i in 0 ..< collCount:
     collations.incl rng.oneOf(allColl)
-  CoreCapabilities(
-    maxSizeUpload: rng.genUnsignedInt(),
-    maxConcurrentUpload: rng.genUnsignedInt(),
-    maxSizeRequest: rng.genUnsignedInt(),
-    maxConcurrentRequests: rng.genUnsignedInt(),
-    maxCallsInRequest: rng.genUnsignedInt(),
-    maxObjectsInGet: rng.genUnsignedInt(),
-    maxObjectsInSet: rng.genUnsignedInt(),
-    collationAlgorithms: collations,
+  parseCoreCapabilities(
+    rng.genUnsignedInt(),
+    rng.genUnsignedInt(),
+    rng.genUnsignedInt(),
+    rng.genUnsignedInt(),
+    rng.genUnsignedInt(),
+    rng.genUnsignedInt(),
+    rng.genUnsignedInt(),
+    collations,
   )
+    .get()
 
 proc genVendorCapabilityJson*(rng: var Rand): JsonNode =
   ## Generates a realistic vendor capability JSON object with 2-5 fields.
@@ -755,11 +832,13 @@ proc genServerCapability*(rng: var Rand): ServerCapability =
   ## CoreCapabilities), 75% chance of a non-core variant from all 12
   ## IANA-registered capability kinds plus a vendor extension.
   ## Non-core variants get realistic vendor capability JSON (2-5 fields).
-  ## Does NOT generate: nil rawData for non-core variants.
   if rng.rand(0 .. 3) == 0:
-    ServerCapability(
-      rawUri: "urn:ietf:params:jmap:core", kind: ckCore, core: rng.genCoreCapabilities()
+    parseServerCapability(
+      "urn:ietf:params:jmap:core",
+      Opt.some(rng.genCoreCapabilities()),
+      Opt.none(JsonNode),
     )
+      .get()
   else:
     const uris = [
       "urn:ietf:params:jmap:mail", "urn:ietf:params:jmap:submission",
@@ -771,7 +850,7 @@ proc genServerCapability*(rng: var Rand): ServerCapability =
     ]
     let uri = rng.oneOf(uris)
     let data = rng.genVendorCapabilityJson()
-    ServerCapability(rawUri: uri, kind: parseCapabilityKind(uri), rawData: data)
+    parseServerCapability(uri, Opt.none(CoreCapabilities), Opt.some(data)).get()
 
 proc genComparator*(rng: var Rand): Comparator =
   ## Generates a random Comparator with a random printable PropertyName,
@@ -910,8 +989,6 @@ proc genCalendarInvalidDate*(rng: var Rand): string =
 # ---------------------------------------------------------------------------
 # JSON node generators (for serde totality testing)
 # ---------------------------------------------------------------------------
-
-import std/tables
 
 proc genArbitraryJsonNode*(rng: var Rand, maxDepth: int = 3): JsonNode =
   ## Generates a random JsonNode of any kind (null, bool, int, float, string,
@@ -1065,8 +1142,12 @@ proc genSession*(rng: var Rand): Session =
   ## the first account's primary designation. Uses golden URL templates.
   ## Does NOT generate: vendor extensions, non-standard URL templates, empty capabilities.
   let core = rng.genCoreCapabilities()
-  var caps: seq[ServerCapability] =
-    @[ServerCapability(rawUri: "urn:ietf:params:jmap:core", kind: ckCore, core: core)]
+  var caps: seq[ServerCapability] = @[
+    parseServerCapability(
+      "urn:ietf:params:jmap:core", Opt.some(core), Opt.none(JsonNode)
+    )
+      .get()
+  ]
   let extraCaps = rng.rand(0 .. 3)
   const extraUris = [
     "urn:ietf:params:jmap:mail", "urn:ietf:params:jmap:submission",
@@ -1074,17 +1155,18 @@ proc genSession*(rng: var Rand): Session =
   ]
   for i in 0 ..< extraCaps:
     let uri = extraUris[min(i, extraUris.high)]
-    caps.add ServerCapability(
-      rawUri: uri, kind: parseCapabilityKind(uri), rawData: newJObject()
+    caps.add parseServerCapability(
+      uri, Opt.none(CoreCapabilities), Opt.some(newJObject())
     )
+      .get()
   let acctCount = rng.rand(0 .. 3)
   var accounts = initTable[AccountId, Account]()
   var primaryAccounts = initTable[string, AccountId]()
   for i in 0 ..< acctCount:
     let aid = parseAccountId("A" & $rng.rand(1000 .. 9999)).get()
-    accounts[aid] = rng.genValidAccount()
+    accounts[aid] = rng.genAccount()
     if i == 0 and caps.len > 1:
-      primaryAccounts[caps[1].rawUri] = aid
+      primaryAccounts[caps[1].uri()] = aid
   let state = parseJmapState("s" & $rng.rand(0 .. 9999)).get()
   let downloadUrl = parseUriTemplate(
       "https://jmap.example.com/download/{accountId}/{blobId}/{name}?accept={type}"

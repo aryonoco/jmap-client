@@ -13,7 +13,9 @@ import ./types/validation
 import ./types/primitives
 import ./types/identifiers
 import ./types/collation
+import ./types/submission_atoms
 import ./types/capabilities
+import ./types/account_capability_schemas
 import ./types/methods_enum
 import ./types/session
 import ./types/envelope
@@ -26,9 +28,13 @@ export validation except validationError, toValidationError
 export primitives
 export identifiers except initBuilderId
 export collation
-export capabilities
+export submission_atoms
+export capabilities except parseServerCapability, parseCoreCapabilities
+export account_capability_schemas except
+  parseAccountCapabilityEntry, parseMailAccountCapabilities,
+  parseSubmissionAccountCapabilities
 export methods_enum
-export session
+export session except parseSession, parseAccount
 export envelope except arguments, initRequest, parseRequest, initResponse
 export framework
 export errors except

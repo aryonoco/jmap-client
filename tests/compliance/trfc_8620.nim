@@ -227,10 +227,13 @@ testCase rfc8620_S1_8_vendorExtensionMapsToUnknown:
 
 testCase rfc8620_S1_8_rawUriPreservedForVendorExtension:
   ## ServerCapability preserves the raw URI string for vendor extensions.
-  let sc = ServerCapability(
-    rawUri: "https://vendor.example/custom", kind: ckUnknown, rawData: newJObject()
-  )
-  doAssert sc.rawUri == "https://vendor.example/custom"
+  let sc = parseServerCapability(
+      "https://vendor.example/custom",
+      Opt.none(CoreCapabilities),
+      Opt.some(newJObject()),
+    )
+    .get()
+  doAssert sc.uri() == "https://vendor.example/custom"
   doAssert sc.kind == ckUnknown
 
 # =============================================================================
@@ -332,13 +335,11 @@ testCase rfc8620_S2_coreCapabilitiesAllEightFields:
 
 testCase rfc8620_S2_accountObjectStructure:
   ## RFC S2 Account object has name, isPersonal, isReadOnly, accountCapabilities.
-  let acct = Account(
-    name: "Personal", isPersonal: true, isReadOnly: false, accountCapabilities: @[]
-  )
-  doAssert acct.name == "Personal"
-  doAssert acct.isPersonal == true
-  doAssert acct.isReadOnly == false
-  doAssert acct.accountCapabilities.len == 0
+  let acct = parseAccount("Personal", isPersonal = true, isReadOnly = false, @[]).get()
+  doAssert acct.name() == "Personal"
+  doAssert acct.isPersonal() == true
+  doAssert acct.isReadOnly() == false
+  doAssert acct.accountCapabilities().len == 0
 
 testCase rfc8620_S2_collationAlgorithmStandardIdentifiers:
   ## RFC 4790 standard collation identifiers used in JMAP core capabilities.
@@ -1751,7 +1752,7 @@ testCase rfc8621Section7ConstraintTableCompileTimeAnchor:
   ## other row by ``declared()``.
   static:
     # §1.3.2 — submission capability surface (G25).
-    doAssert declared(SubmissionCapabilities)
+    doAssert declared(SubmissionAccountCapabilities)
     doAssert declared(SubmissionExtensionMap)
 
     # §7 ¶3 — identityId, emailId, threadId are Id references.

@@ -12,7 +12,6 @@ import ./addresses
 import ./thread
 import ./identity
 import ./vacation
-import ./mail_capabilities
 import ./mail_errors
 import ./keyword
 import ./mailbox
@@ -32,7 +31,6 @@ export addresses
 export thread
 export identity
 export vacation
-export mail_capabilities
 export mail_errors
 export keyword
 export mailbox

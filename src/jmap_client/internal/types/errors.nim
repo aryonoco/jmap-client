@@ -251,7 +251,8 @@ type MethodError* = object
   kind: MethodErrorKind ## module-private; derived from rawType
   rawType*: string ## always populated — lossless round-trip
   description*: Opt[string] ## RFC "description" field
-  extras*: Opt[JsonNode] ## non-standard fields, lossless preservation
+  extras*: Opt[JsonNode]
+    ## non-standard fields, lossless preservation. P19 exception (A22b): forward-compatibility for unknown server fields.
 
 func kind*(me: MethodError): MethodErrorKind =
   ## Returns the parsed error kind variant.
@@ -344,7 +345,8 @@ type SetError* = object
   ## bearing rawType strings without wire data to ``setUnknown``.
   rawType*: string ## always populated — lossless round-trip
   description*: Opt[string] ## optional human-readable description
-  extras*: Opt[JsonNode] ## non-standard fields, lossless preservation
+  extras*: Opt[JsonNode]
+    ## non-standard fields, lossless preservation. P19 exception (A22b): forward-compatibility for unknown server fields.
   case kind*: SetErrorKind
   of setInvalidProperties:
     properties*: seq[string] ## RFC 8620 §5.3 SHOULD: invalid property names

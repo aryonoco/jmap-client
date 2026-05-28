@@ -15,6 +15,7 @@ import jmap_client/internal/types/validation
 import jmap_client/internal/types/primitives
 import jmap_client/internal/types/identifiers
 import jmap_client/internal/types/capabilities
+import jmap_client/internal/types/account_capability_schemas
 import jmap_client/internal/types/framework
 import jmap_client/internal/types/errors
 import jmap_client/internal/types/session
@@ -292,15 +293,12 @@ testCase transportErrorMessageAcceptsNul:
   let te = transportError(tekNetwork, "connection\x00refused")
   doAssert te.message.len == 18
 
-testCase accountNameAcceptsNul:
-  ## Account.name is a bare string; NUL bytes are preserved.
-  let acct = Account(
-    name: "admin\x00@evil.com",
-    isPersonal: true,
-    isReadOnly: false,
-    accountCapabilities: @[],
-  )
-  doAssert acct.name.len == 15
+testCase accountNameRejectsNul:
+  ## parseAccount rejects control characters (including NUL) in name —
+  ## the smart constructor enforces an invariant the raw field did not.
+  let res =
+    parseAccount("admin\x00@evil.com", isPersonal = true, isReadOnly = false, @[])
+  doAssert res.isErr, "parseAccount must reject NUL bytes in name"
 
 # =============================================================================
 # i) Overlong UTF-8 encodings beyond NUL
@@ -515,12 +513,20 @@ testCase uriTemplateEmptyVariableName:
   doAssert "empty variable" in res.error.reason
 
 testCase sessionCoreCapabilityMismatchedRawUri:
-  ## ckCore with a non-matching rawUri is accepted (validation checks kind, not URI).
+  ## parseServerCapability URI-dispatches: a non-canonical core URI like
+  ## ``urn:NOT:core`` resolves to ckUnknown, never ckCore. This means the
+  ## pre-refactor "kind=ckCore with arbitrary URI" shape is no longer
+  ## constructible — the kind is derived from the URI at parse time.
+  ## Under the new typing, parseSession then fails because no ckCore arm
+  ## is present.
   let args = makeSessionArgs()
-  let weirdCore =
-    ServerCapability(rawUri: "urn:NOT:core", kind: ckCore, core: zeroCoreCaps())
+  let weirdCap = parseServerCapability(
+      "urn:NOT:core", Opt.none(CoreCapabilities), Opt.some(newJObject())
+    )
+    .get()
+  doAssert weirdCap.kind == ckUnknown
   let res = parseSession(
-    @[weirdCore],
+    @[weirdCap],
     args.accounts,
     args.primaryAccounts,
     args.username,
@@ -530,7 +536,8 @@ testCase sessionCoreCapabilityMismatchedRawUri:
     args.eventSourceUrl,
     args.state,
   )
-  assertOk res
+  doAssert res.isErr,
+    "parseSession must reject missing ckCore even when a similar URI is present"
 
 # =============================================================================
 # p) Cross-type safety: additional distinct type isolation
@@ -852,36 +859,32 @@ testCase methodCallIdCreationIdOverlap:
 
 testCase accountNameZeroWidthSpace:
   ## Zero-width space U+200B (\xE2\x80\x8B) embedded in Account.name is preserved.
-  let acct = Account(
-    name: "admin\xE2\x80\x8Bbackup@co.com",
-    isPersonal: true,
-    isReadOnly: false,
-    accountCapabilities: @[],
-  )
-  doAssert acct.name.len == 21
-  doAssert "\xE2\x80\x8B" in acct.name
+  ## parseAccount rejects ASCII control chars only; non-ASCII Unicode
+  ## codepoints (zero-width space is U+200B, encoded as ≥0x80 bytes) pass.
+  let acct = parseAccount(
+      "admin\xE2\x80\x8Bbackup@co.com", isPersonal = true, isReadOnly = false, @[]
+    )
+    .get()
+  doAssert acct.name().len == 21
+  doAssert "\xE2\x80\x8B" in acct.name()
 
 testCase accountNameRightToLeftOverride:
   ## Right-to-left override U+202E (\xE2\x80\xAE) in Account.name is preserved.
-  let acct = Account(
-    name: "admin\xE2\x80\xAErof@co.com",
-    isPersonal: true,
-    isReadOnly: false,
-    accountCapabilities: @[],
-  )
-  doAssert acct.name.len == 18
-  doAssert "\xE2\x80\xAE" in acct.name
+  let acct = parseAccount(
+      "admin\xE2\x80\xAErof@co.com", isPersonal = true, isReadOnly = false, @[]
+    )
+    .get()
+  doAssert acct.name().len == 18
+  doAssert "\xE2\x80\xAE" in acct.name()
 
 testCase accountNameBom:
   ## BOM U+FEFF (\xEF\xBB\xBF) at start of Account.name is preserved.
-  let acct = Account(
-    name: "\xEF\xBB\xBFadmin@co.com",
-    isPersonal: true,
-    isReadOnly: false,
-    accountCapabilities: @[],
-  )
-  doAssert acct.name.len == 15
-  doAssert acct.name[0 .. 2] == "\xEF\xBB\xBF"
+  let acct = parseAccount(
+      "\xEF\xBB\xBFadmin@co.com", isPersonal = true, isReadOnly = false, @[]
+    )
+    .get()
+  doAssert acct.name().len == 15
+  doAssert acct.name()[0 .. 2] == "\xEF\xBB\xBF"
 
 # =============================================================================
 # 6a) Full control character range
@@ -1025,26 +1028,38 @@ testCase setErrorInvalidPropertiesWithExtrasContainingExistingId:
 # document this behaviour for three ref-holding types.
 
 testCase jsonNodeAliasingInAccountCapability:
-  ## AccountCapabilityEntry.data is a JsonNode ref — mutations after
-  ## construction are visible. Documented ARC behaviour.
+  ## AccountCapabilityEntry's rawXxxData arms hold a JsonNode ref —
+  ## mutations after construction through the L1 smart constructor are
+  ## visible. Documented ARC behaviour. The L2 serde layer deep-copies
+  ## via ``ownData`` to insulate against this on the fromJson path.
   let data = newJObject()
   data["original"] = newJString("value")
-  let entry = AccountCapabilityEntry(
-    kind: ckMail, rawUri: "urn:ietf:params:jmap:mail", data: data
-  )
+  let entry = parseAccountCapabilityEntry(
+      "https://vendor.example/ext",
+      Opt.none(MailAccountCapabilities),
+      Opt.none(SubmissionAccountCapabilities),
+      Opt.some(data),
+    )
+    .get()
   data["injected"] = newJString("evil")
-  doAssert entry.data.hasKey("injected")
+  let raw = entry.asRawData()
+  doAssert raw.isSome
+  doAssert raw.get().hasKey("injected")
 
 testCase jsonNodeAliasingInServerCapability:
-  ## ServerCapability.rawData (non-ckCore variant) is a JsonNode ref —
-  ## mutations after construction are visible. Documented ARC behaviour.
+  ## ServerCapability's rawXxxData arms hold a JsonNode ref — mutations
+  ## after construction through the L1 smart constructor are visible.
+  ## Documented ARC behaviour; L2 deep-copies via ``ownData``.
   let rawData = newJObject()
   rawData["original"] = newJString("value")
-  let cap = ServerCapability(
-    rawUri: "urn:ietf:params:jmap:mail", kind: ckMail, rawData: rawData
-  )
+  let cap = parseServerCapability(
+      "urn:ietf:params:jmap:quota", Opt.none(CoreCapabilities), Opt.some(rawData)
+    )
+    .get()
   rawData["injected"] = newJString("evil")
-  doAssert cap.rawData.hasKey("injected")
+  let raw = cap.asRawData()
+  doAssert raw.isSome
+  doAssert raw.get().hasKey("injected")
 
 testCase jsonNodeAliasingInMethodErrorExtras:
   ## MethodError.extras (when Opt.some(jsonNode)) is a JsonNode ref —
@@ -1063,30 +1078,36 @@ testCase jsonNodeAliasingInMethodErrorExtras:
 testCase sessionDuplicateCkCore:
   ## Duplicate ckCore: parseSession accepts two ckCore ServerCapabilities
   ## with different CoreCapabilities. coreCapabilities() returns the FIRST one.
-  let coreCaps1 = CoreCapabilities(
-    maxSizeUpload: parseUnsignedInt(100).get(),
-    maxConcurrentUpload: parseUnsignedInt(1).get(),
-    maxSizeRequest: parseUnsignedInt(100).get(),
-    maxConcurrentRequests: parseUnsignedInt(1).get(),
-    maxCallsInRequest: parseUnsignedInt(1).get(),
-    maxObjectsInGet: parseUnsignedInt(1).get(),
-    maxObjectsInSet: parseUnsignedInt(1).get(),
-    collationAlgorithms: initHashSet[CollationAlgorithm](),
-  )
-  let coreCaps2 = CoreCapabilities(
-    maxSizeUpload: parseUnsignedInt(999).get(),
-    maxConcurrentUpload: parseUnsignedInt(99).get(),
-    maxSizeRequest: parseUnsignedInt(999).get(),
-    maxConcurrentRequests: parseUnsignedInt(99).get(),
-    maxCallsInRequest: parseUnsignedInt(99).get(),
-    maxObjectsInGet: parseUnsignedInt(99).get(),
-    maxObjectsInSet: parseUnsignedInt(99).get(),
-    collationAlgorithms: initHashSet[CollationAlgorithm](),
-  )
-  let cap1 =
-    ServerCapability(rawUri: "urn:ietf:params:jmap:core", kind: ckCore, core: coreCaps1)
-  let cap2 =
-    ServerCapability(rawUri: "urn:ietf:params:jmap:core", kind: ckCore, core: coreCaps2)
+  let coreCaps1 = parseCoreCapabilities(
+      parseUnsignedInt(100).get(),
+      parseUnsignedInt(1).get(),
+      parseUnsignedInt(100).get(),
+      parseUnsignedInt(1).get(),
+      parseUnsignedInt(1).get(),
+      parseUnsignedInt(1).get(),
+      parseUnsignedInt(1).get(),
+      initHashSet[CollationAlgorithm](),
+    )
+    .get()
+  let coreCaps2 = parseCoreCapabilities(
+      parseUnsignedInt(999).get(),
+      parseUnsignedInt(99).get(),
+      parseUnsignedInt(999).get(),
+      parseUnsignedInt(99).get(),
+      parseUnsignedInt(99).get(),
+      parseUnsignedInt(99).get(),
+      parseUnsignedInt(99).get(),
+      initHashSet[CollationAlgorithm](),
+    )
+    .get()
+  let cap1 = parseServerCapability(
+      "urn:ietf:params:jmap:core", Opt.some(coreCaps1), Opt.none(JsonNode)
+    )
+    .get()
+  let cap2 = parseServerCapability(
+      "urn:ietf:params:jmap:core", Opt.some(coreCaps2), Opt.none(JsonNode)
+    )
+    .get()
   let args = makeSessionArgs()
   let res = parseSession(
     @[cap1, cap2],
@@ -1102,21 +1123,30 @@ testCase sessionDuplicateCkCore:
   let session = res.get()
   ## coreCapabilities() iterates and returns the first ckCore match.
   let cc = session.coreCapabilities()
-  doAssert cc.maxSizeUpload == parseUnsignedInt(100).get()
-  doAssert cc.maxConcurrentUpload == parseUnsignedInt(1).get()
+  doAssert cc.maxSizeUpload() == parseUnsignedInt(100).get()
+  doAssert cc.maxConcurrentUpload() == parseUnsignedInt(1).get()
 
 testCase sessionFindCapabilityCkUnknown:
   ## findCapability(session, ckUnknown) returns the first ckUnknown entry.
   ## findCapabilityByUri returns the correct specific one.
-  let vendor1 = ServerCapability(
-    rawUri: "https://vendor.example.com/ext1", kind: ckUnknown, rawData: newJObject()
-  )
-  let vendor2 = ServerCapability(
-    rawUri: "https://vendor.example.com/ext2", kind: ckUnknown, rawData: newJObject()
-  )
-  let vendor3 = ServerCapability(
-    rawUri: "https://vendor.example.com/ext3", kind: ckUnknown, rawData: newJObject()
-  )
+  let vendor1 = parseServerCapability(
+      "https://vendor.example.com/ext1",
+      Opt.none(CoreCapabilities),
+      Opt.some(newJObject()),
+    )
+    .get()
+  let vendor2 = parseServerCapability(
+      "https://vendor.example.com/ext2",
+      Opt.none(CoreCapabilities),
+      Opt.some(newJObject()),
+    )
+    .get()
+  let vendor3 = parseServerCapability(
+      "https://vendor.example.com/ext3",
+      Opt.none(CoreCapabilities),
+      Opt.some(newJObject()),
+    )
+    .get()
   let args = makeSessionArgs()
   let res = parseSession(
     @[makeCoreServerCap(), vendor1, vendor2, vendor3],
@@ -1133,11 +1163,11 @@ testCase sessionFindCapabilityCkUnknown:
   ## findCapability returns the first ckUnknown.
   let first = session.findCapability(ckUnknown)
   assertSome first
-  doAssert first.get().rawUri == "https://vendor.example.com/ext1"
+  doAssert first.get().uri() == "https://vendor.example.com/ext1"
   ## findCapabilityByUri returns the exact match.
   let specific = session.findCapabilityByUri("https://vendor.example.com/ext2")
   assertSome specific
-  doAssert specific.get().rawUri == "https://vendor.example.com/ext2"
+  doAssert specific.get().uri() == "https://vendor.example.com/ext2"
 
 testCase uriTemplateNestedBracesRejected:
   ## Nested braces ``{{accountId}}`` are rejected at parse time: the
@@ -1188,12 +1218,10 @@ testCase unicodeHomoglyphTablePoisoning:
   let cyrillicId = parseAccountId("\xD0\xB0dmin").get()
   doAssert latinId != cyrillicId
   var accounts = initTable[AccountId, Account]()
-  accounts[latinId] = Account(
-    name: "latin", isPersonal: true, isReadOnly: false, accountCapabilities: @[]
-  )
-  accounts[cyrillicId] = Account(
-    name: "cyrillic", isPersonal: true, isReadOnly: false, accountCapabilities: @[]
-  )
+  accounts[latinId] =
+    parseAccount("latin", isPersonal = true, isReadOnly = false, @[]).get()
+  accounts[cyrillicId] =
+    parseAccount("cyrillic", isPersonal = true, isReadOnly = false, @[]).get()
   doAssert accounts.len == 2
 
 testCase unicodeZeroWidthSpaceAtStart:
