@@ -589,14 +589,3 @@ func directIds*(ids: openArray[Id]): Opt[Referencable[seq[Id]]] =
   ## (non-reference) use. Eliminates the ``Opt.some(direct(@[...]))`` nesting
   ## at call sites.
   return Opt.some(direct(@ids))
-
-func initCreates*(
-    pairs: openArray[(CreationId, JsonNode)]
-): Opt[Table[CreationId, JsonNode]] =
-  ## Builds an Opt-wrapped create table from CreationId/JsonNode pairs.
-  ## Keys must be validated ``CreationId`` values — preserves smart-constructor
-  ## discipline. Use ``parseCreationId`` to obtain keys.
-  var tbl = initTable[CreationId, JsonNode](pairs.len)
-  for (k, v) in pairs:
-    tbl[k] = v
-  return Opt.some(tbl)

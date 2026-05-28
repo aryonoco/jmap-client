@@ -75,7 +75,6 @@ static:
   doAssert declared(addCapabilityInvocation)
   # builder.nim — argument helpers
   doAssert declared(directIds)
-  doAssert declared(initCreates)
   # dispatch.nim / identifiers.nim / errors.nim — A6 surface.
   # Note: ``getErrorMethod`` / ``getErrorHandleMismatch`` are filtered out
   # of the hub by A12 (library-internal constructors are not part of the
@@ -128,6 +127,8 @@ static:
   doAssert not declared(toJsonNode)
   # builder.nim — retain `*` for cross-internal use, hub-private
   doAssert not declared(addInvocation)
+  # builder.nim — A15: initCreates removed (no demote; full delete)
+  doAssert not declared(initCreates)
   # builder.nim — A5: generic builders hub-private
   doAssert not declared(addGet)
   doAssert not declared(addChanges)

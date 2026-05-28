@@ -554,14 +554,3 @@ testCase directIdsWithAddGet:
   let ids = req.methodCalls[0].arguments{"ids"}
   doAssert ids.kind == JArray
   assertLen ids.elems, 2
-
-testCase initCreatesBuildsTable:
-  ## initCreates builds an Opt-wrapped Table from CreationId/JsonNode pairs.
-  let creates = initCreates(
-    {makeCreationId("k1"): %*{"name": "A"}, makeCreationId("k2"): %*{"name": "B"}}
-  )
-  doAssert creates.isSome
-  let tbl = creates.get()
-  assertLen tbl, 2
-  doAssert tbl[makeCreationId("k1")]["name"].getStr("") == "A"
-  doAssert tbl[makeCreationId("k2")]["name"].getStr("") == "B"

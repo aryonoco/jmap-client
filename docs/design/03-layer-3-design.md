@@ -728,19 +728,22 @@ RFC fields are positional; optional fields are keyword-defaulted with
 func directIds*(ids: openArray[Id]): Opt[Referencable[seq[Id]]] =
   ## Wraps: Opt.some(direct(@ids))
   Opt.some(direct(@ids))
-
-func initCreates*(
-    pairs: openArray[(CreationId, JsonNode)]
-): Opt[Table[CreationId, JsonNode]] =
-  ## Builds an Opt-wrapped raw create table. Used by callers passing
-  ## ``JsonNode`` to the four-parameter ``addSet[T, JsonNode, ...]``;
-  ## typed-create entities pass ``Opt[Table[CreationId, MailboxCreate]]``
-  ## (etc.) directly without this helper.
 ```
 
-There is no `initUpdates` helper because `update` is a typed
-whole-container algebra (`U` in `SetRequest[T, C, U]`), not a
-`Table[Id, PatchObject]`.
+`directIds` is the sole argument-construction helper. It earns its
+keep by absorbing the `Referencable` sum-type's `direct(...)` arm — a
+library-specific construction the consumer would otherwise have to
+name explicitly. Equivalent helpers for `create` and `update` do not
+exist: per-entity create payloads are typed (`MailboxCreate`,
+`EmailBlueprint`, `IdentityCreate`, `EmailSubmissionBlueprint`) and
+the typed `addSet[T, C, U, R]` takes `Opt[Table[CreationId, C]]`
+directly, so the natural Nim idiom `Opt.some({cid: c}.toTable)` is
+the construction path; update is a typed whole-container algebra (`U`
+in `SetRequest[T, C, U]`), constructed by per-entity smart
+constructors (`NonEmptyEmailUpdates`, `NonEmptyMailboxUpdates`,
+`NonEmptyIdentityUpdates`, `NonEmptyEmailSubmissionUpdates`). A
+JsonNode-keyed `initCreates` predated A5's typed surface and was
+removed under A15.
 
 **Module:** `builder.nim`
 
@@ -2268,7 +2271,7 @@ src/jmap_client/
                      (proc + template), addSet (proc + template),
                      addCopy (proc + template), addQuery (proc + template),
                      addQueryChanges (proc + template),
-                     directIds, initCreates
+                     directIds
   dispatch.nim     — ResponseHandle[T] + (==, $, hash, callId);
                      NameBoundHandle[T] + (==, $, hash);
                      serdeToMethodError closure factory;

@@ -65,8 +65,8 @@ until it lands, the counts are maintained by hand.
 
 | Status | Count | What it means |
 |---|---|---|
-| ✅ DONE | 34 | Implemented and verified against source / tests. |
-| 🟡 PARTIAL | 14 | Some parts implemented; gaps named in the item body. |
+| ✅ DONE | 35 | Implemented and verified against source / tests. |
+| 🟡 PARTIAL | 13 | Some parts implemented; gaps named in the item body. |
 | ⬜ TODO | 60 | Not yet implemented. |
 | 🟦 DEFERRED | 1 | Explicitly deferred to a post-1.0 release (E1). |
 | ❌ DROPPED | 1 | Superseded or rejected (D15). |
@@ -179,22 +179,44 @@ Nim's symbol-resolution outcome at qualified call sites such as
   `SerializedSort`, `SerializedFilter`, `toJsonNode`,
   `serializeOptSort`, `serializeOptFilter`, `serializeFilter`,
   `assembleQueryArgs`, `assembleQueryChangesArgs`.
-- `dispatch.nim` — handle types `ResponseHandle`, `NameBoundHandle`,
-  `CompoundHandles`, `CompoundResults`, `ChainedHandles`,
-  `ChainedResults`; extraction `callId`, `get`, `getBoth`; reference
-  construction `reference` (the sole back-reference primitive);
-  registration `registerCompoundMethod`, `registerChainableMethod`;
-  operators `==`, `$`, `hash`. Module-private (no `*` qualifier):
-  `serdeToMethodError`.
-- `builder.nim` — `RequestBuilder`, `initRequestBuilder`,
-  `methodCallCount`, `isEmpty`, `capabilities`, `build`, `addEcho`,
-  `addGet`, `addChanges`, `addSet`, `addCopy`, `addQuery`,
-  `addQueryChanges`, `directIds`, `initCreates`. Hub-private (`*`
-  retained for `mail_methods.nim` cross-internal callers, filtered
-  via `except`): `addInvocation` (the typed `add*` family is the
-  user surface; `addInvocation` would re-introduce the P19
-  stringly-typed escape hatch). A typed `BuiltRequest` wrapper
-  around `Request` is deferred to A7.
+- `dispatch.nim` — sealed handle types `ResponseHandle[T]`,
+  `NameBoundHandle[T]`, `CompoundHandles[A, B]`,
+  `CompoundResults[A, B]`, `ChainedHandles[A, B]`,
+  `ChainedResults[A, B]`; sealed dispatch artifact
+  `DispatchedResponse`; extraction `get`, `getBoth`; handle
+  accessors `callId`, `methodName`; `DispatchedResponse`
+  convenience accessors `sessionState`, `createdIds`; back-reference
+  primitive `reference` (the sole non-`mixin` back-reference path);
+  registration templates `registerCompoundMethod`,
+  `registerChainableMethod`; operators `==`, `$`, `hash`.
+  Module-private (no `*` qualifier): `serdeToMethodError`,
+  `findInvocation`, `extractInvocation`, `findInvocationByName`,
+  `extractInvocationByName`. Hub-private (`*` retained for
+  cross-internal callers, filtered via `except`):
+  `initResponseHandle`, `initNameBoundHandle`,
+  `initDispatchedResponse`, `response` (on `DispatchedResponse`),
+  `builderId` (handle + `DispatchedResponse` accessors carrying the
+  A6 brand — diagnostic-internal, never read by application code).
+- `builder.nim` — sealed lifecycle types `RequestBuilder`,
+  `BuiltRequest`; `RequestBuilder` accessors `methodCallCount`,
+  `isEmpty`, `capabilities`; transition `freeze`; the two
+  RFC-mandated JsonNode escapes `addEcho` and
+  `addCapabilityInvocation` (both documented exceptions to P19);
+  argument-construction helper `directIds`. Hub-private (`*`
+  retained for cross-internal callers — `mail_builders.nim`,
+  `identity_builders.nim`, `submission_builders.nim`,
+  `mail_methods.nim`, `convenience.nim`, `client.nim`, and tests
+  under H10's allowlist — filtered via `except`):
+  `addInvocation` (the typed-invocation chokepoint; surfaces would
+  re-introduce the P19 stringly-typed escape hatch),
+  `initRequestBuilder` (factories live behind
+  `JmapClient.newBuilder`), the generic four-param `addGet`,
+  `addChanges`, `addSet`, `addCopy`, `addQuery`, `addQueryChanges`
+  (consumers reach the typed per-entity wrappers under
+  `internal/mail/`), the `BuiltRequest` accessors `request`,
+  `builderId`, `callLimits` (internal lifecycle bookkeeping), the
+  internal escape `builtRequestFromParts` (whitebox fixture
+  scaffolding only, no production caller).
 
 **Audit mechanism** — three layers of enforcement:
 
@@ -619,12 +641,6 @@ concern at the extraction site.
 
 ### A7. Lifecycle types *(P21, P16, P22, P23)* — 🟡 PARTIAL
 
-Sync chain is in place: `RequestBuilder` → `BuiltRequest` →
-`DispatchedResponse`, with `BuiltRequest` uncopyable (`=copy` and
-`=dup` are `{.error.}`) and `send` consuming via `sink`. Remaining
-gaps tracked in A7d (structural escalation of `RequestBuilder` to
-uncopyable) and A7e (async surface name reservation).
-
 The synchronous dispatch chain is the entire 1.0 lifecycle: each
 phase is a distinct sealed type and transitions are functions
 returning the next type.
@@ -634,38 +650,34 @@ returning the next type.
 branded, handle-extractable).
 
 Three types, three phase invariants, two transitions (`freeze` /
-`send`). Both transitions consume their input (`sink`), so any
-post-transition use of the predecessor is a compile error: a
-builder feeds exactly one `freeze`, a `BuiltRequest` feeds exactly
-one `send`. Wire-data carriers `Request` and `Response` sit off
-the dispatch chain — they belong to the fixture/replay path (A28),
-not the live dispatch path.
+`send`). Both transitions consume their input (`sink`). Wire-data
+carriers `Request` and `Response` sit off the dispatch chain —
+they belong to the fixture/replay path (A28), not the live
+dispatch path.
 
 A6 carries the `BuilderId` brand through every transition so
 cross-builder / cross-client misuse fails at handle extraction with
 `gekHandleMismatch`. The brand is the type-level encoding of
 "handle was issued by this dispatch's builder" (P16). The
-`sink`-on-`freeze` and `sink`-on-`send` signatures (A7c, A7d) close
-the residual brand-aliasing hazard the runtime check could not
-detect: two `BuiltRequest`s from one builder or two
+`sink`-on-`send` signature on `BuiltRequest` (uncopyable via
+`{.error.}` `=copy` / `=dup` hooks) closes the brand-aliasing
+hazard the runtime check could not detect: two
 `DispatchedResponse`s from one `BuiltRequest` would share a
 `BuilderId`, and a single handle set would validate against either.
 
-Umbrella sub-items:
-
-- **A6.5** seals `BuiltRequest` and `DispatchedResponse` (done).
-- **A7b** wires `freeze` and `send` (done).
-- **A7c** consumes `BuiltRequest` on `send` via `sink` (done).
-- **A7d** puts the advisory `sink RequestBuilder` on `freeze`
-  (done); escalating `RequestBuilder` to structurally uncopyable
-  is the outstanding part (partial).
-- **A7e** is the other outstanding tightening: the async-surface
-  name reservation in the RFC-extension policy.
-
 The asynchronous chain extends the same `BuiltRequest` additively
-once async lands; that contract is named in A7e, never stubbed
-onto the sync surface (P23: async is a different type with a
+through `DispatchedRequest` and `sendAsync` (A7e — reserved by
+policy in `docs/policy/03-rfc-extension-policy.md`, never stubbed
+onto the sync surface; P23 — async is a different type with a
 different lifecycle, not a flag on the existing one).
+
+**Sub-items.** A6.5 (sealed `BuiltRequest` + `DispatchedResponse`),
+A7b (`freeze` and `send(BuiltRequest)` wired), and A7c
+(`BuiltRequest` uncopyable, structurally consumed by `send`) are
+done. The outstanding tightenings are A7d (escalate
+`RequestBuilder` from advisory `sink` to structurally uncopyable;
+the test-suite friction is documented inside A7d) and A7e
+(async-surface name reservation in the RFC-extension policy file).
 
 **Pointers.**
 - `src/jmap_client/internal/protocol/builder.nim:47, 60, 139` —
@@ -1070,26 +1082,45 @@ addInvocation, ...` clause. Public consumers cannot reach
 `addInvocation` through `import jmap_client`; the typed `add*`
 family is the user surface.
 
-### A15. Demote remaining JsonNode-typed escape hatches *(P19)* — 🟡 PARTIAL
+### A15. Demote remaining JsonNode-typed escape hatches *(P19)* — ✅ DONE
 
-**Done.** `SerializedSort` / `SerializedFilter` in
+`SerializedSort` / `SerializedFilter` in
 `src/jmap_client/internal/protocol/methods.nim` are sealed
 Pattern-A objects (A8). `serializeOptSort[S]`,
-`serializeOptFilter[C]`, `serializeFilter[C]` retain their
-pre-serialisation semantics and are the only producers; external
-`SerializedSort(...)` / `SerializedFilter(...)` field-init from
-outside `methods.nim` fails to compile via the `rawValue`-private
-mechanism that binds A8. The three serialize helpers are
-hub-private (filtered via `except` in `internal/protocol.nim`).
+`serializeOptFilter[C]`, `serializeFilter[C]` are the only
+producers; external `SerializedSort(...)` /
+`SerializedFilter(...)` field-init from outside `methods.nim`
+fails to compile via the `rawValue`-private mechanism that binds
+A8. The three serialize helpers are hub-private (filtered via
+`except` in `internal/protocol.nim`).
 
-**Remaining gap — `initCreates`.**
-`src/jmap_client/internal/protocol/builder.nim` exposes
-`initCreates*` returning `Opt[Table[CreationId, JsonNode]]`. The
-typed `addSet[T, C, U, R]` already takes
-`Opt[Table[CreationId, C]]`; `initCreates` is the JsonNode-typed
-parallel path. It reaches consumers via `import jmap_client`
-through the protocol hub (not filtered by the current `except`
-clause). Demote to internal or remove pre-1.0.
+`internal/protocol/builder.nim` exposes a single
+argument-construction helper, `directIds(openArray[Id]):
+Opt[Referencable[seq[Id]]]`. It absorbs the `Referencable`
+sum-type's `direct(...)` arm — a library-specific construction —
+so the call site reads `directIds(@[id1, id2])` instead of
+`Opt.some(direct(@[id1, id2]))`.
+
+No JsonNode-keyed create-table shim exists. Per-entity create
+payloads are typed (`MailboxCreate`, `EmailBlueprint`,
+`IdentityCreate`, `EmailSubmissionBlueprint`); the hub-private
+generic `addSet[T, C, U, R]` and the five per-entity wrappers
+(`addEmailSet`, `addMailboxSet`, `addIdentitySet`,
+`addEmailSubmissionSet`, `addVacationResponseSet`) take
+`Opt[Table[CreationId, C]]` directly. Consumer call sites
+construct creates through the natural Nim idiom
+`Opt.some({cid: c}.toTable)`. A typed `initCreates[C]` shim
+would shave only stdlib operations (`Opt.some` + `.toTable`)
+without absorbing any library-specific construction — P7's
+wrap-rate threshold is not met — so the surface stays minimum
+(P5). P20 covers future additive recovery if a real consumer
+call site emerges where the idiom is awkward.
+
+`tests/compile/tcompile_a1b_protocol_hub_surface.nim` carries a
+`doAssert not declared(initCreates)` lock alongside the matching
+positive assertion for `directIds`; re-introducing a
+JsonNode-keyed create-table helper on the public hub fails at
+audit-compile time.
 
 **Documented exception — `addEcho(args: JsonNode)`.** Echo is the
 RFC-mandated input-echoes-output method; documented as an
@@ -1219,8 +1250,8 @@ proc initJmapClient*(endpoint: SessionEndpoint, bearerToken: string,
                      ...): Result[JmapClient, ClientError]
 ```
 
-`discoverJmapClient` does not exist after this change; its
-behaviour is reached via
+Target state: no `discoverJmapClient` proc; its behaviour is
+reached via
 `initJmapClient(discoveryEndpoint("example.com").get(), ...)`.
 
 ### A21. Type the auth scheme *(P17, P19)* — ⬜ TODO
@@ -2270,9 +2301,9 @@ API.
 Write `docs/design/16-L5-FFI-Principles.md` mapping each principle to
 its C-ABI manifestation:
 
-A12 shipped the stable `kind` discriminator and the bounded
-diagnostic projection per error type — both prerequisites for the
-`CURLOPT_ERRORBUFFER`-style FFI surface this doc describes.
+A12's stable `kind` discriminator and bounded diagnostic
+projection (`message()`) per error type provide the prerequisites
+for the `CURLOPT_ERRORBUFFER`-style FFI surface this doc describes.
 
 
 - Opaque handles via `distinct pointer` types.
@@ -2711,23 +2742,20 @@ D with mechanical enforcement.
 ### H1. Sealed-distinct lint *(P15)* — backs A8 — ✅ DONE
 
 `tests/lint/h1_sealed_distinct_construction.nim` enforces the
-post-A8 invariant: zero public `distinct` type declarations under
-`src/`. The seal that binds external consumers (P15) is the
-sealed Pattern-A object pattern — a module-private `rawValue`
-field — not any form of `distinct` wrapping; the lint blocks
-regression by failing on any `type Foo* = distinct ...`
-declaration. The complementary external-construction reject
-(`tests/compile/treject_a8_sealed_external_construction.nim`)
-asserts at compile time that raw `Foo(rawValue: ...)` from
-outside the defining module fails with Nim's *"the field
-'rawValue' is not accessible."* diagnostic.
+sealed Pattern-A invariant: zero public `distinct` type
+declarations under `src/`. The seal that binds external consumers
+(P15) is the sealed Pattern-A object pattern — a module-private
+`rawValue` field — not any form of `distinct` wrapping; the lint
+fails on any `type Foo* = distinct ...` declaration.
+`tests/compile/treject_a8_sealed_external_construction.nim` is
+the complementary external-construction reject: it asserts at
+compile time that raw `Foo(rawValue: ...)` from outside the
+defining module fails with Nim's *"the field 'rawValue' is not
+accessible."* diagnostic. The lint and the reject test together
+provide the bidirectional gate on the P15 contract.
 
-**Implementation path.** Both `tests/lint/h1_sealed_distinct_construction.nim`
-and the `lint-sealed-distinct:` recipe in `justfile`. Wired to
-`just check` and `just ci` via `just lint-sealed-distinct`.
-
-**Current-state assertion.** Zero violations; no public
-`distinct` types declared under `src/`.
+Wired to `just check` and `just ci` via
+`just lint-sealed-distinct`. Source: zero violations under `src/`.
 
 ### H2. Module-level `var` lint *(P10)* — backs D1 no-globals rule — ⬜ TODO
 
@@ -2763,13 +2791,13 @@ tables, hashes, sets, sequtils, sugar, options, times, uri,
 nativesockets, net, base64, parseutils, sysrand]`. Anything else
 under `src/` requires explicit allowlist entry with rationale.
 
-**Forward-pointer for A6.** A6 introduces `std/sysrand` in
-`src/jmap_client/internal/client.nim` for the `BuilderId.clientBrand`
-draw — the chosen failure mode is loud failure
-(`jcvEntropyUnavailable` `ValidationError`), so `std/monotimes`
-is NOT imported and no fallback path exists. When H4 lands, the
-allowlist must include `std/sysrand`. The H4 lint does not yet
-exist; this is a forward-pointer for whoever lands H4.
+**`std/sysrand` allowlist note.**
+`src/jmap_client/internal/client.nim` imports `std/sysrand` for
+the `BuilderId.clientBrand` draw (A6). The failure mode on
+unavailable OS entropy is loud failure
+(`jcvEntropyUnavailable` `ValidationError`); no
+`std/monotimes` fallback exists. The H4 allowlist therefore
+includes `std/sysrand`.
 
 ### H5. Forbidden top-level public proc patterns *(P20)* — backs D7 — ⬜ TODO
 
@@ -3030,7 +3058,7 @@ Status legend:
 | P12 (memory ownership in types) | A13, A19, B10 | review | 🟡 |
 | P13 (one error rail) | A6, A12 | H8 `.get()` invariant lint; H15 snapshot lint (A12) | 🟡 |
 | P14 (no thread-local errors) | A9 (no `last*` state on handle), A19 (`HttpResponse` returned by value, not stashed on Transport), D10, H3, H12 | H3 lint; H12 lint | 🟡 |
-| P15 (smart constructors) | A8 (sealed Pattern-A objects across every public value-carrying type + `IdOrCreationRef` + 3 internal), A12 (library-internal error constructors filtered off the hub), A15 (SerializedSort / SerializedFilter sealed via A8), A19 (`newTransport`, `newHttpTransport` Result-returning), H1 | testament reject test `tests/compile/treject_a8_sealed_external_construction.nim`; A12 compile audits; H1 lint (regression prevention) | 🟢 |
+| P15 (smart constructors) | A8 (sealed Pattern-A objects across every public value-carrying type + `IdOrCreationRef` + 3 internal), A12 (library-internal error constructors filtered off the hub), A15 (sealed `SerializedSort` / `SerializedFilter`; no JsonNode-keyed argument-construction shims on the public surface; `directIds` is the sole helper), A19 (`newTransport`, `newHttpTransport` Result-returning), H1 | testament reject test `tests/compile/treject_a8_sealed_external_construction.nim`; A12 compile audits; A1b compile audit `doAssert not declared(initCreates)` lock; H1 lint (regression prevention) | 🟢 |
 | P16 (preconditions in types) | A6, A6.5, A6.6, A7b, A7c, A7d, A29, B3, B4, B6, B11, B12 | H9; B11/B12 resolution; A7c testament `action: reject` test | 🔴 (B11, B12 open) |
 | P17 (one config surface) | A14, A19 (HTTP config on `newHttpTransport` only), A20, A21 | review; F6 snapshot | 🟡 |
 | P18 (sum types over flag soup) | A6, A12, B1, B2, B7, B8, H9 | H9 catch-all lint; A12 exhaustive `case` in `SetError.message` / `TransportError.message` / mail extractors | 🟡 |

@@ -575,8 +575,7 @@ src/jmap_client/
                         setResponseType, copyItemType, copyResponseType)
                         at the caller's instantiation site via mixin.
                         Capability auto-collection via withCapability.
-                        Argument-construction helpers directIds,
-                        initCreates.
+                        Argument-construction helper directIds.
   convenience.nim     — Per-entity pipeline combinators (opt-in, not
                         re-exported by jmap_client): the
                         add<Entity>QueryThenGet / add<Entity>ChangesToGet
@@ -1961,15 +1960,21 @@ RFC 8621 extensions are attached without growing the generic builder
 signature. `addChanges` does not take `extras` — `/changes` has no
 documented per-entity extension keys.
 
-**Argument-construction helpers** in `builder.nim`:
+**Argument-construction helper** in `builder.nim`:
 
 - `directIds(openArray[Id])` — wraps a sequence into
-  `Opt[Referencable[seq[Id]]]` for direct (non-reference) use.
-- `initCreates(pairs)` — builds an `Opt[Table[CreationId, JsonNode]]`
-  from `(CreationId, JsonNode)` pairs.
+  `Opt[Referencable[seq[Id]]]` for direct (non-reference) use,
+  absorbing the `Referencable` sum-type's `direct(...)` arm so the
+  call site reads `directIds(@[id1, id2])` instead of
+  `Opt.some(direct(@[id1, id2]))`.
 
-There is no `initUpdates` helper — updates are entity-specific typed
-algebras (`NonEmptyEmailUpdates`, `NonEmptyMailboxUpdates`,
+No `initCreates` helper exists. Per-entity create payloads are typed
+(`MailboxCreate`, `EmailBlueprint`, `IdentityCreate`,
+`EmailSubmissionBlueprint`) and the typed `addSet[T, C, U, R]` takes
+`Opt[Table[CreationId, C]]` directly; the natural Nim idiom
+`Opt.some({cid: c}.toTable)` is the construction path. There is no
+`initUpdates` helper for the same reason — updates are entity-specific
+typed algebras (`NonEmptyEmailUpdates`, `NonEmptyMailboxUpdates`,
 `NonEmptyIdentityUpdates`, `NonEmptyEmailSubmissionUpdates`),
 constructed by their own smart constructors. Generic builders accept
 the typed value directly.
