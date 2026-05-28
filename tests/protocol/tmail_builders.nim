@@ -625,13 +625,13 @@ testCase getBothCopyAndDestroyHappyPath:
   let setResp = makeEmailSetResponse(
     accountId = makeAccountId("dst"), newState = Opt.some(makeState("ns2"))
   )
-  let resp = Response(
-    methodResponses: @[
+  let resp = initResponse(
+    @[
       initInvocation(mnEmailCopy, copyResp.toJson(), cid),
       initInvocation(mnEmailSet, setResp.toJson(), cid),
     ],
-    createdIds: Opt.none(Table[CreationId, Id]),
-    sessionState: makeState("rs1"),
+    Opt.none(Table[CreationId, Id]),
+    makeState("rs1"),
   )
   let results = makeDispatchedResponse(resp).getBoth(handles)
   assertOk results
@@ -655,11 +655,8 @@ testCase getBothShortCircuitOnCopyError:
     let handles = makeEmailCopyHandles(cid)
     let errInv = makeErrorInvocation(cid, $variant)
     let setInv = initInvocation(mnEmailSet, makeEmailSetResponse().toJson(), cid)
-    let resp = Response(
-      methodResponses: @[errInv, setInv],
-      createdIds: Opt.none(Table[CreationId, Id]),
-      sessionState: makeState("rs1"),
-    )
+    let resp =
+      initResponse(@[errInv, setInv], Opt.none(Table[CreationId, Id]), makeState("rs1"))
     let results = makeDispatchedResponse(resp).getBoth(handles)
     doAssert results.isErr, "variant " & $variant & " should short-circuit"
     assertEq results.error.methodErr.kind, variant
@@ -672,10 +669,10 @@ testCase getBothShortCircuitOnDestroyMissing:
   let cid = makeMcid("c0")
   let handles = makeEmailCopyHandles(cid)
   let copyResp = makeEmailCopyResponse()
-  let resp = Response(
-    methodResponses: @[initInvocation(mnEmailCopy, copyResp.toJson(), cid)],
-    createdIds: Opt.none(Table[CreationId, Id]),
-    sessionState: makeState("rs1"),
+  let resp = initResponse(
+    @[initInvocation(mnEmailCopy, copyResp.toJson(), cid)],
+    Opt.none(Table[CreationId, Id]),
+    makeState("rs1"),
   )
   let results = makeDispatchedResponse(resp).getBoth(handles)
   doAssert results.isErr
@@ -695,10 +692,10 @@ testCase getBothShortCircuitOnDestroyError:
   let handles = makeEmailCopyHandles(cid)
   let copyResp = makeEmailCopyResponse()
   let errInv = makeErrorInvocation(cid, "serverFail")
-  let resp = Response(
-    methodResponses: @[initInvocation(mnEmailCopy, copyResp.toJson(), cid), errInv],
-    createdIds: Opt.none(Table[CreationId, Id]),
-    sessionState: makeState("rs1"),
+  let resp = initResponse(
+    @[initInvocation(mnEmailCopy, copyResp.toJson(), cid), errInv],
+    Opt.none(Table[CreationId, Id]),
+    makeState("rs1"),
   )
   let results = makeDispatchedResponse(resp).getBoth(handles)
   doAssert results.isErr
@@ -795,13 +792,13 @@ testCase getBothBothSucceed:
   let setResp = makeEmailSetResponse(
     accountId = makeAccountId("a1"), newState = Opt.some(makeState("em1"))
   )
-  let resp = Response(
-    methodResponses: @[
+  let resp = initResponse(
+    @[
       initInvocation(mnEmailSubmissionSet, subJson, cid),
       initInvocation(mnEmailSet, setResp.toJson(), cid),
     ],
-    createdIds: Opt.none(Table[CreationId, Id]),
-    sessionState: makeState("rs1"),
+    Opt.none(Table[CreationId, Id]),
+    makeState("rs1"),
   )
   let results = makeDispatchedResponse(resp).getBoth(handles)
   assertOk results
@@ -824,10 +821,10 @@ testCase getBothInnerMethodError:
   let handles = makeEmailSubmissionHandles(cid, cid)
   let subJson = %*{"accountId": "a1", "newState": "sub1"}
   let errInv = makeErrorInvocation(cid, "accountNotFound")
-  let resp = Response(
-    methodResponses: @[initInvocation(mnEmailSubmissionSet, subJson, cid), errInv],
-    createdIds: Opt.none(Table[CreationId, Id]),
-    sessionState: makeState("rs1"),
+  let resp = initResponse(
+    @[initInvocation(mnEmailSubmissionSet, subJson, cid), errInv],
+    Opt.none(Table[CreationId, Id]),
+    makeState("rs1"),
   )
   let results = makeDispatchedResponse(resp).getBoth(handles)
   assertErr results
@@ -844,10 +841,10 @@ testCase getBothInnerAbsent:
   let cid = makeMcid("c0")
   let handles = makeEmailSubmissionHandles(cid, cid)
   let subJson = %*{"accountId": "a1", "newState": "sub1"}
-  let resp = Response(
-    methodResponses: @[initInvocation(mnEmailSubmissionSet, subJson, cid)],
-    createdIds: Opt.none(Table[CreationId, Id]),
-    sessionState: makeState("rs1"),
+  let resp = initResponse(
+    @[initInvocation(mnEmailSubmissionSet, subJson, cid)],
+    Opt.none(Table[CreationId, Id]),
+    makeState("rs1"),
   )
   let results = makeDispatchedResponse(resp).getBoth(handles)
   assertErr results
@@ -872,13 +869,13 @@ testCase getBothInnerMcIdMismatch:
   let setResp = makeEmailSetResponse(
     accountId = makeAccountId("a1"), newState = Opt.some(makeState("em1"))
   )
-  let resp = Response(
-    methodResponses: @[
+  let resp = initResponse(
+    @[
       initInvocation(mnEmailSubmissionSet, subJson, outerCid),
       initInvocation(mnEmailSet, setResp.toJson(), innerCid),
     ],
-    createdIds: Opt.none(Table[CreationId, Id]),
-    sessionState: makeState("rs1"),
+    Opt.none(Table[CreationId, Id]),
+    makeState("rs1"),
   )
   let results = makeDispatchedResponse(resp).getBoth(handles)
   assertErr results
@@ -917,13 +914,13 @@ testCase getBothOuterNotCreatedSole:
   let setResp = makeEmailSetResponse(
     accountId = makeAccountId("a1"), newState = Opt.some(makeState("em1"))
   )
-  let resp = Response(
-    methodResponses: @[
+  let resp = initResponse(
+    @[
       initInvocation(mnEmailSubmissionSet, subJson, cid),
       initInvocation(mnEmailSet, setResp.toJson(), cid),
     ],
-    createdIds: Opt.none(Table[CreationId, Id]),
-    sessionState: makeState("rs1"),
+    Opt.none(Table[CreationId, Id]),
+    makeState("rs1"),
   )
   let results = makeDispatchedResponse(resp).getBoth(handles)
   assertOk results
@@ -947,11 +944,7 @@ testCase getBothOuterIfInStateMismatch:
   let cid = makeMcid("c0")
   let handles = makeEmailSubmissionHandles(cid, cid)
   let errInv = makeErrorInvocation(cid, "stateMismatch")
-  let resp = Response(
-    methodResponses: @[errInv],
-    createdIds: Opt.none(Table[CreationId, Id]),
-    sessionState: makeState("rs1"),
-  )
+  let resp = initResponse(@[errInv], Opt.none(Table[CreationId, Id]), makeState("rs1"))
   let results = makeDispatchedResponse(resp).getBoth(handles)
   assertErr results
   assertEq results.error.methodErr.kind, metStateMismatch

@@ -101,13 +101,13 @@ testCase multiMethodWithResultReference:
   # Construct synthetic multi-invocation response and extract both
   let queryJson = makeQueryResponseJson(accountId = "A1", queryState = "qs1")
   let getJson = makeGetResponseJson(accountId = "A1", state = "s1")
-  let resp = Response(
-    methodResponses: @[
+  let resp = initResponse(
+    @[
       initInvocation(mnEmailQuery, queryJson, makeMcid("c0")),
       initInvocation(mnMailboxGet, getJson, makeMcid("c1")),
     ],
-    createdIds: Opt.none(Table[CreationId, Id]),
-    sessionState: makeState("rs1"),
+    Opt.none(Table[CreationId, Id]),
+    makeState("rs1"),
   )
   let dr = makeDispatchedResponse(resp, bid)
   assertOk dr.get(qh)
@@ -141,13 +141,13 @@ testCase mixedSuccessError:
   let (b1, gh) = addGet[TestWidget](b0, accountId = makeAccountId("A1"))
   let (_, sh) = addMailboxSet(b1, accountId = makeAccountId("A1"))
   let getJson = makeGetResponseJson(accountId = "A1", state = "s1")
-  let resp = Response(
-    methodResponses: @[
+  let resp = initResponse(
+    @[
       initInvocation(mnMailboxGet, getJson, makeMcid("c0")),
       parseInvocation("error", %*{"type": "stateMismatch"}, makeMcid("c1")).get(),
     ],
-    createdIds: Opt.none(Table[CreationId, Id]),
-    sessionState: makeState("rs1"),
+    Opt.none(Table[CreationId, Id]),
+    makeState("rs1"),
   )
   let dr = makeDispatchedResponse(resp, bid)
   assertOk dr.get(gh) # first succeeds

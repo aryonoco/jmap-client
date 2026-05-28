@@ -1226,6 +1226,11 @@ func toJson*(inv: Invocation): JsonNode =
   return %*[inv.rawName, inv.arguments, string(inv.methodCallId)]
 ```
 
+Hub-private after A16 (filtered out at `internal/protocol.nim`'s
+re-export). Reachable to cross-internal callers; the only in-tree
+caller is `Request.toJson` in the same module. Application code
+reaches Invocation rendering via `BuiltRequest.toJson`.
+
 `inv.rawName` is the verbatim wire string preserved on the L1
 `Invocation` object. Using `$inv.name` would collapse unknown method
 names to the symbol name `mnUnknown`, breaking lossless round-trip.
@@ -1263,7 +1268,7 @@ func toJson*(r: Request): JsonNode =
   var node = newJObject()
   node["using"] = %r.`using`
   var calls = newJArray()
-  for _, inv in r.methodCalls:
+  for inv in r.methodCalls:
     calls.add(inv.toJson())
   node["methodCalls"] = calls
   for createdIds in r.createdIds:
@@ -1273,6 +1278,12 @@ func toJson*(r: Request): JsonNode =
     node["createdIds"] = ids
   return node
 ```
+
+Hub-private after A16 (filtered out at `internal/protocol.nim`'s
+re-export). The L4 `client.performSend` calls this at
+`client.nim` (HTTP-body construction), and
+`builder.toJson*(BuiltRequest)` delegates to it. Application
+code does not reach it.
 
 **`fromJson`:** Validates JObject, extracts `using` (string array via
 `fieldJArray` + per-element `expectKind`), `methodCalls` (array of
@@ -1320,27 +1331,18 @@ func parseCreatedIds(node: JsonNode, path: JsonPath
 }
 ```
 
-**`toJson`:**
-
-```nim
-func toJson*(r: Response): JsonNode =
-  var node = newJObject()
-  var responses = newJArray()
-  for _, inv in r.methodResponses:
-    responses.add(inv.toJson())
-  node["methodResponses"] = responses
-  node["sessionState"] = %string(r.sessionState)
-  for createdIds in r.createdIds:
-    var ids = newJObject()
-    for k, v in createdIds:
-      ids[string(k)] = %string(v)
-    node["createdIds"] = ids
-  return node
-```
+**`Response.toJson` is deleted (A16).** Application reception
+flows through `Response.fromJson` (called by L4's
+`parseJmapResponse`) and the typed accessors on
+`DispatchedResponse`. The receive-side wire diagnostic for
+application authors is `setDebugCallback` on the `JmapClient`
+handle (`internal/client.nim`).
 
 **`fromJson`:** Validates JObject, extracts `methodResponses` (array of
 Invocations), `sessionState` (string → JmapState via `parseJmapState`),
-and optional `createdIds` via `parseCreatedIds`.
+and optional `createdIds` via `parseCreatedIds`. Delegates final
+Response construction to the hub-private `initResponse` smart
+constructor (A30).
 
 **Module:** `src/jmap_client/serde_envelope.nim`
 
@@ -1360,6 +1362,13 @@ and optional `createdIds` via `parseCreatedIds`.
 func toJson*(r: ResultReference): JsonNode =
   return %*{"resultOf": string(r.resultOf), "name": r.rawName, "path": r.rawPath}
 ```
+
+Hub-private after A16 (filtered out at `internal/protocol.nim`'s
+re-export). Reachable to `methods.nim`'s back-reference emission
+paths (the `rkReference` arms of `GetRequest.ids` and
+`SetRequest.destroy` encoding). Application code reaches the
+back-reference wire shape through `Request.toJson` via
+`BuiltRequest.toJson`.
 
 `rawName` and `rawPath` preserve verbatim wire strings, including any
 forward-compatible unknown variants. The typed `name(): MethodName` and
@@ -2048,8 +2057,11 @@ Properties that must hold for every serialised type:
   enums.
 - **Opt[T] omission:** `Opt.none` values produce no JSON key; parsing
   absent keys produces `Opt.none`.
-- **Invocation format:** `Invocation.toJson` always produces a 3-element
-  `JArray`, never `JObject`.
+- **Invocation format:** the hub-private `Invocation.toJson` helper
+  always produces a 3-element JSON array per RFC 8620 §3.2; the
+  array is embedded inside the `methodCalls` JArray that
+  `Request.toJson` constructs. Application-facing rendering goes
+  through `BuiltRequest.toJson`.
 - **Referencable dispatch:** `rkDirect` values serialise without `#`
   prefix; `rkReference` values serialise with `#` prefix. Round-trip
   preserves the variant.

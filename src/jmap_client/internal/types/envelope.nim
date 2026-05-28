@@ -85,23 +85,118 @@ func parseInvocation*(
     Invocation(arguments: arguments, rawMethodCallId: methodCallId, rawName: rawName)
   )
 
-type Request* = object
-  ## Top-level JMAP request envelope (RFC 8620 section 3.3). Contains the
-  ## capability URIs, method calls, and optional creation ID map.
-  `using`*: seq[string] ## capability URIs the client wishes to use
-  methodCalls*: seq[Invocation] ## processed sequentially by server
-  createdIds*: Opt[Table[CreationId, Id]] ## optional; enables proxy splitting
+# nimalyzer: Request and Response intentionally have no public fields.
+# rawUsing / rawMethodCalls / rawCreatedIds (Request) and
+# rawMethodResponses / rawCreatedIds / rawSessionState (Response) are
+# module-private so construction flows through ``initRequest`` (total,
+# build path) or ``parseRequest`` (fallible, wire boundary — non-empty
+# ``using`` per RFC 8620 §3.3) for Request, and ``initResponse`` (total
+# — all field-level invariants are enforced upstream by the field-level
+# parsers) for Response. Public accessor funcs below provide read
+# access; UFCS preserves the ``r.using`` / ``r.methodCalls`` /
+# ``r.methodResponses`` / ``r.sessionState`` spellings unchanged. The
+# hub re-exports ``envelope except arguments, initRequest, parseRequest,
+# initResponse`` — application developers construct Requests via
+# ``RequestBuilder.freeze`` and never see Responses raw;
+# ``DispatchedResponse.get`` is the typed read path.
+type Request* {.ruleOff: "objects".} = object
+  ## Top-level JMAP request envelope (RFC 8620 section 3.3). Contains
+  ## the capability URIs, method calls, and optional creation-ID map.
+  ## Pattern-A: private fields, smart constructors, public accessors.
+  rawUsing: seq[string] ## module-private; capability URIs the client wishes to use
+  rawMethodCalls: seq[Invocation] ## module-private; processed sequentially by server
+  rawCreatedIds: Opt[Table[CreationId, Id]]
+    ## module-private; optional, enables proxy splitting
 
-type Response* = object
-  ## Top-level JMAP response envelope (RFC 8620 section 3.4). Contains method
-  ## responses, optional creation ID map, and the current session state.
-  methodResponses*: seq[Invocation] ## same format as methodCalls
-  createdIds*: Opt[Table[CreationId, Id]] ## only present if given in request
-  sessionState*: JmapState
-    ## Current Session.state value. After every response, compare with
-    ## ``Session.state``; if they differ, the session is stale and should
-    ## be re-fetched (RFC 8620 §3.4). The RFC uses permissive language
-    ## ("may") for this check — it is not a MUST-level requirement.
+func `using`*(r: Request): seq[string] =
+  ## Capability URIs the client wishes to use (RFC 8620 §3.3).
+  return r.rawUsing
+
+func methodCalls*(r: Request): seq[Invocation] =
+  ## Method calls in order; the server processes them sequentially.
+  return r.rawMethodCalls
+
+func createdIds*(r: Request): Opt[Table[CreationId, Id]] =
+  ## Optional creation-ID map; enables RFC 8620 §5.7 proxy splitting.
+  return r.rawCreatedIds
+
+func initRequest*(
+    `using`: seq[string],
+    methodCalls: seq[Invocation],
+    createdIds: Opt[Table[CreationId, Id]],
+): Request =
+  ## Total, infallible constructor. Used by the build path
+  ## (``RequestBuilder.freeze``). The RFC 8620 §3.3 invariant — non-
+  ## empty ``using`` — is proved upstream: ``initRequestBuilder``
+  ## seeds ``urn:ietf:params:jmap:core`` into the builder's capability
+  ## list, and ``freeze`` materialises that list directly into
+  ## ``using``. The parse path validates via ``parseRequest`` before
+  ## delegating here.
+  return
+    Request(rawUsing: `using`, rawMethodCalls: methodCalls, rawCreatedIds: createdIds)
+
+func parseRequest*(
+    `using`: seq[string],
+    methodCalls: seq[Invocation],
+    createdIds: Opt[Table[CreationId, Id]],
+): Result[Request, ValidationError] =
+  ## Wire-boundary constructor: enforces RFC 8620 §3.3 (``using`` must
+  ## not be empty). Used only by ``serde_envelope.Request.fromJson``
+  ## via ``wrapInner``. ``methodCalls`` is accepted empty so adversarial
+  ## wire-shape tests can express the zero-call case; the server
+  ## surfaces it through its own ``maxCallsInRequest`` path, not the
+  ## parser.
+  if `using`.len == 0:
+    return err(validationError("Request", "using must not be empty", ""))
+  return ok(initRequest(`using`, methodCalls, createdIds))
+
+type Response* {.ruleOff: "objects".} = object
+  ## Top-level JMAP response envelope (RFC 8620 section 3.4). Contains
+  ## method responses, optional creation-ID map, and the current
+  ## session state. Pattern-A: private fields, smart constructor,
+  ## public accessors. Application code never constructs Responses —
+  ## they arrive through ``client.send`` and are consumed via
+  ## ``DispatchedResponse``.
+  rawMethodResponses: seq[Invocation]
+    ## module-private; same format as Request.methodCalls
+  rawCreatedIds: Opt[Table[CreationId, Id]]
+    ## module-private; only present if given in request
+  rawSessionState: JmapState ## module-private; server's current Session.state
+
+func methodResponses*(r: Response): seq[Invocation] =
+  ## Method responses in the order the server processed the calls.
+  return r.rawMethodResponses
+
+func createdIds*(r: Response): Opt[Table[CreationId, Id]] =
+  ## Only present if the request supplied a ``createdIds`` map.
+  return r.rawCreatedIds
+
+func sessionState*(r: Response): JmapState =
+  ## Current Session.state value. After every response, compare with
+  ## ``Session.state``; if they differ, the session is stale and
+  ## should be re-fetched (RFC 8620 §3.4). The RFC uses permissive
+  ## language ("may") for this check — it is not a MUST-level
+  ## requirement.
+  return r.rawSessionState
+
+func initResponse*(
+    methodResponses: seq[Invocation],
+    createdIds: Opt[Table[CreationId, Id]],
+    sessionState: JmapState,
+): Response =
+  ## Total, infallible constructor. The only callers are inside the
+  ## library (the wire-boundary ``Response.fromJson`` in
+  ## ``serde_envelope.nim``); application code does not construct
+  ## Responses. Per-field invariants are enforced upstream:
+  ## ``sessionState`` arrives validated by ``parseJmapState`` at the
+  ## wire boundary; ``methodResponses`` carries already-parsed
+  ## ``Invocation`` values; ``createdIds`` is structurally validated
+  ## by ``parseCreatedIds``.
+  return Response(
+    rawMethodResponses: methodResponses,
+    rawCreatedIds: createdIds,
+    rawSessionState: sessionState,
+  )
 
 # nimalyzer: ResultReference intentionally has no public fields.
 # rawName / rawPath are module-private so construction flows through

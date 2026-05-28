@@ -51,10 +51,10 @@ testCase scenarioSessionToRequest:
   # Construct a Request
   let mcid = makeMcid("c0")
   let inv = initInvocation(mnMailboxGet, %*{"accountId": $acctId}, mcid)
-  let req = Request(
-    `using`: @["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail"],
-    methodCalls: @[inv],
-    createdIds: Opt.none(Table[CreationId, Id]),
+  let req = initRequest(
+    @["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail"],
+    @[inv],
+    Opt.none(Table[CreationId, Id]),
   )
   doAssert req.methodCalls.len == 1
   doAssert req.methodCalls[0].methodCallId == mcid
@@ -79,10 +79,10 @@ testCase scenarioMultiMethodWithReferences:
 
   let setInv = initInvocation(mnEmailSet, %*{"accountId": "acct1"}, mcid2)
 
-  let req = Request(
-    `using`: @["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail"],
-    methodCalls: @[queryInv, getInv, setInv],
-    createdIds: Opt.none(Table[CreationId, Id]),
+  let req = initRequest(
+    @["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail"],
+    @[queryInv, getInv, setInv],
+    Opt.none(Table[CreationId, Id]),
   )
   doAssert req.methodCalls.len == 3
   doAssert req.methodCalls[0].methodCallId == mcid0
@@ -95,20 +95,13 @@ testCase scenarioCreatedIdsRoundTrip:
   cids[makeCreationId("k0")] = makeId("serverId1")
   cids[makeCreationId("k1")] = makeId("serverId2")
 
-  let req = Request(
-    `using`: @["urn:ietf:params:jmap:core"],
-    methodCalls: @[makeInvocation()],
-    createdIds: Opt.some(cids),
-  )
+  let req =
+    initRequest(@["urn:ietf:params:jmap:core"], @[makeInvocation()], Opt.some(cids))
   doAssert req.createdIds.isSome
   doAssert req.createdIds.get().len == 2
 
   # Response echoes the same createdIds
-  let resp = Response(
-    methodResponses: @[makeInvocation()],
-    createdIds: Opt.some(cids),
-    sessionState: makeState("s2"),
-  )
+  let resp = initResponse(@[makeInvocation()], Opt.some(cids), makeState("s2"))
   doAssert resp.createdIds.isSome
   doAssert resp.createdIds.get()[makeCreationId("k0")] == makeId("serverId1")
 
@@ -117,18 +110,16 @@ testCase scenarioResponseCorrelation:
   let mcid0 = makeMcid("c0")
   let mcid1 = makeMcid("c1")
 
-  let req = Request(
-    `using`: @["urn:ietf:params:jmap:core"],
-    methodCalls:
-      @[makeInvocation("Mailbox/get", mcid0), makeInvocation("Email/get", mcid1)],
-    createdIds: Opt.none(Table[CreationId, Id]),
+  let req = initRequest(
+    @["urn:ietf:params:jmap:core"],
+    @[makeInvocation("Mailbox/get", mcid0), makeInvocation("Email/get", mcid1)],
+    Opt.none(Table[CreationId, Id]),
   )
 
-  let resp = Response(
-    methodResponses:
-      @[makeInvocation("Mailbox/get", mcid0), makeInvocation("Email/get", mcid1)],
-    createdIds: Opt.none(Table[CreationId, Id]),
-    sessionState: makeState("s1"),
+  let resp = initResponse(
+    @[makeInvocation("Mailbox/get", mcid0), makeInvocation("Email/get", mcid1)],
+    Opt.none(Table[CreationId, Id]),
+    makeState("s1"),
   )
 
   # Correlate by methodCallId
@@ -410,8 +401,7 @@ testCase scenarioPrimaryAccountCkUnknownReturnsNone:
 testCase scenarioEmptyUsingAndMethodCalls:
   ## Request with empty using and empty methodCalls is valid at Layer 1.
   ## Layer 3 protocol logic may reject this, but Layer 1 holds the data.
-  let req =
-    Request(`using`: @[], methodCalls: @[], createdIds: Opt.none(Table[CreationId, Id]))
+  let req = initRequest(@[], @[], Opt.none(Table[CreationId, Id]))
   doAssert req.`using`.len == 0
   doAssert req.methodCalls.len == 0
 
@@ -421,10 +411,8 @@ testCase scenarioDuplicateMethodCallIdsInRequest:
   let mcid = makeMcid("shared")
   let inv1 = initInvocation(mnEmailGet, newJObject(), mcid)
   let inv2 = initInvocation(mnEmailQuery, newJObject(), mcid)
-  let req = Request(
-    `using`: @["urn:ietf:params:jmap:core"],
-    methodCalls: @[inv1, inv2],
-    createdIds: Opt.none(Table[CreationId, Id]),
+  let req = initRequest(
+    @["urn:ietf:params:jmap:core"], @[inv1, inv2], Opt.none(Table[CreationId, Id])
   )
   doAssert req.methodCalls.len == 2
   doAssert req.methodCalls[0].methodCallId == req.methodCalls[1].methodCallId
@@ -432,11 +420,7 @@ testCase scenarioDuplicateMethodCallIdsInRequest:
 testCase scenarioResponseWithErrorInvocation:
   ## Response containing an Invocation with name="error" is valid.
   let errInv = parseInvocation("error", %*{"type": "serverFail"}, makeMcid("c0")).get()
-  let resp = Response(
-    methodResponses: @[errInv],
-    createdIds: Opt.none(Table[CreationId, Id]),
-    sessionState: makeState("s1"),
-  )
+  let resp = initResponse(@[errInv], Opt.none(Table[CreationId, Id]), makeState("s1"))
   doAssert resp.methodResponses[0].rawName == "error"
 
 testCase scenarioHasVariableEmptyString:
@@ -500,11 +484,10 @@ testCase sessionToRequestIntegration:
   var capUris: seq[string] = @[]
   for cap in session.capabilities:
     capUris.add cap.rawUri
-  let req = Request(
-    `using`: capUris,
-    methodCalls:
-      @[initInvocation(mnMailboxGet, newJObject(), parseMethodCallId("c0").get())],
-    createdIds: Opt.none(Table[CreationId, Id]),
+  let req = initRequest(
+    capUris,
+    @[initInvocation(mnMailboxGet, newJObject(), parseMethodCallId("c0").get())],
+    Opt.none(Table[CreationId, Id]),
   )
   doAssert req.`using`.len == capUris.len
 

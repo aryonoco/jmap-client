@@ -103,9 +103,6 @@ testCase envelopeTypes:
   let req = makeRequest()
   assertOk Request.fromJson(req.toJson())
 
-  let resp = makeResponse()
-  assertOk Response.fromJson(resp.toJson())
-
   let key = referencableKey("ids", direct(42))
   doAssert key == "ids"
 

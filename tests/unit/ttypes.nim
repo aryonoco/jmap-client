@@ -9,6 +9,7 @@ import std/tables
 import jmap_client
 import jmap_client/internal/types/validation
 import jmap_client/internal/types/errors
+import jmap_client/internal/types/envelope
 import jmap_client/internal/types/framework
 import ../mtestblock
 
@@ -72,5 +73,5 @@ testCase reExportAccessibility:
   # std/tables consumption: Request with createdIds
   var tbl = initTable[CreationId, Id]()
   tbl[cid] = id
-  let req = Request(`using`: @[], methodCalls: @[], createdIds: Opt.some(tbl))
+  let req = initRequest(@[], @[], Opt.some(tbl))
   doAssert req.createdIds.isSome

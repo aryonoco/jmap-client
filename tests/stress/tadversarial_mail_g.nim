@@ -442,13 +442,13 @@ func emailSetOkArgs(): JsonNode =
 testCase getBothSubmissionAdversarialGroup:
   block getBothBothSucceed:
     let handles = makeEmailSubmissionHandles()
-    let resp = Response(
-      methodResponses: @[
+    let resp = initResponse(
+      @[
         initInvocation(mnEmailSubmissionSet, emailSubmissionSetOkArgs(), makeMcid("c0")),
         initInvocation(mnEmailSet, emailSetOkArgs(), makeMcid("c0")),
       ],
-      createdIds: Opt.none(Table[CreationId, Id]),
-      sessionState: parseJmapState("ss1").get(),
+      Opt.none(Table[CreationId, Id]),
+      parseJmapState("ss1").get(),
     )
     let res = getBoth(makeDispatchedResponse(resp), handles)
     assertOk res
@@ -461,13 +461,13 @@ testCase getBothSubmissionAdversarialGroup:
     # ``getBothImplicitDestroyMethodError``).
     let handles = makeEmailSubmissionHandles()
     let errArgs = %*{"type": "accountNotFound"}
-    let resp = Response(
-      methodResponses: @[
+    let resp = initResponse(
+      @[
         initInvocation(mnEmailSubmissionSet, emailSubmissionSetOkArgs(), makeMcid("c0")),
         parseInvocation("error", errArgs, makeMcid("c0")).get(),
       ],
-      createdIds: Opt.none(Table[CreationId, Id]),
-      sessionState: parseJmapState("ss1").get(),
+      Opt.none(Table[CreationId, Id]),
+      parseJmapState("ss1").get(),
     )
     let res = getBoth(makeDispatchedResponse(resp), handles)
     assertErr res
@@ -476,12 +476,12 @@ testCase getBothSubmissionAdversarialGroup:
     # §8.6 row 3: outer ok but no inner Email/set invocation at all.
     # NameBoundHandle dispatch surfaces serverFail MethodError.
     let handles = makeEmailSubmissionHandles()
-    let resp = Response(
-      methodResponses: @[
+    let resp = initResponse(
+      @[
         initInvocation(mnEmailSubmissionSet, emailSubmissionSetOkArgs(), makeMcid("c0"))
       ],
-      createdIds: Opt.none(Table[CreationId, Id]),
-      sessionState: parseJmapState("ss1").get(),
+      Opt.none(Table[CreationId, Id]),
+      parseJmapState("ss1").get(),
     )
     let res = getBoth(makeDispatchedResponse(resp), handles)
     assertErr res
@@ -492,13 +492,13 @@ testCase getBothSubmissionAdversarialGroup:
     let handles = makeEmailSubmissionHandles(
       submissionMcid = makeMcid("c0"), emailSetMcid = makeMcid("c0")
     )
-    let resp = Response(
-      methodResponses: @[
+    let resp = initResponse(
+      @[
         initInvocation(mnEmailSubmissionSet, emailSubmissionSetOkArgs(), makeMcid("c0")),
         initInvocation(mnEmailSet, emailSetOkArgs(), makeMcid("c1")),
       ],
-      createdIds: Opt.none(Table[CreationId, Id]),
-      sessionState: parseJmapState("ss1").get(),
+      Opt.none(Table[CreationId, Id]),
+      parseJmapState("ss1").get(),
     )
     let res = getBoth(makeDispatchedResponse(resp), handles)
     assertErr res
@@ -511,11 +511,10 @@ testCase getBothSubmissionAdversarialGroup:
     let handles = makeEmailSubmissionHandles()
     var outerArgs = emailSubmissionSetOkArgs()
     outerArgs["notCreated"] = %*{"c1": {"type": "invalidProperties"}}
-    let resp = Response(
-      methodResponses:
-        @[initInvocation(mnEmailSubmissionSet, outerArgs, makeMcid("c0"))],
-      createdIds: Opt.none(Table[CreationId, Id]),
-      sessionState: parseJmapState("ss1").get(),
+    let resp = initResponse(
+      @[initInvocation(mnEmailSubmissionSet, outerArgs, makeMcid("c0"))],
+      Opt.none(Table[CreationId, Id]),
+      parseJmapState("ss1").get(),
     )
     let res = getBoth(makeDispatchedResponse(resp), handles)
     assertErr res
@@ -524,10 +523,10 @@ testCase getBothSubmissionAdversarialGroup:
     # §8.6 row 6: outer returns error invocation; inner never reached.
     let handles = makeEmailSubmissionHandles()
     let errArgs = %*{"type": "stateMismatch"}
-    let resp = Response(
-      methodResponses: @[parseInvocation("error", errArgs, makeMcid("c0")).get()],
-      createdIds: Opt.none(Table[CreationId, Id]),
-      sessionState: parseJmapState("ss1").get(),
+    let resp = initResponse(
+      @[parseInvocation("error", errArgs, makeMcid("c0")).get()],
+      Opt.none(Table[CreationId, Id]),
+      parseJmapState("ss1").get(),
     )
     let res = getBoth(makeDispatchedResponse(resp), handles)
     assertErr res
@@ -541,13 +540,13 @@ testCase getBothSubmissionAdversarialGroup:
     let handles = makeEmailSubmissionHandles()
     var outerArgs = emailSubmissionSetOkArgs()
     outerArgs["onSuccessUpdateEmail"] = %*{"#c-missing": {"keywords/$seen": true}}
-    let resp = Response(
-      methodResponses: @[
+    let resp = initResponse(
+      @[
         initInvocation(mnEmailSubmissionSet, outerArgs, makeMcid("c0")),
         initInvocation(mnEmailSet, emailSetOkArgs(), makeMcid("c0")),
       ],
-      createdIds: Opt.none(Table[CreationId, Id]),
-      sessionState: parseJmapState("ss1").get(),
+      Opt.none(Table[CreationId, Id]),
+      parseJmapState("ss1").get(),
     )
     let res = getBoth(makeDispatchedResponse(resp), handles)
     assertOk res

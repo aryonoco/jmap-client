@@ -21,6 +21,7 @@ import std/tables
 
 import results
 import jmap_client
+import jmap_client/internal/types/envelope
 import ./mcapture
 import ./mconfig
 import ./mlive
@@ -66,11 +67,7 @@ testCase tcreatedIdsEnvelopeLive:
       # concern). To exercise the RFC 8620 §3.3 server-echo
       # contract, drop into ``postRawJmap`` which POSTs a custom
       # body verbatim via a private one-shot Transport.
-      let req = Request(
-        `using`: baseReq.`using`,
-        methodCalls: baseReq.methodCalls,
-        createdIds: Opt.some(seedMap),
-      )
+      let req = initRequest(baseReq.`using`, baseReq.methodCalls, Opt.some(seedMap))
       let (respBody, respResult) = postRawJmap(
         target, session, $req.toJson(), target.aliceToken, target.authScheme
       )

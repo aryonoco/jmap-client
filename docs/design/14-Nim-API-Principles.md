@@ -251,6 +251,19 @@ types are the equivalent. *Application.* Audit which fields on
 `Session`, `Client`, and request builders are currently exported (`*`)
 vs private. Default to private. Each export is a deliberate decision.
 
+**Pattern-A wire-data types.** The opaque-handle discipline of P8
+extends to wire-data types whose construction would otherwise leak
+raw fields: `Request`, `Response`, `Invocation`, and
+`ResultReference` all have private `raw*` fields, hub-public read
+accessors, and hub-private smart constructors (`initX` total for
+the build path, `parseX` fallible for the wire boundary).
+Application code constructs Requests through
+`RequestBuilder.freeze` (which delegates to `initRequest`);
+Responses arrive through `Response.fromJson` (called by L4 inside
+`client.send`) and are consumed via `DispatchedResponse`. The
+diagnostic seam (P19) is `BuiltRequest.toJson` on the sealed
+handle, modelled after SQLite's `sqlite3_expanded_sql(stmt)`.
+
 **P9. Two clear context types per concept maximum.**
 *Rule.* Resist a context-type zoo. One handle for each persistent
 concept; one builder for each transient action. *Evidence.* SQLite has
@@ -289,9 +302,13 @@ prompts, forbidding async runtimes. *Nim translation.* Inside Nim,
 prefer closures (the closure environment carries state). At the future
 L5 FFI boundary, every C callback registration takes a `pointer`
 userdata that the library threads back unchanged. *Application.* No
-`proc registerLogger(p: LogProc)` at module level. Logging, auth
-callbacks, and progress callbacks are all per-`Session` (or
-per-`Client`).
+*Application.* No `proc registerLogger(p: LogProc)` at module
+level. `Transport`'s `SendProc` / `CloseProc` are per-handle
+closure fields. `JmapClient`'s `DebugCallback`, set via
+`setDebugCallback`, is the canonical per-handle wire-inspection
+hook — `setDebugCallback(client, nil)` detaches in libcurl style.
+Logging, auth callbacks, and progress callbacks all take the same
+per-`Session` (or per-`Client`) shape.
 
 **P12. Memory ownership is encoded in the type, not in documentation.**
 *Rule.* Whether a value is owned, borrowed, or transferred is visible
@@ -405,9 +422,16 @@ this back into types. *Nim translation.* L1 (typed records) + L2
 expose a "build a request from a `JsonNode`" public API would be the
 libdbus failure. *Application.* The public API for constructing a
 `Request` accepts typed `Invocation` values; raw `JsonNode` request
-construction is private to the library. Diagnostic emission
-(`Request.toJson`, `Response.toJson`) is fine; the reverse direction
-is not.
+construction is private to the library. Diagnostic emission lives
+on the sealed handle (`BuiltRequest.toJson`), not on bare wire
+types — analogous to SQLite's `sqlite3_expanded_sql(stmt)`.
+`Request.toJson` and `Invocation.toJson` are hub-private (reachable
+inside the library for HTTP-body construction and the sealed-handle
+diagnostic, but not to application code via `import jmap_client`);
+`Response.toJson` does not exist (the receive-side wire-inspection
+seam is `setDebugCallback`, see P11). The reverse direction —
+typed envelope parsing from raw JSON — is library plumbing,
+hub-private.
 
 **P20. Add features via additive variants, not new module-level entry points.**
 *Rule.* A new JMAP method or extension is a new variant of an existing

@@ -374,10 +374,10 @@ testCase rfc8620_S3_2_methodCallIdCorrelation:
 
 testCase rfc8620_S3_3_requestUsingContainsCapabilities:
   ## The using property lists capability URIs the client wishes to use.
-  let req = Request(
-    `using`: @["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail"],
-    methodCalls: @[makeInvocation()],
-    createdIds: Opt.none(Table[CreationId, Id]),
+  let req = initRequest(
+    @["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail"],
+    @[makeInvocation()],
+    Opt.none(Table[CreationId, Id]),
   )
   doAssert req.`using`.len == 2
   doAssert req.`using`[0] == "urn:ietf:params:jmap:core"
@@ -387,10 +387,8 @@ testCase rfc8620_S3_3_requestMethodCallsOrderPreserved:
   let mc0 = makeInvocation("A/get", makeMcid("c0"))
   let mc1 = makeInvocation("B/get", makeMcid("c1"))
   let mc2 = makeInvocation("C/get", makeMcid("c2"))
-  let req = Request(
-    `using`: @["urn:ietf:params:jmap:core"],
-    methodCalls: @[mc0, mc1, mc2],
-    createdIds: Opt.none(Table[CreationId, Id]),
+  let req = initRequest(
+    @["urn:ietf:params:jmap:core"], @[mc0, mc1, mc2], Opt.none(Table[CreationId, Id])
   )
   doAssert req.methodCalls.len == 3
   doAssert req.methodCalls[0].rawName == "A/get"
@@ -406,11 +404,8 @@ testCase rfc8620_S3_3_requestCreatedIdsPresent:
   ## createdIds can carry a Table[CreationId, Id] for proxy splitting.
   var cids = initTable[CreationId, Id]()
   cids[makeCreationId("k0")] = makeId("serverId1")
-  let req = Request(
-    `using`: @["urn:ietf:params:jmap:core"],
-    methodCalls: @[makeInvocation()],
-    createdIds: Opt.some(cids),
-  )
+  let req =
+    initRequest(@["urn:ietf:params:jmap:core"], @[makeInvocation()], Opt.some(cids))
   doAssert req.createdIds.isSome
   doAssert req.createdIds.get()[makeCreationId("k0")] == makeId("serverId1")
 
@@ -422,11 +417,7 @@ testCase rfc8620_S3_4_responseMethodResponsesOrdering:
   ## Method responses maintain the order of the original request's method calls.
   let r0 = makeInvocation("A/get", makeMcid("c0"))
   let r1 = makeInvocation("B/get", makeMcid("c1"))
-  let resp = Response(
-    methodResponses: @[r0, r1],
-    createdIds: Opt.none(Table[CreationId, Id]),
-    sessionState: makeState("s1"),
-  )
+  let resp = initResponse(@[r0, r1], Opt.none(Table[CreationId, Id]), makeState("s1"))
   doAssert resp.methodResponses.len == 2
   doAssert resp.methodResponses[0].rawName == "A/get"
   doAssert resp.methodResponses[1].rawName == "B/get"
@@ -445,22 +436,15 @@ testCase rfc8620_S3_3_requestEmptyUsing:
   ## RFC 8620 S3.3: Layer 1 does not validate the using list contents.
   ## An empty using list is structurally valid at Layer 1; the server
   ## will reject it with unknownCapability if needed.
-  let req = Request(
-    `using`: @[],
-    methodCalls: @[makeInvocation()],
-    createdIds: Opt.none(Table[CreationId, Id]),
-  )
+  let req = initRequest(@[], @[makeInvocation()], Opt.none(Table[CreationId, Id]))
   doAssert req.`using`.len == 0
 
 testCase rfc8620_S3_3_requestEmptyMethodCalls:
   ## RFC 8620 S3.3: Layer 1 does not validate the method calls list.
   ## An empty methodCalls list is structurally valid at Layer 1; the
   ## server may return an empty response.
-  let req = Request(
-    `using`: @["urn:ietf:params:jmap:core"],
-    methodCalls: @[],
-    createdIds: Opt.none(Table[CreationId, Id]),
-  )
+  let req =
+    initRequest(@["urn:ietf:params:jmap:core"], @[], Opt.none(Table[CreationId, Id]))
   doAssert req.methodCalls.len == 0
 
 testCase rfc8620_S3_3_requestDuplicateMethodCallIds:
@@ -470,10 +454,8 @@ testCase rfc8620_S3_3_requestDuplicateMethodCallIds:
   let mcid = makeMcid("c0")
   let inv1 = makeInvocation("A/get", mcid)
   let inv2 = makeInvocation("B/get", mcid)
-  let req = Request(
-    `using`: @["urn:ietf:params:jmap:core"],
-    methodCalls: @[inv1, inv2],
-    createdIds: Opt.none(Table[CreationId, Id]),
+  let req = initRequest(
+    @["urn:ietf:params:jmap:core"], @[inv1, inv2], Opt.none(Table[CreationId, Id])
   )
   doAssert req.methodCalls.len == 2
   doAssert req.methodCalls[0].methodCallId == req.methodCalls[1].methodCallId
@@ -1259,10 +1241,10 @@ testCase rfc8620_S3_3_goldenRequestToJson:
     .get()
   let inv2 = parseInvocation("method2", %*{"arg1": "arg1data"}, makeMcid("c2")).get()
   let inv3 = parseInvocation("method3", newJObject(), makeMcid("c3")).get()
-  let req = Request(
-    `using`: @["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail"],
-    methodCalls: @[inv1, inv2, inv3],
-    createdIds: Opt.none(Table[CreationId, Id]),
+  let req = initRequest(
+    @["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail"],
+    @[inv1, inv2, inv3],
+    Opt.none(Table[CreationId, Id]),
   )
   let j = req.toJson()
   # Verify using array

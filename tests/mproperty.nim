@@ -41,6 +41,7 @@ import jmap_client/internal/mail/submission_param
 import jmap_client/internal/mail/submission_envelope
 import jmap_client/internal/mail/submission_status
 import jmap_client/internal/mail/email_submission
+import jmap_client/internal/protocol/builder
 
 {.push ruleOff: "hasDoc".}
 {.push ruleOff: "params".}
@@ -1025,7 +1026,16 @@ proc genRequest*(rng: var Rand): Request =
       Opt.some(tbl)
     else:
       Opt.none(Table[CreationId, Id])
-  Request(`using`: usingUris, methodCalls: calls, createdIds: createdIds)
+  initRequest(usingUris, calls, createdIds)
+
+proc genBuiltRequest*(rng: var Rand): BuiltRequest =
+  ## Wraps ``genRequest`` into a ``BuiltRequest`` via
+  ## ``builtRequestFromParts`` with a deterministic ``BuilderId``.
+  ## ``builtRequestFromParts`` is reachable from ``tests/`` under
+  ## H10 via the direct ``builder`` import above.
+  let req = rng.genRequest()
+  let bid = initBuilderId(0x28b'u64, 0'u64)
+  builtRequestFromParts(req, bid, @[])
 
 proc genResponse*(rng: var Rand): Response =
   ## Generates a random Response with 1-5 methodResponses (with non-trivial
@@ -1047,7 +1057,7 @@ proc genResponse*(rng: var Rand): Response =
       Opt.some(tbl)
     else:
       Opt.none(Table[CreationId, Id])
-  Response(methodResponses: resps, createdIds: createdIds, sessionState: state)
+  initResponse(resps, createdIds, state)
 
 proc genSession*(rng: var Rand): Session =
   ## Generates a random valid Session: always includes ckCore, plus 0-3 additional

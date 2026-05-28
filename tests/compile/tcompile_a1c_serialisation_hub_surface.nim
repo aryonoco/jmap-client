@@ -148,7 +148,7 @@ static:
   when compiles(ResultReference.fromJson(newJObject())):
     {.error: "ResultReference.fromJson reachable through hub".}
 
-  # ---- Absence: serde_envelope_parse helpers ----
+  # ---- Absence: serde_envelope helpers (consolidated after A16) ----
   when declared(referencableKey):
     {.error: "referencableKey reachable through hub".}
   when declared(fromJsonField):

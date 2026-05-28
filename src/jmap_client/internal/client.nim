@@ -45,6 +45,24 @@ import ./protocol/call_meta
 import ./transport/url_resolution
 import ./transport/classify
 
+type WireDirection* = enum
+  ## Direction of a wire byte sequence as observed by a
+  ## ``DebugCallback``. ``wdSend`` is the request body the client is
+  ## about to hand to ``Transport.send``; ``wdReceive`` is the
+  ## response body the transport returned. The library invokes the
+  ## callback once per direction per HTTP exchange — every
+  ## ``fetchSession`` and every ``send``, including the GET exchange
+  ## where ``wdSend`` carries an empty ``openArray[byte]``.
+  wdSend
+  wdReceive
+
+type DebugCallback* =
+  proc(direction: WireDirection, bytes: openArray[byte]) {.closure, gcsafe, raises: [].}
+  ## Per-handle wire-inspection callback (P11). Modelled after
+  ## libcurl's ``CURLOPT_DEBUGFUNCTION``. ``bytes`` is borrowed for
+  ## the duration of the call — the application must copy if it
+  ## needs to retain the data across the return.
+
 # Design §9.1 (D4.12): compile-time hint when -d:ssl is missing.
 # Uses {.hint:} rather than {.warning:} because config.nims promotes
 # User warnings to errors (warningAsError: User). A hint achieves the
@@ -66,6 +84,7 @@ type JmapClientObj = object
   session: Opt[Session]
   clientBrand: uint64
   nextBuilderSerial: uint64
+  debugCallback: Opt[DebugCallback]
 
 # ``{.ruleOff: "hasDoc".}`` on the ref alias works around a
 # nimalyzer 0.12.2 bug: hasdoc.nim:217-228 indexes
@@ -206,6 +225,7 @@ proc initJmapClient*(
       session: Opt.none(Session),
       clientBrand: clientBrand,
       nextBuilderSerial: 0'u64,
+      debugCallback: Opt.none(DebugCallback),
     )
   )
 
@@ -266,6 +286,17 @@ proc setBearerToken*(client: JmapClient, token: string): Result[void, Validation
     return err(toValidationError(error))
   client.bearerToken = token
   ok()
+
+proc setDebugCallback*(client: JmapClient, cb: DebugCallback) =
+  ## Installs, replaces, or detaches the per-handle wire debug
+  ## callback. Pass ``nil`` to detach — libcurl shape:
+  ## ``curl_easy_setopt(h, CURLOPT_DEBUGFUNCTION, NULL)``. Once set,
+  ## fires on every transport exchange until detached or until the
+  ## ``JmapClient`` is dropped.
+  if cb.isNil:
+    client.debugCallback = Opt.none(DebugCallback)
+  else:
+    client.debugCallback = Opt.some(cb)
 
 # ---------------------------------------------------------------------------
 # Pre-flight validation (§7)
@@ -426,6 +457,15 @@ func authorizationHeader(client: JmapClient): string =
   ## Builds the per-call Authorization header value. Pure.
   client.authScheme & " " & client.bearerToken
 
+proc fireDebug(client: JmapClient, direction: WireDirection, bytes: openArray[byte]) =
+  ## Fires the per-handle debug callback if installed. ``DebugCallback``
+  ## is typed ``{.closure, gcsafe, raises: [].}``, so the call site
+  ## requires no ``cast(gcsafe)`` block — the typed pragma is the
+  ## contract. ``for cb in opt:`` is the canonical ``Opt[T]``
+  ## consumption form (``nim-conventions.md`` "Optional Values").
+  for cb in client.debugCallback:
+    cb(direction, bytes)
+
 proc fetchSession*(client: JmapClient): JmapResult[Session] =
   ## Fetches the JMAP Session resource from the server and caches it.
   ## Re-fetching replaces the cached session.
@@ -435,8 +475,10 @@ proc fetchSession*(client: JmapClient): JmapResult[Session] =
     body: "",
     authorization: authorizationHeader(client),
   )
+  client.fireDebug(wdSend, req.body.toOpenArrayByte(0, req.body.high))
   let httpResp = client.transport.send(req).valueOr:
     return err(clientError(error))
+  client.fireDebug(wdReceive, httpResp.body.toOpenArrayByte(0, httpResp.body.high))
   let jsonNode = ?parseJmapJson(httpResp, rcSession)
   let session = ?Session.fromJson(jsonNode).mapErr(
     proc(sv: SerdeViolation): ClientError =
@@ -455,6 +497,7 @@ proc performSend(
   let coreCaps = session.coreCapabilities()
   let jsonNode = request.toJson()
   let body = $jsonNode
+  client.fireDebug(wdSend, body.toOpenArrayByte(0, body.high))
   let maxSize = coreCaps.maxSizeRequest.toInt64
   if body.len > int(maxSize):
     let ve = toValidationError(
@@ -471,6 +514,7 @@ proc performSend(
   )
   let httpResp = client.transport.send(req).valueOr:
     return err(clientError(error))
+  client.fireDebug(wdReceive, httpResp.body.toOpenArrayByte(0, httpResp.body.high))
   parseJmapResponse(httpResp, rcApi)
 
 proc ensureSession(client: JmapClient): JmapResult[Session] =

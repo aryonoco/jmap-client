@@ -25,10 +25,8 @@ testCase propRequestPreservesMethodCallOrder:
     var calls: seq[Invocation] = @[]
     for i in 0 ..< n:
       calls.add genInvocation(rng)
-    let req = Request(
-      `using`: @["urn:ietf:params:jmap:core"],
-      methodCalls: calls,
-      createdIds: Opt.none(Table[CreationId, Id]),
+    let req = initRequest(
+      @["urn:ietf:params:jmap:core"], calls, Opt.none(Table[CreationId, Id])
     )
     doAssert req.methodCalls.len == n
     for i in 0 ..< n:
@@ -43,11 +41,7 @@ testCase propResponsePreservesInvocationOrder:
     for i in 0 ..< n:
       responses.add genInvocation(rng)
     let state = parseJmapState("s" & $trial).get()
-    let resp = Response(
-      methodResponses: responses,
-      createdIds: Opt.none(Table[CreationId, Id]),
-      sessionState: state,
-    )
+    let resp = initResponse(responses, Opt.none(Table[CreationId, Id]), state)
     doAssert resp.methodResponses.len == n
     for i in 0 ..< n:
       doAssert resp.methodResponses[i].name == responses[i].name
@@ -106,7 +100,7 @@ testCase propRequestCreatedIdsTablePreserved:
       let cid = parseCreationId("k" & $i).get()
       let id = parseIdFromServer("sid" & $i).get()
       cids[cid] = id
-    let req = Request(`using`: @[], methodCalls: @[], createdIds: Opt.some(cids))
+    let req = initRequest(@[], @[], Opt.some(cids))
     doAssert req.createdIds.isSome
     doAssert req.createdIds.get().len == n
     for i in 0 ..< n:

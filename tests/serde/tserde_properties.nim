@@ -78,17 +78,6 @@ checkPropertyN "Request serde round-trip", ThoroughTrials:
     doAssert v.methodCalls[i].arguments == original.methodCalls[i].arguments
   doAssert v.createdIds.isSome == original.createdIds.isSome
 
-checkPropertyN "Response serde round-trip", ThoroughTrials:
-  let original = rng.genResponse()
-  let v = Response.fromJson(original.toJson()).get()
-  doAssert v.methodResponses.len == original.methodResponses.len
-  doAssert v.sessionState == original.sessionState
-  for i in 0 ..< v.methodResponses.len:
-    doAssert v.methodResponses[i].name == original.methodResponses[i].name
-    doAssert v.methodResponses[i].methodCallId ==
-      original.methodResponses[i].methodCallId
-  doAssert v.createdIds.isSome == original.createdIds.isSome
-
 checkProperty "Filter[int] serde round-trip":
   let original = rng.genFilter(4)
   let rt = Filter[int].fromJson(original.toJson(), fromIntCondition).get()
@@ -289,14 +278,3 @@ testCase compositionSetErrorAlreadyExistsPreservation:
   let v = SetError.fromJson(original.toJson()).get()
   doAssert v.kind == setAlreadyExists
   assertEq $v.existingId, "msg42"
-
-testCase compositionResponseCreatedIdsPreservation:
-  ## Response createdIds table survives round-trip with correct keys and values.
-  var tbl = initTable[CreationId, Id]()
-  tbl[makeCreationId("new1")] = makeId("id1")
-  tbl[makeCreationId("new2")] = makeId("id2")
-  tbl[makeCreationId("new3")] = makeId("id3")
-  let original = makeResponse(createdIds = Opt.some(tbl))
-  let v = Response.fromJson(original.toJson()).get()
-  doAssert v.createdIds.isSome
-  assertEq v.createdIds.get().len, 3

@@ -29,13 +29,14 @@ testCase requestRfcExample:
   let c1 = parseMethodCallId("c1").get()
   let c2 = parseMethodCallId("c2").get()
   let c3 = parseMethodCallId("c3").get()
-  let req = Request(
-    `using`: @["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail"],
-    methodCalls: @[
+  let req = initRequest(
+    @["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail"],
+    @[
       parseInvocation("method1", %*{"arg1": "arg1data", "arg2": "arg2data"}, c1).get(),
       parseInvocation("method2", %*{"arg1": "arg1data"}, c2).get(),
       parseInvocation("method3", %*{}, c3).get(),
     ],
+    Opt.none(Table[CreationId, Id]),
   )
   doAssert req.`using`.len == 2
   doAssert req.`using`[0] == "urn:ietf:params:jmap:core"
@@ -53,14 +54,14 @@ testCase requestWithCreatedIds:
   let id = parseIdFromServer("abc").get()
   var tbl = initTable[CreationId, Id]()
   tbl[cid] = id
-  let req = Request(`using`: @[], methodCalls: @[], createdIds: Opt.some(tbl))
+  let req = initRequest(@[], @[], Opt.some(tbl))
   doAssert req.createdIds.isSome
   let extracted = req.createdIds.get()
   doAssert extracted.len == 1
   doAssert extracted[cid] == id
 
 testCase requestEmptyMethodCalls:
-  let req = Request(`using`: @[], methodCalls: @[])
+  let req = initRequest(@[], @[], Opt.none(Table[CreationId, Id]))
   doAssert req.`using`.len == 0
   doAssert req.methodCalls.len == 0
   doAssert req.createdIds.isNone
@@ -70,9 +71,10 @@ testCase requestEmptyMethodCalls:
 testCase responseConstruction:
   let mcid = parseMethodCallId("c1").get()
   let state = parseJmapState("state1").get()
-  let resp = Response(
-    methodResponses: @[initInvocation(mnMailboxGet, %*{"list": []}, mcid)],
-    sessionState: state,
+  let resp = initResponse(
+    @[initInvocation(mnMailboxGet, %*{"list": []}, mcid)],
+    Opt.none(Table[CreationId, Id]),
+    state,
   )
   doAssert resp.methodResponses.len == 1
   doAssert resp.methodResponses[0].name == mnMailboxGet
@@ -85,8 +87,8 @@ testCase responseRfcExample:
   let c2 = parseMethodCallId("c2").get()
   let c3 = parseMethodCallId("c3").get()
   let state = parseJmapState("75128aab4b1b").get()
-  let resp = Response(
-    methodResponses: @[
+  let resp = initResponse(
+    @[
       parseInvocation("method1", %*{"arg1": 3, "arg2": "foo"}, c1).get(),
       parseInvocation("method2", %*{"isBlah": true}, c2).get(),
       parseInvocation(
@@ -95,7 +97,8 @@ testCase responseRfcExample:
         .get(),
       parseInvocation("error", %*{"type": "unknownMethod"}, c3).get(),
     ],
-    sessionState: state,
+    Opt.none(Table[CreationId, Id]),
+    state,
   )
   doAssert resp.methodResponses.len == 4
   doAssert resp.methodResponses[0].methodCallId == c1
@@ -112,8 +115,7 @@ testCase responseWithCreatedIds:
   let state = parseJmapState("state2").get()
   var tbl = initTable[CreationId, Id]()
   tbl[cid] = id
-  let resp =
-    Response(methodResponses: @[], createdIds: Opt.some(tbl), sessionState: state)
+  let resp = initResponse(@[], Opt.some(tbl), state)
   doAssert resp.createdIds.isSome
   let extracted = resp.createdIds.get()
   doAssert extracted.len == 1
@@ -190,9 +192,9 @@ testCase referencableVariantDiscrimination:
 
 testCase requestDuplicateUsing:
   ## Duplicate entries in Request.using are preserved (seq, not set).
-  let req = Request(
-    `using`: @["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:core"],
-    methodCalls: @[],
-    createdIds: Opt.none(Table[CreationId, Id]),
+  let req = initRequest(
+    @["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:core"],
+    @[],
+    Opt.none(Table[CreationId, Id]),
   )
   doAssert req.`using`.len == 2

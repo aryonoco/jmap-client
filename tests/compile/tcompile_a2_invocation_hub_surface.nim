@@ -23,14 +23,17 @@ static:
   doAssert compiles(name(inv))
   doAssert compiles(inv.name)
   doAssert compiles(methodCallId(inv))
-  doAssert compiles(inv.toJson)
 
   # =========================================================================
   # NEGATIVE — the raw JsonNode accessor must NOT be declared at the
-  # hub. Application developers consume typed values through the
-  # dispatcher; diagnostic inspection is via ``inv.toJson``.
+  # hub, and ``Invocation.toJson`` is hub-private after A16.
+  # Application developers consume typed values through the
+  # dispatcher; the application-facing wire-shape diagnostic is
+  # ``BuiltRequest.toJson`` (which embeds the Invocation 3-tuple
+  # array into ``methodCalls`` via ``Request.toJson``).
   # =========================================================================
 
+  doAssert not compiles(inv.toJson)
   doAssert not declared(arguments)
   doAssert not compiles(inv.arguments)
 

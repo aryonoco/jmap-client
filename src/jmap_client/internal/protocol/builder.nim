@@ -33,6 +33,7 @@ import std/sequtils
 import std/tables
 
 import ../types
+import ../types/envelope
 import ../types/validation
 import ../serialisation/serde_envelope
 import ../serialisation/serde_errors
@@ -158,10 +159,8 @@ func freeze*(b: sink RequestBuilder): BuiltRequest =
   ## ``createdIds`` is always ``none`` — proxy splitting is a Layer 4
   ## concern.
   BuiltRequest(
-    rawRequest: Request(
-      `using`: b.capabilityUris.mapIt($it),
-      methodCalls: b.invocations,
-      createdIds: Opt.none(Table[CreationId, Id]),
+    rawRequest: initRequest(
+      b.capabilityUris.mapIt($it), b.invocations, Opt.none(Table[CreationId, Id])
     ),
     rawBuilderId: b.id,
     rawCallLimits: b.callLimits,
@@ -183,6 +182,21 @@ func callLimits*(br: BuiltRequest): seq[CallLimitMeta] =
   ## ``maxObjectsInSet`` from typed counts rather than raw JSON
   ## traversal of ``inv.arguments``.
   br.rawCallLimits
+
+func toJson*(br: BuiltRequest): JsonNode =
+  ## Canonical-form rendering of the JMAP batch this BuiltRequest will
+  ## dispatch (RFC 8620 §3.3). Top-level key order is fixed: ``using``,
+  ## ``methodCalls``, then ``createdIds`` (when present).
+  ##
+  ## Application-facing diagnostic seam, analogous to SQLite's
+  ## ``sqlite3_expanded_sql(stmt)``: render what is about to be sent
+  ## without performing I/O. For the bytes that actually crossed the
+  ## wire (after TLS, content-length headers, retries, etc.), set a
+  ## debug callback on the ``JmapClient`` via ``setDebugCallback``.
+  ##
+  ## Byte order locked by A28b
+  ## (``tests/property/twire_determinism.nim``).
+  br.rawRequest.toJson()
 
 func builtRequestFromParts*(
     request: Request, builderId: BuilderId, callLimits: seq[CallLimitMeta] = @[]

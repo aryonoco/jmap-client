@@ -106,15 +106,15 @@ testCase getBothQueryGetSuccess:
   let b0 = initRequestBuilder(makeBuilderId())
   let bid = b0.builderId
   let (_, handles) = addEmailQueryThenGet(b0, makeAccountId("a1"))
-  let resp = Response(
-    methodResponses: @[
+  let resp = initResponse(
+    @[
       initInvocation(
         mnEmailQuery, makeQueryResponseJson(accountId = "a1"), makeMcid("c0")
       ),
       initInvocation(mnEmailGet, makeGetResponseJson(accountId = "a1"), makeMcid("c1")),
     ],
-    createdIds: Opt.none(Table[CreationId, Id]),
-    sessionState: makeState("rs1"),
+    Opt.none(Table[CreationId, Id]),
+    makeState("rs1"),
   )
   let dr = makeDispatchedResponse(resp, bid)
   let results = dr.getBoth(handles)
@@ -128,15 +128,15 @@ testCase getBothChangesGetSuccess:
   let b0 = initRequestBuilder(makeBuilderId())
   let bid = b0.builderId
   let (_, handles) = addEmailChangesToGet(b0, makeAccountId("a1"), makeState("s0"))
-  let resp = Response(
-    methodResponses: @[
+  let resp = initResponse(
+    @[
       initInvocation(
         mnEmailChanges, makeChangesResponseJson(accountId = "a1"), makeMcid("c0")
       ),
       initInvocation(mnEmailGet, makeGetResponseJson(accountId = "a1"), makeMcid("c1")),
     ],
-    createdIds: Opt.none(Table[CreationId, Id]),
-    sessionState: makeState("rs1"),
+    Opt.none(Table[CreationId, Id]),
+    makeState("rs1"),
   )
   let dr = makeDispatchedResponse(resp, bid)
   let results = dr.getBoth(handles)
@@ -148,8 +148,8 @@ testCase getBothMailboxChangesGetSuccess:
   let b0 = initRequestBuilder(makeBuilderId())
   let bid = b0.builderId
   let (_, handles) = addMailboxChangesToGet(b0, makeAccountId("a1"), makeState("s0"))
-  let resp = Response(
-    methodResponses: @[
+  let resp = initResponse(
+    @[
       initInvocation(
         mnMailboxChanges, makeChangesResponseJson(accountId = "a1"), makeMcid("c0")
       ),
@@ -157,8 +157,8 @@ testCase getBothMailboxChangesGetSuccess:
         mnMailboxGet, makeGetResponseJson(accountId = "a1"), makeMcid("c1")
       ),
     ],
-    createdIds: Opt.none(Table[CreationId, Id]),
-    sessionState: makeState("rs1"),
+    Opt.none(Table[CreationId, Id]),
+    makeState("rs1"),
   )
   let dr = makeDispatchedResponse(resp, bid)
   let results = dr.getBoth(handles)
@@ -171,13 +171,13 @@ testCase getBothShortCircuitsOnFirstError:
   let b0 = initRequestBuilder(makeBuilderId())
   let bid = b0.builderId
   let (_, handles) = addEmailQueryThenGet(b0, makeAccountId("a1"))
-  let resp = Response(
-    methodResponses: @[
+  let resp = initResponse(
+    @[
       parseInvocation("error", %*{"type": "serverFail"}, makeMcid("c0")).get(),
       initInvocation(mnEmailGet, makeGetResponseJson(accountId = "a1"), makeMcid("c1")),
     ],
-    createdIds: Opt.none(Table[CreationId, Id]),
-    sessionState: makeState("rs1"),
+    Opt.none(Table[CreationId, Id]),
+    makeState("rs1"),
   )
   let dr = makeDispatchedResponse(resp, bid)
   doAssert dr.getBoth(handles).isErr

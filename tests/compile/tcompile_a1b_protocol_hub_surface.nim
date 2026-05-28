@@ -11,6 +11,8 @@
 ## locks the public commitment to application developers — see
 ## ``docs/design/14-Nim-API-Principles.md`` P2, P5.
 
+import std/json
+
 import jmap_client
 
 static:
@@ -96,6 +98,32 @@ static:
   # client.nim — newBuilder is the single blessed entry point
   doAssert declared(newBuilder)
 
+  # A16: wire-shape diagnostic on the sealed handle reaches the hub.
+  # ``BuiltRequest`` itself is already asserted declared above. Use a
+  # proc-literal so the by-value parameter binding does not trip
+  # ``=copy {.error.}`` at the use site.
+  doAssert compiles(
+    (
+      proc(br: BuiltRequest): JsonNode =
+        br.toJson()
+    )
+  )
+
+  # A30: Pattern-A read accessors on Request and Response reach the hub.
+  doAssert compiles(default(Request).`using`)
+  doAssert compiles(default(Request).methodCalls)
+  doAssert compiles(default(Request).createdIds)
+  doAssert compiles(default(Response).methodResponses)
+  doAssert compiles(default(Response).createdIds)
+  doAssert compiles(default(Response).sessionState)
+
+  # A31: per-handle debug callback reaches the hub.
+  doAssert declared(WireDirection)
+  doAssert declared(DebugCallback)
+  doAssert declared(wdSend)
+  doAssert declared(wdReceive)
+  doAssert declared(setDebugCallback)
+
   # =========================================================================
   # NEGATIVE — must NOT be reachable through `import jmap_client`
   # =========================================================================
@@ -146,6 +174,33 @@ static:
   # A12 — library-internal GetError producers are hub-private
   doAssert not declared(getErrorMethod)
   doAssert not declared(getErrorHandleMismatch)
+
+  # A16: envelope-level toJson is hub-private (Request, Invocation,
+  # ResultReference) or deleted (Response). Tested via UFCS symbol
+  # lookup on a default value — no call form, so no copy semantics.
+  doAssert not compiles(default(Request).toJson)
+  doAssert not compiles(default(Response).toJson)
+  doAssert not compiles(default(Invocation).toJson)
+  doAssert not compiles(default(ResultReference).toJson)
+
+  # A30: raw fields on Request and Response are not constructible.
+  doAssert not compiles(
+    Request(
+      rawUsing: @[], rawMethodCalls: @[], rawCreatedIds: Opt.none(Table[CreationId, Id])
+    )
+  )
+  doAssert not compiles(
+    Response(
+      rawMethodResponses: @[],
+      rawCreatedIds: Opt.none(Table[CreationId, Id]),
+      rawSessionState: default(JmapState),
+    )
+  )
+
+  # A30: smart constructors are hub-private (filtered at types.nim).
+  doAssert not declared(initRequest)
+  doAssert not declared(parseRequest)
+  doAssert not declared(initResponse)
 
 # Runtime anchor — `declared()` in the static block above does not
 # count as "use" for Nim's UnusedImport check. Reference one

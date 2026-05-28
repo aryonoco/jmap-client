@@ -830,13 +830,13 @@ testCase getBothAdversarialGroup:
     let sharedId = makeMcid("c0")
     let handles = makeEmailCopyHandles(sharedId)
     let otherId = makeMcid("c1")
-    let resp = Response(
-      methodResponses: @[
+    let resp = initResponse(
+      @[
         initInvocation(mnEmailCopy, copyOkArgs(), sharedId),
         initInvocation(mnEmailSet, setOkArgs(), otherId),
       ],
-      createdIds: Opt.none(Table[CreationId, Id]),
-      sessionState: parseJmapState("ss1").get(),
+      Opt.none(Table[CreationId, Id]),
+      parseJmapState("ss1").get(),
     )
     let res = getBoth(makeDispatchedResponse(resp), handles)
     assertErr res
@@ -856,13 +856,13 @@ testCase getBothAdversarialGroup:
     let sharedId = makeMcid("c0")
     let handles = makeEmailCopyHandles(sharedId)
     let errorArgs = %*{"type": "fromAccountNotFound"}
-    let resp = Response(
-      methodResponses: @[
+    let resp = initResponse(
+      @[
         initInvocation(mnEmailCopy, copyOkArgs(), sharedId),
         parseInvocation("error", errorArgs, sharedId).get(),
       ],
-      createdIds: Opt.none(Table[CreationId, Id]),
-      sessionState: parseJmapState("ss1").get(),
+      Opt.none(Table[CreationId, Id]),
+      parseJmapState("ss1").get(),
     )
     let res = getBoth(makeDispatchedResponse(resp), handles)
     assertErr res
@@ -878,13 +878,13 @@ testCase getBothAdversarialGroup:
     let sharedId = makeMcid("c0")
     let handles = makeEmailCopyHandles(sharedId)
     let errorArgs = %*{"type": "fromAccountNotFound"}
-    let resp = Response(
-      methodResponses: @[
+    let resp = initResponse(
+      @[
         parseInvocation("error", errorArgs, sharedId).get(),
         initInvocation(mnEmailSet, setOkArgs(), sharedId),
       ],
-      createdIds: Opt.none(Table[CreationId, Id]),
-      sessionState: parseJmapState("ss1").get(),
+      Opt.none(Table[CreationId, Id]),
+      parseJmapState("ss1").get(),
     )
     let res = getBoth(makeDispatchedResponse(resp), handles)
     assertErr res
@@ -1219,13 +1219,13 @@ testCase scaleInvariantsGroup:
     # createResults. getBoth returns Ok(EmailCopyResults(primary, implicit)).
     let sharedId = makeMcid("c0")
     let handles = makeEmailCopyHandles(sharedId)
-    let resp = Response(
-      methodResponses: @[
+    let resp = initResponse(
+      @[
         initInvocation(mnEmailCopy, copyOkArgs(), sharedId),
         initInvocation(mnEmailSet, setOkArgs(), sharedId),
       ],
-      createdIds: Opt.none(Table[CreationId, Id]),
-      sessionState: parseJmapState("ss1").get(),
+      Opt.none(Table[CreationId, Id]),
+      parseJmapState("ss1").get(),
     )
     let res = getBoth(makeDispatchedResponse(resp), handles)
     assertOk res

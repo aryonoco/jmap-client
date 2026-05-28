@@ -245,7 +245,7 @@ proc makeRequest*(
     methodCalls: seq[Invocation] = @[makeInvocation()],
     createdIds = Opt.none(Table[CreationId, Id]),
 ): Request =
-  Request(`using`: `using`, methodCalls: methodCalls, createdIds: createdIds)
+  initRequest(`using`, methodCalls, createdIds)
 
 proc makeBuiltRequest*(
     `using`: seq[string] = @["urn:ietf:params:jmap:core"],
@@ -267,9 +267,7 @@ proc makeResponse*(
     state = makeState("rs1"),
     createdIds = Opt.none(Table[CreationId, Id]),
 ): Response =
-  Response(
-    methodResponses: methodResponses, createdIds: createdIds, sessionState: state
-  )
+  initResponse(methodResponses, createdIds, state)
 
 proc makeResultReference*(
     mcid = makeMcid("c0"), name = mnMailboxGet, path = rpIds
@@ -1012,11 +1010,7 @@ proc makeTypedResponse*(
   ## Takes the method name as a string so fixtures can target forward-compat
   ## or unknown methods alongside those in the MethodName enum.
   let inv = parseInvocation(methodName, args, mcid).get()
-  Response(
-    methodResponses: @[inv],
-    createdIds: Opt.none(Table[CreationId, Id]),
-    sessionState: state,
-  )
+  initResponse(@[inv], Opt.none(Table[CreationId, Id]), state)
 
 proc makeErrorResponse*(
     errorType: string,
@@ -1025,11 +1019,7 @@ proc makeErrorResponse*(
 ): Response =
   ## Builds a Response with a single error invocation.
   let inv = makeErrorInvocation(mcid, errorType)
-  Response(
-    methodResponses: @[inv],
-    createdIds: Opt.none(Table[CreationId, Id]),
-    sessionState: state,
-  )
+  initResponse(@[inv], Opt.none(Table[CreationId, Id]), state)
 
 # ---------------------------------------------------------------------------
 # Mail Part D JSON fixtures (derived from type factories via toJson)

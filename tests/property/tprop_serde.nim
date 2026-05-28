@@ -41,15 +41,6 @@ testCase propRoundTripRequest:
     let rt = Request.fromJson(j).get()
     doAssert reqEq(rt, req), "Request round-trip identity violated"
 
-testCase propRoundTripResponse:
-  checkPropertyN "Response round-trip: fromJson(toJson(resp)) preserves structure",
-    ThoroughTrials:
-    let resp = rng.genResponse()
-    lastInput = $resp.methodResponses.len & " responses"
-    let j = resp.toJson()
-    let rt = Response.fromJson(j).get()
-    doAssert respEq(rt, resp), "Response round-trip identity violated"
-
 testCase propRoundTripServerCapabilityRawData:
   checkPropertyN "ServerCapability rawData preserved through round-trip", ThoroughTrials:
     let cap = rng.genServerCapability()
@@ -292,6 +283,12 @@ testCase propRequestDeepJsonTotality:
     let j = rng.genArbitraryJsonObject(5)
     lastInput = $j.kind
     discard Request.fromJson(j)
+
+testCase propResponseDeepJsonTotality:
+  checkPropertyN "Response.fromJson never crashes on deep arbitrary JSON", QuickTrials:
+    let j = rng.genArbitraryJsonObject(5)
+    lastInput = $j.kind
+    discard Response.fromJson(j)
 # =============================================================================
 # I. Idempotency and double-parse (Tier 2)
 # =============================================================================
@@ -492,16 +489,6 @@ testCase propIdempotenceRequest:
     let parsed = Request.fromJson(j1).get()
     let j2 = parsed.toJson()
     doAssert j1 == j2, "Request toJson is not idempotent"
-
-testCase propIdempotenceResponse:
-  ## toJson(fromJson(toJson(resp))) == toJson(resp).
-  checkPropertyN "Response serialisation is idempotent", ThoroughTrials:
-    let resp = rng.genResponse()
-    lastInput = $resp.methodResponses.len & " responses"
-    let j1 = resp.toJson()
-    let parsed = Response.fromJson(j1).get()
-    let j2 = parsed.toJson()
-    doAssert j1 == j2, "Response toJson is not idempotent"
 
 # =============================================================================
 # O. Phase 4C: toJson stability (determinism)

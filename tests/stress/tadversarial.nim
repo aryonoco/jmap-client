@@ -282,10 +282,8 @@ testCase resultReferenceNameAcceptsNul:
 
 testCase requestUsingAcceptsNul:
   ## Request.using elements are bare strings; NUL bytes are not checked.
-  let req = Request(
-    `using`: @["urn:ietf:params:jmap:core\x00evil"],
-    methodCalls: @[],
-    createdIds: Opt.none(Table[CreationId, Id]),
+  let req = initRequest(
+    @["urn:ietf:params:jmap:core\x00evil"], @[], Opt.none(Table[CreationId, Id])
   )
   doAssert req.`using`[0].len == 30
 
@@ -680,10 +678,8 @@ testCase nulLastByteResultReferencePath:
 
 testCase nulLastByteRequestUsing:
   ## Request.using element with trailing NUL: Nim preserves it.
-  let req = Request(
-    `using`: @["urn:ietf:params:jmap:core\x00"],
-    methodCalls: @[],
-    createdIds: Opt.none(Table[CreationId, Id]),
+  let req = initRequest(
+    @["urn:ietf:params:jmap:core\x00"], @[], Opt.none(Table[CreationId, Id])
   )
   doAssert req.`using`[0].len > 25
   doAssert req.`using`[0].len == 26

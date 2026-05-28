@@ -29,7 +29,6 @@ import ./protocol/entity
 import ./protocol/methods
 import ./protocol/dispatch
 import ./protocol/builder
-import ./serialisation/serde_envelope_emit
 
 export entity
 export methods except
@@ -40,9 +39,10 @@ export dispatch except
 export builder except
   addInvocation, callLimits, addGet, addChanges, addSet, addCopy, addQuery,
   addQueryChanges, initRequestBuilder, request, builderId, builtRequestFromParts
-# `Invocation` / `Request` / `Response` / `ResultReference` toJson are
-# user-facing — application developers use `inv.toJson` for diagnostic
-# inspection (A2) and `req.toJson` / `resp.toJson` for batch logging.
-# The parse half (`*.fromJson`, `referencableKey`, `fromJsonField`)
-# stays hub-private per P19 ("the reverse direction is not").
-export serde_envelope_emit
+# Envelope serde is hub-private after A16. The single public send-side
+# wire diagnostic is ``BuiltRequest.toJson`` (re-exported via the
+# ``export builder`` line above; ``toJson`` is not in that line's
+# ``except`` filter). For bytes that actually crossed the wire,
+# application code uses ``setDebugCallback`` on the ``JmapClient``
+# (A31). See A16 in docs/TODO/pre-1.0-api-alignment.md and §1.7 of
+# docs/design/04-layer-4-design.md.

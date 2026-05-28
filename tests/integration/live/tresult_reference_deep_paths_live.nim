@@ -184,10 +184,10 @@ testCase tresultReferenceDeepPathsLive:
           "parseInvocation[" & $target.kind & "]"
         )
       combinedCalls.add(brokenInv)
-      let combined = Request(
-        `using`: req1.`using` & @["urn:ietf:params:jmap:mail"],
-        methodCalls: combinedCalls,
-        createdIds: Opt.none(Table[CreationId, Id]),
+      let combined = initRequest(
+        req1.`using` & @["urn:ietf:params:jmap:mail"],
+        combinedCalls,
+        Opt.none(Table[CreationId, Id]),
       )
       # The public ``send(BuiltRequest)`` path requires a builder-issued
       # carrier; this test wants to dispatch a hand-stitched ``Request``

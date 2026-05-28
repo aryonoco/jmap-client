@@ -68,11 +68,7 @@ testCase stressResponse100Invocations:
   var invocations: seq[Invocation] = @[]
   for i in 0 ..< 100:
     invocations.add makeInvocation("Method/" & $i, makeMcid("c" & $i))
-  let resp = Response(
-    methodResponses: invocations,
-    createdIds: Opt.none(Table[CreationId, Id]),
-    sessionState: makeState("s1"),
-  )
+  let resp = initResponse(invocations, Opt.none(Table[CreationId, Id]), makeState("s1"))
   doAssert resp.methodResponses.len == 100
   doAssert resp.methodResponses[99].rawName == "Method/99"
 

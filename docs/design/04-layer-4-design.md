@@ -163,7 +163,7 @@ compiler constraints and architectural decisions.
 | Module | What is used | Where | Rationale |
 |--------|-------------|-------|-----------|
 | `std/httpclient` | `HttpClient`, `newHttpClient`, `request`, `close`, `HttpMethod`, `newHttpHeaders` | `client.nim` | Decision 4.1A. Synchronous HTTP. The sole network IO dependency. |
-| `std/json` | `parseJson`, `$` (serialise `JsonNode` to string), `JsonNode`, `JObject`, `JArray`, `hasKey`, `{}` (nil-safe key access) | `client.nim` | JSON string parsing (`string -> JsonNode`) is the Layer 4 boundary that Layers 1-3 delegate upward. `$` serialises `Request.toJson()` to the HTTP body. `parseJson` is the reverse for responses. `JArray` used in `detectGetLimit` for ids array detection. `{}` used in `detectGetLimit`/`detectSetLimit` for nil-safe access to optional method arguments. |
+| `std/json` | `parseJson`, `$` (serialise `JsonNode` to string), `JsonNode`, `JObject`, `JArray`, `hasKey`, `{}` (nil-safe key access) | `client.nim` | JSON string parsing (`string -> JsonNode`) is the Layer 4 boundary that Layers 1-3 delegate upward. `$` serialises `Request.toJson()` (hub-private after A16; reachable inside L4 for HTTP-body construction) to the HTTP body. `parseJson` is the reverse for responses. `JArray` used in `detectGetLimit` for ids array detection. `{}` used in `detectGetLimit`/`detectSetLimit` for nil-safe access to optional method arguments. |
 | `std/uri` | `parseUri`, `combine` | `client.nim` | RFC 3986 §5 reference resolution in `resolveAgainstSession` — relative `apiUrl` values (e.g., Cyrus's `"/jmap/"`) are resolved against the absolute session URL. Absolute `apiUrl` values bypass `combine` entirely. |
 | `std/strutils` | `toLowerAscii`, `startsWith`, `endsWith`, `contains`, `Whitespace` | `client.nim`, `errors.nim` | Content-Type case-insensitive matching, method name suffix detection on `inv.rawName` in `detectRequestLimits`, domain validation in `detectDomain`, embedded-newline check in `detectSessionUrl`, TLS message heuristic. URI template expansion folds parsed parts (§7). |
 | `std/net` | `TimeoutError`, `SslError` (selective imports) | `errors.nim` | `TimeoutError` for timeout classification in `classifyException`. `SslError` (guarded by `when defined(ssl)`) for direct TLS error classification — `SslError` inherits `CatchableError` directly, not `OSError`, so it requires its own branch. |
@@ -549,6 +549,47 @@ proc sendRawHttpForTesting*(
   ## intent visible at every call site and silence nimalyzer's
   ## unused-export rule when no test file references it yet.
 ```
+
+### 1.7 Wire-shape inspection — `BuiltRequest.toJson` and `setDebugCallback`
+
+The two application-facing wire-shape diagnostics are:
+
+```nim
+func toJson*(br: BuiltRequest): JsonNode
+proc setDebugCallback*(client: JmapClient, cb: DebugCallback)
+```
+
+`BuiltRequest.toJson` is modelled after SQLite's
+`sqlite3_expanded_sql(stmt)`: render the prepared thing before
+any I/O. The bytes returned are the canonical-form representation
+that `client.send(br)` serialises into the HTTP body, byte-for-
+byte (locked by A28b in `tests/property/twire_determinism.nim`).
+
+`setDebugCallback` is modelled after libcurl's
+`CURLOPT_DEBUGFUNCTION`: a per-handle callback the library
+invokes once with `wdSend` (request body bytes — an empty
+`openArray[byte]` for the GET on `fetchSession`) immediately
+before `Transport.send`, and once with `wdReceive` (response
+body bytes) immediately after. Both `fetchSession` and every
+`send` fire the callback. The `bytes` parameter is borrowed for
+the duration of the call — the application must copy if it
+needs to retain the data across the return. Pass `nil` to
+detach; the library does not provide a separate
+`clearDebugCallback`.
+
+The two seams compose: the application can render planned bytes
+via `br.toJson` and observed bytes via the debug callback and
+compare them. Differences are by design — TLS-layer rewrites,
+`Content-Length` and `Authorization` headers, connection pooling
+behaviour, and server redirect targets all live between the two.
+
+Bare `Request.toJson`, `Invocation.toJson`, and
+`ResultReference.toJson` are hub-private (A16); `Response.toJson`
+is deleted entirely. `Request` and `Response` themselves are
+Pattern-A sealed objects with private `raw*` fields and `initX`
+(total) / `parseX` (fallible) smart constructors (A30).
+Application code does not construct or render either type
+directly.
 
 ---
 

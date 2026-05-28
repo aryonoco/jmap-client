@@ -15,8 +15,6 @@
 import jmap_client/internal/serialisation/serde
 import jmap_client/internal/serialisation/serde_diagnostics
 import jmap_client/internal/serialisation/serde_envelope
-import jmap_client/internal/serialisation/serde_envelope_emit
-import jmap_client/internal/serialisation/serde_envelope_parse
 import jmap_client/internal/serialisation/serde_errors
 import jmap_client/internal/serialisation/serde_field_echo
 import jmap_client/internal/serialisation/serde_framework
@@ -53,8 +51,6 @@ import jmap_client/internal/mail/mailbox_changes_response
 export serde
 export serde_diagnostics
 export serde_envelope
-export serde_envelope_emit
-export serde_envelope_parse
 export serde_errors
 export serde_field_echo
 export serde_framework

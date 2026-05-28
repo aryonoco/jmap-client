@@ -72,23 +72,6 @@ testCase roundTripRequestWithCreatedIds:
   doAssert v.createdIds.isSome
   assertEq v.createdIds.get().len, 3
 
-testCase roundTripResponse:
-  let original = makeResponse()
-  let v = Response.fromJson(original.toJson()).get()
-  assertEq v.methodResponses.len, original.methodResponses.len
-  assertEq v.sessionState, original.sessionState
-  doAssert v.createdIds.isNone == original.createdIds.isNone
-
-testCase roundTripResponseWithCreatedIds:
-  var tbl = initTable[CreationId, Id]()
-  tbl[makeCreationId("k1")] = makeId("id1")
-  tbl[makeCreationId("k2")] = makeId("id2")
-  tbl[makeCreationId("k3")] = makeId("id3")
-  let original = makeResponse(createdIds = Opt.some(tbl))
-  let v = Response.fromJson(original.toJson()).get()
-  doAssert v.createdIds.isSome
-  assertEq v.createdIds.get().len, 3
-
 testCase roundTripResultReference:
   let original = makeResultReference()
   assertOkEq ResultReference.fromJson(original.toJson()), original
@@ -136,15 +119,6 @@ testCase requestToJsonCreatedIdsPresent:
   let j = req.toJson()
   doAssert j{"createdIds"} != nil
   doAssert j{"createdIds"}.kind == JObject
-
-testCase responseToJsonFieldNames:
-  let resp = makeResponse()
-  let j = resp.toJson()
-  doAssert j{"methodResponses"} != nil
-  doAssert j{"methodResponses"}.kind == JArray
-  doAssert j{"sessionState"} != nil
-  doAssert j{"sessionState"}.kind == JString
-  doAssert j{"createdIds"}.isNil
 
 testCase resultReferenceToJsonFieldNames:
   let rref = makeResultReference()
@@ -199,10 +173,12 @@ testCase responseDeserGoldenRfc:
   assertEq resp.sessionState, parseJmapState("75128aab4b1b").get()
   doAssert resp.createdIds.isNone
 
-testCase responseGoldenRoundTrip:
+testCase responseGoldenTwoParseIdentity:
+  ## Two-parse identity check for the golden Response. ``Response.toJson``
+  ## is deleted (A16); pin determinism on the parse direction instead.
   let j = goldenResponseJson()
   let first = Response.fromJson(j).get()
-  let v = Response.fromJson(first.toJson()).get()
+  let v = Response.fromJson(j).get()
   assertEq v.methodResponses.len, first.methodResponses.len
   assertEq v.sessionState, first.sessionState
   for i in 0 ..< v.methodResponses.len:
@@ -281,10 +257,11 @@ testCase requestDeserEmptyMethodCalls:
   let r = Request.fromJson(j).get()
   assertEq r.methodCalls.len, 0
 
-testCase requestDeserEmptyUsing:
+testCase requestDeserEmptyUsingRejected:
+  ## A30 + RFC 8620 §3.3: ``parseRequest`` rejects an empty ``using``
+  ## array at the wire boundary.
   let j = %*{"using": [], "methodCalls": [["Mailbox/get", {}, "c0"]]}
-  let r = Request.fromJson(j).get()
-  assertEq r.`using`.len, 0
+  assertErrContains Request.fromJson(j), "must not be empty"
 
 testCase requestDeserDeepInvalidInvocation:
   let j = %*{"using": ["urn:ietf:params:jmap:core"], "methodCalls": [["", {}, "c0"]]}
@@ -503,19 +480,6 @@ checkProperty "Request round-trip":
   doAssert v.methodCalls.len == req.methodCalls.len
   doAssert v.createdIds.isNone == req.createdIds.isNone
 
-checkProperty "Response round-trip":
-  let n = rng.rand(0 .. 5)
-  var resps: seq[Invocation] = @[]
-  for i in 0 ..< n:
-    resps.add rng.genInvocation()
-  let stateStr = "state" & $rng.rand(0 .. 999)
-  let state = parseJmapState(stateStr).get()
-  let resp = makeResponse(methodResponses = resps, state = state)
-  let v = Response.fromJson(resp.toJson()).get()
-  doAssert v.methodResponses.len == resp.methodResponses.len
-  doAssert v.sessionState == resp.sessionState
-  doAssert v.createdIds.isNone == resp.createdIds.isNone
-
 # =============================================================================
 # G. Additional edge-case and round-trip tests
 # =============================================================================
@@ -545,29 +509,12 @@ testCase requestRoundTripWithCreatedIds:
   var tbl = initTable[CreationId, Id]()
   tbl[makeCreationId("k1")] = makeId("id1")
   tbl[makeCreationId("k2")] = makeId("id2")
-  let req = Request(
-    `using`: @["urn:ietf:params:jmap:core"],
-    methodCalls: @[makeInvocation()],
-    createdIds: Opt.some(tbl),
-  )
+  let req =
+    initRequest(@["urn:ietf:params:jmap:core"], @[makeInvocation()], Opt.some(tbl))
   let v = Request.fromJson(req.toJson()).get()
   assertSome v.createdIds
   let rtTbl = v.createdIds.get()
   assertEq rtTbl.len, 2
-
-testCase responseRoundTripAllFields:
-  ## methodResponses + sessionState + createdIds all present.
-  var tbl = initTable[CreationId, Id]()
-  tbl[makeCreationId("new0")] = makeId("created0")
-  let resp = Response(
-    methodResponses: @[makeInvocation(), makeInvocation("Email/set", makeMcid("c2"))],
-    sessionState: makeState("s42"),
-    createdIds: Opt.some(tbl),
-  )
-  let v = Response.fromJson(resp.toJson()).get()
-  assertLen v.methodResponses, 2
-  assertEq v.sessionState, makeState("s42")
-  assertSome v.createdIds
 
 testCase fromJsonFieldRefInvalidResultOf:
   ## #ids key present but resultOf is empty — error must propagate.
@@ -587,11 +534,11 @@ testCase requestEmptyMethodCalls:
   assertLen r.methodCalls, 0
   assertLen r.`using`, 1
 
-testCase requestEmptyUsingArray:
-  ## Empty using array is valid per JSON schema.
+testCase requestEmptyUsingArrayRejected:
+  ## A30 + RFC 8620 §3.3: ``parseRequest`` rejects an empty ``using``
+  ## array at the wire boundary.
   let j = %*{"using": [], "methodCalls": []}
-  let r = Request.fromJson(j).get()
-  assertLen r.`using`, 0
+  assertErrContains Request.fromJson(j), "must not be empty"
 
 # =============================================================================
 # H. Phase 3E: Error invocation wire format
@@ -646,10 +593,10 @@ testCase backReferenceHashPrefixRoundTrip:
   var args = newJObject()
   args["#ids"] = refObj
   let inv = initInvocation(mnEmailGet, args, makeMcid("c1"))
-  let req = Request(
-    `using`: @["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail"],
-    methodCalls: @[inv],
-    createdIds: Opt.none(Table[CreationId, Id]),
+  let req = initRequest(
+    @["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail"],
+    @[inv],
+    Opt.none(Table[CreationId, Id]),
   )
   # Serialise the Request
   let j = req.toJson()
@@ -687,10 +634,10 @@ testCase requestGoldenWireFormat:
   let inv1 = parseInvocation("method1", args1, makeMcid("c1")).get()
   let inv2 = parseInvocation("method2", args2, makeMcid("c2")).get()
   let inv3 = parseInvocation("method3", args3, makeMcid("c3")).get()
-  let req = Request(
-    `using`: @["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail"],
-    methodCalls: @[inv1, inv2, inv3],
-    createdIds: Opt.none(Table[CreationId, Id]),
+  let req = initRequest(
+    @["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail"],
+    @[inv1, inv2, inv3],
+    Opt.none(Table[CreationId, Id]),
   )
   let j = req.toJson()
   doAssert j{"using"} != nil
@@ -711,31 +658,3 @@ testCase requestGoldenWireFormat:
   assertEq call2.getElems(@[])[0].getStr(""), "method3"
   assertEq call2.getElems(@[])[2].getStr(""), "c3"
   doAssert j{"createdIds"}.isNil
-
-testCase responseGoldenWireFormat:
-  ## Construct a Response matching the RFC 8620 section 3.4.1 example, serialise
-  ## it, and verify the output fields match the expected JSON structure.
-  let args1 = %*{"arg1": 3, "arg2": "foo"}
-  let args2 = %*{"isBlah": true}
-  let args3 = %*{"data": 10, "yetmoredata": "Hello"}
-  let args4 = %*{"type": "unknownMethod"}
-  let inv1 = parseInvocation("method1", args1, makeMcid("c1")).get()
-  let inv2 = parseInvocation("method2", args2, makeMcid("c2")).get()
-  let inv3 = parseInvocation("anotherResponseFromMethod2", args3, makeMcid("c2")).get()
-  let inv4 = parseInvocation("error", args4, makeMcid("c3")).get()
-  let resp = Response(
-    methodResponses: @[inv1, inv2, inv3, inv4],
-    sessionState: parseJmapState("75128aab4b1b").get(),
-    createdIds: Opt.none(Table[CreationId, Id]),
-  )
-  let j = resp.toJson()
-  doAssert j{"methodResponses"} != nil
-  doAssert j{"methodResponses"}.kind == JArray
-  assertEq j{"methodResponses"}.getElems(@[]).len, 4
-  assertEq j{"sessionState"}.getStr(""), "75128aab4b1b"
-  doAssert j{"createdIds"}.isNil
-  let errInv = j{"methodResponses"}.getElems(@[])[3]
-  doAssert errInv.kind == JArray
-  assertEq errInv.getElems(@[])[0].getStr(""), "error"
-  assertEq errInv.getElems(@[])[1]{"type"}.getStr(""), "unknownMethod"
-  assertEq errInv.getElems(@[])[2].getStr(""), "c3"

@@ -29,7 +29,7 @@ export collation
 export capabilities
 export methods_enum
 export session
-export envelope except arguments
+export envelope except arguments, initRequest, parseRequest, initResponse
 export framework
 export errors except
   requestError, methodError, setError, setErrorInvalidProperties, setErrorAlreadyExists,

@@ -10,6 +10,7 @@ import std/json
 import std/tables
 
 import jmap_client
+import jmap_client/internal/types/envelope
 import jmap_client/internal/protocol/entity
 import jmap_client/internal/protocol/methods
 import jmap_client/internal/protocol/dispatch
@@ -104,11 +105,8 @@ testCase getExtractsCorrectInvocation:
     initInvocation(mnMailboxGet, makeGetResponseJson("acct0", "s0"), makeMcid("c0"))
   let inv1 =
     initInvocation(mnMailboxGet, makeGetResponseJson("acct1", "s1"), makeMcid("c1"))
-  let resp = Response(
-    methodResponses: @[inv0, inv1],
-    createdIds: Opt.none(Table[CreationId, Id]),
-    sessionState: makeState("rs1"),
-  )
+  let resp =
+    initResponse(@[inv0, inv1], Opt.none(Table[CreationId, Id]), makeState("rs1"))
   let dr = makeDispatchedResponse(resp)
   let handle = makeResponseHandle[GetResponse[MockFoo]](makeMcid("c1"))
   let result = dr.get(handle)
@@ -148,11 +146,8 @@ testCase getMethodError:
 testCase getMalformedErrorResponse:
   ## Error invocation with non-object arguments produces err(gekMethod) with metServerFail.
   let malformedInv = parseInvocation("error", newJArray(), makeMcid("c0")).get()
-  let resp = Response(
-    methodResponses: @[malformedInv],
-    createdIds: Opt.none(Table[CreationId, Id]),
-    sessionState: makeState("rs1"),
-  )
+  let resp =
+    initResponse(@[malformedInv], Opt.none(Table[CreationId, Id]), makeState("rs1"))
   let dr = makeDispatchedResponse(resp)
   let handle = makeResponseHandle[GetResponse[MockFoo]](makeMcid("c0"))
   let result = dr.get(handle)
