@@ -211,7 +211,12 @@ type GetResponse*[T] = object
   list*: seq[T]
     ## The Foo objects requested, parsed per-entry via ``T.fromJson`` at
     ## the dispatch site.
-  notFound*: seq[Id] ## Identifiers passed for records that do not exist.
+  notFound*: seq[Id]
+    ## Identifiers passed for records that do not exist. Disjoint from
+    ## ``list`` by the inferred RFC 8620 §5.1 invariant (an id is either a
+    ## found object or a missing id, never both); ``GetResponse[T].fromJson``
+    ## drops any server-emitted overlap from this rail and keeps the
+    ## ``list`` entry.
 
 type ChangesResponse*[T] = object
   ## Response arguments for Foo/changes (RFC 8620 section 5.2).
@@ -729,7 +734,9 @@ func fromJson*[T](
   ## Deserialise JSON arguments to GetResponse (RFC 8620 section 5.1).
   ## Each wire ``list`` entry is parsed via ``T.fromJson`` resolved at
   ## instantiation via ``mixin``. Uses lenient constructors for
-  ## server-assigned identifiers.
+  ## server-assigned identifiers. Reconciles the inferred
+  ## ``list ∩ notFound = ∅`` invariant (RFC 8620 §5.1) by dropping from
+  ## ``notFound`` any id also present in ``list`` via ``reconcileNotFound``.
   mixin fromJson
   discard $R # consumed for nimalyzer params rule
   ?expectKind(node, JObject, path)
@@ -742,7 +749,8 @@ func fromJson*[T](
   let list = collect(newSeq):
     for i, elem in listNode.getElems(@[]):
       ?T.fromJson(elem, path / "list" / i)
-  let notFound = ?parseOptIdArray(node{"notFound"}, path / "notFound")
+  let rawNotFound = ?parseOptIdArray(node{"notFound"}, path / "notFound")
+  let notFound = reconcileNotFound(listNode, rawNotFound)
   return ok(
     GetResponse[T](accountId: accountId, state: state, list: list, notFound: notFound)
   )
@@ -762,6 +770,9 @@ func fromJson*[T](
   let newState = ?wrapInner(parseJmapState(newStateNode.getStr("")), path / "newState")
   let hmcNode = ?fieldJBool(node, "hasMoreChanges", path)
   let hasMoreChanges = hmcNode.getBool(false)
+  # created/updated/destroyed may legitimately overlap — RFC 8620 §5.2
+  # (lines 1748-1759) permits an id in more than one set, so this is not an
+  # A29-style disjointness invariant and must not be reconciled.
   let created = ?parseIdArrayField(node, "created", path)
   let updated = ?parseIdArrayField(node, "updated", path)
   let destroyed = ?parseIdArrayField(node, "destroyed", path)
@@ -888,6 +899,9 @@ func fromJson*[T](
   let newQueryState =
     ?wrapInner(parseJmapState(newQueryStateNode.getStr("")), path / "newQueryState")
   let total = optUnsignedInt(node, "total")
+  # removed ∩ added is RFC-required, not illegal — RFC 8620 §5.6
+  # (lines 2751-2757) re-adds a record at a new index after a mutable-
+  # property change, so this overlap must not be reconciled (cf. A29).
   let removed = ?parseIdArrayField(node, "removed", path)
   let addedNode = ?fieldJArray(node, "added", path)
   let added = collect(newSeq):

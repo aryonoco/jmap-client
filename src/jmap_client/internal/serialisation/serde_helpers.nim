@@ -12,6 +12,7 @@
 {.experimental: "strictCaseObjects".}
 
 import std/json
+import std/sets
 import std/tables
 
 import ../types
@@ -181,6 +182,30 @@ func parseOptIdArray*(
     let id = ?wrapInner(parseIdFromServer(elem.getStr("")), path / i)
     ids.add(id)
   return ok(ids)
+
+func reconcileNotFound*(listNode: JsonNode, notFound: openArray[Id]): seq[Id] =
+  ## Drop from ``notFound`` any id that also appears in the ``/get`` ``list``
+  ## (RFC 8620 §5.1). The wire ``id`` of a found object is positive existence
+  ## evidence, so on the inferred ``list ∩ notFound = ∅`` invariant the ``list``
+  ## entry wins and the duplicate is silently removed from the ``notFound`` rail
+  ## — leniently, since this only fires on a non-conformant server (Postel's
+  ## law). A ``list`` element whose wire ``id`` is absent or malformed parses to
+  ## an error, is skipped, and so can never suppress a ``notFound`` entry.
+  ## No-op and allocation-free when ``notFound`` is empty — the RFC-mandated
+  ## case for an ``ids: null`` fetch-all. Surviving ``notFound`` order and any
+  ## intra-rail duplicates are otherwise preserved.
+  if notFound.len == 0:
+    return @[]
+  var found = initHashSet[Id]()
+  for elem in listNode.getElems(@[]):
+    let foundId = parseIdFromServer(elem{"id"}.getStr("")).valueOr:
+      continue
+    found.incl(foundId)
+  var kept: seq[Id] = @[]
+  for id in notFound:
+    if id notin found:
+      kept.add(id)
+  return kept
 
 func collapseNullToEmptySeq*[T](
     node: JsonNode,

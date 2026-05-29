@@ -7,6 +7,7 @@
 ## rows from section 14.6, and lenient Option helper coverage.
 
 import std/json
+import std/random
 import std/tables
 
 import jmap_client/internal/types/validation
@@ -28,6 +29,7 @@ import jmap_client/internal/protocol/builder
 
 import ../massertions
 import ../mfixtures
+import ../mproperty
 import ../mtestblock
 
 # ---------------------------------------------------------------------------
@@ -451,6 +453,62 @@ testCase getResponseAccountIdEmpty:
   ## Empty accountId string produces err.
   let j = %*{"accountId": "", "state": "s1", "list": []}
   assertErr GetResponse[MockFoo].fromJson(j)
+
+testCase getResponseOverlapDroppedFromNotFound:
+  let j = %*{
+    "accountId": "a1", "state": "s1", "list": [{"id": "x1"}], "notFound": ["x1", "x2"]
+  }
+  let gr = GetResponse[MockFoo].fromJson(j).get()
+  assertLen gr.list, 1
+  assertLen gr.notFound, 1
+  doAssert gr.notFound[0] == makeId("x2")
+
+testCase getResponseOverlapAllDropped:
+  let j =
+    %*{"accountId": "a1", "state": "s1", "list": [{"id": "x1"}], "notFound": ["x1"]}
+  let gr = GetResponse[MockFoo].fromJson(j).get()
+  assertLen gr.list, 1
+  assertLen gr.notFound, 0
+
+testCase getResponseNotFoundEmptyGateNoOp:
+  let j = %*{"accountId": "a1", "state": "s1", "list": [{"id": "x1"}], "notFound": []}
+  let gr = GetResponse[MockFoo].fromJson(j).get()
+  assertLen gr.notFound, 0
+
+testCase getResponseListIdMalformedDoesNotSuppress:
+  let j = %*{"accountId": "a1", "state": "s1", "list": [{}], "notFound": ["x1"]}
+  let gr = GetResponse[MockFoo].fromJson(j).get()
+  assertLen gr.notFound, 1
+  doAssert gr.notFound[0] == makeId("x1")
+
+testCase getResponseNotFoundOrderPreserved:
+  let j = %*{
+    "accountId": "a1", "state": "s1", "list": [{"id": "a"}], "notFound": ["b", "a", "c"]
+  }
+  let gr = GetResponse[MockFoo].fromJson(j).get()
+  assertLen gr.notFound, 2
+  doAssert gr.notFound[0] == makeId("b")
+  doAssert gr.notFound[1] == makeId("c")
+
+testCase propGetResponseNotFoundDisjoint:
+  checkProperty "GetResponse.fromJson reconciles list ∩ notFound to empty":
+    let listLen = rng.rand(0 .. 5)
+    var listNode = newJArray()
+    var notFoundNode = newJArray()
+    var listIds: seq[string] = @[]
+    for _ in 0 ..< listLen:
+      let idStr = rng.genValidLenientString(maxLen = 20)
+      listIds.add(idStr)
+      listNode.add(%*{"id": idStr})
+      notFoundNode.add(%idStr) # force overlap: every list id also lands in notFound
+    for _ in 0 ..< rng.rand(0 .. 5):
+      notFoundNode.add(%rng.genValidLenientString(maxLen = 20)) # disjoint extras
+    lastInput = $listLen & " list / " & $notFoundNode.len & " notFound"
+    let j =
+      %*{"accountId": "a1", "state": "s1", "list": listNode, "notFound": notFoundNode}
+    let gr = GetResponse[MockFoo].fromJson(j).get()
+    for nf in gr.notFound:
+      doAssert $nf notin listIds, "list ∩ notFound not disjoint: " & $nf
 
 # ===========================================================================
 # D. ChangesResponse fromJson tests
