@@ -58,25 +58,30 @@ Where an item has no marker, treat it as ⬜ TODO until verified.
 
 This dashboard is regenerated mechanically from the per-item status
 markers below. Re-derive the counts with
-`grep -c "— ✅ DONE" docs/TODO/pre-1.0-api-alignment.md` (and the
-sibling marker forms). F7 (Coverage-trace consistency check) will
-be the freeze-time gate that mechanically catches dashboard drift;
-until it lands, the counts are maintained by hand.
+`grep -cE "^### .*— ✅ DONE" docs/TODO/pre-1.0-api-alignment.md` (and
+the sibling marker forms) — anchoring on `^### ` excludes this
+dashboard's own legend text from the tally. F7 (Coverage-trace
+consistency check) will be the freeze-time gate that mechanically
+catches dashboard drift; until it lands, the counts are maintained by
+hand.
 
 | Status | Count | What it means |
 |---|---|---|
 | ✅ DONE | 47 | Implemented and verified against source / tests. |
-| 🟡 PARTIAL | 11 | Some parts implemented; gaps named in the item body. |
-| ⬜ TODO | 55 | Not yet implemented. |
+| 🟡 PARTIAL | 8 | Some parts implemented; gaps named in the item body. |
+| ⬜ TODO | 56 | Not yet implemented. |
 | 🟦 DEFERRED | 1 | Explicitly deferred to a post-1.0 release (E1). |
 | ❌ DROPPED | 1 | Superseded or rejected (D15). |
 | **RESOLVED** | 1 | Design decision made (A3.5). |
 
-**Freeze-blocking gaps** (must close before 1.0 tag): B9, B11, C1,
-C1.1, and A26 — the remaining ⬜ TODO surface that changes observable
-behaviour. The outstanding lint backstops (H2–H9 plus H14) can ship in
-the same window or shortly after; H1, H10–H13, and H15 are already in
-place. The freeze checklist (D18) tracks per-item gate status.
+**Freeze-blocking gaps** (must close before 1.0 tag): B9, B11, C1, and
+C1.1 — the items carrying the literal `(FREEZE-BLOCKING)` heading tag,
+the remaining ⬜ TODO surface that changes observable behaviour. The
+re-export-hub snapshot gate (A26) and its CI wiring (F6) must also land
+before the tag. The outstanding lint backstops (H2–H9 plus H14) can
+ship in the same window or shortly after; H1, H10–H13, and H15 are
+already in place. The freeze checklist (D18) tracks per-item gate
+status.
 
 ## Documented exceptions to the principles
 
@@ -483,20 +488,22 @@ from `import jmap_client`, including `inv.toJson`) and
   (`NonEmptyIdentityUpdates`, `NonEmptyEmailUpdates`,
   `NonEmptyEmailSubmissionUpdates`, `NonEmptyMailboxUpdates`)
   borrow `len*` so the generic `addSet[T, C, U, R]` resolves
-  `u.len` at instantiation via `mixin len`. Post-condition:
-  `rg 'inv\.arguments' src/` matches only
-  `internal/serialisation/serde_envelope.nim` (L2 wire boundary)
-  and `internal/protocol/dispatch.nim` (L3 typed-decoding boundary).
+  `u.len` at instantiation via `mixin len`. Post-condition: no
+  routine walks `inv.arguments` for type-derivable information. The
+  only `inv.arguments` key-reading call sites are the two wire
+  boundaries — `internal/serialisation/serde_envelope.nim` (L2 wire
+  boundary) and `internal/protocol/dispatch.nim` (L3 typed-decoding
+  boundary); the remaining references are benign — the `arguments*`
+  accessor definition itself in `internal/types/envelope.nim` and a
+  docstring mention in `internal/protocol/builder.nim`.
 
-The two `validateLimits*` overloads in `client.nim` are asymmetric
-by design: `validateLimits(builder, caps)` performs full pre-flight
-(max-calls + per-call /get + per-call /set);
-`validateLimits(request, caps)` (the lower-level escape hatch used
-by raw-`Request` senders) enforces only `maxCallsInRequest`. The
-asymmetry is the visible cost of refusing to walk wire shape for
-type-derivable information; both docstrings state it explicitly.
-`send(client, builder)` routes through the builder-aware overload;
-`send(client, request)` routes through the narrow overload.
+`validateLimits` in `client.nim` operates on the typed
+`CallLimitMeta` a `BuiltRequest` already carries (max-calls +
+per-call /get + per-call /set), never by walking wire shape for
+type-derivable information; `send` invokes it once before consuming
+the `BuiltRequest`. There is a single typed dispatch path —
+`send(client, req: sink BuiltRequest)` — so no raw-`Request` sender
+or wire-walking limit check exists alongside it.
 
 ### A3. Type `GetResponse[T].list` *(P19)* — ✅ DONE
 
@@ -523,7 +530,7 @@ Scope:
 
 Related items: A3.6 (partial-entity types for sparse `/get`),
 A4 + A3.5 (`updateResults` typing + decision), A29
-(`parseGetResponse[T]` coherence invariant), F1 (property test
+(`list ∩ notFound` coherence invariant), F1 (property test
 wiring), D10 (L5 FFI design).
 
 Doc references: `03-layer-3-design.md`, `00-architecture.md`,
@@ -693,9 +700,9 @@ hazard the runtime check could not detect: two
 `BuilderId`, and a single handle set would validate against either.
 
 The asynchronous chain extends the same `BuiltRequest` additively
-through `DispatchedRequest` and `sendAsync` (A7e — reserved by
-policy in `docs/policy/03-rfc-extension-policy.md`, never stubbed
-onto the sync surface; P23 — async is a different type with a
+through `DispatchedRequest` and `sendAsync` (A7e — to be reserved by
+policy in `docs/policy/03-rfc-extension-policy.md`, ⬜ TODO; never
+stubbed onto the sync surface; P23 — async is a different type with a
 different lifecycle, not a flag on the existing one).
 
 **Sub-items.** A6.5 (sealed `BuiltRequest` + `DispatchedResponse`),
@@ -707,16 +714,15 @@ the test-suite friction is documented inside A7d) and A7e
 (async-surface name reservation in the RFC-extension policy file).
 
 **Pointers.**
-- `src/jmap_client/internal/protocol/builder.nim:47, 60, 139` —
-  `RequestBuilder`, `BuiltRequest`, `freeze` (`sink RequestBuilder`).
-- `src/jmap_client/internal/protocol/dispatch.nim:237` —
+- `src/jmap_client/internal/protocol/builder.nim` — `RequestBuilder`,
+  `BuiltRequest`, `freeze` (`sink RequestBuilder`).
+- `src/jmap_client/internal/protocol/dispatch.nim` —
   `DispatchedResponse`.
 - `src/jmap_client/internal/client.nim` `send` — `send(sink BuiltRequest)`.
-- `tests/compile/tcompile_a7c_send_consumes_builtrequest.nim` —
-  compile-reject anchor for double-`send`.
-- `tests/compile/tcompile_a7d_freeze_consumes_builder.nim` —
-  compile-reject anchor for double-`freeze` and post-freeze
-  accumulation.
+- `tests/compile/treject_a7c_send_consumes_builtrequest.nim` —
+  testament `action: reject` anchor for double-`send`. (The A7d
+  reject anchors are intentionally absent until the
+  `RequestBuilder`-uncopyable escalation lands — see A7d.)
 
 ### A8. Privatise raw distinct-type constructors *(P15)* — ✅ DONE
 
@@ -756,8 +762,9 @@ operation surface each type opts into:
 (`mail/keyword.nim`); `PartId` (`mail/body.nim`);
 `BlueprintEmailHeaderName`, `BlueprintBodyHeaderName`
 (`mail/headers.nim`); `BodyPartPath` (`mail/email_blueprint.nim`);
-`RFC5321Keyword`, `OrcptAddrType` (`mail/submission_atoms.nim`);
-`RFC5321Mailbox` (`mail/submission_mailbox.nim`); `HoldForSeconds`,
+`RFC5321Keyword`, `OrcptAddrType`
+(`internal/types/submission_atoms.nim`); `RFC5321Mailbox`
+(`mail/submission_mailbox.nim`); `HoldForSeconds`,
 `MtPriority` (`mail/submission_param.nim`); `ReplyCode`,
 `SubjectCode`, `DetailCode` (`mail/submission_status.nim`).
 
@@ -874,7 +881,7 @@ public API and the H10-permitted internal seams:
   `newHttpTransport` plus the tests-permitted internal classify
   helper (`tests/integration/live/mlive.nim:postRawJmap`,
   `postRawSingleInvocation`).
-- **Limit enforcement** — `validateLimits*` is module-private
+- **Limit enforcement** — `validateLimits` is module-private
   inside `client.nim`; its sole caller is `send`, and tests drive
   limit checks through `client.send()` against a canned-session
   Transport.
@@ -1071,7 +1078,7 @@ Transport-contract producers (`transportError`,
 `Transport` MUST return a `TransportError` on failure.
 
 Format stability is locked by
-`tests/wire_contract/error-messages.txt` (32 representative
+`tests/wire_contract/error-messages.txt` (38 representative
 samples), enforced by `tests/lint/h15_error_message_snapshot.nim`
 (see Section H, H15), and regenerated by
 `scripts/freeze_error_messages.nim` /
@@ -1445,9 +1452,9 @@ field-set drift. A `Request` whose `using*: seq[string]` field is
 silently changed to `seq[CapabilityUri]` would break consumers; D2
 would not flag it.
 
-`tests/wire_contract/` currently contains only
-`module-paths.txt` (A10a) and `tsnapshot_well_formed.nim` (the
-testament-anchor). `type-shapes.txt` does not exist yet.
+`tests/wire_contract/` currently contains `module-paths.txt`
+(A10a), `error-messages.txt` (H15), and `tsnapshot_well_formed.nim`
+(the testament-anchor). `type-shapes.txt` does not exist yet.
 
 **Action.** Add `tests/wire_contract/type-shapes.txt`. Generated
 from `nim doc --project` output (or a custom scraper) — every
@@ -1510,22 +1517,52 @@ hub-private (A16) — the application-facing diagnostic seams are
   `DispatchedResponse` sealed; `response` / `builderId`
   hub-private; `sessionState` / `createdIds` hub-public.
 
-### A29. `parseGetResponse[T]` smart constructor *(P16)* — ⬜ TODO
+### A29. `GetResponse[T]` `list ∩ notFound = ∅` disjointness *(P16)* — ✅ DONE
 
-`internal/protocol/methods.nim` `GetResponse[T]` permits
-structurally `list ∩ notFound ≠ ∅` — a server bug could put the
-same id in both, and the type allows it. P16 says encode
-preconditions in types. No `parseGetResponse` smart constructor
-exists today.
+`internal/protocol/methods.nim` `GetResponse[T]` carries `list` and
+`notFound` as two independent seqs, so the same id could structurally
+appear in both. RFC 8620 §5.1 defines an id as *either* a found object
+*or* a missing id; the only explicit MUST is the duplicate-request-id
+case (rfc8620 lines 1648-1651), so full distinct-id disjointness is the
+**inferred** invariant P16 closes here.
 
-**Action.** Add `parseGetResponse[T]` smart constructor enforcing
-`list ∩ notFound = ∅`. Lenient on receive: log + drop the
-duplicate on the `notFound` side, or reject as a `MethodError`.
-Document the choice.
+`GetResponse[T]` is server-emitted and no caller constructs it, so the
+project's lenient-ingress / strict-egress rule lands A29 on the lenient
+arm (Postel; cf. receive-side B12, the opposite of send-side A6.6).
+`GetResponse[T].fromJson` folds in the **total** helper
+`reconcileNotFound` (`serialisation/serde_helpers.nim`): on overlap it
+drops the id from `notFound` and keeps the `list` entry (the wire `id`
+is positive existence evidence). It is silent — L1–L3 are `{.push
+raises: [], noSideEffect.}`, so logging is impossible; the raw bytes
+stay inspectable via the A31 `setDebugCallback` seam. Being total, it is
+a `fromJson` fold, not a fallible `parse*`/`parseGetResponse` constructor
+(A30 naming).
+
+`ChangesResponse` and `QueryChangesResponse` are deliberately untouched:
+their cross-set overlaps are RFC-legal (§5.2 created/updated/destroyed
+MAY repeat) or RFC-required (§5.6 an id in both `removed` and `added` on
+a mutable-property re-index), not illegal states. A one-line comment at
+each sibling's `fromJson` records this so A29 is not mistakenly extended.
+
+Rejected: an A4-style `Table[Id, …]` model (the `ids: null` fetch-all
+mode has no key set, and the dominant pattern iterates `list` as a
+`seq` — a P7 cost to prevent a spec-violating-server-only bug); sealing
+the response generics (A8 keeps them transparent; out of scope);
+reject-as-`MethodError` (wrong layer + contradicts lenient ingress);
+do-nothing (P16).
+
+**Pointers.**
+- `src/jmap_client/internal/serialisation/serde_helpers.nim` —
+  `reconcileNotFound` (total; drops `list`-present ids from `notFound`).
+- `src/jmap_client/internal/protocol/methods.nim` —
+  `GetResponse[T].fromJson` folds it in; sibling `fromJson`s carry the
+  RFC-legal-overlap comments.
+- `tests/protocol/tmethods.nim` — six deterministic cases plus the
+  `propGetResponseNotFoundDisjoint` property guard the invariant.
 
 ### A2b. Property test: `Invocation` round-trip *(P19, P2)* — 🟡 PARTIAL
 
-`tests/property/tprop_envelope.nim:90–97` covers
+`tests/property/tprop_envelope.nim` covers
 `propInvocationPreservesFields` — partial field-preservation
 property. Missing:
 
@@ -1572,8 +1609,9 @@ typed `/get` wrapper exists.
 
 **Public sparse-`/get` surface.** Email only. Two wrappers —
 `addPartialEmailGet` and `addPartialEmailGetByRef` — carry the
-typed `EmailBodyFetchOptions` parameter and route through the
-hub-private `addGet[PartialEmail]`. For Mailbox, Identity, Thread,
+typed `EmailBodyFetchOptions` parameter and emit `Email/get` via the
+typed-invocation chokepoint `addInvocation(b, mnEmailGet, …)`. For
+Mailbox, Identity, Thread,
 EmailSubmission, VacationResponse the typed builders for full-record
 `/get` exist (`addMailboxGet`, …) but their `PartialT` siblings
 (`addPartialMailboxGet`, …) do not — A5 made the generic
@@ -1606,10 +1644,11 @@ escapes (`builtRequestFromParts`, `initDispatchedResponse`)
 filtered from `internal/protocol.nim`'s re-export and reached
 only via direct internal import (H10-permitted in `tests/`).
 
-The asynchronous-path `DispatchedRequest` is reserved by name in
-`docs/policy/03-rfc-extension-policy.md` (A7e), not by stub. Its
-shape depends on the `Transport` interface and lands once async
-arrives as additive surface (P20).
+The asynchronous-path `DispatchedRequest` will be reserved by name in
+`docs/policy/03-rfc-extension-policy.md` (A7e, ⬜ TODO — the policy
+file is not yet written), not by stub. Its shape depends on the
+`Transport` interface and lands once async arrives as additive
+surface (P20).
 
 **Pointers.**
 - `src/jmap_client/internal/protocol/builder.nim` —
@@ -1657,8 +1696,7 @@ Future async-path overload (A19 + E1) extends the chain
 additively per A7e.
 
 **Pointers.**
-- `src/jmap_client/internal/protocol/builder.nim:139` — `freeze`.
-- `src/jmap_client/internal/protocol/builder.nim:60` —
+- `src/jmap_client/internal/protocol/builder.nim` — `freeze`,
   `BuiltRequest`.
 - `src/jmap_client/internal/client.nim` `send` — `send(BuiltRequest)`;
   `validateLimits` (`client.nim`) operates on `BuiltRequest`.
@@ -1687,10 +1725,11 @@ type level. A retry replays `freeze` from a freshly constructed
 builder.
 
 Read-only accessors on `BuiltRequest` (`request`, `builderId`,
-`callLimits`) take `lent BuiltRequest`, so an accessor read does
-not trigger the copy machinery; the same applies to
-`validateLimits(req: lent BuiltRequest, …)`, which `send` invokes
-once before consuming `req`.
+`callLimits`) take a plain `BuiltRequest` object parameter — passed
+by hidden reference, so an accessor read does not trigger the
+`{.error.}` copy machinery; the same applies to
+`validateLimits(req: BuiltRequest, …)`, which `send` invokes once
+before consuming `req`.
 
 The hub-private internal escape `builtRequestFromParts`
 (`builder.nim`) is filtered out of `internal/protocol.nim`'s
@@ -1988,12 +2027,12 @@ booleans from the enum.
 
 Three sites currently use ad-hoc Bool / Opt[bool] for sort direction:
 
-- `src/jmap_client/internal/mail/email.nim:65, 76, 88` —
+- `src/jmap_client/internal/mail/email.nim` —
   `EmailComparator.isAscending: Opt[bool]` (three-state via Opt adds
   "absent" to true/false)
-- `src/jmap_client/internal/types/framework.nim:64` — `Comparator.isAscending: bool`
-  (two-state)
-- `src/jmap_client/internal/mail/email_submission.nim:358` —
+- `src/jmap_client/internal/types/framework.nim` —
+  `Comparator.isAscending: bool` (two-state)
+- `src/jmap_client/internal/mail/email_submission.nim` —
   `EmailSubmissionComparator.isAscending: bool` (two-state)
 
 Replace all three with
@@ -2022,8 +2061,8 @@ docstring with rationale.
 
 ### B4. `VacationResponse` window invariant *(P16)* — ⬜ TODO
 
-`src/jmap_client/internal/mail/vacation.nim:18–26`. `fromDate: Opt[UTCDate]`
-and `toDate: Opt[UTCDate]` independent. `Opt.some(from) &&
+`src/jmap_client/internal/mail/vacation.nim` — `VacationResponse.fromDate:
+Opt[UTCDate]` and `toDate: Opt[UTCDate]` independent. `Opt.some(from) &&
 Opt.some(to) && from > to` is structurally allowed but RFC-forbidden.
 Smart-construct via `parseVacationResponse: Result`, or hold a single
 typed `Opt[VacationWindow] = (UTCDate, UTCDate)` whose constructor
@@ -2064,8 +2103,8 @@ unchanged.
 
 ### B8. `Identity.mayDelete` → enum *(P18)* — ⬜ TODO
 
-`src/jmap_client/internal/mail/identity.nim:53` and
-`src/jmap_client/internal/mail/mail_entities.nim:118` `mayDelete: Opt[bool]` —
+`src/jmap_client/internal/mail/identity.nim` and
+`src/jmap_client/internal/mail/mail_entities.nim` `mayDelete: Opt[bool]` —
 three-state via Opt encodes "Stalwart omits the field". Replace with:
 
 ```nim
@@ -2200,15 +2239,16 @@ parameter.
 
 ### C3. `byIds` per-entity helpers *(P7)* — 🟡 PARTIAL
 
-`src/jmap_client/internal/protocol/builder.nim:394` already provides `directIds` to
+`src/jmap_client/internal/protocol/builder.nim` already provides `directIds` to
 shave `Opt.some(direct(@[…]))` nesting. Extend per-entity:
 `addEmailGet(b, accountId, byIds = @[id1, id2])`. UFCS chains read
 materially better.
 
 ### C4. `MailboxRights` summary helpers *(P7)* — ⬜ TODO
 
-`src/jmap_client/internal/mail/mailbox.nim:213–224`. Nine independent ACL
-booleans (Decision B6 documented exception, correctly modelled). Add
+`src/jmap_client/internal/mail/mailbox.nim` (the `MailboxRights`
+type). Nine independent ACL booleans (Decision B6 documented
+exception, correctly modelled). Add
 roll-up helpers: `mb.canMutate(): bool`, `mb.canRead(): bool`,
 `mb.canDelete(): bool`. Otherwise consumers chain
 `mb.myRights.mayAddItems and mb.myRights.mayRemoveItems and …`.
@@ -2235,9 +2275,12 @@ const ClientVersion* = "0.1.0"  # synced with .nimble
 func clientVersion*(): string = ClientVersion
 ```
 
-### C7. Charter clause on `convenience.nim` *(P6)* — 🟡 PARTIAL
+### C7. Charter clause on `convenience.nim` *(P6)* — ⬜ TODO
 
-Add to `convenience.nim`'s top docstring:
+`convenience.nim`'s top docstring already states the P6 quarantine in
+general terms (opt-in, not root-re-exported — C10). What is missing
+is the explicit anti-semantic-convenience charter clause and its CI
+enforcement. Add to the docstring:
 
 > This module contains pipeline combinators (multi-method `add*`
 > chains and paired `getBoth` extraction). It does NOT contain
@@ -2247,7 +2290,8 @@ Add to `convenience.nim`'s top docstring:
 > edge cases bleed back into the user's image of the core. P6 forbids
 > this.
 
-CI grep enforces (F3 + F3b).
+The backing enforcement (F3 reverse-leak grep + H7 charter lint) is
+not yet implemented; both are ⬜ TODO.
 
 ### C1.1. Scaffold `examples/jmap-cli/` directory *(P29)* — ⬜ TODO (FREEZE-BLOCKING)
 
@@ -2307,24 +2351,26 @@ Each is a thin wrapper over capability-set lookup. Verified by
 the C1.1 CLI — if `mailbox list` cannot use `requireMail`, file as
 a Cn TODO.
 
-### C9. Charter clause: convenience.nim exports no new public types *(P6, P9)* — 🟡 PARTIAL
+### C9. Charter clause: convenience.nim exports no new public types *(P6, P9)* — ⬜ TODO
 
-C7 covers the docstring; this item adds the structural restriction.
-`convenience.nim`'s public surface is the pipeline-combinator procs
-plus the paired handle/result bundle types those combinators
-return — `QueryGetHandles[T]` and its siblings. It introduces no
-entity or semantic type; those belong in core (L3) or user code.
+C7 covers the prose charter; this item adds the structural
+restriction. `convenience.nim`'s public surface today is exactly the
+eight pipeline-combinator procs plus the six paired handle/result
+bundle types those combinators return (`QueryGetHandles[T]`,
+`ChangesGetHandles[T]`, `MailboxChangesGetHandles`,
+`QueryGetResults[T]`, `ChangesGetResults[T]`,
+`MailboxChangesGetResults`); it introduces no entity or semantic type
+(C10 verifies the current surface). The restriction is therefore
+satisfied in code today, but is neither documented nor mechanically
+locked.
 
-**Action.** Document in the `convenience.nim` top docstring; back
-mechanically with H7 lint (added in Section H). The lint scans
-`convenience.nim` for `type … * =` declarations and admits exactly
-the paired handle/result bundle types the combinators return —
-`QueryGetHandles[T]`, `ChangesGetHandles[T]`,
-`MailboxChangesGetHandles`, `QueryGetResults[T]`,
-`ChangesGetResults[T]`, `MailboxChangesGetResults` — failing CI on
-any further `type … * =`. The bundle types are the documented
-exception: a combinator returning a pair of typed handles needs a
-pair type to name (C10).
+**Action.** Document the restriction in the `convenience.nim` top
+docstring; back it mechanically with the H7 lint (Section H, ⬜ TODO).
+The lint scans `convenience.nim` for `type … * =` declarations and
+admits exactly the six bundle types above, failing CI on any further
+`type … * =`. The bundle types are the documented exception: a
+combinator returning a pair of typed handles needs a pair type to
+name (C10).
 
 ### C10. `convenience.nim` internal-access cleanup *(P5, P6)* — ✅ DONE
 
@@ -2422,9 +2468,16 @@ three servers (Stalwart, Apache James, Cyrus IMAP). Elevate from
 Vendored deps that change semantics under callers are how every
 cautionary tale in the principles doc broke its API.
 
-### D5. `.nimble` contract *(P1, P25)* — 🟡 PARTIAL
+### D5. `.nimble` contract *(P1, P25)* — ⬜ TODO
 
-Document in `docs/policy/01-semver-and-deprecation.md` that
+The underlying facts hold today (`jmap_client.nimble` carries
+`version = "0.1.0"` and `srcDir = "src"`; `src/jmap_client.nim` is the
+single entry point; the public re-export tree is as A1 locks it), but
+the deliverable — documenting them as part of the 1.0 contract in
+`docs/policy/01-semver-and-deprecation.md` (D1.5) — is unwritten
+because that policy file does not yet exist.
+
+**Action.** Record in `docs/policy/01-semver-and-deprecation.md` that
 `jmap_client.nimble`'s `version`, `srcDir`, the existence of
 `src/jmap_client.nim` as the single entry point, and the public
 re-export tree are all part of the 1.0 contract.
@@ -2471,9 +2524,11 @@ work is the class-wide sweep applying the rule to every other
 public type:
 
 - **L1–L3 types as a class** (everything under
-  `src/jmap_client/{validation,primitives,identifiers,collation,
-  capabilities,methods_enum,session,envelope,framework,methods,
-  errors,builder,dispatch,entity}.nim` and the `mail/` siblings): "value
+  `src/jmap_client/internal/types/` (`validation`, `primitives`,
+  `identifiers`, `collation`, `capabilities`, `methods_enum`,
+  `session`, `envelope`, `framework`, `errors`) and
+  `src/jmap_client/internal/protocol/` (`methods`, `builder`,
+  `dispatch`, `entity`), plus the `internal/mail/` siblings): "value
   type, immutable after construction, freely shareable across threads
   (enforced by `{.push raises: [], noSideEffect.}` and the absence of
   `var` fields on public types)."
@@ -2642,9 +2697,10 @@ The lifecycle contract is documented inline at its enforcement
 sites: type docstrings on `RequestBuilder` / `BuiltRequest` /
 `DispatchedResponse` / `ResponseHandle` / `NameBoundHandle` /
 `BuilderId` / `GetError`, plus `docs/design/03-layer-3-design.md`
-§4.3 (two-level railway composition) and
-`docs/design/00-architecture.md` §lifecycle. A standalone design
-doc would duplicate those without adding constraint information.
+§4.3 (two-level railway composition) and the lifecycle narrative in
+`docs/design/00-architecture.md` (`newBuilder → add* → freeze → send
+→ get`). A standalone design doc would duplicate those without adding
+constraint information.
 
 ### D16. Convenience module design note *(P27)* — ⬜ TODO
 
@@ -2786,8 +2842,8 @@ Categories:
 - **Mechanical gates** — CI lints that must pass (H1–H13).
 - **Snapshot gates** — frozen files committed (A25, A26, F6,
   plus A10a `tests/wire_contract/module-paths.txt`).
-- **Decision gates** — open choices that must be resolved (A3.5,
-  B9, B11, B12, D4 devendor).
+- **Decision gates** — open choices that must be resolved (B9, B11,
+  D4 devendor; A3.5 and B12 are already resolved/done).
 - **Test gates** — property tests that must exist (F1, A2b,
   A28b); diagnostic-format snapshot (A12 / H15) already in place.
 
@@ -3076,9 +3132,10 @@ Either check failing fails CI.
 
 ### H8. `.get()` invariant comment lint — locks existing project rule — ⬜ TODO
 
-`nim-conventions.md` already requires `.get()` on a `Result` to
-carry an adjacent invariant comment proving Ok. The convention is
-unenforced — review-discipline only.
+`nim-functional-core.md` (pattern 8, "Invariant-proved `.get()` on
+Result", restated in its hard-prohibitions list) already requires
+`.get()` on a `Result` to carry an adjacent invariant comment proving
+Ok. The convention is unenforced — review-discipline only.
 
 **Implementation path.** `tests/lint/h8_get_invariant.nim`. Wired
 to `just lint`. Logic: scan every `.get()` invocation under
@@ -3235,7 +3292,7 @@ list.
 
 ### H15. Error-message snapshot lock lint *(P1, P5, P13, P18, P20)* — backs A12 — ✅ DONE
 
-The canonical ``message()`` projection over the 32 representative
+The canonical ``message()`` projection over the 38 representative
 error values matches the locked snapshot committed at
 ``tests/wire_contract/error-messages.txt`` exactly. Bidirectional:
 samples missing from the live computation (a label in the snapshot
@@ -3245,7 +3302,7 @@ with no backing producer), samples extra in the live computation
 
 **Implementation path.**
 ``tests/lint/h15_error_message_snapshot.nim`` reads
-``tests/wire_contract/error-messages.txt``, inlines the 32 live
+``tests/wire_contract/error-messages.txt``, inlines the 38 live
 samples in matching declaration order, computes ``message()`` on
 each, and emits a fix-it pointer (``just freeze-error-messages``)
 on divergence. Wired to ``just check``, ``just ci``, and the
@@ -3257,7 +3314,7 @@ analogue of H13 — locking the diagnostic-format contract the way
 H13 locks the module-path contract.
 
 **Current-state assertion.** Zero violations; the snapshot enumerates
-exactly 32 samples spanning every variant of every error type.
+exactly 38 samples spanning every variant of every error type.
 
 ## Coverage trace — every principle to at least one item
 
@@ -3287,12 +3344,12 @@ Status legend:
 | P8 (opaque handles) | A6, A6.5, A6.6, A7b, A9, A13, A16, A19, A27, A28, A28b, A30 | F2 audit; H1; H12 | 🟡 |
 | P9 (two contexts max) | A6.5, A6.6, A7, A7b, B9, C9, D10 | H7; B9 resolution | 🔴 (B9 open) |
 | P10 (no globals) | D1.5 (no-globals rule), H2 | H2 lint | 🟡 |
-| P11 (no global callbacks) | A19 (closure-vtable per-handle), A31 (per-handle debug callback), D1.5 (no-callbacks rule), D10 | review; future H10 once L5 lands | 🟡 |
+| P11 (no global callbacks) | A19 (closure-vtable per-handle), A31 (per-handle debug callback), D1.5 (no-callbacks rule), D10 | review; future L5 callback lint | 🟡 |
 | P12 (memory ownership in types) | A13, A19, B10 | review | 🟡 |
 | P13 (one error rail) | A6, A12 | H8 `.get()` invariant lint; H15 snapshot lint (A12) | 🟡 |
 | P14 (no thread-local errors) | A9 (no `last*` state on handle), A19 (`HttpResponse` returned by value, not stashed on Transport), D10, H3, H12 | H3 lint; H12 lint | 🟡 |
-| P15 (smart constructors) | A8 (sealed Pattern-A objects across every public value-carrying type + `IdOrCreationRef` + 3 internal), A12 (library-internal error constructors filtered off the hub), A15 (sealed `SerializedSort` / `SerializedFilter`; no JsonNode-keyed argument-construction shims on the public surface; `directIds` is the sole helper), A19 (`newTransport`, `newHttpTransport` Result-returning), A30 (Pattern-A `Request` and `Response` with `initX` / `parseX` smart constructors), A30b (filter `Invocation` / `ResultReference` smart constructors from the hub), H1 | testament reject test `tests/compile/treject_a8_sealed_external_construction.nim`; A12 compile audits; A1b compile audit `doAssert not declared(initCreates)` lock; A1b compile audit for A30 smart-constructor absence; H1 lint (regression prevention) | 🟢 |
-| P16 (preconditions in types) | A6, A6.5, A6.6, A7b, A7c, A7d, A29, B3, B4, B6, B11, B12 | H9; B11/B12 resolution; A7c testament `action: reject` test | 🔴 (B11, B12 open) |
+| P15 (smart constructors) | A8 (sealed Pattern-A objects across every public value-carrying type + `IdOrCreationRef` + 3 internal), A12 (library-internal error constructors filtered off the hub), A15 (sealed `SerializedSort` / `SerializedFilter`; no JsonNode-keyed argument-construction shims on the public surface; `directIds` is the sole helper), A19 (`newTransport`, `newHttpTransport` Result-returning), A30 (Pattern-A `Request` and `Response` with `initX` / `parseX` smart constructors), A30b (filter `Invocation` / `ResultReference` smart constructors from the hub), H1 | testament reject test `tests/compile/treject_a8_sealed_external_construction.nim`; A12 compile audits; A1b compile audit `doAssert not declared(initCreates)` lock; A1b compile audit for A30 smart-constructor absence; H1 lint (regression prevention) | 🟢 (core shipped; A30b hub-filter still ⬜) |
+| P16 (preconditions in types) | A6, A6.5, A6.6, A7b, A7c, A7d, A29, B3, B4, B6, B11, B12 | H9; B11 resolution; A7c testament `action: reject` test | 🔴 (B11 open) |
 | P17 (one config surface) | A14, A19 (HTTP config on `newHttpTransport` only), A20, A21 | review; F6 snapshot; sealed `SessionEndpoint`/`Credential` (A20/A21); `treject_a20`/`treject_a21` reject audits | 🟡 |
 | P18 (sum types over flag soup) | A6, A12, B1, B2, B7, B8, H9 | H9 catch-all lint; A12 exhaustive `case` in `SetError.message` / `TransportError.message` / mail extractors | 🟡 |
 | P19 (schema-driven types) | A2, A2b, A3, A3.5, A4, A5, A14, A15, A16, A17, A18, A21, A22, A22b, A28, A28b, A30, H14 | H11 typed-builder lint (A5); A22b inline docstrings; F1; A1b compile audit (A30 negative for raw construction) | 🟡 |
@@ -3317,7 +3374,7 @@ must fail CI, not depend on reviewer attention.
 | Anti-pattern | TODO items | CI gate |
 |---|---|---|
 | Global mutable state | D1.5 (no-globals rule), H2 | H2 lint |
-| Global callbacks | D1.5 (no-callbacks rule), D10 | future H10 once L5 lands |
+| Global callbacks | D1.5 (no-callbacks rule), D10 | future L5 callback lint |
 | Two-channel configuration | A14, A20, A21 | F6 snapshot diff (catches future drift); sealed `SessionEndpoint`/`Credential`; `treject_a20`/`treject_a21` |
 | Stringly-typed APIs | A2, A2b, A3, A3.5, A4, A5, A8 (closes the disguise by sealing the underlying `rawValue` field), A14, A15, A17, A18, A20, A21, A22b | H11 typed-builder lint; H7 (convenience charter); A8 testament reject test; reviewer grep on `JsonNode` outside Documented exceptions |
 | Multiple coexisting public layers | A1, A1b, A1c, A1d, A9, A10, A16, A30 | H13 lint (A10b); module-paths.txt snapshot (A10a); F6 snapshot (A26); A1c + A1d compile audits |
