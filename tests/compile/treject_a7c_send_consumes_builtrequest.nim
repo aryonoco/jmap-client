@@ -16,7 +16,10 @@ import jmap_client
 import jmap_client/internal/types/identifiers
 import jmap_client/internal/protocol/builder
 
-var c = initJmapClient(sessionUrl = "https://example.com/jmap", bearerToken = "t").get()
+var c = initJmapClient(
+    directEndpoint("https://example.com/jmap").get(), bearerCredential("t").get()
+  )
+  .get()
 let req = initRequestBuilder(initBuilderId(0'u64, 0'u64)).freeze()
 discard c.send(req)
 discard c.send(req)

@@ -29,12 +29,9 @@ import ../../mtestblock
 
 testCase tcreatedIdsEnvelopeLive:
   forEachLiveTarget(target):
-    let client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
+    let client = initJmapClient(target.endpoint, target.aliceCredential).expect(
+        "initJmapClient[" & $target.kind & "]"
       )
-      .expect("initJmapClient[" & $target.kind & "]")
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -68,9 +65,8 @@ testCase tcreatedIdsEnvelopeLive:
       # contract, drop into ``postRawJmap`` which POSTs a custom
       # body verbatim via a private one-shot Transport.
       let req = initRequest(baseReq.`using`, baseReq.methodCalls, Opt.some(seedMap))
-      let (respBody, respResult) = postRawJmap(
-        target, session, $req.toJson(), target.aliceToken, target.authScheme
-      )
+      let (respBody, respResult) =
+        postRawJmap(target, session, $req.toJson(), target.aliceCredential)
       captureIfRequested(respBody, "created-ids-envelope-" & $target.kind).expect(
         "captureIfRequested createdIds"
       )

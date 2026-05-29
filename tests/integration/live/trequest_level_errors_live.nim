@@ -41,12 +41,9 @@ import ../../mtestblock
 
 testCase trequestLevelErrorsLive:
   forEachLiveTarget(target):
-    let client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
+    let client = initJmapClient(target.endpoint, target.aliceCredential).expect(
+        "initJmapClient[" & $target.kind & "]"
       )
-      .expect("initJmapClient[" & $target.kind & "]")
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
 
     # Sub-test 1: non-JSON input.  Strict library-contract assertions:
@@ -54,9 +51,8 @@ testCase trequestLevelErrorsLive:
     # losslessly preserved and shaped as a JMAP error URI; errorType
     # must project into the closed RequestErrorKind enum.
     block notJsonCase:
-      let (respBody, res) = postRawJmap(
-        target, session, "this is not JSON", target.aliceToken, target.authScheme
-      )
+      let (respBody, res) =
+        postRawJmap(target, session, "this is not JSON", target.aliceCredential)
       captureIfRequested(respBody, "request-error-not-json-" & $target.kind).expect(
         "captureIfRequested notJSON"
       )
@@ -80,7 +76,7 @@ testCase trequestLevelErrorsLive:
     # type signature.
     block notRequestCase:
       let (respBody, res) =
-        postRawJmap(target, session, "[1,2,3]", target.aliceToken, target.authScheme)
+        postRawJmap(target, session, "[1,2,3]", target.aliceCredential)
       captureIfRequested(respBody, "request-error-not-request-" & $target.kind).expect(
         "captureIfRequested notRequest"
       )
@@ -104,8 +100,7 @@ testCase trequestLevelErrorsLive:
     # server does not advertise.
     block unknownCapabilityCase:
       const body = """{"using":["urn:test:phase-j:bogus"],"methodCalls":[]}"""
-      let (respBody, res) =
-        postRawJmap(target, session, body, target.aliceToken, target.authScheme)
+      let (respBody, res) = postRawJmap(target, session, body, target.aliceCredential)
       captureIfRequested(respBody, "request-error-unknown-capability-" & $target.kind)
         .expect("captureIfRequested unknownCapability")
       assertOn target, res.isErr, "expected RequestError on unknown capability URI"
@@ -134,8 +129,7 @@ testCase trequestLevelErrorsLive:
         """{"using":["urn:ietf:params:jmap:core"],"methodCalls":[["Core/echo",{"blob":""""
       const suffix = """"},"c0"]]}"""
       let body = prefix & blob & suffix
-      let (respBody, res) =
-        postRawJmap(target, session, body, target.aliceToken, target.authScheme)
+      let (respBody, res) = postRawJmap(target, session, body, target.aliceCredential)
       captureIfRequested(respBody, "request-error-limit-" & $target.kind).expect(
         "captureIfRequested limit"
       )

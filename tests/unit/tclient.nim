@@ -33,6 +33,9 @@ import ../mtestblock
 import ../mtransport
 
 # --- initJmapClient (default-transport convenience overload) ---
+# Endpoint/credential rejection cases live in the Layer-1 unit tests
+# (``tsession_endpoint.nim`` / ``tcredential.nim``); ``initJmapClient`` now
+# accepts only pre-validated sealed values, so its tests are behavioural.
 
 testCase initJmapClientHttpsValid:
   ## Scenario 1: valid HTTPS URL and token. Behaviour-tested via a
@@ -41,9 +44,9 @@ testCase initJmapClientHttpsValid:
   let (recordingTransport, recorder) =
     newRecordingTransport(newCannedTransport(makeDefaultSessionJson(), "{}"))
   let c = initJmapClient(
-      transport = recordingTransport,
-      sessionUrl = "https://example.com/jmap",
-      bearerToken = "test-token",
+      directEndpoint("https://example.com/jmap").get(),
+      bearerCredential("test-token").get(),
+      recordingTransport,
     )
     .get()
   discard c.fetchSession().get()
@@ -56,169 +59,88 @@ testCase initJmapClientHttpValid:
   let (recordingTransport, recorder) =
     newRecordingTransport(newCannedTransport(makeDefaultSessionJson(), "{}"))
   let c = initJmapClient(
-      transport = recordingTransport,
-      sessionUrl = "http://localhost:8080/jmap",
-      bearerToken = "test-token",
+      directEndpoint("http://localhost:8080/jmap").get(),
+      bearerCredential("test-token").get(),
+      recordingTransport,
     )
     .get()
   discard c.fetchSession().get()
   assertEq recorder.lastRequest.url, "http://localhost:8080/jmap"
 
-testCase initJmapClientEmptyUrl:
-  ## Scenario 3: empty sessionUrl rejected.
-  assertErrFields initJmapClient(sessionUrl = "", bearerToken = "test-token"),
-    "JmapClient", "sessionUrl must not be empty", ""
+# --- discovery endpoint (``.well-known/jmap``) ---
 
-testCase initJmapClientNoScheme:
-  ## Scenario 4: URL without scheme prefix rejected.
-  assertErrFields initJmapClient(
-    sessionUrl = "example.com/jmap", bearerToken = "test-token"
-  ), "JmapClient", "sessionUrl must start with https:// or http://", "example.com/jmap"
-
-testCase initJmapClientEmptyToken:
-  ## Scenario 5: empty bearerToken rejected.
-  assertErrFields initJmapClient(
-    sessionUrl = "https://example.com/jmap", bearerToken = ""
-  ), "JmapClient", "bearerToken must not be empty", ""
-
-# --- discoverJmapClient ---
-
-testCase discoverJmapClientValid:
-  ## Scenario 10: valid domain constructs the ``.well-known/jmap`` URL
-  ## and ``fetchSession`` is observed to hit it.
+testCase initJmapClientDiscoveryValid:
+  ## Scenario 10: a discovery-domain endpoint constructs the
+  ## ``.well-known/jmap`` URL and ``fetchSession`` is observed to hit it.
   let (recordingTransport, recorder) =
     newRecordingTransport(newCannedTransport(makeDefaultSessionJson(), "{}"))
-  let c = discoverJmapClient(
-      transport = recordingTransport,
-      domain = "jmap.example.com",
-      bearerToken = "test-token",
+  let c = initJmapClient(
+      discoveryEndpoint("jmap.example.com").get(),
+      bearerCredential("test-token").get(),
+      recordingTransport,
     )
     .get()
   discard c.fetchSession().get()
   assertEq recorder.lastRequest.url, "https://jmap.example.com/.well-known/jmap"
 
-testCase discoverJmapClientEmptyDomain:
-  ## Scenario 11: empty domain rejected.
-  assertErrFields discoverJmapClient(domain = "", bearerToken = "test-token"),
-    "JmapClient", "domain must not be empty", ""
+# --- setCredential ---
 
-testCase discoverJmapClientSlash:
-  ## Scenario 12: domain with '/' rejected (path injection prevention).
-  assertErrFields discoverJmapClient(domain = "ex/ample", bearerToken = "test-token"),
-    "JmapClient", "domain must not contain '/'", "ex/ample"
-
-testCase discoverJmapClientWhitespace:
-  ## Scenario 13: domain with whitespace rejected (header injection prevention).
-  assertErrFields discoverJmapClient(domain = "ex ample", bearerToken = "test-token"),
-    "JmapClient", "domain must not contain whitespace", "ex ample"
-
-# --- setBearerToken ---
-
-testCase setBearerTokenValid:
-  ## Scenario 14: update token, verify subsequent fetchSession carries
-  ## the new Authorization header.
+testCase setCredentialValid:
+  ## Scenario 14: rotate the credential, verify the subsequent
+  ## fetchSession carries the new Authorization header.
   let (recordingTransport, recorder) =
     newRecordingTransport(newCannedTransport(makeDefaultSessionJson(), "{}"))
   let c = initJmapClient(
-      transport = recordingTransport,
-      sessionUrl = "https://example.com/jmap",
-      bearerToken = "old-token",
+      directEndpoint("https://example.com/jmap").get(),
+      bearerCredential("old-token").get(),
+      recordingTransport,
     )
     .get()
-  c.setBearerToken("new-token").get()
+  c.setCredential(bearerCredential("new-token").get())
   discard c.fetchSession().get()
   assertEq recorder.lastRequest.authorization, "Bearer new-token"
 
-testCase setBearerTokenEmpty:
-  ## Scenario 15: empty token rejected.
-  let (recordingTransport, _) =
-    newRecordingTransport(newCannedTransport(makeDefaultSessionJson(), "{}"))
-  let c = initJmapClient(
-      transport = recordingTransport,
-      sessionUrl = "https://example.com/jmap",
-      bearerToken = "test-token",
-    )
-    .get()
-  let btR = c.setBearerToken("")
-  doAssert btR.isErr, "expected Err for empty token"
-  doAssert btR.error.typeName == "JmapClient"
-  doAssert btR.error.reason == "bearerToken must not be empty"
-  doAssert btR.error.value == ""
-
-testCase initJmapClientNewlineInUrl:
-  ## URL with newline characters rejected.
-  assertErrFields initJmapClient(
-    sessionUrl = "https://example.com/jmap\r\nEvil: header", bearerToken = "test-token"
-  ),
-    "JmapClient",
-    "sessionUrl must not contain newline characters",
-    "https://example.com/jmap\r\nEvil: header"
-
-testCase initJmapClientCarriageReturnInUrl:
-  ## URL with lone carriage return rejected.
-  assertErrFields initJmapClient(
-    sessionUrl = "https://example.com/jmap\rpath", bearerToken = "test-token"
-  ),
-    "JmapClient",
-    "sessionUrl must not contain newline characters",
-    "https://example.com/jmap\rpath"
-
-testCase initJmapClientLineFeedInUrl:
-  ## URL with lone line feed rejected.
-  assertErrFields initJmapClient(
-    sessionUrl = "https://example.com/jmap\npath", bearerToken = "test-token"
-  ),
-    "JmapClient",
-    "sessionUrl must not contain newline characters",
-    "https://example.com/jmap\npath"
-
 # --- RFC 8620 compliance edge cases ---
 
-testCase discoverJmapClientWithPort:
+testCase initJmapClientDiscoveryWithPort:
   ## RFC 8620 §2.2: URL template includes [:${port}] — ports valid.
   let (recordingTransport, recorder) =
     newRecordingTransport(newCannedTransport(makeDefaultSessionJson(), "{}"))
-  let c = discoverJmapClient(
-      transport = recordingTransport,
-      domain = "example.com:8080",
-      bearerToken = "test-token",
+  let c = initJmapClient(
+      discoveryEndpoint("example.com:8080").get(),
+      bearerCredential("test-token").get(),
+      recordingTransport,
     )
     .get()
   discard c.fetchSession().get()
   assertEq recorder.lastRequest.url, "https://example.com:8080/.well-known/jmap"
 
-testCase discoverJmapClientFromEmailDomain:
+testCase initJmapClientDiscoveryFromEmailDomain:
   ## RFC 8620 §2.2: "MAY use the domain portion of [email address]".
   let (recordingTransport, recorder) =
     newRecordingTransport(newCannedTransport(makeDefaultSessionJson(), "{}"))
-  let c = discoverJmapClient(
-      transport = recordingTransport,
-      domain = "fastmail.com",
-      bearerToken = "test-token",
+  let c = initJmapClient(
+      discoveryEndpoint("fastmail.com").get(),
+      bearerCredential("test-token").get(),
+      recordingTransport,
     )
     .get()
   discard c.fetchSession().get()
   assertEq recorder.lastRequest.url, "https://fastmail.com/.well-known/jmap"
 
-testCase discoverJmapClientAlwaysHttps:
+testCase initJmapClientDiscoveryAlwaysHttps:
   ## RFC 8620 §1.7: "All HTTP requests MUST use the 'https://' scheme."
   let (recordingTransport, recorder) =
     newRecordingTransport(newCannedTransport(makeDefaultSessionJson(), "{}"))
-  let c = discoverJmapClient(
-      transport = recordingTransport,
-      domain = "jmap.example.com",
-      bearerToken = "test-token",
+  let c = initJmapClient(
+      discoveryEndpoint("jmap.example.com").get(),
+      bearerCredential("test-token").get(),
+      recordingTransport,
     )
     .get()
   discard c.fetchSession().get()
   doAssert recorder.lastRequest.url.startsWith("https://"),
     "discovery URL must use https:// per RFC 8620 §1.7"
-
-# --- Additional edge-case documentation tests ---
-
-testCase initJmapClientSchemeOnlyUrl:
-  ## Design §1.2 validates scheme prefix only; server rejects at runtime.
-  assertOk initJmapClient(sessionUrl = "https://", bearerToken = "test-token")
 
 # --- expandUriTemplate (scenarios 16–20) ---
 
@@ -625,9 +547,9 @@ testCase isSessionStaleNoSession:
   ## ``fetchSession``, so no session is cached.
   let transport = newCannedTransport(makeDefaultSessionJson(), "{}")
   let c = initJmapClient(
-      transport = transport,
-      sessionUrl = "https://example.com/jmap",
-      bearerToken = "test-token",
+      directEndpoint("https://example.com/jmap").get(),
+      bearerCredential("test-token").get(),
+      transport,
     )
     .get()
   let resp = makeResponse(state = makeState("any-state"))

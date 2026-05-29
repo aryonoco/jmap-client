@@ -48,17 +48,15 @@ curl -X PUT -H "Content-Type: application/json" \
 
 # Cyrus's JMAP authenticates Basic with the bare username (no
 # domain part) — matching the Stalwart convention. James uses the
-# full email. The library's ``initJmapClient`` accepts whatever
-# ``authScheme`` / token pair the env vars supply. Cyrus's test
-# image accepts any password for any user (per the admin homepage).
-ALICE_B64=$(echo -n 'alice:any' | base64 -w0)
-BOB_B64=$(echo -n 'bob:any' | base64 -w0)
-
+# full email. The library builds the Basic credential from the
+# user/password pair the env vars supply. Cyrus's test image accepts
+# any password for any user (per the admin homepage).
 cat > /tmp/cyrus-env.sh <<EOF
 export JMAP_TEST_CYRUS_SESSION_URL="$JMAP_URL/jmap"
-export JMAP_TEST_CYRUS_AUTH_SCHEME="Basic"
-export JMAP_TEST_CYRUS_ALICE_TOKEN="$ALICE_B64"
-export JMAP_TEST_CYRUS_BOB_TOKEN="$BOB_B64"
+export JMAP_TEST_CYRUS_ALICE_USER="alice"
+export JMAP_TEST_CYRUS_ALICE_PASSWORD="any"
+export JMAP_TEST_CYRUS_BOB_USER="bob"
+export JMAP_TEST_CYRUS_BOB_PASSWORD="any"
 EOF
 
 echo ""

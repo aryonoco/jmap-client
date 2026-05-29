@@ -34,12 +34,9 @@ import ../../mtestblock
 
 testCase tserverSideEnforcementParityLive:
   forEachLiveTarget(target):
-    let client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
+    let client = initJmapClient(target.endpoint, target.aliceCredential).expect(
+        "initJmapClient[" & $target.kind & "]"
       )
-      .expect("initJmapClient[" & $target.kind & "]")
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let caps = session.coreCapabilities()
     let mailAccountId =
@@ -54,8 +51,7 @@ testCase tserverSideEnforcementParityLive:
       const middle = """","create":{"phaseJ65":{"subject":""""
       const suffix = """"}}},"c0"]]}"""
       let body = prefix & $mailAccountId & middle & pad & suffix
-      let (respBody, res) =
-        postRawJmap(target, session, body, target.aliceToken, target.authScheme)
+      let (respBody, res) = postRawJmap(target, session, body, target.aliceCredential)
       captureIfRequested(
         respBody, "server-enforcement-max-size-request-" & $target.kind
       )
@@ -84,7 +80,7 @@ testCase tserverSideEnforcementParityLive:
           @[%*["Mailbox/get", %*{"accountId": $mailAccountId, "ids": idsArr}, %"c0"]],
       }
       let (respBody, resp) =
-        postRawJmap(target, session, $reqBody, target.aliceToken, target.authScheme)
+        postRawJmap(target, session, $reqBody, target.aliceCredential)
       captureIfRequested(
         respBody, "server-enforcement-max-objects-in-get-" & $target.kind
       )
@@ -119,8 +115,7 @@ testCase tserverSideEnforcementParityLive:
       const body0 = """{"using":["urn:ietf:params:jmap:core"],"methodCalls":"""
       const body2 = """}"""
       let body = body0 & $calls & body2
-      let (respBody, res) =
-        postRawJmap(target, session, body, target.aliceToken, target.authScheme)
+      let (respBody, res) = postRawJmap(target, session, body, target.aliceCredential)
       captureIfRequested(
         respBody, "server-enforcement-max-calls-in-request-" & $target.kind
       )

@@ -50,8 +50,7 @@ testCase tmethodErrorTypedProjectionLive:
       let (respBody, respResult) = postRawSingleInvocation(
         target,
         session,
-        target.aliceToken,
-        target.authScheme,
+        target.aliceCredential,
         capabilityUris = @["urn:ietf:params:jmap:mail"],
         methodName = "Mailbox/snorgleflarp",
         arguments = %*{"accountId": $mailAccountId},
@@ -89,8 +88,7 @@ testCase tmethodErrorTypedProjectionLive:
       let (respBody, respResult) = postRawSingleInvocation(
         target,
         session,
-        target.aliceToken,
-        target.authScheme,
+        target.aliceCredential,
         capabilityUris = @["urn:ietf:params:jmap:mail"],
         methodName = "Email/get",
         arguments = getArgsRef,
@@ -122,8 +120,7 @@ testCase tmethodErrorTypedProjectionLive:
       let (respBody, respResult) = postRawSingleInvocation(
         target,
         session,
-        target.aliceToken,
-        target.authScheme,
+        target.aliceCredential,
         capabilityUris = @["urn:ietf:params:jmap:mail"],
         methodName = "Email/query",
         arguments = %*{
@@ -155,8 +152,7 @@ testCase tmethodErrorTypedProjectionLive:
       let (respBody, respResult) = postRawSingleInvocation(
         target,
         session,
-        target.aliceToken,
-        target.authScheme,
+        target.aliceCredential,
         capabilityUris = @["urn:ietf:params:jmap:mail"],
         methodName = "Email/query",
         arguments =

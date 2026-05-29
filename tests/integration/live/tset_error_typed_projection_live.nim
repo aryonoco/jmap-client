@@ -101,8 +101,7 @@ testCase tsetErrorTypedProjectionLive:
       let (respBody, respResult) = postRawSingleInvocation(
         target,
         session,
-        target.aliceToken,
-        target.authScheme,
+        target.aliceCredential,
         capabilityUris = @["urn:ietf:params:jmap:mail"],
         methodName = "Email/set",
         arguments = %*{
@@ -153,8 +152,7 @@ testCase tsetErrorTypedProjectionLive:
       let (respBody, respResult) = postRawSingleInvocation(
         target,
         session,
-        target.aliceToken,
-        target.authScheme,
+        target.aliceCredential,
         capabilityUris = @["urn:ietf:params:jmap:mail"],
         methodName = "Email/set",
         arguments = %*{
@@ -234,8 +232,7 @@ testCase tsetErrorTypedProjectionLive:
       let (respBody, respResult) = postRawSingleInvocation(
         target,
         session,
-        target.aliceToken,
-        target.authScheme,
+        target.aliceCredential,
         capabilityUris = @["urn:ietf:params:jmap:mail"],
         methodName = "Email/import",
         arguments = %*{

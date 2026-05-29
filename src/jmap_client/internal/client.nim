@@ -2,18 +2,18 @@
 # Copyright (c) 2026 Aryan Ameri
 
 ## JMAP client handle (Layer 4). Reference-counted handle binding a
-## pluggable ``Transport`` to session URL, bearer credentials, cached
-## session state, and the per-handle builder serial counter. ARC
-## destroys the underlying ``Transport`` when the last reference drops;
-## no public ``close`` proc exists.
+## pluggable ``Transport`` to a typed ``SessionEndpoint``, a typed
+## ``Credential``, cached session state, and the per-handle builder
+## serial counter. ARC destroys the underlying ``Transport`` when the
+## last reference drops; no public ``close`` proc exists.
 ##
-## **Construction.** ``initJmapClient(sessionUrl, bearerToken)`` uses
-## the default ``newHttpTransport()`` backend. ``initJmapClient(
-## transport, sessionUrl, bearerToken)`` accepts a caller-supplied
-## ``Transport`` for custom HTTP backends (libcurl, puppy, chronos,
-## recording proxies, in-process mocks). ``discoverJmapClient`` is the
-## ``.well-known/jmap`` URL-construction convenience with the same two
-## overloads.
+## **Construction.** ``initJmapClient(endpoint, credential)`` uses the
+## default ``newHttpTransport()`` backend. ``initJmapClient(endpoint,
+## credential, transport)`` accepts a caller-supplied ``Transport`` for
+## custom HTTP backends (libcurl, puppy, chronos, recording proxies,
+## in-process mocks). A discovery domain is expressed as a
+## ``SessionEndpoint`` variant (``discoveryEndpoint``), not a separate
+## constructor.
 ##
 ## **Threading.** Not thread-safe; hold one per thread. ARC ref-count
 ## manipulation IS thread-safe under ``--threads:on``, but field access
@@ -25,7 +25,6 @@
 {.experimental: "strictCaseObjects".}
 
 import std/json
-import std/strutils
 import std/sysrand
 
 import results
@@ -44,6 +43,8 @@ import ./protocol/dispatch
 import ./protocol/call_meta
 import ./transport/url_resolution
 import ./transport/classify
+import ./types/credential
+import ./types/session_endpoint
 
 type WireDirection* = enum
   ## Direction of a wire byte sequence as observed by a
@@ -78,9 +79,9 @@ when not defined(ssl):
 
 type JmapClientObj = object
   transport: Transport
-  sessionUrl: string
-  bearerToken: string
-  authScheme: string
+  endpoint: SessionEndpoint
+  credential: Credential
+  resolvedSessionUrl: Opt[string]
   session: Opt[Session]
   clientBrand: uint64
   nextBuilderSerial: uint64
@@ -102,95 +103,15 @@ type JmapClient* {.ruleOff: "hasDoc".} = ref JmapClientObj
 
 {.pop.}
 
-type JmapClientViolationKind = enum
-  jcvEmptySessionUrl
-  jcvSessionUrlBadScheme
-  jcvSessionUrlControlChar
-  jcvEmptyBearerToken
-  jcvEntropyUnavailable
-  jcvEmptyDomain
-  jcvDomainWhitespace
-  jcvDomainSlash
-
-type JmapClientViolation {.ruleOff: "objects".} = object
-  case kind: JmapClientViolationKind
-  of jcvEmptySessionUrl, jcvEmptyBearerToken, jcvEmptyDomain, jcvEntropyUnavailable:
-    discard
-  of jcvSessionUrlBadScheme, jcvSessionUrlControlChar:
-    sessionUrl: string
-  of jcvDomainWhitespace, jcvDomainSlash:
-    domain: string
-
-func toValidationError(v: JmapClientViolation): ValidationError =
-  ## Sole domain-to-wire translator for ``JmapClientViolation``. Every
-  ## wire message lives here; adding a ``jcvX`` variant forces a compile
-  ## error at this site.
-  case v.kind
-  of jcvEmptySessionUrl:
-    validationError("JmapClient", "sessionUrl must not be empty", "")
-  of jcvSessionUrlBadScheme, jcvSessionUrlControlChar:
-    if v.kind == jcvSessionUrlBadScheme:
-      validationError(
-        "JmapClient", "sessionUrl must start with https:// or http://", v.sessionUrl
-      )
-    else:
-      validationError(
-        "JmapClient", "sessionUrl must not contain newline characters", v.sessionUrl
-      )
-  of jcvEmptyBearerToken:
-    validationError("JmapClient", "bearerToken must not be empty", "")
-  of jcvEntropyUnavailable:
-    validationError("JmapClient", "OS entropy source unavailable", "")
-  of jcvEmptyDomain:
-    validationError("JmapClient", "domain must not be empty", "")
-  of jcvDomainWhitespace, jcvDomainSlash:
-    if v.kind == jcvDomainWhitespace:
-      validationError("JmapClient", "domain must not contain whitespace", v.domain)
-    else:
-      validationError("JmapClient", "domain must not contain '/'", v.domain)
-
-func detectSessionUrl(sessionUrl: string): Result[void, JmapClientViolation] =
-  ## Structural validation of the JMAP session URL: non-empty, https://
-  ## or http:// scheme, no embedded newlines that would break HTTP
-  ## framing.
-  if sessionUrl.len == 0:
-    return err(JmapClientViolation(kind: jcvEmptySessionUrl))
-  if not sessionUrl.startsWith("https://") and not sessionUrl.startsWith("http://"):
-    return
-      err(JmapClientViolation(kind: jcvSessionUrlBadScheme, sessionUrl: sessionUrl))
-  if sessionUrl.contains({'\c', '\L'}):
-    return
-      err(JmapClientViolation(kind: jcvSessionUrlControlChar, sessionUrl: sessionUrl))
-  ok()
-
-func detectBearerToken(token: string): Result[void, JmapClientViolation] =
-  ## Bearer token non-emptiness — the server rejects empty Authorization
-  ## headers anyway, but failing here saves a round-trip.
-  if token.len == 0:
-    return err(JmapClientViolation(kind: jcvEmptyBearerToken))
-  ok()
-
-func detectDomain(domain: string): Result[void, JmapClientViolation] =
-  ## Bare-domain validation for ``.well-known/jmap`` URL construction
-  ## (RFC 8620 §2.2). Rejects empty, whitespace, and slash-containing
-  ## inputs; scheme/path appear in the synthesised session URL.
-  if domain.len == 0:
-    return err(JmapClientViolation(kind: jcvEmptyDomain))
-  for c in domain:
-    if c in Whitespace:
-      return err(JmapClientViolation(kind: jcvDomainWhitespace, domain: domain))
-  if '/' in domain:
-    return err(JmapClientViolation(kind: jcvDomainSlash, domain: domain))
-  ok()
-
-proc drawClientBrand(): Result[uint64, JmapClientViolation] =
-  ## Reads 8 bytes of OS entropy via ``std/sysrand.urandom``. Returns
-  ## ``err(jcvEntropyUnavailable)`` if the OS entropy source is
-  ## unavailable. Brand uniqueness is the only requirement; the sysrand
-  ## path is preferred for isolation across cooperating processes.
+proc drawClientBrand(): Result[uint64, ValidationError] =
+  ## Reads 8 bytes of OS entropy via ``std/sysrand.urandom``. Errs when the
+  ## OS entropy source is unavailable — the sole construction failure now that
+  ## endpoint and credential arrive pre-validated as sealed Layer-1 values.
+  ## Brand uniqueness is the only requirement; the sysrand path is preferred
+  ## for isolation across cooperating processes.
   var bytes: array[8, byte] = default(array[8, byte])
   if not urandom(bytes):
-    return err(JmapClientViolation(kind: jcvEntropyUnavailable))
+    return err(validationError("JmapClient", "OS entropy source unavailable", ""))
   ok(cast[uint64](bytes))
 
 # ---------------------------------------------------------------------------
@@ -198,30 +119,20 @@ proc drawClientBrand(): Result[uint64, JmapClientViolation] =
 # ---------------------------------------------------------------------------
 
 proc initJmapClient*(
-    transport: Transport,
-    sessionUrl: string,
-    bearerToken: string,
-    authScheme: string = "Bearer",
+    endpoint: SessionEndpoint, credential: Credential, transport: Transport
 ): Result[JmapClient, ValidationError] =
-  ## Primary constructor — application developer supplies a Transport
-  ## (e.g., a libcurl wrapper, an in-process mock, a recording proxy).
-  ##
-  ## Does NOT fetch the session — call ``fetchSession()`` explicitly or
-  ## let ``send()`` fetch it lazily on first call.
-  ##
-  ## Returns err on invalid session URL or bearer token.
-  detectSessionUrl(sessionUrl).isOkOr:
-    return err(toValidationError(error))
-  detectBearerToken(bearerToken).isOkOr:
-    return err(toValidationError(error))
-  let clientBrand = drawClientBrand().valueOr:
-    return err(toValidationError(error))
+  ## Primary constructor — the application developer supplies a ``Transport``
+  ## (libcurl wrapper, in-process mock, recording proxy). The session is NOT
+  ## fetched here; call ``fetchSession()`` or let ``send()`` fetch it lazily.
+  ## ``endpoint`` and ``credential`` are pre-validated sealed values, so the
+  ## only failure is OS entropy for the client brand.
+  let clientBrand = ?drawClientBrand()
   ok(
     JmapClient(
       transport: transport,
-      sessionUrl: sessionUrl,
-      bearerToken: bearerToken,
-      authScheme: authScheme,
+      endpoint: endpoint,
+      credential: credential,
+      resolvedSessionUrl: Opt.none(string),
       session: Opt.none(Session),
       clientBrand: clientBrand,
       nextBuilderSerial: 0'u64,
@@ -230,40 +141,14 @@ proc initJmapClient*(
   )
 
 proc initJmapClient*(
-    sessionUrl: string, bearerToken: string, authScheme: string = "Bearer"
+    endpoint: SessionEndpoint, credential: Credential
 ): Result[JmapClient, ValidationError] =
-  ## Convenience constructor — uses the default ``newHttpTransport()``
-  ## backend. HTTP-level configuration (timeout, redirects, response-
-  ## size cap, user-agent) lives on ``newHttpTransport``; callers who
-  ## need non-default values build their own transport and use the
-  ## primary overload.
+  ## Convenience constructor — uses the default ``newHttpTransport()`` backend.
+  ## HTTP-level configuration (timeout, redirects, response-size cap,
+  ## user-agent) lives on ``newHttpTransport``; callers who need non-default
+  ## values build their own transport and use the primary overload.
   let t = ?newHttpTransport()
-  initJmapClient(t, sessionUrl, bearerToken, authScheme)
-
-proc discoverJmapClient*(
-    transport: Transport,
-    domain: string,
-    bearerToken: string,
-    authScheme: string = "Bearer",
-): Result[JmapClient, ValidationError] =
-  ## Discovers the JMAP session URL via the ``.well-known/jmap`` path
-  ## (RFC 8620 §2.2). Application developer supplies a Transport.
-  detectDomain(domain).isOkOr:
-    return err(toValidationError(error))
-  initJmapClient(
-    transport,
-    sessionUrl = "https://" & domain & "/.well-known/jmap",
-    bearerToken = bearerToken,
-    authScheme = authScheme,
-  )
-
-proc discoverJmapClient*(
-    domain: string, bearerToken: string, authScheme: string = "Bearer"
-): Result[JmapClient, ValidationError] =
-  ## Convenience overload — uses the default ``newHttpTransport()``
-  ## backend.
-  let t = ?newHttpTransport()
-  discoverJmapClient(t, domain, bearerToken, authScheme)
+  initJmapClient(endpoint, credential, t)
 
 # ---------------------------------------------------------------------------
 # Mutators and pure observers
@@ -278,14 +163,11 @@ proc newBuilder*(client: JmapClient): RequestBuilder =
   client.nextBuilderSerial += 1
   initRequestBuilder(id)
 
-proc setBearerToken*(client: JmapClient, token: string): Result[void, ValidationError] =
-  ## Updates the bearer token. Subsequent requests use the new token —
-  ## the Authorization header is constructed per-call inside
-  ## ``fetchSession`` / ``send`` from the current token and authScheme.
-  detectBearerToken(token).isOkOr:
-    return err(toValidationError(error))
-  client.bearerToken = token
-  ok()
+proc setCredential*(client: JmapClient, credential: Credential) =
+  ## Rotates the client's credential. Subsequent requests build the
+  ## ``Authorization`` header from the new credential. No validation — a
+  ## ``Credential`` is valid by construction.
+  client.credential = credential
 
 proc setDebugCallback*(client: JmapClient, cb: DebugCallback) =
   ## Installs, replaces, or detaches the per-handle wire debug
@@ -454,8 +336,9 @@ func validateLimits(
 # ---------------------------------------------------------------------------
 
 func authorizationHeader(client: JmapClient): string =
-  ## Builds the per-call Authorization header value. Pure.
-  client.authScheme & " " & client.bearerToken
+  ## Per-call Authorization header value, materialised from the typed
+  ## credential. Pure.
+  client.credential.authorizationHeaderValue
 
 proc fireDebug(client: JmapClient, direction: WireDirection, bytes: openArray[byte]) =
   ## Fires the per-handle debug callback if installed. ``DebugCallback``
@@ -466,11 +349,26 @@ proc fireDebug(client: JmapClient, direction: WireDirection, bytes: openArray[by
   for cb in client.debugCallback:
     cb(direction, bytes)
 
+func resolveEndpoint(client: JmapClient): string =
+  ## Resolves the endpoint intent to a concrete session URL. Both current arms
+  ## are pure and infallible; the reserved ``sekSrvDomain`` arm will make this
+  ## effectful (DNS) and is the single seam where that lands (decision #12).
+  case client.endpoint.kind
+  of sekDirectUrl:
+    # asDirectUrl is Some whenever kind is sekDirectUrl (just matched).
+    client.endpoint.asDirectUrl.get()
+  of sekDiscoveryDomain:
+    # asDiscoveryDomain is Some whenever kind is sekDiscoveryDomain.
+    "https://" & client.endpoint.asDiscoveryDomain.get() & "/.well-known/jmap"
+
 proc fetchSession*(client: JmapClient): JmapResult[Session] =
-  ## Fetches the JMAP Session resource from the server and caches it.
-  ## Re-fetching replaces the cached session.
+  ## Resolves the endpoint to a concrete session URL (caching it in
+  ## ``resolvedSessionUrl``), fetches the JMAP Session resource from the
+  ## server, and caches it. Re-fetching replaces both cached values.
+  let sessionUrl = resolveEndpoint(client)
+  client.resolvedSessionUrl = Opt.some(sessionUrl)
   let req = HttpRequest(
-    url: client.sessionUrl,
+    url: sessionUrl,
     httpMethod: hmGet,
     body: "",
     authorization: authorizationHeader(client),
@@ -506,8 +404,13 @@ proc performSend(
       )
     )
     return err(validationToClientError(ve))
+  let resolved = client.resolvedSessionUrl
+  let baseUrl = resolved.valueOr:
+    # ensureSession → fetchSession populated this before any performSend.
+    return
+      err(clientError(transportError(tekNetwork, "session URL unresolved before send")))
   let req = HttpRequest(
-    url: resolveAgainstSession(client.sessionUrl, session.apiUrl),
+    url: resolveAgainstSession(baseUrl, session.apiUrl),
     httpMethod: hmPost,
     body: body,
     authorization: authorizationHeader(client),

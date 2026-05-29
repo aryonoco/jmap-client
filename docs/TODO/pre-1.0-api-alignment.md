@@ -65,19 +65,18 @@ until it lands, the counts are maintained by hand.
 
 | Status | Count | What it means |
 |---|---|---|
-| ✅ DONE | 45 | Implemented and verified against source / tests. |
+| ✅ DONE | 47 | Implemented and verified against source / tests. |
 | 🟡 PARTIAL | 11 | Some parts implemented; gaps named in the item body. |
-| ⬜ TODO | 56 | Not yet implemented. |
+| ⬜ TODO | 55 | Not yet implemented. |
 | 🟦 DEFERRED | 1 | Explicitly deferred to a post-1.0 release (E1). |
 | ❌ DROPPED | 1 | Superseded or rejected (D15). |
 | **RESOLVED** | 1 | Design decision made (A3.5). |
 
 **Freeze-blocking gaps** (must close before 1.0 tag): B9, B11, C1,
-C1.1, plus the three ⬜ TODO surfaces that change observable
-behaviour (A20, A21, A26). The outstanding lint backstops (H2–H9
-plus H14) can ship in the same window or shortly after; H1, H10–H13,
-and H15 are already in place. The freeze checklist (D18) tracks
-per-item gate status.
+C1.1, and A26 — the remaining ⬜ TODO surface that changes observable
+behaviour. The outstanding lint backstops (H2–H9 plus H14) can ship in
+the same window or shortly after; H1, H10–H13, and H15 are already in
+place. The freeze checklist (D18) tracks per-item gate status.
 
 ## Documented exceptions to the principles
 
@@ -644,7 +643,7 @@ instances (multi-account scenarios).
 
 `BuilderId` is composite: `clientBrand: uint64` drawn via
 `std/sysrand.urandom` once per `JmapClient` (entropy failure
-surfaces as `jcvEntropyUnavailable` `ValidationError`) plus
+surfaces as a `ValidationError`) plus
 `serial: uint64` monotonic per client.
 
 `ResponseHandle[T]` and `NameBoundHandle[T]` additionally carry a
@@ -798,7 +797,11 @@ and `AccountCapabilityEntry`
 (`internal/types/account_capability_schemas.nim`) carry per-arm
 payloads and expose `uri*`, `kind*`, and the typed projection
 accessors (`asCoreCapabilities`, `asMailAccountCapabilities`,
-`asSubmissionAccountCapabilities`, `asRawData`); `MailboxRole`
+`asSubmissionAccountCapabilities`, `asRawData`); `SessionEndpoint`
+(`internal/types/session_endpoint.nim`, A20) exposes `kind*` plus the
+`directEndpoint` / `discoveryEndpoint` smart constructors; `Credential`
+(`internal/types/credential.nim`, A21) exposes `scheme*` plus the
+`bearerCredential` / `basicCredential` smart constructors; `MailboxRole`
 (`mail/mailbox.nim`), `ContentDisposition` (`mail/body.nim`),
 `CollationAlgorithm` (`internal/types/collation.nim`),
 `Comparator`, `AddedItem` (`framework.nim`), and `Thread`,
@@ -853,8 +856,8 @@ accessible."* on every run.
 ### A9. No test backdoors on the public surface *(P5, P8, P14)* — ✅ DONE
 
 `src/jmap_client/internal/client.nim` exports only the JMAP-shaped
-operational surface: `initJmapClient`, `discoverJmapClient`,
-`newBuilder`, `setBearerToken`, `fetchSession`, `isSessionStale`,
+operational surface: `initJmapClient`, `newBuilder`, `setCredential`,
+`setDebugCallback`, `fetchSession`, `isSessionStale`,
 `refreshSessionIfStale`, `send`. No accessor, `close`, or
 `*ForTest*` / `*ForTesting*` / `setSessionFor*` / `lastRaw*` /
 `last*Response*` / `last*Request*` symbol exists anywhere under
@@ -875,9 +878,9 @@ public API and the H10-permitted internal seams:
   inside `client.nim`; its sole caller is `send`, and tests drive
   limit checks through `client.send()` against a canned-session
   Transport.
-- **Bearer token** — `setBearerToken` is a write-only mutator; the
-  token is read per-call when the client builds each request's
-  `Authorization` header. No `bearerToken` getter exists.
+- **Credential** — `setCredential` is a write-only mutator; the
+  credential is read per-call when the client builds each request's
+  `Authorization` header. No credential getter exists.
 
 **Verification gate.** `tests/lint/h12_no_test_backdoor_symbols.nim`
 (H12) — a mechanical lint, run in `just ci`, fails on any exported
@@ -1277,15 +1280,17 @@ oblivious to which HTTP backend is in use. Application developers
 plug in libcurl, puppy, chronos, recording proxies, or in-process
 mocks by composing the public `newTransport(send, close)` API.
 
-**Two-overload constructor surface** (P3 additive):
+**Two-overload constructor surface** (P3 additive). The endpoint and
+credential are sealed Layer-1 sum types (`SessionEndpoint`, `Credential`;
+A20/A21), so the construction surface is exactly two overloads:
 
-- `initJmapClient(transport, sessionUrl, bearerToken, authScheme)`
-  — primary; application developer supplies the transport.
-- `initJmapClient(sessionUrl, bearerToken, authScheme)` —
-  convenience; delegates to `newHttpTransport()`.
-- `discoverJmapClient(transport, domain, bearerToken, authScheme)`
-  / `discoverJmapClient(domain, bearerToken, authScheme)` — same
-  pair for the `.well-known/jmap` URL-construction convenience.
+- `initJmapClient(endpoint, credential, transport)` — primary;
+  application developer supplies the transport.
+- `initJmapClient(endpoint, credential)` — convenience; delegates to
+  `newHttpTransport()`.
+
+A discovery domain is a `SessionEndpoint` variant (`discoveryEndpoint`);
+there is no separate discovery constructor.
 
 **C-FFI alignment.** The closure-vtable shape projects directly to
 a single C function-pointer-plus-userdata pair at L5. Future C
@@ -1293,65 +1298,87 @@ consumers bring their own HTTP library via callback (the libcurl
 `CURLOPT_WRITEFUNCTION` / SQLite-VFS model). See D10's forward
 pointer.
 
-### A20. Collapse session entry points *(P17)* — ⬜ TODO
+### A20. Collapse session entry points *(P3, P5, P19, P20)* — ✅ DONE
 
-`src/jmap_client/internal/client.nim:176–241` exposes four
-overloads for the same concept (the session URL):
-
-1. `initJmapClient(transport, sessionUrl, bearerToken, authScheme)`
-2. `initJmapClient(sessionUrl, bearerToken, authScheme)` (uses
-   default `newHttpTransport()`)
-3. `discoverJmapClient(transport, domain, bearerToken, authScheme)`
-4. `discoverJmapClient(domain, bearerToken, authScheme)`
-
-Discovery domain `"example.com"` and a precomputed
-`"https://example.com/.well-known/jmap"` reach the session URL
-via two parsers — exactly what P17 forbids.
-
-**Action.** Collapse to one constructor with a `SessionEndpoint` sum:
+The session locator is one sealed Layer-1 sum type, not a spread of
+stringly-typed constructor channels.
+`src/jmap_client/internal/types/session_endpoint.nim` defines it:
 
 ```nim
 type SessionEndpointKind* = enum
-  sekDiscoveryDomain
   sekDirectUrl
+  sekDiscoveryDomain
+  # sekSrvDomain — reserved; future DNS-SRV autodiscovery (P20/P23)
 
-type SessionEndpoint* = object
-  case kind*: SessionEndpointKind
-  of sekDiscoveryDomain: domain*: string
-  of sekDirectUrl: url*: string
+type SessionEndpoint* {.ruleOff: "objects".} = object
+  case kind*: SessionEndpointKind        # public discriminator
+  of sekDirectUrl: directUrl: string     # private payload
+  of sekDiscoveryDomain: domain: string  # private payload
 
-func discoveryEndpoint*(domain: string): Result[SessionEndpoint, ValidationError]
 func directEndpoint*(url: string): Result[SessionEndpoint, ValidationError]
-
-proc initJmapClient*(endpoint: SessionEndpoint, bearerToken: string,
-                     ...): Result[JmapClient, ClientError]
+func discoveryEndpoint*(domain: string): Result[SessionEndpoint, ValidationError]
 ```
 
-Target state: no `discoverJmapClient` proc; its behaviour is
-reached via
-`initJmapClient(discoveryEndpoint("example.com").get(), ...)`.
+`directEndpoint` and `discoveryEndpoint` are the only producers; the
+payload is module-private (A8). A precomputed session URL and a
+discovery domain are two variants of one type, so `initJmapClient` takes
+a single `SessionEndpoint` (A19); discovery needs no separate
+constructor. Resolution to a concrete URL is a Layer-4 concern — `resolveEndpoint` (in `client.nim`) maps the endpoint
+to a URL, which `fetchSession` caches in `resolvedSessionUrl`. The
+reserved `sekSrvDomain` arm is the single additive seam where DNS-SRV
+autodiscovery lands (P20/P23) without a constructor change.
 
-### A21. Type the auth scheme *(P17, P19)* — ⬜ TODO
+Audits: `tests/compile/treject_a20_sealed_endpoint_construction.nim`
+and `tests/compile/tcompile_a20a21_hub_surface.nim`; L1 unit coverage in
+`tests/unit/tsession_endpoint.nim`.
 
-`src/jmap_client/internal/client.nim:60, 180, 208, 222, 236` —
-`authScheme: string = "Bearer"` is a stringly-typed enum-shaped
-surface. Anti-pattern by P19; potential P17 drift if a second
-source ever sets it. No `AuthScheme` enum exists; no
-`parseAuthScheme()` smart constructor exists.
+### A21. Type the auth scheme *(P17, P18, P19)* — ✅ DONE
 
-**Action.** Replace with:
+The authentication scheme and its secret are one sealed Layer-1 sum
+type whose discriminator is the scheme, so a scheme and a mismatched
+secret cannot coexist.
+`src/jmap_client/internal/types/credential.nim` defines it:
 
 ```nim
 type AuthScheme* = enum
   asBearer = "Bearer"
   asBasic = "Basic"
-  # extend additively per RFC
 
-func parseAuthScheme*(raw: string): Result[AuthScheme, ValidationError]
-  ## Lenient: preserves raw scheme for forward-compat (Postel's law).
-  ## Unknown schemes round-trip via a future `asUnknown` arm + raw field
-  ## once a third scheme appears; today the closed set is exhaustive.
+type Credential* {.ruleOff: "objects".} = object
+  case scheme*: AuthScheme           # public discriminator
+  of asBearer: bearerTok: string     # private payload
+  of asBasic: basicUser, basicPass: string
+
+func bearerCredential*(token: string): Result[Credential, ValidationError]
+func basicCredential*(username, password: string): Result[Credential, ValidationError]
 ```
+
+- **No `parseAuthScheme`.** Authentication is client→server, so there
+  is no "unknown scheme off the wire" to tolerate — no lenient parser,
+  no `asUnknown` arm. New schemes are additive `AuthScheme` variants
+  (P20).
+- **Library owns RFC 7617 encoding.** `base64(user:pass)` is
+  materialised at exactly one hub-private site
+  (`authorizationHeaderValue`). The encoder is inlined because
+  `std/base64.encode` is a side-effecting `proc` that would break the
+  module's `{.push raises: [], noSideEffect.}`.
+- **Secret never printed.** `$` renders scheme + Basic username only
+  (`Credential(Bearer)` / `Credential(Basic, username: alice)`); the
+  token and password reach neither `$`, nor `ValidationError.value`
+  (every credential violation carries `value = ""`), nor a
+  `DebugCallback`.
+- **Bearer hardening.** `bearerCredential` rejects an empty token or any
+  control char (`{'\0'..'\x1F','\x7F'}`, incl. CR/LF) — the token goes
+  verbatim into the `Authorization` header, so control bytes would
+  enable header injection. `directEndpoint` applies the same guard to
+  URLs.
+
+`setCredential` (on `JmapClient`) rotates the credential; subsequent
+requests build the `Authorization` header from the new value.
+
+Audits: `tests/compile/treject_a21_sealed_credential_construction.nim`,
+`tests/compile/tcompile_a20a21_hub_surface.nim`; L1 unit coverage in
+`tests/unit/tcredential.nim`.
 
 ### A22. `addEcho` JsonNode argument policy *(P19)* — ✅ DONE
 
@@ -1638,7 +1665,7 @@ additively per A7e.
 
 ### A7c. Consume `BuiltRequest` on `send` *(P16, P21)* — ✅ DONE
 
-`src/jmap_client/internal/client.nim` — `proc send*(client: var JmapClient,
+`src/jmap_client/internal/client.nim` — `proc send*(client: JmapClient,
 req: sink BuiltRequest): JmapResult[DispatchedResponse]`.
 `BuiltRequest` is uncopyable: its `=copy` and `=dup` hooks
 (`src/jmap_client/internal/protocol/builder.nim`, just after the
@@ -1762,7 +1789,7 @@ would have no caller and serve no diagnostic purpose.
 > **Async dispatch (lands with A19 + E1).** The async overload is
 > a separate procedure `sendAsync` — never an overload of `send`,
 > never a runtime flag (P22). Signature: `proc sendAsync(client:
-> var JmapClient, req: sink BuiltRequest):
+> JmapClient, req: sink BuiltRequest):
 > JmapResult[DispatchedRequest]`. `proc await(dr: sink
 > DispatchedRequest): JmapResult[DispatchedResponse]` consumes the
 > in-flight token and yields the same `DispatchedResponse` the
@@ -2077,7 +2104,6 @@ rationale before tagging 1.0. If (a) is picked instead, record the
 P12 says ownership in the type. Today every accessor that returns a
 container deep-copies on each call. Annotate:
 
-- `JmapClient.session*` — `lent Session`
 - `Session.accounts*`, `primaryAccounts*`, `capabilities*` — `lent T`
 - `RequestBuilder.capabilities*` — `lent seq[CapabilityUri]`
 - `UriTemplate.parts*`, `variables*` — `lent T`
@@ -2189,8 +2215,9 @@ roll-up helpers: `mb.canMutate(): bool`, `mb.canRead(): bool`,
 
 ### C5. Capability discovery convenience *(P7)* — ⬜ TODO
 
-Currently `client.session().get().coreCapabilities()` chain is
-correct but undocumented. Add helpers:
+Currently the capability chain runs through the `Session` that
+`fetchSession` returns — `client.fetchSession().get().coreCapabilities()`
+— correct but undocumented. Add helpers:
 `client.supportsMail(): bool`, `client.coreCapabilities(): Opt[…]`,
 `client.requireMail(): JmapResult[void]`. Pre-flight "does this
 server support Mail?" should be one line.
@@ -2256,7 +2283,7 @@ Each `filed-as-Cn` becomes a new item in Section C of this TODO.
 C5 lists capability discovery helpers but underspecifies the
 one-liner. The headline call site is "does this server support
 JMAP Mail?" — currently
-`client.session().get().coreCapabilities()` then walk a set.
+`client.fetchSession().get().coreCapabilities()` then walk a set.
 Day-one wrapper trigger.
 
 **Action.** Add to `src/jmap_client/internal/client.nim`:
@@ -2424,7 +2451,7 @@ NEVER as a new top-level entry point that mirrors an old one.
 add any of:
 
 - a new public proc on `JmapClient` whose name does not begin with
-  `send`, `close`, `setBearerToken`, or `fetchSession`;
+  `send`, `setCredential`, `setDebugCallback`, or `fetchSession`;
 - a new public top-level proc in `jmap_client.nim`;
 - a new public module path under `src/jmap_client/` that is not
   nested under an entity directory.
@@ -2822,12 +2849,12 @@ order; re-derive at audit time with `grep -cE '^\s*(proc|func|template|type|iter
 - `src/jmap_client/internal/mail/mailbox.nim` — ~33
 - `src/jmap_client/internal/mail/email.nim` — ~21
 - `src/jmap_client/internal/mail/body.nim` — ~15
-- `src/jmap_client/internal/client.nim` — 14 exports (`JmapClient`,
-  `initJmapClient` ×2 overloads, `discoverJmapClient` ×2 overloads,
-  `newBuilder`, `setBearerToken`, `fetchSession`, `isSessionStale`,
-  `refreshSessionIfStale`, `send`, plus the A31 debug-callback
-  surface — `WireDirection`, `DebugCallback`, `setDebugCallback` —
-  plus the C5/C8 capability helpers once they land)
+- `src/jmap_client/internal/client.nim` — 12 exports (`JmapClient`,
+  `initJmapClient` ×2 overloads, `newBuilder`, `setCredential`,
+  `fetchSession`, `isSessionStale`, `refreshSessionIfStale`, `send`,
+  plus the A31 debug-callback surface — `WireDirection`,
+  `DebugCallback`, `setDebugCallback` — plus the C5/C8 capability
+  helpers once they land)
 - `src/jmap_client/internal/transport.nim` — 9 exports
   (`HttpMethodKind`, `HttpRequest`, `HttpResponse`, `SendProc`,
   `CloseProc`, `Transport`, `newTransport`, `newHttpTransport`,
@@ -3001,7 +3028,7 @@ under `src/` requires explicit allowlist entry with rationale.
 `src/jmap_client/internal/client.nim` imports `std/sysrand` for
 the `BuilderId.clientBrand` draw (A6). The failure mode on
 unavailable OS entropy is loud failure
-(`jcvEntropyUnavailable` `ValidationError`); no
+(a `ValidationError`); no
 `std/monotimes` fallback exists. The H4 allowlist therefore
 includes `std/sysrand`.
 
@@ -3266,7 +3293,7 @@ Status legend:
 | P14 (no thread-local errors) | A9 (no `last*` state on handle), A19 (`HttpResponse` returned by value, not stashed on Transport), D10, H3, H12 | H3 lint; H12 lint | 🟡 |
 | P15 (smart constructors) | A8 (sealed Pattern-A objects across every public value-carrying type + `IdOrCreationRef` + 3 internal), A12 (library-internal error constructors filtered off the hub), A15 (sealed `SerializedSort` / `SerializedFilter`; no JsonNode-keyed argument-construction shims on the public surface; `directIds` is the sole helper), A19 (`newTransport`, `newHttpTransport` Result-returning), A30 (Pattern-A `Request` and `Response` with `initX` / `parseX` smart constructors), A30b (filter `Invocation` / `ResultReference` smart constructors from the hub), H1 | testament reject test `tests/compile/treject_a8_sealed_external_construction.nim`; A12 compile audits; A1b compile audit `doAssert not declared(initCreates)` lock; A1b compile audit for A30 smart-constructor absence; H1 lint (regression prevention) | 🟢 |
 | P16 (preconditions in types) | A6, A6.5, A6.6, A7b, A7c, A7d, A29, B3, B4, B6, B11, B12 | H9; B11/B12 resolution; A7c testament `action: reject` test | 🔴 (B11, B12 open) |
-| P17 (one config surface) | A14, A19 (HTTP config on `newHttpTransport` only), A20, A21 | review; F6 snapshot | 🟡 |
+| P17 (one config surface) | A14, A19 (HTTP config on `newHttpTransport` only), A20, A21 | review; F6 snapshot; sealed `SessionEndpoint`/`Credential` (A20/A21); `treject_a20`/`treject_a21` reject audits | 🟡 |
 | P18 (sum types over flag soup) | A6, A12, B1, B2, B7, B8, H9 | H9 catch-all lint; A12 exhaustive `case` in `SetError.message` / `TransportError.message` / mail extractors | 🟡 |
 | P19 (schema-driven types) | A2, A2b, A3, A3.5, A4, A5, A14, A15, A16, A17, A18, A21, A22, A22b, A28, A28b, A30, H14 | H11 typed-builder lint (A5); A22b inline docstrings; F1; A1b compile audit (A30 negative for raw construction) | 🟡 |
 | P20 (additive variants) | A10, A11, A12, A23, A24, D7, D13, D13.5, H5, H14 | H5 lint; H13 lint (A10b); module-paths.txt snapshot (A10a); H15 lint (A12); error-messages.txt snapshot (A12) | 🟡 |
@@ -3291,8 +3318,8 @@ must fail CI, not depend on reviewer attention.
 |---|---|---|
 | Global mutable state | D1.5 (no-globals rule), H2 | H2 lint |
 | Global callbacks | D1.5 (no-callbacks rule), D10 | future H10 once L5 lands |
-| Two-channel configuration | A14, A20, A21 | F6 snapshot diff (catches future drift) |
-| Stringly-typed APIs | A2, A2b, A3, A3.5, A4, A5, A8 (closes the disguise by sealing the underlying `rawValue` field), A14, A15, A17, A18, A21, A22b | H11 typed-builder lint; H7 (convenience charter); A8 testament reject test; reviewer grep on `JsonNode` outside Documented exceptions |
+| Two-channel configuration | A14, A20, A21 | F6 snapshot diff (catches future drift); sealed `SessionEndpoint`/`Credential`; `treject_a20`/`treject_a21` |
+| Stringly-typed APIs | A2, A2b, A3, A3.5, A4, A5, A8 (closes the disguise by sealing the underlying `rawValue` field), A14, A15, A17, A18, A20, A21, A22b | H11 typed-builder lint; H7 (convenience charter); A8 testament reject test; reviewer grep on `JsonNode` outside Documented exceptions |
 | Multiple coexisting public layers | A1, A1b, A1c, A1d, A9, A10, A16, A30 | H13 lint (A10b); module-paths.txt snapshot (A10a); F6 snapshot (A26); A1c + A1d compile audits |
 | Convenience layer leaking | C7, C9, C10, F3, H7 | H7 lint |
 | Catch-all `else` on finite enums | A11, A12, H9 | H9 lint; A12 exhaustive `case` in `SetError.message` / `TransportError.message` / 5 `mail_errors.nim` extractors |

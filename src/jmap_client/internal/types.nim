@@ -22,6 +22,8 @@ import ./types/envelope
 import ./types/framework
 import ./types/errors
 import ./types/field_echo
+import ./types/credential
+import ./types/session_endpoint
 
 export results
 export validation except validationError, toValidationError
@@ -43,6 +45,8 @@ export errors except
   setErrorInvalidRecipients, setErrorTooLarge, clientError, validationToClientError,
   validationToClientErrorCtx, getErrorMethod, getErrorHandleMismatch
 export field_echo
+export credential except authorizationHeaderValue
+export session_endpoint except asDirectUrl, asDiscoveryDomain
 
 type JmapResult*[T] = Result[T, ClientError]
   ## Outer railway: transport/request failure or typed success.

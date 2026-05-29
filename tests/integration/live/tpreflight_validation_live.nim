@@ -33,10 +33,7 @@ testCase tpreflightValidationLive:
       newHttpTransport().expect("newHttpTransport[" & $target.kind & "]")
     let (recordingTransport, recorder) = newRecordingTransport(httpTransport)
     let client = initJmapClient(
-        transport = recordingTransport,
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
+        target.endpoint, target.aliceCredential, recordingTransport
       )
       .expect("initJmapClient[" & $target.kind & "]")
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")

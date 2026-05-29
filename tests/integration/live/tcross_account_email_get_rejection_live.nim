@@ -2,7 +2,7 @@
 # Copyright (c) 2026 Aryan Ameri
 
 ## Live integration test pinning Stalwart's cross-account ``Email/get``
-## rejection wire shape. Alice's session, with alice's bearer token,
+## rejection wire shape. Alice's session, with alice's credential,
 ## issues ``Email/get`` against bob's accountId. RFC 8620 §3.6.2 admits
 ## either ``accountNotFound`` or ``forbidden``; Stalwart 0.15.5
 ## empirically chooses ``forbidden`` — the account exists but alice

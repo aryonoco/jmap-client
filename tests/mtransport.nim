@@ -117,9 +117,9 @@ proc newClientWithSessionCaps*(
   ## via ``fetchSession``.
   let transport = newCannedTransport(makeSessionJsonWithCoreCaps(caps), responseJson)
   let client = initJmapClient(
-      transport = transport,
-      sessionUrl = "https://example.com/jmap",
-      bearerToken = "test-token",
+      directEndpoint("https://example.com/jmap").get(),
+      bearerCredential("test-token").get(),
+      transport,
     )
     .get()
   discard client.fetchSession().get()

@@ -185,8 +185,7 @@ testCase tpatchObjectDeepPathsLive:
       let (respBody, respResult) = postRawSingleInvocation(
         target,
         session,
-        target.aliceToken,
-        target.authScheme,
+        target.aliceCredential,
         capabilityUris = @["urn:ietf:params:jmap:submission"],
         methodName = "Identity/set",
         arguments = %*{
@@ -232,8 +231,7 @@ testCase tpatchObjectDeepPathsLive:
       let (_, respResult) = postRawSingleInvocation(
         target,
         session,
-        target.aliceToken,
-        target.authScheme,
+        target.aliceCredential,
         capabilityUris = @["urn:ietf:params:jmap:mail"],
         methodName = "Email/set",
         arguments = %*{

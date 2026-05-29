@@ -39,14 +39,12 @@ curl -X PUT -H "Content-Type: application/json" \
 
 # James Basic-auth uses the FULL email as username (enableVirtualHosting=true
 # in usersrepository.xml). Stalwart uses the bare ``alice``/``bob``.
-ALICE_B64=$(echo -n 'alice@example.com:alice123' | base64 -w0)
-BOB_B64=$(echo -n 'bob@example.com:bob123' | base64 -w0)
-
 cat > /tmp/james-env.sh <<EOF
 export JMAP_TEST_JAMES_SESSION_URL="http://james:80/jmap/session"
-export JMAP_TEST_JAMES_AUTH_SCHEME="Basic"
-export JMAP_TEST_JAMES_ALICE_TOKEN="$ALICE_B64"
-export JMAP_TEST_JAMES_BOB_TOKEN="$BOB_B64"
+export JMAP_TEST_JAMES_ALICE_USER="alice@example.com"
+export JMAP_TEST_JAMES_ALICE_PASSWORD="alice123"
+export JMAP_TEST_JAMES_BOB_USER="bob@example.com"
+export JMAP_TEST_JAMES_BOB_PASSWORD="bob123"
 EOF
 
 echo ""

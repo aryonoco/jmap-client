@@ -38,6 +38,7 @@ const liveBudgetMul* = when defined(jmapLiveShard): 3 else: 1
 import results
 import jmap_client
 import jmap_client/internal/types/errors
+import jmap_client/internal/types/credential
 export errors
 import ../../m_l2_serde
 export m_l2_serde
@@ -74,16 +75,13 @@ proc initRecordingClient*(
   ## response body via ``recorder.lastResponseBody`` (input to
   ## ``captureIfRequested``) and the sent-request count via
   ## ``recorder.sendCount`` (for "no HTTP fired" assertions).
-  ## Uses Alice's bearer token by default; tests that need Bob (or
+  ## Uses Alice's credential by default; tests that need Bob (or
   ## another principal) build their client directly.
   let httpTransport =
     newHttpTransport().expect("newHttpTransport[" & $target.kind & "]")
   let (recordingTransport, recorder) = newRecordingTransport(httpTransport)
   let client = initJmapClient(
-      transport = recordingTransport,
-      sessionUrl = target.sessionUrl,
-      bearerToken = target.aliceToken,
-      authScheme = target.authScheme,
+      target.endpoint, target.aliceCredential, recordingTransport
     )
     .expect("initJmapClient[" & $target.kind & "]")
   (client, recorder)
@@ -930,12 +928,10 @@ proc pollSubmissionDelivery*(
 proc initBobClient*(cfg: LiveTestTarget): Result[JmapClient, ValidationError] =
   ## Sibling of the alice-flavoured ``initJmapClient`` idiom each Phase A–F
   ## test inlines. Constructs a ``JmapClient`` authenticating as bob via
-  ## ``cfg.bobToken``. The Result rail mirrors ``initJmapClient`` directly —
+  ## ``cfg.bobCredential``. The Result rail mirrors ``initJmapClient`` directly —
   ## any future widening of ``initJmapClient``'s error rail propagates here
   ## without a signature change at call sites.
-  initJmapClient(
-    sessionUrl = cfg.sessionUrl, bearerToken = cfg.bobToken, authScheme = cfg.authScheme
-  )
+  initJmapClient(cfg.endpoint, cfg.bobCredential)
 
 proc initBobRecordingClient*(
     target: LiveTestTarget
@@ -947,12 +943,7 @@ proc initBobRecordingClient*(
   let httpTransport =
     newHttpTransport().expect("newHttpTransport[" & $target.kind & "]")
   let (recordingTransport, recorder) = newRecordingTransport(httpTransport)
-  let client = initJmapClient(
-      transport = recordingTransport,
-      sessionUrl = target.sessionUrl,
-      bearerToken = target.bobToken,
-      authScheme = target.authScheme,
-    )
+  let client = initJmapClient(target.endpoint, target.bobCredential, recordingTransport)
     .expect("initBobClient[" & $target.kind & "]")
   (client, recorder)
 
@@ -1100,12 +1091,9 @@ proc reconnectClient*(target: LiveTestTarget, client: var JmapClient) =
   ## few ms). ``var`` is required because the proc rebinds the variable;
   ## the previous Transport is torn down by ARC when the old ref drops
   ## at rebind.
-  client = initJmapClient(
-      sessionUrl = target.sessionUrl,
-      bearerToken = target.aliceToken,
-      authScheme = target.authScheme,
+  client = initJmapClient(target.endpoint, target.aliceCredential).expect(
+      "reconnectClient initJmapClient[" & $target.kind & "]"
     )
-    .expect("reconnectClient initJmapClient[" & $target.kind & "]")
 
 proc pollEmailQueryIndexed*(
     target: LiveTestTarget,
@@ -1141,11 +1129,7 @@ proc pollEmailQueryIndexed*(
   const PollMs = 500
   let maxIters = max(1, budgetMs div PollMs)
   for _ in 0 ..< maxIters:
-    let client = initJmapClient(
-      sessionUrl = target.sessionUrl,
-      bearerToken = target.aliceToken,
-      authScheme = target.authScheme,
-    ).valueOr:
+    let client = initJmapClient(target.endpoint, target.aliceCredential).valueOr:
       return err("pollEmailQueryIndexed: initJmapClient failed: " & error.message)
     discard client.fetchSession().valueOr:
       return err("pollEmailQueryIndexed: fetchSession failed: " & error.message)
@@ -1567,11 +1551,7 @@ func injectBrokenBackReference*(
   result["#" & refField] = %*{"resultOf": "c0", "name": refName, "path": refPath}
 
 proc postRawJmap*(
-    target: LiveTestTarget,
-    session: Session,
-    body: string,
-    bearerToken: string,
-    authScheme: string,
+    target: LiveTestTarget, session: Session, body: string, credential: Credential
 ): tuple[respBody: string, envelopeResult: Result[envelope.Response, ClientError]] {.
     used
 .} =
@@ -1593,7 +1573,7 @@ proc postRawJmap*(
     url: resolveAgainstSession(target.sessionUrl, session.apiUrl),
     httpMethod: hmPost,
     body: body,
-    authorization: authScheme & " " & bearerToken,
+    authorization: credential.authorizationHeaderValue,
   )
   let httpResp = transport.send(req).valueOr:
     let envR = Result[envelope.Response, ClientError].err(clientError(error))
@@ -1603,8 +1583,7 @@ proc postRawJmap*(
 proc postRawSingleInvocation*(
     target: LiveTestTarget,
     session: Session,
-    bearerToken: string,
-    authScheme: string,
+    credential: Credential,
     capabilityUris: openArray[string],
     methodName: string,
     arguments: JsonNode,
@@ -1629,4 +1608,4 @@ proc postRawSingleInvocation*(
   let reqJson = newJObject()
   reqJson["using"] = caps
   reqJson["methodCalls"] = calls
-  postRawJmap(target, session, $reqJson, bearerToken, authScheme)
+  postRawJmap(target, session, $reqJson, credential)

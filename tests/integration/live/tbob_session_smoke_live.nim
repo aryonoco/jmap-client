@@ -2,12 +2,13 @@
 # Copyright (c) 2026 Aryan Ameri
 
 ## Live integration test exercising the second seeded principal's
-## bearer token end-to-end. First non-alice authentication in the
+## credential end-to-end. First non-alice authentication in the
 ## campaign (Phase A–F all ran exclusively as alice). Validates that
-## ``JMAP_TEST_BOB_TOKEN`` round-trips through ``initJmapClient``, that
-## bob's session payload deserialises, that bob's primary mail account
-## is genuinely his (not a shared view onto alice's), and that bob's
-## inbox-role mailbox surfaces via ``Mailbox/get``.
+## bob's ``JMAP_TEST_<SERVER>_BOB_USER`` / ``_BOB_PASSWORD`` Basic
+## credential round-trips through ``initJmapClient``, that bob's session
+## payload deserialises, that bob's primary mail account is genuinely
+## his (not a shared view onto alice's), and that bob's inbox-role
+## mailbox surfaces via ``Mailbox/get``.
 ##
 ## Listed in ``tests/testament_skip.txt`` so ``just test`` skips it; run
 ## via ``just test-integration`` after ``just stalwart-up``. Body is

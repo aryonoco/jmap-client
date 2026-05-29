@@ -194,9 +194,8 @@ testCase tresultReferenceDeepPathsLive:
       # with a deliberately-broken back-reference. Drop into
       # ``postRawJmap`` — same wire path via a private one-shot
       # Transport, returns the raw ``Response`` envelope directly.
-      let (_, respResult) = postRawJmap(
-        target, session, $combined.toJson(), target.aliceToken, target.authScheme
-      )
+      let (_, respResult) =
+        postRawJmap(target, session, $combined.toJson(), target.aliceCredential)
       let resp =
         respResult.expect("send query+broken-get envelope[" & $target.kind & "]")
       assertOn target,

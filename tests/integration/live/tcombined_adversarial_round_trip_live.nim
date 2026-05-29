@@ -30,12 +30,9 @@ import ../../mtestblock
 
 testCase tcombinedAdversarialRoundTripLive:
   forEachLiveTarget(target):
-    let client = initJmapClient(
-        sessionUrl = target.sessionUrl,
-        bearerToken = target.aliceToken,
-        authScheme = target.authScheme,
+    let client = initJmapClient(target.endpoint, target.aliceCredential).expect(
+        "initJmapClient[" & $target.kind & "]"
       )
-      .expect("initJmapClient[" & $target.kind & "]")
     let session = client.fetchSession().expect("fetchSession[" & $target.kind & "]")
     let mailAccountId =
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
@@ -106,7 +103,7 @@ testCase tcombinedAdversarialRoundTripLive:
     }
 
     let (respBody, respResult) =
-      postRawJmap(target, session, $body, target.aliceToken, target.authScheme)
+      postRawJmap(target, session, $body, target.aliceCredential)
     captureIfRequested(respBody, "combined-adversarial-round-trip-" & $target.kind)
       .expect("captureIfRequested combined adversarial")
     let resp = respResult.expect("postRawJmap envelope[" & $target.kind & "]")

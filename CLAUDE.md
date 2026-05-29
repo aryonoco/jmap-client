@@ -15,7 +15,7 @@ The following 3 lines MUST be included at the end of EVERY git message body:
 
 Co-developed-by: Aryan Ameri <github@aryan.ameri.coffee>
 Signed-off-by: Aryan Ameri <github@aryan.ameri.coffee>
-Assisted-by: Claude:claude-4.7-opus
+Assisted-by: Claude:claude-4.8-opus
 
 No other AI/LLM attribution in any other format should appear in the git message.
 

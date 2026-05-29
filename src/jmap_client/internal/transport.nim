@@ -5,8 +5,9 @@
 ## developers bring their own HTTP backend via ``newTransport(send,
 ## close)`` — libcurl, puppy, chronos, an in-process mock, a recording
 ## proxy. The default ``std/httpclient`` backend is delivered by
-## ``newHttpTransport()`` and is what ``initJmapClient(sessionUrl,
-## token)`` chooses when the caller does not supply a transport.
+## ``newHttpTransport()`` and is what the two-argument
+## ``initJmapClient(endpoint, credential)`` chooses when the caller does not
+## supply a transport.
 ##
 ## The vtable is a two-closure shape (``SendProc``, ``CloseProc``)
 ## carried by a private ``TransportObj``. Construction uses smart

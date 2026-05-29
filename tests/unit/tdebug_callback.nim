@@ -42,9 +42,9 @@ proc makeRecordingClient(
   let inner = newCannedTransport(sessionJson, responseJson)
   let (transport, state) = newRecordingTransport(inner)
   let client = initJmapClient(
-      transport = transport,
-      sessionUrl = "https://example.com/jmap",
-      bearerToken = "test-token",
+      directEndpoint("https://example.com/jmap").get(),
+      bearerCredential("test-token").get(),
+      transport,
     )
     .get()
   (client, state)
