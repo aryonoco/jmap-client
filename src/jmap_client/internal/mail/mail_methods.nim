@@ -45,15 +45,13 @@ const MailCapUri =
 # =============================================================================
 
 func addVacationResponseGet*(
-    b: sink RequestBuilder,
-    accountId: AccountId,
-    properties: Opt[seq[string]] = Opt.none(seq[string]),
+    b: sink RequestBuilder, accountId: AccountId
 ): (RequestBuilder, ResponseHandle[GetResponse[VacationResponse]]) =
-  ## Adds a VacationResponse/get invocation (RFC 8621 section 7). Always
-  ## fetches the singleton — no ``ids`` parameter. Optionally restricts
-  ## returned properties.
+  ## Adds a full-record VacationResponse/get invocation (RFC 8621 section 7).
+  ## Always fetches the singleton — no ``ids`` parameter. For a typed property
+  ## projection, use ``addPartialVacationResponseGet`` (A3.6).
   let req = GetRequest[VacationResponse](
-    accountId: accountId, ids: Opt.none(Referencable[seq[Id]]), properties: properties
+    accountId: accountId, ids: Opt.none(Referencable[seq[Id]])
   )
   let args = req.toJson()
   let (newBuilder, callId) = b.addInvocation(
@@ -64,6 +62,35 @@ func addVacationResponseGet*(
   )
   let brand = newBuilder.builderId
   return (newBuilder, initResponseHandle[GetResponse[VacationResponse]](callId, brand))
+
+func addPartialVacationResponseGet*(
+    b: sink RequestBuilder,
+    accountId: AccountId,
+    properties: NonEmptySeq[VacationResponseGetProperty],
+): (RequestBuilder, ResponseHandle[GetResponse[PartialVacationResponse]]) =
+  ## Sparse VacationResponse/get returning typed ``PartialVacationResponse``
+  ## (RFC 8621 §7 + A3.6). Always fetches the singleton — no ``ids``. Hand-
+  ## rolled rather than routed through ``addGetSelected`` because the
+  ## singleton needs ``idCount: Opt.some(1)`` (``getMeta(none)`` would yield
+  ## ``idCount: Opt.none``).
+  let req = GetRequest[PartialVacationResponse](
+    accountId: accountId, ids: Opt.none(Referencable[seq[Id]])
+  )
+  var args = req.toJson()
+  var arr = newJArray()
+  for p in properties:
+    arr.add(%wireName(p))
+  args["properties"] = arr
+  let (newBuilder, callId) = b.addInvocation(
+    mnVacationResponseGet,
+    args,
+    VacationResponseCapUri,
+    CallLimitMeta(kind: clmGet, idCount: Opt.some(1)),
+  )
+  let brand = newBuilder.builderId
+  return (
+    newBuilder, initResponseHandle[GetResponse[PartialVacationResponse]](callId, brand)
+  )
 
 # =============================================================================
 # VacationResponse/set
@@ -212,11 +239,16 @@ func addEmailParse*(
     b: sink RequestBuilder,
     accountId: AccountId,
     blobIds: seq[BlobId],
-    properties: Opt[seq[string]] = Opt.none(seq[string]),
+    properties: Opt[NonEmptySeq[EmailGetProperty]] =
+      Opt.none(NonEmptySeq[EmailGetProperty]),
     bodyFetchOptions: EmailBodyFetchOptions = default(EmailBodyFetchOptions),
 ): (RequestBuilder, ResponseHandle[EmailParseResponse]) =
   ## Adds an Email/parse invocation. ``blobIds`` is a plain seq (no result
-  ## references — Email/parse doesn't support them).
+  ## references — Email/parse doesn't support them). ``properties`` stays
+  ## **optional** (unlike the required selector on ``/get``): RFC 8621 §4.9
+  ## defines a default property set for Email/parse, so ``Opt.none`` is a
+  ## meaningful "server default" choice. It reuses ``EmailGetProperty`` — the
+  ## RFC gives Email/parse the Email/get property set (A3.6).
   ## ``bodyFetchOptions.toJson`` supplies the RFC 8621 §4.9 body-fetch keys,
   ## merged into the args after the standard frame (insertion order
   ## preserved).
@@ -229,7 +261,7 @@ func addEmailParse*(
   for props in properties:
     var propsArr = newJArray()
     for p in props:
-      propsArr.add(%p)
+      propsArr.add(%wireName(p))
     args["properties"] = propsArr
   emitBodyFetchOptions(args, bodyFetchOptions)
   let (newBuilder, callId) = b.addInvocation(mnEmailParse, args, MailCapUri)

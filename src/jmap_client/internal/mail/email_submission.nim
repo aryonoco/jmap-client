@@ -691,3 +691,113 @@ type EmailSubmissionResults* = CompoundResults[
 ]
   ## Paired extraction target for ``getBoth(EmailSubmissionHandles)`` —
   ## the generic overload in ``dispatch.nim`` handles the dispatch.
+
+# =============================================================================
+# EmailSubmissionGetProperty — typed EmailSubmission/get selector (A3.6)
+# =============================================================================
+
+type EmailSubmissionGetPropertyKind* = enum
+  ## Discriminator for ``EmailSubmissionGetProperty``. Backing strings are
+  ## the RFC 8621 §7 EmailSubmission property wire names; ``esgkOther``
+  ## carries a capability-extension property whose raw identifier lives
+  ## alongside.
+  esgkId = "id"
+  esgkIdentityId = "identityId"
+  esgkEmailId = "emailId"
+  esgkThreadId = "threadId"
+  esgkEnvelope = "envelope"
+  esgkSendAt = "sendAt"
+  esgkUndoStatus = "undoStatus"
+  esgkDeliveryStatus = "deliveryStatus"
+  esgkDsnBlobIds = "dsnBlobIds"
+  esgkMdnBlobIds = "mdnBlobIds"
+  esgkOther
+
+type EmailSubmissionGetProperty* {.ruleOff: "objects".} = object
+  ## Typed RFC 8621 §7 EmailSubmission/get property selector. Construction
+  ## sealed; use the ``esgp…`` constants or ``parseEmailSubmissionGetProperty``.
+  case rawKind: EmailSubmissionGetPropertyKind
+  of esgkOther:
+    rawIdentifier: string
+  of esgkId, esgkIdentityId, esgkEmailId, esgkThreadId, esgkEnvelope, esgkSendAt,
+      esgkUndoStatus, esgkDeliveryStatus, esgkDsnBlobIds, esgkMdnBlobIds:
+    discard
+
+func kind*(p: EmailSubmissionGetProperty): EmailSubmissionGetPropertyKind =
+  ## Returns the discriminator — one of the named arms or ``esgkOther``.
+  p.rawKind
+
+func wireName*(p: EmailSubmissionGetProperty): string =
+  ## RFC 8621 §7 wire name. For ``esgkOther`` this is the captured identifier.
+  case p.rawKind
+  of esgkOther:
+    p.rawIdentifier
+  of esgkId, esgkIdentityId, esgkEmailId, esgkThreadId, esgkEnvelope, esgkSendAt,
+      esgkUndoStatus, esgkDeliveryStatus, esgkDsnBlobIds, esgkMdnBlobIds:
+    $p.rawKind
+
+func `$`*(p: EmailSubmissionGetProperty): string =
+  ## Wire-form string — equivalent to ``wireName``.
+  p.wireName
+
+func `==`*(a, b: EmailSubmissionGetProperty): bool =
+  ## Wire-identity equality: the classifying parser never yields ``esgkOther``
+  ## for a known wire name, so wire-name identity is structural identity.
+  a.wireName == b.wireName
+
+func hash*(p: EmailSubmissionGetProperty): Hash =
+  ## Consistent with ``==`` — equal wire names hash equal.
+  hash(p.wireName)
+
+const
+  esgpId* = EmailSubmissionGetProperty(rawKind: esgkId) ## Selects ``id``.
+  esgpIdentityId* = EmailSubmissionGetProperty(rawKind: esgkIdentityId)
+    ## Selects ``identityId``.
+  esgpEmailId* = EmailSubmissionGetProperty(rawKind: esgkEmailId) ## Selects ``emailId``.
+  esgpThreadId* = EmailSubmissionGetProperty(rawKind: esgkThreadId)
+    ## Selects ``threadId``.
+  esgpEnvelope* = EmailSubmissionGetProperty(rawKind: esgkEnvelope)
+    ## Selects ``envelope``.
+  esgpSendAt* = EmailSubmissionGetProperty(rawKind: esgkSendAt) ## Selects ``sendAt``.
+  esgpUndoStatus* = EmailSubmissionGetProperty(rawKind: esgkUndoStatus)
+    ## Selects ``undoStatus``.
+  esgpDeliveryStatus* = EmailSubmissionGetProperty(rawKind: esgkDeliveryStatus)
+    ## Selects ``deliveryStatus``.
+  esgpDsnBlobIds* = EmailSubmissionGetProperty(rawKind: esgkDsnBlobIds)
+    ## Selects ``dsnBlobIds``.
+  esgpMdnBlobIds* = EmailSubmissionGetProperty(rawKind: esgkMdnBlobIds)
+    ## Selects ``mdnBlobIds``.
+
+func parseEmailSubmissionGetProperty*(
+    raw: string
+): Result[EmailSubmissionGetProperty, ValidationError] =
+  ## Classifying smart constructor: exact, case-sensitive match against the
+  ## RFC 8621 §7 wire names; unknown non-control strings fall to ``esgkOther``
+  ## (capability-extension forward-compat, A11).
+  detectNonControlString(raw).isOkOr:
+    return err(toValidationError(error, "EmailSubmissionGetProperty", raw))
+  case raw
+  of "id":
+    ok(esgpId)
+  of "identityId":
+    ok(esgpIdentityId)
+  of "emailId":
+    ok(esgpEmailId)
+  of "threadId":
+    ok(esgpThreadId)
+  of "envelope":
+    ok(esgpEnvelope)
+  of "sendAt":
+    ok(esgpSendAt)
+  of "undoStatus":
+    ok(esgpUndoStatus)
+  of "deliveryStatus":
+    ok(esgpDeliveryStatus)
+  of "dsnBlobIds":
+    ok(esgpDsnBlobIds)
+  of "mdnBlobIds":
+    ok(esgpMdnBlobIds)
+  else:
+    ok(EmailSubmissionGetProperty(rawKind: esgkOther, rawIdentifier: raw))
+
+defineSealedNonEmptySeqOps(EmailSubmissionGetProperty)

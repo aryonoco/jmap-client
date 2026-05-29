@@ -80,17 +80,27 @@ testCase temailGetHeaderFormsExtendedLive:
       )
       .expect("seedEmailWithHeaders[" & $target.kind & "]")
 
-    let (b, getHandle) = addEmailGet(
+    let (b, getHandle) = addPartialEmailGet(
       initRequestBuilder(makeBuilderId()),
       mailAccountId,
       ids = directIds(@[seededId]),
-      properties = Opt.some(
-        @[
-          "id", "header:Message-ID:asMessageIds", "header:Comments:asText",
-          "header:Comments:asRaw", "header:To:asGroupedAddresses",
-          "header:Resent-To:asAddresses:all",
-        ]
-      ),
+      properties = parseNonEmptySeq(
+          @[
+            egpId,
+            emailGetHeader(
+              parseHeaderPropertyName("header:Message-ID:asMessageIds").get()
+            ),
+            emailGetHeader(parseHeaderPropertyName("header:Comments:asText").get()),
+            emailGetHeader(parseHeaderPropertyName("header:Comments:asRaw").get()),
+            emailGetHeader(
+              parseHeaderPropertyName("header:To:asGroupedAddresses").get()
+            ),
+            emailGetHeader(
+              parseHeaderPropertyName("header:Resent-To:asAddresses:all").get()
+            ),
+          ]
+        )
+        .get(),
     )
     let resp = client.send(b.freeze()).expect(
         "send Email/get extended header forms[" & $target.kind & "]"
@@ -104,13 +114,18 @@ testCase temailGetHeaderFormsExtendedLive:
       )
     assertOn target, getResp.list.len == 1, "Email/get must return the seeded message"
     let email = getResp.list[0]
+    let requestedHeaders =
+      email.requestedHeaders.valueOr(initTable[HeaderPropertyKey, HeaderValue]())
+    let requestedHeadersAll = email.requestedHeadersAll.valueOr(
+      initTable[HeaderPropertyKey, seq[HeaderValue]]()
+    )
 
     let messageIdsKey = parseHeaderPropertyName("header:Message-ID:asMessageIds").expect(
         "parseHeaderPropertyName messageIds"
       )
-    let messageIdsHv = email.requestedHeaders.getOrDefault(messageIdsKey)
+    let messageIdsHv = requestedHeaders.getOrDefault(messageIdsKey)
     assertOn target,
-      messageIdsKey in email.requestedHeaders,
+      messageIdsKey in requestedHeaders,
       "header:Message-ID:asMessageIds must be present"
     assertOn target,
       messageIdsHv.form == hfMessageIds,
@@ -120,9 +135,8 @@ testCase temailGetHeaderFormsExtendedLive:
         "parseHeaderPropertyName commentsText"
       )
     assertOn target,
-      commentsTextKey in email.requestedHeaders,
-      "header:Comments:asText must be present"
-    let commentsTextHv = email.requestedHeaders.getOrDefault(commentsTextKey)
+      commentsTextKey in requestedHeaders, "header:Comments:asText must be present"
+    let commentsTextHv = requestedHeaders.getOrDefault(commentsTextKey)
     assertOn target,
       commentsTextHv.form == hfText, "Comments HeaderValue must carry hfText form"
     assertOn target,
@@ -132,8 +146,8 @@ testCase temailGetHeaderFormsExtendedLive:
         "parseHeaderPropertyName commentsRaw"
       )
     assertOn target,
-      commentsRawKey in email.requestedHeaders, "header:Comments:asRaw must be present"
-    let commentsRawHv = email.requestedHeaders.getOrDefault(commentsRawKey)
+      commentsRawKey in requestedHeaders, "header:Comments:asRaw must be present"
+    let commentsRawHv = requestedHeaders.getOrDefault(commentsRawKey)
     assertOn target,
       commentsRawHv.form == hfRaw, "Comments asRaw HeaderValue must carry hfRaw form"
     assertOn target,
@@ -144,9 +158,8 @@ testCase temailGetHeaderFormsExtendedLive:
         "parseHeaderPropertyName toGrouped"
       )
     assertOn target,
-      toGroupedKey in email.requestedHeaders,
-      "header:To:asGroupedAddresses must be present"
-    let toGroupedHv = email.requestedHeaders.getOrDefault(toGroupedKey)
+      toGroupedKey in requestedHeaders, "header:To:asGroupedAddresses must be present"
+    let toGroupedHv = requestedHeaders.getOrDefault(toGroupedKey)
     assertOn target,
       toGroupedHv.form == hfGroupedAddresses,
       "To HeaderValue must carry hfGroupedAddresses form"
@@ -156,9 +169,9 @@ testCase temailGetHeaderFormsExtendedLive:
 
     let resentAllKey = parseHeaderPropertyName("header:Resent-To:asAddresses:all")
       .expect("parseHeaderPropertyName resentAll[" & $target.kind & "]")
-    let resentAllHvs = email.requestedHeadersAll.getOrDefault(resentAllKey)
+    let resentAllHvs = requestedHeadersAll.getOrDefault(resentAllKey)
     assertOn target,
-      resentAllKey in email.requestedHeadersAll,
+      resentAllKey in requestedHeadersAll,
       "header:Resent-To:asAddresses:all must be present in requestedHeadersAll"
     assertOn target,
       resentAllHvs.len >= 1,

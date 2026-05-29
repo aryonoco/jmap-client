@@ -20,10 +20,11 @@
 ##      ``serde_email.parseBodyValues`` collapses absent / null /
 ##      empty-object identically.
 ##
-## ``Email/get`` is issued with ``properties = Opt.some(@["id",
-## "textBody", "bodyValues"])`` so the response is a partial Email.
-## ``Email.fromJson`` parses the sparse shape because every metadata
-## field is ``Opt[T]`` post-refactor.
+## ``Email/get`` is issued via ``addPartialEmailGet`` with
+## ``properties = @[egpId, egpTextBody, egpBodyValues]`` so the response
+## is a ``PartialEmail``. Every metadata field is ``Opt[T]`` on the
+## partial shape, so ``textBody`` and ``bodyValues`` are unwrapped before
+## the structural assertions.
 ##
 ## Listed in ``tests/testament_skip.txt`` so ``just test`` skips it; run
 ## via ``just test-integration`` after ``just stalwart-up``.
@@ -54,11 +55,11 @@ testCase temailGetTextBodyLive:
       )
       .expect("seedSimpleEmail[" & $target.kind & "]")
 
-    let (b, getHandle) = addEmailGet(
+    let (b, getHandle) = addPartialEmailGet(
       initRequestBuilder(makeBuilderId()),
       mailAccountId,
       ids = directIds(@[seededId]),
-      properties = Opt.some(@["id", "textBody", "bodyValues"]),
+      properties = parseNonEmptySeq(@[egpId, egpTextBody, egpBodyValues]).get(),
       bodyFetchOptions = EmailBodyFetchOptions(fetchBodyValues: bvsText),
     )
     let resp =
@@ -68,10 +69,10 @@ testCase temailGetTextBodyLive:
     assertOn target, getResp.list.len == 1, "Email/get must return the seeded message"
 
     let email = getResp.list[0]
+    let textBody = email.textBody.valueOr(@[])
     assertOn target,
-      email.textBody.len == 1,
-      "expected one text/plain leaf, got " & $email.textBody.len
-    let textLeaf = email.textBody[0]
+      textBody.len == 1, "expected one text/plain leaf, got " & $textBody.len
+    let textLeaf = textBody[0]
     assertOn target, textLeaf.isLeaf, "textBody[0] must be a leaf"
     assertOn target,
       textLeaf.contentType == "text/plain",
@@ -91,7 +92,7 @@ testCase temailGetTextBodyLive:
       "textBody[0].charset must be utf-8 or us-ascii case-insensitive (got " &
         textLeaf.charset.unsafeGet & ")"
 
+    let bodyValues = email.bodyValues.valueOr(initTable[PartId, EmailBodyValue]())
     assertOn target,
-      email.bodyValues.len == 1,
-      "bvsText must yield exactly one bodyValues entry (got " & $email.bodyValues.len &
-        ")"
+      bodyValues.len == 1,
+      "bvsText must yield exactly one bodyValues entry (got " & $bodyValues.len & ")"

@@ -114,8 +114,11 @@ testCase tresultReferenceDeepPathsLive:
         filter = Opt.some(chainFilter),
       )
       let queryRef = initResultReference(callId(queryHandle), mnEmailQuery, rpIds)
-      let (b2, getHandle) = addEmailGetByRef(
-        b1, mailAccountId, idsRef = queryRef, properties = Opt.some(@["id", "threadId"])
+      let (b2, getHandle) = addPartialEmailGetByRef(
+        b1,
+        mailAccountId,
+        idsRef = queryRef,
+        properties = parseNonEmptySeq(@[egpId, egpThreadId]).get(),
       )
       let getThreadIdRef =
         initResultReference(callId(getHandle), mnEmailGet, rpListThreadId)

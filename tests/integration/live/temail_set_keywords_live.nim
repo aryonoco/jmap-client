@@ -50,11 +50,11 @@ testCase temailSetKeywordsLive:
       .expect("seedSimpleEmail[" & $target.kind & "]")
 
     # --- Capture pre-update state via Email/get --------------------------
-    let (b3, getHandle1) = addEmailGet(
+    let (b3, getHandle1) = addPartialEmailGet(
       initRequestBuilder(makeBuilderId()),
       mailAccountId,
       ids = directIds(@[seededId]),
-      properties = Opt.some(@["id", "keywords"]),
+      properties = parseNonEmptySeq(@[egpId, egpKeywords]).get(),
     )
     let resp3 =
       client.send(b3.freeze()).expect("send Email/get pre-update[" & $target.kind & "]")
@@ -87,11 +87,11 @@ testCase temailSetKeywordsLive:
       updateOutcome.isOk, "happy-path Email/set must succeed when ifInState matches"
 
     # --- Verify $seen keyword is now present -----------------------------
-    let (b5, getHandle2) = addEmailGet(
+    let (b5, getHandle2) = addPartialEmailGet(
       initRequestBuilder(makeBuilderId()),
       mailAccountId,
       ids = directIds(@[seededId]),
-      properties = Opt.some(@["id", "keywords"]),
+      properties = parseNonEmptySeq(@[egpId, egpKeywords]).get(),
     )
     let resp5 = client.send(b5.freeze()).expect(
         "send Email/get post-update[" & $target.kind & "]"

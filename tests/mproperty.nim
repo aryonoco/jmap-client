@@ -1889,12 +1889,12 @@ proc genEmailBodyFetchOptions*(rng: var Rand): EmailBodyFetchOptions =
   let scope = rng.oneOf([bvsNone, bvsText, bvsHtml, bvsTextAndHtml, bvsAll])
   let bodyProperties =
     if rng.rand(0 .. 9) < 4:
-      var props: seq[PropertyName] = @[]
+      var props: seq[EmailBodyProperty] = @[]
       for _ in 0 ..< rng.rand(1 .. 5):
-        props.add(parsePropertyName(rng.oneOf(bodyPropertyPool)).get())
-      Opt.some(props)
+        props.add(parseEmailBodyProperty(rng.oneOf(bodyPropertyPool)).get())
+      Opt.some(parseNonEmptySeq(props).get())
     else:
-      Opt.none(seq[PropertyName])
+      Opt.none(NonEmptySeq[EmailBodyProperty])
   let maxBytes =
     if rng.rand(0 .. 9) < 4:
       Opt.some(parseUnsignedInt(rng.genValidUnsignedInt()).get())

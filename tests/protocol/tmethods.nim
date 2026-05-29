@@ -192,9 +192,7 @@ testCase goldenSetResponseMerging:
 testCase getRequestAllDefaults:
   ## GetRequest with all none produces only accountId.
   let req = GetRequest[MockFoo](
-    accountId: makeAccountId("a1"),
-    ids: Opt.none(Referencable[seq[Id]]),
-    properties: Opt.none(seq[string]),
+    accountId: makeAccountId("a1"), ids: Opt.none(Referencable[seq[Id]])
   )
   let j = req.toJson()
   doAssert j{"accountId"}.getStr("") == "a1"
@@ -204,9 +202,7 @@ testCase getRequestAllDefaults:
 testCase getRequestDirectIds:
   ## GetRequest with direct ids produces "ids" array.
   let req = GetRequest[MockFoo](
-    accountId: makeAccountId("a1"),
-    ids: Opt.some(direct(@[makeId("x1"), makeId("x2")])),
-    properties: Opt.none(seq[string]),
+    accountId: makeAccountId("a1"), ids: Opt.some(direct(@[makeId("x1"), makeId("x2")]))
   )
   let j = req.toJson()
   doAssert j{"ids"}.kind == JArray
@@ -218,25 +214,12 @@ testCase getRequestReferenceIds:
   let rr =
     initResultReference(resultOf = makeMcid("c0"), name = mnEmailQuery, path = rpIds)
   let req = GetRequest[MockFoo](
-    accountId: makeAccountId("a1"),
-    ids: Opt.some(referenceTo[seq[Id]](rr)),
-    properties: Opt.none(seq[string]),
+    accountId: makeAccountId("a1"), ids: Opt.some(referenceTo[seq[Id]](rr))
   )
   let j = req.toJson()
   doAssert j{"ids"}.isNil
   doAssert j{"#ids"}.kind == JObject
   doAssert j{"#ids"}{"resultOf"}.getStr("") == "c0"
-
-testCase getRequestWithProperties:
-  ## GetRequest with properties produces "properties" array.
-  let req = GetRequest[MockFoo](
-    accountId: makeAccountId("a1"),
-    ids: Opt.none(Referencable[seq[Id]]),
-    properties: Opt.some(@["name", "email"]),
-  )
-  let j = req.toJson()
-  doAssert j{"properties"}.kind == JArray
-  assertLen j{"properties"}.getElems(@[]), 2
 
 testCase changesRequestMinimal:
   ## ChangesRequest with only required fields.

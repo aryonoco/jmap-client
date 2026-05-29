@@ -95,11 +95,11 @@ testCase temailGetUnicodeNameLive:
       assertOn target, false, "Email/set returned no result for creationId"
     assertOn target, found
 
-    let (b, getHandle) = addEmailGet(
+    let (b, getHandle) = addPartialEmailGet(
       initRequestBuilder(makeBuilderId()),
       mailAccountId,
       ids = directIds(@[seededId]),
-      properties = Opt.some(@["id", "from"]),
+      properties = parseNonEmptySeq(@[egpId, egpFrom]).get(),
     )
     let resp = client.send(b.freeze()).expect(
         "send Email/get unicode name[" & $target.kind & "]"
@@ -109,17 +109,20 @@ testCase temailGetUnicodeNameLive:
     assertOn target, getResp.list.len == 1, "Email/get must return the seeded message"
 
     let email = getResp.list[0]
-    assertOn target,
-      email.fromAddr.isSome and email.fromAddr.unsafeGet.len == 1,
-      "from must be a one-element list"
-    let fromAddr = email.fromAddr.unsafeGet[0]
-    assertOn target,
-      fromAddr.email == "alice@example.com",
-      "from[0].email must be alice@example.com (got " & fromAddr.email & ")"
-    assertOn target,
-      fromAddr.name.isSome,
-      "from[0].name must be present — Stalwart preserves display names"
-    assertOn target,
-      fromAddr.name.unsafeGet == unicodeName,
-      "from[0].name must round-trip the UTF-8 octets verbatim (got " &
-        fromAddr.name.unsafeGet & ")"
+    case email.fromAddr.kind
+    of fekValue:
+      let fromSeq = email.fromAddr.value
+      assertOn target, fromSeq.len == 1, "from must be a one-element list"
+      let fromAddr = fromSeq[0]
+      assertOn target,
+        fromAddr.email == "alice@example.com",
+        "from[0].email must be alice@example.com (got " & fromAddr.email & ")"
+      assertOn target,
+        fromAddr.name.isSome,
+        "from[0].name must be present — Stalwart preserves display names"
+      assertOn target,
+        fromAddr.name.unsafeGet == unicodeName,
+        "from[0].name must round-trip the UTF-8 octets verbatim (got " &
+          fromAddr.name.unsafeGet & ")"
+    of fekAbsent, fekNull:
+      assertOn target, false, "from must be a one-element list"

@@ -46,11 +46,11 @@ testCase tthreadGetLive:
       .expect("seedSimpleEmail[" & $target.kind & "]")
 
     # --- Resolve threadId via Email/get ----------------------------------
-    let (b1, emailHandle) = addEmailGet(
+    let (b1, emailHandle) = addPartialEmailGet(
       initRequestBuilder(makeBuilderId()),
       mailAccountId,
       ids = directIds(@[seededId]),
-      properties = Opt.some(@["id", "threadId"]),
+      properties = parseNonEmptySeq(@[egpId, egpThreadId]).get(),
     )
     let resp1 = client.send(b1.freeze()).expect("send Email/get[" & $target.kind & "]")
     let emailResp =

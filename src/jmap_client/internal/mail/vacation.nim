@@ -9,6 +9,8 @@
 {.push raises: [], noSideEffect.}
 {.experimental: "strictCaseObjects".}
 
+import std/hashes
+
 import ../types/validation
 import ../types/primitives
 import ../types/field_echo
@@ -134,3 +136,99 @@ func initVacationResponseUpdateSet*(
   if errs.len > 0:
     return err(errs)
   ok(VacationResponseUpdateSet(rawValue: @updates))
+
+# =============================================================================
+# VacationResponseGetProperty — typed VacationResponse/get selector (A3.6)
+# =============================================================================
+
+type VacationResponseGetPropertyKind* = enum
+  ## Discriminator for ``VacationResponseGetProperty``. Backing strings are
+  ## the RFC 8621 §7 VacationResponse property wire names; ``vrgkOther``
+  ## carries a capability-extension property whose raw identifier lives
+  ## alongside.
+  vrgkId = "id"
+  vrgkIsEnabled = "isEnabled"
+  vrgkFromDate = "fromDate"
+  vrgkToDate = "toDate"
+  vrgkSubject = "subject"
+  vrgkTextBody = "textBody"
+  vrgkHtmlBody = "htmlBody"
+  vrgkOther
+
+type VacationResponseGetProperty* {.ruleOff: "objects".} = object
+  ## Typed RFC 8621 §7 VacationResponse/get property selector. Construction
+  ## sealed; use the ``vrgp…`` constants or ``parseVacationResponseGetProperty``.
+  case rawKind: VacationResponseGetPropertyKind
+  of vrgkOther:
+    rawIdentifier: string
+  of vrgkId, vrgkIsEnabled, vrgkFromDate, vrgkToDate, vrgkSubject, vrgkTextBody,
+      vrgkHtmlBody:
+    discard
+
+func kind*(p: VacationResponseGetProperty): VacationResponseGetPropertyKind =
+  ## Returns the discriminator — one of the named arms or ``vrgkOther``.
+  p.rawKind
+
+func wireName*(p: VacationResponseGetProperty): string =
+  ## RFC 8621 §7 wire name. For ``vrgkOther`` this is the captured identifier.
+  case p.rawKind
+  of vrgkOther:
+    p.rawIdentifier
+  of vrgkId, vrgkIsEnabled, vrgkFromDate, vrgkToDate, vrgkSubject, vrgkTextBody,
+      vrgkHtmlBody:
+    $p.rawKind
+
+func `$`*(p: VacationResponseGetProperty): string =
+  ## Wire-form string — equivalent to ``wireName``.
+  p.wireName
+
+func `==`*(a, b: VacationResponseGetProperty): bool =
+  ## Wire-identity equality: the classifying parser never yields ``vrgkOther``
+  ## for a known wire name, so wire-name identity is structural identity.
+  a.wireName == b.wireName
+
+func hash*(p: VacationResponseGetProperty): Hash =
+  ## Consistent with ``==`` — equal wire names hash equal.
+  hash(p.wireName)
+
+const
+  vrgpId* = VacationResponseGetProperty(rawKind: vrgkId) ## Selects ``id``.
+  vrgpIsEnabled* = VacationResponseGetProperty(rawKind: vrgkIsEnabled)
+    ## Selects ``isEnabled``.
+  vrgpFromDate* = VacationResponseGetProperty(rawKind: vrgkFromDate)
+    ## Selects ``fromDate``.
+  vrgpToDate* = VacationResponseGetProperty(rawKind: vrgkToDate) ## Selects ``toDate``.
+  vrgpSubject* = VacationResponseGetProperty(rawKind: vrgkSubject)
+    ## Selects ``subject``.
+  vrgpTextBody* = VacationResponseGetProperty(rawKind: vrgkTextBody)
+    ## Selects ``textBody``.
+  vrgpHtmlBody* = VacationResponseGetProperty(rawKind: vrgkHtmlBody)
+    ## Selects ``htmlBody``.
+
+func parseVacationResponseGetProperty*(
+    raw: string
+): Result[VacationResponseGetProperty, ValidationError] =
+  ## Classifying smart constructor: exact, case-sensitive match against the
+  ## RFC 8621 §7 wire names; unknown non-control strings fall to ``vrgkOther``
+  ## (capability-extension forward-compat, A11).
+  detectNonControlString(raw).isOkOr:
+    return err(toValidationError(error, "VacationResponseGetProperty", raw))
+  case raw
+  of "id":
+    ok(vrgpId)
+  of "isEnabled":
+    ok(vrgpIsEnabled)
+  of "fromDate":
+    ok(vrgpFromDate)
+  of "toDate":
+    ok(vrgpToDate)
+  of "subject":
+    ok(vrgpSubject)
+  of "textBody":
+    ok(vrgpTextBody)
+  of "htmlBody":
+    ok(vrgpHtmlBody)
+  else:
+    ok(VacationResponseGetProperty(rawKind: vrgkOther, rawIdentifier: raw))
+
+defineSealedNonEmptySeqOps(VacationResponseGetProperty)

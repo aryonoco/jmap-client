@@ -68,16 +68,16 @@ func optUnsignedInt(node: JsonNode, key: string): Opt[UnsignedInt] =
 
 type GetRequest*[T] = object
   ## Request arguments for Foo/get (RFC 8620 section 5.1).
-  ## Fetches objects of type T by their identifiers, optionally returning
-  ## only a subset of properties.
+  ## Fetches objects of type T by their identifiers. Property projection
+  ## is not a field here: a full-record fetch returns every property, and
+  ## a typed property subset flows through the ``addPartial<E>Get`` wrappers
+  ## (A3.6), which emit the ``properties`` wire key directly and return a
+  ## filter-tolerant ``PartialT``.
   accountId*: AccountId ## The identifier of the account to use.
   ids*: Opt[Referencable[seq[Id]]]
     ## The identifiers of the Foo objects to return. If none, all records
     ## of the data type are returned. Referencable: may be a direct seq or
     ## a result reference to a previous call's output.
-  properties*: Opt[seq[string]]
-    ## If supplied, only the listed properties are returned for each object.
-    ## The "id" property is always returned even if not explicitly requested.
 
 type ChangesRequest*[T] = object
   ## Request arguments for Foo/changes (RFC 8620 section 5.2).
@@ -454,7 +454,8 @@ func assembleQueryChangesArgs*(
 
 func toJson*[T](req: GetRequest[T]): JsonNode =
   ## Serialise GetRequest to JSON arguments object (RFC 8620 section 5.1).
-  ## Omits ``ids`` and ``properties`` when none.
+  ## Omits ``ids`` when none. The ``properties`` wire key, when present, is
+  ## emitted by the typed ``addPartial<E>Get`` wrappers (A3.6), not here.
   ## Dispatches Referencable ids via referencableKey.
   var node = newJObject()
   node["accountId"] = req.accountId.toJson()
@@ -468,11 +469,6 @@ func toJson*[T](req: GetRequest[T]): JsonNode =
       node[idsKey] = arr
     of rkReference:
       node[idsKey] = idsVal.reference.toJson()
-  for props in req.properties:
-    var arr = newJArray()
-    for p in props:
-      arr.add(%p)
-    node["properties"] = arr
   return node
 
 func toJson*[T](req: ChangesRequest[T]): JsonNode =

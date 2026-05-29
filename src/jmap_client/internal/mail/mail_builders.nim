@@ -61,12 +61,24 @@ func addMailboxGet*(
     b: sink RequestBuilder,
     accountId: AccountId,
     ids: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]),
-    properties: Opt[seq[string]] = Opt.none(seq[string]),
 ): (RequestBuilder, ResponseHandle[GetResponse[Mailbox]]) =
-  ## Mailbox/get (RFC 8621 §2.1). Thin delegate to ``addGet[Mailbox]``.
-  ## Exists so the typed per-entity surface is complete: no caller need
-  ## spell ``addGet[Mailbox]`` directly.
-  addGet[Mailbox](b, accountId, ids, properties)
+  ## Full-record Mailbox/get (RFC 8621 §2.1). Thin delegate to
+  ## ``addGet[Mailbox]``. Exists so the typed per-entity surface is complete:
+  ## no caller need spell ``addGet[Mailbox]`` directly. For a typed property
+  ## projection, use ``addPartialMailboxGet`` (A3.6).
+  addGet[Mailbox](b, accountId, ids)
+
+func addPartialMailboxGet*(
+    b: sink RequestBuilder,
+    accountId: AccountId,
+    ids: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]),
+    properties: NonEmptySeq[MailboxGetProperty],
+): (RequestBuilder, ResponseHandle[GetResponse[PartialMailbox]]) =
+  ## Sparse Mailbox/get returning typed ``PartialMailbox`` (RFC 8621 §2.1 +
+  ## A3.6). The typed ``properties`` projection makes the canonical badge-count
+  ## fetch (e.g. ``@[mgpUnreadEmails, mgpTotalEmails]``) expressible without
+  ## reaching the strict full-record parser.
+  addGetSelected[PartialMailbox, MailboxGetProperty](b, accountId, ids, properties)
 
 # =============================================================================
 # addMailboxQuery — Mailbox/query (RFC 8621 §2.3)
@@ -161,12 +173,12 @@ func addEmailGet*(
     b: sink RequestBuilder,
     accountId: AccountId,
     ids: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]),
-    properties: Opt[seq[string]] = Opt.none(seq[string]),
     bodyFetchOptions: EmailBodyFetchOptions = default(EmailBodyFetchOptions),
 ): (RequestBuilder, ResponseHandle[GetResponse[Email]]) =
-  ## Email/get (RFC 8621 §4.2) with Email-specific body fetch options
-  ## (Decision D9).
-  let req = GetRequest[Email](accountId: accountId, ids: ids, properties: properties)
+  ## Full-record Email/get (RFC 8621 §4.2) with Email-specific body fetch
+  ## options (Decision D9). For a typed property projection, use
+  ## ``addPartialEmailGet`` (A3.6).
+  let req = GetRequest[Email](accountId: accountId, ids: ids)
   var args = req.toJson()
   emitBodyFetchOptions(args, bodyFetchOptions)
   let (b1, callId) =
@@ -196,7 +208,6 @@ func addEmailGetByRef*(
     b: sink RequestBuilder,
     accountId: AccountId,
     idsRef: ResultReference,
-    properties: Opt[seq[string]] = Opt.none(seq[string]),
     bodyFetchOptions: EmailBodyFetchOptions = default(EmailBodyFetchOptions),
 ): (RequestBuilder, ResponseHandle[GetResponse[Email]]) =
   ## Sibling of ``addEmailGet`` for RFC 8620 §3.7 back-reference chains —
@@ -204,12 +215,11 @@ func addEmailGetByRef*(
   ## supplied as literal IDs. Delegates to ``addEmailGet`` with a
   ## ``referenceTo[seq[Id]]``-wrapped ``Referencable``; the generic
   ## ``addGet[T]`` routes ``rkReference`` variants to the ``#ids`` wire
-  ## key.
+  ## key. For a typed property projection, use ``addPartialEmailGetByRef``.
   addEmailGet(
     b,
     accountId,
     ids = Opt.some(referenceTo[seq[Id]](idsRef)),
-    properties = properties,
     bodyFetchOptions = bodyFetchOptions,
   )
 
@@ -222,20 +232,22 @@ func addPartialEmailGet*(
     b: sink RequestBuilder,
     accountId: AccountId,
     ids: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]),
-    properties: Opt[seq[string]] = Opt.none(seq[string]),
+    properties: NonEmptySeq[EmailGetProperty],
     bodyFetchOptions: EmailBodyFetchOptions = default(EmailBodyFetchOptions),
 ): (RequestBuilder, ResponseHandle[GetResponse[PartialEmail]]) =
   ## Sparse Email/get returning typed ``PartialEmail`` (RFC 8621 §4.2 +
-  ## A3.6 D7). Same wire method ``Email/get``; the typed response
-  ## differs.
-  let req =
-    GetRequest[PartialEmail](accountId: accountId, ids: ids, properties: properties)
+  ## A3.6). Same wire method ``Email/get``; the typed property projection
+  ## yields a filter-tolerant ``PartialEmail``.
+  let req = GetRequest[PartialEmail](accountId: accountId, ids: ids)
   var args = req.toJson()
+  var arr = newJArray()
+  for p in properties:
+    arr.add(%wireName(p))
+  args["properties"] = arr
   emitBodyFetchOptions(args, bodyFetchOptions)
   let (b1, callId) =
     addInvocation(b, mnEmailGet, args, capabilityUri(PartialEmail), getMeta(ids))
-  let brand = b1.builderId
-  (b1, initResponseHandle[GetResponse[PartialEmail]](callId, brand))
+  (b1, initResponseHandle[GetResponse[PartialEmail]](callId, b1.builderId))
 
 # =============================================================================
 # addPartialEmailGetByRef — sparse Email/get via RFC 8620 §3.7 back-reference
@@ -246,11 +258,11 @@ func addPartialEmailGetByRef*(
     b: sink RequestBuilder,
     accountId: AccountId,
     idsRef: ResultReference,
-    properties: Opt[seq[string]] = Opt.none(seq[string]),
+    properties: NonEmptySeq[EmailGetProperty],
     bodyFetchOptions: EmailBodyFetchOptions = default(EmailBodyFetchOptions),
 ): (RequestBuilder, ResponseHandle[GetResponse[PartialEmail]]) =
   ## Sibling of ``addPartialEmailGet`` for RFC 8620 §3.7 back-reference
-  ## chains (A3.6 D7). ``ids`` is sourced from a previous invocation's
+  ## chains (A3.6). ``ids`` is sourced from a previous invocation's
   ## response rather than supplied as literal IDs.
   addPartialEmailGet(
     b,
@@ -265,19 +277,15 @@ func addPartialEmailGetByRef*(
 # =============================================================================
 
 func addThreadGetByRef*(
-    b: sink RequestBuilder,
-    accountId: AccountId,
-    idsRef: ResultReference,
-    properties: Opt[seq[string]] = Opt.none(seq[string]),
+    b: sink RequestBuilder, accountId: AccountId, idsRef: ResultReference
 ): (RequestBuilder, ResponseHandle[GetResponse[thread.Thread]]) =
   ## Sibling of generic ``addGet[thread.Thread]`` for RFC 8620 §3.7
   ## back-reference chains. ``Thread`` is immutable and read-only — no
-  ## body-fetch analogue, so only ``properties`` is forwarded. Delegates
-  ## to ``addGet[T]`` through the ``Referencable`` wrapper, which routes
-  ## ``rkReference`` to the ``#ids`` wire key.
-  addGet[thread.Thread](
-    b, accountId, ids = Opt.some(referenceTo[seq[Id]](idsRef)), properties = properties
-  )
+  ## body-fetch analogue. Delegates to ``addGet[T]`` through the
+  ## ``Referencable`` wrapper, which routes ``rkReference`` to the ``#ids``
+  ## wire key. For a typed property projection, use
+  ## ``addPartialThreadGetByRef``.
+  addGet[thread.Thread](b, accountId, ids = Opt.some(referenceTo[seq[Id]](idsRef)))
 
 # =============================================================================
 # addThreadGet — Thread/get (RFC 8621 §3.1)
@@ -287,11 +295,33 @@ func addThreadGet*(
     b: sink RequestBuilder,
     accountId: AccountId,
     ids: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]),
-    properties: Opt[seq[string]] = Opt.none(seq[string]),
 ): (RequestBuilder, ResponseHandle[GetResponse[thread.Thread]]) =
-  ## Thread/get (RFC 8621 §3.1). Thin delegate to
-  ## ``addGet[thread.Thread]``.
-  addGet[thread.Thread](b, accountId, ids, properties)
+  ## Full-record Thread/get (RFC 8621 §3.1). Thin delegate to
+  ## ``addGet[thread.Thread]``. For a typed property projection, use
+  ## ``addPartialThreadGet`` (A3.6).
+  addGet[thread.Thread](b, accountId, ids)
+
+func addPartialThreadGet*(
+    b: sink RequestBuilder,
+    accountId: AccountId,
+    ids: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]),
+    properties: NonEmptySeq[ThreadGetProperty],
+): (RequestBuilder, ResponseHandle[GetResponse[PartialThread]]) =
+  ## Sparse Thread/get returning typed ``PartialThread`` (RFC 8621 §3.1 +
+  ## A3.6).
+  addGetSelected[PartialThread, ThreadGetProperty](b, accountId, ids, properties)
+
+func addPartialThreadGetByRef*(
+    b: sink RequestBuilder,
+    accountId: AccountId,
+    idsRef: ResultReference,
+    properties: NonEmptySeq[ThreadGetProperty],
+): (RequestBuilder, ResponseHandle[GetResponse[PartialThread]]) =
+  ## Sibling of ``addPartialThreadGet`` for RFC 8620 §3.7 back-reference
+  ## chains (A3.6). ``ids`` is sourced from a previous invocation's response.
+  addPartialThreadGet(
+    b, accountId, ids = Opt.some(referenceTo[seq[Id]](idsRef)), properties = properties
+  )
 
 # =============================================================================
 # addThreadChanges — Thread/changes (RFC 8621 §3.2)
@@ -470,33 +500,39 @@ func addEmailCopyAndDestroy*(
 # RFC 8621 §4.10 first-login workflow: 4-invocation back-reference chain
 # =============================================================================
 
-const DefaultDisplayProperties*: seq[string] = @[
-  "threadId", "mailboxIds", "keywords", "hasAttachment", "from", "subject",
-  "receivedAt", "size", "preview",
-]
-  ## RFC 8621 §4.10 first-login example display properties. Override via
-  ## the ``displayProperties`` argument of ``addEmailQueryWithThreads``;
-  ## this const is the default for a minimally-configured first-login
-  ## scenario. One named auditable default, visible at one site (H12).
+const DefaultDisplayProperties*: NonEmptySeq[EmailGetProperty] = parseNonEmptySeq(
+    @[
+      egpThreadId, egpMailboxIds, egpKeywords, egpHasAttachment, egpFrom, egpSubject,
+      egpReceivedAt, egpSize, egpPreview,
+    ]
+  )
+  .get()
+  ## RFC 8621 §4.10 first-login example display properties, as a typed
+  ## ``NonEmptySeq[EmailGetProperty]``. The literal is non-empty by
+  ## construction, so ``parseNonEmptySeq(...).get()`` cannot fail
+  ## (functional-core pattern 8). Override via the ``displayProperties``
+  ## argument of ``addEmailQueryWithThreads``; one named auditable default,
+  ## visible at one site (H12).
 
 type EmailQueryThreadChain* {.ruleOff: "objects".} = object
   ## Paired handles for the RFC 8621 §4.10 first-login workflow. Each
   ## handle binds a distinct ``MethodCallId``; the domain role of each
   ## step lives at the field level because there is no generic above
-  ## this record to carry it (H10, H11).
+  ## this record to carry it (H10, H11). The two Email fetches return
+  ## typed ``PartialEmail`` because they emit a property filter (A3.6).
   queryH*: ResponseHandle[QueryResponse[Email]]
-  threadIdFetchH*: ResponseHandle[GetResponse[Email]]
+  threadIdFetchH*: ResponseHandle[GetResponse[PartialEmail]]
   threadsH*: ResponseHandle[GetResponse[thread.Thread]]
-  displayH*: ResponseHandle[GetResponse[Email]]
+  displayH*: ResponseHandle[GetResponse[PartialEmail]]
 
 type EmailQueryThreadResults* {.ruleOff: "objects".} = object
   ## Paired extraction target of ``getAll(EmailQueryThreadChain)``. Plain
   ## domain names; the enclosing type name already conveys "responses"
   ## (H11).
   query*: QueryResponse[Email]
-  threadIdFetch*: GetResponse[Email]
+  threadIdFetch*: GetResponse[PartialEmail]
   threads*: GetResponse[thread.Thread]
-  display*: GetResponse[Email]
+  display*: GetResponse[PartialEmail]
 
 func getAll*(
     dr: DispatchedResponse, handles: EmailQueryThreadChain
@@ -524,7 +560,7 @@ func addEmailQueryWithThreads*(
     sort: seq[EmailComparator] = @[],
     queryParams: QueryParams = QueryParams(),
     collapseThreads: bool = true,
-    displayProperties: seq[string] = DefaultDisplayProperties,
+    displayProperties: NonEmptySeq[EmailGetProperty] = DefaultDisplayProperties,
     displayBodyFetchOptions: EmailBodyFetchOptions = EmailBodyFetchOptions(
       fetchBodyValues: bvsAll, maxBodyValueBytes: Opt.some(parseUnsignedInt(256).get())
     ),
@@ -548,12 +584,12 @@ func addEmailQueryWithThreads*(
   let (b1, queryH) =
     addEmailQuery(b, accountId, Opt.some(filter), sortOpt, queryParams, collapseThreads)
 
-  let (b2, threadIdFetchH) = addEmailGetByRef(
+  let (b2, threadIdFetchH) = addPartialEmailGetByRef(
     b1,
     accountId,
     idsRef =
       initResultReference(resultOf = callId(queryH), name = mnEmailQuery, path = rpIds),
-    properties = Opt.some(@["threadId"]),
+    properties = parseNonEmptySeq(@[egpThreadId]).get(), # literal non-empty → total
   )
 
   let (b3, threadsH) = addThreadGetByRef(
@@ -564,13 +600,13 @@ func addEmailQueryWithThreads*(
     ),
   )
 
-  let (b4, displayH) = addEmailGetByRef(
+  let (b4, displayH) = addPartialEmailGetByRef(
     b3,
     accountId,
     idsRef = initResultReference(
       resultOf = callId(threadsH), name = mnThreadGet, path = rpListEmailIds
     ),
-    properties = Opt.some(displayProperties),
+    properties = displayProperties,
     bodyFetchOptions = displayBodyFetchOptions,
   )
 

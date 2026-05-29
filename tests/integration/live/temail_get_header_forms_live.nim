@@ -107,16 +107,19 @@ testCase temailGetHeaderFormsLive:
       assertOn target, false, "Email/set returned no result for creationId"
     assertOn target, found
 
-    let (b, getHandle) = addEmailGet(
+    let (b, getHandle) = addPartialEmailGet(
       initRequestBuilder(makeBuilderId()),
       mailAccountId,
       ids = directIds(@[seededId]),
-      properties = Opt.some(
-        @[
-          "id", "header:List-Post:asURLs", "header:Date:asDate",
-          "header:From:asAddresses",
-        ]
-      ),
+      properties = parseNonEmptySeq(
+          @[
+            egpId,
+            emailGetHeader(parseHeaderPropertyName("header:List-Post:asURLs").get()),
+            emailGetHeader(parseHeaderPropertyName("header:Date:asDate").get()),
+            emailGetHeader(parseHeaderPropertyName("header:From:asAddresses").get()),
+          ]
+        )
+        .get(),
     )
     let resp = client.send(b.freeze()).expect(
         "send Email/get header forms[" & $target.kind & "]"
@@ -128,13 +131,15 @@ testCase temailGetHeaderFormsLive:
     assertOn target, getResp.list.len == 1, "Email/get must return the seeded message"
 
     let email = getResp.list[0]
+    let requestedHeaders =
+      email.requestedHeaders.valueOr(initTable[HeaderPropertyKey, HeaderValue]())
 
     let listPostKey = parseHeaderPropertyName("header:List-Post:asURLs").expect(
         "listPostKey[" & $target.kind & "]"
       )
-    let listPostHv = email.requestedHeaders.getOrDefault(listPostKey)
+    let listPostHv = requestedHeaders.getOrDefault(listPostKey)
     assertOn target,
-      listPostKey in email.requestedHeaders, "header:List-Post:asURLs must be present"
+      listPostKey in requestedHeaders, "header:List-Post:asURLs must be present"
     assertOn target,
       listPostHv.form == hfUrls, "List-Post HeaderValue must carry hfUrls form"
     assertOn target,
@@ -147,9 +152,8 @@ testCase temailGetHeaderFormsLive:
     let dateKey = parseHeaderPropertyName("header:Date:asDate").expect(
         "dateKey[" & $target.kind & "]"
       )
-    assertOn target,
-      dateKey in email.requestedHeaders, "header:Date:asDate must be present"
-    let dateHv = email.requestedHeaders.getOrDefault(dateKey)
+    assertOn target, dateKey in requestedHeaders, "header:Date:asDate must be present"
+    let dateHv = requestedHeaders.getOrDefault(dateKey)
     assertOn target, dateHv.form == hfDate, "Date HeaderValue must carry hfDate form"
     assertOn target,
       dateHv.date.isSome, "Date hfDate payload must parse — server returned non-null"
@@ -158,8 +162,8 @@ testCase temailGetHeaderFormsLive:
         "fromKey[" & $target.kind & "]"
       )
     assertOn target,
-      fromKey in email.requestedHeaders, "header:From:asAddresses must be present"
-    let fromHv = email.requestedHeaders.getOrDefault(fromKey)
+      fromKey in requestedHeaders, "header:From:asAddresses must be present"
+    let fromHv = requestedHeaders.getOrDefault(fromKey)
     assertOn target,
       fromHv.form == hfAddresses, "From HeaderValue must carry hfAddresses form"
     assertOn target,

@@ -121,7 +121,7 @@ testCase bodyFetchDefaultEmpty: # scenario 46
 
 testCase bodyFetchText: # scenario 47
   let opts = EmailBodyFetchOptions(
-    bodyProperties: Opt.none(seq[PropertyName]),
+    bodyProperties: Opt.none(NonEmptySeq[EmailBodyProperty]),
     fetchBodyValues: bvsText,
     maxBodyValueBytes: Opt.none(UnsignedInt),
   )
@@ -131,7 +131,7 @@ testCase bodyFetchText: # scenario 47
 
 testCase bodyFetchHtml: # scenario 48
   let opts = EmailBodyFetchOptions(
-    bodyProperties: Opt.none(seq[PropertyName]),
+    bodyProperties: Opt.none(NonEmptySeq[EmailBodyProperty]),
     fetchBodyValues: bvsHtml,
     maxBodyValueBytes: Opt.none(UnsignedInt),
   )
@@ -141,7 +141,7 @@ testCase bodyFetchHtml: # scenario 48
 
 testCase bodyFetchTextAndHtml: # scenario 49
   let opts = EmailBodyFetchOptions(
-    bodyProperties: Opt.none(seq[PropertyName]),
+    bodyProperties: Opt.none(NonEmptySeq[EmailBodyProperty]),
     fetchBodyValues: bvsTextAndHtml,
     maxBodyValueBytes: Opt.none(UnsignedInt),
   )
@@ -152,7 +152,7 @@ testCase bodyFetchTextAndHtml: # scenario 49
 
 testCase bodyFetchAll: # scenario 50
   let opts = EmailBodyFetchOptions(
-    bodyProperties: Opt.none(seq[PropertyName]),
+    bodyProperties: Opt.none(NonEmptySeq[EmailBodyProperty]),
     fetchBodyValues: bvsAll,
     maxBodyValueBytes: Opt.none(UnsignedInt),
   )
@@ -162,7 +162,7 @@ testCase bodyFetchAll: # scenario 50
 
 testCase bodyFetchMaxBytes: # scenario 51
   let opts = EmailBodyFetchOptions(
-    bodyProperties: Opt.none(seq[PropertyName]),
+    bodyProperties: Opt.none(NonEmptySeq[EmailBodyProperty]),
     fetchBodyValues: bvsNone,
     maxBodyValueBytes: Opt.some(parseUnsignedInt(1024).get()),
   )
@@ -171,9 +171,8 @@ testCase bodyFetchMaxBytes: # scenario 51
   doAssert node{"maxBodyValueBytes"} != nil, "maxBodyValueBytes must be present"
 
 testCase bodyFetchProperties: # scenario 52
-  let pn = parsePropertyName("partId").get()
   let opts = EmailBodyFetchOptions(
-    bodyProperties: Opt.some(@[pn]),
+    bodyProperties: Opt.some(parseNonEmptySeq(@[ebpPartId]).get()),
     fetchBodyValues: bvsNone,
     maxBodyValueBytes: Opt.none(UnsignedInt),
   )
@@ -183,6 +182,7 @@ testCase bodyFetchProperties: # scenario 52
   doAssert arr != nil, "bodyProperties must be present"
   doAssert arr.kind == JArray, "bodyProperties must be JArray"
   assertLen arr.getElems(@[]), 1
+  doAssert arr.getElems(@[])[0].getStr() == "partId"
 
 # ============= C. EmailHeaderFilter =============
 

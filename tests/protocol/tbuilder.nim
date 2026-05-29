@@ -289,15 +289,25 @@ testCase addGetWithReferenceIds:
   doAssert inv.arguments{"#ids"}.kind == JObject
   assertEq inv.arguments{"#ids"}{"resultOf"}.getStr(""), "c0"
 
-testCase addGetWithProperties:
-  ## addGet with properties emits a "properties" array in arguments.
+testCase addGetSelectedEmitsProperties:
+  ## The hub-private generic ``addGetSelected[T, P]`` emits a ``properties``
+  ## array of typed wire names (A3.6). ``P`` is any selector with a
+  ## ``wireName``; ``MailboxGetProperty`` stands in for the generic primitive
+  ## here — the per-entity ``addPartial<E>Get`` wrappers exercise the real
+  ## pairings.
   let b0 = initRequestBuilder(makeBuilderId())
-  let (b1, _) =
-    addGet[MockFoo](b0, makeAccountId("a1"), properties = Opt.some(@["name", "size"]))
+  let (b1, _) = addGetSelected[MockFoo, MailboxGetProperty](
+    b0,
+    makeAccountId("a1"),
+    Opt.none(Referencable[seq[Id]]),
+    parseNonEmptySeq(@[mgpName, mgpRole]).get(),
+  )
   let req = b1.freeze().request
   let inv = req.methodCalls[0]
   doAssert inv.arguments{"properties"}.kind == JArray
   assertLen inv.arguments{"properties"}.getElems(@[]), 2
+  assertEq inv.arguments{"properties"}.getElems(@[])[0].getStr(""), "name"
+  assertEq inv.arguments{"properties"}.getElems(@[])[1].getStr(""), "role"
 
 # ===========================================================================
 # G. addChanges

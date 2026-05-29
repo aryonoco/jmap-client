@@ -181,11 +181,11 @@ testCase tEmailSubmissionOnSuccessUpdateLive:
         .expect("pollEmailDeliveryToInbox bob[" & $target.kind & "]")
 
     # --- Read-back via Email/get to verify mailbox + keyword changes -----
-    let (b4, emailGetHandle) = addEmailGet(
+    let (b4, emailGetHandle) = addPartialEmailGet(
       initRequestBuilder(makeBuilderId()),
       mailAccountId,
       ids = directIds(@[draftId]),
-      properties = Opt.some(@["mailboxIds", "keywords"]),
+      properties = parseNonEmptySeq(@[egpMailboxIds, egpKeywords]).get(),
     )
     let resp4 = client.send(b4.freeze()).expect(
         "send Email/get post-submit[" & $target.kind & "]"

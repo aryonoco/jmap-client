@@ -35,11 +35,11 @@ testCase temailChangesLive:
       resolveMailAccountId(session).expect("resolveMailAccountId[" & $target.kind & "]")
 
     # --- Capture baseline state via an empty Email/get -------------------
-    let (b1, getHandle) = addEmailGet(
+    let (b1, getHandle) = addPartialEmailGet(
       initRequestBuilder(makeBuilderId()),
       mailAccountId,
       ids = directIds(@[]),
-      properties = Opt.some(@["id"]),
+      properties = parseNonEmptySeq(@[egpId]).get(),
     )
     let resp1 =
       client.send(b1.freeze()).expect("send Email/get baseline[" & $target.kind & "]")

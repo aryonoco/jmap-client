@@ -74,11 +74,11 @@ testCase temailParseLive:
       continue
     let outerId = outerRes.unsafeValue
 
-    let (bGet, getHandle) = addEmailGet(
+    let (bGet, getHandle) = addPartialEmailGet(
       initRequestBuilder(makeBuilderId()),
       mailAccountId,
       ids = directIds(@[outerId]),
-      properties = Opt.some(@["id", "attachments"]),
+      properties = parseNonEmptySeq(@[egpId, egpAttachments]).get(),
     )
     let getRespOuter = client.send(bGet.freeze()).expect(
         "send Email/get attachments[" & $target.kind & "]"
@@ -89,8 +89,9 @@ testCase temailParseLive:
     assertOn target, getResp.list.len == 1, "Email/get must return the seeded message"
 
     let email = getResp.list[0]
-    assertOn target, email.attachments.len == 1, "expected exactly one attachment"
-    let attachment = email.attachments[0]
+    let attachments = email.attachments.valueOr(@[])
+    assertOn target, attachments.len == 1, "expected exactly one attachment"
+    let attachment = attachments[0]
     assertOn target,
       attachment.contentType == "message/rfc822",
       "attachment must be message/rfc822 (got " & attachment.contentType & ")"
@@ -101,7 +102,8 @@ testCase temailParseLive:
       initRequestBuilder(makeBuilderId()),
       mailAccountId,
       blobIds = @[blobId],
-      properties = Opt.some(@["bodyStructure", "subject", "from"]),
+      properties =
+        Opt.some(parseNonEmptySeq(@[egpBodyStructure, egpSubject, egpFrom]).get()),
     )
     let parseRespOuter =
       client.send(bParse.freeze()).expect("send Email/parse[" & $target.kind & "]")

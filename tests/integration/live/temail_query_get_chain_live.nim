@@ -80,11 +80,11 @@ testCase temailQueryGetChainLive:
       filter = Opt.some(filter),
       queryParams = queryParams,
     )
-    let (b3b, getHandle) = addEmailGet(
+    let (b3b, getHandle) = addPartialEmailGet(
       b3a,
       mailAccountId,
       ids = Opt.some(referenceTo[seq[Id]](reference(queryHandle, mnEmailQuery, rpIds))),
-      properties = Opt.some(@["id", "subject", "from", "receivedAt"]),
+      properties = parseNonEmptySeq(@[egpId, egpSubject, egpFrom, egpReceivedAt]).get(),
     )
     let resp3 =
       client.send(b3b.freeze()).expect("send Email/query+get[" & $target.kind & "]")
@@ -99,9 +99,14 @@ testCase temailQueryGetChainLive:
     var sawSeed = false
     for email in getResp.list:
       assertOn target, email.id.isSome, "every Email/get entry must have an id"
-      assertOn target, email.subject.isSome, "every Email/get entry must have a subject"
-      if email.subject.unsafeGet == seedSubject:
-        sawSeed = true
+      assertOn target,
+        email.subject.kind == fekValue, "every Email/get entry must have a subject"
+      case email.subject.kind
+      of fekValue:
+        if email.subject.value == seedSubject:
+          sawSeed = true
+      of fekAbsent, fekNull:
+        discard
     assertOn target, sawSeed, "Email/get list must include the seeded subject"
 
     # --- Step 4: cleanup — destroy the seed so re-runs stay bounded ------

@@ -132,11 +132,11 @@ testCase tEmailBobReceivesAliceDeliveryLive:
     let bobEmailId = bobEmailIdRes.unsafeValue
 
     # --- bob full-fetch -------------------------------------------------
-    let (b4, getHandle) = addEmailGet(
+    let (b4, getHandle) = addPartialEmailGet(
       initRequestBuilder(makeBuilderId()),
       bobMailAccountId,
       ids = directIds(@[bobEmailId]),
-      properties = Opt.some(@["id", "subject", "from", "mailboxIds"]),
+      properties = parseNonEmptySeq(@[egpId, egpSubject, egpFrom, egpMailboxIds]).get(),
     )
     let resp4 =
       bobClient.send(b4.freeze()).expect("send Email/get[" & $target.kind & "]")
@@ -151,18 +151,28 @@ testCase tEmailBobReceivesAliceDeliveryLive:
         $getResp.list.len & ")"
     let email = getResp.list[0]
 
-    assertOn target, email.subject.isSome, "Email/get must include a subject"
+    assertOn target, email.subject.kind == fekValue, "Email/get must include a subject"
     assertOn target,
-      email.subject.unsafeGet == subject,
-      "delivered subject must match seeded subject (got " & email.subject.unsafeGet & ")"
+      email.subject.kind == fekValue and email.subject.value == subject,
+      "delivered subject must match seeded subject (got " & (
+        case email.subject.kind
+        of fekValue: email.subject.value
+        of fekAbsent, fekNull: ""
+      ) & ")"
 
     assertOn target,
-      email.fromAddr.isSome and email.fromAddr.unsafeGet.len > 0,
+      email.fromAddr.kind == fekValue and email.fromAddr.value.len > 0,
       "Email/get must include a non-empty from list"
     assertOn target,
-      email.fromAddr.unsafeGet[0].email == "alice@example.com",
-      "delivered from[0].email must be alice@example.com (got " &
-        email.fromAddr.unsafeGet[0].email & ")"
+      email.fromAddr.kind == fekValue and email.fromAddr.value.len > 0 and
+        email.fromAddr.value[0].email == "alice@example.com",
+      "delivered from[0].email must be alice@example.com (got " & (
+        case email.fromAddr.kind
+        of fekValue:
+          (if email.fromAddr.value.len > 0: email.fromAddr.value[0].email
+          else: "")
+        of fekAbsent, fekNull: ""
+      ) & ")"
 
     assertOn target, email.mailboxIds.isSome, "Email/get must include mailboxIds"
     let mbIds = email.mailboxIds.unsafeGet.toHashSet

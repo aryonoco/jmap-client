@@ -9,6 +9,7 @@
 {.push raises: [], noSideEffect.}
 {.experimental: "strictCaseObjects".}
 
+import std/hashes
 import std/tables
 
 import ../types/validation
@@ -221,3 +222,99 @@ func parseNonEmptyIdentityUpdates*(
   for (id, updateSet) in items:
     t[id] = updateSet
   ok(NonEmptyIdentityUpdates(rawValue: t))
+
+# =============================================================================
+# IdentityGetProperty — typed Identity/get property selector (A3.6)
+# =============================================================================
+
+type IdentityGetPropertyKind* = enum
+  ## Discriminator for ``IdentityGetProperty``. Backing strings are the
+  ## RFC 8621 §6 Identity property wire names; ``igkOther`` carries a
+  ## capability-extension property whose raw identifier lives alongside.
+  igkId = "id"
+  igkName = "name"
+  igkEmail = "email"
+  igkReplyTo = "replyTo"
+  igkBcc = "bcc"
+  igkTextSignature = "textSignature"
+  igkHtmlSignature = "htmlSignature"
+  igkMayDelete = "mayDelete"
+  igkOther
+
+type IdentityGetProperty* {.ruleOff: "objects".} = object
+  ## Typed RFC 8621 §6 Identity/get property selector. Construction sealed;
+  ## use the ``igp…`` constants or ``parseIdentityGetProperty``.
+  case rawKind: IdentityGetPropertyKind
+  of igkOther:
+    rawIdentifier: string
+  of igkId, igkName, igkEmail, igkReplyTo, igkBcc, igkTextSignature, igkHtmlSignature,
+      igkMayDelete:
+    discard
+
+func kind*(p: IdentityGetProperty): IdentityGetPropertyKind =
+  ## Returns the discriminator — one of the named arms or ``igkOther``.
+  p.rawKind
+
+func wireName*(p: IdentityGetProperty): string =
+  ## RFC 8621 §6 wire name. For ``igkOther`` this is the captured identifier.
+  case p.rawKind
+  of igkOther:
+    p.rawIdentifier
+  of igkId, igkName, igkEmail, igkReplyTo, igkBcc, igkTextSignature, igkHtmlSignature,
+      igkMayDelete:
+    $p.rawKind
+
+func `$`*(p: IdentityGetProperty): string =
+  ## Wire-form string — equivalent to ``wireName``.
+  p.wireName
+
+func `==`*(a, b: IdentityGetProperty): bool =
+  ## Wire-identity equality: the classifying parser never yields ``igkOther``
+  ## for a known wire name, so wire-name identity is structural identity.
+  a.wireName == b.wireName
+
+func hash*(p: IdentityGetProperty): Hash =
+  ## Consistent with ``==`` — equal wire names hash equal.
+  hash(p.wireName)
+
+const
+  igpId* = IdentityGetProperty(rawKind: igkId) ## Selects ``id``.
+  igpName* = IdentityGetProperty(rawKind: igkName) ## Selects ``name``.
+  igpEmail* = IdentityGetProperty(rawKind: igkEmail) ## Selects ``email``.
+  igpReplyTo* = IdentityGetProperty(rawKind: igkReplyTo) ## Selects ``replyTo``.
+  igpBcc* = IdentityGetProperty(rawKind: igkBcc) ## Selects ``bcc``.
+  igpTextSignature* = IdentityGetProperty(rawKind: igkTextSignature)
+    ## Selects ``textSignature``.
+  igpHtmlSignature* = IdentityGetProperty(rawKind: igkHtmlSignature)
+    ## Selects ``htmlSignature``.
+  igpMayDelete* = IdentityGetProperty(rawKind: igkMayDelete) ## Selects ``mayDelete``.
+
+func parseIdentityGetProperty*(
+    raw: string
+): Result[IdentityGetProperty, ValidationError] =
+  ## Classifying smart constructor: exact, case-sensitive match against the
+  ## RFC 8621 §6 wire names; unknown non-control strings fall to ``igkOther``
+  ## (capability-extension forward-compat, A11).
+  detectNonControlString(raw).isOkOr:
+    return err(toValidationError(error, "IdentityGetProperty", raw))
+  case raw
+  of "id":
+    ok(igpId)
+  of "name":
+    ok(igpName)
+  of "email":
+    ok(igpEmail)
+  of "replyTo":
+    ok(igpReplyTo)
+  of "bcc":
+    ok(igpBcc)
+  of "textSignature":
+    ok(igpTextSignature)
+  of "htmlSignature":
+    ok(igpHtmlSignature)
+  of "mayDelete":
+    ok(igpMayDelete)
+  else:
+    ok(IdentityGetProperty(rawKind: igkOther, rawIdentifier: raw))
+
+defineSealedNonEmptySeqOps(IdentityGetProperty)

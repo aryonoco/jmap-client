@@ -380,14 +380,36 @@ func addGet*[T](
     b: sink RequestBuilder,
     accountId: AccountId,
     ids: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]),
-    properties: Opt[seq[string]] = Opt.none(seq[string]),
 ): (RequestBuilder, ResponseHandle[GetResponse[T]]) =
-  ## Adds a Foo/get invocation. Fetches objects by identifiers, optionally
-  ## returning only a subset of properties. Hub-private — exposed via
-  ## per-entity wrappers in ``mail_builders.nim``.
+  ## Adds a full-record Foo/get invocation — every property is returned.
+  ## Hub-private — exposed via per-entity wrappers in ``mail_builders.nim``.
+  ## Typed property projection flows through ``addGetSelected`` and the
+  ## ``addPartial<E>Get`` wrappers instead (A3.6).
   mixin getMethodName, capabilityUri
-  let req = GetRequest[T](accountId: accountId, ids: ids, properties: properties)
+  let req = GetRequest[T](accountId: accountId, ids: ids)
   let args = req.toJson()
+  let meta = getMeta(ids)
+  let (newBuilder, callId) =
+    addInvocation(b, getMethodName(T), args, capabilityUri(T), meta)
+  let brand = newBuilder.id
+  (newBuilder, initResponseHandle[GetResponse[T]](callId, brand))
+
+func addGetSelected*[T, P](
+    b: sink RequestBuilder,
+    accountId: AccountId,
+    ids: Opt[Referencable[seq[Id]]],
+    properties: NonEmptySeq[P],
+): (RequestBuilder, ResponseHandle[GetResponse[T]]) =
+  ## Foo/get with a typed property projection. Returns ``GetResponse[T]``
+  ## where ``T`` is a filter-tolerant ``PartialT``. Hub-private — exposed
+  ## via the ``addPartial<E>Get`` wrappers in the mail layer (A3.6).
+  mixin getMethodName, capabilityUri, wireName
+  let req = GetRequest[T](accountId: accountId, ids: ids)
+  var args = req.toJson()
+  var arr = newJArray()
+  for p in properties:
+    arr.add(%wireName(p))
+  args["properties"] = arr
   let meta = getMeta(ids)
   let (newBuilder, callId) =
     addInvocation(b, getMethodName(T), args, capabilityUri(T), meta)

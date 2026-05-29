@@ -97,6 +97,33 @@ static:
   doAssert declared(addEmailSubmissionSet)
   doAssert declared(addEmailSubmissionAndEmailSet)
 
+  # --- Typed sparse partial-get builders (A3.6) ---
+  doAssert declared(addPartialMailboxGet)
+  doAssert declared(addPartialThreadGet)
+  doAssert declared(addPartialThreadGetByRef)
+  doAssert declared(addPartialIdentityGet)
+  doAssert declared(addPartialEmailSubmissionGet)
+  doAssert declared(addPartialVacationResponseGet)
+  doAssert declared(addPartialEmailGet)
+  doAssert declared(addPartialEmailGetByRef)
+
+  # --- Typed get-property selectors (A3.6): types, a const, a parser ---
+  doAssert declared(MailboxGetProperty)
+  doAssert declared(ThreadGetProperty)
+  doAssert declared(IdentityGetProperty)
+  doAssert declared(EmailSubmissionGetProperty)
+  doAssert declared(VacationResponseGetProperty)
+  doAssert declared(EmailGetProperty)
+  doAssert declared(EmailBodyProperty)
+  doAssert declared(mgpId)
+  doAssert declared(egpId)
+  doAssert declared(ebpPartId)
+  doAssert declared(parseMailboxGetProperty)
+  doAssert declared(parseEmailGetProperty)
+  doAssert declared(parseEmailBodyProperty)
+  doAssert declared(emailGetHeader)
+  doAssert declared(emailBodyHeader)
+
   # --- Back-reference primitive (dispatch.nim) ---
   doAssert declared(reference)
 

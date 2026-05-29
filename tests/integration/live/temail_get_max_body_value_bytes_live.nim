@@ -96,11 +96,11 @@ testCase temailGetMaxBodyValueBytesLive:
       assertOn target, false, "Email/set returned no result"
     assertOn target, found
 
-    let (bGet, getHandle) = addEmailGet(
+    let (bGet, getHandle) = addPartialEmailGet(
       initRequestBuilder(makeBuilderId()),
       mailAccountId,
       ids = directIds(@[seededId]),
-      properties = Opt.some(@["id", "bodyValues", "textBody"]),
+      properties = parseNonEmptySeq(@[egpId, egpBodyValues, egpTextBody]).get(),
       bodyFetchOptions = EmailBodyFetchOptions(
         fetchBodyValues: bvsText,
         maxBodyValueBytes: Opt.some(parseUnsignedInt(TruncationCap).get()),
@@ -118,11 +118,12 @@ testCase temailGetMaxBodyValueBytesLive:
       resp.get(getHandle).expect("Email/get truncation extract[" & $target.kind & "]")
     assertOn target, getResp.list.len == 1, "Email/get must return the seeded message"
     let email = getResp.list[0]
+    let bodyValues = email.bodyValues.valueOr(initTable[PartId, EmailBodyValue]())
     assertOn target,
-      email.bodyValues.len >= 1,
+      bodyValues.len >= 1,
       "fetchBodyValues=bvsText must populate at least the text leaf"
     var anyTruncated = false
-    for partId, bv in email.bodyValues.pairs:
+    for partId, bv in bodyValues.pairs:
       assertOn target,
         bv.value.len <= TruncationCap,
         "bodyValue under maxBodyValueBytes=" & $TruncationCap & " must satisfy " &

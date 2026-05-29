@@ -69,18 +69,13 @@ testCase temailGetBodyPropertiesAllLive:
       continue
     let seededId = seededRes.unsafeValue
 
-    let bodyProperties = @[
-      parsePropertyName("partId").expect("partId[" & $target.kind & "]"),
-      parsePropertyName("blobId").expect("blobId[" & $target.kind & "]"),
-      parsePropertyName("type").expect("type[" & $target.kind & "]"),
-      parsePropertyName("name").expect("name[" & $target.kind & "]"),
-      parsePropertyName("size").expect("size[" & $target.kind & "]"),
-    ]
-    let (b, getHandle) = addEmailGet(
+    let bodyProperties =
+      parseNonEmptySeq(@[ebpPartId, ebpBlobId, ebpType, ebpName, ebpSize]).get()
+    let (b, getHandle) = addPartialEmailGet(
       initRequestBuilder(makeBuilderId()),
       mailAccountId,
       ids = directIds(@[seededId]),
-      properties = Opt.some(@["id", "bodyStructure", "bodyValues"]),
+      properties = parseNonEmptySeq(@[egpId, egpBodyStructure, egpBodyValues]).get(),
       bodyFetchOptions = EmailBodyFetchOptions(
         fetchBodyValues: bvsAll, bodyProperties: Opt.some(bodyProperties)
       ),
@@ -98,20 +93,21 @@ testCase temailGetBodyPropertiesAllLive:
     assertOn target, getResp.list.len == 1, "Email/get must return the seeded message"
     let email = getResp.list[0]
     assertOn target,
-      email.bodyStructure.isSome,
+      email.bodyStructure.kind == fekValue,
       "bodyStructure must be present when explicitly requested"
-    let bs = email.bodyStructure.unsafeGet
+    let bs = email.bodyStructure.value
     assertOn target,
       bs.isMultipart, "multipart/mixed seed must produce a multipart bodyStructure root"
     assertOn target,
       bs.subParts.len >= 2,
       "multipart/mixed seed must yield at least text + attachment subParts (got " &
         $bs.subParts.len & ")"
+    let bodyValues = email.bodyValues.valueOr(initTable[PartId, EmailBodyValue]())
     assertOn target,
-      email.bodyValues.len >= 1,
-      "bvsAll must yield at least the textBody bodyValue (got " & $email.bodyValues.len &
+      bodyValues.len >= 1,
+      "bvsAll must yield at least the textBody bodyValue (got " & $bodyValues.len &
         " — Stalwart 0.15.5 omits attachment bodyValues even for text/* leaves)"
-    for partId, bv in email.bodyValues.pairs:
+    for partId, bv in bodyValues.pairs:
       assertOn target, ($partId).len > 0, "every bodyValues key must be non-empty"
       assertOn target,
         bv.value.len > 0, "bvsAll-emitted bodyValue must carry decoded content"

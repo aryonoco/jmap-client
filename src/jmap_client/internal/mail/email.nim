@@ -10,7 +10,9 @@
 {.push raises: [], noSideEffect.}
 {.experimental: "strictCaseObjects".}
 
+import std/hashes
 import std/sets
+import std/strutils
 import std/tables
 
 import ../types/validation
@@ -100,6 +102,325 @@ func keywordComparator*(
   )
 
 # =============================================================================
+# EmailGetProperty — typed Email/get + Email/parse property selector (A3.6)
+# =============================================================================
+
+type EmailGetPropertyKind* = enum
+  ## Discriminator for ``EmailGetProperty``. Backing strings are the
+  ## RFC 8621 §4.1 Email property wire names; ``egkHeader`` carries a
+  ## dynamic ``header:Name[:asForm][:all]`` selector, ``egkOther`` a
+  ## capability-extension property whose raw identifier lives alongside.
+  egkId = "id"
+  egkBlobId = "blobId"
+  egkThreadId = "threadId"
+  egkMailboxIds = "mailboxIds"
+  egkKeywords = "keywords"
+  egkSize = "size"
+  egkReceivedAt = "receivedAt"
+  egkHeaders = "headers"
+  egkMessageId = "messageId"
+  egkInReplyTo = "inReplyTo"
+  egkReferences = "references"
+  egkSender = "sender"
+  egkFrom = "from"
+  egkTo = "to"
+  egkCc = "cc"
+  egkBcc = "bcc"
+  egkReplyTo = "replyTo"
+  egkSubject = "subject"
+  egkSentAt = "sentAt"
+  egkBodyStructure = "bodyStructure"
+  egkBodyValues = "bodyValues"
+  egkTextBody = "textBody"
+  egkHtmlBody = "htmlBody"
+  egkAttachments = "attachments"
+  egkHasAttachment = "hasAttachment"
+  egkPreview = "preview"
+  egkHeader ## dynamic ``header:Name[:asForm][:all]`` form
+  egkOther ## capability-extension property
+
+type EmailGetProperty* {.ruleOff: "objects".} = object
+  ## Typed RFC 8621 §4.1 Email/get + §4.9 Email/parse property selector.
+  ## Construction sealed; use the ``egp…`` constants, ``emailGetHeader``,
+  ## or ``parseEmailGetProperty``.
+  case rawKind: EmailGetPropertyKind
+  of egkHeader:
+    rawHeader: HeaderPropertyKey
+  of egkOther:
+    rawIdentifier: string
+  of egkId, egkBlobId, egkThreadId, egkMailboxIds, egkKeywords, egkSize, egkReceivedAt,
+      egkHeaders, egkMessageId, egkInReplyTo, egkReferences, egkSender, egkFrom, egkTo,
+      egkCc, egkBcc, egkReplyTo, egkSubject, egkSentAt, egkBodyStructure, egkBodyValues,
+      egkTextBody, egkHtmlBody, egkAttachments, egkHasAttachment, egkPreview:
+    discard
+
+func kind*(p: EmailGetProperty): EmailGetPropertyKind =
+  ## Returns the discriminator — a named arm, ``egkHeader``, or ``egkOther``.
+  p.rawKind
+
+func wireName*(p: EmailGetProperty): string =
+  ## RFC 8621 §4.1 wire name. ``egkHeader`` reconstructs the
+  ## ``header:Name[:asForm][:all]`` string; ``egkOther`` is the captured
+  ## identifier.
+  case p.rawKind
+  of egkHeader:
+    p.rawHeader.toPropertyString()
+  of egkOther:
+    p.rawIdentifier
+  of egkId, egkBlobId, egkThreadId, egkMailboxIds, egkKeywords, egkSize, egkReceivedAt,
+      egkHeaders, egkMessageId, egkInReplyTo, egkReferences, egkSender, egkFrom, egkTo,
+      egkCc, egkBcc, egkReplyTo, egkSubject, egkSentAt, egkBodyStructure, egkBodyValues,
+      egkTextBody, egkHtmlBody, egkAttachments, egkHasAttachment, egkPreview:
+    $p.rawKind
+
+func `$`*(p: EmailGetProperty): string =
+  ## Wire-form string — equivalent to ``wireName``.
+  p.wireName
+
+func `==`*(a, b: EmailGetProperty): bool =
+  ## Wire-identity equality: the classifying parser never yields ``egkOther``
+  ## for a known wire name, and ``egkHeader`` round-trips through its
+  ## ``HeaderPropertyKey`` wire form, so wire-name identity is structural
+  ## identity.
+  a.wireName == b.wireName
+
+func hash*(p: EmailGetProperty): Hash =
+  ## Consistent with ``==`` — equal wire names hash equal.
+  hash(p.wireName)
+
+const
+  egpId* = EmailGetProperty(rawKind: egkId) ## Selects ``id``.
+  egpBlobId* = EmailGetProperty(rawKind: egkBlobId) ## Selects ``blobId``.
+  egpThreadId* = EmailGetProperty(rawKind: egkThreadId) ## Selects ``threadId``.
+  egpMailboxIds* = EmailGetProperty(rawKind: egkMailboxIds) ## Selects ``mailboxIds``.
+  egpKeywords* = EmailGetProperty(rawKind: egkKeywords) ## Selects ``keywords``.
+  egpSize* = EmailGetProperty(rawKind: egkSize) ## Selects ``size``.
+  egpReceivedAt* = EmailGetProperty(rawKind: egkReceivedAt) ## Selects ``receivedAt``.
+  egpHeaders* = EmailGetProperty(rawKind: egkHeaders) ## Selects ``headers``.
+  egpMessageId* = EmailGetProperty(rawKind: egkMessageId) ## Selects ``messageId``.
+  egpInReplyTo* = EmailGetProperty(rawKind: egkInReplyTo) ## Selects ``inReplyTo``.
+  egpReferences* = EmailGetProperty(rawKind: egkReferences) ## Selects ``references``.
+  egpSender* = EmailGetProperty(rawKind: egkSender) ## Selects ``sender``.
+  egpFrom* = EmailGetProperty(rawKind: egkFrom) ## Selects ``from``.
+  egpTo* = EmailGetProperty(rawKind: egkTo) ## Selects ``to``.
+  egpCc* = EmailGetProperty(rawKind: egkCc) ## Selects ``cc``.
+  egpBcc* = EmailGetProperty(rawKind: egkBcc) ## Selects ``bcc``.
+  egpReplyTo* = EmailGetProperty(rawKind: egkReplyTo) ## Selects ``replyTo``.
+  egpSubject* = EmailGetProperty(rawKind: egkSubject) ## Selects ``subject``.
+  egpSentAt* = EmailGetProperty(rawKind: egkSentAt) ## Selects ``sentAt``.
+  egpBodyStructure* = EmailGetProperty(rawKind: egkBodyStructure)
+    ## Selects ``bodyStructure``.
+  egpBodyValues* = EmailGetProperty(rawKind: egkBodyValues) ## Selects ``bodyValues``.
+  egpTextBody* = EmailGetProperty(rawKind: egkTextBody) ## Selects ``textBody``.
+  egpHtmlBody* = EmailGetProperty(rawKind: egkHtmlBody) ## Selects ``htmlBody``.
+  egpAttachments* = EmailGetProperty(rawKind: egkAttachments) ## Selects ``attachments``.
+  egpHasAttachment* = EmailGetProperty(rawKind: egkHasAttachment)
+    ## Selects ``hasAttachment``.
+  egpPreview* = EmailGetProperty(rawKind: egkPreview) ## Selects ``preview``.
+
+func emailGetHeader*(key: HeaderPropertyKey): EmailGetProperty =
+  ## Header-field selector (``header:Name[:asForm][:all]``). ``key`` is
+  ## already validated, so this constructor cannot fail.
+  EmailGetProperty(rawKind: egkHeader, rawHeader: key)
+
+func parseEmailGetProperty*(raw: string): Result[EmailGetProperty, ValidationError] =
+  ## Classifying smart constructor: ``header:``-prefixed input parses as a
+  ## ``HeaderPropertyKey``; otherwise an exact, case-sensitive match against
+  ## the RFC 8621 §4.1 wire names, with unknown non-control strings falling
+  ## to ``egkOther`` (capability-extension forward-compat, A11).
+  detectNonControlString(raw).isOkOr:
+    return err(toValidationError(error, "EmailGetProperty", raw))
+  if raw.startsWith("header:"):
+    let key = ?parseHeaderPropertyName(raw)
+    return ok(EmailGetProperty(rawKind: egkHeader, rawHeader: key))
+  case raw
+  of "id":
+    ok(egpId)
+  of "blobId":
+    ok(egpBlobId)
+  of "threadId":
+    ok(egpThreadId)
+  of "mailboxIds":
+    ok(egpMailboxIds)
+  of "keywords":
+    ok(egpKeywords)
+  of "size":
+    ok(egpSize)
+  of "receivedAt":
+    ok(egpReceivedAt)
+  of "headers":
+    ok(egpHeaders)
+  of "messageId":
+    ok(egpMessageId)
+  of "inReplyTo":
+    ok(egpInReplyTo)
+  of "references":
+    ok(egpReferences)
+  of "sender":
+    ok(egpSender)
+  of "from":
+    ok(egpFrom)
+  of "to":
+    ok(egpTo)
+  of "cc":
+    ok(egpCc)
+  of "bcc":
+    ok(egpBcc)
+  of "replyTo":
+    ok(egpReplyTo)
+  of "subject":
+    ok(egpSubject)
+  of "sentAt":
+    ok(egpSentAt)
+  of "bodyStructure":
+    ok(egpBodyStructure)
+  of "bodyValues":
+    ok(egpBodyValues)
+  of "textBody":
+    ok(egpTextBody)
+  of "htmlBody":
+    ok(egpHtmlBody)
+  of "attachments":
+    ok(egpAttachments)
+  of "hasAttachment":
+    ok(egpHasAttachment)
+  of "preview":
+    ok(egpPreview)
+  else:
+    ok(EmailGetProperty(rawKind: egkOther, rawIdentifier: raw))
+
+defineSealedNonEmptySeqOps(EmailGetProperty)
+
+# =============================================================================
+# EmailBodyProperty — typed Email/get bodyProperties selector (A3.6)
+# =============================================================================
+
+type EmailBodyPropertyKind* = enum
+  ## Discriminator for ``EmailBodyProperty``. Backing strings are the
+  ## RFC 8621 §4.1.4 EmailBodyPart property wire names; ``ebpkHeader``
+  ## carries a dynamic ``header:Name[:asForm][:all]`` selector, ``ebpkOther``
+  ## a capability-extension property whose raw identifier lives alongside.
+  ebpkPartId = "partId"
+  ebpkBlobId = "blobId"
+  ebpkSize = "size"
+  ebpkName = "name"
+  ebpkType = "type"
+  ebpkCharset = "charset"
+  ebpkDisposition = "disposition"
+  ebpkCid = "cid"
+  ebpkLanguage = "language"
+  ebpkLocation = "location"
+  ebpkSubParts = "subParts"
+  ebpkHeaders = "headers"
+  ebpkHeader ## dynamic ``header:Name[:asForm][:all]`` form
+  ebpkOther ## capability-extension property
+
+type EmailBodyProperty* {.ruleOff: "objects".} = object
+  ## Typed RFC 8621 §4.1.4 EmailBodyPart property selector for the
+  ## ``bodyProperties`` fetch override. Construction sealed; use the
+  ## ``ebp…`` constants, ``emailBodyHeader``, or ``parseEmailBodyProperty``.
+  case rawKind: EmailBodyPropertyKind
+  of ebpkHeader:
+    rawHeader: HeaderPropertyKey
+  of ebpkOther:
+    rawIdentifier: string
+  of ebpkPartId, ebpkBlobId, ebpkSize, ebpkName, ebpkType, ebpkCharset, ebpkDisposition,
+      ebpkCid, ebpkLanguage, ebpkLocation, ebpkSubParts, ebpkHeaders:
+    discard
+
+func kind*(p: EmailBodyProperty): EmailBodyPropertyKind =
+  ## Returns the discriminator — a named arm, ``ebpkHeader``, or ``ebpkOther``.
+  p.rawKind
+
+func wireName*(p: EmailBodyProperty): string =
+  ## RFC 8621 §4.1.4 wire name. ``ebpkHeader`` reconstructs the
+  ## ``header:Name[:asForm][:all]`` string; ``ebpkOther`` is the captured
+  ## identifier.
+  case p.rawKind
+  of ebpkHeader:
+    p.rawHeader.toPropertyString()
+  of ebpkOther:
+    p.rawIdentifier
+  of ebpkPartId, ebpkBlobId, ebpkSize, ebpkName, ebpkType, ebpkCharset, ebpkDisposition,
+      ebpkCid, ebpkLanguage, ebpkLocation, ebpkSubParts, ebpkHeaders:
+    $p.rawKind
+
+func `$`*(p: EmailBodyProperty): string =
+  ## Wire-form string — equivalent to ``wireName``.
+  p.wireName
+
+func `==`*(a, b: EmailBodyProperty): bool =
+  ## Wire-identity equality: the classifying parser never yields ``ebpkOther``
+  ## for a known wire name, and ``ebpkHeader`` round-trips through its
+  ## ``HeaderPropertyKey`` wire form, so wire-name identity is structural
+  ## identity.
+  a.wireName == b.wireName
+
+func hash*(p: EmailBodyProperty): Hash =
+  ## Consistent with ``==`` — equal wire names hash equal.
+  hash(p.wireName)
+
+const
+  ebpPartId* = EmailBodyProperty(rawKind: ebpkPartId) ## Selects ``partId``.
+  ebpBlobId* = EmailBodyProperty(rawKind: ebpkBlobId) ## Selects ``blobId``.
+  ebpSize* = EmailBodyProperty(rawKind: ebpkSize) ## Selects ``size``.
+  ebpName* = EmailBodyProperty(rawKind: ebpkName) ## Selects ``name``.
+  ebpType* = EmailBodyProperty(rawKind: ebpkType) ## Selects ``type``.
+  ebpCharset* = EmailBodyProperty(rawKind: ebpkCharset) ## Selects ``charset``.
+  ebpDisposition* = EmailBodyProperty(rawKind: ebpkDisposition)
+    ## Selects ``disposition``.
+  ebpCid* = EmailBodyProperty(rawKind: ebpkCid) ## Selects ``cid``.
+  ebpLanguage* = EmailBodyProperty(rawKind: ebpkLanguage) ## Selects ``language``.
+  ebpLocation* = EmailBodyProperty(rawKind: ebpkLocation) ## Selects ``location``.
+  ebpSubParts* = EmailBodyProperty(rawKind: ebpkSubParts) ## Selects ``subParts``.
+  ebpHeaders* = EmailBodyProperty(rawKind: ebpkHeaders) ## Selects ``headers``.
+
+func emailBodyHeader*(key: HeaderPropertyKey): EmailBodyProperty =
+  ## Header-field body-part selector (``header:Name[:asForm][:all]``). ``key``
+  ## is already validated, so this constructor cannot fail.
+  EmailBodyProperty(rawKind: ebpkHeader, rawHeader: key)
+
+func parseEmailBodyProperty*(raw: string): Result[EmailBodyProperty, ValidationError] =
+  ## Classifying smart constructor: ``header:``-prefixed input parses as a
+  ## ``HeaderPropertyKey``; otherwise an exact, case-sensitive match against
+  ## the RFC 8621 §4.1.4 wire names, with unknown non-control strings falling
+  ## to ``ebpkOther`` (capability-extension forward-compat, A11).
+  detectNonControlString(raw).isOkOr:
+    return err(toValidationError(error, "EmailBodyProperty", raw))
+  if raw.startsWith("header:"):
+    let key = ?parseHeaderPropertyName(raw)
+    return ok(EmailBodyProperty(rawKind: ebpkHeader, rawHeader: key))
+  case raw
+  of "partId":
+    ok(ebpPartId)
+  of "blobId":
+    ok(ebpBlobId)
+  of "size":
+    ok(ebpSize)
+  of "name":
+    ok(ebpName)
+  of "type":
+    ok(ebpType)
+  of "charset":
+    ok(ebpCharset)
+  of "disposition":
+    ok(ebpDisposition)
+  of "cid":
+    ok(ebpCid)
+  of "language":
+    ok(ebpLanguage)
+  of "location":
+    ok(ebpLocation)
+  of "subParts":
+    ok(ebpSubParts)
+  of "headers":
+    ok(ebpHeaders)
+  else:
+    ok(EmailBodyProperty(rawKind: ebpkOther, rawIdentifier: raw))
+
+defineSealedNonEmptySeqOps(EmailBodyProperty)
+
+# =============================================================================
 # EmailBodyFetchOptions
 # =============================================================================
 
@@ -118,7 +439,9 @@ type EmailBodyFetchOptions* {.ruleOff: "objects".} = object
   ## Shared parameters for Email/get and Email/parse body value fetching.
   ## ``default(EmailBodyFetchOptions)`` produces correct RFC defaults
   ## (no body properties override, no body values, no truncation).
-  bodyProperties*: Opt[seq[PropertyName]] ## Override default body part properties.
+  bodyProperties*: Opt[NonEmptySeq[EmailBodyProperty]]
+    ## Override default body part properties (RFC 8621 §4.1.4). Typed
+    ## selector; ``Opt.none`` keeps the server's default property set.
   fetchBodyValues*: BodyValueScope ## Default: bvsNone.
   maxBodyValueBytes*: Opt[UnsignedInt] ## Absent = no truncation.
 

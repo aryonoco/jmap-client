@@ -37,8 +37,9 @@ export methods except
 export dispatch except
   initResponseHandle, initNameBoundHandle, initDispatchedResponse, response, builderId
 export builder except
-  addInvocation, callLimits, addGet, addChanges, addSet, addCopy, addQuery,
-  addQueryChanges, initRequestBuilder, request, builderId, builtRequestFromParts
+  addInvocation, callLimits, addGet, addGetSelected, addChanges, addSet, addCopy,
+  addQuery, addQueryChanges, initRequestBuilder, request, builderId,
+  builtRequestFromParts
 # Envelope serde is hub-private after A16. The single public send-side
 # wire diagnostic is ``BuiltRequest.toJson`` (re-exported via the
 # ``export builder`` line above; ``toJson`` is not in that line's

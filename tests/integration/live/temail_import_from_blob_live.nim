@@ -107,11 +107,11 @@ testCase temailImportFromBlobLive:
       continue
 
     # --- 5. Verify imported email exists -----------------------------------
-    let (bGet, getHandle) = addEmailGet(
+    let (bGet, getHandle) = addPartialEmailGet(
       initRequestBuilder(makeBuilderId()),
       mailAccountId,
       ids = directIds(@[importedId]),
-      properties = Opt.some(@["id", "blobId"]),
+      properties = parseNonEmptySeq(@[egpId, egpBlobId]).get(),
     )
     let respGet =
       client.send(bGet.freeze()).expect("send Email/get imported[" & $target.kind & "]")

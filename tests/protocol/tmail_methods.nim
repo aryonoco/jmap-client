@@ -69,15 +69,18 @@ testCase vacationGetOmitsIds:
   doAssert args{"#ids"}.isNil
 
 testCase vacationGetWithProperties:
-  ## properties array emitted when specified.
+  ## Typed sparse VacationResponse/get emits a ``properties`` array of wire
+  ## names and returns ``PartialVacationResponse`` (A3.6).
   let b0 = initRequestBuilder(makeBuilderId())
-  let (b1, _) = b0.addVacationResponseGet(
-    makeAccountId("a1"), properties = Opt.some(@["isEnabled", "subject"])
+  let (b1, _) = b0.addPartialVacationResponseGet(
+    makeAccountId("a1"), parseNonEmptySeq(@[vrgpIsEnabled, vrgpSubject]).get()
   )
   let req = b1.freeze().request
   let props = req.methodCalls[0].arguments{"properties"}
   doAssert props.kind == JArray
   assertLen props.getElems(@[]), 2
+  assertEq props.getElems(@[])[0].getStr(""), "isEnabled"
+  assertEq props.getElems(@[])[1].getStr(""), "subject"
 
 testCase vacationGetMinimal:
   ## Minimal call: just accountId, no ids, no properties.

@@ -572,11 +572,11 @@ proc getFirstAttachmentBlobId*(
   ## from the typed ``Email`` shape. Used by the Phase E import tests
   ## to bridge a seeded email to a freshly uploaded-like blob without
   ## going through a separate upload endpoint.
-  let (b, getHandle) = addEmailGet(
+  let (b, getHandle) = addPartialEmailGet(
     initRequestBuilder(makeBuilderId()),
     mailAccountId,
     ids = directIds(@[emailId]),
-    properties = Opt.some(@["id", "attachments"]),
+    properties = parseNonEmptySeq(@[egpId, egpAttachments]).get(),
   )
   let resp = client.send(b.freeze()).valueOr:
     return err("Email/get send failed: " & error.message)
@@ -585,9 +585,11 @@ proc getFirstAttachmentBlobId*(
   if getResp.list.len == 0:
     return err("Email/get returned empty list for " & $emailId)
   let email = getResp.list[0]
-  if email.attachments.len == 0:
+  let attachments = email.attachments.valueOr:
     return err("Email/get returned no attachments for " & $emailId)
-  ok(email.attachments[0].blobId)
+  if attachments.len == 0:
+    return err("Email/get returned no attachments for " & $emailId)
+  ok(attachments[0].blobId)
 
 # ---------------------------------------------------------------------------
 # Phase F — EmailSubmission helpers
@@ -1233,21 +1235,24 @@ proc pollEmailDeliveryToInbox*(
     let qr = resp1.get(queryHandle).valueOr:
       return err("Email/query extract failed: " & error.message)
     if qr.ids.len > 0:
-      let (b2, getHandle) = addEmailGet(
+      let (b2, getHandle) = addPartialEmailGet(
         initRequestBuilder(makeBuilderId()),
         mailAccountId,
         ids = directIds(qr.ids),
-        properties = Opt.some(@["id", "subject"]),
+        properties = parseNonEmptySeq(@[egpId, egpSubject]).get(),
       )
       let resp2 = client.send(b2.freeze()).valueOr:
         return err("Email/get send failed: " & error.message)
       let gr = resp2.get(getHandle).valueOr:
         return err("Email/get extract failed: " & error.message)
       for emailRec in gr.list:
-        for actualSubject in emailRec.subject:
-          if actualSubject == subject:
+        case emailRec.subject.kind
+        of fekValue:
+          if emailRec.subject.value == subject:
             for id in emailRec.id:
               return ok(id)
+        of fekAbsent, fekNull:
+          discard
     sleep(PollMs)
   err(
     "pollEmailDeliveryToInbox: " & $budgetMs &

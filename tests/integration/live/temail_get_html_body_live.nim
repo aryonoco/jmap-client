@@ -53,11 +53,12 @@ testCase temailGetHtmlBodyLive:
       )
       .expect("seedAlternativeEmail[" & $target.kind & "]")
 
-    let (b, getHandle) = addEmailGet(
+    let (b, getHandle) = addPartialEmailGet(
       initRequestBuilder(makeBuilderId()),
       mailAccountId,
       ids = directIds(@[seededId]),
-      properties = Opt.some(@["id", "textBody", "htmlBody", "bodyValues"]),
+      properties =
+        parseNonEmptySeq(@[egpId, egpTextBody, egpHtmlBody, egpBodyValues]).get(),
       bodyFetchOptions = EmailBodyFetchOptions(fetchBodyValues: bvsTextAndHtml),
     )
     let resp =
@@ -71,32 +72,34 @@ testCase temailGetHtmlBodyLive:
     assertOn target, getResp.list.len == 1, "Email/get must return the seeded message"
 
     let email = getResp.list[0]
-    assertOn target, email.textBody.len == 1, "expected one text/plain leaf in textBody"
-    let textLeaf = email.textBody[0]
+    let textParts = email.textBody.valueOr(@[])
+    assertOn target, textParts.len == 1, "expected one text/plain leaf in textBody"
+    let textLeaf = textParts[0]
     assertOn target, textLeaf.isLeaf, "textBody[0] must be a leaf"
     assertOn target,
       textLeaf.contentType == "text/plain",
       "textBody[0].contentType must be text/plain (got " & textLeaf.contentType & ")"
 
-    assertOn target, email.htmlBody.len == 1, "expected one text/html leaf in htmlBody"
-    let htmlLeaf = email.htmlBody[0]
+    let htmlParts = email.htmlBody.valueOr(@[])
+    assertOn target, htmlParts.len == 1, "expected one text/html leaf in htmlBody"
+    let htmlLeaf = htmlParts[0]
     assertOn target, htmlLeaf.isLeaf, "htmlBody[0] must be a leaf"
     assertOn target,
       htmlLeaf.contentType == "text/html",
       "htmlBody[0].contentType must be text/html (got " & htmlLeaf.contentType & ")"
 
+    let bodyValues = email.bodyValues.valueOr(initTable[PartId, EmailBodyValue]())
     assertOn target,
-      email.bodyValues.len == 2,
-      "bvsTextAndHtml must yield two bodyValues entries (got " & $email.bodyValues.len &
-        ")"
+      bodyValues.len == 2,
+      "bvsTextAndHtml must yield two bodyValues entries (got " & $bodyValues.len & ")"
     assertOn target,
-      textLeaf.partId in email.bodyValues,
+      textLeaf.partId in bodyValues,
       "bodyValues missing entry for text partId " & $textLeaf.partId
     assertOn target,
-      htmlLeaf.partId in email.bodyValues,
+      htmlLeaf.partId in bodyValues,
       "bodyValues missing entry for html partId " & $htmlLeaf.partId
 
-    let htmlValue = email.bodyValues[htmlLeaf.partId]
+    let htmlValue = bodyValues[htmlLeaf.partId]
     assertOn target,
       htmlValue.value == htmlBody,
       "html bodyValue.value must round-trip the injected string verbatim"

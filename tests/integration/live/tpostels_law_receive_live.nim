@@ -97,12 +97,14 @@ testCase tpostelsLawReceiveLive:
     assertOn target, imported
 
     # Step 4: read back via Email/get and capture the wire shape.
-    let (bGet, getHandle) = addEmailGet(
+    let (bGet, getHandle) = addPartialEmailGet(
       initRequestBuilder(makeBuilderId()),
       mailAccountId,
       ids = directIds(@[importedEmailId]),
-      properties =
-        Opt.some(@["id", "from", "receivedAt", "subject", "keywords", "mailboxIds"]),
+      properties = parseNonEmptySeq(
+          @[egpId, egpFrom, egpReceivedAt, egpSubject, egpKeywords, egpMailboxIds]
+        )
+        .get(),
     )
     let respGet = client.send(bGet.freeze()).expect(
         "send Email/get import readback[" & $target.kind & "]"
@@ -122,20 +124,21 @@ testCase tpostelsLawReceiveLive:
     assertOn target,
       email.receivedAt.isSome, "Stalwart fills receivedAt for imported messages"
     assertOn target,
-      email.fromAddr.isSome and email.fromAddr.unsafeGet.len >= 1,
+      email.fromAddr.kind == fekValue and email.fromAddr.value.len >= 1,
       "imported email's From header must round-trip"
-    assertOn target, email.subject.isSome, "imported email's Subject must round-trip"
+    assertOn target,
+      email.subject.kind == fekValue, "imported email's Subject must round-trip"
 
     # Step 5: empty-vs-null table parser tolerance.  Email/get a
     # second email (the seed) that has no keywords set; Email.fromJson
     # must accept whatever wire shape (``{}`` or absent) Stalwart
     # emits for the empty case.  Library contract: empty / null /
     # absent all project to the same empty Table[Keyword, bool].
-    let (bGet2, getHandle2) = addEmailGet(
+    let (bGet2, getHandle2) = addPartialEmailGet(
       initRequestBuilder(makeBuilderId()),
       mailAccountId,
       ids = directIds(@[outerId, importedEmailId]),
-      properties = Opt.some(@["id", "keywords", "mailboxIds"]),
+      properties = parseNonEmptySeq(@[egpId, egpKeywords, egpMailboxIds]).get(),
     )
     let respGet2 = client.send(bGet2.freeze()).expect(
         "send Email/get keywords readback[" & $target.kind & "]"
@@ -147,7 +150,7 @@ testCase tpostelsLawReceiveLive:
     # (A2 seal — not part of the public application API; reachable
     # only through ``jmap_client/internal/types/envelope`` imported
     # above). The typed parse already succeeded (getResp2.list is
-    # seq[Email]); this additionally pins the on-wire shape Stalwart
+    # seq[PartialEmail]); this additionally pins the on-wire shape Stalwart
     # emits for empty keywords (RFC 8621 §4 Table[Keyword, bool]
     # projection).
     let listArr = respGet2.response.methodResponses[0].arguments{"list"}

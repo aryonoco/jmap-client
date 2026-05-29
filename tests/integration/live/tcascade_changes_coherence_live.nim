@@ -136,11 +136,11 @@ testCase tcascadeChangesCoherenceLive:
     # merge threads and invalidate ``observedThreadIds``.
     var observedThreadIds = initHashSet[Id]()
     for sid in seededEmailIds:
-      let (b, getHandle) = addEmailGet(
+      let (b, getHandle) = addPartialEmailGet(
         initRequestBuilder(makeBuilderId()),
         mailAccountId,
         ids = directIds(@[sid]),
-        properties = Opt.some(@["id", "threadId"]),
+        properties = parseNonEmptySeq(@[egpId, egpThreadId]).get(),
       )
       let resp = client.send(b.freeze()).expect(
           "send Email/get threadId resolve[" & $target.kind & "]"

@@ -36,10 +36,21 @@ func addIdentityGet*(
     b: sink RequestBuilder,
     accountId: AccountId,
     ids: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]),
-    properties: Opt[seq[string]] = Opt.none(seq[string]),
 ): (RequestBuilder, ResponseHandle[GetResponse[Identity]]) =
-  ## Identity/get (RFC 8621 §6.1). Thin wrapper over ``addGet[Identity]``.
-  addGet[Identity](b, accountId, ids, properties)
+  ## Full-record Identity/get (RFC 8621 §6.1). Thin wrapper over
+  ## ``addGet[Identity]``. For a typed property projection, use
+  ## ``addPartialIdentityGet`` (A3.6).
+  addGet[Identity](b, accountId, ids)
+
+func addPartialIdentityGet*(
+    b: sink RequestBuilder,
+    accountId: AccountId,
+    ids: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]),
+    properties: NonEmptySeq[IdentityGetProperty],
+): (RequestBuilder, ResponseHandle[GetResponse[PartialIdentity]]) =
+  ## Sparse Identity/get returning typed ``PartialIdentity`` (RFC 8621 §6.1 +
+  ## A3.6).
+  addGetSelected[PartialIdentity, IdentityGetProperty](b, accountId, ids, properties)
 
 # =============================================================================
 # addIdentityChanges — Identity/changes (RFC 8621 §6.2)

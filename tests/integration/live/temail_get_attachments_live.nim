@@ -75,11 +75,11 @@ testCase temailGetAttachmentsLive:
       continue
     let seededId = seededRes.unsafeValue
 
-    let (b, getHandle) = addEmailGet(
+    let (b, getHandle) = addPartialEmailGet(
       initRequestBuilder(makeBuilderId()),
       mailAccountId,
       ids = directIds(@[seededId]),
-      properties = Opt.some(@["id", "attachments"]),
+      properties = parseNonEmptySeq(@[egpId, egpAttachments]).get(),
     )
     let resp =
       client.send(b.freeze()).expect("send Email/get attachments[" & $target.kind & "]")
@@ -92,10 +92,10 @@ testCase temailGetAttachmentsLive:
     assertOn target, getResp.list.len == 1, "Email/get must return the seeded message"
 
     let email = getResp.list[0]
+    let attachments = email.attachments.valueOr(@[])
     assertOn target,
-      email.attachments.len == 1,
-      "expected one attachment, got " & $email.attachments.len
-    let attachment = email.attachments[0]
+      attachments.len == 1, "expected one attachment, got " & $attachments.len
+    let attachment = attachments[0]
     assertOn target, attachment.isLeaf, "attachments[0] must be a leaf"
     assertOn target,
       attachment.disposition.isSome, "attachments[0].disposition must be present"

@@ -67,9 +67,9 @@ hand.
 
 | Status | Count | What it means |
 |---|---|---|
-| ✅ DONE | 47 | Implemented and verified against source / tests. |
-| 🟡 PARTIAL | 8 | Some parts implemented; gaps named in the item body. |
-| ⬜ TODO | 56 | Not yet implemented. |
+| ✅ DONE | 48 | Implemented and verified against source / tests. |
+| 🟡 PARTIAL | 7 | Some parts implemented; gaps named in the item body. |
+| ⬜ TODO | 57 | Not yet implemented. |
 | 🟦 DEFERRED | 1 | Explicitly deferred to a post-1.0 release (E1). |
 | ❌ DROPPED | 1 | Superseded or rejected (D15). |
 | **RESOLVED** | 1 | Design decision made (A3.5). |
@@ -150,7 +150,7 @@ These items become unfixable after 1.0 ships. Anything load-bearing on
 the public surface (exported types, fields, function signatures, module
 paths) cannot be retracted in 1.x without a major bump.
 
-### A1. Headline public layer + demoted alternatives *(P5, P7)* — ✅ DONE
+### A1. Headline public layer; alternatives stay internal *(P5, P7)* — ✅ DONE
 
 L3 builder + dispatch is the headline API. The closed public-path
 set is exactly two paths: root (`import jmap_client`) and
@@ -273,15 +273,14 @@ library projects `SerdeViolation` → `ValidationError` →
 `TransportError(tekNetwork, message: string)` at four boundary
 sites (`internal/client.nim` Session parse path,
 `internal/transport/classify.nim` Response parse path, and two
-sites inside `internal/protocol/dispatch.nim`). By the time an
-application developer inspects an error, every L2 type has been
-collapsed into a string message inside `TransportError`. The same
-P19 logic applies to envelope `fromJson` — typed envelope parsing
-is library plumbing, never application code. After A16, the same
-applies to envelope `toJson` emission — the application-facing
-send-side diagnostic seam is `BuiltRequest.toJson` on the sealed
-handle (in `internal/protocol/builder.nim`), not on bare wire
-types.
+sites inside `internal/protocol/dispatch.nim`). The projection
+collapses every L2 type to a string message inside `TransportError`
+before an error reaches application code. The same P19 logic governs
+envelope `fromJson` — typed envelope parsing is library plumbing,
+never application code — and envelope `toJson` emission: the
+application-facing send-side diagnostic seam is `BuiltRequest.toJson`
+on the sealed handle (in `internal/protocol/builder.nim`), not on
+bare wire types.
 
 **Module layout.**
 
@@ -520,12 +519,15 @@ Scope:
   D3.7 — A3 does NOT add `GetResponse[T].toJson`. Future need for
   typed emission can land additively (P20) without breaking A3's
   contract.
-- Full-record receive only. Sparse-property `/get` responses
-  (consumer-requested elision of required fields) have no public
-  application-API path until A3.6 ships `PartialT` types — they
-  surface `MethodError(metServerFail)` on the public typed entry
-  point because `T.fromJson` is full-record strict. A2's seal on
-  `Invocation.arguments` is preserved; `internal/` access stays
+- Full-record receive path. `GetResponse[T].list` is `seq[T]`, parsed
+  by the full-record-strict `T.fromJson`. Sparse-property `/get` is a
+  separate typed path (A3.6): the full-record wrappers take no
+  `properties` filter, and the typed `addPartial<E>Get` wrappers return
+  `GetResponse[Partial<E>]` whose lenient parser tolerates elided
+  fields. A property filter therefore cannot reach a strict full-record
+  parser, so a sparse fetch cannot drive the five strict-parser
+  entities to `MethodError(metServerFail)`. A2's seal on
+  `Invocation.arguments` holds; `internal/` access stays
   library-internal-only.
 
 Related items: A3.6 (partial-entity types for sparse `/get`),
@@ -591,6 +593,25 @@ JsonNode)]` parameter. Locked structure:
   `addSearchSnippetGetByRef`. Entity-specific extension keys are
   typed parameters (e.g. `EmailBodyFetchOptions` on `addEmailGet` /
   `addPartialEmailGet` / `addEmailParse`).
+
+- **Typed sparse-`/get` family (A3.6).** Alongside each full-record
+  wrapper sits a typed projection wrapper returning `GetResponse[
+  Partial<E>]`: `addPartialMailboxGet`, `addPartialThreadGet` /
+  `addPartialThreadGetByRef`, `addPartialIdentityGet`,
+  `addPartialEmailSubmissionGet`, `addPartialVacationResponseGet`,
+  `addPartialEmailGet` / `addPartialEmailGetByRef`. Each takes a
+  required `properties: NonEmptySeq[<E>GetProperty]`. The seven
+  selectors (`MailboxGetProperty`, `ThreadGetProperty`,
+  `IdentityGetProperty`, `EmailSubmissionGetProperty`,
+  `VacationResponseGetProperty`, `EmailGetProperty`,
+  `EmailBodyProperty`) are sealed Pattern-A case objects with named
+  `…p` constants, a classifying `parse…`, and a `…Other` escape arm
+  (private `rawIdentifier`) — a controlled typed escape for
+  capability-extension property names, analogous to the
+  `addCapabilityInvocation` vendor-URN escape below. The full-record
+  wrappers carry no `properties` parameter, so a property filter can
+  never reach a strict full-record parser (P16). The shared engine
+  `addGetSelected[T, P]` is hub-private.
 
 - For vendor URN capabilities the library cannot enumerate, the
   sole typed escape is
@@ -1001,6 +1022,19 @@ catch-all; out of scope by RFC stipulation):
 `DsnRetType` (RFC 3461),
 `DsnNotifyFlag` (RFC 3461),
 `DeliveryByMode` (RFC 2852).
+
+**Request-side (toJson-only) open-world family (A3.6).** The seven
+get-property selectors — `MailboxGetProperty`, `ThreadGetProperty`,
+`IdentityGetProperty`, `EmailSubmissionGetProperty`,
+`VacationResponseGetProperty`, `EmailGetProperty`, `EmailBodyProperty`
+— are open-world by the same discipline as the Fallible rows above
+(catch-all `…Other` arm + private `rawIdentifier` + a fallible
+`parse…` validating only non-control-string structure before
+classification). They sit *outside* the receive-side matrix because
+they never round-trip from server JSON: selectors flow client→server
+only (no `fromJson`), emitted via `wireName`. A capability-extension
+gettable property a future server defines is expressible through the
+`…Other` escape (forward-compat, P20) without a library change.
 
 **Source locations.**
 
@@ -1588,7 +1622,7 @@ Resolved by A4 D2 — `updateResults` carries typed `Opt[U]`, with
 `U` the per-entity `PartialT`. No semver-upgrade path is required:
 the `PartialT` family is part of A4's surface.
 
-### A3.6. Partial-entity types for sparse `/get` responses *(P5, P7, P19)* — 🟡 PARTIAL
+### A3.6. Partial-entity types for sparse `/get` responses *(P5, P7, P16, P19)* — ✅ DONE
 
 Six `PartialT` types are in place: `PartialEmail`, `PartialMailbox`,
 `PartialIdentity`, `PartialEmailSubmission`, `PartialVacationResponse`,
@@ -1604,33 +1638,90 @@ Each `PartialT` registers as a getter-only JMAP entity (D7) — same
 `MethodEntity` tag, capability URI, and `getMethodName` as the full
 record; no setter / queryer / changes / copy / import overloads.
 Each is also the typed `U` slot of `SetResponse[T, U].updateResults`
-(A4), so every `/set` echo path is `PartialT`-typed even where no
-typed `/get` wrapper exists.
+(A4), so every `/set` echo path is `PartialT`-typed.
 
-**Public sparse-`/get` surface.** Email only. Two wrappers —
-`addPartialEmailGet` and `addPartialEmailGetByRef` — carry the
-typed `EmailBodyFetchOptions` parameter and emit `Email/get` via the
-typed-invocation chokepoint `addInvocation(b, mnEmailGet, …)`. For
-Mailbox, Identity, Thread,
-EmailSubmission, VacationResponse the typed builders for full-record
-`/get` exist (`addMailboxGet`, …) but their `PartialT` siblings
-(`addPartialMailboxGet`, …) do not — A5 made the generic
-`addGet[PartialT]` hub-private, so consumers of `import jmap_client`
-have no public typed path to sparse `/get` for those five entities.
+**The invariant.** A get builder that can emit a property filter
+returns a filter-tolerant `PartialT`; a strict full-record type is
+unreachable through a property filter; and property selection is a
+typed per-entity value, never a string list. Two illegal states are
+unrepresentable by construction:
 
-**Left to do.**
+- *A property filter reaching a strict parser (P16).* The full-record
+  wrappers take no `properties` parameter, so a property filter has no
+  path to a strict `GetResponse[T]`. Were one to reach it, the five
+  strict-parser entities would yield a record missing required fields
+  → `SerdeViolation` → `MethodError(metServerFail)` (a sparse Mailbox
+  badge-count fetch `@["unreadEmails", "totalEmails"]` is the canonical
+  case). The typed `addPartial<E>Get` wrappers are the sole
+  property-filter path, and they return a lenient `Partial<E>`.
+- *Stringly-typed property selection (P19).* Get-property selection is
+  a typed per-entity value (the selectors below), not a `seq[string]`.
 
-- Decision (freeze-blocking if "ship the wrappers"): either land
-  per-entity Partial-`/get` wrappers for the remaining five entities
-  (`addPartialMailboxGet`, `addPartialIdentityGet`,
-  `addPartialThreadGet`, `addPartialEmailSubmissionGet`,
-  `addPartialVacationResponseGet`) parallel to their full-record
-  siblings, OR record an explicit pre-1.0 decision to ship Email-
-  only sparse `/get` and document the rationale (sparse `/get`
-  matters most where records are large; the other five entities are
-  small enough that full `/get` suffices). Whichever path is taken,
-  the typed-`updateResults` rail (A4) is unaffected — the `PartialT`
-  family is already in place there.
+**Public surface.**
+
+- **Seven typed selectors**, each a sealed Pattern-A case object whose
+  backing strings are the exact RFC 8621 wire names, with named `…p`
+  constants, `kind` / `wireName` / `$` / `==` / `hash`, a classifying
+  `parse…` smart constructor, and a `…Other` forward-compat escape arm
+  (private `rawIdentifier`): `MailboxGetProperty`, `ThreadGetProperty`,
+  `IdentityGetProperty`, `EmailSubmissionGetProperty`,
+  `VacationResponseGetProperty`, `EmailGetProperty`, `EmailBodyProperty`.
+  The two Email selectors additionally carry a typed `…Header` arm
+  (`HeaderPropertyKey` payload) for the dynamic
+  `header:Name[:form][:all]` form. Selectors flow client→server only —
+  no `fromJson`. `EmailGetProperty` is reused for `Email/parse` (RFC
+  8621 §4.9 shares the Email/get property set — P3/P5).
+- **Six partial-get wrappers (+ two ByRef siblings)**:
+  `addPartialMailboxGet`, `addPartialThreadGet` /
+  `addPartialThreadGetByRef`, `addPartialIdentityGet`,
+  `addPartialEmailSubmissionGet`, `addPartialVacationResponseGet`,
+  `addPartialEmailGet` / `addPartialEmailGetByRef`. Each takes a
+  **required** `properties: NonEmptySeq[<E>GetProperty]` — an empty
+  selection is meaningless (`id` is always returned), so `NonEmptySeq`
+  makes the empty case unrepresentable (P16). The ByRef rule is
+  `addPartial<E>GetByRef` exists iff `add<E>GetByRef` exists (Email and
+  Thread only). They share the hub-private generic engine
+  `addGetSelected[T, P]` in `builder.nim` (VacationResponse is
+  hand-rolled for its `idCount: 1` singleton meta).
+- **`bodyProperties` is typed**:
+  `EmailBodyFetchOptions.bodyProperties: Opt[NonEmptySeq[EmailBodyProperty]]`.
+- **`addEmailQueryWithThreads`** (the RFC 8621 §4.10 first-login
+  display pipeline) emits a property filter, so by the invariant its
+  `threadIdFetch` / `display` handles are `GetResponse[PartialEmail]`;
+  `DefaultDisplayProperties` is a typed
+  `NonEmptySeq[EmailGetProperty]`.
+
+**Full vs sparse are distinctly named, not overloaded.** `add<E>Get`
+returns `GetResponse[<E>]`; `addPartial<E>Get` returns
+`GetResponse[Partial<E>]`. The two entry points return structurally
+different types (full record vs all-`Opt`/`FieldEcho` projection), so
+distinct names keep the projection a call-site-visible choice rather
+than a return type that silently depends on whether `properties` was
+passed (P16/P19). This is the conscious trade-off against P3's
+overloading example.
+
+**`Email` parser is lenient, by design.** `addEmailGet` is the
+full-record contract; `addPartialEmailGet` is the projection contract.
+`emailFromJson` reads every field through `parseOpt*` helpers and never
+fails on absence — all-`Opt` by Postel's law (real servers omit
+fields; strictness would regress robustness, P7/P29). The five
+strict-parser entities are strict-on-presence. This lenient-Email /
+strict-five asymmetry is intentional and structural, not a gap to
+close.
+
+**Pointers.**
+- Selectors: `mailbox.nim`, `thread.nim`, `identity.nim`,
+  `email_submission.nim`, `vacation.nim`, `email.nim` (the two Email
+  selectors).
+- Generic engine: `addGetSelected` in `internal/protocol/builder.nim`
+  (hub-private via the `protocol.nim` `except` list).
+- Wrappers: `mail_builders.nim`, `identity_builders.nim`,
+  `submission_builders.nim`, `mail_methods.nim`.
+- Coverage: `tests/unit/mail/tget_property_selectors.nim`, plus
+  per-wrapper emit assertions in `tmail_builders.nim` /
+  `tmail_methods.nim` and the hub audits
+  `tcompile_a1d_mail_hub_surface.nim` /
+  `tcompile_a1b_protocol_hub_surface.nim`.
 
 ### A6.5. Sealed `BuiltRequest` and `DispatchedResponse` types *(P8, P21)* — ✅ DONE
 
@@ -1686,7 +1777,7 @@ ergonomic tradeoff.
   three branches: mismatch returns `ValidationError`; matching
   `create` returns `ok`; `icrDirect` exempt returns `ok`.
 
-### A7b. Refactor lifecycle: `RequestBuilder.freeze()` and `JmapClient.send(BuiltRequest)` *(P21, P16)* — ✅ DONE
+### A7b. Lifecycle: `RequestBuilder.freeze()` and `JmapClient.send(BuiltRequest)` *(P21, P16)* — ✅ DONE
 
 `RequestBuilder.freeze() → BuiltRequest` produces the frozen,
 branded carrier. `JmapClient.send(BuiltRequest) →
@@ -2326,9 +2417,8 @@ Each `filed-as-Cn` becomes a new item in Section C of this TODO.
 
 C5 lists capability discovery helpers but underspecifies the
 one-liner. The headline call site is "does this server support
-JMAP Mail?" — currently
-`client.fetchSession().get().coreCapabilities()` then walk a set.
-Day-one wrapper trigger.
+JMAP Mail?" — `client.fetchSession().get().coreCapabilities()` then
+walk a set. Day-one wrapper trigger.
 
 **Action.** Add to `src/jmap_client/internal/client.nim`:
 
@@ -2361,7 +2451,7 @@ bundle types those combinators return (`QueryGetHandles[T]`,
 `QueryGetResults[T]`, `ChangesGetResults[T]`,
 `MailboxChangesGetResults`); it introduces no entity or semantic type
 (C10 verifies the current surface). The restriction is therefore
-satisfied in code today, but is neither documented nor mechanically
+satisfied in code, but is neither documented nor mechanically
 locked.
 
 **Action.** Document the restriction in the `convenience.nim` top
@@ -2451,8 +2541,8 @@ three servers (Stalwart, Apache James, Cyrus IMAP). Elevate from
 
 - Every `.json` is a wire shape the library promises to deserialise
   forever.
-- Add a `tests/wire_contract/` category whose only failure mode is
-  "we changed serialisation in a way that breaks fixture replay".
+- Add a `tests/wire_contract/` category whose only failure mode is a
+  serialisation change that breaks fixture replay.
 - CI distinguishes "added new fixture" from "modified existing"; the
   latter is a major version unless the fixture was malformed.
 
@@ -2499,6 +2589,10 @@ Calendars, etc.) extend the library by:
 3. Calling `registerJmapEntity(T)` etc. at module scope.
 
 NEVER as a new top-level entry point that mirrors an old one.
+
+Capability-extension *gettable properties* on existing entities need no
+library change at all: they are requestable through the typed `…Other`
+escape arm on the A3.6 get-property selectors (forward-compat, P20).
 
 **Prohibitive clause (explicit, not implicit).** It is a 2.0 break to
 add any of:
@@ -2851,6 +2945,32 @@ CI gate (`just check-freeze` or `.github/workflows/release.yml`):
 the 1.0 release tag fails if any `[ ]` row remains. The
 checklist file is regenerable from this TODO; F7's consistency
 check covers both files.
+
+### D19. Project-wide stringly-surface sweep for get-properties *(P19)* — ⬜ TODO
+
+A3.6 typed the get-property and `bodyProperties` selection surfaces.
+Add an `H`-style mechanical lint
+(`tests/lint/h14_no_stringly_get_properties.nim`, wired into
+`just lint` / `just ci`) asserting that no exported
+`add*Get` / `add*Parse` / display-property builder parameter is typed
+`seq[string]` or `Opt[seq[string]]`. The lint records, by symbol, the
+exemption list of legitimate open-string surfaces (the "true
+boundaries" that genuinely are free-form strings, not closed property
+sets):
+
+- `EmailHeaderFilter.name: string` — RFC 5322 header names are an open
+  free-form space.
+- `addSearchSnippetGet` / `addSearchSnippetGetByRef` — `SearchSnippet/get`
+  has no `properties` facility (fixed shape).
+- `Request.using: seq[string]` — hub-private; the library owns the
+  `seq[CapabilityUri] → seq[string]` conversion at `freeze()`.
+- `SetError.invalidEmailPropertyNames: seq[string]` — a server-reported
+  wire field, parsed passively; never client-constructed.
+
+**Scope note.** The lint asserts its invariant over the A3.6 typed
+get-property surface, which is in place; it is recorded here as the
+freeze-gate that locks that surface against regression, to be
+implemented as part of the H-lint sweep.
 
 ## Section E — Defer to 1.x
 

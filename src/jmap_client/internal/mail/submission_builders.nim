@@ -40,12 +40,24 @@ func addEmailSubmissionGet*(
     b: sink RequestBuilder,
     accountId: AccountId,
     ids: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]),
-    properties: Opt[seq[string]] = Opt.none(seq[string]),
 ): (RequestBuilder, ResponseHandle[GetResponse[AnyEmailSubmission]]) =
-  ## EmailSubmission/get (RFC 8621 §7.1). Returns the existential wrapper
-  ## ``AnyEmailSubmission`` — phantom-indexed branches resolve at the serde
-  ## boundary (Design §4.2).
-  addGet[AnyEmailSubmission](b, accountId, ids, properties)
+  ## Full-record EmailSubmission/get (RFC 8621 §7.1). Returns the existential
+  ## wrapper ``AnyEmailSubmission`` — phantom-indexed branches resolve at the
+  ## serde boundary (Design §4.2). For a typed property projection, use
+  ## ``addPartialEmailSubmissionGet`` (A3.6).
+  addGet[AnyEmailSubmission](b, accountId, ids)
+
+func addPartialEmailSubmissionGet*(
+    b: sink RequestBuilder,
+    accountId: AccountId,
+    ids: Opt[Referencable[seq[Id]]] = Opt.none(Referencable[seq[Id]]),
+    properties: NonEmptySeq[EmailSubmissionGetProperty],
+): (RequestBuilder, ResponseHandle[GetResponse[PartialEmailSubmission]]) =
+  ## Sparse EmailSubmission/get returning typed ``PartialEmailSubmission``
+  ## (RFC 8621 §7.1 + A3.6).
+  addGetSelected[PartialEmailSubmission, EmailSubmissionGetProperty](
+    b, accountId, ids, properties
+  )
 
 # =============================================================================
 # addEmailSubmissionChanges — EmailSubmission/changes (RFC 8621 §7.2)

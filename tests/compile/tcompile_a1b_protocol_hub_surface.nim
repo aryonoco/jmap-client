@@ -159,6 +159,9 @@ static:
   doAssert not declared(initCreates)
   # builder.nim — A5: generic builders hub-private
   doAssert not declared(addGet)
+  # builder.nim — A3.6: typed-projection generic builder hub-private
+  # (exposed only via the per-entity `addPartial<E>Get` wrappers)
+  doAssert not declared(addGetSelected)
   doAssert not declared(addChanges)
   doAssert not declared(addSet)
   doAssert not declared(addCopy)

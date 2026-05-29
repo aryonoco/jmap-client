@@ -899,14 +899,14 @@ func toJson*(c: EmailComparator): JsonNode =
 # EmailBodyFetchOptions
 # =============================================================================
 
-func emitBodyProperties(node: var JsonNode, opt: Opt[seq[PropertyName]]) =
-  ## Emit ``bodyProperties`` as a JArray when present. ``Opt.none`` →
-  ## omit. Mirrors the address-list / string-list emitters in
+func emitBodyProperties(node: var JsonNode, opt: Opt[NonEmptySeq[EmailBodyProperty]]) =
+  ## Emit ``bodyProperties`` as a JArray of typed wire names when present.
+  ## ``Opt.none`` → omit. Mirrors the address-list / string-list emitters in
   ## ``serde_email_blueprint.nim``.
   for props in opt:
     var arr = newJArray()
     for p in props:
-      arr.add(p.toJson())
+      arr.add(%wireName(p))
     node["bodyProperties"] = arr
 
 func emitFetchScope(node: var JsonNode, scope: BodyValueScope) =

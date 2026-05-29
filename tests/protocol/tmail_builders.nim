@@ -319,7 +319,7 @@ testCase addEmailGetDefaultBodyFetch:
 testCase addEmailGetWithBodyFetchOptions:
   ## Scenario 76: bvsText emits fetchTextBodyValues: true.
   let opts = EmailBodyFetchOptions(
-    bodyProperties: Opt.none(seq[PropertyName]),
+    bodyProperties: Opt.none(NonEmptySeq[EmailBodyProperty]),
     fetchBodyValues: bvsText,
     maxBodyValueBytes: Opt.none(UnsignedInt),
   )
@@ -955,14 +955,12 @@ testCase getBothOuterIfInStateMismatch:
 
 testCase addEmailSubmissionGetInvocation:
   ## P: addEmailSubmissionGet thin-wraps the generic ``addGet[
-  ## AnyEmailSubmission]`` and produces an ``EmailSubmission/get``
-  ## invocation (RFC 8621 §7.1) with accountId, ids, and properties
-  ## projected into arguments.
+  ## AnyEmailSubmission]`` and produces a full-record ``EmailSubmission/get``
+  ## invocation (RFC 8621 §7.1) with accountId and ids projected into
+  ## arguments — no ``properties`` (full record).
   let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = b0.addEmailSubmissionGet(
-    makeAccountId("a1"),
-    ids = Opt.some(direct(@[makeId("s1")])),
-    properties = Opt.some(@["undoStatus", "sendAt"]),
+    makeAccountId("a1"), ids = Opt.some(direct(@[makeId("s1")]))
   )
   let req = b1.freeze().request
   assertLen req.methodCalls, 1
@@ -970,7 +968,24 @@ testCase addEmailSubmissionGetInvocation:
   let args = req.methodCalls[0].arguments
   assertEq args{"accountId"}.getStr(""), "a1"
   doAssert args{"ids"}.kind == JArray
+  doAssert args{"properties"}.isNil
+
+testCase addPartialEmailSubmissionGetInvocation:
+  ## P: addPartialEmailSubmissionGet emits a typed ``properties`` projection
+  ## of wire names and returns ``PartialEmailSubmission`` (A3.6).
+  let b0 = initRequestBuilder(makeBuilderId())
+  let (b1, _) = b0.addPartialEmailSubmissionGet(
+    makeAccountId("a1"),
+    ids = Opt.some(direct(@[makeId("s1")])),
+    properties = parseNonEmptySeq(@[esgpUndoStatus, esgpSendAt]).get(),
+  )
+  let req = b1.freeze().request
+  assertEq req.methodCalls[0].name, mnEmailSubmissionGet
+  let args = req.methodCalls[0].arguments
+  doAssert args{"ids"}.kind == JArray
   assertLen args{"properties"}, 2
+  assertEq args{"properties"}.getElems(@[])[0].getStr(""), "undoStatus"
+  assertEq args{"properties"}.getElems(@[])[1].getStr(""), "sendAt"
 
 # ===========================================================================
 # Q. addEmailSubmissionChanges wire shape (RFC 8621 §7.2)

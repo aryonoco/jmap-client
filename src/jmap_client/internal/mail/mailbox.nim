@@ -161,6 +161,117 @@ func parseMailboxRole*(raw: string): Result[MailboxRole, ValidationError] =
     return ok(MailboxRole(rawKind: mrOther, rawIdentifier: normalised))
 
 # =============================================================================
+# MailboxGetProperty — typed Mailbox/get property selector (A3.6)
+# =============================================================================
+
+type MailboxGetPropertyKind* = enum
+  ## Discriminator for ``MailboxGetProperty``. Backing strings are the
+  ## RFC 8621 §2 Mailbox property wire names; ``mgkOther`` carries a
+  ## capability-extension property whose raw identifier lives alongside.
+  mgkId = "id"
+  mgkName = "name"
+  mgkParentId = "parentId"
+  mgkRole = "role"
+  mgkSortOrder = "sortOrder"
+  mgkTotalEmails = "totalEmails"
+  mgkUnreadEmails = "unreadEmails"
+  mgkTotalThreads = "totalThreads"
+  mgkUnreadThreads = "unreadThreads"
+  mgkMyRights = "myRights"
+  mgkIsSubscribed = "isSubscribed"
+  mgkOther
+
+type MailboxGetProperty* {.ruleOff: "objects".} = object
+  ## Typed RFC 8621 §2 Mailbox/get property selector. Construction sealed;
+  ## use the ``mgp…`` constants or ``parseMailboxGetProperty``.
+  case rawKind: MailboxGetPropertyKind
+  of mgkOther:
+    rawIdentifier: string
+  of mgkId, mgkName, mgkParentId, mgkRole, mgkSortOrder, mgkTotalEmails,
+      mgkUnreadEmails, mgkTotalThreads, mgkUnreadThreads, mgkMyRights, mgkIsSubscribed:
+    discard
+
+func kind*(p: MailboxGetProperty): MailboxGetPropertyKind =
+  ## Returns the discriminator — one of the named arms or ``mgkOther``.
+  p.rawKind
+
+func wireName*(p: MailboxGetProperty): string =
+  ## RFC 8621 §2 wire name. For ``mgkOther`` this is the captured identifier.
+  case p.rawKind
+  of mgkOther:
+    p.rawIdentifier
+  of mgkId, mgkName, mgkParentId, mgkRole, mgkSortOrder, mgkTotalEmails,
+      mgkUnreadEmails, mgkTotalThreads, mgkUnreadThreads, mgkMyRights, mgkIsSubscribed:
+    $p.rawKind
+
+func `$`*(p: MailboxGetProperty): string =
+  ## Wire-form string — equivalent to ``wireName``.
+  p.wireName
+
+func `==`*(a, b: MailboxGetProperty): bool =
+  ## Wire-identity equality: the classifying parser never yields ``mgkOther``
+  ## for a known wire name, so wire-name identity is structural identity.
+  a.wireName == b.wireName
+
+func hash*(p: MailboxGetProperty): Hash =
+  ## Consistent with ``==`` — equal wire names hash equal.
+  hash(p.wireName)
+
+const
+  mgpId* = MailboxGetProperty(rawKind: mgkId) ## Selects ``id``.
+  mgpName* = MailboxGetProperty(rawKind: mgkName) ## Selects ``name``.
+  mgpParentId* = MailboxGetProperty(rawKind: mgkParentId) ## Selects ``parentId``.
+  mgpRole* = MailboxGetProperty(rawKind: mgkRole) ## Selects ``role``.
+  mgpSortOrder* = MailboxGetProperty(rawKind: mgkSortOrder) ## Selects ``sortOrder``.
+  mgpTotalEmails* = MailboxGetProperty(rawKind: mgkTotalEmails)
+    ## Selects ``totalEmails``.
+  mgpUnreadEmails* = MailboxGetProperty(rawKind: mgkUnreadEmails)
+    ## Selects ``unreadEmails``.
+  mgpTotalThreads* = MailboxGetProperty(rawKind: mgkTotalThreads)
+    ## Selects ``totalThreads``.
+  mgpUnreadThreads* = MailboxGetProperty(rawKind: mgkUnreadThreads)
+    ## Selects ``unreadThreads``.
+  mgpMyRights* = MailboxGetProperty(rawKind: mgkMyRights) ## Selects ``myRights``.
+  mgpIsSubscribed* = MailboxGetProperty(rawKind: mgkIsSubscribed)
+    ## Selects ``isSubscribed``.
+
+func parseMailboxGetProperty*(
+    raw: string
+): Result[MailboxGetProperty, ValidationError] =
+  ## Classifying smart constructor: exact, case-sensitive match against the
+  ## RFC 8621 §2 wire names; unknown non-control strings fall to ``mgkOther``
+  ## (capability-extension forward-compat, A11).
+  detectNonControlString(raw).isOkOr:
+    return err(toValidationError(error, "MailboxGetProperty", raw))
+  case raw
+  of "id":
+    ok(mgpId)
+  of "name":
+    ok(mgpName)
+  of "parentId":
+    ok(mgpParentId)
+  of "role":
+    ok(mgpRole)
+  of "sortOrder":
+    ok(mgpSortOrder)
+  of "totalEmails":
+    ok(mgpTotalEmails)
+  of "unreadEmails":
+    ok(mgpUnreadEmails)
+  of "totalThreads":
+    ok(mgpTotalThreads)
+  of "unreadThreads":
+    ok(mgpUnreadThreads)
+  of "myRights":
+    ok(mgpMyRights)
+  of "isSubscribed":
+    ok(mgpIsSubscribed)
+  else:
+    ok(MailboxGetProperty(rawKind: mgkOther, rawIdentifier: raw))
+
+defineSealedNonEmptySeqOps(MailboxGetProperty)
+
+# =============================================================================
 # Mailbox ID Collections
 # =============================================================================
 #
