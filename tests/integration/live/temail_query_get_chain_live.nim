@@ -83,7 +83,7 @@ testCase temailQueryGetChainLive:
     let (b3b, getHandle) = addPartialEmailGet(
       b3a,
       mailAccountId,
-      ids = Opt.some(referenceTo[seq[Id]](reference(queryHandle, mnEmailQuery, rpIds))),
+      ids = Opt.some(reference[seq[Id]](queryHandle, mnEmailQuery, rpIds)),
       properties = parseNonEmptySeq(@[egpId, egpSubject, egpFrom, egpReceivedAt]).get(),
     )
     let resp3 =

@@ -22,13 +22,12 @@ import ./validation
 # arguments / rawName / rawMethodCallId are module-private so construction
 # flows through ``initInvocation`` (typed, infallible) or ``parseInvocation``
 # (string-taking, fallible at the wire). Public accessor funcs below provide
-# read access; UFCS keeps the ``inv.name`` spelling unchanged. The
-# ``arguments`` accessor is exported from this module so internal consumers
-# (``internal/serialisation/serde_envelope.nim``, ``internal/protocol/dispatch.nim``,
-# ``internal/protocol/builder.nim``) can reach the JsonNode payload, but the
-# hub (``src/jmap_client/types.nim``) re-exports ``envelope except arguments``
-# per P19 — application developers must not reach raw JsonNode args via
-# ``import jmap_client``; ``inv.toJson`` is the supported diagnostic path.
+# read access for internal consumers (serde, dispatch, builder), which import
+# this leaf module directly. The whole envelope wire surface — Invocation,
+# Request, Response, ResultReference, and their accessors/constructors — is
+# hub-internal (A30b): the hub (``internal/types.nim``) demotes them all, so
+# ``import jmap_client`` exposes only the ``BuiltRequest`` / ``DispatchedResponse``
+# handles and ``Referencable[T]``. Apps never reach a raw wire instance (P5/P8).
 type Invocation* {.ruleOff: "objects".} = object
   ## A method call or response tuple (RFC 8620 section 3.2). Serialised as a
   ## 3-element JSON array by Layer 2.
@@ -48,13 +47,11 @@ func name*(inv: Invocation): MethodName =
 
 func arguments*(inv: Invocation): JsonNode =
   ## Returns the named arguments JsonNode for this invocation (always
-  ## a JObject per RFC 8620 §3.2). Exported from this module for the
-  ## dispatcher, serde, and builder internals; the hub re-export
-  ## (``src/jmap_client/types.nim``) excludes this symbol so application
-  ## developers cannot reach raw JsonNode args via ``import jmap_client``.
-  ## Application developers consume typed responses through the
-  ## dispatcher and ``RequestBuilder``; for diagnostic emission of the
-  ## wire shape, use ``inv.toJson``.
+  ## a JObject per RFC 8620 §3.2). Read by the dispatcher, serde, and
+  ## builder internals, which import this leaf module directly; the whole
+  ## ``Invocation`` type is hub-internal (A30b), so application developers
+  ## never reach raw JsonNode args via ``import jmap_client``. They consume
+  ## typed responses through the dispatcher and ``RequestBuilder``.
   return inv.arguments
 
 func rawName*(inv: Invocation): string =
@@ -94,9 +91,9 @@ func parseInvocation*(
 # — all field-level invariants are enforced upstream by the field-level
 # parsers) for Response. Public accessor funcs below provide read
 # access; UFCS preserves the ``r.using`` / ``r.methodCalls`` /
-# ``r.methodResponses`` / ``r.sessionState`` spellings unchanged. The
-# hub re-exports ``envelope except arguments, initRequest, parseRequest,
-# initResponse`` — application developers construct Requests via
+# ``r.methodResponses`` / ``r.sessionState`` spellings unchanged for the
+# internal consumers that import this leaf directly. Both types are
+# hub-internal (A30b): application developers construct Requests via
 # ``RequestBuilder.freeze`` and never see Responses raw;
 # ``DispatchedResponse.get`` is the typed read path.
 type Request* {.ruleOff: "objects".} = object
@@ -199,15 +196,20 @@ func initResponse*(
   )
 
 # nimalyzer: ResultReference intentionally has no public fields.
-# rawName / rawPath are module-private so construction flows through
-# ``initResultReference`` (typed, infallible) or ``parseResultReference``
-# (string-taking, fallible at the wire).
+# rawResultOf / rawName / rawPath are module-private so construction flows
+# through ``initResultReference`` (typed, infallible) or
+# ``parseResultReference`` (string-taking, fallible at the wire). The UFCS
+# accessors below provide read access; ``rr.resultOf`` reads unchanged.
 type ResultReference* {.ruleOff: "objects".} = object
   ## Back-reference to a previous method call's result (RFC 8620 section 3.7).
   ## The server resolves the JSON Pointer path against the referenced response.
-  resultOf*: MethodCallId ## method call ID of the previous call
+  rawResultOf: MethodCallId ## module-private; method call ID of the previous call
   rawName: string ## module-private; expected response name (non-empty)
   rawPath: string ## module-private; JSON Pointer (RFC 6901) with JMAP '*'
+
+func resultOf*(rr: ResultReference): MethodCallId =
+  ## Method call ID of the referenced previous call (RFC 8620 §3.7).
+  return rr.rawResultOf
 
 func name*(rr: ResultReference): MethodName =
   ## Typed response-name accessor. Returns ``mnUnknown`` for forward-compat
@@ -233,7 +235,7 @@ func initResultReference*(
 ): ResultReference =
   ## Total, typed constructor. Both enum parameters are string-backed;
   ## stored verbatim as ``$name`` / ``$path`` for lossless wire emission.
-  return ResultReference(resultOf: resultOf, rawName: $name, rawPath: $path)
+  return ResultReference(rawResultOf: resultOf, rawName: $name, rawPath: $path)
 
 func parseResultReference*(
     resultOf: MethodCallId, name: string, path: string
@@ -245,7 +247,7 @@ func parseResultReference*(
     return err(validationError("ResultReference", "name must not be empty", name))
   if path.len == 0:
     return err(validationError("ResultReference", "path must not be empty", path))
-  return ok(ResultReference(resultOf: resultOf, rawName: name, rawPath: path))
+  return ok(ResultReference(rawResultOf: resultOf, rawName: name, rawPath: path))
 
 type
   ReferencableKind* = enum
@@ -253,19 +255,44 @@ type
     rkDirect
     rkReference
 
-  Referencable*[T] = object
+  Referencable*[T] {.ruleOff: "objects".} = object
     ## Either a direct value or a result reference (RFC 8620 section 3.7).
-    ## Isomorphic to Haskell's Either T ResultReference.
-    case kind*: ReferencableKind
+    ## Isomorphic to Haskell's Either T ResultReference. Sealed: the
+    ## discriminator and both arms are module-private so construction flows
+    ## only through ``direct`` / ``referenceTo`` (and the typed ``reference``
+    ## primitive in ``protocol/dispatch.nim``). Consumers read via ``kind``
+    ## plus the ``asDirect`` / ``asReference`` Opt-accessors — never a raw
+    ## arm field.
+    case rawKind: ReferencableKind
     of rkDirect:
-      value*: T
+      rawValue: T
     of rkReference:
-      reference*: ResultReference
+      rawReference: ResultReference
+
+func kind*[T](r: Referencable[T]): ReferencableKind =
+  ## Discriminator: ``rkDirect`` or ``rkReference``.
+  return r.rawKind
+
+func asDirect*[T](r: Referencable[T]): Opt[T] =
+  ## The direct value when this is a ``rkDirect``; ``Opt.none`` otherwise.
+  case r.rawKind
+  of rkDirect:
+    Opt.some(r.rawValue)
+  of rkReference:
+    Opt.none(T)
+
+func asReference*[T](r: Referencable[T]): Opt[ResultReference] =
+  ## The back-reference when this is a ``rkReference``; ``Opt.none`` otherwise.
+  case r.rawKind
+  of rkReference:
+    Opt.some(r.rawReference)
+  of rkDirect:
+    Opt.none(ResultReference)
 
 func direct*[T](value: T): Referencable[T] =
   ## Wraps a direct value into a Referencable.
-  return Referencable[T](kind: rkDirect, value: value)
+  return Referencable[T](rawKind: rkDirect, rawValue: value)
 
 func referenceTo*[T](reference: ResultReference): Referencable[T] =
   ## Wraps a result reference into a Referencable.
-  return Referencable[T](kind: rkReference, reference: reference)
+  return Referencable[T](rawKind: rkReference, rawReference: reference)

@@ -14,9 +14,12 @@
 ##
 ## **Scope.** Walks every ``.nim`` file under ``src/``.
 ##
-## **What it flags.** Any line matching the syntactic shape of a top-
-## level ``type Foo* = distinct ...`` declaration. Comment lines and
-## the inside of doc comments are ignored.
+## **What it flags.** Any line matching the syntactic shape of a public
+## distinct declaration — both the single-line ``type Foo* = distinct ...``
+## form and an in-``type``-block member line ``Foo* = distinct ...`` (the
+## latter is how an unsealed distinct previously slipped past this lint).
+## Generic (``Foo*[T] = distinct``) and pragma (``Foo* {.x.} = distinct``)
+## forms are covered. Comment lines are ignored.
 ##
 ## **Exemption.** None at present. If a future principled need arises,
 ## add an explicit allowlist alongside the existing checks rather than
@@ -30,25 +33,28 @@ const
 
 func isTypeDistinctDeclaration(line: string): bool =
   ## True iff ``line`` syntactically introduces a public distinct
-  ## type alias: ``type Foo* = distinct <X>`` with optional generic
-  ## parameters and pragmas between the name and ``=``.
+  ## declaration: ``Foo* = distinct <X>`` with optional generic parameters
+  ## and pragmas between the name and ``=``. Accepts both the single-line
+  ## ``type Foo* = distinct ...`` spelling and the in-``type``-block member
+  ## spelling (no ``type`` keyword) — ``distinct`` only appears in type
+  ## sections in valid Nim, so no block-state tracking is required.
   ##
-  ## Comment lines are excluded by the caller (this function expects
-  ## the leading whitespace already stripped).
-  if not line.startsWith("type "):
+  ## Comment lines are excluded by the caller (this function expects the
+  ## leading whitespace already stripped).
+  var s = line
+  if s.startsWith("type "):
+    s = s[len("type ") ..^ 1].strip(leading = true, trailing = false)
+  # The export marker must follow a bare identifier (the type name).
+  let starIdx = s.find('*')
+  if starIdx <= 0:
     return false
-  # Find the export marker — the identifier must be public.
-  let starIdx = line.find('*')
-  if starIdx < 0:
-    return false
-  # The ``= distinct`` token must follow on the same line. Public
-  # distinct declarations in this codebase historically all live on
-  # a single line; multi-line forms would be rejected as a style
-  # violation anyway.
-  let eqIdx = line.find('=', start = starIdx)
+  for ch in s[0 ..< starIdx]:
+    if ch notin {'a' .. 'z', 'A' .. 'Z', '0' .. '9', '_'}:
+      return false
+  let eqIdx = s.find('=', start = starIdx)
   if eqIdx < 0:
     return false
-  let after = line[eqIdx + 1 ..^ 1].strip(leading = true, trailing = false)
+  let after = s[eqIdx + 1 ..^ 1].strip(leading = true, trailing = false)
   after.startsWith("distinct ") or after == "distinct" or after.startsWith("distinct\t")
 
 iterator walkNimFiles(root: string): string =

@@ -27,7 +27,7 @@ import ./types/session_endpoint
 
 export results
 export validation except validationError, toValidationError
-export primitives
+export primitives except parseFromString
 export identifiers except initBuilderId
 export collation
 export submission_atoms
@@ -37,7 +37,12 @@ export account_capability_schemas except
   parseSubmissionAccountCapabilities
 export methods_enum
 export session except parseSession, parseAccount
-export envelope except arguments, initRequest, parseRequest, initResponse
+export envelope except
+  Invocation, Request, Response, ResultReference, ReferencableKind, methodCallId, name,
+  arguments, rawName, initInvocation, parseInvocation, `using`, methodCalls, createdIds,
+  initRequest, parseRequest, methodResponses, sessionState, initResponse, path, rawPath,
+  resultOf, initResultReference, parseResultReference, kind, asDirect, asReference,
+  referenceTo
 export framework
 export errors except
   requestError, methodError, setError, setErrorInvalidProperties, setErrorAlreadyExists,

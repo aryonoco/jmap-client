@@ -458,12 +458,20 @@ template registerChainableMethod*(Primary: typedesc) =
 # Reference construction — generic escape hatch
 # =============================================================================
 
-func reference*[T](
-    handle: ResponseHandle[T], name: MethodName, path: RefPath
-): ResultReference =
-  ## Constructs a ResultReference from a handle (RFC 8620 section 3.7).
+func reference*[U](
+    handle: ResponseHandle[auto], name: MethodName, path: RefPath
+): Referencable[U] =
+  ## Typed back-reference (RFC 8620 §3.7). ``U`` is the referenced value's
+  ## type (e.g. ``seq[Id]`` for an ``ids`` back-ref) and is bound explicitly
+  ## at the call site (``reference[seq[Id]](h, ...)``); the handle's response
+  ## type is inferred via ``ResponseHandle[auto]`` (``U`` appears only in the
+  ## return type, so it cannot be inferred from the arguments and must lead).
   ## The ``name`` is the expected response method name (Decision D3.10:
-  ## explicit, not auto-derived from T). The ``path`` is a typed
-  ## ``RefPath`` whose backing string is the JSON Pointer with optional
-  ## JMAP '*' wildcard — see ``methods_enum.RefPath``.
-  return initResultReference(resultOf = callId(handle), name = name, path = path)
+  ## explicit, not auto-derived). The ``path`` is a typed ``RefPath`` whose
+  ## backing string is the JSON Pointer with optional JMAP '*' wildcard — see
+  ## ``methods_enum.RefPath``. This is the sole public constructor of a
+  ## reference-shaped ``Referencable``; ``ResultReference`` is hub-internal
+  ## (A30b).
+  referenceTo[U](
+    initResultReference(resultOf = callId(handle), name = name, path = path)
+  )

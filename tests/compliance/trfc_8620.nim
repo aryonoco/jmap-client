@@ -657,7 +657,7 @@ testCase rfc8620_S3_7_referencableVariants:
   let rr = initResultReference(resultOf = mcid, name = mnMailboxQuery, path = rpIds)
   let refIds = referenceTo[seq[Id]](rr)
   doAssert refIds.kind == rkReference
-  doAssert refIds.reference.path == rpIds
+  doAssert refIds.asReference.get().path == rpIds
 
 testCase rfc8620_S3_7_wildcardInPath:
   ## RFC S3.7: The '*' character is a JMAP extension to JSON Pointer for array wildcard.

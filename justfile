@@ -395,6 +395,15 @@ lint-sealed-distinct:
     nim r --hints:off --warnings:off tests/lint/h1_sealed_distinct_construction.nim
     @echo "H1 sealed-distinct lint passed"
 
+# H1b fallible-ctor ∩ public-arm lint. Backs the closed-A8 invariant
+# (P15, P16): a public case object built by a fallible smart constructor
+# must not expose a public arm over a raw, externally-constructible
+# payload (the empty-NOTIFY hole A30b sealed on SubmissionParam).
+lint-fallible-ctor-public-arm:
+    @echo "Running H1b fallible-ctor public-arm lint..."
+    nim r --hints:off --warnings:off tests/lint/h1b_fallible_ctor_public_arm.nim
+    @echo "H1b fallible-ctor public-arm lint passed"
+
 # Enforce the A9 + A13 + A19 outcome: no exported symbol on
 # src/jmap_client/** carries a *ForTest* / *ForTesting* / setSessionFor* /
 # lastRaw* / last*Response* / last*Request* shape (P5, P8, P14).
@@ -454,7 +463,7 @@ analyse:
 analyze: analyse
 
 # Run all code quality checks
-check: fmt-check lint lint-isolated lint-style lint-internal-boundary lint-typed-builder-jsonnode lint-sealed-distinct lint-h12-no-test-backdoors lint-module-paths lint-error-messages analyse
+check: fmt-check lint lint-isolated lint-style lint-internal-boundary lint-typed-builder-jsonnode lint-sealed-distinct lint-fallible-ctor-public-arm lint-h12-no-test-backdoors lint-module-paths lint-error-messages analyse
     @echo "All quality checks passed"
 
 # =============================================================================
@@ -468,7 +477,7 @@ reuse:
     @echo "REUSE compliance check passed"
 
 # Run full CI pipeline locally (mirrors .github/workflows/ci.yml)
-ci: reuse fmt-check lint lint-isolated lint-style lint-internal-boundary lint-typed-builder-jsonnode lint-sealed-distinct lint-h12-no-test-backdoors lint-module-paths lint-error-messages analyse test
+ci: reuse fmt-check lint lint-isolated lint-style lint-internal-boundary lint-typed-builder-jsonnode lint-sealed-distinct lint-fallible-ctor-public-arm lint-h12-no-test-backdoors lint-module-paths lint-error-messages analyse test
     @echo ""
     @echo "============================================"
     @echo "All CI checks passed!"
@@ -613,8 +622,12 @@ jmap-up: stalwart-up james-up cyrus-up
 # Stop every configured JMAP target
 jmap-down: stalwart-down james-down cyrus-down
 
-# Tear down and recreate every configured target with fresh data
-jmap-reset: jmap-down jmap-up
+# Tear down and recreate every configured target with fresh data.
+# Delegates to the per-server `*-reset` recipes so Stalwart's persistent
+# data volume is wiped (`stalwart-reset`) rather than preserved across the
+# restart — otherwise account state (e.g. Identity records created by live
+# tests) accumulates between runs and eventually trips server quotas.
+jmap-reset: stalwart-reset james-reset cyrus-reset
 
 # Show status of every configured target
 jmap-status:

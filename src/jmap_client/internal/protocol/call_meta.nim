@@ -17,6 +17,7 @@ import std/tables
 import results
 
 import ../types
+import ../types/envelope
 import ../types/validation
 
 type
@@ -68,11 +69,9 @@ func getMeta*(ids: Opt[Referencable[seq[Id]]]): CallLimitMeta =
   ## server resolves the back-reference).
   let r = ids.valueOr:
     return CallLimitMeta(kind: clmGet, idCount: Opt.some(0))
-  case r.kind
-  of rkDirect:
-    CallLimitMeta(kind: clmGet, idCount: Opt.some(r.value.len))
-  of rkReference:
-    CallLimitMeta(kind: clmGet, idCount: Opt.none(int))
+  for v in r.asDirect:
+    return CallLimitMeta(kind: clmGet, idCount: Opt.some(v.len))
+  CallLimitMeta(kind: clmGet, idCount: Opt.none(int))
 
 func setMeta*[C, U](
     create: Opt[Table[CreationId, C]],
@@ -89,10 +88,9 @@ func setMeta*[C, U](
   let directCreateUpdate = lenOr0(create) + lenOr0(update)
   let r = destroy.valueOr:
     return CallLimitMeta(kind: clmSet, objectCount: Opt.some(directCreateUpdate))
-  case r.kind
-  of rkDirect:
-    CallLimitMeta(kind: clmSet, objectCount: Opt.some(directCreateUpdate + r.value.len))
-  of rkReference:
-    CallLimitMeta(kind: clmSet, objectCount: Opt.none(int))
+  for v in r.asDirect:
+    return
+      CallLimitMeta(kind: clmSet, objectCount: Opt.some(directCreateUpdate + v.len))
+  CallLimitMeta(kind: clmSet, objectCount: Opt.none(int))
 
 {.pop.}

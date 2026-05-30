@@ -30,6 +30,7 @@ import std/sysrand
 import results
 
 import ./types
+import ./types/envelope
 import ./types/validation
 import ./types/errors
 import ./serialisation/serde

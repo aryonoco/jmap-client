@@ -36,8 +36,8 @@ export keyword
 export mailbox
 export mailbox_changes_response
 export mail_filters
-export headers
-export body
+export headers except parseFromString
+export body except parseFromString
 export email_blueprint
 export email
 export email_update

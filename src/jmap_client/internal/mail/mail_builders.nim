@@ -201,29 +201,6 @@ func addEmailChanges*(
   addChanges[Email, ChangesResponse[Email]](b, accountId, sinceState, maxChanges)
 
 # =============================================================================
-# addEmailGetByRef — Email/get by back-reference (RFC 8620 §3.7 / H1 §4.3)
-# =============================================================================
-
-func addEmailGetByRef*(
-    b: sink RequestBuilder,
-    accountId: AccountId,
-    idsRef: ResultReference,
-    bodyFetchOptions: EmailBodyFetchOptions = default(EmailBodyFetchOptions),
-): (RequestBuilder, ResponseHandle[GetResponse[Email]]) =
-  ## Sibling of ``addEmailGet`` for RFC 8620 §3.7 back-reference chains —
-  ## ``ids`` is sourced from a previous invocation's response rather than
-  ## supplied as literal IDs. Delegates to ``addEmailGet`` with a
-  ## ``referenceTo[seq[Id]]``-wrapped ``Referencable``; the generic
-  ## ``addGet[T]`` routes ``rkReference`` variants to the ``#ids`` wire
-  ## key. For a typed property projection, use ``addPartialEmailGetByRef``.
-  addEmailGet(
-    b,
-    accountId,
-    ids = Opt.some(referenceTo[seq[Id]](idsRef)),
-    bodyFetchOptions = bodyFetchOptions,
-  )
-
-# =============================================================================
 # addPartialEmailGet — sparse Email/get returning typed ``PartialEmail``
 # (A3.6 D7)
 # =============================================================================
@@ -250,44 +227,6 @@ func addPartialEmailGet*(
   (b1, initResponseHandle[GetResponse[PartialEmail]](callId, b1.builderId))
 
 # =============================================================================
-# addPartialEmailGetByRef — sparse Email/get via RFC 8620 §3.7 back-reference
-# (A3.6 D7)
-# =============================================================================
-
-func addPartialEmailGetByRef*(
-    b: sink RequestBuilder,
-    accountId: AccountId,
-    idsRef: ResultReference,
-    properties: NonEmptySeq[EmailGetProperty],
-    bodyFetchOptions: EmailBodyFetchOptions = default(EmailBodyFetchOptions),
-): (RequestBuilder, ResponseHandle[GetResponse[PartialEmail]]) =
-  ## Sibling of ``addPartialEmailGet`` for RFC 8620 §3.7 back-reference
-  ## chains (A3.6). ``ids`` is sourced from a previous invocation's
-  ## response rather than supplied as literal IDs.
-  addPartialEmailGet(
-    b,
-    accountId,
-    ids = Opt.some(referenceTo[seq[Id]](idsRef)),
-    properties = properties,
-    bodyFetchOptions = bodyFetchOptions,
-  )
-
-# =============================================================================
-# addThreadGetByRef — Thread/get by back-reference (RFC 8620 §3.7 / H1 §4.3)
-# =============================================================================
-
-func addThreadGetByRef*(
-    b: sink RequestBuilder, accountId: AccountId, idsRef: ResultReference
-): (RequestBuilder, ResponseHandle[GetResponse[thread.Thread]]) =
-  ## Sibling of generic ``addGet[thread.Thread]`` for RFC 8620 §3.7
-  ## back-reference chains. ``Thread`` is immutable and read-only — no
-  ## body-fetch analogue. Delegates to ``addGet[T]`` through the
-  ## ``Referencable`` wrapper, which routes ``rkReference`` to the ``#ids``
-  ## wire key. For a typed property projection, use
-  ## ``addPartialThreadGetByRef``.
-  addGet[thread.Thread](b, accountId, ids = Opt.some(referenceTo[seq[Id]](idsRef)))
-
-# =============================================================================
 # addThreadGet — Thread/get (RFC 8621 §3.1)
 # =============================================================================
 
@@ -310,18 +249,6 @@ func addPartialThreadGet*(
   ## Sparse Thread/get returning typed ``PartialThread`` (RFC 8621 §3.1 +
   ## A3.6).
   addGetSelected[PartialThread, ThreadGetProperty](b, accountId, ids, properties)
-
-func addPartialThreadGetByRef*(
-    b: sink RequestBuilder,
-    accountId: AccountId,
-    idsRef: ResultReference,
-    properties: NonEmptySeq[ThreadGetProperty],
-): (RequestBuilder, ResponseHandle[GetResponse[PartialThread]]) =
-  ## Sibling of ``addPartialThreadGet`` for RFC 8620 §3.7 back-reference
-  ## chains (A3.6). ``ids`` is sourced from a previous invocation's response.
-  addPartialThreadGet(
-    b, accountId, ids = Opt.some(referenceTo[seq[Id]](idsRef)), properties = properties
-  )
 
 # =============================================================================
 # addThreadChanges — Thread/changes (RFC 8621 §3.2)
@@ -584,28 +511,23 @@ func addEmailQueryWithThreads*(
   let (b1, queryH) =
     addEmailQuery(b, accountId, Opt.some(filter), sortOpt, queryParams, collapseThreads)
 
-  let (b2, threadIdFetchH) = addPartialEmailGetByRef(
+  let (b2, threadIdFetchH) = addPartialEmailGet(
     b1,
     accountId,
-    idsRef =
-      initResultReference(resultOf = callId(queryH), name = mnEmailQuery, path = rpIds),
+    ids = Opt.some(reference[seq[Id]](queryH, mnEmailQuery, rpIds)),
     properties = parseNonEmptySeq(@[egpThreadId]).get(), # literal non-empty → total
   )
 
-  let (b3, threadsH) = addThreadGetByRef(
+  let (b3, threadsH) = addThreadGet(
     b2,
     accountId,
-    idsRef = initResultReference(
-      resultOf = callId(threadIdFetchH), name = mnEmailGet, path = rpListThreadId
-    ),
+    ids = Opt.some(reference[seq[Id]](threadIdFetchH, mnEmailGet, rpListThreadId)),
   )
 
-  let (b4, displayH) = addPartialEmailGetByRef(
+  let (b4, displayH) = addPartialEmailGet(
     b3,
     accountId,
-    idsRef = initResultReference(
-      resultOf = callId(threadsH), name = mnThreadGet, path = rpListEmailIds
-    ),
+    ids = Opt.some(reference[seq[Id]](threadsH, mnThreadGet, rpListEmailIds)),
     properties = displayProperties,
     bodyFetchOptions = displayBodyFetchOptions,
   )

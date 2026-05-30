@@ -109,13 +109,16 @@ static:
     )
   )
 
-  # A30: Pattern-A read accessors on Request and Response reach the hub.
-  doAssert compiles(default(Request).`using`)
-  doAssert compiles(default(Request).methodCalls)
-  doAssert compiles(default(Request).createdIds)
-  doAssert compiles(default(Response).methodResponses)
-  doAssert compiles(default(Response).createdIds)
-  doAssert compiles(default(Response).sessionState)
+  # A30b: the Request / Response / Invocation / ResultReference wire types are
+  # hub-internal (supersedes A28/A30's "sealed Pattern-A but hub-public read
+  # accessors" stance). Apps build requests via ``RequestBuilder`` and read
+  # typed responses via ``DispatchedResponse`` (whose ``sessionState`` /
+  # ``createdIds`` accessors are asserted reachable above); they never touch a
+  # raw envelope value.
+  doAssert not declared(Request)
+  doAssert not declared(Response)
+  doAssert not declared(Invocation)
+  doAssert not declared(ResultReference)
 
   # A31: per-handle debug callback reaches the hub.
   doAssert declared(WireDirection)
@@ -178,29 +181,11 @@ static:
   doAssert not declared(getErrorMethod)
   doAssert not declared(getErrorHandleMismatch)
 
-  # A16: envelope-level toJson is hub-private (Request, Invocation,
-  # ResultReference) or deleted (Response). Tested via UFCS symbol
-  # lookup on a default value — no call form, so no copy semantics.
-  doAssert not compiles(default(Request).toJson)
-  doAssert not compiles(default(Response).toJson)
-  doAssert not compiles(default(Invocation).toJson)
-  doAssert not compiles(default(ResultReference).toJson)
-
-  # A30: raw fields on Request and Response are not constructible.
-  doAssert not compiles(
-    Request(
-      rawUsing: @[], rawMethodCalls: @[], rawCreatedIds: Opt.none(Table[CreationId, Id])
-    )
-  )
-  doAssert not compiles(
-    Response(
-      rawMethodResponses: @[],
-      rawCreatedIds: Opt.none(Table[CreationId, Id]),
-      rawSessionState: default(JmapState),
-    )
-  )
-
-  # A30: smart constructors are hub-private (filtered at types.nim).
+  # A30b: the envelope wire types are fully hub-internal (asserted absent
+  # above), which subsumes the earlier A16/A30 negatives on their ``toJson``
+  # and raw-field construction. Their smart constructors are likewise
+  # hub-private — asserted by symbol name so a re-leak of the bare
+  # constructor (without the type) would still be caught.
   doAssert not declared(initRequest)
   doAssert not declared(parseRequest)
   doAssert not declared(initResponse)

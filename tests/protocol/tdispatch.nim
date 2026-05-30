@@ -256,9 +256,13 @@ testCase getEchoHappyPath:
 # ===========================================================================
 
 testCase referenceConstruction:
-  ## Generic reference produces correct ResultReference with matching fields.
+  ## Generic reference produces a reference-form Referencable whose
+  ## ResultReference carries the matching fields. ``U`` is explicit because
+  ## it appears only in the return type (A30b).
   let handle = makeResponseHandle[GetResponse[MockFoo]](makeMcid("c0"))
-  let rr = reference(handle, mnEmailQuery, rpIds)
+  let r = reference[seq[Id]](handle, mnEmailQuery, rpIds)
+  doAssert r.kind == rkReference
+  let rr = r.asReference.get()
   doAssert rr.resultOf == makeMcid("c0")
   doAssert rr.name == mnEmailQuery
   doAssert rr.path == rpIds

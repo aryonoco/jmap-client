@@ -72,7 +72,6 @@ static:
   doAssert declared(addMailboxChanges)
   doAssert declared(addMailboxSet)
   doAssert declared(addEmailGet)
-  doAssert declared(addEmailGetByRef)
   doAssert declared(addEmailQuery)
   doAssert declared(addEmailQueryChanges)
   doAssert declared(addEmailChanges)
@@ -100,12 +99,10 @@ static:
   # --- Typed sparse partial-get builders (A3.6) ---
   doAssert declared(addPartialMailboxGet)
   doAssert declared(addPartialThreadGet)
-  doAssert declared(addPartialThreadGetByRef)
   doAssert declared(addPartialIdentityGet)
   doAssert declared(addPartialEmailSubmissionGet)
   doAssert declared(addPartialVacationResponseGet)
   doAssert declared(addPartialEmailGet)
-  doAssert declared(addPartialEmailGetByRef)
 
   # --- Typed get-property selectors (A3.6): types, a const, a parser ---
   doAssert declared(MailboxGetProperty)
@@ -141,6 +138,22 @@ static:
   doAssert declared(ChangesGetHandles)
   doAssert declared(MailboxChangesGetHandles)
   doAssert declared(MailboxChangesGetResults)
+
+  # ===========================================================================
+  # NEGATIVE — the redundant ``*ByRef`` get-builders are deleted (A30b / P7)
+  # ===========================================================================
+  # One way in: ``add*Get(b, acct, ids = Opt.some(reference[seq[Id]](h, ...)))``.
+  # The thin back-reference delegates no longer exist; ``reference`` yields the
+  # ``Referencable`` the base builders already accept.
+
+  when declared(addEmailGetByRef):
+    {.error: "addEmailGetByRef must be deleted (A30b)".}
+  when declared(addPartialEmailGetByRef):
+    {.error: "addPartialEmailGetByRef must be deleted (A30b)".}
+  when declared(addThreadGetByRef):
+    {.error: "addThreadGetByRef must be deleted (A30b)".}
+  when declared(addPartialThreadGetByRef):
+    {.error: "addPartialThreadGetByRef must be deleted (A30b)".}
 
   # ===========================================================================
   # NEGATIVE — entity-registration overloads are hub-private (mail_entities)

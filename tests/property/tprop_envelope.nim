@@ -48,12 +48,12 @@ testCase propResponsePreservesInvocationOrder:
 
 testCase propReferencableDirectPreservesValue:
   checkProperty "propReferencableDirectPreservesValue":
-    ## direct(v).value == v for random Id sequences.
+    ## direct(v).asDirect == Some(v) for random Id sequences.
     let ids = @[parseIdFromServer("id" & $trial).get()]
     lastInput = $trial
     let d = direct(ids)
     doAssert d.kind == rkDirect
-    doAssert d.value.len == ids.len
+    doAssert d.asDirect.get().len == ids.len
 
 testCase propReferencableReferencePreservesRef:
   checkProperty "propReferencableReferencePreservesRef":
@@ -63,8 +63,8 @@ testCase propReferencableReferencePreservesRef:
     let rr = initResultReference(resultOf = mcid, name = mnEmailQuery, path = rpIds)
     let r = referenceTo[seq[Id]](rr)
     doAssert r.kind == rkReference
-    doAssert r.reference.resultOf == mcid
-    doAssert r.reference.path == rpIds
+    doAssert r.asReference.get().resultOf == mcid
+    doAssert r.asReference.get().path == rpIds
 
 testCase propReferencableExclusivity:
   checkProperty "propReferencableExclusivity":
@@ -117,9 +117,9 @@ testCase propReferencableDirectInjectivity:
     lastInput = $v1 & ", " & $v2
     let d1 = direct(v1)
     let d2 = direct(v2)
-    ## Compare via kind + value since Referencable is a case object
-    ## without a custom == operator.
-    if d1.kind == d2.kind and d1.value == d2.value:
+    ## Compare via kind + asDirect since Referencable is a sealed case
+    ## object without a custom == operator.
+    if d1.kind == d2.kind and d1.asDirect.get() == d2.asDirect.get():
       doAssert v1 == v2
 
 testCase propReferencableKindDisjointness:

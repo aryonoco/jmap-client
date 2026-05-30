@@ -62,7 +62,7 @@ testCase submissionParamBodyValidEncodings:
   for e in [beSevenBit, beEightBitMime, beBinaryMime]:
     let p = bodyParam(e)
     doAssert p.kind == spkBody
-    doAssert p.bodyEncoding == e
+    doAssert p.asBody.get() == e
 
 testCase submissionParamSmtpUtf8Nullary:
   # G2 §8.7 row spkSmtpUtf8. Nullary variant (case object arm at
@@ -80,13 +80,13 @@ testCase submissionParamSizeAcceptsZeroAndUpperBound:
   assertOk zero
   let p0 = sizeParam(zero.get())
   doAssert p0.kind == spkSize
-  assertEq p0.sizeOctets.toInt64, 0'i64
+  assertEq p0.asSize.get().toInt64, 0'i64
   # 2^53 - 1 — the JSON-safe upper bound enforced at primitives.nim:91.
   let upper = parseUnsignedInt(9007199254740991'i64)
   assertOk upper
   let pHi = sizeParam(upper.get())
   doAssert pHi.kind == spkSize
-  assertEq pHi.sizeOctets.toInt64, 9007199254740991'i64
+  assertEq pHi.asSize.get().toInt64, 9007199254740991'i64
   let bad = parseUnsignedInt(-1)
   assertErr bad
   assertEq bad.error.typeName, "UnsignedInt"
@@ -99,7 +99,7 @@ testCase submissionParamEnvidStoresInputBytesUnchanged:
   # validation at L1; emptiness and xtext shape are owned by Step 12.
   let p = envidParam("envid-1")
   doAssert p.kind == spkEnvid
-  assertEq p.envid, "envid-1"
+  assertEq p.asEnvid.get(), "envid-1"
 
 testCase submissionParamRetFullAndHdrs:
   # G2 §8.7 row spkRet. ``DsnRetType`` is a closed enum
@@ -109,7 +109,7 @@ testCase submissionParamRetFullAndHdrs:
   for t in [retFull, retHdrs]:
     let p = retParam(t)
     doAssert p.kind == spkRet
-    doAssert p.retType == t
+    doAssert p.asRet.get() == t
 
 testCase submissionParamNotifyValidShapes:
   # G2 §8.7 row spkNotify (valid representatives only — mutex and
@@ -119,13 +119,13 @@ testCase submissionParamNotifyValidShapes:
   let r1 = notifyParam({dnfSuccess})
   assertOk r1
   doAssert r1.get().kind == spkNotify
-  doAssert r1.get().notifyFlags == {dnfSuccess}
+  doAssert r1.get().asNotify.get().flags == {dnfSuccess}
   let r2 = notifyParam({dnfFailure, dnfDelay})
   assertOk r2
-  doAssert r2.get().notifyFlags == {dnfFailure, dnfDelay}
+  doAssert r2.get().asNotify.get().flags == {dnfFailure, dnfDelay}
   let r3 = notifyParam({dnfNever})
   assertOk r3
-  doAssert r3.get().notifyFlags == {dnfNever}
+  doAssert r3.get().asNotify.get().flags == {dnfNever}
 
 testCase submissionParamOrcptParserPath:
   # G2 §8.7 row spkOrcpt. ``orcptParam`` is unconditional; the
@@ -136,8 +136,9 @@ testCase submissionParamOrcptParserPath:
   assertOk at
   let p = orcptParam(at.get(), "alice@example.com")
   doAssert p.kind == spkOrcpt
-  assertEq $p.orcptAddrType, "rfc822"
-  assertEq p.orcptOrigRecipient, "alice@example.com"
+  let orcpt = p.asOrcpt.get()
+  assertEq $orcpt[0], "rfc822"
+  assertEq orcpt[1], "alice@example.com"
   let bad = parseOrcptAddrType("")
   assertErr bad
   assertEq bad.error.typeName, "OrcptAddrType"
@@ -153,7 +154,7 @@ testCase submissionParamHoldForInfallibleWrap:
   assertOk secs
   let p = holdForParam(secs.get())
   doAssert p.kind == spkHoldFor
-  assertEq p.holdFor.toInt64, 600'i64
+  assertEq p.asHoldFor.get().toInt64, 600'i64
 
 testCase submissionParamHoldUntilParserPath:
   # G2 §8.7 row spkHoldUntil. ``holdUntilParam`` is unconditional;
@@ -165,7 +166,7 @@ testCase submissionParamHoldUntilParserPath:
   assertOk d
   let p = holdUntilParam(d.get())
   doAssert p.kind == spkHoldUntil
-  assertEq $p.holdUntil, "2026-01-15T09:00:00Z"
+  assertEq $p.asHoldUntil.get(), "2026-01-15T09:00:00Z"
   let bad = parseUtcDate("")
   assertErr bad
   assertEq bad.error.typeName, "UTCDate"
@@ -181,8 +182,9 @@ testCase submissionParamByDeadlineAndMode:
   for m in [dbmReturn, dbmNotify, dbmReturnTrace, dbmNotifyTrace]:
     let p = byParam(deadline.get(), m)
     doAssert p.kind == spkBy
-    doAssert p.byMode == m
-    assertEq p.byDeadline.toInt64, 123'i64
+    let by = p.asBy.get()
+    doAssert by[1] == m
+    assertEq by[0].toInt64, 123'i64
 
 testCase submissionParamMtPriorityRangeBoundary:
   # G2 §8.7 row spkMtPriority. Validation lives in upstream
@@ -194,7 +196,7 @@ testCase submissionParamMtPriorityRangeBoundary:
     assertOk mp
     let p = mtPriorityParam(mp.get())
     doAssert p.kind == spkMtPriority
-    assertEq p.mtPriority.toInt, raw
+    assertEq p.asMtPriority.get().toInt, raw
   for raw in [-10, 10]:
     let res = parseMtPriority(raw)
     assertErr res
@@ -214,12 +216,13 @@ testCase submissionParamExtensionWithKeywordAndOptValue:
   let kw = kwRes.get()
   let pWith = extensionParam(kw, Opt.some("bar"))
   doAssert pWith.kind == spkExtension
-  assertEq $pWith.extName, "X-VENDOR-FOO"
-  doAssert pWith.extValue.isSome
-  assertEq pWith.extValue.get(), "bar"
+  let extWith = pWith.asExtension.get()
+  assertEq $extWith[0], "X-VENDOR-FOO"
+  doAssert extWith[1].isSome
+  assertEq extWith[1].get(), "bar"
   let pNone = extensionParam(kw, Opt.none(string))
   doAssert pNone.kind == spkExtension
-  doAssert pNone.extValue.isNone
+  doAssert pNone.asExtension.get()[1].isNone
   let bad = parseRFC5321Keyword("")
   assertErr bad
   assertEq bad.error.typeName, "RFC5321Keyword"
@@ -230,20 +233,20 @@ testCase submissionParamExtensionWithKeywordAndOptValue:
 # ===========================================================================
 
 testCase submissionParamNotifyMutualExclusionAndEmptyRejection:
-  # Grep-locked literals from submission_param.nim:201-214 (notifyParam):
-  #   typeName = "SubmissionParam"
-  #   emptyMsg = "NOTIFY flags must not be empty"   (line 206)
+  # The RFC 3461 §4.1 invariant now lives in ``parseNotifySet`` (A30b), so
+  # ``notifyParam`` surfaces a ``NotifySet`` validation error verbatim:
+  #   typeName = "NotifySet"
+  #   emptyMsg = "NOTIFY flags must not be empty"
   #   mutexMsg = "NOTIFY=NEVER is mutually exclusive with SUCCESS/FAILURE/DELAY"
-  #              (line 211)
   block:
     let res = notifyParam({})
     assertErr res
-    assertEq res.error.typeName, "SubmissionParam"
+    assertEq res.error.typeName, "NotifySet"
     assertEq res.error.reason, "NOTIFY flags must not be empty"
   block:
     let res = notifyParam({dnfNever, dnfSuccess})
     assertErr res
-    assertEq res.error.typeName, "SubmissionParam"
+    assertEq res.error.typeName, "NotifySet"
     assertEq res.error.reason,
       "NOTIFY=NEVER is mutually exclusive with SUCCESS/FAILURE/DELAY"
   block:

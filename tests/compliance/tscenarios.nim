@@ -73,7 +73,7 @@ testCase scenarioMultiMethodWithReferences:
   let rr = initResultReference(resultOf = mcid0, name = mnEmailQuery, path = rpIds)
   let getRef = referenceTo[seq[Id]](rr)
   doAssert getRef.kind == rkReference
-  doAssert getRef.reference.resultOf == mcid0
+  doAssert getRef.asReference.get().resultOf == mcid0
 
   let getInv = initInvocation(mnEmailGet, %*{"accountId": "acct1"}, mcid1)
 
@@ -332,13 +332,13 @@ testCase scenarioReferencableBothForms:
   let ids = @[makeId("id1"), makeId("id2")]
   let directForm = direct(ids)
   doAssert directForm.kind == rkDirect
-  doAssert directForm.value.len == 2
+  doAssert directForm.asDirect.get().len == 2
 
   let rr =
     initResultReference(resultOf = makeMcid("c0"), name = mnEmailQuery, path = rpIds)
   let refForm = referenceTo[seq[Id]](rr)
   doAssert refForm.kind == rkReference
-  doAssert refForm.reference.path == rpIds
+  doAssert refForm.asReference.get().path == rpIds
 
 # =============================================================================
 # Data preservation

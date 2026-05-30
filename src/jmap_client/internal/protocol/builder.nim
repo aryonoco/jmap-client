@@ -147,13 +147,16 @@ func freeze*(b: sink RequestBuilder): BuiltRequest =
   ## Snapshots the builder's accumulated state into a sealed, branded
   ## carrier.
   ##
-  ## **Consumes ``b``**. ``RequestBuilder`` is uncopyable (``=copy`` and
-  ## ``=dup`` are ``{.error.}``), so the ``sink`` contract is
-  ## structural: every call site must release ownership. Double
-  ## ``freeze``, post-``freeze`` ``add*``, or any other reuse of ``b``
-  ## is a compile error of the form *"requires a copy because it's
-  ## not the last read of '<name>'"*. One builder, one freeze (P16).
-  ## For independent frozen views, start from a fresh
+  ## **Consumes ``b`` (advisory).** The ``sink`` qualifier expresses a
+  ## single-use contract: every ``add*`` and ``freeze`` takes ``sink
+  ## RequestBuilder`` so the intended shape is one builder, one freeze
+  ## (P16). Unlike ``BuiltRequest`` — which is structurally uncopyable
+  ## (``=copy`` / ``=dup`` are ``{.error.}``) — ``RequestBuilder`` stays
+  ## copyable, because builder chains run at module top-level where
+  ## Nim's move analysis cannot prove ``wasMoved`` across the implicit
+  ## destructor. So reuse of ``b`` after ``freeze`` is a contract
+  ## violation but not necessarily a hard compile error (Nim may insert
+  ## a copy). For independent frozen views, start from a fresh
   ## ``initRequestBuilder``.
   ##
   ## ``createdIds`` is always ``none`` — proxy splitting is a Layer 4

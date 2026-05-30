@@ -7,6 +7,11 @@
 ## preserved.
 
 import jmap_client
+# ``ResultReference`` and its constructors are hub-internal after A30b; this
+# audit fabricates one to prove the typed ``RefPath`` view of a vendor wire
+# path, so it reaches the envelope leaf directly (the H10-sanctioned in-tree
+# access path).
+import jmap_client/internal/types/envelope
 
 static:
   doAssert declared(rpUnknown)

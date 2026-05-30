@@ -207,8 +207,11 @@ testCase setErrorExistingIdOnNonAlreadyExists:
   )
 
 testCase referencableReferenceOnDirect:
-  ## Constructing an rkDirect Referencable with the rkReference-branch
-  ## reference field is rejected by {.strictCaseObjects.}.
+  ## ``Referencable`` is sealed (A30b): its discriminator and both arm
+  ## fields are module-private, so raw construction naming ``kind`` /
+  ## ``reference`` does not compile from outside the defining module —
+  ## a stronger guarantee than the old strict-case wrong-arm rejection.
+  ## Construction flows through ``direct`` / ``reference``.
   doAssert not compiles(
     Referencable[int](
       kind: rkDirect,
@@ -219,6 +222,6 @@ testCase referencableReferenceOnDirect:
   )
 
 testCase referencableValueOnReference:
-  ## Constructing an rkReference Referencable with the rkDirect-branch
-  ## value field is rejected by {.strictCaseObjects.}.
+  ## ``Referencable`` is sealed (A30b): the ``value`` arm field is
+  ## module-private, so this raw construction does not compile.
   doAssert not compiles(Referencable[int](kind: rkReference, value: 42))

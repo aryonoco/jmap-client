@@ -7,6 +7,7 @@
 import std/json
 
 import jmap_client
+import jmap_client/internal/types/envelope
 import jmap_client/internal/types/session
 import jmap_client/internal/types/errors
 import jmap_client/internal/types/framework

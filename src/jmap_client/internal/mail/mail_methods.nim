@@ -13,6 +13,7 @@ import std/json
 import std/tables
 
 import ../types
+import ../types/envelope
 import ../serialisation/serde
 import ../serialisation/serde_diagnostics
 import ../serialisation/serde_envelope
@@ -304,18 +305,27 @@ func addSearchSnippetGetByRef*(
     b: sink RequestBuilder,
     accountId: AccountId,
     filter: Filter[EmailFilterCondition],
-    emailIdsRef: ResultReference,
+    emailIds: Referencable[seq[Id]],
 ): (RequestBuilder, ResponseHandle[SearchSnippetGetResponse]) =
   ## Sibling of ``addSearchSnippetGet`` for RFC 8620 §3.7 back-reference
-  ## chains — ``emailIds`` is sourced from a previous invocation's
-  ## response rather than supplied as literal IDs. ``filter`` remains
-  ## mandatory (H6; RFC 8621 §5.1 ¶2); see design §3.4 on why the
-  ## cons-cell non-emptiness discipline of the literal-ids overload
-  ## does NOT propagate into the back-reference case (H8).
+  ## chains — ``emailIds`` is a ``Referencable`` (typically built with
+  ## ``reference[seq[Id]](handle, ...)``) sourced from a previous
+  ## invocation's response rather than supplied as literal IDs. ``filter``
+  ## remains mandatory (H6; RFC 8621 §5.1 ¶2); see design §3.4 on why the
+  ## cons-cell non-emptiness discipline of the literal-ids overload does
+  ## NOT propagate into the back-reference case (H8). The base
+  ## ``addSearchSnippetGet`` takes a literal cons-cell and has no
+  ## ``Referencable`` path, so this stays a distinct entry point.
   var args = newJObject()
   args["accountId"] = accountId.toJson()
   args["filter"] = serializeFilter(filter).toJsonNode()
-  args["#emailIds"] = emailIdsRef.toJson()
+  for ids in emailIds.asDirect:
+    var arr = newJArray()
+    for id in ids:
+      arr.add(id.toJson())
+    args["emailIds"] = arr
+  for rr in emailIds.asReference:
+    args["#emailIds"] = rr.toJson()
   let (newBuilder, callId) = b.addInvocation(mnSearchSnippetGet, args, MailCapUri)
   let brand = newBuilder.builderId
   (newBuilder, initResponseHandle[SearchSnippetGetResponse](callId, brand))
@@ -345,11 +355,12 @@ func addEmailQueryWithSnippets*(
   ## a second back-reference (H7; simplicity over wire-clever).
   let (b1, queryHandle) =
     addEmailQuery(b, accountId, Opt.some(filter), sort, queryParams, collapseThreads)
-  let emailIdsRef = initResultReference(
-    resultOf = callId(queryHandle), name = mnEmailQuery, path = rpIds
+  let (b2, snippetHandle) = addSearchSnippetGetByRef(
+    b1,
+    accountId,
+    filter,
+    emailIds = reference[seq[Id]](queryHandle, mnEmailQuery, rpIds),
   )
-  let (b2, snippetHandle) =
-    addSearchSnippetGetByRef(b1, accountId, filter, emailIdsRef = emailIdsRef)
   (b2, EmailQuerySnippetChain(first: queryHandle, second: snippetHandle))
 
 # =============================================================================

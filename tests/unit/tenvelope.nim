@@ -147,30 +147,33 @@ testCase pathConstantValues:
 testCase directReferencableInt:
   let r = direct(42)
   doAssert r.kind == rkDirect
-  doAssert r.value == 42
+  doAssert r.asDirect.get() == 42
+  doAssert r.asReference.isNone
 
 testCase referenceReferencableSeqId:
   let mcid = parseMethodCallId("c1").get()
   let rref = initResultReference(resultOf = mcid, name = mnMailboxQuery, path = rpIds)
   let r = referenceTo[seq[Id]](rref)
   doAssert r.kind == rkReference
-  doAssert r.reference.resultOf == mcid
-  doAssert r.reference.name == mnMailboxQuery
-  doAssert r.reference.path == rpIds
+  doAssert r.asDirect.isNone
+  let rr = r.asReference.get()
+  doAssert rr.resultOf == mcid
+  doAssert rr.name == mnMailboxQuery
+  doAssert rr.path == rpIds
 
 testCase referencableConcreteTypes:
   let strRef = direct("hello")
   doAssert strRef.kind == rkDirect
-  doAssert strRef.value == "hello"
+  doAssert strRef.asDirect.get() == "hello"
 
   let idSeq = direct(@[parseIdFromServer("abc").get()])
   doAssert idSeq.kind == rkDirect
-  doAssert idSeq.value.len == 1
+  doAssert idSeq.asDirect.get().len == 1
 
   let optRef = direct(Opt.some("x"))
   doAssert optRef.kind == rkDirect
-  doAssert optRef.value.isSome
-  doAssert optRef.value.get() == "x"
+  doAssert optRef.asDirect.get().isSome
+  doAssert optRef.asDirect.get().get() == "x"
 
 # --- Referencable compile-time safety ---
 
@@ -183,10 +186,11 @@ testCase referencableVariantDiscrimination:
   let r = referenceTo[Id](rr)
   doAssert d.kind == rkDirect
   doAssert r.kind == rkReference
-  doAssert d.value == id
-  doAssert r.reference.resultOf == mcid
-  doAssert r.reference.name == mnEmailGet
-  doAssert r.reference.path == rpIds
+  doAssert d.asDirect.get() == id
+  let rrOut = r.asReference.get()
+  doAssert rrOut.resultOf == mcid
+  doAssert rrOut.name == mnEmailGet
+  doAssert rrOut.path == rpIds
 
 # --- Request.using duplicate entries ---
 

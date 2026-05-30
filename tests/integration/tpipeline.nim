@@ -83,7 +83,7 @@ testCase multiMethodWithResultReference:
   let (b1, qh) = addQuery[TestWidget, TestWidgetFilter, Comparator](
     b0, accountId = makeAccountId("A1")
   )
-  let idsRefVal = referenceTo[seq[Id]](reference(qh, mnEmailQuery, rpIds))
+  let idsRefVal = reference[seq[Id]](qh, mnEmailQuery, rpIds)
   let (b2, gh) =
     addGet[TestWidget](b1, accountId = makeAccountId("A1"), ids = Opt.some(idsRefVal))
   let req = b2.freeze().request

@@ -26,6 +26,7 @@ import std/sugar
 import std/tables
 
 import ../types
+import ../types/envelope
 import ../serialisation/serde
 import ../serialisation/serde_diagnostics
 import ../serialisation/serde_envelope
@@ -461,14 +462,13 @@ func toJson*[T](req: GetRequest[T]): JsonNode =
   node["accountId"] = req.accountId.toJson()
   for idsVal in req.ids:
     let idsKey = referencableKey("ids", idsVal)
-    case idsVal.kind
-    of rkDirect:
+    for ids in idsVal.asDirect:
       var arr = newJArray()
-      for id in idsVal.value:
+      for id in ids:
         arr.add(id.toJson())
       node[idsKey] = arr
-    of rkReference:
-      node[idsKey] = idsVal.reference.toJson()
+    for rr in idsVal.asReference:
+      node[idsKey] = rr.toJson()
   return node
 
 func toJson*[T](req: ChangesRequest[T]): JsonNode =
@@ -500,14 +500,13 @@ func toJson*[T, C, U](req: SetRequest[T, C, U]): JsonNode =
     node["create"] = createObj
   for destroyVal in req.destroy:
     let destroyKey = referencableKey("destroy", destroyVal)
-    case destroyVal.kind
-    of rkDirect:
+    for ids in destroyVal.asDirect:
       var arr = newJArray()
-      for id in destroyVal.value:
+      for id in ids:
         arr.add(id.toJson())
       node[destroyKey] = arr
-    of rkReference:
-      node[destroyKey] = destroyVal.reference.toJson()
+    for rr in destroyVal.asReference:
+      node[destroyKey] = rr.toJson()
   for updateContainer in req.update:
     node["update"] = updateContainer.toJson()
   return node

@@ -107,44 +107,69 @@ defineDistinctStringFromJson(RFC5321Keyword, parseRFC5321Keyword)
 # SubmissionParam value codecs — twelve variants, each ``String|null``
 # =============================================================================
 
+func paramValueScalar(p: SubmissionParam): Opt[JsonNode] =
+  ## Wire value for the scalar arms (BODY / SIZE / ENVID / RET); ``Opt.none``
+  ## when ``p`` is none of them. Split out of ``paramValueToJson`` to keep
+  ## each block under the cyclomatic-complexity bound.
+  for e in p.asBody:
+    return Opt.some(%($e))
+  for o in p.asSize:
+    return Opt.some(%($o.toInt64))
+  for s in p.asEnvid:
+    return Opt.some(%s)
+  for r in p.asRet:
+    return Opt.some(%($r))
+  Opt.none(JsonNode)
+
+func paramValueDsnAndHold(p: SubmissionParam): Opt[JsonNode] =
+  ## Wire value for the DSN / FUTURERELEASE arms (NOTIFY / ORCPT / HOLDFOR /
+  ## HOLDUNTIL); ``Opt.none`` when ``p`` is none of them.
+  for n in p.asNotify:
+    return Opt.some(%notifyFlagsToWire(n.flags))
+  for oc in p.asOrcpt:
+    return Opt.some(%($oc[0] & ";" & oc[1]))
+  for h in p.asHoldFor:
+    return Opt.some(%($h.toInt64))
+  for d in p.asHoldUntil:
+    return Opt.some(%($d))
+  Opt.none(JsonNode)
+
+func paramValueByPriorityExt(p: SubmissionParam): Opt[JsonNode] =
+  ## Wire value for the remaining arms (BY / MT-PRIORITY / extension);
+  ## ``Opt.none`` when ``p`` is none of them.
+  for by in p.asBy:
+    return Opt.some(%($by[0].toInt64 & ";" & $by[1]))
+  for m in p.asMtPriority:
+    return Opt.some(%($m.toInt))
+  for ext in p.asExtension:
+    # `case .isOk of true: .unsafeValue` — strict-safe (case proves the
+    # discriminator) AND panic-free (unsafeValue bypasses withAssertOk, no
+    # raiseResultDefect path). `.get()` would panic via rawQuit(1) under
+    # --panics:on if the invariant failed — catastrophic for the FFI C ABI.
+    return Opt.some(
+      case ext[1].isOk
+      of true:
+        %ext[1].unsafeValue
+      of false:
+        newJNull()
+    )
+  Opt.none(JsonNode)
+
 func paramValueToJson(p: SubmissionParam): JsonNode =
   ## Emits the wire value side of one ``SubmissionParam``. RFC 8621
   ## §7.3.2 constrains values to ``String|null``; numeric parameters ride
-  ## as JSON strings of decimal digits, never JSON ints.
-  case p.kind
-  of spkBody:
-    %($p.bodyEncoding)
-  of spkSmtpUtf8:
-    newJNull()
-  of spkSize:
-    %($p.sizeOctets.toInt64)
-  of spkEnvid:
-    %p.envid
-  of spkRet:
-    %($p.retType)
-  of spkNotify:
-    %notifyFlagsToWire(p.notifyFlags)
-  of spkOrcpt:
-    %($p.orcptAddrType & ";" & p.orcptOrigRecipient)
-  of spkHoldFor:
-    %($p.holdFor.toInt64)
-  of spkHoldUntil:
-    %($p.holdUntil)
-  of spkBy:
-    %($p.byDeadline.toInt64 & ";" & $p.byMode)
-  of spkMtPriority:
-    %($p.mtPriority.toInt)
-  of spkExtension:
-    # `case .isOk of true: .unsafeValue` — strict-safe (case proves the
-    # discriminator) AND panic-free (unsafeValue bypasses withAssertOk,
-    # no raiseResultDefect path). Using `.get()` here would panic via
-    # rawQuit(1) under --panics:on if the invariant failed — catastrophic
-    # for the FFI C ABI boundary.
-    case p.extValue.isOk
-    of true:
-      %p.extValue.unsafeValue
-    of false:
-      newJNull()
+  ## as JSON strings of decimal digits, never JSON ints. ``SMTPUTF8`` is
+  ## the sole valueless variant; it is guarded first, and the remaining arms
+  ## are dispatched across three grouped helpers (exactly one fires).
+  if p.kind == spkSmtpUtf8:
+    return newJNull()
+  for v in paramValueScalar(p):
+    return v
+  for v in paramValueDsnAndHold(p):
+    return v
+  for v in paramValueByPriorityExt(p):
+    return v
+  newJNull()
 
 # --- Per-variant deserialisers ---------------------------------------------
 

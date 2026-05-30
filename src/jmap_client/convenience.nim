@@ -87,11 +87,11 @@ func addEmailQueryThenGet*(
 ): (RequestBuilder, QueryGetHandles[Email]) =
   ## Email/query + full-record Email/get (RFC 8621 §4.4 + §4.2). The get's
   ## ``ids`` back-references the query's ``/ids`` path. For a typed property
-  ## projection, compose ``addEmailQuery`` + ``addPartialEmailGetByRef``
-  ## directly (A3.6 — projection is a core-surface choice, not convenience
-  ## sugar).
+  ## projection, compose ``addEmailQuery`` + ``addPartialEmailGet`` with
+  ## ``ids = Opt.some(reference[seq[Id]](qh, mnEmailQuery, rpIds))`` directly
+  ## (A3.6 — projection is a core-surface choice, not convenience sugar).
   let (b1, qh) = addEmailQuery(b, accountId, filter, sort, queryParams, collapseThreads)
-  let idsR = referenceTo[seq[Id]](reference(qh, mnEmailQuery, rpIds))
+  let idsR = reference[seq[Id]](qh, mnEmailQuery, rpIds)
   let (b2, gh) = addEmailGet(
     b1, accountId, ids = Opt.some(idsR), bodyFetchOptions = bodyFetchOptions
   )
@@ -113,7 +113,7 @@ func addMailboxQueryThenGet*(
   ## directly (A3.6).
   let (b1, qh) =
     addMailboxQuery(b, accountId, filter, sort, queryParams, sortAsTree, filterAsTree)
-  let idsR = referenceTo[seq[Id]](reference(qh, mnMailboxQuery, rpIds))
+  let idsR = reference[seq[Id]](qh, mnMailboxQuery, rpIds)
   let (b2, gh) = addMailboxGet(b1, accountId, ids = Opt.some(idsR))
   (b2, QueryGetHandles[Mailbox](query: qh, get: gh))
 
@@ -130,7 +130,7 @@ func addEmailSubmissionQueryThenGet*(
   ## typed property projection, compose ``addEmailSubmissionQuery`` +
   ## ``addPartialEmailSubmissionGet`` directly (A3.6).
   let (b1, qh) = addEmailSubmissionQuery(b, accountId, filter, sort, queryParams)
-  let idsR = referenceTo[seq[Id]](reference(qh, mnEmailSubmissionQuery, rpIds))
+  let idsR = reference[seq[Id]](qh, mnEmailSubmissionQuery, rpIds)
   let (b2, gh) = addEmailSubmissionGet(b1, accountId, ids = Opt.some(idsR))
   (b2, QueryGetHandles[AnyEmailSubmission](query: qh, get: gh))
 
@@ -148,9 +148,11 @@ func addEmailChangesToGet*(
   ## Email/changes + full-record Email/get (RFC 8621 §4.3 + §4.2). The get's
   ## ``ids`` back-references the changes response's ``/created`` path — only
   ## newly created records are fetched. For a typed property projection,
-  ## compose ``addEmailChanges`` + ``addPartialEmailGetByRef`` directly (A3.6).
+  ## compose ``addEmailChanges`` + ``addPartialEmailGet`` with
+  ## ``ids = Opt.some(reference[seq[Id]](ch, mnEmailChanges, rpCreated))``
+  ## directly (A3.6).
   let (b1, ch) = addEmailChanges(b, accountId, sinceState, maxChanges)
-  let idsR = referenceTo[seq[Id]](reference(ch, mnEmailChanges, rpCreated))
+  let idsR = reference[seq[Id]](ch, mnEmailChanges, rpCreated)
   let (b2, gh) = addEmailGet(
     b1, accountId, ids = Opt.some(idsR), bodyFetchOptions = bodyFetchOptions
   )
@@ -167,7 +169,7 @@ func addIdentityChangesToGet*(
   ## For a typed property projection, compose ``addIdentityChanges`` +
   ## ``addPartialIdentityGet`` directly (A3.6).
   let (b1, ch) = addIdentityChanges(b, accountId, sinceState, maxChanges)
-  let idsR = referenceTo[seq[Id]](reference(ch, mnIdentityChanges, rpCreated))
+  let idsR = reference[seq[Id]](ch, mnIdentityChanges, rpCreated)
   let (b2, gh) = addIdentityGet(b1, accountId, ids = Opt.some(idsR))
   (b2, ChangesGetHandles[Identity](changes: ch, get: gh))
 
@@ -182,7 +184,7 @@ func addThreadChangesToGet*(
   ## For a typed property projection, compose ``addThreadChanges`` +
   ## ``addPartialThreadGet`` directly (A3.6).
   let (b1, ch) = addThreadChanges(b, accountId, sinceState, maxChanges)
-  let idsR = referenceTo[seq[Id]](reference(ch, mnThreadChanges, rpCreated))
+  let idsR = reference[seq[Id]](ch, mnThreadChanges, rpCreated)
   let (b2, gh) = addThreadGet(b1, accountId, ids = Opt.some(idsR))
   (b2, ChangesGetHandles[jmap_client.Thread](changes: ch, get: gh))
 
@@ -198,7 +200,7 @@ func addEmailSubmissionChangesToGet*(
   ## ``addEmailSubmissionChanges`` + ``addPartialEmailSubmissionGet`` directly
   ## (A3.6).
   let (b1, ch) = addEmailSubmissionChanges(b, accountId, sinceState, maxChanges)
-  let idsR = referenceTo[seq[Id]](reference(ch, mnEmailSubmissionChanges, rpCreated))
+  let idsR = reference[seq[Id]](ch, mnEmailSubmissionChanges, rpCreated)
   let (b2, gh) = addEmailSubmissionGet(b1, accountId, ids = Opt.some(idsR))
   (b2, ChangesGetHandles[AnyEmailSubmission](changes: ch, get: gh))
 
@@ -216,7 +218,7 @@ func addMailboxChangesToGet*(
   ## projection, compose ``addMailboxChanges`` + ``addPartialMailboxGet``
   ## directly (A3.6).
   let (b1, ch) = addMailboxChanges(b, accountId, sinceState, maxChanges)
-  let idsR = referenceTo[seq[Id]](reference(ch, mnMailboxChanges, rpCreated))
+  let idsR = reference[seq[Id]](ch, mnMailboxChanges, rpCreated)
   let (b2, gh) = addMailboxGet(b1, accountId, ids = Opt.some(idsR))
   (b2, MailboxChangesGetHandles(changes: ch, get: gh))
 

@@ -165,11 +165,9 @@ func fromJson*(
 
 func referencableKey*[T](fieldName: string, r: Referencable[T]): string =
   ## Returns the JSON key: plain for direct, #-prefixed for reference.
-  case r.kind
-  of rkDirect:
-    return fieldName
-  of rkReference:
+  for _ in r.asReference:
     return "#" & fieldName
+  return fieldName
 
 func fromJsonField*[T](
     fieldName: string,

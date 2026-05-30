@@ -80,8 +80,11 @@ testCase tresultReferenceDeepPathsLive:
         mailAccountId,
         filter = Opt.some(chainFilter),
       )
-      let queryRef = initResultReference(callId(queryHandle), mnEmailQuery, rpIds)
-      let (b2, getHandle) = addEmailGetByRef(b1, mailAccountId, idsRef = queryRef)
+      let (b2, getHandle) = addEmailGet(
+        b1,
+        mailAccountId,
+        ids = Opt.some(reference[seq[Id]](queryHandle, mnEmailQuery, rpIds)),
+      )
       let resp = client.send(b2.freeze()).expect(
           "send Email/query → Email/get[" & $target.kind & "]"
         )
@@ -113,17 +116,17 @@ testCase tresultReferenceDeepPathsLive:
         mailAccountId,
         filter = Opt.some(chainFilter),
       )
-      let queryRef = initResultReference(callId(queryHandle), mnEmailQuery, rpIds)
-      let (b2, getHandle) = addPartialEmailGetByRef(
+      let (b2, getHandle) = addPartialEmailGet(
         b1,
         mailAccountId,
-        idsRef = queryRef,
+        ids = Opt.some(reference[seq[Id]](queryHandle, mnEmailQuery, rpIds)),
         properties = parseNonEmptySeq(@[egpId, egpThreadId]).get(),
       )
-      let getThreadIdRef =
-        initResultReference(callId(getHandle), mnEmailGet, rpListThreadId)
-      let (b3, threadHandle) =
-        addThreadGetByRef(b2, mailAccountId, idsRef = getThreadIdRef)
+      let (b3, threadHandle) = addThreadGet(
+        b2,
+        mailAccountId,
+        ids = Opt.some(reference[seq[Id]](getHandle, mnEmailGet, rpListThreadId)),
+      )
       let resp = client.send(b3.freeze()).expect(
           "send Email/query → Email/get → Thread/get[" & $target.kind & "]"
         )

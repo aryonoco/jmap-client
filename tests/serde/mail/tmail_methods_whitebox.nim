@@ -18,7 +18,9 @@ include jmap_client/internal/mail/mail_methods
 
 import std/strutils
 
-import jmap_client/internal/types/envelope
+# ``envelope`` is already in scope via ``include mail_methods`` above (which
+# imports the leaf directly after A30b); a second import would trip
+# --hintAsError:DuplicateModuleImport.
 import ../captured/mloader
 import ../../massertions
 import ../../mfixtures

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: BSD-2-Clause
 # Copyright (c) 2026 Aryan Ameri
 
-## Regenerator for the H15 error-message snapshot. Enumerates the 32
+## Regenerator for the H15 error-message snapshot. Enumerates the 38
 ## representative error values in declaration order, projects each via
 ## ``message()``, and writes the locked-format snapshot to stdout. The
 ## ``just freeze-error-messages`` recipe redirects stdout onto

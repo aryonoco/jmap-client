@@ -28,11 +28,13 @@ static:
   doAssert declared(Session)
   doAssert declared(Account)
 
-  # --- L1: envelope + framework + errors ---
-  doAssert declared(Invocation)
-  doAssert declared(Request)
-  doAssert declared(Response)
-  doAssert declared(ResultReference)
+  # --- L1: envelope (reference surface) + framework + errors ---
+  # Invocation / Request / Response / ResultReference are hub-internal after
+  # A30b (audited in tcompile_a30_envelope_hub_surface.nim); the public
+  # envelope surface is the ``Referencable`` carrier and its ``direct``
+  # constructor.
+  doAssert declared(Referencable)
+  doAssert declared(direct)
   doAssert declared(Filter)
   doAssert declared(Comparator)
   doAssert declared(ClientError)

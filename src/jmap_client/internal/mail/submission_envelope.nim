@@ -49,10 +49,13 @@ type
     of rpkNullPath: nullPathParams*: Opt[SubmissionParams]
     of rpkMailbox: sender*: SubmissionAddress
 
-  NonEmptyRcptList* = distinct seq[SubmissionAddress]
-    ## Enforces 1..N recipient cardinality (RFC 8621 §7 ¶5). Construct
-    ## via ``parseNonEmptyRcptList`` (strict) or
-    ## ``parseNonEmptyRcptListFromServer`` (lenient, Postel's law).
+  NonEmptyRcptList* {.ruleOff: "objects".} = object
+    ## Enforces 1..N recipient cardinality (RFC 8621 §7 ¶5). Sealed
+    ## Pattern-A object — ``rawValue`` is module-private, so the cardinality
+    ## invariant cannot be bypassed by raw construction (``NonEmptyRcptList(@[])``
+    ## no longer compiles). Construct via ``parseNonEmptyRcptList`` (strict)
+    ## or ``parseNonEmptyRcptListFromServer`` (lenient, Postel's law).
+    rawValue: seq[SubmissionAddress]
 
   Envelope* {.ruleOff: "objects".} = object
     ## RFC 8621 §7 Envelope. ``mailFrom`` accepts the SMTP null path;
@@ -93,28 +96,30 @@ func `==`*(a, b: ReversePath): bool =
     of rpkMailbox:
       a.sender == b.sender
 
-func `==`*(a, b: NonEmptyRcptList): bool {.borrow.}
+func `==`*(a, b: NonEmptyRcptList): bool =
   ## Element-wise equality delegated to the underlying seq.
+  a.rawValue == b.rawValue
 
-func `$`*(a: NonEmptyRcptList): string {.borrow.}
+func `$`*(a: NonEmptyRcptList): string =
   ## Textual form delegated to the underlying seq (diagnostic only).
+  $a.rawValue
 
-func len*(a: NonEmptyRcptList): int {.borrow.}
+func len*(a: NonEmptyRcptList): int =
   ## Recipient count; invariant ``>= 1`` by construction.
+  a.rawValue.len
 
 func `[]`*(a: NonEmptyRcptList, i: int): SubmissionAddress {.inline.} =
-  ## Indexed access; explicit unwrap because ``{.borrow.}`` on ``[]``
-  ## hits ``ArrGet`` (compiler magic).
-  (seq[SubmissionAddress])(a)[i]
+  ## Indexed access into the sealed recipient seq.
+  a.rawValue[i]
 
 iterator items*(a: NonEmptyRcptList): SubmissionAddress =
   ## Forward iteration over recipients.
-  for x in (seq[SubmissionAddress])(a):
+  for x in a.rawValue:
     yield x
 
 iterator pairs*(a: NonEmptyRcptList): (int, SubmissionAddress) =
   ## Forward iteration yielding ``(index, recipient)`` pairs.
-  for i, x in (seq[SubmissionAddress])(a):
+  for i, x in a.rawValue.pairs:
     yield (i, x)
 
 func parseNonEmptyRcptList*(
@@ -129,7 +134,7 @@ func parseNonEmptyRcptList*(
   )
   if errs.len > 0:
     return err(errs)
-  ok(NonEmptyRcptList(@items))
+  ok(NonEmptyRcptList(rawValue: @items))
 
 func parseNonEmptyRcptListFromServer*(
     items: openArray[SubmissionAddress]
@@ -140,4 +145,4 @@ func parseNonEmptyRcptListFromServer*(
   if items.len == 0:
     return
       err(validationError("NonEmptyRcptList", "recipient list must not be empty", ""))
-  ok(NonEmptyRcptList(@items))
+  ok(NonEmptyRcptList(rawValue: @items))

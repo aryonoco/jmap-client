@@ -409,15 +409,16 @@ testCase referencableDirectValue:
   let node = %*{"ids": 42}
   let v = fromJsonField[int]("ids", node, fromDirectInt).get()
   doAssert v.kind == rkDirect
-  assertEq v.value, 42
+  assertEq v.asDirect.get(), 42
 
 testCase referencableReferenceValue:
   let node = %*{"#ids": {"resultOf": "c0", "name": "Mailbox/query", "path": "/ids"}}
   let v = fromJsonField[int]("ids", node, fromDirectInt).get()
   doAssert v.kind == rkReference
-  assertEq v.reference.name, mnMailboxQuery
-  assertEq v.reference.path, rpIds
-  assertEq v.reference.resultOf, parseMethodCallId("c0").get()
+  let vref = v.asReference.get()
+  assertEq vref.name, mnMailboxQuery
+  assertEq vref.path, rpIds
+  assertEq vref.resultOf, parseMethodCallId("c0").get()
 
 testCase referencableBothPresentConflictRejected:
   ## RFC 8620 section 3.7: both direct and referenced forms present must be rejected.
@@ -617,9 +618,10 @@ testCase backReferenceHashPrefixRoundTrip:
   # Parse the #-prefixed field as a Referencable
   let refResult = fromJsonField[int]("ids", rtArgs, fromDirectInt).get()
   doAssert refResult.kind == rkReference
-  assertEq refResult.reference.name, mnMailboxQuery
-  assertEq refResult.reference.path, rpIds
-  assertEq refResult.reference.resultOf, makeMcid("c0")
+  let refOut = refResult.asReference.get()
+  assertEq refOut.name, mnMailboxQuery
+  assertEq refOut.path, rpIds
+  assertEq refOut.resultOf, makeMcid("c0")
 
 # =============================================================================
 # Phase 2C: Wire format golden tests (serialise then compare literal JSON)

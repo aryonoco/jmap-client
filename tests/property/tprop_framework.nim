@@ -58,14 +58,14 @@ testCase propReferencableDirectLaw:
     lastInput = $v
     let r = direct(v)
     doAssert r.kind == rkDirect
-    doAssert r.value == v
+    doAssert r.asDirect.get() == v
 
 testCase propReferencableRefLaw:
   let mcid = parseMethodCallId("c0").get()
   let rref = initResultReference(resultOf = mcid, name = mnEmailGet, path = rpIds)
   let r = referenceTo[int](rref)
   doAssert r.kind == rkReference
-  doAssert r.reference.resultOf == mcid
+  doAssert r.asReference.get().resultOf == mcid
 
 testCase propComparatorDefaults:
   let pn = parsePropertyName("name").get()

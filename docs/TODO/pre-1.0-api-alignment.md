@@ -67,9 +67,9 @@ hand.
 
 | Status | Count | What it means |
 |---|---|---|
-| ✅ DONE | 48 | Implemented and verified against source / tests. |
+| ✅ DONE | 50 | Implemented and verified against source / tests. |
 | 🟡 PARTIAL | 7 | Some parts implemented; gaps named in the item body. |
-| ⬜ TODO | 57 | Not yet implemented. |
+| ⬜ TODO | 58 | Not yet implemented. |
 | 🟦 DEFERRED | 1 | Explicitly deferred to a post-1.0 release (E1). |
 | ❌ DROPPED | 1 | Superseded or rejected (D15). |
 | **RESOLVED** | 1 | Design decision made (A3.5). |
@@ -433,11 +433,25 @@ symbol an application developer has no call site for stay off the
 
 3. **Back-reference construction (P5, P7, P19).** The sole
    back-reference primitive on the public surface is the explicit
-   `reference(handle, name, path)` — non-`mixin`, dragging no
-   registration scaffolding into the caller's scope. Common chains
-   are expressed through the per-entity wrappers in `convenience.nim`
-   and the per-entity compound builders; no generic `mixin`-based
-   reference helper is public.
+   `reference[U](handle, name, path): Referencable[U]` — non-`mixin`,
+   dragging no registration scaffolding into the caller's scope. There
+   is one way in: the base get-builders accept
+   `ids = Opt.some(reference[seq[Id]](h, name, path))`, so no `*ByRef`
+   get-builders exist (P7 minimum surface, A30b). The one back-reference
+   builder with no base equivalent — `addSearchSnippetGetByRef`, whose
+   base builder takes a literal cons-cell and has no `Referencable`
+   path — takes `Referencable[seq[Id]]`. Common chains are expressed
+   through the per-entity wrappers in `convenience.nim` and the
+   per-entity compound builders; no generic `mixin`-based reference
+   helper is public.
+
+4. **`parseFromString` adapters (P5).** The three typedesc adapters
+   `parseFromString*(typedesc[Id|PartId|HeaderPropertyKey], string)`
+   that feed the generic `Table[K, V].fromJson` mixin are filtered off
+   the hub (A30b): `internal/types.nim` (`export primitives except
+   parseFromString`) and `internal/mail/types.nim` (`export headers /
+   body except parseFromString`). Serde leaves import them by direct
+   leaf import, so the mixin chain is unaffected.
 
 `tests/compile/tcompile_a1d_mail_hub_surface.nim` pins this surface
 — positive `doAssert declared` for the entity records, typed
@@ -456,12 +470,13 @@ siblings: the `arguments` field is module-private, with a
 envelope.nim for internal consumers
 (`internal/serialisation/serde_envelope.nim`,
 `internal/protocol/dispatch.nim`, `internal/protocol/builder.nim`).
-The hub re-export (`src/jmap_client/internal/types.nim`) excludes
-the accessor via `export envelope except arguments, …`, so
-application developers doing `import jmap_client` cannot reach
-raw JsonNode args; the only hub-public Invocation accessors are
-the typed `name` and `methodCallId`. `Invocation.toJson` is L2-
-internal (A16) — the application-facing wire-shape diagnostic is
+The hub re-export (`src/jmap_client/internal/types.nim`) demotes the
+**whole `Invocation` type** and all its accessors/constructors (A30b),
+so `import jmap_client` exposes neither `Invocation` nor `arguments` /
+`name` / `methodCallId` / `initInvocation` / `parseInvocation`. The
+accessors remain `*`-exported from `envelope.nim` for internal
+consumers reaching them by direct leaf import. `Invocation.toJson` is
+L2-internal (A16) — the application-facing wire-shape diagnostic is
 `BuiltRequest.toJson` on the sealed handle. No JsonNode-shaped
 mutation API exists on `Invocation`: replay flows through
 `parseInvocation` from captured wire bytes; construction flows
@@ -581,25 +596,26 @@ JsonNode)]` parameter. Locked structure:
 - Per-IETF-method, the user-facing surface is a typed wrapper:
   `addMailboxGet`, `addMailboxChanges`, `addMailboxQuery`,
   `addMailboxQueryChanges`, `addMailboxSet`; `addEmailGet`,
-  `addEmailGetByRef`, `addPartialEmailGet`, `addPartialEmailGetByRef`,
-  `addEmailChanges`, `addEmailQuery`, `addEmailQueryChanges`,
-  `addEmailSet`, `addEmailCopy`, `addEmailCopyAndDestroy`,
-  `addEmailParse`, `addEmailImport`; `addThreadGet`,
-  `addThreadGetByRef`, `addThreadChanges`; `addEmailSubmissionGet`,
+  `addPartialEmailGet`, `addEmailChanges`, `addEmailQuery`,
+  `addEmailQueryChanges`, `addEmailSet`, `addEmailCopy`,
+  `addEmailCopyAndDestroy`, `addEmailParse`, `addEmailImport`;
+  `addThreadGet`, `addThreadChanges`; `addEmailSubmissionGet`,
   `addEmailSubmissionChanges`, `addEmailSubmissionQuery`,
   `addEmailSubmissionQueryChanges`, `addEmailSubmissionSet`,
   `addEmailSubmissionAndEmailSet`; `addVacationResponseGet`,
   `addVacationResponseSet`; `addSearchSnippetGet`,
   `addSearchSnippetGetByRef`. Entity-specific extension keys are
   typed parameters (e.g. `EmailBodyFetchOptions` on `addEmailGet` /
-  `addPartialEmailGet` / `addEmailParse`).
+  `addPartialEmailGet` / `addEmailParse`). Back-references are supplied
+  to any base get-builder via `ids = Opt.some(reference[seq[Id]](…))`;
+  `addSearchSnippetGetByRef` is the sole dedicated back-reference
+  builder (its base builder has no `Referencable` path).
 
 - **Typed sparse-`/get` family (A3.6).** Alongside each full-record
   wrapper sits a typed projection wrapper returning `GetResponse[
-  Partial<E>]`: `addPartialMailboxGet`, `addPartialThreadGet` /
-  `addPartialThreadGetByRef`, `addPartialIdentityGet`,
-  `addPartialEmailSubmissionGet`, `addPartialVacationResponseGet`,
-  `addPartialEmailGet` / `addPartialEmailGetByRef`. Each takes a
+  Partial<E>]`: `addPartialMailboxGet`, `addPartialThreadGet`,
+  `addPartialIdentityGet`, `addPartialEmailSubmissionGet`,
+  `addPartialVacationResponseGet`, `addPartialEmailGet`. Each takes a
   required `properties: NonEmptySeq[<E>GetProperty]`. The seven
   selectors (`MailboxGetProperty`, `ThreadGetProperty`,
   `IdentityGetProperty`, `EmailSubmissionGetProperty`,
@@ -786,8 +802,10 @@ operation surface each type opts into:
 `RFC5321Keyword`, `OrcptAddrType`
 (`internal/types/submission_atoms.nim`); `RFC5321Mailbox`
 (`mail/submission_mailbox.nim`); `HoldForSeconds`,
-`MtPriority` (`mail/submission_param.nim`); `ReplyCode`,
-`SubjectCode`, `DetailCode` (`mail/submission_status.nim`).
+`MtPriority`, `NotifySet` (`mail/submission_param.nim` — `NotifySet`
+holds the RFC 3461 §4.1 NOTIFY flag set; sole constructor
+`parseNotifySet`); `ReplyCode`, `SubjectCode`, `DetailCode`
+(`mail/submission_status.nim`).
 
 **Collection-backed sealed types** — `KeywordSet`
 (`mail/keyword.nim`); `MailboxIdSet`, `NonEmptyMailboxIdSet`,
@@ -801,6 +819,8 @@ operation surface each type opts into:
 `VacationResponseUpdateSet` (`mail/vacation.nim`);
 `DeliveryStatusMap` (`mail/submission_status.nim`);
 `SubmissionParams` (`mail/submission_param.nim`);
+`NonEmptyRcptList` (`mail/submission_envelope.nim` — enforces the
+RFC 8621 §7 1..N `rcptTo` cardinality);
 `SubmissionExtensionMap` (`internal/types/submission_atoms.nim`).
 
 **Multi-field flat sealed records** — multi-field Pattern-A objects
@@ -849,15 +869,39 @@ invariant beyond type identity and expose `initDeliveryStatusMap*`
 / `initSubmissionExtensionMap*` wrap constructors so serde can
 construct them from a validated `Table` / `OrderedTable`.
 
+**`SubmissionParam` sealed.** `SubmissionParam`
+(`mail/submission_param.nim`) is a sealed case object: a private
+`rawKind` discriminator, private `raw*` arms, a public `kind`
+accessor, and eleven `asX` `Opt`-accessors. Its `spkNotify` payload is
+a sealed `NotifySet` newtype whose sole constructor `parseNotifySet`
+enforces the RFC 3461 §4.1 non-empty + `NEVER`-exclusivity invariant;
+`notifyParam` delegates to it. The seal makes that invariant
+unbypassable: without it, a raw `SubmissionParam(kind: spkNotify,
+notifyFlags: {})` would put an empty `NOTIFY=` on the wire. Reject
+test: `tests/compile/treject_submissionparam_notify_construction.nim`.
+
 **Transparent ADTs intentionally not sealed** — variant types whose
-payloads ARE the data and carry no construction invariant:
-`SubmissionParam` (12 variants, each carrying its own validated
-payload type), `SubmissionParamKey`, `JsonPathElement`,
+payloads ARE the data and carry no bypassable construction invariant:
+`SubmissionParamKey` (internal identity key; its public `extName*`
+arm carries an already-validated `RFC5321Keyword`), `JsonPathElement`,
 `BodyPartLocation`, `EmailBodyPart`, `SerdeViolation`, `Filter[C]`,
-every `*Update` case object, `HeaderValue`,
-`BlueprintHeaderMultiValue`. P15 applies where a smart constructor
-enforces an invariant the raw constructor would bypass; these
-unions have no such invariant.
+every `*Update` case object, `HeaderValue`, and
+`BlueprintHeaderMultiValue`. The last is the instructive boundary
+case: its arms ARE public (`rawValues*: NonEmptySeq[string]`, …) and
+its constructors ARE fallible (`rawMulti*: Result[…]`), yet it is *not*
+a hole — every arm payload is a sealed `NonEmptySeq[T]` that cannot be
+constructed empty, so the non-empty invariant lives in the payload
+type, not in a discriminator the public arm could bypass. P15 applies
+where a smart constructor enforces an invariant a *raw-payload* arm
+would bypass; these unions have no such arm.
+
+**Mechanical enforcement of the closed claim.** Two CI lints make the
+A8 universal claim ("every hub-reachable public value type is sealed
+or has no bypassable invariant") mechanically checkable: H1 (no public
+`distinct` under `src/`) covers the newtype surface, and **H1b**
+(fallible-ctor ∩ public-arm-over-raw-payload) covers the sum-type
+surface. Both report zero — `SubmissionParam` is sealed and
+`BlueprintHeaderMultiValue`'s arms carry sealed payloads.
 
 **Reject test.**
 `tests/compile/treject_a8_sealed_external_construction.nim` is a
@@ -1459,6 +1503,10 @@ adding methods to `PushChannel`, never to `JmapClient`. The module
 path `jmap_client/push` is NOT reserved (P5 minimum surface); if
 Push earns its own path later, that is a minor bump per P20. The
 closed-set lock at A10 prevents the path from sneaking in pre-1.0.
+A dedicated positive surface gate,
+`tests/compile/tcompile_a23a24_push_websocket_surface.nim`, asserts
+`declared(PushChannel)` / `declared(WebSocketChannel)` over
+`import jmap_client`.
 
 ### A24. `WebSocketChannel` type reservation *(P20, P23)* — ✅ DONE
 
@@ -1537,11 +1585,14 @@ opacity (compiled dispatch artifact vs row data); libcurl-style
 ownership (easy handle vs response bytes).
 
 `Request` and `Response` are themselves sealed Pattern-A objects
-(A30): private `raw*` fields, hub-public read accessors, hub-
-private smart constructors. The wire-emit surface for both is
-hub-private (A16) — the application-facing diagnostic seams are
-`BuiltRequest.toJson` (send-side) and `setDebugCallback`
-(receive-side).
+(A30): private `raw*` fields, hub-private smart constructors. The
+types are hub-internal in full (A30b) — `import jmap_client` exposes
+neither the types nor their accessors. The app-facing wire surface is
+the `BuiltRequest` / `DispatchedResponse` handles plus `Referencable[T]`.
+The wire-emit surface is hub-private (A16) — the application-facing
+diagnostic seams are `BuiltRequest.toJson` (send-side) and
+`setDebugCallback` (receive-side). The SQLite/libcurl opacity is
+complete: the app holds easy handles, never raw wire records.
 
 **Pointers.**
 - `src/jmap_client/internal/protocol/builder.nim` —
@@ -1671,16 +1722,16 @@ unrepresentable by construction:
   `header:Name[:form][:all]` form. Selectors flow client→server only —
   no `fromJson`. `EmailGetProperty` is reused for `Email/parse` (RFC
   8621 §4.9 shares the Email/get property set — P3/P5).
-- **Six partial-get wrappers (+ two ByRef siblings)**:
-  `addPartialMailboxGet`, `addPartialThreadGet` /
-  `addPartialThreadGetByRef`, `addPartialIdentityGet`,
+- **Six partial-get wrappers**: `addPartialMailboxGet`,
+  `addPartialThreadGet`, `addPartialIdentityGet`,
   `addPartialEmailSubmissionGet`, `addPartialVacationResponseGet`,
-  `addPartialEmailGet` / `addPartialEmailGetByRef`. Each takes a
-  **required** `properties: NonEmptySeq[<E>GetProperty]` — an empty
-  selection is meaningless (`id` is always returned), so `NonEmptySeq`
-  makes the empty case unrepresentable (P16). The ByRef rule is
-  `addPartial<E>GetByRef` exists iff `add<E>GetByRef` exists (Email and
-  Thread only). They share the hub-private generic engine
+  `addPartialEmailGet`. Each takes a **required** `properties:
+  NonEmptySeq[<E>GetProperty]` — an empty selection is meaningless
+  (`id` is always returned), so `NonEmptySeq` makes the empty case
+  unrepresentable (P16). A back-reference is supplied through the
+  shared `ids: Opt[Referencable[seq[Id]]]` parameter (`ids =
+  Opt.some(reference[seq[Id]](h, name, path))`), so there are no
+  `*ByRef` variants. They share the hub-private generic engine
   `addGetSelected[T, P]` in `builder.nim` (VacationResponse is
   hand-rolled for its `idCount: 1` singleton meta).
 - **`bodyProperties` is typed**:
@@ -1880,6 +1931,11 @@ post-`freeze` `add*` on the same builder will silently copy
 (advisory only) — the brand-alias hazard is documented but not
 type-enforced.
 
+The `freeze` docstring (`builder.nim`) states this advisory contract
+directly: the `{.error.}` `=copy` / `=dup` hooks are on `BuiltRequest`
+only, so `RequestBuilder` is copyable and the `sink` on `freeze` is
+advisory rather than a structural single-use guarantee.
+
 Builder bodies thread the brand through tuple returns via a
 `let brand = newBuilder.builderId` binding before the return
 expression, so upgrading the type to uncopyable is a localised
@@ -1994,11 +2050,14 @@ exercise each invariant.
 
 `Request` and `Response` are Pattern-A objects, matching the shape
 that `Invocation` and `ResultReference` use elsewhere in
-`envelope.nim`: private `raw*` fields, hub-public read accessors
-(`req.\`using\``, `req.methodCalls`, `req.createdIds`,
-`resp.methodResponses`, `resp.createdIds`, `resp.sessionState`),
-and hub-private smart constructors following the `initX` (total)
-/ `parseX` (fallible) convention:
+`envelope.nim`: private `raw*` fields and hub-private smart
+constructors following the `initX` (total) / `parseX` (fallible)
+convention. The read accessors (`req.\`using\``, `req.methodCalls`,
+`req.createdIds`, `resp.methodResponses`, `resp.createdIds`,
+`resp.sessionState`) serve internal consumers only — the whole
+envelope surface is hub-internal (A30b), so they are reachable
+exclusively by direct `envelope`-leaf import. The smart constructors
+follow the `initX` (total) / `parseX` (fallible) convention:
 
 - `initRequest` (total, build path) — used by
   `RequestBuilder.freeze`.
@@ -2066,38 +2125,80 @@ the two.
   both diagnostic seams (`BuiltRequest.toJson` and
   `setDebugCallback`) and how they compose.
 
-### A30b. Filter `init*` / `parse*` smart constructors for `Invocation` and `ResultReference` from the hub *(P15)* — ⬜ TODO
+### A30b. The envelope wire surface is hub-internal; `Referencable` is sealed *(P5, P7, P8, P15, P16, P19)* — ✅ DONE
 
-`internal/types.nim`'s `export envelope except arguments,
-initRequest, parseRequest, initResponse` filters the Request and
-Response smart constructors (A30) but leaves `initInvocation`,
-`parseInvocation`, `initResultReference`, and
-`parseResultReference` hub-public. Application code constructs
-Invocations through `RequestBuilder.add*` and ResultReferences
-through `reference(handle, name, path)` on a typed handle; the bare
-smart constructors are library plumbing that has no application-
-code call site.
+The entire RFC 8620 §3.2–3.4/3.7 envelope surface is hub-internal.
+`internal/types.nim` re-exports `envelope except` **every** public
+symbol bar `Referencable` (the type) and `direct` (its direct-value
+constructor) — so `Invocation`, `Request`, `Response`,
+`ResultReference`, `ReferencableKind`, all their accessors
+(`methodCallId`, `name`, `arguments`, `rawName`, `using`,
+`methodCalls`, `createdIds`, `methodResponses`, `sessionState`,
+`path`, `rawPath`, `resultOf`, `kind`, `asDirect`, `asReference`)
+and all their constructors (`initInvocation` / `parseInvocation` /
+`initRequest` / `parseRequest` / `initResponse` /
+`initResultReference` / `parseResultReference` / `referenceTo`) are
+reachable only by direct `envelope`-leaf import inside the library.
+No hub-public API returns a raw envelope value (`request*` /
+`response*` are themselves hub-filtered), so application code cannot
+obtain one. The app-facing wire surface is the `BuiltRequest` /
+`DispatchedResponse` handles plus `Referencable[T]`.
 
-`parseSession` and `parseAccount` are already hub-private (filtered
-via `export session except parseSession, parseAccount`), as are
-`parseServerCapability`, `parseCoreCapabilities`,
-`parseAccountCapabilityEntry`, `parseMailAccountCapabilities`, and
-`parseSubmissionAccountCapabilities`. A30b closes the remaining
-gap on the Invocation / ResultReference pair.
+`Referencable[T]` is a sealed generic case object: private `rawKind`
+/ `rawValue` / `rawReference`, public `kind` plus `asDirect` /
+`asReference` `Opt`-accessors — consumers never read a raw arm.
+`ResultReference` holds a private `rawResultOf` with a `resultOf`
+accessor, closing discriminator-free partial construction on that
+field. The single back-reference primitive is `reference[U](handle:
+ResponseHandle[auto], name, path): Referencable[U]` (`dispatch.nim`).
 
-**Action.** Extend `internal/types.nim`'s `except` clause to
-include the four Invocation / ResultReference smart constructors.
-Add `doAssert not declared(initInvocation)`, `doAssert not
-declared(parseInvocation)`, `doAssert not
-declared(initResultReference)`, `doAssert not
-declared(parseResultReference)` to
-`tests/compile/tcompile_a1b_protocol_hub_surface.nim` and the
-mirroring positives to
-`tests/compile/tcompile_a2_invocation_hub_surface.nim` for
-the Invocation pair. No source changes elsewhere expected — the
-constructors retain `*` for cross-internal callers
-(`internal/serialisation/serde_envelope.nim`,
-`internal/protocol/builder.nim`).
+**Design notes.**
+- `reference` takes `ResponseHandle[auto]` with a single explicit
+  generic `U` (the referenced value type), not `reference[U, T](handle:
+  ResponseHandle[T], …)`: `U` appears only in the return type, and Nim
+  2.2.8 will not infer a parameter-only generic when a return-only
+  generic is supplied explicitly. `ResponseHandle[auto]` keeps the
+  handle constrained while inferring its type argument; the call form
+  is `reference[seq[Id]](h, name, path)`.
+- Internal consumers of the demoted symbols import the `envelope` leaf
+  directly (`call_meta.nim`, `methods.nim`, `mail_methods.nim`,
+  `client.nim`, `dispatch.nim`, `serde_envelope.nim`) — the
+  H10-sanctioned in-tree access path. Tests follow the same convention;
+  there is no `menvelope` aggregator.
+
+**Verification.** `tcompile_a30_envelope_hub_surface.nim` (negative:
+`not declared` for every envelope type/ctor + the four `*ByRef`
+builders; sealed-construction `not compiles`),
+`tcompile_a30_envelope_internal_access.nim` (positive: leaf-import
+reachability), `tcompile_a2_invocation_hub_surface.nim`,
+`tcompile_a1b_protocol_hub_surface.nim`, `tcompile_a1_public_surface.nim`.
+
+**Residue.** Discriminator-only partial construction remains possible
+on the two sealed sums whose discriminator stays public for strict-case
+reasons (`Credential`, `SessionEndpoint`) — tracked in **A8b**.
+`SubmissionParam` is fully sealed (A8 / H1b), so it is not in that
+residue class.
+
+### A8b. Reject discriminator-only partial construction of public-discriminator sealed sums *(P15, P16)* — ⬜ TODO
+
+A sealed sum that keeps a **public** discriminator (because its
+variant-field reads must survive `{.experimental: "strictCaseObjects".}`
+Rule 3 from external modules) still admits `T(kind: k)` from outside
+the defining module: the payload arms are private, so they default-
+initialise, but the discriminator alone compiles. With `SubmissionParam`
+fully sealed (private `rawKind`, A8 / A30b), the residue is two types:
+
+- `Credential` (`types/credential.nim:27`) — `Credential(scheme:
+  asBearer)` compiles with an empty `bearerTok`.
+- `SessionEndpoint` (`types/session_endpoint.nim:27`) — `SessionEndpoint(kind:
+  …)` compiles with an empty URL.
+
+Both are *inert*: an empty bearer / empty URL fails at connect time
+on the `ClientError` rail, never silently reaching the wire. The
+decision per type is (a) accept-inert + document, or (b) reject the
+empty payload at the consuming boundary via `ValidationError`.
+Recommend (b) for `Credential` (a credential is security-sensitive
+and should not exist empty). Not freeze-blocking.
 
 ## Section B — Type-safety hardening
 
@@ -2352,6 +2453,19 @@ Currently the capability chain runs through the `Session` that
 `client.supportsMail(): bool`, `client.coreCapabilities(): Opt[…]`,
 `client.requireMail(): JmapResult[void]`. Pre-flight "does this
 server support Mail?" should be one line.
+
+### C5b. `HttpTransportConfig` sealed value *(P10, P17)* — ⬜ TODO (post-1.0)
+
+`newHttpTransport*(timeout, maxRedirects, maxResponseBytes, …)` takes
+its tuning as four default-argument parameters. For 1.0 this is
+acceptable: default-arg overloads, no global state, no two-channel
+config hazard, and it is the single config surface (P17). Post-1.0,
+introduce a validated `HttpTransportConfig` sealed value (smart
+constructor rejecting nonsensical combinations — e.g. zero timeout)
+plus a `config`-taking overload, so the knobs travel as one typed,
+invariant-checked value rather than a positional parameter list. Not
+freeze-blocking; raised as the transport-side analogue of the A8b
+sealing review.
 
 ### C6. Version surface *(P25, P28)* — ⬜ TODO
 
@@ -3154,8 +3268,11 @@ D with mechanical enforcement.
 sealed Pattern-A invariant: zero public `distinct` type
 declarations under `src/`. The seal that binds external consumers
 (P15) is the sealed Pattern-A object pattern — a module-private
-`rawValue` field — not any form of `distinct` wrapping; the lint
-fails on any `type Foo* = distinct ...` declaration.
+`rawValue` field — not any form of `distinct` wrapping. The scanner
+strips an optional `type ` prefix and matches `Ident* … = distinct`
+directly, so it fails on both the single-line `type Foo* = distinct …`
+form and an in-`type`-block member line (`Foo* = distinct …`), and
+covers generic (`Foo*[T]`) and pragma (`Foo* {.x.}`) forms.
 `tests/compile/treject_a8_sealed_external_construction.nim` is
 the complementary external-construction reject: it asserts at
 compile time that raw `Foo(rawValue: ...)` from outside the
@@ -3165,6 +3282,33 @@ provide the bidirectional gate on the P15 contract.
 
 Wired to `just check` and `just ci` via
 `just lint-sealed-distinct`. Source: zero violations under `src/`.
+
+### H1b. Fallible-ctor ∩ public-arm lint *(P15, P16)* — backs A8 / A30b — ✅ DONE
+
+`tests/lint/h1b_fallible_ctor_public_arm.nim` is the sum-type
+counterpart to H1: where H1 covers the newtype (`distinct`) surface,
+H1b covers public case objects. Per `src/` file it (1) collects every
+`T` returned by an exported `func/proc NAME*(...): Result[T, …]`, then
+(2) flags any public case-object declaration of such a `T` that
+exposes a public arm whose payload is a *raw, externally-constructible*
+type — a lowercase builtin (`int` / `string` / `seq[` / `set[` / …) or
+a freely-constructible builtin container (`Opt[` / `Table[` /
+`JsonNode` / …).
+
+The payload test is the crux: a public arm whose payload is itself a
+sealed domain newtype (e.g. `BlueprintHeaderMultiValue`'s
+`NonEmptySeq[string]`) cannot be filled with an invariant-violating
+value, so it is *not* a hole; only a raw-payload arm — a public
+`set[…]` / `string` / `seq[…]` field, the shape that would let a caller
+inject an invalid value — is. This is exactly why `SubmissionParam`
+(whose `NOTIFY` arm would otherwise be a public `set[DsnNotifyFlag]`)
+is sealed rather than transparent. The payload test is what keeps the
+predicate from mis-flagging `BlueprintHeaderMultiValue`.
+
+Wired to `just check` and `just ci` via
+`just lint-fallible-ctor-public-arm`. Source: zero violations under
+`src/` — `SubmissionParam` is sealed and `BlueprintHeaderMultiValue`'s
+arms carry sealed payloads.
 
 ### H2. Module-level `var` lint *(P10)* — backs D1 no-globals rule — ⬜ TODO
 
@@ -3468,7 +3612,7 @@ Status legend:
 | P12 (memory ownership in types) | A13, A19, B10 | review | 🟡 |
 | P13 (one error rail) | A6, A12 | H8 `.get()` invariant lint; H15 snapshot lint (A12) | 🟡 |
 | P14 (no thread-local errors) | A9 (no `last*` state on handle), A19 (`HttpResponse` returned by value, not stashed on Transport), D10, H3, H12 | H3 lint; H12 lint | 🟡 |
-| P15 (smart constructors) | A8 (sealed Pattern-A objects across every public value-carrying type + `IdOrCreationRef` + 3 internal), A12 (library-internal error constructors filtered off the hub), A15 (sealed `SerializedSort` / `SerializedFilter`; no JsonNode-keyed argument-construction shims on the public surface; `directIds` is the sole helper), A19 (`newTransport`, `newHttpTransport` Result-returning), A30 (Pattern-A `Request` and `Response` with `initX` / `parseX` smart constructors), A30b (filter `Invocation` / `ResultReference` smart constructors from the hub), H1 | testament reject test `tests/compile/treject_a8_sealed_external_construction.nim`; A12 compile audits; A1b compile audit `doAssert not declared(initCreates)` lock; A1b compile audit for A30 smart-constructor absence; H1 lint (regression prevention) | 🟢 (core shipped; A30b hub-filter still ⬜) |
+| P15 (smart constructors) | A8 (sealed Pattern-A objects across every public value-carrying type + `IdOrCreationRef` + 3 internal), A12 (library-internal error constructors filtered off the hub), A15 (sealed `SerializedSort` / `SerializedFilter`; no JsonNode-keyed argument-construction shims on the public surface; `directIds` is the sole helper), A19 (`newTransport`, `newHttpTransport` Result-returning), A30 (Pattern-A `Request` and `Response` with `initX` / `parseX` smart constructors), A30b (whole envelope surface demoted off the hub; `Referencable`, `SubmissionParam` + `NotifySet`, and `NonEmptyRcptList` sealed; closed-A8 enumeration), H1, H1b | testament reject tests `treject_a8_sealed_external_construction.nim` + `treject_submissionparam_notify_construction.nim`; A12 compile audits; A1b compile audit `doAssert not declared(initCreates)` lock; A30 envelope-demotion compile audits; H1 + H1b lints (regression prevention) | 🟢 |
 | P16 (preconditions in types) | A6, A6.5, A6.6, A7b, A7c, A7d, A29, B3, B4, B6, B11, B12 | H9; B11 resolution; A7c testament `action: reject` test | 🔴 (B11 open) |
 | P17 (one config surface) | A14, A19 (HTTP config on `newHttpTransport` only), A20, A21 | review; F6 snapshot; sealed `SessionEndpoint`/`Credential` (A20/A21); `treject_a20`/`treject_a21` reject audits | 🟡 |
 | P18 (sum types over flag soup) | A6, A12, B1, B2, B7, B8, H9 | H9 catch-all lint; A12 exhaustive `case` in `SetError.message` / `TransportError.message` / mail extractors | 🟡 |

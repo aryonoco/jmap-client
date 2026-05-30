@@ -514,7 +514,7 @@ testCase queryToGetWithResultReference:
   let b0 = initRequestBuilder(makeBuilderId())
   let (b1, queryHandle) =
     addQuery[MockQueryable, MockFilter, Comparator](b0, makeAccountId("a1"))
-  let idsReference = referenceTo[seq[Id]](reference(queryHandle, mnEmailQuery, rpIds))
+  let idsReference = reference[seq[Id]](queryHandle, mnEmailQuery, rpIds)
   let (b2, _) =
     addGet[MockQueryable](b1, makeAccountId("a1"), ids = Opt.some(idsReference))
   let req = b2.freeze().request
@@ -542,16 +542,17 @@ testCase directIdsWrapsCorrectly:
   doAssert ids.isSome
   let r = ids.get()
   doAssert r.kind == rkDirect
-  assertLen r.value, 2
-  assertEq $r.value[0], "x1"
-  assertEq $r.value[1], "x2"
+  let rIds = r.asDirect.get()
+  assertLen rIds, 2
+  assertEq $rIds[0], "x1"
+  assertEq $rIds[1], "x2"
 
 testCase directIdsEmpty:
   ## directIds with an empty seq produces Opt.some(direct(@[])).
   let ids = directIds(newSeq[Id]())
   doAssert ids.isSome
   doAssert ids.get().kind == rkDirect
-  assertLen ids.get().value, 0
+  assertLen ids.get().asDirect.get(), 0
 
 testCase directIdsWithAddGet:
   ## directIds integrates with addGet — replaces Opt.some(direct(@[...])).

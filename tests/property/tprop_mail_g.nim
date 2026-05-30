@@ -168,7 +168,7 @@ testCase propSubmissionParamKeyIdentity: # D
     let kindsMatch = p1.kind == p2.kind
     let extsMatch =
       if p1.kind == spkExtension and p2.kind == spkExtension:
-        p1.extName == p2.extName
+        p1.asExtension.get()[0] == p2.asExtension.get()[0]
       else:
         true
     let keysEq = submissionParamKeyEq(k1, k2)
