@@ -67,21 +67,22 @@ hand.
 
 | Status | Count | What it means |
 |---|---|---|
-| ✅ DONE | 50 | Implemented and verified against source / tests. |
-| 🟡 PARTIAL | 7 | Some parts implemented; gaps named in the item body. |
-| ⬜ TODO | 58 | Not yet implemented. |
+| ✅ DONE | 67 | Implemented and verified against source / tests. |
+| 🟡 PARTIAL | 4 | Some parts implemented; gaps named in the item body. |
+| ⬜ TODO | 43 | Not yet implemented. |
 | 🟦 DEFERRED | 1 | Explicitly deferred to a post-1.0 release (E1). |
-| ❌ DROPPED | 1 | Superseded or rejected (D15). |
+| ❌ DROPPED | 2 | Superseded or rejected (D15, B11). |
 | **RESOLVED** | 1 | Design decision made (A3.5). |
 
-**Freeze-blocking gaps** (must close before 1.0 tag): B9, B11, C1, and
-C1.1 — the items carrying the literal `(FREEZE-BLOCKING)` heading tag,
-the remaining ⬜ TODO surface that changes observable behaviour. The
-re-export-hub snapshot gate (A26) and its CI wiring (F6) must also land
-before the tag. The outstanding lint backstops (H2–H9 plus H14) can
-ship in the same window or shortly after; H1, H10–H13, and H15 are
-already in place. The freeze checklist (D18) tracks per-item gate
-status.
+**Freeze-blocking gaps** (must close before 1.0 tag): C1 and C1.1 — the
+items carrying the literal `(FREEZE-BLOCKING)` heading tag, the remaining
+⬜ TODO surface that changes observable behaviour. The re-export-hub
+snapshot gate (A26), the type-shape gate (A25/A25b), and their CI wiring
+(F6) have landed — `lint-public-api` (H16) and `lint-type-shapes` (H17)
+are wired into `check` and `ci`. The outstanding lint backstops (H2–H9
+plus H14) can ship in the same window or shortly after; H1, H10–H13, H15,
+H16, and H17 are already in place. The freeze checklist (D18) tracks
+per-item gate status.
 
 ## Documented exceptions to the principles
 
@@ -710,7 +711,7 @@ concern at the extraction site.
 - `tests/protocol/tdispatch.nim` — cross-builder and
   cross-client mismatch blocks exercise the brand check.
 
-### A7. Lifecycle types *(P21, P16, P22, P23)* — 🟡 PARTIAL
+### A7. Lifecycle types *(P21, P16, P22, P23)* — ✅ DONE
 
 The synchronous dispatch chain is the entire 1.0 lifecycle: each
 phase is a distinct sealed type and transitions are functions
@@ -737,18 +738,16 @@ hazard the runtime check could not detect: two
 `BuilderId`, and a single handle set would validate against either.
 
 The asynchronous chain extends the same `BuiltRequest` additively
-through `DispatchedRequest` and `sendAsync` (A7e — to be reserved by
-policy in `docs/policy/03-rfc-extension-policy.md`, ⬜ TODO; never
-stubbed onto the sync surface; P23 — async is a different type with a
-different lifecycle, not a flag on the existing one).
+through `DispatchedRequest` and `sendAsync` (A7e — reserved by policy in
+`docs/policy/03-rfc-extension-policy.md`; never stubbed onto the sync surface;
+P23 — async is a different type with a different lifecycle, not a flag on the
+existing one).
 
-**Sub-items.** A6.5 (sealed `BuiltRequest` + `DispatchedResponse`),
-A7b (`freeze` and `send(BuiltRequest)` wired), and A7c
-(`BuiltRequest` uncopyable, structurally consumed by `send`) are
-done. The outstanding tightenings are A7d (escalate
-`RequestBuilder` from advisory `sink` to structurally uncopyable;
-the test-suite friction is documented inside A7d) and A7e
-(async-surface name reservation in the RFC-extension policy file).
+**Sub-items.** All done: A6.5 (sealed `BuiltRequest` + `DispatchedResponse`),
+A7b (`freeze` and `send(BuiltRequest)` wired), A7c (`BuiltRequest` uncopyable,
+structurally consumed by `send`), A7d (`RequestBuilder` structurally uncopyable
+— the whole lifecycle is now single-use), and A7e (async-surface name
+reservation in the RFC-extension policy file).
 
 **Pointers.**
 - `src/jmap_client/internal/protocol/builder.nim` — `RequestBuilder`,
@@ -757,9 +756,10 @@ the test-suite friction is documented inside A7d) and A7e
   `DispatchedResponse`.
 - `src/jmap_client/internal/client.nim` `send` — `send(sink BuiltRequest)`.
 - `tests/compile/treject_a7c_send_consumes_builtrequest.nim` —
-  testament `action: reject` anchor for double-`send`. (The A7d
-  reject anchors are intentionally absent until the
-  `RequestBuilder`-uncopyable escalation lands — see A7d.)
+  testament `action: reject` anchor for double-`send`;
+  `treject_a7d_freeze_consumes_builder.nim` and
+  `treject_a7d_post_freeze_add.nim` — the matching anchors for the
+  now-uncopyable `RequestBuilder` (see A7d).
 
 ### A8. Privatise raw distinct-type constructors *(P15)* — ✅ DONE
 
@@ -846,9 +846,11 @@ and `AccountCapabilityEntry`
 payloads and expose `uri*`, `kind*`, and the typed projection
 accessors (`asCoreCapabilities`, `asMailAccountCapabilities`,
 `asSubmissionAccountCapabilities`, `asRawData`); `SessionEndpoint`
-(`internal/types/session_endpoint.nim`, A20) exposes `kind*` plus the
-`directEndpoint` / `discoveryEndpoint` smart constructors; `Credential`
-(`internal/types/credential.nim`, A21) exposes `scheme*` plus the
+(`internal/types/session_endpoint.nim`, A20/A8b) exposes a `kind` accessor over
+the private `rawKind` discriminator plus the `directEndpoint` /
+`discoveryEndpoint` smart constructors; `Credential`
+(`internal/types/credential.nim`, A21/A8b) exposes a `scheme` accessor over the
+private `rawScheme` discriminator plus the
 `bearerCredential` / `basicCredential` smart constructors; `MailboxRole`
 (`mail/mailbox.nim`), `ContentDisposition` (`mail/body.nim`),
 `CollationAlgorithm` (`internal/types/collation.nim`),
@@ -1396,10 +1398,11 @@ type SessionEndpointKind* = enum
   # sekSrvDomain — reserved; future DNS-SRV autodiscovery (P20/P23)
 
 type SessionEndpoint* {.ruleOff: "objects".} = object
-  case kind*: SessionEndpointKind        # public discriminator
+  case rawKind: SessionEndpointKind      # private discriminator (A8b)
   of sekDirectUrl: directUrl: string     # private payload
   of sekDiscoveryDomain: domain: string  # private payload
 
+func kind*(e: SessionEndpoint): SessionEndpointKind  # read-only accessor
 func directEndpoint*(url: string): Result[SessionEndpoint, ValidationError]
 func discoveryEndpoint*(domain: string): Result[SessionEndpoint, ValidationError]
 ```
@@ -1430,10 +1433,11 @@ type AuthScheme* = enum
   asBasic = "Basic"
 
 type Credential* {.ruleOff: "objects".} = object
-  case scheme*: AuthScheme           # public discriminator
+  case rawScheme: AuthScheme          # private discriminator (A8b)
   of asBearer: bearerTok: string     # private payload
   of asBasic: basicUser, basicPass: string
 
+func scheme*(c: Credential): AuthScheme  # read-only accessor
 func bearerCredential*(token: string): Result[Credential, ValidationError]
 func basicCredential*(username, password: string): Result[Credential, ValidationError]
 ```
@@ -1527,50 +1531,72 @@ Re-exported from `src/jmap_client.nim`. The module path
 `jmap_client/websocket` is NOT reserved (A10 / P5); if
 WebSocket earns its own path later, that is a minor bump per P20.
 
-### A25. Type-shape snapshot in CI *(P1, P2)* — ⬜ TODO
+### A25. Type-shape snapshot in CI *(P1, P2)* — ✅ DONE
 
-D2's `public-api.txt` snapshot catches symbol-set drift but not
+A26's `public-api.txt` snapshot catches symbol-set drift but not
 field-set drift. A `Request` whose `using*: seq[string]` field is
-silently changed to `seq[CapabilityUri]` would break consumers; D2
-would not flag it.
+silently changed to `seq[CapabilityUri]` would break consumers; the
+symbol-set snapshot would not flag it.
 
-`tests/wire_contract/` currently contains `module-paths.txt`
-(A10a), `error-messages.txt` (H15), and `tsnapshot_well_formed.nim`
-(the testament-anchor). `type-shapes.txt` does not exist yet.
+**Implementation.** `tests/wire_contract/type-shapes.txt` records the
+public-field signature of every public type reachable through the hub —
+object fields, case discriminator and variants, and enum members — with
+private `raw*` fields excluded so internal sealing refactors do not churn
+the snapshot (a sealed Pattern-A type therefore shows an empty shape; its
+accessors are tracked as `func`s by A26). The H17 lint recomputes the
+shapes and fails CI bidirectionally on any un-frozen drift; a deliberate
+change regenerates via `just freeze-type-shapes` and carries the
+`[TYPE-SHAPE-CHANGE]` PR label. Wired into `check` and `ci`. The
+mechanical generator is A25b.
 
-**Action.** Add `tests/wire_contract/type-shapes.txt`. Generated
-from `nim doc --project` output (or a custom scraper) — every
-public type's full field signature, with type names. CI diffs the
-file; any field-shape change requires explicit "TYPE BREAK"
-label in the PR. The mechanical generator is tracked separately
-as A25b.
+**Pointers.**
+- `scripts/api_surface.nim` — `typeShapeLines()` (shared by generator
+  and lint so the two cannot drift).
+- `scripts/freeze_type_shapes.nim` — generator (`just freeze-type-shapes`).
+- `tests/lint/h17_type_shape_snapshot.nim` — H17 lint.
+- `tests/wire_contract/type-shapes.txt` — frozen snapshot.
 
-### A26. Re-export hub snapshot *(P1)* — ⬜ TODO
+### A26. Re-export hub snapshot *(P1)* — ✅ DONE
 
-The `export` clause set of every re-export hub is a public
-commitment once 1.0 ships. Adding/removing a re-exported symbol
-changes the import graph users observe.
+The set of symbols reachable through `import jmap_client` and
+`import jmap_client/convenience` (A10) is a public commitment once 1.0
+ships: adding or removing a re-exported symbol changes the import graph
+consumers observe.
 
-There is one curated public re-export hub:
-`src/jmap_client.nim`. The mail leaves' `*` surfaces are already
-covered by `tcompile_mail_f_public_surface.nim` and
-`tcompile_mail_g_public_surface.nim`; they are re-exported
-transitively from root through `internal/mail.nim`.
+**Implementation.** `tests/wire_contract/public-api.txt` snapshots that
+surface — one `<kind> <name> <signature>` line per `*`-exported
+declaration, grouped by owning module. The surface is resolved from the
+`export` / `export … except …` graph of the two public entry points
+(`src/jmap_client.nim` and `src/jmap_client/convenience.nim`), scraping
+each reachable module's `*`-exported declarations minus the symbols its
+parents filter out with `except`. The resolver is text-based: `nim
+jsondoc` of the hub yields zero entries (it does not follow re-exports),
+`jsondoc --project` over-captures and is fragile, and the compiler AST is
+unavailable — so resolving the export graph from source is the only
+faithful enumeration (and it is toolchain-stable, with no inferred-pragma
+churn). The H16 lint recomputes the surface and fails CI bidirectionally
+on any add or remove; a deliberate change regenerates via `just
+freeze-api` and carries the `[API-CHANGE]` PR label. F6 is the CI-wiring
+side of the same gate.
 
-**Action.** Snapshot the root's `export` clauses to
-`tests/wire_contract/public-api.txt` (or equivalent). CI diffs
-the snapshot on every PR; any add/remove requires an explicit
-`[API-CHANGE]` label. F6 names the CI-wiring side of the same
-gate.
+**Pointers.**
+- `scripts/api_surface.nim` — export-graph resolver (`reachableSurface`,
+  `snapshotLines`).
+- `scripts/freeze_public_api.nim` — generator (`just freeze-api`).
+- `tests/lint/h16_public_api_snapshot.nim` — H16 lint.
+- `tests/wire_contract/public-api.txt` — frozen snapshot.
 
 ### A27. Seal the handle types *(P8)* — ✅ DONE
 
 All handle types are sealed Pattern-A objects with private `raw*`
 fields and explicit accessors:
 `ResponseHandle[T]`, `NameBoundHandle[T]`, `CompoundHandles[A, B]`,
-`ChainedHandles[A, B]`, plus `DispatchedResponse` (the sealed
-wrapper that pairs the wire `Response` with a `BuilderId`). The
-two single-call handles additionally carry a `rawParseProc:
+plus `DispatchedResponse` (the sealed wrapper that pairs the wire
+`Response` with a `BuilderId`). The generic `ChainedHandles[A, B]`
+was removed in B9 (it reduced to two `dr.get` calls); the one chain
+that needed a heterogeneous pair — `Email/query` → `SearchSnippet/get`
+— is now the bespoke sealed handle record `EmailQuerySnippetChain`.
+The two single-call handles additionally carry a `rawParseProc:
 ParseProc[T]` field — the captured resolver bound at handle
 construction time (A6, A1c).
 
@@ -1645,27 +1671,24 @@ do-nothing (P16).
 - `tests/protocol/tmethods.nim` — six deterministic cases plus the
   `propGetResponseNotFoundDisjoint` property guard the invariant.
 
-### A2b. Property test: `Invocation` round-trip *(P19, P2)* — 🟡 PARTIAL
+### A2b. Property test: `Invocation` round-trip *(P19, P2)* — ✅ DONE
 
-`tests/property/tprop_envelope.nim` covers
-`propInvocationPreservesFields` — partial field-preservation
-property. Missing:
+`tests/property/tprop_envelope.nim` gains `propInvocationRoundTrip`:
+`Invocation.fromJson(toJson(inv)).get() == inv` for **every** `MethodName`
+variant — the 27 named ones (via `initInvocation`, which stores the wire name)
+plus the `mnUnknown` catch-all exercised through a synthesised vendor wire name
+(via `parseInvocation`, which preserves the raw bytes — A11 forward-compat).
+`Invocation` is a flat object, so its auto-generated structural `==` compares
+all three fields including the `JsonNode` arguments (std/json structural `==`).
+The envelope SerDe is reached through the H10-permitted direct leaf import of
+`internal/serialisation/serde_envelope` (the SerDe is hub-internal — A16/A30b).
 
-- `Invocation.fromJson(toJson(inv)).get() == inv` for every
-  method-name variant, including `mnUnknown` with a synthesised
-  raw name. Exercised via direct H10 import of
-  `internal/serialisation/serde_envelope`.
-
-The wire-byte determinism slice for `BuiltRequest.toJson` (which
-embeds the Invocation array) is owned by A28b. `Response.toJson`
-is intentionally absent (A16); the receive-side wire-shape
-contract is exercised by the captured-fixture two-parse identity
-in `tests/serde/captured/tcaptured_round_trip_integrity.nim` and
-the parser totality property in `tests/property/tprop_serde.nim`.
-
-**Action.** Extend `tprop_envelope.nim` (or add
-`tprop_invocation_roundtrip.nim`) covering the Invocation
-round-trip property; wire to `just test-wire-contract` (F1).
+The wire-byte determinism slice for `BuiltRequest.toJson` (which embeds the
+Invocation array) remains owned by A28b. `Response.toJson` is intentionally
+absent (A16); the receive-side wire-shape contract is exercised by the
+captured-fixture two-parse identity in
+`tests/serde/captured/tcaptured_round_trip_integrity.nim` and the parser
+totality property in `tests/property/tprop_serde.nim`.
 
 ### A3.5. Decide `SetResponse[T].updateResults` payload shape *(P19)* — **RESOLVED**
 
@@ -1786,10 +1809,9 @@ escapes (`builtRequestFromParts`, `initDispatchedResponse`)
 filtered from `internal/protocol.nim`'s re-export and reached
 only via direct internal import (H10-permitted in `tests/`).
 
-The asynchronous-path `DispatchedRequest` will be reserved by name in
-`docs/policy/03-rfc-extension-policy.md` (A7e, ⬜ TODO — the policy
-file is not yet written), not by stub. Its shape depends on the
-`Transport` interface and lands once async arrives as additive
+The asynchronous-path `DispatchedRequest` is reserved by name in
+`docs/policy/03-rfc-extension-policy.md` (A7e ✅), not by stub. Its shape
+depends on the `Transport` interface and lands once async arrives as additive
 surface (P20).
 
 **Pointers.**
@@ -1887,70 +1909,44 @@ testament `action: "reject"` file: it asserts the compiler emits
 double-`send`. The substring is sourced from
 `compiler/injectdestructors.nim:207` and stable across Nim 2.2.x.
 
-### A7d. Consume `RequestBuilder` on `freeze` *(P16, P21)* — 🟡 PARTIAL (advisory `sink` only; uncopyable hook deferred)
+### A7d. Consume `RequestBuilder` on `freeze` *(P16, P21)* — ✅ DONE
 
-`src/jmap_client/internal/protocol/builder.nim` — `func freeze*(b:
-sink RequestBuilder): BuiltRequest`. The `sink` qualifier is
-**advisory only**: the standard Nim sink semantics insert a silent
-copy at a non-last use rather than failing. To upgrade `sink` to a
-structural single-use contract, `RequestBuilder` would need
-`=copy` + `=dup` `{.error.}` hooks (the A7c mechanism).
+`RequestBuilder` is now **structurally uncopyable** — `=copy` / `=dup`
+`{.error.}` hooks alongside `BuiltRequest`'s (`builder.nim`). Freezing the same
+builder twice, or calling any `add*` on it after `freeze`, is a compile error
+(*"requires a copy because it's not the last read"*), closing the brand-alias
+hazard at the type level rather than merely advising it with `sink`. The whole
+lifecycle is now uncopyable: `newBuilder` → `add*` chain → `freeze` → `send`,
+each phase consuming its input.
 
-The hook upgrade is deferred because:
+**The documented friction did not materialise** (the escalation predated the
+A1c/A30b refactors that reshaped dispatch/handles):
 
-- The full builder chain runs at module top-level in every
-  `block <name>:` integration and protocol test (~80 sites). Nim
-  2.2.x's move analysis at module top-level treats the implicit
-  `=destroy` at module exit as a non-last "read", so even a single
-  `b.freeze()` after `let b = …` fails compilation with the
-  *"requires a copy because it's not the last read"* diagnostic.
-  Wrapping each test body in `tests/mtestblock.testCase` works for
-  `BuiltRequest`-binding sites (the A7c path) but cascades into
-  pre-existing latent issues (`Uninit`, `UnusedImport` warnings
-  surfacing under proc-wrap that were silent at module top-level)
-  in many of the 80 affected files.
-- `Result[(RequestBuilder, …), ValidationError]` returns
-  (`addCapabilityInvocation`, `addEmailSubmissionAndEmailSet`) cannot
-  be unwrapped via `.get()` for uncopyable `T`. nim-results' `value`
-  proc body assigns `result = self.vResultPrivate` (a copy);
-  callers would have to switch to `unsafeValue` after explicit
-  `isOk` checks.
+- *Module-top-level test friction* — a non-issue. `tests/mtestblock.testCase`
+  wraps every test body in a `proc`, so builder chains run in normal-function
+  move-analysis scope, not at module top-level. A full sweep of all 319 test
+  files surfaced only **3** real copy-failures (not ~80).
+- *`Result[(RequestBuilder, …)]` extraction* — production compiles unchanged;
+  `addCapabilityInvocation` / `addEmailSubmissionAndEmailSet` and `?`-propagation
+  through them are fine. Only **callers** that extract the uncopyable Ok tuple
+  via `.get()` / `.expect()` needed the move idiom `var r = …; doAssert r.isOk;
+  let (b, h) = move(r.value)` — documented on the builders and the module
+  comment for application developers.
 
-Every `add*` function that takes a builder still consumes via
-`sink`: the 10 builders in `protocol/builder.nim`
-(`addInvocation`, `addEcho`, `addRawInvocation`,
-`addCapabilityInvocation`, `addGet`, `addChanges`, `addSet`,
-`addCopy`, `addQuery`, `addQueryChanges`) and the 35 mail-domain
-builders across
-`internal/mail/{mail_builders,mail_methods,submission_builders,identity_builders}.nim`
-plus the eight `convenience.nim` per-entity wrappers. Template
-aliases (`addChanges[T]`, `addQuery[T]`, `addQueryChanges[T]`,
-`addSet[T]`, `addCopy[T]`) carry the advisory contract
-through to the underlying procs. A second `freeze` or
-post-`freeze` `add*` on the same builder will silently copy
-(advisory only) — the brand-alias hazard is documented but not
-type-enforced.
+**Production change:** one site, `addPartialEmailGet` (`mail_builders.nim`),
+read `b1.builderId` in the same expression that moved `b1` into the return
+tuple; fixed by binding `let brand = b1.builderId` first (the pattern every
+other builder already uses). **Test changes:** `massertions.assertOk`/`assertErr`
+now *borrow* their argument (`doAssert (expr).isOk`) instead of `let res = expr`
+(which copied the uncopyable Result); a `moveExpect` helper plus an inline
+`move(r.value)` in the two on-success submission live tests.
 
-The `freeze` docstring (`builder.nim`) states this advisory contract
-directly: the `{.error.}` `=copy` / `=dup` hooks are on `BuiltRequest`
-only, so `RequestBuilder` is copyable and the `sink` on `freeze` is
-advisory rather than a structural single-use guarantee.
+**Compile-reject anchors.** `tests/compile/treject_a7d_freeze_consumes_builder.nim`
+(double `freeze`) and `tests/compile/treject_a7d_post_freeze_add.nim` (`add*`
+after `freeze`) both `action: "reject"` on *"requires a copy because it's not
+the last read of"*, and both pass. Full fast suite green.
 
-Builder bodies thread the brand through tuple returns via a
-`let brand = newBuilder.builderId` binding before the return
-expression, so upgrading the type to uncopyable is a localised
-type-level change (add the `=copy` + `=dup` hooks) once the
-test-suite friction above is addressed. No `clone(b:
-RequestBuilder)` helper is needed: zero dual-derivation patterns
-exist that would motivate one.
-
-**Compile-reject anchors.** None present. The reject tests
-`tests/compile/treject_a7d_freeze_consumes_builder.nim` and
-`tests/compile/treject_a7d_post_freeze_add.nim` are intentionally
-absent until the uncopyable-hook escalation lands; both must
-exist before the gate flips to ✅.
-
-### A7e. Async surface name reservation *(P20, P22, P23)* — ⬜ TODO
+### A7e. Async surface name reservation *(P20, P22, P23)* — ✅ DONE
 
 The asynchronous chain extends the sync chain additively:
 
@@ -1958,19 +1954,21 @@ The asynchronous chain extends the sync chain additively:
 token) → `DispatchedResponse` (received).
 
 `DispatchedRequest` and its companion procedure `sendAsync` are
-reserved by policy, not by type stub. Their shapes depend on the
-`Transport` interface (A19); committing a stub before A19 fixes
-the transport contract is the libdbus failure P23 cites — retrofit
-a shape that does not fit the runtime. Reservation suffices
-because no public API claims either name pre-1.0, so adding them
-once async lands is purely additive (P20). Unlike `PushChannel`
-(A23) and
-`WebSocketChannel` (A24), `DispatchedRequest` has no consumer-
-facing calling site on the sync path; an `unimplemented()` stub
-would have no caller and serve no diagnostic purpose.
+reserved **by policy, not by type stub**, in
+`docs/policy/03-rfc-extension-policy.md` (now written; it also carries the
+D13/D13.5 RFC reservation table). Their shapes depend on the `Transport`
+interface (A19); committing a stub before A19 fixes the transport contract is
+the libdbus failure P23 cites — retrofit a shape that does not fit the runtime.
+Reservation suffices because no public API claims either name pre-1.0, so adding
+them once async lands is purely additive (P20). Unlike `PushChannel` (A23) and
+`WebSocketChannel` (A24), `DispatchedRequest` has no consumer-facing calling
+site on the sync path; an `unimplemented()` stub would have no caller and serve
+no diagnostic purpose. The `RequestBuilder` and `BuiltRequest` type docstrings
+(`builder.nim`) carry the one-line forward-pointer to the policy file. The
+mechanical gate (F6's re-export-hub snapshot failing if `sendAsync` /
+`DispatchedRequest` are ever exported pre-1.0) lands with A26.
 
-**Action.** Add to `docs/policy/03-rfc-extension-policy.md`
-(D13.5):
+The policy-file content reserved is:
 
 > **Async dispatch (lands with A19 + E1).** The async overload is
 > a separate procedure `sendAsync` — never an overload of `send`,
@@ -2016,19 +2014,28 @@ Any additional public `JsonNode` declaration must either fall under
 one of the four documented exception patterns above or carry an
 A22b footer at its declaration site.
 
-### A25b. Generate the type-shape snapshot mechanically *(P1)* — ⬜ TODO
+### A25b. Generate the type-shape snapshot mechanically *(P1)* — ✅ DONE
 
 A25 specifies the snapshot file (`tests/wire_contract/type-shapes.txt`)
-but does not specify the producer. A hand-maintained file rots fast.
-No `just freeze-type-shapes` recipe exists yet.
+but a hand-maintained file rots fast, so the producer is mechanical and
+shared with the lint.
 
-**Action.** Add a `just freeze-type-shapes` recipe that produces
-the file from `nim doc --project src/jmap_client.nim` JSON output
-(or a small custom AST scraper). Output format: one type per
-section, alphabetical by name, each field on its own line with
-its typed annotation. CI fails if the regenerated file disagrees
-with the committed copy and the PR is not labelled
-`[TYPE-SHAPE-CHANGE]`.
+**Implementation.** `just freeze-type-shapes` runs
+`scripts/freeze_type_shapes.nim`, which emits the snapshot from
+`api_surface.typeShapeLines()` — the same function the H17 lint
+recomputes, so the two cannot drift. Output format: one
+`## <Type> [<module>]` section per public type, alphabetical by name,
+each public field on its own line with its typed annotation and case
+arms preserved at their relative indentation. The producer reuses the
+A26 export-graph resolver to enumerate the public types (rather than
+`nim doc --project`, which over-captures private fields and is fragile);
+it then scrapes each type's body from source, keeping only `*`-public
+members. CI (H17) fails if the regenerated file disagrees with the
+committed copy and the PR is not labelled `[TYPE-SHAPE-CHANGE]`.
+
+**Pointers.**
+- `scripts/api_surface.nim` — `typeShapeLines()` / `typeShapeBody()`.
+- `scripts/freeze_type_shapes.nim` — generator.
 
 ### A28b. Wire-byte determinism for `BuiltRequest.toJson` *(P1)* — ✅ DONE
 
@@ -2173,32 +2180,37 @@ builders; sealed-construction `not compiles`),
 reachability), `tcompile_a2_invocation_hub_surface.nim`,
 `tcompile_a1b_protocol_hub_surface.nim`, `tcompile_a1_public_surface.nim`.
 
-**Residue.** Discriminator-only partial construction remains possible
-on the two sealed sums whose discriminator stays public for strict-case
-reasons (`Credential`, `SessionEndpoint`) — tracked in **A8b**.
-`SubmissionParam` is fully sealed (A8 / H1b), so it is not in that
-residue class.
+**Residue.** None. With A8b landed (below), every sealed sum in the library —
+`SubmissionParam`, `Credential`, `SessionEndpoint` — is fully sealed (private
+discriminator + read-only accessor); there is no public-discriminator residue
+class.
 
-### A8b. Reject discriminator-only partial construction of public-discriminator sealed sums *(P15, P16)* — ⬜ TODO
+### A8b. Reject discriminator-only partial construction of sealed sums *(P15, P16)* — ✅ DONE
 
-A sealed sum that keeps a **public** discriminator (because its
-variant-field reads must survive `{.experimental: "strictCaseObjects".}`
-Rule 3 from external modules) still admits `T(kind: k)` from outside
-the defining module: the payload arms are private, so they default-
-initialise, but the discriminator alone compiles. With `SubmissionParam`
-fully sealed (private `rawKind`, A8 / A30b), the residue is two types:
+`Credential` and `SessionEndpoint` are now **fully sealed**, mirroring
+`SubmissionParam`: the discriminator is the module-private `rawScheme` /
+`rawKind` field, surfaced read-only via a `scheme` / `kind` accessor func. So
+`Credential(scheme: …)` / `SessionEndpoint(kind: …)` — and even the
+discriminator-only `Credential(rawScheme: …)` / `SessionEndpoint(rawKind: …)` —
+no longer compile outside the defining module; an empty-payload credential or
+endpoint is structurally **unrepresentable**, not merely inert-until-connect.
 
-- `Credential` (`types/credential.nim:27`) — `Credential(scheme:
-  asBearer)` compiles with an empty `bearerTok`.
-- `SessionEndpoint` (`types/session_endpoint.nim:27`) — `SessionEndpoint(kind:
-  …)` compiles with an empty URL.
-
-Both are *inert*: an empty bearer / empty URL fails at connect time
-on the `ClientError` rail, never silently reaching the wire. The
-decision per type is (a) accept-inert + document, or (b) reject the
-empty payload at the consuming boundary via `ValidationError`.
-Recommend (b) for `Credential` (a credential is security-sensitive
-and should not exist empty). Not freeze-blocking.
+The TODO's original recommendation (boundary-reject for `Credential`) is
+**superseded** by full-seal: it is strictly stronger (P16 — the illegal state
+cannot exist, vs caught on use), cheaper (no `ValidationError` plumbing at
+`initJmapClient` / `resolveEndpoint`, no new error variant), and unifies all
+three sealed sums. The Rule-3 justification for a public discriminator does not
+apply here: it governs `SetError` (whose payload arms are *public* and read
+externally via `case se.errorType of …: se.variantField`); `Credential` /
+`SessionEndpoint` already had *private* payload arms, so no external
+variant-field read needed the public discriminator. The sole cross-module
+discriminator read (`resolveEndpoint`) routes through the
+`asDirectUrl` / `asDiscoveryDomain` Opt-accessors, never a raw field, so it is
+unaffected. The two reject audits now assert the discriminator key itself is
+inaccessible (`treject_a20`/`treject_a21`), and `tcompile_a20a21_hub_surface`
+adds positive `not compiles(T(rawKind: …))` seal assertions; `scheme` / `kind`
+read sites are byte-identical (the accessor name equals the old field name). No
+wire/serde impact.
 
 ## Section B — Type-safety hardening
 
@@ -2215,59 +2227,122 @@ accessors. The wire form remains the RFC 8620 §2 boolean pair —
 `parseAccount` projects it onto the enum, `Account.toJson` emits both
 booleans from the enum.
 
-### B2. Sort-direction unification *(P18)* — ⬜ TODO
+### B2. Sort-direction unification *(P18)* — ✅ DONE
 
-Three sites currently use ad-hoc Bool / Opt[bool] for sort direction:
+`SortDirection { sdServerDefault, sdAscending, sdDescending }`
+(`framework.nim`, ordinal-0 = `sdServerDefault` so zero-init yields the RFC
+default) replaces the three divergent encodings, and the field is renamed
+`isAscending` → `direction` (the `is*` name is a lie on a 3-valued enum):
 
-- `src/jmap_client/internal/mail/email.nim` —
-  `EmailComparator.isAscending: Opt[bool]` (three-state via Opt adds
-  "absent" to true/false)
-- `src/jmap_client/internal/types/framework.nim` —
-  `Comparator.isAscending: bool` (two-state)
-- `src/jmap_client/internal/mail/email_submission.nim` —
-  `EmailSubmissionComparator.isAscending: bool` (two-state)
+- `Comparator.direction` (was `isAscending: bool`)
+- `EmailComparator.direction` (was `isAscending: Opt[bool]`)
+- `EmailSubmissionComparator.direction` (was `isAscending: bool`)
 
-Replace all three with
-`enum SortDirection { sdServerDefault, sdAscending, sdDescending }`.
-Three sites total — the inconsistency between them is itself a smell.
+The three states map exactly onto the optional `isAscending` wire key's three
+observable states, so the `bool`/`Opt[bool]` redundancy is gone. The wire
+mapping is a single shared L2 translation in `serde_helpers.nim`:
+`emitSortDirection` (`sdServerDefault` omits the key; the other two emit the
+boolean) and `sortDirectionFromWire` (absent → `sdServerDefault`). All three
+`serde` sites route through it. `Comparator.fromJson` keeps its strict
+wrong-kind `JBool` check; `emailComparatorFromJson` stays lenient.
 
-### B3. `Filter[foNot]` arity + `foAnd|foOr` non-empty *(P16)* — ⬜ TODO
+**Intended wire change.** `Comparator` and `EmailSubmissionComparator`
+previously *always* emitted `isAscending: true`; with the `sdServerDefault`
+default they now omit it (semantically identical per RFC 8620 §5.5 — absent ≡
+ascending — but byte-different). The affected wire-assertion tests were updated
+to expect the omission, plus a new test pins the explicit-`sdDescending`
+emission path. The ~25 caller/generator/serde test sites and the
+`tcompile_a1_public_surface.nim` audit were updated; the full fast suite passes.
 
-`src/jmap_client/internal/types/framework.nim:39–46`. RFC 8620 §5.5 says `foNot` MUST
-have exactly one child. The type currently allows
-`Filter(kind: fkOperator, operator: foNot, conditions: @[])` and
-`…, conditions: @[a, b])`. Encode as a separate inner discriminator:
+### B3. `Filter[foNot]` arity + `foAnd|foOr` non-empty *(P16)* — ✅ DONE
 
-```nim
-case operator: FilterOperator
-of foNot: child: Filter[C]
-of foAnd, foOr: conditions: NonEmptySeq[Filter[C]]
-```
+The TODO's literal inner-discriminator sketch is **infeasible** — a direct-value
+recursive `child: Filter[C]` field makes the type infinite-size and crashes Nim
+codegen, and reading an inner variant field through a nested `case` is rejected
+by `strictCaseObjects` Rule 4. The implemented shape (C1) is a flat **sealed**
+`Filter[C]` (`{.ruleOff: "objects".}`): the operator arm holds a module-private
+`rawOperands: NonEmptySeq[Filter[C]]` (so an empty operand list is
+unrepresentable at the type level), and the construction surface is three smart
+constructors that carry the arity:
 
-**RFC cross-check.** RFC 8620 §5.5 literal text: "FilterOperator is
-defined as a list of one or more `FilterOperator` or `FilterCondition`
-values." So the arity for `foAnd|foOr` is `>=1` (`NonEmptySeq`), not
-`>=2`. The `foNot` arity (exactly one) stays. If `>=2` is desired as
-a consumer-friendly tightening, document the choice in the type
-docstring with rationale.
+- `filterNot(child): Filter[C]` — exactly one child (single-argument; a
+  zero/multi-child NOT is not expressible).
+- `filterAnd(operands) / filterOr(operands): Result[Filter[C], ValidationError]`
+  — one or more (RFC 8620 §5.5 "one or more"; empty rejected).
 
-### B4. `VacationResponse` window invariant *(P16)* — ⬜ TODO
+`filterOperator` is **removed**. The public read accessor is
+`operands*[C](f): seq[Filter[C]]` (a copy; empty for a leaf). The wire is
+**byte-identical** (NOT still serialises as a one-element `conditions` array);
+`serde_framework.toJson` reads via `operands`, and `fromJson` now **tightens**:
+`NOT` with ≠1 children → `svkArrayLength`, empty `AND`/`OR` → `svkEmptyRequired`
+(Postel: reject the structurally invalid). Test churn (~10 files): `.conditions`
+reads → `operands`, `filterOperator` → the three constructors, the
+permissive-arity assertions in `tframework`/`tprop_framework`/`trfc_8620`/
+`tadversarial`/`tserde_framework` **inverted** to assert rejection, plus new
+fromJson NOT-arity rejection tests and a sealed-construction reject in
+`ttypesafety`. (Also fixed a pre-existing latent break in the skipped
+`tstress.nim` — it relied on `int.toJson` from `mserde_fixtures` without
+importing it.) Full fast suite passes.
 
-`src/jmap_client/internal/mail/vacation.nim` — `VacationResponse.fromDate:
-Opt[UTCDate]` and `toDate: Opt[UTCDate]` independent. `Opt.some(from) &&
-Opt.some(to) && from > to` is structurally allowed but RFC-forbidden.
-Smart-construct via `parseVacationResponse: Result`, or hold a single
-typed `Opt[VacationWindow] = (UTCDate, UTCDate)` whose constructor
-enforces the order.
+### B4. `VacationResponse` window invariant *(P16)* — ✅ DONE
 
-### B5. `registerExtractableEntity(T)` compile-check — ⬜ TODO
+Both literal options in the original framing are unsound and were rejected:
+(a) a fallible `parseVacationResponse` on the receive record violates Postel
+(`VacationResponse`/`PartialVacationResponse` are receive-only — the library
+must faithfully represent whatever the server sends); (b) a single
+`Opt[VacationWindow] = (UTCDate, UTCDate)` destroys RFC 8621 §8 fidelity —
+`fromDate`/`toDate` are *independently* nullable (from-only / to-only / neither
+are all legal). Additionally, `UTCDate` is a structurally-validated opaque
+string with no calendar semantics, so naive lexical `<` is temporally unsound
+(`"…01.5Z"` sorts before `"…01Z"` because `.` < `Z`).
 
-Mirror `registerSettableEntity` (`src/jmap_client/internal/protocol/entity.nim`)
-which already compile-checks `T.toJson` for /set entities. Add a
-template that compile-checks `T.fromJson(JsonNode):
-Result[T, SerdeViolation]` is in scope. Without it, `dispatch.get[T]`
-fails at instantiation, not registration — the error sites are
-distant and unhelpful.
+The implemented shape encodes the **honestly client-enforceable subset** (P16):
+a module-private *sound* structural comparator `utcInstantLeq` in `vacation.nim`
+(fixed 19-char prefix compared lexically == chronologically; the optional
+fractional part compared as a right-zero-padded digit string) feeds
+`windowOrderConflict`, which `initVacationResponseUpdateSet` folds into its
+existing accumulating error pass. A single batch that sets BOTH endpoints to
+concrete dates with `from > to` is rejected (`from == to` is a permitted
+degenerate window); single-endpoint batches stay unprotected because the server
+holds the other endpoint and is authoritative. The receive types, all serde,
+and the wire bytes are untouched — captured replay and round-trips pass
+unchanged. New `tvacation.nim` section D covers backward/forward/equal/
+single/cleared windows, the fractional-second soundness pair, and the
+window+duplicate co-occurrence (both error classes in one Err). The stale
+"§7" comments across `vacation.nim`/`serde_vacation.nim`/`mail_methods.nim`
+were corrected to the actual section (RFC 8621 §8).
+
+### B5. `registerExtractableEntity(T)` compile-check — ✅ DONE
+
+`registerExtractableEntity*(T)` in `entity.nim` mirrors
+`registerQueryableEntity`'s serde probe: `when not compiles(fromJson(T,
+default(JsonNode)))` → a domain-specific `{.error.}` naming the entity. It is
+called after `registerJmapEntity` for the five full read-model entities
+(`Thread`, `Identity`, `Mailbox`, `Email`, `AnyEmailSubmission`) in
+`mail_entities.nim`, which now imports `serde_thread`/`serde_identity`/
+`serde_mailbox`/`serde_email` (and already had `serde_email_submission`) so each
+entity's `fromJson` is in scope — the same pattern `registerQueryableEntity`
+uses for the filter-`toJson` probe. The imports stay hub-private (A1d).
+
+**Post-A1c reconciliation.** `dispatch.get` now invokes the resolver closure
+captured in `initResponseHandle`; the resolver body is `T.fromJson(args)`, so
+`fromJson` is still the checkpoint. B5 moves the failure from the distant
+`initResponseHandle[GetResponse[T]]` instantiation inside `addGet` to the
+registration line.
+
+**Scope — full entities only.** The getter-only `Partial*` projections (A3.6)
+are deliberately not gated: the `compiles` probe spuriously drags in the generic
+`FieldEcho.fromJson` candidate for their `FieldEcho`/`Opt` fields, yielding a
+false-negative for a parser that demonstrably resolves at the real
+`GetResponse[Partial*]` builder instantiation (and is exercised by the captured
+and property tests). Bespoke non-entity responses (`EmailParse`,
+`SearchSnippet/get`) and the singleton `VacationResponse` are likewise checked
+locally where their builders live. The template docstring records this.
+
+**Tests.** `tentity.nim` gains a positive mock (`MockExtractable` with a valid
+`fromJson`) and a negative `assertNotCompiles(registerExtractableEntity(MockFoo))`;
+`tcompile_a1b_protocol_hub_surface.nim` asserts `declared(registerExtractableEntity)`;
+the `entity.nim` entity-module checklist docstring gains the new step.
 
 ### B6. Other illegal-state findings (lower severity) — ⬜ TODO
 
@@ -2275,98 +2350,138 @@ The Account read-only/write-implying-capability illegal state is
 addressed under B12 (smart-constructor silent-drop). Reserved for
 future low-severity findings; none currently outstanding.
 
-### B7. `mail_filters.nim` Opt[bool] → three-state enums *(P18)* — ⬜ TODO
+### B7. `mail_filters.nim` Opt[bool] → three-state enums *(P18)* — ✅ DONE
 
-`src/jmap_client/internal/mail/mail_filters.nim:32, 33, 91` — three-state
-`Opt[bool]` filter fields. Each becomes a named three-state enum:
+The three `Opt[bool]` filter fields in
+`src/jmap_client/internal/mail/mail_filters.nim` are now named three-state
+enums whose **zero value is the no-constraint state**, so `default(T)` and the
+zero-init `MailboxFilterCondition()` / `EmailFilterCondition()` paths preserve
+the prior "omit the key" behaviour exactly:
 
 ```nim
-type HasAnyRoleFilter* = enum hrfRequireAny, hrfRequireNone, hrfNoConstraint
-type SubscriptionFilter* = enum sfSubscribed, sfNotSubscribed, sfNoConstraint
-type HasAttachmentFilter* = enum hafYes, hafNo, hafNoConstraint
+type HasAnyRoleFilter* = enum hrfNoConstraint, hrfRequireAny, hrfRequireNone
+type SubscriptionFilter* = enum sfNoConstraint, sfSubscribed, sfNotSubscribed
+type HasAttachmentFilter* = enum hafNoConstraint, hafYes, hafNo
 ```
 
-`hasAnyRole: Opt[bool]` → `hasAnyRole: HasAnyRoleFilter`;
-`isSubscribed: Opt[bool]` → `isSubscribed: SubscriptionFilter`;
-`hasAttachment: Opt[bool]` → `hasAttachment: HasAttachmentFilter`.
+`MailboxFilterCondition.hasAnyRole: HasAnyRoleFilter`,
+`MailboxFilterCondition.isSubscribed: SubscriptionFilter`, and
+`EmailFilterCondition.hasAttachment: HasAttachmentFilter`. The enums are
+hub-public (they are filter-builder inputs). `serde_mail_filters.nim` emits via
+an exhaustive `case` (no-constraint → omit; the other two → the RFC boolean) —
+adding a variant forces a compile error at the emit site. All call sites
+updated: the serde test (`tserde_mail_filters.nim`), the property generator and
+reader (`mproperty.genEmailFilterCondition`, `tprop_mail_d.nim`), and two live
+tests.
 
-Default value for each is `*NoConstraint` so the default behaviour is
+### B8. `Identity.mayDelete` → enum *(P18)* — ✅ DONE
+
+`DeleteAuthority` (`daUnreported`, `daYes`, `daNo` — zero value is the
+"server did not say" state) replaces the bool/`Opt[bool]` encoding of
+`mayDelete` on the two server-authoritative Identity shapes:
+
+- `Identity.mayDelete: DeleteAuthority` (was `bool`). The receive parser is
+  now lenient on an absent `mayDelete` — Stalwart 0.15.5 elides it, and the
+  prior `bool`/`getBool(false)` silently collapsed the omission to "may NOT
+  delete", a security-relevant misreport. It now yields `daUnreported`.
+- `IdentityCreatedItem.mayDelete: DeleteAuthority` (was `Opt[bool]`), the
+  Identity/set `created[cid]` server-set subset.
+
+`PartialIdentity.mayDelete` stays `Opt[bool]`: in a sparse projection the
+`Opt` already carries the third state (`Opt.none` = not in this projection),
+so `daUnreported` would be a redundant fourth state — documented inline.
+`serde_identity.nim` gains shared `parseMayDelete` / `emitMayDelete` helpers
+(lenient on absence, strict on wrong kind; `daUnreported` omits the key); the
+`MailboxRights.mayDelete` ACL flag (a documented P18 exception) is untouched.
+The `fromJsonMissingMayDelete` test now asserts the lenient `daUnreported`
+outcome rather than a parse failure.
+
+### B9. Consolidate the handle-pair zoo *(P9)* — ✅ DONE
+
+**Resolution: (b-clean).** The decisive asymmetry: `ChainedHandles` (RFC 8620
+§3.7 back-reference, two *distinct* call-ids) is reducible to two independent
+`dr.get` calls, so the generic earns nothing; `CompoundHandles` (§5.4, one
+*shared* call-id) is **not** reducible — its `implicit` is a `NameBoundHandle`
+whose method-name filter only a builder can mint (`initNameBoundHandle` is
+hub-private). Merge-to-`HandlePair` (option a) was rejected: it forces a generic
+case object under `strictCaseObjects`, renames `CompoundResults.primary/implicit`
+across ~14 sites, and breaks the domain aliases — all to buy nothing.
+
+So the single-use generic `Chained*` plumbing was **deleted outright** (no dead
+code): `ChainedHandles`, `ChainedResults`, the `getBoth(ChainedHandles)`
+overload, `registerChainableMethod`, and the three `registerChainableMethod(…)`
+calls are gone. Its one consumer — `EmailQuerySnippetChain` (formerly a
+`ChainedHandles` alias) — is now a **bespoke record co-located with its
+builder** in `mail_methods.nim`, with an `EmailQuerySnippetResults` and a
+co-located `getBoth`, exactly mirroring the existing `EmailQueryThreadChain`
+precedent (`mail_builders.nim`). The hub now exposes exactly two paired-handle
+context types: `CompoundHandles` / `CompoundResults` (P9 satisfied). Wire and
+serde are untouched (the handle types carry only captured `ParseProc` closures).
+`tcompile_a1b_protocol_hub_surface.nim` flips `Chained*` /
+`registerChainableMethod` from positive to `not declared`; the snippets live
+test reads `pair.query` / `pair.snippets`. Full fast suite passes.
+
+### B10. `lent` annotation pass on handle accessors *(P12)* — ✅ DONE
+
+Fourteen raw-field-passthrough accessors that return a container now return
+`lent T`, encoding the borrow in the signature (P12) and removing a per-call
+deep copy; each carries a borrow-contract docstring note:
+
+- `Session.accounts` / `primaryAccounts`, `Account.accountCapabilities`,
+  `UriTemplate.parts` / `variables`, `CoreCapabilities.collationAlgorithms`,
+  `MailAccountCapabilities.emailQuerySortOptions`, `Thread.emailIds`,
+  `EmailBlueprint.extraHeaders` (the user-facing read-model accessors), plus
+  the hub-internal wire/lifecycle accessors `Response.methodResponses`
+  (the strongest case — `dispatch` scans it on every extraction),
+  `Request.methodCalls` / `using`, `BuiltRequest.callLimits`, and the three
+  `MailboxChangesResponse` change-field forwarders.
+
+**The punch-list was corrected.** Two of the originally-named targets —
+`Session.capabilities` and `RequestBuilder.capabilities` — are **computed**
+accessors (`@[coreCap] & rawAdditional`; `capabilityUris.mapIt($it)`) that build
+a fresh local container, so `lent` would dangle (compile error) — they correctly
+stay by-value. (`RequestBuilder.capabilities` also returns `seq[string]`, not
+`seq[CapabilityUri]`.) The sealed Pattern-A projection accessors
+(`toSeq`/`toTable`/`toHashSet`, A8 §7) are deliberately left by-value — they
+return defensive copies. Callers are all read-only (`len`/`[]`/`hasKey`/
+`in`/`==`/`for`/`withValue`/owned-copy `let`), so none break — the existing
+session/serde/envelope/property suites are the regression surface and pass
 unchanged.
 
-### B8. `Identity.mayDelete` → enum *(P18)* — ⬜ TODO
+### B11. `Email[Lite | Hydrated]` phantom decision *(P16)* — ❌ DROPPED (premise invalid)
 
-`src/jmap_client/internal/mail/identity.nim` and
-`src/jmap_client/internal/mail/mail_entities.nim` `mayDelete: Opt[bool]` —
-three-state via Opt encodes "Stalwart omits the field". Replace with:
+**The premise is factually wrong against RFC 8621, so both options are
+rejected.** The claimed invariant `bodyValues.len>0 ⇒ bodyStructure.isSome`
+does not exist: `bodyValues` IS a default Email/get property and `bodyStructure`
+is NOT (RFC 8621 §4.2 default-property set), and `bodyValues` partIds reference
+parts in any of `textBody` / `htmlBody` / `bodyStructure` (§4.1.4) — and
+`textBody`/`htmlBody` are defaults. So "bodyValues populated + bodyStructure
+absent" is the **normal, RFC-mandated default shape** for the single most common
+fetch (reading an email's text), not a server bug. The library's own
+`addEmailGet` sends no property filter, so a conformant server returns the
+default set (no `bodyStructure`) for **every** full-record `Email`. A captured
+Stalwart fixture (`tcaptured_email_multipart_alternative`) already exhibits the
+state.
 
-```nim
-type DeleteAuthority* = enum daYes, daNo, daUnreported
-```
+- **(a) phantom `Email[Lite|Hydrated]`** — rejected: unnecessary (the state is
+  not incoherent) and propagates a marker through every `Email` consumer.
+- **(b) reject `parseEmail`** — rejected, and actively harmful:
+  `GetResponse[Email].fromJson` aborts the whole list on any per-entry `err`
+  (→ `MethodError(serverFail)`), so a reject would fail
+  `addEmailGet(..., fetchBodyValues=bvsText)` on conformant servers, and would
+  directly contradict the shipped **A3** decision ("a sparse fetch cannot drive
+  the Email parser to `MethodError`"). The parser is correctly lenient (A3.6 /
+  Postel).
 
-Document the Stalwart workaround in the type docstring.
-
-### B9. Consolidate the handle-pair zoo *(P9)* — ⬜ TODO (FREEZE-BLOCKING)
-
-`internal/protocol/dispatch.nim` (`CompoundHandles`, `ChainedHandles`) — `CompoundHandles[A, B]`,
-`CompoundResults[A, B]`, `ChainedHandles[A, B]`, `ChainedResults[A, B]`
-are four context types serving the single concept "a typed reference
-into a response, paired". P9's "two context types per concept" cap is
-breached.
-
-**Resolution choice.**
-
-- **(a)** Merge `CompoundHandles` and `ChainedHandles` into a single
-  `HandlePair[A, B]` with a `kind: HandlePairKind` tag; same for
-  `Results`. Caller-side ergonomics shift slightly.
-- **(b)** Demote two of the four (e.g. `Chained*`) as private; expose
-  the other two only.
-
-**Resolution (freeze gate).** This decision is freeze-blocking — the
-four-type zoo cannot ship in 1.0. Pick the option whose call-site
-cost is lower at the API surface that the headline layer exposes.
-Default recommendation: **(b)**, demote `Chained*` as
-internal — the principle of "one concept, one type" outweighs minor
-caller flexibility. Lock the choice in a B9 sub-section with the
-rationale before tagging 1.0. If (a) is picked instead, record the
-`HandlePairKind` enum in `tests/wire_contract/type-shapes.txt` (A25).
-
-### B10. `lent` annotation pass on handle accessors *(P12)* — ⬜ TODO
-
-P12 says ownership in the type. Today every accessor that returns a
-container deep-copies on each call. Annotate:
-
-- `Session.accounts*`, `primaryAccounts*`, `capabilities*` — `lent T`
-- `RequestBuilder.capabilities*` — `lent seq[CapabilityUri]`
-- `UriTemplate.parts*`, `variables*` — `lent T`
-
-Cross-cutting pattern: any handle accessor whose return value is a
-container (`Table`, `seq`, `HashSet`) gets `lent`. Verify ownership
-contracts are documented for each.
-
-### B11. `Email[Lite | Hydrated]` phantom decision *(P16)* — ⬜ TODO (FREEZE-BLOCKING)
-
-`Email.bodyValues: Table[PartId, EmailBodyValue]` is populated only
-when a `bodyStructure` is requested. The combination "bodyValues
-populated + bodyStructure absent" is structurally allowed but server-
-incoherent.
-
-**Resolution choice.**
-
-- **(a)** Phantom-typed states `Email[Lite]` (no body fetched),
-  `Email[Hydrated]` (body fetched). `addEmailGet` returns the right
-  variant based on properties requested.
-- **(b)** Smart constructor `parseEmail` enforces
-  `bodyValues.len > 0 ⇒ bodyStructure.isSome`. Reject the incoherent
-  state.
-
-**Resolution (freeze gate).** Default recommendation: **(b)**, smart
-constructor — phantom-typed `Email[State]` propagates through every
-API consuming an `Email`, multiplying the surface for marginal
-benefit (the incoherent state arises only from server bugs). The
-smart constructor approach concentrates the check at the parse
-boundary. Lock the choice; document the parse-time rejection
-behaviour (`MethodError` vs lenient drop) in the B11 body before
-tagging 1.0.
+**Resolution.** Encode no precondition (P16 done right — a precondition that does
+not exist must not be encoded). The corrective applied is: the
+`Email.bodyValues` / `ParsedEmail.bodyValues` docstrings now state the actual
+referential relationship and that the absent-`bodyStructure` shape is coherent
+(citing §4.1.4 / §4.2), and the serde regression gate
+`fromJsonBodyValuesWithoutBodyStructureIsCoherent`
+(`tserde_email.nim`) locks acceptance of the shape so the false invariant cannot
+be reintroduced. `PartialEmail` already models the two fields independently
+(`FieldEcho` / `Opt`) and needs no coupling either.
 
 ### B12. `Account[ReadOnly | ReadWrite]` decision *(P16)* — ✅ DONE
 
@@ -3050,8 +3165,8 @@ Categories:
 - **Mechanical gates** — CI lints that must pass (H1–H13).
 - **Snapshot gates** — frozen files committed (A25, A26, F6,
   plus A10a `tests/wire_contract/module-paths.txt`).
-- **Decision gates** — open choices that must be resolved (B9, B11,
-  D4 devendor; A3.5 and B12 are already resolved/done).
+- **Decision gates** — open choices that must be resolved (D4 devendor;
+  A3.5, B9, and B12 are done, B11 dropped).
 - **Test gates** — property tests that must exist (F1, A2b,
   A28b); diagnostic-format snapshot (A12 / H15) already in place.
 
@@ -3207,30 +3322,29 @@ public *behaviours* the other three miss:
 Each becomes a fixture-driven test under `tests/behavioural/`. Any
 change to observed output requires explicit review.
 
-### F6. Re-export hub snapshot diff in CI *(P1, P5)* — ⬜ TODO
+### F6. Re-export hub snapshot diff in CI *(P1, P5)* — ✅ DONE
 
-A26 names the snapshot but not the CI step. Without a named
-mechanical gate, the snapshot rots silently — committers regenerate
-it without scrutiny on every PR.
+A26 names the snapshot; F6 is the CI step that makes it a gate.
 
-**Action.** Add a `just freeze-api` recipe that produces
-`tests/wire_contract/public-api.txt` from the symbols reachable
-through the two public module paths — `import jmap_client` and
-`import jmap_client/convenience` (A10). CI step:
+**Implementation.** Rather than regenerate-then-`git diff` (which
+relies on the committer having regenerated), the gate is a self-checking
+lint: `just lint-public-api` runs `tests/lint/h16_public_api_snapshot.nim`,
+which recomputes the surface in-memory via `api_surface.snapshotLines()`
+and compares it against the committed `tests/wire_contract/public-api.txt`
+bidirectionally — a removed symbol and an added symbol both fail. On a
+mismatch the lint prints the exact `+`/`-` symbol diff and the fix-it
+(`just freeze-api`; `[API-CHANGE]` PR label), then exits non-zero. Wired
+into both `check` and `ci`. The companion `lint-type-shapes` (H17) gates
+A25 the same way; D3 wire fixtures gate with `[WIRE-CHANGE]`.
 
-```yaml
-- name: API snapshot diff
-  run: |
-    just freeze-api
-    if ! git diff --quiet tests/wire_contract/public-api.txt; then
-      echo "::error::Public API surface changed."
-      echo "Add [API-CHANGE] to the PR title and commit the snapshot."
-      exit 1
-    fi
-```
+Because the generator (`scripts/freeze_public_api.nim`) and the lint share
+`snapshotLines()`, a contributor cannot regenerate a snapshot the lint
+would then reject — the two are the same computation.
 
-PR title must contain `[API-CHANGE]` (or `[TYPE-SHAPE-CHANGE]` for
-A25, or `[WIRE-CHANGE]` for D3) before the diff is allowed to merge.
+**Pointers.**
+- `tests/lint/h16_public_api_snapshot.nim` — H16 lint (the gate).
+- `justfile` — `lint-public-api` / `freeze-api` recipes; both wired into
+  `check` and `ci`.
 
 ### F7. Coverage-trace consistency check *(P1, P2)* — ⬜ TODO
 
@@ -3613,7 +3727,7 @@ Status legend:
 | P13 (one error rail) | A6, A12 | H8 `.get()` invariant lint; H15 snapshot lint (A12) | 🟡 |
 | P14 (no thread-local errors) | A9 (no `last*` state on handle), A19 (`HttpResponse` returned by value, not stashed on Transport), D10, H3, H12 | H3 lint; H12 lint | 🟡 |
 | P15 (smart constructors) | A8 (sealed Pattern-A objects across every public value-carrying type + `IdOrCreationRef` + 3 internal), A12 (library-internal error constructors filtered off the hub), A15 (sealed `SerializedSort` / `SerializedFilter`; no JsonNode-keyed argument-construction shims on the public surface; `directIds` is the sole helper), A19 (`newTransport`, `newHttpTransport` Result-returning), A30 (Pattern-A `Request` and `Response` with `initX` / `parseX` smart constructors), A30b (whole envelope surface demoted off the hub; `Referencable`, `SubmissionParam` + `NotifySet`, and `NonEmptyRcptList` sealed; closed-A8 enumeration), H1, H1b | testament reject tests `treject_a8_sealed_external_construction.nim` + `treject_submissionparam_notify_construction.nim`; A12 compile audits; A1b compile audit `doAssert not declared(initCreates)` lock; A30 envelope-demotion compile audits; H1 + H1b lints (regression prevention) | 🟢 |
-| P16 (preconditions in types) | A6, A6.5, A6.6, A7b, A7c, A7d, A29, B3, B4, B6, B11, B12 | H9; B11 resolution; A7c testament `action: reject` test | 🔴 (B11 open) |
+| P16 (preconditions in types) | A6, A6.5, A6.6, A7b, A7c, A7d, A29, B3, B4, B6, B12 | H9; A7c testament `action: reject` test; B11 dropped (premise invalid — RFC 8621 §4.2 makes `bodyValues` the default, so the phantom split it proposed is unsound) | 🟡 (only B6 lower-severity findings open) |
 | P17 (one config surface) | A14, A19 (HTTP config on `newHttpTransport` only), A20, A21 | review; F6 snapshot; sealed `SessionEndpoint`/`Credential` (A20/A21); `treject_a20`/`treject_a21` reject audits | 🟡 |
 | P18 (sum types over flag soup) | A6, A12, B1, B2, B7, B8, H9 | H9 catch-all lint; A12 exhaustive `case` in `SetError.message` / `TransportError.message` / mail extractors | 🟡 |
 | P19 (schema-driven types) | A2, A2b, A3, A3.5, A4, A5, A14, A15, A16, A17, A18, A21, A22, A22b, A28, A28b, A30, H14 | H11 typed-builder lint (A5); A22b inline docstrings; F1; A1b compile audit (A30 negative for raw construction) | 🟡 |
