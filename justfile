@@ -453,6 +453,43 @@ lint-error-messages:
     nim r --hints:off --warnings:off tests/lint/h15_error_message_snapshot.nim
     @echo "H15 error-message snapshot lint passed"
 
+# Regenerate the public-API surface snapshot (A26/F6). Developer convenience
+# for legitimate surface changes — review the diff before committing and tag
+# the PR [API-CHANGE]. CI does not run this recipe.
+freeze-api:
+    @echo "Regenerating tests/wire_contract/public-api.txt..."
+    @mkdir -p tests/wire_contract
+    nim r --hints:off --warnings:off scripts/freeze_public_api.nim \
+      > tests/wire_contract/public-api.txt.new
+    @mv tests/wire_contract/public-api.txt.new tests/wire_contract/public-api.txt
+    @echo "Snapshot regenerated. Review the diff before committing."
+
+# H16 public-API snapshot lock lint. Backs A26/F6 (P1, P5, P2). The symbols
+# reachable through `import jmap_client` / `import jmap_client/convenience`
+# must match tests/wire_contract/public-api.txt exactly.
+lint-public-api:
+    @echo "Running H16 public-API snapshot lint..."
+    nim r --hints:off --warnings:off tests/lint/h16_public_api_snapshot.nim
+    @echo "H16 public-API snapshot lint passed"
+
+# Regenerate the public-type-shape snapshot (A25/A25b). Developer convenience
+# for legitimate type-shape changes — review the diff before committing and tag
+# the PR [TYPE-SHAPE-CHANGE]. CI does not run this recipe.
+freeze-type-shapes:
+    @echo "Regenerating tests/wire_contract/type-shapes.txt..."
+    @mkdir -p tests/wire_contract
+    nim r --hints:off --warnings:off scripts/freeze_type_shapes.nim \
+      > tests/wire_contract/type-shapes.txt.new
+    @mv tests/wire_contract/type-shapes.txt.new tests/wire_contract/type-shapes.txt
+    @echo "Snapshot regenerated. Review the diff before committing."
+
+# H17 type-shape snapshot lock lint. Backs A25 (P1, P2). The public-field
+# signature of every public type must match tests/wire_contract/type-shapes.txt.
+lint-type-shapes:
+    @echo "Running H17 type-shape snapshot lint..."
+    nim r --hints:off --warnings:off tests/lint/h17_type_shape_snapshot.nim
+    @echo "H17 type-shape snapshot lint passed"
+
 # Static analysis with nimalyzer
 analyse:
     @echo "Running static analysis..."
@@ -463,7 +500,7 @@ analyse:
 analyze: analyse
 
 # Run all code quality checks
-check: fmt-check lint lint-isolated lint-style lint-internal-boundary lint-typed-builder-jsonnode lint-sealed-distinct lint-fallible-ctor-public-arm lint-h12-no-test-backdoors lint-module-paths lint-error-messages analyse
+check: fmt-check lint lint-isolated lint-style lint-internal-boundary lint-typed-builder-jsonnode lint-sealed-distinct lint-fallible-ctor-public-arm lint-h12-no-test-backdoors lint-module-paths lint-error-messages lint-public-api lint-type-shapes analyse
     @echo "All quality checks passed"
 
 # =============================================================================
@@ -477,7 +514,7 @@ reuse:
     @echo "REUSE compliance check passed"
 
 # Run full CI pipeline locally (mirrors .github/workflows/ci.yml)
-ci: reuse fmt-check lint lint-isolated lint-style lint-internal-boundary lint-typed-builder-jsonnode lint-sealed-distinct lint-fallible-ctor-public-arm lint-h12-no-test-backdoors lint-module-paths lint-error-messages analyse test
+ci: reuse fmt-check lint lint-isolated lint-style lint-internal-boundary lint-typed-builder-jsonnode lint-sealed-distinct lint-fallible-ctor-public-arm lint-h12-no-test-backdoors lint-module-paths lint-error-messages lint-public-api lint-type-shapes analyse test
     @echo ""
     @echo "============================================"
     @echo "All CI checks passed!"
