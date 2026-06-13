@@ -362,7 +362,7 @@ testCase addEmailQueryCollapseThreadsDefault:
 
 testCase addEmailQueryWithSort:
   ## Scenario 81: EmailComparator sort serialised correctly.
-  let comp = plainComparator(pspReceivedAt, isAscending = Opt.some(false))
+  let comp = plainComparator(pspReceivedAt, direction = sdDescending)
   let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = b0.addEmailQuery(makeAccountId("a1"), sort = Opt.some(@[comp]))
   let req = b1.freeze().request

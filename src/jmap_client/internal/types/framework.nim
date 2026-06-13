@@ -39,22 +39,67 @@ type FilterKind* = enum
   fkCondition
   fkOperator
 
-type Filter*[C] = object
+type Filter*[C] {.ruleOff: "objects".} = object
   ## Recursive filter tree parameterised by condition type C (RFC 8620 §5.5).
+  ## The operator arm is sealed (P16): ``rawOperands`` is module-private and
+  ## only reachable through the non-empty smart constructors, so an empty
+  ## operand list is unrepresentable. ``foNot`` is held to exactly one operand
+  ## by ``filterNot`` (its only constructor); ``foAnd`` / ``foOr`` take one or
+  ## more via ``filterAnd`` / ``filterOr``. A direct-value recursive single
+  ## child field is impossible (it makes the type infinite-size and crashes
+  ## codegen), so the one-or-many distinction is carried by the constructors,
+  ## not a second discriminator.
   case kind*: FilterKind
   of fkCondition:
     condition*: C
   of fkOperator:
-    operator*: FilterOperator
-    conditions*: seq[Filter[C]]
+    operator*: FilterOperator ## the boolean operator (AND, OR, NOT)
+    rawOperands: NonEmptySeq[Filter[C]] ## module-private; ≥1 guaranteed by type
 
 func filterCondition*[C](cond: C): Filter[C] =
   ## Wraps a condition value as a leaf filter node.
   return Filter[C](kind: fkCondition, condition: cond)
 
-func filterOperator*[C](op: FilterOperator, conditions: seq[Filter[C]]): Filter[C] =
-  ## Composes child filters under a boolean operator (AND, OR, NOT).
-  return Filter[C](kind: fkOperator, operator: op, conditions: conditions)
+func operands*[C](f: Filter[C]): seq[Filter[C]] =
+  ## The child filters of an operator node; an empty seq for a leaf condition
+  ## (callers should ``case`` on ``kind`` first). Returns a copy — the sealed
+  ## ``rawOperands`` is never aliased out.
+  case f.kind
+  of fkCondition:
+    @[]
+  of fkOperator:
+    asSeq(f.rawOperands)
+
+func filterNot*[C](child: Filter[C]): Filter[C] =
+  ## Negation filter (RFC 8620 §5.5) — NOT has exactly one child. Infallible:
+  ## ``@[child]`` has length 1, so ``parseNonEmptySeq`` cannot Err here.
+  Filter[C](
+    kind: fkOperator, operator: foNot, rawOperands: parseNonEmptySeq(@[child]).get()
+  )
+
+func filterAnd*[C](operands: openArray[Filter[C]]): Result[Filter[C], ValidationError] =
+  ## Conjunction filter (RFC 8620 §5.5) — AND is one or more conditions.
+  ## Rejects an empty operand list.
+  let nes = ?parseNonEmptySeq(@operands)
+  ok(Filter[C](kind: fkOperator, operator: foAnd, rawOperands: nes))
+
+func filterOr*[C](operands: openArray[Filter[C]]): Result[Filter[C], ValidationError] =
+  ## Disjunction filter (RFC 8620 §5.5) — OR is one or more conditions.
+  ## Rejects an empty operand list.
+  let nes = ?parseNonEmptySeq(@operands)
+  ok(Filter[C](kind: fkOperator, operator: foOr, rawOperands: nes))
+
+type SortDirection* = enum
+  ## Sort direction for a /query ``Comparator`` (RFC 8620 §5.5). The three
+  ## states map exactly onto the three observable states of the optional
+  ## ``isAscending`` wire key, replacing the prior ``bool`` / ``Opt[bool]``
+  ## soup (P18; "booleans are a code smell"): ``sdServerDefault`` omits the
+  ## key (the server applies its RFC default, ascending); ``sdAscending``
+  ## emits ``true``; ``sdDescending`` emits ``false``. ``sdServerDefault``
+  ## stays first (ordinal 0) so zero-initialisation yields the RFC default.
+  sdServerDefault
+  sdAscending
+  sdDescending
 
 type Comparator* {.ruleOff: "objects".} = object
   ## Sort criterion for /query requests (RFC 8620 §5.5). Determines the
@@ -64,7 +109,7 @@ type Comparator* {.ruleOff: "objects".} = object
   ## ``rawProperty`` is module-private, blocking direct construction
   ## from outside this module. Use ``parseComparator`` to construct.
   rawProperty: PropertyName ## module-private; validated PropertyName
-  isAscending*: bool ## true = ascending (RFC default)
+  direction*: SortDirection ## sort direction (RFC 8620 §5.5 ``isAscending``)
   collation*: Opt[CollationAlgorithm] ## RFC 4790 collation algorithm identifier
 
 func property*(c: Comparator): PropertyName =
@@ -73,12 +118,11 @@ func property*(c: Comparator): PropertyName =
 
 func parseComparator*(
     property: PropertyName,
-    isAscending: bool = true,
+    direction: SortDirection = sdServerDefault,
     collation: Opt[CollationAlgorithm] = Opt.none(CollationAlgorithm),
 ): Comparator =
   ## Constructs a Comparator. Infallible given a valid PropertyName.
-  return
-    Comparator(rawProperty: property, isAscending: isAscending, collation: collation)
+  return Comparator(rawProperty: property, direction: direction, collation: collation)
 
 type AddedItem* {.ruleOff: "objects".} = object
   ## An item added to query results at a specific position (RFC 8620 §5.6).

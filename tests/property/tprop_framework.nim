@@ -47,10 +47,10 @@ testCase propFilterOperatorLaw:
     let c2 = filterCondition(rng.rand(int))
     lastInput = $c1.condition & ", " & $c2.condition
     let children = @[c1, c2]
-    let f = filterOperator[int](foAnd, children)
+    let f = filterAnd(children).get()
     doAssert f.kind == fkOperator
     doAssert f.operator == foAnd
-    doAssert f.conditions.len == 2
+    doAssert f.operands.len == 2
 
 testCase propReferencableDirectLaw:
   checkProperty "direct preserves value":
@@ -70,7 +70,7 @@ testCase propReferencableRefLaw:
 testCase propComparatorDefaults:
   let pn = parsePropertyName("name").get()
   let c = parseComparator(pn)
-  doAssert c.isAscending == true
+  doAssert c.direction == sdServerDefault
   doAssert c.collation.isNone
 
 # --- Additional properties ---
@@ -111,7 +111,7 @@ testCase propFilterStructuralRecursion:
         discard
       of fkOperator:
         doAssert f.operator in {foAnd, foOr, foNot}
-        for c in f.conditions:
+        for c in f.operands:
           verify(c)
 
     verify(f)
@@ -142,7 +142,7 @@ testCase propFilterConstructionTotality:
         discard f.condition
       of fkOperator:
         discard f.operator
-        for c in f.conditions:
+        for c in f.operands:
           walk(c)
 
     walk(f)
@@ -154,24 +154,22 @@ testCase propComparatorAlwaysOk:
     let s = genValidPropertyName(rng, trial)
     lastInput = s
     let pn = parsePropertyName(s).get()
-    let asc = rng.rand(0 .. 1) == 0
-    discard parseComparator(pn, asc)
+    let direction = rng.oneOf([sdServerDefault, sdAscending, sdDescending])
+    discard parseComparator(pn, direction)
 
-# --- Filter operator arity ---
+# --- Filter operator arity (B3, RFC 8620 §5.5) ---
 
-testCase propFilterNotWithMultipleChildren:
-  ## Layer 1 does not validate NOT arity; accepts any child count.
-  let c1 = filterCondition(1)
-  let c2 = filterCondition(2)
-  let f = filterOperator[int](foNot, @[c1, c2])
+testCase propFilterNotIsSingleChild:
+  ## NOT has exactly one child — ``filterNot`` is single-argument, so a
+  ## multi-child NOT cannot be constructed.
+  let f = filterNot(filterCondition(1))
   doAssert f.kind == fkOperator
-  doAssert f.conditions.len == 2
+  doAssert f.operands.len == 1
 
-testCase propFilterEmptyConditions:
-  ## Layer 1 accepts empty conditions for any operator.
-  let f = filterOperator[int](foAnd, @[])
-  doAssert f.kind == fkOperator
-  doAssert f.conditions.len == 0
+testCase propFilterEmptyConditionsRejected:
+  ## AND/OR reject an empty operand list (one or more required).
+  assertErr filterAnd(newSeq[Filter[int]]())
+  assertErr filterOr(newSeq[Filter[int]]())
 
 # --- Filter well-formedness ---
 
@@ -185,17 +183,25 @@ testCase propFilterWellFormed:
       of fkCondition:
         true
       of fkOperator:
-        f.operator in {foAnd, foOr, foNot} and f.conditions.allIt(check(it))
+        f.operator in {foAnd, foOr, foNot} and f.operands.allIt(check(it))
 
     doAssert check(f)
 
 testCase propFilterOperatorPreserved:
-  ## Operator enum value survives construction.
+  ## Operator enum value survives construction. Each operator routes through
+  ## its dedicated single-arity constructor.
   checkProperty "propFilterOperatorPreserved":
     let op = [foAnd, foOr, foNot][rng.rand(0 .. 2)]
     lastInput = $op
     let c = filterCondition(rng.rand(int))
-    let f = filterOperator[int](op, @[c])
+    let f =
+      case op
+      of foNot:
+        filterNot(c)
+      of foAnd:
+        filterAnd(@[c]).get()
+      of foOr:
+        filterOr(@[c]).get()
     doAssert f.operator == op
 
 testCase propUriTemplatePostConstructionLen:
@@ -244,16 +250,16 @@ testCase propAddedItemTotality:
 testCase propFilterNotInvolution:
   checkPropertyN "NOT(NOT(f)) is structurally a double-NOT wrapping f", QuickTrials:
     let f = genFilter(rng, 3)
-    let doubleNot = filterOperator[int](foNot, @[filterOperator[int](foNot, @[f])])
+    let doubleNot = filterNot(filterNot(f))
     ## Verify outer structure: operator, foNot, one child.
     doAssert doubleNot.kind == fkOperator
     doAssert doubleNot.operator == foNot
-    doAssert doubleNot.conditions.len == 1
+    doAssert doubleNot.operands.len == 1
     ## Verify inner structure: operator, foNot, one child wrapping original.
-    let inner = doubleNot.conditions[0]
+    let inner = doubleNot.operands[0]
     doAssert inner.kind == fkOperator
     doAssert inner.operator == foNot
-    doAssert inner.conditions.len == 1
+    doAssert inner.operands.len == 1
     ## Verify the wrapped filter matches the original.
     proc structEq(a, b: Filter[int]): bool =
       ## Recursive structural equality for Filter[int] trees.
@@ -265,11 +271,11 @@ testCase propFilterNotInvolution:
       of fkOperator:
         if a.operator != b.operator:
           return false
-        if a.conditions.len != b.conditions.len:
+        if a.operands.len != b.operands.len:
           return false
-        for i in 0 ..< a.conditions.len:
-          if not structEq(a.conditions[i], b.conditions[i]):
+        for i in 0 ..< a.operands.len:
+          if not structEq(a.operands[i], b.operands[i]):
             return false
         true
 
-    doAssert structEq(inner.conditions[0], f), "double-NOT inner does not wrap original"
+    doAssert structEq(inner.operands[0], f), "double-NOT inner does not wrap original"

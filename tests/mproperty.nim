@@ -470,18 +470,27 @@ proc genLongArbitraryString*(rng: var Rand, trial: int = -1, maxLen = 65536): st
 # ---------------------------------------------------------------------------
 
 proc genFilter*(rng: var Rand, maxDepth: int): Filter[int] =
-  ## Generates random Filter[int] trees with controlled depth.
-  ## Leaf nodes are random int conditions. Operator nodes use AND/OR/NOT with
-  ## 0-4 children. Base case: maxDepth <= 0 or 1/3 chance of leaf at any depth.
+  ## Generates random Filter[int] trees with controlled depth. Leaf nodes are
+  ## random int conditions. Operator nodes are RFC 8620 §5.5 arity-valid: NOT
+  ## wraps exactly one child; AND/OR wrap one to four. Base case: maxDepth <= 0
+  ## or 1/3 chance of leaf at any depth.
   ## Does NOT generate: deeply nested trees beyond maxDepth, non-int conditions.
   if maxDepth <= 0 or rng.rand(0 .. 2) == 0:
     return filterCondition(rng.rand(int.low .. int.high))
-  let op = rng.oneOf([foAnd, foOr, foNot])
-  let childCount = rng.rand(0 .. 4)
-  var children: seq[Filter[int]] = @[]
-  for _ in 0 ..< childCount:
-    children.add rng.genFilter(maxDepth - 1)
-  filterOperator(op, children)
+  case rng.oneOf([foAnd, foOr, foNot])
+  of foNot:
+    filterNot(rng.genFilter(maxDepth - 1))
+  of foAnd:
+    var children: seq[Filter[int]] = @[]
+    for _ in 0 ..< rng.rand(1 .. 4):
+      children.add rng.genFilter(maxDepth - 1)
+    # children non-empty ⇒ filterAnd cannot Err.
+    filterAnd(children).get()
+  of foOr:
+    var children: seq[Filter[int]] = @[]
+    for _ in 0 ..< rng.rand(1 .. 4):
+      children.add rng.genFilter(maxDepth - 1)
+    filterOr(children).get()
 
 proc genInvocation*(rng: var Rand): Invocation =
   ## Generates a random Invocation with a realistic method name (Mailbox/get,
@@ -854,17 +863,21 @@ proc genServerCapability*(rng: var Rand): ServerCapability =
 
 proc genComparator*(rng: var Rand): Comparator =
   ## Generates a random Comparator with a random printable PropertyName,
-  ## random isAscending flag, and optional collation (33% chance of
-  ## ``CollationAsciiCasemap``).
+  ## random sort direction (server-default / ascending / descending), and
+  ## optional collation (33% chance of ``CollationAsciiCasemap``).
   ## Does NOT generate: non-standard collation algorithms.
   let prop = parsePropertyName(rng.genValidPropertyName()).get()
-  let asc = rng.rand(0 .. 1) == 0
+  let direction =
+    case rng.rand(0 .. 2)
+    of 0: sdServerDefault
+    of 1: sdAscending
+    else: sdDescending
   let coll =
     if rng.rand(0 .. 2) == 0:
       Opt.some(CollationAsciiCasemap)
     else:
       Opt.none(CollationAlgorithm)
-  parseComparator(prop, asc, coll)
+  parseComparator(prop, direction, coll)
 
 proc genAddedItem*(rng: var Rand): AddedItem =
   ## Generates a random AddedItem with a valid strict Id (1-20 chars base64url)
@@ -1859,14 +1872,11 @@ proc genDynamicHeaders(rng: var Rand): DynamicHeadersGen =
 proc genEmailComparator*(rng: var Rand): EmailComparator =
   const collationPool =
     [CollationAsciiCasemap, CollationAsciiNumeric, CollationUnicodeCasemap]
-  let isAscending =
+  let direction =
     case rng.rand(0 .. 2)
-    of 0:
-      Opt.none(bool)
-    of 1:
-      Opt.some(true)
-    else:
-      Opt.some(false)
+    of 0: sdServerDefault
+    of 1: sdAscending
+    else: sdDescending
   let collation =
     if rng.rand(0 .. 9) < 3:
       Opt.some(rng.oneOf(collationPool))
@@ -1875,11 +1885,11 @@ proc genEmailComparator*(rng: var Rand): EmailComparator =
   if rng.rand(0 .. 1) == 0:
     let prop =
       rng.oneOf([pspReceivedAt, pspSize, pspFrom, pspTo, pspSubject, pspSentAt])
-    plainComparator(prop, isAscending, collation)
+    plainComparator(prop, direction, collation)
   else:
     let ksp =
       rng.oneOf([kspHasKeyword, kspAllInThreadHaveKeyword, kspSomeInThreadHaveKeyword])
-    keywordComparator(ksp, rng.genKeyword(), isAscending, collation)
+    keywordComparator(ksp, rng.genKeyword(), direction, collation)
 
 proc genEmailBodyFetchOptions*(rng: var Rand): EmailBodyFetchOptions =
   const bodyPropertyPool = [
@@ -1979,7 +1989,7 @@ proc genEmailFilterCondition*(rng: var Rand, trial: int = -1): EmailFilterCondit
   rng.fillThreadKeywordFilterFields(fc, allSome)
   rng.fillPerEmailKeywordFilterFields(fc, allSome)
   if allSome or rng.rand(0 .. 9) < 3:
-    fc.hasAttachment = Opt.some(rng.rand(0 .. 1) == 0)
+    fc.hasAttachment = if rng.rand(0 .. 1) == 0: hafYes else: hafNo
   rng.fillTextSearchFilterFields(fc, allSome)
   rng.fillTextSearchFilterFields2(fc, allSome)
   if allSome or rng.rand(0 .. 9) < 3:

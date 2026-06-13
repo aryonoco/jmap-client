@@ -62,8 +62,13 @@ testCase referencableWrongVariantConstruction:
   )
 
 testCase filterWrongVariantConstruction:
+  ## A leaf cannot carry operator-arm fields; the operand list is sealed
+  ## (``rawOperands`` is module-private, B3), so the operator arm is not
+  ## externally constructible — callers go through ``filterNot`` / ``filterAnd``
+  ## / ``filterOr``.
+  doAssert not compiles(Filter[int](kind: fkCondition, operator: foAnd))
   doAssert not compiles(
-    Filter[int](kind: fkCondition, operator: foAnd, conditions: @[])
+    Filter[int](kind: fkOperator, operator: foNot, rawOperands: @[filterCondition(1)])
   )
 
 # --- Hash divergence (non-degenerate hash smoke test) ---

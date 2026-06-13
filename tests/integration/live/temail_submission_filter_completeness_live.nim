@@ -210,7 +210,7 @@ testCase temailSubmissionFilterCompletenessLive:
     # Sub-test 5: sort by emailId ascending.
     block sortEmailIdCase:
       let comp = parseEmailSubmissionComparator(
-          rawProperty = "emailId", isAscending = true
+          rawProperty = "emailId", direction = sdAscending
         )
         .expect("parseEmailSubmissionComparator emailId[" & $target.kind & "]")
       let (b, qHandle) = addEmailSubmissionQuery(
@@ -229,7 +229,7 @@ testCase temailSubmissionFilterCompletenessLive:
     # shared ``QueryResponse[AnyEmailSubmission]`` parser.
     block sortThreadIdCase:
       let comp = parseEmailSubmissionComparator(
-          rawProperty = "threadId", isAscending = true
+          rawProperty = "threadId", direction = sdAscending
         )
         .expect("parseEmailSubmissionComparator threadId[" & $target.kind & "]")
       let (b, qHandle) = addEmailSubmissionQuery(

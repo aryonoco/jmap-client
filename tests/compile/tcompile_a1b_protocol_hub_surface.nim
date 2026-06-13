@@ -24,6 +24,7 @@ static:
   doAssert declared(registerJmapEntity)
   doAssert declared(registerQueryableEntity)
   doAssert declared(registerSettableEntity)
+  doAssert declared(registerExtractableEntity)
 
   # methods.nim — request types
   doAssert declared(GetRequest)
@@ -51,8 +52,6 @@ static:
   doAssert declared(NameBoundHandle)
   doAssert declared(CompoundHandles)
   doAssert declared(CompoundResults)
-  doAssert declared(ChainedHandles)
-  doAssert declared(ChainedResults)
   # dispatch.nim — extraction
   doAssert declared(callId)
   doAssert declared(get)
@@ -61,7 +60,6 @@ static:
   doAssert declared(reference)
   # dispatch.nim — registration
   doAssert declared(registerCompoundMethod)
-  doAssert declared(registerChainableMethod)
 
   # builder.nim — type only (initRequestBuilder is hub-private under A6)
   doAssert declared(RequestBuilder)
@@ -180,6 +178,12 @@ static:
   # A12 — library-internal GetError producers are hub-private
   doAssert not declared(getErrorMethod)
   doAssert not declared(getErrorHandleMismatch)
+  # B9 — the generic Chained* paired-handle plumbing was deleted; RFC 8620 §3.7
+  # chains are bespoke records co-located with their builders, so the hub
+  # exposes exactly the two compound paired-handle context types (P9).
+  doAssert not declared(ChainedHandles)
+  doAssert not declared(ChainedResults)
+  doAssert not declared(registerChainableMethod)
 
   # A30b: the envelope wire types are fully hub-internal (asserted absent
   # above), which subsumes the earlier A16/A30 negatives on their ``toJson``

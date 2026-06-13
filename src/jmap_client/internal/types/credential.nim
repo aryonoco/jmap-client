@@ -1,12 +1,14 @@
 # SPDX-License-Identifier: BSD-2-Clause
 # Copyright (c) 2026 Aryan Ameri
 
-## RFC 6750 Bearer / RFC 7617 Basic client credential (Layer 1). Sealed
-## Pattern-A sum: the scheme is the discriminator, the secret material is a
-## module-private payload, and the only producers are the smart constructors.
-## The wire ``Authorization`` value is materialised at exactly one hub-private
-## site (``authorizationHeaderValue``); ``$`` never renders the token or
-## password.
+## RFC 6750 Bearer / RFC 7617 Basic client credential (Layer 1). Fully-sealed
+## Pattern-A sum: the scheme is the module-private ``rawScheme`` discriminator
+## (surfaced read-only via the ``scheme`` accessor), the secret material is a
+## module-private payload, and the only producers are the smart constructors —
+## so neither the payload nor a discriminator-only ``Credential(scheme: …)`` is
+## constructible outside this module (A8b). The wire ``Authorization`` value is
+## materialised at exactly one hub-private site (``authorizationHeaderValue``);
+## ``$`` never renders the token or password.
 ##
 ## **Threading.** A ``Credential`` is an immutable value type — copy and share
 ## freely across threads.
@@ -25,13 +27,24 @@ type AuthScheme* = enum
   asBasic = "Basic"
 
 type Credential* {.ruleOff: "objects".} = object
-  ## Sealed client credential. Construct via ``bearerCredential`` /
-  ## ``basicCredential``; the secret payload is unreachable outside this module.
-  case scheme*: AuthScheme
+  ## Fully-sealed client credential. The discriminator is the module-private
+  ## ``rawScheme`` field surfaced read-only via the ``scheme`` accessor, so
+  ## both the secret payload AND ``Credential(scheme: …)`` discriminator-only
+  ## construction are unreachable outside this module (A8b) — the only
+  ## producers are ``bearerCredential`` / ``basicCredential``, and an
+  ## empty-payload credential is structurally unrepresentable rather than
+  ## inert-until-connect.
+  case rawScheme: AuthScheme
   of asBearer:
     bearerTok: string
   of asBasic:
     basicUser, basicPass: string
+
+func scheme*(c: Credential): AuthScheme =
+  ## The authentication scheme (read-only view of the sealed ``rawScheme``
+  ## discriminator). ``Credential(scheme: …)`` does not compile outside this
+  ## module — A8b.
+  c.rawScheme
 
 type CredentialViolation = enum
   ## Structural-failure vocabulary for credential construction. Each variant
@@ -110,7 +123,7 @@ func bearerCredential*(token: string): Result[Credential, ValidationError] =
     return err(toValidationError(cvEmptyToken))
   if token.contains({'\0' .. '\x1F', '\x7F'}):
     return err(toValidationError(cvTokenControlChar))
-  ok(Credential(scheme: asBearer, bearerTok: token))
+  ok(Credential(rawScheme: asBearer, bearerTok: token))
 
 func basicCredential*(username, password: string): Result[Credential, ValidationError] =
   ## RFC 7617 Basic credential. The library owns the wire encoding —
@@ -121,20 +134,20 @@ func basicCredential*(username, password: string): Result[Credential, Validation
     return err(toValidationError(cvEmptyUsername))
   if username.contains(':'):
     return err(toValidationError(cvUsernameColon))
-  ok(Credential(scheme: asBasic, basicUser: username, basicPass: password))
+  ok(Credential(rawScheme: asBasic, basicUser: username, basicPass: password))
 
 func `==`*(a, b: Credential): bool =
   ## Arm-dispatched structural equality (case objects require explicit ``==``
   ## under strict).
-  case a.scheme
+  case a.rawScheme
   of asBearer:
-    case b.scheme
+    case b.rawScheme
     of asBearer:
       a.bearerTok == b.bearerTok
     of asBasic:
       false
   of asBasic:
-    case b.scheme
+    case b.rawScheme
     of asBasic:
       a.basicUser == b.basicUser and a.basicPass == b.basicPass
     of asBearer:
@@ -143,18 +156,18 @@ func `==`*(a, b: Credential): bool =
 func `$`*(c: Credential): string =
   ## Redacted rendering. The token and password are NEVER printed; the Basic
   ## username is surfaced for debuggability (RFC 7617 user-id is not secret).
-  case c.scheme
+  case c.rawScheme
   of asBearer:
-    "Credential(" & $c.scheme & ")"
+    "Credential(" & $c.rawScheme & ")"
   of asBasic:
-    "Credential(" & $c.scheme & ", username: " & c.basicUser & ")"
+    "Credential(" & $c.rawScheme & ", username: " & c.basicUser & ")"
 
 func authorizationHeaderValue*(c: Credential): string =
   ## Hub-private (filtered at the Layer-1 re-export hub): the SOLE site the
-  ## secret materialises into the wire ``Authorization`` value. ``$c.scheme``
+  ## secret materialises into the wire ``Authorization`` value. ``$c.rawScheme``
   ## is the RFC scheme token.
-  case c.scheme
+  case c.rawScheme
   of asBearer:
-    $c.scheme & " " & c.bearerTok
+    $c.rawScheme & " " & c.bearerTok
   of asBasic:
-    $c.scheme & " " & base64Encode(c.basicUser & ":" & c.basicPass)
+    $c.rawScheme & " " & base64Encode(c.basicUser & ":" & c.basicPass)

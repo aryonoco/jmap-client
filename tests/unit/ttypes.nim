@@ -56,7 +56,7 @@ testCase reExportAccessibility:
   let pn = parsePropertyName("name").get()
   doAssert $pn == "name"
   let comp = parseComparator(pn)
-  doAssert comp.isAscending
+  doAssert comp.direction == sdServerDefault
 
   # envelope
   let inv = parseInvocation("Foo/get", %*{}, mcid).get()

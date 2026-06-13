@@ -34,6 +34,18 @@ import ./serde_mail_filters
 import ./vacation
 import ../protocol/dispatch
 
+# Serde leaves imported so ``registerExtractableEntity`` (B5) can verify each
+# full read-model entity's ``fromJson`` is in scope at registration time.
+# Mirrors ``serde_mail_filters`` / ``serde_email_submission`` already imported
+# above for ``registerQueryableEntity``'s filter-``toJson`` probe.
+# (``AnyEmailSubmission.fromJson`` comes from the ``serde_email_submission``
+# import above.) These imports stay hub-private — ``mail.nim`` never re-exports
+# ``mail_entities`` (A1d), so no serde leaks to ``import jmap_client``.
+import ./serde_thread
+import ./serde_identity
+import ./serde_mailbox
+import ./serde_email
+
 # ---------------------------------------------------------------------------
 # Thread (RFC 8621 section 3) — supports /get, /changes
 # ---------------------------------------------------------------------------
@@ -66,6 +78,7 @@ template changesResponseType*(T: typedesc[thread.Thread]): typedesc =
   ChangesResponse[thread.Thread]
 
 registerJmapEntity(thread.Thread)
+registerExtractableEntity(thread.Thread)
 
 # ---------------------------------------------------------------------------
 # Identity (RFC 8621 section 6) — supports /get, /changes, /set
@@ -118,12 +131,13 @@ template setResponseType*(T: typedesc[Identity]): typedesc =
   ## payload is ``IdentityCreatedItem`` (RFC 8620 §5.3 server-set subset:
   ## ``id`` plus the server-set ``mayDelete``). Stalwart 0.15.5 omits
   ## ``mayDelete`` from this payload, so ``IdentityCreatedItem.mayDelete``
-  ## is ``Opt[bool]``. The wire ``updated[id]`` payload is
-  ## ``PartialIdentity`` per A4 D2.
+  ## is a three-state ``DeleteAuthority`` (``daUnreported`` on omission, B8).
+  ## The wire ``updated[id]`` payload is ``PartialIdentity`` per A4 D2.
   discard $T
   SetResponse[IdentityCreatedItem, PartialIdentity]
 
 registerJmapEntity(Identity)
+registerExtractableEntity(Identity)
 registerSettableEntity(Identity)
 
 # ---------------------------------------------------------------------------
@@ -201,6 +215,7 @@ template setResponseType*(T: typedesc[Mailbox]): typedesc =
   SetResponse[MailboxCreatedItem, PartialMailbox]
 
 registerJmapEntity(Mailbox)
+registerExtractableEntity(Mailbox)
 registerQueryableEntity(Mailbox)
 registerSettableEntity(Mailbox)
 
@@ -295,6 +310,7 @@ template copyResponseType*(T: typedesc[Email]): typedesc =
   CopyResponse[EmailCreatedItem]
 
 registerJmapEntity(Email)
+registerExtractableEntity(Email)
 registerQueryableEntity(Email)
 registerSettableEntity(Email)
 
@@ -369,6 +385,7 @@ template setResponseType*(T: typedesc[AnyEmailSubmission]): typedesc =
   EmailSubmissionSetResponse
 
 registerJmapEntity(AnyEmailSubmission)
+registerExtractableEntity(AnyEmailSubmission)
 registerQueryableEntity(AnyEmailSubmission)
 registerSettableEntity(AnyEmailSubmission)
 
@@ -383,17 +400,11 @@ registerCompoundMethod(
   EmailSubmissionSetResponse, SetResponse[EmailCreatedItem, PartialEmail]
 )
 
-# ---------------------------------------------------------------------------
-# Chainable-method participation gates (RFC 8620 §3.7 back-reference chains)
-# ---------------------------------------------------------------------------
-
-registerChainableMethod(QueryResponse[Email])
-# ``GetResponse[Email]`` chains OUT to ``Thread/get`` in the RFC 8621
-# §4.10 first-login workflow via ``rpListThreadId``.
-registerChainableMethod(GetResponse[Email])
-# ``GetResponse[Thread]`` chains OUT to ``Email/get`` in the RFC 8621
-# §4.10 first-login workflow via ``rpListEmailIds``.
-registerChainableMethod(GetResponse[thread.Thread])
+# RFC 8620 §3.7 back-reference chains carry no registration gate: each chain is
+# a bespoke record co-located with its builder (``EmailQuerySnippetChain`` in
+# ``mail_methods``, ``EmailQueryThreadChain`` in ``mail_builders``), and the
+# back-reference's typed response handle is checked where it is minted, so no
+# ``registerChainableMethod`` participation gate is needed (B9).
 
 # ---------------------------------------------------------------------------
 # Partial entities (A3.6 D7) — getter-only registration for typed sparse

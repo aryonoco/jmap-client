@@ -104,7 +104,7 @@ proc assertFilterSortOrder(
   ## shape; otherwise the typed error is acceptable.
   let sortOrderProp =
     parsePropertyName("sortOrder").expect("parsePropertyName sortOrder")
-  let sortAsc = @[parseComparator(sortOrderProp, isAscending = true)]
+  let sortAsc = @[parseComparator(sortOrderProp, direction = sdAscending)]
   let (b2, h2) = addMailboxQuery(
     initRequestBuilder(makeBuilderId()),
     mailAccountId,
@@ -147,10 +147,9 @@ proc assertSortAsTree(client: JmapClient, mailAccountId: AccountId) =
   ## Sub-test 3: ``sortAsTree: true`` under ``hasAnyRole: true`` filter.
   ## Configured targets that seed an Inbox return a non-empty set;
   ## servers without ``sortAsTree`` support surface a typed error.
-  let roleAnyFilter =
-    filterCondition(MailboxFilterCondition(hasAnyRole: Opt.some(true)))
+  let roleAnyFilter = filterCondition(MailboxFilterCondition(hasAnyRole: hrfRequireAny))
   let nameProp = parsePropertyName("name").expect("parsePropertyName name")
-  let nameSort = @[parseComparator(nameProp, isAscending = true)]
+  let nameSort = @[parseComparator(nameProp, direction = sdAscending)]
   let (b3, h3) = addMailboxQuery(
     initRequestBuilder(makeBuilderId()),
     mailAccountId,

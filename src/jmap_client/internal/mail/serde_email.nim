@@ -838,13 +838,16 @@ func emailComparatorFromJson*(
   let propNode = ?fieldJString(node, "property", path)
   let propStr = propNode.getStr("")
 
-  # Optional shared fields
-  let isAscending = block:
-    let f = optJsonField(node, "isAscending", JBool)
-    if f.isSome:
-      Opt.some(f.get().getBool(true))
-    else:
-      Opt.none(bool)
+  # Optional shared fields. Lenient on ``isAscending`` (absent/null/wrong-kind
+  # → ``sdServerDefault``) per Postel — Email sort clauses are receive-tolerant.
+  let direction = sortDirectionFromWire(
+    block:
+      let f = optJsonField(node, "isAscending", JBool)
+      if f.isSome:
+        Opt.some(f.get().getBool(true))
+      else:
+        Opt.none(bool)
+  )
   let collation = block:
     let f = optJsonField(node, "collation", JString)
     if f.isSome:
@@ -863,12 +866,12 @@ func emailComparatorFromJson*(
     if $ksp == propStr:
       let kwNode = ?fieldJString(node, "keyword", path)
       let kw = ?Keyword.fromJson(kwNode, path / "keyword")
-      return ok(keywordComparator(ksp, kw, isAscending, collation))
+      return ok(keywordComparator(ksp, kw, direction, collation))
 
   # Try plain sort properties
   for psp in PlainSortProperty:
     if $psp == propStr:
-      return ok(plainComparator(psp, isAscending, collation))
+      return ok(plainComparator(psp, direction, collation))
 
   return err(
     SerdeViolation(
@@ -880,8 +883,9 @@ func emailComparatorFromJson*(
   )
 
 func toJson*(c: EmailComparator): JsonNode =
-  ## Serialise EmailComparator to JSON. Dispatches on kind.
-  ## ``isAscending`` and ``collation`` omitted when ``Opt.none``.
+  ## Serialise EmailComparator to JSON. Dispatches on kind. ``isAscending`` is
+  ## emitted per ``direction`` (omitted for ``sdServerDefault``); ``collation``
+  ## omitted when ``Opt.none``.
   var node = newJObject()
   case c.kind
   of eckPlain:
@@ -889,8 +893,7 @@ func toJson*(c: EmailComparator): JsonNode =
   of eckKeyword:
     node["property"] = %($c.keywordProperty)
     node["keyword"] = %($c.keyword)
-  for v in c.isAscending:
-    node["isAscending"] = %v
+  emitSortDirection(node, c.direction)
   for v in c.collation:
     node["collation"] = %($v)
   return node

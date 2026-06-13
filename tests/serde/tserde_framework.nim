@@ -36,21 +36,21 @@ testCase roundTripComparatorBasic:
   let original = makeComparator()
   let v = Comparator.fromJson(original.toJson()).get()
   doAssert v.property == original.property
-  doAssert v.isAscending == original.isAscending
+  doAssert v.direction == original.direction
   doAssert v.collation.isNone == original.collation.isNone
 
 testCase roundTripComparatorWithCollation:
   let original = makeComparatorWithCollation()
   let v = Comparator.fromJson(original.toJson()).get()
   doAssert v.property == original.property
-  doAssert v.isAscending == original.isAscending
+  doAssert v.direction == original.direction
   doAssert v.collation.isSome
   assertEq v.collation.get(), original.collation.get()
 
 testCase roundTripComparatorDescending:
-  let original = makeComparator(isAscending = false)
+  let original = makeComparator(direction = sdDescending)
   let v = Comparator.fromJson(original.toJson()).get()
-  doAssert not v.isAscending
+  doAssert v.direction == sdDescending
 
 testCase roundTripFilterCondition:
   let original = makeFilterCondition(42)
@@ -104,7 +104,7 @@ testCase comparatorToJsonFieldNames:
   doAssert j{"collation"}.isNil
 
 testCase comparatorToJsonCollationAbsent:
-  let c = parseComparator(makePropertyName(), true, Opt.none(CollationAlgorithm))
+  let c = parseComparator(makePropertyName(), sdAscending, Opt.none(CollationAlgorithm))
   let j = c.toJson()
   doAssert j{"collation"}.isNil, "collation key must be absent when none"
 
@@ -180,14 +180,15 @@ testCase comparatorDeserAllFieldsPresent:
     %*{"property": "subject", "isAscending": false, "collation": "i;unicode-casemap"}
   let v = Comparator.fromJson(j).get()
   assertEq $v.property, "subject"
-  doAssert not v.isAscending
+  doAssert v.direction == sdDescending
   doAssert v.collation.isSome
   assertEq v.collation.get(), CollationUnicodeCasemap
 
 testCase comparatorDeserMissingIsAscending:
   let j = %*{"property": "subject"}
   let v = Comparator.fromJson(j).get()
-  doAssert v.isAscending, "isAscending must default to true"
+  doAssert v.direction == sdServerDefault,
+    "an absent isAscending must yield sdServerDefault (server applies RFC ascending)"
 
 testCase comparatorDeserMissingProperty:
   let j = %*{"isAscending": true}
@@ -237,7 +238,7 @@ testCase filterDeserOperatorWithConditions:
   let v = Filter[int].fromJson(j, fromIntCondition).get()
   doAssert v.kind == fkOperator
   doAssert v.operator == foAnd
-  assertEq v.conditions.len, 2
+  assertEq v.operands.len, 2
 
 testCase filterDeserNestedDepth2:
   let j = %*{
@@ -250,12 +251,23 @@ testCase filterDeserNestedDepth2:
   let v = Filter[int].fromJson(j, fromIntCondition).get()
   doAssert v.kind == fkOperator
   doAssert v.operator == foOr
-  assertEq v.conditions.len, 2
+  assertEq v.operands.len, 2
 
-testCase filterDeserEmptyConditions:
+testCase filterDeserEmptyConditionsRejected:
+  ## AND/OR with an empty conditions array is rejected on receive (RFC 8620
+  ## §5.5 "one or more"; B3 arity tightening).
   let j = %*{"operator": "AND", "conditions": []}
-  let v = Filter[int].fromJson(j, fromIntCondition).get()
-  assertEq v.conditions.len, 0
+  assertErr Filter[int].fromJson(j, fromIntCondition)
+
+testCase filterDeserNotMultipleChildrenRejected:
+  ## NOT with more than one child is rejected (RFC 8620 §5.5: exactly one).
+  let j = %*{"operator": "NOT", "conditions": [{"value": 1}, {"value": 2}]}
+  assertErr Filter[int].fromJson(j, fromIntCondition)
+
+testCase filterDeserNotZeroChildrenRejected:
+  ## NOT with zero children is rejected.
+  let j = %*{"operator": "NOT", "conditions": []}
+  assertErr Filter[int].fromJson(j, fromIntCondition)
 
 testCase filterDeserMissingConditions:
   let j = %*{"operator": "AND"}
@@ -334,24 +346,24 @@ testCase filterDeserNestedDepth3:
   let f = Filter[int].fromJson(j, fromIntCondition).get()
   doAssert f.kind == fkOperator
   doAssert f.operator == foAnd
-  assertLen f.conditions, 1
-  doAssert f.conditions[0].kind == fkOperator
-  doAssert f.conditions[0].operator == foOr
-  assertLen f.conditions[0].conditions, 1
-  doAssert f.conditions[0].conditions[0].kind == fkOperator
-  doAssert f.conditions[0].conditions[0].operator == foNot
-  assertLen f.conditions[0].conditions[0].conditions, 1
-  doAssert f.conditions[0].conditions[0].conditions[0].kind == fkCondition
-  doAssert f.conditions[0].conditions[0].conditions[0].condition == 42
+  assertLen f.operands, 1
+  doAssert f.operands[0].kind == fkOperator
+  doAssert f.operands[0].operator == foOr
+  assertLen f.operands[0].operands, 1
+  doAssert f.operands[0].operands[0].kind == fkOperator
+  doAssert f.operands[0].operands[0].operator == foNot
+  assertLen f.operands[0].operands[0].operands, 1
+  doAssert f.operands[0].operands[0].operands[0].kind == fkCondition
+  doAssert f.operands[0].operands[0].operands[0].condition == 42
 
 testCase comparatorAllFieldsRoundTrip:
-  ## Comparator with property + isAscending=false + collation round-trips.
+  ## Comparator with property + direction=sdDescending + collation round-trips.
   let c = parseComparator(
-    makePropertyName("receivedAt"), false, Opt.some(CollationUnicodeCasemap)
+    makePropertyName("receivedAt"), sdDescending, Opt.some(CollationUnicodeCasemap)
   )
   let v = Comparator.fromJson(c.toJson()).get()
   assertEq $v.property, "receivedAt"
-  doAssert v.isAscending == false
+  doAssert v.direction == sdDescending
   assertSomeEq v.collation, CollationUnicodeCasemap
 
 testCase addedItemDeserIndexZeroBoundary:
@@ -374,9 +386,9 @@ testCase filterOperatorDeserLowercaseRejected:
 testCase filterDeserDepth3RoundTrip:
   ## Round-trip test for depth-3 Filter tree.
   let leaf = filterCondition(99)
-  let level2 = filterOperator(foNot, @[leaf])
-  let level1 = filterOperator(foOr, @[level2])
-  let root = filterOperator(foAnd, @[level1])
+  let level2 = filterNot(leaf)
+  let level1 = filterOr(@[level2]).get()
+  let root = filterAnd(@[level1]).get()
   let j = root.toJson()
   let v = Filter[int].fromJson(j, fromIntCondition).get()
   doAssert filterEq(v, root), "depth-3 filter round-trip identity violated"
@@ -394,7 +406,7 @@ checkProperty "Comparator round-trip":
   let c = rng.genComparator()
   let v = Comparator.fromJson(c.toJson()).get()
   doAssert v.property == c.property
-  doAssert v.isAscending == c.isAscending
+  doAssert v.direction == c.direction
   doAssert v.collation == c.collation
 
 checkProperty "Filter[int] round-trip":

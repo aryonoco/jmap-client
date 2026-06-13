@@ -230,7 +230,7 @@ testCase filterWideOperator1000Children:
   j["conditions"] = conds
   let r = Filter[int].fromJson(j, fromIntCondition).get()
   doAssert r.kind == fkOperator
-  assertEq r.conditions.len, 1000
+  assertEq r.operands.len, 1000
 
 testCase filterNullInConditions:
   ## {"operator":"AND","conditions":[null]} -> assertErr.
@@ -447,7 +447,7 @@ testCase filterBranchingFactor:
   root["conditions"] = top
   let r = Filter[int].fromJson(root, fromIntCondition).get()
   doAssert r.kind == fkOperator
-  assertEq r.conditions.len, 10
+  assertEq r.operands.len, 10
 
 # =============================================================================
 # I. Null bytes and large strings

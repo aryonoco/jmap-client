@@ -214,7 +214,7 @@ testCase temailSubmissionFilterSortLive:
 
     # Sub-test B: sort by sentAt ascending.
     let comparator = parseEmailSubmissionComparator(
-        rawProperty = "sentAt", isAscending = true
+        rawProperty = "sentAt", direction = sdAscending
       )
       .expect("parseEmailSubmissionComparator sentAt[" & $target.kind & "]")
     let (bB, hB) = addEmailSubmissionQuery(

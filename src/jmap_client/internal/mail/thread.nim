@@ -27,8 +27,10 @@ func id*(t: Thread): Id =
   ## Thread identifier.
   return t.rawId
 
-func emailIds*(t: Thread): seq[Id] =
+func emailIds*(t: Thread): lent seq[Id] =
   ## Identifiers of Emails in this Thread, guaranteed non-empty.
+  ## Borrowed view (`lent`, P12) — read-only, no per-call deep copy of the
+  ## sealed container.
   return t.rawEmailIds
 
 func parseThread*(id: Id, emailIds: seq[Id]): Result[Thread, ValidationError] =

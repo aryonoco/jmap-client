@@ -47,7 +47,7 @@ testCase fromJsonAllFields: # scenario 24
   assertEq ident.bcc.get()[0].email, "bob@example.com"
   assertEq ident.textSignature, "-- Joe"
   assertEq ident.htmlSignature, "<p>Joe</p>"
-  assertEq ident.mayDelete, true
+  assertEq ident.mayDelete, daYes
 
 testCase fromJsonDefaults: # scenario 25
   let node = %*{"id": "id1", "email": "joe@example.com", "mayDelete": false}
@@ -108,7 +108,7 @@ testCase roundTripFull: # scenario 31
     bcc: Opt.some(@[ea2]),
     textSignature: "-- Joe",
     htmlSignature: "<p>Joe</p>",
-    mayDelete: true,
+    mayDelete: daYes,
   )
   let roundTripped = Identity.fromJson(ident.toJson()).get()
   assertEq $roundTripped.id, $ident.id
@@ -129,7 +129,7 @@ testCase roundTripMinimal:
     bcc: Opt.none(seq[EmailAddress]),
     textSignature: "",
     htmlSignature: "",
-    mayDelete: false,
+    mayDelete: daNo,
   )
   let roundTripped = Identity.fromJson(ident.toJson()).get()
   assertEq roundTripped.name, ""
@@ -165,8 +165,13 @@ testCase fromJsonMissingEmail:
   assertErr Identity.fromJson(node)
 
 testCase fromJsonMissingMayDelete:
+  ## Stalwart 0.15.5 omits ``mayDelete``; the parser is lenient (B8) — an
+  ## absent field yields ``daUnreported`` rather than failing, so the omission
+  ## is no longer misreported as "may not delete".
   let node = %*{"id": "id1", "email": "j@e.c"}
-  assertErr Identity.fromJson(node)
+  let res = Identity.fromJson(node)
+  assertOk res
+  assertEq res.get().mayDelete, daUnreported
 
 testCase fromJsonNotObject:
   assertErr Identity.fromJson(%"string")
@@ -220,7 +225,7 @@ testCase toJsonReplyToNull:
     email: "j@e.c",
     replyTo: Opt.none(seq[EmailAddress]),
     bcc: Opt.none(seq[EmailAddress]),
-    mayDelete: false,
+    mayDelete: daNo,
   )
   let node = ident.toJson()
   assertJsonFieldEq node, "replyTo", newJNull()
@@ -231,7 +236,7 @@ testCase toJsonReplyToWithAddresses:
     email: "j@e.c",
     replyTo: Opt.some(@[ea1]),
     bcc: Opt.none(seq[EmailAddress]),
-    mayDelete: false,
+    mayDelete: daNo,
   )
   let node = ident.toJson()
   let arr = node{"replyTo"}
@@ -246,7 +251,7 @@ testCase toJsonBccNull:
     email: "j@e.c",
     replyTo: Opt.none(seq[EmailAddress]),
     bcc: Opt.none(seq[EmailAddress]),
-    mayDelete: false,
+    mayDelete: daNo,
   )
   assertJsonFieldEq ident.toJson(), "bcc", newJNull()
 
@@ -259,7 +264,7 @@ testCase toJsonEmptyStringFields:
     bcc: Opt.none(seq[EmailAddress]),
     textSignature: "",
     htmlSignature: "",
-    mayDelete: false,
+    mayDelete: daNo,
   )
   let node = ident.toJson()
   assertJsonFieldEq node, "name", %""

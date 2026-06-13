@@ -31,7 +31,7 @@ testCase stressFilterDeep100:
   ## Filter tree 100 levels deep. Tests ARC destructor chain.
   var f = filterCondition(0)
   for i in 1 .. 100:
-    f = filterOperator[int](foAnd, @[f])
+    f = filterAnd(@[f]).get()
   doAssert f.kind == fkOperator
 
 testCase stressFilterWide10000:
@@ -39,8 +39,8 @@ testCase stressFilterWide10000:
   var children: seq[Filter[int]] = @[]
   for i in 0 ..< 10000:
     children.add filterCondition(i)
-  let f = filterOperator(foAnd, children)
-  doAssert f.conditions.len == 10000
+  let f = filterAnd(children).get()
+  doAssert f.operands.len == 10000
 
 testCase stressSession100Accounts:
   ## Session with 100 accounts.
@@ -91,7 +91,7 @@ testCase stressFilterTree1000Deep:
   ## during construction. Verifies ARC destructor chain handles deep nesting.
   var f = filterCondition(0)
   for i in 1 .. 1000:
-    f = filterOperator[int](foAnd, @[f])
+    f = filterAnd(@[f]).get()
   doAssert f.kind == fkOperator
 
 testCase stressFilterTree5000Deep:
@@ -99,7 +99,7 @@ testCase stressFilterTree5000Deep:
   ## which may handle deeper nesting than tracing GC approaches.
   var f = filterCondition(0)
   for i in 1 .. 5000:
-    f = filterOperator[int](foAnd, @[f])
+    f = filterAnd(@[f]).get()
   doAssert f.kind == fkOperator
 
 testCase stressLargeJmapState:
@@ -169,16 +169,16 @@ testCase stressFilterWide50000:
   var children: seq[Filter[int]] = @[]
   for i in 0 ..< 50000:
     children.add filterCondition(i)
-  let f = filterOperator(foAnd, children)
-  doAssert f.conditions.len == 50000
+  let f = filterAnd(children).get()
+  doAssert f.operands.len == 50000
 
 testCase stressFilterExponentialSharing:
   ## Filter tree where the same subtree is referenced from multiple parents.
   ## ARC reference counting must handle shared ownership correctly.
   let shared = filterCondition(42)
-  var f = filterOperator[int](foAnd, @[shared, shared])
+  var f = filterAnd(@[shared, shared]).get()
   for _ in 0 ..< 10:
-    f = filterOperator[int](foOr, @[f, f])
+    f = filterOr(@[f, f]).get()
   doAssert f.kind == fkOperator
 
 # =============================================================================
@@ -191,6 +191,9 @@ import jmap_client/internal/serialisation/serde_helpers
 import jmap_client/internal/serialisation/serde_session
 import jmap_client/internal/serialisation/serde_envelope
 import jmap_client/internal/serialisation/serde_framework
+# ``toJson*(c: int)`` — the leaf-condition serialiser the ``Filter[int].toJson``
+# mixin cascade resolves at instantiation (see stressFilterDeep100Serde).
+import ../mserde_fixtures
 
 testCase stressArcSharedRefSessionParse:
   ## Parse 100 sessions where capabilities share a JsonNode ref.
@@ -229,7 +232,7 @@ testCase stressFilterDeep100Serde:
 
   var f = filterCondition(0)
   for i in 1 .. 100:
-    f = filterOperator(foAnd, @[f])
+    f = filterAnd(@[f]).get()
   # ``int.toJson`` lives in mserde_fixtures (UFCS) — the mixin cascade in
   # Filter[int].toJson picks it up at instantiation.
   let j = f.toJson()

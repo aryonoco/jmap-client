@@ -3,7 +3,7 @@
 
 ## Custom builder functions and response types for methods that need
 ## special handling beyond the generic ``addGet``/``addSet``/etc. builders.
-## Covers VacationResponse (RFC 8621 §7), Email/parse (§4.9), and
+## Covers VacationResponse (RFC 8621 §8), Email/parse (§4.9), and
 ## SearchSnippet/get (§5.1).
 
 {.push raises: [], noSideEffect.}
@@ -48,7 +48,7 @@ const MailCapUri =
 func addVacationResponseGet*(
     b: sink RequestBuilder, accountId: AccountId
 ): (RequestBuilder, ResponseHandle[GetResponse[VacationResponse]]) =
-  ## Adds a full-record VacationResponse/get invocation (RFC 8621 section 7).
+  ## Adds a full-record VacationResponse/get invocation (RFC 8621 section 8).
   ## Always fetches the singleton — no ``ids`` parameter. For a typed property
   ## projection, use ``addPartialVacationResponseGet`` (A3.6).
   let req = GetRequest[VacationResponse](
@@ -70,7 +70,7 @@ func addPartialVacationResponseGet*(
     properties: NonEmptySeq[VacationResponseGetProperty],
 ): (RequestBuilder, ResponseHandle[GetResponse[PartialVacationResponse]]) =
   ## Sparse VacationResponse/get returning typed ``PartialVacationResponse``
-  ## (RFC 8621 §7 + A3.6). Always fetches the singleton — no ``ids``. Hand-
+  ## (RFC 8621 §8 + A3.6). Always fetches the singleton — no ``ids``. Hand-
   ## rolled rather than routed through ``addGetSelected`` because the
   ## singleton needs ``idCount: Opt.some(1)`` (``getMeta(none)`` would yield
   ## ``idCount: Opt.none``).
@@ -103,11 +103,11 @@ func addVacationResponseSet*(
     update: VacationResponseUpdateSet,
     ifInState: Opt[JmapState] = Opt.none(JmapState),
 ): (RequestBuilder, ResponseHandle[SetResponse[NoCreate, PartialVacationResponse]]) =
-  ## Adds a VacationResponse/set invocation (RFC 8621 section 7). Typed
+  ## Adds a VacationResponse/set invocation (RFC 8621 section 8). Typed
   ## ``VacationResponseUpdateSet`` per Design §4.1 (Part F migration).
   ## Singleton id remains hardcoded from ``VacationResponseSingletonId``.
   ##
-  ## VacationResponse/set is singleton-only per RFC 8621 §7 — no create
+  ## VacationResponse/set is singleton-only per RFC 8621 §8 — no create
   ## rail. ``T`` is ``NoCreate`` per A4 D6: a server emitting a
   ## ``created[cid]`` entry on this method is tolerated leniently (the
   ## entry parses to ``NoCreate()`` and carries no payload). ``U`` is
@@ -330,13 +330,33 @@ func addSearchSnippetGetByRef*(
   let brand = newBuilder.builderId
   (newBuilder, initResponseHandle[SearchSnippetGetResponse](callId, brand))
 
-type EmailQuerySnippetChain* =
-  ChainedHandles[QueryResponse[Email], SearchSnippetGetResponse]
-  ## Domain-named specialisation of ``ChainedHandles[A, B]`` for
-  ## ``addEmailQueryWithSnippets`` (Email/query + SearchSnippet/get
-  ## via RFC 8620 §3.7 back-reference chain per RFC 8621 §4.10).
-  ## Fields ``first`` / ``second`` inherit from the generic at
-  ## ``dispatch.nim``.
+type EmailQuerySnippetChain* {.ruleOff: "objects".} = object
+  ## Paired handles for the RFC 8621 §4.10 query-with-snippets workflow
+  ## (Email/query + SearchSnippet/get via an RFC 8620 §3.7 back-reference
+  ## chain). A bespoke record co-located with its builder rather than a
+  ## generic ``ChainedHandles`` (B9): the two invocations carry distinct
+  ## call-ids, so extraction is two independent ``dr.get`` calls and there is
+  ## no parametric shape worth sharing with the dispatch layer — mirrors
+  ## ``EmailQueryThreadChain`` (``mail_builders``).
+  queryH*: ResponseHandle[QueryResponse[Email]]
+  snippetsH*: ResponseHandle[SearchSnippetGetResponse]
+
+type EmailQuerySnippetResults* {.ruleOff: "objects".} = object
+  ## Paired extraction target of ``getBoth(EmailQuerySnippetChain)``. The
+  ## enclosing type name already conveys "responses", so the fields take plain
+  ## domain names.
+  query*: QueryResponse[Email]
+  snippets*: SearchSnippetGetResponse
+
+func getBoth*(
+    dr: DispatchedResponse, handles: EmailQuerySnippetChain
+): Result[EmailQuerySnippetResults, GetError] =
+  ## Extract both responses from the query-with-snippets chain. Both handles
+  ## dispatch through the default ``dr.get`` (distinct call-ids, no method-name
+  ## filter), resolving via the handles' stored parser closures.
+  let query = ?dr.get(handles.queryH)
+  let snippets = ?dr.get(handles.snippetsH)
+  ok(EmailQuerySnippetResults(query: query, snippets: snippets))
 
 func addEmailQueryWithSnippets*(
     b: sink RequestBuilder,
@@ -361,7 +381,7 @@ func addEmailQueryWithSnippets*(
     filter,
     emailIds = reference[seq[Id]](queryHandle, mnEmailQuery, rpIds),
   )
-  (b2, EmailQuerySnippetChain(first: queryHandle, second: snippetHandle))
+  (b2, EmailQuerySnippetChain(queryH: queryHandle, snippetsH: snippetHandle))
 
 # =============================================================================
 # addEmailImport — Email/import (RFC 8621 §4.8)

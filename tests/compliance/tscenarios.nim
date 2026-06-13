@@ -456,9 +456,9 @@ testCase filterWithAccountIdType:
   let acctStr2 = $parseAccountId("acct2").get()
   let f = filterCondition(acctStr1)
   let f2 = filterCondition(acctStr2)
-  let combined = filterOperator[string](foAnd, @[f, f2])
+  let combined = filterAnd(@[f, f2]).get()
   doAssert combined.kind == fkOperator
-  doAssert combined.conditions.len == 2
+  doAssert combined.operands.len == 2
 
 testCase errorCascadeAllNoneFields:
   ## Transport error -> ClientError -> message extraction with no optional fields.

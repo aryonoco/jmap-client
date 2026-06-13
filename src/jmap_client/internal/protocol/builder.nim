@@ -52,11 +52,15 @@ import ./call_meta
 {.push ruleOff: "objects".}
 
 type RequestBuilder* = object
-  ## Immutable accumulator for constructing a JMAP Request (RFC 8620
+  ## Single-use accumulator for constructing a JMAP Request (RFC 8620
   ## section 3.3). Each builder carries a ``BuilderId`` brand minted at
   ## construction; that brand travels into every handle the builder
   ## issues and into the ``BuiltRequest`` produced by ``freeze``, so
-  ## extraction can detect cross-builder / cross-client misuse.
+  ## extraction can detect cross-builder / cross-client misuse. Uncopyable
+  ## (A7d) — ownership transfers via ``sink`` at every ``add*`` / ``freeze``.
+  ##
+  ## Async dispatch (post-1.0) returns ``DispatchedRequest`` from ``sendAsync``;
+  ## see ``docs/policy/03-rfc-extension-policy.md``.
   id: BuilderId ## per-builder dispatch brand
   nextCallId: int ## monotonic counter for "c0", "c1", ...
   invocations: seq[Invocation] ## accumulated method calls
@@ -70,21 +74,30 @@ type BuiltRequest* = object
   ## ``DispatchedResponse`` returned from ``send`` carries the same
   ## brand, allowing handles issued by the same builder to match at
   ## extraction.
+  ##
+  ## Async dispatch (post-1.0) consumes a ``BuiltRequest`` via ``sendAsync``,
+  ## yielding ``DispatchedRequest``; see
+  ## ``docs/policy/03-rfc-extension-policy.md``.
   rawRequest: Request
   rawBuilderId: BuilderId
   rawCallLimits: seq[CallLimitMeta]
 
 {.pop.}
 
-# Uncopyable contract — each ``BuiltRequest`` has exactly one owner
-# (P16). Transfer via ``sink``: ``send`` consumes ``BuiltRequest``.
-# Combining ``=copy`` and ``=dup`` with the error pragma makes a
-# non-last-read a compile-time error of the form *"requires a copy
-# because it's not the last read of '<name>'"*. ``RequestBuilder``
-# remains copyable: builder chains run at module top-level where Nim's
-# move analysis cannot prove wasMoved across the implicit destructor,
-# and the ``sink`` qualifiers on every ``add*`` and ``freeze`` give the
-# advisory single-use contract without forcing the structural one.
+# Uncopyable lifecycle contract (P16/P21). Both ``RequestBuilder`` and
+# ``BuiltRequest`` have exactly one owner; ownership transfers via ``sink`` at
+# every phase boundary — each ``add*`` consumes the builder and returns the
+# next, ``freeze`` consumes the builder and yields the ``BuiltRequest``, and
+# ``send`` consumes the ``BuiltRequest``. Combining ``=copy`` and ``=dup`` with
+# the ``{.error.}`` pragma turns a non-last-read into a compile error of the
+# form *"requires a copy because it's not the last read of '<name>'"*, so
+# freezing or ``add*``-ing the same builder twice — and dispatching the same
+# ``BuiltRequest`` twice — cannot compile (the brand-alias hazard is closed at
+# the type level, not merely advised by ``sink``). A retry replays the chain
+# from a fresh ``newBuilder``. A fallible builder returns the next builder
+# inside a ``Result`` tuple; because the builder is uncopyable, application code
+# moves it out (``var r = …; doAssert r.isOk; let (b, h) = move(r.value)``)
+# rather than copying it via ``.get`` / ``.expect``.
 
 func `=copy`*(
   dst: var BuiltRequest, src: BuiltRequest
@@ -92,6 +105,15 @@ func `=copy`*(
 func `=dup`*(
   src: BuiltRequest
 ): BuiltRequest {.error: "BuiltRequest is uncopyable; transfer ownership via `sink`".}
+
+func `=copy`*(
+  dst: var RequestBuilder, src: RequestBuilder
+) {.error: "RequestBuilder is uncopyable; transfer ownership via `sink`".}
+func `=dup`*(
+  src: RequestBuilder
+): RequestBuilder {.
+  error: "RequestBuilder is uncopyable; transfer ownership via `sink`"
+.}
 
 func initRequestBuilder*(id: BuilderId): RequestBuilder =
   ## Module-private surface — exported with ``*`` so ``client.nim`` and
@@ -147,17 +169,13 @@ func freeze*(b: sink RequestBuilder): BuiltRequest =
   ## Snapshots the builder's accumulated state into a sealed, branded
   ## carrier.
   ##
-  ## **Consumes ``b`` (advisory).** The ``sink`` qualifier expresses a
-  ## single-use contract: every ``add*`` and ``freeze`` takes ``sink
-  ## RequestBuilder`` so the intended shape is one builder, one freeze
-  ## (P16). Unlike ``BuiltRequest`` — which is structurally uncopyable
-  ## (``=copy`` / ``=dup`` are ``{.error.}``) — ``RequestBuilder`` stays
-  ## copyable, because builder chains run at module top-level where
-  ## Nim's move analysis cannot prove ``wasMoved`` across the implicit
-  ## destructor. So reuse of ``b`` after ``freeze`` is a contract
-  ## violation but not necessarily a hard compile error (Nim may insert
-  ## a copy). For independent frozen views, start from a fresh
-  ## ``initRequestBuilder``.
+  ## **Consumes ``b`` structurally.** ``freeze`` takes ``sink
+  ## RequestBuilder`` and ``RequestBuilder`` is uncopyable (``=copy`` /
+  ## ``=dup`` are ``{.error.}``), so the lifecycle is one builder, one freeze
+  ## (P16/P21): freezing the same builder twice — or calling any ``add*`` on it
+  ## after ``freeze`` — fails to compile (*"requires a copy because it's not the
+  ## last read"*). For an independent frozen view, replay the chain from a fresh
+  ## ``newBuilder`` / ``initRequestBuilder``.
   ##
   ## ``createdIds`` is always ``none`` — proxy splitting is a Layer 4
   ## concern.
@@ -178,12 +196,14 @@ func builderId*(br: BuiltRequest): BuilderId =
   ## Hub-private accessor — the brand of the issuing builder.
   br.rawBuilderId
 
-func callLimits*(br: BuiltRequest): seq[CallLimitMeta] =
+func callLimits*(br: BuiltRequest): lent seq[CallLimitMeta] =
   ## Hub-private accessor — per-call object-count metadata, parallel to
   ## ``br.request.methodCalls``. Used by internal validation in
   ## ``client.send`` to enforce server-declared ``maxObjectsInGet`` and
   ## ``maxObjectsInSet`` from typed counts rather than raw JSON
   ## traversal of ``inv.arguments``.
+  ## Borrowed view (`lent`, P12) — read-only, no per-call deep copy of the
+  ## sealed container.
   br.rawCallLimits
 
 func toJson*(br: BuiltRequest): JsonNode =

@@ -54,8 +54,10 @@ func fromJson*(
 # =============================================================================
 
 func toJson*(c: Comparator): JsonNode =
-  ## Serialise Comparator to JSON (RFC 8620 section 5.5).
-  var node = %*{"property": $c.property, "isAscending": c.isAscending}
+  ## Serialise Comparator to JSON (RFC 8620 section 5.5). ``isAscending`` is
+  ## emitted per the comparator's ``direction`` (omitted for ``sdServerDefault``).
+  var node = %*{"property": $c.property}
+  emitSortDirection(node, c.direction)
   for col in c.collation:
     node["collation"] = %($col)
   return node
@@ -78,8 +80,14 @@ func fromJson*(
         actualKind: ascNode.kind,
       )
     )
-  let isAscending = ascNode.getBool(true)
-    # nil-safe; returns true (RFC default) when absent
+  # Strict on wrong-kind (above); the absent/true/false mapping is the shared
+  # ``sortDirectionFromWire`` translation — absent → ``sdServerDefault``.
+  let ascending =
+    if ascNode.isNil:
+      Opt.none(bool)
+    else:
+      Opt.some(ascNode.getBool(false))
+  let direction = sortDirectionFromWire(ascending)
   let collNode = node{"collation"}
   var collation = Opt.none(CollationAlgorithm)
   if not collNode.isNil and collNode.kind == JString:
@@ -88,7 +96,7 @@ func fromJson*(
       # Empty string is the RFC-default sentinel; treat as ``Opt.none``.
       let alg = ?wrapInner(parseCollationAlgorithm(raw), path / "collation")
       collation = Opt.some(alg)
-  return ok(parseComparator(property, isAscending, collation))
+  return ok(parseComparator(property, direction, collation))
 
 # =============================================================================
 # Filter[C]
@@ -107,7 +115,7 @@ func toJson*[C](f: Filter[C]): JsonNode =
     return f.condition.toJson()
   of fkOperator:
     var conditions = newJArray()
-    for child in f.conditions:
+    for child in operands(f):
       conditions.add(child.toJson())
     return %*{"operator": $f.operator, "conditions": conditions}
 
@@ -144,7 +152,30 @@ func fromJsonImpl[C](
     let child =
       ?fromJsonImpl[C](childNode, fromCondition, depth - 1, path / "conditions" / i)
     children.add(child)
-  return ok(filterOperator(op, children))
+  # Arity tightening (B3): RFC 8620 §5.5 requires NOT to have exactly one
+  # operand and AND/OR one or more. A malformed server/client filter Errs here
+  # rather than silently constructing an illegal tree (Postel: reject the
+  # structurally invalid).
+  case op
+  of foNot:
+    ?expectLen(conditionsNode, 1, path / "conditions")
+    # expectLen proved exactly one element ⇒ children.len == 1.
+    return ok(filterNot(children[0]))
+  of foAnd, foOr:
+    if children.len == 0:
+      return err(
+        SerdeViolation(
+          kind: svkEmptyRequired,
+          path: path / "conditions",
+          emptyFieldLabel: "filter conditions",
+        )
+      )
+    # children non-empty (checked above) ⇒ the smart constructor cannot Err.
+    return
+      if op == foAnd:
+        ok(filterAnd(children).get())
+      else:
+        ok(filterOr(children).get())
 
 func fromJson*[C](
     T: typedesc[Filter[C]],

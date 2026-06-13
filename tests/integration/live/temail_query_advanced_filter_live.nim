@@ -195,7 +195,7 @@ proc assertHasAttachment(
     return
   let future = parseUtcDate("2099-01-01T00:00:00Z").expect("parseUtcDate future")
   let filter = filterCondition(
-    EmailFilterCondition(hasAttachment: Opt.some(true), before: Opt.some(future))
+    EmailFilterCondition(hasAttachment: hafYes, before: Opt.some(future))
   )
   let (b, h) = addEmailQuery(
     initRequestBuilder(makeBuilderId()), mailAccountId, filter = Opt.some(filter)

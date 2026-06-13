@@ -83,11 +83,11 @@ func addIdentitySet*(
   ## ``addSet[Identity, IdentityCreate, NonEmptyIdentityUpdates,
   ## SetResponse[IdentityCreatedItem, PartialIdentity]]`` with no
   ## entity-specific extras. ``createResults`` is keyed by ``CreationId``
-  ## and carries ``IdentityCreatedItem`` (``id`` plus the optional
-  ## server-set ``mayDelete``), not full ``Identity`` records — the wire
-  ## payload is the server-set subset per RFC 8620 §5.3. ``updateResults``
+  ## and carries ``IdentityCreatedItem`` (``id`` plus the three-state
+  ## ``DeleteAuthority`` ``mayDelete``), not full ``Identity`` records — the
+  ## wire payload is the server-set subset per RFC 8620 §5.3. ``updateResults``
   ## is keyed by ``Id`` and carries ``PartialIdentity`` (A4 D2).
-  ## Destroying an Identity whose ``mayDelete`` is false surfaces as a
+  ## Destroying an Identity whose ``mayDelete`` is ``daNo`` surfaces as a
   ## per-id ``SetError`` inside ``destroyResults`` — no client-side
   ## pre-check.
   addSet[

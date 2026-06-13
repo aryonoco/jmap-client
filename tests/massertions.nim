@@ -26,16 +26,29 @@ export m_l2_serde
 
 template assertOk*(expr: untyped) =
   ## Verifies a Result is ok, or that an expression evaluates without panic.
-  when compiles(expr.isOk):
-    let res = expr
-    doAssert res.isOk, "expected Ok result, got Err"
+  ## Borrows ``expr`` (reads ``isOk`` in place) rather than binding a local copy,
+  ## so it works for Results whose Ok value is uncopyable (e.g. a tuple carrying
+  ## a ``RequestBuilder``) — and stays a borrow for everything else.
+  when compiles((expr).isOk):
+    doAssert (expr).isOk, "expected Ok result, got Err"
   else:
     discard expr
 
 template assertErr*(expr: untyped) =
-  ## Verifies a Result is err.
-  let res = expr
-  doAssert res.isErr, "expected Err result, got Ok"
+  ## Verifies a Result is err. Borrows ``expr`` (see ``assertOk``) so an
+  ## uncopyable Ok value does not force a copy.
+  doAssert (expr).isErr, "expected Err result, got Ok"
+
+proc moveExpect*[T, E](r: sink Result[T, E], msg: string): T =
+  ## Move the Ok value out of ``r``, asserting Ok with ``msg`` on Err. Use in
+  ## place of ``.expect`` / ``.get`` when ``T`` is uncopyable (e.g. a tuple
+  ## carrying the now-uncopyable ``RequestBuilder`` returned by the fallible
+  ## builders ``addEmailSubmissionAndEmailSet`` / ``addCapabilityInvocation``);
+  ## ``.expect`` copies its result, which the copy hook forbids. Application
+  ## code uses the same idiom directly: ``var r = …; doAssert r.isOk;
+  ## let (b, h) = move(r.value)``.
+  doAssert r.isOk, msg
+  result = move(r.value)
 
 template toValidationShape(err: untyped): ValidationError =
   ## Normalises an error rail value to ``ValidationError`` shape so the

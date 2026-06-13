@@ -771,25 +771,25 @@ testCase rfc8620_S5_5_filterOperators:
   doAssert $foNot == "NOT"
 
 testCase rfc8620_S5_5_notOperatorSemantics:
-  ## NOT means "none of the conditions must match" — it wraps child filters.
+  ## NOT negates exactly one child filter (RFC 8620 §5.5).
   let cond1 = filterCondition("a")
-  let cond2 = filterCondition("b")
-  let notFilter = filterOperator(foNot, @[cond1, cond2])
+  let notFilter = filterNot(cond1)
   doAssert notFilter.kind == fkOperator
   doAssert notFilter.operator == foNot
-  doAssert notFilter.conditions.len == 2
+  doAssert notFilter.operands.len == 1
 
 testCase rfc8620_S5_5_comparatorDefaultAscending:
-  ## Comparator isAscending defaults to true per RFC 8620.
+  ## Comparator direction defaults to ``sdServerDefault`` — the wire omits
+  ## ``isAscending`` and the server applies its RFC 8620 default (ascending).
   let prop = makePropertyName("receivedAt")
   let cmp = parseComparator(prop)
-  doAssert cmp.isAscending == true
+  doAssert cmp.direction == sdServerDefault
 
 testCase rfc8620_S5_5_comparatorExplicitDescending:
-  ## Comparator isAscending can be explicitly set to false.
+  ## Comparator direction can be explicitly set to ``sdDescending``.
   let prop = makePropertyName("size")
-  let cmp = parseComparator(prop, isAscending = false)
-  doAssert cmp.isAscending == false
+  let cmp = parseComparator(prop, direction = sdDescending)
+  doAssert cmp.direction == sdDescending
 
 testCase rfc8620_S5_5_comparatorCollationRfc4790Format:
   ## RFC 4790 collation identifier in Comparator.
@@ -803,40 +803,36 @@ testCase rfc8620_S5_5_filterDeepNesting:
   let leaf1 = filterCondition("a")
   let leaf2 = filterCondition("b")
   let leaf3 = filterCondition("c")
-  let mid = filterOperator(foAnd, @[leaf1, leaf2])
-  let top = filterOperator(foOr, @[mid, filterOperator(foNot, @[leaf3])])
+  let mid = filterAnd(@[leaf1, leaf2]).get()
+  let top = filterOr(@[mid, filterNot(leaf3)]).get()
   doAssert top.kind == fkOperator
-  doAssert top.conditions[0].kind == fkOperator
-  doAssert top.conditions[0].conditions[0].kind == fkCondition
+  doAssert top.operands[0].kind == fkOperator
+  doAssert top.operands[0].operands[0].kind == fkCondition
 
-testCase rfc8620_S5_5_filterNotMultipleChildren:
-  ## RFC 8620 S5.5: the NOT operator semantically applies to exactly one
-  ## child, but Layer 1 does not enforce this constraint. Multiple children
-  ## under NOT are accepted at Layer 1; semantic validation is a Layer 3
-  ## concern.
+testCase rfc8620_S5_5_filterNotExactlyOneChild:
+  ## RFC 8620 §5.5: the NOT operator applies to exactly one child. ``filterNot``
+  ## takes a single filter, so a multi-child NOT is not expressible — the arity
+  ## is enforced in the constructor signature (B3), not deferred to Layer 3.
   let cond1 = filterCondition(1)
-  let cond2 = filterCondition(2)
-  let notFilter = filterOperator(foNot, @[cond1, cond2])
+  let notFilter = filterNot(cond1)
   doAssert notFilter.kind == fkOperator
   doAssert notFilter.operator == foNot
-  doAssert notFilter.conditions.len == 2
+  doAssert notFilter.operands.len == 1
 
-testCase rfc8620_S5_5_filterEmptyConditions:
-  ## RFC 8620 S5.5: Layer 1 does not validate the conditions list length.
-  ## An empty conditions list under AND is accepted at Layer 1; semantic
-  ## validation is deferred to Layer 3.
-  let f = filterOperator[int](foAnd, @[])
-  doAssert f.kind == fkOperator
-  doAssert f.operator == foAnd
-  doAssert f.conditions.len == 0
+testCase rfc8620_S5_5_filterEmptyConditionsRejected:
+  ## RFC 8620 §5.5: AND/OR are "one or more" conditions — an empty operand list
+  ## is rejected at construction (B3).
+  assertErr filterAnd(newSeq[Filter[int]]())
+  assertErr filterOr(newSeq[Filter[int]]())
 
 testCase rfc8620_S5_5_comparatorDefaultAscendingTrue:
   ## RFC 8620 S5.5: "If true or not present, sort is ascending."
-  ## The parseComparator factory defaults isAscending to true, matching
-  ## the RFC's specified default behaviour.
+  ## ``parseComparator`` defaults to ``sdServerDefault`` — the ``isAscending``
+  ## key is omitted on the wire (the "not present" arm), matching the RFC's
+  ## specified default behaviour.
   let prop = makePropertyName("date")
   let cmp = parseComparator(prop)
-  doAssert cmp.isAscending == true
+  doAssert cmp.direction == sdServerDefault
   doAssert cmp.collation.isNone
 
 testCase rfc8620_S5_5_comparatorWithCollation:
@@ -844,10 +840,10 @@ testCase rfc8620_S5_5_comparatorWithCollation:
   ## (RFC 4790 format). "i;ascii-casemap" is a standard collation.
   let prop = makePropertyName("subject")
   let cmp = parseComparator(
-    prop, isAscending = true, collation = Opt.some(CollationAsciiCasemap)
+    prop, direction = sdAscending, collation = Opt.some(CollationAsciiCasemap)
   )
   doAssert cmp.property == prop
-  doAssert cmp.isAscending == true
+  doAssert cmp.direction == sdAscending
   doAssert cmp.collation.isSome
   doAssert cmp.collation.get() == CollationAsciiCasemap
 
@@ -1061,11 +1057,11 @@ testCase rfc8620_S5_5_comparatorCollationDefault:
   let c = parseComparator(pn)
   doAssert c.collation.isNone
 
-testCase rfc8620_S5_5_filterOperatorEmptyConditions:
-  ## Filter operator with empty conditions list.
-  let f = filterOperator[int](foAnd, @[])
-  doAssert f.kind == fkOperator
-  doAssert f.conditions.len == 0
+testCase rfc8620_S5_5_filterOperatorEmptyConditionsRejected:
+  ## A filter operator with an empty conditions list is rejected (RFC 8620
+  ## §5.5 requires "one or more"; B3).
+  assertErr filterAnd(newSeq[Filter[int]]())
+  assertErr filterOr(newSeq[Filter[int]]())
 
 testCase rfc8620_S3_6_1_requestErrorLimitName:
   ## The "limit" field for retLimit specifies which limit was exceeded.

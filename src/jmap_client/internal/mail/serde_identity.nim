@@ -40,6 +40,30 @@ func parseDefaultingString(
   ?expectKind(field, JString, path / key)
   return ok(field.getStr(""))
 
+func parseMayDelete(
+    node: JsonNode, path: JsonPath
+): Result[DeleteAuthority, SerdeViolation] =
+  ## Parse RFC 8621 §6 ``mayDelete`` as a three-state ``DeleteAuthority``.
+  ## Absent or null yields ``daUnreported`` (Stalwart 0.15.5 omits it); ``true``
+  ## yields ``daYes``; ``false`` yields ``daNo``. Lenient on absence (Postel),
+  ## strict on a wrong-kind present value.
+  let field = node{"mayDelete"}
+  if field.isNil or field.kind == JNull:
+    return ok(daUnreported)
+  ?expectKind(field, JBool, path / "mayDelete")
+  return ok(if field.getBool(false): daYes else: daNo)
+
+func emitMayDelete(node: JsonNode, authority: DeleteAuthority) =
+  ## Emit ``mayDelete`` symmetric with ``parseMayDelete``: ``daUnreported``
+  ## omits the key, ``daYes``/``daNo`` emit the boolean.
+  case authority
+  of daUnreported:
+    discard
+  of daYes:
+    node["mayDelete"] = %true
+  of daNo:
+    node["mayDelete"] = %false
+
 func parseOptEmailAddresses(
     node: JsonNode, key: string, path: JsonPath
 ): Result[Opt[seq[EmailAddress]], SerdeViolation] =
@@ -81,7 +105,7 @@ func toJson*(ident: Identity): JsonNode =
     node["bcc"] = newJNull()
   node["textSignature"] = %ident.textSignature
   node["htmlSignature"] = %ident.htmlSignature
-  node["mayDelete"] = %ident.mayDelete
+  node.emitMayDelete(ident.mayDelete)
   return node
 
 func fromJson*(
@@ -89,7 +113,8 @@ func fromJson*(
 ): Result[Identity, SerdeViolation] =
   ## Deserialise JSON object to Identity. Rejects absent or wrong-type required
   ## fields. Absent name/textSignature/htmlSignature default to "".
-  ## Absent or null replyTo/bcc default to Opt.none.
+  ## Absent or null replyTo/bcc default to Opt.none. Absent or null mayDelete
+  ## yields ``daUnreported`` (Stalwart 0.15.5 elides it).
   discard $T # consumed for nimalyzer params rule
   ?expectKind(node, JObject, path)
   let idNode = ?fieldJString(node, "id", path)
@@ -107,8 +132,7 @@ func fromJson*(
   let bcc = ?parseOptEmailAddresses(node, "bcc", path)
   let textSignature = ?parseDefaultingString(node, "textSignature", path)
   let htmlSignature = ?parseDefaultingString(node, "htmlSignature", path)
-  let mayDeleteNode = ?fieldJBool(node, "mayDelete", path)
-  let mayDelete = mayDeleteNode.getBool(false)
+  let mayDelete = ?parseMayDelete(node, path)
   return ok(
     Identity(
       id: id,
@@ -155,30 +179,25 @@ func toJson*(ic: IdentityCreate): JsonNode =
 
 func toJson*(item: IdentityCreatedItem): JsonNode =
   ## Serialise IdentityCreatedItem to JSON. Emits ``id`` always; ``mayDelete``
-  ## only when present (round-trips Stalwart's elision symmetrically).
+  ## only when reported (round-trips Stalwart's elision symmetrically).
   var node = newJObject()
   node["id"] = item.id.toJson()
-  for v in item.mayDelete:
-    node["mayDelete"] = %v
+  node.emitMayDelete(item.mayDelete)
   return node
 
 func fromJson*(
     T: typedesc[IdentityCreatedItem], node: JsonNode, path: JsonPath = emptyJsonPath()
 ): Result[IdentityCreatedItem, SerdeViolation] =
   ## Deserialise the partial Identity payload sent in Identity/set
-  ## ``created[cid]``. ``id`` is required (RFC 8620 §5.3); ``mayDelete`` is
-  ## ``Opt`` because Stalwart 0.15.5 omits it (strict-RFC minor divergence,
-  ## accommodated here per Postel's law). Other Identity fields are not
-  ## expected in this payload — the client already sent them in ``create``.
+  ## ``created[cid]``. ``id`` is required (RFC 8620 §5.3); ``mayDelete`` parses
+  ## to ``daUnreported`` when Stalwart 0.15.5 omits it (strict-RFC minor
+  ## divergence, accommodated here per Postel's law). Other Identity fields are
+  ## not expected in this payload — the client already sent them in ``create``.
   discard $T # consumed for nimalyzer params rule
   ?expectKind(node, JObject, path)
   let idNode = ?fieldJString(node, "id", path)
   let id = ?Id.fromJson(idNode, path / "id")
-  let mayDeleteField = node{"mayDelete"}
-  var mayDelete = Opt.none(bool)
-  if not mayDeleteField.isNil and mayDeleteField.kind != JNull:
-    ?expectKind(mayDeleteField, JBool, path / "mayDelete")
-    mayDelete = Opt.some(mayDeleteField.getBool(false))
+  let mayDelete = ?parseMayDelete(node, path)
   return ok(IdentityCreatedItem(id: id, mayDelete: mayDelete))
 
 # =============================================================================

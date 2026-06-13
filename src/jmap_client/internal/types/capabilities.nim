@@ -92,8 +92,10 @@ func maxObjectsInSet*(c: CoreCapabilities): UnsignedInt =
   ## Max combined create/update/destroy per /set call.
   c.rawMaxObjectsInSet
 
-func collationAlgorithms*(c: CoreCapabilities): HashSet[CollationAlgorithm] =
+func collationAlgorithms*(c: CoreCapabilities): lent HashSet[CollationAlgorithm] =
   ## RFC 4790 collation algorithm identifiers advertised by the server.
+  ## Borrowed view (`lent`, P12) — read-only, no per-call deep copy of the
+  ## sealed container.
   c.rawCollationAlgorithms
 
 func parseCoreCapabilities*(

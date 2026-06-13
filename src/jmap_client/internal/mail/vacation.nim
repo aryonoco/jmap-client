@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: BSD-2-Clause
 # Copyright (c) 2026 Aryan Ameri
 
-## VacationResponse entity for RFC 8621 (JMAP Mail) section 7. A
+## VacationResponse entity for RFC 8621 (JMAP Mail) section 8. A
 ## VacationResponse is a singleton object controlling automatic vacation
 ## replies. There is no ``id`` field on the Nim type — the singleton identity
 ## ("singleton") is handled purely in serialisation (Design Decision A6).
@@ -16,10 +16,10 @@ import ../types/primitives
 import ../types/field_echo
 
 const VacationResponseSingletonId* = "singleton"
-  ## The fixed identifier for the sole VacationResponse object (RFC 8621 §7).
+  ## The fixed identifier for the sole VacationResponse object (RFC 8621 §8).
 
 type VacationResponse* {.ruleOff: "objects".} = object
-  ## Server-side vacation auto-reply configuration (RFC 8621 section 7).
+  ## Server-side vacation auto-reply configuration (RFC 8621 section 8).
   ## All optional fields use ``Opt[T]`` — absent means the server decides.
   isEnabled*: bool ## Whether the vacation response is active.
   fromDate*: Opt[UTCDate] ## Start of the vacation window, or none.
@@ -33,13 +33,13 @@ type VacationResponse* {.ruleOff: "objects".} = object
 # =============================================================================
 
 type PartialVacationResponse* {.ruleOff: "objects".} = object
-  ## RFC 8621 §7 partial VacationResponse. Receive-only; produced by the
+  ## RFC 8621 §8 partial VacationResponse. Receive-only; produced by the
   ## library via ``SetResponse[NoCreate,
   ## PartialVacationResponse].updateResults`` (D6 — singleton-only ``/set``
   ## has no create rail) and ``GetResponse[PartialVacationResponse].list``
   ## (A4 + A3.6).
   isEnabled*: Opt[bool]
-  fromDate*: FieldEcho[UTCDate] ## Wire admits null (clears start date per RFC 8621 §7).
+  fromDate*: FieldEcho[UTCDate] ## Wire admits null (clears start date per RFC 8621 §8).
   toDate*: FieldEcho[UTCDate] ## Wire admits null (clears end date).
   subject*: FieldEcho[string] ## Wire admits null (clears subject).
   textBody*: FieldEcho[string] ## Wire admits null (clears text body).
@@ -105,6 +105,87 @@ func setHtmlBody*(htmlBody: Opt[string]): VacationResponseUpdate =
   ## Replace htmlBody. Opt.none clears the HTML body per RFC 8621 §8.
   VacationResponseUpdate(kind: vruSetHtmlBody, htmlBody: htmlBody)
 
+# =============================================================================
+# Window-order invariant (RFC 8621 §8)
+# =============================================================================
+
+func fractionDigits(s: string): string =
+  ## The RFC 8620 §1.4 ``time-secfrac`` digits between ``.`` and the trailing
+  ## ``Z`` (empty when omitted). Relies on the validated ``UTCDate`` layout:
+  ## a 19-char ``YYYY-MM-DDTHH:MM:SS`` prefix, then either ``Z`` or
+  ## ``.<digits>Z``.
+  if s.len <= 20 or s[19] != '.':
+    return ""
+  return s[20 ..< s.high]
+
+func utcInstantLeq(a, b: UTCDate): bool =
+  ## True iff ``a`` is at or before ``b`` on the UTC timeline. Sound for
+  ## RFC 8620 §1.4 ``UTCDate``: the 19-char ``YYYY-MM-DDTHH:MM:SS`` prefix is
+  ## fixed-width, zero-padded numerics with fixed separators (lexical order ==
+  ## chronological); the optional fractional part is compared as a
+  ## right-zero-padded digit string. Both values end in ``Z`` (the ``UTCDate``
+  ## invariant), so no offset normalisation is needed.
+  ##
+  ## Module-private by design: the sealed ``UTCDate`` exposes no public
+  ## ordering (it carries no calendar semantics). Naive ``string`` ``<`` is
+  ## *unsound* here — ``"…01.5Z"`` would sort before ``"…01Z"`` because
+  ## ``'.'`` < ``'Z'`` — which is precisely why this comparator splits the
+  ## fixed prefix from the variable-precision fraction.
+  let sa = $a
+  let sb = $b
+  if sa.len < 19 or sb.len < 19:
+    # Defensive: a malformed value can only arrive via a future bug, never via
+    # ``parseUtcDate``. Fall back to a total lexical order.
+    return sa <= sb
+  let prefixA = sa[0 ..< 19]
+  let prefixB = sb[0 ..< 19]
+  if prefixA != prefixB:
+    return prefixA <= prefixB
+  var fracA = fractionDigits(sa)
+  var fracB = fractionDigits(sb)
+  while fracA.len < fracB.len:
+    fracA.add('0')
+  while fracB.len < fracA.len:
+    fracB.add('0')
+  return fracA <= fracB
+
+func windowOrderConflict(
+    updates: openArray[VacationResponseUpdate]
+): seq[ValidationError] =
+  ## The locally-checkable subset of the RFC 8621 §8 window invariant: when a
+  ## single batch sets BOTH endpoints to concrete dates and the start is
+  ## strictly after the end, the window is empty/backwards. ``from == to`` is a
+  ## degenerate (empty) window, not a contradiction, so it is permitted.
+  ##
+  ## Single-endpoint batches are intentionally unprotected: the server holds
+  ## the other endpoint and is authoritative (it returns ``invalidProperties``
+  ## if the combined window is illegal). Encoding only the honestly-enforceable
+  ## subset is itself the P16 stance — do not pretend a guarantee the client
+  ## cannot make.
+  result = @[]
+  var fromOpt = Opt.none(UTCDate)
+  var toOpt = Opt.none(UTCDate)
+  for u in updates:
+    case u.kind
+    of vruSetFromDate:
+      for d in u.fromDate:
+        fromOpt = Opt.some(d)
+    of vruSetToDate:
+      for d in u.toDate:
+        toOpt = Opt.some(d)
+    of vruSetIsEnabled, vruSetSubject, vruSetTextBody, vruSetHtmlBody:
+      discard
+  for f in fromOpt:
+    for t in toOpt:
+      if not utcInstantLeq(f, t):
+        result.add(
+          validationError(
+            "VacationResponseUpdateSet",
+            "window start is after window end",
+            $f & " > " & $t,
+          )
+        )
+
 type VacationResponseUpdateSet* {.ruleOff: "objects".} = object
   ## Validated, conflict-free batch of VacationResponseUpdate operations
   ## targeting the singleton VacationResponse. Sealed Pattern-A object —
@@ -123,16 +204,20 @@ func initVacationResponseUpdateSet*(
   ##   * empty input — the addVacationResponseSet `update` parameter has
   ##     exactly one "no updates" representation (omit the call entirely);
   ##   * duplicate target property — two updates with the same kind would
-  ##     produce a JSON patch object with duplicate keys.
+  ##     produce a JSON patch object with duplicate keys;
+  ##   * a backwards window — a batch that sets BOTH ``fromDate`` and
+  ##     ``toDate`` to concrete dates where the start is strictly after the end
+  ##     (RFC 8621 §8; the locally-checkable subset of the window invariant, B4).
   ## All violations surface in a single Err pass; each repeated kind is
   ## reported exactly once regardless of occurrence count.
-  let errs = validateUniqueByIt(
-    updates,
-    it.kind,
-    typeName = "VacationResponseUpdateSet",
-    emptyMsg = "must contain at least one update",
-    dupMsg = "duplicate target property",
-  )
+  let errs =
+    validateUniqueByIt(
+      updates,
+      it.kind,
+      typeName = "VacationResponseUpdateSet",
+      emptyMsg = "must contain at least one update",
+      dupMsg = "duplicate target property",
+    ) & windowOrderConflict(updates)
   if errs.len > 0:
     return err(errs)
   ok(VacationResponseUpdateSet(rawValue: @updates))
@@ -143,7 +228,7 @@ func initVacationResponseUpdateSet*(
 
 type VacationResponseGetPropertyKind* = enum
   ## Discriminator for ``VacationResponseGetProperty``. Backing strings are
-  ## the RFC 8621 §7 VacationResponse property wire names; ``vrgkOther``
+  ## the RFC 8621 §8 VacationResponse property wire names; ``vrgkOther``
   ## carries a capability-extension property whose raw identifier lives
   ## alongside.
   vrgkId = "id"
@@ -156,7 +241,7 @@ type VacationResponseGetPropertyKind* = enum
   vrgkOther
 
 type VacationResponseGetProperty* {.ruleOff: "objects".} = object
-  ## Typed RFC 8621 §7 VacationResponse/get property selector. Construction
+  ## Typed RFC 8621 §8 VacationResponse/get property selector. Construction
   ## sealed; use the ``vrgp…`` constants or ``parseVacationResponseGetProperty``.
   case rawKind: VacationResponseGetPropertyKind
   of vrgkOther:
@@ -170,7 +255,7 @@ func kind*(p: VacationResponseGetProperty): VacationResponseGetPropertyKind =
   p.rawKind
 
 func wireName*(p: VacationResponseGetProperty): string =
-  ## RFC 8621 §7 wire name. For ``vrgkOther`` this is the captured identifier.
+  ## RFC 8621 §8 wire name. For ``vrgkOther`` this is the captured identifier.
   case p.rawKind
   of vrgkOther:
     p.rawIdentifier
@@ -209,7 +294,7 @@ func parseVacationResponseGetProperty*(
     raw: string
 ): Result[VacationResponseGetProperty, ValidationError] =
   ## Classifying smart constructor: exact, case-sensitive match against the
-  ## RFC 8621 §7 wire names; unknown non-control strings fall to ``vrgkOther``
+  ## RFC 8621 §8 wire names; unknown non-control strings fall to ``vrgkOther``
   ## (capability-extension forward-compat, A11).
   detectNonControlString(raw).isOkOr:
     return err(toValidationError(error, "VacationResponseGetProperty", raw))

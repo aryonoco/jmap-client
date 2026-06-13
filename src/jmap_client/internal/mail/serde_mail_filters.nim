@@ -38,11 +38,21 @@ func toJson*(fc: MailboxFilterCondition): JsonNode =
 
   node.emitThreeState("role", fc.role)
 
-  for v in fc.hasAnyRole:
-    node["hasAnyRole"] = %v
+  case fc.hasAnyRole
+  of hrfNoConstraint:
+    discard
+  of hrfRequireAny:
+    node["hasAnyRole"] = %true
+  of hrfRequireNone:
+    node["hasAnyRole"] = %false
 
-  for v in fc.isSubscribed:
-    node["isSubscribed"] = %v
+  case fc.isSubscribed
+  of sfNoConstraint:
+    discard
+  of sfSubscribed:
+    node["isSubscribed"] = %true
+  of sfNotSubscribed:
+    node["isSubscribed"] = %false
 
   return node
 
@@ -122,8 +132,13 @@ func toJson*(fc: EmailFilterCondition): JsonNode =
 
   node.emitDateSizeFilters(fc)
   node.emitKeywordFilters(fc)
-  for v in fc.hasAttachment:
-    node["hasAttachment"] = %v
+  case fc.hasAttachment
+  of hafNoConstraint:
+    discard
+  of hafYes:
+    node["hasAttachment"] = %true
+  of hafNo:
+    node["hasAttachment"] = %false
   node.emitTextSearchFilters(fc)
 
   # -- Header filter --

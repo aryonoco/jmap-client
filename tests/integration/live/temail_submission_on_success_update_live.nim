@@ -93,13 +93,16 @@ testCase tEmailSubmissionOnSuccessUpdateLive:
       .expect("parseEmailSubmissionBlueprint[" & $target.kind & "]")
     var subTbl = initTable[CreationId, EmailSubmissionBlueprint]()
     subTbl[subCid] = blueprint
-    let (b3, handles) = addEmailSubmissionAndEmailSet(
-        initRequestBuilder(makeBuilderId()),
-        submissionAccountId,
-        create = Opt.some(subTbl),
-        onSuccessUpdateEmail = Opt.some(onSuccess),
-      )
-      .expect("addEmailSubmissionAndEmailSet update[" & $target.kind & "]")
+    # The Ok value is a tuple carrying the uncopyable ``RequestBuilder`` (A7d),
+    # so it is moved out of the Result rather than copied via ``.expect``.
+    var subRes = addEmailSubmissionAndEmailSet(
+      initRequestBuilder(makeBuilderId()),
+      submissionAccountId,
+      create = Opt.some(subTbl),
+      onSuccessUpdateEmail = Opt.some(onSuccess),
+    )
+    doAssert subRes.isOk, "addEmailSubmissionAndEmailSet update[" & $target.kind & "]"
+    let (b3, handles) = move(subRes.value)
     let resp3 = client.send(b3.freeze()).expect(
         "send EmailSubmission/set+Email/set[" & $target.kind & "]"
       )

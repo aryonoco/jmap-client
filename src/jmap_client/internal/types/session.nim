@@ -74,8 +74,10 @@ func isReadOnly*(a: Account): bool =
   of apOwnedReadOnly, apSharedReadOnly: true
   of apOwned, apShared: false
 
-func accountCapabilities*(a: Account): seq[AccountCapabilityEntry] =
+func accountCapabilities*(a: Account): lent seq[AccountCapabilityEntry] =
   ## Per-account capability declarations. RFC 8620 §2.
+  ## Borrowed view (`lent`, P12) — read-only, no per-call deep copy of the
+  ## sealed container.
   a.rawAccountCapabilities
 
 func mailCapability*(a: Account): Opt[MailAccountCapabilities] =
@@ -151,14 +153,18 @@ type UriTemplate* {.ruleOff: "objects".} = object
   rawVariables: HashSet[string]
   rawSource: string
 
-func parts*(t: UriTemplate): seq[UriPart] =
+func parts*(t: UriTemplate): lent seq[UriPart] =
   ## Parsed token sequence. Alternates ``upLiteral`` and ``upVariable``
   ## arms in source order.
+  ## Borrowed view (`lent`, P12) — read-only, no per-call deep copy of the
+  ## sealed container.
   return t.rawParts
 
-func variables*(t: UriTemplate): HashSet[string] =
+func variables*(t: UriTemplate): lent HashSet[string] =
   ## Set of variable names referenced by the template. Derived at parse
   ## time — O(1) per membership check.
+  ## Borrowed view (`lent`, P12) — read-only, no per-call deep copy of the
+  ## sealed container.
   return t.rawVariables
 
 func `$`*(t: UriTemplate): string =
@@ -222,12 +228,16 @@ func capabilities*(s: Session): seq[ServerCapability] =
   for cap in s.rawAdditional:
     result.add(cap)
 
-func accounts*(s: Session): Table[AccountId, Account] =
+func accounts*(s: Session): lent Table[AccountId, Account] =
   ## Accounts keyed by AccountId.
+  ## Borrowed view (`lent`, P12) — read-only, no per-call deep copy of the
+  ## sealed container.
   return s.rawAccounts
 
-func primaryAccounts*(s: Session): Table[string, AccountId] =
+func primaryAccounts*(s: Session): lent Table[string, AccountId] =
   ## Primary accounts keyed by raw capability URI (not CapabilityKind).
+  ## Borrowed view (`lent`, P12) — read-only, no per-call deep copy of the
+  ## sealed container.
   return s.rawPrimaryAccounts
 
 func username*(s: Session): string =

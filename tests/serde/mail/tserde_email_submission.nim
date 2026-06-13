@@ -256,22 +256,33 @@ testCase comparatorSentAtTokenNotSendAt:
   let node = c.toJson()
   assertJsonFieldEq node, "property", %"sentAt"
   assertJsonKeyAbsent node, "sendAt"
-  assertJsonFieldEq node, "isAscending", %true
+  assertJsonKeyAbsent node, "isAscending"
   assertJsonKeyAbsent node, "collation"
 
-testCase comparatorAscendingByEmailId:
+testCase comparatorServerDefaultByEmailId:
   ## Happy path: ``"emailId"`` is one of the three RFC-defined wire
-  ## tokens; it resolves to the ``esspEmailId`` enum variant. Default
-  ## ``isAscending`` is ``true`` per RFC 8620 §5.5; ``collation``
-  ## defaults to ``Opt.none`` (server's default per RFC 4790 registry)
-  ## and stays sparse on the wire.
+  ## tokens; it resolves to the ``esspEmailId`` enum variant. The default
+  ## ``direction`` is ``sdServerDefault`` — the ``isAscending`` key is
+  ## omitted and the server applies its RFC 8620 §5.5 default (ascending);
+  ## ``collation`` defaults to ``Opt.none`` and stays sparse.
   let c = parseEmailSubmissionComparator("emailId").unsafeGet()
   assertEq c.property, esspEmailId
   assertEq c.rawProperty, "emailId"
   let node = c.toJson()
-  assertLen node, 2
+  assertLen node, 1
   assertJsonFieldEq node, "property", %"emailId"
-  assertJsonFieldEq node, "isAscending", %true
+  assertJsonKeyAbsent node, "isAscending"
+  assertJsonKeyAbsent node, "collation"
+
+testCase comparatorDescendingEmitsIsAscendingFalse:
+  ## An explicit ``sdDescending`` direction emits ``isAscending: false`` via
+  ## the shared ``emitSortDirection`` wire-mapping.
+  let c =
+    parseEmailSubmissionComparator("threadId", direction = sdDescending).unsafeGet()
+  let node = c.toJson()
+  assertLen node, 2
+  assertJsonFieldEq node, "property", %"threadId"
+  assertJsonFieldEq node, "isAscending", %false
   assertJsonKeyAbsent node, "collation"
 
 # ============= E. IdOrCreationRef toJson ====================================

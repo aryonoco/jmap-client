@@ -64,13 +64,13 @@ testCase temailQueryFilterTreeLive:
     let corpus = ids.toHashSet
 
     # --- AND test: alpha AND uno ----------------------------------------
-    let andFilter = filterOperator(
-      foAnd,
-      @[
-        filterCondition(EmailFilterCondition(subject: Opt.some("alpha"))),
-        filterCondition(EmailFilterCondition(subject: Opt.some("uno"))),
-      ],
-    )
+    let andFilter = filterAnd(
+        @[
+          filterCondition(EmailFilterCondition(subject: Opt.some("alpha"))),
+          filterCondition(EmailFilterCondition(subject: Opt.some("uno"))),
+        ]
+      )
+      .get()
     let (ba, andHandle) = addEmailQuery(
       initRequestBuilder(makeBuilderId()), mailAccountId, filter = Opt.some(andFilter)
     )
@@ -87,13 +87,13 @@ testCase temailQueryFilterTreeLive:
       "AND(alpha, uno) must return the alpha-uno id; got ids=" & $andHits
 
     # --- OR test: alpha OR bravo ----------------------------------------
-    let orFilter = filterOperator(
-      foOr,
-      @[
-        filterCondition(EmailFilterCondition(subject: Opt.some("alpha"))),
-        filterCondition(EmailFilterCondition(subject: Opt.some("bravo"))),
-      ],
-    )
+    let orFilter = filterOr(
+        @[
+          filterCondition(EmailFilterCondition(subject: Opt.some("alpha"))),
+          filterCondition(EmailFilterCondition(subject: Opt.some("bravo"))),
+        ]
+      )
+      .get()
     let (bo, orHandle) = addEmailQuery(
       initRequestBuilder(makeBuilderId()), mailAccountId, filter = Opt.some(orFilter)
     )
@@ -112,15 +112,13 @@ testCase temailQueryFilterTreeLive:
           $i
 
     # --- NOT test: phase-c-14 AND NOT alpha -----------------------------
-    let notFilter = filterOperator(
-      foAnd,
-      @[
-        filterCondition(EmailFilterCondition(subject: Opt.some("phase-c-14"))),
-        filterOperator(
-          foNot, @[filterCondition(EmailFilterCondition(subject: Opt.some("alpha")))]
-        ),
-      ],
-    )
+    let notFilter = filterAnd(
+        @[
+          filterCondition(EmailFilterCondition(subject: Opt.some("phase-c-14"))),
+          filterNot(filterCondition(EmailFilterCondition(subject: Opt.some("alpha")))),
+        ]
+      )
+      .get()
     let (bn, notHandle) = addEmailQuery(
       initRequestBuilder(makeBuilderId()), mailAccountId, filter = Opt.some(notFilter)
     )

@@ -33,6 +33,9 @@ testCase propRoundTripEmailComparator:
     doAssert emailComparatorEq(rt, ec), "EmailComparator round-trip identity violated"
 
 testCase propRoundTripEmail:
+  # genEmail covers the B11 "bodyValues populated + bodyStructure absent" shape
+  # (the RFC 8621 §4.2 default Email/get shape); this round-trip proving Ok is
+  # the property-level evidence that the parser must NOT reject it.
   checkPropertyN "Email round-trip: emailFromJson(toJson(e)) == e", ThoroughTrials:
     let e = rng.genEmail()
     lastInput = (if e.id.isSome: $e.id.unsafeGet else: "Opt.none")
@@ -148,7 +151,7 @@ testCase propEmailFilterConditionFieldCount:
       inc expectedCount
     if fc.notKeyword.isSome:
       inc expectedCount
-    if fc.hasAttachment.isSome:
+    if fc.hasAttachment != hafNoConstraint:
       inc expectedCount
     if fc.text.isSome:
       inc expectedCount

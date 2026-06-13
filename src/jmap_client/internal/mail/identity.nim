@@ -17,6 +17,18 @@ import ../types/primitives
 import ../types/field_echo
 import ./addresses
 
+type DeleteAuthority* = enum
+  ## Whether the client may delete an Identity (RFC 8621 §6 ``mayDelete``),
+  ## three-state (P18). RFC 8621 declares ``mayDelete`` a server-set boolean
+  ## that is always present, but Stalwart 0.15.5 omits it from some payloads.
+  ## ``daUnreported`` (the zero value) names "the server did not say" honestly
+  ## rather than collapsing the omission to ``daNo`` — which would misreport
+  ## the user as forbidden to delete the identity. ``daYes`` is wire ``true``,
+  ## ``daNo`` is wire ``false``, ``daUnreported`` omits the key.
+  daUnreported
+  daYes
+  daNo
+
 type Identity* {.ruleOff: "objects".} = object
   ## An Identity represents information about an email address or domain
   ## the user may send from (RFC 8621 section 6).
@@ -27,7 +39,7 @@ type Identity* {.ruleOff: "objects".} = object
   bcc*: Opt[seq[EmailAddress]] ## Default Bcc addresses, or none.
   textSignature*: string ## Plain text signature, default "".
   htmlSignature*: string ## HTML signature, default "".
-  mayDelete*: bool ## Whether the client may delete this identity.
+  mayDelete*: DeleteAuthority ## Whether the client may delete this identity.
 
 type IdentityCreate* {.ruleOff: "objects".} = object
   ## Creation model for Identity — excludes server-set fields (id, mayDelete).
@@ -45,14 +57,14 @@ type IdentityCreatedItem* {.ruleOff: "objects".} = object
   ## ``mayDelete``. The full ``Identity`` record is NOT returned — the
   ## client already knows the other fields (it sent them in ``create``).
   ##
-  ## ``mayDelete`` is ``Opt[bool]`` rather than ``bool`` because Stalwart
-  ## 0.15.5 omits it from this payload (a strict-RFC §5.3 minor
-  ## divergence): the create acknowledgement is just ``{"id": "<id>"}``.
-  ## Postel's-law accommodation per ``.claude/rules/nim-conventions.md``
-  ## §"Serde Conventions": be lenient on receive. Mirrors the
-  ## ``EmailCreatedItem`` design (``email.nim``).
+  ## ``mayDelete`` is ``DeleteAuthority`` (three-state, P18): Stalwart 0.15.5
+  ## omits it from this payload (a strict-RFC §5.3 minor divergence — the
+  ## create acknowledgement is just ``{"id": "<id>"}``), which parses to
+  ## ``daUnreported``. Postel's-law accommodation per
+  ## ``.claude/rules/nim-conventions.md`` §"Serde Conventions": be lenient on
+  ## receive. Mirrors the ``EmailCreatedItem`` design (``email.nim``).
   id*: Id
-  mayDelete*: Opt[bool]
+  mayDelete*: DeleteAuthority
 
 # =============================================================================
 # PartialIdentity
@@ -72,6 +84,9 @@ type PartialIdentity* {.ruleOff: "objects".} = object
   textSignature*: Opt[string]
   htmlSignature*: Opt[string]
   mayDelete*: Opt[bool]
+    ## Stays ``Opt[bool]``, not ``DeleteAuthority``: in a sparse projection the
+    ## ``Opt`` already carries the third state (``Opt.none`` = not in this
+    ## projection), so ``daUnreported`` would be a redundant fourth state.
 
 func parseIdentityCreate*(
     email: string,

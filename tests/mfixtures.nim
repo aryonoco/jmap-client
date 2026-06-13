@@ -455,16 +455,16 @@ proc makeSetErrorAlreadyExists*(
 # ---------------------------------------------------------------------------
 
 proc makeComparator*(
-    property: PropertyName = makePropertyName("subject"), isAscending = true
+    property: PropertyName = makePropertyName("subject"), direction = sdAscending
 ): Comparator =
-  parseComparator(property, isAscending)
+  parseComparator(property, direction)
 
 proc makeComparatorWithCollation*(
     property: PropertyName = makePropertyName("subject"),
-    isAscending = true,
+    direction = sdAscending,
     collation: CollationAlgorithm = CollationUnicodeCasemap,
 ): Comparator =
-  parseComparator(property, isAscending, Opt.some(collation))
+  parseComparator(property, direction, Opt.some(collation))
 
 proc makeAddedItem*(id: Id = makeId("item1"), index: int64 = 0): AddedItem =
   initAddedItem(id, parseUnsignedInt(index).get())
@@ -477,10 +477,16 @@ proc makeFilterCondition*(condition = 42): Filter[int] =
   filterCondition(condition)
 
 proc makeFilterAnd*(children: seq[Filter[int]]): Filter[int] =
-  filterOperator[int](foAnd, children)
+  ## Test fixture: callers pass a non-empty child list, so ``filterAnd`` is Ok.
+  filterAnd(children).get()
 
 proc makeFilterOr*(children: seq[Filter[int]]): Filter[int] =
-  filterOperator[int](foOr, children)
+  ## Test fixture: callers pass a non-empty child list, so ``filterOr`` is Ok.
+  filterOr(children).get()
+
+proc makeFilterNot*(child: Filter[int]): Filter[int] =
+  ## Test fixture for a single-child NOT (RFC 8620 §5.5).
+  filterNot(child)
 
 # ---------------------------------------------------------------------------
 # Additional session fixture
@@ -833,10 +839,10 @@ proc filterEq*(a, b: Filter[int]): bool =
   of fkOperator:
     if a.operator != b.operator:
       return false
-    if a.conditions.len != b.conditions.len:
+    if a.operands.len != b.operands.len:
       return false
-    for i in 0 ..< a.conditions.len:
-      if not filterEq(a.conditions[i], b.conditions[i]):
+    for i in 0 ..< a.operands.len:
+      if not filterEq(a.operands[i], b.operands[i]):
         return false
     true
 
@@ -1013,7 +1019,7 @@ proc parsedEmailEq*(a, b: ParsedEmail): bool =
 proc emailComparatorEq*(a, b: EmailComparator): bool =
   ## Deep value equality for EmailComparator (case object). Follows
   ## ``setErrorEq`` pattern: shared fields then branch comparison.
-  if a.kind != b.kind or a.isAscending != b.isAscending or a.collation != b.collation:
+  if a.kind != b.kind or a.direction != b.direction or a.collation != b.collation:
     return false
   case a.kind
   of eckPlain:

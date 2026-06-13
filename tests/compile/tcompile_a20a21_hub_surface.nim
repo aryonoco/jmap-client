@@ -28,9 +28,13 @@ static:
   doAssert declared(discoveryEndpoint)
   doAssert declared(setCredential)
 
-  # The discriminators are public fields (strict-objects Rule 3).
+  # The discriminators are exposed read-only via the ``scheme`` / ``kind``
+  # accessors; the underlying ``rawScheme`` / ``rawKind`` fields are sealed
+  # (A8b), so discriminator-only raw construction does not compile.
   doAssert compiles(bearerCredential("t").get().scheme)
   doAssert compiles(directEndpoint("https://x").get().kind)
+  doAssert not compiles(Credential(rawScheme: asBearer))
+  doAssert not compiles(SessionEndpoint(rawKind: sekDirectUrl))
 
   # =========================================================================
   # NEGATIVE — the hub-private wire projections must NOT leak to consumers.

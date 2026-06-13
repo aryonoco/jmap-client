@@ -1,11 +1,14 @@
 # SPDX-License-Identifier: BSD-2-Clause
 # Copyright (c) 2026 Aryan Ameri
 
-## JMAP session endpoint (Layer 1). Sealed Pattern-A sum describing how the
-## client locates the session resource: a direct session URL or a bare
-## discovery domain (RFC 8620 §2.2 ``.well-known/jmap``). Resolution to a
-## concrete URL is effectful (future DNS-SRV) and lives at Layer 4 — this type
-## is pure construction-time intent.
+## JMAP session endpoint (Layer 1). Fully-sealed Pattern-A sum describing how
+## the client locates the session resource: a direct session URL or a bare
+## discovery domain (RFC 8620 §2.2 ``.well-known/jmap``). The ``rawKind``
+## discriminator is module-private (surfaced read-only via the ``kind``
+## accessor), so neither the payload nor a discriminator-only
+## ``SessionEndpoint(kind: …)`` is constructible outside this module (A8b).
+## Resolution to a concrete URL is effectful (future DNS-SRV) and lives at
+## Layer 4 — this type is pure construction-time intent.
 ##
 ## **Threading.** A ``SessionEndpoint`` is an immutable value type — copy and
 ## share freely across threads.
@@ -25,14 +28,22 @@ type SessionEndpointKind* = enum
   sekDiscoveryDomain
 
 type SessionEndpoint* {.ruleOff: "objects".} = object
-  ## Sealed session endpoint. Construct via ``directEndpoint`` /
-  ## ``discoveryEndpoint``; the payload is unreachable outside this module and
-  ## the Layer-4 resolver.
-  case kind*: SessionEndpointKind
+  ## Fully-sealed session endpoint. The discriminator is the module-private
+  ## ``rawKind`` field surfaced read-only via the ``kind`` accessor, so both
+  ## the payload AND ``SessionEndpoint(kind: …)`` discriminator-only
+  ## construction are unreachable outside this module and the Layer-4 resolver
+  ## (A8b) — the only producers are ``directEndpoint`` / ``discoveryEndpoint``.
+  case rawKind: SessionEndpointKind
   of sekDirectUrl:
     directUrl: string
   of sekDiscoveryDomain:
     domain: string
+
+func kind*(e: SessionEndpoint): SessionEndpointKind =
+  ## How the session resource is located (read-only view of the sealed
+  ## ``rawKind`` discriminator). ``SessionEndpoint(kind: …)`` does not compile
+  ## outside this module — A8b.
+  e.rawKind
 
 type SessionEndpointViolation = enum
   ## Structural-failure vocabulary for endpoint construction.
@@ -69,7 +80,7 @@ func directEndpoint*(url: string): Result[SessionEndpoint, ValidationError] =
     return err(toValidationError(sevUrlBadScheme, url))
   if url.contains({'\c', '\L'}):
     return err(toValidationError(sevUrlControlChar, url))
-  ok(SessionEndpoint(kind: sekDirectUrl, directUrl: url))
+  ok(SessionEndpoint(rawKind: sekDirectUrl, directUrl: url))
 
 func discoveryEndpoint*(domain: string): Result[SessionEndpoint, ValidationError] =
   ## A bare domain for ``.well-known/jmap`` autodiscovery (RFC 8620 §2.2).
@@ -81,19 +92,19 @@ func discoveryEndpoint*(domain: string): Result[SessionEndpoint, ValidationError
     return err(toValidationError(sevDomainWhitespace, domain))
   if domain.contains('/'):
     return err(toValidationError(sevDomainSlash, domain))
-  ok(SessionEndpoint(kind: sekDiscoveryDomain, domain: domain))
+  ok(SessionEndpoint(rawKind: sekDiscoveryDomain, domain: domain))
 
 func `==`*(a, b: SessionEndpoint): bool =
   ## Arm-dispatched structural equality.
-  case a.kind
+  case a.rawKind
   of sekDirectUrl:
-    case b.kind
+    case b.rawKind
     of sekDirectUrl:
       a.directUrl == b.directUrl
     of sekDiscoveryDomain:
       false
   of sekDiscoveryDomain:
-    case b.kind
+    case b.rawKind
     of sekDiscoveryDomain:
       a.domain == b.domain
     of sekDirectUrl:
@@ -101,7 +112,7 @@ func `==`*(a, b: SessionEndpoint): bool =
 
 func `$`*(e: SessionEndpoint): string =
   ## Diagnostic rendering — the endpoint carries no secret.
-  case e.kind
+  case e.rawKind
   of sekDirectUrl:
     "SessionEndpoint(url: " & e.directUrl & ")"
   of sekDiscoveryDomain:
@@ -111,7 +122,7 @@ func asDirectUrl*(e: SessionEndpoint): Opt[string] =
   ## Hub-private projection (filtered at the L1 hub): the direct URL when
   ## ``kind`` is ``sekDirectUrl``, else ``Opt.none``. Consumed by the Layer-4
   ## endpoint resolver.
-  case e.kind
+  case e.rawKind
   of sekDirectUrl:
     Opt.some(e.directUrl)
   of sekDiscoveryDomain:
@@ -120,7 +131,7 @@ func asDirectUrl*(e: SessionEndpoint): Opt[string] =
 func asDiscoveryDomain*(e: SessionEndpoint): Opt[string] =
   ## Hub-private projection: the discovery domain when ``kind`` is
   ## ``sekDiscoveryDomain``, else ``Opt.none``.
-  case e.kind
+  case e.rawKind
   of sekDiscoveryDomain:
     Opt.some(e.domain)
   of sekDirectUrl:

@@ -799,8 +799,10 @@ func references*(bp: EmailBlueprint): Opt[seq[string]] =
 
 func extraHeaders*(
     bp: EmailBlueprint
-): Table[BlueprintEmailHeaderName, BlueprintHeaderMultiValue] =
+): lent Table[BlueprintEmailHeaderName, BlueprintHeaderMultiValue] =
   ## Dynamic headers (typed keys forbid Content-* top-level).
+  ## Borrowed view (`lent`, P12) — read-only, no per-call deep copy of the
+  ## sealed container.
   bp.rawExtraHeaders
 
 func body*(bp: EmailBlueprint): EmailBlueprintBody =

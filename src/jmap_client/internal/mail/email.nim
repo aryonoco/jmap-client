@@ -65,7 +65,7 @@ type EmailComparator* {.ruleOff: "objects".} = object
   ## Email-specific sort criterion (RFC 8621 section 4.4.2). Extends the
   ## standard Comparator with keyword-bearing sort properties. Case object
   ## makes illegal states (keyword sort without keyword) unrepresentable.
-  isAscending*: Opt[bool] ## Absent = server default (RFC: true).
+  direction*: SortDirection ## sort direction (RFC 8620 §5.5 ``isAscending``)
   collation*: Opt[CollationAlgorithm] ## RFC 4790 collation identifier.
   case kind*: EmailComparatorKind
   of eckPlain:
@@ -76,19 +76,19 @@ type EmailComparator* {.ruleOff: "objects".} = object
 
 func plainComparator*(
     property: PlainSortProperty,
-    isAscending: Opt[bool] = Opt.none(bool),
+    direction: SortDirection = sdServerDefault,
     collation: Opt[CollationAlgorithm] = Opt.none(CollationAlgorithm),
 ): EmailComparator =
   ## Constructs an EmailComparator for a non-keyword sort property.
   ## Infallible — all input combinations are valid.
   return EmailComparator(
-    kind: eckPlain, property: property, isAscending: isAscending, collation: collation
+    kind: eckPlain, property: property, direction: direction, collation: collation
   )
 
 func keywordComparator*(
     keywordProperty: KeywordSortProperty,
     keyword: Keyword,
-    isAscending: Opt[bool] = Opt.none(bool),
+    direction: SortDirection = sdServerDefault,
     collation: Opt[CollationAlgorithm] = Opt.none(CollationAlgorithm),
 ): EmailComparator =
   ## Constructs an EmailComparator for a keyword-bearing sort property.
@@ -97,7 +97,7 @@ func keywordComparator*(
     kind: eckKeyword,
     keywordProperty: keywordProperty,
     keyword: keyword,
-    isAscending: isAscending,
+    direction: direction,
     collation: collation,
   )
 
@@ -494,10 +494,19 @@ type Email* {.ruleOff: "objects".} = object
 
   # -- Body (section 4.1.4) --
   bodyStructure*: Opt[EmailBodyPart]
-    ## Full MIME tree; ``Opt.none`` when ``bodyStructure`` was not
-    ## requested under a property filter.
+    ## Full MIME tree; ``Opt.none`` when ``bodyStructure`` was not requested.
+    ## ``bodyStructure`` is NOT a default Email/get property (RFC 8621 §4.2),
+    ## so it is absent for every ``addEmailGet`` (which sends no property
+    ## filter) and present only when a server volunteers it.
   bodyValues*: Table[PartId, EmailBodyValue]
-    ## Text part contents; empty if none fetched.
+    ## Decoded text-part contents keyed by ``PartId``; empty unless a
+    ## ``fetch*BodyValues`` flag was set. Keys reference parts in any of
+    ## ``textBody`` / ``htmlBody`` / ``bodyStructure`` (RFC 8621 §4.1.4).
+    ## ``textBody`` and ``htmlBody`` ARE default properties and
+    ## ``bodyStructure`` is NOT (§4.2), so a populated ``bodyValues`` with an
+    ## absent ``bodyStructure`` is the normal default shape (the steady state
+    ## of reading an email's text), not an incoherence — independent of
+    ## ``bodyStructure`` by design (B11).
   textBody*: seq[EmailBodyPart] ## Leaf parts — text/plain preference.
   htmlBody*: seq[EmailBodyPart] ## Leaf parts — text/html preference.
   attachments*: seq[EmailBodyPart] ## Leaf parts — non-body content.
@@ -601,10 +610,13 @@ type ParsedEmail* {.ruleOff: "objects".} = object
 
   # -- Body --
   bodyStructure*: Opt[EmailBodyPart]
-    ## Full MIME tree; ``Opt.none`` when ``bodyStructure`` was not
-    ## requested under a property filter.
+    ## Full MIME tree; ``Opt.none`` when ``bodyStructure`` was not requested
+    ## (not a default Email/parse property, RFC 8621 §4.2).
   bodyValues*: Table[PartId, EmailBodyValue]
-    ## Text part contents; empty if none fetched.
+    ## Decoded text-part contents keyed by ``PartId``; empty unless a
+    ## ``fetch*BodyValues`` flag was set. Independent of ``bodyStructure`` — a
+    ## populated ``bodyValues`` with absent ``bodyStructure`` is the normal
+    ## shape, not an incoherence (RFC 8621 §4.1.4 / §4.2; B11).
   textBody*: seq[EmailBodyPart] ## Leaf parts — text/plain preference.
   htmlBody*: seq[EmailBodyPart] ## Leaf parts — text/html preference.
   attachments*: seq[EmailBodyPart] ## Leaf parts — non-body content.

@@ -13,6 +13,7 @@ import jmap_client/internal/types/capabilities
 import jmap_client/internal/types/methods_enum
 import jmap_client/internal/types/validation
 import jmap_client/internal/protocol/entity
+import jmap_client/internal/serialisation/serde
 
 import ../massertions
 import ../mtestblock
@@ -54,6 +55,25 @@ func toJson*(c: MockFilterCondition): JsonNode =
   newJObject()
 
 registerQueryableEntity(MockQueryable)
+
+# Extractable mock (B5) — a readable entity with a valid ``fromJson`` parser.
+
+type MockExtractable = object
+
+func methodEntity*(T: typedesc[MockExtractable]): MethodEntity =
+  meTest
+
+func capabilityUri*(T: typedesc[MockExtractable]): CapabilityUri =
+  parseCapabilityUri("urn:test:mockextractable").get()
+
+func fromJson*(
+    T: typedesc[MockExtractable], node: JsonNode
+): Result[MockExtractable, SerdeViolation] =
+  discard node
+  ok(MockExtractable())
+
+registerJmapEntity(MockExtractable)
+registerExtractableEntity(MockExtractable)
 
 # Types for negative tests (deliberately missing overloads)
 
@@ -137,3 +157,12 @@ testCase missingFilterToJson:
   ## ``NoFilterToJson`` (defined at module level) has ``filterType`` but
   ## deliberately omits ``toJson(NoFilterToJsonFilter)``.
   assertNotCompiles(registerQueryableEntity(NoFilterToJson))
+
+testCase registerExtractableEntityPositive:
+  ## ``MockExtractable`` registered with a valid ``fromJson`` — if this module
+  ## compiles, ``registerExtractableEntity`` (B5) accepted it.
+  doAssert true
+
+testCase missingExtractableFromJson:
+  ## ``MockFoo`` has no ``fromJson`` — registerExtractableEntity must fail.
+  assertNotCompiles(registerExtractableEntity(MockFoo))

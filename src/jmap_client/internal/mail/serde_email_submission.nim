@@ -334,11 +334,11 @@ func toJson*(c: EmailSubmissionComparator): JsonNode =
   ## vendor tokens and equal to ``$c.property`` for the three RFC-defined
   ## properties (``emailId``, ``threadId``, ``sentAt``). The wire token is
   ## ``sentAt``, deliberately NOT the entity field name ``sendAt`` (G19,
-  ## an RFC quirk preserved verbatim). ``isAscending`` is always explicit
-  ## for debuggability; ``collation`` is sparse.
+  ## an RFC quirk preserved verbatim). ``isAscending`` is emitted per
+  ## ``direction`` (omitted for ``sdServerDefault``); ``collation`` is sparse.
   var node = newJObject()
   node["property"] = %c.rawProperty
-  node["isAscending"] = %c.isAscending
+  emitSortDirection(node, c.direction)
   for col in c.collation:
     node["collation"] = %($col)
   return node

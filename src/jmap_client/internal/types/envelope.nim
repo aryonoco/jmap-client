@@ -105,12 +105,16 @@ type Request* {.ruleOff: "objects".} = object
   rawCreatedIds: Opt[Table[CreationId, Id]]
     ## module-private; optional, enables proxy splitting
 
-func `using`*(r: Request): seq[string] =
+func `using`*(r: Request): lent seq[string] =
   ## Capability URIs the client wishes to use (RFC 8620 §3.3).
+  ## Borrowed view (`lent`, P12) — read-only, no per-call deep copy of the
+  ## sealed container.
   return r.rawUsing
 
-func methodCalls*(r: Request): seq[Invocation] =
+func methodCalls*(r: Request): lent seq[Invocation] =
   ## Method calls in order; the server processes them sequentially.
+  ## Borrowed view (`lent`, P12) — read-only, no per-call deep copy of the
+  ## sealed container.
   return r.rawMethodCalls
 
 func createdIds*(r: Request): Opt[Table[CreationId, Id]] =
@@ -160,8 +164,10 @@ type Response* {.ruleOff: "objects".} = object
     ## module-private; only present if given in request
   rawSessionState: JmapState ## module-private; server's current Session.state
 
-func methodResponses*(r: Response): seq[Invocation] =
+func methodResponses*(r: Response): lent seq[Invocation] =
   ## Method responses in the order the server processed the calls.
+  ## Borrowed view (`lent`, P12) — read-only, no per-call deep copy of the
+  ## sealed container.
   return r.rawMethodResponses
 
 func createdIds*(r: Response): Opt[Table[CreationId, Id]] =

@@ -4,10 +4,13 @@
 ## Filter conditions for RFC 8621 (JMAP Mail). MailboxFilterCondition (§2.3),
 ## EmailHeaderFilter and EmailFilterCondition (§4.4.1). Filter conditions
 ## encode predicates that flow client-to-server only (toJson, no fromJson).
-## MailboxFilterCondition uses Opt[Opt[T]] for three-state filter semantics:
-## absent (don't filter), null (filter for no value), or value (filter for
-## specific value). EmailFilterCondition uses simple Opt[T] — no field needs
-## three-state null semantics.
+## MailboxFilterCondition uses Opt[Opt[T]] for three-state *value* filter
+## semantics: absent (don't filter), null (filter for no value), or value
+## (filter for specific value). Three-state *boolean* filters — ``hasAnyRole``,
+## ``isSubscribed``, ``hasAttachment`` — are named enums (P18) rather than
+## ``Opt[bool]``, so "no constraint", "require true", and "require false" each
+## read at the call site. The remaining EmailFilterCondition fields use simple
+## ``Opt[T]`` — they need neither null nor "no constraint" beyond absence.
 
 {.push raises: [], noSideEffect.}
 {.experimental: "strictCaseObjects".}
@@ -16,6 +19,29 @@ import ../types/validation
 import ../types/primitives
 import ./mailbox
 import ./keyword
+
+type HasAnyRoleFilter* = enum
+  ## RFC 8621 §2.3 ``hasAnyRole`` filter, three-state (P18). The zero value
+  ## ``hrfNoConstraint`` omits the key from the wire; the other two emit the
+  ## RFC boolean. Replaces the prior ``Opt[bool]``, where "absent" and the two
+  ## boolean cases read identically at the call site.
+  hrfNoConstraint ## Don't filter on role presence (omit ``hasAnyRole``).
+  hrfRequireAny ## ``hasAnyRole: true`` — the mailbox MUST have a role.
+  hrfRequireNone ## ``hasAnyRole: false`` — the mailbox MUST NOT have a role.
+
+type SubscriptionFilter* = enum
+  ## RFC 8621 §2.3 ``isSubscribed`` filter, three-state (P18). The zero value
+  ## ``sfNoConstraint`` omits the key from the wire.
+  sfNoConstraint ## Don't filter on subscription (omit ``isSubscribed``).
+  sfSubscribed ## ``isSubscribed: true`` — only subscribed mailboxes.
+  sfNotSubscribed ## ``isSubscribed: false`` — only unsubscribed mailboxes.
+
+type HasAttachmentFilter* = enum
+  ## RFC 8621 §4.4.1 ``hasAttachment`` filter, three-state (P18). The zero
+  ## value ``hafNoConstraint`` omits the key from the wire.
+  hafNoConstraint ## Don't filter on attachments (omit ``hasAttachment``).
+  hafYes ## ``hasAttachment: true`` — only emails with an attachment.
+  hafNo ## ``hasAttachment: false`` — only emails without an attachment.
 
 type MailboxFilterCondition* {.ruleOff: "objects".} = object
   ## Filter condition for Mailbox/query (RFC 8621 §2.3). No smart constructor —
@@ -29,8 +55,8 @@ type MailboxFilterCondition* {.ruleOff: "objects".} = object
   parentId*: Opt[Opt[Id]] ## Filter by parent mailbox.
   name*: Opt[string] ## Filter by name substring.
   role*: Opt[Opt[MailboxRole]] ## Filter by role.
-  hasAnyRole*: Opt[bool] ## Filter by whether any role is set.
-  isSubscribed*: Opt[bool] ## Filter by subscription status.
+  hasAnyRole*: HasAnyRoleFilter ## Filter by whether any role is set (three-state).
+  isSubscribed*: SubscriptionFilter ## Filter by subscription status (three-state).
 
 # =============================================================================
 # EmailHeaderFilter
@@ -88,7 +114,7 @@ type EmailFilterCondition* {.ruleOff: "objects".} = object
   notKeyword*: Opt[Keyword] ## This Email does not have the keyword.
 
   # -- Boolean filter --
-  hasAttachment*: Opt[bool] ## Match on hasAttachment value.
+  hasAttachment*: HasAttachmentFilter ## Match on hasAttachment value (three-state).
 
   # -- Text search --
   text*: Opt[string] ## Search From, To, Cc, Bcc, Subject, body.

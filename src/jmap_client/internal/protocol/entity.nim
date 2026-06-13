@@ -54,22 +54,24 @@
 ## 6. ``func toJson*(c: filterType(Entity)): JsonNode`` (if supports
 ##    ``/query``). Resolved via ``mixin`` at the builder's call site.
 ## 7. ``registerJmapEntity(Entity)`` at module scope.
-## 8. ``registerQueryableEntity(Entity)`` at module scope (if supports
+## 8. ``registerExtractableEntity(Entity)`` at module scope (if supports
+##    ``/get`` — verifies the ``fromJson`` parser ``dispatch.get`` relies on).
+## 9. ``registerQueryableEntity(Entity)`` at module scope (if supports
 ##    ``/query``).
-## 9. ``toJson``/``fromJson`` for the entity type itself (entity-specific,
-##    not Layer 3 Core).
+## 10. ``toJson``/``fromJson`` for the entity type itself (entity-specific,
+##     not Layer 3 Core).
 ##
-## 10. ``func setMethodName*(T: typedesc[Entity]): MethodName`` (if supports
+## 11. ``func setMethodName*(T: typedesc[Entity]): MethodName`` (if supports
 ##     ``/set``).
-## 11. ``template createType*(T: typedesc[Entity]): typedesc``,
+## 12. ``template createType*(T: typedesc[Entity]): typedesc``,
 ##     ``template updateType*(T: typedesc[Entity]): typedesc``, and
 ##     ``template setResponseType*(T: typedesc[Entity]): typedesc`` (if
 ##     supports ``/set``). These map the entity to its typed create-value,
 ##     whole-container update algebra, and /set response type respectively.
-## 12. ``registerSettableEntity(Entity)`` at module scope (if supports
+## 13. ``registerSettableEntity(Entity)`` at module scope (if supports
 ##     ``/set``).
 ##
-## Items 1–8, 10–12 are Layer 3 concerns. Item 9 is entity-specific.
+## Items 1–9, 11–13 are Layer 3 concerns. Item 10 is entity-specific.
 
 {.push raises: [], noSideEffect.}
 {.experimental: "strictCaseObjects".}
@@ -160,4 +162,39 @@ template registerSettableEntity*(T: typedesc) =
         error:
           "registerSettableEntity: " & $T &
           " is missing `template setResponseType*(T: typedesc[" & $T & "]): typedesc`"
+      .}
+
+template registerExtractableEntity*(T: typedesc) =
+  ## Compile-time check: verifies the full read-model entity ``T`` provides the
+  ## ``fromJson`` parser that the ``/get`` extraction path ultimately relies on.
+  ## Call after ``registerJmapEntity`` for every readable entity (the ``/get``
+  ## full-record path).
+  ##
+  ## Post-A1c, ``dispatch.get`` invokes the resolver closure captured on the
+  ## handle by ``initResponseHandle`` (``dispatch.nim``); the resolver body is
+  ## ``T.fromJson(args)``. So ``fromJson`` is still the checkpoint — this
+  ## template moves the resolution failure from the builder's
+  ## ``initResponseHandle[GetResponse[T]]`` expansion (a distant
+  ## generic-instantiation site inside ``addGet``) to the registration call,
+  ## with a domain-specific message naming the entity.
+  ##
+  ## Mirrors ``registerQueryableEntity``'s ``toJson(default(filterType(T)))``
+  ## probe: ``fromJson`` and ``JsonNode`` are left open and resolve at the
+  ## caller's scope.
+  ##
+  ## **Scope — full read-model entities only.** The getter-only ``Partial*``
+  ## projections (A3.6) are deliberately *not* gated here: their ``fromJson``
+  ## carries ``FieldEcho``/``Opt`` fields, and the ``compiles`` probe spuriously
+  ## drags in the generic ``FieldEcho.fromJson`` candidate, yielding a
+  ## false-negative for a parser that demonstrably resolves at the real
+  ## ``GetResponse[Partial*]`` builder instantiation. The same reasoning excludes
+  ## bespoke non-entity responses (``EmailParse``, ``SearchSnippet/get``) and the
+  ## singleton ``VacationResponse`` — all checked locally where their builders
+  ## live.
+  static:
+    when not compiles(fromJson(T, default(JsonNode))):
+      {.
+        error:
+          "registerExtractableEntity: " & $T & " is missing `func fromJson*(_: typedesc[" &
+          $T & "], JsonNode): Result[" & $T & ", SerdeViolation]`"
       .}

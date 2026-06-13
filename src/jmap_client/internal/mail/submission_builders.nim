@@ -207,6 +207,12 @@ func addEmailSubmissionAndEmailSet*(
   ## and duplicate-key shapes are unrepresentable at the type level, so
   ## ``Opt.none`` is the sole "no extras" encoding.
   ##
+  ## **Extracting the Ok value.** The Ok tuple carries the uncopyable
+  ## ``RequestBuilder`` (A7d), so move it out rather than copying via
+  ## ``.get`` / ``.expect``:
+  ## ``var r = b.addEmailSubmissionAndEmailSet(…); doAssert r.isOk;``
+  ## ``let (next, handles) = move(r.value)``.
+  ##
   ## **Per-call cid invariant (A6.6).** RFC 8620 §5.3 ties every
   ## ``icrCreation(cid)`` reference in ``onSuccessUpdateEmail`` and
   ## ``onSuccessDestroyEmail`` to a ``CreationId`` appearing as a key in

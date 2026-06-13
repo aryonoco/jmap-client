@@ -20,6 +20,7 @@ import jmap_client/internal/mail/keyword
 import jmap_client/internal/mail/addresses
 import jmap_client/internal/mail/serde_email
 import jmap_client/internal/types/collation
+import jmap_client/internal/types/framework
 import jmap_client/internal/serialisation/serde
 import jmap_client/internal/types/validation
 
@@ -212,8 +213,16 @@ testCase fromJsonStep38PartialShape: # scenario 17a — sparse property-filter s
   assertNone e.receivedAt
   assertNone e.bodyStructure
 
-testCase fromJsonBodyOnlyPartialShape: # scenario 17b — body-only sparse shape
-  ## Mirrors Phase D Step 19: ``properties = ["id", "textBody", "bodyValues"]``.
+testCase fromJsonBodyValuesWithoutBodyStructureIsCoherent: # scenario 17b
+  ## B11 regression gate: a populated ``bodyValues`` with an ABSENT
+  ## ``bodyStructure`` is the normal default Email/get shape, NOT an
+  ## incoherence — ``bodyValues``/``textBody`` are default properties and
+  ## ``bodyStructure`` is not (RFC 8621 §4.2); ``bodyValues`` partIds reference
+  ## ``textBody``/``htmlBody``/``bodyStructure`` (§4.1.4). The parser MUST accept
+  ## this (locks the lenient receive of A3; forbids reintroducing a
+  ## ``bodyValues.len>0 ⇒ bodyStructure.isSome`` reject). Mirrors
+  ## ``properties = ["id", "textBody", "bodyValues"]`` — the steady state of
+  ## reading an email's text content.
   let j = %*{
     "id": "e2",
     "textBody": [{"partId": "1", "type": "text/plain", "size": 12, "blobId": "b1"}],
@@ -409,12 +418,12 @@ testCase comparatorToJsonKeyword: # scenario 35
 testCase comparatorToJsonOmitsOptionals: # scenario 36
   let c = plainComparator(pspSize)
   let node = c.toJson()
-  doAssert node{"isAscending"}.isNil, "isAscending must be omitted when Opt.none"
+  doAssert node{"isAscending"}.isNil, "isAscending must be omitted for sdServerDefault"
   doAssert node{"collation"}.isNil, "collation must be omitted when Opt.none"
 
 testCase comparatorToJsonAllKeys: # scenario 37
   let c = keywordComparator(
-    kspHasKeyword, kwSeen, Opt.some(false), Opt.some(CollationUnicodeCasemap)
+    kspHasKeyword, kwSeen, sdDescending, Opt.some(CollationUnicodeCasemap)
   )
   let node = c.toJson()
   assertLen node, 4
@@ -462,7 +471,7 @@ testCase comparatorFromJsonUnknownProp: # scenario 43
 testCase comparatorFromJsonIsAscending: # scenario 44
   let res = emailComparatorFromJson(%*{"property": "size", "isAscending": false})
   assertOk res
-  assertSomeEq res.get().isAscending, false
+  assertEq res.get().direction, sdDescending
 
 testCase comparatorFromJsonCollation: # scenario 45
   let res =

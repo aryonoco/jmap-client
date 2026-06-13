@@ -224,7 +224,8 @@ func addPartialEmailGet*(
   emitBodyFetchOptions(args, bodyFetchOptions)
   let (b1, callId) =
     addInvocation(b, mnEmailGet, args, capabilityUri(PartialEmail), getMeta(ids))
-  (b1, initResponseHandle[GetResponse[PartialEmail]](callId, b1.builderId))
+  let brand = b1.builderId
+  (b1, initResponseHandle[GetResponse[PartialEmail]](callId, brand))
 
 # =============================================================================
 # addThreadGet — Thread/get (RFC 8621 §3.1)

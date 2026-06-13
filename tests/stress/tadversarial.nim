@@ -938,33 +938,32 @@ testCase controlCharAtPosition254InAccountId:
 # 6d) Filter tree edge cases
 # =============================================================================
 
-testCase filterNotWithMultipleChildren:
-  ## NOT with multiple children — semantically wrong per RFC, but Layer 1 allows.
-  let a = filterCondition(1)
-  let b = filterCondition(2)
-  let f = filterOperator[int](foNot, @[a, b])
+testCase filterNotIsSingleChild:
+  ## NOT negates exactly one child — a multi-child NOT is not expressible
+  ## (``filterNot`` is single-argument; RFC 8620 §5.5; B3).
+  let f = filterNot(filterCondition(1))
   doAssert f.kind == fkOperator
   doAssert f.operator == foNot
-  doAssert f.conditions.len == 2
+  doAssert f.operands.len == 1
 
-testCase filterEmptyConditionsList:
-  ## Operator with empty conditions list — Layer 1 does not restrict this.
-  let f = filterOperator[int](foAnd, @[])
-  doAssert f.kind == fkOperator
-  doAssert f.conditions.len == 0
+testCase filterEmptyConditionsListRejected:
+  ## An operator with an empty conditions list is rejected (one or more
+  ## required; B3).
+  assertErr filterAnd(newSeq[Filter[int]]())
+  assertErr filterOr(newSeq[Filter[int]]())
 
 testCase filterMixedOperatorNesting:
   ## (a AND b) OR (NOT c) — complex nesting is valid.
   let a = filterCondition(1)
   let b = filterCondition(2)
   let c = filterCondition(3)
-  let andNode = filterOperator[int](foAnd, @[a, b])
-  let notNode = filterOperator[int](foNot, @[c])
-  let orNode = filterOperator[int](foOr, @[andNode, notNode])
+  let andNode = filterAnd(@[a, b]).get()
+  let notNode = filterNot(c)
+  let orNode = filterOr(@[andNode, notNode]).get()
   doAssert orNode.operator == foOr
-  doAssert orNode.conditions.len == 2
-  doAssert orNode.conditions[0].operator == foAnd
-  doAssert orNode.conditions[1].operator == foNot
+  doAssert orNode.operands.len == 2
+  doAssert orNode.operands[0].operator == foAnd
+  doAssert orNode.operands[1].operator == foNot
 
 # =============================================================================
 # 6e) Error type edge cases

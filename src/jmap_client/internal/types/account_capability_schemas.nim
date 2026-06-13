@@ -56,8 +56,10 @@ func maxSizeAttachmentsPerEmail*(m: MailAccountCapabilities): UnsignedInt =
   ## Maximum total attachment size per email in octets.
   m.rawMaxSizeAttachmentsPerEmail
 
-func emailQuerySortOptions*(m: MailAccountCapabilities): HashSet[string] =
+func emailQuerySortOptions*(m: MailAccountCapabilities): lent HashSet[string] =
   ## Supported sort properties for ``Email/query`` calls.
+  ## Borrowed view (`lent`, P12) — read-only, no per-call deep copy of the
+  ## sealed container.
   m.rawEmailQuerySortOptions
 
 func mayCreateTopLevelMailbox*(m: MailAccountCapabilities): bool =

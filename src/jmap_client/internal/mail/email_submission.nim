@@ -364,20 +364,20 @@ type EmailSubmissionSortProperty* = enum
 # -----------------------------------------------------------------------------
 
 type EmailSubmissionComparator* {.ruleOff: "objects".} = object
-  ## ``/query`` sort criterion for EmailSubmission. ``isAscending`` defaults
-  ## to ``true`` per RFC 8620 §5.5; ``collation`` absent means "the server
-  ## default" (RFC 4790 collation registry). ``rawProperty`` carries the
-  ## wire token verbatim — for ``esspOther`` it is the only authoritative
-  ## value; for known properties it equals the string backing of
-  ## ``property``.
+  ## ``/query`` sort criterion for EmailSubmission. ``direction`` defaults to
+  ## ``sdServerDefault`` (the server applies its RFC 8620 §5.5 default,
+  ## ascending); ``collation`` absent means "the server default" (RFC 4790
+  ## collation registry). ``rawProperty`` carries the wire token verbatim —
+  ## for ``esspOther`` it is the only authoritative value; for known
+  ## properties it equals the string backing of ``property``.
   property*: EmailSubmissionSortProperty
   rawProperty*: string
-  isAscending*: bool
+  direction*: SortDirection ## sort direction (RFC 8620 §5.5 ``isAscending``)
   collation*: Opt[CollationAlgorithm]
 
 func parseEmailSubmissionComparator*(
     rawProperty: string,
-    isAscending: bool = true,
+    direction: SortDirection = sdServerDefault,
     collation: Opt[CollationAlgorithm] = Opt.none(CollationAlgorithm),
 ): Result[EmailSubmissionComparator, ValidationError] =
   ## Smart constructor. Resolves the wire token to a known
@@ -399,7 +399,7 @@ func parseEmailSubmissionComparator*(
     EmailSubmissionComparator(
       property: property,
       rawProperty: rawProperty,
-      isAscending: isAscending,
+      direction: direction,
       collation: collation,
     )
   )

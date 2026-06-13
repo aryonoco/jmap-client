@@ -56,16 +56,22 @@ template forwardChangesFields(T: typedesc) =
     ## Forwarded from ``base.hasMoreChanges``.
     r.base.hasMoreChanges
 
-  func created*(r: T): seq[Id] =
+  func created*(r: T): lent seq[Id] =
     ## Forwarded from ``base.created``.
+    ## Borrowed view (`lent`, P12) — read-only, no per-call deep copy of the
+    ## sealed container.
     r.base.created
 
-  func updated*(r: T): seq[Id] =
+  func updated*(r: T): lent seq[Id] =
     ## Forwarded from ``base.updated``.
+    ## Borrowed view (`lent`, P12) — read-only, no per-call deep copy of the
+    ## sealed container.
     r.base.updated
 
-  func destroyed*(r: T): seq[Id] =
+  func destroyed*(r: T): lent seq[Id] =
     ## Forwarded from ``base.destroyed``.
+    ## Borrowed view (`lent`, P12) — read-only, no per-call deep copy of the
+    ## sealed container.
     r.base.destroyed
 
 forwardChangesFields(MailboxChangesResponse)

@@ -412,47 +412,16 @@ template registerCompoundMethod*(Primary, Implicit: typedesc) =
           "registerCompoundMethod: " & $Implicit & " not NameBoundHandle-compatible"
       .}
 
-# =============================================================================
-# RFC 8620 §3.7 back-reference chains
-# =============================================================================
-
-type ChainedHandles*[A, B] {.ruleOff: "objects".} = object
-  ## Paired handles for RFC 8620 §3.7 back-reference chains. Each
-  ## handle binds a distinct ``MethodCallId``; no method-name filter
-  ## is needed because the call-ids are unique (contrast
-  ## ``CompoundHandles`` at §5.4 where a method-name filter
-  ## disambiguates a shared call-id).
-  first*: ResponseHandle[A]
-  second*: ResponseHandle[B]
-
-type ChainedResults*[A, B] {.ruleOff: "objects".} = object
-  ## Paired extraction target for ``getBoth(ChainedHandles[A, B])``.
-  first*: A
-  second*: B
-
-func getBoth*[A, B](
-    dr: DispatchedResponse, handles: ChainedHandles[A, B]
-): Result[ChainedResults[A, B], GetError] =
-  ## Extract both responses from a §3.7 back-reference chain. Both
-  ## handles dispatch through the default ``get[T]`` overload because
-  ## the call-ids are distinct — no method-name filter needed.
-  ## Overloaded with the ``CompoundHandles`` variant at §5.4; the
-  ## compiler picks by argument type (no structural overlap). Uses
-  ## the handles' stored parser closures (no mixin at this site).
-  let first = ?dr.get(handles.first)
-  let second = ?dr.get(handles.second)
-  ok(ChainedResults[A, B](first: first, second: second))
-
-template registerChainableMethod*(Primary: typedesc) =
-  ## Compile-checks that ``Primary`` parametrises ``ResponseHandle``,
-  ## so a back-reference to it can be constructed with a typed
-  ## response handle. Call at module scope in ``mail_entities.nim``
-  ## for each chain's starting method. Mirrors ``registerCompoundMethod``.
-  static:
-    when not compiles(ResponseHandle[Primary]):
-      {.
-        error: "registerChainableMethod: " & $Primary & " cannot back a ResponseHandle"
-      .}
+# RFC 8620 §3.7 back-reference chains carry no generic context type. A
+# back-reference chain is two independent invocations with distinct call-ids,
+# so its paired extraction is exactly two ``dr.get`` calls — a parametric
+# ``ChainedHandles[A, B]`` earns nothing the call sites do not already have
+# (contrast ``CompoundHandles`` at §5.4, whose ``implicit`` ``NameBoundHandle``
+# can only be minted by a builder). Each chain is therefore a bespoke record
+# co-located with its builder (``EmailQuerySnippetChain`` in ``mail_methods``,
+# ``EmailQueryThreadChain`` in ``mail_builders``), keeping the hub at exactly
+# two paired-handle context types — ``CompoundHandles`` / ``CompoundResults``
+# (P9, B9).
 
 # =============================================================================
 # Reference construction — generic escape hatch

@@ -87,7 +87,7 @@ checkProperty "Comparator serde round-trip":
   let original = rng.genComparator()
   let v = Comparator.fromJson(original.toJson()).get()
   doAssert v.property == original.property
-  doAssert v.isAscending == original.isAscending
+  doAssert v.direction == original.direction
   doAssert v.collation == original.collation
 
 checkProperty "AddedItem serde round-trip":

@@ -30,8 +30,8 @@ testCase toJsonAllNone: # scenario 56
     parentId: Opt.none(Opt[Id]),
     name: Opt.none(string),
     role: Opt.none(Opt[MailboxRole]),
-    hasAnyRole: Opt.none(bool),
-    isSubscribed: Opt.none(bool),
+    hasAnyRole: hrfNoConstraint,
+    isSubscribed: sfNoConstraint,
   )
   let node = fc.toJson()
   doAssert node.kind == JObject
@@ -42,8 +42,8 @@ testCase toJsonParentIdNull: # scenario 57
     parentId: Opt.some(Opt.none(Id)),
     name: Opt.none(string),
     role: Opt.none(Opt[MailboxRole]),
-    hasAnyRole: Opt.none(bool),
-    isSubscribed: Opt.none(bool),
+    hasAnyRole: hrfNoConstraint,
+    isSubscribed: sfNoConstraint,
   )
   let node = fc.toJson()
   assertLen node, 1
@@ -55,8 +55,8 @@ testCase toJsonParentIdValue: # scenario 58
     parentId: Opt.some(Opt.some(id1)),
     name: Opt.none(string),
     role: Opt.none(Opt[MailboxRole]),
-    hasAnyRole: Opt.none(bool),
-    isSubscribed: Opt.none(bool),
+    hasAnyRole: hrfNoConstraint,
+    isSubscribed: sfNoConstraint,
   )
   let node = fc.toJson()
   assertLen node, 1
@@ -67,8 +67,8 @@ testCase toJsonRoleNull: # scenario 59
     parentId: Opt.none(Opt[Id]),
     name: Opt.none(string),
     role: Opt.some(Opt.none(MailboxRole)),
-    hasAnyRole: Opt.none(bool),
-    isSubscribed: Opt.none(bool),
+    hasAnyRole: hrfNoConstraint,
+    isSubscribed: sfNoConstraint,
   )
   let node = fc.toJson()
   assertLen node, 1
@@ -79,8 +79,8 @@ testCase toJsonRoleValue: # scenario 60
     parentId: Opt.none(Opt[Id]),
     name: Opt.none(string),
     role: Opt.some(Opt.some(roleInbox)),
-    hasAnyRole: Opt.none(bool),
-    isSubscribed: Opt.none(bool),
+    hasAnyRole: hrfNoConstraint,
+    isSubscribed: sfNoConstraint,
   )
   let node = fc.toJson()
   assertLen node, 1
@@ -91,8 +91,8 @@ testCase toJsonName: # scenario 61
     parentId: Opt.none(Opt[Id]),
     name: Opt.some("test"),
     role: Opt.none(Opt[MailboxRole]),
-    hasAnyRole: Opt.none(bool),
-    isSubscribed: Opt.none(bool),
+    hasAnyRole: hrfNoConstraint,
+    isSubscribed: sfNoConstraint,
   )
   let node = fc.toJson()
   assertLen node, 1
@@ -103,8 +103,8 @@ testCase toJsonMixed: # scenario 62
     parentId: Opt.some(Opt.none(Id)),
     name: Opt.none(string),
     role: Opt.none(Opt[MailboxRole]),
-    hasAnyRole: Opt.some(true),
-    isSubscribed: Opt.none(bool),
+    hasAnyRole: hrfRequireAny,
+    isSubscribed: sfNoConstraint,
   )
   let node = fc.toJson()
   assertLen node, 2
@@ -277,7 +277,7 @@ testCase filterMixed: # scenario 61
     inMailbox: Opt.some(makeId("mbx1")),
     hasKeyword: Opt.some(kwSeen),
     subject: Opt.some("hello"),
-    hasAttachment: Opt.some(true),
+    hasAttachment: hafYes,
   )
   let node = fc.toJson()
   assertLen node, 4
@@ -307,7 +307,7 @@ testCase filterAll20Fields: # scenario 63
     noneInThreadHaveKeyword: Opt.some(kwDraft),
     hasKeyword: Opt.some(kwAnswered),
     notKeyword: Opt.some(kwForwarded),
-    hasAttachment: Opt.some(true),
+    hasAttachment: hafYes,
     text: Opt.some("search term"),
     fromAddr: Opt.some("alice@example.com"),
     to: Opt.some("bob@example.com"),

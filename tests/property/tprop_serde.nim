@@ -58,7 +58,7 @@ testCase propRoundTripComparator:
     let rt = Comparator.fromJson(j).get()
     let v = rt
     doAssert $v.property == $c.property
-    doAssert v.isAscending == c.isAscending
+    doAssert v.direction == c.direction
     doAssert v.collation == c.collation
 
 testCase propRoundTripAddedItem:

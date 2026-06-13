@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: BSD-2-Clause
 # Copyright (c) 2026 Aryan Ameri
 
-## Serialisation for VacationResponse entity (RFC 8621 section 7).
+## Serialisation for VacationResponse entity (RFC 8621 section 8).
 
 {.push raises: [], noSideEffect.}
 {.experimental: "strictCaseObjects".}
@@ -150,7 +150,7 @@ func fromJson*(
     node: JsonNode,
     path: JsonPath = emptyJsonPath(),
 ): Result[PartialVacationResponse, SerdeViolation] =
-  ## Deserialise a partial VacationResponse echo (RFC 8621 §7). Lenient
+  ## Deserialise a partial VacationResponse echo (RFC 8621 §8). Lenient
   ## on missing fields; strict on wrong-kind present fields (D4).
   discard $T
   ?expectKind(node, JObject, path)

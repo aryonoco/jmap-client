@@ -18,7 +18,7 @@
 ##  3. Ascending sort: filter on ``"stepfifteen"`` + sort by
 ##     ``pspSubject`` ascending. Filter the result to the seeded
 ##     corpus and assert relative order ``alpha → mike → zulu``.
-##  4. Descending sort: same filter + ``isAscending = Opt.some(false)``.
+##  4. Descending sort: same filter + ``direction = sdDescending``.
 ##     Assert relative order ``zulu → mike → alpha``.
 ##  5. Explicit-collation sub-test (conditional on
 ##     ``colls.len > 0``): pick the lexicographically-first advertised
@@ -73,7 +73,7 @@ testCase temailQuerySortLive:
     let filter = filterCondition(EmailFilterCondition(subject: Opt.some("stepfifteen")))
 
     # --- Ascending sort by pspSubject -----------------------------------
-    let ascSort = @[plainComparator(pspSubject, isAscending = Opt.some(true))]
+    let ascSort = @[plainComparator(pspSubject, direction = sdAscending)]
     let (ba, ascHandle) = addEmailQuery(
       initRequestBuilder(makeBuilderId()),
       mailAccountId,
@@ -105,7 +105,7 @@ testCase temailQuerySortLive:
         "; expected " & $(@[alphaId, mikeId, zuluId]) & ")"
 
     # --- Descending sort by pspSubject ----------------------------------
-    let descSort = @[plainComparator(pspSubject, isAscending = Opt.some(false))]
+    let descSort = @[plainComparator(pspSubject, direction = sdDescending)]
     let (bd, descHandle) = addEmailQuery(
       initRequestBuilder(makeBuilderId()),
       mailAccountId,
@@ -139,7 +139,7 @@ testCase temailQuerySortLive:
         )
       let collSort = @[
         plainComparator(
-          pspSubject, isAscending = Opt.some(true), collation = Opt.some(chosen)
+          pspSubject, direction = sdAscending, collation = Opt.some(chosen)
         )
       ]
       let (bc, collHandle) = addEmailQuery(

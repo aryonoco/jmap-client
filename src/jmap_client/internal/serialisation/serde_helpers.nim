@@ -275,3 +275,26 @@ func optStringToJsonOrNull*(opt: Opt[string]): JsonNode =
   result = newJNull()
   for val in opt:
     result = %val
+
+func emitSortDirection*(node: JsonNode, direction: SortDirection) =
+  ## Map a ``SortDirection`` onto the optional RFC 8620 §5.5 ``isAscending``
+  ## key: ``sdServerDefault`` omits it, ``sdAscending`` emits ``true``,
+  ## ``sdDescending`` emits ``false``. The single wire-mapping site shared by
+  ## all three comparator types (functional-core "translation at the boundary").
+  case direction
+  of sdServerDefault:
+    discard
+  of sdAscending:
+    node["isAscending"] = %true
+  of sdDescending:
+    node["isAscending"] = %false
+
+func sortDirectionFromWire*(ascending: Opt[bool]): SortDirection =
+  ## Inverse of ``emitSortDirection``: an absent ``isAscending`` →
+  ## ``sdServerDefault``; ``true`` → ``sdAscending``; ``false`` →
+  ## ``sdDescending``. The strictness of the ``JBool`` extraction stays at the
+  ## call site (``Comparator.fromJson`` rejects a wrong-kind value;
+  ## ``emailComparatorFromJson`` tolerates it).
+  for v in ascending:
+    return (if v: sdAscending else: sdDescending)
+  sdServerDefault

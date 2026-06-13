@@ -13,6 +13,10 @@ import jmap_client/internal/types/identifiers
 import jmap_client/internal/types/envelope
 import jmap_client/internal/types/methods_enum
 import jmap_client/internal/types/validation
+# H10-permitted direct leaf import for the envelope SerDe — ``Invocation.toJson``
+# / ``Invocation.fromJson`` are hub-internal (A16/A30b), so the round-trip
+# property reaches them here rather than through ``import jmap_client``.
+import jmap_client/internal/serialisation/serde_envelope
 
 import ../mproperty
 import ../mtestblock
@@ -89,6 +93,33 @@ testCase propInvocationPreservesFields:
     doAssert inv.rawName.len > 0
     doAssert inv.arguments.kind == JObject
     # methodCallId was set by genInvocation
+
+testCase propInvocationRoundTrip:
+  checkProperty "Invocation round-trip: fromJson(toJson(inv)) == inv":
+    ## A2b: every ``MethodName`` variant — the 27 named ones plus the
+    ## ``mnUnknown`` catch-all (exercised via a synthesised vendor wire name) —
+    ## round-trips losslessly through the wire form. ``Invocation`` is a flat
+    ## (non-case) object, so its auto-generated structural ``==`` compares all
+    ## three fields, including the ``JsonNode`` arguments (std/json's structural
+    ## ``==``).
+    let mcid = parseMethodCallId("c" & $rng.rand(0 .. 99)).get()
+    let args = %*{"k": rng.rand(0 .. 1000), "flag": rng.rand(0 .. 1) == 0}
+    # Named variants: ``initInvocation`` stores the wire name (``$name``).
+    for name in MethodName:
+      if name == mnUnknown:
+        continue
+      let inv = initInvocation(name, args, mcid)
+      let rt = Invocation.fromJson(inv.toJson()).get()
+      doAssert rt == inv, "round-trip mismatch for " & $name
+    # ``mnUnknown``: a vendor wire name preserved verbatim via ``parseInvocation``
+    # (``initInvocation`` would store the symbol "mnUnknown", which is lossy —
+    # A11 forward-compat carries the raw bytes instead).
+    let vendorName = "Vendor/customThing" & $trial
+    let vendorInv = parseInvocation(vendorName, args, mcid).get()
+    doAssert vendorInv.name == mnUnknown
+    let vendorRt = Invocation.fromJson(vendorInv.toJson()).get()
+    doAssert vendorRt == vendorInv
+    doAssert vendorRt.rawName == vendorName
 
 testCase propRequestCreatedIdsTablePreserved:
   checkPropertyN "propRequestCreatedIdsTablePreserved", QuickTrials:

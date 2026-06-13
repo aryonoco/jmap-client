@@ -357,7 +357,7 @@ testCase queryChangesRequestAllFields:
   ## addQueryChanges with every optional field populated emits each one
   ## and preserves sort-array ordering.
   let comp =
-    parseComparator(makePropertyName("name"), true, Opt.none(CollationAlgorithm))
+    parseComparator(makePropertyName("name"), sdAscending, Opt.none(CollationAlgorithm))
   let b0 = initRequestBuilder(makeBuilderId())
   let (b1, _) = addQueryChanges[MockQueryable, MockFilter, Comparator](
     b0,
@@ -924,7 +924,7 @@ testCase serializeOptSortSome:
   ## serializeOptSort with a Comparator seq produces Opt.some(SerializedSort)
   ## containing a JArray with the expected shape.
   let comp =
-    parseComparator(makePropertyName("name"), true, Opt.none(CollationAlgorithm))
+    parseComparator(makePropertyName("name"), sdAscending, Opt.none(CollationAlgorithm))
   let result = serializeOptSort(Opt.some(@[comp]))
   doAssert result.isSome
   let arr = result.get().toJsonNode()
@@ -976,7 +976,7 @@ testCase assembleQueryArgsMinimal:
 testCase assembleQueryArgsAllFields:
   ## assembleQueryArgs with all fields populated.
   let comp =
-    parseComparator(makePropertyName("name"), true, Opt.none(CollationAlgorithm))
+    parseComparator(makePropertyName("name"), sdAscending, Opt.none(CollationAlgorithm))
   let f = filterCondition(MockFilter())
   let qp = QueryParams(
     position: parseJmapInt(5).get(),
@@ -1023,7 +1023,7 @@ testCase assembleQueryChangesArgsMinimal:
 testCase assembleQueryChangesArgsAllFields:
   ## assembleQueryChangesArgs with all fields populated.
   let comp =
-    parseComparator(makePropertyName("name"), true, Opt.none(CollationAlgorithm))
+    parseComparator(makePropertyName("name"), sdAscending, Opt.none(CollationAlgorithm))
   let f = filterCondition(MockFilter())
   let j = assembleQueryChangesArgs(
     makeAccountId("a1"),
